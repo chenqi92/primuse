@@ -665,9 +665,6 @@
 "fullscreen_effect_cover_gallery" = "Galerie de pochettes";
 "fullscreen_effect_cover_gallery_subtitle" = "Pochette actuelle au premier plan, bibliothèque en mouvement derrière";
 "fullscreen_effect_cover_gallery_motion" = "Pochettes réelles · Parallaxe en couches";
-"fullscreen_effect_starry_night" = "Nuit étoilée";
-"fullscreen_effect_starry_night_subtitle" = "Des étoiles teintées par la pochette dérivent derrière la dernière parole";
-"fullscreen_effect_starry_night_motion" = "Étoiles générées et mouvantes · Couleur de pochette";
 "fullscreen_effect_flowing_lines" = "Lignes fluides";
 "fullscreen_effect_flowing_lines_subtitle" = "Des contours évolutifs entourent la pochette avec trois paroles";
 "fullscreen_effect_flowing_lines_motion" = "Contours en évolution continue · Trois paroles";
@@ -678,9 +675,9 @@
 "fullscreen_effect_vinyl_deck" = "Platine vinyle";
 "fullscreen_effect_vinyl_deck_subtitle" = "La pochette devient l'étiquette d'un disque en rotation, le bras posé dans le sillon";
 "fullscreen_effect_vinyl_deck_motion" = "Le disque tourne à la lecture · Le bras se lève en pause";
-"fullscreen_effect_aurora_veil" = "Voile d'aurore";
+"fullscreen_effect_aurora_veil" = "Aurore étoilée";
 "fullscreen_effect_aurora_veil_subtitle" = "Des rideaux d'aurore aux couleurs de la pochette ondulent sur un ciel étoilé derrière la parole en cours";
-"fullscreen_effect_aurora_veil_motion" = "Rideaux d'aurore ondulants · Couleur de la pochette";
+"fullscreen_effect_aurora_veil_motion" = "Étoiles scintillantes, étoiles filantes · Aurore toujours ondoyante";
 "fullscreen_effect_spectrum_horizon" = "Horizon spectral";
 "fullscreen_effect_spectrum_horizon_subtitle" = "Une skyline spectrale pleine largeur s'élève d'un horizon lumineux et se reflète au sol";
 "fullscreen_effect_spectrum_horizon_motion" = "Spectre en temps réel · Skyline en miroir";

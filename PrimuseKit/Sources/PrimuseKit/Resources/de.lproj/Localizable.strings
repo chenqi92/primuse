@@ -665,9 +665,6 @@
 "fullscreen_effect_cover_gallery" = "Cover-Galerie";
 "fullscreen_effect_cover_gallery_subtitle" = "Aktuelles Cover vorn, Bibliothekscover bewegen sich dahinter";
 "fullscreen_effect_cover_gallery_motion" = "Echte Bibliothekscover · Parallaxe in Ebenen";
-"fullscreen_effect_starry_night" = "Sternennacht";
-"fullscreen_effect_starry_night_subtitle" = "Coverfarbene Sterne treiben hinter der aktuellen Textzeile";
-"fullscreen_effect_starry_night_motion" = "Erzeugte, driftende Sterne · Coverfarbe";
 "fullscreen_effect_flowing_lines" = "Fließende Linien";
 "fullscreen_effect_flowing_lines_subtitle" = "Wandelnde Konturen umkreisen das Cover mit drei Textzeilen";
 "fullscreen_effect_flowing_lines_motion" = "Stetig wandelnde Konturen · Drei Textzeilen";
@@ -678,9 +675,9 @@
 "fullscreen_effect_vinyl_deck" = "Vinyl-Deck";
 "fullscreen_effect_vinyl_deck_subtitle" = "Das Cover wird zum Label einer rotierenden Platte, der Tonarm liegt in der Rille";
 "fullscreen_effect_vinyl_deck_motion" = "Platte dreht sich bei Wiedergabe · Tonarm hebt bei Pause";
-"fullscreen_effect_aurora_veil" = "Polarlichtschleier";
+"fullscreen_effect_aurora_veil" = "Sternklares Polarlicht";
 "fullscreen_effect_aurora_veil_subtitle" = "Polarlicht in Coverfarben wogt über einem Sternenhimmel hinter der aktuellen Zeile";
-"fullscreen_effect_aurora_veil_motion" = "Wogende Lichtvorhänge · Coverfarbe";
+"fullscreen_effect_aurora_veil_motion" = "Funkelnde Sterne, Sternschnuppen · Stetig wogendes Polarlicht";
 "fullscreen_effect_spectrum_horizon" = "Spektrum-Horizont";
 "fullscreen_effect_spectrum_horizon_subtitle" = "Eine bildbreite Spektrum-Skyline steigt aus einem leuchtenden Horizont und spiegelt sich am Boden";
 "fullscreen_effect_spectrum_horizon_motion" = "Echtzeit-Spektrum · Gespiegelte Skyline";

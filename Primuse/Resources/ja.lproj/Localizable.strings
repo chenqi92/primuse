@@ -1745,9 +1745,6 @@
 "fullscreen_effect_cover_gallery" = "カバーギャラリー";
 "fullscreen_effect_cover_gallery_subtitle" = "現在のカバーの後ろをライブラリのカバーが流れます";
 "fullscreen_effect_cover_gallery_motion" = "実際のライブラリ画像 · レイヤー視差";
-"fullscreen_effect_starry_night" = "星夜";
-"fullscreen_effect_starry_night_subtitle" = "アートワーク色の星と最新の歌詞一行を表示します";
-"fullscreen_effect_starry_night_motion" = "生成された星の移動と瞬き · カバー色";
 "fullscreen_effect_flowing_lines" = "流れるライン";
 "fullscreen_effect_flowing_lines_subtitle" = "変化する輪郭がカバーを囲み、歌詞を三行表示します";
 "fullscreen_effect_flowing_lines_motion" = "変化し続ける軌跡 · 歌詞三行";
@@ -1758,9 +1755,9 @@
 "fullscreen_effect_vinyl_deck" = "レコードデッキ";
 "fullscreen_effect_vinyl_deck_subtitle" = "アートワークが回転するレコードのラベルになり、トーンアームが溝に降りる";
 "fullscreen_effect_vinyl_deck_motion" = "再生に合わせて回転 · 一時停止でアームが上がる";
-"fullscreen_effect_aurora_veil" = "オーロラヴェール";
+"fullscreen_effect_aurora_veil" = "星夜のオーロラ";
 "fullscreen_effect_aurora_veil_subtitle" = "アートワーク色のオーロラが星空に揺らめき、その手前に現在の歌詞を表示";
-"fullscreen_effect_aurora_veil_motion" = "揺れるオーロラのカーテン · アートワーク色";
+"fullscreen_effect_aurora_veil_motion" = "星のまたたき、流れ星 · 揺れ続けるオーロラ";
 "fullscreen_effect_spectrum_horizon" = "スペクトラムホライズン";
 "fullscreen_effect_spectrum_horizon_subtitle" = "画面幅いっぱいのスペクトラムの街並みが光る地平線から立ち上がり、床に映る";
 "fullscreen_effect_spectrum_horizon_motion" = "リアルタイムスペクトラム駆動 · 鏡像の街並み";

@@ -67,7 +67,6 @@
 "ext.tv.immersive.style.typography" = "Типографика";
 "error.baidu.missingPaths" = "Файловый менеджер Baidu пропустил запрошенные пути %@.";
 "theme_color_rose" = "Роза";
-"fullscreen_effect_starry_night" = "Звездная ночь";
 "error.catalog.pageTotalMismatch" = "Страница трека не соответствует заявленному итогу.";
 "ai_recommendation_intent_rightNow_detail" = "Использует контекст и историю прослушивания без дополнительной подсказки ИИ.";
 "ext.tv.nowPlaying.pickASong" = "Чтобы начать, выберите песню из своей медиатеки.";
@@ -120,7 +119,6 @@
 "ext.tv.settings.appearance.dark" = "Тёмная";
 "ext.tv.scan.start" = "Начать сканирование";
 "ext.tv.sources.add.step1" = "Добавить источник · Шаг 1";
-"fullscreen_effect_starry_night_motion" = "Создаются дрейфующие звезды · Цвет изображения";
 "ext.tv.settings.appearance" = "Внешний вид";
 "ai_recommendation_intent_catalogRewind" = "Перемотка каталога назад";
 "ext.tv.settings.ambientIntensity" = "Интенсивность окружающей среды";
@@ -291,9 +289,9 @@
 "fullscreen_effect_vinyl_deck" = "Виниловая дека";
 "fullscreen_effect_vinyl_deck_subtitle" = "Обложка становится этикеткой вращающейся пластинки, тонарм лежит в дорожке";
 "fullscreen_effect_vinyl_deck_motion" = "Пластинка вращается при воспроизведении · Тонарм поднимается на паузе";
-"fullscreen_effect_aurora_veil" = "Вуаль сияния";
+"fullscreen_effect_aurora_veil" = "Звёздное сияние";
 "fullscreen_effect_aurora_veil_subtitle" = "Занавесы северного сияния в цветах обложки колышутся над звёздным небом позади текущей строки";
-"fullscreen_effect_aurora_veil_motion" = "Колышущиеся занавесы сияния · Цвет обложки";
+"fullscreen_effect_aurora_veil_motion" = "Мерцающие звёзды, падающие звёзды · Неустанно колышущееся сияние";
 "fullscreen_effect_spectrum_horizon" = "Спектральный горизонт";
 "fullscreen_effect_spectrum_horizon_subtitle" = "Спектральный силуэт во всю ширину поднимается из светящегося горизонта и отражается в полу";
 "fullscreen_effect_spectrum_horizon_motion" = "Спектр в реальном времени · Зеркальный силуэт";
@@ -554,7 +552,6 @@
 "ext.tv.library.title.songs" = "Песни · %@";
 "theme_color_amber" = "Янтарь";
 "error.catalog.businessError" = "Сервисная ошибка %@.";
-"fullscreen_effect_starry_night_subtitle" = "Звезды в тонах художественного оформления плывут за последней лирической строкой.";
 "send_to_tv_error_snapshot_preparation" = "Не удалось подготовить снимок локальной медиатеки к загрузке.";
 "send_to_tv_error_library_too_large" = "В медиатеке %lld песен — больше, чем можно отправить за один раз, поэтому она не отправлена. Чтобы собрать медиатеку на Apple TV, отсканируйте источники музыки прямо на нём.";
 "send_to_tv_sources_only_note" = "В медиатеке %lld песен — больше, чем можно отправить за один раз, поэтому она не отправлена. Apple TV сам отсканирует источники музыки и соберёт медиатеку; ход сканирования виден на странице источников Apple TV.";

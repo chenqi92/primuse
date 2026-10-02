@@ -546,7 +546,6 @@
 "server_play_count_label" = "Кількість відтворень на сервері";
 "share_create_playable_link" = "Створити посилання для відтворення";
 "refresh" = "Оновити";
-"fullscreen_effect_starry_night_subtitle" = "За останньою ліричною піснею дрейфують зірки, відтінені ілюстраціями";
 "recently_deleted_smart_playlists" = "Розумні списки відтворення";
 "artwork_no_songs" = "Немає пісень на вибір.";
 "drime_access_token" = "API маркер доступу";
@@ -702,7 +701,6 @@
 "lyrics_audio_tools_footer" = "Транскрипція пісні створює чернетку лірики, яку можна редагувати. Нічого не збережено, доки ви не перевірите та не підтвердите це.";
 "nfs_exports" = "NFS Експорт";
 "ST-09 · Recoverable Within 30 Days" = "ST-09 · Відновлення протягом 30 днів";
-"fullscreen_effect_starry_night" = "Зоряна ніч";
 "playlist_import_kind_path" = "Ім'я файлу";
 "Repeat Mode" = "Режим повторення";
 "local_import_provider_hint" = "Якщо файл із хмарного диска, збережіть його в локальній папці «На моєму iPhone» у Файлах перед повторним імпортом. Ви також можете додати хмарний диск як джерело музики в програмі.";
@@ -1375,9 +1373,9 @@
 "fullscreen_effect_vinyl_deck" = "Вінілова дека";
 "fullscreen_effect_vinyl_deck_subtitle" = "Обкладинка стає етикеткою платівки, що обертається, а тонарм лежить у доріжці";
 "fullscreen_effect_vinyl_deck_motion" = "Платівка обертається під час відтворення · Тонарм піднімається на паузі";
-"fullscreen_effect_aurora_veil" = "Вуаль сяйва";
+"fullscreen_effect_aurora_veil" = "Зоряне сяйво";
 "fullscreen_effect_aurora_veil_subtitle" = "Завіси сяйва в кольорах обкладинки колишуться над зоряним небом позаду поточного рядка";
-"fullscreen_effect_aurora_veil_motion" = "Колихання завіс сяйва · Колір обкладинки";
+"fullscreen_effect_aurora_veil_motion" = "Мерехтливі зірки, падаючі зорі · Безупинне колихання сяйва";
 "fullscreen_effect_spectrum_horizon" = "Спектральний горизонт";
 "fullscreen_effect_spectrum_horizon_subtitle" = "Спектральний силует на всю ширину здіймається зі світного горизонту й відбивається в підлозі";
 "fullscreen_effect_spectrum_horizon_motion" = "Спектр у реальному часі · Дзеркальний силует";
@@ -2541,7 +2539,6 @@
 "insecure_http_warning_message %@" = "Хост “%@” використовує незашифрований HTTP. Хтось у мережі міг прочитати або змінити облікові дані вашого облікового запису, сеанс і музичні дані. Все одно дозволити?";
 "Set Playing" = "Набір грає";
 "status_icloud_restricted" = "iCloud обмежено (сімейний доступ або екранний час)";
-"fullscreen_effect_starry_night_motion" = "Згенеровані плаваючі зірки · Колір ілюстрації";
 "local_import_progress_finishing" = "Завершення імпорту…";
 "batch_delete_failed_format" = "%d не вдалося";
 "synology_download_failed_code_format" = "Помилка завантаження Synology (код помилки: %d).";

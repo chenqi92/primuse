@@ -67,7 +67,6 @@
 "ext.tv.immersive.style.typography" = "Tipografi";
 "error.baidu.missingPaths" = "Baidu dosya yöneticisi, %@ istenen yolu/yolları atladı.";
 "theme_color_rose" = "Gül";
-"fullscreen_effect_starry_night" = "Yıldızlı Gece";
 "error.catalog.pageTotalMismatch" = "Parça sayfası beyan edilen toplamla eşleşmiyor.";
 "ai_recommendation_intent_rightNow_detail" = "Yapay zeka istemi eklenmeden bağlamı ve dinleme geçmişini kullanır";
 "ext.tv.nowPlaying.pickASong" = "Başlamak için arşivinizden bir şarkı seçin";
@@ -120,7 +119,6 @@
 "ext.tv.settings.appearance.dark" = "Koyu";
 "ext.tv.scan.start" = "Taramayı Başlat";
 "ext.tv.sources.add.step1" = "Kaynak Ekle · Adım 1";
-"fullscreen_effect_starry_night_motion" = "Oluşturulan sürüklenen yıldızlar · Sanat eseri rengi";
 "ext.tv.settings.appearance" = "Görünüm";
 "ai_recommendation_intent_catalogRewind" = "Katalog Geri Sarma";
 "ext.tv.settings.ambientIntensity" = "Ortam yoğunluğu";
@@ -291,9 +289,9 @@
 "fullscreen_effect_vinyl_deck" = "Pikap";
 "fullscreen_effect_vinyl_deck_subtitle" = "Kapak, dönen plağın etiketi olur; kol ise oluğa yerleşir";
 "fullscreen_effect_vinyl_deck_motion" = "Plak çalarken döner · Duraklatınca kol kalkar";
-"fullscreen_effect_aurora_veil" = "Kutup Işığı Perdesi";
+"fullscreen_effect_aurora_veil" = "Yıldızlı Kutup Işığı";
 "fullscreen_effect_aurora_veil_subtitle" = "Kapak renklerindeki kutup ışığı perdeleri yıldızlı gökte dalgalanır, önde mevcut söz durur";
-"fullscreen_effect_aurora_veil_motion" = "Dalgalanan ışık perdeleri · Kapak rengi";
+"fullscreen_effect_aurora_veil_motion" = "Parıldayan yıldızlar, kayan yıldızlar · Durmadan dalgalanan kutup ışığı";
 "fullscreen_effect_spectrum_horizon" = "Spektrum Ufku";
 "fullscreen_effect_spectrum_horizon_subtitle" = "Ekran genişliğinde bir spektrum silüeti parlayan ufuktan yükselir ve zemine yansır";
 "fullscreen_effect_spectrum_horizon_motion" = "Gerçek zamanlı spektrum · Aynalı silüet";
@@ -554,7 +552,6 @@
 "ext.tv.library.title.songs" = "Şarkılar · %@";
 "theme_color_amber" = "Kehribar";
 "error.catalog.businessError" = "Servis hatası %@.";
-"fullscreen_effect_starry_night_subtitle" = "Sanat eserleriyle renklendirilmiş yıldızlar, en son şarkı sözü satırının arkasında sürükleniyor";
 "send_to_tv_error_snapshot_preparation" = "Yerel arşiv anlık görüntüsü yükleme için hazırlanamadı.";
 "send_to_tv_error_library_too_large" = "Arşivinizde %lld şarkı var; bu, tek seferde gönderilebilecek sınırın üzerinde olduğu için gönderilmedi. Arşivi Apple TV’de müzik kaynaklarını doğrudan tarayarak oluşturabilirsiniz.";
 "send_to_tv_sources_only_note" = "Arşivinizde %lld şarkı var; bu, tek seferde gönderilebilecek sınırın üzerinde olduğu için arşiv gönderilmedi. Apple TV, arşivini oluşturmak için müzik kaynaklarını kendisi tarayacak; ilerlemeyi Apple TV’deki kaynaklar sayfasında görebilirsiniz.";

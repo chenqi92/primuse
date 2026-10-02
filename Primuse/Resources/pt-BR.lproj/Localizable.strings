@@ -1378,9 +1378,9 @@
 "fullscreen_effect_vinyl_deck" = "Toca-discos";
 "fullscreen_effect_vinyl_deck_subtitle" = "A capa vira o selo de um disco girando enquanto o braço repousa no sulco";
 "fullscreen_effect_vinyl_deck_motion" = "O disco gira na reprodução · O braço levanta ao pausar";
-"fullscreen_effect_aurora_veil" = "Véu de aurora";
+"fullscreen_effect_aurora_veil" = "Aurora estrelada";
 "fullscreen_effect_aurora_veil_subtitle" = "Cortinas de aurora nas cores da capa ondulam sobre um céu estrelado atrás da letra atual";
-"fullscreen_effect_aurora_veil_motion" = "Cortinas de aurora ondulantes · Cor da capa";
+"fullscreen_effect_aurora_veil_motion" = "Estrelas cintilantes, estrelas cadentes · Aurora sempre ondulante";
 "fullscreen_effect_spectrum_horizon" = "Horizonte espectral";
 "fullscreen_effect_spectrum_horizon_subtitle" = "Um skyline de espectro em toda a largura sobe de um horizonte luminoso e se reflete no piso";
 "fullscreen_effect_spectrum_horizon_motion" = "Espectro em tempo real · Skyline espelhado";
@@ -1400,9 +1400,6 @@
 "fullscreen_effect_settings_title" = "Efeitos de tela cheia";
 "fullscreen_effect_spectrum" = "Espectro";
 "fullscreen_effect_spectrum_subtitle" = "Espectro do painel de instrumentos e especificações de áudio";
-"fullscreen_effect_starry_night" = "Noite Estrelada";
-"fullscreen_effect_starry_night_motion" = "Estrelas flutuantes geradas · Cor da arte";
-"fullscreen_effect_starry_night_subtitle" = "Estrelas coloridas flutuam atrás da última linha da letra";
 "fullscreen_effect_typography" = "Tipografia";
 "fullscreen_effect_typography_subtitle" = "Uma composição construída a partir de metadados de trilha";
 "fullscreen_effect_vinyl" = "Vinil";

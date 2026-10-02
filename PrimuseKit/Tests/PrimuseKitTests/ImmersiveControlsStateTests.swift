@@ -168,7 +168,7 @@ struct ImmersivePresentationFallbackPolicyTests {
 
     @Test("Artwork-dependent groups remain selected without artwork")
     func artworkFallback() {
-        for selected in ["coverGallery", "starryNight"] {
+        for selected in ["coverGallery", "auroraVeil"] {
             #expect(ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
                 selectedRawValue: selected,
                 hasSynchronizedLyrics: true,
@@ -189,7 +189,7 @@ struct ImmersivePresentationFallbackPolicyTests {
     @Test("Available content preserves the selected group")
     func preservesSelection() {
         for selected in [
-            "coverGallery", "starryNight", "flowingLines", "radialPulse",
+            "coverGallery", "flowingLines", "radialPulse",
             "vinylDeck", "auroraVeil", "spectrumHorizon", "particleBloom",
         ] {
             #expect(ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
@@ -202,7 +202,7 @@ struct ImmersivePresentationFallbackPolicyTests {
 
     @Test("Retired effects move to the closest surviving one")
     func migratesRetiredEffects() {
-        for retired in ["lightRhythm", "lightField", "liquidChrome"] {
+        for retired in ["lightRhythm", "lightField", "liquidChrome", "starryNight", "starField"] {
             #expect(ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
                 selectedRawValue: retired,
                 hasSynchronizedLyrics: true,

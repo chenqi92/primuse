@@ -102,7 +102,7 @@ extension ImmersiveStageBackgroundLyric {
     }
 }
 
-/// iOS、macOS 与 tvOS 共用的八类动态播放舞台。封面、封面墙与实时频谱由平台容器注入。
+/// iOS、macOS 与 tvOS 共用的七类动态播放舞台。封面、封面墙与实时频谱由平台容器注入。
 struct ImmersiveStageView<Artwork: View>: View {
     var style: FullscreenPlayerEffect
     var platform: ImmersiveStagePlatform = .iOS
@@ -190,8 +190,6 @@ struct ImmersiveStageView<Artwork: View>: View {
         switch style.scene {
         case .coverGallery:
             ImmersiveStageDeferredScene { coverGalleryScene }
-        case .starryNight:
-            ImmersiveStageDeferredScene { starryNightScene }
         case .flowingLines:
             ImmersiveStageDeferredScene { flowingLinesScene }
         case .radialPulse:
@@ -325,54 +323,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         .immersiveRestingText(isResting)
     }
 
-    // MARK: - 2. 星夜
-
-    /// 杂志式构图：左上小封面与艺人，正中一行细体大标题，底部一句歌词，
-    /// 让文字像浮在夜空里。
-    private var starryNightScene: some View {
-        ZStack {
-            ImmersiveDeepStarField(palette: palette, isAnimating: sceneIsAnimating)
-            ImmersiveVignette(color: palette.secondary, clearStop: 0.28, strength: 0.58)
-
-            if metrics.isPortrait {
-                VStack(alignment: .leading, spacing: metrics.s(24)) {
-                    compactHeader(artSide: metrics.s(58))
-                    Spacer(minLength: metrics.s(44))
-                    titleBlock(size: metrics.s(58), weight: .light)
-                    Spacer()
-                    singleLyric(fontSize: metrics.s(17))
-                }
-                .padding(.leading, leadingInset)
-                .padding(.trailing, trailingInset)
-                .padding(.top, topInset)
-                .padding(.bottom, bottomInset + metrics.s(30))
-            } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack(alignment: .top) {
-                        compactHeader(artSide: metrics.s(platform == .tvOS ? 94 : 60))
-                        Spacer()
-                    }
-                    Spacer()
-                    titleBlock(
-                        size: metrics.s(platform == .tvOS ? 132 : 82),
-                        weight: .light,
-                        maxWidth: metrics.size.width * 0.68
-                    )
-                    Spacer()
-                    singleLyric(
-                        fontSize: metrics.s(platform == .tvOS ? 31 : 20),
-                        availableWidth: metrics.size.width * 0.72
-                    )
-                }
-                .padding(.leading, leadingInset)
-                .padding(.trailing, trailingInset)
-                .padding(.top, topInset)
-                .padding(.bottom, bottomInset + metrics.s(10))
-            }
-        }
-    }
-
-    // MARK: - 3. 流动声纹
+    // MARK: - 2. 流动声纹
 
     private var flowingLinesScene: some View {
         let diameter = metrics.isPortrait
@@ -454,7 +405,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         .immersiveRestingText(isResting)
     }
 
-    // MARK: - 4. 环形声谱
+    // MARK: - 3. 环形声谱
 
     /// 环形声谱的可见外沿是 `radialArtwork` 里涟漪层的 1.4 倍直径，三层都按这个尺寸摆。
     private var radialRingSpanRatio: CGFloat { 1.4 }
@@ -560,7 +511,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         .frame(width: diameter, height: diameter)
     }
 
-    // MARK: - 5. 黑胶唱机
+    // MARK: - 4. 黑胶唱机
 
     private var vinylDeckScene: some View {
         let diameter = min(
@@ -636,8 +587,9 @@ struct ImmersiveStageView<Artwork: View>: View {
         .frame(width: canvas.width, height: canvas.height, alignment: .topLeading)
     }
 
-    // MARK: - 6. 极光帷幕
+    // MARK: - 5. 星夜极光
 
+    /// 文字都落在下方深色地面上，大标题不压在最亮的极光带里；星空与流星在上半幅。
     private var auroraVeilScene: some View {
         ZStack {
             ImmersiveAuroraCurtains(palette: palette, isAnimating: sceneIsAnimating)
@@ -680,7 +632,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         }
     }
 
-    // MARK: - 7. 声场地平线
+    // MARK: - 6. 声场地平线
 
     /// 舞台式构图：封面居中立在发光地平线上，频谱天际线在它身后升起，
     /// 标题与歌词居中排在封面上方。
@@ -742,7 +694,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         }
     }
 
-    // MARK: - 8. 星尘律动
+    // MARK: - 7. 星尘律动
 
     /// 横屏时文字在左、发射粒子的圆形封面在右；竖屏封面居中在上，文字在下。
     private var particleBloomScene: some View {

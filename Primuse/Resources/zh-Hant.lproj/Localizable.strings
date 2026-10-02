@@ -1692,9 +1692,6 @@
 "fullscreen_effect_cover_gallery" = "流動封面牆";
 "fullscreen_effect_cover_gallery_subtitle" = "目前封面置前，資料庫封面在背景緩慢流動";
 "fullscreen_effect_cover_gallery_motion" = "資料庫真實封面 · 分層錯速移動";
-"fullscreen_effect_starry_night" = "星夜";
-"fullscreen_effect_starry_night_subtitle" = "封面色星空持續漂移，只顯示最新一句歌詞";
-"fullscreen_effect_starry_night_motion" = "星點生成、漂移與閃爍 · 封面色算繪";
 "fullscreen_effect_flowing_lines" = "流動聲紋";
 "fullscreen_effect_flowing_lines_subtitle" = "動態線條圍繞封面變化，右上顯示前後歌詞";
 "fullscreen_effect_flowing_lines_motion" = "線條軌跡持續演化 · 三句歌詞";
@@ -1705,9 +1702,9 @@
 "fullscreen_effect_vinyl_deck" = "黑膠唱機";
 "fullscreen_effect_vinyl_deck_subtitle" = "封面化作旋轉唱片的圓標，唱臂隨播放落入音軌";
 "fullscreen_effect_vinyl_deck_motion" = "唱片隨播放旋轉 · 暫停時唱臂抬起";
-"fullscreen_effect_aurora_veil" = "極光帷幕";
+"fullscreen_effect_aurora_veil" = "星夜極光";
 "fullscreen_effect_aurora_veil_subtitle" = "封面色極光在星空上起伏流動，目前歌詞置於其前";
-"fullscreen_effect_aurora_veil_motion" = "極光帷幕持續擺動 · 封面色渲染";
+"fullscreen_effect_aurora_veil_motion" = "星點閃爍、流星劃過 · 極光持續擺動";
 "fullscreen_effect_spectrum_horizon" = "聲場地平線";
 "fullscreen_effect_spectrum_horizon_subtitle" = "整幅頻譜天際線從發光地平線升起，並在地面形成鏡像";
 "fullscreen_effect_spectrum_horizon_motion" = "即時頻譜驅動 · 天際線鏡像";

@@ -546,7 +546,6 @@
 "server_play_count_label" = "Количество воспроизведений на сервере";
 "share_create_playable_link" = "Создать воспроизводимую ссылку";
 "refresh" = "Обновить";
-"fullscreen_effect_starry_night_subtitle" = "Звезды в тонах художественного оформления плывут за последней лирической строкой.";
 "recently_deleted_smart_playlists" = "Умные плейлисты";
 "artwork_no_songs" = "Нет песен на выбор.";
 "drime_access_token" = "Токен доступа API";
@@ -702,7 +701,6 @@
 "lyrics_audio_tools_footer" = "Транскрипция песни создает редактируемый, синхронизированный черновик текста. Ничего не сохраняется, пока вы не просмотрите и не подтвердите это.";
 "nfs_exports" = "NFS Экспорт";
 "ST-09 · Recoverable Within 30 Days" = "ST-09 · Возврат в течение 30 дней";
-"fullscreen_effect_starry_night" = "Звездная ночь";
 "playlist_import_kind_path" = "Имя файла";
 "Repeat Mode" = "Режим повтора";
 "local_import_provider_hint" = "Если файл находится на облачном диске, сохраните его в локальной папке «На моем iPhone» в разделе «Файлы» перед повторным импортом. Вы также можете добавить облачный диск в качестве источника музыки в приложении.";
@@ -1375,9 +1373,9 @@
 "fullscreen_effect_vinyl_deck" = "Виниловая дека";
 "fullscreen_effect_vinyl_deck_subtitle" = "Обложка становится этикеткой вращающейся пластинки, тонарм лежит в дорожке";
 "fullscreen_effect_vinyl_deck_motion" = "Пластинка вращается при воспроизведении · Тонарм поднимается на паузе";
-"fullscreen_effect_aurora_veil" = "Вуаль сияния";
+"fullscreen_effect_aurora_veil" = "Звёздное сияние";
 "fullscreen_effect_aurora_veil_subtitle" = "Занавесы северного сияния в цветах обложки колышутся над звёздным небом позади текущей строки";
-"fullscreen_effect_aurora_veil_motion" = "Колышущиеся занавесы сияния · Цвет обложки";
+"fullscreen_effect_aurora_veil_motion" = "Мерцающие звёзды, падающие звёзды · Неустанно колышущееся сияние";
 "fullscreen_effect_spectrum_horizon" = "Спектральный горизонт";
 "fullscreen_effect_spectrum_horizon_subtitle" = "Спектральный силуэт во всю ширину поднимается из светящегося горизонта и отражается в полу";
 "fullscreen_effect_spectrum_horizon_motion" = "Спектр в реальном времени · Зеркальный силуэт";
@@ -2541,7 +2539,6 @@
 "insecure_http_warning_message %@" = "Хост «%@» использует незашифрованный HTTP. Кто-то в сети может прочитать или изменить учетные данные вашей учетной записи, данные сеанса и музыки. Все равно разрешить?";
 "Set Playing" = "Игра в сете";
 "status_icloud_restricted" = "iCloud ограничен (Семейный доступ или Экранное время)";
-"fullscreen_effect_starry_night_motion" = "Создаются дрейфующие звезды · Цвет изображения";
 "local_import_progress_finishing" = "Завершение импорта…";
 "batch_delete_failed_format" = "%d не удалось";
 "synology_download_failed_code_format" = "Не удалось загрузить Synology (код ошибки: %d).";

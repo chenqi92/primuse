@@ -563,9 +563,9 @@
 "fullscreen_effect_vinyl_deck" = "Gramofon";
 "fullscreen_effect_vinyl_deck_subtitle" = "Okładka staje się etykietą obracającej się płyty, a ramię spoczywa w rowku";
 "fullscreen_effect_vinyl_deck_motion" = "Płyta obraca się podczas odtwarzania · Ramię unosi się przy pauzie";
-"fullscreen_effect_aurora_veil" = "Woal zorzy";
+"fullscreen_effect_aurora_veil" = "Gwiaździsta zorza";
 "fullscreen_effect_aurora_veil_subtitle" = "Kurtyny zorzy w kolorach okładki falują nad gwieździstym niebem za bieżącym wersem";
-"fullscreen_effect_aurora_veil_motion" = "Falujące kurtyny zorzy · Kolor okładki";
+"fullscreen_effect_aurora_veil_motion" = "Migoczące gwiazdy, spadające gwiazdy · Nieustannie falująca zorza";
 "fullscreen_effect_spectrum_horizon" = "Horyzont widma";
 "fullscreen_effect_spectrum_horizon_subtitle" = "Panorama widma na całą szerokość wyrasta ze świetlistego horyzontu i odbija się w podłodze";
 "fullscreen_effect_spectrum_horizon_motion" = "Widmo w czasie rzeczywistym · Lustrzana panorama";
@@ -578,9 +578,6 @@
 "fullscreen_effect_radial_pulse" = "Impuls promieniowy";
 "fullscreen_effect_radial_pulse_motion" = "Sterowanie widmem na żywo · Zapis obrotowy";
 "fullscreen_effect_radial_pulse_subtitle" = "Obrotowy pierścień nagrywania reaguje na rzeczywisty dźwięk";
-"fullscreen_effect_starry_night" = "Gwiaździsta noc";
-"fullscreen_effect_starry_night_motion" = "Wygenerowano dryfujące gwiazdy · Kolor grafiki";
-"fullscreen_effect_starry_night_subtitle" = "Gwiazdy zabarwione grafiką dryfują za najnowszą linią tekstową";
 "icloud_cloud_schema_missing" = "W schemacie produkcyjnym iCloud brakuje „%@”. Ponowna próba nie może tego naprawić; programista musi wdrożyć schemat CloudKit.";
 "immersive_current_lyric_accessibility" = "Aktualny tekst: %@";
 "immersive_demo_album" = "wyspa dźwiękowa";

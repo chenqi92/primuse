@@ -662,9 +662,6 @@
 "fullscreen_effect_cover_gallery" = "流动封面墙";
 "fullscreen_effect_cover_gallery_subtitle" = "当前封面居前，资料库封面在背景缓慢流动";
 "fullscreen_effect_cover_gallery_motion" = "资料库真实封面 · 分层错速移动";
-"fullscreen_effect_starry_night" = "星夜";
-"fullscreen_effect_starry_night_subtitle" = "封面色星空持续漂移，只显示最新一句歌词";
-"fullscreen_effect_starry_night_motion" = "星点生成、漂移与闪烁 · 封面色渲染";
 "fullscreen_effect_flowing_lines" = "流动声纹";
 "fullscreen_effect_flowing_lines_subtitle" = "动态线条围绕封面变化，右上展示前后歌词";
 "fullscreen_effect_flowing_lines_motion" = "线条轨迹持续演化 · 三句歌词";
@@ -675,9 +672,9 @@
 "fullscreen_effect_vinyl_deck" = "黑胶唱机";
 "fullscreen_effect_vinyl_deck_subtitle" = "封面化作旋转唱片的圆标，唱臂随播放落入音槽";
 "fullscreen_effect_vinyl_deck_motion" = "唱片随播放旋转 · 暂停时唱臂抬起";
-"fullscreen_effect_aurora_veil" = "极光帷幕";
+"fullscreen_effect_aurora_veil" = "星夜极光";
 "fullscreen_effect_aurora_veil_subtitle" = "封面色极光在星空上起伏流动，当前歌词置于其前";
-"fullscreen_effect_aurora_veil_motion" = "极光帷幕持续摆动 · 封面色渲染";
+"fullscreen_effect_aurora_veil_motion" = "星点闪烁、流星划过 · 极光持续摆动";
 "fullscreen_effect_spectrum_horizon" = "声场地平线";
 "fullscreen_effect_spectrum_horizon_subtitle" = "整幅频谱天际线从发光地平线升起，并在地面形成镜像";
 "fullscreen_effect_spectrum_horizon_motion" = "实时频谱驱动 · 天际线镜像";

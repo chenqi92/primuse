@@ -275,11 +275,10 @@ enum AmbientLightOverlayPolicy {
     }
 }
 
-/// 用户可选择的八类沉浸画面。名称描述效果机制，不再暴露设计稿编号。
+/// 用户可选择的七类沉浸画面。名称描述效果机制，不再暴露设计稿编号。
 enum ImmersiveEffectScene: Sendable {
     case coverGallery
     case vinylDeck
-    case starryNight
     case flowingLines
     case auroraVeil
     case radialPulse
@@ -328,12 +327,11 @@ enum FullscreenEffectCollection: Int, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// 三端共享的全屏效果目录。原生播放器保持默认，其余八项对应八种实际渲染机制。
+/// 三端共享的全屏效果目录。原生播放器保持默认，其余七项对应七种实际渲染机制。
 /// 新增效果追加在末尾，保证 macOS 数字快捷键与既有顺序一致。
 enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     case native
     case coverGallery
-    case starryNight
     case flowingLines
     case radialPulse
     case vinylDeck
@@ -352,7 +350,6 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         switch self {
         case .native: "native"
         case .coverGallery: "coverGallery"
-        case .starryNight: "starryNight"
         case .flowingLines: "flowingLines"
         case .radialPulse: "radialPulse"
         case .vinylDeck: "vinylDeck"
@@ -371,12 +368,10 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
              "coverFlow", "cover", "deepField", "ambientBloom", "amberDust", "jadeMoss",
              "sectionIndigo", "duotone", "daylight", "ambientRefined", "editorial", "coverDriven":
             self = .coverGallery
-        case "starryNight", "starField":
-            self = .starryNight
         case "flowingLines", "contour",
              "kineticTitle", "typography", "typeWall", "lyricStage", "lyrics":
             self = .flowingLines
-        case "lightRhythm", "lightField", "liquidChrome":
+        case "lightRhythm", "lightField", "liquidChrome", "starryNight", "starField":
             self = .auroraVeil
         case "radialPulse", "radialSpectrum":
             self = .radialPulse
@@ -399,7 +394,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         switch self {
         case .native: .native
         case .coverGallery, .vinylDeck: .coverReactive
-        case .starryNight, .flowingLines, .auroraVeil: .sceneMotion
+        case .flowingLines, .auroraVeil: .sceneMotion
         case .radialPulse, .spectrumHorizon, .particleBloom: .audioReactive
         }
     }
@@ -407,7 +402,6 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     var scene: ImmersiveEffectScene {
         switch self {
         case .native, .coverGallery: .coverGallery
-        case .starryNight: .starryNight
         case .flowingLines: .flowingLines
         case .radialPulse: .radialPulse
         case .vinylDeck: .vinylDeck
@@ -442,7 +436,6 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         switch self {
         case .native: "native"
         case .coverGallery: "cover_gallery"
-        case .starryNight: "starry_night"
         case .flowingLines: "flowing_lines"
         case .radialPulse: "radial_pulse"
         case .vinylDeck: "vinyl_deck"
@@ -472,11 +465,10 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         switch self {
         case .native: "rectangle.inset.filled"
         case .coverGallery: "square.grid.3x3.fill"
-        case .starryNight: "sparkles"
         case .flowingLines: "scribble.variable"
         case .radialPulse: "waveform.circle.fill"
         case .vinylDeck: "opticaldisc.fill"
-        case .auroraVeil: "moon.haze.fill"
+        case .auroraVeil: "moon.stars.fill"
         case .spectrumHorizon: "chart.bar.xaxis"
         case .particleBloom: "aqi.medium"
         }

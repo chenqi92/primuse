@@ -563,9 +563,9 @@
 "fullscreen_effect_vinyl_deck" = "เครื่องเล่นแผ่นเสียง";
 "fullscreen_effect_vinyl_deck_subtitle" = "ปกอัลบั้มกลายเป็นฉลากของแผ่นเสียงที่หมุน ขณะที่โทนอาร์มวางอยู่ในร่อง";
 "fullscreen_effect_vinyl_deck_motion" = "แผ่นหมุนตามการเล่น · โทนอาร์มยกขึ้นเมื่อหยุดชั่วคราว";
-"fullscreen_effect_aurora_veil" = "ม่านแสงเหนือ";
+"fullscreen_effect_aurora_veil" = "แสงเหนือใต้ดวงดาว";
 "fullscreen_effect_aurora_veil_subtitle" = "ม่านแสงเหนือสีปกอัลบั้มพลิ้วไหวบนท้องฟ้าเต็มดาว ด้านหน้าเป็นเนื้อเพลงบรรทัดปัจจุบัน";
-"fullscreen_effect_aurora_veil_motion" = "ม่านแสงเหนือพลิ้วไหว · สีจากปกอัลบั้ม";
+"fullscreen_effect_aurora_veil_motion" = "ดาวระยิบระยับ ดาวตก · แสงเหนือพลิ้วไหวไม่หยุด";
 "fullscreen_effect_spectrum_horizon" = "ขอบฟ้าสเปกตรัม";
 "fullscreen_effect_spectrum_horizon_subtitle" = "เส้นขอบฟ้าสเปกตรัมเต็มความกว้างจอผุดขึ้นจากขอบฟ้าเรืองแสงและสะท้อนบนพื้น";
 "fullscreen_effect_spectrum_horizon_motion" = "ขับเคลื่อนด้วยสเปกตรัมแบบเรียลไทม์ · เส้นขอบฟ้าสะท้อน";
@@ -578,9 +578,6 @@
 "fullscreen_effect_radial_pulse" = "เรเดียลพัลส์";
 "fullscreen_effect_radial_pulse_motion" = "ขับเคลื่อนสเปกตรัมสด · บันทึกการหมุน";
 "fullscreen_effect_radial_pulse_subtitle" = "วงแหวนบันทึกเสียงแบบหมุนตอบสนองต่อเสียงจริง";
-"fullscreen_effect_starry_night" = "คืนแห่งดวงดาว";
-"fullscreen_effect_starry_night_motion" = "สร้างดาวลอย·สีอาร์ตเวิร์ค";
-"fullscreen_effect_starry_night_subtitle" = "ดาราสีอาร์ตเวิร์กลอยอยู่หลังเนื้อเพลงล่าสุด";
 "icloud_cloud_schema_missing" = "สคีมาการผลิต iCloud ขาดหายไป “%@” การลองอีกครั้งไม่สามารถแก้ไขปัญหานี้ได้ นักพัฒนาจะต้องปรับใช้สคีมา CloudKit";
 "immersive_current_lyric_accessibility" = "เนื้อเพลงปัจจุบัน: %@";
 "immersive_demo_album" = "soundisle";

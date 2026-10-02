@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-// 沉浸舞台的动态渲染层：新增的黑胶、极光、天际线、粒子场，以及既有
+// 沉浸舞台的动态渲染层：新增的黑胶、星夜极光、天际线、粒子场，以及既有
 // 场景升级后使用的深空星野、有机声纹、光束与呼吸光环。
 //
 // 与 ImmersiveStageScenery.swift 一样只依赖 SwiftUI，同时编进 Primuse(iOS)、
@@ -38,20 +38,16 @@ enum ImmersiveSeed {
         let result = value.truncatingRemainder(dividingBy: 1)
         return result < 0 ? result + 1 : result
     }
-
-    static func wave(_ time: TimeInterval, period: Double, phase: Double = 0) -> Double {
-        sin(time / period * 2 * .pi + phase)
-    }
 }
 
 // MARK: - 深空星野
 
-/// 星夜的星空：三层视差星点、封面色星云、一条斜向银河与偶尔划过的流星。
+/// 深空星野：三层视差星点、一条斜向银河与偶尔划过的流星。
 /// 远层星点最小最慢，近层带光晕；所有位置由确定性种子决定。
 struct ImmersiveDeepStarField: View {
     var palette: ImmersiveArtworkPalette
     var isAnimating: Bool
-    var showsNebula = true
+    var showsMilkyWay = true
     var showsShootingStars = true
 
     private struct Layer {
@@ -79,8 +75,8 @@ struct ImmersiveDeepStarField: View {
                     endPoint: CGPoint(x: size.width * 0.4, y: size.height)
                 ))
 
-                if showsNebula {
-                    drawNebula(in: &canvas, bounds: bounds, size: size, time: time)
+                if showsMilkyWay {
+                    drawMilkyWay(in: &canvas, bounds: bounds, size: size)
                 }
                 drawStars(in: &canvas, size: size, time: time)
                 if showsShootingStars, isAnimating {
@@ -91,37 +87,8 @@ struct ImmersiveDeepStarField: View {
         .allowsHitTesting(false)
     }
 
-    private func drawNebula(in canvas: inout GraphicsContext, bounds: Path, size: CGSize, time: TimeInterval) {
-        let diagonal = max(size.width, size.height)
-        let primaryCenter = CGPoint(
-            x: size.width * 0.74 + CGFloat(ImmersiveSeed.wave(time, period: 41)) * size.width * 0.05,
-            y: size.height * 0.30 + CGFloat(ImmersiveSeed.wave(time, period: 53, phase: 1.3)) * size.height * 0.04
-        )
-        let secondaryCenter = CGPoint(
-            x: size.width * 0.22 - CGFloat(ImmersiveSeed.wave(time, period: 47)) * size.width * 0.04,
-            y: size.height * 0.76 + CGFloat(ImmersiveSeed.wave(time, period: 37, phase: 0.6)) * size.height * 0.05
-        )
-        canvas.fill(bounds, with: .radialGradient(
-            Gradient(stops: [
-                .init(color: palette.primary.opacity(0.30), location: 0),
-                .init(color: palette.primary.opacity(0.11), location: 0.45),
-                .init(color: .clear, location: 1),
-            ]),
-            center: primaryCenter,
-            startRadius: 0,
-            endRadius: diagonal * 0.46
-        ))
-        canvas.fill(bounds, with: .radialGradient(
-            Gradient(stops: [
-                .init(color: palette.secondary.opacity(0.62), location: 0),
-                .init(color: palette.secondary.opacity(0.22), location: 0.5),
-                .init(color: .clear, location: 1),
-            ]),
-            center: secondaryCenter,
-            startRadius: 0,
-            endRadius: diagonal * 0.42
-        ))
-        // 斜向银河：一条很淡的亮带穿过画面，让星空有纵深而不是均匀撒点。
+    /// 斜向银河：一条很淡的亮带穿过画面，让星空有纵深而不是均匀撒点。
+    private func drawMilkyWay(in canvas: inout GraphicsContext, bounds: Path, size: CGSize) {
         canvas.fill(bounds, with: .linearGradient(
             Gradient(stops: [
                 .init(color: .clear, location: 0),
@@ -699,10 +666,11 @@ struct ImmersiveVinylTonearm: View {
     }
 }
 
-// MARK: - 极光帷幕
+// MARK: - 星夜极光
 
-/// 极光：星空之上四条封面色光幕以不同速度起伏，幕内有闪烁的竖向光柱，
-/// 底部压一层深色地面剪影。整层只做一次模糊。
+/// 星夜极光：完整的星空（闪烁星点、淡银河、偶尔划过的流星）之上，四条封面色光幕
+/// 以不同速度起伏，幕内有闪烁的竖向光柱，底部压一层深色地面剪影。整层只做一次模糊。
+/// 星空里不放封面色星云：极光本身已经是封面色的彩色元素，再叠一层色团画面会发脏。
 struct ImmersiveAuroraCurtains: View {
     var palette: ImmersiveArtworkPalette
     var isAnimating: Bool
@@ -729,8 +697,8 @@ struct ImmersiveAuroraCurtains: View {
             ImmersiveDeepStarField(
                 palette: palette,
                 isAnimating: isAnimating,
-                showsNebula: false,
-                showsShootingStars: false
+                showsMilkyWay: true,
+                showsShootingStars: true
             )
 
             TimelineView(.animation(minimumInterval: 1 / 15, paused: !isAnimating)) { context in

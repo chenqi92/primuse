@@ -493,7 +493,8 @@ enum ImmersiveDemoStage {
 /// `PRIMUSE_EVIDENCE_EFFECT`（rawValue，逗号分隔，默认 radialPulse）指定效果，
 /// `PRIMUSE_EVIDENCE_LAYOUTS`（phoneLandscape / phonePortrait / wide，默认这三种；另有 iPhone Duo 内屏的
 /// innerLandscape 951×669 / innerLandscapeSmall 890×626 / innerPortrait 669×951）指定视口；
-/// `PRIMUSE_EVIDENCE_RESTING`（lyric / title）按休憩态渲染：舞台文字淡出、压暗，叠上带歌词或只有歌名的休憩层。
+/// `PRIMUSE_EVIDENCE_RESTING`（lyric / title）按休憩态渲染：舞台文字淡出、压暗，叠上带歌词或只有歌名的休憩层；
+/// `PRIMUSE_EVIDENCE_ANIMATE=1` 让各帧按播放中运行动画（流星这类间歇出现的元素要连拍才截得到）。
 /// 每个视口按真实尺寸、安全区与控件占位渲染一帧静态舞台，缩放到屏宽后纵向排开，
 /// 直接用模拟器截图就能看到三种排版。手机上的各帧另外按全屏播放的真实位置叠上顶部圆钮与底部控件胶囊
 /// （半透明占位），看舞台文字会不会被它们压住。
@@ -520,9 +521,11 @@ struct ImmersiveStageEvidenceHost: View {
 
     private let frames: [Frame]
     private let resting: RestingVariant?
+    private let animates: Bool
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         resting = RestingVariant(rawValue: environment["PRIMUSE_EVIDENCE_RESTING"] ?? "")
+        animates = environment["PRIMUSE_EVIDENCE_ANIMATE"] == "1"
         let effects = (environment["PRIMUSE_EVIDENCE_EFFECT"] ?? "radialPulse")
             .split(separator: ",")
             .compactMap { FullscreenPlayerEffect(rawValue: $0.trimmingCharacters(in: .whitespaces)) }
@@ -603,7 +606,7 @@ struct ImmersiveStageEvidenceHost: View {
                                 palette: .fallback,
                                 levels: ImmersiveDemoStage.baseLevels,
                                 elapsed: 108,
-                                animates: false,
+                                animates: animates,
                                 controlsInset: controlsInset,
                                 isResting: resting != nil
                             )

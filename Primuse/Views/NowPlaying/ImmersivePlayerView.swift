@@ -557,7 +557,7 @@ struct ImmersivePlayerView: View {
         switch effect {
         case .vinylDeck, .particleBloom:
             return .leading
-        case .coverGallery, .starryNight, .flowingLines,
+        case .coverGallery, .flowingLines,
              .radialPulse, .auroraVeil, .spectrumHorizon:
             return .trailing
         case .native:

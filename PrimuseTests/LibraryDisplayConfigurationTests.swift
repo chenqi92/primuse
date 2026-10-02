@@ -683,6 +683,8 @@ final class PlayerAppearancePreferencesTests: XCTestCase {
             "mirrorStage": .spectrumHorizon,
             "kineticTitle": .flowingLines,
             "lyrics": .flowingLines,
+            "starryNight": .auroraVeil,
+            "starField": .auroraVeil,
         ]
         for (stored, expected) in expectations {
             XCTAssertEqual(FullscreenPlayerEffect(rawValue: stored), expected, stored)
@@ -699,6 +701,8 @@ final class PlayerAppearancePreferencesTests: XCTestCase {
         for effect in FullscreenPlayerEffect.allCases {
             XCTAssertEqual(FullscreenPlayerEffect(rawValue: effect.rawValue), effect)
         }
+        // 未升级的设备经 iCloud 读到的仍是这个存储值。
+        XCTAssertEqual(FullscreenPlayerEffect.auroraVeil.rawValue, "auroraVeil")
     }
 
     func testLyricsInteractionPreferencesUseSafeDefaultsAndHonorOverrides() {

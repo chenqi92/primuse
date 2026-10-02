@@ -1378,9 +1378,9 @@
 "fullscreen_effect_vinyl_deck" = "विनाइल डेक";
 "fullscreen_effect_vinyl_deck_subtitle" = "कवर घूमते रिकॉर्ड का लेबल बन जाता है और टोनआर्म खांचे में टिका रहता है";
 "fullscreen_effect_vinyl_deck_motion" = "प्लेबैक के साथ रिकॉर्ड घूमता है · रोकने पर टोनआर्म उठ जाता है";
-"fullscreen_effect_aurora_veil" = "ऑरोरा वील";
+"fullscreen_effect_aurora_veil" = "तारों भरा ऑरोरा";
 "fullscreen_effect_aurora_veil_subtitle" = "कवर के रंगों वाले ऑरोरा पर्दे तारों भरे आकाश पर लहराते हैं और सामने मौजूदा पंक्ति रहती है";
-"fullscreen_effect_aurora_veil_motion" = "लहराते ऑरोरा पर्दे · कवर का रंग";
+"fullscreen_effect_aurora_veil_motion" = "टिमटिमाते तारे, टूटते तारे · लगातार लहराता ऑरोरा";
 "fullscreen_effect_spectrum_horizon" = "स्पेक्ट्रम क्षितिज";
 "fullscreen_effect_spectrum_horizon_subtitle" = "पूरी चौड़ाई की स्पेक्ट्रम स्काईलाइन चमकते क्षितिज से उठती है और फ़र्श पर प्रतिबिंबित होती है";
 "fullscreen_effect_spectrum_horizon_motion" = "रीयल-टाइम स्पेक्ट्रम संचालित · प्रतिबिंबित स्काईलाइन";
@@ -1400,9 +1400,6 @@
 "fullscreen_effect_settings_title" = "फ़ुल-स्क्रीन प्रभाव";
 "fullscreen_effect_spectrum" = "स्पेक्ट्रम";
 "fullscreen_effect_spectrum_subtitle" = "उपकरण-पैनल स्पेक्ट्रम और ऑडियो विशिष्टताएँ";
-"fullscreen_effect_starry_night" = "तारों भरी रात";
-"fullscreen_effect_starry_night_motion" = "उत्पन्न बहते तारे · कलाकृति का रंग";
-"fullscreen_effect_starry_night_subtitle" = "कलाकृति-रंग वाले सितारे नवीनतम गीत के बोल पंक्ति के पीछे बहते हैं";
 "fullscreen_effect_typography" = "टाइपोग्राफी";
 "fullscreen_effect_typography_subtitle" = "ट्रैक मेटाडेटा से निर्मित एक रचना";
 "fullscreen_effect_vinyl" = "विनाइल";

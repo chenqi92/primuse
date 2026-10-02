@@ -663,9 +663,6 @@
 "fullscreen_effect_cover_gallery" = "Cover Gallery";
 "fullscreen_effect_cover_gallery_subtitle" = "Current artwork in front with library covers moving behind it";
 "fullscreen_effect_cover_gallery_motion" = "Real library artwork · Layered parallax";
-"fullscreen_effect_starry_night" = "Starry Night";
-"fullscreen_effect_starry_night_subtitle" = "Artwork-tinted stars drift behind the latest lyric line";
-"fullscreen_effect_starry_night_motion" = "Generated drifting stars · Artwork color";
 "fullscreen_effect_flowing_lines" = "Flowing Lines";
 "fullscreen_effect_flowing_lines_subtitle" = "Evolving contours orbit the artwork with three lyric lines";
 "fullscreen_effect_flowing_lines_motion" = "Continuously evolving contours · Three lyrics";
@@ -676,9 +673,9 @@
 "fullscreen_effect_vinyl_deck" = "Vinyl Deck";
 "fullscreen_effect_vinyl_deck_subtitle" = "The artwork becomes the label of a spinning record while the tonearm rests in the groove";
 "fullscreen_effect_vinyl_deck_motion" = "Record spins with playback · Tonearm lifts on pause";
-"fullscreen_effect_aurora_veil" = "Aurora Veil";
+"fullscreen_effect_aurora_veil" = "Starlit Aurora";
 "fullscreen_effect_aurora_veil_subtitle" = "Artwork-colored aurora curtains ripple over a starry sky behind the current lyric";
-"fullscreen_effect_aurora_veil_motion" = "Waving aurora curtains · Artwork color";
+"fullscreen_effect_aurora_veil_motion" = "Twinkling stars, shooting stars · Ever-swaying aurora";
 "fullscreen_effect_spectrum_horizon" = "Spectrum Horizon";
 "fullscreen_effect_spectrum_horizon_subtitle" = "A full-width spectrum skyline rises from a glowing horizon and mirrors on the floor";
 "fullscreen_effect_spectrum_horizon_motion" = "Live spectrum driven · Mirrored skyline";

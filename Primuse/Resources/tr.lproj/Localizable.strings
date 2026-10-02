@@ -546,7 +546,6 @@
 "server_play_count_label" = "Sunucudaki oynatma sayısı";
 "share_create_playable_link" = "Oynatılabilir Bağlantı Oluştur";
 "refresh" = "Yenile";
-"fullscreen_effect_starry_night_subtitle" = "Sanat eserleriyle renklendirilmiş yıldızlar, en son şarkı sözü satırının arkasında sürükleniyor";
 "recently_deleted_smart_playlists" = "Akıllı Çalma Listeleri";
 "artwork_no_songs" = "Aralarından seçim yapabileceğiniz şarkı yok.";
 "drime_access_token" = "API erişim belirteci";
@@ -702,7 +701,6 @@
 "lyrics_audio_tools_footer" = "Şarkı transkripsiyonu düzenlenebilir, zamanlı bir şarkı sözü taslağı oluşturur. Siz inceleyip onaylayana kadar hiçbir şey kaydedilmez.";
 "nfs_exports" = "NFS Dışa Aktarma";
 "ST-09 · Recoverable Within 30 Days" = "ST-09 · 30 Gün İçinde Kurtarılabilir";
-"fullscreen_effect_starry_night" = "Yıldızlı Gece";
 "playlist_import_kind_path" = "Dosya adı";
 "Repeat Mode" = "Tekrarlama modu";
 "local_import_provider_hint" = "Dosya bir bulut sürücüsünden geliyorsa, tekrar içe aktarmadan önce onu Dosyalar'daki yerel bir \"iPhone'mde\" klasörüne kaydedin. Bulut sürücüsünü uygulama içi müzik kaynağı olarak da ekleyebilirsiniz.";
@@ -1375,9 +1373,9 @@
 "fullscreen_effect_vinyl_deck" = "Pikap";
 "fullscreen_effect_vinyl_deck_subtitle" = "Kapak, dönen plağın etiketi olur; kol ise oluğa yerleşir";
 "fullscreen_effect_vinyl_deck_motion" = "Plak çalarken döner · Duraklatınca kol kalkar";
-"fullscreen_effect_aurora_veil" = "Kutup Işığı Perdesi";
+"fullscreen_effect_aurora_veil" = "Yıldızlı Kutup Işığı";
 "fullscreen_effect_aurora_veil_subtitle" = "Kapak renklerindeki kutup ışığı perdeleri yıldızlı gökte dalgalanır, önde mevcut söz durur";
-"fullscreen_effect_aurora_veil_motion" = "Dalgalanan ışık perdeleri · Kapak rengi";
+"fullscreen_effect_aurora_veil_motion" = "Parıldayan yıldızlar, kayan yıldızlar · Durmadan dalgalanan kutup ışığı";
 "fullscreen_effect_spectrum_horizon" = "Spektrum Ufku";
 "fullscreen_effect_spectrum_horizon_subtitle" = "Ekran genişliğinde bir spektrum silüeti parlayan ufuktan yükselir ve zemine yansır";
 "fullscreen_effect_spectrum_horizon_motion" = "Gerçek zamanlı spektrum · Aynalı silüet";
@@ -2541,7 +2539,6 @@
 "insecure_http_warning_message %@" = "“%@” ana bilgisayarı şifrelenmemiş HTTP kullanıyor. Ağdaki birisi hesap bilgilerinizi, oturumunuzu ve müzik verilerinizi okuyabilir veya değiştirebilir. Yine de izin ver?";
 "Set Playing" = "Oynatmayı Ayarla";
 "status_icloud_restricted" = "iCloud kısıtlanmıştır (Aile Paylaşımı veya Ekran Süresi)";
-"fullscreen_effect_starry_night_motion" = "Oluşturulan sürüklenen yıldızlar · Sanat eseri rengi";
 "local_import_progress_finishing" = "İçe aktarma tamamlanıyor…";
 "batch_delete_failed_format" = "%d başarısız oldu";
 "synology_download_failed_code_format" = "Synology indirme işlemi başarısız oldu (hata kodu: %d).";

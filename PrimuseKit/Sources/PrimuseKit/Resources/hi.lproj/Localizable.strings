@@ -563,9 +563,9 @@
 "fullscreen_effect_vinyl_deck" = "विनाइल डेक";
 "fullscreen_effect_vinyl_deck_subtitle" = "कवर घूमते रिकॉर्ड का लेबल बन जाता है और टोनआर्म खांचे में टिका रहता है";
 "fullscreen_effect_vinyl_deck_motion" = "प्लेबैक के साथ रिकॉर्ड घूमता है · रोकने पर टोनआर्म उठ जाता है";
-"fullscreen_effect_aurora_veil" = "ऑरोरा वील";
+"fullscreen_effect_aurora_veil" = "तारों भरा ऑरोरा";
 "fullscreen_effect_aurora_veil_subtitle" = "कवर के रंगों वाले ऑरोरा पर्दे तारों भरे आकाश पर लहराते हैं और सामने मौजूदा पंक्ति रहती है";
-"fullscreen_effect_aurora_veil_motion" = "लहराते ऑरोरा पर्दे · कवर का रंग";
+"fullscreen_effect_aurora_veil_motion" = "टिमटिमाते तारे, टूटते तारे · लगातार लहराता ऑरोरा";
 "fullscreen_effect_spectrum_horizon" = "स्पेक्ट्रम क्षितिज";
 "fullscreen_effect_spectrum_horizon_subtitle" = "पूरी चौड़ाई की स्पेक्ट्रम स्काईलाइन चमकते क्षितिज से उठती है और फ़र्श पर प्रतिबिंबित होती है";
 "fullscreen_effect_spectrum_horizon_motion" = "रीयल-टाइम स्पेक्ट्रम संचालित · प्रतिबिंबित स्काईलाइन";
@@ -578,9 +578,6 @@
 "fullscreen_effect_radial_pulse" = "रेडियल पल्स";
 "fullscreen_effect_radial_pulse_motion" = "लाइव स्पेक्ट्रम चालित · घूमने वाला रिकॉर्ड";
 "fullscreen_effect_radial_pulse_subtitle" = "एक घूमने वाली रिकॉर्ड रिंग वास्तविक ऑडियो पर प्रतिक्रिया करती है";
-"fullscreen_effect_starry_night" = "तारों भरी रात";
-"fullscreen_effect_starry_night_motion" = "उत्पन्न बहते तारे · कलाकृति का रंग";
-"fullscreen_effect_starry_night_subtitle" = "कलाकृति-रंग वाले सितारे नवीनतम गीत के बोल पंक्ति के पीछे बहते हैं";
 "icloud_cloud_schema_missing" = "iCloud उत्पादन स्कीमा में \"%@\" गायब है। पुनः प्रयास करने से इसे ठीक नहीं किया जा सकता; डेवलपर को CloudKit स्कीमा तैनात करना होगा।";
 "immersive_current_lyric_accessibility" = "वर्तमान गीत के बोल: %@";
 "immersive_demo_album" = "soundisle";

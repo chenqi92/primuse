@@ -563,9 +563,9 @@
 "fullscreen_effect_vinyl_deck" = "منصة الفينيل";
 "fullscreen_effect_vinyl_deck_subtitle" = "يتحوّل الغلاف إلى ملصق أسطوانة دوّارة بينما تستقر الذراع في الأخدود";
 "fullscreen_effect_vinyl_deck_motion" = "تدور الأسطوانة أثناء التشغيل · ترتفع الذراع عند الإيقاف المؤقت";
-"fullscreen_effect_aurora_veil" = "حجاب الشفق";
+"fullscreen_effect_aurora_veil" = "شفق مرصّع بالنجوم";
 "fullscreen_effect_aurora_veil_subtitle" = "ستائر شفق بألوان الغلاف تتموّج فوق سماء مرصّعة بالنجوم خلف السطر الحالي";
-"fullscreen_effect_aurora_veil_motion" = "ستائر شفق متموّجة · لون الغلاف";
+"fullscreen_effect_aurora_veil_motion" = "نجوم تتلألأ وشهب عابرة · شفق يتموّج بلا توقف";
 "fullscreen_effect_spectrum_horizon" = "أفق الطيف";
 "fullscreen_effect_spectrum_horizon_subtitle" = "أفق طيفي بعرض الشاشة يرتفع من خط أفق متوهّج وينعكس على الأرضية";
 "fullscreen_effect_spectrum_horizon_motion" = "مدفوع بالطيف اللحظي · أفق منعكس";
@@ -578,9 +578,6 @@
 "fullscreen_effect_radial_pulse" = "النبض الشعاعي";
 "fullscreen_effect_radial_pulse_motion" = "الطيف المباشر مدفوع · سجل متناوب";
 "fullscreen_effect_radial_pulse_subtitle" = "حلقة التسجيل الدوارة تستجيب للصوت الفعلي";
-"fullscreen_effect_starry_night" = "ليلة مرصعة بالنجوم";
-"fullscreen_effect_starry_night_motion" = "تم إنشاء النجوم المنجرفة · لون العمل الفني";
-"fullscreen_effect_starry_night_subtitle" = "تنجرف النجوم الملونة بالعمل الفني خلف السطر الغنائي الأخير";
 "icloud_cloud_schema_missing" = "مخطط الإنتاج iCloud مفقود \"%@\". إعادة المحاولة لا يمكن إصلاح هذا؛ يجب على المطور نشر مخطط CloudKit.";
 "immersive_current_lyric_accessibility" = "كلمات الأغاني الحالية: %@";
 "immersive_demo_album" = "soundisle";

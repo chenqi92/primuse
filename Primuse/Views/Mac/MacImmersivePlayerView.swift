@@ -531,7 +531,7 @@ struct MacImmersivePlayerView: View {
         switch presentationEffect {
         case .radialPulse, .vinylDeck, .particleBloom:
             .leading
-        case .coverGallery, .starryNight, .flowingLines,
+        case .coverGallery, .flowingLines,
              .auroraVeil, .spectrumHorizon:
             .trailing
         case .native:
