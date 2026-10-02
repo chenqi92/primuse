@@ -2987,7 +2987,7 @@
 "player_audio_info_off" = "Off";
 "player_audio_info_lossless_only" = "Lossless Only";
 "player_audio_info_always" = "Always";
-"player_audio_info_footer" = "Shown below the song title, for example FLAC · 24bit/96kHz. Tap it to see the sample rate your output device is actually using.";
+"player_audio_info_footer" = "Shown at the bottom of the player, for example FLAC · 24bit/96kHz. Tap it to see the sample rate your output device is actually using.";
 "player_audio_info_mac_hint" = "Format, bit rate and sample rate above the song title";
 "now_playing_audio_output_matched" = "Output %@ · Matches source";
 "now_playing_audio_output_resampled" = "Output %@ · Resampled";

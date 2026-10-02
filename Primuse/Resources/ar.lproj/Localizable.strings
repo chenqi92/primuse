@@ -2379,7 +2379,7 @@
 "player_audio_info_off" = "إيقاف";
 "player_audio_info_lossless_only" = "الصوت غير المضغوط فقط";
 "player_audio_info_always" = "دائمًا";
-"player_audio_info_footer" = "تظهر أسفل عنوان الأغنية، مثل FLAC · 24bit/96kHz. اضغط عليها لمعرفة معدل العينة الذي يستخدمه جهاز الإخراج فعليًا.";
+"player_audio_info_footer" = "تظهر في أسفل شاشة التشغيل، مثل FLAC · 24bit/96kHz. اضغط عليها لمعرفة معدل العينة الذي يستخدمه جهاز الإخراج فعليًا.";
 "player_audio_info_mac_hint" = "التنسيق ومعدل البت ومعدل العينة فوق عنوان الأغنية";
 "now_playing_audio_output_matched" = "الإخراج %@ · مطابق للمصدر";
 "now_playing_audio_output_resampled" = "الإخراج %@ · مع إعادة أخذ العينات";

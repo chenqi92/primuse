@@ -3767,7 +3767,7 @@
 "player_audio_info_off" = "Kapalı";
 "player_audio_info_lossless_only" = "Yalnızca kayıpsız";
 "player_audio_info_always" = "Her zaman";
-"player_audio_info_footer" = "Şarkı adının altında gösterilir, örneğin FLAC · 24bit/96kHz. Çıkışın gerçekte kullandığı örnekleme hızını görmek için dokunun.";
+"player_audio_info_footer" = "Oynatıcının alt kısmında gösterilir, örneğin FLAC · 24bit/96kHz. Çıkışın gerçekte kullandığı örnekleme hızını görmek için dokunun.";
 "player_audio_info_mac_hint" = "Şarkı adının üstünde biçim, bit hızı ve örnekleme hızı";
 "now_playing_audio_output_matched" = "Çıkış %@ · kaynakla aynı";
 "now_playing_audio_output_resampled" = "Çıkış %@ · yeniden örneklendi";

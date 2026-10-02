@@ -1975,10 +1975,16 @@ struct NowPlayingView: View {
                 if !showsQueueStrip {
                     Spacer(minLength: 0)
                 }
-                portraitBottomBar
-                    .padding(.top, showsQueueStrip ? 6 : 0)
-                    .padding(.bottom, bottomSafeArea)
-                    .pmLayoutSwitchFade()
+                VStack(spacing: 0) {
+                    portraitBottomBar
+                    if let song = player.currentSong {
+                        nowPlayingFooterInfo(for: song)
+                            .padding(.horizontal, 36)
+                    }
+                }
+                .padding(.top, showsQueueStrip ? 6 : 0)
+                .padding(.bottom, bottomSafeArea)
+                .pmLayoutSwitchFade()
             }
             .frame(maxHeight: .infinity)
         }
@@ -3890,23 +3896,9 @@ struct NowPlayingView: View {
             }
 
             if let song = player.currentSong {
-                HStack(spacing: 4) {
-                    if showsFormatInSourceRow(for: song) {
-                        Text(song.fileFormat.displayName)
-                        if let rate = OutputSampleRateTextPolicy.text(
-                            sourceSampleRate: song.sampleRate,
-                            outputSampleRate: player.audioEngine.observedOutputSampleRate
-                        ) { Text("·"); Text(verbatim: rate) }
-                    }
-                    if sourcesStore.sources.count > 1,
-                       let source = sourcesStore.source(id: song.sourceID) {
-                        if showsFormatInSourceRow(for: song) { Text("·") }
-                        Image(systemName: source.type.iconName)
-                        Text(source.name)
-                    }
-                }
-                .font(.caption2).foregroundStyle(appearance.faint)
-                .padding(.top, 6).padding(.bottom, 16)
+                nowPlayingFooterInfo(for: song)
+                    .padding(.horizontal, 36)
+                    .padding(.top, 1).padding(.bottom, 11)
             } else {
                 Spacer().frame(height: 16)
             }
@@ -4297,25 +4289,13 @@ struct NowPlayingView: View {
                             .pmLayoutSwitchFade()
                         }
 
-                        // Format & source
+                        // 音质、规格与来源
                         if let song = player.currentSong {
-                            HStack(spacing: 4) {
-                                if showsFormatInSourceRow(for: song) {
-                                    Text(song.fileFormat.displayName)
-                                    if let rate = OutputSampleRateTextPolicy.text(
-                                        sourceSampleRate: song.sampleRate,
-                                        outputSampleRate: player.audioEngine.observedOutputSampleRate
-                                    ) { Text("·"); Text(verbatim: rate) }
-                                }
-                                if sourcesStore.sources.count > 1,
-                                   let source = sourcesStore.source(id: song.sourceID) {
-                                    if showsFormatInSourceRow(for: song) { Text("·") }
-                                    Image(systemName: source.type.iconName)
-                                    Text(source.name)
-                                }
-                            }
-                            .font(.caption2).foregroundStyle(appearance.faint).padding(.top, 4).padding(.bottom, 6)
-                            .pmLayoutSwitchFade()
+                            nowPlayingFooterInfo(for: song)
+                                .padding(.horizontal, 26)
+                                .padding(.horizontal, insets.rows)
+                                .padding(.bottom, 2)
+                                .pmLayoutSwitchFade()
                         }
                     }
                 }
@@ -5351,7 +5331,6 @@ struct NowPlayingView: View {
                 .fixedSize()
             }
             nowPlayingMetadataLinks(font: metadataFont)
-            nowPlayingAudioInfoRow
             nowPlayingChapterLink
             nowPlayingMedleyBadge
         }
@@ -5361,37 +5340,33 @@ struct NowPlayingView: View {
         PlayerAppearancePreferences.audioInfoMode(rawValue: audioInfoModeRawValue)
     }
 
-    /// 歌名下那行音频信息按设置的档位出现时,底部那行就不再重复格式与采样率。
-    private func showsAudioInfoCapsule(for song: Song) -> Bool {
-        audioInfoMode.showsSummary(for: song.audioQuality)
-    }
-
-    /// 底部来源行里要不要带格式与采样率:关掉音频信息时不带,歌名下已经有那一行时也不带。
-    private func showsFormatInSourceRow(for song: Song) -> Bool {
-        audioInfoMode != .off && !showsAudioInfoCapsule(for: song)
-    }
-
-    @ViewBuilder
-    private var nowPlayingAudioInfoRow: some View {
-        if let song = player.currentSong, player.iCloudDownloadingSongID == song.id {
-            NowPlayingICloudDownloadNotice(
-                textColor: appearance.secondary,
-                fillColor: appearance.primary.opacity(appearance.isLight ? 0.07 : 0.10)
-            )
-            .padding(.top, 2)
-            // 两支在 VStack 里互换:各自出现时淡入,不做交叉过渡(过渡期间两支会同时占位)。
-            .pmAppearFade(.control)
-        } else if let song = player.currentSong, showsAudioInfoCapsule(for: song) {
-            NowPlayingAudioInfoCapsule(
-                song: song,
-                outputSampleRate: player.audioEngine.observedOutputSampleRate,
-                allowsOutputDetail: !player.isAppleMusicMode,
-                textColor: appearance.secondary,
-                fillColor: appearance.primary.opacity(appearance.isLight ? 0.07 : 0.10)
-            )
-            .padding(.top, 2)
-            .pmAppearFade(.trackChange)
+    /// 底部那行的音频信息:音乐按设置的档位给音质小标与完整规格,其余只写格式与采样率;
+    /// 有声内容不标音质。
+    private func footerAudioDetail(for song: Song) -> NowPlayingFooterInfoRow.AudioDetail {
+        guard audioInfoMode != .off else { return .hidden }
+        if !usesSpokenWordTransport, audioInfoMode.showsSummary(for: song.audioQuality) {
+            return .summary
         }
+        return .brief
+    }
+
+    /// 播放页最下面那行:音质、规格与来源(不止一个音乐源时)。起播前在 iCloud 下载时,
+    /// 音频信息那段换成下载提示。
+    private func nowPlayingFooterInfo(for song: Song) -> some View {
+        let source = sourcesStore.sources.count > 1 ? sourcesStore.source(id: song.sourceID) : nil
+        return NowPlayingFooterInfoRow(
+            song: song,
+            audioDetail: footerAudioDetail(for: song),
+            isDownloadingFromICloud: player.iCloudDownloadingSongID == song.id,
+            source: source.map {
+                NowPlayingFooterInfoRow.SourceLabel(iconName: $0.type.iconName, name: $0.name)
+            },
+            outputSampleRate: player.audioEngine.observedOutputSampleRate,
+            allowsOutputDetail: !player.isAppleMusicMode,
+            infoColor: appearance.tertiary,
+            sourceColor: appearance.faint,
+            noticeColor: appearance.secondary
+        )
     }
 
     /// 有声内容的一行小控件: 当前章节(点开是章节与书签列表)、上一章/下一章、

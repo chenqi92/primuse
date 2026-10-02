@@ -3218,7 +3218,7 @@
 "player_audio_info_off" = "オフ";
 "player_audio_info_lossless_only" = "ロスレスのみ";
 "player_audio_info_always" = "常に表示";
-"player_audio_info_footer" = "曲名の下に表示されます（例：FLAC · 24bit/96kHz）。タップすると、出力デバイスが実際に使用しているサンプルレートを確認できます。";
+"player_audio_info_footer" = "再生画面の下部に表示されます（例：FLAC · 24bit/96kHz）。タップすると、出力デバイスが実際に使用しているサンプルレートを確認できます。";
 "player_audio_info_mac_hint" = "曲名の上に表示するフォーマット、ビットレート、サンプルレート";
 "now_playing_audio_output_matched" = "出力 %@ · ソースと一致";
 "now_playing_audio_output_resampled" = "出力 %@ · リサンプリング";

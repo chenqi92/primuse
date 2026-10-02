@@ -3217,7 +3217,7 @@
 "player_audio_info_off" = "Aus";
 "player_audio_info_lossless_only" = "Nur verlustfrei";
 "player_audio_info_always" = "Immer";
-"player_audio_info_footer" = "Wird unter dem Titel angezeigt, z. B. FLAC · 24bit/96kHz. Tippe darauf, um die tatsächliche Abtastrate des Ausgabegeräts zu sehen.";
+"player_audio_info_footer" = "Wird unten im Player angezeigt, z. B. FLAC · 24bit/96kHz. Tippe darauf, um die tatsächliche Abtastrate des Ausgabegeräts zu sehen.";
 "player_audio_info_mac_hint" = "Format, Bitrate und Abtastrate über dem Titel";
 "now_playing_audio_output_matched" = "Ausgabe %@ · wie Quelle";
 "now_playing_audio_output_resampled" = "Ausgabe %@ · neu abgetastet";

@@ -3217,7 +3217,7 @@
 "player_audio_info_off" = "Désactivé";
 "player_audio_info_lossless_only" = "Sans perte uniquement";
 "player_audio_info_always" = "Toujours";
-"player_audio_info_footer" = "Affiché sous le titre, par exemple FLAC · 24bit/96kHz. Touchez-le pour voir la fréquence d’échantillonnage réellement utilisée par la sortie.";
+"player_audio_info_footer" = "Affiché en bas du lecteur, par exemple FLAC · 24bit/96kHz. Touchez-le pour voir la fréquence d’échantillonnage réellement utilisée par la sortie.";
 "player_audio_info_mac_hint" = "Format, débit et fréquence d’échantillonnage au-dessus du titre";
 "now_playing_audio_output_matched" = "Sortie %@ · identique à la source";
 "now_playing_audio_output_resampled" = "Sortie %@ · rééchantillonnée";

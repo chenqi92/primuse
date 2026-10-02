@@ -3318,7 +3318,7 @@
 "player_audio_info_off" = "关闭";
 "player_audio_info_lossless_only" = "仅无损音质";
 "player_audio_info_always" = "始终显示";
-"player_audio_info_footer" = "显示在歌名下方，例如 FLAC · 24bit/96kHz。轻点可查看输出设备实际使用的采样率。";
+"player_audio_info_footer" = "显示在播放页底部，例如 FLAC · 24bit/96kHz。轻点可查看输出设备实际使用的采样率。";
 "player_audio_info_mac_hint" = "播放页歌名上方的格式、码率与采样率";
 "now_playing_audio_output_matched" = "输出 %@ · 与源一致";
 "now_playing_audio_output_resampled" = "输出 %@ · 已重采样";

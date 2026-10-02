@@ -2379,7 +2379,7 @@
 "player_audio_info_off" = "Desativado";
 "player_audio_info_lossless_only" = "Somente sem perdas";
 "player_audio_info_always" = "Sempre";
-"player_audio_info_footer" = "Aparece abaixo do título, por exemplo FLAC · 24bit/96kHz. Toque para ver a taxa de amostragem usada de fato pela saída.";
+"player_audio_info_footer" = "Aparece na parte inferior do player, por exemplo FLAC · 24bit/96kHz. Toque para ver a taxa de amostragem usada de fato pela saída.";
 "player_audio_info_mac_hint" = "Formato, taxa de bits e taxa de amostragem acima do título";
 "now_playing_audio_output_matched" = "Saída %@ · igual à origem";
 "now_playing_audio_output_resampled" = "Saída %@ · reamostrada";

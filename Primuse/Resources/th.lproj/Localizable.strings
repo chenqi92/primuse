@@ -2379,7 +2379,7 @@
 "player_audio_info_off" = "ปิด";
 "player_audio_info_lossless_only" = "เฉพาะแบบไม่สูญเสีย";
 "player_audio_info_always" = "แสดงเสมอ";
-"player_audio_info_footer" = "แสดงใต้ชื่อเพลง เช่น FLAC · 24bit/96kHz แตะเพื่อดูอัตราสุ่มตัวอย่างที่อุปกรณ์เอาต์พุตใช้งานจริง";
+"player_audio_info_footer" = "แสดงที่ด้านล่างของหน้าเล่นเพลง เช่น FLAC · 24bit/96kHz แตะเพื่อดูอัตราสุ่มตัวอย่างที่อุปกรณ์เอาต์พุตใช้งานจริง";
 "player_audio_info_mac_hint" = "รูปแบบ บิตเรต และอัตราสุ่มตัวอย่างเหนือชื่อเพลง";
 "now_playing_audio_output_matched" = "เอาต์พุต %@ · ตรงกับต้นฉบับ";
 "now_playing_audio_output_resampled" = "เอาต์พุต %@ · สุ่มตัวอย่างใหม่";
