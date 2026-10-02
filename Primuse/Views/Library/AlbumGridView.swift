@@ -7,9 +7,18 @@ struct AlbumGridView: View {
     @State private var albumFilter = ""
     /// 只看喜欢的专辑。有喜欢的专辑时才给这个开关。
     @State private var showsLikedOnly = false
+    @AppStorage(AlbumGridOrder.storageKey) private var albumOrderRawValue = AlbumGridOrder.defaultOrder.rawValue
+    /// 后台按当前排序排好的全部专辑（见 `prepareOrderedAlbums`）。
+    @State private var orderedAlbums: AlbumGridOrderedAlbums?
     private let favorites = LibraryFavoritesStore.shared
 
     private var showsLikedFilter: Bool { showsLikedOnly || favorites.hasLikedAlbums }
+
+    private var albumOrder: AlbumGridOrder { .resolved(albumOrderRawValue) }
+
+    private var albumOrderBinding: Binding<AlbumGridOrder> {
+        Binding(get: { albumOrder }, set: { albumOrderRawValue = $0.rawValue })
+    }
 
     private func albumMenu(_ album: Album) -> some View {
         LibraryCollectionMenuItems(
@@ -20,20 +29,58 @@ struct AlbumGridView: View {
         )
     }
 
-    private var baseAlbums: [Album] {
-        showsLikedOnly ? favorites.likedAlbums(in: library.visibleAlbums) : library.visibleAlbums
+    private var orderRequest: AlbumGridOrderRequest {
+        AlbumGridOrderRequest(order: albumOrder, albums: library.visibleAlbums)
     }
 
+    /// 按当前排序排好的全部专辑，第一次排好之前为 nil。曲库刚变、或刚换了排序方式，
+    /// 新顺序还在后台排的那一小会儿沿用上一份，网格不先空一下。
+    private var sortedAlbums: [Album]? {
+        let request = orderRequest
+        if let orderedAlbums, orderedAlbums.request == request { return orderedAlbums.albums }
+        return AlbumGridOrderCache.shared.entry(for: request)?.albums ?? orderedAlbums?.albums
+    }
+
+    /// 排好的顺序里筛出喜欢的 / 匹配筛选词的，顺序保持。
     private var filteredAlbums: [Album] {
+        var albums = sortedAlbums ?? []
+        if showsLikedOnly {
+            albums = albums.filter { favorites.isLiked($0) }
+        }
         let query = albumFilter.trimmingCharacters(in: .whitespacesAndNewlines)
-        let base = baseAlbums
-        guard !query.isEmpty else { return base }
-        return base.filter { album in
+        guard !query.isEmpty else { return albums }
+        return albums.filter { album in
             album.title.localizedCaseInsensitiveContains(query)
                 || (album.artistName?.localizedCaseInsensitiveContains(query) ?? false)
                 || album.year.map(String.init)?.contains(query) == true
         }
     }
+
+    /// 拼音转写与按艺术家归集放到后台排，body 里不整库排序；排好的按「同一份可见专辑 +
+    /// 同一种排序」记在 `AlbumGridOrderCache` 里，换页回来直接用。
+    private func prepareOrderedAlbums(_ request: AlbumGridOrderRequest) async {
+        if let cached = AlbumGridOrderCache.shared.entry(for: request) {
+            if orderedAlbums?.request != request {
+                orderedAlbums = cached
+            }
+            return
+        }
+        let source = library.visibleAlbums
+        // 曲库在这一拍之后又发布过：body 会带着新的请求再来一次。
+        guard request.matches(source) else { return }
+        let order = request.order
+        let songs = order == .recentlyAdded ? library.visibleSongs : []
+        let unknownArtistName = String(localized: "unknown_artist")
+        let albums = await Task.detached(priority: .userInitiated) {
+            AlbumGridOrder.sorted(source, order: order, songs: songs, unknownArtistName: unknownArtistName)
+        }.value
+        // 已经有更新的请求在排：除非还一份都没有，不拿旧结果盖掉它。
+        guard !Task.isCancelled || orderedAlbums == nil else { return }
+        let entry = AlbumGridOrderedAlbums(request: request, source: source, albums: albums)
+        AlbumGridOrderCache.shared.store(entry)
+        orderedAlbums = entry
+    }
+
     #if !os(macOS)
     @Environment(\.pmHeightClass) private var heightClass
 
@@ -56,49 +103,60 @@ struct AlbumGridView: View {
             macGrid
                 .onReceive(NotificationCenter.default.publisher(for: .primuseDetailOpenAlbum)) { note in
                     guard let album = note.object as? Album,
-                          library.visibleAlbums.contains(where: { $0.id == album.id }) else { return }
+                          library.visibleAlbum(id: album.id) != nil else { return }
                     albumFilter = ""
                     openAlbum(album)
                 }
+                .task(id: orderRequest) { await prepareOrderedAlbums(orderRequest) }
             #else
-            ScrollView {
-                if filteredAlbums.isEmpty {
-                    ContentUnavailableView.search(text: albumFilter)
-                }
-                LazyVGrid(columns: columns, spacing: heightClass.value(20, compact: 14)) {
-                    ForEach(filteredAlbums) { album in
-                        NavigationLink(value: album) {
-                            AlbumCardView(album: album)
+            iosGrid(filteredAlbums, isPreparing: sortedAlbums == nil)
+                .pmExtendsUnderVerticalBar()
+                .searchable(
+                    text: $albumFilter,
+                    placement: .navigationBarDrawer(displayMode: .always),
+                    prompt: Text("filter_albums_placeholder")
+                )
+                .toolbar {
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        AlbumGridOrderMenu(order: albumOrderBinding)
+                        if showsLikedFilter {
+                            LibraryLikedFilterButton(isOn: $showsLikedOnly)
                         }
-                        .buttonStyle(.pmPressable)
-                        .contextMenu { albumMenu(album) }
-                        .accessibilityAction(named: Text(favorites.isLiked(album) ? "library_favorite_unlike" : "library_favorite_like")) {
-                            favorites.toggle(album)
-                        }
-                        .mediaZoomSource(.album, id: album.id)
                     }
                 }
-                .padding()
-            }
-            .pmExtendsUnderVerticalBar()
-            .searchable(
-                text: $albumFilter,
-                placement: .navigationBarDrawer(displayMode: .always),
-                prompt: Text("filter_albums_placeholder")
-            )
-            .toolbar {
-                if showsLikedFilter {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        LibraryLikedFilterButton(isOn: $showsLikedOnly)
-                    }
-                }
-            }
+                .task(id: orderRequest) { await prepareOrderedAlbums(orderRequest) }
             #endif
         }
     }
 
+    #if !os(macOS)
+    private func iosGrid(_ albums: [Album], isPreparing: Bool) -> some View {
+        ScrollView {
+            if isPreparing {
+                ProgressView()
+                    .frame(maxWidth: .infinity, minHeight: 240)
+            } else if albums.isEmpty {
+                ContentUnavailableView.search(text: albumFilter)
+            }
+            LazyVGrid(columns: columns, spacing: heightClass.value(20, compact: 14)) {
+                ForEach(albums) { album in
+                    NavigationLink(value: album) {
+                        AlbumCardView(album: album)
+                    }
+                    .buttonStyle(.pmPressable)
+                    .contextMenu { albumMenu(album) }
+                    .accessibilityAction(named: Text(favorites.isLiked(album) ? "library_favorite_unlike" : "library_favorite_like")) {
+                        favorites.toggle(album)
+                    }
+                    .mediaZoomSource(.album, id: album.id)
+                }
+            }
+            .padding()
+        }
+    }
+    #endif
+
     #if os(macOS)
-    @State private var albumSort: AlbumSortOrder = .year
     @State private var albumViewMode: AlbumViewMode = .grid
     @State private var selectedAlbumID: String?
 
@@ -109,85 +167,6 @@ struct AlbumGridView: View {
             switch self {
             case .grid: return "square.grid.2x2"
             case .list: return "list.bullet"
-            }
-        }
-    }
-
-    /// 设计稿 LIB-02 的排序维度: 发行年(默认) / 标题 / 艺术家 / 曲目数。
-    private enum AlbumSortOrder: CaseIterable, Hashable {
-        case year, title, artist, songCount
-
-        var label: String {
-            switch self {
-            case .year: return String(localized: "year_label")
-            case .title: return String(localized: "title_label")
-            case .artist: return String(localized: "artist_label")
-            case .songCount: return String(localized: "album_sort_song_count")
-            }
-        }
-    }
-
-    /// 排序结果按「同一份专辑数组 + 同一档排序 + 同一个筛选词」缓存。body 在扫描
-    /// 入库、悬停、打开专辑时都会重算, 以前每次都把全部专辑用 localizedCompare
-    /// 重排一遍。
-    @State private var macSortCache = MacAlbumSortCache()
-
-    private var sortedAlbums: [Album] {
-        let source = library.visibleAlbums
-        // 只看喜欢时，喜欢的增减也要让缓存失效。
-        let likedToken = showsLikedOnly ? favorites.revision : -1
-        if let cached = macSortCache.value(source: source, sort: albumSort, filter: albumFilter, likedToken: likedToken) {
-            return cached
-        }
-        let sorted: [Album]
-        switch albumSort {
-        case .title:
-            // visibleAlbums 已经按标题 localizedCompare 排好, 筛选保持顺序。
-            // 只看喜欢时底子是按喜欢先后排的, 要重排。
-            sorted = showsLikedOnly
-                ? filteredAlbums.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
-                : filteredAlbums
-        case .artist:
-            sorted = filteredAlbums.sorted {
-                ($0.artistName ?? "").localizedCompare($1.artistName ?? "") == .orderedAscending
-            }
-        case .year:
-            sorted = filteredAlbums.sorted { ($0.year ?? 0) > ($1.year ?? 0) }
-        case .songCount:
-            sorted = filteredAlbums.sorted { $0.songCount > $1.songCount }
-        }
-        macSortCache.store(sorted, source: source, sort: albumSort, filter: albumFilter, likedToken: likedToken)
-        return sorted
-    }
-
-    /// 不是 Observable: 在 body 里写它不会引起重绘。持有输入数组本身, 所以它的
-    /// 存储地址在缓存期间不会被别的数组复用, 可以拿地址判断是不是同一份。
-    private final class MacAlbumSortCache {
-        private var source: [Album] = []
-        private var sort: AlbumSortOrder?
-        private var filter = ""
-        private var likedToken = -1
-        private var value: [Album] = []
-
-        func value(source: [Album], sort: AlbumSortOrder, filter: String, likedToken: Int) -> [Album]? {
-            guard self.sort == sort, self.filter == filter, self.likedToken == likedToken,
-                  Self.sameStorage(self.source, source) else { return nil }
-            return value
-        }
-
-        func store(_ value: [Album], source: [Album], sort: AlbumSortOrder, filter: String, likedToken: Int) {
-            self.source = source
-            self.sort = sort
-            self.filter = filter
-            self.likedToken = likedToken
-            self.value = value
-        }
-
-        private static func sameStorage(_ lhs: [Album], _ rhs: [Album]) -> Bool {
-            guard lhs.count == rhs.count else { return false }
-            guard !lhs.isEmpty else { return true }
-            return lhs.withUnsafeBufferPointer { l in
-                rhs.withUnsafeBufferPointer { r in l.baseAddress == r.baseAddress }
             }
         }
     }
@@ -213,16 +192,20 @@ struct AlbumGridView: View {
 
     private var selectedAlbum: Album? {
         guard let selectedAlbumID else { return nil }
-        return library.visibleAlbums.first { $0.id == selectedAlbumID }
+        return library.visibleAlbum(id: selectedAlbumID)
     }
 
     private var macAlbumOverview: some View {
-        let albums = sortedAlbums
+        let albums = filteredAlbums
         return ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
                 albumsHeader(displayedCount: albums.count)
 
-                if albums.isEmpty {
+                if sortedAlbums == nil {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity, minHeight: 280)
+                } else if albums.isEmpty {
                     ContentUnavailableView.search(text: albumFilter)
                         .frame(maxWidth: .infinity, minHeight: 280)
                         .padding(.horizontal, PMSpace.xxxl)
@@ -295,7 +278,7 @@ struct AlbumGridView: View {
                     format: String(localized: "album_grid_count_sort_format"),
                     displayedCount,
                     library.visibleAlbums.count,
-                    albumSort.label
+                    albumOrder.label
                 ))
                     .font(.system(size: 12))
                     .foregroundStyle(PMColor.textFaint)
@@ -365,8 +348,8 @@ struct AlbumGridView: View {
 
     private var albumSortMenu: some View {
         Menu {
-            Picker("sort_by", selection: $albumSort) {
-                ForEach(AlbumSortOrder.allCases, id: \.self) { order in
+            Picker("sort_by", selection: albumOrderBinding) {
+                ForEach(AlbumGridOrder.menuCases, id: \.self) { order in
                     Text(verbatim: order.label).tag(order)
                 }
             }
@@ -375,7 +358,7 @@ struct AlbumGridView: View {
             HStack(spacing: 4) {
                 Image(systemName: "arrow.up.arrow.down")
                     .font(.system(size: 10, weight: .semibold))
-                Text(verbatim: albumSort.label)
+                Text(verbatim: albumOrder.label)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 9, weight: .semibold))
             }
@@ -458,3 +441,152 @@ struct AlbumGridView: View {
     }
     #endif
 }
+
+/// 专辑页的排序方式。前四种与电视专辑墙同一套口径（Kit `LibraryAlbumBrowseOrder`：
+/// 名字先转写成拉丁字母再排，「Beyond」和「北京」都在 B 下；按艺术家时同一位的专辑按年份
+/// 从早到晚）；Mac 另有「曲目数」。
+enum AlbumGridOrder: String, Hashable, Sendable {
+    case artist
+    case title
+    case year
+    case recentlyAdded
+    case songCount
+
+    static let storageKey = "primuse.library.albumSort.v1"
+
+    #if os(macOS)
+    /// 设计稿 LIB-02 的维度在前，发行年为默认。
+    static let menuCases: [AlbumGridOrder] = [.year, .title, .artist, .recentlyAdded, .songCount]
+    static let defaultOrder: AlbumGridOrder = .year
+    #else
+    static let menuCases: [AlbumGridOrder] = [.artist, .title, .year, .recentlyAdded]
+    static let defaultOrder: AlbumGridOrder = .title
+    #endif
+
+    static func resolved(_ rawValue: String) -> AlbumGridOrder {
+        guard let order = AlbumGridOrder(rawValue: rawValue), menuCases.contains(order) else {
+            return defaultOrder
+        }
+        return order
+    }
+
+    var browseOrder: LibraryAlbumBrowseOrder? {
+        switch self {
+        case .artist: return .artist
+        case .title: return .title
+        case .year: return .year
+        case .recentlyAdded: return .recentlyAdded
+        case .songCount: return nil
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .artist: return String(localized: "artist_label")
+        case .title: return String(localized: "title_label")
+        case .year: return String(localized: "year_label")
+        case .recentlyAdded: return String(localized: "recently_added")
+        case .songCount: return String(localized: "album_sort_song_count")
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .artist: return "person"
+        // 不用 textformat:它在中文环境下被系统换成「格式」两个字。
+        case .title: return "abc"
+        case .year: return "calendar"
+        case .recentlyAdded: return "clock"
+        case .songCount: return "music.note.list"
+        }
+    }
+
+    /// 在后台调用。「曲目数」多的在前，一样多的按标题。
+    static func sorted(
+        _ albums: [Album],
+        order: AlbumGridOrder,
+        songs: [Song],
+        unknownArtistName: String
+    ) -> [Album] {
+        guard let browseOrder = order.browseOrder else {
+            let byTitle = LibraryAlbumBrowseLayoutBuilder.layout(
+                albums: albums, order: .title, unknownArtistName: unknownArtistName
+            ).items
+            return byTitle.indices.sorted { lhs, rhs in
+                let lhsCount = byTitle[lhs].songCount
+                let rhsCount = byTitle[rhs].songCount
+                return lhsCount != rhsCount ? lhsCount > rhsCount : lhs < rhs
+            }.map { byTitle[$0] }
+        }
+        return LibraryAlbumBrowseLayoutBuilder.layout(
+            albums: albums, order: browseOrder, songs: songs, unknownArtistName: unknownArtistName
+        ).items
+    }
+}
+
+/// 一次排序的输入：排序方式 + 曲库的可见专辑数组本身。曲库每次发布都换一份新数组，
+/// 所以数组按存储地址与个数认；排好的结果（`AlbumGridOrderedAlbums`）留着那份数组，
+/// 它的地址在被留着期间不会分给别的数组。
+struct AlbumGridOrderRequest: Hashable, Sendable {
+    let order: AlbumGridOrder
+    private let sourceAddress: Int
+    private let sourceCount: Int
+
+    init(order: AlbumGridOrder, albums: [Album]) {
+        self.order = order
+        sourceCount = albums.count
+        sourceAddress = albums.withUnsafeBufferPointer { buffer in
+            buffer.baseAddress.map { Int(bitPattern: $0) } ?? 0
+        }
+    }
+
+    func matches(_ albums: [Album]) -> Bool {
+        self == AlbumGridOrderRequest(order: order, albums: albums)
+    }
+}
+
+/// 排好的专辑，连同排它时的那份可见专辑数组（留着它，见 `AlbumGridOrderRequest`）。
+struct AlbumGridOrderedAlbums {
+    let request: AlbumGridOrderRequest
+    let source: [Album]
+    let albums: [Album]
+}
+
+/// 最近一次排好的结果，各专辑页共用：换页回来、iPad 侧栏和资料库里同时开着都不必重排。
+/// 不是 Observable：body 里读它不会引起重绘，结果由各页自己的 @State 交付。
+@MainActor
+final class AlbumGridOrderCache {
+    static let shared = AlbumGridOrderCache()
+
+    private var latest: AlbumGridOrderedAlbums?
+
+    func entry(for request: AlbumGridOrderRequest) -> AlbumGridOrderedAlbums? {
+        latest?.request == request ? latest : nil
+    }
+
+    func store(_ entry: AlbumGridOrderedAlbums) {
+        latest = entry
+    }
+}
+
+#if !os(macOS)
+/// 专辑页工具栏的排序菜单。工具栏条目跑在自己的视图图里，只收 Binding、不读环境。
+private struct AlbumGridOrderMenu: View {
+    @Binding var order: AlbumGridOrder
+
+    var body: some View {
+        Menu {
+            Picker("sort_by", selection: $order) {
+                ForEach(AlbumGridOrder.menuCases, id: \.self) { option in
+                    Label(option.label, systemImage: option.systemImage)
+                        .tag(option)
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Label("sort_by", systemImage: "arrow.up.arrow.down")
+        }
+        .accessibilityIdentifier("albumGrid.sort")
+    }
+}
+#endif

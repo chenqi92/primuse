@@ -19,6 +19,37 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         }
     }
 
+    func testAlbumGridOrderFollowsTheTVWallAndKeepsOnlyOfferedOrders() {
+        XCTAssertEqual(AlbumGridOrder.resolved("artist"), .artist)
+        XCTAssertEqual(AlbumGridOrder.resolved("liked"), AlbumGridOrder.defaultOrder)
+        XCTAssertEqual(AlbumGridOrder.resolved(""), AlbumGridOrder.defaultOrder)
+        #if os(iOS)
+        XCTAssertEqual(AlbumGridOrder.resolved("songCount"), .title, "曲目数只在 Mac 上提供")
+        #endif
+
+        let albums = [
+            Album(id: "a", title: "Zebra", artistName: "Beyond", year: 1993, songCount: 10),
+            Album(id: "b", title: "北京故事", artistName: "崔健", year: 1994, songCount: 8),
+            Album(id: "c", title: "Apple", artistName: "崔健", year: 1989, songCount: 12),
+            Album(id: "d", title: "海阔天空", artistName: "Beyond", year: 1991, songCount: 3),
+        ]
+        func order(_ order: AlbumGridOrder) -> [String] {
+            AlbumGridOrder.sorted(albums, order: order, songs: [], unknownArtistName: "未知艺术家").map(\.id)
+        }
+        // 中文按拼音和拉丁字母交错：Beyond、崔健各自归集，同一位按年份从早到晚。
+        XCTAssertEqual(order(.artist), ["d", "a", "c", "b"])
+        XCTAssertEqual(order(.title), ["c", "b", "d", "a"])
+        XCTAssertEqual(order(.year), ["b", "a", "d", "c"])
+        XCTAssertEqual(order(.songCount), ["c", "a", "b", "d"])
+
+        let request = AlbumGridOrderRequest(order: .title, albums: albums)
+        XCTAssertTrue(request.matches(albums))
+        XCTAssertFalse(AlbumGridOrderRequest(order: .artist, albums: albums) == request)
+        var republished = albums
+        republished[0].title = "Zebra II"
+        XCTAssertFalse(request.matches(republished), "曲库发布的新数组不能认成已经排好的那份")
+    }
+
     func testHomeAndListeningStatsKeepTheSameHistoricalCounts() {
         let calendar = ListeningCalendar.make(locale: Locale(identifier: "zh_CN"), timeZone: TimeZone(identifier: "Asia/Shanghai")!)
         let now = calendar.date(from: DateComponents(year: 2026, month: 9, day: 6, hour: 12))!
