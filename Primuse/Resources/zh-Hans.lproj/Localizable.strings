@@ -1208,6 +1208,12 @@
 
 // MARK: - 首页推荐 / 常听 / 继续听
 "home_for_you_title" = "为你推荐";
+"home_for_you_ai_badge" = "智能";
+"ai_home_hint_title" = "开启智能推荐，按心情和场景为你排歌";
+"ai_home_hint_detail" = "使用内置 AI，会发送搜索词和精简的听歌偏好";
+"ai_home_hint_enable" = "开启";
+"ai_home_hint_learn_more" = "了解更多";
+"ai_home_hint_dismiss" = "不再显示";
 "home_top_artists_title" = "常听艺术家";
 "home_continue_listening" = "继续听";
 "home_todays_pick_title" = "今日精选";
@@ -3383,6 +3389,19 @@
 "ai_privacy_footer" = "API 密钥保存在钥匙串中；推荐不会上传文件路径、完整听歌历史或音频。局域网 HTTP 需单独允许。";
 "ai_enable_recommendations" = "智能场景推荐";
 "ai_capabilities_footer" = "搜索会扩展描述性查询；场景推荐只重排本地候选歌曲。智能服务失败不会影响本地推荐或播放。";
+"ai_settings_engine_label" = "正在使用";
+"ai_settings_engine_builtin" = "内置 AI";
+"ai_settings_engine_own_format" = "我的 AI 服务 · %@";
+"ai_settings_engine_offline" = "离线素材包（仅歌词翻译）";
+"ai_settings_engine_none" = "未开启";
+"ai_settings_lyrics_translation_footer" = "歌词翻译与「歌词」设置里的是同一个开关；选「智能翻译」时由智能服务翻译，不可用时自动改用系统翻译。";
+"ai_settings_relay_test_needs_relay" = "打开内置 AI 后可以测试连接。";
+"ai_settings_advanced_title" = "高级";
+"ai_settings_advanced_detail" = "连接测试、我的 AI 服务、降级与隐私";
+"ai_settings_advanced_expanded" = "已展开";
+"ai_settings_advanced_collapsed" = "已收起";
+"ai_settings_advanced_show" = "展开";
+"ai_settings_advanced_hide" = "收起";
 "ai_listening_context_consent" = "允许发送精简听歌偏好与候选歌曲信息";
 "ai_recommendation_home_title" = "场景推荐";
 "ai_recommendation_scene_automatic" = "此刻";

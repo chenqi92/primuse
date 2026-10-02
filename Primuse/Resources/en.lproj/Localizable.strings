@@ -1192,6 +1192,12 @@
 
 // MARK: - Home: For You / Top Artists / Continue Listening
 "home_for_you_title" = "For You";
+"home_for_you_ai_badge" = "AI";
+"ai_home_hint_title" = "Turn on smart picks, arranged for your mood and moment";
+"ai_home_hint_detail" = "Uses the built-in AI and sends your searches and a brief summary of what you play";
+"ai_home_hint_enable" = "Turn On";
+"ai_home_hint_learn_more" = "Learn More";
+"ai_home_hint_dismiss" = "Don't Show Again";
 "home_top_artists_title" = "Frequently Listened";
 "home_continue_listening" = "Continue Listening";
 "home_todays_pick_title" = "Today's Pick";
@@ -3052,6 +3058,19 @@
 "ai_privacy_footer" = "API keys stay in Keychain. Recommendations never include file paths, complete listening history, or audio; local HTTP requires separate approval.";
 "ai_enable_recommendations" = "Intelligent scene recommendations";
 "ai_capabilities_footer" = "Search expands descriptive queries. Recommendations only reorder local candidates. A service failure never interrupts local recommendations or playback.";
+"ai_settings_engine_label" = "In Use";
+"ai_settings_engine_builtin" = "Built-in AI";
+"ai_settings_engine_own_format" = "Your AI Service · %@";
+"ai_settings_engine_offline" = "Offline packs (lyric translation only)";
+"ai_settings_engine_none" = "Off";
+"ai_settings_lyrics_translation_footer" = "Lyric translation is the same switch as in Lyrics settings. With Intelligent Translation the AI service translates, falling back to system translation when it's unavailable.";
+"ai_settings_relay_test_needs_relay" = "Turn on the built-in AI to test its connection.";
+"ai_settings_advanced_title" = "Advanced";
+"ai_settings_advanced_detail" = "Connection test, your AI services, fallback and privacy";
+"ai_settings_advanced_expanded" = "Expanded";
+"ai_settings_advanced_collapsed" = "Collapsed";
+"ai_settings_advanced_show" = "Show";
+"ai_settings_advanced_hide" = "Hide";
 "ai_listening_context_consent" = "Allow sending minimized listening preferences and candidate details";
 "ai_recommendation_home_title" = "Scene Recommendations";
 "ai_recommendation_scene_automatic" = "Right Now";

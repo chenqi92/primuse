@@ -2036,6 +2036,50 @@ final class OpenAICompatibleProviderTests: XCTestCase {
     }
 
     @MainActor
+    func testHomeHintTurnsOnBuiltInIntelligenceAndOpenSettingsFollow() async throws {
+        let defaults = try XCTUnwrap(UserDefaults(
+            suiteName: "PrimuseAIRelayClientTests.\(UUID().uuidString)"
+        ))
+        let settings = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
+        var provider = AIRemoteProviderConfiguration(id: UUID(), baseURL: "https://ai.example.com/v1")
+        provider.isEnabled = true
+        provider.generationModel = "test-model"
+        try settings.save(
+            providerSet: AIRemoteProviderSet(providers: [provider]),
+            primuseRelayEnabled: false,
+            semanticSearchEnabled: false,
+            recommendationsEnabled: false,
+            hasExplicitRemoteConsent: false,
+            hasExplicitListeningContextConsent: false
+        )
+        let intelligence = MusicIntelligenceService(
+            settingsStore: settings,
+            credentialStore: TestAICredentialStore()
+        )
+        let editor = AISettingsEditorModel()
+        await editor.load(using: intelligence)
+        XCTAssertFalse(editor.primuseRelayEnabled)
+
+        try intelligence.enableBuiltInIntelligence()
+
+        XCTAssertTrue(settings.primuseRelayEnabled)
+        XCTAssertTrue(settings.semanticSearchEnabled)
+        XCTAssertTrue(settings.recommendationsEnabled)
+        XCTAssertTrue(settings.hasExplicitRemoteConsent)
+        XCTAssertTrue(settings.hasExplicitListeningContextConsent)
+        XCTAssertEqual(settings.providerSet.routedProviders.map(\.generationModel), ["test-model"])
+
+        // An open settings page adopts every switch instead of writing the old values back.
+        editor.adoptStoredConsent(from: intelligence)
+        XCTAssertTrue(editor.primuseRelayEnabled)
+        XCTAssertTrue(editor.semanticSearchEnabled)
+        XCTAssertTrue(editor.recommendationsEnabled)
+        XCTAssertTrue(editor.consent)
+        XCTAssertTrue(editor.listeningContextConsent)
+        XCTAssertFalse(editor.hasUnsavedChanges)
+    }
+
+    @MainActor
     func testOpenAIPlatformSettingsCopyAndCredentialValidationStayScopedToOfficialAPI() {
         let editor = AISettingsEditorModel()
         editor.applyProviderPreset(.openAI)

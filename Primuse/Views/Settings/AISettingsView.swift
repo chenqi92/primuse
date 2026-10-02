@@ -354,13 +354,66 @@ final class AISettingsEditorModel {
         didLoad = true
     }
 
-    /// Picks up the consent switch when it changed outside this page (the
-    /// tag tidy-up prompt, another device), so the next autosave here does not
-    /// write the old value back. A change the listener is making here wins.
+    /// Picks up the switches that changed outside this page (the tag tidy-up
+    /// prompt, the home page's "turn on" card, another device), so the next
+    /// autosave here does not write the old values back. A change the
+    /// listener is making here wins.
     func adoptStoredConsent(from intelligence: MusicIntelligenceService) {
-        guard didLoad, consent == savedConsent else { return }
-        consent = intelligence.settingsStore.hasExplicitRemoteConsent
-        savedConsent = consent
+        guard didLoad else { return }
+        let store = intelligence.settingsStore
+        if consent == savedConsent {
+            consent = store.hasExplicitRemoteConsent
+            savedConsent = consent
+        }
+        if listeningContextConsent == savedListeningContextConsent {
+            listeningContextConsent = store.hasExplicitListeningContextConsent
+            savedListeningContextConsent = listeningContextConsent
+        }
+        if primuseRelayEnabled == savedPrimuseRelayEnabled {
+            primuseRelayEnabled = store.primuseRelayEnabled
+            savedPrimuseRelayEnabled = primuseRelayEnabled
+        }
+        if semanticSearchEnabled == savedSemanticSearchEnabled {
+            semanticSearchEnabled = store.semanticSearchEnabled
+            savedSemanticSearchEnabled = semanticSearchEnabled
+        }
+        if recommendationsEnabled == savedRecommendationsEnabled {
+            recommendationsEnabled = store.recommendationsEnabled
+            savedRecommendationsEnabled = recommendationsEnabled
+        }
+    }
+
+    /// 智能功能此刻由谁来做,设置页第一段的状态行。加载完之前不下结论。
+    func activeEngine(hasOfflinePacks: Bool) -> AIActiveEngine? {
+        guard didLoad else { return nil }
+        return AIActiveEngine.resolve(
+            relayEnabled: primuseRelayEnabled,
+            relaySupportedOnDevice: PrimuseAIRelayClient.isSupportedOnCurrentDevice,
+            primaryProviderID: draftProviderSet.primaryProviderID,
+            providers: draftProviderSet.providers.map {
+                AIProviderSetupSummary(id: $0.id, state: setupState(for: $0) ?? .disabled)
+            },
+            hasOfflinePacks: hasOfflinePacks
+        )
+    }
+
+    /// 状态行的文字:「内置 AI」「我的 AI 服务 · DeepSeek」「离线素材包(仅歌词翻译)」「未开启」。
+    func activeEngineTitle(_ engine: AIActiveEngine) -> String {
+        switch engine {
+        case .builtIn:
+            return String(localized: "ai_settings_engine_builtin")
+        case .ownService(let providerID):
+            let name = draftProviderSet.providers.first { $0.id == providerID }?.displayName
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return String(
+                format: String(localized: "ai_settings_engine_own_format"),
+                name.isEmpty ? String(localized: "ai_provider_default_name") : name
+            )
+        case .offlinePacks:
+            return String(localized: "ai_settings_engine_offline")
+        case .none:
+            return String(localized: "ai_settings_engine_none")
+        }
     }
 
     func configurationBinding<Value>(
@@ -933,6 +986,20 @@ struct AISettingsView: View {
     /// 正在编辑的服务。导航挂在页面根上:引导行在密钥填好后就会消失,
     /// 不能让它自己持有被推出去的详情页。
     @State private var editingProviderID: UUID?
+    /// 歌词翻译开关与「歌词」设置页同源。
+    @State private var lyricsTranslation = LyricsTranslationSettingsStore.shared
+    /// 「高级」(连接测试、我的 AI 服务、降级、隐私)展开过就记着,下次进来照旧展开。
+    @AppStorage("primuse.ai.settings.advancedExpanded") private var showsAdvanced = false
+    @Environment(\.settingsFocusedAnchor) private var focusedSettingsAnchor
+
+    /// 设置搜索要定位到「高级」里的项目时,先把它展开。
+    private static let advancedAnchors: Set<String> = [
+        "intelligence.relayTest",
+        "intelligence.providers",
+        "intelligence.fallback",
+        "intelligence.addProvider",
+        "intelligence.privacy",
+    ]
 
     var body: some View {
         Form {
@@ -956,13 +1023,20 @@ struct AISettingsView: View {
                 if !usesCompactMobileLayout {
                     connectionSummary
                 }
+                // ① 一键开关与当前状态;② 各项功能;③ 服务商、降级、隐私与测试收在「高级」里。
                 primuseRelaySection
                 capabilitySection
                 tagCleanupSection
-                providerListSection
-                privacySection
+                advancedSection
+                if showsAdvanced {
+                    primuseRelayConnectionSection
+                    providerListSection
+                    privacySection
+                }
             }
         }
+        .onAppear(perform: expandAdvancedForFocusedSetting)
+        .onChange(of: focusedSettingsAnchor) { _, _ in expandAdvancedForFocusedSetting() }
         .navigationTitle("ai_settings_title")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -1031,6 +1105,33 @@ struct AISettingsView: View {
 
             serviceGuidanceRow
 
+            if let engine = editor.activeEngine(hasOfflinePacks: hasOfflineTranslationPacks) {
+                LabeledContent("ai_settings_engine_label") {
+                    Text(verbatim: editor.activeEngineTitle(engine))
+                        .foregroundStyle(engine == .none ? Color.secondary : Color.primary)
+                }
+                .accessibilityIdentifier("ai.settings.engine")
+            }
+            if !PrimuseAIRelayClient.isSupportedOnCurrentDevice {
+                Label(
+                    "ai_primuse_relay_unsupported",
+                    systemImage: "exclamationmark.shield"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        } header: {
+            if !usesCompactMobileLayout {
+                Text("ai_primuse_relay_section")
+            }
+        } footer: {
+            Text("ai_primuse_relay_footer")
+        }
+    }
+
+    /// 「高级」里的第一组:内置 AI 的连接测试与结果。
+    private var primuseRelayConnectionSection: some View {
+        Section {
             if !usesCompactMobileLayout || editor.primuseRelayEnabled {
                 Button {
                     Task { await editor.testPrimuseRelayConnection(using: intelligence) }
@@ -1064,21 +1165,53 @@ struct AISettingsView: View {
                     }
                     .accessibilityElement(children: .combine)
                 }
-                if !PrimuseAIRelayClient.isSupportedOnCurrentDevice {
-                    Label(
-                        "ai_primuse_relay_unsupported",
-                        systemImage: "exclamationmark.shield"
-                    )
+            } else {
+                Text("ai_settings_relay_test_needs_relay")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                }
             }
         } header: {
-            if !usesCompactMobileLayout {
-                Text("ai_primuse_relay_section")
+            Text("ai_connection_section")
+        }
+    }
+
+    /// ③ 的折叠开关。
+    private var advancedSection: some View {
+        Section {
+            Button {
+                withAnimation(.snappy(duration: 0.25)) { showsAdvanced.toggle() }
+            } label: {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("ai_settings_advanced_title")
+                            .foregroundStyle(.primary)
+                        Text("ai_settings_advanced_detail")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(showsAdvanced ? 90 : 0))
+                }
+                .contentShape(Rectangle())
             }
-        } footer: {
-            Text("ai_primuse_relay_footer")
+            .accessibilityValue(Text(showsAdvanced ? "ai_settings_advanced_expanded" : "ai_settings_advanced_collapsed"))
+            .accessibilityIdentifier("ai.settings.advanced")
+        }
+    }
+
+    private func expandAdvancedForFocusedSetting() {
+        guard let focusedSettingsAnchor,
+              Self.advancedAnchors.contains(focusedSettingsAnchor),
+              !showsAdvanced else { return }
+        showsAdvanced = true
+    }
+
+    private var hasOfflineTranslationPacks: Bool {
+        LocalLyricsTranslationModel.Pack.allCases.contains {
+            LocalLyricsTranslationService.shared.modelState(for: $0) == .ready
         }
     }
 
@@ -1156,10 +1289,22 @@ struct AISettingsView: View {
                 isOn: editor.recommendationsBinding
             )
             .settingsAnchor("intelligence.recommendations")
+            Toggle("lyrics_translation_enabled", isOn: $lyricsTranslation.isEnabled)
+                .settingsAnchor("intelligence.lyricsTranslation")
+            if lyricsTranslation.isEnabled {
+                Picker("lyrics_translation_mode", selection: $lyricsTranslation.mode) {
+                    Text("lyrics_translation_mode_system")
+                        .tag(LyricsTranslationMode.system)
+                    Text("lyrics_translation_mode_intelligent")
+                        .tag(LyricsTranslationMode.intelligentWithSystemFallback)
+                }
+            }
         } header: {
             if usesCompactMobileLayout {
                 Text("ai_capability_section")
             }
+        } footer: {
+            Text("ai_settings_lyrics_translation_footer")
         }
     }
 
@@ -1427,6 +1572,7 @@ struct AISettingsView: View {
             )
         } header: {
             Text("ai_privacy_section")
+                .settingsAnchor("intelligence.privacy")
         } footer: {
             if !usesCompactMobileLayout {
                 Text("ai_privacy_footer")

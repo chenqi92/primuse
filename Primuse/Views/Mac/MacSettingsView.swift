@@ -873,8 +873,21 @@ private struct MacSTIntelligenceView: View {
     @State private var showsRemoveProviderConfirmation = false
     @State private var showsProviderDetails = false
     @State private var providerEditorScrollRequest = 0
+    /// 歌词翻译开关与「歌词」设置页同源。
+    @State private var lyricsTranslation = LyricsTranslationSettingsStore.shared
+    /// 「高级」(连接测试、我的 AI 服务、降级、隐私)展开过就记着。
+    @AppStorage("primuse.ai.settings.advancedExpanded") private var showsAdvanced = false
+    @Environment(\.settingsFocusedAnchor) private var focusedSettingsAnchor
 
     private static let providerEditorAnchor = "intelligence.providerEditor"
+    /// 设置搜索要定位到「高级」里的项目时,先把它展开。
+    private static let advancedAnchors: Set<String> = [
+        "intelligence.relayTest",
+        "intelligence.providers",
+        "intelligence.fallback",
+        "intelligence.addProvider",
+        "intelligence.privacy",
+    ]
 
     var body: some View {
         ScrollViewReader { scrollProxy in
@@ -902,10 +915,14 @@ private struct MacSTIntelligenceView: View {
                 }
             }
             } else {
+            // ① 一键开关与当前状态;② 各项功能;③ 服务商、降级、隐私与测试收在「高级」里。
             statusCard
             primuseRelaySection
 
-            MacSTSection(String(localized: "ai_capability_section")) {
+            MacSTSection(
+                String(localized: "ai_capability_section"),
+                hint: String(localized: "ai_settings_lyrics_translation_footer")
+            ) {
                 MacSTGroup {
                     MacSTRow(
                         String(localized: "ai_enable_semantic_search"),
@@ -920,6 +937,24 @@ private struct MacSTIntelligenceView: View {
                         MacSTToggle(isOn: editor.recommendationsBinding)
                     }
                     .settingsAnchor("intelligence.recommendations")
+                    MacSTRow(String(localized: "lyrics_translation_enabled")) {
+                        MacSTToggle(isOn: $lyricsTranslation.isEnabled.pmAnimated(.list))
+                    }
+                    .settingsAnchor("intelligence.lyricsTranslation")
+                    if lyricsTranslation.isEnabled {
+                        MacSTRow(String(localized: "lyrics_translation_mode")) {
+                            MacSTPicker(
+                                selection: $lyricsTranslation.mode,
+                                options: [
+                                    (.system, String(localized: "lyrics_translation_mode_system")),
+                                    (.intelligentWithSystemFallback,
+                                     String(localized: "lyrics_translation_mode_intelligent")),
+                                ],
+                                width: 220
+                            )
+                        }
+                        .pmSlideTransition(edge: .top, motion: .list)
+                    }
                     MacSTRow(
                         String(localized: "tag_tidy_ai_settings_action"),
                         hint: String(localized: "tag_tidy_ai_settings_footer")
@@ -935,6 +970,10 @@ private struct MacSTIntelligenceView: View {
                 }
             }
 
+            advancedToggleSection
+
+            if showsAdvanced {
+            primuseRelayConnectionSection
             providerListSection
             providerDetailToggleSection
 
@@ -1072,6 +1111,7 @@ private struct MacSTIntelligenceView: View {
                     MacSTRow(String(localized: "ai_remote_consent")) {
                         MacSTToggle(isOn: editor.consentBinding)
                     }
+                    .settingsAnchor("intelligence.privacy")
                     MacSTRow(
                         String(localized: "ai_listening_context_consent")
                     ) {
@@ -1119,7 +1159,10 @@ private struct MacSTIntelligenceView: View {
                 }
             }
             }
+            }
         }
+        .onAppear(perform: expandAdvancedForFocusedSetting)
+        .onChange(of: focusedSettingsAnchor) { _, _ in expandAdvancedForFocusedSetting() }
         .task(id: providerEditorScrollRequest) {
             guard providerEditorScrollRequest > 0 else { return }
             // 等展开的编辑区先排进布局,再滚过去。
@@ -1158,8 +1201,34 @@ private struct MacSTIntelligenceView: View {
                 }
                 .settingsAnchor("intelligence.relay")
                 serviceGuidanceRow
+                if let engine = editor.activeEngine(hasOfflinePacks: hasOfflineTranslationPacks) {
+                    MacSTRow(String(localized: "ai_settings_engine_label")) {
+                        Text(verbatim: editor.activeEngineTitle(engine))
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(engine == .none ? PMColor.textFaint : PMColor.text)
+                            .lineLimit(1)
+                    }
+                }
+                if !PrimuseAIRelayClient.isSupportedOnCurrentDevice {
+                    MacSTRow(
+                        String(localized: "ai_primuse_relay_unsupported"),
+                        divider: false
+                    ) {
+                        Image(systemName: "exclamationmark.shield")
+                            .foregroundStyle(PMColor.textFaint)
+                    }
+                }
+            }
+        }
+    }
+
+    /// 「高级」里的第一组:内置 AI 的连接测试与结果。
+    private var primuseRelayConnectionSection: some View {
+        MacSTSection(String(localized: "ai_connection_section")) {
+            MacSTGroup {
                 MacSTRow(
-                    String(localized: "ai_connection_section")
+                    String(localized: "ai_primuse_relay_name"),
+                    divider: false
                 ) {
                     HStack(spacing: 8) {
                         if editor.isTestingPrimuseRelay {
@@ -1189,16 +1258,42 @@ private struct MacSTIntelligenceView: View {
                     // 连通性结果由测试回调裸赋值, 调用点包不住事务, 曲线附在过渡上。
                     .pmSlideTransition(edge: .top, motion: .list)
                 }
-                if !PrimuseAIRelayClient.isSupportedOnCurrentDevice {
-                    MacSTRow(
-                        String(localized: "ai_primuse_relay_unsupported"),
-                        divider: false
+            }
+        }
+    }
+
+    /// ③ 的折叠开关。
+    private var advancedToggleSection: some View {
+        MacSTSection {
+            MacSTGroup {
+                MacSTRow(
+                    String(localized: "ai_settings_advanced_title"),
+                    hint: String(localized: "ai_settings_advanced_detail"),
+                    divider: false
+                ) {
+                    MacSTButton(
+                        title: String(localized: showsAdvanced
+                                      ? "ai_settings_advanced_hide" : "ai_settings_advanced_show"),
+                        systemImage: showsAdvanced ? "chevron.up" : "chevron.down"
                     ) {
-                        Image(systemName: "exclamationmark.shield")
-                            .foregroundStyle(PMColor.textFaint)
+                        pmWithAnimation(.pageSwitch) { showsAdvanced.toggle() }
                     }
+                    .accessibilityIdentifier("macSettings.ai.advanced")
                 }
             }
+        }
+    }
+
+    private func expandAdvancedForFocusedSetting() {
+        guard let focusedSettingsAnchor,
+              Self.advancedAnchors.contains(focusedSettingsAnchor),
+              !showsAdvanced else { return }
+        showsAdvanced = true
+    }
+
+    private var hasOfflineTranslationPacks: Bool {
+        LocalLyricsTranslationModel.Pack.allCases.contains {
+            LocalLyricsTranslationService.shared.modelState(for: $0) == .ready
         }
     }
 
@@ -1218,7 +1313,10 @@ private struct MacSTIntelligenceView: View {
                     prominent: true
                 ) {
                     editor.selectProvider(providerID)
-                    pmWithAnimation(.pageSwitch) { showsProviderDetails = true }
+                    pmWithAnimation(.pageSwitch) {
+                        showsAdvanced = true
+                        showsProviderDetails = true
+                    }
                     providerEditorScrollRequest += 1
                 }
             }
@@ -1374,13 +1472,11 @@ private struct MacSTIntelligenceView: View {
                         .foregroundStyle(PMColor.brand)
                 }
             VStack(alignment: .leading, spacing: 3) {
-                Text(verbatim: editor.draftConfiguration.displayName.isEmpty
-                     ? (usesPrimuseRelay
-                        ? String(localized: "ai_primuse_relay_name")
-                        : String(localized: "ai_provider_default_name"))
-                     : (usesPrimuseRelay
-                        ? String(localized: "ai_primuse_relay_name")
-                        : editor.draftConfiguration.displayName))
+                Text(verbatim: editor.activeEngine(hasOfflinePacks: hasOfflineTranslationPacks)
+                    .map(editor.activeEngineTitle)
+                     ?? (usesPrimuseRelay
+                         ? String(localized: "ai_primuse_relay_name")
+                         : String(localized: "ai_provider_default_name")))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(PMColor.text)
                 Text(verbatim: summaryText)

@@ -2969,156 +2969,23 @@ struct HomeView: View {
 
     // MARK: - For You
 
-    /// 首页只读与资料库推荐页同源的本地每日推荐快照。远程重排由资料库
-    /// 推荐页在用户进入时触发，避免首页生命周期反复发起服务调用。
+    /// 本地每日推荐快照(与资料库推荐页同源)。智能服务可用时由 `HomeForYouSection`
+    /// 重排并写理由;这里的原始顺序仍是主卡兜底挑歌用的那一份。
     private var displayedForYouResults: [MusicDiscoveryResult] {
         model.snapshot.forYouResults
     }
 
     private var forYouPicks: [Song] { displayedForYouResults.map(\.song) }
 
-    @ViewBuilder
     private func forYouSection(_ style: HomeSectionLayoutStyle) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("home_for_you_title")
-                .font(.title3)
-                .fontWeight(.bold)
-                .padding(.horizontal, 20)
-
-            if style == .list {
-                VStack(spacing: 8) {
-                    ForEach(displayedForYouResults.prefix(sectionItemCount(.forYou, usesPadMetrics ? 8 : 5))) { result in
-                        Button { playSong(result.song) } label: {
-                            forYouListRow(result)
-                        }
-                        .buttonStyle(.pmPressable)
-                    }
-                }
-                .padding(.horizontal, 20)
-            } else {
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 14) {
-                    ForEach(displayedForYouResults) { result in
-                        let song = result.song
-                        Button { playSong(song) } label: {
-                            HStack(spacing: 14) {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    DiscoveryReasonsView(reasons: result.reasons, maxCount: 1)
-
-                                    Text(song.title)
-                                        .font(.headline)
-                                        .foregroundStyle(.primary)
-                                        .lineLimit(2)
-
-                                    Text(
-                                        library.artistDisplayName(for: song)
-                                            ?? String(localized: "unknown_artist")
-                                    )
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-
-                                    Spacer(minLength: 4)
-
-                                    Label("play", systemImage: "play.fill")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.primary)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-
-                                CachedArtworkView(
-                                    coverRef: song.coverArtFileName,
-                                    songID: song.id,
-                                    size: usesPadMetrics ? 136 : 124,
-                                    cornerRadius: 13,
-                                    sourceID: song.sourceID,
-                                    filePath: song.filePath,
-                                    fileFormat: song.fileFormat
-                                )
-                                .shadow(color: .black.opacity(0.14), radius: 7, y: 3)
-                            }
-                            .padding(14)
-                            .frame(
-                                width: usesPadMetrics ? 372 : 316,
-                                height: usesPadMetrics ? 176 : 164
-                            )
-                            .background(recommendationCardBackground(for: song))
-                        }
-                        .buttonStyle(.pmPressable)
-                    }
-                }
-                .padding(.horizontal, 20)
-                .scrollTargetLayout()
-            }
-            .pmStopsAtVerticalBar()
-            .scrollTargetBehavior(.viewAligned)
-            }
-        }
-    }
-
-    /// 列表档只保留一条推荐理由 —— 竖排里理由标签一多就把标题挤成两行,
-    /// 反而不如横排卡片好读。
-    private func forYouListRow(_ result: MusicDiscoveryResult) -> some View {
-        let song = result.song
-        return HStack(spacing: 12) {
-            CachedArtworkView(
-                coverRef: song.coverArtFileName,
-                songID: song.id,
-                size: 54,
-                cornerRadius: 9,
-                sourceID: song.sourceID,
-                filePath: song.filePath,
-                fileFormat: song.fileFormat
-            )
-
-            VStack(alignment: .leading, spacing: 3) {
-                DiscoveryReasonsView(reasons: result.reasons, maxCount: 1)
-                Text(song.title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                Text(
-                    library.artistDisplayName(for: song)
-                        ?? String(localized: "unknown_artist")
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            }
-
-            Spacer(minLength: 8)
-
-            Image(systemName: "play.circle.fill")
-                .font(.title3)
-                .foregroundStyle(.tint)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity)
-        .background {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(homeCardSurface)
-        }
-        .contentShape(Rectangle())
-    }
-
-    @ViewBuilder
-    private func recommendationCardBackground(for song: Song) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
-        if let tint = tintProvider.tint(forSongID: song.id) {
-            shape.fill(
-                LinearGradient(
-                    colors: [tint.opacity(0.28), tint.opacity(0.08)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-        } else {
-            // Repeated live Material blurs create off-screen render passes
-            // while the horizontal row moves. A stable system surface keeps
-            // the same card hierarchy until the batched tint result arrives.
-            shape.fill(homeCardSurface)
-        }
+        HomeForYouSection(
+            results: displayedForYouResults,
+            style: style,
+            listLimit: sectionItemCount(.forYou, usesPadMetrics ? 8 : 5),
+            usesPadMetrics: usesPadMetrics,
+            editorMode: editorMode,
+            cardSurface: homeCardSurface
+        )
     }
 
     // MARK: - Continue Listening (formerly Recently Played)

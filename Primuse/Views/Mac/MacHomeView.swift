@@ -1184,76 +1184,9 @@ struct MacHomeView: View {
 
     // MARK: - Recommendations
 
-    /// macOS 首页与 iOS 一样只展示本地每日推荐；远程生成只由资料库推荐页负责。
-    private var displayedRecommendationResults: [MusicDiscoveryResult] {
-        model.snapshot.recommendationResults
-    }
-
+    /// macOS 首页与 iOS 一样以本地每日推荐为底;智能推荐可用时由它重排并写理由。
     private var recommendationSection: some View {
-        VStack(alignment: .leading, spacing: PMSpace.m) {
-            Text("ai_recommendation_home_title")
-                .font(.system(size: 17, weight: .bold))
-                .foregroundStyle(PMColor.text)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 12) {
-                    ForEach(displayedRecommendationResults) { result in
-                        Button { playSong(result.song) } label: {
-                            recommendationCard(result)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.vertical, 2)
-            }
-        }
-    }
-
-    private func recommendationCard(_ result: MusicDiscoveryResult) -> some View {
-        let song = result.song
-        return HStack(spacing: 12) {
-            CachedArtworkView(
-                coverRef: song.coverArtFileName,
-                songID: song.id,
-                size: 78,
-                cornerRadius: PMRadius.m,
-                sourceID: song.sourceID,
-                filePath: song.filePath,
-                fileFormat: song.fileFormat
-            )
-            VStack(alignment: .leading, spacing: 4) {
-                Text(String(
-                    localized: String.LocalizationValue(
-                        result.primaryReason.localizationKey
-                    )
-                ))
-                    .font(.system(size: 9.5, weight: .semibold))
-                    .foregroundStyle(PMColor.textFaint)
-                Text(song.title)
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(PMColor.text)
-                    .lineLimit(1)
-                Text(
-                    library.artistDisplayName(for: song)
-                        ?? String(localized: "unknown_artist")
-                )
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(PMColor.textMuted)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                Label("play", systemImage: "play.fill")
-                    .font(.system(size: 9.5, weight: .semibold))
-                    .foregroundStyle(PMColor.textFaint)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(10)
-        .frame(width: 292, height: 100)
-        .background(PMColor.bgElev, in: .rect(cornerRadius: PMRadius.m))
-        .overlay {
-            RoundedRectangle(cornerRadius: PMRadius.m)
-                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-        }
+        MacHomeForYouSection(results: model.snapshot.recommendationResults)
     }
 
     // MARK: - Recently added (6-col 140pt grid)

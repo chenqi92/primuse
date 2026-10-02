@@ -830,6 +830,21 @@ final class MusicIntelligenceService {
         )
     }
 
+    /// 首页指引卡上的「开启」:打开内置 AI、语义搜索与场景推荐,连同这两项能力
+    /// 需要的两项授权(卡片上写明了会发送什么);自己的服务和其它设置原样保留。
+    func enableBuiltInIntelligence() throws {
+        try settingsStore.save(
+            providerSet: settingsStore.providerSet,
+            primuseRelayEnabled: true,
+            semanticSearchEnabled: true,
+            recommendationsEnabled: true,
+            audioTranscriptionEnabled: settingsStore.audioTranscriptionEnabled,
+            hasExplicitRemoteConsent: true,
+            hasExplicitListeningContextConsent: true,
+            hasExplicitAudioUploadConsent: settingsStore.hasExplicitAudioUploadConsent
+        )
+    }
+
     private func canUseCustomTagCleanupProviders(regionContext: AIRegionContext) -> Bool {
         guard AIAvailabilityPolicy.decision(
             for: .userConfiguredRemote,
@@ -2156,6 +2171,27 @@ final class AIRecommendationViewModel {
             return false
         }
     }
+
+    #if DEBUG
+    /// 截图钩子:不问服务,直接放进一份排好的结果。
+    func debugApply(_ selections: [AIRecommendationSelection]) {
+        generation &+= 1
+        isStreaming = false
+        isPartial = false
+        orderedSongIDs = selections.map(\.songID)
+        reasonsBySongID = Dictionary(
+            selections.map { ($0.songID, $0.reason) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        feedback = .success(
+            summary: "",
+            providerName: "Debug",
+            fallbackDepth: 0,
+            scene: .automatic,
+            isCached: true
+        )
+    }
+    #endif
 
     func orderedSongs(from candidates: [Song]) -> [Song] {
         guard !orderedSongIDs.isEmpty else {
