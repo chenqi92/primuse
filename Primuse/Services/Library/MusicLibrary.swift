@@ -4356,17 +4356,22 @@ final class MusicLibrary {
         // album and artist grids it has nothing to do with. `visibleSongs`
         // stays the whole library — search, playback, statistics and the
         // per-source counts all depend on it — and only the music surfaces
-        // read the split-out array.
+        // read the split-out array. Apple Music playlist entries that are not
+        // in the listener's library stay out of the music lists as well.
         let spokenWordSongIDs = lookups.spokenWordSongIDs
-        let musicSongs = spokenWordSongIDs.isEmpty
-            ? nextVisibleSongs
-            : nextVisibleSongs.filter { !spokenWordSongIDs.contains($0.id) }
+        let collectionOnlySongIDs = lookups.collectionOnlySongIDs
+        let splitsMusic = !spokenWordSongIDs.isEmpty || !collectionOnlySongIDs.isEmpty
+        let musicSongs = splitsMusic
+            ? nextVisibleSongs.filter {
+                !spokenWordSongIDs.contains($0.id) && !collectionOnlySongIDs.contains($0.id)
+            }
+            : nextVisibleSongs
         let spokenWordSongs = spokenWordSongIDs.isEmpty
             ? []
             : nextVisibleSongs.filter { spokenWordSongIDs.contains($0.id) }
         let nextVisibleAlbums: [Album]
         let candidateVisibleArtists: [Artist]
-        if disabledSourceIDs.isEmpty, spokenWordSongIDs.isEmpty {
+        if disabledSourceIDs.isEmpty, !splitsMusic {
             nextVisibleAlbums = albums
             candidateVisibleArtists = artists
         } else {
@@ -4445,6 +4450,7 @@ final class MusicLibrary {
         countBySourceID: [String: Int],
         preferredArtworkSongIDByArtistID: [String: String],
         spokenWordSongIDs: Set<String>,
+        collectionOnlySongIDs: Set<String>,
         musicArtistIDs: Set<String>
     ) {
         var indexByID: [String: Int] = [:]
@@ -4466,6 +4472,8 @@ final class MusicLibrary {
         // to one extension check plus one genre check per song; a separate
         // filter over the library would walk every row a second time.
         var spokenWordSongIDs: Set<String> = []
+        var collectionOnlySongIDs: Set<String> = []
+        let collectionOnlyCandidates = spokenWordClassification.collectionOnlySongIDs
         var musicArtistIDs: Set<String> = []
         // 同一组艺术家字段在整库里反复出现(6.6 万首通常只有几千种), 而每次
         // 解析都要做带区域设置的分隔符检索、折叠和哈希, 这一趟按字段记一次。
@@ -4474,14 +4482,21 @@ final class MusicLibrary {
         for (index, song) in songs.enumerated() {
             indexByID[song.id] = index
             if songByID[song.id] == nil { songByID[song.id] = song }
-            let isSpokenWord = spokenWordClassification.kind(
-                songID: song.id,
-                sourceID: song.sourceID,
-                filePath: song.filePath,
-                genre: song.genre,
-                serverLibraryID: song.serverLibraryID,
-                genreVerdicts: &spokenWordGenreVerdicts
-            ) == .spokenWord
+            let isCollectionOnly = collectionOnlyCandidates.contains(song.id)
+            let isSpokenWord: Bool
+            if isCollectionOnly {
+                isSpokenWord = false
+                collectionOnlySongIDs.insert(song.id)
+            } else {
+                isSpokenWord = spokenWordClassification.kind(
+                    songID: song.id,
+                    sourceID: song.sourceID,
+                    filePath: song.filePath,
+                    genre: song.genre,
+                    serverLibraryID: song.serverLibraryID,
+                    genreVerdicts: &spokenWordGenreVerdicts
+                ) == .spokenWord
+            }
             if isSpokenWord { spokenWordSongIDs.insert(song.id) }
             let artistFields = ArtistResolutionFields(song)
             let artistIDs: [String]
@@ -4494,7 +4509,7 @@ final class MusicLibrary {
                 )
                 artistIDsByFields[artistFields] = artistIDs
             }
-            if !isSpokenWord { musicArtistIDs.formUnion(artistIDs) }
+            if !isSpokenWord, !isCollectionOnly { musicArtistIDs.formUnion(artistIDs) }
             for artistID in artistIDs {
                 songIDsByArtistID[artistID, default: []].append(song.id)
                 if let current = preferredArtworkSongsByArtistID[artistID] {
@@ -4534,6 +4549,7 @@ final class MusicLibrary {
             countBySourceID,
             preferredArtworkSongsByArtistID.mapValues(\.id),
             spokenWordSongIDs,
+            collectionOnlySongIDs,
             musicArtistIDs
         )
     }

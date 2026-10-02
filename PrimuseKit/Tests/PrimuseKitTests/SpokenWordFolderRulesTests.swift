@@ -167,6 +167,19 @@ struct SpokenWordFolderRulesTests {
         }
     }
 
+    @Test("Playlist-only songs are part of the inputs the library compares")
+    func collectionOnlySongsChangeTheInputs() {
+        let base = SpokenWordClassificationInputs(overrides: ["s": .music])
+        var withPlaylistOnly = base
+        withPlaylistOnly.collectionOnlySongIDs = ["a"]
+        // The library re-splits only when the inputs differ, so a sync that
+        // changes nothing but this set must still be seen as a change.
+        #expect(base != withPlaylistOnly)
+        #expect(SpokenWordClassificationInputs.empty.collectionOnlySongIDs.isEmpty)
+        // Being listed only in a playlist says nothing about the kind itself.
+        #expect(withPlaylistOnly.kind(songID: "a", sourceID: "x", filePath: "a.mp3", genre: nil) == .music)
+    }
+
     @Test("The byte prefilter agrees with the path-extension check")
     func audiobookExtensionPrefilter() {
         let paths = [

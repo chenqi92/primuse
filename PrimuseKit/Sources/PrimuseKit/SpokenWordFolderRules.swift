@@ -156,13 +156,20 @@ public struct SpokenWordFolderRules: Equatable, Sendable {
 public struct SpokenWordClassificationInputs: Equatable, Sendable {
     public var overrides: [String: ListeningContentKind]
     public var folderRules: SpokenWordFolderRules
+    /// Songs a source keeps only because a mirrored playlist lists them — an
+    /// Apple Music playlist entry that is not in the listener's library. They
+    /// stay playable, searchable and in their playlists, but join neither the
+    /// music lists nor the spoken-word shelf, as in the source's own app.
+    public var collectionOnlySongIDs: Set<String>
 
     public init(
         overrides: [String: ListeningContentKind] = [:],
-        folderRules: SpokenWordFolderRules = .empty
+        folderRules: SpokenWordFolderRules = .empty,
+        collectionOnlySongIDs: Set<String> = []
     ) {
         self.overrides = overrides
         self.folderRules = folderRules
+        self.collectionOnlySongIDs = collectionOnlySongIDs
     }
 
     public static let empty = SpokenWordClassificationInputs()

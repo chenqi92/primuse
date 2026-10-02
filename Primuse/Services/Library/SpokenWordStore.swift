@@ -149,8 +149,14 @@ final class SpokenWordStore {
 
     /// Per-song corrections plus folder tags, for the library's
     /// classification pass and for the player, which must agree with it.
+    /// Also carries the songs that are only in a mirrored playlist, so every
+    /// path that splits the library leaves them out of the music lists.
     var classificationSnapshot: SpokenWordClassificationInputs {
-        SpokenWordClassificationInputs(overrides: overrides, folderRules: folderRules)
+        SpokenWordClassificationInputs(
+            overrides: overrides,
+            folderRules: folderRules,
+            collectionOnlySongIDs: CollectionOnlySongStore.shared.songIDs
+        )
     }
 
     // MARK: - Folder tags

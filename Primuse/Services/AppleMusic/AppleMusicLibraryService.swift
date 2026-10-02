@@ -55,12 +55,13 @@ final class AppleMusicLibraryService {
     }
 
     private enum UserPlaylistFetchResult: Sendable {
-        case mirror(UserPlaylistMirror)
+        /// `playlistOnlySongs`: 歌单里有、资料库「歌曲」里没有的曲目 (第三方 App 导入的
+        /// 歌单、关掉「添加歌单歌曲」时加进歌单的歌、或资料库还没收全的那几分钟)。
+        case mirror(UserPlaylistMirror, playlistOnlySongs: [PrimuseKit.Song])
         case empty(id: String, name: String, coverArtReference: String?)
-        /// Apple Music 报告有曲目但本地一首都没匹配上 (全是视频 / 下架曲目 /
-        /// canonicalization 失败)。保留已有镜像原样, 也不新建空歌单 —— 这是
-        /// "取不到", 不是"歌单空了"。直接当 empty 会让一次不完整的 fetch 把整个
-        /// 歌单清光。
+        /// Apple Music 报告有曲目但一首歌都没有 (全是视频)。保留已有镜像原样,
+        /// 也不新建空歌单 —— 这是"取不到", 不是"歌单空了"。直接当 empty 会让
+        /// 一次不完整的 fetch 把整个歌单清光。
         case unresolved(
             id: String,
             name: String,
@@ -73,6 +74,16 @@ final class AppleMusicLibraryService {
     private struct UserPlaylistSyncFailure: LocalizedError {
         let message: String
         var errorDescription: String? { message }
+    }
+
+    /// 一轮读到的全部歌单, 先攒着, 跟资料库快照一起提交。
+    private struct UserPlaylistSnapshot {
+        var mirrors: [UserPlaylistMirror] = []
+        /// 只在歌单里、不在资料库里的曲目, 每首一行 (已按 id 去重)。
+        var playlistOnlySongs: [PrimuseKit.Song] = []
+        /// 这次读不到、要原样保留的已有镜像。
+        var retainedMirrorIDs: Set<String> = []
+        var firstFailure: UserPlaylistSyncFailure?
     }
 
     /// macOS 会优先读云端资料库；云端权限不可用时仍保留 Music.app 的本机歌曲，
@@ -543,6 +554,12 @@ final class AppleMusicLibraryService {
             }
         }
         let selected = queue.entries[queue.startIndex].song
+        if syncTask != nil || !hasCompletedLibrarySnapshot,
+           await musicKitSong(amID: selected.filePath) == nil {
+            // 只在歌单里的曲目按资料库 ID 可能查不到; 跟 `play` 一样等这一轮
+            // (或补一轮) 整源同步, 它读歌单时会把这些曲目放进缓存。
+            guard await ensureCachePopulated(for: requestID) else { return nil }
+        }
         guard let starting = await musicKitSong(amID: selected.filePath),
               appleMusic.isPlaybackRequestActive(requestID), !Task.isCancelled,
               AppleMusicSourcePolicy.isSyncable(
@@ -616,6 +633,7 @@ final class AppleMusicLibraryService {
         lastAccess = nil
         lastSyncAt = nil
         invalidateAccountCaches()
+        CollectionOnlySongStore.shared.replace([], forSourceID: Self.systemSourceID)
         // 搜索结果同属这个源:源没了, 搜索里也不该再留着 Apple Music 的条目。
         appleMusic.clearCatalogSearchResults()
         UserDefaults.standard.removeObject(forKey: Self.syncedStorefrontKey)
@@ -1082,10 +1100,38 @@ final class AppleMusicLibraryService {
             hasCompletedLibrarySnapshot = true
             let songs = await applyingLocalFileDetails(to: allMusicKitSongs)
             guard syncGeneration == generation, !Task.isCancelled else { return }
+
+            // 用户在 Apple Music 里建的 playlists 先读完, 再跟资料库一起提交:
+            // 歌单里有、资料库「歌曲」里没有的曲目要作为自己的一行进下面这次
+            // 整源替换, 否则镜像里只剩资料库里有的那几首。tracks 走
+            // .with([.tracks]) 延迟加载关系; 任一歌单抓取失败则保留它的旧镜像,
+            // 其余照常落库, 本轮同步标记为失败并允许用户重试。
+            let librarySongIDs = Set(songs.map(\.id))
+            let userPlaylists: UserPlaylistSnapshot?
+            if fetchResult.syncMode == .authoritative {
+                userPlaylists = try await fetchUserPlaylists(
+                    access: access,
+                    librarySongIDs: librarySongIDs
+                )
+            } else {
+                userPlaylists = nil
+            }
+            guard syncGeneration == generation, !Task.isCancelled else { return }
+            let playlistOnlySongs = userPlaylists.map {
+                collectionOnlySongs(for: $0, librarySongIDs: librarySongIDs)
+            } ?? []
+            if userPlaylists != nil {
+                // 先换分类输入再加歌: 加歌触发的那次重建就已经把它们留在
+                // 歌单里, 不进歌曲 / 专辑 / 艺人列表。
+                CollectionOnlySongStore.shared.replace(
+                    Set(playlistOnlySongs.map(\.id)),
+                    forSourceID: Self.systemSourceID
+                )
+            }
             // 把这些歌加进 library, sourceIDs 限定 Apple Music, 让 addSongs
             // 自己处理删除 (Apple Music 删歌的 case 会被检测到)。
             library.addSongs(
-                songs,
+                songs + playlistOnlySongs,
                 affectedSourceIDs: [Self.systemSourceID],
                 notifyRemovals: fetchResult.syncMode.shouldPruneMissingSongs,
                 pruneMissingSongs: fetchResult.syncMode.shouldPruneMissingSongs
@@ -1121,13 +1167,12 @@ final class AppleMusicLibraryService {
             let firstSample = songs.first.flatMap { $0.coverArtFileName }?.prefix(120) ?? "nil"
             plog("🎵 Apple Music covers: \(withCover)/\(songs.count) have URL, first='\(firstSample)'")
 
-            // 拉用户在 Apple Music 里建的 playlists, 每个映射成独立的本地镜像歌单
-            // (跟「Apple Music 资料库」全集并存)。tracks 走 .with([.tracks])
-            // 延迟加载关系；成功的镜像先落库，任一歌单抓取失败则把本轮同步
-            // 标记为失败，保留旧镜像并允许用户重试。
+            // 每个用户歌单映射成独立的本地镜像歌单 (跟「Apple Music 资料库」全集并存)。
             let syncedUserPlaylistCount: Int
-            if fetchResult.syncMode == .authoritative {
-                syncedUserPlaylistCount = try await syncUserPlaylists(access: access)
+            if let userPlaylists {
+                syncedUserPlaylistCount = commitUserPlaylists(userPlaylists)
+                library.refreshContentClassification()
+                if let failure = userPlaylists.firstFailure { throw failure }
             } else {
                 syncedUserPlaylistCount = 0
             }
@@ -1142,7 +1187,7 @@ final class AppleMusicLibraryService {
                     UserDefaults.standard.set(countryCode, forKey: Self.syncedStorefrontKey)
                 }
                 state = .done(songCount: songs.count, at: lastSyncAt!)
-                plog("🎵 Apple Music library synced: \(songs.count) songs, \(syncedUserPlaylistCount) playlists → playlist \(Self.systemPlaylistID)")
+                plog("🎵 Apple Music library synced: \(songs.count) songs, \(syncedUserPlaylistCount) playlists, \(playlistOnlySongs.count) playlist-only songs → playlist \(Self.systemPlaylistID)")
             }
         } catch is CancellationError {
             if syncGeneration == generation {
@@ -1595,26 +1640,30 @@ final class AppleMusicLibraryService {
     /// 每个 user playlist 在 Primuse 里建独立的镜像歌单 ── ID 用 amID 派生固定,
     /// 多次 sync 不会重复创建; name 跟 Apple Music 那边对齐, 用户改名后下次 sync
     /// 会被刷新 (ensurePlaylist 已经处理 name 同步)。
-    /// 实现: 按平台拉用户全部歌单 (含分页), 每个用
-    /// `.with([.tracks])` 把 tracks 拉过来, 转 PrimuseKit.Song 后 replace 进对应歌单。
-    @discardableResult
-    private func syncUserPlaylists(access: AppleMusicLibraryAccess) async throws -> Int {
+    /// 实现: 按平台拉用户全部歌单 (含分页), 每个用 `.with([.tracks])` 把 tracks
+    /// 拉过来。这里只读不写镜像, 由 `commitUserPlaylists` 在资料库快照落库后提交。
+    private func fetchUserPlaylists(
+        access: AppleMusicLibraryAccess,
+        librarySongIDs: Set<String>
+    ) async throws -> UserPlaylistSnapshot {
         let allPlaylists = try await fetchLibraryPlaylists()
         plog("🎵 Apple Music user playlists: \(allPlaylists.count)")
 
-        var fetchedMirrors: [UserPlaylistMirror] = []
-        var failedIDs = Set<String>()
-        var firstFailure: UserPlaylistSyncFailure?
+        var snapshot = UserPlaylistSnapshot()
+        var playlistOnlySongIDs = Set<String>()
         for amPlaylist in allPlaylists {
             try Task.checkCancellation()
-            let result = await fetchUserPlaylistMirror(amPlaylist)
+            let result = await fetchUserPlaylistMirror(amPlaylist, librarySongIDs: librarySongIDs)
             try Task.checkCancellation()
             markSyncProgress()   // 每处理完一个歌单 (含 .with([.tracks]) 往返) 续期
             switch result {
-            case .mirror(let mirror):
-                fetchedMirrors.append(mirror)
+            case .mirror(let mirror, let playlistOnlySongs):
+                snapshot.mirrors.append(mirror)
+                for song in playlistOnlySongs where playlistOnlySongIDs.insert(song.id).inserted {
+                    snapshot.playlistOnlySongs.append(song)
+                }
             case .empty(let id, let name, let coverArtReference):
-                fetchedMirrors.append(UserPlaylistMirror(
+                snapshot.mirrors.append(UserPlaylistMirror(
                     id: id,
                     name: Self.safePlaylistName(name),
                     songIDs: [],
@@ -1624,7 +1673,7 @@ final class AppleMusicLibraryService {
             case .unresolved(let id, let name, let count, let coverArtReference):
                 // 保住已有镜像 (如果存在), 别让 prune 当作"服务端已删"清掉。
                 if library.playlist(id: id) != nil {
-                    failedIDs.insert(id)
+                    snapshot.retainedMirrorIDs.insert(id)
                     library.updateMirrorPlaylistArtwork(
                         playlistID: id,
                         coverArtPath: coverArtReference,
@@ -1633,10 +1682,10 @@ final class AppleMusicLibraryService {
                 }
                 plog("""
                     ⚠️ AM playlist '\(name)' has \(count) track(s) on Apple Music but none \
-                    resolved locally — keeping the existing mirror
+                    is a song — keeping the existing mirror
                     """)
             case .failed(let id, let name, let coverArtReference, let error):
-                failedIDs.insert(id)
+                snapshot.retainedMirrorIDs.insert(id)
                 if library.playlist(id: id) != nil, let coverArtReference {
                     library.updateMirrorPlaylistArtwork(
                         playlistID: id,
@@ -1644,9 +1693,9 @@ final class AppleMusicLibraryService {
                         forceRefresh: true
                     )
                 }
-                if firstFailure == nil {
+                if snapshot.firstFailure == nil {
                     let detail = "\(Self.safePlaylistName(name)): \(error)"
-                    firstFailure = UserPlaylistSyncFailure(message: String(
+                    snapshot.firstFailure = UserPlaylistSyncFailure(message: String(
                         format: String(localized: "apple_music_library_access_failed_format"),
                         detail
                     ))
@@ -1664,7 +1713,32 @@ final class AppleMusicLibraryService {
             sync()
             throw CancellationError()
         }
-        let mirrorsToKeep = Self.resolveUserPlaylistMirrors(fetchedMirrors)
+        return snapshot
+    }
+
+    /// 只在歌单里的曲目: 这一轮读到的, 加上这次没读成、原样保留的镜像里原有的
+    /// 那些 —— 不放进整源替换就会被当成已删剪掉, 保留下来的旧镜像也跟着缺一截。
+    private func collectionOnlySongs(
+        for snapshot: UserPlaylistSnapshot,
+        librarySongIDs: Set<String>
+    ) -> [PrimuseKit.Song] {
+        var seen = librarySongIDs
+        var songs = snapshot.playlistOnlySongs.filter { seen.insert($0.id).inserted }
+        for playlistID in snapshot.retainedMirrorIDs.sorted() {
+            for songID in library.rawSongIDs(forPlaylist: playlistID)
+            where seen.insert(songID).inserted {
+                guard let song = library.song(id: songID),
+                      song.sourceID == Self.systemSourceID else { continue }
+                songs.append(song)
+            }
+        }
+        return songs
+    }
+
+    /// 把读到的歌单写成镜像, 清掉 Apple Music 里已经没有的。资料库快照 (含只在
+    /// 歌单里的曲目) 落库之后才能调用: 镜像只收曲库里有的歌。
+    private func commitUserPlaylists(_ snapshot: UserPlaylistSnapshot) -> Int {
+        let mirrorsToKeep = Self.resolveUserPlaylistMirrors(snapshot.mirrors)
         for mirror in mirrorsToKeep {
             library.ensurePlaylist(id: mirror.id, name: mirror.name)
             library.replaceMirrorPlaylistSongs(
@@ -1675,13 +1749,12 @@ final class AppleMusicLibraryService {
             plog("🎵 AM playlist '\(mirror.name)' → \(mirror.songIDs.count) songs")
         }
 
-        let keepIDs = Set(mirrorsToKeep.map(\.id)).union(failedIDs)
+        let keepIDs = Set(mirrorsToKeep.map(\.id)).union(snapshot.retainedMirrorIDs)
         playlistArtworkCache = playlistArtworkCache.filter { keepIDs.contains($0.key) }
         library.prunePlaylists(
             withIDPrefix: Self.userPlaylistIDPrefix,
             keepingIDs: keepIDs
         )
-        if let firstFailure { throw firstFailure }
         return mirrorsToKeep.count
     }
 
@@ -1706,7 +1779,10 @@ final class AppleMusicLibraryService {
         #endif
     }
 
-    private func fetchUserPlaylistMirror(_ amPlaylist: MusicKit.Playlist) async -> UserPlaylistFetchResult {
+    private func fetchUserPlaylistMirror(
+        _ amPlaylist: MusicKit.Playlist,
+        librarySongIDs: Set<String>
+    ) async -> UserPlaylistFetchResult {
         let pid = "\(Self.userPlaylistIDPrefix)\(amPlaylist.id.rawValue)"
         let displayName = Self.safePlaylistName(amPlaylist.name)
         let summaryArtwork = amPlaylist.artwork
@@ -1737,25 +1813,33 @@ final class AppleMusicLibraryService {
                 currentBatch = next
                 markSyncProgress()
             }
-            let projectedSongIDs: [String] = tracks.compactMap { track in
-                guard case let .song(s) = track else { return nil }
-                // 顺手填 cache (有些用户歌单里的 song 可能不在 user library 全集)
+            var songIDs: [String] = []
+            var seenSongIDs = Set<String>()
+            var playlistOnlySongs: [PrimuseKit.Song] = []
+            for track in tracks {
+                guard case let .song(s) = track else { continue }
+                // 顺手填 cache: 不在资料库里的那些, 播放时也从这里取。
                 songCache[s.id.rawValue] = s
                 invalidateSongArtwork(amID: s.id.rawValue)
                 // Playlist relationships may expose catalog songs even when
                 // the same track exists as an `i.*` user-library item. Store
                 // the relationship with the canonical ID so the mirrored
                 // playlist continues to reference the persisted library row.
-                return Self.toPrimuseSong(canonicalForNowPlaying(s)).id
+                let projected = Self.toPrimuseSong(canonicalForNowPlaying(s))
+                guard seenSongIDs.insert(projected.id).inserted else { continue }
+                songIDs.append(projected.id)
+                // 资料库「歌曲」里没有的 (第三方 App 导入的歌单、关掉了「添加歌单
+                // 歌曲」, 或资料库还没收全): 跟资料库一起落一行, 只出现在歌单里。
+                if !librarySongIDs.contains(projected.id) {
+                    playlistOnlySongs.append(projected)
+                }
             }
-            // `replaceMirrorPlaylistSongs` 会丢弃曲库中不存在的 ID；先按同一条规则
-            // 判断实际可写入的歌曲，避免“全是下架/未入库曲目”被误当成成功镜像，
-            // 随后把已有歌单覆盖成空。
-            let songIDs = Self.uniqued(projectedSongIDs).filter {
-                library.song(id: $0)?.sourceID == Self.systemSourceID
-            }
-            // Apple Music 报告有曲目但本地一首都没匹配上 —— 可能全是视频、下架曲目、
-            // 或 canonicalization 失败。这是"取不到", 不是"歌单空了", 保留已有镜像。
+            plog("""
+                🎵 AM playlist '\(displayName)' tracks=\(tracks.count) songs=\(songIDs.count) \
+                in_library=\(songIDs.count - playlistOnlySongs.count) playlist_only=\(playlistOnlySongs.count)
+                """)
+            // Apple Music 报告有曲目但一首歌都没有 —— 全是视频。这是"取不到",
+            // 不是"歌单空了", 保留已有镜像。
             if songIDs.isEmpty, tracks.isEmpty == false {
                 return .unresolved(
                     id: pid,
@@ -1771,12 +1855,15 @@ final class AppleMusicLibraryService {
                     coverArtReference: coverArtReference
                 )
             }
-            return .mirror(UserPlaylistMirror(
-                id: pid,
-                name: displayName,
-                songIDs: songIDs,
-                coverArtReference: coverArtReference
-            ))
+            return .mirror(
+                UserPlaylistMirror(
+                    id: pid,
+                    name: displayName,
+                    songIDs: songIDs,
+                    coverArtReference: coverArtReference
+                ),
+                playlistOnlySongs: playlistOnlySongs
+            )
         } catch {
             return .failed(
                 id: pid,
@@ -1800,11 +1887,6 @@ final class AppleMusicLibraryService {
         return trimmed.isEmpty
             ? String(localized: "library_folder_apple_music_unnamed_playlist")
             : trimmed
-    }
-
-    private static func uniqued(_ ids: [String]) -> [String] {
-        var seen = Set<String>()
-        return ids.filter { seen.insert($0).inserted }
     }
 
     private static func uniquedMusicItems<Item: MusicKit.MusicItem>(_ items: [Item]) -> [Item] {
