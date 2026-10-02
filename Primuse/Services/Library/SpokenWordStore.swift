@@ -121,7 +121,8 @@ final class SpokenWordStore {
             songID: song.id,
             sourceID: song.sourceID,
             filePath: song.filePath,
-            genre: song.genre
+            genre: song.genre,
+            serverLibraryID: song.serverLibraryID
         )
     }
 
@@ -134,7 +135,8 @@ final class SpokenWordStore {
         classificationSnapshot.inferredKind(
             sourceID: song.sourceID,
             filePath: song.filePath,
-            genre: song.genre
+            genre: song.genre,
+            serverLibraryID: song.serverLibraryID
         )
     }
 
@@ -156,6 +158,9 @@ final class SpokenWordStore {
     /// How each source spells its paths, which folder rules need to match
     /// songs. Kept current by `AppServices` from the source list.
     @ObservationIgnored private var folderTagSources: [LibraryFolderSourceDescriptor] = []
+    /// Sources whose type alone makes everything in them spoken word (an
+    /// audiobook server); nothing in them needs tagging.
+    @ObservationIgnored private var declaredSpokenWordSourceIDs: Set<String> = []
     @ObservationIgnored private var cachedFolderRules: (revision: Int, rules: SpokenWordFolderRules)?
     @ObservationIgnored private var folderTagRefreshTask: Task<Void, Never>?
 
@@ -163,7 +168,8 @@ final class SpokenWordStore {
         if let cached = cachedFolderRules, cached.revision == revision { return cached.rules }
         let rules = SpokenWordFolderRules(
             folders: SpokenWordFolderTag.spokenWordFolders(in: overrides),
-            sources: folderTagSources
+            sources: folderTagSources,
+            declaredSpokenWordSourceIDs: declaredSpokenWordSourceIDs
         )
         cachedFolderRules = (revision, rules)
         return rules
@@ -177,11 +183,68 @@ final class SpokenWordStore {
     /// Tags (or untags) a scanned folder. The library is reclassified shortly
     /// after, once for a burst of changes.
     func setSpokenWordFolder(_ isSpokenWord: Bool, sourceID: String, path: String) {
+        setFolderTag(isSpokenWord ? .spokenWord : nil, sourceID: sourceID, path: path)
+    }
+
+    private func setFolderTag(_ kind: ListeningContentKind?, sourceID: String, path: String) {
         let key = SpokenWordFolderTag.overrideKey(sourceID: sourceID, path: path)
-        let kind: ListeningContentKind? = isSpokenWord ? .spokenWord : nil
         guard overrides[key] != kind else { return }
         overrides[key] = kind
         ledger.overrideChangedAt[key] = Date()
+        didChange(cloud: .prompt)
+        scheduleFolderTagReclassification()
+    }
+
+    // MARK: - Whole-source and server-library tags
+
+    /// id 寻址、没有目录可标的源(Navidrome、网盘…):整个来源都是有声内容。
+    func isWholeSourceSpokenWord(sourceID: String) -> Bool {
+        isSpokenWordFolder(sourceID: sourceID, path: SpokenWordFolderTag.wholeSourcePath)
+    }
+
+    func setWholeSourceSpokenWord(_ isSpokenWord: Bool, sourceID: String) {
+        setSpokenWordFolder(isSpokenWord, sourceID: sourceID, path: SpokenWordFolderTag.wholeSourcePath)
+    }
+
+    /// 按库组织的服务器(Jellyfin/Emby/Plex…):这一库归有声。
+    func isSpokenWordLibrary(sourceID: String, libraryID: String) -> Bool {
+        isSpokenWordFolder(sourceID: sourceID, path: SpokenWordFolderTag.libraryPath(libraryID: libraryID))
+    }
+
+    /// 这一库的归属有没有定过(用户选的,或第一次见到时的默认)。
+    func hasSpokenWordLibraryDecision(sourceID: String, libraryID: String) -> Bool {
+        let key = SpokenWordFolderTag.overrideKey(
+            sourceID: sourceID,
+            path: SpokenWordFolderTag.libraryPath(libraryID: libraryID)
+        )
+        return overrides[key] != nil || ledger.overrideChangedAt[key] != nil
+    }
+
+    /// 按库选「音乐 / 有声」。两种选择都存成显式值:选了「音乐」的库之后再见到也不会再
+    /// 按「服务端说是有声书就默认归有声」处理。
+    func setSpokenWordLibrary(_ isSpokenWord: Bool, sourceID: String, libraryID: String) {
+        setFolderTag(
+            isSpokenWord ? .spokenWord : .music,
+            sourceID: sourceID,
+            path: SpokenWordFolderTag.libraryPath(libraryID: libraryID)
+        )
+    }
+
+    /// 服务端自己标成有声书的库第一次见到就归到有声;用户动过的(含改回音乐的)不碰。
+    func registerDefaultSpokenWordLibraries(sourceID: String, libraryIDs: [String]) {
+        var changed = false
+        let now = Date()
+        for libraryID in libraryIDs
+        where !hasSpokenWordLibraryDecision(sourceID: sourceID, libraryID: libraryID) {
+            let key = SpokenWordFolderTag.overrideKey(
+                sourceID: sourceID,
+                path: SpokenWordFolderTag.libraryPath(libraryID: libraryID)
+            )
+            overrides[key] = .spokenWord
+            ledger.overrideChangedAt[key] = now
+            changed = true
+        }
+        guard changed else { return }
         didChange(cloud: .prompt)
         scheduleFolderTagReclassification()
     }
@@ -216,13 +279,20 @@ final class SpokenWordStore {
         }
         let descriptorsChanged = descriptors != folderTagSources
         folderTagSources = descriptors
+        let declared = Set(
+            sources.lazy
+                .filter { !$0.isDeleted && $0.type.declaredListeningContentKind == .spokenWord }
+                .map(\.id)
+        )
+        let declaredChanged = declared != declaredSpokenWordSourceIDs
+        declaredSpokenWordSourceIDs = declared
         if removed {
             didChange(cloud: .prompt)
-        } else if descriptorsChanged {
+        } else if descriptorsChanged || declaredChanged {
             cachedFolderRules = nil
         }
         let hasTags = overrides.keys.contains(where: SpokenWordFolderTag.isFolderKey)
-        if removed || (descriptorsChanged && hasTags) {
+        if removed || (descriptorsChanged && hasTags) || declaredChanged {
             scheduleFolderTagReclassification()
         }
     }

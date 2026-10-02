@@ -68,6 +68,13 @@ struct AddSourceView: View {
     @State private var plexSignIn = PlexAccountSignInModel()
     @State private var plexServerIdentifier: String?
     @State private var plexAccountToken = ""
+    /// 按库选「音乐 / 有声 / 不同步」(Jellyfin / Emby / Plex 这类按库组织的服务器,
+    /// 编辑已有源时才有连接器能列出库)。
+    @State private var serverLibraries: [ServerLibraryDescriptor] = []
+    @State private var serverLibraryChoices: [String: ServerLibraryChoice] = [:]
+    @State private var serverLibrariesLoad: ServerLibrariesLoadState = .idle
+    /// id 寻址、没有目录可标的源:整个来源都是有声内容。
+    @State private var wholeSourceSpokenWord = false
     /// 用户填的那一到两行地址。上面那组 host/port/useSsl/publicHost/… 仍然是
     /// 保存路径唯一读取的字段 —— 提交时由 `applyAddressPlan` 一次性写回。
     @State private var addressRows: [SourceAddressRow] = [SourceAddressRow()]
@@ -105,6 +112,12 @@ struct AddSourceView: View {
         continuesToConnectionAfterSave ? "Next" : "save"
     }
     private var supportsAPIKeyAuth: Bool { [.jellyfin, .emby, .plex].contains(sourceType) }
+    private var showsServerLibrarySection: Bool {
+        isEditing && sourceType.organizesCatalogByServerLibrary
+    }
+    private var showsWholeSourceSpokenWordToggle: Bool {
+        sourceType.supportsWholeSourceSpokenWordTag
+    }
     private var supportsAdaptiveConnections: Bool { sourceType.supportsAdaptiveConnections }
     private var supportsSSLToggle: Bool {
         ![MusicSourceType.smb, .ftp, .sftp, .nfs].contains(sourceType)
@@ -387,6 +400,7 @@ struct AddSourceView: View {
                 }
             }
             .onAppear { initializeFields() }
+            .task { await loadServerLibrariesIfNeeded() }
         }
     }
     #else
@@ -438,6 +452,7 @@ struct AddSourceView: View {
         .foregroundStyle(PMColor.text)
         .tint(theme.uiAccentColor)
         .onAppear { initializeFields() }
+        .task { await loadServerLibrariesIfNeeded() }
     }
 
     private var macSheetChrome: some View {
@@ -597,6 +612,13 @@ struct AddSourceView: View {
             }
         }
 
+        if showsServerLibrarySection {
+            macSection("server_libraries_section") {
+                macServerLibraryRows
+                macInfoRow("server_libraries_footer")
+            }
+        }
+
         macSection("advanced") {
             if sourceType.isServerLibrary
                 && !sourceType.supportsEndpointSpecificPath
@@ -612,6 +634,10 @@ struct AddSourceView: View {
             macToggleRow("auto_connect", isOn: $autoConnect)
             if sourceType.supports2FA {
                 macToggleRow("remember_device", isOn: $rememberDevice)
+            }
+            if showsWholeSourceSpokenWordToggle {
+                macToggleRow("whole_source_spoken_word", isOn: $wholeSourceSpokenWord)
+                macInfoRow("whole_source_spoken_word_hint")
             }
         }
 
@@ -895,7 +921,167 @@ struct AddSourceView: View {
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
         }
     }
+    @ViewBuilder
+    private var macServerLibraryRows: some View {
+        switch serverLibrariesLoad {
+        case .idle, .loading:
+            macInfoRow("server_libraries_loading")
+        case .failed:
+            macInfoRow("server_libraries_unavailable")
+        case .loaded:
+            if serverLibraries.isEmpty {
+                macInfoRow("server_libraries_empty")
+            } else {
+                ForEach(serverLibraries) { library in
+                    HStack(spacing: 14) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(verbatim: library.name)
+                                .font(.system(size: 12.5, weight: .medium))
+                                .foregroundStyle(PMColor.text)
+                            Text(serverLibraryKindCaption(library.kind))
+                                .font(.system(size: 11))
+                                .foregroundStyle(PMColor.textFaint)
+                        }
+                        Spacer(minLength: 20)
+                        serverLibraryChoicePicker(library.id)
+                            .fixedSize()
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
+                    .overlay(alignment: .top) {
+                        Rectangle().fill(PMColor.divider).frame(height: 0.5)
+                    }
+                }
+            }
+        }
+    }
     #endif
+
+    // MARK: - Server libraries (音乐 / 有声 / 不同步)
+
+    @ViewBuilder
+    private var serverLibraryRows: some View {
+        switch serverLibrariesLoad {
+        case .idle, .loading:
+            HStack(spacing: 10) {
+                ProgressView()
+                Text("server_libraries_loading")
+                    .foregroundStyle(.secondary)
+            }
+        case .failed:
+            Text("server_libraries_unavailable")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .loaded:
+            if serverLibraries.isEmpty {
+                Text("server_libraries_empty")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(serverLibraries) { library in
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(verbatim: library.name)
+                            Text(serverLibraryKindCaption(library.kind))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 12)
+                        serverLibraryChoicePicker(library.id)
+                            .fixedSize()
+                    }
+                }
+            }
+        }
+    }
+
+    private func serverLibraryChoicePicker(_ libraryID: String) -> some View {
+        Picker("", selection: serverLibraryChoiceBinding(libraryID)) {
+            Text("library_kind_music").tag(ServerLibraryChoice.music)
+            Text("library_kind_spoken_word").tag(ServerLibraryChoice.spokenWord)
+            Text("library_kind_excluded").tag(ServerLibraryChoice.excluded)
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+    }
+
+    private func serverLibraryChoiceBinding(_ libraryID: String) -> Binding<ServerLibraryChoice> {
+        Binding(
+            get: { serverLibraryChoices[libraryID] ?? .music },
+            set: { serverLibraryChoices[libraryID] = $0 }
+        )
+    }
+
+    private func serverLibraryKindCaption(_ kind: ServerLibraryContentKind) -> LocalizedStringKey {
+        switch kind {
+        case .music: return "library_kind_caption_music"
+        case .mixed: return "library_kind_caption_mixed"
+        case .audiobooks: return "library_kind_caption_audiobooks"
+        case .podcasts: return "library_kind_caption_podcasts"
+        case .other: return "library_kind_caption_other"
+        }
+    }
+
+    /// 编辑已有源时问服务器有哪些库,再按已存的标签和排除项填好每一行的选择。
+    private func loadServerLibrariesIfNeeded() async {
+        guard showsServerLibrarySection, let editingSource, serverLibrariesLoad == .idle else { return }
+        serverLibrariesLoad = .loading
+        do {
+            let libraries = try await sourceManager.fetchServerLibraries(for: editingSource)
+            let store = SpokenWordStore.shared
+            let excluded = Set(editingSource.excludedServerLibraryIDs)
+            var choices: [String: ServerLibraryChoice] = [:]
+            for library in libraries {
+                if excluded.contains(library.id) {
+                    choices[library.id] = .excluded
+                } else if Self.libraryIsSpokenWord(library, sourceID: editingSource.id, store: store) {
+                    choices[library.id] = .spokenWord
+                } else {
+                    choices[library.id] = .music
+                }
+            }
+            serverLibraries = libraries
+            serverLibraryChoices = choices
+            serverLibrariesLoad = .loaded
+        } catch {
+            plog("⚠️ Server libraries could not be listed source=\(editingSource.id.prefix(8))… \(error.localizedDescription)")
+            serverLibrariesLoad = .failed
+        }
+    }
+
+    /// 已标成有声,或服务端说是有声书库而用户还没定过(第一次见到就按有声算)。
+    private static func libraryIsSpokenWord(
+        _ library: ServerLibraryDescriptor,
+        sourceID: String,
+        store: SpokenWordStore
+    ) -> Bool {
+        store.isSpokenWordLibrary(sourceID: sourceID, libraryID: library.id)
+            || (library.defaultsToSpokenWord
+                && !store.hasSpokenWordLibraryDecision(sourceID: sourceID, libraryID: library.id))
+    }
+
+    /// 保存时落标签:整源开关直接写;按库的选择只在列表真的加载过时写,没加载到就保持原样。
+    private func applySpokenWordChoices(sourceID: String) {
+        let store = SpokenWordStore.shared
+        if showsWholeSourceSpokenWordToggle {
+            store.setWholeSourceSpokenWord(wholeSourceSpokenWord, sourceID: sourceID)
+        }
+        guard serverLibrariesLoad == .loaded else { return }
+        for library in serverLibraries {
+            switch serverLibraryChoices[library.id] ?? .music {
+            case .spokenWord:
+                store.setSpokenWordLibrary(true, sourceID: sourceID, libraryID: library.id)
+            case .music:
+                // 只在它现在算有声时才写一条显式的「音乐」,免得给每个音乐库都留一条记录。
+                if Self.libraryIsSpokenWord(library, sourceID: sourceID, store: store) {
+                    store.setSpokenWordLibrary(false, sourceID: sourceID, libraryID: library.id)
+                }
+            case .excluded:
+                break
+            }
+        }
+    }
 
     /// Form body extracted so iOS / macOS chrome can share it.
     @ViewBuilder
@@ -1044,6 +1230,16 @@ struct AddSourceView: View {
             }
         }
 
+        if showsServerLibrarySection {
+            Section {
+                serverLibraryRows
+            } header: {
+                Text("server_libraries_section")
+            } footer: {
+                Text("server_libraries_footer")
+            }
+        }
+
         Section("advanced") {
             if sourceType.isServerLibrary
                 && !sourceType.supportsEndpointSpecificPath
@@ -1061,6 +1257,12 @@ struct AddSourceView: View {
             Toggle("auto_connect", isOn: $autoConnect)
             if sourceType.supports2FA {
                 Toggle("remember_device", isOn: $rememberDevice)
+            }
+            if showsWholeSourceSpokenWordToggle {
+                Toggle("whole_source_spoken_word", isOn: $wholeSourceSpokenWord)
+                Text("whole_source_spoken_word_hint")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
 
@@ -1272,6 +1474,7 @@ struct AddSourceView: View {
             username = s.username ?? ""
             basePath = s.basePath ?? ""
             plexServerIdentifier = s.plexServerIdentifier
+            wholeSourceSpokenWord = SpokenWordStore.shared.isWholeSourceSpokenWord(sourceID: s.id)
             if supportsAdaptiveConnections {
                 loadAdaptiveConnectionFields(from: s)
             } else {
@@ -1848,7 +2051,10 @@ struct AddSourceView: View {
             deletedAt: editingSource?.deletedAt,
             restoredAt: editingSource?.restoredAt,
             cloudAccountID: editingSource?.cloudAccountID,
-            plexServerIdentifier: sourceType == .plex ? plexServerIdentifier : nil
+            plexServerIdentifier: sourceType == .plex ? plexServerIdentifier : nil,
+            excludedServerLibraryIDs: serverLibrariesLoad == .loaded
+                ? serverLibraryChoices.filter { $0.value == .excluded }.keys.sorted()
+                : (editingSource?.excludedServerLibraryIDs ?? [])
         )
         if supportsAdaptiveConnections {
             source = source.projectingPreferredConnectionForLegacy()
@@ -2098,6 +2304,7 @@ struct AddSourceView: View {
     }
 
     private func completeSave(_ source: MusicSource) {
+        applySpokenWordChoices(sourceID: source.id)
         onSave(source)
         // The main Sources flow keeps this sheet alive and replaces the form
         // with the existing connection / OTP / directory UI. Sources whose
@@ -2289,4 +2496,18 @@ final class AddSourceDraftRestoration {
         defer { pending = nil }
         return pending
     }
+}
+
+/// 源设置里一个服务端资料库的去向。
+enum ServerLibraryChoice: Hashable {
+    case music
+    case spokenWord
+    case excluded
+}
+
+enum ServerLibrariesLoadState: Equatable {
+    case idle
+    case loading
+    case loaded
+    case failed
 }

@@ -51,6 +51,68 @@ struct SpokenWordFolderRulesTests {
         #expect(SpokenWordFolderTag.supportsTags(descriptor("nas", .webdav)))
     }
 
+    @Test("An id-addressed source can be tagged as a whole; the reserved root path means every song")
+    func wholeSourceTag() {
+        let rules = SpokenWordFolderRules(
+            folders: ["nd": [SpokenWordFolderTag.wholeSourcePath], "gd": ["folder-id"]],
+            sources: [descriptor("nd", .navidrome), descriptor("gd", .googleDrive)]
+        )
+        #expect(!rules.isEmpty)
+        #expect(rules.containsSong(sourceID: "nd", filePath: "/songs/abc.flac"))
+        #expect(rules.containsSong(sourceID: "nd", filePath: "/songs/xyz.mp3", serverLibraryID: nil))
+        #expect(!rules.containsSong(sourceID: "gd", filePath: "/file-id.mp3"))
+        #expect(SpokenWordFolderTag.supportsWholeSourceTag(descriptor("nd", .navidrome)))
+        #expect(!SpokenWordFolderTag.supportsWholeSourceTag(descriptor("nas", .smb)))
+    }
+
+    @Test("A server library tag matches by the library id stamped on the song, never by path")
+    func libraryTag() {
+        let path = SpokenWordFolderTag.libraryPath(libraryID: "lib-books")
+        #expect(SpokenWordFolderTag.libraryID(fromTagPath: path) == "lib-books")
+        #expect(SpokenWordFolderTag.libraryID(fromTagPath: "/libraries/") == nil)
+        #expect(SpokenWordFolderTag.libraryID(fromTagPath: "/libraries/a/b") == nil)
+        #expect(SpokenWordFolderTag.libraryID(fromTagPath: "/Books") == nil)
+        let rules = SpokenWordFolderRules(
+            folders: ["jf": [path]],
+            sources: [descriptor("jf", .jellyfin)]
+        )
+        #expect(rules.containsSong(sourceID: "jf", filePath: "/items/1.m4a", serverLibraryID: "lib-books"))
+        #expect(!rules.containsSong(sourceID: "jf", filePath: "/items/2.m4a", serverLibraryID: "lib-music"))
+        #expect(!rules.containsSong(sourceID: "jf", filePath: "/libraries/lib-books/items/3.m4a"))
+        #expect(!rules.containsSong(sourceID: "other", filePath: "/items/1.m4a", serverLibraryID: "lib-books"))
+    }
+
+    @Test("A source type that declares spoken word needs no tag, and a per-song correction still wins")
+    func declaredSource() {
+        let rules = SpokenWordFolderRules(
+            folders: [:],
+            sources: [descriptor("abs", .audiobookshelf)],
+            declaredSpokenWordSourceIDs: ["abs"]
+        )
+        #expect(!rules.isEmpty)
+        #expect(rules.containsSong(sourceID: "abs", filePath: "/items/x/files/1.mp3"))
+        let inputs = SpokenWordClassificationInputs(overrides: ["music-in-abs": .music], folderRules: rules)
+        #expect(inputs.kind(songID: "music-in-abs", sourceID: "abs", filePath: "/items/x/files/1.mp3", genre: nil) == .music)
+        #expect(inputs.kind(songID: "other", sourceID: "abs", filePath: "/items/x/files/2.mp3", genre: "Rock") == .spokenWord)
+        #expect(inputs.inferredKind(sourceID: "abs", filePath: "/items/x/files/1.mp3", genre: nil) == .spokenWord)
+        var verdicts: [String: Bool] = [:]
+        #expect(inputs.kind(songID: "other", sourceID: "abs", filePath: "/items/x/files/2.mp3", genre: "Rock", genreVerdicts: &verdicts) == .spokenWord)
+    }
+
+    @Test("The library id reaches both classification entry points")
+    func libraryIDThroughInputs() {
+        let rules = SpokenWordFolderRules(
+            folders: ["jf": [SpokenWordFolderTag.libraryPath(libraryID: "books")]],
+            sources: [descriptor("jf", .jellyfin)]
+        )
+        let inputs = SpokenWordClassificationInputs(folderRules: rules)
+        var verdicts: [String: Bool] = [:]
+        #expect(inputs.kind(songID: "a", sourceID: "jf", filePath: "/items/1.mp3", genre: "Pop", serverLibraryID: "books") == .spokenWord)
+        #expect(inputs.kind(songID: "a", sourceID: "jf", filePath: "/items/1.mp3", genre: "Pop", serverLibraryID: "music") == .music)
+        #expect(inputs.kind(songID: "a", sourceID: "jf", filePath: "/items/1.mp3", genre: "Pop", serverLibraryID: "books", genreVerdicts: &verdicts) == .spokenWord)
+        #expect(inputs.kind(songID: "a", sourceID: "jf", filePath: "/items/1.mp3", genre: "Pop", serverLibraryID: nil, genreVerdicts: &verdicts) == .music)
+    }
+
     @Test("A per-song correction outranks the folder, the folder outranks the file")
     func precedence() {
         let rules = SpokenWordFolderRules(folders: ["nas": ["/Books"]], sources: [descriptor("nas", .smb)])

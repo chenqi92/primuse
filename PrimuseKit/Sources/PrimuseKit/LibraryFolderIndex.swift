@@ -172,6 +172,15 @@ private extension MusicSourceType {
 /// 模块内共用:选目录页判断上下级(`SourceDirectorySelectionPolicy`)也要知道
 /// 一个源的路径能不能按层级前缀比较。
 extension MusicSourceType {
+    /// 没有目录可标、也不按库组织的源(Navidrome 系、飞牛、网盘…)在源设置里给一个
+    /// 「整个来源都是有声内容」的开关;有目录的源在选目录页按目录标。
+    public var supportsWholeSourceSpokenWordTag: Bool {
+        libraryFolderPathSemantics == .opaque
+            && !organizesCatalogByServerLibrary
+            && declaredListeningContentKind == nil
+            && self != .upnp && self != .appleMusic && self != .appleMusicLibrary
+    }
+
     var libraryFolderPathSemantics: LibraryFolderPathSemantics {
         switch self {
         case .upnp,

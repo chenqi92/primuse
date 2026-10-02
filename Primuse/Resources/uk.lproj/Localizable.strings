@@ -4804,3 +4804,20 @@
 "tv_lyrics_font_large" = "Великий";
 "tv_lyrics_font_extra_large" = "Дуже великий";
 "metadata_writeback_plex_forbidden" = "Цей сервер Plex не дозволяє вашому обліковому запису змінювати медіатеку. Сервери, якими поділилися друзі, зазвичай доступні лише для відтворення.";
+
+// Server library kinds (music / audiobooks / don't sync) and the whole-source audiobook switch
+"server_libraries_section" = "Бібліотеки";
+"server_libraries_footer" = "Укажіть, що містить кожна бібліотека на сервері. Бібліотеки аудіокниг потрапляють на полицю й відкриваються в плеєрі книг; несинхронізовані бібліотеки пропускаються під час наступного сканування.";
+"server_libraries_loading" = "Завантаження бібліотек…";
+"server_libraries_unavailable" = "Не вдалося завантажити список бібліотек. Перевірте з’єднання й відкрийте цю сторінку знову.";
+"server_libraries_empty" = "На цьому сервері не знайдено бібліотек музики чи аудіокниг.";
+"library_kind_music" = "Музика";
+"library_kind_spoken_word" = "Аудіокниги";
+"library_kind_excluded" = "Не синхронізувати";
+"library_kind_caption_music" = "Музична бібліотека";
+"library_kind_caption_mixed" = "Змішаний вміст";
+"library_kind_caption_audiobooks" = "Бібліотека аудіокниг";
+"library_kind_caption_podcasts" = "Бібліотека подкастів";
+"library_kind_caption_other" = "Інше";
+"whole_source_spoken_word" = "Тут усе — аудіокниги";
+"whole_source_spoken_word_hint" = "Усі записи цього джерела потрапляють на полицю аудіокниг і відкриваються в плеєрі книг. Окремі записи все ще можна позначити як музику.";

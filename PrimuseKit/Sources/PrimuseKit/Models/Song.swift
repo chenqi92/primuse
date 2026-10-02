@@ -84,6 +84,10 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     /// nil = 不是 Apple Music 曲目，或者还没查到。标的是「提供哪些版本」而不是
     /// 「正在播什么」，详见 [AudioVariant]。
     public var audioVariants: [AudioVariant]?
+    /// 服务端资料库的 id（Jellyfin/Emby 的库、Plex 的分区、Audiobookshelf 的 library）。
+    /// 只有按库组织的服务器源才填；按库声明「音乐 / 有声」的规则靠它认出一首歌属于哪个库，
+    /// 条目路径里没有这一层。
+    public var serverLibraryID: String?
 
     public init(
         id: String,
@@ -126,7 +130,8 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         albumPinyin: String? = nil,
         lyricsText: String? = nil,
         userMetadataEditedAt: Date? = nil,
-        audioVariants: [AudioVariant]? = nil
+        audioVariants: [AudioVariant]? = nil,
+        serverLibraryID: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -169,6 +174,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.lyricsText = lyricsText
         self.userMetadataEditedAt = userMetadataEditedAt
         self.audioVariants = audioVariants
+        self.serverLibraryID = serverLibraryID
     }
 }
 

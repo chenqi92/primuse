@@ -1360,6 +1360,16 @@ actor SourceConnectionRouter {
         return albums
     }
 
+    /// 走查读过的库留在当时走的那条线路上;哪条有就取哪条。
+    func takeObservedServerLibraries() async -> [ServerLibraryDescriptor]? {
+        var observed: [ServerLibraryDescriptor]?
+        for candidate in candidates {
+            guard let lister = candidate.connector as? any ServerLibraryListingConnector else { continue }
+            if let libraries = await lister.takeObservedServerLibraries() { observed = libraries }
+        }
+        return observed
+    }
+
     func withMutation<T: Sendable>(
         _ operation: @Sendable (any MusicSourceConnector) async throws -> T
     ) async throws -> T {
@@ -1885,6 +1895,10 @@ private extension RoutedConnectorProxy {
 
     func takeObservedServerRatings() async -> [String: Int] {
         await routing.takeObservedServerRatings()
+    }
+
+    func takeObservedServerLibraries() async -> [ServerLibraryDescriptor]? {
+        await routing.takeObservedServerLibraries()
     }
 
     func connect() async throws { try await routing.connect() }
@@ -2656,12 +2670,21 @@ private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetad
     ServerFavoriteConnector, IncrementalSongCatalogConnector,
     ServerRadioConnector, ServerRadioStreamResolvingConnector, ServerListeningStatsConnector,
     ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector,
-    ServerCollectionFavoriteConnector {
+    ServerCollectionFavoriteConnector, ServerLibraryListingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
     let routedPreferredDeleteBatchSize: Int
     let serverLyricsCapabilities: ServerLyricsCapabilities
+
+    func fetchServerLibraries() async throws -> [ServerLibraryDescriptor] {
+        try await routing.withRead { connector in
+            guard let lister = connector as? any ServerLibraryListingConnector else {
+                throw SourceError.connectionFailed("Server library listing unavailable")
+            }
+            return try await lister.fetchServerLibraries()
+        }
+    }
 
     func fetchServerCollectionFavorites() async throws -> [ServerCollectionFavorite] {
         try await routing.withRead { connector in
@@ -3548,7 +3571,8 @@ final class SourceManager {
                     username: source.username ?? "",
                     secret: secret,
                     authType: source.authType,
-                    alternateTLSValidationHostname: source.alternateTLSValidationHostname
+                    alternateTLSValidationHostname: source.alternateTLSValidationHostname,
+                    excludedLibraryIDs: Set(source.excludedServerLibraryIDs)
                 )
             }
         case .subsonic, .navidrome, .airsonic, .gonic:
@@ -6104,6 +6128,7 @@ final class SourceManager {
             source.nfsVersion?.rawValue ?? "",
             source.s3Region ?? "",
             source.extraConfig ?? "",
+            source.excludedServerLibraryIDs.sorted().joined(separator: ","),
             source.rememberDevice ? "trusted" : "untrusted",
             source.deviceId ?? "",
             source.effectiveSynologyConnectionMode.rawValue,
@@ -12946,6 +12971,18 @@ final class SourceManager {
             throw CancellationError()
         }
         return albumID.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// 扫描提交之后取走走查读过的库(见 `ServerLibraryListingConnector`)。
+    func takeObservedServerLibraries(for source: MusicSource) async -> [ServerLibraryDescriptor]? {
+        guard let lister = connector(for: source) as? any ServerLibraryListingConnector else { return nil }
+        return await lister.takeObservedServerLibraries()
+    }
+
+    /// 源设置里按库选「音乐 / 有声 / 不同步」前,先问服务器有哪些库。
+    func fetchServerLibraries(for source: MusicSource) async throws -> [ServerLibraryDescriptor] {
+        guard let lister = connector(for: source) as? any ServerLibraryListingConnector else { return [] }
+        return try await lister.fetchServerLibraries()
     }
 
     func fetchServerRating(target: ServerSongRatingTarget, source: MusicSource) async throws -> Int? {

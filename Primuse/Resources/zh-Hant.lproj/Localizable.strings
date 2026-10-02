@@ -4875,3 +4875,20 @@
 "tv_lyrics_font_large" = "大";
 "tv_lyrics_font_extra_large" = "特大";
 "metadata_writeback_plex_forbidden" = "這台 Plex 伺服器沒有給你的帳號修改資料的權限，好友分享的伺服器通常只能播放。";
+
+// Server library kinds (music / audiobooks / don't sync) and the whole-source audiobook switch
+"server_libraries_section" = "資料庫";
+"server_libraries_footer" = "選擇伺服器上每個資料庫裝的是什麼。有聲書庫會進書架、用聽書播放頁；不同步的庫下次掃描就不再讀取。";
+"server_libraries_loading" = "正在讀取資料庫…";
+"server_libraries_unavailable" = "讀不到資料庫列表，請檢查連線後重新開啟這一頁。";
+"server_libraries_empty" = "這台伺服器上沒有找到音樂或有聲書資料庫。";
+"library_kind_music" = "音樂";
+"library_kind_spoken_word" = "有聲書";
+"library_kind_excluded" = "不同步";
+"library_kind_caption_music" = "音樂庫";
+"library_kind_caption_mixed" = "混合內容";
+"library_kind_caption_audiobooks" = "有聲書庫";
+"library_kind_caption_podcasts" = "Podcast 庫";
+"library_kind_caption_other" = "其他";
+"whole_source_spoken_word" = "整個來源都是有聲內容";
+"whole_source_spoken_word_hint" = "這個來源的所有歌曲都進有聲書書架、用聽書播放頁。單首仍可以標回音樂。";

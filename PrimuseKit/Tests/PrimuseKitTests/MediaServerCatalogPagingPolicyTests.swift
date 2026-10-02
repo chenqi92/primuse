@@ -221,6 +221,24 @@ struct MediaServerLibrarySelectionPolicyTests {
         #expect(select([unknownMusic, mixed]) == ["music"])
     }
 
+    @Test func audiobookLibrariesAreReadNextToMusic() {
+        let libraries = [
+            Lib(id: "books", type: "books", locations: ["/data/books"]),
+            Lib(id: "music", type: "music", locations: ["/data/music"]),
+            Lib(id: "tv", type: "tvshows", locations: ["/data/tv"]),
+            Lib(id: "emby-books", type: "audiobooks", locations: nil),
+        ]
+        #expect(select(libraries) == ["books", "music", "emby-books"])
+        #expect(select(libraries, mixed: false) == ["books", "music", "emby-books"])
+        #expect(MediaServerLibrarySelectionPolicy.contentKind(collectionType: "books") == .audiobooks)
+        #expect(MediaServerLibrarySelectionPolicy.contentKind(collectionType: "AudioBooks") == .audiobooks)
+        #expect(MediaServerLibrarySelectionPolicy.contentKind(collectionType: "artist") == .music)
+        #expect(MediaServerLibrarySelectionPolicy.contentKind(collectionType: nil) == .mixed)
+        #expect(MediaServerLibrarySelectionPolicy.contentKind(collectionType: "movies") == .other)
+        #expect(ServerLibraryDescriptor(id: "b", name: "Books", kind: .audiobooks).defaultsToSpokenWord)
+        #expect(!ServerLibraryDescriptor(id: "m", name: "Music", kind: .music).defaultsToSpokenWord)
+    }
+
     @Test func overlapIsAboutWholePathComponents() {
         #expect(MediaServerLibrarySelectionPolicy.locationsOverlap("/music", "/music/a"))
         #expect(MediaServerLibrarySelectionPolicy.locationsOverlap("/Music/", "/music"))

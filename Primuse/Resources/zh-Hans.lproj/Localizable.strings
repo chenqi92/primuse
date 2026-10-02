@@ -4991,3 +4991,20 @@
 "tv_lyrics_font_large" = "大";
 "tv_lyrics_font_extra_large" = "特大";
 "metadata_writeback_plex_forbidden" = "这台 Plex 服务器没有给你的账号修改资料的权限，好友分享的服务器通常只能播放。";
+
+// 服务器资料库的归属(音乐 / 有声 / 不同步)与整源有声开关
+"server_libraries_section" = "资料库";
+"server_libraries_footer" = "选择服务器上每个资料库装的是什么。有声书库会进书架、用听书播放页；不同步的库下次扫描就不再读。";
+"server_libraries_loading" = "正在读取资料库…";
+"server_libraries_unavailable" = "读不到资料库列表，请检查连接后重新打开这一页。";
+"server_libraries_empty" = "这台服务器上没有找到音乐或有声书资料库。";
+"library_kind_music" = "音乐";
+"library_kind_spoken_word" = "有声书";
+"library_kind_excluded" = "不同步";
+"library_kind_caption_music" = "音乐库";
+"library_kind_caption_mixed" = "混合内容";
+"library_kind_caption_audiobooks" = "有声书库";
+"library_kind_caption_podcasts" = "播客库";
+"library_kind_caption_other" = "其他";
+"whole_source_spoken_word" = "整个来源都是有声内容";
+"whole_source_spoken_word_hint" = "这个来源的所有歌曲都进有声书书架、用听书播放页。单首仍可以标回音乐。";

@@ -4899,3 +4899,20 @@
 "tv_lyrics_font_large" = "大";
 "tv_lyrics_font_extra_large" = "特大";
 "metadata_writeback_plex_forbidden" = "この Plex サーバでは、あなたのアカウントにライブラリを編集する権限がありません。友達が共有したサーバは通常、再生のみ可能です。";
+
+// Server library kinds (music / audiobooks / don't sync) and the whole-source audiobook switch
+"server_libraries_section" = "ライブラリ";
+"server_libraries_footer" = "サーバー上の各ライブラリの内容を選びます。オーディオブックのライブラリは本棚に入り、聴書プレーヤーで再生されます。同期しないライブラリは次回のスキャンから除外されます。";
+"server_libraries_loading" = "ライブラリを読み込み中…";
+"server_libraries_unavailable" = "ライブラリ一覧を読み込めませんでした。接続を確認してからこのページを開き直してください。";
+"server_libraries_empty" = "このサーバーには音楽またはオーディオブックのライブラリが見つかりませんでした。";
+"library_kind_music" = "音楽";
+"library_kind_spoken_word" = "オーディオブック";
+"library_kind_excluded" = "同期しない";
+"library_kind_caption_music" = "音楽ライブラリ";
+"library_kind_caption_mixed" = "混合コンテンツ";
+"library_kind_caption_audiobooks" = "オーディオブックライブラリ";
+"library_kind_caption_podcasts" = "ポッドキャストライブラリ";
+"library_kind_caption_other" = "その他";
+"whole_source_spoken_word" = "このソースはすべてオーディオブック";
+"whole_source_spoken_word_hint" = "このソースのすべての曲がオーディオブックの本棚に入り、聴書プレーヤーで再生されます。個別の項目は音楽に戻せます。";

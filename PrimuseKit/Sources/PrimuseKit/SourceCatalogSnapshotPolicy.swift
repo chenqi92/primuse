@@ -262,6 +262,7 @@ public enum ServerSongCatalogMergePolicy {
         // itself remains byte-for-byte identical. Always adopt the latest
         // catalogue value instead of treating it as device enrichment.
         refreshed.serverPlayCount = incoming.serverPlayCount
+        if let libraryID = incoming.serverLibraryID { refreshed.serverLibraryID = libraryID }
         if !incoming.filePath.isEmpty { refreshed.filePath = incoming.filePath }
         if refreshed.coverArtFileName == nil {
             refreshed.coverArtFileName = incoming.coverArtFileName

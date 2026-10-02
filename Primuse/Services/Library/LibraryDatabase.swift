@@ -305,6 +305,13 @@ actor LibraryDatabase {
             }
         }
 
+        // 服务端资料库 id(Jellyfin/Emby 的库、Plex 的分区),按库归「音乐 / 有声」用。
+        migrator.registerMigration("v18_song_server_library_id") { db in
+            try db.alter(table: "songs") { t in
+                t.add(column: "serverLibraryID", .text)
+            }
+        }
+
         // Run every registered migration, not just v1 — pinning to
         // `upTo: "v1_initial"` would silently skip later versions on
         // upgrade and reintroduce schema drift.

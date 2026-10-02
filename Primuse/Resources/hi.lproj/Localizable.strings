@@ -4804,3 +4804,20 @@
 "tv_lyrics_font_large" = "बड़ा";
 "tv_lyrics_font_extra_large" = "बहुत बड़ा";
 "metadata_writeback_plex_forbidden" = "यह Plex सर्वर आपके खाते को लाइब्रेरी संपादित करने की अनुमति नहीं देता। मित्रों द्वारा साझा किए गए सर्वर आमतौर पर केवल चलाने के लिए होते हैं।";
+
+// Server library kinds (music / audiobooks / don't sync) and the whole-source audiobook switch
+"server_libraries_section" = "लाइब्रेरी";
+"server_libraries_footer" = "चुनें कि सर्वर की हर लाइब्रेरी में क्या है। ऑडियोबुक लाइब्रेरी शेल्फ़ में जाती हैं और बुक प्लेयर में चलती हैं; जिन्हें सिंक नहीं किया जाता वे अगले स्कैन से बाहर रहती हैं।";
+"server_libraries_loading" = "लाइब्रेरी लोड हो रही हैं…";
+"server_libraries_unavailable" = "लाइब्रेरी लोड नहीं हो सकीं। कनेक्शन जाँचें और यह पेज फिर से खोलें।";
+"server_libraries_empty" = "इस सर्वर पर कोई संगीत या ऑडियोबुक लाइब्रेरी नहीं मिली।";
+"library_kind_music" = "संगीत";
+"library_kind_spoken_word" = "ऑडियोबुक";
+"library_kind_excluded" = "सिंक न करें";
+"library_kind_caption_music" = "संगीत लाइब्रेरी";
+"library_kind_caption_mixed" = "मिश्रित सामग्री";
+"library_kind_caption_audiobooks" = "ऑडियोबुक लाइब्रेरी";
+"library_kind_caption_podcasts" = "पॉडकास्ट लाइब्रेरी";
+"library_kind_caption_other" = "अन्य";
+"whole_source_spoken_word" = "यहाँ सब कुछ ऑडियोबुक है";
+"whole_source_spoken_word_hint" = "इस स्रोत के सभी गाने ऑडियोबुक शेल्फ़ में जाते हैं और बुक प्लेयर में चलते हैं। अलग-अलग आइटम अब भी संगीत के रूप में चिह्नित किए जा सकते हैं।";

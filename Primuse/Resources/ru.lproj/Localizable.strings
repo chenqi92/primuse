@@ -4804,3 +4804,20 @@
 "tv_lyrics_font_large" = "Крупный";
 "tv_lyrics_font_extra_large" = "Очень крупный";
 "metadata_writeback_plex_forbidden" = "Этот сервер Plex не разрешает вашему аккаунту изменять медиатеку. Серверы, которыми поделились друзья, обычно доступны только для воспроизведения.";
+
+// Server library kinds (music / audiobooks / don't sync) and the whole-source audiobook switch
+"server_libraries_section" = "Библиотеки";
+"server_libraries_footer" = "Укажите, что содержит каждая библиотека на сервере. Библиотеки аудиокниг попадают на полку и открываются в плеере книг; несинхронизируемые библиотеки пропускаются при следующем сканировании.";
+"server_libraries_loading" = "Загрузка библиотек…";
+"server_libraries_unavailable" = "Не удалось загрузить список библиотек. Проверьте подключение и откройте эту страницу снова.";
+"server_libraries_empty" = "На этом сервере не найдено библиотек музыки или аудиокниг.";
+"library_kind_music" = "Музыка";
+"library_kind_spoken_word" = "Аудиокниги";
+"library_kind_excluded" = "Не синхронизировать";
+"library_kind_caption_music" = "Музыкальная библиотека";
+"library_kind_caption_mixed" = "Смешанное содержимое";
+"library_kind_caption_audiobooks" = "Библиотека аудиокниг";
+"library_kind_caption_podcasts" = "Библиотека подкастов";
+"library_kind_caption_other" = "Другое";
+"whole_source_spoken_word" = "Здесь всё — аудиокниги";
+"whole_source_spoken_word_hint" = "Все записи этого источника попадают на полку аудиокниг и открываются в плеере книг. Отдельные записи по-прежнему можно пометить как музыку.";

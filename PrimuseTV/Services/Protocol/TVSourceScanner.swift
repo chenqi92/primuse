@@ -690,7 +690,8 @@ enum TVServerCatalogConnectorFactory {
                 username: username,
                 secret: secret,
                 authType: source.authType,
-                alternateTLSValidationHostname: source.alternateTLSValidationHostname
+                alternateTLSValidationHostname: source.alternateTLSValidationHostname,
+                excludedLibraryIDs: Set(source.excludedServerLibraryIDs)
             )
         case .subsonic, .navidrome, .airsonic, .gonic:
             return SubsonicSource(
@@ -2474,7 +2475,18 @@ final class TVSourceScanner {
         ) else {
             throw TVScanError.unsupported
         }
-        return try await collectCatalog(from: connector, onSong: onSong)
+        let songs = try await collectCatalog(from: connector, onSong: onSong)
+        // 服务端标成有声书的库第一次见到就归到有声(手机上也是扫描收尾时做的);标签经
+        // iCloud 同步,两边谁先扫到都一样。
+        if let lister = connector as? any ServerLibraryListingConnector,
+           let libraries = await lister.takeObservedServerLibraries() {
+            let defaults = libraries.filter(\.defaultsToSpokenWord).map(\.id)
+            let sourceID = source.id
+            await MainActor.run {
+                SpokenWordStore.shared.registerDefaultSpokenWordLibraries(sourceID: sourceID, libraryIDs: defaults)
+            }
+        }
+        return songs
     }
 
     /// Subsonic / Navidrome / Airsonic / Gonic:同一份 `SubsonicSource`。

@@ -1842,6 +1842,16 @@ protocol ServerAlbumRatingConnector: MusicSourceConnector {
     func setServerAlbumRating(albumID: String, rating: Int?) async throws -> Int?
 }
 
+/// 按库组织的服务器(Jellyfin/Emby 的库、Plex 的分区、Audiobookshelf 的 library)。
+/// 源设置里按库选「音乐 / 有声 / 不同步」要先列出库;整库走查读过哪些库也记下来,
+/// 扫描收尾时取走,服务端标成有声书的库第一次见到就默认归到有声。
+protocol ServerLibraryListingConnector: MusicSourceConnector {
+    /// 账号能看到的、装音频的库,带服务端声明的内容类型。
+    func fetchServerLibraries() async throws -> [ServerLibraryDescriptor]
+    /// 上一次整库走查读过的库;取走即清空,没走过就是 nil。
+    func takeObservedServerLibraries() async -> [ServerLibraryDescriptor]?
+}
+
 /// Authoritative catalogue pages that can be staged without publishing a
 /// partial source snapshot. The caller persists `resumeState` only together
 /// with all songs returned through that page.

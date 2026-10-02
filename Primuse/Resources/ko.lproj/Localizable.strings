@@ -4898,3 +4898,20 @@
 "tv_lyrics_font_large" = "크게";
 "tv_lyrics_font_extra_large" = "아주 크게";
 "metadata_writeback_plex_forbidden" = "이 Plex 서버에서는 내 계정에 라이브러리 편집 권한이 없습니다. 친구가 공유한 서버는 보통 재생만 할 수 있습니다.";
+
+// Server library kinds (music / audiobooks / don't sync) and the whole-source audiobook switch
+"server_libraries_section" = "라이브러리";
+"server_libraries_footer" = "서버의 각 라이브러리에 무엇이 들어 있는지 선택합니다. 오디오북 라이브러리는 책장에 들어가고 듣기 플레이어로 재생되며, 동기화하지 않는 라이브러리는 다음 스캔에서 제외됩니다.";
+"server_libraries_loading" = "라이브러리 불러오는 중…";
+"server_libraries_unavailable" = "라이브러리 목록을 불러오지 못했습니다. 연결을 확인한 뒤 이 페이지를 다시 여세요.";
+"server_libraries_empty" = "이 서버에서 음악 또는 오디오북 라이브러리를 찾지 못했습니다.";
+"library_kind_music" = "음악";
+"library_kind_spoken_word" = "오디오북";
+"library_kind_excluded" = "동기화 안 함";
+"library_kind_caption_music" = "음악 라이브러리";
+"library_kind_caption_mixed" = "혼합 콘텐츠";
+"library_kind_caption_audiobooks" = "오디오북 라이브러리";
+"library_kind_caption_podcasts" = "팟캐스트 라이브러리";
+"library_kind_caption_other" = "기타";
+"whole_source_spoken_word" = "이 소스는 모두 오디오북";
+"whole_source_spoken_word_hint" = "이 소스의 모든 곡이 오디오북 책장에 들어가고 듣기 플레이어로 재생됩니다. 개별 항목은 여전히 음악으로 표시할 수 있습니다.";

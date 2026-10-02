@@ -1265,6 +1265,16 @@ final class AppServices {
                 )
             }
             if applyFence() { ratingSync?.resume(sourceID: source.id) }
+            // 走查读过的库:服务端标成有声书的那些第一次见到就归到有声,用户改过的不动。
+            if let libraries = await manager?.takeObservedServerLibraries(for: source), applyFence() {
+                let defaults = libraries.filter(\.defaultsToSpokenWord).map(\.id)
+                await MainActor.run {
+                    SpokenWordStore.shared.registerDefaultSpokenWordLibraries(
+                        sourceID: source.id,
+                        libraryIDs: defaults
+                    )
+                }
+            }
         }
         // 按文件 ID 寻址的网盘, 歌曲路径里没有目录; 专辑艺术家推断改用扫描同步
         // 索引里记下的父目录。索引一变 (扫描提交、同步状态作废) 就重送一份。

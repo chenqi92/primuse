@@ -4898,3 +4898,20 @@
 "tv_lyrics_font_large" = "Grande";
 "tv_lyrics_font_extra_large" = "Très grande";
 "metadata_writeback_plex_forbidden" = "Ce serveur Plex n'autorise pas votre compte à modifier sa bibliothèque. Les serveurs partagés par des amis sont généralement en lecture seule.";
+
+// Server library kinds (music / audiobooks / don't sync) and the whole-source audiobook switch
+"server_libraries_section" = "Bibliothèques";
+"server_libraries_footer" = "Indiquez ce que contient chaque bibliothèque du serveur. Les bibliothèques de livres audio vont dans l’étagère et utilisent le lecteur de livres ; celles qui ne sont pas synchronisées sont ignorées à la prochaine analyse.";
+"server_libraries_loading" = "Chargement des bibliothèques…";
+"server_libraries_unavailable" = "Impossible de charger les bibliothèques. Vérifiez la connexion et rouvrez cette page.";
+"server_libraries_empty" = "Aucune bibliothèque de musique ou de livres audio n’a été trouvée sur ce serveur.";
+"library_kind_music" = "Musique";
+"library_kind_spoken_word" = "Livres audio";
+"library_kind_excluded" = "Ne pas synchroniser";
+"library_kind_caption_music" = "Bibliothèque musicale";
+"library_kind_caption_mixed" = "Contenu mixte";
+"library_kind_caption_audiobooks" = "Bibliothèque de livres audio";
+"library_kind_caption_podcasts" = "Bibliothèque de podcasts";
+"library_kind_caption_other" = "Autre";
+"whole_source_spoken_word" = "Tout ici est livre audio";
+"whole_source_spoken_word_hint" = "Tous les morceaux de cette source vont dans l’étagère de livres audio et utilisent le lecteur de livres. Un élément isolé peut toujours être marqué comme musique.";

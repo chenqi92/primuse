@@ -4479,6 +4479,7 @@ final class MusicLibrary {
                 sourceID: song.sourceID,
                 filePath: song.filePath,
                 genre: song.genre,
+                serverLibraryID: song.serverLibraryID,
                 genreVerdicts: &spokenWordGenreVerdicts
             ) == .spokenWord
             if isSpokenWord { spokenWordSongIDs.insert(song.id) }
@@ -5511,6 +5512,7 @@ final class MusicLibrary {
                         merged.dateAdded = newSong.dateAdded
                     }
                     merged.serverPlayCount = newSong.serverPlayCount
+                    if let libraryID = newSong.serverLibraryID { merged.serverLibraryID = libraryID }
                     // Always refresh revision — when the connector starts
                     // surfacing a fingerprint that wasn't there before
                     // (e.g. user upgraded to a build that reads md5), we

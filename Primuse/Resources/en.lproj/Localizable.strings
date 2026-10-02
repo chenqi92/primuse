@@ -4661,3 +4661,20 @@
 "tv_lyrics_font_large" = "Large";
 "tv_lyrics_font_extra_large" = "Extra Large";
 "metadata_writeback_plex_forbidden" = "This Plex server doesn't let your account edit its library. Servers shared by friends are usually play-only.";
+
+// Server library kinds (music / audiobooks / don't sync) and the whole-source audiobook switch
+"server_libraries_section" = "Libraries";
+"server_libraries_footer" = "Choose what each library on the server holds. Audiobook libraries go to the shelf and use the book player; libraries you don't sync are left out of the next scan.";
+"server_libraries_loading" = "Loading libraries…";
+"server_libraries_unavailable" = "Couldn't load the libraries. Check the connection and open this page again.";
+"server_libraries_empty" = "No music or audiobook libraries were found on this server.";
+"library_kind_music" = "Music";
+"library_kind_spoken_word" = "Audiobooks";
+"library_kind_excluded" = "Don't Sync";
+"library_kind_caption_music" = "Music library";
+"library_kind_caption_mixed" = "Mixed content";
+"library_kind_caption_audiobooks" = "Audiobook library";
+"library_kind_caption_podcasts" = "Podcast library";
+"library_kind_caption_other" = "Other";
+"whole_source_spoken_word" = "Everything Here Is Audiobooks";
+"whole_source_spoken_word_hint" = "All songs from this source go to the audiobook shelf and use the book player. Single items can still be marked as music.";

@@ -71,6 +71,20 @@ public enum MediaServerLibrarySelectionPolicy {
         return type == "music" || type == "artist"
     }
 
+    /// Jellyfin 的「书籍」库(`books`)和 Emby 的有声书库(`audiobooks`)。里面的有声书
+    /// 条目类型是 `AudioBook`,不是 `Audio`,所以这些库要单独问、单独归到有声。
+    public static func isAudiobookLibrary(collectionType: String?) -> Bool {
+        guard let type = collectionType?.trimmingCharacters(in: .whitespaces).lowercased() else { return false }
+        return type == "books" || type == "audiobooks"
+    }
+
+    public static func contentKind(collectionType: String?) -> ServerLibraryContentKind {
+        if isMusicLibrary(collectionType: collectionType) { return .music }
+        if isAudiobookLibrary(collectionType: collectionType) { return .audiobooks }
+        if isMixedLibrary(collectionType: collectionType) { return .mixed }
+        return .other
+    }
+
     public static func isMixedLibrary(collectionType: String?) -> Bool {
         guard let type = collectionType?.trimmingCharacters(in: .whitespaces).lowercased() else {
             return true
@@ -87,17 +101,23 @@ public enum MediaServerLibrarySelectionPolicy {
         let isMusic = libraries.map { isMusicLibrary(collectionType: collectionType($0)) }
         guard isMusic.contains(true) else { return libraries }
         let music = zip(libraries, isMusic).filter(\.1).map(\.0)
-        guard includesMixedLibraries else { return music }
+        // 服务端明确标成有声书的库一起读:它们的条目是另一种类型,不会和音乐库重复,
+        // 读进来之后按库归到有声。
+        let isMusicOrAudiobooks = zip(libraries, isMusic).map { library, music in
+            music || isAudiobookLibrary(collectionType: collectionType(library))
+        }
+        let musicAndAudiobooks = zip(libraries, isMusicOrAudiobooks).filter(\.1).map(\.0)
+        guard includesMixedLibraries else { return musicAndAudiobooks }
 
         var musicRoots: [String] = []
         for library in music {
             let roots = normalizedLocations(locations(library))
             // A music library with unknown folders could contain anything.
-            guard !roots.isEmpty else { return music }
+            guard !roots.isEmpty else { return musicAndAudiobooks }
             musicRoots += roots
         }
-        return zip(libraries, isMusic).compactMap { library, music in
-            if music { return library }
+        return zip(libraries, isMusicOrAudiobooks).compactMap { library, wanted in
+            if wanted { return library }
             guard isMixedLibrary(collectionType: collectionType(library)) else { return nil }
             let roots = normalizedLocations(locations(library))
             guard !roots.isEmpty else { return nil }
@@ -132,5 +152,37 @@ public enum MediaServerLibrarySelectionPolicy {
             .lowercased()
         while path.count > 1, path.hasSuffix("/") { path.removeLast() }
         return path.isEmpty ? "/" : path
+    }
+}
+
+/// 服务端资料库(Jellyfin/Emby 的库、Plex 的分区、Audiobookshelf 的 library)里装的是什么,
+/// 按服务端自己的类型声明。
+public enum ServerLibraryContentKind: String, Sendable, Codable, Hashable {
+    case music
+    /// Emby 的「混合内容」、Jellyfin 没指定类型的库。
+    case mixed
+    case audiobooks
+    /// 播客库(Audiobookshelf)。
+    case podcasts
+    case other
+}
+
+/// 一个服务端资料库,给源设置里按库选「音乐 / 有声 / 不同步」用。
+public struct ServerLibraryDescriptor: Sendable, Hashable, Identifiable {
+    public let id: String
+    public let name: String
+    public let kind: ServerLibraryContentKind
+    public let itemCount: Int?
+
+    public init(id: String, name: String, kind: ServerLibraryContentKind, itemCount: Int? = nil) {
+        self.id = id
+        self.name = name
+        self.kind = kind
+        self.itemCount = itemCount
+    }
+
+    /// 服务端自己就说这是有声内容的库:第一次见到时默认归到有声。
+    public var defaultsToSpokenWord: Bool {
+        kind == .audiobooks || kind == .podcasts
     }
 }

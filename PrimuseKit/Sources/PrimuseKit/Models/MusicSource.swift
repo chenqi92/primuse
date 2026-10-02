@@ -278,6 +278,17 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
             || self == .synologyAudioStation
     }
 
+    /// 源类型本身就决定了内容是哪种听法时在这里声明（有声书服务器里没有音乐）。
+    /// nil 表示按文件、用户标签推断。
+    public var declaredListeningContentKind: ListeningContentKind? {
+        nil
+    }
+
+    /// 按库组织的服务器：用户可以在源设置里按库选「音乐 / 有声 / 不同步」。
+    public var organizesCatalogByServerLibrary: Bool {
+        isMediaServer
+    }
+
     /// 连接入口沿用群晖的「QuickConnect / 直连地址」两种模式(`synologyConnectionMode`)。
     /// File Station 与 Audio Station 在同一台 DSM 上,地址、端口与 QuickConnect ID 一致。
     public var usesSynologyConnectionMode: Bool {
@@ -1524,6 +1535,10 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
     /// clientIdentifier。有它才能在服务器换了地址后用账号重新查到新线路；
     /// 手填地址和 token 的 Plex 源一直是 nil。
     public var plexServerIdentifier: String?
+    /// 按库组织的服务器源里不同步的库（Jellyfin/Emby 的库、Plex 的分区、Audiobookshelf 的
+    /// library）。存「排除」而不是「包含」：服务器上新建的库默认照常进来，和一直以来的
+    /// 整库行为一致；改了它算内容范围变了，下次扫描会重新对账。
+    public var excludedServerLibraryIDs: [String]
 
     public init(
         id: String = UUID().uuidString,
@@ -1555,7 +1570,8 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         deletedAt: Date? = nil,
         restoredAt: Date? = nil,
         cloudAccountID: String? = nil,
-        plexServerIdentifier: String? = nil
+        plexServerIdentifier: String? = nil,
+        excludedServerLibraryIDs: [String] = []
     ) {
         self.id = id
         self.name = name
@@ -1588,6 +1604,7 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         self.restoredAt = restoredAt
         self.cloudAccountID = cloudAccountID
         self.plexServerIdentifier = plexServerIdentifier
+        self.excludedServerLibraryIDs = excludedServerLibraryIDs
     }
 
     public var supportsRangeStreaming: Bool {
@@ -1643,6 +1660,7 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         // will populate this for existing OAuth sources.
         self.cloudAccountID = try c.decodeIfPresent(String.self, forKey: .cloudAccountID)
         self.plexServerIdentifier = try c.decodeIfPresent(String.self, forKey: .plexServerIdentifier)
+        self.excludedServerLibraryIDs = try c.decodeIfPresent([String].self, forKey: .excludedServerLibraryIDs) ?? []
     }
 }
 

@@ -4898,3 +4898,20 @@
 "tv_lyrics_font_large" = "Groß";
 "tv_lyrics_font_extra_large" = "Sehr groß";
 "metadata_writeback_plex_forbidden" = "Dieser Plex-Server erlaubt deinem Account keine Änderungen an der Mediathek. Von Freunden freigegebene Server sind meist nur zum Abspielen.";
+
+// Server library kinds (music / audiobooks / don't sync) and the whole-source audiobook switch
+"server_libraries_section" = "Bibliotheken";
+"server_libraries_footer" = "Lege fest, was jede Bibliothek auf dem Server enthält. Hörbuch-Bibliotheken landen im Regal und nutzen den Hörbuch-Player; nicht synchronisierte Bibliotheken werden beim nächsten Scan ausgelassen.";
+"server_libraries_loading" = "Bibliotheken werden geladen …";
+"server_libraries_unavailable" = "Die Bibliotheken konnten nicht geladen werden. Prüfe die Verbindung und öffne diese Seite erneut.";
+"server_libraries_empty" = "Auf diesem Server wurden keine Musik- oder Hörbuch-Bibliotheken gefunden.";
+"library_kind_music" = "Musik";
+"library_kind_spoken_word" = "Hörbücher";
+"library_kind_excluded" = "Nicht synchronisieren";
+"library_kind_caption_music" = "Musikbibliothek";
+"library_kind_caption_mixed" = "Gemischte Inhalte";
+"library_kind_caption_audiobooks" = "Hörbuch-Bibliothek";
+"library_kind_caption_podcasts" = "Podcast-Bibliothek";
+"library_kind_caption_other" = "Sonstiges";
+"whole_source_spoken_word" = "Hier ist alles Hörbuch";
+"whole_source_spoken_word_hint" = "Alle Titel dieser Quelle landen im Hörbuchregal und nutzen den Hörbuch-Player. Einzelne Titel lassen sich weiterhin als Musik markieren.";

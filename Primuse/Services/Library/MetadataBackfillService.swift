@@ -5397,7 +5397,9 @@ final class MetadataBackfillService {
             artistPinyin: mergedArtist == bare.artistName ? bare.artistPinyin : nil,
             albumPinyin: mergedAlbum == bare.albumTitle ? bare.albumPinyin : nil,
             lyricsText: bare.lyricsText,
-            userMetadataEditedAt: bare.userMetadataEditedAt
+            userMetadataEditedAt: bare.userMetadataEditedAt,
+            audioVariants: bare.audioVariants,
+            serverLibraryID: bare.serverLibraryID
         )
         let preserved = SongUserMetadataPolicy.preservingUserEdits(from: bare, in: merged)
         if bare.userMetadataEditedAt != nil,

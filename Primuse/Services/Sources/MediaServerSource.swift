@@ -7,7 +7,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     ServerCollectionFavoriteConnector,
     ServerRadioStreamResolvingConnector, ServerListeningStatsConnector,
     NetworkAdaptiveTranscodingConnector,
-    IncrementalSongCatalogConnector {
+    IncrementalSongCatalogConnector, ServerLibraryListingConnector {
     typealias RequestDataLoader = @Sendable (URLRequest) async throws -> (Data, URLResponse)
 
     private static let maximumCatalogTracks = 10_000_000
@@ -63,6 +63,13 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     private var catalogLayout: CatalogLayout?
     /// Set by `scanSongs` when a library moved while it was being paged.
     private var catalogDriftInLastWalk = false
+    /// 用户在源设置里选了「不同步」的库。
+    private let excludedLibraryIDs: Set<String>
+    /// 上一次整库走查读过的库,扫描收尾时取走(`ServerLibraryListingConnector`)。
+    private var observedLibraries: [ServerLibraryDescriptor]?
+    /// 各库的内容类型,按 `fetchLibraries` 最近一次的结果。有声书库的条目是 `AudioBook`
+    /// 类型,只问 `Audio` 会一首都拿不到。
+    private var libraryKindsByID: [String: ServerLibraryContentKind] = [:]
     /// 某个库报的总数被证明不可信：总数之后还列得出条目，或者总数之内提前没了。按偏移
     /// 切的分页目录与增量同步都建在这个总数上，所以这台服务器之后只走一路翻到底的整库
     /// 走查（`scanSongs`）。只活在这个连接器上：重启后再撞见一次再退回去。
@@ -84,12 +91,14 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         secret: String,
         authType: SourceAuthType,
         alternateTLSValidationHostname: String? = nil,
+        excludedLibraryIDs: Set<String> = [],
         requestDataLoader: RequestDataLoader? = nil,
         sessionConfiguration: URLSessionConfiguration? = nil,
         sessionStore: SourceLoginSessionStore = .shared
     ) {
         self.sourceID = sourceID
         self.kind = kind
+        self.excludedLibraryIDs = excludedLibraryIDs
         self.sessionStore = sessionStore
         switch kind {
         case .jellyfin:
@@ -399,6 +408,21 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 modifiedDate: nil
             )
         }
+    }
+
+    // MARK: - Server Libraries
+
+    /// 给源设置列的是账号能看到的全部音频库(含用户已排除的),电影、剧集这类不装音频的不列。
+    func fetchServerLibraries() async throws -> [ServerLibraryDescriptor] {
+        try await connect()
+        return try await fetchLibraries()
+            .map(\.descriptor)
+            .filter { $0.kind != .other }
+    }
+
+    func takeObservedServerLibraries() async -> [ServerLibraryDescriptor]? {
+        defer { observedLibraries = nil }
+        return observedLibraries
     }
 
     func localURL(for path: String) async throws -> URL {
@@ -842,6 +866,9 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         } else {
             throw SourceError.pathNotFound(path)
         }
+        if normalizedPath == "/" {
+            observedLibraries = libraries.map(\.descriptor)
+        }
 
         let scanStartedAt = Date()
         return AsyncThrowingStream { continuation in
@@ -922,7 +949,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                                         throw SourceError.connectionFailed(PMString("error.catalog.pageOverflow"))
                                     }
                                     plexItems[item.ratingKey] = item
-                                    let song = buildSong(from: item)
+                                    let song = buildSong(from: item, library: library)
                                     continuation.yield(
                                         ConnectorScannedSong(
                                             song: song,
@@ -1006,7 +1033,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                                     }
                                     let song = buildSong(
                                         from: item,
-                                        dateAddedFallback: scanStartedAt
+                                        dateAddedFallback: scanStartedAt,
+                                        library: library
                                     )
                                     continuation.yield(
                                         ConnectorScannedSong(
@@ -1071,7 +1099,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             path: "/Users/\(userID)/Items",
             queryItems: [
                 URLQueryItem(name: "ParentId", value: parentID),
-                URLQueryItem(name: "IncludeItemTypes", value: "Audio"),
+                URLQueryItem(name: "IncludeItemTypes", value: includeItemTypes(forParentID: parentID)),
                 URLQueryItem(name: "Recursive", value: "true"),
                 URLQueryItem(name: "SortBy", value: "DateCreated"),
                 URLQueryItem(name: "SortOrder", value: "Descending"),
@@ -1313,7 +1341,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 itemIDs.append(item.id)
                 songs.append(
                     ConnectorScannedSong(
-                        song: buildSong(from: item, dateAddedFallback: dateAddedFallback),
+                        song: buildSong(from: item, dateAddedFallback: dateAddedFallback, library: segment.library),
                         displayName: item.name,
                         titleMetadataInspected: ServerCatalogMetadataInspectionPolicy.hasUsableTitle(
                             item.name
@@ -1362,7 +1390,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 itemIDs.append(item.ratingKey)
                 songs.append(
                     ConnectorScannedSong(
-                        song: buildSong(from: item),
+                        song: buildSong(from: item, library: segment.library),
                         displayName: item.title,
                         titleMetadataInspected: ServerCatalogMetadataInspectionPolicy.hasUsableTitle(
                             item.title
@@ -1484,7 +1512,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     ) -> [URLQueryItem] {
         var items = [
             URLQueryItem(name: "ParentId", value: parentID),
-            URLQueryItem(name: "IncludeItemTypes", value: "Audio"),
+            URLQueryItem(name: "IncludeItemTypes", value: includeItemTypes(forParentID: parentID)),
             URLQueryItem(name: "Recursive", value: "true"),
             URLQueryItem(name: "SortBy", value: "SortName"),
             URLQueryItem(name: "SortOrder", value: "Ascending"),
@@ -1523,7 +1551,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                     path: "/Users/\(userID)/Items",
                     queryItems: [
                         URLQueryItem(name: "ParentId", value: segment.library.id),
-                        URLQueryItem(name: "IncludeItemTypes", value: "Audio"),
+                        URLQueryItem(name: "IncludeItemTypes", value: includeItemTypes(forParentID: segment.library.id)),
                         URLQueryItem(name: "Recursive", value: "true"),
                         URLQueryItem(name: "SortBy", value: "SortName"),
                         URLQueryItem(name: "SortOrder", value: "Ascending"),
@@ -1703,7 +1731,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 newestSaved = saved
             }
             let scanned = ConnectorScannedSong(
-                song: buildSong(from: entry.item, dateAddedFallback: fallbackDateAdded),
+                song: buildSong(from: entry.item, dateAddedFallback: fallbackDateAdded, library: entry.library),
                 displayName: entry.item.name,
                 titleMetadataInspected: ServerCatalogMetadataInspectionPolicy.hasUsableTitle(
                     entry.item.name
@@ -2864,6 +2892,19 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     }
 
     private func fetchLibraries() async throws -> [Library] {
+        let libraries = try await loadLibraries()
+        for library in libraries {
+            libraryKindsByID[library.id] = library.contentKind
+        }
+        return libraries
+    }
+
+    /// Jellyfin 书籍库 / Emby 有声书库里的有声书是 `AudioBook` 类型,要连 `Audio` 一起问。
+    private func includeItemTypes(forParentID parentID: String) -> String {
+        libraryKindsByID[parentID] == .audiobooks ? "Audio,AudioBook" : "Audio"
+    }
+
+    private func loadLibraries() async throws -> [Library] {
         if kind == .plex {
             let data = try await performRequest(path: "/library/sections")
             let response = try decoder.decode(PlexLibraryResponse.self, from: data)
@@ -2953,7 +2994,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             path: "/Users/\(userID)/Items",
             queryItems: [
                 URLQueryItem(name: "ParentId", value: parentID),
-                URLQueryItem(name: "IncludeItemTypes", value: "Audio"),
+                URLQueryItem(name: "IncludeItemTypes", value: includeItemTypes(forParentID: parentID)),
                 URLQueryItem(name: "Recursive", value: "true"),
                 URLQueryItem(name: "Ids", value: itemIDs.joined(separator: ",")),
                 URLQueryItem(name: "Fields", value: Self.catalogItemFields),
@@ -2977,7 +3018,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             path: "/Users/\(userID)/Items",
             queryItems: [
                 URLQueryItem(name: "ParentId", value: parentID),
-                URLQueryItem(name: "IncludeItemTypes", value: "Audio"),
+                URLQueryItem(name: "IncludeItemTypes", value: includeItemTypes(forParentID: parentID)),
                 URLQueryItem(name: "Recursive", value: "true"),
                 URLQueryItem(name: "SortBy", value: "SortName"),
                 URLQueryItem(name: "SortOrder", value: "Ascending"),
@@ -3630,6 +3671,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     }
 
     private func preferredLibraries(from libraries: [Library]) -> [Library] {
+        // 先按类型挑,再去掉用户不同步的:要是先去掉,用户排除了唯一的音乐库之后,
+        // 「没有音乐库就什么都读」的兜底会把电影库也读进来。
         MediaServerLibrarySelectionPolicy.select(
             libraries,
             collectionType: \.collectionType,
@@ -3637,6 +3680,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             // Plex sections always carry a type; there is no mixed kind.
             includesMixedLibraries: kind != .plex
         )
+        .filter { !excludedLibraryIDs.contains($0.id) }
     }
 
     private func libraryPath(for libraryID: String, name: String) -> String {
@@ -3671,7 +3715,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
 
     private func buildSong(
         from item: AudioItem,
-        dateAddedFallback: Date
+        dateAddedFallback: Date,
+        library: Library
     ) -> Song {
         let fileExtension = audioFileExtension(for: item)
         let format = AudioFormat.from(fileExtension: fileExtension) ?? .mp3
@@ -3754,11 +3799,12 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             dateAdded: dateAdded,
             serverPlayCount: item.userData?.playCount,
             coverArtFileName: coverArtFileName,
-            artistArtworkFileName: artistArtworkFileName
+            artistArtworkFileName: artistArtworkFileName,
+            serverLibraryID: library.id
         )
     }
 
-    private func buildSong(from item: PlexAudioItem) -> Song {
+    private func buildSong(from item: PlexAudioItem, library: Library) -> Song {
         let part = item.media?.first?.parts?.first
         let audioStream = part?.streams?.first(where: { $0.streamType == 2 }) ?? part?.streams?.first
         let fileExtension = plexAudioFileExtension(for: item)
@@ -3801,7 +3847,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             year: item.year,
             serverPlayCount: item.viewCount,
             coverArtFileName: coverArtURL(for: item)?.absoluteString,
-            artistArtworkFileName: artistArtworkReference(for: item, artistName: artist)
+            artistArtworkFileName: artistArtworkReference(for: item, artistName: artist),
+            serverLibraryID: library.id
         )
     }
 
@@ -4328,6 +4375,14 @@ private struct Library: Decodable {
         case childCount = "ChildCount"
         case locations = "Locations"
     }
+
+    var contentKind: ServerLibraryContentKind {
+        MediaServerLibrarySelectionPolicy.contentKind(collectionType: collectionType)
+    }
+
+    var descriptor: ServerLibraryDescriptor {
+        ServerLibraryDescriptor(id: id, name: name, kind: contentKind, itemCount: childCount)
+    }
 }
 
 private struct MediaServerVirtualFolderResponse: Decodable {
@@ -4385,6 +4440,8 @@ private struct ItemResponse: Decodable {
 private struct AudioItem: Decodable {
     let id: String
     let name: String
+    /// `Audio`,或书籍库里的 `AudioBook`。
+    let type: String?
     let album: String?
     let albumArtist: String?
     let albumArtists: [NameIDPair]?
@@ -4413,6 +4470,7 @@ private struct AudioItem: Decodable {
     enum CodingKeys: String, CodingKey {
         case id = "Id"
         case name = "Name"
+        case type = "Type"
         case album = "Album"
         case albumArtist = "AlbumArtist"
         case albumArtists = "AlbumArtists"
