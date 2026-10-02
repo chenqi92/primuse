@@ -295,6 +295,14 @@ PMSTRING_SOURCE_ROOTS = %w[
 ].freeze
 
 HAN_LITERAL_ALLOWLIST = {
+  # Placeholder genre/artist names the new-song taste profile skips: matching
+  # vocabulary for tag values, never shown.
+  "PrimuseKit/Sources/PrimuseKit/SongDiscovery.swift" => [
+    /"其他", "其它", "未知", "未知流派", "未知风格", "无"/
+  ],
+  "Primuse/Views/Library/AISongDiscoveryView.swift" => [
+    /"群星", "未知艺术家", "未知歌手"/
+  ],
   # Credit and role labels are matching vocabulary, not interface text.
   "PrimuseKit/Sources/PrimuseKit/LyricTranslationContentPolicy.swift" => [
     /\A\s*(?:private static let (?:titleLabels|artistLabels|creditLabels|productionRoles|productionPrefixes|productionSuffixes)\b|")/

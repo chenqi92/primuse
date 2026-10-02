@@ -2738,7 +2738,7 @@
 "reverb_plate" = "Тарілка";
 "disabled" = "Вимкнено";
 "ssl_trust_message %@" = "Сертифікат SSL для \"%@\" не пройшов перевірку системи. Підключення закріплюється за відбитком сертифіката, який ви підтверджуєте.";
-"ai_remote_consent" = "Дозволити надсилати пошукові запити, тексти пісень для перекладу або теги для впорядкування сервісам ШІ";
+"ai_remote_consent" = "Дозволити надсилати пошукові запити, тексти пісень для перекладу, теги для впорядкування або жанри й виконавців медіатеки сервісам ШІ";
 "relay_share_link_short" = "Короткий код";
 "lyrics_full_screen" = "Тексти пісень на весь екран";
 "cloud_account_login_other" = "Увійдіть в інший обліковий запис";
@@ -5200,3 +5200,33 @@
 "eq_device_kind_usb" = "USB-аудіо";
 "eq_device_kind_car" = "Автомагнітола";
 "eq_device_kind_other" = "Інший пристрій";
+
+/* AI new songs beyond the library */
+"ai_song_discovery_title" = "Нові пісні поза медіатекою";
+"ai_song_discovery_eyebrow" = "Нові пісні";
+"ai_song_discovery_subtitle" = "ШІ добирає пісні, яких у вас ще немає, за жанрами вашої медіатеки та виконавцями, яких ви слухаєте найчастіше. Прослуховування тут немає — скопіюйте назву, щоб знайти пісню деінде.";
+"ai_song_discovery_entry_detail" = "ШІ добере пісні, яких немає в медіатеці";
+"ai_song_discovery_all_genres" = "Усі жанри";
+"ai_song_discovery_request" = "Дібрати пісні";
+"ai_song_discovery_request_more" = "Дібрати інші";
+"ai_song_discovery_copy_all" = "Скопіювати все";
+"ai_song_discovery_copied_all" = "Скопійовано";
+"ai_song_discovery_all_owned" = "Усі пісні з цієї добірки у вас уже є. Спробуйте дібрати інші.";
+"ai_song_discovery_provider_format" = "Дібрано: %1$@ · %2$@";
+"ai_song_discovery_allow_and_request" = "Дозволити й дібрати";
+"ai_song_discovery_open_settings" = "Відкрити налаштування ШІ";
+"ai_song_discovery_empty_hint" = "Натисніть «Дібрати пісні», і ШІ вибере 20 пісень у дусі вашої медіатеки, яких у ній ще немає.";
+"ai_song_discovery_artist_in_library" = "Виконавець є в медіатеці";
+"ai_song_discovery_copy_title" = "Скопіювати назву";
+"ai_song_discovery_copy_title_artist" = "Скопіювати назву й виконавця";
+"ai_song_discovery_not_configured" = "Поки немає доступного сервісу ШІ. Увімкніть вбудований ШІ або додайте свій сервіс у налаштуваннях ШІ й спробуйте знову.";
+"ai_song_discovery_needs_consent" = "Для добору пісень жанри та імена виконавців із медіатеки надсилаються сервісу ШІ, тому спершу потрібно дозволити надсилання вмісту.";
+"ai_song_discovery_builtin_not_offered" = "Вбудований ШІ поки не вміє добирати пісні поза медіатекою. Свій сервіс ШІ можна додати в налаштуваннях ШІ.";
+"ai_song_discovery_no_taste" = "У медіатеці поки немає жанрів чи виконавців, на які можна спертися.";
+"ai_song_discovery_failed_busy" = "Сервіс ШІ зайнятий. Спробуйте пізніше.";
+"ai_song_discovery_failed_minute_limit" = "Забагато запитів. Спробуйте пізніше.";
+"ai_song_discovery_failed_daily_limit" = "Добірки нових пісень на сьогодні вичерпано. Повертайтеся завтра.";
+"ai_song_discovery_failed_region" = "Цей сервіс ШІ недоступний у вашому регіоні.";
+"ai_song_discovery_failed_network" = "Немає підключення до мережі. Перевірте мережу й спробуйте знову.";
+"ai_song_discovery_failed_empty" = "Цього разу ШІ нічого не запропонував. Виберіть інший жанр або спробуйте пізніше.";
+"ai_song_discovery_failed_generic" = "Сервіс ШІ зараз недоступний. Спробуйте пізніше.";

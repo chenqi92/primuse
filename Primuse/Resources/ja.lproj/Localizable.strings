@@ -3275,7 +3275,7 @@
 "ai_delete_current_api_key" = "現在の API キーを削除";
 "ai_provider_footer" = "有効化して許可した機能に必要な最小限の内容だけを送信します。ライブラリ構成とファイルパスは端末内に保持され、音声は明示的に許可した曲の文字起こしでのみ送信されます。";
 "ai_allow_insecure_local_http" = "ローカルネットワーク上のサーバーで HTTP を許可";
-"ai_remote_consent" = "検索内容、翻訳対象の歌詞、整理するタグをスマートサービスへ送信することを許可";
+"ai_remote_consent" = "検索内容、翻訳対象の歌詞、整理するタグ、ライブラリのジャンルとアーティスト名をスマートサービスへ送信することを許可";
 "ai_privacy_footer" = "API キーはキーチェーンに保存されます。おすすめにファイルパス、完全な再生履歴、音声は含まれず、ローカル HTTP は別途許可が必要です。";
 "ai_enable_recommendations" = "シーン別スマートおすすめ";
 "ai_capabilities_footer" = "検索は説明的な語句を展開し、おすすめは端末内の候補だけを並べ替えます。サービスの失敗でおすすめや再生が止まることはありません。";
@@ -5295,3 +5295,33 @@
 "eq_device_kind_usb" = "USB オーディオ";
 "eq_device_kind_car" = "カーオーディオ";
 "eq_device_kind_other" = "その他の出力";
+
+/* AI new songs beyond the library */
+"ai_song_discovery_title" = "ライブラリにない新曲";
+"ai_song_discovery_eyebrow" = "新曲のおすすめ";
+"ai_song_discovery_subtitle" = "ライブラリのジャンルやよく聴くアーティストをもとに、まだ持っていない曲を AI がおすすめします。試聴はできないので、曲名をコピーしてほかで探してください。";
+"ai_song_discovery_entry_detail" = "好みに合わせて、ライブラリにない曲を AI がおすすめ";
+"ai_song_discovery_all_genres" = "すべてのジャンル";
+"ai_song_discovery_request" = "おすすめを表示";
+"ai_song_discovery_request_more" = "別の曲を表示";
+"ai_song_discovery_copy_all" = "すべてコピー";
+"ai_song_discovery_copied_all" = "コピーしました";
+"ai_song_discovery_all_owned" = "今回のおすすめはすべてライブラリにありました。別の曲を表示してみてください。";
+"ai_song_discovery_provider_format" = "%1$@ によるおすすめ · %2$@";
+"ai_song_discovery_allow_and_request" = "許可しておすすめを表示";
+"ai_song_discovery_open_settings" = "AI 設定を開く";
+"ai_song_discovery_empty_hint" = "「おすすめを表示」をタップすると、ライブラリの好みに合わせてまだない曲を AI が 20 曲選びます。";
+"ai_song_discovery_artist_in_library" = "ライブラリにあるアーティスト";
+"ai_song_discovery_copy_title" = "曲名をコピー";
+"ai_song_discovery_copy_title_artist" = "曲名とアーティストをコピー";
+"ai_song_discovery_not_configured" = "利用できる AI サービスがありません。内蔵 AI をオンにするか、AI 設定で自分のサービスを追加してからお試しください。";
+"ai_song_discovery_needs_consent" = "新曲のおすすめには、ライブラリのジャンルとアーティスト名を AI サービスに送信するため、内容の送信を許可する必要があります。";
+"ai_song_discovery_builtin_not_offered" = "内蔵 AI はまだライブラリ外の新曲をおすすめできません。AI 設定で自分の AI サービスを追加できます。";
+"ai_song_discovery_no_taste" = "参考にできるジャンルやアーティストがライブラリにまだありません。";
+"ai_song_discovery_failed_busy" = "AI サービスが混み合っています。しばらくしてからお試しください。";
+"ai_song_discovery_failed_minute_limit" = "リクエストが多すぎます。しばらくしてからお試しください。";
+"ai_song_discovery_failed_daily_limit" = "今日の新曲おすすめの回数を使い切りました。また明日お試しください。";
+"ai_song_discovery_failed_region" = "この地域ではこの AI サービスを利用できません。";
+"ai_song_discovery_failed_network" = "ネットワークに接続できません。接続を確認してからお試しください。";
+"ai_song_discovery_failed_empty" = "今回は AI からおすすめがありませんでした。ジャンルを変えるか、しばらくしてからお試しください。";
+"ai_song_discovery_failed_generic" = "AI サービスは現在利用できません。しばらくしてからお試しください。";

@@ -747,7 +747,7 @@
 "ai_region_checking" = "Verificando região App Store…";
 "ai_region_unavailable_description" = "Recursos de inteligência remota e generativa não são oferecidos para esta região App Store.";
 "ai_region_unavailable_title" = "Recursos de inteligência indisponíveis";
-"ai_remote_consent" = "Permitir enviar pesquisas, letras a traduzir ou tags a organizar para serviços de IA";
+"ai_remote_consent" = "Permitir enviar pesquisas, letras a traduzir, tags a organizar ou os gêneros e artistas da biblioteca para serviços de IA";
 "ai_remove_provider" = "Remover serviço";
 "ai_remove_provider_confirm" = "Remover este serviço e sua chave local?";
 "ai_resolved_endpoint" = "Endpoint de solicitação";
@@ -5200,3 +5200,33 @@
 "eq_device_kind_usb" = "Áudio USB";
 "eq_device_kind_car" = "Som do carro";
 "eq_device_kind_other" = "Outra saída";
+
+/* AI new songs beyond the library */
+"ai_song_discovery_title" = "Músicas novas fora da sua biblioteca";
+"ai_song_discovery_eyebrow" = "Músicas novas";
+"ai_song_discovery_subtitle" = "A IA sugere músicas que você ainda não tem, com base nos gêneros da sua biblioteca e nos artistas que você mais ouve. Não há prévia aqui; copie o título para encontrá-la em outro lugar.";
+"ai_song_discovery_entry_detail" = "A IA sugere músicas que ainda não estão na sua biblioteca";
+"ai_song_discovery_all_genres" = "Todos os gêneros";
+"ai_song_discovery_request" = "Sugerir músicas";
+"ai_song_discovery_request_more" = "Sugerir outras";
+"ai_song_discovery_copy_all" = "Copiar tudo";
+"ai_song_discovery_copied_all" = "Copiado";
+"ai_song_discovery_all_owned" = "Você já tem todas as músicas desta leva. Tente outras sugestões.";
+"ai_song_discovery_provider_format" = "Sugerido por %1$@ · %2$@";
+"ai_song_discovery_allow_and_request" = "Permitir e sugerir";
+"ai_song_discovery_open_settings" = "Abrir ajustes de IA";
+"ai_song_discovery_empty_hint" = "Toque em “Sugerir músicas” e a IA escolherá 20 músicas que combinam com sua biblioteca, mas que você ainda não tem.";
+"ai_song_discovery_artist_in_library" = "Artista na sua biblioteca";
+"ai_song_discovery_copy_title" = "Copiar título";
+"ai_song_discovery_copy_title_artist" = "Copiar título e artista";
+"ai_song_discovery_not_configured" = "Ainda não há serviço de IA disponível. Ative a IA integrada ou adicione seu próprio serviço nos ajustes de IA e tente de novo.";
+"ai_song_discovery_needs_consent" = "Para sugerir músicas, os gêneros e nomes de artistas da sua biblioteca são enviados a um serviço de IA, então é preciso permitir o envio de conteúdo primeiro.";
+"ai_song_discovery_builtin_not_offered" = "A IA integrada ainda não sugere músicas fora da sua biblioteca. Você pode adicionar seu próprio serviço de IA nos ajustes de IA.";
+"ai_song_discovery_no_taste" = "Sua biblioteca ainda não tem gêneros ou artistas para servir de base.";
+"ai_song_discovery_failed_busy" = "O serviço de IA está ocupado. Tente mais tarde.";
+"ai_song_discovery_failed_minute_limit" = "Muitas solicitações. Tente mais tarde.";
+"ai_song_discovery_failed_daily_limit" = "As sugestões de músicas de hoje acabaram. Volte amanhã.";
+"ai_song_discovery_failed_region" = "Este serviço de IA não está disponível na sua região.";
+"ai_song_discovery_failed_network" = "Sem conexão de rede. Verifique sua rede e tente de novo.";
+"ai_song_discovery_failed_empty" = "A IA não sugeriu nada desta vez. Escolha outro gênero ou tente mais tarde.";
+"ai_song_discovery_failed_generic" = "O serviço de IA está indisponível agora. Tente mais tarde.";

@@ -409,6 +409,27 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         }
     }
 
+    func discoverSongs(
+        _ request: SongDiscoveryAIExchange.Request,
+        currentYear: Int
+    ) async throws -> [SongDiscoverySuggestion] {
+        guard let payload = SongDiscoveryAIExchange.payloadJSON(request) else { return [] }
+        let output = try await generateText(
+            instructions: SongDiscoveryAIExchange.instructions,
+            input: payload,
+            maximumTokens: 3_000
+        )
+        do {
+            return try SongDiscoveryAIExchange.suggestions(
+                from: output,
+                request: request,
+                currentYear: currentYear
+            )
+        } catch {
+            throw OpenAICompatibleProviderError.invalidResponse
+        }
+    }
+
     func recommendations(
         _ request: AIRecommendationRequest
     ) async throws -> AIRecommendationPlan {

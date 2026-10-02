@@ -747,7 +747,7 @@
 "ai_region_checking" = "กำลังตรวจสอบ App Store ภูมิภาค...";
 "ai_region_unavailable_description" = "ไม่มีการนำเสนอคุณสมบัติอัจฉริยะระยะไกลและอัจฉริยะสำหรับภูมิภาค App Store นี้";
 "ai_region_unavailable_title" = "คุณสมบัติอัจฉริยะไม่พร้อมใช้งาน";
-"ai_remote_consent" = "อนุญาตให้ส่งคำค้น เนื้อเพลงที่รอแปล หรือแท็กที่จะจัดระเบียบไปยังบริการ AI";
+"ai_remote_consent" = "อนุญาตให้ส่งคำค้น เนื้อเพลงที่รอแปล แท็กที่จะจัดระเบียบ หรือแนวเพลงและชื่อศิลปินในคลังไปยังบริการ AI";
 "ai_remove_provider" = "ลบบริการ";
 "ai_remove_provider_confirm" = "ลบบริการนี้และรหัสท้องถิ่นออกหรือไม่";
 "ai_resolved_endpoint" = "ขอปลายทาง";
@@ -5200,3 +5200,33 @@
 "eq_device_kind_usb" = "เสียง USB";
 "eq_device_kind_car" = "เครื่องเสียงรถยนต์";
 "eq_device_kind_other" = "เอาต์พุตอื่น";
+
+/* AI new songs beyond the library */
+"ai_song_discovery_title" = "เพลงใหม่นอกคลังเพลง";
+"ai_song_discovery_eyebrow" = "เพลงใหม่";
+"ai_song_discovery_subtitle" = "AI จะแนะนำเพลงที่คุณยังไม่มี โดยดูจากแนวเพลงในคลังและศิลปินที่คุณฟังบ่อย ที่นี่ไม่มีตัวอย่างเสียง คัดลอกชื่อเพลงไปค้นหาที่อื่นได้";
+"ai_song_discovery_entry_detail" = "AI แนะนำเพลงที่ยังไม่มีในคลังเพลงของคุณ";
+"ai_song_discovery_all_genres" = "ทุกแนวเพลง";
+"ai_song_discovery_request" = "แนะนำเพลง";
+"ai_song_discovery_request_more" = "แนะนำชุดอื่น";
+"ai_song_discovery_copy_all" = "คัดลอกทั้งหมด";
+"ai_song_discovery_copied_all" = "คัดลอกแล้ว";
+"ai_song_discovery_all_owned" = "เพลงในชุดนี้คุณมีอยู่ในคลังแล้วทั้งหมด ลองขอชุดอื่นดู";
+"ai_song_discovery_provider_format" = "แนะนำโดย %1$@ · %2$@";
+"ai_song_discovery_allow_and_request" = "อนุญาตและแนะนำ";
+"ai_song_discovery_open_settings" = "เปิดการตั้งค่า AI";
+"ai_song_discovery_empty_hint" = "แตะ “แนะนำเพลง” แล้ว AI จะเลือก 20 เพลงที่เข้ากับคลังเพลงของคุณแต่ยังไม่มีในคลัง";
+"ai_song_discovery_artist_in_library" = "ศิลปินนี้มีอยู่ในคลัง";
+"ai_song_discovery_copy_title" = "คัดลอกชื่อเพลง";
+"ai_song_discovery_copy_title_artist" = "คัดลอกชื่อเพลงและศิลปิน";
+"ai_song_discovery_not_configured" = "ยังไม่มีบริการ AI ที่ใช้ได้ เปิด AI ในตัว หรือเพิ่มบริการของคุณเองในการตั้งค่า AI แล้วลองอีกครั้ง";
+"ai_song_discovery_needs_consent" = "การแนะนำเพลงใหม่จะส่งแนวเพลงและชื่อศิลปินในคลังไปยังบริการ AI จึงต้องอนุญาตให้ส่งเนื้อหาก่อน";
+"ai_song_discovery_builtin_not_offered" = "AI ในตัวยังแนะนำเพลงนอกคลังเพลงไม่ได้ คุณเพิ่มบริการ AI ของคุณเองได้ในการตั้งค่า AI";
+"ai_song_discovery_no_taste" = "คลังเพลงยังไม่มีแนวเพลงหรือศิลปินให้ใช้อ้างอิง";
+"ai_song_discovery_failed_busy" = "บริการ AI ไม่ว่าง โปรดลองอีกครั้งภายหลัง";
+"ai_song_discovery_failed_minute_limit" = "ส่งคำขอบ่อยเกินไป โปรดลองอีกครั้งภายหลัง";
+"ai_song_discovery_failed_daily_limit" = "ใช้สิทธิ์แนะนำเพลงใหม่ของวันนี้หมดแล้ว กลับมาใหม่พรุ่งนี้";
+"ai_song_discovery_failed_region" = "บริการ AI นี้ไม่พร้อมใช้งานในภูมิภาคของคุณ";
+"ai_song_discovery_failed_network" = "ไม่มีการเชื่อมต่อเครือข่าย ตรวจสอบเครือข่ายแล้วลองอีกครั้ง";
+"ai_song_discovery_failed_empty" = "ครั้งนี้ AI ไม่ได้แนะนำอะไร ลองเลือกแนวเพลงอื่นหรือลองใหม่ภายหลัง";
+"ai_song_discovery_failed_generic" = "บริการ AI ใช้งานไม่ได้ในขณะนี้ โปรดลองอีกครั้งภายหลัง";

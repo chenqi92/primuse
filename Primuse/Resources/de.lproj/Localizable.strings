@@ -3274,7 +3274,7 @@
 "ai_delete_current_api_key" = "Aktuellen API-Schlüssel löschen";
 "ai_provider_footer" = "Nur Inhalte, die aktivierte und autorisierte Funktionen benötigen, werden gesendet. Mediathekstruktur und Dateipfade bleiben auf diesem Gerät; Audio wird nur für ausdrücklich erlaubte Song-Transkription hochgeladen.";
 "ai_allow_insecure_local_http" = "HTTP für Server im lokalen Netzwerk erlauben";
-"ai_remote_consent" = "Senden von Suchinhalten, zu übersetzenden Liedtexten oder aufzuräumenden Tags an intelligente Dienste erlauben";
+"ai_remote_consent" = "Senden von Suchinhalten, zu übersetzenden Liedtexten, aufzuräumenden Tags oder den Genres und Künstlernamen der Mediathek an intelligente Dienste erlauben";
 "ai_privacy_footer" = "API-Schlüssel bleiben im Schlüsselbund. Empfehlungen enthalten keine Dateipfade, vollständigen Hörverläufe oder Audiodaten; lokales HTTP muss separat erlaubt werden.";
 "ai_enable_recommendations" = "Intelligente Szenenempfehlungen";
 "ai_capabilities_footer" = "Die Suche erweitert beschreibende Anfragen. Empfehlungen ordnen nur lokale Kandidaten neu. Fehler unterbrechen weder lokale Empfehlungen noch die Wiedergabe.";
@@ -5294,3 +5294,33 @@
 "eq_device_kind_usb" = "USB-Audio";
 "eq_device_kind_car" = "Autoradio";
 "eq_device_kind_other" = "Andere Ausgabe";
+
+/* AI new songs beyond the library */
+"ai_song_discovery_title" = "Neue Songs außerhalb deiner Mediathek";
+"ai_song_discovery_eyebrow" = "Neue Songs";
+"ai_song_discovery_subtitle" = "Die KI schlägt Songs vor, die du noch nicht hast – passend zu den Genres deiner Mediathek und den Künstlern, die du am meisten hörst. Eine Vorschau gibt es hier nicht; kopiere den Titel, um ihn anderswo zu finden.";
+"ai_song_discovery_entry_detail" = "Die KI schlägt Songs vor, die deiner Mediathek noch fehlen";
+"ai_song_discovery_all_genres" = "Alle Genres";
+"ai_song_discovery_request" = "Songs vorschlagen";
+"ai_song_discovery_request_more" = "Andere vorschlagen";
+"ai_song_discovery_copy_all" = "Alle kopieren";
+"ai_song_discovery_copied_all" = "Kopiert";
+"ai_song_discovery_all_owned" = "Diese Songs hast du alle schon. Lass dir andere vorschlagen.";
+"ai_song_discovery_provider_format" = "Vorgeschlagen von %1$@ · %2$@";
+"ai_song_discovery_allow_and_request" = "Erlauben und vorschlagen";
+"ai_song_discovery_open_settings" = "KI-Einstellungen öffnen";
+"ai_song_discovery_empty_hint" = "Tippe auf „Songs vorschlagen“ und die KI wählt 20 Songs, die zu deiner Mediathek passen, dir aber noch fehlen.";
+"ai_song_discovery_artist_in_library" = "Künstler in deiner Mediathek";
+"ai_song_discovery_copy_title" = "Titel kopieren";
+"ai_song_discovery_copy_title_artist" = "Titel und Künstler kopieren";
+"ai_song_discovery_not_configured" = "Noch kein KI-Dienst verfügbar. Schalte die integrierte KI ein oder füge in den KI-Einstellungen einen eigenen Dienst hinzu und versuche es erneut.";
+"ai_song_discovery_needs_consent" = "Für Vorschläge werden die Genres und Künstlernamen deiner Mediathek an einen KI-Dienst gesendet. Erlaube dazu zuerst das Senden von Inhalten.";
+"ai_song_discovery_builtin_not_offered" = "Die integrierte KI kann noch keine Songs außerhalb deiner Mediathek vorschlagen. Du kannst in den KI-Einstellungen einen eigenen KI-Dienst hinzufügen.";
+"ai_song_discovery_no_taste" = "Deine Mediathek hat noch keine Genres oder Künstler, an denen sich die KI orientieren kann.";
+"ai_song_discovery_failed_busy" = "Der KI-Dienst ist ausgelastet. Versuche es später erneut.";
+"ai_song_discovery_failed_minute_limit" = "Zu viele Anfragen. Versuche es später erneut.";
+"ai_song_discovery_failed_daily_limit" = "Die Song-Vorschläge für heute sind aufgebraucht. Versuche es morgen wieder.";
+"ai_song_discovery_failed_region" = "Dieser KI-Dienst ist in deiner Region nicht verfügbar.";
+"ai_song_discovery_failed_network" = "Keine Netzwerkverbindung. Prüfe dein Netzwerk und versuche es erneut.";
+"ai_song_discovery_failed_empty" = "Die KI hat diesmal nichts vorgeschlagen. Wähle ein anderes Genre oder versuche es später erneut.";
+"ai_song_discovery_failed_generic" = "Der KI-Dienst ist gerade nicht verfügbar. Versuche es später erneut.";

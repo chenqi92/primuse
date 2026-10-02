@@ -3274,7 +3274,7 @@
 "ai_delete_current_api_key" = "Supprimer la clé API actuelle";
 "ai_provider_footer" = "Seul le contenu requis par les fonctions activées et autorisées est envoyé. La structure de la bibliothèque et les chemins restent sur cet appareil ; l’audio n’est transmis que pour une transcription explicitement autorisée.";
 "ai_allow_insecure_local_http" = "Autoriser HTTP pour les serveurs du réseau local";
-"ai_remote_consent" = "Autoriser l’envoi des recherches, des paroles à traduire ou des tags à nettoyer aux services intelligents";
+"ai_remote_consent" = "Autoriser l’envoi des recherches, des paroles à traduire, des tags à nettoyer ou des genres et artistes de la bibliothèque aux services intelligents";
 "ai_privacy_footer" = "Les clés API restent dans le trousseau. Les recommandations n’incluent ni chemins de fichiers, ni historique complet, ni audio ; le HTTP local exige une autorisation distincte.";
 "ai_enable_recommendations" = "Recommandations intelligentes par situation";
 "ai_capabilities_footer" = "La recherche développe les requêtes descriptives. Les recommandations ne font que réordonner les candidats locaux. Un échec n’interrompt ni les recommandations locales ni la lecture.";
@@ -5294,3 +5294,33 @@
 "eq_device_kind_usb" = "Audio USB";
 "eq_device_kind_car" = "Autoradio";
 "eq_device_kind_other" = "Autre sortie";
+
+/* AI new songs beyond the library */
+"ai_song_discovery_title" = "Nouveaux titres hors de votre bibliothèque";
+"ai_song_discovery_eyebrow" = "Nouveaux titres";
+"ai_song_discovery_subtitle" = "L’IA suggère des titres que vous n’avez pas encore, d’après les genres de votre bibliothèque et les artistes que vous écoutez le plus. Pas d’aperçu ici : copiez un titre pour le trouver ailleurs.";
+"ai_song_discovery_entry_detail" = "L’IA suggère des titres absents de votre bibliothèque";
+"ai_song_discovery_all_genres" = "Tous les genres";
+"ai_song_discovery_request" = "Suggérer des titres";
+"ai_song_discovery_request_more" = "Autres suggestions";
+"ai_song_discovery_copy_all" = "Tout copier";
+"ai_song_discovery_copied_all" = "Copié";
+"ai_song_discovery_all_owned" = "Vous avez déjà tous les titres de cette sélection. Essayez d’autres suggestions.";
+"ai_song_discovery_provider_format" = "Suggéré par %1$@ · %2$@";
+"ai_song_discovery_allow_and_request" = "Autoriser et suggérer";
+"ai_song_discovery_open_settings" = "Ouvrir les réglages IA";
+"ai_song_discovery_empty_hint" = "Touchez « Suggérer des titres » et l’IA choisira 20 titres qui correspondent à votre bibliothèque sans y figurer encore.";
+"ai_song_discovery_artist_in_library" = "Artiste dans votre bibliothèque";
+"ai_song_discovery_copy_title" = "Copier le titre";
+"ai_song_discovery_copy_title_artist" = "Copier le titre et l’artiste";
+"ai_song_discovery_not_configured" = "Aucun service d’IA disponible. Activez l’IA intégrée ou ajoutez votre propre service dans les réglages IA, puis réessayez.";
+"ai_song_discovery_needs_consent" = "Les suggestions envoient les genres et noms d’artistes de votre bibliothèque à un service d’IA : autorisez d’abord l’envoi de contenu.";
+"ai_song_discovery_builtin_not_offered" = "L’IA intégrée ne peut pas encore suggérer de titres hors de votre bibliothèque. Vous pouvez ajouter votre propre service d’IA dans les réglages IA.";
+"ai_song_discovery_no_taste" = "Votre bibliothèque n’a pas encore de genres ou d’artistes sur lesquels s’appuyer.";
+"ai_song_discovery_failed_busy" = "Le service d’IA est occupé. Réessayez plus tard.";
+"ai_song_discovery_failed_minute_limit" = "Trop de requêtes. Réessayez plus tard.";
+"ai_song_discovery_failed_daily_limit" = "Les suggestions de nouveaux titres sont épuisées pour aujourd’hui. Revenez demain.";
+"ai_song_discovery_failed_region" = "Ce service d’IA n’est pas disponible dans votre région.";
+"ai_song_discovery_failed_network" = "Aucune connexion réseau. Vérifiez votre réseau et réessayez.";
+"ai_song_discovery_failed_empty" = "L’IA n’a rien suggéré cette fois. Choisissez un autre genre ou réessayez plus tard.";
+"ai_song_discovery_failed_generic" = "Le service d’IA est indisponible pour le moment. Réessayez plus tard.";

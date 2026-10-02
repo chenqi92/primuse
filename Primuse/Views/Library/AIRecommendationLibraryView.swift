@@ -68,6 +68,9 @@ struct AIRecommendationLibraryView: View {
     @State private var loadMoreFailed = false
     @State private var preparedLocalContentRevision: String?
     @State private var streamedQueueSongIDs: [String]?
+    #if os(macOS)
+    @State private var showsSongDiscovery = false
+    #endif
 
     private var intentChoices: [AIRecommendationIntentChoice] {
         AIRecommendationIntentChoice.all(
@@ -220,6 +223,10 @@ struct AIRecommendationLibraryView: View {
                     .pmClearOfVerticalBar()
                 recommendationControls
                     .pmClearOfVerticalBar()
+                if showsSongDiscoveryEntry {
+                    songDiscoveryEntry
+                        .pmClearOfVerticalBar()
+                }
                 if showsActionableStatus {
                     statusPanel
                 }
@@ -368,6 +375,67 @@ struct AIRecommendationLibraryView: View {
             }
             .pmStopsAtVerticalBar()
         }
+    }
+
+    /// 曲库以外的新歌要问 AI;所在地区不提供任何智能服务时不出入口。
+    private var showsSongDiscoveryEntry: Bool {
+        intelligence.isSongDiscoveryAvailable
+            || intelligence.songDiscoveryNeedsRemoteConsent
+            || intelligence.shouldExposeRemoteConfiguration
+    }
+
+    @ViewBuilder
+    private var songDiscoveryEntry: some View {
+        #if os(macOS)
+        Button {
+            showsSongDiscovery = true
+        } label: {
+            songDiscoveryEntryLabel
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showsSongDiscovery) {
+            AISongDiscoveryView()
+        }
+        #else
+        NavigationLink {
+            AISongDiscoveryView()
+                .minimalNavigationDetail()
+        } label: {
+            songDiscoveryEntryLabel
+        }
+        .buttonStyle(.plain)
+        #endif
+    }
+
+    private var songDiscoveryEntryLabel: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "music.note.list")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(platformAccentColor)
+                .frame(width: 36, height: 36)
+                .background(platformAccentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            VStack(alignment: .leading, spacing: 3) {
+                Text("ai_song_discovery_title")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(platformPrimaryTextColor)
+                Text("ai_song_discovery_entry_detail")
+                    .font(.caption)
+                    .foregroundStyle(platformSecondaryTextColor)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(platformSecondaryTextColor)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(platformCardBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(platformDividerColor, lineWidth: 0.5)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private var statusPanel: some View {

@@ -3274,7 +3274,7 @@
 "ai_delete_current_api_key" = "현재 API 키 삭제";
 "ai_provider_footer" = "활성화하고 허용한 기능에 필요한 최소한의 내용만 전송합니다. 보관함 구조와 파일 경로는 기기에 남고, 오디오는 명시적으로 허용한 곡 받아쓰기에서만 업로드됩니다.";
 "ai_allow_insecure_local_http" = "로컬 네트워크 서버에 HTTP 허용";
-"ai_remote_consent" = "지능형 서비스에 검색 내용, 번역할 가사 또는 정리할 태그 전송 허용";
+"ai_remote_consent" = "지능형 서비스에 검색 내용, 번역할 가사, 정리할 태그 또는 보관함의 장르와 아티스트 이름 전송 허용";
 "ai_privacy_footer" = "API 키는 키체인에 저장됩니다. 추천에는 파일 경로, 전체 청취 기록 또는 오디오가 포함되지 않으며 로컬 HTTP는 별도 허용이 필요합니다.";
 "ai_enable_recommendations" = "지능형 상황별 추천";
 "ai_capabilities_footer" = "검색은 설명형 질의를 확장하고 추천은 기기 내 후보만 재정렬합니다. 서비스 오류가 추천이나 재생을 중단하지 않습니다.";
@@ -5294,3 +5294,33 @@
 "eq_device_kind_usb" = "USB 오디오";
 "eq_device_kind_car" = "차량 오디오";
 "eq_device_kind_other" = "기타 출력";
+
+/* AI new songs beyond the library */
+"ai_song_discovery_title" = "보관함 밖의 새 노래";
+"ai_song_discovery_eyebrow" = "새 노래 추천";
+"ai_song_discovery_subtitle" = "보관함의 장르와 자주 듣는 아티스트를 바탕으로 아직 없는 노래를 AI가 추천합니다. 미리 듣기는 없으니 곡명을 복사해 다른 곳에서 찾아 들으세요.";
+"ai_song_discovery_entry_detail" = "취향에 맞춰 보관함에 없는 노래를 AI가 추천";
+"ai_song_discovery_all_genres" = "모든 장르";
+"ai_song_discovery_request" = "추천 받기";
+"ai_song_discovery_request_more" = "다른 곡 추천";
+"ai_song_discovery_copy_all" = "모두 복사";
+"ai_song_discovery_copied_all" = "복사됨";
+"ai_song_discovery_all_owned" = "이번에 추천된 노래는 모두 보관함에 있습니다. 다른 곡을 추천 받아 보세요.";
+"ai_song_discovery_provider_format" = "%1$@ 추천 · %2$@";
+"ai_song_discovery_allow_and_request" = "허용하고 추천 받기";
+"ai_song_discovery_open_settings" = "AI 설정 열기";
+"ai_song_discovery_empty_hint" = "‘추천 받기’를 누르면 보관함 취향에 맞는, 아직 없는 노래 20곡을 AI가 골라 줍니다.";
+"ai_song_discovery_artist_in_library" = "보관함에 있는 아티스트";
+"ai_song_discovery_copy_title" = "곡명 복사";
+"ai_song_discovery_copy_title_artist" = "곡명과 아티스트 복사";
+"ai_song_discovery_not_configured" = "사용할 수 있는 AI 서비스가 없습니다. 내장 AI를 켜거나 AI 설정에서 직접 서비스를 추가한 뒤 다시 시도하세요.";
+"ai_song_discovery_needs_consent" = "새 노래를 추천하려면 보관함의 장르와 아티스트 이름을 AI 서비스로 보내야 하므로 먼저 콘텐츠 전송을 허용해야 합니다.";
+"ai_song_discovery_builtin_not_offered" = "내장 AI는 아직 보관함 밖의 새 노래를 추천할 수 없습니다. AI 설정에서 직접 AI 서비스를 추가할 수 있습니다.";
+"ai_song_discovery_no_taste" = "참고할 장르나 아티스트가 보관함에 아직 없습니다.";
+"ai_song_discovery_failed_busy" = "AI 서비스가 혼잡합니다. 잠시 후 다시 시도하세요.";
+"ai_song_discovery_failed_minute_limit" = "요청이 너무 많습니다. 잠시 후 다시 시도하세요.";
+"ai_song_discovery_failed_daily_limit" = "오늘의 새 노래 추천 횟수를 모두 사용했습니다. 내일 다시 이용하세요.";
+"ai_song_discovery_failed_region" = "현재 지역에서는 이 AI 서비스를 사용할 수 없습니다.";
+"ai_song_discovery_failed_network" = "네트워크에 연결할 수 없습니다. 네트워크를 확인한 뒤 다시 시도하세요.";
+"ai_song_discovery_failed_empty" = "이번에는 AI가 추천하지 않았습니다. 다른 장르를 고르거나 잠시 후 다시 시도하세요.";
+"ai_song_discovery_failed_generic" = "AI 서비스를 지금 사용할 수 없습니다. 잠시 후 다시 시도하세요.";

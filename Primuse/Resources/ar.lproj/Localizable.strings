@@ -747,7 +747,7 @@
 "ai_region_checking" = "التحقق من منطقة App Store…";
 "ai_region_unavailable_description" = "لا يتم تقديم ميزات الذكاء التوليدي عن بعد لهذه المنطقة App Store.";
 "ai_region_unavailable_title" = "ميزات الذكاء غير متوفرة";
-"ai_remote_consent" = "السماح بإرسال محتوى البحث أو كلمات الأغاني المطلوب ترجمتها أو الوسوم المطلوب ترتيبها إلى خدمات الذكاء الاصطناعي";
+"ai_remote_consent" = "السماح بإرسال محتوى البحث أو كلمات الأغاني المطلوب ترجمتها أو الوسوم المطلوب ترتيبها أو أنواع الموسيقى وأسماء الفنانين في المكتبة إلى خدمات الذكاء الاصطناعي";
 "ai_remove_provider" = "إزالة الخدمة";
 "ai_remove_provider_confirm" = "هل تريد إزالة هذه الخدمة ومفتاحها المحلي؟";
 "ai_resolved_endpoint" = "نقطة نهاية الطلب";
@@ -5200,3 +5200,33 @@
 "eq_device_kind_usb" = "صوت USB";
 "eq_device_kind_car" = "صوت السيارة";
 "eq_device_kind_other" = "إخراج آخر";
+
+/* AI new songs beyond the library */
+"ai_song_discovery_title" = "أغانٍ جديدة خارج مكتبتك";
+"ai_song_discovery_eyebrow" = "أغانٍ جديدة";
+"ai_song_discovery_subtitle" = "يقترح الذكاء الاصطناعي أغاني لا تملكها بعد، بناءً على أنواع الموسيقى في مكتبتك والفنانين الذين تستمع إليهم كثيرًا. لا توجد معاينة هنا؛ انسخ اسم الأغنية للبحث عنها في مكان آخر.";
+"ai_song_discovery_entry_detail" = "يقترح الذكاء الاصطناعي أغاني غير موجودة في مكتبتك";
+"ai_song_discovery_all_genres" = "كل الأنواع";
+"ai_song_discovery_request" = "اقتراح أغانٍ";
+"ai_song_discovery_request_more" = "اقتراح غيرها";
+"ai_song_discovery_copy_all" = "نسخ الكل";
+"ai_song_discovery_copied_all" = "تم النسخ";
+"ai_song_discovery_all_owned" = "لديك بالفعل كل أغاني هذه الدفعة. جرّب اقتراحات أخرى.";
+"ai_song_discovery_provider_format" = "اقترحها %1$@ · %2$@";
+"ai_song_discovery_allow_and_request" = "السماح والاقتراح";
+"ai_song_discovery_open_settings" = "فتح إعدادات الذكاء الاصطناعي";
+"ai_song_discovery_empty_hint" = "اضغط «اقتراح أغانٍ» وسيختار الذكاء الاصطناعي 20 أغنية تناسب مكتبتك وليست فيها بعد.";
+"ai_song_discovery_artist_in_library" = "الفنان موجود في مكتبتك";
+"ai_song_discovery_copy_title" = "نسخ اسم الأغنية";
+"ai_song_discovery_copy_title_artist" = "نسخ اسم الأغنية والفنان";
+"ai_song_discovery_not_configured" = "لا تتوفر خدمة ذكاء اصطناعي بعد. شغّل الذكاء الاصطناعي المدمج أو أضف خدمتك الخاصة في إعدادات الذكاء الاصطناعي ثم حاول مجددًا.";
+"ai_song_discovery_needs_consent" = "اقتراح أغانٍ جديدة يرسل أنواع الموسيقى وأسماء الفنانين في مكتبتك إلى خدمة ذكاء اصطناعي، لذا يجب السماح بإرسال المحتوى أولًا.";
+"ai_song_discovery_builtin_not_offered" = "لا يستطيع الذكاء الاصطناعي المدمج اقتراح أغانٍ خارج مكتبتك بعد. يمكنك إضافة خدمتك الخاصة في إعدادات الذكاء الاصطناعي.";
+"ai_song_discovery_no_taste" = "لا تحتوي مكتبتك بعد على أنواع أو فنانين يمكن الاستناد إليهم.";
+"ai_song_discovery_failed_busy" = "خدمة الذكاء الاصطناعي مشغولة. حاول لاحقًا.";
+"ai_song_discovery_failed_minute_limit" = "طلبات كثيرة جدًا. حاول لاحقًا.";
+"ai_song_discovery_failed_daily_limit" = "نفدت اقتراحات الأغاني الجديدة لهذا اليوم. عد غدًا.";
+"ai_song_discovery_failed_region" = "خدمة الذكاء الاصطناعي هذه غير متاحة في منطقتك.";
+"ai_song_discovery_failed_network" = "لا يوجد اتصال بالشبكة. تحقق من الشبكة وحاول مجددًا.";
+"ai_song_discovery_failed_empty" = "لم يقترح الذكاء الاصطناعي شيئًا هذه المرة. اختر نوعًا آخر أو حاول لاحقًا.";
+"ai_song_discovery_failed_generic" = "خدمة الذكاء الاصطناعي غير متاحة الآن. حاول لاحقًا.";

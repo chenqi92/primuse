@@ -3044,7 +3044,7 @@
 "ai_delete_current_api_key" = "Delete Current API Key";
 "ai_provider_footer" = "Only content required by enabled, authorized features is sent. Library structure and file paths stay on this device; audio is uploaded only for explicitly approved song transcription.";
 "ai_allow_insecure_local_http" = "Allow HTTP for local network servers";
-"ai_remote_consent" = "Allow sending search content, lyrics awaiting translation or tags to tidy to AI services";
+"ai_remote_consent" = "Allow sending search content, lyrics awaiting translation, tags to tidy or your library's genres and artist names to AI services";
 "ai_privacy_footer" = "API keys stay in Keychain. Recommendations never include file paths, complete listening history, or audio; local HTTP requires separate approval.";
 "ai_enable_recommendations" = "Intelligent scene recommendations";
 "ai_capabilities_footer" = "Search expands descriptive queries. Recommendations only reorder local candidates. A service failure never interrupts local recommendations or playback.";
@@ -5057,3 +5057,33 @@
 "eq_device_kind_usb" = "USB Audio";
 "eq_device_kind_car" = "Car Audio";
 "eq_device_kind_other" = "Other Output";
+
+/* AI new songs beyond the library */
+"ai_song_discovery_title" = "New Songs Beyond Your Library";
+"ai_song_discovery_eyebrow" = "New Songs";
+"ai_song_discovery_subtitle" = "AI suggests songs you don't have yet, based on your library's genres and the artists you play most. There's no preview here; copy a title to find it elsewhere.";
+"ai_song_discovery_entry_detail" = "AI suggests songs your library doesn't have yet";
+"ai_song_discovery_all_genres" = "All Genres";
+"ai_song_discovery_request" = "Suggest Songs";
+"ai_song_discovery_request_more" = "Suggest More";
+"ai_song_discovery_copy_all" = "Copy All";
+"ai_song_discovery_copied_all" = "Copied";
+"ai_song_discovery_all_owned" = "You already have every song from this batch. Try another batch.";
+"ai_song_discovery_provider_format" = "Suggested by %1$@ · %2$@";
+"ai_song_discovery_allow_and_request" = "Allow and Suggest";
+"ai_song_discovery_open_settings" = "Open AI Settings";
+"ai_song_discovery_empty_hint" = "Tap “Suggest Songs” and AI will pick 20 songs that fit your library but aren't in it yet.";
+"ai_song_discovery_artist_in_library" = "Artist in your library";
+"ai_song_discovery_copy_title" = "Copy Title";
+"ai_song_discovery_copy_title_artist" = "Copy Title and Artist";
+"ai_song_discovery_not_configured" = "No AI service is available yet. Turn on the built-in AI or add your own service in AI settings, then try again.";
+"ai_song_discovery_needs_consent" = "Suggesting new songs sends your library's genres and artist names to an AI service, so sending content needs to be allowed first.";
+"ai_song_discovery_builtin_not_offered" = "The built-in AI can't suggest songs beyond your library yet. You can add your own AI service in AI settings.";
+"ai_song_discovery_no_taste" = "Your library doesn't have genres or artists to go on yet.";
+"ai_song_discovery_failed_busy" = "The AI service is busy. Try again later.";
+"ai_song_discovery_failed_minute_limit" = "Too many requests. Try again later.";
+"ai_song_discovery_failed_daily_limit" = "Today's new-song suggestions are used up. Come back tomorrow.";
+"ai_song_discovery_failed_region" = "This AI service isn't available in your region.";
+"ai_song_discovery_failed_network" = "No network connection. Check your network and try again.";
+"ai_song_discovery_failed_empty" = "The AI didn't suggest anything this time. Try another genre or try again later.";
+"ai_song_discovery_failed_generic" = "The AI service is unavailable right now. Try again later.";

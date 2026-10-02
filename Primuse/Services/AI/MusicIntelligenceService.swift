@@ -34,6 +34,29 @@ struct AITagCleanupExecution: Sendable {
     var primuseRelayStopped = false
 }
 
+struct AISongDiscoveryExecution: Sendable {
+    var suggestions: [SongDiscoverySuggestion]
+    var providerName: String
+}
+
+enum AISongDiscoveryFailure: Equatable, Sendable {
+    /// Neither the built-in AI nor an own service can be asked.
+    case notConfigured
+    /// A service is there; only the permission to send content is missing.
+    case needsConsent
+    /// The built-in AI does not offer new-song discovery (yet) and there is
+    /// no own service to ask instead.
+    case builtInNotOffered
+    /// The library has no genre or artist to base recommendations on.
+    case noTasteProfile
+    case failed(AIRecommendationFallbackReason)
+}
+
+enum AISongDiscoveryOutcome: Sendable {
+    case success(AISongDiscoveryExecution)
+    case failed(AISongDiscoveryFailure, retryAt: Date? = nil)
+}
+
 struct AIAudioTranscriptionExecution: Sendable {
     var result: AIAudioTranscriptionResult
     var providerName: String
@@ -975,6 +998,119 @@ final class MusicIntelligenceService {
              .storeKitTransactionUnverified, .storeKitAuthenticationCancelled:
             return true
         }
+    }
+
+    /// Whether new-song discovery has an AI service to ask. It sends the
+    /// library's genre/artist/decade profile, so it takes the same consent
+    /// as other library content (tag cleanup, semantic search).
+    var isSongDiscoveryAvailable: Bool { isTagCleanupAvailable }
+
+    var songDiscoveryNeedsRemoteConsent: Bool { tagCleanupNeedsRemoteConsent }
+
+    /// Real songs outside the library that fit its taste: the built-in AI
+    /// first, then the listener's own services. The answer is validated
+    /// and still has to be checked against the library by the caller.
+    func discoverSongs(_ request: SongDiscoveryAIExchange.Request) async -> AISongDiscoveryOutcome {
+        guard settingsStore.hasExplicitRemoteConsent else {
+            return .failed(songDiscoveryNeedsRemoteConsent ? .needsConsent : .notConfigured)
+        }
+        let consent = settingsStore.hasExplicitRemoteConsent
+        let currentYear = Calendar.current.component(.year, from: Date())
+        let regionSnapshot = regionAvailability.snapshot
+        var relayError: Error?
+        var customError: Error?
+
+        if isPrimuseRelayAvailable, canUsePrimuseRelay(
+            captured: regionSnapshot,
+            latest: regionAvailability.snapshot,
+            hasRequiredConsent: consent
+        ) {
+            do {
+                let suggestions = try await primuseRelayClient.songDiscovery(
+                    request,
+                    currentYear: currentYear
+                )
+                if canUsePrimuseRelay(
+                    captured: regionSnapshot,
+                    latest: regionAvailability.snapshot,
+                    hasRequiredConsent: settingsStore.hasExplicitRemoteConsent
+                ) {
+                    return .success(AISongDiscoveryExecution(
+                        suggestions: suggestions,
+                        providerName: primuseRelayProviderName
+                    ))
+                }
+            } catch is CancellationError {
+                return .failed(.failed(.upstream))
+            } catch {
+                relayError = error
+                plog("🎵 Song discovery: built-in AI failed reason=\(AIRecommendationFallbackReason.classify(error)) unsupported=\(Self.primuseRelayDoesNotOfferFeature(error))")
+            }
+        }
+
+        if canUseCustomTagCleanupProviders(regionContext: regionSnapshot.context) {
+            for configuration in settingsStore.providerSet.routedProviders {
+                guard !configuration.generationModel
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      AIRegionRequestPolicy.canSendRemoteRequest(
+                        captured: regionSnapshot,
+                        latest: regionAvailability.snapshot,
+                        configuration: configuration
+                      ) else { continue }
+                do {
+                    let suggestions = try await engine.discoverSongs(
+                        request,
+                        currentYear: currentYear,
+                        configuration: configuration,
+                        regionContext: regionSnapshot.context,
+                        hasExplicitRemoteConsent: consent,
+                        requestAuthorization: regionAuthorization(
+                            for: regionSnapshot,
+                            configuration: configuration
+                        )
+                    )
+                    guard AIRegionRequestPolicy.canCommitRemoteResponse(
+                        captured: regionSnapshot,
+                        latest: regionAvailability.snapshot,
+                        configuration: configuration
+                    ) else { continue }
+                    return .success(AISongDiscoveryExecution(
+                        suggestions: suggestions,
+                        providerName: configuration.displayName
+                    ))
+                } catch is CancellationError {
+                    return .failed(.failed(.upstream))
+                } catch {
+                    customError = error
+                    plog("🎵 Song discovery: own service failed reason=\(AIRecommendationFallbackReason.classify(error))")
+                }
+            }
+        }
+
+        if let customError {
+            return .failed(.failed(AIRecommendationFallbackReason.classify(customError)))
+        }
+        if let relayError {
+            if Self.primuseRelayDoesNotOfferFeature(relayError) {
+                return .failed(.builtInNotOffered)
+            }
+            return .failed(
+                .failed(AIRecommendationFallbackReason.classify(relayError)),
+                retryAt: (relayError as? PrimuseAIRelayError)?.retryAt
+            )
+        }
+        return .failed(.notConfigured)
+    }
+
+    /// The relay answers 404/501 for a path it does not serve (an older
+    /// deployment), and 403 with these codes when the app or plan has not
+    /// been given this feature.
+    nonisolated static func primuseRelayDoesNotOfferFeature(_ error: Error) -> Bool {
+        guard case .requestFailed(let statusCode, let code, _) = error as? PrimuseAIRelayError else {
+            return false
+        }
+        return statusCode == 404 || statusCode == 501
+            || ["feature_disabled", "feature_not_in_plan"].contains(code)
     }
 
     func recommendationOutcome(
@@ -2526,6 +2662,46 @@ private actor MusicIntelligenceEngine {
                 languageCode: languageCode,
                 currentYear: currentYear
             )
+        }
+    }
+
+    /// New-song discovery is plain text generation over aggregated genre
+    /// and artist names — library content under the same consent as tag
+    /// cleanup — so it is routed through the same capability.
+    func discoverSongs(
+        _ request: SongDiscoveryAIExchange.Request,
+        currentYear: Int,
+        configuration: AIRemoteProviderConfiguration,
+        regionContext: AIRegionContext,
+        hasExplicitRemoteConsent: Bool,
+        requestAuthorization: @escaping @Sendable () async -> Bool
+    ) async throws -> [SongDiscoverySuggestion] {
+        let routed = AIProviderRoutingPolicy.candidates(
+            from: [configuration.descriptor],
+            capability: .lyricsTranslation,
+            regionContext: regionContext,
+            hasExplicitRemoteConsent: hasExplicitRemoteConsent
+        )
+        guard routed.first?.id == configuration.id else {
+            let reason: AIProviderUnavailableReason = regionContext.region == .mainlandChina
+                ? .regionRestricted
+                : .disabled
+            throw MusicIntelligenceError.unavailable(reason)
+        }
+        let provider = OpenAICompatibleProvider(
+            configuration: configuration,
+            credentialStore: credentialStore,
+            requestAuthorization: requestAuthorization
+        )
+        switch await provider.runtimeAvailability() {
+        case .available:
+            break
+        case .unavailable(let reason):
+            throw MusicIntelligenceError.unavailable(reason)
+        }
+        // A list of thirty songs with reasons is a long answer.
+        return try await withTimeout(seconds: max(configuration.requestTimeout, 45)) {
+            try await provider.discoverSongs(request, currentYear: currentYear)
         }
     }
 

@@ -747,7 +747,7 @@
 "ai_region_checking" = "App Store क्षेत्र की जाँच हो रही है…";
 "ai_region_unavailable_description" = "इस App Store क्षेत्र के लिए रिमोट और जेनरेटिव इंटेलिजेंस सुविधाएं पेश नहीं की जाती हैं।";
 "ai_region_unavailable_title" = "इंटेलिजेंस सुविधाएँ अनुपलब्ध हैं";
-"ai_remote_consent" = "खोज सामग्री, अनुवाद के लिए गीत के बोल या व्यवस्थित करने वाले टैग AI सेवाओं को भेजने की अनुमति दें";
+"ai_remote_consent" = "खोज सामग्री, अनुवाद के लिए गीत के बोल, व्यवस्थित करने वाले टैग या लाइब्रेरी की शैलियाँ और कलाकारों के नाम AI सेवाओं को भेजने की अनुमति दें";
 "ai_remove_provider" = "सेवा हटाएँ";
 "ai_remove_provider_confirm" = "इस सेवा और इसकी स्थानीय कुंजी को हटाएं?";
 "ai_resolved_endpoint" = "समापन बिंदु का अनुरोध करें";
@@ -5200,3 +5200,33 @@
 "eq_device_kind_usb" = "USB ऑडियो";
 "eq_device_kind_car" = "कार ऑडियो";
 "eq_device_kind_other" = "अन्य आउटपुट";
+
+/* AI new songs beyond the library */
+"ai_song_discovery_title" = "लाइब्रेरी से बाहर के नए गाने";
+"ai_song_discovery_eyebrow" = "नए गाने";
+"ai_song_discovery_subtitle" = "आपकी लाइब्रेरी की शैलियों और सबसे ज़्यादा सुने जाने वाले कलाकारों के आधार पर AI ऐसे गाने सुझाता है जो आपके पास अभी नहीं हैं। यहाँ प्रीव्यू नहीं है; गाने का नाम कॉपी करके कहीं और ढूँढें।";
+"ai_song_discovery_entry_detail" = "AI ऐसे गाने सुझाता है जो आपकी लाइब्रेरी में अभी नहीं हैं";
+"ai_song_discovery_all_genres" = "सभी शैलियाँ";
+"ai_song_discovery_request" = "गाने सुझाएँ";
+"ai_song_discovery_request_more" = "और सुझाएँ";
+"ai_song_discovery_copy_all" = "सब कॉपी करें";
+"ai_song_discovery_copied_all" = "कॉपी हो गया";
+"ai_song_discovery_all_owned" = "इस बार के सारे गाने आपकी लाइब्रेरी में पहले से हैं। और सुझाव लेकर देखें।";
+"ai_song_discovery_provider_format" = "%1$@ का सुझाव · %2$@";
+"ai_song_discovery_allow_and_request" = "अनुमति दें और सुझाएँ";
+"ai_song_discovery_open_settings" = "AI सेटिंग्स खोलें";
+"ai_song_discovery_empty_hint" = "“गाने सुझाएँ” पर टैप करें, AI आपकी लाइब्रेरी की पसंद के हिसाब से ऐसे 20 गाने चुनेगा जो अभी उसमें नहीं हैं।";
+"ai_song_discovery_artist_in_library" = "कलाकार आपकी लाइब्रेरी में है";
+"ai_song_discovery_copy_title" = "गाने का नाम कॉपी करें";
+"ai_song_discovery_copy_title_artist" = "गाने का नाम और कलाकार कॉपी करें";
+"ai_song_discovery_not_configured" = "अभी कोई AI सेवा उपलब्ध नहीं है। बिल्ट-इन AI चालू करें या AI सेटिंग्स में अपनी सेवा जोड़ें, फिर दोबारा कोशिश करें।";
+"ai_song_discovery_needs_consent" = "नए गाने सुझाने के लिए आपकी लाइब्रेरी की शैलियाँ और कलाकारों के नाम AI सेवा को भेजे जाते हैं, इसलिए पहले सामग्री भेजने की अनुमति देनी होगी।";
+"ai_song_discovery_builtin_not_offered" = "बिल्ट-इन AI अभी लाइब्रेरी से बाहर के गाने नहीं सुझा सकता। आप AI सेटिंग्स में अपनी AI सेवा जोड़ सकते हैं।";
+"ai_song_discovery_no_taste" = "आपकी लाइब्रेरी में अभी ऐसी शैलियाँ या कलाकार नहीं हैं जिनके आधार पर सुझाव दिए जा सकें।";
+"ai_song_discovery_failed_busy" = "AI सेवा व्यस्त है। बाद में कोशिश करें।";
+"ai_song_discovery_failed_minute_limit" = "बहुत ज़्यादा अनुरोध। बाद में कोशिश करें।";
+"ai_song_discovery_failed_daily_limit" = "आज के नए गानों के सुझाव खत्म हो गए। कल फिर आएँ।";
+"ai_song_discovery_failed_region" = "यह AI सेवा आपके क्षेत्र में उपलब्ध नहीं है।";
+"ai_song_discovery_failed_network" = "नेटवर्क कनेक्शन नहीं है। नेटवर्क जाँचें और दोबारा कोशिश करें।";
+"ai_song_discovery_failed_empty" = "इस बार AI ने कुछ नहीं सुझाया। कोई दूसरी शैली चुनें या बाद में कोशिश करें।";
+"ai_song_discovery_failed_generic" = "AI सेवा अभी उपलब्ध नहीं है। बाद में कोशिश करें।";

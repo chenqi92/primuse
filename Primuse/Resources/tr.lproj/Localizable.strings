@@ -2738,7 +2738,7 @@
 "reverb_plate" = "Plaka";
 "disabled" = "Devre Dışı";
 "ssl_trust_message %@" = "\"%@\" için SSL sertifikası sistem doğrulamasında başarısız oldu. Bağlantılar onayladığınız sertifika parmak izine sabitlenir.";
-"ai_remote_consent" = "Arama içeriğinin, çevrilecek şarkı sözlerinin veya düzenlenecek etiketlerin yapay zekâ hizmetlerine gönderilmesine izin ver";
+"ai_remote_consent" = "Arama içeriğinin, çevrilecek şarkı sözlerinin, düzenlenecek etiketlerin veya arşivdeki tür ve sanatçı adlarının yapay zekâ hizmetlerine gönderilmesine izin ver";
 "relay_share_link_short" = "Kısa Kod";
 "lyrics_full_screen" = "Tam Ekran Şarkı Sözleri";
 "cloud_account_login_other" = "Başka Bir Hesapta Oturum Açın";
@@ -5200,3 +5200,33 @@
 "eq_device_kind_usb" = "USB ses";
 "eq_device_kind_car" = "Araç ses sistemi";
 "eq_device_kind_other" = "Diğer çıkış";
+
+/* AI new songs beyond the library */
+"ai_song_discovery_title" = "Arşivinin dışındaki yeni şarkılar";
+"ai_song_discovery_eyebrow" = "Yeni şarkılar";
+"ai_song_discovery_subtitle" = "Yapay zekâ, arşivindeki türlere ve en çok dinlediğin sanatçılara göre henüz sahip olmadığın şarkıları önerir. Burada ön dinleme yok; şarkıyı başka yerde bulmak için adını kopyala.";
+"ai_song_discovery_entry_detail" = "Yapay zekâ arşivinde olmayan şarkılar önerir";
+"ai_song_discovery_all_genres" = "Tüm türler";
+"ai_song_discovery_request" = "Şarkı öner";
+"ai_song_discovery_request_more" = "Başkalarını öner";
+"ai_song_discovery_copy_all" = "Tümünü kopyala";
+"ai_song_discovery_copied_all" = "Kopyalandı";
+"ai_song_discovery_all_owned" = "Bu öneri grubundaki şarkıların hepsi zaten arşivinde. Başka öneriler iste.";
+"ai_song_discovery_provider_format" = "Öneren: %1$@ · %2$@";
+"ai_song_discovery_allow_and_request" = "İzin ver ve öner";
+"ai_song_discovery_open_settings" = "Yapay zekâ ayarlarını aç";
+"ai_song_discovery_empty_hint" = "“Şarkı öner”e dokun; yapay zekâ arşivine uyan ama henüz içinde olmayan 20 şarkı seçsin.";
+"ai_song_discovery_artist_in_library" = "Sanatçı arşivinde var";
+"ai_song_discovery_copy_title" = "Şarkı adını kopyala";
+"ai_song_discovery_copy_title_artist" = "Şarkı adını ve sanatçıyı kopyala";
+"ai_song_discovery_not_configured" = "Henüz kullanılabilir bir yapay zekâ hizmeti yok. Yerleşik yapay zekâyı aç ya da yapay zekâ ayarlarından kendi hizmetini ekleyip yeniden dene.";
+"ai_song_discovery_needs_consent" = "Yeni şarkı önermek için arşivindeki türler ve sanatçı adları bir yapay zekâ hizmetine gönderilir; önce içerik gönderimine izin vermelisin.";
+"ai_song_discovery_builtin_not_offered" = "Yerleşik yapay zekâ henüz arşivin dışından şarkı öneremiyor. Yapay zekâ ayarlarından kendi hizmetini ekleyebilirsin.";
+"ai_song_discovery_no_taste" = "Arşivinde henüz yola çıkılacak tür ya da sanatçı yok.";
+"ai_song_discovery_failed_busy" = "Yapay zekâ hizmeti meşgul. Daha sonra yeniden dene.";
+"ai_song_discovery_failed_minute_limit" = "Çok fazla istek. Daha sonra yeniden dene.";
+"ai_song_discovery_failed_daily_limit" = "Bugünkü yeni şarkı önerisi hakkın doldu. Yarın yeniden dene.";
+"ai_song_discovery_failed_region" = "Bu yapay zekâ hizmeti bölgende kullanılamıyor.";
+"ai_song_discovery_failed_network" = "Ağ bağlantısı yok. Ağını kontrol edip yeniden dene.";
+"ai_song_discovery_failed_empty" = "Yapay zekâ bu kez öneri vermedi. Başka bir tür seç ya da daha sonra yeniden dene.";
+"ai_song_discovery_failed_generic" = "Yapay zekâ hizmeti şu anda kullanılamıyor. Daha sonra yeniden dene.";

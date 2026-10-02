@@ -589,6 +589,40 @@ actor PrimuseAIRelayClient {
         )
     }
 
+    /// Asks for real songs outside the library that fit its taste profile.
+    /// Only aggregated genre/artist/decade weights and a short "avoid" list
+    /// are sent. Streams like tag cleanup so a busy relay is waited out; only
+    /// the final answer is used, and it is validated again on the device.
+    func songDiscovery(
+        _ request: SongDiscoveryAIExchange.Request,
+        currentYear: Int
+    ) async throws -> [SongDiscoverySuggestion] {
+        var completed: SongDiscoveryOutput?
+        try await performStreamingFeature(
+            path: "/v1/discovery/songs",
+            purpose: "song_discovery",
+            input: request,
+            output: SongDiscoveryOutput.self,
+            progress: SongDiscoveryProgress.self
+        ) { event in
+            if case .completed(let output) = event { completed = output }
+        }
+        guard let completed else { throw PrimuseAIRelayError.invalidResponse }
+        return SongDiscoveryAIExchange.validated(
+            completed.songs.map {
+                SongDiscoveryAIExchange.RawItem(
+                    title: $0.title,
+                    artist: $0.artist,
+                    album: $0.album,
+                    year: $0.year,
+                    reason: $0.reason
+                )
+            },
+            request: request,
+            currentYear: currentYear
+        )
+    }
+
     nonisolated static func assertionClientDataHash(
         challenge: String,
         method: String,
@@ -1685,6 +1719,24 @@ actor PrimuseAIRelayClient {
 
     private struct TagCleanupProgress: Decodable, Sendable {
         var change: TagCleanupOutput.Change
+    }
+
+    private struct SongDiscoveryOutput: Decodable, Sendable {
+        struct Song: Decodable, Sendable {
+            var title: String?
+            var artist: String?
+            var album: String?
+            var year: Int?
+            var reason: String?
+        }
+
+        var songs: [Song]
+    }
+
+    /// Progress lines are optional for this feature and never used; every
+    /// field is optional so an extra or reshaped line cannot fail the stream.
+    private struct SongDiscoveryProgress: Decodable, Sendable {
+        var song: SongDiscoveryOutput.Song?
     }
 }
 

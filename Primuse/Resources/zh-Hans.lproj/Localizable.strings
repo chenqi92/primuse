@@ -3375,7 +3375,7 @@
 "ai_delete_current_api_key" = "删除当前 API 密钥";
 "ai_provider_footer" = "仅发送已启用且已授权功能所需的最少内容；曲库结构和文件路径留在本机，音频仅在主动允许听歌识词时上传。";
 "ai_allow_insecure_local_http" = "允许局域网服务器使用 HTTP";
-"ai_remote_consent" = "允许向智能服务发送搜索内容、待翻译歌词或待整理的标签";
+"ai_remote_consent" = "允许向智能服务发送搜索内容、待翻译歌词、待整理的标签或曲库的风格与艺人名";
 "ai_privacy_footer" = "API 密钥保存在钥匙串中；推荐不会上传文件路径、完整听歌历史或音频。局域网 HTTP 需单独允许。";
 "ai_enable_recommendations" = "智能场景推荐";
 "ai_capabilities_footer" = "搜索会扩展描述性查询；场景推荐只重排本地候选歌曲。智能服务失败不会影响本地推荐或播放。";
@@ -5387,3 +5387,33 @@
 "eq_device_kind_usb" = "USB 音频";
 "eq_device_kind_car" = "车载音响";
 "eq_device_kind_other" = "其他输出设备";
+
+/* AI new songs beyond the library */
+"ai_song_discovery_title" = "曲库以外的新歌";
+"ai_song_discovery_eyebrow" = "新歌推荐";
+"ai_song_discovery_subtitle" = "按你曲库里的风格和常听的艺人，让 AI 推荐还没有的歌。这里不能试听，可以拷贝歌名去别处找来听。";
+"ai_song_discovery_entry_detail" = "按你的口味让 AI 推荐曲库里还没有的歌";
+"ai_song_discovery_all_genres" = "全部风格";
+"ai_song_discovery_request" = "推荐一批";
+"ai_song_discovery_request_more" = "换一批";
+"ai_song_discovery_copy_all" = "拷贝全部";
+"ai_song_discovery_copied_all" = "已拷贝";
+"ai_song_discovery_all_owned" = "这次推荐的歌你曲库里都有了，换一批试试。";
+"ai_song_discovery_provider_format" = "由 %1$@ 推荐 · %2$@";
+"ai_song_discovery_allow_and_request" = "允许并推荐";
+"ai_song_discovery_open_settings" = "打开智能设置";
+"ai_song_discovery_empty_hint" = "点「推荐一批」，AI 会按你的曲库口味推荐 20 首曲库里还没有的歌。";
+"ai_song_discovery_artist_in_library" = "曲库里有这位艺人";
+"ai_song_discovery_copy_title" = "拷贝歌名";
+"ai_song_discovery_copy_title_artist" = "拷贝歌名和艺人";
+"ai_song_discovery_not_configured" = "还没有可用的 AI 服务。打开内置 AI，或在智能设置里填写自己的服务后再试。";
+"ai_song_discovery_needs_consent" = "推荐新歌要把曲库里的风格和艺人名发给 AI 服务，需要先允许发送内容。";
+"ai_song_discovery_builtin_not_offered" = "内置 AI 暂时还不能推荐曲库以外的新歌，可以在智能设置里填写自己的 AI 服务。";
+"ai_song_discovery_no_taste" = "曲库里还没有能参考的风格或艺人。";
+"ai_song_discovery_failed_busy" = "AI 服务正忙，请稍后再试。";
+"ai_song_discovery_failed_minute_limit" = "请求太频繁了，请稍后再试。";
+"ai_song_discovery_failed_daily_limit" = "今天的新歌推荐次数已用完，明天再来。";
+"ai_song_discovery_failed_region" = "当前地区暂不提供这项智能服务。";
+"ai_song_discovery_failed_network" = "网络连接不可用，请检查网络后再试。";
+"ai_song_discovery_failed_empty" = "AI 这次没有给出推荐，换个风格或稍后再试。";
+"ai_song_discovery_failed_generic" = "AI 服务暂时不可用，请稍后再试。";
