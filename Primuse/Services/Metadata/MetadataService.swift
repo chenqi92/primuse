@@ -91,29 +91,41 @@ actor MetadataService {
         let trustedEmbeddedTitle: String? = {
             guard let t = embedded.title?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { return nil }
             guard t != rawURLBasedFallback, t != urlBasedFallback else { return nil }
+            // GBK bytes read as EUC-KR are valid Hangul and pass the suspicion
+            // check; a scrape then stamps them as a user edit, which shields
+            // them from the library's own file-name repair for good.
+            if let confirmed = MediaMetadataTextRepair.fileNameCorroboratedTitle(t, fileStem: titleFallback) {
+                return confirmed
+            }
             guard !MediaMetadataTextRepair.isSuspicious(t)
                     || MediaMetadataTextRepair.isSuspicious(titleFallback) else {
                 return nil
             }
             return embedded.title
         }()
+        let embeddedArtist = MediaMetadataTextRepair.fileNameCorroboratedArtist(
+            embedded.artist, fileStem: titleFallback
+        ) ?? embedded.artist
+        let embeddedSourceArtists = embedded.sourceArtistNames.map { names in
+            names.map { $0 == embedded.artist ? embeddedArtist ?? $0 : $0 }
+        }
 
         let correctedTitle = MetadataTitleResolutionPolicy.titleCorrectingDuplicatedArtist(
-            title: trustedEmbeddedTitle, artist: embedded.artist, fileStem: titleFallback
+            title: trustedEmbeddedTitle, artist: embeddedArtist, fileStem: titleFallback
         )
         let correctedArtist = MetadataTitleResolutionPolicy.artistCorrectingDuplicatedArtist(
-            title: trustedEmbeddedTitle, artist: embedded.artist, fileStem: titleFallback
+            title: trustedEmbeddedTitle, artist: embeddedArtist, fileStem: titleFallback
         )
         var result = SongMetadata(
             title: correctedTitle ?? trustedEmbeddedTitle ?? titleFallback,
-            artist: correctedArtist ?? embedded.artist,
+            artist: correctedArtist ?? embeddedArtist,
             embeddedTitle: MediaMetadataTextRepair.repaired(trustedEmbeddedTitle),
-            embeddedArtist: MediaMetadataTextRepair.repaired(embedded.artist),
-            sourceArtistNames: correctedArtist.map { [$0] } ?? embedded.sourceArtistNames,
+            embeddedArtist: MediaMetadataTextRepair.repaired(embeddedArtist),
+            sourceArtistNames: correctedArtist.map { [$0] } ?? embeddedSourceArtists,
             albumTitle: embedded.albumTitle,
             albumArtist: AlbumGroupingPolicy.resolvedAlbumArtistName(
                 albumArtistName: embedded.albumArtist,
-                trackArtistName: correctedArtist ?? embedded.artist
+                trackArtistName: correctedArtist ?? embeddedArtist
             ),
             trackNumber: embedded.trackNumber,
             discNumber: embedded.discNumber,

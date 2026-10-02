@@ -890,6 +890,33 @@ public enum MediaMetadataTextRepair {
         fileNameReferences(from: path).artist
     }
 
+    /// A tag read with the wrong legacy charset can still be valid text —
+    /// GBK bytes taken for EUC-KR are Hangul (「灵魂尽头」→「쥣산쐴庫」) — so
+    /// `isSuspicious` lets it through. A file name (without extension) that
+    /// spells the re-decoded bytes settles it, as `repairFileBackedMetadata`
+    /// does for library rows. Either side of "A - B" may hold the title.
+    public static func fileNameCorroboratedTitle(_ title: String?, fileStem: String?) -> String? {
+        guard let title, let fileStem else { return nil }
+        let identity = fileNameIdentity(fromBaseName: fileStem)
+        let references = [dotNumberedTrackTitle(fileStem), identity?.title, identity?.artist, fileStem]
+        for case let reference? in references {
+            if let confirmed = TextEncodingRepair.repaired(title, corroboratedBy: reference) {
+                return confirmed
+            }
+        }
+        return nil
+    }
+
+    public static func fileNameCorroboratedArtist(_ artist: String?, fileStem: String?) -> String? {
+        guard let artist, let identity = fileNameIdentity(fromBaseName: fileStem) else { return nil }
+        for reference in ArtistNameParser.names(rawName: identity.artist) {
+            if let confirmed = TextEncodingRepair.repaired(artist, corroboratedBy: reference) {
+                return confirmed
+            }
+        }
+        return nil
+    }
+
     /// 文件名给出的歌名与艺人，只解析一遍。曲号开头的（「01. 歌名」「01 - 歌名」）只有歌名。
     private static func fileNameReferences(from path: String?) -> (title: String?, artist: String?) {
         guard let baseName = fileBaseName(from: path) else { return (nil, nil) }

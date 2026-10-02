@@ -33,6 +33,45 @@ final class FileAlbumArtistLibraryTests: XCTestCase {
         }
     }
 
+    /// Device log 2026-10-02: scraping a Baidu song read its GBK title tag as
+    /// EUC-KR 「쥣산쐴庫」 and stamped it as a user edit, so the library's
+    /// file-name repair could never fix it afterwards.
+    func testScrapeReadSettlesLegacyTagBytesWithTheFileName() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LegacyKoreanReading-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        func syncSafe(_ size: Int) -> Data {
+            Data([21, 14, 7, 0].map { UInt8((size >> $0) & 0x7F) })
+        }
+        var body = Data()
+        let frames: [(String, [UInt8])] = [
+            ("TIT2", [0xC1, 0xE9, 0xBB, 0xEA, 0xBE, 0xA1, 0xCD, 0xB7]),
+            ("TPE1", [0xD5, 0xC5, 0xBB, 0xDD, 0xC3, 0xC3]),
+        ]
+        for (key, bytes) in frames {
+            let payload = Data([0]) + Data(bytes)
+            body += Data(key.utf8) + syncSafe(payload.count) + Data([0, 0]) + payload
+        }
+        let url = directory.appendingPathComponent("张惠妹 - 灵魂尽头.mp3")
+        try (Data([0x49, 0x44, 0x33, 4, 0, 0]) + syncSafe(body.count) + body).write(to: url)
+        let service = MetadataService()
+
+        let named = await service.loadMetadata(
+            for: url, allowOnlineFetch: false, trustedSource: false,
+            fallbackTitle: "张惠妹 - 灵魂尽头", discoverSidecars: false
+        )
+        XCTAssertEqual(named.title, "灵魂尽头")
+        XCTAssertEqual(named.embeddedTitle, "灵魂尽头")
+        XCTAssertEqual(named.artist, "张惠妹")
+
+        let unrelated = await service.loadMetadata(
+            for: url, allowOnlineFetch: false, trustedSource: false,
+            fallbackTitle: "张惠妹 - 听海", discoverSidecars: false
+        )
+        XCTAssertNotEqual(unrelated.title, "听海", "an unrelated file name must not replace the tag")
+    }
+
     func testLoadedTruncatedAlbumRetainsMissingCharacterEvidence() {
         for album in ["澶т汉鐨勬儏姝?ARTIST=寮犲畤", "澶т汉鐨勬儏姝"] {
             var cached = song(id: "truncated-album", metadata: .init(artist: "张宇", albumTitle: album))

@@ -47,6 +47,25 @@ import Testing
         #expect(opaque.title == "天\u{FFFD}")
     }
 
+    /// GBK 「灵魂尽头」 decodes as EUC-KR 「쥣산쐴庫」 and outscores the
+    /// Chinese reading; only the file name tells them apart.
+    @Test func fileNameSettlesChineseTagBytesDecodedAsKorean() throws {
+        let gbkTitle = Data([0xC1, 0xE9, 0xBB, 0xEA, 0xBE, 0xA1, 0xCD, 0xB7])
+        let decoded = try #require(TextEncodingRepair.decodeID3Text(gbkTitle, encodingByte: 0))
+        let confirmed = MediaMetadataTextRepair.fileNameCorroboratedTitle(decoded, fileStem: "张惠妹 - 灵魂尽头")
+        #expect((confirmed ?? decoded) == "灵魂尽头")
+        for stem in ["灵魂尽头 - 张惠妹", "03. 灵魂尽头", "灵魂尽头"] {
+            #expect(MediaMetadataTextRepair.fileNameCorroboratedTitle("쥣산쐴庫", fileStem: stem) == "灵魂尽头", "\(stem)")
+        }
+        #expect(MediaMetadataTextRepair.fileNameCorroboratedArtist("쟀옹핸", fileStem: "李克勤 - 红日") == "李克勤")
+        #expect(MediaMetadataTextRepair.fileNameCorroboratedArtist("쟀옹핸", fileStem: "红日") == nil)
+
+        #expect(MediaMetadataTextRepair.fileNameCorroboratedTitle("쥣산쐴庫", fileStem: "张惠妹 - 听海") == nil)
+        #expect(MediaMetadataTextRepair.fileNameCorroboratedTitle("灵魂尽头", fileStem: "张惠妹 - 灵魂尽头") == nil)
+        #expect(MediaMetadataTextRepair.fileNameCorroboratedTitle("강남스타일", fileStem: "PSY - 江南Style") == nil)
+        #expect(MediaMetadataTextRepair.fileNameCorroboratedArtist("정준영", fileStem: "郑俊英 - Title") == nil)
+    }
+
     @Test func recoversLostBytesFromFileNameWithoutMakingUpAlbum() {
         for damaged in ["??", "\u{FFFD}", "æM\u{2}¤ÑË\u{1}"] {
             var song = Song(id: "binary", title: damaged, albumTitle: damaged,
