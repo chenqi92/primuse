@@ -5208,3 +5208,23 @@
 "gdrive_scope_change_alt_mac" = "Mac：安装 Google 官方的 Google Drive 桌面版，把音乐文件夹设为「可离线使用」，再在 Primuse 里添加本地文件夹并选中它，就能整库扫描、自动发现新歌。";
 "gdrive_scope_change_alt_webdav" = "所有设备（包括 Apple TV）：如果有 NAS 或常开的电脑，可以用 rclone、OpenList 等工具把 Google Drive 转成 WebDAV，再在 Primuse 里添加 WebDAV 源。授权由你自己的工具持有，不受这次调整影响。";
 "gdrive_scope_change_alt_move" = "也可以把音乐移到 Primuse 支持的其他网盘或 NAS。";
+
+/* Apple TV 添加云盘时由手机代为登录 */
+"tv_cloud_companion_subtitle" = "用 iPhone 或 iPad 的相机扫码，在 Primuse 里登录 %@，登录结果会经局域网直接交给这台 Apple TV。";
+"tv_cloud_companion_requirement" = "手机上需要装有 Primuse，并和 Apple TV 连在同一个局域网。";
+"tv_cloud_companion_waiting" = "等待手机完成登录…";
+"tv_cloud_companion_no_network" = "Apple TV 没有连上局域网，无法显示二维码。";
+"tv_cloud_companion_save_failed" = "登录信息没能保存到这台 Apple TV，请换一个码再试。";
+"tv_cloud_auth_title" = "在 Apple TV 上登录 %@";
+"tv_cloud_auth_message" = "在这台设备上登录后，授权会加密后经局域网交给 Apple TV。这台设备上不会新增音乐源，也不会保存这份授权。";
+"tv_cloud_auth_code_hint" = "请确认 Apple TV 上显示的确认码与下面一致";
+"tv_cloud_auth_sign_in" = "登录 %@";
+"tv_cloud_auth_signing_in" = "正在登录…";
+"tv_cloud_auth_sending" = "正在发送到 Apple TV…";
+"tv_cloud_auth_done" = "已完成。Apple TV 会接着让你选择要扫描的文件夹。";
+"tv_cloud_auth_resend" = "重新发送";
+"tv_cloud_auth_failed_network" = "没能连上 Apple TV。请确认两台设备在同一个局域网，并且 Apple TV 上的二维码还在显示。";
+"tv_cloud_auth_failed_rejected" = "Apple TV 没有接受这次登录，二维码可能已经换过。请在 Apple TV 上重新扫码。";
+"tv_cloud_auth_failed_tv" = "Apple TV 没能保存登录信息，请在 Apple TV 上换一个码后重新扫码。";
+"tv_cloud_auth_failed_no_refresh" = "%@ 没有返回长期有效的授权，请重新登录。";
+"tv_cloud_auth_unsupported" = "当前版本的 Primuse 还不能在手机上代 Apple TV 登录这项服务。";

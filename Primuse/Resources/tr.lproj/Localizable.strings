@@ -5021,3 +5021,23 @@
 "gdrive_scope_change_alt_mac" = "Mac: Google'ın resmi uygulaması Masaüstü için Google Drive'ı yükleyin, müzik klasörünüzü “Çevrimdışı kullanılabilir” olarak ayarlayın, ardından Primuse'de yerel klasör olarak ekleyin. Primuse tüm arşivi tarar ve yeni şarkıları otomatik olarak bulur.";
 "gdrive_scope_change_alt_webdav" = "Apple TV dahil tüm cihazlar: NAS'ınız veya sürekli açık bir bilgisayarınız varsa rclone ya da OpenList gibi bir araçla Google Drive'ı WebDAV üzerinden sunun, ardından Primuse'de bir WebDAV kaynağı ekleyin. Yetkilendirme kendi aracınızda kalır ve bu değişiklikten etkilenmez.";
 "gdrive_scope_change_alt_move" = "Müziğinizi Primuse'nin desteklediği başka bir bulut sürücüsüne veya NAS'a da taşıyabilirsiniz.";
+
+/* Signing in to a cloud drive for Apple TV from a phone */
+"tv_cloud_companion_subtitle" = "Primuse'de %@ oturumu açmak için iPhone veya iPad kamerasıyla tarayın. Oturum bilgisi yerel ağınız üzerinden doğrudan bu Apple TV'ye iletilir.";
+"tv_cloud_companion_requirement" = "Telefonda Primuse yüklü olmalı ve telefon Apple TV ile aynı yerel ağda bulunmalıdır.";
+"tv_cloud_companion_waiting" = "Telefonda oturum açmanın tamamlanması bekleniyor…";
+"tv_cloud_companion_no_network" = "Apple TV bir yerel ağa bağlı olmadığından QR kodu gösterilemiyor.";
+"tv_cloud_companion_save_failed" = "Oturum bilgisi bu Apple TV'ye kaydedilemedi. Yeni bir kod alıp tekrar deneyin.";
+"tv_cloud_auth_title" = "Apple TV İçin %@ Oturumu Aç";
+"tv_cloud_auth_message" = "Bu cihazda oturum açtıktan sonra yetkilendirme şifrelenir ve yerel ağınız üzerinden Apple TV'ye iletilir. Bu cihaza kaynak eklenmez ve yetkilendirme burada saklanmaz.";
+"tv_cloud_auth_code_hint" = "Apple TV'de görünen kodun aşağıdakiyle aynı olduğundan emin olun";
+"tv_cloud_auth_sign_in" = "%@ Oturumu Aç";
+"tv_cloud_auth_signing_in" = "Oturum açılıyor…";
+"tv_cloud_auth_sending" = "Apple TV'ye gönderiliyor…";
+"tv_cloud_auth_done" = "Tamamlandı. Apple TV şimdi taranacak klasörleri seçmenizi isteyecek.";
+"tv_cloud_auth_resend" = "Tekrar Gönder";
+"tv_cloud_auth_failed_network" = "Apple TV'ye ulaşılamadı. İki cihazın aynı yerel ağda olduğundan ve QR kodunun Apple TV'de hâlâ göründüğünden emin olun.";
+"tv_cloud_auth_failed_rejected" = "Apple TV bu oturum açma işlemini kabul etmedi; QR kodu değişmiş olabilir. Apple TV'deki kodu yeniden tarayın.";
+"tv_cloud_auth_failed_tv" = "Apple TV oturum bilgisini kaydedemedi. Apple TV'de yeni bir kod alıp yeniden tarayın.";
+"tv_cloud_auth_failed_no_refresh" = "%@ uzun süre geçerli bir yetkilendirme döndürmedi. Lütfen yeniden oturum açın.";
+"tv_cloud_auth_unsupported" = "Primuse'nin bu sürümü, bu hizmette Apple TV adına telefondan henüz oturum açamıyor.";

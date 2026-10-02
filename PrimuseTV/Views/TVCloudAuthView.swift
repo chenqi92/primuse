@@ -300,4 +300,219 @@ struct TVCloudAuthView: View {
         }
     }
 }
+
+/// 由手机代为登录的云盘(`LANCloudAuthorizationLink.supportedProviders`,目前是 Google Drive)。
+///
+/// 电视起一个一次性局域网端点并画出二维码;iPhone / iPad 扫码后在 Primuse 里完成浏览器登录,
+/// 把授权加密交回来,这里写进与连接器共用的钥匙串后照常进入选目录 / 扫描。
+struct TVCloudCompanionAuthView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let source: MusicSource
+    /// 授权成功回调:此时 token 已落钥匙串,调用方继续保存音乐源即可。
+    let onAuthorized: () -> Void
+
+    @State private var model = TVCloudCompanionAuthModel()
+
+    var body: some View {
+        ZStack {
+            TVAmbientBackdrop(tint: TVColor.brand, tint2: TVColor.brandSecondary, strength: 0.45)
+            TVColor.bg.opacity(0.38).ignoresSafeArea()
+
+            VStack(spacing: 28) {
+                header
+                content
+                footer
+            }
+            .frame(maxWidth: 980)
+            .padding(48)
+            .tvPanel(radius: 28)
+            .padding(.horizontal, 120)
+        }
+        .onAppear { model.start(source: source, onAuthorized: onAuthorized) }
+        .onDisappear { model.stop() }
+        .onExitCommand { dismiss() }
+    }
+
+    private var header: some View {
+        VStack(spacing: 8) {
+            Image(systemName: source.type.iconName)
+                .font(.system(size: 42, weight: .semibold))
+                .foregroundStyle(TVColor.brand)
+            Text(PMString("ext.tv.cloud.auth.title", source.type.displayName))
+                .tvFont(.pageTitle).foregroundStyle(TVColor.text)
+            Text(String(format: String(localized: "tv_cloud_companion_subtitle"), source.type.displayName))
+                .tvFont(.caption).foregroundStyle(TVColor.textFaint)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch model.phase {
+        case .starting:
+            ProgressView().tint(TVColor.brand).frame(height: 300)
+        case .waiting(let link):
+            HStack(alignment: .center, spacing: 44) {
+                TVQRCode(content: link.qrContent, size: 300)
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        TVEyebrow(text: PMString("ext.tv.sources.confirmCode"))
+                        Text(verbatim: link.endpoint.displayPairCode)
+                            .tvFont(.heroTitle, weight: .bold, design: .monospaced)
+                            .foregroundStyle(TVColor.text)
+                    }
+                    Text("tv_cloud_companion_requirement")
+                        .tvFont(.meta).foregroundStyle(TVColor.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 10) {
+                        ProgressView().tint(TVColor.brand)
+                        Text("tv_cloud_companion_waiting")
+                            .tvFont(.meta).foregroundStyle(TVColor.textFaint)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: 300)
+        case .saving:
+            VStack(spacing: 14) {
+                ProgressView().tint(TVColor.brand)
+                Text(PMString("ext.tv.cloud.auth.redeeming")).tvFont(.body).foregroundStyle(TVColor.text)
+            }
+            .frame(height: 300)
+        case .done:
+            VStack(spacing: 14) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 48)).foregroundStyle(TVColor.brand)
+                Text(PMString("ext.tv.cloud.auth.done")).tvFont(.body).foregroundStyle(TVColor.text)
+            }
+            .frame(height: 300)
+        case .failed(let text):
+            VStack(spacing: 14) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 40)).foregroundStyle(TVColor.warn)
+                Text(text).tvFont(.caption).foregroundStyle(TVColor.textMuted)
+                    .multilineTextAlignment(.center).lineSpacing(4)
+            }
+            .frame(height: 300)
+        }
+    }
+
+    private var footer: some View {
+        HStack(spacing: 14) {
+            TVFocusButton(radius: 14, scale: 1.04, lift: 0, action: {
+                model.start(source: source, onAuthorized: onAuthorized)
+            }) { focused in
+                Text(PMString("ext.tv.cloud.auth.refresh"))
+                    .tvFont(.meta, weight: .medium).foregroundStyle(TVColor.text)
+                    .frame(maxWidth: .infinity).padding(.vertical, 18)
+                    .background(focused ? TVColor.surfaceStrong : TVColor.surface,
+                                in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .disabled(model.phase == .saving || model.phase == .done)
+            TVFocusButton(radius: 14, scale: 1.04, lift: 0, action: { dismiss() }) { focused in
+                Text(PMString("ext.tv.sources.cancel"))
+                    .tvFont(.meta, weight: .medium).foregroundStyle(TVColor.text)
+                    .frame(maxWidth: .infinity).padding(.vertical, 18)
+                    .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle,
+                                in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+        }
+    }
+}
+
+/// 代为登录页的局域网端点与状态。服务回调不在主线程,一律经 MainActor 落到这里。
+@MainActor
+@Observable
+final class TVCloudCompanionAuthModel {
+    enum Phase: Equatable {
+        case starting
+        case waiting(LANCloudAuthorizationLink)
+        case saving
+        case done
+        case failed(String)
+    }
+
+    private(set) var phase: Phase = .starting
+    @ObservationIgnored private var server: TVConfigServer?
+    @ObservationIgnored private var source: MusicSource?
+    @ObservationIgnored private var onAuthorized: (() -> Void)?
+
+    /// 起一个新端点。再调一次就是「换一个码」:旧端点连同它的密钥一起作废。
+    func start(source: MusicSource, onAuthorized: @escaping () -> Void) {
+        stop()
+        self.source = source
+        self.onAuthorized = onAuthorized
+        phase = .starting
+        let provider = source.type
+        let server = TVConfigServer()
+        server.onEndpointReady = { [weak self, weak server] endpoint in
+            Task { @MainActor in
+                guard let self, let server, server === self.server else { return }
+                self.endpointChanged(endpoint, provider: provider)
+            }
+        }
+        server.onCloudAuthorization = { [weak self] payload in
+            guard let self else { return false }
+            return await self.accept(payload)
+        }
+        self.server = server
+        server.start()
+    }
+
+    func stop() {
+        server?.stop()
+        server = nil
+    }
+
+    private func endpointChanged(_ endpoint: LANPairLink?, provider: MusicSourceType) {
+        switch phase {
+        case .saving, .done:
+            // 授权落盘后密钥会轮换一次,这时不该再换回二维码。
+            return
+        default:
+            break
+        }
+        guard let endpoint else {
+            phase = .failed(String(localized: "tv_cloud_companion_no_network"))
+            return
+        }
+        phase = .waiting(LANCloudAuthorizationLink(endpoint: endpoint, provider: provider))
+    }
+
+    private func accept(_ payload: LANCloudAuthorizationPayload) async -> Bool {
+        guard let source, case .waiting = phase, payload.isUsable(for: source.type) else {
+            plog("☁️ TV companion sign-in rejected provider=\(payload.provider)")
+            return false
+        }
+        phase = .saving
+        let manager = CloudTokenManager(sourceID: source.id)
+        let credentialsSaved = await manager.saveAppCredentials(
+            CloudTokenManager.AppCredentials(clientId: payload.clientID, clientSecret: nil)
+        )
+        let tokensSaved = await manager.saveTokens(
+            CloudTokenManager.Tokens(
+                accessToken: payload.accessToken,
+                refreshToken: payload.refreshToken,
+                expiresAt: payload.expiresAt,
+                tokenType: payload.tokenType,
+                extra: nil
+            )
+        )
+        guard credentialsSaved, tokensSaved else {
+            plog("⚠️ TV companion sign-in could not be saved source=\(source.id.prefix(8))…")
+            phase = .failed(String(localized: "tv_cloud_companion_save_failed"))
+            return false
+        }
+        plog("☁️ TV companion sign-in saved type=\(source.type.rawValue) source=\(source.id.prefix(8))…")
+        phase = .done
+        // 先让手机收到 200,也让「登录成功」停留片刻,再交回表单去保存音乐源。
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(800))
+            self?.onAuthorized?()
+        }
+        return true
+    }
+}
 #endif

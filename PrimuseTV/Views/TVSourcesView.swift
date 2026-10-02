@@ -31,6 +31,10 @@ struct TVSourcesView: View {
     @State private var scanSource: MusicSource?     // 选目录 + 扫描流程
     @State private var incrementalScanSource: MusicSource?
     @State private var showsGoogleDriveAccessChange = false
+    #if DEBUG
+    /// 截图钩子 `TV_SCREEN=cloudCompanionAuth`:不建源,直接看手机代为登录页。
+    @State private var debugCompanionAuthSource: MusicSource?
+    #endif
     @FocusState private var focusedPrimaryAction: PrimaryAction?
 
     var focusRequest = 0
@@ -300,6 +304,9 @@ struct TVSourcesView: View {
             TVGoogleDriveAccessChangeView()
         }
         #if DEBUG
+        .fullScreenCover(item: $debugCompanionAuthSource) { source in
+            TVCloudCompanionAuthView(source: source, onAuthorized: { debugCompanionAuthSource = nil })
+        }
         .task {
             await openDebugScreenIfNeeded()
         }
@@ -385,6 +392,8 @@ struct TVSourcesView: View {
             recycleBin = true
         case "googleDriveAccessChange":
             showsGoogleDriveAccessChange = true
+        case "cloudCompanionAuth":
+            debugCompanionAuthSource = MusicSource(name: "Google Drive", type: .googleDrive)
         case "credentials", "otp", "scan":
             var tries = 0
             while store.sources.isEmpty && tries < 25 {

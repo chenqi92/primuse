@@ -5115,3 +5115,23 @@
 "gdrive_scope_change_alt_mac" = "Mac: Google 공식 ‘데스크톱용 Google Drive’를 설치하고 음악 폴더를 ‘오프라인에서 사용 가능’으로 설정한 다음, Primuse에서 로컬 폴더로 추가해 선택하세요. 라이브러리 전체를 스캔하고 새 곡도 자동으로 찾습니다.";
 "gdrive_scope_change_alt_webdav" = "모든 기기(Apple TV 포함): NAS나 항상 켜 두는 컴퓨터가 있다면 rclone, OpenList 등의 도구로 Google Drive를 WebDAV로 제공한 뒤 Primuse에서 WebDAV 소스를 추가하세요. 인증은 사용자의 도구가 보유하므로 이번 변경의 영향을 받지 않습니다.";
 "gdrive_scope_change_alt_move" = "Primuse가 지원하는 다른 클라우드 드라이브나 NAS로 음악을 옮길 수도 있습니다.";
+
+/* Signing in to a cloud drive for Apple TV from a phone */
+"tv_cloud_companion_subtitle" = "iPhone 또는 iPad의 카메라로 스캔해 Primuse에서 %@에 로그인하세요. 로그인 정보는 로컬 네트워크를 통해 이 Apple TV로 바로 전달됩니다.";
+"tv_cloud_companion_requirement" = "휴대폰에 Primuse가 설치되어 있고 Apple TV와 같은 로컬 네트워크에 연결되어 있어야 합니다.";
+"tv_cloud_companion_waiting" = "휴대폰에서 로그인을 마치기를 기다리는 중…";
+"tv_cloud_companion_no_network" = "Apple TV가 로컬 네트워크에 연결되어 있지 않아 QR 코드를 표시할 수 없습니다.";
+"tv_cloud_companion_save_failed" = "로그인 정보를 이 Apple TV에 저장하지 못했습니다. 새 코드를 받아 다시 시도하세요.";
+"tv_cloud_auth_title" = "Apple TV에서 %@ 로그인";
+"tv_cloud_auth_message" = "이 기기에서 로그인하면 인증 정보가 암호화되어 로컬 네트워크를 통해 Apple TV로 전달됩니다. 이 기기에는 소스가 추가되지 않으며, 인증 정보도 이 기기에 저장되지 않습니다.";
+"tv_cloud_auth_code_hint" = "Apple TV에 표시된 확인 코드가 아래 코드와 같은지 확인하세요";
+"tv_cloud_auth_sign_in" = "%@ 로그인";
+"tv_cloud_auth_signing_in" = "로그인 중…";
+"tv_cloud_auth_sending" = "Apple TV로 보내는 중…";
+"tv_cloud_auth_done" = "완료되었습니다. 이제 Apple TV에서 스캔할 폴더를 선택하라는 안내가 표시됩니다.";
+"tv_cloud_auth_resend" = "다시 보내기";
+"tv_cloud_auth_failed_network" = "Apple TV에 연결할 수 없습니다. 두 기기가 같은 로컬 네트워크에 있고 Apple TV에 QR 코드가 계속 표시되어 있는지 확인하세요.";
+"tv_cloud_auth_failed_rejected" = "Apple TV가 이 로그인을 받아들이지 않았습니다. QR 코드가 바뀌었을 수 있습니다. Apple TV에 표시된 코드를 다시 스캔하세요.";
+"tv_cloud_auth_failed_tv" = "Apple TV에서 로그인 정보를 저장하지 못했습니다. Apple TV에서 새 코드를 받은 뒤 다시 스캔하세요.";
+"tv_cloud_auth_failed_no_refresh" = "%@에서 장기간 유효한 인증을 반환하지 않았습니다. 다시 로그인하세요.";
+"tv_cloud_auth_unsupported" = "현재 버전의 Primuse에서는 아직 휴대폰에서 Apple TV 대신 이 서비스에 로그인할 수 없습니다.";

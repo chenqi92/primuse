@@ -1372,6 +1372,8 @@ struct PrimuseApp: App {
     #if os(iOS)
     /// Apple TV 卡拉OK舞台的二维码(primuse://karaoke-mic)：手机当打分麦克风。
     @State private var karaokeMicTarget: KaraokeRemoteMicTarget?
+    /// Apple TV 添加云盘时的代为登录二维码(primuse://tv-cloud-auth)。
+    @State private var tvCloudAuthTarget: TVCloudAuthorizationTarget?
     #endif
     /// 分享页签发的一次性导入凭证，仅在本地内存中保留。
     @State private var mediaRelayImportRequest: MediaRelayImportRequest?
@@ -1838,6 +1840,11 @@ struct PrimuseApp: App {
                         karaokeMicTarget = KaraokeRemoteMicTarget(endpoint: endpoint)
                         return
                     }
+                    // Apple TV 添加 Google Drive:在这台设备上登录,授权加密后经局域网交给电视。
+                    if let link = LANCloudAuthorizationLink(url: url) {
+                        tvCloudAuthTarget = TVCloudAuthorizationTarget(link: link)
+                        return
+                    }
                     #endif
                     #if os(macOS)
                     // macOS OAuth 走系统浏览器,callback 通过 primuse:// 回到 app。
@@ -2223,6 +2230,9 @@ struct PrimuseApp: App {
                 #if os(iOS)
                 .fullScreenCover(item: $karaokeMicTarget) { target in
                     KaraokeRemoteMicView(endpoint: target.endpoint)
+                }
+                .sheet(item: $tvCloudAuthTarget) { target in
+                    TVCloudAuthorizationSheet(link: target.link)
                 }
                 #endif
             }

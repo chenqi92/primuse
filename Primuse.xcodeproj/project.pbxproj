@@ -54,6 +54,7 @@
 		08D30CAC5C97F4CE7FA56648 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88A168D4C0759AC51316AAB9 /* Constants.swift */; };
 		08E777E2F1647E94EBF91766 /* FileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F569D02D3E6102A0C0E1CF /* FileLogger.swift */; };
 		08FBFE2A8180B6A0AEF02D3B /* ImmersiveStageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BD6D04DA8CE429DC75434F6 /* ImmersiveStageView.swift */; };
+		090FE37EDFBA5CA489F698C1 /* TVCloudAuthorizationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B44F9BB11E795C53EAC492AA /* TVCloudAuthorizationSheet.swift */; };
 		0931D21CB53640BBBCBC0B98 /* ScrapeWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAE593077B230AED26E36FAF /* ScrapeWindowController.swift */; };
 		0942CA3CF25753C75FD0119F /* ServerListeningStatsConnectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57E5CB7F4B45F29DC1E8F30D /* ServerListeningStatsConnectorTests.swift */; };
 		0951A3A7101F9A58FC530335 /* FullscreenPlayerEffectSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEDB221148662EB8D4E7918D /* FullscreenPlayerEffectSettingsView.swift */; };
@@ -801,6 +802,7 @@
 		75DDCDBE26A30E57551043CA /* MacQueuePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57617F084B3B9CEF89DD3541 /* MacQueuePanel.swift */; };
 		75E15015A39C26CB480FCCBA /* MacSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBB01F11731477FA9B7F27D0 /* MacSidebar.swift */; };
 		75EB658DF4EA4FA781A5A776 /* ServerListeningStatsServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31F300281145AEB5C3A9BC87 /* ServerListeningStatsServiceTests.swift */; };
+		760E5E23D6D351CCEAAA63EF /* LANCloudAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA13D9EDFCF0D679B58E7954 /* LANCloudAuthorization.swift */; };
 		761B04C86F083F18574E02FD /* SpokenWordCoverLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6746317792A2316D2E222832 /* SpokenWordCoverLayout.swift */; };
 		7635925D8884E6C7EF5C9D57 /* ScrobbleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51E683B96F169512351E3ACE /* ScrobbleService.swift */; };
 		765CDF1C38171011299A3B47 /* SubsonicRatingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33DBF419A61F2A1604C966A1 /* SubsonicRatingTests.swift */; };
@@ -883,6 +885,7 @@
 		91089DC10232FF4AF4D900EF /* HomeStartListeningSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75B60C08F809121A5870A7B /* HomeStartListeningSection.swift */; };
 		94B5250214BC72772109941D /* AudioPlayerService+AutoContinuation.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC4BE55D3132EDD2006F568B /* AudioPlayerService+AutoContinuation.swift */; };
 		9806C1D78765C2DBD441110B /* ListeningIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 076F422006C85F32F5FCBB04 /* ListeningIntent.swift */; };
+		9DBA278981F5D4D741138970 /* TVCloudAuthorizationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B44F9BB11E795C53EAC492AA /* TVCloudAuthorizationSheet.swift */; };
 		A03DBF9ACD019CA1E148D7A6 /* GoogleDriveAccessChangeNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9A93B263565B70EF2E363EF /* GoogleDriveAccessChangeNotice.swift */; };
 		A27D018D76933B43EF4E28E4 /* GoogleDriveAccessChangePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A92AD908C0112F15ED28EF1 /* GoogleDriveAccessChangePolicy.swift */; };
 		AA1532DB730F560E43C8072D /* AudiobookshelfSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92E9715138783D169A2AC80 /* AudiobookshelfSource.swift */; };
@@ -2109,6 +2112,7 @@
 		922181FC334B41DD85745316 /* TVLibraryFilterConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVLibraryFilterConfiguration.swift; sourceTree = "<group>"; };
 		931F447299E5B0DD6FF34799 /* SongListeningTraits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongListeningTraits.swift; sourceTree = "<group>"; };
 		9C4929D6A853AD9C0A1AD6C6 /* ReleaseDateLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseDateLibraryView.swift; sourceTree = "<group>"; };
+		B44F9BB11E795C53EAC492AA /* TVCloudAuthorizationSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVCloudAuthorizationSheet.swift; sourceTree = "<group>"; };
 		B7C1FA1985706E65938A586B /* PlayerBackdrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerBackdrop.swift; sourceTree = "<group>"; };
 		BD176D14A5397C935DF5EE6C /* ListeningIntentService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningIntentService.swift; sourceTree = "<group>"; };
 		C67658EC03042A8F8F057DD8 /* AISemanticAlbumGroupPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AISemanticAlbumGroupPolicy.swift; sourceTree = "<group>"; };
@@ -2725,6 +2729,7 @@
 		DE2EBF2D66D0A6B16383E271 /* ListeningScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningScene.swift; sourceTree = "<group>"; };
 		E473112B3C29997FA4C970EE /* TVPlayerBackdropResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVPlayerBackdropResolver.swift; sourceTree = "<group>"; };
 		E5718CCDB8E58C982C01D5B0 /* PlayerBackdropImagingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerBackdropImagingTests.swift; sourceTree = "<group>"; };
+		EA13D9EDFCF0D679B58E7954 /* LANCloudAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LANCloudAuthorization.swift; sourceTree = "<group>"; };
 		EB164E964C4CE4086099EC62 /* AIServiceSetupGuidance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIServiceSetupGuidance.swift; sourceTree = "<group>"; };
 		9AE10B90CF85FD450338F498 /* PlatformShims.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformShims.swift; sourceTree = "<group>"; };
 		9B1C6677A531DE6E703195B4 /* SpokenWordShelfWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenWordShelfWidget.swift; sourceTree = "<group>"; };
@@ -3410,6 +3415,7 @@
 				32E0F03194B56BD2C0A053F5 /* SourceMetadataStatusView.swift */,
 				6723FC0B92EDA2CC1B5E3C83 /* SourcesView.swift */,
 				0C50B958D5A7FEF1F9E8AD24 /* SourceTypeSelectionView.swift */,
+				B44F9BB11E795C53EAC492AA /* TVCloudAuthorizationSheet.swift */,
 				6034E45EAB5EDE327A29E399 /* UPnPBrowserView.swift */,
 				637B2519A8207FCB3ABC3E34 /* WebDAVBrowserView.swift */,
 				EFA3B23764DBF5882B2C110B /* WiFiTransferComponents.swift */,
@@ -4975,6 +4981,7 @@
 				8321DC84502AE307E1C3B466 /* FnMusicServiceClient.swift */,
 				52E544642E7DCB96C625600B /* FnMusicStreamResolver.swift */,
 				7960CAAB384CA738FC501CEB /* GuangYaAPIProtocol.swift */,
+				EA13D9EDFCF0D679B58E7954 /* LANCloudAuthorization.swift */,
 				A6F6EF272DE4FC33E0D41998 /* LANSettingsTransfer.swift */,
 				8DFB5AEB2960B8723D2E4E8E /* LANSync.swift */,
 				41D4FBA997466FF8D6BDE666 /* LibrarySnapshotUploadPolicy.swift */,
@@ -5684,6 +5691,7 @@
 				67CEA14EC7324576CCDF5A92 /* AudiobookshelfServiceClient.swift in Sources */,
 				4EA5B3686E32EC4A38501176 /* AudiobookshelfStreamResolver.swift in Sources */,
 				A27D018D76933B43EF4E28E4 /* GoogleDriveAccessChangePolicy.swift in Sources */,
+				760E5E23D6D351CCEAAA63EF /* LANCloudAuthorization.swift in Sources */,
 				D255F3493C7A2CE404299F57 /* LibraryFavorite.swift in Sources */,
 				74DE67BEEAC95A373BD53B59 /* ArtistNameConfiguration.swift in Sources */,
 				4DD1902E0149F649BD06B9B4 /* ArtworkAnimation.swift in Sources */,
@@ -6493,6 +6501,7 @@
 				5E0C4FB858DCCE7E784D422A /* ThemeService.swift in Sources */,
 				560D91EBC760440688500942 /* TimeInterval+Format.swift in Sources */,
 				B71770DEE92F0EB8C0F8D470 /* TrustedHTTPTransport.swift in Sources */,
+				090FE37EDFBA5CA489F698C1 /* TVCloudAuthorizationSheet.swift in Sources */,
 				FC72F4B54B644843ECA7D395 /* U115Source.swift in Sources */,
 				AA3D32165BF96C06EEDF1A1B /* UPnPBrowserView.swift in Sources */,
 				DF207060532441F426923D9E /* UPnPSource.swift in Sources */,
@@ -7147,6 +7156,7 @@
 				4F666C6937E399679D7AC5D4 /* ThemeService.swift in Sources */,
 				38F1CB896290BA69CF5682C3 /* TimeInterval+Format.swift in Sources */,
 				ED7E9B1E97CDF086AE2D5F4C /* TrustedHTTPTransport.swift in Sources */,
+				9DBA278981F5D4D741138970 /* TVCloudAuthorizationSheet.swift in Sources */,
 				5488A434E3F2D14650B9482D /* U115Source.swift in Sources */,
 				34C3EC5C161A5BB8301D2562 /* UPnPBrowserView.swift in Sources */,
 				09AED938D1C5CFDD279BCB08 /* UPnPSource.swift in Sources */,

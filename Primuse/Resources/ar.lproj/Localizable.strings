@@ -5021,3 +5021,23 @@
 "gdrive_scope_change_alt_mac" = "Mac: ثبّت تطبيق Google الرسمي Google Drive للكمبيوتر المكتبي، واضبط مجلد الموسيقى على «متاح بلا اتصال بالإنترنت»، ثم أضِفه في Primuse كمجلد محلي. سيفحص Primuse المكتبة كلها ويعثر على الأغاني الجديدة تلقائيًا.";
 "gdrive_scope_change_alt_webdav" = "جميع الأجهزة، بما فيها Apple TV: إذا كان لديك NAS أو كمبيوتر يعمل دائمًا، فاستخدم أداة مثل rclone أو OpenList لتقديم Google Drive عبر WebDAV، ثم أضِف مصدر WebDAV في Primuse. يبقى التفويض لدى أداتك الخاصة ولا يتأثر بهذا التغيير.";
 "gdrive_scope_change_alt_move" = "يمكنك أيضًا نقل موسيقاك إلى محرك أقراص سحابي آخر أو NAS يدعمه Primuse.";
+
+/* Signing in to a cloud drive for Apple TV from a phone */
+"tv_cloud_companion_subtitle" = "امسح الرمز بكاميرا iPhone أو iPad لتسجيل الدخول إلى %@ في Primuse. تنتقل بيانات تسجيل الدخول مباشرةً إلى جهاز Apple TV هذا عبر شبكتك المحلية.";
+"tv_cloud_companion_requirement" = "يجب أن يكون Primuse مثبّتًا على الهاتف، وأن يكون الهاتف متصلًا بالشبكة المحلية نفسها التي يتصل بها Apple TV.";
+"tv_cloud_companion_waiting" = "في انتظار إكمال تسجيل الدخول على الهاتف…";
+"tv_cloud_companion_no_network" = "Apple TV غير متصل بشبكة محلية، لذا لا يمكنه عرض رمز QR.";
+"tv_cloud_companion_save_failed" = "تعذّر حفظ تسجيل الدخول على جهاز Apple TV هذا. احصل على رمز جديد وحاول مرة أخرى.";
+"tv_cloud_auth_title" = "تسجيل الدخول إلى %@ لجهاز Apple TV";
+"tv_cloud_auth_message" = "بعد تسجيل الدخول على هذا الجهاز، يُشفَّر التفويض ويُسلَّم إلى Apple TV عبر شبكتك المحلية. لا يُضاف أي مصدر على هذا الجهاز، ولا يُحتفَظ بالتفويض هنا.";
+"tv_cloud_auth_code_hint" = "تأكد من أن الرمز الظاهر على Apple TV يطابق الرمز أدناه";
+"tv_cloud_auth_sign_in" = "تسجيل الدخول إلى %@";
+"tv_cloud_auth_signing_in" = "جارٍ تسجيل الدخول…";
+"tv_cloud_auth_sending" = "جارٍ الإرسال إلى Apple TV…";
+"tv_cloud_auth_done" = "تم. سيطلب منك Apple TV الآن اختيار المجلدات المراد فحصها.";
+"tv_cloud_auth_resend" = "إرسال مرة أخرى";
+"tv_cloud_auth_failed_network" = "تعذّر الوصول إلى Apple TV. تأكد من أن الجهازين على الشبكة المحلية نفسها وأن رمز QR لا يزال ظاهرًا على Apple TV.";
+"tv_cloud_auth_failed_rejected" = "لم يقبل Apple TV تسجيل الدخول هذا، وربما تغيّر رمز QR. امسح الرمز الظاهر على Apple TV مرة أخرى.";
+"tv_cloud_auth_failed_tv" = "تعذّر على Apple TV حفظ تسجيل الدخول. احصل على رمز جديد على Apple TV وامسحه مرة أخرى.";
+"tv_cloud_auth_failed_no_refresh" = "لم تُرجع خدمة %@ تفويضًا طويل الأمد. يُرجى تسجيل الدخول مرة أخرى.";
+"tv_cloud_auth_unsupported" = "لا يستطيع هذا الإصدار من Primuse بعدُ تسجيل الدخول إلى هذه الخدمة من الهاتف نيابةً عن Apple TV.";

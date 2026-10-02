@@ -458,15 +458,26 @@ struct TVSourceFormView: View {
             useSsl = true
         }
         .fullScreenCover(item: $cloudAuthRequest) { request in
-            TVCloudAuthView(
-                source: request.source,
-                clientID: request.clientID,
-                clientSecret: request.clientSecret,
-                onAuthorized: {
-                    cloudAuthRequest = nil
-                    commitCloudDrive(request.source)
-                }
-            )
+            // Google Drive 的设备码拿不到读整个云端硬盘的授权,改由手机上的 Primuse 代为登录。
+            if LANCloudAuthorizationLink.supportedProviders.contains(request.source.type) {
+                TVCloudCompanionAuthView(
+                    source: request.source,
+                    onAuthorized: {
+                        cloudAuthRequest = nil
+                        commitCloudDrive(request.source)
+                    }
+                )
+            } else {
+                TVCloudAuthView(
+                    source: request.source,
+                    clientID: request.clientID,
+                    clientSecret: request.clientSecret,
+                    onAuthorized: {
+                        cloudAuthRequest = nil
+                        commitCloudDrive(request.source)
+                    }
+                )
+            }
         }
         .fullScreenCover(isPresented: $showsPlexSignIn, onDismiss: applyPendingPlexSelection) {
             TVPlexSignInView { selection in

@@ -247,7 +247,7 @@ struct TVRoot: View {
         case "radioHome", "radioAdd": initialTab = .home
         case "playlists": initialTab = .playlists
         case "sources", "sourcePicker", "sourceForm", "credentials", "otp", "scan", "recycleBin",
-             "googleDriveAccessChange":
+             "googleDriveAccessChange", "cloudCompanionAuth":
             initialTab = .sources
         case "search": initialTab = .search
         default: initialTab = landingTab

@@ -5021,3 +5021,23 @@
 "gdrive_scope_change_alt_mac" = "Mac: zainstaluj oficjalną aplikację Google Drive na komputer, ustaw folder z muzyką jako „Dostępne offline”, a następnie dodaj go w Primuse jako folder lokalny. Primuse przeskanuje całą bibliotekę i będzie automatycznie wykrywać nowe utwory.";
 "gdrive_scope_change_alt_webdav" = "Każde urządzenie, także Apple TV: jeśli masz NAS lub stale włączony komputer, udostępnij Google Drive przez WebDAV za pomocą narzędzia takiego jak rclone lub OpenList, a następnie dodaj źródło WebDAV w Primuse. Autoryzacja należy do Twojego własnego narzędzia i ta zmiana jej nie dotyczy.";
 "gdrive_scope_change_alt_move" = "Możesz też przenieść muzykę na inny dysk w chmurze lub NAS obsługiwany przez Primuse.";
+
+/* Signing in to a cloud drive for Apple TV from a phone */
+"tv_cloud_companion_subtitle" = "Zeskanuj kod aparatem iPhone’a lub iPada, aby w Primuse zalogować się w %@. Dane logowania trafią bezpośrednio do tego Apple TV przez sieć lokalną.";
+"tv_cloud_companion_requirement" = "Na telefonie musi być zainstalowana aplikacja Primuse, a telefon musi być w tej samej sieci lokalnej co Apple TV.";
+"tv_cloud_companion_waiting" = "Czekam, aż telefon dokończy logowanie…";
+"tv_cloud_companion_no_network" = "Apple TV nie jest połączone z siecią lokalną, więc nie może wyświetlić kodu QR.";
+"tv_cloud_companion_save_failed" = "Nie udało się zapisać danych logowania na tym Apple TV. Pobierz nowy kod i spróbuj ponownie.";
+"tv_cloud_auth_title" = "Zaloguj się w %@ dla Apple TV";
+"tv_cloud_auth_message" = "Po zalogowaniu się na tym urządzeniu autoryzacja zostanie zaszyfrowana i przekazana do Apple TV przez sieć lokalną. Na tym urządzeniu nie zostanie dodane żadne źródło, a autoryzacja nie będzie tu przechowywana.";
+"tv_cloud_auth_code_hint" = "Upewnij się, że kod na Apple TV jest taki sam jak poniżej";
+"tv_cloud_auth_sign_in" = "Zaloguj się w %@";
+"tv_cloud_auth_signing_in" = "Logowanie…";
+"tv_cloud_auth_sending" = "Wysyłanie do Apple TV…";
+"tv_cloud_auth_done" = "Gotowe. Apple TV poprosi teraz o wybranie folderów do skanowania.";
+"tv_cloud_auth_resend" = "Wyślij ponownie";
+"tv_cloud_auth_failed_network" = "Nie można połączyć się z Apple TV. Upewnij się, że oba urządzenia są w tej samej sieci lokalnej, a kod QR nadal jest wyświetlany na Apple TV.";
+"tv_cloud_auth_failed_rejected" = "Apple TV nie przyjęło tego logowania — kod QR mógł się zmienić. Zeskanuj ponownie kod wyświetlany na Apple TV.";
+"tv_cloud_auth_failed_tv" = "Apple TV nie mogło zapisać danych logowania. Pobierz nowy kod na Apple TV i zeskanuj go ponownie.";
+"tv_cloud_auth_failed_no_refresh" = "Usługa %@ nie zwróciła długoterminowej autoryzacji. Zaloguj się ponownie.";
+"tv_cloud_auth_unsupported" = "Ta wersja Primuse nie umożliwia jeszcze logowania się do tej usługi z telefonu w imieniu Apple TV.";

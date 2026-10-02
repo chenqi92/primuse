@@ -5021,3 +5021,23 @@
 "gdrive_scope_change_alt_mac" = "Mac: Google का आधिकारिक ऐप डेस्कटॉप के लिए Google Drive इंस्टॉल करें, अपने संगीत फ़ोल्डर को “ऑफ़लाइन उपलब्ध” पर सेट करें, फिर Primuse में उसे स्थानीय फ़ोल्डर के रूप में जोड़ें। Primuse पूरी लाइब्रेरी स्कैन करेगा और नए गाने अपने आप ढूँढ लेगा।";
 "gdrive_scope_change_alt_webdav" = "Apple TV समेत सभी डिवाइस: अगर आपके पास NAS या हमेशा चालू रहने वाला कंप्यूटर है, तो rclone या OpenList जैसे टूल से Google Drive को WebDAV के ज़रिए उपलब्ध कराएँ, फिर Primuse में WebDAV स्रोत जोड़ें। अनुमति आपके अपने टूल के पास रहती है और इस बदलाव से प्रभावित नहीं होती।";
 "gdrive_scope_change_alt_move" = "आप अपना संगीत Primuse के समर्थन वाली किसी दूसरी क्लाउड ड्राइव या NAS पर भी ले जा सकते हैं।";
+
+/* Signing in to a cloud drive for Apple TV from a phone */
+"tv_cloud_companion_subtitle" = "अपने iPhone या iPad के कैमरे से स्कैन करें और Primuse खोलकर %@ में साइन इन करें। साइन-इन आपके स्थानीय नेटवर्क के ज़रिए सीधे इस Apple TV तक पहुँचेगा।";
+"tv_cloud_companion_requirement" = "फ़ोन पर Primuse इंस्टॉल होना चाहिए और फ़ोन उसी स्थानीय नेटवर्क से जुड़ा होना चाहिए जिससे Apple TV जुड़ा है।";
+"tv_cloud_companion_waiting" = "फ़ोन पर साइन इन पूरा होने का इंतज़ार…";
+"tv_cloud_companion_no_network" = "Apple TV किसी स्थानीय नेटवर्क से नहीं जुड़ा है, इसलिए QR कोड नहीं दिखा सकता।";
+"tv_cloud_companion_save_failed" = "साइन-इन इस Apple TV पर सहेजा नहीं जा सका। नया कोड लेकर फिर से कोशिश करें।";
+"tv_cloud_auth_title" = "Apple TV के लिए %@ में साइन इन करें";
+"tv_cloud_auth_message" = "इस डिवाइस पर साइन इन करने के बाद, प्राधिकरण एन्क्रिप्ट होकर आपके स्थानीय नेटवर्क के ज़रिए Apple TV को सौंप दिया जाता है। इस डिवाइस पर कोई स्रोत नहीं जुड़ता, और प्राधिकरण यहाँ सहेजा नहीं जाता।";
+"tv_cloud_auth_code_hint" = "पक्का करें कि Apple TV पर दिख रहा कोड नीचे वाले कोड से मेल खाता है";
+"tv_cloud_auth_sign_in" = "%@ में साइन इन करें";
+"tv_cloud_auth_signing_in" = "साइन इन हो रहा है…";
+"tv_cloud_auth_sending" = "Apple TV पर भेजा जा रहा है…";
+"tv_cloud_auth_done" = "हो गया। अब Apple TV आपसे स्कैन करने के लिए फ़ोल्डर चुनने को कहेगा।";
+"tv_cloud_auth_resend" = "फिर से भेजें";
+"tv_cloud_auth_failed_network" = "Apple TV तक नहीं पहुँचा जा सका। पक्का करें कि दोनों डिवाइस एक ही स्थानीय नेटवर्क पर हैं और Apple TV पर QR कोड अब भी दिख रहा है।";
+"tv_cloud_auth_failed_rejected" = "Apple TV ने यह साइन-इन स्वीकार नहीं किया; हो सकता है QR कोड बदल गया हो। Apple TV पर दिख रहा कोड फिर से स्कैन करें।";
+"tv_cloud_auth_failed_tv" = "Apple TV साइन-इन सहेज नहीं सका। Apple TV पर नया कोड लें और उसे फिर से स्कैन करें।";
+"tv_cloud_auth_failed_no_refresh" = "%@ ने लंबे समय तक मान्य रहने वाला प्राधिकरण नहीं लौटाया। कृपया फिर से साइन इन करें।";
+"tv_cloud_auth_unsupported" = "Primuse का यह संस्करण अभी फ़ोन से Apple TV की ओर से इस सेवा में साइन इन नहीं कर सकता।";

@@ -5021,3 +5021,23 @@
 "gdrive_scope_change_alt_mac" = "Mac: ติดตั้ง Google Drive สำหรับเดสก์ท็อป ซึ่งเป็นแอปอย่างเป็นทางการของ Google ตั้งค่าโฟลเดอร์เพลงเป็น “พร้อมใช้งานแบบออฟไลน์” แล้วเพิ่มโฟลเดอร์นั้นใน Primuse เป็นโฟลเดอร์ในเครื่อง Primuse จะสแกนทั้งคลังเพลงและพบเพลงใหม่โดยอัตโนมัติ";
 "gdrive_scope_change_alt_webdav" = "ทุกอุปกรณ์ รวมถึง Apple TV: หากคุณมี NAS หรือคอมพิวเตอร์ที่เปิดไว้ตลอด ให้ใช้เครื่องมืออย่าง rclone หรือ OpenList เพื่อให้บริการ Google Drive ผ่าน WebDAV แล้วเพิ่มแหล่งเพลง WebDAV ใน Primuse สิทธิ์การเข้าถึงอยู่ที่เครื่องมือของคุณเองและไม่ได้รับผลกระทบจากการเปลี่ยนแปลงนี้";
 "gdrive_scope_change_alt_move" = "คุณยังย้ายเพลงไปยังคลาวด์ไดรฟ์อื่นหรือ NAS ที่ Primuse รองรับได้ด้วย";
+
+/* Signing in to a cloud drive for Apple TV from a phone */
+"tv_cloud_companion_subtitle" = "สแกนด้วยกล้องของ iPhone หรือ iPad เพื่อลงชื่อเข้าใช้ %@ ใน Primuse แล้วการลงชื่อเข้าใช้จะส่งตรงมายัง Apple TV เครื่องนี้ผ่านเครือข่ายท้องถิ่น";
+"tv_cloud_companion_requirement" = "โทรศัพท์ต้องติดตั้ง Primuse และเชื่อมต่อเครือข่ายท้องถิ่นเดียวกับ Apple TV";
+"tv_cloud_companion_waiting" = "กำลังรอให้โทรศัพท์ลงชื่อเข้าใช้เสร็จ…";
+"tv_cloud_companion_no_network" = "Apple TV ไม่ได้เชื่อมต่อเครือข่ายท้องถิ่น จึงแสดงคิวอาร์โค้ดไม่ได้";
+"tv_cloud_companion_save_failed" = "บันทึกการลงชื่อเข้าใช้ลงใน Apple TV เครื่องนี้ไม่สำเร็จ ขอรหัสใหม่แล้วลองอีกครั้ง";
+"tv_cloud_auth_title" = "ลงชื่อเข้าใช้ %@ ให้ Apple TV";
+"tv_cloud_auth_message" = "หลังจากลงชื่อเข้าใช้บนอุปกรณ์นี้ การอนุญาตจะถูกเข้ารหัสและส่งต่อให้ Apple TV ผ่านเครือข่ายท้องถิ่น อุปกรณ์นี้จะไม่เพิ่มแหล่งเพลงใดๆ และจะไม่เก็บการอนุญาตนี้ไว้";
+"tv_cloud_auth_code_hint" = "ตรวจสอบว่ารหัสบน Apple TV ตรงกับรหัสด้านล่าง";
+"tv_cloud_auth_sign_in" = "ลงชื่อเข้าใช้ %@";
+"tv_cloud_auth_signing_in" = "กำลังลงชื่อเข้าใช้…";
+"tv_cloud_auth_sending" = "กำลังส่งไปยัง Apple TV…";
+"tv_cloud_auth_done" = "เสร็จแล้ว Apple TV จะให้คุณเลือกโฟลเดอร์ที่จะสแกนต่อไป";
+"tv_cloud_auth_resend" = "ส่งอีกครั้ง";
+"tv_cloud_auth_failed_network" = "เชื่อมต่อ Apple TV ไม่ได้ ตรวจสอบว่าอุปกรณ์ทั้งสองอยู่ในเครือข่ายท้องถิ่นเดียวกัน และคิวอาร์โค้ดยังแสดงอยู่บน Apple TV";
+"tv_cloud_auth_failed_rejected" = "Apple TV ไม่ยอมรับการลงชื่อเข้าใช้ครั้งนี้ คิวอาร์โค้ดอาจเปลี่ยนไปแล้ว สแกนรหัสบน Apple TV อีกครั้ง";
+"tv_cloud_auth_failed_tv" = "Apple TV บันทึกการลงชื่อเข้าใช้ไม่สำเร็จ ขอรหัสใหม่บน Apple TV แล้วสแกนอีกครั้ง";
+"tv_cloud_auth_failed_no_refresh" = "%@ ไม่ได้ส่งการอนุญาตที่ใช้ได้ระยะยาวกลับมา โปรดลงชื่อเข้าใช้อีกครั้ง";
+"tv_cloud_auth_unsupported" = "Primuse เวอร์ชันนี้ยังลงชื่อเข้าใช้บริการนี้แทน Apple TV จากโทรศัพท์ไม่ได้";

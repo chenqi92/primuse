@@ -33,12 +33,14 @@ final class TVConfigServer: @unchecked Sendable {
     private enum Route {
         case legacy
         case staged(LANTransferStage, batch: (index: Int, count: Int)?)
+        case cloudAuthorization
 
         var progressStage: LANTransferStage? {
             switch self {
             case .legacy: return .library
             case .staged(.finish, _): return nil
             case .staged(let stage, _): return stage
+            case .cloudAuthorization: return nil
             }
         }
     }
@@ -53,6 +55,9 @@ final class TVConfigServer: @unchecked Sendable {
     var onSessionEnded: (@Sendable (Bool) -> Void)?
     /// 端点就绪(端口在 listener `.ready` 时才分配)。用于刷新二维码内容。
     var onEndpointReady: (@Sendable (LANPairLink?) -> Void)?
+    /// 手机代为登录云盘后交来的授权(`LANCloudAuthorizationLink`)。只在回调确认写进钥匙串后返回 200,
+    /// 并就此作废这把密钥。
+    var onCloudAuthorization: (@Sendable (LANCloudAuthorizationPayload) async -> Bool)?
 
     private let queue = DispatchQueue(label: "com.welape.primuse.tvconfig")
     private var listener: NWListener?
@@ -244,6 +249,37 @@ final class TVConfigServer: @unchecked Sendable {
             processLegacy(conn, plain: plain, serial: serial)
         case .staged(let stage, let batch):
             processStage(conn, stage: stage, batch: batch, plain: plain, serial: serial)
+        case .cloudAuthorization:
+            processCloudAuthorization(conn, plain: plain)
+        }
+    }
+
+    private func processCloudAuthorization(_ conn: NWConnection, plain: Data) {
+        guard let payload = LANCloudAuthorizationPayload.decode(plain) else {
+            plog("TVConfigServer: rejected cloud authorization (\(plain.count)B)")
+            Self.respond(conn, status: 400)
+            return
+        }
+        plog("TVConfigServer: received cloud authorization provider=\(payload.provider)")
+        guard let onCloudAuthorization else {
+            Self.respond(conn, status: 503)
+            return
+        }
+        let requestGeneration = generation
+        Task { [weak self] in
+            let saved = await onCloudAuthorization(payload)
+            guard let self else {
+                conn.cancel()
+                return
+            }
+            self.queue.async {
+                // 写进钥匙串才消费密钥;没存下时保留二维码,手机可以重发。
+                if saved, requestGeneration == self.generation {
+                    self.rotatePairingSecret()
+                    self.emitEndpoint()
+                }
+                Self.respond(conn, status: saved ? 200 : 500)
+            }
         }
     }
 
@@ -379,6 +415,7 @@ final class TVConfigServer: @unchecked Sendable {
 
     private static func route(path: String, headers: [String: String]) -> Route? {
         if path == "/config" { return .legacy }
+        if path == LANCloudAuthorizationLink.requestPath { return .cloudAuthorization }
         guard let stage = LANTransferStage(path: path) else { return nil }
         guard stage == .artwork else { return .staged(stage, batch: nil) }
         guard let batch = LANArtworkBatchPosition(header: headers["x-primuse-batch"]) else { return nil }
