@@ -49,16 +49,28 @@ public enum TopShelfStore {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: TopShelfShared.appGroupID)
     }
 
+    /// 数据与封面实际存放的目录。tvOS 真机上 app 和扩展都只能写共享容器里的 `Library/Caches`,
+    /// 写容器根目录会报没有权限(模拟器不拦)。系统空间紧张时这里可能被清掉,主 app 下次发布会重写。
+    static func storageDirectory(inContainer container: URL) -> URL {
+        container
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Caches", isDirectory: true)
+    }
+
+    private static var storageDirectory: URL? {
+        containerURL.map(storageDirectory(inContainer:))
+    }
+
     /// 封面缩略图目录(主 app 预取写入)。
     public static var coversDirectory: URL? {
-        guard let base = containerURL else { return nil }
+        guard let base = storageDirectory else { return nil }
         let dir = base.appendingPathComponent("TopShelfCovers", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
 
     private static var payloadURL: URL? {
-        containerURL?.appendingPathComponent("topshelf.json")
+        storageDirectory?.appendingPathComponent("topshelf.json")
     }
 
     public static func coverURL(_ fileName: String) -> URL? {
@@ -71,10 +83,10 @@ public enum TopShelfStore {
         return try? dec.decode(TopShelfPayload.self, from: data)
     }
 
-    public static func save(_ payload: TopShelfPayload) {
-        guard let url = payloadURL else { return }
+    public static func save(_ payload: TopShelfPayload) throws {
+        guard let url = payloadURL else { throw CocoaError(.fileNoSuchFile) }
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
-        guard let data = try? enc.encode(payload) else { return }
-        try? data.write(to: url, options: .atomic)
+        try enc.encode(payload).write(to: url, options: .atomic)
     }
 }

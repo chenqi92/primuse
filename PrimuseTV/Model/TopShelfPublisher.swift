@@ -59,7 +59,13 @@ enum TopShelfPublisher {
         pruneStaleCovers(keeping: referencedCovers(in: sections).union(referencedCovers(in: stored?.sections ?? [])))
         // 每次播放、每次电台列表变化都会发布一次,内容多半没变:不重写、也不打扰系统。
         guard stored?.sections != sections else { return }
-        TopShelfStore.save(TopShelfPayload(sections: sections))
+        do {
+            try TopShelfStore.save(TopShelfPayload(sections: sections))
+        } catch {
+            plog("TV topShelf save failed sections=\(sections.count): \(error.localizedDescription)")
+            return
+        }
+        plog("TV topShelf saved sections=\(sections.count) items=\(sections.reduce(0) { $0 + $1.items.count })")
         // 通知系统 Top Shelf 内容已变,促其在下次机会重新向扩展取数据(否则停留旧值/空)
         TVTopShelfContentProvider.topShelfContentDidChange()
     }
