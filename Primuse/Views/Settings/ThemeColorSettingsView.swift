@@ -253,6 +253,8 @@ struct ThemeColorSections: View {
                 Text(PMString("ext.tv.settings.coverColor"))
             }
             .settingsAnchor("appearance.coverAmbient")
+
+            PlayerBackdropSettingsSections()
         }
     }
 

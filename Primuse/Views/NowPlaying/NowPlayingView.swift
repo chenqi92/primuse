@@ -5151,7 +5151,8 @@ struct NowPlayingView: View {
                 primaryOpacity: accentOpacity,
                 secondaryOpacity: lowerAccentOpacity,
                 hasArtworkPalette: hasArtworkTheme,
-                isVisible: isNowPlayingSurfaceExposed,
+                // 背景图铺满时色场被盖住，停掉它的动画时钟。
+                isVisible: isNowPlayingSurfaceExposed && !PlayerBackdropResolver.shared.isShowingImage,
                 isSceneActive: isVisualSceneActive,
                 isPlaying: player.isPlaying,
                 paletteVibrancy: theme.artworkVibrancy,
@@ -5191,6 +5192,16 @@ struct NowPlayingView: View {
                     endPoint: .bottom
                 )
             }
+
+            // 设置里选了封面模糊 / 专辑封底 / 自选图片时铺在色场上面。
+            PlayerBackdropImageHost(
+                song: player.isLiveRadio ? nil : player.currentSong,
+                isLight: appearance.isLight,
+                strength: strength,
+                usesIncreasedContrast: colorSchemeContrast == .increased,
+                isSurfaceVisible: isNowPlayingSurfaceExposed && isVisualSceneActive,
+                allowsLoading: isPresentationSettled
+            )
         }
         .animation(
             .easeInOut(duration: AmbientBackdropTuning.transitionDuration),

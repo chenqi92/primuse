@@ -602,7 +602,9 @@ struct MacNowPlayingView: View {
                 primaryOpacity: primaryOpacity,
                 secondaryOpacity: secondaryOpacity,
                 hasArtworkPalette: hasArtworkTheme,
-                isVisible: !isImmersiveStageActive && controlActiveState != .inactive,
+                // 背景图铺满时色场被盖住，停掉它的动画时钟。
+                isVisible: !isImmersiveStageActive && controlActiveState != .inactive
+                    && !PlayerBackdropResolver.shared.isShowingImage,
                 isSceneActive: scenePhase == .active,
                 isPlaying: player.isPlaying,
                 paletteVibrancy: theme.artworkVibrancy,
@@ -638,6 +640,17 @@ struct MacNowPlayingView: View {
                     endPoint: .bottom
                 )
             }
+
+            // 设置里选了封面模糊 / 专辑封底 / 自选图片时铺在色场上面。
+            PlayerBackdropImageHost(
+                song: player.isLiveRadio ? nil : player.currentSong,
+                isLight: usesLightPlayerAppearance,
+                strength: strength,
+                usesIncreasedContrast: colorSchemeContrast == .increased,
+                isSurfaceVisible: !isImmersiveStageActive && controlActiveState != .inactive
+                    && scenePhase == .active,
+                allowsLoading: true
+            )
         }
         .animation(.easeInOut(duration: 0.5), value: theme.colorID)
         .ignoresSafeArea()

@@ -5924,6 +5924,8 @@ private struct MacSTThemeView: View {
             }
         }
 
+        MacPlayerBackdropSettingsSection()
+
         MacSTSection(String(localized: "app_icon"),
                      hint: String(localized: "app_icon_dock_hint")) {
             LazyVGrid(
@@ -6390,6 +6392,121 @@ private struct MacFullscreenEffectPreviewCard: View {
         .onHover { hovering = $0 }
         .accessibilityLabel(Text(verbatim: effect.localizedTitle))
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// 「播放页背景」：来源、自选图片（从文件选）与轮播方式。
+private struct MacPlayerBackdropSettingsSection: View {
+    @State private var store = PlayerBackdropSettingsStore.shared
+    @State private var showsImporter = false
+    @State private var isImporting = false
+    @State private var importFailed = false
+
+    var body: some View {
+        let settings = store.settings
+        MacSTSection(String(localized: "player_backdrop_title"),
+                     hint: String(localized: "player_backdrop_footer")) {
+            MacSTGroup {
+                MacSTRow(String(localized: "player_backdrop_title"),
+                         hint: PlayerBackdropSettingsText.hint(settings.source),
+                         divider: false) {
+                    MacSTPicker(
+                        selection: Binding(
+                            get: { store.settings.source },
+                            set: { value in store.update { $0.source = value } }
+                        ),
+                        options: PlayerBackdropSource.allCases.map { ($0, PlayerBackdropSettingsText.title($0)) }
+                    )
+                }
+                .settingsAnchor("appearance.playerBackdrop")
+
+                if settings.source == .customImages {
+                    MacSTRow(String(localized: "player_backdrop_custom_images"),
+                             hint: importFailed
+                                ? String(localized: "player_backdrop_import_failed")
+                                : (store.hasCustomImages ? nil : String(localized: "player_backdrop_no_images")),
+                             block: true) {
+                        PlayerBackdropImageStrip(
+                            ids: store.customImageIDs,
+                            isImporting: isImporting,
+                            onRemove: { id in
+                                withAnimation(PMMotion.list.animation) { store.removeCustomImage(id) }
+                            }
+                        ) {
+                            Button { showsImporter = true } label: { PlayerBackdropAddTile() }
+                                .buttonStyle(.plain)
+                                .help(Text("player_backdrop_add_images"))
+                        }
+                    }
+                    .pmAppearFade(.contentAppear)
+                }
+
+                if settings.source.supportsRotation {
+                    MacSTRow(String(localized: "player_backdrop_rotation")) {
+                        MacSTPicker(
+                            selection: Binding(
+                                get: { store.settings.rotation },
+                                set: { value in store.update { $0.rotation = value } }
+                            ),
+                            options: PlayerBackdropRotation.allCases.map { ($0, PlayerBackdropSettingsText.title($0)) }
+                        )
+                    }
+                    .pmAppearFade(.contentAppear)
+
+                    if settings.rotation == .timed {
+                        MacSTRow(String(localized: "player_backdrop_interval")) {
+                            MacSTPicker(
+                                selection: Binding(
+                                    get: { store.settings.intervalSeconds },
+                                    set: { value in store.update { $0.intervalSeconds = value } }
+                                ),
+                                options: PlayerBackdropSettings.intervalChoices.map {
+                                    ($0, PlayerBackdropSettingsText.interval($0))
+                                }
+                            )
+                        }
+                        .pmAppearFade(.contentAppear)
+                    }
+                }
+            }
+        }
+        .fileImporter(
+            isPresented: $showsImporter,
+            allowedContentTypes: [.image],
+            allowsMultipleSelection: true
+        ) { result in
+            guard case .success(let urls) = result, !urls.isEmpty else { return }
+            importFiles(Array(urls.prefix(PlayerBackdropSettings.maximumCustomImages - store.customImageIDs.count)))
+        }
+        .onAppear { store.pruneMissingCustomImages() }
+    }
+
+    private func importFiles(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        isImporting = true
+        importFailed = false
+        let maxPixel = PlayerBackdropImageImporter.storagePixel
+        Task {
+            var failures = 0
+            for url in urls {
+                let scoped = url.startAccessingSecurityScopedResource()
+                let data = await Task.detached(priority: .userInitiated) {
+                    try? Data(contentsOf: url)
+                }.value
+                if scoped { url.stopAccessingSecurityScopedResource() }
+                guard let data else {
+                    failures += 1
+                    continue
+                }
+                let result = await PlayerBackdropImageImporter.importImages([data], maxPixel: maxPixel)
+                failures += result.failures
+                withAnimation(PMMotion.list.animation) {
+                    store.appendCustomImages(result.ids)
+                }
+            }
+            importFailed = failures > 0
+            isImporting = false
+        }
     }
 }
 
