@@ -107,6 +107,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "home.restoreOrder", titleKey: "home_settings_restore_all", iosPage: .home, macPage: nil),
         SettingDefinition(id: "home.continueSpaces", titleKey: "home_continue_spaces_title", iosPage: .home, macPage: nil),
         SettingDefinition(id: "home.continueListening", titleKey: "home_section_continue_listening", iosPage: .home, macPage: nil),
+        SettingDefinition(id: "home.albumPick", titleKey: "home_section_album_pick", iosPage: .home, macPage: .appearance, keywords: ["今晚听", "推荐专辑", "整张", "album", "tonight", "通勤", "睡前"]),
         SettingDefinition(id: "home.booksInProgress", titleKey: "home_books_in_progress_title", iosPage: .home, macPage: nil, keywords: ["audiobook", "有声书", "有聲書"]),
         SettingDefinition(id: "home.audiobooks", titleKey: "home_section_audiobooks", iosPage: .home, macPage: nil, keywords: ["audiobook", "spoken word", "有声", "书架"]),
         SettingDefinition(id: "home.radioSpotlight", titleKey: "home_spotlight_manage_radio", iosPage: .home, macPage: nil, keywords: ["radio", "电台", "電台"]),

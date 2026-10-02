@@ -7,6 +7,7 @@ extension HomeSectionKind {
     var title: LocalizedStringKey {
         switch self {
         case .continueSpaces: return "home_continue_spaces_title"
+        case .albumPick: return "home_section_album_pick"
         case .continueListening: return "home_section_continue_listening"
         case .radio: return "radio_title"
         case .booksInProgress: return "home_books_in_progress_title"
@@ -27,6 +28,7 @@ enum HomeSectionConfiguration {
     static let orderKey = "primuse.home.sectionOrder.v1"
     static let defaultOrder: [HomeSectionKind] = [
         .continueSpaces,
+        .albumPick,
         .continueListening,
         .radio,
         .booksInProgress,
@@ -72,6 +74,10 @@ enum HomeSectionConfiguration {
             }
             if seen.insert(.audiobooks).inserted {
                 known.insert(.audiobooks, at: (known.firstIndex(of: .booksInProgress) ?? -1) + 1)
+            }
+            // 「情景推荐专辑」紧跟在「接着听」后面,与新装时的默认位置一致。
+            if seen.insert(.albumPick).inserted {
+                known.insert(.albumPick, at: (known.firstIndex(of: .continueSpaces) ?? -1) + 1)
             }
         }
         let missing = defaultOrder.filter { seen.insert($0).inserted }

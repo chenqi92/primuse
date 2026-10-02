@@ -963,6 +963,7 @@ struct HomeView: View {
     @AppStorage("primuse.home.showFolders") private var showFolders = true
     @AppStorage("primuse.home.showListeningRanking") private var showListeningRanking = true
     @AppStorage("primuse.home.showContinueSpaces") private var showContinueSpaces = true
+    @AppStorage(AlbumRecommendationService.homeVisibilityKey) private var showAlbumPick = true
     @AppStorage("primuse.home.showBooksInProgress") private var showBooksInProgress = true
     @AppStorage("primuse.home.showAudiobooks") private var showAudiobooks = true
     @AppStorage(HomeSectionConfiguration.orderKey) private var homeSectionOrderRawValue = ""
@@ -1139,6 +1140,9 @@ struct HomeView: View {
             if showContinueSpaces, showsCrossSpace {
                 HomeContinueSpacesRow(books: books.inProgress, openSpace: openSpace)
             }
+        case .albumPick:
+            // 音乐的区块: 「全部」与筛到音乐时都在。
+            if showAlbumPick { HomeDeferredSection { HomeAlbumPickSection() } }
         case .booksInProgress:
             if showBooksInProgress, showsCrossSpace {
                 // 接着听已经给了最近那本;它开着时这一排从第二本起才值得占位。
@@ -1227,6 +1231,7 @@ struct HomeView: View {
     private func isSectionVisible(_ section: HomeSectionKind) -> Bool {
         switch section {
         case .continueSpaces: showContinueSpaces
+        case .albumPick: showAlbumPick
         case .booksInProgress: showBooksInProgress
         case .audiobooks: showAudiobooks
         case .continueListening: showContinueListening
@@ -1245,6 +1250,7 @@ struct HomeView: View {
     private func setSectionVisible(_ section: HomeSectionKind, _ visible: Bool) {
         switch section {
         case .continueSpaces: showContinueSpaces = visible
+        case .albumPick: showAlbumPick = visible
         case .booksInProgress: showBooksInProgress = visible
         case .audiobooks: showAudiobooks = visible
         case .continueListening: showContinueListening = visible

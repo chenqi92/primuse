@@ -5596,6 +5596,7 @@ private struct MacSTThemeView: View {
     @State private var autoDetectMaterial = true
     @AppStorage("primuse.home.showRadio") private var showRadioOnHome = true
     @AppStorage("primuse.home.showRecentlyAdded") private var showRecentlyAddedOnHome = true
+    @AppStorage(AlbumRecommendationService.homeVisibilityKey) private var showAlbumPickOnHome = true
     @AppStorage(LibrarySongBrowseModePreference.storageKey)
     private var libraryBrowseModeRawValue = LibrarySongBrowseMode.flat.rawValue
     @AppStorage(LibraryDisplayConfiguration.quickAccessLimitKey)
@@ -5948,6 +5949,13 @@ private struct MacSTThemeView: View {
                         .accessibilityHint(Text("radio_home_visibility_description"))
                 }
                 .settingsAnchor("home.radio")
+                MacSTRow(
+                    String(localized: "home_section_album_pick"),
+                    hint: String(localized: "home_section_album_pick_hint")
+                ) {
+                    MacSTToggle(isOn: $showAlbumPickOnHome)
+                }
+                .settingsAnchor("home.albumPick")
                 MacSTRow(HomeDiscoveryText.string("recent_albums")) {
                     MacSTToggle(isOn: $showRecentlyAddedOnHome)
                 }

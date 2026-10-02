@@ -48,8 +48,16 @@ struct TVHomeView: View {
     @MainActor private static var didOpenDebugRadioAdd = false
     #endif
 
+    /// 主视觉放此刻情景推荐的那张专辑(与手机、Mac 首页同源);推荐还没算出来时
+    /// 先放第一张有歌的专辑。
+    private var albumPick: AlbumRecommendation? {
+        guard let pick = AlbumRecommendationService.shared.currentPick,
+              !store.songIDs(forAlbum: pick.albumID).isEmpty else { return nil }
+        return pick
+    }
     private var candidateAlbum: TVAlbum? {
-        store.albums.first(where: { !store.songIDs(forAlbum: $0.id).isEmpty })
+        if let pick = albumPick, let album = store.album(pick.albumID) { return album }
+        return store.albums.first(where: { !store.songIDs(forAlbum: $0.id).isEmpty })
             ?? store.albums.first
     }
     private var candidateAlbumSongIDs: [String] {
@@ -112,6 +120,18 @@ struct TVHomeView: View {
     }
     private var heroHeading: String {
         hero.artist.isEmpty ? hero.title : "\(hero.artist) · \(hero.title)"
+    }
+    /// 推荐理由;只有主视觉是推荐的专辑时才有。
+    private var heroReason: String? {
+        guard heroContent == .album, let pick = albumPick, pick.albumID == candidateAlbum?.id else { return nil }
+        return pick.reason.text
+    }
+    private var heroEyebrow: String {
+        guard heroContent == .album, albumPick != nil,
+              let moment = AlbumRecommendationService.shared.moment else {
+            return PMString("ext.tv.home.tonightsPick")
+        }
+        return moment.title
     }
     private var heroSubtitle: String {
         var parts = [PMString("ext.tv.songsCount", heroSongCount)]
@@ -268,6 +288,9 @@ struct TVHomeView: View {
             }
         }
         #endif
+        .task(id: store.libraryBrowseRevision) {
+            AlbumRecommendationService.shared.refresh(library: store.library)
+        }
         .task(id: recommendationCandidateRefreshKey) {
             guard intelligence.settingsStore.recommendationsEnabled else {
                 recommendationCandidates = []
@@ -465,7 +488,7 @@ struct TVHomeView: View {
     private var heroZone: some View {
         HStack(alignment: .center, spacing: 64) {
             VStack(alignment: .leading, spacing: 0) {
-                TVEyebrow(text: PMString("ext.tv.home.tonightsPick"))
+                TVEyebrow(text: heroEyebrow)
                 Text(heroHeading)
                     .tvFont(.heroTitle)
                     .tracking(-0.8)
@@ -475,9 +498,25 @@ struct TVHomeView: View {
                     .tvFont(.caption).foregroundStyle(TVColor.textMuted)
                     .lineLimit(2).frame(maxWidth: 760, alignment: .leading)
                     .padding(.top, 14)
+                if let heroReason {
+                    Label(heroReason, systemImage: "sparkles")
+                        .tvFont(.caption)
+                        .foregroundStyle(TVColor.text.opacity(0.86))
+                        .lineLimit(2).frame(maxWidth: 760, alignment: .leading)
+                        .padding(.top, 10)
+                }
                 HStack(spacing: 16) {
-                    TVPillButton(title: PMString("ext.tv.home.playAll"), systemImage: "play.fill", style: .solid,
-                                 action: { playHero(shuffle: false) })
+                    if let heroAlbum, albumPick != nil {
+                        // 推荐的专辑:整张按原曲序播放,换一张在这个情景的备选之间轮换。
+                        TVPillButton(title: String(localized: "album_pick_play"), systemImage: "play.fill", style: .solid,
+                                     action: { playHeroAlbum(heroAlbum) })
+                        TVPillButton(title: String(localized: "album_pick_another"), systemImage: "arrow.triangle.2.circlepath",
+                                     action: { AlbumRecommendationService.shared.showAnother() })
+                            .disabled(!AlbumRecommendationService.shared.canShowAnother)
+                    } else {
+                        TVPillButton(title: PMString("ext.tv.home.playAll"), systemImage: "play.fill", style: .solid,
+                                     action: { playHero(shuffle: false) })
+                    }
                     TVPillButton(title: PMString("ext.tv.home.shuffle"), systemImage: "shuffle",
                                  action: { playHero(shuffle: true) })
                     TVMedleyButton(songIDs: store.songIDs, onStarted: openPlayer)
@@ -533,6 +572,11 @@ struct TVHomeView: View {
 
     private func playHero(shuffle: Bool) {
         if store.playAll(shuffle: shuffle) { openPlayer() }
+    }
+
+    /// 整张专辑按碟号、轨号的原曲序播放。
+    private func playHeroAlbum(_ album: TVAlbum) {
+        if store.playResolvedQueue(songIDs: store.songIDs(forAlbum: album.id), shuffled: false) { openPlayer() }
     }
 }
 #endif

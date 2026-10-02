@@ -57,6 +57,7 @@ struct MacHomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("primuse.home.showRadio") private var showRadio = true
     @AppStorage("primuse.home.showRecentlyAdded") private var showRecentlyAdded = true
+    @AppStorage(AlbumRecommendationService.homeVisibilityKey) private var showAlbumPick = true
     @State private var pendingInsecureStation: RadioStation?
 
     // 派生聚合缓存 —— mosaicSongs(全库 sort)、heroStats(全库 reduce)、三个 ratio
@@ -221,8 +222,7 @@ struct MacHomeView: View {
             onResumeMusic: { song in playSong(song) },
             onTuneIn: { station in tuneIn(station) }
         )
-        heroSection
-            .pmAppearFade(.contentAppear)
+        heroOrAlbumPick
         if showRadio,
            player.isLiveRadio,
            let currentStation = player.currentRadioStation {
@@ -421,6 +421,7 @@ struct MacHomeView: View {
     /// Deduplication happens before recommendation inputs traverse the library.
     /// The remaining aggregates run off actor while the cached page stays visible.
     private func refreshDerived(signature: DerivedSignature) {
+        if showAlbumPick { AlbumRecommendationService.shared.refresh(library: library) }
         // 首页的计数、最近播放和封面马赛克都只算音乐: 有声内容按书在自己那一栏,
         // 一部几百集的评书不该把「最近播放」和歌曲总数撑满。
         let songs = library.musicSongs
@@ -599,6 +600,42 @@ struct MacHomeView: View {
     }
 
     // MARK: - Hero
+
+    /// 主卡:有情景推荐专辑时换成推荐(与 iPhone、电视首页同源),否则仍是曲库叙事。
+    @ViewBuilder
+    private var heroOrAlbumPick: some View {
+        let picks = AlbumRecommendationService.shared
+        if showAlbumPick, hasContent,
+           let pick = picks.currentPick,
+           let album = library.visibleAlbum(id: pick.albumID),
+           let moment = picks.moment {
+            MacHomeAlbumPickHero(
+                pick: pick,
+                album: album,
+                moment: moment,
+                canShowAnother: picks.canShowAnother,
+                onPlay: { playAlbumPick(pick.albumID) },
+                onPlayNext: { player.insertNextInQueue(picks.songsInTrackOrder(albumID: pick.albumID, library: library)) },
+                onAddToQueue: { player.appendToQueue(picks.songsInTrackOrder(albumID: pick.albumID, library: library)) },
+                onAnother: { pmWithAnimation(.contentAppear) { picks.showAnother() } },
+                onDismiss: { pmWithAnimation(.contentAppear) { picks.dismiss(albumID: pick.albumID) } },
+                onShuffleLibrary: { playLibrary(shuffled: true) }
+            )
+            .id(pick.albumID)
+            .pmAppearFade(.contentAppear)
+        } else {
+            heroSection
+                .pmAppearFade(.contentAppear)
+        }
+    }
+
+    /// 整张播放:按碟号、轨号的原曲序排队,随机先关掉。
+    private func playAlbumPick(_ albumID: String) {
+        let songs = AlbumRecommendationService.shared.songsInTrackOrder(albumID: albumID, library: library)
+        guard !songs.isEmpty else { return }
+        player.shuffleEnabled = false
+        Task { await player.play(queue: songs, startingAt: 0) }
+    }
 
     private var greeting: String {
         let hour = Calendar.current.component(.hour, from: Date())

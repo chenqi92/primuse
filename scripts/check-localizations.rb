@@ -314,6 +314,14 @@ HAN_LITERAL_ALLOWLIST = {
     /\["轨", "軌", "首", "曲"\]/,
     /"曲目", "音轨", "音軌"/
   ],
+  # Genre words matched against genre tags, and holiday words matched against
+  # album titles, by the listening intents and album picks; never shown.
+  "PrimuseKit/Sources/PrimuseKit/ListeningIntent.swift" => [
+    /\A\s*static let \w+: \[String\] = \[/
+  ],
+  "PrimuseKit/Sources/PrimuseKit/AlbumRecommender.swift" => [
+    /\A\s*static let \w+: \[String\] = \[/
+  ],
   # Version markers matched against song titles and file names to pair a
   # song with its backing track; never shown as UI copy.
   "PrimuseKit/Sources/PrimuseKit/KaraokeCompanionPolicy.swift" => [
