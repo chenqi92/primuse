@@ -379,6 +379,63 @@ import Testing
     #expect(!EmbeddedLyricsCopyPolicy.requiresConfirmation(from: .off, to: .off))
 }
 
+@Test func coverEmbeddingIsOptInAndFollowsEmbeddedTagWriteback() throws {
+    func effective(
+        _ mode: CoverEmbeddingMode,
+        _ sourceType: MusicSourceType,
+        _ format: AudioFormat,
+        cue: Bool = false,
+        stream: Bool = false
+    ) -> CoverEmbeddingMode {
+        EmbeddedCoverPolicy.effectiveMode(
+            mode,
+            sourceType: sourceType,
+            format: format,
+            isCueTrack: cue,
+            isStreamDescriptor: stream
+        )
+    }
+
+    #expect(effective(.embedOnly, .smb, .flac) == .embedOnly)
+    #expect(effective(.alongside, .local, .mp3) == .alongside)
+    #expect(effective(.alongside, .oneDrive, .m4a) == .alongside)
+    // Songs that cannot take an embedded picture keep their cover files.
+    #expect(effective(.embedOnly, .smb, .wav) == .off)
+    #expect(effective(.embedOnly, .jellyfin, .mp3) == .off)
+    #expect(effective(.embedOnly, .navidrome, .flac) == .off)
+    #expect(effective(.embedOnly, .smb, .flac, cue: true) == .off)
+    #expect(effective(.embedOnly, .smb, .flac, stream: true) == .off)
+    #expect(effective(.off, .smb, .flac) == .off)
+
+    let suiteName = "EmbeddedCoverPolicyTests-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    #expect(EmbeddedCoverPolicy.mode(defaults: defaults) == .off)
+    defaults.set("garbage", forKey: EmbeddedCoverPolicy.modeDefaultsKey)
+    #expect(EmbeddedCoverPolicy.mode(defaults: defaults) == .off)
+    EmbeddedCoverPolicy.setMode(.embedOnly, defaults: defaults)
+    #expect(EmbeddedCoverPolicy.mode(defaults: defaults) == .embedOnly)
+    // Separate from the lyrics setting in both directions.
+    #expect(EmbeddedLyricsCopyPolicy.mode(defaults: defaults) == .off)
+    EmbeddedLyricsCopyPolicy.setMode(.alongside, defaults: defaults)
+    #expect(EmbeddedCoverPolicy.mode(defaults: defaults) == .embedOnly)
+    EmbeddedCoverPolicy.setMode(.off, defaults: defaults)
+    #expect(EmbeddedCoverPolicy.mode(defaults: defaults) == .off)
+}
+
+@Test func embedOnlyCoverStillUpdatesAnExistingCoverFile() {
+    #expect(!EmbeddedCoverPolicy.writesCoverFile(.embedOnly, coverFileExists: false))
+    // An existing file is kept current, or its old picture would win on rescan.
+    #expect(EmbeddedCoverPolicy.writesCoverFile(.embedOnly, coverFileExists: true))
+    #expect(EmbeddedCoverPolicy.writesCoverFile(.alongside, coverFileExists: false))
+    #expect(EmbeddedCoverPolicy.writesCoverFile(.off, coverFileExists: false))
+
+    #expect(EmbeddedCoverPolicy.requiresConfirmation(from: .off, to: .alongside))
+    #expect(EmbeddedCoverPolicy.requiresConfirmation(from: .alongside, to: .embedOnly))
+    #expect(!EmbeddedCoverPolicy.requiresConfirmation(from: .embedOnly, to: .off))
+    #expect(!EmbeddedCoverPolicy.requiresConfirmation(from: .alongside, to: .alongside))
+}
+
 @Test func webDAVWritebackPolicyRequiresStrongRevisionAndTagsDestination() {
     #expect(WebDAVWritebackPolicy.strongETag("  \"rev-2\"  ") == "\"rev-2\"")
     #expect(WebDAVWritebackPolicy.strongETag("W/\"rev-2\"") == nil)

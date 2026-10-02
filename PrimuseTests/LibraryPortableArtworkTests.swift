@@ -174,6 +174,26 @@ final class LibraryPortableArtworkTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: store.portableArtworkDirectoryURL.path))
     }
 
+    func testScrapedCoverIsEmbeddedAsABoundedJPEG() throws {
+        // 已经是合适 JPEG 的封面原样嵌入，不再重压一遍。
+        let small = try image(jpeg: true)
+        XCTAssertEqual(SidecarWriteService.embeddableCoverData(small), small)
+
+        let large = try splitJPEG(width: 2400, height: 1600)
+        let embedded = try XCTUnwrap(SidecarWriteService.embeddableCoverData(large))
+        XCTAssertTrue(LibraryArtworkImageProcessor.isReusablePortableJPEG(embedded))
+        let scaled = try decoded(embedded)
+        XCTAssertEqual(scaled.width, 1200)
+        XCTAssertEqual(scaled.height, 800)
+
+        // PNG 也转成 JPEG：各家标签读取器都认 JPEG。
+        let png = try image(width: 64)
+        let fromPNG = try XCTUnwrap(SidecarWriteService.embeddableCoverData(png))
+        XCTAssertEqual(Array(fromPNG.prefix(3)), [0xFF, 0xD8, 0xFF])
+
+        XCTAssertNil(SidecarWriteService.embeddableCoverData(Data("not an image".utf8)))
+    }
+
     func testTranscodedCoverIsReusedAcrossStoresAndInvalidatesOnReplacement() throws {
         let root = try directory()
         defer { try? FileManager.default.removeItem(at: root) }

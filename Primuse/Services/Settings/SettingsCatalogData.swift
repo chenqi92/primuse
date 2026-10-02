@@ -163,6 +163,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "scraping.writeCover", titleKey: "Cover Write-Back", iosPage: nil, macPage: .scraping),
         SettingDefinition(id: "scraping.writeLyrics", titleKey: "Lyrics Write-Back", iosPage: nil, macPage: .scraping),
         SettingDefinition(id: "scraping.embedLyrics", titleKey: "lyrics_embed_copy_title", iosPage: .scraping, macPage: .scraping, keywords: ["lyrics_embed_copy_header", "lyrics_embed_copy_hint", "embed", "USLT", "嵌入", "内嵌"]),
+        SettingDefinition(id: "scraping.embedCover", titleKey: "cover_embed_copy_title", iosPage: .scraping, macPage: .scraping, keywords: ["cover_embed_copy_header", "cover_embed_copy_hint", "embed", "APIC", "artwork", "cover.jpg", "嵌入", "内嵌", "封面"]),
         SettingDefinition(id: "scraping.writeTimeout", titleKey: "Write Timeout", iosPage: nil, macPage: .scraping),
         SettingDefinition(id: "intelligence.relay", titleKey: "ai_primuse_relay_enabled", iosPage: .intelligence, macPage: .intelligence),
         SettingDefinition(id: "intelligence.relayTest", titleKey: "ai_primuse_relay_test_connection", iosPage: .intelligence, macPage: .intelligence),

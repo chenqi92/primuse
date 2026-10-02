@@ -2877,6 +2877,8 @@ private struct MacSTScrapingView: View {
     @AppStorage(MusicScraperService.sidecarWriteTimeoutKey) private var sidecarWriteTimeout = 30.0
     @AppStorage(EmbeddedLyricsCopyPolicy.modeDefaultsKey) private var lyricsEmbeddingModeRaw = ""
     @State private var pendingLyricsEmbeddingMode: LyricsEmbeddingMode?
+    @AppStorage(EmbeddedCoverPolicy.modeDefaultsKey) private var coverEmbeddingModeRaw = ""
+    @State private var pendingCoverEmbeddingMode: CoverEmbeddingMode?
     @State private var showLyricsServersSheet = false
     @State private var libraryTidySongs: BatchSongSelection?
     @Environment(AudioPlayerService.self) private var player
@@ -2942,6 +2944,15 @@ private struct MacSTScrapingView: View {
                     MacSTToggle(isOn: $sidecarCoverWriteEnabled)
                 }
                 .settingsAnchor("scraping.writeCover")
+                MacSTRow(Lz("cover_embed_copy_title"), hint: Lz("cover_embed_copy_hint")) {
+                    MacSTPicker(
+                        selection: coverEmbeddingSelection,
+                        options: CoverEmbeddingMode.allCases.map { ($0, $0.settingsTitle) },
+                        width: 200
+                    )
+                    .disabled(!sidecarCoverWriteEnabled)
+                }
+                .settingsAnchor("scraping.embedCover")
                 MacSTRow(Lz("Lyrics Write-Back"), hint: Lz("<Song Name>.lrc")) {
                     MacSTToggle(isOn: $sidecarLyricsWriteEnabled)
                 }
@@ -2974,6 +2985,19 @@ private struct MacSTScrapingView: View {
         ) { mode in
             Button("cancel", role: .cancel) {}
             Button("enable") { applyLyricsEmbeddingMode(mode) }
+        } message: { mode in
+            Text(verbatim: mode.confirmationMessage)
+        }
+        .alert(
+            "cover_embed_confirm_title",
+            isPresented: Binding(
+                get: { pendingCoverEmbeddingMode != nil },
+                set: { if !$0 { pendingCoverEmbeddingMode = nil } }
+            ),
+            presenting: pendingCoverEmbeddingMode
+        ) { mode in
+            Button("cancel", role: .cancel) {}
+            Button("enable") { applyCoverEmbeddingMode(mode) }
         } message: { mode in
             Text(verbatim: mode.confirmationMessage)
         }
@@ -3029,6 +3053,31 @@ private struct MacSTScrapingView: View {
             showLyricsServersSheet = true
         }
         #endif
+    }
+
+    private var currentCoverEmbeddingMode: CoverEmbeddingMode {
+        CoverEmbeddingMode(rawValue: coverEmbeddingModeRaw) ?? .off
+    }
+
+    /// 和歌词一样：往更深处走之前先确认代价，往回退不用问。
+    private var coverEmbeddingSelection: Binding<CoverEmbeddingMode> {
+        Binding(
+            get: { currentCoverEmbeddingMode },
+            set: { newValue in
+                let current = currentCoverEmbeddingMode
+                guard newValue != current else { return }
+                if EmbeddedCoverPolicy.requiresConfirmation(from: current, to: newValue) {
+                    pendingCoverEmbeddingMode = newValue
+                } else {
+                    applyCoverEmbeddingMode(newValue)
+                }
+            }
+        )
+    }
+
+    private func applyCoverEmbeddingMode(_ mode: CoverEmbeddingMode) {
+        EmbeddedCoverPolicy.setMode(mode)
+        coverEmbeddingModeRaw = mode.rawValue
     }
 
     /// 空字符串表示还没选过：交给策略读，它认得第一版留下的开关。

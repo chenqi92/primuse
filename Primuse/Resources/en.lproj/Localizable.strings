@@ -4188,6 +4188,17 @@
 "lyrics_embed_confirm_title" = "Write Lyrics into Audio Files?";
 "lyrics_embed_confirm_message" = "· Every lyrics save downloads the whole song, rewrites it and uploads it again. Large files and cloud drives get noticeably slower, and it uses more data.\n· The audio file’s modification date and contents change, so sync folders, backup tools and media servers treat it as a new file.\n· Primuse checks that the file has not been changed elsewhere before writing and reads it back afterwards, but rewriting audio files still carries risk. Back up your library first.\n· The embedded copy is line-timed text. Multi-language lyrics already embedded in an MP3 are replaced by it.";
 "lyrics_embed_confirm_message_embed_only" = "· With “Audio File Only”, no lyrics file is created next to the song, and word-by-word timing is kept only in Primuse. A lyrics file already next to the song is still kept up to date.\n· Library-wide scraping neither embeds nor creates lyrics files; scraped lyrics are kept only in Primuse.";
+"cover_embed_copy_header" = "Embedded Artwork";
+"cover_embed_copy_title" = "Save Artwork To";
+"cover_embed_copy_hint" = "MP3, FLAC and M4A · Re-uploads the whole song each time artwork is written";
+"cover_embed_copy_footer" = "Scraped artwork is saved next to the song as “<file name>-cover.jpg” by default. Embedded artwork travels with the audio file, so other players and devices see it too. This works only for MP3, FLAC and M4A on sources whose files Primuse can replace; other songs keep using artwork files. Every write re-uploads the whole song, and library-wide scraping does this for every song it writes artwork to. With “Audio File Only”, no new artwork file is created, and one already next to a song is still kept up to date.";
+"cover_embed_mode_off" = "Artwork File Only";
+"cover_embed_mode_alongside" = "Artwork File and Audio File";
+"cover_embed_mode_embed_only" = "Audio File Only";
+"cover_embed_confirm_title" = "Write Artwork into Audio Files?";
+"cover_embed_confirm_message" = "· Every time scraping writes artwork, the whole song is downloaded, rewritten and uploaded again. Library-wide scraping does this for every song it writes artwork to; large files and cloud drives get noticeably slower, and it uses more data.\n· The audio file’s modification date and contents change, so sync folders, backup tools and media servers treat it as a new file.\n· Primuse checks that the file has not been changed elsewhere before writing and reads it back afterwards, but rewriting audio files still carries risk. Back up your library first.\n· The embedded picture is a JPEG no larger than 1200 pixels on its long side, and it replaces the artwork already in the file.";
+"cover_embed_confirm_message_embed_only" = "· With “Audio File Only”, no “<file name>-cover.jpg” is created next to the song. An artwork file already next to the song is still kept up to date.";
+"scrape_writeback_cover_embedded" = "Artwork embedded in the audio file";
 "tag_editor_lyrics_writeback_embedded" = "Target checked. The lyrics will be embedded in the audio file; no lyrics file will be created.";
 "tag_editor_lyrics_writeback_also_embedded" = "They will also be embedded in the audio file.";
 "search_layout_title" = "Arrange Search Results";

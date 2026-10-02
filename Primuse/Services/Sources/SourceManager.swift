@@ -13354,10 +13354,48 @@ final class SourceManager {
         )
     }
 
+    /// Where scraped artwork goes for this song: the user's choice, narrowed
+    /// to `.off` unless the source and format take part in the guarded
+    /// whole-file replacement.
+    func coverEmbeddingMode(for song: Song) async -> CoverEmbeddingMode {
+        let mode = EmbeddedCoverPolicy.mode()
+        guard mode != .off,
+              let sources = try? await sourcesProvider(),
+              let source = sources.first(where: { $0.id == song.sourceID }) else {
+            return .off
+        }
+        return EmbeddedCoverPolicy.effectiveMode(
+            mode,
+            sourceType: source.type,
+            format: song.fileFormat,
+            isCueTrack: song.isCueTrack,
+            isStreamDescriptor: song.isStreamDescriptor
+        )
+    }
+
     /// Stores or removes the lyrics inside the audio file and leaves every
     /// other tag alone. Returns the song with the replaced file's identity so
     /// the next scan and the next edit still recognise it.
     func writeEmbeddedLyrics(_ lyrics: EmbeddedLyricsEdit, for song: Song) async throws -> Song {
+        let updated = try await replaceEmbeddedAssets(of: song, coverData: nil, lyrics: lyrics)
+        plog("Embedded lyrics writeback completed for songID=\(song.id) edit=\(lyrics.logName)")
+        return updated
+    }
+
+    /// Stores this picture as the audio file's front cover and leaves every
+    /// other tag, the lyrics included, alone. Returns the song with the
+    /// replaced file's identity, like `writeEmbeddedLyrics`.
+    func writeEmbeddedCover(_ coverData: Data, for song: Song) async throws -> Song {
+        let updated = try await replaceEmbeddedAssets(of: song, coverData: coverData, lyrics: .keep)
+        plog("Embedded cover writeback completed for songID=\(song.id) bytes=\(coverData.count)")
+        return updated
+    }
+
+    private func replaceEmbeddedAssets(
+        of song: Song,
+        coverData: Data?,
+        lyrics: EmbeddedLyricsEdit
+    ) async throws -> Song {
         let connector = try await connectorForSong(song)
         // The file may already have reached the replace stage when a later
         // step fails, so cached bytes are dropped in either outcome.
@@ -13366,7 +13404,7 @@ final class SourceManager {
             let result = try await connector.writeEmbeddedMetadata(
                 original: song,
                 updated: song,
-                coverData: nil,
+                coverData: coverData,
                 lyrics: lyrics,
                 writesTextTags: false
             )
@@ -13379,7 +13417,6 @@ final class SourceManager {
                 deleteAudioCache(for: song)
                 try await metadataFileReplacementHandler?(song, updated)
             }
-            plog("Embedded lyrics writeback completed for songID=\(song.id) edit=\(lyrics.logName)")
             return updated
         } catch let error as EmbeddedMetadataReplacementReadbackError {
             var relocated = song

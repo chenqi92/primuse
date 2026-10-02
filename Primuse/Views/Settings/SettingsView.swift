@@ -1186,6 +1186,8 @@ struct MetadataScrapingView: View {
     @State private var isReordering = false
     @AppStorage(EmbeddedLyricsCopyPolicy.modeDefaultsKey) private var lyricsEmbeddingModeRaw = ""
     @State private var pendingLyricsEmbeddingMode: LyricsEmbeddingMode?
+    @AppStorage(EmbeddedCoverPolicy.modeDefaultsKey) private var coverEmbeddingModeRaw = ""
+    @State private var pendingCoverEmbeddingMode: CoverEmbeddingMode?
     @State private var showLyricsServers = false
     @State private var lyricsServerStore = LyricsAPIServerStore.shared
     @State private var libraryTidySongs: BatchSongSelection?
@@ -1361,6 +1363,19 @@ struct MetadataScrapingView: View {
             }
 
             Section {
+                Picker("cover_embed_copy_title", selection: coverEmbeddingSelection) {
+                    ForEach(CoverEmbeddingMode.allCases, id: \.self) { mode in
+                        Text(mode.settingsTitle).tag(mode)
+                    }
+                }
+                .settingsAnchor("scraping.embedCover")
+            } header: {
+                Text("cover_embed_copy_header")
+            } footer: {
+                Text("cover_embed_copy_footer")
+            }
+
+            Section {
                 if scraperService.isScraping {
                     VStack(alignment: .leading, spacing: 10) {
                         ProgressView(value: scraperService.progress)
@@ -1477,6 +1492,44 @@ struct MetadataScrapingView: View {
         } message: { mode in
             Text(verbatim: mode.confirmationMessage)
         }
+        .alert(
+            "cover_embed_confirm_title",
+            isPresented: Binding(
+                get: { pendingCoverEmbeddingMode != nil },
+                set: { if !$0 { pendingCoverEmbeddingMode = nil } }
+            ),
+            presenting: pendingCoverEmbeddingMode
+        ) { mode in
+            Button("cancel", role: .cancel) {}
+            Button("enable") { applyCoverEmbeddingMode(mode) }
+        } message: { mode in
+            Text(verbatim: mode.confirmationMessage)
+        }
+    }
+
+    private var currentCoverEmbeddingMode: CoverEmbeddingMode {
+        CoverEmbeddingMode(rawValue: coverEmbeddingModeRaw) ?? .off
+    }
+
+    /// 和歌词一样：往更深处走之前先确认代价，往回退不用问。
+    private var coverEmbeddingSelection: Binding<CoverEmbeddingMode> {
+        Binding(
+            get: { currentCoverEmbeddingMode },
+            set: { newValue in
+                let current = currentCoverEmbeddingMode
+                guard newValue != current else { return }
+                if EmbeddedCoverPolicy.requiresConfirmation(from: current, to: newValue) {
+                    pendingCoverEmbeddingMode = newValue
+                } else {
+                    applyCoverEmbeddingMode(newValue)
+                }
+            }
+        )
+    }
+
+    private func applyCoverEmbeddingMode(_ mode: CoverEmbeddingMode) {
+        EmbeddedCoverPolicy.setMode(mode)
+        coverEmbeddingModeRaw = mode.rawValue
     }
 
     /// 空字符串表示还没选过：交给策略读，它认得第一版留下的开关。

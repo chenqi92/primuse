@@ -6,6 +6,23 @@ import UIKit
 import AppKit
 #endif
 
+extension CoverEmbeddingMode {
+    var settingsTitle: String {
+        switch self {
+        case .off: return String(localized: "cover_embed_mode_off")
+        case .alongside: return String(localized: "cover_embed_mode_alongside")
+        case .embedOnly: return String(localized: "cover_embed_mode_embed_only")
+        }
+    }
+
+    /// 选到这一档之前要让用户看到的代价。
+    var confirmationMessage: String {
+        let common = String(localized: "cover_embed_confirm_message")
+        guard self == .embedOnly else { return common }
+        return common + "\n" + String(localized: "cover_embed_confirm_message_embed_only")
+    }
+}
+
 /// Writes sidecar files (cover art, lyrics) alongside source audio files on NAS/remote storage.
 /// - Cover: `<basename>-cover.jpg` next to the audio file
 /// - Lyrics: `<basename>.lrc` by default; an existing `.ttml` remains TTML.
@@ -89,6 +106,7 @@ actor SidecarWriteService {
     ///   - lyricsLines: Parsed lyric lines, serialized in the target's format (optional)
     ///   - createsLyricsFile: false in embed-only mode. A lyrics document that
     ///     already sits beside the song is still updated; none is created.
+    ///   - createsCoverFile: the same for the cover file.
     func writeSidecars(
         for song: Song,
         using connector: any MusicSourceConnector,
@@ -96,7 +114,8 @@ actor SidecarWriteService {
         lyricsLines: [LyricLine]?,
         lyricsContent: String? = nil,
         expectedLyricsTarget: LyricsPreflightResult? = nil,
-        createsLyricsFile: Bool = true
+        createsLyricsFile: Bool = true,
+        createsCoverFile: Bool = true
     ) async -> WriteResult {
         var result = WriteResult()
         guard connector.supportsSidecarWriting else {
@@ -108,10 +127,17 @@ actor SidecarWriteService {
         let baseNameNoExt = (songBaseName as NSString).deletingPathExtension
 
         // 1. Write <basename>-cover.jpg next to audio file
-        if let coverData, !coverData.isEmpty {
+        let coverFileName = "\(baseNameNoExt)-cover.jpg"
+        var writesCover = coverData?.isEmpty == false
+        if writesCover, !createsCoverFile {
+            writesCover = await coverFileExists(named: coverFileName, beside: song, using: connector)
+            if !writesCover {
+                plog("📁 Sidecar: embed-only mode, no cover file created beside \(songBaseName)")
+            }
+        }
+        if writesCover, let coverData {
             let jpegData: Data = recompressJPEG(coverData) ?? coverData
 
-            let coverFileName = "\(baseNameNoExt)-cover.jpg"
             let coverPath = (songDir as NSString).appendingPathComponent(coverFileName)
             do {
                 result.touchedRemotePaths.append(coverPath)
@@ -200,6 +226,31 @@ actor SidecarWriteService {
         }
 
         return result
+    }
+
+    /// Whether the cover file a save would write is already there. Only
+    /// path-addressed songs can be checked by name; a song stored under an
+    /// opaque provider ID gets no new file in embed-only mode, and a listing
+    /// that fails counts as "not there" — the embedded picture is the save.
+    private func coverFileExists(
+        named fileName: String,
+        beside song: Song,
+        using connector: any MusicSourceConnector
+    ) async -> Bool {
+        guard MusicScraperService.sidecarReferencePath(for: song, suffix: "-cover.jpg") != nil else {
+            return false
+        }
+        let directory = (song.filePath as NSString).deletingLastPathComponent
+        do {
+            let items = try await connector.listFiles(at: directory.isEmpty ? "/" : directory)
+            return items.contains { item in
+                !item.isDirectory
+                    && item.name.compare(fileName, options: .caseInsensitive) == .orderedSame
+            }
+        } catch {
+            plog("⚠️ Sidecar: could not list \(directory) to look for \(fileName): \(error)")
+            return false
+        }
     }
 
     func removeLyrics(
@@ -318,6 +369,17 @@ actor SidecarWriteService {
             return true
         }
         return false
+    }
+
+    /// The picture that goes into an audio file: a bounded JPEG — the one
+    /// format every tag reader takes — made the same way as the covers the
+    /// library syncs (long side up to 1200 pixels, orientation applied, the
+    /// inconsistent-EXIF trap of #104 avoided). A cover that already is such a
+    /// JPEG goes in unchanged. Nil when the blob cannot be decoded.
+    nonisolated static func embeddableCoverData(_ data: Data) -> Data? {
+        LibraryArtworkImageProcessor.isReusablePortableJPEG(data)
+            ? data
+            : LibraryArtworkImageProcessor.process(data)
     }
 
     /// Re-encodes an arbitrary image blob (PNG, HEIC, JPEG…) as JPEG at

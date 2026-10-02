@@ -408,6 +408,84 @@ public enum EmbeddedLyricsCopyPolicy {
     }
 }
 
+/// Where scraped artwork goes for songs whose audio file can take it.
+///
+/// The cover file (`<file name>-cover.jpg`) is the cheap copy: one small
+/// upload, and the media object is never touched. The embedded picture
+/// travels with the song to every player and device, at the price of
+/// downloading, rewriting and re-uploading the whole song — for library-wide
+/// scraping, every song it finds a cover for. So it is opt-in.
+public enum CoverEmbeddingMode: String, CaseIterable, Sendable {
+    /// Cover file only. The default, and the only behaviour before embedding.
+    case off
+    /// Cover file, plus the picture inside the audio file.
+    case alongside
+    /// Inside the audio file only: no new cover file is created. A cover file
+    /// already beside the song is still updated, otherwise its old picture
+    /// would take over again the next time the folder is scanned.
+    case embedOnly
+
+    /// Order of how far a mode reaches into the user's files. Moving up needs
+    /// the user to confirm what that costs; moving down never does.
+    var invasiveness: Int {
+        switch self {
+        case .off: return 0
+        case .alongside: return 1
+        case .embedOnly: return 2
+        }
+    }
+}
+
+public enum EmbeddedCoverPolicy {
+    public static let modeDefaultsKey = "primuse.cover.embedMode"
+
+    public static func mode(defaults: UserDefaults = .standard) -> CoverEmbeddingMode {
+        defaults.string(forKey: modeDefaultsKey).flatMap(CoverEmbeddingMode.init(rawValue:)) ?? .off
+    }
+
+    public static func setMode(_ mode: CoverEmbeddingMode, defaults: UserDefaults = .standard) {
+        defaults.set(mode.rawValue, forKey: modeDefaultsKey)
+    }
+
+    public static func requiresConfirmation(
+        from current: CoverEmbeddingMode,
+        to requested: CoverEmbeddingMode
+    ) -> Bool {
+        requested.invasiveness > current.invasiveness
+    }
+
+    /// The mode that applies to one song: `.off` whenever its file cannot be
+    /// embedded into. Eligibility is the same as for lyrics, because both go
+    /// through the identical guarded replacement of the media object.
+    public static func effectiveMode(
+        _ mode: CoverEmbeddingMode,
+        sourceType: MusicSourceType,
+        format: AudioFormat,
+        isCueTrack: Bool,
+        isStreamDescriptor: Bool
+    ) -> CoverEmbeddingMode {
+        guard mode != .off,
+              EmbeddedLyricsCopyPolicy.canEmbed(
+                  sourceType: sourceType,
+                  format: format,
+                  isCueTrack: isCueTrack,
+                  isStreamDescriptor: isStreamDescriptor
+              ) else {
+            return .off
+        }
+        return mode
+    }
+
+    /// Whether a save writes the cover file. Only embed-only mode leaves it
+    /// out, and only while no cover file sits beside the song yet.
+    public static func writesCoverFile(
+        _ effectiveMode: CoverEmbeddingMode,
+        coverFileExists: Bool
+    ) -> Bool {
+        effectiveMode != .embedOnly || coverFileExists
+    }
+}
+
 /// Request preconditions shared by WebDAV media and sidecar replacements.
 /// Primuse only treats a quoted, non-weak ETag as a concurrency token.
 public enum WebDAVWritebackPolicy {

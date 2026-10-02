@@ -173,6 +173,7 @@ struct ScrapeOptionsView: View {
     @State private var macSidecarBaseNameOverride: String?
     @State private var macUsesMediaServerWriteback = false
     @State private var macSupportsSidecarWriteback = false
+    @State private var macCoverEmbeddingMode: CoverEmbeddingMode = .off
     /// 当前在左栏选中的候选 id, 用于高亮 + 取中栏封面对比的来源名。
     @State private var selectedItemID: String?
     #endif
@@ -791,8 +792,16 @@ struct ScrapeOptionsView: View {
                         .padding(.top, 4)
                 } else if macSupportsSidecarWriteback {
                     macSectionTitle(String(localized: "scrape_writeback_sidecar"))
-                    macSidecarRow(suffix: "-cover.jpg",
-                                  enabled: applyCover && (previewResult?.hasCover ?? false))
+                    if macCoverEmbeddingMode != .embedOnly {
+                        macSidecarRow(suffix: "-cover.jpg",
+                                      enabled: applyCover && (previewResult?.hasCover ?? false))
+                    }
+                    if macCoverEmbeddingMode != .off {
+                        macServerWritebackRow(
+                            title: String(localized: "scrape_writeback_cover_embedded"),
+                            enabled: applyCover && (previewResult?.hasCover ?? false)
+                        )
+                    }
                     macSidecarRow(suffix: ".lrc",
                                   enabled: applyLyrics && (previewResult?.hasLyrics ?? false))
                     Text("scrape_writeback_sidecar_hint")
@@ -958,11 +967,13 @@ struct ScrapeOptionsView: View {
         let sidecarBaseName = await scraperService.suggestedSidecarBaseName(for: song)
         let usesMediaServerWriteback = await sourceManager.supportsMediaServerWriteback(for: song)
         let supportsSidecarWriteback = await sourceManager.supportsSidecarWriting(for: song)
+        let coverEmbeddingMode = await sourceManager.coverEmbeddingMode(for: song)
         guard !Task.isCancelled else { return }
         macDisplayTitle = title
         macSidecarBaseNameOverride = sidecarBaseName
         macUsesMediaServerWriteback = usesMediaServerWriteback
         macSupportsSidecarWriteback = supportsSidecarWriteback
+        macCoverEmbeddingMode = coverEmbeddingMode
         let identity = ScraperManager.searchTitleArtist(title, artist: song.artistName)
         manualMatchTitle = identity.title
         manualMatchArtist = identity.artist
@@ -1470,11 +1481,13 @@ struct ScrapeOptionsView: View {
         let sidecarBaseName = await scraperService.suggestedSidecarBaseName(for: song)
         let usesMediaServerWriteback = await sourceManager.supportsMediaServerWriteback(for: song)
         let supportsSidecarWriteback = await sourceManager.supportsSidecarWriting(for: song)
+        let coverEmbeddingMode = await sourceManager.coverEmbeddingMode(for: song)
         guard !Task.isCancelled else { return }
         macDisplayTitle = title
         macSidecarBaseNameOverride = sidecarBaseName
         macUsesMediaServerWriteback = usesMediaServerWriteback
         macSupportsSidecarWriteback = supportsSidecarWriteback
+        macCoverEmbeddingMode = coverEmbeddingMode
         #endif
         let identity = ScraperManager.searchTitleArtist(title, artist: song.artistName)
         manualMatchTitle = identity.title
@@ -1886,15 +1899,29 @@ struct ScrapeOptionsView: View {
                 && needsCover {
                 let titleSnapshot = appliedFinal.title
                 let finalSnapshot = appliedFinal
+                let coverEmbeddingMode = await sm.coverEmbeddingMode(for: appliedFinal)
                 Task.detached(priority: .utility) {
+                    // 选了嵌入时先整首替换（不套 30 秒超时），再写或只更新已有的封面文件；
+                    // 有的网盘替换后文件换了 ID，封面文件要跟着新文件走。
+                    var embeddedSnapshot: Song?
+                    if coverEmbeddingMode != .off, let data = coverData {
+                        embeddedSnapshot = await MusicScraperService.embedScrapedCover(
+                            data,
+                            for: finalSnapshot,
+                            sourceManager: sm,
+                            library: lib
+                        ).updatedSong
+                    }
+                    let sidecarSnapshot = embeddedSnapshot ?? finalSnapshot
                     plog("📝 Sidecar: writing back to source for '\(titleSnapshot)'")
                     do {
                         try await Self.writeSidecarWithTimeout(
                             seconds: 30,
                             sourceManager: sm,
-                            song: finalSnapshot,
+                            song: sidecarSnapshot,
                             coverData: needsCover ? coverData : nil,
-                            lyricsLines: nil
+                            lyricsLines: nil,
+                            createsCoverFile: coverEmbeddingMode != .embedOnly
                         ) { writeResult in
                             plog("📝 Sidecar: result cover=\(writeResult.coverWritten) lyrics=\(writeResult.lyricsWritten)")
 
@@ -1908,8 +1935,8 @@ struct ScrapeOptionsView: View {
                                 }
                     await MainActor.run {
                         CachedArtworkView.invalidateCache(for: songID)
-                        if let coverPath = MusicScraperService.sidecarReferencePath(for: finalSnapshot, suffix: "-cover.jpg") {
-                            lib.updateAssetReferences(songID: finalSnapshot.id, coverRef: coverPath)
+                        if let coverPath = MusicScraperService.sidecarReferencePath(for: sidecarSnapshot, suffix: "-cover.jpg") {
+                            lib.updateAssetReferences(songID: sidecarSnapshot.id, coverRef: coverPath)
                         }
                     }
                 }
@@ -1940,6 +1967,7 @@ struct ScrapeOptionsView: View {
         song: Song,
         coverData: Data?,
         lyricsLines: [LyricLine]?,
+        createsCoverFile: Bool = true,
         applyResult: @escaping @Sendable (SidecarWriteService.WriteResult) async -> Void
     ) async throws {
         try await withThrowingTaskGroup(of: Void.self) { group in
@@ -1952,7 +1980,8 @@ struct ScrapeOptionsView: View {
                     for: song,
                     using: connector,
                     coverData: coverData,
-                    lyricsLines: lyricsLines
+                    lyricsLines: lyricsLines,
+                    createsCoverFile: createsCoverFile
                 )
                 await sourceManager.invalidateReadCachesAfterSidecarWrite(
                     for: song,

@@ -550,6 +550,10 @@ final class MusicScraperService {
                     let createsLyricsFile = await sourceManager.lyricsEmbeddingMode(
                         for: updatedSong
                     ) != .embedOnly
+                    // 封面另按「封面保存到」：嵌入时先整首替换，再写（或只更新已有的）封面文件。
+                    let coverEmbeddingMode = sidecarCoverData == nil
+                        ? CoverEmbeddingMode.off
+                        : await sourceManager.coverEmbeddingMode(for: updatedSong)
                     let songForWrite = updatedSong
                     let sourceManager = self.sourceManager
                     let songID = updatedSong.id
@@ -558,13 +562,35 @@ final class MusicScraperService {
                         guard await sidecarCircuitBreaker.acquire(sourceID: songForWrite.sourceID) else {
                             return
                         }
+                        var songForSidecar = songForWrite
+                        if coverEmbeddingMode != .off, let sidecarCoverData {
+                            let embedded = await MusicScraperService.embedScrapedCover(
+                                sidecarCoverData,
+                                for: songForWrite,
+                                sourceManager: sourceManager,
+                                library: library
+                            )
+                            if embedded.sourceUnavailable {
+                                _ = await sidecarCircuitBreaker.release(
+                                    sourceID: songForWrite.sourceID,
+                                    sourceUnavailable: true
+                                )
+                                plog("⚠️ Sidecar: source \(songForWrite.sourceID) is read-only or unavailable; later writes are skipped")
+                                return
+                            }
+                            // 有的网盘替换后文件换了 ID，之后的旁路文件要跟着新文件走。
+                            if let written = embedded.updatedSong {
+                                songForSidecar = written
+                            }
+                        }
                         do {
                             let writeResult = try await MusicScraperService.writeSidecarWithTimeout(
                                 seconds: sidecarSettings.timeout,
                                 sourceManager: sourceManager,
-                                for: songForWrite,
+                                for: songForSidecar,
                                 coverData: sidecarCoverData, lyricsLines: sidecarLyricsLines,
-                                createsLyricsFile: createsLyricsFile
+                                createsLyricsFile: createsLyricsFile,
+                                createsCoverFile: coverEmbeddingMode != .embedOnly
                             )
                             let didOpenCircuit = await sidecarCircuitBreaker.release(
                                 sourceID: songForWrite.sourceID,
@@ -576,10 +602,10 @@ final class MusicScraperService {
                             plog("📝 Sidecar: result cover=\(writeResult.coverWritten) lyrics=\(writeResult.lyricsWritten) errors=\(writeResult.errors)")
 
                             var needsUpdate = false
-                            var refSong = songForWrite
+                            var refSong = songForSidecar
 
                             if writeResult.coverWritten {
-                                if let coverPath = Self.sidecarReferencePath(for: songForWrite, suffix: "-cover.jpg") {
+                                if let coverPath = Self.sidecarReferencePath(for: songForSidecar, suffix: "-cover.jpg") {
                                     refSong.coverArtFileName = coverPath
                                     needsUpdate = true
                                 }
@@ -1238,6 +1264,10 @@ final class MusicScraperService {
                                 let createsLyricsFile = await sourceManager.lyricsEmbeddingMode(
                                     for: songForWrite
                                 ) != .embedOnly
+                                // 封面按「封面保存到」：整库刮削同样逐首嵌入（确认框里写明了代价）。
+                                let coverEmbeddingMode = sidecarCoverData == nil
+                                    ? CoverEmbeddingMode.off
+                                    : await sourceManager.coverEmbeddingMode(for: songForWrite)
                                 // Start sidecar work only after the matching
                                 // library batch is visible. Otherwise a fast
                                 // local sidecar write could publish its path and
@@ -1246,13 +1276,36 @@ final class MusicScraperService {
                                     guard await sidecarCircuitBreaker.acquire(sourceID: songForWrite.sourceID) else {
                                         return
                                     }
+                                    var songForSidecar = songForWrite
+                                    if coverEmbeddingMode != .off, let sidecarCoverData, !Task.isCancelled {
+                                        let embedded = await MusicScraperService.embedScrapedCover(
+                                            sidecarCoverData,
+                                            for: songForWrite,
+                                            sourceManager: sourceManager,
+                                            library: library
+                                        )
+                                        if embedded.sourceUnavailable {
+                                            let didOpenCircuit = await sidecarCircuitBreaker.release(
+                                                sourceID: songForWrite.sourceID,
+                                                sourceUnavailable: true
+                                            )
+                                            if didOpenCircuit {
+                                                plog("⚠️ Batch sidecar: source \(songForWrite.sourceID) is read-only or unavailable; remaining writes skipped for this run")
+                                            }
+                                            return
+                                        }
+                                        if let written = embedded.updatedSong {
+                                            songForSidecar = written
+                                        }
+                                    }
                                     do {
                                         let writeResult = try await MusicScraperService.writeSidecarWithTimeout(
                                             seconds: sidecarSettings.timeout,
                                             sourceManager: sourceManager,
-                                            for: songForWrite,
+                                            for: songForSidecar,
                                             coverData: sidecarCoverData, lyricsLines: sidecarLyricsLines,
-                                            createsLyricsFile: createsLyricsFile
+                                            createsLyricsFile: createsLyricsFile,
+                                            createsCoverFile: coverEmbeddingMode != .embedOnly
                                         )
                                         let didOpenCircuit = await sidecarCircuitBreaker.release(
                                             sourceID: songForWrite.sourceID,
@@ -1264,10 +1317,10 @@ final class MusicScraperService {
                                         }
 
                                         var needsUpdate = false
-                                        var refSong = songForWrite
+                                        var refSong = songForSidecar
 
                                         if writeResult.coverWritten {
-                                            if let coverPath = Self.sidecarReferencePath(for: songForWrite, suffix: "-cover.jpg") {
+                                            if let coverPath = Self.sidecarReferencePath(for: songForSidecar, suffix: "-cover.jpg") {
                                                 refSong.coverArtFileName = coverPath
                                                 needsUpdate = true
                                             }
@@ -2257,7 +2310,8 @@ final class MusicScraperService {
         lyricsLines: [LyricLine]?,
         lyricsContent: String? = nil,
         expectedLyricsTarget: SidecarWriteService.LyricsPreflightResult? = nil,
-        createsLyricsFile: Bool = true
+        createsLyricsFile: Bool = true,
+        createsCoverFile: Bool = true
     ) async throws -> SidecarWriteService.WriteResult {
         try await withThrowingTaskGroup(of: SidecarWriteService.WriteResult.self) { group in
             defer { group.cancelAll() }
@@ -2271,7 +2325,8 @@ final class MusicScraperService {
                     lyricsLines: lyricsLines,
                     lyricsContent: lyricsContent,
                     expectedLyricsTarget: expectedLyricsTarget,
-                    createsLyricsFile: createsLyricsFile
+                    createsLyricsFile: createsLyricsFile,
+                    createsCoverFile: createsCoverFile
                 )
                 await sourceManager.invalidateReadCachesAfterSidecarWrite(
                     for: song,
@@ -2293,6 +2348,58 @@ final class MusicScraperService {
                 throw CancellationError()
             }
             return result
+        }
+    }
+
+    struct EmbeddedCoverOutcome: Sendable {
+        /// The song with the replaced file's identity; nil when nothing was written.
+        var updatedSong: Song?
+        var sourceUnavailable = false
+    }
+
+    /// 把刮到的封面写进音频文件。要整首下载、改写、替换、回读，所以不套旁路文件的写入超时
+    /// （半途取消可能停在替换阶段），也放进独立任务、不随刮削取消而中断：开始了的这一首总会做完。
+    /// 成功后把替换后的文件身份记回资料库，否则下次扫描会把它当成被别处改过的文件，
+    /// 下一次写入也会因为身份对不上而被拒绝。
+    nonisolated static func embedScrapedCover(
+        _ coverData: Data,
+        for song: Song,
+        sourceManager: SourceManager,
+        library: MusicLibrary
+    ) async -> EmbeddedCoverOutcome {
+        guard let embeddable = SidecarWriteService.embeddableCoverData(coverData) else {
+            plog("⚠️ Embedded cover: scraped artwork for '\(song.title)' is not a decodable image")
+            return EmbeddedCoverOutcome()
+        }
+        // 冲突判断按库里记的文件身份做，刮削手里的快照可能已经旧了（比如刚嵌入过歌词）。
+        let target = await MainActor.run { () -> Song in
+            var target = song
+            if let latest = library.song(id: song.id) {
+                target.filePath = latest.filePath
+                target.fileSize = latest.fileSize
+                target.lastModified = latest.lastModified
+                target.revision = latest.revision
+            }
+            return target
+        }
+        let write = Task.detached(priority: .utility) {
+            try await sourceManager.writeEmbeddedCover(embeddable, for: target)
+        }
+        do {
+            let written = try await write.value
+            await MainActor.run {
+                library.flushPendingAssetReferencePatches()
+                guard var latest = library.song(id: song.id) else { return }
+                latest.filePath = written.filePath
+                latest.fileSize = written.fileSize
+                latest.lastModified = written.lastModified
+                latest.revision = written.revision
+                library.replaceSong(latest)
+            }
+            return EmbeddedCoverOutcome(updatedSong: written)
+        } catch {
+            plog("⚠️ Embedded cover writeback failed for '\(song.title)': \(error.localizedDescription)")
+            return EmbeddedCoverOutcome(sourceUnavailable: isSourceUnavailableSidecarError(error))
         }
     }
 
