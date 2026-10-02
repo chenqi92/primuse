@@ -3583,6 +3583,8 @@
 "player_backdrop_rotation_timed" = "Presentación";
 "player_backdrop_interval" = "Intervalo de la presentación";
 "player_backdrop_footer" = "Solo se aplica al reproductor. Si hay un efecto de pantalla completa activo, el efecto tiene prioridad. Los álbumes sin contraportada conservan los colores de la portada.";
+"player_backdrop_tv_images_count" = "Imágenes traídas del iPhone o Mac al escanear el código: %lld.";
+"player_backdrop_tv_images_empty" = "Aún no hay imágenes en este Apple TV. Elige Mis imágenes en el iPhone o Mac y transfiere escaneando el código; las imágenes vienen incluidas. Mientras tanto se muestran los colores de la portada.";
 "theme_color_hue" = "Tono";
 "theme_color_indigo" = "Índigo";
 "theme_color_mode" = "Fuente de color";

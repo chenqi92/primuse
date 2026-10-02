@@ -3583,6 +3583,8 @@
 "player_backdrop_rotation_timed" = "स्लाइडशो";
 "player_backdrop_interval" = "स्लाइडशो अंतराल";
 "player_backdrop_footer" = "सिर्फ़ प्लेयर पर लागू होता है। फ़ुलस्क्रीन इफ़ेक्ट चालू हो तो इफ़ेक्ट को प्राथमिकता मिलती है। बिना पिछले कवर वाले एल्बम कवर के रंग ही दिखाते हैं।";
+"player_backdrop_tv_images_count" = "कोड स्कैन करके iPhone या Mac से लाई गई तस्वीरें: %lld।";
+"player_backdrop_tv_images_empty" = "इस Apple TV पर अभी कोई तस्वीर नहीं है। iPhone या Mac पर मेरी तस्वीरें चुनें और कोड स्कैन करके भेजें, तस्वीरें साथ आ जाएँगी। तब तक कवर के रंग दिखाए जाते हैं।";
 "theme_color_hue" = "रंग";
 "theme_color_indigo" = "इंडिगो";
 "theme_color_mode" = "रंग स्रोत";

@@ -1080,6 +1080,8 @@
 "player_backdrop_rotation_timed" = "Слайд-шоу";
 "player_backdrop_interval" = "Інтервал слайд-шоу";
 "player_backdrop_footer" = "Діє лише в плеєрі. Якщо ввімкнено повноекранний ефект, пріоритет має ефект. Для альбомів без задньої обкладинки лишаються кольори обкладинки.";
+"player_backdrop_tv_images_count" = "Зображень, перенесених з iPhone або Mac за кодом: %lld.";
+"player_backdrop_tv_images_empty" = "На цьому Apple TV ще немає зображень. Виберіть «Мої зображення» на iPhone або Mac і передайте їх, відсканувавши код. До того показуються кольори обкладинки.";
 "source_cache_all_short" = "Кеш";
 "yearly_time_late_night" = "Пізня ніч";
 "server_share_created" = "Публічне посилання";

@@ -52,6 +52,10 @@ enum LANSettingsExporter {
             secrets[account] = apiKey
         }
 
+        if bundle.values[LANSettingsTransferPolicy.playerBackdropKey] != nil {
+            bundle.backdropImages = await backdropImages(defaults: defaults)
+        }
+
         // 已删除的配置也带上(它自己带着删除标记):电视上从前直传过去的那份跟着删掉,
         // 否则电视载入刮削设置时会给它补回一行。
         let configStore = ScraperConfigStore.shared
@@ -67,6 +71,31 @@ enum LANSettingsExporter {
 
         bundle.secrets = secrets
         return LANSettingsTransferPolicy.sanitized(bundle)
+    }
+
+    /// 播放页背景的「我的图片」:缩成电视画面尺寸重新编码,放得下几张带几张。
+    private static func backdropImages(defaults: UserDefaults) async -> [LANBackdropImageEntry] {
+        let ids = PlayerBackdropSettings.sanitizedCustomImageIDs(
+            defaults.stringArray(forKey: PlayerBackdropSettings.customImagesStorageKey) ?? []
+        )
+        guard !ids.isEmpty else { return [] }
+        return await Task.detached(priority: .utility) {
+            var entries: [LANBackdropImageEntry] = []
+            var totalBytes = 0
+            for id in ids where entries.count < LANSettingsTransferPolicy.maximumBackdropImages {
+                guard let url = PlayerBackdropImageStore.fileURL(id: id),
+                      let image = PlayerBackdropImaging.decodedImage(
+                        url: url, maxPixel: PlayerBackdropPixelPolicy.televisionPixel
+                      ),
+                      let jpeg = PlayerBackdropImaging.jpegData(image, quality: 0.8),
+                      jpeg.count <= LANSettingsTransferPolicy.maximumValueBytes,
+                      totalBytes + jpeg.count <= LANSettingsTransferPolicy.maximumTotalBackdropImageBytes
+                else { continue }
+                totalBytes += jpeg.count
+                entries.append(LANBackdropImageEntry(id: PlayerBackdropImaging.contentID(for: jpeg), data: jpeg))
+            }
+            return entries
+        }.value
     }
 
     /// 只解出服务商配置,用来算钥匙串账户;不建设置 store —— 新建的 store 会抢走 KVS 登记。
@@ -152,7 +181,21 @@ enum LANSettingsInstaller {
             installed.insert(.scraping)
         }
 
-        // 3. 设置值,刮削设置最先。经 CloudKVSSync 写入:这台电视自己的 iCloud 旧值盖不回来,
+        // 3. 播放页背景的「我的图片」:跟着播放背景设置整份换掉电视上的那一份,放在设置值之前,
+        //    设置切到「我的图片」时图已经在了。
+        if bundle.values[LANSettingsTransferPolicy.playerBackdropKey] != nil {
+            var imageIDs: [String] = []
+            for entry in bundle.backdropImages {
+                if let id = PlayerBackdropImageStore.storeProcessed(entry.data, expectedID: entry.id) {
+                    imageIDs.append(id)
+                } else {
+                    failures += 1
+                }
+            }
+            PlayerBackdropSettingsStore.shared.replaceCustomImages(with: imageIDs)
+        }
+
+        // 4. 设置值,刮削设置最先。经 CloudKVSSync 写入:这台电视自己的 iCloud 旧值盖不回来,
         //    也不会被推进电视登录的账号;已经载入的 store 按外部变更重新载入。
         for key in LANSettingsTransferPolicy.applicationOrder(of: bundle.values.keys) {
             guard let category = LANSettingsTransferPolicy.category(forValueKey: key),
@@ -165,7 +208,7 @@ enum LANSettingsInstaller {
             installed.insert(category)
         }
 
-        plog("📺 LAN settings installed values=\(bundle.values.count) configs=\(bundle.scraperConfigs.count) secrets=\(bundle.secrets.count) failures=\(failures) dropped=\(dropped)")
+        plog("📺 LAN settings installed values=\(bundle.values.count) configs=\(bundle.scraperConfigs.count) secrets=\(bundle.secrets.count) backdropImages=\(bundle.backdropImages.count) failures=\(failures) dropped=\(dropped)")
         return installed.sorted()
     }
 }

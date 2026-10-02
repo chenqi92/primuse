@@ -175,6 +175,8 @@
 "player_backdrop_rotation_timed" = "Slideshow";
 "player_backdrop_interval" = "Slideshow Interval";
 "player_backdrop_footer" = "Applies to the player only. When a fullscreen effect is on, the effect takes precedence. Albums without a back cover keep the cover colors.";
+"player_backdrop_tv_images_count" = "Pictures brought over from iPhone or Mac by scanning the code: %lld.";
+"player_backdrop_tv_images_empty" = "No pictures on this Apple TV yet. Pick My Pictures on iPhone or Mac and scan the code to transfer; the pictures come along. Until then, cover colors are shown.";
 "app_icon" = "App Icon";
 "app_icon_dock_hint" = "macOS can only swap the Dock icon while Primuse is running — once it quits, the Dock falls back to the icon inside the app bundle.";
 "icon_default" = "Soft Note";

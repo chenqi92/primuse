@@ -1080,6 +1080,8 @@
 "player_backdrop_rotation_timed" = "Slayt gösterisi";
 "player_backdrop_interval" = "Slayt gösterisi aralığı";
 "player_backdrop_footer" = "Yalnızca oynatıcıda geçerlidir. Tam ekran efekti açıkken efekt önceliklidir. Arka kapağı olmayan albümler kapak renklerini korur.";
+"player_backdrop_tv_images_count" = "iPhone veya Mac’ten kod taranarak aktarılan görseller: %lld.";
+"player_backdrop_tv_images_empty" = "Bu Apple TV’de henüz görsel yok. iPhone veya Mac’te Görsellerim’i seçip kodu tarayarak aktarın; görseller de gelir. O zamana kadar kapak renkleri gösterilir.";
 "source_cache_all_short" = "Önbellek";
 "yearly_time_late_night" = "Gece yarısı";
 "server_share_created" = "Herkese Açık Bağlantı";

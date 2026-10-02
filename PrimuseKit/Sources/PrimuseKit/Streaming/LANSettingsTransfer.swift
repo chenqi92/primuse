@@ -9,6 +9,8 @@ import Foundation
 /// - `scraperConfigs`:自定义刮削源配置,各是一份 ScraperConfig JSON(与 CloudKit 记录同一份
 ///   字节,不含 secrets),`secrets` 是它本机旁路文件里的内容。
 /// - `secrets`:钥匙串里的秘密(刮削 Cookie、歌词服务器凭据、AI 服务商密钥),键是钥匙串账户名。
+/// - `backdropImages`:播放页背景「我的图片」,已缩成电视画面尺寸的 JPEG。只跟着播放背景设置
+///   一起装:电视上的「我的图片」整份换成这一份。
 ///
 /// 解码从不失败:缺字段按空处理、解不开的字段丢掉,旧版 TV 不认这个字段,新版 TV 遇到更新的
 /// 手机多出来的字段也照常解。这样设置出了问题也不会连累音乐源那一段被拒。
@@ -19,21 +21,24 @@ public struct LANSettingsBundle: Codable, Sendable, Equatable {
     public var values: [String: Data]
     public var scraperConfigs: [LANScraperConfigEntry]
     public var secrets: [String: String]
+    public var backdropImages: [LANBackdropImageEntry]
 
     public init(version: Int = LANSettingsBundle.currentVersion, values: [String: Data] = [:],
-                scraperConfigs: [LANScraperConfigEntry] = [], secrets: [String: String] = [:]) {
+                scraperConfigs: [LANScraperConfigEntry] = [], secrets: [String: String] = [:],
+                backdropImages: [LANBackdropImageEntry] = []) {
         self.version = version
         self.values = values
         self.scraperConfigs = scraperConfigs
         self.secrets = secrets
+        self.backdropImages = backdropImages
     }
 
     public var isEmpty: Bool {
-        values.isEmpty && scraperConfigs.isEmpty && secrets.isEmpty
+        values.isEmpty && scraperConfigs.isEmpty && secrets.isEmpty && backdropImages.isEmpty
     }
 
     private enum CodingKeys: String, CodingKey {
-        case version, values, scraperConfigs, secrets
+        case version, values, scraperConfigs, secrets, backdropImages
     }
 
     public init(from decoder: Decoder) throws {
@@ -44,6 +49,9 @@ public struct LANSettingsBundle: Codable, Sendable, Equatable {
             [LANScraperConfigEntry].self, forKey: .scraperConfigs
         )) ?? []
         secrets = (try? container?.decodeIfPresent([String: String].self, forKey: .secrets)) ?? [:]
+        backdropImages = (try? container?.decodeIfPresent(
+            [LANBackdropImageEntry].self, forKey: .backdropImages
+        )) ?? []
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -52,6 +60,10 @@ public struct LANSettingsBundle: Codable, Sendable, Equatable {
         try container.encode(values, forKey: .values)
         try container.encode(scraperConfigs, forKey: .scraperConfigs)
         try container.encode(secrets, forKey: .secrets)
+        // 没有图片就不写这个字段,载荷和以前一模一样。
+        if !backdropImages.isEmpty {
+            try container.encode(backdropImages, forKey: .backdropImages)
+        }
     }
 
     /// UserDefaults 里的一个值(Data / String / 数字 / 布尔 / 数组 / 字典)编成属性列表字节。
@@ -81,6 +93,17 @@ public struct LANScraperConfigEntry: Codable, Sendable, Equatable {
     }
 }
 
+/// 播放页背景的一张自选图片。`id` 是 `data` 的内容哈希(64 位小写十六进制),接收端据此核对。
+public struct LANBackdropImageEntry: Codable, Sendable, Equatable {
+    public var id: String
+    public var data: Data
+
+    public init(id: String, data: Data) {
+        self.id = id
+        self.data = data
+    }
+}
+
 /// 接收端显示「已同步设置」时的分类,按声明顺序排列。
 public enum LANSettingsCategory: String, CaseIterable, Sendable, Comparable {
     case scraping
@@ -88,6 +111,7 @@ public enum LANSettingsCategory: String, CaseIterable, Sendable, Comparable {
     case intelligence
     case artistNames
     case playerEffect
+    case playerBackdrop
 
     private var order: Int { Self.allCases.firstIndex(of: self) ?? 0 }
 
@@ -95,9 +119,9 @@ public enum LANSettingsCategory: String, CaseIterable, Sendable, Comparable {
 }
 
 /// 扫码直传放行哪些设置。规则是「同一个 Apple ID 的 Apple TV 经 iCloud 能收到、电视又用得上的」:
-/// 刮削、歌词 API 服务、智能功能(含推荐意图)、艺术家名称规则、沉浸风格。播放设置(电视没有
-/// 淡入淡出、回放增益、均衡器)、歌词字号、搜索记录、电台订阅不带;证书信任、同步开关这类
-/// 按设备做的决定更不能带 —— 电视收到不在表里的键一律丢掉。
+/// 刮削、歌词 API 服务、智能功能(含推荐意图)、艺术家名称规则、沉浸风格、播放页背景(连同
+/// 「我的图片」)。播放设置(电视没有淡入淡出、回放增益、均衡器)、歌词字号、搜索记录、电台订阅
+/// 不带;证书信任、同步开关这类按设备做的决定更不能带 —— 电视收到不在表里的键一律丢掉。
 ///
 /// App 层定义的键在这里写成字面值(PrimuseKit 看不到 App 里的类型),发送端在 Debug 构建里
 /// 断言它们与 App 里的常量一致。
@@ -107,6 +131,7 @@ public enum LANSettingsTransferPolicy {
     public static let aiSettingsKey = "ai.settings.v1"
     public static let lyricsTranscriptionKey = "lyrics.transcription.settings.v1"
     public static let playerEffectKey = "primuse.fullscreenPlayerEffect"
+    public static let playerBackdropKey = PlayerBackdropSettings.storageKey
 
     /// 单个设置值、单份刮削配置、单条秘密的上限;配置总量另有上限。请求体整体仍受
     /// `LANTransferSizePolicy.maximumSealedBytes` 约束,这些上限让设置永远挤不掉音乐源。
@@ -116,6 +141,9 @@ public enum LANSettingsTransferPolicy {
     public static let maximumScraperConfigs = 200
     public static let maximumSecretBytes = 64 * 1024
     public static let maximumSecretAccountLength = 1024
+    /// 播放背景图片:张数与总量上限。单张受 `maximumValueBytes` 约束。
+    public static let maximumBackdropImages = 8
+    public static let maximumTotalBackdropImageBytes = 6 * 1024 * 1024
 
     private static let valueCategories: [String: LANSettingsCategory] = [
         scraperSettingsKey: .scraping,
@@ -127,6 +155,7 @@ public enum LANSettingsTransferPolicy {
         AIRecommendationIntentSelectionPolicy.storageKey: .intelligence,
         ArtistNameConfiguration.storageKey: .artistNames,
         playerEffectKey: .playerEffect,
+        playerBackdropKey: .playerBackdrop,
     ]
 
     public static var allowedValueKeys: Set<String> { Set(valueCategories.keys) }
@@ -187,6 +216,20 @@ public enum LANSettingsTransferPolicy {
         where category(forSecretAccount: account) != nil
             && !secret.isEmpty && secret.utf8.count <= maximumSecretBytes {
             result.secrets[account] = secret
+        }
+        // 图片只跟着播放背景设置走:设置没带,图片也不收。
+        if result.values[playerBackdropKey] != nil {
+            var seenImageIDs = Set<String>()
+            var totalImageBytes = 0
+            for entry in bundle.backdropImages {
+                guard result.backdropImages.count < maximumBackdropImages,
+                      LibraryArtworkContentIDPolicy.isValid(entry.id),
+                      seenImageIDs.insert(entry.id).inserted,
+                      !entry.data.isEmpty, entry.data.count <= maximumValueBytes,
+                      totalImageBytes + entry.data.count <= maximumTotalBackdropImageBytes else { continue }
+                totalImageBytes += entry.data.count
+                result.backdropImages.append(entry)
+            }
         }
         return result
     }

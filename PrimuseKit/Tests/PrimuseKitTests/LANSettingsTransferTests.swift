@@ -85,6 +85,41 @@ struct LANSettingsTransferTests {
         #expect(!Policy.isSafeScraperConfigID(String(repeating: "a", count: 65)))
     }
 
+    @Test("Backdrop pictures travel only with the backdrop setting, with valid ids and within the caps")
+    func backdropImages() throws {
+        let image = Data(repeating: 1, count: 1_000)
+        func id(_ n: Int) -> String { String(format: "%064x", n) }
+        var bundle = LANSettingsBundle(backdropImages: [LANBackdropImageEntry(id: id(1), data: image)])
+        #expect(Policy.sanitized(bundle).backdropImages.isEmpty)
+
+        bundle.values[Policy.playerBackdropKey] = try value(Data("{}".utf8))
+        bundle.backdropImages = [
+            LANBackdropImageEntry(id: id(1), data: image),
+            LANBackdropImageEntry(id: id(1), data: image),
+            LANBackdropImageEntry(id: "not-a-hash", data: image),
+            LANBackdropImageEntry(id: id(2), data: Data()),
+            LANBackdropImageEntry(id: id(3), data: Data(count: Policy.maximumValueBytes + 1)),
+        ] + (10..<30).map { LANBackdropImageEntry(id: id($0), data: image) }
+        let sanitized = Policy.sanitized(bundle)
+        #expect(sanitized.backdropImages.count == Policy.maximumBackdropImages)
+        #expect(sanitized.backdropImages.first?.id == id(1))
+        #expect(!sanitized.backdropImages.contains { $0.id == id(3) })
+        #expect(Policy.categories(in: sanitized) == [.playerBackdrop])
+        #expect(Policy.playerBackdropKey == PlayerBackdropSettings.storageKey)
+
+        let large = Data(count: Policy.maximumValueBytes)
+        bundle.backdropImages = (40..<50).map { LANBackdropImageEntry(id: id($0), data: large) }
+        let total = Policy.sanitized(bundle).backdropImages.reduce(0) { $0 + $1.data.count }
+        #expect(total <= Policy.maximumTotalBackdropImageBytes)
+
+        let payload = LANSyncPayload(sourcesGz: Data([1]), credentials: CredentialBundle(), settings: sanitized)
+        #expect(try #require(LANSyncPayload.decode(try payload.jsonData())).settings == sanitized)
+        let withoutImages = try LANSyncPayload(
+            sourcesGz: Data([1]), credentials: CredentialBundle(), settings: LANSettingsBundle(values: [:])
+        ).jsonData()
+        #expect(!String(decoding: withoutImages, as: UTF8.self).contains("backdropImages"))
+    }
+
     @Test("Scraper settings are applied first so custom rows find their configs")
     func applicationOrder() {
         let order = Policy.applicationOrder(of: [

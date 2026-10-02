@@ -18,6 +18,15 @@ private var tvDebugShowsThemePicker: Bool {
     #endif
 }
 
+/// 截图:TV_SCREEN=playerBackdrop 直接打开「播放页背景」。
+private var tvDebugShowsBackdropSettings: Bool {
+    #if DEBUG
+    TVDebugLaunch.screen == "playerBackdrop"
+    #else
+    false
+    #endif
+}
+
 /// 截图 / 取证:TV_SCREEN=settings 配 TV_SCRAPE_DEBUG=settings 直接打开刮削设置。
 private var tvDebugShowsScraperSettings: Bool {
     #if DEBUG
@@ -63,6 +72,8 @@ struct TVSettingsView: View {
     @State private var showsScraperSettings = tvDebugShowsScraperSettings
     @State private var showsMedleySettings = false
     @State private var showsTabBarSettings = false
+    @State private var showsBackdropSettings = tvDebugShowsBackdropSettings
+    @State private var backdropSettings = PlayerBackdropSettingsStore.shared
     @AppStorage(TVTabBarConfiguration.storageKey) private var tabBarConfigurationRawValue = ""
     @State private var isSyncing = false
     @State private var syncMsg: String?
@@ -143,6 +154,13 @@ struct TVSettingsView: View {
                             )
                             settingDivider
                             ambientIntensityRow()
+                            settingDivider
+                            navRow(
+                                "photo.on.rectangle",
+                                String(localized: "player_backdrop_title"),
+                                TVPlayerBackdropSettingsView.title(backdropSettings.settings.source),
+                                action: { showsBackdropSettings = true }
+                            )
                             settingDivider
                             navRow(
                                 "menubar.rectangle",
@@ -284,6 +302,7 @@ struct TVSettingsView: View {
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: showsTranslationModelRemoval)
         .fullScreenCover(isPresented: $showsMedleySettings) { TVMedleySettingsView() }
         .fullScreenCover(isPresented: $showsTabBarSettings) { TVTabBarSettingsView() }
+        .fullScreenCover(isPresented: $showsBackdropSettings) { TVPlayerBackdropSettingsView() }
         .fullScreenCover(isPresented: $showsAISettings) {
             TVAISettingsView()
                 .environment(intelligence)

@@ -954,7 +954,7 @@
 
 // 扫码直传的设置
 "ext.lanSettings.toggle" = "Envoyer aussi les réglages";
-"ext.lanSettings.toggleFooter" = "Comprend la récupération des métadonnées, les serveurs d'API de paroles, les fonctions intelligentes, les noms des artistes et le style immersif, avec les clés et cookies qu'ils utilisent.";
+"ext.lanSettings.toggleFooter" = "Comprend la récupération des métadonnées, les serveurs d'API de paroles, les fonctions intelligentes, les noms des artistes, le style immersif et l’arrière-plan du lecteur (avec Mes images), avec les clés et cookies qu'ils utilisent.";
 "ext.lanSettings.tvTooOld" = "Primuse sur cette Apple TV est trop ancien pour recevoir les réglages : seules la bibliothèque et les sources seront envoyées. Mettez-le à jour et scannez à nouveau pour inclure les réglages.";
 "ext.lanSettings.stepSourcesAndSettings" = "Sources, identifiants et réglages";
 "ext.lanSettings.received" = "Réglages synchronisés : %@";

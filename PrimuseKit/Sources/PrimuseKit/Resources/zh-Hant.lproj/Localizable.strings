@@ -951,7 +951,7 @@
 
 // 扫码直传的设置
 "ext.lanSettings.toggle" = "同時傳送設定";
-"ext.lanSettings.toggleFooter" = "包括刮削、歌詞 API 服務、智慧功能、藝人名稱和沉浸風格，以及它們用到的金鑰和 Cookie。";
+"ext.lanSettings.toggleFooter" = "包括刮削、歌詞 API 服務、智慧功能、藝人名稱、沉浸風格和播放頁背景（含「我的圖片」），以及它們用到的金鑰和 Cookie。";
 "ext.lanSettings.tvTooOld" = "這台 Apple TV 上的 Primuse 版本較舊，無法接收設定，這次只傳送資料庫和音樂來源。更新後重新掃描即可一併傳送。";
 "ext.lanSettings.stepSourcesAndSettings" = "音樂來源、登入資訊和設定";
 "ext.lanSettings.received" = "已同步設定：%@";

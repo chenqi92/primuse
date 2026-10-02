@@ -1,6 +1,7 @@
 #if os(tvOS)
 import SwiftUI
 import UIKit
+import PrimuseKit
 
 @MainActor
 @Observable
@@ -497,10 +498,15 @@ private struct TVExternalFocusModifier: ViewModifier {
 // MARK: - Ambient 背景
 
 /// 封面双色氛围背景。浅色外观使用柔和色场，深色外观保留沉浸式明暗层次。
+/// 给了 `image`（播放页背景选了模糊封面 / 专辑封底 / 我的图片）时，图铺满在色场上面，
+/// 再盖一层保护文字的渐变；换图时淡入淡出。
 struct TVAmbientBackdrop: View {
     var tint: Color = TVColor.brand
     var tint2: Color = TVColor.brandSecondary
     var strength: Double = 0.7
+    var image: CGImage? = nil
+    /// 图的身份，变了才算换图（同一张图重新解码不重播淡入）。
+    var imageID: String? = nil
 
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage(AppThemePreferences.accentHexKey)
@@ -541,9 +547,55 @@ struct TVAmbientBackdrop: View {
                 LinearGradient(colors: [.white.opacity(0.08), TVColor.bg.opacity(0.62)],
                                startPoint: .top, endPoint: .bottom)
             }
+            if let image, let imageID {
+                TVBackdropImageLayer(
+                    image: image,
+                    isLight: colorScheme == .light,
+                    strength: ambientStrength
+                )
+                .id(imageID)
+                .transition(.opacity)
+            }
         }
+        .animation(.easeInOut(duration: 0.6), value: imageID)
         .ignoresSafeArea()
         .allowsHitTesting(false)
+    }
+}
+
+/// 背景图本身：按画面铺满裁切，盖一层上浅下深的保护渐变（底部是传输控件）。
+private struct TVBackdropImageLayer: View {
+    let image: CGImage
+    let isLight: Bool
+    let strength: Double
+
+    var body: some View {
+        let scrim = PlayerBackdropScrimPolicy.scrim(
+            isLight: isLight,
+            strength: strength,
+            usesIncreasedContrast: false
+        )
+        let base: Color = isLight ? .white : .black
+        GeometryReader { geometry in
+            ZStack {
+                Image(decorative: image, scale: 1)
+                    .resizable()
+                    .interpolation(.medium)
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .clipped()
+                LinearGradient(
+                    stops: [
+                        .init(color: base.opacity(scrim.topOpacity), location: 0),
+                        .init(color: base.opacity(scrim.middleOpacity), location: 0.5),
+                        .init(color: base.opacity(scrim.bottomOpacity), location: 1),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
     }
 }
 

@@ -901,7 +901,7 @@
 
 // 扫码直传的设置
 "ext.lanSettings.toggle" = "Enviar también los ajustes";
-"ext.lanSettings.toggleFooter" = "Incluye la obtención de metadatos, los servidores de API de letras, las funciones inteligentes, los nombres de artistas y el estilo inmersivo, junto con las claves y cookies que usan.";
+"ext.lanSettings.toggleFooter" = "Incluye la obtención de metadatos, los servidores de API de letras, las funciones inteligentes, los nombres de artistas, el estilo inmersivo y el fondo del reproductor (con Mis imágenes), junto con las claves y cookies que usan.";
 "ext.lanSettings.tvTooOld" = "Primuse en este Apple TV es demasiado antiguo para recibir ajustes, así que solo se enviarán la biblioteca y las fuentes. Actualízalo y vuelve a escanear para incluir los ajustes.";
 "ext.lanSettings.stepSourcesAndSettings" = "Fuentes, credenciales y ajustes";
 "ext.lanSettings.received" = "Ajustes sincronizados: %@";

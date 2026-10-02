@@ -954,7 +954,7 @@
 
 // 扫码直传的设置
 "ext.lanSettings.toggle" = "설정도 함께 보내기";
-"ext.lanSettings.toggleFooter" = "메타데이터 스크래핑, 가사 API 서버, 지능형 기능, 아티스트 이름, 몰입 스타일 설정과 여기에 쓰이는 키 및 쿠키가 포함됩니다.";
+"ext.lanSettings.toggleFooter" = "메타데이터 스크래핑, 가사 API 서버, 지능형 기능, 아티스트 이름, 몰입 스타일, 재생 화면 배경(내 사진 포함) 설정과 여기에 쓰이는 키 및 쿠키가 포함됩니다.";
 "ext.lanSettings.tvTooOld" = "이 Apple TV의 Primuse 버전이 오래되어 설정을 받을 수 없으므로 이번에는 보관함과 소스만 보냅니다. 업데이트한 후 다시 스캔하면 설정도 함께 보낼 수 있습니다.";
 "ext.lanSettings.stepSourcesAndSettings" = "소스, 로그인 정보 및 설정";
 "ext.lanSettings.received" = "동기화된 설정: %@";

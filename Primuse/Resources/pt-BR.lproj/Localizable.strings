@@ -3583,6 +3583,8 @@
 "player_backdrop_rotation_timed" = "Apresentação";
 "player_backdrop_interval" = "Intervalo da apresentação";
 "player_backdrop_footer" = "Vale só para o player. Com um efeito de tela cheia ativo, o efeito tem prioridade. Álbuns sem contracapa mantêm as cores da capa.";
+"player_backdrop_tv_images_count" = "Imagens trazidas do iPhone ou Mac ao escanear o código: %lld.";
+"player_backdrop_tv_images_empty" = "Ainda não há imagens nesta Apple TV. Escolha Minhas imagens no iPhone ou Mac e transfira escaneando o código; as imagens vêm junto. Até lá, as cores da capa são exibidas.";
 "theme_color_hue" = "Matiz";
 "theme_color_indigo" = "Índigo";
 "theme_color_mode" = "Fonte de cores";

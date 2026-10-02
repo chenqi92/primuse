@@ -71,6 +71,7 @@
 		0A176E7239A1CEA25561D8F8 /* CachedArtworkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 128F97B910573229B86FAD8A /* CachedArtworkView.swift */; };
 		0A18CCDD67F005E9D83F5B18 /* LibrarySnapshotSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBD558438D10637EAEB78840 /* LibrarySnapshotSync.swift */; };
 		0A29AD1261453B6735CB9962 /* MusicLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2105927D98B1DF9885EB81 /* MusicLibrary.swift */; };
+		0B1783E2626079E44BB3FB73 /* TVPlayerBackdropResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = E473112B3C29997FA4C970EE /* TVPlayerBackdropResolver.swift */; };
 		14E4A05605C99771DA5C12C7 /* LibraryFavoritesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 002BC2EF3C601862B8B364B8 /* LibraryFavoritesStore.swift */; };
 		0A6519792957182F0B026F08 /* SFBAudioEngine in Frameworks */ = {isa = PBXBuildFile; productRef = F018F7A8A3643BE3A12DF666 /* SFBAudioEngine */; };
 		0A7502E27B419FCFBD15D42E /* CarPlayLayoutBlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52C3403EC845D6ACC43FC90C /* CarPlayLayoutBlock.swift */; };
@@ -169,6 +170,7 @@
 		1866EF3460DA7C421215CBC2 /* UserNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24CA1E9D7FDCD0F25BE8D43A /* UserNotificationService.swift */; };
 		187224AE006FE8990C96421E /* PlaybackToggleHighlight.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F149AF186A1E8E9004E602 /* PlaybackToggleHighlight.swift */; };
 		18A4D7C17587646699CD4C34 /* RadioSubscriptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87C087748BBB5436FF346501 /* RadioSubscriptionsView.swift */; };
+		18C1F427600B63DC0EFFB0C8 /* TVPlayerBackdropViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F7147F9EC1DB88B02489511 /* TVPlayerBackdropViews.swift */; };
 		18D8E338807049AEFD675052 /* ByteRangeReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BE978C7C25D46717630E668 /* ByteRangeReader.swift */; };
 		18D9115DD587058F8DADE067 /* PrimuseWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0079EF685D04AD5701F7F80F /* PrimuseWatchApp.swift */; };
 		18EF7BC5C1B706CD5A3E761F /* CloudDriveStreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CE02EE3CFE1DFDF66C66B7B /* CloudDriveStreamResolver.swift */; };
@@ -2073,6 +2075,7 @@
 		1BB0C0D9F755D99D1104F866 /* AppleMusicCatalogSearchAvailabilityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicCatalogSearchAvailabilityPolicy.swift; sourceTree = "<group>"; };
 		1BDE4BBD8FD4AD127A06C030 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		1BF3FCADF9ED4848533CF280 /* ServerRatingSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerRatingSyncService.swift; sourceTree = "<group>"; };
+		2F7147F9EC1DB88B02489511 /* TVPlayerBackdropViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVPlayerBackdropViews.swift; sourceTree = "<group>"; };
 		451F5E44E96F192F09F093EB /* PlayerBackdropResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerBackdropResolver.swift; sourceTree = "<group>"; };
 		4750349CEA0221E6C23A3561 /* PlayerBackdropImageHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerBackdropImageHost.swift; sourceTree = "<group>"; };
 		6B3EF87FCE8CBABB06F79F1A /* CollectionOnlySongStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollectionOnlySongStore.swift; sourceTree = "<group>"; };
@@ -2701,6 +2704,7 @@
 		9AB286EEA94A980ADF0391BD /* MetadataReadThroughputSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataReadThroughputSampler.swift; sourceTree = "<group>"; };
 		9AB9689481CAC6ADFF0A0E9D /* AIStreamingResponsePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIStreamingResponsePolicy.swift; sourceTree = "<group>"; };
 		D92E9715138783D169A2AC80 /* AudiobookshelfSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudiobookshelfSource.swift; sourceTree = "<group>"; };
+		E473112B3C29997FA4C970EE /* TVPlayerBackdropResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVPlayerBackdropResolver.swift; sourceTree = "<group>"; };
 		E5718CCDB8E58C982C01D5B0 /* PlayerBackdropImagingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerBackdropImagingTests.swift; sourceTree = "<group>"; };
 		EB164E964C4CE4086099EC62 /* AIServiceSetupGuidance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIServiceSetupGuidance.swift; sourceTree = "<group>"; };
 		9AE10B90CF85FD450338F498 /* PlatformShims.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformShims.swift; sourceTree = "<group>"; };
@@ -4229,6 +4233,7 @@
 				BEC31D3DDF53AD8AC9204035 /* TVKaraokeMicServer.swift */,
 				142C5FA8521F68AC38200D7F /* TVLyricsTranslationController.swift */,
 				A194C114E2993714AF699014 /* TVMetadataScrapeService.swift */,
+				E473112B3C29997FA4C970EE /* TVPlayerBackdropResolver.swift */,
 				C53D95B464F9DAE95E595DC2 /* TVPlayMediaIntentHandler.swift */,
 				139EF58C77552DC03F51190D /* TVSourceAssetReader.swift */,
 				FC760A27FC544A0A10359129 /* TVSourceErrorText.swift */,
@@ -4844,6 +4849,7 @@
 				502B183A3660DF217593F8D3 /* TVMedleySettingsView.swift */,
 				5FBCC291DEF77EA9096556D6 /* TVNowPlayingView.swift */,
 				17D2E1F749F6B5DA908F4E77 /* TVOptionsView.swift */,
+				2F7147F9EC1DB88B02489511 /* TVPlayerBackdropViews.swift */,
 				2E54A3765FAC8D149BA0CFB3 /* TVPlayerShelf.swift */,
 				2505E223E326D2B217B3F45C /* TVPlaylistsView.swift */,
 				A513C264449EC0023EFD2126 /* TVPlexSignInView.swift */,
@@ -6627,6 +6633,8 @@
 				E6B6179903F5EEC5ED020942 /* TVMetadataScrapeService.swift in Sources */,
 				F1164AB5AA3FEF602AB3E483 /* TVNowPlayingView.swift in Sources */,
 				815721DBF9C6091FB3742B5E /* TVOptionsView.swift in Sources */,
+				0B1783E2626079E44BB3FB73 /* TVPlayerBackdropResolver.swift in Sources */,
+				18C1F427600B63DC0EFFB0C8 /* TVPlayerBackdropViews.swift in Sources */,
 				29A2ADD8EBE1F20B1C80FEE2 /* TVPlayMediaIntentHandler.swift in Sources */,
 				D3AE884B8139D6E2ACC4B46E /* TVPlaybackCoordinator.swift in Sources */,
 				86A07EF4CED5BB79ED890765 /* TVPlaybackPrefetch.swift in Sources */,

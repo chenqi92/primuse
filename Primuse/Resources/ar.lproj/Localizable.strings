@@ -3583,6 +3583,8 @@
 "player_backdrop_rotation_timed" = "عرض شرائح";
 "player_backdrop_interval" = "الفاصل الزمني لعرض الشرائح";
 "player_backdrop_footer" = "يُطبَّق على المشغّل فقط. عند تشغيل تأثير ملء الشاشة تكون الأولوية للتأثير. الألبومات بلا غلاف خلفي تبقى بألوان الغلاف.";
+"player_backdrop_tv_images_count" = "الصور المنقولة من iPhone أو Mac بمسح الرمز: %lld.";
+"player_backdrop_tv_images_empty" = "لا توجد صور على Apple TV هذا بعد. اختر «صوري» على iPhone أو Mac ثم انقلها بمسح الرمز، وستأتي الصور معها. حتى ذلك الحين تُعرض ألوان الغلاف.";
 "theme_color_hue" = "هوى";
 "theme_color_indigo" = "النيلي";
 "theme_color_mode" = "مصدر اللون";

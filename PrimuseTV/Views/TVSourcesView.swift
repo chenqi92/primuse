@@ -592,6 +592,7 @@ private extension LANSettingsCategory {
         case .intelligence: return PMString("ext.tv.settings.intelligence")
         case .artistNames: return PMString("artist_name_settings_title")
         case .playerEffect: return PMString("ext.tv.settings.immersive")
+        case .playerBackdrop: return String(localized: "player_backdrop_title")
         }
     }
 }

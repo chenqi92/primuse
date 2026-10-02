@@ -406,6 +406,8 @@
 "player_backdrop_rotation_timed" = "슬라이드쇼";
 "player_backdrop_interval" = "슬라이드쇼 간격";
 "player_backdrop_footer" = "재생 화면에만 적용됩니다. 전체 화면 효과가 켜져 있으면 효과가 우선합니다. 뒷면 커버가 없는 앨범은 커버 색상을 그대로 표시합니다.";
+"player_backdrop_tv_images_count" = "iPhone 또는 Mac에서 코드 스캔으로 가져온 사진: %lld장.";
+"player_backdrop_tv_images_empty" = "이 Apple TV에는 아직 사진이 없습니다. iPhone이나 Mac에서 내 사진을 고른 뒤 코드를 스캔해 전송하면 사진도 함께 옵니다. 그전까지는 커버 색상을 표시합니다.";
 "app_icon" = "앱 아이콘";
 "app_icon_dock_hint" = "macOS는 Primuse가 실행 중일 때만 Dock 아이콘을 바꿀 수 있어, 종료하면 Dock은 앱 번들에 들어 있는 아이콘으로 돌아갑니다.";
 "icon_default" = "부드러운 음표";

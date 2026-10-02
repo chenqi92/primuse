@@ -176,6 +176,8 @@
 "player_backdrop_rotation_timed" = "定时轮播";
 "player_backdrop_interval" = "轮播间隔";
 "player_backdrop_footer" = "只用于播放页；打开全屏效果时以全屏效果为准。没有封底的专辑仍显示封面取色。";
+"player_backdrop_tv_images_count" = "电视上有 %lld 张从 iPhone 或 Mac 扫码直传带来的图片。";
+"player_backdrop_tv_images_empty" = "电视上还没有图片。在 iPhone 或 Mac 上选好「我的图片」后扫码直传，图片会一起带过来；在那之前显示封面取色。";
 "app_icon" = "应用图标";
 "app_icon_dock_hint" = "macOS 只能在 Primuse 运行时替换 Dock 图标，退出后 Dock 会显示应用包自带的图标。";
 "icon_default" = "清新音符";

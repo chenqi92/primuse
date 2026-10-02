@@ -1080,6 +1080,8 @@
 "player_backdrop_rotation_timed" = "Слайд-шоу";
 "player_backdrop_interval" = "Интервал слайд-шоу";
 "player_backdrop_footer" = "Действует только в плеере. Если включён полноэкранный эффект, приоритет у эффекта. Для альбомов без задней обложки остаются цвета обложки.";
+"player_backdrop_tv_images_count" = "Изображений, перенесённых с iPhone или Mac по коду: %lld.";
+"player_backdrop_tv_images_empty" = "На этом Apple TV пока нет изображений. Выберите «Мои изображения» на iPhone или Mac и передайте их, отсканировав код. До тех пор показываются цвета обложки.";
 "source_cache_all_short" = "Кэш";
 "yearly_time_late_night" = "Поздняя ночь";
 "server_share_created" = "Публичная ссылка";

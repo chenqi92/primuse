@@ -952,7 +952,7 @@
 
 // 扫码直传的设置
 "ext.lanSettings.toggle" = "Also Send Settings";
-"ext.lanSettings.toggleFooter" = "Includes metadata scraping, lyrics API servers, intelligent features, artist names and immersive style, along with the keys and cookies they use.";
+"ext.lanSettings.toggleFooter" = "Includes metadata scraping, lyrics API servers, intelligent features, artist names, immersive style and the player background (with My Pictures), along with the keys and cookies they use.";
 "ext.lanSettings.tvTooOld" = "The Primuse app on this Apple TV is too old to receive settings, so only the library and sources will be sent. Update it and scan again to include settings.";
 "ext.lanSettings.stepSourcesAndSettings" = "Sources, sign-in info and settings";
 "ext.lanSettings.received" = "Settings synced: %@";

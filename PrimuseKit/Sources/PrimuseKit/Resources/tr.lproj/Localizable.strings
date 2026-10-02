@@ -901,7 +901,7 @@
 
 // 扫码直传的设置
 "ext.lanSettings.toggle" = "Ayarları da gönder";
-"ext.lanSettings.toggleFooter" = "Üst veri alma, şarkı sözü API sunucuları, akıllı özellikler, sanatçı adları ve sürükleyici stil ayarlarını, kullandıkları anahtar ve çerezlerle birlikte içerir.";
+"ext.lanSettings.toggleFooter" = "Üst veri alma, şarkı sözü API sunucuları, akıllı özellikler, sanatçı adları, sürükleyici stil ve oynatıcı arka planı (Görsellerim ile) ayarlarını, kullandıkları anahtar ve çerezlerle birlikte içerir.";
 "ext.lanSettings.tvTooOld" = "Bu Apple TV'deki Primuse ayarları alamayacak kadar eski; bu yüzden yalnızca arşiv ve kaynaklar gönderilecek. Ayarları da göndermek için güncelleyip kodu yeniden tarayın.";
 "ext.lanSettings.stepSourcesAndSettings" = "Kaynaklar, oturum açma bilgileri ve ayarlar";
 "ext.lanSettings.received" = "Eşitlenen ayarlar: %@";

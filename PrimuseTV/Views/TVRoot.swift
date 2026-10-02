@@ -448,7 +448,7 @@ struct TVRoot: View {
                 await waitForDemoContent()
                 await store.loadDemoNowPlaying()
                 tab = .nowPlaying
-            case "settings", "effectPicker", "themePicker": showSettings = true
+            case "settings", "effectPicker", "themePicker", "playerBackdrop": showSettings = true
             case "albumReturn":
                 // 模拟「专辑页里点一首播放 → 播放页按 Menu」:应回到专辑页、焦点在那一首,
                 // 再按 Menu 才回海报墙。

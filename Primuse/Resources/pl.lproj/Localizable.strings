@@ -3583,6 +3583,8 @@
 "player_backdrop_rotation_timed" = "Pokaz slajdów";
 "player_backdrop_interval" = "Odstęp pokazu slajdów";
 "player_backdrop_footer" = "Dotyczy tylko odtwarzacza. Gdy włączony jest efekt pełnoekranowy, ma on pierwszeństwo. Albumy bez tylnej okładki zachowują kolory okładki.";
+"player_backdrop_tv_images_count" = "Obrazy przeniesione z iPhone’a lub Maca przez zeskanowanie kodu: %lld.";
+"player_backdrop_tv_images_empty" = "Na tym Apple TV nie ma jeszcze obrazów. Wybierz Moje obrazy na iPhonie lub Macu i prześlij je, skanując kod. Do tego czasu wyświetlane są kolory okładki.";
 "theme_color_hue" = "Barwa";
 "theme_color_indigo" = "Indygo";
 "theme_color_mode" = "Źródło koloru";

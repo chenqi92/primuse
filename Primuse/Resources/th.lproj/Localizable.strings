@@ -3583,6 +3583,8 @@
 "player_backdrop_rotation_timed" = "สไลด์โชว์";
 "player_backdrop_interval" = "ระยะเวลาสไลด์โชว์";
 "player_backdrop_footer" = "ใช้กับหน้าเล่นเพลงเท่านั้น เมื่อเปิดเอฟเฟกต์เต็มจอ เอฟเฟกต์จะมีผลก่อน อัลบั้มที่ไม่มีปกหลังจะยังแสดงสีจากปก";
+"player_backdrop_tv_images_count" = "รูปที่โอนมาจาก iPhone หรือ Mac ด้วยการสแกนโค้ด: %lld รูป";
+"player_backdrop_tv_images_empty" = "Apple TV เครื่องนี้ยังไม่มีรูป เลือก รูปของฉัน บน iPhone หรือ Mac แล้วสแกนโค้ดเพื่อโอน รูปจะมาด้วย ระหว่างนี้จะแสดงสีจากปก";
 "theme_color_hue" = "เว้";
 "theme_color_indigo" = "สีคราม";
 "theme_color_mode" = "แหล่งสี";

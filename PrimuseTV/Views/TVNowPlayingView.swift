@@ -225,7 +225,8 @@ struct TVNowPlayingView: View {
     private var player: some View {
         let colors = store.nowPlayingPresentationColors
         return ZStack {
-            TVAmbientBackdrop(tint: colors.primary, tint2: colors.secondary, strength: 1)
+            // 封面色场;设置里选了模糊封面 / 专辑封底 / 我的图片时图铺在上面。
+            TVPlayerBackdrop(tint: colors.primary, tint2: colors.secondary)
             playerContent
                 // 货架升起时后面的控件不参与焦点,上键不会把焦点带回传输键。
                 .disabled(showShelf)

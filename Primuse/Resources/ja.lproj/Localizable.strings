@@ -407,6 +407,8 @@
 "player_backdrop_rotation_timed" = "スライドショー";
 "player_backdrop_interval" = "スライドショーの間隔";
 "player_backdrop_footer" = "再生画面にのみ適用されます。フルスクリーン効果がオンのときは効果が優先されます。裏ジャケットのないアルバムはジャケットの色のままです。";
+"player_backdrop_tv_images_count" = "iPhone または Mac からコードのスキャンで転送した画像：%lld 枚。";
+"player_backdrop_tv_images_empty" = "この Apple TV にはまだ画像がありません。iPhone か Mac で「マイ画像」を選んでからコードをスキャンして転送すると、画像も一緒に届きます。それまではジャケットの色を表示します。";
 "app_icon" = "App アイコン";
 "app_icon_dock_hint" = "macOS は Primuse の実行中しか Dock アイコンを差し替えられません。終了すると Dock はアプリバンドル内のアイコンに戻ります。";
 "icon_default" = "やわらかな音符";

@@ -406,6 +406,8 @@
 "player_backdrop_rotation_timed" = "Diaporama";
 "player_backdrop_interval" = "Intervalle du diaporama";
 "player_backdrop_footer" = "S’applique uniquement au lecteur. Lorsqu’un effet plein écran est activé, l’effet a la priorité. Les albums sans verso conservent les couleurs de la pochette.";
+"player_backdrop_tv_images_count" = "Images transférées depuis l’iPhone ou le Mac en scannant le code : %lld.";
+"player_backdrop_tv_images_empty" = "Aucune image sur cette Apple TV pour l’instant. Choisissez Mes images sur l’iPhone ou le Mac puis transférez en scannant le code : les images suivent. En attendant, les couleurs de la pochette sont affichées.";
 "app_icon" = "Icône de l'app";
 "app_icon_dock_hint" = "macOS ne peut remplacer l’icône du Dock que pendant l’exécution de Primuse ; une fois l’app quittée, le Dock réaffiche l’icône incluse dans le paquet.";
 "icon_default" = "Note douce";
