@@ -632,6 +632,7 @@
 "send_to_tv_error_snapshot_missing" = "สแน็ปช็อตคลังเพลงในเครื่องหายไป รอให้คลังเพลงโหลดเสร็จ จากนั้นลองอีกครั้ง";
 "send_to_tv_error_snapshot_preparation" = "ไม่สามารถเตรียมสแนปชอตของคลังเพลงในเครื่องสำหรับการอัปโหลดได้";
 "send_to_tv_error_library_too_large" = "คลังเพลงมี %lld เพลง เกินขีดจำกัดที่ส่งได้ในครั้งเดียว จึงไม่ได้ส่งคลังเพลง คุณสร้างคลังเพลงบน Apple TV ได้โดยสแกนแหล่งเพลงบน Apple TV โดยตรง";
+"send_to_tv_sources_only_note" = "คลังเพลงมี %lld เพลง เกินขีดจำกัดที่ส่งได้ในครั้งเดียว จึงไม่ได้ส่งคลังเพลง Apple TV จะสแกนแหล่งเพลงเพื่อสร้างคลังเพลงเอง ดูความคืบหน้าได้ที่หน้าแหล่งเพลงบน Apple TV";
 "send_to_tv_error_source_data" = "ไม่สามารถอ่านการกำหนดค่าแหล่งเพลงได้: %@";
 "send_to_tv_error_tv_bad_request" = "Apple TV ปฏิเสธการโอนเนื่องจากไม่ถูกต้อง (HTTP 400) สแกนโค้ด QR ใหม่แล้วลองอีกครั้ง";
 "send_to_tv_error_tv_forbidden" = "รหัสการจับคู่หรือคีย์การเข้ารหัส Apple TV ใช้ไม่ได้อีกต่อไป (HTTP 403) สแกนรหัส QR ปัจจุบันอีกครั้ง";
@@ -862,6 +863,7 @@
 "send_to_tv_step_everything" = "คลังเพลง แหล่งเพลง และข้อมูลการลงชื่อเข้าใช้";
 "send_to_tv_progress_waiting" = "กำลังรอ";
 "send_to_tv_progress_done" = "เสร็จแล้ว";
+"send_to_tv_progress_skipped" = "ไม่ได้ส่ง";
 "send_to_tv_progress_failed" = "ยังไม่เสร็จ";
 "send_to_tv_progress_preparing" = "กำลังเตรียม…";
 "send_to_tv_progress_tv_saving" = "Apple TV กำลังบันทึก…";
@@ -876,6 +878,8 @@
 "ext.tv.transfer.librarySaved" = "นำเข้าคลังเพลงแล้ว กำลังรอภาพปก…";
 "ext.tv.transfer.artwork" = "กำลังรับภาพปก (ชุดที่ %1$@ จาก %2$@)…";
 "ext.tv.transfer.finished" = "ถ่ายโอน %@ เพลงจาก iPhone แล้ว";
+"ext.tv.transfer.finishedScanning" = "ถ่ายโอนแหล่งเพลงจาก iPhone แล้ว คลังเพลงใน iPhone ใหญ่เกินกว่าจะถ่ายโอน Apple TV จึงกำลังสแกนแหล่งเพลง %@ แหล่งเพื่อสร้างคลังเพลง";
+"ext.tv.transfer.finishedNothingToScan" = "ถ่ายโอนแหล่งเพลงจาก iPhone แล้ว คลังเพลงใน iPhone ใหญ่เกินกว่าจะถ่ายโอน และไม่มีแหล่งเพลงใดที่สแกนบน Apple TV ได้";
 "ext.tv.transfer.failed" = "การถ่ายโอนไม่เสร็จสมบูรณ์ ลองอีกครั้งบน iPhone";
 "audio_variant_lossy_stereo" = "สเตอริโอ";
 "audio_variant_lossless" = "ไม่สูญเสียคุณภาพ";

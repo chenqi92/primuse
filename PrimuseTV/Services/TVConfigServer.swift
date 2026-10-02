@@ -16,7 +16,7 @@ final class TVConfigServer: @unchecked Sendable {
         case sources(LANSyncPayload)
         case library(LANSyncPayload)
         case artwork(LANArtworkBatch, index: Int, count: Int)
-        case finish
+        case finish(LANFinishRequest)
     }
 
     /// 请求体接收进度。整包(旧版 iPhone)按 `.library` 报。
@@ -304,7 +304,7 @@ final class TVConfigServer: @unchecked Sendable {
             }
             request = .artwork(artwork, index: batch.index, count: batch.count)
         case .finish:
-            request = .finish
+            request = .finish(LANFinishRequest.decode(plain))
         }
         plog("TVConfigServer: received \(stage.rawValue) stage (\(plain.count)B)")
         guard let onStage else {

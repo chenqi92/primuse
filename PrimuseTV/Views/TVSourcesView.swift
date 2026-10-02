@@ -624,8 +624,8 @@ private struct TVSourcesInfoCard: View {
     }
 }
 
-/// 扫码直传在 TV 上的进度:收请求体时有百分比,导入曲库时转圈,完成后显示歌曲数。
-/// 手机一起发来的设置装好后,下面多一行「已同步设置」。
+/// 扫码直传在 TV 上的进度:收请求体时有百分比,导入曲库时转圈,完成后显示歌曲数;
+/// 曲库太大只传来音乐源时,完成后说明正在扫描音乐源。手机一起发来的设置装好后,下面多一行「已同步设置」。
 private struct TVPairingTransferStatusView: View {
     let status: LANReceiveStatus
     var settings: [LANSettingsCategory] = []
@@ -664,6 +664,11 @@ private struct TVPairingTransferStatusView: View {
     private var title: String {
         switch (status.phase, status.stage) {
         case (.finished, _):
+            if let scanning = status.scanningSourceCount {
+                return scanning > 0
+                    ? PMString("ext.tv.transfer.finishedScanning", scanning.formatted())
+                    : PMString("ext.tv.transfer.finishedNothingToScan")
+            }
             return PMString("ext.tv.transfer.finished", (status.songCount ?? 0).formatted())
         case (.failed, _):
             return PMString("ext.tv.transfer.failed")

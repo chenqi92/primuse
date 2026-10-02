@@ -632,6 +632,7 @@
 "send_to_tv_error_snapshot_missing" = "स्थानीय लाइब्रेरी स्नैपशॉट गायब है। लाइब्रेरी के लोड होने तक प्रतीक्षा करें, फिर पुनः प्रयास करें।";
 "send_to_tv_error_snapshot_preparation" = "स्थानीय लाइब्रेरी स्नैपशॉट अपलोड के लिए तैयार नहीं किया जा सका।";
 "send_to_tv_error_library_too_large" = "आपकी लाइब्रेरी में %lld गाने हैं, जो एक बार में भेजी जा सकने वाली सीमा से ज़्यादा हैं, इसलिए लाइब्रेरी नहीं भेजी गई। Apple TV पर सीधे संगीत स्रोत स्कैन करके लाइब्रेरी बनाई जा सकती है।";
+"send_to_tv_sources_only_note" = "आपकी लाइब्रेरी में %lld गाने हैं, जो एक बार में भेजी जा सकने वाली सीमा से ज़्यादा हैं, इसलिए लाइब्रेरी नहीं भेजी गई। Apple TV संगीत स्रोतों को स्कैन करके अपनी लाइब्रेरी बनाएगा; प्रगति Apple TV के स्रोत पेज पर देखें।";
 "send_to_tv_error_source_data" = "संगीत स्रोत कॉन्फ़िगरेशन पढ़ा नहीं जा सका: %@";
 "send_to_tv_error_tv_bad_request" = "Apple TV ने स्थानांतरण को अमान्य (HTTP 400) के रूप में खारिज कर दिया। नया क्यूआर कोड स्कैन करें और पुनः प्रयास करें।";
 "send_to_tv_error_tv_forbidden" = "Apple TV युग्मन कोड या एन्क्रिप्शन कुंजी अब मान्य नहीं है (HTTP 403)। वर्तमान QR कोड को फिर से स्कैन करें।";
@@ -862,6 +863,7 @@
 "send_to_tv_step_everything" = "लाइब्रेरी, स्रोत और साइन-इन जानकारी";
 "send_to_tv_progress_waiting" = "प्रतीक्षा में";
 "send_to_tv_progress_done" = "पूरा हुआ";
+"send_to_tv_progress_skipped" = "नहीं भेजा गया";
 "send_to_tv_progress_failed" = "पूरा नहीं हुआ";
 "send_to_tv_progress_preparing" = "तैयार किया जा रहा है…";
 "send_to_tv_progress_tv_saving" = "Apple TV सहेज रहा है…";
@@ -876,6 +878,8 @@
 "ext.tv.transfer.librarySaved" = "लाइब्रेरी आयात हो गई। कवर आर्ट की प्रतीक्षा है…";
 "ext.tv.transfer.artwork" = "कवर आर्ट प्राप्त किया जा रहा है (%2$@ में से बैच %1$@)…";
 "ext.tv.transfer.finished" = "iPhone से %@ गाने ट्रांसफर किए गए";
+"ext.tv.transfer.finishedScanning" = "iPhone से संगीत स्रोत ट्रांसफर किए गए। iPhone की लाइब्रेरी ट्रांसफर करने के लिए बहुत बड़ी है, इसलिए Apple TV लाइब्रेरी बनाने के लिए स्रोत स्कैन कर रहा है (%@)।";
+"ext.tv.transfer.finishedNothingToScan" = "iPhone से संगीत स्रोत ट्रांसफर किए गए। iPhone की लाइब्रेरी ट्रांसफर करने के लिए बहुत बड़ी है, और इनमें से कोई भी स्रोत Apple TV पर स्कैन नहीं किया जा सकता।";
 "ext.tv.transfer.failed" = "ट्रांसफर पूरा नहीं हुआ। iPhone पर फिर से कोशिश करें।";
 "audio_variant_lossy_stereo" = "स्टीरियो";
 "audio_variant_lossless" = "लॉसलेस";

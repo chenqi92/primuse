@@ -27,6 +27,32 @@ struct LANStagedTransferTests {
         #expect(parsed.configURL?.absoluteString == "http://192.168.1.5:5000/config")
     }
 
+    @Test("Current Apple TV QR codes declare the sources-only transfer on top of staged and settings")
+    func currentLinkSupportsSourcesOnlyTransfer() throws {
+        let link = LANPairLink(host: "192.168.1.5", port: 5000, key: key, pairCode: "123456",
+                               protocolVersion: LANPairLink.currentProtocolVersion)
+        let url = try #require(URL(string: link.qrContent))
+        let parsed = try #require(LANPairLink(url: url))
+        #expect(parsed.protocolVersion == 4)
+        #expect(link.qrContent.contains("v=4"))
+        #expect(parsed.supportsStagedTransfer)
+        #expect(parsed.supportsSettingsTransfer)
+        #expect(parsed.supportsSourcesOnlyTransfer)
+    }
+
+    @Test("Finish bodies from older iPhones, and unreadable ones, finish without scanning")
+    func finishRequestDefaults() throws {
+        #expect(LANFinishRequest.decode(Data("{}".utf8)) == LANFinishRequest())
+        #expect(LANFinishRequest.decode(Data()) == LANFinishRequest())
+        #expect(LANFinishRequest.decode(Data("not json".utf8)).scanSources == false)
+
+        let request = LANFinishRequest(scanSources: true, skippedLibrarySongCount: 400_000)
+        let decoded = LANFinishRequest.decode(try request.jsonData())
+        #expect(decoded == request)
+        #expect(decoded.scanSources)
+        #expect(decoded.skippedLibrarySongCount == 400_000)
+    }
+
     @Test("Stages resolve from their paths and send in declaration order")
     func stagePathsAndOrder() {
         for stage in LANTransferStage.allCases {

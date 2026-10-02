@@ -632,6 +632,7 @@
 "send_to_tv_error_snapshot_missing" = "O instantâneo da biblioteca local está faltando. Aguarde a biblioteca terminar de carregar e tente novamente.";
 "send_to_tv_error_snapshot_preparation" = "Não foi possível preparar o instantâneo da biblioteca local para upload.";
 "send_to_tv_error_library_too_large" = "Sua biblioteca tem %lld músicas, mais do que pode ser enviado de uma vez, por isso ela não foi enviada. Você pode criá-la na Apple TV examinando suas fontes de música diretamente lá.";
+"send_to_tv_sources_only_note" = "Sua biblioteca tem %lld músicas, mais do que pode ser enviado de uma vez, por isso ela não foi enviada. A Apple TV vai examinar suas fontes de música para criar a biblioteca; acompanhe o progresso na página de fontes da Apple TV.";
 "send_to_tv_error_source_data" = "Não foi possível ler a configuração da fonte de música: %@";
 "send_to_tv_error_tv_bad_request" = "Apple TV rejeitou a transferência como inválida (HTTP 400). Digitalize um novo código QR e tente novamente.";
 "send_to_tv_error_tv_forbidden" = "O código de emparelhamento ou chave de criptografia Apple TV não é mais válido (HTTP 403). Digitalize o código QR atual novamente.";
@@ -862,6 +863,7 @@
 "send_to_tv_step_everything" = "Biblioteca, fontes e credenciais";
 "send_to_tv_progress_waiting" = "Aguardando";
 "send_to_tv_progress_done" = "Concluído";
+"send_to_tv_progress_skipped" = "Não enviado";
 "send_to_tv_progress_failed" = "Não concluído";
 "send_to_tv_progress_preparing" = "Preparando…";
 "send_to_tv_progress_tv_saving" = "O Apple TV está salvando…";
@@ -876,6 +878,8 @@
 "ext.tv.transfer.librarySaved" = "Biblioteca importada. Aguardando capas…";
 "ext.tv.transfer.artwork" = "Recebendo capas (lote %1$@ de %2$@)…";
 "ext.tv.transfer.finished" = "%@ músicas transferidas do iPhone";
+"ext.tv.transfer.finishedScanning" = "Fontes de música transferidas do iPhone. A biblioteca do iPhone é grande demais para ser transferida, então a Apple TV está examinando as fontes (%@) para criar a biblioteca.";
+"ext.tv.transfer.finishedNothingToScan" = "Fontes de música transferidas do iPhone. A biblioteca do iPhone é grande demais para ser transferida, e nenhuma dessas fontes pode ser examinada na Apple TV.";
 "ext.tv.transfer.failed" = "A transferência não terminou. Tente novamente pelo iPhone.";
 "audio_variant_lossy_stereo" = "Estéreo";
 "audio_variant_lossless" = "Sem perdas";

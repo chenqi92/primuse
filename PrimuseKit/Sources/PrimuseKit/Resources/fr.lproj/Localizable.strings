@@ -384,6 +384,7 @@
 "send_to_tv_error_snapshot_missing" = "L’instantané local de la bibliothèque est absent. Attendez la fin du chargement, puis réessayez.";
 "send_to_tv_error_snapshot_preparation" = "L’instantané local de la bibliothèque n’a pas pu être préparé pour l’envoi.";
 "send_to_tv_error_library_too_large" = "Votre bibliothèque contient %lld morceaux, plus que ce qui peut être envoyé en une fois ; elle n’a donc pas été envoyée. Vous pouvez la créer sur l’Apple TV en y analysant directement vos sources musicales.";
+"send_to_tv_sources_only_note" = "Votre bibliothèque contient %lld morceaux, plus que ce qui peut être envoyé en une fois ; elle n’a donc pas été envoyée. L’Apple TV va analyser vos sources musicales pour créer sa bibliothèque ; suivez la progression sur sa page Sources.";
 "send_to_tv_error_cloud_conflict" = "L’enregistrement CloudKit de la bibliothèque a été modifié sur un autre appareil et reste en conflit après une nouvelle tentative.";
 "send_to_tv_error_cloud_upload" = "Échec de l’envoi de la bibliothèque vers CloudKit : %@";
 "send_to_tv_error_cloud_schema" = "Le canal de transfert iCloud n’est pas activé dans cette version (« %@ » est absent du serveur) ; réessayer ne servira à rien. Utilisez plutôt le transfert direct par QR code depuis la page des sources musicales de l’Apple TV.";
@@ -915,6 +916,7 @@
 "send_to_tv_step_everything" = "Bibliothèque, sources et identifiants";
 "send_to_tv_progress_waiting" = "En attente";
 "send_to_tv_progress_done" = "Terminé";
+"send_to_tv_progress_skipped" = "Non envoyé";
 "send_to_tv_progress_failed" = "Non terminé";
 "send_to_tv_progress_preparing" = "Préparation…";
 "send_to_tv_progress_tv_saving" = "L’Apple TV enregistre…";
@@ -929,6 +931,8 @@
 "ext.tv.transfer.librarySaved" = "Bibliothèque importée. En attente des illustrations…";
 "ext.tv.transfer.artwork" = "Réception des illustrations (lot %1$@ sur %2$@)…";
 "ext.tv.transfer.finished" = "%@ morceaux transférés depuis l’iPhone";
+"ext.tv.transfer.finishedScanning" = "Sources musicales transférées depuis l’iPhone. La bibliothèque de l’iPhone est trop volumineuse pour être transférée : l’Apple TV analyse les sources (%@) pour créer la bibliothèque.";
+"ext.tv.transfer.finishedNothingToScan" = "Sources musicales transférées depuis l’iPhone. La bibliothèque de l’iPhone est trop volumineuse pour être transférée, et aucune de ces sources ne peut être analysée sur l’Apple TV.";
 "ext.tv.transfer.failed" = "Le transfert n’est pas terminé. Réessayez depuis l’iPhone.";
 "audio_variant_lossy_stereo" = "Stéréo";
 "audio_variant_lossless" = "Sans perte";

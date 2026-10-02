@@ -565,6 +565,7 @@
 "fullscreen_effect_starry_night_subtitle" = "Sanat eserleriyle renklendirilmiş yıldızlar, en son şarkı sözü satırının arkasında sürükleniyor";
 "send_to_tv_error_snapshot_preparation" = "Yerel arşiv anlık görüntüsü yükleme için hazırlanamadı.";
 "send_to_tv_error_library_too_large" = "Arşivinizde %lld şarkı var; bu, tek seferde gönderilebilecek sınırın üzerinde olduğu için gönderilmedi. Arşivi Apple TV’de müzik kaynaklarını doğrudan tarayarak oluşturabilirsiniz.";
+"send_to_tv_sources_only_note" = "Arşivinizde %lld şarkı var; bu, tek seferde gönderilebilecek sınırın üzerinde olduğu için arşiv gönderilmedi. Apple TV, arşivini oluşturmak için müzik kaynaklarını kendisi tarayacak; ilerlemeyi Apple TV’deki kaynaklar sayfasında görebilirsiniz.";
 "ext.tv.error.incompleteDownload" = "Uzaktan dosya indirme işlemi tamamlanmadı: beklenen %@ bayt, %@ alındı.";
 "src.subtitle.local" = "iPhone Depolama";
 "fnmusic_fnid" = "FN ID";
@@ -862,6 +863,7 @@
 "send_to_tv_step_everything" = "Arşiv, kaynaklar ve oturum açma bilgileri";
 "send_to_tv_progress_waiting" = "Bekliyor";
 "send_to_tv_progress_done" = "Tamamlandı";
+"send_to_tv_progress_skipped" = "Gönderilmedi";
 "send_to_tv_progress_failed" = "Tamamlanmadı";
 "send_to_tv_progress_preparing" = "Hazırlanıyor…";
 "send_to_tv_progress_tv_saving" = "Apple TV kaydediyor…";
@@ -876,6 +878,8 @@
 "ext.tv.transfer.librarySaved" = "Arşiv içe aktarıldı. Kapak görselleri bekleniyor…";
 "ext.tv.transfer.artwork" = "Kapak görselleri alınıyor (%2$@ gruptan %1$@.)…";
 "ext.tv.transfer.finished" = "iPhone'dan %@ şarkı aktarıldı";
+"ext.tv.transfer.finishedScanning" = "Müzik kaynakları iPhone'dan aktarıldı. iPhone arşivi aktarılamayacak kadar büyük, bu yüzden Apple TV arşivi oluşturmak için kaynakları tarıyor (%@).";
+"ext.tv.transfer.finishedNothingToScan" = "Müzik kaynakları iPhone'dan aktarıldı. iPhone arşivi aktarılamayacak kadar büyük ve bu kaynakların hiçbiri Apple TV'de taranamıyor.";
 "ext.tv.transfer.failed" = "Aktarım tamamlanmadı. iPhone'da yeniden deneyin.";
 "audio_variant_lossy_stereo" = "Stereo";
 "audio_variant_lossless" = "Kayıpsız";

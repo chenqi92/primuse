@@ -173,7 +173,8 @@ enum TVSourceLocalLibraryPolicy {
     }
 }
 
-/// 「重新读取全部标签」的批量进度。逐个源顺序重读,同一时刻只有一个源在扫描。
+/// 批量扫描全部音乐源的进度:「重新读取全部标签」,或扫码直传只传来音乐源后的自动扫描。
+/// 逐个源顺序扫,同一时刻只有一个源在扫描。
 struct TVRereadAllTagsProgress: Equatable, Sendable {
     /// 第几个源(从 1 开始),用于显示 1/6 这样的计数。
     let index: Int
@@ -801,9 +802,11 @@ final class TVStore {
     // TV 本机扫描(SMB 路径快扫 / 飞牛音乐整库)。视图观察 scanner.phase/indexed/currentFile。
     @ObservationIgnored let scanner = TVSourceScanner()
     private(set) var activeScanSourceID: String?
-    /// 批量重读进行中的进度;为 nil 表示没有在批量重读。
+    /// 批量扫描进行中的进度;为 nil 表示没有在批量扫描。
     private(set) var rereadAllTagsProgress: TVRereadAllTagsProgress?
     @ObservationIgnored private var rereadAllTagsTask: Task<Void, Never>?
+    /// 被换下的那轮批量扫描收尾时,认出自己已不是当前这轮,不去清新一轮的状态。
+    @ObservationIgnored private var rereadAllTagsBatch = UUID()
     var transferIsIndexing = false
     var transferScanError: String?
     @ObservationIgnored private var transferScanTask: Task<Void, Never>?
@@ -2293,8 +2296,15 @@ final class TVStore {
             await installLANArtworkBatch(batch)
             show(.saved, .artwork, fraction: fraction, batchIndex: index, batchCount: count, songCount: songCount)
             return true
-        case .finish:
-            finishPairingTransfer(requestSerial: requestSerial, generation: generation)
+        case .finish(let finish):
+            var scanningSourceCount: Int?
+            if finish.scanSources {
+                let count = scanSourcesAfterLANTransfer()
+                scanningSourceCount = count
+                plog("TVStore: LAN transfer sent sources only (iPhone library \(finish.skippedLibrarySongCount ?? 0) songs) — scanning \(count) sources")
+            }
+            finishPairingTransfer(requestSerial: requestSerial, generation: generation,
+                                  scanningSourceCount: scanningSourceCount)
             return true
         }
     }
@@ -2334,7 +2344,8 @@ final class TVStore {
         switch status.phase {
         case .receiving: expiry = .seconds(45)
         case .failed: expiry = .seconds(20)
-        case .finished: expiry = .seconds(10)
+        // 只传来音乐源时的说明长一些,多留一会儿。
+        case .finished: expiry = .seconds(status.scanningSourceCount == nil ? 10 : 20)
         case .saving, .saved: expiry = nil
         }
         guard let expiry else { return }
@@ -2372,9 +2383,10 @@ final class TVStore {
     private static let installedCloudSnapshotTagKey = "tv.installedCloudSnapshotTag"
     private static let lastLANInstallKey = "tv.lastLANInstallAt"
 
-    private func finishPairingTransfer(requestSerial: Int, generation: Int) {
+    private func finishPairingTransfer(requestSerial: Int, generation: Int, scanningSourceCount: Int? = nil) {
         defaults.set(Date(), forKey: Self.lastLANInstallKey)
         setPairingTransfer(LANReceiveStatus(phase: .finished, stage: .finish, songCount: library.songs.count,
+                                            scanningSourceCount: scanningSourceCount,
                                             requestSerial: requestSerial),
                            generation: generation)
         if !pairingPageVisible { clearPairingTransfer() }
@@ -4592,13 +4604,28 @@ final class TVStore {
     /// 服务端型的源直接刷新服务端曲库。扫描器一次只允许一个源,所以这里串行等待。
     func rereadAllTags() {
         guard rereadAllTagsTask == nil else { return }
+        startSourceBatchScan(rereadMetadata: true)
+    }
+
+    /// 扫码直传只传来音乐源(iPhone 曲库超出整库发送的上限):逐个扫描能在 TV 上扫的源来建立曲库。
+    /// 正在跑的批量扫描按旧的源清单在扫,停掉它,等它退出后按新清单从头扫。返回要扫的源数。
+    func scanSourcesAfterLANTransfer() -> Int {
+        let previous = rereadAllTagsTask
+        if previous != nil { cancelRereadAllTags() }
+        return startSourceBatchScan(rereadMetadata: false, after: previous)
+    }
+
+    @discardableResult
+    private func startSourceBatchScan(rereadMetadata: Bool, after previous: Task<Void, Never>? = nil) -> Int {
         let targets = sourcesStore.allSources.filter {
             !$0.isDeleted
                 && $0.isEnabled
                 && canScanOnTV($0)
                 && !locallyRemovedSourceIDs.contains($0.id)
         }
-        guard !targets.isEmpty else { return }
+        guard !targets.isEmpty else { return 0 }
+        let batch = UUID()
+        rereadAllTagsBatch = batch
         rereadAllTagsProgress = TVRereadAllTagsProgress(
             index: 0,
             total: targets.count,
@@ -4606,9 +4633,12 @@ final class TVStore {
         )
         rereadAllTagsTask = Task { [weak self] in
             defer {
-                self?.rereadAllTagsTask = nil
-                self?.rereadAllTagsProgress = nil
+                if let self, self.rereadAllTagsBatch == batch {
+                    self.rereadAllTagsTask = nil
+                    self.rereadAllTagsProgress = nil
+                }
             }
+            _ = await previous?.value
             for (offset, source) in targets.enumerated() {
                 guard let self, !Task.isCancelled else { return }
                 self.rereadAllTagsProgress = TVRereadAllTagsProgress(
@@ -4616,19 +4646,23 @@ final class TVStore {
                     total: targets.count,
                     sourceName: source.name
                 )
+                // 扫描器一次只放一个源;用户手动扫着某个源时等它扫完,而不是跳过这个源。
+                if let running = self.scanTask { _ = await running.value }
+                guard !Task.isCancelled else { return }
                 if TVSourceScanner.serverCatalogTypes.contains(source.type) {
-                    _ = await self.runServerCatalogScan(source: source, rereadMetadata: true)
+                    _ = await self.runServerCatalogScan(source: source, rereadMetadata: rereadMetadata)
                 } else if let lister = self.makeLister(for: source) {
                     let dirs = source.scannedDirectories.isEmpty ? ["/"] : source.scannedDirectories
                     _ = await self.runScan(
                         source: source,
                         lister: lister,
                         dirs: dirs,
-                        rereadMetadata: true
+                        rereadMetadata: rereadMetadata
                     )
                 }
             }
         }
+        return targets.count
     }
 
     func cancelRereadAllTags() {

@@ -563,6 +563,37 @@ final class TVLibraryStateTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(synchronousRevisionDelta, 1)
     }
 
+    func testSourcesOnlyLANFinishScansTheSourcesTheTVCanScan() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        // 拒绝连接的端口:扫描很快失败,这里只看收尾请求会不会、对哪些源发起批量扫描。
+        let transferred = MusicSource(id: "transferred-\(UUID().uuidString)", name: "Transferred",
+                                      type: .webdav, host: "127.0.0.1", port: 9)
+        try fixture.sources.addDurably(transferred)
+        let store = fixture.store()
+        store.reload(reloadLibrary: false, migrateLegacyIDs: false)
+
+        let plainFinish = await store.applyLANStage(.finish(LANFinishRequest()), requestSerial: 1)
+        XCTAssertTrue(plainFinish)
+        XCTAssertNil(store.rereadAllTagsProgress)
+
+        let sourcesOnlyFinish = await store.applyLANStage(
+            .finish(LANFinishRequest(scanSources: true, skippedLibrarySongCount: 400_000)),
+            requestSerial: 2
+        )
+        XCTAssertTrue(sourcesOnlyFinish)
+        // 本机文件夹源(fixture.source)不能在 TV 上扫,只扫传来的 WebDAV。
+        let progress = try XCTUnwrap(store.rereadAllTagsProgress)
+        XCTAssertEqual(progress.total, 1)
+        XCTAssertEqual(progress.sourceName, transferred.name)
+        let deadline = Date().addingTimeInterval(30)
+        while store.rereadAllTagsProgress != nil, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertNil(store.rereadAllTagsProgress)
+        XCTAssertNil(store.activeScanSourceID)
+    }
+
     func testScannerPublishesBeforeEnumerationFinishesAndCancellationDoesNotPrune() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }

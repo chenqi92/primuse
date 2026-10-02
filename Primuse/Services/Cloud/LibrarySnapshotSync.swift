@@ -2143,14 +2143,15 @@ final class LibrarySnapshotSync: Sendable {
     private static let lanArtworkBatchBytes = 4 * 1024 * 1024
 
     /// 先音乐源与凭据,再曲库,再分批封面,最后通知 TV 收尾。某段失败时之前的段已在
-    /// Apple TV 上落盘,调用方可以从失败的那段接着发。
+    /// Apple TV 上落盘,调用方可以从失败的那段接着发。曲库超出整库发送的上限时,能自己扫描的
+    /// Apple TV 跳过曲库与封面两段,收尾时请它扫描音乐源;旧版 TV 照旧报曲库太大。
     /// 调用前应先 `MusicLibrary.persistNow()`,否则 library-cache.json 可能不是最新。
     func sendToTVOverLANStaged(
         _ link: LANPairLink,
         startingAt firstStage: LANTransferStage = .sources,
         includeSettings: Bool = true,
         progress: @escaping @Sendable (LANTransferProgress) -> Void
-    ) async -> Result<Void, LANStagedTransferFailure> {
+    ) async -> Result<LANStagedTransferOutcome, LANStagedTransferFailure> {
         // 曲库段与封面段读同一份整库快照; 大曲库要现场导出, 只准备一次。
         var preparedLibrary: Result<Data, AppleTVTransferFailure>?
         func libraryData() async -> Result<Data, AppleTVTransferFailure> {
@@ -2159,30 +2160,47 @@ final class LibrarySnapshotSync: Sendable {
             preparedLibrary = prepared
             return prepared
         }
+        var skippedLibrarySongCount: Int?
+        // 跳过曲库后收尾没送到时记在曲库这一步:接着发会重新判断曲库大小,再请 TV 扫描;
+        // 记在收尾上的话,接着发只会补一个普通收尾,TV 不会扫描。
+        func stopped(at stage: LANTransferStage, _ failure: AppleTVTransferFailure)
+            -> Result<LANStagedTransferOutcome, LANStagedTransferFailure> {
+            .failure(LANStagedTransferFailure(stage: skippedLibrarySongCount != nil ? .library : stage,
+                                              failure: failure))
+        }
         for stage in LANTransferStage.allCases where stage >= firstStage {
-            guard !Task.isCancelled else {
-                return .failure(LANStagedTransferFailure(stage: stage, failure: .cancelled))
-            }
+            guard !Task.isCancelled else { return stopped(at: stage, .cancelled) }
             let result: Result<Void, AppleTVTransferFailure>
             switch stage {
             case .sources:
                 result = await sendLANSourcesStage(link, includeSettings: includeSettings, progress: progress)
-            case .library:
-                progress(LANTransferProgress(stage: .library, activity: .preparing))
-                result = await sendLANLibraryStage(link, libraryData: await libraryData(), progress: progress)
-            case .artwork:
-                progress(LANTransferProgress(stage: .artwork, activity: .preparing))
-                result = await sendLANArtworkStage(link, libraryData: await libraryData(), progress: progress)
+            case .library, .artwork:
+                guard skippedLibrarySongCount == nil else { continue }
+                progress(LANTransferProgress(stage: stage, activity: .preparing))
+                let data = await libraryData()
+                if case .failure(.libraryTooLarge(let songCount)) = data, link.supportsSourcesOnlyTransfer {
+                    plog("LibrarySnapshotSync: LAN library of \(songCount) songs exceeds the transfer limit — sending sources only, TV scans them")
+                    skippedLibrarySongCount = songCount
+                    continue
+                }
+                result = stage == .library
+                    ? await sendLANLibraryStage(link, libraryData: data, progress: progress)
+                    : await sendLANArtworkStage(link, libraryData: data, progress: progress)
             case .finish:
-                progress(LANTransferProgress(stage: .finish, activity: .sending))
-                result = await postLANStage(.finish, link: link, timeout: 30, body: { Data("{}".utf8) })
+                // 跳过了曲库时不报收尾进度:进度条会把曲库与封面两步显示成已完成。
+                if skippedLibrarySongCount == nil {
+                    progress(LANTransferProgress(stage: .finish, activity: .sending))
+                }
+                let request = LANFinishRequest(scanSources: skippedLibrarySongCount != nil,
+                                               skippedLibrarySongCount: skippedLibrarySongCount)
+                result = await postLANStage(.finish, link: link, timeout: 30, body: { try request.jsonData() })
             }
             if case .failure(let failure) = result {
                 plog("LibrarySnapshotSync: LAN staged transfer stopped at \(stage.rawValue) — \(failure.diagnosticCode)")
-                return .failure(LANStagedTransferFailure(stage: stage, failure: failure))
+                return stopped(at: stage, failure)
             }
         }
-        return .success(())
+        return .success(skippedLibrarySongCount.map { .sourcesOnly(librarySongCount: $0) } ?? .sent)
     }
 
     /// 设置随这一段一起到:能收设置的 TV 在音乐源落盘之后装设置,设置装不上也不拒这一段。

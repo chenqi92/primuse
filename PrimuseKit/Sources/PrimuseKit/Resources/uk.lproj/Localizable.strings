@@ -565,6 +565,7 @@
 "fullscreen_effect_starry_night_subtitle" = "За останньою ліричною піснею дрейфують зірки, відтінені ілюстраціями";
 "send_to_tv_error_snapshot_preparation" = "Знімок локальної медіатеки не вдалося підготувати для завантаження.";
 "send_to_tv_error_library_too_large" = "У медіатеці %lld пісень — більше, ніж можна надіслати за один раз, тому її не надіслано. Щоб створити медіатеку на Apple TV, проскануйте джерела музики безпосередньо на ньому.";
+"send_to_tv_sources_only_note" = "У медіатеці %lld пісень — більше, ніж можна надіслати за один раз, тому її не надіслано. Apple TV сам просканує джерела музики й створить медіатеку; хід сканування видно на сторінці джерел Apple TV.";
 "ext.tv.error.incompleteDownload" = "Віддалене завантаження файлу було неповним: очікувалося %@ байтів, отримано %@.";
 "src.subtitle.local" = "Сховище iPhone";
 "fnmusic_fnid" = "FN ID";
@@ -862,6 +863,7 @@
 "send_to_tv_step_everything" = "Медіатека, джерела та дані для входу";
 "send_to_tv_progress_waiting" = "Очікування";
 "send_to_tv_progress_done" = "Готово";
+"send_to_tv_progress_skipped" = "Не надіслано";
 "send_to_tv_progress_failed" = "Не завершено";
 "send_to_tv_progress_preparing" = "Підготовка…";
 "send_to_tv_progress_tv_saving" = "Apple TV зберігає…";
@@ -876,6 +878,8 @@
 "ext.tv.transfer.librarySaved" = "Медіатеку імпортовано. Очікування обкладинок…";
 "ext.tv.transfer.artwork" = "Отримання обкладинок (пакет %1$@ з %2$@)…";
 "ext.tv.transfer.finished" = "Перенесено пісень з iPhone: %@";
+"ext.tv.transfer.finishedScanning" = "Джерела музики перенесено з iPhone. Медіатека iPhone завелика для перенесення, тому Apple TV сканує джерела (%@), щоб створити медіатеку.";
+"ext.tv.transfer.finishedNothingToScan" = "Джерела музики перенесено з iPhone. Медіатека iPhone завелика для перенесення, а жодне з цих джерел не можна просканувати на Apple TV.";
 "ext.tv.transfer.failed" = "Передавання не завершено. Повторіть спробу на iPhone.";
 "audio_variant_lossy_stereo" = "Стерео";
 "audio_variant_lossless" = "Без втрат";

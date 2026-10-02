@@ -565,6 +565,7 @@
 "fullscreen_effect_starry_night_subtitle" = "Звезды в тонах художественного оформления плывут за последней лирической строкой.";
 "send_to_tv_error_snapshot_preparation" = "Не удалось подготовить снимок локальной медиатеки к загрузке.";
 "send_to_tv_error_library_too_large" = "В медиатеке %lld песен — больше, чем можно отправить за один раз, поэтому она не отправлена. Чтобы собрать медиатеку на Apple TV, отсканируйте источники музыки прямо на нём.";
+"send_to_tv_sources_only_note" = "В медиатеке %lld песен — больше, чем можно отправить за один раз, поэтому она не отправлена. Apple TV сам отсканирует источники музыки и соберёт медиатеку; ход сканирования виден на странице источников Apple TV.";
 "ext.tv.error.incompleteDownload" = "Удаленная загрузка файла была неполной: ожидалось %@ байт, получено %@.";
 "src.subtitle.local" = "Хранилище iPhone";
 "fnmusic_fnid" = "FN ID";
@@ -862,6 +863,7 @@
 "send_to_tv_step_everything" = "Медиатека, источники и данные для входа";
 "send_to_tv_progress_waiting" = "Ожидание";
 "send_to_tv_progress_done" = "Готово";
+"send_to_tv_progress_skipped" = "Не отправлено";
 "send_to_tv_progress_failed" = "Не завершено";
 "send_to_tv_progress_preparing" = "Подготовка…";
 "send_to_tv_progress_tv_saving" = "Apple TV сохраняет…";
@@ -876,6 +878,8 @@
 "ext.tv.transfer.librarySaved" = "Медиатека импортирована. Ожидание обложек…";
 "ext.tv.transfer.artwork" = "Получение обложек (пакет %1$@ из %2$@)…";
 "ext.tv.transfer.finished" = "Перенесено песен из iPhone: %@";
+"ext.tv.transfer.finishedScanning" = "Источники музыки перенесены из iPhone. Медиатека iPhone слишком велика для переноса, поэтому Apple TV сканирует источники (%@), чтобы собрать медиатеку.";
+"ext.tv.transfer.finishedNothingToScan" = "Источники музыки перенесены из iPhone. Медиатека iPhone слишком велика для переноса, а ни один из этих источников нельзя отсканировать на Apple TV.";
 "ext.tv.transfer.failed" = "Передача не завершена. Повторите попытку на iPhone.";
 "audio_variant_lossy_stereo" = "Стерео";
 "audio_variant_lossless" = "Без потерь";

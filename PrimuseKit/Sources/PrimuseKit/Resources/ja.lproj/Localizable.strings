@@ -384,6 +384,7 @@
 "send_to_tv_error_snapshot_missing" = "ローカルのライブラリスナップショットがありません。ライブラリの読み込み完了後に再試行してください。";
 "send_to_tv_error_snapshot_preparation" = "ローカルのライブラリスナップショットをアップロード用に準備できませんでした。";
 "send_to_tv_error_library_too_large" = "ライブラリには %lld 曲あり、一度に送れる上限を超えているため送信しませんでした。Apple TV で音楽ソースを直接スキャンするとライブラリを作成できます。";
+"send_to_tv_sources_only_note" = "ライブラリには %lld 曲あり、一度に送れる上限を超えているためライブラリは送信しませんでした。Apple TV が音楽ソースをスキャンしてライブラリを作成します。進行状況は Apple TV のソース画面で確認できます。";
 "send_to_tv_error_cloud_conflict" = "CloudKit のライブラリレコードが別のデバイスで変更され、再試行後も競合しています。";
 "send_to_tv_error_cloud_upload" = "CloudKit へのライブラリアップロードに失敗しました：%@";
 "send_to_tv_error_cloud_schema" = "このリリースでは iCloud 転送チャンネルが有効になっていません（サーバー側に「%@」がありません）。再試行しても解決しません。Apple TV の音楽ソース画面から QR コードの直接転送をご利用ください。";
@@ -915,6 +916,7 @@
 "send_to_tv_step_everything" = "ライブラリ、ソース、サインイン情報";
 "send_to_tv_progress_waiting" = "待機中";
 "send_to_tv_progress_done" = "完了";
+"send_to_tv_progress_skipped" = "未送信";
 "send_to_tv_progress_failed" = "未完了";
 "send_to_tv_progress_preparing" = "準備中…";
 "send_to_tv_progress_tv_saving" = "Apple TV が保存中…";
@@ -929,6 +931,8 @@
 "ext.tv.transfer.librarySaved" = "ライブラリを読み込みました。アートワークを待っています…";
 "ext.tv.transfer.artwork" = "アートワークを受信中（%2$@ 回中 %1$@ 回目）…";
 "ext.tv.transfer.finished" = "iPhone から %@ 曲を転送しました";
+"ext.tv.transfer.finishedScanning" = "iPhone から音楽ソースを転送しました。iPhone のライブラリは大きすぎて転送できないため、%@ 件の音楽ソースをスキャンしてライブラリを作成しています。";
+"ext.tv.transfer.finishedNothingToScan" = "iPhone から音楽ソースを転送しました。iPhone のライブラリは大きすぎて転送できず、これらのソースは Apple TV ではスキャンできません。";
 "ext.tv.transfer.failed" = "転送が完了しませんでした。iPhone でもう一度お試しください。";
 "audio_variant_lossy_stereo" = "ステレオ";
 "audio_variant_lossless" = "ロスレス";

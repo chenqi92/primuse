@@ -29,6 +29,8 @@ struct SendToTVSheet: View {
     @State private var failedStage: LANTransferStage?
     /// 扫码直传时连同刮削、歌词 API 服务、智能功能等设置一起发,随第一步到达。
     @State private var includeSettings = true
+    /// 曲库超出整库发送的上限、只发了音乐源时的曲库歌曲数;Apple TV 会自己扫描音乐源。
+    @State private var sourcesOnlySongCount: Int?
 
     /// 局域网直传不依赖 iCloud;仅旧的 iCloud 上传模式才需要开关开启。
     private var blocked: Bool { lanTarget == nil && !iCloudSyncEnabled }
@@ -91,7 +93,9 @@ struct SendToTVSheet: View {
     }
 
     private func stepState(for stage: LANTransferStage) -> SendToTVStepState {
-        if result == true { return .done }
+        if result == true {
+            return sourcesOnlySongCount != nil && stage > .sources ? .skipped : .done
+        }
         if let failedStage {
             if stage < failedStage { return .done }
             return stage == failedStage ? .failed : .pending
@@ -207,6 +211,15 @@ struct SendToTVSheet: View {
                 .controlSize(.large)
                 .disabled(sending || blocked)
 
+                if result == true, let sourcesOnlySongCount {
+                    Label(PMString("send_to_tv_sources_only_note", sourcesOnlySongCount), systemImage: "info.circle")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .pmFadeTransition(motion: .contentAppear)
+                }
+
                 if let failure {
                     VStack(spacing: 5) {
                         Text(failure.userFacingMessage)
@@ -297,6 +310,7 @@ struct SendToTVSheet: View {
         sending = true
         result = nil
         failure = nil
+        sourcesOnlySongCount = nil
         let previousFailedStage = failedStage
         let resumeStage: LANTransferStage = canResume ? (previousFailedStage ?? .sources) : .sources
         let withSettings = sendsSettings
@@ -334,7 +348,10 @@ struct SendToTVSheet: View {
                 continuation.finish()
                 await observer.value
                 switch outcome {
-                case .success:
+                case .success(.sent):
+                    finish(.success(()), failedAt: nil)
+                case .success(.sourcesOnly(let librarySongCount)):
+                    sourcesOnlySongCount = librarySongCount
                     finish(.success(()), failedAt: nil)
                 case .failure(let staged):
                     finish(.failure(staged.failure), failedAt: staged.stage)
@@ -359,6 +376,8 @@ struct SendToTVSheet: View {
         switch transfer {
         case .success:
             result = true
+            // 只发了音乐源时留着说明,让用户看清曲库没有发送、Apple TV 在自己扫描。
+            guard sourcesOnlySongCount == nil else { return }
             Task {
                 try? await Task.sleep(for: .seconds(1.2))
                 dismiss()
@@ -381,6 +400,8 @@ private enum SendToTVStepState: Equatable {
     case pending
     case active(LANTransferProgress)
     case done
+    /// 曲库超出整库发送的上限,这一步没有发送。
+    case skipped
     case failed
 }
 
@@ -424,6 +445,9 @@ private struct SendToTVStepRow: View {
         case .done:
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(.green)
+        case .skipped:
+            Image(systemName: "minus.circle")
+                .foregroundStyle(.secondary)
         case .failed:
             Image(systemName: "exclamationmark.circle.fill")
                 .foregroundStyle(.orange)
@@ -436,6 +460,8 @@ private struct SendToTVStepRow: View {
             return PMString("send_to_tv_progress_waiting")
         case .done:
             return PMString("send_to_tv_progress_done")
+        case .skipped:
+            return PMString("send_to_tv_progress_skipped")
         case .failed:
             return PMString("send_to_tv_progress_failed")
         case .active(let progress):

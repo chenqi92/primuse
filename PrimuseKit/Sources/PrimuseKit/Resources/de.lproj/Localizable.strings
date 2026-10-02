@@ -384,6 +384,7 @@
 "send_to_tv_error_snapshot_missing" = "Der lokale Mediathek-Schnappschuss fehlt. Warte, bis die Mediathek geladen ist, und versuche es erneut.";
 "send_to_tv_error_snapshot_preparation" = "Der lokale Mediathek-Schnappschuss konnte nicht für den Upload vorbereitet werden.";
 "send_to_tv_error_library_too_large" = "Deine Mediathek enthält %lld Titel – mehr, als auf einmal gesendet werden kann. Sie wurde daher nicht gesendet. Scanne die Musikquellen direkt auf dem Apple TV, um die Mediathek dort aufzubauen.";
+"send_to_tv_sources_only_note" = "Deine Mediathek enthält %lld Titel – mehr, als auf einmal gesendet werden kann. Sie wurde daher nicht gesendet. Das Apple TV scannt die Musikquellen selbst und baut daraus seine Mediathek auf; den Fortschritt siehst du auf dem Apple TV bei den Quellen.";
 "send_to_tv_error_cloud_conflict" = "Der CloudKit-Mediathekdatensatz wurde auf einem anderen Gerät geändert und steht nach dem erneuten Versuch weiterhin in Konflikt.";
 "send_to_tv_error_cloud_upload" = "CloudKit-Upload der Mediathek fehlgeschlagen: %@";
 "send_to_tv_error_cloud_schema" = "Der iCloud-Übertragungskanal ist in dieser Version nicht aktiviert (auf dem Server fehlt „%@“); ein erneuter Versuch hilft nicht. Verwende stattdessen die QR-Code-Direktübertragung auf der Musikquellen-Seite des Apple TV.";
@@ -915,6 +916,7 @@
 "send_to_tv_step_everything" = "Mediathek, Quellen und Anmeldedaten";
 "send_to_tv_progress_waiting" = "Wartet";
 "send_to_tv_progress_done" = "Fertig";
+"send_to_tv_progress_skipped" = "Nicht gesendet";
 "send_to_tv_progress_failed" = "Nicht abgeschlossen";
 "send_to_tv_progress_preparing" = "Wird vorbereitet …";
 "send_to_tv_progress_tv_saving" = "Apple TV speichert …";
@@ -929,6 +931,8 @@
 "ext.tv.transfer.librarySaved" = "Mediathek importiert. Warten auf Cover …";
 "ext.tv.transfer.artwork" = "Cover werden empfangen (Paket %1$@ von %2$@) …";
 "ext.tv.transfer.finished" = "%@ Titel vom iPhone übertragen";
+"ext.tv.transfer.finishedScanning" = "Musikquellen vom iPhone übertragen. Die Mediathek des iPhone ist zu groß zum Übertragen, daher scannt das Apple TV die Musikquellen (%@), um die Mediathek aufzubauen.";
+"ext.tv.transfer.finishedNothingToScan" = "Musikquellen vom iPhone übertragen. Die Mediathek des iPhone ist zu groß zum Übertragen, und keine dieser Quellen kann auf dem Apple TV gescannt werden.";
 "ext.tv.transfer.failed" = "Die Übertragung wurde nicht abgeschlossen. Versuche es auf dem iPhone erneut.";
 "audio_variant_lossy_stereo" = "Stereo";
 "audio_variant_lossless" = "Verlustfrei";

@@ -199,12 +199,13 @@ struct LANSettingsTransferTests {
     @Test("Apple TV QR codes at version 3 accept settings; version 2 only staged transfers")
     func pairingCapability() throws {
         let current = LANPairLink(host: "192.168.1.5", port: 5000, key: key, pairCode: "123456",
-                                  protocolVersion: LANPairLink.currentProtocolVersion)
+                                  protocolVersion: LANPairLink.settingsProtocolVersion)
         let url = try #require(URL(string: current.qrContent))
         let parsed = try #require(LANPairLink(url: url))
         #expect(parsed.protocolVersion == 3)
         #expect(parsed.supportsStagedTransfer)
         #expect(parsed.supportsSettingsTransfer)
+        #expect(!parsed.supportsSourcesOnlyTransfer)
         #expect(current.qrContent.contains("v=3"))
 
         let staged = LANPairLink(host: "192.168.1.5", port: 5000, key: key, pairCode: "123456",

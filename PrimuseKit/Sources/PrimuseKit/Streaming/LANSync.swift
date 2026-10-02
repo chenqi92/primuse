@@ -265,18 +265,21 @@ public struct LANReceiveStatus: Sendable, Equatable {
     public var batchCount: Int?
     /// 曲库落盘后 Apple TV 上的歌曲数。
     public var songCount: Int?
+    /// iPhone 只传来音乐源时,收尾后 Apple TV 要扫描的音乐源数;整库传来时为 nil。
+    public var scanningSourceCount: Int?
     /// 接收端给每个请求的递增编号,用来认出迟到的进度。
     public var requestSerial: Int
 
     public init(phase: Phase, stage: LANTransferStage, fraction: Double? = nil,
                 batchIndex: Int? = nil, batchCount: Int? = nil, songCount: Int? = nil,
-                requestSerial: Int) {
+                scanningSourceCount: Int? = nil, requestSerial: Int) {
         self.phase = phase
         self.stage = stage
         self.fraction = fraction
         self.batchIndex = batchIndex
         self.batchCount = batchCount
         self.songCount = songCount
+        self.scanningSourceCount = scanningSourceCount
         self.requestSerial = requestSerial
     }
 
@@ -304,6 +307,45 @@ public struct LANStagedTransferFailure: Error, Sendable, Equatable {
     public init(stage: LANTransferStage, failure: AppleTVTransferFailure) {
         self.stage = stage
         self.failure = failure
+    }
+}
+
+/// 分段直传发完了什么。
+public enum LANStagedTransferOutcome: Sendable, Equatable {
+    /// 音乐源、曲库与封面都已发到 Apple TV。
+    case sent
+    /// 曲库超出整库发送的上限,只发了音乐源(与设置);Apple TV 收尾后自己扫描音乐源建立曲库。
+    case sourcesOnly(librarySongCount: Int)
+}
+
+/// 分段直传收尾那段的请求体。旧版 iPhone 发 `{}`,旧版 Apple TV 不读请求体。
+public struct LANFinishRequest: Codable, Sendable, Equatable {
+    /// 曲库与封面两段被跳过(曲库超出整库发送的上限),Apple TV 收尾后扫描音乐源。
+    /// 只发给声明了 `LANPairLink.supportsSourcesOnlyTransfer` 的 Apple TV。
+    public var scanSources: Bool
+    /// 跳过的曲库有多少首,只用于日志。
+    public var skippedLibrarySongCount: Int?
+
+    public init(scanSources: Bool = false, skippedLibrarySongCount: Int? = nil) {
+        self.scanSources = scanSources
+        self.skippedLibrarySongCount = skippedLibrarySongCount
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case scanSources, skippedLibrarySongCount
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        scanSources = try c.decodeIfPresent(Bool.self, forKey: .scanSources) ?? false
+        skippedLibrarySongCount = try c.decodeIfPresent(Int.self, forKey: .skippedLibrarySongCount)
+    }
+
+    public func jsonData() throws -> Data { try JSONEncoder().encode(self) }
+
+    /// 读不懂的请求体按普通收尾处理:收尾本身不该因为附带的请求失败。
+    public static func decode(_ data: Data) -> LANFinishRequest {
+        (try? JSONDecoder().decode(LANFinishRequest.self, from: data)) ?? LANFinishRequest()
     }
 }
 
@@ -426,14 +468,15 @@ public struct LANPairLink: Sendable, Equatable {
     public var key: Data        // 32 bytes
     public var pairCode: String // 6 digits shown on both devices
     /// 1 = 只收整包 `/config`;2 = 还收分段的 `LANTransferStage` 路径;3 = 第一段还认
-    /// `LANSyncPayload.settings`。旧二维码不带 `v`,按 1 处理。已发布的 iPhone 一直按 `>= 2`
-    /// 判断分段,所以升到 3 不影响它们照常分段发送(只是不带设置)。
+    /// `LANSyncPayload.settings`;4 = 收尾段还认 `LANFinishRequest.scanSources`。旧二维码不带 `v`,
+    /// 按 1 处理。已发布的 iPhone 一直按 `>= 2` / `>= 3` 判断,所以升版本不影响它们照常发送。
     public var protocolVersion: Int
 
     public static let stagedProtocolVersion = 2
     public static let settingsProtocolVersion = 3
+    public static let sourcesOnlyProtocolVersion = 4
     /// Apple TV 二维码当前声明的版本。
-    public static let currentProtocolVersion = settingsProtocolVersion
+    public static let currentProtocolVersion = sourcesOnlyProtocolVersion
 
     public init(host: String, port: Int, key: Data, pairCode: String = LANPairLink.randomPairCode(),
                 protocolVersion: Int = 1) {
@@ -448,6 +491,10 @@ public struct LANPairLink: Sendable, Equatable {
 
     /// 这台 Apple TV 能不能收设置。不能的(旧版 TV)照常收音乐源、曲库与封面。
     public var supportsSettingsTransfer: Bool { protocolVersion >= Self.settingsProtocolVersion }
+
+    /// 曲库超出整库发送的上限时,这台 Apple TV 能不能只收音乐源、收尾后自己扫描。
+    /// 不能的(旧版 TV)不认收尾请求体,iPhone 照旧报曲库太大。
+    public var supportsSourcesOnlyTransfer: Bool { protocolVersion >= Self.sourcesOnlyProtocolVersion }
 
     /// 从扫码得到的 `primuse://pair?...` 解析。
     public init?(url: URL) {

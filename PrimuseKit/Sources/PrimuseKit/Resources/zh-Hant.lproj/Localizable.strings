@@ -381,6 +381,7 @@
 "send_to_tv_error_snapshot_missing" = "本機曲庫快照不存在，請等待曲庫載入完成後再試。";
 "send_to_tv_error_snapshot_preparation" = "無法準備要上傳的本機曲庫快照。";
 "send_to_tv_error_library_too_large" = "曲庫有 %lld 首歌，超出了整庫傳送的上限，曲庫沒有傳送。可以在 Apple TV 上直接掃描音樂來源來建立曲庫。";
+"send_to_tv_sources_only_note" = "曲庫有 %lld 首歌，超出了整庫傳送的上限，曲庫沒有傳送。Apple TV 會自行掃描音樂來源來建立曲庫，進度可以在 Apple TV 的音樂來源頁查看。";
 "send_to_tv_error_cloud_conflict" = "另一部裝置修改了 CloudKit 曲庫記錄，重試後仍然衝突。";
 "send_to_tv_error_cloud_schema" = "此版本的 iCloud 傳輸通道尚未啟用（伺服器端缺少「%@」），重試無效。請改用 Apple TV 音樂來源頁面的掃碼直傳。";
 "icloud_cloud_schema_missing" = "iCloud 正式環境缺少伺服器架構「%@」，重試無法修復。請聯絡開發者完成 CloudKit 架構部署。";
@@ -912,6 +913,7 @@
 "send_to_tv_step_everything" = "資料庫、音樂來源和登入資訊";
 "send_to_tv_progress_waiting" = "等待中";
 "send_to_tv_progress_done" = "已完成";
+"send_to_tv_progress_skipped" = "未傳送";
 "send_to_tv_progress_failed" = "未完成";
 "send_to_tv_progress_preparing" = "正在準備…";
 "send_to_tv_progress_tv_saving" = "Apple TV 正在儲存…";
@@ -926,6 +928,8 @@
 "ext.tv.transfer.librarySaved" = "資料庫已匯入，正在等待封面…";
 "ext.tv.transfer.artwork" = "正在接收封面（第 %1$@ 批，共 %2$@ 批）";
 "ext.tv.transfer.finished" = "已從 iPhone 傳入 %@ 首歌曲";
+"ext.tv.transfer.finishedScanning" = "已從 iPhone 傳入音樂來源。iPhone 上的曲庫太大，沒有整庫傳入，正在掃描 %@ 個音樂來源來建立曲庫。";
+"ext.tv.transfer.finishedNothingToScan" = "已從 iPhone 傳入音樂來源。iPhone 上的曲庫太大，沒有整庫傳入，這些音樂來源也不能在 Apple TV 上掃描。";
 "ext.tv.transfer.failed" = "傳輸沒有完成，請在 iPhone 上重試。";
 "audio_variant_lossy_stereo" = "立體聲";
 "audio_variant_lossless" = "無損";
