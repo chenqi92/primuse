@@ -1383,6 +1383,17 @@ final class TVStore {
     }
     func albumOf(_ song: TVSong) -> TVAlbum? { album(song.albumID) }
     func songs(forAlbum id: String) -> [TVSong] {
+        let mapper = songMapper
+        return sortedSongIDs(forAlbum: id).compactMap { library.visibleSong(id: $0).map(mapper.map) }
+    }
+
+    /// 专辑曲目 id,顺序同 `songs(forAlbum:)`。只要 id 或数量时用它:转换成 TVSong 要逐首
+    /// 解析艺人名,首页主视觉每次重算、每张专辑卡片的菜单都会把整张专辑转一遍。
+    func songIDs(forAlbum id: String) -> [String] {
+        sortedSongIDs(forAlbum: id).filter { library.visibleSong(id: $0) != nil }
+    }
+
+    private func sortedSongIDs(forAlbum id: String) -> [String] {
         _ = libraryContentRevision
         if sortedAlbumSongIDs[id] == nil {
             let index = albumSongIDsIndex ?? {
@@ -1395,8 +1406,7 @@ final class TVStore {
             let songs = (index[id] ?? []).compactMap { library.visibleSong(id: $0) }
             sortedAlbumSongIDs[id] = AlbumTrackOrder.sorted(songs).map(\.id)
         }
-        let mapper = songMapper
-        return (sortedAlbumSongIDs[id] ?? []).compactMap { library.visibleSong(id: $0).map(mapper.map) }
+        return sortedAlbumSongIDs[id] ?? []
     }
 
     var recentlyPlayed: [TVSong] {
@@ -5265,7 +5275,7 @@ final class TVStore {
     }
 
     func play(album: TVAlbum) {
-        playResolvedQueue(songIDs: songs(forAlbum: album.id).map(\.id), shuffled: shuffleEnabled)
+        playResolvedQueue(songIDs: songIDs(forAlbum: album.id), shuffled: shuffleEnabled)
     }
 
     /// 播放歌单**自身**的曲目:用歌单全部歌曲建队列、从首曲开始,续播留在歌单内

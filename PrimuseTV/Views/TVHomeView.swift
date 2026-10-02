@@ -41,18 +41,18 @@ struct TVHomeView: View {
     #endif
 
     private var candidateAlbum: TVAlbum? {
-        store.albums.first(where: { !store.songs(forAlbum: $0.id).isEmpty })
+        store.albums.first(where: { !store.songIDs(forAlbum: $0.id).isEmpty })
             ?? store.albums.first
     }
-    private var candidateAlbumSongs: [TVSong] {
+    private var candidateAlbumSongIDs: [String] {
         guard let candidateAlbum else { return [] }
-        return store.songs(forAlbum: candidateAlbum.id)
+        return store.songIDs(forAlbum: candidateAlbum.id)
     }
     private var heroContent: TVHomeHeroPolicy.Content {
         TVHomeHeroPolicy.content(
             totalSongCount: store.songs.count,
             albumCount: store.albums.count,
-            candidateAlbumSongCount: candidateAlbumSongs.count
+            candidateAlbumSongCount: candidateAlbumSongIDs.count
         )
     }
     private var heroAlbum: TVAlbum? {
@@ -89,7 +89,8 @@ struct TVHomeView: View {
     /// 整库模式直接在曲库原始数组上求和,不为整库逐首转换界面值。
     private var heroTotalDuration: Double {
         switch heroContent {
-        case .album: return candidateAlbumSongs.reduce(0) { $0 + $1.duration }
+        case .album:
+            return candidateAlbumSongIDs.reduce(0) { $0 + (store.library.visibleSong(id: $1)?.duration ?? 0) }
         case .song: return store.songs.source.reduce(0) { $0 + $1.duration }
         case .empty: return 0
         }
@@ -98,7 +99,7 @@ struct TVHomeView: View {
         TVHomeHeroPolicy.displayedSongCount(
             for: heroContent,
             totalSongCount: store.songs.count,
-            candidateAlbumSongCount: candidateAlbumSongs.count
+            candidateAlbumSongCount: candidateAlbumSongIDs.count
         )
     }
     private var heroHeading: String {

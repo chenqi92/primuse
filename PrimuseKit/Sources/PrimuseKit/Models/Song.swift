@@ -354,10 +354,15 @@ public enum MediaMetadataTextRepair {
         let originalAlbum = song.albumTitle
         let originalAlbumArtist = song.albumArtistName
         let originalSourceArtists = song.sourceArtistNames
-        var titleReference = fileNameTitle(from: song.filePath)
-        var artistReference = fileNameArtist(from: song.filePath)?.replacingOccurrences(
-            of: #"^(?:\d{1,3}[.、-]\s*|\d{1,3}\s+)(?=\D)"#, with: "", options: .regularExpression
-        )
+        let fileReferences = fileNameReferences(from: song.filePath)
+        var titleReference = fileReferences.title
+        var artistReference = fileReferences.artist.map { artist in
+            startsWithNumber(artist)
+                ? artist.replacingOccurrences(
+                    of: #"^(?:\d{1,3}[.、-]\s*|\d{1,3}\s+)(?=\D)"#, with: "", options: .regularExpression
+                )
+                : artist
+        }
         if let artist = artistReference, let title = titleReference,
            ArtistIdentityPolicy.groupingKey(repairedTagValue(song.title)) == ArtistIdentityPolicy.groupingKey(artist),
            ArtistIdentityPolicy.groupingKey(artist) != ArtistIdentityPolicy.groupingKey(title) {
@@ -394,18 +399,24 @@ public enum MediaMetadataTextRepair {
 
     private static func repairedArtistField(_ value: String?, reference: String?) -> String? {
         if let value {
-            let isPromotion = value.range(of: #"www\.[a-z0-9-]+\.[a-z]{2,}"#,
-                                          options: [.regularExpression, .caseInsensitive]) != nil
-                || value.range(of: #"^(?:[\[【].*收藏[\]】]|※.*收藏|.*收藏\s*[Qq][Qq]\s*[:：]\s*\d+)$"#,
-                               options: .regularExpression) != nil
+            // 整库装载时每首都要过这里：先看有没有正则必需的字面字符，没有就不跑正则。
+            let scalars = value.unicodeScalars
+            let isPromotion = (scalars.contains(".")
+                && value.range(of: #"www\.[a-z0-9-]+\.[a-z]{2,}"#,
+                               options: [.regularExpression, .caseInsensitive]) != nil)
+                || (scalars.contains("收")
+                    && value.range(of: #"^(?:[\[【].*收藏[\]】]|※.*收藏|.*收藏\s*[Qq][Qq]\s*[:：]\s*\d+)$"#,
+                                   options: .regularExpression) != nil)
             if isPromotion {
                 guard let reference = repaired(reference), !isSuspicious(reference) else { return nil }
                 return reference
             }
-            for name in ArtistNameParser.names(rawName: reference) {
-                let unnumbered = value.replacingOccurrences(
+            let unnumbered = startsWithNumber(value)
+                ? value.replacingOccurrences(
                     of: #"^\d{1,3}[.、]\s*(?=\D)"#, with: "", options: .regularExpression
                 )
+                : value
+            for name in ArtistNameParser.names(rawName: reference) {
                 if unnumbered != value,
                    ArtistIdentityPolicy.groupingKey(unnumbered) == ArtistIdentityPolicy.groupingKey(name) {
                     return name
@@ -488,7 +499,9 @@ public enum MediaMetadataTextRepair {
     private static func artistField(in text: String) -> (
         prefix: String, key: String, artist: String, nullDelimited: Bool
     )? {
-        guard text.contains("="),
+        // 「=」只可能来自它自己或「≠」的分解；两样都没有就不必做子串查找。
+        guard text.utf8.contains(UInt8(ascii: "=")) || text.unicodeScalars.contains("\u{2260}"),
+              text.contains("="),
               let match = appendedArtistField.firstMatch(
                 in: text, range: NSRange(text.startIndex..., in: text)
               ),
@@ -512,7 +525,7 @@ public enum MediaMetadataTextRepair {
         } else {
             value = text
         }
-        let normalized = value.replacingOccurrences(of: "\0", with: "")
+        let normalized = value.utf8.contains(0) ? value.replacingOccurrences(of: "\0", with: "") : value
         return TextEncodingRepair.repaired(normalized) ?? normalized
     }
 
@@ -579,16 +592,19 @@ public enum MediaMetadataTextRepair {
     }
 
     public static func fileNameTitle(from path: String?) -> String? {
-        guard let baseName = fileBaseName(from: path) else { return nil }
-        if let numberedTitle = numberedTrackTitle(baseName) { return numberedTitle }
-        return fileNameIdentity(fromBaseName: baseName)?.title ?? baseName
+        fileNameReferences(from: path).title
     }
 
     public static func fileNameArtist(from path: String?) -> String? {
-        guard let baseName = fileBaseName(from: path) else { return nil }
-        if numberedTrackTitle(baseName) != nil { return nil }
-        guard let parsed = fileNameIdentity(fromBaseName: baseName) else { return nil }
-        return parsed.artist.allSatisfy(\.isNumber) ? nil : parsed.artist
+        fileNameReferences(from: path).artist
+    }
+
+    /// 文件名给出的歌名与艺人，只解析一遍。曲号开头的（「01. 歌名」「01 - 歌名」）只有歌名。
+    private static func fileNameReferences(from path: String?) -> (title: String?, artist: String?) {
+        guard let baseName = fileBaseName(from: path) else { return (nil, nil) }
+        if let title = dotNumberedTrackTitle(baseName) { return (title, nil) }
+        guard let parsed = fileNameIdentity(fromBaseName: baseName) else { return (baseName, nil) }
+        return (parsed.title, parsed.artist.allSatisfy(\.isNumber) ? nil : parsed.artist)
     }
 
     /// Parses common NAS base names without treating a bare underscore inside a
@@ -600,11 +616,12 @@ public enum MediaMetadataTextRepair {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
-        let normalizedSeparators = trimmed.replacingOccurrences(
-            of: "\\s+_\\s*|\\s*_\\s+",
-            with: " _ ",
-            options: .regularExpression
-        )
+        let scalars = trimmed.unicodeScalars
+        let normalizedSeparators = scalars.contains("_")
+            ? underscoreSeparator.stringByReplacingMatches(
+                in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed), withTemplate: " _ "
+            )
+            : trimmed
         let underscoreParts = normalizedSeparators
             .components(separatedBy: " _ ")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -613,13 +630,22 @@ public enum MediaMetadataTextRepair {
             return FileNameIdentity(artist: underscoreParts[0], title: underscoreParts[1])
         }
 
-        guard let range = trimmed.range(of: "\\s*[–—-]\\s+", options: .regularExpression) else {
+        guard scalars.contains(where: { $0 == "-" || $0 == "–" || $0 == "—" }),
+              let range = trimmed.range(of: "\\s*[–—-]\\s+", options: .regularExpression) else {
             return nil
         }
         let artist = String(trimmed[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
         let title = String(trimmed[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !artist.isEmpty, !title.isEmpty else { return nil }
         return FileNameIdentity(artist: artist, title: title)
+    }
+
+    // 整库装载时每首歌都要解析文件名，正则预先编译好。
+    private static let underscoreSeparator = try! NSRegularExpression(pattern: "\\s+_\\s*|\\s*_\\s+")
+
+    /// 以 `\d` 开头的正则只可能在首个字符是数字时匹配。
+    private static func startsWithNumber(_ value: String) -> Bool {
+        value.unicodeScalars.first?.properties.numericType != nil
     }
 
     private static func fileBaseName(from path: String?) -> String? {
@@ -631,18 +657,12 @@ public enum MediaMetadataTextRepair {
         return baseName.isEmpty ? nil : baseName
     }
 
-    private static func numberedTrackTitle(_ value: String) -> String? {
-        if let dot = value.range(of: ". ") {
-            let prefix = value[..<dot.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
-            let title = value[dot.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
-            if !prefix.isEmpty, prefix.allSatisfy(\.isNumber), !title.isEmpty {
-                return title
-            }
-        }
-        if let parsed = fileNameIdentity(fromBaseName: value), parsed.artist.allSatisfy(\.isNumber) {
-            return parsed.title
-        }
-        return nil
+    private static func dotNumberedTrackTitle(_ value: String) -> String? {
+        guard let dot = value.range(of: ". ") else { return nil }
+        let prefix = value[..<dot.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = value[dot.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prefix.isEmpty, prefix.allSatisfy(\.isNumber), !title.isEmpty else { return nil }
+        return title
     }
 
     /// 在文件内嵌标签与文件名之间挑更可信的一个。

@@ -11719,11 +11719,13 @@ final class MusicLibrary {
             let repairedText = repairedSongIDs.contains(song.id)
             let repairedDTSDuration = Self.repairedDTSDuration(for: song)
             var songWithExpectedDerivedIDs = song
+            // 第一遍文本修复对这首没有改动 = 修复对它是恒等的，这里不必再跑。
             fillDerivedIDs(
                 &songWithExpectedDerivedIDs,
                 configuration: configuration,
                 inferredAlbumArtist: inferred[song.id],
-                memo: memo
+                memo: memo,
+                textRepairIsNoOp: !repairedText
             )
             let needsDerivedIDs = song.artistID != songWithExpectedDerivedIDs.artistID
                 || song.albumID != songWithExpectedDerivedIDs.albumID
@@ -13159,10 +13161,15 @@ final class MusicLibrary {
         _ song: inout Song,
         configuration: ArtistNameConfiguration = .defaultValue,
         inferredAlbumArtist: String? = nil,
-        memo: DerivedIDMemo? = nil
+        memo: DerivedIDMemo? = nil,
+        /// 调用方已对这一行跑过同一个修复且它没有改动任何东西（修复对它是恒等的），
+        /// 再跑一遍必然还是原样：跳过。
+        textRepairIsNoOp: Bool = false
     ) {
         let previousAlbumArtist = song.albumArtistName
-        MediaMetadataTextRepair.repairFileBackedMetadata(in: &song)
+        if !textRepairIsNoOp {
+            MediaMetadataTextRepair.repairFileBackedMetadata(in: &song)
+        }
         let correctedInference = inferredAlbumArtist == previousAlbumArtist
             ? song.albumArtistName : inferredAlbumArtist
         let unknownArtist = memo?.unknownArtist ?? String(localized: "unknown_artist")
@@ -13332,6 +13339,29 @@ final class MusicLibrary {
         let inferredAlbumArtists = Self.inferredAlbumArtists(for: songs, folders: folders)
         guard !cancellationCheck() else { return nil }
         let unknownArtist = String(localized: "unknown_artist")
+        // 整库一遍里同样的艺人名、同一张专辑反复出现：解析、折叠、SHA256 各只算一次。
+        var resolvedNamesMemo: [DerivedIDMemo.ArtistNames: [String]] = [:]
+        func artistNames(for song: Song) -> [String] {
+            let key = DerivedIDMemo.ArtistNames(artistName: song.artistName, sourceArtistNames: song.sourceArtistNames)
+            if let cached = resolvedNamesMemo[key] { return cached }
+            let names = resolvedArtistNames(for: song, configuration: configuration)
+            resolvedNamesMemo[key] = names
+            return names
+        }
+        var artistIDMemo: [String: String] = [:]
+        func artistID(named name: String) -> String {
+            if let cached = artistIDMemo[name] { return cached }
+            let id = hashID(ArtistIdentityPolicy.groupingKey(name))
+            artistIDMemo[name] = id
+            return id
+        }
+        var albumIDMemo: [AlbumGroupingIdentity: String] = [:]
+        func albumID(for identity: AlbumGroupingIdentity) -> String {
+            if let cached = albumIDMemo[identity] { return cached }
+            let id = hashID("\(identity.artistName):\(identity.albumTitle)")
+            albumIDMemo[identity] = id
+            return id
+        }
 
         // Albums ── 只 group 有 albumTitle 的歌曲。Use explicit loops so a
         // superseded request can stop inside the 10K-row phases, not merely
@@ -13360,9 +13390,9 @@ final class MusicLibrary {
                 totalDuration += song.duration.sanitizedDuration
             }
             albums.append(Album(
-                id: hashID("\(identity.artistName):\(identity.albumTitle)"),
+                id: albumID(for: identity),
                 title: identity.albumTitle,
-                artistID: hashID(ArtistIdentityPolicy.groupingKey(identity.artistName)),
+                artistID: artistID(named: identity.artistName),
                 artistName: identity.artistName,
                 year: groupedSongs.first?.year,
                 genre: groupedSongs.first?.genre,
@@ -13380,8 +13410,8 @@ final class MusicLibrary {
         var artistGroups: [String: [(name: String, song: Song)]] = [:]
         for (offset, song) in songs.enumerated() {
             if offset.isMultiple(of: 64), cancellationCheck() { return nil }
-            for name in resolvedArtistNames(for: song, configuration: configuration) {
-                artistGroups[hashID(ArtistIdentityPolicy.groupingKey(name)), default: []].append((name, song))
+            for name in artistNames(for: song) {
+                artistGroups[artistID(named: name), default: []].append((name, song))
             }
         }
         guard !cancellationCheck() else { return nil }
@@ -13402,8 +13432,8 @@ final class MusicLibrary {
                     albumArtistName: inferredAlbumArtists[song.id] ?? song.albumArtistName,
                     trackArtistName: song.artistName,
                     unknownArtistName: unknownArtist
-                ), hashID(ArtistIdentityPolicy.groupingKey(identity.artistName)) == id {
-                    albumIDs.insert(hashID("\(identity.artistName):\(identity.albumTitle)"))
+                ), artistID(named: identity.artistName) == id {
+                    albumIDs.insert(albumID(for: identity))
                 }
                 if thumbnailPath == nil {
                     if let automatic = AutomaticArtistArtworkReference.resolve(
@@ -13414,10 +13444,7 @@ final class MusicLibrary {
                             reference: artwork.reference,
                             cacheDiscriminator: artwork.cacheDiscriminator
                         )
-                    } else if resolvedArtistNames(
-                        for: song,
-                        configuration: configuration
-                    ).first.map({ hashID(ArtistIdentityPolicy.groupingKey($0)) }) == id,
+                    } else if artistNames(for: song).first.map({ artistID(named: $0) }) == id,
                     let reference = song.artistArtworkFileName {
                         thumbnailPath = SourceOwnedArtworkReference.make(
                             sourceID: song.sourceID,
@@ -13448,7 +13475,7 @@ final class MusicLibrary {
                 trackArtistName: song.artistName,
                 unknownArtistName: unknownArtist
             ) else { continue }
-            let expected = hashID("\(identity.artistName):\(identity.albumTitle)")
+            let expected = albumID(for: identity)
             if song.albumID != expected {
                 albumIDCorrections[song.id] = expected
             }

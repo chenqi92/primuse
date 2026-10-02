@@ -76,9 +76,10 @@ public enum AlbumArtistInferencePolicy {
         directoryAuthoritativeSourceIDs: Set<String>
     ) -> [String: String] {
         var result: [String: String] = [:]
+        var keys = GroupingKeys()
         for scope in scopes(for: tracks, restrictedTo: directoryAuthoritativeSourceIDs)
         where scope.count >= 2 {
-            guard let target = target(for: scope) else { continue }
+            guard let target = target(for: scope, keys: &keys) else { continue }
             for track in scope where effective(track) != target {
                 result[track.id] = target
             }
@@ -94,7 +95,7 @@ public enum AlbumArtistInferencePolicy {
         guard !unfoldered.isEmpty else { return result }
         for scope in scopes(for: unfoldered, restrictedTo: nil, byDirectory: false)
         where scope.count >= 2 {
-            guard let target = target(for: scope, explicitTagsOnly: true) else { continue }
+            guard let target = target(for: scope, explicitTagsOnly: true, keys: &keys) else { continue }
             for track in scope where effective(track) != target {
                 result[track.id] = target
             }
@@ -122,6 +123,7 @@ public enum AlbumArtistInferencePolicy {
     /// would cost one file read per song.
     public static func unconfirmedAlbumArtistTrackIDs(for tracks: [Track]) -> Set<String> {
         var result: Set<String> = []
+        var groupingKeys = GroupingKeys()
         // Every source takes part, and the folder is not part of the key.
         // Unlike an inference this only asks for the file to be read again, so
         // it is scoped the way albums themselves are grouped — two tracks with
@@ -132,9 +134,9 @@ public enum AlbumArtistInferencePolicy {
             var keys: Set<String> = []
             for track in scope {
                 guard let value = effective(track) else { continue }
-                keys.insert(ArtistIdentityPolicy.groupingKey(value))
+                keys.insert(groupingKeys.key(value))
             }
-            guard keys.count >= 2, target(for: scope) == nil else { continue }
+            guard keys.count >= 2, target(for: scope, keys: &groupingKeys) == nil else { continue }
             for track in scope { result.insert(track.id) }
         }
         return result
@@ -180,14 +182,18 @@ public enum AlbumArtistInferencePolicy {
     ///
     /// `explicitTagsOnly` drops the majority vote, leaving only the verdict a
     /// scope can reach without the folder having vouched for it.
-    private static func target(for scope: [Track], explicitTagsOnly: Bool = false) -> String? {
+    private static func target(
+        for scope: [Track],
+        explicitTagsOnly: Bool = false,
+        keys: inout GroupingKeys
+    ) -> String? {
         // One tally over the whole scope: it decides both how strong a key is
         // and which spelling of that key the scope actually uses.
         var tally = Tally()
         var missingCount = 0
         for track in scope {
             if let value = effective(track) {
-                tally.add(value)
+                tally.add(value, key: keys.key(value))
             } else {
                 missingCount += 1
             }
@@ -196,7 +202,7 @@ public enum AlbumArtistInferencePolicy {
         var explicitKeys: [String] = []
         for track in scope where isExplicit(track) {
             guard let value = effective(track) else { continue }
-            let key = ArtistIdentityPolicy.groupingKey(value)
+            let key = keys.key(value)
             if !explicitKeys.contains(key) { explicitKeys.append(key) }
         }
         if explicitKeys.count == 1 {
@@ -213,6 +219,20 @@ public enum AlbumArtistInferencePolicy {
         return tally.spelling(forKeyAt: top)
     }
 
+    /// `ArtistIdentityPolicy.groupingKey` remembered for one pass: every track
+    /// of an album usually carries the same name, and folding is the expensive
+    /// part of a library-wide inference.
+    private struct GroupingKeys {
+        private var keyByValue: [String: String] = [:]
+
+        mutating func key(_ value: String) -> String {
+            if let key = keyByValue[value] { return key }
+            let key = ArtistIdentityPolicy.groupingKey(value)
+            keyByValue[value] = key
+            return key
+        }
+    }
+
     /// Counts grouping keys in first-seen order and remembers, per key, the
     /// most frequent spelling (ties resolved by the spelling seen first).
     private struct Tally {
@@ -222,8 +242,7 @@ public enum AlbumArtistInferencePolicy {
         private var spellingOrder: [[String]] = []
         private var spellingCounts: [[String: Int]] = []
 
-        mutating func add(_ value: String) {
-            let key = ArtistIdentityPolicy.groupingKey(value)
+        mutating func add(_ value: String, key: String) {
             let index: Int
             if let existing = indexByKey[key] {
                 index = existing

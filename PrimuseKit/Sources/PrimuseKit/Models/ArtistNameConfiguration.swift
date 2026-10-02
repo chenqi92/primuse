@@ -44,7 +44,40 @@ public struct ArtistNameConfiguration: Codable, Hashable, Sendable {
         try JSONEncoder().encode(normalized())
     }
 
+    /// 规范化是纯函数，而且解析艺人名时每首歌都要先拿一次规范化的配置（整库装载、电视
+    /// 映射歌曲行都是逐首调用）。配置几乎总是同一份，记住最近几份的结果；剖析里它曾占
+    /// 整库装载 15% 的时间。
     public func normalized() -> ArtistNameConfiguration {
+        if let cached = Self.normalizationCache.value(for: self) { return cached }
+        let value = makeNormalized()
+        Self.normalizationCache.store(value, for: self)
+        return value
+    }
+
+    private static let normalizationCache = NormalizationCache()
+
+    private final class NormalizationCache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var entries: [(input: ArtistNameConfiguration, output: ArtistNameConfiguration)] = []
+
+        func value(for input: ArtistNameConfiguration) -> ArtistNameConfiguration? {
+            lock.lock()
+            defer { lock.unlock() }
+            return entries.first { $0.input == input }?.output
+        }
+
+        func store(_ output: ArtistNameConfiguration, for input: ArtistNameConfiguration) {
+            lock.lock()
+            defer { lock.unlock() }
+            entries.removeAll { $0.input == input || $0.input == output }
+            // 规范化的结果再规范化还是它自己，一并记住。
+            entries.insert((input, output), at: 0)
+            if input != output { entries.insert((output, output), at: 0) }
+            if entries.count > 8 { entries.removeLast(entries.count - 8) }
+        }
+    }
+
+    private func makeNormalized() -> ArtistNameConfiguration {
         ArtistNameConfiguration(
             schemaVersion: min(max(schemaVersion, 1), Self.currentSchemaVersion),
             separators: Self.normalizedList(

@@ -258,7 +258,7 @@ struct TVLibraryView: View {
                 try? await Task.sleep(nanoseconds: 200_000_000)
                 tries += 1
             }
-            selectedAlbum = store.albums.first { (4...40).contains(store.songs(forAlbum: $0.id).count) }
+            selectedAlbum = store.albums.first { (4...40).contains(store.songIDs(forAlbum: $0.id).count) }
                 ?? store.albums.first
         }
         .task {
@@ -1138,7 +1138,7 @@ struct TVAlbumDetailView: View {
     /// 补全改了专辑名(或专辑艺人)时,这张专辑的歌归到了新的专辑 id 下。
     private func followAlbumAfterScrape() {
         defer { songIDsBeforeScrape = [] }
-        guard store.songs(forAlbum: albumID).isEmpty,
+        guard store.songIDs(forAlbum: albumID).isEmpty,
               let moved = songIDsBeforeScrape.lazy.compactMap({ store.song($0)?.albumID }).first else { return }
         albumID = moved
     }

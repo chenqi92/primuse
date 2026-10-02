@@ -321,16 +321,16 @@ struct TVAlbumCard: View {
                 }
                 Button("shuffle", systemImage: "shuffle") {
                     guard store.playResolvedQueue(
-                        songIDs: store.songs(forAlbum: album.id).map(\.id),
+                        songIDs: store.songIDs(forAlbum: album.id),
                         shuffled: true
                     ) else { return }
                     action()
                 }
             }
             Button("medley_play_selection", systemImage: "shuffle") {
-                pendingMedleyIDs = store.songs(forAlbum: album.id).map(\.id)
+                pendingMedleyIDs = store.songIDs(forAlbum: album.id)
             }
-            .disabled(!store.canPlayMedley(songIDs: store.songs(forAlbum: album.id).map(\.id)))
+            .disabled(!store.canPlayMedley(songIDs: store.songIDs(forAlbum: album.id)))
         }
         .modifier(TVMedleyConfirmation(pendingIDs: $pendingMedleyIDs, onStarted: action))
         .accessibilityLabel(Text(titleOverride ?? album.title))

@@ -204,7 +204,8 @@ public enum TextEncodingRepair {
 
         // 一部分媒体服务器把解不出的尾部字节换成 ASCII 问号而不是 U+FFFD。
         // 要求同时存在 CJK 文字, 才不会误伤正常带问号的西文标题。
-        return text.contains("??")
+        return text.utf8.contains(UInt8(ascii: "?"))
+            && text.contains("??")
             && text.unicodeScalars.contains { isCJKScript($0.value) }
     }
 

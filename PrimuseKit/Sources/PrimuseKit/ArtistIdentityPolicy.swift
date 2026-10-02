@@ -11,11 +11,14 @@ public enum ArtistIdentityPolicy {
             .precomposedStringWithCanonicalMapping
             .folding(
                 options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
-                locale: Locale(identifier: "en_US_POSIX")
+                locale: foldingLocale
             )
             .split(whereSeparator: { $0.isWhitespace })
             .joined(separator: " ")
     }
+
+    /// 整库装载时每首歌要算好几次，区域设置不每次现建。
+    private static let foldingLocale = Locale(identifier: "en_US_POSIX")
 
     /// Key used by earlier releases (lowercasing only). Persisted state that is
     /// addressed by an artist ID — artwork overrides, quick-access pins — is
