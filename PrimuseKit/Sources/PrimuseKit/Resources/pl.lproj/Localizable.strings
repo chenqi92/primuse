@@ -631,6 +631,7 @@
 "send_to_tv_error_payload_encryption" = "Nie można zaszyfrować ładunku transferu. Zeskanuj nowy kod QR Apple TV i spróbuj ponownie.";
 "send_to_tv_error_snapshot_missing" = "Brak migawki biblioteki lokalnej. Poczekaj, aż biblioteka zakończy ładowanie, a następnie spróbuj ponownie.";
 "send_to_tv_error_snapshot_preparation" = "Nie można przygotować migawki biblioteki lokalnej do przesłania.";
+"send_to_tv_error_library_too_large" = "Biblioteka ma %lld utworów — więcej, niż można wysłać naraz, więc nie została wysłana. Możesz zbudować bibliotekę na Apple TV, skanując tam bezpośrednio źródła muzyki.";
 "send_to_tv_error_source_data" = "Nie można odczytać konfiguracji źródła muzyki: %@";
 "send_to_tv_error_tv_bad_request" = "Apple TV odrzucił przelew jako nieprawidłowy (HTTP 400). Zeskanuj nowy kod QR i spróbuj ponownie.";
 "send_to_tv_error_tv_forbidden" = "Kod parowania Apple TV lub klucz szyfrowania nie jest już ważny (HTTP 403). Zeskanuj ponownie bieżący kod QR.";

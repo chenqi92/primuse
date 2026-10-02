@@ -383,6 +383,7 @@
 "send_to_tv_error_cloud_unavailable" = "CloudKit を利用できません。iCloud へのサインイン、iCloud 同期、アプリの iCloud アクセスを確認してください。";
 "send_to_tv_error_snapshot_missing" = "ローカルのライブラリスナップショットがありません。ライブラリの読み込み完了後に再試行してください。";
 "send_to_tv_error_snapshot_preparation" = "ローカルのライブラリスナップショットをアップロード用に準備できませんでした。";
+"send_to_tv_error_library_too_large" = "ライブラリには %lld 曲あり、一度に送れる上限を超えているため送信しませんでした。Apple TV で音楽ソースを直接スキャンするとライブラリを作成できます。";
 "send_to_tv_error_cloud_conflict" = "CloudKit のライブラリレコードが別のデバイスで変更され、再試行後も競合しています。";
 "send_to_tv_error_cloud_upload" = "CloudKit へのライブラリアップロードに失敗しました：%@";
 "send_to_tv_error_cloud_schema" = "このリリースでは iCloud 転送チャンネルが有効になっていません（サーバー側に「%@」がありません）。再試行しても解決しません。Apple TV の音楽ソース画面から QR コードの直接転送をご利用ください。";

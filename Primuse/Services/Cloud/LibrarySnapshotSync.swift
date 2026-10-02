@@ -2,6 +2,7 @@ import CloudKit
 import Compression
 import CryptoKit
 import Foundation
+import os
 import PrimuseKit
 
 /// 谁发起了这次整库上传。场景切换只被允许打断「自动」那一类,用户显式点的
@@ -104,6 +105,15 @@ final class LibrarySnapshotSync: Sendable {
     private let credRecordName = "credential-snapshot"
     private let fullUploadSingleFlight = SnapshotUploadSingleFlight()
     private let cloudMutationLock = SnapshotMutationLock()
+
+    /// 十万首以上的曲库写盘的快照不带歌, 往外送时由曲库按需导出带歌的完整快照。
+    /// App 启动时接上(`AppServices`); 没接上时照旧拒发这种快照。
+    typealias FullLibrarySnapshotExporter = @Sendable (_ byteLimit: Int) async -> MusicLibrary.PortableSnapshotExport
+    private let fullLibrarySnapshotExporter = OSAllocatedUnfairLock<FullLibrarySnapshotExporter?>(initialState: nil)
+
+    func setFullLibrarySnapshotExporter(_ exporter: FullLibrarySnapshotExporter?) {
+        fullLibrarySnapshotExporter.withLock { $0 = exporter }
+    }
 
     private struct FileIdentity: Codable, Equatable, Sendable {
         let size: Int64
@@ -282,17 +292,22 @@ final class LibrarySnapshotSync: Sendable {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
-    private func validatedLibrarySnapshotData() -> Result<Data, AppleTVTransferFailure> {
+    /// 要发往 iCloud / Apple TV 的整库快照。写盘的快照不带歌(十万首以上)时由曲库按需
+    /// 导出带歌的那份; 整库超过一次发送的上限时报 `libraryTooLarge`, 附上首数。
+    func libraryDataForTransfer() async -> Result<Data, AppleTVTransferFailure> {
         let fm = FileManager.default
         guard fm.fileExists(atPath: libraryCacheURL.path) else {
             plog("LibrarySnapshotSync: no local library-cache.json")
             return .failure(.snapshotMissing)
         }
         let values = try? libraryCacheURL.resourceValues(forKeys: [.fileSizeKey])
-        if let size = values?.fileSize,
-           size <= 0 || size > Self.maxLibraryRawBytes {
+        if let size = values?.fileSize, size <= 0 {
             plog("LibrarySnapshotSync: invalid library snapshot size \(size)B")
             return .failure(.snapshotPreparationFailed)
+        }
+        if let size = values?.fileSize, size > Self.maxLibraryRawBytes {
+            plog("LibrarySnapshotSync: library snapshot \(size)B exceeds the transfer limit")
+            return await exportedFullLibrarySnapshot()
         }
         do {
             let data = try Data(contentsOf: libraryCacheURL)
@@ -302,14 +317,32 @@ final class LibrarySnapshotSync: Sendable {
                 return .failure(.snapshotPreparationFailed)
             }
             // A library this large keeps its songs in the incremental store
-            // only; its snapshot would reach the other device without songs.
+            // only; the snapshot on disk would reach the other device without
+            // songs, so the library exports the full one.
             guard !MusicLibrary.snapshotKeepsSongsSeparately(data) else {
-                plog("LibrarySnapshotSync: library too large for the snapshot transfer (songs kept in the incremental store)")
-                return .failure(.snapshotPreparationFailed)
+                return await exportedFullLibrarySnapshot()
             }
             return .success(data)
         } catch {
             plog("LibrarySnapshotSync: cannot read local library snapshot — \(error)")
+            return .failure(.snapshotPreparationFailed)
+        }
+    }
+
+    private func exportedFullLibrarySnapshot() async -> Result<Data, AppleTVTransferFailure> {
+        guard let exporter = fullLibrarySnapshotExporter.withLock({ $0 }) else {
+            plog("LibrarySnapshotSync: no library to export the full snapshot from")
+            return .failure(.snapshotPreparationFailed)
+        }
+        switch await exporter(Self.maxLibraryRawBytes) {
+        case .snapshot(let data):
+            plog("LibrarySnapshotSync: exported the full library snapshot for transfer bytes=\(data.count)")
+            return .success(data)
+        case .tooLarge(let songCount):
+            plog("LibrarySnapshotSync: library too large for the snapshot transfer songs=\(songCount)")
+            return .failure(.libraryTooLarge(songCount: songCount))
+        case .unavailable:
+            plog("LibrarySnapshotSync: full library snapshot export unavailable")
             return .failure(.snapshotPreparationFailed)
         }
     }
@@ -355,7 +388,7 @@ final class LibrarySnapshotSync: Sendable {
             return .failure(.cloudUnavailable)
         }
         let rawLibraryData: Data
-        switch validatedLibrarySnapshotData() {
+        switch await libraryDataForTransfer() {
         case .success(let data):
             rawLibraryData = data
         case .failure(let failure):
@@ -1972,7 +2005,7 @@ final class LibrarySnapshotSync: Sendable {
         settings: LANSettingsBundle? = nil
     ) async -> Result<(payload: LANSyncPayload, artworkBytes: Int), AppleTVTransferFailure> {
         let rawLibraryData: Data
-        switch validatedLibrarySnapshotData() {
+        switch await libraryDataForTransfer() {
         case .success(let data):
             rawLibraryData = data
         case .failure(let failure):
@@ -2118,6 +2151,14 @@ final class LibrarySnapshotSync: Sendable {
         includeSettings: Bool = true,
         progress: @escaping @Sendable (LANTransferProgress) -> Void
     ) async -> Result<Void, LANStagedTransferFailure> {
+        // 曲库段与封面段读同一份整库快照; 大曲库要现场导出, 只准备一次。
+        var preparedLibrary: Result<Data, AppleTVTransferFailure>?
+        func libraryData() async -> Result<Data, AppleTVTransferFailure> {
+            if let preparedLibrary { return preparedLibrary }
+            let prepared = await libraryDataForTransfer()
+            preparedLibrary = prepared
+            return prepared
+        }
         for stage in LANTransferStage.allCases where stage >= firstStage {
             guard !Task.isCancelled else {
                 return .failure(LANStagedTransferFailure(stage: stage, failure: .cancelled))
@@ -2127,9 +2168,11 @@ final class LibrarySnapshotSync: Sendable {
             case .sources:
                 result = await sendLANSourcesStage(link, includeSettings: includeSettings, progress: progress)
             case .library:
-                result = await sendLANLibraryStage(link, progress: progress)
+                progress(LANTransferProgress(stage: .library, activity: .preparing))
+                result = await sendLANLibraryStage(link, libraryData: await libraryData(), progress: progress)
             case .artwork:
-                result = await sendLANArtworkStage(link, progress: progress)
+                progress(LANTransferProgress(stage: .artwork, activity: .preparing))
+                result = await sendLANArtworkStage(link, libraryData: await libraryData(), progress: progress)
             case .finish:
                 progress(LANTransferProgress(stage: .finish, activity: .sending))
                 result = await postLANStage(.finish, link: link, timeout: 30, body: { Data("{}".utf8) })
@@ -2175,11 +2218,11 @@ final class LibrarySnapshotSync: Sendable {
     /// TV 收完请求体后才开始导入,导入期间连接保持,所以超时放宽。
     private func sendLANLibraryStage(
         _ link: LANPairLink,
+        libraryData: Result<Data, AppleTVTransferFailure>,
         progress: @escaping @Sendable (LANTransferProgress) -> Void
     ) async -> Result<Void, AppleTVTransferFailure> {
-        progress(LANTransferProgress(stage: .library, activity: .preparing))
         let rawLibraryData: Data
-        switch validatedLibrarySnapshotData() {
+        switch libraryData {
         case .success(let data):
             rawLibraryData = data
         case .failure(let failure):
@@ -2204,11 +2247,11 @@ final class LibrarySnapshotSync: Sendable {
 
     private func sendLANArtworkStage(
         _ link: LANPairLink,
+        libraryData: Result<Data, AppleTVTransferFailure>,
         progress: @escaping @Sendable (LANTransferProgress) -> Void
     ) async -> Result<Void, AppleTVTransferFailure> {
-        progress(LANTransferProgress(stage: .artwork, activity: .preparing))
         let rawLibraryData: Data
-        switch validatedLibrarySnapshotData() {
+        switch libraryData {
         case .success(let data):
             rawLibraryData = data
         case .failure(let failure):

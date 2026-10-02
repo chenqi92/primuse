@@ -34,6 +34,9 @@ public enum AppleTVTransferFailure: Error, Sendable, Equatable, LocalizedError {
     case cloudUnavailable
     case snapshotMissing
     case snapshotPreparationFailed
+    /// 整库快照超过一次发送的上限(64 MB)。分段直传时音乐源那一段已经到了 Apple TV,
+    /// 那边可以自己扫描音乐源。
+    case libraryTooLarge(songCount: Int)
     case cloudConflict
     case cloudUploadFailed(detail: String)
     case cloudSchemaNotDeployed(gap: CloudSchemaDeploymentPolicy.Gap)
@@ -58,6 +61,7 @@ public enum AppleTVTransferFailure: Error, Sendable, Equatable, LocalizedError {
         case .cloudUnavailable: return "TV-ICLOUD-UNAVAILABLE"
         case .snapshotMissing: return "TV-SNAPSHOT-MISSING"
         case .snapshotPreparationFailed: return "TV-SNAPSHOT-PREPARE"
+        case .libraryTooLarge: return "TV-LIBRARY-TOO-LARGE"
         case .cloudConflict: return "TV-ICLOUD-CONFLICT"
         case .cloudUploadFailed: return "TV-ICLOUD-UPLOAD"
         case .cloudSchemaNotDeployed: return "TV-ICLOUD-SCHEMA"
@@ -85,6 +89,8 @@ public enum AppleTVTransferFailure: Error, Sendable, Equatable, LocalizedError {
             return PMString("send_to_tv_error_snapshot_missing")
         case .snapshotPreparationFailed:
             return PMString("send_to_tv_error_snapshot_preparation")
+        case .libraryTooLarge(let songCount):
+            return PMString("send_to_tv_error_library_too_large", songCount)
         case .cloudConflict:
             return PMString("send_to_tv_error_cloud_conflict")
         case .cloudUploadFailed(let detail):

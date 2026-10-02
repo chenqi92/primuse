@@ -267,6 +267,46 @@ final class LibrarySnapshotWriteFenceTests: XCTestCase {
         XCTAssertEqual(try Self.sqlite(storePath, "SELECT COUNT(*) FROM librarySongRecords"), 40)
     }
 
+    /// 不带歌的快照要发往 iCloud / Apple TV 时, 由曲库现场导出带歌的整库;
+    /// 没接上曲库时照旧拒发, 放不进上限时报出首数。
+    func testTransferExportsTheSongsOfASeparatedSnapshot() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        library.separateSongStoreMinimumSongsOverride = 10
+        let songs = (0..<40).map { Self.makeSong(id: "song-\($0)") }
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceID])
+        _ = library.createPlaylist(name: "Kept", songIDs: ["song-3", "song-7"])
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("snapshot did not persist")
+        }
+        XCTAssertTrue(MusicLibrary.snapshotKeepsSongsSeparately(try Data(contentsOf: snapshotURL(in: directory))))
+
+        let sync = LibrarySnapshotSync(storageDirectoryURL: directory)
+        guard case .failure(.snapshotPreparationFailed) = await sync.libraryDataForTransfer() else {
+            return XCTFail("without a library to export from, the separated snapshot must not be sent")
+        }
+
+        sync.setFullLibrarySnapshotExporter { [weak library] byteLimit in
+            await library?.portableSnapshotIncludingSongs(byteLimit: byteLimit) ?? .unavailable
+        }
+        guard case .success(let data) = await sync.libraryDataForTransfer() else {
+            return XCTFail("the full snapshot was not exported")
+        }
+        XCTAssertFalse(MusicLibrary.snapshotKeepsSongsSeparately(data))
+        XCTAssertTrue(MusicLibrary.isValidSnapshotData(data))
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let exportedIDs = ((object["songs"] as? [[String: Any]]) ?? []).compactMap { $0["id"] as? String }
+        XCTAssertEqual(Set(exportedIDs), Set(songs.map(\.id)))
+        let playlistNames = ((object["playlists"] as? [[String: Any]]) ?? []).compactMap { $0["name"] as? String }
+        XCTAssertTrue(playlistNames.contains("Kept"))
+
+        guard case .tooLarge(let songCount) = await library.portableSnapshotIncludingSongs(byteLimit: 2_000) else {
+            return XCTFail("a library over the limit must be reported as too large")
+        }
+        XCTAssertEqual(songCount, 40)
+    }
+
     /// Runs one statement; returns the first column of the first row, or 0.
     private static func sqlite(_ path: String, _ sql: String) throws -> Int {
         var database: OpaquePointer?

@@ -381,6 +381,7 @@
 "send_to_tv_error_cloud_unavailable" = "CloudKit is unavailable. Check iCloud sign-in, iCloud Sync, and the app’s iCloud access.";
 "send_to_tv_error_snapshot_missing" = "The local library snapshot is missing. Wait for the library to finish loading, then try again.";
 "send_to_tv_error_snapshot_preparation" = "The local library snapshot could not be prepared for upload.";
+"send_to_tv_error_library_too_large" = "Your library has %lld songs, more than can be sent in one go, so it wasn’t sent. You can build the library on Apple TV by scanning your music sources there.";
 "send_to_tv_error_cloud_conflict" = "The CloudKit library record changed on another device and still conflicted after retrying.";
 "send_to_tv_error_cloud_upload" = "CloudKit library upload failed: %@";
 "send_to_tv_error_cloud_schema" = "The iCloud transfer channel is not enabled in this release (the server is missing “%@”), so retrying will not help. Use the QR-code direct transfer on the Apple TV music sources screen instead.";

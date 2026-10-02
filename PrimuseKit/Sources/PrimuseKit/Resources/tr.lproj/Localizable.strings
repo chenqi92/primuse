@@ -564,6 +564,7 @@
 "error.catalog.businessError" = "Servis hatası %@.";
 "fullscreen_effect_starry_night_subtitle" = "Sanat eserleriyle renklendirilmiş yıldızlar, en son şarkı sözü satırının arkasında sürükleniyor";
 "send_to_tv_error_snapshot_preparation" = "Yerel arşiv anlık görüntüsü yükleme için hazırlanamadı.";
+"send_to_tv_error_library_too_large" = "Arşivinizde %lld şarkı var; bu, tek seferde gönderilebilecek sınırın üzerinde olduğu için gönderilmedi. Arşivi Apple TV’de müzik kaynaklarını doğrudan tarayarak oluşturabilirsiniz.";
 "ext.tv.error.incompleteDownload" = "Uzaktan dosya indirme işlemi tamamlanmadı: beklenen %@ bayt, %@ alındı.";
 "src.subtitle.local" = "iPhone Depolama";
 "fnmusic_fnid" = "FN ID";

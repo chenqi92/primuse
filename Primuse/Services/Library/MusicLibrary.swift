@@ -12615,6 +12615,51 @@ final class MusicLibrary {
         return snapshot
     }
 
+    enum PortableSnapshotExport: Sendable {
+        case snapshot(Data)
+        case tooLarge(songCount: Int)
+        case unavailable
+    }
+
+    /// 带歌的整库快照, 供 iCloud 整库上传与 Apple TV 直传按需导出: 十万首以上的曲库写盘
+    /// 的快照不带歌(`separateSongStore`), 这里从内存里的曲库编出与不到十万首时写盘同形的
+    /// 那份。先抽样估算, 明显放不进 `byteLimit` 就不编整库。曲库还没装载成功时不导出,
+    /// 免得把空曲库发出去。
+    func portableSnapshotIncludingSongs(byteLimit: Int) async -> PortableSnapshotExport {
+        guard isReady, !persistenceBlockedByCorruption else { return .unavailable }
+        let snapshot = makeSnapshot(includingSongs: true)
+        return await Task.detached(priority: .userInitiated) {
+            Self.encodePortableSnapshot(snapshot, byteLimit: byteLimit)
+        }.value
+    }
+
+    private nonisolated static func encodePortableSnapshot(
+        _ snapshot: Snapshot,
+        byteLimit: Int
+    ) -> PortableSnapshotExport {
+        let songs = snapshot.songs
+        if !songs.isEmpty {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            encoder.dateEncodingStrategy = .iso8601
+            let step = max(1, songs.count / 512)
+            var sampledBytes = 0
+            var sampledCount = 0
+            for index in stride(from: 0, to: songs.count, by: step) {
+                guard let data = try? encoder.encode(songs[index]) else { return .unavailable }
+                sampledBytes += data.count + 1
+                sampledCount += 1
+            }
+            let estimatedBytes = Double(sampledBytes) / Double(sampledCount) * Double(songs.count)
+            // 只在明显放不下时提前拒绝, 贴近上限的照样编一遍再按真实字节判断。
+            if estimatedBytes > Double(byteLimit) * 1.1 {
+                return .tooLarge(songCount: songs.count)
+            }
+        }
+        guard let data = try? encodeSnapshotForDisk(snapshot) else { return .unavailable }
+        return data.count <= byteLimit ? .snapshot(data) : .tooLarge(songCount: songs.count)
+    }
+
     /// Libraries past this many songs write their portable snapshot without
     /// the songs. The full form is only needed by the iCloud / Apple TV
     /// transfer, which refuses snapshots over 64 MB (about 80K songs); past

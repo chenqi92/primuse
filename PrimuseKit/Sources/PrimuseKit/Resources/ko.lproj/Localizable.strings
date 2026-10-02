@@ -383,6 +383,7 @@
 "send_to_tv_error_cloud_unavailable" = "CloudKit을 사용할 수 없습니다. iCloud 로그인, iCloud 동기화 및 앱의 iCloud 접근 권한을 확인하십시오.";
 "send_to_tv_error_snapshot_missing" = "로컬 보관함 스냅샷이 없습니다. 보관함 로드가 완료된 후 다시 시도하십시오.";
 "send_to_tv_error_snapshot_preparation" = "로컬 보관함 스냅샷을 업로드용으로 준비할 수 없습니다.";
+"send_to_tv_error_library_too_large" = "보관함에 노래가 %lld곡 있어 한 번에 보낼 수 있는 한도를 넘었으므로 보내지 않았습니다. Apple TV에서 음악 소스를 직접 스캔하면 보관함을 만들 수 있습니다.";
 "send_to_tv_error_cloud_conflict" = "다른 기기에서 CloudKit 보관함 레코드가 변경되어 재시도 후에도 충돌합니다.";
 "send_to_tv_error_cloud_upload" = "CloudKit 보관함 업로드 실패: %@";
 "send_to_tv_error_cloud_schema" = "이 버전에서는 iCloud 전송 채널이 활성화되어 있지 않습니다(서버에 “%@”이(가) 없음). 다시 시도해도 해결되지 않습니다. Apple TV 음악 소스 화면의 QR 코드 직접 전송을 사용하십시오.";

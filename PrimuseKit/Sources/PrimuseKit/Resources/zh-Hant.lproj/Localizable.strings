@@ -380,6 +380,7 @@
 "send_to_tv_error_cloud_unavailable" = "CloudKit 目前無法使用，請檢查 iCloud 登入、iCloud 同步開關和 App 的 iCloud 存取權限。";
 "send_to_tv_error_snapshot_missing" = "本機曲庫快照不存在，請等待曲庫載入完成後再試。";
 "send_to_tv_error_snapshot_preparation" = "無法準備要上傳的本機曲庫快照。";
+"send_to_tv_error_library_too_large" = "曲庫有 %lld 首歌，超出了整庫傳送的上限，曲庫沒有傳送。可以在 Apple TV 上直接掃描音樂來源來建立曲庫。";
 "send_to_tv_error_cloud_conflict" = "另一部裝置修改了 CloudKit 曲庫記錄，重試後仍然衝突。";
 "send_to_tv_error_cloud_schema" = "此版本的 iCloud 傳輸通道尚未啟用（伺服器端缺少「%@」），重試無效。請改用 Apple TV 音樂來源頁面的掃碼直傳。";
 "icloud_cloud_schema_missing" = "iCloud 正式環境缺少伺服器架構「%@」，重試無法修復。請聯絡開發者完成 CloudKit 架構部署。";

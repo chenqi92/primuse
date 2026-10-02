@@ -383,6 +383,7 @@
 "send_to_tv_error_cloud_unavailable" = "CloudKit ist nicht verfügbar. Prüfe die iCloud-Anmeldung, die iCloud-Synchronisierung und den iCloud-Zugriff der App.";
 "send_to_tv_error_snapshot_missing" = "Der lokale Mediathek-Schnappschuss fehlt. Warte, bis die Mediathek geladen ist, und versuche es erneut.";
 "send_to_tv_error_snapshot_preparation" = "Der lokale Mediathek-Schnappschuss konnte nicht für den Upload vorbereitet werden.";
+"send_to_tv_error_library_too_large" = "Deine Mediathek enthält %lld Titel – mehr, als auf einmal gesendet werden kann. Sie wurde daher nicht gesendet. Scanne die Musikquellen direkt auf dem Apple TV, um die Mediathek dort aufzubauen.";
 "send_to_tv_error_cloud_conflict" = "Der CloudKit-Mediathekdatensatz wurde auf einem anderen Gerät geändert und steht nach dem erneuten Versuch weiterhin in Konflikt.";
 "send_to_tv_error_cloud_upload" = "CloudKit-Upload der Mediathek fehlgeschlagen: %@";
 "send_to_tv_error_cloud_schema" = "Der iCloud-Übertragungskanal ist in dieser Version nicht aktiviert (auf dem Server fehlt „%@“); ein erneuter Versuch hilft nicht. Verwende stattdessen die QR-Code-Direktübertragung auf der Musikquellen-Seite des Apple TV.";

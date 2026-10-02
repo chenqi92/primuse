@@ -60,13 +60,13 @@ struct SendToTVSheet: View {
     }
 
     /// 分段直传的 Apple TV 能从中断处接着收;旧版 TV 只能整包重发。配对已失效(403、链接无效)
-    /// 时接着发也只会再被拒,要重新扫码。
+    /// 时接着发也只会再被拒,要重新扫码;曲库超过整库发送的上限时接着发也过不去。
     private var canResume: Bool {
         guard lanTarget?.supportsStagedTransfer == true, let failedStage, failedStage > .sources else {
             return false
         }
         switch failure {
-        case .tvRejected(statusCode: 403), .invalidPairingLink:
+        case .tvRejected(statusCode: 403), .invalidPairingLink, .libraryTooLarge:
             return false
         default:
             return true

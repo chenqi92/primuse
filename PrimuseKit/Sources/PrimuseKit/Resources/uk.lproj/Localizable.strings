@@ -564,6 +564,7 @@
 "error.catalog.businessError" = "Сервісна помилка %@.";
 "fullscreen_effect_starry_night_subtitle" = "За останньою ліричною піснею дрейфують зірки, відтінені ілюстраціями";
 "send_to_tv_error_snapshot_preparation" = "Знімок локальної медіатеки не вдалося підготувати для завантаження.";
+"send_to_tv_error_library_too_large" = "У медіатеці %lld пісень — більше, ніж можна надіслати за один раз, тому її не надіслано. Щоб створити медіатеку на Apple TV, проскануйте джерела музики безпосередньо на ньому.";
 "ext.tv.error.incompleteDownload" = "Віддалене завантаження файлу було неповним: очікувалося %@ байтів, отримано %@.";
 "src.subtitle.local" = "Сховище iPhone";
 "fnmusic_fnid" = "FN ID";

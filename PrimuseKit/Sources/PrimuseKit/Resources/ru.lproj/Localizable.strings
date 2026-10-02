@@ -564,6 +564,7 @@
 "error.catalog.businessError" = "Сервисная ошибка %@.";
 "fullscreen_effect_starry_night_subtitle" = "Звезды в тонах художественного оформления плывут за последней лирической строкой.";
 "send_to_tv_error_snapshot_preparation" = "Не удалось подготовить снимок локальной медиатеки к загрузке.";
+"send_to_tv_error_library_too_large" = "В медиатеке %lld песен — больше, чем можно отправить за один раз, поэтому она не отправлена. Чтобы собрать медиатеку на Apple TV, отсканируйте источники музыки прямо на нём.";
 "ext.tv.error.incompleteDownload" = "Удаленная загрузка файла была неполной: ожидалось %@ байт, получено %@.";
 "src.subtitle.local" = "Хранилище iPhone";
 "fnmusic_fnid" = "FN ID";

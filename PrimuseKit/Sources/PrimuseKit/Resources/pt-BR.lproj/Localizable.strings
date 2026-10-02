@@ -631,6 +631,7 @@
 "send_to_tv_error_payload_encryption" = "Não foi possível criptografar a carga útil da transferência. Digitalize um novo código QR Apple TV e tente novamente.";
 "send_to_tv_error_snapshot_missing" = "O instantâneo da biblioteca local está faltando. Aguarde a biblioteca terminar de carregar e tente novamente.";
 "send_to_tv_error_snapshot_preparation" = "Não foi possível preparar o instantâneo da biblioteca local para upload.";
+"send_to_tv_error_library_too_large" = "Sua biblioteca tem %lld músicas, mais do que pode ser enviado de uma vez, por isso ela não foi enviada. Você pode criá-la na Apple TV examinando suas fontes de música diretamente lá.";
 "send_to_tv_error_source_data" = "Não foi possível ler a configuração da fonte de música: %@";
 "send_to_tv_error_tv_bad_request" = "Apple TV rejeitou a transferência como inválida (HTTP 400). Digitalize um novo código QR e tente novamente.";
 "send_to_tv_error_tv_forbidden" = "O código de emparelhamento ou chave de criptografia Apple TV não é mais válido (HTTP 403). Digitalize o código QR atual novamente.";
