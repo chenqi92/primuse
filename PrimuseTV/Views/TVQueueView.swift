@@ -7,6 +7,8 @@ struct TVQueueView: View {
     private struct UpNextRow: Identifiable {
         let id: QueueRowIdentity
         let song: TVSong
+        /// 第一首自动续播的相似歌曲:在它上面加分隔。
+        var startsAutoplay = false
     }
 
     @Environment(TVStore.self) private var store
@@ -19,9 +21,16 @@ struct TVQueueView: View {
         guard limit > 0 else { return [] }
         var rows: [UpNextRow] = []
         rows.reserveCapacity(limit)
+        let autoplayIDs = store.autoContinuationSongIDs
+        var markedAutoplay = autoplayIDs.isEmpty
         for (position, songID) in store.queueUpNextIDs.enumerated() {
             guard let song = store.song(songID) else { continue }
-            rows.append(UpNextRow(id: QueueRowIdentity(position: position, songID: songID), song: song))
+            var row = UpNextRow(id: QueueRowIdentity(position: position, songID: songID), song: song)
+            if !markedAutoplay, autoplayIDs.contains(songID) {
+                row.startsAutoplay = true
+                markedAutoplay = true
+            }
+            rows.append(row)
             if rows.count >= limit { break }
         }
         return rows
@@ -56,6 +65,14 @@ struct TVQueueView: View {
                     ScrollView(.vertical, showsIndicators: false) {
                         LazyVStack(spacing: 10) {
                             ForEach(Array(rows.enumerated()), id: \.element.id) { displayIndex, row in
+                                if row.startsAutoplay {
+                                    Text(String(localized: "queue_autoplay_section"))
+                                        .tvFont(.meta, weight: .semibold)
+                                        .foregroundStyle(TVColor.textMuted)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.top, displayIndex == 0 ? 0 : 18)
+                                        .padding(.horizontal, 20)
+                                }
                                 queueRow(
                                     displayIndex: displayIndex,
                                     queueOffset: row.id.position,

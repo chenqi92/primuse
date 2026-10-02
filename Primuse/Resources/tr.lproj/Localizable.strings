@@ -1109,6 +1109,9 @@
 "playlist_import_match_id" = "Kimlik";
 "error_oauth_denied %@ %@" = "Yetki reddedildi: %@ %@";
 "gapless_desc" = "Parçalar arasında herhangi bir sessizlik boşluğu olmadan sorunsuz geçiş yapın.";
+"auto_continue_similar" = "Benzer şarkılarla devam et";
+"auto_continue_similar_footer" = "Sıra bittiğinde kitaplığındaki, son çalınanlara benzeyen şarkılar çalmaya devam eder. Sırada “Otomatik oynatma” altında görünürler. Sesli kitaplar, radyo ve tekrar bundan etkilenmez.";
+"queue_autoplay_section" = "Otomatik oynatma · Benzer";
 "baidu_error_invalid_scope" = "Access_token geçersiz veya netdisk kapsamına sahip değil (hata -6).";
 "carplay_search_no_results" = "Sonuç yok";
 "intent_playing_similar_format" = "%@'ye benzer şarkıları çalma.";

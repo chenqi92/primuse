@@ -120,6 +120,9 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
     var spokenWordSkipForwardSeconds: Int = 30
     /// 串烧每首截取的秒数。
     var medleySegmentSeconds: Int = MedleySegmentPolicy.defaultSegmentLength
+    /// 音乐队列自然播完后按最后几首续上相似歌曲(#166)。默认开:Siri、CarPlay、
+    /// 搜索点播的单曲队列最需要它;关掉就是播完即停。
+    var autoContinueSimilarEnabled: Bool = true
     /// Uses the current synchronized lyric as the system Now Playing title.
     /// Users can still opt out because the remapped metadata is also visible
     /// to Control Center, Bluetooth receivers and in-car Now Playing surfaces.
@@ -176,6 +179,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         spokenWordSkipForwardSeconds = try c.decodeIfPresent(Int.self, forKey: .spokenWordSkipForwardSeconds) ?? 30
         medleySegmentSeconds = try c.decodeIfPresent(Int.self, forKey: .medleySegmentSeconds)
             ?? MedleySegmentPolicy.defaultSegmentLength
+        autoContinueSimilarEnabled = try c.decodeIfPresent(Bool.self, forKey: .autoContinueSimilarEnabled) ?? true
         lockScreenLyricsEnabled = try c.decodeIfPresent(Bool.self, forKey: .lockScreenLyricsEnabled) ?? true
         matchOutputSampleRate = try c.decodeIfPresent(Bool.self, forKey: .matchOutputSampleRate) ?? false
         effectChainEnabled = try c.decodeIfPresent(Bool.self, forKey: .effectChainEnabled) ?? true
@@ -215,6 +219,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         spokenWordSkipBackwardSeconds: Int = 15,
         spokenWordSkipForwardSeconds: Int = 30,
         medleySegmentSeconds: Int = MedleySegmentPolicy.defaultSegmentLength,
+        autoContinueSimilarEnabled: Bool = true,
         lockScreenLyricsEnabled: Bool = true,
         matchOutputSampleRate: Bool = false,
         effectChainEnabled: Bool = true,
@@ -252,6 +257,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         self.spokenWordSkipBackwardSeconds = spokenWordSkipBackwardSeconds
         self.spokenWordSkipForwardSeconds = spokenWordSkipForwardSeconds
         self.medleySegmentSeconds = medleySegmentSeconds
+        self.autoContinueSimilarEnabled = autoContinueSimilarEnabled
         self.lockScreenLyricsEnabled = lockScreenLyricsEnabled
         self.matchOutputSampleRate = matchOutputSampleRate
         self.effectChainEnabled = effectChainEnabled
@@ -462,6 +468,7 @@ final class PlaybackSettingsStore {
             persist()
         }
     }
+    var autoContinueSimilarEnabled: Bool { didSet { persist() } }
     var lockScreenLyricsEnabled: Bool { didSet { persist() } }
     var matchOutputSampleRate: Bool { didSet { persist() } }
 
@@ -513,6 +520,7 @@ final class PlaybackSettingsStore {
         self.spokenWordSkipBackwardSeconds = SpokenWordSkipPolicy.clampedInterval(s.spokenWordSkipBackwardSeconds)
         self.spokenWordSkipForwardSeconds = SpokenWordSkipPolicy.clampedInterval(s.spokenWordSkipForwardSeconds)
         self.medleySegmentSeconds = MedleySegmentPolicy.clampedSegmentLength(s.medleySegmentSeconds)
+        self.autoContinueSimilarEnabled = s.autoContinueSimilarEnabled
         self.lockScreenLyricsEnabled = s.lockScreenLyricsEnabled
         self.matchOutputSampleRate = s.matchOutputSampleRate
         self.effectChainEnabled = s.effectChainEnabled
@@ -586,6 +594,7 @@ final class PlaybackSettingsStore {
         spokenWordSkipBackwardSeconds = SpokenWordSkipPolicy.clampedInterval(s.spokenWordSkipBackwardSeconds)
         spokenWordSkipForwardSeconds = SpokenWordSkipPolicy.clampedInterval(s.spokenWordSkipForwardSeconds)
         medleySegmentSeconds = MedleySegmentPolicy.clampedSegmentLength(s.medleySegmentSeconds)
+        autoContinueSimilarEnabled = s.autoContinueSimilarEnabled
         lockScreenLyricsEnabled = s.lockScreenLyricsEnabled
         matchOutputSampleRate = s.matchOutputSampleRate
         effectChainEnabled = s.effectChainEnabled
@@ -634,6 +643,7 @@ final class PlaybackSettingsStore {
             spokenWordSkipBackwardSeconds: spokenWordSkipBackwardSeconds,
             spokenWordSkipForwardSeconds: spokenWordSkipForwardSeconds,
             medleySegmentSeconds: medleySegmentSeconds,
+            autoContinueSimilarEnabled: autoContinueSimilarEnabled,
             lockScreenLyricsEnabled: lockScreenLyricsEnabled,
             matchOutputSampleRate: matchOutputSampleRate,
             effectChainEnabled: effectChainEnabled,

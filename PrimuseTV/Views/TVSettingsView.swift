@@ -53,6 +53,7 @@ struct TVSettingsView: View {
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     @AppStorage(PlayerAppearancePreferences.animatedArtworkEnabledKey)
     private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
+    @AppStorage(TVStore.autoContinueSimilarKey) private var autoContinueSimilar = true
     @AppStorage(LibraryReviewPreferences.enabledKey)
     private var ratingsAndCommentsEnabled = false
     @State private var showsEffectPicker = tvDebugShowsEffectPicker
@@ -151,6 +152,12 @@ struct TVSettingsView: View {
                             )
                         }
                         settingsSection(String(localized: "playback")) {
+                            toggleRow(
+                                "infinity",
+                                String(localized: "auto_continue_similar"),
+                                isOn: $autoContinueSimilar
+                            )
+                            settingDivider
                             navRow("shuffle", String(localized: "medley_title"),
                                    String(format: String(localized: "seconds_value_format"), store.medleySegmentSeconds),
                                    action: { showsMedleySettings = true })

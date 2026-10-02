@@ -597,6 +597,9 @@
 "open_source" = "Bibliothèques open source";
 "gapless_playback" = "Lecture sans interruption";
 "gapless_desc" = "Enchaînez les morceaux en continu, sans silence entre eux.";
+"auto_continue_similar" = "Continuer avec des titres similaires";
+"auto_continue_similar_footer" = "Quand la file d’attente se termine, des titres de votre bibliothèque proches des derniers écoutés prennent le relais. Ils apparaissent sous « Lecture automatique » dans la file. Les livres audio, la radio et la répétition ne sont pas concernés.";
+"queue_autoplay_section" = "Lecture automatique · Titres similaires";
 "crossfade" = "Fondu enchaîné";
 "crossfade_duration" = "Durée du fondu enchaîné";
 "crossfade_desc" = "Fondez en douceur la fin d'un morceau avec le début du suivant.";

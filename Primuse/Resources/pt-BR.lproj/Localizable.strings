@@ -1401,6 +1401,9 @@
 "fullscreen_effect_visualizer" = "Visualizador";
 "fullscreen_effect_visualizer_subtitle" = "Nebulosa de partículas e horizonte espectral";
 "gapless_desc" = "Transição perfeita entre faixas sem qualquer intervalo de silêncio.";
+"auto_continue_similar" = "Continuar com músicas parecidas";
+"auto_continue_similar_footer" = "Quando a fila termina, músicas da sua biblioteca parecidas com as últimas continuam tocando. Elas aparecem na fila em “Reprodução automática”. Audiolivros, rádio e repetição não são afetados.";
+"queue_autoplay_section" = "Reprodução automática · Parecidas";
 "gapless_not_available" = "A reprodução contínua está disponível para faixas na fila. Crossfade desliga.";
 "gapless_playback" = "Reprodução sem intervalos";
 "genre" = "Gênero";

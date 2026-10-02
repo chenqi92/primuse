@@ -1897,6 +1897,9 @@ extension AudioPlayerService {
                 : .prepareNewSelection,
             preparedContinuation: preparedContinuation
         )
+        // A one-song request (Siri, CarPlay, search) shows its similar songs
+        // in Up Next right away instead of after the first song has loaded.
+        scheduleAutoContinuationIfNeeded()
         guard decision == .startSelectedItem else {
             plog("🎶 queue selection reused active transport for '\(selectedSong.title)'")
             if let skippedSourceID { await announceSkippedUnreachableSource(skippedSourceID) }
@@ -1943,6 +1946,7 @@ extension AudioPlayerService {
         preparedContinuation: QueueContinuation? = nil
     ) {
         queueRequestToken &+= 1
+        if !keepsContinuation { resetAutoContinuation() }
         // Any other queue replaces the medley.
         if !isInstallingMedleyQueue { endMedleyIfNeeded() }
         // 二十多万首的「全部播放」不整份装进队列: 只装选中那首附近的一段,
@@ -1996,6 +2000,9 @@ extension AudioPlayerService {
             let id = offset == index ? preservedEntryID : reusableEntryIDs[song.id]?.popLast()
             return QueueEntry(song: song, id: id ?? UUID())
         }
+        if keepsContinuation, !autoContinuationEntryIDs.isEmpty {
+            autoContinuationEntryIDs.formIntersection(queueEntries.map(\.id))
+        }
         currentIndex = max(0, min(index, songs.count - 1))
         // Protect any newly-installed canonical queue from an existing Apple
         // Music mirror during the short interval before `play(song:)` runs.
@@ -2041,7 +2048,12 @@ extension AudioPlayerService {
         let playable = songs.filteredPlayable()
         guard !playable.isEmpty else { return }
         invalidatePreparedQueueSuccessor()
-        queueEntries.append(contentsOf: playable.map { QueueEntry(song: $0) })
+        // Songs the listener queues play before the autoplay songs.
+        if let index = queueInsertionIndexBeforeAutoContinuation() {
+            queueEntries.insert(contentsOf: playable.map { QueueEntry(song: $0) }, at: index)
+        } else {
+            queueEntries.append(contentsOf: playable.map { QueueEntry(song: $0) })
+        }
         if isAppleMusicMode {
             isPrimuseManagingAppleMusicQueue = true
             AppServices.shared.appleMusic.prepareForPrimuseManagedQueue()
@@ -2149,6 +2161,7 @@ extension AudioPlayerService {
         if retainedAppleMusicTransport { AppServices.shared.appleMusic.retainCurrentManagedQueueEntry() }
         invalidateQueueTransitions()
         setQueueContinuation(nil)
+        resetAutoContinuation()
         queueEntries = []
         currentIndex = 0
         pendingNextShuffleIndices = nil

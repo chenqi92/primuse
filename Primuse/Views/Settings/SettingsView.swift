@@ -1878,6 +1878,13 @@ struct PlaybackSettingsView: View {
             .disabled(settings.outputMode == .highFidelity)
 
             Section {
+                Toggle("auto_continue_similar", isOn: $settings.autoContinueSimilarEnabled)
+                    .settingsAnchor("playback.autoContinueSimilar")
+            } footer: {
+                Text("auto_continue_similar_footer")
+            }
+
+            Section {
                 Toggle("gapless_playback", isOn: $settings.gaplessEnabled)
                 .settingsAnchor("playback.gapless")
                     .onChange(of: settings.gaplessEnabled) { _, enabled in

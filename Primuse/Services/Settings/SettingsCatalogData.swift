@@ -14,6 +14,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "playback.medley", titleKey: "medley_segment_length", iosPage: .playback, macPage: .playback, keywords: ["串烧", "混音", "medley", "mashup", "片段"]),
         SettingDefinition(id: "playback.spokenWordSkip", titleKey: "spoken_word_skip_backward", iosPage: .playback, macPage: .playback, keywords: ["有声书", "快进", "快退", "15 秒", "30 秒", "audiobook", "skip"]),
         SettingDefinition(id: "playback.resetSpeed", titleKey: "playback_rate_reset", iosPage: .playback, macPage: nil, anchor: "playback.speed"),
+        SettingDefinition(id: "playback.autoContinueSimilar", titleKey: "auto_continue_similar", iosPage: .playback, macPage: .playback, keywords: ["autoplay", "相似歌曲", "自动续播", "继续播放", "播完", "Siri", "CarPlay"]),
         SettingDefinition(id: "playback.gapless", titleKey: "gapless_playback", iosPage: .playback, macPage: .playback, keywords: ["gapless", "无缝", "曲目间隔", "歌曲衔接", "Gapless Playback"]),
         SettingDefinition(id: "playback.crossfade", titleKey: "crossfade", iosPage: .playback, macPage: .playback, keywords: ["cross fade", "crossfade", "淡入淡出", "歌曲衔接", "转场"]),
         SettingDefinition(id: "playback.crossfadeMode", titleKey: "crossfade_mode", iosPage: .playback, macPage: .playback, keywords: ["Crossfade Mode"], anchor: "playback.crossfade"),

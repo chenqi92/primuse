@@ -1401,6 +1401,9 @@
 "fullscreen_effect_visualizer" = "Wizualizator";
 "fullscreen_effect_visualizer_subtitle" = "Mgławica cząsteczkowa i horyzont widmowy";
 "gapless_desc" = "Płynne przejście między utworami, bez przerwy ciszy.";
+"auto_continue_similar" = "Odtwarzaj dalej podobne utwory";
+"auto_continue_similar_footer" = "Gdy kolejka się skończy, grają dalej utwory z biblioteki podobne do ostatnich. W kolejce pojawiają się w sekcji „Autoodtwarzanie”. Nie dotyczy audiobooków, radia ani powtarzania.";
+"queue_autoplay_section" = "Autoodtwarzanie · Podobne";
 "gapless_not_available" = "Odtwarzanie bez przerw jest dostępne dla utworów znajdujących się w kolejce. Crossfade wyłącza to.";
 "gapless_playback" = "Odtwarzanie bez przerw";
 "genre" = "Gatunek";

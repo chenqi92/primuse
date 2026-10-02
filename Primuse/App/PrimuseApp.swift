@@ -2384,7 +2384,8 @@ private struct DebugEvidenceOrientation: ViewModifier {
 /// - `PRIMUSE_OPEN_SETTINGS=<设置目录 id>`：启动后打开该设置项（Mac 打开设置窗口，iOS 推入对应页）。
 /// - `PRIMUSE_AUTOPLAY_SONG=<标题片段>`：曲库里出现标题包含该片段的歌后自动播放它。
 ///   另给 `PRIMUSE_AUTOPLAY_PAUSE=1` 时开播后立刻暂停并回到开头，进度与播放键都定住，截图可逐像素对照；
-///   `PRIMUSE_AUTOPLAY_QUEUE=album` 时把整张专辑按曲序排成队列、从这首开始放（看「接下来播放」用）。
+///   `PRIMUSE_AUTOPLAY_QUEUE=album` 时把整张专辑按曲序排成队列、从这首开始放（看「接下来播放」用）；
+///   `PRIMUSE_AUTOPLAY_QUEUE=single` 时队列只有这一首（同 Siri 单曲点播，看播完后的自动续播）。
 private struct DebugLaunchAutomation: ViewModifier {
     func body(content: Content) -> some View {
         content
@@ -2411,6 +2412,8 @@ private struct DebugLaunchAutomation: ViewModifier {
                             .filter { $0.albumTitle == albumTitle }
                             .sorted { ($0.trackNumber ?? 0, $0.title) < ($1.trackNumber ?? 0, $1.title) }
                         await player.play(queue: album, startingAt: album.firstIndex { $0.id == song.id } ?? 0)
+                    } else if env["PRIMUSE_AUTOPLAY_QUEUE"] == "single" {
+                        await player.play(queue: [song], startingAt: 0)
                     } else {
                         await player.play(song: song)
                     }
@@ -2441,7 +2444,7 @@ private struct DebugLaunchAutomation: ViewModifier {
 /// - `PRIMUSE_DEBUG_SHOW_PLAYER=<秒>`：有歌在播后再等该秒数，打开播放页（iOS 推出播放页，Mac 展开播放页）。
 /// - `PRIMUSE_DEBUG_BOOKMARK_AFTER=<秒>`：播放该秒数后在当前位置加一个书签。
 /// - `PRIMUSE_DEBUG_CHAPTER_SLEEP=1`：章节读出后设「本章结束后停止」。
-/// - `PRIMUSE_DEBUG_PRESENT=spokenWord|chapters|batchEdit|tidy|batchReview|tidyReview|karaoke|plexSignIn`：弹出对应页面
+/// - `PRIMUSE_DEBUG_PRESENT=spokenWord|chapters|batchEdit|tidy|batchReview|tidyReview|karaoke|queue|plexSignIn`：弹出对应页面
 ///   （plexSignIn 是添加 Plex 源的表单，配合 `PRIMUSE_DEBUG_PLEX=servers` 直接显示演示服务器清单）
 ///   （karaoke 等有歌在播后再弹；配合 `PRIMUSE_KARAOKE_MODEL` 可在不下载资源包的情况下走 AI 分离）。
 /// - `PRIMUSE_DEBUG_BATCH_APPLY=<专辑名>`：把全部音乐的专辑名批量改成该值并写回，再撤销（结果写日志）。
@@ -2577,7 +2580,7 @@ private struct DebugListeningFeatureAutomation: ViewModifier {
                         guard services.playerService.hasChapters || services.playerService.currentItemIsSpokenWord else { continue }
                         try? await Task.sleep(for: .seconds(3))
                     }
-                    if page == "karaoke" {
+                    if page == "karaoke" || page == "queue" {
                         guard services.playerService.currentSong != nil else { continue }
                         presented = Presented(page: page, songs: [], proposals: [])
                         return
@@ -2671,6 +2674,8 @@ private struct DebugListeningFeatureAutomation: ViewModifier {
             KaraokeStageView()
                 .environment(services.playerService)
                 .environment(services.themeService)
+        case "queue":
+            NavigationStack { QueueView(player: services.playerService) }
         case "batchEdit":
             BatchTagEditorView(songs: item.songs)
         case "tidy":

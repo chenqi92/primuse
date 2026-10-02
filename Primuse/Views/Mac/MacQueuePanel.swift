@@ -81,20 +81,21 @@ struct MacQueuePanel: View {
 
                     // Use the player's real traversal order. In shuffle mode
                     // this differs from the raw queue tail.
-                    let upNextEntries = player.upcomingQueueEntries
-                    if !upNextEntries.isEmpty {
+                    // 播完后自动续上的相似歌曲单独一段,和自己排的歌分开。
+                    let upNext = QueueContinuationPolicy.splitUpcoming(player.upcomingQueueEntries) {
+                        player.isAutoContinuationEntry($0.entry)
+                    }
+                    if !upNext.queued.isEmpty {
                         queueSection(title: "up_next") {
-                            ForEach(upNextEntries) { entry in
-                                queueRow(
-                                    entry: entry.entry,
-                                    reorderID: QueueReorderOccurrenceID(
-                                        queueEntryID: entry.id.queueEntryID,
-                                        roundOffset: entry.id.roundOffset
-                                    ),
-                                    allowsRemoval: player.canRemoveUpcomingQueueEntries
-                                        && entry.id.queueEntryID != currentEntryID,
-                                    unreachable: isUnreachable(entry.entry.song)
-                                )
+                            ForEach(upNext.queued) { entry in
+                                upcomingRow(entry, currentEntryID: currentEntryID)
+                            }
+                        }
+                    }
+                    if !upNext.autoplay.isEmpty {
+                        queueSection(title: "queue_autoplay_section") {
+                            ForEach(upNext.autoplay) { entry in
+                                upcomingRow(entry, currentEntryID: currentEntryID)
                             }
                         }
                     }
@@ -103,6 +104,19 @@ struct MacQueuePanel: View {
                 .padding(.bottom, 14)
             }
         }
+    }
+
+    private func upcomingRow(_ entry: QueuePresentationEntry, currentEntryID: UUID) -> some View {
+        queueRow(
+            entry: entry.entry,
+            reorderID: QueueReorderOccurrenceID(
+                queueEntryID: entry.id.queueEntryID,
+                roundOffset: entry.id.roundOffset
+            ),
+            allowsRemoval: player.canRemoveUpcomingQueueEntries
+                && entry.id.queueEntryID != currentEntryID,
+            unreachable: isUnreachable(entry.entry.song)
+        )
     }
 
     private var header: some View {

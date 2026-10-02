@@ -1793,7 +1793,16 @@ private struct MacSTPlaybackView: View {
 
         MacSTSection(Lz("Transitions & Gapless")) {
             MacSTGroup {
-                MacSTRow(Lz("Gapless Playback"), divider: false) {
+                MacSTRow(
+                    String(localized: "auto_continue_similar"),
+                    hint: String(localized: "auto_continue_similar_footer"),
+                    hintLineLimit: 3,
+                    divider: false
+                ) {
+                    MacSTToggle(isOn: $s.autoContinueSimilarEnabled)
+                }
+                .settingsAnchor("playback.autoContinueSimilar")
+                MacSTRow(Lz("Gapless Playback")) {
                     MacSTToggle(isOn: $s.gaplessEnabled)
                         .accessibilityHint(Text(verbatim: Lz("P-16 · On by Default")))
                 }

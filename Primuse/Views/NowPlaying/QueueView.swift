@@ -103,20 +103,21 @@ struct QueueView: View {
                         )
                     }
 
-                    let upcoming = player.upcomingQueueEntries
-                    if !upcoming.isEmpty {
+                    // 播完后自动续上的相似歌曲单独一段,和自己排的歌分开。
+                    let upcoming = QueueContinuationPolicy.splitUpcoming(player.upcomingQueueEntries) {
+                        player.isAutoContinuationEntry($0.entry)
+                    }
+                    if !upcoming.queued.isEmpty {
                         queueSection(title: "up_next") {
-                            ForEach(upcoming) { presentation in
-                                queueRow(
-                                    entry: presentation.entry,
-                                    reorderID: QueueReorderOccurrenceID(
-                                        queueEntryID: presentation.id.queueEntryID,
-                                        roundOffset: presentation.id.roundOffset
-                                    ),
-                                    allowsRemoval: player.canRemoveUpcomingQueueEntries
-                                        && presentation.id.queueEntryID != currentEntry.id,
-                                    unreachable: isUnreachable(presentation.entry.song)
-                                )
+                            ForEach(upcoming.queued) { presentation in
+                                upcomingRow(presentation, currentEntry: currentEntry)
+                            }
+                        }
+                    }
+                    if !upcoming.autoplay.isEmpty {
+                        queueSection(title: "queue_autoplay_section") {
+                            ForEach(upcoming.autoplay) { presentation in
+                                upcomingRow(presentation, currentEntry: currentEntry)
                             }
                         }
                     }
@@ -140,6 +141,19 @@ struct QueueView: View {
             // 行级增删仍然走各自的动画。
             .pmAppearFade(.contentAppear)
         }
+    }
+
+    private func upcomingRow(_ presentation: QueuePresentationEntry, currentEntry: QueueEntry) -> some View {
+        queueRow(
+            entry: presentation.entry,
+            reorderID: QueueReorderOccurrenceID(
+                queueEntryID: presentation.id.queueEntryID,
+                roundOffset: presentation.id.roundOffset
+            ),
+            allowsRemoval: player.canRemoveUpcomingQueueEntries
+                && presentation.id.queueEntryID != currentEntry.id,
+            unreachable: isUnreachable(presentation.entry.song)
+        )
     }
 
     private func queueSection<Content: View>(

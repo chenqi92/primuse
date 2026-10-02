@@ -2234,6 +2234,87 @@ enum MusicDiscoveryEngine {
         return results.prefix(limit).map { $0.result(in: songs) }
     }
 
+    /// Songs to follow a music queue that ran out (#166): the songs most like
+    /// each seed — the queue's last few — interleaved, at most three per album
+    /// and five per artist, skipping `excluded` (the queue and what was just
+    /// played). Off the main actor on the library's own array; the feature
+    /// index is reused while `revision` holds. Each seed keeps only a bounded
+    /// best-of list instead of sorting the whole library.
+    static func continuationSongIDs(
+        seeds: [Song],
+        songs: [Song],
+        revision: UInt64,
+        recentIDs: Set<String>,
+        excluding excluded: Set<String>,
+        limit: Int,
+        isCancelled: () -> Bool = { false }
+    ) -> [String] {
+        guard limit > 0, !seeds.isEmpty,
+              let index = featureIndex(for: songs, revision: revision, isCancelled: isCancelled) else { return [] }
+        let keep = limit * 3
+        var rankings: [[String]] = []
+        var positionByID: [String: Int] = [:]
+        for seed in seeds {
+            guard !isCancelled() else { return [] }
+            let seedFeature = index.feature(for: seed)
+            // Ties are common (same genre, similar length); a per-seed salt
+            // breaks them differently each time instead of by library order.
+            let salt = UInt64(truncatingIfNeeded: seed.id.hashValue)
+            var top: [(score: Double, position: Int)] = []
+            top.reserveCapacity(keep + 1)
+            for position in index.ids.indices where index.playable[position] {
+                if position.isMultiple(of: 4_096), isCancelled() { return [] }
+                let match = similarity(between: seedFeature, and: position, in: index)
+                guard match.score > 0 else { continue }
+                var mixed = (UInt64(position) &+ salt) &* 0x9E37_79B9_7F4A_7C15
+                mixed ^= mixed >> 29
+                let jitter = Double(mixed % 1_000) / 1_000
+                // Only songs that can still make the list pay for the string lookups.
+                if top.count == keep, match.score + 4 + jitter <= top[keep - 1].score { continue }
+                let id = index.ids[position]
+                guard id != seed.id, !excluded.contains(id) else { continue }
+                let score = match.score + (recentIDs.contains(id) ? 0 : 4) + jitter
+                if top.count == keep, score <= top[keep - 1].score { continue }
+                var low = 0
+                var high = top.count
+                while low < high {
+                    let middle = (low + high) / 2
+                    if top[middle].score >= score { low = middle + 1 } else { high = middle }
+                }
+                top.insert((score, position), at: low)
+                if top.count > keep { top.removeLast() }
+            }
+            rankings.append(top.map { entry in
+                let id = index.ids[entry.position]
+                positionByID[id] = entry.position
+                return id
+            })
+        }
+        var merged = QueueContinuationPolicy.merge(
+            rankedBySeed: rankings,
+            excluding: excluded,
+            limit: limit,
+            groupLimits: [
+                .init(maximum: 3, key: { id in positionByID[id].map { String(index.albumIdentity[$0]) } }),
+                .init(maximum: 5, key: { id in positionByID[id].map { String(index.artistIdentity[$0]) } }),
+            ]
+        )
+        // A library with nothing alike (no tags at all) still keeps playing.
+        if merged.count < limit {
+            var taken = excluded.union(merged)
+            for seed in seeds { taken.insert(seed.id) }
+            var attempts = 0
+            while merged.count < limit, attempts < limit * 20, !index.ids.isEmpty {
+                attempts += 1
+                let position = Int.random(in: index.ids.indices)
+                guard index.playable[position] else { continue }
+                let id = index.ids[position]
+                if taken.insert(id).inserted { merged.append(id) }
+            }
+        }
+        return merged
+    }
+
     @MainActor
     static func recommendationInput(
         in library: MusicLibrary,

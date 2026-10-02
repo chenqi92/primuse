@@ -884,6 +884,13 @@ final class TVStore {
     private var queueCanonicalIndices: [Int] = []
     /// 超大请求里还没装进队列的部分(见 `TVQueueInstallation`)。
     @ObservationIgnored private var queueContinuation: QueueContinuation?
+    /// 音乐队列播完后自动续上的相似歌曲(#166),队列页在它们上面加一条分隔。
+    private(set) var autoContinuationSongIDs: Set<String> = []
+    @ObservationIgnored private var autoContinuationTask: Task<Void, Never>?
+    /// 上一次续播什么也没找到时的队尾,同一个死胡同不反复整库找。
+    @ObservationIgnored private var autoContinuationDeadEndSongID: String?
+    /// 「播完后继续播放相似歌曲」,默认开。
+    nonisolated static let autoContinueSimilarKey = "primuse.tv.autoContinueSimilar"
     @ObservationIgnored private var queueContinuationWriteTask: Task<Void, Never>?
     @ObservationIgnored private var topShelfTask: Task<Void, Never>?
     @ObservationIgnored private var playbackSessionTask: Task<Void, Never>?
@@ -5406,11 +5413,115 @@ final class TVStore {
                 return
             }
         }
+        // 音乐队列播完: 相似歌曲一般在这首开始时就排上了; 还在算就等它落地再往下走。
+        if repeatMode == .off, !hasNextQueueSong,
+           autoContinuationTask != nil || autoContinuationDecision == .similarSongs {
+            scheduleAutoContinuationIfNeeded()
+            if let task = autoContinuationTask {
+                let requestID = activePlaybackRequestID
+                Task { @MainActor [weak self] in
+                    await task.value
+                    guard let self, self.activePlaybackRequestID == requestID else { return }
+                    self.next()
+                }
+                return
+            }
+        }
         if repeatMode == .one, queue.indices.contains(queueIndex), let s = song(queue[queueIndex]) {
             startPlaying(s)
         } else {
             next()
         }
+    }
+
+    // MARK: 播完后继续播放相似歌曲 (#166)
+
+    private var hasNextQueueSong: Bool {
+        QueueTraversalPolicy.nextAvailableIndex(
+            queueCount: queue.count,
+            after: queueIndex,
+            wraps: false,
+            isAvailable: { library.visibleSong(id: queue[$0]) != nil }
+        ) != nil
+    }
+
+    /// 与手机端同一套规则; 电视没有「随机播完从曲库续」, 随机开着也续相似歌曲。
+    private var autoContinuationDecision: QueueContinuationPolicy.Decision {
+        guard queue.indices.contains(queueIndex), appleMusicSelection == nil else { return .none }
+        let currentID = queue[queueIndex]
+        return QueueContinuationPolicy.decision(
+            isEnabled: UserDefaults.standard.object(forKey: Self.autoContinueSimilarKey) as? Bool ?? true,
+            repeatMode: repeatMode == .off ? .off : (repeatMode == .all ? .all : .one),
+            shuffleEnabled: shuffleEnabled,
+            space: library.spokenWordSongIDs.contains(currentID) ? .spokenWord : .music,
+            isMedley: isMedleyActive,
+            isLiveRadio: isLiveRadio,
+            hasUpcomingSongs: hasNextQueueSong,
+            hasPendingRequestSongs: queueContinuation != nil,
+            shuffleExtendsFromLibrary: false
+        )
+    }
+
+    /// 队列只剩正在播的这首时, 在后台按最后几首找相似歌曲接到队尾。
+    private func scheduleAutoContinuationIfNeeded() {
+        guard autoContinuationTask == nil,
+              let lastID = queue.last,
+              autoContinuationDeadEndSongID != lastID,
+              autoContinuationDecision == .similarSongs else { return }
+        let seeds = QueueContinuationPolicy.seedIDs(queueIDs: queue, currentIndex: queueIndex)
+            .compactMap { library.visibleSong(id: $0) }
+        guard !seeds.isEmpty else { return }
+        let excluded = Set(queue).union(library.recentPlaybackSongIDsForSync)
+        let recentIDs = Set(PlayHistoryStore.shared.entries(in: .month).map(\.songID))
+        let songs = library.musicSongs
+        let revision = library.musicSongsRevision
+        let queueCount = queue.count
+        autoContinuationTask = Task { @MainActor [weak self] in
+            let worker = Task.detached(priority: .userInitiated) {
+                MusicDiscoveryEngine.continuationSongIDs(
+                    seeds: seeds,
+                    songs: songs,
+                    revision: revision,
+                    recentIDs: recentIDs,
+                    excluding: excluded,
+                    limit: QueueContinuationPolicy.batchSize,
+                    isCancelled: { Task.isCancelled }
+                )
+            }
+            let ids = await withTaskCancellationHandler {
+                await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.autoContinuationTask = nil
+            guard self.queue.count == queueCount, self.queue.last == lastID,
+                  self.autoContinuationDecision == .similarSongs else { return }
+            if !self.appendAutoContinuation(ids) {
+                self.autoContinuationDeadEndSongID = lastID
+            }
+        }
+    }
+
+    private func appendAutoContinuation(_ ids: [String]) -> Bool {
+        let additions = ids.filter { library.visibleSong(id: $0) != nil }
+        guard !additions.isEmpty, queueCanonicalIndices.count == queue.count else { return false }
+        let base = canonicalQueue.count
+        canonicalQueue.append(contentsOf: additions)
+        queueCanonicalIndices.append(contentsOf: additions.indices.map { base + $0 })
+        queue.append(contentsOf: additions)
+        autoContinuationSongIDs.formUnion(additions)
+        refreshUpNext()
+        plog("🎬 TV auto continuation appended \(additions.count) similar songs (queue=\(queue.count))")
+        persistPlaybackSession()
+        return true
+    }
+
+    private func resetAutoContinuation() {
+        autoContinuationTask?.cancel()
+        autoContinuationTask = nil
+        autoContinuationDeadEndSongID = nil
+        if !autoContinuationSongIDs.isEmpty { autoContinuationSongIDs = [] }
     }
 
     /// 点击「下一首」队列里的某首,直接跳到它播放。
@@ -5649,6 +5760,7 @@ final class TVStore {
     }
 
     private func install(_ installation: TVQueueInstallation) {
+        resetAutoContinuation()
         canonicalQueue = installation.canonicalQueue
         queueCanonicalIndices = installation.queueCanonicalIndices
         queue = installation.queue
@@ -5733,6 +5845,7 @@ final class TVStore {
             return
         }
         refillQueueFromContinuationIfNeeded()
+        scheduleAutoContinuationIfNeeded()
         // 换条之前先记下上一条有声内容听到哪了,时钟马上就要归零。
         rememberSpokenWordPosition(force: true)
         let startTime = spokenWordStartTime(for: song, requested: resumeTime, isRecovery: isRecovery)
@@ -6369,6 +6482,7 @@ extension TVStore {
         persistPlaybackSession()
         endMedley()
         pendingDeepLink = nil
+        resetAutoContinuation()
         isMedleyActive = true
         medleyOriginals = originals
         medleySlices = slices

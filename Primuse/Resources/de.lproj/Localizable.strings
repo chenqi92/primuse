@@ -597,6 +597,9 @@
 "open_source" = "Open-Source-Bibliotheken";
 "gapless_playback" = "Lückenlose Wiedergabe";
 "gapless_desc" = "Nahtloser Übergang zwischen Titeln ohne stille Pause.";
+"auto_continue_similar" = "Ähnliche Titel weiterspielen";
+"auto_continue_similar_footer" = "Wenn die Warteschlange endet, laufen Titel aus deiner Mediathek weiter, die den letzten ähneln. Sie erscheinen in der Warteschlange unter „Autoplay“. Hörbücher, Radio und Wiederholen sind nicht betroffen.";
+"queue_autoplay_section" = "Autoplay · Ähnliche Titel";
 "crossfade" = "Überblenden";
 "crossfade_duration" = "Überblenddauer";
 "crossfade_desc" = "Lasse das Ende eines Titels sanft in den Anfang des nächsten übergehen.";

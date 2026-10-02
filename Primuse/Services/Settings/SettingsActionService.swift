@@ -22,7 +22,7 @@ struct SettingsActionService {
     var showsIntelligence = true
 
     nonisolated static let toggleIDs: Set<String> = [
-        "playback.matchSampleRate", "playback.gapless", "playback.crossfade",
+        "playback.matchSampleRate", "playback.autoContinueSimilar", "playback.gapless", "playback.crossfade",
         "playback.skipLeadingSilence", "playback.skipTrailingSilence", "playback.replayGain",
         "playback.spatialAudio", "playback.headTracking", "lyrics.lockScreen",
         "storage.audioCacheEnabled", "effects.chain", "effects.reverb", "effects.compressor",
@@ -111,6 +111,7 @@ struct SettingsActionService {
     func booleanValue(for id: String) -> Bool? {
         switch id {
         case "playback.matchSampleRate": playback.outputMode == .highFidelity || playback.matchOutputSampleRate
+        case "playback.autoContinueSimilar": playback.autoContinueSimilarEnabled
         case "playback.gapless": playback.gaplessEnabled
         case "playback.crossfade": playback.crossfadeEnabled
         case "playback.skipLeadingSilence": playback.skipLeadingSilenceEnabled
@@ -144,6 +145,7 @@ struct SettingsActionService {
         let disablesCrossfade = id == "playback.gapless" && enabled && playback.crossfadeEnabled
         switch id {
         case "playback.matchSampleRate": playback.matchOutputSampleRate = enabled
+        case "playback.autoContinueSimilar": playback.autoContinueSimilarEnabled = enabled
         case "playback.gapless": playback.gaplessEnabled = enabled
         case "playback.crossfade": playback.crossfadeEnabled = enabled
         case "playback.skipLeadingSilence": playback.skipLeadingSilenceEnabled = enabled

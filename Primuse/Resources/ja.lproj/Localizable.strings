@@ -598,6 +598,9 @@
 "open_source" = "オープンソースライブラリ";
 "gapless_playback" = "ギャップレス再生";
 "gapless_desc" = "曲間の無音をなくし、トラック間をシームレスに切り替えます。";
+"auto_continue_similar" = "再生後に似た曲を続けて再生";
+"auto_continue_similar_footer" = "キューの再生が終わると、最後の数曲に似た曲をライブラリから続けて再生します。キューでは「自動再生」の下に表示されます。オーディオブック、ラジオ、リピート中は対象外です。";
+"queue_autoplay_section" = "自動再生 · 似た曲";
 "crossfade" = "クロスフェード";
 "crossfade_duration" = "クロスフェードの長さ";
 "crossfade_desc" = "現在のトラックの終わりを次のトラックの始まりへなめらかに重ね合わせます。";

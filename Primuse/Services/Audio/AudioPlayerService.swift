@@ -710,6 +710,13 @@ final class AudioPlayerService {
     /// the end of the window.
     @ObservationIgnored var queueContinuation: QueueContinuation?
     @ObservationIgnored var queueContinuationWriteTask: Task<Void, Never>?
+    /// Up Next entries the player added itself once a music queue ran out
+    /// (#166); the queue list shows them under an "autoplay" divider.
+    var autoContinuationEntryIDs: Set<UUID> = []
+    @ObservationIgnored var autoContinuationTask: Task<Void, Never>?
+    /// The last entry of a queue a top-up found nothing for, so the same dead
+    /// end is not searched again on every prefetch.
+    @ObservationIgnored var autoContinuationDeadEndEntryID: UUID?
     /// Backward-compatible read-only view over the queue's songs.
     /// Internal callers and observers keep using `player.queue` —
     /// the @Observable macro tracks reads through `queueEntries`,
@@ -6346,6 +6353,7 @@ final class AudioPlayerService {
 
     func prefetchNextSong() {
         refillQueueFromContinuationIfNeeded()
+        scheduleAutoContinuationIfNeeded()
         synchronizeAppleMusicQueue()
         prefetchTask?.cancel()
         plannedSuccessorEntryID = nextQueueEntryInQueue()?.id

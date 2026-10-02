@@ -365,6 +365,9 @@
 "open_source" = "開放原始碼程式庫";
 "gapless_playback" = "無縫播放";
 "gapless_desc" = "曲目之間無縫銜接，消除靜音間隙。";
+"auto_continue_similar" = "播完後繼續播放相似歌曲";
+"auto_continue_similar_footer" = "佇列播完後，按最後幾首歌從資料庫裡接著播放相似的歌曲，它們在佇列裡排在「以下為自動續播」下面。有聲書、電台和循環播放不受影響。";
+"queue_autoplay_section" = "以下為自動續播";
 "crossfade" = "淡入淡出";
 "crossfade_duration" = "淡入淡出時長";
 "crossfade_desc" = "當前曲目結束時，平滑過渡到下一首。";

@@ -377,6 +377,9 @@
 "open_source" = "开源库";
 "gapless_playback" = "无缝播放";
 "gapless_desc" = "曲目之间无缝衔接，消除静音间隙。";
+"auto_continue_similar" = "播完后继续播放相似歌曲";
+"auto_continue_similar_footer" = "队列播完后，按最后几首歌从曲库里接着播放相似的歌曲，它们在队列里排在「以下为自动续播」下面。有声书、电台和循环播放不受影响。";
+"queue_autoplay_section" = "以下为自动续播";
 "crossfade" = "淡入淡出";
 "crossfade_duration" = "淡入淡出时长";
 "crossfade_desc" = "当前曲目结束时，平滑过渡到下一首。";

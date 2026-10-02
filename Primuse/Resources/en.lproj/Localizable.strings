@@ -377,6 +377,9 @@
 "open_source" = "Open Source Libraries";
 "gapless_playback" = "Gapless Playback";
 "gapless_desc" = "Seamlessly transition between tracks without any silence gap.";
+"auto_continue_similar" = "Keep Playing Similar Songs";
+"auto_continue_similar_footer" = "When the queue ends, songs from your library like the last few keep the music going. They appear under \"Autoplay\" in the queue. Audiobooks, radio and repeat are not affected.";
+"queue_autoplay_section" = "Autoplay · Similar Songs";
 "crossfade" = "Crossfade";
 "crossfade_duration" = "Crossfade Duration";
 "crossfade_desc" = "Smoothly blend the end of one track into the beginning of the next.";

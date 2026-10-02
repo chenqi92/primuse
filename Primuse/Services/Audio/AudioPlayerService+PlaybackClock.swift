@@ -167,6 +167,14 @@ extension AudioPlayerService {
             stopAtTrackEnd()  // 进 "已播完但保留 currentSong" 状态, 跟用户手动暂停一致
             return
         }
+        // 音乐队列播完: 续播的相似歌曲通常在这首开始时就已经排上了; 极短的歌
+        // 可能还没算完, 等它落地再判断是否到头 (#166)。
+        if nextSongInQueue() == nil,
+           autoContinuationTask != nil || autoContinuationDecision == .similarSongs {
+            let endedPlayID = playID
+            await awaitAutoContinuationAtQueueEnd()
+            guard playID == endedPlayID else { return }
+        }
         if shuffleEnabled, repeatMode != .one, nextSongInQueue() == nil {
             _ = extendExhaustedShuffleFromLibrary()
         }

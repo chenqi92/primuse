@@ -1401,6 +1401,9 @@
 "fullscreen_effect_visualizer" = "Visualizador";
 "fullscreen_effect_visualizer_subtitle" = "Nebulosa de partículas y horizonte espectral";
 "gapless_desc" = "Transición fluida entre pistas sin ningún espacio de silencio.";
+"auto_continue_similar" = "Seguir con canciones similares";
+"auto_continue_similar_footer" = "Cuando termina la cola, siguen sonando canciones de tu biblioteca parecidas a las últimas. Aparecen en la cola bajo «Reproducción automática». No afecta a audiolibros, radio ni repetición.";
+"queue_autoplay_section" = "Reproducción automática · Similares";
 "gapless_not_available" = "La reproducción sin pausas está disponible para pistas en cola. El fundido cruzado lo desactiva.";
 "gapless_playback" = "Reproducción sin pausas";
 "genre" = "Género";

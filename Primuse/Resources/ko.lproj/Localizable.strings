@@ -597,6 +597,9 @@
 "open_source" = "오픈 소스 라이브러리";
 "gapless_playback" = "갭리스 재생";
 "gapless_desc" = "무음 구간 없이 트랙 사이를 자연스럽게 전환합니다.";
+"auto_continue_similar" = "재생 후 비슷한 곡 계속 재생";
+"auto_continue_similar_footer" = "대기열이 끝나면 마지막 몇 곡과 비슷한 곡을 보관함에서 이어서 재생합니다. 대기열에서는 '자동 재생' 아래에 표시됩니다. 오디오북, 라디오, 반복 재생에는 적용되지 않습니다.";
+"queue_autoplay_section" = "자동 재생 · 비슷한 곡";
 "crossfade" = "크로스페이드";
 "crossfade_duration" = "크로스페이드 시간";
 "crossfade_desc" = "한 트랙의 끝부분을 다음 트랙의 시작 부분으로 부드럽게 섞습니다.";
