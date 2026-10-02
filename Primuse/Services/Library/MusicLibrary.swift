@@ -3475,6 +3475,9 @@ final class MusicLibrary {
     private(set) var serverFavoriteErrorMessage: String?
     @ObservationIgnored var serverRatingTargetProvider: ((Song) -> ServerSongRatingTarget?)?
     @ObservationIgnored var ratingStateMutationHandler: ((LibraryReview) -> Void)?
+    /// 整张专辑 / 一位艺人的全部歌曲改成了同一个新名字（标签编辑、刮削）时报出来，
+    /// 专辑 / 艺人的「喜欢」据此跟过去（见 `LibraryFavoritesStore.applyCollectionRenames`）。
+    @ObservationIgnored var collectionRenameHandler: (([CollectionRename]) -> Void)?
     private(set) var serverRatingErrorMessage: String?
 
     var serverRatingStorageKey: String {
@@ -9544,6 +9547,103 @@ final class MusicLibrary {
         didSet { scheduleArtworkLookupTokenRefresh() }
     }
 
+    struct CollectionRename: Equatable, Sendable {
+        let kind: LibraryFavoriteKind
+        let fromTitle: String
+        let fromArtist: String
+        let toTitle: String
+        let toArtist: String
+    }
+
+    /// 只有一整张专辑（一位艺人名下的全部歌）都挪到同一个新名字下才算改名；只挪走几首
+    /// 是把歌移到别的专辑，喜欢不该跟过去。
+    nonisolated static func collectionRenames(
+        pairs: [(previous: Song, updated: Song)],
+        originalSongs: [Song],
+        oldAlbums: [String: Album],
+        oldArtistNames: [String: String],
+        configuration: ArtistNameConfiguration
+    ) -> [CollectionRename] {
+        struct Move {
+            var count = 0
+            var targets: Set<String> = []
+            var sample: Song
+        }
+        var albumMoves: [String: Move] = [:]
+        var artistMoves: [String: Move] = [:]
+        for (previous, updated) in pairs {
+            if let old = previous.albumID, let new = updated.albumID, old != new {
+                albumMoves[old, default: Move(sample: updated)].count += 1
+                albumMoves[old]?.targets.insert(new)
+            }
+            if let old = previous.artistID, let new = updated.artistID, old != new {
+                artistMoves[old, default: Move(sample: updated)].count += 1
+                artistMoves[old]?.targets.insert(new)
+            }
+        }
+        guard !albumMoves.isEmpty || !artistMoves.isEmpty else { return [] }
+        var albumTotals: [String: Int] = [:]
+        var artistTotals: [String: Int] = [:]
+        for song in originalSongs {
+            if let albumID = song.albumID, albumMoves[albumID] != nil { albumTotals[albumID, default: 0] += 1 }
+            if let artistID = song.artistID, artistMoves[artistID] != nil { artistTotals[artistID, default: 0] += 1 }
+        }
+        let unknownArtist = String(localized: "unknown_artist")
+        var renames: [CollectionRename] = []
+        for (oldID, move) in albumMoves.sorted(by: { $0.key < $1.key })
+        where move.targets.count == 1 && move.count == albumTotals[oldID] {
+            guard let album = oldAlbums[oldID],
+                  let identity = AlbumGroupingPolicy.identity(
+                    albumTitle: move.sample.albumTitle,
+                    albumArtistName: move.sample.albumArtistName,
+                    trackArtistName: move.sample.artistName,
+                    unknownArtistName: unknownArtist
+                  ) else { continue }
+            renames.append(CollectionRename(
+                kind: .album,
+                fromTitle: album.title,
+                fromArtist: album.artistName ?? "",
+                toTitle: identity.albumTitle,
+                toArtist: identity.artistName
+            ))
+        }
+        for (oldID, move) in artistMoves.sorted(by: { $0.key < $1.key })
+        where move.targets.count == 1 && move.count == artistTotals[oldID] {
+            guard let oldName = oldArtistNames[oldID],
+                  let newName = resolvedArtistNames(for: move.sample, configuration: configuration).first
+            else { continue }
+            renames.append(CollectionRename(
+                kind: .artist, fromTitle: "", fromArtist: oldName, toTitle: "", toArtist: newName
+            ))
+        }
+        return renames
+    }
+
+    private func reportCollectionRenames(
+        pairs: [(previous: Song, updated: Song)],
+        originalSongs: [Song]
+    ) {
+        guard let collectionRenameHandler, !pairs.isEmpty else { return }
+        var oldAlbums: [String: Album] = [:]
+        var oldArtistNames: [String: String] = [:]
+        for (previous, _) in pairs {
+            if let albumID = previous.albumID, oldAlbums[albumID] == nil {
+                oldAlbums[albumID] = visibleAlbum(id: albumID)
+            }
+            if let artistID = previous.artistID, oldArtistNames[artistID] == nil {
+                oldArtistNames[artistID] = visibleArtist(id: artistID)?.name
+            }
+        }
+        let renames = Self.collectionRenames(
+            pairs: pairs,
+            originalSongs: originalSongs,
+            oldAlbums: oldAlbums,
+            oldArtistNames: oldArtistNames,
+            configuration: artistNameConfiguration
+        )
+        if !renames.isEmpty { collectionRenameHandler(renames) }
+    }
+
     func replaceSong(_ updatedSong: Song) {
         // S2: 与 `replaceSongs` 一致地排队。空库上 `validatedSongIndex` 返回 nil,
         // 不排队的话标签编辑 / 歌词回写 / 播放时长纠正会被直接丢掉。
@@ -9587,6 +9687,7 @@ final class MusicLibrary {
             songs = nextSongs
             rebuildVisibleCache()
         }
+        reportCollectionRenames(pairs: [(previousSong, s)], originalSongs: currentSongs)
         lastReplacedSong = s
         lastReplacedSongIDs = [s.id]
         if previousSong.sourceID != s.sourceID
@@ -9645,6 +9746,7 @@ final class MusicLibrary {
         var derivedCollectionsChanged = false
         var songListSnapshotChanged = false
         var repairedIndexLookup = false
+        var renamePairs: [(previous: Song, updated: Song)] = []
         let derivedIDMemo = DerivedIDMemo()
         for updated in updatedSongs {
             var index = idToIndex[updated.id]
@@ -9683,6 +9785,9 @@ final class MusicLibrary {
                 || previousSong.isPlayable != s.isPlayable {
                 songListSnapshotChanged = true
             }
+            if previousSong.albumID != s.albumID || previousSong.artistID != s.artistID {
+                renamePairs.append((previousSong, s))
+            }
             nextSongs[index] = s
             lastApplied = s
             appliedIDs.insert(s.id)
@@ -9709,6 +9814,7 @@ final class MusicLibrary {
             songs = nextSongs
             rebuildVisibleCache()
         }
+        reportCollectionRenames(pairs: renamePairs, originalSongs: originalSongs)
         lastReplacedSong = lastApplied
         lastReplacedSongIDs = appliedIDs
         if songListSnapshotChanged {

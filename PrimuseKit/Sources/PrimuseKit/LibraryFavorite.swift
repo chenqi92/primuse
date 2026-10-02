@@ -170,3 +170,58 @@ public struct LibraryFavoriteLedger: Codable, Sendable, Equatable {
         return stale.sorted()
     }
 }
+
+/// 一个服务器源上专辑 / 艺人收藏与本机喜欢的双向对账（服务端：Subsonic 的 star、
+/// Jellyfin/Emby 的收藏）。`baseline` 是上次对账后认为服务端收藏着的键，`lastSyncedAt`
+/// 是那次对账的时刻。
+///
+/// - 第一次（没有基线）只把服务端的收藏带进本机，不把本机已有的喜欢整批推上去；
+///   本机已经明确取消过的（有墓碑）也不带进来。
+/// - 之后：服务端比基线多出来的 → 本机点上；基线里有、服务端没了 → 本机取消；
+///   但本机在上次对账之后改过的那一条以本机为准，反过来推到服务端（也兜住推送失败后的重试）。
+public enum ServerCollectionFavoriteReconciliation {
+    public struct Plan: Equatable, Sendable {
+        public var likeLocally: Set<String> = []
+        public var unlikeLocally: Set<String> = []
+        public var starOnServer: Set<String> = []
+        public var unstarOnServer: Set<String> = []
+
+        public init() {}
+    }
+
+    public static func plan(
+        serverKeys: Set<String>,
+        baseline: Set<String>?,
+        lastSyncedAt: Date?,
+        local: [String: LibraryFavorite]
+    ) -> Plan {
+        var plan = Plan()
+        guard let baseline, let lastSyncedAt else {
+            for key in serverKeys where local[key] == nil {
+                plan.likeLocally.insert(key)
+            }
+            return plan
+        }
+        func changedLocallySinceSync(_ key: String) -> Bool {
+            (local[key]?.modifiedAt ?? .distantPast) > lastSyncedAt
+        }
+        for key in serverKeys.union(baseline).union(local.keys) {
+            let onServer = serverKeys.contains(key)
+            let wasOnServer = baseline.contains(key)
+            let localEntry = local[key]
+            let likedLocally = localEntry?.isActive == true
+            if changedLocallySinceSync(key) {
+                // 本机后来改过：以本机为准。
+                if likedLocally, !onServer { plan.starOnServer.insert(key) }
+                if !likedLocally, onServer { plan.unstarOnServer.insert(key) }
+                continue
+            }
+            if onServer, !wasOnServer, !likedLocally {
+                plan.likeLocally.insert(key)
+            } else if !onServer, wasOnServer, likedLocally {
+                plan.unlikeLocally.insert(key)
+            }
+        }
+        return plan
+    }
+}

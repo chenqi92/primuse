@@ -163,6 +163,15 @@ struct TVHomeView: View {
                                 }
                             }
                         }
+                        let likedAlbums = store.likedAlbums
+                        if !likedAlbums.isEmpty {
+                            TVRow(label: String(localized: "library_liked_albums_title")) {
+                                ForEach(likedAlbums) { album in
+                                    TVAlbumCard(album: album, action: openPlayer,
+                                                onOpen: { selectedAlbum = album })
+                                }
+                            }
+                        }
                     }
                     // 有曲库没电台时也留着这一排,末尾的卡片就是电视端添加电台的入口。
                     TVRow(

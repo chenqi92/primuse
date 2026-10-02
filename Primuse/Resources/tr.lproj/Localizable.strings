@@ -2657,8 +2657,8 @@
 "check_for_updates_up_to_date" = "Son sürümdesiniz";
 "ai_remove_provider_confirm" = "Bu hizmet ve yerel anahtarı kaldırılsın mı?";
 "lang_ru" = "Rusça";
-"carplay_liked_albums_title" = "Beğenilen albümler";
-"carplay_liked_artists_title" = "Beğenilen sanatçılar";
+"library_liked_albums_title" = "Beğenilen albümler";
+"library_liked_artists_title" = "Beğenilen sanatçılar";
 "library_favorite_like" = "Beğen";
 "library_favorite_unlike" = "Beğenmekten vazgeç";
 "library_favorite_filter" = "Yalnızca beğenilenleri göster";

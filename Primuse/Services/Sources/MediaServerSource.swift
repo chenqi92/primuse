@@ -4,6 +4,7 @@ import PrimuseKit
 
 actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackConnector,
     ServerLyricsConnector, ServerPlaylistConnector, ServerFavoriteConnector, ServerRadioConnector,
+    ServerCollectionFavoriteConnector,
     ServerRadioStreamResolvingConnector, ServerListeningStatsConnector,
     NetworkAdaptiveTranscodingConnector,
     IncrementalSongCatalogConnector {
@@ -2320,6 +2321,93 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         return refreshed
     }
 
+    // MARK: - Album / artist favorites
+
+    func fetchServerCollectionFavorites() async throws -> [ServerCollectionFavorite] {
+        guard supportsUserFavorites else {
+            throw SourceError.connectionFailed(String(localized: "server_favorite_unsupported"))
+        }
+        try await connect()
+        guard let userID else { throw SourceError.authenticationFailed }
+        let albums = try await fetchAllJellyfinOrEmbyItems(
+            path: "/Users/\(userID)/Items",
+            baseQueryItems: [
+                URLQueryItem(name: "Filters", value: "IsFavorite"),
+                URLQueryItem(name: "IncludeItemTypes", value: "MusicAlbum"),
+                URLQueryItem(name: "Recursive", value: "true"),
+                URLQueryItem(name: "EnableUserData", value: "true"),
+                URLQueryItem(name: "EnableImages", value: "false")
+            ],
+            maximumCount: Self.maximumPlaylistCount,
+            deduplicatesItems: true
+        )
+        // 艺人不挂在资料库目录下，走 /Artists；Emby 认 Filters，Jellyfin 认 IsFavorite，两个都带。
+        let artists = try await fetchAllJellyfinOrEmbyItems(
+            path: "/Artists",
+            baseQueryItems: [
+                URLQueryItem(name: "UserId", value: userID),
+                URLQueryItem(name: "Filters", value: "IsFavorite"),
+                URLQueryItem(name: "IsFavorite", value: "true"),
+                URLQueryItem(name: "EnableUserData", value: "true"),
+                URLQueryItem(name: "EnableImages", value: "false")
+            ],
+            maximumCount: Self.maximumPlaylistCount,
+            deduplicatesItems: true
+        )
+        // 只认条目自己标着收藏的：服务端不认这个过滤时会把整库艺人都回来，那不能当成全都喜欢。
+        let favoriteAlbums = albums.items.compactMap { item -> ServerCollectionFavorite? in
+            let title = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard item.userData?.isFavorite == true, !title.isEmpty else { return nil }
+            let artist = item.albumArtist ?? item.albumArtists?.first?.name ?? ""
+            return ServerCollectionFavorite(
+                kind: .album,
+                itemID: item.id,
+                albumTitle: title,
+                artistName: artist.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+        let favoriteArtists = artists.items.compactMap { item -> ServerCollectionFavorite? in
+            let name = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard item.userData?.isFavorite == true, !name.isEmpty else { return nil }
+            return ServerCollectionFavorite(kind: .artist, itemID: item.id, albumTitle: "", artistName: name)
+        }
+        let ignored = albums.items.count + artists.items.count - favoriteAlbums.count - favoriteArtists.count
+        if ignored > 0 {
+            plog("💗 \(kind) collection favorites ignored \(ignored) item(s) not marked favourite")
+        }
+        return favoriteAlbums + favoriteArtists
+    }
+
+    func serverCollectionMembership(songItemID: String) async throws -> ServerCollectionMembership {
+        guard supportsUserFavorites else {
+            throw SourceError.connectionFailed(String(localized: "server_favorite_unsupported"))
+        }
+        try await connect()
+        guard let userID else { throw SourceError.authenticationFailed }
+        let data = try await performRequest(path: "/Users/\(userID)/Items/\(songItemID)")
+        let item = try decoder.decode(AudioItem.self, from: data)
+        var artists: [ServerArtistReference] = []
+        var seen = Set<String>()
+        for pair in (item.albumArtists ?? []) + (item.artistItems ?? []) {
+            guard let id = pair.id, !id.isEmpty, seen.insert(id).inserted else { continue }
+            artists.append(ServerArtistReference(id: id, name: pair.name))
+        }
+        return ServerCollectionMembership(albumID: item.albumId, artists: artists)
+    }
+
+    func setServerCollectionFavorite(kind: LibraryFavoriteKind, itemID: String, isFavorite: Bool) async throws {
+        guard supportsUserFavorites else {
+            throw SourceError.connectionFailed(String(localized: "server_favorite_unsupported"))
+        }
+        try await connect()
+        guard let userID else { throw SourceError.authenticationFailed }
+        _ = try await performRequest(
+            path: "/Users/\(userID)/FavoriteItems/\(itemID)",
+            method: isFavorite ? "POST" : "DELETE",
+            retriesIdempotentMutationAfterAuthentication: true
+        )
+    }
+
     func fetchServerRadioStations() async throws -> ServerRadioStationSnapshot? {
         guard kind != .plex else { return nil }
         try await connect()
@@ -4391,10 +4479,12 @@ private struct AudioItem: Decodable {
 private struct UserItemData: Decodable {
     let playCount: Int?
     let lastPlayedDate: Date?
+    let isFavorite: Bool?
 
     enum CodingKeys: String, CodingKey {
         case playCount = "PlayCount"
         case lastPlayedDate = "LastPlayedDate"
+        case isFavorite = "IsFavorite"
     }
 }
 

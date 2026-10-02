@@ -697,8 +697,8 @@
 "song_details_parse_failed" = "曲の詳細を解析できませんでした";
 "song_details_parse_failed_message" = "ファイルは読み込めましたが、現在の解析処理では完全な詳細を確認できませんでした。再生は引き続き可能です。";
 "song_details_retry" = "もう一度読み込む";
-"carplay_liked_albums_title" = "お気に入りのアルバム";
-"carplay_liked_artists_title" = "お気に入りのアーティスト";
+"library_liked_albums_title" = "お気に入りのアルバム";
+"library_liked_artists_title" = "お気に入りのアーティスト";
 "library_favorite_like" = "お気に入り";
 "library_favorite_unlike" = "お気に入りを解除";
 "library_favorite_filter" = "お気に入りのみ表示";

@@ -83,3 +83,72 @@ struct LibraryFavoriteTests {
         #expect(try JSONDecoder().decode(LibraryFavoriteLedger.self, from: data) == ledger)
     }
 }
+
+struct ServerCollectionFavoriteReconciliationTests {
+    private let synced = Date(timeIntervalSince1970: 1_800_000_000)
+
+    private func entry(_ title: String, liked: Bool, at offset: TimeInterval) -> (String, LibraryFavorite) {
+        let date = synced.addingTimeInterval(offset)
+        let favorite = LibraryFavorite(
+            kind: .album, albumTitle: title, artistName: "A",
+            likedAt: date, modifiedAt: date, deletedAt: liked ? nil : date
+        )
+        return (favorite.id, favorite)
+    }
+
+    private func key(_ title: String) -> String {
+        LibraryFavoriteKey.id(kind: .album, albumTitle: title, artistName: "A")
+    }
+
+    @Test func firstSyncOnlyImportsWhatTheServerHas() {
+        let local = Dictionary(uniqueKeysWithValues: [
+            entry("Local only", liked: true, at: -100),
+            entry("Unliked here", liked: false, at: -100),
+        ])
+        let plan = ServerCollectionFavoriteReconciliation.plan(
+            serverKeys: [key("Server"), key("Unliked here")],
+            baseline: nil, lastSyncedAt: nil, local: local
+        )
+        #expect(plan.likeLocally == [key("Server")])
+        #expect(plan.unlikeLocally.isEmpty && plan.starOnServer.isEmpty && plan.unstarOnServer.isEmpty)
+    }
+
+    @Test func serverChangesSinceTheBaselineReachThisDevice() {
+        let local = Dictionary(uniqueKeysWithValues: [
+            entry("Kept", liked: true, at: -100),
+            entry("Unstarred elsewhere", liked: true, at: -100),
+        ])
+        let plan = ServerCollectionFavoriteReconciliation.plan(
+            serverKeys: [key("Kept"), key("Starred elsewhere")],
+            baseline: [key("Kept"), key("Unstarred elsewhere")],
+            lastSyncedAt: synced, local: local
+        )
+        #expect(plan.likeLocally == [key("Starred elsewhere")])
+        #expect(plan.unlikeLocally == [key("Unstarred elsewhere")])
+        #expect(plan.starOnServer.isEmpty && plan.unstarOnServer.isEmpty)
+    }
+
+    @Test func editsMadeHereAfterTheLastSyncWinAndArePushed() {
+        let local = Dictionary(uniqueKeysWithValues: [
+            entry("Liked here", liked: true, at: 10),
+            entry("Unliked here", liked: false, at: 10),
+            entry("Re-liked here", liked: true, at: 10),
+        ])
+        let plan = ServerCollectionFavoriteReconciliation.plan(
+            serverKeys: [key("Unliked here")],
+            baseline: [key("Unliked here"), key("Re-liked here")],
+            lastSyncedAt: synced, local: local
+        )
+        #expect(plan.starOnServer == [key("Liked here"), key("Re-liked here")])
+        #expect(plan.unstarOnServer == [key("Unliked here")])
+        #expect(plan.likeLocally.isEmpty && plan.unlikeLocally.isEmpty)
+    }
+
+    @Test func steadyStateDoesNothing() {
+        let local = Dictionary(uniqueKeysWithValues: [entry("Same", liked: true, at: -100)])
+        let plan = ServerCollectionFavoriteReconciliation.plan(
+            serverKeys: [key("Same")], baseline: [key("Same")], lastSyncedAt: synced, local: local
+        )
+        #expect(plan == ServerCollectionFavoriteReconciliation.Plan())
+    }
+}

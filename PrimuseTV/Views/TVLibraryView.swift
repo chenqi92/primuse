@@ -103,6 +103,9 @@ struct TVLibraryView: View {
     @State private var currentIndexBucket: String?
     @State private var gridJumpRequest: TVGridJumpRequest?
     @State private var selectedArtist: TVArtist?
+    /// 艺人墙「只看喜欢」。
+    @State private var showsLikedArtistsOnly = false
+    @FocusState private var focusesLikedArtistsChip: Bool
     @State private var opensPlayerAfterArtistDismissal = false
     @State private var selectedAlbum: TVAlbum?
     /// 从播放页回来重开专辑页时,焦点要落到的那一首。
@@ -268,6 +271,8 @@ struct TVLibraryView: View {
                 albumOrderRawValue = order.rawValue
             }
             if environment["TV_LIBRARY_FILTER"] == "artists" { filter = .artists }
+            // TV_LIKED_ARTISTS=1:艺人墙只看喜欢的。
+            if environment["TV_LIKED_ARTISTS"] == "1" { showsLikedArtistsOnly = true }
             let bucket = environment["TV_INDEX_JUMP"] ?? "M"
             guard bucket != "-" else { return }
             var tries = 0
@@ -305,6 +310,7 @@ struct TVLibraryView: View {
             guard albumOrder.hasLetterIndex else { return [] }
             return store.albumBrowseLayout(albumOrder)?.sections ?? []
         case .artists:
+            guard !showsLikedArtistsOnly else { return [] }
             return store.artistBrowseLayout?.sections ?? []
         default:
             return []
@@ -393,7 +399,32 @@ struct TVLibraryView: View {
             if filter == .albums {
                 albumOrderPicker
             }
+            if filter == .artists,
+               showsLikedArtistsOnly || LibraryFavoritesStore.shared.hasLikedArtists {
+                likedArtistsChip
+            }
         }
+    }
+
+    private var likedArtistsChip: some View {
+        Button {
+            showsLikedArtistsOnly.toggle()
+            resetLetterIndex()
+        } label: {
+            TVFilterChipLabel(
+                title: String(localized: "library_favorite_filter_short"),
+                systemImage: showsLikedArtistsOnly ? "heart.fill" : "heart",
+                isSelected: showsLikedArtistsOnly,
+                isFocused: focusesLikedArtistsChip
+            )
+        }
+        .buttonStyle(TVBareButtonStyle())
+        .focused($focusesLikedArtistsChip)
+        .focusEffectDisabled()
+        .padding(.vertical, 6)
+        .accessibilityLabel(Text("library_favorite_filter"))
+        .accessibilityAddTraits(showsLikedArtistsOnly ? [.isButton, .isSelected] : .isButton)
+        .accessibilityIdentifier("tv.library.likedArtists")
     }
 
     private var albumOrderPicker: some View {
@@ -434,7 +465,11 @@ struct TVLibraryView: View {
                 : store.albums.count
             return PMString("ext.tv.library.title.albums", count)
         case .recommendations: return PMString("library_recommendations_title")
-        case .artists: return PMString("ext.tv.library.title.artists", store.artists.count)
+        case .artists:
+            let count = showsLikedArtistsOnly
+                ? store.likedArtistBrowseLayout.items.count
+                : store.artists.count
+            return PMString("ext.tv.library.title.artists", count)
         case .songs: return PMString("ext.tv.library.title.songs", TVFmt.count(store.songs.count))
         case .genres, .folders, .ranking: return filter.display
         }
@@ -575,7 +610,7 @@ struct TVLibraryView: View {
                 }
             }
         case .artists:
-            if let layout = store.artistBrowseLayout {
+            if let layout = showsLikedArtistsOnly ? store.likedArtistBrowseLayout : store.artistBrowseLayout {
                 TVIndexedGrid(
                     items: layout.items, sections: layout.sections, columns: columns, spacing: gap,
                     revealingIndex: browseMemory.artistID.flatMap { id in
@@ -1160,6 +1195,7 @@ struct TVAlbumDetailView: View {
                         in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .contentShape(Rectangle())
         }
+        .contextMenu { TVSongLikeMenuItem(store: store, songID: song.id) }
         .accessibilityIdentifier("tv.album.track.\(track.id)")
     }
 
@@ -1258,6 +1294,24 @@ struct TVSongRow: View {
             .padding(.horizontal, 22).padding(.vertical, 16)
             .frame(maxWidth: .infinity)
             .background(focused ? TVColor.surfaceStrong : TVColor.card)
+        }
+        .contextMenu { TVSongLikeMenuItem(store: store, songID: song.id) }
+    }
+}
+
+/// 歌曲行长按菜单里的喜欢 / 取消喜欢,与播放页封面菜单同一种写法。
+/// 按值传入 store:菜单内容可能挪到独立宿主里求值,不读 `@Environment`。
+struct TVSongLikeMenuItem: View {
+    let store: TVStore
+    let songID: String
+
+    var body: some View {
+        let liked = store.isLiked(songID)
+        Button(
+            PMString(liked ? "ext.tv.options.loved" : "ext.tv.options.love"),
+            systemImage: liked ? "heart.fill" : "heart"
+        ) {
+            store.toggleLiked(songID)
         }
     }
 }

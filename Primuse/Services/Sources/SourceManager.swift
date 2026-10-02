@@ -2130,11 +2130,39 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
     ResumablePagedSongCatalogConnector, CatalogDriftReportingConnector, ServerRatingObservingConnector,
     ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector,
     ServerPlaylistAppendingConnector, ServerMediaSharingConnector, ServerFavoriteConnector,
-    ServerRadioConnector, ServerListeningStatsConnector, ServerRatingConnector {
+    ServerRadioConnector, ServerListeningStatsConnector, ServerRatingConnector,
+    ServerCollectionFavoriteConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
     let routedPreferredDeleteBatchSize: Int
+
+    func fetchServerCollectionFavorites() async throws -> [ServerCollectionFavorite] {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerCollectionFavoriteConnector else {
+                throw SourceError.connectionFailed("Server collection favorite connector unavailable")
+            }
+            return try await provider.fetchServerCollectionFavorites()
+        }
+    }
+
+    func serverCollectionMembership(songItemID: String) async throws -> ServerCollectionMembership {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerCollectionFavoriteConnector else {
+                throw SourceError.connectionFailed("Server collection favorite connector unavailable")
+            }
+            return try await provider.serverCollectionMembership(songItemID: songItemID)
+        }
+    }
+
+    func setServerCollectionFavorite(kind: LibraryFavoriteKind, itemID: String, isFavorite: Bool) async throws {
+        try await routing.withMutation { connector in
+            guard let provider = connector as? any ServerCollectionFavoriteConnector else {
+                throw SourceError.connectionFailed("Server collection favorite connector unavailable")
+            }
+            try await provider.setServerCollectionFavorite(kind: kind, itemID: itemID, isFavorite: isFavorite)
+        }
+    }
 
     func requestServerCatalogScan() async throws -> ServerCatalogScanRequestResult {
         try await routing.withMutation { connector in
@@ -2586,12 +2614,40 @@ private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetad
     MediaServerWritebackConnector, ServerLyricsConnector, ServerPlaylistConnector,
     ServerFavoriteConnector, IncrementalSongCatalogConnector,
     ServerRadioConnector, ServerRadioStreamResolvingConnector, ServerListeningStatsConnector,
-    ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector {
+    ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector,
+    ServerCollectionFavoriteConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
     let routedPreferredDeleteBatchSize: Int
     let serverLyricsCapabilities: ServerLyricsCapabilities
+
+    func fetchServerCollectionFavorites() async throws -> [ServerCollectionFavorite] {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerCollectionFavoriteConnector else {
+                throw SourceError.connectionFailed("Server collection favorite connector unavailable")
+            }
+            return try await provider.fetchServerCollectionFavorites()
+        }
+    }
+
+    func serverCollectionMembership(songItemID: String) async throws -> ServerCollectionMembership {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerCollectionFavoriteConnector else {
+                throw SourceError.connectionFailed("Server collection favorite connector unavailable")
+            }
+            return try await provider.serverCollectionMembership(songItemID: songItemID)
+        }
+    }
+
+    func setServerCollectionFavorite(kind: LibraryFavoriteKind, itemID: String, isFavorite: Bool) async throws {
+        try await routing.withMutation { connector in
+            guard let provider = connector as? any ServerCollectionFavoriteConnector else {
+                throw SourceError.connectionFailed("Server collection favorite connector unavailable")
+            }
+            try await provider.setServerCollectionFavorite(kind: kind, itemID: itemID, isFavorite: isFavorite)
+        }
+    }
 
     func stableSongCatalogRevision() async throws -> String? {
         try await routing.withRead { connector in
@@ -12756,6 +12812,12 @@ final class SourceManager {
         throw SourceError.connectionFailed(
             String(localized: "stats_server_error_connector_unavailable")
         )
+    }
+
+    /// 专辑 / 艺人收藏的连接器；源不支持时为 nil。
+    func serverCollectionFavoriteConnector(for source: MusicSource) -> (any ServerCollectionFavoriteConnector)? {
+        guard source.type.supportsServerCollectionFavorites else { return nil }
+        return connector(for: source) as? any ServerCollectionFavoriteConnector
     }
 
     func fetchServerFavorites(for source: MusicSource) async throws -> ServerFavoriteSnapshot? {

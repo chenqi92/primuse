@@ -155,6 +155,50 @@ final class LibraryFavoritesStore {
         commitLocal(ledger.set(kind: .artist, albumTitle: "", artistName: name, liked: liked, at: Date()))
     }
 
+    /// 服务端收藏对账带回来的改动（见 `ServerCollectionFavoriteSyncService`）：照常经 iCloud
+    /// 同步，但以「server」来源发通知，不再推回服务端。
+    func applyServerFavorite(kind: LibraryFavoriteKind, albumTitle: String, artistName: String, liked: Bool) {
+        let artist = artistName == Self.unknownArtistName ? "" : artistName
+        guard let change = ledger.set(
+            kind: kind,
+            albumTitle: albumTitle,
+            artistName: artist,
+            liked: liked,
+            at: Date()
+        ) else { return }
+        didChange(ids: [change.id], origin: "server")
+    }
+
+    /// 整张专辑 / 一位艺人改了名（`MusicLibrary.collectionRenameHandler`）：原来喜欢的，新名字也
+    /// 点上喜欢（照常推到服务端、经 iCloud 同步）。旧名字的那条留着——这个名字下没有歌了就不显示，
+    /// 歌改回来时也还认得。
+    func applyCollectionRenames(_ renames: [MusicLibrary.CollectionRename]) {
+        for rename in renames {
+            let oldID = LibraryFavoriteKey.id(
+                kind: rename.kind,
+                albumTitle: rename.fromTitle,
+                artistName: rename.fromArtist,
+                unknownArtistName: Self.unknownArtistName
+            )
+            let newID = LibraryFavoriteKey.id(
+                kind: rename.kind,
+                albumTitle: rename.toTitle,
+                artistName: rename.toArtist,
+                unknownArtistName: Self.unknownArtistName
+            )
+            guard oldID != newID, ledger.isLiked(oldID), !ledger.isLiked(newID) else { continue }
+            let artist = rename.toArtist == Self.unknownArtistName ? "" : rename.toArtist
+            commitLocal(ledger.set(
+                kind: rename.kind,
+                albumTitle: rename.toTitle,
+                artistName: artist,
+                liked: true,
+                at: Date()
+            ))
+            plog("💗 favorite followed a \(rename.kind.rawValue) rename")
+        }
+    }
+
     private func commitLocal(_ change: LibraryFavorite?) {
         guard let change else { return }
         didChange(ids: [change.id], origin: nil)

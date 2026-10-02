@@ -989,13 +989,13 @@ extension CarPlaySceneDelegate {
         let favorites = LibraryFavoritesStore.shared
         var liked: [CollectionEntry] = []
         if favorites.hasLikedAlbums {
-            liked.append(CollectionEntry(title: String(localized: "carplay_liked_albums_title"), symbol: "heart.square") { [weak self] in
-                self?.pushBrowse(.likedAlbums, title: String(localized: "carplay_liked_albums_title"))
+            liked.append(CollectionEntry(title: String(localized: "library_liked_albums_title"), symbol: "heart.square") { [weak self] in
+                self?.pushBrowse(.likedAlbums, title: String(localized: "library_liked_albums_title"))
             })
         }
         if favorites.hasLikedArtists {
-            liked.append(CollectionEntry(title: String(localized: "carplay_liked_artists_title"), symbol: "heart.circle") { [weak self] in
-                self?.pushBrowse(.likedArtists, title: String(localized: "carplay_liked_artists_title"))
+            liked.append(CollectionEntry(title: String(localized: "library_liked_artists_title"), symbol: "heart.circle") { [weak self] in
+                self?.pushBrowse(.likedArtists, title: String(localized: "library_liked_artists_title"))
             })
         }
         let trailing: [CollectionEntry] = [

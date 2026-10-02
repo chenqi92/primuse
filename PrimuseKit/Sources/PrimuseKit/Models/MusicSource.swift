@@ -263,6 +263,16 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         }
     }
 
+    /// 服务端有专辑 / 艺人收藏可以和本机的「喜欢」对账（`LibraryFavorite`）。范围与歌曲
+    /// 收藏回写一致（要能从歌曲路径认出服务端的歌曲 id）；Plex 只有 0–10 的评分，专辑上
+    /// 没有布尔型收藏，不接。
+    public var supportsServerCollectionFavorites: Bool {
+        switch self {
+        case .navidrome, .subsonic, .jellyfin, .emby: return true
+        default: return false
+        }
+    }
+
     public var isServerLibrary: Bool {
         isMediaServer || isSubsonicFamily || self == .fnMusic || self == .daoliyu || self == .songloft
             || self == .synologyAudioStation

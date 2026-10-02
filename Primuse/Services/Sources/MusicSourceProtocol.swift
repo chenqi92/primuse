@@ -2217,6 +2217,36 @@ protocol ServerFavoriteConnector: MusicSourceConnector {
     func setServerFavorite(itemID: String, isFavorite: Bool) async throws -> ServerFavoriteSnapshot
 }
 
+/// 服务端收藏着的一张专辑 / 一位艺人（专辑与艺人的「喜欢」，见 `LibraryFavorite`）。
+struct ServerCollectionFavorite: Sendable, Hashable {
+    let kind: LibraryFavoriteKind
+    let itemID: String
+    /// 专辑名；艺人为空串。
+    let albumTitle: String
+    /// 专辑艺术家 / 艺人名。
+    let artistName: String
+}
+
+struct ServerArtistReference: Sendable, Hashable {
+    let id: String
+    let name: String
+}
+
+/// 一首歌在服务端所属的专辑与艺人：本机点的喜欢要先从歌反查出服务端的 id 才写得上去
+/// （扫描入库时服务端的专辑 id 会被本机的专辑编号覆盖，没有存）。
+struct ServerCollectionMembership: Sendable {
+    let albumID: String?
+    let artists: [ServerArtistReference]
+}
+
+/// 专辑 / 艺人收藏：Subsonic 系是 `star`/`unstar` 带 `albumId` / `artistId`，
+/// Jellyfin/Emby 是同一组 FavoriteItems 端点换成专辑、艺人的条目 id。
+protocol ServerCollectionFavoriteConnector: MusicSourceConnector {
+    func fetchServerCollectionFavorites() async throws -> [ServerCollectionFavorite]
+    func serverCollectionMembership(songItemID: String) async throws -> ServerCollectionMembership
+    func setServerCollectionFavorite(kind: LibraryFavoriteKind, itemID: String, isFavorite: Bool) async throws
+}
+
 /// Nil represents a cleared rating; missing songs and malformed responses throw.
 protocol ServerRatingConnector: MusicSourceConnector {
     func fetchServerRating(itemID: String) async throws -> Int?

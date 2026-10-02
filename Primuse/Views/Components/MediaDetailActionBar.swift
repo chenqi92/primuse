@@ -1354,3 +1354,50 @@ struct LibraryLikedFilterButton: View {
         .accessibilityIdentifier("library.likedFilter")
     }
 }
+
+/// 资料库专辑 / 艺人卡片的长按菜单：喜欢、播放、随机播放、接下来播放、加入播放队列。
+/// 歌在点下菜单项时才取，构造菜单本身不碰整库。
+struct LibraryCollectionMenuItems: View {
+    let isLiked: Bool
+    let toggleLike: () -> Void
+    let songs: () -> [Song]
+    let player: AudioPlayerService
+
+    var body: some View {
+        Button(action: toggleLike) {
+            Label(
+                isLiked ? "library_favorite_unlike" : "library_favorite_like",
+                systemImage: isLiked ? "heart.slash" : "heart"
+            )
+        }
+        Divider()
+        Button {
+            play(shuffled: false)
+        } label: {
+            Label("play", systemImage: "play.fill")
+        }
+        Button {
+            play(shuffled: true)
+        } label: {
+            Label("shuffle", systemImage: "shuffle")
+        }
+        Button {
+            _ = player.insertNextInQueue(songs().filteredPlayable())
+        } label: {
+            Label("up_next", systemImage: "text.line.first.and.arrowtriangle.forward")
+        }
+        Button {
+            player.appendToQueue(songs().filteredPlayable())
+        } label: {
+            Label("add_to_queue", systemImage: "text.line.last.and.arrowtriangle.forward")
+        }
+    }
+
+    private func play(shuffled: Bool) {
+        let playable = songs().filteredPlayable()
+        guard !playable.isEmpty else { return }
+        let queue = shuffled ? playable.shuffled() : playable
+        if shuffled { player.shuffleEnabled = true }
+        Task { await player.play(queue: queue, startingAt: 0) }
+    }
+}

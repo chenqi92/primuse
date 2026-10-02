@@ -2545,8 +2545,8 @@
 "repeat" = "تكرار";
 "replay_gain" = "ReplayGain";
 "replay_gain_desc" = "ضبط مستوى الصوت تلقائيًا بناءً على علامات ReplayGain المضمنة في الملفات الصوتية.";
-"carplay_liked_albums_title" = "الألبومات المُعجَب بها";
-"carplay_liked_artists_title" = "الفنانون المُعجَب بهم";
+"library_liked_albums_title" = "الألبومات المُعجَب بها";
+"library_liked_artists_title" = "الفنانون المُعجَب بهم";
 "library_favorite_like" = "أعجبني";
 "library_favorite_unlike" = "إلغاء الإعجاب";
 "library_favorite_filter" = "عرض المُعجَب بها فقط";

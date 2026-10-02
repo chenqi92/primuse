@@ -2545,8 +2545,8 @@
 "repeat" = "Powtarzaj";
 "replay_gain" = "ReplayGain";
 "replay_gain_desc" = "Automatycznie dostosuj głośność w oparciu o znaczniki ReplayGain osadzone w plikach audio.";
-"carplay_liked_albums_title" = "Polubione albumy";
-"carplay_liked_artists_title" = "Polubieni wykonawcy";
+"library_liked_albums_title" = "Polubione albumy";
+"library_liked_artists_title" = "Polubieni wykonawcy";
 "library_favorite_like" = "Polub";
 "library_favorite_unlike" = "Nie lubię";
 "library_favorite_filter" = "Pokaż tylko polubione";

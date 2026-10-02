@@ -696,8 +696,8 @@
 "song_details_parse_failed" = "Échec de l’analyse des détails";
 "song_details_parse_failed_message" = "Les données du fichier ont été lues, mais l’analyseur actuel n’a pas pu confirmer tous les détails. La lecture reste disponible.";
 "song_details_retry" = "Réessayer la lecture";
-"carplay_liked_albums_title" = "Albums favoris";
-"carplay_liked_artists_title" = "Artistes favoris";
+"library_liked_albums_title" = "Albums favoris";
+"library_liked_artists_title" = "Artistes favoris";
 "library_favorite_like" = "J’aime";
 "library_favorite_unlike" = "Je n’aime plus";
 "library_favorite_filter" = "Afficher uniquement les favoris";

@@ -946,6 +946,8 @@ final class AppServices {
     let duplicateCleanup: DuplicateCleanupService
     let batchRemoval: SongBatchRemovalService
     let serverFavoriteSync: ServerFavoriteSyncService
+    /// 专辑 / 艺人的「喜欢」与服务端收藏对账。
+    let serverCollectionFavoriteSync: ServerCollectionFavoriteSyncService
     let serverRatingSync: ServerRatingSyncService
     let serverListeningStats: ServerListeningStatsService
     let musicIntelligence: MusicIntelligenceService
@@ -1084,6 +1086,19 @@ final class AppServices {
             player: player
         )
         let ratingSync = ServerRatingSyncService(sourceManager: manager, sourcesStore: store, library: library)
+        let collectionFavoriteSync = ServerCollectionFavoriteSyncService(
+            sourcesProvider: { [weak store] in store?.sources ?? [] },
+            connectorProvider: { [weak manager] source in manager?.serverCollectionFavoriteConnector(for: source) },
+            songProvider: { [weak library] entry, sourceID in
+                guard let library else { return nil }
+                return ServerCollectionFavoriteSyncService.librarySong(
+                    for: entry,
+                    sourceID: sourceID,
+                    library: library,
+                    favorites: .shared
+                )
+            }
+        )
         let sync = CloudKitSyncService(
             library: library,
             sourcesStore: store,
@@ -1103,6 +1118,7 @@ final class AppServices {
         self.playbackSettingsStore = playbackSettings
         self.cloudSync = sync
         self.serverFavoriteSync = favoriteSync
+        self.serverCollectionFavoriteSync = collectionFavoriteSync
         self.serverRatingSync = ratingSync
         self.serverListeningStats = ServerListeningStatsService(sourceManager: manager)
         let theme = ThemeService()
@@ -1227,8 +1243,10 @@ final class AppServices {
                 applyFence: applyFence
             )
         }
-        scanService.serverFavoriteSyncHandler = { [weak favoriteSync, weak ratingSync, weak manager] source, applyFence in
+        scanService.serverFavoriteSyncHandler = { [weak favoriteSync, weak ratingSync, weak manager, weak collectionFavoriteSync] source, applyFence in
             await favoriteSync?.refresh(source: source, applyFence: applyFence)
+            guard applyFence() else { return }
+            await collectionFavoriteSync?.refresh(source: source, applyFence: applyFence)
             guard applyFence() else { return }
             // 走查顺带读到的服务端评分:别的客户端改过的写回本机(#172)。
             if let ratings = await manager?.takeObservedServerRatings(for: source), applyFence() {
@@ -1257,7 +1275,7 @@ final class AppServices {
             library: library,
             scanService: scanService,
             refreshMirrors: {
-                [weak manager, weak library, weak favoriteSync, weak ratingSync, weak radioStore]
+                [weak manager, weak library, weak favoriteSync, weak ratingSync, weak radioStore, weak collectionFavoriteSync]
                 source,
                 applyFence in
                 guard let manager, let library else { return }
@@ -1269,6 +1287,8 @@ final class AppServices {
                 )
                 guard applyFence() else { return }
                 await favoriteSync?.refresh(source: source, applyFence: applyFence)
+                guard applyFence() else { return }
+                await collectionFavoriteSync?.refresh(source: source, applyFence: applyFence)
                 guard applyFence() else { return }
                 ratingSync?.resume(sourceID: source.id)
                 guard let radioStore, applyFence() else { return }
@@ -1282,6 +1302,9 @@ final class AppServices {
         )
         library.serverRatingTargetProvider = { [weak ratingSync] song in ratingSync?.target(for: song) }
         library.ratingStateMutationHandler = { [weak ratingSync] review in ratingSync?.localRatingDidChange(review) }
+        library.collectionRenameHandler = { renames in
+            LibraryFavoritesStore.shared.applyCollectionRenames(renames)
+        }
         library.likedStateMutationHandler = { [weak favoriteSync] song, previous, desired in
             favoriteSync?.localLikedStateDidChange(
                 song: song,

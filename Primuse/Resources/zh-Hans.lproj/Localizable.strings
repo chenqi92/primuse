@@ -475,8 +475,8 @@
 "song_details_parse_failed" = "歌曲详情解析失败";
 "song_details_parse_failed_message" = "已读取文件字节，但当前解析器无法确认完整详情；这不会禁用可用的播放路径。";
 "song_details_retry" = "重试读取";
-"carplay_liked_albums_title" = "喜欢的专辑";
-"carplay_liked_artists_title" = "喜欢的艺人";
+"library_liked_albums_title" = "喜欢的专辑";
+"library_liked_artists_title" = "喜欢的艺人";
 "library_favorite_like" = "喜欢";
 "library_favorite_unlike" = "取消喜欢";
 "library_favorite_filter" = "只看喜欢的";

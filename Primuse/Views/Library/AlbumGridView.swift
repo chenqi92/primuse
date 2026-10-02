@@ -3,12 +3,22 @@ import PrimuseKit
 
 struct AlbumGridView: View {
     @Environment(MusicLibrary.self) private var library
+    @Environment(AudioPlayerService.self) private var player
     @State private var albumFilter = ""
     /// 只看喜欢的专辑。有喜欢的专辑时才给这个开关。
     @State private var showsLikedOnly = false
     private let favorites = LibraryFavoritesStore.shared
 
     private var showsLikedFilter: Bool { showsLikedOnly || favorites.hasLikedAlbums }
+
+    private func albumMenu(_ album: Album) -> some View {
+        LibraryCollectionMenuItems(
+            isLiked: favorites.isLiked(album),
+            toggleLike: { favorites.toggle(album) },
+            songs: { library.songs(forAlbum: album.id) },
+            player: player
+        )
+    }
 
     private var baseAlbums: [Album] {
         showsLikedOnly ? favorites.likedAlbums(in: library.visibleAlbums) : library.visibleAlbums
@@ -61,6 +71,10 @@ struct AlbumGridView: View {
                             AlbumCardView(album: album)
                         }
                         .buttonStyle(.pmPressable)
+                        .contextMenu { albumMenu(album) }
+                        .accessibilityAction(named: Text(favorites.isLiked(album) ? "library_favorite_unlike" : "library_favorite_like")) {
+                            favorites.toggle(album)
+                        }
                         .mediaZoomSource(.album, id: album.id)
                     }
                 }
@@ -228,6 +242,7 @@ struct AlbumGridView: View {
                                 .aspectRatio(0.74, contentMode: .fit)
                             }
                             .buttonStyle(.plain)
+                            .contextMenu { albumMenu(album) }
                             .pmHoverLift()
                         }
                     }
@@ -242,6 +257,7 @@ struct AlbumGridView: View {
                                 macAlbumListRow(album)
                             }
                             .buttonStyle(.plain)
+                            .contextMenu { albumMenu(album) }
                         }
                     }
                     .padding(.horizontal, PMSpace.xxxl)

@@ -31,6 +31,8 @@ struct ArtistListView: View {
     @State private var searchText: String = ""
 
     @Environment(\.pmHeightClass) private var heightClass
+    @Environment(MusicLibrary.self) private var library
+    @Environment(AudioPlayerService.self) private var player
     /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
 
@@ -52,6 +54,15 @@ struct ArtistListView: View {
         let base = showsLikedOnly ? favorites.likedArtists(in: artists) : artists
         guard !q.isEmpty else { return base }
         return base.filter { $0.name.localizedCaseInsensitiveContains(q) }
+    }
+
+    private func artistMenu(_ artist: Artist) -> some View {
+        LibraryCollectionMenuItems(
+            isLiked: favorites.isLiked(artistNamed: artist.name),
+            toggleLike: { favorites.toggle(artistNamed: artist.name) },
+            songs: { library.songs(forArtist: artist.id) },
+            player: player
+        )
     }
 
     private func displayName(for artist: Artist) -> String {
@@ -127,6 +138,10 @@ struct ArtistListView: View {
                         artistGridCell(artist)
                     }
                     .buttonStyle(.pmPressable)
+                    .contextMenu { artistMenu(artist) }
+                    .accessibilityAction(named: Text(favorites.isLiked(artistNamed: artist.name) ? "library_favorite_unlike" : "library_favorite_like")) {
+                        favorites.toggle(artistNamed: artist.name)
+                    }
                     .mediaZoomSource(.artist, id: artist.id)
                 }
             }
@@ -176,6 +191,7 @@ struct ArtistListView: View {
                     }
                 }
             }
+            .contextMenu { artistMenu(artist) }
             .mediaZoomSource(.artist, id: artist.id)
         }
         .listStyle(.plain)
@@ -316,6 +332,7 @@ struct ArtistListView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contextMenu { artistMenu(artist) }
     }
     #endif
 }

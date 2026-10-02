@@ -623,6 +623,9 @@ final class TVStore {
         engine.onRemoteTogglePlayPause = { [weak self] in self?.togglePlayPause() }
         engine.onRemotePreviousTrack = { [weak self] in self?.previous() }
         engine.onRemoteNextTrack = { [weak self] in self?.next() }
+        self.library.collectionRenameHandler = { renames in
+            LibraryFavoritesStore.shared.applyCollectionRenames(renames)
+        }
         self.library.likedStateMutationHandler = { [weak self] song, previous, desired in
             self?.serverFeedback.setLiked(song: song, previous: previous, desired: desired)
         }
@@ -1125,6 +1128,48 @@ final class TVStore {
         order == .liked
             ? libraryContentRevision &* 1_000_003 &+ LibraryFavoritesStore.shared.revision
             : libraryContentRevision
+    }
+
+    /// 喜欢的专辑 / 艺人（最近喜欢的在前）。按曲库修订号与喜欢的修订号记住，首页每次重绘
+    /// 不必把整库专辑再对一遍。
+    @ObservationIgnored private var likedAlbumsCache: (library: Int, favorites: Int, albums: [Album])?
+    @ObservationIgnored private var likedArtistsCache: (library: Int, favorites: Int, artists: [Artist])?
+
+    private func likedLibraryAlbums() -> [Album] {
+        let favorites = LibraryFavoritesStore.shared
+        let favoritesRevision = favorites.revision
+        if let cache = likedAlbumsCache, cache.library == libraryContentRevision, cache.favorites == favoritesRevision {
+            return cache.albums
+        }
+        let albums = favorites.likedAlbums(in: library.visibleAlbums)
+        likedAlbumsCache = (libraryContentRevision, favoritesRevision, albums)
+        return albums
+    }
+
+    private func likedLibraryArtists() -> [Artist] {
+        let favorites = LibraryFavoritesStore.shared
+        let favoritesRevision = favorites.revision
+        if let cache = likedArtistsCache, cache.library == libraryContentRevision, cache.favorites == favoritesRevision {
+            return cache.artists
+        }
+        let artists = favorites.likedArtists(in: library.visibleArtists)
+        likedArtistsCache = (libraryContentRevision, favoritesRevision, artists)
+        return artists
+    }
+
+    /// 首页「喜欢的专辑」一排。
+    var likedAlbums: [TVAlbum] {
+        _ = libraryContentRevision
+        return likedLibraryAlbums().prefix(24).map { albumMapper.map($0) }
+    }
+
+    /// 艺人墙「只看喜欢」：一般就几十位，不分字母段。
+    var likedArtistBrowseLayout: TVBrowseLayout<TVArtistMapper> {
+        _ = libraryContentRevision
+        return TVBrowseLayout(
+            items: TVArtistList(source: likedLibraryArtists(), mapper: TVArtistMapper()),
+            sections: []
+        )
     }
 
     /// 按名字(拼音)排好、带首字母分段的艺人墙;规则同 `albumBrowseLayout`。

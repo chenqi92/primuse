@@ -16,6 +16,7 @@ import PrimuseKit
 ///
 /// 离线下载始终取 `download` 原文件。
 actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector, ServerLyricsConnector,
+    ServerCollectionFavoriteConnector,
     NetworkAdaptiveTranscodingConnector,
     ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
     ResumablePagedSongCatalogConnector,
@@ -1284,6 +1285,66 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         return ServerFavoriteSnapshot(itemIDs: (starred.starred2?.song ?? []).map(\.id))
     }
 
+    // MARK: - Album / artist favorites
+
+    func fetchServerCollectionFavorites() async throws -> [ServerCollectionFavorite] {
+        try await connect()
+        let starred: Starred2Container = try await requestJSON("getStarred2")
+        let albums = (starred.starred2?.album ?? []).compactMap { album -> ServerCollectionFavorite? in
+            let title = (album.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !album.id.isEmpty, !title.isEmpty else { return nil }
+            return ServerCollectionFavorite(
+                kind: .album,
+                itemID: album.id,
+                albumTitle: title,
+                artistName: (album.artist ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+        let artists = (starred.starred2?.artist ?? []).compactMap { artist -> ServerCollectionFavorite? in
+            let name = (artist.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let id = artist.id, !id.isEmpty, !name.isEmpty else { return nil }
+            return ServerCollectionFavorite(kind: .artist, itemID: id, albumTitle: "", artistName: name)
+        }
+        return albums + artists
+    }
+
+    func serverCollectionMembership(songItemID: String) async throws -> ServerCollectionMembership {
+        try Self.validateCollectionItemID(songItemID)
+        try await connect()
+        let container: GetSongContainer = try await requestJSON(
+            "getSong", query: [URLQueryItem(name: "id", value: songItemID)]
+        )
+        guard let song = container.song else { throw SourceError.fileNotFound(songItemID) }
+        var artists: [ServerArtistReference] = []
+        var seen = Set<String>()
+        func add(_ id: String?, _ name: String?) {
+            guard let id, !id.isEmpty, let name, !name.isEmpty, seen.insert(id).inserted else { return }
+            artists.append(ServerArtistReference(id: id, name: name))
+        }
+        for artist in (song.albumArtists ?? []) + (song.artists ?? []) { add(artist.id, artist.name) }
+        add(song.artistId, song.artist)
+        return ServerCollectionMembership(albumID: song.albumId, artists: artists)
+    }
+
+    func setServerCollectionFavorite(kind: LibraryFavoriteKind, itemID: String, isFavorite: Bool) async throws {
+        try Self.validateCollectionItemID(itemID)
+        try await connect()
+        let parameter = kind == .album ? "albumId" : "artistId"
+        let _: EmptyContainer = try await requestJSON(
+            isFavorite ? "star" : "unstar",
+            query: [URLQueryItem(name: parameter, value: itemID)]
+        )
+    }
+
+    private static func validateCollectionItemID(_ itemID: String) throws {
+        guard !itemID.isEmpty,
+              !itemID.contains("/"),
+              !itemID.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
+        else {
+            throw SourceError.fileNotFound(itemID)
+        }
+    }
+
     // MARK: - Server ratings
 
     func fetchServerRating(itemID: String) async throws -> Int? {
@@ -2104,6 +2165,8 @@ private struct Starred2Container: SubsonicResponseContainer {
 
 private struct Starred2: Decodable {
     let song: [SubsonicChild]?
+    let album: [AlbumSummary]?
+    let artist: [SubsonicArtistID3]?
 }
 
 /// `playlistWithSongs`: 曲目字段是单数 `entry`, 装的是 Child 数组。

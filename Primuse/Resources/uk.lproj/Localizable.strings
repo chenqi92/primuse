@@ -2657,8 +2657,8 @@
 "check_for_updates_up_to_date" = "Ви використовуєте останню версію";
 "ai_remove_provider_confirm" = "Видалити цю службу та її локальний ключ?";
 "lang_ru" = "рос";
-"carplay_liked_albums_title" = "Вподобані альбоми";
-"carplay_liked_artists_title" = "Вподобані виконавці";
+"library_liked_albums_title" = "Вподобані альбоми";
+"library_liked_artists_title" = "Вподобані виконавці";
 "library_favorite_like" = "Подобається";
 "library_favorite_unlike" = "Більше не подобається";
 "library_favorite_filter" = "Лише вподобані";
