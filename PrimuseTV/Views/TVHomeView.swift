@@ -24,6 +24,14 @@ struct TVHomeView: View {
     @State private var radioDeleteRequest: TVRadioDeleteRequest?
     @State private var selectedAlbum: TVAlbum?
     @FocusState private var focusedRadioID: String?
+    /// 电台以外的卡片(歌曲 / 专辑),值是 `cardID(_:_:)`。播放页回来时据此放回焦点。
+    @FocusState private var focusedCardID: String?
+    /// 从播放页回来重开专辑页时,焦点要落到的那一首。
+    @State private var reopenedAlbumSongID: String?
+    /// 从播放页按 Menu 回来时放回哪张卡片,由 TVRoot 持有(首页会整页移出视图树)。
+    var browseMemory = TVHomeBrowseMemory()
+    /// 记住的卡片已经不在了:焦点照旧回顶栏。
+    var onReturnToTabs: () -> Void = {}
     var openPlayer: () -> Void = {}
     /// 「全部电台」卡片:切到「电台」一级页。
     var openRadioLibrary: () -> Void = {}
@@ -154,13 +162,15 @@ struct TVHomeView: View {
                         if !store.recentlyPlayed.isEmpty {
                             TVRow(label: PMString("ext.tv.home.recentlyPlayed")) {
                                 ForEach(store.recentlyPlayed) { song in
-                                    TVSongCard(song: song, action: openPlayer)
+                                    TVSongCard(song: song, action: playerOpener(cardID("recent", song.id)))
+                                        .focused($focusedCardID, equals: cardID("recent", song.id))
                                 }
                             }
                         } else if heroAlbum == nil {
                             TVRow(label: PMString("ext.tv.nav.library")) {
                                 ForEach(Array(store.songs.prefix(15))) { song in
-                                    TVSongCard(song: song, action: openPlayer)
+                                    TVSongCard(song: song, action: playerOpener(cardID("songs", song.id)))
+                                        .focused($focusedCardID, equals: cardID("songs", song.id))
                                 }
                             }
                         }
@@ -168,8 +178,7 @@ struct TVHomeView: View {
                         if !likedAlbums.isEmpty {
                             TVRow(label: String(localized: "library_liked_albums_title")) {
                                 ForEach(likedAlbums) { album in
-                                    TVAlbumCard(album: album, action: openPlayer,
-                                                onOpen: { selectedAlbum = album })
+                                    albumCard(album, row: "liked")
                                 }
                             }
                         }
@@ -193,7 +202,7 @@ struct TVHomeView: View {
                                     radioDeleteRequest = TVRadioDeleteRequest(station: $0, siblingIDs: homeStationIDs)
                                 },
                                 onModalPresentationChanged: onModalPresentationChanged,
-                                action: openPlayer
+                                action: playerOpener(cardID("radio", station.id))
                             )
                         }
                         if store.radioStations.count > Self.homeRadioLimit {
@@ -204,8 +213,7 @@ struct TVHomeView: View {
                     if !store.recentlyAddedAlbums.isEmpty {
                         TVRow(label: PMString("ext.tv.home.recentlyAdded")) {
                             ForEach(store.recentlyAddedAlbums) { album in
-                                TVAlbumCard(album: album, action: openPlayer,
-                                            onOpen: { selectedAlbum = album })
+                                albumCard(album, row: "added")
                             }
                         }
                     }
@@ -215,8 +223,7 @@ struct TVHomeView: View {
                     } else if !store.recommended.isEmpty {
                         TVRow(label: PMString("ext.tv.home.madeForYou")) {
                             ForEach(Array(store.recommended.enumerated()), id: \.offset) { _, album in
-                                TVAlbumCard(album: album, action: openPlayer,
-                                            onOpen: { selectedAlbum = album })
+                                albumCard(album, row: "made")
                             }
                         }
                     }
@@ -232,8 +239,15 @@ struct TVHomeView: View {
         .modifier(TVAlbumDetailPresenter(
             album: $selectedAlbum,
             openPlayer: openPlayer,
-            onPresentationChanged: onModalPresentationChanged
+            onPresentationChanged: onModalPresentationChanged,
+            initialFocusSongID: reopenedAlbumSongID,
+            onPlaybackStarted: { albumID, songID in
+                browseMemory.albumDetailID = albumID
+                browseMemory.albumDetailSongID = songID
+            },
+            onClosed: closeAlbumDetail
         ))
+        .onAppear(perform: restoreAfterPlayer)
         .onDisappear {
             if showsRadioAdd { onModalPresentationChanged(false) }
         }
@@ -282,6 +296,81 @@ struct TVHomeView: View {
         Task { @MainActor in
             await Task.yield()
             focusedRadioID = first
+        }
+    }
+
+    // MARK: - 从播放页回来
+
+    /// 同一张专辑 / 同一首歌会出现在好几排里,焦点 id 带上所在的那一排。
+    private func cardID(_ row: String, _ id: String) -> String { row + ":" + id }
+
+    /// 卡片开始播放:先记下是哪一张,播放页按 Menu 回来时焦点回到它。
+    private func playerOpener(_ cardID: String) -> () -> Void {
+        { [browseMemory, openPlayer] in
+            browseMemory.cardID = cardID
+            openPlayer()
+        }
+    }
+
+    /// 按下专辑卡片先进专辑页;在专辑页里起播,回来时先重开专辑页,再回这张卡片。
+    private func albumCard(_ album: TVAlbum, row: String) -> some View {
+        let id = cardID(row, album.id)
+        return TVAlbumCard(album: album, action: playerOpener(id),
+                           onOpen: {
+                               browseMemory.cardID = id
+                               selectedAlbum = album
+                           },
+                           focusBinding: $focusedCardID, focusID: id)
+    }
+
+    /// 首页出现:只有从播放页按 Menu 回来的那一次才恢复;经顶栏换页回来把记的全忘掉。
+    private func restoreAfterPlayer() {
+        guard browseMemory.restoresAfterPlayer else {
+            browseMemory.forget()
+            return
+        }
+        browseMemory.restoresAfterPlayer = false
+        if let albumID = browseMemory.albumDetailID, let album = store.album(albumID) {
+            reopenedAlbumSongID = browseMemory.albumDetailSongID
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { selectedAlbum = album }
+            return
+        }
+        browseMemory.albumDetailID = nil
+        browseMemory.albumDetailSongID = nil
+        focusRememberedCard()
+    }
+
+    /// 专辑页被 Menu 关掉(不是因为起播):焦点回到打开它的那张卡片。
+    private func closeAlbumDetail() {
+        browseMemory.albumDetailID = nil
+        browseMemory.albumDetailSongID = nil
+        reopenedAlbumSongID = nil
+        focusRememberedCard()
+    }
+
+    /// 首页刚建出来、或专辑页刚收起时设的焦点可能被吞掉,没落上就再设一次;
+    /// 那张卡片已经不在(比如那张专辑被删了)就交回顶栏。用掉即忘。
+    private func focusRememberedCard() {
+        guard let target = browseMemory.cardID else { return }
+        browseMemory.cardID = nil
+        let radioPrefix = cardID("radio", "")
+        // 电台卡片用的是电台那一排自己的焦点绑定(删除后交给邻居也靠它)。
+        let radioID = target.hasPrefix(radioPrefix) ? String(target.dropFirst(radioPrefix.count)) : nil
+        Task { @MainActor in
+            for attempt in 0..<3 {
+                if attempt > 0 { try? await Task.sleep(nanoseconds: 300_000_000) }
+                if let radioID { focusedRadioID = radioID } else { focusedCardID = target }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                if radioID.map({ focusedRadioID == $0 }) ?? (focusedCardID == target) { break }
+            }
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            let landed = radioID.map { focusedRadioID == $0 } ?? (focusedCardID == target)
+            #if DEBUG
+            plog("TV home return focus=\(landed ? "card" : "other") target=\(target.prefix(24))")
+            #endif
+            if !landed, focusedCardID == nil, focusedRadioID == nil { onReturnToTabs() }
         }
     }
 
@@ -337,8 +426,9 @@ struct TVHomeView: View {
                     TVSongCard(
                         song: song,
                         reason: aiRecommendation.reason(for: song.id) ?? "",
-                        action: openPlayer
+                        action: playerOpener(cardID("ai", song.id))
                     )
+                    .focused($focusedCardID, equals: cardID("ai", song.id))
                 }
             }
         }

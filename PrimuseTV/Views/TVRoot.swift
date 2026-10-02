@@ -190,6 +190,10 @@ struct TVRoot: View {
     @State private var libraryFilter: TVLibraryView.Filter = .albums
     /// 资料库网格上次停在哪张卡片;播放后回到资料库时由它恢复位置和焦点。
     @State private var libraryBrowseMemory = TVLibraryBrowseMemory()
+    /// 首页从哪张卡片开始播放;播放页按 Menu 回到首页时焦点回到它。
+    @State private var homeBrowseMemory = TVHomeBrowseMemory()
+    /// 搜索页的查询词、结果与焦点;播放后回来不丢。
+    @State private var searchMemory = TVSearchMemory()
     #if DEBUG
     /// 截图路由指定的是电台 / 有声页,但曲库和电台还在载入:等内容出现后再切过去,
     /// 否则会因为「这一页暂时不该显示」被送回首页。
@@ -230,6 +234,7 @@ struct TVRoot: View {
         // 电台三页(radioHome / radioAdd / radioLibrary)配合 TV_DEMO_RADIO=1 注入演示电台。
         switch TVDebugLaunch.screen {
         case "library", "albumDetail", "libraryIndex", "albumReturn": initialTab = .library
+        case "homeReturn", "homeAlbumReturn": initialTab = .home
         case "radio", "radioLibrary":
             initialTab = .home
             _debugPendingSpaceTab = State(initialValue: .radio)
@@ -455,6 +460,43 @@ struct TVRoot: View {
                 tab = .nowPlaying
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 leavePlayer()
+            case "homeReturn", "homeAlbumReturn":
+                // 模拟「首页『最近添加』第 4 张专辑起播 → 播放页按 Menu」:焦点应回到那张卡片
+                // (日志 `TV home return focus=card`);homeAlbumReturn 走「专辑页里点一首」,
+                // 回来应先重开专辑页、焦点在那一首(`TV album detail reopened focus=track`)。
+                await waitForDemoContent(requireAlbum: true)
+                let added = store.recentlyAddedAlbums
+                guard let album = added.dropFirst(3).first ?? added.first else { break }
+                let songIDs = store.songIDs(forAlbum: album.id)
+                homeBrowseMemory.cardID = "added:" + album.id
+                if TVDebugLaunch.screen == "homeAlbumReturn" {
+                    guard let songID = songIDs.last, let song = store.song(songID),
+                          store.play(song, in: songIDs) else { break }
+                    homeBrowseMemory.albumDetailID = album.id
+                    homeBrowseMemory.albumDetailSongID = songID
+                } else {
+                    store.play(album: album)
+                }
+                tab = .nowPlaying
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                leavePlayer()
+            case "searchReturn":
+                // 模拟「搜索 → 点第 3 条歌曲结果起播 → 播放页按 Menu」:查询词和结果应原样还在、
+                // 焦点回到那一条(日志 `TV search return focus=result`)。查询词可用 TV_SEARCH_QUERY 指定。
+                await waitForDemoContent()
+                let query = ProcessInfo.processInfo.environment["TV_SEARCH_QUERY"]
+                    ?? store.songs.first.map { String($0.title.prefix(3)) } ?? "a"
+                let hits = await store.searchResults(query).songs
+                guard let hit = hits.dropFirst(2).first ?? hits.first else { break }
+                // 搜索页带着查询词建出来、自己搜完(结果记进 searchMemory),再从那条结果起播。
+                searchMemory.query = query
+                tab = .search
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                searchMemory.lastFocusedResultID = "song:" + hit.id
+                store.play(hit.song)
+                tab = .nowPlaying
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                leavePlayer()
             case "libraryAnchor":
                 // 模拟「播放专辑 → 回到资料库 → 按下键」:资料库在记住第 42 张专辑之后才建出来。
                 await waitForDemoContent(requireAlbum: true)
@@ -493,6 +535,8 @@ struct TVRoot: View {
         switch tab {
         case .home:
             TVHomeView(
+                browseMemory: homeBrowseMemory,
+                onReturnToTabs: returnFocusToTabs,
                 openPlayer: { tab = .nowPlaying },
                 openRadioLibrary: { tab = .radio },
                 onModalPresentationChanged: childModalPresentationChanged
@@ -538,7 +582,9 @@ struct TVRoot: View {
             TVSearchView(
                 openPlayer: { tab = .nowPlaying },
                 focusRequest: searchFocusRequest,
-                onModalActivityChanged: childModalActivityChanged
+                onModalActivityChanged: childModalActivityChanged,
+                memory: searchMemory,
+                onReturnToTabs: returnFocusToTabs
             )
         }
     }
@@ -586,8 +632,8 @@ struct TVRoot: View {
         }
     }
 
-    /// 播放页上的 Menu:回到进来之前那一页。资料库把焦点放回上次那张卡片,
-    /// 其余页面落在顶栏的当前项上(和在那一页按 Menu 的落点一致)。
+    /// 播放页上的 Menu:回到进来之前那一页。资料库、首页、搜索把焦点放回起播的那张卡片 /
+    /// 那条结果(从专辑页起播的先回专辑页),其余页面落在顶栏的当前项上(和在那一页按 Menu 的落点一致)。
     private func leavePlayer() {
         guard hidesTabBar else {
             returnFocusToTabs()
@@ -603,12 +649,19 @@ struct TVRoot: View {
         suppressesFocusDrivenTabSelection = true
         // 从资料库的专辑页起播的:回到资料库时先回那张专辑页(见 TVLibraryBrowseMemory)。
         libraryBrowseMemory.restoresAlbumDetail = destination == .library
+        // 首页、搜索页出现时自己把焦点放回去(见 TVHomeBrowseMemory / TVSearchMemory),
+        // 这里就不再把焦点送回顶栏;记不住的时候照旧回顶栏。
+        homeBrowseMemory.restoresAfterPlayer = destination == .home && homeBrowseMemory.hasReturnTarget
+        searchMemory.restoresAfterPlayer = destination == .search && searchMemory.hasReturnTarget
+        let pageRestoresFocus = homeBrowseMemory.restoresAfterPlayer || searchMemory.restoresAfterPlayer
+        // 进播放页之前那次「从顶栏下到输入框」的请求还挂着,搜索页一出现就会把焦点抢到输入框。
+        searchFocusRequest = nil
         tab = destination
         Task { @MainActor in
             await Task.yield()
             if destination == .library {
                 requestContentFocus(from: .library)
-            } else {
+            } else if !pageRestoresFocus {
                 tabFocusRequest &+= 1
             }
             await Task.yield()

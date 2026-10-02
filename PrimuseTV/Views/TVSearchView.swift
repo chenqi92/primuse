@@ -18,6 +18,48 @@ private enum TVSearchFocusZone: Equatable {
     case suggestions
 }
 
+/// 搜索页的状态。点结果开始播放会切到「正在播放」,搜索页整页移出视图树;查询词、
+/// 搜完的结果和焦点放在 TVRoot 持有的这里,回来时原样还在,不再重搜一遍(也不再问一次 AI)。
+/// 普通引用类型而非 @Observable:焦点每挪一格都写一次,不能因此让搜索页整页重算。
+@MainActor
+final class TVSearchMemory {
+    var query = ""
+    /// 最后一次搜完(含 AI 补充)的结果和它对应的查询词。查询词和 `query` 对上才拿来用。
+    fileprivate var completedQuery: String?
+    fileprivate var results: TVStore.TVSearchResults?
+    fileprivate var semanticFeedback: TVSemanticSearchFeedback = .idle
+    /// Apple Music 目录结果跟着查询词走,也留在这里,回来不必重新请求。
+    let appleMusic = TVAppleMusicCatalog()
+    var lastFocusedResultID: String?
+    /// 从搜索结果里的专辑页开始播放:专辑 id 与点的那首。
+    var albumDetailID: String?
+    var albumDetailSongID: String?
+    /// 由 `TVRoot.leavePlayer` 打上,搜索页出现时用掉;经顶栏换页回来只保留查询与结果。
+    var restoresAfterPlayer = false
+
+    var hasReturnTarget: Bool {
+        !query.trimmingCharacters(in: .whitespaces).isEmpty
+            && (lastFocusedResultID != nil || albumDetailID != nil)
+    }
+
+    fileprivate func storeCompleted(
+        query: String,
+        results: TVStore.TVSearchResults?,
+        feedback: TVSemanticSearchFeedback
+    ) {
+        completedQuery = query
+        self.results = results
+        semanticFeedback = feedback
+    }
+
+    /// 和当前查询词对得上的那一份已完成结果。
+    fileprivate var restorable: (query: String, results: TVStore.TVSearchResults, feedback: TVSemanticSearchFeedback)? {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, completedQuery == trimmed, let results else { return nil }
+        return (trimmed, results, semanticFeedback)
+    }
+}
+
 /// tvOS 搜索 — 左列查询框 + 实时结果(含歌词级匹配),右列常驻建议。对应 TVSearchArtboard。
 struct TVSearchView: View {
     @Environment(TVStore.self) private var store
@@ -25,20 +67,49 @@ struct TVSearchView: View {
     var openPlayer: () -> Void = {}
     var focusRequest: TVContentFocusRequest? = nil
     var onModalActivityChanged: (Bool) -> Void = { _ in }
+    /// 查询词、结果与焦点的记忆,由 TVRoot 持有。
+    let memory: TVSearchMemory
+    /// 记住的结果已经不在了:焦点照旧回顶栏。
+    var onReturnToTabs: () -> Void = {}
 
-    @State private var query: String = ""
+    @State private var query: String
     @State private var results: TVStore.TVSearchResults?
     @State private var selectedArtist: TVArtist?
     @State private var opensPlayerAfterArtistDismissal = false
     @State private var selectedAlbum: TVAlbum?
+    /// 从播放页回来重开专辑页时,焦点要落到的那一首。
+    @State private var reopenedAlbumSongID: String?
     @State private var isSearching = false
     @State private var isSemanticSearching = false
-    @State private var appleMusic = TVAppleMusicCatalog()
-    @State private var semanticFeedback: TVSemanticSearchFeedback = .idle
+    @State private var semanticFeedback: TVSemanticSearchFeedback
+    /// 出现时从记忆里拿回了这个查询词的结果:第一次 `updateResults` 不再重搜。
+    @State private var restoredQuery: String?
     @State private var focusZone: TVSearchFocusZone = .field
     @State private var lastFocusedResultID: String?
     @FocusState private var inputActive: Bool
     @FocusState private var focusedResultID: String?
+
+    private var appleMusic: TVAppleMusicCatalog { memory.appleMusic }
+
+    init(
+        openPlayer: @escaping () -> Void = {},
+        focusRequest: TVContentFocusRequest? = nil,
+        onModalActivityChanged: @escaping (Bool) -> Void = { _ in },
+        memory: TVSearchMemory,
+        onReturnToTabs: @escaping () -> Void = {}
+    ) {
+        self.openPlayer = openPlayer
+        self.focusRequest = focusRequest
+        self.onModalActivityChanged = onModalActivityChanged
+        self.memory = memory
+        self.onReturnToTabs = onReturnToTabs
+        let restorable = memory.restorable
+        _query = State(initialValue: memory.query)
+        _results = State(initialValue: restorable?.results)
+        _semanticFeedback = State(initialValue: restorable?.feedback ?? .idle)
+        _restoredQuery = State(initialValue: restorable?.query)
+        _lastFocusedResultID = State(initialValue: memory.lastFocusedResultID)
+    }
 
     private var trimmed: String { query.trimmingCharacters(in: .whitespaces) }
 
@@ -145,7 +216,9 @@ struct TVSearchView: View {
             guard let value else { return }
             focusZone = .results
             lastFocusedResultID = value
+            memory.lastFocusedResultID = value
         }
+        .onChange(of: query) { _, value in memory.query = value }
         .onChange(of: inputActive) { _, active in
             if active { focusZone = .field }
         }
@@ -167,8 +240,15 @@ struct TVSearchView: View {
         .modifier(TVAlbumDetailPresenter(
             album: $selectedAlbum,
             openPlayer: openPlayer,
-            onPresentationChanged: onModalActivityChanged
+            onPresentationChanged: onModalActivityChanged,
+            initialFocusSongID: reopenedAlbumSongID,
+            onPlaybackStarted: { albumID, songID in
+                memory.albumDetailID = albumID
+                memory.albumDetailSongID = songID
+            },
+            onClosed: closeAlbumDetail
         ))
+        .onAppear(perform: restoreAfterPlayer)
     }
 
     // MARK: 左列 — 搜索框(单层玻璃盒) + 实时结果
@@ -497,6 +577,11 @@ struct TVSearchView: View {
 
     @MainActor
     private func updateResults(for requestedQuery: String) async {
+        // 从记忆里拿回的就是这个查询词搜完的结果(Apple Music 目录结果也还在):不重搜。
+        if let restored = restoredQuery {
+            restoredQuery = nil
+            if restored == requestedQuery { return }
+        }
         // 目录搜索与曲库搜索并行:它自带防抖,未授权时直接不发请求,
         // 所以每次输入变化交给它即可。
         appleMusic.search(requestedQuery)
@@ -523,7 +608,10 @@ struct TVSearchView: View {
         results = primary
         isSearching = false
 
-        guard intelligence.isSemanticSearchConfigured else { return }
+        guard intelligence.isSemanticSearchConfigured else {
+            memory.storeCompleted(query: requestedQuery, results: primary, feedback: .idle)
+            return
+        }
         isSemanticSearching = true
         semanticFeedback = .loading
         var streamedTerms: [String] = []
@@ -615,6 +703,61 @@ struct TVSearchView: View {
     private func finishSemanticSearch(for requestedQuery: String) {
         if trimmed == requestedQuery {
             isSemanticSearching = false
+            memory.storeCompleted(query: requestedQuery, results: results, feedback: semanticFeedback)
+        }
+    }
+
+    // MARK: 从播放页回来
+
+    /// 搜索页出现:从播放页按 Menu 回来的那一次,先重开起播的那张专辑页,否则把焦点放回
+    /// 刚点的那条结果;经顶栏换页回来只留着查询词和结果,焦点照旧在顶栏。
+    private func restoreAfterPlayer() {
+        let restores = memory.restoresAfterPlayer
+        memory.restoresAfterPlayer = false
+        guard restores else {
+            memory.albumDetailID = nil
+            memory.albumDetailSongID = nil
+            return
+        }
+        if let albumID = memory.albumDetailID, let album = store.album(albumID) {
+            reopenedAlbumSongID = memory.albumDetailSongID
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { selectedAlbum = album }
+            return
+        }
+        memory.albumDetailID = nil
+        memory.albumDetailSongID = nil
+        focusRememberedResult()
+    }
+
+    /// 专辑页被 Menu 关掉(不是因为起播):焦点回到打开它的那张专辑卡片。
+    private func closeAlbumDetail() {
+        memory.albumDetailID = nil
+        memory.albumDetailSongID = nil
+        reopenedAlbumSongID = nil
+        focusRememberedResult()
+    }
+
+    /// 结果是从记忆里原样拿回来的,那一行一出现就在;刚建出来时设的焦点可能被吞掉,
+    /// 没落上再设一次。那条结果已经不在了就交回顶栏。
+    private func focusRememberedResult() {
+        guard let target = memory.lastFocusedResultID else { return }
+        Task { @MainActor in
+            for attempt in 0..<3 {
+                if attempt > 0 { try? await Task.sleep(nanoseconds: 300_000_000) }
+                guard resultFocusIDs.contains(target) else { break }
+                focusZone = .results
+                lastFocusedResultID = target
+                focusedResultID = target
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                if focusedResultID == target { break }
+            }
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            #if DEBUG
+            plog("TV search return focus=\(focusedResultID == target ? "result" : "other") query=\(trimmed.isEmpty ? "empty" : "kept")")
+            #endif
+            if focusedResultID == nil, !inputActive { onReturnToTabs() }
         }
     }
 

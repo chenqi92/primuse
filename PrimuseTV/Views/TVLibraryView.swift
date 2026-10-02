@@ -17,6 +17,29 @@ final class TVLibraryBrowseMemory {
     var restoresAlbumDetail = false
 }
 
+/// 首页的返回位置。首页各排卡片按下就播放(或先进专辑页),首页随之移出视图树;
+/// 从播放页按 Menu 回来时靠它把焦点放回进去前的那张卡片、或先重开那张专辑页。
+/// 只记「按下的那一张」:焦点挪到别处再从别处开播(比如 hero 的按钮),回来就照旧落在顶栏。
+@MainActor
+final class TVHomeBrowseMemory {
+    /// 开始播放 / 打开专辑页的那张卡片(`TVHomeView` 里带所在那一排前缀的焦点 id)。
+    var cardID: String?
+    /// 从首页打开的专辑页里开始播放:专辑 id 与点的那首(全部 / 随机播放时为 nil)。
+    var albumDetailID: String?
+    var albumDetailSongID: String?
+    /// 由 `TVRoot.leavePlayer` 打上,首页出现时用掉;经顶栏换页回来不恢复。
+    var restoresAfterPlayer = false
+
+    var hasReturnTarget: Bool { cardID != nil || albumDetailID != nil }
+
+    func forget() {
+        cardID = nil
+        albumDetailID = nil
+        albumDetailSongID = nil
+        restoresAfterPlayer = false
+    }
+}
+
 extension LibraryAlbumBrowseOrder {
     var title: String {
         switch self {
@@ -1106,12 +1129,17 @@ struct TVAlbumDetailView: View {
         .focusScope(detailFocus)
         .onExitCommand { dismiss() }
         .task {
-            // 从播放页回来:焦点放回刚播的那首。覆盖层呈现完、曲目行建出来之前设的焦点会被丢掉。
+            // 从播放页回来:焦点放回刚播的那首。覆盖层呈现完、曲目行建出来之前设的焦点会被丢掉,
+            // 没落上就隔一会儿再设(机器忙的时候呈现会慢),最多等一秒多。
             guard let initialFocusSongID else { return }
-            try? await Task.sleep(nanoseconds: 350_000_000)
-            focusedTrackID = initialFocusSongID
+            for attempt in 0..<4 {
+                try? await Task.sleep(nanoseconds: attempt == 0 ? 350_000_000 : 300_000_000)
+                guard !Task.isCancelled else { return }
+                focusedTrackID = initialFocusSongID
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                if focusedTrackID == initialFocusSongID { break }
+            }
             #if DEBUG
-            try? await Task.sleep(nanoseconds: 200_000_000)
             plog("TV album detail reopened focus=\(focusedTrackID == initialFocusSongID ? "track" : "other")")
             #endif
         }
