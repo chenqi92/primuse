@@ -747,6 +747,34 @@ enum CloudPlaybackSource {
         )
     }
 
+    /// Call before deleting a song's cache files (a tag or lyrics writeback
+    /// replaced the remote file, a download was removed, the server reported
+    /// new content). A State reopens its file on every read, so deleting it
+    /// under a playing session left every later read missing the cache and
+    /// fetching from the network without ever caching again — device log
+    /// 2026-10-02: after a title edit a 4 MB Baidu song re-downloaded 89 MB
+    /// in 129 requests and kept underflowing. The session keeps decoding the
+    /// bytes it already has from a private file instead; nothing it holds or
+    /// fetches afterwards can reach the cache path again.
+    static func detachSessionFromCache(partialPath: String) {
+        let reservation = reservePathMutation(partialPath: partialPath)
+        reservation.coordinator.lock.lock()
+        registryLock.lock()
+        let state = activeStates[partialPath]
+        let fills = finalizingTasks.values.filter { $0.partialPath == partialPath }
+        registryLock.unlock()
+        // Holding the path coordinator excludes every cache write, so no write
+        // sits between its file write and its range merge while the file moves.
+        state?.detachFromCache()
+        reservation.coordinator.lock.unlock()
+        releasePathMutation(reservation)
+
+        fills.forEach {
+            $0.disablePersistence()
+            $0.task.cancel()
+        }
+    }
+
     /// Stops live range streams from being promoted into persistent cache
     /// files when the user turns automatic audio caching off mid-track.
     /// Their sparse files remain available until playback ends.
@@ -1025,6 +1053,10 @@ private final class State: @unchecked Sendable {
     /// switches to `finalURL` after the atomic rename triggered when
     /// every byte has been fetched (only when `persistOnComplete` is on).
     private var activeURL: URL
+    /// Set once the cache files were deleted underneath this session. It then
+    /// reads and writes this private file, which is never promoted and is
+    /// removed with the session.
+    private var detachedURL: URL?
     fileprivate let totalLength: Int64
     /// When false, fetched bytes stay at `partialURL` for the live session,
     /// are never promoted to the canonical cache path, and are discarded when
@@ -1163,6 +1195,12 @@ private final class State: @unchecked Sendable {
         // boundary is served in one piece and a fully covered file can be
         // promoted to the complete cache.
         self.cachedRanges = Self.coalescedRanges(initialRanges)
+    }
+
+    deinit {
+        if let detachedURL {
+            try? FileManager.default.removeItem(at: detachedURL)
+        }
     }
 
     fileprivate static func coalescedRanges(_ ranges: [Range<Int64>]) -> [Range<Int64>] {
@@ -1951,20 +1989,97 @@ private final class State: @unchecked Sendable {
 
     private func readFromCacheIfAvailable(offset: Int64, endOffset: Int64) -> Data? {
         guard offset >= 0, endOffset >= offset else { return nil }
+        // A second pass covers a promotion or detach that moved the file
+        // between reading `activeURL` and opening it.
+        for _ in 0..<2 {
+            lock.lock()
+            let coveringRange = cachedRanges.first { $0.contains(offset) }
+            let url = activeURL
+            lock.unlock()
+            guard let coveringRange else { return nil }
+            let upper = min(endOffset, coveringRange.upperBound)
+            guard upper > offset, let readLength = Int(exactly: upper - offset) else { return nil }
+            if let handle = try? FileHandle(forReadingFrom: url) {
+                defer { try? handle.close() }
+                if (try? handle.seek(toOffset: UInt64(offset))) != nil,
+                   let data = try? handle.read(upToCount: readLength),
+                   data.count == readLength {
+                    return data
+                }
+            }
+            if forgetVanishedFile(url) { return nil }
+        }
+        return nil
+    }
+
+    /// The ranges promise these bytes, so a missing or short file was deleted
+    /// underneath the session by a path that did not detach it first. Start
+    /// over on a private file; keeping the stale ranges would fetch on every
+    /// read and never cache again. false: the session has already moved to
+    /// another file (promotion, detach), so the read should try there.
+    private func forgetVanishedFile(_ url: URL) -> Bool {
+        let fresh = Self.makeDetachedURL()
         lock.lock()
-        let coveringRange = cachedRanges.first { $0.contains(offset) }
-        let url = activeURL
+        if closed {
+            lock.unlock()
+            return true
+        }
+        guard activeURL == url else {
+            lock.unlock()
+            return false
+        }
+        let previousPrivate = detachedURL
+        FileManager.default.createFile(atPath: fresh.path, contents: nil)
+        activeURL = fresh
+        detachedURL = fresh
+        cachedRanges = []
+        persistOnComplete = false
+        let trailingFill = trailingFillTask
         lock.unlock()
-        guard let coveringRange else { return nil }
-        let upper = min(endOffset, coveringRange.upperBound)
-        guard upper > offset, let readLength = Int(exactly: upper - offset) else { return nil }
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
-        defer { try? handle.close() }
-        do {
-            try handle.seek(toOffset: UInt64(offset))
-            return try handle.read(upToCount: readLength)
-        } catch {
-            return nil
+        trailingFill?.cancel()
+        if let previousPrivate {
+            try? FileManager.default.removeItem(at: previousPrivate)
+        }
+        plog("⚠️ Cloud stream '\(label)' cache file vanished during playback; continuing on a private file")
+        return true
+    }
+
+    /// Called with the path coordinator held. Moves the bytes this session
+    /// holds out of the cache file family before the caller deletes it.
+    fileprivate func detachFromCache() {
+        let destination = Self.makeDetachedURL()
+        lock.lock()
+        guard !closed, detachedURL == nil else {
+            persistOnComplete = false
+            lock.unlock()
+            return
+        }
+        if (try? FileManager.default.moveItem(at: activeURL, to: destination)) == nil {
+            FileManager.default.createFile(atPath: destination.path, contents: nil)
+            cachedRanges = []
+        }
+        activeURL = destination
+        detachedURL = destination
+        persistOnComplete = false
+        let trailingFill = trailingFillTask
+        lock.unlock()
+        trailingFill?.cancel()
+        plog("☁️ Cloud stream '\(label)' cache removed during playback; finishing from the bytes already fetched")
+    }
+
+    private static func makeDetachedURL() -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("primuse-detached-streams", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appendingPathComponent(UUID().uuidString)
+    }
+
+    private func discardDetachedFile() {
+        lock.lock()
+        let url = detachedURL
+        lock.unlock()
+        if let url {
+            try? FileManager.default.removeItem(at: url)
         }
     }
 
@@ -2019,6 +2134,12 @@ private final class State: @unchecked Sendable {
         }
 
         lock.lock()
+        // The bytes went to a file the session has since left (detached or
+        // vanished); they must not be claimed for the file it reads now.
+        guard activeURL == url else {
+            lock.unlock()
+            return .noChange
+        }
         if let end = SafeByteRange.exclusiveEnd(offset: offset, length: Int64(data.count)) {
             mergeRange(offset..<end)
         }
@@ -2251,6 +2372,7 @@ private final class State: @unchecked Sendable {
     /// disabled, or an explicit offline download may have installed it in the
     /// meantime. Only the still-active partial belongs to this live session.
     private func discardUnpersistedPartial() {
+        discardDetachedFile()
         lock.lock()
         let ownsPartial = activeURL == partialURL
         lock.unlock()
@@ -2275,11 +2397,14 @@ private final class State: @unchecked Sendable {
         emitSessionSummary()
         closeAndCancelForegroundFetches().forEach { $0.cancel() }
         lock.lock()
-        let ranges = cachedRanges
+        // A detached session's ranges describe its private file, not the
+        // `.partial` the next State would read them from.
+        let ranges = detachedURL == nil ? cachedRanges : []
         let trailingFill = trailingFillTask
         trailingFillTask = nil
         lock.unlock()
         trailingFill?.cancel()
+        discardDetachedFile()
         return ranges
     }
 

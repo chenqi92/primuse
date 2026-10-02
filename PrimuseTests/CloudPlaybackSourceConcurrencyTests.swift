@@ -832,6 +832,160 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         XCTAssertEqual(Self.read(input, byteCount: 4_096, offset: 0).data, Data(repeating: 0x35, count: 4_096))
     }
 
+    /// Device log 2026-10-02: editing the title of the Baidu song playing
+    /// deleted its complete cache file, and every later decoder read fetched
+    /// up to the next chunk boundary without caching — 129 requests for a
+    /// 4 MB song and repeated underflows. The session finishes from its own
+    /// bytes now, and never recreates the deleted cache.
+    @MainActor
+    func testCacheRemovalDuringPlaybackFinishesFromTheCompletedSessionBytes() async throws {
+        let fixture = try makeCacheRemovalFixture()
+        defer { fixture.tearDown() }
+        let chunk = Int(CloudPlaybackSource.chunkSize)
+        let input = try makeInputSource(
+            sourceID: fixture.sourceID, cacheURL: fixture.cache, payload: fixture.payload,
+            connector: fixture.connector, allowsTrailingFill: false
+        )
+        for offset in [0, chunk, 2 * chunk] {
+            XCTAssertTrue(Self.read(input, byteCount: 1_000, offset: offset).success)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.cache.path), "fixture never completed the cache")
+        let fetchesBefore = await fixture.connector.requests().count
+        let detachedBefore = Self.detachedStreamFiles()
+
+        fixture.manager.deleteAudioCache(for: fixture.song)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.cache.path))
+        for offset in [8_192, chunk + 100, 2 * chunk + 10, 300] {
+            XCTAssertEqual(
+                Self.read(input, byteCount: 1_000, offset: offset).data,
+                fixture.payload.subdata(in: offset..<(offset + 1_000))
+            )
+        }
+        let fetchesAfter = await fixture.connector.requests().count
+        XCTAssertEqual(fetchesAfter, fetchesBefore, "bytes the session already held were fetched again")
+
+        _ = CloudPlaybackSource.finalizeSession(partialPath: fixture.partial.path)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.cache.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.partial.path))
+        XCTAssertEqual(Self.detachedStreamFiles(), detachedBefore)
+    }
+
+    @MainActor
+    func testCacheRemovalDuringPlaybackFetchesMissingChunksOnceAndNeverRecreatesTheCache() async throws {
+        let fixture = try makeCacheRemovalFixture()
+        defer { fixture.tearDown() }
+        let chunk = Int(CloudPlaybackSource.chunkSize)
+        let input = try makeInputSource(
+            sourceID: fixture.sourceID, cacheURL: fixture.cache, payload: fixture.payload,
+            connector: fixture.connector, allowsTrailingFill: false
+        )
+        XCTAssertTrue(Self.read(input, byteCount: 1_000).success)
+        let detachedBefore = Self.detachedStreamFiles()
+
+        fixture.manager.deleteAudioCache(for: fixture.song)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.partial.path))
+        for offset in [4_096, chunk + 100, chunk + 5_000, chunk + 90_000] {
+            XCTAssertEqual(
+                Self.read(input, byteCount: 1_000, offset: offset).data,
+                fixture.payload.subdata(in: offset..<(offset + 1_000))
+            )
+        }
+        let offsets = await fixture.connector.requests().map(\.offset)
+        XCTAssertEqual(offsets, [0, Int64(chunk)], "each missing chunk is fetched once, held bytes never")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.partial.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.cache.path))
+
+        _ = CloudPlaybackSource.finalizeSession(partialPath: fixture.partial.path)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.partial.path))
+        XCTAssertEqual(Self.detachedStreamFiles(), detachedBefore)
+    }
+
+    /// Any other path that deletes the file without detaching the session
+    /// must still cost one fetch per chunk, not one per decoder read.
+    func testCacheFileDeletedUnderneathPlaybackIsFetchedOncePerChunk() async throws {
+        let sourceID = "cloud-vanished-cache-\(UUID().uuidString)"
+        let directory = try makeTemporaryDirectory()
+        let cacheURL = directory.appendingPathComponent("song.bin")
+        let partial = URL(fileURLWithPath: cacheURL.path + ".partial")
+        let payload = Self.patternedPayload(count: Int(CloudPlaybackSource.chunkSize) + 2_048)
+        let connector = FixtureRangeConnector(sourceID: sourceID, payload: payload)
+        defer {
+            CloudPlaybackSource.cancelSessions(sourceID: sourceID)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let input = try makeInputSource(
+            sourceID: sourceID, cacheURL: cacheURL, payload: payload,
+            connector: connector, allowsTrailingFill: false
+        )
+        XCTAssertTrue(Self.read(input, byteCount: 1_000).success)
+        try FileManager.default.removeItem(at: partial)
+
+        for offset in [8_192, 16_384, 500_000] {
+            XCTAssertEqual(
+                Self.read(input, byteCount: 1_000, offset: offset).data,
+                payload.subdata(in: offset..<(offset + 1_000))
+            )
+        }
+        let offsets = await connector.requests().map(\.offset)
+        XCTAssertEqual(offsets, [0, 0])
+
+        _ = CloudPlaybackSource.finalizeSession(partialPath: partial.path)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cacheURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: partial.path))
+    }
+
+    private struct CacheRemovalFixture {
+        let sourceID: String
+        let manager: SourceManager
+        let song: Song
+        let cache: URL
+        let partial: URL
+        let payload: Data
+        let connector: FixtureRangeConnector
+
+        func tearDown() {
+            CloudPlaybackSource.cancelSessions(sourceID: sourceID)
+            try? FileManager.default.removeItem(at: cache.deletingLastPathComponent())
+        }
+    }
+
+    @MainActor
+    private func makeCacheRemovalFixture() throws -> CacheRemovalFixture {
+        let sourceID = "cache-removal-\(UUID().uuidString)"
+        let source = MusicSource(id: sourceID, name: "Cache Removal Fixture", type: .baiduPan)
+        let manager = SourceManager(sourcesProvider: { [source] })
+        let song = Song(
+            id: UUID().uuidString, title: "Cache Removal Fixture", fileFormat: .mp3,
+            filePath: "/fixtures/\(UUID().uuidString).mp3", sourceID: sourceID
+        )
+        let cache = manager.cacheURL(for: song)
+        try FileManager.default.createDirectory(
+            at: cache.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        let payload = Self.patternedPayload(count: Int(CloudPlaybackSource.chunkSize) * 2 + 4_321)
+        return CacheRemovalFixture(
+            sourceID: sourceID,
+            manager: manager,
+            song: song,
+            cache: cache,
+            partial: URL(fileURLWithPath: cache.path + ".partial"),
+            payload: payload,
+            connector: FixtureRangeConnector(sourceID: sourceID, payload: payload)
+        )
+    }
+
+    private static func patternedPayload(count: Int) -> Data {
+        Data((0..<count).map { UInt8(truncatingIfNeeded: $0 &* 31 &+ $0 / 4_099) })
+    }
+
+    private static func detachedStreamFiles() -> Set<String> {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("primuse-detached-streams", isDirectory: true)
+        return Set((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? [])
+    }
+
     /// Core Audio's AudioFile (AAC in M4A) takes a short read inside packet
     /// data as a decoding failure. A read that crosses a chunk boundary of
     /// the stream must still be answered in full.

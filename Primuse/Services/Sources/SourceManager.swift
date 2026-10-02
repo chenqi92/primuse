@@ -10049,6 +10049,9 @@ final class SourceManager {
     }
 
     private nonisolated static func removeCacheFileFamily(at url: URL) {
+        // A song can be playing from these files (a tag edit during
+        // playback); it finishes from its own copy instead of losing them.
+        CloudPlaybackSource.detachSessionFromCache(partialPath: url.path + ".partial")
         for candidate in cacheFileFamilyURLs(at: url) {
             try? FileManager.default.removeItem(at: candidate)
         }
