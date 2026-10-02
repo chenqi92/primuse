@@ -276,7 +276,7 @@ struct TVAlbumCard: View {
     /// 开始播放之后调用(一般是切到播放页)。
     var action: () -> Void = {}
     var onFocusChanged: (Bool) -> Void = { _ in }
-    /// 给了就由按下封面打开专辑页(先看曲目再点歌),直接播放挪进长按菜单;
+    /// 给了就由按下封面打开专辑页(先看曲目再点歌),整张播放挪进长按菜单;
     /// 不给则保持按下即播放整张专辑。
     var onOpen: (() -> Void)? = nil
     /// 父视图的焦点绑定(见 `TVFocusButton`):回到资料库时把焦点放回上次那张卡片。
@@ -315,8 +315,12 @@ struct TVAlbumCard: View {
         }
         .contextMenu {
             if onOpen != nil {
-                Button("play_all", systemImage: "play.fill") {
-                    store.play(album: album)
+                // 整张播放:按碟号、曲目号排队,不管当前开没开随机。
+                Button("album_play_whole", systemImage: "play.fill") {
+                    guard store.playResolvedQueue(
+                        songIDs: store.songIDs(forAlbum: album.id),
+                        shuffled: false
+                    ) else { return }
                     action()
                 }
                 Button("shuffle", systemImage: "shuffle") {

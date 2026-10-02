@@ -1392,6 +1392,7 @@
 "Apple Music · Not Authorized" = "Apple Music · Yetkili Değil";
 "lyrics_editor_paste_accept" = "Bu satırları kullan";
 "go_to_album" = "Albüme Git";
+"album_play_whole" = "Albümün tamamını çal";
 "scrape_candidates_search_prompt" = "Adayları arayın";
 "stats_server_stale_clock" = "Cihaz saati anlık görüntü zamanından farklı";
 "synology_session_expired" = "Oturumun süresi doldu. Tekrar oturum açın.";

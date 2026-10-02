@@ -1767,6 +1767,7 @@
 "notify_scrape_missing_done_title" = "Complétion des métadonnées manquantes terminée";
 "dup_cleaning_progress_format" = "Nettoyage %d / %d";
 "go_to_album" = "Aller à l'album";
+"album_play_whole" = "Lire l’album en entier";
 "go_to_artist" = "Aller à l'artiste";
 "playback_settings_title" = "Réglages de lecture";
 "Source Status" = "État de la source";

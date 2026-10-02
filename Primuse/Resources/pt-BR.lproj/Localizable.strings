@@ -1416,6 +1416,7 @@
 "github_feedback_hint" = "Problemas GitHub ajudam o desenvolvedor a ver e acompanhar o feedback mais cedo. Você também pode deixar comentários em uma análise do App Store, embora possa demorar mais para chegar ao desenvolvedor. O link já vem com a versão e os dados do dispositivo preenchidos, e você pode editá-los antes de enviar.";
 "github_repository" = "Repositório GitHub";
 "go_to_album" = "Ir para o álbum";
+"album_play_whole" = "Tocar álbum inteiro";
 "go_to_artist" = "Ir para Artista";
 "google_drive_full_access_disclosure" = "O Google Drive solicita acesso completo para navegar na sua biblioteca de música, gravar arquivos auxiliares de capa e LRC e mover para a lixeira os arquivos que você excluir explicitamente. O Primuse não altera permissões de compartilhamento nem esvazia a lixeira permanentemente.";
 "greeting_afternoon" = "Boa tarde";

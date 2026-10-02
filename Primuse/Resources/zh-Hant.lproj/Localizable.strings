@@ -1744,6 +1744,7 @@
 "update_banner_subtitle" = "前往 App Store 立即更新";
 "update_banner_action" = "立即更新";
 "go_to_album" = "前往專輯";
+"album_play_whole" = "整張播放";
 "go_to_artist" = "前往演出者";
 "playback_settings_title" = "播放設定";
 "shuffle_all" = "隨機播放全部";

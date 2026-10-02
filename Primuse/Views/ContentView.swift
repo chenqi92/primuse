@@ -2774,7 +2774,8 @@ struct NowPlayingAccessory: View {
 #if DEBUG && os(iOS)
 /// 调试构建的启动自动化：`PRIMUSE_OPEN_PAGE=<页面>` 在曲库装载后直接打开指定页面，给编译机上无人值守截图用。
 /// 取值：`home` / `library` / `songs` / `albums` / `artists` / `playlists` / `album:<标题片段>` / `artist:<名字片段>` /
-/// `playlist:<名字片段>`（`liked` 是「喜欢」）/ `player`（配合 `PRIMUSE_AUTOPLAY_SONG`）/ `search` / `settings` / `onboarding`。
+/// `playlist:<名字片段>`（`liked` 是「喜欢」）/ `player`（配合 `PRIMUSE_AUTOPLAY_SONG`）/ `search`（`search:<词>` 直接搜）/
+/// `settings` / `onboarding`。
 /// 另有 `PRIMUSE_ORIENTATION=landscape|portrait|landscapeLeft|landscapeRight`：打开页面前先请求转屏
 /// （`landscape` 即 `landscapeRight`）。
 /// `section:<分类 rawValue>`（如 `section:folders`）。
@@ -2897,6 +2898,8 @@ extension ContentView {
             presentNowPlaying()
         case "search":
             selectTab(2)
+            // `search:<搜索词>` 直接搜这个词(看 AI 补充里的专辑组)。
+            if parts.count > 1 { searchText = parts[1] }
         case "settings":
             selectTab(3)
         case "onboarding":

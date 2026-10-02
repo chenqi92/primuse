@@ -1767,6 +1767,7 @@
 "notify_scrape_missing_done_title" = "누락된 메타데이터 스크랩 완료";
 "dup_cleaning_progress_format" = "정리 중 %d / %d";
 "go_to_album" = "앨범으로 이동";
+"album_play_whole" = "앨범 전체 재생";
 "go_to_artist" = "아티스트로 이동";
 "playback_settings_title" = "재생 설정";
 "Source Status" = "소스 상태";

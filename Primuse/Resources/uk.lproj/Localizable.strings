@@ -1392,6 +1392,7 @@
 "Apple Music · Not Authorized" = "Apple Music · Не авторизовано";
 "lyrics_editor_paste_accept" = "Використати рядки";
 "go_to_album" = "Перейти до альбому";
+"album_play_whole" = "Слухати альбом повністю";
 "scrape_candidates_search_prompt" = "Пошук кандидатів";
 "stats_server_stale_clock" = "Годинник пристрою відрізняється від часу знімка";
 "synology_session_expired" = "Сеанс закінчився. Увійдіть знову.";

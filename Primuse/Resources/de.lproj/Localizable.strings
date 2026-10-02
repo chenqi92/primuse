@@ -1767,6 +1767,7 @@
 "notify_scrape_missing_done_title" = "Ergänzung fehlender Metadaten abgeschlossen";
 "dup_cleaning_progress_format" = "Bereinigen %d / %d";
 "go_to_album" = "Zum Album";
+"album_play_whole" = "Ganzes Album abspielen";
 "go_to_artist" = "Zum Künstler";
 "playback_settings_title" = "Wiedergabeeinstellungen";
 "Source Status" = "Quellenstatus";

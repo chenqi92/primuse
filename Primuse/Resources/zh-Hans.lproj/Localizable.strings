@@ -1855,6 +1855,7 @@
 "update_banner_subtitle" = "前往 App Store 立即更新";
 "update_banner_action" = "立即更新";
 "go_to_album" = "前往专辑";
+"album_play_whole" = "整张播放";
 "go_to_artist" = "前往艺术家";
 "playback_settings_title" = "播放设置";
 "shuffle_all" = "随机播放全部";

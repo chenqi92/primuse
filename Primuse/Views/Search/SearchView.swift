@@ -409,6 +409,14 @@ private struct SemanticLibrarySearchResult: Identifiable, Sendable {
     var id: String { song.id }
 }
 
+/// AI 补充里单独成组的一张专辑,带着命中它的那个扩展词。
+private struct SemanticAlbumSearchHit: Identifiable {
+    let album: PrimuseKit.Album
+    let relatedConcept: String
+
+    var id: String { album.id }
+}
+
 private enum SemanticSearchFeedback: Equatable {
     case idle
     case loading
@@ -535,6 +543,8 @@ struct SearchView: View {
     @State private var searchResults: [LibrarySearchResult] = []
     @State private var keywordAlbums: [PrimuseKit.Album] = []
     @State private var semanticAlbums: [PrimuseKit.Album] = []
+    /// AI 补充的专辑各是因为哪个扩展词搜到的(专辑 id → 词)。
+    @State private var semanticAlbumConcepts: [String: String] = [:]
     @State private var semanticArtists: [PrimuseKit.Artist] = []
     @State private var collectionResults: [SearchCollectionResult] = []
     @State private var semanticCollections: [SearchCollectionResult] = []
@@ -688,6 +698,31 @@ struct SearchView: View {
         var seen = Set(keywordAlbums.map(\.id))
         let supplements = intelligenceRenderedQuery == searchText ? semanticAlbums : []
         return keywordAlbums + supplements.filter { seen.insert($0.id).inserted }
+    }
+
+    /// 「全部」页专辑架上的专辑:搜索词直接命中的。AI 补充的专辑在 AI 那一块里单独成组,
+    /// 「查看全部」与 Mac 的「专辑」筛选仍是两者合在一起(`matchingAlbums`)。
+    private var shelfAlbums: [PrimuseKit.Album] {
+        guard scope == nil, resultLayout.shows(.albums) else { return [] }
+        return keywordAlbums
+    }
+
+    /// AI 补充里单独成组的专辑:关键词已经命中的(专辑架上已有)不再重复。
+    private var visibleSemanticAlbums: [SemanticAlbumSearchHit] {
+        guard scope == nil, resultLayout.shows(.albums),
+              intelligenceRenderedQuery == searchText,
+              renderedQuery == searchText else { return [] }
+        let keywordIDs = Set(keywordAlbums.map(\.id))
+        return semanticAlbums.compactMap { album in
+            guard !keywordIDs.contains(album.id) else { return nil }
+            return SemanticAlbumSearchHit(album: album, relatedConcept: semanticAlbumConcepts[album.id] ?? "")
+        }
+    }
+
+    /// AI 补充里专辑组与歌曲组的先后:搜索词像在找一张专辑时专辑在前。
+    private var semanticResultGroups: [AISemanticResultGroup] {
+        let titles = (Array(keywordAlbums.prefix(12)) + Array(semanticAlbums.prefix(12))).map(\.title)
+        return AISemanticAlbumGroupPolicy.groupOrder(query: searchText, albumTitles: titles)
     }
 
     private var intelligentAlbumIDs: Set<String> {
@@ -1583,9 +1618,9 @@ struct SearchView: View {
             text.compare(query, options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive]) == .orderedSame
         }
         if let artist = artists.first(where: { matchesQuery($0.name) }) { return .artist(artist) }
-        if let album = matchingAlbums.first(where: { matchesQuery($0.title) }) { return .album(album) }
+        if let album = shelfAlbums.first(where: { matchesQuery($0.title) }) { return .album(album) }
         if let result = searchResults.first { return .song(result) }
-        if let album = matchingAlbums.first { return .album(album) }
+        if let album = shelfAlbums.first { return .album(album) }
         if let artist = artists.first { return .artist(artist) }
         return nil
     }
@@ -1597,7 +1632,7 @@ struct SearchView: View {
     ) -> Int {
         switch section {
         case .albums:
-            return matchingAlbums.filter { $0.id != topMatch?.albumID }.count
+            return shelfAlbums.filter { $0.id != topMatch?.albumID }.count
         case .artists:
             return artists.filter { $0.id != topMatch?.artistID }.count
         case .metadata, .path, .lyrics, .fuzzy:
@@ -1606,6 +1641,7 @@ struct SearchView: View {
             }.count
         case .intelligent:
             return visibleSemanticResults.filter { $0.song.id != topMatch?.songID }.count
+                + visibleSemanticAlbums.count
         case .appleMusic:
             return visibleAppleMusicSearchResults.count
         case .playlists, .folders:
@@ -2004,7 +2040,7 @@ struct SearchView: View {
 
     @ViewBuilder
     private func macAlbumShelf(width: CGFloat, excluding topMatch: MacTopMatch?) -> some View {
-        let albums = matchingAlbums.filter { $0.id != topMatch?.albumID }
+        let albums = shelfAlbums.filter { $0.id != topMatch?.albumID }
         let columns = macShelfColumns(for: width)
         let shown = Array(albums.prefix(columns))
         if !shown.isEmpty {
@@ -2170,7 +2206,8 @@ struct SearchView: View {
             besideTopMatch: besideTopMatch,
             excluding: topMatch
         )
-        if semanticSearchFeedback.isVisible || !result.shown.isEmpty {
+        let albums = visibleSemanticAlbums
+        if semanticSearchFeedback.isVisible || !result.shown.isEmpty || !albums.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 macBlockHeader(
                     "search_ai_section",
@@ -2179,6 +2216,10 @@ struct SearchView: View {
                 )
                 semanticFeedbackRow
                     .padding(.horizontal, 10)
+                let albumsFirst = semanticResultGroups.first == .albums
+                if albumsFirst {
+                    macSemanticAlbumRow(albums, width: width)
+                }
                 macColumns(result.shown, columns: result.columns, spacing: 16, rowSpacing: 4) { item in
                     macSemanticResultRow(item)
                         .songSelectable(
@@ -2188,7 +2229,34 @@ struct SearchView: View {
                             defaultAction: { playSong(item.song) }
                         )
                 }
+                if !albumsFirst {
+                    macSemanticAlbumRow(albums, width: width)
+                }
             }
+        }
+    }
+
+    /// AI 补充的专辑在「全部」页上一排放得下几张就放几张,其余在「专辑」筛选里。
+    @ViewBuilder
+    private func macSemanticAlbumRow(_ albums: [SemanticAlbumSearchHit], width: CGFloat) -> some View {
+        if !albums.isEmpty {
+            let cardWidth: CGFloat = 140
+            let spacing: CGFloat = 16
+            let fits = max(1, Int((width + spacing) / (cardWidth + spacing)))
+            HStack(alignment: .top, spacing: spacing) {
+                ForEach(albums.prefix(fits)) { hit in
+                    SemanticAlbumResultCard(
+                        album: hit.album,
+                        relatedConcept: hit.relatedConcept,
+                        width: cardWidth,
+                        canPlay: hit.album.songCount > 0
+                    ) {
+                        playWholeAlbum(hit.album)
+                    }
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
         }
     }
 
@@ -3295,14 +3363,14 @@ struct SearchView: View {
 
     @ViewBuilder
     private var albumShelfSection: some View {
-        if !matchingAlbums.isEmpty {
+        if !shelfAlbums.isEmpty {
             Section {
                 ScrollView(.horizontal, showsIndicators: false) {
                     // 卡宽决定整条专辑架的高度(封面是正方形), 紧凑高度下收一档,
                     // 免得这一条就把结果区吃掉大半。
                     let albumCardWidth = heightClass.value(142, compact: 104)
                     LazyHStack(alignment: .top, spacing: 14) {
-                        ForEach(matchingAlbums.prefix(8)) { album in
+                        ForEach(shelfAlbums.prefix(8)) { album in
                             VStack(alignment: .leading, spacing: 2) {
                                 NavigationLink(value: album) {
                                     AlbumCardView(album: album, showsSongCount: true,
@@ -3483,9 +3551,17 @@ struct SearchView: View {
     @ViewBuilder
     private var semanticSongSection: some View {
         let results = Array(visibleSemanticResults.prefix(40))
-        if semanticSearchFeedback.isVisible || !results.isEmpty {
+        let albums = visibleSemanticAlbums
+        let albumsFirst = semanticResultGroups.first == .albums
+        if semanticSearchFeedback.isVisible || !results.isEmpty || !albums.isEmpty {
             Section {
                 semanticFeedbackRow
+                if albumsFirst {
+                    semanticAlbumRows(albums, titled: !results.isEmpty)
+                }
+                if !albums.isEmpty, !results.isEmpty {
+                    semanticGroupTitle("tab_songs")
+                }
                 ForEach(results) { result in
                     VStack(alignment: .leading, spacing: 3) {
                         SongRowView(
@@ -3535,11 +3611,50 @@ struct SearchView: View {
                         onShowInLibrary(result.song)
                     }
                 }
+                if !albumsFirst {
+                    semanticAlbumRows(albums, titled: !results.isEmpty)
+                }
             } header: {
                 Label("search_ai_section", systemImage: "sparkles")
             }
         }
     }
+
+    /// AI 补充的专辑:一排横滑的卡片,每张可以整张播放或进入专辑。
+    @ViewBuilder
+    private func semanticAlbumRows(_ albums: [SemanticAlbumSearchHit], titled: Bool) -> some View {
+        if !albums.isEmpty {
+            if titled {
+                semanticGroupTitle("tab_albums")
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: 14) {
+                    ForEach(albums.prefix(12)) { hit in
+                        SemanticAlbumResultCard(
+                            album: hit.album,
+                            relatedConcept: hit.relatedConcept,
+                            width: heightClass.value(150, compact: 112),
+                            canPlay: hit.album.songCount > 0
+                        ) {
+                            playWholeAlbum(hit.album)
+                        }
+                    }
+                }
+                .padding(.vertical, heightClass.value(8, compact: 4))
+            }
+            .pmStopsAtVerticalBar()
+            .listRowSeparator(.hidden)
+        }
+    }
+
+    private func semanticGroupTitle(_ titleKey: LocalizedStringKey) -> some View {
+        Text(titleKey)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .listRowSeparator(.hidden)
+            .accessibilityAddTraits(.isHeader)
+    }
+
 
     private func appleMusicRow(_ song: MusicKit.Song) -> some View {
         Button {
@@ -3761,11 +3876,15 @@ struct SearchView: View {
     private func clearSemanticResults() {
         semanticResults = []
         semanticAlbums = []
+        semanticAlbumConcepts = [:]
         semanticArtists = []
         semanticCollections = []
     }
 
     private func performSemanticSearch(query: String) {
+        #if DEBUG
+        if performDebugSemanticSearch(query: query) { return }
+        #endif
         guard !query.isEmpty, scope == nil, resultLayout.shows(.intelligent),
               intelligence.isSemanticSearchConfigured else {
             workCoordinator.cancelIntelligence()
@@ -3862,6 +3981,25 @@ struct SearchView: View {
         }
     }
 
+    #if DEBUG
+    /// 取证用:`PRIMUSE_DEBUG_AI_SEARCH_TERMS=词1,词2` 时不连 AI 服务,把这几个词当成 AI 扩展出来的词,
+    /// 走和真实结果一样的本机回搜与分组(看 AI 补充里的专辑组)。
+    private func performDebugSemanticSearch(query: String) -> Bool {
+        guard let raw = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_AI_SEARCH_TERMS"] else { return false }
+        let terms = raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard !terms.isEmpty, !query.isEmpty, scope == nil, resultLayout.shows(.intelligent) else { return false }
+        guard workCoordinator.beginIntelligence(query: query, configurationRevision: 0) else { return true }
+        clearSemanticResults()
+        intelligenceRenderedQuery = query
+        let plan = AISemanticSearchPlan(expandedTerms: terms)
+        workCoordinator.intelligencePlan = plan
+        workCoordinator.intelligenceCompleted = true
+        semanticSearchFeedback = .success(provider: "Debug", resultCount: 0, fallbackDepth: 0)
+        refreshSemanticMatches(plan: plan, query: query)
+        return true
+    }
+    #endif
+
     private var semanticResultCount: Int {
         semanticResults.count + semanticAlbums.count + semanticArtists.count + semanticCollections.count
     }
@@ -3891,6 +4029,7 @@ struct SearchView: View {
         var candidates: [AISemanticLibraryMatchCandidate] = []
         var matchesByID: [String: LibrarySearchResult] = [:]
         var albums: [PrimuseKit.Album] = []
+        var albumConcepts: [String: String] = [:]
         var seenAlbums = Set<String>()
         var artists: [PrimuseKit.Artist] = []
         var seenArtists = Set<String>()
@@ -3931,7 +4070,10 @@ struct SearchView: View {
                 SearchCatalogPolicy.albums(query: concept, visibleAlbums: albumsSnapshot, relatedAlbums: output.albumResults)
             }
             let relatedAlbums = await withTaskCancellationHandler { await albumWorker.value } onCancel: { albumWorker.cancel() }
-            albums += relatedAlbums.filter { seenAlbums.insert($0.id).inserted }
+            for album in relatedAlbums where seenAlbums.insert(album.id).inserted {
+                albums.append(album)
+                albumConcepts[album.id] = concept
+            }
             artists += artistsSnapshot.filter {
                 SearchCatalogTextPolicy.matches($0.name, query: concept) && seenArtists.insert($0.id).inserted
             }
@@ -3966,11 +4108,13 @@ struct SearchView: View {
         if preservesExisting {
             semanticResults = mergeResults(semanticResults, songs)
             semanticAlbums = mergeResults(semanticAlbums, albums)
+            semanticAlbumConcepts.merge(albumConcepts) { existing, _ in existing }
             semanticArtists = mergeResults(semanticArtists, artists)
             semanticCollections = mergeResults(semanticCollections, collections)
         } else {
             semanticResults = songs
             semanticAlbums = albums
+            semanticAlbumConcepts = albumConcepts
             semanticArtists = artists
             semanticCollections = collections
         }
@@ -4096,6 +4240,11 @@ struct SearchView: View {
         guard !playable.isEmpty else { return }
         addRecentSearch(searchText)
         Task { await player.play(queue: playable) }
+    }
+
+    /// 整张播放:`songs(forAlbum:)` 已按碟号、曲目号排好,队列照这个顺序。
+    private func playWholeAlbum(_ album: PrimuseKit.Album) {
+        playCollection(library.songs(forAlbum: album.id))
     }
 
     private func resultActions(_ target: SearchResultActionTarget) -> some View {

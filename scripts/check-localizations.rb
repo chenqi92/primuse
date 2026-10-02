@@ -327,6 +327,11 @@ HAN_LITERAL_ALLOWLIST = {
   "PrimuseKit/Sources/PrimuseKit/KaraokeCompanionPolicy.swift" => [
     /"伴奏", "纯伴奏", "純伴奏", "消音版", "伴唱版"/
   ],
+  # Words that mark a search query as looking for a whole album; matched
+  # against what the user typed, never shown.
+  "PrimuseKit/Sources/PrimuseKit/AI/AISemanticAlbumGroupPolicy.swift" => [
+    /"专辑", "專輯", "整张", "整張", "那张", "那張"/
+  ],
   # Version markers and placeholder artist names matched against song titles
   # from other music apps. They are data, never shown as UI copy.
   "PrimuseKit/Sources/PrimuseKit/Library/ExternalTrackMatchPolicy.swift" => [

@@ -290,6 +290,7 @@
 		2C61D7F37B8D2158EDFC1B45 /* ImmersivePlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 694F8F3DCD98021DF67ED95D /* ImmersivePlayerView.swift */; };
 		2C9E932BBF84413437355812 /* SynologyAudioStationAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3E13C0073521BFDA0B5A67F /* SynologyAudioStationAPI.swift */; };
 		2CBBED6F8B81CE34B9F3AE9C /* PrimuseKaraokeModelDownloader.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = 6D83A776D9346CBF89EC88A8 /* PrimuseKaraokeModelDownloader.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		2CFEBEEA18DB66C3F4AAE474 /* AISemanticAlbumGroupPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67658EC03042A8F8F057DD8 /* AISemanticAlbumGroupPolicy.swift */; };
 		2D2452E38E6AAC8FD8248618 /* SourceChangeScanInvalidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C63C384948C23C9211655CF /* SourceChangeScanInvalidationTests.swift */; };
 		2D289CD7902DECBEFFF91C12 /* WiFiTransferDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA370CF93CF263D5B554EA26 /* WiFiTransferDevice.swift */; };
 		2D65D0C2101484C507683772 /* LyricsAPIServerScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24082B378949CAB023E24737 /* LyricsAPIServerScraper.swift */; };
@@ -641,6 +642,7 @@
 		5E821F60595D5717B952E98C /* DeviceCheck.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B6B2058920D0EF65AE514E1C /* DeviceCheck.framework */; };
 		5EBED7F7E13CB14DB58216B7 /* LyricPosterShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7242983C34056BD33B5942C /* LyricPosterShareSheet.swift */; };
 		5F04D3FA665C06B109AF98E8 /* CollectionOnlySongStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B3EF87FCE8CBABB06F79F1A /* CollectionOnlySongStore.swift */; };
+		5F4D03B0D82C2DC494FFC244 /* SemanticAlbumResultCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E62D5EE251CE253D0447778 /* SemanticAlbumResultCard.swift */; };
 		5F57F340B615890225768BCE /* JellyfinSourceCreationTransaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE14ABCEB2BD02801AE8BED9 /* JellyfinSourceCreationTransaction.swift */; };
 		5FA7E93E1A11D32470CC8623 /* RadioDirectoryClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E87CDB114A51764BEBD90ED3 /* RadioDirectoryClient.swift */; };
 		5FB21BB62EA59814EB6DC658 /* FFmpegDecoderBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = AF23E2C32C29F875836D06BE /* FFmpegDecoderBridge.m */; };
@@ -989,6 +991,7 @@
 		953F0A17E59BDE10CD67684E /* SearchExperienceUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B4495EA2FA7EF8F2DBE4290 /* SearchExperienceUITests.swift */; };
 		9592BBC06A894C525901C382 /* KaraokeSeparationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08FFC4385F8728673FC14C44 /* KaraokeSeparationService.swift */; };
 		95A46BF131D560E1897BAE8B /* MediaServerSTRMRedirectTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84E23C9293FD5D2A2D5CB33F /* MediaServerSTRMRedirectTests.swift */; };
+		D5CD7D00BDCFB49353F45E7F /* SemanticAlbumResultCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E62D5EE251CE253D0447778 /* SemanticAlbumResultCard.swift */; };
 		F6FF898686113F1C2A3D0596 /* MacHomeAlbumPickHero.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1F1CE1A49309E67916A06E8 /* MacHomeAlbumPickHero.swift */; };
 		FA4286EC38A4F2B5088B322E /* LibraryFavoritesStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F47747FFCC73BC619B54EDB /* LibraryFavoritesStoreTests.swift */; };
 		5C900C9927F4C2EDD9F0BF86 /* MediaServerCatalogTotalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97B342F4F6E304E16751626A /* MediaServerCatalogTotalTests.swift */; };
@@ -2063,10 +2066,12 @@
 		6EF34E28F2067A0CA34C7E97 /* AutoContinuationPlayerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoContinuationPlayerTests.swift; sourceTree = "<group>"; };
 		265C0AC52D8C1953727700B4 /* AudiobookshelfAPIProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudiobookshelfAPIProtocol.swift; sourceTree = "<group>"; };
 		291448DFB4E427A1C425C373 /* AudiobookshelfServiceClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudiobookshelfServiceClient.swift; sourceTree = "<group>"; };
+		7E62D5EE251CE253D0447778 /* SemanticAlbumResultCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticAlbumResultCard.swift; sourceTree = "<group>"; };
 		8F4B628723CF61FFBF135D38 /* AudiobookshelfStreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudiobookshelfStreamResolver.swift; sourceTree = "<group>"; };
 		922181FC334B41DD85745316 /* TVLibraryFilterConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVLibraryFilterConfiguration.swift; sourceTree = "<group>"; };
 		931F447299E5B0DD6FF34799 /* SongListeningTraits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongListeningTraits.swift; sourceTree = "<group>"; };
 		9C4929D6A853AD9C0A1AD6C6 /* ReleaseDateLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseDateLibraryView.swift; sourceTree = "<group>"; };
+		C67658EC03042A8F8F057DD8 /* AISemanticAlbumGroupPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AISemanticAlbumGroupPolicy.swift; sourceTree = "<group>"; };
 		C983DD20D62709D753337FFE /* ServerCollectionFavoriteSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerCollectionFavoriteSyncService.swift; sourceTree = "<group>"; };
 		1C44F4E77941AFFB35281878 /* AudioPlayerService+Casting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AudioPlayerService+Casting.swift"; sourceTree = "<group>"; };
 		1C838745C0E7363819E91534 /* ServerListeningStatsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerListeningStatsService.swift; sourceTree = "<group>"; };
@@ -3817,6 +3822,7 @@
 				04202B79276932465E3233C4 /* LibrarySearchCatalog.swift */,
 				234C5E25758071CA1B4DEE7D /* SearchResultLayoutEditor.swift */,
 				DF83CE305219EDE25101007A /* SearchView.swift */,
+				7E62D5EE251CE253D0447778 /* SemanticAlbumResultCard.swift */,
 			);
 			path = Search;
 			sourceTree = "<group>";
@@ -4378,6 +4384,7 @@
 				34C6D54A0624AAFCF3E1D472 /* AIAvailabilityPolicy.swift */,
 				78953F6B19CEAED0F2FECBD0 /* AIIntelligenceModels.swift */,
 				F33F16C8FA296E2937F01489 /* AIRemoteProviderConfiguration.swift */,
+				C67658EC03042A8F8F057DD8 /* AISemanticAlbumGroupPolicy.swift */,
 				9AB9689481CAC6ADFF0A0E9D /* AIStreamingResponsePolicy.swift */,
 				EB164E964C4CE4086099EC62 /* AIServiceSetupGuidance.swift */,
 			);
@@ -5587,6 +5594,7 @@
 				6F139A773725A49F443C3494 /* AIAvailabilityPolicy.swift in Sources */,
 				A7815B97AB23C3B0112CF13D /* AIIntelligenceModels.swift in Sources */,
 				223571A3D35282EEE8DC3CD8 /* AIRemoteProviderConfiguration.swift in Sources */,
+				2CFEBEEA18DB66C3F4AAE474 /* AISemanticAlbumGroupPolicy.swift in Sources */,
 				6DB7A4FAB4B02D7A4E54E58A /* AIStreamingResponsePolicy.swift in Sources */,
 				7013A79EA7C41FC49C886AB8 /* AIServiceSetupGuidance.swift in Sources */,
 				4F143173989D3435C5DB1644 /* ActiveConnectionRouteOwnershipPolicy.swift in Sources */,
@@ -6319,6 +6327,7 @@
 				B3CE57F3DE2E15521F6A61CA /* RenderingVisibility.swift in Sources */,
 				3FD470459B0416DB4CD1D75E /* RevealableSecureField.swift in Sources */,
 				95F92271D58C499F3DCB120F /* S3Source.swift in Sources */,
+				D5CD7D00BDCFB49353F45E7F /* SemanticAlbumResultCard.swift in Sources */,
 				A875F21264F6C5B8DC612465 /* SFTPBrowserView.swift in Sources */,
 				3DB2D944BC6083DFCF50FC79 /* SFTPSource.swift in Sources */,
 				31131FE9D0603FCAC89CE76C /* SMBBrowserView.swift in Sources */,
@@ -6956,6 +6965,7 @@
 				BAF49048C4B8E0BEB42DC905 /* RenderingVisibility.swift in Sources */,
 				C701DD82C4CAA9E2C0B01302 /* RevealableSecureField.swift in Sources */,
 				19C85ED05C09AB735883A8E5 /* S3Source.swift in Sources */,
+				5F4D03B0D82C2DC494FFC244 /* SemanticAlbumResultCard.swift in Sources */,
 				EFAB156F0158347B9BF9C7CD /* SFTPBrowserView.swift in Sources */,
 				462E50063C5075D907ABD7B6 /* SFTPSource.swift in Sources */,
 				8F0445DECEC9F9E78038D931 /* SMBBrowserView.swift in Sources */,

@@ -1768,6 +1768,7 @@
 "notify_scrape_missing_done_title" = "欠落メタデータの補完が完了しました";
 "dup_cleaning_progress_format" = "クリーンアップ中 %d / %d";
 "go_to_album" = "アルバムへ移動";
+"album_play_whole" = "アルバムを再生";
 "go_to_artist" = "アーティストへ移動";
 "playback_settings_title" = "再生設定";
 "Source Status" = "ソースの状態";
