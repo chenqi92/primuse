@@ -154,6 +154,12 @@ final class AudioEngine {
         engine?.isRunning == true && playerNode?.isPlaying == true
     }
     private(set) var outputFormat: AVAudioFormat?
+    /// 输出设备此刻的采样率,给界面显示用。`currentHardwareSampleRate` 每次现读、
+    /// 不可观察,界面读它的话换输出设备、协商完采样率之后不会重绘。
+    private(set) var observedOutputSampleRate: Double = 0
+    #if os(iOS)
+    @ObservationIgnored nonisolated(unsafe) private var outputRouteObserver: NSObjectProtocol?
+    #endif
     private(set) var spatialAudioEnabled = false
     private(set) var spatialHeadTrackingEnabled = false
     private(set) var outputMode: AudioOutputMode = .effects
@@ -212,6 +218,43 @@ final class AudioEngine {
         let saved = volumeDefaults.object(forKey: Self.volumeKey) as? Float ?? 1
         requestedVolume = saved.isFinite ? min(max(saved, 0), 1) : 1
         #endif
+        #if os(iOS)
+        // 停着的时候换输出(插拔 DAC、连蓝牙)不会触发引擎的配置变更,只有路由通知。
+        // 蓝牙这类输出连上后采样率会再协商一下,过一会儿再读一次。
+        outputRouteObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.outputRouteDidChange() }
+        }
+        #endif
+    }
+
+    #if os(iOS)
+    private func outputRouteDidChange() {
+        refreshObservedOutputSampleRate()
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(600))
+            self?.refreshObservedOutputSampleRate()
+        }
+    }
+    #endif
+
+    deinit {
+        #if os(iOS)
+        if let outputRouteObserver {
+            NotificationCenter.default.removeObserver(outputRouteObserver)
+        }
+        #endif
+    }
+
+    /// 重读输出采样率;差不到 1Hz 不发布,免得无谓重绘。
+    func refreshObservedOutputSampleRate() {
+        let rate = currentHardwareSampleRate
+        let normalized = rate.isFinite && rate > 0 ? rate : 0
+        guard abs(normalized - observedOutputSampleRate) >= 1 else { return }
+        observedOutputSampleRate = normalized
     }
 
     // MARK: - Setup
@@ -228,6 +271,8 @@ final class AudioEngine {
         directSourceFormat: AVAudioFormat? = nil,
         isDSDCarrier: Bool = false
     ) throws {
+        // 调用方先协商完硬件采样率再来配图;图不用重建时也要把新值报给界面。
+        refreshObservedOutputSampleRate()
         let normalizedDirectFormat = outputMode == .highFidelity ? directSourceFormat : nil
         let normalizedDSDCarrier = outputMode == .highFidelity && isDSDCarrier
         let formatChanged: Bool = {
@@ -258,6 +303,7 @@ final class AudioEngine {
         #endif
         try setUp()
         hardwareConfigurationRecoveryState.graphRebuiltSuccessfully()
+        refreshObservedOutputSampleRate()
     }
 
     /// Called from the player after AVAudioEngine reports a hardware change.
@@ -265,6 +311,7 @@ final class AudioEngine {
     /// internal notification queue.
     func markHardwareConfigurationChanged() {
         hardwareConfigurationRecoveryState.configurationChanged()
+        refreshObservedOutputSampleRate()
         // 换设备 / 换采样率会重建输出单元，应用音量得重新写一遍，
         // 否则换完输出音量悄悄回到满格。
         applyRequestedVolumeToGraph()

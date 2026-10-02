@@ -5611,6 +5611,8 @@ private struct MacSTThemeView: View {
     private var fullscreenEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
+    @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
+    private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
     @AppStorage(PlayerAppearancePreferences.animatedArtworkEnabledKey)
     private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
     @AppStorage(PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyKey)
@@ -5780,6 +5782,20 @@ private struct MacSTThemeView: View {
                         .accessibilityHint(Text("player_volume_bar_description"))
                 }
                 .settingsAnchor("appearance.volumeBar")
+                MacSTRow(
+                    String(localized: "player_audio_info_title"),
+                    hint: String(localized: "player_audio_info_mac_hint")
+                ) {
+                    MacSTPicker(
+                        selection: Binding(
+                            get: { PlayerAppearancePreferences.audioInfoMode(rawValue: audioInfoModeRawValue) },
+                            set: { audioInfoModeRawValue = $0.rawValue }
+                        ),
+                        options: NowPlayingAudioInfoMode.allCases.map { ($0, $0.titleKey) },
+                        width: 180
+                    )
+                }
+                .settingsAnchor("appearance.audioInfo")
             }
         }
 

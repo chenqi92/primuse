@@ -2899,6 +2899,16 @@
 "player_appearance_title" = "Player";
 "player_volume_bar" = "Volume Slider";
 "player_volume_bar_description" = "Show the volume slider in the player. Other controls naturally fill the available space when it is hidden.";
+"player_audio_info_title" = "Audio Info in Player";
+"player_audio_info_off" = "Off";
+"player_audio_info_lossless_only" = "Lossless Only";
+"player_audio_info_always" = "Always";
+"player_audio_info_footer" = "Shown below the song title, for example FLAC · 24bit/96kHz. Tap it to see the sample rate your output device is actually using.";
+"player_audio_info_mac_hint" = "Format, bit rate and sample rate above the song title";
+"now_playing_audio_output_matched" = "Output %@ · Matches source";
+"now_playing_audio_output_resampled" = "Output %@ · Resampled";
+"now_playing_audio_output_plain" = "Output %@";
+"now_playing_audio_info_hint" = "Tap to see the sample rate the output is actually using";
 "player_animated_artwork" = "Dynamic Artwork";
 "player_animated_artwork_description" = "Play source-provided GIF, APNG, and animated WebP artwork on album details and primary player artwork. Lists always use a static first frame, and system motion and power settings are respected.";
 "player_animated_artwork_unmetered_only" = "Wi-Fi Only for Original Artwork";

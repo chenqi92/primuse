@@ -99,3 +99,85 @@ public enum OutputSampleRateTextPolicy {
         return rounded == rounded.rounded() ? String(Int(rounded)) : String(format: "%.1f", rounded)
     }
 }
+
+/// 播放页标题下那行音频信息的显示档位(设置里的三档)。
+public enum NowPlayingAudioInfoMode: String, CaseIterable, Sendable {
+    case off
+    /// 只给无损、高解析、DSD 显示;有损的歌不占这一行。
+    case nonStandardOnly
+    case always
+
+    /// 这首歌要不要显示那一行。
+    public func showsSummary(for quality: AudioQuality) -> Bool {
+        switch self {
+        case .off: false
+        case .nonStandardOnly: quality != .standard
+        case .always: true
+        }
+    }
+
+    /// 存储值读不出来(没设过、旧版本写的别的值)时退回 `fallback`。
+    public static func resolved(rawValue: String?, fallback: Self) -> Self {
+        rawValue.flatMap(Self.init(rawValue:)) ?? fallback
+    }
+}
+
+/// 播放页音频信息的文字:「FLAC · 24bit/96kHz · 2304kbps」,点开后是实际输出的采样率。
+public enum NowPlayingAudioInfoTextPolicy {
+    /// 规格段,按「格式 · 位深/采样率 · 码率」排。缺的段直接省掉;DSD 的采样率写成
+    /// DSD64 这种通行叫法,1bit 不写。
+    public static func specParts(
+        formatName: String,
+        sampleRate: Int?,
+        bitDepth: Int?,
+        bitRate: Int?,
+        isDSD: Bool
+    ) -> [String] {
+        var parts: [String] = []
+        let format = formatName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !format.isEmpty, format != "—" { parts.append(format) }
+
+        let sampleRate = sampleRate.flatMap { $0 > 0 ? $0 : nil }
+        if isDSD {
+            if let sampleRate, sampleRate >= 2_822_400 {
+                parts.append("DSD\(Int((Double(sampleRate) / 44_100).rounded()))")
+            }
+        } else {
+            let depth = bitDepth.flatMap { $0 > 0 ? "\($0)bit" : nil }
+            let rate = sampleRate.map { "\(OutputSampleRateTextPolicy.kilohertz(Double($0)))kHz" }
+            let resolution = [depth, rate].compactMap { $0 }.joined(separator: "/")
+            if !resolution.isEmpty { parts.append(resolution) }
+        }
+
+        if let bitRate, bitRate > 0 { parts.append("\(bitRate)kbps") }
+        return parts
+    }
+
+    public enum OutputMatch: Equatable, Sendable {
+        /// 输出与源采样率一致。
+        case matched
+        /// 输出被重采样到别的采样率。
+        case resampled
+        /// 不知道源的采样率,只能报输出。
+        case sourceUnknown
+    }
+
+    public struct OutputDescription: Equatable, Sendable {
+        /// 「48kHz」。
+        public let rateText: String
+        public let match: OutputMatch
+    }
+
+    /// 实际输出的采样率与源比较的结果。拿不到输出值时 nil(不给展开那一行)。
+    public static func output(sourceSampleRate: Int?, outputSampleRate: Double?) -> OutputDescription? {
+        guard let output = outputSampleRate, output.isFinite, output > 0 else { return nil }
+        let rateText = "\(OutputSampleRateTextPolicy.kilohertz(output))kHz"
+        guard let source = sourceSampleRate, source > 0 else {
+            return OutputDescription(rateText: rateText, match: .sourceUnknown)
+        }
+        return OutputDescription(
+            rateText: rateText,
+            match: abs(output - Double(source)) >= 1 ? .resampled : .matched
+        )
+    }
+}

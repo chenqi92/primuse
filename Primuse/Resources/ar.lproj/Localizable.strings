@@ -2282,6 +2282,16 @@
 "lyrics_play_from_line" = "التشغيل من هذا السطر";
 "player_volume_bar" = "منزلق الصوت";
 "player_volume_bar_description" = "إظهار شريط تمرير مستوى الصوت في المشغل. عناصر التحكم الأخرى تملأ المساحة المتوفرة بشكل طبيعي عندما تكون مخفية.";
+"player_audio_info_title" = "معلومات الصوت في المشغّل";
+"player_audio_info_off" = "إيقاف";
+"player_audio_info_lossless_only" = "الصوت غير المضغوط فقط";
+"player_audio_info_always" = "دائمًا";
+"player_audio_info_footer" = "تظهر أسفل عنوان الأغنية، مثل FLAC · 24bit/96kHz. اضغط عليها لمعرفة معدل العينة الذي يستخدمه جهاز الإخراج فعليًا.";
+"player_audio_info_mac_hint" = "التنسيق ومعدل البت ومعدل العينة فوق عنوان الأغنية";
+"now_playing_audio_output_matched" = "الإخراج %@ · مطابق للمصدر";
+"now_playing_audio_output_resampled" = "الإخراج %@ · مع إعادة أخذ العينات";
+"now_playing_audio_output_plain" = "الإخراج %@";
+"now_playing_audio_info_hint" = "اضغط لمعرفة معدل العينة الفعلي للإخراج";
 "playlist_always_download" = "التنزيل دائمًا";
 "playlist_always_download_description" = "يبقي قائمة التشغيل هذه على هذا الجهاز أكثر من Wi-Fi. يتم تنزيل الأغاني الجديدة أو المتغيرة تلقائيًا عندما تسمح ظروف الجهاز بذلك؛ يؤدي إيقاف هذا إلى الاحتفاظ بالملفات الموجودة.";
 "playlist_description_optional" = "الوصف (اختياري)";

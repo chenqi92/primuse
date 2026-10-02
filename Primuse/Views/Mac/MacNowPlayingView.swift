@@ -67,6 +67,8 @@ struct MacNowPlayingView: View {
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
+    @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
+    private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
 
@@ -1221,14 +1223,20 @@ struct MacNowPlayingView: View {
 
     private var nowPlayingInfoLine: String {
         guard let song = player.currentSong else { return "" }
-        var parts = [String(localized: "now_playing"), song.fileFormat.displayName]
+        var parts = [String(localized: "now_playing")]
+        // 规格跟 iPhone 用同一个「播放页显示音频信息」档位。
+        guard PlayerAppearancePreferences.audioInfoMode(rawValue: audioInfoModeRawValue)
+            .showsSummary(for: song.audioQuality) else {
+            return parts.joined(separator: " · ")
+        }
+        parts.append(song.fileFormat.displayName)
         if let bitRate = song.formattedBitRate {
             parts.append(bitRate)
         }
         // 输出设备被设成别的采样率(重采样)时写成「44.1 → 48 kHz」。
         if let sampleRate = OutputSampleRateTextPolicy.text(
             sourceSampleRate: song.sampleRate,
-            outputSampleRate: player.audioEngine.currentHardwareSampleRate
+            outputSampleRate: player.audioEngine.observedOutputSampleRate
         ) {
             parts.append(sampleRate)
         }

@@ -3129,6 +3129,16 @@
 "player_appearance_title" = "Player";
 "player_volume_bar" = "Lautstärkeregler";
 "player_volume_bar_description" = "Zeigt den Lautstärkeregler im Player. Andere Bedienelemente nutzen den verfügbaren Platz automatisch, wenn er ausgeblendet ist.";
+"player_audio_info_title" = "Audioinfos im Player";
+"player_audio_info_off" = "Aus";
+"player_audio_info_lossless_only" = "Nur verlustfrei";
+"player_audio_info_always" = "Immer";
+"player_audio_info_footer" = "Wird unter dem Titel angezeigt, z. B. FLAC · 24bit/96kHz. Tippe darauf, um die tatsächliche Abtastrate des Ausgabegeräts zu sehen.";
+"player_audio_info_mac_hint" = "Format, Bitrate und Abtastrate über dem Titel";
+"now_playing_audio_output_matched" = "Ausgabe %@ · wie Quelle";
+"now_playing_audio_output_resampled" = "Ausgabe %@ · neu abgetastet";
+"now_playing_audio_output_plain" = "Ausgabe %@";
+"now_playing_audio_info_hint" = "Tippe, um die tatsächliche Abtastrate der Ausgabe zu sehen";
 "player_animated_artwork" = "Dynamisches Cover";
 "player_animated_artwork_description" = "Spielt vom Anbieter bereitgestellte GIF-, APNG- und animierte WebP-Cover in Albumdetails und auf dem Hauptcover des Players ab. Listen zeigen immer das statische erste Bild; System- und Energiespareinstellungen werden berücksichtigt.";
 "player_animated_artwork_unmetered_only" = "Originalcover nur über WLAN";

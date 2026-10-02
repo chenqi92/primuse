@@ -2282,6 +2282,16 @@
 "lyrics_play_from_line" = "Odtwarzaj od tego wiersza";
 "player_volume_bar" = "Suwak głośności";
 "player_volume_bar_description" = "Pokaż suwak głośności w odtwarzaczu. Inne elementy sterujące w naturalny sposób wypełniają dostępną przestrzeń, gdy jest ona ukryta.";
+"player_audio_info_title" = "Informacje o dźwięku w odtwarzaczu";
+"player_audio_info_off" = "Wyłączone";
+"player_audio_info_lossless_only" = "Tylko bezstratne";
+"player_audio_info_always" = "Zawsze";
+"player_audio_info_footer" = "Wyświetlane pod tytułem, np. FLAC · 24bit/96kHz. Stuknij, aby zobaczyć częstotliwość próbkowania faktycznie używaną przez wyjście.";
+"player_audio_info_mac_hint" = "Format, przepływność i częstotliwość próbkowania nad tytułem";
+"now_playing_audio_output_matched" = "Wyjście %@ · jak źródło";
+"now_playing_audio_output_resampled" = "Wyjście %@ · z przepróbkowaniem";
+"now_playing_audio_output_plain" = "Wyjście %@";
+"now_playing_audio_info_hint" = "Stuknij, aby zobaczyć faktyczną częstotliwość wyjścia";
 "playlist_always_download" = "Zawsze pobieraj";
 "playlist_always_download_description" = "Utrzymuje tę listę odtwarzania na tym urządzeniu przez Wi-Fi. Nowe lub zmienione utwory są pobierane automatycznie, jeśli pozwalają na to warunki urządzenia; wyłączenie tej opcji powoduje zachowanie istniejących plików.";
 "playlist_description_optional" = "Opis (opcjonalnie)";

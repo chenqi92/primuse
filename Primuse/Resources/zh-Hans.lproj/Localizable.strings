@@ -3230,6 +3230,16 @@
 "player_appearance_title" = "播放器";
 "player_volume_bar" = "音量条";
 "player_volume_bar_description" = "在播放器中显示音量条。隐藏后，其他控件会自然填充空出的空间。";
+"player_audio_info_title" = "播放页显示音频信息";
+"player_audio_info_off" = "关闭";
+"player_audio_info_lossless_only" = "仅无损音质";
+"player_audio_info_always" = "始终显示";
+"player_audio_info_footer" = "显示在歌名下方，例如 FLAC · 24bit/96kHz。轻点可查看输出设备实际使用的采样率。";
+"player_audio_info_mac_hint" = "播放页歌名上方的格式、码率与采样率";
+"now_playing_audio_output_matched" = "输出 %@ · 与源一致";
+"now_playing_audio_output_resampled" = "输出 %@ · 已重采样";
+"now_playing_audio_output_plain" = "输出 %@";
+"now_playing_audio_info_hint" = "轻点查看输出设备实际使用的采样率";
 "player_animated_artwork" = "动态专辑封面";
 "player_animated_artwork_description" = "在专辑详情和播放器主封面中播放来源自带的 GIF、APNG 与动态 WebP。列表始终显示静态首帧，并遵循系统动态效果与电量设置。";
 "player_animated_artwork_unmetered_only" = "仅通过 Wi-Fi 下载原始封面";

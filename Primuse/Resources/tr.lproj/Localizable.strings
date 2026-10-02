@@ -3649,6 +3649,16 @@
 "volume_up" = "Sesi Artırma";
 "sync" = "Senkronizasyon";
 "player_volume_bar_description" = "Oynatıcıda ses düzeyi kaydırıcısını gösterin. Diğer kontroller gizlendiğinde doğal olarak mevcut alanı doldurur.";
+"player_audio_info_title" = "Oynatıcıda ses bilgisi";
+"player_audio_info_off" = "Kapalı";
+"player_audio_info_lossless_only" = "Yalnızca kayıpsız";
+"player_audio_info_always" = "Her zaman";
+"player_audio_info_footer" = "Şarkı adının altında gösterilir, örneğin FLAC · 24bit/96kHz. Çıkışın gerçekte kullandığı örnekleme hızını görmek için dokunun.";
+"player_audio_info_mac_hint" = "Şarkı adının üstünde biçim, bit hızı ve örnekleme hızı";
+"now_playing_audio_output_matched" = "Çıkış %@ · kaynakla aynı";
+"now_playing_audio_output_resampled" = "Çıkış %@ · yeniden örneklendi";
+"now_playing_audio_output_plain" = "Çıkış %@";
+"now_playing_audio_info_hint" = "Çıkışın gerçek örnekleme hızını görmek için dokunun";
 "home_pending_details" = "Beklemede";
 "lyrics_transcription_service_address" = "Hizmet Adresi";
 "radio_batch_select_playable" = "Kullanılabilir Tümünü Seç";

@@ -3649,6 +3649,16 @@
 "volume_up" = "Збільшення гучності";
 "sync" = "Синхронізація";
 "player_volume_bar_description" = "Показати повзунок гучності в плеєрі. Інші елементи керування природно заповнюють доступний простір, коли вони приховані.";
+"player_audio_info_title" = "Аудіоінформація в плеєрі";
+"player_audio_info_off" = "Вимк.";
+"player_audio_info_lossless_only" = "Лише без втрат";
+"player_audio_info_always" = "Завжди";
+"player_audio_info_footer" = "Показується під назвою, наприклад FLAC · 24bit/96kHz. Торкніться, щоб побачити частоту дискретизації, яку фактично використовує вихід.";
+"player_audio_info_mac_hint" = "Формат, бітрейт і частота дискретизації над назвою";
+"now_playing_audio_output_matched" = "Вихід %@ · як у джерела";
+"now_playing_audio_output_resampled" = "Вихід %@ · з передискретизацією";
+"now_playing_audio_output_plain" = "Вихід %@";
+"now_playing_audio_info_hint" = "Торкніться, щоб побачити фактичну частоту виходу";
 "home_pending_details" = "Очікується";
 "lyrics_transcription_service_address" = "Адреса служби";
 "radio_batch_select_playable" = "Виберіть усі придатні для використання";

@@ -547,6 +547,8 @@ private struct PlayerAppearanceSettingsView: View {
     private var motionArtworkServiceEndpoint = PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
+    @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
+    private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
     @AppStorage(PlayerAppearancePreferences.keepsScreenAwakeInPlayerKey)
     private var keepsScreenAwake = PlayerAppearancePreferences.keepsScreenAwakeInPlayerByDefault
     @AppStorage(PlayerAppearancePreferences.playerScreenWakeRequiresChargingKey)
@@ -592,6 +594,16 @@ private struct PlayerAppearanceSettingsView: View {
                     .accessibilityHint(Text("player_volume_bar_description"))
             }
             Section {
+                Picker("player_audio_info_title", selection: audioInfoModeBinding) {
+                    ForEach(NowPlayingAudioInfoMode.allCases, id: \.self) { mode in
+                        Text(LocalizedStringKey(mode.titleKey)).tag(mode)
+                    }
+                }
+                .settingsAnchor("appearance.audioInfo")
+            } footer: {
+                Text("player_audio_info_footer")
+            }
+            Section {
                 Toggle("player_keep_screen_awake_title", isOn: $keepsScreenAwake)
                 .settingsAnchor("player.keepScreenAwake")
                 .accessibilityIdentifier("playerKeepScreenAwakeToggle")
@@ -621,6 +633,13 @@ private struct PlayerAppearanceSettingsView: View {
         }
         .navigationTitle("interface_editor_player")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var audioInfoModeBinding: Binding<NowPlayingAudioInfoMode> {
+        Binding(
+            get: { PlayerAppearancePreferences.audioInfoMode(rawValue: audioInfoModeRawValue) },
+            set: { audioInfoModeRawValue = $0.rawValue }
+        )
     }
 
     private func color(from storedHex: String, fallback: String) -> Color {

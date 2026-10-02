@@ -13,6 +13,20 @@ enum PlayerAppearancePreferences {
     static let motionArtworkServiceEndpointByDefault = ""
     static let showsVolumeBarKey = "primuse.player.showsVolumeBar"
     static let showsVolumeBarByDefault = true
+    /// 播放页标题下那行音频信息(`NowPlayingAudioInfoMode` 的原始值)。
+    static let audioInfoModeKey = "primuse.player.audioInfoMode"
+    /// iPhone 沿用原来只给无损以上标音质的做法;Mac 播放页一直都显示规格,默认始终。
+    static var audioInfoModeByDefault: NowPlayingAudioInfoMode {
+        #if os(macOS)
+        return .always
+        #else
+        return .nonStandardOnly
+        #endif
+    }
+
+    static func audioInfoMode(rawValue: String) -> NowPlayingAudioInfoMode {
+        .resolved(rawValue: rawValue, fallback: audioInfoModeByDefault)
+    }
     static let lyricsAlignmentKey = "primuse.player.lyricsAlignment"
     static let lyricsColorModeKey = "primuse.player.lyricsColorMode"
     static let customLyricsColorHexKey = "primuse.player.customLyricsColorHex"
@@ -42,6 +56,17 @@ enum PlayerAppearancePreferences {
     static func tapLyricsToSeekIsEnabled(defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: tapLyricsToSeekKey) as? Bool
             ?? tapLyricsToSeekByDefault
+    }
+}
+
+extension NowPlayingAudioInfoMode {
+    /// 设置里这一档的名字(本地化键)。
+    var titleKey: String {
+        switch self {
+        case .off: "player_audio_info_off"
+        case .nonStandardOnly: "player_audio_info_lossless_only"
+        case .always: "player_audio_info_always"
+        }
     }
 }
 

@@ -93,6 +93,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "appearance.motionArtworkService", titleKey: "motion_artwork_service_enabled", iosPage: .player, macPage: .appearance, keywords: ["animated artwork", "动态封面", "服务端点"]),
         SettingDefinition(id: "appearance.motionArtworkEndpoint", titleKey: "motion_artwork_service_endpoint", iosPage: .player, macPage: .appearance, keywords: ["animated artwork URL", "动态封面地址"]),
         SettingDefinition(id: "appearance.volumeBar", titleKey: "player_volume_bar", iosPage: .player, macPage: .appearance),
+        SettingDefinition(id: "appearance.audioInfo", titleKey: "player_audio_info_title", iosPage: .player, macPage: .appearance, keywords: ["sample rate", "bit depth", "bitrate", "Hi-Res", "lossless", "采样率", "位深", "码率", "无损", "音质", "重采样"]),
         SettingDefinition(id: "appearance.fullscreenEffect", titleKey: "fullscreen_effect_settings_title", iosPage: .fullscreen, macPage: .appearance, keywords: ["visualizer", "spectrum", "可视化", "频谱", "全屏效果"]),
         SettingDefinition(id: "appearance.lyricsMotion", titleKey: "immersive_lyrics_motion_title", iosPage: .fullscreen, macPage: nil),
         SettingDefinition(id: "player.keepScreenAwake", titleKey: "player_keep_screen_awake_title", iosPage: .player, macPage: nil, keywords: ["keep awake", "auto-lock", "亮屏", "熄屏", "屏幕常亮", "锁屏", "歌词常亮", "全屏播放"]),

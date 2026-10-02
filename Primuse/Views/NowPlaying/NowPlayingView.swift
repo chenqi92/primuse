@@ -720,6 +720,8 @@ struct NowPlayingView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
+    @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
+    private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
 
     /// Apple Music 歌的 catalog URL ── 用来给"在 Apple Music 打开"按钮跳转。
     /// 跳转后用户能看到 Apple Music 自家的歌词 / 添加收藏 / 看艺人页等
@@ -3386,7 +3388,8 @@ struct NowPlayingView: View {
             // 艺人 / 专辑沿用竖屏那套可点跳转的 Menu，横屏只是压成一行。
             nowPlayingMetadataLinks(font: .title3, lineLimit: 1)
 
-            if let song = player.currentSong, song.audioQuality != .standard {
+            // 横屏右栏放不下整行规格,只标音质等级;关掉音频信息时不标。
+            if let song = player.currentSong, audioInfoMode != .off, song.audioQuality != .standard {
                 AudioQualityBadge(quality: song.audioQuality)
                     .fixedSize()
             }
@@ -3791,7 +3794,7 @@ struct NowPlayingView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
-            nowPlayingSongHeader(titleFont: .title2, metadataFont: .title3, showsQuality: true)
+            nowPlayingSongHeader(titleFont: .title2, metadataFont: .title3)
                 .padding(.horizontal, 36)
                 .padding(.top, 18)
 
@@ -3883,14 +3886,16 @@ struct NowPlayingView: View {
 
             if let song = player.currentSong {
                 HStack(spacing: 4) {
-                    Text(song.fileFormat.displayName)
-                    if let rate = OutputSampleRateTextPolicy.text(
-                        sourceSampleRate: song.sampleRate,
-                        outputSampleRate: player.audioEngine.currentHardwareSampleRate
-                    ) { Text("·"); Text(verbatim: rate) }
+                    if showsFormatInSourceRow(for: song) {
+                        Text(song.fileFormat.displayName)
+                        if let rate = OutputSampleRateTextPolicy.text(
+                            sourceSampleRate: song.sampleRate,
+                            outputSampleRate: player.audioEngine.observedOutputSampleRate
+                        ) { Text("·"); Text(verbatim: rate) }
+                    }
                     if sourcesStore.sources.count > 1,
                        let source = sourcesStore.source(id: song.sourceID) {
-                        Text("·")
+                        if showsFormatInSourceRow(for: song) { Text("·") }
                         Image(systemName: source.type.iconName)
                         Text(source.name)
                     }
@@ -4290,14 +4295,16 @@ struct NowPlayingView: View {
                         // Format & source
                         if let song = player.currentSong {
                             HStack(spacing: 4) {
-                                Text(song.fileFormat.displayName)
-                                if let rate = OutputSampleRateTextPolicy.text(
-                                    sourceSampleRate: song.sampleRate,
-                                    outputSampleRate: player.audioEngine.currentHardwareSampleRate
-                                ) { Text("·"); Text(verbatim: rate) }
+                                if showsFormatInSourceRow(for: song) {
+                                    Text(song.fileFormat.displayName)
+                                    if let rate = OutputSampleRateTextPolicy.text(
+                                        sourceSampleRate: song.sampleRate,
+                                        outputSampleRate: player.audioEngine.observedOutputSampleRate
+                                    ) { Text("·"); Text(verbatim: rate) }
+                                }
                                 if sourcesStore.sources.count > 1,
                                    let source = sourcesStore.source(id: song.sourceID) {
-                                    Text("·")
+                                    if showsFormatInSourceRow(for: song) { Text("·") }
                                     Image(systemName: source.type.iconName)
                                     Text(source.name)
                                 }
@@ -5225,7 +5232,6 @@ struct NowPlayingView: View {
     private func nowPlayingSongHeader(
         titleFont: Font,
         metadataFont: Font,
-        showsQuality: Bool = false,
         inlineActions: Bool = true
     ) -> some View {
         if usesSpokenWordTransport {
@@ -5234,7 +5240,6 @@ struct NowPlayingView: View {
             musicSongHeader(
                 titleFont: titleFont,
                 metadataFont: metadataFont,
-                showsQuality: showsQuality,
                 inlineActions: inlineActions
             )
         }
@@ -5293,7 +5298,6 @@ struct NowPlayingView: View {
     private func musicSongHeader(
         titleFont: Font,
         metadataFont: Font,
-        showsQuality: Bool = false,
         inlineActions: Bool = true
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -5307,11 +5311,6 @@ struct NowPlayingView: View {
                     .pmAnimation(.trackChange, value: player.currentSong?.id)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
-
-                if showsQuality, let song = player.currentSong, song.audioQuality != .standard {
-                    AudioQualityBadge(quality: song.audioQuality)
-                        .fixedSize()
-                }
 
                 HStack(spacing: 4) {
                     musicVideoToggleButton(font: .title3, trailing: 0)
@@ -5336,8 +5335,38 @@ struct NowPlayingView: View {
                 .fixedSize()
             }
             nowPlayingMetadataLinks(font: metadataFont)
+            nowPlayingAudioInfoRow
             nowPlayingChapterLink
             nowPlayingMedleyBadge
+        }
+    }
+
+    private var audioInfoMode: NowPlayingAudioInfoMode {
+        PlayerAppearancePreferences.audioInfoMode(rawValue: audioInfoModeRawValue)
+    }
+
+    /// 歌名下那行音频信息按设置的档位出现时,底部那行就不再重复格式与采样率。
+    private func showsAudioInfoCapsule(for song: Song) -> Bool {
+        audioInfoMode.showsSummary(for: song.audioQuality)
+    }
+
+    /// 底部来源行里要不要带格式与采样率:关掉音频信息时不带,歌名下已经有那一行时也不带。
+    private func showsFormatInSourceRow(for song: Song) -> Bool {
+        audioInfoMode != .off && !showsAudioInfoCapsule(for: song)
+    }
+
+    @ViewBuilder
+    private var nowPlayingAudioInfoRow: some View {
+        if let song = player.currentSong, showsAudioInfoCapsule(for: song) {
+            NowPlayingAudioInfoCapsule(
+                song: song,
+                outputSampleRate: player.audioEngine.observedOutputSampleRate,
+                allowsOutputDetail: !player.isAppleMusicMode,
+                textColor: appearance.secondary,
+                fillColor: appearance.primary.opacity(appearance.isLight ? 0.07 : 0.10)
+            )
+            .padding(.top, 2)
+            .pmFadeTransition(motion: .trackChange)
         }
     }
 

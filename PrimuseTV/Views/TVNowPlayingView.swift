@@ -1,5 +1,6 @@
 #if os(tvOS)
 import AVKit
+import Combine
 import SwiftUI
 import PrimuseKit
 import UIKit
@@ -67,6 +68,9 @@ struct TVNowPlayingView: View {
     /// 最近一次遥控操作的时间戳。播放中静置一段时间自动进入沉浸展示。
     /// 不用 @State 的 Date:每次移动焦点都会写它,写一次就让整个播放页(连同货架)重算一遍。
     @State private var interactionClock = TVInteractionClock()
+    /// 输出路由变了(换 HDMI 口、接功放)就加一,让元信息行重读输出采样率 ——
+    /// AVAudioSession 的采样率不可观察。
+    @State private var outputRouteRevision = 0
     @Namespace private var playerFocus
     @FocusState private var focusedTransport: TVNowPlayingFocusTarget?
     @FocusState private var scrubberFocused: Bool
@@ -120,6 +124,13 @@ struct TVNowPlayingView: View {
         .onAppear {
             FullscreenPlayerEffectSync.shared.install()
             onContentAppeared(focusMode)
+        }
+        // 路由通知在系统的后台线程上发,先切回主线程再动状态。
+        .onReceive(
+            NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)
+                .receive(on: DispatchQueue.main)
+        ) { _ in
+            outputRouteRevision &+= 1
         }
         .task(id: focusRequest?.id) {
             guard let request = focusRequest else { return }
@@ -857,6 +868,7 @@ struct TVNowPlayingView: View {
         if !np.format.isEmpty { encoding.append(np.format) }
         if np.bitrate > 0 { encoding.append("\(np.bitrate) kbps") }
         var parts = [np.album, encoding.joined(separator: " ")]
+        _ = outputRouteRevision
         // 输出被重采样(电视 / 功放接口跑在别的采样率)时写成「44.1 → 48 kHz」。
         if let rate = OutputSampleRateTextPolicy.text(
             sourceSampleRate: Int((np.sampleRate * 1_000).rounded()),
