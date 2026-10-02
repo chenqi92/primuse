@@ -867,7 +867,9 @@ private struct MacAIModelField: View {
 
 private struct MacSTIntelligenceView: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
+    @Environment(MusicLibrary.self) private var library
     @State private var editor = AISettingsEditorModel()
+    @State private var libraryTidySongs: BatchSongSelection?
     @State private var showsRemoveProviderConfirmation = false
     @State private var showsProviderDetails = false
     @State private var providerEditorScrollRequest = 0
@@ -918,6 +920,18 @@ private struct MacSTIntelligenceView: View {
                         MacSTToggle(isOn: editor.recommendationsBinding)
                     }
                     .settingsAnchor("intelligence.recommendations")
+                    MacSTRow(
+                        String(localized: "tag_tidy_ai_settings_action"),
+                        hint: String(localized: "tag_tidy_ai_settings_footer")
+                    ) {
+                        MacSTButton(
+                            title: String(localized: "tag_tidy_ai_settings_button"),
+                            systemImage: "wand.and.sparkles"
+                        ) {
+                            libraryTidySongs = .wholeLibraryForTidy(library)
+                        }
+                    }
+                    .settingsAnchor("intelligence.tagCleanup")
                 }
             }
 
@@ -1124,6 +1138,9 @@ private struct MacSTIntelligenceView: View {
                 pmWithAnimation(.list) { editor.removeSelectedProvider() }
             }
             Button(String(localized: "cancel"), role: .cancel) {}
+        }
+        .sheet(item: $libraryTidySongs) { batch in
+            TagTidyView(songs: batch.songs, isLibraryWide: true)
         }
     }
 
@@ -2861,9 +2878,7 @@ private struct MacSTScrapingView: View {
                 .settingsAnchor("scraping.fillMissing")
                 MacSTRow(String(localized: "tag_tidy_library_action"), hint: String(localized: "tag_tidy_library_footer")) {
                     MacSTButton(title: String(localized: "tag_tidy_library_button"), systemImage: "wand.and.sparkles") {
-                        libraryTidySongs = BatchSongSelection(songs: library.songs.filter {
-                            $0.sourceID != AppleMusicLibraryService.systemSourceID
-                        })
+                        libraryTidySongs = .wholeLibraryForTidy(library)
                     }
                 }
                 .settingsAnchor("scraping.tidyLibrary")

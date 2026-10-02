@@ -556,6 +556,38 @@ actor PrimuseAIRelayClient {
         }
     }
 
+    /// Asks for tag corrections for one batch (at most
+    /// `TagCleanupAIExchange.batchSize` songs). Song ids never leave the
+    /// device: the rows carry short tokens. The answer only becomes
+    /// proposals for the review screen. Streams so the request survives a
+    /// busy relay and long answers; only the final answer is used.
+    func tagCleanup(
+        _ songs: [TagCleanupSong],
+        languageCode: String,
+        currentYear: Int
+    ) async throws -> [TagCleanupProposal] {
+        let batch = TagCleanupAIExchange.rows(for: songs)
+        guard !batch.rows.isEmpty else { return [] }
+        var completed: TagCleanupOutput?
+        try await performStreamingFeature(
+            path: "/v1/library/tag-cleanup",
+            purpose: "tag_cleanup",
+            input: TagCleanupInput(languageCode: languageCode, songs: batch.rows),
+            output: TagCleanupOutput.self,
+            progress: TagCleanupProgress.self
+        ) { event in
+            if case .completed(let output) = event { completed = output }
+        }
+        guard let completed else { throw PrimuseAIRelayError.invalidResponse }
+        return TagCleanupAIExchange.proposals(
+            from: completed.changes.map {
+                TagCleanupAIExchange.Change(id: $0.id, field: $0.field, value: $0.value, reason: $0.reason)
+            },
+            songsByToken: batch.songsByToken,
+            currentYear: currentYear
+        )
+    }
+
     nonisolated static func assertionClientDataHash(
         challenge: String,
         method: String,
@@ -1552,6 +1584,31 @@ actor PrimuseAIRelayClient {
 
     private struct LyricsTranslationProgress: Decodable, Sendable {
         var line: LyricsTranslationOutput.Line
+    }
+
+    private struct TagCleanupInput: Encodable, Sendable {
+        var languageCode: String
+        var songs: [TagCleanupAIExchange.Row]
+
+        private enum CodingKeys: String, CodingKey {
+            case languageCode = "language_code"
+            case songs
+        }
+    }
+
+    private struct TagCleanupOutput: Decodable, Sendable {
+        struct Change: Decodable, Sendable {
+            var id: String
+            var field: String
+            var value: String?
+            var reason: String?
+        }
+
+        var changes: [Change]
+    }
+
+    private struct TagCleanupProgress: Decodable, Sendable {
+        var change: TagCleanupOutput.Change
     }
 }
 

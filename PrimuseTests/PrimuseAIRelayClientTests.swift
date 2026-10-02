@@ -1023,6 +1023,89 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         }
     }
 
+    func testTagCleanupSendsTokensAndKeepsOnlyUsableSuggestions() async throws {
+        let host = "primuse-relay-tag-cleanup.invalid"
+        let title: [String: Any] = [
+            "id": "s0", "field": "title", "value": "\u{6211}\u{7684}\u{6B4C}\u{58F0}\u{91CC}", "reason": "encoding",
+        ]
+        let events: [[String: Any]] = [
+            ["type": "started", "feature": "tag_cleanup"],
+            ["type": "progress", "data": ["change": title]],
+            ["type": "complete", "data": ["changes": [
+                title,
+                ["id": "s0", "field": "artist", "value": NSNull(), "reason": "placeholder"],
+                ["id": "s1", "field": "year", "value": "2003"],
+            ] as [[String: Any]]]],
+        ]
+        PrimuseRelayURLProtocol.configure(
+            host: host,
+            featureBody: try events.map {
+                String(decoding: try JSONSerialization.data(withJSONObject: $0), as: UTF8.self)
+            }.joined(separator: "\n") + "\n",
+            featureContentType: "application/x-ndjson"
+        )
+        let credentials = TestPrimuseRelayCredentialStore(
+            credential: PrimuseAIRelayCredential(
+                keyID: "test-app-attest-key",
+                installationID: "test-installation"
+            )
+        )
+        let (client, session, _, _) = makeClient(host: host, credentials: credentials)
+        defer { session.invalidateAndCancel() }
+
+        let proposals = try await client.tagCleanup(
+            [
+                TagCleanupSong(
+                    id: "local-song-a",
+                    title: "\u{CE}\u{D2}\u{B5}\u{C4}\u{B8}\u{E8}\u{C9}\u{F9}\u{C0}\u{EF}",
+                    artist: "Unknown Artist",
+                    fileName: "Music/a.mp3"
+                ),
+                TagCleanupSong(id: "local-song-b", title: "Song", artist: "Artist", year: 2003),
+            ],
+            languageCode: "zh-Hans",
+            currentYear: 2026
+        )
+
+        XCTAssertEqual(proposals.map(\.id), ["local-song-a|title", "local-song-a|artist"])
+        XCTAssertEqual(proposals.first?.note, "encoding")
+        XCTAssertNil(proposals.last?.newValue)
+        let requests = PrimuseRelayURLProtocol.requests(host: host)
+        let feature = try XCTUnwrap(requests.first { $0.url?.path == "/v1/library/tag-cleanup" })
+        let body = try jsonObject(feature)
+        XCTAssertEqual(body["language_code"] as? String, "zh-Hans")
+        let rows = try XCTUnwrap(body["songs"] as? [[String: Any]])
+        XCTAssertEqual(rows.compactMap { $0["id"] as? String }, ["s0", "s1"])
+        XCTAssertEqual(rows.first?["file"] as? String, "a")
+        XCTAssertFalse(String(decoding: try XCTUnwrap(feature.httpBody), as: UTF8.self).contains("local-song"))
+        let challenge = try XCTUnwrap(requests.first { $0.url?.path == "/v1/auth/challenge" })
+        XCTAssertEqual(try jsonObject(challenge)["purpose"] as? String, "tag_cleanup")
+    }
+
+    func testTagCleanupStopsAskingTheRelayOnlyForLastingRefusals() {
+        let stops: [PrimuseAIRelayError] = [
+            .requestFailed(statusCode: 429, code: "feature_quota_exhausted"),
+            .requestFailed(statusCode: 429, code: "daily_quota_exhausted"),
+            .requestFailed(statusCode: 501, code: "feature_disabled"),
+            .requestFailed(statusCode: 403, code: "feature_not_in_plan"),
+            .unsupportedDevice,
+        ]
+        let continues: [PrimuseAIRelayError] = [
+            .requestFailed(statusCode: 503, code: "upstreams_busy"),
+            .requestFailed(statusCode: 429, code: "minute_request_limit_exhausted"),
+            .requestFailed(statusCode: 422, code: "feature_scope_rejected"),
+            .requestFailed(statusCode: 502, code: "invalid_upstream_response"),
+            .invalidResponse,
+        ]
+        for error in stops {
+            XCTAssertTrue(MusicIntelligenceService.primuseRelayStopsTagCleanup(after: error), "\(error)")
+        }
+        for error in continues {
+            XCTAssertFalse(MusicIntelligenceService.primuseRelayStopsTagCleanup(after: error), "\(error)")
+        }
+        XCTAssertFalse(MusicIntelligenceService.primuseRelayStopsTagCleanup(after: URLError(.timedOut)))
+    }
+
     func testProductionRelayWhenLiveDeviceTestIsEnabled() async throws {
         guard ProcessInfo.processInfo.environment["PRIMUSE_RUN_LIVE_RELAY_TEST"] == "1" else {
             throw XCTSkip("Live Primuse Relay testing is opt-in")

@@ -160,6 +160,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "intelligence.relayTest", titleKey: "ai_primuse_relay_test_connection", iosPage: .intelligence, macPage: .intelligence),
         SettingDefinition(id: "intelligence.semanticSearch", titleKey: "ai_enable_semantic_search", iosPage: .intelligence, macPage: .intelligence),
         SettingDefinition(id: "intelligence.recommendations", titleKey: "ai_enable_recommendations", iosPage: .intelligence, macPage: .intelligence),
+        SettingDefinition(id: "intelligence.tagCleanup", titleKey: "tag_tidy_ai_settings_action", iosPage: .intelligence, macPage: .intelligence, keywords: ["tag_tidy_title", "tag_tidy_ai_settings_footer", "tag_tidy_library_action"]),
         SettingDefinition(id: "intelligence.providers", titleKey: "ai_provider_list_section", iosPage: .intelligence, macPage: .intelligence),
         SettingDefinition(id: "intelligence.fallback", titleKey: "ai_fallback_enabled", iosPage: .intelligence, macPage: .intelligence),
         SettingDefinition(id: "intelligence.addProvider", titleKey: "ai_add_provider", iosPage: .intelligence, macPage: .intelligence),

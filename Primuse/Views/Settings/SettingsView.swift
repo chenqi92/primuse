@@ -1376,9 +1376,7 @@ struct MetadataScrapingView: View {
 
             Section {
                 Button {
-                    libraryTidySongs = BatchSongSelection(songs: library.songs.filter {
-                        $0.sourceID != AppleMusicLibraryService.systemSourceID
-                    })
+                    libraryTidySongs = .wholeLibraryForTidy(library)
                 } label: {
                     Label("tag_tidy_library_action", systemImage: "wand.and.sparkles")
                 }

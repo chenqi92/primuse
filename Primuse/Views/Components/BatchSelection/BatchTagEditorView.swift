@@ -11,6 +11,17 @@ struct BatchSongSelection: Identifiable {
     let songs: [Song]
 }
 
+extension BatchSongSelection {
+    /// Every song a library-wide tidy-up can write to; Apple Music's own
+    /// library entries are not the listener's files.
+    @MainActor
+    static func wholeLibraryForTidy(_ library: MusicLibrary) -> BatchSongSelection {
+        BatchSongSelection(songs: library.songs.filter {
+            $0.sourceID != AppleMusicLibraryService.systemSourceID
+        })
+    }
+}
+
 // MARK: - Batch edit
 
 /// Sets the same values on many songs: an album, an artist, a genre, a
@@ -375,15 +386,15 @@ struct TagTidyView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("batch_edit_review") {
-                        let proposals = TagCleanupPolicy.merging(aiProposals, localProposals)
+                        // An exact decoding of garbled text beats a guess;
+                        // otherwise the AI service, which saw the whole
+                        // list, wins and the rules fill in what it left.
+                        let proposals = TagCleanupPolicy.reviewProposals(ai: aiProposals, local: localProposals)
                         let changedIDs = Set(proposals.map(\.songID))
                         review = TagChangeReviewInput(
                             // Only the songs with something to review: the
                             // review list is grouped per song it is given.
                             songs: songs.filter { changedIDs.contains($0.id) },
-                            // What the AI service suggested wins over the
-                            // mechanical rule for the same field: it saw the
-                            // whole list. The rules fill in what it left.
                             proposals: proposals,
                             coverData: nil,
                             showsReasons: true
@@ -444,7 +455,12 @@ struct TagTidyView: View {
                 return
             }
             aiProposals = result.proposals
-            if result.failedBatches > 0 {
+            if result.primuseRelayStopped, result.failedBatches > 0 {
+                aiStatus = String(
+                    format: String(localized: "tag_tidy_ai_relay_stopped_format"),
+                    result.failedBatches
+                )
+            } else if result.failedBatches > 0 {
                 aiStatus = String(
                     format: String(localized: "tag_tidy_ai_partial_format"),
                     result.failedBatches
@@ -823,6 +839,7 @@ extension TagCleanupProposal {
         case .trackFromFileName: return String(localized: "tag_reason_track_from_file")
         case .titleFromFileName: return String(localized: "tag_reason_title_from_file")
         case .copyCounter: return String(localized: "tag_reason_copy_counter")
+        case .encodingRepair: return String(localized: "tag_reason_encoding_repair")
         case .assistant: return nil
         }
     }

@@ -917,8 +917,10 @@ final class AISettingsEditorModel {
 #if !os(tvOS)
 struct AISettingsView: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
+    @Environment(MusicLibrary.self) private var library
     @State private var editor = AISettingsEditorModel()
     @State private var showsRemoveProviderConfirmation = false
+    @State private var libraryTidySongs: BatchSongSelection?
     /// 正在编辑的服务。导航挂在页面根上:引导行在密钥填好后就会消失,
     /// 不能让它自己持有被推出去的详情页。
     @State private var editingProviderID: UUID?
@@ -947,6 +949,7 @@ struct AISettingsView: View {
                 }
                 primuseRelaySection
                 capabilitySection
+                tagCleanupSection
                 providerListSection
                 privacySection
             }
@@ -957,6 +960,9 @@ struct AISettingsView: View {
         #endif
         .navigationDestination(item: $editingProviderID) { _ in
             providerDetailPage
+        }
+        .sheet(item: $libraryTidySongs) { batch in
+            TagTidyView(songs: batch.songs, isLibraryWide: true)
         }
         .task { await editor.load(using: intelligence) }
         .confirmationDialog(
@@ -1142,6 +1148,21 @@ struct AISettingsView: View {
             if usesCompactMobileLayout {
                 Text("ai_capability_section")
             }
+        }
+    }
+
+    /// The one AI feature started by hand rather than switched on: it opens
+    /// the same library-wide tidy-up as the scraping settings.
+    private var tagCleanupSection: some View {
+        Section {
+            Button {
+                libraryTidySongs = .wholeLibraryForTidy(library)
+            } label: {
+                Label("tag_tidy_ai_settings_action", systemImage: "wand.and.sparkles")
+            }
+            .settingsAnchor("intelligence.tagCleanup")
+        } footer: {
+            Text("tag_tidy_ai_settings_footer")
         }
     }
 

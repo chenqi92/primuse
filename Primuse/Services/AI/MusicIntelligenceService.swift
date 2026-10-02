@@ -22,6 +22,18 @@ struct AILyricsTranslationExecution: Sendable {
     var fallbackDepth: Int
 }
 
+struct AITagCleanupExecution: Sendable {
+    var proposals: [TagCleanupProposal] = []
+    /// Batches no service answered; they were skipped.
+    var failedBatches = 0
+    /// The first service that answered.
+    var providerName: String?
+    /// The built-in AI stopped taking batches partway (today's allowance
+    /// used up, or the service not offered); the rest went to the
+    /// listener's own service, or were skipped when there is none.
+    var primuseRelayStopped = false
+}
+
 struct AIAudioTranscriptionExecution: Sendable {
     var result: AIAudioTranscriptionResult
     var providerName: String
@@ -785,86 +797,145 @@ final class MusicIntelligenceService {
         return nil
     }
 
-    /// Whether an AI service is set up that tag cleanup can use: a
-    /// user-configured provider with a generation model, remote processing
-    /// agreed to, and the region allowing it. The Primuse relay has no tag
-    /// endpoint, so it does not count.
+    /// Whether tag cleanup has an AI service to ask: the built-in AI, or a
+    /// user-configured provider with a generation model. Either way remote
+    /// processing must be agreed to and the region must allow it.
     var isTagCleanupAvailable: Bool {
         guard settingsStore.hasExplicitRemoteConsent else { return false }
-        let snapshot = regionAvailability.snapshot
+        if isPrimuseRelayAvailable { return true }
+        return canUseCustomTagCleanupProviders(regionContext: regionAvailability.snapshot.context)
+    }
+
+    private func canUseCustomTagCleanupProviders(regionContext: AIRegionContext) -> Bool {
         guard AIAvailabilityPolicy.decision(
             for: .userConfiguredRemote,
-            regionContext: snapshot.context
+            regionContext: regionContext
         ).isAllowed else { return false }
         return settingsStore.providerSet.routedProviders.contains {
             !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
     }
 
-    /// Asks the configured AI service for tag corrections, batch by batch.
-    /// Each batch goes to the first provider that answers; a batch no
-    /// provider answers is skipped and counted, so a partial result is still
-    /// usable. `onProgress` gets (batches done, batches total).
+    /// Asks for tag corrections batch by batch: the built-in AI first, then
+    /// the listener's own services, as everywhere else. A batch nobody
+    /// answers is skipped and counted, so a partial result is still usable.
+    /// `onProgress` gets (batches done, batches total).
     func tagCleanupProposals(
         for songs: [TagCleanupSong],
         onProgress: @escaping @MainActor (Int, Int) -> Void
-    ) async -> (proposals: [TagCleanupProposal], failedBatches: Int, providerName: String?) {
-        guard isTagCleanupAvailable, !songs.isEmpty else { return ([], 0, nil) }
+    ) async -> AITagCleanupExecution {
+        var execution = AITagCleanupExecution()
+        guard isTagCleanupAvailable, !songs.isEmpty else { return execution }
         let consent = settingsStore.hasExplicitRemoteConsent
-        let languageCode = Locale.current.language.languageCode?.identifier ?? "en"
+        // Reasons come back in the language the review screen is shown in.
+        let languageCode = Bundle.main.preferredLocalizations.first ?? "en"
         let currentYear = Calendar.current.component(.year, from: Date())
         let limited = Array(songs.prefix(TagCleanupAIExchange.maximumSongs))
         let batches = stride(from: 0, to: limited.count, by: TagCleanupAIExchange.batchSize).map {
             Array(limited[$0..<min($0 + TagCleanupAIExchange.batchSize, limited.count)])
         }
-        var result: [TagCleanupProposal] = []
-        var failed = 0
-        var usedProvider: String?
+        var usesPrimuseRelay = isPrimuseRelayAvailable
         onProgress(0, batches.count)
         for (index, batch) in batches.enumerated() {
             if Task.isCancelled { break }
             let regionSnapshot = regionAvailability.snapshot
             var answered = false
-            for configuration in settingsStore.providerSet.routedProviders {
-                guard !configuration.generationModel
-                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                      AIRegionRequestPolicy.canSendRemoteRequest(
-                        captured: regionSnapshot,
-                        latest: regionAvailability.snapshot,
-                        configuration: configuration
-                      ) else { continue }
+
+            if usesPrimuseRelay, canUsePrimuseRelay(
+                captured: regionSnapshot,
+                latest: regionAvailability.snapshot,
+                hasRequiredConsent: settingsStore.hasExplicitRemoteConsent
+            ) {
                 do {
-                    let proposals = try await engine.proposeTagCleanup(
+                    let proposals = try await primuseRelayClient.tagCleanup(
                         batch,
                         languageCode: languageCode,
-                        currentYear: currentYear,
-                        configuration: configuration,
-                        regionContext: regionSnapshot.context,
-                        hasExplicitRemoteConsent: consent,
-                        requestAuthorization: regionAuthorization(
-                            for: regionSnapshot,
-                            configuration: configuration
-                        )
+                        currentYear: currentYear
                     )
-                    guard AIRegionRequestPolicy.canCommitRemoteResponse(
+                    if canUsePrimuseRelay(
                         captured: regionSnapshot,
                         latest: regionAvailability.snapshot,
-                        configuration: configuration
-                    ) else { continue }
-                    result += proposals
-                    usedProvider = usedProvider ?? configuration.displayName
-                    answered = true
-                    break
+                        hasRequiredConsent: settingsStore.hasExplicitRemoteConsent
+                    ) {
+                        execution.proposals += proposals
+                        execution.providerName = execution.providerName ?? primuseRelayProviderName
+                        answered = true
+                    }
                 } catch is CancellationError {
-                    return (result, failed, usedProvider)
+                    return execution
                 } catch {
-                    continue
+                    if Self.primuseRelayStopsTagCleanup(after: error) {
+                        usesPrimuseRelay = false
+                        execution.primuseRelayStopped = true
+                    }
                 }
             }
-            if !answered { failed += 1 }
+
+            if !answered, canUseCustomTagCleanupProviders(regionContext: regionSnapshot.context) {
+                for configuration in settingsStore.providerSet.routedProviders {
+                    guard !configuration.generationModel
+                        .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                          AIRegionRequestPolicy.canSendRemoteRequest(
+                            captured: regionSnapshot,
+                            latest: regionAvailability.snapshot,
+                            configuration: configuration
+                          ) else { continue }
+                    do {
+                        let proposals = try await engine.proposeTagCleanup(
+                            batch,
+                            languageCode: languageCode,
+                            currentYear: currentYear,
+                            configuration: configuration,
+                            regionContext: regionSnapshot.context,
+                            hasExplicitRemoteConsent: consent,
+                            requestAuthorization: regionAuthorization(
+                                for: regionSnapshot,
+                                configuration: configuration
+                            )
+                        )
+                        guard AIRegionRequestPolicy.canCommitRemoteResponse(
+                            captured: regionSnapshot,
+                            latest: regionAvailability.snapshot,
+                            configuration: configuration
+                        ) else { continue }
+                        execution.proposals += proposals
+                        execution.providerName = execution.providerName ?? configuration.displayName
+                        answered = true
+                        break
+                    } catch is CancellationError {
+                        return execution
+                    } catch {
+                        continue
+                    }
+                }
+            }
+            if !answered { execution.failedBatches += 1 }
             onProgress(index + 1, batches.count)
         }
-        return (result, failed, usedProvider)
+        return execution
+    }
+
+    /// Failures after which the built-in AI will not take the next batch
+    /// either: today's allowance is spent, the service does not offer tag
+    /// cleanup, or this device cannot sign in. A busy upstream, a bad answer
+    /// or a batch refused for its content says nothing about the next one.
+    nonisolated static func primuseRelayStopsTagCleanup(after error: Error) -> Bool {
+        guard let relayError = error as? PrimuseAIRelayError else { return false }
+        switch relayError {
+        case .requestFailed(let statusCode, let code, _):
+            if [
+                "daily_quota_exhausted",
+                "feature_quota_exhausted",
+                "daily_request_limit_exhausted",
+            ].contains(code) { return true }
+            return [400, 401, 403, 404, 501].contains(statusCode)
+        case .invalidResponse, .responseTooLarge:
+            return false
+        case .unsupportedDevice, .credentialUnavailable, .credentialCorrupted,
+             .credentialPersistenceFailed, .storeKitTransactionUnavailable,
+             .storeKitTransactionUnverified, .storeKitAuthenticationCancelled:
+            return true
+        }
     }
 
     func recommendationOutcome(
