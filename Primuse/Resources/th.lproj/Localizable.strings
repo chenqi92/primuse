@@ -533,6 +533,11 @@
 "ai_settings_advanced_collapsed" = "ยุบแล้ว";
 "ai_settings_advanced_show" = "แสดง";
 "ai_settings_advanced_hide" = "ซ่อน";
+"ai_recommendation_unit" = "หน่วยการแนะนำ";
+"ai_recommendation_unit_songs" = "เพลง";
+"ai_recommendation_unit_albums" = "อัลบั้ม";
+"ai_recommendation_unit_mixed" = "ผสม";
+"ai_recommendation_unit_footer" = "เมื่อเลือกแบบผสม การ์ดสองใบแรกใน 'เพื่อคุณ' ที่หน้าหลักจะเป็นอัลบั้มเต็ม ที่เหลือเป็นเพลง อัลบั้มจะเล่นตามลำดับเดิม และอัลบั้มที่แบ่งด้วย CUE จะเรียงตามหมายเลขแทร็ก";
 "ai_capability_section" = "ความฉลาด";
 "ai_changes_not_saved" = "มีการเปลี่ยนแปลงที่ยังไม่ได้บันทึก";
 "ai_changes_save_automatically" = "การเปลี่ยนแปลงจะถูกบันทึกโดยอัตโนมัติ เปิดรายละเอียดผู้ให้บริการเพื่อแก้ไขที่อยู่ คีย์ รุ่น และการตั้งค่าการเชื่อมต่อ";

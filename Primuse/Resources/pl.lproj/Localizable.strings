@@ -533,6 +533,11 @@
 "ai_settings_advanced_collapsed" = "Zwinięte";
 "ai_settings_advanced_show" = "Pokaż";
 "ai_settings_advanced_hide" = "Ukryj";
+"ai_recommendation_unit" = "Polecaj według";
+"ai_recommendation_unit_songs" = "Utwory";
+"ai_recommendation_unit_albums" = "Albumy";
+"ai_recommendation_unit_mixed" = "Mieszane";
+"ai_recommendation_unit_footer" = "W trybie mieszanym dwie pierwsze karty w sekcji Dla Ciebie na stronie głównej to całe albumy, a pozostałe to utwory. Albumy grają w oryginalnej kolejności, a albumy dzielone plikiem CUE – według numerów ścieżek.";
 "ai_capability_section" = "Inteligencja";
 "ai_changes_not_saved" = "Istnieją niezapisane zmiany";
 "ai_changes_save_automatically" = "Zmiany zapisywane są automatycznie. Otwórz szczegóły dostawcy, aby edytować jego adres, klucz, modele i ustawienia połączenia.";

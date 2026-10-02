@@ -533,6 +533,11 @@
 "ai_settings_advanced_collapsed" = "संक्षिप्त";
 "ai_settings_advanced_show" = "दिखाएँ";
 "ai_settings_advanced_hide" = "छिपाएँ";
+"ai_recommendation_unit" = "सुझाव की इकाई";
+"ai_recommendation_unit_songs" = "गाने";
+"ai_recommendation_unit_albums" = "एल्बम";
+"ai_recommendation_unit_mixed" = "मिश्रित";
+"ai_recommendation_unit_footer" = "मिश्रित चुनने पर होम के 'आपके लिए' में पहले दो कार्ड पूरे एल्बम होते हैं और बाकी गाने। एल्बम अपने मूल ट्रैक क्रम में चलते हैं, और CUE से बँटे एल्बम ट्रैक नंबर के क्रम में।";
 "ai_capability_section" = "इंटेलिजेंस";
 "ai_changes_not_saved" = "सहेजे नहीं गए परिवर्तन हैं";
 "ai_changes_save_automatically" = "परिवर्तन स्वचालित रूप से सहेजे जाते हैं। प्रदाता का पता, कुंजी, मॉडल और कनेक्शन सेटिंग्स संपादित करने के लिए उसका विवरण खोलें।";

@@ -3303,6 +3303,11 @@
 "ai_settings_advanced_collapsed" = "Réduit";
 "ai_settings_advanced_show" = "Afficher";
 "ai_settings_advanced_hide" = "Masquer";
+"ai_recommendation_unit" = "Recommander par";
+"ai_recommendation_unit_songs" = "Morceaux";
+"ai_recommendation_unit_albums" = "Albums entiers";
+"ai_recommendation_unit_mixed" = "Mixte";
+"ai_recommendation_unit_footer" = "En mode Mixte, les deux premières cartes de « Pour vous » sur l’accueil sont des albums entiers, le reste des morceaux. Les albums se lisent dans l’ordre d’origine, et les albums découpés par CUE suivent leurs numéros de piste.";
 "ai_listening_context_consent" = "Autoriser l’envoi de préférences d’écoute réduites et des candidats";
 "ai_recommendation_home_title" = "Recommandations par situation";
 "ai_recommendation_scene_automatic" = "Maintenant";

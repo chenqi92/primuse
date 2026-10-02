@@ -469,7 +469,75 @@ public struct AIRecommendationCandidate: Identifiable, Codable, Hashable, Sendab
     }
 }
 
+/// 推荐以什么为单位:单曲、整张专辑,或开头几张专辑、其余单曲的混排。
+public enum AIRecommendationUnit: String, Codable, CaseIterable, Hashable, Sendable {
+    case songs
+    case albums
+    case mixed
+
+    public static let storageKey = "primuse.ai.recommendationUnit.v1"
+    public static let defaultUnit: AIRecommendationUnit = .mixed
+
+    /// 存着的设置;没存过或认不出时是默认的混合。
+    public static func stored(_ rawValue: String?) -> AIRecommendationUnit {
+        rawValue.flatMap(AIRecommendationUnit.init(rawValue:)) ?? defaultUnit
+    }
+
+    /// 首页「为你推荐」开头放几张专辑卡。
+    public var albumSlotCount: Int {
+        switch self {
+        case .songs: 0
+        case .albums: 6
+        case .mixed: 2
+        }
+    }
+
+    public var includesSongs: Bool { self != .albums }
+    public var includesAlbums: Bool { self != .songs }
+}
+
+public enum AIRecommendationItemKind: String, Codable, Hashable, Sendable {
+    case song
+    case album
+}
+
+/// 一整张专辑候选。候选由本地 `AlbumRecommender` 挑出(CUE 分轨的整张也算一张),
+/// 智能服务只在其中重排、写理由。
+public struct AIRecommendationAlbumCandidate: Identifiable, Codable, Hashable, Sendable {
+    /// 专辑在曲库里的标识,原样带回,播放时按它找整张专辑的曲目。
+    public var albumKey: String
+    public var title: String
+    public var artist: String
+    public var genre: String?
+    public var year: Int?
+    public var trackCount: Int
+    public var durationSeconds: Int
+
+    public var id: String { albumKey }
+
+    public init(
+        albumKey: String,
+        title: String,
+        artist: String,
+        genre: String? = nil,
+        year: Int? = nil,
+        trackCount: Int,
+        durationSeconds: Int = 0
+    ) {
+        self.albumKey = albumKey
+        self.title = title
+        self.artist = artist
+        self.genre = genre
+        self.year = year
+        self.trackCount = trackCount
+        self.durationSeconds = durationSeconds
+    }
+}
+
 public struct AIRecommendationRequest: Hashable, Sendable {
+    public static let maximumAlbumCandidates = 12
+    public static let maximumAlbumSelections = 6
+
     public var scene: AIRecommendationScene
     public var intent: String?
     public var languageCode: String?
@@ -477,6 +545,11 @@ public struct AIRecommendationRequest: Hashable, Sendable {
     public var candidates: [AIRecommendationCandidate]
     public var maximumResults: Int
     public var minimumResults: Int
+    public var unit: AIRecommendationUnit
+    /// 只在 `unit` 含专辑时保留。
+    public var albumCandidates: [AIRecommendationAlbumCandidate]
+    /// 最多挑几张专辑;没有专辑候选时是 0。
+    public var maximumAlbumResults: Int
 
     public init(
         scene: AIRecommendationScene,
@@ -485,7 +558,10 @@ public struct AIRecommendationRequest: Hashable, Sendable {
         preferences: [AIRecommendationPreference],
         candidates: [AIRecommendationCandidate],
         maximumResults: Int = 12,
-        minimumResults: Int = 10
+        minimumResults: Int = 10,
+        unit: AIRecommendationUnit = .songs,
+        albumCandidates: [AIRecommendationAlbumCandidate] = [],
+        maximumAlbumResults: Int? = nil
     ) {
         self.scene = scene
         let normalizedIntent = intent?
@@ -505,16 +581,61 @@ public struct AIRecommendationRequest: Hashable, Sendable {
         let availableResultCount = max(1, self.candidates.count)
         self.maximumResults = max(1, min(min(maximumResults, 12), availableResultCount))
         self.minimumResults = max(1, min(minimumResults, self.maximumResults))
+        self.unit = unit
+        var seenAlbumKeys = Set<String>()
+        let albums = unit.includesAlbums
+            ? albumCandidates.filter {
+                !$0.albumKey.isEmpty && seenAlbumKeys.insert($0.albumKey).inserted
+            }
+            : []
+        self.albumCandidates = Array(albums.prefix(Self.maximumAlbumCandidates))
+        if self.albumCandidates.isEmpty {
+            self.maximumAlbumResults = 0
+        } else {
+            self.maximumAlbumResults = max(1, min(
+                maximumAlbumResults ?? unit.albumSlotCount,
+                Self.maximumAlbumSelections,
+                self.albumCandidates.count
+            ))
+        }
     }
 }
 
 public struct AIRecommendationSelection: Codable, Hashable, Sendable {
+    public var kind: AIRecommendationItemKind
+    /// 单曲的标识;专辑时为空。
     public var songID: String
+    /// 整张专辑的标识;单曲时为 nil。
+    public var albumKey: String?
     public var reason: String
 
     public init(songID: String, reason: String) {
+        self.kind = .song
         self.songID = songID
+        self.albumKey = nil
         self.reason = reason
+    }
+
+    public init(albumKey: String, reason: String) {
+        self.kind = .album
+        self.songID = ""
+        self.albumKey = albumKey
+        self.reason = reason
+    }
+
+    /// 单曲与专辑共用一套去重键,彼此不会撞上。
+    public var itemID: String {
+        kind == .album ? "album:" + (albumKey ?? "") : songID
+    }
+
+    private enum CodingKeys: String, CodingKey { case kind, songID, albumKey, reason }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try container.decodeIfPresent(AIRecommendationItemKind.self, forKey: .kind) ?? .song
+        songID = try container.decodeIfPresent(String.self, forKey: .songID) ?? ""
+        albumKey = try container.decodeIfPresent(String.self, forKey: .albumKey)
+        reason = try container.decode(String.self, forKey: .reason)
     }
 }
 
@@ -544,31 +665,63 @@ public struct AIRecommendationPlan: Codable, Hashable, Sendable {
 
     public func normalized(for request: AIRecommendationRequest) -> AIRecommendationPlan {
         let allowedIDs = Set(request.candidates.map(\.songID))
+        let allowedAlbumKeys = Set(request.albumCandidates.map(\.albumKey))
         var seen = Set<String>()
-        let selections = selections.compactMap { selection -> AIRecommendationSelection? in
-            guard allowedIDs.contains(selection.songID), seen.insert(selection.songID).inserted else {
-                return nil
+        var songCount = 0
+        var albumCount = 0
+        var limitedSelections: [AIRecommendationSelection] = []
+        for selection in selections {
+            switch selection.kind {
+            case .song:
+                guard allowedIDs.contains(selection.songID),
+                      seen.insert(selection.itemID).inserted else { continue }
+            case .album:
+                guard let albumKey = selection.albumKey,
+                      allowedAlbumKeys.contains(albumKey),
+                      seen.insert(selection.itemID).inserted else { continue }
             }
             let reason = selection.reason
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .replacingOccurrences(of: "\n", with: " ")
                 .replacingOccurrences(of: "\r", with: " ")
-            guard !reason.isEmpty else { return nil }
-            return AIRecommendationSelection(
-                songID: selection.songID,
-                reason: String(reason.prefix(120))
-            )
+            guard !reason.isEmpty else { continue }
+            let boundedReason = String(reason.prefix(120))
+            switch selection.kind {
+            case .song:
+                guard songCount < request.maximumResults else { continue }
+                songCount += 1
+                limitedSelections.append(
+                    AIRecommendationSelection(songID: selection.songID, reason: boundedReason)
+                )
+            case .album:
+                guard albumCount < request.maximumAlbumResults,
+                      let albumKey = selection.albumKey else { continue }
+                albumCount += 1
+                limitedSelections.append(
+                    AIRecommendationSelection(albumKey: albumKey, reason: boundedReason)
+                )
+            }
         }
-        let limitedSelections = Array(selections.prefix(request.maximumResults))
         // Quantity and variety guide ranking; they must not discard valid,
-        // already playable selections when a response is incomplete.
+        // already playable selections when a response is incomplete. An
+        // albums-only answer is judged by the service's own flag: a service
+        // that predates albums answers with songs only.
+        let tooFewSongs = request.unit.includesSongs && songCount < request.minimumResults
         return AIRecommendationPlan(
             summary: String(
                 summary.trimmingCharacters(in: .whitespacesAndNewlines).prefix(180)
             ),
             selections: limitedSelections,
-            isPartial: isPartial || limitedSelections.count < request.minimumResults
+            isPartial: isPartial || tooFewSongs
         )
+    }
+
+    public var songSelections: [AIRecommendationSelection] {
+        selections.filter { $0.kind == .song }
+    }
+
+    public var albumSelections: [AIRecommendationSelection] {
+        selections.filter { $0.kind == .album }
     }
 }
 
@@ -1039,5 +1192,54 @@ public enum AIRecommendationPlaybackQueuePolicy {
             !$0.isEmpty && seen.insert($0).inserted
         }
         return visible + fallback
+    }
+}
+
+/// 一排推荐里的一张卡:整张专辑或一首歌。
+public enum AIRecommendationFeedEntry: Hashable, Sendable, Identifiable {
+    case album(String)
+    case song(String)
+
+    public var id: String {
+        switch self {
+        case .album(let albumKey): "album:" + albumKey
+        case .song(let songID): "song:" + songID
+        }
+    }
+}
+
+/// 首页「为你推荐」怎么排:按推荐单位先放几张专辑,再放歌曲。专辑位先用智能服务
+/// 挑的,它没给(服务端还不认专辑、没开智能推荐、请求失败)或给得不够时,用本地
+/// `AlbumRecommender` 的结果补齐;只要整张专辑却一张完整专辑都没有时,退回歌曲,
+/// 这一排不会空着。
+public enum AIRecommendationFeedComposer {
+    public static func compose(
+        unit: AIRecommendationUnit,
+        intelligentAlbumKeys: [String],
+        localAlbumKeys: [String],
+        songIDs: [String],
+        albumSlots: Int? = nil
+    ) -> [AIRecommendationFeedEntry] {
+        let slots = max(0, albumSlots ?? unit.albumSlotCount)
+        let localSet = Set(localAlbumKeys)
+        var seenAlbums = Set<String>()
+        var albums: [String] = []
+        if unit.includesAlbums, slots > 0 {
+            // 智能服务挑的只认本地候选里的专辑,播放时一定找得到曲目。
+            for key in intelligentAlbumKeys
+            where localSet.contains(key) && seenAlbums.insert(key).inserted {
+                albums.append(key)
+                if albums.count == slots { break }
+            }
+            for key in localAlbumKeys where albums.count < slots && seenAlbums.insert(key).inserted {
+                albums.append(key)
+            }
+        }
+        var seenSongs = Set<String>()
+        let songs = songIDs.filter { !$0.isEmpty && seenSongs.insert($0).inserted }
+        if unit == .albums {
+            return albums.isEmpty ? songs.map(AIRecommendationFeedEntry.song) : albums.map(AIRecommendationFeedEntry.album)
+        }
+        return albums.map(AIRecommendationFeedEntry.album) + songs.map(AIRecommendationFeedEntry.song)
     }
 }

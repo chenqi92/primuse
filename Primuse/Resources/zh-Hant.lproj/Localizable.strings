@@ -3288,6 +3288,11 @@
 "ai_settings_advanced_collapsed" = "已收合";
 "ai_settings_advanced_show" = "展開";
 "ai_settings_advanced_hide" = "收合";
+"ai_recommendation_unit" = "推薦單位";
+"ai_recommendation_unit_songs" = "歌曲";
+"ai_recommendation_unit_albums" = "專輯";
+"ai_recommendation_unit_mixed" = "混合";
+"ai_recommendation_unit_footer" = "混合時首頁「為你推薦」前兩張是整張專輯，其餘是單曲。整張專輯按原曲序播放，CUE 分軌按軌號排隊。";
 "ai_listening_context_consent" = "允許傳送精簡聆聽偏好與候選歌曲資訊";
 "ai_recommendation_home_title" = "情境推薦";
 "ai_recommendation_scene_automatic" = "此刻";

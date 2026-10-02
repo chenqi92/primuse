@@ -3304,6 +3304,11 @@
 "ai_settings_advanced_collapsed" = "折りたたみ済み";
 "ai_settings_advanced_show" = "表示";
 "ai_settings_advanced_hide" = "隠す";
+"ai_recommendation_unit" = "おすすめの単位";
+"ai_recommendation_unit_songs" = "曲";
+"ai_recommendation_unit_albums" = "アルバム";
+"ai_recommendation_unit_mixed" = "ミックス";
+"ai_recommendation_unit_footer" = "ミックスでは、ホームの「あなたへのおすすめ」の最初の 2 枚がアルバムで、残りは曲になります。アルバムは元の曲順で再生され、CUE で分割したアルバムはトラック番号順に並びます。";
 "ai_listening_context_consent" = "最小化した再生傾向と候補情報の送信を許可";
 "ai_recommendation_home_title" = "シーン別おすすめ";
 "ai_recommendation_scene_automatic" = "今の気分";

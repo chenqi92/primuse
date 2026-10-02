@@ -401,6 +401,66 @@ struct TVHomeView: View {
         AIRecommendationScene(rawValue: recommendationSceneRawValue) ?? .automatic
     }
 
+    /// 推荐单位(歌曲 / 专辑 / 混合),与手机、Mac 的同一个设置项。
+    @AppStorage(AIRecommendationUnit.storageKey)
+    private var recommendationUnitRawValue = AIRecommendationUnit.defaultUnit.rawValue
+
+    private var recommendationUnit: AIRecommendationUnit {
+        .stored(recommendationUnitRawValue)
+    }
+
+    /// 智能推荐这一排开头的整张专辑候选:主视觉那张情景推荐之后排着的,本地
+    /// `AlbumRecommender` 挑的;智能服务只在其中重排。
+    private var recommendationAlbumPool: [AlbumRecommendation] {
+        guard recommendationUnit.includesAlbums else { return [] }
+        return AlbumRecommendationService.shared
+            .forYouAlbumCandidates(excludingCurrentPick: true)
+            .filter { store.album($0.albumID) != nil }
+    }
+
+    /// 要专辑时,等本地专辑推荐算出来再去问,免得冷启动先问一次只有歌曲的。
+    private var recommendationAlbumsReady: Bool {
+        !recommendationUnit.includesAlbums || AlbumRecommendationService.shared.recommendations != nil
+    }
+
+    private var recommendationAlbumCandidates: [AIRecommendationAlbumCandidate] {
+        recommendationAlbumPool.map {
+            $0.intelligenceCandidate(genre: store.library.visibleAlbum(id: $0.albumID)?.genre)
+        }
+    }
+
+    /// 专辑卡在前(混合:两张),智能服务挑的先放、没挑的由本地结果补上,再接歌曲。
+    private var recommendationEntries: [AIRecommendationFeedEntry] {
+        AIRecommendationFeedComposer.compose(
+            unit: recommendationUnit,
+            intelligentAlbumKeys: aiRecommendation.isStreaming ? [] : aiRecommendation.orderedAlbumKeys,
+            localAlbumKeys: recommendationAlbumPool.map(\.albumID),
+            songIDs: displayedRecommendationSongs.map(\.id)
+        )
+    }
+
+    private func recommendedAlbumReason(_ albumID: String) -> String {
+        if let reason = aiRecommendation.albumReason(for: albumID), !reason.isEmpty { return reason }
+        return recommendationAlbumPool.first { $0.albumID == albumID }?.reason.text ?? ""
+    }
+
+    /// 按下进专辑页(与首页其它专辑卡一致),整张播放在专辑页里按原曲序进行。
+    private func recommendedAlbumCard(_ album: TVAlbum) -> some View {
+        let id = cardID("aiAlbum", album.id)
+        let reason = recommendedAlbumReason(album.id)
+        return TVAlbumCard(
+            album: album,
+            subtitleOverride: reason.isEmpty ? nil : reason,
+            action: playerOpener(id),
+            onOpen: {
+                browseMemory.cardID = id
+                selectedAlbum = album
+            },
+            focusBinding: $focusedCardID,
+            focusID: id
+        )
+    }
+
     private var recommendationCandidateRefreshKey: String {
         "\(store.recommendationRevision)#\(recommendationHistoryRevision)#"
             + "\(intelligence.settingsStore.recommendationsEnabled)"
@@ -409,6 +469,9 @@ struct TVHomeView: View {
     private var recommendationRefreshKey: String {
         return [
             recommendationSceneRawValue,
+            recommendationUnitRawValue,
+            String(recommendationAlbumsReady),
+            recommendationAlbumPool.map(\.albumID).joined(separator: "|"),
             String(intelligence.settingsStore.revision),
             String(intelligence.regionAvailability.revision),
             String(recommendationHistoryRevision),
@@ -445,21 +508,44 @@ struct TVHomeView: View {
                 label: PMString("ai_recommendation_home_title"),
                 sub: aiRecommendation.statusText
             ) {
-                ForEach(displayedRecommendationSongs) { song in
-                    TVSongCard(
-                        song: song,
-                        reason: aiRecommendation.reason(for: song.id) ?? "",
-                        action: playerOpener(cardID("ai", song.id))
-                    )
-                    .focused($focusedCardID, equals: cardID("ai", song.id))
+                ForEach(recommendationEntries) { entry in
+                    switch entry {
+                    case .album(let albumID):
+                        if let album = store.album(albumID) {
+                            recommendedAlbumCard(album)
+                        }
+                    case .song(let songID):
+                        if let song = store.song(songID) {
+                            TVSongCard(
+                                song: song,
+                                reason: aiRecommendation.reason(for: song.id) ?? "",
+                                action: playerOpener(cardID("ai", song.id))
+                            )
+                            .focused($focusedCardID, equals: cardID("ai", song.id))
+                        }
+                    }
                 }
             }
         }
+        #if DEBUG
+        .task(id: recommendationEntries.first?.id) {
+            // 截图钩子 TV_SCREEN=homeAI:焦点放到智能推荐这一排的第一张,首页滚到这一排。
+            guard TVDebugLaunch.screen == "homeAI", let first = recommendationEntries.first else { return }
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            switch first {
+            case .album(let albumID): focusedCardID = cardID("aiAlbum", albumID)
+            case .song(let songID): focusedCardID = cardID("ai", songID)
+            }
+        }
+        #endif
         .task(id: recommendationRefreshKey) {
+            guard recommendationAlbumsReady else { return }
             await aiRecommendation.refresh(
                 scene: recommendationScene,
                 candidates: recommendationCandidates,
-                using: intelligence
+                using: intelligence,
+                unit: recommendationUnit,
+                albumCandidates: recommendationAlbumCandidates
             )
         }
     }

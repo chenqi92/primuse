@@ -3073,6 +3073,11 @@
 "ai_settings_advanced_collapsed" = "Collapsed";
 "ai_settings_advanced_show" = "Show";
 "ai_settings_advanced_hide" = "Hide";
+"ai_recommendation_unit" = "Recommend By";
+"ai_recommendation_unit_songs" = "Songs";
+"ai_recommendation_unit_albums" = "Albums";
+"ai_recommendation_unit_mixed" = "Mixed";
+"ai_recommendation_unit_footer" = "With Mixed, the first two cards in For You on Home are whole albums and the rest are songs. Albums play in their original track order, and CUE-split albums follow their track numbers.";
 "ai_listening_context_consent" = "Allow sending minimized listening preferences and candidate details";
 "ai_recommendation_home_title" = "Scene Recommendations";
 "ai_recommendation_scene_automatic" = "Right Now";

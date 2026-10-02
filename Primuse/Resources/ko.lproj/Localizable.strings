@@ -3303,6 +3303,11 @@
 "ai_settings_advanced_collapsed" = "접힘";
 "ai_settings_advanced_show" = "보기";
 "ai_settings_advanced_hide" = "숨기기";
+"ai_recommendation_unit" = "추천 단위";
+"ai_recommendation_unit_songs" = "노래";
+"ai_recommendation_unit_albums" = "앨범";
+"ai_recommendation_unit_mixed" = "혼합";
+"ai_recommendation_unit_footer" = "혼합을 선택하면 홈의 추천 항목에서 처음 두 장은 앨범 전체이고 나머지는 노래입니다. 앨범은 원래 트랙 순서로 재생되며, CUE로 나뉜 앨범은 트랙 번호 순서를 따릅니다.";
 "ai_listening_context_consent" = "최소화된 감상 선호도와 후보 정보 전송 허용";
 "ai_recommendation_home_title" = "상황별 추천";
 "ai_recommendation_scene_automatic" = "지금";

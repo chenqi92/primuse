@@ -988,6 +988,9 @@ struct AISettingsView: View {
     @State private var editingProviderID: UUID?
     /// 歌词翻译开关与「歌词」设置页同源。
     @State private var lyricsTranslation = LyricsTranslationSettingsStore.shared
+    /// 首页「为你推荐」的推荐单位:歌曲 / 专辑 / 混合。
+    @AppStorage(AIRecommendationUnit.storageKey)
+    private var recommendationUnitRawValue = AIRecommendationUnit.defaultUnit.rawValue
     /// 「高级」(连接测试、我的 AI 服务、降级、隐私)展开过就记着,下次进来照旧展开。
     @AppStorage("primuse.ai.settings.advancedExpanded") private var showsAdvanced = false
     @Environment(\.settingsFocusedAnchor) private var focusedSettingsAnchor
@@ -1292,6 +1295,12 @@ struct AISettingsView: View {
                 isOn: editor.recommendationsBinding
             )
             .settingsAnchor("intelligence.recommendations")
+            Picker("ai_recommendation_unit", selection: $recommendationUnitRawValue) {
+                ForEach([AIRecommendationUnit.songs, .albums, .mixed], id: \.self) { unit in
+                    Text(verbatim: unit.localizedTitle).tag(unit.rawValue)
+                }
+            }
+            .settingsAnchor("intelligence.recommendationUnit")
             Toggle("lyrics_translation_enabled", isOn: $lyricsTranslation.isEnabled)
                 .settingsAnchor("intelligence.lyricsTranslation")
             if lyricsTranslation.isEnabled {
@@ -1307,7 +1316,10 @@ struct AISettingsView: View {
                 Text("ai_capability_section")
             }
         } footer: {
-            Text("ai_settings_lyrics_translation_footer")
+            VStack(alignment: .leading, spacing: 6) {
+                Text("ai_recommendation_unit_footer")
+                Text("ai_settings_lyrics_translation_footer")
+            }
         }
     }
 

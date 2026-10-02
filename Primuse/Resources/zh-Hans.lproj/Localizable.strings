@@ -3404,6 +3404,11 @@
 "ai_settings_advanced_collapsed" = "已收起";
 "ai_settings_advanced_show" = "展开";
 "ai_settings_advanced_hide" = "收起";
+"ai_recommendation_unit" = "推荐单位";
+"ai_recommendation_unit_songs" = "歌曲";
+"ai_recommendation_unit_albums" = "专辑";
+"ai_recommendation_unit_mixed" = "混合";
+"ai_recommendation_unit_footer" = "混合时首页「为你推荐」前两张是整张专辑，其余是单曲。整张专辑按原曲序播放，CUE 分轨按轨号排队。";
 "ai_listening_context_consent" = "允许发送精简听歌偏好与候选歌曲信息";
 "ai_recommendation_home_title" = "场景推荐";
 "ai_recommendation_scene_automatic" = "此刻";

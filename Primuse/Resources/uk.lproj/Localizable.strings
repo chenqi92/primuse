@@ -3487,6 +3487,11 @@
 "ai_settings_advanced_collapsed" = "Згорнуто";
 "ai_settings_advanced_show" = "Показати";
 "ai_settings_advanced_hide" = "Сховати";
+"ai_recommendation_unit" = "Рекомендувати";
+"ai_recommendation_unit_songs" = "Треки";
+"ai_recommendation_unit_albums" = "Альбоми";
+"ai_recommendation_unit_mixed" = "Змішано";
+"ai_recommendation_unit_footer" = "У змішаному режимі перші дві картки в розділі «Для вас» на головній — цілі альбоми, решта — треки. Альбоми грають у початковому порядку, а розділені за CUE — за номерами доріжок.";
 "smart_playlist_combinator_and" = "Всі умови";
 "lyrics_converter_summary_format" = "%1$d рядків · %2$d синхронізовано · %3$d зі словом";
 "minimal_mode_description" = "Приховує нижню навігаційну панель, переміщує перемикач медіатеки вгору та відкриває налаштування за допомогою бічної кнопки.";

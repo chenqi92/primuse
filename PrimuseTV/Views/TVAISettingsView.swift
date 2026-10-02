@@ -22,6 +22,9 @@ struct TVAISettingsView: View {
 
     @State private var editor = AISettingsEditorModel()
     @State private var providerTarget: TVAIProviderTarget?
+    /// 推荐单位:首页智能推荐那一排开头放不放整张专辑。
+    @AppStorage(AIRecommendationUnit.storageKey)
+    private var recommendationUnitRawValue = AIRecommendationUnit.defaultUnit.rawValue
 
     var body: some View {
         ZStack {
@@ -209,7 +212,22 @@ struct TVAISettingsView: View {
                 title: String(localized: "ai_enable_recommendations"),
                 isOn: editor.recommendationsBinding
             )
+            TVAIDivider()
+            // 遥控器上按一下换到下一档:混合 → 歌曲 → 专辑。
+            TVAIActionRow(
+                icon: "square.stack",
+                title: String(localized: "ai_recommendation_unit"),
+                value: recommendationUnit.localizedTitle,
+                trailing: "arrow.triangle.2.circlepath"
+            ) {
+                recommendationUnitRawValue = recommendationUnit.next.rawValue
+            }
+            .accessibilityIdentifier("tv.ai.recommendationUnit")
         }
+    }
+
+    private var recommendationUnit: AIRecommendationUnit {
+        .stored(recommendationUnitRawValue)
     }
 
     // MARK: - 服务商

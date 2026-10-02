@@ -428,12 +428,7 @@ actor PrimuseAIRelayClient {
             purpose: "recommendations",
             input: RecommendationsInput(request: request)
         )
-        return AIRecommendationPlan(
-            selections: output.items.map {
-                AIRecommendationSelection(songID: $0.songID, reason: $0.reason)
-            },
-            isPartial: output.partial == true
-        ).normalized(for: request)
+        return output.plan(for: request)
     }
 
     func recommendationEvents(
@@ -445,31 +440,37 @@ actor PrimuseAIRelayClient {
             input: RecommendationsInput(request: request),
             output: RecommendationsOutput.self,
             progress: RecommendationProgress.self,
-            progressIdentity: { $0.item.songID }
+            progressIdentity: { $0.identity }
         ) { rawEvent in
             switch rawEvent {
             case .reset:
                 return .reset
             case .progress(let progress):
-                guard request.candidates.contains(where: {
-                    $0.songID == progress.item.songID
-                }) else { return nil }
-                let reason = progress.item.reason
+                let selection: AIRecommendationSelection
+                if let item = progress.item {
+                    guard request.candidates.contains(where: { $0.songID == item.songID }) else {
+                        return nil
+                    }
+                    selection = AIRecommendationSelection(songID: item.songID, reason: item.reason)
+                } else if let album = progress.album {
+                    // A service only sends albums when this request asked for them.
+                    guard request.albumCandidates.contains(where: { $0.albumKey == album.albumID }) else {
+                        return nil
+                    }
+                    selection = AIRecommendationSelection(albumKey: album.albumID, reason: album.reason)
+                } else {
+                    return nil
+                }
+                let reason = selection.reason
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                     .replacingOccurrences(of: "\n", with: " ")
                     .replacingOccurrences(of: "\r", with: " ")
                 guard !reason.isEmpty else { return nil }
-                return .selection(AIRecommendationSelection(
-                    songID: progress.item.songID,
-                    reason: String(reason.prefix(120))
-                ))
+                var bounded = selection
+                bounded.reason = String(reason.prefix(120))
+                return .selection(bounded)
             case .completed(let output):
-                return .completed(AIRecommendationPlan(
-                    selections: output.items.map {
-                        AIRecommendationSelection(songID: $0.songID, reason: $0.reason)
-                    },
-                    isPartial: output.partial == true
-                ).normalized(for: request))
+                return .completed(output.plan(for: request))
             }
         }
     }
@@ -1457,6 +1458,13 @@ actor PrimuseAIRelayClient {
         var candidates: [RecommendationCandidate]
         var maximumResults: Int
         var minimumResults: Int
+        /// Left out for songs, so a songs request is exactly what it was before
+        /// albums existed. A service that predates albums ignores these fields
+        /// and answers with songs only; the app then fills the album cards from
+        /// its own picks.
+        var unit: String?
+        var albumCandidates: [RecommendationAlbumCandidate]?
+        var maximumAlbumResults: Int?
 
         private enum CodingKeys: String, CodingKey {
             case scene
@@ -1466,6 +1474,9 @@ actor PrimuseAIRelayClient {
             case candidates
             case maximumResults = "maximum_results"
             case minimumResults = "minimum_results"
+            case unit
+            case albumCandidates = "album_candidates"
+            case maximumAlbumResults = "maximum_album_results"
         }
 
         init(request: AIRecommendationRequest) {
@@ -1492,6 +1503,41 @@ actor PrimuseAIRelayClient {
             }
             maximumResults = request.maximumResults
             minimumResults = request.minimumResults
+            if request.unit != .songs, !request.albumCandidates.isEmpty {
+                unit = request.unit.rawValue
+                albumCandidates = request.albumCandidates.map {
+                    RecommendationAlbumCandidate(
+                        albumID: $0.albumKey,
+                        title: $0.title,
+                        artist: $0.artist,
+                        genre: $0.genre,
+                        year: $0.year,
+                        trackCount: $0.trackCount,
+                        durationSeconds: $0.durationSeconds
+                    )
+                }
+                maximumAlbumResults = request.maximumAlbumResults
+            }
+        }
+    }
+
+    private struct RecommendationAlbumCandidate: Encodable, Sendable {
+        var albumID: String
+        var title: String
+        var artist: String
+        var genre: String?
+        var year: Int?
+        var trackCount: Int
+        var durationSeconds: Int
+
+        private enum CodingKeys: String, CodingKey {
+            case albumID = "album_id"
+            case title
+            case artist
+            case genre
+            case year
+            case trackCount = "track_count"
+            case durationSeconds = "duration_seconds"
         }
     }
 
@@ -1538,12 +1584,42 @@ actor PrimuseAIRelayClient {
             }
         }
 
+        struct AlbumItem: Decodable, Sendable {
+            var albumID: String
+            var reason: String
+
+            private enum CodingKeys: String, CodingKey {
+                case albumID = "album_id"
+                case reason
+            }
+        }
+
         var items: [Item]
+        /// Only from a service that knows albums, and only when asked for them.
+        var albums: [AlbumItem]?
         var partial: Bool?
+
+        func plan(for request: AIRecommendationRequest) -> AIRecommendationPlan {
+            AIRecommendationPlan(
+                selections: items.map {
+                    AIRecommendationSelection(songID: $0.songID, reason: $0.reason)
+                } + (albums ?? []).map {
+                    AIRecommendationSelection(albumKey: $0.albumID, reason: $0.reason)
+                },
+                isPartial: partial == true
+            ).normalized(for: request)
+        }
     }
 
     private struct RecommendationProgress: Decodable, Sendable {
-        var item: RecommendationsOutput.Item
+        var item: RecommendationsOutput.Item?
+        var album: RecommendationsOutput.AlbumItem?
+
+        var identity: String? {
+            if let item { return item.songID }
+            if let album { return "album:" + album.albumID }
+            return nil
+        }
     }
 
     private struct LyricsTranslationInput: Encodable, Sendable {

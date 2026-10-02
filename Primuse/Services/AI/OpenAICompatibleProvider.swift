@@ -422,7 +422,11 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         onSelection: (@Sendable (AIRecommendationSelection) -> Void)?
     ) async throws -> AIRecommendationPlan {
         var tokenToSongID: [String: String] = [:]
-        let candidates = request.candidates.prefix(36).enumerated().compactMap {
+        // An albums-only request sends no songs to choose from (unless there
+        // is no whole album to offer, when it falls back to songs).
+        let albumsOnly = request.unit == .albums && !request.albumCandidates.isEmpty
+        let songCandidates = albumsOnly ? [] : Array(request.candidates.prefix(36))
+        let candidates = songCandidates.enumerated().compactMap {
             index, candidate -> [String: Any]? in
             let title = candidate.title.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !candidate.songID.isEmpty, !title.isEmpty else { return nil }
@@ -443,7 +447,30 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
             }
             return value
         }
-        guard !candidates.isEmpty else { return AIRecommendationPlan() }
+        var tokenToAlbumKey: [String: String] = [:]
+        let albumCandidates = request.albumCandidates.enumerated().compactMap {
+            index, candidate -> [String: Any]? in
+            let title = candidate.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !candidate.albumKey.isEmpty, !title.isEmpty else { return nil }
+            let token = "a\(index)"
+            tokenToAlbumKey[token] = candidate.albumKey
+            var value: [String: Any] = [
+                "id": token,
+                "title": String(title.prefix(160)),
+                "artist": String(candidate.artist.prefix(120)),
+                "track_count": max(1, min(candidate.trackCount, 999)),
+                "duration_seconds": max(0, min(candidate.durationSeconds, 360_000)),
+            ]
+            if let genre = candidate.genre?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !genre.isEmpty {
+                value["genre"] = String(genre.prefix(100))
+            }
+            if let year = candidate.year, (1...3_000).contains(year) {
+                value["year"] = year
+            }
+            return value
+        }
+        guard !candidates.isEmpty || !albumCandidates.isEmpty else { return AIRecommendationPlan() }
 
         let preferences = request.preferences.prefix(12).compactMap {
             preference -> [String: Any]? in
@@ -471,26 +498,46 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         if let intent = request.intent {
             payload["intent"] = intent
         }
+        if !albumCandidates.isEmpty {
+            payload["album_candidates"] = albumCandidates
+            payload["maximum_album_results"] = request.maximumAlbumResults
+        }
         guard let data = try? JSONSerialization.data(withJSONObject: payload),
               let input = String(data: data, encoding: .utf8) else {
             throw OpenAICompatibleProviderError.invalidResponse
         }
+        let instructions: String
+        if albumCandidates.isEmpty {
+            instructions = Self.recommendationInstructions
+        } else if candidates.isEmpty {
+            instructions = Self.recommendationInstructions + "\n" + Self.albumOnlyRecommendationInstructions
+        } else {
+            instructions = Self.recommendationInstructions + "\n" + Self.albumRecommendationInstructions
+        }
+        // Only the first array streams; with songs and albums together the
+        // albums arrive with the complete answer.
+        let streamingKeys = candidates.isEmpty ? ["albums"] : ["recommendations", "items"]
         var reportedTokens = Set<String>()
         let output = try await generatedText(
-            instructions: Self.recommendationInstructions,
+            instructions: instructions,
             input: input,
             maximumTokens: 1_200,
-            streamingArrayKeys: onSelection == nil ? nil : ["recommendations", "items"]
+            streamingArrayKeys: onSelection == nil ? nil : streamingKeys
         ) { item in
             guard let onSelection,
                   let token = item["id"] as? String,
-                  let selection = Self.recommendationSelection(from: item, tokenToSongID: tokenToSongID),
+                  let selection = Self.recommendationSelection(
+                    from: item,
+                    tokenToSongID: tokenToSongID,
+                    tokenToAlbumKey: tokenToAlbumKey
+                  ),
                   reportedTokens.insert(token).inserted else { return }
             onSelection(selection)
         }
         let plan = try Self.decodeRecommendationPlan(
             from: output,
-            tokenToSongID: tokenToSongID
+            tokenToSongID: tokenToSongID,
+            tokenToAlbumKey: tokenToAlbumKey
         ).normalized(for: request)
         guard !plan.selections.isEmpty else {
             throw OpenAICompatibleProviderError.invalidResponse
@@ -1347,6 +1394,20 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
     scoring, files, prompts, or the model.
     """
 
+    private static let albumRecommendationInstructions = """
+    album_candidates lists whole albums. Besides the songs, also choose up to
+    maximum_album_results of these albums for the same scene and intent, and
+    return them in an "albums" array of the same object, shaped
+    [{"id":"a0","reason":"..."}]. Preserve album ids exactly and never invent one.
+    """
+
+    private static let albumOnlyRecommendationInstructions = """
+    This request is for whole albums only: candidates is empty and
+    album_candidates lists whole albums. Choose up to maximum_album_results of
+    them and return {"summary":"...","albums":[{"id":"a0","reason":"..."}]}
+    instead of recommendations. Preserve album ids exactly and never invent one.
+    """
+
     private static func semanticSearchPrompt(for request: AISemanticSearchRequest) -> String {
         let encodedQuery: String
         if let data = try? JSONEncoder().encode(request.query),
@@ -1489,35 +1550,49 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
 
     private static func recommendationSelection(
         from item: [String: Any],
-        tokenToSongID: [String: String]
+        tokenToSongID: [String: String],
+        tokenToAlbumKey: [String: String] = [:]
     ) -> AIRecommendationSelection? {
         guard let token = item["id"] as? String,
-              let songID = tokenToSongID[token],
               let rawReason = item["reason"] as? String else { return nil }
         let reason = rawReason.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !reason.isEmpty, reason.count <= 500 else { return nil }
-        return AIRecommendationSelection(songID: songID, reason: reason)
+        if let songID = tokenToSongID[token] {
+            return AIRecommendationSelection(songID: songID, reason: reason)
+        }
+        if let albumKey = tokenToAlbumKey[token] {
+            return AIRecommendationSelection(albumKey: albumKey, reason: reason)
+        }
+        return nil
     }
 
     private static func decodeRecommendationPlan(
         from output: String,
-        tokenToSongID: [String: String]
+        tokenToSongID: [String: String],
+        tokenToAlbumKey: [String: String] = [:]
     ) throws -> AIRecommendationPlan {
         guard let opening = output.firstIndex(of: "{"),
               let closing = output.lastIndex(of: "}"),
               opening <= closing,
               let data = String(output[opening...closing]).data(using: .utf8),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let items = (root["recommendations"] ?? root["items"])
-                as? [[String: Any]] else {
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw OpenAICompatibleProviderError.invalidResponse
+        }
+        let items = (root["recommendations"] ?? root["items"]) as? [[String: Any]]
+        let albumItems = tokenToAlbumKey.isEmpty ? nil : root["albums"] as? [[String: Any]]
+        guard items != nil || albumItems != nil else {
             throw OpenAICompatibleProviderError.invalidResponse
         }
         var selections: [AIRecommendationSelection] = []
         var seenTokens = Set<String>()
-        for item in items.prefix(24) {
+        for item in (items ?? []).prefix(24) + (albumItems ?? []).prefix(12) {
             guard let token = item["id"] as? String,
                   seenTokens.insert(token).inserted,
-                  let selection = recommendationSelection(from: item, tokenToSongID: tokenToSongID)
+                  let selection = recommendationSelection(
+                    from: item,
+                    tokenToSongID: tokenToSongID,
+                    tokenToAlbumKey: tokenToAlbumKey
+                  )
             else { continue }
             selections.append(selection)
         }

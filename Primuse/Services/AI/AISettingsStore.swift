@@ -96,6 +96,14 @@ final class AISettingsStore {
         hasExplicitListeningContextConsent = loaded.hasExplicitListeningContextConsent
         hasExplicitAudioUploadConsent = loaded.hasExplicitAudioUploadConsent
         hasPersistedSettings = persistedData != nil
+        #if DEBUG
+        // 截图钩子:不改存着的设置,这次启动把场景推荐和它要的听歌偏好授权当作打开,
+        // 电视首页的智能推荐一排(含专辑卡)才会出现。
+        if ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_AI_RECOMMENDATIONS_ON"] == "1" {
+            recommendationsEnabled = true
+            hasExplicitListeningContextConsent = true
+        }
+        #endif
 
         if self.syncsThroughICloud {
             CloudKVSSync.shared.register(key: Self.storageKey) { [weak self] in

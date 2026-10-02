@@ -3487,6 +3487,11 @@
 "ai_settings_advanced_collapsed" = "Daraltıldı";
 "ai_settings_advanced_show" = "Göster";
 "ai_settings_advanced_hide" = "Gizle";
+"ai_recommendation_unit" = "Öneri birimi";
+"ai_recommendation_unit_songs" = "Şarkılar";
+"ai_recommendation_unit_albums" = "Albümler";
+"ai_recommendation_unit_mixed" = "Karışık";
+"ai_recommendation_unit_footer" = "Karışık seçildiğinde Ana Sayfa'daki Sizin İçin bölümünün ilk iki kartı tam albüm, gerisi şarkıdır. Albümler özgün parça sırasıyla çalınır; CUE ile bölünmüş albümler parça numaralarını izler.";
 "smart_playlist_combinator_and" = "Tüm koşullar";
 "lyrics_converter_summary_format" = "%1$d satırları · %2$d senkronize edildi · %3$d kelime zamanlı";
 "minimal_mode_description" = "Alttaki gezinme çubuğunu gizler, Arşiv geçişini yukarıya taşır ve yan düğmeden Ayarlar'ı açar.";

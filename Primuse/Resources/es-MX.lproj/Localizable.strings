@@ -533,6 +533,11 @@
 "ai_settings_advanced_collapsed" = "Contraído";
 "ai_settings_advanced_show" = "Mostrar";
 "ai_settings_advanced_hide" = "Ocultar";
+"ai_recommendation_unit" = "Recomendar por";
+"ai_recommendation_unit_songs" = "Canciones";
+"ai_recommendation_unit_albums" = "Álbumes";
+"ai_recommendation_unit_mixed" = "Mixto";
+"ai_recommendation_unit_footer" = "Con Mixto, las dos primeras tarjetas de Para ti en Inicio son álbumes completos y el resto son canciones. Los álbumes se reproducen en su orden original y los divididos con CUE siguen sus números de pista.";
 "ai_capability_section" = "Inteligencia";
 "ai_changes_not_saved" = "Hay cambios no guardados";
 "ai_changes_save_automatically" = "Los cambios se guardan automáticamente. Abra los detalles del proveedor para editar su dirección, clave, modelos y configuración de conexión.";

@@ -533,6 +533,11 @@
 "ai_settings_advanced_collapsed" = "Recolhido";
 "ai_settings_advanced_show" = "Mostrar";
 "ai_settings_advanced_hide" = "Ocultar";
+"ai_recommendation_unit" = "Recomendar por";
+"ai_recommendation_unit_songs" = "Músicas";
+"ai_recommendation_unit_albums" = "Álbuns";
+"ai_recommendation_unit_mixed" = "Misto";
+"ai_recommendation_unit_footer" = "No modo Misto, os dois primeiros cartões de Para você no Início são álbuns completos e o restante são músicas. Os álbuns tocam na ordem original, e os divididos por CUE seguem os números das faixas.";
 "ai_capability_section" = "Inteligência";
 "ai_changes_not_saved" = "Há alterações não salvas";
 "ai_changes_save_automatically" = "As alterações são salvas automaticamente. Abra os detalhes do provedor para editar seu endereço, chave, modelos e configurações de conexão.";

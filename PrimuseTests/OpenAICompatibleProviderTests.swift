@@ -386,6 +386,51 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         XCTAssertFalse(input.contains("lyrics"))
     }
 
+    func testRecommendationsOfferWholeAlbumsWithOpaqueIDs() async throws {
+        let host = "intelligence-recommendations-albums.invalid"
+        IntelligenceURLProtocol.configure(
+            host: host,
+            statusCode: 200,
+            body: #"{"output_text":"{\"summary\":\"Evening\",\"recommendations\":[{\"id\":\"c0\",\"reason\":\"warm\"}],\"albums\":[{\"id\":\"a1\",\"reason\":\"listen through\"},{\"id\":\"c0\",\"reason\":\"not an album\"}]}"}"#
+        )
+        let (provider, session) = makeProvider(host: host, apiStyle: .responses)
+        defer { session.invalidateAndCancel() }
+        let request = AIRecommendationRequest(
+            scene: .relaxation,
+            languageCode: "en",
+            preferences: [],
+            candidates: [
+                AIRecommendationCandidate(songID: "private-song-id-1", title: "First", artist: "Artist A"),
+            ],
+            maximumResults: 1,
+            minimumResults: 1,
+            unit: .mixed,
+            albumCandidates: [
+                AIRecommendationAlbumCandidate(
+                    albumKey: "private-album-0", title: "Album Zero", artist: "Artist B", trackCount: 9
+                ),
+                AIRecommendationAlbumCandidate(
+                    albumKey: "private-album-1", title: "Album One", artist: "Artist C", trackCount: 12
+                ),
+            ]
+        )
+
+        let plan = try await provider.recommendations(request)
+
+        XCTAssertEqual(plan.songSelections.map(\.songID), ["private-song-id-1"])
+        XCTAssertEqual(plan.albumSelections.map(\.albumKey), ["private-album-1"])
+        let sentRequest = try XCTUnwrap(IntelligenceURLProtocol.requests(host: host).first)
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try XCTUnwrap(sentRequest.httpBody)) as? [String: Any]
+        )
+        let input = try XCTUnwrap(object["input"] as? String)
+        XCTAssertTrue(input.contains("\"album_candidates\""))
+        XCTAssertTrue(input.contains("\"id\":\"a0\""))
+        XCTAssertTrue(input.contains("Album One"))
+        XCTAssertFalse(input.contains("private-album"))
+        XCTAssertFalse(input.contains("private-song-id"))
+    }
+
     func testChatCompletionsResponseIsSupportedThroughTheSameInterface() async throws {
         let host = "intelligence-chat.invalid"
         IntelligenceURLProtocol.configure(

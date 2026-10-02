@@ -533,6 +533,11 @@
 "ai_settings_advanced_collapsed" = "مطويّ";
 "ai_settings_advanced_show" = "إظهار";
 "ai_settings_advanced_hide" = "إخفاء";
+"ai_recommendation_unit" = "وحدة التوصية";
+"ai_recommendation_unit_songs" = "الأغاني";
+"ai_recommendation_unit_albums" = "الألبومات";
+"ai_recommendation_unit_mixed" = "مختلط";
+"ai_recommendation_unit_footer" = "في الوضع المختلط تكون أول بطاقتين في «لك» على الصفحة الرئيسية ألبومات كاملة والباقي أغانٍ. تُشغَّل الألبومات بترتيبها الأصلي، وتتبع الألبومات المقسّمة بملف CUE أرقام مساراتها.";
 "ai_capability_section" = "القدرات الذكية";
 "ai_changes_not_saved" = "هناك تغييرات غير محفوظة";
 "ai_changes_save_automatically" = "يتم حفظ التغييرات تلقائيا. افتح تفاصيل الموفر لتعديل عنوانه ومفتاحه ونماذجه وإعدادات الاتصال.";

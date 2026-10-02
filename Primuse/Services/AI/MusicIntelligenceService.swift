@@ -1038,7 +1038,7 @@ final class MusicIntelligenceService {
                                 onStreamEvent(event)
                             }
                         case .selection(let selection):
-                            guard streamedSelectionIDs.insert(selection.songID).inserted else {
+                            guard streamedSelectionIDs.insert(selection.itemID).inserted else {
                                 continue
                             }
                             streamedSelections.append(selection)
@@ -1196,7 +1196,7 @@ final class MusicIntelligenceService {
                                 captured: regionSnapshot,
                                 latest: regionAvailability.snapshot,
                                 configuration: configuration
-                            ), streamedSelectionIDs.insert(selection.songID).inserted else { return }
+                            ), streamedSelectionIDs.insert(selection.itemID).inserted else { return }
                             streamedSelections.append(selection)
                             onStreamEvent(.selection(selection))
                         }
@@ -1279,10 +1279,11 @@ final class MusicIntelligenceService {
         guard !streamed.isEmpty else { return completed }
         var seen = Set<String>()
         var selections: [AIRecommendationSelection] = []
+        // Songs and albums share one key space (`itemID`); `normalized` below
+        // caps each kind at its own limit.
         for selection in streamed + completed.selections
-        where seen.insert(selection.songID).inserted {
+        where seen.insert(selection.itemID).inserted {
             selections.append(selection)
-            if selections.count == request.maximumResults { break }
         }
         let merged = AIRecommendationPlan(
             summary: completed.summary,
@@ -1927,6 +1928,8 @@ enum AIRecommendationContextBuilder {
         candidates: [Song],
         maximumResults: Int = 12,
         minimumResults: Int = 10,
+        unit: AIRecommendationUnit = .songs,
+        albumCandidates: [AIRecommendationAlbumCandidate] = [],
         history: PlayHistoryStore = .shared,
         now: Date = Date()
     ) -> AIRecommendationRequest? {
@@ -1934,7 +1937,8 @@ enum AIRecommendationContextBuilder {
         let uniqueCandidates = candidates.filter {
             !$0.id.isEmpty && seen.insert($0.id).inserted
         }
-        guard !uniqueCandidates.isEmpty else { return nil }
+        let albums = unit.includesAlbums ? albumCandidates : []
+        guard !uniqueCandidates.isEmpty || !albums.isEmpty else { return nil }
         let metadataByID = Dictionary(
             uniqueKeysWithValues: uniqueCandidates.map { ($0.id, $0) }
         )
@@ -1979,7 +1983,9 @@ enum AIRecommendationContextBuilder {
             preferences: preferences,
             candidates: recommendationCandidates,
             maximumResults: maximumResults,
-            minimumResults: minimumResults
+            minimumResults: minimumResults,
+            unit: unit,
+            albumCandidates: albums
         )
     }
 }
@@ -1990,6 +1996,9 @@ final class AIRecommendationViewModel {
     private(set) var feedback: AIRecommendationFeedback = .idle
     private(set) var orderedSongIDs: [String] = []
     private(set) var reasonsBySongID: [String: String] = [:]
+    /// Whole albums the service picked, in its order (only when asked for albums).
+    private(set) var orderedAlbumKeys: [String] = []
+    private(set) var reasonsByAlbumKey: [String: String] = [:]
     private(set) var isStreaming = false
     private(set) var isPartial = false
     private(set) var retryAvailableAt: Date?
@@ -2005,7 +2014,9 @@ final class AIRecommendationViewModel {
         forceRefresh: Bool = false,
         maximumResults: Int = 12,
         minimumResults: Int = 10,
-        appending: Bool = false
+        appending: Bool = false,
+        unit: AIRecommendationUnit = .songs,
+        albumCandidates: [AIRecommendationAlbumCandidate] = []
     ) async -> Bool {
         finishRetryCooldown()
         generation &+= 1
@@ -2018,6 +2029,7 @@ final class AIRecommendationViewModel {
                 feedback = .idle
                 orderedSongIDs = []
                 reasonsBySongID = [:]
+                clearAlbums()
             }
             return false
         }
@@ -2027,6 +2039,7 @@ final class AIRecommendationViewModel {
                 feedback = .needsConsent
                 orderedSongIDs = []
                 reasonsBySongID = [:]
+                clearAlbums()
             }
             return false
         }
@@ -2035,13 +2048,16 @@ final class AIRecommendationViewModel {
             intent: intent,
             candidates: candidates,
             maximumResults: maximumResults,
-            minimumResults: minimumResults
+            minimumResults: minimumResults,
+            unit: unit,
+            albumCandidates: albumCandidates
         ) else {
             isStreaming = false
             if !appending {
                 feedback = .idle
                 orderedSongIDs = []
                 reasonsBySongID = [:]
+                clearAlbums()
             }
             return false
         }
@@ -2049,6 +2065,8 @@ final class AIRecommendationViewModel {
         let startingSongIDs = orderedSongIDs
         let startingIDs = Set(startingSongIDs)
         let startingReasons = reasonsBySongID
+        let startingAlbumKeys = orderedAlbumKeys
+        let startingAlbumReasons = reasonsByAlbumKey
         let outcome: AIRecommendationOutcome
         if !forceRefresh,
            let cached = intelligence.cachedRecommendationOutcome(for: request) {
@@ -2079,13 +2097,23 @@ final class AIRecommendationViewModel {
                             self.orderedSongIDs = startingSongIDs
                             self.reasonsBySongID = startingReasons
                         }
+                        self.orderedAlbumKeys = startingAlbumKeys
+                        self.reasonsByAlbumKey = startingAlbumReasons
                         hasReceivedStreamingSelection = false
                     case .selection(let selection):
                         if !appending, !hasReceivedStreamingSelection {
                             self.orderedSongIDs = []
                             self.reasonsBySongID = [:]
+                            self.clearAlbums()
                         }
                         hasReceivedStreamingSelection = true
+                        if selection.kind == .album {
+                            guard let albumKey = selection.albumKey,
+                                  !self.orderedAlbumKeys.contains(albumKey) else { return }
+                            self.orderedAlbumKeys.append(albumKey)
+                            self.reasonsByAlbumKey[albumKey] = selection.reason
+                            return
+                        }
                         guard !self.orderedSongIDs.contains(selection.songID) else { return }
                         self.orderedSongIDs.append(selection.songID)
                         self.reasonsBySongID[selection.songID] = selection.reason
@@ -2101,6 +2129,8 @@ final class AIRecommendationViewModel {
                 isStreaming = false
                 orderedSongIDs = startingSongIDs
                 reasonsBySongID = startingReasons
+                orderedAlbumKeys = startingAlbumKeys
+                reasonsByAlbumKey = startingAlbumReasons
                 feedback = previousFeedback
                 isPartial = previousPartial
             }
@@ -2111,6 +2141,8 @@ final class AIRecommendationViewModel {
         case .unavailable:
             orderedSongIDs = startingSongIDs
             reasonsBySongID = startingReasons
+            orderedAlbumKeys = startingAlbumKeys
+            reasonsByAlbumKey = startingAlbumReasons
             feedback = .localFallback(
                 providerName: nil,
                 fallbackDepth: 0,
@@ -2120,7 +2152,10 @@ final class AIRecommendationViewModel {
         case .success(let execution):
             isPartial = execution.plan.isPartial
             if appending {
-                let additions = execution.plan.selections.filter {
+                // Paging only ever adds songs; the albums stay as they were.
+                orderedAlbumKeys = startingAlbumKeys
+                reasonsByAlbumKey = startingAlbumReasons
+                let additions = execution.plan.songSelections.filter {
                     !startingIDs.contains($0.songID)
                 }
                 guard !additions.isEmpty else {
@@ -2135,12 +2170,17 @@ final class AIRecommendationViewModel {
                     reasonsBySongID[selection.songID] = selection.reason
                 }
             } else {
-                orderedSongIDs = execution.plan.selections.map(\.songID)
+                let songs = execution.plan.songSelections
+                orderedSongIDs = songs.map(\.songID)
                 reasonsBySongID = Dictionary(
-                    uniqueKeysWithValues: execution.plan.selections.map {
-                        ($0.songID, $0.reason)
-                    }
+                    songs.map { ($0.songID, $0.reason) },
+                    uniquingKeysWith: { first, _ in first }
                 )
+                let albums = execution.plan.albumSelections.compactMap { selection in
+                    selection.albumKey.map { ($0, selection.reason) }
+                }
+                orderedAlbumKeys = albums.map { $0.0 }
+                reasonsByAlbumKey = Dictionary(albums, uniquingKeysWith: { first, _ in first })
             }
             feedback = .success(
                 summary: execution.plan.summary,
@@ -2153,6 +2193,8 @@ final class AIRecommendationViewModel {
         case .empty(let providerName, let fallbackDepth):
             orderedSongIDs = startingSongIDs
             reasonsBySongID = startingReasons
+            orderedAlbumKeys = startingAlbumKeys
+            reasonsByAlbumKey = startingAlbumReasons
             feedback = .localFallback(
                 providerName: providerName,
                 fallbackDepth: fallbackDepth,
@@ -2163,6 +2205,8 @@ final class AIRecommendationViewModel {
             retryAvailableAt = retryAt
             orderedSongIDs = startingSongIDs
             reasonsBySongID = startingReasons
+            orderedAlbumKeys = startingAlbumKeys
+            reasonsByAlbumKey = startingAlbumReasons
             feedback = .localFallback(
                 providerName: nil,
                 fallbackDepth: 0,
@@ -2178,11 +2222,17 @@ final class AIRecommendationViewModel {
         generation &+= 1
         isStreaming = false
         isPartial = false
-        orderedSongIDs = selections.map(\.songID)
+        let songs = selections.filter { $0.kind == .song }
+        orderedSongIDs = songs.map(\.songID)
         reasonsBySongID = Dictionary(
-            selections.map { ($0.songID, $0.reason) },
+            songs.map { ($0.songID, $0.reason) },
             uniquingKeysWith: { first, _ in first }
         )
+        let albums = selections.compactMap { selection in
+            selection.albumKey.map { ($0, selection.reason) }
+        }
+        orderedAlbumKeys = albums.map { $0.0 }
+        reasonsByAlbumKey = Dictionary(albums, uniquingKeysWith: { first, _ in first })
         feedback = .success(
             summary: "",
             providerName: "Debug",
@@ -2206,6 +2256,15 @@ final class AIRecommendationViewModel {
 
     func reason(for songID: String) -> String? {
         reasonsBySongID[songID]
+    }
+
+    func albumReason(for albumKey: String) -> String? {
+        reasonsByAlbumKey[albumKey]
+    }
+
+    private func clearAlbums() {
+        orderedAlbumKeys = []
+        reasonsByAlbumKey = [:]
     }
 
     func finishRetryCooldown() {
@@ -2286,6 +2345,25 @@ final class AIRecommendationViewModel {
         guard case .success(let summary, _, _, _, _) = feedback else { return nil }
         let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+extension AIRecommendationUnit {
+    var localizedTitle: String {
+        switch self {
+        case .songs: String(localized: "ai_recommendation_unit_songs")
+        case .albums: String(localized: "ai_recommendation_unit_albums")
+        case .mixed: String(localized: "ai_recommendation_unit_mixed")
+        }
+    }
+
+    /// 电视设置里按一下换到的下一档。
+    var next: AIRecommendationUnit {
+        switch self {
+        case .mixed: .songs
+        case .songs: .albums
+        case .albums: .mixed
+        }
     }
 }
 

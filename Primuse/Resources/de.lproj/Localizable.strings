@@ -3303,6 +3303,11 @@
 "ai_settings_advanced_collapsed" = "Eingeklappt";
 "ai_settings_advanced_show" = "Einblenden";
 "ai_settings_advanced_hide" = "Ausblenden";
+"ai_recommendation_unit" = "Empfehlen nach";
+"ai_recommendation_unit_songs" = "Titel";
+"ai_recommendation_unit_albums" = "Alben";
+"ai_recommendation_unit_mixed" = "Gemischt";
+"ai_recommendation_unit_footer" = "Bei „Gemischt“ sind die ersten zwei Karten in „Für dich“ auf der Startseite ganze Alben, der Rest sind Titel. Alben laufen in der Originalreihenfolge, per CUE geteilte Alben nach ihren Titelnummern.";
 "ai_listening_context_consent" = "Minimierte Hörvorlieben und Kandidatendaten senden";
 "ai_recommendation_home_title" = "Szenenempfehlungen";
 "ai_recommendation_scene_automatic" = "Jetzt";

@@ -567,6 +567,89 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         XCTAssertEqual(events.count, 3)
     }
 
+    func testMixedRecommendationSendsAlbumsAndReadsBackAlbumPicks() async throws {
+        let host = "primuse-relay-recommendation-albums.invalid"
+        let items = (0..<12).map { index in
+            ["song_id": "song-\(index)", "reason": "Reason \(index)"]
+        }
+        let album: [String: Any] = ["album_id": "album-2", "score": 0.9, "reason": "Whole album"]
+        let lines: [[String: Any]] = [
+            ["type": "started"],
+            ["type": "progress", "data": ["item": items[0]]],
+            ["type": "progress", "data": ["album": album]],
+            ["type": "progress", "data": ["album": ["album_id": "invented", "reason": "x"]]],
+            ["type": "complete", "data": ["items": items, "albums": [album]] as [String: Any]],
+        ]
+        PrimuseRelayURLProtocol.configure(
+            host: host,
+            featureBody: try lines.map {
+                String(decoding: try JSONSerialization.data(withJSONObject: $0), as: UTF8.self)
+            }.joined(separator: "\n") + "\n",
+            featureContentType: "application/x-ndjson; charset=utf-8"
+        )
+        let credentials = TestPrimuseRelayCredentialStore(
+            credential: PrimuseAIRelayCredential(
+                keyID: "test-app-attest-key",
+                installationID: "test-installation"
+            )
+        )
+        let (client, session, _, _) = makeClient(host: host, credentials: credentials)
+        defer { session.invalidateAndCancel() }
+
+        var events: [AIRecommendationStreamEvent] = []
+        for try await event in await client.recommendationEvents(mixedRecommendationRequest()) {
+            events.append(event)
+        }
+
+        XCTAssertEqual(Array(events.prefix(2)), [
+            .selection(AIRecommendationSelection(songID: "song-0", reason: "Reason 0")),
+            .selection(AIRecommendationSelection(albumKey: "album-2", reason: "Whole album")),
+        ])
+        guard case .completed(let plan) = events.last else {
+            return XCTFail("Expected a completed recommendation plan")
+        }
+        XCTAssertEqual(plan.songSelections.count, 12)
+        XCTAssertEqual(plan.albumSelections.map(\.albumKey), ["album-2"])
+
+        let feature = try XCTUnwrap(PrimuseRelayURLProtocol.requests(host: host).first {
+            $0.url?.path == "/v1/recommendations"
+        })
+        let body = try jsonObject(feature)
+        XCTAssertEqual(body["unit"] as? String, "mixed")
+        XCTAssertEqual(body["maximum_album_results"] as? Int, 2)
+        let albums = try XCTUnwrap(body["album_candidates"] as? [[String: Any]])
+        XCTAssertEqual(albums.compactMap { $0["album_id"] as? String }, ["album-0", "album-1", "album-2"])
+        XCTAssertEqual(albums.first?["track_count"] as? Int, 10)
+        XCTAssertEqual((body["candidates"] as? [[String: Any]])?.count, 12)
+    }
+
+    func testSongsRecommendationRequestStaysWithoutAlbumFields() async throws {
+        let host = "primuse-relay-recommendation-songs-only.invalid"
+        PrimuseRelayURLProtocol.configure(host: host, featureBody: try recommendationResponse())
+        let credentials = TestPrimuseRelayCredentialStore(
+            credential: PrimuseAIRelayCredential(
+                keyID: "test-app-attest-key",
+                installationID: "test-installation"
+            )
+        )
+        let (client, session, _, _) = makeClient(host: host, credentials: credentials)
+        defer { session.invalidateAndCancel() }
+
+        // A service that predates albums answers a mixed request with songs only.
+        let plan = try await client.recommendations(mixedRecommendationRequest())
+        XCTAssertEqual(plan.songSelections.count, 12)
+        XCTAssertTrue(plan.albumSelections.isEmpty)
+
+        _ = try await client.recommendations(recommendationRequest())
+        let features = PrimuseRelayURLProtocol.requests(host: host).filter {
+            $0.url?.path == "/v1/recommendations"
+        }
+        let songsBody = try jsonObject(try XCTUnwrap(features.last))
+        XCTAssertNil(songsBody["unit"])
+        XCTAssertNil(songsBody["album_candidates"])
+        XCTAssertNil(songsBody["maximum_album_results"])
+    }
+
     func testRecommendationCompletionKeepsAlreadyRenderedPrefix() {
         let request = recommendationRequest()
         let streamed = [
@@ -1235,6 +1318,25 @@ final class PrimuseAIRelayClientTests: XCTestCase {
                     songID: "song-\(index)",
                     title: "Song \(index)",
                     artist: "Artist \(index)"
+                )
+            }
+        )
+    }
+
+    private func mixedRecommendationRequest() -> AIRecommendationRequest {
+        let songs = recommendationRequest().candidates
+        return AIRecommendationRequest(
+            scene: .focus,
+            preferences: [],
+            candidates: songs,
+            unit: .mixed,
+            albumCandidates: (0..<3).map { index in
+                AIRecommendationAlbumCandidate(
+                    albumKey: "album-\(index)",
+                    title: "Album \(index)",
+                    artist: "Artist \(index)",
+                    trackCount: 10,
+                    durationSeconds: 2_400
                 )
             }
         )

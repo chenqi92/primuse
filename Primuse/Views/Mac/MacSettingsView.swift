@@ -875,6 +875,9 @@ private struct MacSTIntelligenceView: View {
     @State private var providerEditorScrollRequest = 0
     /// 歌词翻译开关与「歌词」设置页同源。
     @State private var lyricsTranslation = LyricsTranslationSettingsStore.shared
+    /// 首页「为你推荐」的推荐单位:歌曲 / 专辑 / 混合。
+    @AppStorage(AIRecommendationUnit.storageKey)
+    private var recommendationUnitRawValue = AIRecommendationUnit.defaultUnit.rawValue
     /// 「高级」(连接测试、我的 AI 服务、降级、隐私)展开过就记着。
     @AppStorage("primuse.ai.settings.advancedExpanded") private var showsAdvanced = false
     @Environment(\.settingsFocusedAnchor) private var focusedSettingsAnchor
@@ -937,6 +940,19 @@ private struct MacSTIntelligenceView: View {
                         MacSTToggle(isOn: editor.recommendationsBinding)
                     }
                     .settingsAnchor("intelligence.recommendations")
+                    MacSTRow(
+                        String(localized: "ai_recommendation_unit"),
+                        hint: String(localized: "ai_recommendation_unit_footer")
+                    ) {
+                        MacSTPicker(
+                            selection: $recommendationUnitRawValue,
+                            options: [AIRecommendationUnit.songs, .albums, .mixed].map {
+                                ($0.rawValue, $0.localizedTitle)
+                            },
+                            width: 160
+                        )
+                    }
+                    .settingsAnchor("intelligence.recommendationUnit")
                     MacSTRow(String(localized: "lyrics_translation_enabled")) {
                         MacSTToggle(isOn: $lyricsTranslation.isEnabled.pmAnimated(.list))
                     }

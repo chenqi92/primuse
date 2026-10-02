@@ -241,4 +241,27 @@ struct AlbumRecommenderTests {
         #expect(picks.first?.albumID == "jazz-4")
         #expect(picks.first?.reason == .recentVibe(.jazz))
     }
+
+    @Test("A longer ranked list starts with the moment's picks, so the home row can take the rest")
+    func rankedListExtendsPicks() throws {
+        let now = date(2026, 10, 2, 20)
+        var songs: [ListeningTestSong] = []
+        // Fewer artists than picks: the fill-up order must match too.
+        for index in 0..<12 { songs += album("al-\(index)", artist: "Artist \(index % 4)") }
+        let index = try #require(AlbumCandidateIndex.build(songs: songs, libraryGeneration: 1))
+        let context = AlbumRecommendationContext(
+            moment: ListeningMoment.resolve(at: now, calendar: calendar),
+            now: now,
+            events: []
+        )
+        let picks = AlbumRecommender.recommend(index: index, context: context).picks.map(\.albumID)
+        let ranked = AlbumRecommender.rankedCandidates(
+            index: index,
+            context: context,
+            limit: AlbumRecommender.pickCount + 12
+        ).map(\.albumID)
+        #expect(Array(ranked.prefix(AlbumRecommender.pickCount)) == picks)
+        #expect(Set(ranked).count == ranked.count)
+        #expect(ranked.count == 12)
+    }
 }

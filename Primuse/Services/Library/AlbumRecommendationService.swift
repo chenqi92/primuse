@@ -23,8 +23,13 @@ final class AlbumRecommendationService {
     nonisolated static let dismissedLimit = 500
     /// The home section's switch (iPhone/iPad home editor, Mac settings).
     nonisolated static let homeVisibilityKey = "primuse.home.showAlbumPick"
+    /// Whole albums ranked after the moment's picks, for the album cards at
+    /// the head of "For You" (and the candidates an AI service reranks).
+    nonisolated static let forYouAlbumCount = 12
 
     private(set) var recommendations: AlbumRecommendationSet?
+    /// Ranked right after `picks`, so the two never show the same album.
+    private(set) var forYouAlbums: [AlbumRecommendation] = []
     private(set) var selectedIndex = 0
     /// Bumped whenever a refresh lands, for views that key work on it.
     private(set) var revision = 0
@@ -123,7 +128,7 @@ final class AlbumRecommendationService {
         let startedAt = ProcessInfo.processInfo.systemUptime
 
         refreshTask = Task { @MainActor [weak self] in
-            let worker = Task.detached(priority: .utility) { () -> (AlbumCandidateIndex, AlbumRecommendationSet, [String: [String]])? in
+            let worker = Task.detached(priority: .utility) { () -> (AlbumCandidateIndex, AlbumRecommendationSet, [AlbumRecommendation], [String: [String]])? in
                 guard let index = reusableIndex ?? AlbumCandidateIndex.build(
                     librarySongs: songs,
                     libraryGeneration: generation,
@@ -137,7 +142,9 @@ final class AlbumRecommendationService {
                         playedAt: entry.playedAt
                     )
                 }
-                let set = AlbumRecommender.recommend(
+                // One ranked list: its head is exactly `recommend`'s picks,
+                // the rest feeds the album cards in "For You".
+                let ranked = AlbumRecommender.rankedCandidates(
                     index: index,
                     context: AlbumRecommendationContext(
                         moment: moment,
@@ -146,10 +153,16 @@ final class AlbumRecommendationService {
                         likedAlbumIDs: likedAlbumIDs,
                         likedArtistKeys: likedArtistKeys,
                         dismissedAlbumIDs: dismissed
-                    )
+                    ),
+                    limit: AlbumRecommender.pickCount + Self.forYouAlbumCount
                 )
+                let set = AlbumRecommendationSet(
+                    moment: moment,
+                    picks: Array(ranked.prefix(AlbumRecommender.pickCount))
+                )
+                let forYou = Array(ranked.dropFirst(AlbumRecommender.pickCount))
                 guard !Task.isCancelled else { return nil }
-                return (index, set, Self.trackOrder(for: set.picks, in: songs))
+                return (index, set, forYou, Self.trackOrder(for: ranked, in: songs))
             }
             let result = await withTaskCancellationHandler {
                 await worker.value
@@ -159,11 +172,12 @@ final class AlbumRecommendationService {
             guard let self else { return }
             self.refreshTask = nil
             if let result {
-                let (index, set, order) = result
+                let (index, set, forYou, order) = result
                 if reusableIndex == nil {
                     self.index = index
                     self.indexBuiltAt = now
                 }
+                self.forYouAlbums = forYou
                 self.apply(set, trackOrder: order)
                 plog(String(
                     format: "🎯 album pick %@ picks=%d candidates=%d index=%@ %.0fms",
@@ -242,11 +256,21 @@ final class AlbumRecommendationService {
             selectedIndex = remaining.isEmpty ? 0 : min(selectedIndex, remaining.count - 1)
             revision &+= 1
         }
+        forYouAlbums.removeAll { $0.albumID == albumID }
         forcePicksOnNextRefresh = true
         if let library { refresh(library: library) }
     }
 
     var dismissedAlbumIDs: Set<String> { Set(dismissedAlbumIDsInOrder) }
+
+    /// Album cards for the head of "For You": the albums ranked after the
+    /// moment's picks. A small library that runs out there borrows the
+    /// moment's alternates — never the one the album card is showing now.
+    func forYouAlbumCandidates(excludingCurrentPick: Bool) -> [AlbumRecommendation] {
+        guard forYouAlbums.isEmpty else { return forYouAlbums }
+        let current = excludingCurrentPick ? currentPick?.albumID : nil
+        return picks.filter { $0.albumID != current }
+    }
 
     private var dismissedAlbumIDsInOrder: [String] {
         defaults.stringArray(forKey: Self.dismissedKey) ?? []
@@ -309,6 +333,20 @@ extension ListeningMoment {
 }
 
 extension AlbumRecommendation {
+    /// 交给智能服务重排的整张专辑候选;流派取曲库里这张专辑自己的。
+    func intelligenceCandidate(genre: String?) -> AIRecommendationAlbumCandidate {
+        let duration = totalDuration.isFinite ? max(0, totalDuration) : 0
+        return AIRecommendationAlbumCandidate(
+            albumKey: albumID,
+            title: title,
+            artist: artistName,
+            genre: genre,
+            year: year,
+            trackCount: trackCount,
+            durationSeconds: Int(min(duration, 360_000).rounded())
+        )
+    }
+
     /// "2001 · 12 songs · 48 min"
     var detailLine: String {
         var parts: [String] = []
