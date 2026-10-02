@@ -5178,3 +5178,25 @@
 "podcast_genre_1305" = "Çocuk ve Aile";
 "podcast_genre_1314" = "Din ve Maneviyat";
 "podcast_genre_1511" = "Hükümet";
+
+/* Equalizer: named presets and output-device switching */
+"eq_save_as_preset" = "Ön ayar olarak kaydet";
+"eq_save_preset_title" = "Yeni ön ayar olarak kaydet";
+"eq_save_preset_message" = "Geçerli eğriye bir ad verin. Tek dokunuşla ona geçebilir ya da bir çıkış aygıtına bağlayabilirsiniz.";
+"eq_preset_name_placeholder" = "Ön ayar adı";
+"eq_user_preset_default_name_format" = "Ön ayarım %d";
+"eq_rename_preset" = "Yeniden adlandır";
+"eq_overwrite_preset" = "Geçerli eğriyle değiştir";
+"eq_delete_preset" = "Ön ayarı sil";
+"eq_device_section_title" = "Çıkış aygıtına göre değiştir";
+"eq_device_section_hint" = "Kulaklık, Bluetooth aygıtı ya da harici DAC için bir ön ayar seçin. Aygıt bağlanınca uygulanır, bağlantı kesilince önceki eğriye dönülür.";
+"eq_device_current" = "Geçerli çıkış";
+"eq_device_no_auto_switch" = "Değiştirme";
+"eq_device_remove" = "Kaldır";
+"eq_device_unavailable" = "Geçerli çıkış aygıtı okunamadı";
+"eq_device_kind_builtin" = "Dahili hoparlör";
+"eq_device_kind_headphones" = "Kablolu kulaklık";
+"eq_device_kind_bluetooth" = "Bluetooth";
+"eq_device_kind_usb" = "USB ses";
+"eq_device_kind_car" = "Araç ses sistemi";
+"eq_device_kind_other" = "Diğer çıkış";

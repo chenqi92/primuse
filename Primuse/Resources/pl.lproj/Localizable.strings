@@ -5178,3 +5178,25 @@
 "podcast_genre_1305" = "Dzieci i rodzina";
 "podcast_genre_1314" = "Religia i duchowość";
 "podcast_genre_1511" = "Administracja";
+
+/* Equalizer: named presets and output-device switching */
+"eq_save_as_preset" = "Zapisz jako ustawienie";
+"eq_save_preset_title" = "Zapisz jako nowe ustawienie";
+"eq_save_preset_message" = "Nazwij bieżącą krzywą. Możesz przełączyć się na nią jednym dotknięciem lub przypisać ją do urządzenia wyjściowego.";
+"eq_preset_name_placeholder" = "Nazwa ustawienia";
+"eq_user_preset_default_name_format" = "Moje ustawienie %d";
+"eq_rename_preset" = "Zmień nazwę";
+"eq_overwrite_preset" = "Zastąp bieżącą krzywą";
+"eq_delete_preset" = "Usuń ustawienie";
+"eq_device_section_title" = "Przełączaj według wyjścia audio";
+"eq_device_section_hint" = "Wybierz ustawienie dla słuchawek, urządzeń Bluetooth lub zewnętrznego DAC. Zostanie włączone po podłączeniu, a po rozłączeniu wróci poprzednia krzywa.";
+"eq_device_current" = "Bieżące wyjście";
+"eq_device_no_auto_switch" = "Nie przełączaj";
+"eq_device_remove" = "Usuń";
+"eq_device_unavailable" = "Nie można odczytać bieżącego wyjścia audio";
+"eq_device_kind_builtin" = "Wbudowany głośnik";
+"eq_device_kind_headphones" = "Słuchawki przewodowe";
+"eq_device_kind_bluetooth" = "Bluetooth";
+"eq_device_kind_usb" = "Audio USB";
+"eq_device_kind_car" = "Car audio";
+"eq_device_kind_other" = "Inne wyjście";

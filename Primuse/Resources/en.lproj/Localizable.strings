@@ -5035,3 +5035,25 @@
 "podcast_genre_1305" = "Kids & Family";
 "podcast_genre_1314" = "Religion & Spirituality";
 "podcast_genre_1511" = "Government";
+
+/* Equalizer: named presets and output-device switching */
+"eq_save_as_preset" = "Save as Preset";
+"eq_save_preset_title" = "Save as New Preset";
+"eq_save_preset_message" = "Name the current curve. You can switch to it in one tap or link it to an output device.";
+"eq_preset_name_placeholder" = "Preset Name";
+"eq_user_preset_default_name_format" = "My Preset %d";
+"eq_rename_preset" = "Rename";
+"eq_overwrite_preset" = "Replace with Current Curve";
+"eq_delete_preset" = "Delete Preset";
+"eq_device_section_title" = "Switch by Output Device";
+"eq_device_section_hint" = "Pick a preset for headphones, Bluetooth devices or an external DAC. It's applied when the device connects, and your previous curve comes back when it disconnects.";
+"eq_device_current" = "Current Output";
+"eq_device_no_auto_switch" = "Don't Switch";
+"eq_device_remove" = "Remove";
+"eq_device_unavailable" = "Current output device unavailable";
+"eq_device_kind_builtin" = "Built-in Speaker";
+"eq_device_kind_headphones" = "Wired Headphones";
+"eq_device_kind_bluetooth" = "Bluetooth";
+"eq_device_kind_usb" = "USB Audio";
+"eq_device_kind_car" = "Car Audio";
+"eq_device_kind_other" = "Other Output";

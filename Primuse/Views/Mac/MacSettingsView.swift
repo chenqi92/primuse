@@ -2333,12 +2333,29 @@ private final class MacShortcutRecorderNSView: NSView {
 
 private struct MacSTEqualizerView: View {
     @Environment(EqualizerService.self) private var eq
+    @State private var presetNameDraft = ""
+    @State private var isNamingNewPreset = false
+    @State private var renamingPreset: EQPreset?
 
     private var presets: [EQPreset] {
-        EQPreset.builtInPresets + [eq.customPreset]
+        EQPreset.builtInPresets + eq.userPresets + [eq.customPreset]
     }
 
     var body: some View {
+        // 一个容器挂弹框,别让两个 alert 分别挂到每个分区上。
+        VStack(alignment: .leading, spacing: 0) {
+            content
+        }
+        .eqPresetNamingAlerts(
+            eq: eq,
+            draft: $presetNameDraft,
+            isNamingNewPreset: $isNamingNewPreset,
+            renamingPreset: $renamingPreset
+        )
+    }
+
+    @ViewBuilder
+    private var content: some View {
         @Bindable var eq = eq
 
         MacSTSection(Lz("10-Band Equalizer")) {
@@ -2376,15 +2393,45 @@ private struct MacSTEqualizerView: View {
                                           selected: preset.id == eq.currentPreset.id)
                             }
                             .buttonStyle(.plain)
+                            .contextMenu {
+                                if preset.id.hasPrefix(EQPresetLibrary.userPresetIDPrefix) {
+                                    userPresetMenu(preset)
+                                }
+                            }
                         }
                         MacSTButton(title: Lz("Reset")) {
                             pmWithAnimation(.selection) { eq.reset() }
+                        }
+                        if eq.canAddPreset {
+                            MacSTButton(title: String(localized: "eq_save_as_preset"), systemImage: "plus") {
+                                presetNameDraft = eq.suggestedPresetName
+                                isNamingNewPreset = true
+                            }
                         }
                     }
                 }
                 .settingsAnchor("equalizer.reset")
             }
         }
+
+        MacSTSection(String(localized: "eq_device_section_title"), hint: String(localized: "eq_device_section_hint")) {
+            MacSTGroup {
+                if let device = eq.currentOutputDevice {
+                    deviceRow(device, presetID: eq.currentDeviceBinding?.presetID, isCurrent: true, divider: false)
+                } else if eq.bindingRows.isEmpty {
+                    MacSTRow(String(localized: "eq_device_unavailable"), divider: false) { EmptyView() }
+                }
+                ForEach(Array(eq.bindingRows.enumerated()), id: \.element.id) { index, binding in
+                    deviceRow(
+                        binding.device,
+                        presetID: binding.presetID,
+                        isCurrent: false,
+                        divider: index > 0 || eq.currentOutputDevice != nil
+                    )
+                }
+            }
+        }
+        .settingsAnchor("equalizer.devices")
 
         MacEQFaderCard(
             bands: eq.bandFrequencyLabels,
@@ -2398,6 +2445,61 @@ private struct MacSTEqualizerView: View {
             )
         )
         .settingsAnchor("equalizer.bands")
+    }
+
+    @ViewBuilder
+    private func userPresetMenu(_ preset: EQPreset) -> some View {
+        Button(String(localized: "eq_rename_preset")) {
+            presetNameDraft = preset.name
+            renamingPreset = preset
+        }
+        if preset.bands != eq.bands {
+            Button(String(localized: "eq_overwrite_preset")) {
+                eq.overwritePreset(id: preset.id)
+            }
+        }
+        Divider()
+        Button(String(localized: "eq_delete_preset"), role: .destructive) {
+            pmWithAnimation(.selection) { eq.deletePreset(id: preset.id) }
+        }
+    }
+
+    /// 当前设备选「不自动切换」即解绑;别的设备多一个「移除」。
+    private func deviceRow(
+        _ device: EQOutputDevice,
+        presetID: String?,
+        isCurrent: Bool,
+        divider: Bool
+    ) -> some View {
+        let noAutoSwitch = "eq.device.noAutoSwitch"
+        var options: [(value: String, label: String)] = []
+        if isCurrent {
+            options.append((noAutoSwitch, String(localized: "eq_device_no_auto_switch")))
+        }
+        options += eq.bindablePresets.map { ($0.id, $0.localizedName) }
+        return MacSTRow(
+            device.eqDisplayName,
+            hint: isCurrent ? String(localized: "eq_device_current") : device.kind.eqLocalizedName,
+            divider: divider
+        ) {
+            HStack(spacing: 8) {
+                MacSTPicker(
+                    selection: Binding(
+                        get: { presetID ?? noAutoSwitch },
+                        set: { value in
+                            eq.setBinding(for: device, presetID: value == noAutoSwitch ? nil : value)
+                        }
+                    ),
+                    options: options,
+                    width: 180
+                )
+                if !isCurrent {
+                    MacSTButton(title: String(localized: "eq_device_remove"), destructive: true) {
+                        eq.setBinding(for: device, presetID: nil)
+                    }
+                }
+            }
+        }
     }
 }
 

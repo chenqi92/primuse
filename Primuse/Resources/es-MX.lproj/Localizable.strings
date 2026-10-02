@@ -5178,3 +5178,25 @@
 "podcast_genre_1305" = "Niños y familia";
 "podcast_genre_1314" = "Religión y espiritualidad";
 "podcast_genre_1511" = "Gobierno";
+
+/* Equalizer: named presets and output-device switching */
+"eq_save_as_preset" = "Guardar como preajuste";
+"eq_save_preset_title" = "Guardar como nuevo preajuste";
+"eq_save_preset_message" = "Ponle nombre a la curva actual. Podrás cambiar a ella con un toque o asignarla a una salida de audio.";
+"eq_preset_name_placeholder" = "Nombre del preajuste";
+"eq_user_preset_default_name_format" = "Mi preajuste %d";
+"eq_rename_preset" = "Renombrar";
+"eq_overwrite_preset" = "Reemplazar con la curva actual";
+"eq_delete_preset" = "Eliminar preajuste";
+"eq_device_section_title" = "Cambiar según la salida de audio";
+"eq_device_section_hint" = "Elige un preajuste para audífonos, dispositivos Bluetooth o un DAC externo. Se aplica al conectarse y, al desconectarse, vuelve la curva anterior.";
+"eq_device_current" = "Salida actual";
+"eq_device_no_auto_switch" = "No cambiar";
+"eq_device_remove" = "Quitar";
+"eq_device_unavailable" = "No se puede leer la salida de audio actual";
+"eq_device_kind_builtin" = "Bocina integrada";
+"eq_device_kind_headphones" = "Audífonos con cable";
+"eq_device_kind_bluetooth" = "Bluetooth";
+"eq_device_kind_usb" = "Audio USB";
+"eq_device_kind_car" = "Estéreo del auto";
+"eq_device_kind_other" = "Otra salida";

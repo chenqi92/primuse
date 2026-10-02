@@ -3,13 +3,101 @@ import PrimuseKit
 
 struct EqualizerView: View {
     @Environment(EqualizerService.self) private var eq
+    @State private var presetNameDraft = ""
+    @State private var isNamingNewPreset = false
+    @State private var renamingPreset: EQPreset?
 
     var body: some View {
-        #if os(macOS)
-        macBody
-        #else
-        iosBody
-        #endif
+        Group {
+            #if os(macOS)
+            macBody
+            #else
+            iosBody
+            #endif
+        }
+        .eqPresetNamingAlerts(
+            eq: eq,
+            draft: $presetNameDraft,
+            isNamingNewPreset: $isNamingNewPreset,
+            renamingPreset: $renamingPreset
+        )
+    }
+
+    private func beginNewPreset() {
+        presetNameDraft = eq.suggestedPresetName
+        isNamingNewPreset = true
+    }
+
+    private func beginRename(_ preset: EQPreset) {
+        presetNameDraft = preset.name
+        renamingPreset = preset
+    }
+
+    /// 内置预设、用户存的预设、自定义曲线,外加一张「存为预设」卡。
+    @ViewBuilder
+    private var presetCards: some View {
+        ForEach(EQPreset.builtInPresets) { preset in
+            presetCard(preset)
+        }
+        ForEach(eq.userPresets) { preset in
+            presetCard(preset)
+                .contextMenu { userPresetMenu(preset) }
+        }
+        presetCard(eq.customPreset)
+        if eq.canAddPreset {
+            savePresetCard
+        }
+    }
+
+    @ViewBuilder
+    private func userPresetMenu(_ preset: EQPreset) -> some View {
+        Button {
+            beginRename(preset)
+        } label: {
+            Label("eq_rename_preset", systemImage: "pencil")
+        }
+        if preset.bands != eq.bands {
+            Button {
+                eq.overwritePreset(id: preset.id)
+            } label: {
+                Label("eq_overwrite_preset", systemImage: "square.and.arrow.down")
+            }
+        }
+        Divider()
+        Button(role: .destructive) {
+            eq.deletePreset(id: preset.id)
+        } label: {
+            Label("eq_delete_preset", systemImage: "trash")
+        }
+    }
+
+    private var savePresetCard: some View {
+        Button(action: beginNewPreset) {
+            VStack(spacing: 5) {
+                Image(systemName: "plus")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(height: 34)
+                    .frame(maxWidth: .infinity)
+                Text("eq_save_as_preset")
+                    .font(.caption2)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .foregroundStyle(Color.accentColor)
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(
+                        Color.accentColor.opacity(0.45),
+                        style: StrokeStyle(lineWidth: 1, dash: [4, 3])
+                    )
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("eq_save_as_preset"))
     }
 
     #if os(macOS)
@@ -46,16 +134,22 @@ struct EqualizerView: View {
 
             Section {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 8)], spacing: 8) {
-                    ForEach(EQPreset.builtInPresets) { preset in
-                        presetCard(preset)
-                    }
-                    presetCard(eq.customPreset)
+                    presetCards
                 }
                 .padding(.vertical, 4)
             } header: {
                 Text("eq_preset")
             }
             .settingsAnchor("equalizer.preset")
+
+            Section {
+                EQDeviceBindingList(eq: eq)
+            } header: {
+                Text("eq_device_section_title")
+            } footer: {
+                Text("eq_device_section_hint")
+            }
+            .settingsAnchor("equalizer.devices")
         }
         .formStyle(.grouped)
     }
@@ -94,15 +188,32 @@ struct EqualizerView: View {
             // 预设:填充下半部分空白,每个预设以迷你均衡曲线 + 名称呈现
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 80), spacing: 10)], spacing: 10) {
-                    ForEach(EQPreset.builtInPresets) { preset in
-                        presetCard(preset)
-                    }
-                    presetCard(eq.customPreset)
+                    presetCards
                 }
                 .padding(.horizontal)
                 .padding(.bottom, 8)
+                .settingsAnchor("equalizer.preset")
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("eq_device_section_title")
+                        .font(.headline)
+                    Text("eq_device_section_hint")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    EQDeviceBindingList(eq: eq)
+                        .padding(.horizontal, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(.ultraThinMaterial)
+                        )
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal)
+                .padding(.top, 8)
+                .padding(.bottom, 16)
+                .settingsAnchor("equalizer.devices")
             }
-            .settingsAnchor("equalizer.preset")
             .frame(maxHeight: .infinity)
         }
         .padding(.vertical)
@@ -169,6 +280,189 @@ struct EqualizerView: View {
                 .font(.system(size: 9))
                 .foregroundStyle(.secondary)
         }
+    }
+}
+
+// MARK: - Output Device Bindings
+
+/// 当前输出设备与绑定过预设的设备:每行一个预设菜单,选「不自动切换」即解绑。
+struct EQDeviceBindingList: View {
+    let eq: EqualizerService
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if let device = eq.currentOutputDevice {
+                row(device: device, presetID: eq.currentDeviceBinding?.presetID, isCurrent: true)
+            } else if eq.bindingRows.isEmpty {
+                Text("eq_device_unavailable")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 12)
+            }
+            ForEach(Array(eq.bindingRows.enumerated()), id: \.element.id) { index, binding in
+                if index > 0 || eq.currentOutputDevice != nil {
+                    Divider()
+                }
+                row(device: binding.device, presetID: binding.presetID, isCurrent: false)
+            }
+        }
+    }
+
+    private func row(device: EQOutputDevice, presetID: String?, isCurrent: Bool) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: device.kind.eqSymbolName)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: device.eqDisplayName)
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+                Text(verbatim: isCurrent
+                    ? String(localized: "eq_device_current")
+                    : device.kind.eqLocalizedName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Menu {
+                if isCurrent {
+                    Button {
+                        eq.setBinding(for: device, presetID: nil)
+                    } label: {
+                        EQMenuCheckLabel(title: String(localized: "eq_device_no_auto_switch"), selected: presetID == nil)
+                    }
+                    Divider()
+                }
+                ForEach(eq.bindablePresets) { preset in
+                    Button {
+                        eq.setBinding(for: device, presetID: preset.id)
+                    } label: {
+                        EQMenuCheckLabel(title: preset.localizedName, selected: preset.id == presetID)
+                    }
+                }
+                if !isCurrent {
+                    Divider()
+                    Button(role: .destructive) {
+                        eq.setBinding(for: device, presetID: nil)
+                    } label: {
+                        Label("eq_device_remove", systemImage: "minus.circle")
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(verbatim: presetID.flatMap { eq.preset(withID: $0)?.localizedName }
+                        ?? String(localized: "eq_device_no_auto_switch"))
+                        .lineLimit(1)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2.weight(.semibold))
+                }
+                .font(.subheadline)
+                .foregroundStyle(presetID == nil ? Color.secondary : Color.accentColor)
+            }
+            #if os(macOS)
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            #endif
+        }
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+    }
+}
+
+/// 菜单里的选中项只靠勾选图标表达;macOS 27 起菜单默认隐藏图标,要显式要求显示。
+struct EQMenuCheckLabel: View {
+    let title: String
+    let selected: Bool
+
+    var body: some View {
+        if selected {
+            Label {
+                Text(verbatim: title)
+            } icon: {
+                Image(systemName: "checkmark")
+            }
+            .labelStyle(.titleAndIcon)
+        } else {
+            Text(verbatim: title)
+        }
+    }
+}
+
+extension EQOutputDevice {
+    /// 系统没给名字时用设备类型代替。
+    var eqDisplayName: String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? kind.eqLocalizedName : trimmed
+    }
+}
+
+extension EQOutputDevice.Kind {
+    var eqSymbolName: String {
+        switch self {
+        case .builtInSpeaker: return "speaker.wave.2"
+        case .headphones: return "headphones"
+        case .bluetooth: return "beats.headphones"
+        case .usb: return "cable.connector"
+        case .airPlay: return "airplayaudio"
+        case .carAudio: return "car"
+        case .hdmi: return "tv"
+        case .other: return "hifispeaker"
+        }
+    }
+
+    var eqLocalizedName: String {
+        switch self {
+        case .builtInSpeaker: return String(localized: "eq_device_kind_builtin")
+        case .headphones: return String(localized: "eq_device_kind_headphones")
+        case .bluetooth: return String(localized: "eq_device_kind_bluetooth")
+        case .usb: return String(localized: "eq_device_kind_usb")
+        case .airPlay: return "AirPlay"
+        case .carAudio: return String(localized: "eq_device_kind_car")
+        case .hdmi: return "HDMI"
+        case .other: return String(localized: "eq_device_kind_other")
+        }
+    }
+}
+
+// MARK: - Preset Naming
+
+extension View {
+    /// 「存为预设」与「重命名」两个输入名字的弹框;iOS 与 Mac 设置页共用。
+    func eqPresetNamingAlerts(
+        eq: EqualizerService,
+        draft: Binding<String>,
+        isNamingNewPreset: Binding<Bool>,
+        renamingPreset: Binding<EQPreset?>
+    ) -> some View {
+        let isRenaming = Binding(
+            get: { renamingPreset.wrappedValue != nil },
+            set: { if !$0 { renamingPreset.wrappedValue = nil } }
+        )
+        let nameIsUsable = EQPresetLibrary.normalizedName(draft.wrappedValue) != nil
+        return self
+            .alert("eq_save_preset_title", isPresented: isNamingNewPreset) {
+                TextField("eq_preset_name_placeholder", text: draft)
+                Button("cancel", role: .cancel) {}
+                Button("save") {
+                    _ = eq.saveCurrentCurve(named: draft.wrappedValue)
+                }
+                .disabled(!nameIsUsable)
+            } message: {
+                Text("eq_save_preset_message")
+            }
+            .alert("eq_rename_preset", isPresented: isRenaming) {
+                TextField("eq_preset_name_placeholder", text: draft)
+                Button("cancel", role: .cancel) {}
+                Button("save") {
+                    if let preset = renamingPreset.wrappedValue {
+                        eq.renamePreset(id: preset.id, to: draft.wrappedValue)
+                    }
+                }
+                .disabled(!nameIsUsable)
+            }
     }
 }
 

@@ -5249,3 +5249,25 @@
 "podcast_genre_1305" = "兒童與家庭";
 "podcast_genre_1314" = "宗教與心靈";
 "podcast_genre_1511" = "政府";
+
+/* Equalizer: named presets and output-device switching */
+"eq_save_as_preset" = "儲存為預設";
+"eq_save_preset_title" = "儲存為新預設";
+"eq_save_preset_message" = "替目前的曲線取個名字，之後一點就能換上，也可以綁定到某台輸出裝置。";
+"eq_preset_name_placeholder" = "預設名稱";
+"eq_user_preset_default_name_format" = "我的預設 %d";
+"eq_rename_preset" = "重新命名";
+"eq_overwrite_preset" = "用目前曲線覆蓋";
+"eq_delete_preset" = "刪除預設";
+"eq_device_section_title" = "依輸出裝置切換";
+"eq_device_section_hint" = "替耳機、藍牙裝置或外接解碼器選一個預設，連上時自動換上，中斷後換回原本的曲線。";
+"eq_device_current" = "目前輸出";
+"eq_device_no_auto_switch" = "不自動切換";
+"eq_device_remove" = "移除";
+"eq_device_unavailable" = "讀不到目前的輸出裝置";
+"eq_device_kind_builtin" = "內建揚聲器";
+"eq_device_kind_headphones" = "有線耳機";
+"eq_device_kind_bluetooth" = "藍牙";
+"eq_device_kind_usb" = "USB 音訊";
+"eq_device_kind_car" = "車用音響";
+"eq_device_kind_other" = "其他輸出裝置";

@@ -5178,3 +5178,25 @@
 "podcast_genre_1305" = "Дети и семья";
 "podcast_genre_1314" = "Религия и духовность";
 "podcast_genre_1511" = "Государство";
+
+/* Equalizer: named presets and output-device switching */
+"eq_save_as_preset" = "Сохранить как пресет";
+"eq_save_preset_title" = "Сохранить как новый пресет";
+"eq_save_preset_message" = "Дайте имя текущей кривой. На неё можно переключиться одним касанием или назначить её устройству вывода.";
+"eq_preset_name_placeholder" = "Название пресета";
+"eq_user_preset_default_name_format" = "Мой пресет %d";
+"eq_rename_preset" = "Переименовать";
+"eq_overwrite_preset" = "Заменить текущей кривой";
+"eq_delete_preset" = "Удалить пресет";
+"eq_device_section_title" = "Переключение по устройству вывода";
+"eq_device_section_hint" = "Выберите пресет для наушников, Bluetooth-устройства или внешнего ЦАП. Он включится при подключении, а после отключения вернётся прежняя кривая.";
+"eq_device_current" = "Текущий вывод";
+"eq_device_no_auto_switch" = "Не переключать";
+"eq_device_remove" = "Убрать";
+"eq_device_unavailable" = "Не удалось определить текущее устройство вывода";
+"eq_device_kind_builtin" = "Встроенный динамик";
+"eq_device_kind_headphones" = "Проводные наушники";
+"eq_device_kind_bluetooth" = "Bluetooth";
+"eq_device_kind_usb" = "USB-аудио";
+"eq_device_kind_car" = "Автомагнитола";
+"eq_device_kind_other" = "Другое устройство";

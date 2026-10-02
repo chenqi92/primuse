@@ -5272,3 +5272,25 @@
 "podcast_genre_1305" = "Jeunesse et famille";
 "podcast_genre_1314" = "Religion et spiritualité";
 "podcast_genre_1511" = "Gouvernement";
+
+/* Equalizer: named presets and output-device switching */
+"eq_save_as_preset" = "Enregistrer comme préréglage";
+"eq_save_preset_title" = "Enregistrer comme nouveau préréglage";
+"eq_save_preset_message" = "Donnez un nom à la courbe actuelle. Vous pourrez y revenir d'un geste ou l'associer à une sortie audio.";
+"eq_preset_name_placeholder" = "Nom du préréglage";
+"eq_user_preset_default_name_format" = "Mon préréglage %d";
+"eq_rename_preset" = "Renommer";
+"eq_overwrite_preset" = "Remplacer par la courbe actuelle";
+"eq_delete_preset" = "Supprimer le préréglage";
+"eq_device_section_title" = "Changer selon la sortie audio";
+"eq_device_section_hint" = "Choisissez un préréglage pour un casque, un appareil Bluetooth ou un DAC externe. Il s'applique à la connexion, et la courbe précédente revient à la déconnexion.";
+"eq_device_current" = "Sortie actuelle";
+"eq_device_no_auto_switch" = "Ne pas changer";
+"eq_device_remove" = "Retirer";
+"eq_device_unavailable" = "Sortie audio actuelle indisponible";
+"eq_device_kind_builtin" = "Haut-parleur intégré";
+"eq_device_kind_headphones" = "Écouteurs filaires";
+"eq_device_kind_bluetooth" = "Bluetooth";
+"eq_device_kind_usb" = "Audio USB";
+"eq_device_kind_car" = "Autoradio";
+"eq_device_kind_other" = "Autre sortie";

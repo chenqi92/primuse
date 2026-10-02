@@ -5272,3 +5272,25 @@
 "podcast_genre_1305" = "Kinder & Familie";
 "podcast_genre_1314" = "Religion & Spiritualität";
 "podcast_genre_1511" = "Regierung";
+
+/* Equalizer: named presets and output-device switching */
+"eq_save_as_preset" = "Als Voreinstellung sichern";
+"eq_save_preset_title" = "Als neue Voreinstellung sichern";
+"eq_save_preset_message" = "Gib der aktuellen Kurve einen Namen. Du kannst sie mit einem Tippen wählen oder einem Ausgabegerät zuordnen.";
+"eq_preset_name_placeholder" = "Name der Voreinstellung";
+"eq_user_preset_default_name_format" = "Meine Voreinstellung %d";
+"eq_rename_preset" = "Umbenennen";
+"eq_overwrite_preset" = "Mit aktueller Kurve ersetzen";
+"eq_delete_preset" = "Voreinstellung löschen";
+"eq_device_section_title" = "Nach Ausgabegerät wechseln";
+"eq_device_section_hint" = "Wähle eine Voreinstellung für Kopfhörer, Bluetooth-Geräte oder einen externen DAC. Sie wird beim Verbinden angewendet, nach dem Trennen kehrt die vorherige Kurve zurück.";
+"eq_device_current" = "Aktuelle Ausgabe";
+"eq_device_no_auto_switch" = "Nicht wechseln";
+"eq_device_remove" = "Entfernen";
+"eq_device_unavailable" = "Aktuelles Ausgabegerät nicht verfügbar";
+"eq_device_kind_builtin" = "Integrierter Lautsprecher";
+"eq_device_kind_headphones" = "Kabelkopfhörer";
+"eq_device_kind_bluetooth" = "Bluetooth";
+"eq_device_kind_usb" = "USB-Audio";
+"eq_device_kind_car" = "Autoradio";
+"eq_device_kind_other" = "Andere Ausgabe";

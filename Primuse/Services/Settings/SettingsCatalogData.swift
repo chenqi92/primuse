@@ -31,6 +31,8 @@ enum SettingsCatalogData {
         SettingDefinition(id: "equalizer.preset", titleKey: "eq_preset", iosPage: .equalizer, macPage: .equalizer, keywords: ["Current Preset"]),
         SettingDefinition(id: "equalizer.bands", titleKey: "equalizer", iosPage: .equalizer, macPage: .equalizer, keywords: ["EQ bands", "frequency", "频段", "31Hz", "62Hz", "125Hz", "250Hz", "500Hz", "1kHz", "2kHz", "4kHz", "8kHz", "16kHz"]),
         SettingDefinition(id: "equalizer.reset", titleKey: "eq_reset", iosPage: .equalizer, macPage: .equalizer, keywords: ["Reset"]),
+        SettingDefinition(id: "equalizer.savePreset", titleKey: "eq_save_as_preset", iosPage: .equalizer, macPage: .equalizer, keywords: ["保存预设", "自定义预设", "我的预设", "命名", "save preset", "custom preset"], anchor: "equalizer.preset"),
+        SettingDefinition(id: "equalizer.devices", titleKey: "eq_device_section_title", iosPage: .equalizer, macPage: .equalizer, keywords: ["蓝牙", "Bluetooth", "DAC", "解码器", "耳机", "headphones", "AirPods", "USB", "输出设备", "output device", "自动切换"]),
         SettingDefinition(id: "effects.reverb", titleKey: "reverb_enabled", iosPage: .effects, macPage: .effects, keywords: ["Toggle"]),
         SettingDefinition(id: "effects.reverbPreset", titleKey: "reverb", iosPage: .effects, macPage: .effects, keywords: ["Type"]),
         SettingDefinition(id: "effects.reverbMix", titleKey: "reverb_mix", iosPage: .effects, macPage: .effects),

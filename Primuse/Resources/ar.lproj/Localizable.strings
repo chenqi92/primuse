@@ -5178,3 +5178,25 @@
 "podcast_genre_1305" = "الأطفال والعائلة";
 "podcast_genre_1314" = "الدين والروحانيات";
 "podcast_genre_1511" = "الحكومة";
+
+/* Equalizer: named presets and output-device switching */
+"eq_save_as_preset" = "حفظ كإعداد مسبق";
+"eq_save_preset_title" = "حفظ كإعداد مسبق جديد";
+"eq_save_preset_message" = "أعطِ المنحنى الحالي اسمًا. يمكنك التبديل إليه بلمسة أو ربطه بجهاز إخراج.";
+"eq_preset_name_placeholder" = "اسم الإعداد المسبق";
+"eq_user_preset_default_name_format" = "إعدادي المسبق %d";
+"eq_rename_preset" = "إعادة التسمية";
+"eq_overwrite_preset" = "الاستبدال بالمنحنى الحالي";
+"eq_delete_preset" = "حذف الإعداد المسبق";
+"eq_device_section_title" = "التبديل حسب جهاز الإخراج";
+"eq_device_section_hint" = "اختر إعدادًا مسبقًا لسماعات الرأس أو أجهزة البلوتوث أو محول DAC خارجي. يُطبَّق عند الاتصال، ويعود المنحنى السابق عند قطع الاتصال.";
+"eq_device_current" = "الإخراج الحالي";
+"eq_device_no_auto_switch" = "بدون تبديل";
+"eq_device_remove" = "إزالة";
+"eq_device_unavailable" = "تعذّر تحديد جهاز الإخراج الحالي";
+"eq_device_kind_builtin" = "السماعة المدمجة";
+"eq_device_kind_headphones" = "سماعات سلكية";
+"eq_device_kind_bluetooth" = "بلوتوث";
+"eq_device_kind_usb" = "صوت USB";
+"eq_device_kind_car" = "صوت السيارة";
+"eq_device_kind_other" = "إخراج آخر";

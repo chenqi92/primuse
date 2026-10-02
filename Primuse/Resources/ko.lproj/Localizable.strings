@@ -5272,3 +5272,25 @@
 "podcast_genre_1305" = "어린이 및 가족";
 "podcast_genre_1314" = "종교 및 영성";
 "podcast_genre_1511" = "정부";
+
+/* Equalizer: named presets and output-device switching */
+"eq_save_as_preset" = "프리셋으로 저장";
+"eq_save_preset_title" = "새 프리셋으로 저장";
+"eq_save_preset_message" = "현재 곡선에 이름을 붙이세요. 한 번에 전환하거나 출력 기기에 연결할 수 있습니다.";
+"eq_preset_name_placeholder" = "프리셋 이름";
+"eq_user_preset_default_name_format" = "내 프리셋 %d";
+"eq_rename_preset" = "이름 변경";
+"eq_overwrite_preset" = "현재 곡선으로 덮어쓰기";
+"eq_delete_preset" = "프리셋 삭제";
+"eq_device_section_title" = "출력 기기별 전환";
+"eq_device_section_hint" = "헤드폰, 블루투스 기기, 외장 DAC마다 프리셋을 고르면 연결될 때 자동으로 적용되고, 연결이 끊기면 이전 곡선으로 돌아갑니다.";
+"eq_device_current" = "현재 출력";
+"eq_device_no_auto_switch" = "전환 안 함";
+"eq_device_remove" = "제거";
+"eq_device_unavailable" = "현재 출력 기기를 확인할 수 없음";
+"eq_device_kind_builtin" = "내장 스피커";
+"eq_device_kind_headphones" = "유선 헤드폰";
+"eq_device_kind_bluetooth" = "블루투스";
+"eq_device_kind_usb" = "USB 오디오";
+"eq_device_kind_car" = "차량 오디오";
+"eq_device_kind_other" = "기타 출력";

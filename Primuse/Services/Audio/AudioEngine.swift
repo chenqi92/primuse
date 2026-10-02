@@ -629,6 +629,9 @@ final class AudioEngine {
         if followsSystemOutput { return Self.systemDefaultOutputDeviceID() }
         return currentOutputDeviceID ?? Self.systemDefaultOutputDeviceID()
     }
+
+    /// Primuse 实际在往哪台设备输出:跟随系统时是系统默认输出,钉了设备时是钉的那台。
+    var effectiveOutputDeviceID: AudioDeviceID? { hardwareOutputDeviceID }
     #endif
 
     var currentHardwareSampleRate: Double {
@@ -830,6 +833,7 @@ final class AudioEngine {
         // 显式钉到了某设备, 退出跟随系统状态并持久化。
         UserDefaults.standard.set(false, forKey: Self.followsSystemKey)
         markHardwareConfigurationChanged()
+        NotificationCenter.default.post(name: .primuseAudioOutputSelectionDidChange, object: nil)
     }
 
     /// 让 Primuse 回到「跟随系统默认输出」—— 用户之前用 picker 钉死过某台设备
@@ -841,6 +845,7 @@ final class AudioEngine {
     func followSystemOutput() throws {
         try setUp()
         UserDefaults.standard.set(true, forKey: Self.followsSystemKey)
+        defer { NotificationCenter.default.post(name: .primuseAudioOutputSelectionDidChange, object: nil) }
         guard let engine, let outputUnit = engine.outputNode.audioUnit else { return }
 
         var addr = AudioObjectPropertyAddress(

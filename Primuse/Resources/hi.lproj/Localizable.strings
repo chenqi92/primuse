@@ -5178,3 +5178,25 @@
 "podcast_genre_1305" = "बच्चे और परिवार";
 "podcast_genre_1314" = "धर्म और अध्यात्म";
 "podcast_genre_1511" = "सरकार";
+
+/* Equalizer: named presets and output-device switching */
+"eq_save_as_preset" = "प्रीसेट के रूप में सहेजें";
+"eq_save_preset_title" = "नए प्रीसेट के रूप में सहेजें";
+"eq_save_preset_message" = "मौजूदा कर्व को एक नाम दें। आप एक टैप में उस पर स्विच कर सकते हैं या उसे किसी आउटपुट डिवाइस से जोड़ सकते हैं।";
+"eq_preset_name_placeholder" = "प्रीसेट का नाम";
+"eq_user_preset_default_name_format" = "मेरा प्रीसेट %d";
+"eq_rename_preset" = "नाम बदलें";
+"eq_overwrite_preset" = "मौजूदा कर्व से बदलें";
+"eq_delete_preset" = "प्रीसेट हटाएँ";
+"eq_device_section_title" = "आउटपुट डिवाइस के अनुसार बदलें";
+"eq_device_section_hint" = "हेडफ़ोन, ब्लूटूथ डिवाइस या बाहरी DAC के लिए एक प्रीसेट चुनें। डिवाइस जुड़ने पर यह लागू होता है और डिस्कनेक्ट होने पर पिछला कर्व लौट आता है।";
+"eq_device_current" = "मौजूदा आउटपुट";
+"eq_device_no_auto_switch" = "स्विच न करें";
+"eq_device_remove" = "हटाएँ";
+"eq_device_unavailable" = "मौजूदा आउटपुट डिवाइस नहीं पढ़ा जा सका";
+"eq_device_kind_builtin" = "बिल्ट-इन स्पीकर";
+"eq_device_kind_headphones" = "वायर्ड हेडफ़ोन";
+"eq_device_kind_bluetooth" = "ब्लूटूथ";
+"eq_device_kind_usb" = "USB ऑडियो";
+"eq_device_kind_car" = "कार ऑडियो";
+"eq_device_kind_other" = "अन्य आउटपुट";

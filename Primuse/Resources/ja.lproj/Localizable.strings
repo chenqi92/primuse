@@ -5273,3 +5273,25 @@
 "podcast_genre_1305" = "キッズとファミリー";
 "podcast_genre_1314" = "宗教とスピリチュアリティ";
 "podcast_genre_1511" = "政府";
+
+/* Equalizer: named presets and output-device switching */
+"eq_save_as_preset" = "プリセットとして保存";
+"eq_save_preset_title" = "新しいプリセットとして保存";
+"eq_save_preset_message" = "現在のカーブに名前を付けます。ワンタップで切り替えたり、出力デバイスに割り当てたりできます。";
+"eq_preset_name_placeholder" = "プリセット名";
+"eq_user_preset_default_name_format" = "マイプリセット %d";
+"eq_rename_preset" = "名前を変更";
+"eq_overwrite_preset" = "現在のカーブで上書き";
+"eq_delete_preset" = "プリセットを削除";
+"eq_device_section_title" = "出力デバイスで切り替え";
+"eq_device_section_hint" = "ヘッドフォン、Bluetooth デバイス、外付け DAC ごとにプリセットを選ぶと、接続時に自動で切り替わり、切断すると元のカーブに戻ります。";
+"eq_device_current" = "現在の出力";
+"eq_device_no_auto_switch" = "切り替えない";
+"eq_device_remove" = "削除";
+"eq_device_unavailable" = "現在の出力デバイスを取得できません";
+"eq_device_kind_builtin" = "内蔵スピーカー";
+"eq_device_kind_headphones" = "有線ヘッドフォン";
+"eq_device_kind_bluetooth" = "Bluetooth";
+"eq_device_kind_usb" = "USB オーディオ";
+"eq_device_kind_car" = "カーオーディオ";
+"eq_device_kind_other" = "その他の出力";

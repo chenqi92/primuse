@@ -5178,3 +5178,25 @@
 "podcast_genre_1305" = "Діти і сім'я";
 "podcast_genre_1314" = "Релігія і духовність";
 "podcast_genre_1511" = "Державне управління";
+
+/* Equalizer: named presets and output-device switching */
+"eq_save_as_preset" = "Зберегти як пресет";
+"eq_save_preset_title" = "Зберегти як новий пресет";
+"eq_save_preset_message" = "Дайте назву поточній кривій. На неї можна перемкнутися одним дотиком або призначити її пристрою виводу.";
+"eq_preset_name_placeholder" = "Назва пресета";
+"eq_user_preset_default_name_format" = "Мій пресет %d";
+"eq_rename_preset" = "Перейменувати";
+"eq_overwrite_preset" = "Замінити поточною кривою";
+"eq_delete_preset" = "Видалити пресет";
+"eq_device_section_title" = "Перемикання за пристроєм виводу";
+"eq_device_section_hint" = "Виберіть пресет для навушників, Bluetooth-пристрою або зовнішнього ЦАП. Він вмикається під час підключення, а після відключення повертається попередня крива.";
+"eq_device_current" = "Поточний вивід";
+"eq_device_no_auto_switch" = "Не перемикати";
+"eq_device_remove" = "Прибрати";
+"eq_device_unavailable" = "Не вдалося визначити поточний пристрій виводу";
+"eq_device_kind_builtin" = "Вбудований динамік";
+"eq_device_kind_headphones" = "Дротові навушники";
+"eq_device_kind_bluetooth" = "Bluetooth";
+"eq_device_kind_usb" = "USB-аудіо";
+"eq_device_kind_car" = "Автомагнітола";
+"eq_device_kind_other" = "Інший пристрій";

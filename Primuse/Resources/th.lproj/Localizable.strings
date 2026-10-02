@@ -5178,3 +5178,25 @@
 "podcast_genre_1305" = "เด็กและครอบครัว";
 "podcast_genre_1314" = "ศาสนาและจิตวิญญาณ";
 "podcast_genre_1511" = "รัฐบาล";
+
+/* Equalizer: named presets and output-device switching */
+"eq_save_as_preset" = "บันทึกเป็นพรีเซ็ต";
+"eq_save_preset_title" = "บันทึกเป็นพรีเซ็ตใหม่";
+"eq_save_preset_message" = "ตั้งชื่อให้เส้นโค้งปัจจุบัน แล้วสลับไปใช้ได้ในแตะเดียว หรือผูกไว้กับอุปกรณ์เอาต์พุต";
+"eq_preset_name_placeholder" = "ชื่อพรีเซ็ต";
+"eq_user_preset_default_name_format" = "พรีเซ็ตของฉัน %d";
+"eq_rename_preset" = "เปลี่ยนชื่อ";
+"eq_overwrite_preset" = "แทนที่ด้วยเส้นโค้งปัจจุบัน";
+"eq_delete_preset" = "ลบพรีเซ็ต";
+"eq_device_section_title" = "สลับตามอุปกรณ์เอาต์พุต";
+"eq_device_section_hint" = "เลือกพรีเซ็ตให้หูฟัง อุปกรณ์บลูทูธ หรือ DAC ภายนอก ระบบจะใช้เมื่อเชื่อมต่อ และกลับไปใช้เส้นโค้งเดิมเมื่อตัดการเชื่อมต่อ";
+"eq_device_current" = "เอาต์พุตปัจจุบัน";
+"eq_device_no_auto_switch" = "ไม่สลับ";
+"eq_device_remove" = "เอาออก";
+"eq_device_unavailable" = "อ่านอุปกรณ์เอาต์พุตปัจจุบันไม่ได้";
+"eq_device_kind_builtin" = "ลำโพงในตัว";
+"eq_device_kind_headphones" = "หูฟังแบบมีสาย";
+"eq_device_kind_bluetooth" = "บลูทูธ";
+"eq_device_kind_usb" = "เสียง USB";
+"eq_device_kind_car" = "เครื่องเสียงรถยนต์";
+"eq_device_kind_other" = "เอาต์พุตอื่น";
