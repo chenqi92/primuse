@@ -63,6 +63,7 @@ struct TVSettingsView: View {
     @AppStorage(PlayerAppearancePreferences.animatedArtworkEnabledKey)
     private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
     @AppStorage(TVStore.autoContinueSimilarKey) private var autoContinueSimilar = true
+    @AppStorage(TVHomeSceneRow.nightSleepTimerKey) private var nightSceneSleepTimer = true
     @AppStorage(LibraryReviewPreferences.enabledKey)
     private var ratingsAndCommentsEnabled = false
     @State private var showsEffectPicker = tvDebugShowsEffectPicker
@@ -174,6 +175,12 @@ struct TVSettingsView: View {
                                 "infinity",
                                 String(localized: "auto_continue_similar"),
                                 isOn: $autoContinueSimilar
+                            )
+                            settingDivider
+                            toggleRow(
+                                "moon.zzz",
+                                String(format: String(localized: "listening_scene_night_timer_setting %lld"), ListeningScene.nightSleepTimerMinutes),
+                                isOn: $nightSceneSleepTimer
                             )
                             settingDivider
                             navRow("shuffle", String(localized: "medley_title"),

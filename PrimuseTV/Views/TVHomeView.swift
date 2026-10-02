@@ -177,8 +177,26 @@ struct TVHomeView: View {
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 30) {
+                    // 顺序:居家场景 → 情景推荐专辑 → 智能推荐 → 最近播放 → 最近添加 → 电台。
                     if store.hasRealLibrary {
+                        TVHomeSceneRow(
+                            focusBinding: $focusedCardID,
+                            cardID: { cardID("scene", $0.rawValue) },
+                            onStarted: { playerOpener($0)() }
+                        )
                         heroZone
+                    }
+                    if intelligence.shouldShowRemoteRecommendations,
+                       !recommendationCandidates.isEmpty {
+                        intelligentRecommendationSection
+                    } else if !store.recommended.isEmpty {
+                        TVRow(label: PMString("ext.tv.home.madeForYou")) {
+                            ForEach(Array(store.recommended.enumerated()), id: \.offset) { _, album in
+                                albumCard(album, row: "made")
+                            }
+                        }
+                    }
+                    if store.hasRealLibrary {
                         if !store.recentlyPlayed.isEmpty {
                             TVRow(label: PMString("ext.tv.home.recentlyPlayed")) {
                                 ForEach(store.recentlyPlayed) { song in
@@ -200,6 +218,13 @@ struct TVHomeView: View {
                                 ForEach(likedAlbums) { album in
                                     albumCard(album, row: "liked")
                                 }
+                            }
+                        }
+                    }
+                    if !store.recentlyAddedAlbums.isEmpty {
+                        TVRow(label: PMString("ext.tv.home.recentlyAdded")) {
+                            ForEach(store.recentlyAddedAlbums) { album in
+                                albumCard(album, row: "added")
                             }
                         }
                     }
@@ -229,23 +254,6 @@ struct TVHomeView: View {
                             TVRadioAllStationsCard(count: store.radioStations.count, action: openRadioLibrary)
                         }
                         TVRadioAddCard(focusBinding: $focusedRadioID) { showsRadioAdd = true }
-                    }
-                    if !store.recentlyAddedAlbums.isEmpty {
-                        TVRow(label: PMString("ext.tv.home.recentlyAdded")) {
-                            ForEach(store.recentlyAddedAlbums) { album in
-                                albumCard(album, row: "added")
-                            }
-                        }
-                    }
-                    if intelligence.shouldShowRemoteRecommendations,
-                       !recommendationCandidates.isEmpty {
-                        intelligentRecommendationSection
-                    } else if !store.recommended.isEmpty {
-                        TVRow(label: PMString("ext.tv.home.madeForYou")) {
-                            ForEach(Array(store.recommended.enumerated()), id: \.offset) { _, album in
-                                albumCard(album, row: "made")
-                            }
-                        }
                     }
                 }
                 .tvPage()
@@ -290,6 +298,8 @@ struct TVHomeView: View {
         #endif
         .task(id: store.libraryBrowseRevision) {
             AlbumRecommendationService.shared.refresh(library: store.library)
+            // 居家场景的点亮;场景那一排还没点亮时是空的,挂在它自己身上的任务不会跑。
+            ListeningIntentService.shared.refresh(library: store.library)
         }
         .task(id: recommendationCandidateRefreshKey) {
             guard intelligence.settingsStore.recommendationsEnabled else {
@@ -599,6 +609,20 @@ struct TVHomeView: View {
                         TVPillButton(title: String(localized: "album_pick_another"), systemImage: "arrow.triangle.2.circlepath",
                                      action: { AlbumRecommendationService.shared.showAnother() })
                             .disabled(!AlbumRecommendationService.shared.canShowAnother)
+                        // 「不再推荐」:不用长按菜单(首页随推荐、焦点频繁重算,遥控器长按出来的菜单会跟着闪),
+                        // 只放一个图标,一排按钮才放得下。
+                        TVFocusButton(radius: 14, scale: 1.04, lift: 6, action: {
+                            guard let pick = albumPick else { return }
+                            AlbumRecommendationService.shared.dismiss(albumID: pick.albumID)
+                        }) { _ in
+                            Image(systemName: "hand.thumbsdown")
+                                .font(.system(size: 22, weight: .semibold))
+                                .foregroundStyle(TVColor.text)
+                                .frame(width: 36, height: 36)
+                                .padding(18)
+                                .background(TVColor.surfaceStrong)
+                        }
+                        .accessibilityLabel(Text("album_pick_dismiss"))
                     } else {
                         TVPillButton(title: PMString("ext.tv.home.playAll"), systemImage: "play.fill", style: .solid,
                                      action: { playHero(shuffle: false) })

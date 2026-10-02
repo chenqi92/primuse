@@ -42,9 +42,13 @@ final class ListeningIntentService {
         )
     }
 
-    /// 一次遍历要数的意图。
+    /// 一次遍历要数的意图:手机、Mac 数「开始听」的内置意图,电视数首页的居家场景。
     var countedIntents: [ListeningIntent] {
+        #if os(tvOS)
+        ListeningScene.intents
+        #else
         ListeningIntentShelfPolicy.builtInCatalog
+        #endif
     }
 
     // MARK: Lighting
@@ -384,7 +388,14 @@ extension ListeningIntent {
         case .smartPlaylist:
             return Color(red: 0.56, green: 0.35, blue: 0.85)
         case .scene(let sceneID):
-            return Self.tint(seed: sceneID)
+            switch ListeningScene(rawValue: sceneID) {
+            case .guests: return Color(red: 0.86, green: 0.50, blue: 0.22)
+            case .leisure: return Color(red: 0.30, green: 0.58, blue: 0.40)
+            case .night: return Color(red: 0.24, green: 0.25, blue: 0.56)
+            case .focus: return Color(red: 0.16, green: 0.52, blue: 0.58)
+            case .party: return Color(red: 0.82, green: 0.26, blue: 0.56)
+            case nil: return Self.tint(seed: sceneID)
+            }
         case .builtIn(let builtIn):
             switch builtIn {
             case .pop: return Color(red: 0.93, green: 0.33, blue: 0.53)

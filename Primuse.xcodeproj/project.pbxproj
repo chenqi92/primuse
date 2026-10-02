@@ -384,6 +384,7 @@
 		39089EE171058DA1D3F772C2 /* MacImmersiveEffectPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A731E59355B56771A9016F8 /* MacImmersiveEffectPicker.swift */; };
 		392380F2B15058BABF04130F /* LocalImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03F527F89BB056AD3BB3E532 /* LocalImportService.swift */; };
 		393391520F10BA2BC55108E5 /* SubsonicSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6821FC1BF97641265A739D6F /* SubsonicSource.swift */; };
+		397E0380F25C999789A278ED /* TVHomeSceneRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A4DC0C5F36EAE87DF23F950 /* TVHomeSceneRow.swift */; };
 		3997C4EE7DF9D36DA1851230 /* CloudDriveBase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94FE18AA29D7F79EE4D6BDE5 /* CloudDriveBase.swift */; };
 		3A16590B3C55976D6DCFDC90 /* ProtocolHTTPStreamResolvers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F14A8B457724588F5559B41 /* ProtocolHTTPStreamResolvers.swift */; };
 		3A1E1D0D6DCCF73A750924B9 /* AudioSegmentStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40654AA90310A09E2F73A57A /* AudioSegmentStream.swift */; };
@@ -1011,6 +1012,7 @@
 		E07B7A758E088875E094F4CC /* PlayerBackdropSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB309485B9DC17AE7ED7CEDC /* PlayerBackdropSettingsStore.swift */; };
 		E66A0D3D2F56B39F119E1E5D /* ListeningIntentService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD176D14A5397C935DF5EE6C /* ListeningIntentService.swift */; };
 		EC1F70EB6DB64AE0B150D90B /* PlayerBackdropSettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50A3571D1C649A7447D04A6 /* PlayerBackdropSettingsViews.swift */; };
+		F5185FDC045C7CE3D45BEDB0 /* ListeningScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2EBF2D66D0A6B16383E271 /* ListeningScene.swift */; };
 		F5B23BDE931C1D50DCD70BC9 /* PlayerBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7C1FA1985706E65938A586B /* PlayerBackdrop.swift */; };
 		F6E5188DE30071D22D84BBEF /* ListeningIntentShelf.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33FD3CA5DB99076FE0003C1B /* ListeningIntentShelf.swift */; };
 		F6FF898686113F1C2A3D0596 /* MacHomeAlbumPickHero.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1F1CE1A49309E67916A06E8 /* MacHomeAlbumPickHero.swift */; };
@@ -2009,6 +2011,7 @@
 		0BE82C5DF65A566D6D3CDE4E /* AppleMusicLibrarySource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicLibrarySource.swift; sourceTree = "<group>"; };
 		0C50B958D5A7FEF1F9E8AD24 /* SourceTypeSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceTypeSelectionView.swift; sourceTree = "<group>"; };
 		0C6516DD4C1AFA42968BC19A /* ArtistIdentityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtistIdentityPolicy.swift; sourceTree = "<group>"; };
+		1A4DC0C5F36EAE87DF23F950 /* TVHomeSceneRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVHomeSceneRow.swift; sourceTree = "<group>"; };
 		1B278E7F11241C48C2A4E436 /* QueueContinuationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueContinuationPolicy.swift; sourceTree = "<group>"; };
 		1F22C79C623BE50A919E1399 /* LibraryFavorite.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryFavorite.swift; sourceTree = "<group>"; };
 		0C7964E39EEC2700BAB113F8 /* PrimuseWatchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PrimuseWatchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -2713,6 +2716,7 @@
 		9AB286EEA94A980ADF0391BD /* MetadataReadThroughputSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataReadThroughputSampler.swift; sourceTree = "<group>"; };
 		9AB9689481CAC6ADFF0A0E9D /* AIStreamingResponsePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIStreamingResponsePolicy.swift; sourceTree = "<group>"; };
 		D92E9715138783D169A2AC80 /* AudiobookshelfSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudiobookshelfSource.swift; sourceTree = "<group>"; };
+		DE2EBF2D66D0A6B16383E271 /* ListeningScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningScene.swift; sourceTree = "<group>"; };
 		E473112B3C29997FA4C970EE /* TVPlayerBackdropResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVPlayerBackdropResolver.swift; sourceTree = "<group>"; };
 		E5718CCDB8E58C982C01D5B0 /* PlayerBackdropImagingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerBackdropImagingTests.swift; sourceTree = "<group>"; };
 		EB164E964C4CE4086099EC62 /* AIServiceSetupGuidance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIServiceSetupGuidance.swift; sourceTree = "<group>"; };
@@ -3598,6 +3602,7 @@
 				CC568C1F987228DD17220D96 /* Library */,
 				076F422006C85F32F5FCBB04 /* ListeningIntent.swift */,
 				33FD3CA5DB99076FE0003C1B /* ListeningIntentShelf.swift */,
+				DE2EBF2D66D0A6B16383E271 /* ListeningScene.swift */,
 				AFC591E3A4BEE6456BA66E38 /* Metadata */,
 				6B4555C595F754161FB68F73 /* Models */,
 				B7C1FA1985706E65938A586B /* PlayerBackdrop.swift */,
@@ -4852,6 +4857,7 @@
 				F032004B023B2AE64349E763 /* TVArtistArtworkView.swift */,
 				9F771319484D0522D64838A8 /* TVCloudAuthView.swift */,
 				42193A6C0C18AFAAAE77B2B7 /* TVComponents.swift */,
+				1A4DC0C5F36EAE87DF23F950 /* TVHomeSceneRow.swift */,
 				43740BC5ACC88D24034B941C /* TVHomeView.swift */,
 				4E1B508C874118EA9DD7CFCD /* TVImmersivePlayerView.swift */,
 				4019623F3B9580837A93556F /* TVIndexedGrid.swift */,
@@ -5784,6 +5790,7 @@
 				B212535D1AAE552E3660E47F /* ListeningActivityTimeline.swift in Sources */,
 				9806C1D78765C2DBD441110B /* ListeningIntent.swift in Sources */,
 				F6E5188DE30071D22D84BBEF /* ListeningIntentShelf.swift in Sources */,
+				F5185FDC045C7CE3D45BEDB0 /* ListeningScene.swift in Sources */,
 				7099C3735248C5A49D27FF73 /* ListeningSpacePolicy.swift in Sources */,
 				809CC618C425F4F3CF0B4CE9 /* ListeningSpaceSearchPolicy.swift in Sources */,
 				05A95718F98E000877948550 /* ListeningStatsPayloadCache.swift in Sources */,
@@ -6631,6 +6638,7 @@
 				A9CC6304958A5E2DE2E3200B /* TVConnectorLister.swift in Sources */,
 				4D3A6BFB31C8699E95C3469D /* TVCredentialStore.swift in Sources */,
 				FE254B5A76A25AC12D72FD33 /* TVFFmpegPCMDecoder.m in Sources */,
+				397E0380F25C999789A278ED /* TVHomeSceneRow.swift in Sources */,
 				7258090A027D03CC03978666 /* TVHomeView.swift in Sources */,
 				3AB525EF500B516888C05EC6 /* TVImmersivePlayerView.swift in Sources */,
 				0C9BFDAD2F8233FE144ECBB9 /* TVIndexedGrid.swift in Sources */,
