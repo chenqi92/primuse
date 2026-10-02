@@ -5186,3 +5186,25 @@
 "whole_source_spoken_word" = "整个来源都是有声内容";
 "whole_source_spoken_word_hint" = "这个来源的所有歌曲都进有声书书架、用听书播放页。单首仍可以标回音乐。";
 "audiobookshelf_credentials_hint" = "用服务器账号登录；或在服务器「设置 › API Keys」里创建一枚 API 密钥，在上方选「API 密钥」填入。";
+
+/* Google Drive 改用「仅限所选文件」权限的提醒 */
+"gdrive_scope_change_title_upcoming" = "Google Drive 将于 %@ 起调整接入方式";
+"gdrive_scope_change_title_in_effect" = "Google Drive 已于 %@ 起调整接入方式";
+"gdrive_scope_change_summary_upcoming" = "在此之前照常使用。之后改为在 Google 的文件选择器里挑选歌曲加入曲库，不再整盘扫描文件夹，已添加的源需要重新选择一次文件。";
+"gdrive_scope_change_summary_in_effect" = "现在改为在 Google 的文件选择器里挑选歌曲加入曲库，不再整盘扫描文件夹，已添加的源需要重新选择一次文件。";
+"gdrive_scope_change_learn_more" = "了解详情";
+"gdrive_scope_change_sheet_title" = "Google Drive 接入调整";
+"gdrive_scope_change_changes_header" = "%@ 起的变化";
+"gdrive_scope_change_item_pick" = "不再支持选一个音乐文件夹后自动扫描整个曲库。改为在 Google 的文件选择器里勾选要加入的歌曲，一次可以选很多首。";
+"gdrive_scope_change_item_new_uploads" = "之后上传到 Google Drive 的新歌不会自动出现，需要再选一次。";
+"gdrive_scope_change_item_sidecars" = "和歌曲放在一起的封面图片、LRC 歌词文件要一并选中才能读取；歌曲内嵌的封面和歌词不受影响。";
+"gdrive_scope_change_item_writeback" = "修改标签、回写封面和歌词、移到回收站，只对你选中过的文件有效。";
+"gdrive_scope_change_item_existing" = "已添加的 Google Drive 源需要重新登录并重新选择一次文件；歌单、收藏和播放记录会保留。";
+"gdrive_scope_change_item_tv" = "Apple TV 上打不开 Google 的文件选择器，要加歌请在 iPhone、iPad 或 Mac 上选择。";
+"gdrive_scope_change_reason_header" = "为什么要调整";
+"gdrive_scope_change_reason_policy" = "Google 规定，能读取用户整个 Google Drive 的应用，必须每年通过 Google 认可的第三方实验室安全评估（CASA），费用由开发者承担。Primuse 播放的歌曲只在你的设备和 Google 之间直接传输，不经过 Primuse 的服务器，但 Google 已明确答复：这类应用同样不能豁免，也不再接受开发者自评或减免费用。";
+"gdrive_scope_change_reason_decision" = "对独立开发的 Primuse 来说，这笔每年都要支付的评估费用难以承担，所以改用 Google 无需评估的「仅限你选择的文件」权限。这是 Google 平台规则带来的限制，不是 Primuse 能通过适配解决的问题。";
+"gdrive_scope_change_alternatives_header" = "曲库较大、想保留整库扫描";
+"gdrive_scope_change_alt_mac" = "Mac：安装 Google 官方的 Google Drive 桌面版，把音乐文件夹设为「可离线使用」，再在 Primuse 里添加本地文件夹并选中它，就能整库扫描、自动发现新歌。";
+"gdrive_scope_change_alt_webdav" = "所有设备（包括 Apple TV）：如果有 NAS 或常开的电脑，可以用 rclone、OpenList 等工具把 Google Drive 转成 WebDAV，再在 Primuse 里添加 WebDAV 源。授权由你自己的工具持有，不受这次调整影响。";
+"gdrive_scope_change_alt_move" = "也可以把音乐移到 Primuse 支持的其他网盘或 NAS。";

@@ -4999,3 +4999,25 @@
 "whole_source_spoken_word" = "Tu wszystko to audiobooki";
 "whole_source_spoken_word_hint" = "Wszystkie utwory z tego źródła trafiają na półkę audiobooków i używają odtwarzacza książek. Pojedyncze pozycje nadal można oznaczyć jako muzykę.";
 "audiobookshelf_credentials_hint" = "Zaloguj się kontem serwera albo utwórz klucz API w Ustawienia › API Keys na serwerze i wybierz powyżej Klucz API.";
+
+/* Google Drive przechodzi na uprawnienie „Tylko wybrane przez Ciebie pliki” */
+"gdrive_scope_change_title_upcoming" = "Dostęp do Google Drive zmieni się %@";
+"gdrive_scope_change_title_in_effect" = "Dostęp do Google Drive zmienił się %@";
+"gdrive_scope_change_summary_upcoming" = "Do tego czasu wszystko działa jak dotąd. Potem utwory będziesz wybierać w oknie wyboru plików Google, a Primuse przestanie skanować całe foldery; w już dodanych źródłach trzeba będzie jeszcze raz wybrać pliki.";
+"gdrive_scope_change_summary_in_effect" = "Teraz utwory wybierasz w oknie wyboru plików Google, a Primuse nie skanuje już całych folderów; w już dodanych źródłach trzeba jeszcze raz wybrać pliki.";
+"gdrive_scope_change_learn_more" = "Dowiedz się więcej";
+"gdrive_scope_change_sheet_title" = "Zmiana dostępu do Google Drive";
+"gdrive_scope_change_changes_header" = "Co się zmienia od %@";
+"gdrive_scope_change_item_pick" = "Primuse nie może już skanować w całości wybranego przez Ciebie folderu z muzyką. Zamiast tego zaznacz utwory do dodania w oknie wyboru plików Google — możesz wybrać wiele naraz.";
+"gdrive_scope_change_item_new_uploads" = "Utwory, które później prześlesz na Google Drive, nie pojawią się automatycznie. Aby je dodać, wybierz je ponownie.";
+"gdrive_scope_change_item_sidecars" = "Obrazy okładek i pliki tekstów LRC leżące obok utworów też trzeba zaznaczyć. Nie dotyczy to okładek i tekstów osadzonych w utworach.";
+"gdrive_scope_change_item_writeback" = "Edycja tagów, zapisywanie okładek i tekstów w plikach oraz przenoszenie do kosza działają tylko dla plików wybranych przez Ciebie.";
+"gdrive_scope_change_item_existing" = "W już dodanych źródłach Google Drive trzeba zalogować się ponownie i jeszcze raz wybrać pliki. Playlisty, ulubione i historia słuchania zostaną zachowane.";
+"gdrive_scope_change_item_tv" = "Okno wyboru plików Google nie jest dostępne na Apple TV. Aby dodać utwory, wybierz je na iPhonie, iPadzie lub Macu.";
+"gdrive_scope_change_reason_header" = "Dlaczego to się zmienia";
+"gdrive_scope_change_reason_policy" = "Google wymaga, aby każda aplikacja, która może odczytywać cały Google Drive użytkownika, co roku przechodziła ocenę bezpieczeństwa (CASA) przeprowadzaną przez zewnętrzne laboratorium zatwierdzone przez Google, na koszt dewelopera. Utwory odtwarzane przez Primuse są przesyłane bezpośrednio między Twoim urządzeniem a Google i nigdy nie przechodzą przez serwery Primuse, ale Google potwierdził, że takie aplikacje nie są zwolnione z tego wymogu i że nie przyjmuje już samooceny deweloperów ani nie zwalnia z opłaty.";
+"gdrive_scope_change_reason_decision" = "Dla niezależnie tworzonej aplikacji, takiej jak Primuse, opłata powtarzająca się co roku jest nie do udźwignięcia, dlatego Primuse przechodzi na uprawnienie Google „Tylko wybrane przez Ciebie pliki”, które nie wymaga oceny. To ograniczenie wynika z zasad platformy Google — Primuse nie może go obejść żadnymi dostosowaniami.";
+"gdrive_scope_change_alternatives_header" = "Duża biblioteka albo chcesz skanować całe foldery?";
+"gdrive_scope_change_alt_mac" = "Mac: zainstaluj oficjalną aplikację Google Drive na komputer, ustaw folder z muzyką jako „Dostępne offline”, a następnie dodaj go w Primuse jako folder lokalny. Primuse przeskanuje całą bibliotekę i będzie automatycznie wykrywać nowe utwory.";
+"gdrive_scope_change_alt_webdav" = "Każde urządzenie, także Apple TV: jeśli masz NAS lub stale włączony komputer, udostępnij Google Drive przez WebDAV za pomocą narzędzia takiego jak rclone lub OpenList, a następnie dodaj źródło WebDAV w Primuse. Autoryzacja należy do Twojego własnego narzędzia i ta zmiana jej nie dotyczy.";
+"gdrive_scope_change_alt_move" = "Możesz też przenieść muzykę na inny dysk w chmurze lub NAS obsługiwany przez Primuse.";

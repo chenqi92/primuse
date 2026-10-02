@@ -352,6 +352,10 @@ struct MacSourcesView: View {
                 SourceUnreachableNotice(source: source)
             }
 
+            if source.type == .googleDrive {
+                GoogleDriveAccessChangeNotice()
+            }
+
             SourceScanStateReader(sourceID: source.id) { scanning in
                 cardBody(
                     source,

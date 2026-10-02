@@ -246,7 +246,8 @@ struct TVRoot: View {
             _debugPendingSpaceTab = State(initialValue: .spokenWord)
         case "radioHome", "radioAdd": initialTab = .home
         case "playlists": initialTab = .playlists
-        case "sources", "sourcePicker", "sourceForm", "credentials", "otp", "scan", "recycleBin":
+        case "sources", "sourcePicker", "sourceForm", "credentials", "otp", "scan", "recycleBin",
+             "googleDriveAccessChange":
             initialTab = .sources
         case "search": initialTab = .search
         default: initialTab = landingTab

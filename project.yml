@@ -780,6 +780,8 @@ targets:
       - path: Primuse/Views/NowPlaying/KaraokeLineView.swift
       - path: Primuse/Views/NowPlaying/ImmersiveStageScenery.swift
       - path: Primuse/Views/Components/RenderingVisibility.swift
+      # Google Drive 接入调整的提醒文案,与 iOS / macOS 同一份
+      - path: Primuse/Views/Sources/GoogleDriveAccessChangeNotice.swift
       - path: Primuse/Views/NowPlaying/ImmersiveStageRenderers.swift
       - path: Primuse/Views/NowPlaying/ImmersiveStageView.swift
       - path: SiriVocabulary

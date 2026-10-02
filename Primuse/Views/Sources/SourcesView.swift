@@ -877,6 +877,10 @@ struct SourcesContentView: View {
                 SourceUnreachableNotice(source: source)
             }
 
+            if source.type == .googleDrive {
+                GoogleDriveAccessChangeNotice()
+            }
+
             if AppServices.shared.serverCatalogAutoRefresh.supportsAutomaticRefresh(source) {
                 serverCatalogAutoRefreshControl(for: source)
             }

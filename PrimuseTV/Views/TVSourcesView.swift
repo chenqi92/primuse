@@ -30,6 +30,7 @@ struct TVSourcesView: View {
     @State private var otpSource: TVSource?         // 两步验证(OTP)输入
     @State private var scanSource: MusicSource?     // 选目录 + 扫描流程
     @State private var incrementalScanSource: MusicSource?
+    @State private var showsGoogleDriveAccessChange = false
     @FocusState private var focusedPrimaryAction: PrimaryAction?
 
     var focusRequest = 0
@@ -52,6 +53,7 @@ struct TVSourcesView: View {
             scanSource != nil,
             incrementalScanSource != nil,
             rereadSource != nil,
+            showsGoogleDriveAccessChange,
         ].filter { $0 }.count
     }
 
@@ -68,6 +70,10 @@ struct TVSourcesView: View {
                         Text(PMString("ext.tv.sources.title", sources.count))
                             .tvFont(.pageTitle).foregroundStyle(TVColor.text)
                             .padding(.bottom, 22)
+                        if sources.contains(where: { $0.type == MusicSourceType.googleDrive.rawValue }) {
+                            TVGoogleDriveAccessChangeCard { showsGoogleDriveAccessChange = true }
+                                .padding(.bottom, 12)
+                        }
                         if sources.isEmpty {
                             VStack(alignment: .leading, spacing: 12) {
                                 Image(systemName: "server.rack").font(.system(size: 54))
@@ -290,6 +296,9 @@ struct TVSourcesView: View {
         .fullScreenCover(item: $incrementalScanSource, onDismiss: restorePrimaryFocus) { src in
             TVScanFlowView(source: src, mode: .incremental).environment(store)
         }
+        .fullScreenCover(isPresented: $showsGoogleDriveAccessChange, onDismiss: restorePrimaryFocus) {
+            TVGoogleDriveAccessChangeView()
+        }
         #if DEBUG
         .task {
             await openDebugScreenIfNeeded()
@@ -374,6 +383,8 @@ struct TVSourcesView: View {
             sourceForm = TVSourceForm(editing: nil, type: type)
         case "recycleBin":
             recycleBin = true
+        case "googleDriveAccessChange":
+            showsGoogleDriveAccessChange = true
         case "credentials", "otp", "scan":
             var tries = 0
             while store.sources.isEmpty && tries < 25 {
@@ -424,6 +435,125 @@ private struct TVSourcesRereadAllButton: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(focused ? TVColor.surfaceStrong : TVColor.surface,
                         in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+    }
+}
+
+/// Google Drive 源的接入调整提醒。源的行按下是启用 / 停用,说明只能单独占一张能聚焦的卡片。
+private struct TVGoogleDriveAccessChangeCard: View {
+    let action: () -> Void
+
+    var body: some View {
+        let phase = GoogleDriveAccessChangePolicy.phase()
+        TVFocusButton(radius: TVRadius.card, scale: 1.0, lift: 0, action: action) { focused in
+            HStack(alignment: .top, spacing: 18) {
+                Image(systemName: "calendar.badge.exclamationmark")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(TVColor.warn)
+                    .frame(width: 46)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(verbatim: GoogleDriveAccessChangeText.title(phase))
+                        .tvFont(.rowTitle).foregroundStyle(TVColor.text)
+                    Text(verbatim: GoogleDriveAccessChangeText.summary(phase))
+                        .tvFont(.caption).foregroundStyle(TVColor.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("gdrive_scope_change_learn_more")
+                        .tvFont(.meta, weight: .semibold)
+                        .foregroundStyle(TVColor.warn)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 22).padding(.vertical, 18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(focused ? TVColor.surfaceStrong : TVColor.card)
+        }
+        .accessibilityIdentifier("tv.sources.googleDriveAccessChange")
+    }
+}
+
+/// 「了解详情」:左栏是变化清单,右栏是原因与大曲库的替代做法。文字可能超出一屏,
+/// 滚动区自己能聚焦,遥控器才滚得动。
+private struct TVGoogleDriveAccessChangeView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        let phase = GoogleDriveAccessChangePolicy.phase()
+        ZStack {
+            TVAmbientBackdrop(tint: TVColor.warn, tint2: TVColor.brandSecondary, strength: 0.35)
+            TVColor.bg.opacity(0.5).ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("gdrive_scope_change_sheet_title")
+                        .tvFont(size: 36, weight: .bold, relativeTo: .title2)
+                        .foregroundStyle(TVColor.text)
+                    Text(verbatim: GoogleDriveAccessChangeText.title(phase))
+                        .tvFont(.caption, weight: .semibold)
+                        .foregroundStyle(TVColor.warn)
+                }
+                ScrollView {
+                    HStack(alignment: .top, spacing: 56) {
+                        section(String(format: String(localized: "gdrive_scope_change_changes_header"),
+                                       GoogleDriveAccessChangeText.effectiveDateText)) {
+                            item("checklist", "gdrive_scope_change_item_pick")
+                            item("arrow.up.doc", "gdrive_scope_change_item_new_uploads")
+                            item("photo.on.rectangle", "gdrive_scope_change_item_sidecars")
+                            item("square.and.pencil", "gdrive_scope_change_item_writeback")
+                            item("arrow.triangle.2.circlepath", "gdrive_scope_change_item_existing")
+                            item("appletv", "gdrive_scope_change_item_tv")
+                        }
+                        VStack(alignment: .leading, spacing: 36) {
+                            section(String(localized: "gdrive_scope_change_reason_header")) {
+                                Text("gdrive_scope_change_reason_policy")
+                                Text("gdrive_scope_change_reason_decision")
+                            }
+                            section(String(localized: "gdrive_scope_change_alternatives_header")) {
+                                item("laptopcomputer", "gdrive_scope_change_alt_mac")
+                                item("externaldrive.connected.to.line.below", "gdrive_scope_change_alt_webdav")
+                                item("shippingbox", "gdrive_scope_change_alt_move")
+                            }
+                        }
+                    }
+                    .padding(8)
+                }
+                .focusable()
+                TVFocusButton(action: { dismiss() }) { _ in
+                    Text("done").tvFont(.caption, weight: .semibold)
+                        .padding(.horizontal, 32).padding(.vertical, 16)
+                }
+            }
+            .padding(44)
+            .frame(width: 1640, height: 900)
+            .tvPanel(radius: 26)
+        }
+        .onExitCommand { dismiss() }
+    }
+
+    private func section<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(verbatim: title)
+                .tvFont(.cardTitle)
+                .foregroundStyle(TVColor.text)
+            VStack(alignment: .leading, spacing: 16, content: content)
+                .tvFont(.caption)
+                .foregroundStyle(TVColor.textMuted)
+                .lineSpacing(4)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func item(_ symbol: String, _ key: LocalizedStringKey) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 14) {
+            Image(systemName: symbol)
+                .foregroundStyle(TVColor.warn)
+                .frame(width: 34)
+                .accessibilityHidden(true)
+            Text(key)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

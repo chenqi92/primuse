@@ -293,6 +293,7 @@
 		2B04CDAF1AD194DD23E2852E /* RadioStationsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 744DE8325645146B084C1FE7 /* RadioStationsStore.swift */; };
 		2B467B205CB9C8064AF73219 /* AudioPlayerService+SharedPlaybackState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBF19ABAAE069256CA5C35A7 /* AudioPlayerService+SharedPlaybackState.swift */; };
 		2B71A18AEABCBE8E3C2B81EE /* ExternalPlaylistFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7406E61804E7503B1E5D4475 /* ExternalPlaylistFetcher.swift */; };
+		2C2AE4809A321B9CF4DB3719 /* GoogleDriveAccessChangeNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9A93B263565B70EF2E363EF /* GoogleDriveAccessChangeNotice.swift */; };
 		2C61D7F37B8D2158EDFC1B45 /* ImmersivePlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 694F8F3DCD98021DF67ED95D /* ImmersivePlayerView.swift */; };
 		2C9E932BBF84413437355812 /* SynologyAudioStationAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3E13C0073521BFDA0B5A67F /* SynologyAudioStationAPI.swift */; };
 		2CBBED6F8B81CE34B9F3AE9C /* PrimuseKaraokeModelDownloader.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = 6D83A776D9346CBF89EC88A8 /* PrimuseKaraokeModelDownloader.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -882,6 +883,8 @@
 		91089DC10232FF4AF4D900EF /* HomeStartListeningSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75B60C08F809121A5870A7B /* HomeStartListeningSection.swift */; };
 		94B5250214BC72772109941D /* AudioPlayerService+AutoContinuation.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC4BE55D3132EDD2006F568B /* AudioPlayerService+AutoContinuation.swift */; };
 		9806C1D78765C2DBD441110B /* ListeningIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 076F422006C85F32F5FCBB04 /* ListeningIntent.swift */; };
+		A03DBF9ACD019CA1E148D7A6 /* GoogleDriveAccessChangeNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9A93B263565B70EF2E363EF /* GoogleDriveAccessChangeNotice.swift */; };
+		A27D018D76933B43EF4E28E4 /* GoogleDriveAccessChangePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A92AD908C0112F15ED28EF1 /* GoogleDriveAccessChangePolicy.swift */; };
 		AA1532DB730F560E43C8072D /* AudiobookshelfSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92E9715138783D169A2AC80 /* AudiobookshelfSource.swift */; };
 		ABB0FECC568C9FADECF84E9F /* ReleaseDateLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C4929D6A853AD9C0A1AD6C6 /* ReleaseDateLibraryView.swift */; };
 		B0A0AB303855363EB4392E13 /* PlayerBackdropSettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50A3571D1C649A7447D04A6 /* PlayerBackdropSettingsViews.swift */; };
@@ -1011,6 +1014,7 @@
 		DB8B94400BB70B1F80073975 /* PlayerBackdropResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 451F5E44E96F192F09F093EB /* PlayerBackdropResolver.swift */; };
 		E07B7A758E088875E094F4CC /* PlayerBackdropSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB309485B9DC17AE7ED7CEDC /* PlayerBackdropSettingsStore.swift */; };
 		E66A0D3D2F56B39F119E1E5D /* ListeningIntentService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD176D14A5397C935DF5EE6C /* ListeningIntentService.swift */; };
+		EB55304796DB617C80FACEC1 /* GoogleDriveAccessChangeNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9A93B263565B70EF2E363EF /* GoogleDriveAccessChangeNotice.swift */; };
 		EC1F70EB6DB64AE0B150D90B /* PlayerBackdropSettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50A3571D1C649A7447D04A6 /* PlayerBackdropSettingsViews.swift */; };
 		F5185FDC045C7CE3D45BEDB0 /* ListeningScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2EBF2D66D0A6B16383E271 /* ListeningScene.swift */; };
 		F5B23BDE931C1D50DCD70BC9 /* PlayerBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7C1FA1985706E65938A586B /* PlayerBackdrop.swift */; };
@@ -2084,6 +2088,7 @@
 		1BB0C0D9F755D99D1104F866 /* AppleMusicCatalogSearchAvailabilityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicCatalogSearchAvailabilityPolicy.swift; sourceTree = "<group>"; };
 		1BDE4BBD8FD4AD127A06C030 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		1BF3FCADF9ED4848533CF280 /* ServerRatingSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerRatingSyncService.swift; sourceTree = "<group>"; };
+		2A92AD908C0112F15ED28EF1 /* GoogleDriveAccessChangePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleDriveAccessChangePolicy.swift; sourceTree = "<group>"; };
 		2F7147F9EC1DB88B02489511 /* TVPlayerBackdropViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVPlayerBackdropViews.swift; sourceTree = "<group>"; };
 		33FD3CA5DB99076FE0003C1B /* ListeningIntentShelf.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningIntentShelf.swift; sourceTree = "<group>"; };
 		451F5E44E96F192F09F093EB /* PlayerBackdropResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerBackdropResolver.swift; sourceTree = "<group>"; };
@@ -2716,6 +2721,7 @@
 		9AB286EEA94A980ADF0391BD /* MetadataReadThroughputSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataReadThroughputSampler.swift; sourceTree = "<group>"; };
 		9AB9689481CAC6ADFF0A0E9D /* AIStreamingResponsePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIStreamingResponsePolicy.swift; sourceTree = "<group>"; };
 		D92E9715138783D169A2AC80 /* AudiobookshelfSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudiobookshelfSource.swift; sourceTree = "<group>"; };
+		D9A93B263565B70EF2E363EF /* GoogleDriveAccessChangeNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleDriveAccessChangeNotice.swift; sourceTree = "<group>"; };
 		DE2EBF2D66D0A6B16383E271 /* ListeningScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningScene.swift; sourceTree = "<group>"; };
 		E473112B3C29997FA4C970EE /* TVPlayerBackdropResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVPlayerBackdropResolver.swift; sourceTree = "<group>"; };
 		E5718CCDB8E58C982C01D5B0 /* PlayerBackdropImagingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerBackdropImagingTests.swift; sourceTree = "<group>"; };
@@ -3393,6 +3399,7 @@
 				33778B5B75AE878513F91C1B /* ConnectionFlowView.swift */,
 				ACACC8DFC2348B923ACAB6E5 /* ConnectorDirectoryBrowserView.swift */,
 				897589F6CC0B07E015D9F27C /* FTPBrowserView.swift */,
+				D9A93B263565B70EF2E363EF /* GoogleDriveAccessChangeNotice.swift */,
 				44B4D0FC334BC388026F33AF /* NFSBrowserView.swift */,
 				AFFBB225F2931D956FE40C44 /* PlexAccountSignIn.swift */,
 				91CED344D90A31CB6096E8CF /* SendToTVSheet.swift */,
@@ -3597,6 +3604,7 @@
 			children = (
 				B8201B4D10F3B60D364411E9 /* AI */,
 				2F96C1C276FA0D0CD5C360F9 /* AlbumRecommender.swift */,
+				2A92AD908C0112F15ED28EF1 /* GoogleDriveAccessChangePolicy.swift */,
 				C161382065B391D1C54B9209 /* Import */,
 				38CBDB962B370140AC75A17D /* Internal */,
 				CC568C1F987228DD17220D96 /* Library */,
@@ -5675,6 +5683,7 @@
 				24ED7F7CA5C9E59A9B8366A7 /* AudiobookshelfAPIProtocol.swift in Sources */,
 				67CEA14EC7324576CCDF5A92 /* AudiobookshelfServiceClient.swift in Sources */,
 				4EA5B3686E32EC4A38501176 /* AudiobookshelfStreamResolver.swift in Sources */,
+				A27D018D76933B43EF4E28E4 /* GoogleDriveAccessChangePolicy.swift in Sources */,
 				D255F3493C7A2CE404299F57 /* LibraryFavorite.swift in Sources */,
 				74DE67BEEAC95A373BD53B59 /* ArtistNameConfiguration.swift in Sources */,
 				4DD1902E0149F649BD06B9B4 /* ArtworkAnimation.swift in Sources */,
@@ -6194,6 +6203,7 @@
 				88814F1E97517511520B0A64 /* FnMusicSource.swift in Sources */,
 				874EC1D5086E07ED87F0385B /* FullscreenPlayerEffectSettings.swift in Sources */,
 				A7C93BF942D0B47493432F29 /* FullscreenPlayerEffectSettingsView.swift in Sources */,
+				2C2AE4809A321B9CF4DB3719 /* GoogleDriveAccessChangeNotice.swift in Sources */,
 				B26ED4E6532571323A775A66 /* GoogleDriveSource.swift in Sources */,
 				DD201E086AF711E4D3F34119 /* GuangYaSource.swift in Sources */,
 				20A17D1E76473578314F690E /* HomeAlbumPickSection.swift in Sources */,
@@ -6548,6 +6558,7 @@
 				08E777E2F1647E94EBF91766 /* FileLogger.swift in Sources */,
 				2F09AF9820B07E36BBDEDC15 /* FileMetadataReader.swift in Sources */,
 				55164191B7E54C83ED6BD3B6 /* FullscreenPlayerEffectSettings.swift in Sources */,
+				A03DBF9ACD019CA1E148D7A6 /* GoogleDriveAccessChangeNotice.swift in Sources */,
 				953506057FBB8C8638906545 /* GoogleDriveSource.swift in Sources */,
 				81468FC4945D9158A4D4C740 /* GuangYaSource.swift in Sources */,
 				6FD343D31FDCA5EB52F81D2C /* ITunesScraper.swift in Sources */,
@@ -6846,6 +6857,7 @@
 				BE44E0DB44D7BD823631EBD7 /* FnMusicSource.swift in Sources */,
 				9657FD6D486B498BA05B4298 /* FullscreenPlayerEffectSettings.swift in Sources */,
 				0951A3A7101F9A58FC530335 /* FullscreenPlayerEffectSettingsView.swift in Sources */,
+				EB55304796DB617C80FACEC1 /* GoogleDriveAccessChangeNotice.swift in Sources */,
 				17385B54C3275E7F6DBFC4D0 /* GoogleDriveSource.swift in Sources */,
 				6F7789BD834850AFCF14F44B /* GuangYaSource.swift in Sources */,
 				89F7ED627671A02C6B4E1420 /* HomeAlbumPickSection.swift in Sources */,

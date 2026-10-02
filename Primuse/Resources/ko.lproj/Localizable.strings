@@ -5093,3 +5093,25 @@
 "whole_source_spoken_word" = "이 소스는 모두 오디오북";
 "whole_source_spoken_word_hint" = "이 소스의 모든 곡이 오디오북 책장에 들어가고 듣기 플레이어로 재생됩니다. 개별 항목은 여전히 음악으로 표시할 수 있습니다.";
 "audiobookshelf_credentials_hint" = "서버 계정으로 로그인하거나, 서버의 설정 › API Keys에서 API 키를 만든 뒤 위에서 API 키를 선택해 입력하세요.";
+
+/* Google Drive의 ‘선택한 파일만’ 권한 전환 안내 */
+"gdrive_scope_change_title_upcoming" = "Google Drive 연결 방식이 %@부터 변경됩니다";
+"gdrive_scope_change_title_in_effect" = "Google Drive 연결 방식이 %@부터 변경되었습니다";
+"gdrive_scope_change_summary_upcoming" = "그 전까지는 평소처럼 사용할 수 있습니다. 이후에는 Primuse가 폴더 전체를 스캔하는 대신 Google 파일 선택기에서 곡을 골라 라이브러리에 추가하며, 이미 추가한 소스는 파일을 한 번 더 선택해야 합니다.";
+"gdrive_scope_change_summary_in_effect" = "이제 Primuse가 폴더 전체를 스캔하는 대신 Google 파일 선택기에서 곡을 골라 라이브러리에 추가하며, 이미 추가한 소스는 파일을 한 번 더 선택해야 합니다.";
+"gdrive_scope_change_learn_more" = "자세히 보기";
+"gdrive_scope_change_sheet_title" = "Google Drive 연결 방식 변경";
+"gdrive_scope_change_changes_header" = "%@부터 달라지는 점";
+"gdrive_scope_change_item_pick" = "음악 폴더를 하나 선택해 라이브러리 전체를 자동으로 스캔하는 방식은 더 이상 지원되지 않습니다. 대신 Google 파일 선택기에서 추가할 곡을 선택하세요. 한 번에 여러 곡을 선택할 수 있습니다.";
+"gdrive_scope_change_item_new_uploads" = "앞으로 Google Drive에 업로드하는 새 곡은 자동으로 표시되지 않습니다. 추가하려면 다시 선택하세요.";
+"gdrive_scope_change_item_sidecars" = "곡과 함께 저장된 커버 이미지와 LRC 가사 파일도 함께 선택해야 읽을 수 있습니다. 곡에 내장된 커버와 가사는 영향을 받지 않습니다.";
+"gdrive_scope_change_item_writeback" = "태그 편집, 커버 및 가사 다시 쓰기, 휴지통으로 이동은 선택한 적이 있는 파일에서만 작동합니다.";
+"gdrive_scope_change_item_existing" = "이미 추가한 Google Drive 소스는 다시 로그인하고 파일을 한 번 더 선택해야 합니다. 재생 목록, 즐겨찾기, 재생 기록은 그대로 유지됩니다.";
+"gdrive_scope_change_item_tv" = "Apple TV에서는 Google 파일 선택기를 열 수 없습니다. 곡을 추가하려면 iPhone, iPad 또는 Mac에서 선택하세요.";
+"gdrive_scope_change_reason_header" = "변경 이유";
+"gdrive_scope_change_reason_policy" = "Google은 사용자의 Google Drive 전체를 읽을 수 있는 앱이 매년 Google이 인정한 제3자 기관의 보안 평가(CASA)를 통과하도록 요구하며, 비용은 개발자가 부담합니다. Primuse에서 재생하는 곡은 기기와 Google 사이에서 직접 전송되고 Primuse 서버를 거치지 않지만, Google은 이러한 앱도 예외가 아니며 개발자 자체 평가나 비용 감면도 더 이상 받지 않는다고 명확히 답변했습니다.";
+"gdrive_scope_change_reason_decision" = "독립 개발 앱인 Primuse로서는 매년 내야 하는 평가 비용을 감당하기 어려워, 평가가 필요 없는 Google의 ‘선택한 파일만’ 권한으로 전환합니다. 이는 Google 플랫폼 정책에 따른 제한이며, Primuse가 기능을 고쳐서 해결할 수 있는 문제가 아닙니다.";
+"gdrive_scope_change_alternatives_header" = "라이브러리가 크거나 폴더 전체 스캔을 유지하고 싶다면";
+"gdrive_scope_change_alt_mac" = "Mac: Google 공식 ‘데스크톱용 Google Drive’를 설치하고 음악 폴더를 ‘오프라인에서 사용 가능’으로 설정한 다음, Primuse에서 로컬 폴더로 추가해 선택하세요. 라이브러리 전체를 스캔하고 새 곡도 자동으로 찾습니다.";
+"gdrive_scope_change_alt_webdav" = "모든 기기(Apple TV 포함): NAS나 항상 켜 두는 컴퓨터가 있다면 rclone, OpenList 등의 도구로 Google Drive를 WebDAV로 제공한 뒤 Primuse에서 WebDAV 소스를 추가하세요. 인증은 사용자의 도구가 보유하므로 이번 변경의 영향을 받지 않습니다.";
+"gdrive_scope_change_alt_move" = "Primuse가 지원하는 다른 클라우드 드라이브나 NAS로 음악을 옮길 수도 있습니다.";

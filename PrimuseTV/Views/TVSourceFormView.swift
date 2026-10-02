@@ -669,6 +669,21 @@ struct TVSourceFormView: View {
             }
             .padding(.top, 4)
         }
+        if type == .googleDrive {
+            let phase = GoogleDriveAccessChangePolicy.phase()
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "calendar.badge.exclamationmark")
+                    .font(.system(size: 20)).foregroundStyle(TVColor.warn)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(verbatim: GoogleDriveAccessChangeText.title(phase))
+                        .tvFont(.caption, weight: .semibold).foregroundStyle(TVColor.text)
+                    Text(verbatim: GoogleDriveAccessChangeText.summary(phase))
+                        .tvFont(.meta).foregroundStyle(TVColor.textFaint)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.top, 4)
+        }
     }
 
     /// 一个地址框,下面一行实时解读。内网 / 公网不再是两个常驻区块 —— 地址归哪个

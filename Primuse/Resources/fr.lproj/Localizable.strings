@@ -5093,3 +5093,25 @@
 "whole_source_spoken_word" = "Tout ici est livre audio";
 "whole_source_spoken_word_hint" = "Tous les morceaux de cette source vont dans l’étagère de livres audio et utilisent le lecteur de livres. Un élément isolé peut toujours être marqué comme musique.";
 "audiobookshelf_credentials_hint" = "Connectez-vous avec un compte du serveur, ou créez une clé API dans « Paramètres › API Keys » du serveur et choisissez « Clé API » ci-dessus.";
+
+/* Google Drive passe à l’autorisation « Uniquement les fichiers que vous choisissez » */
+"gdrive_scope_change_title_upcoming" = "L’accès à Google Drive change le %@";
+"gdrive_scope_change_title_in_effect" = "L’accès à Google Drive a changé le %@";
+"gdrive_scope_change_summary_upcoming" = "Jusque-là, tout fonctionne comme d’habitude. Ensuite, au lieu que Primuse analyse des dossiers entiers, vous choisirez les morceaux dans le sélecteur de fichiers de Google, et il faudra choisir une nouvelle fois les fichiers des sources déjà ajoutées.";
+"gdrive_scope_change_summary_in_effect" = "Désormais, au lieu que Primuse analyse des dossiers entiers, vous choisissez les morceaux dans le sélecteur de fichiers de Google, et il faut choisir une nouvelle fois les fichiers des sources déjà ajoutées.";
+"gdrive_scope_change_learn_more" = "En savoir plus";
+"gdrive_scope_change_sheet_title" = "Changement d’accès à Google Drive";
+"gdrive_scope_change_changes_header" = "Ce qui change à partir du %@";
+"gdrive_scope_change_item_pick" = "Primuse ne peut plus analyser tout un dossier de musique que vous choisissez. Sélectionnez plutôt les morceaux à ajouter dans le sélecteur de fichiers de Google — vous pouvez en sélectionner plusieurs à la fois.";
+"gdrive_scope_change_item_new_uploads" = "Les morceaux que vous importerez ensuite dans Google Drive n’apparaîtront pas automatiquement. Choisissez-les à nouveau pour les ajouter.";
+"gdrive_scope_change_item_sidecars" = "Les images de pochette et les fichiers de paroles LRC placés à côté de vos morceaux doivent aussi être sélectionnés. Les pochettes et paroles intégrées aux morceaux ne sont pas concernées.";
+"gdrive_scope_change_item_writeback" = "La modification des tags, la réécriture des pochettes et des paroles et le déplacement vers la corbeille ne fonctionnent que sur les fichiers que vous avez sélectionnés.";
+"gdrive_scope_change_item_existing" = "Pour les sources Google Drive déjà ajoutées, vous devrez vous reconnecter et choisir à nouveau les fichiers. Vos listes de lecture, vos favoris et votre historique d’écoute sont conservés.";
+"gdrive_scope_change_item_tv" = "Le sélecteur de fichiers de Google n’est pas disponible sur Apple TV. Pour ajouter des morceaux, choisissez-les sur iPhone, iPad ou Mac.";
+"gdrive_scope_change_reason_header" = "Pourquoi ce changement";
+"gdrive_scope_change_reason_policy" = "Google exige que toute application capable de lire l’intégralité du Google Drive d’un utilisateur réussisse chaque année une évaluation de sécurité (CASA) menée par un laboratoire tiers agréé par Google, aux frais du développeur. Les morceaux lus par Primuse transitent directement entre votre appareil et Google, sans jamais passer par les serveurs de Primuse, mais Google a confirmé que ce type d’application n’est pas exempté et qu’il n’accepte plus les auto-évaluations des développeurs ni les exonérations de frais.";
+"gdrive_scope_change_reason_decision" = "Pour une application développée de manière indépendante comme Primuse, des frais à payer chaque année ne sont pas tenables. Primuse passe donc à l’autorisation « Uniquement les fichiers que vous choisissez » de Google, qui ne nécessite aucune évaluation. Cette limite découle des règles de la plateforme Google — Primuse ne peut pas la contourner en s’adaptant.";
+"gdrive_scope_change_alternatives_header" = "Grande bibliothèque, ou envie d’analyser des dossiers entiers ?";
+"gdrive_scope_change_alt_mac" = "Mac : installez Google Drive pour ordinateur, l’application officielle de Google, rendez votre dossier de musique « Disponible hors connexion », puis ajoutez-le dans Primuse comme dossier local. Primuse analyse toute la bibliothèque et trouve automatiquement les nouveaux morceaux.";
+"gdrive_scope_change_alt_webdav" = "Tous les appareils, y compris Apple TV : si vous avez un NAS ou un ordinateur toujours allumé, utilisez un outil comme rclone ou OpenList pour servir Google Drive en WebDAV, puis ajoutez une source WebDAV dans Primuse. L’autorisation appartient à votre propre outil et n’est pas concernée par ce changement.";
+"gdrive_scope_change_alt_move" = "Vous pouvez aussi déplacer votre musique vers un autre service cloud ou un NAS pris en charge par Primuse.";

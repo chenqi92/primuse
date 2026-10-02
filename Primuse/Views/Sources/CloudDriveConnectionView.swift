@@ -316,7 +316,10 @@ struct CloudDriveConnectionView: View {
             }
 
             if source.type == .googleDrive {
-                googleDrivePermissionDisclosure
+                VStack(spacing: 12) {
+                    googleDriveAccessChangeNotice
+                    googleDrivePermissionDisclosure
+                }
             }
 
             oauthActionButtons(maxWidth: 260)
@@ -350,7 +353,10 @@ struct CloudDriveConnectionView: View {
             }
 
             if source.type == .googleDrive {
-                googleDrivePermissionDisclosure
+                VStack(spacing: 12) {
+                    googleDriveAccessChangeNotice
+                    googleDrivePermissionDisclosure
+                }
             }
 
             oauthActionButtons(maxWidth: 300)
@@ -413,6 +419,12 @@ struct CloudDriveConnectionView: View {
             .keyboardShortcut(.defaultAction)
             .disabled(isAuthorizing)
         }
+    }
+
+    private var googleDriveAccessChangeNotice: some View {
+        GoogleDriveAccessChangeNotice()
+            .frame(maxWidth: 430, alignment: .leading)
+            .padding(.horizontal, 24)
     }
 
     private var googleDrivePermissionDisclosure: some View {
