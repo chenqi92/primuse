@@ -980,6 +980,7 @@ private struct TVSiriRemote: View {
 struct TVTabBarSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage(TVTabBarConfiguration.storageKey) private var rawValue = ""
+    @AppStorage(TVLibraryFilterConfiguration.storageKey) private var libraryFilterRawValue = ""
     @FocusState private var focusedID: String?
     @State private var notice: String?
 
@@ -1029,6 +1030,9 @@ struct TVTabBarSettingsView: View {
                     }
                     .disabled(configuration.isDefault)
                     .padding(.top, 8)
+
+                    libraryFilterSection
+                        .padding(.top, 24)
                 }
                 .frame(maxWidth: 1200, alignment: .leading)
                 .padding(.horizontal, 80)
@@ -1037,6 +1041,78 @@ struct TVTabBarSettingsView: View {
             }
         }
         .onExitCommand { dismiss() }
+    }
+
+    // MARK: 资料库筛选条
+
+    private var libraryFilterConfiguration: TVLibraryFilterConfiguration {
+        .decode(libraryFilterRawValue)
+    }
+
+    /// 资料库顶部筛选条上能关掉的几项。专辑、歌曲这些藏品本身一直在。
+    private var libraryFilterSection: some View {
+        let configuration = libraryFilterConfiguration
+        let optional = TVLibraryFilter.allCases.filter(\.isOptional)
+        return VStack(alignment: .leading, spacing: 16) {
+            Text("library_filters_settings_title")
+                .tvFont(.sectionTitle)
+                .foregroundStyle(TVColor.text)
+            Text("library_filters_settings_footer")
+                .tvFont(.caption)
+                .foregroundStyle(TVColor.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+            VStack(spacing: 0) {
+                ForEach(Array(optional.enumerated()), id: \.element) { index, filter in
+                    if index > 0 {
+                        Rectangle().fill(TVColor.divider).frame(height: 1).padding(.leading, 80)
+                    }
+                    libraryFilterRow(filter, isShown: configuration.isShown(filter))
+                }
+            }
+            .tvPanel(radius: 20)
+            .focusSection()
+        }
+    }
+
+    private func libraryFilterRow(_ filter: TVLibraryFilter, isShown: Bool) -> some View {
+        TVFocusButton(
+            radius: 14, scale: 1.0, lift: 0,
+            action: {
+                var updated = libraryFilterConfiguration
+                updated.setShown(!isShown, for: filter)
+                libraryFilterRawValue = updated.encoded()
+            },
+            focusBinding: $focusedID,
+            focusID: "libraryFilter." + filter.rawValue
+        ) { focused in
+            HStack(spacing: 18) {
+                Image(systemName: filter.icon)
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(isShown ? TVColor.text : TVColor.textGhost)
+                    .frame(width: 44)
+                Text(filter.display)
+                    .tvFont(.cardTitle, weight: focused ? .bold : .medium)
+                    .foregroundStyle(isShown ? TVColor.text : TVColor.textMuted)
+                Spacer(minLength: 0)
+                ZStack(alignment: isShown ? .trailing : .leading) {
+                    Capsule().fill(isShown ? AnyShapeStyle(TVColor.brand)
+                                           : AnyShapeStyle(TVColor.surfaceStrong))
+                        .frame(width: 62, height: 34)
+                    Circle().fill(.white).frame(width: 28, height: 28).padding(3)
+                }
+                .animation(.easeOut(duration: 0.18), value: isShown)
+            }
+            .padding(.horizontal, 22).padding(.vertical, 16)
+            .frame(maxWidth: .infinity)
+            .background(focused ? TVColor.surfaceStrong : .clear,
+                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 16)
+        .accessibilityLabel(Text(filter.display))
+        .accessibilityValue(Text(isShown
+            ? PMString("ext.tv.sources.status.enabled")
+            : PMString("ext.tv.sources.status.disabled")))
     }
 
     private static let resetFocusID = "tabBar.reset"

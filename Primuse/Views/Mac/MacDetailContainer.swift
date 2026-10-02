@@ -116,6 +116,9 @@ struct MacDetailContainer: View {
                 HomeFolderManagementView()
             case .statistics:
                 ListeningStatsView(model: listeningStatsModel)
+            case .releaseDate:
+                ReleaseDateLibraryView()
+                    .navigationTitle(section.title)
             case .recommendations:
                 AIRecommendationLibraryView()
                     .navigationTitle(section.title)

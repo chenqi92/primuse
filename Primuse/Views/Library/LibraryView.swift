@@ -3,6 +3,8 @@ import PrimuseKit
 
 enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
     case recommendations, favorites, playlists, artists, genres, albums, songs, spokenWord, folders, radio, statistics
+    /// 按发行年代、年份浏览专辑。
+    case releaseDate
 
     var id: String { rawValue }
 
@@ -19,6 +21,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .songs: return "tab_songs"
         case .spokenWord: return "tab_spoken_word"
         case .radio: return "radio_title"
+        case .releaseDate: return "library_release_date_title"
         }
     }
 
@@ -35,6 +38,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .songs: return "music.note"
         case .spokenWord: return "books.vertical.fill"
         case .radio: return "radio.fill"
+        case .releaseDate: return "calendar"
         }
     }
 
@@ -51,6 +55,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .songs: return .blue
         case .spokenWord: return .brown
         case .radio: return .orange
+        case .releaseDate: return .indigo
         }
     }
 
@@ -67,86 +72,80 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .songs: return String(localized: "tab_songs")
         case .spokenWord: return String(localized: "tab_spoken_word")
         case .radio: return String(localized: "radio_title")
+        case .releaseDate: return String(localized: "library_release_date_title")
         }
     }
 }
 
 enum LibraryDisplayConfiguration {
     static let quickAccessLimitKey = "primuse.library.quickAccessLimit.v1"
-    static let sectionOrderKey = "primuse.library.sectionOrder.v1"
-    static let hiddenSectionsKey = "primuse.library.hiddenSections.v1"
+    static let sectionOrderKey = LibrarySectionLayoutPolicy.orderKey
+    static let hiddenSectionsKey = LibrarySectionLayoutPolicy.hiddenKey
 
     static let defaultQuickAccessLimit = 5
     static let quickAccessLimitRange = 1...12
+    /// 资料库先是藏品本身;智能推荐与听歌统计排在最后,默认还收起来。
     static let defaultSectionOrder: [LibrarySection] = [
-        .recommendations,
         .favorites,
         .songs,
-        .spokenWord,
         .albums,
         .artists,
         .genres,
-        .playlists,
         .folders,
+        .releaseDate,
+        .playlists,
         .radio,
+        .spokenWord,
+        .recommendations,
         .statistics,
     ]
+
+    /// 没设过显隐时收起来的分类。推荐与排行、统计在首页都有自己的区块;Mac 首页没有
+    /// 统计入口,侧栏那一行就留着。
+    static var defaultHiddenSections: Set<LibrarySection> {
+        #if os(macOS)
+        [.recommendations]
+        #else
+        [.recommendations, .statistics]
+        #endif
+    }
 
     static func normalizedQuickAccessLimit(_ value: Int) -> Int {
         min(max(value, quickAccessLimitRange.lowerBound), quickAccessLimitRange.upperBound)
     }
 
     static func decodeSectionOrder(_ rawValue: String) -> [LibrarySection] {
-        let stored: [LibrarySection]
-        if let data = rawValue.data(using: .utf8),
-           let decoded = try? JSONDecoder().decode([LibrarySection].self, from: data) {
-            stored = decoded
-        } else {
-            stored = []
-        }
-
-        var seen = Set<LibrarySection>()
-        var result = stored.filter { seen.insert($0).inserted }
-        for missing in defaultSectionOrder where !seen.contains(missing) {
-            guard let defaultIndex = defaultSectionOrder.firstIndex(of: missing) else { continue }
-            let insertionIndex = result.firstIndex { section in
-                guard let sectionDefaultIndex = defaultSectionOrder.firstIndex(of: section) else {
-                    return false
-                }
-                return sectionDefaultIndex > defaultIndex
-            }
-            if let insertionIndex {
-                result.insert(missing, at: insertionIndex)
-            } else {
-                result.append(missing)
-            }
-            seen.insert(missing)
-        }
-        return result
+        let stored = (LibrarySectionLayoutPolicy.decodeNames(rawValue) ?? [])
+            .compactMap(LibrarySection.init(rawValue:))
+        return LibrarySectionLayoutPolicy.completedOrder(stored, defaultOrder: defaultSectionOrder)
     }
 
     static func encodeSectionOrder(_ sections: [LibrarySection]) -> String {
-        guard let data = try? JSONEncoder().encode(sections) else { return "" }
-        return String(decoding: data, as: UTF8.self)
+        LibrarySectionLayoutPolicy.encodeNames(sections.map(\.rawValue))
     }
 
+    /// 实际收起来的分类。从没设过(空串)时是 `defaultHiddenSections`。
     static func decodeHiddenSections(_ rawValue: String) -> Set<LibrarySection> {
-        guard let data = rawValue.data(using: .utf8),
-              let decoded = try? JSONDecoder().decode([LibrarySection].self, from: data) else {
-            return []
-        }
-        return Set(decoded)
+        LibrarySectionLayoutPolicy.hidden(
+            rawValue: rawValue,
+            defaultHidden: defaultHiddenSections,
+            section: LibrarySection.init(rawValue:)
+        )
     }
 
     static func encodeHiddenSections(_ sections: Set<LibrarySection>) -> String {
-        let ordered = defaultSectionOrder.filter(sections.contains)
-        guard let data = try? JSONEncoder().encode(ordered) else { return "" }
-        return String(decoding: data, as: UTF8.self)
+        LibrarySectionLayoutPolicy.encodeNames(defaultSectionOrder.filter(sections.contains).map(\.rawValue))
     }
 
     static func visibleSections(orderRawValue: String, hiddenRawValue: String) -> [LibrarySection] {
         let hidden = decodeHiddenSections(hiddenRawValue)
         return decodeSectionOrder(orderRawValue).filter { !hidden.contains($0) }
+    }
+
+    /// 启动时、任何界面读资料库分类之前调一次:升级前调过顺序却没关过任何分类的人,
+    /// 把「全部显示」写实,默认收起的两类不会凭空消失。
+    static func migrateDefaultHiddenSectionsIfNeeded() {
+        LibrarySectionLayoutPolicy.migrateDefaultHiddenIfNeeded()
     }
 }
 
@@ -978,7 +977,7 @@ struct LibraryView: View {
     @ViewBuilder
     private func categoryPreview(_ section: LibrarySection) -> some View {
         switch section {
-        case .favorites, .folders, .statistics:
+        case .favorites, .folders, .statistics, .releaseDate:
             EmptyView()
         case .recommendations:
             overlappingPreview(previewSongs) { song in
@@ -1444,6 +1443,8 @@ struct LibraryView: View {
             return countText(songs.count, unitKey: "songs_count")
         case .statistics:
             return String(localized: "stats_section_label")
+        case .releaseDate:
+            return String(localized: "library_release_date_subtitle")
         case .recommendations:
             return String(localized: "library_recommendations_subtitle")
         case .songs:
@@ -1492,6 +1493,8 @@ struct LibraryView: View {
             HomeFolderManagementView(usesInlineControls: usesMinimalSectionControls)
         case .statistics:
             ListeningStatsView(usesInlineSourcePicker: usesMinimalSectionControls)
+        case .releaseDate:
+            ReleaseDateLibraryView()
         case .recommendations:
             AIRecommendationLibraryView()
         case .songs:

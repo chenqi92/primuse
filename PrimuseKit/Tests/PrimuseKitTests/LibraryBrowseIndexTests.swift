@@ -96,7 +96,12 @@ struct LibraryBrowseIndexTests {
 
         let year = LibraryAlbumBrowseLayoutBuilder.layout(albums: albums, order: .year)
         #expect(year.items.map(\.id) == ["h", "t", "a", "n"])
-        #expect(year.sections.isEmpty)
+        #expect(year.sections == [
+            LibraryBrowseSection(bucket: "decade-1990", range: 0..<1),
+            LibraryBrowseSection(bucket: "decade-1970", range: 1..<2),
+            LibraryBrowseSection(bucket: "decade-1960", range: 2..<3),
+            LibraryBrowseSection(bucket: "unknown", range: 3..<4),
+        ])
 
         let now = Date()
         let songs = [
@@ -107,6 +112,31 @@ struct LibraryBrowseIndexTests {
         let recent = LibraryAlbumBrowseLayoutBuilder.layout(albums: albums, order: .recentlyAdded, songs: songs)
         #expect(recent.items.map(\.id) == ["t", "h", "a", "n"])
         #expect(recent.sections.isEmpty)
+    }
+
+    @Test("The year wall runs newest first in decade sections; odd years count as unknown")
+    func yearWallSections() {
+        let albums = [
+            album("b", title: "B", artist: "Blur", year: 1994),
+            album("a", title: "A", artist: "Adele", year: 1994),
+            album("c", title: "C", artist: "Coldplay", year: 2000),
+            album("d", title: "D", artist: "Dido", year: 1999),
+            album("m", title: "M", artist: "Miles", year: 1959),
+            album("x", title: "X", artist: "Xiu", year: nil),
+            album("y", title: "Y", artist: "Yes", year: 98),
+            album("z", title: "Z", artist: "Zed", year: 20150101),
+        ]
+        let layout = LibraryAlbumBrowseLayoutBuilder.layout(albums: albums, order: .year, currentYear: 2026)
+        #expect(layout.items.map(\.id) == ["c", "d", "a", "b", "m", "x", "y", "z"])
+        #expect(layout.sections == [
+            LibraryBrowseSection(bucket: "decade-2000", range: 0..<1),
+            LibraryBrowseSection(bucket: "decade-1990", range: 1..<4),
+            LibraryBrowseSection(bucket: "earlier", range: 4..<5),
+            LibraryBrowseSection(bucket: "unknown", range: 5..<8),
+        ])
+        #expect(ReleaseDateBrowseLayout.Era(id: "decade-1990") == .decade(1990))
+        #expect(ReleaseDateBrowseLayout.Era(id: "unknown") == .unknown)
+        #expect(ReleaseDateBrowseLayout.Era(id: "A") == nil)
     }
 
     @Test("Artist wall sorts by reading and keeps the unknown artist last")

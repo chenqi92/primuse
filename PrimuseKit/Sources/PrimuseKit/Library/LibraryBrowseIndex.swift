@@ -166,7 +166,8 @@ public struct LibraryBrowseSection: Hashable, Sendable {
     }
 }
 
-/// 排好序的浏览列表与它的首字母分段。没有分段(按年份、最近添加)时 `sections` 为空。
+/// 排好序的浏览列表与它的分段(按名字排时是首字母,按年份排时是年份)。
+/// 没有分段(最近添加、喜欢)时 `sections` 为空。
 public struct LibraryBrowseLayout<Element: Sendable>: Sendable {
     public let items: [Element]
     public let sections: [LibraryBrowseSection]
@@ -260,7 +261,7 @@ public enum LibraryAlbumBrowseOrder: String, CaseIterable, Sendable {
     /// 按专辑艺术家的名字(拼音)归集,同一艺术家的专辑按发行年份从早到晚。
     case artist
     case title
-    /// 发行年份从新到旧,没有年份的排最后。
+    /// 发行年份从新到旧,没有年份的排最后;按年代分段(和资料库「发行日期」页同一套年代)。
     case year
     case recentlyAdded
     /// 只放喜欢的专辑，最近喜欢的在前（调用方按这个顺序把专辑交进来）。
@@ -282,11 +283,13 @@ public enum LibraryAlbumBrowseLayoutBuilder {
     /// - Parameters:
     ///   - songs: 专辑的歌曲,只有 `.recentlyAdded` 用到(取每张专辑最近一首的入库时间)。
     ///   - unknownArtistName: 曲库给没有艺术家的专辑填的占位名;按艺术家排时这一组放最后。
+    ///   - currentYear: 按年份排时判断年份像不像样;不给就取今年。
     public static func layout(
         albums: [Album],
         order: LibraryAlbumBrowseOrder,
         songs: [Song] = [],
-        unknownArtistName: String? = nil
+        unknownArtistName: String? = nil,
+        currentYear: Int? = nil
     ) -> LibraryBrowseLayout<Album> {
         switch order {
         case .recentlyAdded:
@@ -318,6 +321,11 @@ public enum LibraryAlbumBrowseLayoutBuilder {
             guard let year = album.year, year > 0 else { return nil }
             return year
         }
+        // 按年份排时只认像样的年份(两位数、写成日期串的都当没有),年代分段才是连续的。
+        let thisYear = currentYear ?? Calendar.current.component(.year, from: Date())
+        let releaseYears = order == .year
+            ? albums.map { ReleaseDateBrowseLayoutBuilder.plausibleYear($0.year, currentYear: thisYear) }
+            : []
 
         func compare(_ lhs: LibraryCollationPolicy.Key, _ rhs: LibraryCollationPolicy.Key) -> Int {
             if lhs.bucketIndex != rhs.bucketIndex { return lhs.bucketIndex < rhs.bucketIndex ? -1 : 1 }
@@ -353,8 +361,8 @@ public enum LibraryAlbumBrowseLayoutBuilder {
             }
         case .year, .recentlyAdded, .liked:
             albums.indices.sorted { lhs, rhs in
-                let lhsYear = years[lhs] ?? Int.min
-                let rhsYear = years[rhs] ?? Int.min
+                let lhsYear = releaseYears[lhs] ?? Int.min
+                let rhsYear = releaseYears[rhs] ?? Int.min
                 if lhsYear != rhsYear { return lhsYear > rhsYear }
                 let artist = compare(artistKeys[lhs], artistKeys[rhs])
                 if artist != 0 { return artist < 0 }
@@ -368,10 +376,28 @@ public enum LibraryAlbumBrowseLayoutBuilder {
             sections = LibraryBrowseLayout<Album>.sections(bucketIndices: sortedIndices.map { artistKeys[$0].bucketIndex })
         case .title:
             sections = LibraryBrowseLayout<Album>.sections(bucketIndices: sortedIndices.map { titleKeys[$0].bucketIndex })
-        case .year, .recentlyAdded, .liked:
+        case .year:
+            sections = eraSections(sortedIndices.map { releaseYears[$0] }, currentYear: thisYear)
+        case .recentlyAdded, .liked:
             sections = []
         }
         return LibraryBrowseLayout(items: sortedIndices.map { albums[$0] }, sections: sections)
+    }
+
+    /// 按年份排时的分段名是 `ReleaseDateBrowseLayout.Era.id`(「decade-1990」「earlier」「unknown」),
+    /// 显示时由界面换成文字。
+    static func eraSections(_ sortedYears: [Int?], currentYear: Int) -> [LibraryBrowseSection] {
+        let buckets = sortedYears.map { ReleaseDateBrowseLayoutBuilder.era(for: $0, currentYear: currentYear).id }
+        var sections: [LibraryBrowseSection] = []
+        var start = 0
+        for index in buckets.indices where index > 0 && buckets[index] != buckets[index - 1] {
+            sections.append(LibraryBrowseSection(bucket: buckets[start], range: start..<index))
+            start = index
+        }
+        if !buckets.isEmpty {
+            sections.append(LibraryBrowseSection(bucket: buckets[start], range: start..<buckets.count))
+        }
+        return sections
     }
 
 }

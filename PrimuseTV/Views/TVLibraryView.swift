@@ -63,6 +63,34 @@ extension LibraryAlbumBrowseOrder {
     }
 }
 
+extension TVLibraryFilter {
+    var display: String {
+        switch self {
+        case .albums: return String(localized: "tab_albums")
+        case .songs: return String(localized: "tab_songs")
+        case .artists: return String(localized: "tab_artists")
+        case .genres: return String(localized: "tab_genres")
+        case .folders: return TVDiscoveryText.string("folders")
+        case .years: return String(localized: "year_label")
+        case .recommendations: return PMString("library_recommendations_title")
+        case .ranking: return TVDiscoveryText.string("ranking")
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .albums: return "square.stack"
+        case .songs: return "music.note"
+        case .artists: return "person.2"
+        case .genres: return "guitars"
+        case .folders: return "folder"
+        case .years: return "calendar"
+        case .recommendations: return "sparkles"
+        case .ranking: return "chart.bar"
+        }
+    }
+}
+
 enum TVLibraryBackgroundWorkPolicy {
     static func refreshesRecommendations(for filter: TVLibraryView.Filter) -> Bool {
         filter == .recommendations
@@ -77,33 +105,9 @@ struct TVLibraryView: View {
     var onReturnToTabs: () -> Void = {}
     var onModalActivityChanged: (Bool) -> Void = { _ in }
 
-    enum Filter: String, CaseIterable, Identifiable {
-        // 电台已是与音乐并列的一级页(TVRadioPageView),不再是资料库里的一个筛选。
-        case albums, songs, artists, genres, folders, recommendations, ranking
-        var id: String { rawValue }
-        var display: String {
-            switch self {
-            case .albums: return String(localized: "tab_albums")
-            case .songs: return String(localized: "tab_songs")
-            case .artists: return String(localized: "tab_artists")
-            case .genres: return String(localized: "tab_genres")
-            case .folders: return TVDiscoveryText.string("folders")
-            case .recommendations: return PMString("library_recommendations_title")
-            case .ranking: return TVDiscoveryText.string("ranking")
-            }
-        }
-        var icon: String {
-            switch self {
-            case .albums: return "square.stack"
-            case .songs: return "music.note"
-            case .artists: return "person.2"
-            case .genres: return "guitars"
-            case .folders: return "folder"
-            case .recommendations: return "sparkles"
-            case .ranking: return "chart.bar"
-            }
-        }
-    }
+    /// 筛选条上的项与显隐规则在 Kit(`TVLibraryFilter`),推荐、排行默认收起。
+    /// 电台已是与音乐并列的一级页(TVRadioPageView),不再是资料库里的一个筛选。
+    typealias Filter = TVLibraryFilter
     @Binding var filter: Filter
     @State private var recommendationCandidates: [Song] = []
     @State private var aiRecommendation = AIRecommendationViewModel()
@@ -119,6 +123,8 @@ struct TVLibraryView: View {
     @FocusState private var focusedGridItem: String?
     @AppStorage(LibraryAlbumBrowseOrder.tvStorageKey)
     private var albumOrderRawValue = LibraryAlbumBrowseOrder.tvDefault.rawValue
+    @AppStorage(TVLibraryFilterConfiguration.storageKey)
+    private var filterConfigurationRawValue = ""
     @FocusState private var focusedAlbumOrder: LibraryAlbumBrowseOrder?
     /// 右侧字母栏上的焦点;有值时网格中央浮出这个字母。
     @FocusState private var focusedIndexBucket: String?
@@ -196,17 +202,19 @@ struct TVLibraryView: View {
         .onChange(of: focusRequest) { restoreContentFocus() }
         .task(id: BrowseLayoutRequest(
             filter: filter,
-            albumOrder: albumOrder,
+            albumOrder: wallOrder,
             revision: store.libraryBrowseRevision,
-            favoritesRevision: albumOrder == .liked ? LibraryFavoritesStore.shared.revision : 0
+            favoritesRevision: wallOrder == .liked ? LibraryFavoritesStore.shared.revision : 0
         )) {
             switch filter {
-            case .albums: await store.prepareAlbumBrowseLayout(albumOrder)
+            case .albums, .years: await store.prepareAlbumBrowseLayout(wallOrder)
             case .artists: await store.prepareArtistBrowseLayout()
             default: break
             }
         }
         .onChange(of: filter) { _, _ in resetLetterIndex() }
+        .onAppear(perform: leaveHiddenFilter)
+        .onChange(of: filterConfigurationRawValue) { _, _ in leaveHiddenFilter() }
         .onChange(of: albumOrderRawValue) { _, _ in
             // 换了排序方式,上次停的那张卡片在新顺序里的位置没有意义;网格从头开始,
             // 焦点留在排序按钮上。
@@ -293,7 +301,10 @@ struct TVLibraryView: View {
             if let order = environment["TV_ALBUM_ORDER"].flatMap(LibraryAlbumBrowseOrder.init(rawValue:)) {
                 albumOrderRawValue = order.rawValue
             }
-            if environment["TV_LIBRARY_FILTER"] == "artists" { filter = .artists }
+            // TV_LIBRARY_FILTER=artists|years 换到艺人墙 / 年份墙。
+            if let requested = environment["TV_LIBRARY_FILTER"].flatMap(Filter.init(rawValue:)) {
+                filter = requested
+            }
             // TV_LIKED_ARTISTS=1:艺人墙只看喜欢的。
             if environment["TV_LIKED_ARTISTS"] == "1" { showsLikedArtistsOnly = true }
             let bucket = environment["TV_INDEX_JUMP"] ?? "M"
@@ -317,6 +328,36 @@ struct TVLibraryView: View {
     private static let indexBarGap: CGFloat = 16
 
     private var albumOrder: LibraryAlbumBrowseOrder { .resolved(albumOrderRawValue) }
+
+    /// 专辑墙实际用的排序:「年份」筛选就是按年份排、按年代分段的专辑墙。
+    private var wallOrder: LibraryAlbumBrowseOrder { filter == .years ? .year : albumOrder }
+
+    private var filterConfiguration: TVLibraryFilterConfiguration {
+        .decode(filterConfigurationRawValue)
+    }
+
+    /// 停在被关掉的筛选上(设置里刚关、或从旧版本带过来)就回到专辑墙。
+    private func leaveHiddenFilter() {
+        let resolved = filterConfiguration.resolved(filter)
+        if resolved != filter { filter = resolved }
+    }
+
+    /// 专辑墙分段的标题:按年份排时分段是年代(和手机上「发行日期」页同一套),其余是首字母。
+    private static func albumSectionTitle(_ bucket: String) -> String {
+        switch ReleaseDateBrowseLayout.Era(id: bucket) {
+        case .decade(let start):
+            String(format: String(localized: "library_release_date_decade_format"), start)
+        case .earlier:
+            String(
+                format: String(localized: "library_release_date_earlier_format"),
+                ReleaseDateBrowseLayoutBuilder.earliestDecade
+            )
+        case .unknown:
+            String(localized: "library_release_date_unknown")
+        case nil:
+            bucket
+        }
+    }
 
     private struct BrowseLayoutRequest: Equatable {
         let filter: Filter
@@ -375,7 +416,7 @@ struct TVLibraryView: View {
     /// 当前筛选下记住的那张卡片;已从曲库消失的不算。
     private var browseAnchorFocusID: String? {
         switch filter {
-        case .albums:
+        case .albums, .years:
             guard let id = browseMemory.albumID, store.album(id) != nil else { return nil }
             return Self.albumFocusID(id)
         case .artists:
@@ -393,7 +434,7 @@ struct TVLibraryView: View {
     private func revealBrowseAnchor(with proxy: ScrollViewProxy) {
         let anchor: String?
         switch filter {
-        case .albums: anchor = browseMemory.albumID
+        case .albums, .years: anchor = browseMemory.albumID
         case .artists: anchor = browseMemory.artistID
         default: anchor = nil
         }
@@ -494,7 +535,7 @@ struct TVLibraryView: View {
                 : store.artists.count
             return PMString("ext.tv.library.title.artists", count)
         case .songs: return PMString("ext.tv.library.title.songs", TVFmt.count(store.songs.count))
-        case .genres, .folders, .ranking: return filter.display
+        case .genres, .folders, .years, .ranking: return filter.display
         }
     }
 
@@ -504,7 +545,7 @@ struct TVLibraryView: View {
                 .foregroundStyle(TVColor.textMuted)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 14) {
-                    ForEach(Filter.allCases) { item in
+                    ForEach(filterConfiguration.visibleFilters) { item in
                         Button { filter = item } label: {
                             TVFilterChipLabel(
                                 title: item.display,
@@ -533,8 +574,8 @@ struct TVLibraryView: View {
         let columns = gridMetrics.gridItems(cell: cell)
         let gap = gridMetrics.gap
         switch filter {
-        case .albums:
-            if let layout = store.albumBrowseLayout(albumOrder) {
+        case .albums, .years:
+            if let layout = store.albumBrowseLayout(wallOrder) {
                 TVIndexedGrid(
                     items: layout.items, sections: layout.sections, columns: columns, spacing: gap,
                     revealingIndex: browseMemory.albumID.flatMap { id in
@@ -543,7 +584,8 @@ struct TVLibraryView: View {
                     jumpRequest: gridJumpRequest,
                     scrollProxy: proxy,
                     focusItem: { focusedGridItem = Self.albumFocusID($0) },
-                    onSectionFocused: noteFocusedSection
+                    onSectionFocused: noteFocusedSection,
+                    sectionTitle: Self.albumSectionTitle
                 ) { index, album, focusChanged in
                     TVAlbumCard(album: album, width: cell,
                                 subtitleOverride: album.year > 0 ? "\(album.artist) · \(album.year)" : album.artist,
@@ -557,7 +599,7 @@ struct TVLibraryView: View {
                                 focusID: Self.albumFocusID(album.id))
                         .accessibilityIdentifier("tv.library.album.\(index)")
                 }
-                .id(albumOrder)
+                .id(wallOrder)
                 .onAppear { revealBrowseAnchor(with: proxy) }
             } else {
                 browseLayoutPlaceholder

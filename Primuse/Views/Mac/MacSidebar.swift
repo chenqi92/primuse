@@ -131,7 +131,7 @@ struct MacSidebar: View {
     @ViewBuilder
     private func libraryNavigationItems(for section: LibrarySection) -> some View {
         switch section {
-        case .favorites, .folders:
+        case .favorites, .folders, .releaseDate:
             item(route: .section(section), icon: section.icon, title: section.title)
         case .statistics:
             // 统计页走独立路由 (不是 `.section`), 保持原来的选中态与图标。

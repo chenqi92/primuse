@@ -590,6 +590,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
     case libraryGenres
     case libraryPlaylists
     case libraryRadio
+    case libraryReleaseDate
     case search
     case settings
 
@@ -602,7 +603,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
         case .home: return 0
         case .library, .libraryRecommendations, .librarySongs, .librarySpokenWord, .libraryAlbums,
                 .libraryArtists, .libraryGenres, .libraryPlaylists, .libraryRadio,
-                .libraryFavorites, .libraryFolders, .libraryStatistics:
+                .libraryFavorites, .libraryFolders, .libraryStatistics, .libraryReleaseDate:
             return 1
         case .search: return 2
         case .settings: return 3
@@ -624,6 +625,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
         case .genres: return .libraryGenres
         case .playlists: return .libraryPlaylists
         case .radio: return .libraryRadio
+        case .releaseDate: return .libraryReleaseDate
         }
     }
 
@@ -642,6 +644,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
         case .libraryGenres: return "tab_genres"
         case .libraryPlaylists: return "tab_playlists"
         case .libraryRadio: return "radio_title"
+        case .libraryReleaseDate: return "library_release_date_title"
         case .search: return "search_title"
         case .settings: return "settings_title"
         }
@@ -662,6 +665,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
         case .libraryGenres: return "tag.fill"
         case .libraryPlaylists: return "music.note.list"
         case .libraryRadio: return "radio.fill"
+        case .libraryReleaseDate: return "calendar"
         case .search: return "magnifyingglass"
         case .settings: return "gearshape"
         }
@@ -1124,6 +1128,8 @@ struct ContentView: View {
             librarySubpane(title: "tab_playlists") { PlaylistListView() }
         case .libraryRadio:
             librarySubpane(title: "radio_title") { RadioStationsView() }
+        case .libraryReleaseDate:
+            librarySubpane(title: "library_release_date_title") { ReleaseDateLibraryView() }
         case .search:
             SearchView(searchText: $searchText, scope: $searchScope,
                            activatesSearchField: $searchFieldActivationRequested,

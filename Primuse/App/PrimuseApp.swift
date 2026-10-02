@@ -1377,6 +1377,8 @@ struct PrimuseApp: App {
     @State private var mediaRelayImportRequest: MediaRelayImportRequest?
 
     init() {
+        // 资料库分类有了默认收起的几类:升级前的显隐存档先在这里写实,界面读到的就是对的。
+        LibraryDisplayConfiguration.migrateDefaultHiddenSectionsIfNeeded()
         // 把 scan-checkpoints.json / source-sync-states.json 的解码提前丢到
         // 后台线程, 与 AppServices 里 keychain 迁移、SourcesStore 与
         // MusicLibrary 快照装载这些主线程构造并行。ScanService.init 仍然同步

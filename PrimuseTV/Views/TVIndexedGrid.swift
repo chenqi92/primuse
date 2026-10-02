@@ -8,7 +8,7 @@ struct TVGridJumpRequest: Equatable {
     let serial: Int
 }
 
-/// 带首字母分段的分页网格(专辑墙 / 艺人墙)。
+/// 带分段的分页网格(专辑墙 / 艺人墙;分段是首字母,年份墙是年份)。
 ///
 /// 大曲库里整墙卡片都参与布局和焦点搜索会卡,所以只渲染一页左右、焦点靠近末尾时续页;
 /// 而且渲染的是一个窗口 `[起点, 起点 + 已渲染数)`,不总是从第一张开始:从索引栏跳到 M 时
@@ -46,6 +46,8 @@ where Items.Element: Identifiable, Items.Index == Int {
     let focusItem: (Item.ID) -> Void
     /// 焦点进入了哪一个分段;父视图拿它点亮索引栏。
     let onSectionFocused: (String) -> Void
+    /// 分段标题怎么显示(按年份分段时「没有年份」那一段要换成文字)。
+    let sectionTitle: (String) -> String
     private let cell: (Int, Item, @escaping (Bool) -> Void) -> Cell
 
     /// 窗口起点 = 所在分段的字母 + 段内偏移。曲库变化后各段整体挪动,按字母找回起点,
@@ -66,6 +68,7 @@ where Items.Element: Identifiable, Items.Index == Int {
         scrollProxy: ScrollViewProxy,
         focusItem: @escaping (Item.ID) -> Void,
         onSectionFocused: @escaping (String) -> Void = { _ in },
+        sectionTitle: @escaping (String) -> String = { $0 },
         @ViewBuilder cell: @escaping (Int, Item, @escaping (Bool) -> Void) -> Cell
     ) {
         self.items = items
@@ -76,6 +79,7 @@ where Items.Element: Identifiable, Items.Index == Int {
         self.scrollProxy = scrollProxy
         self.focusItem = focusItem
         self.onSectionFocused = onSectionFocused
+        self.sectionTitle = sectionTitle
         self.cell = cell
 
         let pageSize = TVLongListPagingPolicy.pageSize
@@ -163,7 +167,7 @@ where Items.Element: Identifiable, Items.Index == Int {
     }
 
     private func sectionHeader(_ bucket: String) -> some View {
-        Text(verbatim: bucket)
+        Text(verbatim: sectionTitle(bucket))
             .tvFont(.sectionTitle)
             .foregroundStyle(TVColor.text)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -195,7 +199,8 @@ where Items.Element: Identifiable, Items.Index == Int {
     /// 窗口上方的一行:焦点一落上来就把前面一页补出来,再把焦点交给紧挨着的上一行。
     /// 交接没成功时它就是一颗普通按钮,按下效果相同。
     private func earlierRow(windowStart start: Int) -> some View {
-        let previousBucket = LibraryBrowseSection.section(containing: start - 1, in: sections)?.bucket
+        let previousBucket = LibraryBrowseSection.section(containing: start - 1, in: sections)
+            .map { sectionTitle($0.bucket) }
         return TVFocusButton(
             radius: 14,
             scale: 1.0,

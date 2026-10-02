@@ -150,24 +150,49 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         XCTAssertEqual(Set(decoded), Set(HomeSectionKind.allCases))
     }
 
-    func testFreshLibraryUsesRecommendationFirst() {
+    func testFreshLibraryStartsWithTheCollectionAndHidesRecommendations() {
         XCTAssertEqual(
             LibraryDisplayConfiguration.decodeSectionOrder(""),
             LibraryDisplayConfiguration.defaultSectionOrder
         )
         XCTAssertEqual(
-            LibraryDisplayConfiguration.defaultSectionOrder.first,
-            .recommendations
+            Array(LibraryDisplayConfiguration.defaultSectionOrder.prefix(8)),
+            [.favorites, .songs, .albums, .artists, .genres, .folders, .releaseDate, .playlists]
         )
+        let visible = LibraryDisplayConfiguration.visibleSections(orderRawValue: "", hiddenRawValue: "")
+        XCTAssertFalse(visible.contains(.recommendations))
+        XCTAssertFalse(visible.contains(.statistics))
+        XCTAssertTrue(visible.contains(.releaseDate))
+        XCTAssertEqual(visible.first, .favorites)
     }
 
-    func testExistingCustomOrderKeepsItsShapeWhenRecommendationsAreIntroduced() {
+    func testExistingCustomOrderKeepsItsShapeWhenNewSectionsAreIntroduced() {
         let oldOrder: [LibrarySection] = [.albums, .songs, .artists, .playlists, .radio]
         let rawValue = LibraryDisplayConfiguration.encodeSectionOrder(oldOrder)
 
         XCTAssertEqual(
             LibraryDisplayConfiguration.decodeSectionOrder(rawValue),
-            [.recommendations, .favorites, .spokenWord, .albums, .songs, .artists, .genres, .playlists, .folders, .radio, .statistics]
+            [.favorites, .albums, .songs, .artists, .genres, .folders, .releaseDate, .playlists, .radio,
+             .spokenWord, .recommendations, .statistics]
+        )
+    }
+
+    func testStoredVisibilityWinsOverTheNewDefaults() {
+        // Someone who had already chosen what to hide keeps recommendations and statistics.
+        let stored = LibraryDisplayConfiguration.encodeHiddenSections([.favorites])
+        let visible = LibraryDisplayConfiguration.visibleSections(orderRawValue: "", hiddenRawValue: stored)
+        XCTAssertTrue(visible.contains(.recommendations))
+        XCTAssertTrue(visible.contains(.statistics))
+        XCTAssertFalse(visible.contains(.favorites))
+        // The upgrade writes "[]" for people who only rearranged: everything stays.
+        XCTAssertEqual(
+            LibraryDisplayConfiguration.visibleSections(orderRawValue: "", hiddenRawValue: "[]").count,
+            LibrarySection.allCases.count
+        )
+        // A stored value from a newer build with an unknown section keeps the rest.
+        XCTAssertEqual(
+            LibraryDisplayConfiguration.decodeHiddenSections(#"["radio","someFutureSection"]"#),
+            [.radio]
         )
     }
 
