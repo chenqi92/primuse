@@ -152,6 +152,17 @@ actor TVMetadataReaderPool {
 
     deinit { session.invalidateAndCancel() }
 
+    /// 电视上能不能按段读这个源里的文件(读标签用)。与 `reader(path:size:)` 的两条路一致:
+    /// `TVPlaybackCoordinator.makeDirectReader` 的本机直连读取器,或按段读的解析地址。
+    static func canRead(_ source: MusicSource) -> Bool {
+        if resolvedStreamTypes.contains(source.type) { return true }
+        switch source.type {
+        case .smb, .nfs, .ftp, .sftp: return true
+        case .local: return TVLocalTransferSource.isOwned(source)
+        default: return false
+        }
+    }
+
     func refreshesAlbumArtwork(_ albumID: String) -> Bool {
         rereadMetadata && refreshedAlbumIDs.insert(albumID).inserted
     }

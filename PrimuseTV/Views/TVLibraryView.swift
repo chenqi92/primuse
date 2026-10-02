@@ -1012,8 +1012,18 @@ struct TVAlbumDetailView: View {
     @State private var albumID: String
     @State private var showsAlbumScrape = false
     @State private var songIDsBeforeScrape: [String] = []
+    @State private var showsRestoreConfirmation = false
+    /// 「恢复文件标签」进行中 / 刚做完:显示在按钮下面,离开这一页才清掉。
+    @State private var restoreProgress: TVRestoreFileTagsProgress?
+    /// 恢复按钮与确认面板里的两颗按钮,值见 `RestoreFocus`。
+    @FocusState private var focusedRestoreControl: String?
     @FocusState private var focusedTrackID: String?
     @Namespace private var detailFocus
+
+    private enum RestoreFocus {
+        static let button = "restore.button"
+        static let cancel = "restore.cancel"
+    }
 
     init(
         albumID: String,
@@ -1040,6 +1050,8 @@ struct TVAlbumDetailView: View {
         let songs = store.songs(forAlbum: albumID)
         let songIDs = songs.map(\.id)
         let tracks = Self.tracks(for: songs, library: store.library)
+        // 有手动编辑或刮削改过、不再跟随文件标签的歌时才给「恢复文件标签」。
+        let hasEditedSongs = songIDs.contains { store.library.song(id: $0)?.userMetadataEditedAt != nil }
         ZStack {
             TVAmbientBackdrop(tint: album.tint, tint2: album.tint2, strength: 0.55)
             TVColor.bg.opacity(0.34).ignoresSafeArea()
@@ -1084,6 +1096,10 @@ struct TVAlbumDetailView: View {
                         HStack(spacing: 14) { secondaryActions(songIDs) }
                         VStack(alignment: .leading, spacing: 22) { secondaryActions(songIDs) }
                     }
+                    // 恢复完按钮仍留着(不再有改过的歌时按下去什么也不做),免得焦点所在的按钮消失。
+                    if hasEditedSongs || restoreProgress != nil {
+                        restoreSection(songIDs, hasEditedSongs: hasEditedSongs)
+                    }
                     Spacer(minLength: 0)
                 }
                 .frame(width: 540, alignment: .leading)
@@ -1125,9 +1141,24 @@ struct TVAlbumDetailView: View {
             }
             .padding(.horizontal, 100)
             .padding(.vertical, 72)
+            // 确认面板盖在上面时底下不接焦点,方向键出不了面板。
+            .disabled(showsRestoreConfirmation)
+
+            if showsRestoreConfirmation {
+                restoreConfirmation(songIDs)
+                    .transition(.opacity)
+                    .zIndex(5)
+            }
         }
+        .animation(.easeInOut(duration: 0.2), value: showsRestoreConfirmation)
         .focusScope(detailFocus)
-        .onExitCommand { dismiss() }
+        .onExitCommand {
+            if showsRestoreConfirmation {
+                closeRestoreConfirmation()
+            } else {
+                dismiss()
+            }
+        }
         .task {
             // 从播放页回来:焦点放回刚播的那首。覆盖层呈现完、曲目行建出来之前设的焦点会被丢掉,
             // 没落上就隔一会儿再设(机器忙的时候呈现会慢),最多等一秒多。
@@ -1143,6 +1174,31 @@ struct TVAlbumDetailView: View {
             plog("TV album detail reopened focus=\(focusedTrackID == initialFocusSongID ? "track" : "other")")
             #endif
         }
+        #if DEBUG
+        .task {
+            // 截图用:TV_SCREEN=albumDetail TV_RESTORE_DEBUG=1 先把第一首的标题改掉并打上「用户编辑」
+            // (相当于刮削改过),弹出确认面板,6 秒后真的恢复;日志 `TV restore debug` 前后对比标题。
+            guard ProcessInfo.processInfo.environment["TV_RESTORE_DEBUG"] == "1",
+                  let songID = store.songIDs(forAlbum: albumID).first,
+                  var edited = store.library.song(id: songID) else { return }
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            let original = edited.title
+            edited.title = original + " · Scraped"
+            edited.userMetadataEditedAt = Date()
+            store.library.replaceSong(edited)
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            showsRestoreConfirmation = true
+            focusedRestoreControl = RestoreFocus.cancel
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            restoreFileTags(store.songIDs(forAlbum: albumID))
+            while restoreProgress?.isFinished != true {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+            }
+            let after = store.library.song(id: songID)
+            plog("TV restore debug before=\(original) edited=\(edited.title) after=\(after?.title ?? "-")"
+                 + " stamp=\(after?.userMetadataEditedAt == nil ? "cleared" : "kept")")
+        }
+        #endif
         .fullScreenCover(isPresented: $showsAlbumScrape, onDismiss: followAlbumAfterScrape) {
             TVAlbumScrapeView(albumID: albumID).environment(store)
         }
@@ -1161,6 +1217,107 @@ struct TVAlbumDetailView: View {
             }
         )
         .disabled(songIDs.isEmpty)
+    }
+
+    // MARK: 恢复文件标签
+
+    private func restoreSection(_ songIDs: [String], hasEditedSongs: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            TVPillButton(
+                title: String(localized: "restore_file_tags"),
+                systemImage: "arrow.uturn.backward",
+                focusBinding: $focusedRestoreControl,
+                focusID: RestoreFocus.button,
+                action: {
+                    guard hasEditedSongs, restoreProgress?.isFinished != false else { return }
+                    showsRestoreConfirmation = true
+                    Task { @MainActor in
+                        await Task.yield()
+                        focusedRestoreControl = RestoreFocus.cancel
+                    }
+                }
+            )
+            .accessibilityIdentifier("tv.album.restoreFileTags")
+            if let restoreProgress {
+                Text(verbatim: Self.restoreStatus(restoreProgress))
+                    .tvFont(.caption)
+                    .foregroundStyle(TVColor.textFaint)
+                    .monospacedDigit()
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private static func restoreStatus(_ progress: TVRestoreFileTagsProgress) -> String {
+        if progress.isFinished {
+            return String(
+                format: String(localized: "metadata_status_reread_result_format"),
+                Int64(progress.completed), Int64(progress.failed), Int64(progress.skipped)
+            )
+        }
+        return String(
+            format: String(localized: "metadata_status_reread_progress_format"),
+            Int64(progress.processed), Int64(progress.total)
+        )
+    }
+
+    /// 电视端弹框统一是「压暗背景 + 居中面板」;默认焦点在「取消」上。
+    private func restoreConfirmation(_ songIDs: [String]) -> some View {
+        ZStack {
+            TVColor.bg.opacity(0.62).ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 24) {
+                Text(String(localized: "restore_file_tags"))
+                    .tvFont(.sectionTitle)
+                    .foregroundStyle(TVColor.text)
+                Text(String(localized: "restore_file_tags_message"))
+                    .tvFont(.body)
+                    .foregroundStyle(TVColor.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 18) {
+                    TVPillButton(
+                        title: String(localized: "restore_file_tags_confirm"),
+                        systemImage: "arrow.uturn.backward",
+                        style: .solid,
+                        action: { restoreFileTags(songIDs) }
+                    )
+                    TVPillButton(
+                        title: String(localized: "cancel"),
+                        systemImage: "xmark",
+                        focusBinding: $focusedRestoreControl,
+                        focusID: RestoreFocus.cancel,
+                        action: closeRestoreConfirmation
+                    )
+                }
+            }
+            .padding(36)
+            .frame(width: 860, alignment: .leading)
+            .tvPanel(radius: 22)
+            // 面板底色是半透明的,压在曲目列表上会透出底下的字:垫一层不透明的页面底色。
+            .background(TVColor.bg, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        }
+        .focusSection()
+        .accessibilityIdentifier("tv.album.restoreFileTags.confirm")
+    }
+
+    private func closeRestoreConfirmation() {
+        showsRestoreConfirmation = false
+        Task { @MainActor in
+            await Task.yield()
+            focusedRestoreControl = RestoreFocus.button
+        }
+    }
+
+    private func restoreFileTags(_ songIDs: [String]) {
+        closeRestoreConfirmation()
+        songIDsBeforeScrape = songIDs
+        restoreProgress = TVRestoreFileTagsProgress(total: songIDs.count)
+        let scraper = store.metadataScraper
+        Task { @MainActor in
+            restoreProgress = await scraper.restoreFileTags(songIDs: songIDs) { restoreProgress = $0 }
+            // 换回文件里的专辑名后,这张专辑的歌可能归到了另一个专辑 id 下。
+            followAlbumAfterScrape()
+        }
     }
 
     /// 补全改了专辑名(或专辑艺人)时,这张专辑的歌归到了新的专辑 id 下。

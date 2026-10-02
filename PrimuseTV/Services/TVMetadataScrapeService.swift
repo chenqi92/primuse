@@ -61,6 +61,18 @@ struct TVAlbumScrapeResult: Sendable, Equatable {
     var cancelled = false
 }
 
+/// 「恢复文件标签」的进度与结果。
+struct TVRestoreFileTagsProgress: Sendable, Equatable {
+    /// 要按文件重读的首数。
+    var total = 0
+    var processed = 0
+    var completed = 0
+    var failed = 0
+    /// 服务器曲库源、CUE 分轨、电视读不了文件的源,以及读的时候正在扫描的:只撤了改动标记。
+    var skipped = 0
+    var isFinished = false
+}
+
 @MainActor
 final class TVMetadataScrapeService {
     private weak var store: TVStore?
@@ -453,6 +465,103 @@ final class TVMetadataScrapeService {
         store.refreshNowPlayingAfterMetadataEdit(updated, lyrics: appliedLyrics)
         Self.postArtworkChanged(songs: [updated])
         return true
+    }
+
+    // MARK: - 恢复文件标签
+
+    /// 恢复文件标签:这些歌在电视上匹配 / 补全过的记录从本机台账删掉(之后装手机快照也不再
+    /// 补回来),清掉「用户编辑」标记,电视能直接读文件的再按文件重读一遍 —— 标题、艺术家、
+    /// 专辑、年份等换回文件里的标签,文件里有封面(内嵌或同目录的封面图)的也换回来;文件里
+    /// 没有的字段保留现在的值,与 iPhone / Mac 一致。服务器曲库源、CUE 分轨和电视读不了
+    /// 文件的源只撤标记和台账,下次同步 / 扫描跟随源。`progress` 在主线程上报。
+    func restoreFileTags(
+        songIDs: [String],
+        progress: @escaping @MainActor (TVRestoreFileTagsProgress) -> Void
+    ) async -> TVRestoreFileTagsProgress {
+        guard let store else { return TVRestoreFileTagsProgress(isFinished: true) }
+        let songs = songIDs.compactMap { store.library.song(id: $0) }
+        for song in songs {
+            await overrides.remove(songID: song.id)
+        }
+        let cleared = songs.filter { $0.userMetadataEditedAt != nil }.map { song -> Song in
+            var song = song
+            song.userMetadataEditedAt = nil
+            return song
+        }
+        if !cleared.isEmpty { store.library.replaceSongs(cleared) }
+        let rereadable = songs.filter { canRereadFileTags($0, store: store) }
+        var state = TVRestoreFileTagsProgress(total: rereadable.count, skipped: songs.count - rereadable.count)
+        progress(state)
+        plog("🔁 TV restore file tags songs=\(songs.count) cleared=\(cleared.count) rereading=\(rereadable.count)")
+
+        var restored: [Song] = []
+        for (sourceID, group) in Dictionary(grouping: rereadable, by: \.sourceID) {
+            guard !Task.isCancelled, let source = store.sourcesStore.source(id: sourceID) else {
+                state.skipped += group.count
+                continue
+            }
+            let credential = TVCredentialStore.credential(for: source, bundle: store.credentialBundle)
+            // 按「重读」开:专辑封面也按文件里的换回来,不留着刮削来的那张。
+            let pool = TVMetadataReaderPool(source: source, credential: credential, rereadMetadata: true)
+            let lister = TVFolderRescanPolicy.supports(source.type) ? store.makeLister(for: source) : nil
+            var sidecarsByDirectory: [String: SidecarDirectoryIndex<TVDirEntry>] = [:]
+            for original in group {
+                defer {
+                    state.processed += 1
+                    progress(state)
+                }
+                // 以库里最新的一行为准;这期间又被改过(重新打了标记)就不动它。
+                guard !Task.isCancelled,
+                      let live = store.library.song(id: original.id), live.userMetadataEditedAt == nil else {
+                    state.skipped += 1
+                    continue
+                }
+                // 同目录的封面图、歌词也算文件标签的一部分:列一次目录,同一目录的歌共用。
+                var sidecars = SidecarDirectoryIndex<TVDirEntry>([])
+                if let lister,
+                   let directory = TVFolderRescanPolicy.directory(containingFilePath: live.filePath, levelsAbove: 0) {
+                    if let cached = sidecarsByDirectory[directory] {
+                        sidecars = cached
+                    } else if let entries = try? await lister.list(directory) {
+                        sidecars = SidecarDirectoryIndex(entries)
+                        sidecarsByDirectory[directory] = sidecars
+                    }
+                }
+                let result = await TVMetadataEnricher.enrich(song: live, sidecars: sidecars, using: pool)
+                switch result.status {
+                case .enriched:
+                    guard let current = store.library.song(id: live.id), current.userMetadataEditedAt == nil else {
+                        state.skipped += 1
+                        continue
+                    }
+                    store.library.replaceSong(result.song)
+                    await TVMetadataInspectionStore.shared.record(result.song, complete: result.inspectionComplete)
+                    store.refreshNowPlayingAfterMetadataEdit(result.song, lyrics: nil)
+                    restored.append(result.song)
+                    state.completed += 1
+                case .failed, .timedOut:
+                    state.failed += 1
+                case .cancelled:
+                    state.skipped += 1
+                }
+            }
+            await pool.closeAll()
+        }
+        if !restored.isEmpty { Self.postArtworkChanged(songs: restored) }
+        state.isFinished = true
+        progress(state)
+        plog("🔁 TV restore file tags done completed=\(state.completed) failed=\(state.failed) skipped=\(state.skipped)")
+        return state
+    }
+
+    /// 能按文件重读:电视能直接按段读的文件型源,不是 CUE 分轨(标题等来自 CUE 表,
+    /// 读文件换不回来),这个源也没在扫描。
+    private func canRereadFileTags(_ song: Song, store: TVStore) -> Bool {
+        guard !song.isCueTrack,
+              let source = store.sourcesStore.source(id: song.sourceID),
+              source.isEnabled, !source.isDeleted, !source.type.isServerLibrary,
+              store.activeScanSourceID != source.id else { return false }
+        return TVMetadataReaderPool.canRead(source)
     }
 
     // MARK: - 本机改动台账的回放

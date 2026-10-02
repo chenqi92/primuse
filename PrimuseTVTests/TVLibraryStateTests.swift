@@ -1272,6 +1272,45 @@ final class TVLibraryStateTests: XCTestCase {
         XCTAssertEqual(fixture.sources.source(id: source.id)?.scannedDirectories, directories)
     }
 
+    func testRestoreFileTagsDropsTVEditAndRereadsTheFile() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let store = fixture.store()
+        store.reload()
+        let source = try store.prepareTransferSource()
+        let folderName = "TV Restore Tags QA \(UUID().uuidString)"
+        let folder = TVLocalTransferSource.root.appendingPathComponent(folderName, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try taggedWaveFixture(title: "File Title", album: "File Album")
+            .write(to: folder.appendingPathComponent("Tagged.wav"))
+        let songID = TVScanPipelinePolicy.songID(sourceID: source.id, path: "/\(folderName)/Tagged.wav")
+        let scanned = await store.runScan(source: source, lister: TVLocalDirectoryLister(), dirs: ["/"])
+        XCTAssertTrue(scanned)
+
+        // 相当于电视上匹配信息改了标题和专辑:库里换了值、打了标记、台账里记了一笔。
+        var edited = try XCTUnwrap(fixture.library.song(id: songID))
+        XCTAssertEqual(edited.title, "File Title")
+        let editedAt = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+        edited.title = "Scraped Title"
+        edited.albumTitle = "Scraped Album"
+        edited.userMetadataEditedAt = editedAt
+        fixture.library.replaceSong(edited)
+        await TVMetadataOverrideStore.shared.record(
+            songID: songID, kind: .chosen, editedAt: editedAt, fields: nil, cover: nil, lyrics: nil
+        )
+
+        let result = await store.metadataScraper.restoreFileTags(songIDs: [songID]) { _ in }
+        XCTAssertTrue(result.isFinished)
+        XCTAssertEqual(result.completed, 1)
+        let restored = try XCTUnwrap(fixture.library.song(id: songID))
+        XCTAssertEqual(restored.title, "File Title")
+        XCTAssertEqual(restored.albumTitle, "File Album")
+        XCTAssertNil(restored.userMetadataEditedAt)
+        let ledger = await TVMetadataOverrideStore.shared.allEntries()
+        XCTAssertFalse(ledger.contains { $0.songID == songID })
+    }
+
     func testIncrementalAlbumScanPreservesPreviousArtworkLikesAndScopeAcrossReload() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
@@ -1403,6 +1442,33 @@ final class TVLibraryStateTests: XCTestCase {
         let second = await store.runScan(source: source, lister: TVLocalDirectoryLister(), dirs: ["/"])
         XCTAssertTrue(second)
         XCTAssertEqual(firstTrack()?.lyricsText, "first track lyric line")
+    }
+
+    /// 带 ID3 标签的 WAV(标签放在 `id3 ` 块里),与 TVMetadataParityTests 的写法一致。
+    private func taggedWaveFixture(title: String, album: String) -> Data {
+        func le<T: FixedWidthInteger>(_ value: T) -> Data {
+            var encoded = value.littleEndian
+            return Swift.withUnsafeBytes(of: &encoded) { Data($0) }
+        }
+        func chunk(_ name: String, _ payload: Data) -> Data {
+            var data = Data(name.utf8) + le(UInt32(payload.count)) + payload
+            if payload.count % 2 != 0 { data.append(0) }
+            return data
+        }
+        var tags = Data()
+        for (id, value) in [("TIT2", title), ("TPE1", "Tagged Artist"), ("TALB", album)] {
+            let payload = Data([0]) + Data(value.utf8)
+            var size = UInt32(payload.count).bigEndian
+            tags += Data(id.utf8) + Swift.withUnsafeBytes(of: &size) { Data($0) } + Data([0, 0]) + payload
+        }
+        let size = tags.count
+        let tag = Data([0x49, 0x44, 0x33, 3, 0, 0, UInt8((size >> 21) & 127),
+                        UInt8((size >> 14) & 127), UInt8((size >> 7) & 127), UInt8(size & 127)]) + tags
+        let format = le(UInt16(1)) + le(UInt16(1)) + le(UInt32(8000)) + le(UInt32(16000))
+            + le(UInt16(2)) + le(UInt16(16))
+        let body = Data("WAVE".utf8) + chunk("fmt ", format) + chunk("id3 ", tag)
+            + chunk("data", Data(repeating: 0, count: 1600))
+        return Data("RIFF".utf8) + le(UInt32(body.count)) + body
     }
 
     private func waveFixture(duration: TimeInterval = 0.1) -> Data {
