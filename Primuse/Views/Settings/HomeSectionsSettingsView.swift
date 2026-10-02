@@ -13,6 +13,7 @@ extension HomeSectionKind {
         case .radio: return "radio_title"
         case .booksInProgress: return "home_books_in_progress_title"
         case .audiobooks: return "home_section_audiobooks"
+        case .podcasts: return "home_section_podcasts"
         case .quickAccess: return "home_section_quick_access"
         case .forYou: return "home_section_for_you"
         case .playlists: return "home_section_playlists"
@@ -35,6 +36,7 @@ enum HomeSectionConfiguration {
         .radio,
         .booksInProgress,
         .audiobooks,
+        .podcasts,
         .quickAccess,
         .folders,
         .listeningRanking,
@@ -76,6 +78,11 @@ enum HomeSectionConfiguration {
             }
             if seen.insert(.audiobooks).inserted {
                 known.insert(.audiobooks, at: (known.firstIndex(of: .booksInProgress) ?? -1) + 1)
+            }
+            // 「播客更新」挨着「有声书」。
+            if seen.insert(.podcasts).inserted {
+                let anchor = known.firstIndex(of: .audiobooks) ?? known.firstIndex(of: .radio)
+                known.insert(.podcasts, at: anchor.map { $0 + 1 } ?? known.count)
             }
             // 「情景推荐专辑」紧跟在「接着听」后面,与新装时的默认位置一致。
             if seen.insert(.albumPick).inserted {

@@ -2954,7 +2954,7 @@ final class AudioPlayerService {
                     fileSize: song.fileSize
                 )
             }.value
-        } else if sourceManager != nil || isDLNACast(song) {
+        } else if sourceManager != nil || isExternalURLItem(song) {
             do {
                 var head = Data()
                 for probeSize in RemoteMetadataReadPolicy.containerTailReadSizes(
@@ -3011,7 +3011,7 @@ final class AudioPlayerService {
         offset: Int64,
         length: Int64
     ) async throws -> Data {
-        if isDLNACast(song),
+        if isExternalURLItem(song),
            let scheme = url.scheme?.lowercased(),
            scheme == "http" || scheme == "https" {
             return try await SourceManager.fetchRemoteMetadataRange(
@@ -3882,6 +3882,8 @@ final class AudioPlayerService {
         updatePlaybackState()
 
         do {
+            // 播客单集起播前现探音频文件的真实大小与最终地址,见 AudioPlayerService+Podcast。
+            let song = await preparePodcastEpisodeForPlayback(song)
             // Traversal excludes known outages; directly selecting one of
             // those entries retries its source without rebuilding the queue.
             if await sourceManager?.playbackSourceIsUnavailable(
@@ -4745,7 +4747,7 @@ final class AudioPlayerService {
                     isLoading = false
                     republishNowPlayingSurfaces()
                     return
-                } else if isDLNACast(song), assetReaderDecoder.canDecode(url: url) {
+                } else if isExternalURLItem(song), assetReaderDecoder.canDecode(url: url) {
                     // DLNA control points often push CGI/progressive URLs
                     // with no Content-Length. Full-download fallback waits
                     // for EOF before decoding, which leaves the sender stuck
@@ -4934,7 +4936,7 @@ final class AudioPlayerService {
                 guard !Task.isCancelled, playID == id else { return }
                 plog("⚠️ Native decode failed for '\(song.title)': \(error.localizedDescription)")
                 if activeDecoderKind == .httpStream {
-                    if isDLNACast(song), assetReaderDecoder.canDecode(url: url) {
+                    if isExternalURLItem(song), assetReaderDecoder.canDecode(url: url) {
                         plog("↳ HTTP range decode failed before first buffer; trying DLNA progressive AssetReader fallback")
                         await playWithFallbackDecoder(
                             song: song,
@@ -5153,7 +5155,7 @@ final class AudioPlayerService {
             // Cloud streaming already writes to the same cache file as
             // it goes — duplicating via cacheInBackground would just
             // race two writers on the same path.
-            if playbackSettings.audioCacheEnabled, !isCloudStream, activeDecoderKind != .httpStream, !isDLNACast(song) {
+            if playbackSettings.audioCacheEnabled, !isCloudStream, activeDecoderKind != .httpStream, !isExternalURLItem(song) {
                 sourceManager?.cacheInBackground(song: song, cacheEnabled: playbackSettings.audioCacheEnabled)
             }
 
@@ -6370,12 +6372,14 @@ final class AudioPlayerService {
         // (4-5s/次), 单首 prefetch chain 来不及, 第 2、3 首切到时 partial
         // 还是空, SFB 现拉 1MB chunk 卡 2-3s。数量由 ST-01 设置页控制,
         // 按流量计费的网络上只取紧接着的两首。
+        // 播客单集不属于任何音乐源,源的预取够不着它;改为提前探好下一集的音频地址。
+        prefetchUpcomingPodcastEpisode()
         let nextSongs = nextSongsInQueue(
             count: UpcomingPlaybackPrefetchPolicy.plannedSongCount(
                 configured: playbackSettings.prewarmQueueCount,
                 isMeteredNetwork: NetworkMonitor.shared.isExpensive || NetworkMonitor.shared.isConstrained
             )
-        )
+        ).filter { !PodcastPlaybackSong.isEpisode($0) }
         var retainedSongIDs = Set(nextSongs.map(\.id))
         if let currentSong { retainedSongIDs.insert(currentSong.id) }
         sourceManager?.cancelBackgroundAudioCaching(keeping: retainedSongIDs)
@@ -6568,7 +6572,7 @@ final class AudioPlayerService {
             }
 
             // Background-cache file for offline playback
-            if !isDLNACast(song) {
+            if !isExternalURLItem(song) {
                 sourceManager?.cacheInBackground(song: song, cacheEnabled: playbackSettings.audioCacheEnabled)
             }
 

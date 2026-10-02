@@ -17,6 +17,8 @@ public enum HomeSectionKind: String, CaseIterable, Codable, Identifiable, Sendab
     case booksInProgress
     /// 「有声书」:书架里挑出来放到首页的书。
     case audiobooks
+    /// 「播客更新」:订阅里最近出的单集。默认关着,用播客的人在界面编辑里打开。
+    case podcasts
     case quickAccess
     case forYou
     case playlists
@@ -34,7 +36,7 @@ public enum HomeSectionKind: String, CaseIterable, Codable, Identifiable, Sendab
     /// 横跨音乐、电台、有声三类的区块:只在「全部」里出现,筛到某一类时不画。
     public var isCrossSpace: Bool {
         switch self {
-        case .continueSpaces, .radio, .booksInProgress, .audiobooks: true
+        case .continueSpaces, .radio, .booksInProgress, .audiobooks, .podcasts: true
         default: false
         }
     }
@@ -48,6 +50,7 @@ public enum HomeSectionKind: String, CaseIterable, Codable, Identifiable, Sendab
         case .radio: "radio.fill"
         case .booksInProgress: "book"
         case .audiobooks: "books.vertical"
+        case .podcasts: "antenna.radiowaves.left.and.right"
         case .quickAccess: "pin"
         case .forYou: "sparkles"
         case .playlists: "music.note.list"
@@ -105,7 +108,7 @@ public enum HomeSectionLayoutPolicy {
         case .quickAccess: [.grid, .carousel]
         case .folders: [.list, .grid, .carousel]
         case .listeningRanking: [.list, .carousel]
-        case .continueSpaces, .startListening, .albumPick, .radio, .booksInProgress, .audiobooks, .stats: []
+        case .continueSpaces, .startListening, .albumPick, .radio, .booksInProgress, .audiobooks, .podcasts, .stats: []
         }
     }
 
@@ -164,6 +167,7 @@ public enum HomeSectionLayoutPolicy {
         case .radio: 4...30
         case .booksInProgress: 2...20
         case .audiobooks: 3...30
+        case .podcasts: 3...30
         case .quickAccess, .folders, .stats, .continueSpaces, .startListening, .albumPick: nil
         }
     }
@@ -184,6 +188,7 @@ public enum HomeSectionLayoutPolicy {
         case .radio: 12
         case .booksInProgress: 12
         case .audiobooks: 10
+        case .podcasts: 10
         case .quickAccess, .folders, .stats, .continueSpaces, .startListening, .albumPick: 0
         }
     }

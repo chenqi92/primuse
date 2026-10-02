@@ -434,8 +434,9 @@ struct MacContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .primuseSelectRadio)) { _ in
             selectRoute(.section(.radio))
         }
-        .onReceive(NotificationCenter.default.publisher(for: .primuseSelectSpokenWord)) { _ in
-            selectRoute(.section(.spokenWord))
+        .onReceive(NotificationCenter.default.publisher(for: .primuseSelectSpokenWord)) { note in
+            // object 给了别的分类(首页「播客更新」的「全部」给 .podcasts)就跳那一项。
+            selectRoute(.section(note.object as? LibrarySection ?? .spokenWord))
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseDetailOpenAlbum)) { note in
             guard note.object is Album else { return }

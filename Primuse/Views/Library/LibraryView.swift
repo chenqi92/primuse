@@ -5,6 +5,8 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
     case recommendations, favorites, playlists, artists, genres, albums, songs, spokenWord, folders, radio, statistics
     /// 按发行年代、年份浏览专辑。
     case releaseDate
+    /// 订阅的播客。默认收起,在资料库设置里打开。
+    case podcasts
 
     var id: String { rawValue }
 
@@ -22,6 +24,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .spokenWord: return "tab_spoken_word"
         case .radio: return "radio_title"
         case .releaseDate: return "library_release_date_title"
+        case .podcasts: return "listening_space_podcast"
         }
     }
 
@@ -39,6 +42,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .spokenWord: return "books.vertical.fill"
         case .radio: return "radio.fill"
         case .releaseDate: return "calendar"
+        case .podcasts: return ListeningSpace.podcast.systemImage
         }
     }
 
@@ -56,6 +60,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .spokenWord: return .brown
         case .radio: return .orange
         case .releaseDate: return .indigo
+        case .podcasts: return .purple
         }
     }
 
@@ -73,6 +78,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .spokenWord: return String(localized: "tab_spoken_word")
         case .radio: return String(localized: "radio_title")
         case .releaseDate: return String(localized: "library_release_date_title")
+        case .podcasts: return String(localized: "listening_space_podcast")
         }
     }
 }
@@ -96,19 +102,23 @@ enum LibraryDisplayConfiguration {
         .playlists,
         .radio,
         .spokenWord,
+        .podcasts,
         .recommendations,
         .statistics,
     ]
 
     /// 没设过显隐时收起来的分类。推荐与排行、统计在首页都有自己的区块;Mac 首页没有
-    /// 统计入口,侧栏那一行就留着。
+    /// 统计入口,侧栏那一行就留着。播客要订阅了才有内容,用的人打开。
     static var defaultHiddenSections: Set<LibrarySection> {
         #if os(macOS)
-        [.recommendations]
+        [.recommendations, .podcasts]
         #else
-        [.recommendations, .statistics]
+        [.recommendations, .statistics, .podcasts]
         #endif
     }
+
+    /// 播客分类上线时已经存过显隐的人:补进隐藏集合一次,别凭空多出一行。
+    static let podcastsDefaultHiddenMigrationKey = "primuse.library.podcastsDefaultHidden.v1"
 
     static func normalizedQuickAccessLimit(_ value: Int) -> Int {
         min(max(value, quickAccessLimitRange.lowerBound), quickAccessLimitRange.upperBound)
@@ -146,6 +156,10 @@ enum LibraryDisplayConfiguration {
     /// 把「全部显示」写实,默认收起的两类不会凭空消失。
     static func migrateDefaultHiddenSectionsIfNeeded() {
         LibrarySectionLayoutPolicy.migrateDefaultHiddenIfNeeded()
+        LibrarySectionLayoutPolicy.hideNewSectionIfNeeded(
+            LibrarySection.podcasts.rawValue,
+            migrationKey: podcastsDefaultHiddenMigrationKey
+        )
     }
 }
 
@@ -1063,6 +1077,10 @@ struct LibraryView: View {
             overlappingPreview(previewRadioStations) { station in
                 RadioStationArtworkView(station: station, size: 36, cornerRadius: 7)
             }
+        case .podcasts:
+            overlappingPreview(Array(PodcastStore.shared.shows.prefix(3))) { show in
+                PodcastArtwork(show: show, size: 36, cornerRadius: 7)
+            }
         }
     }
 
@@ -1467,6 +1485,8 @@ struct LibraryView: View {
             )
         case .radio:
             return countText(radioStationsStore.stations.count, unitKey: "radio_stations_count")
+        case .podcasts:
+            return countText(PodcastStore.shared.shows.count, unitKey: "podcast_shows_count")
         }
     }
 
@@ -1516,6 +1536,8 @@ struct LibraryView: View {
             PlaylistListView()
         case .radio:
             RadioStationsView()
+        case .podcasts:
+            PodcastLibraryView()
         }
     }
 

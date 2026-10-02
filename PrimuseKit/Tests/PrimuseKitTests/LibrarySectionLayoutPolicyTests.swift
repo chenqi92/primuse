@@ -120,6 +120,26 @@ struct LibrarySectionLayoutPolicyTests {
         #expect(defaults.bool(forKey: LibrarySectionLayoutPolicy.defaultHiddenMigrationKey))
     }
 
+    @Test("A section added later as hidden joins a stored hidden set once")
+    func newDefaultHiddenSection() throws {
+        #expect(LibrarySectionLayoutPolicy.hidingNewSection("podcasts", storedHiddenRawValue: nil, alreadyMigrated: false) == nil)
+        #expect(LibrarySectionLayoutPolicy.hidingNewSection("podcasts", storedHiddenRawValue: "", alreadyMigrated: false) == nil)
+        #expect(LibrarySectionLayoutPolicy.hidingNewSection("podcasts", storedHiddenRawValue: "[]", alreadyMigrated: false) == #"["podcasts"]"#)
+        #expect(LibrarySectionLayoutPolicy.hidingNewSection("podcasts", storedHiddenRawValue: #"["podcasts"]"#, alreadyMigrated: false) == nil)
+        #expect(LibrarySectionLayoutPolicy.hidingNewSection("podcasts", storedHiddenRawValue: "[]", alreadyMigrated: true) == nil)
+
+        let suite = "LibrarySectionLayoutPolicyTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(#"["statistics"]"#, forKey: LibrarySectionLayoutPolicy.hiddenKey)
+        #expect(LibrarySectionLayoutPolicy.hideNewSectionIfNeeded("podcasts", migrationKey: "m", defaults: defaults))
+        #expect(LibrarySectionLayoutPolicy.decodeNames(defaults.string(forKey: LibrarySectionLayoutPolicy.hiddenKey) ?? "") == ["statistics", "podcasts"])
+        // 用户之后自己把播客打开:迁移不再插手。
+        defaults.set(#"["statistics"]"#, forKey: LibrarySectionLayoutPolicy.hiddenKey)
+        #expect(!LibrarySectionLayoutPolicy.hideNewSectionIfNeeded("podcasts", migrationKey: "m", defaults: defaults))
+        #expect(defaults.string(forKey: LibrarySectionLayoutPolicy.hiddenKey) == #"["statistics"]"#)
+    }
+
     @Test("Names round-trip through the stored JSON")
     func namesRoundTrip() {
         let raw = LibrarySectionLayoutPolicy.encodeNames(["songs", "releaseDate"])

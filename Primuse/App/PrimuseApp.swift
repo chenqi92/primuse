@@ -2456,7 +2456,8 @@ private struct DebugLaunchAutomation: ViewModifier {
 /// - `PRIMUSE_DEBUG_SHOW_PLAYER=<秒>`：有歌在播后再等该秒数，打开播放页（iOS 推出播放页，Mac 展开播放页）。
 /// - `PRIMUSE_DEBUG_BOOKMARK_AFTER=<秒>`：播放该秒数后在当前位置加一个书签。
 /// - `PRIMUSE_DEBUG_CHAPTER_SLEEP=1`：章节读出后设「本章结束后停止」。
-/// - `PRIMUSE_DEBUG_PRESENT=spokenWord|chapters|batchEdit|tidy|batchReview|tidyReview|karaoke|queue|plexSignIn`：弹出对应页面
+/// - `PRIMUSE_DEBUG_PRESENT=spokenWord|chapters|batchEdit|tidy|batchReview|tidyReview|karaoke|queue|plexSignIn|podcasts|podcastShow|podcastEpisode|podcastDiscover`：弹出对应页面
+///   （播客页配合 `PRIMUSE_DEBUG_PODCAST_SEED=<feed 地址>` 先订阅，见 `PodcastDebugScreen`）
 ///   （plexSignIn 是添加 Plex 源的表单，配合 `PRIMUSE_DEBUG_PLEX=servers` 直接显示演示服务器清单）
 ///   （karaoke 等有歌在播后再弹；配合 `PRIMUSE_KARAOKE_MODEL` 可在不下载资源包的情况下走 AI 分离）。
 /// - `PRIMUSE_DEBUG_BATCH_APPLY=<专辑名>`：把全部音乐的专辑名批量改成该值并写回，再撤销（结果写日志）。
@@ -2598,7 +2599,8 @@ private struct DebugListeningFeatureAutomation: ViewModifier {
                         return
                     }
                     let songs = services.musicLibrary.musicSongs
-                    guard needsPlayback || page == "spokenWord" || page == "plexSignIn" || songs.count >= 2 else { continue }
+                    guard needsPlayback || page == "spokenWord" || page == "plexSignIn"
+                        || page.hasPrefix("podcast") || songs.count >= 2 else { continue }
                     var proposals: [TagCleanupProposal] = []
                     switch page {
                     case "tidyReview":
@@ -2680,6 +2682,8 @@ private struct DebugListeningFeatureAutomation: ViewModifier {
         switch item.page {
         case "spokenWord":
             NavigationStack { SpokenWordLibraryView() }
+        case let podcastPage where podcastPage.hasPrefix("podcast"):
+            PodcastDebugScreen(page: podcastPage)
         case "chapters":
             SpokenWordContentsView()
         case "karaoke":

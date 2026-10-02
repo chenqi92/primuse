@@ -176,7 +176,7 @@ struct MiniPlayerSwipeContent: View {
     }
 
     private var allowsSwipe: Bool {
-        player.currentListeningSpace != .spokenWord
+        player.currentListeningSpace?.playbackFamily != .spokenWord
     }
 
     private var isSpokenWord: Bool {

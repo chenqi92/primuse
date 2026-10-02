@@ -651,7 +651,8 @@ enum MacListeningSpaceStyle {
     @MainActor
     static func playingSpace(of player: AudioPlayerService) -> ListeningSpace? {
         if player.isLiveRadio { return .radio }
-        guard player.currentSong != nil else { return nil }
+        guard let song = player.currentSong else { return nil }
+        if PodcastPlaybackSong.isEpisode(song) { return .podcast }
         return player.currentItemIsSpokenWord ? .spokenWord : .music
     }
 

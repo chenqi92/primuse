@@ -28,6 +28,8 @@ extension AudioPlayerService {
         let initialQueueGeneration = queueGeneration
         let initialAdvanceGeneration = playbackAdvancePolicy.generation
         let visibleSongs = library.visibleSongs
+        // 播客单集不在曲库里:起播时存下的那份队列一起参与查找。
+        let podcastSongs = PodcastPlaybackMemory.shared.songs()
         let store = playbackSessionStore
         let continuationStore = QueueContinuationStore(sessionStore: store)
         let preparationTask = Task<PreparedPlaybackSessionRestore?, Never>.detached(priority: .userInitiated) {
@@ -51,10 +53,15 @@ extension AudioPlayerService {
             let queuedIDs = Set(snapshot.queueSongIDs)
             var playableSongsByID: [String: Song] = [:]
             playableSongsByID.reserveCapacity(queuedIDs.count)
-            for song in visibleSongs
-            where queuedIDs.contains(song.id) && song.isPlayable && playableSongsByID[song.id] == nil {
+            for song in podcastSongs where queuedIDs.contains(song.id) {
                 playableSongsByID[song.id] = song
-                if playableSongsByID.count == queuedIDs.count { break }
+            }
+            if playableSongsByID.count < queuedIDs.count {
+                for song in visibleSongs
+                where queuedIDs.contains(song.id) && song.isPlayable && playableSongsByID[song.id] == nil {
+                    playableSongsByID[song.id] = song
+                    if playableSongsByID.count == queuedIDs.count { break }
+                }
             }
             guard let plan = PlaybackSessionRestorationPolicy.plan(
                 snapshot: snapshot,

@@ -824,6 +824,10 @@ extension AudioPlayerService {
         // with SourceManager. Their filePath is the controller-provided HTTP(S)
         // URI, so seeking must reuse it directly instead of asking the library
         // source resolver for a non-existent "dlna" source.
+        if let podcastURL = resolvedPodcastURL(for: song) {
+            plog("🔗 resolvedURL for '\(song.title)': podcast \(podcastURL.isFileURL ? "download" : "remote") → \(redactedURL(podcastURL))")
+            return podcastURL
+        }
         if song.sourceID == "dlna",
            let remoteURL = URL(string: song.filePath),
            let scheme = remoteURL.scheme?.lowercased(),

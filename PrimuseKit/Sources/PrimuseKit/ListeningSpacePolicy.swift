@@ -1,14 +1,24 @@
 import Foundation
 
-/// The three ways of listening the app offers side by side. Each keeps its
+/// The ways of listening the app offers side by side. Each keeps its
 /// own playback memory and its own rules for "continue":
 /// - music plays a queue and resumes that queue;
 /// - radio plays a live stream and resumes by tuning back in;
-/// - spoken word plays a book and resumes each book where it was left.
+/// - spoken word plays a book and resumes each book where it was left;
+/// - podcasts play subscribed episodes and resume each episode where it was
+///   left. On the player they behave like spoken word (in order, skip
+///   buttons, their own speed); only the library and home treat them apart.
 public enum ListeningSpace: String, CaseIterable, Codable, Hashable, Sendable {
     case music
     case radio
     case spokenWord
+    case podcast
+
+    /// The space whose queue rules apply: an episode is heard the way a book
+    /// chapter is.
+    public var playbackFamily: ListeningSpace {
+        self == .podcast ? .spokenWord : self
+    }
 }
 
 /// Which spaces get a top-level entry. Music always does; radio and spoken
@@ -51,6 +61,12 @@ public enum SleepTimerOptionPolicy {
             if hasChapters { options.append(.endOfChapter) }
             options.append(.endOfTrack)
             options.append(.endOfBook)
+            return options
+        case .podcast:
+            // An episode is the whole "book": end of episode, no end of book.
+            var options: [SleepTimerOption] = [.minutes(15), .minutes(30), .minutes(45), .minutes(60)]
+            if hasChapters { options.append(.endOfChapter) }
+            options.append(.endOfTrack)
             return options
         }
     }
@@ -148,11 +164,15 @@ public struct ListeningPlayModeLedger: Codable, Equatable, Sendable {
     /// - Returns: the switches the new queue should play with, or nil to
     ///   leave them as they are.
     public mutating func queueInstalled(
-        ownedBy owner: ListeningSpace,
+        ownedBy space: ListeningSpace,
         current: ListeningPlayMode
     ) -> ListeningPlayMode? {
-        switch (activeSpace, owner) {
+        let owner = space.playbackFamily
+        switch (activeSpace.playbackFamily, owner) {
         case (_, .radio), (.music, .music), (.radio, _):
+            return nil
+        case (_, .podcast), (.podcast, _):
+            // `playbackFamily` folds podcasts into spoken word above.
             return nil
         case (.music, .spokenWord):
             activeSpace = .spokenWord

@@ -37,13 +37,25 @@ enum SpokenWordPlayerText {
         return formatter.string(from: rounded) ?? ChapterTimeFormatter.string(from: seconds)
     }
 
+    /// 正在放的是播客单集时就是它。单集不是书:标题是这一集,署名是节目名,
+    /// 「正在听的部分」只在单集带章节时是章节名。
+    private static func podcastEpisode(_ player: AudioPlayerService) -> Song? {
+        guard let song = player.currentSong, PodcastPlaybackSong.isEpisode(song) else { return nil }
+        return song
+    }
+
     static func bookTitle(_ player: AudioPlayerService) -> String {
+        if let episode = podcastEpisode(player) { return episode.title }
         if let title = player.currentSpokenWordBook?.title, !title.isEmpty { return title }
         let album = player.currentSong?.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return album.isEmpty ? (player.currentSong?.title ?? "") : album
     }
 
     static func author(_ player: AudioPlayerService) -> String? {
+        if let episode = podcastEpisode(player) {
+            let show = episode.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return show.isEmpty ? episode.artistName : show
+        }
         if let author = player.currentSpokenWordBook?.author, !author.isEmpty { return author }
         guard let song = player.currentSong else { return nil }
         let name = song.albumArtistName ?? song.artistName
@@ -54,6 +66,10 @@ enum SpokenWordPlayerText {
     /// book, the file's title (with the chapter mark under it, if any) in a
     /// book of several files. Nil when it would only repeat the book title.
     static func partTitle(_ player: AudioPlayerService) -> String? {
+        if podcastEpisode(player) != nil {
+            let chapter = player.currentChapter?.title ?? ""
+            return chapter.isEmpty ? nil : chapter
+        }
         guard let song = player.currentSong else { return nil }
         let isOneFileBook = (player.currentSpokenWordBook?.items.count ?? 1) <= 1
         let chapterTitle = player.currentChapter?.title
@@ -78,10 +94,10 @@ enum SpokenWordPlayerText {
             forContent: remaining,
             rate: player.currentSpokenWordRate
         )
-        return String(
-            format: String(localized: "spoken_word_part_remaining_format"),
-            approximateDuration(listening)
-        )
+        // 没有章节的播客单集只有它自己,说「剩余」,不说「本章」。
+        let key: String.LocalizationValue = podcastEpisode(player) != nil && player.spokenWordChapters.isEmpty
+            ? "podcast_remaining_format" : "spoken_word_part_remaining_format"
+        return String(format: String(localized: key), approximateDuration(listening))
     }
 
     static func bookFraction(_ fraction: Double) -> String {
@@ -131,7 +147,9 @@ struct SpokenWordBookProgressRow: View {
         // redraw it when they change.
         let _ = store.positions.count
         let _ = store.finishedAt.count
-        if let summary = player.spokenWordNowPlayingSummary(live: false),
+        // 播客单集不是书,进度条就是它自己的进度,不再另起一行「全书」。
+        if !PodcastPlaybackSong.isEpisode(player.currentSong),
+           let summary = player.spokenWordNowPlayingSummary(live: false),
            summary.partCount != nil || summary.bookRemaining != nil {
             HStack(spacing: 10) {
                 Text(verbatim: SpokenWordPlayerText.bookFraction(summary.bookFraction))

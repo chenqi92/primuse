@@ -16,7 +16,7 @@ struct SpokenWordContentsView: View {
         case embedded(SpokenWordPlayerPalette)
     }
 
-    enum Tab: Hashable { case contents, bookmarks, text }
+    enum Tab: Hashable { case contents, bookmarks, text, notes }
 
     var presentation: Presentation = .sheet
     /// A third tab with the item's timed text (a transcript read as
@@ -31,6 +31,8 @@ struct SpokenWordContentsView: View {
     @State private var renaming: SpokenWordBookmark?
     @State private var renameText = ""
     @State private var bookmarkFeedbackToken = 0
+    /// 播客单集的节目说明,排好版的段落;切到别的单集时重排。
+    @State private var notesBlocks: [PodcastShowNotes.Block] = []
 
     private var store: SpokenWordStore { SpokenWordStore.shared }
 
@@ -86,6 +88,9 @@ struct SpokenWordContentsView: View {
                 if textTab != nil {
                     Text("spoken_word_text_tab").tag(Tab.text)
                 }
+                if !notesBlocks.isEmpty {
+                    Text("podcast_show_notes").tag(Tab.notes)
+                }
             } label: {
                 EmptyView()
             }
@@ -104,10 +109,40 @@ struct SpokenWordContentsView: View {
                 } else {
                     contentsList
                 }
+            case .notes:
+                ScrollView {
+                    PodcastShowNotesView(blocks: notesBlocks) { seconds in
+                        player.seek(to: seconds, startPlaying: true)
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
         .onChange(of: textTab == nil) { _, hasNoText in
             if hasNoText, tab == .text { tab = .contents }
+        }
+        .task(id: podcastEpisode?.id) { await loadPodcastNotes() }
+    }
+
+    /// 正在放的播客单集(放的是书时为空)。
+    private var podcastEpisode: PodcastEpisode? {
+        guard let song = player.currentSong, PodcastPlaybackSong.isEpisode(song) else { return nil }
+        return PodcastStore.shared.episode(id: song.id)?.episode
+    }
+
+    /// 播客单集的节目说明放进第四个分页;单集没有章节时一打开就是它,点里面的时间跳过去。
+    private func loadPodcastNotes() async {
+        guard let episode = podcastEpisode, let notes = episode.showNotes, !notes.isEmpty else {
+            notesBlocks = []
+            if tab == .notes { tab = .contents }
+            return
+        }
+        notesBlocks = await Task.detached(priority: .userInitiated) {
+            PodcastShowNotes.blocks(from: notes)
+        }.value
+        if !notesBlocks.isEmpty, player.spokenWordChapters.isEmpty, tab == .contents {
+            tab = .notes
         }
     }
 

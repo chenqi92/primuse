@@ -166,6 +166,13 @@ struct MacSidebar: View {
                 title: ListeningSpace.spokenWord.titleKey,
                 trailing: countLabel(spokenWordBookCount)
             )
+        case .podcasts:
+            item(
+                route: .section(.podcasts),
+                icon: section.icon,
+                title: ListeningSpace.podcast.titleKey,
+                trailing: countLabel(PodcastStore.shared.shows.count)
+            )
         case .playlists:
             // 下面的歌单分区只列前几个, 全部歌单从这一行进总览页。
             item(

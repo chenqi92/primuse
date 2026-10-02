@@ -685,6 +685,8 @@ targets:
       - path: Primuse/Services/Radio/RadioStationsStore.swift
       # 电视端添加电台:按名称搜 radio-browser 目录,纯 Foundation,与 iOS / macOS 同一份。
       - path: Primuse/Services/Radio/RadioDirectoryClient.swift
+      # 播客:订阅、feed 刷新与目录搜索和手机同一份;电视只在线听,不下载。
+      - path: Primuse/Services/Podcast
       - path: Primuse/Services/Metadata/ScraperSettingsStore.swift
       # 刮削引擎与在线歌词兜底的台账:电视端的手动匹配、整张专辑补全与播放时
       # 的在线歌词都走与 iOS / macOS 同一份实现(纯 Foundation + PrimuseKit)。

@@ -10,6 +10,8 @@ public enum TVTabBarItem: String, CaseIterable, Codable, Hashable, Sendable {
     case library
     case radio
     case spokenWord
+    /// 订阅的播客。默认收起,在设置里打开;没订阅时这一页就是发现。
+    case podcasts
     case nowPlaying
     case playlists
     case sources
@@ -29,12 +31,15 @@ public enum TVTabBarItem: String, CaseIterable, Codable, Hashable, Sendable {
 public struct TVTabBarConfiguration: Equatable, Sendable {
     public static let storageKey = "primuse.tv.tabBar.v1"
 
-    /// 与 iPhone / iPad / Mac 一致:首页、音乐、电台、有声,再是电视端自己的几页。
+    /// 与 iPhone / iPad / Mac 一致:首页、音乐、电台、有声、播客,再是电视端自己的几页。
     public static let defaultOrder: [TVTabBarItem] = [
-        .home, .library, .radio, .spokenWord, .nowPlaying, .playlists, .sources, .search,
+        .home, .library, .radio, .spokenWord, .podcasts, .nowPlaying, .playlists, .sources, .search,
     ]
 
-    public static let `default` = TVTabBarConfiguration(order: defaultOrder, hidden: [])
+    /// 默认收起的页。播客要先订阅才有东西听,用的人自己打开。
+    public static let defaultHidden: Set<TVTabBarItem> = [.podcasts]
+
+    public static let `default` = TVTabBarConfiguration(order: defaultOrder, hidden: defaultHidden)
 
     /// 全部页面,按用户排的顺序(含被隐藏的)。
     public private(set) var order: [TVTabBarItem]
@@ -56,7 +61,10 @@ public struct TVTabBarConfiguration: Equatable, Sendable {
         }
         // 按字符串解:以后删掉的页面、别的版本写进来的新页面都只丢那一项。
         let order = stored.order.compactMap(TVTabBarItem.init(rawValue:))
-        let hidden = Set(stored.hidden.compactMap(TVTabBarItem.init(rawValue:)))
+        var hidden = Set(stored.hidden.compactMap(TVTabBarItem.init(rawValue:)))
+        // 存盘时还没有这一页(新版本才加的默认收起页):照默认收起,别凭空多出一页。
+        let storedNames = Set(stored.order)
+        hidden.formUnion(defaultHidden.filter { !storedNames.contains($0.rawValue) })
         return TVTabBarConfiguration(order: order, hidden: hidden)
     }
 

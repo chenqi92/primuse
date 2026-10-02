@@ -905,6 +905,31 @@ struct SpokenWordBookCover: View {
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        if let song, PodcastPlaybackSong.isEpisode(song), let width {
+            // 播客单集不是书:封面是方的,边长取书框的高,占的还是同一块槽位。
+            let side = SpokenWordCoverLayout.height(forWidth: width)
+            CachedArtworkView(
+                coverRef: song.coverArtFileName,
+                songID: song.id,
+                size: decodeSize ?? side,
+                cornerRadius: 0,
+                sourceID: song.sourceID,
+                filePath: song.filePath,
+                fileFormat: song.fileFormat,
+                placeholderIcon: "antenna.radiowaves.left.and.right",
+                fillsProposedSize: true
+            )
+            .frame(width: side, height: side)
+            .clipShape(shape)
+            .overlay {
+                shape.strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+            }
+        } else {
+            bookFrame(shape)
+        }
+    }
+
+    private func bookFrame(_ shape: RoundedRectangle) -> some View {
         Color.clear
             .aspectRatio(SpokenWordCoverLayout.aspectRatio, contentMode: .fit)
             .if(width != nil) { view in

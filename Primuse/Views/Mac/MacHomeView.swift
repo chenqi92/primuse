@@ -57,6 +57,7 @@ struct MacHomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("primuse.home.showRadio") private var showRadio = true
     @AppStorage("primuse.home.showRecentlyAdded") private var showRecentlyAdded = true
+    @AppStorage("primuse.home.showPodcasts") private var showPodcasts = false
     @AppStorage(AlbumRecommendationService.homeVisibilityKey) private var showAlbumPick = true
     // 与 iPhone、iPad 首页同一份区块开关(HomeSectionKind);Mac 首页只接显隐,顺序仍固定。
     @AppStorage("primuse.home.showContinueSpaces") private var showContinueSpaces = true
@@ -269,6 +270,9 @@ struct MacHomeView: View {
                     .pmAppearFade(.contentAppear)
             }
             MacHomeBooksStrip()
+            if showPodcasts {
+                MacHomePodcastsStrip()
+            }
             if showTopArtists, !model.snapshot.artists.isEmpty {
                 artistsSection
                     .pmAppearFade(.contentAppear)
@@ -281,6 +285,9 @@ struct MacHomeView: View {
                     .pmAppearFade(.contentAppear)
             }
             MacHomeBooksStrip()
+            if showPodcasts {
+                MacHomePodcastsStrip()
+            }
         }
     }
 
@@ -2000,12 +2007,14 @@ private struct MacHomeResumeRow: View {
         case music(Song)
         case radio(RadioStation)
         case book(SpokenWordBook, songs: [Song])
+        case podcast(PodcastEpisode, PodcastShow)
 
         var id: ListeningSpace {
             switch self {
             case .musicMemory, .music: return .music
             case .radio: return .radio
             case .book: return .spokenWord
+            case .podcast: return .podcast
             }
         }
     }
@@ -2077,6 +2086,12 @@ private struct MacHomeResumeRow: View {
                     cardsBySpace[.spokenWord] = .book(book, songs: songs)
                 }
             }
+        }
+
+        // 播客: 最近听到一半的那一集。
+        if let recent = PodcastStore.shared.mostRecentInProgress {
+            candidates.append(ListeningResumeCandidate(space: .podcast, lastListenedAt: recent.updatedAt))
+            cardsBySpace[.podcast] = .podcast(recent.episode, recent.show)
         }
 
         return ListeningResumePolicy.cards(
@@ -2164,6 +2179,23 @@ private struct MacHomeResumeRow: View {
                     cornerRadius: PMRadius.s
                 )
                 .frame(width: 56, height: 56)
+            }
+        case .podcast(let episode, let show):
+            let position = SpokenWordStore.shared.position(forSongID: episode.id)?.position ?? 0
+            let total = episode.duration ?? 0
+            resumeCard(
+                space: .podcast,
+                spaceLabel: ListeningSpace.podcast.titleKey,
+                title: episode.title,
+                subtitle: show.title,
+                progress: total > 0 ? min(1, position / total) : nil,
+                action: {
+                    PodcastPlaybackLauncher.play(episode, player: player) { _ in
+                        NotificationCenter.default.post(name: .primuseSelectSpokenWord, object: LibrarySection.podcasts)
+                    }
+                }
+            ) {
+                PodcastArtwork(episode: episode, show: show, size: 56, cornerRadius: PMRadius.m)
             }
         }
     }

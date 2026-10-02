@@ -185,4 +185,20 @@ struct ListeningPlayModeLedgerTests {
         #expect(!ShuffleLibraryContinuationPolicy.continuesFromLibrary(currentSpace: .spokenWord))
         #expect(!ShuffleLibraryContinuationPolicy.continuesFromLibrary(currentSpace: nil))
     }
+
+    @Test func podcastsSleepByEpisodeAndQueueLikeBooks() {
+        let options = SleepTimerOptionPolicy.options(for: .podcast, hasChapters: true)
+        #expect(options.contains(.endOfTrack))
+        #expect(options.contains(.endOfChapter))
+        #expect(!options.contains(.endOfBook))
+        #expect(!SleepTimerOptionPolicy.options(for: .podcast, hasChapters: false).contains(.endOfChapter))
+        #expect(ListeningSpace.podcast.playbackFamily == .spokenWord)
+        #expect(ListeningSpace.radio.playbackFamily == .radio)
+
+        var ledger = ListeningPlayModeLedger()
+        let shuffled = ListeningPlayMode(shuffleEnabled: true, repeatMode: .all)
+        #expect(ledger.queueInstalled(ownedBy: .podcast, current: shuffled) == .inOrder)
+        #expect(ledger.activeSpace == .spokenWord)
+        #expect(ledger.queueInstalled(ownedBy: .music, current: .inOrder) == shuffled)
+    }
 }

@@ -105,6 +105,8 @@ enum TVColor {
     /// 三个收听空间各自的标识色:音乐跟随品牌色,电台与有声固定。
     static let radioSpace = adaptive(light: rgb(0xD9480F), dark: rgb(0xFF8A4C))
     static let spokenWordSpace = adaptive(light: rgb(0x0F8A6A), dark: rgb(0x3FD1A6))
+    /// 与手机端 `ListeningSpace.podcast.tint` 同一对色值。
+    static let podcastSpace = adaptive(light: rgb(0x7A3FC9), dark: rgb(0xB98CFF))
 
     static func brand(hex: String) -> Color {
         let source = color(hex: hex)

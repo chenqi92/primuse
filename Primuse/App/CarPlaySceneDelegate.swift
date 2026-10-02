@@ -985,6 +985,15 @@ extension CarPlaySceneDelegate {
                 self?.pushBrowse(.spokenWord, title: String(localized: "listening_space_spoken_word"))
             },
         ]
+        // 订了播客才给入口:继续收听、最新单集、各档节目。
+        let podcasts: [CollectionEntry] = PodcastStore.shared.shows.isEmpty ? [] : [
+            CollectionEntry(
+                title: String(localized: "listening_space_podcast"),
+                symbol: ListeningSpace.podcast.systemImage
+            ) { [weak self] in
+                self?.pushPodcasts()
+            },
+        ]
         // 有喜欢的专辑 / 艺人才给入口（放在音乐几项之后）。
         let favorites = LibraryFavoritesStore.shared
         var liked: [CollectionEntry] = []
@@ -1007,7 +1016,7 @@ extension CarPlaySceneDelegate {
                 self?.pushSearchTemplate()
             }
         ]
-        return collectionSections(entries + liked + spokenWord + trailing, style: .list)
+        return collectionSections(entries + liked + spokenWord + podcasts + trailing, style: .list)
     }
 
     private func pushBrowse(_ context: BrowseContext, title: String) {
@@ -1723,6 +1732,147 @@ extension CarPlaySceneDelegate {
                 if let index = SpokenWordBookSupport.prepareStart(of: book, songs: songs, from: nil) {
                     self?.play(queue: songs, startAt: index)
                 }
+                completion()
+            }
+        }
+        return item
+    }
+}
+
+// MARK: - Podcasts
+
+extension CarPlaySceneDelegate {
+    fileprivate func pushPodcasts() {
+        let template = CPListTemplate(title: String(localized: "listening_space_podcast"), sections: podcastSections())
+        template.emptyViewTitleVariants = [String(localized: "podcast_invite_title")]
+        safePush(template, label: "Podcasts")
+    }
+
+    /// 车上的播客:听到一半的在最前,接着是订阅里新出的,最后是各档节目。
+    /// 点一集就从记住的位置接着放;最新单集按列表顺序往下放。
+    fileprivate func podcastSections() -> [CPListSection] {
+        let store = PodcastStore.shared
+        var budget = CPListTemplate.maximumItemCount
+        var artworkIndex = 0
+        var sections: [CPListSection] = []
+
+        let inProgress = Array(store.inProgressEpisodes(limit: 6).prefix(budget))
+        if !inProgress.isEmpty {
+            let items = inProgress.map { entry -> CPListItem in
+                defer { artworkIndex += 1 }
+                return podcastEpisodeItem(
+                    entry.episode, show: entry.show, continuing: [], showsShowTitle: true,
+                    loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: artworkIndex)
+                )
+            }
+            budget -= items.count
+            sections.append(CPListSection(items: items, header: String(localized: "podcast_continue_listening"), sectionIndexTitle: nil))
+        }
+
+        let skipped = Set(inProgress.map(\.episode.id))
+        let latest = Array(store.latestEpisodes(limit: 12).filter { !skipped.contains($0.id) }.prefix(max(0, budget)))
+        if !latest.isEmpty {
+            let items = latest.enumerated().map { index, episode -> CPListItem in
+                defer { artworkIndex += 1 }
+                return podcastEpisodeItem(
+                    episode, show: store.show(id: episode.showID),
+                    continuing: Array(latest.dropFirst(index + 1)), showsShowTitle: true,
+                    loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: artworkIndex)
+                )
+            }
+            budget -= items.count
+            sections.append(CPListSection(items: items, header: String(localized: "podcast_latest_episodes"), sectionIndexTitle: nil))
+        }
+
+        let shows = store.shows
+            .sorted { ($0.latestEpisodeAt ?? .distantPast) > ($1.latestEpisodeAt ?? .distantPast) }
+            .prefix(max(0, budget))
+        if !shows.isEmpty {
+            let items = shows.map { show -> CPListItem in
+                let newCount = store.newEpisodeCount(showID: show.id)
+                let item = CPListItem(
+                    text: show.title,
+                    detailText: newCount > 0
+                        ? String(format: String(localized: "podcast_new_episodes_count %lld"), newCount)
+                        : show.author,
+                    image: CarPlayTemplateImages.placeholder(ListeningSpace.podcast.systemImage)
+                )
+                item.accessoryType = .disclosureIndicator
+                if CarPlayArtworkLoadPolicy.shouldLoad(index: artworkIndex),
+                   let latest = store.episodes(forShowID: show.id).first {
+                    loadArtwork(for: PodcastPlaybackSong.song(for: latest, show: show), into: item)
+                }
+                artworkIndex += 1
+                item.handler = { [weak self] _, completion in
+                    self?.pushPodcastShow(show.id)
+                    completion()
+                }
+                return item
+            }
+            sections.append(CPListSection(items: Array(items), header: String(localized: "podcast_my_shows"), sectionIndexTitle: nil))
+        }
+        return sections
+    }
+
+    /// 一档节目的单集,按这档节目的顺序;点一集之后按收听顺序接着放。
+    private func pushPodcastShow(_ showID: String) {
+        let store = PodcastStore.shared
+        guard let show = store.show(id: showID) else { return }
+        let all = store.episodes(forShowID: showID)
+        let ordered = Array(PodcastEpisodeListPolicy.ordered(all, order: show.effectiveEpisodeOrder)
+            .prefix(CPListTemplate.maximumItemCount))
+        let items = ordered.enumerated().map { index, episode -> CPListItem in
+            let continuing = Array(
+                PodcastEpisodeListPolicy.continuation(from: episode.id, in: all, state: store.state(for:)).dropFirst()
+            )
+            return podcastEpisodeItem(
+                episode, show: show, continuing: continuing, showsShowTitle: false,
+                loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: index)
+            )
+        }
+        let template = CPListTemplate(title: show.title, sections: [CPListSection(items: items)])
+        template.emptyViewTitleVariants = [String(localized: "podcast_no_episodes")]
+        safePush(template, label: "PodcastShow")
+    }
+
+    private func podcastEpisodeItem(
+        _ episode: PodcastEpisode,
+        show: PodcastShow?,
+        continuing: [PodcastEpisode],
+        showsShowTitle: Bool,
+        loadsArtwork: Bool
+    ) -> CPListItem {
+        let state = PodcastStore.shared.state(for: episode)
+        var details: [String] = []
+        if showsShowTitle, let show { details.append(show.title) }
+        if let date = PodcastFormat.date(episode.publishedAt) { details.append(date) }
+        if state.isFinished {
+            details.append(String(localized: "podcast_played"))
+        } else if let position = state.position, let total = episode.duration, total > position, position > 0 {
+            details.append(PodcastFormat.remaining(total - position))
+        } else if let duration = PodcastFormat.duration(episode.duration) {
+            details.append(duration)
+        }
+        let item = CPListItem(
+            text: episode.title,
+            detailText: details.isEmpty ? nil : details.joined(separator: " · "),
+            image: CarPlayTemplateImages.placeholder(ListeningSpace.podcast.systemImage)
+        )
+        if state.isFinished {
+            item.playbackProgress = 1
+        } else if let position = state.position, let total = episode.duration, total > 0, position > 0 {
+            item.playbackProgress = CGFloat(min(1, position / total))
+        }
+        let player = AppServices.shared.playerService
+        if player.currentSong?.id == episode.id {
+            item.isPlaying = player.isPlaying
+            item.playingIndicatorLocation = .leading
+        }
+        if loadsArtwork { loadArtwork(for: PodcastPlaybackSong.song(for: episode, show: show), into: item) }
+        item.handler = { [weak self] _, completion in
+            Task { @MainActor in
+                await AppServices.shared.playerService.playPodcast(episode, continuing: continuing)
+                self?.pushNowPlayingIfNeeded()
                 completion()
             }
         }

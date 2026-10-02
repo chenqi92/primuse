@@ -327,6 +327,8 @@ extension AudioPlayerService {
               let nextEntry = nextQueueEntryInQueue() else { return }
         let nextSong = nextEntry.song
         guard nextSong.id != currentSong?.id else { return }
+        // 播客单集换集时要先探音频文件的真实大小,走正常起播,不提前接续。
+        guard !PodcastPlaybackSong.isEpisode(nextSong) else { return }
         let sourceStreamEpoch = CloudPlaybackSource.streamEpochTicket(
             sourceID: nextSong.sourceID
         )

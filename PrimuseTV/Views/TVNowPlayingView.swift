@@ -282,9 +282,16 @@ struct TVNowPlayingView: View {
                         // 有声内容:左边是书与听书的控件,右边是这本书的目录与书签。
                         spokenWordLeftColumn.frame(maxWidth: .infinity, maxHeight: .infinity)
                             .focusSection()
-                        TVSpokenWordContentsColumn(onInteraction: registerInteraction)
-                            .frame(width: 720)
-                            .frame(maxHeight: .infinity)
+                        if store.currentPodcastEpisodeID != nil, store.spokenWordChapters.isEmpty {
+                            // 没有章节的播客单集:右栏是节目说明和接下来要放的几集。
+                            TVPodcastNowPlayingColumn(onInteraction: registerInteraction)
+                                .frame(width: 720)
+                                .frame(maxHeight: .infinity)
+                        } else {
+                            TVSpokenWordContentsColumn(onInteraction: registerInteraction)
+                                .frame(width: 720)
+                                .frame(maxHeight: .infinity)
+                        }
                     } else {
                         leftColumn.frame(maxWidth: .infinity, maxHeight: .infinity)
                             .focusSection()
@@ -687,7 +694,10 @@ struct TVNowPlayingView: View {
                     store.togglePlayPause()
                 } label: {
                     Group {
-                        if let book = store.currentSpokenWordBook {
+                        if store.currentPodcastEpisodeID != nil {
+                            // 播客单集的封面是方的,不放进书框;按图片地址缓存,和播客页的卡片共用一份。
+                            TVPodcastArtwork(url: np.coverRef.flatMap(URL.init(string:)), side: 340, radius: 16)
+                        } else if let book = store.currentSpokenWordBook {
                             TVSpokenWordCover(book: book, size: 300, radius: 16)
                         } else {
                             TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
@@ -711,7 +721,8 @@ struct TVNowPlayingView: View {
                 .accessibilityIdentifier("tv.nowPlaying.artworkControls")
 
                 VStack(alignment: .leading, spacing: 12) {
-                    TVEyebrow(text: String(localized: "listening_space_spoken_word"))
+                    TVEyebrow(text: String(localized: store.currentPodcastEpisodeID != nil
+                        ? "listening_space_podcast" : "listening_space_spoken_word"))
                     Text(TVSpokenWordText.bookTitle(store))
                         .tvFont(size: 56, weight: .bold, design: .serif, relativeTo: .largeTitle)
                         .foregroundStyle(TVColor.text)

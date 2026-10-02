@@ -460,7 +460,9 @@ extension AudioPlayerService {
             // yesterday's scan. Download through the adaptive connector so the
             // Now Playing/full-screen path gets the same route validation and
             // failover as in-app artwork views.
-            if let sourceID, let sourceManager {
+            // 播客单集的封面是公网地址,没有连接器可问。
+            let isPublicReference = sourceID == PodcastPlaybackSong.sourceID
+            if let sourceID, let sourceManager, !isPublicReference {
                 fetchedData = await sourceManager.artworkData(
                     for: coverRef,
                     sourceID: sourceID,

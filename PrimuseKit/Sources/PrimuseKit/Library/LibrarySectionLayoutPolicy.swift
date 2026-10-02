@@ -104,6 +104,40 @@ public enum LibrarySectionLayoutPolicy {
         return action
     }
 
+    // MARK: 新加的默认隐藏分类
+
+    /// 新版本加了一个默认收起的分类时,已经存过隐藏集合的人要把它补进去:
+    /// 存过的集合照存的来,不补的话新分类会直接出现在他们的资料库里。
+    /// 没存过(空串)的人本来就走默认隐藏,不用动。返回要写回的新存档,不用写时返回 nil。
+    public static func hidingNewSection(
+        _ name: String,
+        storedHiddenRawValue: String?,
+        alreadyMigrated: Bool
+    ) -> String? {
+        guard !alreadyMigrated, let raw = storedHiddenRawValue, var names = decodeNames(raw) else { return nil }
+        guard !names.contains(name) else { return nil }
+        names.append(name)
+        return encodeNames(names)
+    }
+
+    /// 在 UserDefaults 上做一次 `hidingNewSection`。启动时、`migrateDefaultHiddenIfNeeded` 之后调用。
+    @discardableResult
+    public static func hideNewSectionIfNeeded(
+        _ name: String,
+        migrationKey: String,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        let migrated = defaults.bool(forKey: migrationKey)
+        let updated = hidingNewSection(
+            name,
+            storedHiddenRawValue: defaults.string(forKey: hiddenKey),
+            alreadyMigrated: migrated
+        )
+        if let updated { defaults.set(updated, forKey: hiddenKey) }
+        if !migrated { defaults.set(true, forKey: migrationKey) }
+        return updated != nil
+    }
+
     // MARK: 存档格式
 
     /// 解出存档里的名字;空串或不是字符串数组时返回 nil。

@@ -1881,7 +1881,9 @@ struct CachedArtworkView: View {
         // 直播电台用的是一个虚拟 sourceID：它背后没有连接器，台标是一个普通
         // 公网地址。把它当成「无归属」处理，否则 Case 1 会去问一个不存在的
         // 连接器，Case 2 又因为 sourceID 非空而被跳过 —— 台标就永远加载不出来。
+        // 播客单集同理:封面是 feed 里写的公网地址。
         let isLiveRadioReference = sourceID == RadioStation.playbackSourceID
+            || sourceID == PodcastPlaybackSong.sourceID
 
         // Case 1: Any source-owned reference, including a historical absolute
         // LAN URL, stays inside the connector operation until its bytes arrive.

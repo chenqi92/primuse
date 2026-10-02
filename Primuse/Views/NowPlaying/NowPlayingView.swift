@@ -2888,7 +2888,7 @@ struct NowPlayingView: View {
         case .minutes(let minutes):
             Button("\(minutes) " + String(localized: "minutes")) { player.scheduleSleep(minutes: minutes) }
         case .endOfTrack:
-            if player.currentListeningSpace == .spokenWord {
+            if player.currentListeningSpace?.playbackFamily == .spokenWord {
                 Button(String(localized: "sleep_at_item_end")) { player.scheduleSleepAtTrackEnd() }
             } else {
                 Button(String(localized: "sleep_at_track_end")) { player.scheduleSleepAtTrackEnd() }

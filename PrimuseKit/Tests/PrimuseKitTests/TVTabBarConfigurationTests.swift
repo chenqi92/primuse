@@ -12,7 +12,7 @@ import Testing
 
     @Test func roundTripsOrderAndHidden() {
         var config = TVTabBarConfiguration.default
-        config.move(.search, by: -7)
+        config.move(.search, by: -99)
         config.setShown(false, for: .playlists)
         let decoded = TVTabBarConfiguration.decode(config.encoded())
         #expect(decoded == config)
@@ -63,6 +63,25 @@ import Testing
         #expect(!withoutRadio.contains(.radio))
         let withRadio = config.visibleItems { $0 != .spokenWord }
         #expect(withRadio.first == .radio)
+    }
+
+    @Test func podcastsStartHiddenEvenForConfigsSavedBeforeThey() {
+        #expect(!TVTabBarConfiguration.default.isShown(.podcasts))
+        let order = TVTabBarConfiguration.default.order
+        #expect(order.firstIndex(of: .podcasts) == order.firstIndex(of: .spokenWord).map { $0 + 1 })
+
+        let legacy = #"{"order":["home","library","radio","spokenWord","nowPlaying","playlists","sources","search"],"hidden":["playlists"]}"#
+        let upgraded = TVTabBarConfiguration.decode(legacy)
+        #expect(!upgraded.isShown(.podcasts))
+        #expect(!upgraded.isShown(.playlists))
+        #expect(upgraded.isShown(.home))
+        #expect(upgraded.order.firstIndex(of: .podcasts) == upgraded.order.firstIndex(of: .spokenWord).map { $0 + 1 })
+
+        var shown = upgraded
+        shown.setShown(true, for: .podcasts)
+        let decoded = TVTabBarConfiguration.decode(shown.encoded())
+        #expect(decoded.isShown(.podcasts))
+        #expect(decoded == shown)
     }
 
     @Test func movingClampsAtTheEnds() {

@@ -1635,6 +1635,28 @@ final class AppServices {
         #if os(iOS) || os(macOS)
         // 电台清单订阅：等启动忙完再查哪些到期了，别和首屏抢网络。
         RadioSubscriptionService.shared.startAfterLaunch()
+        // 播客：订阅读盘、按店面判定能用哪些入口，再刷新到期的节目。
+        PodcastAvailabilityService.shared.start()
+        PodcastStore.shared.nowPlayingEpisodeID = { [weak self] in self?.playerService.currentSong?.id }
+        PodcastStore.shared.loadIfNeeded()
+        #if DEBUG
+        // 取证用:`PRIMUSE_DEBUG_PODCAST_AUTOPLAY=<节目名的一段,或 1>` 订阅读好后直接放这一档最新的一集,
+        // 配合 `PRIMUSE_DEBUG_SHOW_PLAYER` 看播客的播放页。
+        if let needle = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_PODCAST_AUTOPLAY"] {
+            Task { @MainActor [weak self] in
+                let store = PodcastStore.shared
+                for _ in 0..<50 where !store.isLoaded { try? await Task.sleep(for: .milliseconds(200)) }
+                let show = store.shows.first { needle != "1" && $0.title.localizedCaseInsensitiveContains(needle) }
+                let episodes = show.map { store.episodes(forShowID: $0.id) } ?? store.latestEpisodes(limit: 6, includeFinished: true)
+                guard let first = episodes.first, let self else { return }
+                await self.playerService.playPodcast(first, continuing: Array(episodes.dropFirst().prefix(5)))
+            }
+        }
+        #endif
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(8))
+            PodcastStore.shared.refreshAllIfDue()
+        }
         #endif
         schedulePendingSourceCloudCleanupPropagation(delay: .seconds(1))
         didFinishDeferredStartup = true
@@ -1962,6 +1984,7 @@ final class AppServices {
                     #if os(iOS) || os(macOS)
                     // 每次回到前台查一次到期的清单订阅(启动后的等待结束前不算数)。
                     RadioSubscriptionService.shared.refreshDueSubscriptions()
+                    PodcastStore.shared.refreshAllIfDue()
                     #endif
                 }
             }
@@ -1973,6 +1996,9 @@ final class AppServices {
                     self?.alwaysDownload.setApplicationActive(false)
                     #if os(iOS)
                     RadioSubscriptionService.shared.suspendForBackground()
+                    #endif
+                    #if os(iOS) || os(macOS)
+                    PodcastStore.shared.flush()
                     #endif
                 }
             }

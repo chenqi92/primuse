@@ -669,6 +669,8 @@ struct HomeView: View {
         var spaces: [ListeningSpace] = [.music]
         if showRadioOnHome { spaces.append(.radio) }
         if showAudiobooks, !library.spokenWordSongs.isEmpty { spaces.append(.spokenWord) }
+        // 播客跟「播客更新」那块的开关走;没订阅时筛出来的是发现入口。
+        if showPodcasts { spaces.append(.podcast) }
         return spaces.count > 1 ? spaces : []
     }
 
@@ -748,6 +750,9 @@ struct HomeView: View {
                     } else if activeHomeFilter == .spokenWord {
                         SpokenWordShelf()
                             .padding(.horizontal, 16)
+                            .transition(homeFaceTransition)
+                    } else if activeHomeFilter == .podcast {
+                        PodcastHomeFace(navigation: podcastNavigation)
                             .transition(homeFaceTransition)
                     } else if !model.isPrepared {
                         initialLoadingView
@@ -878,6 +883,11 @@ struct HomeView: View {
             .navigationDestination(item: $pushedSpacePage) { space in
                 if space == .radio {
                     HomeRadioStationsPage()
+                } else if space == .podcast {
+                    PodcastLibraryView()
+                        #if os(iOS)
+                        .minimalNavigationDetail()
+                        #endif
                 } else {
                     SpokenWordLibraryView()
                         #if os(iOS)
@@ -885,6 +895,8 @@ struct HomeView: View {
                         #endif
                 }
             }
+            .podcastRouteDestinations()
+            .podcastNavigationDestinations(podcastNavigation)
             .navigationDestination(for: Album.self) {
                 AlbumDetailView(album: $0)
                     .mediaZoomDestination(.album, id: $0.id)
@@ -967,6 +979,10 @@ struct HomeView: View {
     @AppStorage(ListeningIntentService.homeVisibilityKey) private var showStartListening = true
     @AppStorage("primuse.home.showBooksInProgress") private var showBooksInProgress = true
     @AppStorage("primuse.home.showAudiobooks") private var showAudiobooks = true
+    /// 「播客更新」默认关着:播客要先订阅才有内容,用的人在界面编辑里打开。
+    @AppStorage("primuse.home.showPodcasts") private var showPodcasts = false
+    /// 首页「播客」那一面的导航与弹出(发现、按地址添加、设置)。
+    @State private var podcastNavigation = PodcastNavigationModel()
     @AppStorage(HomeSectionConfiguration.orderKey) private var homeSectionOrderRawValue = ""
     @AppStorage(HomeSectionLayoutConfiguration.storageKey) private var homeSectionLayoutRawValue = ""
     @AppStorage(LibraryPinStorage.defaultsKey) private var quickAccessRawValue = ""
@@ -1175,6 +1191,10 @@ struct HomeView: View {
             if showRadioOnHome, showsCrossSpace {
                 HomeRadioSpaceSection(limit: sectionItemCount(.radio, 12), openSpace: openSpace)
             }
+        case .podcasts:
+            if showPodcasts, showsCrossSpace {
+                HomePodcastsSection(limit: sectionItemCount(.podcasts, 10), openSpace: openSpace)
+            }
         case .quickAccess:
             if showQuickAccess, !model.snapshot.quickItems.isEmpty {
                 HomeDeferredSection { quickAccessSection(style) }
@@ -1239,6 +1259,7 @@ struct HomeView: View {
         case .albumPick: showAlbumPick
         case .booksInProgress: showBooksInProgress
         case .audiobooks: showAudiobooks
+        case .podcasts: showPodcasts
         case .continueListening: showContinueListening
         case .quickAccess: showQuickAccess
         case .forYou: showForYou
@@ -1259,6 +1280,7 @@ struct HomeView: View {
         case .albumPick: showAlbumPick = visible
         case .booksInProgress: showBooksInProgress = visible
         case .audiobooks: showAudiobooks = visible
+        case .podcasts: showPodcasts = visible
         case .continueListening: showContinueListening = visible
         case .quickAccess: showQuickAccess = visible
         case .forYou: showForYou = visible

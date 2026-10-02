@@ -88,10 +88,12 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
     func sceneDidBecomeActive() {
         playMediaHandler.refreshRadioVocabulary()
         store.applicationDidBecomeActive()
+        PodcastStore.shared.refreshAllIfDue()
     }
 
     func sceneDidEnterBackground() {
         Task { await store.persistForLifecycle() }
+        PodcastStore.shared.flush()
     }
 
     /// CloudKit 的私有库变更推送。转发是必须的:引擎不会自己截获这条通知,
@@ -183,6 +185,14 @@ struct PrimuseTVApp: App {
                     _ = LyricsAPIServerStore.shared
                     musicIntelligence.start()
                     FullscreenPlayerEffectSync.shared.install()
+                    // 播客:订阅读盘、按店面判定能用哪些入口;刷新等启动忙完再做。
+                    PodcastAvailabilityService.shared.start()
+                    PodcastStore.shared.nowPlayingEpisodeID = { [weak tvStore = store] in tvStore?.currentPodcastEpisodeID }
+                    PodcastStore.shared.loadIfNeeded()
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(8))
+                        PodcastStore.shared.refreshAllIfDue()
+                    }
                     #if DEBUG
                     switch ProcessInfo.processInfo.environment["TV_AUDIO_SMOKE"] {
                     case "1": store.engine.runSmokeTest()

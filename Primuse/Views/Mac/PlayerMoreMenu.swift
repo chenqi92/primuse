@@ -847,7 +847,7 @@ struct MacSleepTimerPopover: View {
             EmptyView()
         case .endOfTrack:
             endRow(
-                title: space == .spokenWord
+                title: space.playbackFamily == .spokenWord
                     ? String(localized: "sleep_at_item_end")
                     : String(localized: "sleep_at_track_end"),
                 symbol: "play.fill",

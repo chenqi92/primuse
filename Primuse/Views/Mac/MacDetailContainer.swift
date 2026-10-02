@@ -152,6 +152,8 @@ struct MacDetailContainer: View {
             case .radio:
                 MacRadioStationsView()
                     .navigationTitle(section.title)
+            case .podcasts:
+                PodcastLibraryView()
             }
         case .liked:
             PlaylistDetailView(

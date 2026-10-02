@@ -8,13 +8,19 @@ import PrimuseKit
 /// 规则与 iPhone / Mac 的 `SpokenWordPlayerText` 一致,只是数据来自 `TVStore`。
 @MainActor
 enum TVSpokenWordText {
+    /// 播客单集不是书:标题是这一集,署名是节目名,「正在听的部分」只在带章节时是章节名。
     static func bookTitle(_ store: TVStore) -> String {
+        if store.currentPodcastEpisodeID != nil { return store.nowPlaying.title }
         if let title = store.currentSpokenWordBook?.title, !title.isEmpty { return title }
         let np = store.nowPlaying
         return np.album.isEmpty ? np.title : np.album
     }
 
     static func author(_ store: TVStore) -> String? {
+        if store.currentPodcastEpisodeID != nil {
+            let show = store.nowPlaying.album
+            return show.isEmpty ? nil : show
+        }
         if let author = store.currentSpokenWordBook?.author, !author.isEmpty { return author }
         let artist = store.nowPlaying.artist
         return artist.isEmpty ? nil : artist
@@ -23,6 +29,10 @@ enum TVSpokenWordText {
     /// 正在听的这一章:单文件的书是章节标记的标题,多文件的书是文件标题(带章节标记时跟在后面)。
     /// 只会重复书名时不显示。
     static func partTitle(_ store: TVStore) -> String? {
+        if store.currentPodcastEpisodeID != nil {
+            let chapter = store.currentSpokenWordChapter?.title ?? ""
+            return chapter.isEmpty ? nil : chapter
+        }
         let isOneFileBook = (store.currentSpokenWordBook?.items.count ?? 1) <= 1
         let chapterTitle = store.currentSpokenWordChapter?.title
         if isOneFileBook, let chapterTitle, !chapterTitle.isEmpty { return chapterTitle }
@@ -54,10 +64,10 @@ enum TVSpokenWordText {
             forContent: content,
             rate: store.currentSpokenWordRate
         )
-        return String(
-            format: String(localized: "spoken_word_part_remaining_format"),
-            approximateDuration(remaining)
-        )
+        // 没有章节的播客单集只有它自己,说「剩余」,不说「本章」。
+        let key: String.LocalizationValue = store.currentPodcastEpisodeID != nil && store.spokenWordChapters.isEmpty
+            ? "podcast_remaining_format" : "spoken_word_part_remaining_format"
+        return String(format: String(localized: key), approximateDuration(remaining))
     }
 
     static func sleepLabel(_ store: TVStore) -> String {
@@ -75,7 +85,9 @@ struct TVSpokenWordBookProgressRow: View {
     @Environment(TVStore.self) private var store
 
     var body: some View {
-        if let summary = store.spokenWordNowPlayingSummary,
+        // 播客单集不是书,进度条就是它自己的进度,不再另起一行「全书」。
+        if store.currentPodcastEpisodeID == nil,
+           let summary = store.spokenWordNowPlayingSummary,
            summary.partCount != nil || summary.bookRemaining != nil {
             HStack(spacing: 18) {
                 Text(String(

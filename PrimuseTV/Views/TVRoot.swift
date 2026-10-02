@@ -244,6 +244,7 @@ struct TVRoot: View {
         case "spokenWord":
             initialTab = .home
             _debugPendingSpaceTab = State(initialValue: .spokenWord)
+        case "podcasts", "podcastShow", "podcastDiscover", "podcastPlay": initialTab = .podcasts
         case "radioHome", "radioAdd": initialTab = .home
         case "playlists": initialTab = .playlists
         case "sources", "sourcePicker", "sourceForm", "credentials", "otp", "scan", "recycleBin",
@@ -323,6 +324,8 @@ struct TVRoot: View {
                         Text(verbatim: PMString("ext.tv.http.message", request.endpoint))
                     case .radioPlaylist:
                         Text(verbatim: PMString("ext.tv.http.radioMessage", request.endpoint))
+                    case .podcast:
+                        Text(verbatim: String(format: String(localized: "podcast_tv_http_message %@"), request.endpoint))
                     }
                 }
             }
@@ -562,6 +565,11 @@ struct TVRoot: View {
             )
         case .spokenWord:
             TVSpokenWordView(
+                openPlayer: { tab = .nowPlaying },
+                onModalActivityChanged: childModalActivityChanged
+            )
+        case .podcasts:
+            TVPodcastsView(
                 openPlayer: { tab = .nowPlaying },
                 onModalActivityChanged: childModalActivityChanged
             )
@@ -857,6 +865,7 @@ extension TVTabBarItem {
         case .library: return String(localized: "listening_space_music")
         case .radio: return PMString("ext.tv.radio.title")
         case .spokenWord: return String(localized: "listening_space_spoken_word")
+        case .podcasts: return String(localized: "listening_space_podcast")
         case .nowPlaying: return PMString("ext.tv.nav.nowPlaying")
         case .playlists: return PMString("ext.tv.nav.playlists")
         case .sources: return PMString("ext.tv.nav.sources")
@@ -870,6 +879,7 @@ extension TVTabBarItem {
         case .library: return "music.note"
         case .radio: return "radio.fill"
         case .spokenWord: return "books.vertical.fill"
+        case .podcasts: return "antenna.radiowaves.left.and.right"
         case .nowPlaying: return "play.circle.fill"
         case .playlists: return "music.note.list"
         case .sources: return "server.rack"

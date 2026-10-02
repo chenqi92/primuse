@@ -3,10 +3,10 @@ import SwiftUI
 
 /// How each listening space presents itself: one colour, one name, one
 /// symbol, used everywhere a space is named (tabs, the player bar's dot,
-/// home cards, search groups) so the three read the same on every screen.
+/// home cards, search groups) so they read the same on every screen.
 extension ListeningSpace {
-    /// Music follows the app's accent; radio and spoken word have fixed hues
-    /// that stay apart from any accent the user picks.
+    /// Music follows the app's accent; radio, spoken word and podcasts have
+    /// fixed hues that stay apart from any accent the user picks.
     var tint: Color {
         switch self {
         case .music:
@@ -15,6 +15,8 @@ extension ListeningSpace {
             return Color(light: (0xD9, 0x48, 0x0F), dark: (0xFF, 0x8A, 0x4C))
         case .spokenWord:
             return Color(light: (0x0F, 0x8A, 0x6A), dark: (0x3F, 0xD1, 0xA6))
+        case .podcast:
+            return Color(light: (0x7A, 0x3F, 0xC9), dark: (0xB9, 0x8C, 0xFF))
         }
     }
 
@@ -23,6 +25,7 @@ extension ListeningSpace {
         case .music: "listening_space_music"
         case .radio: "listening_space_radio"
         case .spokenWord: "listening_space_spoken_word"
+        case .podcast: "listening_space_podcast"
         }
     }
 
@@ -31,6 +34,7 @@ extension ListeningSpace {
         case .music: String(localized: "listening_space_music")
         case .radio: String(localized: "listening_space_radio")
         case .spokenWord: String(localized: "listening_space_spoken_word")
+        case .podcast: String(localized: "listening_space_podcast")
         }
     }
 
@@ -39,6 +43,7 @@ extension ListeningSpace {
         case .music: "music.note"
         case .radio: "dot.radiowaves.left.and.right"
         case .spokenWord: "books.vertical.fill"
+        case .podcast: "antenna.radiowaves.left.and.right"
         }
     }
 }

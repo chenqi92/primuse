@@ -4902,6 +4902,7 @@ final class TVStore {
 
     /// 有声内容开播的起点:请求里没指定(不是断点恢复 / 切画面)时,用这一条记住的位置。
     private func spokenWordStartTime(for song: TVSong, requested: Double, isRecovery: Bool) -> Double {
+        resetPodcastPlayback()
         let isSpokenWord = library.spokenWordSongIDs.contains(song.id)
         currentItemIsSpokenWord = isSpokenWord
         spokenWordPositionArmed = false
@@ -4943,6 +4944,7 @@ final class TVStore {
         spokenWordPositionArmed = false
         pendingSpokenWordResume = nil
         engine.setSpokenWordRate(1)
+        resetPodcastPlayback()
     }
 
     // MARK: 有声内容的播放页:书、目录、书签、语速
@@ -4950,6 +4952,9 @@ final class TVStore {
     /// `songID` 所在的书;曲库算好的优先,算不到按它自己的标签与路径。
     func spokenWordBookID(forSongID songID: String) -> String? {
         if let bookID = library.spokenWordBookIDs[songID] { return bookID }
+        if let podcastSong = currentPodcastSong, podcastSong.id == songID {
+            return SpokenWordBookGrouping.bookID(for: SpokenWordBookItem(song: podcastSong))
+        }
         guard let song = library.song(id: songID) else { return nil }
         return SpokenWordBookGrouping.bookID(for: SpokenWordBookItem(song: song))
     }
@@ -5496,6 +5501,10 @@ final class TVStore {
                 pausePlayback()
                 return
             }
+        }
+        if currentPodcastEpisodeID != nil {
+            advancePodcastQueue()
+            return
         }
         // 音乐队列播完: 相似歌曲一般在这首开始时就排上了; 还在算就等它落地再往下走。
         if repeatMode == .off, !hasNextQueueSong,
@@ -6060,6 +6069,216 @@ final class TVStore {
         "appleMusic:\(itemID)"
     }
 
+    // MARK: 播客
+
+    /// 正在放的播客单集。换成曲库、电台、目录歌曲时清掉(见 `resetPodcastPlayback`)。
+    private(set) var currentPodcastEpisodeID: String?
+    /// 这一集放完接着放的单集(连续播放开着时):节目页按收听顺序,最新单集按列表顺序。
+    private(set) var podcastUpNext: [PodcastEpisode] = []
+    /// 正在放的单集当作一首虚拟歌:续播位置、按节目记的语速都按它算(专辑 = 节目名),和手机一致。
+    @ObservationIgnored private var currentPodcastSong: Song?
+    /// 这一集的片尾已经跳过了,别每拍再触发一次。
+    @ObservationIgnored private var podcastOutroHandledEpisodeID: String?
+
+    /// 播一集播客。不进曲库队列;有声那一套照常生效:记位置、续播、按节目变速、睡眠定时。
+    /// 已经在放这一集就只是继续。
+    func playPodcast(_ episode: PodcastEpisode, continuing: [PodcastEpisode] = []) {
+        pendingDeepLink = nil
+        let podcasts = PodcastStore.shared
+        if currentPodcastEpisodeID == episode.id, hasNowPlaying, !isLiveRadio {
+            if !isPlaying { togglePlayPause() }
+            return
+        }
+        appleMusicSelection = nil
+        endMedley()
+        leaveSpokenWordItem()
+        finishListeningSession()
+        radioReconnectTask?.cancel()
+        radioReconnectTask = nil
+        isLiveRadio = false
+        currentRadioStationID = nil
+        radioMetadataTitle = ""
+        playbackTask?.cancel()
+        let requestID = UUID()
+        activePlaybackRequestID = requestID
+        playbackIssue = nil
+        queue = []
+        queueIndex = 0
+        queueUpNextIDs = []
+        setQueueContinuation(nil)
+        lyrics = []
+        isMusicVideoModeEnabled = false
+
+        let show = podcasts.show(id: episode.showID)
+        // 听完的重放从头开始,和书架重放一本听完的书一样。
+        if podcasts.state(for: episode).isFinished {
+            podcasts.setPlayed(false, episode: episode)
+        }
+        let song = PodcastPlaybackSong.song(for: episode, show: show)
+        let continuous = UserDefaults.standard.object(forKey: PodcastPlaybackSettings.continuousPlaybackKey) as? Bool ?? true
+        currentPodcastEpisodeID = episode.id
+        currentPodcastSong = song
+        podcastUpNext = continuous ? continuing.filter { $0.id != episode.id } : []
+        podcastOutroHandledEpisodeID = nil
+
+        let start = podcastStartTime(song: song, episode: episode, show: show)
+        engine.prepareForSelection(startAt: start)
+        currentItemIsSpokenWord = true
+        spokenWordPositionArmed = false
+        lastSpokenWordPositionSave = 0
+        lastServerSpokenWordPositionPush = 0
+        pendingSpokenWordResume = start > 2 ? (episode.id, start) : nil
+        engine.wantsChapters = true
+        engine.setSpokenWordRate(Double(spokenWordRate(forBookID: spokenWordBookID(forSongID: episode.id))))
+        if let itemID = sleepStopAfterItemID, itemID != episode.id {
+            sleepStopAfterItemID = nil
+        }
+
+        let fallback = Self.tint(episode.showID)
+        let showTitle = show?.title ?? ""
+        nowPlaying = TVNowPlaying(
+            songID: episode.id,
+            coverRef: (episode.artworkURL ?? show?.artworkURL)?.absoluteString,
+            title: episode.title,
+            artist: showTitle.isEmpty ? (show?.author ?? "") : showTitle,
+            album: showTitle,
+            albumID: "",
+            tint: fallback.0,
+            tint2: fallback.1,
+            glyph: "♪",
+            duration: episode.duration ?? 0,
+            currentTime: start,
+            format: episode.audioFileExtension.uppercased(),
+            bitrate: 0,
+            sampleRate: 0,
+            sourcePath: episode.enclosureURL.absoluteString
+        )
+        updateAutomaticThemePalette(nil)
+        hasNowPlaying = true
+        plog("🎙️ TV podcast: '\(episode.title)' start=\(Int(start))s upNext=\(podcastUpNext.count)")
+        playbackTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.loadPodcastEpisode(episode, showTitle: showTitle, startAt: start, requestID: requestID)
+            guard self.isCurrentPlaybackRequest(requestID, isCancelled: Task.isCancelled) else { return }
+            self.playbackTask = nil
+        }
+    }
+
+    /// 起点:记住的位置(快听完的按有声规则回到开头);没有就跳过这档节目设的片头。
+    private func podcastStartTime(song: Song, episode: PodcastEpisode, show: PodcastShow?) -> Double {
+        if let stored = SpokenWordStore.shared.resumePosition(for: song), stored > 0 {
+            plog("🎧 TV podcast: resuming '\(episode.title)' at \(Int(stored))s")
+            return stored
+        }
+        let intro = Double(show?.settings.skipIntroSeconds ?? 0)
+        guard intro > 0 else { return 0 }
+        if let duration = episode.duration, duration <= intro + 30 { return 0 }
+        return intro
+    }
+
+    /// 取真实地址再交给引擎:先探一次(记下跳转后的 CDN 地址,之后的分段请求不再每次经过统计跳转),
+    /// 明文 http 先试 https,不行再按这台设备的明文许可问一次。
+    private func loadPodcastEpisode(_ episode: PodcastEpisode, showTitle: String, startAt: Double, requestID: UUID) async {
+        var url = episode.enclosureURL
+        let cache = PodcastEnclosureProbeCache.shared
+        if let probe = cache.probe(forEpisodeID: episode.id) {
+            url = probe.finalURL
+        } else if let probe = await PodcastNetwork.probeEnclosure(url) {
+            cache.store(probe, forEpisodeID: episode.id)
+            url = probe.finalURL
+        } else {
+            do {
+                url = try await PodcastNetwork.reachableURL(for: url)
+            } catch PodcastNetwork.Failure.insecureHTTP(let endpoint) {
+                guard isCurrentPlaybackRequest(requestID, isCancelled: Task.isCancelled) else { return }
+                let approved = await TVServerCertificateTrustStore.shared.requestInsecureHTTPTrust(
+                    endpoint: endpoint,
+                    purpose: .podcast
+                )
+                guard approved else {
+                    guard isCurrentPlaybackRequest(requestID, isCancelled: Task.isCancelled) else { return }
+                    let message = PodcastNetwork.Failure.insecureHTTP(host: endpoint).localizedDescription
+                    playbackIssue = .failed(message)
+                    engine.failPreparation(message)
+                    return
+                }
+                SSLTrustStore.shared.allowInsecureHTTP(domain: endpoint)
+            } catch {
+                plog("🎙️ TV podcast: address check failed — \(error.localizedDescription)")
+            }
+        }
+        guard isCurrentPlaybackRequest(requestID, isCancelled: Task.isCancelled) else { return }
+        engine.load(
+            url: url,
+            headers: ["User-Agent": PodcastNetwork.userAgent],
+            fileExtension: episode.audioFileExtension,
+            title: episode.title,
+            artist: showTitle,
+            album: showTitle,
+            duration: episode.duration ?? 0
+        )
+        engine.startPlayback(at: startAt, autoPlay: true)
+    }
+
+    /// 播放页「接下来」里点了一集:从它放起,它后面的照旧接着放。
+    func playPodcastUpNext(at index: Int) {
+        guard podcastUpNext.indices.contains(index) else { return }
+        let episode = podcastUpNext[index]
+        playPodcast(episode, continuing: Array(podcastUpNext.dropFirst(index + 1)))
+    }
+
+    /// 放别的东西了:播客的状态全部撤掉。
+    private func resetPodcastPlayback() {
+        currentPodcastEpisodeID = nil
+        currentPodcastSong = nil
+        podcastUpNext = []
+        podcastOutroHandledEpisodeID = nil
+    }
+
+    /// 一集放完(或片尾跳过):接着放下一集;后面没有了就停在这里。
+    private func advancePodcastQueue() {
+        let podcasts = PodcastStore.shared
+        while !podcastUpNext.isEmpty {
+            let next = podcastUpNext.removeFirst()
+            // 中途在别的设备上听完了的跳过。
+            if podcasts.state(for: next).isFinished { continue }
+            playPodcast(next, continuing: podcastUpNext)
+            return
+        }
+        pausePlayback()
+    }
+
+    /// 片尾跳过:离结尾只剩这档节目设的秒数时当作播完。
+    private func applyPodcastOutroSkipIfNeeded() {
+        guard let episodeID = currentPodcastEpisodeID,
+              podcastOutroHandledEpisodeID != episodeID,
+              let show = PodcastStore.shared.episode(id: episodeID)?.show,
+              show.settings.skipOutroSeconds > 0 else { return }
+        let total = duration > 0 ? duration : nowPlaying.duration
+        let outro = Double(show.settings.skipOutroSeconds)
+        guard total > outro + 60, engine.currentTime >= total - outro else { return }
+        podcastOutroHandledEpisodeID = episodeID
+        plog("🎙️ TV podcast: skipping the last \(Int(outro))s of '\(nowPlaying.title)'")
+        advanceAfterEnd()
+    }
+
+    /// 播客单集的收听监视:只记位置、睡眠按章节停、片尾跳过;不进播放历史和 scrobble。
+    private func startPodcastListeningMonitor() {
+        guard engine.isPlaying, engine.status == .playing,
+              let requestID = activePlaybackRequestID else { return }
+        armSpokenWordPositionIfNeeded()
+        playbackMonitorTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled, let self, self.activePlaybackRequestID == requestID,
+                      self.engine.isPlaying, self.engine.status == .playing else { return }
+                self.rememberSpokenWordPosition()
+                self.enforceSpokenWordChapterSleepIfNeeded()
+                self.applyPodcastOutroSkipIfNeeded()
+            }
+        }
+    }
+
     /// 播放一张 Apple Music 专辑。
     func playAppleMusicAlbum(_ album: AppleMusicCatalogAlbumHit) {
         startAppleMusicCollection(
@@ -6215,6 +6434,10 @@ final class TVStore {
         persistPlaybackSession()
         // 暂停 / 停止 / 出错都会走到这里:有声内容立刻记下位置。
         if !engine.isPlaying { rememberSpokenWordPosition(force: true) }
+        if currentPodcastEpisodeID != nil {
+            startPodcastListeningMonitor()
+            return
+        }
         guard !isMedleyActive, !isLiveRadio, engine.isPlaying, engine.status == .playing,
               let requestID = activePlaybackRequestID, let id = currentSongID,
               let raw = library.song(id: id) else { return }
@@ -6593,6 +6816,7 @@ extension TVStore {
         isLiveRadio = false
         currentRadioStationID = nil
         currentItemIsSpokenWord = false
+        resetPodcastPlayback()
         isMusicVideoModeEnabled = false
         playbackRestoreAttempted = true
         playbackIssue = nil

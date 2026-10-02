@@ -5717,6 +5717,7 @@ private struct MacSTThemeView: View {
     @AppStorage("primuse.home.showForYou") private var showForYouOnHome = true
     @AppStorage("primuse.home.showContinueListening") private var showContinueListeningOnHome = true
     @AppStorage("primuse.home.showTopArtists") private var showTopArtistsOnHome = true
+    @AppStorage("primuse.home.showPodcasts") private var showPodcastsOnHome = false
     @AppStorage(LibrarySongBrowseModePreference.storageKey)
     private var libraryBrowseModeRawValue = LibrarySongBrowseMode.flat.rawValue
     @AppStorage(LibraryDisplayConfiguration.quickAccessLimitKey)
@@ -6105,6 +6106,13 @@ private struct MacSTThemeView: View {
                     MacSTToggle(isOn: $showTopArtistsOnHome)
                 }
                 .settingsAnchor("home.topArtists")
+                MacSTRow(
+                    String(localized: "home_section_podcasts"),
+                    hint: String(localized: "home_section_podcasts_hint")
+                ) {
+                    MacSTToggle(isOn: $showPodcastsOnHome)
+                }
+                .settingsAnchor("home.podcasts")
             }
         }
 

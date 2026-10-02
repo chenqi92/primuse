@@ -18,6 +18,7 @@ struct HomeContinueSpacesRow: View {
             case music(MusicSessionMemoryStore.Memory)
             case radio(RadioStation)
             case book(SpokenWordBook, [Song])
+            case podcast(PodcastEpisode, PodcastShow)
         }
         let space: ListeningSpace
         let content: Content
@@ -63,6 +64,10 @@ struct HomeContinueSpacesRow: View {
            let listenedAt = book.lastListenedAt {
             candidates.append(.init(space: .spokenWord, lastListenedAt: listenedAt))
             contents[.spokenWord] = .book(book, songs)
+        }
+        if let recent = PodcastStore.shared.mostRecentInProgress {
+            candidates.append(.init(space: .podcast, lastListenedAt: recent.updatedAt))
+            contents[.podcast] = .podcast(recent.episode, recent.show)
         }
 
         let playing = player.isPlaying ? player.currentListeningSpace : nil
@@ -132,6 +137,8 @@ struct HomeContinueSpacesRow: View {
                     fileFormat: cover.fileFormat
                 )
             }
+        case .podcast(let episode, let show):
+            PodcastArtwork(episode: episode, show: show, size: 136, cornerRadius: 12)
         }
     }
 
@@ -140,6 +147,7 @@ struct HomeContinueSpacesRow: View {
         case .music(let memory): memory.title
         case .radio(let station): station.name
         case .book(let book, _): book.title
+        case .podcast(let episode, _): episode.title
         }
     }
 
@@ -157,6 +165,13 @@ struct HomeContinueSpacesRow: View {
                 )
             }
             return book.author ?? ""
+        case .podcast(let episode, let show):
+            if let total = episode.duration,
+               let position = SpokenWordStore.shared.position(forSongID: episode.id)?.position,
+               total > position {
+                return PodcastFormat.remaining(total - position)
+            }
+            return show.title
         }
     }
 
@@ -177,6 +192,9 @@ struct HomeContinueSpacesRow: View {
             Task { _ = await player.play(station: station, within: radioStore.stations) }
         case .book(let book, let songs):
             SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
+        case .podcast(let episode, _):
+            // 明文 http 的音频要先放行:交给播客页去问。
+            PodcastPlaybackLauncher.play(episode, player: player) { _ in openSpace(.podcast) }
         }
     }
 }

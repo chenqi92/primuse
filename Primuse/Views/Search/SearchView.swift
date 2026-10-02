@@ -686,6 +686,8 @@ struct SearchView: View {
         case .music: true
         case .radio: scope == nil && radioSearchAvailable && resultLayout.shows(.radio)
         case .spokenWord: scope == nil && spokenWordSearchAvailable && resultLayout.shows(.spokenWord)
+        // 订阅的播客在播客页里搜(发现页),全局搜索暂不混进来。
+        case .podcast: false
         }
     }
 

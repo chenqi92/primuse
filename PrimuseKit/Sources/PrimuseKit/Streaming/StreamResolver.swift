@@ -21,11 +21,12 @@ public final class TVServerCertificateTrustStore {
         var continuations: [CheckedContinuation<Bool, Never>]
     }
 
-    /// 这次明文确认是为谁弹的，只决定提示文案：音乐源服务器，还是电台的 `.pls` / `.m3u` 清单。
-    /// 许可都按「协议 + 主机 + 端口」记在同一份名单里。
+    /// 这次明文确认是为谁弹的，只决定提示文案：音乐源服务器、电台的 `.pls` / `.m3u` 清单，
+    /// 还是播客单集的音频地址。许可都按「协议 + 主机 + 端口」记在同一份名单里。
     public enum InsecureHTTPPurpose: Sendable, Equatable {
         case server
         case radioPlaylist
+        case podcast
     }
 
     public struct InsecureHTTPRequest: Identifiable {

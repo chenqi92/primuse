@@ -108,6 +108,7 @@ extension AudioPlayerService {
 
     func listeningSpace(of song: Song) -> ListeningSpace {
         if isRadioPlaybackSong(song) { return .radio }
+        if PodcastPlaybackSong.isEpisode(song) { return .podcast }
         if SpokenWordStore.shared.isSpokenWord(song) { return .spokenWord }
         return .music
     }

@@ -126,13 +126,13 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         let original: [HomeSectionKind] = [.stats, .playlists, .continueListening, .quickAccess]
         let decoded = HomeSectionConfiguration.decode(HomeSectionConfiguration.encode(original))
         XCTAssertEqual(decoded.filter { original.contains($0) }, original)
-        // 原本钉在最上面的「接着听」「在听的书」纳入排序后仍在最前,新的「有声书」跟在后面;
+        // 原本钉在最上面的「接着听」「在听的书」纳入排序后仍在最前,新的「有声书」「播客更新」跟在后面;
         // 「开始听」「情景推荐专辑」依次紧跟在「接着听」后面。
         XCTAssertEqual(
-            Array(decoded.prefix(5)),
-            [.continueSpaces, .startListening, .albumPick, .booksInProgress, .audiobooks]
+            Array(decoded.prefix(6)),
+            [.continueSpaces, .startListening, .albumPick, .booksInProgress, .audiobooks, .podcasts]
         )
-        XCTAssertEqual(Array(decoded.dropFirst(5).prefix(4)), [.stats, .playlists, .folders, .listeningRanking])
+        XCTAssertEqual(Array(decoded.dropFirst(6).prefix(4)), [.stats, .playlists, .folders, .listeningRanking])
         XCTAssertEqual(Set(decoded).count, decoded.count)
         XCTAssertEqual(Set(decoded), Set(HomeSectionKind.allCases))
     }
@@ -140,9 +140,17 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
     func testHomeDiscoveryCustomizedPositionsSurviveRoundTrip() {
         let original: [HomeSectionKind] = [.listeningRanking, .stats, .folders, .playlists]
         let decoded = HomeSectionConfiguration.decode(HomeSectionConfiguration.encode(original))
-        let introduced: Set<HomeSectionKind> = [.continueSpaces, .startListening, .albumPick, .booksInProgress, .audiobooks]
+        let introduced: Set<HomeSectionKind> = [.continueSpaces, .startListening, .albumPick, .booksInProgress, .audiobooks, .podcasts]
         XCTAssertEqual(Array(decoded.filter { !introduced.contains($0) }.prefix(original.count)), original)
         XCTAssertEqual(HomeSectionConfiguration.decode(""), HomeSectionConfiguration.defaultOrder)
+    }
+
+    func testPodcastsJoinBesideAudiobooksInAStoredOrder() {
+        let stored = HomeSectionConfiguration.defaultOrder.filter { $0 != .podcasts }
+        let decoded = HomeSectionConfiguration.decode(HomeSectionConfiguration.encode(stored))
+        let audiobooks = try? XCTUnwrap(decoded.firstIndex(of: .audiobooks))
+        XCTAssertEqual(decoded.firstIndex(of: .podcasts), audiobooks.map { $0 + 1 })
+        XCTAssertEqual(Set(decoded), Set(HomeSectionKind.allCases))
     }
 
     func testStartListeningJoinsRightAfterContinueSpacesInAStoredOrder() {
@@ -179,6 +187,7 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         let visible = LibraryDisplayConfiguration.visibleSections(orderRawValue: "", hiddenRawValue: "")
         XCTAssertFalse(visible.contains(.recommendations))
         XCTAssertFalse(visible.contains(.statistics))
+        XCTAssertFalse(visible.contains(.podcasts))
         XCTAssertTrue(visible.contains(.releaseDate))
         XCTAssertEqual(visible.first, .favorites)
     }
@@ -190,7 +199,7 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         XCTAssertEqual(
             LibraryDisplayConfiguration.decodeSectionOrder(rawValue),
             [.favorites, .albums, .songs, .artists, .genres, .folders, .releaseDate, .playlists, .radio,
-             .spokenWord, .recommendations, .statistics]
+             .spokenWord, .podcasts, .recommendations, .statistics]
         )
     }
 

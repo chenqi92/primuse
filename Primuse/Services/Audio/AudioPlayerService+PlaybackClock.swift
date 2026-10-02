@@ -104,6 +104,7 @@ extension AudioPlayerService {
                     if self.currentItemIsSpokenWord {
                         self.applyPendingSpokenWordResumeIfNeeded()
                         self.rememberSpokenWordPosition()
+                        self.applyPodcastOutroSkipIfNeeded()
                     }
                     if !self.spokenWordChapters.isEmpty {
                         self.refreshCurrentChapter()

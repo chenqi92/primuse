@@ -57,6 +57,7 @@ extension Notification.Name {
     /// push 一个带返回键的新页面等于同一个目的地有两条路径。
     static let primuseSelectRadio = Notification.Name("primuse.route.radio")
     /// 跳到侧栏的「有声」项。首页「在听的书」一栏的「全部」用它, 理由同上。
+    /// object 是 `LibrarySection` 时跳到那一项(首页「播客更新」给 `.podcasts`)。
     static let primuseSelectSpokenWord = Notification.Name("primuse.route.spokenWord")
     /// 打开一本有声书的详情(object 是书的 id)。播放页「转到这本书」用它:
     /// 先切到侧栏的「有声」, 再把书压进那一栏的详情栈, 返回就回到书架。

@@ -51,6 +51,8 @@ extension AudioPlayerService {
             pendingSpokenWordSeekOverride = nil
             return
         }
+        // 播客单集:片头跳过与 feed 里的章节。
+        preparePodcastItem(song)
         // Arm the resume even when nothing is stored: the seek is skipped, but
         // the flag also tells the position writer to ignore the opening zeroes.
         if pendingSpokenWordSeekOverride != nil
