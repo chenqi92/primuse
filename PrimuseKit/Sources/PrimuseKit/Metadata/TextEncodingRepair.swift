@@ -140,6 +140,13 @@ public enum TextEncodingRepair {
             if value == 0xFFFE || value == 0xFFFF {
                 return true
             }
+            // ASCII 既不是乱码字节、不是 CP1252 标记，也不是汉字：省掉下面两次查表
+            // （整库装载时每首歌的每个字段都要过这里）。
+            if value < 0x80 {
+                artifactRunLatin1Count = 0
+                artifactRunMarkerCount = 0
+                continue
+            }
             let isLatin1Artifact = (0x80...0xFF).contains(value)
             let isCP1252Marker = cp1252MarkerScalars.contains(value)
             if isLatin1Artifact || isCP1252Marker {
@@ -172,6 +179,8 @@ public enum TextEncodingRepair {
     }
 
     private static func byteSwappedUTF16Candidate(for text: String) -> String? {
+        // 先只看第一个码元，不是 U+FFFE 就不必把整串拷成数组。
+        guard text.utf16.first == 0xFFFE else { return nil }
         let original = Array(text.utf16)
         guard original.first == 0xFFFE, original.count > 1 else { return nil }
 

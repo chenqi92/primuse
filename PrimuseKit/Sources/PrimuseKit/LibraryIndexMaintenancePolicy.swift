@@ -14,6 +14,26 @@ public enum LibraryIndexMaintenancePolicy {
     /// number of whole-library applies roughly in half.
     public static let incrementalScanMaintenanceInterval: TimeInterval = 3
 
+    /// A whole-library rebuild costs time proportional to the library: a few
+    /// hundred thousand songs take seconds, so a fixed 3 s coalescing window
+    /// kept the device rebuilding for the whole scan. The window stretches to
+    /// `rebuildDutyMultiplier` times the last rebuild — the rebuild then takes
+    /// at most about a fifth of the scan — never shorter than the 3 s cap and
+    /// never longer than the backfill cap.
+    public static let rebuildDutyMultiplier: Double = 4
+
+    public static func incrementalScanMaintenanceInterval(
+        lastRebuildSeconds: TimeInterval
+    ) -> TimeInterval {
+        guard lastRebuildSeconds.isFinite, lastRebuildSeconds > 0 else {
+            return incrementalScanMaintenanceInterval
+        }
+        return min(
+            maximumDeferredMaintenanceInterval,
+            max(incrementalScanMaintenanceInterval, lastRebuildSeconds * rebuildDutyMultiplier)
+        )
+    }
+
     /// Whether deferred maintenance may run while the device-busy gate (app
     /// not active, thermal state not nominal) is closed.
     ///

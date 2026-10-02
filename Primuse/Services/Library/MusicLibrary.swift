@@ -3049,9 +3049,10 @@ enum LibraryMaintenanceDisposition: Sendable, Equatable {
     case immediate
     /// Long cap (`maximumDeferredMaintenanceInterval`): hours-long backfills.
     case deferred
-    /// Short cap (`incrementalScanMaintenanceInterval`): a scan's intermediate
-    /// flushes. They still coalesce, but the visible catalogue can never lag
-    /// the scan by more than a few seconds.
+    /// Short cap (`incrementalScanMaintenanceInterval(lastRebuildSeconds:)`):
+    /// a scan's intermediate flushes. They still coalesce, but the visible
+    /// catalogue lags the scan by a few seconds — longer only on libraries
+    /// whose rebuild itself takes seconds.
     case deferredIncremental
 }
 
@@ -10287,7 +10288,12 @@ final class MusicLibrary {
         let artists: [Artist]
         let albumIDCorrections: [String: String]
         let visibleCache: PreparedVisibleCache
+        /// 后台整库重建实际花的时间；其它路径（换 ID 等）不计。
+        var elapsedSeconds: TimeInterval = 0
     }
+
+    /// 上一次后台整库重建花了多久：扫描期间的合并间隔按它放宽（大曲库每次重建要好几秒）。
+    @ObservationIgnored private var lastIndexRebuildSeconds: TimeInterval = 0
 
     private var rebuildIndexTask: Task<Void, Never>?
     private var rebuildIndexGeneration: Int = 0
@@ -10345,7 +10351,9 @@ final class MusicLibrary {
                 deviceMaintenanceAllowed: deferredMaintenanceAllowed()
             ) else { return }
             let requestedInterval = isIncrementalScanFlush
-                ? LibraryIndexMaintenancePolicy.incrementalScanMaintenanceInterval
+                ? LibraryIndexMaintenancePolicy.incrementalScanMaintenanceInterval(
+                    lastRebuildSeconds: lastIndexRebuildSeconds
+                )
                 : LibraryIndexMaintenancePolicy.maximumDeferredMaintenanceInterval
             // 已排期的 flush 更早就沿用它: 每次 flush 都重排会把截止时间一直
             // 往后推, 连续扫描下这个定时器永远等不到。
@@ -10428,6 +10436,7 @@ final class MusicLibrary {
                 return
             }
             if !Task.isCancelled {
+                let startedAt = ProcessInfo.processInfo.systemUptime
                 let signature = MusicLibrary.derivedIndexSignature(
                     for: request.songs,
                     configuration: request.artistNameConfiguration
@@ -10463,7 +10472,8 @@ final class MusicLibrary {
                             albums: result.albums,
                             artists: result.artists,
                             albumIDCorrections: result.albumIDCorrections,
-                            visibleCache: visibleCache
+                            visibleCache: visibleCache,
+                            elapsedSeconds: ProcessInfo.processInfo.systemUptime - startedAt
                         )
                     }
                 }
@@ -10479,6 +10489,7 @@ final class MusicLibrary {
         computation: DerivedIndexComputation?
     ) {
         guard rebuildIndexWorkState.activeGeneration == request.generation else { return }
+        if let computation { lastIndexRebuildSeconds = computation.elapsedSeconds }
         var applied = false
         if let computation,
            rebuildIndexGeneration == request.generation,
@@ -10886,9 +10897,17 @@ final class MusicLibrary {
                 previousVisibleSongs: previousVisibleSongs
             )
         }
-        mutating func rebuildIndexSync(precomputedSignature: String) {
+        /// `inferredAlbumArtists` 是迁移阶段对同一批歌、同样没有目录时算好的推断。
+        mutating func rebuildIndexSync(
+            precomputedSignature: String,
+            inferredAlbumArtists: [String: String]? = nil
+        ) {
             // 启动阶段还没有网盘父目录, 见 `migrateLoadedSongs`。
-            let result = MusicLibrary.computeAlbumsAndArtists(songs: songs, configuration: artistNameConfiguration)
+            let result = MusicLibrary.computeAlbumsAndArtists(
+                songs: songs,
+                configuration: artistNameConfiguration,
+                inferredAlbumArtists: inferredAlbumArtists
+            )
             albums = result.albums
             artists = result.artists
             derivedIndexSignature = precomputedSignature
@@ -11118,7 +11137,8 @@ final class MusicLibrary {
                     repairedTextCount: 0,
                     filledDerivedIDCount: 0,
                     repairedDTSDurationCount: 0,
-                    changedSongs: []
+                    changedSongs: [],
+                    inferredAlbumArtists: nil
                 )
             let migrationFinishedAt = ProcessInfo.processInfo.systemUptime
             plog("🚀 library load stage=migrated changed=\(migration.changedSongs.count)"
@@ -11235,7 +11255,10 @@ final class MusicLibrary {
                     // The cache is disposable. An old installation pays the grouping
                     // cost once, then subsequent launches decode the compact binary
                     // index instead of sorting the whole library before the first frame.
-                    rebuildIndexSync(precomputedSignature: currentDerivedSignature)
+                    rebuildIndexSync(
+                        precomputedSignature: currentDerivedSignature,
+                        inferredAlbumArtists: migration.inferredAlbumArtists
+                    )
                     shouldWriteDerivedCache = true
                     usedDerivedIndexCache = false
                 }
@@ -11696,7 +11719,8 @@ final class MusicLibrary {
         repairedTextCount: Int,
         filledDerivedIDCount: Int,
         repairedDTSDurationCount: Int,
-        changedSongs: [Song]
+        changedSongs: [Song],
+        inferredAlbumArtists: [String: String]?
     ) {
         var repairedTextCount = 0
         var filledDerivedIDCount = 0
@@ -11749,11 +11773,14 @@ final class MusicLibrary {
             if repairedDTSDuration != nil { repairedDTSDurationCount += 1 }
         }
 
+        // 之后只改了 artistID / albumID / 时长，推断用到的字段（源、路径、专辑名、
+        // 专辑艺人、艺人）没变：同一份结果交给装载时的派生重建，不再整库算第二遍。
         return (
             repairedTextCount,
             filledDerivedIDCount,
             repairedDTSDurationCount,
-            changedSongs
+            changedSongs,
+            inferred
         )
     }
 
@@ -13298,15 +13325,18 @@ final class MusicLibrary {
 
     /// 后台 derive albums / artists 集合。纯函数 ── 给定 songs 数组, 算出
     /// 派生集合, 不操作 self。
+    /// `inferredAlbumArtists` 非空时必须是对同一批歌、同一份 `folders` 算出的推断。
     nonisolated static func computeAlbumsAndArtists(
         songs: [Song],
         configuration: ArtistNameConfiguration = .defaultValue,
-        folders: AlbumArtistFolderIndex = .empty
+        folders: AlbumArtistFolderIndex = .empty,
+        inferredAlbumArtists: [String: String]? = nil
     ) -> (albums: [Album], artists: [Artist], albumIDCorrections: [String: String]) {
         computeAlbumsAndArtists(
             songs: songs,
             configuration: configuration,
             folders: folders,
+            precomputedInference: inferredAlbumArtists,
             cancellationCheck: { false }
         )!
     }
@@ -13331,12 +13361,14 @@ final class MusicLibrary {
         songs: [Song],
         configuration: ArtistNameConfiguration,
         folders: AlbumArtistFolderIndex,
+        precomputedInference: [String: String]? = nil,
         cancellationCheck: () -> Bool
     ) -> (albums: [Album], artists: [Artist], albumIDCorrections: [String: String])? {
         guard !cancellationCheck() else { return nil }
         // 整库才看得见同一目录里的兄弟文件, 所以 album artist 的补全在这里先
         // 算一次, 下面两处 identity 与逐首 albumID 的对账都用同一份结果。
-        let inferredAlbumArtists = Self.inferredAlbumArtists(for: songs, folders: folders)
+        let inferredAlbumArtists = precomputedInference
+            ?? Self.inferredAlbumArtists(for: songs, folders: folders)
         guard !cancellationCheck() else { return nil }
         let unknownArtist = String(localized: "unknown_artist")
         // 整库一遍里同样的艺人名、同一张专辑反复出现：解析、折叠、SHA256 各只算一次。

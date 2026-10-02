@@ -404,7 +404,7 @@ public enum MediaMetadataTextRepair {
             let isPromotion = (scalars.contains(".")
                 && value.range(of: #"www\.[a-z0-9-]+\.[a-z]{2,}"#,
                                options: [.regularExpression, .caseInsensitive]) != nil)
-                || (scalars.contains("收")
+                || (scalars.contains("\u{6536}") // 「收」：下面三种写法都含「收藏」
                     && value.range(of: #"^(?:[\[【].*收藏[\]】]|※.*收藏|.*收藏\s*[Qq][Qq]\s*[:：]\s*\d+)$"#,
                                    options: .regularExpression) != nil)
             if isPromotion {

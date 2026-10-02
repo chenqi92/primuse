@@ -77,11 +77,12 @@ public enum AlbumArtistInferencePolicy {
     ) -> [String: String] {
         var result: [String: String] = [:]
         var keys = GroupingKeys()
-        for scope in scopes(for: tracks, restrictedTo: directoryAuthoritativeSourceIDs)
+        for scope in scopes(for: tracks, among: tracks.indices, restrictedTo: directoryAuthoritativeSourceIDs)
         where scope.count >= 2 {
-            guard let target = target(for: scope, keys: &keys) else { continue }
-            for track in scope where effective(track) != target {
-                result[track.id] = target
+            let values = ScopeValues(tracks, scope)
+            guard let target = target(for: values, keys: &keys) else { continue }
+            for (offset, index) in scope.enumerated() where values.effective[offset] != target {
+                result[tracks[index].id] = target
             }
         }
 
@@ -89,15 +90,16 @@ public enum AlbumArtistInferencePolicy {
         // Their scope spans a whole album title, so a majority vote would be
         // free to rename a same-titled album by another artist; only an
         // undisputed explicit tag may speak for them.
-        let unfoldered = tracks.filter {
-            !directoryAuthoritativeSourceIDs.contains($0.sourceID) || $0.directory == nil
+        let unfoldered = tracks.indices.filter {
+            !directoryAuthoritativeSourceIDs.contains(tracks[$0].sourceID) || tracks[$0].directory == nil
         }
         guard !unfoldered.isEmpty else { return result }
-        for scope in scopes(for: unfoldered, restrictedTo: nil, byDirectory: false)
+        for scope in scopes(for: tracks, among: unfoldered, restrictedTo: nil, byDirectory: false)
         where scope.count >= 2 {
-            guard let target = target(for: scope, explicitTagsOnly: true, keys: &keys) else { continue }
-            for track in scope where effective(track) != target {
-                result[track.id] = target
+            let values = ScopeValues(tracks, scope)
+            guard let target = target(for: values, explicitTagsOnly: true, keys: &keys) else { continue }
+            for (offset, index) in scope.enumerated() where values.effective[offset] != target {
+                result[tracks[index].id] = target
             }
         }
         return result
@@ -128,16 +130,17 @@ public enum AlbumArtistInferencePolicy {
         // Unlike an inference this only asks for the file to be read again, so
         // it is scoped the way albums themselves are grouped — two tracks with
         // one album title are one album whether or not they sit side by side.
-        for scope in scopes(for: tracks, restrictedTo: nil, byDirectory: false)
+        for scope in scopes(for: tracks, among: tracks.indices, restrictedTo: nil, byDirectory: false)
         where scope.count >= 2 {
-            guard !scope.contains(where: isExplicit) else { continue }
+            let values = ScopeValues(tracks, scope)
+            guard !values.explicit.contains(true) else { continue }
             var keys: Set<String> = []
-            for track in scope {
-                guard let value = effective(track) else { continue }
+            for value in values.effective {
+                guard let value else { continue }
                 keys.insert(groupingKeys.key(value))
             }
-            guard keys.count >= 2, target(for: scope, keys: &groupingKeys) == nil else { continue }
-            for track in scope { result.insert(track.id) }
+            guard keys.count >= 2, target(for: values, keys: &groupingKeys) == nil else { continue }
+            for index in scope { result.insert(tracks[index].id) }
         }
         return result
     }
@@ -145,16 +148,20 @@ public enum AlbumArtistInferencePolicy {
     /// Tracks grouped by source, album title and — for an inference, which
     /// rewrites grouping and must stay conservative — the folder too. Input
     /// order is preserved so the chosen spelling and every tie-break stay
-    /// independent of Dictionary iteration order.
-    private static func scopes(
+    /// independent of Dictionary iteration order. Scopes hold indices into
+    /// `tracks`: copying each track (six strings) into its scope dominated a
+    /// library-wide pass.
+    private static func scopes<Indices: Sequence<Int>>(
         for tracks: [Track],
+        among indices: Indices,
         restrictedTo sourceIDs: Set<String>?,
         byDirectory: Bool = true
-    ) -> [[Track]] {
+    ) -> [[Int]] {
         var scopeIndexByKey: [String: Int] = [:]
-        var scopedTracks: [[Track]] = []
+        var scopedTracks: [[Int]] = []
 
-        for track in tracks {
+        for index in indices {
+            let track = tracks[index]
             if let sourceIDs, !sourceIDs.contains(track.sourceID) { continue }
             guard let albumTitle = trimmed(track.albumTitle) else { continue }
             let directory: String
@@ -165,11 +172,11 @@ public enum AlbumArtistInferencePolicy {
                 directory = ""
             }
             let key = "\(track.sourceID)\u{1F}\(directory)\u{1F}\(albumTitle)"
-            if let index = scopeIndexByKey[key] {
-                scopedTracks[index].append(track)
+            if let scope = scopeIndexByKey[key] {
+                scopedTracks[scope].append(index)
             } else {
                 scopeIndexByKey[key] = scopedTracks.count
-                scopedTracks.append([track])
+                scopedTracks.append([index])
             }
         }
         return scopedTracks
@@ -183,7 +190,7 @@ public enum AlbumArtistInferencePolicy {
     /// `explicitTagsOnly` drops the majority vote, leaving only the verdict a
     /// scope can reach without the folder having vouched for it.
     private static func target(
-        for scope: [Track],
+        for values: ScopeValues,
         explicitTagsOnly: Bool = false,
         keys: inout GroupingKeys
     ) -> String? {
@@ -191,8 +198,8 @@ public enum AlbumArtistInferencePolicy {
         // and which spelling of that key the scope actually uses.
         var tally = Tally()
         var missingCount = 0
-        for track in scope {
-            if let value = effective(track) {
+        for value in values.effective {
+            if let value {
                 tally.add(value, key: keys.key(value))
             } else {
                 missingCount += 1
@@ -200,8 +207,8 @@ public enum AlbumArtistInferencePolicy {
         }
 
         var explicitKeys: [String] = []
-        for track in scope where isExplicit(track) {
-            guard let value = effective(track) else { continue }
+        for (index, isExplicit) in values.explicit.enumerated() where isExplicit {
+            guard let value = values.effective[index] else { continue }
             let key = keys.key(value)
             if !explicitKeys.contains(key) { explicitKeys.append(key) }
         }
@@ -214,7 +221,7 @@ public enum AlbumArtistInferencePolicy {
         guard !explicitTagsOnly else { return nil }
 
         guard let top = tally.dominantKeyIndex() else { return nil }
-        guard tally.count(forKeyAt: top) * 2 > scope.count else { return nil }
+        guard tally.count(forKeyAt: top) * 2 > values.effective.count else { return nil }
         guard tally.keyOrder.count >= 2 || missingCount > 0 else { return nil }
         return tally.spelling(forKeyAt: top)
     }
@@ -292,23 +299,48 @@ public enum AlbumArtistInferencePolicy {
 
     // MARK: - Track values
 
+    /// Leading or trailing whitespace is rare in tags; checking both ends
+    /// first skips the Foundation trim, which a library-wide pass otherwise
+    /// paid several times per track.
     private static func trimmed(_ value: String?) -> String? {
         guard let value else { return nil }
+        let scalars = value.unicodeScalars
+        if let first = scalars.first, let last = scalars.last,
+           !whitespace.contains(first), !whitespace.contains(last) {
+            return value
+        }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    /// The album artist the track would use today: `AlbumGroupingPolicy` falls
-    /// back to the track artist whenever no album-artist tag survives trimming.
-    private static func effective(_ track: Track) -> String? {
-        trimmed(track.albumArtistName) ?? trimmed(track.trackArtistName)
-    }
+    private static let whitespace = CharacterSet.whitespacesAndNewlines
 
-    /// A tag that says something the per-track fallback does not already say.
-    private static func isExplicit(_ track: Track) -> Bool {
-        guard let albumArtist = trimmed(track.albumArtistName) else { return false }
-        guard let trackArtist = trimmed(track.trackArtistName) else { return true }
-        return albumArtist.caseInsensitiveCompare(trackArtist) != .orderedSame
+    /// Per-track values of one scope, computed once per pass.
+    ///
+    /// - `effective`: the album artist the track would use today —
+    ///   `AlbumGroupingPolicy` falls back to the track artist whenever no
+    ///   album-artist tag survives trimming.
+    /// - `explicit`: a tag that says something the per-track fallback does
+    ///   not already say.
+    private struct ScopeValues {
+        var effective: [String?] = []
+        var explicit: [Bool] = []
+
+        init(_ tracks: [Track], _ scope: [Int]) {
+            effective.reserveCapacity(scope.count)
+            explicit.reserveCapacity(scope.count)
+            for index in scope {
+                let track = tracks[index]
+                let albumArtist = AlbumArtistInferencePolicy.trimmed(track.albumArtistName)
+                let trackArtist = AlbumArtistInferencePolicy.trimmed(track.trackArtistName)
+                effective.append(albumArtist ?? trackArtist)
+                if let albumArtist {
+                    explicit.append(trackArtist.map { albumArtist.caseInsensitiveCompare($0) != .orderedSame } ?? true)
+                } else {
+                    explicit.append(false)
+                }
+            }
+        }
     }
 }
 

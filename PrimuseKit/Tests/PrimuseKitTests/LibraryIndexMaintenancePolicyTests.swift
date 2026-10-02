@@ -22,6 +22,21 @@ struct LibraryIndexMaintenancePolicyTests {
         #expect(state.activeGeneration == nil)
     }
 
+    @Test("scan flush window stretches with the cost of the last rebuild")
+    func scanFlushWindowFollowsRebuildCost() {
+        let base = LibraryIndexMaintenancePolicy.incrementalScanMaintenanceInterval
+        #expect(LibraryIndexMaintenancePolicy.incrementalScanMaintenanceInterval(lastRebuildSeconds: 0) == base)
+        #expect(LibraryIndexMaintenancePolicy.incrementalScanMaintenanceInterval(lastRebuildSeconds: .nan) == base)
+        // A small library rebuilds in well under a second: unchanged 3 s.
+        #expect(LibraryIndexMaintenancePolicy.incrementalScanMaintenanceInterval(lastRebuildSeconds: 0.2) == base)
+        // Hundreds of thousands of songs: rebuild ≤ about a fifth of the time.
+        #expect(LibraryIndexMaintenancePolicy.incrementalScanMaintenanceInterval(lastRebuildSeconds: 4) == 16)
+        #expect(
+            LibraryIndexMaintenancePolicy.incrementalScanMaintenanceInterval(lastRebuildSeconds: 120)
+                == LibraryIndexMaintenancePolicy.maximumDeferredMaintenanceInterval
+        )
+    }
+
     @Test("technical metadata does not regroup albums and artists")
     func technicalMetadataDoesNotInvalidateDerivedCollections() {
         let original = song()
