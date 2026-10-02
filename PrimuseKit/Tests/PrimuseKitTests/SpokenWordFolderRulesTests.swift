@@ -63,6 +63,22 @@ struct SpokenWordFolderRulesTests {
         #expect(SpokenWordClassificationInputs.empty.kind(songID: "z", sourceID: "nas", filePath: "/Books/a.mp3", genre: nil) == .music)
     }
 
+    @Test("Inference inside a tagged folder is spoken word, so marking music there needs an explicit correction")
+    func inferredKindCountsFolderTags() {
+        let rules = SpokenWordFolderRules(folders: ["nas": ["/Books"]], sources: [descriptor("nas", .smb)])
+        let inputs = SpokenWordClassificationInputs(folderRules: rules)
+        #expect(inputs.inferredKind(sourceID: "nas", filePath: "/Books/a.mp3", genre: nil) == .spokenWord)
+        #expect(inputs.inferredKind(sourceID: "nas", filePath: "/Music/a.mp3", genre: nil) == .music)
+        // The row's menu stores `next == inferred ? nil : next`: inside the folder
+        // that must come out as a stored .music, not a cleared entry.
+        let next = ListeningContentKind.music
+        let inferred = inputs.inferredKind(sourceID: "nas", filePath: "/Books/a.mp3", genre: nil)
+        let stored: ListeningContentKind? = next == inferred ? nil : next
+        #expect(stored == .music)
+        let corrected = SpokenWordClassificationInputs(overrides: ["s": .music], folderRules: rules)
+        #expect(corrected.kind(songID: "s", sourceID: "nas", filePath: "/Books/a.mp3", genre: nil) == .music)
+    }
+
     @Test("The memoized whole-library pass classifies exactly like the per-song call")
     func memoizedPassMatches() {
         let rules = SpokenWordFolderRules(folders: ["nas": ["/Books"]], sources: [descriptor("nas", .smb)])

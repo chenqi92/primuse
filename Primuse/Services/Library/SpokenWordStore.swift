@@ -127,6 +127,17 @@ final class SpokenWordStore {
 
     func isSpokenWord(_ song: Song) -> Bool { kind(for: song) == .spokenWord }
 
+    /// The kind the song falls back to once its own correction is removed:
+    /// folder tags count, so "mark as music" inside a tagged folder must store
+    /// an explicit correction rather than clear one.
+    func inferredKind(for song: Song) -> ListeningContentKind {
+        classificationSnapshot.inferredKind(
+            sourceID: song.sourceID,
+            filePath: song.filePath,
+            genre: song.genre
+        )
+    }
+
     /// Whether this song's kind was set by hand rather than inferred.
     func hasOverride(songID: String) -> Bool { overrides[songID] != nil }
 

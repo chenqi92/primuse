@@ -643,10 +643,9 @@ struct SongRowView: View {
         let isSpokenWord = store.isSpokenWord(song)
         Button {
             let next: ListeningContentKind = isSpokenWord ? .music : .spokenWord
-            let inferred = SpokenWordContentPolicy.classify(
-                filePath: song.filePath,
-                genre: song.genre
-            )
+            // 推断值要连目录标签一起算: 标成有声的目录里「标为音乐」必须存下
+            // 显式的 .music, 只清掉记录的话目录标签还在, 这一下等于没点。
+            let inferred = store.inferredKind(for: song)
             store.setKind(next == inferred ? nil : next, forSongIDs: [song.id])
             library.refreshContentClassification()
         } label: {

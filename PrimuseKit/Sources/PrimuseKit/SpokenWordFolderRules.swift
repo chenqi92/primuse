@@ -108,6 +108,13 @@ public struct SpokenWordClassificationInputs: Equatable, Sendable {
     /// Per-song correction, then folder tag, then what the file says.
     public func kind(songID: String, sourceID: String, filePath: String, genre: String?) -> ListeningContentKind {
         if let override = overrides[songID] { return override }
+        return inferredKind(sourceID: sourceID, filePath: filePath, genre: genre)
+    }
+
+    /// What the song would be without a per-song correction: the folder tag,
+    /// then the file. A correction is only worth storing when it differs from
+    /// this, and "return to inference" means returning to exactly this.
+    public func inferredKind(sourceID: String, filePath: String, genre: String?) -> ListeningContentKind {
         if folderRules.containsSong(sourceID: sourceID, filePath: filePath) { return .spokenWord }
         return SpokenWordContentPolicy.classify(filePath: filePath, genre: genre)
     }
