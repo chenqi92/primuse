@@ -21,10 +21,13 @@ extension AudioPlayerService {
     func handleSpokenWordItemChange(to song: Song?) {
         chapterLoadTask?.cancel()
         chapterLoadTask = nil
+        serverSpokenWordStateTask?.cancel()
+        serverSpokenWordStateTask = nil
         spokenWordChapters = []
         currentChapterIndex = nil
         chapterLoadedSongID = nil
         lastSpokenWordPositionSave = 0
+        lastServerSpokenWordPositionPush = 0
         pendingSpokenWordResumeSongID = nil
 
         let wasSpokenWord = currentItemIsSpokenWord
@@ -53,6 +56,60 @@ extension AudioPlayerService {
         if pendingSpokenWordSeekOverride != nil
             || SpokenWordStore.shared.resumePosition(for: song) != nil {
             pendingSpokenWordResumeSongID = song.id
+        }
+        refreshServerSpokenWordState(for: song)
+    }
+
+    // MARK: - Server-kept progress and chapters
+
+    static let serverSpokenWordPushInterval: TimeInterval = 30
+
+    /// 服务端自己记进度的源(Audiobookshelf):换条目时把服务端的位置拿回来 —— 别的客户端听过的,
+    /// 比本机新就按它续播;章节也从服务端拿,流式播放时本机没有文件可解析。
+    func refreshServerSpokenWordState(for song: Song) {
+        guard let manager = sourceManager else { return }
+        let songID = song.id
+        serverSpokenWordStateTask = Task { [weak self] in
+            guard await manager.supportsServerListeningProgress(for: song) else { return }
+            let progress = await manager.fetchServerListeningProgress(for: song)
+            guard !Task.isCancelled, let self, self.currentSong?.id == songID else { return }
+            if let progress,
+               SpokenWordStore.shared.adoptServerProgress(
+                    songID: songID,
+                    position: progress.position,
+                    duration: progress.duration,
+                    isFinished: progress.isFinished,
+                    updatedAt: progress.updatedAt
+               ) {
+                // 服务端更新:时钟还没走起来就重新上膛,首个 tick 跳过去;已经在听了就不拉回。
+                if self.currentTime < 2, !progress.isFinished {
+                    self.pendingSpokenWordResumeSongID = songID
+                }
+                plog("🎧 Spoken word: adopted server position \(Int(progress.position))s for '\(song.title)'")
+            }
+            let chapters = await manager.fetchServerChapters(for: song)
+            guard !Task.isCancelled, self.currentSong?.id == songID,
+                  !chapters.isEmpty, self.spokenWordChapters.isEmpty else { return }
+            self.spokenWordChapters = chapters
+            self.refreshCurrentChapter()
+            plog("🎧 Chapters: \(chapters.count) marks from the server for '\(song.title)'")
+        }
+    }
+
+    /// 把位置报给服务端。本机每 15 秒存一次,服务端 30 秒一次;暂停、切换、退后台那几次立刻报。
+    func pushServerSpokenWordPosition(song: Song, position: TimeInterval, duration: TimeInterval, force: Bool) {
+        guard let manager = sourceManager else { return }
+        if !force, abs(position - lastServerSpokenWordPositionPush) < Self.serverSpokenWordPushInterval { return }
+        lastServerSpokenWordPositionPush = position
+        let isFinished = SpokenWordStore.shared.isFinished(songID: song.id)
+        Task {
+            guard await manager.supportsServerListeningProgress(for: song) else { return }
+            await manager.reportServerListeningProgress(
+                for: song,
+                position: position,
+                duration: duration,
+                isFinished: isFinished
+            )
         }
     }
 
@@ -99,15 +156,17 @@ extension AudioPlayerService {
             guard abs(elapsed) >= SpokenWordProgressPolicy.autosaveInterval else { return }
         }
         lastSpokenWordPositionSave = position
+        let resolvedDuration = duration > 0 ? duration : song.duration
         SpokenWordStore.shared.rememberPosition(
             position,
-            duration: duration > 0 ? duration : song.duration,
+            duration: resolvedDuration,
             forSongID: song.id
         )
         // Straight to disk: a crash or a kill without a background transition
         // must not also lose the debounce window. One small write per
         // autosave interval, the same count the debounce would have made.
         SpokenWordStore.shared.persistLocally()
+        pushServerSpokenWordPosition(song: song, position: position, duration: resolvedDuration, force: force)
     }
 
     /// Writes through to disk as well. Used when the app is backgrounded or

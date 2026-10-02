@@ -45,6 +45,42 @@ actor TVSourceAssetReader {
     }
     private var audiobookshelfClients: [String: CachedAudiobookshelfClient] = [:]
 
+    private var audiobookshelfItems: [String: AudiobookshelfCatalogItem] = [:]
+
+    /// 把本机这首歌的位置报到 Audiobookshelf(整本书的时间轴由条目的文件布局换算)。
+    func reportAudiobookshelfProgress(
+        song: Song,
+        source: MusicSource,
+        credential: SourceCredential?,
+        position: TimeInterval,
+        isFinished: Bool
+    ) async {
+        guard source.type == .audiobookshelf,
+              let reference = AudiobookshelfAPIProtocol.trackReference(from: song.filePath) else { return }
+        let client = audiobookshelfClient(for: source, credential: credential)
+        do {
+            let item: AudiobookshelfCatalogItem
+            if let cached = audiobookshelfItems[reference.itemID] {
+                item = cached
+            } else if let fetched = try await client.item(id: reference.itemID) {
+                audiobookshelfItems[reference.itemID] = fetched
+                item = fetched
+            } else {
+                return
+            }
+            guard let payload = item.serverProgress(for: reference.kind, position: position, isFinished: isFinished) else { return }
+            try await client.updateMediaProgress(
+                itemID: item.id,
+                episodeID: payload.episodeID,
+                currentTime: payload.currentTime,
+                duration: payload.duration,
+                isFinished: payload.isFinished
+            )
+        } catch {
+            plog("🎧 TV Audiobookshelf progress push failed '\(song.title)': \(error.localizedDescription)")
+        }
+    }
+
     /// 封面与进度上报共用一份登录会话;配置或凭据变了才重建。
     private func audiobookshelfClient(for source: MusicSource, credential: SourceCredential?) -> AudiobookshelfServiceClient {
         let identity = Self.cacheIdentity(source: source, credential: credential)

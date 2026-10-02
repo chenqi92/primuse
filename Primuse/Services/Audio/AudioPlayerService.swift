@@ -1075,6 +1075,10 @@ final class AudioPlayerService {
     @ObservationIgnored var lastSpokenWordPositionSave: TimeInterval = 0
     @ObservationIgnored var chapterLoadTask: Task<Void, Never>?
     @ObservationIgnored var chapterLoadedSongID: String?
+    /// 服务端自己记进度的源(Audiobookshelf):换条目时去服务端取位置与章节的那一次。
+    @ObservationIgnored var serverSpokenWordStateTask: Task<Void, Never>?
+    /// 上一次报给服务端的位置;本机 15 秒存一次,服务端 30 秒报一次。
+    @ObservationIgnored var lastServerSpokenWordPositionPush: TimeInterval = 0
     /// Set while a resume seek is in flight so the position writer cannot
     /// store the zero the clock reports before the seek lands.
     @ObservationIgnored var pendingSpokenWordResumeSongID: String?

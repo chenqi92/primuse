@@ -995,6 +995,8 @@ final class TVStore {
     /// 续播目标还没落地(引擎没按起点开播时,开播后再补一次定位)。
     @ObservationIgnored private var pendingSpokenWordResume: (songID: String, position: Double)?
     @ObservationIgnored private var lastSpokenWordPositionSave: Double = 0
+    /// 上一次报给服务端(Audiobookshelf)的位置;本机 15 秒存一次,服务端 30 秒报一次。
+    @ObservationIgnored private var lastServerSpokenWordPositionPush: Double = 0
     @ObservationIgnored private var sleepWorkItem: DispatchWorkItem?
     /// 正在播的这一条所在的书,按(书、存档修订、曲库修订、条目)缓存:播放页每拍都要问。
     @ObservationIgnored private var spokenWordBookCache: (key: String, book: SpokenWordBook?)?
@@ -4871,6 +4873,7 @@ final class TVStore {
         spokenWordPositionArmed = false
         pendingSpokenWordResume = nil
         lastSpokenWordPositionSave = 0
+        lastServerSpokenWordPositionPush = 0
         // 有声内容才读章节标记。
         engine.wantsChapters = isSpokenWord
         // 听书有自己的语速(按书记,与 iPhone / Mac 同步);音乐回到 1×。
@@ -5170,6 +5173,27 @@ final class TVStore {
         )
         // 直接落盘:闪退或被系统杀掉时,不必再多丢一段防抖窗口。
         SpokenWordStore.shared.persistLocally()
+        pushServerSpokenWordPosition(songID: songID, position: position, force: force)
+    }
+
+    /// 服务端自己记进度的源(Audiobookshelf):把位置也报上去,别的客户端接着听。
+    private func pushServerSpokenWordPosition(songID: String, position: Double, force: Bool) {
+        guard let song = library.song(id: songID),
+              let source = source(id: song.sourceID),
+              source.type == .audiobookshelf else { return }
+        if !force, abs(position - lastServerSpokenWordPositionPush) < 30 { return }
+        lastServerSpokenWordPositionPush = position
+        let credential = TVCredentialStore.credential(for: source, bundle: credentialBundle)
+        let isFinished = SpokenWordStore.shared.isFinished(songID: songID)
+        Task {
+            await TVSourceAssetReader.shared.reportAudiobookshelfProgress(
+                song: song,
+                source: source,
+                credential: credential,
+                position: position,
+                isFinished: isFinished
+            )
+        }
     }
 
     /// 用户选台(卡片、Top Shelf 深链)。上一台 / 下一台走 `switchRadioStation`。

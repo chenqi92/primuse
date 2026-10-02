@@ -1243,7 +1243,7 @@ final class AppServices {
                 applyFence: applyFence
             )
         }
-        scanService.serverFavoriteSyncHandler = { [weak favoriteSync, weak ratingSync, weak manager, weak collectionFavoriteSync] source, applyFence in
+        scanService.serverFavoriteSyncHandler = { [weak favoriteSync, weak ratingSync, weak manager, weak collectionFavoriteSync, weak library] source, applyFence in
             await favoriteSync?.refresh(source: source, applyFence: applyFence)
             guard applyFence() else { return }
             await collectionFavoriteSync?.refresh(source: source, applyFence: applyFence)
@@ -1273,6 +1273,33 @@ final class AppServices {
                         sourceID: source.id,
                         libraryIDs: defaults
                     )
+                }
+            }
+            // 服务端自己记进度的源(Audiobookshelf):把别的客户端听到的位置带回本机。
+            if let manager, let library, await manager.supportsServerListeningProgress(for: source), applyFence() {
+                let songIDsByPath: [String: String] = await MainActor.run {
+                    Dictionary(
+                        library.visibleSongs.lazy
+                            .filter { $0.sourceID == source.id }
+                            .map { ($0.filePath, $0.id) },
+                        uniquingKeysWith: { first, _ in first }
+                    )
+                }
+                let progress = await manager.fetchServerListeningProgress(for: source, songPaths: Array(songIDsByPath.keys))
+                guard applyFence(), !progress.isEmpty else { return }
+                await MainActor.run {
+                    var adopted = 0
+                    for entry in progress {
+                        guard let songID = songIDsByPath[entry.songPath] else { continue }
+                        if SpokenWordStore.shared.adoptServerProgress(
+                            songID: songID,
+                            position: entry.position,
+                            duration: entry.duration,
+                            isFinished: entry.isFinished,
+                            updatedAt: entry.updatedAt
+                        ) { adopted += 1 }
+                    }
+                    if adopted > 0 { plog("🎧 Adopted \(adopted) server listening position(s) from source \(source.id.prefix(8))…") }
                 }
             }
         }

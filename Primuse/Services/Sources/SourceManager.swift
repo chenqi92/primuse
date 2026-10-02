@@ -2511,11 +2511,42 @@ private struct RoutedDaoLiYuConnector: RoutedConnectorProxy, RefreshingMetadataS
 }
 
 private struct RoutedAudiobookshelfConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
-    ServerLibraryListingConnector, ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector {
+    ServerLibraryListingConnector, ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector,
+    ServerListeningProgressConnector, ServerChapterProvidingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
     let routedPreferredDeleteBatchSize: Int
+
+    func fetchServerListeningProgress(for songPaths: [String]) async throws -> [ServerListeningProgress] {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerListeningProgressConnector else {
+                throw SourceError.connectionFailed("Server listening progress unavailable")
+            }
+            return try await provider.fetchServerListeningProgress(for: songPaths)
+        }
+    }
+
+    func reportListeningProgress(songPath: String, position: TimeInterval, duration: TimeInterval, isFinished: Bool) async throws {
+        try await routing.withMutation { connector in
+            guard let provider = connector as? any ServerListeningProgressConnector else {
+                throw SourceError.connectionFailed("Server listening progress unavailable")
+            }
+            try await provider.reportListeningProgress(
+                songPath: songPath,
+                position: position,
+                duration: duration,
+                isFinished: isFinished
+            )
+        }
+    }
+
+    func fetchServerChapters(songPath: String) async throws -> [MediaChapter] {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerChapterProvidingConnector else { return [] }
+            return try await provider.fetchServerChapters(songPath: songPath)
+        }
+    }
 
     func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
         let routed = try await routing.withReadAndRoute { connector in
@@ -13040,6 +13071,67 @@ final class SourceManager {
     func fetchServerLibraries(for source: MusicSource) async throws -> [ServerLibraryDescriptor] {
         guard let lister = connector(for: source) as? any ServerLibraryListingConnector else { return [] }
         return try await lister.fetchServerLibraries()
+    }
+
+    // MARK: - Server-kept listening progress and chapters (Audiobookshelf)
+
+    func supportsServerListeningProgress(for source: MusicSource) -> Bool {
+        connector(for: source) is any ServerListeningProgressConnector
+    }
+
+    func supportsServerListeningProgress(for song: Song) async -> Bool {
+        guard let source = await source(withID: song.sourceID) else { return false }
+        return supportsServerListeningProgress(for: source)
+    }
+
+    /// 这首歌在服务端的位置;没有、或源不记进度就是 nil。
+    func fetchServerListeningProgress(for song: Song) async -> ServerListeningProgress? {
+        guard let source = await source(withID: song.sourceID),
+              let provider = connector(for: source) as? any ServerListeningProgressConnector else { return nil }
+        do {
+            return try await provider.fetchServerListeningProgress(for: [song.filePath]).first
+        } catch {
+            plog("🎧 Server progress read failed '\(song.title)': \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// 扫描收尾时整源取一遍,把别的客户端听到的位置带回本机。
+    func fetchServerListeningProgress(for source: MusicSource, songPaths: [String]) async -> [ServerListeningProgress] {
+        guard !songPaths.isEmpty,
+              let provider = connector(for: source) as? any ServerListeningProgressConnector else { return [] }
+        do {
+            return try await provider.fetchServerListeningProgress(for: songPaths)
+        } catch {
+            plog("🎧 Server progress read failed source=\(source.id.prefix(8))…: \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    func reportServerListeningProgress(for song: Song, position: TimeInterval, duration: TimeInterval, isFinished: Bool) async {
+        guard let source = await source(withID: song.sourceID),
+              let provider = connector(for: source) as? any ServerListeningProgressConnector else { return }
+        do {
+            try await provider.reportListeningProgress(
+                songPath: song.filePath,
+                position: position,
+                duration: duration,
+                isFinished: isFinished
+            )
+        } catch {
+            plog("🎧 Server progress push failed '\(song.title)': \(error.localizedDescription)")
+        }
+    }
+
+    func fetchServerChapters(for song: Song) async -> [MediaChapter] {
+        guard let source = await source(withID: song.sourceID),
+              let provider = connector(for: source) as? any ServerChapterProvidingConnector else { return [] }
+        return (try? await provider.fetchServerChapters(songPath: song.filePath)) ?? []
+    }
+
+    private func source(withID id: String) async -> MusicSource? {
+        guard let sources = try? await sourcesProvider() else { return nil }
+        return sources.first { $0.id == id }
     }
 
     func fetchServerRating(target: ServerSongRatingTarget, source: MusicSource) async throws -> Int? {

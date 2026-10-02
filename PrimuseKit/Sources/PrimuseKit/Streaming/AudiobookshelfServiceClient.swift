@@ -328,6 +328,91 @@ public struct AudiobookshelfCatalogItem: Sendable, Equatable {
         }
     }
 
+    /// 全书时长:服务端算好的优先,没有就按文件之和。
+    public var bookDuration: TimeInterval {
+        duration > 0 ? duration : audioFiles.reduce(0) { $0 + max(0, $1.duration) }
+    }
+
+    /// 文件在书里的后缀,拼歌曲路径用。
+    public func fileExtension(forIno ino: String) -> String? {
+        audioFiles.first { $0.ino == ino }?.fileExtension
+    }
+
+    /// 服务端的一条进度展开到本机的条目上。书:所在文件得到文件内的位置,它之前的文件算听完,
+    /// 之后的不动(播放到那里时自然会写);整本听完则每个文件都算听完。播客:只关系到那一集。
+    public func trackProgress(from progress: AudiobookshelfMediaProgress) -> [AudiobookshelfTrackProgress] {
+        guard progress.libraryItemID == id else { return [] }
+        switch mediaType {
+        case .podcast:
+            guard let episodeID = progress.episodeID,
+                  let episode = episodes.first(where: { $0.id == episodeID }) else { return [] }
+            let duration = episode.audioFile.duration > 0 ? episode.audioFile.duration : progress.duration
+            return [AudiobookshelfTrackProgress(
+                kind: .episode(id: episodeID),
+                fileExtension: episode.audioFile.fileExtension,
+                position: progress.isFinished ? duration : min(progress.currentTime, duration),
+                duration: duration,
+                isFinished: progress.isFinished
+            )]
+        case .book:
+            let all = tracks
+            guard !all.isEmpty else { return [] }
+            if progress.isFinished {
+                return all.map { track in
+                    AudiobookshelfTrackProgress(
+                        kind: .file(ino: track.ino),
+                        fileExtension: fileExtension(forIno: track.ino) ?? "",
+                        position: track.duration,
+                        duration: track.duration,
+                        isFinished: true
+                    )
+                }
+            }
+            guard let current = filePosition(bookPosition: progress.currentTime) else { return [] }
+            var result: [AudiobookshelfTrackProgress] = []
+            for track in all {
+                if track.ino == current.ino {
+                    result.append(AudiobookshelfTrackProgress(
+                        kind: .file(ino: track.ino),
+                        fileExtension: fileExtension(forIno: track.ino) ?? "",
+                        position: current.localPosition,
+                        duration: track.duration,
+                        isFinished: false
+                    ))
+                    break
+                }
+                result.append(AudiobookshelfTrackProgress(
+                    kind: .file(ino: track.ino),
+                    fileExtension: fileExtension(forIno: track.ino) ?? "",
+                    position: track.duration,
+                    duration: track.duration,
+                    isFinished: true
+                ))
+            }
+            return result
+        }
+    }
+
+    /// 反过来:本机一个文件 / 一集的位置换成报给服务端的整条进度。
+    /// 书里某个文件听完了但不是最后一个,整本书还没完,位置落在下一个文件开头。
+    public func serverProgress(
+        for kind: AudiobookshelfAPIProtocol.TrackKind,
+        position: TimeInterval,
+        isFinished: Bool
+    ) -> (episodeID: String?, currentTime: TimeInterval, duration: TimeInterval, isFinished: Bool)? {
+        switch kind {
+        case .episode(let episodeID):
+            guard let episode = episodes.first(where: { $0.id == episodeID }) else { return nil }
+            let duration = episode.audioFile.duration
+            return (episodeID, isFinished ? duration : max(0, min(position, duration)), duration, isFinished)
+        case .file(let ino):
+            guard let track = track(forIno: ino) else { return nil }
+            let isLast = tracks.last?.ino == ino
+            let local = isFinished ? track.duration : max(0, min(position, track.duration))
+            return (nil, track.startOffset + local, bookDuration, isFinished && isLast)
+        }
+    }
+
     private var authorName: String? { authors.isEmpty ? nil : authors.joined(separator: ", ") }
     private var narratorName: String? { narrators.isEmpty ? nil : narrators.joined(separator: ", ") }
     private var genreValue: String? { genres.isEmpty ? nil : genres.joined(separator: ", ") }
@@ -413,6 +498,24 @@ public struct AudiobookshelfCatalogItem: Sendable, Equatable {
 
     private static func hash(_ value: String) -> String {
         SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+/// 服务端一条进度落到本机一个条目(书里的一个文件 / 播客的一集)上的样子。
+public struct AudiobookshelfTrackProgress: Sendable, Equatable {
+    public let kind: AudiobookshelfAPIProtocol.TrackKind
+    public let fileExtension: String
+    public let position: TimeInterval
+    public let duration: TimeInterval
+    public let isFinished: Bool
+
+    public init(kind: AudiobookshelfAPIProtocol.TrackKind, fileExtension: String, position: TimeInterval,
+                duration: TimeInterval, isFinished: Bool) {
+        self.kind = kind
+        self.fileExtension = fileExtension
+        self.position = position
+        self.duration = duration
+        self.isFinished = isFinished
     }
 }
 

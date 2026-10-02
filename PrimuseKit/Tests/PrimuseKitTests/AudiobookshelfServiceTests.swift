@@ -129,6 +129,44 @@ struct AudiobookshelfServiceTests {
         #expect(pastEnd.localPosition == 120)
     }
 
+    @Test("Server progress spreads over the book's files, and a file position folds back into one")
+    func progressMapping() throws {
+        let item = try #require(AudiobookshelfCatalogItem(json: Self.bookJSON))
+        let midSecond = AudiobookshelfMediaProgress(libraryItemID: "li_book", episodeID: nil, currentTime: 75, duration: 180,
+                                                    isFinished: false, lastUpdate: Date(timeIntervalSince1970: 1))
+        let spread = item.trackProgress(from: midSecond)
+        #expect(spread.count == 2)
+        #expect(spread[0].kind == .file(ino: "11"))
+        #expect(spread[0].isFinished)
+        #expect(spread[1].kind == .file(ino: "12"))
+        #expect(spread[1].position == 15)
+        #expect(!spread[1].isFinished)
+        #expect(spread[1].fileExtension == "mp3")
+
+        let finished = AudiobookshelfMediaProgress(libraryItemID: "li_book", episodeID: nil, currentTime: 180, duration: 180,
+                                                   isFinished: true, lastUpdate: nil)
+        // 先存局部变量再断言:#expect 的宏展开装不下带 key path 的 allSatisfy。
+        let allDone = item.trackProgress(from: finished).allSatisfy { $0.isFinished }
+        #expect(allDone)
+        #expect(item.trackProgress(from: finished).count == 2)
+        #expect(item.trackProgress(from: AudiobookshelfMediaProgress(libraryItemID: "other", episodeID: nil, currentTime: 1,
+                                                                     duration: 1, isFinished: false, lastUpdate: nil)).isEmpty)
+
+        let back = try #require(item.serverProgress(for: .file(ino: "12"), position: 15, isFinished: false))
+        #expect(back.episodeID == nil)
+        #expect(back.currentTime == 75)
+        #expect(back.duration == 180)
+        #expect(!back.isFinished)
+        // Finishing the first file is not finishing the book; finishing the last one is.
+        let firstDone = try #require(item.serverProgress(for: .file(ino: "11"), position: 60, isFinished: true))
+        #expect(firstDone.currentTime == 60)
+        #expect(!firstDone.isFinished)
+        let lastDone = try #require(item.serverProgress(for: .file(ino: "12"), position: 120, isFinished: true))
+        #expect(lastDone.currentTime == 180)
+        #expect(lastDone.isFinished)
+        #expect(item.serverProgress(for: .file(ino: "99"), position: 1, isFinished: false) == nil)
+    }
+
     @Test("A minified list row that reports files asks for the expanded item")
     func minifiedRow() throws {
         let json: [String: Any] = [

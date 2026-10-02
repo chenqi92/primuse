@@ -371,3 +371,63 @@ extension AudiobookshelfSource: CatalogDriftReportingConnector {
         return catalogDriftInLastWalk
     }
 }
+
+extension AudiobookshelfSource: ServerListeningProgressConnector {
+    func fetchServerListeningProgress(for songPaths: [String]) async throws -> [ServerListeningProgress] {
+        let wanted = Set(songPaths)
+        var wantedItemIDs: Set<String> = []
+        for path in songPaths {
+            if let reference = AudiobookshelfAPIProtocol.trackReference(from: path) {
+                wantedItemIDs.insert(reference.itemID)
+            }
+        }
+        guard !wantedItemIDs.isEmpty else { return [] }
+        try await connect()
+        var result: [ServerListeningProgress] = []
+        for progress in try await client.mediaProgress() where wantedItemIDs.contains(progress.libraryItemID) {
+            guard let item = try await catalogItem(id: progress.libraryItemID) else { continue }
+            let stamp = progress.lastUpdate ?? Date()
+            for track in item.trackProgress(from: progress) {
+                let path = AudiobookshelfAPIProtocol.trackPath(
+                    itemID: item.id,
+                    kind: track.kind,
+                    fileExtension: track.fileExtension
+                )
+                guard wanted.contains(path) else { continue }
+                result.append(ServerListeningProgress(
+                    songPath: path,
+                    position: track.position,
+                    duration: track.duration,
+                    isFinished: track.isFinished,
+                    updatedAt: stamp
+                ))
+            }
+        }
+        return result
+    }
+
+    func reportListeningProgress(songPath: String, position: TimeInterval, duration: TimeInterval, isFinished: Bool) async throws {
+        guard let reference = AudiobookshelfAPIProtocol.trackReference(from: songPath) else { return }
+        try await connect()
+        guard let item = try await catalogItem(id: reference.itemID),
+              let payload = item.serverProgress(for: reference.kind, position: position, isFinished: isFinished) else {
+            return
+        }
+        try await client.updateMediaProgress(
+            itemID: item.id,
+            episodeID: payload.episodeID,
+            currentTime: payload.currentTime,
+            duration: payload.duration,
+            isFinished: payload.isFinished
+        )
+    }
+}
+
+extension AudiobookshelfSource: ServerChapterProvidingConnector {
+    func fetchServerChapters(songPath: String) async throws -> [MediaChapter] {
+        guard let reference = AudiobookshelfAPIProtocol.trackReference(from: songPath),
+              case .file(let ino) = reference.kind else { return [] }
+        guard let item = try await catalogItem(id: reference.itemID) else { return [] }
+        return item.chapters(forIno: ino)
+    }
+}

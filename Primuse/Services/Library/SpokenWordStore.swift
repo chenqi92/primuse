@@ -378,6 +378,46 @@ final class SpokenWordStore {
         didChange(cloud: reopened ? .prompt : .relaxed)
     }
 
+    /// 采纳服务端记的进度(Audiobookshelf 这类自己记进度的源)。和 iCloud 一样按最后写入者获胜:
+    /// 本机对这一条的任何更晚的决定(位置、听完、清掉、取消听完)都留着,服务端更新才按它改。
+    /// 存下的时间戳就用服务端的,这样再经 iCloud 合并时顺序不乱。返回有没有改动本机。
+    @discardableResult
+    func adoptServerProgress(
+        songID: String,
+        position: TimeInterval,
+        duration: TimeInterval,
+        isFinished: Bool,
+        updatedAt: Date
+    ) -> Bool {
+        let localStamps = [
+            positions[songID]?.updatedAt,
+            finishedAt[songID],
+            ledger.positionClearedAt[songID],
+            ledger.unfinishedAt[songID],
+        ].compactMap { $0 }
+        if let newest = localStamps.max(), newest >= updatedAt { return false }
+        var changed = false
+        if isFinished {
+            if finishedAt[songID] == nil {
+                finishedAt[songID] = updatedAt
+                ledger.unfinishedAt.removeValue(forKey: songID)
+                changed = true
+            }
+            if removePosition(songID, at: updatedAt) { changed = true }
+        } else if SpokenWordProgressPolicy.shouldRemember(position: position, duration: duration) {
+            let stored = StoredPosition(position: position, duration: duration, updatedAt: updatedAt)
+            guard positions[songID] != stored else { return false }
+            positions[songID] = stored
+            ledger.positionClearedAt.removeValue(forKey: songID)
+            _ = removeFinished(songID, at: updatedAt)
+            changed = true
+        }
+        guard changed else { return false }
+        evictOldestIfNeeded()
+        didChange(cloud: .relaxed)
+        return true
+    }
+
     // MARK: - Finished
 
     func isFinished(songID: String) -> Bool { finishedAt[songID] != nil }

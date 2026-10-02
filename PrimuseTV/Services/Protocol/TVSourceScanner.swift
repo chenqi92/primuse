@@ -2675,6 +2675,8 @@ final class TVSourceScanner {
         let libraries = try await client.libraries().filter { $0.mediaType != .other && !excluded.contains($0.id) }
         let pageSize = AudiobookshelfServiceClient.pageSize
         var songs: [Song] = []
+        var items: [String: AudiobookshelfCatalogItem] = [:]
+        var songIDsByPath: [String: String] = [:]
         for library in libraries {
             var page = 0
             var walk = CatalogWalkDriftTracker()
@@ -2694,8 +2696,10 @@ final class TVSourceScanner {
                 for item in result.items {
                     try Task.checkCancellation()
                     guard walk.admit(item.id) else { continue }
+                    items[item.id] = item
                     for song in item.makeSongs(sourceID: source.id) {
                         songs.append(song)
+                        songIDsByPath[song.filePath] = song.id
                         try await onSong(song)
                         indexed = songs.count
                         currentFile = song.title
@@ -2709,7 +2713,40 @@ final class TVSourceScanner {
                 page += 1
             }
         }
+        await adoptAudiobookshelfProgress(client: client, items: items, songIDsByPath: songIDsByPath)
         return songs
+    }
+
+    /// 服务端记的进度(别的客户端听到的位置)带回本机;读不到就算了,不影响扫描。
+    private func adoptAudiobookshelfProgress(
+        client: AudiobookshelfServiceClient,
+        items: [String: AudiobookshelfCatalogItem],
+        songIDsByPath: [String: String]
+    ) async {
+        guard !items.isEmpty, let progress = try? await client.mediaProgress(), !progress.isEmpty else { return }
+        var entries: [(songID: String, position: TimeInterval, duration: TimeInterval, isFinished: Bool, updatedAt: Date)] = []
+        for record in progress {
+            guard let item = items[record.libraryItemID] else { continue }
+            let stamp = record.lastUpdate ?? Date()
+            for track in item.trackProgress(from: record) {
+                let path = AudiobookshelfAPIProtocol.trackPath(itemID: item.id, kind: track.kind, fileExtension: track.fileExtension)
+                guard let songID = songIDsByPath[path] else { continue }
+                entries.append((songID, track.position, track.duration, track.isFinished, stamp))
+            }
+        }
+        guard !entries.isEmpty else { return }
+        let adopted = await MainActor.run {
+            var count = 0
+            for entry in entries where SpokenWordStore.shared.adoptServerProgress(
+                songID: entry.songID,
+                position: entry.position,
+                duration: entry.duration,
+                isFinished: entry.isFinished,
+                updatedAt: entry.updatedAt
+            ) { count += 1 }
+            return count
+        }
+        if adopted > 0 { plog("🎧 TV adopted \(adopted) Audiobookshelf listening position(s)") }
     }
 
     /// 返回与连接测试和扫描共用的客户端；配置未变化时复用登录会话。

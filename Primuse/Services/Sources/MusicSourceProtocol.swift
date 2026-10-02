@@ -1852,6 +1852,31 @@ protocol ServerLibraryListingConnector: MusicSourceConnector {
     func takeObservedServerLibraries() async -> [ServerLibraryDescriptor]?
 }
 
+/// 服务端记的一条收听进度,已经换算到本机一首歌(书里的一个文件 / 播客的一集)上。
+struct ServerListeningProgress: Sendable, Equatable {
+    let songPath: String
+    /// 这首歌内的位置(秒)。
+    let position: TimeInterval
+    let duration: TimeInterval
+    let isFinished: Bool
+    /// 服务端最后一次改这条进度的时间;本机与它按最后写入者获胜合并。
+    let updatedAt: Date
+}
+
+/// 服务端自己记着每本书 / 每一集收听进度的源(Audiobookshelf)。进度在服务端是整本书的时间轴,
+/// 连接器负责和本机按文件记的位置互相换算。
+protocol ServerListeningProgressConnector: MusicSourceConnector {
+    /// 服务端记的进度,只回 `songPaths` 里有的条目。
+    func fetchServerListeningProgress(for songPaths: [String]) async throws -> [ServerListeningProgress]
+    /// 把本机这首歌的位置报到服务端。
+    func reportListeningProgress(songPath: String, position: TimeInterval, duration: TimeInterval, isFinished: Bool) async throws
+}
+
+/// 服务端给得出章节标记的源:流式播放时本机没有文件可解析,章节从这里来。
+protocol ServerChapterProvidingConnector: MusicSourceConnector {
+    func fetchServerChapters(songPath: String) async throws -> [MediaChapter]
+}
+
 /// Authoritative catalogue pages that can be staged without publishing a
 /// partial source snapshot. The caller persists `resumeState` only together
 /// with all songs returned through that page.
