@@ -124,6 +124,17 @@ struct SearchCollectionResult: Identifiable, Hashable, Sendable {
         case .folder: folderSongIDs.compactMap { library.song(id: $0) }
         }
     }
+
+    /// The songs as IDs. A folder result can be most of a large library, so
+    /// the detail page keeps only these and resolves the rows it shows.
+    @MainActor
+    func songIDs(in library: MusicLibrary) -> [String] {
+        switch target {
+        case .playlist(let id): library.songIDs(forPlaylist: id)
+        case .smartPlaylist: songs(in: library).map(\.id)
+        case .folder: folderSongIDs
+        }
+    }
 }
 
 enum SearchCatalogTextPolicy {
@@ -237,31 +248,54 @@ struct SearchCollectionDetailView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MetadataBackfillService.self) private var backfill
 
+    /// Resolved once per result. A `List` of a folder holding most of a large
+    /// library made SwiftUI register every row up front — seconds on the main
+    /// thread — so the page keeps IDs and a lazy stack resolves what it shows.
+    @State private var songIDs: [String] = []
+
     var body: some View {
-        let songs = result.songs(in: library)
-        List {
-            Button {
-                Task { await player.play(queue: songs.filteredPlayable()) }
-            } label: {
-                Label("play_all", systemImage: "play.fill")
-            }
-            .disabled(songs.filteredPlayable().isEmpty)
-            ForEach(songs) { song in
-                SongRowView(song: song, isPlaying: player.currentSong?.id == song.id,
-                            context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill))
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        guard let index = songs.firstIndex(where: { $0.id == song.id }) else { return }
-                        Task { await player.play(queue: songs, startingAt: index) }
+        let ids = songIDs
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                Button {
+                    Task { await player.play(queueIDs: ids) }
+                } label: {
+                    Label("play_all", systemImage: "play.fill")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
+                .disabled(ids.isEmpty)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                Divider().padding(.leading, 20)
+                ForEach(ids, id: \.self) { songID in
+                    // Unobserved: a metadata write elsewhere must not make
+                    // the page walk every ID of a huge folder again.
+                    if let song = library.unobservedVisibleSong(id: songID) {
+                        SongRowView(song: song, isPlaying: player.currentSong?.id == song.id,
+                                    context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                guard let index = ids.firstIndex(of: songID) else { return }
+                                Task { await player.play(queueIDs: ids, startingAt: index, playableOnly: false) }
+                            }
+                        Divider().padding(.leading, 66)
                     }
+                }
             }
         }
-        .listStyle(.plain)
+        .task(id: result.id) {
+            songIDs = result.songIDs(in: library)
+        }
         .navigationTitle(result.title)
         #if os(iOS)
         .minimalNavigationDetail()
         .librarySearchContext {
-            LibrarySearchScope(title: result.title, songIDs: Set(songs.map(\.id)),
+            LibrarySearchScope(title: result.title, songIDs: Set(ids),
                                kind: result.section == .folders ? .folder : .playlist,
                                detail: result.detail)
         }

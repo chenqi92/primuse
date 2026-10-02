@@ -3516,13 +3516,11 @@ struct HomeView: View {
         // Skip cloud songs that haven't been backfilled yet — they have no
         // duration / cover / metadata and would land in the queue with a
         // blank progress bar. Once backfill catches up they become eligible.
-        let candidates = library.musicSongs.filteredPlayable()
-        guard !candidates.isEmpty else { return }
-
-        let queueSongs = shuffled ? candidates.shuffled() : candidates
-        guard !queueSongs.isEmpty else { return }
-
+        // Only IDs leave the main actor's hands here: the whole library is
+        // filtered and shuffled off it, and only the first window is resolved.
+        let ids = library.musicSongs.map(\.id)
+        guard !ids.isEmpty else { return }
         player.shuffleEnabled = false
-        Task { await player.play(queue: queueSongs, startingAt: 0) }
+        Task { await player.play(queueIDs: ids, order: shuffled ? .shuffled : .asGiven) }
     }
 }

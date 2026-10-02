@@ -784,9 +784,9 @@ extension CarPlaySceneDelegate {
 extension CarPlaySceneDelegate {
     private func albumsSections() -> [CPListSection] {
         let library = AppServices.shared.musicLibrary
-        let albums = Array(library.visibleAlbums
-            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-            .prefix(500))
+        let albums = CarPlayListSelection.firstSorted(library.visibleAlbums, limit: 500) {
+            $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+        }
         let indexByID = Dictionary(
             albums.enumerated().map { ($1.id, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -845,9 +845,9 @@ extension CarPlaySceneDelegate {
 
     private func artistsSections() -> [CPListSection] {
         let library = AppServices.shared.musicLibrary
-        let artists = Array(library.visibleArtists
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            .prefix(500))
+        let artists = CarPlayListSelection.firstSorted(library.visibleArtists, limit: 500) {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
         let sections = Self.sectionedByIndexLetter(artists, titleKey: \.name) { artist in
             let item = CPListItem(text: artist.name, detailText: nil)
             item.handler = { [weak self] _, completion in
@@ -863,9 +863,9 @@ extension CarPlaySceneDelegate {
 
     private func songsSections() -> [CPListSection] {
         let library = AppServices.shared.musicLibrary
-        let songs = Array(library.musicSongs
-            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-            .prefix(500))
+        let songs = CarPlayListSelection.firstSorted(library.musicSongs, limit: 500) {
+            $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+        }
         // queueProvider closures need a stable index into the whole sorted
         // array even after we group it into letter sections. Use the
         // duplicate-tolerant initializer — Song.id is supposed to be unique

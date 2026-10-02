@@ -3179,6 +3179,18 @@ final class LibraryArtworkLookupToken {
     fileprivate(set) var revision = 0
 }
 
+/// See `MusicLibrary.visibleSongLookup()`.
+struct VisibleSongLookup: Sendable {
+    fileprivate let songByID: [String: Song]
+
+    func song(id: String) -> Song? { songByID[id] }
+
+    func contains(id: String, playableOnly: Bool) -> Bool {
+        guard let song = songByID[id] else { return false }
+        return !playableOnly || song.isPlayable
+    }
+}
+
 @MainActor
 @Observable
 final class MusicLibrary {
@@ -4330,10 +4342,18 @@ final class MusicLibrary {
         var indexByID: [String: Int] = [:]
         var songByID: [String: Song] = [:]
         var songIDsByArtistID: [String: [String]] = [:]
-        var songsBySourceID: [String: [Song]] = [:]
-        var playableBySourceID: [String: [Song]] = [:]
+        // Positions first, songs at the end: a source that holds the whole
+        // library shares `songs` itself, and a source whose songs are all
+        // playable shares that same array as its playable list, instead of
+        // each being one more full copy of the library.
+        var positionsBySourceID: [String: [Int]] = [:]
+        var unplayableSourceIDs: Set<String> = []
         var countBySourceID: [String: Int] = [:]
         var preferredArtworkSongsByArtistID: [String: Song] = [:]
+        // Growing a dictionary rehashes into a table twice the size while the
+        // old one is still alive; sized up front, the peak stays one table.
+        indexByID.reserveCapacity(songs.count)
+        songByID.reserveCapacity(songs.count)
         // Classifying inside this existing pass keeps the whole-library cost
         // to one extension check plus one genre check per song; a separate
         // filter over the library would walk every row a second time.
@@ -4376,12 +4396,26 @@ final class MusicLibrary {
                     preferredArtworkSongsByArtistID[artistID] = song
                 }
             }
-            songsBySourceID[song.sourceID, default: []].append(song)
+            positionsBySourceID[song.sourceID, default: []].append(index)
             countBySourceID[song.sourceID, default: 0] += 1
-            if song.isPlayable {
-                playableBySourceID[song.sourceID, default: []].append(song)
+            if !song.isPlayable { unplayableSourceIDs.insert(song.sourceID) }
+        }
+        var songsBySourceID: [String: [Song]] = [:]
+        var playableBySourceID: [String: [Song]] = [:]
+        songsBySourceID.reserveCapacity(positionsBySourceID.count)
+        for (sourceID, positions) in positionsBySourceID {
+            let sourceSongs = positions.count == songs.count
+                ? songs
+                : positions.map { songs[$0] }
+            songsBySourceID[sourceID] = sourceSongs
+            if !unplayableSourceIDs.contains(sourceID) {
+                playableBySourceID[sourceID] = sourceSongs
+            } else {
+                let playable = sourceSongs.filter(\.isPlayable)
+                if !playable.isEmpty { playableBySourceID[sourceID] = playable }
             }
         }
+        positionsBySourceID = [:]
         return (
             indexByID,
             songByID,
@@ -6335,6 +6369,13 @@ final class MusicLibrary {
         visibleSongByID[id]
     }
 
+    /// A read-only view of the visible songs for work that runs off the main
+    /// actor (preparing a whole-library queue). Copy-on-write: taking it costs
+    /// nothing, and later library changes don't affect it.
+    func visibleSongLookup() -> VisibleSongLookup {
+        VisibleSongLookup(songByID: visibleSongByID)
+    }
+
     /// O(1) membership check for UI observers that must distinguish the
     /// enabled/visible library from songs retained under a disabled source.
     func containsVisibleSong(id: String) -> Bool {
@@ -7196,6 +7237,13 @@ final class MusicLibrary {
         return visibleSongIDsByGenreID[genreID]?.compactMap { visibleSongByID[$0] } ?? []
     }
 
+    /// The genre's song IDs in display order without materializing `Song`
+    /// values: a broad genre can hold most of a large library.
+    func songIDs(forGenre genreID: String) -> [String] {
+        _ = visibleSongsReference
+        return visibleSongIDsByGenreID[genreID] ?? []
+    }
+
     func albums(forGenre genreID: String) -> [Album] {
         _ = visibleAlbumsReference
         return visibleAlbumIDsByGenreID[genreID]?.compactMap { visibleAlbumByID[$0] } ?? []
@@ -7272,6 +7320,13 @@ final class MusicLibrary {
     func songs(forPlaylist playlistID: String) -> [Song] {
         _ = visibleSongsReference
         return (playlistSongIDs[playlistID] ?? []).compactMap { visibleSongByID[$0] }
+    }
+
+    /// The playlist's entries as stored, including songs that are not visible
+    /// right now; resolve them with `visibleSong(id:)`.
+    func songIDs(forPlaylist playlistID: String) -> [String] {
+        _ = visibleSongsReference
+        return playlistSongIDs[playlistID] ?? []
     }
 
     /// Count and first visible entry without materializing the full playlist.

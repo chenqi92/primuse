@@ -2468,14 +2468,15 @@ private struct GenreDetailView: View {
         #endif
     }
 
-    private var songs: [Song] { library.songs(forGenre: genre.id) }
-    private var playableSongs: [Song] { songs.filteredPlayable() }
+    /// IDs only: a broad genre can hold most of a large library, and every
+    /// body pass used to copy all of its songs several times.
+    private var songIDs: [String] { library.songIDs(forGenre: genre.id) }
 
     #if os(iOS)
     /// 风格没有自己的封面, 用它的第一首代表曲 —— 也就是马赛克里最上面那张。
     private var artworkTintSong: Song? {
         genre.representativeSongIDs.lazy.compactMap { library.visibleSong(id: $0) }.first
-            ?? songs.first
+            ?? songIDs.first.flatMap { library.visibleSong(id: $0) }
     }
 
     /// 取不到封面色时退回这个风格原来的固定配色, 风格之间仍然分得开。
@@ -2505,7 +2506,7 @@ private struct GenreDetailView: View {
             } content: {
                 VStack(alignment: .leading, spacing: 28) {
                     if !albums.isEmpty { albumShelf }
-                    if !songs.isEmpty { songSection }
+                    if !songIDs.isEmpty { songSection }
                 }
                 .padding(.top, 28)
                 .padding(.bottom, BottomChromeClearancePolicy.clearance(
@@ -2521,7 +2522,7 @@ private struct GenreDetailView: View {
                     hero(insets: ImmersiveLibraryDetailInsets())
 
                     if !albums.isEmpty { albumShelf }
-                    if !songs.isEmpty { songSection }
+                    if !songIDs.isEmpty { songSection }
                 }
                 .padding(.bottom, 64)
             }
@@ -2534,12 +2535,12 @@ private struct GenreDetailView: View {
         .libraryDetailTint(from: artworkTintSong)
         .minimalNavigationDetail()
         .librarySearchContext {
-            LibrarySearchScope(title: genre.name, songIDs: Set(songs.map(\.id)), kind: .genre)
+            LibrarySearchScope(title: genre.name, songIDs: Set(songIDs), kind: .genre)
         }
         #endif
         .songBatchActions(
             selection: selection,
-            orderedIDs: { songs.map(\.id) },
+            orderedIDs: { songIDs },
             resolve: { library.song(id: $0) }
         )
     }
@@ -2572,7 +2573,7 @@ private struct GenreDetailView: View {
 
                 Text(
                     verbatim:
-                        "\(albums.count) \(String(localized: "albums_count")) · \(songs.count) \(String(localized: "songs_count"))"
+                        "\(albums.count) \(String(localized: "albums_count")) · \(songIDs.count) \(String(localized: "songs_count"))"
                 )
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.white.opacity(0.74))
@@ -2581,8 +2582,8 @@ private struct GenreDetailView: View {
             LibraryDetailPlayShuffleRow(
                 fillsWidth: false,
                 stacksAtLargeType: false,
-                playDisabled: playableSongs.isEmpty,
-                shuffleDisabled: playableSongs.count < 2,
+                playDisabled: songIDs.isEmpty,
+                shuffleDisabled: songIDs.count < 2,
                 play: playAll,
                 shuffle: shuffleAll
             )
@@ -2681,30 +2682,34 @@ private struct GenreDetailView: View {
         VStack(alignment: .leading, spacing: 10) {
             detailSectionTitle("all_songs_section")
 
+            let ids = songIDs
+            let lastID = ids.last
             LazyVStack(spacing: 0) {
-                ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
-                    SongRowView(
-                        song: song,
-                        isPlaying: player.currentSong?.id == song.id,
-                        selection: selection,
-                        context: SongRowView.context(
-                            for: song,
-                            sourcesStore: sourcesStore,
-                            backfill: backfill
+                ForEach(ids, id: \.self) { songID in
+                    if let song = library.unobservedVisibleSong(id: songID) {
+                        SongRowView(
+                            song: song,
+                            isPlaying: player.currentSong?.id == song.id,
+                            selection: selection,
+                            context: SongRowView.context(
+                                for: song,
+                                sourcesStore: sourcesStore,
+                                backfill: backfill
+                            )
                         )
-                    )
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .contentShape(Rectangle())
-                    .onTapGesture { playSong(song) }
-                    .songSelectable(
-                        songID: song.id,
-                        selection: selection,
-                        orderedIDs: { songs.map(\.id) }
-                    )
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .contentShape(Rectangle())
+                        .onTapGesture { playSong(song) }
+                        .songSelectable(
+                            songID: song.id,
+                            selection: selection,
+                            orderedIDs: { songIDs }
+                        )
 
-                    if index != songs.count - 1 {
-                        Divider().padding(.leading, 66)
+                        if songID != lastID {
+                            Divider().padding(.leading, 66)
+                        }
                     }
                 }
             }
@@ -2729,21 +2734,23 @@ private struct GenreDetailView: View {
     }
 
     private func playAll() {
-        guard !playableSongs.isEmpty else { return }
-        Task { await player.play(queue: playableSongs, startingAt: 0) }
+        let ids = songIDs
+        guard !ids.isEmpty else { return }
+        Task { await player.play(queueIDs: ids) }
     }
 
     private func shuffleAll() {
-        let queue = playableSongs.shuffled()
-        guard !queue.isEmpty else { return }
+        let ids = songIDs
+        guard !ids.isEmpty else { return }
         player.shuffleEnabled = true
-        Task { await player.play(queue: queue, startingAt: 0) }
+        Task { await player.play(queueIDs: ids, order: .shuffled) }
     }
 
     private func playSong(_ song: Song) {
-        guard let index = playableSongs.firstIndex(where: { $0.id == song.id }) else { return }
+        let ids = songIDs
+        guard let index = ids.firstIndex(of: song.id) else { return }
         SiriMediaInteractionDonor.donate(song: song)
-        Task { await player.play(queue: playableSongs, startingAt: index) }
+        Task { await player.play(queueIDs: ids, startingAt: index) }
     }
 }
 

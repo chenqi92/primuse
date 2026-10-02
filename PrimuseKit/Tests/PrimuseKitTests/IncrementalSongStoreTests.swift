@@ -133,6 +133,38 @@ struct IncrementalSongStoreTests {
         }
     }
 
+    @Test("Loading shares one copy of each repeated field and keeps every value")
+    func loadSharesRepeatedStrings() throws {
+        try withStore { store in
+            let songs = (0..<300).map { index -> Song in
+                var song = makeSong(id: "song-\(index)", path: "/Music/\(index).flac", title: "第 \(index) 首")
+                song.sourceID = "6F9619FF-8B86-D011-B42D-00C04FC964FF"
+                song.albumTitle = "A Fairly Long Album Title \(index % 3)"
+                song.artistName = "Some Artist With A Long Name"
+                song.albumID = String(repeating: "a", count: 63) + "\(index % 3)"
+                song.sourceArtistNames = ["Some Artist With A Long Name", "Guest Artist Name"]
+                return song
+            }
+            try store.replaceAll(with: songs)
+
+            let loaded = try store.loadSongs()
+            #expect(loaded == songs)
+            // Identity of the UTF-8 buffer; only compared, never read.
+            func storage(_ value: String?) -> UnsafeRawPointer? {
+                guard let value else { return nil }
+                let pointer: UnsafeRawPointer?? = value.utf8.withContiguousStorageIfAvailable {
+                    UnsafeRawPointer($0.baseAddress)
+                }
+                return pointer ?? nil
+            }
+            #expect(storage(loaded[0].albumTitle) == storage(loaded[3].albumTitle))
+            #expect(storage(loaded[0].albumTitle) != storage(loaded[1].albumTitle))
+            #expect(storage(loaded[0].artistName) == storage(loaded[299].artistName))
+            #expect(storage(loaded[0].sourceID) == storage(loaded[299].sourceID))
+            #expect(storage(loaded[0].albumID) == storage(loaded[3].albumID))
+        }
+    }
+
     @Test("A corrupt row still fails the load instead of being skipped")
     func concurrentDecodingReportsCorruptRows() throws {
         let encoder = JSONEncoder()

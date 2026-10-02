@@ -411,12 +411,15 @@ struct HomeListeningRankingSection: View {
     }
 
     private func play(_ rank: HomeListeningRank) {
-        let ids = rank.folderID.map { model.songs(in: $0, songForID: library.unobservedVisibleSong(id:)).map(\.id) } ?? rank.songIDs
-        HomeDiscoveryPlayback.play(ids: ids, library: library, player: player)
+        if let folderID = rank.folderID {
+            HomeDiscoveryPlayback.playFolder(folderID, shuffle: false, model: model, library: library, player: player)
+        } else {
+            HomeDiscoveryPlayback.play(ids: rank.songIDs, library: library, player: player)
+        }
     }
 
     private func canPlay(_ rank: HomeListeningRank) -> Bool {
-        !rank.songIDs.compactMap { library.unobservedVisibleSong(id: $0) }.filteredPlayable().isEmpty
+        rank.songIDs.contains { library.unobservedVisibleSong(id: $0)?.isPlayable == true }
     }
 
     private var cardSurface: Color {

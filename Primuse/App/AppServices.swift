@@ -2511,8 +2511,12 @@ final class AppServices {
 
         bridge.shuffleLibrary = { [self] in
             await awaitLibraryForIntent()
-            let pool = library.musicSongs.filteredPlayable()
-            _ = startIntentQueue(pool, shuffled: true)
+            let ids = library.musicSongs.map(\.id)
+            guard !ids.isEmpty else { return }
+            playerService.shuffleEnabled = true
+            Task { @MainActor [playerService] in
+                await playerService.play(queueIDs: ids, order: .shuffled, caller: "AppIntent")
+            }
         }
 
         bridge.setRepeatMode = { player.repeatMode = $0 }

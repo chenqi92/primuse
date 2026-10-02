@@ -971,6 +971,10 @@ final class AudioPlayerService {
     @ObservationIgnored var pendingNextShuffleIndices: [Int]?
     /// Invalidates prepared gapless transitions when queue order changes.
     var queueGeneration = 0
+    /// Bumped by every queue install and every `play(queueIDs:)`. A request
+    /// still being prepared off the main actor drops itself once a newer one
+    /// has started or another queue has landed in the meantime.
+    @ObservationIgnored var queueRequestToken: UInt64 = 0
     /// The successor the last prefetch planned for. A reachability verdict
     /// only matters to the transport when it changes this slot.
     @ObservationIgnored var plannedSuccessorEntryID: UUID?

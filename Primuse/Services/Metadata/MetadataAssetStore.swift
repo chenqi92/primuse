@@ -482,11 +482,17 @@ actor MetadataAssetStore {
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
         guard !text.isEmpty else { return }
-        NotificationCenter.default.post(
-            name: .primuseLyricsDidCache,
-            object: nil,
-            userInfo: ["songID": songID, "lyricsText": text]
-        )
+        let userInfo = ["songID": songID, "lyricsText": text]
+        // The library observes this on the main queue. Posted from a loader
+        // thread, NotificationCenter would block that thread until the main
+        // thread got round to the observer — for seconds while it is busy.
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .primuseLyricsDidCache, object: nil, userInfo: userInfo)
+            }
+            return
+        }
+        NotificationCenter.default.post(name: .primuseLyricsDidCache, object: nil, userInfo: userInfo)
     }
 
     /// Read cached lyrics by song ID.

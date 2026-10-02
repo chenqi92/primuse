@@ -515,6 +515,100 @@ public enum QueueWindowPolicy {
     }
 }
 
+/// How a whole-list play request orders its songs before the window is cut.
+public enum LargeQueueRequestOrder: Sendable, Equatable {
+    /// Keep the list order and start at the requested song.
+    case asGiven
+    /// Start at the requested song and wrap round to the songs before it.
+    case rotatedToStart
+    /// A fresh random order starting with its first song.
+    case shuffled
+}
+
+/// The part of a play request the player installs now, plus the rest.
+public struct PreparedQueueRequest<Item: Sendable>: Sendable {
+    public let items: [Item]
+    public let selectedIndex: Int
+    /// Nil when the whole request fits in one window.
+    public let continuation: QueueContinuation?
+
+    public init(items: [Item], selectedIndex: Int, continuation: QueueContinuation?) {
+        self.items = items
+        self.selectedIndex = selectedIndex
+        self.continuation = continuation
+    }
+}
+
+/// Prepares "play all", "shuffle all" and "play from this song" over lists
+/// that can hold the whole library. Everything here works on song IDs, so a
+/// caller can run it off the main actor: filtering, rotating and shuffling
+/// never copy `Song` values, and only the installed window is resolved.
+public enum LargeQueueRequestPlanner {
+    /// - Parameters:
+    ///   - ids: The list in display order.
+    ///   - startIndex: The requested song. When `includes` rejects it, the
+    ///     next kept song after it starts instead.
+    ///   - includes: Whether an ID still names a song that may be queued.
+    ///   - resolve: Materializes one queued song.
+    ///   - shuffle: Injected for tests.
+    public static func plan<Item: Sendable>(
+        ids: [String],
+        startIndex: Int,
+        order: LargeQueueRequestOrder,
+        includes: (String) -> Bool,
+        resolve: (String) -> Item?,
+        shuffle: ([String]) -> [String] = { $0.shuffled() }
+    ) -> PreparedQueueRequest<Item>? {
+        var kept: [String] = []
+        kept.reserveCapacity(ids.count)
+        var startPosition: Int?
+        for (index, id) in ids.enumerated() where includes(id) {
+            if startPosition == nil, index >= startIndex { startPosition = kept.count }
+            kept.append(id)
+        }
+        guard !kept.isEmpty else { return nil }
+
+        var sequence: [String]
+        var selected: Int
+        switch order {
+        case .asGiven:
+            sequence = kept
+            selected = startPosition ?? 0
+        case .rotatedToStart:
+            let start = startPosition ?? 0
+            if start == 0 {
+                sequence = kept
+            } else {
+                sequence = Array(kept[start...])
+                sequence.append(contentsOf: kept[..<start])
+            }
+            selected = 0
+        case .shuffled:
+            sequence = shuffle(kept)
+            selected = 0
+        }
+        kept = []
+
+        let window = QueueWindowPolicy.window(count: sequence.count, selectedIndex: selected)
+        let range = window ?? sequence.indices
+        var items: [Item] = []
+        items.reserveCapacity(range.count)
+        var itemSelected: Int?
+        for position in range {
+            guard let item = resolve(sequence[position]) else { continue }
+            if itemSelected == nil, position >= selected { itemSelected = items.count }
+            items.append(item)
+        }
+        guard !items.isEmpty else { return nil }
+        let continuation = window.map { QueueContinuation(requestedIDs: sequence, window: $0) }
+        return PreparedQueueRequest(
+            items: items,
+            selectedIndex: itemSelected ?? items.count - 1,
+            continuation: continuation
+        )
+    }
+}
+
 /// Songs of the original request that are not in the live queue yet. The
 /// window covers `requestedIDs[lower..<nextOffset]`; songs after it are handed
 /// out first. Under repeat-all the songs before the window follow once, so a

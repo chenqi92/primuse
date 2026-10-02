@@ -66,3 +66,40 @@ public enum CarPlayListRefreshPolicy {
             || previous.repeatModeRawValue != next.repeatModeRawValue
     }
 }
+
+/// CarPlay lists show at most a few hundred rows. Picking them must not sort
+/// the whole library: a full sort of 400K titles with localized comparison
+/// takes seconds on the main thread.
+public enum CarPlayListSelection {
+    /// The first `limit` elements in `areInIncreasingOrder` order, the same
+    /// as `Array(elements.sorted(by:).prefix(limit))` for a strict weak
+    /// ordering. Ties keep their original relative order.
+    public static func firstSorted<Element>(
+        _ elements: some Sequence<Element>,
+        limit: Int,
+        by areInIncreasingOrder: (Element, Element) -> Bool
+    ) -> [Element] {
+        guard limit > 0 else { return [] }
+        var best: [Element] = []
+        best.reserveCapacity(limit + 1)
+        for element in elements {
+            if best.count == limit, let last = best.last, !areInIncreasingOrder(element, last) {
+                continue
+            }
+            // Insert after any equal elements so ties stay in input order.
+            var low = 0
+            var high = best.count
+            while low < high {
+                let middle = (low + high) / 2
+                if areInIncreasingOrder(element, best[middle]) {
+                    high = middle
+                } else {
+                    low = middle + 1
+                }
+            }
+            best.insert(element, at: low)
+            if best.count > limit { best.removeLast() }
+        }
+        return best
+    }
+}

@@ -211,4 +211,105 @@ struct QueueContinuationTests {
         let small = QueueWindowPolicy.restoring(legacySnapshot(count: 10, current: 3), savedContinuation: nil)
         #expect(!small.reshapedLegacyQueue && small.continuation == nil)
     }
+
+    // MARK: - Large queue requests
+
+    @Test("A whole-library request installs one window and owes the rest in order")
+    func largeRequestAsGiven() {
+        let ids = (0..<400_000).map { "s\($0)" }
+        let prepared = LargeQueueRequestPlanner.plan(
+            ids: ids,
+            startIndex: 5_000,
+            order: .asGiven,
+            includes: { _ in true },
+            resolve: { $0 }
+        )
+        let lead = QueueWindowPolicy.leadingHistory
+        #expect(prepared?.items == Array(ids[(5_000 - lead)..<(5_000 - lead + QueueWindowPolicy.windowLimit)]))
+        #expect(prepared?.selectedIndex == lead)
+        #expect(prepared?.continuation?.requestedIDs.count == 400_000)
+        var continuation = prepared?.continuation
+        #expect(continuation?.takeNext(maxCount: 2, repeatsAll: false).first == ids[5_000 - lead + QueueWindowPolicy.windowLimit])
+    }
+
+    @Test("Starting from a song wraps round to the ones before it")
+    func largeRequestRotated() {
+        let ids = (0..<3_000).map { "s\($0)" }
+        let prepared = LargeQueueRequestPlanner.plan(
+            ids: ids,
+            startIndex: 2_500,
+            order: .rotatedToStart,
+            includes: { _ in true },
+            resolve: { $0 }
+        )
+        #expect(prepared?.selectedIndex == 0)
+        #expect(prepared?.items.first == "s2500")
+        #expect(prepared?.items[500] == "s0")
+        #expect(prepared?.continuation?.requestedIDs.last == "s2499")
+    }
+
+    @Test("Small requests install whole; excluded songs are skipped, also as the start")
+    func smallRequestFiltering() {
+        let ids = ["a", "b", "c", "d", "e"]
+        let prepared = LargeQueueRequestPlanner.plan(
+            ids: ids,
+            startIndex: 1,
+            order: .asGiven,
+            includes: { $0 != "b" },
+            resolve: { $0 }
+        )
+        #expect(prepared?.items == ["a", "c", "d", "e"])
+        #expect(prepared?.selectedIndex == 1)
+        #expect(prepared?.continuation == nil)
+
+        let rotated = LargeQueueRequestPlanner.plan(
+            ids: ids,
+            startIndex: 1,
+            order: .rotatedToStart,
+            includes: { $0 != "b" },
+            resolve: { $0 }
+        )
+        #expect(rotated?.items == ["c", "d", "e", "a"])
+
+        let none = LargeQueueRequestPlanner.plan(
+            ids: ids,
+            startIndex: 0,
+            order: .asGiven,
+            includes: { _ in false },
+            resolve: { $0 }
+        )
+        #expect(none == nil)
+    }
+
+    @Test("Shuffled requests start at the first shuffled song and keep every song once")
+    func largeRequestShuffled() {
+        let ids = (0..<2_500).map { "s\($0)" }
+        let prepared = LargeQueueRequestPlanner.plan(
+            ids: ids,
+            startIndex: 0,
+            order: .shuffled,
+            includes: { _ in true },
+            resolve: { $0 },
+            shuffle: { Array($0.reversed()) }
+        )
+        #expect(prepared?.selectedIndex == 0)
+        #expect(prepared?.items.first == "s2499")
+        #expect(prepared?.items.count == QueueWindowPolicy.windowLimit)
+        #expect(Set(prepared?.continuation?.requestedIDs ?? []).count == 2_500)
+    }
+
+    @Test("Songs that no longer resolve drop out of the window without moving the start")
+    func unresolvedSongsInWindow() {
+        let ids = (0..<10).map { "s\($0)" }
+        let prepared = LargeQueueRequestPlanner.plan(
+            ids: ids,
+            startIndex: 4,
+            order: .asGiven,
+            includes: { _ in true },
+            resolve: { $0 == "s2" || $0 == "s4" ? nil : $0 }
+        )
+        #expect(prepared?.items == ["s0", "s1", "s3", "s5", "s6", "s7", "s8", "s9"])
+        #expect(prepared?.items[prepared?.selectedIndex ?? 0] == "s5")
+    }
+
 }

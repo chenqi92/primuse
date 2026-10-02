@@ -2832,12 +2832,10 @@ struct SongListView: View {
     }
 
     private func playLibrary(shuffled: Bool) {
-        let candidates = filteredSongs.filteredPlayable()
-        guard !candidates.isEmpty else { return }
-        let queue = shuffled ? candidates.shuffled() : candidates
-        guard !queue.isEmpty else { return }
+        let ids = filteredSongIDs
+        guard !ids.isEmpty else { return }
         player.shuffleEnabled = shuffled
-        Task { await player.play(queue: queue, startingAt: 0) }
+        Task { await player.play(queueIDs: ids, order: shuffled ? .shuffled : .asGiven) }
     }
     #endif
 
@@ -3705,28 +3703,22 @@ struct SongListView: View {
     }
 
     private func playSong(_ song: Song) {
-        let visibleQueue = filteredSongs
-        guard let index = visibleQueue.firstIndex(where: { $0.id == song.id }) else { return }
-
-        let queue = Array(visibleQueue[index...]) + Array(visibleQueue[..<index])
-        guard let first = queue.first else { return }
-        plog("🎶 SongList setQueue visible=\(visibleQueue.count) queue=\(queue.count) start='\(first.title)'")
-        SiriMediaInteractionDonor.donate(song: first)
-        Task { await player.play(queue: queue, startingAt: 0) }
+        let ids = filteredSongIDs
+        guard let index = ids.firstIndex(of: song.id) else { return }
+        plog("🎶 SongList setQueue visible=\(ids.count) start='\(song.title)'")
+        SiriMediaInteractionDonor.donate(song: song)
+        Task { await player.play(queueIDs: ids, startingAt: index, order: .rotatedToStart, playableOnly: false) }
     }
 
     /// 把眼前这份列表直接打乱播放。专辑、歌单、艺人详情页早就各有一个随机
     /// 播放按钮, 唯独「歌曲」这份总列表没有 —— 只能先随便点开一首歌进播放页,
     /// 再去底部那排控件里把随机播放打开。
     private func shuffleVisibleSongs() {
-        let candidates = filteredSongs.filteredPlayable()
-        guard candidates.count > 1 else { return }
-        let queue = candidates.shuffled()
-        guard let first = queue.first else { return }
-        plog("🎶 SongList shuffleAll visible=\(candidates.count) start='\(first.title)'")
+        let ids = filteredSongIDs
+        guard ids.count > 1 else { return }
+        plog("🎶 SongList shuffleAll visible=\(ids.count)")
         player.shuffleEnabled = true
-        SiriMediaInteractionDonor.donate(song: first)
-        Task { await player.play(queue: queue, startingAt: 0) }
+        Task { await player.play(queueIDs: ids, order: .shuffled) }
     }
 }
 
@@ -4549,21 +4541,17 @@ private struct MacLibraryFolderInlineContent: View {
     }
 
     private func playAllSongsInFolder() {
-        let queue = actionSongIDs
-            .compactMap { library.unobservedVisibleSong(id: $0) }
-            .filteredPlayable()
-        guard let first = queue.first else { return }
+        let ids = actionSongIDs
+        guard let first = ids.lazy.compactMap({ library.unobservedVisibleSong(id: $0) }).first else { return }
         SiriMediaInteractionDonor.donate(song: first)
-        Task { await player.play(queue: queue, startingAt: 0) }
+        Task { await player.play(queueIDs: ids) }
     }
 
     private func playSong(_ song: Song) {
-        let queue = visibleSongIDs
-            .compactMap { library.unobservedVisibleSong(id: $0) }
-            .filteredPlayable()
-        guard let index = queue.firstIndex(where: { $0.id == song.id }) else { return }
+        let ids = visibleSongIDs
+        guard let index = ids.firstIndex(of: song.id) else { return }
         SiriMediaInteractionDonor.donate(song: song)
-        Task { await player.play(queue: queue, startingAt: index) }
+        Task { await player.play(queueIDs: ids, startingAt: index) }
     }
 }
 #endif
@@ -5222,21 +5210,17 @@ private struct LibraryFolderNodeView: View {
     #endif
 
     private func playAllSongsInFolder() {
-        let queue = actionSongIDs
-            .compactMap { library.unobservedVisibleSong(id: $0) }
-            .filteredPlayable()
-        guard let first = queue.first else { return }
+        let ids = actionSongIDs
+        guard let first = ids.lazy.compactMap({ library.unobservedVisibleSong(id: $0) }).first else { return }
         SiriMediaInteractionDonor.donate(song: first)
-        Task { await player.play(queue: queue, startingAt: 0) }
+        Task { await player.play(queueIDs: ids) }
     }
 
     private func playSong(_ song: Song) {
-        let queue = visibleSongIDs
-            .compactMap { library.unobservedVisibleSong(id: $0) }
-            .filteredPlayable()
-        guard let index = queue.firstIndex(where: { $0.id == song.id }) else { return }
+        let ids = visibleSongIDs
+        guard let index = ids.firstIndex(of: song.id) else { return }
         SiriMediaInteractionDonor.donate(song: song)
-        Task { await player.play(queue: queue, startingAt: index) }
+        Task { await player.play(queueIDs: ids, startingAt: index) }
     }
 
     private func pruneSelection() {

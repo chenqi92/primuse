@@ -63,6 +63,36 @@ final class QueueWindowPlayerTests: XCTestCase {
     }
 
     @MainActor
+    func testWholeLibraryRequestIsPlannedFromTheVisibleLookup() async throws {
+        let request = songs(2_500)
+        let player = try await makePlayer(librarySongs: request)
+        let library = try XCTUnwrap(player.library)
+        let lookup = library.visibleSongLookup()
+        let prepared = LargeQueueRequestPlanner.plan(
+            ids: request.map(\.id) + ["missing"],
+            startIndex: 0,
+            order: .shuffled,
+            includes: { lookup.contains(id: $0, playableOnly: true) },
+            resolve: { lookup.song(id: $0) }
+        )
+        XCTAssertEqual(prepared?.items.count, QueueWindowPolicy.windowLimit)
+        XCTAssertEqual(prepared?.selectedIndex, 0)
+        XCTAssertEqual(prepared?.continuation?.requestedIDs.count, 2_500)
+        XCTAssertEqual(Set(prepared?.continuation?.requestedIDs ?? []), Set(request.map(\.id)))
+    }
+
+    @MainActor
+    func testSingleSourceListsMatchTheVisibleLibrary() async throws {
+        let request = songs(40)
+        let player = try await makePlayer(librarySongs: request)
+        let library = try XCTUnwrap(player.library)
+        let visibleIDs = library.visibleSongs.map(\.id)
+        XCTAssertEqual(library.visibleSongs(forSourceID: "local-source").map(\.id), visibleIDs)
+        XCTAssertEqual(library.playableSongs(forSourceID: "local-source").map(\.id), visibleIDs)
+        XCTAssertTrue(library.sourceIDsWithPlayableSongs.contains("local-source"))
+    }
+
+    @MainActor
     func testRefillAppendsTheNextSongsInOrderNearTheEndOfTheWindow() async throws {
         let request = songs(2_500)
         let player = try await makePlayer(librarySongs: request)

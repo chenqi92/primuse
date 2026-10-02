@@ -1795,6 +1795,67 @@ extension AudioPlayerService {
         caller: String = #fileID,
         callerLine: Int = #line
     ) async {
+        await play(
+            queue: songs,
+            startingAt: index,
+            preparedContinuation: nil,
+            caller: caller,
+            callerLine: callerLine
+        )
+    }
+
+    /// Play requests over lists that can be the whole library (all songs, a
+    /// folder, a search result). Callers hand over IDs only; filtering,
+    /// rotating, shuffling and cutting the window run off the main actor, and
+    /// only the installed window is turned into `Song` values.
+    func play(
+        queueIDs ids: [String],
+        startingAt index: Int = 0,
+        order: LargeQueueRequestOrder = .asGiven,
+        playableOnly: Bool = true,
+        caller: String = #fileID,
+        callerLine: Int = #line
+    ) async {
+        guard !ids.isEmpty, let library else { return }
+        queueRequestToken &+= 1
+        let token = queueRequestToken
+        let lookup = library.visibleSongLookup()
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let prepared = await Task.detached(priority: .userInitiated) {
+            LargeQueueRequestPlanner.plan(
+                ids: ids,
+                startIndex: index,
+                order: order,
+                includes: { id in lookup.contains(id: id, playableOnly: playableOnly) },
+                resolve: { lookup.song(id: $0) }
+            )
+        }.value
+        guard queueRequestToken == token else {
+            plog("🎶 Queue request of \(ids.count) ids superseded while preparing")
+            return
+        }
+        guard let prepared else {
+            plog("🎶 Queue request of \(ids.count) ids resolved to nothing")
+            return
+        }
+        let prepareMS = Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000)
+        plog("🎶 Queue request ids=\(ids.count) order=\(order) installed=\(prepared.items.count) continuation=\(prepared.continuation?.requestedIDs.count ?? 0) prepare=\(prepareMS)ms")
+        await play(
+            queue: prepared.items,
+            startingAt: prepared.selectedIndex,
+            preparedContinuation: prepared.continuation,
+            caller: caller,
+            callerLine: callerLine
+        )
+    }
+
+    private func play(
+        queue songs: [Song],
+        startingAt index: Int,
+        preparedContinuation: QueueContinuation?,
+        caller: String,
+        callerLine: Int
+    ) async {
         guard !songs.isEmpty else {
             clearQueue()
             return
@@ -1833,7 +1894,8 @@ extension AudioPlayerService {
             startAt: selectedIndex,
             transition: decision == .preserveCurrentTransport
                 ? .preserveCurrentTransport
-                : .prepareNewSelection
+                : .prepareNewSelection,
+            preparedContinuation: preparedContinuation
         )
         guard decision == .startSelectedItem else {
             plog("🎶 queue selection reused active transport for '\(selectedSong.title)'")
@@ -1871,19 +1933,25 @@ extension AudioPlayerService {
         )
     }
 
+    /// `preparedContinuation` comes with a request that was already cut to
+    /// its window off the main actor (`play(queueIDs:)`).
     private func installQueue(
         _ requestedSongs: [Song],
         startAt requestedIndex: Int,
         transition: QueueReplacementTransition,
-        keepsContinuation: Bool = false
+        keepsContinuation: Bool = false,
+        preparedContinuation: QueueContinuation? = nil
     ) {
+        queueRequestToken &+= 1
         // Any other queue replaces the medley.
         if !isInstallingMedleyQueue { endMedleyIfNeeded() }
         // 二十多万首的「全部播放」不整份装进队列: 只装选中那首附近的一段,
         // 其余按顺序记下, 快播完时再接上 (见 refillQueueFromContinuationIfNeeded)。
         var songs = requestedSongs
         var index = requestedIndex
-        if !keepsContinuation {
+        if let preparedContinuation, !isInstallingMedleyQueue {
+            setQueueContinuation(preparedContinuation)
+        } else if !keepsContinuation {
             if !isInstallingMedleyQueue,
                let window = QueueWindowPolicy.window(count: requestedSongs.count, selectedIndex: requestedIndex) {
                 setQueueContinuation(QueueContinuation(

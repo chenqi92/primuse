@@ -47,4 +47,15 @@ struct CarPlayListRefreshPolicyTests {
         #expect(CarPlayListRefreshPolicy.queuePageNeedsRebuild(from: base, to: state(repeatMode: "all")))
         #expect(CarPlayListRefreshPolicy.queuePageNeedsRebuild(from: base, to: state(songID: "song-b")))
     }
+
+    @Test func firstSortedMatchesSortingTheWholeList() {
+        var generator = SystemRandomNumberGenerator()
+        let values = (0..<5_000).map { _ in Int.random(in: 0..<800, using: &generator) }
+        let expected = Array(values.enumerated().sorted { $0.element < $1.element }.prefix(500))
+        let selected = CarPlayListSelection.firstSorted(values.enumerated(), limit: 500) { $0.element < $1.element }
+        #expect(selected.map(\.offset) == expected.map(\.offset))
+        #expect(CarPlayListSelection.firstSorted([3, 1, 2], limit: 10, by: <) == [1, 2, 3])
+        #expect(CarPlayListSelection.firstSorted([3, 1, 2], limit: 0, by: <).isEmpty)
+    }
+
 }

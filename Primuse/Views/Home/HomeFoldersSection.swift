@@ -410,10 +410,7 @@ private struct HomeFolderRow: View {
     }
 
     private func play(shuffle: Bool) {
-        HomeDiscoveryPlayback.play(
-            ids: model.songs(in: node.id, songForID: library.unobservedVisibleSong(id:)).map(\.id), shuffle: shuffle,
-            library: library, player: player
-        )
+        HomeDiscoveryPlayback.playFolder(node.id, shuffle: shuffle, model: model, library: library, player: player)
     }
 }
 
@@ -465,12 +462,39 @@ struct HomeFolderBrowser: View {
         return model.index?.sourceNodes ?? []
     }
 
-    private func directSongs(in nodeID: LibraryFolderNodeID) -> [Song] {
-        guard let index = model.index else { return [] }
-        return LibraryFolderBrowsePolicy.sortedSongs(
-            LibraryFolderBrowsePolicy.displayedSongIDs(in: index, of: nodeID)
-                .compactMap { library.unobservedVisibleSong(id: $0) }
-        )
+    /// The folder's own songs in track order, as IDs, worked out off the main
+    /// actor once per folder and index revision. Sorting them inside `body`
+    /// re-sorted a whole source's songs on every refresh — a source root with
+    /// a few hundred thousand unfoldered songs held the main thread for
+    /// seconds each time the playing song changed.
+    @State private var directSongs: (nodeID: LibraryFolderNodeID?, ids: [String]) = (nil, [])
+
+    /// Empty until the open folder's own list is ready, never the previous one's.
+    private var directSongIDs: [String] {
+        directSongs.nodeID == currentNodeID ? directSongs.ids : []
+    }
+
+    private struct DirectSongsKey: Equatable {
+        let nodeID: LibraryFolderNodeID?
+        let revision: Int
+    }
+
+    /// A `List` registers every row up front; past this many the page shows
+    /// the first ones and links to a lazily built page with all of them.
+    private static let inlineSongLimit = 300
+
+    private func refreshDirectSongIDs() async {
+        guard let nodeID = currentNodeID, let index = model.index else {
+            directSongs = (currentNodeID, [])
+            return
+        }
+        let ids = LibraryFolderBrowsePolicy.displayedSongIDs(in: index, of: nodeID)
+        let lookup = library.visibleSongLookup()
+        let ordered = await Task.detached(priority: .userInitiated) {
+            LibraryFolderBrowsePolicy.sortedSongs(ids.compactMap { lookup.song(id: $0) }).map(\.id)
+        }.value
+        guard !Task.isCancelled else { return }
+        directSongs = (nodeID, ordered)
     }
 
     private func savePins(_ updated: [LibraryFolderNodeID]) {
@@ -525,8 +549,14 @@ struct HomeFolderBrowser: View {
         .onChange(of: model.revision) { _, _ in
             refreshMacSearchContext()
         }
+        .task(id: DirectSongsKey(nodeID: currentNodeID, revision: model.revision)) {
+            await refreshDirectSongIDs()
+        }
         #else
         folderList
+            .task(id: DirectSongsKey(nodeID: currentNodeID, revision: model.revision)) {
+                await refreshDirectSongIDs()
+            }
         #endif
     }
 
@@ -589,20 +619,38 @@ struct HomeFolderBrowser: View {
             }
 
             if let nodeID {
-                let songs = directSongs(in: nodeID)
-                let ids = songs.map(\.id)
-                if !songs.isEmpty {
+                let ids = directSongIDs
+                if !ids.isEmpty {
                     Section("tab_songs") {
-                        ForEach(songs) { song in
-                            // A fixed row container prevents List from expanding
-                            // SongRowView's conditional menu tree for every song.
-                            HStack(spacing: 0) {
-                                SongRowView(song: song, isPlaying: player.currentSong?.id == song.id)
-                            }
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    HomeDiscoveryPlayback.play(ids: ids, startingAt: song.id, library: library, player: player)
+                        ForEach(ids.prefix(Self.inlineSongLimit), id: \.self) { songID in
+                            if let song = library.unobservedVisibleSong(id: songID) {
+                                // A fixed row container prevents List from expanding
+                                // SongRowView's conditional menu tree for every song.
+                                HStack(spacing: 0) {
+                                    SongRowView(song: song, isPlaying: player.currentSong?.id == song.id)
                                 }
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        HomeDiscoveryPlayback.play(ids: ids, startingAt: songID, library: library, player: player)
+                                    }
+                            }
+                        }
+                        if ids.count > Self.inlineSongLimit {
+                            NavigationLink {
+                                SearchCollectionDetailView(result: SearchCollectionResult(
+                                    target: .folder(nodeID),
+                                    title: node.map(HomeDiscoveryText.folderTitle) ?? "",
+                                    detail: "",
+                                    folderSongIDs: ids
+                                ))
+                            } label: {
+                                HStack {
+                                    Text("see_all")
+                                    Spacer()
+                                    Text(verbatim: "\(ids.count.formatted()) \(String(localized: "songs_count"))")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                         }
                     }
                 }
@@ -802,7 +850,7 @@ struct HomeFolderBrowser: View {
 
     private func macFolderContents(nodeID: LibraryFolderNodeID, width: CGFloat) -> some View {
         let folders = children
-        let songIDs = directSongs(in: nodeID).map(\.id)
+        let songIDs = directSongIDs
         let folderColumns = max(1, Int((width + 12) / 272))
         let folderRows = (folders.count + folderColumns - 1) / folderColumns
         let folderWidth = min(360, max(0, (width - CGFloat(folderColumns - 1) * 12) / CGFloat(folderColumns)))
@@ -1142,7 +1190,7 @@ struct HomeFolderBrowser: View {
     }
 
     private func playFolder(_ id: LibraryFolderNodeID, shuffle: Bool) {
-        HomeDiscoveryPlayback.play(ids: model.songs(in: id, songForID: library.unobservedVisibleSong(id:)).map(\.id), shuffle: shuffle, library: library, player: player)
+        HomeDiscoveryPlayback.playFolder(id, shuffle: shuffle, model: model, library: library, player: player)
     }
 }
 
@@ -1683,15 +1731,46 @@ private struct HomeFolderChildLabel: View {
 
 @MainActor
 enum HomeDiscoveryPlayback {
+    /// `ids` in display order. A folder can be a whole source of several
+    /// hundred thousand songs, so the queue is prepared off the main actor
+    /// and only its first window becomes `Song` values.
     static func play(
         ids: [String], startingAt selectedID: String? = nil, shuffle: Bool = false,
         library: MusicLibrary, player: AudioPlayerService
     ) {
-        var queue = ids.compactMap { library.unobservedVisibleSong(id: $0) }.filteredPlayable()
-        if shuffle { queue.shuffle() }
-        guard !queue.isEmpty else { return }
-        if let selectedID, !queue.contains(where: { $0.id == selectedID }) { return }
-        let position = selectedID.flatMap { id in queue.firstIndex { $0.id == id } } ?? 0
-        Task { await player.play(queue: queue, startingAt: position) }
+        guard !ids.isEmpty else { return }
+        if shuffle {
+            Task { await player.play(queueIDs: ids, order: .shuffled) }
+            return
+        }
+        var position = 0
+        if let selectedID {
+            guard let index = ids.firstIndex(of: selectedID) else { return }
+            position = index
+        }
+        Task { await player.play(queueIDs: ids, startingAt: position) }
+    }
+
+    /// Every song under a folder. Shuffling needs no order at all; playing in
+    /// track order sorts off the main actor, where a large folder no longer
+    /// holds up the interface.
+    static func playFolder(
+        _ id: LibraryFolderNodeID, shuffle: Bool,
+        model: HomeDiscoveryModel, library: MusicLibrary, player: AudioPlayerService
+    ) {
+        guard let index = model.index else { return }
+        let ids = index.songIDs(in: id, scope: .descendants)
+        guard !ids.isEmpty else { return }
+        if shuffle {
+            play(ids: ids, shuffle: true, library: library, player: player)
+            return
+        }
+        let lookup = library.visibleSongLookup()
+        Task {
+            let ordered = await Task.detached(priority: .userInitiated) {
+                LibraryFolderBrowsePolicy.sortedSongs(ids.compactMap { lookup.song(id: $0) }).map(\.id)
+            }.value
+            play(ids: ordered, library: library, player: player)
+        }
     }
 }
