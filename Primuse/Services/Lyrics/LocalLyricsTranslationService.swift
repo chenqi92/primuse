@@ -176,6 +176,19 @@ enum BackgroundAssetsPrerequisites {
             }
         }
         #endif
+        #if targetEnvironment(simulator)
+        // 模拟器里的构建没有开发团队(未签名或本地签名), AssetPackManager 一取就终止进程,
+        // Apple 托管的包在这里本来也拿不到; Debug 下设 `PRIMUSE_ASSET_PACKS=1` 可放开来联调。
+        #if DEBUG
+        let simulatorOptedIn = ProcessInfo.processInfo.environment["PRIMUSE_ASSET_PACKS"] == "1"
+        #else
+        let simulatorOptedIn = false
+        #endif
+        guard simulatorOptedIn else {
+            plog("⚠️ BackgroundAssets: simulator build, asset packs disabled")
+            return false
+        }
+        #endif
         let bundle = Bundle.main
         guard bundle.bundleIdentifier?.isEmpty == false,
               let groupID = bundle.object(forInfoDictionaryKey: "BAAppGroupID") as? String,

@@ -1209,8 +1209,11 @@ struct AISettingsView: View {
         showsAdvanced = true
     }
 
+    /// 离线素材包只管歌词翻译:翻译关着时不算在用,也就不去碰素材包管理
+    /// (和「歌词」设置页一样,开着翻译才查)。
     private var hasOfflineTranslationPacks: Bool {
-        LocalLyricsTranslationModel.Pack.allCases.contains {
+        guard lyricsTranslation.isEnabled, LocalLyricsTranslationModel.isSystemSupported else { return false }
+        return LocalLyricsTranslationModel.Pack.allCases.contains {
             LocalLyricsTranslationService.shared.modelState(for: $0) == .ready
         }
     }
