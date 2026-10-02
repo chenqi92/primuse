@@ -20,6 +20,39 @@ public enum TVScanMode: String, Sendable {
     }
 }
 
+/// 资料库「文件夹」页在电视上「重新扫描此文件夹」的换算。电视扫完不留扫描索引,
+/// 所以只做按「/」分层、歌的文件路径就是连接器列目录用的原始写法的源:从文件夹里
+/// 一首歌(`LibraryFolderRescanAnchor`)的路径往上数几层就是要列的目录,不去反解
+/// 文件夹页归一化过的节点路径。NFS 的路径整段编码过、ID 寻址网盘的路径是条目 id,都不在此列。
+public enum TVFolderRescanPolicy {
+    public static func supports(_ type: MusicSourceType) -> Bool {
+        type.supportsFolderRescan
+            && type.libraryFolderPathSemantics == .hierarchical
+            && type != .nfs
+    }
+
+    /// 这首歌所在目录再往上 `levelsAbove` 层。路径不是「/」开头、或往上越过了根,答 nil。
+    public static func directory(containingFilePath path: String, levelsAbove: Int) -> String? {
+        guard levelsAbove >= 0, path.hasPrefix("/") else { return nil }
+        var current = path
+        for _ in 0...levelsAbove {
+            guard current != "/", let slash = current.lastIndex(of: "/") else { return nil }
+            let parent = String(current[..<slash])
+            current = parent.isEmpty ? "/" : parent
+        }
+        return current
+    }
+
+    /// 这首歌在不在这个目录(含子目录)下。只比原始路径前缀,不做大小写或编码归一:
+    /// 对不上的行算子树外、原样保留,宁可漏删也不错删。
+    public static func contains(filePath: String, inDirectory directory: String) -> Bool {
+        guard directory.hasPrefix("/") else { return false }
+        if directory == "/" { return filePath.hasPrefix("/") }
+        let prefix = directory.hasSuffix("/") ? directory : directory + "/"
+        return filePath.hasPrefix(prefix)
+    }
+}
+
 /// Pure policy shared by the tvOS streaming scanner and its regression tests.
 /// Keeping identity, batching and re-scan reconciliation here prevents the TV
 /// catalogue from drifting from the generic connector scanner.

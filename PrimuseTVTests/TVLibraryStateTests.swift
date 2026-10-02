@@ -1224,6 +1224,54 @@ final class TVLibraryStateTests: XCTestCase {
         XCTAssertNil(store.song(songID))
     }
 
+    func testFolderRescanReconcilesOnlyThatFolderAndItsSubfolders() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let store = fixture.store()
+        store.reload()
+        let source = try store.prepareTransferSource()
+        let folderName = "TV Folder Rescan QA \(UUID().uuidString)"
+        let root = TVLocalTransferSource.root.appendingPathComponent(folderName, isDirectory: true)
+        let inside = root.appendingPathComponent("Inside", isDirectory: true)
+        let nested = inside.appendingPathComponent("Nested", isDirectory: true)
+        let outside = root.appendingPathComponent("Outside", isDirectory: true)
+        for folder in [nested, outside] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+        func songID(_ relative: String) -> String {
+            TVScanPipelinePolicy.songID(sourceID: source.id, path: "/\(folderName)/\(relative)")
+        }
+        for file in ["Inside/Kept.wav", "Inside/Deleted.wav", "Inside/Nested/Nested.wav", "Outside/Gone.wav"] {
+            try waveFixture().write(to: root.appendingPathComponent(file))
+        }
+        let scanned = await store.runScan(source: source, lister: TVLocalDirectoryLister(), dirs: ["/"])
+        XCTAssertTrue(scanned)
+        let lastScannedAt = fixture.sources.source(id: source.id)?.lastScannedAt
+        let directories = fixture.sources.source(id: source.id)?.scannedDirectories
+
+        try FileManager.default.removeItem(at: root.appendingPathComponent("Inside/Deleted.wav"))
+        try waveFixture().write(to: root.appendingPathComponent("Inside/Nested/Added.wav"))
+        try FileManager.default.removeItem(at: root.appendingPathComponent("Outside/Gone.wav"))
+        try waveFixture().write(to: root.appendingPathComponent("Outside/NotYet.wav"))
+
+        XCTAssertTrue(store.canRescanFolder(sourceID: source.id))
+        let outcome = await store.rescanFolder(
+            sourceID: source.id,
+            anchor: LibraryFolderRescanAnchor(songID: songID("Inside/Kept.wav"), levelsAbove: 0)
+        )
+        XCTAssertEqual(outcome, .completed)
+        XCTAssertNotNil(fixture.library.song(id: songID("Inside/Kept.wav")))
+        XCTAssertNil(fixture.library.song(id: songID("Inside/Deleted.wav")))
+        XCTAssertNotNil(fixture.library.song(id: songID("Inside/Nested/Nested.wav")))
+        XCTAssertNotNil(fixture.library.song(id: songID("Inside/Nested/Added.wav")))
+        // 文件夹外不动:磁盘上删掉的还在、新加的没收进来,等整源扫描再说。
+        XCTAssertNotNil(fixture.library.song(id: songID("Outside/Gone.wav")))
+        XCTAssertNil(fixture.library.song(id: songID("Outside/NotYet.wav")))
+        XCTAssertEqual(fixture.sources.source(id: source.id)?.lastScannedAt, lastScannedAt)
+        XCTAssertEqual(fixture.sources.source(id: source.id)?.scannedDirectories, directories)
+    }
+
     func testIncrementalAlbumScanPreservesPreviousArtworkLikesAndScopeAcrossReload() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }

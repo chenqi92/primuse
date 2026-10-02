@@ -4047,7 +4047,8 @@ final class TVStore {
         lister: TVDirectoryLister,
         dirs: [String],
         rereadMetadata: Bool = false,
-        mode: TVScanMode = .full
+        mode: TVScanMode = .full,
+        folder: String? = nil
     ) async -> Bool {
         guard await retryPendingSnapshotImport() else { return false }
         guard canMutateLibrary, !locallyRemovedSourceIDs.contains(source.id), TVScanAdmissionPolicy.canStart(
@@ -4061,7 +4062,8 @@ final class TVStore {
         scanGeneration = generation
         let task = Task {
             await self.performScan(source: source, lister: lister, dirs: dirs,
-                                   rereadMetadata: rereadMetadata, mode: mode, generation: generation)
+                                   rereadMetadata: rereadMetadata, mode: mode, folder: folder,
+                                   generation: generation)
         }
         scanTask = task
         let committed = await task.value
@@ -4076,6 +4078,68 @@ final class TVStore {
     func cancelScan(sourceID: String) {
         guard activeScanSourceID == sourceID else { return }
         scanTask?.cancel()
+    }
+
+    // MARK: 资料库「文件夹」页:只重扫一个文件夹
+
+    enum FolderRescanOutcome: Equatable {
+        case completed
+        case failed(String)
+        case cancelled
+        /// 另一个扫描正在进行、或曲库正在装快照,这次没开始。
+        case busy
+        /// 这个文件夹对不回源里的目录(见 `TVFolderRescanPolicy`)。
+        case unavailable
+    }
+
+    /// 这个源里的文件夹能不能单独重扫:电视自己能列目录、路径按「/」分层的源。
+    func canRescanFolder(sourceID: String) -> Bool {
+        guard let source = sourcesStore.source(id: sourceID), source.isEnabled, !source.isDeleted,
+              !locallyRemovedSourceIDs.contains(sourceID), canScanOnTV(source) else { return false }
+        return TVFolderRescanPolicy.supports(source.type)
+    }
+
+    /// 只重扫资料库「文件夹」页里的一个文件夹(含子文件夹):文件没变的不重读标签,
+    /// 新文件收进来,这个文件夹里已经删掉的歌移出资料库;文件夹外的歌、选中的目录、
+    /// 整源的扫描断点都不动。
+    func rescanFolder(sourceID: String, anchor: LibraryFolderRescanAnchor) async -> FolderRescanOutcome {
+        guard canRescanFolder(sourceID: sourceID),
+              let source = sourcesStore.source(id: sourceID),
+              let song = library.song(id: anchor.songID), song.sourceID == sourceID,
+              let directory = TVFolderRescanPolicy.directory(
+                containingFilePath: song.filePath,
+                levelsAbove: anchor.levelsAbove
+              ),
+              let lister = makeLister(for: source) else { return .unavailable }
+        let before = library.songs.lazy.filter { $0.sourceID == sourceID }.count
+        guard await runScan(source: source, lister: lister, dirs: [directory],
+                            mode: .incremental, folder: directory) else { return .busy }
+        let outcome: FolderRescanOutcome
+        switch scanner.phase {
+        case .done: outcome = .completed
+        case .failed(let message): outcome = .failed(message)
+        default: outcome = .cancelled
+        }
+        let after = library.songs.lazy.filter { $0.sourceID == sourceID }.count
+        plog("📂 TV folder rescan source=\(LogRedactionPolicy.digest(sourceID)) levels=\(anchor.levelsAbove)"
+             + " songs=\(before)->\(after) result=\(outcome)")
+        return outcome
+    }
+
+    /// 只重扫一个文件夹时交给剪枝的整源清单:这次列到的歌 + 文件夹外原样带过去的行
+    /// (含这台设备上移除过、留着备恢复的行)。剪掉的只会是文件夹里没再列到的歌。
+    private func folderScanIncoming(_ scanned: [Song], folder: String, sourceID: String) -> [Song] {
+        var seen = Set(scanned.map(\.id))
+        var incoming = scanned
+        let outside = library.songs.lazy.filter {
+            $0.sourceID == sourceID && !TVFolderRescanPolicy.contains(filePath: $0.filePath, inDirectory: folder)
+        }
+        let retainedOutside = library.locallyRemovedEntries(forSourceID: sourceID).lazy.map(\.song).filter {
+            !TVFolderRescanPolicy.contains(filePath: $0.filePath, inDirectory: folder)
+        }
+        for song in outside where seen.insert(song.id).inserted { incoming.append(song) }
+        for song in retainedOutside where seen.insert(song.id).inserted { incoming.append(song) }
+        return incoming
     }
 
     /// 把攒下的扫描行交给曲库,等上一批后台提交先做完。
@@ -4222,8 +4286,11 @@ final class TVStore {
         }
     }
 
+    /// `folder`:只重扫资料库「文件夹」页里的这一个目录(见 `rescanFolder`)。这时不读也不写
+    /// 断点、不改选中的目录和整源的上次扫描时间,只删这个目录里没再列到的歌。
     private func performScan(source: MusicSource, lister: TVDirectoryLister, dirs: [String],
-                             rereadMetadata: Bool, mode: TVScanMode, generation: UUID) async -> Bool {
+                             rereadMetadata: Bool, mode: TVScanMode, folder: String? = nil,
+                             generation: UUID) async -> Bool {
         // 上一次扫描留下的后台提交先落完,不和这次的行交错。
         try? await awaitScanCommit()
         pendingScanSongs = []
@@ -4246,7 +4313,7 @@ final class TVStore {
         }
         let checkpointModifiedAt = try? checkpointURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
         let resumeState = saved.flatMap {
-            $0.connectionIdentity == connection && $0.roots == roots && $0.state.isUsable
+            folder == nil && $0.connectionIdentity == connection && $0.roots == roots && $0.state.isUsable
                 && Self.canResumeScanCheckpoint(lastScannedAt: source.lastScannedAt,
                                                 checkpointModifiedAt: checkpointModifiedAt)
                 ? $0.state : nil
@@ -4270,7 +4337,7 @@ final class TVStore {
             existingSongs: library.songs.filter { $0.sourceID == source.id },
             rereadMetadata: rereadMetadata,
             resumeState: rereadMetadata ? nil : resumeState,
-            onCheckpoint: rereadMetadata ? nil : saveCheckpoint,
+            onCheckpoint: rereadMetadata || folder != nil ? nil : saveCheckpoint,
             onSkeletonBatch: { songs in
                 try await self.acceptScanBatch(songs, sourceID: source.id, generation: generation)
             },
@@ -4286,9 +4353,14 @@ final class TVStore {
             guard isCurrentScan(source: source, generation: generation), result.canCommit else { return false }
             // A walk that saw the catalogue move keeps what it read (the batches
             // above) but cannot vouch for songs it never listed.
-            let isCompleteListing = result.canPrune && mode == .full
+            let isCompleteListing = result.canPrune && mode == .full && folder == nil
             if isCompleteListing {
                 pruningRecovery = library.beginScanPruning(result.songs, sourceID: source.id)
+            } else if let folder, result.canPrune {
+                pruningRecovery = library.beginScanPruning(
+                    folderScanIncoming(result.songs, folder: folder, sourceID: source.id),
+                    sourceID: source.id
+                )
             }
             let persistence = await scanPersistence(library)
             guard isCurrentScan(source: source, generation: generation) else { throw CancellationError() }
@@ -4300,6 +4372,8 @@ final class TVStore {
                 && source.type != .synologyAudioStation {
                 try sourcesStore.updateDurably(source.id) {
                     $0.songCount = count
+                    // 只扫了一个文件夹:整源没有走过,选中的目录也没变。
+                    guard folder == nil else { return }
                     $0.lastScannedAt = Date()
                     let savedDirs = mode.savedDirectories(previous: $0.scannedDirectories, scanned: dirs, sourceType: $0.type)
                     $0.extraConfig = MusicSource.encodeScannedDirectories(savedDirs, into: $0.extraConfig, type: $0.type)
@@ -4329,7 +4403,7 @@ final class TVStore {
             refreshVisibility()
             library.sourceSyncDidComplete()
             sourcesRevision += 1
-            if FileManager.default.fileExists(atPath: checkpointURL.path) {
+            if folder == nil, FileManager.default.fileExists(atPath: checkpointURL.path) {
                 try? FileManager.default.removeItem(at: checkpointURL)
             }
             scanner.markPersistedScanComplete()

@@ -235,6 +235,9 @@ struct TVRoot: View {
         switch TVDebugLaunch.screen {
         case "library", "albumDetail", "libraryIndex", "albumReturn": initialTab = .library
         case "homeReturn", "homeAlbumReturn": initialTab = .home
+        case "folderRescan":
+            initialTab = .library
+            _libraryFilter = State(initialValue: .folders)
         case "radio", "radioLibrary":
             initialTab = .home
             _debugPendingSpaceTab = State(initialValue: .radio)

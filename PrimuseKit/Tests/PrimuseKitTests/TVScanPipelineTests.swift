@@ -10,6 +10,38 @@ struct TVScanPipelineTests {
         #expect(TVScanMode.full.savedDirectories(previous: ["/Old"], scanned: ["/New"], sourceType: .baiduPan) == ["/New"])
     }
 
+    @Test func folderRescanWalksUpFromTheAnchorSongPath() {
+        let path = "/Music/Artist/Album/01 Song.flac"
+        #expect(TVFolderRescanPolicy.directory(containingFilePath: path, levelsAbove: 0) == "/Music/Artist/Album")
+        #expect(TVFolderRescanPolicy.directory(containingFilePath: path, levelsAbove: 2) == "/Music")
+        #expect(TVFolderRescanPolicy.directory(containingFilePath: path, levelsAbove: 3) == "/")
+        #expect(TVFolderRescanPolicy.directory(containingFilePath: path, levelsAbove: 4) == nil)
+        #expect(TVFolderRescanPolicy.directory(containingFilePath: "/Song.mp3", levelsAbove: 0) == "/")
+        #expect(TVFolderRescanPolicy.directory(containingFilePath: "item-id", levelsAbove: 0) == nil)
+        #expect(TVFolderRescanPolicy.directory(containingFilePath: path, levelsAbove: -1) == nil)
+    }
+
+    @Test func folderRescanSubtreeMatchesWholePathComponentsOnly() {
+        #expect(TVFolderRescanPolicy.contains(filePath: "/Music/A/1.mp3", inDirectory: "/Music/A"))
+        #expect(TVFolderRescanPolicy.contains(filePath: "/Music/A/B/2.mp3", inDirectory: "/Music/A"))
+        #expect(!TVFolderRescanPolicy.contains(filePath: "/Music/AB/3.mp3", inDirectory: "/Music/A"))
+        #expect(!TVFolderRescanPolicy.contains(filePath: "/Music/4.mp3", inDirectory: "/Music/A"))
+        #expect(TVFolderRescanPolicy.contains(filePath: "/Music/4.mp3", inDirectory: "/"))
+        #expect(!TVFolderRescanPolicy.contains(filePath: "item-id", inDirectory: "/"))
+    }
+
+    @Test func folderRescanOnlyForSlashPathSources() {
+        #expect(TVFolderRescanPolicy.supports(.smb))
+        #expect(TVFolderRescanPolicy.supports(.webdav))
+        #expect(TVFolderRescanPolicy.supports(.local))
+        #expect(TVFolderRescanPolicy.supports(.baiduPan))
+        #expect(!TVFolderRescanPolicy.supports(.nfs))
+        #expect(!TVFolderRescanPolicy.supports(.oneDrive))
+        #expect(!TVFolderRescanPolicy.supports(.googleDrive))
+        #expect(!TVFolderRescanPolicy.supports(.upnp))
+        #expect(!TVFolderRescanPolicy.supports(.navidrome))
+    }
+
     private func song(
         id: String,
         title: String = "Song",

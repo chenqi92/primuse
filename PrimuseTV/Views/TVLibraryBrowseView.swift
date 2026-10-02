@@ -116,6 +116,8 @@ struct TVFolderBrowser: View {
     @Environment(TVStore.self) private var store
     @State private var index: LibraryFolderIndex?
     @State private var path: [LibraryFolderNodeID] = []
+    /// 最近一次「重新扫描此文件夹」:哪个文件夹、扫到哪一步了。
+    @State private var rescan: TVFolderRescanState?
     var openPlayer: () -> Void = {}
     var onNavigation: () -> Void = {}
 
@@ -140,6 +142,16 @@ struct TVFolderBrowser: View {
                             )
                             if store.playResolvedQueue(songIDs: ids, shuffled: false) { openPlayer() }
                         }
+                        if let anchor = rescanAnchor(for: current, index: index) {
+                            TVPillButton(title: String(localized: "library_folder_rescan"),
+                                         systemImage: "arrow.clockwise") {
+                                startRescan(current.id, anchor: anchor)
+                            }
+                            .accessibilityIdentifier("tv.library.folder.rescan")
+                        }
+                    }
+                    if let rescan, rescan.nodeID == current.id {
+                        TVFolderRescanStatusLine(phase: rescan.phase)
                     }
                 }
                 let nodes = current.map { index.children(of: $0.id) } ?? index.sourceNodes
@@ -185,6 +197,63 @@ struct TVFolderBrowser: View {
         }
         .onChange(of: path) { _, _ in onNavigation() }
         .onExitCommand(perform: path.isEmpty ? nil : { path.removeLast() })
+        #if DEBUG
+        .task {
+            // 截图用:TV_SCREEN=folderRescan 进第一个能重扫的源里的第一个文件夹并重扫它
+            // (日志 `📂 TV folder rescan … result=completed`);TV_FOLDER_RESCAN=0 只进去不扫。
+            guard TVDebugLaunch.screen == "folderRescan", !Self.didRunDebugRescan else { return }
+            Self.didRunDebugRescan = true
+            // 文件夹索引刚启动时可能还没有歌(只有源和扫描根),等到能走到一个有歌的文件夹。
+            var target: (trail: [LibraryFolderNodeID], node: LibraryFolderNode, anchor: LibraryFolderRescanAnchor)?
+            for _ in 0..<75 {
+                if let index,
+                   let source = index.sourceNodes.first(where: { store.canRescanFolder(sourceID: $0.id.sourceID) }) {
+                    var trail: [LibraryFolderNodeID] = []
+                    var node = source
+                    while let child = index.children(of: node.id).first(where: { $0.kind == .scanRoot || $0.kind == .folder }) {
+                        trail.append(child.id)
+                        node = child
+                        if child.kind == .folder { break }
+                    }
+                    if node.kind == .folder, let anchor = rescanAnchor(for: node, index: index) {
+                        target = (trail, node, anchor)
+                        break
+                    }
+                }
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+            guard let target else { return }
+            path = target.trail
+            plog("📂 TV folder rescan debug depth=\(target.trail.count) levels=\(target.anchor.levelsAbove)")
+            guard ProcessInfo.processInfo.environment["TV_FOLDER_RESCAN"] != "0" else { return }
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            let node = target.node, anchor = target.anchor
+            startRescan(node.id, anchor: anchor)
+        }
+        #endif
+    }
+
+    #if DEBUG
+    @MainActor private static var didRunDebugRescan = false
+    #endif
+
+    /// 只有源里真实的目录(扫描根和它下面的文件夹)能单独重扫,而且电视得能自己列这个源的目录。
+    private func rescanAnchor(for node: LibraryFolderNode, index: LibraryFolderIndex) -> LibraryFolderRescanAnchor? {
+        guard store.canRescanFolder(sourceID: node.id.sourceID) else { return nil }
+        return LibraryFolderRescanAnchor.make(for: node.id, in: index)
+    }
+
+    private func startRescan(_ nodeID: LibraryFolderNodeID, anchor: LibraryFolderRescanAnchor) {
+        // 扫描器一次只扫一个源;正在扫的时候按钮不变灰(变灰会把焦点挤走),状态行照常显示进度。
+        guard store.activeScanSourceID == nil, rescan?.phase != .running else { return }
+        rescan = TVFolderRescanState(nodeID: nodeID, phase: .running)
+        Task { @MainActor in
+            switch await store.rescanFolder(sourceID: nodeID.sourceID, anchor: anchor) {
+            case .completed: rescan = TVFolderRescanState(nodeID: nodeID, phase: .completed)
+            case .failed(let message): rescan = TVFolderRescanState(nodeID: nodeID, phase: .failed(message))
+            case .cancelled, .busy, .unavailable: rescan = nil
+            }
+        }
     }
 
     private func enter(_ node: LibraryFolderNode, index: LibraryFolderIndex) {
@@ -216,6 +285,46 @@ struct TVFolderBrowser: View {
         case .scanRoot, .folder, .source: key = "library_folder_scan_root"
         }
         return NSLocalizedString(key, comment: "")
+    }
+}
+
+struct TVFolderRescanState: Equatable {
+    enum Phase: Equatable {
+        case running
+        case completed
+        case failed(String)
+    }
+    let nodeID: LibraryFolderNodeID
+    let phase: Phase
+}
+
+/// 文件夹页顶部的一行重扫状态。扫描进度一秒变好几次,只在这一行里读,
+/// 不让整个文件夹列表跟着重算。
+private struct TVFolderRescanStatusLine: View {
+    @Environment(TVStore.self) private var store
+    let phase: TVFolderRescanState.Phase
+
+    var body: some View {
+        HStack(spacing: 14) {
+            switch phase {
+            case .running:
+                ProgressView()
+                Text(verbatim: String(localized: "scan_in_progress"))
+                if store.scanner.indexed > 0 {
+                    Text(verbatim: PMString("ext.tv.songsCount", store.scanner.indexed))
+                        .monospacedDigit()
+                }
+            case .completed:
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(TVColor.brand)
+                Text(verbatim: String(localized: "scan_complete"))
+            case .failed(let message):
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(TVColor.warn)
+                Text(verbatim: message).lineLimit(2)
+            }
+        }
+        .tvFont(.caption)
+        .foregroundStyle(TVColor.textMuted)
+        .accessibilityElement(children: .combine)
     }
 }
 
