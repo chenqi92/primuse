@@ -87,7 +87,7 @@ final class TVKaraokeSeparationTests: XCTestCase {
         }
         let separator = try KaraokeVocalSeparator(modelURL: URL(fileURLWithPath: path))
         let silence = [Float](repeating: 0, count: 44_100)
-        let stem = try await separator.separateVocals(left: silence, right: silence, progress: { _ in }, cooling: { _ in })
+        let stem = try await separator.separateVocals(left: silence, right: silence, progress: { _ in }, hold: {})
         XCTAssertEqual(stem.left.count, silence.count)
         XCTAssertEqual(stem.right.count, silence.count)
         XCTAssertTrue(stem.left.allSatisfy { $0.isFinite && abs($0) < 0.0001 })
