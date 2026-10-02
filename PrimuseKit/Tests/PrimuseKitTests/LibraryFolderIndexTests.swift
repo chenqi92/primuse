@@ -1287,6 +1287,21 @@ struct SourceSyncSubtreePolicyTests {
         #expect(SourceSyncSubtreePolicy.knownDirectories(under: "/Music/Other", in: index) == ["/Music/Other"])
     }
 
+    @Test("A folder named by the directory picker resolves to the index's own spelling, else its nearest known parent")
+    func resolvesPickerDirectory() {
+        #expect(SourceSyncSubtreePolicy.directory(
+            firstKnownOf: ["/Music/Artist/Album/", "/Music/Artist", "/Music", "/"], in: index
+        ) == "/Music/Artist/Album")
+        // 服务器上新建、还没扫进索引的子目录：退到最近一层已知的上级。
+        #expect(SourceSyncSubtreePolicy.directory(
+            firstKnownOf: ["/Music/Artist/New", "/Music/Artist", "/Music", "/"], in: index
+        ) == "/Music/Artist")
+        // 扫描根不是索引里的目录行，但它是顶层条目的父目录。
+        #expect(SourceSyncSubtreePolicy.directory(firstKnownOf: ["/Music/New", "/Music"], in: index) == "/Music")
+        #expect(SourceSyncSubtreePolicy.directory(firstKnownOf: ["/Elsewhere", "/"], in: index) == nil)
+        #expect(SourceSyncSubtreePolicy.directory(firstKnownOf: [], in: index) == nil)
+    }
+
     @Test("Opaque ids follow the same parent links")
     func opaqueIdentifiers() {
         let opaque = Dictionary(uniqueKeysWithValues: [

@@ -4624,6 +4624,7 @@
 "stats_spoken_word_time" = "Tiempo de audiolibros";
 "directory_tag_menu_title" = "Contenido de esta carpeta";
 "directory_tag_hint" = "Toca la etiqueta junto a una carpeta seleccionada y elige Audiolibros para que su contenido vaya al estante de audiolibros y no a tu música.";
+"directory_rescan_now" = "Escanear esta carpeta ahora";
 "home_filter_clear_hint" = "Toca de nuevo para mostrar todo";
 "notifications_section" = "Notificaciones";
 "notify_long_tasks_footer" = "Recibe un aviso cuando un escaneo, una lectura de etiquetas o una búsqueda de metadatos que iniciaste termine en segundo plano. Los problemas que requieren tu atención, como un escaneo fallido o el almacenamiento de iCloud lleno, se avisan de todos modos. No se envía nada mientras la app está abierta.";

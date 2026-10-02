@@ -215,6 +215,114 @@ enum DirectorySelectionInclusionText {
     }
 }
 
+// MARK: - 立即扫描「已包含」的目录
+
+/// 选目录页「已包含」行上的「立即扫描此目录」：只把这一棵子树重新列一遍（走资料库文件夹页
+/// 「重新扫描此文件夹」同一条路径），不改勾选。宿主（音乐源页）只给已保存、支持单独重扫
+/// 文件夹的源；这次打开后改过勾选就不再提供——扫描索引对应的是旧范围，关掉页面时会整源重扫。
+struct DirectoryRescanAction {
+    /// 这一行（连同浏览经过的上级，外层在前）是否被已扫描的范围覆盖。
+    let covers: @MainActor (_ path: String, _ ancestors: [String]) -> Bool
+    /// 这个源正在扫描。只在按钮自己的 body 里调用（读的是只在开扫、扫完时才变的那一份）。
+    let isScanning: @MainActor () -> Bool
+    /// 目录本身在前、再依次往上的各级；开始了返回 true。
+    let rescan: @MainActor (_ candidates: [String]) -> Bool
+
+    @MainActor
+    static func forSavedSource(
+        _ source: MusicSource,
+        directoriesWhenOpened: @escaping @MainActor () -> [String]?,
+        scanService: ScanService,
+        sourceManager: SourceManager,
+        library: MusicLibrary,
+        sourceStore: SourcesStore,
+        scraperService: MusicScraperService
+    ) -> DirectoryRescanAction? {
+        guard let saved = sourceStore.source(id: source.id),
+              saved.isEnabled, !saved.isDeleted,
+              ScanService.supportsFolderRescan(saved) else { return nil }
+        let sourceID = saved.id
+        return DirectoryRescanAction(
+            covers: { path, ancestors in
+                guard let current = sourceStore.source(id: sourceID) else { return false }
+                let directories = current.scannedDirectories
+                if let opened = directoriesWhenOpened(), Set(opened) != Set(directories) {
+                    return false
+                }
+                guard case .included = SourceDirectorySelectionPolicy.selectionState(
+                    of: path,
+                    in: directories,
+                    ancestors: ancestors,
+                    for: current.type
+                ) else { return false }
+                return true
+            },
+            isScanning: { scanService.scanningSourceIDs.contains(sourceID) },
+            rescan: { candidates in
+                guard let current = sourceStore.source(id: sourceID) else { return false }
+                return scanService.rescanFolder(
+                    of: current,
+                    request: SourceFolderRescanRequest(directoryCandidates: candidates),
+                    sourceManager: sourceManager,
+                    library: library,
+                    sourceStore: sourceStore,
+                    scraperService: scraperService
+                )
+            }
+        )
+    }
+}
+
+private struct DirectoryRescanActionKey: EnvironmentKey {
+    static var defaultValue: DirectoryRescanAction? { nil }
+}
+
+extension EnvironmentValues {
+    var directoryRescanAction: DirectoryRescanAction? {
+        get { self[DirectoryRescanActionKey.self] }
+        set { self[DirectoryRescanActionKey.self] = newValue }
+    }
+}
+
+/// 「已包含」行行尾的次级按钮。点下去这个源开始扫描时转圈，扫完复原；源正在扫（别处发起的）时不可点。
+struct DirectoryRescanButton: View {
+    let action: DirectoryRescanAction
+    let candidates: [String]
+    @State private var isRequested = false
+
+    var body: some View {
+        let isScanning = action.isScanning()
+        Button {
+            isRequested = action.rescan(candidates)
+        } label: {
+            ZStack {
+                if isRequested && isScanning {
+                    ProgressView()
+                        .controlSize(.mini)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.caption.weight(.semibold))
+                }
+            }
+            .foregroundStyle(.secondary)
+            .frame(width: 26, height: 26)
+            .background(Color.secondary.opacity(0.12), in: Circle())
+            #if os(iOS)
+            .frame(width: 34, height: 44)
+            #endif
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isScanning)
+        .help(Text("directory_rescan_now"))
+        .accessibilityLabel(Text("directory_rescan_now"))
+        .accessibilityIdentifier("directoryPicker.rescan")
+        .onChange(of: isScanning) { _, scanning in
+            if !scanning { isRequested = false }
+        }
+    }
+}
+
 // MARK: - Folder tags
 
 /// A selected scan folder's content tag: music (no tag, the usual
@@ -678,6 +786,7 @@ struct MacDirTreeBrowser: View {
     var tagSource: MusicSource? = nil
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.directoryRescanAction) private var rescanAction
     @State private var rows: [MacDirTreeRow] = []
     @State private var focusedPath: String?
     @State private var focusedItems: [RemoteFileItem] = []
@@ -810,13 +919,17 @@ struct MacDirTreeBrowser: View {
                 status(icon: "folder", text: String(localized: "no_subdirectories"))
                     .pmAppearFade(.contentAppear)
             } else {
-                let states = rowSelectionStates()
+                let selections = rowSelections()
                 LazyVStack(alignment: .leading, spacing: 1) {
                     if let effectiveRootSelectionPath {
                         rootSelectionRow(effectiveRootSelectionPath)
                     }
                     ForEach(rows) { row in
-                        rowView(row, state: states[row.path] ?? .unselected)
+                        rowView(
+                            row,
+                            state: selections[row.path]?.state ?? .unselected,
+                            ancestors: selections[row.path]?.ancestors ?? []
+                        )
                     }
                 }
                 .padding(.horizontal, 6)
@@ -843,7 +956,8 @@ struct MacDirTreeBrowser: View {
 
     private func rowView(
         _ row: MacDirTreeRow,
-        state: SourceDirectorySelectionPolicy.SelectionState
+        state: SourceDirectorySelectionPolicy.SelectionState,
+        ancestors: [String]
     ) -> some View {
         let focused = focusedPath == row.path
         let checked = state == .selected
@@ -905,6 +1019,10 @@ struct MacDirTreeBrowser: View {
             // 「已包含」的子目录也能单独标成有声:标签按目录匹配歌曲,不要求它自己是扫描根。
             if checked || included, let tag = folderTag(for: row.path) {
                 DirectoryFolderTagMenu(tag: tag)
+            }
+
+            if included, let rescanAction, rescanAction.covers(row.path, ancestors) {
+                DirectoryRescanButton(action: rescanAction, candidates: [row.path] + ancestors.reversed())
             }
         }
         .padding(.leading, 8 + CGFloat(row.depth) * 16)
@@ -1027,26 +1145,36 @@ struct MacDirTreeBrowser: View {
             ?? SourceDirectorySelectionPolicy.storedRootSelection(in: selectedDirectories)
     }
 
-    /// 每一行的勾选状态。树是按深度拍平的前序列表,沿途维护一条祖先链,
-    /// 一趟算完;按 ID 寻址的源只能靠这条链认出上下级。
-    private func rowSelectionStates() -> [String: SourceDirectorySelectionPolicy.SelectionState] {
+    /// 每一行的勾选状态与它的祖先链(外层在前)。树是按深度拍平的前序列表,沿途维护
+    /// 一条祖先链,一趟算完;按 ID 寻址的源只能靠这条链认出上下级。
+    private func rowSelections() -> [String: (
+        state: SourceDirectorySelectionPolicy.SelectionState,
+        ancestors: [String]
+    )] {
         let rootAncestors = [rootPath] + (effectiveRootSelectionPath.map { [$0] } ?? [])
         var chain: [String] = []
-        var states: [String: SourceDirectorySelectionPolicy.SelectionState] = [:]
-        states.reserveCapacity(rows.count)
+        var selections: [String: (
+            state: SourceDirectorySelectionPolicy.SelectionState,
+            ancestors: [String]
+        )] = [:]
+        selections.reserveCapacity(rows.count)
         for row in rows {
             if chain.count > row.depth {
                 chain.removeLast(chain.count - row.depth)
             }
-            states[row.path] = SourceDirectorySelectionPolicy.selectionState(
-                of: row.path,
-                in: selectedDirectories,
-                ancestors: rootAncestors + chain,
-                for: sourceType
+            let ancestors = rootAncestors + chain
+            selections[row.path] = (
+                SourceDirectorySelectionPolicy.selectionState(
+                    of: row.path,
+                    in: selectedDirectories,
+                    ancestors: ancestors,
+                    for: sourceType
+                ),
+                ancestors
             )
             chain.append(row.path)
         }
-        return states
+        return selections
     }
 
     private func inclusionCaption(

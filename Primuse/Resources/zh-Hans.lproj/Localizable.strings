@@ -4811,6 +4811,7 @@
 "stats_spoken_word_time" = "听书时长";
 "directory_tag_menu_title" = "目录里的内容";
 "directory_tag_hint" = "点一下已选目录旁的标签改成「有声书」，里面的内容会放进有声书架，不和音乐混在一起。";
+"directory_rescan_now" = "立即扫描此目录";
 "home_filter_clear_hint" = "再点一次回到全部";
 "notifications_section" = "通知";
 "notify_long_tasks_footer" = "你发起的扫描、标签读取和刮削在后台完成时提醒你。扫描失败、iCloud 空间已满这类需要你处理的问题不受此开关影响；App 在前台时不会发通知。";

@@ -4481,6 +4481,7 @@
 "stats_spoken_word_time" = "Audiobook Time";
 "directory_tag_menu_title" = "What’s in This Folder";
 "directory_tag_hint" = "Tap the tag next to a selected folder and choose Audiobooks to put its contents on the audiobook shelf instead of in your music.";
+"directory_rescan_now" = "Scan This Folder Now";
 "home_filter_clear_hint" = "Tap again to show everything";
 "notifications_section" = "Notifications";
 "notify_long_tasks_footer" = "Get notified when a scan, tag reading or metadata scrape you started finishes in the background. Problems that need you, like a failed scan or full iCloud storage, are reported either way. Nothing is sent while the app is open.";

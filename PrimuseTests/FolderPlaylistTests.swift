@@ -345,6 +345,78 @@ final class FolderPlaylistTests: XCTestCase {
         XCTAssertEqual(listed, ["/Music/A", "/Music/A/NewDisc"])
     }
 
+    func testDirectoryPickerRescanStartsAtTheNamedFolderOrItsNearestKnownParent() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("PickerRescan-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let source = MusicSource(id: "source", name: "NAS", type: .webdav, extraConfig: "[\"/Music\"]")
+        func dir(_ path: String) -> RemoteFileItem {
+            RemoteFileItem(name: (path as NSString).lastPathComponent, path: path,
+                           isDirectory: true, size: 0, modifiedDate: nil)
+        }
+        func file(_ path: String) -> RemoteFileItem {
+            RemoteFileItem(name: (path as NSString).lastPathComponent, path: path,
+                           isDirectory: false, size: 1_000, modifiedDate: Date(timeIntervalSince1970: 1_700_000_000))
+        }
+        let connector = FolderRescanTestConnector(listings: [
+            "/Music": [dir("/Music/A"), dir("/Music/B")],
+            "/Music/A": [file("/Music/A/a1.mp3"), dir("/Music/A/Disc")],
+            "/Music/A/Disc": [file("/Music/A/Disc/d1.mp3")],
+            "/Music/B": [file("/Music/B/b1.mp3")],
+        ])
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        let store = SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources"))
+        store.add(source)
+        let scan = ScanService(
+            fileManager: FolderPlaylistTestFileManager(root: root), connectorProvider: { _ in connector },
+            diagnosticProvider: { source, _ in SourceDiagnosticReport(source: source, startedAt: Date(), checks: []) }
+        )
+        let manager = SourceManager(sourcesProvider: { [] })
+        XCTAssertTrue(scan.scanSource(source, sourceManager: manager, library: library, sourceStore: store))
+        await scan.waitForActiveScansToComplete()
+
+        // 选目录页「已包含」的 Disc 行：目录本身在前，再是浏览经过的上级。
+        await connector.replaceListings([
+            "/Music": [dir("/Music/A"), dir("/Music/B")],
+            "/Music/A": [file("/Music/A/a1.mp3"), dir("/Music/A/Disc")],
+            "/Music/A/Disc": [file("/Music/A/Disc/d1.mp3"), file("/Music/A/Disc/d2.mp3")],
+            "/Music/B": [file("/Music/B/b1.mp3"), file("/Music/B/b2.mp3")],
+        ])
+        XCTAssertTrue(scan.rescanFolder(
+            of: source,
+            request: SourceFolderRescanRequest(directoryCandidates: ["/Music/A/Disc", "/Music/A", "/Music", "/"]),
+            sourceManager: manager, library: library, sourceStore: store
+        ))
+        await scan.waitForActiveScansToComplete()
+        XCTAssertNil(scan.scanStates[source.id]?.failureMessage)
+        var listed = await connector.listedPaths
+        XCTAssertEqual(listed, ["/Music/A/Disc"])
+        XCTAssertEqual(Set(library.songs.map(\.filePath)),
+                       ["/Music/A/a1.mp3", "/Music/A/Disc/d1.mp3", "/Music/A/Disc/d2.mp3", "/Music/B/b1.mp3"])
+
+        // 服务器上新建、还没扫进索引的目录：从最近一层已知的上级 A 往下列。
+        await connector.replaceListings([
+            "/Music": [dir("/Music/A"), dir("/Music/B")],
+            "/Music/A": [file("/Music/A/a1.mp3"), dir("/Music/A/Disc"), dir("/Music/A/New")],
+            "/Music/A/Disc": [file("/Music/A/Disc/d1.mp3"), file("/Music/A/Disc/d2.mp3")],
+            "/Music/A/New": [file("/Music/A/New/n1.mp3")],
+            "/Music/B": [file("/Music/B/b1.mp3"), file("/Music/B/b2.mp3")],
+        ])
+        XCTAssertTrue(scan.rescanFolder(
+            of: source,
+            request: SourceFolderRescanRequest(directoryCandidates: ["/Music/A/New", "/Music/A", "/Music", "/"]),
+            sourceManager: manager, library: library, sourceStore: store
+        ))
+        await scan.waitForActiveScansToComplete()
+        XCTAssertNil(scan.scanStates[source.id]?.failureMessage)
+        listed = await connector.listedPaths
+        XCTAssertEqual(listed.first, "/Music/A")
+        XCTAssertEqual(Set(listed), ["/Music/A", "/Music/A/Disc", "/Music/A/New"])
+        XCTAssertEqual(Set(library.songs.map(\.filePath)), [
+            "/Music/A/a1.mp3", "/Music/A/Disc/d1.mp3", "/Music/A/Disc/d2.mp3",
+            "/Music/A/New/n1.mp3", "/Music/B/b1.mp3",
+        ])
+    }
+
     func testFolderRescanOfARemovedFolderWalksUpFromASong() async throws {
         let index = Dictionary(uniqueKeysWithValues: [
             indexed("/Music/A", parent: "/Music", directory: true),

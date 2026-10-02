@@ -1604,6 +1604,38 @@ public enum SourceSyncSubtreePolicy {
         return directory
     }
 
+    /// 选目录页按连接器的原始写法点名的目录。`candidates` 是目录本身在前、再依次往上的
+    /// 各级（浏览时经过的那几层）；取第一个扫描索引认得的——索引里的目录行，或某一项的
+    /// 父目录（扫描根本身不在索引里）。服务器上新建、还没扫进索引的子目录就退到最近一层
+    /// 已知的上级。结尾的 "/" 不算差别，答的是索引里的写法；都不认得答 nil。
+    public static func directory(
+        firstKnownOf candidates: [String],
+        in index: [String: SourceSyncIndexedItem]
+    ) -> String? {
+        var known: [String: String] = [:]
+        func remember(_ path: String?) {
+            guard let path, !path.isEmpty else { return }
+            let key = comparisonKey(path)
+            if known[key] == nil { known[key] = path }
+        }
+        for entry in index.values where entry.isDirectory {
+            remember(entry.path)
+        }
+        for entry in index.values {
+            remember(entry.parentPath)
+        }
+        for candidate in candidates where !candidate.isEmpty {
+            if let match = known[comparisonKey(candidate)] { return match }
+        }
+        return nil
+    }
+
+    private static func comparisonKey(_ path: String) -> String {
+        var key = Substring(path)
+        while key.count > 1, key.hasSuffix("/") { key = key.dropLast() }
+        return String(key)
+    }
+
     /// `root` 与索引里已知的、在它下面的全部目录（按父目录链判定，不比较路径前缀）。
     public static func knownDirectories(
         under root: String,

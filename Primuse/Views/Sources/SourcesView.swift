@@ -637,6 +637,7 @@ struct SourcesContentView: View {
                     for: source,
                     onEditAddress: { requestAddressEdit(for: source) }
                 )
+                .environment(\.directoryRescanAction, directoryRescanAction(for: source))
                 .onAppear { beginDirectorySelectionSession(for: source) }
             }
             .sheet(item: $diagnosingSource) { source in
@@ -2414,6 +2415,23 @@ struct SourcesContentView: View {
             guard let items = grouped[cat], !items.isEmpty else { return nil }
             return (cat, items)
         }
+    }
+
+    /// 「已包含」目录行上的「立即扫描此目录」(见 `DirectoryRescanAction`)。
+    private func directoryRescanAction(for source: MusicSource) -> DirectoryRescanAction? {
+        DirectoryRescanAction.forSavedSource(
+            source,
+            directoriesWhenOpened: {
+                directorySelectionSession?.sourceID == source.id
+                    ? directorySelectionSession?.previousDirectories
+                    : nil
+            },
+            scanService: scanService,
+            sourceManager: sourceManager,
+            library: library,
+            sourceStore: sourceStore,
+            scraperService: scraperService
+        )
     }
 
     private func beginDirectorySelectionSession(for source: MusicSource) {

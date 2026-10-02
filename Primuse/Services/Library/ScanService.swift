@@ -109,11 +109,25 @@ final class ScanServiceStartupPrewarm: Sendable {
 /// the process alive without a UIKit assertion, so a scan may continue while
 /// the app is backgrounded — but only on a deliberately reduced profile so it
 /// cannot compete with the audio render thread.
-/// 资料库「文件夹」页发起的「只重扫这个文件夹」：文件夹里一首歌当锚点，再往上几层
-/// 是要重扫的那个文件夹（见 `LibraryFolderRescanAnchor`）。
+/// 「只重扫这个文件夹」要重扫哪一个。
 struct SourceFolderRescanRequest: Sendable, Equatable {
-    let anchorSongID: String
-    let levelsAbove: Int
+    enum Target: Sendable, Equatable {
+        /// 资料库「文件夹」页：文件夹里一首歌当锚点，再往上几层（见 `LibraryFolderRescanAnchor`）。
+        case anchor(songID: String, levelsAbove: Int)
+        /// 选目录页：连接器原始写法的目录本身在前，再依次是浏览经过的各级上级
+        /// （见 `SourceSyncSubtreePolicy.directory(firstKnownOf:in:)`）。
+        case directory(candidates: [String])
+    }
+
+    let target: Target
+
+    init(anchorSongID: String, levelsAbove: Int) {
+        target = .anchor(songID: anchorSongID, levelsAbove: levelsAbove)
+    }
+
+    init(directoryCandidates: [String]) {
+        target = .directory(candidates: directoryCandidates)
+    }
 }
 
 enum ScanExecutionProfile: Sendable, Equatable {
@@ -4506,11 +4520,18 @@ final class ScanService {
         scraperService: MusicScraperService?,
         sourceManager: SourceManager
     ) async throws -> Bool {
-        guard let root = SourceSyncSubtreePolicy.directory(
-            containingSongID: request.anchorSongID,
-            levelsAbove: request.levelsAbove,
-            in: state.index
-        ) else {
+        let resolvedRoot: String?
+        switch request.target {
+        case .anchor(let songID, let levelsAbove):
+            resolvedRoot = SourceSyncSubtreePolicy.directory(
+                containingSongID: songID,
+                levelsAbove: levelsAbove,
+                in: state.index
+            )
+        case .directory(let candidates):
+            resolvedRoot = SourceSyncSubtreePolicy.directory(firstKnownOf: candidates, in: state.index)
+        }
+        guard let root = resolvedRoot else {
             plog("📂 \(source.name): folder rescan could not place the folder in the scan index; walking the whole source")
             return false
         }

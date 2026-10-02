@@ -1494,6 +1494,7 @@ struct DirectoryCheckRow: View {
     var sourceType: MusicSourceType? = nil
     /// 「已包含在「…」中」里那个上级目录的名字;给不出时用通用说法。
     var ancestorTitle: (@MainActor (String) -> String?)? = nil
+    @Environment(\.directoryRescanAction) private var rescanAction
 
     private var selectionState: SourceDirectorySelectionPolicy.SelectionState {
         SourceDirectorySelectionPolicy.selectionState(
@@ -1516,6 +1517,16 @@ struct DirectoryCheckRow: View {
     }
 
     private var isIncluded: Bool { includedCaption != nil }
+
+    /// 「立即扫描此目录」交给重扫的目录:这一行自己在前,再依次往上。只给已扫描范围里
+    /// 「已包含」的行(见 `DirectoryRescanAction`)。
+    @ViewBuilder
+    private var rescanButton: some View {
+        if isIncluded, let rescanAction, rescanAction.covers(path, ancestorPaths) {
+            DirectoryRescanButton(action: rescanAction, candidates: [path] + ancestorPaths.reversed())
+                .transition(.scale(scale: 0.85).combined(with: .opacity))
+        }
+    }
 
     private var selectionBinding: Binding<Bool> {
         Binding(
@@ -1563,6 +1574,8 @@ struct DirectoryCheckRow: View {
             }
 
             Spacer()
+
+            rescanButton
 
             if isNavigable {
                 Button { onNavigate?() } label: {
@@ -1642,6 +1655,8 @@ struct DirectoryCheckRow: View {
                 DirectoryFolderTagMenu(tag: folderTag)
                     .transition(.scale(scale: 0.85).combined(with: .opacity))
             }
+
+            rescanButton
 
             if isNavigable {
                 Button { onNavigate?() } label: {

@@ -105,6 +105,7 @@ struct MacSourcesView: View {
                 for: source,
                 onEditAddress: { requestAddressEdit(for: source) }
             )
+            .environment(\.directoryRescanAction, directoryRescanAction(for: source))
             .frame(minWidth: 880, idealWidth: 940, minHeight: 600, idealHeight: 680)
             .onAppear { beginDirectorySelectionSession(for: source) }
         }
@@ -1109,6 +1110,23 @@ struct MacSourcesView: View {
     /// 之前它是 AppServices 兜底补出来的虚拟源, 只能隐藏以免用户误点连接按钮。
     private var sources: [MusicSource] {
         sourceStore.sources
+    }
+
+    /// 「已包含」目录行上的「立即扫描此目录」(见 `DirectoryRescanAction`)。
+    private func directoryRescanAction(for source: MusicSource) -> DirectoryRescanAction? {
+        DirectoryRescanAction.forSavedSource(
+            source,
+            directoriesWhenOpened: {
+                directorySelectionSession?.sourceID == source.id
+                    ? directorySelectionSession?.previousDirectories
+                    : nil
+            },
+            scanService: scanService,
+            sourceManager: sourceManager,
+            library: library,
+            sourceStore: sourceStore,
+            scraperService: scraperService
+        )
     }
 
     private func beginDirectorySelectionSession(for source: MusicSource) {
