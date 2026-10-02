@@ -4111,6 +4111,7 @@
 "radio_subscription_detach_footer" = "Создаёт вашу собственную копию, которую можно свободно менять. Запись из списка больше не будет добавлена.";
 
 "library_review_clear_rating" = "Очистить оценку";
+"library_review_rating_from_server" = "Из %@";
 "server_rating_sync_failed_title" = "Не удалось синхронизировать оценку";
 "server_rating_sync_failed_message" = "Оценка сохранена локально. Не удалось завершить синхронизацию с сервером.";
 

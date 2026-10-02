@@ -4205,6 +4205,7 @@
 "radio_subscription_detach_footer" = "Legt eine eigene Kopie an, die du frei bearbeiten kannst. Der Eintrag der Liste wird nicht wieder hinzugefügt.";
 
 "library_review_clear_rating" = "Bewertung löschen";
+"library_review_rating_from_server" = "Von %@";
 "server_rating_sync_failed_title" = "Bewertung nicht synchronisiert";
 "server_rating_sync_failed_message" = "Deine Bewertung wurde lokal gespeichert. Die Serversynchronisierung konnte nicht abgeschlossen werden.";
 

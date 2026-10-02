@@ -4205,6 +4205,7 @@
 "radio_subscription_detach_footer" = "Crée votre propre copie, modifiable librement. L’entrée de la liste ne sera pas rajoutée.";
 
 "library_review_clear_rating" = "Effacer la note";
+"library_review_rating_from_server" = "De %@";
 "server_rating_sync_failed_title" = "Échec de synchronisation de la note";
 "server_rating_sync_failed_message" = "Votre note est enregistrée localement. La synchronisation avec le serveur n’a pas pu être terminée.";
 

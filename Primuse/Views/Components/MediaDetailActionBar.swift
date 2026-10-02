@@ -856,6 +856,15 @@ struct LibraryReviewSection: View {
         library.libraryReview(for: subject)
     }
 
+    /// 评分是从服务器读回来的(不是在本机打的)时,那个音乐源的名字。
+    private var ratingServerName: String? {
+        guard let review, review.rating != nil, review.ratingFromServer == true,
+              let sourceID = review.serverRatingTarget?.sourceID,
+              let name = AppServices.shared.sourcesStore.source(id: sourceID)?.name,
+              !name.isEmpty else { return nil }
+        return name
+    }
+
     var body: some View {
         if isEnabled {
             VStack(alignment: .leading, spacing: compact ? 8 : 12) {
@@ -889,6 +898,15 @@ struct LibraryReviewSection: View {
                         commentButton.buttonStyle(.bordered)
                     }
                     #endif
+                }
+
+                if let serverName = ratingServerName {
+                    // 别的客户端在服务器上打的分,扫描时读回来的。
+                    Text(String(format: String(localized: "library_review_rating_from_server"), serverName))
+                        .font(.caption2)
+                        .foregroundStyle(foregroundColor?.opacity(0.6) ?? (onArtwork ? Color.white.opacity(0.6) : Color.secondary))
+                        .lineLimit(1)
+                        .padding(.top, compact ? -4 : -6)
                 }
 
                 if let comment = review?.comment, !comment.isEmpty {

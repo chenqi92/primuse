@@ -1822,6 +1822,24 @@ protocol CatalogDriftReportingConnector: MusicSourceConnector {
 /// 由评分同步在扫描提交之后按基线决定要不要采纳(#172)。
 protocol ServerRatingObservingConnector: MusicSourceConnector {
     func takeObservedServerRatings() async -> [String: Int]
+    /// 同一次走查里每首歌属于服务端哪张专辑(歌曲条目 id → 专辑 id),用来把服务端的
+    /// 专辑评分对到本机的专辑上。取走即清空;不报专辑的源返回空。
+    func takeObservedSongAlbumIDs() async -> [String: String]
+}
+
+extension ServerRatingObservingConnector {
+    func takeObservedSongAlbumIDs() async -> [String: String] { [:] }
+}
+
+/// 服务端的专辑评分(#172)。目前只有 Navidrome。
+protocol ServerAlbumRatingConnector: MusicSourceConnector {
+    /// 打过分的专辑(服务端专辑 id → 1…5)。服务端的专辑列表不带评分时返回 nil ——
+    /// 那不等于「都没评分」,不能拿来清本机的评分。
+    func fetchRatedServerAlbums() async throws -> [String: Int]?
+    /// nil 表示没评分;专辑不存在、响应不对时抛错。
+    func fetchServerAlbumRating(albumID: String) async throws -> Int?
+    /// 写入 1…5,nil 清除;写完读回确认,返回服务端确认后的值。
+    func setServerAlbumRating(albumID: String, rating: Int?) async throws -> Int?
 }
 
 /// Authoritative catalogue pages that can be staged without publishing a

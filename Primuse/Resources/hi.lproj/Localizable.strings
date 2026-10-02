@@ -4111,6 +4111,7 @@
 "radio_subscription_detach_footer" = "आपकी अपनी एक प्रति बनाता है जिसे आप खुलकर बदल सकते हैं। सूची की यह प्रविष्टि फिर से नहीं जुड़ेगी।";
 
 "library_review_clear_rating" = "रेटिंग हटाएँ";
+"library_review_rating_from_server" = "%@ से";
 "server_rating_sync_failed_title" = "रेटिंग सिंक विफल";
 "server_rating_sync_failed_message" = "आपकी रेटिंग स्थानीय रूप से सहेजी गई है। सर्वर के साथ सिंक पूरा नहीं हो सका।";
 

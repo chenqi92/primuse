@@ -64,6 +64,37 @@ final class SubsonicRatingTests: XCTestCase {
         }
     }
 
+    func testAlbumRatingWritesAlbumIDAndReadsItBackFromTheAlbum() async throws {
+        let fixture = RatingHTTPFixture()
+        let (source, session) = makeSource(fixture)
+        defer { session.invalidateAndCancel() }
+        let rated = try await source.setServerAlbumRating(albumID: "al-1", rating: 5)
+        XCTAssertEqual(rated, 5)
+        XCTAssertEqual(fixture.requests.compactMap(\.url?.lastPathComponent), [
+            "ping.view", "setRating.view", "getAlbum.view"
+        ])
+        let write = try XCTUnwrap(fixture.requests.first { $0.url?.lastPathComponent == "setRating.view" })
+        XCTAssertEqual(query(write)["id"], "al-1")
+        XCTAssertEqual(query(write)["rating"], "5")
+    }
+
+    func testRatedAlbumListComesFromHighestAndNeedsUserRatings() async throws {
+        let fixture = RatingHTTPFixture()
+        let (source, session) = makeSource(fixture)
+        defer { session.invalidateAndCancel() }
+        let rated = try await source.fetchRatedServerAlbums()
+        XCTAssertEqual(rated, ["al-1": 4, "al-2": 5])
+        let list = try XCTUnwrap(fixture.requests.first { $0.url?.lastPathComponent == "getAlbumList2.view" })
+        XCTAssertEqual(query(list)["type"], "highest")
+
+        // 列表不带 userRating 的服务器:说不清哪张评了几分,不能当成「都没评分」。
+        let silent = RatingHTTPFixture(mode: .albumListWithoutRatings)
+        let (silentSource, silentSession) = makeSource(silent)
+        defer { silentSession.invalidateAndCancel() }
+        let unknown = try await silentSource.fetchRatedServerAlbums()
+        XCTAssertNil(unknown)
+    }
+
     private func query(_ request: URLRequest) -> [String: String] {
         let items = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems } ?? []
         return Dictionary(items.compactMap { item in item.value.map { (item.name, $0) } }, uniquingKeysWith: { _, rhs in rhs })
@@ -82,7 +113,10 @@ final class SubsonicRatingTests: XCTestCase {
 }
 
 private final class RatingHTTPFixture: @unchecked Sendable {
-    enum Mode { case success, authenticationFailure, mismatchedRating, missingSong, wrongSong, invalidRating }
+    enum Mode {
+        case success, authenticationFailure, mismatchedRating, missingSong, wrongSong, invalidRating
+        case albumListWithoutRatings
+    }
     let mode: Mode
     private let lock = NSLock()
     private var recorded: [URLRequest] = []
@@ -114,6 +148,20 @@ private final class RatingHTTPFixture: @unchecked Sendable {
                     song["averageRating"] = 3.5
                     body["song"] = song
                 }
+            case "getAlbum.view":
+                var album: [String: Any] = ["id": param("id") ?? ""]
+                if rating != 0 { album["userRating"] = rating }
+                body["album"] = album
+            case "getAlbumList2.view":
+                let albums: [[String: Any]]
+                if mode == .albumListWithoutRatings {
+                    albums = [["id": "al-1", "name": "One"]]
+                } else if param("type") == "highest", (Int(param("offset") ?? "0") ?? 0) == 0 {
+                    albums = [["id": "al-1", "userRating": 4], ["id": "al-2", "userRating": 5]]
+                } else {
+                    albums = []
+                }
+                body["albumList2"] = ["album": albums]
             default:
                 body = ["status": "failed", "error": ["code": 70, "message": "Unknown method"]]
             }

@@ -1802,6 +1802,11 @@ public enum ServerRatingWritebackPolicy {
         sourceType == .navidrome || sourceType == .synologyAudioStation
     }
 
+    /// 专辑也有服务端评分的源(`setRating` 收专辑 id)。Audio Station 只有歌曲评分。
+    public static func supportsAlbumRatings(_ sourceType: MusicSourceType) -> Bool {
+        sourceType == .navidrome
+    }
+
     public static func songID(
         fromConnectorPath filePath: String,
         sourceType: MusicSourceType

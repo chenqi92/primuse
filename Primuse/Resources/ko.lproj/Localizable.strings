@@ -4205,6 +4205,7 @@
 "radio_subscription_detach_footer" = "자유롭게 편집할 수 있는 내 방송국을 따로 만듭니다. 목록의 이 항목은 다시 추가되지 않습니다.";
 
 "library_review_clear_rating" = "평점 지우기";
+"library_review_rating_from_server" = "%@에서 가져옴";
 "server_rating_sync_failed_title" = "평점 동기화 실패";
 "server_rating_sync_failed_message" = "평점은 기기에 저장되었습니다. 서버 동기화를 완료하지 못했습니다.";
 

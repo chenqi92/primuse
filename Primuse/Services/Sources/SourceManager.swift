@@ -1350,6 +1350,16 @@ actor SourceConnectionRouter {
         return ratings
     }
 
+    /// 同上,歌曲所属的服务端专辑。
+    func takeObservedSongAlbumIDs() async -> [String: String] {
+        var albums: [String: String] = [:]
+        for candidate in candidates {
+            guard let observer = candidate.connector as? any ServerRatingObservingConnector else { continue }
+            albums.merge(await observer.takeObservedSongAlbumIDs()) { _, latest in latest }
+        }
+        return albums
+    }
+
     func withMutation<T: Sendable>(
         _ operation: @Sendable (any MusicSourceConnector) async throws -> T
     ) async throws -> T {
@@ -2131,11 +2141,42 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
     ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector,
     ServerPlaylistAppendingConnector, ServerMediaSharingConnector, ServerFavoriteConnector,
     ServerRadioConnector, ServerListeningStatsConnector, ServerRatingConnector,
-    ServerCollectionFavoriteConnector {
+    ServerCollectionFavoriteConnector, ServerAlbumRatingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
     let routedPreferredDeleteBatchSize: Int
+
+    func takeObservedSongAlbumIDs() async -> [String: String] {
+        await routing.takeObservedSongAlbumIDs()
+    }
+
+    func fetchRatedServerAlbums() async throws -> [String: Int]? {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerAlbumRatingConnector else {
+                throw SourceError.connectionFailed("Server album rating connector unavailable")
+            }
+            return try await provider.fetchRatedServerAlbums()
+        }
+    }
+
+    func fetchServerAlbumRating(albumID: String) async throws -> Int? {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerAlbumRatingConnector else {
+                throw SourceError.connectionFailed("Server album rating connector unavailable")
+            }
+            return try await provider.fetchServerAlbumRating(albumID: albumID)
+        }
+    }
+
+    func setServerAlbumRating(albumID: String, rating: Int?) async throws -> Int? {
+        try await routing.withMutation { connector in
+            guard let provider = connector as? any ServerAlbumRatingConnector else {
+                throw SourceError.connectionFailed("Server album rating connector unavailable")
+            }
+            return try await provider.setServerAlbumRating(albumID: albumID, rating: rating)
+        }
+    }
 
     func fetchServerCollectionFavorites() async throws -> [ServerCollectionFavorite] {
         try await routing.withRead { connector in
@@ -2537,7 +2578,7 @@ private struct RoutedSongloftConnector: RoutedConnectorProxy, RefreshingMetadata
 /// `SynologyAudioStationSource` 遵循的协议逐一对应。
 private struct RoutedSynologyAudioStationConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     ServerLyricsConnector, ServerPlaylistConnector, ServerRatingConnector, ServerRadioConnector,
-    ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector {
+    ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector, ServerRatingObservingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -12877,10 +12918,46 @@ final class SourceManager {
         return await observer.takeObservedServerRatings()
     }
 
+    /// 同一次走查里歌曲所属的服务端专辑(歌曲条目 id → 专辑 id)。
+    func takeObservedSongAlbumIDs(for source: MusicSource) async -> [String: String] {
+        guard let observer = connector(for: source) as? any ServerRatingObservingConnector else { return [:] }
+        return await observer.takeObservedSongAlbumIDs()
+    }
+
+    /// 服务端打过分的专辑;服务端不报专辑评分时 nil。
+    func fetchRatedServerAlbums(for source: MusicSource) async throws -> [String: Int]? {
+        guard ServerRatingWritebackPolicy.supportsAlbumRatings(source.type),
+              let provider = connector(for: source) as? any ServerAlbumRatingConnector else { return nil }
+        let scope = Self.audioCacheScopeSignature(for: source)
+        let ratings = try await provider.fetchRatedServerAlbums()
+        guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: scope) else {
+            throw CancellationError()
+        }
+        return ratings
+    }
+
+    /// 本机专辑在这个源上的服务端专辑 id:从这张专辑在该源上的一首歌反查。
+    func serverAlbumID(forSongItemID songItemID: String, source: MusicSource) async throws -> String? {
+        guard ServerRatingWritebackPolicy.supportsAlbumRatings(source.type),
+              let provider = connector(for: source) as? any ServerCollectionFavoriteConnector else { return nil }
+        let scope = Self.audioCacheScopeSignature(for: source)
+        let albumID = try await provider.serverCollectionMembership(songItemID: songItemID).albumID
+        guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: scope) else {
+            throw CancellationError()
+        }
+        return albumID.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
     func fetchServerRating(target: ServerSongRatingTarget, source: MusicSource) async throws -> Int? {
         let scope = Self.audioCacheScopeSignature(for: source)
-        let provider = try await ratingConnector(target: target, source: source, scope: scope)
-        let rating = try await provider.fetchServerRating(itemID: target.itemID)
+        let rating: Int?
+        if target.isAlbum {
+            let provider = try await albumRatingConnector(target: target, source: source, scope: scope)
+            rating = try await provider.fetchServerAlbumRating(albumID: target.itemID)
+        } else {
+            let provider = try await ratingConnector(target: target, source: source, scope: scope)
+            rating = try await provider.fetchServerRating(itemID: target.itemID)
+        }
         guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: scope) else {
             throw CancellationError()
         }
@@ -12891,12 +12968,31 @@ final class SourceManager {
         target: ServerSongRatingTarget, source: MusicSource, rating: Int?
     ) async throws -> Int? {
         let scope = Self.audioCacheScopeSignature(for: source)
-        let provider = try await ratingConnector(target: target, source: source, scope: scope)
-        let confirmed = try await provider.setServerRating(itemID: target.itemID, rating: rating)
+        let confirmed: Int?
+        if target.isAlbum {
+            let provider = try await albumRatingConnector(target: target, source: source, scope: scope)
+            confirmed = try await provider.setServerAlbumRating(albumID: target.itemID, rating: rating)
+        } else {
+            let provider = try await ratingConnector(target: target, source: source, scope: scope)
+            confirmed = try await provider.setServerRating(itemID: target.itemID, rating: rating)
+        }
         guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: scope) else {
             throw CancellationError()
         }
         return confirmed
+    }
+
+    private func albumRatingConnector(
+        target: ServerSongRatingTarget, source: MusicSource, scope: String
+    ) async throws -> any ServerAlbumRatingConnector {
+        try Task.checkCancellation()
+        guard ServerRatingWritebackPolicy.supportsAlbumRatings(source.type), source.id == target.sourceID,
+              MusicSourceScopeFingerprint.make(for: source, includeSourceID: true) == target.accountFingerprint,
+              await sourceScopeIsCurrent(sourceID: source.id, expectedScope: scope),
+              let provider = connector(for: source) as? any ServerAlbumRatingConnector else {
+            throw CancellationError()
+        }
+        return provider
     }
 
     private func ratingConnector(

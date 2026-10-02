@@ -3085,6 +3085,9 @@ struct LibraryReview: Codable, Hashable, Identifiable, Sendable {
     var ratingModifiedAt: TimeInterval? = nil
     var commentModifiedAt: TimeInterval? = nil
     var serverRatingTarget: ServerSongRatingTarget? = nil
+    /// 这个评分是扫描时从服务端读回来的(别的客户端打的),不是在本机打的。
+    /// 本机一改就清掉;界面据此写「来自 <服务器名>」。
+    var ratingFromServer: Bool? = nil
 
     var id: String { subject.storageKey }
     var isDeleted: Bool { deletedAt != nil }
@@ -3093,9 +3096,28 @@ struct LibraryReview: Codable, Hashable, Identifiable, Sendable {
 }
 
 struct ServerSongRatingTarget: Codable, Hashable, Sendable {
+    enum ItemKind: String, Codable, Sendable {
+        case album
+    }
+
     let sourceID: String
     let itemID: String
     let accountFingerprint: String
+    /// nil 是歌曲(旧数据都是);专辑时 `itemID` 是服务端的专辑 id。
+    var itemKind: ItemKind? = nil
+
+    var isAlbum: Bool { itemKind == .album }
+
+    static func album(serverAlbumID: String, source: MusicSource) -> Self? {
+        guard ServerRatingWritebackPolicy.supportsAlbumRatings(source.type), !serverAlbumID.isEmpty else {
+            return nil
+        }
+        return Self(
+            sourceID: source.id, itemID: serverAlbumID,
+            accountFingerprint: MusicSourceScopeFingerprint.make(for: source, includeSourceID: true),
+            itemKind: .album
+        )
+    }
 
     static func make(song: Song, source: MusicSource) -> Self? {
         guard ServerRatingWritebackPolicy.supports(source.type), source.id == song.sourceID,
@@ -3162,6 +3184,7 @@ enum LibraryReviewReconciliationPolicy {
             merged.commentModifiedAt = comment.commentVersion
         }
         merged.serverRatingTarget = rating.serverRatingTarget
+        merged.ratingFromServer = rating.ratingFromServer
         return merged
     }
 }
@@ -6560,7 +6583,8 @@ final class MusicLibrary {
             rebound.serverRatingTarget = ServerSongRatingTarget(
                 sourceID: target.sourceID,
                 itemID: target.itemID,
-                accountFingerprint: current
+                accountFingerprint: current,
+                itemKind: target.itemKind
             )
             libraryReviewsBySubject[key] = rebound
             changed = true
@@ -6614,6 +6638,7 @@ final class MusicLibrary {
         review.ratingModifiedAt = version
         review.commentModifiedAt = existing?.commentVersion ?? 0
         review.serverRatingTarget = target
+        review.ratingFromServer = rating == nil ? nil : true
         libraryReviewsBySubject[subject.storageKey] = review
         libraryReviewRevision &+= 1
         persistSnapshot(after: 0.2)
@@ -6674,6 +6699,8 @@ final class MusicLibrary {
         } else {
             review.serverRatingTarget = existing?.serverRatingTarget
         }
+        // 本机改了评分,它就不再是服务端读回的值;只改评论时保留原来的出处。
+        review.ratingFromServer = changedRating ? nil : existing?.ratingFromServer
         libraryReviewsBySubject[subject.storageKey] = review
         libraryReviewRevision &+= 1
         persistSnapshot(after: 0.2)
@@ -10716,7 +10743,7 @@ final class MusicLibrary {
                 subject: subject, rating: review.rating, comment: review.comment,
                 updatedAt: review.updatedAt, deletedAt: review.deletedAt,
                 ratingModifiedAt: review.ratingModifiedAt, commentModifiedAt: review.commentModifiedAt,
-                serverRatingTarget: review.serverRatingTarget
+                serverRatingTarget: review.serverRatingTarget, ratingFromServer: review.ratingFromServer
             )
             remappedReviews[subject.storageKey] = remappedReviews[subject.storageKey].map {
                 LibraryReviewReconciliationPolicy.winner(local: $0, remote: remapped)

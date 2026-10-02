@@ -50,6 +50,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     private var catalogDriftInLastWalk = false
     /// 走查读到的每首歌的 `userRating`(Navidrome 对未评分的歌省略这一项,按 0 记)。
     private var observedServerRatings: [String: Int] = [:]
+    /// 走查读到的每首歌所属的服务端专辑(歌曲 id → 专辑 id),给专辑评分对号用。
+    private var observedSongAlbumIDs: [String: String] = [:]
 
     /// Airsonic Advanced 目前只接受 1.15.0，对更高版本会返回错误 30。
     /// 其他实现保持 1.16.1；OpenSubsonic 扩展能力仍由 ping 响应单独探测。
@@ -57,6 +59,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     private static let airsonicAPIVersion = "1.15.0"
     private static let clientName = "Primuse"
     private static let pageSize = SubsonicCatalogPagingPolicy.pageSize
+    /// 打过分的专辑最多翻这么多页(每页 `pageSize` 张)。
+    private static let maximumRatedAlbumPages = 200
     /// 本地解不了的格式(WMA)转码 mp3 的目标码率 kbps。
     /// `SourceManager` 要用它给这类歌恒定一个转码计划, 所以不是 private。
     static let transcodeBitRate = 320
@@ -1379,6 +1383,72 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         return confirmed
     }
 
+    // MARK: - Album ratings (#172)
+
+    /// 只有打过分的专辑:Navidrome 的 `getAlbumList2?type=highest` 只列评分大于 0 的专辑。
+    /// 列表里的专辑不带 `userRating` 时说明服务端不报专辑评分,返回 nil。
+    func fetchRatedServerAlbums() async throws -> [String: Int]? {
+        try await connect()
+        var ratings: [String: Int] = [:]
+        var offset = 0
+        for _ in 0..<Self.maximumRatedAlbumPages {
+            try Task.checkCancellation()
+            let container: RatedAlbumListContainer = try await requestJSON(
+                "getAlbumList2",
+                query: [
+                    URLQueryItem(name: "type", value: "highest"),
+                    URLQueryItem(name: "size", value: String(Self.pageSize)),
+                    URLQueryItem(name: "offset", value: String(offset))
+                ]
+            )
+            guard let albums = container.albumList2.map({ $0.album ?? [] }) else {
+                throw SourceError.connectionFailed("Subsonic getAlbumList2 response is missing albumList2")
+            }
+            for album in albums {
+                guard let rating = album.userRating else { return nil }
+                guard (0...5).contains(rating) else {
+                    throw SourceError.connectionFailed("Invalid Subsonic album rating")
+                }
+                if rating > 0 { ratings[album.id] = rating }
+            }
+            offset += albums.count
+            if albums.count < Self.pageSize { return ratings }
+        }
+        throw SourceError.connectionFailed("Subsonic rated album list exceeded the safety limit")
+    }
+
+    func fetchServerAlbumRating(albumID: String) async throws -> Int? {
+        try Self.validateRatingItemID(albumID)
+        try await connect()
+        try Task.checkCancellation()
+        let container: RatedAlbumContainer = try await requestJSON(
+            "getAlbum", query: [URLQueryItem(name: "id", value: albumID)]
+        )
+        guard let album = container.album, album.id == albumID,
+              (0...5).contains(album.userRating ?? 0) else {
+            throw SourceError.connectionFailed("Invalid Subsonic album rating response")
+        }
+        return album.userRating.flatMap { $0 == 0 ? nil : $0 }
+    }
+
+    func setServerAlbumRating(albumID: String, rating: Int?) async throws -> Int? {
+        try Self.validateRatingItemID(albumID)
+        guard rating.map({ (1...5).contains($0) }) ?? true else {
+            throw SourceError.connectionFailed("Invalid Subsonic rating")
+        }
+        try await connect()
+        try Task.checkCancellation()
+        let _: EmptyContainer = try await requestJSON("setRating", query: [
+            URLQueryItem(name: "id", value: albumID),
+            URLQueryItem(name: "rating", value: String(rating ?? 0))
+        ])
+        let confirmed = try await fetchServerAlbumRating(albumID: albumID)
+        guard confirmed == rating else {
+            throw SourceError.connectionFailed("Subsonic album rating confirmation mismatch")
+        }
+        return confirmed
+    }
+
     private static func validateRatingItemID(_ itemID: String) throws {
         guard !itemID.isEmpty, itemID != ".", itemID != "..",
               !itemID.contains("/"),
@@ -1426,6 +1496,9 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
 
     private func buildSong(from child: SubsonicChild, album: AlbumSummary? = nil) -> Song {
         observedServerRatings[child.id] = min(max(child.userRating ?? 0, 0), 5)
+        if let albumID = child.albumId ?? album?.id, !albumID.isEmpty {
+            observedSongAlbumIDs[child.id] = albumID
+        }
         let suffix = (child.suffix ?? (child.path.map { ($0 as NSString).pathExtension }) ?? "mp3").lowercased()
         let format = AudioFormat.from(fileExtension: suffix) ?? .mp3
         let relativePath = "/songs/\(child.id).\(suffix.isEmpty ? "mp3" : suffix)"
@@ -2054,6 +2127,29 @@ private struct AlbumSummary: Decodable, Sendable {
     let coverArt: String?
 }
 
+/// 专辑评分只解这两个字段,不动整库走查用的 `AlbumSummary`:哪个服务器把评分写成了
+/// 别的类型,也只影响评分读回,不会让扫描解码失败。
+private struct RatedAlbumSummary: Decodable, Sendable {
+    let id: String
+    let userRating: Int?
+}
+
+private struct RatedAlbumList2: Decodable {
+    let album: [RatedAlbumSummary]?
+}
+
+private struct RatedAlbumListContainer: SubsonicResponseContainer {
+    let status: String
+    let error: SubsonicError?
+    let albumList2: RatedAlbumList2?
+}
+
+private struct RatedAlbumContainer: SubsonicResponseContainer {
+    let status: String
+    let error: SubsonicError?
+    let album: RatedAlbumSummary?
+}
+
 private struct AlbumContainer: SubsonicResponseContainer {
     let status: String
     let error: SubsonicError?
@@ -2514,4 +2610,11 @@ extension SubsonicSource: ServerRatingObservingConnector {
         defer { observedServerRatings.removeAll(keepingCapacity: false) }
         return observedServerRatings
     }
+
+    func takeObservedSongAlbumIDs() -> [String: String] {
+        defer { observedSongAlbumIDs.removeAll(keepingCapacity: false) }
+        return observedSongAlbumIDs
+    }
 }
+
+extension SubsonicSource: ServerAlbumRatingConnector {}

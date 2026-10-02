@@ -4182,6 +4182,7 @@
 "radio_subscription_detach_footer" = "會另建一個你自己的電台，可以隨意修改；清單裡的這一條不會再被加回來。";
 
 "library_review_clear_rating" = "清除評分";
+"library_review_rating_from_server" = "來自 %@";
 "server_rating_sync_failed_title" = "評分同步失敗";
 "server_rating_sync_failed_message" = "評分已儲存在本機，暫時無法同步至伺服器。";
 

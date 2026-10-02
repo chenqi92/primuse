@@ -3968,6 +3968,7 @@
 "radio_subscription_detach_footer" = "Creates your own copy that you can edit freely. The list’s entry won’t be added back.";
 
 "library_review_clear_rating" = "Clear Rating";
+"library_review_rating_from_server" = "From %@";
 "server_rating_sync_failed_title" = "Rating Sync Failed";
 "server_rating_sync_failed_message" = "Your rating is saved locally. Server sync could not be completed.";
 

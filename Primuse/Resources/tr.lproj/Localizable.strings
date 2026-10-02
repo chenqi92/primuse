@@ -4111,6 +4111,7 @@
 "radio_subscription_detach_footer" = "Serbestçe düzenleyebileceğiniz kendi kopyanızı oluşturur. Listedeki bu öğe yeniden eklenmez.";
 
 "library_review_clear_rating" = "Puanı Temizle";
+"library_review_rating_from_server" = "%@ kaynağından";
 "server_rating_sync_failed_title" = "Puan Eşitlenemedi";
 "server_rating_sync_failed_message" = "Puanınız yerel olarak kaydedildi. Sunucu eşitlemesi tamamlanamadı.";
 

@@ -4111,6 +4111,7 @@
 "radio_subscription_detach_footer" = "สร้างสำเนาของคุณเองที่แก้ไขได้อิสระ รายการนี้ในลิสต์จะไม่ถูกเพิ่มกลับมาอีก";
 
 "library_review_clear_rating" = "ล้างคะแนน";
+"library_review_rating_from_server" = "จาก %@";
 "server_rating_sync_failed_title" = "ซิงค์คะแนนไม่สำเร็จ";
 "server_rating_sync_failed_message" = "บันทึกคะแนนไว้ในเครื่องแล้ว แต่ยังซิงค์กับเซิร์ฟเวอร์ไม่สำเร็จ";
 

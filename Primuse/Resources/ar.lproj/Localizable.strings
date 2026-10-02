@@ -4111,6 +4111,7 @@
 "radio_subscription_detach_footer" = "تُنشئ نسخة خاصة بك يمكنك تعديلها بحرية. لن يُضاف عنصر القائمة مجددًا.";
 
 "library_review_clear_rating" = "مسح التقييم";
+"library_review_rating_from_server" = "من %@";
 "server_rating_sync_failed_title" = "تعذّرت مزامنة التقييم";
 "server_rating_sync_failed_message" = "تم حفظ تقييمك محليًا. تعذّر إكمال المزامنة مع الخادم.";
 

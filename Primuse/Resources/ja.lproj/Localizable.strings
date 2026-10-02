@@ -4206,6 +4206,7 @@
 "radio_subscription_detach_footer" = "自由に編集できる自分用のコピーを作ります。リストのこの項目が再び追加されることはありません。";
 
 "library_review_clear_rating" = "評価をクリア";
+"library_review_rating_from_server" = "%@ から";
 "server_rating_sync_failed_title" = "評価の同期に失敗しました";
 "server_rating_sync_failed_message" = "評価は端末に保存されています。サーバーとの同期を完了できませんでした。";
 

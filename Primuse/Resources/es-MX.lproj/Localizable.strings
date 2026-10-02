@@ -4111,6 +4111,7 @@
 "radio_subscription_detach_footer" = "Crea tu propia copia que puedes editar libremente. La entrada de la lista no se volverá a agregar.";
 
 "library_review_clear_rating" = "Borrar calificación";
+"library_review_rating_from_server" = "De %@";
 "server_rating_sync_failed_title" = "Error al sincronizar la calificación";
 "server_rating_sync_failed_message" = "Tu calificación se guardó localmente. No se pudo completar la sincronización con el servidor.";
 

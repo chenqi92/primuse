@@ -29,6 +29,8 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
     /// 整曲下载按路径单飞:并发的分段读取与离线下载共用同一次传输。任务不随
     /// 某一个等待方取消,播放层 30 秒的分段超时之后重试还能接着等它。
     private var completeFileDownloads: [String: (token: UUID, task: Task<URL, Error>)] = [:]
+    /// 上一次完整走查读到的歌曲评分(目录曲目 id → 0…5),扫描提交后由评分同步取走(#172)。
+    private var observedServerRatings: [String: Int] = [:]
 
     /// - Parameters:
     ///   - source: 已经投影到某条路由的音乐源;QuickConnect 模式下 `host` 是 QuickConnect ID。
@@ -172,10 +174,15 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
         return AsyncThrowingStream { continuation in
             let producer = Task {
                 do {
+                    // 评分只在整轮走完时交出去:半截的走查不能当成「其余都没评分」。
+                    var ratings: [String: Int] = [:]
                     for try await track in catalog {
                         try Task.checkCancellation()
                         // 认不出格式的条目没法播放,跳过而不是让整轮扫描失败。
                         guard let song = track.makeSong(sourceID: sourceID) else { continue }
+                        if track.isCatalogSong, let rating = track.rawRating {
+                            ratings[track.id] = min(max(rating, 0), 5)
+                        }
                         continuation.yield(ConnectorScannedSong(
                             song: song,
                             displayName: song.title,
@@ -183,6 +190,7 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
                             folderLocation: Self.folderLocation(for: track.folderPlacement)
                         ))
                     }
+                    await self.replaceObservedServerRatings(ratings)
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -623,5 +631,16 @@ extension SynologyAudioStationSource: ServerCatalogChangeDetectingConnector {
 extension SynologyAudioStationSource: CatalogDriftReportingConnector {
     func takeCatalogDriftObservation() async -> Bool {
         await client.takeCatalogDriftObservation()
+    }
+}
+
+extension SynologyAudioStationSource: ServerRatingObservingConnector {
+    fileprivate func replaceObservedServerRatings(_ ratings: [String: Int]) {
+        observedServerRatings = ratings
+    }
+
+    func takeObservedServerRatings() -> [String: Int] {
+        defer { observedServerRatings.removeAll(keepingCapacity: false) }
+        return observedServerRatings
     }
 }

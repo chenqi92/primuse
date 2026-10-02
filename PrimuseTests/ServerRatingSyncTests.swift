@@ -451,6 +451,74 @@ final class ServerRatingSyncTests: XCTestCase {
         }
     }
 
+    func testScanAdoptsServerAlbumRatingAndFollowsClear() async throws {
+        try await withRig { rig in
+            let albumID = try await rig.addAlbumSong(itemID: "album.song-7")
+            let subject = LibraryReviewSubject.album(albumID)
+            rig.service.serverAlbumRatingsObserved(
+                source: rig.source, ratedAlbums: ["al-7": 4], songAlbumIDs: ["album.song-7": "al-7"]
+            )
+            let review = try XCTUnwrap(rig.library.libraryReview(for: subject))
+            XCTAssertEqual(review.rating, 4)
+            XCTAssertEqual(review.ratingFromServer, true)
+            XCTAssertEqual(review.serverRatingTarget?.isAlbum, true)
+            XCTAssertEqual(review.serverRatingTarget?.itemID, "al-7")
+            XCTAssertTrue(rig.manager.writes.isEmpty)
+
+            // 服务端清掉之后不再出现在打过分的列表里,本机跟着清。
+            rig.service.serverAlbumRatingsObserved(
+                source: rig.source, ratedAlbums: [:], songAlbumIDs: ["album.song-7": "al-7"]
+            )
+            XCTAssertNil(rig.library.libraryReview(for: subject)?.rating)
+            XCTAssertTrue(rig.manager.writes.isEmpty)
+        }
+    }
+
+    func testLocalAlbumRatingUploadsToTheServerAlbumOfItsSong() async throws {
+        try await withRig { rig in
+            let albumID = try await rig.addAlbumSong(itemID: "album.song-7")
+            let subject = LibraryReviewSubject.album(albumID)
+            rig.manager.albumIDsBySongItemID["album.song-7"] = "al-7"
+            rig.library.updateLibraryReview(for: subject, rating: 5, comment: "")
+            await rig.service.waitForAlbumTargetResolutions()
+            await rig.settle()
+            let review = try XCTUnwrap(rig.library.libraryReview(for: subject))
+            let target = try XCTUnwrap(review.serverRatingTarget)
+            XCTAssertTrue(target.isAlbum)
+            XCTAssertEqual(target.itemID, "al-7")
+            XCTAssertNil(review.ratingFromServer)
+            XCTAssertEqual(rig.manager.values[target], 5)
+
+            // 之后别的客户端改了,扫描读回采纳。
+            rig.service.serverAlbumRatingsObserved(
+                source: rig.source, ratedAlbums: ["al-7": 2], songAlbumIDs: ["album.song-7": "al-7"]
+            )
+            XCTAssertEqual(rig.library.libraryReview(for: subject)?.rating, 2)
+
+            // 本机还没传上去的改动优先于扫描。
+            rig.manager.writeError = URLError(.timedOut)
+            rig.library.updateLibraryReview(for: subject, rating: 3, comment: "")
+            await rig.settle()
+            rig.service.serverAlbumRatingsObserved(
+                source: rig.source, ratedAlbums: ["al-7": 2], songAlbumIDs: ["album.song-7": "al-7"]
+            )
+            XCTAssertEqual(rig.library.libraryReview(for: subject)?.rating, 3)
+        }
+    }
+
+    func testAlbumSplitAcrossServerAlbumsIsLeftAlone() async throws {
+        try await withRig { rig in
+            // 同一批进库,两首落在同一张本机专辑上。
+            let albumID = try await rig.addAlbumSongs(itemIDs: ["album.song-7", "album.song-8"])
+            rig.service.serverAlbumRatingsObserved(
+                source: rig.source,
+                ratedAlbums: ["al-7": 4, "al-8": 1],
+                songAlbumIDs: ["album.song-7": "al-7", "album.song-8": "al-8"]
+            )
+            XCTAssertNil(rig.library.libraryReview(for: .album(albumID)))
+        }
+    }
+
     private func withRig(_ body: (RatingRig) async throws -> Void) async throws {
         let rig = try RatingRig()
         let directory = rig.directory
@@ -509,6 +577,41 @@ private final class RatingRig {
         library.updateLibraryReview(for: subject, rating: rating, comment: comment)
     }
 
+    /// 加一首属于「Album」的歌,等它进曲库后返回本机专辑 id。
+    func addAlbumSong(itemID: String) async throws -> String {
+        try await addAlbumSongs(itemIDs: [itemID])
+    }
+
+    /// 一批加进「Album」,等它们在曲库里归到同一张本机专辑后返回它的 id。
+    func addAlbumSongs(itemIDs: [String]) async throws -> String {
+        await library.whenReady()
+        let songs = itemIDs.enumerated().map { index, itemID in
+            Song(
+                id: "album-\(itemID)", title: "Track \(index + 1)",
+                albumTitle: "Album", artistName: "Artist", albumArtistName: "Artist",
+                trackNumber: index + 1, fileFormat: .mp3,
+                filePath: "/songs/\(itemID).mp3", sourceID: source.id
+            )
+        }
+        library.addSongs(songs, affectedSourceIDs: [source.id])
+        return try await sharedAlbumID(of: songs.map(\.id))
+    }
+
+    /// 等这些歌在 `library.songs`(评分同步读的就是它)里都有、且属于同一张本机专辑。
+    func sharedAlbumID(of songIDs: [String]) async throws -> String {
+        for _ in 0..<1_000 {
+            let albumIDs = songIDs.map { id in library.songs.first { $0.id == id }?.albumID }
+            if let first = albumIDs.first, let first, albumIDs.allSatisfy({ $0 == first }),
+               songIDs.allSatisfy({ id in library.visibleSongs.contains { $0.id == id } }) {
+                return first
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let rows = songIDs.map { id in library.songs.first { $0.id == id } }
+        XCTFail("songs never settled into one album: \(rows.map { "\($0?.id ?? "-") album=\($0?.albumID ?? "nil") aa=\($0?.albumArtistName ?? "nil")" })")
+        throw CancellationError()
+    }
+
     func settle() async { await service.waitForPendingMutations(sourceID: sourceID) }
 
     func cleanup() async {
@@ -530,6 +633,7 @@ private final class RatingManagerFake: ServerRatingManaging {
     var values: [ServerSongRatingTarget: Int] = [:]
     var writes: [Write] = []
     var writeError: Error?
+    var albumIDsBySongItemID: [String: String] = [:]
     var applyBeforeThrowing = false
     var beforeRead: (() async -> Void)?
     var beforeWrite: (() async -> Void)?
@@ -537,6 +641,10 @@ private final class RatingManagerFake: ServerRatingManaging {
     func fetchServerRating(target: ServerSongRatingTarget, source: MusicSource) async throws -> Int? {
         await beforeRead?()
         return values[target].flatMap { $0 == 0 ? nil : $0 }
+    }
+
+    func serverAlbumID(forSongItemID songItemID: String, source: MusicSource) async throws -> String? {
+        albumIDsBySongItemID[songItemID]
     }
 
     func setServerRating(target: ServerSongRatingTarget, source: MusicSource, rating: Int?) async throws -> Int? {

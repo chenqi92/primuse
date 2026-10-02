@@ -1252,6 +1252,18 @@ final class AppServices {
             if let ratings = await manager?.takeObservedServerRatings(for: source), applyFence() {
                 ratingSync?.serverRatingsObserved(source: source, ratings: ratings)
             }
+            // 专辑评分:走查记下每首歌属于服务端哪张专辑,再取一次打过分的专辑对号。
+            let songAlbumIDs = await manager?.takeObservedSongAlbumIDs(for: source) ?? [:]
+            if !songAlbumIDs.isEmpty, ServerRatingWritebackPolicy.supportsAlbumRatings(source.type),
+               applyFence(),
+               let ratedAlbums = try? await manager?.fetchRatedServerAlbums(for: source),
+               applyFence() {
+                ratingSync?.serverAlbumRatingsObserved(
+                    source: source,
+                    ratedAlbums: ratedAlbums,
+                    songAlbumIDs: songAlbumIDs
+                )
+            }
             if applyFence() { ratingSync?.resume(sourceID: source.id) }
         }
         // 按文件 ID 寻址的网盘, 歌曲路径里没有目录; 专辑艺术家推断改用扫描同步
