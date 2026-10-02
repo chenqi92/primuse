@@ -335,21 +335,24 @@ public enum KaraokeRecordingAlignment {
 /// two lines is shrunk a step or two instead of being clipped (or, before
 /// this, pushing the controls under it down and up again).
 public enum KaraokeLineFitPolicy {
-    /// Shrink steps, largest first.
-    public static let scales: [Double] = [1, 0.88, 0.76]
+    /// Shrink steps, largest first. The smallest keeps the sung row at least
+    /// as large as the full-size row after it.
+    public static let scales: [Double] = [1, 0.88, 0.76, 0.66]
 
     /// Rows a line is allowed before it is shrunk.
     public static let maximumRows = 2
 
     /// The largest size at which `text` is expected to fit `maximumRows`
-    /// rows of `availableWidth`, down to the smallest step.
+    /// rows of `availableWidth`, down to the smallest step. A line that only
+    /// just spills onto a second row takes the first step down instead, so
+    /// it does not end in a single orphaned character.
     public static func fontSize(for text: String, base: Double, availableWidth: Double) -> Double {
         guard base > 0, availableWidth > 0 else { return base }
         let units = widthUnits(of: text)
-        for scale in scales {
-            let size = base * scale
-            let rows = (units * size / availableWidth).rounded(.up)
-            if rows <= Double(maximumRows) { return size }
+        let rows = scales.map { (units * base * $0 / availableWidth).rounded(.up) }
+        if rows[0] > 1, rows[1] <= 1 { return base * scales[1] }
+        for (index, count) in rows.enumerated() where count <= Double(maximumRows) {
+            return base * scales[index]
         }
         return base * scales[scales.count - 1]
     }

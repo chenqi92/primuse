@@ -160,10 +160,20 @@ struct KaraokeLyricsPolicyTests {
         // character count fits far more easily.
         let latin = String(repeating: "a", count: 24)
         #expect(KaraokeLineFitPolicy.fontSize(for: latin, base: 34, availableWidth: 350) == 34)
+        // 30 ideographs on a phone stage: three rows down to 25.8 pt, two at 22.4 pt.
+        let thirty = String(repeating: "歌", count: 30)
+        #expect(KaraokeLineFitPolicy.fontSize(for: thirty, base: 34, availableWidth: 362) == 34 * 0.66)
+        // 12 ideographs spill one character onto a second row at 34 pt and
+        // fit a single row one step down: no orphan.
+        let twelve = String(repeating: "歌", count: 12)
+        #expect(KaraokeLineFitPolicy.fontSize(for: twelve, base: 34, availableWidth: 362) == 34 * 0.88)
+        // 16 ideographs are two comfortable rows at full size and stay there.
+        let sixteen = String(repeating: "歌", count: 16)
+        #expect(KaraokeLineFitPolicy.fontSize(for: sixteen, base: 34, availableWidth: 362) == 34)
         // Nothing to fit on: the base size stands.
         #expect(KaraokeLineFitPolicy.fontSize(for: twentyFour, base: 34, availableWidth: 0) == 34)
         // Even the smallest step may not fit; it is still the floor.
         let endless = String(repeating: "歌", count: 80)
-        #expect(KaraokeLineFitPolicy.fontSize(for: endless, base: 34, availableWidth: 350) == 34 * 0.76)
+        #expect(KaraokeLineFitPolicy.fontSize(for: endless, base: 34, availableWidth: 350) == 34 * 0.66)
     }
 }
