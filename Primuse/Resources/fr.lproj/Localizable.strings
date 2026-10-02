@@ -4915,3 +4915,4 @@
 "library_kind_caption_other" = "Autre";
 "whole_source_spoken_word" = "Tout ici est livre audio";
 "whole_source_spoken_word_hint" = "Tous les morceaux de cette source vont dans l’étagère de livres audio et utilisent le lecteur de livres. Un élément isolé peut toujours être marqué comme musique.";
+"audiobookshelf_credentials_hint" = "Connectez-vous avec un compte du serveur, ou créez une clé API dans « Paramètres › API Keys » du serveur et choisissez « Clé API » ci-dessus.";

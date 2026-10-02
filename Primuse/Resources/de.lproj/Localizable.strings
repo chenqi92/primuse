@@ -4915,3 +4915,4 @@
 "library_kind_caption_other" = "Sonstiges";
 "whole_source_spoken_word" = "Hier ist alles Hörbuch";
 "whole_source_spoken_word_hint" = "Alle Titel dieser Quelle landen im Hörbuchregal und nutzen den Hörbuch-Player. Einzelne Titel lassen sich weiterhin als Musik markieren.";
+"audiobookshelf_credentials_hint" = "Melde dich mit einem Serverkonto an oder lege auf dem Server unter „Einstellungen › API Keys“ einen API-Schlüssel an und wähle oben „API-Schlüssel“.";

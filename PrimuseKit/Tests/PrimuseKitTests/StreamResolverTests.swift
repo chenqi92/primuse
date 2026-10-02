@@ -161,7 +161,7 @@ import Testing
     let supported = await StreamResolverRegistry().supportedTypes
     #expect(supported.isSuperset(of: [.subsonic, .navidrome, .airsonic, .gonic, .synology, .s3,
                                       .aliyunDrive, .oneDrive, .dropbox, .pan123,
-                                      .jellyfin, .emby, .plex, .qnap, .fnMusic, .daoliyu, .ugreen,
+                                      .jellyfin, .emby, .plex, .qnap, .fnMusic, .daoliyu, .audiobookshelf, .ugreen,
                                       .googleDrive, .pan115, .baiduPan, .drime, .guangya,
                                       .synologyAudioStation]))
     #expect(StreamResolverRegistry.tvSupportedTypes.contains(.synologyAudioStation))

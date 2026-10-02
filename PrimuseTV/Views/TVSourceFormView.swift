@@ -143,7 +143,7 @@ struct TVSourceTypePicker: View {
         case .synologyAudioStation: return "Audio Station"
         case .qnap: return "QNAP"
         case .fnos: return "fnOS"
-        case .fnMusic, .daoliyu, .songloft, .ugreen: return t.displayName
+        case .fnMusic, .daoliyu, .songloft, .audiobookshelf, .ugreen: return t.displayName
         case .jellyfin: return "Jellyfin"
         case .emby: return "Emby"
         case .plex: return "Plex"
@@ -170,6 +170,7 @@ struct TVSourceTypePicker: View {
         case .fnMusic: return PMString("ext.tv.sources.hint.fnMusic")
         case .daoliyu: return PMString("ext.tv.sources.hint.daoliyu")
         case .songloft: return "Songloft REST API"
+        case .audiobookshelf: return PMString("ext.tv.sources.hint.audiobookshelf")
         case .synology, .synologyAudioStation, .qnap, .fnos, .ugreen:
             return PMString("ext.tv.sources.hint.nasSuite")
         case .upnp: return PMString("ext.tv.sources.hint.upnp")
@@ -265,7 +266,7 @@ struct TVSourceFormView: View {
     private var supportsAdaptiveConnections: Bool { type.supportsAdaptiveConnections }
     private var showsAuth: Bool { type.requiresCredentials }
     private var supportsAPIKeyAuth: Bool {
-        type == .jellyfin || type == .emby || type == .plex
+        type == .jellyfin || type == .emby || type == .plex || type == .audiobookshelf
     }
     private var showsAuthPicker: Bool { type == .sftp || supportsAPIKeyAuth }
     private var effectiveAuthType: SourceAuthType {

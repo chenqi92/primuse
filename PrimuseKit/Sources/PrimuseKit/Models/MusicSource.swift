@@ -67,6 +67,8 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     /// 避免将目前只提供 ping 的兼容路由误当成完整 Subsonic 实现。
     case daoliyu
     case songloft
+    /// Audiobookshelf:自托管的有声书 / 播客服务器。里面没有音乐库,整个源都归到有声。
+    case audiobookshelf
     /// 群晖 Audio Station(DSM 的音乐套件)。与 `.synology`(经 File Station
     /// 浏览文件夹)是两种源:这里连的是音乐服务本身,整库元数据、歌单与评分都
     /// 来自服务端。rawValue 会写进同步记录,发布后不能改名。
@@ -117,6 +119,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .fnMusic:
             return String(localized: "src.displayName.fnMusic", bundle: Bundle.primuseKit)
         case .songloft: return "Songloft"
+        case .audiobookshelf: return "Audiobookshelf"
         case .synologyAudioStation: return "Synology Audio Station"
         case .daoliyu:
             return String(localized: "src.displayName.daoliyu", bundle: Bundle.primuseKit)
@@ -164,6 +167,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .fnos: return "xserve"
         case .fnMusic: return "music.note.list"
         case .songloft: return "music.note.house"
+        case .audiobookshelf: return "books.vertical.fill"
         case .synologyAudioStation: return "music.note.house"
         case .daoliyu: return "music.note.house"
         case .webdav: return "globe"
@@ -275,18 +279,21 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
 
     public var isServerLibrary: Bool {
         isMediaServer || isSubsonicFamily || self == .fnMusic || self == .daoliyu || self == .songloft
-            || self == .synologyAudioStation
+            || self == .synologyAudioStation || self == .audiobookshelf
     }
 
     /// 源类型本身就决定了内容是哪种听法时在这里声明（有声书服务器里没有音乐）。
     /// nil 表示按文件、用户标签推断。
     public var declaredListeningContentKind: ListeningContentKind? {
-        nil
+        switch self {
+        case .audiobookshelf: return .spokenWord
+        default: return nil
+        }
     }
 
     /// 按库组织的服务器：用户可以在源设置里按库选「音乐 / 有声 / 不同步」。
     public var organizesCatalogByServerLibrary: Bool {
-        isMediaServer
+        isMediaServer || self == .audiobookshelf
     }
 
     /// 连接入口沿用群晖的「QuickConnect / 直连地址」两种模式(`synologyConnectionMode`)。
@@ -301,7 +308,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     public var supportsFileDeletion: Bool {
         switch self {
         case .upnp, .subsonic, .navidrome, .airsonic, .gonic, .fnos, .fnMusic, .daoliyu, .songloft,
-             .synologyAudioStation, .guangya, .appleMusic, .appleMusicLibrary:
+             .audiobookshelf, .synologyAudioStation, .guangya, .appleMusic, .appleMusicLibrary:
             return false
         default:
             return true
@@ -328,7 +335,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     public var scansEntireLibrary: Bool {
         switch self {
         case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu, .songloft,
-             .synologyAudioStation: return true   // server-side library
+             .audiobookshelf, .synologyAudioStation: return true   // server-side library
         case .local, .appleMusicLibrary: return true // already scoped by basePath / library
         default: return false
         }
@@ -361,7 +368,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .synology, .qnap, .ugreen, .fnos: return .nas
         case .webdav, .smb, .ftp, .sftp, .nfs, .upnp, .s3: return .protocol
         case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu, .songloft,
-             .synologyAudioStation:
+             .audiobookshelf, .synologyAudioStation:
             return .mediaServer
         case .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox, .drime, .pan115, .pan123,
              .guangya: return .cloudDrive
@@ -378,6 +385,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .fnos: return 5666
         case .fnMusic: return 5666
         case .songloft: return 58091
+        case .audiobookshelf: return 13378
         case .synologyAudioStation: return 5001
         case .daoliyu: return 4000
         case .webdav: return 443
@@ -461,7 +469,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         switch self {
         case .synology, .qnap, .ugreen, .webdav, .smb, .ftp, .sftp, .nfs, .s3,
              .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic,
-             .fnMusic, .daoliyu, .songloft, .synologyAudioStation:
+             .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation:
             return true
         default:
             return false
@@ -475,7 +483,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         switch self {
         case .synology, .qnap, .ugreen, .webdav, .jellyfin, .emby, .plex,
              .subsonic, .navidrome, .airsonic, .gonic,
-             .fnMusic, .daoliyu, .songloft, .synologyAudioStation:
+             .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation:
             return true
         default:
             return false
@@ -510,7 +518,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .synology, .qnap, .ugreen, .fnos, .webdav, .s3,
              .jellyfin, .emby, .plex,
              .subsonic, .navidrome, .airsonic, .gonic,
-             .fnMusic, .daoliyu, .songloft, .synologyAudioStation:
+             .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation:
             return true
         default:
             return false
@@ -544,6 +552,7 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
             || self == .fnMusic
             || self == .daoliyu
             || self == .songloft
+            || self == .audiobookshelf
             // `method=stream` 回原文件字节。服务端若不认 Range(回 200),连接器
             // 改走整曲下载再切片,播放与离线都不会拿到错位的字节。
             || self == .synologyAudioStation
@@ -618,6 +627,8 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         case .fnMusic:
             return String(localized: "src.subtitle.fnMusic", bundle: Bundle.primuseKit)
         case .songloft: return "Songloft REST API"
+        case .audiobookshelf:
+            return String(localized: "src.subtitle.audiobookshelf", bundle: Bundle.primuseKit)
         case .daoliyu:
             return String(localized: "src.subtitle.daoliyu", bundle: Bundle.primuseKit)
         case .webdav: return "HTTPS/HTTP"

@@ -4821,3 +4821,4 @@
 "library_kind_caption_other" = "Otro";
 "whole_source_spoken_word" = "Aquí todo son audiolibros";
 "whole_source_spoken_word_hint" = "Todas las canciones de esta fuente van al estante de audiolibros y usan el reproductor de libros. Los elementos individuales aún pueden marcarse como música.";
+"audiobookshelf_credentials_hint" = "Inicia sesión con una cuenta del servidor o crea una clave API en Configuración › API Keys del servidor y elige Clave API arriba.";

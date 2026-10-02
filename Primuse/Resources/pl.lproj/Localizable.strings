@@ -4821,3 +4821,4 @@
 "library_kind_caption_other" = "Inne";
 "whole_source_spoken_word" = "Tu wszystko to audiobooki";
 "whole_source_spoken_word_hint" = "Wszystkie utwory z tego źródła trafiają na półkę audiobooków i używają odtwarzacza książek. Pojedyncze pozycje nadal można oznaczyć jako muzykę.";
+"audiobookshelf_credentials_hint" = "Zaloguj się kontem serwera albo utwórz klucz API w Ustawienia › API Keys na serwerze i wybierz powyżej Klucz API.";

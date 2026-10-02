@@ -4821,3 +4821,4 @@
 "library_kind_caption_other" = "Diğer";
 "whole_source_spoken_word" = "Buradaki Her Şey Sesli Kitap";
 "whole_source_spoken_word_hint" = "Bu kaynaktaki tüm parçalar sesli kitap rafına gider ve kitap oynatıcıyı kullanır. Tek tek öğeler yine de müzik olarak işaretlenebilir.";
+"audiobookshelf_credentials_hint" = "Bir sunucu hesabıyla oturum açın ya da sunucuda Ayarlar › API Keys altında bir API anahtarı oluşturup yukarıda API Anahtarı’nı seçin.";

@@ -197,7 +197,7 @@ private let nginxNotFoundBody = """
         statusCode: 200,
         headerFields: ["DAV": "1, 2"],
         bodyPrefix: "{\"ServerName\":\"x\",\"Version\":\"1\",\"Id\":\"1\"} machineIdentifier "
-            + "subsonic-response SYNO.API.Auth SYNO.AudioStation.Info"
+            + "subsonic-response SYNO.API.Auth SYNO.AudioStation.Info {\"isInit\":true}"
     )
     for sourceType in MusicSourceType.allCases {
         let confirmed = SourceServiceFingerprint.probeRequest(for: sourceType) != nil

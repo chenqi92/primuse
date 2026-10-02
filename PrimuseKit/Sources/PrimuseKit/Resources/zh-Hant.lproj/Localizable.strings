@@ -977,3 +977,12 @@
 "ext.tv.options.section.song" = "這首歌";
 "ext.tv.options.section.playback" = "播放";
 "ext.tv.options.section.goTo" = "前往";
+
+// Audiobookshelf
+"src.subtitle.audiobookshelf" = "有聲書與 Podcast 伺服器 · 原生介面";
+"ext.tv.sources.hint.audiobookshelf" = "Audiobookshelf 原生介面";
+"error.audiobookshelf.missingCredential" = "Audiobookshelf 需要帳號和密碼，或一組 API 金鑰。";
+"error.audiobookshelf.invalidURL" = "Audiobookshelf 伺服器位址無效。";
+"error.audiobookshelf.authenticationFailed" = "Audiobookshelf 登入失敗，請檢查帳號、密碼或 API 金鑰。";
+"error.audiobookshelf.http" = "Audiobookshelf 伺服器回傳了 HTTP %@。";
+"error.audiobookshelf.invalidResponse" = "Audiobookshelf 回傳了無效資料：%@";

@@ -927,3 +927,12 @@
 "ext.tv.options.section.song" = "Esta música";
 "ext.tv.options.section.playback" = "Reprodução";
 "ext.tv.options.section.goTo" = "Ir para";
+
+// Audiobookshelf
+"src.subtitle.audiobookshelf" = "Servidor de audiolivros e podcasts · API nativa";
+"ext.tv.sources.hint.audiobookshelf" = "API nativa do Audiobookshelf";
+"error.audiobookshelf.missingCredential" = "O Audiobookshelf precisa de conta e senha, ou de uma chave de API.";
+"error.audiobookshelf.invalidURL" = "O endereço do servidor Audiobookshelf é inválido.";
+"error.audiobookshelf.authenticationFailed" = "Falha ao entrar no Audiobookshelf. Verifique a conta, a senha ou a chave de API.";
+"error.audiobookshelf.http" = "O servidor Audiobookshelf retornou HTTP %@.";
+"error.audiobookshelf.invalidResponse" = "O Audiobookshelf retornou dados inválidos: %@";

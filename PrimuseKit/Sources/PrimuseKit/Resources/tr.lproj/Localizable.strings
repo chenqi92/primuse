@@ -927,3 +927,12 @@
 "ext.tv.options.section.song" = "Bu şarkı";
 "ext.tv.options.section.playback" = "Oynatma";
 "ext.tv.options.section.goTo" = "Git";
+
+// Audiobookshelf
+"src.subtitle.audiobookshelf" = "Sesli kitap ve podcast sunucusu · Yerel API";
+"ext.tv.sources.hint.audiobookshelf" = "Audiobookshelf yerel API’si";
+"error.audiobookshelf.missingCredential" = "Audiobookshelf için hesap ve parola ya da bir API anahtarı gerekir.";
+"error.audiobookshelf.invalidURL" = "Audiobookshelf sunucu adresi geçersiz.";
+"error.audiobookshelf.authenticationFailed" = "Audiobookshelf oturumu açılamadı. Hesabı, parolayı veya API anahtarını kontrol edin.";
+"error.audiobookshelf.http" = "Audiobookshelf sunucusu HTTP %@ döndürdü.";
+"error.audiobookshelf.invalidResponse" = "Audiobookshelf geçersiz veri döndürdü: %@";

@@ -146,6 +146,9 @@ public enum SourceServiceFingerprint {
             // OPTIONS 打在路径前缀上,因为 DAV 头是挂在那个集合上的,
             // 站点根目录未必开了 DAV。
             return ProbeRequest(method: "OPTIONS", path: "/")
+        case .audiobookshelf:
+            // 免登录的状态接口:{"isInit":true,"language":"en-us",…}。
+            return ProbeRequest(path: "/status")
         default:
             // 其余 HTTP 类型没有公开的免登录握手,只能判"有没有人应答"。
             return ProbeRequest(path: "/")
@@ -158,7 +161,7 @@ public enum SourceServiceFingerprint {
         guard probeRequest(for: sourceType) != nil else { return false }
         switch sourceType {
         case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic,
-             .synology, .synologyAudioStation, .webdav:
+             .synology, .synologyAudioStation, .webdav, .audiobookshelf:
             return true
         default:
             return false
@@ -200,6 +203,8 @@ public enum SourceServiceFingerprint {
             if response.statusCode == 200, body.contains("SYNO.AudioStation.Info") { return .confirmed }
         case .webdav:
             if response.headerValue("DAV") != nil { return .confirmed }
+        case .audiobookshelf:
+            if response.statusCode == 200, body.contains("\"isInit\"") { return .confirmed }
         default:
             break
         }

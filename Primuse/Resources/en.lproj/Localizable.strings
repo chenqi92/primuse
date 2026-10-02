@@ -4678,3 +4678,4 @@
 "library_kind_caption_other" = "Other";
 "whole_source_spoken_word" = "Everything Here Is Audiobooks";
 "whole_source_spoken_word_hint" = "All songs from this source go to the audiobook shelf and use the book player. Single items can still be marked as music.";
+"audiobookshelf_credentials_hint" = "Sign in with a server account, or create an API key under Settings › API Keys on the server and choose API Key above.";

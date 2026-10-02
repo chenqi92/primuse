@@ -4821,3 +4821,4 @@
 "library_kind_caption_other" = "अन्य";
 "whole_source_spoken_word" = "यहाँ सब कुछ ऑडियोबुक है";
 "whole_source_spoken_word_hint" = "इस स्रोत के सभी गाने ऑडियोबुक शेल्फ़ में जाते हैं और बुक प्लेयर में चलते हैं। अलग-अलग आइटम अब भी संगीत के रूप में चिह्नित किए जा सकते हैं।";
+"audiobookshelf_credentials_hint" = "सर्वर खाते से साइन इन करें, या सर्वर की सेटिंग्स › API Keys में API कुंजी बनाकर ऊपर API कुंजी चुनें।";

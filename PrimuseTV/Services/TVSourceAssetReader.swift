@@ -35,7 +35,26 @@ actor TVSourceAssetReader {
     private var audioStationClients: [String: CachedAudioStationClient] = [:]
 
     nonisolated static func supports(_ type: MusicSourceType) -> Bool {
-        type.isSubsonicFamily || [.jellyfin, .emby, .plex, .songloft, .synology, .synologyAudioStation].contains(type)
+        type.isSubsonicFamily
+            || [.jellyfin, .emby, .plex, .songloft, .synology, .synologyAudioStation, .audiobookshelf].contains(type)
+    }
+
+    private struct CachedAudiobookshelfClient {
+        let identity: String
+        let client: AudiobookshelfServiceClient
+    }
+    private var audiobookshelfClients: [String: CachedAudiobookshelfClient] = [:]
+
+    /// 封面与进度上报共用一份登录会话;配置或凭据变了才重建。
+    private func audiobookshelfClient(for source: MusicSource, credential: SourceCredential?) -> AudiobookshelfServiceClient {
+        let identity = Self.cacheIdentity(source: source, credential: credential)
+        if let cached = audiobookshelfClients[source.id], cached.identity == identity { return cached.client }
+        if let stale = audiobookshelfClients.removeValue(forKey: source.id) {
+            Task { await stale.client.invalidateSession() }
+        }
+        let client = AudiobookshelfServiceClient(source: source, credential: credential)
+        audiobookshelfClients[source.id] = CachedAudiobookshelfClient(identity: identity, client: client)
+        return client
     }
 
     func artworkData(reference: String, source: MusicSource, credential: SourceCredential?, maximumBytes: Int) async -> Data? {
@@ -68,6 +87,10 @@ actor TVSourceAssetReader {
                     guard SynologyAudioStationCoverReference(rawValue: reference) != nil else { return nil }
                     data = try await audioStationClient(for: routed, credential: credential)
                         .artwork(reference: reference, maxBytes: maximumBytes)
+                } else if routed.type == .audiobookshelf {
+                    guard AudiobookshelfAPIProtocol.coverItemID(fromReference: reference) != nil else { return nil }
+                    data = try await audiobookshelfClient(for: routed, credential: credential)
+                        .coverData(reference: reference, maximumBytes: maximumBytes)
                 } else {
                     guard let connector = connector(for: routed, credential: credential) else { return nil }
                     data = try await connector.fetchArtworkData(for: reference, maximumBytes: maximumBytes, purpose: .thumbnail)

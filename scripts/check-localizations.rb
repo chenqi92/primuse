@@ -107,6 +107,7 @@ IDENTICAL_VALUE_PREFIXES = %w[
   radio_
   update_banner_
   error.songloft.
+  error.audiobookshelf.
 ].freeze
 
 IDENTICAL_VALUE_KEYS = %w[
@@ -133,6 +134,7 @@ IDENTICAL_VALUE_KEYS = %w[
   ext.tv.radio.stationCount
   src.subtitle.fnMusic
   src.subtitle.daoliyu
+  src.subtitle.audiobookshelf
   yearly_personality_lfvd_name
 ].freeze
 

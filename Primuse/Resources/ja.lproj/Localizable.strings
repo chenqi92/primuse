@@ -4916,3 +4916,4 @@
 "library_kind_caption_other" = "その他";
 "whole_source_spoken_word" = "このソースはすべてオーディオブック";
 "whole_source_spoken_word_hint" = "このソースのすべての曲がオーディオブックの本棚に入り、聴書プレーヤーで再生されます。個別の項目は音楽に戻せます。";
+"audiobookshelf_credentials_hint" = "サーバーのアカウントでサインインするか、サーバーの「設定 › API Keys」で API キーを作成し、上で「API キー」を選んで入力します。";

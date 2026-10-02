@@ -927,3 +927,12 @@
 "ext.tv.options.section.song" = "Ця пісня";
 "ext.tv.options.section.playback" = "Відтворення";
 "ext.tv.options.section.goTo" = "Перейти";
+
+// Audiobookshelf
+"src.subtitle.audiobookshelf" = "Сервер аудіокниг і подкастів · Нативний API";
+"ext.tv.sources.hint.audiobookshelf" = "Нативний API Audiobookshelf";
+"error.audiobookshelf.missingCredential" = "Для Audiobookshelf потрібні обліковий запис і пароль або ключ API.";
+"error.audiobookshelf.invalidURL" = "Адреса сервера Audiobookshelf недійсна.";
+"error.audiobookshelf.authenticationFailed" = "Не вдалося ввійти в Audiobookshelf. Перевірте обліковий запис, пароль або ключ API.";
+"error.audiobookshelf.http" = "Сервер Audiobookshelf повернув HTTP %@.";
+"error.audiobookshelf.invalidResponse" = "Audiobookshelf повернув недійсні дані: %@";

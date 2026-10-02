@@ -111,7 +111,7 @@ struct AddSourceView: View {
     private var submitButtonTitle: LocalizedStringKey {
         continuesToConnectionAfterSave ? "Next" : "save"
     }
-    private var supportsAPIKeyAuth: Bool { [.jellyfin, .emby, .plex].contains(sourceType) }
+    private var supportsAPIKeyAuth: Bool { [.jellyfin, .emby, .plex, .audiobookshelf].contains(sourceType) }
     private var showsServerLibrarySection: Bool {
         isEditing && sourceType.organizesCatalogByServerLibrary
     }
@@ -998,7 +998,10 @@ struct AddSourceView: View {
 
     private func serverLibraryChoicePicker(_ libraryID: String) -> some View {
         Picker("", selection: serverLibraryChoiceBinding(libraryID)) {
-            Text("library_kind_music").tag(ServerLibraryChoice.music)
+            // 有声书服务器里没有音乐库,只剩「同步成有声 / 不同步」两种。
+            if sourceType.declaredListeningContentKind == nil {
+                Text("library_kind_music").tag(ServerLibraryChoice.music)
+            }
             Text("library_kind_spoken_word").tag(ServerLibraryChoice.spokenWord)
             Text("library_kind_excluded").tag(ServerLibraryChoice.excluded)
         }
@@ -1067,7 +1070,8 @@ struct AddSourceView: View {
         if showsWholeSourceSpokenWordToggle {
             store.setWholeSourceSpokenWord(wholeSourceSpokenWord, sourceID: sourceID)
         }
-        guard serverLibrariesLoad == .loaded else { return }
+        // 源类型已经声明了内容种类(有声书服务器),库标签没有意义;只有排除项要存。
+        guard serverLibrariesLoad == .loaded, sourceType.declaredListeningContentKind == nil else { return }
         for library in serverLibraries {
             switch serverLibraryChoices[library.id] ?? .music {
             case .spokenWord:
@@ -1206,6 +1210,11 @@ struct AddSourceView: View {
                         .focused($focusedField, equals: .password)
                         .submitLabel(.done)
                         .onSubmit { focusedField = nil }
+                }
+                if sourceType == .audiobookshelf {
+                    Text("audiobookshelf_credentials_hint")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 if sourceType == .fnMusic {
                     Text("fnmusic_account_hint")

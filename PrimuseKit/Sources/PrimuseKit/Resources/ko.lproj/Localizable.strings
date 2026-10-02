@@ -980,3 +980,12 @@
 "ext.tv.options.section.song" = "이 노래";
 "ext.tv.options.section.playback" = "재생";
 "ext.tv.options.section.goTo" = "이동";
+
+// Audiobookshelf
+"src.subtitle.audiobookshelf" = "오디오북 · 팟캐스트 서버 · 네이티브 API";
+"ext.tv.sources.hint.audiobookshelf" = "Audiobookshelf 네이티브 API";
+"error.audiobookshelf.missingCredential" = "Audiobookshelf에는 계정과 암호 또는 API 키가 필요합니다.";
+"error.audiobookshelf.invalidURL" = "Audiobookshelf 서버 주소가 올바르지 않습니다.";
+"error.audiobookshelf.authenticationFailed" = "Audiobookshelf 로그인에 실패했습니다. 계정, 암호 또는 API 키를 확인하세요.";
+"error.audiobookshelf.http" = "Audiobookshelf 서버가 HTTP %@을(를) 반환했습니다.";
+"error.audiobookshelf.invalidResponse" = "Audiobookshelf가 잘못된 데이터를 반환했습니다: %@";

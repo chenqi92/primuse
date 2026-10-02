@@ -4821,3 +4821,4 @@
 "library_kind_caption_other" = "أخرى";
 "whole_source_spoken_word" = "كل ما هنا كتب صوتية";
 "whole_source_spoken_word_hint" = "تذهب كل أغاني هذا المصدر إلى رف الكتب الصوتية وتستخدم مشغّل الكتب. يمكن مع ذلك تعليم العناصر المفردة كموسيقى.";
+"audiobookshelf_credentials_hint" = "سجّل الدخول بحساب الخادم، أو أنشئ مفتاح API من «الإعدادات › API Keys» على الخادم واختر «مفتاح API» أعلاه.";

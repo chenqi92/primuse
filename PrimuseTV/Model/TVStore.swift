@@ -162,7 +162,7 @@ enum TVSourceLocalLibraryPolicy {
         .smb, .synology, .qnap, .ugreen, .webdav, .ftp, .sftp, .nfs, .s3, .upnp,
         .jellyfin, .emby, .plex,
         .subsonic, .navidrome, .airsonic, .gonic,
-        .fnMusic, .daoliyu, .songloft, .synologyAudioStation,
+        .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation,
         .oneDrive, .dropbox, .aliyunDrive, .googleDrive,
         .baiduPan, .pan115, .pan123, .drime, .guangya,
     ]
@@ -1745,7 +1745,7 @@ final class TVStore {
     /// 用「服务端账号 + 密码」登录、且能在 TV 直连的源类型 —— 适合在 TV 上手动输入凭据。
     /// 云盘(OAuth)、relay 类(凭据在 iPhone 侧)、原生库源不在此列。
     private static let manualCredentialTypes: Set<MusicSourceType> = [
-        .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu, .songloft,
+        .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu, .songloft, .audiobookshelf,
         .synology, .synologyAudioStation, .qnap, .ugreen,
         .jellyfin, .emby, .plex,
     ]
@@ -1826,6 +1826,14 @@ final class TVStore {
             }
             return credential.refreshToken?.isEmpty == false
                 && credential.clientID?.isEmpty == false
+        }
+        if s.type == .audiobookshelf {
+            // API 密钥登录没有用户名,只看密钥在不在。
+            let credential = TVCredentialStore.credential(for: s, bundle: credentialBundle)
+            if s.authType == .apiKey {
+                return credential.token?.isEmpty == false || credential.password?.isEmpty == false
+            }
+            return credential.username?.isEmpty == false && credential.password?.isEmpty == false
         }
         if s.type == .fnMusic || s.type == .daoliyu || s.type == .songloft || s.type == .synologyAudioStation {
             let credential = TVCredentialStore.credential(for: s, bundle: credentialBundle)
@@ -1934,6 +1942,24 @@ final class TVStore {
                 return PMString("ext.tv.test.connectedPrefix")
                     + (source.host ?? PMString("ext.tv.test.resolved"))
             } catch let error as FnMusicServiceError {
+                switch error {
+                case .missingCredential:
+                    return PMString("ext.tv.test.missingCredential")
+                case .authenticationFailed:
+                    return PMString("ext.tv.test.authFailed")
+                default:
+                    return PMString("ext.tv.test.failedDetail", error.localizedDescription)
+                }
+            } catch {
+                return PMString("ext.tv.test.failedDetail", error.localizedDescription)
+            }
+        }
+        if source.type == .audiobookshelf {
+            do {
+                _ = try await scanner.validateAudiobookshelfConnection(source: source, credential: cred)
+                return PMString("ext.tv.test.connectedPrefix")
+                    + (source.host ?? PMString("ext.tv.test.resolved"))
+            } catch let error as AudiobookshelfServiceError {
                 switch error {
                 case .missingCredential:
                     return PMString("ext.tv.test.missingCredential")
@@ -3710,7 +3736,7 @@ final class TVStore {
         .webdav, .ftp, .sftp, .nfs, .s3, .upnp,
         .jellyfin, .emby, .plex,
         .subsonic, .navidrome, .airsonic, .gonic,
-        .fnMusic, .daoliyu, .songloft, .synologyAudioStation,
+        .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation,
         .aliyunDrive, .baiduPan, .oneDrive, .dropbox,
         .googleDrive, .pan115, .pan123, .drime, .guangya,
     ]
@@ -4376,7 +4402,7 @@ final class TVStore {
             guard isCurrentScan(source: source, generation: generation) else { throw CancellationError() }
             let count = library.songs.lazy.filter { $0.sourceID == source.id }.count
             if source.type != .fnMusic && source.type != .daoliyu && source.type != .songloft
-                && source.type != .synologyAudioStation {
+                && source.type != .audiobookshelf && source.type != .synologyAudioStation {
                 try sourcesStore.updateDurably(source.id) {
                     $0.songCount = count
                     // 只扫了一个文件夹:整源没有走过,选中的目录也没变。
@@ -4394,7 +4420,7 @@ final class TVStore {
             if let pruningRecovery { library.finishScanPruning(pruningRecovery) }
             pruningRecovery = nil
             if source.type != .fnMusic && source.type != .daoliyu && source.type != .songloft
-                && source.type != .synologyAudioStation {
+                && source.type != .audiobookshelf && source.type != .synologyAudioStation {
                 library.updateAutomaticArtistArtworkCatalog(
                     SourceArtistArtworkCatalog(sourceID: source.id, index: result.resumeState.index),
                     isCompleteListing: isCompleteListing
@@ -6241,7 +6267,8 @@ final class TVStore {
             let canonical = TVScanPipelinePolicy.canonicalSongID(raw.id)
             guard canonical != raw.id else { continue }
             let type = sourceTypes[raw.sourceID]
-            if type != .fnMusic && type != .daoliyu && type != .songloft && type != .synologyAudioStation {
+            if type != .fnMusic && type != .daoliyu && type != .songloft && type != .audiobookshelf
+                && type != .synologyAudioStation {
                 let digest = SHA256.hash(data: Data("\(raw.sourceID):\(raw.filePath)".utf8))
                 let encoded = String(decoding: digest.flatMap { [hex[Int($0 >> 4)], hex[Int($0 & 15)]] }, as: UTF8.self)
                 guard raw.id == encoded else { continue }
@@ -6771,6 +6798,11 @@ extension TVStore {
         case .daoliyu:
             let client = DaoLiYuServiceClient(source: source, credential: credential)
             return totalOnly(try await client.trackPage(skip: 0, take: 1).total)
+        case .audiobookshelf:
+            let client = AudiobookshelfServiceClient(source: source, credential: credential)
+            let excluded = Set(source.excludedServerLibraryIDs)
+            let libraries = try await client.libraries().filter { $0.mediaType != .other && !excluded.contains($0.id) }
+            return totalOnly(try await client.catalogItemCount(libraryIDs: libraries.map(\.id)))
         case .songloft:
             let client = SongloftServiceClient(source: source, credential: credential)
             return totalOnly(try await client.trackPage(offset: 0, limit: 1).total)

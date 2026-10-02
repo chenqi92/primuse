@@ -145,6 +145,16 @@ import Testing
     #expect(MusicSourceType.daoliyu.defaultSSL == false)
     #expect(MusicSource(name: "Daoliyu", type: .daoliyu).port == 4000)
     #expect(MusicSourceType.daoliyu.category == .mediaServer)
+    #expect(MusicSourceType.audiobookshelf.defaultPort == 13378)
+    #expect(MusicSourceType.audiobookshelf.defaultSSL == false)
+    #expect(MusicSource(name: "Audiobookshelf", type: .audiobookshelf).port == 13378)
+    #expect(MusicSourceType.audiobookshelf.category == .mediaServer)
+    #expect(MusicSourceType.audiobookshelf.declaredListeningContentKind == .spokenWord)
+    #expect(MusicSourceType.audiobookshelf.organizesCatalogByServerLibrary)
+    #expect(!MusicSourceType.audiobookshelf.supportsWholeSourceSpokenWordTag)
+    #expect(MusicSourceType.navidrome.supportsWholeSourceSpokenWordTag)
+    #expect(!MusicSourceType.jellyfin.supportsWholeSourceSpokenWordTag)
+    #expect(!MusicSourceType.smb.supportsWholeSourceSpokenWordTag)
     #expect(MusicSourceType.fnos.category == .nas)
 }
 
@@ -183,6 +193,7 @@ import Testing
     #expect(MusicSourceType.gonic.defaultPort(useSsl: true) == 4747)
     #expect(MusicSourceType.songloft.defaultPort(useSsl: true) == 58091)
     #expect(MusicSourceType.daoliyu.defaultPort(useSsl: true) == 4000)
+    #expect(MusicSourceType.audiobookshelf.defaultPort(useSsl: true) == 13378)
 
     // 新建源仍按类型的默认 SSL 取端口,所以这几行的结果没有变。
     #expect(MusicSource(name: "Emby", type: .emby).port == 8096)
@@ -235,7 +246,7 @@ import Testing
 @Test func fileDeletionCapabilityExcludesReadOnlyCatalogues() {
     let readOnly: Set<MusicSourceType> = [
         .upnp, .subsonic, .navidrome, .airsonic, .gonic, .fnos, .fnMusic, .daoliyu, .songloft,
-        .synologyAudioStation,
+        .audiobookshelf, .synologyAudioStation,
         // 光鸭开放平台未提供删除已落盘文件的接口。
         .guangya, .appleMusic, .appleMusicLibrary,
     ]
@@ -434,7 +445,7 @@ import Testing
         .local, .appleMusicLibrary,
         .jellyfin, .emby, .plex,
         .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu, .songloft,
-        .synologyAudioStation,
+        .audiobookshelf, .synologyAudioStation,
     ]
 
     for sourceType in MusicSourceType.allCases {

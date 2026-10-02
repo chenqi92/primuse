@@ -163,6 +163,21 @@ actor TVDaoLiYuLister: TVDirectoryLister {
     }
 }
 
+/// Audiobookshelf 同样是整库源;根目录浏览只做真实登录和资料库列举。
+actor TVAudiobookshelfLister: TVDirectoryLister {
+    private let client: AudiobookshelfServiceClient
+
+    init(client: AudiobookshelfServiceClient) {
+        self.client = client
+    }
+
+    func list(_ path: String) async throws -> [TVDirEntry] {
+        guard path == "/" else { return [] }
+        _ = try await client.validateConnection()
+        return []
+    }
+}
+
 actor TVSongloftLister: TVDirectoryLister {
     private let client: SongloftServiceClient
 
@@ -1244,7 +1259,7 @@ final class TVSourceScanner {
     private static let maximumScanDepth = 64
     /// 整库型来源:没有目录树,扫描 = 把服务端曲库整体拉下来。
     static let serverCatalogTypes: Set<MusicSourceType> = [
-        .fnMusic, .daoliyu, .songloft, .synologyAudioStation,
+        .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation,
         .jellyfin, .emby, .plex,
         .subsonic, .navidrome, .airsonic, .gonic,
     ]
@@ -1359,6 +1374,8 @@ final class TVSourceScanner {
             return TVFnMusicLister(client: fnMusicClient(source: source, credential: credential))
         case .daoliyu:
             return TVDaoLiYuLister(client: DaoLiYuServiceClient(source: source, credential: credential))
+        case .audiobookshelf:
+            return TVAudiobookshelfLister(client: AudiobookshelfServiceClient(source: source, credential: credential))
         case .songloft:
             return TVSongloftLister(client: SongloftServiceClient(source: source, credential: credential))
         case .synologyAudioStation:
@@ -1531,6 +1548,10 @@ final class TVSourceScanner {
             } else if source.type == .songloft {
                 _ = try await withRoutedSource(source) { routedSource in
                     try await self.scanSongloft(source: routedSource, credential: credential, onSong: accept)
+                }
+            } else if source.type == .audiobookshelf {
+                _ = try await withRoutedSource(source) { routedSource in
+                    try await self.scanAudiobookshelf(source: routedSource, credential: credential, onSong: accept)
                 }
             } else if source.type == .synologyAudioStation {
                 _ = try await withRoutedSource(source) { routedSource in
@@ -2335,6 +2356,19 @@ final class TVSourceScanner {
         }
     }
 
+    func validateAudiobookshelfConnection(
+        source: MusicSource,
+        credential: SourceCredential?
+    ) async throws -> Int {
+        guard source.type == .audiobookshelf else { throw TVScanError.unsupported }
+        return try await withRoutedSource(source) { routedSource in
+            try await AudiobookshelfServiceClient(
+                source: routedSource,
+                credential: credential
+            ).validateConnection().count
+        }
+    }
+
     func validateSongloftConnection(
         source: MusicSource,
         credential: SourceCredential?
@@ -2625,6 +2659,54 @@ final class TVSourceScanner {
             }
             if walk.isFinished(offset: skip, rawCount: page.rawCount, pageSize: Self.daoLiYuPageSize) {
                 break
+            }
+        }
+        return songs
+    }
+
+    /// Audiobookshelf:按资料库翻页,每本书的每个文件、每个播客的每一集各是一首歌。
+    private func scanAudiobookshelf(
+        source: MusicSource,
+        credential: SourceCredential?,
+        onSong: (Song) async throws -> Void
+    ) async throws -> [Song] {
+        let client = AudiobookshelfServiceClient(source: source, credential: credential)
+        let excluded = Set(source.excludedServerLibraryIDs)
+        let libraries = try await client.libraries().filter { $0.mediaType != .other && !excluded.contains($0.id) }
+        let pageSize = AudiobookshelfServiceClient.pageSize
+        var songs: [Song] = []
+        for library in libraries {
+            var page = 0
+            var walk = CatalogWalkDriftTracker()
+            defer { if walk.driftObserved { catalogDriftObserved = true } }
+            while true {
+                try Task.checkCancellation()
+                let result = try await client.libraryItemsPage(libraryID: library.id, page: page, limit: pageSize)
+                try Task.checkCancellation()
+                walk.observeTotal(result.total)
+                guard result.rawCount <= pageSize else {
+                    throw AudiobookshelfServiceError.invalidResponse(PMString("error.catalog.invalidPageCount"))
+                }
+                if result.rawCount == 0 {
+                    _ = walk.isFinished(offset: page * pageSize, rawCount: 0, pageSize: pageSize)
+                    break
+                }
+                for item in result.items {
+                    try Task.checkCancellation()
+                    guard walk.admit(item.id) else { continue }
+                    for song in item.makeSongs(sourceID: source.id) {
+                        songs.append(song)
+                        try await onSong(song)
+                        indexed = songs.count
+                        currentFile = song.title
+                    }
+                }
+                let offset = (page + 1) * pageSize
+                guard SubsonicCatalogPagingPolicy.isWithinSongLimit(offset) else {
+                    throw AudiobookshelfServiceError.invalidResponse(PMString("error.catalog.pageOverflow"))
+                }
+                if walk.isFinished(offset: offset, rawCount: result.rawCount, pageSize: pageSize) { break }
+                page += 1
             }
         }
         return songs

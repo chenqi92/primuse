@@ -517,7 +517,7 @@ struct LibraryFolderIndexTests {
     func keepsVirtualSourcesUncategorized() throws {
         let sourceTypes: [MusicSourceType] = [
             .appleMusic, .appleMusicLibrary, .upnp,
-            .jellyfin, .navidrome, .fnMusic, .daoliyu,
+            .jellyfin, .navidrome, .fnMusic, .daoliyu, .audiobookshelf,
             .aliyunDrive, .googleDrive, .oneDrive,
             .drime, .pan115, .pan123, .guangya,
         ]
@@ -541,6 +541,7 @@ struct LibraryFolderIndexTests {
             "/subsonic/tracks/item-id.flac",
             "/fnmusic/tracks/item-id.flac",
             "/daoliyu/tracks/item-id.flac",
+            "/audiobookshelf/items/li_abc/files/1234.m4b",
             "aliyun-file-id",
             "google-drive-file-id",
             "onedrive-item-id",

@@ -927,3 +927,12 @@
 "ext.tv.options.section.song" = "เพลงนี้";
 "ext.tv.options.section.playback" = "การเล่น";
 "ext.tv.options.section.goTo" = "ไปที่";
+
+// Audiobookshelf
+"src.subtitle.audiobookshelf" = "เซิร์ฟเวอร์หนังสือเสียงและพอดแคสต์ · API ดั้งเดิม";
+"ext.tv.sources.hint.audiobookshelf" = "API ดั้งเดิมของ Audiobookshelf";
+"error.audiobookshelf.missingCredential" = "Audiobookshelf ต้องใช้บัญชีกับรหัสผ่าน หรือคีย์ API";
+"error.audiobookshelf.invalidURL" = "ที่อยู่เซิร์ฟเวอร์ Audiobookshelf ไม่ถูกต้อง";
+"error.audiobookshelf.authenticationFailed" = "ลงชื่อเข้า Audiobookshelf ไม่สำเร็จ โปรดตรวจสอบบัญชี รหัสผ่าน หรือคีย์ API";
+"error.audiobookshelf.http" = "เซิร์ฟเวอร์ Audiobookshelf ตอบกลับ HTTP %@";
+"error.audiobookshelf.invalidResponse" = "Audiobookshelf ส่งข้อมูลที่ไม่ถูกต้องกลับมา: %@";

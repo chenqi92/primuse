@@ -927,3 +927,12 @@
 "ext.tv.options.section.song" = "यह गाना";
 "ext.tv.options.section.playback" = "प्लेबैक";
 "ext.tv.options.section.goTo" = "यहाँ जाएँ";
+
+// Audiobookshelf
+"src.subtitle.audiobookshelf" = "ऑडियोबुक और पॉडकास्ट सर्वर · नेटिव API";
+"ext.tv.sources.hint.audiobookshelf" = "Audiobookshelf नेटिव API";
+"error.audiobookshelf.missingCredential" = "Audiobookshelf के लिए खाता और पासवर्ड, या एक API कुंजी चाहिए।";
+"error.audiobookshelf.invalidURL" = "Audiobookshelf सर्वर का पता अमान्य है।";
+"error.audiobookshelf.authenticationFailed" = "Audiobookshelf में साइन इन नहीं हो सका। खाता, पासवर्ड या API कुंजी जाँचें।";
+"error.audiobookshelf.http" = "Audiobookshelf सर्वर ने HTTP %@ लौटाया।";
+"error.audiobookshelf.invalidResponse" = "Audiobookshelf ने अमान्य डेटा लौटाया: %@";

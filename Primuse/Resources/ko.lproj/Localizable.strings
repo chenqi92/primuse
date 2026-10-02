@@ -4915,3 +4915,4 @@
 "library_kind_caption_other" = "기타";
 "whole_source_spoken_word" = "이 소스는 모두 오디오북";
 "whole_source_spoken_word_hint" = "이 소스의 모든 곡이 오디오북 책장에 들어가고 듣기 플레이어로 재생됩니다. 개별 항목은 여전히 음악으로 표시할 수 있습니다.";
+"audiobookshelf_credentials_hint" = "서버 계정으로 로그인하거나, 서버의 설정 › API Keys에서 API 키를 만든 뒤 위에서 API 키를 선택해 입력하세요.";

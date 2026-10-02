@@ -980,3 +980,12 @@
 "ext.tv.options.section.song" = "この曲";
 "ext.tv.options.section.playback" = "再生";
 "ext.tv.options.section.goTo" = "移動";
+
+// Audiobookshelf
+"src.subtitle.audiobookshelf" = "オーディオブック・ポッドキャストサーバー · ネイティブ API";
+"ext.tv.sources.hint.audiobookshelf" = "Audiobookshelf ネイティブ API";
+"error.audiobookshelf.missingCredential" = "Audiobookshelf にはアカウントとパスワード、または API キーが必要です。";
+"error.audiobookshelf.invalidURL" = "Audiobookshelf サーバーのアドレスが無効です。";
+"error.audiobookshelf.authenticationFailed" = "Audiobookshelf へのサインインに失敗しました。アカウント、パスワード、API キーを確認してください。";
+"error.audiobookshelf.http" = "Audiobookshelf サーバーが HTTP %@ を返しました。";
+"error.audiobookshelf.invalidResponse" = "Audiobookshelf が無効なデータを返しました: %@";

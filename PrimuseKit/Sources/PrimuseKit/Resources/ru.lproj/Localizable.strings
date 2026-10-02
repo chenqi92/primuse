@@ -927,3 +927,12 @@
 "ext.tv.options.section.song" = "Эта песня";
 "ext.tv.options.section.playback" = "Воспроизведение";
 "ext.tv.options.section.goTo" = "Перейти";
+
+// Audiobookshelf
+"src.subtitle.audiobookshelf" = "Сервер аудиокниг и подкастов · Нативный API";
+"ext.tv.sources.hint.audiobookshelf" = "Нативный API Audiobookshelf";
+"error.audiobookshelf.missingCredential" = "Для Audiobookshelf нужны учётная запись и пароль или ключ API.";
+"error.audiobookshelf.invalidURL" = "Адрес сервера Audiobookshelf недействителен.";
+"error.audiobookshelf.authenticationFailed" = "Не удалось войти в Audiobookshelf. Проверьте учётную запись, пароль или ключ API.";
+"error.audiobookshelf.http" = "Сервер Audiobookshelf вернул HTTP %@.";
+"error.audiobookshelf.invalidResponse" = "Audiobookshelf вернул недопустимые данные: %@";

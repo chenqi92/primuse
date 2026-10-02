@@ -977,3 +977,12 @@
 "ext.tv.options.section.song" = "这首歌";
 "ext.tv.options.section.playback" = "播放";
 "ext.tv.options.section.goTo" = "前往";
+
+// Audiobookshelf
+"src.subtitle.audiobookshelf" = "有声书与播客服务器 · 原生接口";
+"ext.tv.sources.hint.audiobookshelf" = "Audiobookshelf 原生接口";
+"error.audiobookshelf.missingCredential" = "Audiobookshelf 需要账号和密码，或一枚 API 密钥。";
+"error.audiobookshelf.invalidURL" = "Audiobookshelf 服务器地址无效。";
+"error.audiobookshelf.authenticationFailed" = "Audiobookshelf 登录失败，请检查账号、密码或 API 密钥。";
+"error.audiobookshelf.http" = "Audiobookshelf 服务器返回了 HTTP %@。";
+"error.audiobookshelf.invalidResponse" = "Audiobookshelf 返回了无效数据：%@";

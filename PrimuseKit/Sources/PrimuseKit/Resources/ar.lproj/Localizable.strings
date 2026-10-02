@@ -927,3 +927,12 @@
 "ext.tv.options.section.song" = "هذه الأغنية";
 "ext.tv.options.section.playback" = "التشغيل";
 "ext.tv.options.section.goTo" = "انتقال إلى";
+
+// Audiobookshelf
+"src.subtitle.audiobookshelf" = "خادم كتب صوتية وبودكاست · واجهة أصلية";
+"ext.tv.sources.hint.audiobookshelf" = "واجهة Audiobookshelf الأصلية";
+"error.audiobookshelf.missingCredential" = "يحتاج Audiobookshelf إلى حساب وكلمة مرور، أو مفتاح API.";
+"error.audiobookshelf.invalidURL" = "عنوان خادم Audiobookshelf غير صالح.";
+"error.audiobookshelf.authenticationFailed" = "فشل تسجيل الدخول إلى Audiobookshelf. تحقق من الحساب أو كلمة المرور أو مفتاح API.";
+"error.audiobookshelf.http" = "أعاد خادم Audiobookshelf الرمز HTTP %@.";
+"error.audiobookshelf.invalidResponse" = "أعاد Audiobookshelf بيانات غير صالحة: %@";

@@ -4892,3 +4892,4 @@
 "library_kind_caption_other" = "其他";
 "whole_source_spoken_word" = "整個來源都是有聲內容";
 "whole_source_spoken_word_hint" = "這個來源的所有歌曲都進有聲書書架、用聽書播放頁。單首仍可以標回音樂。";
+"audiobookshelf_credentials_hint" = "用伺服器帳號登入；或在伺服器「設定 › API Keys」裡建立一組 API 金鑰，在上方選「API 金鑰」填入。";

@@ -264,6 +264,14 @@ enum AutomaticOfflineFailureClassifier {
             default: return .sourceUnavailable
             }
         }
+        if let error = error as? AudiobookshelfServiceError {
+            switch error {
+            case .missingCredential, .authenticationFailed: return .authentication
+            case .badServerResponse(403): return .sourceAccessDenied
+            case .badServerResponse(429): return .rateLimited
+            default: return .sourceUnavailable
+            }
+        }
         if let error = error as? SynologyAudioStationError {
             switch error {
             case .missingCredential, .invalidCredentials, .twoFactorRequired, .invalidOneTimePassword,
@@ -2502,6 +2510,33 @@ private struct RoutedDaoLiYuConnector: RoutedConnectorProxy, RefreshingMetadataS
 
 }
 
+private struct RoutedAudiobookshelfConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
+    ServerLibraryListingConnector, ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector {
+    let sourceID: String
+    let routing: SourceConnectionRouter
+    let routedSupportsSidecarWriting: Bool
+    let routedPreferredDeleteBatchSize: Int
+
+    func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
+        let routed = try await routing.withReadAndRoute { connector in
+            guard let scanner = connector as? any SongScanningConnector else {
+                throw SourceError.connectionFailed("Song scanner unavailable")
+            }
+            return try await scanner.scanSongs(from: path)
+        }
+        return observingDeferredReadErrors(in: routed.value, routeIndex: routed.routeIndex)
+    }
+
+    func fetchServerLibraries() async throws -> [ServerLibraryDescriptor] {
+        try await routing.withRead { connector in
+            guard let lister = connector as? any ServerLibraryListingConnector else {
+                throw SourceError.connectionFailed("Server library listing unavailable")
+            }
+            return try await lister.fetchServerLibraries()
+        }
+    }
+}
+
 private struct RoutedSongloftConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     ServerLyricsConnector, ServerPlaylistConnector, ServerFavoriteConnector,
     ServerScrobblingConnector, ServerRadioConnector, ServerRadioStreamResolvingConnector,
@@ -3445,6 +3480,13 @@ final class SourceManager {
                 routedSupportsSidecarWriting: supportsSidecarWriting,
                 routedPreferredDeleteBatchSize: preferredDeleteBatchSize
             )
+        case .audiobookshelf:
+            connector = RoutedAudiobookshelfConnector(
+                sourceID: source.id,
+                routing: routing,
+                routedSupportsSidecarWriting: supportsSidecarWriting,
+                routedPreferredDeleteBatchSize: preferredDeleteBatchSize
+            )
         case .songloft:
             connector = RoutedSongloftConnector(
                 sourceID: source.id,
@@ -3647,6 +3689,21 @@ final class SourceManager {
                     username: source.username ?? "",
                     password: password,
                     alternateTLSValidationHostname: source.alternateTLSValidationHostname
+                )
+            }
+        case .audiobookshelf:
+            connector = credentialProtectedConnector(for: source) { secret in
+                AudiobookshelfSource(
+                    sourceID: source.id,
+                    host: source.host ?? "",
+                    port: source.port,
+                    useSSL: source.useSsl,
+                    basePath: source.basePath,
+                    username: source.username ?? "",
+                    secret: secret,
+                    authType: source.authType,
+                    alternateTLSValidationHostname: source.alternateTLSValidationHostname,
+                    excludedLibraryIDs: Set(source.excludedServerLibraryIDs)
                 )
             }
         case .songloft:
