@@ -747,7 +747,7 @@
 "ai_region_checking" = "App Store क्षेत्र की जाँच हो रही है…";
 "ai_region_unavailable_description" = "इस App Store क्षेत्र के लिए रिमोट और जेनरेटिव इंटेलिजेंस सुविधाएं पेश नहीं की जाती हैं।";
 "ai_region_unavailable_title" = "इंटेलिजेंस सुविधाएँ अनुपलब्ध हैं";
-"ai_remote_consent" = "खोज सामग्री, अनुवाद के लिए गीत के बोल, व्यवस्थित करने वाले टैग या लाइब्रेरी की शैलियाँ और कलाकारों के नाम AI सेवाओं को भेजने की अनुमति दें";
+"ai_remote_consent" = "खोज सामग्री, अनुवाद के लिए गीत के बोल, व्यवस्थित करने वाले टैग या लाइब्रेरी के एल्बम, कलाकार और गानों के नाम व शैलियाँ AI सेवाओं को भेजने की अनुमति दें";
 "ai_remove_provider" = "सेवा हटाएँ";
 "ai_remove_provider_confirm" = "इस सेवा और इसकी स्थानीय कुंजी को हटाएं?";
 "ai_resolved_endpoint" = "समापन बिंदु का अनुरोध करें";
@@ -5248,3 +5248,23 @@
 "ai_song_discovery_failed_network" = "नेटवर्क कनेक्शन नहीं है। नेटवर्क जाँचें और दोबारा कोशिश करें।";
 "ai_song_discovery_failed_empty" = "इस बार AI ने कुछ नहीं सुझाया। कोई दूसरी शैली चुनें या बाद में कोशिश करें।";
 "ai_song_discovery_failed_generic" = "AI सेवा अभी उपलब्ध नहीं है। बाद में कोशिश करें।";
+
+/* AI intros for albums and artists */
+"library_insight_album_title" = "इस एल्बम के बारे में";
+"library_insight_artist_title" = "इस कलाकार के बारे में";
+"library_insight_prompt_album" = "इस एल्बम के लिए AI से एक छोटा परिचय और कुछ स्टाइल टैग लिखवाएँ।";
+"library_insight_prompt_artist" = "इस कलाकार के लिए AI से एक छोटा परिचय और कुछ स्टाइल टैग लिखवाएँ।";
+"library_insight_generate" = "परिचय लिखें";
+"library_insight_generating" = "परिचय लिखा जा रहा है…";
+"library_insight_regenerate" = "फिर से लिखें";
+"library_insight_remove" = "परिचय हटाएँ";
+"library_insight_less" = "कम दिखाएँ";
+"library_insight_footer_format" = "AI ने लिखा · %@ · इसमें गलतियाँ हो सकती हैं";
+"library_insight_unknown_album" = "AI इस एल्बम के बारे में ज़्यादा नहीं जानता, इसलिए परिचय नहीं लिखा।";
+"library_insight_unknown_artist" = "AI इस कलाकार के बारे में ज़्यादा नहीं जानता, इसलिए परिचय नहीं लिखा।";
+"library_insight_allow_and_generate" = "अनुमति दें और लिखें";
+"library_insight_retry" = "फिर कोशिश करें";
+"library_insight_needs_consent" = "परिचय लिखने के लिए एल्बम, कलाकार और गानों के नाम AI सेवा को भेजे जाते हैं, इसलिए पहले सामग्री भेजने की अनुमति देनी होगी।";
+"library_insight_not_configured" = "अभी कोई AI सेवा उपलब्ध नहीं है। बिल्ट-इन AI चालू करें या AI सेटिंग्स में अपनी सेवा जोड़ें, फिर दोबारा कोशिश करें।";
+"library_insight_builtin_not_offered" = "बिल्ट-इन AI अभी परिचय नहीं लिख सकता। आप AI सेटिंग्स में अपनी AI सेवा जोड़ सकते हैं।";
+"library_insight_failed_daily_limit" = "आज के परिचय खत्म हो गए। कल फिर आएँ।";

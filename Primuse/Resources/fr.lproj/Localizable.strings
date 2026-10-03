@@ -3277,7 +3277,7 @@
 "ai_delete_current_api_key" = "Supprimer la clé API actuelle";
 "ai_provider_footer" = "Seul le contenu requis par les fonctions activées et autorisées est envoyé. La structure de la bibliothèque et les chemins restent sur cet appareil ; l’audio n’est transmis que pour une transcription explicitement autorisée.";
 "ai_allow_insecure_local_http" = "Autoriser HTTP pour les serveurs du réseau local";
-"ai_remote_consent" = "Autoriser l’envoi des recherches, des paroles à traduire, des tags à nettoyer ou des genres et artistes de la bibliothèque aux services intelligents";
+"ai_remote_consent" = "Autoriser l’envoi des recherches, des paroles à traduire, des tags à nettoyer ou des noms d’albums, d’artistes et de titres et des genres de la bibliothèque aux services intelligents";
 "ai_privacy_footer" = "Les clés API restent dans le trousseau. Les recommandations n’incluent ni chemins de fichiers, ni historique complet, ni audio ; le HTTP local exige une autorisation distincte.";
 "ai_enable_recommendations" = "Recommandations intelligentes par situation";
 "ai_capabilities_footer" = "La recherche développe les requêtes descriptives. Les recommandations ne font que réordonner les candidats locaux. Un échec n’interrompt ni les recommandations locales ni la lecture.";
@@ -5342,3 +5342,23 @@
 "ai_song_discovery_failed_network" = "Aucune connexion réseau. Vérifiez votre réseau et réessayez.";
 "ai_song_discovery_failed_empty" = "L’IA n’a rien suggéré cette fois. Choisissez un autre genre ou réessayez plus tard.";
 "ai_song_discovery_failed_generic" = "Le service d’IA est indisponible pour le moment. Réessayez plus tard.";
+
+/* AI intros for albums and artists */
+"library_insight_album_title" = "À propos de cet album";
+"library_insight_artist_title" = "À propos de cet artiste";
+"library_insight_prompt_album" = "Demandez à l’IA une courte présentation et quelques tags de style pour cet album.";
+"library_insight_prompt_artist" = "Demandez à l’IA une courte présentation et quelques tags de style pour cet artiste.";
+"library_insight_generate" = "Rédiger la présentation";
+"library_insight_generating" = "Rédaction de la présentation…";
+"library_insight_regenerate" = "Rédiger à nouveau";
+"library_insight_remove" = "Supprimer la présentation";
+"library_insight_less" = "Moins";
+"library_insight_footer_format" = "Rédigé par l’IA · %@ · peut contenir des erreurs";
+"library_insight_unknown_album" = "L’IA connaît mal cet album, elle n’a donc pas rédigé de présentation.";
+"library_insight_unknown_artist" = "L’IA connaît mal cet artiste, elle n’a donc pas rédigé de présentation.";
+"library_insight_allow_and_generate" = "Autoriser et rédiger";
+"library_insight_retry" = "Réessayer";
+"library_insight_needs_consent" = "La présentation envoie les noms de l’album, de l’artiste et des titres à un service d’IA : autorisez d’abord l’envoi de contenu.";
+"library_insight_not_configured" = "Aucun service d’IA disponible. Activez l’IA intégrée ou ajoutez votre propre service dans les réglages IA, puis réessayez.";
+"library_insight_builtin_not_offered" = "L’IA intégrée ne peut pas encore rédiger de présentations. Vous pouvez ajouter votre propre service d’IA dans les réglages IA.";
+"library_insight_failed_daily_limit" = "Les présentations du jour sont épuisées. Revenez demain.";

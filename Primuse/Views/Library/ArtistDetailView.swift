@@ -107,6 +107,26 @@ struct ArtistDetailView: View {
         return name.isEmpty ? String(localized: "unknown_artist") : name
     }
 
+    /// 「关于这位艺人」的身份:只看艺人名。
+    private var insightIdentity: LibraryInsightSubject {
+        .artist(name: artist.name, genres: [], albums: [], tracks: [])
+    }
+
+    /// 点「生成」时才收集:发行的专辑、最常听的歌和最常见的风格。
+    private func insightDetails() -> LibraryInsightSubject {
+        let allSongs = songs
+        var titles = topSongs.map(\.title)
+        if titles.count < 20 {
+            titles += allSongs.prefix(40).map(\.title)
+        }
+        return .artist(
+            name: artist.name,
+            genres: LibraryInsightSubject.topGenres(allSongs.map(\.genre)),
+            albums: (releaseAlbums + appearsOnAlbums).map { .init(title: $0.title, year: $0.year) },
+            tracks: titles
+        )
+    }
+
     private var monthlyListenText: String {
         String(
             format: String(localized: "artist_monthly_plays_format"),
@@ -221,6 +241,8 @@ struct ArtistDetailView: View {
                     if !appearsOnAlbums.isEmpty {
                         iosAlbumShelf(title: "artist_appears_on", albums: appearsOnAlbums)
                     }
+                    LibraryInsightCard(subject: insightIdentity, details: insightDetails, tint: tint)
+                        .padding(.horizontal, 20)
                     if !songs.isEmpty {
                         allSongsLink.padding(.horizontal, 20)
                     }
@@ -467,6 +489,7 @@ struct ArtistDetailView: View {
                                 albums: appearsOnAlbums
                             )
                         }
+                        LibraryInsightCard(subject: insightIdentity, details: insightDetails)
                         if !songs.isEmpty { allSongsLink }
                     }
                 }

@@ -747,7 +747,7 @@
 "ai_region_checking" = "Sprawdzam region App Store…";
 "ai_region_unavailable_description" = "Funkcje inteligencji zdalnej i generatywnej nie są oferowane dla tego regionu App Store.";
 "ai_region_unavailable_title" = "Funkcje inteligentne są niedostępne";
-"ai_remote_consent" = "Zezwalaj na wysyłanie wyszukiwań, tekstów do przetłumaczenia, tagów do uporządkowania lub gatunków i wykonawców z biblioteki do usług AI";
+"ai_remote_consent" = "Zezwalaj na wysyłanie wyszukiwań, tekstów do przetłumaczenia, tagów do uporządkowania lub nazw albumów, wykonawców i utworów oraz gatunków z biblioteki do usług AI";
 "ai_remove_provider" = "Usuń usługę";
 "ai_remove_provider_confirm" = "Usunąć tę usługę i jej klucz lokalny?";
 "ai_resolved_endpoint" = "Żądanie punktu końcowego";
@@ -5248,3 +5248,23 @@
 "ai_song_discovery_failed_network" = "Brak połączenia z siecią. Sprawdź sieć i spróbuj ponownie.";
 "ai_song_discovery_failed_empty" = "Tym razem AI niczego nie poleciło. Wybierz inny gatunek lub spróbuj później.";
 "ai_song_discovery_failed_generic" = "Usługa AI jest teraz niedostępna. Spróbuj później.";
+
+/* AI intros for albums and artists */
+"library_insight_album_title" = "O tym albumie";
+"library_insight_artist_title" = "O tym wykonawcy";
+"library_insight_prompt_album" = "Poproś AI o krótkie wprowadzenie i kilka tagów stylu dla tego albumu.";
+"library_insight_prompt_artist" = "Poproś AI o krótkie wprowadzenie i kilka tagów stylu dla tego wykonawcy.";
+"library_insight_generate" = "Napisz wprowadzenie";
+"library_insight_generating" = "Piszę wprowadzenie…";
+"library_insight_regenerate" = "Napisz ponownie";
+"library_insight_remove" = "Usuń wprowadzenie";
+"library_insight_less" = "Mniej";
+"library_insight_footer_format" = "Napisane przez AI · %@ · może zawierać błędy";
+"library_insight_unknown_album" = "AI słabo zna ten album, więc nie napisało wprowadzenia.";
+"library_insight_unknown_artist" = "AI słabo zna tego wykonawcę, więc nie napisało wprowadzenia.";
+"library_insight_allow_and_generate" = "Zezwól i napisz";
+"library_insight_retry" = "Spróbuj ponownie";
+"library_insight_needs_consent" = "Wprowadzenie wysyła nazwy albumu, wykonawcy i utworów do usługi AI, dlatego najpierw trzeba zezwolić na wysyłanie treści.";
+"library_insight_not_configured" = "Brak dostępnej usługi AI. Włącz wbudowane AI lub dodaj własną usługę w ustawieniach AI i spróbuj ponownie.";
+"library_insight_builtin_not_offered" = "Wbudowane AI nie potrafi jeszcze pisać wprowadzeń. Własną usługę AI możesz dodać w ustawieniach AI.";
+"library_insight_failed_daily_limit" = "Dzisiejszy limit wprowadzeń został wykorzystany. Wróć jutro.";

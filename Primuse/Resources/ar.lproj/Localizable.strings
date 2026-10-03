@@ -747,7 +747,7 @@
 "ai_region_checking" = "التحقق من منطقة App Store…";
 "ai_region_unavailable_description" = "لا يتم تقديم ميزات الذكاء التوليدي عن بعد لهذه المنطقة App Store.";
 "ai_region_unavailable_title" = "ميزات الذكاء غير متوفرة";
-"ai_remote_consent" = "السماح بإرسال محتوى البحث أو كلمات الأغاني المطلوب ترجمتها أو الوسوم المطلوب ترتيبها أو أنواع الموسيقى وأسماء الفنانين في المكتبة إلى خدمات الذكاء الاصطناعي";
+"ai_remote_consent" = "السماح بإرسال محتوى البحث أو كلمات الأغاني المطلوب ترجمتها أو الوسوم المطلوب ترتيبها أو أسماء الألبومات والفنانين والمقاطع وأنواع الموسيقى في المكتبة إلى خدمات الذكاء الاصطناعي";
 "ai_remove_provider" = "إزالة الخدمة";
 "ai_remove_provider_confirm" = "هل تريد إزالة هذه الخدمة ومفتاحها المحلي؟";
 "ai_resolved_endpoint" = "نقطة نهاية الطلب";
@@ -5248,3 +5248,23 @@
 "ai_song_discovery_failed_network" = "لا يوجد اتصال بالشبكة. تحقق من الشبكة وحاول مجددًا.";
 "ai_song_discovery_failed_empty" = "لم يقترح الذكاء الاصطناعي شيئًا هذه المرة. اختر نوعًا آخر أو حاول لاحقًا.";
 "ai_song_discovery_failed_generic" = "خدمة الذكاء الاصطناعي غير متاحة الآن. حاول لاحقًا.";
+
+/* AI intros for albums and artists */
+"library_insight_album_title" = "عن هذا الألبوم";
+"library_insight_artist_title" = "عن هذا الفنان";
+"library_insight_prompt_album" = "اطلب من الذكاء الاصطناعي نبذة قصيرة وبعض وسوم الأسلوب لهذا الألبوم.";
+"library_insight_prompt_artist" = "اطلب من الذكاء الاصطناعي نبذة قصيرة وبعض وسوم الأسلوب لهذا الفنان.";
+"library_insight_generate" = "كتابة نبذة";
+"library_insight_generating" = "جارٍ كتابة النبذة…";
+"library_insight_regenerate" = "إعادة الكتابة";
+"library_insight_remove" = "حذف النبذة";
+"library_insight_less" = "أقل";
+"library_insight_footer_format" = "كتبها الذكاء الاصطناعي · %@ · قد تحتوي على أخطاء";
+"library_insight_unknown_album" = "لا يعرف الذكاء الاصطناعي الكثير عن هذا الألبوم، لذا لم يكتب نبذة.";
+"library_insight_unknown_artist" = "لا يعرف الذكاء الاصطناعي الكثير عن هذا الفنان، لذا لم يكتب نبذة.";
+"library_insight_allow_and_generate" = "السماح والكتابة";
+"library_insight_retry" = "إعادة المحاولة";
+"library_insight_needs_consent" = "كتابة النبذة ترسل أسماء الألبوم والفنان والمقاطع إلى خدمة ذكاء اصطناعي، لذا يجب السماح بإرسال المحتوى أولًا.";
+"library_insight_not_configured" = "لا تتوفر خدمة ذكاء اصطناعي بعد. شغّل الذكاء الاصطناعي المدمج أو أضف خدمتك الخاصة في إعدادات الذكاء الاصطناعي ثم حاول مجددًا.";
+"library_insight_builtin_not_offered" = "لا يستطيع الذكاء الاصطناعي المدمج كتابة النبذات بعد. يمكنك إضافة خدمتك الخاصة في إعدادات الذكاء الاصطناعي.";
+"library_insight_failed_daily_limit" = "نفدت النبذات لهذا اليوم. عد غدًا.";

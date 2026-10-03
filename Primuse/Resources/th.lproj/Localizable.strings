@@ -747,7 +747,7 @@
 "ai_region_checking" = "กำลังตรวจสอบ App Store ภูมิภาค...";
 "ai_region_unavailable_description" = "ไม่มีการนำเสนอคุณสมบัติอัจฉริยะระยะไกลและอัจฉริยะสำหรับภูมิภาค App Store นี้";
 "ai_region_unavailable_title" = "คุณสมบัติอัจฉริยะไม่พร้อมใช้งาน";
-"ai_remote_consent" = "อนุญาตให้ส่งคำค้น เนื้อเพลงที่รอแปล แท็กที่จะจัดระเบียบ หรือแนวเพลงและชื่อศิลปินในคลังไปยังบริการ AI";
+"ai_remote_consent" = "อนุญาตให้ส่งคำค้น เนื้อเพลงที่รอแปล แท็กที่จะจัดระเบียบ หรือชื่ออัลบั้ม ศิลปิน เพลง และแนวเพลงในคลังไปยังบริการ AI";
 "ai_remove_provider" = "ลบบริการ";
 "ai_remove_provider_confirm" = "ลบบริการนี้และรหัสท้องถิ่นออกหรือไม่";
 "ai_resolved_endpoint" = "ขอปลายทาง";
@@ -5248,3 +5248,23 @@
 "ai_song_discovery_failed_network" = "ไม่มีการเชื่อมต่อเครือข่าย ตรวจสอบเครือข่ายแล้วลองอีกครั้ง";
 "ai_song_discovery_failed_empty" = "ครั้งนี้ AI ไม่ได้แนะนำอะไร ลองเลือกแนวเพลงอื่นหรือลองใหม่ภายหลัง";
 "ai_song_discovery_failed_generic" = "บริการ AI ใช้งานไม่ได้ในขณะนี้ โปรดลองอีกครั้งภายหลัง";
+
+/* AI intros for albums and artists */
+"library_insight_album_title" = "เกี่ยวกับอัลบั้มนี้";
+"library_insight_artist_title" = "เกี่ยวกับศิลปินนี้";
+"library_insight_prompt_album" = "ให้ AI เขียนแนะนำสั้นๆ และแท็กแนวเพลงสำหรับอัลบั้มนี้";
+"library_insight_prompt_artist" = "ให้ AI เขียนแนะนำสั้นๆ และแท็กแนวเพลงสำหรับศิลปินนี้";
+"library_insight_generate" = "เขียนคำแนะนำ";
+"library_insight_generating" = "กำลังเขียนคำแนะนำ…";
+"library_insight_regenerate" = "เขียนใหม่";
+"library_insight_remove" = "ลบคำแนะนำ";
+"library_insight_less" = "ย่อ";
+"library_insight_footer_format" = "เขียนโดย AI · %@ · อาจมีข้อผิดพลาด";
+"library_insight_unknown_album" = "AI ไม่ค่อยรู้จักอัลบั้มนี้ จึงไม่ได้เขียนคำแนะนำ";
+"library_insight_unknown_artist" = "AI ไม่ค่อยรู้จักศิลปินนี้ จึงไม่ได้เขียนคำแนะนำ";
+"library_insight_allow_and_generate" = "อนุญาตและเขียน";
+"library_insight_retry" = "ลองอีกครั้ง";
+"library_insight_needs_consent" = "การเขียนคำแนะนำจะส่งชื่ออัลบั้ม ศิลปิน และเพลงไปยังบริการ AI จึงต้องอนุญาตให้ส่งเนื้อหาก่อน";
+"library_insight_not_configured" = "ยังไม่มีบริการ AI ที่ใช้ได้ เปิด AI ในตัว หรือเพิ่มบริการของคุณเองในการตั้งค่า AI แล้วลองอีกครั้ง";
+"library_insight_builtin_not_offered" = "AI ในตัวยังเขียนคำแนะนำไม่ได้ คุณเพิ่มบริการ AI ของคุณเองได้ในการตั้งค่า AI";
+"library_insight_failed_daily_limit" = "ใช้สิทธิ์เขียนคำแนะนำของวันนี้หมดแล้ว กลับมาใหม่พรุ่งนี้";

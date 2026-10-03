@@ -3047,7 +3047,7 @@
 "ai_delete_current_api_key" = "Delete Current API Key";
 "ai_provider_footer" = "Only content required by enabled, authorized features is sent. Library structure and file paths stay on this device; audio is uploaded only for explicitly approved song transcription.";
 "ai_allow_insecure_local_http" = "Allow HTTP for local network servers";
-"ai_remote_consent" = "Allow sending search content, lyrics awaiting translation, tags to tidy or your library's genres and artist names to AI services";
+"ai_remote_consent" = "Allow sending search content, lyrics awaiting translation, tags to tidy or your library's album, artist and track names and genres to AI services";
 "ai_privacy_footer" = "API keys stay in Keychain. Recommendations never include file paths, complete listening history, or audio; local HTTP requires separate approval.";
 "ai_enable_recommendations" = "Intelligent scene recommendations";
 "ai_capabilities_footer" = "Search expands descriptive queries. Recommendations only reorder local candidates. A service failure never interrupts local recommendations or playback.";
@@ -5105,3 +5105,23 @@
 "ai_song_discovery_failed_network" = "No network connection. Check your network and try again.";
 "ai_song_discovery_failed_empty" = "The AI didn't suggest anything this time. Try another genre or try again later.";
 "ai_song_discovery_failed_generic" = "The AI service is unavailable right now. Try again later.";
+
+/* AI intros for albums and artists */
+"library_insight_album_title" = "About This Album";
+"library_insight_artist_title" = "About This Artist";
+"library_insight_prompt_album" = "Let AI write a short intro and a few style tags for this album.";
+"library_insight_prompt_artist" = "Let AI write a short intro and a few style tags for this artist.";
+"library_insight_generate" = "Write Intro";
+"library_insight_generating" = "Writing intro…";
+"library_insight_regenerate" = "Regenerate";
+"library_insight_remove" = "Remove Intro";
+"library_insight_less" = "Less";
+"library_insight_footer_format" = "Written by AI · %@ · may contain mistakes";
+"library_insight_unknown_album" = "The AI doesn't know much about this album, so it didn't write an intro.";
+"library_insight_unknown_artist" = "The AI doesn't know much about this artist, so it didn't write an intro.";
+"library_insight_allow_and_generate" = "Allow and Write";
+"library_insight_retry" = "Try Again";
+"library_insight_needs_consent" = "Writing an intro sends the album, artist and track names to an AI service, so sending content needs to be allowed first.";
+"library_insight_not_configured" = "No AI service is available yet. Turn on the built-in AI or add your own service in AI settings, then try again.";
+"library_insight_builtin_not_offered" = "The built-in AI can't write intros yet. You can add your own AI service in AI settings.";
+"library_insight_failed_daily_limit" = "Today's intros are used up. Come back tomorrow.";

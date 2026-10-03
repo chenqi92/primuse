@@ -747,7 +747,7 @@
 "ai_region_checking" = "Comprobando la región App Store…";
 "ai_region_unavailable_description" = "Las funciones de inteligencia remota y generativa no se ofrecen para esta región App Store.";
 "ai_region_unavailable_title" = "Funciones de inteligencia no disponibles";
-"ai_remote_consent" = "Permitir enviar búsquedas, letras por traducir, etiquetas por ordenar o los géneros y artistas de tu biblioteca a servicios de IA";
+"ai_remote_consent" = "Permitir enviar búsquedas, letras por traducir, etiquetas por ordenar o los nombres de álbumes, artistas y canciones y los géneros de tu biblioteca a servicios de IA";
 "ai_remove_provider" = "Eliminar servicio";
 "ai_remove_provider_confirm" = "¿Eliminar este servicio y su clave local?";
 "ai_resolved_endpoint" = "Solicitar punto final";
@@ -5248,3 +5248,23 @@
 "ai_song_discovery_failed_network" = "No hay conexión de red. Revisa tu red e inténtalo de nuevo.";
 "ai_song_discovery_failed_empty" = "La IA no sugirió nada esta vez. Elige otro género o inténtalo más tarde.";
 "ai_song_discovery_failed_generic" = "El servicio de IA no está disponible ahora. Inténtalo más tarde.";
+
+/* AI intros for albums and artists */
+"library_insight_album_title" = "Acerca de este álbum";
+"library_insight_artist_title" = "Acerca de este artista";
+"library_insight_prompt_album" = "Pide a la IA una breve presentación y algunas etiquetas de estilo para este álbum.";
+"library_insight_prompt_artist" = "Pide a la IA una breve presentación y algunas etiquetas de estilo para este artista.";
+"library_insight_generate" = "Escribir presentación";
+"library_insight_generating" = "Escribiendo presentación…";
+"library_insight_regenerate" = "Volver a escribir";
+"library_insight_remove" = "Eliminar presentación";
+"library_insight_less" = "Menos";
+"library_insight_footer_format" = "Escrito por IA · %@ · puede tener errores";
+"library_insight_unknown_album" = "La IA no conoce bien este álbum, así que no escribió una presentación.";
+"library_insight_unknown_artist" = "La IA no conoce bien a este artista, así que no escribió una presentación.";
+"library_insight_allow_and_generate" = "Permitir y escribir";
+"library_insight_retry" = "Reintentar";
+"library_insight_needs_consent" = "Para escribir la presentación se envían los nombres del álbum, el artista y las canciones a un servicio de IA, así que primero debes permitir el envío de contenido.";
+"library_insight_not_configured" = "Todavía no hay ningún servicio de IA disponible. Activa la IA integrada o agrega tu propio servicio en los ajustes de IA y vuelve a intentarlo.";
+"library_insight_builtin_not_offered" = "La IA integrada aún no puede escribir presentaciones. Puedes agregar tu propio servicio de IA en los ajustes de IA.";
+"library_insight_failed_daily_limit" = "Ya usaste las presentaciones de hoy. Vuelve mañana.";

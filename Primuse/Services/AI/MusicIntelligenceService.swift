@@ -39,22 +39,29 @@ struct AISongDiscoveryExecution: Sendable {
     var providerName: String
 }
 
-enum AISongDiscoveryFailure: Equatable, Sendable {
+/// Why a request about library content (new-song discovery, album/artist
+/// intros) got no answer.
+enum AILibraryContentFailure: Equatable, Sendable {
     /// Neither the built-in AI nor an own service can be asked.
     case notConfigured
     /// A service is there; only the permission to send content is missing.
     case needsConsent
-    /// The built-in AI does not offer new-song discovery (yet) and there is
-    /// no own service to ask instead.
+    /// The built-in AI does not offer this feature (yet) and there is no
+    /// own service to ask instead.
     case builtInNotOffered
-    /// The library has no genre or artist to base recommendations on.
+    /// The library has nothing to base the request on.
     case noTasteProfile
     case failed(AIRecommendationFallbackReason)
 }
 
 enum AISongDiscoveryOutcome: Sendable {
     case success(AISongDiscoveryExecution)
-    case failed(AISongDiscoveryFailure, retryAt: Date? = nil)
+    case failed(AILibraryContentFailure, retryAt: Date? = nil)
+}
+
+enum AILibraryInsightOutcome: Sendable {
+    case success(LibraryInsightAIExchange.Answer, providerName: String)
+    case failed(AILibraryContentFailure, retryAt: Date? = nil)
 }
 
 struct AIListeningIntentExecution: Sendable {
@@ -1023,11 +1030,77 @@ final class MusicIntelligenceService {
     /// first, then the listener's own services. The answer is validated
     /// and still has to be checked against the library by the caller.
     func discoverSongs(_ request: SongDiscoveryAIExchange.Request) async -> AISongDiscoveryOutcome {
+        let currentYear = Calendar.current.component(.year, from: Date())
+        let run = await runLibraryContentRequest(
+            label: "Song discovery",
+            relay: { try await self.primuseRelayClient.songDiscovery(request, currentYear: currentYear) },
+            custom: { configuration, snapshot, consent in
+                try await self.engine.discoverSongs(
+                    request,
+                    currentYear: currentYear,
+                    configuration: configuration,
+                    regionContext: snapshot.context,
+                    hasExplicitRemoteConsent: consent,
+                    requestAuthorization: self.regionAuthorization(for: snapshot, configuration: configuration)
+                )
+            }
+        )
+        switch run {
+        case .success(let suggestions, let providerName):
+            return .success(AISongDiscoveryExecution(suggestions: suggestions, providerName: providerName))
+        case .failure(let failure, let retryAt):
+            return .failed(failure, retryAt: retryAt)
+        }
+    }
+
+    /// Album/artist intros take the same consent and services as the other
+    /// library-content requests.
+    var isLibraryInsightAvailable: Bool { isTagCleanupAvailable }
+
+    var libraryInsightNeedsRemoteConsent: Bool { tagCleanupNeedsRemoteConsent }
+
+    /// A short intro for one album or artist: the built-in AI first, then the
+    /// listener's own services. An answer saying the AI does not know the
+    /// album/artist is a success with `known == false`.
+    func libraryInsight(_ request: LibraryInsightAIExchange.Request) async -> AILibraryInsightOutcome {
+        let run = await runLibraryContentRequest(
+            label: "Library insight",
+            relay: { try await self.primuseRelayClient.libraryInsight(request) },
+            custom: { configuration, snapshot, consent in
+                try await self.engine.libraryInsight(
+                    request,
+                    configuration: configuration,
+                    regionContext: snapshot.context,
+                    hasExplicitRemoteConsent: consent,
+                    requestAuthorization: self.regionAuthorization(for: snapshot, configuration: configuration)
+                )
+            }
+        )
+        switch run {
+        case .success(let answer, let providerName):
+            return .success(answer, providerName: providerName)
+        case .failure(let failure, let retryAt):
+            return .failed(failure, retryAt: retryAt)
+        }
+    }
+
+    private enum LibraryContentRun<Value: Sendable> {
+        case success(Value, providerName: String)
+        case failure(AILibraryContentFailure, retryAt: Date?)
+    }
+
+    /// The built-in AI first, then each of the listener's own services with a
+    /// generation model, under the remote-content consent. The failure that
+    /// is reported is the own service's when one was asked, else the relay's.
+    private func runLibraryContentRequest<Value: Sendable>(
+        label: String,
+        relay: () async throws -> Value,
+        custom: (AIRemoteProviderConfiguration, AIRegionSnapshot, Bool) async throws -> Value
+    ) async -> LibraryContentRun<Value> {
         guard settingsStore.hasExplicitRemoteConsent else {
-            return .failed(songDiscoveryNeedsRemoteConsent ? .needsConsent : .notConfigured)
+            return .failure(tagCleanupNeedsRemoteConsent ? .needsConsent : .notConfigured, retryAt: nil)
         }
         let consent = settingsStore.hasExplicitRemoteConsent
-        let currentYear = Calendar.current.component(.year, from: Date())
         let regionSnapshot = regionAvailability.snapshot
         var relayError: Error?
         var customError: Error?
@@ -1038,25 +1111,19 @@ final class MusicIntelligenceService {
             hasRequiredConsent: consent
         ) {
             do {
-                let suggestions = try await primuseRelayClient.songDiscovery(
-                    request,
-                    currentYear: currentYear
-                )
+                let value = try await relay()
                 if canUsePrimuseRelay(
                     captured: regionSnapshot,
                     latest: regionAvailability.snapshot,
                     hasRequiredConsent: settingsStore.hasExplicitRemoteConsent
                 ) {
-                    return .success(AISongDiscoveryExecution(
-                        suggestions: suggestions,
-                        providerName: primuseRelayProviderName
-                    ))
+                    return .success(value, providerName: primuseRelayProviderName)
                 }
             } catch is CancellationError {
-                return .failed(.failed(.upstream))
+                return .failure(.failed(.upstream), retryAt: nil)
             } catch {
                 relayError = error
-                plog("🎵 Song discovery: built-in AI failed reason=\(AIRecommendationFallbackReason.classify(error)) unsupported=\(Self.primuseRelayDoesNotOfferFeature(error))")
+                plog("🎵 \(label): built-in AI failed reason=\(AIRecommendationFallbackReason.classify(error)) unsupported=\(Self.primuseRelayDoesNotOfferFeature(error))")
             }
         }
 
@@ -1070,48 +1137,35 @@ final class MusicIntelligenceService {
                         configuration: configuration
                       ) else { continue }
                 do {
-                    let suggestions = try await engine.discoverSongs(
-                        request,
-                        currentYear: currentYear,
-                        configuration: configuration,
-                        regionContext: regionSnapshot.context,
-                        hasExplicitRemoteConsent: consent,
-                        requestAuthorization: regionAuthorization(
-                            for: regionSnapshot,
-                            configuration: configuration
-                        )
-                    )
+                    let value = try await custom(configuration, regionSnapshot, consent)
                     guard AIRegionRequestPolicy.canCommitRemoteResponse(
                         captured: regionSnapshot,
                         latest: regionAvailability.snapshot,
                         configuration: configuration
                     ) else { continue }
-                    return .success(AISongDiscoveryExecution(
-                        suggestions: suggestions,
-                        providerName: configuration.displayName
-                    ))
+                    return .success(value, providerName: configuration.displayName)
                 } catch is CancellationError {
-                    return .failed(.failed(.upstream))
+                    return .failure(.failed(.upstream), retryAt: nil)
                 } catch {
                     customError = error
-                    plog("🎵 Song discovery: own service failed reason=\(AIRecommendationFallbackReason.classify(error))")
+                    plog("🎵 \(label): own service failed reason=\(AIRecommendationFallbackReason.classify(error))")
                 }
             }
         }
 
         if let customError {
-            return .failed(.failed(AIRecommendationFallbackReason.classify(customError)))
+            return .failure(.failed(AIRecommendationFallbackReason.classify(customError)), retryAt: nil)
         }
         if let relayError {
             if Self.primuseRelayDoesNotOfferFeature(relayError) {
-                return .failed(.builtInNotOffered)
+                return .failure(.builtInNotOffered, retryAt: nil)
             }
-            return .failed(
+            return .failure(
                 .failed(AIRecommendationFallbackReason.classify(relayError)),
                 retryAt: (relayError as? PrimuseAIRelayError)?.retryAt
             )
         }
-        return .failed(.notConfigured)
+        return .failure(.notConfigured, retryAt: nil)
     }
 
     /// The relay answers 404/501 for a path it does not serve (an older
@@ -2825,6 +2879,43 @@ private actor MusicIntelligenceEngine {
         }
         return try await withTimeout(seconds: max(configuration.requestTimeout, 45)) {
             try await provider.curateListeningIntents(request)
+        }
+    }
+
+    /// Album/artist intros are short text generation over library names,
+    /// routed like tag cleanup and new-song discovery.
+    func libraryInsight(
+        _ request: LibraryInsightAIExchange.Request,
+        configuration: AIRemoteProviderConfiguration,
+        regionContext: AIRegionContext,
+        hasExplicitRemoteConsent: Bool,
+        requestAuthorization: @escaping @Sendable () async -> Bool
+    ) async throws -> LibraryInsightAIExchange.Answer {
+        let routed = AIProviderRoutingPolicy.candidates(
+            from: [configuration.descriptor],
+            capability: .lyricsTranslation,
+            regionContext: regionContext,
+            hasExplicitRemoteConsent: hasExplicitRemoteConsent
+        )
+        guard routed.first?.id == configuration.id else {
+            let reason: AIProviderUnavailableReason = regionContext.region == .mainlandChina
+                ? .regionRestricted
+                : .disabled
+            throw MusicIntelligenceError.unavailable(reason)
+        }
+        let provider = OpenAICompatibleProvider(
+            configuration: configuration,
+            credentialStore: credentialStore,
+            requestAuthorization: requestAuthorization
+        )
+        switch await provider.runtimeAvailability() {
+        case .available:
+            break
+        case .unavailable(let reason):
+            throw MusicIntelligenceError.unavailable(reason)
+        }
+        return try await withTimeout(seconds: max(configuration.requestTimeout, 30)) {
+            try await provider.libraryInsight(request)
         }
     }
 

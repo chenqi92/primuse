@@ -3378,7 +3378,7 @@
 "ai_delete_current_api_key" = "删除当前 API 密钥";
 "ai_provider_footer" = "仅发送已启用且已授权功能所需的最少内容；曲库结构和文件路径留在本机，音频仅在主动允许听歌识词时上传。";
 "ai_allow_insecure_local_http" = "允许局域网服务器使用 HTTP";
-"ai_remote_consent" = "允许向智能服务发送搜索内容、待翻译歌词、待整理的标签或曲库的风格与艺人名";
+"ai_remote_consent" = "允许向智能服务发送搜索内容、待翻译歌词、待整理的标签，或曲库里的专辑、艺人、曲目名与风格";
 "ai_privacy_footer" = "API 密钥保存在钥匙串中；推荐不会上传文件路径、完整听歌历史或音频。局域网 HTTP 需单独允许。";
 "ai_enable_recommendations" = "智能场景推荐";
 "ai_capabilities_footer" = "搜索会扩展描述性查询；场景推荐只重排本地候选歌曲。智能服务失败不会影响本地推荐或播放。";
@@ -5435,3 +5435,23 @@
 "ai_song_discovery_failed_network" = "网络连接不可用，请检查网络后再试。";
 "ai_song_discovery_failed_empty" = "AI 这次没有给出推荐，换个风格或稍后再试。";
 "ai_song_discovery_failed_generic" = "AI 服务暂时不可用，请稍后再试。";
+
+/* AI intros for albums and artists */
+"library_insight_album_title" = "关于这张专辑";
+"library_insight_artist_title" = "关于这位艺人";
+"library_insight_prompt_album" = "让 AI 写一段这张专辑的简介和几个风格标签。";
+"library_insight_prompt_artist" = "让 AI 写一段这位艺人的简介和几个风格标签。";
+"library_insight_generate" = "生成简介";
+"library_insight_generating" = "正在生成简介…";
+"library_insight_regenerate" = "重新生成";
+"library_insight_remove" = "删除简介";
+"library_insight_less" = "收起";
+"library_insight_footer_format" = "AI 生成 · %@ · 可能有误";
+"library_insight_unknown_album" = "AI 对这张专辑了解不多，没有写简介。";
+"library_insight_unknown_artist" = "AI 对这位艺人了解不多，没有写简介。";
+"library_insight_allow_and_generate" = "允许并生成";
+"library_insight_retry" = "重试";
+"library_insight_needs_consent" = "生成简介要把专辑名、艺人名和曲目名发给 AI 服务，需要先允许发送内容。";
+"library_insight_not_configured" = "还没有可用的 AI 服务。打开内置 AI，或在智能设置里填写自己的服务后再试。";
+"library_insight_builtin_not_offered" = "内置 AI 暂时还不能写简介，可以在智能设置里填写自己的 AI 服务。";
+"library_insight_failed_daily_limit" = "今天的简介生成次数已用完，明天再来。";

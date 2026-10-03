@@ -446,6 +446,24 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         }
     }
 
+    func libraryInsight(
+        _ request: LibraryInsightAIExchange.Request
+    ) async throws -> LibraryInsightAIExchange.Answer {
+        guard let payload = LibraryInsightAIExchange.payloadJSON(request) else {
+            throw OpenAICompatibleProviderError.invalidResponse
+        }
+        let output = try await generateText(
+            instructions: LibraryInsightAIExchange.instructions,
+            input: payload,
+            maximumTokens: 900
+        )
+        do {
+            return try LibraryInsightAIExchange.answer(from: output)
+        } catch {
+            throw OpenAICompatibleProviderError.invalidResponse
+        }
+    }
+
     func recommendations(
         _ request: AIRecommendationRequest
     ) async throws -> AIRecommendationPlan {

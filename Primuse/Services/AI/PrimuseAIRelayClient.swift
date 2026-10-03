@@ -656,6 +656,33 @@ actor PrimuseAIRelayClient {
         )
     }
 
+    /// A short intro for one album or artist. Only names (album, artist,
+    /// tracks, genres) are sent; the answer is validated again on the device.
+    func libraryInsight(
+        _ request: LibraryInsightAIExchange.Request
+    ) async throws -> LibraryInsightAIExchange.Answer {
+        var completed: LibraryInsightOutput?
+        try await performStreamingFeature(
+            path: "/v1/library/insights",
+            purpose: "library_insight",
+            input: request,
+            output: LibraryInsightOutput.self,
+            progress: LibraryInsightProgress.self
+        ) { event in
+            if case .completed(let output) = event { completed = output }
+        }
+        guard let completed else { throw PrimuseAIRelayError.invalidResponse }
+        do {
+            return try LibraryInsightAIExchange.validated(
+                known: completed.known,
+                summary: completed.summary,
+                tags: completed.tags ?? []
+            )
+        } catch {
+            throw PrimuseAIRelayError.invalidResponse
+        }
+    }
+
     nonisolated static func assertionClientDataHash(
         challenge: String,
         method: String,
@@ -1790,6 +1817,15 @@ actor PrimuseAIRelayClient {
     private struct SongDiscoveryProgress: Decodable, Sendable {
         var song: SongDiscoveryOutput.Song?
     }
+
+    private struct LibraryInsightOutput: Decodable, Sendable {
+        var known: Bool
+        var summary: String?
+        var tags: [String]?
+    }
+
+    /// The relay sends no progress lines for intros; any that appear are ignored.
+    private struct LibraryInsightProgress: Decodable, Sendable {}
 }
 
 private extension Data {

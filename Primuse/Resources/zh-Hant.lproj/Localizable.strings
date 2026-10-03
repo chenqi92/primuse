@@ -3262,7 +3262,7 @@
 "ai_delete_current_api_key" = "刪除目前的 API 金鑰";
 "ai_provider_footer" = "只傳送已啟用且已授權功能所需的最少內容；曲庫結構與檔案路徑保留在本機，音訊只會在主動允許聽歌識詞時上傳。";
 "ai_allow_insecure_local_http" = "允許區域網路伺服器使用 HTTP";
-"ai_remote_consent" = "允許向智能服務傳送搜尋內容、待翻譯歌詞、待整理的標籤或資料庫的風格與藝人名";
+"ai_remote_consent" = "允許向智能服務傳送搜尋內容、待翻譯歌詞、待整理的標籤，或資料庫裡的專輯、藝人、曲目名與風格";
 "ai_privacy_footer" = "API 金鑰儲存於鑰匙圈；推薦不會上傳檔案路徑、完整聆聽記錄或音訊。區域網路 HTTP 必須另行允許。";
 "ai_enable_recommendations" = "智能情境推薦";
 "ai_capabilities_footer" = "搜尋會擴充描述性查詢；情境推薦只會重新排列本機候選歌曲。服務失敗不影響本機推薦或播放。";
@@ -5319,3 +5319,23 @@
 "ai_song_discovery_failed_network" = "網路連線無法使用，請檢查網路後再試。";
 "ai_song_discovery_failed_empty" = "AI 這次沒有給出推薦，換個風格或稍後再試。";
 "ai_song_discovery_failed_generic" = "AI 服務暫時無法使用，請稍後再試。";
+
+/* AI intros for albums and artists */
+"library_insight_album_title" = "關於這張專輯";
+"library_insight_artist_title" = "關於這位藝人";
+"library_insight_prompt_album" = "讓 AI 寫一段這張專輯的簡介和幾個風格標籤。";
+"library_insight_prompt_artist" = "讓 AI 寫一段這位藝人的簡介和幾個風格標籤。";
+"library_insight_generate" = "產生簡介";
+"library_insight_generating" = "正在產生簡介…";
+"library_insight_regenerate" = "重新產生";
+"library_insight_remove" = "刪除簡介";
+"library_insight_less" = "收合";
+"library_insight_footer_format" = "AI 產生 · %@ · 可能有誤";
+"library_insight_unknown_album" = "AI 對這張專輯了解不多，沒有寫簡介。";
+"library_insight_unknown_artist" = "AI 對這位藝人了解不多，沒有寫簡介。";
+"library_insight_allow_and_generate" = "允許並產生";
+"library_insight_retry" = "重試";
+"library_insight_needs_consent" = "產生簡介要把專輯名、藝人名和曲目名傳送給 AI 服務，需要先允許傳送內容。";
+"library_insight_not_configured" = "還沒有可用的 AI 服務。打開內建 AI，或在智能設定裡填寫自己的服務後再試。";
+"library_insight_builtin_not_offered" = "內建 AI 暫時還不能寫簡介，可以在智能設定裡填寫自己的 AI 服務。";
+"library_insight_failed_daily_limit" = "今天的簡介產生次數已用完，明天再來。";

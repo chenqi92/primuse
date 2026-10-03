@@ -3278,7 +3278,7 @@
 "ai_delete_current_api_key" = "現在の API キーを削除";
 "ai_provider_footer" = "有効化して許可した機能に必要な最小限の内容だけを送信します。ライブラリ構成とファイルパスは端末内に保持され、音声は明示的に許可した曲の文字起こしでのみ送信されます。";
 "ai_allow_insecure_local_http" = "ローカルネットワーク上のサーバーで HTTP を許可";
-"ai_remote_consent" = "検索内容、翻訳対象の歌詞、整理するタグ、ライブラリのジャンルとアーティスト名をスマートサービスへ送信することを許可";
+"ai_remote_consent" = "検索内容、翻訳対象の歌詞、整理するタグ、ライブラリのアルバム名・アーティスト名・曲名とジャンルをスマートサービスへ送信することを許可";
 "ai_privacy_footer" = "API キーはキーチェーンに保存されます。おすすめにファイルパス、完全な再生履歴、音声は含まれず、ローカル HTTP は別途許可が必要です。";
 "ai_enable_recommendations" = "シーン別スマートおすすめ";
 "ai_capabilities_footer" = "検索は説明的な語句を展開し、おすすめは端末内の候補だけを並べ替えます。サービスの失敗でおすすめや再生が止まることはありません。";
@@ -5343,3 +5343,23 @@
 "ai_song_discovery_failed_network" = "ネットワークに接続できません。接続を確認してからお試しください。";
 "ai_song_discovery_failed_empty" = "今回は AI からおすすめがありませんでした。ジャンルを変えるか、しばらくしてからお試しください。";
 "ai_song_discovery_failed_generic" = "AI サービスは現在利用できません。しばらくしてからお試しください。";
+
+/* AI intros for albums and artists */
+"library_insight_album_title" = "このアルバムについて";
+"library_insight_artist_title" = "このアーティストについて";
+"library_insight_prompt_album" = "このアルバムの短い紹介とスタイルタグを AI に書いてもらいます。";
+"library_insight_prompt_artist" = "このアーティストの短い紹介とスタイルタグを AI に書いてもらいます。";
+"library_insight_generate" = "紹介を作成";
+"library_insight_generating" = "紹介を作成中…";
+"library_insight_regenerate" = "作り直す";
+"library_insight_remove" = "紹介を削除";
+"library_insight_less" = "閉じる";
+"library_insight_footer_format" = "AI 作成 · %@ · 誤りを含む場合があります";
+"library_insight_unknown_album" = "AI はこのアルバムをよく知らないため、紹介を書きませんでした。";
+"library_insight_unknown_artist" = "AI はこのアーティストをよく知らないため、紹介を書きませんでした。";
+"library_insight_allow_and_generate" = "許可して作成";
+"library_insight_retry" = "再試行";
+"library_insight_needs_consent" = "紹介の作成にはアルバム名、アーティスト名、曲名を AI サービスに送信するため、内容の送信を許可する必要があります。";
+"library_insight_not_configured" = "利用できる AI サービスがありません。内蔵 AI をオンにするか、AI 設定で自分のサービスを追加してからお試しください。";
+"library_insight_builtin_not_offered" = "内蔵 AI はまだ紹介を書けません。AI 設定で自分の AI サービスを追加できます。";
+"library_insight_failed_daily_limit" = "今日の紹介作成の回数を使い切りました。また明日お試しください。";

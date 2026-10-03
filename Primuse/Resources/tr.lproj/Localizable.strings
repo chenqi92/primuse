@@ -2741,7 +2741,7 @@
 "reverb_plate" = "Plaka";
 "disabled" = "Devre Dışı";
 "ssl_trust_message %@" = "\"%@\" için SSL sertifikası sistem doğrulamasında başarısız oldu. Bağlantılar onayladığınız sertifika parmak izine sabitlenir.";
-"ai_remote_consent" = "Arama içeriğinin, çevrilecek şarkı sözlerinin, düzenlenecek etiketlerin veya arşivdeki tür ve sanatçı adlarının yapay zekâ hizmetlerine gönderilmesine izin ver";
+"ai_remote_consent" = "Arama içeriğinin, çevrilecek şarkı sözlerinin, düzenlenecek etiketlerin veya arşivdeki albüm, sanatçı, şarkı adları ve türlerin yapay zekâ hizmetlerine gönderilmesine izin ver";
 "relay_share_link_short" = "Kısa Kod";
 "lyrics_full_screen" = "Tam Ekran Şarkı Sözleri";
 "cloud_account_login_other" = "Başka Bir Hesapta Oturum Açın";
@@ -5248,3 +5248,23 @@
 "ai_song_discovery_failed_network" = "Ağ bağlantısı yok. Ağını kontrol edip yeniden dene.";
 "ai_song_discovery_failed_empty" = "Yapay zekâ bu kez öneri vermedi. Başka bir tür seç ya da daha sonra yeniden dene.";
 "ai_song_discovery_failed_generic" = "Yapay zekâ hizmeti şu anda kullanılamıyor. Daha sonra yeniden dene.";
+
+/* AI intros for albums and artists */
+"library_insight_album_title" = "Bu albüm hakkında";
+"library_insight_artist_title" = "Bu sanatçı hakkında";
+"library_insight_prompt_album" = "Yapay zekâdan bu albüm için kısa bir tanıtım ve birkaç tarz etiketi iste.";
+"library_insight_prompt_artist" = "Yapay zekâdan bu sanatçı için kısa bir tanıtım ve birkaç tarz etiketi iste.";
+"library_insight_generate" = "Tanıtım yaz";
+"library_insight_generating" = "Tanıtım yazılıyor…";
+"library_insight_regenerate" = "Yeniden yaz";
+"library_insight_remove" = "Tanıtımı sil";
+"library_insight_less" = "Daha az";
+"library_insight_footer_format" = "Yapay zekâ yazdı · %@ · hata içerebilir";
+"library_insight_unknown_album" = "Yapay zekâ bu albümü pek tanımadığı için tanıtım yazmadı.";
+"library_insight_unknown_artist" = "Yapay zekâ bu sanatçıyı pek tanımadığı için tanıtım yazmadı.";
+"library_insight_allow_and_generate" = "İzin ver ve yaz";
+"library_insight_retry" = "Yeniden dene";
+"library_insight_needs_consent" = "Tanıtım için albüm, sanatçı ve şarkı adları bir yapay zekâ hizmetine gönderilir; önce içerik gönderimine izin vermelisin.";
+"library_insight_not_configured" = "Henüz kullanılabilir bir yapay zekâ hizmeti yok. Yerleşik yapay zekâyı aç ya da yapay zekâ ayarlarından kendi hizmetini ekleyip yeniden dene.";
+"library_insight_builtin_not_offered" = "Yerleşik yapay zekâ henüz tanıtım yazamıyor. Yapay zekâ ayarlarından kendi hizmetini ekleyebilirsin.";
+"library_insight_failed_daily_limit" = "Bugünkü tanıtım hakkın doldu. Yarın yeniden dene.";

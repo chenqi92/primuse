@@ -1016,6 +1016,7 @@ struct TVArtistDetailView: View {
 
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(alignment: .leading, spacing: 10) {
+                        TVLibraryInsightBlock(subject: insightIdentity, details: insightDetails)
                         TVEyebrow(text: PMString("ext.tv.search.songs"))
                             .padding(.bottom, 6)
                         if artistSongIDs.isEmpty {
@@ -1038,6 +1039,28 @@ struct TVArtistDetailView: View {
         }
         .onExitCommand { dismiss() }
         .accessibilityIdentifier("tv.artist.detail")
+    }
+
+    private var insightIdentity: LibraryInsightSubject {
+        .artist(name: artist.name, genres: [], albums: [], tracks: [])
+    }
+
+    /// 按下生成时才收集:这位艺人的专辑、前几首歌和最常见的风格。
+    private func insightDetails() -> LibraryInsightSubject {
+        let artistSongs = songs
+        var seenAlbumIDs: Set<String> = []
+        let albums = artistSongs.compactMap { song -> LibraryInsightSubject.AlbumReference? in
+            guard seenAlbumIDs.insert(song.albumID).inserted, let album = store.album(song.albumID) else {
+                return nil
+            }
+            return .init(title: album.title, year: album.year > 0 ? album.year : nil)
+        }
+        return .artist(
+            name: artist.name,
+            genres: LibraryInsightSubject.topGenres(artistSongs.map { store.library.song(id: $0.id)?.genre }),
+            albums: albums,
+            tracks: artistSongs.prefix(20).map(\.title)
+        )
     }
 
     private func play(shuffled: Bool) {
@@ -1144,6 +1167,20 @@ struct TVAlbumDetailView: View {
         _albumID = State(initialValue: albumID)
     }
 
+    /// 「关于这张专辑」:`songs` 为空时只是身份(专辑名 + 艺人),按下生成时再带上曲目与风格。
+    static func insightSubject(album: TVAlbum, songs: [TVSong], library: MusicLibrary? = nil) -> LibraryInsightSubject {
+        let artist = album.artist == String(localized: "unknown_artist") ? "" : album.artist
+        return .album(
+            title: album.title,
+            artist: artist,
+            year: album.year > 0 ? album.year : nil,
+            genres: library.map { library in
+                LibraryInsightSubject.topGenres(songs.map { library.song(id: $0.id)?.genre })
+            } ?? [],
+            tracks: songs.map(\.title)
+        )
+    }
+
     private struct Track: Identifiable {
         let id: String
         let song: TVSong
@@ -1214,6 +1251,10 @@ struct TVAlbumDetailView: View {
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 10) {
+                        TVLibraryInsightBlock(
+                            subject: Self.insightSubject(album: album, songs: []),
+                            details: { Self.insightSubject(album: album, songs: songs, library: store.library) }
+                        )
                         TVEyebrow(text: PMString("ext.tv.search.songs"))
                             .padding(.bottom, 6)
                         if tracks.isEmpty {

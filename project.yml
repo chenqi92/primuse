@@ -751,6 +751,7 @@ targets:
       - path: Primuse/Services/AI/MusicIntelligenceService.swift
       - path: Primuse/Services/AI/OpenAICompatibleProvider.swift
       - path: Primuse/Services/AI/PrimuseAIRelayClient.swift
+      - path: Primuse/Services/AI/LibraryInsightStore.swift
       - path: Primuse/Utilities/KeychainService.swift
       - path: Primuse/Views/Settings/AISettingsView.swift
       - path: Primuse/Services/Radio/RadioLiveStreamSource.swift

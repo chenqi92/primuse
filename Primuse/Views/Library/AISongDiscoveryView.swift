@@ -19,7 +19,7 @@ struct AISongDiscoveryView: View {
     @State private var history = SongDiscoveryHistory()
     @State private var genreChoices: [String] = []
     @State private var isLoading = false
-    @State private var failure: AISongDiscoveryFailure?
+    @State private var failure: AILibraryContentFailure?
     @State private var retryAt: Date?
     @State private var emptyAfterFiltering = false
     @State private var copiedID: String?
@@ -210,7 +210,7 @@ struct AISongDiscoveryView: View {
         .foregroundStyle(.secondary)
     }
 
-    private func failurePanel(_ failure: AISongDiscoveryFailure) -> some View {
+    private func failurePanel(_ failure: AILibraryContentFailure) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Label {
                 Text(verbatim: failureMessage(failure))
@@ -371,7 +371,7 @@ struct AISongDiscoveryView: View {
 
     // MARK: - Actions
 
-    private func failureMessage(_ failure: AISongDiscoveryFailure) -> String {
+    private func failureMessage(_ failure: AILibraryContentFailure) -> String {
         switch failure {
         case .notConfigured:
             return String(localized: "ai_song_discovery_not_configured")

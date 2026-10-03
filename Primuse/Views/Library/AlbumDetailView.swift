@@ -112,6 +112,28 @@ struct AlbumDetailView: View {
         }
     }
 
+    /// 「关于这张专辑」的身份:只看专辑名和专辑艺人。
+    private var insightIdentity: LibraryInsightSubject {
+        .album(title: album.title, artist: insightArtistName, year: album.year, genres: [], tracks: [])
+    }
+
+    private var insightArtistName: String {
+        let name = album.artistName ?? ""
+        return name == String(localized: "unknown_artist") ? "" : name
+    }
+
+    /// 点「生成」时才收集:按碟号与曲序排好的曲名和最常见的风格。
+    private func insightDetails() -> LibraryInsightSubject {
+        let ordered = discSections.flatMap(\.songs)
+        return .album(
+            title: album.title,
+            artist: insightArtistName,
+            year: album.year,
+            genres: LibraryInsightSubject.topGenres(ordered.map(\.genre)),
+            tracks: ordered.map(\.title)
+        )
+    }
+
     /// 全选和"按看到的顺序入队"都要用列表实际渲染的顺序。
     private var orderedSongIDs: [String] {
         songs.map(\.id)
@@ -156,7 +178,10 @@ struct AlbumDetailView: View {
         return ImmersiveLibraryDetailScrollView { insets in
             iosHero(insets: insets)
         } content: {
-            trackList(discs: discs, showsDiscHeaders: showsDiscHeaders)
+            VStack(spacing: 18) {
+                trackList(discs: discs, showsDiscHeaders: showsDiscHeaders)
+                LibraryInsightCard(subject: insightIdentity, details: insightDetails, tint: tint)
+            }
                 .padding(.horizontal, 16)
                 .padding(.top, 18)
                 .padding(.bottom, BottomChromeClearancePolicy.clearance(
@@ -363,6 +388,7 @@ struct AlbumDetailView: View {
                 VStack(alignment: .leading, spacing: PMSpace.l) {
                     albumInfoCard
                     LibraryReviewSection(subject: .album(album.id))
+                    LibraryInsightCard(subject: insightIdentity, details: insightDetails)
                     macToolbar
 
                     if songs.isEmpty {

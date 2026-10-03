@@ -3277,7 +3277,7 @@
 "ai_delete_current_api_key" = "Aktuellen API-Schlüssel löschen";
 "ai_provider_footer" = "Nur Inhalte, die aktivierte und autorisierte Funktionen benötigen, werden gesendet. Mediathekstruktur und Dateipfade bleiben auf diesem Gerät; Audio wird nur für ausdrücklich erlaubte Song-Transkription hochgeladen.";
 "ai_allow_insecure_local_http" = "HTTP für Server im lokalen Netzwerk erlauben";
-"ai_remote_consent" = "Senden von Suchinhalten, zu übersetzenden Liedtexten, aufzuräumenden Tags oder den Genres und Künstlernamen der Mediathek an intelligente Dienste erlauben";
+"ai_remote_consent" = "Senden von Suchinhalten, zu übersetzenden Liedtexten, aufzuräumenden Tags oder Album-, Künstler-, Titelnamen und Genres der Mediathek an intelligente Dienste erlauben";
 "ai_privacy_footer" = "API-Schlüssel bleiben im Schlüsselbund. Empfehlungen enthalten keine Dateipfade, vollständigen Hörverläufe oder Audiodaten; lokales HTTP muss separat erlaubt werden.";
 "ai_enable_recommendations" = "Intelligente Szenenempfehlungen";
 "ai_capabilities_footer" = "Die Suche erweitert beschreibende Anfragen. Empfehlungen ordnen nur lokale Kandidaten neu. Fehler unterbrechen weder lokale Empfehlungen noch die Wiedergabe.";
@@ -5342,3 +5342,23 @@
 "ai_song_discovery_failed_network" = "Keine Netzwerkverbindung. Prüfe dein Netzwerk und versuche es erneut.";
 "ai_song_discovery_failed_empty" = "Die KI hat diesmal nichts vorgeschlagen. Wähle ein anderes Genre oder versuche es später erneut.";
 "ai_song_discovery_failed_generic" = "Der KI-Dienst ist gerade nicht verfügbar. Versuche es später erneut.";
+
+/* AI intros for albums and artists */
+"library_insight_album_title" = "Über dieses Album";
+"library_insight_artist_title" = "Über diesen Künstler";
+"library_insight_prompt_album" = "Lass die KI eine kurze Einführung und ein paar Stil-Tags zu diesem Album schreiben.";
+"library_insight_prompt_artist" = "Lass die KI eine kurze Einführung und ein paar Stil-Tags zu diesem Künstler schreiben.";
+"library_insight_generate" = "Einführung schreiben";
+"library_insight_generating" = "Einführung wird geschrieben …";
+"library_insight_regenerate" = "Neu schreiben";
+"library_insight_remove" = "Einführung entfernen";
+"library_insight_less" = "Weniger";
+"library_insight_footer_format" = "Von KI geschrieben · %@ · kann Fehler enthalten";
+"library_insight_unknown_album" = "Die KI kennt dieses Album kaum und hat deshalb keine Einführung geschrieben.";
+"library_insight_unknown_artist" = "Die KI kennt diesen Künstler kaum und hat deshalb keine Einführung geschrieben.";
+"library_insight_allow_and_generate" = "Erlauben und schreiben";
+"library_insight_retry" = "Erneut versuchen";
+"library_insight_needs_consent" = "Für eine Einführung werden Album-, Künstler- und Titelnamen an einen KI-Dienst gesendet. Erlaube dazu zuerst das Senden von Inhalten.";
+"library_insight_not_configured" = "Noch kein KI-Dienst verfügbar. Schalte die integrierte KI ein oder füge in den KI-Einstellungen einen eigenen Dienst hinzu und versuche es erneut.";
+"library_insight_builtin_not_offered" = "Die integrierte KI kann noch keine Einführungen schreiben. Du kannst in den KI-Einstellungen einen eigenen KI-Dienst hinzufügen.";
+"library_insight_failed_daily_limit" = "Die Einführungen für heute sind aufgebraucht. Versuche es morgen wieder.";

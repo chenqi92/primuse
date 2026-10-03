@@ -426,7 +426,8 @@ public enum TagCleanupPolicy {
             .joined(separator: " ")
     }
 
-    static func isPlaceholder(_ value: String) -> Bool {
+    /// 「未知艺术家」「Unknown Album」这类占位值(空串也算)。
+    public static func isPlaceholder(_ value: String) -> Bool {
         let key = normalizedKey(value)
         return key.isEmpty || placeholderValues.contains(key)
     }
