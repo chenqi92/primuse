@@ -1171,6 +1171,8 @@ struct TVBottomBar: View {
     private func bottomArtwork(_ np: TVNowPlaying) -> some View {
         if store.isLiveRadio, let station = store.currentRadioStation {
             TVRadioArtworkView(station: station, size: 48, radius: 8, store: store)
+        } else if store.currentPodcastEpisodeID != nil {
+            TVPodcastArtwork(url: np.coverRef.flatMap(URL.init(string:)), side: 48, radius: 8)
         } else {
             TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
                           songID: np.songID, coverRef: np.coverRef,

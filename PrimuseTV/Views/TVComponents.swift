@@ -247,6 +247,9 @@ private struct TVLibraryReviewCommentEditor: View {
 struct TVRow<Content: View>: View {
     let label: String
     var sub: String? = nil
+    /// 卡片要各自联网取图的行(播客单集)打开:只建出看得见的卡片,不然整排一起开始下载,
+    /// 慢网络上屏幕里那几张反而排在后面。
+    var loadsLazily = false
     @ViewBuilder var content: () -> Content
 
     var body: some View {
@@ -256,10 +259,16 @@ struct TVRow<Content: View>: View {
                 if let sub { Text(sub).tvFont(.caption).foregroundStyle(TVColor.textFaint) }
             }
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 28) { content() }
-                    // 为首尾卡片的焦点描边和放大保留空间。
-                    .padding(.vertical, 30)
-                    .padding(.horizontal, 20)
+                Group {
+                    if loadsLazily {
+                        LazyHStack(alignment: .top, spacing: 28) { content() }
+                    } else {
+                        HStack(alignment: .top, spacing: 28) { content() }
+                    }
+                }
+                // 为首尾卡片的焦点描边和放大保留空间。
+                .padding(.vertical, 30)
+                .padding(.horizontal, 20)
             }
         }
     }

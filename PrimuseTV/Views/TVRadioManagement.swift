@@ -283,7 +283,7 @@ enum TVRadioLogoLoader {
     /// 进缓存的台标长边上限:重新编码的位图与栅格化的矢量图都按它。Top Shelf 的台标画布
     /// 最大 1216,卡片按显示尺寸再缩略解码。
     private static let cachedLogoPixelSize = 1_024
-    private static let fetchGate = TVRadioLogoFetchGate(limit: 4)
+    private static let fetchGate = TVRemoteImageFetchGate(limit: 4)
     private static let failureLog = TVRadioLogoFailureLog()
     /// 台标专用会话:请求与整体下载都有上限,一个慢站点不会拖住闸门名额;不带 Cookie,
     /// 也不沿用系统共享会话的磁盘缓存(取回的图已经进了台标缓存)。
@@ -336,9 +336,9 @@ private actor TVRadioLogoFailureLog {
     }
 }
 
-/// 同时取图的名额。等待中的任务被取消(卡片滑出屏幕、Top Shelf 重新发布)就立刻让出
-/// 排队位置并返回 false,不会占着队列等到轮上才发现自己已经没用了。
-private actor TVRadioLogoFetchGate {
+/// 同时取图的名额(台标与播客封面各用一份)。等待中的任务被取消(卡片滑出屏幕、Top Shelf 重新发布)
+/// 就立刻让出排队位置并返回 false,不会占着队列等到轮上才发现自己已经没用了。
+actor TVRemoteImageFetchGate {
     private let limit: Int
     private var active = 0
     private var nextToken = 0

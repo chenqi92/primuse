@@ -112,11 +112,17 @@ struct TVOptionsView: View {
             HStack(alignment: .top, spacing: 64) {
                 VStack(alignment: .leading, spacing: 0) {
                     TVEyebrow(text: PMString("ext.tv.options.eyebrow")).padding(.bottom, 20)
-                    TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
-                                  songID: np.songID, coverRef: np.coverRef,
-                                  tint: colors.primary, tint2: colors.secondary,
-                                  glyph: np.glyph, size: 300, radius: 18)
-                        .shadow(color: .black.opacity(0.4), radius: 24, y: 12)
+                    Group {
+                        if store.currentPodcastEpisodeID != nil {
+                            TVPodcastArtwork(url: np.coverRef.flatMap(URL.init(string:)), side: 300, radius: 18)
+                        } else {
+                            TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
+                                          songID: np.songID, coverRef: np.coverRef,
+                                          tint: colors.primary, tint2: colors.secondary,
+                                          glyph: np.glyph, size: 300, radius: 18)
+                        }
+                    }
+                    .shadow(color: .black.opacity(0.4), radius: 24, y: 12)
                     Text(np.title).tvFont(size: 36, weight: .bold, relativeTo: .title2)
                         .foregroundStyle(TVColor.text)
                         .lineLimit(2)

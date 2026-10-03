@@ -1,6 +1,8 @@
 #if os(tvOS)
+import ImageIO
 import PrimuseKit
 import SwiftUI
+import UIKit
 
 // MARK: - 「播客」页
 
@@ -182,7 +184,7 @@ struct TVPodcastsView: View {
                 .foregroundStyle(TVColor.textFaint)
                 .padding(.horizontal, 14)
         } else {
-            TVRow(label: String(localized: "podcast_latest_episodes")) {
+            TVRow(label: String(localized: "podcast_latest_episodes"), loadsLazily: true) {
                 ForEach(Array(latest.enumerated()), id: \.element.id) { index, episode in
                     let continuing = Array(latest.dropFirst(index + 1))
                     TVPodcastEpisodeCard(episode: episode, show: podcasts.show(id: episode.showID)) {
@@ -265,28 +267,231 @@ struct TVPodcastsView: View {
 
 // MARK: - 封面与进度
 
-/// 节目或单集的封面:单集没有自己的就用节目的。走封面管线(缩到显示尺寸、落盘缓存),
-/// 不用 AsyncImage:不少节目的封面是 3000×3000,整张解码一排卡片就是上百兆。
-/// 缓存键按图片地址算,同一张图(一档节目的各集常共用)只取一次。
+/// 节目或单集的封面:单集没有自己的就用节目的。不走 `TVArtworkView` 的通用远程分支:那条路每张图
+/// 只给 20 秒总时长,而「最新单集」一排是一起开始下的,家里直连国外播客 CDN 时
+/// (实测 The Daily 最新 20 集 8 MB 同时下,16 张超过 20 秒)大半超时,之后 5 分钟都不再试;
+/// 明文 http 的封面还会弹出「这是你的服务器吗」的放行框。取图规则见 `TVPodcastArtworkLoader`。
 struct TVPodcastArtwork: View {
     let url: URL?
     let side: CGFloat
     var radius: CGFloat = TVRadius.cover
 
+    @State private var image: UIImage?
+    @State private var imageURL: URL?
+
+    /// 解码的目标像素(电视 4K 是 2 倍屏)。
+    private var pixelSize: Int { max(1, Int((side * 2).rounded(.up))) }
+
     var body: some View {
-        let reference = url?.absoluteString
-        TVArtworkView(
-            coverKey: "",
-            artist: "",
-            album: "",
-            songID: reference.map { "podcast-art:" + PodcastIdentity.digest($0) } ?? "",
-            coverRef: reference,
-            tint: TVColor.podcastSpace,
-            tint2: TVColor.bgDeep,
-            glyph: "♪",
-            size: side,
-            radius: radius
-        )
+        ZStack {
+            if let image {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                TVMusicPlaceholder(tint: TVColor.podcastSpace, tint2: TVColor.bgDeep, size: side)
+            }
+        }
+        .frame(width: side, height: side)
+        .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .strokeBorder(TVColor.cardBorder, lineWidth: 1)
+        }
+        .task(id: url) {
+            if imageURL != url { image = nil }
+            guard let url else { return }
+            let target = pixelSize
+            while !Task.isCancelled {
+                if let decoded = await TVPodcastArtworkLoader.shared.image(for: url, maxPixelSize: target) {
+                    guard !Task.isCancelled else { return }
+                    image = decoded
+                    imageURL = url
+                    return
+                }
+                // 超时的过一会儿再试;取不到图的地址由失败记录挡着,醒来也不会真的再请求。
+                try? await Task.sleep(for: .seconds(TVPodcastArtworkLoader.retryInterval))
+            }
+        }
+    }
+}
+
+/// 播客封面的取图:查缓存 → 失败记录 → 同一地址只下一份 → 排队(同时 3 张)→ 下载 → 缩图进缓存。
+///
+/// 与 iPhone / Mac 的 `CachedArtworkView` 对齐:只限空闲时长、不限总时长,排队的时间也不算进去,
+/// 所以慢网络上是一张张出来,而不是一起超时。缓存键按图片地址算(与以前一致,已存的封面照常命中),
+/// 一档节目的各集共用一张图时只取一次。
+actor TVPodcastArtworkLoader {
+    static let shared = TVPodcastArtworkLoader()
+    static let retryInterval: TimeInterval = 60
+
+    private var inFlight: [String: Task<Data?, Never>] = [:]
+    private var blockedUntil: [String: Date] = [:]
+    private let gate = TVRemoteImageFetchGate(limit: 3)
+
+    static func cacheKey(for url: URL) -> String {
+        "podcast-art:" + PodcastIdentity.digest(url.absoluteString)
+    }
+
+    func image(for url: URL, maxPixelSize: Int) async -> UIImage? {
+        guard let data = await data(for: url) else { return nil }
+        return await Task.detached(priority: .utility) {
+            TVRadioLogoLoader.thumbnail(from: data, maxPixelSize: maxPixelSize)
+        }.value
+    }
+
+    func data(for url: URL) async -> Data? {
+        let key = Self.cacheKey(for: url)
+        if let cached = await MetadataAssetStore.shared.cachedCoverData(forSongID: key) {
+            return cached
+        }
+        // 卡片取消时下载照常做完:进了缓存,下次打开直接命中。
+        if let running = inFlight[key] { return await running.value }
+        if let until = blockedUntil[key] {
+            guard Date() >= until else { return nil }
+            blockedUntil[key] = nil
+        }
+        let task = Task { await self.download(url, key: key) }
+        inFlight[key] = task
+        let data = await task.value
+        inFlight[key] = nil
+        return data
+    }
+
+    private func download(_ url: URL, key: String) async -> Data? {
+        guard await gate.acquire() else { return nil }
+        let outcome = await Self.fetch(url)
+        await gate.release()
+        switch outcome {
+        case .success(let data):
+            await MetadataAssetStore.shared.cacheCover(data, forSongID: key)
+            return data
+        case .failure(let failure):
+            if let retryAfter = failure.retryAfter {
+                blockedUntil[key] = Date().addingTimeInterval(retryAfter)
+            }
+            return nil
+        }
+    }
+
+    // MARK: 网络
+
+    private static let maximumBytes = 8 * 1_024 * 1_024
+    /// 进缓存的长边上限。电视上播客封面最大显示 340 点(680 像素),3000×3000 的原图存进去
+    /// 只会让每张卡片多解码几倍的像素。
+    private static let cachedPixelSize = 1_024
+
+    /// 不限总时长,只在 20 秒收不到数据时放弃;不带 Cookie,不用磁盘 URL 缓存(图已进封面缓存)。
+    private static let session: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 20
+        config.timeoutIntervalForResource = 10 * 60
+        config.httpCookieStorage = nil
+        config.urlCredentialStorage = nil
+        config.httpShouldSetCookies = false
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: config)
+    }()
+
+    private static func fetch(_ url: URL) async -> Result<Data, FetchFailure> {
+        guard let target = requestURL(for: url) else { return .failure(.content) }
+        var request = URLRequest(url: target)
+        request.httpShouldHandleCookies = false
+        request.setValue("image/avif,image/webp,image/*,*/*;q=0.5", forHTTPHeaderField: "Accept")
+        do {
+            let (data, response) = try await StreamResolverHTTPTransport.data(
+                for: request,
+                session: session,
+                maximumBytes: maximumBytes
+            )
+            guard let http = response as? HTTPURLResponse else { return .failure(.content) }
+            guard (200...299).contains(http.statusCode) else {
+                return .failure(FetchFailure(statusCode: http.statusCode))
+            }
+            guard let usable = cacheable(data) else { return .failure(.content) }
+            return .success(usable)
+        } catch {
+            return .failure(Task.isCancelled ? .transient : FetchFailure(error: error))
+        }
+    }
+
+    /// 公网明文 http 的封面换成 https 去取(播客图床基本两种都给),不为一张封面弹明文放行框;
+    /// 局域网 http 与 https 原样请求。
+    private static func requestURL(for url: URL) -> URL? {
+        guard StreamResolverHTTPTransport.requiresPlainHTTPTransport(url) else { return url }
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        components.scheme = "https"
+        if components.port == 80 { components.port = nil }
+        return components.url
+    }
+
+    /// 本来就不大的图原样存;大图、AVIF、容器不规整的图按上限重新编码(带透明的存 PNG)。
+    private static func cacheable(_ data: Data) -> Data? {
+        if pixelLength(of: data) <= cachedPixelSize, passesCacheGate(data) { return data }
+        guard let image = TVRadioLogoLoader.thumbnail(from: data, maxPixelSize: cachedPixelSize),
+              let encoded = hasAlpha(image)
+                ? image.pngData()
+                : image.jpegData(compressionQuality: 0.9),
+              passesCacheGate(encoded) else { return nil }
+        return encoded
+    }
+
+    private static func pixelLength(of data: Data) -> Int {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else {
+            return .max
+        }
+        let width = properties[kCGImagePropertyPixelWidth] as? Int ?? .max
+        let height = properties[kCGImagePropertyPixelHeight] as? Int ?? .max
+        return max(width, height)
+    }
+
+    private static func hasAlpha(_ image: UIImage) -> Bool {
+        guard let alpha = image.cgImage?.alphaInfo else { return false }
+        return ![CGImageAlphaInfo.none, .noneSkipFirst, .noneSkipLast].contains(alpha)
+    }
+
+    private static func passesCacheGate(_ data: Data) -> Bool {
+        ArtworkImageCompatibility.isCompleteImage(data)
+            && !ArtworkImageCompatibility.hasRedundantJPEGSampling(data)
+    }
+
+    /// 失败分级:地址本身的问题(4xx、太大、不是图)6 小时内不再试;超时、连不上、5xx 一分钟后
+    /// 再给机会(卡片每分钟醒一次);取消、断网不算这个地址的错。
+    private enum FetchFailure: Error {
+        case content
+        case service
+        case transient
+
+        var retryAfter: TimeInterval? {
+            switch self {
+            case .content: return 6 * 60 * 60
+            case .service: return TVPodcastArtworkLoader.retryInterval
+            case .transient: return nil
+            }
+        }
+
+        init(statusCode: Int) {
+            switch statusCode {
+            case 408, 429, 500...599: self = .service
+            default: self = .content
+            }
+        }
+
+        init(error: Error) {
+            guard let urlError = error as? URLError else {
+                self = error is CancellationError ? .transient : .content
+                return
+            }
+            switch urlError.code {
+            case .cancelled, .notConnectedToInternet, .networkConnectionLost,
+                 .dataNotAllowed, .internationalRoamingOff, .callIsActive:
+                self = .transient
+            case .timedOut, .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed,
+                 .secureConnectionFailed:
+                self = .service
+            default:
+                self = .content
+            }
+        }
     }
 }
 
