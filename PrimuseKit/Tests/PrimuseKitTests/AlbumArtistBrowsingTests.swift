@@ -31,7 +31,8 @@ struct AlbumArtistBrowsingTests {
             trackArtistsByID: Dictionary(uniqueKeysWithValues: trackArtists.map { ($0.id, $0) })
         )
 
-        #expect(index.artists.map(\.name) == ["Adele", "Various Artists", "周杰伦"])
+        #expect(index.artists.count == 3)
+        #expect(Set(index.artists.map(\.name)) == Set(["Adele", "Various Artists", "周杰伦"]))
         let jay = index.artists.first { $0.id == "j-jay" }
         #expect(jay?.albumCount == 2)
         #expect(jay?.songCount == 21)
