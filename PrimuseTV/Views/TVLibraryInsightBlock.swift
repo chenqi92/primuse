@@ -44,9 +44,8 @@ struct TVLibraryInsightBlock: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    // 摘录平时直接压在底图上,焦点到了才托起一层底。
                     .background(
-                        TVColor.surface.opacity(showsSynopsis && !focused ? 0 : 1),
+                        Self.background(showsSynopsis: showsSynopsis, focused: focused),
                         in: RoundedRectangle(cornerRadius: 18, style: .continuous)
                     )
                 }
@@ -77,6 +76,13 @@ struct TVLibraryInsightBlock: View {
             .task { await debugSeedIfRequested() }
             #endif
         }
+    }
+
+    /// 摘录平时直接压在底图上,「生成简介」这类卡片平时与曲目行同底;焦点到了都换亮一档的底(与曲目行一致)。
+    /// 卡片原来只多一圈细描边,电视上看不出焦点已经从曲目移到了这里。
+    private static func background(showsSynopsis: Bool, focused: Bool) -> Color {
+        if focused { return TVColor.surfaceStrong }
+        return showsSynopsis ? .clear : TVColor.card
     }
 
     #if DEBUG
