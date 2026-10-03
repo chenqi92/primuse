@@ -5360,3 +5360,10 @@
 "podcast_player_notes_empty" = "Цей випуск не має опису.";
 "podcast_player_up_next_empty" = "Після цього випуску нічого немає — відтворення зупиниться.";
 "podcast_player_remove_from_up_next" = "Прибрати з «Далі»";
+"a11y_minimize_player" = "Згорнути плеєр";
+"spoken_word_player_chapter_eyebrow" = "Розділ";
+"spoken_word_player_current_part" = "Поточний розділ";
+"spoken_word_player_progress_eyebrow" = "Прогрес";
+"spoken_word_player_now_listening" = "Зараз слухаєте";
+"spoken_word_part_remaining_under_minute" = "До кінця розділу менше хвилини";
+"podcast_remaining_under_minute" = "Лишилося менше хвилини";

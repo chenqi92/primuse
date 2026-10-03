@@ -5547,3 +5547,10 @@
 "podcast_player_notes_empty" = "这一集没有节目说明。";
 "podcast_player_up_next_empty" = "后面没有排着的单集，这一集放完就停。";
 "podcast_player_remove_from_up_next" = "从接下来移除";
+"a11y_minimize_player" = "收起播放页";
+"spoken_word_player_chapter_eyebrow" = "Chapter";
+"spoken_word_player_current_part" = "当前章节";
+"spoken_word_player_progress_eyebrow" = "全书进度";
+"spoken_word_player_now_listening" = "正在收听";
+"spoken_word_part_remaining_under_minute" = "本章还剩不到 1 分钟";
+"podcast_remaining_under_minute" = "剩余不到 1 分钟";

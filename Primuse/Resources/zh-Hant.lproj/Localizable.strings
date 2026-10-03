@@ -5431,3 +5431,10 @@
 "podcast_player_notes_empty" = "這一集沒有節目說明。";
 "podcast_player_up_next_empty" = "後面沒有排著的單集，這一集播完就停。";
 "podcast_player_remove_from_up_next" = "從接下來移除";
+"a11y_minimize_player" = "收起播放頁";
+"spoken_word_player_chapter_eyebrow" = "Chapter";
+"spoken_word_player_current_part" = "目前章節";
+"spoken_word_player_progress_eyebrow" = "全書進度";
+"spoken_word_player_now_listening" = "正在收聽";
+"spoken_word_part_remaining_under_minute" = "本章還剩不到 1 分鐘";
+"podcast_remaining_under_minute" = "剩餘不到 1 分鐘";

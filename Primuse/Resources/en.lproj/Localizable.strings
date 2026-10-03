@@ -5217,3 +5217,10 @@
 "podcast_player_notes_empty" = "This episode has no show notes.";
 "podcast_player_up_next_empty" = "Nothing is queued after this episode, so playback stops when it ends.";
 "podcast_player_remove_from_up_next" = "Remove from Up Next";
+"a11y_minimize_player" = "Minimize Player";
+"spoken_word_player_chapter_eyebrow" = "Chapter";
+"spoken_word_player_current_part" = "Current Chapter";
+"spoken_word_player_progress_eyebrow" = "Progress";
+"spoken_word_player_now_listening" = "Now Listening";
+"spoken_word_part_remaining_under_minute" = "Less than a minute left in chapter";
+"podcast_remaining_under_minute" = "Less than a minute left";

@@ -5360,3 +5360,10 @@
 "podcast_player_notes_empty" = "لا توجد ملاحظات لهذه الحلقة.";
 "podcast_player_up_next_empty" = "لا يوجد شيء في الانتظار بعد هذه الحلقة، لذا سيتوقف التشغيل عند انتهائها.";
 "podcast_player_remove_from_up_next" = "إزالة من التالي";
+"a11y_minimize_player" = "تصغير المشغّل";
+"spoken_word_player_chapter_eyebrow" = "الفصل";
+"spoken_word_player_current_part" = "الفصل الحالي";
+"spoken_word_player_progress_eyebrow" = "التقدّم";
+"spoken_word_player_now_listening" = "قيد الاستماع";
+"spoken_word_part_remaining_under_minute" = "يتبقى أقل من دقيقة من الفصل";
+"podcast_remaining_under_minute" = "متبقٍ أقل من دقيقة";

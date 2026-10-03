@@ -5454,3 +5454,10 @@
 "podcast_player_notes_empty" = "이 에피소드에는 설명이 없습니다.";
 "podcast_player_up_next_empty" = "이 에피소드 다음에 대기 중인 항목이 없어 끝나면 재생이 멈춥니다.";
 "podcast_player_remove_from_up_next" = "다음 재생에서 제거";
+"a11y_minimize_player" = "플레이어 최소화";
+"spoken_word_player_chapter_eyebrow" = "Chapter";
+"spoken_word_player_current_part" = "현재 챕터";
+"spoken_word_player_progress_eyebrow" = "전체 진행률";
+"spoken_word_player_now_listening" = "듣는 중";
+"spoken_word_part_remaining_under_minute" = "이 장 1분 미만 남음";
+"podcast_remaining_under_minute" = "1분 미만 남음";

@@ -5360,3 +5360,10 @@
 "podcast_player_notes_empty" = "ตอนนี้ไม่มีรายละเอียดรายการ";
 "podcast_player_up_next_empty" = "ไม่มีตอนที่รออยู่ต่อจากนี้ เล่นจบตอนนี้แล้วจะหยุด";
 "podcast_player_remove_from_up_next" = "นำออกจากถัดไป";
+"a11y_minimize_player" = "ย่อเครื่องเล่น";
+"spoken_word_player_chapter_eyebrow" = "บท";
+"spoken_word_player_current_part" = "บทปัจจุบัน";
+"spoken_word_player_progress_eyebrow" = "ความคืบหน้า";
+"spoken_word_player_now_listening" = "กำลังฟัง";
+"spoken_word_part_remaining_under_minute" = "เหลือไม่ถึง 1 นาทีในบทนี้";
+"podcast_remaining_under_minute" = "เหลือไม่ถึง 1 นาที";

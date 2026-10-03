@@ -5455,3 +5455,10 @@
 "podcast_player_notes_empty" = "このエピソードには説明がありません。";
 "podcast_player_up_next_empty" = "このあとに予定されているエピソードはありません。再生が終わると停止します。";
 "podcast_player_remove_from_up_next" = "「次に再生」から削除";
+"a11y_minimize_player" = "プレーヤーを閉じる";
+"spoken_word_player_chapter_eyebrow" = "Chapter";
+"spoken_word_player_current_part" = "現在の章";
+"spoken_word_player_progress_eyebrow" = "全体の進み具合";
+"spoken_word_player_now_listening" = "再生中";
+"spoken_word_part_remaining_under_minute" = "この章の残り 1分未満";
+"podcast_remaining_under_minute" = "残り 1分未満";

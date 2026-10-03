@@ -5360,3 +5360,10 @@
 "podcast_player_notes_empty" = "У этого выпуска нет описания.";
 "podcast_player_up_next_empty" = "После этого выпуска ничего нет — воспроизведение остановится.";
 "podcast_player_remove_from_up_next" = "Убрать из «Далее»";
+"a11y_minimize_player" = "Свернуть плеер";
+"spoken_word_player_chapter_eyebrow" = "Глава";
+"spoken_word_player_current_part" = "Текущая глава";
+"spoken_word_player_progress_eyebrow" = "Прогресс";
+"spoken_word_player_now_listening" = "Сейчас слушаете";
+"spoken_word_part_remaining_under_minute" = "До конца главы меньше минуты";
+"podcast_remaining_under_minute" = "Осталось меньше минуты";

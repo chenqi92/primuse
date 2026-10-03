@@ -5454,3 +5454,10 @@
 "podcast_player_notes_empty" = "Diese Folge hat keine Shownotes.";
 "podcast_player_up_next_empty" = "Nach dieser Folge ist nichts eingereiht – die Wiedergabe endet mit ihr.";
 "podcast_player_remove_from_up_next" = "Aus „Als Nächstes“ entfernen";
+"a11y_minimize_player" = "Player minimieren";
+"spoken_word_player_chapter_eyebrow" = "Kapitel";
+"spoken_word_player_current_part" = "Aktuelles Kapitel";
+"spoken_word_player_progress_eyebrow" = "Fortschritt";
+"spoken_word_player_now_listening" = "Läuft gerade";
+"spoken_word_part_remaining_under_minute" = "Noch knapp eine Minute im Kapitel";
+"podcast_remaining_under_minute" = "Noch knapp eine Minute";

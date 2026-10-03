@@ -5454,3 +5454,10 @@
 "podcast_player_notes_empty" = "Cet épisode n’a pas de notes.";
 "podcast_player_up_next_empty" = "Rien n’est prévu après cet épisode : la lecture s’arrêtera à la fin.";
 "podcast_player_remove_from_up_next" = "Retirer de À suivre";
+"a11y_minimize_player" = "Réduire le lecteur";
+"spoken_word_player_chapter_eyebrow" = "Chapitre";
+"spoken_word_player_current_part" = "Chapitre en cours";
+"spoken_word_player_progress_eyebrow" = "Progression";
+"spoken_word_player_now_listening" = "En écoute";
+"spoken_word_part_remaining_under_minute" = "Moins d’une minute restante dans le chapitre";
+"podcast_remaining_under_minute" = "Moins d’une minute restante";

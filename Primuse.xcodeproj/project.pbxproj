@@ -833,6 +833,7 @@
 		75E15015A39C26CB480FCCBA /* MacSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBB01F11731477FA9B7F27D0 /* MacSidebar.swift */; };
 		75EB658DF4EA4FA781A5A776 /* ServerListeningStatsServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31F300281145AEB5C3A9BC87 /* ServerListeningStatsServiceTests.swift */; };
 		761B04C86F083F18574E02FD /* SpokenWordCoverLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6746317792A2316D2E222832 /* SpokenWordCoverLayout.swift */; };
+		A6312E2977944FC001E41BA5 /* SpokenWordPartTitleLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F6A9338C6B0DFF1BDC6AA9C /* SpokenWordPartTitleLabel.swift */; };
 		7635925D8884E6C7EF5C9D57 /* ScrobbleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51E683B96F169512351E3ACE /* ScrobbleService.swift */; };
 		765CDF1C38171011299A3B47 /* SubsonicRatingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33DBF419A61F2A1604C966A1 /* SubsonicRatingTests.swift */; };
 		76B15ED04C6D439ADF7DCBD3 /* ImmersiveEffectDrawer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E2D4C63C61A4242A2B2D15E /* ImmersiveEffectDrawer.swift */; };
@@ -841,10 +842,12 @@
 		7786CB5EF89B2EBA3756CF48 /* MetadataInspectionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F1B93D05CDCAFE2A5C5E1CB /* MetadataInspectionPolicy.swift */; };
 		7797CFB95ADC01F53D418110 /* LocalBookmarkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0187D5AA8EC6AB3F8B14ECA6 /* LocalBookmarkStore.swift */; };
 		77D0B826FFF2C7ECF3507191 /* SpokenWordPlayerComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28A13C5C56C77AC4A1F8232C /* SpokenWordPlayerComponents.swift */; };
+		5798B552697063A0F6B3DC9C /* AudiobookPlayerDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A90E005EED8EF4300134CC2 /* AudiobookPlayerDesign.swift */; };
 		3979EC80B1863F8DF67E7E2D /* PodcastPlayerComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB0BDDF972885E1FC2DE5C3D /* PodcastPlayerComponents.swift */; };
 		77EB742266627332E3E8723B /* LyricsAPIServerSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5AD2F4190CA1F04C0D4D50F /* LyricsAPIServerSettings.swift */; };
 		77F52F217A57328E7FC3E19B /* PlaylistExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 285C1472009479A6CC7B2177 /* PlaylistExporter.swift */; };
 		7814030E97D0D88E7252DC4D /* SpokenWordPlayerComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28A13C5C56C77AC4A1F8232C /* SpokenWordPlayerComponents.swift */; };
+		C4B80201C379F7E669466BEC /* AudiobookPlayerDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A90E005EED8EF4300134CC2 /* AudiobookPlayerDesign.swift */; };
 		286A699698411352DBB847CA /* PodcastPlayerComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB0BDDF972885E1FC2DE5C3D /* PodcastPlayerComponents.swift */; };
 		7817038FB96764E70301F8AA /* PlayerBackdropImagingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8454552C91A726FE2314337 /* PlayerBackdropImagingTests.swift */; };
 		7838A8CFB758F37EE9CAB726 /* LibrarySongBrowseMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B89002BB9DE5179461BC5B7 /* LibrarySongBrowseMode.swift */; };
@@ -2242,6 +2245,7 @@
 		285C1472009479A6CC7B2177 /* PlaylistExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistExporter.swift; sourceTree = "<group>"; };
 		285DF2C9DD2043B4D2C937FC /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		28A13C5C56C77AC4A1F8232C /* SpokenWordPlayerComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenWordPlayerComponents.swift; sourceTree = "<group>"; };
+		5A90E005EED8EF4300134CC2 /* AudiobookPlayerDesign.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudiobookPlayerDesign.swift; sourceTree = "<group>"; };
 		CB0BDDF972885E1FC2DE5C3D /* PodcastPlayerComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastPlayerComponents.swift; sourceTree = "<group>"; };
 		28EE6B136CE82FFC872F9E86 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		291FDF1C384E333B90E3337E /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/SettingsSearch.strings; sourceTree = "<group>"; };
@@ -2546,6 +2550,7 @@
 		66A627BB63824FA32280BC29 /* MetadataBackfillDrainWaitPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataBackfillDrainWaitPolicy.swift; sourceTree = "<group>"; };
 		6723FC0B92EDA2CC1B5E3C83 /* SourcesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourcesView.swift; sourceTree = "<group>"; };
 		6746317792A2316D2E222832 /* SpokenWordCoverLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenWordCoverLayout.swift; sourceTree = "<group>"; };
+		5F6A9338C6B0DFF1BDC6AA9C /* SpokenWordPartTitleLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenWordPartTitleLabel.swift; sourceTree = "<group>"; };
 		674C441197AFC8EDFF6E7E4B /* FullscreenPlayerEffectSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullscreenPlayerEffectSettings.swift; sourceTree = "<group>"; };
 		678F2DD30767937AE051A639 /* SongloftStreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongloftStreamResolver.swift; sourceTree = "<group>"; };
 		67A74DBDB4BE669EBE61F4DA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -3954,6 +3959,7 @@
 				2AFCE912BF9D28B135F69C8A /* SpokenWordBookPlaybackPolicy.swift */,
 				518582DFCDFFEE176B340033 /* SpokenWordContentPolicy.swift */,
 				6746317792A2316D2E222832 /* SpokenWordCoverLayout.swift */,
+				5F6A9338C6B0DFF1BDC6AA9C /* SpokenWordPartTitleLabel.swift */,
 				0B0029FE480D334C2F30798E /* SpokenWordFolderRules.swift */,
 				A54A68E8FFB2682A00C0C094 /* SpokenWordListeningPolicy.swift */,
 				65EAA15BE31CF746EB7325D4 /* SpokenWordNowPlayingPolicy.swift */,
@@ -4138,6 +4144,7 @@
 				5D2741FA5052447F5E1B27A4 /* QueueView.swift */,
 				11180515D910975A39CBE6C5 /* ScrapeOptionsView.swift */,
 				28A13C5C56C77AC4A1F8232C /* SpokenWordPlayerComponents.swift */,
+				5A90E005EED8EF4300134CC2 /* AudiobookPlayerDesign.swift */,
 				CB0BDDF972885E1FC2DE5C3D /* PodcastPlayerComponents.swift */,
 				FDD0AECB6D461DFB993C8CD2 /* TabletopQueueStrip.swift */,
 				1DF2B6809C0482D58CDE61E7 /* VisualizerBarsView.swift */,
@@ -6189,6 +6196,7 @@
 				1B495C1C9292861F88C17185 /* SpokenWordBookPlaybackPolicy.swift in Sources */,
 				6BEA4C430BF1F8100C05FA7B /* SpokenWordContentPolicy.swift in Sources */,
 				761B04C86F083F18574E02FD /* SpokenWordCoverLayout.swift in Sources */,
+				A6312E2977944FC001E41BA5 /* SpokenWordPartTitleLabel.swift in Sources */,
 				63AC7C4BE9C815D2EA3D90E4 /* SpokenWordFolderRules.swift in Sources */,
 				0B66C5664B9E369A00EBB799 /* SpokenWordListeningPolicy.swift in Sources */,
 				A24751AA74C6C034F12057D8 /* SpokenWordNowPlayingPolicy.swift in Sources */,
@@ -6714,6 +6722,7 @@
 				7A9DEF1B3E6DD0B7C5D1F722 /* SourcesView.swift in Sources */,
 				620C22596174B16A2958B096 /* SpokenWordLibraryView.swift in Sources */,
 				7814030E97D0D88E7252DC4D /* SpokenWordPlayerComponents.swift in Sources */,
+				C4B80201C379F7E669466BEC /* AudiobookPlayerDesign.swift in Sources */,
 				286A699698411352DBB847CA /* PodcastPlayerComponents.swift in Sources */,
 				4364BBE73E5E16055CBA24B9 /* SpokenWordStore.swift in Sources */,
 				95C089EDFB01121E3DD6D6A8 /* SpokenWordWidgetPublisher.swift in Sources */,
@@ -7396,6 +7405,7 @@
 				389FD71E5AB9C4E87852B1FB /* SourcesView.swift in Sources */,
 				278054AFB875BFD0D4548D29 /* SpokenWordLibraryView.swift in Sources */,
 				77D0B826FFF2C7ECF3507191 /* SpokenWordPlayerComponents.swift in Sources */,
+				5798B552697063A0F6B3DC9C /* AudiobookPlayerDesign.swift in Sources */,
 				3979EC80B1863F8DF67E7E2D /* PodcastPlayerComponents.swift in Sources */,
 				325C09DC9D9271795E966AAD /* SpokenWordStore.swift in Sources */,
 				76BB91A5F90E05B719ACD10F /* SpokenWordWidgetPublisher.swift in Sources */,

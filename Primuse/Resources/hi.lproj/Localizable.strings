@@ -5360,3 +5360,10 @@
 "podcast_player_notes_empty" = "इस एपिसोड का कोई विवरण नहीं है।";
 "podcast_player_up_next_empty" = "इस एपिसोड के बाद कुछ भी कतार में नहीं है, इसलिए यह खत्म होने पर प्लेबैक रुक जाएगा।";
 "podcast_player_remove_from_up_next" = "आगे से हटाएं";
+"a11y_minimize_player" = "प्लेयर छोटा करें";
+"spoken_word_player_chapter_eyebrow" = "अध्याय";
+"spoken_word_player_current_part" = "मौजूदा अध्याय";
+"spoken_word_player_progress_eyebrow" = "प्रगति";
+"spoken_word_player_now_listening" = "अभी सुन रहे हैं";
+"spoken_word_part_remaining_under_minute" = "अध्याय में एक मिनट से कम बाकी";
+"podcast_remaining_under_minute" = "एक मिनट से कम बाक़ी";

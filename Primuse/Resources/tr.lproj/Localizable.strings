@@ -5360,3 +5360,10 @@
 "podcast_player_notes_empty" = "Bu bölümün notu yok.";
 "podcast_player_up_next_empty" = "Bu bölümden sonra sırada bir şey yok; bitince oynatma durur.";
 "podcast_player_remove_from_up_next" = "Sıradakilerden kaldır";
+"a11y_minimize_player" = "Oynatıcıyı küçült";
+"spoken_word_player_chapter_eyebrow" = "Bölüm";
+"spoken_word_player_current_part" = "Geçerli bölüm";
+"spoken_word_player_progress_eyebrow" = "İlerleme";
+"spoken_word_player_now_listening" = "Şu an dinleniyor";
+"spoken_word_part_remaining_under_minute" = "Bölümün bitmesine bir dakikadan az";
+"podcast_remaining_under_minute" = "Bir dakikadan az kaldı";

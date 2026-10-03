@@ -5360,3 +5360,10 @@
 "podcast_player_notes_empty" = "Este episodio no tiene notas.";
 "podcast_player_up_next_empty" = "No hay nada en cola después de este episodio; la reproducción se detendrá al terminar.";
 "podcast_player_remove_from_up_next" = "Quitar de A continuación";
+"a11y_minimize_player" = "Minimizar reproductor";
+"spoken_word_player_chapter_eyebrow" = "Capítulo";
+"spoken_word_player_current_part" = "Capítulo actual";
+"spoken_word_player_progress_eyebrow" = "Progreso";
+"spoken_word_player_now_listening" = "Escuchando";
+"spoken_word_part_remaining_under_minute" = "Queda menos de un minuto del capítulo";
+"podcast_remaining_under_minute" = "Queda menos de un minuto";

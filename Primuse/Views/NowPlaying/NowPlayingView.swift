@@ -2270,11 +2270,18 @@ struct NowPlayingView: View {
                     ZStack {
                         // Opaque base — prevents content bleeding through
                         // 两层底色在换构图那一次立刻铺满新尺寸，不随换构图的动画慢慢长大(换歌时的取色过渡照旧)。
-                        appearance.backgroundBase.ignoresSafeArea()
-                            .animation(nil, value: canvasKey)
-                        // Dynamic background from cover colors — fully opaque
-                        backgroundGradient.ignoresSafeArea()
-                            .animation(nil, value: canvasKey)
+                        if usesAudiobookPlayerDesign {
+                            // 有声书是两套设计里的纯色底(墨黑 / 暖白),不随封面取色,也不铺背景图。
+                            audiobookPlayerStyle.background.ignoresSafeArea()
+                                .animation(nil, value: canvasKey)
+                                .transition(.opacity)
+                        } else {
+                            appearance.backgroundBase.ignoresSafeArea()
+                                .animation(nil, value: canvasKey)
+                            // Dynamic background from cover colors — fully opaque
+                            backgroundGradient.ignoresSafeArea()
+                                .animation(nil, value: canvasKey)
+                        }
 
                         // 每套布局都经 NowPlayingDeferredContent 推迟构造，别直接内联回来：
                         // Debug 构建下这里会把主线程的栈吃满（见那个类型的说明）。
@@ -4196,6 +4203,17 @@ struct NowPlayingView: View {
             ? min(max(0, geo.size.width - 20), 720, insets.mediaWidthLimit)
             : artSize
 
+        if usesAudiobookPlayerDesign, !isLyricsImmersive {
+            // 包一层壳子,别在这个分支里现场构造整套版面(见 `NowPlayingDeferredContent`)。
+            NowPlayingDeferredContent {
+                audiobookPortraitLayout(
+                    geo: geo,
+                    insets: insets,
+                    showsText: showLyrics,
+                    usesToolColumn: usesToolColumn
+                )
+            }
+        } else {
         VStack(spacing: 0) {
                     // Grabber handle (system-matching dimensions)
                     if !showLyrics || !isLyricsImmersive {
@@ -4384,6 +4402,350 @@ struct NowPlayingView: View {
                 // 侧边安全区按侧取值；上下仍沿用窗口安全区的既有处理。整屏居中(iPhone Duo)时两侧都是 0。
                 .padding(.leading, insets.containerLeading)
                 .padding(.trailing, insets.containerTrailing)
+        }
+    }
+
+    // MARK: - 有声书竖版(墨黑 / 暖白)
+
+    /// 有声书(播客单集不算)用专门的两套设计,见 `AudiobookPlayerStyle`。iPhone 与 iPad 竖屏是
+    /// 专门的版面;横屏、iPad 双栏沿用通用的有声版面,只把底换成同一种纯色。
+    private var usesAudiobookPlayerDesign: Bool {
+        #if os(iOS)
+        usesSpokenWordTransport && !PodcastPlaybackSong.isEpisode(player.currentSong)
+        #else
+        false
+        #endif
+    }
+
+    private var audiobookPlayerStyle: AudiobookPlayerStyle {
+        AudiobookPlayerStyle(colorScheme: colorScheme, contrast: colorSchemeContrast)
+    }
+
+    /// 顶栏、书名与封面那一块(有文字稿时可换成文字稿)、当前章节、进度、传输键、
+    /// 语速定时书签目录、音量与规格。墨黑与暖白只是这几块的次序与写法不同。
+    private func audiobookPortraitLayout(
+        geo: GeometryProxy,
+        insets: NowPlayingPortraitInsets,
+        showsText: Bool,
+        usesToolColumn: Bool
+    ) -> some View {
+        let style = audiobookPlayerStyle
+        let margin: CGFloat = 28
+        // iPad 竖屏与大窗口里版面不跟着拉宽,停在这个宽度居中。
+        let columnLimit: CGFloat = 680
+        let available = geo.size.width - insets.containerLeading - insets.containerTrailing - insets.rows * 2
+        let contentWidth = max(0, min(available, columnLimit) - margin * 2)
+        let isShort = geo.size.height < 760
+        let chapterColumnWidth = min(max((contentWidth * 0.23).rounded(), 72), 120)
+
+        return VStack(spacing: 0) {
+            audiobookTopBar(style: style, usesToolColumn: usesToolColumn)
+                .padding(.top, topSafeArea)
+                .padding(.horizontal, 16)
+                .pmLayoutSwitchFade()
+
+            if let error = player.lastPlaybackError {
+                Text(error)
+                    .font(.caption).fontWeight(.medium)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16).padding(.vertical, 8)
+                    .background(.red.opacity(0.8), in: Capsule())
+                    .padding(.top, 4)
+                    .pmSlideTransition(edge: .top, motion: .list)
+            }
+
+            VStack(spacing: 0) {
+                if showsText {
+                    audiobookTextHeader(style: style)
+                        .padding(.top, 8)
+                        .transition(lyricsHeaderHandoffTransition)
+                        .zIndex(1)
+                    lyricsFullView
+                        .padding(.horizontal, -margin)
+                        .frame(maxHeight: .infinity)
+                        .transition(lyricsPanelTransition)
+                } else if style.isNocturne {
+                    Spacer(minLength: isShort ? 8 : 16)
+                    AudiobookTitleBlock(style: style) { presentCurrentBook() }
+                        .matchedLayoutElement(.songHeading, in: layoutNamespace)
+                    AudiobookHeroRowLayout(
+                        columnLeading: true,
+                        columnWidth: chapterColumnWidth,
+                        spacing: 24,
+                        maxSide: 480
+                    ) {
+                        AudiobookChapterColumn(style: style) { openContentsPanel() }
+                        audiobookCover(style: style)
+                    }
+                    .padding(.top, isShort ? 14 : 22)
+                    .layoutPriority(1)
+                    .transition(lyricsHandoffArtworkTransition)
+                    Spacer(minLength: isShort ? 16 : 28)
+                } else {
+                    Spacer(minLength: isShort ? 8 : 14)
+                    HStack(spacing: 12) {
+                        AudiobookPlayerEyebrow(key: "spoken_word_player_now_listening", style: style)
+                        Rectangle()
+                            .fill(style.hairline)
+                            .frame(height: 0.5)
+                    }
+                    .pmLayoutSwitchFade()
+                    AudiobookHeroRowLayout(
+                        columnLeading: false,
+                        columnWidth: chapterColumnWidth,
+                        spacing: 28,
+                        maxSide: 480
+                    ) {
+                        AudiobookChapterColumn(style: style) { openContentsPanel() }
+                        audiobookCover(style: style)
+                    }
+                    .padding(.top, isShort ? 14 : 22)
+                    .layoutPriority(1)
+                    .transition(lyricsHandoffArtworkTransition)
+                    AudiobookTitleBlock(style: style) { presentCurrentBook() }
+                        .matchedLayoutElement(.songHeading, in: layoutNamespace)
+                        .padding(.top, isShort ? 16 : 26)
+                    Spacer(minLength: isShort ? 12 : 22)
+                }
+
+                AudiobookCurrentPartRow(style: style) { openContentsPanel() }
+                    .padding(.top, showsText ? 8 : 0)
+                    .pmLayoutSwitchFade()
+
+                AudiobookProgressBar(style: style)
+                    .matchedLayoutElement(.progress, in: layoutNamespace)
+
+                audiobookTransportRow(style: style, isShort: isShort)
+                    .matchedLayoutElement(.transport, in: layoutNamespace)
+                    .padding(.top, isShort ? 4 : 10)
+
+                Group {
+                    if style.isNocturne {
+                        if showsPlayerVolumeBar {
+                            playerVolumeRow
+                                .padding(.horizontal, 12)
+                                .padding(.top, isShort ? 10 : 16)
+                        }
+                        // 竖栏里排着那一列按钮时(iPhone Duo),这几样都在那一列里。
+                        if !usesToolColumn {
+                            audiobookActionRow(style: style, layout: .stacked)
+                                .padding(.top, isShort ? 4 : 10)
+                        }
+                    } else {
+                        Rectangle()
+                            .fill(style.hairline)
+                            .frame(height: 0.5)
+                            .padding(.top, isShort ? 10 : 18)
+                        if !usesToolColumn {
+                            audiobookActionRow(style: style, layout: .inline)
+                                .padding(.top, 6)
+                        }
+                        if showsPlayerVolumeBar {
+                            playerVolumeRow
+                                .padding(.horizontal, 12)
+                                .padding(.top, 4)
+                        }
+                    }
+                }
+                .pmLayoutSwitchFade()
+
+                if let song = player.currentSong {
+                    nowPlayingFooterInfo(
+                        for: song,
+                        infoColor: style.faint,
+                        sourceColor: style.faint,
+                        noticeColor: style.secondary
+                    )
+                    .tracking(0.6)
+                    .padding(.top, isShort ? 4 : 8)
+                    .pmLayoutSwitchFade()
+                }
+            }
+            .padding(.horizontal, margin)
+            .frame(maxWidth: columnLimit)
+            .padding(.horizontal, insets.rows)
+            .frame(maxWidth: .infinity)
+            .padding(.bottom, max(bottomSafeArea, 12))
+        }
+        .padding(.leading, insets.containerLeading)
+        .padding(.trailing, insets.containerTrailing)
+    }
+
+    /// 收起键 · 字标 · 文字稿 / 投放 / 更多。字标压在整行正中,不随两侧按钮多少偏移。
+    private func audiobookTopBar(style: AudiobookPlayerStyle, usesToolColumn: Bool) -> some View {
+        HStack(spacing: 0) {
+            if let onMinimize {
+                Button(action: onMinimize) {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(style.primary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("a11y_minimize_player"))
+            }
+            Spacer(minLength: 0)
+            // 竖栏里排着那一列按钮时(iPhone Duo),投放与更多在那一列里。
+            if !usesToolColumn {
+                HStack(spacing: 0) {
+                    spokenWordTextToggle
+                    AirPlayButton()
+                        .frame(width: 30, height: 30)
+                        .frame(width: 40, height: 44)
+                    moreMenu
+                }
+                .fixedSize()
+            }
+        }
+        .frame(height: 44)
+        .overlay {
+            AudiobookPlayerWordmark(color: style.primary)
+        }
+    }
+
+    /// 正方形的书封。方的原图正好铺满,竖的、横的整张放进来,空出的边用它自己的模糊放大垫上。
+    /// 和文字稿顶上那张小封面是同一个匹配几何身份,切换时飞过去。点开:有文字稿看文字稿,没有就开目录。
+    private func audiobookCover(style: AudiobookPlayerStyle) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 4, style: .continuous)
+        return CachedArtworkView(
+            coverRef: player.currentSong?.coverArtFileName,
+            songID: player.currentSong?.id ?? "",
+            size: 420,
+            cornerRadius: 0,
+            sourceID: player.currentSong?.sourceID,
+            filePath: player.currentSong?.filePath,
+            fileFormat: player.currentSong?.fileFormat,
+            placeholderIcon: "book.closed",
+            loadsHighResolution: isPresentationSettled,
+            fillsProposedSize: true,
+            revisionToken: player.coverRevision
+        )
+        .bookCoverLayout()
+        .artworkCrossfade()
+        .clipShape(shape)
+        .overlay {
+            shape.strokeBorder(style.hairline, lineWidth: 0.5)
+        }
+        .matchedGeometryEffect(
+            id: lyricsArtworkTransitionID,
+            in: lyricsArtworkNamespace,
+            isSource: !isLyricsCompactArtworkVisible
+        )
+        .shadow(
+            color: style.isNocturne
+                ? .black.opacity(0.55)
+                : Color(red: 0.30, green: 0.22, blue: 0.12).opacity(0.22),
+            radius: style.isNocturne ? 22 : 16,
+            y: style.isNocturne ? 12 : 10
+        )
+        .contentShape(shape)
+        .onTapGesture { openTextFromArtwork() }
+        .accessibilityElement()
+        .accessibilityLabel(Text(verbatim: SpokenWordPlayerText.bookTitle(player)))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint(Text(lyrics.isEmpty ? "spoken_word_contents_title" : "spoken_word_text_tab"))
+    }
+
+    /// 文字稿顶上那一行:小封面、书名、作者。点一下回到封面。
+    private func audiobookTextHeader(style: AudiobookPlayerStyle) -> some View {
+        Button { setStandardLyricsVisible(false) } label: {
+            HStack(spacing: 12) {
+                lyricsThumbnailArtwork(size: 44, cornerRadius: 4)
+                    .lyricsHeaderReveal(isArtwork: true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: SpokenWordPlayerText.bookTitle(player))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(style.primary)
+                        .lineLimit(1)
+                    if let author = SpokenWordPlayerText.author(player) {
+                        Text(verbatim: author)
+                            .font(.caption)
+                            .foregroundStyle(style.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .lyricsHeaderReveal()
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("a11y_close_lyrics"))
+    }
+
+    /// 快退 · 播放 · 快进。播放键是实心圆:墨黑橙红、暖白近黑,三角取底色。
+    private func audiobookTransportRow(style: AudiobookPlayerStyle, isShort: Bool) -> some View {
+        let diameter: CGFloat = isShort ? 64 : 72
+        let showsPause = player.isPlaying || player.isLoading
+        return HStack(spacing: 0) {
+            Spacer(minLength: 0)
+            audiobookSkipButton(forward: false, style: style)
+            Spacer(minLength: 0)
+            Button {
+                guard !player.isLoading else { return }
+                player.togglePlayPause()
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(style.accent)
+                    if player.showsLoadingIndicator {
+                        ProgressView()
+                            .tint(style.onAccent)
+                            .pmFadeTransition(motion: .control)
+                    } else {
+                        Image(systemName: showsPause ? "pause.fill" : "play.fill")
+                            .font(.system(size: diameter * 0.36, weight: .semibold))
+                            .foregroundStyle(style.onAccent)
+                            // 三角的视觉重心偏左,往右挪一点才像居中。
+                            .offset(x: showsPause ? 0 : diameter * 0.03)
+                            .contentTransition(.symbolEffect(.replace))
+                            .pmFadeTransition(motion: .control)
+                    }
+                }
+                .frame(width: diameter, height: diameter)
+                .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(player.showsLoadingIndicator)
+            .accessibilityLabel(showsPause
+                ? String(localized: "a11y_pause")
+                : String(localized: "a11y_play"))
+            Spacer(minLength: 0)
+            audiobookSkipButton(forward: true, style: style)
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// 快退 15 / 快进 30 秒(秒数随设置);长按跳章、跳集。
+    private func audiobookSkipButton(forward: Bool, style: AudiobookPlayerStyle) -> some View {
+        Button {
+            if forward { transportForward() } else { transportBackward() }
+        } label: {
+            Image(systemName: forward ? transportForwardSymbol : transportBackwardSymbol)
+                .font(.system(size: 28, weight: .light))
+                .foregroundStyle(style.primary)
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: 56, height: 56)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(forward ? transportForwardLabel : transportBackwardLabel)
+        .bookJumpMenu(isEnabled: true) { bookJumpItems(forward: forward) }
+    }
+
+    /// 语速 · 定时 · 书签 · 目录。墨黑图标在上、字在下;暖白排成一行。
+    private func audiobookActionRow(
+        style: AudiobookPlayerStyle,
+        layout: SpokenWordActionTiles.Layout
+    ) -> some View {
+        SpokenWordActionTiles(
+            palette: style.palette,
+            layout: layout,
+            tileHeight: layout == .stacked ? 54 : 40,
+            onSleep: { showSleepTimer = true },
+            onContents: { openContentsPanel() }
+        )
     }
 
     /// 竖版的传输键一行(随机 · 上一首 · 播放 · 下一首 · 循环)。桌面半折的下半屏也用这一行。
@@ -5455,7 +5817,12 @@ struct NowPlayingView: View {
 
     /// 播放页最下面那行:音质、规格与来源(不止一个音乐源时)。起播前在 iCloud 下载时,
     /// 音频信息那段换成下载提示。
-    private func nowPlayingFooterInfo(for song: Song) -> some View {
+    private func nowPlayingFooterInfo(
+        for song: Song,
+        infoColor: Color? = nil,
+        sourceColor: Color? = nil,
+        noticeColor: Color? = nil
+    ) -> some View {
         let source = sourcesStore.sources.count > 1 ? sourcesStore.source(id: song.sourceID) : nil
         return NowPlayingFooterInfoRow(
             song: song,
@@ -5466,9 +5833,9 @@ struct NowPlayingView: View {
             },
             outputSampleRate: player.audioEngine.observedOutputSampleRate,
             allowsOutputDetail: !player.isAppleMusicMode,
-            infoColor: appearance.tertiary,
-            sourceColor: appearance.faint,
-            noticeColor: appearance.secondary
+            infoColor: infoColor ?? appearance.tertiary,
+            sourceColor: sourceColor ?? appearance.faint,
+            noticeColor: noticeColor ?? appearance.secondary
         )
     }
 
@@ -5701,6 +6068,8 @@ struct NowPlayingView: View {
     }
 
     private var themedControlAccent: Color {
+        // 有声书两套设计的强调色是定的,横屏、iPad 双栏也用它,不随封面取色。
+        if usesAudiobookPlayerDesign { return audiobookPlayerStyle.accent }
         guard theme.colorID != "default" else { return appearance.primary }
         return appearance.isLight ? theme.darkAccent : theme.accentColor
     }
@@ -6668,10 +7037,23 @@ private final class MusicVideoLayerView: NSView {
 // MARK: - Custom Progress Slider (thin, no thumb)
 
 struct ProgressSlider: View {
+    /// 轨道粗细、底色与拖动点。默认是播放页一直用的胶囊条;有声书竖版是细线加一个圆点。
+    struct TrackStyle: Equatable {
+        var restingHeight: CGFloat = 5
+        var draggingHeight: CGFloat = 8
+        /// nil 时按明暗外观取。
+        var trackColor: Color? = nil
+        /// 给了就在播放头上画一个这么大的圆点,拖动时放大一圈。
+        var knobDiameter: CGFloat? = nil
+
+        static let standard = TrackStyle()
+    }
+
     let value: TimeInterval
     let total: TimeInterval
     let interactionID: String?
     let fillTint: Color?
+    let trackStyle: TrackStyle
     let onPreview: (TimeInterval?) -> Void
     let onSeek: (TimeInterval) -> Void
 
@@ -6680,6 +7062,7 @@ struct ProgressSlider: View {
         total: TimeInterval,
         interactionID: String? = nil,
         fillTint: Color? = nil,
+        trackStyle: TrackStyle = .standard,
         onPreview: @escaping (TimeInterval?) -> Void = { _ in },
         onSeek: @escaping (TimeInterval) -> Void
     ) {
@@ -6687,6 +7070,7 @@ struct ProgressSlider: View {
         self.total = total
         self.interactionID = interactionID
         self.fillTint = fillTint
+        self.trackStyle = trackStyle
         self.onPreview = onPreview
         self.onSeek = onSeek
     }
@@ -6767,22 +7151,32 @@ struct ProgressSlider: View {
     var body: some View {
         GeometryReader { geo in
             let width = geo.size.width
-            let trackHeight: CGFloat = isDragging ? 8 : 5
+            let trackHeight: CGFloat = isDragging ? trackStyle.draggingHeight : trackStyle.restingHeight
+            let filledWidth = max(0, min(width, width * progress))
 
             ZStack(alignment: .leading) {
                 // Background track
                 Capsule()
-                    .fill(appearance.track)
+                    .fill(trackStyle.trackColor ?? appearance.track)
                     .frame(height: trackHeight)
 
                 // Filled track
                 Capsule()
                     .fill(fillColor)
-                    .frame(width: max(0, min(width, width * progress)))
+                    .frame(width: filledWidth)
                     // 高度留在动画修饰符外面: 轨道加粗归下面那条 isDragging 的
                     // 曲线管, 这里只负责宽度, 免得一开始拖动就把加粗一起掐掉。
                     .animation(fillAnimation, value: progress)
                     .frame(height: trackHeight)
+
+                if let knob = trackStyle.knobDiameter {
+                    let diameter = isDragging ? knob + 4 : knob
+                    Circle()
+                        .fill(fillColor)
+                        .frame(width: diameter, height: diameter)
+                        .offset(x: filledWidth - diameter / 2)
+                        .animation(fillAnimation, value: progress)
+                }
             }
             .frame(height: CGFloat(NowPlayingInteractionPolicy.minimumScrubHitTargetSize))
             .contentShape(Rectangle())

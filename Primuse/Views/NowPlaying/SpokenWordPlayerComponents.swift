@@ -116,6 +116,16 @@ enum SpokenWordPlayerText {
         return name?.isEmpty == false ? name : nil
     }
 
+    /// 演播:曲目的艺人和作者不是同一个人时才有(分书规则里曲目艺人就是演播,
+    /// 见 `SpokenWordBookGroupingRules`)。播客单集没有这一行。
+    static func narrator(_ player: AudioPlayerService) -> String? {
+        guard podcastEpisode(player) == nil,
+              let name = player.currentSong?.artistName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty else { return nil }
+        let author = author(player)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return name.localizedCaseInsensitiveCompare(author) == .orderedSame ? nil : name
+    }
+
     /// The part being heard: the chapter mark's title inside a one-file
     /// book, the file's title (with the chapter mark under it, if any) in a
     /// book of several files. Nil when it would only repeat the book title.
@@ -149,7 +159,14 @@ enum SpokenWordPlayerText {
             rate: player.currentSpokenWordRate
         )
         // 没有章节的播客单集只有它自己,说「剩余」,不说「本章」。
-        let key: String.LocalizationValue = podcastEpisode(player) != nil && player.spokenWordChapters.isEmpty
+        let isWholeEpisode = podcastEpisode(player) != nil && player.spokenWordChapters.isEmpty
+        // 不到一分钟单独一句,免得拼成「本章还剩约 不到 1 分钟」。
+        guard listening.isFinite, listening >= 60 else {
+            let key: String.LocalizationValue = isWholeEpisode
+                ? "podcast_remaining_under_minute" : "spoken_word_part_remaining_under_minute"
+            return String(localized: key)
+        }
+        let key: String.LocalizationValue = isWholeEpisode
             ? "podcast_remaining_format" : "spoken_word_part_remaining_format"
         return String(format: String(localized: key), approximateDuration(listening))
     }
@@ -308,7 +325,16 @@ struct SpokenWordBookmarkTicks: View {
 /// bookmark and contents. They are on the page rather than in the menu
 /// because a book is listened to with them.
 struct SpokenWordActionTiles: View {
+    /// 一块怎么画。`tiles` 是垫圆角底的方块(iPad、Mac、横屏);有声书竖版的两套设计不垫底:
+    /// 墨黑是图标在上、字在下,暖白是图标与字排成一行。
+    enum Layout {
+        case tiles
+        case stacked
+        case inline
+    }
+
     let palette: SpokenWordPlayerPalette
+    var layout: Layout = .tiles
     var showsContents = true
     var tileHeight: CGFloat = 56
     let onSleep: () -> Void
@@ -322,7 +348,7 @@ struct SpokenWordActionTiles: View {
     private var isPodcast: Bool { SpokenWordPlayerText.isPodcastEpisode(player) }
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: layout == .tiles ? 8 : 0) {
             rateTile
             sleepTile
             // 播客把「书签」让给「接下来」:书签仍在说明面板里,也能从那里加。
@@ -333,11 +359,27 @@ struct SpokenWordActionTiles: View {
         }
     }
 
+    private var iconFont: Font {
+        switch layout {
+        case .tiles: .body.weight(.semibold)
+        case .stacked: .title3.weight(.light)
+        case .inline: .callout
+        }
+    }
+
+    private var rateFont: Font {
+        switch layout {
+        case .tiles: .body.monospacedDigit().weight(.bold)
+        case .stacked: .title3.monospacedDigit().weight(.light)
+        case .inline: .callout.monospacedDigit().weight(.medium)
+        }
+    }
+
     private func upNextTile(_ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             tile {
                 Image(systemName: "list.bullet")
-                    .font(.body.weight(.semibold))
+                    .font(iconFont)
                     .foregroundStyle(palette.primary)
             } caption: {
                 Text("podcast_player_up_next_short")
@@ -362,8 +404,9 @@ struct SpokenWordActionTiles: View {
         } label: {
             tile {
                 Text(verbatim: SpokenWordPlaybackRatePolicy.label(for: player.currentSpokenWordRate))
-                    .font(.body.monospacedDigit().weight(.bold))
-                    .foregroundStyle(palette.accent)
+                    .font(rateFont)
+                    // 方块里语速用强调色;不垫底的两套设计里它和旁边的图标同色。
+                    .foregroundStyle(layout == .tiles ? palette.accent : palette.primary)
             } caption: {
                 Text("spoken_word_speed_short")
             }
@@ -378,7 +421,7 @@ struct SpokenWordActionTiles: View {
         Button(action: onSleep) {
             tile {
                 Image(systemName: player.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz")
-                    .font(.body.weight(.semibold))
+                    .font(iconFont)
                     .foregroundStyle(player.isSleepTimerActive ? palette.accent : palette.primary)
             } caption: {
                 if let endDate = player.sleepTimerEndDate {
@@ -401,7 +444,7 @@ struct SpokenWordActionTiles: View {
         } label: {
             tile {
                 Image(systemName: "bookmark")
-                    .font(.body.weight(.semibold))
+                    .font(iconFont)
                     .foregroundStyle(palette.primary)
                     .symbolEffect(.bounce, value: bookmarkFeedbackToken)
             } caption: {
@@ -420,7 +463,7 @@ struct SpokenWordActionTiles: View {
         Button(action: onContents) {
             tile {
                 Image(systemName: isPodcast ? "text.alignleft" : "list.bullet")
-                    .font(.body.weight(.semibold))
+                    .font(iconFont)
                     .foregroundStyle(palette.primary)
             } caption: {
                 Text(isPodcast ? "podcast_player_notes_short" : "spoken_word_contents_title")
@@ -430,22 +473,51 @@ struct SpokenWordActionTiles: View {
         .accessibilityLabel(Text(isPodcast ? "podcast_show_notes" : "spoken_word_contents_title"))
     }
 
+    @ViewBuilder
     private func tile<Icon: View, Caption: View>(
         @ViewBuilder icon: () -> Icon,
         @ViewBuilder caption: () -> Caption
     ) -> some View {
-        VStack(spacing: 3) {
-            icon()
-            caption()
-                .font(.caption2)
-                .foregroundStyle(palette.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+        switch layout {
+        case .tiles:
+            VStack(spacing: 3) {
+                icon()
+                caption()
+                    .font(.caption2)
+                    .foregroundStyle(palette.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: tileHeight)
+            .background(palette.tileFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        case .stacked:
+            VStack(spacing: 6) {
+                icon()
+                    .frame(height: 24)
+                caption()
+                    .font(.caption)
+                    .foregroundStyle(palette.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: tileHeight)
+            .contentShape(Rectangle())
+        case .inline:
+            HStack(spacing: 6) {
+                icon()
+                caption()
+                    .font(.caption)
+                    .foregroundStyle(palette.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: tileHeight)
+            .contentShape(Rectangle())
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: tileHeight)
-        .background(palette.tileFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
