@@ -27,14 +27,39 @@ final class PlayMediaIntentHandler: NSObject,
                 intent: intent
             )
 
+            // 明说「播放音乐」而正在放的是书、播客或电台:不接着放它们,回到离开
+            // 音乐时的那个队列;没有记下的队列就照常随机放整个曲库。
+            let asksForMusicOverOtherListening = intent.mediaSearch?.mediaType == .music
+                && identifiers.isEmpty
+                && !query.hasSearchTerm
+                && player.currentListeningSpace.map { $0 != .music } == true
+            if asksForMusicOverOtherListening,
+               intent.playShuffled != true,
+               player.rememberedMusicSessionPlayableCount > 0 {
+                Self.applyPlaybackOptions(from: intent, to: player, appliesSpeed: true)
+                Task { @MainActor in _ = await player.resumeMusicSession() }
+                Self.respond(
+                    .success,
+                    completion: completion,
+                    startedAt: startedAt,
+                    detail: "music-session"
+                )
+                return
+            }
+
             // 只有没说要什么的「播放」才是接着放;「播放电台」「播放播客」即使 Siri
             // 带着 resumePlayback,也不能把正在听的有声书接着放下去。
             if intent.resumePlayback == true,
                query.kind == .music,
+               !asksForMusicOverOtherListening,
                identifiers.isEmpty,
                !query.hasSearchTerm,
                player.currentSong != nil {
-                Self.applyPlaybackOptions(from: intent, to: player)
+                Self.applyPlaybackOptions(
+                    from: intent,
+                    to: player,
+                    appliesSpeed: player.currentListeningSpace == .music
+                )
                 player.resume()
                 Self.respond(
                     .success,
@@ -72,7 +97,9 @@ final class PlayMediaIntentHandler: NSObject,
                 return
             }
 
-            Self.applyPlaybackOptions(from: intent, to: player)
+            // A book keeps its own speed (set below); a station or an episode
+            // plays at theirs. Only songs take the music speed.
+            Self.applyPlaybackOptions(from: intent, to: player, appliesSpeed: target.isSongs)
 
             switch target {
             case .songs(var queue, let shouldShuffle):
@@ -170,8 +197,11 @@ final class PlayMediaIntentHandler: NSObject,
                     )
                 }
 
-            case .book(let book):
-                let started = AppServices.shared.startSpokenWordBookForIntent(book)
+            case .book(let book, let itemID):
+                if let speed = intent.playbackSpeed, speed.isFinite, speed > 0 {
+                    player.setSpokenWordRate(Float(speed), forBookID: book.id)
+                }
+                let started = AppServices.shared.startSpokenWordBookForIntent(book, from: itemID)
                 Self.respond(
                     started ? .success : .failure,
                     completion: completion,
@@ -325,10 +355,13 @@ final class PlayMediaIntentHandler: NSObject,
                         completion: completion
                     )
                 } else {
-                    // Station names are registered with Siri as show titles too.
+                    // Station names are registered with Siri as show titles
+                    // too; but a podcast request lands on a station only by
+                    // its name, never a guess.
                     Self.resolveRadioItems(
                         query: query.mediaName,
                         identifiers: identifiers,
+                        strongMatchOnly: true,
                         completion: completion
                     )
                 }
@@ -368,20 +401,40 @@ final class PlayMediaIntentHandler: NSObject,
             let songResult: SiriMediaSearchResolution?
             if identifiers.isEmpty, query.mediaName != nil {
                 // "用 Primuse 播放 <名字>" arrives without a media type; the
-                // name may belong to a saved station rather than a song.
+                // name may belong to a saved station or a book rather than a
+                // song. The music answers first.
+                let bookItems = SiriListeningCatalog.namedItems(books: AppServices.shared.siriSpokenWordBooks)
                 switch SiriUntypedRequestResolver.resolve(
                     query: query,
-                    songs: library.visibleSongs,
-                    radioItems: Self.radioItems()
+                    songs: library.musicSongs,
+                    radioItems: Self.radioItems(),
+                    bookItems: bookItems,
+                    spokenWordSongs: library.spokenWordSongs
                 ) {
                 case .radio(let station)?:
                     Self.completeRadioResolution(station, completion: completion)
                     return
-                case .songs(let songs)?:
+                case .book?:
+                    Self.resolveNamedItems(
+                        query: query.mediaName,
+                        identifiers: [],
+                        namespace: "audiobook",
+                        type: .audioBook,
+                        items: bookItems,
+                        completion: completion
+                    )
+                    return
+                case .songs(let songs)?, .spokenWordItems(let songs)?:
                     songResult = songs
                 case nil:
                     songResult = nil
                 }
+            } else if identifierGroups.isEmpty {
+                songResult = SiriMediaSearchResolver.resolvePreferringMusic(
+                    query: query,
+                    musicSongs: library.musicSongs,
+                    spokenWordSongs: library.spokenWordSongs
+                )
             } else {
                 songResult = Self.resolveSongs(
                     query: query,
@@ -504,10 +557,18 @@ final class PlayMediaIntentHandler: NSObject,
             completion(INPlayMediaPlaybackSpeedResolutionResult.notRequired())
             return
         }
+        let kind = Self.query(for: intent).kind
+        guard kind != .podcast, kind != .radioStation else {
+            // An episode or a station plays at its own speed; the music
+            // speed is left alone.
+            completion(INPlayMediaPlaybackSpeedResolutionResult.notRequired())
+            return
+        }
         let completion = UncheckedBox(completion)
         Task { @MainActor in
-            if AppServices.shared.playbackSettingsStore.outputMode != .effects {
-                // High Fidelity Direct plays at the source's own speed.
+            if kind != .audiobook, AppServices.shared.playbackSettingsStore.outputMode != .effects {
+                // High Fidelity Direct plays at the source's own speed; a
+                // book always plays through the effects chain.
                 completion.value(INPlayMediaPlaybackSpeedResolutionResult.unsupported())
             } else if speed < 0.5 {
                 completion.value(INPlayMediaPlaybackSpeedResolutionResult.unsupported(forReason: .belowMinimum))
@@ -718,14 +779,20 @@ final class PlayMediaIntentHandler: NSObject,
                    let target = resolveRadio(query: query.mediaName, identifiers: group) {
                     return target
                 }
+                // A book offered for a name Siri did not type.
+                if namespace == "audiobook",
+                   let target = resolveBook(query: nil, identifiers: group) {
+                    return target
+                }
                 if let resolution = SiriMediaSearchResolver.resolve(
                     query: mediaQuery,
                     resolvedItemIDs: group,
                     songs: library.visibleSongs
                 ) {
-                    return .songs(
+                    return songsTarget(
                         requestedSongs(resolution.queue, query: query, identifiers: group),
-                        shouldShuffle: intent.playShuffled == true
+                        shouldShuffle: intent.playShuffled == true,
+                        namesItem: SiriSpokenWordRouting.namesItem(query, identifiers: group)
                     )
                 }
             }
@@ -739,17 +806,25 @@ final class PlayMediaIntentHandler: NSObject,
                 // registers with Siri as shows are its saved stations.
                 return resolveRadio(query: query.mediaName, identifiers: [])
             case .song, .music:
-                // A name with no media type may be a saved station's.
+                // A name with no media type may be a saved station's or a
+                // book's; the music answers first.
+                let books = AppServices.shared.siriSpokenWordBooks
                 switch SiriUntypedRequestResolver.resolve(
                     query: query,
-                    songs: library.visibleSongs,
-                    radioItems: radioItems()
+                    songs: library.musicSongs,
+                    radioItems: radioItems(),
+                    bookItems: SiriListeningCatalog.namedItems(books: books),
+                    spokenWordSongs: library.spokenWordSongs
                 ) {
                 case .radio(let station)?:
                     return SiriRadioStationCatalog.preferredStation(for: station, in: radioStations())
                         .map(IntentTarget.radio)
+                case .book(let book)?:
+                    return books.first { $0.id == book.selected.id }.map { .book($0, startingAt: nil) }
                 case .songs(let resolution)?:
                     return .songs(resolution.queue, shouldShuffle: intent.playShuffled == true)
+                case .spokenWordItems(let resolution)?:
+                    return songsTarget(resolution.queue, shouldShuffle: false, namesItem: true)
                 case nil:
                     return nil
                 }
@@ -760,20 +835,44 @@ final class PlayMediaIntentHandler: NSObject,
         }
 
         // "Play music" names nothing and shuffles the library: that is the
-        // songs, not the audiobooks. A named request still finds a book.
-        let playsWholeLibrary = identifierGroups.isEmpty && !query.hasSearchTerm
-        guard let resolution = resolveSongs(
-            query: query,
-            identifierGroups: identifierGroups,
-            songs: playsWholeLibrary ? library.musicSongs : library.visibleSongs
-        ) else {
-            return nil
+        // songs, not the audiobooks. A named request looks in the music
+        // first and reaches a book only when no music carries the name; the
+        // book then plays as a book, not as a list of its chapters.
+        let resolution: SiriMediaSearchResolution?
+        if identifierGroups.isEmpty {
+            resolution = SiriMediaSearchResolver.resolvePreferringMusic(
+                query: query,
+                musicSongs: library.musicSongs,
+                spokenWordSongs: library.spokenWordSongs
+            )
+        } else {
+            resolution = resolveSongs(
+                query: query,
+                identifierGroups: identifierGroups,
+                songs: library.visibleSongs
+            )
         }
-        return .songs(
+        guard let resolution else { return nil }
+        return songsTarget(
             requestedSongs(resolution.queue, query: query, identifiers: identifiers),
             shouldShuffle: intent.playShuffled == true
-                || (identifiers.isEmpty && !query.hasSearchTerm)
+                || (identifiers.isEmpty && !query.hasSearchTerm),
+            namesItem: SiriSpokenWordRouting.namesItem(query, identifiers: identifiers)
         )
+    }
+
+    /// Songs a lookup found, or — when they are spoken-word items — their
+    /// book, from the named chapter or where it was left.
+    @MainActor
+    private static func songsTarget(
+        _ queue: [Song],
+        shouldShuffle: Bool,
+        namesItem: Bool
+    ) -> IntentTarget {
+        if let start = AppServices.shared.siriSpokenWordStart(forFound: queue, namesItem: namesItem) {
+            return .book(start.book, startingAt: start.itemID)
+        }
+        return .songs(queue, shouldShuffle: shouldShuffle)
     }
 
     /// A named song request is answered with the best song plus alternatives;
@@ -856,7 +955,7 @@ final class PlayMediaIntentHandler: NSObject,
     private static func resolveBook(query: String?, identifiers: [String]) -> IntentTarget? {
         let books = AppServices.shared.siriSpokenWordBooks
         if identifiers.isEmpty, query == nil {
-            return SiriListeningCatalog.bookToContinue(books).map(IntentTarget.book)
+            return SiriListeningCatalog.bookToContinue(books).map { .book($0, startingAt: nil) }
         }
         guard let resolved = SiriNamedMediaResolver.resolve(
             query: query,
@@ -866,7 +965,7 @@ final class PlayMediaIntentHandler: NSObject,
         ) else {
             return nil
         }
-        return books.first { $0.id == resolved.selected.id }.map(IntentTarget.book)
+        return books.first { $0.id == resolved.selected.id }.map { .book($0, startingAt: nil) }
     }
 
     /// No name: the episode in progress. A show's name: the episode its page
@@ -886,6 +985,12 @@ final class PlayMediaIntentHandler: NSObject,
            ) {
             return services.podcastPlanForIntent(showID: resolved.selected.id).map(IntentTarget.podcast)
         }
+        // A station only by its name: a podcast request never plays a guess.
+        if identifiers.isEmpty,
+           SiriNamedMediaResolver.resolve(query: query, namespace: "radio", items: radioItems())?
+               .isStrongMatch != true {
+            return nil
+        }
         return resolveRadio(query: query, identifiers: identifiers)
     }
 
@@ -900,7 +1005,7 @@ final class PlayMediaIntentHandler: NSObject,
             seed = resolveSongs(
                 query: SiriMediaSearchQuery(kind: .song),
                 identifierGroups: identifierGroups,
-                songs: services.musicLibrary.visibleSongs
+                songs: services.musicLibrary.musicSongs
             )?.queue.first
         } else if query.hasSearchTerm {
             seed = SiriMediaSearchResolver.resolve(
@@ -910,10 +1015,12 @@ final class PlayMediaIntentHandler: NSObject,
                     artistName: query.artistName,
                     albumName: query.albumName
                 ),
-                songs: services.musicLibrary.visibleSongs
+                songs: services.musicLibrary.musicSongs
             )?.queue.first
         } else {
-            seed = services.playerService.currentSong
+            // While a book, an episode or a station plays: the song the music
+            // was left on.
+            seed = services.siriMusicSeedSong
         }
         guard let seed else { return nil }
 
@@ -1089,6 +1196,7 @@ final class PlayMediaIntentHandler: NSObject,
         query: String?,
         identifiers: [String],
         shuffled: Bool = false,
+        strongMatchOnly: Bool = false,
         completion: UncheckedBox<([INPlayMediaMediaItemResolutionResult]) -> Void>
     ) {
         let catalog = radioItems()
@@ -1114,7 +1222,7 @@ final class PlayMediaIntentHandler: NSObject,
             selectedItemIDs: identifiers,
             namespace: "radio",
             items: catalog
-        ) else {
+        ), !strongMatchOnly || result.isStrongMatch else {
             completion.value([
                 INPlayMediaMediaItemResolutionResult.unsupported(forReason: .serviceUnavailable),
             ])
@@ -1231,7 +1339,8 @@ final class PlayMediaIntentHandler: NSObject,
     @MainActor
     private static func applyPlaybackOptions(
         from intent: INPlayMediaIntent,
-        to player: AudioPlayerService
+        to player: AudioPlayerService,
+        appliesSpeed: Bool
     ) {
         switch intent.playbackRepeatMode {
         case .none:
@@ -1246,7 +1355,7 @@ final class PlayMediaIntentHandler: NSObject,
             break
         }
 
-        if let speed = intent.playbackSpeed, speed.isFinite, speed > 0,
+        if appliesSpeed, let speed = intent.playbackSpeed, speed.isFinite, speed > 0,
            AppServices.shared.playbackSettingsStore.outputMode == .effects {
             AppServices.shared.playbackSettingsStore.playbackRate = Float(min(max(speed, 0.5), 2.0))
             player.applyPlaybackRate()
@@ -1295,8 +1404,14 @@ final class PlayMediaIntentHandler: NSObject,
 private enum IntentTarget {
     case songs([Song], shouldShuffle: Bool)
     case radio(RadioStation)
-    case book(SpokenWordBook)
+    /// From `itemID`, or where the book was left when nil.
+    case book(SpokenWordBook, startingAt: String?)
     case podcast(PodcastIntentPlan)
+
+    var isSongs: Bool {
+        if case .songs = self { return true }
+        return false
+    }
 }
 
 /// Intents completion handlers aren't `@Sendable`; this box crosses into the

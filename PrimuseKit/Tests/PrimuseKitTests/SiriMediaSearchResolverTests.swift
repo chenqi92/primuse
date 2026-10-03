@@ -310,6 +310,113 @@ struct SiriMediaSearchResolverTests {
         #expect(resolution.queue.map(\.id) == ["song"])
     }
 
+    @Test("A book named without a media type continues the book, not one of its chapters")
+    func untypedRequestFindsBookBeforeItsChapters() throws {
+        let music = [song(id: "music", title: "Dreams")]
+        let chapters = [
+            song(id: "c1", title: "三体 第01集", album: "三体"),
+            song(id: "c2", title: "三体 第02集", album: "三体"),
+        ]
+        let books = [SiriNamedMediaItem(id: "book", name: "三体")]
+
+        let target = try #require(SiriUntypedRequestResolver.resolve(
+            query: SiriMediaSearchQuery(kind: .music, mediaName: "三体"),
+            songs: music,
+            radioItems: [],
+            bookItems: books,
+            spokenWordSongs: chapters
+        ))
+        guard case .book(let book) = target else {
+            Issue.record("expected the book, got \(target)")
+            return
+        }
+        #expect(book.selected.id == "book")
+    }
+
+    @Test("Music answers a name first; a chapter title reaches the spoken-word items")
+    func untypedRequestPrefersMusicOverSpokenWordItems() throws {
+        let music = [song(id: "music", title: "报菜名 (Live)")]
+        let pieces = [song(id: "piece", title: "报菜名", album: "相声集")]
+
+        let musicTarget = try #require(SiriUntypedRequestResolver.resolve(
+            query: SiriMediaSearchQuery(kind: .music, mediaName: "报菜名"),
+            songs: music,
+            radioItems: [],
+            spokenWordSongs: pieces
+        ))
+        guard case .songs(let songs) = musicTarget else {
+            Issue.record("expected music, got \(musicTarget)")
+            return
+        }
+        #expect(songs.queue.first?.id == "music")
+
+        let spokenTarget = try #require(SiriUntypedRequestResolver.resolve(
+            query: SiriMediaSearchQuery(kind: .music, mediaName: "报菜名"),
+            songs: [],
+            radioItems: [],
+            spokenWordSongs: pieces
+        ))
+        guard case .spokenWordItems(let items) = spokenTarget else {
+            Issue.record("expected the spoken-word item, got \(spokenTarget)")
+            return
+        }
+        #expect(items.queue.first?.id == "piece")
+    }
+
+    @Test("An exact book title beats a station whose name only starts with it")
+    func untypedRequestSettlesStationAndBookByFit() throws {
+        let stations = [SiriNamedMediaItem(id: "station", name: "三体广播剧")]
+        let books = [SiriNamedMediaItem(id: "book", name: "三体")]
+
+        let target = try #require(SiriUntypedRequestResolver.resolve(
+            query: SiriMediaSearchQuery(kind: .music, mediaName: "三体"),
+            songs: [],
+            radioItems: stations,
+            bookItems: books
+        ))
+        guard case .book = target else {
+            Issue.record("expected the book, got \(target)")
+            return
+        }
+
+        let station = try #require(SiriUntypedRequestResolver.resolve(
+            query: SiriMediaSearchQuery(kind: .music, mediaName: "三体广播剧"),
+            songs: [],
+            radioItems: stations,
+            bookItems: books
+        ))
+        guard case .radio = station else {
+            Issue.record("expected the station, got \(station)")
+            return
+        }
+    }
+
+    @Test("Named lookups search the music first and never fall back for 'play music'")
+    func resolvePreferringMusic() throws {
+        let music = [song(id: "music", title: "Sunrise", artist: "Band")]
+        let spoken = [song(id: "chapter", title: "第一章", artist: "Narrator", album: "Book")]
+
+        let named = try #require(SiriMediaSearchResolver.resolvePreferringMusic(
+            query: SiriMediaSearchQuery(kind: .artist, artistName: "Narrator"),
+            musicSongs: music,
+            spokenWordSongs: spoken
+        ))
+        #expect(named.queue.map(\.id) == ["chapter"])
+
+        let preferred = try #require(SiriMediaSearchResolver.resolvePreferringMusic(
+            query: SiriMediaSearchQuery(kind: .song, mediaName: "Sunrise"),
+            musicSongs: music,
+            spokenWordSongs: spoken + [song(id: "spoken-sunrise", title: "Sunrise")]
+        ))
+        #expect(preferred.queue.first?.id == "music")
+
+        #expect(SiriMediaSearchResolver.resolvePreferringMusic(
+            query: SiriMediaSearchQuery(kind: .music),
+            musicSongs: [],
+            spokenWordSongs: spoken
+        ) == nil)
+    }
+
     @Test("A station named exactly is not turned into a shorter song title")
     func untypedRequestStationBeatsRelaxedSong() throws {
         // The relaxed tier accepts a request that merely starts with a song

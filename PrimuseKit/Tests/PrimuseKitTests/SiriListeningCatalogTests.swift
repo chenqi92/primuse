@@ -81,6 +81,52 @@ struct SiriListeningCatalogTests {
         ) == nil)
     }
 
+    @Test("Spoken-word items found by a lookup play as part of their book")
+    func spokenWordRouting() {
+        let bookOf = ["c1": "older", "c2": "older", "c9": "recent", "song": nil] as [String: String?]
+        let lookup: (String) -> String? = { bookOf[$0] ?? nil }
+        let books = [book("older", listened: now.addingTimeInterval(-86_400)), book("recent", listened: now)]
+
+        // A chapter named by its title starts there.
+        #expect(SiriSpokenWordRouting.start(
+            forFoundSongIDs: ["c2", "c1"],
+            bookID: lookup,
+            books: books,
+            namesItem: true
+        ) == .init(bookID: "older", itemID: "c2"))
+        // An album, artist or genre continues the book listened to last.
+        #expect(SiriSpokenWordRouting.start(
+            forFoundSongIDs: ["c1", "c2", "c9"],
+            bookID: lookup,
+            books: books,
+            namesItem: false
+        ) == .init(bookID: "recent", itemID: nil))
+        // Nothing started among them: the first one found, from where it was left.
+        #expect(SiriSpokenWordRouting.start(
+            forFoundSongIDs: ["c1"],
+            bookID: lookup,
+            books: [],
+            namesItem: false
+        ) == .init(bookID: "older", itemID: nil))
+        // Music stays music.
+        #expect(SiriSpokenWordRouting.start(
+            forFoundSongIDs: ["song", "c1"],
+            bookID: lookup,
+            books: books,
+            namesItem: true
+        ) == nil)
+    }
+
+    @Test("Titles name an item; albums, artists and genres name a container")
+    func namesItem() {
+        #expect(SiriSpokenWordRouting.namesItem(SiriMediaSearchQuery(kind: .song, mediaName: "a"), identifiers: []))
+        #expect(SiriSpokenWordRouting.namesItem(SiriMediaSearchQuery(kind: .music, mediaName: "a"), identifiers: []))
+        #expect(!SiriSpokenWordRouting.namesItem(SiriMediaSearchQuery(kind: .album, mediaName: "a"), identifiers: []))
+        #expect(!SiriSpokenWordRouting.namesItem(SiriMediaSearchQuery(kind: .music, artistName: "a"), identifiers: []))
+        #expect(SiriSpokenWordRouting.namesItem(SiriMediaSearchQuery(kind: .music), identifiers: ["song:a"]))
+        #expect(!SiriSpokenWordRouting.namesItem(SiriMediaSearchQuery(kind: .music), identifiers: ["album:a"]))
+    }
+
     private func book(_ id: String, listened: Date?) -> SpokenWordBook {
         SpokenWordBook(id: id, title: id, author: nil, items: [], resumeItemID: nil, lastListenedAt: listened)
     }

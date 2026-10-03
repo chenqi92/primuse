@@ -290,17 +290,56 @@ extension AppServices {
 
     /// Starts a book where it was left and returns at once: the first
     /// chapter of a remote book can take longer than Siri waits.
-    func startSpokenWordBookForIntent(_ book: SpokenWordBook) -> Bool {
-        guard let start = spokenWordBookStart(bookID: book.id) else { return false }
+    func startSpokenWordBookForIntent(_ book: SpokenWordBook, from itemID: String? = nil) -> Bool {
+        guard let start = spokenWordBookStart(bookID: book.id, from: itemID) else { return false }
         Task { @MainActor [playerService] in
             await playerService.play(queue: start.songs, startingAt: start.index)
         }
         return true
     }
 
-    /// The book's songs in reading order and the one to start from, with the
-    /// resume position prepared.
-    func spokenWordBookStart(bookID: String) -> (songs: [Song], index: Int)? {
+    /// What a music lookup found, as Siri plays it: spoken-word items as part
+    /// of their book (`SiriSpokenWordRouting`); nil for songs, which queue as
+    /// they are.
+    func siriSpokenWordStart(forFound songs: [Song], namesItem: Bool) -> (book: SpokenWordBook, itemID: String?)? {
+        let bookIDs = musicLibrary.spokenWordBookIDs
+        guard let first = songs.first, bookIDs[first.id] != nil else { return nil }
+        let books = siriSpokenWordBooks
+        guard let start = SiriSpokenWordRouting.start(
+            forFoundSongIDs: songs.map(\.id),
+            bookID: { bookIDs[$0] },
+            books: books,
+            namesItem: namesItem
+        ), let book = books.first(where: { $0.id == start.bookID }) else {
+            return nil
+        }
+        plog("🎙️ Siri spoken-word lookup routed to its book namesItem=\(namesItem) fromItem=\(start.itemID != nil)")
+        return (book, start.itemID)
+    }
+
+    /// "继续播放《三体》。" — what Siri says when a lookup landed in a book.
+    static func intentBookPlayingMessage(_ book: SpokenWordBook) -> String {
+        String(format: String(localized: "intent_book_playing_format"), book.title)
+    }
+
+    /// The song "more like this" starts from: the one playing, or — while a
+    /// book, an episode or a station plays — the song the music was left on.
+    /// Nil rather than a chapter or a station: their "similar songs" are noise.
+    var siriMusicSeedSong: Song? {
+        let player = playerService
+        if let song = player.currentSong, player.currentListeningSpace == .music {
+            return song
+        }
+        guard let snapshot = MusicSessionMemoryStore.shared.memory?.snapshot,
+              snapshot.queueSongIDs.indices.contains(snapshot.currentIndex) else {
+            return nil
+        }
+        return musicLibrary.song(id: snapshot.queueSongIDs[snapshot.currentIndex])
+    }
+
+    /// The book's songs in reading order and the one to start from (`itemID`,
+    /// or where the book was left), with the resume position prepared.
+    func spokenWordBookStart(bookID: String, from itemID: String? = nil) -> (songs: [Song], index: Int)? {
         let library = musicLibrary
         let songs = library.spokenWordSongs.filter { library.spokenWordBookIDs[$0.id] == bookID }
         guard !songs.isEmpty else { return nil }
@@ -311,7 +350,7 @@ extension AppServices {
         guard let book = books.first(where: { $0.id == bookID }) ?? books.first else { return nil }
         let songsByID = Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let ordered = book.items.compactMap { songsByID[$0.id] }
-        guard let index = SpokenWordBookSupport.prepareStart(of: book, songs: ordered, from: nil) else {
+        guard let index = SpokenWordBookSupport.prepareStart(of: book, songs: ordered, from: itemID) else {
             return nil
         }
         return (ordered, index)

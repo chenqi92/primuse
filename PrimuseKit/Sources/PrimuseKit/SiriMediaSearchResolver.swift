@@ -192,6 +192,9 @@ public struct SiriNamedMediaResolution: Sendable {
     /// starts with what was asked for (not merely contains it or is a typo
     /// away).
     public let isStrongMatch: Bool
+    /// How well the best candidate's name fits, comparable across catalogs:
+    /// a station and a book that both match are settled by it.
+    public let matchScore: Int
 }
 
 /// Shared deterministic matching for named containers such as playlists and
@@ -240,7 +243,8 @@ public enum SiriNamedMediaResolver {
                 candidates: [selected],
                 needsDisambiguation: false,
                 requiresConfirmation: false,
-                isStrongMatch: true
+                isStrongMatch: true,
+                matchScore: 1_000
             )
         }
 
@@ -276,7 +280,8 @@ public enum SiriNamedMediaResolver {
             needsDisambiguation: tied.count > 1,
             requiresConfirmation: tied.count == 1
                 && (first.quality == .contained || first.quality == .fuzzy),
-            isStrongMatch: first.quality >= .prefix
+            isStrongMatch: first.quality >= .prefix,
+            matchScore: first.score
         )
     }
 
@@ -451,6 +456,23 @@ public enum SiriMediaSearchResolver {
         case .playlist, .radioStation, .algorithmicRadioStation, .audiobook, .podcast, .unsupported:
             return nil
         }
+    }
+
+    /// A named lookup where the music has first pick: spoken-word items
+    /// (audiobook chapters, a 相声 piece) answer only a name no song, album,
+    /// artist or genre of the music carries. A request naming nothing never
+    /// reaches them — "play music" is the music.
+    public static func resolvePreferringMusic(
+        query: SiriMediaSearchQuery,
+        musicSongs: [Song],
+        spokenWordSongs: [Song],
+        songMatching: SiriSongMatchTiers = .strictThenRelaxed
+    ) -> SiriMediaSearchResolution? {
+        if let music = resolve(query: query, songs: musicSongs, songMatching: songMatching) {
+            return music
+        }
+        guard query.hasSearchTerm else { return nil }
+        return resolve(query: query, songs: spokenWordSongs, songMatching: songMatching)
     }
 
     private static func identifierResolution(
@@ -861,15 +883,36 @@ public enum SiriUntypedRequestResolver {
     public enum Target: Sendable {
         case songs(SiriMediaSearchResolution)
         case radio(SiriNamedMediaResolution)
+        /// A book's title: the book, continued where it was left.
+        case book(SiriNamedMediaResolution)
+        /// A name only spoken-word items carry (a chapter, a 相声 piece):
+        /// those items, best first, to be played as part of their book.
+        case spokenWordItems(SiriMediaSearchResolution)
     }
 
+    /// "用 Primuse 播放 <名字>" with no media type. The music answers first,
+    /// a saved station or a book by its title next, and the spoken-word
+    /// items last: a book's chapters carry its title too, so matching them
+    /// as songs played one chapter instead of the book.
+    ///
+    /// Order: song title (exact, prefix, contained) → a station or book
+    /// whose name equals or starts with it (the better fit; a station on a
+    /// tie) → a spoken-word item's title → a song a typo away → the closest
+    /// station, then book → a spoken-word item a typo away.
     public static func resolve(
         query: SiriMediaSearchQuery,
         songs: [Song],
-        radioItems: [SiriNamedMediaItem]
+        radioItems: [SiriNamedMediaItem],
+        bookItems: [SiriNamedMediaItem] = [],
+        spokenWordSongs: [Song] = []
     ) -> Target? {
         guard let name = query.mediaName else {
-            return SiriMediaSearchResolver.resolve(query: query, songs: songs).map(Target.songs)
+            if let music = SiriMediaSearchResolver.resolve(query: query, songs: songs) {
+                return .songs(music)
+            }
+            guard query.hasSearchTerm else { return nil }
+            return SiriMediaSearchResolver.resolve(query: query, songs: spokenWordSongs)
+                .map(Target.spokenWordItems)
         }
         if let strict = SiriMediaSearchResolver.resolve(
             query: query,
@@ -883,8 +926,27 @@ public enum SiriUntypedRequestResolver {
             namespace: "radio",
             items: radioItems
         )
-        if let station, station.isStrongMatch {
+        let book = SiriNamedMediaResolver.resolve(
+            query: name,
+            namespace: "audiobook",
+            items: bookItems
+        )
+        switch (station, book) {
+        case let (station?, book?) where station.isStrongMatch && book.isStrongMatch:
+            return book.matchScore > station.matchScore ? .book(book) : .radio(station)
+        case let (station?, _) where station.isStrongMatch:
             return .radio(station)
+        case let (_, book?) where book.isStrongMatch:
+            return .book(book)
+        default:
+            break
+        }
+        if let item = SiriMediaSearchResolver.resolve(
+            query: query,
+            songs: spokenWordSongs,
+            songMatching: .strictOnly
+        ) {
+            return .spokenWordItems(item)
         }
         if let relaxed = SiriMediaSearchResolver.resolve(
             query: query,
@@ -893,7 +955,13 @@ public enum SiriUntypedRequestResolver {
         ) {
             return .songs(relaxed)
         }
-        return station.map(Target.radio)
+        if let station { return .radio(station) }
+        if let book { return .book(book) }
+        return SiriMediaSearchResolver.resolve(
+            query: query,
+            songs: spokenWordSongs,
+            songMatching: .relaxedOnly
+        ).map(Target.spokenWordItems)
     }
 }
 

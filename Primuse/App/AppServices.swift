@@ -2468,15 +2468,21 @@ final class AppServices {
                 mediaName: title,
                 artistName: artist
             )
-            guard let match = SiriMediaSearchResolver.resolve(
+            // 歌曲先挑;只有书里的章节叫这个名字时,才去书里从那一章接着听。
+            guard let match = SiriMediaSearchResolver.resolvePreferringMusic(
                 query: query,
-                songs: songs
+                musicSongs: library.musicSongs,
+                spokenWordSongs: library.spokenWordSongs
             ), let song = match.queue.first else {
                 guard !songs.isEmpty else {
                     // 冷启动时被 Siri 唤起、资料库还没装完,报"库里没有"是假话。
                     return libraryIsReady ? .libraryEmpty : .libraryNotReady
                 }
                 return .notFound
+            }
+            if let book = siriSpokenWordStart(forFound: [song], namesItem: true) {
+                guard startSpokenWordBookForIntent(book.book, from: book.itemID) else { return .notFound }
+                return .playing(description: AppServices.intentBookPlayingMessage(book.book))
             }
             // A named selection is an exact request. Keeping a one-item queue
             // prevents the player's failure auto-advance from silently playing
@@ -2497,14 +2503,21 @@ final class AppServices {
 
         bridge.playAlbum = { [self] title, artist in
             await awaitLibraryForIntent()
-            guard let result = SiriMediaSearchResolver.resolve(
+            guard let result = SiriMediaSearchResolver.resolvePreferringMusic(
                 query: SiriMediaSearchQuery(
                     kind: .album,
                     mediaName: title,
                     artistName: artist
                 ),
-                songs: library.visibleSongs
-            ), let first = startIntentQueue(result.queue) else {
+                musicSongs: library.musicSongs,
+                spokenWordSongs: library.spokenWordSongs
+            ) else {
+                return nil
+            }
+            if let book = siriSpokenWordStart(forFound: result.queue, namesItem: false) {
+                return startSpokenWordBookForIntent(book.book) ? AppServices.intentBookPlayingMessage(book.book) : nil
+            }
+            guard let first = startIntentQueue(result.queue) else {
                 return nil
             }
             return String(
@@ -2515,10 +2528,17 @@ final class AppServices {
 
         bridge.playArtist = { [self] name in
             await awaitLibraryForIntent()
-            guard let result = SiriMediaSearchResolver.resolve(
+            guard let result = SiriMediaSearchResolver.resolvePreferringMusic(
                 query: SiriMediaSearchQuery(kind: .artist, mediaName: name),
-                songs: library.visibleSongs
-            ), let first = startIntentQueue(result.queue) else {
+                musicSongs: library.musicSongs,
+                spokenWordSongs: library.spokenWordSongs
+            ) else {
+                return nil
+            }
+            if let book = siriSpokenWordStart(forFound: result.queue, namesItem: false) {
+                return startSpokenWordBookForIntent(book.book) ? AppServices.intentBookPlayingMessage(book.book) : nil
+            }
+            guard let first = startIntentQueue(result.queue) else {
                 return nil
             }
             return String(
@@ -2529,10 +2549,17 @@ final class AppServices {
 
         bridge.playGenre = { [self] name in
             await awaitLibraryForIntent()
-            guard let result = SiriMediaSearchResolver.resolve(
+            guard let result = SiriMediaSearchResolver.resolvePreferringMusic(
                 query: SiriMediaSearchQuery(kind: .genre, genreNames: [name]),
-                songs: library.visibleSongs
-            ), startIntentQueue(result.queue) != nil else {
+                musicSongs: library.musicSongs,
+                spokenWordSongs: library.spokenWordSongs
+            ) else {
+                return nil
+            }
+            if let book = siriSpokenWordStart(forFound: result.queue, namesItem: false) {
+                return startSpokenWordBookForIntent(book.book) ? AppServices.intentBookPlayingMessage(book.book) : nil
+            }
+            guard startIntentQueue(result.queue) != nil else {
                 return nil
             }
             return String(
@@ -2626,8 +2653,9 @@ final class AppServices {
 
         bridge.playSongRadio = { [self] in
             // Stage 2b: 种子取自播放器。没有正在播的歌就直接返回, 不必为一个
-            // 根本不会读的资料库占掉 Intents 的预算。
-            guard let seed = player.currentSong, !player.isLiveRadio else { return nil }
+            // 根本不会读的资料库占掉 Intents 的预算。听书、播客、电台时以离开
+            // 音乐前的那首为种子,不拿章节或电台去找「相似歌曲」。
+            guard let seed = siriMusicSeedSong else { return nil }
             await awaitLibraryForIntent()
             let queue = MusicDiscoveryEngine.songRadio(
                 from: seed,

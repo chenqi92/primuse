@@ -70,8 +70,14 @@ final class TVPlayMediaIntentHandler: NSObject,
             // library over a station or a book. Only a request naming no kind
             // of media: "播放电台" with Siri's resume flag set must not carry
             // on with the book that was playing.
+            // 明说「播放音乐」而正在放的是书、播客或电台:不接着放它们,随机放曲库里的歌。
+            let asksForMusicOverOtherListening = intent.mediaSearch?.mediaType == .music
+                && identifierGroups.isEmpty
+                && !query.hasSearchTerm
+                && (store.currentItemIsSpokenWord || store.isLiveRadio)
             if intent.resumePlayback == true,
                query.kind == .music,
+               !asksForMusicOverOtherListening,
                identifierGroups.isEmpty,
                !query.hasSearchTerm,
                store.resumeFromSiri() {
@@ -112,10 +118,10 @@ final class TVPlayMediaIntentHandler: NSObject,
                 case .needsApp: code = .failureRequiringAppLaunch
                 case .failed: code = .failure
                 }
-            case .book(let book):
+            case .book(let book, let itemID):
                 code = store.playSpokenWordBook(
                     songIDs: book.items.map(\.id),
-                    startingAt: book.resumeItemID
+                    startingAt: itemID ?? book.resumeItemID
                 ) ? .success : .failure
             case .podcast(let episode, let continuing):
                 store.playPodcast(episode, continuing: continuing)
@@ -237,10 +243,13 @@ final class TVPlayMediaIntentHandler: NSObject,
                         completion: completion
                     )
                 } else {
-                    // Station names are registered with Siri as show titles too.
+                    // Station names are registered with Siri as show titles
+                    // too; but a podcast request lands on a station only by
+                    // its name, never a guess.
                     resolveRadioItems(
                         query: query.mediaName,
                         identifiers: identifiers,
+                        strongMatchOnly: true,
                         completion: completion
                     )
                 }
@@ -277,20 +286,40 @@ final class TVPlayMediaIntentHandler: NSObject,
             let songResult: SiriMediaSearchResolution?
             if identifiers.isEmpty, query.mediaName != nil {
                 // "用 Primuse 播放 <名字>" arrives without a media type; the
-                // name may belong to a saved station rather than a song.
+                // name may belong to a saved station or a book rather than a
+                // song. The music answers first.
+                let bookItems = SiriListeningCatalog.namedItems(books: spokenWordBooks())
                 switch SiriUntypedRequestResolver.resolve(
                     query: query,
-                    songs: store.library.visibleSongs,
-                    radioItems: radioItems()
+                    songs: store.library.musicSongs,
+                    radioItems: radioItems(),
+                    bookItems: bookItems,
+                    spokenWordSongs: store.library.spokenWordSongs
                 ) {
                 case .radio(let station)?:
                     completeRadioResolution(station, completion: completion)
                     return
-                case .songs(let songs)?:
+                case .book?:
+                    resolveNamedItems(
+                        query: query.mediaName,
+                        identifiers: [],
+                        namespace: "audiobook",
+                        type: .audioBook,
+                        items: bookItems,
+                        completion: completion
+                    )
+                    return
+                case .songs(let songs)?, .spokenWordItems(let songs)?:
                     songResult = songs
                 case nil:
                     songResult = nil
                 }
+            } else if identifierGroups.isEmpty {
+                songResult = SiriMediaSearchResolver.resolvePreferringMusic(
+                    query: query,
+                    musicSongs: store.library.musicSongs,
+                    spokenWordSongs: store.library.spokenWordSongs
+                )
             } else {
                 songResult = Self.resolveSongs(
                     query: query,
@@ -586,14 +615,20 @@ final class TVPlayMediaIntentHandler: NSObject,
                    }) {
                     return .radio(station)
                 }
+                // A book offered for a name Siri did not type.
+                if namespace == "audiobook",
+                   let target = resolveBook(query: nil, identifiers: group) {
+                    return target
+                }
                 if let resolution = SiriMediaSearchResolver.resolve(
                     query: mediaQuery,
                     resolvedItemIDs: group,
                     songs: store.library.visibleSongs
                 ) {
-                    return .songs(
+                    return songsTarget(
                         Self.requestedSongs(resolution.queue, query: query, identifiers: group),
-                        shuffled: intent.playShuffled == true
+                        shuffled: intent.playShuffled == true,
+                        namesItem: SiriSpokenWordRouting.namesItem(query, identifiers: group)
                     )
                 }
             }
@@ -608,16 +643,23 @@ final class TVPlayMediaIntentHandler: NSObject,
                 // A name with no media type may be a saved station's. Weak or
                 // tied station matches stay unresolved, as for an explicit
                 // station request; resolution asks about them.
+                let books = spokenWordBooks()
                 switch SiriUntypedRequestResolver.resolve(
                     query: query,
-                    songs: store.library.visibleSongs,
-                    radioItems: radioItems()
+                    songs: store.library.musicSongs,
+                    radioItems: radioItems(),
+                    bookItems: SiriListeningCatalog.namedItems(books: books),
+                    spokenWordSongs: store.library.spokenWordSongs
                 ) {
                 case .radio(let station)?:
                     return SiriRadioStationCatalog.preferredStation(for: station, in: radioStations())
                         .map(TVIntentTarget.radio)
+                case .book(let book)?:
+                    return books.first { $0.id == book.selected.id }.map { .book($0, startingAt: nil) }
                 case .songs(let resolution)?:
                     return .songs(resolution.queue, shuffled: intent.playShuffled == true)
+                case .spokenWordItems(let resolution)?:
+                    return songsTarget(resolution.queue, shuffled: false, namesItem: true)
                 case nil:
                     return nil
                 }
@@ -628,19 +670,51 @@ final class TVPlayMediaIntentHandler: NSObject,
         }
 
         // "Play music" names nothing and shuffles the library: the songs,
-        // not the audiobooks.
+        // not the audiobooks. A named request looks in the music first and
+        // reaches a book only when no music carries the name; the book then
+        // plays as a book, not as a list of its chapters.
         let playsWholeLibrary = identifiers.isEmpty && !query.hasSearchTerm
-        guard let result = Self.resolveSongs(
-            query: query,
-            identifierGroups: identifierGroups,
-            songs: playsWholeLibrary ? store.library.musicSongs : store.library.visibleSongs
-        ) else {
-            return nil
+        let found: SiriMediaSearchResolution?
+        if identifierGroups.isEmpty {
+            found = SiriMediaSearchResolver.resolvePreferringMusic(
+                query: query,
+                musicSongs: store.library.musicSongs,
+                spokenWordSongs: store.library.spokenWordSongs
+            )
+        } else {
+            found = Self.resolveSongs(
+                query: query,
+                identifierGroups: identifierGroups,
+                songs: store.library.visibleSongs
+            )
         }
-        return .songs(
+        guard let result = found else { return nil }
+        return songsTarget(
             Self.requestedSongs(result.queue, query: query, identifiers: identifiers),
-            shuffled: intent.playShuffled == true || playsWholeLibrary
+            shuffled: intent.playShuffled == true || playsWholeLibrary,
+            namesItem: SiriSpokenWordRouting.namesItem(query, identifiers: identifiers)
         )
+    }
+
+    /// Songs a lookup found, or — when they are spoken-word items — their
+    /// book, from the named chapter or where it was left.
+    @MainActor
+    private func songsTarget(_ queue: [Song], shuffled: Bool, namesItem: Bool) -> TVIntentTarget {
+        let bookIDs = store.library.spokenWordBookIDs
+        guard let first = queue.first, bookIDs[first.id] != nil else {
+            return .songs(queue, shuffled: shuffled)
+        }
+        let books = spokenWordBooks()
+        guard let start = SiriSpokenWordRouting.start(
+            forFoundSongIDs: queue.map(\.id),
+            bookID: { bookIDs[$0] },
+            books: books,
+            namesItem: namesItem
+        ), let book = books.first(where: { $0.id == start.bookID }) else {
+            return .songs(queue, shuffled: shuffled)
+        }
+        plog("🎙️ TV Siri spoken-word lookup routed to its book namesItem=\(namesItem) fromItem=\(start.itemID != nil)")
+        return .book(book, startingAt: start.itemID)
     }
 
     /// A named song request is answered with the best song plus alternatives;
@@ -674,7 +748,7 @@ final class TVPlayMediaIntentHandler: NSObject,
     private func resolveBook(query: String?, identifiers: [String]) -> TVIntentTarget? {
         let books = spokenWordBooks()
         if identifiers.isEmpty, query == nil {
-            return SiriListeningCatalog.bookToContinue(books).map(TVIntentTarget.book)
+            return SiriListeningCatalog.bookToContinue(books).map { .book($0, startingAt: nil) }
         }
         guard let resolved = SiriNamedMediaResolver.resolve(
             query: query,
@@ -684,7 +758,7 @@ final class TVPlayMediaIntentHandler: NSObject,
         ) else {
             return nil
         }
-        return books.first { $0.id == resolved.selected.id }.map(TVIntentTarget.book)
+        return books.first { $0.id == resolved.selected.id }.map { .book($0, startingAt: nil) }
     }
 
     /// No name: the episode in progress. A show's name: the episode its page
@@ -713,6 +787,18 @@ final class TVPlayMediaIntentHandler: NSObject,
             }
             return podcastTarget(episode, showID: show.id)
         }
+        if SiriRequestNeeds.allRadio(identifiers),
+           let resolved = SiriNamedMediaResolver.resolve(
+               query: query,
+               selectedItemIDs: identifiers,
+               namespace: "radio",
+               items: radioItems()
+           ) {
+            return radioStations().first { $0.id == resolved.selected.id }.map(TVIntentTarget.radio)
+        }
+        // A station only by its name: a podcast request never plays a guess.
+        guard SiriNamedMediaResolver.resolve(query: query, namespace: "radio", items: radioItems())?
+            .isStrongMatch == true else { return nil }
         return namedRadioTarget(query)
     }
 
@@ -891,6 +977,7 @@ final class TVPlayMediaIntentHandler: NSObject,
     private func resolveRadioItems(
         query: String?,
         identifiers: [String],
+        strongMatchOnly: Bool = false,
         completion: TVUncheckedBox<([INPlayMediaMediaItemResolutionResult]) -> Void>
     ) {
         let catalog = radioItems()
@@ -914,7 +1001,7 @@ final class TVPlayMediaIntentHandler: NSObject,
             selectedItemIDs: identifiers,
             namespace: "radio",
             items: catalog
-        ) else {
+        ), !strongMatchOnly || result.isStrongMatch else {
             completion.value([
                 INPlayMediaMediaItemResolutionResult.unsupported(forReason: .serviceUnavailable),
             ])
@@ -1014,7 +1101,8 @@ final class TVPlayMediaIntentHandler: NSObject,
 private enum TVIntentTarget {
     case songs([Song], shuffled: Bool)
     case radio(RadioStation)
-    case book(SpokenWordBook)
+    /// From `itemID`, or where the book was left when nil.
+    case book(SpokenWordBook, startingAt: String?)
     case podcast(PodcastEpisode, continuing: [PodcastEpisode])
 }
 

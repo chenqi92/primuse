@@ -107,3 +107,60 @@ public enum SiriSleepTimerRequest: String, CaseIterable, Sendable {
         }
     }
 }
+
+/// Spoken-word items a lookup found are never queued as songs: they play as
+/// part of their book, in reading order and at the book's speed. A request
+/// that named the item (a chapter, a 相声 piece) starts from it; one that
+/// named an album, an artist or a genre continues the book listened to last
+/// among those found, where it was left.
+public enum SiriSpokenWordRouting {
+    public struct Start: Sendable, Equatable {
+        public let bookID: String
+        /// The item to start from; nil continues where the book was left.
+        public let itemID: String?
+
+        public init(bookID: String, itemID: String?) {
+            self.bookID = bookID
+            self.itemID = itemID
+        }
+    }
+
+    /// Nil when the best item found is music: a music lookup reaches
+    /// spoken-word items only when no music answers it, so a queue never
+    /// mixes the two.
+    public static func start(
+        forFoundSongIDs songIDs: [String],
+        bookID: (String) -> String?,
+        books: [SpokenWordBook],
+        namesItem: Bool
+    ) -> Start? {
+        guard let first = songIDs.first, let firstBook = bookID(first) else { return nil }
+        if namesItem { return Start(bookID: firstBook, itemID: first) }
+        var foundBookIDs = Set<String>()
+        for songID in songIDs {
+            if let id = bookID(songID) { foundBookIDs.insert(id) }
+        }
+        let continuing = SiriListeningCatalog.bookToContinue(books.filter { foundBookIDs.contains($0.id) })
+        return Start(bookID: continuing?.id ?? firstBook, itemID: nil)
+    }
+
+    /// Whether a lookup named one item by its title (or Siri chose songs),
+    /// rather than a container.
+    public static func namesItem(_ query: SiriMediaSearchQuery, identifiers: [String]) -> Bool {
+        if !identifiers.isEmpty {
+            return identifiers.allSatisfy {
+                let namespace = SiriMediaIdentifier.namespace(from: $0)
+                return namespace == nil || namespace == "song"
+            }
+        }
+        switch query.kind {
+        case .song:
+            return true
+        case .music:
+            return query.mediaName != nil
+        case .album, .artist, .genre, .playlist, .radioStation, .algorithmicRadioStation,
+             .audiobook, .podcast, .unsupported:
+            return false
+        }
+    }
+}
