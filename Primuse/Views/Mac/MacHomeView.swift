@@ -6,8 +6,8 @@ import PrimuseKit
 @MainActor
 private final class MacHomeRefreshCoordinator {
     var debounceTask: Task<Void, Never>?
+    /// 正在算的那一轮。算完才清空; 期间来的刷新请求不打断它, 等它放出结果后再补算。
     var computeTask: Task<Void, Never>?
-    var pendingSignature: MacHomeView.DerivedSignature?
     /// 上一次真正做完整库重算的时刻, 给资料库版本驱动的刷新做节流。
     var lastRefreshAt: Date?
 
@@ -16,7 +16,6 @@ private final class MacHomeRefreshCoordinator {
         computeTask?.cancel()
         debounceTask = nil
         computeTask = nil
-        pendingSignature = nil
     }
 }
 
@@ -34,6 +33,8 @@ private struct MacHomeLibraryRevisionObserver: View {
         Color.clear
             .frame(width: 0, height: 0)
             .onChange(of: library.searchRevision) { _, _ in onRevisionChange() }
+            // 歌单版本也在首页快照的签名里(推荐要用), 只听歌曲版本的话歌单一变签名就对不上, 却没人补算。
+            .onChange(of: library.playlistCollectionRevision) { _, _ in onRevisionChange() }
             .onChange(of: scanService.scanningSourceIDs.isEmpty) { _, idle in
                 if idle { onScanFinished() }
             }
@@ -76,6 +77,9 @@ struct MacHomeView: View {
     // (searchRevision)或播放历史变化时重算一次, 跟 iOS HomeView / MacSimilarSongsPopover
     // 一致。
     @State private var isHomeVisible = false
+    /// 场景此刻在不在前台。刷新路径读这一份而不是 `scenePhase`: 异步任务里读到的
+    /// `scenePhase` 是任务创建那一刻的值, 首页若在窗口进入前台之前出现, 首次加载会被跳过。
+    @State private var isSceneActive = false
     @State private var activeSection: HomeSectionDestination?
     // 合并 searchRevision 风暴 —— MusicLibrary 在扫描的每个 upsert 批次都 bump
     // searchRevision, 不去抖会触发几十次全库重算。cancel + 重启计时, 只在最后
@@ -102,6 +106,14 @@ struct MacHomeView: View {
         let recentSongIDs: [String]
         let day: Date
         let localeIdentifier: String
+
+        /// 只是曲库或歌单内容变了 —— 这类补算在扫描期间可以放宽间隔。
+        func differsOnlyInLibraryContent(from other: DerivedSignature) -> Bool {
+            historyRevision == other.historyRevision
+                && recentSongIDs == other.recentSongIDs
+                && day == other.day
+                && localeIdentifier == other.localeIdentifier
+        }
     }
 
     fileprivate struct DerivedSnapshot: Sendable {
@@ -167,7 +179,11 @@ struct MacHomeView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSLocale.currentLocaleDidChangeNotification)) { _ in
             scheduleDerivedRefresh()
         }
+        .onAppear {
+            isSceneActive = scenePhase == .active
+        }
         .onChange(of: scenePhase) { _, phase in
+            isSceneActive = phase == .active
             if phase == .active {
                 scheduleDerivedRefresh()
             } else {
@@ -419,14 +435,17 @@ struct MacHomeView: View {
     /// `libraryDriven`: 由资料库版本触发。只有这一类在扫描期间放宽间隔,
     /// 播放记录、日期、语言这些用户看得见的变化照常。
     private func scheduleDerivedRefresh(libraryDriven: Bool = false) {
-        guard scenePhase == .active, isHomeVisible else { return }
+        guard isSceneActive, isHomeVisible else { return }
         // 同 iOS HomeView: 去抖只能合并密集到达的版本变化, 而扫描/回填的发布
         // 间隔比去抖窗口长, 所以还要一道最小重算间隔才能真正合并。
+        // 还在骨架上时不节流: 节流是为了少重算已经摆出来的内容, 不该让用户对着骨架多等十几秒。
         let elapsed = refreshCoordinator.lastRefreshAt.map { Date().timeIntervalSince($0) }
-        let delay = LibraryDerivedRefreshPolicy.delay(
-            sinceLastRefresh: elapsed,
-            libraryIsScanning: libraryDriven && !scanService.scanningSourceIDs.isEmpty
-        )
+        let delay = model.isPrepared
+            ? LibraryDerivedRefreshPolicy.delay(
+                sinceLastRefresh: elapsed,
+                libraryIsScanning: libraryDriven && !scanService.scanningSourceIDs.isEmpty
+            )
+            : 0
         refreshCoordinator.debounceTask?.cancel()
         refreshCoordinator.debounceTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(delay))
@@ -449,11 +468,12 @@ struct MacHomeView: View {
     /// A route change destroys this view; the window retains the snapshot.
     /// Revisions also catch edits made away from Home without changing counts.
     private func refreshDerivedIfNeeded() {
-        guard scenePhase == .active, isHomeVisible else { return }
+        guard isSceneActive, isHomeVisible else { return }
         let signature = derivedSignature
         guard model.needsRefresh(for: signature) else { return }
-        guard refreshCoordinator.pendingSignature != signature else { return }
-        refreshCoordinator.pendingSignature = signature
+        // 正在算的那一轮不打断: 它算完会先把结果摆出来, 再按最新的版本补算。
+        // 打断重来的话, 扫描期间版本一直在变, 可能一轮也算不完, 首页就一直停在骨架上。
+        guard refreshCoordinator.computeTask == nil else { return }
         refreshCoordinator.lastRefreshAt = Date()
         refreshDerived(signature: signature)
     }
@@ -472,7 +492,6 @@ struct MacHomeView: View {
             .filter { !spokenWordSongIDs.contains($0.id) }
         let recommendationSnapshot = MusicDiscoveryEngine.recommendationSnapshot(in: library)
 
-        refreshCoordinator.computeTask?.cancel()
         refreshCoordinator.computeTask = Task { @MainActor in
             let worker = Task.detached(priority: .utility) {
                 Self.makeDerivedSnapshot(
@@ -487,7 +506,9 @@ struct MacHomeView: View {
             } onCancel: {
                 worker.cancel()
             }
-            guard !Task.isCancelled, derivedSignature == signature else { return }
+            // 只有离开首页/退到后台(cancelAll)才算作废。算的过程中资料库、歌单又变了的结果照样摆出来,
+            // 签名记成它真正对应的那一版, 收尾时发现对不上就补算 —— 丢掉它的话骨架会一直等下去。
+            guard !Task.isCancelled else { return }
             snapshot.recommendationResults = model.snapshot.recommendationResults.compactMap { result in
                 library.unobservedVisibleSong(id: result.song.id).map {
                     MusicDiscoveryResult(song: $0, score: result.score, reasons: result.reasons)
@@ -509,9 +530,15 @@ struct MacHomeView: View {
             } onCancel: {
                 recommendationWorker.cancel()
             }
-            guard !Task.isCancelled, derivedSignature == signature else { return }
+            guard !Task.isCancelled else { return }
             model.snapshot.recommendationResults = recommendations
             model.recommendationSignature = signature
+            refreshCoordinator.computeTask = nil
+
+            let current = derivedSignature
+            if current != signature {
+                scheduleDerivedRefresh(libraryDriven: current.differsOnlyInLibraryContent(from: signature))
+            }
         }
     }
 
