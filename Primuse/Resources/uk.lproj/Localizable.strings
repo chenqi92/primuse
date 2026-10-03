@@ -671,7 +671,7 @@
 "interface_editor_home" = "Головна";
 "interface_editor_library" = "Медіатека";
 "interface_editor_player" = "Програвач";
-"interface_editor_settings" = "Екран налаштувань";
+"interface_editor_settings" = "Кольори та значки";
 "home_count_label" = "Елементів";
 "home_settings_title" = "Головна";
 "home_settings_sections_label" = "Видимі блоки";

@@ -1204,7 +1204,7 @@
 "interface_editor_home" = "首頁";
 "interface_editor_library" = "資料庫";
 "interface_editor_player" = "播放器";
-"interface_editor_settings" = "設定頁";
+"interface_editor_settings" = "顏色和圖示";
 "home_count_label" = "項目數";
 "home_settings_title" = "首頁";
 "home_settings_sections_label" = "顯示的區塊";

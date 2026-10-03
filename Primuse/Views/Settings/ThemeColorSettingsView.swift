@@ -110,7 +110,7 @@ struct AppearanceSettingsView: View {
     }
 }
 
-/// 主题色的各个区块。由「设置页」直接平铺，也可作为独立页面打开（设置搜索会
+/// 主题色的各个区块。由「颜色和图标」页直接平铺，也可作为独立页面打开（设置搜索会
 /// 深链到这里）。所以内容只出 Section，外壳交给使用方的 List / Form。
 struct ThemeColorSections: View {
     @State private var settings = ThemeColorSettings.shared

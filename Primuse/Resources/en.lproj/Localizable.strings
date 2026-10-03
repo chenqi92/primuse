@@ -1268,7 +1268,7 @@
 "interface_editor_home" = "Home";
 "interface_editor_library" = "Library";
 "interface_editor_player" = "Player";
-"interface_editor_settings" = "Settings screen";
+"interface_editor_settings" = "Colors & Icons";
 "home_count_label" = "Items";
 "home_settings_title" = "Home";
 "home_settings_sections_label" = "Visible sections";

@@ -1429,7 +1429,7 @@
 "interface_editor_home" = "Start";
 "interface_editor_library" = "Mediathek";
 "interface_editor_player" = "Player";
-"interface_editor_settings" = "Einstellungsbildschirm";
+"interface_editor_settings" = "Farben & Symbole";
 "home_count_label" = "Einträge";
 "home_settings_title" = "Start";
 "home_settings_sections_label" = "Sichtbare Blöcke";

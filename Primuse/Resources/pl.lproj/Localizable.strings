@@ -1543,7 +1543,7 @@
 "interface_editor_home" = "Ekran główny";
 "interface_editor_library" = "Biblioteka";
 "interface_editor_player" = "Odtwarzacz";
-"interface_editor_settings" = "Ekran ustawień";
+"interface_editor_settings" = "Kolory i ikony";
 "home_count_label" = "Elementy";
 "home_settings_title" = "Ekran główny";
 "home_settings_sections_label" = "Widoczne bloki";

@@ -1543,7 +1543,7 @@
 "interface_editor_home" = "หน้าแรก";
 "interface_editor_library" = "คลังเพลง";
 "interface_editor_player" = "เครื่องเล่น";
-"interface_editor_settings" = "หน้าจอการตั้งค่า";
+"interface_editor_settings" = "สีและไอคอน";
 "home_count_label" = "จำนวนรายการ";
 "home_settings_title" = "หน้าแรก";
 "home_settings_sections_label" = "บล็อกที่แสดง";

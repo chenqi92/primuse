@@ -1430,7 +1430,7 @@
 "interface_editor_home" = "ホーム";
 "interface_editor_library" = "ライブラリ";
 "interface_editor_player" = "プレーヤー";
-"interface_editor_settings" = "設定画面";
+"interface_editor_settings" = "カラーとアイコン";
 "home_count_label" = "表示数";
 "home_settings_title" = "ホーム";
 "home_settings_sections_label" = "表示するブロック";

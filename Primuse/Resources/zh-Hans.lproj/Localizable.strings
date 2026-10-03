@@ -1284,7 +1284,7 @@
 "interface_editor_home" = "首页";
 "interface_editor_library" = "资料库";
 "interface_editor_player" = "播放器";
-"interface_editor_settings" = "设置页";
+"interface_editor_settings" = "颜色和图标";
 "home_count_label" = "条目数";
 "home_settings_title" = "首页";
 "home_settings_sections_label" = "显示的区块";

@@ -671,7 +671,7 @@
 "interface_editor_home" = "Главная";
 "interface_editor_library" = "Медиатека";
 "interface_editor_player" = "Плеер";
-"interface_editor_settings" = "Экран настроек";
+"interface_editor_settings" = "Цвета и значки";
 "home_count_label" = "Элементов";
 "home_settings_title" = "Главная";
 "home_settings_sections_label" = "Видимые блоки";

@@ -1429,7 +1429,7 @@
 "interface_editor_home" = "Accueil";
 "interface_editor_library" = "Bibliothèque";
 "interface_editor_player" = "Lecteur";
-"interface_editor_settings" = "Écran des réglages";
+"interface_editor_settings" = "Couleurs et icônes";
 "home_count_label" = "Éléments";
 "home_settings_title" = "Accueil";
 "home_settings_sections_label" = "Blocs affichés";

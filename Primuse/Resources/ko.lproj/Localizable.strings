@@ -1429,7 +1429,7 @@
 "interface_editor_home" = "홈";
 "interface_editor_library" = "라이브러리";
 "interface_editor_player" = "플레이어";
-"interface_editor_settings" = "설정 화면";
+"interface_editor_settings" = "색상 및 아이콘";
 "home_count_label" = "표시 개수";
 "home_settings_title" = "홈";
 "home_settings_sections_label" = "표시할 블록";

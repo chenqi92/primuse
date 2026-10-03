@@ -1543,7 +1543,7 @@
 "interface_editor_home" = "Inicio";
 "interface_editor_library" = "Biblioteca";
 "interface_editor_player" = "Reproductor";
-"interface_editor_settings" = "Pantalla de ajustes";
+"interface_editor_settings" = "Colores e iconos";
 "home_count_label" = "Elementos";
 "home_settings_title" = "Inicio";
 "home_settings_sections_label" = "Bloques visibles";
