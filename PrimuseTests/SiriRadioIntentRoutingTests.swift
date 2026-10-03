@@ -16,6 +16,15 @@ final class SiriRadioIntentRoutingTests: XCTestCase {
         )
     }
 
+    /// 系统最多认三个 Siri 别名,多一个整个 App 就装不上(installd 直接拒绝)。
+    func testAppBundleDeclaresAtMostThreeAlternativeAppNames() {
+        let names = Bundle(for: PrimuseAppDelegate.self)
+            .object(forInfoDictionaryKey: "INAlternativeAppNames") as? [[String: Any]]
+
+        XCTAssertNotNil(names)
+        XCTAssertLessThanOrEqual(names?.count ?? 0, 3)
+    }
+
     func testColdAppDelegateRoutesMediaSearchToTheRadioCapableHandler() {
         let delegate = PrimuseAppDelegate()
         let intent = INSearchForMediaIntent(mediaItems: nil, mediaSearch: nil)

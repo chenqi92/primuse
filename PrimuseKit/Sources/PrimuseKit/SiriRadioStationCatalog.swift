@@ -48,10 +48,11 @@ public enum SiriRadioStationCatalog {
     /// stations "用 Primuse 播放 <台名>" can reach in one sentence.
     ///
     /// Every value is multiplied by each spoken form of the app name (display
-    /// name plus every INAlternativeAppNames entry, five in all) and counts
-    /// against the system's limit of 1,000 trigger phrases per language, which
-    /// all App Shortcuts share — with books, podcast shows, settings pages and
-    /// sleep-timer lengths, about 150 values in the busiest language, ×5.
+    /// name plus every INAlternativeAppNames entry, four in all — the system
+    /// allows three alternatives) and counts against the system's limit of
+    /// 1,000 trigger phrases per language, which all App Shortcuts share — with
+    /// books, podcast shows, settings pages and sleep-timer lengths, about 150
+    /// values in the busiest language, ×4.
     /// Any other station is still reachable through "用 Primuse 播放电台"
     /// followed by its name.
     public static let appShortcutStationLimit = 50
