@@ -243,6 +243,31 @@ struct SiriRadioStationCatalogTests {
         #expect(SiriRadioStationCatalog.defaultStation(from: [], enabledSourceIDs: []) == nil)
     }
 
+    @Test("Equally good station matches are settled without asking: last listened first")
+    func preferredStation() throws {
+        var first = RadioStation(id: "a", name: "交通广播", streamURL: "https://radio.example/a")
+        first.sortOrder = 0
+        var second = RadioStation(id: "b", name: "交通广播", streamURL: "https://radio.example/b")
+        second.sortOrder = 1_024
+        let stations = [first, second]
+        let items = SiriRadioStationCatalog.namedItems(from: stations, enabledSourceIDs: [])
+
+        let tied = try #require(SiriNamedMediaResolver.resolve(query: "交通广播", namespace: "radio", items: items))
+        #expect(tied.needsDisambiguation)
+        #expect(SiriRadioStationCatalog.preferredStation(for: tied, in: stations)?.id == "a")
+
+        second.lastPlayedAt = Date(timeIntervalSince1970: 1_000)
+        #expect(SiriRadioStationCatalog.preferredStation(for: tied, in: [first, second])?.id == "b")
+
+        let weak = try #require(SiriNamedMediaResolver.resolve(
+            query: "交通",
+            namespace: "radio",
+            items: [SiriNamedMediaItem(id: "a", name: "北京交通广播")]
+        ))
+        #expect(weak.requiresConfirmation)
+        #expect(SiriRadioStationCatalog.preferredStation(for: weak, in: stations)?.id == "a")
+    }
+
     @Test("A station chosen by name equality or prefix is a strong match")
     func namedMatchStrength() throws {
         let items = [

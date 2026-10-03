@@ -302,21 +302,21 @@ final class TVPlayMediaIntentHandler: NSObject,
                 return
             }
 
-            let items = result.candidates.map { song in
+            // Equally good songs are not offered as a choice: Siri does not
+            // hand the choice back (see `SiriRadioStationCatalog.preferredStation`).
+            // The resolver's first is the best-ranked one.
+            let chosen = result.needsDisambiguation ? Array(result.candidates.prefix(1)) : result.candidates
+            let items = chosen.map { song in
                 INMediaItem(
                     identifier: SiriMediaIdentifier.namespaced(song.id, as: "song"),
-                    title: Self.resolutionTitle(
-                        for: song,
-                        includeAlbum: result.needsDisambiguation
-                    ),
+                    title: Self.resolutionTitle(for: song, includeAlbum: false),
                     type: .song,
                     artwork: nil,
                     artist: store.library.artistDisplayName(for: song)
                 )
             }
-            if result.needsDisambiguation {
-                completion.value([INPlayMediaMediaItemResolutionResult.disambiguation(with: items)])
-            } else if !identifierGroups.isEmpty {
+            Self.logSettled("song", tied: result.needsDisambiguation, weak: false)
+            if !identifierGroups.isEmpty {
                 completion.value(INPlayMediaMediaItemResolutionResult.successes(with: items))
             } else if let first = items.first {
                 completion.value([INPlayMediaMediaItemResolutionResult.success(with: first)])
@@ -523,12 +523,11 @@ final class TVPlayMediaIntentHandler: NSObject,
                 selectedItemIDs: identifiers,
                 namespace: "radio",
                 items: radioItems()
-            ), (!identifiers.isEmpty
-                    || (!resolved.needsDisambiguation && !resolved.requiresConfirmation)),
-               let station = radioStations().first(where: { $0.id == resolved.selected.id }) else {
+            ) else {
                 return nil
             }
-            return .radio(station)
+            return SiriRadioStationCatalog.preferredStation(for: resolved, in: radioStations())
+                .map(TVIntentTarget.radio)
         }
 
         guard query.kind != .algorithmicRadioStation else { return nil }
@@ -613,8 +612,8 @@ final class TVPlayMediaIntentHandler: NSObject,
                     radioItems: radioItems()
                 ) {
                 case .radio(let station)?:
-                    guard !station.needsDisambiguation, !station.requiresConfirmation else { return nil }
-                    return radioStations().first(where: { $0.id == station.selected.id }).map(TVIntentTarget.radio)
+                    return SiriRadioStationCatalog.preferredStation(for: station, in: radioStations())
+                        .map(TVIntentTarget.radio)
                 case .songs(let resolution)?:
                     return .songs(resolution.queue, shuffled: intent.playShuffled == true)
                 case nil:
@@ -660,7 +659,7 @@ final class TVPlayMediaIntentHandler: NSObject,
             selectedItemIDs: identifiers,
             namespace: "audiobook",
             items: SiriListeningCatalog.namedItems(books: books)
-        ), !identifiers.isEmpty || (!resolved.needsDisambiguation && !resolved.requiresConfirmation) else {
+        ) else {
             return nil
         }
         return books.first { $0.id == resolved.selected.id }.map(TVIntentTarget.book)
@@ -682,8 +681,7 @@ final class TVPlayMediaIntentHandler: NSObject,
                namespace: "podcastshow",
                items: SiriListeningCatalog.namedItems(shows: podcasts.shows)
            ) {
-            guard !identifiers.isEmpty || (!resolved.needsDisambiguation && !resolved.requiresConfirmation),
-                  let show = podcasts.show(id: resolved.selected.id),
+            guard let show = podcasts.show(id: resolved.selected.id),
                   let episode = PodcastEpisodeListPolicy.resumeTarget(
                       in: podcasts.episodes(forShowID: show.id),
                       isSerial: show.isSerial,
@@ -724,10 +722,11 @@ final class TVPlayMediaIntentHandler: NSObject,
             query: name,
             namespace: "radio",
             items: radioItems()
-        ), !resolved.needsDisambiguation, !resolved.requiresConfirmation else {
+        ) else {
             return nil
         }
-        return radioStations().first(where: { $0.id == resolved.selected.id }).map(TVIntentTarget.radio)
+        return SiriRadioStationCatalog.preferredStation(for: resolved, in: radioStations())
+            .map(TVIntentTarget.radio)
     }
 
     @MainActor
@@ -826,25 +825,21 @@ final class TVPlayMediaIntentHandler: NSObject,
             return
         }
 
-        let mediaItems = result.candidates.map {
-            INMediaItem(
-                identifier: SiriMediaIdentifier.namespaced($0.id, as: namespace),
-                title: $0.name,
-                type: type,
-                artwork: nil
-            )
-        }
-        if result.needsDisambiguation {
-            completion.value([INPlayMediaMediaItemResolutionResult.disambiguation(with: mediaItems)])
-        } else if result.requiresConfirmation, let first = mediaItems.first {
-            completion.value([INPlayMediaMediaItemResolutionResult.confirmationRequired(with: first)])
-        } else if let first = mediaItems.first {
-            completion.value([INPlayMediaMediaItemResolutionResult.success(with: first)])
-        } else {
-            completion.value([
-                INPlayMediaMediaItemResolutionResult.unsupported(forReason: .serviceUnavailable),
-            ])
-        }
+        // Never a choice or a confirmation: Siri does not hand either back
+        // (see `SiriRadioStationCatalog.preferredStation`). The resolver's
+        // selection is the best-ranked candidate.
+        Self.logSettled(namespace, tied: result.needsDisambiguation, weak: result.requiresConfirmation)
+        let selected = INMediaItem(
+            identifier: SiriMediaIdentifier.namespaced(result.selected.id, as: namespace),
+            title: result.selected.name,
+            type: type,
+            artwork: nil
+        )
+        completion.value([INPlayMediaMediaItemResolutionResult.success(with: selected)])
+    }
+
+    private static func logSettled(_ kind: String, tied: Bool, weak: Bool) {
+        plog("🎙️ TV SiriKit resolve settled kind=\(kind) tied=\(tied) weak=\(weak)")
     }
 
     @MainActor
@@ -887,18 +882,16 @@ final class TVPlayMediaIntentHandler: NSObject,
         _ result: SiriNamedMediaResolution,
         completion: TVUncheckedBox<([INPlayMediaMediaItemResolutionResult]) -> Void>
     ) {
-        let mediaItems = radioMediaItems(from: result.candidates)
-        if result.needsDisambiguation {
-            completion.value([INPlayMediaMediaItemResolutionResult.disambiguation(with: mediaItems)])
-        } else if result.requiresConfirmation, let first = mediaItems.first {
-            completion.value([INPlayMediaMediaItemResolutionResult.confirmationRequired(with: first)])
-        } else if let first = mediaItems.first {
-            completion.value([INPlayMediaMediaItemResolutionResult.success(with: first)])
-        } else {
+        Self.logSettled("radio", tied: result.needsDisambiguation, weak: result.requiresConfirmation)
+        let stationID = SiriRadioStationCatalog.preferredStation(for: result, in: radioStations())?.id
+        let candidate = result.candidates.first { $0.id == stationID } ?? result.selected
+        guard let item = radioMediaItems(from: [candidate]).first else {
             completion.value([
                 INPlayMediaMediaItemResolutionResult.unsupported(forReason: .serviceUnavailable),
             ])
+            return
         }
+        completion.value([INPlayMediaMediaItemResolutionResult.success(with: item)])
     }
 
     private static func query(for intent: INPlayMediaIntent) -> SiriMediaSearchQuery {

@@ -91,6 +91,26 @@ public enum SiriRadioStationCatalog {
         appShortcutStations(from: stations, enabledSourceIDs: enabledSourceIDs, limit: 1).first
     }
 
+    /// The station a name resolves to, without asking. On the iPhone that
+    /// reported it (iOS 27.0.1), Siri neither hands a disambiguation choice
+    /// nor a confirmation back to resolution — it re-sends the original
+    /// request and then gives up with "something went wrong". So among
+    /// equally good matches (the same station from two subscriptions, or two
+    /// "交通广播") the one last listened to wins, then the resolver's order;
+    /// a lone weak match plays as well.
+    public static func preferredStation(
+        for resolution: SiriNamedMediaResolution,
+        in stations: [RadioStation]
+    ) -> RadioStation? {
+        let byID = Dictionary(stations.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let pool = resolution.needsDisambiguation ? resolution.candidates : [resolution.selected]
+        return pool.compactMap { byID[$0.id] }.enumerated().max { lhs, rhs in
+            let left = lhs.element.lastPlayedAt ?? .distantPast
+            let right = rhs.element.lastPlayedAt ?? .distantPast
+            return left != right ? left < right : lhs.offset > rhs.offset
+        }?.element
+    }
+
     public static func namedItems(
         from stations: [RadioStation],
         enabledSourceIDs: Set<String>
