@@ -146,12 +146,20 @@ enum PodcastPlaybackLauncher {
 
 extension View {
     /// 明文 http 主机的放行确认。和电台、音乐源用同一套文案与信任记录。
-    func podcastInsecureHTTPAlert(host: Binding<String?>, onAllow: @escaping () -> Void) -> some View {
+    /// `onCancel` 给调用方清掉为这次放行记下的东西(比如要跳到的时间点)。
+    func podcastInsecureHTTPAlert(
+        host: Binding<String?>,
+        onCancel: @escaping () -> Void = {},
+        onAllow: @escaping () -> Void
+    ) -> some View {
         alert("insecure_http_warning_title", isPresented: Binding(
             get: { host.wrappedValue != nil },
             set: { if !$0 { host.wrappedValue = nil } }
         )) {
-            Button("cancel", role: .cancel) { host.wrappedValue = nil }
+            Button("cancel", role: .cancel) {
+                host.wrappedValue = nil
+                onCancel()
+            }
             Button("insecure_http_continue", role: .destructive) {
                 if let target = host.wrappedValue {
                     SSLTrustStore.shared.allowInsecureHTTP(domain: target)
@@ -400,11 +408,15 @@ final class PodcastEpisodeSummaryCache {
 // MARK: - Episode actions
 
 /// 单集的长按/行尾菜单。节目页、最新单集、首页共用。
+///
+/// 菜单内容里挂不了放行确认的 alert:明文 http 的单集由挂菜单的那个视图弹
+/// (`needsInsecureConsent`),长按菜单直接用 `podcastEpisodeContextMenu`。
 struct PodcastEpisodeMenu: View {
     let episode: PodcastEpisode
     var continuing: [PodcastEpisode] = []
     /// 给了就多一项「前往节目」(单集页、跨节目的列表里用)。
     var openShow: ((String) -> Void)?
+    var needsInsecureConsent: (@MainActor (String) -> Void)?
 
     @Environment(AudioPlayerService.self) private var player
 
@@ -413,7 +425,9 @@ struct PodcastEpisodeMenu: View {
     var body: some View {
         let state = store.state(for: episode)
         Button {
-            PodcastPlaybackLauncher.play(episode, continuing: continuing, player: player) { _ in }
+            PodcastPlaybackLauncher.play(episode, continuing: continuing, player: player) { host in
+                needsInsecureConsent?(host)
+            }
         } label: {
             Label(state.isInProgress ? "podcast_continue" : "podcast_play", systemImage: "play.fill")
         }
@@ -467,11 +481,47 @@ struct PodcastEpisodeMenu: View {
                 Label("podcast_go_to_show", systemImage: "rectangle.stack")
             }
         }
-        if let link = episode.link {
+        // 单集没有自己的网页时分享节目。
+        if let link = episode.link ?? store.show(id: episode.showID).flatMap(PodcastShare.url(for:)) {
             ShareLink(item: link) {
                 Label("share", systemImage: "square.and.arrow.up")
             }
         }
+    }
+}
+
+/// 单集行的长按菜单,连同菜单里「播放」碰到明文 http 时的放行确认。
+private struct PodcastEpisodeContextMenu: ViewModifier {
+    let episode: PodcastEpisode
+    let continuing: [PodcastEpisode]
+    let openShow: ((String) -> Void)?
+
+    @Environment(AudioPlayerService.self) private var player
+    @State private var pendingInsecureHost: String?
+
+    func body(content: Content) -> some View {
+        content
+            .contextMenu {
+                PodcastEpisodeMenu(
+                    episode: episode,
+                    continuing: continuing,
+                    openShow: openShow,
+                    needsInsecureConsent: { pendingInsecureHost = $0 }
+                )
+            }
+            .podcastInsecureHTTPAlert(host: $pendingInsecureHost) {
+                PodcastPlaybackLauncher.play(episode, continuing: continuing, player: player) { _ in }
+            }
+    }
+}
+
+extension View {
+    func podcastEpisodeContextMenu(
+        _ episode: PodcastEpisode,
+        continuing: [PodcastEpisode] = [],
+        openShow: ((String) -> Void)? = nil
+    ) -> some View {
+        modifier(PodcastEpisodeContextMenu(episode: episode, continuing: continuing, openShow: openShow))
     }
 }
 

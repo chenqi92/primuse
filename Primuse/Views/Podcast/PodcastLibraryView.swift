@@ -326,7 +326,7 @@ struct PodcastContinueCard: View {
         .frame(width: width, alignment: .leading)
         .frame(maxWidth: width == nil ? .infinity : nil, alignment: .leading)
         .background(tint.opacity(0.09), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .contextMenu { PodcastEpisodeMenu(episode: episode) }
+        .contextMenu { PodcastEpisodeMenu(episode: episode, needsInsecureConsent: { pendingInsecureHost = $0 }) }
         .podcastInsecureHTTPAlert(host: $pendingInsecureHost) {
             PodcastPlaybackLauncher.play(episode, player: player) { _ in }
         }
@@ -374,13 +374,11 @@ private struct PodcastLatestEpisodesSection: View {
                         continuing: Array(latest.dropFirst(index + 1)),
                         onOpen: { navigation.open(episodeID: episode.id) }
                     )
-                    .contextMenu {
-                        PodcastEpisodeMenu(
-                            episode: episode,
-                            continuing: Array(latest.dropFirst(index + 1)),
-                            openShow: navigation.open(showID:)
-                        )
-                    }
+                    .podcastEpisodeContextMenu(
+                        episode,
+                        continuing: Array(latest.dropFirst(index + 1)),
+                        openShow: navigation.open(showID:)
+                    )
                     if index < latest.count - 1 {
                         Divider().padding(.leading, 72)
                     }

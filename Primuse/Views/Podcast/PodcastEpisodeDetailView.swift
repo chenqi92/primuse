@@ -41,17 +41,29 @@ struct PodcastEpisodeDetailView: View {
     private func content(_ episode: PodcastEpisode, show: PodcastShow) -> some View {
         let isCurrent = player.currentSong?.id == episode.id
         let chapters = chapters(for: episode, isCurrent: isCurrent)
+        // 从这一集放起,和节目页的列表一样按收听顺序接着放(连续播放开着时)。
+        let continuing = Array(PodcastEpisodeListPolicy.continuation(
+            from: episode.id,
+            in: store.episodes(forShowID: show.id),
+            state: store.state(for:)
+        ).dropFirst())
         return ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 #if os(macOS)
                 PodcastInlineBackButton()
                 #endif
                 header(episode, show: show)
-                PodcastEpisodeActions(episode: episode, openShow: opensShow ? { pushedShowID = $0 } : nil) {
-                    pendingInsecureHost = $0
-                }
+                PodcastEpisodeActions(
+                    episode: episode,
+                    continuing: continuing,
+                    openShow: opensShow ? { pushedShowID = $0 } : nil,
+                    needsInsecureConsent: {
+                        pendingSeek = nil
+                        pendingInsecureHost = $0
+                    }
+                )
                 if !chapters.isEmpty {
-                    chapterList(chapters, episode: episode, isCurrent: isCurrent)
+                    chapterList(chapters, episode: episode, isCurrent: isCurrent, continuing: continuing)
                 }
                 if !notesBlocks.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
@@ -59,7 +71,7 @@ struct PodcastEpisodeDetailView: View {
                             .font(.title3.weight(.bold))
                             .accessibilityAddTraits(.isHeader)
                         PodcastShowNotesView(blocks: notesBlocks) { seconds in
-                            seek(episode, to: seconds)
+                            seek(episode, to: seconds, continuing: continuing)
                         }
                     }
                 }
@@ -77,8 +89,8 @@ struct PodcastEpisodeDetailView: View {
             guard episode.chapters.isEmpty, let url = episode.chaptersURL else { return }
             feedChapters = await PodcastNetwork.chapters(from: url)
         }
-        .podcastInsecureHTTPAlert(host: $pendingInsecureHost) {
-            PodcastPlaybackLauncher.play(episode, from: pendingSeek, player: player) { _ in }
+        .podcastInsecureHTTPAlert(host: $pendingInsecureHost, onCancel: { pendingSeek = nil }) {
+            PodcastPlaybackLauncher.play(episode, continuing: continuing, from: pendingSeek, player: player) { _ in }
             pendingSeek = nil
         }
     }
@@ -141,7 +153,12 @@ struct PodcastEpisodeDetailView: View {
         return []
     }
 
-    private func chapterList(_ chapters: [PodcastChapter], episode: PodcastEpisode, isCurrent: Bool) -> some View {
+    private func chapterList(
+        _ chapters: [PodcastChapter],
+        episode: PodcastEpisode,
+        isCurrent: Bool,
+        continuing: [PodcastEpisode]
+    ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("podcast_chapters")
                 .font(.title3.weight(.bold))
@@ -150,7 +167,7 @@ struct PodcastEpisodeDetailView: View {
             ForEach(Array(chapters.enumerated()), id: \.offset) { index, chapter in
                 let isActive = isCurrent && player.currentChapterIndex == index
                 Button {
-                    seek(episode, to: chapter.start)
+                    seek(episode, to: chapter.start, continuing: continuing)
                 } label: {
                     HStack(spacing: 12) {
                         Text(ChapterTimeFormatter.string(from: chapter.start))
@@ -183,12 +200,14 @@ struct PodcastEpisodeDetailView: View {
         }
     }
 
-    private func seek(_ episode: PodcastEpisode, to seconds: TimeInterval) {
+    private func seek(_ episode: PodcastEpisode, to seconds: TimeInterval, continuing: [PodcastEpisode]) {
         if player.currentSong?.id == episode.id {
             player.seek(to: seconds, startPlaying: true)
         } else {
             pendingSeek = seconds
-            PodcastPlaybackLauncher.play(episode, from: seconds, player: player) { pendingInsecureHost = $0 }
+            PodcastPlaybackLauncher.play(episode, continuing: continuing, from: seconds, player: player) {
+                pendingInsecureHost = $0
+            }
         }
     }
 }
@@ -196,8 +215,9 @@ struct PodcastEpisodeDetailView: View {
 /// 单集页的播放键、下载、标记和进度条。单独一个视图:只有它跟着播放进度刷新。
 private struct PodcastEpisodeActions: View {
     let episode: PodcastEpisode
+    var continuing: [PodcastEpisode] = []
     var openShow: ((String) -> Void)?
-    var needsInsecureConsent: (String) -> Void
+    var needsInsecureConsent: @MainActor (String) -> Void
 
     @Environment(AudioPlayerService.self) private var player
     private var store: PodcastStore { PodcastStore.shared }
@@ -214,7 +234,9 @@ private struct PodcastEpisodeActions: View {
                     if isCurrent {
                         player.togglePlayPause()
                     } else {
-                        PodcastPlaybackLauncher.play(episode, player: player) { needsInsecureConsent($0) }
+                        PodcastPlaybackLauncher.play(episode, continuing: continuing, player: player) {
+                            needsInsecureConsent($0)
+                        }
                     }
                 } label: {
                     if isCurrent && player.isPlaying {
@@ -246,7 +268,12 @@ private struct PodcastEpisodeActions: View {
                 .accessibilityLabel(Text(state.isFinished ? "podcast_mark_unplayed" : "podcast_mark_played"))
 
                 Menu {
-                    PodcastEpisodeMenu(episode: episode, openShow: openShow)
+                    PodcastEpisodeMenu(
+                        episode: episode,
+                        continuing: continuing,
+                        openShow: openShow,
+                        needsInsecureConsent: needsInsecureConsent
+                    )
                 } label: {
                     PodcastCircleKey(systemName: "ellipsis")
                 }
@@ -320,9 +347,7 @@ struct PodcastEpisodeFeedView: View {
                 ) {
                     pushedEpisodeID = episode.id
                 }
-                .contextMenu {
-                    PodcastEpisodeMenu(episode: episode, continuing: continuing) { pushedShowID = $0 }
-                }
+                .podcastEpisodeContextMenu(episode, continuing: continuing, openShow: { pushedShowID = $0 })
                 .swipeActions(edge: .leading, allowsFullSwipe: true) {
                     let finished = store.state(for: episode).isFinished
                     Button {

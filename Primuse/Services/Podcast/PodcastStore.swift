@@ -110,6 +110,7 @@ final class PodcastStore {
             self.loadTask = nil
             self.registerWithCloud()
             self.postChange()
+            self.purgeUnsubscribedDownloads()
             plog("🎙️ Podcasts loaded: \(self.shows.count) shows, \(self.episodeShowIndex.count) episodes")
         }
     }
@@ -299,11 +300,12 @@ final class PodcastStore {
     func unsubscribe(_ showID: String) {
         guard let index = shows.firstIndex(where: { $0.id == showID }) else { return }
         let show = shows.remove(at: index)
-        episodesByShow.removeValue(forKey: showID)
+        // 退订后这档还能当预览看:节目页不会停在转圈上,正在放的这一集也还找得到说明和章节。
+        previews[showID] = (show, episodesByShow.removeValue(forKey: showID) ?? [])
         refreshFailures.removeValue(forKey: showID)
         removed[showID] = Date()
         rebuildIndex()
-        PodcastDownloadStore.shared.deleteAll(showID: showID)
+        PodcastDownloadStore.shared.deleteAll(showID: showID, keeping: nowPlayingEpisodeIDs)
         try? FileManager.default.removeItem(at: episodesDirectory.appendingPathComponent(Self.episodesFileName(for: showID)))
         showsDirty = true
         scheduleSave()
@@ -498,6 +500,28 @@ final class PodcastStore {
             if self.nowPlayingEpisodeID() == id { return false }
             return self.state(for: found.episode).isFinished
         }
+        purgeUnsubscribedDownloads()
+    }
+
+    /// 退订时正在放的那一集,下载先留着;换到别的以后,下次清理(启动、刷新完)再删。
+    /// 退订后还开着当预览看的节目先不动:用户可能又从预览里下了一集。
+    private func purgeUnsubscribedDownloads() {
+        let downloads = PodcastDownloadStore.shared
+        let playing = nowPlayingEpisodeID()
+        let leftovers = downloads.records.values.filter { record in
+            removed[record.showID] != nil
+                && !isSubscribed(record.showID)
+                && previews[record.showID] == nil
+                && record.episodeID != playing
+        }
+        guard !leftovers.isEmpty else { return }
+        for record in leftovers { downloads.delete(record.episodeID) }
+        plog("🎙️ Removed \(leftovers.count) downloads of unsubscribed podcasts")
+    }
+
+    private var nowPlayingEpisodeIDs: Set<String> {
+        guard let id = nowPlayingEpisodeID() else { return [] }
+        return [id]
     }
 
     // MARK: - OPML
@@ -539,8 +563,11 @@ final class PodcastStore {
         shows = outcome.shows
         removed = outcome.removed
         for id in outcome.removedShowIDs {
+            if let show = before.first(where: { $0.id == id }) {
+                previews[id] = (show, episodesByShow[id] ?? [])
+            }
             episodesByShow.removeValue(forKey: id)
-            PodcastDownloadStore.shared.deleteAll(showID: id)
+            PodcastDownloadStore.shared.deleteAll(showID: id, keeping: nowPlayingEpisodeIDs)
             try? FileManager.default.removeItem(at: episodesDirectory.appendingPathComponent(Self.episodesFileName(for: id)))
         }
         rebuildIndex()

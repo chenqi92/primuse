@@ -104,7 +104,7 @@ struct MacHomePodcastsStrip: View {
         }
         .buttonStyle(.plain)
         .pmHoverLift()
-        .contextMenu { PodcastEpisodeMenu(episode: episode, continuing: continuing) }
+        .podcastEpisodeContextMenu(episode, continuing: continuing)
     }
 }
 #endif

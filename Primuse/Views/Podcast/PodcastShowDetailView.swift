@@ -155,7 +155,7 @@ struct PodcastShowDetailView: View {
             pushedEpisodeID = episode.id
         }
         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-        .contextMenu { PodcastEpisodeMenu(episode: episode, continuing: continuing) }
+        .podcastEpisodeContextMenu(episode, continuing: continuing)
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             Button {
                 store.setPlayed(!state.isFinished, episode: episode)
@@ -223,20 +223,7 @@ struct PodcastShowDetailView: View {
             actionRow(show, episodes: episodes)
 
             if let summary = PodcastShowNotes.plainSummary(show.summary, limit: 2_000) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(summary)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(expandsSummary ? nil : 3)
-                    if summary.count > 120 {
-                        Button(expandsSummary ? "podcast_show_less" : "podcast_show_more") {
-                            pmWithAnimation(.panel) { expandsSummary.toggle() }
-                        }
-                        .font(.subheadline.weight(.semibold))
-                        .buttonStyle(.plain)
-                        .foregroundStyle(tint)
-                    }
-                }
+                PodcastShowSummary(text: summary, isExpanded: $expandsSummary)
             }
             if let failure = store.refreshFailures[show.id] {
                 Label(failure, systemImage: "exclamationmark.triangle.fill")
@@ -440,6 +427,53 @@ struct PodcastShowDetailView: View {
                 Label("podcast_unsubscribe", systemImage: "minus.circle")
             }
         }
+    }
+}
+
+/// 节目简介:排出来超过三行才给「展开」。按真实排版量,不按字数猜 ——
+/// 中文七十来字就满三行,英文一百多字在宽屏上可能还不到。
+private struct PodcastShowSummary: View {
+    let text: String
+    @Binding var isExpanded: Bool
+    @State private var collapsedHeight: CGFloat = 0
+    @State private var fullHeight: CGFloat = 0
+
+    private static let collapsedLineLimit = 3
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(isExpanded ? nil : Self.collapsedLineLimit)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(alignment: .topLeading) { measurements }
+            if isExpanded || fullHeight > collapsedHeight + 1 {
+                Button(isExpanded ? "podcast_show_less" : "podcast_show_more") {
+                    pmWithAnimation(.panel) { isExpanded.toggle() }
+                }
+                .font(.subheadline.weight(.semibold))
+                .buttonStyle(.plain)
+                .foregroundStyle(ListeningSpace.podcast.tint)
+            }
+        }
+    }
+
+    /// 同宽排两份看不见的:限三行的和不限行的,一样高就是没被截。展开收起都不影响它们。
+    private var measurements: some View {
+        ZStack(alignment: .topLeading) {
+            Text(text)
+                .font(.subheadline)
+                .lineLimit(Self.collapsedLineLimit)
+                .fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { collapsedHeight = $0 }
+            Text(text)
+                .font(.subheadline)
+                .fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fullHeight = $0 }
+        }
+        .hidden()
+        .accessibilityHidden(true)
     }
 }
 

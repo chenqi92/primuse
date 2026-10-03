@@ -114,8 +114,11 @@ final class PodcastDownloadStore {
         persist()
     }
 
-    func deleteAll(showID: String? = nil) {
-        let targets = records.values.filter { showID == nil || $0.showID == showID }.map(\.episodeID)
+    /// `keeping` 里的单集不删(退订时正在放的那一集)。
+    func deleteAll(showID: String? = nil, keeping: Set<String> = []) {
+        let targets = records.values
+            .filter { (showID == nil || $0.showID == showID) && !keeping.contains($0.episodeID) }
+            .map(\.episodeID)
         for id in targets { delete(id) }
         if let showID {
             for item in queue where item.showID == showID { cancel(item.episode.id) }

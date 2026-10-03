@@ -38,11 +38,12 @@ extension AudioPlayerService {
         if let position {
             pendingSpokenWordSeekOverride = (episode.id, position)
         }
-        PodcastPlaybackMemory.shared.remember(songs)
-        if currentSong?.id == episode.id, position == nil, !isPlaying {
-            togglePlayPause()
+        // 已经是这一集(在放或停着):只是继续,不重新加载,也不换掉连续播放排好的后续单集。
+        if currentSong?.id == episode.id, position == nil {
+            if !isPlaying { togglePlayPause() }
             return
         }
+        PodcastPlaybackMemory.shared.remember(songs)
         await play(queue: songs, startingAt: 0)
     }
 

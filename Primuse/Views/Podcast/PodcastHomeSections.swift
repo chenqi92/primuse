@@ -114,7 +114,7 @@ struct HomePodcastEpisodeCard: View {
             .buttonStyle(.plain)
         }
         .frame(width: width, alignment: .leading)
-        .contextMenu { PodcastEpisodeMenu(episode: episode, continuing: continuing) }
+        .podcastEpisodeContextMenu(episode, continuing: continuing)
     }
 
     private var meta: String? {
