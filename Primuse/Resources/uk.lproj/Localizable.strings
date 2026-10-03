@@ -5350,3 +5350,6 @@
 "album_pick_another_batch" = "Інша добірка";
 
 "podcast_player_episode_details" = "Про випуск";
+
+"podcast_region_hidden_note %lld" = "Ще %lld підписок немає в каталозі подкастів для цього регіону App Store, тому їх приховано на цьому пристрої.";
+"podcast_region_directory_only" = "У цьому регіоні App Store подкасти можна додавати лише з каталогу подкастів.";

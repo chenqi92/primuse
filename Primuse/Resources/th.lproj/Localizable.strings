@@ -5350,3 +5350,6 @@
 "album_pick_another_batch" = "ชุดอื่น";
 
 "podcast_player_episode_details" = "รายละเอียดตอน";
+
+"podcast_region_hidden_note %lld" = "การติดตามอีก %lld รายการไม่มีในไดเรกทอรีพอดแคสต์ของภูมิภาค App Store นี้ จึงถูกซ่อนไว้ในอุปกรณ์นี้";
+"podcast_region_directory_only" = "ในภูมิภาค App Store นี้ เพิ่มพอดแคสต์ได้จากไดเรกทอรีพอดแคสต์เท่านั้น";

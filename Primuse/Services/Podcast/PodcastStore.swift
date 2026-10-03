@@ -30,7 +30,10 @@ extension Notification.Name {
 final class PodcastStore {
     static let shared = PodcastStore()
 
-    private(set) var shows: [PodcastShow] = []
+    /// 全部订阅,含当前店面不显示的那些。存盘、iCloud 同步、刷新结果落回都用它;界面读 `shows`。
+    private(set) var subscribedShows: [PodcastShow] = []
+    /// 节目 id → 在当前店面目录里核过的结果(见 `PodcastRegionGate`)。只在中国大陆店面用得上。
+    private(set) var regionChecks: [String: PodcastRegionGate.Check] = [:]
     private(set) var episodesByShow: [String: [PodcastEpisode]] = [:]
     private(set) var isLoaded = false
     private(set) var refreshingShowIDs: Set<String> = []
@@ -51,6 +54,7 @@ final class PodcastStore {
     @ObservationIgnored private var loadTask: Task<Void, Never>?
     @ObservationIgnored private var refreshAllTask: Task<Void, Never>?
     @ObservationIgnored private var isRegisteredWithCloud = false
+    @ObservationIgnored private var regionCheckTask: Task<Void, Never>?
     /// 正在放的那一集。删已播下载时要跳过它;各端启动时接上自己的播放器。
     @ObservationIgnored var nowPlayingEpisodeID: @MainActor () -> String? = { nil }
 
@@ -102,7 +106,8 @@ final class PodcastStore {
                 return (library, episodes)
             }.value
             guard let self else { return }
-            self.shows = loaded.0.shows
+            self.subscribedShows = loaded.0.shows
+            self.regionChecks = self.loadRegionChecks()
             self.removed = loaded.0.removed ?? [:]
             self.episodesByShow = loaded.1
             self.rebuildIndex()
@@ -111,7 +116,8 @@ final class PodcastStore {
             self.registerWithCloud()
             self.postChange()
             self.purgeUnsubscribedDownloads()
-            plog("🎙️ Podcasts loaded: \(self.shows.count) shows, \(self.episodeShowIndex.count) episodes")
+            self.verifyRegionalAvailabilityIfNeeded()
+            plog("🎙️ Podcasts loaded: \(self.subscribedShows.count) shows, \(self.episodeShowIndex.count) episodes")
         }
     }
 
@@ -124,6 +130,19 @@ final class PodcastStore {
     }
 
     // MARK: - Reading
+
+    /// 当前店面能显示的订阅。中国大陆店面只显示在中国区 Apple 播客目录里查得到的节目:
+    /// 别的设备同步来的手填地址、换店面前订的,都留在 `subscribedShows` 里但不显示、不刷新。
+    var shows: [PodcastShow] {
+        let policy = PodcastAvailabilityService.shared.policy
+        guard !policy.allowsCustomFeeds else { return subscribedShows }
+        return subscribedShows.filter { PodcastRegionGate.isVisible($0, policy: policy, check: regionChecks[$0.id]) }
+    }
+
+    /// 订着、但当前店面不显示的节目数。资料库底下据此说明一句。
+    var regionHiddenShowCount: Int {
+        PodcastAvailabilityService.shared.policy.allowsCustomFeeds ? 0 : subscribedShows.count - shows.count
+    }
 
     func show(id: String) -> PodcastShow? {
         shows.first { $0.id == id } ?? previews[id]?.show
@@ -143,7 +162,8 @@ final class PodcastStore {
     }
 
     func episodes(forShowID showID: String) -> [PodcastEpisode] {
-        episodesByShow[showID] ?? previews[showID]?.episodes ?? []
+        guard show(id: showID) != nil else { return [] }
+        return episodesByShow[showID] ?? previews[showID]?.episodes ?? []
     }
 
     func episode(id: String) -> (episode: PodcastEpisode, show: PodcastShow)? {
@@ -191,11 +211,18 @@ final class PodcastStore {
     /// 所有订阅里最近发布、还没听完的单集。
     func latestEpisodes(limit: Int, includeFinished: Bool = false) -> [PodcastEpisode] {
         PodcastEpisodeListPolicy.latest(
-            episodesByShow: episodesByShow,
+            episodesByShow: visibleEpisodesByShow,
             state: state(for:),
             excludingFinished: !includeFinished,
             limit: limit
         )
+    }
+
+    /// 当前店面能显示的节目的单集。
+    private var visibleEpisodesByShow: [String: [PodcastEpisode]] {
+        guard !PodcastAvailabilityService.shared.policy.allowsCustomFeeds else { return episodesByShow }
+        let visible = Set(shows.map(\.id))
+        return episodesByShow.filter { visible.contains($0.key) }
     }
 
     /// 听到一半的单集,最近听的在前。
@@ -221,10 +248,13 @@ final class PodcastStore {
 
     enum SubscribeError: LocalizedError {
         case notInDirectory
+        /// 当前店面只能从 Apple 播客目录订阅。
+        case directoryOnly
 
         var errorDescription: String? {
             switch self {
             case .notInDirectory: String(localized: "podcast_error_not_in_directory")
+            case .directoryOnly: String(localized: "podcast_region_directory_only")
             }
         }
     }
@@ -233,6 +263,10 @@ final class PodcastStore {
     @discardableResult
     func preview(feedURL: URL, directoryID: Int? = nil) async throws -> PodcastShow {
         if let existing = isSubscribed(feedURL: feedURL) { return existing }
+        // 界面已经藏起了手填地址与 OPML;这里再挡一道,别处的入口也绕不过去。
+        guard directoryID != nil || PodcastAvailabilityService.shared.allowsCustomFeeds else {
+            throw SubscribeError.directoryOnly
+        }
         let showID = PodcastIdentity.showID(feedURL: feedURL)
         if let cached = previews[showID] { return cached.show }
         guard case let .fetched(data, finalURL, etag, lastModified) = try await PodcastNetwork.fetchFeed(feedURL) else {
@@ -260,7 +294,12 @@ final class PodcastStore {
         } else {
             throw SubscribeError.notInDirectory
         }
-        return try await preview(feedURL: feedURL, directoryID: directoryShow.id)
+        let show = try await preview(feedURL: feedURL, directoryID: directoryShow.id)
+        // 从本店面目录里找到的:就是在这个店面能显示的节目(同步来、之前藏着的同一档也随之显示)。
+        if !PodcastAvailabilityService.shared.allowsCustomFeeds {
+            recordRegionCheck(showID: show.id, available: true)
+        }
+        return show
     }
 
     @discardableResult
@@ -280,13 +319,16 @@ final class PodcastStore {
     /// 预览转成订阅。订阅时间从现在算:订阅前就有的单集不算「新」。
     @discardableResult
     func adopt(previewID: String) -> PodcastShow? {
-        if let existing = shows.first(where: { $0.id == previewID }) { return existing }
+        if let existing = subscribedShows.first(where: { $0.id == previewID }) {
+            previews.removeValue(forKey: previewID)
+            return existing
+        }
         guard let preview = previews.removeValue(forKey: previewID) else { return nil }
         var show = preview.show
         let now = Date()
         show.subscribedAt = now
         show.definitionModifiedAt = now
-        shows.append(show)
+        subscribedShows.append(show)
         episodesByShow[show.id] = preview.episodes
         removed.removeValue(forKey: show.id)
         rebuildIndex()
@@ -298,8 +340,8 @@ final class PodcastStore {
     }
 
     func unsubscribe(_ showID: String) {
-        guard let index = shows.firstIndex(where: { $0.id == showID }) else { return }
-        let show = shows.remove(at: index)
+        guard let index = subscribedShows.firstIndex(where: { $0.id == showID }) else { return }
+        let show = subscribedShows.remove(at: index)
         // 退订后这档还能当预览看:节目页不会停在转圈上,正在放的这一集也还找得到说明和章节。
         previews[showID] = (show, episodesByShow.removeValue(forKey: showID) ?? [])
         refreshFailures.removeValue(forKey: showID)
@@ -316,11 +358,11 @@ final class PodcastStore {
 
     /// 改一档节目的设置或水位线。算用户的决定:推 iCloud。
     func updateDefinition(_ showID: String, mutate: (inout PodcastShow) -> Void) {
-        guard let index = shows.firstIndex(where: { $0.id == showID }) else { return }
-        var show = shows[index]
+        guard let index = subscribedShows.firstIndex(where: { $0.id == showID }) else { return }
+        var show = subscribedShows[index]
         mutate(&show)
         show.definitionModifiedAt = Date()
-        shows[index] = show
+        subscribedShows[index] = show
         markDirty(showID: nil, showsChanged: true)
         pushSubscriptions()
         postChange()
@@ -456,10 +498,10 @@ final class PodcastStore {
     }
 
     private func apply(_ merged: PodcastFeedMerge.Result, etag: String?, lastModified: String?, upgradedURL: URL) {
-        guard let index = shows.firstIndex(where: { $0.id == merged.show.id }) else { return }
+        guard let index = subscribedShows.firstIndex(where: { $0.id == merged.show.id }) else { return }
         // 刷新期间用户改了设置或退订后又订:定义部分以本机此刻为准。
         var show = merged.show
-        let current = shows[index]
+        let current = subscribedShows[index]
         show.settings = current.settings
         show.playedThrough = current.playedThrough
         show.reopenedEpisodeIDs = current.reopenedEpisodeIDs
@@ -472,7 +514,7 @@ final class PodcastStore {
             show.feedURL = upgradedURL
         }
         let feedMoved = show.feedURL != current.feedURL
-        shows[index] = show
+        subscribedShows[index] = show
         episodesByShow[show.id] = merged.episodes
         rebuildIndex()
         markDirty(showID: show.id, showsChanged: true)
@@ -488,8 +530,8 @@ final class PodcastStore {
     }
 
     private func updateRefreshState(_ showID: String, mutate: (inout PodcastShow) -> Void) {
-        guard let index = shows.firstIndex(where: { $0.id == showID }) else { return }
-        mutate(&shows[index])
+        guard let index = subscribedShows.firstIndex(where: { $0.id == showID }) else { return }
+        mutate(&subscribedShows[index])
         markDirty(showID: nil, showsChanged: true)
     }
 
@@ -510,7 +552,7 @@ final class PodcastStore {
         let playing = nowPlayingEpisodeID()
         let leftovers = downloads.records.values.filter { record in
             removed[record.showID] != nil
-                && !isSubscribed(record.showID)
+                && !subscribedShows.contains(where: { $0.id == record.showID })
                 && previews[record.showID] == nil
                 && record.episodeID != playing
         }
@@ -532,6 +574,7 @@ final class PodcastStore {
 
     /// 逐个订阅,失败的跳过。返回成功的数量。
     func importOPML(_ entries: [PodcastOPML.Entry]) async -> (added: Int, failed: Int) {
+        guard PodcastAvailabilityService.shared.allowsCustomFeeds else { return (0, entries.count) }
         var added = 0
         var failed = 0
         for entry in entries {
@@ -551,16 +594,16 @@ final class PodcastStore {
 
     private func pushSubscriptions() {
         guard defaults === UserDefaults.standard else { return }
-        let document = PodcastSubscriptionSync.document(shows: shows, removed: removed, now: Date())
+        let document = PodcastSubscriptionSync.document(shows: subscribedShows, removed: removed, now: Date())
         defaults.set(document.encoded(), forKey: CloudKVSKey.podcastSubscriptions)
         CloudKVSSync.shared.markChanged(key: CloudKVSKey.podcastSubscriptions)
     }
 
     private func mergeCloudCopy() {
         guard isLoaded, let remote = PodcastSubscriptionDocument.decode(defaults.string(forKey: CloudKVSKey.podcastSubscriptions)) else { return }
-        let outcome = PodcastSubscriptionSync.merge(local: shows, localRemoved: removed, remote: remote, now: Date())
-        let before = shows
-        shows = outcome.shows
+        let outcome = PodcastSubscriptionSync.merge(local: subscribedShows, localRemoved: removed, remote: remote, now: Date())
+        let before = subscribedShows
+        subscribedShows = outcome.shows
         removed = outcome.removed
         for id in outcome.removedShowIDs {
             if let show = before.first(where: { $0.id == id }) {
@@ -571,7 +614,7 @@ final class PodcastStore {
             try? FileManager.default.removeItem(at: episodesDirectory.appendingPathComponent(Self.episodesFileName(for: id)))
         }
         rebuildIndex()
-        if before != shows || !outcome.removedShowIDs.isEmpty {
+        if before != subscribedShows || !outcome.removedShowIDs.isEmpty {
             showsDirty = true
             scheduleSave()
             postChange()
@@ -579,8 +622,81 @@ final class PodcastStore {
         if outcome.needsPush { pushSubscriptions() }
         if !outcome.addedShowIDs.isEmpty {
             plog("🎙️ iCloud brought \(outcome.addedShowIDs.count) podcast subscriptions")
-            startRefresh(of: outcome.addedShowIDs, force: true)
+            // 当前店面不显示的不取 feed;要核的先去目录里核,核过能显示了再取。
+            let visible = Set(shows.map(\.id))
+            let refreshable = outcome.addedShowIDs.filter { visible.contains($0) }
+            if !refreshable.isEmpty { startRefresh(of: refreshable, force: true) }
+            verifyRegionalAvailabilityIfNeeded()
         }
+    }
+
+    // MARK: - App Store region
+
+    private static let regionChecksKey = "primuse.podcast.regionChecks.v1"
+
+    /// 店面变了(或刚取到)。中国大陆店面上把订阅按本店面目录核一遍;界面跟着 `shows` 自己刷新。
+    func availabilityDidChange() {
+        regionCheckTask?.cancel()
+        regionCheckTask = nil
+        verifyRegionalAvailabilityIfNeeded()
+        postChange()
+    }
+
+    /// 中国大陆店面:有目录 id、还没按本店面核过(或过期)的订阅,一档一档去目录里查。
+    /// 查不通的这次跳过,期间仍不显示;店面还没真正取到时不查,免得按手机地区白查一轮。
+    func verifyRegionalAvailabilityIfNeeded() {
+        let availability = PodcastAvailabilityService.shared
+        let policy = availability.policy
+        guard isLoaded, availability.isStorefrontResolved, !policy.allowsCustomFeeds, regionCheckTask == nil else { return }
+        let now = Date()
+        let pending = subscribedShows.filter {
+            PodcastRegionGate.needsCheck($0, policy: policy, check: regionChecks[$0.id], now: now)
+        }
+        guard !pending.isEmpty else { return }
+        regionCheckTask = Task { @MainActor [weak self] in
+            var becameVisible: [String] = []
+            for show in pending {
+                guard !Task.isCancelled, let directoryID = show.directoryID else { break }
+                do {
+                    let found = try await PodcastDirectoryService.shared.lookup(directoryID)
+                    guard !Task.isCancelled, let self else { return }
+                    self.recordRegionCheck(showID: show.id, available: found != nil, country: policy.directoryCountry)
+                    if found != nil { becameVisible.append(show.id) }
+                } catch {
+                    plog("🎙️ Region check failed for '\(show.title)': \(error.localizedDescription)")
+                }
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.regionCheckTask = nil
+            plog("🎙️ Region check (\(policy.directoryCountry)): \(pending.count) checked, \(self.regionHiddenShowCount) hidden")
+            // 刚核出来能显示的,单集可能还停在别的店面时取的那一份。
+            let due = becameVisible.filter { id in
+                self.subscribedShows.first { $0.id == id }.map {
+                    PodcastRefreshSchedule.isDue(lastRefreshedAt: $0.lastRefreshedAt, failureCount: 0, now: Date())
+                } ?? false
+            }
+            if !due.isEmpty, self.refreshAllTask == nil { self.startRefresh(of: due, force: false) }
+        }
+    }
+
+    private func recordRegionCheck(showID: String, available: Bool, country: String? = nil) {
+        let country = country ?? PodcastAvailabilityService.shared.policy.directoryCountry
+        let check = PodcastRegionGate.Check(country: country, available: available, checkedAt: Date())
+        guard regionChecks[showID] != check else { return }
+        regionChecks[showID] = check
+        // 退订过、早已不在订阅里的不留。
+        let subscribed = Set(subscribedShows.map(\.id)).union(previews.keys)
+        regionChecks = regionChecks.filter { subscribed.contains($0.key) }
+        if let data = try? JSONEncoder().encode(regionChecks) {
+            defaults.set(data, forKey: Self.regionChecksKey)
+        }
+        postChange()
+    }
+
+    private func loadRegionChecks() -> [String: PodcastRegionGate.Check] {
+        guard let data = defaults.data(forKey: Self.regionChecksKey),
+              let checks = try? JSONDecoder().decode([String: PodcastRegionGate.Check].self, from: data) else { return [:] }
+        return checks
     }
 
     // MARK: - Persistence
@@ -617,7 +733,7 @@ final class PodcastStore {
 
     private func saveNow() {
         guard isLoaded else { return }
-        let library = showsDirty ? LocalLibrary(shows: shows, removed: removed) : nil
+        let library = showsDirty ? LocalLibrary(shows: subscribedShows, removed: removed) : nil
         let episodes = dirtyShowIDs.compactMap { id in episodesByShow[id].map { (id, $0) } }
         showsDirty = false
         dirtyShowIDs = []

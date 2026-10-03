@@ -5444,3 +5444,6 @@
 "album_pick_another_batch" = "Autre sélection";
 
 "podcast_player_episode_details" = "Détails de l'épisode";
+
+"podcast_region_hidden_note %lld" = "%lld autres abonnements ne figurent pas dans l'annuaire de podcasts de cette région de l'App Store et sont masqués sur cet appareil.";
+"podcast_region_directory_only" = "Dans cette région de l'App Store, les podcasts ne peuvent être ajoutés que depuis l'annuaire de podcasts.";

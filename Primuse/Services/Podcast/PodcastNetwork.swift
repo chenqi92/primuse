@@ -290,13 +290,21 @@ final class PodcastAvailabilityService {
 
     /// 店面取到之前按地区设置保守判断:判不出来时不放出手填地址。
     private(set) var policy: PodcastAvailabilityPolicy
+    /// 已经按 App Store 店面判定过(而不是按手机地区猜的)。订阅的店面核对要等它。
+    private(set) var isStorefrontResolved: Bool
     @ObservationIgnored private var updatesTask: Task<Void, Never>?
 
+    private static let lastStorefrontKey = "primuse.podcast.lastStorefront"
+
     private init() {
+        // StoreKit 要零点几秒到一秒才给店面;这段时间先按上次取到的店面判断,没取到过才按手机地区猜。
+        // 不然手机地区是中国、账号在别的地区的设备每次启动都会先把订阅藏一下,冷启动的 Siri、CarPlay 恰好撞上。
+        let cached = UserDefaults.standard.string(forKey: Self.lastStorefrontKey)
         policy = PodcastAvailabilityPolicy.resolve(
-            storefrontCountryCode: Self.debugStorefrontOverride,
+            storefrontCountryCode: Self.debugStorefrontOverride ?? cached,
             localeRegionCode: Locale.current.region?.identifier
         )
+        isStorefrontResolved = Self.debugStorefrontOverride != nil
     }
 
     /// 允许手填 RSS 地址、导入 OPML。
@@ -320,9 +328,17 @@ final class PodcastAvailabilityService {
             storefrontCountryCode: Self.debugStorefrontOverride ?? countryCode,
             localeRegionCode: Locale.current.region?.identifier
         )
-        if resolved != policy {
+        let firstResolution = !isStorefrontResolved
+        let changed = resolved != policy
+        isStorefrontResolved = true
+        UserDefaults.standard.set(countryCode, forKey: Self.lastStorefrontKey)
+        if changed {
             policy = resolved
             plog("🎙️ Podcast availability: customFeeds=\(resolved.allowsCustomFeeds) directory=\(resolved.directoryCountry)")
+        }
+        // 订阅按新店面重新筛、重新核(第一次取到店面时也要:启动时是按手机地区猜的)。
+        if changed || firstResolution {
+            PodcastStore.shared.availabilityDidChange()
         }
     }
 

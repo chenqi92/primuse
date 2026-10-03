@@ -5444,3 +5444,6 @@
 "album_pick_another_batch" = "다른 추천";
 
 "podcast_player_episode_details" = "에피소드 세부 정보";
+
+"podcast_region_hidden_note %lld" = "구독 %lld개는 현재 App Store 지역의 팟캐스트 디렉터리에 없어 이 기기에서는 표시되지 않습니다.";
+"podcast_region_directory_only" = "이 App Store 지역에서는 팟캐스트 디렉터리에서만 팟캐스트를 추가할 수 있습니다.";

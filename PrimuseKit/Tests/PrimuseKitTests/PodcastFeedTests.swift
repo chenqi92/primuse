@@ -761,3 +761,52 @@ struct PodcastTranscriptTests {
         #expect(PodcastTranscriptDocument.webVTT(fromJSON: Data("nope".utf8)) == nil)
     }
 }
+
+@Suite("Podcast region gate")
+struct PodcastRegionGateTests {
+    private let china = PodcastAvailabilityPolicy(allowsCustomFeeds: false, directoryCountry: "cn")
+    private let open = PodcastAvailabilityPolicy(allowsCustomFeeds: true, directoryCountry: "us")
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    private func show(directoryID: Int?) -> PodcastShow {
+        PodcastShow(
+            id: "show-\(directoryID ?? 0)",
+            feedURL: URL(string: "https://feeds.example.com/\(directoryID ?? 0).xml")!,
+            title: "Show",
+            directoryID: directoryID,
+            subscribedAt: now
+        )
+    }
+
+    @Test func openStorefrontsShowEverything() {
+        #expect(PodcastRegionGate.isVisible(show(directoryID: nil), policy: open, check: nil))
+        #expect(!PodcastRegionGate.needsCheck(show(directoryID: 7), policy: open, check: nil, now: now))
+    }
+
+    @Test func chinaHidesFeedsOutsideItsDirectory() {
+        // 手填地址 / OPML 来的:不显示,也不去查。
+        #expect(!PodcastRegionGate.isVisible(show(directoryID: nil), policy: china, check: nil))
+        #expect(!PodcastRegionGate.needsCheck(show(directoryID: nil), policy: china, check: nil, now: now))
+        // 有目录 id 但还没按 cn 核过:先不显示,要查。
+        let directory = show(directoryID: 1200361736)
+        #expect(!PodcastRegionGate.isVisible(directory, policy: china, check: nil))
+        #expect(PodcastRegionGate.needsCheck(directory, policy: china, check: nil, now: now))
+        // 在美区目录核过的不算数。
+        let us = PodcastRegionGate.Check(country: "us", available: true, checkedAt: now)
+        #expect(!PodcastRegionGate.isVisible(directory, policy: china, check: us))
+        #expect(PodcastRegionGate.needsCheck(directory, policy: china, check: us, now: now))
+        // 中国区目录查得到才显示;查不到的不显示。
+        let found = PodcastRegionGate.Check(country: "cn", available: true, checkedAt: now)
+        let missing = PodcastRegionGate.Check(country: "cn", available: false, checkedAt: now)
+        #expect(PodcastRegionGate.isVisible(directory, policy: china, check: found))
+        #expect(!PodcastRegionGate.isVisible(directory, policy: china, check: missing))
+        #expect(!PodcastRegionGate.needsCheck(directory, policy: china, check: found, now: now))
+    }
+
+    @Test func staleChecksKeepTheirAnswerUntilRechecked() {
+        let directory = show(directoryID: 42)
+        let old = PodcastRegionGate.Check(country: "cn", available: true, checkedAt: now.addingTimeInterval(-PodcastRegionGate.checkLifetime - 1))
+        #expect(PodcastRegionGate.isVisible(directory, policy: china, check: old))
+        #expect(PodcastRegionGate.needsCheck(directory, policy: china, check: old, now: now))
+    }
+}

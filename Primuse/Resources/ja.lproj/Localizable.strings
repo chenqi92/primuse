@@ -5445,3 +5445,6 @@
 "album_pick_another_batch" = "別の組み合わせ";
 
 "podcast_player_episode_details" = "エピソードの詳細";
+
+"podcast_region_hidden_note %lld" = "ほかに %lld 件の登録番組は、この App Store 地域のポッドキャストディレクトリにないため、このデバイスでは表示されません。";
+"podcast_region_directory_only" = "この App Store 地域では、ポッドキャストディレクトリからのみ番組を登録できます。";

@@ -299,3 +299,40 @@ public struct PodcastAvailabilityPolicy: Equatable, Sendable {
     /// 店面还没取到时的保守值。
     public static let restricted = PodcastAvailabilityPolicy(allowsCustomFeeds: false, directoryCountry: "us")
 }
+
+/// 不放手填地址的店面(中国大陆)上,订阅里哪些节目能显示。
+///
+/// 订阅定义经 iCloud 在设备间同步,换过店面的设备也留着以前的订阅;所以光藏起「按地址添加」不够,
+/// 显示时还要再筛一遍:只认这个店面的 Apple 播客目录里查得到的节目。手填地址、OPML 来的(没有目录 id)
+/// 一律不显示;有目录 id 的要按本店面的目录核过一次。没核过、核的是别的店面、或者核出来不在,都先不显示。
+/// 只是本机不显示、不刷新,同步数据里照留,免得其它设备上的订阅被当成退订删掉。
+public enum PodcastRegionGate {
+    /// 一档节目在某个店面目录里查没查得到。
+    public struct Check: Codable, Equatable, Sendable {
+        public var country: String
+        public var available: Bool
+        public var checkedAt: Date
+
+        public init(country: String, available: Bool, checkedAt: Date) {
+            self.country = country
+            self.available = available
+            self.checkedAt = checkedAt
+        }
+    }
+
+    /// 核过的结果用多久:目录会下架节目,也会新上架。
+    public static let checkLifetime: TimeInterval = 7 * 24 * 3600
+
+    public static func isVisible(_ show: PodcastShow, policy: PodcastAvailabilityPolicy, check: Check?) -> Bool {
+        if policy.allowsCustomFeeds { return true }
+        guard show.directoryID != nil, let check else { return false }
+        return check.country == policy.directoryCountry && check.available
+    }
+
+    /// 要不要去目录里核一次。过期的照样先按旧结果显示,核完再改。
+    public static func needsCheck(_ show: PodcastShow, policy: PodcastAvailabilityPolicy, check: Check?, now: Date) -> Bool {
+        guard !policy.allowsCustomFeeds, show.directoryID != nil else { return false }
+        guard let check, check.country == policy.directoryCountry else { return true }
+        return now.timeIntervalSince(check.checkedAt) >= checkLifetime
+    }
+}

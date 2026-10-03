@@ -51,10 +51,12 @@ struct TVPodcastsView: View {
                             .frame(maxWidth: .infinity, minHeight: 420)
                     } else if podcasts.shows.isEmpty {
                         welcome(cell: cell)
+                        regionHiddenNote
                     } else {
                         continueListening
                         latestEpisodes
                         showsSection(cell: cell)
+                        regionHiddenNote
                     }
                 }
                 .padding(.horizontal, TVSpace.pageH - 14)
@@ -91,6 +93,18 @@ struct TVPodcastsView: View {
             #endif
         }
         .accessibilityIdentifier("tv.podcasts.page")
+    }
+
+    /// 当前店面不显示的订阅(别的设备同步来的手填地址、换店面前订的)。说一句,免得以为同步丢了。
+    @ViewBuilder
+    private var regionHiddenNote: some View {
+        let count = podcasts.regionHiddenShowCount
+        if count > 0 {
+            Text(String(format: String(localized: "podcast_region_hidden_note %lld"), count))
+                .tvFont(.caption)
+                .foregroundStyle(TVColor.textFaint)
+                .padding(.horizontal, 14)
+        }
     }
 
     private var header: some View {
@@ -518,7 +532,8 @@ struct TVPodcastChartGrid: View {
                 .padding(.vertical, 20)
             }
         }
-        .task(id: genreID) { await load() }
+        // 店面取到(或换了)以后按新地区重取:别一直挂着按手机地区猜的那份榜单。
+        .task(id: "\(genreID ?? 0)|\(PodcastAvailabilityService.shared.policy.directoryCountry)") { await load() }
     }
 
     private func load() async {

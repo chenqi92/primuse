@@ -5537,3 +5537,6 @@
 "album_pick_another_batch" = "换一批";
 
 "podcast_player_episode_details" = "单集详情";
+
+"podcast_region_hidden_note %lld" = "另有 %lld 档订阅在当前 App Store 地区的播客目录里没有，这台设备上不显示。";
+"podcast_region_directory_only" = "当前 App Store 地区只能从播客目录搜索订阅节目。";

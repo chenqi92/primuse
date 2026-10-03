@@ -5350,3 +5350,6 @@
 "album_pick_another_batch" = "Outra seleção";
 
 "podcast_player_episode_details" = "Detalhes do episódio";
+
+"podcast_region_hidden_note %lld" = "Outras %lld assinaturas não estão no diretório de podcasts desta região da App Store e ficam ocultas neste dispositivo.";
+"podcast_region_directory_only" = "Nesta região da App Store, só é possível adicionar podcasts pelo diretório de podcasts.";

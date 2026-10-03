@@ -5350,3 +5350,6 @@
 "album_pick_another_batch" = "Inny zestaw";
 
 "podcast_player_episode_details" = "Szczegóły odcinka";
+
+"podcast_region_hidden_note %lld" = "Kolejne subskrypcje (%lld) nie występują w katalogu podcastów dla tego regionu App Store, więc są ukryte na tym urządzeniu.";
+"podcast_region_directory_only" = "W tym regionie App Store podcasty można dodawać tylko z katalogu podcastów.";

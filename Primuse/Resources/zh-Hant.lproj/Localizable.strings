@@ -5421,3 +5421,6 @@
 "album_pick_another_batch" = "換一批";
 
 "podcast_player_episode_details" = "單集詳情";
+
+"podcast_region_hidden_note %lld" = "另有 %lld 個訂閱在目前 App Store 地區的播客目錄中沒有，這部裝置上不會顯示。";
+"podcast_region_directory_only" = "目前的 App Store 地區只能從播客目錄搜尋訂閱節目。";

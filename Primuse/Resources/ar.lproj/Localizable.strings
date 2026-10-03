@@ -5350,3 +5350,6 @@
 "album_pick_another_batch" = "مجموعة أخرى";
 
 "podcast_player_episode_details" = "تفاصيل الحلقة";
+
+"podcast_region_hidden_note %lld" = "هناك %lld اشتراكات أخرى غير متوفرة في دليل البودكاست لمنطقة App Store الحالية، لذا فهي مخفية على هذا الجهاز.";
+"podcast_region_directory_only" = "في منطقة App Store هذه، يمكن إضافة البودكاست من دليل البودكاست فقط.";

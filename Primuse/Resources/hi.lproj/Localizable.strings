@@ -5350,3 +5350,6 @@
 "album_pick_another_batch" = "दूसरा सेट";
 
 "podcast_player_episode_details" = "एपिसोड का विवरण";
+
+"podcast_region_hidden_note %lld" = "%lld और सदस्यताएँ इस App Store क्षेत्र की पॉडकास्ट डायरेक्टरी में नहीं हैं, इसलिए इस डिवाइस पर छिपी हैं।";
+"podcast_region_directory_only" = "इस App Store क्षेत्र में पॉडकास्ट केवल पॉडकास्ट डायरेक्टरी से जोड़े जा सकते हैं।";

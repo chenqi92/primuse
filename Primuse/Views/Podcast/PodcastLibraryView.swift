@@ -194,12 +194,16 @@ struct PodcastLibraryContent: View {
                 ProgressView()
                     .frame(maxWidth: .infinity, minHeight: 200)
             } else if store.shows.isEmpty {
-                PodcastWelcomeView(navigation: navigation)
+                VStack(spacing: 20) {
+                    PodcastWelcomeView(navigation: navigation)
+                    PodcastRegionHiddenNote()
+                }
             } else {
                 LazyVStack(alignment: .leading, spacing: 28) {
                     PodcastContinueListeningRow(navigation: navigation)
                     PodcastLatestEpisodesSection(navigation: navigation)
                     PodcastShowsGrid(navigation: navigation)
+                    PodcastRegionHiddenNote()
                 }
             }
         }
@@ -209,6 +213,27 @@ struct PodcastLibraryContent: View {
         }
         .onChange(of: store.isLoaded) { _, loaded in
             if loaded { store.refreshAllIfDue() }
+        }
+    }
+}
+
+/// 当前店面不显示的订阅(别的设备同步来的手填地址、换店面前订的)。说一句,免得以为同步丢了。
+private struct PodcastRegionHiddenNote: View {
+    private var store: PodcastStore { PodcastStore.shared }
+
+    var body: some View {
+        let count = store.regionHiddenShowCount
+        if count > 0 {
+            Label {
+                Text(String(format: String(localized: "podcast_region_hidden_note %lld"), count))
+            } icon: {
+                Image(systemName: "globe.asia.australia")
+            }
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .pmClearOfVerticalBar()
         }
     }
 }
@@ -717,6 +742,10 @@ struct PodcastDebugScreen: View {
         for _ in 0..<100 where !store.isLoaded {
             try? await Task.sleep(for: .milliseconds(200))
         }
+        // 等店面取到再订:否则按手机地区猜的那一刻会把手填地址挡掉、按别的地区查目录。
+        for _ in 0..<50 where !PodcastAvailabilityService.shared.isStorefrontResolved {
+            try? await Task.sleep(for: .milliseconds(200))
+        }
         let feeds = (env["PRIMUSE_DEBUG_PODCAST_SEED"] ?? "")
             .split(separator: ",")
             .compactMap { PodcastFeedURL.normalized(String($0)) }
@@ -726,6 +755,20 @@ struct PodcastDebugScreen: View {
                 plog("🧪 Debug: subscribed podcast '\(show.title)' episodes=\(store.episodes(forShowID: show.id).count)")
             } catch {
                 plog("🧪 Debug: podcast seed failed \(url.host ?? "?"): \(error.localizedDescription)")
+            }
+        }
+        // `PRIMUSE_DEBUG_PODCAST_SEED_DIRECTORY=<目录 id,逗号分隔>`:按目录订阅(带目录 id),验店面核对用。
+        let directoryIDs = (env["PRIMUSE_DEBUG_PODCAST_SEED_DIRECTORY"] ?? "").split(separator: ",").compactMap { Int($0) }
+        for id in directoryIDs where store.subscribedShow(directoryID: id) == nil {
+            do {
+                guard let directoryShow = try await PodcastDirectoryService.shared.lookup(id) else {
+                    plog("🧪 Debug: directory id \(id) not in this storefront's directory")
+                    continue
+                }
+                let show = try await store.subscribe(directoryShow: directoryShow)
+                plog("🧪 Debug: subscribed podcast '\(show.title)' from directory \(id)")
+            } catch {
+                plog("🧪 Debug: directory seed \(id) failed: \(error.localizedDescription)")
             }
         }
         if env["PRIMUSE_DEBUG_PODCAST_PROGRESS"] == "1",

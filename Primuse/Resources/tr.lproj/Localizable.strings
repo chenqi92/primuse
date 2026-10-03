@@ -5350,3 +5350,6 @@
 "album_pick_another_batch" = "Başka seçki";
 
 "podcast_player_episode_details" = "Bölüm Ayrıntıları";
+
+"podcast_region_hidden_note %lld" = "%lld abonelik daha bu App Store bölgesinin podcast dizininde bulunmadığından bu cihazda gizleniyor.";
+"podcast_region_directory_only" = "Bu App Store bölgesinde podcast'ler yalnızca podcast dizininden eklenebilir.";
