@@ -4751,6 +4751,9 @@
 "listening_intent_anything" = "Lo que sea";
 "listening_intent_longUnplayed" = "Redescubrir";
 "listening_intent_newlyAdded" = "Recién agregadas";
+"listening_intent_show_more %lld" = "Mostrar %lld más";
+"listening_intent_show_less" = "Mostrar menos";
+"listening_intent_layout" = "Diseño";
 "listening_scene_row_title" = "En casa";
 "listening_scene_guests" = "Visitas";
 "listening_scene_guests_hint" = "Pop ligero y música tranquila";

@@ -4845,6 +4845,9 @@
 "listening_intent_anything" = "아무거나";
 "listening_intent_longUnplayed" = "오랜만에";
 "listening_intent_newlyAdded" = "새로 추가";
+"listening_intent_show_more %lld" = "%lld개 더 보기";
+"listening_intent_show_less" = "접기";
+"listening_intent_layout" = "배치";
 "listening_scene_row_title" = "집에서";
 "listening_scene_guests" = "손님맞이";
 "listening_scene_guests_hint" = "가벼운 팝과 이지 리스닝";

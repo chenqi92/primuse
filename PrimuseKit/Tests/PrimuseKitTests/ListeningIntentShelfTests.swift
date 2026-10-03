@@ -228,4 +228,50 @@ struct ListeningIntentShelfTests {
             for: .builtIn(.pop), songs: library, history: .empty(now: now), limit: 10, isCancelled: { true }
         ) == nil)
     }
+
+    @Test("The spread-out grid lists every lit intent once, the ten-card row included")
+    func unboundedRow() throws {
+        var big: [ListeningTestSong] = []
+        for (offset, genre) in ["Jazz", "Pop", "Rock", "Electronic", "Classical", "Folk", "Rap", "Ambient", "Soundtrack"].enumerated() {
+            for index in 0..<30 {
+                big.append(ListeningTestSong(id: "\(genre)\(index)", genre: genre, year: 1980 + offset * 4, duration: 200))
+            }
+        }
+        let lit = try availability(big)
+        var configuration = ListeningIntentShelfConfiguration()
+        configuration.setHidden(true, intentID: "builtin:jazz")
+        let row = ListeningIntentShelfPolicy.row(availability: lit, configuration: configuration, resumeSongCount: 5)
+        let all = ListeningIntentShelfPolicy.row(
+            availability: lit, configuration: configuration, resumeSongCount: 5, limit: .max
+        )
+        #expect(row.count == ListeningIntentShelfPolicy.rowLimit)
+        #expect(all.count > row.count)
+        #expect(Array(all.prefix(row.count)) == row)
+        #expect(Set(all.map(\.id)).count == all.count)
+        #expect(!all.contains { $0.id == "builtin:jazz" })
+        #expect(all.dropFirst().allSatisfy { lit.isLit($0.intent) })
+    }
+
+    @Test("Grid columns follow the width: two on a phone, more on wider screens, within bounds")
+    func gridColumns() {
+        #expect(ListeningIntentShelfPolicy.gridColumns(width: 350, spacing: 8) == 2)
+        #expect(ListeningIntentShelfPolicy.gridColumns(width: 390, spacing: 8) == 2)
+        #expect(ListeningIntentShelfPolicy.gridColumns(width: 728, spacing: 8) == 4)
+        #expect(ListeningIntentShelfPolicy.gridColumns(width: 804, spacing: 8) == 5)
+        #expect(ListeningIntentShelfPolicy.gridColumns(width: 1_400, spacing: 8) == 6)
+        #expect(ListeningIntentShelfPolicy.gridColumns(width: 200, spacing: 8) == 2)
+        #expect(ListeningIntentShelfPolicy.gridColumns(width: 0, spacing: 8) == 2)
+        #expect(ListeningIntentShelfPolicy.gridColumns(width: .nan, spacing: 8) == 2)
+    }
+
+    @Test("The collapsed grid rounds the chosen count up to whole rows and never invents tiles")
+    func collapsedGrid() {
+        #expect(ListeningIntentShelfPolicy.collapsedGridCount(limit: 6, columns: 2, available: 21) == 6)
+        #expect(ListeningIntentShelfPolicy.collapsedGridCount(limit: 5, columns: 2, available: 21) == 6)
+        #expect(ListeningIntentShelfPolicy.collapsedGridCount(limit: 6, columns: 4, available: 21) == 8)
+        #expect(ListeningIntentShelfPolicy.collapsedGridCount(limit: 6, columns: 4, available: 7) == 7)
+        #expect(ListeningIntentShelfPolicy.collapsedGridCount(limit: 0, columns: 2, available: 21) == 2)
+        #expect(ListeningIntentShelfPolicy.collapsedGridCount(limit: 6, columns: 0, available: 21) == 6)
+        #expect(ListeningIntentShelfPolicy.collapsedGridCount(limit: 6, columns: 2, available: 0) == 0)
+    }
 }

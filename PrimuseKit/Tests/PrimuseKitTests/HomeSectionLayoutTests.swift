@@ -36,4 +36,25 @@ struct HomeSectionLayoutTests {
         let storedAfterRender = configuration.rowCount(for: .recentlyAdded)
         #expect(storedAfterRender == 3)
     }
+
+    @Test("开始听默认铺开成网格,可换横排;张数两种排布都能调,行数只有横排有")
+    func startListeningLayout() {
+        #expect(HomeSectionLayoutPolicy.supportedStyles(for: .startListening) == [.grid, .carousel])
+        #expect(HomeSectionLayoutPolicy.defaultStyle(for: .startListening) == .grid)
+        #expect(HomeSectionLayoutPolicy.isConfigurable(.startListening))
+        #expect(HomeSectionLayoutPolicy.itemCountRange(for: .startListening) == 2...24)
+        #expect(HomeSectionLayoutPolicy.defaultItemCount(for: .startListening) == 6)
+        #expect(HomeSectionLayoutPolicy.rowsRange(for: .startListening, style: .grid) == nil)
+        #expect(HomeSectionLayoutPolicy.rowsRange(for: .startListening, style: .carousel) == 1...3)
+
+        var configuration = HomeSectionLayoutConfiguration()
+        #expect(configuration.style(for: .startListening) == .grid)
+        configuration.advanceStyle(for: .startListening)
+        #expect(configuration.style(for: .startListening) == .carousel)
+        configuration.setItemCount(40, for: .startListening)
+        #expect(configuration.itemCount(for: .startListening) == 24)
+        configuration.advanceStyle(for: .startListening)
+        #expect(configuration.style(for: .startListening) == .grid)
+        #expect(configuration.styles[HomeSectionKind.startListening.rawValue] == nil)
+    }
 }

@@ -4751,6 +4751,9 @@
 "listening_intent_anything" = "कुछ भी";
 "listening_intent_longUnplayed" = "फिर से खोजें";
 "listening_intent_newlyAdded" = "नए जोड़े गए";
+"listening_intent_show_more %lld" = "%lld और दिखाएं";
+"listening_intent_show_less" = "कम दिखाएं";
+"listening_intent_layout" = "लेआउट";
 "listening_scene_row_title" = "घर पर";
 "listening_scene_guests" = "मेहमान";
 "listening_scene_guests_hint" = "हल्का पॉप और शांत संगीत";

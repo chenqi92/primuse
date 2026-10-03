@@ -655,6 +655,7 @@ struct HomeView: View {
     @State private var showsFolderManager = false
     /// 编辑态里「电台」「有声书」两块的挑选页。
     @State private var spotlightManagerSection: HomeSectionKind?
+    @State private var showsListeningIntentManager = false
     /// 没有对应胶囊时,卡片上的「全部」「书架」推进来的那一页。
     @State private var pushedSpacePage: ListeningSpace?
 
@@ -859,6 +860,9 @@ struct HomeView: View {
                     }
                     .sheet(item: $spotlightManagerSection) { section in
                         NavigationStack { HomeSpotlightManagementView(section: section) }
+                    }
+                    .sheet(isPresented: $showsListeningIntentManager) {
+                        NavigationStack { ListeningIntentsManagementSheet() }
                     }
             } else {
                 navigationRoot
@@ -1159,7 +1163,9 @@ struct HomeView: View {
             }
         case .startListening:
             // 音乐的区块: 「全部」与筛到音乐时都在。
-            if showStartListening { HomeDeferredSection { StartListeningShelf() } }
+            if showStartListening {
+                HomeDeferredSection { StartListeningShelf(arrangement: startListeningArrangement(style)) }
+            }
         case .albumPick:
             // 音乐的区块: 「全部」与筛到音乐时都在。
             if showAlbumPick { HomeDeferredSection { HomeAlbumPickSection() } }
@@ -1242,6 +1248,20 @@ struct HomeView: View {
     /// 用户没设过条目数时,沿用各排布原本按尺寸类给的默认值。
     private func sectionItemCount(_ section: HomeSectionKind, _ fallback: Int) -> Int {
         homeLayout.itemCount(for: section) ?? fallback
+    }
+
+    /// 「开始听」按首页编辑里选的排布与张数摆。网格的列数随宽度定,张数凑满整行,
+    /// 所以默认张数各尺寸都一样:手机三行两列,iPad 两行四列。
+    private func startListeningArrangement(_ style: HomeSectionLayoutStyle) -> StartListeningShelf.Arrangement {
+        let limit = sectionItemCount(.startListening, HomeSectionLayoutPolicy.defaultItemCount(for: .startListening))
+        guard style == .carousel else { return .grid(limit: limit) }
+        return .carousel(
+            rows: HomeSectionLayoutPolicy.renderedRowCount(
+                configured: homeLayout.rowCount(for: .startListening),
+                isCompactHeight: heightClass.isCompact
+            ),
+            limit: limit
+        )
     }
 
     // MARK: - 编辑态
@@ -1422,6 +1442,18 @@ struct HomeView: View {
                     .controlSize(.small)
                     .accessibilityLabel(Text("home_spotlight_manage"))
                     .accessibilityIdentifier("home.edit.spotlight." + section.rawValue)
+                }
+
+                if section == .startListening {
+                    Button { showsListeningIntentManager = true } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.footnote.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.small)
+                    .accessibilityLabel(Text("listening_intent_page_title"))
+                    .accessibilityIdentifier("home.edit.listeningIntents")
                 }
 
                 if section == .folders {

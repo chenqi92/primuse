@@ -4751,6 +4751,9 @@
 "listening_intent_anything" = "Cokolwiek";
 "listening_intent_longUnplayed" = "Odkryj na nowo";
 "listening_intent_newlyAdded" = "Nowo dodane";
+"listening_intent_show_more %lld" = "Pokaż jeszcze %lld";
+"listening_intent_show_less" = "Pokaż mniej";
+"listening_intent_layout" = "Układ";
 "listening_scene_row_title" = "W domu";
 "listening_scene_guests" = "Goście";
 "listening_scene_guests_hint" = "Lekki pop i spokojna muzyka";

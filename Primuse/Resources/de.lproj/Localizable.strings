@@ -4845,6 +4845,9 @@
 "listening_intent_anything" = "Irgendwas";
 "listening_intent_longUnplayed" = "Wiederentdecken";
 "listening_intent_newlyAdded" = "Neu hinzugefügt";
+"listening_intent_show_more %lld" = "%lld weitere anzeigen";
+"listening_intent_show_less" = "Weniger anzeigen";
+"listening_intent_layout" = "Anordnung";
 "listening_scene_row_title" = "Zu Hause";
 "listening_scene_guests" = "Besuch";
 "listening_scene_guests_hint" = "Leichter Pop und ruhige Musik";

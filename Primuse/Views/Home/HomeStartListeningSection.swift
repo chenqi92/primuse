@@ -1,13 +1,27 @@
 import SwiftUI
 import PrimuseKit
 
-/// 「开始听」横向卡片行:经典首页的区块、Mac 首页主卡下面、极简导航「歌曲」页顶上共用。
+/// 「开始听」:经典首页的区块、Mac 首页主卡下面、极简导航「歌曲」页顶上共用。
 ///
 /// 第一张固定是「接着上次」(有能接着放的音乐队列时)或「随便听听」,然后是钉选的,
-/// 其余按曲库点亮强度,最多十张,末尾「全部意图 ›」进整页。点卡片直接起播,
+/// 其余按曲库点亮强度。首页默认铺开成网格(收起时放设定的张数,凑满整行,其余点「展开」
+/// 原地铺出来),也可以在首页编辑里换回横排;标题右边「全部」进整页。点卡片直接起播,
 /// 长按可以下一首播放、加入队列、查看歌曲、钉选或隐藏。点亮在后台算好,这里只读结果。
 struct StartListeningShelf: View {
-    /// 标题与卡片行左右留多少。经典首页 20,Mac 首页由外层留白,所以给 0。
+    /// 卡片怎么摆。
+    enum Arrangement: Equatable {
+        /// 铺开:等宽色块,列数随宽度(手机两列,iPad、横屏、Mac 更多),
+        /// 收起时放 `limit` 张并凑满整行,其余由「展开」铺出来。
+        case grid(limit: Int)
+        /// 横排:卡片横着滑,一行或几行,一共 `limit` 张。
+        case carousel(rows: Int, limit: Int)
+
+        /// 歌曲页顶上那一条:一行横排,不和下面的歌抢地方。
+        static let compactRow = Arrangement.carousel(rows: 1, limit: ListeningIntentShelfPolicy.rowLimit)
+    }
+
+    var arrangement: Arrangement = .compactRow
+    /// 标题与卡片左右留多少。经典首页 20,Mac 首页由外层留白,所以给 0。
     var horizontalInset: CGFloat = 20
     var showsTitle = true
     /// Mac 首页的子页不走导航栈推页,由首页换成整页;nil 时用导航栈推。
@@ -21,30 +35,31 @@ struct StartListeningShelf: View {
     @State private var songsIntent: ListeningIntent?
     /// 点下去到队列装好之间,那张卡片转个圈。
     @State private var startingIntentID: String?
+    /// 网格那一块的宽度,定列数用;量到之前按两列排。
+    @State private var gridWidth: CGFloat = 0
+    /// 展开过就一直展开,直到再点「收起」。只记在本机。
+    @AppStorage(ListeningIntentService.gridExpandedKey) private var isGridExpanded = false
 
+    private static let gridSpacing: CGFloat = 8
+    /// 上次量到的网格宽度:首页区块重建时先按它分列,不会在 iPad 上先排两列再跳成四列。
+    @MainActor private static var lastGridWidth: CGFloat = 0
     private var service: ListeningIntentService { .shared }
 
     var body: some View {
-        let items = service.row(player: player)
+        let items = service.row(player: player, limit: rowLimit)
         Group {
             if !items.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     if showsTitle {
-                        sectionTitle
+                        header
                             .padding(.horizontal, horizontalInset)
-                            .accessibilityAddTraits(.isHeader)
                     }
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
-                            ForEach(items) { item in
-                                card(item)
-                            }
-                            allIntentsCard
-                        }
-                        .padding(.horizontal, horizontalInset)
-                        .padding(.vertical, 2)
+                    switch arrangement {
+                    case .grid(let limit):
+                        grid(items, limit: limit)
+                    case .carousel(let rows, _):
+                        carousel(items, rows: rows)
                     }
-                    .scrollClipDisabled()
                 }
                 .transition(.opacity)
             } else if service.availability == nil, !library.musicSongs.isEmpty {
@@ -69,6 +84,29 @@ struct StartListeningShelf: View {
         }
     }
 
+    /// 横排放多少张就取多少张;网格要知道一共有多少张,才说得出「展开」还藏着几张。
+    private var rowLimit: Int {
+        switch arrangement {
+        case .grid: .max
+        case .carousel(_, let limit): max(1, limit)
+        }
+    }
+
+    // MARK: Header
+
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline) {
+            sectionTitle
+                .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 8)
+            Button(action: openAll) {
+                viewAllLabel
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("home.startListening.all")
+        }
+    }
+
     /// 区块标题:手机、iPad 跟首页其它区块一样;Mac 跟 Mac 首页的区块标题一样。
     private var sectionTitle: some View {
         #if os(macOS)
@@ -80,6 +118,126 @@ struct StartListeningShelf: View {
         Text("home_section_start_listening")
             .font(.title3.weight(.bold))
         #endif
+    }
+
+    private var viewAllLabel: some View {
+        #if os(macOS)
+        HStack(spacing: 3) {
+            Text("home_section_view_all")
+            Image(systemName: "chevron.right")
+                .font(.system(size: 9.5, weight: .semibold))
+        }
+        .font(.system(size: 12, weight: .medium))
+        .foregroundStyle(PMColor.brand)
+        .contentShape(Rectangle())
+        #else
+        Text("home_section_view_all")
+            .font(.subheadline)
+            .foregroundStyle(.tint)
+            .contentShape(Rectangle())
+        #endif
+    }
+
+    // MARK: Grid
+
+    @ViewBuilder
+    private func grid(_ items: [ListeningIntentShelfItem], limit: Int) -> some View {
+        let columns = ListeningIntentShelfPolicy.gridColumns(
+            width: Double(gridWidth > 0 ? gridWidth : Self.lastGridWidth),
+            spacing: Double(Self.gridSpacing)
+        )
+        let collapsed = ListeningIntentShelfPolicy.collapsedGridCount(
+            limit: limit,
+            columns: columns,
+            available: items.count
+        )
+        let hiddenCount = items.count - collapsed
+        let shown = isGridExpanded || hiddenCount == 0 ? items : Array(items.prefix(collapsed))
+        VStack(spacing: 4) {
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(), spacing: Self.gridSpacing), count: columns),
+                spacing: Self.gridSpacing
+            ) {
+                ForEach(shown) { item in
+                    tile(item)
+                }
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+                Self.lastGridWidth = width
+                if abs(width - gridWidth) > 0.5 { gridWidth = width }
+            }
+            if hiddenCount > 0 {
+                expandToggle(hiddenCount: hiddenCount)
+            }
+        }
+        .padding(.horizontal, horizontalInset)
+    }
+
+    private func tile(_ item: ListeningIntentShelfItem) -> some View {
+        let title = service.title(for: item.intent)
+        let detail = ListeningIntentText.songCount(item.songCount)
+        return Button {
+            start(item.intent)
+        } label: {
+            ListeningIntentTile(
+                title: title,
+                symbolName: item.intent.symbolName,
+                detail: detail,
+                tint: item.intent.tint,
+                badgeSymbol: item.isPinned ? "pin.fill" : nil,
+                isWorking: startingIntentID == item.id
+            )
+        }
+        .buttonStyle(.pmPressable)
+        .contextMenu { menu(item) }
+        .accessibilityLabel(Text(verbatim: "\(title), \(detail)"))
+        .accessibilityIdentifier("home.startListening." + item.id)
+    }
+
+    private func expandToggle(hiddenCount: Int) -> some View {
+        Button {
+            pmWithAnimation(.list) { isGridExpanded.toggle() }
+        } label: {
+            HStack(spacing: 4) {
+                if isGridExpanded {
+                    Text("listening_intent_show_less")
+                } else {
+                    Text(verbatim: String(format: String(localized: "listening_intent_show_more %lld"), hiddenCount))
+                }
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.bold))
+                    .rotationEffect(.degrees(isGridExpanded ? 180 : 0))
+            }
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, minHeight: 32)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("home.startListening.expand")
+    }
+
+    // MARK: Carousel
+
+    private func carousel(_ items: [ListeningIntentShelfItem], rows: Int) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            LazyHGrid(
+                rows: Array(
+                    repeating: GridItem(.fixed(ListeningIntentCard.size.height), spacing: 10),
+                    count: max(1, rows)
+                ),
+                spacing: 10
+            ) {
+                ForEach(items) { item in
+                    card(item)
+                }
+                // 没有标题栏时「全部」就在这一行的末尾。
+                if !showsTitle { allIntentsCard }
+            }
+            .padding(.horizontal, horizontalInset)
+            .padding(.vertical, 2)
+        }
+        .scrollClipDisabled()
     }
 
     private func card(_ item: ListeningIntentShelfItem) -> some View {
@@ -104,9 +262,7 @@ struct StartListeningShelf: View {
     }
 
     private var allIntentsCard: some View {
-        Button {
-            if let onOpenAll { onOpenAll() } else { showsAllIntents = true }
-        } label: {
+        Button(action: openAll) {
             VStack(alignment: .leading, spacing: 0) {
                 Image(systemName: "square.grid.2x2")
                     .font(.system(size: 18, weight: .semibold))
@@ -128,8 +284,10 @@ struct StartListeningShelf: View {
             .contentShape(RoundedRectangle(cornerRadius: ListeningIntentCard.cornerRadius, style: .continuous))
         }
         .buttonStyle(.pmPressable)
-        .accessibilityIdentifier("home.startListening.all")
+        .accessibilityIdentifier("home.startListening.allCard")
     }
+
+    // MARK: Actions
 
     @ViewBuilder
     private func menu(_ item: ListeningIntentShelfItem) -> some View {
@@ -142,6 +300,10 @@ struct StartListeningShelf: View {
                 showSongs: { openSongs(item.intent) }
             )
         }
+    }
+
+    private func openAll() {
+        if let onOpenAll { onOpenAll() } else { showsAllIntents = true }
     }
 
     private func openSongs(_ intent: ListeningIntent) {
@@ -175,7 +337,7 @@ struct StartListeningShelf: View {
         Self.didOpenDebugPage = true
         plog("🧪 Debug: open listening intents \(request)")
         if request == "page" {
-            if let onOpenAll { onOpenAll() } else { showsAllIntents = true }
+            openAll()
         } else if request.hasPrefix("songs:"),
                   let builtIn = BuiltInListeningIntent(rawValue: String(request.dropFirst("songs:".count))) {
             openSongs(.builtIn(builtIn))
@@ -190,15 +352,30 @@ struct StartListeningShelf: View {
                     .padding(.horizontal, horizontalInset)
                     .redacted(reason: .placeholder)
             }
-            HStack(spacing: 10) {
-                ForEach(0..<4, id: \.self) { _ in
-                    RoundedRectangle(cornerRadius: ListeningIntentCard.cornerRadius, style: .continuous)
-                        .fill(ListeningIntentCard.neutralSurface)
-                        .frame(width: ListeningIntentCard.size.width, height: ListeningIntentCard.size.height)
+            switch arrangement {
+            case .grid:
+                LazyVGrid(
+                    columns: Array(repeating: GridItem(.flexible(), spacing: Self.gridSpacing), count: 2),
+                    spacing: Self.gridSpacing
+                ) {
+                    ForEach(0..<4, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: ListeningIntentTile.cornerRadius, style: .continuous)
+                            .fill(ListeningIntentCard.neutralSurface)
+                            .frame(height: ListeningIntentTile.minHeight)
+                    }
                 }
+                .padding(.horizontal, horizontalInset)
+            case .carousel:
+                HStack(spacing: 10) {
+                    ForEach(0..<4, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: ListeningIntentCard.cornerRadius, style: .continuous)
+                            .fill(ListeningIntentCard.neutralSurface)
+                            .frame(width: ListeningIntentCard.size.width, height: ListeningIntentCard.size.height)
+                    }
+                }
+                .padding(.horizontal, horizontalInset)
+                .padding(.vertical, 2)
             }
-            .padding(.horizontal, horizontalInset)
-            .padding(.vertical, 2)
         }
         .accessibilityHidden(true)
     }
@@ -341,19 +518,23 @@ struct ListeningIntentCard: View {
         )
         .frame(maxWidth: fillsWidth ? .infinity : nil, alignment: .topLeading)
         .background {
-            // 黑底上叠主题色渐变:浅色、深色外观下都是同一种偏深的颜色,白字始终看得清。
-            ZStack {
-                Color.black
-                LinearGradient(
-                    colors: [tint, tint.opacity(0.72)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            }
-            .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
+            Self.surface(tint: tint, cornerRadius: Self.cornerRadius)
         }
         .contentShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
         .opacity(isDimmed ? 0.42 : 1)
+    }
+
+    /// 黑底上叠主题色渐变:浅色、深色外观下都是同一种偏深的颜色,白字始终看得清。
+    static func surface(tint: Color, cornerRadius: CGFloat) -> some View {
+        ZStack {
+            Color.black
+            LinearGradient(
+                colors: [tint, tint.opacity(0.72)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }
 
     static var neutralSurface: Color {
@@ -364,6 +545,64 @@ struct ListeningIntentCard: View {
         #else
         Color.gray.opacity(0.2)
         #endif
+    }
+}
+
+/// 铺开时的一格:左边图标,右边名字和曲数,撑满列宽。底色与横排卡片同一套。
+struct ListeningIntentTile: View {
+    static let minHeight: CGFloat = 56
+    static let cornerRadius: CGFloat = 12
+
+    let title: String
+    let symbolName: String
+    let detail: String?
+    let tint: Color
+    var badgeSymbol: String? = nil
+    var isWorking = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(.white.opacity(0.18))
+                if isWorking {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(.white)
+                } else {
+                    Image(systemName: symbolName)
+                        .font(.system(size: 15, weight: .semibold))
+                }
+            }
+            .frame(width: 34, height: 34)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(verbatim: title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                if let detail {
+                    Text(verbatim: detail)
+                        .font(.caption2)
+                        .monospacedDigit()
+                        .opacity(0.82)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+            if let badgeSymbol {
+                Image(systemName: badgeSymbol)
+                    .font(.caption2.weight(.semibold))
+                    .opacity(0.9)
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, minHeight: Self.minHeight, alignment: .leading)
+        .background {
+            ListeningIntentCard.surface(tint: tint, cornerRadius: Self.cornerRadius)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
     }
 }
 
@@ -561,6 +800,21 @@ struct ListeningIntentsPage: View {
     }
 }
 
+/// 首页编辑里「开始听」那条操作条上的管理按钮:就是「全部意图」整页,多一个「完成」。
+/// 在这里钉选、隐藏、挪位置,首页那一块跟着变。
+struct ListeningIntentsManagementSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ListeningIntentsPage()
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("done") { dismiss() }
+                }
+            }
+    }
+}
+
 // MARK: - Songs
 
 /// 「查看歌曲」:这个意图在曲库里匹配到的歌,按曲库顺序,最多列一千首。只存 ID,
@@ -637,7 +891,8 @@ struct ListeningIntentSongsView: View {
             }
             .padding(.bottom, 40)
         }
-        .task(id: intent.id) {
+        // 停用或重新启用音乐源时重新列一遍,停用的源里的歌不留在这里。
+        .task(id: "\(intent.id)|\(library.disabledSourceIDs.sorted())") {
             isLoading = true
             let result = await service.matchingSongIDs(for: intent, library: library)
             songIDs = result.ids

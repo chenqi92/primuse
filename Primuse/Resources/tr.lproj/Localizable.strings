@@ -4751,6 +4751,9 @@
 "listening_intent_anything" = "Herhangi bir şey";
 "listening_intent_longUnplayed" = "Yeniden keşfet";
 "listening_intent_newlyAdded" = "Yeni eklenenler";
+"listening_intent_show_more %lld" = "%lld tane daha göster";
+"listening_intent_show_less" = "Daha az göster";
+"listening_intent_layout" = "Düzen";
 "listening_scene_row_title" = "Evde";
 "listening_scene_guests" = "Misafir";
 "listening_scene_guests_hint" = "Hafif pop ve sakin müzik";

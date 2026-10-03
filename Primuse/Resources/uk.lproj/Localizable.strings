@@ -4751,6 +4751,9 @@
 "listening_intent_anything" = "Будь-що";
 "listening_intent_longUnplayed" = "Давно не слухали";
 "listening_intent_newlyAdded" = "Нещодавно додані";
+"listening_intent_show_more %lld" = "Показати ще %lld";
+"listening_intent_show_less" = "Згорнути";
+"listening_intent_layout" = "Розташування";
 "listening_scene_row_title" = "Удома";
 "listening_scene_guests" = "Гості";
 "listening_scene_guests_hint" = "Легкий поп і спокійна музика";

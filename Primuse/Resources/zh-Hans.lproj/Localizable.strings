@@ -4938,6 +4938,9 @@
 "listening_intent_anything" = "随便听听";
 "listening_intent_longUnplayed" = "很久没听的";
 "listening_intent_newlyAdded" = "新加的";
+"listening_intent_show_more %lld" = "展开其余 %lld 个";
+"listening_intent_show_less" = "收起";
+"listening_intent_layout" = "排布方式";
 "listening_scene_row_title" = "居家场景";
 "listening_scene_guests" = "会客";
 "listening_scene_guests_hint" = "轻松的流行与轻音乐";

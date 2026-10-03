@@ -4751,6 +4751,9 @@
 "listening_intent_anything" = "Что угодно";
 "listening_intent_longUnplayed" = "Давно не слушали";
 "listening_intent_newlyAdded" = "Недавно добавленные";
+"listening_intent_show_more %lld" = "Показать ещё %lld";
+"listening_intent_show_less" = "Свернуть";
+"listening_intent_layout" = "Расположение";
 "listening_scene_row_title" = "Дома";
 "listening_scene_guests" = "Гости";
 "listening_scene_guests_hint" = "Лёгкий поп и спокойная музыка";

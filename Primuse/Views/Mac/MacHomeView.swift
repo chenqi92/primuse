@@ -62,6 +62,8 @@ struct MacHomeView: View {
     // 与 iPhone、iPad 首页同一份区块开关(HomeSectionKind);Mac 首页只接显隐,顺序仍固定。
     @AppStorage("primuse.home.showContinueSpaces") private var showContinueSpaces = true
     @AppStorage(ListeningIntentService.homeVisibilityKey) private var showStartListening = true
+    /// 「开始听」的排布与张数,与 iPhone、iPad 首页编辑同一份配置,在 设置 › 外观 › 首页 里调。
+    @AppStorage(HomeSectionLayoutConfiguration.storageKey) private var homeSectionLayoutRawValue = ""
     @AppStorage("primuse.home.showForYou") private var showForYou = true
     @AppStorage("primuse.home.showContinueListening") private var showContinueListening = true
     @AppStorage("primuse.home.showTopArtists") private var showTopArtists = true
@@ -220,6 +222,16 @@ struct MacHomeView: View {
         }
     }
 
+    /// Mac 首页宽:网格按宽度分列、张数凑满整行;横排只铺一行。
+    private var startListeningArrangement: StartListeningShelf.Arrangement {
+        let layout = HomeSectionLayoutConfiguration.decode(homeSectionLayoutRawValue)
+        let limit = layout.itemCount(for: .startListening)
+            ?? HomeSectionLayoutPolicy.defaultItemCount(for: .startListening)
+        return layout.style(for: .startListening) == .carousel
+            ? .carousel(rows: 1, limit: limit)
+            : .grid(limit: limit)
+    }
+
     @ViewBuilder
     private func resolvedDashboardContent(hasContent: Bool) -> some View {
         // 每个区块自己淡入: 骨架换内容、推荐/电台这些异步算完才出现的区块都只动透明度。
@@ -235,6 +247,7 @@ struct MacHomeView: View {
         if hasContent, showStartListening {
             // 「开始听」:主卡下面一行意图卡片,点了直接起播。
             StartListeningShelf(
+                arrangement: startListeningArrangement,
                 horizontalInset: 0,
                 onOpenAll: { openSection(.allIntents) },
                 onOpenSongs: { openSection(.intentSongs($0, fromAllIntents: false)) }
@@ -2049,8 +2062,9 @@ private struct MacHomeResumeRow: View {
 
         // 音乐: 优先是离开音乐时存下的队列; 没有时退回最近播过的一首音乐,
         // 时间取听歌记录里最后一次听音乐的时刻。
+        // 记下的队列整个落在停用的源里时不算,源重新启用后再算。
         let spokenWordSongIDs = library.spokenWordSongIDs
-        if let memory = MusicSessionMemoryStore.shared.memory {
+        if let memory = MusicSessionMemoryStore.shared.memory, player.rememberedMusicSessionPlayableCount > 0 {
             candidates.append(ListeningResumeCandidate(space: .music, lastListenedAt: memory.savedAt))
             cardsBySpace[.music] = .musicMemory(memory, song: library.song(id: memory.songID))
         } else if let song = library.recentlyPlayedSongs(limit: 20)

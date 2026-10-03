@@ -4608,6 +4608,9 @@
 "listening_intent_anything" = "Anything";
 "listening_intent_longUnplayed" = "Rediscover";
 "listening_intent_newlyAdded" = "Just Added";
+"listening_intent_show_more %lld" = "Show %lld More";
+"listening_intent_show_less" = "Show Less";
+"listening_intent_layout" = "Layout";
 "listening_scene_row_title" = "At Home";
 "listening_scene_guests" = "Guests Over";
 "listening_scene_guests_hint" = "Easy pop and light music";

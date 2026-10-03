@@ -17,6 +17,8 @@ final class ListeningIntentService {
     nonisolated static let homeVisibilityKey = "primuse.home.showStartListening"
     /// 极简导航里「歌曲」页顶上同一行卡片的开关(界面编辑 › 资料库)。
     nonisolated static let minimalSongsVisibilityKey = "primuse.minimal.showStartListening"
+    /// 首页铺开成网格时是不是展开着。
+    nonisolated static let gridExpandedKey = "primuse.home.startListening.expanded"
     /// 「查看歌曲」最多列出多少首;整库那么大的意图看全部用歌曲页。
     nonisolated static let songListLimit = 1_000
 
@@ -32,6 +34,8 @@ final class ListeningIntentService {
     @ObservationIgnored private var refreshPending = false
     @ObservationIgnored private var deferredRefresh: Task<Void, Never>?
     @ObservationIgnored private var smartPlaylistCountsKey: String?
+    /// 上次点亮时停用着的音乐源。停用、重新启用是用户自己的操作,不等五分钟的节流,马上重数。
+    @ObservationIgnored private var countedDisabledSourceIDs: Set<String> = []
     @ObservationIgnored private weak var library: MusicLibrary?
     @ObservationIgnored private let musicSongsWatcher = LibraryMusicSongsWatcher()
 
@@ -63,7 +67,10 @@ final class ListeningIntentService {
         guard library.isReady else { return }
         refreshSmartPlaylists(library: library)
         let generation = library.musicSongsRevision
-        if let last = availability, !needsRefresh(last, generation: generation, now: now) {
+        // 停用集合与 `musicSongs` 在同一拍里换上,看到集合变了时数组已经是新的。
+        let disabledSourceIDs = library.disabledSourceIDs
+        let sourcesChanged = disabledSourceIDs != countedDisabledSourceIDs
+        if let last = availability, !sourcesChanged, !needsRefresh(last, generation: generation, now: now) {
             if last.libraryGeneration != generation {
                 // 曲库还在变但离上次不到五分钟:到点再补一次,免得扫描停下后一直停在旧数。
                 scheduleDeferredRefresh(after: ListeningIntentEngine.refreshInterval - now.timeIntervalSince(last.computedAt))
@@ -100,6 +107,7 @@ final class ListeningIntentService {
             }
             guard let self else { return }
             self.refreshTask = nil
+            if result != nil { self.countedDisabledSourceIDs = disabledSourceIDs }
             if let result, result != self.availability {
                 self.availability = result
                 if let library = self.library { self.refreshSmartPlaylists(library: library) }
@@ -321,26 +329,32 @@ final class ListeningIntentService {
 #if !os(tvOS)
 // 电视用 TVStore 播放,不走这里:电视的场景卡自己起播。
 extension ListeningIntentService {
-    /// 首页这一行:第一张「接着上次」或「随便听听」,然后是钉选的,再按点亮强度,最多十张。
-    func row(player: AudioPlayerService) -> [ListeningIntentShelfItem] {
+    /// 首页这一行:第一张「接着上次」或「随便听听」,然后是钉选的,再按点亮强度,最多 `limit` 张。
+    func row(player: AudioPlayerService, limit: Int = ListeningIntentShelfPolicy.rowLimit) -> [ListeningIntentShelfItem] {
         ListeningIntentShelfPolicy.row(
             availability: availability,
             configuration: configuration,
             resumeSongCount: resumeSongCount(player: player),
-            smartPlaylists: smartPlaylistCounts
+            smartPlaylists: smartPlaylistCounts,
+            limit: limit
         )
     }
 
     /// 能「接着上次」的曲数:离开音乐去听书、听电台时记下的音乐队列,或者停在那儿的音乐队列。
+    /// 停用的源里的歌不算,一首都放不了就不出这张卡;源重新启用后又算回来。
     /// 正在放音乐时没有「接着」可言。
     func resumeSongCount(player: AudioPlayerService) -> Int? {
-        if let memory = MusicSessionMemoryStore.shared.memory {
-            return max(1, memory.snapshot.queueSongIDs.count)
+        if MusicSessionMemoryStore.shared.memory != nil {
+            let count = player.rememberedMusicSessionPlayableCount
+            if count > 0 { return count }
         }
         guard !player.isPlaying, !player.isLoading,
               player.currentListeningSpace == .music,
               !player.queueEntries.isEmpty else { return nil }
-        return player.queueEntries.count
+        let count = player.queueEntries.reduce(0) { total, entry in
+            player.isSourceEnabledForPlayback(entry.song.sourceID) ? total + 1 : total
+        }
+        return count > 0 ? count : nil
     }
 
     // MARK: Playing
@@ -350,12 +364,10 @@ extension ListeningIntentService {
     @discardableResult
     func play(_ intent: ListeningIntent, player: AudioPlayerService, library: MusicLibrary) async -> Bool {
         if intent.habit == .resume {
-            if MusicSessionMemoryStore.shared.memory != nil {
+            if MusicSessionMemoryStore.shared.memory != nil, player.rememberedMusicSessionPlayableCount > 0 {
                 return await player.resumeMusicSession()
             }
-            guard player.currentSong != nil, !player.isPlaying else { return false }
-            player.resume()
-            return true
+            return await player.resumeStoppedMusicQueue()
         }
         let ids = await queueSongIDs(for: intent, library: library)
         guard !ids.isEmpty else { return false }

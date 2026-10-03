@@ -49,7 +49,8 @@ struct HomeContinueSpacesRow: View {
         var candidates: [ListeningResumeCandidate] = []
         var contents: [ListeningSpace: Card.Content] = [:]
 
-        if let memory = MusicSessionMemoryStore.shared.memory {
+        // 记下的队列整个落在停用的源里时不出卡片,源重新启用后再出来。
+        if let memory = MusicSessionMemoryStore.shared.memory, player.rememberedMusicSessionPlayableCount > 0 {
             candidates.append(.init(space: .music, lastListenedAt: memory.savedAt))
             contents[.music] = .music(memory)
         }

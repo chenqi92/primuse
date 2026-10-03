@@ -4751,6 +4751,9 @@
 "listening_intent_anything" = "أي شيء";
 "listening_intent_longUnplayed" = "إعادة اكتشاف";
 "listening_intent_newlyAdded" = "أضيفت حديثًا";
+"listening_intent_show_more %lld" = "عرض %lld أخرى";
+"listening_intent_show_less" = "عرض أقل";
+"listening_intent_layout" = "التخطيط";
 "listening_scene_row_title" = "في المنزل";
 "listening_scene_guests" = "ضيوف";
 "listening_scene_guests_hint" = "بوب خفيف وموسيقى هادئة";

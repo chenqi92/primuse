@@ -4822,6 +4822,9 @@
 "listening_intent_anything" = "隨便聽聽";
 "listening_intent_longUnplayed" = "很久沒聽的";
 "listening_intent_newlyAdded" = "新加的";
+"listening_intent_show_more %lld" = "展開其餘 %lld 個";
+"listening_intent_show_less" = "收起";
+"listening_intent_layout" = "排列方式";
 "listening_scene_row_title" = "居家場景";
 "listening_scene_guests" = "會客";
 "listening_scene_guests_hint" = "輕鬆的流行與輕音樂";

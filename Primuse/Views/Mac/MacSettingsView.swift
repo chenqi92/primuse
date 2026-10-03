@@ -5865,6 +5865,7 @@ private struct MacSTThemeView: View {
     @AppStorage(AlbumRecommendationService.homeVisibilityKey) private var showAlbumPickOnHome = true
     @AppStorage("primuse.home.showContinueSpaces") private var showContinueSpacesOnHome = true
     @AppStorage(ListeningIntentService.homeVisibilityKey) private var showStartListeningOnHome = true
+    @AppStorage(HomeSectionLayoutConfiguration.storageKey) private var homeSectionLayoutRawValue = ""
     @AppStorage("primuse.home.showForYou") private var showForYouOnHome = true
     @AppStorage("primuse.home.showContinueListening") private var showContinueListeningOnHome = true
     @AppStorage("primuse.home.showTopArtists") private var showTopArtistsOnHome = true
@@ -5934,6 +5935,35 @@ private struct MacSTThemeView: View {
 
     private var quickAccessLimit: Int {
         LibraryDisplayConfiguration.normalizedQuickAccessLimit(configuredQuickAccessLimit)
+    }
+
+    /// 「开始听」铺开成网格还是横排。
+    private var startListeningStyleBinding: Binding<HomeSectionLayoutStyle> {
+        Binding(
+            get: { HomeSectionLayoutConfiguration.decode(homeSectionLayoutRawValue).style(for: .startListening) },
+            set: { style in
+                var configuration = HomeSectionLayoutConfiguration.decode(homeSectionLayoutRawValue)
+                configuration.setStyle(style, for: .startListening)
+                homeSectionLayoutRawValue = configuration.encoded()
+            }
+        )
+    }
+
+    /// 「开始听」放几张:网格是收起时的张数(凑满整行),横排是一共几张。
+    private var startListeningCountBinding: Binding<Double> {
+        Binding(
+            get: {
+                Double(
+                    HomeSectionLayoutConfiguration.decode(homeSectionLayoutRawValue).itemCount(for: .startListening)
+                        ?? HomeSectionLayoutPolicy.defaultItemCount(for: .startListening)
+                )
+            },
+            set: { value in
+                var configuration = HomeSectionLayoutConfiguration.decode(homeSectionLayoutRawValue)
+                configuration.setItemCount(Int(value.rounded()), for: .startListening)
+                homeSectionLayoutRawValue = configuration.encoded()
+            }
+        )
     }
 
     private var quickAccessLimitBinding: Binding<Double> {
@@ -6241,6 +6271,25 @@ private struct MacSTThemeView: View {
                     MacSTToggle(isOn: $showStartListeningOnHome)
                 }
                 .settingsAnchor("home.startListening")
+                if showStartListeningOnHome {
+                    MacSTRow(String(localized: "listening_intent_layout")) {
+                        MacSTPicker(
+                            selection: startListeningStyleBinding,
+                            options: HomeSectionLayoutPolicy.supportedStyles(for: .startListening).map {
+                                ($0, String(localized: String.LocalizationValue($0.titleKey)))
+                            }
+                        )
+                    }
+                    MacSTRow(String(localized: "home_count_label")) {
+                        MacSTSlider(
+                            value: startListeningCountBinding,
+                            in: Double(HomeSectionLayoutPolicy.itemCountRange(for: .startListening)?.lowerBound ?? 2)...Double(
+                                HomeSectionLayoutPolicy.itemCountRange(for: .startListening)?.upperBound ?? 24
+                            ),
+                            formatter: { "\(Int($0.rounded()))" }
+                        )
+                    }
+                }
                 MacSTRow(String(localized: "home_section_for_you")) {
                     MacSTToggle(isOn: $showForYouOnHome)
                 }

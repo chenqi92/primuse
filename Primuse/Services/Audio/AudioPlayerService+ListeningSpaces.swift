@@ -182,6 +182,39 @@ extension AudioPlayerService {
         MusicSessionMemoryStore.shared.clear()
     }
 
+    /// 记下的音乐队列里现在能起播的曲数:停用的源里的、已经不在曲库里的不算。
+    /// 读的是可见集合,停用或重新启用一个源,读它的界面会跟着刷新。
+    var rememberedMusicSessionPlayableCount: Int {
+        guard let memory = MusicSessionMemoryStore.shared.memory, let library else { return 0 }
+        return memory.snapshot.queueSongIDs.reduce(0) { count, songID in
+            library.visibleSong(id: songID)?.isPlayable == true ? count + 1 : count
+        }
+    }
+
+    /// 「接着上次」放停在那儿的音乐队列:当前这首的源还开着就接着放,
+    /// 停用了就从它后面第一首源还开着的歌起播。
+    /// - Returns: false when nothing is loaded, it is already playing, or every song's source is disabled.
+    @discardableResult
+    func resumeStoppedMusicQueue() async -> Bool {
+        guard currentSong != nil, !isPlaying, queueEntries.indices.contains(currentIndex) else { return false }
+        if isSourceEnabledForPlayback(queueEntries[currentIndex].song.sourceID) {
+            resume()
+            return true
+        }
+        let entries = queueEntries
+        guard let enabledIndex = QueueTraversalPolicy.nextAvailableIndex(
+            queueCount: entries.count,
+            after: currentIndex,
+            wraps: true,
+            isAvailable: { isSourceEnabledForPlayback(entries[$0].song.sourceID) }
+        ) else {
+            showPlaybackError(String(localized: "playback_error_source_disabled"))
+            return false
+        }
+        await playFromQueue(at: enabledIndex)
+        return true
+    }
+
     /// Puts the remembered music queue back and plays it from where it was.
     /// - Returns: false when nothing is remembered or none of it is playable.
     @discardableResult
@@ -199,12 +232,29 @@ extension AudioPlayerService {
             MusicSessionMemoryStore.shared.clear()
             return false
         }
-        let resumeAt = songs.indices.contains(index) && songs[index].id == snapshot.currentSongID
+        // 停用的源里的歌留在队列里(源重新启用后照常能放),只是不从它们起播:
+        // 从记下的那首起往后找第一首源还开着的。一首都没有就留着记忆,等源重新启用。
+        let rememberedIndex = min(index, songs.count - 1)
+        let startIndex: Int
+        if isSourceEnabledForPlayback(songs[rememberedIndex].sourceID) {
+            startIndex = rememberedIndex
+        } else if let enabledIndex = QueueTraversalPolicy.nextAvailableIndex(
+            queueCount: songs.count,
+            after: rememberedIndex,
+            wraps: true,
+            isAvailable: { isSourceEnabledForPlayback(songs[$0].sourceID) }
+        ) {
+            startIndex = enabledIndex
+        } else {
+            showPlaybackError(String(localized: "playback_error_source_disabled"))
+            return false
+        }
+        let resumeAt = startIndex == rememberedIndex && songs[startIndex].id == snapshot.currentSongID
             ? snapshot.currentTime
             : 0
         repeatMode = snapshot.repeatMode
         shuffleEnabled = snapshot.shuffleEnabled
-        await play(queue: songs, startingAt: index)
+        await play(queue: songs, startingAt: startIndex)
         MusicSessionMemoryStore.shared.clear()
         if resumeAt > 3 {
             seek(to: resumeAt, startPlaying: true)

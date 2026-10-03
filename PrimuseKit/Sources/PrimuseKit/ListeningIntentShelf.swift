@@ -305,6 +305,40 @@ public enum ListeningIntentShelfPolicy {
     }
 }
 
+// MARK: - Spread-out grid
+
+public extension ListeningIntentShelfPolicy {
+    /// The narrowest a tile on the spread-out home grid gets before the grid
+    /// drops a column.
+    static let gridMinimumTileWidth: Double = 150
+    /// Two columns at least, so the shelf reads as a grid even before its
+    /// width is known; six at most, so a wide window does not turn it into a
+    /// single thin strip.
+    static let gridColumnRange: ClosedRange<Int> = 2...6
+
+    /// Columns for the spread-out grid at this width: two on a phone, four or
+    /// five on iPad, in landscape and on the Mac.
+    static func gridColumns(
+        width: Double,
+        spacing: Double,
+        minimumTileWidth: Double = gridMinimumTileWidth
+    ) -> Int {
+        guard width.isFinite, width > 0, minimumTileWidth > 0 else { return gridColumnRange.lowerBound }
+        let fitting = Int(((width + max(0, spacing)) / (minimumTileWidth + max(0, spacing))).rounded(.down))
+        return min(max(fitting, gridColumnRange.lowerBound), gridColumnRange.upperBound)
+    }
+
+    /// Tiles the collapsed grid shows: the chosen count rounded up to whole
+    /// rows (a half-empty last row reads as something missing), never more
+    /// than there are. The rest wait behind "show more".
+    static func collapsedGridCount(limit: Int, columns: Int, available: Int) -> Int {
+        guard available > 0 else { return 0 }
+        let columns = max(1, columns)
+        let rows = (max(1, limit) + columns - 1) / columns
+        return min(available, rows * columns)
+    }
+}
+
 // MARK: - Matching songs
 
 public extension ListeningIntentEngine {

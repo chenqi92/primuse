@@ -108,7 +108,9 @@ public enum HomeSectionLayoutPolicy {
         case .quickAccess: [.grid, .carousel]
         case .folders: [.list, .grid, .carousel]
         case .listeningRanking: [.list, .carousel]
-        case .continueSpaces, .startListening, .albumPick, .radio, .booksInProgress, .audiobooks, .podcasts, .stats: []
+        // 意图一多,横着滑找不到想要的那张:默认两列(iPad 四列)铺开,横排留作选项。
+        case .startListening: [.grid, .carousel]
+        case .continueSpaces, .albumPick, .radio, .booksInProgress, .audiobooks, .podcasts, .stats: []
         }
     }
 
@@ -168,7 +170,9 @@ public enum HomeSectionLayoutPolicy {
         case .booksInProgress: 2...20
         case .audiobooks: 3...30
         case .podcasts: 3...30
-        case .quickAccess, .folders, .stats, .continueSpaces, .startListening, .albumPick: nil
+        // 铺开时是收起状态放几张,其余点「展开」;横排时是一共放几张。
+        case .startListening: 2...24
+        case .quickAccess, .folders, .stats, .continueSpaces, .albumPick: nil
         }
     }
 
@@ -189,7 +193,8 @@ public enum HomeSectionLayoutPolicy {
         case .booksInProgress: 12
         case .audiobooks: 10
         case .podcasts: 10
-        case .quickAccess, .folders, .stats, .continueSpaces, .startListening, .albumPick: 0
+        case .startListening: 6
+        case .quickAccess, .folders, .stats, .continueSpaces, .albumPick: 0
         }
     }
 

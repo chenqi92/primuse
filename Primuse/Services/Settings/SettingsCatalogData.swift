@@ -109,7 +109,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "home.order", titleKey: "home_settings_sections_label", iosPage: .home, macPage: nil),
         SettingDefinition(id: "home.restoreOrder", titleKey: "home_settings_restore_all", iosPage: .home, macPage: nil),
         SettingDefinition(id: "home.continueSpaces", titleKey: "home_continue_spaces_title", iosPage: .home, macPage: .appearance),
-        SettingDefinition(id: "home.startListening", titleKey: "home_section_start_listening", iosPage: .home, macPage: .appearance, keywords: ["开始听", "意图", "流行", "原声", "年代", "随便听听", "intent", "genre", "decade", "mood"]),
+        SettingDefinition(id: "home.startListening", titleKey: "home_section_start_listening", iosPage: .home, macPage: .appearance, keywords: ["开始听", "意图", "流行", "原声", "年代", "随便听听", "铺开", "展开", "网格", "横排", "intent", "genre", "decade", "mood", "grid", "layout"]),
         SettingDefinition(id: "home.continueListening", titleKey: "home_section_continue_listening", iosPage: .home, macPage: .appearance),
         SettingDefinition(id: "home.albumPick", titleKey: "home_section_album_pick", iosPage: .home, macPage: .appearance, keywords: ["今晚听", "推荐专辑", "整张", "album", "tonight", "通勤", "睡前"]),
         SettingDefinition(id: "home.booksInProgress", titleKey: "home_books_in_progress_title", iosPage: .home, macPage: nil, keywords: ["audiobook", "有声书", "有聲書"]),

@@ -4846,6 +4846,9 @@
 "listening_intent_anything" = "なんでも";
 "listening_intent_longUnplayed" = "久しぶりの曲";
 "listening_intent_newlyAdded" = "最近追加";
+"listening_intent_show_more %lld" = "残り %lld 件を表示";
+"listening_intent_show_less" = "折りたたむ";
+"listening_intent_layout" = "レイアウト";
 "listening_scene_row_title" = "おうちで";
 "listening_scene_guests" = "おもてなし";
 "listening_scene_guests_hint" = "軽やかなポップとイージーリスニング";
