@@ -268,6 +268,27 @@ struct SiriRadioStationCatalogTests {
         #expect(SiriRadioStationCatalog.preferredStation(for: weak, in: stations)?.id == "a")
     }
 
+    @Test("Alternatives follow the station Siri plays")
+    func rankedStations() throws {
+        var first = RadioStation(id: "a", name: "交通广播", streamURL: "https://radio.example/a")
+        first.sortOrder = 0
+        var second = RadioStation(id: "b", name: "交通广播", streamURL: "https://radio.example/b")
+        second.sortOrder = 1_024
+        second.lastPlayedAt = Date(timeIntervalSince1970: 1_000)
+        let third = RadioStation(id: "c", name: "北京交通广播", streamURL: "https://radio.example/c")
+        let stations = [first, second, third]
+        let items = SiriRadioStationCatalog.namedItems(from: stations, enabledSourceIDs: [])
+
+        let tied = try #require(SiriNamedMediaResolver.resolve(query: "交通广播", namespace: "radio", items: items))
+        #expect(SiriRadioStationCatalog.rankedStations(for: tied, in: stations).map(\.id) == ["b", "a"])
+
+        let exact = try #require(SiriNamedMediaResolver.resolve(query: "北京交通广播", namespace: "radio", items: items))
+        let ranked = SiriRadioStationCatalog.rankedStations(for: exact, in: stations)
+        #expect(ranked.first?.id == "c")
+        #expect(Set(ranked.dropFirst().map(\.id)) == ["a", "b"])
+        #expect(SiriRadioStationCatalog.rankedStations(for: exact, in: stations, limit: 1).map(\.id) == ["c"])
+    }
+
     @Test("A station chosen by name equality or prefix is a strong match")
     func namedMatchStrength() throws {
         let items = [

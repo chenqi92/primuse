@@ -91,13 +91,13 @@ public enum SiriRadioStationCatalog {
         appShortcutStations(from: stations, enabledSourceIDs: enabledSourceIDs, limit: 1).first
     }
 
-    /// The station a name resolves to, without asking. On the iPhone that
-    /// reported it (iOS 27.0.1), Siri neither hands a disambiguation choice
-    /// nor a confirmation back to resolution — it re-sends the original
-    /// request and then gives up with "something went wrong". So among
-    /// equally good matches (the same station from two subscriptions, or two
-    /// "交通广播") the one last listened to wins, then the resolver's order;
-    /// a lone weak match plays as well.
+    /// The station a name resolves to: among equally good matches (the same
+    /// station from two subscriptions, or two "交通广播") the one last
+    /// listened to, then the resolver's order; a lone weak match counts too.
+    /// Media requests never stop to ask — Apple's model is to play the best
+    /// match and list the rest as alternatives (`rankedStations`). A
+    /// `disambiguation` answer was re-sent by Siri without the listener's
+    /// choice and ended in "something went wrong" (iOS 27.0.1).
     public static func preferredStation(
         for resolution: SiriNamedMediaResolution,
         in stations: [RadioStation]
@@ -109,6 +109,22 @@ public enum SiriRadioStationCatalog {
             let right = rhs.element.lastPlayedAt ?? .distantPast
             return left != right ? left < right : lhs.offset > rhs.offset
         }?.element
+    }
+
+    /// The best station first, then the other matches: Siri plays the first
+    /// and offers the rest under "Maybe you wanted"; a tap on one reaches
+    /// `handle` as that station.
+    public static func rankedStations(
+        for resolution: SiriNamedMediaResolution,
+        in stations: [RadioStation],
+        limit: Int = 5
+    ) -> [RadioStation] {
+        let byID = Dictionary(stations.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let candidates = resolution.candidates.compactMap { byID[$0.id] }
+        guard let best = preferredStation(for: resolution, in: stations) else {
+            return Array(candidates.prefix(max(0, limit)))
+        }
+        return Array(([best] + candidates.filter { $0.id != best.id }).prefix(max(1, limit)))
     }
 
     public static func namedItems(
