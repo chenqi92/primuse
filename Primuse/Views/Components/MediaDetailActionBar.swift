@@ -593,6 +593,11 @@ struct LibraryDetailActionButton: View {
     #if os(iOS)
     @Environment(\.libraryDetailTint) private var tint
     #endif
+    @Environment(\.libraryDetailActionMeasuring) private var measuring
+
+    /// 量折行时不撑高度（圆钮也只留宽度）：两行字也塞得进 48 点，同一行里只要有一颗撑着，
+    /// 整行就一样高，量不出折没折行。
+    private var minimumHeight: CGFloat? { measuring ? nil : 48 }
 
     /// 染了色的详情页上主按钮是白底、字用本页底色；次按钮是一层半透明白。
     /// 主题色在这里不能用 —— 它跟着正在播放的歌走，跟本页底色撞色的概率不低。
@@ -618,7 +623,7 @@ struct LibraryDetailActionButton: View {
                     .font(.headline)
                     .foregroundStyle(labelColor)
                     .padding(.horizontal, 20)
-                    .frame(maxWidth: fillsWidth ? .infinity : nil, minHeight: 48)
+                    .frame(maxWidth: fillsWidth ? .infinity : nil, minHeight: minimumHeight)
                     .background(fillColor, in: Capsule())
             case .iconCapsule:
                 Label(title, systemImage: systemImage)
@@ -626,7 +631,7 @@ struct LibraryDetailActionButton: View {
                     .font(.headline)
                     .foregroundStyle(labelColor)
                     .padding(.horizontal, 20)
-                    .frame(maxWidth: fillsWidth ? .infinity : nil, minHeight: 48)
+                    .frame(maxWidth: fillsWidth ? .infinity : nil, minHeight: minimumHeight)
                     .background(fillColor, in: Capsule())
             case .circle:
                 // 圆要把图标整个圈住：大字号下图标比 48 还大，四周再留一圈。
@@ -634,8 +639,9 @@ struct LibraryDetailActionButton: View {
                     .labelStyle(.iconOnly)
                     .font(.headline)
                     .foregroundStyle(labelColor)
-                    .padding(12)
-                    .frame(minWidth: 48, minHeight: 48)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, measuring ? 0 : 12)
+                    .frame(minWidth: 48, minHeight: minimumHeight)
                     .background(fillColor, in: Circle())
             }
         }
@@ -670,7 +676,9 @@ struct LibraryDetailPlayShuffleRow: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        LibraryDetailAdaptiveActionRow {
+        // 多了一颗心之后, SE 这类窄屏和长文案的语言里三颗平分整行放不下「随机播放」,
+        // 放不下时按宽度退让(随机收成圆钮),放得下的屏幕与原来一致。
+        LibraryDetailAdaptiveActionRow(adaptsAtAnyWidth: favorite != nil) {
             let stacked = stacksAtLargeType && dynamicTypeSize >= .xxLarge
             let layout = stacked
                 ? AnyLayout(VStackLayout(spacing: 10))
@@ -783,6 +791,7 @@ struct LibraryDetailAdaptiveActionRow<Full: View, Reduced: View, Minimal: View>:
                             .fixedSize(horizontal: true, vertical: false)
                             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { widths.reduced = $0 }
                     }
+                    .environment(\.libraryDetailActionMeasuring, true)
                     .hidden()
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
@@ -834,6 +843,9 @@ private struct LibraryDetailActionsAdaptKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
+    /// 操作行在不显示的背景里量各排法要多宽、折没折行。
+    @Entry var libraryDetailActionMeasuring = false
+
     /// 详情页头部排在窄栏里（iPhone Duo 两栏的左栏）：操作行放不下整行文字时换更省地方的排法。
     var libraryDetailActionsAdapt: Bool {
         get { self[LibraryDetailActionsAdaptKey.self] }
