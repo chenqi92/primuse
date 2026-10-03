@@ -926,6 +926,16 @@ public enum LibraryFolderBrowsePolicy {
         AlbumTrackOrder.sorted(songs)
     }
 
+    /// The same songs in the order the user picked for the 「目录」 pages.
+    public static func sortedSongs(_ songs: [Song], order: HomeFolderSongOrder) -> [Song] {
+        switch order {
+        case .trackOrder:
+            return sortedSongs(songs)
+        case .sorted(let listOrder):
+            return SongListSnapshot.sortedSongs(songs, order: listOrder)
+        }
+    }
+
     /// Folder browsing in track order: each directory's songs in disc/track
     /// order, subfolders after their parent, hidden songs left out.
     public static func trackOrderedSongIDs(
@@ -1583,5 +1593,67 @@ public struct LibraryFolderRescanAnchor: Hashable, Sendable {
             }
         }
         return nil
+    }
+}
+
+/// How the 「目录」 pages (home folders and the folder manager) list a folder's
+/// songs: track order by default — disc, track, then the number a file name
+/// starts with — or one of the song list's sorts.
+public enum HomeFolderSongOrder: Hashable, Sendable {
+    case trackOrder
+    case sorted(LibrarySongSortOrder)
+
+    /// The sorts a folder offers. They read only the song itself; play counts,
+    /// download state and source names are not at hand where folders are
+    /// listed, and a sort by them would quietly come out as title order.
+    public static let criteria: [LibrarySongSortCriterion] = [
+        .title, .artist, .album, .dateAdded, .sourceDate, .format,
+    ]
+
+    /// Stored form: empty for track order, otherwise the sort's raw value.
+    public var storageValue: String {
+        switch self {
+        case .trackOrder: return ""
+        case .sorted(let order): return order.rawValue
+        }
+    }
+
+    public init(storageValue: String) {
+        guard let order = LibrarySongSortOrder(rawValue: storageValue),
+              Self.criteria.contains(order.criterion) else {
+            self = .trackOrder
+            return
+        }
+        self = .sorted(order)
+    }
+
+    /// The song-list sort in use; nil for track order.
+    public var listOrder: LibrarySongSortOrder? {
+        guard case .sorted(let order) = self else { return nil }
+        return order
+    }
+
+    public var criterion: LibrarySongSortCriterion? { listOrder?.criterion }
+
+    /// Picking a criterion starts from its natural direction; picking the
+    /// current one again leaves the order as it is.
+    public func selecting(_ criterion: LibrarySongSortCriterion?) -> HomeFolderSongOrder {
+        guard let criterion else { return .trackOrder }
+        if case .sorted(let order) = self, order.criterion == criterion { return self }
+        return .sorted(LibrarySongSortOrder.defaultOrder(for: criterion))
+    }
+
+    /// Track order reads from the first track and has no direction.
+    public func withAscending(_ ascending: Bool) -> HomeFolderSongOrder {
+        guard case .sorted(let order) = self, order.isAscending != ascending else { return self }
+        return .sorted(order.reversed)
+    }
+}
+
+public enum HomeFolderSongOrderPreference {
+    public static let storageKey = "home.folderSongOrder.v1"
+
+    public static func load(from defaults: UserDefaults = .standard) -> HomeFolderSongOrder {
+        HomeFolderSongOrder(storageValue: defaults.string(forKey: storageKey) ?? "")
     }
 }

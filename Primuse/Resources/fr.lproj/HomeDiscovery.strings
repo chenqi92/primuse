@@ -31,3 +31,5 @@
 "expand_top_20" = "Show Top 20";
 "expand_top_n" = "Afficher le top %d";
 "collapse_ranking" = "Show Less";
+"folder_song_order" = "Ordre des morceaux dans les dossiers";
+"folder_song_order_footer" = "Les dossiers ouverts depuis l’accueil ou depuis ici affichent et lisent leurs morceaux dans cet ordre. L’ordre des pistes suit les numéros de disque et de piste, ou le numéro au début du nom de fichier quand un morceau n’en a pas.";

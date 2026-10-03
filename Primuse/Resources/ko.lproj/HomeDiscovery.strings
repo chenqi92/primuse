@@ -31,3 +31,5 @@
 "expand_top_20" = "Show Top 20";
 "expand_top_n" = "상위 %d위 보기";
 "collapse_ranking" = "Show Less";
+"folder_song_order" = "폴더 안 곡 순서";
+"folder_song_order_footer" = "홈과 여기에서 연 폴더는 이 순서로 곡을 표시하고 재생합니다. 트랙 순서는 디스크 번호와 트랙 번호를 따르며, 트랙 번호가 없는 곡은 파일 이름 앞의 번호를 씁니다.";

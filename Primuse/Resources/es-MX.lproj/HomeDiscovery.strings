@@ -31,3 +31,5 @@
 "expand_top_20" = "Show Top 20";
 "expand_top_n" = "Ver el top %d";
 "collapse_ranking" = "Show Less";
+"folder_song_order" = "Orden de canciones en carpetas";
+"folder_song_order_footer" = "Las carpetas que abres desde el inicio o desde aquí muestran y reproducen sus canciones en este orden. El orden de pistas sigue los números de disco y de pista, o el número con el que empieza el nombre del archivo cuando una canción no tiene.";

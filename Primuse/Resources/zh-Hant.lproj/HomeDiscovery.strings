@@ -31,3 +31,5 @@
 "expand_top_20" = "展開前 20 名";
 "expand_top_n" = "展開前 %d 名";
 "collapse_ranking" = "收起排行";
+"folder_song_order" = "目錄內歌曲順序";
+"folder_song_order_footer" = "從首頁和這裡開啟的目錄都按這個順序列出和播放歌曲。曲目順序按碟號、曲號排，沒有曲號時看檔名開頭的編號。";

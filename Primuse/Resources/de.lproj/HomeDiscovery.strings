@@ -31,3 +31,5 @@
 "expand_top_20" = "Show Top 20";
 "expand_top_n" = "Top %d anzeigen";
 "collapse_ranking" = "Show Less";
+"folder_song_order" = "Titelreihenfolge in Ordnern";
+"folder_song_order_footer" = "Ordner, die du auf der Startseite oder hier öffnest, zeigen und spielen ihre Titel in dieser Reihenfolge. Die Titelreihenfolge richtet sich nach CD- und Titelnummer, bei Titeln ohne Nummer nach der Zahl am Anfang des Dateinamens.";

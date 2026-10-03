@@ -31,3 +31,5 @@
 "expand_top_20" = "Show Top 20";
 "expand_top_n" = "Show Top %d";
 "collapse_ranking" = "Show Less";
+"folder_song_order" = "Song Order in Directories";
+"folder_song_order_footer" = "Directories opened from Home and from here list and play their songs in this order. Track order follows disc and track numbers, or the number a file name starts with when a song has none.";

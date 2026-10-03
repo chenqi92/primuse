@@ -31,3 +31,5 @@
 "expand_top_20" = "Show Top 20";
 "expand_top_n" = "İlk %d’i göster";
 "collapse_ranking" = "Show Less";
+"folder_song_order" = "Klasörlerde şarkı sırası";
+"folder_song_order_footer" = "Ana sayfadan veya buradan açılan klasörler şarkılarını bu sırayla listeler ve çalar. Parça sırası disk ve parça numaralarını izler; numarası olmayan şarkılarda dosya adının başındaki sayı kullanılır.";

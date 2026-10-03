@@ -443,6 +443,17 @@ struct HomeFolderBrowser: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(AudioPlayerService.self) private var player
     @AppStorage(HomeFolderPinStorage.key) private var pinsRawValue = ""
+    @AppStorage(HomeFolderSongOrderPreference.storageKey) private var songOrderRawValue = ""
+
+    private var songOrder: HomeFolderSongOrder { HomeFolderSongOrder(storageValue: songOrderRawValue) }
+
+    /// 工具栏菜单跑在自己的视图图里，传 Binding 进去，不让它读环境。
+    private var songOrderBinding: Binding<HomeFolderSongOrder> {
+        Binding(
+            get: { HomeFolderSongOrder(storageValue: songOrderRawValue) },
+            set: { songOrderRawValue = $0.storageValue }
+        )
+    }
 
     private var currentNodeID: LibraryFolderNodeID? {
         #if os(macOS)
@@ -462,7 +473,7 @@ struct HomeFolderBrowser: View {
         return model.index?.sourceNodes ?? []
     }
 
-    /// The folder's own songs in track order, as IDs, worked out off the main
+    /// The folder's own songs in the chosen order, as IDs, worked out off the main
     /// actor once per folder and index revision. Sorting them inside `body`
     /// re-sorted a whole source's songs on every refresh — a source root with
     /// a few hundred thousand unfoldered songs held the main thread for
@@ -477,6 +488,7 @@ struct HomeFolderBrowser: View {
     private struct DirectSongsKey: Equatable {
         let nodeID: LibraryFolderNodeID?
         let revision: Int
+        let order: HomeFolderSongOrder
     }
 
     /// A `List` registers every row up front; past this many the page shows
@@ -490,8 +502,9 @@ struct HomeFolderBrowser: View {
         }
         let ids = LibraryFolderBrowsePolicy.displayedSongIDs(in: index, of: nodeID)
         let lookup = library.visibleSongLookup()
+        let order = songOrder
         let ordered = await Task.detached(priority: .userInitiated) {
-            LibraryFolderBrowsePolicy.sortedSongs(ids.compactMap { lookup.song(id: $0) }).map(\.id)
+            LibraryFolderBrowsePolicy.sortedSongs(ids.compactMap { lookup.song(id: $0) }, order: order).map(\.id)
         }.value
         guard !Task.isCancelled else { return }
         directSongs = (nodeID, ordered)
@@ -549,12 +562,12 @@ struct HomeFolderBrowser: View {
         .onChange(of: model.revision) { _, _ in
             refreshMacSearchContext()
         }
-        .task(id: DirectSongsKey(nodeID: currentNodeID, revision: model.revision)) {
+        .task(id: DirectSongsKey(nodeID: currentNodeID, revision: model.revision, order: songOrder)) {
             await refreshDirectSongIDs()
         }
         #else
         folderList
-            .task(id: DirectSongsKey(nodeID: currentNodeID, revision: model.revision)) {
+            .task(id: DirectSongsKey(nodeID: currentNodeID, revision: model.revision, order: songOrder)) {
                 await refreshDirectSongIDs()
             }
         #endif
@@ -615,6 +628,33 @@ struct HomeFolderBrowser: View {
                     ForEach(children) { child in
                         childRow(child)
                     }
+                }
+            }
+
+            // 目录管理页（首页编辑里的「管理与排序目录」）就能定下各目录里歌曲怎么排。
+            if nodeID == nil, model.index != nil, !children.isEmpty || !pins.isEmpty {
+                Section {
+                    Menu {
+                        HomeFolderSongOrderMenuItems(order: songOrderBinding)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(HomeDiscoveryText.string("folder_song_order"))
+                                .foregroundStyle(.primary)
+                            Spacer(minLength: 8)
+                            HomeFolderSongOrderSummary(order: songOrder)
+                                .foregroundStyle(.secondary)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                                .accessibilityHidden(true)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    // 菜单默认把整行染成强调色，像按钮；这里要像设置里的选择行。
+                    .tint(.primary)
+                    .accessibilityIdentifier("folders.songOrder")
+                } footer: {
+                    Text(HomeDiscoveryText.string("folder_song_order_footer"))
                 }
             }
 
@@ -692,14 +732,9 @@ struct HomeFolderBrowser: View {
                     }
                     .disabled(node.descendantSongCount == 0)
                     .accessibilityLabel("play")
-                    if FolderPlaylistMenuButton.supports(node), verticalBarEdge == nil {
+                    if verticalBarEdge == nil {
                         Menu {
-                            FolderPlaylistMenuButton(
-                                node: node,
-                                index: model.index,
-                                library: library,
-                                source: sourcesStore.source(id: node.sourceID)
-                            )
+                            folderMoreItems(node)
                         } label: {
                             PMToolbarItemLabel("a11y_more_actions", systemImage: "ellipsis", titled: verticalBarEdge != nil)
                         }
@@ -707,15 +742,10 @@ struct HomeFolderBrowser: View {
                     }
                 }
                 // 系统竖栏(iPhone Duo):「⋯」里的动作并进系统溢出菜单。
-                if verticalBarEdge != nil, FolderPlaylistMenuButton.supports(node) {
+                if verticalBarEdge != nil {
                     if #available(iOS 27.0, *) {
                         ToolbarOverflowMenu {
-                            FolderPlaylistMenuButton(
-                                node: node,
-                                index: model.index,
-                                library: library,
-                                source: sourcesStore.source(id: node.sourceID)
-                            )
+                            folderMoreItems(node)
                         }
                     }
                 }
@@ -725,6 +755,20 @@ struct HomeFolderBrowser: View {
             }
         }
         #endif
+    }
+
+    /// 目录页「⋯」里的动作：用作歌单（有的来源才有）和歌曲排序。
+    @ViewBuilder
+    private func folderMoreItems(_ node: LibraryFolderNode) -> some View {
+        if FolderPlaylistMenuButton.supports(node) {
+            FolderPlaylistMenuButton(
+                node: node,
+                index: model.index,
+                library: library,
+                source: sourcesStore.source(id: node.sourceID)
+            )
+        }
+        HomeFolderSongOrderSubmenu(order: songOrderBinding)
     }
 
     #if os(macOS)
@@ -964,6 +1008,14 @@ struct HomeFolderBrowser: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("search_title")
                     pinButton(node.id)
+                    Menu {
+                        HomeFolderSongOrderMenuItems(order: songOrderBinding)
+                    } label: { Image(systemName: "arrow.up.arrow.down").frame(width: 30, height: 30) }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help(HomeDiscoveryText.string("folder_song_order"))
+                    .accessibilityLabel(HomeDiscoveryText.string("folder_song_order"))
                     if FolderPlaylistMenuButton.supports(node) {
                         Menu {
                             FolderPlaylistMenuButton(
@@ -999,6 +1051,23 @@ struct HomeFolderBrowser: View {
                     .font(.system(size: 28, weight: .bold))
                     .foregroundStyle(PMColor.text)
                 Spacer()
+                if model.index != nil, !children.isEmpty || !pins.isEmpty {
+                    Menu {
+                        HomeFolderSongOrderMenuItems(order: songOrderBinding)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(HomeDiscoveryText.string("folder_song_order"))
+                                .foregroundStyle(PMColor.textMuted)
+                            HomeFolderSongOrderSummary(order: songOrder)
+                                .foregroundStyle(PMColor.text)
+                        }
+                        .font(.system(size: 12))
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .help(HomeDiscoveryText.string("folder_song_order_footer"))
+                    .accessibilityIdentifier("folders.songOrder")
+                }
             }
             .padding(.horizontal, PMSpace.xxxl)
             .padding(.vertical, 24)
@@ -1752,8 +1821,8 @@ enum HomeDiscoveryPlayback {
     }
 
     /// Every song under a folder. Shuffling needs no order at all; playing in
-    /// track order sorts off the main actor, where a large folder no longer
-    /// holds up the interface.
+    /// the folder order the user picked (track order by default) sorts off the
+    /// main actor, where a large folder no longer holds up the interface.
     static func playFolder(
         _ id: LibraryFolderNodeID, shuffle: Bool,
         model: HomeDiscoveryModel, library: MusicLibrary, player: AudioPlayerService
@@ -1766,11 +1835,84 @@ enum HomeDiscoveryPlayback {
             return
         }
         let lookup = library.visibleSongLookup()
+        let order = HomeFolderSongOrderPreference.load()
         Task {
             let ordered = await Task.detached(priority: .userInitiated) {
-                LibraryFolderBrowsePolicy.sortedSongs(ids.compactMap { lookup.song(id: $0) }).map(\.id)
+                LibraryFolderBrowsePolicy.sortedSongs(ids.compactMap { lookup.song(id: $0) }, order: order).map(\.id)
             }.value
             play(ids: ordered, library: library, player: player)
         }
     }
 }
+
+// MARK: - 目录里的歌曲顺序
+
+/// 「目录」页的歌曲排序：先选按什么排（最前面是曲目顺序），再选升降序；曲目顺序没有方向。
+/// 会出现在导航栏菜单里，所以只收 Binding、不读环境。
+struct HomeFolderSongOrderMenuItems: View {
+    @Binding var order: HomeFolderSongOrder
+
+    var body: some View {
+        Section {
+            Picker("sort_by", selection: criterionBinding) {
+                Text("sort_track_order").tag(LibrarySongSortCriterion?.none)
+                ForEach(HomeFolderSongOrder.criteria, id: \.self) { criterion in
+                    Text(verbatim: criterion.label).tag(Optional(criterion))
+                }
+            }
+            .pickerStyle(.inline)
+        }
+        if order != .trackOrder {
+            Section {
+                Picker("smart_sort_direction", selection: ascendingBinding) {
+                    Label("smart_sort_ascending", systemImage: "arrow.up").tag(true)
+                    Label("smart_sort_descending", systemImage: "arrow.down").tag(false)
+                }
+                .pickerStyle(.inline)
+            }
+        }
+    }
+
+    private var criterionBinding: Binding<LibrarySongSortCriterion?> {
+        Binding(get: { order.criterion }, set: { order = order.selecting($0) })
+    }
+
+    private var ascendingBinding: Binding<Bool> {
+        Binding(
+            get: { order.listOrder?.isAscending ?? true },
+            set: { order = order.withAscending($0) }
+        )
+    }
+}
+
+/// 收进「⋯」时占一行的子菜单。
+struct HomeFolderSongOrderSubmenu: View {
+    @Binding var order: HomeFolderSongOrder
+
+    var body: some View {
+        Menu {
+            HomeFolderSongOrderMenuItems(order: $order)
+        } label: {
+            Label("sort_by", systemImage: "arrow.up.arrow.down")
+        }
+    }
+}
+
+/// 当前顺序的简短说法：「曲目顺序」，或者「标题 ↑」。
+struct HomeFolderSongOrderSummary: View {
+    let order: HomeFolderSongOrder
+
+    var body: some View {
+        HStack(spacing: 3) {
+            if let listOrder = order.listOrder {
+                Text(verbatim: listOrder.criterion.label)
+                Image(systemName: listOrder.isAscending ? "arrow.up" : "arrow.down")
+                    .font(.caption.weight(.semibold))
+                    .accessibilityLabel(listOrder.isAscending ? Text("smart_sort_ascending") : Text("smart_sort_descending"))
+            } else {
+                Text("sort_track_order")
+            }
+        }
+    }
+}
+

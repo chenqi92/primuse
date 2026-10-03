@@ -121,4 +121,52 @@ struct AlbumTrackOrderTests {
             )
         }
     }
+
+    @Test("Folder pages keep track order unless the user picked a song-list sort")
+    func folderSongOrderFollowsTheStoredChoice() throws {
+        let songs = [
+            song("t2", disc: 1, track: 2, title: "Alpha"),
+            song("t3", disc: 1, track: 3, title: "Bravo"),
+            song("t1", disc: 1, track: 1, title: "Charlie"),
+        ]
+        #expect(LibraryFolderBrowsePolicy.sortedSongs(songs, order: .trackOrder).map(\.id) == ["t1", "t2", "t3"])
+        #expect(LibraryFolderBrowsePolicy.sortedSongs(songs, order: .sorted(.title)).map(\.id) == ["t2", "t3", "t1"])
+        #expect(LibraryFolderBrowsePolicy.sortedSongs(songs, order: .sorted(.titleDescending)).map(\.id) == ["t1", "t3", "t2"])
+
+        #expect(HomeFolderSongOrder(storageValue: "") == .trackOrder)
+        #expect(HomeFolderSongOrder(storageValue: "nonsense") == .trackOrder)
+        #expect(HomeFolderSongOrder(storageValue: "artistDescending") == .sorted(.artistDescending))
+        // Sorts that need play counts or download state are not offered for folders.
+        #expect(HomeFolderSongOrder(storageValue: "playCountDescending") == .trackOrder)
+        #expect(HomeFolderSongOrder(storageValue: "downloadedFirst") == .trackOrder)
+        for order in [HomeFolderSongOrder.trackOrder, .sorted(.album), .sorted(.dateAddedOldest)] {
+            #expect(HomeFolderSongOrder(storageValue: order.storageValue) == order)
+        }
+
+        let suiteName = "HomeFolderSongOrderTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        #expect(HomeFolderSongOrderPreference.load(from: defaults) == .trackOrder)
+        defaults.set("format", forKey: HomeFolderSongOrderPreference.storageKey)
+        #expect(HomeFolderSongOrderPreference.load(from: defaults) == .sorted(.format))
+    }
+
+    @Test("Choosing a folder sort never flips the direction by itself")
+    func folderSongOrderSelection() {
+        let byTitle = HomeFolderSongOrder.trackOrder.selecting(.title)
+        #expect(byTitle == .sorted(.title))
+        // Picking the current criterion again keeps it as it is.
+        #expect(byTitle.selecting(.title) == .sorted(.title))
+        // Newest first is the natural start for dates.
+        #expect(byTitle.selecting(.dateAdded) == .sorted(.dateAdded))
+        #expect(byTitle.selecting(nil) == .trackOrder)
+        #expect(byTitle.criterion == .title)
+        #expect(HomeFolderSongOrder.trackOrder.criterion == nil)
+        #expect(HomeFolderSongOrder.trackOrder.listOrder == nil)
+        #expect(HomeFolderSongOrder.sorted(.albumDescending).listOrder == .albumDescending)
+
+        #expect(byTitle.withAscending(false) == .sorted(.titleDescending))
+        #expect(byTitle.withAscending(true) == .sorted(.title))
+        #expect(HomeFolderSongOrder.trackOrder.withAscending(false) == .trackOrder)
+    }
 }
