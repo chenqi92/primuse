@@ -3390,8 +3390,6 @@ struct NowPlayingView: View {
                 titleFont: .title,
                 partFont: .body,
                 titleLineLimit: 1,
-                // 右栏按固定高度排版,全书进度在目录里看。
-                showsBookProgress: false,
                 onOpenShow: openCurrentPodcastShow,
                 onOpenBook: { presentCurrentBook() },
                 onOpenContents: { openContentsPanel() }

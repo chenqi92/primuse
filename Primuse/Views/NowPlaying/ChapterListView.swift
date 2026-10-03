@@ -223,11 +223,13 @@ struct SpokenWordContentsView: View {
         )
         return ScrollViewReader { proxy in
             List {
-                if isSheet, let summary = bookSummaryLine {
+                // 播放页上全书进度只剩章节位置前那一圈,具体听了多少、还剩多久在这里写明。
+                if let summary = bookSummaryLine {
                     Text(verbatim: summary)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .font(.footnote.monospacedDigit())
+                        .foregroundStyle(palette?.secondary ?? Color.secondary)
                         .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                 }
                 ForEach(rows) { row in
                     Button {
@@ -259,10 +261,13 @@ struct SpokenWordContentsView: View {
         }
     }
 
-    /// "已听完 11/120 · 剩余 58:12:00" above a sheet's list.
+    /// "全书 9% · 已听完 11/120 · 剩约 58 小时" above the list.
     private var bookSummaryLine: String? {
-        guard let book = player.currentSpokenWordBook else { return nil }
+        guard let book = player.currentSpokenWordBook, !isPodcast else { return nil }
         var parts: [String] = []
+        if let summary = player.spokenWordNowPlayingSummary(live: false), summary.partCount != nil {
+            parts.append(SpokenWordPlayerText.bookFraction(summary.bookFraction))
+        }
         if book.chapterCount > 1 {
             parts.append(String(
                 format: String(localized: "spoken_word_book_progress_format"),

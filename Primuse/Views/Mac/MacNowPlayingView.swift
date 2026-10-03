@@ -827,8 +827,8 @@ struct MacNowPlayingView: View {
         }
     }
 
-    /// 有声内容的左栏下半截:书名、正在听的章、演播者与「第几章」,全书进度,
-    /// 语速 / 定时 / 书签三块(目录在右栏)。窗口模式下进度条在底栏,这里只补全书那一行。
+    /// 有声内容的左栏下半截:书名、正在听的章、演播者与「第几章」(前面那一圈是全书进度),
+    /// 语速 / 定时 / 书签三块(目录在右栏)。窗口模式下进度条在底栏,这里只补本章还剩多久。
     private func spokenWordDetails(
         alignment: HorizontalAlignment,
         frameAlignment: Alignment,

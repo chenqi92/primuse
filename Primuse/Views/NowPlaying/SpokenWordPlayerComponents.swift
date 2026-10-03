@@ -169,6 +169,13 @@ enum SpokenWordPlayerText {
         )
     }
 
+    /// 章节位置那颗键的旁白:「第 12 / 120 章,全书 9%,剩约 58 小时」。
+    static func partPositionWithBook(_ position: String, summary: SpokenWordNowPlayingSummary, rate: Float) -> String {
+        [position, bookFraction(summary.bookFraction), bookRemaining(summary, rate: rate)]
+            .compactMap { $0 }
+            .joined(separator: ", ")
+    }
+
     /// What the sleep tile says while a timer is armed. Nil for a timed
     /// sleep, which draws its own countdown.
     static func sleepTileLabel(_ player: AudioPlayerService) -> String {
@@ -187,48 +194,69 @@ enum SpokenWordPlayerText {
 
 // MARK: - Progress details
 
-/// Whole-book progress: a thin bar, the percentage and the time left in the
-/// book. Part of the book's title block, apart from the scrubber and the
-/// volume, which are about the part being heard. Reads stored positions, not
-/// the clock, so it moves every few seconds and its host never redraws per tick.
-struct SpokenWordBookProgressRow: View {
+/// 「◔ 第 12 / 120 章 ›」:章节位置前面那一圈是全书听到哪儿。全书进度不再单占一行细条,
+/// 跟下面本章的进度条叠成两道;百分比和全书还剩多久在旁白里,目录顶上那行也写着。
+/// 自己一个视图,读的是存下的位置而不是播放头:几秒才动一次,也只重画这一小块。
+struct SpokenWordPartPositionButton: View {
     let palette: SpokenWordPlayerPalette
+    let action: () -> Void
     @Environment(AudioPlayerService.self) private var player
+    @ScaledMetric(relativeTo: .footnote) private var ringSize: CGFloat = 12
 
     var body: some View {
         let store = SpokenWordStore.shared
-        // Registers the row with the store, so the stored positions it reads
+        // Registers the chip with the store, so the stored positions it reads
         // redraw it when they change.
         let _ = store.positions.count
         let _ = store.finishedAt.count
-        // 播客单集不是书,进度条就是它自己的进度,不再另起一行「全书」。
-        if !PodcastPlaybackSong.isEpisode(player.currentSong),
-           let summary = player.spokenWordNowPlayingSummary(live: false),
-           summary.partCount != nil || summary.bookRemaining != nil {
-            HStack(spacing: 10) {
-                Text(verbatim: SpokenWordPlayerText.bookFraction(summary.bookFraction))
-                    .lineLimit(1)
-                    .fixedSize()
-                GeometryReader { proxy in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(palette.tertiary.opacity(0.35))
-                        Capsule()
-                            .fill(palette.secondary)
-                            .frame(width: max(3, proxy.size.width * summary.bookFraction))
+        let summary = player.spokenWordNowPlayingSummary(live: false)
+        if let summary, let position = SpokenWordPlayerText.partPosition(summary) {
+            // 播客单集不是书,进度条就是它自己的进度,不画全书那一圈。
+            let showsRing = !SpokenWordPlayerText.isPodcastEpisode(player)
+            Button(action: action) {
+                HStack(spacing: 5) {
+                    if showsRing {
+                        SpokenWordBookRing(fraction: summary.bookFraction, color: palette.accent)
+                            .frame(width: ringSize, height: ringSize)
                     }
+                    Text(verbatim: position)
+                        .monospacedDigit()
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold))
                 }
-                .frame(height: 3)
-                .accessibilityHidden(true)
-                if let remaining = SpokenWordPlayerText.bookRemaining(summary, rate: player.currentSpokenWordRate) {
-                    Text(verbatim: remaining)
-                        .lineLimit(1)
-                        .fixedSize()
-                }
+                .fontWeight(.semibold)
+                .foregroundStyle(palette.accent)
+                .contentShape(Rectangle())
             }
-            .font(.caption2.monospacedDigit())
-            .foregroundStyle(palette.tertiary)
-            .accessibilityElement(children: .combine)
+            .buttonStyle(.plain)
+            .fixedSize()
+            .accessibilityLabel(Text("spoken_word_contents_title"))
+            .accessibilityValue(Text(verbatim: showsRing
+                ? SpokenWordPlayerText.partPositionWithBook(position, summary: summary, rate: player.currentSpokenWordRate)
+                : position))
         }
+    }
+}
+
+/// 全书进度的那一圈:底圈是淡色的整本书,亮色弧从十二点钟方向顺时针走到听到的地方。
+struct SpokenWordBookRing: View {
+    let fraction: Double
+    let color: Color
+    var lineWidth: CGFloat = 2
+
+    var body: some View {
+        let clamped = min(1, max(0, fraction))
+        ZStack {
+            Circle()
+                .stroke(color.opacity(0.25), lineWidth: lineWidth)
+            Circle()
+                // 刚开头也留一个点,看得出这一圈是进度。
+                .trim(from: 0, to: max(0.02, clamped))
+                .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
+        .padding(lineWidth / 2)
+        .accessibilityHidden(true)
     }
 }
 
@@ -431,8 +459,6 @@ struct SpokenWordPlayerHeading<Trailing: View>: View {
     var partFont: Font = .body
     var alignment: HorizontalAlignment = .leading
     var titleLineLimit = 2
-    /// Whole-book progress under the narrator line.
-    var showsBookProgress = true
     /// 播客:节目名单独可点,打开节目页。
     var onOpenShow: (() -> Void)? = nil
     let onOpenBook: () -> Void
@@ -493,31 +519,10 @@ struct SpokenWordPlayerHeading<Trailing: View>: View {
                         .fixedSize()
                 }
                 if alignment != .center { Spacer(minLength: 0) }
-                if let position = SpokenWordPlayerText.partPosition(player.spokenWordNowPlayingSummary(live: false)) {
-                    Button(action: onOpenContents) {
-                        HStack(spacing: 3) {
-                            Text(verbatim: position)
-                                .monospacedDigit()
-                            Image(systemName: "chevron.right")
-                                .font(.caption2.weight(.semibold))
-                        }
-                        .fontWeight(.semibold)
-                        .foregroundStyle(palette.accent)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .fixedSize()
-                    .accessibilityLabel(Text("spoken_word_contents_title"))
-                    .accessibilityValue(Text(verbatim: position))
-                }
+                SpokenWordPartPositionButton(palette: palette, action: onOpenContents)
             }
             .font(.footnote)
             .frame(maxWidth: .infinity, alignment: frameAlignment)
-
-            if showsBookProgress {
-                SpokenWordBookProgressRow(palette: palette)
-                    .padding(.top, 2)
-            }
         }
         .contentTransition(.opacity)
         .pmAnimation(.trackChange, value: player.currentSong?.id)
@@ -547,7 +552,6 @@ extension SpokenWordPlayerHeading where Trailing == EmptyView {
         partFont: Font = .body,
         alignment: HorizontalAlignment = .leading,
         titleLineLimit: Int = 2,
-        showsBookProgress: Bool = true,
         onOpenShow: (() -> Void)? = nil,
         onOpenBook: @escaping () -> Void,
         onOpenContents: @escaping () -> Void
@@ -558,7 +562,6 @@ extension SpokenWordPlayerHeading where Trailing == EmptyView {
             partFont: partFont,
             alignment: alignment,
             titleLineLimit: titleLineLimit,
-            showsBookProgress: showsBookProgress,
             onOpenShow: onOpenShow,
             onOpenBook: onOpenBook,
             onOpenContents: onOpenContents,

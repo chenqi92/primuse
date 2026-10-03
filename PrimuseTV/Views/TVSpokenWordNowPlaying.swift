@@ -80,46 +80,56 @@ enum TVSpokenWordText {
 
 // MARK: - 全书进度与书签刻度
 
-/// 进度条下面那一行:全书百分比、细条、全书还剩多久。
-struct TVSpokenWordBookProgressRow: View {
-    @Environment(TVStore.self) private var store
+/// 全书进度的那一圈,画在「第 12 / 120 章」前面:淡色底圈是整本书,亮色弧从十二点钟方向
+/// 顺时针走到听到的地方。和 iPhone / Mac 一样,全书进度不再在书名下单占一行细条。
+struct TVSpokenWordBookRing: View {
+    let fraction: Double
+    var lineWidth: CGFloat = 3
 
     var body: some View {
-        // 播客单集不是书,进度条就是它自己的进度,不再另起一行「全书」。
-        if store.currentPodcastEpisodeID == nil,
-           let summary = store.spokenWordNowPlayingSummary,
-           summary.partCount != nil || summary.bookRemaining != nil {
-            HStack(spacing: 18) {
-                Text(String(
-                    format: String(localized: "spoken_word_book_fraction_format"),
-                    Int((min(1, max(0, summary.bookFraction)) * 100).rounded(.down))
-                ))
-                .fixedSize()
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(TVColor.divider)
-                        Capsule().fill(TVColor.textMuted)
-                            .frame(width: max(4, geo.size.width * summary.bookFraction))
-                    }
-                }
-                .frame(height: 5)
-                .accessibilityHidden(true)
-                if let remaining = summary.bookRemaining {
-                    Text(String(
-                        format: String(localized: "spoken_word_book_remaining_format"),
-                        TVSpokenWordText.approximateDuration(SpokenWordNowPlayingPolicy.listeningTime(
-                            forContent: remaining,
-                            rate: store.currentSpokenWordRate
-                        ))
-                    ))
-                    .fixedSize()
-                }
-            }
-            .tvFont(.meta)
-            .monospacedDigit()
-            .foregroundStyle(TVColor.textFaint)
-            .accessibilityElement(children: .combine)
+        let clamped = min(1, max(0, fraction))
+        ZStack {
+            Circle()
+                .stroke(TVColor.spokenWordSpace.opacity(0.25), lineWidth: lineWidth)
+            Circle()
+                // 刚开头也留一个点,看得出这一圈是进度。
+                .trim(from: 0, to: max(0.02, clamped))
+                .stroke(TVColor.spokenWordSpace, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .rotationEffect(.degrees(-90))
         }
+        .padding(lineWidth / 2)
+        .accessibilityHidden(true)
+    }
+}
+
+extension TVSpokenWordText {
+    /// 「全书 9% · 已听完 11/120 · 剩约 58 小时」,写在目录顶上;播放页上只剩那一圈。
+    static func bookSummary(_ store: TVStore) -> String? {
+        guard store.currentPodcastEpisodeID == nil, let book = store.currentSpokenWordBook else { return nil }
+        var parts: [String] = []
+        if let summary = store.spokenWordNowPlayingSummary, summary.partCount != nil {
+            parts.append(String(
+                format: String(localized: "spoken_word_book_fraction_format"),
+                Int((min(1, max(0, summary.bookFraction)) * 100).rounded(.down))
+            ))
+        }
+        if book.chapterCount > 1 {
+            parts.append(String(
+                format: String(localized: "spoken_word_book_progress_format"),
+                book.finishedCount,
+                book.chapterCount
+            ))
+        }
+        if let remaining = book.remainingDuration, remaining > 0 {
+            parts.append(String(
+                format: String(localized: "spoken_word_book_remaining_format"),
+                approximateDuration(SpokenWordNowPlayingPolicy.listeningTime(
+                    forContent: remaining,
+                    rate: store.currentSpokenWordRate
+                ))
+            ))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
 
@@ -193,6 +203,14 @@ struct TVSpokenWordContentsColumn: View {
 
             switch tab {
             case .contents:
+                if let summary = TVSpokenWordText.bookSummary(store) {
+                    Text(summary)
+                        .tvFont(.meta)
+                        .monospacedDigit()
+                        .foregroundStyle(TVColor.textMuted)
+                        .lineLimit(1)
+                        .padding(.horizontal, 16)
+                }
                 contentsList
             case .bookmarks:
                 bookmarksList(entries)

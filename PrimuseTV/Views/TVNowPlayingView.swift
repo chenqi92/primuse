@@ -737,15 +737,19 @@ struct TVNowPlayingView: View {
                         }
                         if let position = TVSpokenWordText.partPosition(store) {
                             Text(verbatim: "·")
-                            Text(position).monospacedDigit().foregroundStyle(TVColor.spokenWordSpace)
+                            // 章节位置前那一圈是全书进度;百分比与全书还剩多久在右栏目录顶上。
+                            HStack(spacing: 10) {
+                                if store.currentPodcastEpisodeID == nil,
+                                   let summary = store.spokenWordNowPlayingSummary {
+                                    TVSpokenWordBookRing(fraction: summary.bookFraction)
+                                        .frame(width: 22, height: 22)
+                                }
+                                Text(position).monospacedDigit().foregroundStyle(TVColor.spokenWordSpace)
+                            }
                         }
                     }
                     .tvFont(.caption, weight: .medium)
                     .foregroundStyle(TVColor.textMuted)
-                    // 全书进度属于书的信息,放在书名这一块,不和本章进度条挤在一起。
-                    TVSpokenWordBookProgressRow()
-                        .frame(maxWidth: 560)
-                        .padding(.top, 6)
                 }
                 .padding(.bottom, 6)
             }
