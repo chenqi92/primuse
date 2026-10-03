@@ -363,6 +363,7 @@
 "ext.tv.otp.failed" = "Oturum açma başarısız oldu.";
 "ext.widget.nowPlaying.empty.openLarge" = "Bir müzik kaynağı bağlayın; mevcut şarkınız ve ilerlemeniz burada görünecektir.";
 "ext.tv.library.eyebrow" = "Arşiv";
+"ext.tv.library.indexHint" = "İlk harfe göre atlamak için sağdaki harf çubuğuna geçin";
 "eq.preset.custom" = "Özel";
 "ext.tv.sources.emptyTitle" = "Henüz Müzik Kaynağı Yok";
 "send_to_tv_error_tv_not_ready" = "Apple TV alıcısı hazır değil (HTTP 503). Kaynaklar ekranını açık tutun ve QR kodunu tekrar tarayın.";

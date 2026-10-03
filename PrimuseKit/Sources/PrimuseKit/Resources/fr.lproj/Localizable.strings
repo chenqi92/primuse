@@ -139,6 +139,7 @@
 
 // tvOS — Library
 "ext.tv.library.eyebrow"                   = "Bibliothèque";
+"ext.tv.library.indexHint" = "Allez à droite sur la barre des lettres pour sauter à une initiale";
 "ext.tv.library.filter.all"                = "Tout";
 "ext.tv.library.filter.artists"            = "Artistes";
 "ext.tv.library.filter.songs"              = "Titres";

@@ -363,6 +363,7 @@
 "ext.tv.otp.failed" = "Не удалось войти в систему.";
 "ext.widget.nowPlaying.empty.openLarge" = "Подключите источник музыки, и здесь отобразится ваша текущая песня и прогресс.";
 "ext.tv.library.eyebrow" = "Медиатека";
+"ext.tv.library.indexHint" = "Перейдите вправо к полосе букв, чтобы перейти по первой букве";
 "eq.preset.custom" = "Свой";
 "ext.tv.sources.emptyTitle" = "Пока нет музыкальных источников";
 "send_to_tv_error_tv_not_ready" = "Приемник Apple TV не готов (HTTP 503). Держите экран «Источники» открытым и еще раз отсканируйте его QR-код.";

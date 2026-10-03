@@ -178,6 +178,7 @@
 "ext.tv.immersive.style.visualizer" = "Wizualizator";
 "ext.tv.immersive.timelineDisclosure" = "Oparta na osi czasu · nie na poziomach na żywo";
 "ext.tv.library.eyebrow" = "Biblioteka";
+"ext.tv.library.indexHint" = "Przejdź w prawo do paska liter, aby skakać według pierwszej litery";
 "ext.tv.library.filter.all" = "Wszystko";
 "ext.tv.library.filter.artists" = "Wykonawcy";
 "ext.tv.library.filter.playlists" = "Playlisty";

@@ -178,6 +178,7 @@
 "ext.tv.immersive.style.visualizer" = "วิชวลไลเซอร์";
 "ext.tv.immersive.timelineDisclosure" = "ขับเคลื่อนด้วยไทม์ไลน์ · ไม่ใช่ระดับสด";
 "ext.tv.library.eyebrow" = "คลังเพลง";
+"ext.tv.library.indexHint" = "เลื่อนไปทางขวาที่แถบตัวอักษรเพื่อข้ามตามอักษรตัวแรก";
 "ext.tv.library.filter.all" = "ทั้งหมด";
 "ext.tv.library.filter.artists" = "ศิลปิน";
 "ext.tv.library.filter.playlists" = "เพลย์ลิสต์";

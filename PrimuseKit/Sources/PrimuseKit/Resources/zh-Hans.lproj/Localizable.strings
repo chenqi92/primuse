@@ -136,6 +136,7 @@
 
 // tvOS — Library
 "ext.tv.library.eyebrow"                   = "资料库";
+"ext.tv.library.indexHint" = "向右移到字母栏，可按首字母快速跳转";
 "ext.tv.library.filter.all"                = "全部";
 "ext.tv.library.filter.artists"            = "艺术家";
 "ext.tv.library.filter.songs"              = "歌曲";

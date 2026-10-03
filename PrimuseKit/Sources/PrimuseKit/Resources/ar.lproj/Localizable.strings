@@ -178,6 +178,7 @@
 "ext.tv.immersive.style.visualizer" = "المتخيل";
 "ext.tv.immersive.timelineDisclosure" = "يعتمد على الجدول الزمني · ليس المستويات المباشرة";
 "ext.tv.library.eyebrow" = "المكتبة";
+"ext.tv.library.indexHint" = "انتقل يمينًا إلى شريط الحروف للقفز حسب الحرف الأول";
 "ext.tv.library.filter.all" = "الكل";
 "ext.tv.library.filter.artists" = "الفنانين";
 "ext.tv.library.filter.playlists" = "قوائم التشغيل";

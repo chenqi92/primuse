@@ -152,6 +152,26 @@ struct LibraryBrowseIndexTests {
         #expect(layout.sections.map(\.bucket) == ["A", "W", "Z", "#"])
     }
 
+    @Test("Song list sorts by title reading, then artist, with untitled songs last")
+    func songListLayout() {
+        let songs = [
+            titledSong("blank", title: "  ", artist: "X"),
+            titledSong("ye2", title: "夜曲", artist: "周杰伦"),
+            titledSong("hey", title: "Hey Jude", artist: "The Beatles"),
+            titledSong("ye1", title: "夜曲", artist: "Chopin"),
+            titledSong("num", title: "1979", artist: "Smashing Pumpkins"),
+            titledSong("hai", title: "海阔天空", artist: "Beyond"),
+        ]
+        let layout = LibrarySongBrowseLayoutBuilder.layout(songs: songs)
+        #expect(layout.items == ["hai", "hey", "ye1", "ye2", "num", "blank"])
+        #expect(layout.sections.map(\.bucket) == ["H", "Y", "#"])
+        #expect(layout.section(forBucket: "Y")?.range == 2..<4)
+        #expect(
+            LibrarySongBrowseLayoutBuilder.fingerprint(songs: songs)
+                != LibrarySongBrowseLayoutBuilder.fingerprint(songs: Array(songs.dropLast()))
+        )
+    }
+
     @Test("Stored order falls back to the TV default")
     func storedOrderFallsBack() {
         #expect(LibraryAlbumBrowseOrder.resolved("title") == .title)
@@ -163,6 +183,10 @@ struct LibraryBrowseIndexTests {
 
     private func album(_ id: String, title: String, artist: String, year: Int?) -> Album {
         Album(id: id, title: title, artistName: artist, year: year)
+    }
+
+    private func titledSong(_ id: String, title: String, artist: String) -> Song {
+        Song(id: id, title: title, artistName: artist, fileFormat: .mp3, filePath: "/\(id).mp3", sourceID: "source")
     }
 
     private func song(_ id: String, albumID: String, added: Date) -> Song {

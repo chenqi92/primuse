@@ -302,7 +302,15 @@ struct TVLetterIndexBar: View {
             .frame(width: geo.size.width, height: geo.size.height, alignment: .center)
         }
         .frame(width: Self.width)
+        // 从网格按右键进来时落在当前所在的字母上,而不是几何上最近的那个:
+        // 上下几下就到相邻字母,不用先找自己在哪。
+        .defaultFocus(focusedBucket, entryBucket, priority: .userInitiated)
         .focusSection()
+    }
+
+    private var entryBucket: String? {
+        if let currentBucket, availableBuckets.contains(currentBucket) { return currentBucket }
+        return LibraryCollationPolicy.buckets.first(where: availableBuckets.contains)
     }
 
     private func letter(_ bucket: String, rowHeight: CGFloat) -> some View {

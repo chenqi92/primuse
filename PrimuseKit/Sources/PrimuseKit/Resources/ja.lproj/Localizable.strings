@@ -139,6 +139,7 @@
 
 // tvOS — Library
 "ext.tv.library.eyebrow"                   = "ライブラリ";
+"ext.tv.library.indexHint" = "右の文字バーに移動すると頭文字でジャンプできます";
 "ext.tv.library.filter.all"                = "すべて";
 "ext.tv.library.filter.artists"            = "アーティスト";
 "ext.tv.library.filter.songs"              = "曲";

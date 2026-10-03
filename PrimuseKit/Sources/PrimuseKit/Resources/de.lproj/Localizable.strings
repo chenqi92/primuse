@@ -139,6 +139,7 @@
 
 // tvOS — Library
 "ext.tv.library.eyebrow"                   = "Mediathek";
+"ext.tv.library.indexHint" = "Nach rechts zur Buchstabenleiste, um per Anfangsbuchstabe zu springen";
 "ext.tv.library.filter.all"                = "Alle";
 "ext.tv.library.filter.artists"            = "Künstler";
 "ext.tv.library.filter.songs"              = "Titel";

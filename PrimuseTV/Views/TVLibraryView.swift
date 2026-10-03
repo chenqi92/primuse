@@ -9,6 +9,9 @@ import PrimuseKit
 final class TVLibraryBrowseMemory {
     var albumID: String?
     var artistID: String?
+    /// 歌曲页上次聚焦的那首和它在列表里的位置(位置只用来免掉几十万首里逐个找)。
+    var songID: String?
+    var songIndex: Int?
     /// 从哪张专辑页开始播放、点的是哪一首。播放页按 Menu 回来时先回到这张专辑页、
     /// 焦点落在那一首,再按一次才回海报墙;在专辑页里按 Menu 关掉就清空。
     var albumDetailID: String?
@@ -230,6 +233,7 @@ struct TVLibraryView: View {
             switch filter {
             case .albums, .years: await store.prepareAlbumBrowseLayout(wallOrder)
             case .artists: await store.prepareArtistBrowseLayout(artistBrowseMode)
+            case .songs: await store.prepareSongBrowseLayout()
             default: break
             }
         }
@@ -408,6 +412,8 @@ struct TVLibraryView: View {
         case .artists:
             guard !showsLikedArtistsOnly else { return [] }
             return store.artistBrowseLayout(artistBrowseMode)?.sections ?? []
+        case .songs:
+            return store.songBrowseLayout()?.sections ?? []
         default:
             return []
         }
@@ -444,6 +450,14 @@ struct TVLibraryView: View {
 
     private static func albumFocusID(_ id: String) -> String { "album:" + id }
     private static func artistFocusID(_ id: String) -> String { "artist:" + id }
+    private static func songFocusID(_ id: String) -> String { "song:" + id }
+
+    /// 歌曲页上次聚焦的那首在当前列表里的位置;记下的位置对不上(曲库变了)才逐个找。
+    private func rememberedSongIndex(in ids: [String]) -> Int? {
+        guard let id = browseMemory.songID else { return nil }
+        if let index = browseMemory.songIndex, ids.indices.contains(index), ids[index] == id { return index }
+        return ids.firstIndex(of: id)
+    }
 
     /// 当前筛选下记住的那张卡片;已从曲库消失的不算。
     private var browseAnchorFocusID: String? {
@@ -457,6 +471,9 @@ struct TVLibraryView: View {
                 return nil
             }
             return Self.artistFocusID(id)
+        case .songs:
+            guard let id = browseMemory.songID, store.song(id) != nil else { return nil }
+            return Self.songFocusID(id)
         default:
             return nil
         }
@@ -469,6 +486,7 @@ struct TVLibraryView: View {
         switch filter {
         case .albums, .years: anchor = browseMemory.albumID
         case .artists: anchor = browseMemory.artistID
+        case .songs: anchor = browseMemory.songID
         default: anchor = nil
         }
         guard let anchor, browseAnchorFocusID != nil else { return }
@@ -490,9 +508,18 @@ struct TVLibraryView: View {
     /// 页标题;专辑墙右侧是排序方式。
     private var titleRow: some View {
         HStack(alignment: .center, spacing: 24) {
-            Text(title).tvFont(.pageTitle).foregroundStyle(TVColor.text)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title).tvFont(.pageTitle).foregroundStyle(TVColor.text)
+                    .lineLimit(1)
+                // 右边有字母栏时提示一句:几千位艺人、几万首歌不用一行行往下翻。
+                if !letterIndexSections.isEmpty {
+                    Label(PMString("ext.tv.library.indexHint"), systemImage: "arrow.right.to.line")
+                        .tvFont(.meta)
+                        .foregroundStyle(TVColor.textFaint)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             if filter == .albums {
                 albumOrderPicker
             }
@@ -771,7 +798,39 @@ struct TVLibraryView: View {
                 browseLayoutPlaceholder
             }
         case .songs:
-            TVPagedSongIDList(songIDs: store.songIDs, alignment: .leading, action: openPlayer)
+            // 几千首也能按右侧字母栏跳:按标题读音排好、分段,只渲染一个窗口(同艺人墙)。
+            if let layout = store.songBrowseLayout() {
+                let songIDs = layout.items
+                TVIndexedGrid(
+                    items: TVSongIDItems(ids: songIDs), sections: layout.sections,
+                    columns: [GridItem(.flexible())], spacing: 10,
+                    revealingIndex: rememberedSongIndex(in: songIDs),
+                    jumpRequest: gridJumpRequest,
+                    scrollProxy: proxy,
+                    focusItem: { focusedGridItem = Self.songFocusID($0) },
+                    onSectionFocused: noteFocusedSection
+                ) { index, item, focusChanged in
+                    if let song = store.song(item.id) {
+                        TVSongRow(
+                            song: song,
+                            queueSongIDs: songIDs,
+                            action: openPlayer,
+                            onFocusChanged: { focused in
+                                focusChanged(focused)
+                                if focused {
+                                    browseMemory.songID = item.id
+                                    browseMemory.songIndex = index
+                                }
+                            },
+                            focusBinding: $focusedGridItem,
+                            focusID: Self.songFocusID(item.id)
+                        )
+                    }
+                }
+                .onAppear { revealBrowseAnchor(with: proxy) }
+            } else {
+                browseLayoutPlaceholder
+            }
         case .genres:
             TVGenreBrowser(openPlayer: openPlayer, onModalActivityChanged: onModalActivityChanged)
         case .folders:
@@ -1589,6 +1648,9 @@ struct TVSongRow: View {
     var action: () -> Void = {}
     /// 长列表分页要知道焦点走到哪一行了,见 `TVPagedSongIDList`。
     var onFocusChanged: (Bool) -> Void = { _ in }
+    /// 父视图的焦点绑定(见 `TVFocusButton`):字母栏跳转、回到歌曲页时把焦点放到这一行。
+    var focusBinding: FocusState<String?>.Binding? = nil
+    var focusID: String? = nil
 
     var body: some View {
         let album = store.albumOf(song)
@@ -1601,7 +1663,9 @@ struct TVSongRow: View {
                           } else { store.play(song) }
                           action()
                       },
-                      onFocusChanged: onFocusChanged) { focused in
+                      onFocusChanged: onFocusChanged,
+                      focusBinding: focusBinding,
+                      focusID: focusID) { focused in
             HStack(spacing: 18) {
                 TVArtworkView(coverKey: album?.id ?? "", artist: album?.artist ?? song.artist,
                               album: album?.title ?? "", songID: song.id, coverRef: song.coverRef,
@@ -1652,6 +1716,18 @@ struct TVSongLikeMenuItem: View {
             store.toggleLiked(songID)
         }
     }
+}
+
+/// 歌曲页给 `TVIndexedGrid` 的条目:只包一层 id,不为几十万首歌各建一份界面值。
+struct TVSongIDItems: RandomAccessCollection {
+    struct Item: Identifiable {
+        let id: String
+    }
+
+    let ids: [String]
+    var startIndex: Int { ids.startIndex }
+    var endIndex: Int { ids.endIndex }
+    subscript(position: Int) -> Item { Item(id: ids[position]) }
 }
 
 /// 由歌曲 ID 列表驱动的分页歌曲列表。

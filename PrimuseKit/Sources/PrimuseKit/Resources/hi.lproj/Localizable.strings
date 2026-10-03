@@ -178,6 +178,7 @@
 "ext.tv.immersive.style.visualizer" = "विज़ुअलाइज़र";
 "ext.tv.immersive.timelineDisclosure" = "टाइमलाइन-चालित · लाइव स्तर नहीं";
 "ext.tv.library.eyebrow" = "लाइब्रेरी";
+"ext.tv.library.indexHint" = "पहले अक्षर से जाने के लिए दाईं ओर अक्षर पट्टी पर जाएँ";
 "ext.tv.library.filter.all" = "सभी";
 "ext.tv.library.filter.artists" = "कलाकार";
 "ext.tv.library.filter.playlists" = "प्लेलिस्ट";

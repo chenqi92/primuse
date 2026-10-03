@@ -418,6 +418,40 @@ extension LibraryAlbumBrowseLayoutBuilder {
     }
 }
 
+/// 歌曲列表(电视「歌曲」页)按标题读音排序并按首字母分段,与专辑墙、艺人墙同一套索引。
+public enum LibrarySongBrowseLayoutBuilder {
+    public static func fingerprint(songs: [Song]) -> Int {
+        var hasher = Hasher()
+        hasher.combine(songs.count)
+        for song in songs {
+            hasher.combine(song.id)
+            hasher.combine(song.title)
+        }
+        return hasher.finalize()
+    }
+
+    /// 同名的歌再按艺人、id 排,顺序稳定;没有标题的放最后。条目是歌曲 id:几十万首时
+    /// 再拷一份按序排好的 `Song` 要上百 MB,行视图按 id 现取就够了。
+    public static func layout(songs: [Song]) -> LibraryBrowseLayout<String> {
+        let keys = songs.map { song in
+            let key = LibraryCollationPolicy.key(for: song.title)
+            return key.text.isEmpty ? LibraryCollationPolicy.trailingKey : key
+        }
+        let sortedIndices = songs.indices.sorted { lhs, rhs in
+            if keys[lhs] != keys[rhs] { return keys[lhs] < keys[rhs] }
+            if songs[lhs].title != songs[rhs].title { return songs[lhs].title < songs[rhs].title }
+            let lhsArtist = songs[lhs].artistName ?? ""
+            let rhsArtist = songs[rhs].artistName ?? ""
+            if lhsArtist != rhsArtist { return lhsArtist < rhsArtist }
+            return songs[lhs].id < songs[rhs].id
+        }
+        return LibraryBrowseLayout(
+            items: sortedIndices.map { songs[$0].id },
+            sections: LibraryBrowseLayout<String>.sections(bucketIndices: sortedIndices.map { keys[$0].bucketIndex })
+        )
+    }
+}
+
 public enum LibraryArtistBrowseLayoutBuilder {
     public static func fingerprint(artists: [Artist]) -> Int {
         var hasher = Hasher()

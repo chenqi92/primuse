@@ -969,6 +969,8 @@ final class TVStore {
     )?
     @ObservationIgnored private var artistBrowseLayoutCache:
         (mode: ArtistBrowseMode, revision: Int, fingerprint: Int, layout: LibraryBrowseLayout<Artist>)?
+    @ObservationIgnored private var songBrowseLayoutCache:
+        (revision: Int, fingerprint: Int, layout: LibraryBrowseLayout<String>)?
     /// 后台排好一份浏览布局就加一,让读布局的视图重算。
     private var browseLayoutRevision = 0
     private var songArtworkPaletteRevision = 0
@@ -1238,6 +1240,37 @@ final class TVStore {
         browseLayoutRevision &+= 1
         plog("TV artist layout mode=\(mode.rawValue) artists=\(artists.count) sections=\(layout.sections.count) ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000))")
     }
+    /// 「歌曲」页:全部音乐按标题(拼音)排好、带首字母分段,条目是歌曲 id;
+    /// 同一份 id 也是点歌时的整份队列。规则同 `albumBrowseLayout`。
+    func songBrowseLayout() -> LibraryBrowseLayout<String>? {
+        _ = browseLayoutRevision
+        return songBrowseLayoutCache?.layout
+    }
+
+    func prepareSongBrowseLayout() async {
+        let revision = libraryContentRevision
+        let cached = songBrowseLayoutCache
+        if let cached, cached.revision == revision { return }
+        let songs = library.musicSongs
+        let reusableFingerprint = cached?.fingerprint
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let result = await Task.detached(priority: .userInitiated) {
+            let fingerprint = LibrarySongBrowseLayoutBuilder.fingerprint(songs: songs)
+            guard fingerprint != reusableFingerprint else {
+                return (fingerprint: fingerprint, layout: LibraryBrowseLayout<String>?.none)
+            }
+            return (fingerprint: fingerprint, layout: LibrarySongBrowseLayoutBuilder.layout(songs: songs))
+        }.value
+        guard !Task.isCancelled, revision == libraryContentRevision else { return }
+        guard let layout = result.layout else {
+            songBrowseLayoutCache?.revision = revision
+            return
+        }
+        songBrowseLayoutCache = (revision, result.fingerprint, layout)
+        browseLayoutRevision &+= 1
+        plog("TV song layout songs=\(songs.count) sections=\(layout.sections.count) ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000))")
+    }
+
     private var songMapper: TVSongMapper {
         TVSongMapper(artistNames: library.artistNameConfiguration, sourceTypes: sourceTypeByID)
     }
