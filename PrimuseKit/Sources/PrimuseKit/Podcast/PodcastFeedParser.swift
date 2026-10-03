@@ -413,6 +413,200 @@ public enum PodcastChaptersJSON {
     }
 }
 
+// MARK: - Transcript
+
+/// Podcasting 2.0 文字稿(`podcast:transcript`)交给歌词解析之前的样子。
+///
+/// - WebVTT / SRT 原样交出,歌词那边按字幕读(`<v 说话人>` 也认);
+/// - JSON 文字稿常常一个词一段,按说话人、停顿和句末标点拼成一句一行,再写成 WebVTT;
+/// - HTML / 纯文本没有时间轴,不当文字稿用。
+public enum PodcastTranscriptDocument {
+    /// 两段之间停顿超过这么久就另起一行。
+    static let pauseBreak: Double = 1.2
+    /// 一行攒到这么长,不等句末标点也换行。
+    static let maximumLineLength = 100
+    /// 句末标点只在一行已经有这么长时才断,免得「Yes.」「好。」各占一行。
+    static let minimumSentenceLength = 16
+
+    public static func subtitleText(from data: Data) -> String? {
+        guard let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else {
+            return nil
+        }
+        let content = text.drop { $0.isWhitespace || $0 == "\u{FEFF}" }
+        if content.first == "{" { return webVTT(fromJSON: data) }
+        if content.hasPrefix("WEBVTT") || hasSubtitleTiming(content.prefix(4096)) { return String(content) }
+        return nil
+    }
+
+    /// SRT 的计时行:`00:00:01,000 --> 00:00:04,000`。HTML 注释也带 `-->`,所以要连时间一起认。
+    private static func hasSubtitleTiming(_ head: Substring) -> Bool {
+        head.split(whereSeparator: \.isNewline).contains { line in
+            line.contains("-->") && line.split(separator: " ").first.map(isTimestamp) == true
+        }
+    }
+
+    private static func isTimestamp(_ token: Substring) -> Bool {
+        let parts = token.split(separator: ":")
+        guard (2...3).contains(parts.count), let last = parts.last else { return false }
+        return parts.dropLast().allSatisfy { !$0.isEmpty && $0.allSatisfy(\.isNumber) }
+            && last.contains(where: { $0 == "." || $0 == "," })
+            && last.allSatisfy { $0.isNumber || $0 == "." || $0 == "," }
+    }
+
+    // MARK: JSON
+
+    struct Segment: Decodable, Equatable {
+        var speaker: String?
+        var startTime: Double?
+        var endTime: Double?
+        var body: String?
+
+        init(speaker: String? = nil, startTime: Double?, endTime: Double?, body: String?) {
+            self.speaker = speaker
+            self.startTime = startTime
+            self.endTime = endTime
+            self.body = body
+        }
+
+        private enum CodingKeys: String, CodingKey { case speaker, startTime, endTime, body }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            speaker = try? c.decodeIfPresent(String.self, forKey: .speaker)
+            body = try? c.decodeIfPresent(String.self, forKey: .body)
+            startTime = Self.seconds(c, .startTime)
+            endTime = Self.seconds(c, .endTime)
+        }
+
+        /// 规范写数字,也见过写成字符串的。
+        private static func seconds(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> Double? {
+            if let value = try? c.decodeIfPresent(Double.self, forKey: key) { return value }
+            if let text = try? c.decodeIfPresent(String.self, forKey: key) { return Double(text) }
+            return nil
+        }
+    }
+
+    private struct Document: Decodable {
+        let segments: [Segment]?
+    }
+
+    struct Cue: Equatable {
+        var start: Double
+        var end: Double
+        var speaker: String?
+        var text: String
+    }
+
+    public static func webVTT(fromJSON data: Data) -> String? {
+        guard let document = try? JSONDecoder().decode(Document.self, from: data) else { return nil }
+        let cues = cues(from: document.segments ?? [])
+        guard !cues.isEmpty else { return nil }
+        var output = "WEBVTT\n"
+        for cue in cues {
+            output += "\n\(timestamp(cue.start)) --> \(timestamp(cue.end))\n"
+            if let speaker = cue.speaker { output += "<v \(speaker)>" }
+            output += cue.text + "\n"
+        }
+        return output
+    }
+
+    static func cues(from segments: [Segment]) -> [Cue] {
+        let ordered = segments.enumerated().sorted {
+            ($0.element.startTime ?? 0, $0.offset) < ($1.element.startTime ?? 0, $1.offset)
+        }
+        var cues: [Cue] = []
+        var current: Cue?
+        for segment in ordered.map(\.element) {
+            guard let start = segment.startTime, start.isFinite, start >= 0 else { continue }
+            let body = cleaned(segment.body)
+            guard !body.isEmpty else { continue }
+            let end = max(start, segment.endTime.flatMap { $0.isFinite ? $0 : nil } ?? start)
+            // 逐词稿常常只在换人时写说话人,没写就当还是同一个人。
+            let speaker = cleanedSpeaker(segment.speaker)
+            if let line = current,
+               (speaker != nil && speaker != line.speaker)
+                || start - line.end > pauseBreak
+                || line.text.count >= maximumLineLength {
+                cues.append(line)
+                current = nil
+            }
+            if var line = current {
+                line.text = joined(line.text, body)
+                line.end = max(line.end, end)
+                current = line
+            } else {
+                current = Cue(start: start, end: end, speaker: speaker, text: body)
+            }
+            if let line = current, line.text.count >= minimumSentenceLength, endsSentence(line.text) {
+                cues.append(line)
+                current = nil
+            }
+        }
+        if let current { cues.append(current) }
+        return cues
+    }
+
+    private static func cleaned(_ body: String?) -> String {
+        guard let body else { return "" }
+        // 换行、`-->` 和尖括号在 WebVTT 正文里各有含义,换成不会被误读的写法。
+        return body
+            .replacingOccurrences(of: "-->", with: "→")
+            .replacingOccurrences(of: "<", with: "‹")
+            .replacingOccurrences(of: ">", with: "›")
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+    }
+
+    private static func cleanedSpeaker(_ speaker: String?) -> String? {
+        let name = cleaned(speaker)
+        return name.isEmpty ? nil : name
+    }
+
+    private static let attachedPunctuation: Set<Character> = [
+        ",", ".", "!", "?", ";", ":", ")", "]", "'", "’", "”", "…",
+        "，", "。", "！", "？", "；", "：", "、", "）", "」", "』", "》",
+    ]
+
+    /// 逐词拼句:标点贴着前一个词;中日韩文字之间不加空格。
+    static func joined(_ head: String, _ tail: String) -> String {
+        guard let last = head.last, let first = tail.first else { return head + tail }
+        if attachedPunctuation.contains(first) || (isCJK(last) && isCJK(first)) {
+            return head + tail
+        }
+        return head + " " + tail
+    }
+
+    private static func endsSentence(_ text: String) -> Bool {
+        let closers: Set<Character> = ["\"", "'", "’", "”", "」", "』", ")", "）"]
+        guard let last = text.last(where: { !closers.contains($0) }) else { return false }
+        return [".", "?", "!", "。", "？", "！", "…"].contains(last)
+    }
+
+    private static func isCJK(_ character: Character) -> Bool {
+        character.unicodeScalars.contains { scalar in
+            switch scalar.value {
+            // 含全角标点(`，`、`。`):它们后面接汉字也不该有空格。
+            case 0x3000...0x30FF, 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xAC00...0xD7AF, 0xF900...0xFAFF,
+                 0xFF00...0xFFEF, 0x20000...0x2FA1F:
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
+    private static func timestamp(_ seconds: Double) -> String {
+        let millis = Int((max(0, seconds) * 1000).rounded())
+        return String(
+            format: "%02d:%02d:%02d.%03d",
+            millis / 3_600_000,
+            millis / 60_000 % 60,
+            millis / 1000 % 60,
+            millis % 1000
+        )
+    }
+}
+
 public enum PodcastChapterNormalization {
     /// 按开始时间排好、去掉同一时刻的重复,没标题的用「第 n 章」占位由界面决定,这里只留空串。
     public static func normalized(_ chapters: [PodcastChapter]) -> [PodcastChapter] {

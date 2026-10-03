@@ -125,6 +125,18 @@ enum PodcastNetwork {
         return PodcastChaptersJSON.decode(data, baseURL: target)
     }
 
+    /// 单集文字稿(`podcast:transcript`)。逐词的 JSON 稿一小时也就几 MB。
+    /// 只认带时间轴的 WebVTT / SRT / JSON;取不到或格式不认识返回 nil。
+    static func transcript(from url: URL) async -> String? {
+        guard let target = try? await reachableURL(for: url) else { return nil }
+        var request = URLRequest(url: target)
+        request.setValue("text/vtt, application/x-subrip, application/json;q=0.9, */*;q=0.5", forHTTPHeaderField: "Accept")
+        guard let result = try? await TrustedHTTPTransport.data(for: request, session: session, maxBytes: 8 * 1024 * 1024),
+              let http = result.1 as? HTTPURLResponse,
+              (200...299).contains(http.statusCode) else { return nil }
+        return PodcastTranscriptDocument.subtitleText(from: result.0)
+    }
+
     // MARK: - Enclosures
 
     /// 一个音频文件在起播那一刻的真实情况。
@@ -194,6 +206,43 @@ final class PodcastEnclosureProbeCache {
 
     func invalidate(episodeID id: String) {
         probes.removeValue(forKey: id)
+    }
+}
+
+/// 播客单集的文字稿:feed 里写了 `<podcast:transcript>` 才有。取到后按单集 id 写进歌词缓存,
+/// 之后播放页、锁屏歌词都从缓存读,不再联网。同一集同时被几处要时只取一次。
+@MainActor
+enum PodcastTranscriptLoader {
+    private static var inFlight: [String: Task<[LyricLine], Never>] = [:]
+
+    static func lines(for song: Song) async -> [LyricLine] {
+        guard PodcastPlaybackSong.isEpisode(song),
+              let transcriptURL = PodcastStore.shared.episode(id: song.id)?.episode.transcriptURL else { return [] }
+        if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id), !cached.isEmpty {
+            return cached
+        }
+        if let pending = inFlight[song.id] { return await pending.value }
+        let songID = song.id
+        let title = song.title
+        let task = Task { @MainActor () -> [LyricLine] in
+            defer { inFlight[songID] = nil }
+            guard let text = await PodcastNetwork.transcript(from: transcriptURL) else {
+                plog("🎙️ Transcript unavailable for '\(title)' host=\(transcriptURL.host ?? "?")")
+                return []
+            }
+            let lines = LyricsContentParser.parse(text)
+            guard !lines.isEmpty else { return [] }
+            _ = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
+                lines,
+                forSongID: songID,
+                expectedFingerprint: nil,
+                force: false
+            )
+            plog("🎙️ Transcript: \(lines.count) lines for '\(title)'")
+            return lines
+        }
+        inFlight[songID] = task
+        return await task.value
     }
 }
 

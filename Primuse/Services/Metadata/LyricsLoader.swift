@@ -250,6 +250,11 @@ enum LyricsLoader {
             return resolved
         }
 
+        // 播客单集不在任何音乐源里:文字只来自 feed 里的 `<podcast:transcript>`。
+        if PodcastPlaybackSong.isEpisode(song) {
+            return await PodcastTranscriptLoader.lines(for: song)
+        }
+
         // Apple Music: 只有用户导入 Music.app 的本机文件读得到歌词 (内嵌标签)。
         if song.sourceID == AppleMusicLibraryIdentity.sourceID {
             if let embedded = await AppServices.shared.appleMusicLibrary.fetchLyrics(for: song),

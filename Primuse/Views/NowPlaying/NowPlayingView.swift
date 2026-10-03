@@ -5677,6 +5677,13 @@ struct NowPlayingView: View {
             return
         }
 
+        // 播客单集不在任何音乐源里:文字只来自 feed 里的 `<podcast:transcript>`。
+        if PodcastPlaybackSong.isEpisode(song) {
+            let transcript = await PodcastTranscriptLoader.lines(for: song)
+            setLyricsIfCurrent(transcript, for: song, loadRevision: loadRevision)
+            return
+        }
+
         let lyricsRefIsRemote = (song.lyricsFileName ?? "").contains("/")
 
         // Tier 1b: legacy named ref (only for non-NAS path)

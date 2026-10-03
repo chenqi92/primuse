@@ -691,3 +691,73 @@ struct PodcastSubscriptionSyncTests {
         #expect(!s.isMarkedPlayed(old))
     }
 }
+
+@Suite("Podcast transcripts")
+struct PodcastTranscriptTests {
+    @Test func subtitleFilesPassThrough() {
+        let vtt = "\u{FEFF}WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n<v Host>Welcome back.\n"
+        #expect(PodcastTranscriptDocument.subtitleText(from: Data(vtt.utf8)) == String(vtt.dropFirst()))
+        let srt = "1\n00:00:01,000 --> 00:00:03,000\nHello there\n"
+        #expect(PodcastTranscriptDocument.subtitleText(from: Data(srt.utf8)) == srt)
+        // HTML 注释也有 `-->`,纯文本没有时间轴:都不算文字稿。
+        #expect(PodcastTranscriptDocument.subtitleText(from: Data("<html><!-- x --><p>Hi</p></html>".utf8)) == nil)
+        #expect(PodcastTranscriptDocument.subtitleText(from: Data("Just words.".utf8)) == nil)
+    }
+
+    @Test func wordLevelJSONBecomesSentences() throws {
+        let json = """
+        {"version":"1.0.0","segments":[
+          {"speaker":"Ann","startTime":0.5,"endTime":0.8,"body":"Welcome"},
+          {"startTime":0.8,"endTime":1.0,"body":"to"},
+          {"startTime":1.0,"endTime":1.3,"body":"the"},
+          {"startTime":1.3,"endTime":1.9,"body":"show"},
+          {"startTime":1.9,"endTime":2.0,"body":","},
+          {"startTime":2.0,"endTime":2.4,"body":"everyone."},
+          {"speaker":"Bob","startTime":2.6,"endTime":3.0,"body":"Thanks"},
+          {"startTime":3.0,"endTime":3.4,"body":"Ann!"},
+          {"speaker":"Bob","startTime":6.0,"endTime":6.5,"body":"Anyway"}
+        ]}
+        """
+        let vtt = try #require(PodcastTranscriptDocument.webVTT(fromJSON: Data(json.utf8)))
+        #expect(vtt == """
+        WEBVTT
+
+        00:00:00.500 --> 00:00:02.400
+        <v Ann>Welcome to the show, everyone.
+
+        00:00:02.600 --> 00:00:03.400
+        <v Bob>Thanks Ann!
+
+        00:00:06.000 --> 00:00:06.500
+        <v Bob>Anyway
+
+        """)
+        #expect(PodcastTranscriptDocument.subtitleText(from: Data(json.utf8)) == vtt)
+    }
+
+    @Test func chineseWordsJoinWithoutSpaces() {
+        let segments = [
+            PodcastTranscriptDocument.Segment(startTime: 0, endTime: 0.4, body: "大家好"),
+            PodcastTranscriptDocument.Segment(startTime: 0.4, endTime: 0.8, body: "，"),
+            PodcastTranscriptDocument.Segment(startTime: 0.8, endTime: 1.5, body: "欢迎收听本期节目"),
+            PodcastTranscriptDocument.Segment(startTime: 1.5, endTime: 2, body: "Primuse"),
+        ]
+        let cues = PodcastTranscriptDocument.cues(from: segments)
+        #expect(cues.map(\.text) == ["大家好，欢迎收听本期节目 Primuse"])
+    }
+
+    @Test func longRunsSplitAndBadSegmentsAreSkipped() {
+        var segments = (0..<40).map { index in
+            PodcastTranscriptDocument.Segment(startTime: Double(index) * 0.3, endTime: Double(index) * 0.3 + 0.3, body: "word")
+        }
+        segments.append(.init(startTime: nil, endTime: 1, body: "orphan"))
+        segments.append(.init(startTime: 20, endTime: 21, body: "  "))
+        segments.append(.init(startTime: 15, endTime: 15.2, body: "a-->b <i>"))
+        let cues = PodcastTranscriptDocument.cues(from: segments)
+        #expect(cues.count == 3)
+        #expect(cues.dropLast().allSatisfy { $0.text.count <= PodcastTranscriptDocument.maximumLineLength + 5 })
+        #expect(cues.last?.text == "a→b ‹i›")
+        #expect(PodcastTranscriptDocument.webVTT(fromJSON: Data("{\"segments\":[]}".utf8)) == nil)
+        #expect(PodcastTranscriptDocument.webVTT(fromJSON: Data("nope".utf8)) == nil)
+    }
+}
