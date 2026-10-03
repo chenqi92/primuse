@@ -72,6 +72,8 @@ struct AddSourceView: View {
     /// 编辑已有源时才有连接器能列出库)。
     @State private var serverLibraries: [ServerLibraryDescriptor] = []
     @State private var serverLibraryChoices: [String: ServerLibraryChoice] = [:]
+    /// 打开时各库的选择,保存时比较哪些改过。
+    @State private var initialServerLibraryChoices: [String: ServerLibraryChoice] = [:]
     @State private var serverLibrariesLoad: ServerLibrariesLoadState = .idle
     /// 旧版「整个来源都是有声内容」开关。服务器源现在按服务端给的流派与文件自己判断、
     /// 网盘在选目录页按目录标,不再提供;只给已经开着的源留着,好让它能关掉。
@@ -1048,6 +1050,7 @@ struct AddSourceView: View {
             }
             serverLibraries = libraries
             serverLibraryChoices = choices
+            initialServerLibraryChoices = choices
             serverLibrariesLoad = .loaded
         } catch {
             plog("⚠️ Server libraries could not be listed source=\(editingSource.id.prefix(8))… \(error.localizedDescription)")
@@ -1086,6 +1089,29 @@ struct AddSourceView: View {
             case .excluded:
                 break
             }
+        }
+    }
+
+    /// Navidrome 的歌属于哪个库是扫描时按专辑对上的,之前扫进来的歌还没有;改了哪个库
+    /// 算有声就重走一遍,不然选了没反应。改了「不同步」的会因源内容变化自己重扫。
+    private func rescanIfLibraryStampsAreNeeded(_ source: MusicSource) {
+        guard sourceType == .navidrome, isEditing, serverLibrariesLoad == .loaded else { return }
+        let changed = serverLibraries.map(\.id).filter {
+            (serverLibraryChoices[$0] ?? .music) != (initialServerLibraryChoices[$0] ?? .music)
+        }
+        guard !changed.isEmpty,
+              !changed.contains(where: {
+                  serverLibraryChoices[$0] == .excluded || initialServerLibraryChoices[$0] == .excluded
+              }) else { return }
+        Task { @MainActor in
+            let services = AppServices.shared
+            services.scanService.scanSource(
+                source,
+                sourceManager: services.sourceManager,
+                library: services.musicLibrary,
+                sourceStore: services.sourcesStore,
+                scraperService: services.scraperService
+            )
         }
     }
 
@@ -2318,6 +2344,7 @@ struct AddSourceView: View {
     private func completeSave(_ source: MusicSource) {
         applySpokenWordChoices(sourceID: source.id)
         onSave(source)
+        rescanIfLibraryStampsAreNeeded(source)
         // The main Sources flow keeps this sheet alive and replaces the form
         // with the existing connection / OTP / directory UI. Sources whose
         // creation is transactional decide there whether to commit or roll

@@ -239,6 +239,38 @@ struct MediaServerLibrarySelectionPolicyTests {
         #expect(!ServerLibraryDescriptor(id: "m", name: "Music", kind: .music).defaultsToSpokenWord)
     }
 
+    @Test func navidromeLibraryNamesThatSaySpokenWordDefaultToIt() {
+        #expect(SubsonicLibraryScopePolicy.kind(forLibraryName: "Music") == .music)
+        #expect(SubsonicLibraryScopePolicy.kind(forLibraryName: "Audiobooks") == .audiobooks)
+        #expect(SubsonicLibraryScopePolicy.kind(forLibraryName: "有声书") == .audiobooks)
+        #expect(SubsonicLibraryScopePolicy.kind(forLibraryName: "Podcasts") == .podcasts)
+        #expect(SubsonicLibraryScopePolicy.kind(forLibraryName: "") == .music)
+        #expect(MusicSourceType.navidrome.organizesCatalogByServerLibrary)
+        #expect(!MusicSourceType.subsonic.organizesCatalogByServerLibrary)
+        // 1.11.1 里开过整源开关的 Navidrome 仍要能关掉。
+        #expect(MusicSourceType.navidrome.supportsWholeSourceSpokenWordTag)
+    }
+
+    @Test func navidromeWalkReadsOnlyIncludedLibrariesAndNeverFallsBackToAll() {
+        #expect(SubsonicLibraryScopePolicy.includedLibraryIDs(all: ["1", "2"], excluded: []) == nil)
+        #expect(SubsonicLibraryScopePolicy.includedLibraryIDs(all: ["1", "2"], excluded: ["9"]) == nil)
+        #expect(SubsonicLibraryScopePolicy.includedLibraryIDs(all: ["1", "2"], excluded: ["2"]) == ["1"])
+        #expect(SubsonicLibraryScopePolicy.includedLibraryIDs(all: ["1", "2"], excluded: ["1", "2"]) == [])
+    }
+
+    @Test func navidromeAlbumsMapSongsToTheirLibraryUnlessTheServerIgnoredTheFilter() {
+        let map = SubsonicLibraryScopePolicy.libraryIDsByAlbumID([
+            (libraryID: "1", albumIDs: ["a", "b", "b"]),
+            (libraryID: "2", albumIDs: ["c", ""]),
+        ])
+        #expect(map == ["a": "1", "b": "1", "c": "2"])
+        // 服务器没按库过滤:同一张专辑在两个库里都列出来了,宁可不标。
+        #expect(SubsonicLibraryScopePolicy.libraryIDsByAlbumID([
+            (libraryID: "1", albumIDs: ["a", "b"]),
+            (libraryID: "2", albumIDs: ["a", "b"]),
+        ]) == nil)
+    }
+
     @Test func overlapIsAboutWholePathComponents() {
         #expect(MediaServerLibrarySelectionPolicy.locationsOverlap("/music", "/music/a"))
         #expect(MediaServerLibrarySelectionPolicy.locationsOverlap("/Music/", "/music"))

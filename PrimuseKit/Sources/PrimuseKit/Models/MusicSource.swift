@@ -292,8 +292,9 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     }
 
     /// 按库组织的服务器：用户可以在源设置里按库选「音乐 / 有声 / 不同步」。
+    /// Navidrome 的库是 0.58 起的多库(Subsonic 的音乐文件夹),见 `SubsonicLibraryScopePolicy`。
     public var organizesCatalogByServerLibrary: Bool {
-        isMediaServer || self == .audiobookshelf
+        isMediaServer || self == .audiobookshelf || self == .navidrome
     }
 
     /// 连接入口沿用群晖的「QuickConnect / 直连地址」两种模式(`synologyConnectionMode`)。

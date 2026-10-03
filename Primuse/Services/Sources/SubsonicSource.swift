@@ -22,7 +22,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     ResumablePagedSongCatalogConnector,
     ServerPlaylistConnector, ServerPlaylistAppendingConnector,
     ServerMediaSharingConnector, ServerFavoriteConnector, ServerRadioConnector,
-    ServerListeningStatsConnector, ServerRatingConnector, MediaServerWritebackConnector {
+    ServerListeningStatsConnector, ServerRatingConnector, MediaServerWritebackConnector,
+    ServerLibraryListingConnector {
     let sourceID: String
 
     private let sourceType: MusicSourceType
@@ -52,6 +53,26 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     private var observedServerRatings: [String: Int] = [:]
     /// 走查读到的每首歌所属的服务端专辑(歌曲 id → 专辑 id),给专辑评分对号用。
     private var observedSongAlbumIDs: [String: String] = [:]
+    /// 用户在源设置里选了「不同步」的库(只对按库组织的 Navidrome 有意义)。
+    private let excludedLibraryIDs: Set<String>
+    /// 这一轮走查的库范围:读哪几个库、每张专辑在哪个库。每轮从头走时重取。
+    private var libraryScope: LibraryScope?
+    /// 上一次走查读过的库;扫描收尾时取走(`ServerLibraryListingConnector`)。
+    private var observedLibraries: [ServerLibraryDescriptor]?
+
+    private struct LibraryScope {
+        /// nil = 不带 `musicFolderId`(读全部);空数组 = 全排除了。
+        var includedLibraryIDs: [String]?
+        /// 只有一个库时每首歌都在它里面,不必列专辑。
+        var soleLibraryID: String?
+        var libraryIDsByAlbumID: [String: String]
+
+        func libraryID(forAlbumID albumID: String?) -> String? {
+            if let soleLibraryID { return soleLibraryID }
+            guard let albumID, !albumID.isEmpty else { return nil }
+            return libraryIDsByAlbumID[albumID]
+        }
+    }
 
     /// Airsonic Advanced 目前只接受 1.15.0，对更高版本会返回错误 30。
     /// 其他实现保持 1.16.1；OpenSubsonic 扩展能力仍由 ping 响应单独探测。
@@ -157,6 +178,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             throw PagedSongCatalogError.unavailable
         }
 
+        // 每轮从第一页走起时重取库范围;断点续走的后几页沿用(新实例就补取一次)。
+        try await prepareLibraryScope(refreshing: offset == 0)
         let children: [SubsonicChild]
         do {
             children = try await search3SongPage(offset: offset, path: path)
@@ -193,10 +216,12 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         username: String,
         password: String,
         alternateTLSValidationHostname: String? = nil,
+        excludedLibraryIDs: Set<String> = [],
         session: URLSession? = nil
     ) {
         self.sourceID = sourceID
         self.sourceType = sourceType
+        self.excludedLibraryIDs = excludedLibraryIDs
         self.baseURL = Self.makeBaseURL(host: host, port: port, useSsl: useSsl, basePath: basePath)
         self.username = username
         self.webPassword = password
@@ -332,6 +357,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
 
     func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
         try await connect()
+        try await prepareLibraryScope(refreshing: true)
         return AsyncThrowingStream { continuation in
             let producer = Task {
                 do {
@@ -374,13 +400,16 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                     // 逐页拉专辑列表, 再对每个专辑取曲目(getAlbum 自带完整 Child 元数据)。
                     while true {
                         try Task.checkCancellation()
+                        if libraryScope?.includedLibraryIDs?.isEmpty == true { break }
                         let listContainer: AlbumListContainer = try await requestJSON(
                             "getAlbumList2",
                             query: [
                                 URLQueryItem(name: "type", value: "alphabeticalByName"),
                                 URLQueryItem(name: "size", value: String(Self.pageSize)),
                                 URLQueryItem(name: "offset", value: String(offset))
-                            ]
+                            ] + (libraryScope?.includedLibraryIDs ?? []).map {
+                                URLQueryItem(name: "musicFolderId", value: $0)
+                            }
                         )
                         guard let albumList = listContainer.albumList2 else {
                             throw SourceError.connectionFailed("Subsonic getAlbumList2 response is missing albumList2")
@@ -655,6 +684,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     }
 
     private func search3SongPage(offset: Int, path: String) async throws -> [SubsonicChild] {
+        let includedLibraryIDs = libraryScope?.includedLibraryIDs
+        if includedLibraryIDs?.isEmpty == true { return [] }
         var finalError: Error?
         for attempt in 0..<Self.catalogRequestMaximumAttempts {
             do {
@@ -662,7 +693,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                     "search3",
                     query: SubsonicCatalogPagingPolicy.search3QueryItems(
                         songOffset: offset,
-                        musicFolderID: musicFolderID(from: path)
+                        musicFolderID: musicFolderID(from: path),
+                        musicFolderIDs: includedLibraryIDs ?? []
                     )
                 )
                 guard let result = container.searchResult3 else {
@@ -817,6 +849,85 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                     folderLocation: libraryFolderLocation(for: child)
                 )
             )
+        }
+    }
+
+    // MARK: - Server libraries (Navidrome 多库)
+
+    /// 只有 Navidrome 按库组织(见 `MusicSourceType.organizesCatalogByServerLibrary`)。
+    private var organizesByLibrary: Bool { sourceType == .navidrome }
+
+    func fetchServerLibraries() async throws -> [ServerLibraryDescriptor] {
+        try await connect()
+        guard organizesByLibrary else { return [] }
+        return try await musicFolderLibraries()
+    }
+
+    func takeObservedServerLibraries() async -> [ServerLibraryDescriptor]? {
+        defer { observedLibraries = nil }
+        return observedLibraries
+    }
+
+    private func musicFolderLibraries() async throws -> [ServerLibraryDescriptor] {
+        let container: MusicFoldersContainer = try await requestJSON("getMusicFolders")
+        return (container.musicFolders?.musicFolder ?? []).map { folder in
+            let name = folder.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return ServerLibraryDescriptor(
+                id: String(folder.id),
+                name: name.isEmpty ? "Music" : name,
+                kind: SubsonicLibraryScopePolicy.kind(forLibraryName: name)
+            )
+        }
+    }
+
+    /// 定下这一轮走查读哪几个库、每首歌落在哪个库(打到 `Song.serverLibraryID` 上,
+    /// 「有声」库标签按它匹配)。多个库时按库列一遍专辑:专辑只属于一个库。
+    private func prepareLibraryScope(refreshing: Bool) async throws {
+        guard organizesByLibrary, refreshing || libraryScope == nil else { return }
+        let libraries = try await musicFolderLibraries()
+        let allIDs = libraries.map(\.id)
+        let included = SubsonicLibraryScopePolicy.includedLibraryIDs(all: allIDs, excluded: excludedLibraryIDs)
+        var scope = LibraryScope(
+            includedLibraryIDs: included,
+            soleLibraryID: allIDs.count == 1 ? allIDs[0] : nil,
+            libraryIDsByAlbumID: [:]
+        )
+        if allIDs.count > 1 {
+            var albumsByLibrary: [(libraryID: String, albumIDs: [String])] = []
+            for libraryID in included ?? allIDs {
+                albumsByLibrary.append((libraryID, try await albumIDs(inLibrary: libraryID)))
+            }
+            if let map = SubsonicLibraryScopePolicy.libraryIDsByAlbumID(albumsByLibrary) {
+                scope.libraryIDsByAlbumID = map
+            } else {
+                plog("⚠️ Subsonic library albums overlap; songs keep their previous library source=\(sourceID.prefix(8))…")
+            }
+        }
+        libraryScope = scope
+        observedLibraries = libraries
+    }
+
+    private func albumIDs(inLibrary libraryID: String) async throws -> [String] {
+        var ids: [String] = []
+        var offset = 0
+        while true {
+            try Task.checkCancellation()
+            let container: AlbumListContainer = try await requestJSON(
+                "getAlbumList2",
+                query: [
+                    URLQueryItem(name: "type", value: "alphabeticalByName"),
+                    URLQueryItem(name: "size", value: String(Self.pageSize)),
+                    URLQueryItem(name: "offset", value: String(offset)),
+                    URLQueryItem(name: "musicFolderId", value: libraryID),
+                ]
+            )
+            let albums = container.albumList2?.album ?? []
+            ids += albums.map(\.id)
+            guard SubsonicCatalogPagingPolicy.isWithinAlbumLimit(ids.count) else {
+                throw SourceError.connectionFailed("Subsonic album catalog exceeded the safety limit")
+            }
+            if albums.count < Self.pageSize { return ids }
+            offset += albums.count
         }
     }
 
@@ -1575,7 +1686,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             serverPlayCount: child.playCount,
             coverArtFileName: coverArtID.flatMap { coverArtURLString(for: $0) },
             artistArtworkFileName: (child.artists?.first?.id ?? child.artistId)
-                .flatMap { artistArtworkReference(for: $0) }
+                .flatMap { artistArtworkReference(for: $0) },
+            serverLibraryID: libraryScope?.libraryID(forAlbumID: child.albumId ?? album?.id)
         )
     }
 

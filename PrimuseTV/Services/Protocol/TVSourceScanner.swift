@@ -718,7 +718,8 @@ enum TVServerCatalogConnectorFactory {
                 basePath: source.basePath,
                 username: username,
                 password: secret,
-                alternateTLSValidationHostname: source.alternateTLSValidationHostname
+                alternateTLSValidationHostname: source.alternateTLSValidationHostname,
+                excludedLibraryIDs: Set(source.excludedServerLibraryIDs)
             )
         case .songloft:
             // 扫描仍走更早接通的 `TVSongloftLister`;这里造连接器是为了取歌单与收藏。
@@ -2510,17 +2511,22 @@ final class TVSourceScanner {
             throw TVScanError.unsupported
         }
         let songs = try await collectCatalog(from: connector, onSong: onSong)
-        // 服务端标成有声书的库第一次见到就归到有声(手机上也是扫描收尾时做的);标签经
-        // iCloud 同步,两边谁先扫到都一样。
-        if let lister = connector as? any ServerLibraryListingConnector,
-           let libraries = await lister.takeObservedServerLibraries() {
-            let defaults = libraries.filter(\.defaultsToSpokenWord).map(\.id)
-            let sourceID = source.id
-            await MainActor.run {
-                SpokenWordStore.shared.registerDefaultSpokenWordLibraries(sourceID: sourceID, libraryIDs: defaults)
-            }
-        }
+        await registerDefaultSpokenWordLibraries(observedBy: connector, sourceID: source.id)
         return songs
+    }
+
+    /// 服务端标成有声书的库第一次见到就归到有声(手机上也是扫描收尾时做的);标签经
+    /// iCloud 同步,两边谁先扫到都一样。
+    private func registerDefaultSpokenWordLibraries(
+        observedBy connector: any SongScanningConnector,
+        sourceID: String
+    ) async {
+        guard let lister = connector as? any ServerLibraryListingConnector,
+              let libraries = await lister.takeObservedServerLibraries() else { return }
+        let defaults = libraries.filter(\.defaultsToSpokenWord).map(\.id)
+        await MainActor.run {
+            SpokenWordStore.shared.registerDefaultSpokenWordLibraries(sourceID: sourceID, libraryIDs: defaults)
+        }
     }
 
     /// Subsonic / Navidrome / Airsonic / Gonic:同一份 `SubsonicSource`。
@@ -2535,7 +2541,10 @@ final class TVSourceScanner {
         ) else {
             throw TVScanError.unsupported
         }
-        return try await collectCatalog(from: connector, onSong: onSong)
+        let songs = try await collectCatalog(from: connector, onSong: onSong)
+        // Navidrome 的多库:库名是「有声书」之类的第一次见到默认归有声。
+        await registerDefaultSpokenWordLibraries(observedBy: connector, sourceID: source.id)
+        return songs
     }
 
     private func collectCatalog(

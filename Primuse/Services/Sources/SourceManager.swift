@@ -2172,7 +2172,7 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
     ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector,
     ServerPlaylistAppendingConnector, ServerMediaSharingConnector, ServerFavoriteConnector,
     ServerRadioConnector, ServerListeningStatsConnector, ServerRatingConnector,
-    ServerCollectionFavoriteConnector, ServerAlbumRatingConnector {
+    ServerCollectionFavoriteConnector, ServerAlbumRatingConnector, ServerLibraryListingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -2180,6 +2180,15 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
 
     func takeObservedSongAlbumIDs() async -> [String: String] {
         await routing.takeObservedSongAlbumIDs()
+    }
+
+    func fetchServerLibraries() async throws -> [ServerLibraryDescriptor] {
+        try await routing.withRead { connector in
+            guard let lister = connector as? any ServerLibraryListingConnector else {
+                throw SourceError.connectionFailed("Server library listing unavailable")
+            }
+            return try await lister.fetchServerLibraries()
+        }
     }
 
     func fetchRatedServerAlbums() async throws -> [String: Int]? {
@@ -3668,7 +3677,8 @@ final class SourceManager {
                     basePath: source.basePath,
                     username: source.username ?? "",
                     password: password,
-                    alternateTLSValidationHostname: source.alternateTLSValidationHostname
+                    alternateTLSValidationHostname: source.alternateTLSValidationHostname,
+                    excludedLibraryIDs: Set(source.excludedServerLibraryIDs)
                 )
             }
         case .qnap:

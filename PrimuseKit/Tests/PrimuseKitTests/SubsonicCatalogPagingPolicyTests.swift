@@ -45,6 +45,17 @@ struct SubsonicCatalogPagingPolicyTests {
         #expect(values["musicFolderId"] == "7")
     }
 
+    @Test func searchRequestCanNameSeveralLibraries() {
+        let items = SubsonicCatalogPagingPolicy.search3QueryItems(
+            songOffset: 0,
+            musicFolderID: "7",
+            musicFolderIDs: ["1", "3"]
+        )
+        #expect(items.filter { $0.name == "musicFolderId" }.map(\.value) == ["1", "3"])
+        let unfiltered = SubsonicCatalogPagingPolicy.search3QueryItems(songOffset: 0)
+        #expect(!unfiltered.contains { $0.name == "musicFolderId" })
+    }
+
     @Test func fullPagesAdvanceAndFinalPagesStop() {
         #expect(SubsonicCatalogPagingPolicy.nextOffset(
             currentOffset: 0,

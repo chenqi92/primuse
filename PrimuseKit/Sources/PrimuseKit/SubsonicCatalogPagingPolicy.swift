@@ -83,9 +83,12 @@ public enum SubsonicCatalogPagingPolicy {
             .caseInsensitiveCompare("navidrome") == .orderedSame
     }
 
+    /// `musicFolderIDs` 是只读这几个库(Navidrome 认多个 `musicFolderId`,见
+    /// `SubsonicLibraryScopePolicy.includedLibraryIDs`);给了它就不再看 `musicFolderID`。
     public static func search3QueryItems(
         songOffset: Int,
-        musicFolderID: String? = nil
+        musicFolderID: String? = nil,
+        musicFolderIDs: [String] = []
     ) -> [URLQueryItem] {
         var items = [
             URLQueryItem(name: "query", value: ""),
@@ -94,7 +97,9 @@ public enum SubsonicCatalogPagingPolicy {
             URLQueryItem(name: "songCount", value: String(pageSize)),
             URLQueryItem(name: "songOffset", value: String(max(0, songOffset))),
         ]
-        if let musicFolderID, !musicFolderID.isEmpty {
+        if !musicFolderIDs.isEmpty {
+            items += musicFolderIDs.map { URLQueryItem(name: "musicFolderId", value: $0) }
+        } else if let musicFolderID, !musicFolderID.isEmpty {
             items.append(URLQueryItem(name: "musicFolderId", value: musicFolderID))
         }
         return items

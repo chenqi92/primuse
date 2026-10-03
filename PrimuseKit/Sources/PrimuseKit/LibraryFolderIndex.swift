@@ -176,9 +176,11 @@ extension MusicSourceType {
     /// (Navidrome 系、飞牛…)。新开不再提供 —— 这些源按服务端给的流派与文件自己判断,
     /// 网盘在选目录页按目录标(`SpokenWordFolderTag.supportsFolderTags`);已经开着的
     /// 源设置里仍显示它,好让它能关掉。
+    /// Navidrome 现在按库选,但 1.11.1 里开过整源开关的人还要能在这里关掉,所以只排除
+    /// 一直就按库组织的媒体服务器与有声书服务器。
     public var supportsWholeSourceSpokenWordTag: Bool {
         libraryFolderPathSemantics == .opaque
-            && !organizesCatalogByServerLibrary
+            && !isMediaServer
             && declaredListeningContentKind == nil
             && !usesOpaqueDirectoryIdentifiers
             && self != .upnp && self != .appleMusic && self != .appleMusicLibrary

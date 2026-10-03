@@ -186,3 +186,38 @@ public struct ServerLibraryDescriptor: Sendable, Hashable, Identifiable {
         kind == .audiobooks || kind == .podcasts
     }
 }
+
+/// Navidrome(0.58 起)的多个资料库,在 Subsonic 接口里是「音乐文件夹」。Navidrome 没有
+/// 有声书这种内容类型(歌曲的 type 恒为 music),官方的做法就是把有声书单独放一个库。
+/// 歌曲条目不带库,但每张专辑只属于一个库(专辑 ID 里含库 ID),按库列一遍专辑就能给
+/// 每首歌对上库。
+public enum SubsonicLibraryScopePolicy {
+    /// 服务端没有库类型,库名本身说明装的是有声内容(「有声书」「Audiobooks」「播客」)
+    /// 时第一次见到默认归有声,用户改过的不再动。
+    public static func kind(forLibraryName name: String) -> ServerLibraryContentKind {
+        guard SpokenWordContentPolicy.genreNamesSpokenWord(name) else { return .music }
+        return name.lowercased().contains("podcast") ? .podcasts : .audiobooks
+    }
+
+    /// 走查时带的 `musicFolderId`。没排除任何库就是 nil(不带参数,读全部);
+    /// 全都排除了是空数组(一首都不读) —— 不能退回「不带参数」,那等于全读。
+    public static func includedLibraryIDs(all: [String], excluded: Set<String>) -> [String]? {
+        guard all.contains(where: excluded.contains) else { return nil }
+        return all.filter { !excluded.contains($0) }
+    }
+
+    /// 专辑 → 库。同一张专辑出现在两个库里,说明服务器没按 `musicFolderId` 过滤,
+    /// 对不上号:返回 nil,宁可不标也不标错。
+    public static func libraryIDsByAlbumID(
+        _ albumsByLibrary: [(libraryID: String, albumIDs: [String])]
+    ) -> [String: String]? {
+        var result: [String: String] = [:]
+        for (libraryID, albumIDs) in albumsByLibrary {
+            for albumID in albumIDs where !albumID.isEmpty {
+                if let existing = result[albumID], existing != libraryID { return nil }
+                result[albumID] = libraryID
+            }
+        }
+        return result
+    }
+}
