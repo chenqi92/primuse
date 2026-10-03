@@ -260,100 +260,184 @@ struct ArtistDetailView: View {
         }
     }
 
-    /// 手机横屏只剩三百多点高, 头像、块间距、上下留白都按竖屏标定过一遍,
-    /// 紧凑高度下各降一档, 让 hero 压到 170pt 以内, 首屏才露得出热门单曲。
-    ///
-    /// 简介照影片介绍页的位置放在播放键下面, 跟着虚化头像的底图一起铺开。
+    /// 竖屏:人像海报铺满上半屏,名字压在海报下沿居中,海报往下渐隐进整页底色(2.0 经典版式的艺人头图)。
+    /// 手机横屏只剩三百多点高,海报会把热门单曲挤出首屏,还是一条矮的信息带:头像、名字、首数。
+    /// 横竖切换只换上半截;按钮与简介(挂着菜单和弹页)的位置不变。简介照影片介绍页放在播放键下面。
     private func iosHero(insets: ImmersiveLibraryDetailInsets) -> some View {
+        let compact = heightClass.isCompact
+        return VStack(alignment: .leading, spacing: 0) {
+            if compact {
+                compactIdentity
+                    .padding(.top, insets.top + 8)
+                    .padding(.leading, insets.leading + 20)
+                    .padding(.trailing, insets.trailing + 20)
+            } else {
+                posterIdentity(insets: insets)
+            }
+
+            VStack(alignment: .leading, spacing: compact ? 12 : 18) {
+                LibraryDetailPlayShuffleRow(
+                    playDisabled: playableSongs.isEmpty,
+                    shuffleDisabled: playableSongs.count < 2,
+                    play: playAll,
+                    shuffle: shuffleAll,
+                    favorite: artistFavorite
+                )
+
+                LibraryInsightSynopsis(
+                    subject: insightIdentity,
+                    details: insightDetails,
+                    songs: { songs },
+                    compact: compact
+                )
+            }
+            // 底图铺满整幅屏幕, 文字与按钮按侧留在安全区内 —— 横屏两侧安全区不一定相等。
+            .padding(.leading, insets.leading + 20)
+            .padding(.trailing, insets.trailing + 20)
+            .padding(.top, compact ? 12 : 6)
+            .padding(.bottom, compact ? 14 : 24)
+        }
+        .frame(maxWidth: .infinity)
+        .background {
+            if compact { compactBackdrop }
+        }
+        .clipped()
+    }
+
+    /// 海报高度:去掉顶部安全区后取首屏的六成多,夹在 260–440 之间,再把顶部安全区加回来 ——
+    /// 名字和操作行在 SE 这样的矮屏上也留在首屏里。
+    private static func posterHeight(containerHeight: CGFloat, topInset: CGFloat) -> CGFloat {
+        topInset + min(max((containerHeight - topInset) * 0.62, 260), 440)
+    }
+
+    private var artistSummaryText: String {
+        "\(songs.count) \(String(localized: "songs_count")) · \(albumCount) \(String(localized: "albums_count"))"
+    }
+
+    private func posterIdentity(insets: ImmersiveLibraryDetailInsets) -> some View {
+        ZStack(alignment: .bottom) {
+            Color.clear
+                .frame(maxWidth: .infinity)
+                .containerRelativeFrame(.vertical) { height, _ in
+                    Self.posterHeight(containerHeight: height, topInset: insets.top)
+                }
+                .background {
+                    GeometryReader { geometry in
+                        ArtistArtworkView(
+                            artist: artist,
+                            size: max(geometry.size.width, geometry.size.height),
+                            cornerRadius: 0
+                        )
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                    }
+                    // 下半段渐隐成透明, 整页底色透上来, 看不出海报在哪儿结束。
+                    .mask {
+                        LinearGradient(
+                            stops: [
+                                .init(color: .black, location: 0),
+                                .init(color: .black, location: 0.46),
+                                .init(color: .black.opacity(0.18), location: 0.8),
+                                .init(color: .clear, location: 1),
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    }
+                    .overlay {
+                        // 顶部压一点暗, 让返回键和工具栏读得清。
+                        LinearGradient(
+                            stops: [
+                                .init(color: .black.opacity(0.22), location: 0),
+                                .init(color: .clear, location: 0.2),
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    }
+                    .accessibilityHidden(true)
+                }
+
+            VStack(spacing: 8) {
+                Text(verbatim: displayArtistName)
+                    .font(.largeTitle.weight(.heavy))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+                    .shadow(color: .black.opacity(0.22), radius: 12, y: 2)
+
+                Text(verbatim: "\(monthlyListenText) · \(artistSummaryText)")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.78))
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.leading, insets.leading + 24)
+            .padding(.trailing, insets.trailing + 24)
+            .padding(.bottom, 12)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// 手机横屏的矮信息带:头像在左, 名字与首数在右; 无障碍字号下排不下就上下排。
+    private var compactIdentity: some View {
         let identityLayout = dynamicTypeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
             : AnyLayout(HStackLayout(alignment: .center, spacing: 18))
-        let avatarSide = heightClass.value(88, compact: 64)
-        let blockSpacing = heightClass.value(20, compact: 12)
-        let heroTopPadding = heightClass.value(12, compact: 8)
-        let heroBottomPadding = heightClass.value(24, compact: 14)
-        let nameFont = heightClass.pick(Font.title2, compact: .title3)
-        let nameLineLimit: Int? = heightClass.isCompact ? 2 : nil
+        return identityLayout {
+            ArtistArtworkView(artist: artist, size: 64, cornerRadius: 32)
+                .overlay { Circle().stroke(.white.opacity(0.28), lineWidth: 1) }
+                .shadow(color: .black.opacity(0.24), radius: 12, y: 4)
+                .accessibilityHidden(true)
 
-        return VStack(alignment: .leading, spacing: blockSpacing) {
-            identityLayout {
-                ArtistArtworkView(artist: artist, size: avatarSide, cornerRadius: avatarSide / 2)
-                    .overlay { Circle().stroke(.white.opacity(0.28), lineWidth: 1) }
-                    .shadow(color: .black.opacity(0.24), radius: 12, y: 4)
-                    .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(verbatim: displayArtistName)
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.82)
+                    .fixedSize(horizontal: false, vertical: true)
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(verbatim: displayArtistName)
-                        .font(nameFont.weight(.bold))
-                        .foregroundStyle(.white)
-                        .lineLimit(nameLineLimit)
-                        .minimumScaleFactor(heightClass.value(1, compact: 0.82))
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Text(
-                        verbatim:
-                            "\(songs.count) \(String(localized: "songs_count")) · \(albumCount) \(String(localized: "albums_count"))"
-                    )
+                Text(verbatim: artistSummaryText)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.white.opacity(0.78))
 
-                    Text(verbatim: monthlyListenText)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.68))
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                Text(verbatim: monthlyListenText)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.68))
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
 
-            LibraryDetailPlayShuffleRow(
-                playDisabled: playableSongs.isEmpty,
-                shuffleDisabled: playableSongs.count < 2,
-                play: playAll,
-                shuffle: shuffleAll,
-                favorite: artistFavorite
+    /// 矮信息带的底图:头像虚化铺满, 往下化进整页底色。
+    private var compactBackdrop: some View {
+        GeometryReader { geometry in
+            ArtistArtworkView(
+                artist: artist,
+                size: max(geometry.size.width, geometry.size.height),
+                cornerRadius: 0
             )
-
-            LibraryInsightSynopsis(
-                subject: insightIdentity,
-                details: insightDetails,
-                songs: { songs },
-                compact: heightClass.isCompact
+            .blur(radius: 24)
+            .scaleEffect(1.16)
+            .opacity(0.78)
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+        .background(tint.top)
+        .accessibilityHidden(true)
+        .overlay {
+            // 头图往下化进整页底色, 而不是收在一块黑里 —— 页面接下去就是这个颜色,
+            // 所以看不出头图在哪儿结束。
+            LinearGradient(
+                stops: [
+                    .init(color: .black.opacity(0.16), location: 0),
+                    .init(color: tint.top.opacity(0.42), location: 0.5),
+                    .init(color: tint.top, location: 1),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
             )
         }
-        // 底图铺满整幅屏幕, 文字与按钮按侧留在安全区内 —— 横屏两侧安全区不一定相等。
-        .padding(.leading, insets.leading + 20)
-        .padding(.trailing, insets.trailing + 20)
-        .padding(.top, insets.top + heroTopPadding)
-        .padding(.bottom, heroBottomPadding)
-        .frame(maxWidth: .infinity)
-        .background {
-            GeometryReader { geometry in
-                ArtistArtworkView(
-                    artist: artist,
-                    size: max(geometry.size.width, geometry.size.height),
-                    cornerRadius: 0
-                )
-                .blur(radius: 24)
-                .scaleEffect(1.16)
-                .opacity(0.78)
-                .frame(width: geometry.size.width, height: geometry.size.height)
-            }
-            .background(tint.top)
-            .accessibilityHidden(true)
-            .overlay {
-                // 头图往下化进整页底色, 而不是收在一块黑里 —— 页面接下去就是这个颜色,
-                // 所以看不出头图在哪儿结束。
-                LinearGradient(
-                    stops: [
-                        .init(color: .black.opacity(0.16), location: 0),
-                        .init(color: tint.top.opacity(0.42), location: 0.5),
-                        .init(color: tint.top, location: 1),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            }
-        }
-        .clipped()
     }
 
     private var iosTopSongs: some View {
