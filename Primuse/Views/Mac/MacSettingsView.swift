@@ -5908,6 +5908,12 @@ private struct MacSTThemeView: View {
     @AppStorage("primuse.home.showContinueListening") private var showContinueListeningOnHome = true
     @AppStorage("primuse.home.showTopArtists") private var showTopArtistsOnHome = true
     @AppStorage("primuse.home.showPodcasts") private var showPodcastsOnHome = false
+    @AppStorage(MacHomeSectionLayout.orderKey) private var homeSectionOrderRawValue = ""
+    @AppStorage(MacHomeSectionLayout.showsOverviewKey) private var showOverviewOnHome = true
+    @AppStorage(MacHomeSectionLayout.showsPipelineKey) private var showPipelineOnHome = true
+    @AppStorage(MacHomeSectionLayout.showsBooksKey) private var showBooksOnHome = true
+    /// 首页区块排序列表一行的实际高度, 拖动手柄按它换算「挪了几行」。
+    @State private var homeSectionRowHeight: CGFloat = 40
     @AppStorage(LibrarySongBrowseModePreference.storageKey)
     private var libraryBrowseModeRawValue = LibrarySongBrowseMode.flat.rawValue
     @AppStorage(LibraryDisplayConfiguration.quickAccessLimitKey)
@@ -6282,35 +6288,70 @@ private struct MacSTThemeView: View {
         .settingsAnchor("appearance.appIcon")
 
         MacSTSection(String(localized: "home_settings_title")) {
+            // 主卡固定在最上面:情景推荐专辑(今晚听)和接着听排在一起,不参与排序。
             MacSTGroup {
                 MacSTRow(
-                    String(localized: "radio_home_visibility"),
-                    divider: false
-                ) {
-                    MacSTToggle(isOn: $showRadioOnHome)
-                        .accessibilityHint(Text("radio_home_visibility_description"))
-                }
-                .settingsAnchor("home.radio")
-                MacSTRow(String(localized: "home_continue_spaces_title")) {
-                    MacSTToggle(isOn: $showContinueSpacesOnHome)
-                }
-                .settingsAnchor("home.continueSpaces")
-                MacSTRow(
                     String(localized: "home_section_album_pick"),
-                    hint: String(localized: "home_section_album_pick_hint")
+                    hint: String(localized: "home_section_album_pick_hint"),
+                    divider: false
                 ) {
                     MacSTToggle(isOn: $showAlbumPickOnHome)
                 }
                 .settingsAnchor("home.albumPick")
-                MacSTRow(
-                    String(localized: "home_section_start_listening"),
-                    hint: String(localized: "home_section_start_listening_hint")
-                ) {
-                    MacSTToggle(isOn: $showStartListeningOnHome)
+                MacSTRow(String(localized: "home_continue_spaces_title")) {
+                    MacSTToggle(isOn: $showContinueSpacesOnHome)
                 }
-                .settingsAnchor("home.startListening")
-                if showStartListeningOnHome {
-                    MacSTRow(String(localized: "listening_intent_layout")) {
+                .settingsAnchor("home.continueSpaces")
+            }
+
+            MacSTGroup {
+                // 主卡下面的各块按首页上的先后列出:拖左侧手柄排序,右侧开关管显不显示。
+                let rows = homeSectionOrder
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, section in
+                    MacSTRow(homeSectionTitle(section), divider: index != 0) {
+                        MacSTToggle(isOn: homeSectionVisibilityBinding(for: section))
+                    }
+                    .padding(.leading, 26)
+                    .overlay(alignment: .leading) {
+                        MacScraperReorderHandle(
+                            index: index,
+                            sourceCount: rows.count,
+                            move: moveHomeSections,
+                            rowStep: max(homeSectionRowHeight, 24)
+                        )
+                        .frame(width: 18, height: 22)
+                        .padding(.leading, 12)
+                        .help(Lz("Drag to Reorder"))
+                    }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                        if index == 1 { homeSectionRowHeight = height }
+                    }
+                    .accessibilityAction(named: Text("home_edit_move_up")) {
+                        moveHomeSection(at: index, offset: -1)
+                    }
+                    .accessibilityAction(named: Text("home_edit_move_down")) {
+                        moveHomeSection(at: index, offset: 1)
+                    }
+                    .settingsAnchor(homeSectionAnchor(section))
+                }
+
+                MacSTRow(String(localized: "home_settings_sections_label")) {
+                    MacSTButton(title: String(localized: "home_settings_restore_default_order")) {
+                        pmWithAnimation(.list) {
+                            homeSectionOrderRawValue = ""
+                        }
+                    }
+                }
+                .settingsAnchor("home.order")
+            }
+
+            if showStartListeningOnHome {
+                MacSTGroup {
+                    MacSTRow(
+                        String(localized: "home_section_start_listening"),
+                        hint: String(localized: "listening_intent_layout"),
+                        divider: false
+                    ) {
                         MacSTPicker(
                             selection: startListeningStyleBinding,
                             options: HomeSectionLayoutPolicy.supportedStyles(for: .startListening).map {
@@ -6328,29 +6369,7 @@ private struct MacSTThemeView: View {
                         )
                     }
                 }
-                MacSTRow(String(localized: "home_section_for_you")) {
-                    MacSTToggle(isOn: $showForYouOnHome)
-                }
-                .settingsAnchor("home.forYou")
-                MacSTRow(HomeDiscoveryText.string("recent_albums")) {
-                    MacSTToggle(isOn: $showRecentlyAddedOnHome)
-                }
-                .settingsAnchor("home.recentlyAdded")
-                MacSTRow(String(localized: "recently_played")) {
-                    MacSTToggle(isOn: $showContinueListeningOnHome)
-                }
-                .settingsAnchor("home.continueListening")
-                MacSTRow(String(localized: "home_section_top_artists")) {
-                    MacSTToggle(isOn: $showTopArtistsOnHome)
-                }
-                .settingsAnchor("home.topArtists")
-                MacSTRow(
-                    String(localized: "home_section_podcasts"),
-                    hint: String(localized: "home_section_podcasts_hint")
-                ) {
-                    MacSTToggle(isOn: $showPodcastsOnHome)
-                }
-                .settingsAnchor("home.podcasts")
+                .pmAppearFade(.contentAppear)
             }
         }
 
@@ -6576,6 +6595,80 @@ private struct MacSTThemeView: View {
                 hiddenLibrarySectionsRawValue = LibraryDisplayConfiguration.encodeHiddenSections(hidden)
             }
         )
+    }
+
+    private var homeSectionOrder: [MacHomeSection] {
+        MacHomeSectionLayout.decodeOrder(homeSectionOrderRawValue)
+    }
+
+    /// 列表里的名字照首页上看到的叫:统计卡片就写两张卡的标题,管线写出四个节点。
+    private func homeSectionTitle(_ section: MacHomeSection) -> String {
+        switch section {
+        case .overview:
+            return [String(localized: "home_health_title"), Lz("Source Status")].joined(separator: " · ")
+        case .pipeline:
+            return [
+                String(localized: "home_pipeline_sources"),
+                String(localized: "home_pipeline_scan"),
+                String(localized: "home_pipeline_metadata"),
+                String(localized: "home_pipeline_listen"),
+            ].joined(separator: " · ")
+        case .startListening: return String(localized: "home_section_start_listening")
+        case .forYou: return String(localized: "ai_recommendation_home_title")
+        case .recentlyAdded: return HomeDiscoveryText.string("recent_albums")
+        case .recentlyPlayed: return String(localized: "recently_played")
+        case .radio: return String(localized: "radio_title")
+        case .books: return String(localized: "home_section_audiobooks")
+        case .podcasts: return String(localized: "home_section_podcasts")
+        case .topArtists: return String(localized: "home_section_top_artists")
+        }
+    }
+
+    /// 设置搜索跳转用的锚点;原来就有的几项沿用原来的名字。
+    private func homeSectionAnchor(_ section: MacHomeSection) -> String {
+        switch section {
+        case .overview: return "home.macOverview"
+        case .pipeline: return "home.macPipeline"
+        case .startListening: return "home.startListening"
+        case .forYou: return "home.forYou"
+        case .recentlyAdded: return "home.recentlyAdded"
+        case .recentlyPlayed: return "home.continueListening"
+        case .radio: return "home.radio"
+        case .books: return "home.macBooks"
+        case .podcasts: return "home.podcasts"
+        case .topArtists: return "home.topArtists"
+        }
+    }
+
+    private func homeSectionVisibilityBinding(for section: MacHomeSection) -> Binding<Bool> {
+        switch section {
+        case .overview: return $showOverviewOnHome
+        case .pipeline: return $showPipelineOnHome
+        case .startListening: return $showStartListeningOnHome
+        case .forYou: return $showForYouOnHome
+        case .recentlyAdded: return $showRecentlyAddedOnHome
+        case .recentlyPlayed: return $showContinueListeningOnHome
+        case .radio: return $showRadioOnHome
+        case .books: return $showBooksOnHome
+        case .podcasts: return $showPodcastsOnHome
+        case .topArtists: return $showTopArtistsOnHome
+        }
+    }
+
+    private func moveHomeSection(at index: Int, offset: Int) {
+        let rows = homeSectionOrder
+        let destination = index + offset
+        guard rows.indices.contains(index), rows.indices.contains(destination) else { return }
+        moveHomeSections(IndexSet(integer: index), destination > index ? destination + 1 : destination)
+    }
+
+    private func moveHomeSections(_ source: IndexSet, _ destination: Int) {
+        let current = homeSectionOrder
+        let updated = MacHomeSectionLayout.reordering(current, fromOffsets: source, toOffset: destination)
+        guard updated != current else { return }
+        pmWithAnimation(.list) {
+            homeSectionOrderRawValue = MacHomeSectionLayout.encodeOrder(updated)
+        }
     }
 
     private func moveSidebarSection(at index: Int, offset: Int) {
@@ -8631,5 +8724,46 @@ private struct MacSmartNudgeSettings: View {
         }
     }
 }
+
+#if DEBUG
+/// `PRIMUSE_DEBUG_SETTINGS_SNAPSHOT=<目录>`：启动后把「外观」设置页离屏渲染成浅色、深色两张 PNG。
+/// 编译机常年锁屏, 截不到窗口; 改这一页的排版时用它看效果。拖动手柄是 AppKit 视图, 图里是空的。
+@MainActor
+enum MacSettingsDebugSnapshot {
+    static func writeIfRequested() async {
+        guard let path = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SETTINGS_SNAPSHOT"],
+              !path.isEmpty else { return }
+        try? await Task.sleep(for: .seconds(3))
+        let directory = URL(fileURLWithPath: path)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        for (name, appearanceName, scheme) in [
+            ("appearance-light", NSAppearance.Name.aqua, ColorScheme.light),
+            ("appearance-dark", NSAppearance.Name.darkAqua, ColorScheme.dark),
+        ] {
+            let content = MacSTThemeView()
+                .frame(width: 656, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(24)
+                .background(PMColor.bg)
+                .applyPrimuseEnvironments()
+                .environment(\.colorScheme, scheme)
+            var png: Data?
+            NSAppearance(named: appearanceName)?.performAsCurrentDrawingAppearance {
+                let renderer = ImageRenderer(content: content)
+                renderer.scale = 1.5
+                png = renderer.cgImage.flatMap {
+                    NSBitmapImageRep(cgImage: $0).representation(using: .png, properties: [:])
+                }
+            }
+            if let png {
+                try? png.write(to: directory.appendingPathComponent("\(name).png"))
+            } else {
+                plog("🧪 settings snapshot \(name) failed")
+            }
+        }
+        plog("🧪 settings snapshots written to \(directory.path)")
+    }
+}
+#endif
 
 #endif

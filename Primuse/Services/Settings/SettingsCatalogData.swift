@@ -106,7 +106,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "appearance.material", titleKey: "Material", table: "SettingsSearch", iosPage: nil, macPage: .appearance),
         SettingDefinition(id: "appearance.autoMaterial", titleKey: "Detect macOS version automatically at launch", table: "SettingsSearch", iosPage: nil, macPage: .appearance),
         SettingDefinition(id: "home.radio", titleKey: "radio_home_visibility", iosPage: .home, macPage: .appearance),
-        SettingDefinition(id: "home.order", titleKey: "home_settings_sections_label", iosPage: .home, macPage: nil),
+        SettingDefinition(id: "home.order", titleKey: "home_settings_sections_label", iosPage: .home, macPage: .appearance, keywords: ["排序", "顺序", "调整顺序", "区块", "order", "reorder", "sections"]),
         SettingDefinition(id: "home.restoreOrder", titleKey: "home_settings_restore_all", iosPage: .home, macPage: nil),
         SettingDefinition(id: "home.hero", titleKey: "home_hero_section_title", iosPage: .home, macPage: nil, keywords: ["问候", "欢迎", "顶部", "早上好", "greeting", "welcome", "header"]),
         SettingDefinition(id: "home.continueSpaces", titleKey: "home_continue_spaces_title", iosPage: .home, macPage: .appearance),

@@ -60,7 +60,12 @@ struct MacHomeView: View {
     @AppStorage("primuse.home.showRecentlyAdded") private var showRecentlyAdded = true
     @AppStorage("primuse.home.showPodcasts") private var showPodcasts = false
     @AppStorage(AlbumRecommendationService.homeVisibilityKey) private var showAlbumPick = true
-    // 与 iPhone、iPad 首页同一份区块开关(HomeSectionKind);Mac 首页只接显隐,顺序仍固定。
+    // 与 iPhone、iPad 首页同名的区块开关;资料库健康度、处理管线、书这三块只有 Mac 有自己的开关。
+    // 主卡下面各块的先后在 设置 › 外观 › 首页 里拖动调整。
+    @AppStorage(MacHomeSectionLayout.orderKey) private var sectionOrderRawValue = ""
+    @AppStorage(MacHomeSectionLayout.showsOverviewKey) private var showOverview = true
+    @AppStorage(MacHomeSectionLayout.showsPipelineKey) private var showPipeline = true
+    @AppStorage(MacHomeSectionLayout.showsBooksKey) private var showBooks = true
     @AppStorage("primuse.home.showContinueSpaces") private var showContinueSpaces = true
     @AppStorage(ListeningIntentService.homeVisibilityKey) private var showStartListening = true
     /// 「开始听」的排布与张数,与 iPhone、iPad 首页编辑同一份配置,在 设置 › 外观 › 首页 里调。
@@ -261,62 +266,77 @@ struct MacHomeView: View {
         ) {
             heroOrAlbumPick
         }
-        if hasContent, showStartListening {
-            // 「开始听」:主卡下面一行意图卡片,点了直接起播。
-            StartListeningShelf(
-                arrangement: startListeningArrangement,
-                horizontalInset: 0,
-                onOpenAll: { openSection(.allIntents) },
-                onOpenSongs: { openSection(.intentSongs($0, fromAllIntents: false)) }
-            )
-            .pmAppearFade(.contentAppear)
-        }
         if showRadio,
            player.isLiveRadio,
            let currentStation = player.currentRadioStation {
             radioNowPlayingStrip(currentStation)
                 .pmAppearFade(.contentAppear)
         }
-
-        if hasContent {
-            statsRow
+        if !hasContent {
+            emptyState
                 .pmAppearFade(.contentAppear)
-            if showForYou, !model.snapshot.recommendationResults.isEmpty {
+        }
+        ForEach(MacHomeSectionLayout.decodeOrder(sectionOrderRawValue)) { section in
+            dashboardSection(section, hasContent: hasContent)
+        }
+    }
+
+    /// 主卡下面的一块。曲库还空着时只画电台、书、播客这些不靠曲库的。
+    @ViewBuilder
+    private func dashboardSection(_ section: MacHomeSection, hasContent: Bool) -> some View {
+        switch section {
+        case .overview:
+            if hasContent, showOverview {
+                statsRow
+                    .pmAppearFade(.contentAppear)
+            }
+        case .pipeline:
+            if hasContent, showPipeline {
+                pipelineSection
+                    .pmAppearFade(.contentAppear)
+            }
+        case .startListening:
+            if hasContent, showStartListening {
+                StartListeningShelf(
+                    arrangement: startListeningArrangement,
+                    horizontalInset: 0,
+                    onOpenAll: { openSection(.allIntents) },
+                    onOpenSongs: { openSection(.intentSongs($0, fromAllIntents: false)) }
+                )
+                .pmAppearFade(.contentAppear)
+            }
+        case .forYou:
+            if hasContent, showForYou, !model.snapshot.recommendationResults.isEmpty {
                 recommendationSection
                     .pmAppearFade(.contentAppear)
             }
-            pipelineSection
-                .pmAppearFade(.contentAppear)
-            if showRecentlyAdded, !model.snapshot.recentlyAddedAlbums.isEmpty {
+        case .recentlyAdded:
+            if hasContent, showRecentlyAdded, !model.snapshot.recentlyAddedAlbums.isEmpty {
                 recentlyAddedSection
                     .pmAppearFade(.contentAppear)
             }
-            if showContinueListening {
+        case .recentlyPlayed:
+            if hasContent, showContinueListening {
                 recentlyPlayedSection
                     .pmAppearFade(.contentAppear)
             }
+        case .radio:
             if showRadio, !radioStationsStore.stations.isEmpty {
                 radioSpotlightSection
                     .pmAppearFade(.contentAppear)
             }
-            MacHomeBooksStrip()
+        case .books:
+            if showBooks {
+                MacHomeBooksStrip()
+            }
+        case .podcasts:
             if showPodcasts {
                 MacHomePodcastsStrip()
             }
-            if showTopArtists, !model.snapshot.artists.isEmpty {
+        case .topArtists:
+            if hasContent, showTopArtists, !model.snapshot.artists.isEmpty {
                 artistsSection
                     .pmAppearFade(.contentAppear)
-            }
-        } else {
-            emptyState
-                .pmAppearFade(.contentAppear)
-            if showRadio, !radioStationsStore.stations.isEmpty {
-                radioSpotlightSection
-                    .pmAppearFade(.contentAppear)
-            }
-            MacHomeBooksStrip()
-            if showPodcasts {
-                MacHomePodcastsStrip()
             }
         }
     }

@@ -2396,6 +2396,7 @@ private struct DebugEvidenceOrientation: ViewModifier {
 #if DEBUG
 /// 调试构建的启动自动化，由环境变量驱动，给编译机上无人值守的实机检查用：
 /// - `PRIMUSE_OPEN_SETTINGS=<设置目录 id>`：启动后打开该设置项（Mac 打开设置窗口，iOS 推入对应页）。
+/// - `PRIMUSE_DEBUG_SETTINGS_SNAPSHOT=<目录>`（Mac）：把「外观」设置页离屏渲染成 PNG，见 `MacSettingsDebugSnapshot`。
 /// - `PRIMUSE_AUTOPLAY_SONG=<标题片段>`：曲库里出现标题包含该片段的歌后自动播放它。
 ///   另给 `PRIMUSE_AUTOPLAY_PAUSE=1` 时开播后立刻暂停并回到开头，进度与播放键都定住，截图可逐像素对照；
 ///   `PRIMUSE_AUTOPLAY_QUEUE=album` 时把整张专辑按曲序排成队列、从这首开始放（看「接下来播放」用）；
@@ -2445,6 +2446,9 @@ private struct DebugLaunchAutomation: ViewModifier {
                 }
                 plog("🧪 DebugLaunchAutomation: no song matching '\(needle)' within the wait window")
             }
+            #if os(macOS)
+            .task { await MacSettingsDebugSnapshot.writeIfRequested() }
+            #endif
             .modifier(DebugListeningFeatureAutomation())
     }
 }

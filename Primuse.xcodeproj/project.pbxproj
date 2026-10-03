@@ -1500,6 +1500,7 @@
 		D6D6D89F4FC3879D8BA162FB /* MiniPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 973D5A18BC4228928E42C0C1 /* MiniPlayerView.swift */; };
 		D701072DE04F201883F35E8F /* TVPlexSignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88300BB8E3512BAF11A2D5B5 /* TVPlexSignInView.swift */; };
 		D7172B5749B4BB657027F66B /* SearchResultSectionLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8129A4B4D8CDEA3EE20F4B0A /* SearchResultSectionLayout.swift */; };
+		81856CA2EADC2C272A78CFA1 /* MacHomeSectionLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C098662933E60D795AD73A9 /* MacHomeSectionLayout.swift */; };
 		D71A326EEEF5016E847109F1 /* ServerMediaShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 228E9AF235163595E752F32C /* ServerMediaShareSheet.swift */; };
 		D75F3CECE43988C7E655D461 /* LastFmSimilarAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86755A200F0E3D194EE50F3E /* LastFmSimilarAPI.swift */; };
 		D768ACAB75828F3A175088A6 /* HardwareSampleRateNegotiator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E7A339E8326E243DBC22C78 /* HardwareSampleRateNegotiator.swift */; };
@@ -2704,6 +2705,7 @@
 		810F050B25A5304CF3CBAF9A /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		81119E6E832DAD7DC7750C0F /* HomeStartListeningSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeStartListeningSection.swift; sourceTree = "<group>"; };
 		8129A4B4D8CDEA3EE20F4B0A /* SearchResultSectionLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchResultSectionLayout.swift; sourceTree = "<group>"; };
+		6C098662933E60D795AD73A9 /* MacHomeSectionLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacHomeSectionLayout.swift; sourceTree = "<group>"; };
 		81831D77EFAF14E91B42C89C /* SongListeningTraits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongListeningTraits.swift; sourceTree = "<group>"; };
 		81BD12832D6A95CE295C8C5A /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = ru.lproj/HomeDiscovery.strings; sourceTree = "<group>"; };
 		81BF3B3BCA7A1454E6731DDC /* URL+AudioFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "URL+AudioFormat.swift"; sourceTree = "<group>"; };
@@ -3920,6 +3922,7 @@
 				EBD6678B75E0ED0C185FD110 /* SceneTransitionScanQuiescePolicy.swift */,
 				18D43872DB076D765B01FC84 /* ScreenChangeTransitionPolicy.swift */,
 				8129A4B4D8CDEA3EE20F4B0A /* SearchResultSectionLayout.swift */,
+				6C098662933E60D795AD73A9 /* MacHomeSectionLayout.swift */,
 				6D37B006FAFB65239DFDD75D /* SentencePieceUnigramTokenizer.swift */,
 				83E23F5C254D3F53BCCFB053 /* ServerCatalogChangeDetection.swift */,
 				35F073A9086FA22C2E168810 /* ServerCatalogDeletionPolicy.swift */,
@@ -6144,6 +6147,7 @@
 				175CA91636CD93FF58990750 /* SceneTransitionScanQuiescePolicy.swift in Sources */,
 				D0223B06EA923E5E84C8E154 /* ScreenChangeTransitionPolicy.swift in Sources */,
 				D7172B5749B4BB657027F66B /* SearchResultSectionLayout.swift in Sources */,
+				81856CA2EADC2C272A78CFA1 /* MacHomeSectionLayout.swift in Sources */,
 				0E439F36101F40F622AC6D90 /* SentencePieceUnigramTokenizer.swift in Sources */,
 				71D09835973FF18EB862C34E /* ServerCatalogChangeDetection.swift in Sources */,
 				AB33F6CC514589F6F0297D8E /* ServerCatalogDeletionPolicy.swift in Sources */,
