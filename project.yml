@@ -195,11 +195,10 @@ targets:
     info:
       path: Primuse/Info.plist
       properties:
+        # 最多三个:超了系统直接拒绝安装(maximum of 3 allowed)。显示名 Primuse 本身不用再列。
         INAlternativeAppNames:
           - INAlternativeAppName: "猿音"
           - INAlternativeAppName: "普瑞缪斯"
-          - INAlternativeAppName: "Primuse"
-            INAlternativeAppNamePronunciationHint: "pry muse"
           # Siri 常把 Primuse 听成「pro muse」并转给 Apple 音乐。
           - INAlternativeAppName: "Pro Muse"
         NSSupportsLiveActivities: true
@@ -459,11 +458,10 @@ targets:
     info:
       path: PrimuseWatch/Info.plist
       properties:
+        # 最多三个:超了系统直接拒绝安装(maximum of 3 allowed)。显示名 Primuse 本身不用再列。
         INAlternativeAppNames:
           - INAlternativeAppName: "猿音"
           - INAlternativeAppName: "普瑞缪斯"
-          - INAlternativeAppName: "Primuse"
-            INAlternativeAppNamePronunciationHint: "pry muse"
           # Siri 常把 Primuse 听成「pro muse」并转给 Apple 音乐。
           - INAlternativeAppName: "Pro Muse"
         CFBundleDisplayName: "Primuse"
@@ -586,11 +584,10 @@ targets:
     info:
       path: Primuse/Info-macOS.plist
       properties:
+        # 最多三个:超了系统直接拒绝安装(maximum of 3 allowed)。显示名 Primuse 本身不用再列。
         INAlternativeAppNames:
           - INAlternativeAppName: "猿音"
           - INAlternativeAppName: "普瑞缪斯"
-          - INAlternativeAppName: "Primuse"
-            INAlternativeAppNamePronunciationHint: "pry muse"
           # Siri 常把 Primuse 听成「pro muse」并转给 Apple 音乐。
           - INAlternativeAppName: "Pro Muse"
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
@@ -859,11 +856,10 @@ targets:
     info:
       path: PrimuseTV/Info.plist
       properties:
+        # 最多三个:超了系统直接拒绝安装(maximum of 3 allowed)。显示名 Primuse 本身不用再列。
         INAlternativeAppNames:
           - INAlternativeAppName: "猿音"
           - INAlternativeAppName: "普瑞缪斯"
-          - INAlternativeAppName: "Primuse"
-            INAlternativeAppNamePronunciationHint: "pry muse"
           # Siri 常把 Primuse 听成「pro muse」并转给 Apple 音乐。
           - INAlternativeAppName: "Pro Muse"
         BAAppGroupID: group.com.welape.yuanyin

@@ -68,12 +68,6 @@
 		</dict>
 		<dict>
 			<key>INAlternativeAppName</key>
-			<string>Primuse</string>
-			<key>INAlternativeAppNamePronunciationHint</key>
-			<string>pry muse</string>
-		</dict>
-		<dict>
-			<key>INAlternativeAppName</key>
 			<string>Pro Muse</string>
 		</dict>
 	</array>
