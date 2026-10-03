@@ -275,6 +275,7 @@ struct ListeningProfileTests {
         #expect(without.request.losslessPlays == nil)
         let json = try #require(ListeningIntentAIExchange.payloadJSON(without.request))
         #expect(!json.contains("\"plays\""))
+        #expect(ListeningIntentAIExchange.name(String(repeating: "长", count: 300)).count == 120)
     }
 
     @Test("AI answers are checked: unknown ids, lone genres and empty titles are dropped")
@@ -292,6 +293,7 @@ struct ListeningProfileTests {
           {"kind":"folder","title":"不存在","refs":["f99"]},
           {"kind":"artist","title":"常听的他","refs":["\(artistID)","a99"]},
           {"kind":"genre_mix","title":"只有流行","genres":["pop"]},
+          {"kind":"genre_mix","title":"流行电子","genres":["pop","electronic"]},
           {"kind":"genre_mix","title":"九十年代摇滚","genres":["Rock"],"decade":1994},
           {"kind":"quality","title":"无损时刻","quality":"lossless"},
           {"kind":"rotation","title":"   "},
@@ -300,11 +302,12 @@ struct ListeningProfileTests {
         ```
         """
         let drafts = try ListeningIntentAIExchange.drafts(fromText: text, request: prepared.request)
-        #expect(drafts.map(\.kind) == [.folder, .artist, .genreMix, .quality])
+        #expect(drafts.map(\.kind) == [.folder, .artist, .genreMix, .genreMix, .quality])
         #expect(drafts[0].title == "安静的钢琴")
         #expect(drafts[1].refs == [artistID])
-        #expect(drafts[2].decade == 1990)
-        #expect(drafts[2].genres == [.rock])
+        #expect(drafts[2].genres == [.pop, .electronic])
+        #expect(drafts[3].decade == 1990)
+        #expect(drafts[3].genres == [.rock])
         #expect(throws: ListeningIntentAIExchangeError.unreadableAnswer) {
             try ListeningIntentAIExchange.drafts(fromText: "sorry", request: prepared.request)
         }
@@ -316,7 +319,7 @@ struct ListeningProfileTests {
         #expect(local.contains { $0.id == folder.id })
         #expect(folder.customTitle == "安静的钢琴")
         #expect(folder.isAICurated == true)
-        let mix = intents[2]
+        let mix = intents[3]
         #expect(mix.id.hasPrefix("personal:ai:"))
         #expect(mix.rule?.years == 1990...1999)
         let again = ListeningIntentAIExchange.intents(from: drafts, context: prepared.context, profile: profile)

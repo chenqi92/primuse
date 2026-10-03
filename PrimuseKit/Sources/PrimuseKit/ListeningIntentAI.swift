@@ -13,6 +13,12 @@ public enum ListeningIntentAIExchange {
     static let folderLimit = 10
     static let artistLimit = 16
     static let albumLimit = 8
+    static let decadeLimit = 16
+    /// The relay refuses longer names; a long classical album title must not
+    /// cost the whole request.
+    static let nameLimit = 120
+
+    static func name(_ text: String) -> String { String(text.prefix(nameLimit)) }
 
     public struct Request: Codable, Equatable, Sendable {
         public struct Share: Codable, Equatable, Sendable {
@@ -106,11 +112,11 @@ public enum ListeningIntentAIExchange {
             folderContext[id] = folder
             folders.append(Request.Folder(
                 id: id,
-                name: folder.name,
+                name: name(folder.name),
                 songs: folder.songCount,
                 plays: listening ? folder.recentPlays : nil,
                 genres: ListeningGenreFamily.allCases.filter { folder.familyMask & $0.bit != 0 }.map(\.rawValue),
-                artists: folder.topArtists
+                artists: folder.topArtists.prefix(3).map(name)
             ))
         }
 
@@ -125,7 +131,7 @@ public enum ListeningIntentAIExchange {
             .enumerated() {
             let id = "a\(index + 1)"
             artistContext[id] = artist
-            artists.append(Request.Artist(id: id, name: artist.name, songs: artist.songCount, plays: listening ? artist.recentPlays : nil))
+            artists.append(Request.Artist(id: id, name: name(artist.name), songs: artist.songCount, plays: listening ? artist.recentPlays : nil))
         }
 
         var albums: [Request.Album] = []
@@ -137,7 +143,13 @@ public enum ListeningIntentAIExchange {
             for (index, album) in played.prefix(albumLimit).enumerated() {
                 let id = "b\(index + 1)"
                 albumContext[id] = album
-                albums.append(Request.Album(id: id, title: album.title, artist: album.artistName, year: album.year, plays: album.recentPlays))
+                albums.append(Request.Album(
+                    id: id,
+                    title: name(album.title),
+                    artist: name(album.artistName),
+                    year: album.year,
+                    plays: album.recentPlays
+                ))
             }
         }
 
@@ -152,7 +164,10 @@ public enum ListeningIntentAIExchange {
                 )
             }
             .sorted { $0.songs > $1.songs }
-        let decades = profile.decadeSongs.keys.sorted()
+        let decades = profile.decadeSongs.keys
+            .sorted { (profile.decadeSongs[$0] ?? 0) > (profile.decadeSongs[$1] ?? 0) }
+            .prefix(decadeLimit)
+            .sorted()
             .compactMap { decade -> Request.Decade? in
                 let songs = profile.decadeSongs[decade] ?? 0
                 guard Double(songs) >= library * 0.03 else { return nil }
@@ -208,7 +223,7 @@ public enum ListeningIntentAIExchange {
     - artist: refs = [1 to 3 artist ids] the listener plays a lot; combine closely related artists into one intent if fitting.
     - album_like: refs = [one album id] the listener plays a lot; it becomes "albums like this one".
     - quality: quality = "lossless" or "hires"; only when they clearly prefer it (lossless/hires plays or a large lossless share). Optional genres (at most 1).
-    - genre_mix: genres = 1 or 2 of pop, rock, electronic, classical, jazz, soundtrack, folk, hipHop, easyListening, plus a decade (e.g. 1990) and/or quality. Never a single genre alone and never a decade alone: the shelf already has those.
+    - genre_mix: genres = 1 or 2 of pop, rock, electronic, classical, jazz, soundtrack, folk, hipHop, easyListening; with one genre add a decade (e.g. 1990) and/or quality. Never a single genre alone and never a decade alone: the shelf already has those.
     - rotation: no refs; only when "rotation" is present.
 
     Prefer what the listener actually plays, then how they organise their folders. Keep ideas distinct. \
@@ -304,7 +319,8 @@ public enum ListeningIntentAIExchange {
             case .quality:
                 draft = quality.map { Draft(kind: kind, title: title, refs: [], genres: Array(genres.prefix(1)), decade: nil, quality: $0) }
             case .genreMix:
-                let constraints = (genres.isEmpty ? 0 : 1) + (decade == nil ? 0 : 1) + (quality == nil ? 0 : 1)
+                // Two genres together are already a combination the shelf does not have.
+                let constraints = min(genres.count, 2) + (decade == nil ? 0 : 1) + (quality == nil ? 0 : 1)
                 draft = !genres.isEmpty && constraints >= 2
                     ? Draft(kind: kind, title: title, refs: [], genres: Array(genres.prefix(2)), decade: decade, quality: quality)
                     : nil
