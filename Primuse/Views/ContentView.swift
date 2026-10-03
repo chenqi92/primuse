@@ -2491,6 +2491,12 @@ struct PlayerOverlay: View {
             dismissalTask?.cancel()
             dismissalTask = nil
         }
+        #if DEBUG
+        // `PRIMUSE_DEBUG_PLAYER_CYCLE`:和点左上角收起键走同一条路。
+        .onReceive(NotificationCenter.default.publisher(for: .primuseDebugMinimizeNowPlaying)) { _ in
+            beginDismissal(.dismissingDown)
+        }
+        #endif
     }
 
     /// nil = 停在可见位置, 由拖动偏移决定。
@@ -3056,5 +3062,12 @@ extension ContentView {
             debugRadioStore.addTag(tags[offset % tags.count], toStationIDs: [station.id])
         }
     }
+}
+#endif
+
+#if DEBUG
+extension Notification.Name {
+    /// 调试构建:收起播放页,同左上角的收起键(`PRIMUSE_DEBUG_PLAYER_CYCLE` 用)。
+    static let primuseDebugMinimizeNowPlaying = Notification.Name("primuse.debug.minimizeNowPlaying")
 }
 #endif

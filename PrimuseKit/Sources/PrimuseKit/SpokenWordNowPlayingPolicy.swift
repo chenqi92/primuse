@@ -39,6 +39,20 @@ public struct SpokenWordNowPlayingSummary: Equatable, Sendable {
     }
 }
 
+/// "第 12 / 120 章": the playing part, 1-based, and how many there are.
+public struct SpokenWordPartPosition: Equatable, Sendable {
+    public var index: Int
+    public var count: Int
+    /// Numbered by the file's chapter marks rather than the book's files.
+    public var isChapterMark: Bool
+
+    public init(index: Int, count: Int, isChapterMark: Bool) {
+        self.index = index
+        self.count = count
+        self.isChapterMark = isChapterMark
+    }
+}
+
 public enum SpokenWordNowPlayingPolicy {
     /// - Parameters:
     ///   - book: the book the playing item belongs to, as the shelf builds it
@@ -75,13 +89,15 @@ public enum SpokenWordNowPlayingPolicy {
         }
 
         var summary = SpokenWordNowPlayingSummary()
-        if items.count > 1, let index = items.firstIndex(where: { $0.id == currentItemID }) {
-            summary.partIndex = index + 1
-            summary.partCount = items.count
-        } else if chapterCount > 1 {
-            summary.partIndex = (currentChapterIndex ?? 0) + 1
-            summary.partCount = chapterCount
-            summary.partsAreChapterMarks = true
+        if let part = partPosition(
+            bookItemIDs: items.map(\.id),
+            currentItemID: currentItemID,
+            chapterCount: chapterCount,
+            currentChapterIndex: currentChapterIndex
+        ) {
+            summary.partIndex = part.index
+            summary.partCount = part.count
+            summary.partsAreChapterMarks = part.isChapterMark
         }
 
         let live = SpokenWordBook(
@@ -95,6 +111,26 @@ public enum SpokenWordNowPlayingPolicy {
         summary.bookFraction = live.fractionComplete
         summary.bookRemaining = live.remainingDuration
         return summary
+    }
+
+    /// The playing part's place among the book's parts, numbered as
+    /// `summary` numbers them but without adding up the whole book — for a
+    /// line that shows only "第 12 / 120 章" and redraws with the clock.
+    /// Nil for a one-file book without chapter marks.
+    ///
+    /// - Parameter bookItemIDs: the book's items in reading order; nil (or a
+    ///   list without the playing item) treats the item as a book of its own.
+    public static func partPosition(
+        bookItemIDs: [String]?,
+        currentItemID: String,
+        chapterCount: Int,
+        currentChapterIndex: Int?
+    ) -> SpokenWordPartPosition? {
+        if let ids = bookItemIDs, ids.count > 1, let index = ids.firstIndex(of: currentItemID) {
+            return SpokenWordPartPosition(index: index + 1, count: ids.count, isChapterMark: false)
+        }
+        guard chapterCount > 1 else { return nil }
+        return SpokenWordPartPosition(index: (currentChapterIndex ?? 0) + 1, count: chapterCount, isChapterMark: true)
     }
 
     /// Content time turned into listening time at `rate`: an hour of book at

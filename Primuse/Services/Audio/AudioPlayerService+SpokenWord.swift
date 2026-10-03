@@ -304,11 +304,6 @@ extension AudioPlayerService {
         return book
     }
 
-    /// Where the listener is in the book, at the live play head.
-    var spokenWordNowPlayingSummary: SpokenWordNowPlayingSummary? {
-        spokenWordNowPlayingSummary(live: true)
-    }
-
     /// `live: false` places the playing item at its stored position (written
     /// every few seconds), so a view showing whole-book progress does not
     /// redraw on every clock tick — the title block holds the More menu,
@@ -323,6 +318,18 @@ extension AudioPlayerService {
             currentItemID: song.id,
             position: position,
             duration: duration > 0 ? duration : song.duration,
+            chapterCount: spokenWordChapters.count,
+            currentChapterIndex: currentChapterIndex
+        )
+    }
+
+    /// "第 12 / 120 章" alone, without the whole-book progress the summary
+    /// adds up: the mini player shows it on a line that redraws with the clock.
+    var spokenWordPartPosition: SpokenWordPartPosition? {
+        guard let song = currentSong, currentItemIsSpokenWord, !isLiveRadio else { return nil }
+        return SpokenWordNowPlayingPolicy.partPosition(
+            bookItemIDs: currentSpokenWordBook?.items.map(\.id),
+            currentItemID: song.id,
             chapterCount: spokenWordChapters.count,
             currentChapterIndex: currentChapterIndex
         )

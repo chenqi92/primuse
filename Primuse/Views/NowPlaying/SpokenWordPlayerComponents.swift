@@ -151,6 +151,11 @@ enum SpokenWordPlayerText {
         return String(format: String(localized: "spoken_word_part_position_format"), index, count)
     }
 
+    static func partPosition(_ part: SpokenWordPartPosition?) -> String? {
+        guard let part else { return nil }
+        return String(format: String(localized: "spoken_word_part_position_format"), part.index, part.count)
+    }
+
     /// "本章还剩约 18 分钟", in listening time at the book's speed.
     static func partRemaining(_ player: AudioPlayerService) -> String? {
         guard let remaining = player.spokenWordPartRemaining else { return nil }

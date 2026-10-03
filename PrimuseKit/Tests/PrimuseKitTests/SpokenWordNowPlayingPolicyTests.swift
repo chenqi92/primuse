@@ -107,6 +107,38 @@ struct SpokenWordNowPlayingPolicyTests {
         #expect(summary.bookRemaining == 90)
     }
 
+    @Test("The part position alone numbers parts the way the summary does")
+    func partPositionMatchesSummary() {
+        let parts = book([item("a"), item("b"), item("c")])
+        let cases: [(SpokenWordBook?, String, Int, Int?)] = [
+            (parts, "b", 0, nil),
+            (parts, "b", 4, 2),
+            (parts, "missing", 5, 3),
+            (nil, "x", 6, nil),
+            (nil, "x", 1, 0),
+            (nil, "x", 0, nil),
+        ]
+        for (book, current, chapterCount, chapterIndex) in cases {
+            let summary = SpokenWordNowPlayingPolicy.summary(
+                book: book,
+                currentItemID: current,
+                position: 10,
+                duration: 600,
+                chapterCount: chapterCount,
+                currentChapterIndex: chapterIndex
+            )
+            let part = SpokenWordNowPlayingPolicy.partPosition(
+                bookItemIDs: book?.items.map(\.id),
+                currentItemID: current,
+                chapterCount: chapterCount,
+                currentChapterIndex: chapterIndex
+            )
+            #expect(part?.index == summary.partIndex)
+            #expect(part?.count == summary.partCount)
+            #expect((part?.isChapterMark ?? false) == summary.partsAreChapterMarks)
+        }
+    }
+
     @Test("An unknown duration means no time left is shown, never a guess")
     func unknownDuration() {
         let summary = SpokenWordNowPlayingPolicy.summary(

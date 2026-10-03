@@ -2460,6 +2460,8 @@ private struct DebugLaunchAutomation: ViewModifier {
 /// - `PRIMUSE_DEBUG_MEDLEY=<n>`：曲库装好后把前 n 首音乐串烧播放。
 /// - `PRIMUSE_DEBUG_NUDGE=<kind>`：有歌在播时强制弹出该种提示（`SmartNudgeKind` 原始值）。
 /// - `PRIMUSE_DEBUG_SHOW_PLAYER=<秒>`：有歌在播后再等该秒数，打开播放页（iOS 推出播放页，Mac 展开播放页）。
+/// - `PRIMUSE_DEBUG_PLAYER_CYCLE=<次数>`（iOS，配合上一条）：打开后每隔 4 秒收起、再打开播放页，重复这么多次，
+///   给定向采样「反复点开 / 收起」用；`PRIMUSE_DEBUG_PLAYER_CYCLE_INTERVAL` 改间隔秒数。
 /// - `PRIMUSE_DEBUG_BOOKMARK_AFTER=<秒>`：播放该秒数后在当前位置加一个书签。
 /// - `PRIMUSE_DEBUG_CHAPTER_SLEEP=1`：章节读出后设「本章结束后停止」。
 /// - `PRIMUSE_DEBUG_PRESENT=spokenWord|chapters|batchEdit|tidy|batchReview|tidyReview|karaoke|queue|plexSignIn|podcasts|podcastShow|podcastEpisode|podcastDiscover`：弹出对应页面
@@ -2560,6 +2562,18 @@ private struct DebugListeningFeatureAutomation: ViewModifier {
                     NotificationCenter.default.post(name: .primuseRequestExpandNowPlaying, object: nil)
                     #else
                     NotificationCenter.default.post(name: .primuseRequestShowNowPlaying, object: nil)
+                    let cycles = Int(env["PRIMUSE_DEBUG_PLAYER_CYCLE"] ?? "") ?? 0
+                    let interval = max(1, Double(env["PRIMUSE_DEBUG_PLAYER_CYCLE_INTERVAL"] ?? "") ?? 4)
+                    for cycle in 0..<max(0, cycles) {
+                        try? await Task.sleep(for: .seconds(interval))
+                        guard !Task.isCancelled else { return }
+                        plog("🧪 Debug: player cycle \(cycle + 1) minimize")
+                        NotificationCenter.default.post(name: .primuseDebugMinimizeNowPlaying, object: nil)
+                        try? await Task.sleep(for: .seconds(interval))
+                        guard !Task.isCancelled else { return }
+                        plog("🧪 Debug: player cycle \(cycle + 1) show")
+                        NotificationCenter.default.post(name: .primuseRequestShowNowPlaying, object: nil)
+                    }
                     #endif
                     return
                 }

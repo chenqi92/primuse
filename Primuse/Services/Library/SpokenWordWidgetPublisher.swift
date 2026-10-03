@@ -77,40 +77,22 @@ final class SpokenWordWidgetPublisher {
         }
         let scope = WidgetSettings.sharedDataScope()
         let store = SpokenWordStore.shared
+        // 分书要把整个有声书库过一遍，上千条时要一百多毫秒；进度每 15 秒存一次就来一回，
+        // 放在主线程上会周期性地打断播放页的动画。这里只取快照，分书与写封面都在后台做。
         let songs = library.spokenWordSongs
-        let songsByID = Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let books = SpokenWordBookGrouping.books(
-            from: songs.map { SpokenWordBookSupport.item(for: $0, store: store) }
-        )
-        let shelf = SpokenWordWidgetPolicy.shelfBooks(from: books)
-
-        var coverJobs: [CoverJob] = []
-        let entries = shelf.map { book -> SpokenWordShelfSnapshot.Book in
-            var coverName: String?
-            // The shelf draws a book with its first item's cover; so does this.
-            if scope.includesCover, let song = book.items.first.flatMap({ songsByID[$0.id] }) {
-                let fileName = SpokenWordWidgetPolicy.coverFileName(forBookID: book.id)
-                coverName = fileName
-                if !writtenCovers.contains(fileName) {
-                    coverJobs.append(CoverJob(
-                        songID: song.id,
-                        legacyCoverName: song.coverArtFileName,
-                        fileName: fileName
-                    ))
-                }
-            }
-            var entry = SpokenWordWidgetPolicy.shelfEntry(for: book, coverImageName: coverName)
-            if !scope.includesProgress {
-                entry.fractionComplete = 0
-                entry.remaining = nil
-            }
-            return entry
-        }
-
-        let keptCovers = Set(entries.compactMap(\.coverImageName))
-        let jobs = coverJobs
-        let written = await Task.detached(priority: .utility) {
-            Self.writeCovers(jobs, keeping: keptCovers)
+        let positions = store.positions
+        let finishedAt = store.finishedAt
+        let alreadyWritten = writtenCovers
+        let (entries, written) = await Task.detached(priority: .utility) {
+            let shelf = Self.shelfEntries(
+                songs: songs,
+                positions: positions,
+                finishedAt: finishedAt,
+                scope: scope,
+                alreadyWritten: alreadyWritten
+            )
+            let keptCovers = Set(shelf.entries.compactMap(\.coverImageName))
+            return (shelf.entries, Self.writeCovers(shelf.coverJobs, keeping: keptCovers))
         }.value
         writtenCovers.formUnion(written)
         // A cover that could not be rendered is left to the placeholder
@@ -130,6 +112,54 @@ final class SpokenWordWidgetPublisher {
         lastSignature = signature
         SpokenWordShelfSnapshot(books: finalEntries).save()
         WidgetCenter.shared.reloadTimelines(ofKind: Self.widgetKind)
+    }
+
+    /// The widget's books, as the shelf groups them, and the covers still to
+    /// render. Runs off the main actor on a snapshot of the library and the
+    /// stored progress.
+    private nonisolated static func shelfEntries(
+        songs: [Song],
+        positions: [String: SpokenWordStore.StoredPosition],
+        finishedAt: [String: Date],
+        scope: WidgetSharedDataScope,
+        alreadyWritten: Set<String>
+    ) -> (entries: [SpokenWordShelfSnapshot.Book], coverJobs: [CoverJob]) {
+        let songsByID = Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let books = SpokenWordBookGrouping.books(from: songs.map { song in
+            let stored = positions[song.id]
+            return SpokenWordBookItem(
+                song: song,
+                knownDuration: stored?.duration,
+                position: stored?.position,
+                positionUpdatedAt: stored?.updatedAt,
+                finishedAt: finishedAt[song.id]
+            )
+        })
+        let shelf = SpokenWordWidgetPolicy.shelfBooks(from: books)
+
+        var coverJobs: [CoverJob] = []
+        let entries = shelf.map { book -> SpokenWordShelfSnapshot.Book in
+            var coverName: String?
+            // The shelf draws a book with its first item's cover; so does this.
+            if scope.includesCover, let song = book.items.first.flatMap({ songsByID[$0.id] }) {
+                let fileName = SpokenWordWidgetPolicy.coverFileName(forBookID: book.id)
+                coverName = fileName
+                if !alreadyWritten.contains(fileName) {
+                    coverJobs.append(CoverJob(
+                        songID: song.id,
+                        legacyCoverName: song.coverArtFileName,
+                        fileName: fileName
+                    ))
+                }
+            }
+            var entry = SpokenWordWidgetPolicy.shelfEntry(for: book, coverImageName: coverName)
+            if !scope.includesProgress {
+                entry.fractionComplete = 0
+                entry.remaining = nil
+            }
+            return entry
+        }
+        return (entries, coverJobs)
     }
 
     // MARK: - Covers

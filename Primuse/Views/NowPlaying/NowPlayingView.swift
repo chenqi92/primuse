@@ -6184,6 +6184,13 @@ struct NowPlayingView: View {
             setLyricsIfCurrent(parsed, for: song, loadRevision: loadRevision); return
         }
 
+        // 刚确认过源里没有同名歌词 / 文字稿：不再每次展开播放页都去源里问一遍。
+        if await LyricsSidecarMissLedger.shared.isRecentMiss(Self.lyricsSidecarMissKey(for: song)) {
+            plog(String(format: "📜 loadLyrics '%@' sidecar known missing, skip Tier3", song.title))
+            setLyricsIfCurrent([], for: song, loadRevision: loadRevision)
+            return
+        }
+
         // Tier 3: 首次必走 (无 cache, 无本地 sidecar)
         guard setLyricsIfCurrent([], for: song, loadRevision: loadRevision) else { return }
         // 上一行已经把"没有歌词"写进 UI, 但 Tier 3 还在路上。重新接上加载态,
@@ -6281,6 +6288,7 @@ struct NowPlayingView: View {
         let songID = song.id
         let songTitle = song.title
         let isRefresh = currentCache != nil
+        let missKey = Self.lyricsSidecarMissKey(for: song)
 
         Task {
             // Tier 3 的出口有十来个, 统一在这里收尾: 首次加载的占位只能由这次
@@ -6397,6 +6405,7 @@ struct NowPlayingView: View {
                 ) else {
                     plog(String(format: "📜 loadLyrics '%@' Tier3 sidecar undecodable (connect=%.0fms fetch=%.0fms)", songTitle, connectMs, fetchMs))
                     if !isRefresh {
+                        await LyricsSidecarMissLedger.shared.recordMiss(missKey)
                         await applyAutomaticOnlineLyrics(
                             song: song, currentCache: currentCache, loadRevision: loadRevision
                         )
@@ -6407,6 +6416,7 @@ struct NowPlayingView: View {
                 guard !parsed.isEmpty else {
                     plog(String(format: "📜 loadLyrics '%@' Tier3 sidecar empty after parse (connect=%.0fms fetch=%.0fms %dB)", songTitle, connectMs, fetchMs, lyricsData.count))
                     if !isRefresh {
+                        await LyricsSidecarMissLedger.shared.recordMiss(missKey)
                         await applyAutomaticOnlineLyrics(
                             song: song, currentCache: currentCache, loadRevision: loadRevision
                         )
@@ -6462,6 +6472,10 @@ struct NowPlayingView: View {
                     setLyrics(parsed)
                 }
             } catch {
+                // 播放页这时可能已经收起，但「源里没有这个文件」这件事照样成立，先记下。
+                if resolvedPlainSource, !isRefresh, Self.isMissingLyricsSidecarError(error) {
+                    await LyricsSidecarMissLedger.shared.recordMiss(missKey)
+                }
                 guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
                 if isRefresh {
                     // refresh 失败不影响 user, 已经显示了 cache
@@ -6476,6 +6490,20 @@ struct NowPlayingView: View {
                 }
             }
         }
+    }
+
+    /// `LyricsSidecarMissLedger` 的键：哪一首、扫描记下的歌词文件名。重扫找到歌词后文件名变了，
+    /// 旧的「没有」自然作废。
+    private static func lyricsSidecarMissKey(for song: Song) -> String {
+        "\(song.id)\u{1F}\(song.lyricsFileName ?? "")"
+    }
+
+    /// 只有能确定「文件不存在」的错误才算没有歌词；连不上、超时、权限这类下次还要再试。
+    /// 群晖 FileStation 缺文件多半回 408 错误包（已归为 `fileNotFound`），也有直接回 HTTP 404 的。
+    private static func isMissingLyricsSidecarError(_ error: Error) -> Bool {
+        if SourceManager.isMissingFileError(error) { return true }
+        if case SynologyError.httpError(let status) = error, status == 404 || status == 410 { return true }
+        return false
     }
 
     /// Tier4：普通源首次加载确实没有歌词时，自动向在线歌词源取一次（开关、

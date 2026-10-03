@@ -264,7 +264,8 @@ private struct MiniPlayerSpokenWordSubtitle: View {
 
     var body: some View {
         let parts = [
-            SpokenWordPlayerText.partPosition(player.spokenWordNowPlayingSummary),
+            // 只要章号:整本书的进度摘要要把每一章过一遍,这一行却随时钟每半秒重画一次。
+            SpokenWordPlayerText.partPosition(player.spokenWordPartPosition),
             SpokenWordPlayerText.partRemaining(player),
         ].compactMap { $0 }
         Text(verbatim: parts.joined(separator: " · "))
