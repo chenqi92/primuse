@@ -3051,6 +3051,14 @@
 "siri_examples_title" = "음성 예시";
 "siri_play_song_example" = "“Siri야, Primuse에서 노래를 재생해 줘”라고 말한 다음 노래 제목을 알려 주세요.";
 "siri_shortcuts_hint" = "Primuse 단축어를 열어 ‘노래 재생’을 테스트하거나 호출 문구를 사용자화할 수 있습니다.";
+"siri_spoken_names_title" = "Siri가 알아듣는 이름";
+"siri_spoken_names_detail" = "다음 이름 중 무엇을 말해도 Primuse를 찾을 수 있습니다. 잘못 알아들으면 다른 이름으로 말해 보세요.";
+"siri_custom_phrase_title" = "나만의 문구";
+"siri_custom_phrase_step_create" = "단축어 앱에서 새 단축어를 만듭니다.";
+"siri_custom_phrase_step_action" = "‘라디오 방송국 재생’ 같은 Primuse 동작을 추가하고 방송국을 고릅니다.";
+"siri_custom_phrase_step_name" = "단축어 이름을 말하고 싶은 문구로 바꿉니다. 예: ‘재즈 틀어 줘’.";
+"siri_custom_phrase_footer" = "이제 “Siri야, 재즈 틀어 줘”라고 말하면 바로 재생됩니다. 앱 이름을 말할 필요가 없고 다른 앱이 요청을 가져가지도 않습니다.";
+"siri_custom_phrase_create" = "새로운 단축어";
 "intent_playing_album_format" = "앨범 %@ 재생 중입니다.";
 "intent_playing_artist_format" = "%@ 재생 중입니다.";
 "intent_playing_genre_format" = "%@ 장르 음악을 재생 중입니다.";
@@ -3096,6 +3104,7 @@
 "Set Primuse playback speed from 0.5 to 2 times." = "Primuse 재생 속도를 0.5배에서 2배 사이로 설정합니다.";
 "Speed" = "속도";
 "Playback speed set to %1$@ times." = "재생 속도를 %1$@배로 설정했습니다.";
+"Playback speed can't be changed in High Fidelity Direct mode." = "고음질 다이렉트에서는 재생 속도를 바꿀 수 없습니다.";
 "Scrape Current Song" = "현재 곡 스크래핑";
 "Fill missing metadata, artwork, and lyrics for the current Primuse song." = "현재 Primuse 곡에서 누락된 메타데이터, 앨범 아트 및 가사를 채웁니다.";
 "This may contact metadata providers and write artwork, lyrics, or tags. Continue?" = "메타데이터 공급자에 연결하고 앨범 아트, 가사 또는 태그를 쓸 수 있습니다. 계속할까요?";
@@ -3677,6 +3686,7 @@
 "intent_radio_search_results_format" = "다음 라디오 방송국을 찾았습니다: %@.";
 "Search Radio" = "라디오 검색";
 "intent_radio_confirm_format" = "‘%@’ 라디오 방송국을 재생할까요?";
+"intent_radio_needs_app_format" = "‘%@’ 라디오 방송국을 재생하려면 Primuse를 열고 연결을 허용하세요.";
 "Radio playback was cancelled." = "라디오 재생을 취소했습니다.";
 "ai_primuse_relay_test_connection" = "내장 서비스 테스트";
 "ai_primuse_relay_test_footer" = "테스트는 고정된 테스트 문구만 전송합니다. 검색어, 가사, 보관함 또는 청취 기록을 읽지 않으며 설정을 변경하지 않습니다.";

@@ -42,6 +42,12 @@
 "Next" = "nächsten Titel";
 "Previous" = "vorherigen Titel";
 "Skip Track" = "Titel wechseln";
+"Playback Action" = "Wiedergabeaktion";
+"Play" = "Abspielen";
+"Pause" = "Pausieren";
+"Play or Pause" = "Abspielen oder pausieren";
+"Control Playback" = "Wiedergabe steuern";
+"Play, pause, or toggle Primuse playback." = "Primuse abspielen, pausieren oder umschalten.";
 "Play the ${direction} track" = "Spiele ${direction}";
 "Open ${target}" = "${target} öffnen";
 "Get ${setting}" = "${setting} abfragen";

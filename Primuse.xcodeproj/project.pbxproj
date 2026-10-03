@@ -374,6 +374,7 @@
 		8E8C5E61A7678EB29D0A9408 /* LibraryInsightStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 471D8FE82024F50DEF241785 /* LibraryInsightStore.swift */; };
 		35B6342BED0D222E166D96FD /* ID3LyricsFramePreservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27F922996E55613A514AD0D4 /* ID3LyricsFramePreservation.swift */; };
 		360222EF64603752EA8A1977 /* SettingsShortcutsHelpView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E05FB8ABE512AF46E3B6BF38 /* SettingsShortcutsHelpView.swift */; };
+		23A9ABB5A7E6A9AD58A10FF8 /* SiriSpokenNamesGuideView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94AAF52242093699024DCCF3 /* SiriSpokenNamesGuideView.swift */; };
 		360233DAA3A9722CEB8F659D /* SmartPlaylistDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07ED3C52285096B184672237 /* SmartPlaylistDetailView.swift */; };
 		36279537F34C4119C40F04FA /* KaraokeScoring.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21CC067847F31E46891D8938 /* KaraokeScoring.swift */; };
 		362823C0E5638E246A8B36A5 /* DeviceMusicPlaybackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25B5C092730E2E3E9802487D /* DeviceMusicPlaybackTests.swift */; };
@@ -524,6 +525,7 @@
 		48DC6DE60F711B6DA3FDC362 /* AppSecrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C551F72C30C0410A874441AA /* AppSecrets.swift */; };
 		492539B48E07763332756465 /* FFmpegDecoderBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = AF23E2C32C29F875836D06BE /* FFmpegDecoderBridge.m */; };
 		4940361B60A0D96918705C0B /* SettingsShortcutsHelpView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E05FB8ABE512AF46E3B6BF38 /* SettingsShortcutsHelpView.swift */; };
+		B8815A69A19EBC6F37CC0083 /* SiriSpokenNamesGuideView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94AAF52242093699024DCCF3 /* SiriSpokenNamesGuideView.swift */; };
 		494A17ABDFC4526E896FB706 /* BrowserChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 768665CEDF081091A5DFAED7 /* BrowserChrome.swift */; };
 		4957D61D66472F3CAD612DBD /* SMBByteReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = BACEFA0644945C48C3E8A0F9 /* SMBByteReader.swift */; };
 		49A5B455D71D7C8E0FE0E628 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F652918A8A39CEF7841384ED /* OnboardingView.swift */; };
@@ -3143,6 +3145,7 @@
 		DFF7D33EE6AA248113308216 /* CarPlayEditorComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayEditorComponents.swift; sourceTree = "<group>"; };
 		E00A2F4350C04D5A41A89E6D /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = ru.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		E05FB8ABE512AF46E3B6BF38 /* SettingsShortcutsHelpView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsShortcutsHelpView.swift; sourceTree = "<group>"; };
+		94AAF52242093699024DCCF3 /* SiriSpokenNamesGuideView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiriSpokenNamesGuideView.swift; sourceTree = "<group>"; };
 		E083139645350B81D8E8C645 /* FFmpegAudioDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegAudioDecoder.swift; sourceTree = "<group>"; };
 		E0920BE117D1955C3E68DBEB /* MacAudioCacheSyncView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacAudioCacheSyncView.swift; sourceTree = "<group>"; };
 		E0AEA1B80921F83BF0FB29ED /* pl */ = {isa = PBXFileReference; lastKnownFileType = text.plist; name = pl; path = pl.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
@@ -5105,6 +5108,7 @@
 				5D2BEDD6EA9A0207E8C8559A /* ServerListeningStatsView.swift */,
 				0F9BECB6D861A8EB9E8B4816 /* SettingsSearchComponents.swift */,
 				E05FB8ABE512AF46E3B6BF38 /* SettingsShortcutsHelpView.swift */,
+				94AAF52242093699024DCCF3 /* SiriSpokenNamesGuideView.swift */,
 				5E8868307C8B45B391847C2B /* SettingsView.swift */,
 				A134BFD3772D24430EA98553 /* SiriSettingsView.swift */,
 				8F805E78BE07CA73C5056348 /* ThemeColorSettingsView.swift */,
@@ -6663,6 +6667,7 @@
 				BAB329B295BBA063310D3056 /* SettingsCatalogData.swift in Sources */,
 				BD171C64A3DC7AABAE3144FB /* SettingsSearchComponents.swift in Sources */,
 				360222EF64603752EA8A1977 /* SettingsShortcutsHelpView.swift in Sources */,
+				23A9ABB5A7E6A9AD58A10FF8 /* SiriSpokenNamesGuideView.swift in Sources */,
 				A16CCCDDB616A31F67877A67 /* SettingsView.swift in Sources */,
 				0BAFA3FEF20223C7CA4FFAA1 /* SidecarMetadataLoader.swift in Sources */,
 				E1EA3F7A3D5C3F95F1FF92B0 /* SidecarWriteService.swift in Sources */,
@@ -7342,6 +7347,7 @@
 				8485F49F2EE6DF52BCFFD372 /* SettingsCatalogData.swift in Sources */,
 				E92A2FE9955437F2B057C4F4 /* SettingsSearchComponents.swift in Sources */,
 				4940361B60A0D96918705C0B /* SettingsShortcutsHelpView.swift in Sources */,
+				B8815A69A19EBC6F37CC0083 /* SiriSpokenNamesGuideView.swift in Sources */,
 				C87A6A4DE1FD7B3D1C4CA8CB /* SettingsView.swift in Sources */,
 				119D802D4B34C39D6F5B3D5A /* SidecarMetadataLoader.swift in Sources */,
 				6BB70FAFADEDF9854FDC1FD4 /* SidecarWriteService.swift in Sources */,

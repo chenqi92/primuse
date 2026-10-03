@@ -188,6 +188,7 @@
 "Playback" = "Відтворення";
 "paste_config_footer" = "Вставте конфігурацію JSON для постачальника метаданих.";
 "intent_radio_confirm_format" = "Відтворити радіостанцію “%@”?";
+"intent_radio_needs_app_format" = "Відкрийте Primuse і підтвердьте з’єднання, щоб відтворити радіостанцію “%@”.";
 "source_diagnostics_short" = "Чек";
 "ssl_trust_initial_message" = "Цей сертифікат сервера не пройшов перевірку системи. Продовжуйте, лише якщо наведені нижче дані належать вашому серверу.";
 "lyrics_offset_desc" = "Компенсує затримку виведення аудіо (кілька сотень мс для Bluetooth, ~30 мс для вбудованого динаміка). Якщо слова з’являються перед вокалом, збільште позитивне значення; якщо відстає, зменшіть або використовуйте мінус.";
@@ -3579,6 +3580,14 @@
 "offline_keep_cached" = "Зберегти для офлайн-доступу";
 "ai_provider_preset_volcengine_ark" = "Volcengine Ark";
 "siri_shortcuts_hint" = "Відкрийте ярлики Primuse, щоб перевірити «Відтворити пісню» або налаштувати її фразу.";
+"siri_spoken_names_title" = "Назви, які розуміє Siri";
+"siri_spoken_names_detail" = "Назвіть будь-яку з цих назв, щоб звернутися до Primuse. Якщо Siri плутає одну, спробуйте іншу.";
+"siri_custom_phrase_title" = "Власна фраза";
+"siri_custom_phrase_step_create" = "У програмі «Швидкі команди» створіть нову команду.";
+"siri_custom_phrase_step_action" = "Додайте дію Primuse, наприклад «Відтворити радіостанцію», і виберіть станцію.";
+"siri_custom_phrase_step_name" = "Назвіть команду так, як хочете її вимовляти, наприклад «Час джазу».";
+"siri_custom_phrase_footer" = "Потім скажіть «Привіт, Siri, час джазу» — відтворення почнеться одразу, без назви програми, і інша програма не перехопить запит.";
+"siri_custom_phrase_create" = "Нова команда";
 "songs_count" = "тр.";
 "volume_down" = "Зменшення гучності";
 "yearly_time_morning" = "Ранок";
@@ -3594,6 +3603,7 @@
 "sort_title" = "Назва";
 "export_path" = "Шлях експорту";
 "Playback speed set to %1$@ times." = "Швидкість відтворення встановлена на %1$@ разів.";
+"Playback speed can't be changed in High Fidelity Direct mode." = "У режимі «Пряме відтворення високої точності» швидкість відтворення змінити не можна.";
 "smart_playlist_no_matches" = "Немає відповідних пісень";
 "scrape_song_success" = "Метадані оновлено для поточної пісні.";
 "delete_song" = "Видалити з медіатеки";

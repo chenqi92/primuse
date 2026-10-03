@@ -2862,6 +2862,14 @@
 "siri_examples_title" = "Voice Examples";
 "siri_play_song_example" = "Say “Hey Siri, play a song in Primuse,” then tell Siri the song title.";
 "siri_shortcuts_hint" = "Open Primuse shortcuts to test “Play Song” or customize its phrase.";
+"siri_spoken_names_title" = "Names Siri Knows";
+"siri_spoken_names_detail" = "Say any of these names to reach Primuse. If Siri keeps mishearing one, try another.";
+"siri_custom_phrase_title" = "Your Own Phrase";
+"siri_custom_phrase_step_create" = "In the Shortcuts app, create a new shortcut.";
+"siri_custom_phrase_step_action" = "Add a Primuse action such as “Play Radio Station” and choose the station.";
+"siri_custom_phrase_step_name" = "Rename the shortcut to what you want to say, such as “Jazz time”.";
+"siri_custom_phrase_footer" = "Then say “Hey Siri, jazz time” and it plays right away. You don’t need to say the app name, and no other app can take the request.";
+"siri_custom_phrase_create" = "New Shortcut";
 "intent_playing_album_format" = "Playing album %@.";
 "intent_playing_artist_format" = "Playing %@.";
 "intent_playing_genre_format" = "Playing %@ music.";
@@ -3447,6 +3455,8 @@
 "intent_radio_search_results_format" = "Found these radio stations: %@.";
 "Search Radio" = "Search Radio";
 "intent_radio_confirm_format" = "Play the radio station “%@”?";
+"intent_radio_needs_app_format" = "Open Primuse and confirm the connection to play the radio station “%@”.";
+"Playback speed can't be changed in High Fidelity Direct mode." = "Playback speed can't be changed in High Fidelity Direct mode.";
 "Radio playback was cancelled." = "Radio playback was cancelled.";
 "ai_primuse_relay_test_connection" = "Test Built-in Service";
 "ai_primuse_relay_test_footer" = "The test sends only a fixed test phrase. It does not read searches, lyrics, your library, or listening history, and it does not change any switches.";

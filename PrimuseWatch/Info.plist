@@ -36,6 +36,10 @@
 			<key>INAlternativeAppNamePronunciationHint</key>
 			<string>pry muse</string>
 		</dict>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>Pro Muse</string>
+		</dict>
 	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>

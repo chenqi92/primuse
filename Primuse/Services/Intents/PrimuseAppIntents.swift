@@ -53,6 +53,60 @@ struct PrimuseSetPlayingIntent: AudioPlaybackIntent, SetValueIntent {
     }
 }
 
+/// What "用 Primuse 播放 / 暂停" asks for. Spoken one-way commands must do
+/// exactly what they say: bound to the toggle above, "暂停" while paused
+/// started playback and "播放" while playing paused it.
+enum PrimusePlaybackAction: String, AppEnum {
+    case play, pause, toggle
+
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(
+        name: LocalizedStringResource("Playback Action", table: "SettingsSearch")
+    )
+    static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
+        .play: DisplayRepresentation(title: LocalizedStringResource("Play", table: "SettingsSearch")),
+        .pause: DisplayRepresentation(title: LocalizedStringResource("Pause", table: "SettingsSearch")),
+        .toggle: DisplayRepresentation(title: LocalizedStringResource("Play or Pause", table: "SettingsSearch")),
+    ]
+}
+
+/// Voice counterpart of `PrimusePlayPauseIntent`; widgets and Control Center
+/// keep the plain toggle and the target-state intent.
+struct PrimusePlaybackControlIntent: AudioPlaybackIntent {
+    static let title = LocalizedStringResource("Control Playback", table: "SettingsSearch")
+    static let description = IntentDescription(
+        LocalizedStringResource("Play, pause, or toggle Primuse playback.", table: "SettingsSearch")
+    )
+
+    @Parameter(
+        title: LocalizedStringResource("Playback Action", table: "SettingsSearch"),
+        default: .toggle
+    )
+    var action: PrimusePlaybackAction
+
+    init() {}
+    init(action: PrimusePlaybackAction) { self.action = action }
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        let bridge = PrimuseIntentBridge.shared
+        switch action {
+        case .play:
+            // Nothing to resume: "play" starts the music library, as Siri's
+            // own "play music" does.
+            if bridge.hasPlaybackSession() {
+                bridge.setPlaying(true)
+            } else {
+                await bridge.shuffleLibrary()
+            }
+        case .pause:
+            bridge.setPlaying(false)
+        case .toggle:
+            bridge.togglePlayPause()
+        }
+        return .result()
+    }
+}
+
 struct PrimuseNextIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Next Track"
     static let description = IntentDescription("Skip to the next track in Primuse.")
@@ -388,7 +442,11 @@ struct PrimuseSetPlaybackSpeedIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let effective = PrimuseIntentBridge.shared.setPlaybackSpeed(speed)
+        guard let effective = PrimuseIntentBridge.shared.setPlaybackSpeed(speed) else {
+            return .result(dialog: IntentDialog(
+                "Playback speed can't be changed in High Fidelity Direct mode."
+            ))
+        }
         return .result(dialog: IntentDialog(
             "Playback speed set to \(effective.formatted()) times."
         ))
@@ -403,9 +461,9 @@ struct PrimuseSetPlaybackSpeedIntent: AudioPlaybackIntent {
 struct PrimuseShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
-            intent: PrimusePlayPauseIntent(),
+            intent: PrimusePlaybackControlIntent(),
             phrases: [
-                "Play or pause in \(.applicationName)",
+                "\(\.$action) in \(.applicationName)",
             ],
             shortTitle: "Play / Pause",
             systemImageName: "play.fill"

@@ -95,9 +95,12 @@ struct PrimuseRadioStationEntityQuery: EntityStringQuery {
         }
     }
 
+    /// These become the values of "用 Primuse 播放 <台名>". Only stations in
+    /// this list can be named in that one sentence; see
+    /// `SiriRadioStationCatalog.appShortcutStationLimit` for the budget.
     func suggestedEntities() async throws -> [PrimuseRadioStationEntity] {
         await MainActor.run {
-            AppServices.shared.siriRadioStations.prefix(20).map {
+            AppServices.shared.siriShortcutRadioStations.map {
                 Self.entity(for: $0)
             }
         }
@@ -171,9 +174,15 @@ struct PrimusePlayRadioIntent: AudioPlaybackIntent {
             parsedIdentifier.stationID
         )
         switch outcome {
-        case .playing(let name):
+        case .playing(let name), .connecting(let name):
             let message = String(
                 format: String(localized: "intent_playing_radio_format"),
+                name
+            )
+            return .result(dialog: IntentDialog(LocalizedStringResource(stringLiteral: message)))
+        case .needsApp(let name):
+            let message = String(
+                format: String(localized: "intent_radio_needs_app_format"),
                 name
             )
             return .result(dialog: IntentDialog(LocalizedStringResource(stringLiteral: message)))
@@ -243,6 +252,15 @@ struct PrimuseSearchRadioIntent: AppIntent {
 extension AppServices {
     var siriRadioStations: [RadioStation] {
         SiriRadioStationCatalog.availableStations(
+            from: radioStationsStore.stations,
+            enabledSourceIDs: Set(sourcesStore.sources.lazy.filter(\.isEnabled).map(\.id))
+        )
+    }
+
+    /// Stations registered as App Shortcut values and Siri vocabulary:
+    /// recently played first, capped to fit the phrase budget.
+    var siriShortcutRadioStations: [RadioStation] {
+        SiriRadioStationCatalog.appShortcutStations(
             from: radioStationsStore.stations,
             enabledSourceIDs: Set(sourcesStore.sources.lazy.filter(\.isEnabled).map(\.id))
         )

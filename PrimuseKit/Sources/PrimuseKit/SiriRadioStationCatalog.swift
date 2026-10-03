@@ -44,6 +44,39 @@ public enum SiriRadioStationCatalog {
         })
     }
 
+    /// How many stations become App Shortcut parameter values, i.e. how many
+    /// stations "用 Primuse 播放 <台名>" can reach in one sentence.
+    ///
+    /// Every value is multiplied by each spoken form of the app name (display
+    /// name plus every INAlternativeAppNames entry, five in all) and counts
+    /// against the system's limit of 1,000 trigger phrases per language, which
+    /// all App Shortcuts share. The Mac registers stations in two phrases
+    /// (play and search), so 60 keeps it under 800. Any other station is still
+    /// reachable through "用 Primuse 播放电台" followed by its name.
+    public static let appShortcutStationLimit = 60
+
+    /// The stations Siri should learn by name first: the ones the listener
+    /// actually plays, most recent first, then the rest in the order the
+    /// radio page shows them. A subscribed list of hundreds would otherwise
+    /// fill the budget with stations nobody asks for.
+    public static func appShortcutStations(
+        from stations: [RadioStation],
+        enabledSourceIDs: Set<String>,
+        limit: Int = appShortcutStationLimit
+    ) -> [RadioStation] {
+        let available = availableStations(from: stations, enabledSourceIDs: enabledSourceIDs)
+        let played = available.enumerated()
+            .filter { $0.element.lastPlayedAt != nil }
+            .sorted { lhs, rhs in
+                let left = lhs.element.lastPlayedAt ?? .distantPast
+                let right = rhs.element.lastPlayedAt ?? .distantPast
+                return left != right ? left > right : lhs.offset < rhs.offset
+            }
+            .map(\.element)
+        let unplayed = available.filter { $0.lastPlayedAt == nil }
+        return Array((played + unplayed).prefix(max(0, limit)))
+    }
+
     public static func namedItems(
         from stations: [RadioStation],
         enabledSourceIDs: Set<String>

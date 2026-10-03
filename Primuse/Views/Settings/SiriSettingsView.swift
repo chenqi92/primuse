@@ -36,6 +36,12 @@ struct SiriSettingsView: View {
             }
 
             Section {
+                SiriSpokenNamesView()
+            }
+            Section {
+                SiriCustomPhraseGuideView()
+            }
+            Section {
                 SettingsShortcutsHelpView()
             }
             Section {

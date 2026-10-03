@@ -55,6 +55,12 @@
 "Siri & Shortcuts" = "Siri और शॉर्टकट";
 "Siri authorization" = "Siri प्राधिकरण";
 "Skip Track" = "ट्रैक छोड़ें";
+"Playback Action" = "प्लेबैक क्रिया";
+"Play" = "चलाएँ";
+"Pause" = "रोकें";
+"Play or Pause" = "चलाएँ या रोकें";
+"Control Playback" = "प्लेबैक नियंत्रित करें";
+"Play, pause, or toggle Primuse playback." = "Primuse में प्लेबैक चलाएँ, रोकें या बदलें।";
 "Sync User Library" = "सिंक यूजर लाइब्रेरी";
 "This setting is unavailable on this device." = "यह सेटिंग इस डिवाइस पर उपलब्ध नहीं है।";
 "Turn a supported Primuse setting on or off." = "समर्थित Primuse सेटिंग को चालू या बंद करें।";

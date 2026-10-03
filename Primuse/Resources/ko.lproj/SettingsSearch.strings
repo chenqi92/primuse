@@ -42,6 +42,12 @@
 "Next" = "다음";
 "Previous" = "이전";
 "Skip Track" = "곡 건너뛰기";
+"Playback Action" = "재생 동작";
+"Play" = "재생";
+"Pause" = "일시 정지";
+"Play or Pause" = "재생 또는 일시 정지";
+"Control Playback" = "재생 제어";
+"Play, pause, or toggle Primuse playback." = "Primuse를 재생하거나 일시 정지하거나 전환합니다.";
 "Play the ${direction} track" = "${direction} 곡 재생";
 "Open ${target}" = "${target} 열기";
 "Get ${setting}" = "${setting} 조회";

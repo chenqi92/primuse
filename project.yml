@@ -200,6 +200,8 @@ targets:
           - INAlternativeAppName: "普瑞缪斯"
           - INAlternativeAppName: "Primuse"
             INAlternativeAppNamePronunciationHint: "pry muse"
+          # Siri 常把 Primuse 听成「pro muse」并转给 Apple 音乐。
+          - INAlternativeAppName: "Pro Muse"
         NSSupportsLiveActivities: true
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
@@ -262,6 +264,7 @@ targets:
           - INSearchForMediaIntent
         INSupportedMediaCategories:
           - INMediaCategoryMusic
+          - INMediaCategoryRadio
         NSAppleMusicUsageDescription: "Primuse uses Apple Music to search the catalog and play tracks if you have an active subscription."
         NSMicrophoneUsageDescription: "Primuse uses the microphone in karaoke mode to score your singing, let you hear yourself in headphones, and record your performance on this device."
         NSMotionUsageDescription: "Primuse uses headphone motion to keep Spatial Audio anchored while you move your head."
@@ -459,6 +462,8 @@ targets:
           - INAlternativeAppName: "普瑞缪斯"
           - INAlternativeAppName: "Primuse"
             INAlternativeAppNamePronunciationHint: "pry muse"
+          # Siri 常把 Primuse 听成「pro muse」并转给 Apple 音乐。
+          - INAlternativeAppName: "Pro Muse"
         CFBundleDisplayName: "Primuse"
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
@@ -579,6 +584,13 @@ targets:
     info:
       path: Primuse/Info-macOS.plist
       properties:
+        INAlternativeAppNames:
+          - INAlternativeAppName: "猿音"
+          - INAlternativeAppName: "普瑞缪斯"
+          - INAlternativeAppName: "Primuse"
+            INAlternativeAppNamePronunciationHint: "pry muse"
+          # Siri 常把 Primuse 听成「pro muse」并转给 Apple 音乐。
+          - INAlternativeAppName: "Pro Muse"
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         # Default (English) — overridden per-locale in InfoPlist.strings.
@@ -845,6 +857,13 @@ targets:
     info:
       path: PrimuseTV/Info.plist
       properties:
+        INAlternativeAppNames:
+          - INAlternativeAppName: "猿音"
+          - INAlternativeAppName: "普瑞缪斯"
+          - INAlternativeAppName: "Primuse"
+            INAlternativeAppNamePronunciationHint: "pry muse"
+          # Siri 常把 Primuse 听成「pro muse」并转给 Apple 音乐。
+          - INAlternativeAppName: "Pro Muse"
         BAAppGroupID: group.com.welape.yuanyin
         BAHasManagedAssetPacks: true
         BAUsesAppleHosting: true
@@ -899,6 +918,7 @@ targets:
           - INSearchForMediaIntent
         INSupportedMediaCategories:
           - INMediaCategoryMusic
+          - INMediaCategoryRadio
         # 用户配置的 NAS 端点可能使用自签 HTTPS；实际放行仍由应用层端点指纹确认控制。
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true

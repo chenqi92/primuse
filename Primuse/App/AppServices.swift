@@ -953,6 +953,7 @@ final class AppServices {
     let musicIntelligence: MusicIntelligenceService
 
     private var sourceLifecycleObserverTokens: [NSObjectProtocol] = []
+    private var siriRadioCatalogSignature: [String]?
     /// Feeds the "continue listening" widget.
     private var spokenWordWidgetPublisher: SpokenWordWidgetPublisher?
     /// Stage 2: 把离线准备结果送进主线程发布的那一步。生产环境不取消它 ——
@@ -1937,7 +1938,13 @@ final class AppServices {
         let center = NotificationCenter.default
         let refresh: @MainActor () -> Void = { [weak self] in
             guard let self else { return }
-            SiriMediaInteractionDonor.refreshRadioCatalog(stations: self.siriRadioStations)
+            // Source changes arrive many times a second during a scan; only a
+            // different station list is worth re-registering with Siri.
+            let stations = self.siriShortcutRadioStations
+            let signature = stations.map { "\($0.id)\u{1F}\($0.name)" }
+            guard signature != self.siriRadioCatalogSignature else { return }
+            self.siriRadioCatalogSignature = signature
+            SiriMediaInteractionDonor.refreshRadioCatalog(stations: stations)
         }
 
         sourceLifecycleObserverTokens.append(
@@ -2397,6 +2404,7 @@ final class AppServices {
         let library = self.musicLibrary
 
         bridge.togglePlayPause = { player.togglePlayPause() }
+        bridge.hasPlaybackSession = { player.currentSong != nil }
         bridge.setPlaying = { desired in
             // 状态对齐: 想播放且当前没播 → toggle 一下; 想暂停且当前在播 → toggle。
             // 已经对齐就别动 (避免来回开停)。
@@ -2560,14 +2568,18 @@ final class AppServices {
                 items: siriRadioItems
             ), !resolved.needsDisambiguation,
                !resolved.requiresConfirmation,
-               let station = stations.first(where: { $0.id == resolved.selected.id }),
-               await startIntentRadio(station) else {
+               let station = stations.first(where: { $0.id == resolved.selected.id }) else {
                 return nil
             }
-            return String(
-                format: String(localized: "intent_playing_radio_format"),
-                station.name
-            )
+            switch await startRadioForIntent(station) {
+            case .playing(let name), .connecting(let name):
+                return String(
+                    format: String(localized: "intent_playing_radio_format"),
+                    name
+                )
+            case .needsApp, .notFound, .sourceDisabled, .unavailable:
+                return nil
+            }
         }
 
         bridge.playRadioStation = { [self] identifier in
@@ -2595,11 +2607,10 @@ final class AppServices {
             case .available:
                 break
             }
-            guard let safeName = SiriRadioStationCatalog.safeDisplayName(station.name),
-                  await startIntentRadio(station) else {
+            guard SiriRadioStationCatalog.safeDisplayName(station.name) != nil else {
                 return .unavailable
             }
-            return .playing(name: safeName)
+            return await startRadioForIntent(station)
         }
 
         bridge.playSongRadio = { [self] in
@@ -2631,7 +2642,12 @@ final class AppServices {
 
         bridge.setRepeatMode = { player.repeatMode = $0 }
         bridge.setPlaybackSpeed = { [self] requested in
-            guard playbackSettingsStore.outputMode == .effects else { return 1 }
+            guard playbackSettingsStore.outputMode == .effects else { return nil }
+            if player.currentBookID != nil {
+                // A book keeps its own speed; the music speed would not apply.
+                player.setSpokenWordRateForCurrentBook(Float(requested))
+                return Double(player.currentSpokenWordRate)
+            }
             let effective = min(max(requested, 0.5), 2.0)
             playbackSettingsStore.playbackRate = Float(effective)
             player.applyPlaybackRate()
@@ -2679,9 +2695,27 @@ final class AppServices {
         return first
     }
 
-    private func startIntentRadio(_ station: RadioStation) async -> Bool {
-        await playerService.play(station: station, within: siriRadioStations)
+    /// Starts a station for Siri or an App Intent and answers inside their
+    /// time budget. Resolving a `.pls` wrapper or a server-backed station can
+    /// take longer than Siri waits, and a stream that was never approved for
+    /// cleartext waits for a prompt only the app on screen can show — without
+    /// a deadline Siri just goes silent. Playback keeps going either way.
+    func startRadioForIntent(_ station: RadioStation) async -> PrimuseRadioIntentOutcome {
+        let name = SiriRadioStationCatalog.safeDisplayName(station.name) ?? station.name
+        let player = playerService
+        let stations = siriRadioStations
+        return await IntentResponseDeadline.race(within: Self.intentRadioStartBudget) {
+            await player.play(station: station, within: stations)
+                ? .playing(name: name)
+                : .unavailable
+        } onTimeout: {
+            SSLTrustStore.shared.isAwaitingTransportDecision
+                ? .needsApp(name: name)
+                : .connecting(name: name)
+        }
     }
+
+    private static let intentRadioStartBudget: Duration = .seconds(4)
 
     private func scrapeCurrentSongFromIntent() async -> String? {
         if playerService.isLiveRadio {

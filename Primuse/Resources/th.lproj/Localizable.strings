@@ -281,6 +281,7 @@
 "Playback Rate" = "ความเร็วการเล่น";
 "Playback Rate & Quality" = "ความเร็วและคุณภาพการเล่น";
 "Playback speed set to %1$@ times." = "ตั้งความเร็วในการเล่นเป็น %1$@ ครั้ง";
+"Playback speed can't be changed in High Fidelity Direct mode." = "เปลี่ยนความเร็วในการเล่นไม่ได้ในโหมดความเที่ยงตรงสูงโดยตรง";
 "Playing" = "กำลังเล่น";
 "Playlist" = "เพลย์ลิสต์";
 "Please specify a playlist name." = "โปรดระบุชื่อเพลย์ลิสต์";
@@ -1672,6 +1673,7 @@
 "intent_playing_song_by_format" = "กำลังเล่น %1$@ โดย %2$@";
 "intent_playing_song_format" = "กำลังเล่น %@";
 "intent_radio_confirm_format" = "เปิดสถานีวิทยุ “%@”?";
+"intent_radio_needs_app_format" = "เปิด Primuse แล้วยืนยันการเชื่อมต่อเพื่อเล่นสถานีวิทยุ “%@”";
 "intent_radio_search_results_format" = "พบสถานีวิทยุเหล่านี้: %@";
 "intent_scrape_busy" = "เมทาดาทาที่ดึงเมทาดาทาสำหรับกำลังทำงานอยู่แล้ว";
 "intent_scrape_deferred" = "เมทาดาทาที่ดึงเมทาดาทาสำหรับจะเริ่มเมื่อ Primuse เปิดใช้งาน";
@@ -3044,6 +3046,14 @@
 "siri_examples_title" = "ตัวอย่างเสียง";
 "siri_play_song_example" = "พูดว่า “เฮ้ Siri เล่นเพลงใน Primuse” แล้วบอก Siri ชื่อเพลง";
 "siri_shortcuts_hint" = "เปิดทางลัด Primuse เพื่อทดสอบ \"เล่นเพลง\" หรือปรับแต่งวลี";
+"siri_spoken_names_title" = "ชื่อที่ Siri รู้จัก";
+"siri_spoken_names_detail" = "พูดชื่อใดก็ได้ในนี้เพื่อเรียก Primuse ถ้า Siri ฟังชื่อหนึ่งผิดบ่อย ให้ลองอีกชื่อ";
+"siri_custom_phrase_title" = "วลีของคุณเอง";
+"siri_custom_phrase_step_create" = "สร้างคำสั่งลัดใหม่ในแอปคำสั่งลัด";
+"siri_custom_phrase_step_action" = "เพิ่มการทำงานของ Primuse เช่น “เล่นสถานีวิทยุ” แล้วเลือกสถานี";
+"siri_custom_phrase_step_name" = "เปลี่ยนชื่อคำสั่งลัดเป็นคำที่คุณอยากพูด เช่น “ฟังแจ๊ส”";
+"siri_custom_phrase_footer" = "จากนั้นพูดว่า “หวัดดี Siri ฟังแจ๊ส” ก็จะเล่นทันที ไม่ต้องพูดชื่อแอป และแอปอื่นจะไม่รับคำขอไป";
+"siri_custom_phrase_create" = "คำสั่งลัดใหม่";
 "skip" = "ข้าม";
 "skip_leading_silence" = "ข้ามความเงียบนำ";
 "skip_trailing_silence" = "ข้ามความเงียบที่ตามมา";

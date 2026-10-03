@@ -188,6 +188,7 @@
 "Playback" = "Oynatma";
 "paste_config_footer" = "Bir üst veri sağlayıcısı için JSON yapılandırmasını yapıştırın.";
 "intent_radio_confirm_format" = "“%@” radyo istasyonu çalınsın mı?";
+"intent_radio_needs_app_format" = "“%@” radyo istasyonunu çalmak için Primuse’u açıp bağlantıyı onaylayın.";
 "source_diagnostics_short" = "Kontrol Et";
 "ssl_trust_initial_message" = "Bu sunucu sertifikası sistem doğrulamasında başarısız oldu. Yalnızca aşağıdaki ayrıntılar sunucunuza aitse devam edin.";
 "lyrics_offset_desc" = "Ses çıkışı gecikmesini telafi eder (Bluetooth için birkaç yüz ms, dahili hoparlör için ~30 ms). Şarkı sözleri vokallerden önce görünüyorsa pozitif değeri artırın; gerideyse, azaltın veya negatifi kullanın.";
@@ -3579,6 +3580,14 @@
 "offline_keep_cached" = "Çevrimdışı kullanım için sakla";
 "ai_provider_preset_volcengine_ark" = "Volcengine Ark";
 "siri_shortcuts_hint" = "“Şarkı Çal”ı test etmek veya cümlesini özelleştirmek için Primuse kısayollarını açın.";
+"siri_spoken_names_title" = "Siri’nin tanıdığı adlar";
+"siri_spoken_names_detail" = "Primuse’a ulaşmak için bu adlardan herhangi birini söyleyin. Siri birini sürekli yanlış anlıyorsa başka birini deneyin.";
+"siri_custom_phrase_title" = "Kendi ifadeniz";
+"siri_custom_phrase_step_create" = "Kestirmeler uygulamasında yeni bir kestirme oluşturun.";
+"siri_custom_phrase_step_action" = "“Radyo İstasyonunu Çal” gibi bir Primuse eylemi ekleyip istasyonu seçin.";
+"siri_custom_phrase_step_name" = "Kestirmenin adını söylemek istediğiniz ifadeyle değiştirin, örneğin “Caz zamanı”.";
+"siri_custom_phrase_footer" = "Ardından “Hey Siri, caz zamanı” deyin; çalma hemen başlar. Uygulama adını söylemeniz gerekmez ve isteği başka bir uygulama almaz.";
+"siri_custom_phrase_create" = "Yeni Kestirme";
 "songs_count" = "şarkı";
 "volume_down" = "Sesi Kısma";
 "yearly_time_morning" = "Sabah";
@@ -3594,6 +3603,7 @@
 "sort_title" = "Başlık";
 "export_path" = "Dışa Aktarma Yolu";
 "Playback speed set to %1$@ times." = "Oynatma hızı %1$@ katına ayarlandı.";
+"Playback speed can't be changed in High Fidelity Direct mode." = "Yüksek doğruluklu doğrudan oynatma modunda oynatma hızı değiştirilemez.";
 "smart_playlist_no_matches" = "Eşleşen şarkı yok";
 "scrape_song_success" = "Geçerli şarkının üst verileri yenilendi.";
 "delete_song" = "Arşivden Sil";

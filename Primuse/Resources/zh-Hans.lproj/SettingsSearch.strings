@@ -42,6 +42,12 @@
 "Next" = "下一首";
 "Previous" = "上一首";
 "Skip Track" = "切换歌曲";
+"Playback Action" = "播放操作";
+"Play" = "播放";
+"Pause" = "暂停";
+"Play or Pause" = "播放或暂停";
+"Control Playback" = "控制播放";
+"Play, pause, or toggle Primuse playback." = "播放、暂停或切换 Primuse 的播放。";
 "Play the ${direction} track" = "播放${direction}";
 "Open ${target}" = "打开${target}";
 "Get ${setting}" = "查询${setting}";

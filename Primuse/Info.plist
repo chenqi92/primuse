@@ -75,6 +75,10 @@
 			<key>INAlternativeAppNamePronunciationHint</key>
 			<string>pry muse</string>
 		</dict>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>Pro Muse</string>
+		</dict>
 	</array>
 	<key>INIntentsSupported</key>
 	<array>
@@ -84,6 +88,7 @@
 	<key>INSupportedMediaCategories</key>
 	<array>
 		<string>INMediaCategoryMusic</string>
+		<string>INMediaCategoryRadio</string>
 	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>

@@ -55,6 +55,12 @@
 "Siri & Shortcuts" = "Siri والاختصارات";
 "Siri authorization" = "Siri تفويض";
 "Skip Track" = "تخطي المسار";
+"Playback Action" = "إجراء التشغيل";
+"Play" = "شغّل الموسيقى";
+"Pause" = "أوقف مؤقتًا";
+"Play or Pause" = "شغّل الموسيقى أو أوقفها مؤقتًا";
+"Control Playback" = "التحكم في التشغيل";
+"Play, pause, or toggle Primuse playback." = "شغّل Primuse أو أوقفه مؤقتًا أو بدّل حالة التشغيل.";
 "Sync User Library" = "مزامنة مكتبة المستخدم";
 "This setting is unavailable on this device." = "هذا الإعداد غير متوفر على هذا الجهاز.";
 "Turn a supported Primuse setting on or off." = "تشغيل أو إيقاف إعداد Primuse المدعوم.";

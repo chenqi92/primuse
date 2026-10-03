@@ -3051,6 +3051,14 @@
 "siri_examples_title" = "Sprachbeispiel";
 "siri_play_song_example" = "Sag „Hey Siri, spiele einen Titel in Primuse“, und nenne Siri anschließend den Titel.";
 "siri_shortcuts_hint" = "Öffne die Primuse-Kurzbefehle, um „Titel wiedergeben“ zu testen oder den Sprachbefehl anzupassen.";
+"siri_spoken_names_title" = "Namen, die Siri versteht";
+"siri_spoken_names_detail" = "Mit jedem dieser Namen erreichst du Primuse. Versteht Siri einen Namen immer wieder falsch, probiere einen anderen.";
+"siri_custom_phrase_title" = "Eigene Formulierung";
+"siri_custom_phrase_step_create" = "Erstelle in der App „Kurzbefehle“ einen neuen Kurzbefehl.";
+"siri_custom_phrase_step_action" = "Füge eine Primuse-Aktion wie „Radiosender wiedergeben“ hinzu und wähle den Sender.";
+"siri_custom_phrase_step_name" = "Benenne den Kurzbefehl so, wie du ihn sagen möchtest, etwa „Jazz-Zeit“.";
+"siri_custom_phrase_footer" = "Sag danach „Hey Siri, Jazz-Zeit“ und die Wiedergabe startet sofort – ohne App-Namen, und keine andere App übernimmt die Anfrage.";
+"siri_custom_phrase_create" = "Neuer Kurzbefehl";
 "intent_playing_album_format" = "Album %@ wird wiedergegeben.";
 "intent_playing_artist_format" = "%@ wird wiedergegeben.";
 "intent_playing_genre_format" = "%@-Musik wird wiedergegeben.";
@@ -3096,6 +3104,7 @@
 "Set Primuse playback speed from 0.5 to 2 times." = "Die Primuse-Wiedergabegeschwindigkeit auf das 0,5- bis 2-Fache einstellen.";
 "Speed" = "Geschwindigkeit";
 "Playback speed set to %1$@ times." = "Wiedergabegeschwindigkeit auf das %1$@-Fache eingestellt.";
+"Playback speed can't be changed in High Fidelity Direct mode." = "Im Modus Hi-Fi-Direktausgabe lässt sich die Wiedergabegeschwindigkeit nicht ändern.";
 "Scrape Current Song" = "Aktuellen Titel abfragen";
 "Fill missing metadata, artwork, and lyrics for the current Primuse song." = "Fehlende Metadaten, Cover und Songtexte für den aktuellen Primuse-Titel ergänzen.";
 "This may contact metadata providers and write artwork, lyrics, or tags. Continue?" = "Dabei können Metadatenanbieter kontaktiert und Cover, Songtexte oder Tags geschrieben werden. Fortfahren?";
@@ -3677,6 +3686,7 @@
 "intent_radio_search_results_format" = "Gefundene Radiosender: %@.";
 "Search Radio" = "Radio suchen";
 "intent_radio_confirm_format" = "Den Radiosender „%@“ wiedergeben?";
+"intent_radio_needs_app_format" = "Öffne Primuse und bestätige die Verbindung, um den Radiosender „%@“ abzuspielen.";
 "Radio playback was cancelled." = "Die Radiowiedergabe wurde abgebrochen.";
 "ai_primuse_relay_test_connection" = "Integrierten Dienst testen";
 "ai_primuse_relay_test_footer" = "Der Test sendet nur einen festen Testtext. Suchanfragen, Liedtexte, Mediathek und Hörverlauf werden nicht gelesen; Schalter bleiben unverändert.";

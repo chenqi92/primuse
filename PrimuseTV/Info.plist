@@ -56,6 +56,27 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>INAlternativeAppNames</key>
+	<array>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>猿音</string>
+		</dict>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>普瑞缪斯</string>
+		</dict>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>Primuse</string>
+			<key>INAlternativeAppNamePronunciationHint</key>
+			<string>pry muse</string>
+		</dict>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>Pro Muse</string>
+		</dict>
+	</array>
 	<key>INIntentsSupported</key>
 	<array>
 		<string>INPlayMediaIntent</string>
@@ -64,6 +85,7 @@
 	<key>INSupportedMediaCategories</key>
 	<array>
 		<string>INMediaCategoryMusic</string>
+		<string>INMediaCategoryRadio</string>
 	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>

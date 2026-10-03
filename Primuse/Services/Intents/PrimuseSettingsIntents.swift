@@ -19,8 +19,14 @@ struct PrimuseSettingQuery: EntityStringQuery {
     func entities(matching string: String) async throws -> [PrimuseSettingEntity] {
         SettingsCatalog.search(string).map { .init(id: $0.id) }
     }
+    /// Settings pages only. These are also the values of the App Shortcut
+    /// "在 Primuse 中打开<设置>", and every value is multiplied by each spoken
+    /// form of the app name against the 1,000-phrase limit shared with all
+    /// App Shortcuts: three hundred rows would take nearly all of it and leave
+    /// saved radio stations without their phrases. Every row stays reachable
+    /// through search here and in Shortcuts.
     func suggestedEntities() async throws -> [PrimuseSettingEntity] {
-        SettingsCatalog.available.map { .init(id: $0.id) }
+        SettingsCatalog.available.filter(\.isPage).map { .init(id: $0.id) }
     }
 }
 

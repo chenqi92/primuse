@@ -3,6 +3,12 @@
 "Choose High Fidelity or audio effects. Playback Speed is also available in Shortcuts." = "Выберите High Fidelity или звуковые эффекты. Скорость воспроизведения также доступна в ярлыках.";
 "Widgets" = "Виджеты";
 "Skip Track" = "Пропустить трек";
+"Playback Action" = "Действие воспроизведения";
+"Play" = "Включи музыку";
+"Pause" = "Приостанови";
+"Play or Pause" = "Включи или приостанови музыку";
+"Control Playback" = "Управление воспроизведением";
+"Play, pause, or toggle Primuse playback." = "Включает, приостанавливает или переключает воспроизведение в Primuse.";
 "Wrapped" = "Завернутый";
 "Disabled" = "Отключено";
 "Next" = "Далее";

@@ -408,7 +408,11 @@ struct MacSettingsView: View {
         case .about:
             MacSTAboutView()
         case .siri:
-            SettingsShortcutsHelpView()
+            VStack(alignment: .leading, spacing: 24) {
+                SiriSpokenNamesView()
+                SiriCustomPhraseGuideView()
+                SettingsShortcutsHelpView()
+            }
         }
     }
 }

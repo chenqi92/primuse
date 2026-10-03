@@ -42,6 +42,12 @@
 "Next" = "Next";
 "Previous" = "Previous";
 "Skip Track" = "Skip Track";
+"Playback Action" = "Playback Action";
+"Play" = "Play";
+"Pause" = "Pause";
+"Play or Pause" = "Play or Pause";
+"Control Playback" = "Control Playback";
+"Play, pause, or toggle Primuse playback." = "Play, pause, or toggle Primuse playback.";
 "Play the ${direction} track" = "Play the ${direction} track";
 "Open ${target}" = "Open ${target}";
 "Get ${setting}" = "Get ${setting}";

@@ -183,6 +183,10 @@ public struct SiriNamedMediaResolution: Sendable {
     /// A single weak text match is not safe enough to start playback. Siri can
     /// still present it as a candidate, but must ask the listener to confirm.
     public let requiresConfirmation: Bool
+    /// The best candidate was chosen by identifier, or its name equals or
+    /// starts with what was asked for (not merely contains it or is a typo
+    /// away).
+    public let isStrongMatch: Bool
 }
 
 /// Shared deterministic matching for named containers such as playlists and
@@ -230,7 +234,8 @@ public enum SiriNamedMediaResolver {
                 selected: selected,
                 candidates: [selected],
                 needsDisambiguation: false,
-                requiresConfirmation: false
+                requiresConfirmation: false,
+                isStrongMatch: true
             )
         }
 
@@ -265,7 +270,8 @@ public enum SiriNamedMediaResolver {
             candidates: candidates,
             needsDisambiguation: tied.count > 1,
             requiresConfirmation: tied.count == 1
-                && (first.quality == .contained || first.quality == .fuzzy)
+                && (first.quality == .contained || first.quality == .fuzzy),
+            isStrongMatch: first.quality >= .prefix
         )
     }
 
@@ -390,11 +396,21 @@ public struct SiriMediaSearchResolution: Sendable {
 /// Siri supplies song, artist, and album names separately when speech
 /// recognition succeeds. Ranking exact names ahead of prefix/substring matches
 /// avoids picking a remix or similarly named track before the requested song.
+/// Which of the song-title tiers a lookup may use.
+public enum SiriSongMatchTiers: Sendable, Equatable {
+    /// Exact, prefix and substring first; the relaxed tier only when they
+    /// find nothing.
+    case strictThenRelaxed
+    case strictOnly
+    case relaxedOnly
+}
+
 public enum SiriMediaSearchResolver {
     public static func resolve(
         query: SiriMediaSearchQuery,
         resolvedItemIDs: [String] = [],
-        songs: [Song]
+        songs: [Song],
+        songMatching: SiriSongMatchTiers = .strictThenRelaxed
     ) -> SiriMediaSearchResolution? {
         let playable = songs.filteredPlayable()
         guard !playable.isEmpty else { return nil }
@@ -417,10 +433,10 @@ public enum SiriMediaSearchResolver {
         case .genre:
             return genreResolution(query: query, songs: playable)
         case .song:
-            return songResolution(query: query, songs: playable)
+            return songResolution(query: query, songs: playable, tiers: songMatching)
         case .music:
             guard !query.hasSearchTerm else {
-                return songResolution(query: query, songs: playable)
+                return songResolution(query: query, songs: playable, tiers: songMatching)
             }
             return SiriMediaSearchResolution(
                 queue: playable,
@@ -586,7 +602,8 @@ public enum SiriMediaSearchResolver {
 
     private static func songResolution(
         query: SiriMediaSearchQuery,
-        songs: [Song]
+        songs: [Song],
+        tiers: SiriSongMatchTiers
     ) -> SiriMediaSearchResolution? {
         guard let requestedTitle = query.mediaName ?? query.albumName ?? query.artistName else {
             return nil
@@ -596,7 +613,7 @@ public enum SiriMediaSearchResolver {
         // the relaxed tier run: Siri hands over whole phrases ("play mikham")
         // and mishears a letter or two, and a flat "no matching song in your
         // library." for a song that is right there reads like a broken library.
-        if let strict = rankedSongResolution(
+        if tiers != .relaxedOnly, let strict = rankedSongResolution(
             requestedTitle: requestedTitle,
             query: query,
             songs: songs,
@@ -604,6 +621,7 @@ public enum SiriMediaSearchResolver {
         ) {
             return strict
         }
+        guard tiers != .strictOnly else { return nil }
         return rankedSongResolution(
             requestedTitle: requestedTitle,
             query: query,
@@ -825,5 +843,110 @@ public enum SiriMediaSearchResolver {
         let artistOrder = (lhs.artistName ?? "").localizedCaseInsensitiveCompare(rhs.artistName ?? "")
         if artistOrder != .orderedSame { return artistOrder == .orderedAscending }
         return lhs.id < rhs.id
+    }
+}
+
+/// "用 Primuse 播放 <名字>" reaches the app without a media type, and the name
+/// may be a song's or a saved station's. A song whose title really carries
+/// the name wins; then a station whose name equals or starts with it; only
+/// then the relaxed song tier, which would otherwise turn "Jazz FM" into a
+/// song called "Jazz"; a station that merely resembles the name comes last
+/// and still needs the listener's confirmation.
+public enum SiriUntypedRequestResolver {
+    public enum Target: Sendable {
+        case songs(SiriMediaSearchResolution)
+        case radio(SiriNamedMediaResolution)
+    }
+
+    public static func resolve(
+        query: SiriMediaSearchQuery,
+        songs: [Song],
+        radioItems: [SiriNamedMediaItem]
+    ) -> Target? {
+        guard let name = query.mediaName else {
+            return SiriMediaSearchResolver.resolve(query: query, songs: songs).map(Target.songs)
+        }
+        if let strict = SiriMediaSearchResolver.resolve(
+            query: query,
+            songs: songs,
+            songMatching: .strictOnly
+        ) {
+            return .songs(strict)
+        }
+        let station = SiriNamedMediaResolver.resolve(
+            query: name,
+            namespace: "radio",
+            items: radioItems
+        )
+        if let station, station.isStrongMatch {
+            return .radio(station)
+        }
+        if let relaxed = SiriMediaSearchResolver.resolve(
+            query: query,
+            songs: songs,
+            songMatching: .relaxedOnly
+        ) {
+            return .songs(relaxed)
+        }
+        return station.map(Target.radio)
+    }
+}
+
+/// What a SiriKit request needs before it can be answered. Siri may launch the
+/// app just to ask, while the music library is still loading, and stops
+/// listening after about ten seconds: only requests that really look songs,
+/// albums, artists, genres or playlists up should wait for the library.
+public enum SiriRequestNeeds {
+    /// Every identifier names a saved station. Stations chosen during
+    /// resolution come back this way whatever media type the request had.
+    public static func allRadio(_ identifiers: [String]) -> Bool {
+        !identifiers.isEmpty && identifiers.allSatisfy { identifier in
+            let namespace = SiriMediaIdentifier.namespace(from: identifier)
+            return namespace == "radio" || namespace == "station"
+        }
+    }
+
+    /// Whether resolution offers Siri song candidates for this request.
+    public static func resolvesSongItems(_ query: SiriMediaSearchQuery) -> Bool {
+        guard query.hasSearchTerm else { return false }
+        switch query.kind {
+        case .song:
+            return true
+        case .music:
+            return query.mediaName != nil
+        case .album, .artist, .genre, .playlist, .radioStation,
+             .algorithmicRadioStation, .unsupported:
+            return false
+        }
+    }
+
+    /// `resolveMediaItems`: requests that name nothing ("play music", "play
+    /// an album") are answered without a lookup, so they do not wait; a wait
+    /// here would be paid again by `handle`.
+    public static func libraryForResolution(
+        _ query: SiriMediaSearchQuery,
+        identifiers: [String]
+    ) -> Bool {
+        switch query.kind {
+        case .radioStation, .algorithmicRadioStation, .unsupported:
+            return false
+        case .song, .music:
+            if allRadio(identifiers) { return false }
+            return !identifiers.isEmpty || resolvesSongItems(query)
+        case .album, .artist, .genre, .playlist:
+            return !identifiers.isEmpty || query.hasSearchTerm
+        }
+    }
+
+    /// `handle`: stations are not in the library, and a request typed as
+    /// neither music nor a station (podcast, show) can only be a station.
+    public static func libraryForPlayback(
+        _ query: SiriMediaSearchQuery,
+        identifierGroups: [[String]]
+    ) -> Bool {
+        if query.kind == .radioStation { return false }
+        let groups = identifierGroups.filter { !$0.isEmpty }
+        guard !groups.isEmpty else { return query.kind != .unsupported }
+        return !groups.allSatisfy(allRadio)
     }
 }

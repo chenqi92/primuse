@@ -281,6 +281,7 @@
 "Playback Rate" = "प्लेबैक गति";
 "Playback Rate & Quality" = "प्लेबैक गति और गुणवत्ता";
 "Playback speed set to %1$@ times." = "प्लेबैक गति %1$@ बार पर सेट की गई।";
+"Playback speed can't be changed in High Fidelity Direct mode." = "हाई फिडेलिटी डायरेक्ट मोड में प्लेबैक गति नहीं बदली जा सकती।";
 "Playing" = "चल रहा है";
 "Playlist" = "प्लेलिस्ट";
 "Please specify a playlist name." = "कृपया एक प्लेलिस्ट नाम निर्दिष्ट करें।";
@@ -1672,6 +1673,7 @@
 "intent_playing_song_by_format" = "%2$@ द्वारा %1$@ बजाना।";
 "intent_playing_song_format" = "बजा रहा हूं %@।";
 "intent_radio_confirm_format" = "रेडियो स्टेशन \"%@\" चलायें?";
+"intent_radio_needs_app_format" = "रेडियो स्टेशन \"%@\" चलाने के लिए Primuse खोलें और कनेक्शन की पुष्टि करें।";
 "intent_radio_search_results_format" = "ये रेडियो स्टेशन मिले: %@।";
 "intent_scrape_busy" = "मेटाडेटा पुनर्प्राप्ति मेटाडेटा पहले से ही चल रहा है।";
 "intent_scrape_deferred" = "मेटाडेटा पुनर्प्राप्ति मेटाडेटा तब शुरू होगी जब Primuse सक्रिय हो जाएगा।";
@@ -3044,6 +3046,14 @@
 "siri_examples_title" = "आवाज के उदाहरण";
 "siri_play_song_example" = "कहें \"अरे Siri, Primuse में एक गाना बजाओ,\" फिर गाने का शीर्षक Siri बताएं।";
 "siri_shortcuts_hint" = "\"प्ले सॉन्ग\" का परीक्षण करने या उसके वाक्यांश को अनुकूलित करने के लिए Primuse शॉर्टकट खोलें।";
+"siri_spoken_names_title" = "वे नाम जिन्हें Siri पहचानता है";
+"siri_spoken_names_detail" = "Primuse तक पहुँचने के लिए इनमें से कोई भी नाम बोलें। अगर Siri किसी नाम को बार-बार गलत सुनता है, तो दूसरा आज़माएँ।";
+"siri_custom_phrase_title" = "आपका अपना वाक्यांश";
+"siri_custom_phrase_step_create" = "शॉर्टकट्स ऐप में एक नया शॉर्टकट बनाएँ।";
+"siri_custom_phrase_step_action" = "“रेडियो स्टेशन चलाएँ” जैसी Primuse क्रिया जोड़ें और स्टेशन चुनें।";
+"siri_custom_phrase_step_name" = "शॉर्टकट का नाम वह रखें जो आप बोलना चाहते हैं, जैसे “जैज़ का समय”।";
+"siri_custom_phrase_footer" = "फिर “Hey Siri, जैज़ का समय” बोलें और तुरंत बजने लगेगा। ऐप का नाम बोलने की ज़रूरत नहीं, और कोई दूसरा ऐप अनुरोध नहीं ले पाएगा।";
+"siri_custom_phrase_create" = "नया शॉर्टकट";
 "skip" = "छोड़ें";
 "skip_leading_silence" = "अग्रणी मौन छोड़ें";
 "skip_trailing_silence" = "पिछली चुप्पी को छोड़ें";

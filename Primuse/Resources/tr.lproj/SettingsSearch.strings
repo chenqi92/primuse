@@ -3,6 +3,12 @@
 "Choose High Fidelity or audio effects. Playback Speed is also available in Shortcuts." = "Yüksek Sadakat veya ses efektlerini seçin. Oynatma Hızı ayrıca Kısayollarda da mevcuttur.";
 "Widgets" = "Widget'lar";
 "Skip Track" = "Parçayı Atla";
+"Playback Action" = "Oynatma işlemi";
+"Play" = "Çal";
+"Pause" = "Duraklat";
+"Play or Pause" = "Çal veya duraklat";
+"Control Playback" = "Oynatmayı denetle";
+"Play, pause, or toggle Primuse playback." = "Primuse'ta oynatmayı başlatır, duraklatır veya değiştirir.";
 "Wrapped" = "Sarılmış";
 "Disabled" = "Devre Dışı";
 "Next" = "İleri";

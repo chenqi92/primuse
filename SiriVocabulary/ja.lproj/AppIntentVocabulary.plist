@@ -7,13 +7,13 @@
 		<dict>
 			<key>IntentExamples</key>
 			<array>
-				<string>Primuseで音楽を検索して</string>
-				<string>Primuseで曲を検索して</string>
-				<string>Primuseでアルバムを検索して</string>
-				<string>Primuseでアーティストを検索して</string>
-				<string>Primuseでプレイリストを検索して</string>
-				<string>Primuseでジャズを検索して</string>
 				<string>Primuseでラジオ局を検索して</string>
+				<string>Primuseでラジオを探して</string>
+				<string>Primuseでニュースのラジオ局を検索して</string>
+				<string>Primuseでジャズのラジオ局を検索して</string>
+				<string>Primuseでクラシックのラジオ局を検索して</string>
+				<string>Primuseでトーク番組のラジオ局を検索して</string>
+				<string>PrimuseでFM局を検索して</string>
 			</array>
 			<key>IntentName</key>
 			<string>INSearchForMediaIntent</string>

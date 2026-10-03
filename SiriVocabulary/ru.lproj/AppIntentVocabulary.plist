@@ -7,13 +7,13 @@
     <dict>
       <key>IntentExamples</key>
       <array>
-        <string>Найди музыку в Primuse.</string>
-        <string>Найди песню в Primuse.</string>
-        <string>Найди альбом в Primuse.</string>
-        <string>Найди песни исполнителя в Primuse.</string>
-        <string>Найди плейлист в Primuse.</string>
-        <string>Найди джаз в Primuse.</string>
         <string>Найди радиостанцию в Primuse.</string>
+        <string>Поищи радиостанции в Primuse.</string>
+        <string>Найди новостную радиостанцию в Primuse.</string>
+        <string>Найди джазовую радиостанцию в Primuse.</string>
+        <string>Найди радиостанцию классической музыки в Primuse.</string>
+        <string>Найди разговорное радио в Primuse.</string>
+        <string>Найди FM-радиостанцию в Primuse.</string>
       </array>
       <key>IntentName</key>
       <string>INSearchForMediaIntent</string>

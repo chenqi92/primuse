@@ -7,13 +7,13 @@
         <dict>
             <key>IntentExamples</key>
             <array>
-                <string>ابحث عن موسيقى باستخدام Primuse.</string>
-                <string>ابحث عن أغنية باستخدام Primuse.</string>
-                <string>ابحث عن ألبوم باستخدام Primuse.</string>
-                <string>ابحث عن أغاني فنان باستخدام Primuse.</string>
-                <string>ابحث عن قائمة تشغيل باستخدام Primuse.</string>
-                <string>ابحث عن موسيقى الجاز باستخدام Primuse.</string>
                 <string>ابحث عن محطة راديو باستخدام Primuse.</string>
+                <string>اعثر على محطات راديو في Primuse.</string>
+                <string>ابحث عن محطة راديو إخبارية باستخدام Primuse.</string>
+                <string>ابحث عن محطة راديو جاز باستخدام Primuse.</string>
+                <string>ابحث عن محطة راديو للموسيقى الكلاسيكية باستخدام Primuse.</string>
+                <string>ابحث عن محطة راديو حوارية باستخدام Primuse.</string>
+                <string>ابحث عن محطة FM باستخدام Primuse.</string>
             </array>
             <key>IntentName</key>
             <string>INSearchForMediaIntent</string>

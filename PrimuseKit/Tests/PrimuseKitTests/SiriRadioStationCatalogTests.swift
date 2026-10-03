@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import PrimuseKit
 
@@ -198,6 +199,58 @@ struct SiriRadioStationCatalogTests {
             namespace: "radio",
             items: [SiriNamedMediaItem(id: "news", name: "Daily News")]
         ) == nil)
+    }
+
+    @Test("App Shortcut stations put recently played ones first and stay within the budget")
+    func appShortcutStationOrder() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        var first = RadioStation(name: "A First", streamURL: "https://radio.example/a")
+        first.sortOrder = 0
+        var second = RadioStation(name: "B Second", streamURL: "https://radio.example/b")
+        second.sortOrder = 1_024
+        var older = RadioStation(name: "C Older", streamURL: "https://radio.example/c")
+        older.sortOrder = 2_048
+        older.lastPlayedAt = now.addingTimeInterval(-3_600)
+        var recent = RadioStation(name: "D Recent", streamURL: "https://radio.example/d")
+        recent.sortOrder = 3_072
+        recent.lastPlayedAt = now
+        let disabled = serverStation(sourceID: "disabled", serverID: "x", name: "Disabled")
+
+        let ordered = SiriRadioStationCatalog.appShortcutStations(
+            from: [first, second, older, recent, disabled],
+            enabledSourceIDs: []
+        )
+        #expect(ordered.map(\.name) == ["D Recent", "C Older", "A First", "B Second"])
+
+        let capped = SiriRadioStationCatalog.appShortcutStations(
+            from: [first, second, older, recent],
+            enabledSourceIDs: [],
+            limit: 3
+        )
+        #expect(capped.map(\.name) == ["D Recent", "C Older", "A First"])
+    }
+
+    @Test("A station chosen by name equality or prefix is a strong match")
+    func namedMatchStrength() throws {
+        let items = [
+            SiriNamedMediaItem(id: "jazz", name: "Jazz FM"),
+            SiriNamedMediaItem(id: "news", name: "City News Radio"),
+        ]
+
+        let exact = try #require(SiriNamedMediaResolver.resolve(query: "jazz fm", namespace: "radio", items: items))
+        #expect(exact.isStrongMatch)
+        let prefix = try #require(SiriNamedMediaResolver.resolve(query: "Jazz", namespace: "radio", items: items))
+        #expect(prefix.isStrongMatch)
+        let contained = try #require(SiriNamedMediaResolver.resolve(query: "News", namespace: "radio", items: items))
+        #expect(!contained.isStrongMatch)
+        #expect(contained.requiresConfirmation)
+        let selected = try #require(SiriNamedMediaResolver.resolve(
+            query: nil,
+            selectedItemIDs: ["radio:news"],
+            namespace: "radio",
+            items: items
+        ))
+        #expect(selected.isStrongMatch)
     }
 
     private func serverStation(

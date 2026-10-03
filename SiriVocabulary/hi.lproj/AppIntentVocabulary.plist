@@ -7,13 +7,13 @@
         <dict>
             <key>IntentExamples</key>
             <array>
-                <string>Primuse से संगीत खोजें।</string>
-                <string>Primuse से गाना खोजें।</string>
-                <string>Primuse से एल्बम खोजें।</string>
-                <string>Primuse से कलाकार के गाने खोजें।</string>
-                <string>Primuse से प्लेलिस्ट खोजें।</string>
-                <string>Primuse से जैज़ संगीत खोजें।</string>
                 <string>Primuse से रेडियो स्टेशन खोजें।</string>
+                <string>Primuse में रेडियो स्टेशन ढूँढें।</string>
+                <string>Primuse से समाचार रेडियो स्टेशन खोजें।</string>
+                <string>Primuse से जैज़ रेडियो स्टेशन खोजें।</string>
+                <string>Primuse से शास्त्रीय संगीत रेडियो स्टेशन खोजें।</string>
+                <string>Primuse से टॉक रेडियो खोजें।</string>
+                <string>Primuse से FM स्टेशन खोजें।</string>
             </array>
             <key>IntentName</key>
             <string>INSearchForMediaIntent</string>

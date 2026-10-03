@@ -55,6 +55,12 @@
 "Siri & Shortcuts" = "Siri i Skróty";
 "Siri authorization" = "Autoryzacja Siri";
 "Skip Track" = "Pomiń utwór";
+"Playback Action" = "Akcja odtwarzania";
+"Play" = "Odtwarzaj";
+"Pause" = "Wstrzymaj";
+"Play or Pause" = "Odtwórz lub wstrzymaj";
+"Control Playback" = "Steruj odtwarzaniem";
+"Play, pause, or toggle Primuse playback." = "Odtwórz, wstrzymaj lub przełącz odtwarzanie w Primuse.";
 "Sync User Library" = "Synchronizuj bibliotekę użytkownika";
 "This setting is unavailable on this device." = "To ustawienie jest niedostępne na tym urządzeniu.";
 "Turn a supported Primuse setting on or off." = "Włącz lub wyłącz obsługiwane ustawienie Primuse.";

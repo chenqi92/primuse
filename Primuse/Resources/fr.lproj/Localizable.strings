@@ -3051,6 +3051,14 @@
 "siri_examples_title" = "Exemple vocal";
 "siri_play_song_example" = "Dites « Dis Siri, lis un titre dans Primuse », puis indiquez le titre à Siri.";
 "siri_shortcuts_hint" = "Ouvrez les raccourcis Primuse pour tester « Lire un titre » ou personnaliser la phrase.";
+"siri_spoken_names_title" = "Noms reconnus par Siri";
+"siri_spoken_names_detail" = "Dites l’un de ces noms pour joindre Primuse. Si Siri en comprend mal un, essayez-en un autre.";
+"siri_custom_phrase_title" = "Votre propre phrase";
+"siri_custom_phrase_step_create" = "Dans l’app Raccourcis, créez un nouveau raccourci.";
+"siri_custom_phrase_step_action" = "Ajoutez une action Primuse comme « Lire une station de radio » et choisissez la station.";
+"siri_custom_phrase_step_name" = "Renommez le raccourci avec ce que vous voulez dire, par exemple « Heure du jazz ».";
+"siri_custom_phrase_footer" = "Dites ensuite « Dis Siri, heure du jazz » et la lecture démarre aussitôt, sans nom d’app et sans qu’une autre app ne prenne la demande.";
+"siri_custom_phrase_create" = "Nouveau raccourci";
 "intent_playing_album_format" = "Lecture de l’album %@.";
 "intent_playing_artist_format" = "Lecture de %@.";
 "intent_playing_genre_format" = "Lecture de musique %@.";
@@ -3096,6 +3104,7 @@
 "Set Primuse playback speed from 0.5 to 2 times." = "Régler la vitesse de lecture de Primuse entre 0,5 et 2 fois.";
 "Speed" = "Vitesse";
 "Playback speed set to %1$@ times." = "Vitesse de lecture réglée sur %1$@ fois.";
+"Playback speed can't be changed in High Fidelity Direct mode." = "La vitesse de lecture ne peut pas être modifiée en mode Haute fidélité directe.";
 "Scrape Current Song" = "Récupérer les infos du titre actuel";
 "Fill missing metadata, artwork, and lyrics for the current Primuse song." = "Compléter les métadonnées, la pochette et les paroles manquantes du titre Primuse en cours.";
 "This may contact metadata providers and write artwork, lyrics, or tags. Continue?" = "Cette action peut contacter des fournisseurs de métadonnées et écrire la pochette, les paroles ou les tags. Continuer ?";
@@ -3677,6 +3686,7 @@
 "intent_radio_search_results_format" = "Stations trouvées : %@.";
 "Search Radio" = "Rechercher une radio";
 "intent_radio_confirm_format" = "Lire la station « %@ » ?";
+"intent_radio_needs_app_format" = "Ouvrez Primuse et confirmez la connexion pour lire la station « %@ ».";
 "Radio playback was cancelled." = "La lecture de la radio a été annulée.";
 "ai_primuse_relay_test_connection" = "Tester le service intégré";
 "ai_primuse_relay_test_footer" = "Le test envoie uniquement une phrase fixe. Il ne lit ni les recherches, ni les paroles, ni la bibliothèque, ni l’historique d’écoute et ne modifie aucun réglage.";

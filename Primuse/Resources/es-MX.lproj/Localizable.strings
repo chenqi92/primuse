@@ -281,6 +281,7 @@
 "Playback Rate" = "Velocidad de reproducción";
 "Playback Rate & Quality" = "Velocidad y calidad de reproducción";
 "Playback speed set to %1$@ times." = "Velocidad de reproducción establecida en %1$@ veces.";
+"Playback speed can't be changed in High Fidelity Direct mode." = "No se puede cambiar la velocidad de reproducción en el modo Alta fidelidad directa.";
 "Playing" = "Jugando";
 "Playlist" = "Lista de reproducción";
 "Please specify a playlist name." = "Especifique un nombre de lista de reproducción.";
@@ -1672,6 +1673,7 @@
 "intent_playing_song_by_format" = "Reproduciendo %1$@ por %2$@.";
 "intent_playing_song_format" = "Reproduciendo %@.";
 "intent_radio_confirm_format" = "¿Reproducir la estación de radio “%@”?";
+"intent_radio_needs_app_format" = "Abre Primuse y confirma la conexión para reproducir la estación de radio “%@”.";
 "intent_radio_search_results_format" = "Encontré estas estaciones de radio: %@.";
 "intent_scrape_busy" = "Ya se están obteniendo metadatos.";
 "intent_scrape_deferred" = "La obtención de metadatos comenzará cuando Primuse esté activo.";
@@ -3044,6 +3046,14 @@
 "siri_examples_title" = "Ejemplos de voz";
 "siri_play_song_example" = "Diga \"Hola Siri, reproduce una canción en Primuse\", luego dile a Siri el título de la canción.";
 "siri_shortcuts_hint" = "Abra los accesos directos de Primuse para probar “Reproducir canción” o personalizar su frase.";
+"siri_spoken_names_title" = "Nombres que Siri reconoce";
+"siri_spoken_names_detail" = "Di cualquiera de estos nombres para llegar a Primuse. Si Siri entiende mal uno, prueba con otro.";
+"siri_custom_phrase_title" = "Tu propia frase";
+"siri_custom_phrase_step_create" = "En la app Atajos, crea un atajo nuevo.";
+"siri_custom_phrase_step_action" = "Agrega una acción de Primuse como “Reproducir estación de radio” y elige la estación.";
+"siri_custom_phrase_step_name" = "Cambia el nombre del atajo por lo que quieras decir, por ejemplo “Hora del jazz”.";
+"siri_custom_phrase_footer" = "Después di “Oye Siri, hora del jazz” y empezará a sonar de inmediato, sin decir el nombre de la app y sin que otra app tome la solicitud.";
+"siri_custom_phrase_create" = "Nuevo atajo";
 "skip" = "Saltar";
 "skip_leading_silence" = "Saltar silencio principal";
 "skip_trailing_silence" = "Saltar silencio final";

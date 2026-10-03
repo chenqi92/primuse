@@ -281,6 +281,7 @@
 "Playback Rate" = "Szybkość odtwarzania";
 "Playback Rate & Quality" = "Szybkość i jakość odtwarzania";
 "Playback speed set to %1$@ times." = "Szybkość odtwarzania ustawiona na %1$@ razy.";
+"Playback speed can't be changed in High Fidelity Direct mode." = "W trybie Bezpośrednie odtwarzanie Hi-Fi nie można zmienić szybkości odtwarzania.";
 "Playing" = "Gram";
 "Playlist" = "Playlista";
 "Please specify a playlist name." = "Proszę podać nazwę listy odtwarzania.";
@@ -1672,6 +1673,7 @@
 "intent_playing_song_by_format" = "Granie w %1$@ przez %2$@.";
 "intent_playing_song_format" = "Gra w %@.";
 "intent_radio_confirm_format" = "Odtworzyć stację radiową „%@”?";
+"intent_radio_needs_app_format" = "Otwórz Primuse i potwierdź połączenie, aby odtworzyć stację radiową „%@”.";
 "intent_radio_search_results_format" = "Znaleziono te stacje radiowe: %@.";
 "intent_scrape_busy" = "Pobieranie metadanych już trwa.";
 "intent_scrape_deferred" = "Pobieranie metadanych rozpocznie się, gdy Primuse stanie się aktywne.";
@@ -3044,6 +3046,14 @@
 "siri_examples_title" = "Przykłady głosów";
 "siri_play_song_example" = "Powiedz „Hej Siri, zagraj piosenkę w Primuse”, a następnie podaj Siri tytuł utworu.";
 "siri_shortcuts_hint" = "Otwórz skróty Primuse, aby przetestować „Odtwórz utwór” lub dostosować jego frazę.";
+"siri_spoken_names_title" = "Nazwy rozpoznawane przez Siri";
+"siri_spoken_names_detail" = "Powiedz dowolną z tych nazw, aby trafić do Primuse. Jeśli Siri źle rozumie jedną, spróbuj innej.";
+"siri_custom_phrase_title" = "Własna fraza";
+"siri_custom_phrase_step_create" = "W aplikacji Skróty utwórz nowy skrót.";
+"siri_custom_phrase_step_action" = "Dodaj akcję Primuse, np. „Odtwórz stację radiową”, i wybierz stację.";
+"siri_custom_phrase_step_name" = "Zmień nazwę skrótu na to, co chcesz mówić, np. „Czas na jazz”.";
+"siri_custom_phrase_footer" = "Potem powiedz „Hej Siri, czas na jazz”, a odtwarzanie ruszy od razu – bez nazwy aplikacji i bez przejmowania prośby przez inną aplikację.";
+"siri_custom_phrase_create" = "Nowy skrót";
 "skip" = "Pomiń";
 "skip_leading_silence" = "Pomiń ciszę wiodącą";
 "skip_trailing_silence" = "Pomiń końcową ciszę";

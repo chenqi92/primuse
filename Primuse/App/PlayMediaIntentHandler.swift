@@ -48,7 +48,7 @@ final class PlayMediaIntentHandler: NSObject,
             // Stage 2b: 但只为真的要读库的目标等。电台与"继续播放"用的是
             // radioStationsStore / 播放器, 白等 8 秒会把预算耗光, 紧接着的流
             // 地址解析(网络)就再也来不及了。
-            if Self.targetNeedsLibrary(query: query, identifierGroups: identifierGroups) {
+            if SiriRequestNeeds.libraryForPlayback(query, identifierGroups: identifierGroups) {
                 _ = await AppServices.shared.musicLibrary.whenReady(timeout: .seconds(8))
             }
 
@@ -137,16 +137,32 @@ final class PlayMediaIntentHandler: NSObject,
                 )
 
             case .radio(let station):
-                let accepted = await player.play(
-                    station: station,
-                    within: Self.radioStations()
-                )
-                Self.respond(
-                    accepted ? .success : .failure,
-                    completion: completion,
-                    startedAt: startedAt,
-                    detail: accepted ? "radio-accepted" : "radio-unavailable"
-                )
+                let outcome = await AppServices.shared.startRadioForIntent(station)
+                switch outcome {
+                case .playing, .connecting:
+                    Self.respond(
+                        .success,
+                        completion: completion,
+                        startedAt: startedAt,
+                        detail: "radio-accepted"
+                    )
+                case .needsApp:
+                    // A cleartext or certificate prompt is waiting; only the
+                    // app on screen can show it.
+                    Self.respond(
+                        .failureRequiringAppLaunch,
+                        completion: completion,
+                        startedAt: startedAt,
+                        detail: "radio-needs-app"
+                    )
+                case .notFound, .sourceDisabled, .unavailable:
+                    Self.respond(
+                        .failure,
+                        completion: completion,
+                        startedAt: startedAt,
+                        detail: "radio-unavailable"
+                    )
+                }
             }
         }
     }
@@ -163,7 +179,7 @@ final class PlayMediaIntentHandler: NSObject,
             // 同 `handle(intent:completion:)`: 歌单 / 专辑 / 艺术家 / 歌曲候选
             // 全部来自资料库, 发布之前列表是空的; 电台候选与 `.notRequired`
             // 的两类则完全不读库, 不为它们花预算。
-            if Self.mediaItemResolutionNeedsLibrary(query.kind) {
+            if SiriRequestNeeds.libraryForResolution(query, identifiers: identifiers) {
                 _ = await AppServices.shared.musicLibrary.whenReady(timeout: .seconds(8))
             }
 
@@ -220,23 +236,65 @@ final class PlayMediaIntentHandler: NSObject,
                 )
                 return
 
-            case .algorithmicRadioStation, .unsupported:
+            case .algorithmicRadioStation:
                 completion.value([INPlayMediaMediaItemResolutionResult.notRequired()])
                 return
 
+            case .unsupported:
+                // Podcast- and show-typed requests: the only titles Primuse
+                // registers with Siri as shows are its saved stations.
+                if query.mediaName != nil || SiriRequestNeeds.allRadio(identifiers) {
+                    Self.resolveRadioItems(
+                        query: query.mediaName,
+                        identifiers: identifiers,
+                        completion: completion
+                    )
+                } else {
+                    completion.value([INPlayMediaMediaItemResolutionResult.notRequired()])
+                }
+                return
+
             case .song, .music:
-                guard Self.shouldResolveSongItems(for: query) || !identifiers.isEmpty else {
+                if SiriRequestNeeds.allRadio(identifiers) {
+                    Self.resolveRadioItems(
+                        query: query.mediaName,
+                        identifiers: identifiers,
+                        completion: completion
+                    )
+                    return
+                }
+                guard SiriRequestNeeds.resolvesSongItems(query) || !identifiers.isEmpty else {
                     completion.value([INPlayMediaMediaItemResolutionResult.notRequired()])
                     return
                 }
             }
 
             let library = AppServices.shared.musicLibrary
-            guard let result = Self.resolveSongs(
-                query: query,
-                identifierGroups: identifierGroups,
-                songs: library.visibleSongs
-            ), !result.candidates.isEmpty else {
+            let songResult: SiriMediaSearchResolution?
+            if identifiers.isEmpty, query.mediaName != nil {
+                // "用 Primuse 播放 <名字>" arrives without a media type; the
+                // name may belong to a saved station rather than a song.
+                switch SiriUntypedRequestResolver.resolve(
+                    query: query,
+                    songs: library.visibleSongs,
+                    radioItems: Self.radioItems()
+                ) {
+                case .radio(let station)?:
+                    Self.completeRadioResolution(station, completion: completion)
+                    return
+                case .songs(let songs)?:
+                    songResult = songs
+                case nil:
+                    songResult = nil
+                }
+            } else {
+                songResult = Self.resolveSongs(
+                    query: query,
+                    identifierGroups: identifierGroups,
+                    songs: library.visibleSongs
+                )
+            }
+            guard let result = songResult, !result.candidates.isEmpty else {
                 completion.value([
                     INPlayMediaMediaItemResolutionResult.unsupported(forReason: .serviceUnavailable),
                 ])
@@ -414,37 +472,6 @@ final class PlayMediaIntentHandler: NSObject,
         ).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Stage 2b: 这次请求的目标到底读不读 `MusicLibrary`。
-    /// 电台走 `radioStationsStore` / `sourcesStore`, 与资料库无关。
-    private static func targetNeedsLibrary(
-        query: SiriMediaSearchQuery,
-        identifierGroups: [[String]]
-    ) -> Bool {
-        if query.kind == .radioStation { return false }
-        let groups = identifierGroups.filter { !$0.isEmpty }
-        guard !groups.isEmpty else { return true }
-        guard query.kind == .music || query.kind == .unsupported else { return true }
-        // `resolveTarget` 对非空 identifier 组是逐组解析的: 每一组的每一条都
-        // 落在电台命名空间时, 这条路径不会碰资料库。
-        return !groups.allSatisfy { group in
-            group.allSatisfy { identifier in
-                let namespace = SiriMediaIdentifier.namespace(from: identifier)
-                return namespace == "radio" || namespace == "station"
-            }
-        }
-    }
-
-    /// `resolveMediaItems` 的同款判定: 电台候选来自电台目录,
-    /// algorithmic / unsupported 两类直接回 `.notRequired`。
-    private static func mediaItemResolutionNeedsLibrary(_ kind: SiriMediaSearchKind) -> Bool {
-        switch kind {
-        case .radioStation, .algorithmicRadioStation, .unsupported:
-            return false
-        case .song, .album, .artist, .genre, .playlist, .music:
-            return true
-        }
-    }
-
     @MainActor
     private static func resolveTarget(
         intent: INPlayMediaIntent,
@@ -460,6 +487,9 @@ final class PlayMediaIntentHandler: NSObject,
         }
         if query.kind == .algorithmicRadioStation {
             return resolveSongRadio(query: query, identifierGroups: identifierGroups)
+        }
+        if SiriRequestNeeds.allRadio(identifiers) {
+            return resolveRadio(query: query.mediaName, identifiers: identifiers)
         }
 
         let library = AppServices.shared.musicLibrary
@@ -500,6 +530,38 @@ final class PlayMediaIntentHandler: NSObject,
                 }
             }
             return nil
+        }
+
+        if identifierGroups.isEmpty, query.mediaName != nil {
+            switch query.kind {
+            case .unsupported:
+                // Podcast- and show-typed requests: the only titles Primuse
+                // registers with Siri as shows are its saved stations.
+                return resolveRadio(query: query.mediaName, identifiers: [])
+            case .song, .music:
+                // A name with no media type may be a saved station's. Weak or
+                // tied station matches stay unresolved here, as for an
+                // explicit station request; resolution asks about them.
+                switch SiriUntypedRequestResolver.resolve(
+                    query: query,
+                    songs: library.visibleSongs,
+                    radioItems: radioItems()
+                ) {
+                case .radio(let station)?:
+                    guard !station.needsDisambiguation, !station.requiresConfirmation else {
+                        return nil
+                    }
+                    return radioStations()
+                        .first(where: { $0.id == station.selected.id })
+                        .map(IntentTarget.radio)
+                case .songs(let resolution)?:
+                    return .songs(resolution.queue, shouldShuffle: intent.playShuffled == true)
+                case nil:
+                    return nil
+                }
+            case .album, .artist, .genre, .playlist, .radioStation, .algorithmicRadioStation:
+                break
+            }
         }
 
         // "Play music" names nothing and shuffles the library: that is the
@@ -717,18 +779,33 @@ final class PlayMediaIntentHandler: NSObject,
         identifiers: [String],
         completion: UncheckedBox<([INPlayMediaMediaItemResolutionResult]) -> Void>
     ) {
+        let catalog = radioItems()
+        if identifiers.isEmpty,
+           query?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
+           !catalog.isEmpty {
+            // "用 Primuse 播放电台": ask which one instead of failing.
+            completion.value([INPlayMediaMediaItemResolutionResult.needsValue()])
+            return
+        }
         guard let result = SiriNamedMediaResolver.resolve(
             query: query,
             selectedItemIDs: identifiers,
             namespace: "radio",
-            items: radioItems()
+            items: catalog
         ) else {
             completion.value([
                 INPlayMediaMediaItemResolutionResult.unsupported(forReason: .serviceUnavailable),
             ])
             return
         }
+        completeRadioResolution(result, completion: completion)
+    }
 
+    @MainActor
+    private static func completeRadioResolution(
+        _ result: SiriNamedMediaResolution,
+        completion: UncheckedBox<([INPlayMediaMediaItemResolutionResult]) -> Void>
+    ) {
         let mediaItems = radioMediaItems(from: result.candidates)
         if result.needsDisambiguation {
             completion.value([INPlayMediaMediaItemResolutionResult.disambiguation(with: mediaItems)])
@@ -803,19 +880,6 @@ final class PlayMediaIntentHandler: NSObject,
             }
         }
         return nil
-    }
-
-    private static func shouldResolveSongItems(for query: SiriMediaSearchQuery) -> Bool {
-        guard query.hasSearchTerm else { return false }
-        switch query.kind {
-        case .song:
-            return true
-        case .music:
-            return query.mediaName != nil
-        case .album, .artist, .genre, .playlist, .radioStation,
-             .algorithmicRadioStation, .unsupported:
-            return false
-        }
     }
 
     private static func resolutionTitle(
@@ -944,9 +1008,9 @@ struct PrimuseScrapeCurrentSongIntent: AppIntent {
 struct PrimuseShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
-            intent: PrimusePlayPauseIntent(),
+            intent: PrimusePlaybackControlIntent(),
             phrases: [
-                "Play or pause in \(.applicationName)",
+                "\(\.$action) in \(.applicationName)",
             ],
             shortTitle: "Play / Pause",
             systemImageName: "play.fill"

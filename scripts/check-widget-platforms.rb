@@ -15,7 +15,7 @@ WIDGET_TARGET = "PrimuseWidgetExtension"
 WIDGET_BUNDLE_ID = "com.welape.yuanyin.widget"
 APP_GROUP = "group.com.welape.yuanyin"
 INTERACTIVE_WIDGET_INTENTS = %w[
-  PrimusePlayPauseIntent
+  PrimuseSetPlayingIntent
   PrimusePreviousIntent
   PrimuseNextIntent
   PrimuseShuffleAllIntent

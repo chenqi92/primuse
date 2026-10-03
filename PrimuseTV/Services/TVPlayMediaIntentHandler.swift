@@ -26,9 +26,21 @@ final class TVPlayMediaIntentHandler: NSObject,
     func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
         let completion = TVUncheckedBox(completion)
         Task { @MainActor in
-            if store.library.visibleSongs.isEmpty { store.reload() }
             let query = Self.query(for: intent)
             let identifierGroups = Self.selectedIdentifierGroups(for: intent)
+            await store.prepareForSiri(
+                needsLibrary: SiriRequestNeeds.libraryForPlayback(query, identifierGroups: identifierGroups)
+            )
+            // "继续播放" names nothing: carry on with what is loaded (restored
+            // once the library is ready) instead of shuffling the whole
+            // library over a station or a book.
+            if intent.resumePlayback == true,
+               identifierGroups.isEmpty,
+               !query.hasSearchTerm,
+               store.resumeFromSiri() {
+                completion.value(INPlayMediaIntentResponse(code: .success, userActivity: nil))
+                return
+            }
             guard let target = resolveTarget(
                 intent: intent,
                 query: query,
@@ -38,17 +50,32 @@ final class TVPlayMediaIntentHandler: NSObject,
                 return
             }
 
-            let accepted: Bool
+            let code: INPlayMediaIntentResponseCode
             switch target {
             case .songs(let songs, let shuffled):
-                accepted = store.playResolvedQueue(
+                let accepted = store.playResolvedQueue(
                     songIDs: songs.map(\.id),
                     shuffled: shuffled
                 )
+                code = accepted ? .success : .failure
             case .radio(let station):
-                accepted = await store.playRadioFromIntent(station)
+                // Unwrapping a .pls over cleartext or a server station can take
+                // far longer than Siri waits, and a confirmation may be waiting
+                // on screen. Answer at the deadline; the station keeps starting.
+                let store = self.store
+                let start = await IntentResponseDeadline.race(within: .seconds(4)) {
+                    await store.playRadioFromIntent(station)
+                        ? TVRadioIntentStart.started
+                        : .failed
+                } onTimeout: {
+                    store.isAwaitingTransportDecision ? .needsApp : .stillStarting
+                }
+                switch start {
+                case .started, .stillStarting: code = .success
+                case .needsApp: code = .failureRequiringAppLaunch
+                case .failed: code = .failure
+                }
             }
-            let code: INPlayMediaIntentResponseCode = accepted ? .success : .failure
             completion.value(INPlayMediaIntentResponse(code: code, userActivity: nil))
         }
     }
@@ -59,10 +86,12 @@ final class TVPlayMediaIntentHandler: NSObject,
     ) {
         let completion = TVUncheckedBox(completion)
         Task { @MainActor in
-            if store.library.visibleSongs.isEmpty { store.reload() }
             let query = Self.query(for: intent)
             let identifierGroups = Self.selectedIdentifierGroups(for: intent)
             let identifiers = identifierGroups.flatMap { $0 }
+            await store.prepareForSiri(
+                needsLibrary: SiriRequestNeeds.libraryForResolution(query, identifiers: identifiers)
+            )
 
             switch query.kind {
             case .playlist:
@@ -112,21 +141,62 @@ final class TVPlayMediaIntentHandler: NSObject,
                     completion: completion
                 )
                 return
-            case .algorithmicRadioStation, .unsupported:
+            case .algorithmicRadioStation:
                 completion.value([INPlayMediaMediaItemResolutionResult.notRequired()])
                 return
+            case .unsupported:
+                // Podcast- and show-typed requests: the only titles registered
+                // with Siri as shows are the saved stations.
+                if query.mediaName != nil || SiriRequestNeeds.allRadio(identifiers) {
+                    resolveRadioItems(
+                        query: query.mediaName,
+                        identifiers: identifiers,
+                        completion: completion
+                    )
+                } else {
+                    completion.value([INPlayMediaMediaItemResolutionResult.notRequired()])
+                }
+                return
             case .song, .music:
-                guard Self.shouldResolveSongItems(for: query) || !identifiers.isEmpty else {
+                if SiriRequestNeeds.allRadio(identifiers) {
+                    resolveRadioItems(
+                        query: query.mediaName,
+                        identifiers: identifiers,
+                        completion: completion
+                    )
+                    return
+                }
+                guard SiriRequestNeeds.resolvesSongItems(query) || !identifiers.isEmpty else {
                     completion.value([INPlayMediaMediaItemResolutionResult.notRequired()])
                     return
                 }
             }
 
-            guard let result = Self.resolveSongs(
-                query: query,
-                identifierGroups: identifierGroups,
-                songs: store.library.visibleSongs
-            ), !result.candidates.isEmpty else {
+            let songResult: SiriMediaSearchResolution?
+            if identifiers.isEmpty, query.mediaName != nil {
+                // "用 Primuse 播放 <名字>" arrives without a media type; the
+                // name may belong to a saved station rather than a song.
+                switch SiriUntypedRequestResolver.resolve(
+                    query: query,
+                    songs: store.library.visibleSongs,
+                    radioItems: radioItems()
+                ) {
+                case .radio(let station)?:
+                    completeRadioResolution(station, completion: completion)
+                    return
+                case .songs(let songs)?:
+                    songResult = songs
+                case nil:
+                    songResult = nil
+                }
+            } else {
+                songResult = Self.resolveSongs(
+                    query: query,
+                    identifierGroups: identifierGroups,
+                    songs: store.library.visibleSongs
+                )
+            }
+            guard let result = songResult, !result.candidates.isEmpty else {
                 completion.value([
                     INPlayMediaMediaItemResolutionResult.unsupported(forReason: .serviceUnavailable),
                 ])
@@ -165,7 +235,7 @@ final class TVPlayMediaIntentHandler: NSObject,
     ) {
         let completion = TVUncheckedBox(completion)
         Task { @MainActor in
-            if store.library.visibleSongs.isEmpty { store.reload() }
+            await store.prepareForSiri(needsLibrary: false)
             guard let items = searchRadioMediaItems(for: intent) else {
                 completion.value(INSearchForMediaIntentResponse(code: .failure, userActivity: nil))
                 return
@@ -185,7 +255,7 @@ final class TVPlayMediaIntentHandler: NSObject,
     ) {
         let completion = TVUncheckedBox(completion)
         Task { @MainActor in
-            if store.library.visibleSongs.isEmpty { store.reload() }
+            await store.prepareForSiri(needsLibrary: false)
             guard let items = searchRadioMediaItems(for: intent) else {
                 completion.value([
                     INSearchForMediaMediaItemResolutionResult.unsupported(
@@ -349,6 +419,15 @@ final class TVPlayMediaIntentHandler: NSObject,
         }
 
         guard query.kind != .algorithmicRadioStation else { return nil }
+        if SiriRequestNeeds.allRadio(identifiers) {
+            guard let resolved = SiriNamedMediaResolver.resolve(
+                query: query.mediaName,
+                selectedItemIDs: identifiers,
+                namespace: "radio",
+                items: radioItems()
+            ) else { return nil }
+            return radioStations().first(where: { $0.id == resolved.selected.id }).map(TVIntentTarget.radio)
+        }
         if !identifierGroups.isEmpty,
            (query.kind == .music || query.kind == .unsupported) {
             let mediaQuery = SiriMediaSearchQuery(
@@ -401,18 +480,58 @@ final class TVPlayMediaIntentHandler: NSObject,
             return nil
         }
 
+        if identifierGroups.isEmpty, query.mediaName != nil {
+            switch query.kind {
+            case .unsupported:
+                return namedRadioTarget(query.mediaName)
+            case .song, .music:
+                // A name with no media type may be a saved station's. Weak or
+                // tied station matches stay unresolved, as for an explicit
+                // station request; resolution asks about them.
+                switch SiriUntypedRequestResolver.resolve(
+                    query: query,
+                    songs: store.library.visibleSongs,
+                    radioItems: radioItems()
+                ) {
+                case .radio(let station)?:
+                    guard !station.needsDisambiguation, !station.requiresConfirmation else { return nil }
+                    return radioStations().first(where: { $0.id == station.selected.id }).map(TVIntentTarget.radio)
+                case .songs(let resolution)?:
+                    return .songs(resolution.queue, shuffled: intent.playShuffled == true)
+                case nil:
+                    return nil
+                }
+            case .album, .artist, .genre, .playlist, .radioStation, .algorithmicRadioStation:
+                break
+            }
+        }
+
+        // "Play music" names nothing and shuffles the library: the songs,
+        // not the audiobooks.
+        let playsWholeLibrary = identifiers.isEmpty && !query.hasSearchTerm
         guard let result = Self.resolveSongs(
             query: query,
             identifierGroups: identifierGroups,
-            songs: store.library.visibleSongs
+            songs: playsWholeLibrary ? store.library.musicSongs : store.library.visibleSongs
         ) else {
             return nil
         }
         return .songs(
             result.queue,
-            shuffled: intent.playShuffled == true
-                || (identifiers.isEmpty && !query.hasSearchTerm)
+            shuffled: intent.playShuffled == true || playsWholeLibrary
         )
+    }
+
+    @MainActor
+    private func namedRadioTarget(_ name: String?) -> TVIntentTarget? {
+        guard let resolved = SiriNamedMediaResolver.resolve(
+            query: name,
+            namespace: "radio",
+            items: radioItems()
+        ), !resolved.needsDisambiguation, !resolved.requiresConfirmation else {
+            return nil
+        }
+        return radioStations().first(where: { $0.id == resolved.selected.id }).map(TVIntentTarget.radio)
     }
 
     @MainActor
@@ -514,6 +633,10 @@ final class TVPlayMediaIntentHandler: NSObject,
             completion.value([INPlayMediaMediaItemResolutionResult.confirmationRequired(with: first)])
         } else if let first = mediaItems.first {
             completion.value([INPlayMediaMediaItemResolutionResult.success(with: first)])
+        } else {
+            completion.value([
+                INPlayMediaMediaItemResolutionResult.unsupported(forReason: .serviceUnavailable),
+            ])
         }
     }
 
@@ -523,18 +646,33 @@ final class TVPlayMediaIntentHandler: NSObject,
         identifiers: [String],
         completion: TVUncheckedBox<([INPlayMediaMediaItemResolutionResult]) -> Void>
     ) {
+        let catalog = radioItems()
+        if identifiers.isEmpty,
+           query?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
+           !catalog.isEmpty {
+            // "用 Primuse 播放电台": ask which one instead of failing.
+            completion.value([INPlayMediaMediaItemResolutionResult.needsValue()])
+            return
+        }
         guard let result = SiriNamedMediaResolver.resolve(
             query: query,
             selectedItemIDs: identifiers,
             namespace: "radio",
-            items: radioItems()
+            items: catalog
         ) else {
             completion.value([
                 INPlayMediaMediaItemResolutionResult.unsupported(forReason: .serviceUnavailable),
             ])
             return
         }
+        completeRadioResolution(result, completion: completion)
+    }
 
+    @MainActor
+    private func completeRadioResolution(
+        _ result: SiriNamedMediaResolution,
+        completion: TVUncheckedBox<([INPlayMediaMediaItemResolutionResult]) -> Void>
+    ) {
         let mediaItems = radioMediaItems(from: result.candidates)
         if result.needsDisambiguation {
             completion.value([INPlayMediaMediaItemResolutionResult.disambiguation(with: mediaItems)])
@@ -602,19 +740,6 @@ final class TVPlayMediaIntentHandler: NSObject,
         return nil
     }
 
-    private static func shouldResolveSongItems(for query: SiriMediaSearchQuery) -> Bool {
-        guard query.hasSearchTerm else { return false }
-        switch query.kind {
-        case .song:
-            return true
-        case .music:
-            return query.mediaName != nil
-        case .album, .artist, .genre, .playlist, .radioStation,
-             .algorithmicRadioStation, .unsupported:
-            return false
-        }
-    }
-
     private static func resolutionTitle(for song: Song, includeAlbum: Bool) -> String {
         guard includeAlbum, let album = song.albumTitle, !album.isEmpty else {
             return song.title
@@ -626,6 +751,10 @@ final class TVPlayMediaIntentHandler: NSObject,
 private enum TVIntentTarget {
     case songs([Song], shuffled: Bool)
     case radio(RadioStation)
+}
+
+private enum TVRadioIntentStart {
+    case started, failed, stillStarting, needsApp
 }
 
 private final class TVUncheckedBox<T>: @unchecked Sendable {

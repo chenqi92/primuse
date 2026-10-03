@@ -2,9 +2,58 @@ import Foundation
 
 public enum PrimuseRadioIntentOutcome: Sendable, Equatable {
     case playing(name: String)
+    /// Accepted, but the stream was still being resolved when Siri's time ran
+    /// out. Playback carries on and reports its own errors in the app.
+    case connecting(name: String)
+    /// Waiting on a confirmation only the app can show (a cleartext stream or
+    /// certificate that was never approved). Siri should send the listener to
+    /// the app rather than wait for an answer that cannot come.
+    case needsApp(name: String)
     case notFound
     case sourceDisabled
     case unavailable
+}
+
+/// Siri and App Intents give the app roughly ten seconds to answer. Work that
+/// may outlast that — opening a radio stream behind a playlist wrapper, a
+/// server login, a prompt that needs the app on screen — runs to completion
+/// on its own, but the answer is given at the deadline with `onTimeout`.
+@MainActor
+public enum IntentResponseDeadline {
+    public static func race<T: Sendable>(
+        within budget: Duration,
+        _ operation: @escaping @MainActor () async -> T,
+        onTimeout: @escaping @MainActor () -> T
+    ) async -> T {
+        await withCheckedContinuation { (continuation: CheckedContinuation<T, Never>) in
+            let gate = FirstAnswerGate(continuation)
+            let timer = Task { @MainActor in
+                try? await Task.sleep(for: budget)
+                guard !Task.isCancelled else { return }
+                gate.answer(onTimeout())
+            }
+            Task { @MainActor in
+                let value = await operation()
+                timer.cancel()
+                gate.answer(value)
+            }
+        }
+    }
+}
+
+/// Resumes a continuation with whichever answer arrives first.
+@MainActor
+private final class FirstAnswerGate<T: Sendable> {
+    private var continuation: CheckedContinuation<T, Never>?
+
+    init(_ continuation: CheckedContinuation<T, Never>) {
+        self.continuation = continuation
+    }
+
+    func answer(_ value: T) {
+        continuation?.resume(returning: value)
+        continuation = nil
+    }
 }
 
 /// 按名字点歌的结果。区分这几种情况是有意的:原先它们全都回同一句
@@ -43,6 +92,8 @@ public final class PrimuseIntentBridge {
     public static let shared = PrimuseIntentBridge()
 
     public var togglePlayPause: @MainActor () -> Void = {}
+    /// A song or station is loaded (playing or paused), so "play" can resume it.
+    public var hasPlaybackSession: @MainActor () -> Bool = { false }
     /// Control Widget 的 toggle 走这个: 系统把"用户想要的下一帧状态"直接
     /// 给我们 (true = 想播放, false = 想暂停), 我们对齐到实际播放器即可。
     public var setPlaying: @MainActor (Bool) -> Void = { _ in }
@@ -75,8 +126,10 @@ public final class PrimuseIntentBridge {
     public var playSongRadio: @MainActor () async -> String? = { nil }
     public var shuffleLibrary: @MainActor () async -> Void = {}
     public var setRepeatMode: @MainActor (RepeatMode) -> Void = { _ in }
-    /// Applies a clamped playback speed and returns the effective value.
-    public var setPlaybackSpeed: @MainActor (Double) -> Double = { _ in 1 }
+    /// Applies a clamped playback speed — the book's own while a book plays —
+    /// and returns the effective value; nil when the output path cannot
+    /// change speed (high-fidelity passthrough).
+    public var setPlaybackSpeed: @MainActor (Double) -> Double? = { _ in nil }
     /// Scrapes the current song after the App Intent has obtained explicit
     /// confirmation. Returns a user-facing result, or nil when no song exists.
     public var scrapeCurrentSong: @MainActor () async -> String? = { nil }

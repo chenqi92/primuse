@@ -292,6 +292,160 @@ struct SiriMediaSearchResolverTests {
         ])
     }
 
+    @Test("A song whose title carries the spoken name wins over a station")
+    func untypedRequestPrefersStrictSong() throws {
+        let songs = [song(id: "song", title: "Jazz FM Session")]
+        let stations = [SiriNamedMediaItem(id: "station", name: "Jazz FM")]
+
+        let target = try #require(SiriUntypedRequestResolver.resolve(
+            query: SiriMediaSearchQuery(kind: .music, mediaName: "Jazz FM"),
+            songs: songs,
+            radioItems: stations
+        ))
+
+        guard case .songs(let resolution) = target else {
+            Issue.record("expected a song, got \(target)")
+            return
+        }
+        #expect(resolution.queue.map(\.id) == ["song"])
+    }
+
+    @Test("A station named exactly is not turned into a shorter song title")
+    func untypedRequestStationBeatsRelaxedSong() throws {
+        // The relaxed tier accepts a request that merely starts with a song
+        // title; "Jazz FM" must not become the song "Jazz".
+        let songs = [song(id: "song", title: "Jazz")]
+        let stations = [SiriNamedMediaItem(id: "station", name: "Jazz FM")]
+
+        let target = try #require(SiriUntypedRequestResolver.resolve(
+            query: SiriMediaSearchQuery(kind: .music, mediaName: "jazz fm"),
+            songs: songs,
+            radioItems: stations
+        ))
+
+        guard case .radio(let station) = target else {
+            Issue.record("expected a station, got \(target)")
+            return
+        }
+        #expect(station.selected.id == "station")
+        #expect(station.isStrongMatch)
+        #expect(!station.requiresConfirmation)
+    }
+
+    @Test("A station is found by name while the library is still empty")
+    func untypedRequestFindsStationWithoutLibrary() throws {
+        let target = try #require(SiriUntypedRequestResolver.resolve(
+            query: SiriMediaSearchQuery(kind: .song, mediaName: "中国之声"),
+            songs: [],
+            radioItems: [SiriNamedMediaItem(id: "cnr", name: "中国之声")]
+        ))
+
+        guard case .radio(let station) = target else {
+            Issue.record("expected a station, got \(target)")
+            return
+        }
+        #expect(station.selected.id == "cnr")
+    }
+
+    @Test("The relaxed song tier still wins over a station that only resembles the name")
+    func untypedRequestRelaxedSongBeatsWeakStation() throws {
+        let songs = [song(id: "mikham", title: "Mikham")]
+        let stations = [SiriNamedMediaItem(id: "station", name: "Best Play Mikham Hits")]
+
+        let target = try #require(SiriUntypedRequestResolver.resolve(
+            query: SiriMediaSearchQuery(kind: .music, mediaName: "play mikham"),
+            songs: songs,
+            radioItems: stations
+        ))
+
+        guard case .songs(let resolution) = target else {
+            Issue.record("expected a song, got \(target)")
+            return
+        }
+        #expect(resolution.queue.map(\.id) == ["mikham"])
+    }
+
+    @Test("A station that only resembles the name is offered for confirmation")
+    func untypedRequestWeakStationNeedsConfirmation() throws {
+        let target = try #require(SiriUntypedRequestResolver.resolve(
+            query: SiriMediaSearchQuery(kind: .music, mediaName: "Classic"),
+            songs: [song(id: "other", title: "Yesterday")],
+            radioItems: [SiriNamedMediaItem(id: "station", name: "Smooth Classic Radio")]
+        ))
+
+        guard case .radio(let station) = target else {
+            Issue.record("expected a station, got \(target)")
+            return
+        }
+        #expect(!station.isStrongMatch)
+        #expect(station.requiresConfirmation)
+    }
+
+    @Test("Nothing by that name resolves to nothing")
+    func untypedRequestNoMatch() {
+        #expect(SiriUntypedRequestResolver.resolve(
+            query: SiriMediaSearchQuery(kind: .music, mediaName: "Bohemian"),
+            songs: [song(id: "other", title: "Yesterday")],
+            radioItems: [SiriNamedMediaItem(id: "station", name: "Jazz FM")]
+        ) == nil)
+    }
+
+    @Test("Song tiers can be asked for separately")
+    func songMatchTiers() {
+        let songs = [song(id: "mikham", title: "Mikham")]
+        let query = SiriMediaSearchQuery(kind: .song, mediaName: "play mikham")
+
+        #expect(SiriMediaSearchResolver.resolve(query: query, songs: songs, songMatching: .strictOnly) == nil)
+        #expect(SiriMediaSearchResolver.resolve(query: query, songs: songs, songMatching: .relaxedOnly)?
+            .queue.map(\.id) == ["mikham"])
+        #expect(SiriMediaSearchResolver.resolve(query: query, songs: songs)?
+            .queue.map(\.id) == ["mikham"])
+    }
+
+    @Test("Requests that name nothing do not wait for the library during resolution")
+    func resolutionLibraryNeeds() {
+        #expect(!SiriRequestNeeds.libraryForResolution(SiriMediaSearchQuery(kind: .music), identifiers: []))
+        #expect(!SiriRequestNeeds.libraryForResolution(SiriMediaSearchQuery(kind: .album), identifiers: []))
+        #expect(SiriRequestNeeds.libraryForResolution(
+            SiriMediaSearchQuery(kind: .music, mediaName: "晴天"),
+            identifiers: []
+        ))
+        #expect(SiriRequestNeeds.libraryForResolution(
+            SiriMediaSearchQuery(kind: .album, mediaName: "范特西"),
+            identifiers: []
+        ))
+        #expect(!SiriRequestNeeds.libraryForResolution(
+            SiriMediaSearchQuery(kind: .song),
+            identifiers: ["radio:station"]
+        ))
+        #expect(!SiriRequestNeeds.libraryForResolution(
+            SiriMediaSearchQuery(kind: .unsupported, mediaName: "中国之声"),
+            identifiers: []
+        ))
+    }
+
+    @Test("Stations and show-typed requests never wait for the library in handle")
+    func playbackLibraryNeeds() {
+        #expect(!SiriRequestNeeds.libraryForPlayback(
+            SiriMediaSearchQuery(kind: .radioStation, mediaName: "Jazz FM"),
+            identifierGroups: []
+        ))
+        #expect(!SiriRequestNeeds.libraryForPlayback(
+            SiriMediaSearchQuery(kind: .song),
+            identifierGroups: [["radio:a", "station:b"]]
+        ))
+        #expect(!SiriRequestNeeds.libraryForPlayback(
+            SiriMediaSearchQuery(kind: .unsupported, mediaName: "Jazz FM"),
+            identifierGroups: []
+        ))
+        #expect(SiriRequestNeeds.libraryForPlayback(SiriMediaSearchQuery(kind: .music), identifierGroups: []))
+        #expect(SiriRequestNeeds.libraryForPlayback(
+            SiriMediaSearchQuery(kind: .music),
+            identifierGroups: [["radio:a"], ["song:b"]]
+        ))
+        #expect(!SiriRequestNeeds.allRadio([]))
+    }
+
     private func song(
         id: String,
         title: String,

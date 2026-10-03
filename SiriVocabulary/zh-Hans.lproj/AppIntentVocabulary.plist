@@ -7,13 +7,13 @@
 		<dict>
 			<key>IntentExamples</key>
 			<array>
-				<string>用 Primuse 搜索音乐</string>
-				<string>用 Primuse 搜索歌曲</string>
-				<string>用 Primuse 搜索专辑</string>
-				<string>用 Primuse 搜索歌手</string>
-				<string>用 Primuse 搜索歌单</string>
-				<string>用 Primuse 搜索摇滚音乐</string>
 				<string>用 Primuse 搜索电台</string>
+				<string>用 Primuse 查找电台</string>
+				<string>用 Primuse 搜索新闻电台</string>
+				<string>用 Primuse 搜索爵士电台</string>
+				<string>用 Primuse 搜索古典音乐电台</string>
+				<string>用 Primuse 搜索交通广播</string>
+				<string>用 Primuse 搜索 FM 电台</string>
 			</array>
 			<key>IntentName</key>
 			<string>INSearchForMediaIntent</string>

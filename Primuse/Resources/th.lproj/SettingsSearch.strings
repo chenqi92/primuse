@@ -55,6 +55,12 @@
 "Siri & Shortcuts" = "Siri & ทางลัด";
 "Siri authorization" = "Siri การอนุญาต";
 "Skip Track" = "ข้ามแทร็ก";
+"Playback Action" = "การทำงานของการเล่น";
+"Play" = "เล่น";
+"Pause" = "พัก";
+"Play or Pause" = "เล่นหรือพัก";
+"Control Playback" = "ควบคุมการเล่น";
+"Play, pause, or toggle Primuse playback." = "เล่น พัก หรือสลับการเล่นใน Primuse";
 "Sync User Library" = "ซิงค์คลังเพลงผู้ใช้";
 "This setting is unavailable on this device." = "การตั้งค่านี้ไม่พร้อมใช้งานบนอุปกรณ์นี้";
 "Turn a supported Primuse setting on or off." = "เปิดหรือปิดการตั้งค่า Primuse ที่รองรับ";

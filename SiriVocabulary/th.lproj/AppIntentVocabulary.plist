@@ -7,13 +7,13 @@
         <dict>
             <key>IntentExamples</key>
             <array>
-                <string>ค้นหาเพลงใน Primuse</string>
-                <string>ค้นหาเพลงด้วย Primuse</string>
-                <string>ค้นหาอัลบั้มด้วย Primuse</string>
-                <string>ค้นหาเพลงของศิลปินด้วย Primuse</string>
-                <string>ค้นหาเพลย์ลิสต์ด้วย Primuse</string>
-                <string>ค้นหาเพลงแจ๊สด้วย Primuse</string>
                 <string>ค้นหาสถานีวิทยุด้วย Primuse</string>
+                <string>หาสถานีวิทยุใน Primuse</string>
+                <string>ค้นหาสถานีวิทยุข่าวด้วย Primuse</string>
+                <string>ค้นหาสถานีวิทยุแจ๊สด้วย Primuse</string>
+                <string>ค้นหาสถานีวิทยุเพลงคลาสสิกด้วย Primuse</string>
+                <string>ค้นหาสถานีวิทยุรายการพูดคุยด้วย Primuse</string>
+                <string>ค้นหาสถานี FM ด้วย Primuse</string>
             </array>
             <key>IntentName</key>
             <string>INSearchForMediaIntent</string>

@@ -42,6 +42,12 @@
 "Next" = "次";
 "Previous" = "前";
 "Skip Track" = "曲をスキップ";
+"Playback Action" = "再生操作";
+"Play" = "再生";
+"Pause" = "一時停止";
+"Play or Pause" = "再生または一時停止";
+"Control Playback" = "再生を操作";
+"Play, pause, or toggle Primuse playback." = "Primuse の再生、一時停止、切り替えを行います。";
 "Play the ${direction} track" = "${direction}の曲を再生";
 "Open ${target}" = "${target}を開く";
 "Get ${setting}" = "${setting}を取得";

@@ -1,6 +1,151 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "${action} in ${applicationName}" : {
+      "localizations" : {
+        "ar" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${action} في ${applicationName}",
+              "${action} ${applicationName}"
+            ]
+          }
+        },
+        "de" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName} ${action}",
+              "In ${applicationName} ${action}"
+            ]
+          }
+        },
+        "en" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${action} in ${applicationName}",
+              "${action} ${applicationName}"
+            ]
+          }
+        },
+        "es-MX" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${action} en ${applicationName}",
+              "${action} ${applicationName}"
+            ]
+          }
+        },
+        "fr" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${action} dans ${applicationName}"
+            ]
+          }
+        },
+        "hi" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName} में ${action}",
+              "${applicationName} को ${action}"
+            ]
+          }
+        },
+        "ja" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName}で${action}",
+              "${applicationName}を${action}"
+            ]
+          }
+        },
+        "ko" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName}에서 ${action}",
+              "${applicationName} ${action}"
+            ]
+          }
+        },
+        "pl" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${action} w ${applicationName}",
+              "${action} ${applicationName}"
+            ]
+          }
+        },
+        "pt-BR" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${action} no ${applicationName}",
+              "${action} o ${applicationName}"
+            ]
+          }
+        },
+        "ru" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${action} в ${applicationName}",
+              "${action} ${applicationName}"
+            ]
+          }
+        },
+        "th" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${action}ใน ${applicationName}",
+              "${action} ${applicationName}"
+            ]
+          }
+        },
+        "tr" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName} uygulamasında ${action}",
+              "${applicationName} uygulamasını ${action}"
+            ]
+          }
+        },
+        "uk" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${action} в ${applicationName}",
+              "${action} ${applicationName}"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "用 ${applicationName} ${action}"
+            ]
+          }
+        },
+        "zh-Hant" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "用 ${applicationName} ${action}"
+            ]
+          }
+        }
+      }
+    },
     "Open ${target} in ${applicationName}" : {
       "localizations" : {
         "ar" : {
@@ -673,170 +818,6 @@
             "state" : "translated",
             "values" : [
               "用 ${applicationName} 播放歌曲"
-            ]
-          }
-        }
-      }
-    },
-    "Play or pause in ${applicationName}" : {
-      "localizations" : {
-        "ar" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "شغّل الموسيقى في ${applicationName}",
-              "أوقف ${applicationName} مؤقتًا",
-              "شغّل الموسيقى أو أوقفها مؤقتًا في ${applicationName}"
-            ]
-          }
-        },
-        "de" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Wiedergabe in ${applicationName} starten",
-              "${applicationName} pausieren",
-              "Wiedergabe in ${applicationName} starten oder pausieren"
-            ]
-          }
-        },
-        "en" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Play in ${applicationName}",
-              "Pause ${applicationName}",
-              "Play or pause in ${applicationName}"
-            ]
-          }
-        },
-        "es-MX" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Reproduce en ${applicationName}",
-              "Pausa ${applicationName}",
-              "Reproduce o pausa en ${applicationName}"
-            ]
-          }
-        },
-        "fr" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Lire dans ${applicationName}",
-              "Mettre ${applicationName} en pause",
-              "Lire ou mettre en pause dans ${applicationName}"
-            ]
-          }
-        },
-        "hi" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "${applicationName} में संगीत चलाएँ",
-              "${applicationName} को रोकें",
-              "${applicationName} में चलाएँ या रोकें"
-            ]
-          }
-        },
-        "ja" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "${applicationName}で再生",
-              "${applicationName}を一時停止",
-              "${applicationName}で再生または一時停止"
-            ]
-          }
-        },
-        "ko" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "${applicationName}에서 재생",
-              "${applicationName} 일시 정지",
-              "${applicationName}에서 재생 또는 일시 정지"
-            ]
-          }
-        },
-        "pl" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Odtwarzaj w ${applicationName}",
-              "Wstrzymaj ${applicationName}",
-              "Odtwórz lub wstrzymaj w ${applicationName}"
-            ]
-          }
-        },
-        "pt-BR" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Reproduza no ${applicationName}",
-              "Pause o ${applicationName}",
-              "Reproduza ou pause no ${applicationName}"
-            ]
-          }
-        },
-        "ru" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Включи музыку в ${applicationName}",
-              "Приостанови ${applicationName}",
-              "Включи или приостанови музыку в ${applicationName}"
-            ]
-          }
-        },
-        "th" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "เล่นเพลงใน ${applicationName}",
-              "พัก ${applicationName}",
-              "เล่นหรือพักใน ${applicationName}"
-            ]
-          }
-        },
-        "tr" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "${applicationName} uygulamasında çal",
-              "${applicationName} uygulamasını duraklat",
-              "${applicationName} uygulamasında çal veya duraklat"
-            ]
-          }
-        },
-        "uk" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Увімкни музику в ${applicationName}",
-              "Призупини ${applicationName}",
-              "Увімкни або призупини музику в ${applicationName}"
-            ]
-          }
-        },
-        "zh-Hans" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "用 ${applicationName} 播放",
-              "用 ${applicationName} 暂停",
-              "用 ${applicationName} 播放或暂停"
-            ]
-          }
-        },
-        "zh-Hant" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "用 ${applicationName} 播放",
-              "用 ${applicationName} 暫停",
-              "用 ${applicationName} 播放或暫停"
             ]
           }
         }

@@ -3152,6 +3152,14 @@
 "siri_examples_title" = "语音示例";
 "siri_play_song_example" = "先说“嘿 Siri，用 Primuse 播放歌曲”，再告诉 Siri 歌曲名。";
 "siri_shortcuts_hint" = "打开 Primuse 快捷指令，可以测试“播放歌曲”或自定义口令。";
+"siri_spoken_names_title" = "Siri 认得的名字";
+"siri_spoken_names_detail" = "对 Siri 说其中任意一个名字都能找到 Primuse。说中文时，“猿音”最不容易被听错。";
+"siri_custom_phrase_title" = "自己起口令";
+"siri_custom_phrase_step_create" = "在快捷指令 App 里新建一个快捷指令。";
+"siri_custom_phrase_step_action" = "添加 Primuse 的操作，比如“播放电台”，并选好要播的电台。";
+"siri_custom_phrase_step_name" = "把快捷指令的名字改成你想说的话，比如“听爵士电台”。";
+"siri_custom_phrase_footer" = "之后说“嘿 Siri，听爵士电台”就会直接播放，不用说应用名，也不会被别的 App 接走。";
+"siri_custom_phrase_create" = "新建快捷指令";
 "intent_playing_album_format" = "正在播放专辑 %@。";
 "intent_playing_artist_format" = "正在播放 %@。";
 "intent_playing_genre_format" = "正在播放 %@ 类型的音乐。";
@@ -3197,6 +3205,7 @@
 "Set Primuse playback speed from 0.5 to 2 times." = "将 Primuse 播放速度设置为 0.5 到 2 倍。";
 "Speed" = "速度";
 "Playback speed set to %1$@ times." = "播放速度已设置为 %1$@ 倍。";
+"Playback speed can't be changed in High Fidelity Direct mode." = "高保真直通模式下无法调整播放速度。";
 "Scrape Current Song" = "刮削当前歌曲";
 "Fill missing metadata, artwork, and lyrics for the current Primuse song." = "补全 Primuse 当前歌曲缺失的元数据、封面和歌词。";
 "This may contact metadata providers and write artwork, lyrics, or tags. Continue?" = "此操作可能访问元数据服务并写入封面、歌词或标签。是否继续？";
@@ -3778,6 +3787,7 @@
 "intent_radio_search_results_format" = "找到这些电台：%@。";
 "Search Radio" = "搜索电台";
 "intent_radio_confirm_format" = "要播放电台“%@”吗？";
+"intent_radio_needs_app_format" = "打开 Primuse 确认连接后即可播放电台“%@”。";
 "Radio playback was cancelled." = "已取消播放电台。";
 "ai_primuse_relay_test_connection" = "测试内置服务";
 "ai_primuse_relay_test_footer" = "测试仅发送固定测试短语，不读取搜索词、歌词、资料库或听歌记录，也不会更改任何开关。";

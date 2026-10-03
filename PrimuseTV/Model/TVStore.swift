@@ -5301,6 +5301,39 @@ final class TVStore {
         startRadioSelection(station, recordsNavigationOrder: true, resolutionCompletion: nil)
     }
 
+    // MARK: Siri
+
+    /// Siri can launch the app just to answer it, before the library is
+    /// published and before `reload()` has filled the station list. Stations
+    /// are read straight from their store; songs get the same bounded wait as
+    /// on iPhone, because Siri gives up after about ten seconds.
+    func prepareForSiri(needsLibrary: Bool) async {
+        if radioStations.isEmpty { reloadRadioStations(fromDisk: false) }
+        guard needsLibrary else { return }
+        if !library.isReady {
+            _ = await library.whenReady(timeout: .seconds(8))
+        }
+        if library.isReady, library.visibleSongs.isEmpty { reload() }
+    }
+
+    /// Siri's "play" with nothing named: carry on with what is loaded. False
+    /// when nothing is.
+    func resumeFromSiri() -> Bool {
+        guard currentSongID != nil || currentRadioStation != nil else { return false }
+        let isActive = isLiveRadio
+            ? engine.status == .playing || engine.status == .loading
+            : engine.isPlaying || engine.status == .loading
+        if !isActive { resumePlayback() }
+        return true
+    }
+
+    /// A certificate or cleartext confirmation is waiting on screen.
+    var isAwaitingTransportDecision: Bool {
+        TVServerCertificateTrustStore.shared.pendingRequest != nil
+            || TVServerCertificateTrustStore.shared.pendingInsecureHTTPRequest != nil
+            || SSLTrustStore.shared.isAwaitingTransportDecision
+    }
+
     func playRadioFromIntent(_ station: RadioStation) async -> Bool {
         pendingDeepLink = nil
         return await withCheckedContinuation { continuation in

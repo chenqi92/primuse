@@ -591,7 +591,9 @@ private struct NowPlayingControls: View {
             .buttonStyle(.plain)
             .accessibilityLabel(PMString("ext.widget.spokenWord.skipBackFormat", info.skipBackwardSeconds))
 
-            Button(intent: PrimusePlayPauseIntent()) {
+            // The icon shows the last snapshot; ask for the state it shows, so a
+            // stale snapshot can never turn "play" into a pause.
+            Button(intent: PrimuseSetPlayingIntent(value: !state.isPlaying)) {
                 controlIcon(symbol: state.isPlaying ? "pause.fill" : "play.fill", prominent: true)
             }
             .buttonStyle(.plain)
@@ -628,7 +630,7 @@ private struct NowPlayingControls: View {
                 .accessibilityLabel(PMString("ext.control.previous"))
             }
 
-            Button(intent: PrimusePlayPauseIntent()) {
+            Button(intent: PrimuseSetPlayingIntent(value: !state.isPlaying)) {
                 controlIcon(
                     symbol: state.isPlaying ? (state.isLiveStream ? "stop.fill" : "pause.fill") : "play.fill",
                     prominent: true

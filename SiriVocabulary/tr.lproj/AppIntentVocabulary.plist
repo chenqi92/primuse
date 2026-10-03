@@ -7,13 +7,13 @@
     <dict>
       <key>IntentExamples</key>
       <array>
-        <string>Primuse'ta müzik ara.</string>
-        <string>Primuse'ta bir şarkı bul.</string>
-        <string>Primuse'ta bir albüm bul.</string>
-        <string>Primuse'ta bir sanatçının şarkılarını bul.</string>
-        <string>Primuse'ta bir çalma listesi bul.</string>
-        <string>Primuse'ta caz müzik bul.</string>
         <string>Primuse'ta bir radyo istasyonu bul.</string>
+        <string>Primuse'ta radyo istasyonlarını ara.</string>
+        <string>Primuse'ta bir haber radyosu bul.</string>
+        <string>Primuse'ta bir caz radyosu bul.</string>
+        <string>Primuse'ta bir klasik müzik radyosu bul.</string>
+        <string>Primuse'ta bir sohbet radyosu bul.</string>
+        <string>Primuse'ta bir FM istasyonu bul.</string>
       </array>
       <key>IntentName</key>
       <string>INSearchForMediaIntent</string>
