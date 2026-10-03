@@ -6,30 +6,28 @@ import UniformTypeIdentifiers
 ///
 /// 从上到下按「接下来听什么」排:听到一半的(继续收听)→ 订阅里新出的(最新单集)→ 全部节目。
 /// 一档都没订时整页换成发现:搜索入口和热门榜,点一下就能订。
+/// Mac 另有一套页面(`MacPodcastLibraryView`):搜索和热门榜直接在页里,不弹发现页。
 struct PodcastLibraryView: View {
+    #if os(macOS)
+    var body: some View {
+        MacPodcastLibraryView()
+    }
+    #else
     @State private var navigation = PodcastNavigationModel()
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                #if os(macOS)
-                // Mac 的详情区没有窗口工具栏,发现与菜单放在页面里。
-                PodcastInlineActionsBar(navigation: navigation)
-                    .padding(.horizontal, 16)
-                #endif
-                PodcastLibraryContent(navigation: navigation)
-            }
-            .padding(.vertical, 12)
+            PodcastLibraryContent(navigation: navigation)
+                .padding(.vertical, 12)
         }
         .pmExtendsUnderVerticalBar()
         .navigationTitle("listening_space_podcast")
-        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { PodcastLibraryToolbar(navigation: navigation) }
-        #endif
         .refreshable { await PodcastStore.shared.refreshAll() }
         .podcastNavigationDestinations(navigation)
     }
+    #endif
 }
 
 /// 导航与弹出的页面状态。主页里的卡片、工具栏、首页那一面共用一份。
@@ -218,7 +216,7 @@ struct PodcastLibraryContent: View {
 }
 
 /// 当前店面不显示的订阅(别的设备同步来的手填地址、换店面前订的)。说一句,免得以为同步丢了。
-private struct PodcastRegionHiddenNote: View {
+struct PodcastRegionHiddenNote: View {
     private var store: PodcastStore { PodcastStore.shared }
 
     var body: some View {

@@ -7,26 +7,18 @@ import SwiftUI
 /// 店面允许时,输入的是 RSS 地址就多给一行「用这个地址添加」。
 struct PodcastDiscoverView: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var query = ""
+    @State private var search = PodcastDirectorySearch()
     @State private var genreID: Int?
-    @State private var results: [PodcastDirectoryShow] = []
-    @State private var isSearching = false
-    @State private var searchError: String?
     @State private var selectedShow: PodcastDirectoryShow?
     @State private var feedPreviewURL: URL?
 
-    private var availability: PodcastAvailabilityService { PodcastAvailabilityService.shared }
     private var tint: Color { ListeningSpace.podcast.tint }
 
-    private var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
-
-    /// 看起来是地址:有协议,或者像 example.com/feed 这样带点和斜杠。
-    private var typedFeedURL: URL? {
-        guard availability.allowsCustomFeeds, PodcastFeedURL.appleDirectoryID(in: trimmedQuery) == nil else { return nil }
-        let text = trimmedQuery
-        guard text.contains("://") || (text.contains(".") && text.contains("/")) else { return nil }
-        return PodcastFeedURL.normalized(text)
-    }
+    private var trimmedQuery: String { search.trimmedQuery }
+    private var typedFeedURL: URL? { search.typedFeedURL }
+    private var results: [PodcastDirectoryShow] { search.results }
+    private var isSearching: Bool { search.isSearching }
+    private var searchError: String? { search.errorMessage }
 
     var body: some View {
         ScrollView {
@@ -46,8 +38,8 @@ struct PodcastDiscoverView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .searchable(text: $query, prompt: Text("podcast_search_prompt"))
-        .task(id: trimmedQuery) { await search() }
+        .searchable(text: $search.query, prompt: Text("podcast_search_prompt"))
+        .task(id: trimmedQuery) { await search.run() }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("done") { dismiss() }
@@ -146,12 +138,36 @@ struct PodcastDiscoverView: View {
             }
         }
     }
+}
 
-    private func search() async {
+/// 播客目录搜索:打字停一下再查,输入目录链接时直接按编号查。发现页与 Mac 播客页共用。
+///
+/// 目录按 App Store 店面的地区查;店面允许手填地址时,输入的像 RSS 地址就给出 `typedFeedURL`。
+@MainActor
+@Observable
+final class PodcastDirectorySearch {
+    var query = ""
+    private(set) var results: [PodcastDirectoryShow] = []
+    private(set) var isSearching = false
+    private(set) var errorMessage: String?
+
+    var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    /// 看起来是地址:有协议,或者像 example.com/feed 这样带点和斜杠。
+    var typedFeedURL: URL? {
+        let text = trimmedQuery
+        guard PodcastAvailabilityService.shared.allowsCustomFeeds,
+              PodcastFeedURL.appleDirectoryID(in: text) == nil,
+              text.contains("://") || (text.contains(".") && text.contains("/")) else { return nil }
+        return PodcastFeedURL.normalized(text)
+    }
+
+    /// 放在 `.task(id: trimmedQuery)` 里调:换了关键词旧任务被取消,只留最后一次的结果。
+    func run() async {
         let term = trimmedQuery
         guard !term.isEmpty else {
             results = []
-            searchError = nil
+            errorMessage = nil
             return
         }
         // 打字时别每个字都去问。
@@ -169,11 +185,11 @@ struct PodcastDiscoverView: View {
                 guard !Task.isCancelled else { return }
                 results = found
             }
-            searchError = nil
+            errorMessage = nil
         } catch {
             guard !Task.isCancelled else { return }
             results = []
-            searchError = error.localizedDescription
+            errorMessage = error.localizedDescription
         }
     }
 }
@@ -292,6 +308,8 @@ struct PodcastDirectoryRow: View {
 /// 订阅键:没订是「+」,订阅中转圈,订了是对勾(再点不会退订 —— 退订在节目页里,免得误触)。
 struct PodcastSubscribeButton: View {
     let directoryShow: PodcastDirectoryShow
+    /// Mac 的紧凑网格用小一号的圆键。
+    var diameter: CGFloat = 34
 
     @State private var isWorking = false
     @State private var errorMessage: String?
@@ -315,15 +333,15 @@ struct PodcastSubscribeButton: View {
                     ProgressView().controlSize(.small)
                 } else if isSubscribed {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.system(size: diameter * 0.41, weight: .bold))
                         .foregroundStyle(tint)
                 } else {
                     Image(systemName: "plus")
-                        .font(.system(size: 15, weight: .bold))
+                        .font(.system(size: diameter * 0.44, weight: .bold))
                         .foregroundStyle(tint)
                 }
             }
-            .frame(width: 34, height: 34)
+            .frame(width: diameter, height: diameter)
             .background(tint.opacity(isSubscribed ? 0.08 : 0.14), in: Circle())
             .contentShape(Circle())
         }

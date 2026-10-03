@@ -295,6 +295,7 @@
 		27F7E620B133E0F14CD925F9 /* MacLibraryHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 050D42F39CEE8830909BFA20 /* MacLibraryHeader.swift */; };
 		283B381A6A7A0EB7F5F4FFB0 /* AudioOutputPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 252F65F36897EF6DB9E6BCD8 /* AudioOutputPickerView.swift */; };
 		286862B3E01C19A1313BFC42 /* PodcastMacHome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79D258CCAFC472A6F334BD11 /* PodcastMacHome.swift */; };
+		C8378E0B8F0254DBF3A632A8 /* PodcastMacLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A4309CC3775B0C5F0FDCD5 /* PodcastMacLibraryView.swift */; };
 		287112ACD7B473C32EF89924 /* PlatformShims.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AE10B90CF85FD450338F498 /* PlatformShims.swift */; };
 		28D4C7BF14BB7E1284B0346D /* CarPlayListRefreshPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF63E23361AAD30DB8BBCEAC /* CarPlayListRefreshPolicy.swift */; };
 		292184A24F90BB0ED967FE33 /* SpokenWordShelfWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B1C6677A531DE6E703195B4 /* SpokenWordShelfWidget.swift */; };
@@ -1581,6 +1582,7 @@
 		E4FFBC9C9F0E360219AB8567 /* ExternalPlaylistFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = D967C992538A3FB39D581F7A /* ExternalPlaylistFiles.swift */; };
 		E50445C2B80FC61EE1451C9E /* StreamingDownloadRetirementPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D6572FBDDB559AF4C8F938E /* StreamingDownloadRetirementPolicy.swift */; };
 		E52AC0D899146F86A69B7BB3 /* PodcastMacHome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79D258CCAFC472A6F334BD11 /* PodcastMacHome.swift */; };
+		BF225E7ACB15FBB1442C5ECF /* PodcastMacLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A4309CC3775B0C5F0FDCD5 /* PodcastMacLibraryView.swift */; };
 		E52F27E3149107BA3772CBB7 /* MacSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBB01F11731477FA9B7F27D0 /* MacSidebar.swift */; };
 		E530E6DA93BE55C2C68E7945 /* PlayMediaIntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52DC73F5A1DA3D173DB8D78E /* PlayMediaIntentHandler.swift */; };
 		E53402706649D330536FD06F /* ScraperSourceConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8945701E14DEF0FF55A668F /* ScraperSourceConfig.swift */; };
@@ -2673,6 +2675,7 @@
 		798556FF163D6F67FB02D263 /* DirectoryBrowserNavigationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectoryBrowserNavigationState.swift; sourceTree = "<group>"; };
 		79D242F72C10639A4F5F33C7 /* ar */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ar; path = ar.lproj/Localizable.strings; sourceTree = "<group>"; };
 		79D258CCAFC472A6F334BD11 /* PodcastMacHome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastMacHome.swift; sourceTree = "<group>"; };
+		F7A4309CC3775B0C5F0FDCD5 /* PodcastMacLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastMacLibraryView.swift; sourceTree = "<group>"; };
 		7A1F85323CE4A8996744901D /* TopShelfShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopShelfShared.swift; sourceTree = "<group>"; };
 		7A221B7D8D5901440E56C3F6 /* SynologyScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyScanner.swift; sourceTree = "<group>"; };
 		7A3BEB79E8DE72E16EB57E5A /* NowPlayingVisualActivityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingVisualActivityPolicy.swift; sourceTree = "<group>"; };
@@ -4614,6 +4617,7 @@
 				0219F4AD4BD373BFC27719ED /* PodcastHomeSections.swift */,
 				8F203F53C6664325EA554337 /* PodcastLibraryView.swift */,
 				79D258CCAFC472A6F334BD11 /* PodcastMacHome.swift */,
+				F7A4309CC3775B0C5F0FDCD5 /* PodcastMacLibraryView.swift */,
 				C57C25D9301AA85C1C54DDD2 /* PodcastShowDetailView.swift */,
 			);
 			path = Podcast;
@@ -6621,6 +6625,7 @@
 				70384521D49994553EC28586 /* PodcastHomeSections.swift in Sources */,
 				6012F0EB874C90A6384CE9A9 /* PodcastLibraryView.swift in Sources */,
 				286862B3E01C19A1313BFC42 /* PodcastMacHome.swift in Sources */,
+				C8378E0B8F0254DBF3A632A8 /* PodcastMacLibraryView.swift in Sources */,
 				4AA69BAE207825C410A36459 /* PodcastNetwork.swift in Sources */,
 				21DFD7099F0DD7869C388C9A /* PodcastShowDetailView.swift in Sources */,
 				C1AF76796CED17D4DEA48A8F /* PodcastStore.swift in Sources */,
@@ -7304,6 +7309,7 @@
 				F71F3C835F6BD10816ED6B92 /* PodcastHomeSections.swift in Sources */,
 				54E7FAFFB98F250E4BEEF0BF /* PodcastLibraryView.swift in Sources */,
 				E52AC0D899146F86A69B7BB3 /* PodcastMacHome.swift in Sources */,
+				BF225E7ACB15FBB1442C5ECF /* PodcastMacLibraryView.swift in Sources */,
 				F42719D18702C67BDED29230 /* PodcastNetwork.swift in Sources */,
 				A6B492B42C0C4E7F687AA3A2 /* PodcastShowDetailView.swift in Sources */,
 				369C66911BC2EA6FA3E31EDC /* PodcastStore.swift in Sources */,

@@ -696,13 +696,51 @@ struct PodcastInlineBackButton: View {
     }
 }
 
-/// 发现键 + 「…」菜单(刷新、按地址添加、导入导出、设置)。首页「播客」那一面和 Mac 的播客页用;
-/// iOS 播客页这些在导航栏上。
-struct PodcastInlineActionsBar: View {
+/// 「…」菜单里的几项:刷新、按地址添加、导入导出、设置。页内的操作条和 Mac 播客页共用。
+struct PodcastActionsMenuItems: View {
     let navigation: PodcastNavigationModel
 
     private var store: PodcastStore { PodcastStore.shared }
     private var availability: PodcastAvailabilityService { PodcastAvailabilityService.shared }
+
+    var body: some View {
+        Button {
+            Task { await store.refreshAll() }
+        } label: {
+            Label("podcast_refresh_all", systemImage: "arrow.clockwise")
+        }
+        .disabled(store.shows.isEmpty || store.isRefreshingAll)
+        if availability.allowsCustomFeeds {
+            Button {
+                navigation.showsAddFeed = true
+            } label: {
+                Label("podcast_add_by_url", systemImage: "link")
+            }
+            Button {
+                navigation.showsOPMLImporter = true
+            } label: {
+                Label("podcast_import_opml", systemImage: "square.and.arrow.down")
+            }
+        }
+        if !store.shows.isEmpty {
+            ShareLink(item: PodcastOPMLDocument(), preview: SharePreview(String(localized: "podcast_export_opml"))) {
+                Label("podcast_export_opml", systemImage: "square.and.arrow.up")
+            }
+        }
+        Divider()
+        Button {
+            navigation.showsSettings = true
+        } label: {
+            Label("podcast_settings", systemImage: "gearshape")
+        }
+    }
+}
+
+/// 发现键 + 「…」菜单。首页「播客」那一面用;iOS 播客页这些在导航栏上,Mac 播客页在页头。
+struct PodcastInlineActionsBar: View {
+    let navigation: PodcastNavigationModel
+
+    private var store: PodcastStore { PodcastStore.shared }
     private var tint: Color { ListeningSpace.podcast.tint }
 
     var body: some View {
@@ -721,35 +759,7 @@ struct PodcastInlineActionsBar: View {
             }
             Spacer(minLength: 0)
             Menu {
-                Button {
-                    Task { await store.refreshAll() }
-                } label: {
-                    Label("podcast_refresh_all", systemImage: "arrow.clockwise")
-                }
-                .disabled(store.shows.isEmpty || store.isRefreshingAll)
-                if availability.allowsCustomFeeds {
-                    Button {
-                        navigation.showsAddFeed = true
-                    } label: {
-                        Label("podcast_add_by_url", systemImage: "link")
-                    }
-                    Button {
-                        navigation.showsOPMLImporter = true
-                    } label: {
-                        Label("podcast_import_opml", systemImage: "square.and.arrow.down")
-                    }
-                }
-                if !store.shows.isEmpty {
-                    ShareLink(item: PodcastOPMLDocument(), preview: SharePreview(String(localized: "podcast_export_opml"))) {
-                        Label("podcast_export_opml", systemImage: "square.and.arrow.up")
-                    }
-                }
-                Divider()
-                Button {
-                    navigation.showsSettings = true
-                } label: {
-                    Label("podcast_settings", systemImage: "gearshape")
-                }
+                PodcastActionsMenuItems(navigation: navigation)
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 15, weight: .semibold))

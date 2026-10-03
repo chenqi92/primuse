@@ -4469,7 +4469,7 @@ private extension View {
 }
 
 #if os(macOS)
-private struct MacSearchFlowLayout: Layout {
+struct MacSearchFlowLayout: Layout {
     var spacing: CGFloat = 8
     var rowSpacing: CGFloat = 8
 
