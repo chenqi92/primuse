@@ -14,8 +14,13 @@ struct TVArtistArtworkView: View {
     private var resolution: LibraryArtworkOverrideResolution {
         store.library.artworkPresentation(for: .init(kind: .artist, id: artist.id)).resolution
     }
+    /// 没有专属头像、或头像读不到时用这首歌的封面,与 iPhone、Mac 的艺人卡片一致。
+    /// 只当专辑艺人出现的艺人(群星这类)也由它兜底。
+    private var fallbackSong: Song? { store.library.scopedPreferredArtworkSong(forArtistID: artist.id) }
     private var identity: String {
-        "\(artist.id)#\(reference ?? "")#\(resolution)#\(store.library.artworkOverrideRevision)#\(store.recommendationRevision)#\(cacheRevision)"
+        let fallback = fallbackSong.map { "\($0.id)|\($0.coverArtFileName ?? "")" } ?? ""
+        return "\(artist.id)#\(reference ?? "")#\(fallback)#\(resolution)#\(store.library.artworkOverrideRevision)"
+            + "#\(store.recommendationRevision)#\(cacheRevision)"
     }
 
     var body: some View {
@@ -52,6 +57,12 @@ struct TVArtistArtworkView: View {
     }
 
     private func artworkData() async -> Data? {
+        if let data = await artistImageData() { return data }
+        guard let song = fallbackSong else { return nil }
+        return await store.songArtworkData(songID: song.id, coverRef: song.coverArtFileName)
+    }
+
+    private func artistImageData() async -> Data? {
         switch resolution {
         case .uploaded(let contentID):
             if let data = MetadataAssetStore.shared.customArtworkData(contentID: contentID) { return data }
@@ -67,24 +78,38 @@ struct TVArtistArtworkView: View {
             let cacheID = artist.id + "\u{1F}" + reference
             let owned = SourceOwnedArtworkReference.resolve(reference)
             let source = owned.flatMap { store.source(id: $0.sourceID) }
-            if owned != nil, source?.isEnabled != true || source?.isDeleted == true { return nil }
-            if let data = await MetadataAssetStore.shared.cachedArtistImage(forArtistID: cacheID) { return data }
-            let credential = source.flatMap { TVCredentialStore.credential(for: $0, bundle: store.credentialBundle) }
-            if let source, source.type == .fnMusic,
-               let client = store.fnMusicClient(for: source.id),
-               let data = try? await client.coverData(reference: owned?.reference ?? reference, size: 480, maximumBytes: 8 * 1024 * 1024),
-               !Task.isCancelled, store.source(id: source.id) == source {
-                _ = await MetadataAssetStore.shared.storeArtistImage(data, forArtistID: cacheID)
-                return data
-            }
-            if let data = await TVArtistArtworkReader.read(reference: owned?.reference ?? reference, source: source, credential: credential),
-               !Task.isCancelled,
-               source.map({ store.source(id: $0.id) == $0 }) ?? true {
-                _ = await MetadataAssetStore.shared.storeArtistImage(data, forArtistID: cacheID)
-                return data
+            // 源停用或删了就不再读它给的头像,往下用名字缓存和歌曲封面。
+            if owned == nil || (source?.isEnabled == true && source?.isDeleted != true) {
+                if let data = await sourceImageData(reference: reference, cacheID: cacheID, owned: owned, source: source) {
+                    return data
+                }
             }
         }
         return await MetadataAssetStore.shared.cachedArtistImage(forArtistID: artist.id)
+    }
+
+    private func sourceImageData(
+        reference: String,
+        cacheID: String,
+        owned: SourceOwnedArtworkReference.Resolved?,
+        source: MusicSource?
+    ) async -> Data? {
+        if let data = await MetadataAssetStore.shared.cachedArtistImage(forArtistID: cacheID) { return data }
+        let credential = source.flatMap { TVCredentialStore.credential(for: $0, bundle: store.credentialBundle) }
+        if let source, source.type == .fnMusic,
+           let client = store.fnMusicClient(for: source.id),
+           let data = try? await client.coverData(reference: owned?.reference ?? reference, size: 480, maximumBytes: 8 * 1024 * 1024),
+           !Task.isCancelled, store.source(id: source.id) == source {
+            _ = await MetadataAssetStore.shared.storeArtistImage(data, forArtistID: cacheID)
+            return data
+        }
+        if let data = await TVArtistArtworkReader.read(reference: owned?.reference ?? reference, source: source, credential: credential),
+           !Task.isCancelled,
+           source.map({ store.source(id: $0.id) == $0 }) ?? true {
+            _ = await MetadataAssetStore.shared.storeArtistImage(data, forArtistID: cacheID)
+            return data
+        }
+        return nil
     }
 }
 
