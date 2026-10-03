@@ -8243,7 +8243,8 @@ private struct MacDiagnosticsWindowView: View {
     @State private var copiedRowID: String?
     @State private var memoryText = "—"
     @State private var cpuText = "—"
-    @State private var cacheText = "—"
+    @State private var cacheUsedText = "—"
+    @State private var cacheLimitText = "—"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -8269,7 +8270,7 @@ private struct MacDiagnosticsWindowView: View {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
                 healthMetric(Lz("Memory"), value: memoryText, color: PMColor.ok)
                 healthMetric(Lz("CPU (playback)"), value: cpuText, color: PMColor.ok)
-                healthMetric(Lz("Cache"), value: cacheText, color: PMColor.text)
+                healthMetric(Lz("Cache"), value: cacheUsedText, color: PMColor.text, valueFontSize: 14, detail: cacheLimitText)
                 healthMetric(Lz("Crashes (30 days)"), value: "\(AppServices.shared.crashDiagnostics.reports().count)", color: PMColor.ok)
             }
             .padding(.horizontal, 20)
@@ -8366,26 +8367,44 @@ private struct MacDiagnosticsWindowView: View {
         }
         let used = await AudioCacheManager.shared.totalCacheSize()
         let limit = await AudioCacheManager.shared.cacheLimitBytes()
-        let usedStr = ByteCountFormatter.string(fromByteCount: used, countStyle: .file)
-        let limitStr = limit == AudioCacheLimitPolicy.unlimitedBytes
+        cacheUsedText = ByteCountFormatter.string(fromByteCount: used, countStyle: .file)
+        cacheLimitText = limit == AudioCacheLimitPolicy.unlimitedBytes
             ? String(localized: "smart_limit_placeholder")
             : ByteCountFormatter.string(fromByteCount: limit, countStyle: .binary)
-        cacheText = "\(usedStr) / \(limitStr)"
     }
 
-    private func healthMetric(_ label: String, value: String, color: Color) -> some View {
+    private func healthMetric(
+        _ label: String,
+        value: String,
+        color: Color,
+        valueFontSize: CGFloat = 18,
+        detail: String? = nil
+    ) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(verbatim: value)
-                .font(.system(size: 18, weight: .bold, design: .monospaced))
-                .foregroundStyle(color)
-                .lineLimit(1)
+            Group {
+                if let detail {
+                    ViewThatFits(in: .horizontal) {
+                        Text(verbatim: "\(value) / \(detail)")
+                            .fixedSize()
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(verbatim: value)
+                            Text(verbatim: "/ \(detail)")
+                        }
+                    }
+                } else {
+                    Text(verbatim: value)
+                }
+            }
+            .font(.system(size: valueFontSize, weight: .bold, design: .monospaced))
+            .foregroundStyle(color)
+            .fixedSize(horizontal: false, vertical: true)
             Text(verbatim: label)
                 .font(.system(size: 10.5))
                 .foregroundStyle(PMColor.textFaint)
                 .lineLimit(1)
         }
         .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .pmCard(cornerRadius: 10)
     }
 
