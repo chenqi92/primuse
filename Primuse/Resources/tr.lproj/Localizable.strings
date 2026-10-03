@@ -2293,6 +2293,9 @@
 "artist_layout" = "Görünüm";
 "artist_layout_grid" = "Izgara";
 "artist_layout_list" = "Liste";
+"artist_browse_mode" = "Sanatçıları göster";
+"artist_browse_all" = "Tüm sanatçılar";
+"artist_browse_album_artists" = "Albüm sanatçıları";
 "Clean Up Now" = "Şimdi Temizleyin";
 "scraper_review_headers" = "Başlıklar";
 "status" = "Durum";

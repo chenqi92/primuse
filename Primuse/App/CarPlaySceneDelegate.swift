@@ -827,9 +827,14 @@ extension CarPlaySceneDelegate {
         return items.isEmpty ? [] : [CPListSection(items: items)]
     }
 
+    /// 跟手机上艺术家页的列法：「全部艺术家」或「专辑艺术家」。
+    private func browsableArtists(_ library: MusicLibrary) -> [Artist] {
+        library.browsableArtists(.resolved(UserDefaults.standard.string(forKey: ArtistBrowseMode.storageKey)))
+    }
+
     private func likedArtistsSections() -> [CPListSection] {
         let library = AppServices.shared.musicLibrary
-        let artists = Array(LibraryFavoritesStore.shared.likedArtists(in: library.visibleArtists).prefix(500))
+        let artists = Array(LibraryFavoritesStore.shared.likedArtists(in: browsableArtists(library)).prefix(500))
         let items = artists.map { artist in
             let item = CPListItem(text: artist.name, detailText: nil)
             item.handler = { [weak self] _, completion in
@@ -845,7 +850,7 @@ extension CarPlaySceneDelegate {
 
     private func artistsSections() -> [CPListSection] {
         let library = AppServices.shared.musicLibrary
-        let artists = CarPlayListSelection.firstSorted(library.visibleArtists, limit: 500) {
+        let artists = CarPlayListSelection.firstSorted(browsableArtists(library), limit: 500) {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
         let sections = Self.sectionedByIndexLetter(artists, titleKey: \.name) { artist in

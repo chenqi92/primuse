@@ -1337,6 +1337,9 @@
 "artist_layout" = "Widok";
 "artist_layout_grid" = "Siatka";
 "artist_layout_list" = "Lista";
+"artist_browse_mode" = "Pokaż wykonawców";
+"artist_browse_all" = "Wszyscy wykonawcy";
+"artist_browse_album_artists" = "Wykonawcy albumów";
 "filter_by" = "Filtr";
 "filter_downloaded" = "Pobrano";
 "filter_downloaded_empty_desc" = "Tutaj pojawiają się utwory pobrane do odtwarzania offline.";

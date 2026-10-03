@@ -1337,6 +1337,9 @@
 "artist_layout" = "दिखावट";
 "artist_layout_grid" = "ग्रिड";
 "artist_layout_list" = "सूची";
+"artist_browse_mode" = "कलाकार दिखाएँ";
+"artist_browse_all" = "सभी कलाकार";
+"artist_browse_album_artists" = "एल्बम कलाकार";
 "filter_by" = "फ़िल्टर";
 "filter_downloaded" = "डाउनलोड किया गया";
 "filter_downloaded_empty_desc" = "ऑफ़लाइन प्लेबैक के लिए डाउनलोड किए गए गाने यहां दिखाई देते हैं।";

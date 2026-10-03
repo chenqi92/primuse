@@ -2458,6 +2458,9 @@
 "artist_layout" = "表示";
 "artist_layout_grid" = "グリッド";
 "artist_layout_list" = "リスト";
+"artist_browse_mode" = "表示するアーティスト";
+"artist_browse_all" = "すべてのアーティスト";
+"artist_browse_album_artists" = "アルバムアーティスト";
 "onboarding_experience_title" = "スマートフォンだけにとどまらない音楽体験";
 "onboarding_experience_media" = "ロスレス音源、単語同期歌詞、ミュージックビデオ";
 "onboarding_experience_devices" = "AirPlay、DLNA、Apple TV、車載再生";

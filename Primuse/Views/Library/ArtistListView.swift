@@ -25,9 +25,26 @@ enum ArtistLayoutMode: String, CaseIterable, Identifiable {
     static let storageKey = "artist.layoutMode"
 }
 
+extension ArtistBrowseMode {
+    var titleKey: String.LocalizationValue {
+        switch self {
+        case .allArtists: return "artist_browse_all"
+        case .albumArtists: return "artist_browse_album_artists"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .allArtists: return "music.mic"
+        case .albumArtists: return "square.stack"
+        }
+    }
+}
+
 struct ArtistListView: View {
-    let artists: [Artist]
-    var intelligentRecommendationIDs: Set<String> = []
+    /// nil：资料库里的艺术家页，按「全部艺术家 / 专辑艺术家」设置取曲库的列表。
+    private let suppliedArtists: [Artist]?
+    private let intelligentRecommendationIDs: Set<String>
     @State private var searchText: String = ""
 
     @Environment(\.pmHeightClass) private var heightClass
@@ -39,8 +56,42 @@ struct ArtistListView: View {
     @AppStorage(ArtistLayoutMode.storageKey)
     private var layoutModeRaw = ArtistLayoutMode.grid.rawValue
 
+    @AppStorage(ArtistBrowseMode.storageKey)
+    private var browseModeRaw = ArtistBrowseMode.allArtists.rawValue
+
+    /// 搜索结果之类给定的一批艺人。
+    init(artists: [Artist], intelligentRecommendationIDs: Set<String> = []) {
+        suppliedArtists = artists
+        self.intelligentRecommendationIDs = intelligentRecommendationIDs
+    }
+
+    /// 资料库里的艺术家页。
+    init() {
+        suppliedArtists = nil
+        intelligentRecommendationIDs = []
+    }
+
     private var layoutMode: ArtistLayoutMode {
         ArtistLayoutMode(rawValue: layoutModeRaw) ?? .grid
+    }
+
+    private var browsesLibrary: Bool { suppliedArtists == nil }
+
+    private var browseMode: ArtistBrowseMode { .resolved(browseModeRaw) }
+
+    private var artists: [Artist] {
+        suppliedArtists ?? library.browsableArtists(browseMode)
+    }
+
+    /// 一个艺人都没有才给整页的空状态。资料库切到「专辑艺术家」后列表可能是空的
+    /// （歌都没有专辑信息），那时页面照常显示，工具栏上还能切回来。
+    private var hasNoArtists: Bool {
+        browsesLibrary ? library.visibleArtists.isEmpty && library.visibleAlbumArtists.isEmpty : artists.isEmpty
+    }
+
+    /// 列表空了而且不是搜索 / 只看喜欢造成的。
+    private var showsEmptyBrowseList: Bool {
+        browsesLibrary && artists.isEmpty
     }
 
     /// 只看喜欢的艺人。有喜欢的艺人时才给这个开关。
@@ -74,8 +125,15 @@ struct ArtistListView: View {
         #if os(macOS)
         macBody
             .onReceive(NotificationCenter.default.publisher(for: .primuseDetailOpenArtist)) { note in
-                guard let artist = note.object as? Artist,
-                      artists.contains(where: { $0.id == artist.id }) else { return }
+                guard let artist = note.object as? Artist else { return }
+                if !artists.contains(where: { $0.id == artist.id }) {
+                    // 只在合辑、feat. 里出现的人不在「专辑艺术家」里，反过来「群星」只在那里:
+                    // 换到列着他的那一种再选中。
+                    guard browsesLibrary else { return }
+                    let other: ArtistBrowseMode = browseMode == .allArtists ? .albumArtists : .allArtists
+                    guard library.browsableArtists(other).contains(where: { $0.id == artist.id }) else { return }
+                    browseModeRaw = other.rawValue
+                }
                 searchText = ""
                 selectedArtistID = artist.id
             }
@@ -85,8 +143,17 @@ struct ArtistListView: View {
     }
 
     @ViewBuilder
+    private var emptyBrowseList: some View {
+        ContentUnavailableView(
+            "no_artists",
+            systemImage: browseMode.systemImage,
+            description: Text("no_artists_desc")
+        )
+    }
+
+    @ViewBuilder
     private var iosBody: some View {
-        if artists.isEmpty {
+        if hasNoArtists {
             EmptyStateView(
                 titleKey: "no_artists",
                 descriptionKey: "no_artists_desc",
@@ -100,7 +167,9 @@ struct ArtistListView: View {
                 }
             }
             .overlay {
-                if filteredArtists.isEmpty {
+                if showsEmptyBrowseList {
+                    emptyBrowseList
+                } else if filteredArtists.isEmpty {
                     ContentUnavailableView.search(text: searchText)
                 }
             }
@@ -111,6 +180,11 @@ struct ArtistListView: View {
                 prompt: Text("filter_artists_placeholder")
             )
             .toolbar {
+                if browsesLibrary {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        ArtistBrowseModeMenu(modeRaw: $browseModeRaw, titled: verticalBarEdge != nil)
+                    }
+                }
                 if showsLikedFilter {
                     ToolbarItem(placement: .topBarTrailing) {
                         LibraryLikedFilterButton(isOn: $showsLikedOnly)
@@ -214,7 +288,7 @@ struct ArtistListView: View {
     /// master-detail, 而不是之前的大 hero + 卡片网格。
     @ViewBuilder
     private var macBody: some View {
-        if artists.isEmpty {
+        if hasNoArtists {
             ContentUnavailableView(
                 "no_artists",
                 systemImage: "music.mic",
@@ -251,9 +325,15 @@ struct ArtistListView: View {
     private var artistListPane: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("tab_artists")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(PMColor.text)
+                HStack(spacing: 8) {
+                    Text("tab_artists")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                    Spacer(minLength: 0)
+                    if browsesLibrary {
+                        macBrowseModeMenu
+                    }
+                }
                 HStack(spacing: 8) {
                     artistFilterField
                     if showsLikedFilter {
@@ -265,7 +345,10 @@ struct ArtistListView: View {
             .padding(.top, 20)
             .padding(.bottom, 12)
 
-            if filteredArtists.isEmpty {
+            if showsEmptyBrowseList {
+                emptyBrowseList
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if filteredArtists.isEmpty {
                 ContentUnavailableView.search(text: searchText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -282,6 +365,37 @@ struct ArtistListView: View {
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .background(PMColor.bg)
+    }
+
+    private var macBrowseModeMenu: some View {
+        Menu {
+            Picker("artist_browse_mode", selection: $browseModeRaw) {
+                ForEach(ArtistBrowseMode.allCases, id: \.self) { mode in
+                    Text(String(localized: mode.titleKey)).tag(mode.rawValue)
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            HStack(spacing: 4) {
+                Text(String(localized: browseMode.titleKey))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+            }
+            .font(.system(size: 11.5, weight: .medium))
+            .foregroundStyle(PMColor.text)
+            .padding(.horizontal, 10)
+            .frame(height: 24)
+            .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
+            .overlay {
+                RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
+                    .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(Text("artist_browse_mode"))
+        .accessibilityIdentifier("artistBrowseMode.menu")
     }
 
     private var artistFilterField: some View {
@@ -338,6 +452,39 @@ struct ArtistListView: View {
 }
 
 #if os(iOS)
+/// 资料库艺术家页列哪些人。工具栏条目跑在自己的视图图里，只收 Binding、不读环境。
+private struct ArtistBrowseModeMenu: View {
+    @Binding var modeRaw: String
+    /// 系统竖栏里带上标题(收进溢出菜单时要用),其它时候仍是纯图标。
+    var titled = false
+
+    private var mode: ArtistBrowseMode { .resolved(modeRaw) }
+
+    var body: some View {
+        Menu {
+            Picker("artist_browse_mode", selection: $modeRaw) {
+                ForEach(ArtistBrowseMode.allCases, id: \.self) { option in
+                    Label(String(localized: option.titleKey), systemImage: option.systemImage)
+                        .tag(option.rawValue)
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            // 不是默认的「全部艺术家」时图标实心，一眼看出列表被收窄了。
+            PMToolbarItemLabel(
+                "artist_browse_mode",
+                systemImage: mode == .allArtists
+                    ? "line.3.horizontal.decrease.circle"
+                    : "line.3.horizontal.decrease.circle.fill",
+                titled: titled
+            )
+        }
+        .accessibilityLabel(Text("artist_browse_mode"))
+        .accessibilityValue(Text(String(localized: mode.titleKey)))
+        .accessibilityIdentifier("artistBrowseMode.menu")
+    }
+}
+
 /// 只有网格/列表两种版式, 与其点开菜单再选, 不如按一下就换 —— 图标画的是「按下去
 /// 会变成的那种」, 当前版式留给旁白读。
 /// 工具栏条目跑在自己的视图图里, 所以这里只读 `@AppStorage`, 不读环境。

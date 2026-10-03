@@ -2292,6 +2292,9 @@
 "artist_layout" = "Layout";
 "artist_layout_grid" = "Grid";
 "artist_layout_list" = "List";
+"artist_browse_mode" = "Show Artists";
+"artist_browse_all" = "All Artists";
+"artist_browse_album_artists" = "Album Artists";
 "onboarding_experience_title" = "More than listening on your phone";
 "onboarding_experience_media" = "Lossless audio, word-synced lyrics, and music videos";
 "onboarding_experience_devices" = "AirPlay, DLNA, Apple TV, and in-car playback";

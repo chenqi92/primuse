@@ -3839,6 +3839,16 @@ final class MusicLibrary {
             scheduleArtworkLookupTokenRefresh()
         }
     }
+    /// 资料库艺术家页切到「专辑艺术家」时列的人，与 `visibleArtists` 同一次发布。
+    private var visibleAlbumArtistsReference = LibraryArrayReference<Artist>()
+    private(set) var visibleAlbumArtists: [Artist] {
+        get { visibleAlbumArtistsReference.value }
+        set {
+            let previous = visibleAlbumArtistsReference
+            visibleAlbumArtistsReference = LibraryArrayReference(newValue)
+            LibraryArrayReclaimer.release(previous)
+        }
+    }
     private var visibleGenresReference = LibraryArrayReference<LibraryGenre>()
     private(set) var visibleGenres: [LibraryGenre] {
         get { visibleGenresReference.value }
@@ -3857,6 +3867,12 @@ final class MusicLibrary {
     @ObservationIgnored private var visibleSongsLookupReference = LibraryArrayReference<Song>()
     @ObservationIgnored private var visibleAlbumByID: [String: Album] = [:]
     @ObservationIgnored private var visibleArtistByID: [String: Artist] = [:]
+    @ObservationIgnored private var visibleAlbumArtistByID: [String: Artist] = [:]
+    /// 只当过专辑艺人的人（「群星」）→ 名下专辑。他们没有自己署名的歌，艺人页、右键播放、
+    /// CarPlay 与电视取歌都经 `songs(forArtist:)`，从这些专辑里取。
+    @ObservationIgnored private var albumIDsByAlbumOnlyArtistID: [String: [String]] = [:]
+    /// 上面这些人的歌，第一次有人要时才整库找一遍；每次发布可见缓存时清空。
+    @ObservationIgnored private var albumOnlyArtistSongIDsCache: [String: [String]] = [:]
     /// Artist detail bodies can ask for the same slice several times per frame.
     /// Keep stable IDs here and resolve through `lookupVisibleSong` so lightweight
     /// lyrics/artwork patches remain current without rescanning or reparsing the library.
@@ -3926,6 +3942,8 @@ final class MusicLibrary {
         let spokenWordBookIDs: [String: String]
         let albums: [Album]
         let artists: [Artist]
+        let albumArtistIndex: AlbumArtistIndex
+        let albumArtistByID: [String: Artist]
         let genres: [LibraryGenre]
         let allSongIndexByID: [String: Int]
         let songIndexByID: [String: Int]
@@ -4327,6 +4345,14 @@ final class MusicLibrary {
     var songCount: Int { visibleSongs.count }
     var albumCount: Int { visibleAlbums.count }
     var artistCount: Int { visibleArtists.count }
+
+    /// 资料库艺术家页按设置列出的人。
+    func browsableArtists(_ mode: ArtistBrowseMode) -> [Artist] {
+        switch mode {
+        case .allArtists: return visibleArtists
+        case .albumArtists: return visibleAlbumArtists
+        }
+    }
     var genreCount: Int { visibleGenres.count }
 
     private func rebuildVisibleCache() {
@@ -4358,6 +4384,9 @@ final class MusicLibrary {
             visibleSongIndexByID,
             visibleAlbumByID,
             visibleArtistByID,
+            visibleAlbumArtistByID,
+            albumIDsByAlbumOnlyArtistID,
+            albumOnlyArtistSongIDsCache,
             visibleSongIDsByArtistID,
             visibleSongIDsByGenreID,
             visibleAlbumIDsByGenreID,
@@ -4400,11 +4429,15 @@ final class MusicLibrary {
         spokenWordBookCount = Set(prepared.spokenWordBookIDs.values).count
         visibleAlbums = prepared.albums
         visibleArtists = prepared.artists
+        visibleAlbumArtists = prepared.albumArtistIndex.artists
         visibleGenres = prepared.genres
         songIndexByID = prepared.allSongIndexByID
         visibleSongIndexByID = prepared.songIndexByID
         visibleAlbumByID = prepared.albumByID
         visibleArtistByID = prepared.artistByID
+        visibleAlbumArtistByID = prepared.albumArtistByID
+        albumIDsByAlbumOnlyArtistID = prepared.albumArtistIndex.albumIDsByAlbumOnlyArtistID
+        albumOnlyArtistSongIDsCache = [:]
         visibleSongIDsByArtistID = prepared.songIDsByArtistID
         visibleSongIDsByGenreID = prepared.songIDsByGenreID
         visibleAlbumIDsByGenreID = prepared.albumIDsByGenreID
@@ -4502,6 +4535,11 @@ final class MusicLibrary {
             artistByID[artist.id] = artist
             return true
         }
+        let albumArtistIndex = AlbumArtistIndexBuilder.build(
+            albums: nextVisibleAlbums,
+            trackArtists: nextVisibleArtists,
+            trackArtistsByID: artistByID
+        )
         let allCounts = disabledSourceIDs.isEmpty
             ? lookups.countBySourceID
             : makeSongCountsBySourceID(songs)
@@ -4520,6 +4558,11 @@ final class MusicLibrary {
                 : SpokenWordBookGrouping.bookIDs(for: spokenWordSongs.map { SpokenWordBookItem(song: $0) }),
             albums: nextVisibleAlbums,
             artists: nextVisibleArtists,
+            albumArtistIndex: albumArtistIndex,
+            albumArtistByID: Dictionary(
+                albumArtistIndex.artists.map { ($0.id, $0) },
+                uniquingKeysWith: { first, _ in first }
+            ),
             genres: genreIndex.genres,
             allSongIndexByID: disabledSourceIDs.isEmpty
                 ? lookups.indexByID
@@ -6581,6 +6624,12 @@ final class MusicLibrary {
         return visibleArtistByID[id]
     }
 
+    /// 「专辑艺术家」列表里的那一项；只当过专辑艺人的人（「群星」）只在这里有。
+    func visibleAlbumArtist(id: String) -> Artist? {
+        _ = visibleAlbumArtistsReference
+        return visibleAlbumArtistByID[id]
+    }
+
     /// O(1) album lookup. 快捷收藏这类"按 id 取回少量条目"的视图不该对整个
     /// 专辑数组做线性扫描 —— 一万张专辑时每渲染一次就是几万次比较。
     func visibleAlbum(id: String) -> Album? {
@@ -6955,8 +7004,22 @@ final class MusicLibrary {
     func preferredArtworkSong(forArtistID artistID: String) -> Song? {
         _ = albumArtworkLookupRevision
         _ = songReplacementToken
-        guard let songID = preferredArtworkSongIDByArtistID[artistID] else { return nil }
+        guard let songID = preferredArtworkSongID(forArtistID: artistID) else { return nil }
         return lookupVisibleSong(songID)
+    }
+
+    /// 艺人头像的回退歌。只当过专辑艺人的人（「群星」）没有自己署名的歌，
+    /// 用名下专辑里第一张有封面的专辑的首选歌。
+    private func preferredArtworkSongID(forArtistID artistID: String) -> String? {
+        if let songID = preferredArtworkSongIDByArtistID[artistID] { return songID }
+        guard let albumIDs = albumIDsByAlbumOnlyArtistID[artistID] else { return nil }
+        var fallback: String?
+        for albumID in albumIDs {
+            guard let songID = preferredArtworkSongIDByAlbumID[albumID] else { continue }
+            if lookupVisibleSong(songID)?.coverArtFileName?.isEmpty == false { return songID }
+            if fallback == nil { fallback = songID }
+        }
+        return fallback
     }
 
     // MARK: - 按条目失效的封面查找
@@ -6984,7 +7047,7 @@ final class MusicLibrary {
     /// 艺人卡片用: 同上, 另外跟着这个艺人自己的名字和封面引用。
     func scopedPreferredArtworkSong(forArtistID artistID: String) -> Song? {
         _ = artworkLookupToken(for: .artist(artistID)).revision
-        guard let songID = preferredArtworkSongIDByArtistID[artistID] else { return nil }
+        guard let songID = preferredArtworkSongID(forArtistID: artistID) else { return nil }
         return lookupVisibleSong(songID)
     }
 
@@ -7024,7 +7087,7 @@ final class MusicLibrary {
                 artist == nil ? "-" : "+",
                 artist?.name ?? "",
                 artist?.thumbnailPath ?? "",
-                songIdentity(preferredArtworkSongIDByArtistID[artistID]),
+                songIdentity(preferredArtworkSongID(forArtistID: artistID)),
             ].joined(separator: "\u{1E}")
         }
     }
@@ -7494,7 +7557,30 @@ final class MusicLibrary {
 
     func songs(forArtist artistID: String) -> [Song] {
         _ = visibleSongsReference
-        return visibleSongIDsByArtistID[artistID]?.compactMap { lookupVisibleSong($0) } ?? []
+        if let songIDs = visibleSongIDsByArtistID[artistID] {
+            return songIDs.compactMap { lookupVisibleSong($0) }
+        }
+        return albumOnlyArtistSongIDs(artistID).compactMap { lookupVisibleSong($0) }
+    }
+
+    /// 只当过专辑艺人的人名下专辑里的歌，按专辑、再按曲目顺序。要整库找一遍，
+    /// 所以第一次要时才找并记住（艺人页一次重绘会问好几回）。
+    private func albumOnlyArtistSongIDs(_ artistID: String) -> [String] {
+        if let cached = albumOnlyArtistSongIDsCache[artistID] { return cached }
+        guard let albumIDs = albumIDsByAlbumOnlyArtistID[artistID], !albumIDs.isEmpty else { return [] }
+        let wanted = Set(albumIDs)
+        var songsByAlbumID: [String: [Song]] = [:]
+        let songs = visibleSongsLookupReference.value
+        // 按下标读字段：逐个拷出整首歌，几十万首的曲库上就是几十万次拷贝。
+        for index in songs.indices {
+            guard let albumID = songs[index].albumID, wanted.contains(albumID) else { continue }
+            songsByAlbumID[albumID, default: []].append(songs[index])
+        }
+        let songIDs = albumIDs.flatMap { albumID in
+            AlbumTrackOrder.sorted(songsByAlbumID[albumID] ?? []).map(\.id)
+        }
+        albumOnlyArtistSongIDsCache[artistID] = songIDs
+        return songIDs
     }
 
     func songs(forGenre genreID: String) -> [Song] {

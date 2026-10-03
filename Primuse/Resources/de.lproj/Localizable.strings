@@ -2457,6 +2457,9 @@
 "artist_layout" = "Darstellung";
 "artist_layout_grid" = "Raster";
 "artist_layout_list" = "Liste";
+"artist_browse_mode" = "Künstler anzeigen";
+"artist_browse_all" = "Alle Künstler";
+"artist_browse_album_artists" = "Albuminterpreten";
 "onboarding_experience_title" = "Musikgenuss über das Smartphone hinaus";
 "onboarding_experience_media" = "Lossless-Audio, wortgenaue Liedtexte und Musikvideos";
 "onboarding_experience_devices" = "AirPlay, DLNA, Apple TV und Wiedergabe im Auto";

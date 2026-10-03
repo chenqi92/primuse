@@ -439,13 +439,16 @@ struct LibraryView: View {
     @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey)
     private var hiddenSectionsRawValue = ""
     @AppStorage(QuickAccessCoverStyle.storageKey) private var quickAccessCoverStyle = QuickAccessCoverStyle.automatic
+    @AppStorage(ArtistBrowseMode.storageKey)
+    private var artistBrowseModeRaw = ArtistBrowseMode.allArtists.rawValue
     @State private var artworkPreviewSelection = LibraryArtworkPreviewSelection()
     /// 上一次真正挑完封面预览的时刻, 给资料库内容驱动的重挑做节流。
     @State private var artworkPreviewBuiltAt: Date?
 
     private var songs: [Song] { library.visibleSongs }
     private var albums: [Album] { library.visibleAlbums }
-    private var artists: [Artist] { library.visibleArtists }
+    /// 跟艺术家页一样按「全部艺术家 / 专辑艺术家」设置：入口上的人数与头像和点进去看到的一致。
+    private var artists: [Artist] { library.browsableArtists(.resolved(artistBrowseModeRaw)) }
     private var genres: [LibraryGenre] { library.visibleGenres }
     private var regularPlaylists: [Playlist] {
         library.playlists.filter { $0.id != MusicLibrary.likedSongsPlaylistID }
@@ -498,7 +501,7 @@ struct LibraryView: View {
     }
     /// 预览签名里由用户操作决定的部分。其余部分随扫描、回填不停地变。
     private var artworkPreviewUserRevision: String {
-        "\(library.artworkOverrideRevision)#\(quickAccessRawValue)"
+        "\(library.artworkOverrideRevision)#\(quickAccessRawValue)#\(artistBrowseModeRaw)"
     }
 
     init(
@@ -1529,7 +1532,7 @@ struct LibraryView: View {
         case .albums:
             AlbumGridView()
         case .artists:
-            ArtistListView(artists: artists)
+            ArtistListView()
         case .genres:
             GenreLibraryView()
         case .playlists:

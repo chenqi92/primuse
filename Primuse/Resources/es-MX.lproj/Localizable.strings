@@ -1337,6 +1337,9 @@
 "artist_layout" = "Presentación";
 "artist_layout_grid" = "Cuadrícula";
 "artist_layout_list" = "Lista";
+"artist_browse_mode" = "Mostrar artistas";
+"artist_browse_all" = "Todos los artistas";
+"artist_browse_album_artists" = "Artistas del álbum";
 "filter_by" = "Filtro";
 "filter_downloaded" = "Descargado";
 "filter_downloaded_empty_desc" = "Las canciones descargadas para reproducción sin conexión aparecen aquí.";

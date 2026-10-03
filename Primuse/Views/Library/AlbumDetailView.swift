@@ -463,8 +463,13 @@ struct AlbumDetailView: View {
         ]))
     }
 
+    /// 专辑艺人对应的艺人页。「群星」这类只当过专辑艺人的人只在「专辑艺术家」列表里有。
     private var albumArtist: Artist? {
-        library.visibleArtists.first { $0.id == album.artistID || $0.name == album.artistName }
+        if let id = album.artistID,
+           let artist = library.visibleArtist(id: id) ?? library.visibleAlbumArtist(id: id) {
+            return artist
+        }
+        return library.visibleArtists.first { $0.name == album.artistName }
     }
 
     private var albumSubtitle: String {

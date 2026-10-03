@@ -1337,6 +1337,9 @@
 "artist_layout" = "Exibição";
 "artist_layout_grid" = "Grade";
 "artist_layout_list" = "Lista";
+"artist_browse_mode" = "Mostrar artistas";
+"artist_browse_all" = "Todos os artistas";
+"artist_browse_album_artists" = "Artistas do álbum";
 "filter_by" = "Filtro";
 "filter_downloaded" = "Baixado";
 "filter_downloaded_empty_desc" = "As músicas baixadas para reprodução offline aparecem aqui.";

@@ -40,6 +40,22 @@ final class TVHomeBrowseMemory {
     }
 }
 
+extension ArtistBrowseMode {
+    var title: String {
+        switch self {
+        case .allArtists: return String(localized: "artist_browse_all")
+        case .albumArtists: return String(localized: "artist_browse_album_artists")
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .allArtists: return "music.mic"
+        case .albumArtists: return "square.stack"
+        }
+    }
+}
+
 extension LibraryAlbumBrowseOrder {
     var title: String {
         switch self {
@@ -126,6 +142,9 @@ struct TVLibraryView: View {
     @AppStorage(TVLibraryFilterConfiguration.storageKey)
     private var filterConfigurationRawValue = ""
     @FocusState private var focusedAlbumOrder: LibraryAlbumBrowseOrder?
+    @AppStorage(ArtistBrowseMode.storageKey)
+    private var artistBrowseModeRaw = ArtistBrowseMode.allArtists.rawValue
+    @FocusState private var focusedArtistBrowseMode: ArtistBrowseMode?
     /// 右侧字母栏上的焦点;有值时网格中央浮出这个字母。
     @FocusState private var focusedIndexBucket: String?
     /// 网格里当前聚焦的卡片属于哪个字母,字母栏据此点亮。
@@ -193,7 +212,8 @@ struct TVLibraryView: View {
         .background(TVColor.bg)
         // 焦点停在网格深处时,第一次 Menu 先回到筛选条(网格位置不动),再按一次才回顶栏。
         .onExitCommand {
-            if focusedGridItem != nil || focusedIndexBucket != nil || focusedAlbumOrder != nil {
+            if focusedGridItem != nil || focusedIndexBucket != nil || focusedAlbumOrder != nil
+                || focusedArtistBrowseMode != nil {
                 focusedFilter = filter
             } else {
                 onReturnToTabs()
@@ -203,18 +223,24 @@ struct TVLibraryView: View {
         .task(id: BrowseLayoutRequest(
             filter: filter,
             albumOrder: wallOrder,
+            artistMode: artistBrowseMode,
             revision: store.libraryBrowseRevision,
             favoritesRevision: wallOrder == .liked ? LibraryFavoritesStore.shared.revision : 0
         )) {
             switch filter {
             case .albums, .years: await store.prepareAlbumBrowseLayout(wallOrder)
-            case .artists: await store.prepareArtistBrowseLayout()
+            case .artists: await store.prepareArtistBrowseLayout(artistBrowseMode)
             default: break
             }
         }
         .onChange(of: filter) { _, _ in resetLetterIndex() }
         .onAppear(perform: leaveHiddenFilter)
         .onChange(of: filterConfigurationRawValue) { _, _ in leaveHiddenFilter() }
+        .onChange(of: artistBrowseModeRaw) { _, _ in
+            // 换了列法,上次停的那位可能已经不在墙上;网格从头开始,焦点留在切换按钮上。
+            browseMemory.artistID = nil
+            resetLetterIndex()
+        }
         .onChange(of: albumOrderRawValue) { _, _ in
             // 换了排序方式,上次停的那张卡片在新顺序里的位置没有意义;网格从头开始,
             // 焦点留在排序按钮上。
@@ -307,6 +333,10 @@ struct TVLibraryView: View {
             }
             // TV_LIKED_ARTISTS=1:艺人墙只看喜欢的。
             if environment["TV_LIKED_ARTISTS"] == "1" { showsLikedArtistsOnly = true }
+            // TV_ARTIST_MODE=albumArtists|allArtists:艺人墙的列法。
+            if let mode = environment["TV_ARTIST_MODE"].flatMap(ArtistBrowseMode.init(rawValue:)) {
+                artistBrowseModeRaw = mode.rawValue
+            }
             let bucket = environment["TV_INDEX_JUMP"] ?? "M"
             guard bucket != "-" else { return }
             var tries = 0
@@ -328,6 +358,7 @@ struct TVLibraryView: View {
     private static let indexBarGap: CGFloat = 16
 
     private var albumOrder: LibraryAlbumBrowseOrder { .resolved(albumOrderRawValue) }
+    private var artistBrowseMode: ArtistBrowseMode { .resolved(artistBrowseModeRaw) }
 
     /// 专辑墙实际用的排序:「年份」筛选就是按年份排、按年代分段的专辑墙。
     private var wallOrder: LibraryAlbumBrowseOrder { filter == .years ? .year : albumOrder }
@@ -362,6 +393,7 @@ struct TVLibraryView: View {
     private struct BrowseLayoutRequest: Equatable {
         let filter: Filter
         let albumOrder: LibraryAlbumBrowseOrder
+        let artistMode: ArtistBrowseMode
         let revision: Int
         /// 按「喜欢」排时，点了 / 取消喜欢也要重排。
         let favoritesRevision: Int
@@ -375,7 +407,7 @@ struct TVLibraryView: View {
             return store.albumBrowseLayout(albumOrder)?.sections ?? []
         case .artists:
             guard !showsLikedArtistsOnly else { return [] }
-            return store.artistBrowseLayout?.sections ?? []
+            return store.artistBrowseLayout(artistBrowseMode)?.sections ?? []
         default:
             return []
         }
@@ -420,7 +452,8 @@ struct TVLibraryView: View {
             guard let id = browseMemory.albumID, store.album(id) != nil else { return nil }
             return Self.albumFocusID(id)
         case .artists:
-            guard let id = browseMemory.artistID, store.artists.source.contains(where: { $0.id == id }) else {
+            guard let id = browseMemory.artistID,
+                  store.browsableArtists(artistBrowseMode).contains(where: { $0.id == id }) else {
                 return nil
             }
             return Self.artistFocusID(id)
@@ -463,6 +496,9 @@ struct TVLibraryView: View {
             if filter == .albums {
                 albumOrderPicker
             }
+            if filter == .artists {
+                artistBrowseModePicker
+            }
             if filter == .artists,
                showsLikedArtistsOnly || LibraryFavoritesStore.shared.hasLikedArtists {
                 likedArtistsChip
@@ -489,6 +525,33 @@ struct TVLibraryView: View {
         .accessibilityLabel(Text("library_favorite_filter"))
         .accessibilityAddTraits(showsLikedArtistsOnly ? [.isButton, .isSelected] : .isButton)
         .accessibilityIdentifier("tv.library.likedArtists")
+    }
+
+    /// 艺人墙列全部艺人还是只列专辑艺人。
+    private var artistBrowseModePicker: some View {
+        HStack(spacing: 12) {
+            ForEach(ArtistBrowseMode.allCases, id: \.self) { mode in
+                Button {
+                    artistBrowseModeRaw = mode.rawValue
+                } label: {
+                    TVFilterChipLabel(
+                        title: mode.title,
+                        systemImage: mode.systemImage,
+                        isSelected: mode == artistBrowseMode,
+                        isFocused: focusedArtistBrowseMode == mode
+                    )
+                }
+                .buttonStyle(TVBareButtonStyle())
+                .focused($focusedArtistBrowseMode, equals: mode)
+                .focusEffectDisabled()
+                .accessibilityIdentifier("tv.library.artistMode." + mode.rawValue)
+                .accessibilityAddTraits(mode == artistBrowseMode ? [.isButton, .isSelected] : .isButton)
+            }
+        }
+        .padding(.vertical, 6)
+        .focusSection()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text("artist_browse_mode"))
     }
 
     private var albumOrderPicker: some View {
@@ -531,8 +594,8 @@ struct TVLibraryView: View {
         case .recommendations: return PMString("library_recommendations_title")
         case .artists:
             let count = showsLikedArtistsOnly
-                ? store.likedArtistBrowseLayout.items.count
-                : store.artists.count
+                ? store.likedArtistBrowseLayout(artistBrowseMode).items.count
+                : store.browsableArtists(artistBrowseMode).count
             return PMString("ext.tv.library.title.artists", count)
         case .songs: return PMString("ext.tv.library.title.songs", TVFmt.count(store.songs.count))
         case .genres, .folders, .years, .ranking: return filter.display
@@ -675,7 +738,9 @@ struct TVLibraryView: View {
                 }
             }
         case .artists:
-            if let layout = showsLikedArtistsOnly ? store.likedArtistBrowseLayout : store.artistBrowseLayout {
+            if let layout = showsLikedArtistsOnly
+                ? store.likedArtistBrowseLayout(artistBrowseMode)
+                : store.artistBrowseLayout(artistBrowseMode) {
                 TVIndexedGrid(
                     items: layout.items, sections: layout.sections, columns: columns, spacing: gap,
                     revealingIndex: browseMemory.artistID.flatMap { id in

@@ -141,7 +141,7 @@ struct MacDetailContainer: View {
                 AlbumGridView()
                     .navigationTitle(section.title)
             case .artists:
-                ArtistListView(artists: library.visibleArtists)
+                ArtistListView()
                     .navigationTitle(section.title)
             case .genres:
                 GenreLibraryView()

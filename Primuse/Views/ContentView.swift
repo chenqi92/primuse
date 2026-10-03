@@ -1125,7 +1125,7 @@ struct ContentView: View {
         case .libraryAlbums:
             librarySubpane(title: "tab_albums") { AlbumGridView() }
         case .libraryArtists:
-            librarySubpane(title: "tab_artists") { ArtistListView(artists: library.visibleArtists) }
+            librarySubpane(title: "tab_artists") { ArtistListView() }
         case .libraryGenres:
             librarySubpane(title: "tab_genres") { GenreLibraryView() }
         case .libraryPlaylists:

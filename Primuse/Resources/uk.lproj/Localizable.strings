@@ -2293,6 +2293,9 @@
 "artist_layout" = "Вигляд";
 "artist_layout_grid" = "Сітка";
 "artist_layout_list" = "Список";
+"artist_browse_mode" = "Показувати виконавців";
+"artist_browse_all" = "Усі виконавці";
+"artist_browse_album_artists" = "Виконавці альбомів";
 "Clean Up Now" = "Прибирай зараз";
 "scraper_review_headers" = "Заголовки";
 "status" = "Статус";

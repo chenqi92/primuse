@@ -2558,6 +2558,9 @@
 "artist_layout" = "版式";
 "artist_layout_grid" = "网格";
 "artist_layout_list" = "列表";
+"artist_browse_mode" = "列出艺术家";
+"artist_browse_all" = "全部艺术家";
+"artist_browse_album_artists" = "专辑艺术家";
 "onboarding_experience_title" = "不只是在手机上听歌";
 "onboarding_experience_media" = "无损音频、逐字歌词与 MV";
 "onboarding_experience_devices" = "支持 AirPlay、DLNA、Apple TV 与车载播放";

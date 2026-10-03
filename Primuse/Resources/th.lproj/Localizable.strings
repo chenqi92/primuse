@@ -1337,6 +1337,9 @@
 "artist_layout" = "รูปแบบ";
 "artist_layout_grid" = "ตาราง";
 "artist_layout_list" = "รายการ";
+"artist_browse_mode" = "แสดงศิลปิน";
+"artist_browse_all" = "ศิลปินทั้งหมด";
+"artist_browse_album_artists" = "ศิลปินอัลบั้ม";
 "filter_by" = "ตัวกรอง";
 "filter_downloaded" = "ดาวน์โหลดแล้ว";
 "filter_downloaded_empty_desc" = "เพลงที่ดาวน์โหลดสำหรับเล่นแบบออฟไลน์จะปรากฏที่นี่";

@@ -2457,6 +2457,9 @@
 "artist_layout" = "Affichage";
 "artist_layout_grid" = "Grille";
 "artist_layout_list" = "Liste";
+"artist_browse_mode" = "Artistes affichés";
+"artist_browse_all" = "Tous les artistes";
+"artist_browse_album_artists" = "Artistes d’album";
 "onboarding_experience_title" = "La musique au-delà du téléphone";
 "onboarding_experience_media" = "Audio sans perte, paroles mot à mot et clips vidéo";
 "onboarding_experience_devices" = "AirPlay, DLNA, Apple TV et lecture en voiture";

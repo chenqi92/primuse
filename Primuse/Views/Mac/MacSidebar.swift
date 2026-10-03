@@ -16,6 +16,9 @@ struct MacSidebar: View {
     @Environment(RadioStationsStore.self) private var radioStationsStore
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(\.pmAppearance) private var mode
+    /// 「艺术家」行的数字跟着艺术家页的列法。
+    @AppStorage(ArtistBrowseMode.storageKey)
+    private var artistBrowseModeRaw = ArtistBrowseMode.allArtists.rawValue
     @AppStorage(LibraryDisplayConfiguration.sectionOrderKey)
     private var librarySectionOrderRawValue = ""
     @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey)
@@ -193,7 +196,7 @@ struct MacSidebar: View {
                 route: .section(.artists),
                 icon: section.icon,
                 title: section.title,
-                trailing: countLabel(library.visibleArtists.count)
+                trailing: countLabel(library.browsableArtists(.resolved(artistBrowseModeRaw)).count)
             )
         case .genres:
             item(

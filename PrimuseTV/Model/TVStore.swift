@@ -960,7 +960,7 @@ final class TVStore {
         order: LibraryAlbumBrowseOrder, revision: Int, fingerprint: Int, layout: LibraryBrowseLayout<Album>
     )?
     @ObservationIgnored private var artistBrowseLayoutCache:
-        (revision: Int, fingerprint: Int, layout: LibraryBrowseLayout<Artist>)?
+        (mode: ArtistBrowseMode, revision: Int, fingerprint: Int, layout: LibraryBrowseLayout<Artist>)?
     /// 后台排好一份浏览布局就加一,让读布局的视图重算。
     private var browseLayoutRevision = 0
     private var songArtworkPaletteRevision = 0
@@ -1145,7 +1145,8 @@ final class TVStore {
     /// 喜欢的专辑 / 艺人（最近喜欢的在前）。按曲库修订号与喜欢的修订号记住，首页每次重绘
     /// 不必把整库专辑再对一遍。
     @ObservationIgnored private var likedAlbumsCache: (library: Int, favorites: Int, albums: [Album])?
-    @ObservationIgnored private var likedArtistsCache: (library: Int, favorites: Int, artists: [Artist])?
+    @ObservationIgnored private var likedArtistsCache:
+        (mode: ArtistBrowseMode, library: Int, favorites: Int, artists: [Artist])?
 
     private func likedLibraryAlbums() -> [Album] {
         let favorites = LibraryFavoritesStore.shared
@@ -1158,14 +1159,15 @@ final class TVStore {
         return albums
     }
 
-    private func likedLibraryArtists() -> [Artist] {
+    private func likedLibraryArtists(_ mode: ArtistBrowseMode) -> [Artist] {
         let favorites = LibraryFavoritesStore.shared
         let favoritesRevision = favorites.revision
-        if let cache = likedArtistsCache, cache.library == libraryContentRevision, cache.favorites == favoritesRevision {
+        if let cache = likedArtistsCache, cache.mode == mode,
+           cache.library == libraryContentRevision, cache.favorites == favoritesRevision {
             return cache.artists
         }
-        let artists = favorites.likedArtists(in: library.visibleArtists)
-        likedArtistsCache = (libraryContentRevision, favoritesRevision, artists)
+        let artists = favorites.likedArtists(in: library.browsableArtists(mode))
+        likedArtistsCache = (mode, libraryContentRevision, favoritesRevision, artists)
         return artists
     }
 
@@ -1176,30 +1178,37 @@ final class TVStore {
     }
 
     /// 艺人墙「只看喜欢」：一般就几十位，不分字母段。
-    var likedArtistBrowseLayout: TVBrowseLayout<TVArtistMapper> {
+    func likedArtistBrowseLayout(_ mode: ArtistBrowseMode) -> TVBrowseLayout<TVArtistMapper> {
         _ = libraryContentRevision
         return TVBrowseLayout(
-            items: TVArtistList(source: likedLibraryArtists(), mapper: TVArtistMapper()),
+            items: TVArtistList(source: likedLibraryArtists(mode), mapper: TVArtistMapper()),
             sections: []
         )
     }
 
+    /// 艺人墙列的人：全部艺人，或只列专辑艺人(与 iPhone 艺术家页同一个设置项，电视本机一份)。
+    func browsableArtists(_ mode: ArtistBrowseMode) -> [Artist] {
+        _ = libraryContentRevision
+        return library.browsableArtists(mode)
+    }
+
     /// 按名字(拼音)排好、带首字母分段的艺人墙;规则同 `albumBrowseLayout`。
-    var artistBrowseLayout: TVBrowseLayout<TVArtistMapper>? {
+    func artistBrowseLayout(_ mode: ArtistBrowseMode) -> TVBrowseLayout<TVArtistMapper>? {
         _ = browseLayoutRevision
-        guard let cached = artistBrowseLayoutCache else { return nil }
+        guard let cached = artistBrowseLayoutCache, cached.mode == mode else { return nil }
         return TVBrowseLayout(
             items: TVArtistList(source: cached.layout.items, mapper: TVArtistMapper()),
             sections: cached.layout.sections
         )
     }
 
-    func prepareArtistBrowseLayout() async {
+    func prepareArtistBrowseLayout(_ mode: ArtistBrowseMode) async {
         let revision = libraryContentRevision
-        if let cached = artistBrowseLayoutCache, cached.revision == revision { return }
-        let artists = library.visibleArtists
+        let cached = artistBrowseLayoutCache?.mode == mode ? artistBrowseLayoutCache : nil
+        if let cached, cached.revision == revision { return }
+        let artists = library.browsableArtists(mode)
         let unknownArtistName = String(localized: "unknown_artist")
-        let reusableFingerprint = artistBrowseLayoutCache?.fingerprint
+        let reusableFingerprint = cached?.fingerprint
         let startedAt = ProcessInfo.processInfo.systemUptime
         let result = await Task.detached(priority: .userInitiated) {
             let fingerprint = LibraryArtistBrowseLayoutBuilder.fingerprint(artists: artists)
@@ -1212,12 +1221,14 @@ final class TVStore {
         }.value
         guard !Task.isCancelled, revision == libraryContentRevision else { return }
         guard let layout = result.layout else {
-            artistBrowseLayoutCache?.revision = revision
+            if artistBrowseLayoutCache?.mode == mode {
+                artistBrowseLayoutCache?.revision = revision
+            }
             return
         }
-        artistBrowseLayoutCache = (revision, result.fingerprint, layout)
+        artistBrowseLayoutCache = (mode, revision, result.fingerprint, layout)
         browseLayoutRevision &+= 1
-        plog("TV artist layout artists=\(artists.count) sections=\(layout.sections.count) ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000))")
+        plog("TV artist layout mode=\(mode.rawValue) artists=\(artists.count) sections=\(layout.sections.count) ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000))")
     }
     private var songMapper: TVSongMapper {
         TVSongMapper(artistNames: library.artistNameConfiguration, sourceTypes: sourceTypeByID)
