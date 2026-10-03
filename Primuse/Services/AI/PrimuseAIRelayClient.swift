@@ -623,6 +623,39 @@ actor PrimuseAIRelayClient {
         )
     }
 
+    /// Asks the built-in AI to choose and name "for you" intents from a
+    /// summary of the listening profile (folder, artist and album names,
+    /// genre/decade/quality shares; play figures only with listening
+    /// consent). The answer is checked again against the profile on the device.
+    func listeningIntents(
+        _ request: ListeningIntentAIExchange.Request
+    ) async throws -> [ListeningIntentAIExchange.Draft] {
+        var completed: ListeningIntentsOutput?
+        try await performStreamingFeature(
+            path: "/v1/listening/intents",
+            purpose: "listening_intents",
+            input: request,
+            output: ListeningIntentsOutput.self,
+            progress: ListeningIntentsProgress.self
+        ) { event in
+            if case .completed(let output) = event { completed = output }
+        }
+        guard let completed else { throw PrimuseAIRelayError.invalidResponse }
+        return ListeningIntentAIExchange.validated(
+            completed.intents.map {
+                ListeningIntentAIExchange.RawItem(
+                    kind: $0.kind,
+                    title: $0.title,
+                    refs: $0.refs,
+                    genres: $0.genres,
+                    decade: $0.decade,
+                    quality: $0.quality
+                )
+            },
+            request: request
+        )
+    }
+
     nonisolated static func assertionClientDataHash(
         challenge: String,
         method: String,
@@ -1735,6 +1768,25 @@ actor PrimuseAIRelayClient {
 
     /// Progress lines are optional for this feature and never used; every
     /// field is optional so an extra or reshaped line cannot fail the stream.
+    private struct ListeningIntentsOutput: Decodable, Sendable {
+        struct Intent: Decodable, Sendable {
+            var kind: String?
+            var title: String?
+            var refs: [String]?
+            var genres: [String]?
+            var decade: Int?
+            var quality: String?
+        }
+
+        var intents: [Intent]
+    }
+
+    /// Progress lines are never used; every field is optional so an extra or
+    /// reshaped line cannot fail the stream.
+    private struct ListeningIntentsProgress: Decodable, Sendable {
+        var intent: ListeningIntentsOutput.Intent?
+    }
+
     private struct SongDiscoveryProgress: Decodable, Sendable {
         var song: SongDiscoveryOutput.Song?
     }

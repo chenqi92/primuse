@@ -8,6 +8,11 @@ import PrimuseKit
 /// 才重算(与情景推荐专辑、专辑艺人判定同一节奏),换了一天也重算(「新加的」按天数算)。
 /// 钉选、隐藏与把智能歌单钉成意图只存在本机。点卡片按规则抽 50 首随机起播,
 /// 放完由播放器按 #166 的规则接着续相似歌曲。
+///
+/// 「为你」:同一次后台遍历还攒出听歌画像(按类别分的文件夹、常听的艺人与专辑、无损/高解析
+/// 偏好、最近在循环的歌),由此生成个人意图,和内置意图一起按「最近播放占比 + 曲库占比」排序。
+/// 能用 AI 时把画像摘要交给 AI 挑选、组合并命名(先内置 AI,再自己的服务),结果在本机核对后
+/// 缓存;画像变了、距上次超过六小时才再问。没有 AI 时就用本机生成的那一份。
 @MainActor
 @Observable
 final class ListeningIntentService {
@@ -21,6 +26,35 @@ final class ListeningIntentService {
     nonisolated static let gridExpandedKey = "primuse.home.startListening.expanded"
     /// 「查看歌曲」最多列出多少首;整库那么大的意图看全部用歌曲页。
     nonisolated static let songListLimit = 1_000
+    /// 「用 AI 整理『为你』」开关,默认开(只在允许向 AI 发送内容时才真的发)。
+    nonisolated static let aiCurationKey = "primuse.listeningIntents.aiCuration"
+    nonisolated static let curationCacheKey = "primuse.listeningIntents.aiCuration.cache.v1"
+    nonisolated static let curationAttemptKey = "primuse.listeningIntents.aiCuration.lastAttempt"
+    /// 自动再问 AI 的最短间隔;画像没变时缓存一周内都算新。
+    nonisolated static let curationRetryInterval: TimeInterval = 6 * 3_600
+    nonisolated static let curationFreshness: TimeInterval = 7 * 86_400
+    /// 播放记录多了这么多条才值得按新的收听重新排序。
+    nonisolated static let historyGrowthForRefresh = 15
+
+    /// 「为你」整理到哪一步了,给「全部意图」页底下那行说明用。
+    enum CurationStatus: Equatable {
+        /// 开关关着:只用本机规则。
+        case off
+        /// 本机规则生成;AI 不可用或还没问过。
+        case local
+        case working
+        case curated(provider: String, at: Date)
+        /// 问过了,没有可用的 AI 回答,先用本机规则。
+        case unavailable
+    }
+
+    /// AI 整理的结果,连同它对应的画像一起存在本机。
+    struct CuratedIntents: Codable, Equatable {
+        var fingerprint: String
+        var provider: String
+        var curatedAt: Date
+        var intents: [ListeningIntent]
+    }
 
     private(set) var availability: ListeningIntentAvailability?
     private(set) var configuration: ListeningIntentShelfConfiguration
@@ -28,6 +62,10 @@ final class ListeningIntentService {
     private(set) var smartPlaylistCounts: [String: Int] = [:]
     /// 钉成意图的智能歌单的名字,卡片标题用。
     private(set) var smartPlaylistNames: [String: String] = [:]
+    /// 「为你」:AI 整理过的在前,其余是本机按画像生成的。
+    private(set) var personalIntents: [ListeningIntent] = []
+    private(set) var curationStatus: CurationStatus = .local
+    private(set) var isAICurationEnabled: Bool
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
@@ -38,12 +76,37 @@ final class ListeningIntentService {
     @ObservationIgnored private var countedDisabledSourceIDs: Set<String> = []
     @ObservationIgnored private weak var library: MusicLibrary?
     @ObservationIgnored private let musicSongsWatcher = LibraryMusicSongsWatcher()
+    /// 上次点亮用的播放记录条数;多出 `historyGrowthForRefresh` 条就按新的收听重排。
+    @ObservationIgnored private var countedHistoryCount = 0
+    /// 下一次点亮不等节流(AI 结果到了、开关变了)。
+    @ObservationIgnored private var forcesNextRefresh = false
+    @ObservationIgnored private var profile: ListeningProfile?
+    @ObservationIgnored private var localPersonalIntents: [ListeningIntent] = []
+    @ObservationIgnored private var curated: CuratedIntents?
+    @ObservationIgnored private var curationTask: Task<Void, Never>?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         configuration = ListeningIntentShelfConfiguration.decode(
             defaults.string(forKey: ListeningIntentShelfConfiguration.storageKey) ?? ""
         )
+        isAICurationEnabled = defaults.object(forKey: Self.aiCurationKey) as? Bool ?? true
+        curated = defaults.data(forKey: Self.curationCacheKey)
+            .flatMap { try? JSONDecoder().decode(CuratedIntents.self, from: $0) }
+        if isAICurationEnabled, let curated {
+            curationStatus = .curated(provider: curated.provider, at: curated.curatedAt)
+        } else if !isAICurationEnabled {
+            curationStatus = .off
+        }
+    }
+
+    /// 「为你」只在手机、iPad、Mac 上有;电视首页是居家场景。
+    nonisolated static var computesPersonalIntents: Bool {
+        #if os(tvOS)
+        false
+        #else
+        true
+        #endif
     }
 
     /// 一次遍历要数的意图:手机、Mac 数「开始听」的内置意图,电视数首页的居家场景。
@@ -70,7 +133,13 @@ final class ListeningIntentService {
         // 停用集合与 `musicSongs` 在同一拍里换上,看到集合变了时数组已经是新的。
         let disabledSourceIDs = library.disabledSourceIDs
         let sourcesChanged = disabledSourceIDs != countedDisabledSourceIDs
-        if let last = availability, !sourcesChanged, !needsRefresh(last, generation: generation, now: now) {
+        let historyCount = PlayHistoryStore.shared.entries.count
+        // 听了一阵之后按新的收听重排,但同样守五分钟的节流。
+        let listenedMore = Self.computesPersonalIntents
+            && historyCount - countedHistoryCount >= Self.historyGrowthForRefresh
+            && availability.map { now.timeIntervalSince($0.computedAt) >= ListeningIntentEngine.refreshInterval } ?? true
+        if let last = availability, !sourcesChanged, !forcesNextRefresh, !listenedMore,
+           !needsRefresh(last, generation: generation, now: now) {
             if last.libraryGeneration != generation {
                 // 曲库还在变但离上次不到五分钟:到点再补一次,免得扫描停下后一直停在旧数。
                 scheduleDeferredRefresh(after: ListeningIntentEngine.refreshInterval - now.timeIntervalSince(last.computedAt))
@@ -83,22 +152,34 @@ final class ListeningIntentService {
         }
         deferredRefresh?.cancel()
         deferredRefresh = nil
+        forcesNextRefresh = false
 
         // 在主线程上取好快照,遍历交给后台。
         let songs = library.musicSongs
         let entries = PlayHistoryStore.shared.musicEntries
         let intents = countedIntents
+        let curatedIntents = isAICurationEnabled ? curated?.intents ?? [] : []
+        let computesPersonal = Self.computesPersonalIntents
         let startedAt = ProcessInfo.processInfo.systemUptime
         refreshTask = Task { @MainActor [weak self] in
-            let worker = Task.detached(priority: .utility) { () -> ListeningIntentAvailability? in
+            let worker = Task.detached(priority: .utility) { () -> LightingResult? in
                 let history = Self.history(entries, now: now)
-                return ListeningIntentEngine.availability(
+                var profile: ListeningProfile?
+                var local: [ListeningIntent] = []
+                if computesPersonal {
+                    profile = ListeningProfile.build(librarySongs: songs, history: history, isCancelled: { Task.isCancelled })
+                    guard let profile else { return nil }
+                    local = PersonalListeningIntentPolicy.intents(from: profile)
+                }
+                let personal = PersonalListeningIntentPolicy.merged(ai: curatedIntents, local: local)
+                guard let availability = ListeningIntentEngine.availability(
                     librarySongs: songs,
-                    intents: intents,
+                    intents: personal + intents,
                     history: history,
                     libraryGeneration: generation,
                     isCancelled: { Task.isCancelled }
-                )
+                ) else { return nil }
+                return LightingResult(availability: availability, profile: profile, local: local, personal: personal)
             }
             let result = await withTaskCancellationHandler {
                 await worker.value
@@ -107,22 +188,37 @@ final class ListeningIntentService {
             }
             guard let self else { return }
             self.refreshTask = nil
-            if result != nil { self.countedDisabledSourceIDs = disabledSourceIDs }
-            if let result, result != self.availability {
-                self.availability = result
+            if let result {
+                self.countedDisabledSourceIDs = disabledSourceIDs
+                self.countedHistoryCount = historyCount
+                self.profile = result.profile
+                self.localPersonalIntents = result.local
+                if result.personal != self.personalIntents { self.personalIntents = result.personal }
+            }
+            if let result, result.availability != self.availability {
+                self.availability = result.availability
                 if let library = self.library { self.refreshSmartPlaylists(library: library) }
                 plog(String(
-                    format: "🎯 listening intents lit=%d songs=%d %.0fms",
-                    result.litIntents(intents).count,
+                    format: "🎯 listening intents lit=%d personal=%d songs=%d %.0fms",
+                    result.availability.litIntents(intents).count,
+                    result.personal.count,
                     songs.count,
                     (ProcessInfo.processInfo.systemUptime - startedAt) * 1000
                 ))
             }
+            if result != nil { self.considerCuration(force: false) }
             if self.refreshPending, let library = self.library {
                 self.refreshPending = false
                 self.refresh(library: library)
             }
         }
+    }
+
+    private struct LightingResult: Sendable {
+        let availability: ListeningIntentAvailability
+        let profile: ListeningProfile?
+        let local: [ListeningIntent]
+        let personal: [ListeningIntent]
     }
 
     /// 播放历史 → 规则读的「上次听」「听过几次」。在后台调用,只读条目的存储字段。
@@ -187,6 +283,114 @@ final class ListeningIntentService {
         if names != smartPlaylistNames { smartPlaylistNames = names }
     }
 
+    // MARK: AI curation
+
+    /// 「用 AI 整理」开关。关掉只用本机规则,缓存留着,再打开就接着用。
+    func setAICurationEnabled(_ enabled: Bool) {
+        guard enabled != isAICurationEnabled else { return }
+        isAICurationEnabled = enabled
+        defaults.set(enabled, forKey: Self.aiCurationKey)
+        if enabled {
+            curationStatus = curated.map { .curated(provider: $0.provider, at: $0.curatedAt) } ?? .local
+        } else {
+            curationTask?.cancel()
+            curationTask = nil
+            curationStatus = .off
+        }
+        relightPersonalIntents()
+    }
+
+    /// 现在有没有能问的 AI(内置或自己的服务,且允许发送内容)。
+    var canCurateWithAI: Bool {
+        #if os(tvOS)
+        false
+        #else
+        AppServices.shared.musicIntelligence.isListeningIntentCurationAvailable
+        #endif
+    }
+
+    /// 「重新整理」:不等节奏,马上再问一次。
+    func recurate() {
+        considerCuration(force: true)
+    }
+
+    /// 个人意图换了一份:不等节流重新点亮,曲数与排序跟着变。
+    private func relightPersonalIntents() {
+        forcesNextRefresh = true
+        if let library { refresh(library: library) }
+    }
+
+    /// 该问 AI 时才问:开关开着、能问、值得问(画像变了或缓存旧了),且离上次尝试够久。
+    private func considerCuration(force: Bool, now: Date = Date()) {
+        #if !os(tvOS)
+        guard Self.computesPersonalIntents, let profile else { return }
+        guard isAICurationEnabled else {
+            curationStatus = .off
+            return
+        }
+        let intelligence = AppServices.shared.musicIntelligence
+        guard intelligence.isListeningIntentCurationAvailable else {
+            if case .working = curationStatus { curationStatus = .local }
+            if curated == nil, curationStatus != .unavailable { curationStatus = .local }
+            return
+        }
+        guard curationTask == nil else { return }
+        let fingerprint = profile.fingerprint
+        if !force {
+            if let curated, curated.fingerprint == fingerprint,
+               now.timeIntervalSince(curated.curatedAt) < Self.curationFreshness { return }
+            if let last = defaults.object(forKey: Self.curationAttemptKey) as? Date,
+               now.timeIntervalSince(last) < Self.curationRetryInterval { return }
+        }
+        let prepared = ListeningIntentAIExchange.prepare(
+            profile: profile,
+            languageCode: Locale.preferredLanguages.first ?? "en",
+            includesListening: intelligence.allowsListeningContextForCuration
+        )
+        guard ListeningIntentAIExchange.isWorthAsking(prepared.request) else { return }
+        defaults.set(now, forKey: Self.curationAttemptKey)
+        let previousStatus = curationStatus
+        curationStatus = .working
+        curationTask = Task { @MainActor [weak self] in
+            let outcome = await intelligence.curateListeningIntents(prepared.request)
+            guard let self, !Task.isCancelled else { return }
+            self.curationTask = nil
+            guard self.isAICurationEnabled else { return }
+            switch outcome {
+            case .success(let execution):
+                let intents = ListeningIntentAIExchange.intents(
+                    from: execution.drafts,
+                    context: prepared.context,
+                    profile: profile
+                )
+                guard !intents.isEmpty else {
+                    self.curationStatus = self.curated.map { .curated(provider: $0.provider, at: $0.curatedAt) } ?? .unavailable
+                    return
+                }
+                let result = CuratedIntents(
+                    fingerprint: fingerprint,
+                    provider: execution.providerName,
+                    curatedAt: Date(),
+                    intents: intents
+                )
+                self.curated = result
+                if let data = try? JSONEncoder().encode(result) {
+                    self.defaults.set(data, forKey: Self.curationCacheKey)
+                }
+                self.curationStatus = .curated(provider: result.provider, at: result.curatedAt)
+                plog("🎯 listening intents curated by \(result.provider): \(intents.count)")
+                self.relightPersonalIntents()
+            case .unavailable:
+                if let curated = self.curated {
+                    self.curationStatus = .curated(provider: curated.provider, at: curated.curatedAt)
+                } else {
+                    self.curationStatus = force || previousStatus == .unavailable ? .unavailable : .local
+                }
+            }
+        }
+        #endif
+    }
+
     // MARK: Shelf
 
     /// 「全部意图」整页。
@@ -194,13 +398,21 @@ final class ListeningIntentService {
         ListeningIntentShelfPolicy.page(
             availability: availability,
             configuration: configuration,
-            smartPlaylists: smartPlaylistCounts
+            smartPlaylists: smartPlaylistCounts,
+            personal: personalIntents
         )
     }
 
     func title(for intent: ListeningIntent) -> String {
+        if let customTitle = intent.customTitle, !customTitle.isEmpty {
+            return customTitle
+        }
         if let titleKey = intent.titleKey {
-            return String(localized: String.LocalizationValue(titleKey))
+            let template = String(localized: String.LocalizationValue(titleKey))
+            if let argument = intent.titleArgument {
+                return String(format: template, argument)
+            }
+            return template
         }
         if case .smartPlaylist = intent.source, let name = smartPlaylistNames[intent.id], !name.isEmpty {
             return name
@@ -282,7 +494,7 @@ final class ListeningIntentService {
             guard let smart = library.smartPlaylists.first(where: { $0.id == playlistID }) else { return [] }
             let ids = SmartPlaylistEngine.match(smart, in: library, history: .shared).map(\.id)
             return ListeningIntentShelfPolicy.sample(ids, limit: intent.playback.songLimit, seed: seed)
-        case .builtIn, .scene:
+        case .builtIn, .scene, .personal:
             guard intent.rule != nil else { return [] }
             let songs = library.musicSongs
             let entries = PlayHistoryStore.shared.musicEntries
@@ -306,7 +518,7 @@ final class ListeningIntentService {
             guard let smart = library.smartPlaylists.first(where: { $0.id == playlistID }) else { return ([], 0) }
             let ids = SmartPlaylistEngine.match(smart, in: library, history: .shared).map(\.id)
             return (Array(ids.prefix(Self.songListLimit)), ids.count)
-        case .builtIn, .scene:
+        case .builtIn, .scene, .personal:
             let songs = library.musicSongs
             let entries = PlayHistoryStore.shared.musicEntries
             let now = Date()
@@ -336,6 +548,7 @@ extension ListeningIntentService {
             configuration: configuration,
             resumeSongCount: resumeSongCount(player: player),
             smartPlaylists: smartPlaylistCounts,
+            personal: personalIntents,
             limit: limit
         )
     }
@@ -399,6 +612,13 @@ extension ListeningIntent {
         switch source {
         case .smartPlaylist:
             return Color(red: 0.56, green: 0.35, blue: 0.85)
+        case .personal(let personalID):
+            switch personalID {
+            case "lossless": return Color(red: 0.16, green: 0.55, blue: 0.62)
+            case "hiRes": return Color(red: 0.74, green: 0.56, blue: 0.16)
+            case "rotation": return Color(red: 0.91, green: 0.42, blue: 0.24)
+            default: return Self.tint(seed: personalID)
+            }
         case .scene(let sceneID):
             switch ListeningScene(rawValue: sceneID) {
             case .guests: return Color(red: 0.86, green: 0.50, blue: 0.22)

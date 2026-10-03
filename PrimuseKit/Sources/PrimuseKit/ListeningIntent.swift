@@ -21,6 +21,78 @@ public protocol ListeningSongTraits {
     var cueSheetPath: String? { get }
     var coverArtFileName: String? { get }
     var isPlayable: Bool { get }
+    /// Where the file lives: the source and its path inside it. Folder intents
+    /// match on these; stand-ins that do not care keep the empty defaults.
+    var sourceID: String { get }
+    var filePath: String { get }
+    var listeningQuality: ListeningAudioQuality { get }
+}
+
+public extension ListeningSongTraits {
+    var sourceID: String { "" }
+    var filePath: String { "" }
+    var listeningQuality: ListeningAudioQuality { .lossy }
+}
+
+/// How a file sounds on paper: lossy, lossless, or hi-res (24-bit or
+/// 88.2 kHz and above, or DSD) — the quality badge's grading in three steps.
+public enum ListeningAudioQuality: Int, Codable, Comparable, Sendable {
+    case lossy = 0
+    case lossless = 1
+    case hiRes = 2
+
+    public static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
+
+    public static func classify(isLossless: Bool, isDSD: Bool, bitDepth: Int?, sampleRate: Int?) -> ListeningAudioQuality {
+        if isDSD { return .hiRes }
+        guard isLossless else { return .lossy }
+        if let bitDepth, bitDepth >= 24 { return .hiRes }
+        if let sampleRate, sampleRate >= 88_200 { return .hiRes }
+        return .lossless
+    }
+}
+
+/// A folder in one source, by its path inside the source (no leading or
+/// trailing slash). It covers every song below it.
+public struct ListeningFolderScope: Codable, Hashable, Sendable {
+    public var sourceID: String
+    public var path: String
+
+    public init(sourceID: String, path: String) {
+        self.sourceID = sourceID
+        self.path = ListeningFolderScope.normalized(path)
+    }
+
+    public static func normalized(_ path: String) -> String {
+        path.trimmingCharacters(in: CharacterSet(charactersIn: "/").union(.whitespaces))
+    }
+
+    /// Whether a song at `filePath` in `sourceID` sits below this folder.
+    public func contains(sourceID songSourceID: String, filePath: String) -> Bool {
+        guard songSourceID == sourceID, !path.isEmpty else { return false }
+        let relative = filePath.hasPrefix("/") ? filePath.dropFirst() : Substring(filePath)
+        guard relative.count > path.count, relative.hasPrefix(path) else { return false }
+        return relative[relative.index(relative.startIndex, offsetBy: path.count)] == "/"
+    }
+}
+
+/// Song artist identity for artist intents: the primary credited artist,
+/// folded the way new-song discovery compares names.
+public struct ListeningArtistKeyMemo {
+    private var keys: [String: String] = [:]
+
+    public init() {}
+
+    public mutating func key(for song: some ListeningSongTraits) -> String {
+        let name = [song.artistName, song.albumArtistName]
+            .compactMap { $0 }
+            .first { !$0.isEmpty } ?? ""
+        guard !name.isEmpty else { return "" }
+        if let cached = keys[name] { return cached }
+        let key = SongDiscoveryMatching.artistKey(name)
+        keys[name] = key
+        return key
+    }
 }
 
 /// Case-, width- and diacritic-insensitive comparison key shared by the
@@ -224,6 +296,16 @@ public struct ListeningIntentRule: Codable, Hashable, Sendable {
     public var addedWithinDays: Int?
     /// Never played, or last played at least this many days ago.
     public var notPlayedForDays: Int?
+    /// Below one of these folders.
+    public var folders: [ListeningFolderScope]?
+    /// By one of these artists (`ListeningArtistKeyMemo` keys).
+    public var artistKeys: [String]?
+    /// On one of these albums, in this order for album-sequence queues.
+    public var albumIDs: [String]?
+    /// One of these songs.
+    public var songIDs: [String]?
+    /// At least this quality.
+    public var minimumQuality: ListeningAudioQuality?
 
     public init(
         genreFamilies: Set<ListeningGenreFamily> = [],
@@ -231,7 +313,12 @@ public struct ListeningIntentRule: Codable, Hashable, Sendable {
         years: ClosedRange<Int>? = nil,
         duration: ClosedRange<Double>? = nil,
         addedWithinDays: Int? = nil,
-        notPlayedForDays: Int? = nil
+        notPlayedForDays: Int? = nil,
+        folders: [ListeningFolderScope]? = nil,
+        artistKeys: [String]? = nil,
+        albumIDs: [String]? = nil,
+        songIDs: [String]? = nil,
+        minimumQuality: ListeningAudioQuality? = nil
     ) {
         self.genreFamilies = genreFamilies
         self.excludedGenreFamilies = excludedGenreFamilies
@@ -239,6 +326,11 @@ public struct ListeningIntentRule: Codable, Hashable, Sendable {
         self.duration = duration
         self.addedWithinDays = addedWithinDays
         self.notPlayedForDays = notPlayedForDays
+        self.folders = folders
+        self.artistKeys = artistKeys
+        self.albumIDs = albumIDs
+        self.songIDs = songIDs
+        self.minimumQuality = minimumQuality
     }
 
     /// Needs a play history to mean anything.
@@ -256,19 +348,23 @@ public struct ListeningIntentPlayback: Codable, Hashable, Sendable {
     public var sleepTimerMinutes: Int?
     /// Dim into the resting overlay once playing (TV "night listening").
     public var startsResting: Bool
+    /// Play whole albums in the rule's album order instead of a random pick.
+    public var playsAlbumsInSequence: Bool?
 
     public init(
         songLimit: Int = 50,
         shuffles: Bool = true,
         continuesWithSimilarSongs: Bool = true,
         sleepTimerMinutes: Int? = nil,
-        startsResting: Bool = false
+        startsResting: Bool = false,
+        playsAlbumsInSequence: Bool? = nil
     ) {
         self.songLimit = songLimit
         self.shuffles = shuffles
         self.continuesWithSimilarSongs = continuesWithSimilarSongs
         self.sleepTimerMinutes = sleepTimerMinutes
         self.startsResting = startsResting
+        self.playsAlbumsInSequence = playsAlbumsInSequence
     }
 
     public static let standard = ListeningIntentPlayback()
@@ -281,6 +377,8 @@ public struct ListeningIntentPlayback: Codable, Hashable, Sendable {
 public struct ListeningIntent: Codable, Hashable, Identifiable, Sendable {
     public enum Category: String, Codable, Hashable, Sendable {
         case genre, era, mood, habit, smartPlaylist, scene
+        /// Worked out from this listener's own library and listening.
+        case personal
     }
 
     public enum Source: Codable, Hashable, Sendable {
@@ -290,6 +388,9 @@ public struct ListeningIntent: Codable, Hashable, Identifiable, Sendable {
         case smartPlaylist(id: String)
         /// A composite defined by a surface, e.g. a TV home scene.
         case scene(id: String)
+        /// Built from the listener's folders, artists, albums and habits,
+        /// on the device or by an AI service.
+        case personal(id: String)
     }
 
     public var id: String
@@ -302,6 +403,13 @@ public struct ListeningIntent: Codable, Hashable, Identifiable, Sendable {
     public var rule: ListeningIntentRule?
     public var habit: ListeningHabit?
     public var playback: ListeningIntentPlayback
+    /// A title that is a name, not copy: a folder, an artist, or what an AI
+    /// service called it. Wins over `titleKey`.
+    public var customTitle: String?
+    /// Fills the `%@` in `titleKey` ("Like *album*").
+    public var titleArgument: String?
+    /// Named and chosen by an AI service.
+    public var isAICurated: Bool?
 
     public init(
         id: String,
@@ -311,7 +419,10 @@ public struct ListeningIntent: Codable, Hashable, Identifiable, Sendable {
         titleKey: String?,
         rule: ListeningIntentRule?,
         habit: ListeningHabit? = nil,
-        playback: ListeningIntentPlayback = .standard
+        playback: ListeningIntentPlayback = .standard,
+        customTitle: String? = nil,
+        titleArgument: String? = nil,
+        isAICurated: Bool? = nil
     ) {
         self.id = id
         self.source = source
@@ -321,6 +432,9 @@ public struct ListeningIntent: Codable, Hashable, Identifiable, Sendable {
         self.rule = rule
         self.habit = habit
         self.playback = playback
+        self.customTitle = customTitle
+        self.titleArgument = titleArgument
+        self.isAICurated = isAICurated
     }
 
     public static func builtIn(_ intent: BuiltInListeningIntent) -> ListeningIntent {
@@ -504,23 +618,37 @@ public enum BuiltInListeningIntent: String, CaseIterable, Codable, Hashable, Sen
 
 // MARK: - History
 
-/// Per-song play history the rules read: last play and play count.
+/// Per-song play history the rules read: last play and play count, and how
+/// often each song was played lately (what "you listen to" means for ranking
+/// and personal intents).
 public struct ListeningHistoryIndex: Sendable {
+    /// "Lately": the window behaviour-based ranking looks at.
+    public static let recentWindowDays = 60
+
     public let now: Date
     public private(set) var lastPlayedAt: [String: Date] = [:]
     public private(set) var playCounts: [String: Int] = [:]
+    public private(set) var recentPlayCounts: [String: Int] = [:]
     public let totalPlays: Int
+    public let recentPlays: Int
 
     public init(events: [HomeListeningEvent], now: Date) {
         self.now = now
+        let recentSince = now.addingTimeInterval(-Double(Self.recentWindowDays) * 86_400)
         var total = 0
+        var recent = 0
         for event in events where event.playedAt <= now {
             total += 1
             playCounts[event.songID, default: 0] += 1
+            if event.playedAt >= recentSince {
+                recent += 1
+                recentPlayCounts[event.songID, default: 0] += 1
+            }
             if let last = lastPlayedAt[event.songID], last >= event.playedAt { continue }
             lastPlayedAt[event.songID] = event.playedAt
         }
         totalPlays = total
+        recentPlays = recent
     }
 
     public static func empty(now: Date) -> ListeningHistoryIndex {
@@ -530,21 +658,36 @@ public struct ListeningHistoryIndex: Sendable {
 
 // MARK: - Matching, lighting, queues
 
-/// How many songs each intent has in this library, computed in one pass.
+/// How many songs each intent has in this library, and how much it is what
+/// this listener actually plays, computed in one pass.
 public struct ListeningIntentAvailability: Equatable, Sendable {
     public var songCounts: [String: Int]
+    /// Ranking weight: the intent's share of recent plays blended with its
+    /// share of the library (only the library share before there is enough
+    /// history), plus a nudge for personal intents.
+    public var scores: [String: Double]
     /// The library generation (`musicSongsRevision`) the counts belong to.
     public var libraryGeneration: UInt64
     public var computedAt: Date
 
-    public init(songCounts: [String: Int], libraryGeneration: UInt64, computedAt: Date) {
+    public init(
+        songCounts: [String: Int],
+        scores: [String: Double] = [:],
+        libraryGeneration: UInt64,
+        computedAt: Date
+    ) {
         self.songCounts = songCounts
+        self.scores = scores
         self.libraryGeneration = libraryGeneration
         self.computedAt = computedAt
     }
 
     public func songCount(for intent: ListeningIntent) -> Int {
         songCounts[intent.id] ?? 0
+    }
+
+    public func score(for intent: ListeningIntent) -> Double {
+        scores[intent.id] ?? 0
     }
 
     /// Lit when there are enough songs for a proper queue. "Resume" is lit by
@@ -554,10 +697,14 @@ public struct ListeningIntentAvailability: Equatable, Sendable {
         return songCount(for: intent) >= ListeningIntentEngine.minimumSongCount
     }
 
-    /// Lit intents, strongest first (most songs), ties in catalog order.
+    /// Lit intents, the ones this listener plays most first (by library size
+    /// before there is a history), then most songs, ties in catalog order.
     public func litIntents(_ intents: [ListeningIntent], limit: Int = .max) -> [ListeningIntent] {
         let lit = intents.enumerated().filter { isLit($0.element) }
         return lit.sorted { lhs, rhs in
+            let leftScore = score(for: lhs.element)
+            let rightScore = score(for: rhs.element)
+            if abs(leftScore - rightScore) > 1e-9 { return leftScore > rightScore }
             let left = songCount(for: lhs.element)
             let right = songCount(for: rhs.element)
             if left != right { return left > right }
@@ -574,6 +721,13 @@ public enum ListeningIntentEngine {
     /// "Long unplayed" needs this many plays on record before "not played"
     /// means anything.
     public static let minimumHistoryForUnplayed = 30
+    /// Recent plays needed before ranking follows listening rather than the
+    /// library's make-up.
+    public static let minimumRecentPlaysForRanking = 15
+    /// How much listening outweighs the library's make-up in the ranking.
+    public static let playShareWeight = 0.65
+    /// Personal intents are why the shelf adapts; given equal pull they lead.
+    public static let personalBonus = 0.12
     /// Lighting is recomputed at most this often while the library churns
     /// (the same cadence as other whole-library derivations).
     public static let refreshInterval: TimeInterval = 300
@@ -597,8 +751,14 @@ public enum ListeningIntentEngine {
         families: Set<ListeningGenreFamily>,
         history: ListeningHistoryIndex
     ) -> Bool {
-        CompiledRule(rule, now: history.now)
-            .matches(song, mask: ListeningGenreFamily.mask(of: families), history: history)
+        let compiled = CompiledRule(rule, now: history.now)
+        var artistMemo = ListeningArtistKeyMemo()
+        return compiled.matches(
+            song,
+            mask: ListeningGenreFamily.mask(of: families),
+            artistKey: compiled.needsArtistKey ? artistMemo.key(for: song) : nil,
+            history: history
+        )
     }
 
     /// A rule with its sets turned into masks and its day counts into dates,
@@ -610,6 +770,13 @@ public enum ListeningIntentEngine {
         let duration: ClosedRange<Double>?
         let addedAfter: Date?
         let notPlayedSince: Date?
+        let folders: [ListeningFolderScope]?
+        let artistKeys: Set<String>?
+        let albumIDs: Set<String>?
+        let songIDs: Set<String>?
+        let minimumQuality: ListeningAudioQuality?
+
+        var needsArtistKey: Bool { artistKeys != nil }
 
         init(_ rule: ListeningIntentRule, now: Date) {
             include = ListeningGenreFamily.mask(of: rule.genreFamilies)
@@ -618,11 +785,25 @@ public enum ListeningIntentEngine {
             duration = rule.duration
             addedAfter = rule.addedWithinDays.map { now.addingTimeInterval(-Double($0) * 86_400) }
             notPlayedSince = rule.notPlayedForDays.map { now.addingTimeInterval(-Double($0) * 86_400) }
+            folders = rule.folders.flatMap { $0.isEmpty ? nil : $0 }
+            artistKeys = rule.artistKeys.flatMap { $0.isEmpty ? nil : Set($0) }
+            albumIDs = rule.albumIDs.flatMap { $0.isEmpty ? nil : Set($0) }
+            songIDs = rule.songIDs.flatMap { $0.isEmpty ? nil : Set($0) }
+            minimumQuality = rule.minimumQuality
         }
 
-        func matches<Song: ListeningSongTraits>(_ song: Song, mask: UInt16, history: ListeningHistoryIndex) -> Bool {
+        func matches<Song: ListeningSongTraits>(
+            _ song: Song,
+            mask: UInt16,
+            artistKey: String?,
+            history: ListeningHistoryIndex
+        ) -> Bool {
             if include != 0, mask & include == 0 { return false }
             if exclude != 0, mask & exclude != 0 { return false }
+            if let songIDs, !songIDs.contains(song.id) { return false }
+            if let albumIDs {
+                guard let albumID = song.albumID, albumIDs.contains(albumID) else { return false }
+            }
             if let years {
                 guard let year = song.year, years.contains(year) else { return false }
             }
@@ -635,11 +816,21 @@ public enum ListeningIntentEngine {
                 guard history.totalPlays >= minimumHistoryForUnplayed else { return false }
                 if let last = history.lastPlayedAt[song.id], last > notPlayedSince { return false }
             }
+            if let minimumQuality, song.listeningQuality < minimumQuality { return false }
+            if let artistKeys {
+                guard let artistKey, !artistKey.isEmpty, artistKeys.contains(artistKey) else { return false }
+            }
+            if let folders {
+                let sourceID = song.sourceID
+                let path = song.filePath
+                guard folders.contains(where: { $0.contains(sourceID: sourceID, filePath: path) }) else { return false }
+            }
             return song.isPlayable
         }
     }
 
-    /// Counts every rule-based intent in one pass over the library. Nil when
+    /// Counts every rule-based intent in one pass over the library and
+    /// weighs each by how much of the recent listening it covers. Nil when
     /// cancelled. Intents without a rule (resume, smart playlists) get no count.
     public static func availability<Songs: Collection>(
         songs: Songs,
@@ -649,23 +840,48 @@ public enum ListeningIntentEngine {
         isCancelled: () -> Bool = { false }
     ) -> ListeningIntentAvailability? where Songs.Element: ListeningSongTraits {
         let ruled = intents.compactMap { intent in
-            intent.rule.map { CompiledRule($0, now: history.now) }.map { (intent.id, $0) }
+            intent.rule.map { CompiledRule($0, now: history.now) }
+                .map { (id: intent.id, rule: $0, isPersonal: intent.category == .personal) }
         }
+        let needsArtistKey = ruled.contains { $0.rule.needsArtistKey }
+        let countsPlays = history.recentPlays > 0
         var tallies = Array(repeating: 0, count: ruled.count)
+        var playTallies = Array(repeating: 0, count: ruled.count)
         var memo = ListeningGenreClassifier.Memo()
+        var artistMemo = ListeningArtistKeyMemo()
+        var playable = 0
         var position = 0
         for song in songs {
             if position.isMultiple(of: 1_024), isCancelled() { return nil }
             position += 1
+            if song.isPlayable { playable += 1 }
             let mask = memo.mask(for: song.genre)
-            for slot in ruled.indices where ruled[slot].1.matches(song, mask: mask, history: history) {
+            let artistKey = needsArtistKey ? artistMemo.key(for: song) : nil
+            let plays = countsPlays ? history.recentPlayCounts[song.id] ?? 0 : 0
+            for slot in ruled.indices
+            where ruled[slot].rule.matches(song, mask: mask, artistKey: artistKey, history: history) {
                 tallies[slot] += 1
+                playTallies[slot] += plays
             }
         }
+        let ranksByListening = history.recentPlays >= minimumRecentPlaysForRanking
         var counts: [String: Int] = [:]
-        for slot in ruled.indices where tallies[slot] > 0 { counts[ruled[slot].0, default: 0] += tallies[slot] }
+        var scores: [String: Double] = [:]
+        for slot in ruled.indices where tallies[slot] > 0 {
+            let id = ruled[slot].id
+            counts[id, default: 0] += tallies[slot]
+            let libraryShare = playable > 0 ? Double(tallies[slot]) / Double(playable) : 0
+            var score = libraryShare
+            if ranksByListening {
+                let playShare = Double(playTallies[slot]) / Double(history.recentPlays)
+                score = playShareWeight * min(1, playShare) + (1 - playShareWeight) * libraryShare
+            }
+            if ruled[slot].isPersonal { score += personalBonus }
+            scores[id] = max(scores[id] ?? 0, score)
+        }
         return ListeningIntentAvailability(
             songCounts: counts,
+            scores: scores,
             libraryGeneration: libraryGeneration,
             computedAt: history.now
         )
@@ -673,7 +889,8 @@ public enum ListeningIntentEngine {
 
     /// The first queue for a rule-based intent: up to `playback.songLimit`
     /// matching songs, a random sample stable for a given `seed`. Habits that
-    /// are about time ("long unplayed") prefer the longest-unheard songs.
+    /// are about time ("long unplayed") prefer the longest-unheard songs;
+    /// album intents play their albums whole, in order.
     public static func queueSongIDs<Songs: Collection>(
         for intent: ListeningIntent,
         songs: Songs,
@@ -684,15 +901,20 @@ public enum ListeningIntentEngine {
         guard let rule = intent.rule.map({ CompiledRule($0, now: history.now) }) else { return [] }
         let limit = max(0, intent.playback.songLimit)
         guard limit > 0 else { return [] }
+        if intent.playback.playsAlbumsInSequence == true, let albumOrder = intent.rule?.albumIDs, !albumOrder.isEmpty {
+            return albumSequence(rule: rule, albumOrder: albumOrder, songs: songs, history: history, limit: limit, isCancelled: isCancelled)
+        }
         var generator = ListeningSeededGenerator(seed: seed)
         var memo = ListeningGenreClassifier.Memo()
+        var artistMemo = ListeningArtistKeyMemo()
         // Reservoir sampling keeps memory at `limit` whatever the library size.
         var sample: [(id: String, key: Double)] = []
         sample.reserveCapacity(limit)
         var seen = 0
         for song in songs {
             if seen.isMultiple(of: 1_024), isCancelled() { return [] }
-            guard rule.matches(song, mask: memo.mask(for: song.genre), history: history) else { continue }
+            let artistKey = rule.needsArtistKey ? artistMemo.key(for: song) : nil
+            guard rule.matches(song, mask: memo.mask(for: song.genre), artistKey: artistKey, history: history) else { continue }
             seen += 1
             var key = Double(generator.next() >> 11) / Double(1 << 53)
             if intent.habit == .longUnplayed {
@@ -714,6 +936,35 @@ public enum ListeningIntentEngine {
             ids.shuffle(using: &generator)
         }
         return ids
+    }
+
+    /// Whole albums in the rule's order, each by disc and track.
+    private static func albumSequence<Songs: Collection>(
+        rule: CompiledRule,
+        albumOrder: [String],
+        songs: Songs,
+        history: ListeningHistoryIndex,
+        limit: Int,
+        isCancelled: () -> Bool
+    ) -> [String] where Songs.Element: ListeningSongTraits {
+        var rank: [String: Int] = [:]
+        for (index, albumID) in albumOrder.enumerated() where rank[albumID] == nil { rank[albumID] = index }
+        var memo = ListeningGenreClassifier.Memo()
+        var artistMemo = ListeningArtistKeyMemo()
+        var picked: [(id: String, album: Int, disc: Int, track: Int, position: Int)] = []
+        var position = 0
+        for song in songs {
+            if position.isMultiple(of: 1_024), isCancelled() { return [] }
+            position += 1
+            guard let albumID = song.albumID, let albumRank = rank[albumID] else { continue }
+            let artistKey = rule.needsArtistKey ? artistMemo.key(for: song) : nil
+            guard rule.matches(song, mask: memo.mask(for: song.genre), artistKey: artistKey, history: history) else { continue }
+            picked.append((song.id, albumRank, song.discNumber ?? 1, song.trackNumber ?? Int.max, position))
+        }
+        picked.sort {
+            ($0.album, $0.disc, $0.track, $0.position) < ($1.album, $1.disc, $1.track, $1.position)
+        }
+        return picked.prefix(limit).map(\.id)
     }
 }
 

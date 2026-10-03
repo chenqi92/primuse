@@ -2786,6 +2786,8 @@ struct NowPlayingAccessory: View {
 /// 详情页取证用：`genre:<名字片段>` / `smart:<名字片段>`（智能歌单）。
 /// `PRIMUSE_DEBUG_SEED_RADIO=1` 建几个取证用的电台（看电台页版式）；`=organized` 另把它们分进几个文件夹、
 /// 打上几个标签（看电台页顶上两排筛选胶囊）。
+/// `PRIMUSE_DEBUG_SEED_PLAYS=<专辑名片段>[,…]` 给这些专辑的歌各记四次最近几天的播放(看「开始听」的「为你」与按收听排序),
+/// 同一份曲库只记一次。
 /// `PRIMUSE_DEBUG_SEED_PLAYLISTS=1` 先建两张取证歌单：整库一张（封面墙）、Evidence 专辑一张（单封面）；
 /// 另建两张同样形态的取证智能歌单（Evidence Smart Wall / Evidence Smart Single），用 `smart:<名字片段>` 打开。
 extension ContentView {
@@ -2807,6 +2809,7 @@ extension ContentView {
         guard !Task.isCancelled else { return }
         debugSeedPlaylistsIfRequested()
         debugSeedRadioIfRequested()
+        debugSeedPlaysIfRequested()
         if let orientation = ProcessInfo.processInfo.environment["PRIMUSE_ORIENTATION"]?.lowercased(),
            ["landscape", "portrait", "landscapeleft", "landscaperight"].contains(orientation) {
             InterfaceOrientationLock.debugRequest(named: orientation)
@@ -2932,6 +2935,32 @@ extension ContentView {
     @MainActor
     private func debugOpenSection(_ section: LibrarySection) {
         openLibraryDeepLink(.section(section))
+    }
+
+    /// `PRIMUSE_DEBUG_SEED_PLAYS=<专辑名片段>[,…]`：这些专辑里的歌各记四次最近几天的播放，只记一次。
+    @MainActor
+    private func debugSeedPlaysIfRequested() {
+        guard let raw = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SEED_PLAYS"], !raw.isEmpty else { return }
+        let marker = "primuse.debug.seededPlays." + raw
+        guard !UserDefaults.standard.bool(forKey: marker) else { return }
+        let needles = raw.lowercased().split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        let songs = library.visibleSongs.filter { song in
+            let album = (song.albumTitle ?? "").lowercased()
+            return needles.contains { !$0.isEmpty && album.contains($0) }
+        }
+        guard !songs.isEmpty else { return }
+        let now = Date()
+        for (index, song) in songs.enumerated() {
+            for day in 0..<4 {
+                PlayHistoryStore.shared.record(
+                    song: song,
+                    startedAt: now.addingTimeInterval(-Double(day) * 86_400 - Double(index) * 300),
+                    listenedSec: 120
+                )
+            }
+        }
+        UserDefaults.standard.set(true, forKey: marker)
+        plog("🧪 DebugLaunchAutomation: seeded \(songs.count * 4) plays")
     }
 
     /// `PRIMUSE_DEBUG_SEED_PLAYLISTS=1`：没有就建两张取证歌单，名字固定，重复启动不会重复建。

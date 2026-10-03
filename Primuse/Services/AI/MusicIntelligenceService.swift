@@ -57,6 +57,18 @@ enum AISongDiscoveryOutcome: Sendable {
     case failed(AISongDiscoveryFailure, retryAt: Date? = nil)
 }
 
+struct AIListeningIntentExecution: Sendable {
+    var drafts: [ListeningIntentAIExchange.Draft]
+    var providerName: String
+}
+
+enum AIListeningIntentOutcome: Sendable {
+    case success(AIListeningIntentExecution)
+    /// Nothing could be asked, or nobody answered usefully; the device's own
+    /// intents stand. `retryAt` is the relay's own back-off when it gave one.
+    case unavailable(retryAt: Date? = nil)
+}
+
 struct AIAudioTranscriptionExecution: Sendable {
     var result: AIAudioTranscriptionResult
     var providerName: String
@@ -1111,6 +1123,80 @@ final class MusicIntelligenceService {
         }
         return statusCode == 404 || statusCode == 501
             || ["feature_disabled", "feature_not_in_plan"].contains(code)
+    }
+
+    /// Whether "for you" intents can be curated by an AI service: the same
+    /// library content and consent as tag cleanup.
+    var isListeningIntentCurationAvailable: Bool { isTagCleanupAvailable }
+
+    /// Whether play figures may go along (listening context consent).
+    var allowsListeningContextForCuration: Bool { settingsStore.hasExplicitListeningContextConsent }
+
+    /// Chosen and named "for you" intents: the built-in AI first, then the
+    /// listener's own services. Any failure is the cue to keep the device's
+    /// own intents, never an error to show.
+    func curateListeningIntents(_ request: ListeningIntentAIExchange.Request) async -> AIListeningIntentOutcome {
+        guard settingsStore.hasExplicitRemoteConsent else { return .unavailable() }
+        let consent = settingsStore.hasExplicitRemoteConsent
+        let regionSnapshot = regionAvailability.snapshot
+        var relayRetryAt: Date?
+
+        if isPrimuseRelayAvailable, canUsePrimuseRelay(
+            captured: regionSnapshot,
+            latest: regionAvailability.snapshot,
+            hasRequiredConsent: consent
+        ) {
+            do {
+                let drafts = try await primuseRelayClient.listeningIntents(request)
+                if !drafts.isEmpty, canUsePrimuseRelay(
+                    captured: regionSnapshot,
+                    latest: regionAvailability.snapshot,
+                    hasRequiredConsent: settingsStore.hasExplicitRemoteConsent
+                ) {
+                    return .success(AIListeningIntentExecution(drafts: drafts, providerName: primuseRelayProviderName))
+                }
+            } catch is CancellationError {
+                return .unavailable()
+            } catch {
+                relayRetryAt = (error as? PrimuseAIRelayError)?.retryAt
+                plog("🎯 Listening intents: built-in AI failed reason=\(AIRecommendationFallbackReason.classify(error)) unsupported=\(Self.primuseRelayDoesNotOfferFeature(error))")
+            }
+        }
+
+        if canUseCustomTagCleanupProviders(regionContext: regionSnapshot.context) {
+            for configuration in settingsStore.providerSet.routedProviders {
+                guard !configuration.generationModel
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      AIRegionRequestPolicy.canSendRemoteRequest(
+                        captured: regionSnapshot,
+                        latest: regionAvailability.snapshot,
+                        configuration: configuration
+                      ) else { continue }
+                do {
+                    let drafts = try await engine.curateListeningIntents(
+                        request,
+                        configuration: configuration,
+                        regionContext: regionSnapshot.context,
+                        hasExplicitRemoteConsent: consent,
+                        requestAuthorization: regionAuthorization(
+                            for: regionSnapshot,
+                            configuration: configuration
+                        )
+                    )
+                    guard !drafts.isEmpty, AIRegionRequestPolicy.canCommitRemoteResponse(
+                        captured: regionSnapshot,
+                        latest: regionAvailability.snapshot,
+                        configuration: configuration
+                    ) else { continue }
+                    return .success(AIListeningIntentExecution(drafts: drafts, providerName: configuration.displayName))
+                } catch is CancellationError {
+                    return .unavailable()
+                } catch {
+                    plog("🎯 Listening intents: own service failed reason=\(AIRecommendationFallbackReason.classify(error))")
+                }
+            }
+        }
+        return .unavailable(retryAt: relayRetryAt)
     }
 
     func recommendationOutcome(
@@ -2702,6 +2788,43 @@ private actor MusicIntelligenceEngine {
         // A list of thirty songs with reasons is a long answer.
         return try await withTimeout(seconds: max(configuration.requestTimeout, 45)) {
             try await provider.discoverSongs(request, currentYear: currentYear)
+        }
+    }
+
+    /// Intent curation is plain text generation over aggregated library
+    /// names, routed like new-song discovery.
+    func curateListeningIntents(
+        _ request: ListeningIntentAIExchange.Request,
+        configuration: AIRemoteProviderConfiguration,
+        regionContext: AIRegionContext,
+        hasExplicitRemoteConsent: Bool,
+        requestAuthorization: @escaping @Sendable () async -> Bool
+    ) async throws -> [ListeningIntentAIExchange.Draft] {
+        let routed = AIProviderRoutingPolicy.candidates(
+            from: [configuration.descriptor],
+            capability: .lyricsTranslation,
+            regionContext: regionContext,
+            hasExplicitRemoteConsent: hasExplicitRemoteConsent
+        )
+        guard routed.first?.id == configuration.id else {
+            let reason: AIProviderUnavailableReason = regionContext.region == .mainlandChina
+                ? .regionRestricted
+                : .disabled
+            throw MusicIntelligenceError.unavailable(reason)
+        }
+        let provider = OpenAICompatibleProvider(
+            configuration: configuration,
+            credentialStore: credentialStore,
+            requestAuthorization: requestAuthorization
+        )
+        switch await provider.runtimeAvailability() {
+        case .available:
+            break
+        case .unavailable(let reason):
+            throw MusicIntelligenceError.unavailable(reason)
+        }
+        return try await withTimeout(seconds: max(configuration.requestTimeout, 45)) {
+            try await provider.curateListeningIntents(request)
         }
     }
 

@@ -330,6 +330,11 @@ HAN_LITERAL_ALLOWLIST = {
   "PrimuseKit/Sources/PrimuseKit/AlbumRecommender.swift" => [
     /\A\s*static let \w+: \[String\] = \[/
   ],
+  # Storage folder names ("下载", "我的音乐") matched against the listener's
+  # folder names so they are not offered as "for you" intents; never shown.
+  "PrimuseKit/Sources/PrimuseKit/ListeningProfile.swift" => [
+    /\A\s*static let \w+: \[String\] = \[/
+  ],
   # Version markers matched against song titles and file names to pair a
   # song with its backing track; never shown as UI copy.
   "PrimuseKit/Sources/PrimuseKit/KaraokeCompanionPolicy.swift" => [

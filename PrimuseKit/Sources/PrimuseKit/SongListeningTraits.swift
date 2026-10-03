@@ -3,7 +3,16 @@ import Foundation
 /// `Song` already carries every field the listening features read; the
 /// conformance lives apart from the model so the features' own sources stay
 /// free of the database layer.
-extension Song: ListeningSongTraits {}
+extension Song: ListeningSongTraits {
+    /// The same grading as the quality badge (`audioQuality`), folded to three steps.
+    public var listeningQuality: ListeningAudioQuality {
+        switch audioQuality {
+        case .dsd, .hiRes: .hiRes
+        case .lossless: .lossless
+        case .standard: .lossy
+        }
+    }
+}
 
 // Entry points for the library's own song arrays. The generic passes are
 // specialized here, inside the module, so a whole-library walk from the app
@@ -55,5 +64,15 @@ public extension ListeningIntentEngine {
         isCancelled: () -> Bool = { false }
     ) -> (ids: [String], total: Int)? {
         matchingSongIDs(for: intent, songs: songs, history: history, limit: limit, isCancelled: isCancelled)
+    }
+}
+
+public extension ListeningProfile {
+    static func build(
+        librarySongs songs: [Song],
+        history: ListeningHistoryIndex,
+        isCancelled: () -> Bool = { false }
+    ) -> ListeningProfile? {
+        build(songs: songs, history: history, isCancelled: isCancelled)
     }
 }

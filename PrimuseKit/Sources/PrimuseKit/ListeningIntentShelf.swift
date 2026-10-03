@@ -152,7 +152,7 @@ public struct ListeningIntentShelfItem: Equatable, Identifiable, Sendable {
 /// A group on the full intent page.
 public struct ListeningIntentShelfSection: Equatable, Identifiable, Sendable {
     public enum Kind: String, Equatable, Sendable {
-        case pinned, genre, era, mood, habit
+        case pinned, personal, genre, era, mood, habit
     }
 
     public let kind: Kind
@@ -179,11 +179,14 @@ public enum ListeningIntentShelfPolicy {
     ///     again; nil when there is nothing to resume.
     ///   - smartPlaylists: pinned smart playlists that still exist, by
     ///     intent ID (`smart:<id>`), with how many songs they match now.
+    ///   - personal: the "for you" intents worked out for this listener;
+    ///     they compete with the built-ins on the same ranking.
     public static func row(
         availability: ListeningIntentAvailability?,
         configuration: ListeningIntentShelfConfiguration,
         resumeSongCount: Int?,
         smartPlaylists: [String: Int] = [:],
+        personal: [ListeningIntent] = [],
         limit: Int = rowLimit
     ) -> [ListeningIntentShelfItem] {
         guard limit > 0 else { return [] }
@@ -202,7 +205,10 @@ public enum ListeningIntentShelfPolicy {
         }
         used.insert(items[0].id)
 
-        let catalog = Dictionary(uniqueKeysWithValues: builtInCatalog.map { ($0.id, $0) })
+        let catalog = Dictionary(
+            (builtInCatalog + personal).map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         for intentID in configuration.pinnedIDs where items.count < limit {
             guard !used.contains(intentID), !configuration.isHidden(intentID) else { continue }
             if let builtIn = catalog[intentID] {
@@ -224,7 +230,7 @@ public enum ListeningIntentShelfPolicy {
         }
 
         guard let availability else { return Array(items.prefix(limit)) }
-        for intent in availability.litIntents(builtInCatalog) where items.count < limit {
+        for intent in availability.litIntents(personal + builtInCatalog) where items.count < limit {
             guard !used.contains(intent.id), !configuration.isHidden(intent.id) else { continue }
             let count = availability.songCount(for: intent)
             // An intent that matches the whole library ("newly added" right
@@ -243,9 +249,13 @@ public enum ListeningIntentShelfPolicy {
     public static func page(
         availability: ListeningIntentAvailability?,
         configuration: ListeningIntentShelfConfiguration,
-        smartPlaylists: [String: Int] = [:]
+        smartPlaylists: [String: Int] = [:],
+        personal: [ListeningIntent] = []
     ) -> [ListeningIntentShelfSection] {
-        let catalog = Dictionary(uniqueKeysWithValues: builtInCatalog.map { ($0.id, $0) })
+        let catalog = Dictionary(
+            (builtInCatalog + personal).map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
 
         func item(_ intent: ListeningIntent, count: Int, isLit: Bool, role: ListeningIntentShelfItem.Role) -> ListeningIntentShelfItem {
             ListeningIntentShelfItem(
@@ -271,6 +281,30 @@ public enum ListeningIntentShelfPolicy {
 
         var sections: [ListeningIntentShelfSection] = []
         if !pinned.isEmpty { sections.append(ListeningIntentShelfSection(kind: .pinned, items: pinned)) }
+        // 「为你」: the listener's own that light up now, strongest first;
+        // hidden ones stay so they can come back. Unlike the catalog, a
+        // personal intent with too few songs (its album was removed, the
+        // listening moved on) is not shown at all.
+        let personalItems = personal
+            .filter { !configuration.isPinned($0.id) && (availability?.isLit($0) ?? false) }
+            .enumerated()
+            .sorted { lhs, rhs in
+                let left = availability?.score(for: lhs.element) ?? 0
+                let right = availability?.score(for: rhs.element) ?? 0
+                if abs(left - right) > 1e-9 { return left > right }
+                return lhs.offset < rhs.offset
+            }
+            .map { entry in
+                item(
+                    entry.element,
+                    count: availability?.songCount(for: entry.element) ?? 0,
+                    isLit: availability?.isLit(entry.element) ?? false,
+                    role: .suggested
+                )
+            }
+        if !personalItems.isEmpty {
+            sections.append(ListeningIntentShelfSection(kind: .personal, items: personalItems))
+        }
         let groups: [(ListeningIntentShelfSection.Kind, ListeningIntent.Category)] = [
             (.genre, .genre), (.era, .era), (.mood, .mood), (.habit, .habit),
         ]
@@ -354,6 +388,7 @@ public extension ListeningIntentEngine {
     ) -> (ids: [String], total: Int)? where Songs.Element: ListeningSongTraits {
         guard let rule = intent.rule.map({ CompiledRule($0, now: history.now) }) else { return ([], 0) }
         var memo = ListeningGenreClassifier.Memo()
+        var artistMemo = ListeningArtistKeyMemo()
         var ids: [String] = []
         ids.reserveCapacity(min(max(0, limit), 1_024))
         var total = 0
@@ -361,7 +396,8 @@ public extension ListeningIntentEngine {
         for song in songs {
             if position.isMultiple(of: 1_024), isCancelled() { return nil }
             position += 1
-            guard rule.matches(song, mask: memo.mask(for: song.genre), history: history) else { continue }
+            let artistKey = rule.needsArtistKey ? artistMemo.key(for: song) : nil
+            guard rule.matches(song, mask: memo.mask(for: song.genre), artistKey: artistKey, history: history) else { continue }
             total += 1
             if ids.count < limit { ids.append(song.id) }
         }

@@ -430,6 +430,22 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         }
     }
 
+    func curateListeningIntents(
+        _ request: ListeningIntentAIExchange.Request
+    ) async throws -> [ListeningIntentAIExchange.Draft] {
+        guard let payload = ListeningIntentAIExchange.payloadJSON(request) else { return [] }
+        let output = try await generateText(
+            instructions: ListeningIntentAIExchange.instructions,
+            input: payload,
+            maximumTokens: 1_500
+        )
+        do {
+            return try ListeningIntentAIExchange.drafts(fromText: output, request: request)
+        } catch {
+            throw OpenAICompatibleProviderError.invalidResponse
+        }
+    }
+
     func recommendations(
         _ request: AIRecommendationRequest
     ) async throws -> AIRecommendationPlan {

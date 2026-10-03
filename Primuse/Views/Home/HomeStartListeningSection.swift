@@ -184,7 +184,7 @@ struct StartListeningShelf: View {
                 symbolName: item.intent.symbolName,
                 detail: detail,
                 tint: item.intent.tint,
-                badgeSymbol: item.isPinned ? "pin.fill" : nil,
+                badgeSymbol: item.badgeSymbol,
                 isWorking: startingIntentID == item.id
             )
         }
@@ -251,7 +251,7 @@ struct StartListeningShelf: View {
                 symbolName: item.intent.symbolName,
                 detail: detail,
                 tint: item.intent.tint,
-                badgeSymbol: item.isPinned ? "pin.fill" : nil,
+                badgeSymbol: item.badgeSymbol,
                 isWorking: startingIntentID == item.id
             )
         }
@@ -668,7 +668,12 @@ struct ListeningIntentsPage: View {
                 #if os(macOS)
                 if let onBack { macHeader(onBack: onBack) }
                 #endif
-                ForEach(service.pageSections) { section in
+                let sections = service.pageSections
+                let hasPersonal = sections.contains { $0.kind == .personal }
+                if !hasPersonal, !sections.contains(where: { $0.kind == .pinned }) {
+                    emptyPersonalSection
+                }
+                ForEach(sections) { section in
                     VStack(alignment: .leading, spacing: 10) {
                         Text(LocalizedStringKey(section.titleKey))
                             .font(.headline)
@@ -678,6 +683,12 @@ struct ListeningIntentsPage: View {
                                 tile(item, inPinned: section.kind == .pinned)
                             }
                         }
+                        if section.kind == .personal {
+                            PersonalIntentsFooter()
+                        }
+                    }
+                    if section.kind == .pinned, !hasPersonal {
+                        emptyPersonalSection
                     }
                 }
                 Text("listening_intent_page_footer")
@@ -709,6 +720,20 @@ struct ListeningIntentsPage: View {
         #else
         20
         #endif
+    }
+
+    /// 还没有「为你」意图时也留着这一块:说清楚它从哪来,开关也在这里。
+    private var emptyPersonalSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("listening_intent_group_personal")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            Text("listening_intent_personal_empty")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            PersonalIntentsFooter()
+        }
     }
 
     #if os(macOS)
@@ -745,7 +770,7 @@ struct ListeningIntentsPage: View {
                 symbolName: item.intent.symbolName,
                 detail: detail,
                 tint: item.intent.tint,
-                badgeSymbol: item.isHidden ? "eye.slash" : (item.isPinned ? "pin.fill" : nil),
+                badgeSymbol: item.isHidden ? "eye.slash" : item.badgeSymbol,
                 isWorking: startingIntentID == item.id,
                 isDimmed: !item.isLit || item.isHidden,
                 fillsWidth: true
@@ -797,6 +822,84 @@ struct ListeningIntentsPage: View {
             await service.play(item.intent, player: player, library: library)
             startingIntentID = nil
         }
+    }
+}
+
+/// 「为你」底下那行:谁整理的(AI 还是本机规则)、开关、重新整理。
+struct PersonalIntentsFooter: View {
+    private var service: ListeningIntentService { .shared }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Image(systemName: statusSymbol)
+                    .font(.footnote)
+                    .foregroundStyle(.tint)
+                    .accessibilityHidden(true)
+                Text(verbatim: statusText)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            HStack(spacing: 12) {
+                Toggle(isOn: Binding(
+                    get: { service.isAICurationEnabled },
+                    set: { enabled in pmWithAnimation(.list) { service.setAICurationEnabled(enabled) } }
+                )) {
+                    Text("listening_intent_ai_toggle")
+                        .font(.footnote.weight(.semibold))
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .fixedSize()
+                .accessibilityIdentifier("listeningIntents.aiToggle")
+                Spacer(minLength: 0)
+                if service.isAICurationEnabled, service.canCurateWithAI {
+                    Button {
+                        service.recurate()
+                    } label: {
+                        Label("listening_intent_ai_refresh", systemImage: "arrow.clockwise")
+                            .font(.footnote.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.small)
+                    .disabled(service.curationStatus == .working)
+                    .accessibilityIdentifier("listeningIntents.recurate")
+                }
+            }
+        }
+        .padding(.top, 2)
+    }
+
+    private var statusSymbol: String {
+        switch service.curationStatus {
+        case .curated, .working: "sparkles"
+        case .off, .local, .unavailable: "person.crop.circle"
+        }
+    }
+
+    private var statusText: String {
+        switch service.curationStatus {
+        case .off, .local:
+            String(localized: "listening_intent_ai_status_local")
+        case .working:
+            String(localized: "listening_intent_ai_status_working")
+        case .curated(let provider, _):
+            String(format: String(localized: "listening_intent_ai_status_curated %@"), provider)
+        case .unavailable:
+            String(localized: "listening_intent_ai_status_unavailable")
+        }
+    }
+}
+
+extension ListeningIntentShelfItem {
+    /// 钉选的显示图钉;AI 整理出来的显示一点星光。
+    var badgeSymbol: String? {
+        if isPinned { return "pin.fill" }
+        if intent.isAICurated == true { return "sparkles" }
+        return nil
     }
 }
 
