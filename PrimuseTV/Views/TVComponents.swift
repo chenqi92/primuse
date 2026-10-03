@@ -299,7 +299,7 @@ struct TVAlbumCard: View {
                       focusID: focusID) { focused in
             VStack(alignment: .leading, spacing: 0) {
                 TVArtworkView(album: album, size: width)
-                    .tvFocusRing(focused, radius: TVRadius.cover, scale: 1.04, lift: 0)
+                    .tvCardFocus(focused, radius: TVRadius.cover)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(titleOverride ?? album.title)
                         .tvFont(.cardTitle)
@@ -360,7 +360,7 @@ struct TVSongCard: View {
                               album: album?.title ?? "", songID: song.id, coverRef: song.coverRef,
                               tint: album?.tint ?? TVColor.brand,
                               tint2: album?.tint2 ?? .black, glyph: album?.glyph ?? "♪", size: width)
-                    .tvFocusRing(focused, radius: TVRadius.cover, scale: 1.04, lift: 0)
+                    .tvCardFocus(focused, radius: TVRadius.cover)
                 VStack(alignment: .leading, spacing: 6) {
                     if let reason {
                         Label(reason, systemImage: "sparkles")
@@ -415,7 +415,7 @@ struct TVRadioStationCard: View {
         TVFocusButton(ring: false, action: play, focusBinding: focusBinding, focusID: station.id) { focused in
             VStack(alignment: .leading, spacing: 0) {
                 TVRadioArtworkView(station: station, size: width, radius: TVRadius.cover, store: store)
-                    .tvFocusRing(focused, radius: TVRadius.cover, scale: 1.04, lift: 0)
+                    .tvCardFocus(focused, radius: TVRadius.cover)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(station.name)
                         .tvFont(.cardTitle)
@@ -601,7 +601,7 @@ struct TVArtistCard: View {
                       focusBinding: focusBinding, focusID: focusID) { focused in
             VStack(spacing: 12) {
                 TVArtistArtworkView(artist: artist, size: size)
-                    .tvFocusRing(focused, radius: size / 2, scale: 1.04, lift: 0)
+                    .tvCardFocus(focused, radius: size / 2)
                 Text(artist.name).tvFont(.cardTitle)
                     .foregroundStyle(TVColor.text)
                     .multilineTextAlignment(.center)
@@ -668,9 +668,11 @@ struct TVFilterChipLabel: View {
             .fixedSize(horizontal: true, vertical: false)
             .frame(minHeight: 64)
             .padding(.horizontal, 18)
-            .foregroundStyle(isSelected ? TVColor.onBrand : TVColor.text)
-            .background(isSelected ? TVColor.brand : TVColor.card, in: .rect(cornerRadius: 14))
-            .tvFocusRing(isFocused, radius: 14, scale: 1.02, lift: 0)
+            // 焦点反白优先于「选中」的主题色:选中的那颗本身就带色,只靠描边看不出焦点在不在它上面。
+            .foregroundStyle(isFocused ? TVColor.onFocusFill : (isSelected ? TVColor.onBrand : TVColor.text))
+            .background(isFocused ? TVColor.focusFill : (isSelected ? TVColor.brand : TVColor.card),
+                        in: .rect(cornerRadius: 14))
+            .tvFocusRing(isFocused, radius: 14, scale: 1.04, lift: 0)
     }
 }
 
@@ -692,7 +694,7 @@ struct TVPillButton: View {
         TVFocusButton(
             radius: 14, scale: 1.04, lift: 6, action: action,
             focusBinding: focusBinding, focusID: focusID
-        ) { _ in
+        ) { focused in
             HStack(spacing: 12) {
                 Image(systemName: systemImage).font(.system(size: 22, weight: .semibold))
                 Text(title).tvFont(.button, weight: style == .solid ? .bold : .semibold)
@@ -700,19 +702,22 @@ struct TVPillButton: View {
             }
             .padding(.horizontal, 28)
             .padding(.vertical, 18)
-            .foregroundStyle(foreground)
-            .background(background)
+            .foregroundStyle(foreground(focused: focused))
+            .background(background(focused: focused))
         }
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
-    private var foreground: Color {
+    /// 获得焦点时反白(实心的主按钮也一样),一排按钮里一眼看出停在哪颗上。
+    private func foreground(focused: Bool) -> Color {
         guard isEnabled else { return TVColor.textGhost }
+        if focused { return TVColor.onFocusFill }
         return style == .solid ? TVColor.onBrand : TVColor.text
     }
 
-    private var background: AnyShapeStyle {
+    private func background(focused: Bool) -> AnyShapeStyle {
         guard isEnabled else { return AnyShapeStyle(TVColor.surface) }
+        if focused { return AnyShapeStyle(TVColor.focusFill) }
         return style == .solid ? AnyShapeStyle(TVColor.brand) : AnyShapeStyle(TVColor.surfaceStrong)
     }
 }
@@ -723,13 +728,13 @@ struct TVFavoriteIconButton: View {
     let action: () -> Void
 
     var body: some View {
-        TVFocusButton(radius: 14, scale: 1.04, lift: 6, action: action) { _ in
+        TVFocusButton(radius: 14, scale: 1.04, lift: 6, action: action) { focused in
             Image(systemName: isLiked ? "heart.fill" : "heart")
                 .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(isLiked ? TVColor.brand : TVColor.text)
+                .foregroundStyle(isLiked ? TVColor.brand : (focused ? TVColor.onFocusFill : TVColor.text))
                 .frame(width: 36, height: 36)
                 .padding(18)
-                .background(TVColor.surfaceStrong)
+                .background(focused ? TVColor.focusFill : TVColor.surfaceStrong)
         }
         .accessibilityLabel(Text(isLiked ? "library_favorite_unlike" : "library_favorite_like"))
         .accessibilityAddTraits(isLiked ? [.isButton, .isSelected] : .isButton)

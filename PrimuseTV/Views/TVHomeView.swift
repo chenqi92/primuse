@@ -598,11 +598,11 @@ struct TVHomeView: View {
         ) { focused in
             Text(scene.localizedName)
                 .tvFont(.caption, weight: .semibold)
-                .foregroundStyle(selected ? TVColor.onBrand : TVColor.text)
+                .foregroundStyle(focused ? TVColor.onFocusFill : (selected ? TVColor.onBrand : TVColor.text))
                 .padding(.horizontal, 24)
                 .padding(.vertical, 13)
                 .background(
-                    selected ? TVColor.brand : (focused ? TVColor.surfaceStrong : TVColor.surface),
+                    focused ? TVColor.focusFill : (selected ? TVColor.brand : TVColor.surface),
                     in: Capsule()
                 )
         }
@@ -642,13 +642,13 @@ struct TVHomeView: View {
                         TVFocusButton(radius: 14, scale: 1.04, lift: 6, action: {
                             guard let pick = albumPick else { return }
                             AlbumRecommendationService.shared.dismiss(albumID: pick.albumID)
-                        }) { _ in
+                        }) { focused in
                             Image(systemName: "hand.thumbsdown")
                                 .font(.system(size: 22, weight: .semibold))
-                                .foregroundStyle(TVColor.text)
+                                .foregroundStyle(focused ? TVColor.onFocusFill : TVColor.text)
                                 .frame(width: 36, height: 36)
                                 .padding(18)
-                                .background(TVColor.surfaceStrong)
+                                .background(focused ? TVColor.focusFill : TVColor.surfaceStrong)
                         }
                         .accessibilityLabel(Text("album_pick_dismiss"))
                     } else {

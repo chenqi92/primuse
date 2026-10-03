@@ -87,7 +87,12 @@ enum TVColor {
                                      dark: UIColor.black.withAlphaComponent(0.24))
     static let focusShadow = adaptive(light: UIColor.black.withAlphaComponent(0.26),
                                       dark: UIColor.black.withAlphaComponent(0.54))
-    @MainActor static var focusRing: Color { brand }
+    /// 焦点描边用正文色(深色外观白、浅色外观近黑):主题色描边压在封面取色的氛围底上
+    /// 对比不够,隔着几米看不出焦点在哪。
+    static let focusRing = text
+    /// 获得焦点的按钮 / 胶囊反白:底用正文色,字用页面底色。tvOS 系统按钮也是这样提示焦点。
+    static let focusFill = text
+    static let onFocusFill = bg
     /// 品牌底色在浅色外观中加深、深色外观中提亮，并提供对应前景色，
     /// 让 16pt 普通文本和焦点图标都达到稳定对比度。
     @MainActor static var brand: Color {
@@ -369,6 +374,7 @@ private struct TVFocusRingModifier: ViewModifier {
     let accent: Color
     let scale: CGFloat
     let lift: CGFloat
+    let prominent: Bool
 
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -383,19 +389,28 @@ private struct TVFocusRingModifier: ViewModifier {
         content
             .clipShape(shape)
             .overlay {
-                shape.strokeBorder(accent.opacity(0.85), lineWidth: focused ? 2 : 0)
+                shape.strokeBorder(accent, lineWidth: focused ? (prominent ? 4 : 3) : 0)
             }
-            .shadow(color: focused ? TVColor.focusShadow.opacity(0.65) : TVColor.cardShadow,
-                    radius: focused ? 14 : 8, x: 0, y: focused ? 6 : 4)
-            .scaleEffect(focused && !reduceMotion ? min(scale, 1.06) : 1)
-            .offset(y: focused && !reduceMotion ? -min(lift, 4) : 0)
-            .zIndex(focused ? 1 : 0)
+            .shadow(color: focused ? TVColor.focusShadow.opacity(prominent ? 0.9 : 0.65) : TVColor.cardShadow,
+                    radius: focused ? (prominent ? 24 : 14) : 8, x: 0, y: focused ? (prominent ? 14 : 6) : 4)
+            .scaleEffect(focused && !reduceMotion ? min(scale, prominent ? TVFocusEmphasis.cardScale : 1.06) : 1)
+            .offset(y: focused && !reduceMotion ? -min(lift, prominent ? TVFocusEmphasis.cardLift : 4) : 0)
+            // 封面卡片的描边挂在封面上、标题在它下面:抬高封面会让它的阴影盖住自己的标题,
+            // 放大后也碰不到相邻卡片,所以不抬。
+            .zIndex(focused && !prominent ? 1 : 0)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: focused)
     }
 }
 
+/// 封面卡片(专辑、歌曲、电台、艺人)的焦点:放大和浮起都比按钮多一档,描边更粗、
+/// 阴影更深。墙上一排排封面长得差不多,只放大 4% 远看分不出哪张被选中。
+enum TVFocusEmphasis {
+    static let cardScale: CGFloat = 1.08
+    static let cardLift: CGFloat = 6
+}
+
 extension View {
-    /// 细描边与轻微浮起保持焦点可见，避免彩色光晕与封面氛围叠加。
+    /// 正文色粗描边 + 轻微浮起:不用彩色光晕,免得和封面氛围叠在一起。
     /// `capsule` 用于胶囊形的按钮:描边和裁切跟着胶囊走,圆角不随按钮高度对不上。
     func tvFocusRing(_ focused: Bool,
                      radius: CGFloat = TVRadius.card,
@@ -409,7 +424,21 @@ extension View {
             capsule: capsule,
             accent: accent,
             scale: scale,
-            lift: lift
+            lift: lift,
+            prominent: false
+        ))
+    }
+
+    /// 封面卡片的焦点,见 `TVFocusEmphasis`。
+    func tvCardFocus(_ focused: Bool, radius: CGFloat) -> some View {
+        modifier(TVFocusRingModifier(
+            focused: focused,
+            radius: radius,
+            capsule: false,
+            accent: TVColor.focusRing,
+            scale: TVFocusEmphasis.cardScale,
+            lift: TVFocusEmphasis.cardLift,
+            prominent: true
         ))
     }
 

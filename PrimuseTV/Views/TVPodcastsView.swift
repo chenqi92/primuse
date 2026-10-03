@@ -389,7 +389,7 @@ struct TVPodcastEpisodeCard: View {
         TVFocusButton(ring: false, action: action) { focused in
             VStack(alignment: .leading, spacing: 0) {
                 TVPodcastArtwork(url: episode.artworkURL ?? show?.artworkURL, side: width)
-                    .tvFocusRing(focused, radius: TVRadius.cover, scale: 1.04, lift: 0)
+                    .tvCardFocus(focused, radius: TVRadius.cover)
                 VStack(alignment: .leading, spacing: 6) {
                     if let fraction = TVPodcastText.fraction(episode, state: state) {
                         TVPodcastProgressBar(fraction: fraction)
@@ -427,7 +427,7 @@ struct TVPodcastShowCard: View {
         TVFocusButton(ring: false, action: action) { focused in
             VStack(alignment: .leading, spacing: 0) {
                 TVPodcastArtwork(url: show.artworkURL, side: width)
-                    .tvFocusRing(focused, radius: TVRadius.cover, scale: 1.04, lift: 0)
+                    .tvCardFocus(focused, radius: TVRadius.cover)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(show.title).tvFont(.cardTitle)
                         .foregroundStyle(TVColor.text)
@@ -474,7 +474,7 @@ struct TVPodcastDirectoryCard: View {
                                 .padding(10)
                         }
                     }
-                    .tvFocusRing(focused, radius: TVRadius.cover, scale: 1.04, lift: 0)
+                    .tvCardFocus(focused, radius: TVRadius.cover)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(show.title).tvFont(.cardTitle)
                         .foregroundStyle(TVColor.text)

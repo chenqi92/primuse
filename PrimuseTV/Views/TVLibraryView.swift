@@ -692,15 +692,16 @@ struct TVLibraryView: View {
                                         .opacity(0.75)
                                 }
                                 .foregroundStyle(
-                                    effectiveSelectedRecommendationIntentID == intent.id
-                                        ? TVColor.onBrand : TVColor.text
+                                    focused ? TVColor.onFocusFill
+                                        : (effectiveSelectedRecommendationIntentID == intent.id
+                                           ? TVColor.onBrand : TVColor.text)
                                 )
                                 .padding(.horizontal, 24)
                                 .frame(width: 250, height: 110, alignment: .leading)
                                 .background(
-                                    effectiveSelectedRecommendationIntentID == intent.id
-                                        ? TVColor.brand
-                                        : (focused ? TVColor.surfaceStrong : TVColor.surface),
+                                    focused ? TVColor.focusFill
+                                        : (effectiveSelectedRecommendationIntentID == intent.id
+                                           ? TVColor.brand : TVColor.surface),
                                     in: RoundedRectangle(cornerRadius: 18, style: .continuous)
                                 )
                             }
@@ -1491,7 +1492,7 @@ struct TVAlbumDetailView: View {
         let showsArtist = !song.artist.isEmpty
             && song.artist.localizedCaseInsensitiveCompare(albumArtist) != .orderedSame
         return TVFocusButton(
-            radius: 16, scale: 1.02, lift: 0, ring: false,
+            radius: 16, scale: 1.02, lift: 0,
             action: action, onFocusChanged: onFocusChanged,
             focusBinding: $focusedTrackID, focusID: track.id
         ) { focused in

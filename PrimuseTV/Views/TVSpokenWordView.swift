@@ -276,7 +276,7 @@ struct TVSpokenWordBookCard: View {
         TVFocusButton(ring: false, action: action) { focused in
             VStack(alignment: .leading, spacing: 0) {
                 TVSpokenWordCover(book: book, size: width)
-                    .tvFocusRing(focused, radius: TVRadius.cover, scale: 1.04, lift: 0)
+                    .tvCardFocus(focused, radius: TVRadius.cover)
                 VStack(alignment: .leading, spacing: 8) {
                     if book.isInProgress || book.isFinished {
                         TVSpokenWordProgressBar(fraction: book.fractionComplete, finished: book.isFinished)

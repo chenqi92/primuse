@@ -140,7 +140,7 @@ struct TVPlaylistCard: View {
                     }
                 }
                 .frame(width: width, height: h)
-                .tvFocusRing(focused, radius: TVRadius.cover, scale: 1.04, lift: 0)
+                .tvCardFocus(focused, radius: TVRadius.cover)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(playlist.name).tvFont(.cardTitle)
                         .foregroundStyle(TVColor.text).lineLimit(2, reservesSpace: true)

@@ -412,7 +412,7 @@ struct TVRadioTileCard: View {
                         .foregroundStyle(focused ? TVColor.brand : TVColor.textMuted)
                 }
                 .frame(width: width, height: width)
-                .tvFocusRing(focused, radius: TVRadius.cover, scale: 1.04, lift: 0)
+                .tvCardFocus(focused, radius: TVRadius.cover)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(title)
                         .tvFont(.cardTitle)
