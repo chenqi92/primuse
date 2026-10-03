@@ -98,6 +98,7 @@ final class SpokenWordStore {
             self.storeURL = base.appendingPathComponent("spoken_word.json")
         }
         load()
+        loadTaggedFolderFiles()
         if syncsThroughICloud {
             CloudKVSSync.shared.register(key: Self.cloudStorageKey) { [weak self] in
                 guard let self else { return }
@@ -172,13 +173,118 @@ final class SpokenWordStore {
 
     private var folderRules: SpokenWordFolderRules {
         if let cached = cachedFolderRules, cached.revision == revision { return cached.rules }
+        let folders = SpokenWordFolderTag.spokenWordFolders(in: overrides)
         let rules = SpokenWordFolderRules(
-            folders: SpokenWordFolderTag.spokenWordFolders(in: overrides),
+            folders: folders,
             sources: folderTagSources,
-            declaredSpokenWordSourceIDs: declaredSpokenWordSourceIDs
+            declaredSpokenWordSourceIDs: declaredSpokenWordSourceIDs,
+            taggedFolderFiles: taggedFolderFiles(folders: folders)
         )
         cachedFolderRules = (revision, rules)
         return rules
+    }
+
+    // MARK: - Folder tags on item-id cloud drives
+
+    /// 一个网盘源标签目录里的文件,连同算出它们时的标签目录。
+    private struct TaggedFolderFiles: Codable, Equatable {
+        var folders: [String]
+        var files: Set<String>
+    }
+
+    /// 按文件 ID 寻址的网盘(`usesOpaqueDirectoryIdentifiers`)。
+    @ObservationIgnored private var opaqueFolderSourceIDs: Set<String> = []
+    /// 这些网盘的目录上下级,由宿主从扫描索引交来(手机 ScanService、电视 TVStore)。
+    @ObservationIgnored private var folderTopologies: [String: SpokenWordFolderTopology] = [:]
+    /// 标签目录里的文件。落在本机文件里(不同步):启动时扫描索引往往还没装载,曲库先按
+    /// 上次的结论分,等目录交来算出一样的结果就不必整库重分一次。
+    @ObservationIgnored private var taggedFolderFileCache: [String: TaggedFolderFiles] = [:]
+    /// 本次运行里已按当前目录算过的源;目录一换就要重算。
+    @ObservationIgnored private var freshTaggedFolderSources: Set<String> = []
+    @ObservationIgnored private var taggedFolderFileSaveTask: Task<Void, Never>?
+
+    private var taggedFolderFilesURL: URL {
+        storeURL.deletingLastPathComponent().appendingPathComponent("spoken_word_folder_files.json")
+    }
+
+    private func taggedFolderFiles(folders: [String: [String]]) -> [String: Set<String>] {
+        var result: [String: Set<String>] = [:]
+        var cacheChanged = false
+        for sourceID in opaqueFolderSourceIDs {
+            let tagged = (folders[sourceID] ?? []).filter { !SpokenWordFolderTag.isReservedPath($0) }
+            guard !tagged.isEmpty else {
+                if taggedFolderFileCache.removeValue(forKey: sourceID) != nil { cacheChanged = true }
+                continue
+            }
+            let cached = taggedFolderFileCache[sourceID]
+            if let topology = folderTopologies[sourceID], !topology.isEmpty {
+                if let cached, cached.folders == tagged, freshTaggedFolderSources.contains(sourceID) {
+                    result[sourceID] = cached.files
+                    continue
+                }
+                let entry = TaggedFolderFiles(folders: tagged, files: topology.files(inside: Set(tagged)))
+                freshTaggedFolderSources.insert(sourceID)
+                if entry != cached {
+                    taggedFolderFileCache[sourceID] = entry
+                    cacheChanged = true
+                }
+                result[sourceID] = entry.files
+            } else if let cached, cached.folders == tagged {
+                // 还没有目录(启动中、同步状态刚作废):沿用上次的结论,不让书先掉回音乐。
+                result[sourceID] = cached.files
+            }
+        }
+        for sourceID in taggedFolderFileCache.keys where !opaqueFolderSourceIDs.contains(sourceID) {
+            taggedFolderFileCache.removeValue(forKey: sourceID)
+            cacheChanged = true
+        }
+        if cacheChanged { scheduleTaggedFolderFileSave() }
+        return result
+    }
+
+    /// 宿主在扫描索引变化时(扫描提交、同步状态作废)交来各网盘源的目录上下级。
+    /// 交来的是全部网盘源:不在里面的源算作暂时没有目录,沿用上次的结论。
+    func updateFolderTopologies(_ topologies: [String: SpokenWordFolderTopology]) {
+        let previous = folderTopologies
+        folderTopologies = topologies
+        var affectsTags = false
+        for sourceID in Set(previous.keys).union(topologies.keys) where previous[sourceID] != topologies[sourceID] {
+            freshTaggedFolderSources.remove(sourceID)
+            if taggedFolderFileCache[sourceID] != nil || hasFolderTags(sourceID: sourceID) { affectsTags = true }
+        }
+        guard affectsTags else { return }
+        cachedFolderRules = nil
+        scheduleFolderTagReclassification()
+    }
+
+    private func hasFolderTags(sourceID: String) -> Bool {
+        overrides.contains { key, kind in
+            guard kind == .spokenWord, let tag = SpokenWordFolderTag.parse(overrideKey: key) else { return false }
+            return tag.sourceID == sourceID && !SpokenWordFolderTag.isReservedPath(tag.path)
+        }
+    }
+
+    private func loadTaggedFolderFiles() {
+        guard let data = try? Data(contentsOf: taggedFolderFilesURL),
+              let cache = try? JSONDecoder().decode([String: TaggedFolderFiles].self, from: data) else { return }
+        taggedFolderFileCache = cache
+    }
+
+    private func scheduleTaggedFolderFileSave() {
+        taggedFolderFileSaveTask?.cancel()
+        taggedFolderFileSaveTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled, let self else { return }
+            let cache = self.taggedFolderFileCache
+            let url = self.taggedFolderFilesURL
+            await Task.detached(priority: .utility) {
+                if cache.isEmpty {
+                    try? FileManager.default.removeItem(at: url)
+                } else if let data = try? JSONEncoder().encode(cache) {
+                    try? data.write(to: url, options: .atomic)
+                }
+            }.value
+        }
     }
 
     /// Whether `path` of a source is tagged as spoken word.
@@ -203,7 +309,7 @@ final class SpokenWordStore {
 
     // MARK: - Whole-source and server-library tags
 
-    /// id 寻址、没有目录可标的源(Navidrome、网盘…):整个来源都是有声内容。
+    /// id 寻址、没有目录可标的源(Navidrome…):整个来源都是有声内容。
     func isWholeSourceSpokenWord(sourceID: String) -> Bool {
         isSpokenWordFolder(sourceID: sourceID, path: SpokenWordFolderTag.wholeSourcePath)
     }
@@ -272,10 +378,12 @@ final class SpokenWordStore {
         let now = Date()
         for key in overrides.keys where pruningStaleTags && SpokenWordFolderTag.isFolderKey(key) {
             // 标签所在目录仍在某个扫描目录之下(勾了它的上级,它显示为「已包含」)就留着;
-            // 只有整棵都不再扫描才清掉。
+            // 只有整棵都不再扫描才清掉。按文件 ID 寻址的网盘从 ID 看不出上下级,目录标签
+            // 一律留着 —— 不在扫描范围里的目录本来就匹配不到歌。
             guard let tag = SpokenWordFolderTag.parse(overrideKey: key),
                   let entry = scanned[tag.sourceID],
                   !entry.directories.isEmpty,
+                  !(entry.type.usesOpaqueDirectoryIdentifiers && !SpokenWordFolderTag.isReservedPath(tag.path)),
                   !entry.directories.contains(where: {
                       SourceDirectorySelectionPolicy.covers($0, tag.path, for: entry.type)
                   }) else { continue }
@@ -292,13 +400,20 @@ final class SpokenWordStore {
         )
         let declaredChanged = declared != declaredSpokenWordSourceIDs
         declaredSpokenWordSourceIDs = declared
+        let opaque = Set(
+            sources.lazy
+                .filter { !$0.isDeleted && $0.type.usesOpaqueDirectoryIdentifiers }
+                .map(\.id)
+        )
+        let opaqueChanged = opaque != opaqueFolderSourceIDs
+        opaqueFolderSourceIDs = opaque
         if removed {
             didChange(cloud: .prompt)
-        } else if descriptorsChanged || declaredChanged {
+        } else if descriptorsChanged || declaredChanged || opaqueChanged {
             cachedFolderRules = nil
         }
         let hasTags = overrides.keys.contains(where: SpokenWordFolderTag.isFolderKey)
-        if removed || (descriptorsChanged && hasTags) || declaredChanged {
+        if removed || ((descriptorsChanged || opaqueChanged) && hasTags) || declaredChanged {
             scheduleFolderTagReclassification()
         }
     }

@@ -888,6 +888,24 @@ final class ScanService {
         return AlbumArtistFolderIndex(parentsBySource: parentsBySource)
     }
 
+    /// 网盘目录上的「有声」标签按同一份索引匹配歌曲。文件那一半直接用专辑艺术家推断已经
+    /// 取出的那份(同一个字典,不另占内存),这里只补目录的上下级。
+    func spokenWordFolderTopologies(
+        for sourceIDs: Set<String>,
+        fileParents: AlbumArtistFolderIndex
+    ) -> [String: SpokenWordFolderTopology] {
+        var result: [String: SpokenWordFolderTopology] = [:]
+        for sourceID in sourceIDs {
+            guard let index = syncStates[sourceID]?.index,
+                  let files = fileParents.parentsBySource[sourceID] else { continue }
+            result[sourceID] = SpokenWordFolderTopology(
+                fileParents: files,
+                directoryParents: SpokenWordFolderTopology.directoryParents(fromSyncIndex: index)
+            )
+        }
+        return result
+    }
+
     func recordMetadataFileReplacement(original: Song, updated: Song, in library: MusicLibrary) async throws {
         guard original.id == updated.id, original.sourceID == updated.sourceID,
               original.filePath != updated.filePath else { return }

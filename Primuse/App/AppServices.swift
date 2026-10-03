@@ -1303,8 +1303,8 @@ final class AppServices {
                 }
             }
         }
-        // 按文件 ID 寻址的网盘, 歌曲路径里没有目录; 专辑艺术家推断改用扫描同步
-        // 索引里记下的父目录。索引一变 (扫描提交、同步状态作废) 就重送一份。
+        // 按文件 ID 寻址的网盘, 歌曲路径里没有目录; 专辑艺术家推断和目录上的「有声」
+        // 标签改用扫描同步索引里记下的父目录。索引一变 (扫描提交、同步状态作废) 就重送一份。
         let publishAlbumArtistFolders = { [weak scanService, weak library, weak store] in
             guard let scanService, let library, let store else { return }
             let sourceIDs = Set(
@@ -1312,7 +1312,11 @@ final class AppServices {
                     .filter { $0.type.usesOpaqueDirectoryIdentifiers }
                     .map(\.id)
             )
-            library.updateAlbumArtistFolders(scanService.albumArtistFolderIndex(for: sourceIDs))
+            let folders = scanService.albumArtistFolderIndex(for: sourceIDs)
+            library.updateAlbumArtistFolders(folders)
+            SpokenWordStore.shared.updateFolderTopologies(
+                scanService.spokenWordFolderTopologies(for: sourceIDs, fileParents: folders)
+            )
         }
         scanService.folderHierarchyChangeHandler = publishAlbumArtistFolders
         publishAlbumArtistFolders()

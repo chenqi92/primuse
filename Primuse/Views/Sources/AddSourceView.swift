@@ -73,8 +73,10 @@ struct AddSourceView: View {
     @State private var serverLibraries: [ServerLibraryDescriptor] = []
     @State private var serverLibraryChoices: [String: ServerLibraryChoice] = [:]
     @State private var serverLibrariesLoad: ServerLibrariesLoadState = .idle
-    /// id 寻址、没有目录可标的源:整个来源都是有声内容。
+    /// 旧版「整个来源都是有声内容」开关。服务器源现在按服务端给的流派与文件自己判断、
+    /// 网盘在选目录页按目录标,不再提供;只给已经开着的源留着,好让它能关掉。
     @State private var wholeSourceSpokenWord = false
+    @State private var wholeSourceSpokenWordWasOn = false
     /// 用户填的那一到两行地址。上面那组 host/port/useSsl/publicHost/… 仍然是
     /// 保存路径唯一读取的字段 —— 提交时由 `applyAddressPlan` 一次性写回。
     @State private var addressRows: [SourceAddressRow] = [SourceAddressRow()]
@@ -116,7 +118,7 @@ struct AddSourceView: View {
         isEditing && sourceType.organizesCatalogByServerLibrary
     }
     private var showsWholeSourceSpokenWordToggle: Bool {
-        sourceType.supportsWholeSourceSpokenWordTag
+        sourceType.supportsWholeSourceSpokenWordTag && wholeSourceSpokenWordWasOn
     }
     private var supportsAdaptiveConnections: Bool { sourceType.supportsAdaptiveConnections }
     private var supportsSSLToggle: Bool {
@@ -1064,7 +1066,7 @@ struct AddSourceView: View {
                 && !store.hasSpokenWordLibraryDecision(sourceID: sourceID, libraryID: library.id))
     }
 
-    /// 保存时落标签:整源开关直接写;按库的选择只在列表真的加载过时写,没加载到就保持原样。
+    /// 保存时落标签:旧的整源开关(还开着才显示)直接写;按库的选择只在列表真的加载过时写,没加载到就保持原样。
     private func applySpokenWordChoices(sourceID: String) {
         let store = SpokenWordStore.shared
         if showsWholeSourceSpokenWordToggle {
@@ -1484,6 +1486,7 @@ struct AddSourceView: View {
             basePath = s.basePath ?? ""
             plexServerIdentifier = s.plexServerIdentifier
             wholeSourceSpokenWord = SpokenWordStore.shared.isWholeSourceSpokenWord(sourceID: s.id)
+            wholeSourceSpokenWordWasOn = wholeSourceSpokenWord
             if supportsAdaptiveConnections {
                 loadAdaptiveConnectionFields(from: s)
             } else {

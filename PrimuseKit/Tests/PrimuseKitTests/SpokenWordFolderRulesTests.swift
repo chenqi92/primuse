@@ -65,6 +65,78 @@ struct SpokenWordFolderRulesTests {
         #expect(!SpokenWordFolderTag.supportsWholeSourceTag(descriptor("nas", .smb)))
     }
 
+    @Test("Item-id cloud drives tag folders; whole-catalogue servers and media servers do not")
+    func folderTagSupportByType() {
+        #expect(SpokenWordFolderTag.supportsFolderTags(for: .googleDrive))
+        #expect(SpokenWordFolderTag.supportsFolderTags(for: .pan123))
+        #expect(SpokenWordFolderTag.supportsFolderTags(for: .smb))
+        #expect(SpokenWordFolderTag.supportsFolderTags(for: .baiduPan))
+        #expect(!SpokenWordFolderTag.supportsFolderTags(for: .navidrome))
+        #expect(!SpokenWordFolderTag.supportsFolderTags(for: .songloft))
+        #expect(!SpokenWordFolderTag.supportsFolderTags(for: .jellyfin))
+        #expect(SpokenWordFolderTag.isReservedPath(SpokenWordFolderTag.wholeSourcePath))
+        #expect(SpokenWordFolderTag.isReservedPath(SpokenWordFolderTag.libraryPath(libraryID: "b")))
+        #expect(!SpokenWordFolderTag.isReservedPath("1AbCdEfG"))
+    }
+
+    private func item(_ path: String, parent: String?, directory: Bool) -> SourceSyncIndexedItem {
+        SourceSyncIndexedItem(
+            stableKey: path, path: path, parentPath: parent, isDirectory: directory,
+            size: 0, modifiedDate: nil, revision: nil
+        )
+    }
+
+    @Test("Files under a tagged cloud folder match through every level of subfolder; siblings do not")
+    func cloudFolderTopology() {
+        // root(扫描目录) ─┬─ books ─┬─ 三体 ── ch1.mp3, ch2.mp3
+        //                 │         └─ intro.mp3
+        //                 └─ music ── song.flac, loose.mp3 直接在 root 下
+        let index = [
+            item("books", parent: "root", directory: true),
+            item("santi", parent: "books", directory: true),
+            item("music", parent: "root", directory: true),
+            item("ch1", parent: "santi", directory: false),
+            item("ch2", parent: "santi", directory: false),
+            item("intro", parent: "books", directory: false),
+            item("song", parent: "music", directory: false),
+            item("loose", parent: "root", directory: false),
+        ].reduce(into: [String: SourceSyncIndexedItem]()) { $0[$1.stableKey] = $1 }
+        let topology = SpokenWordFolderTopology(syncIndex: index)
+        #expect(topology.directoryParents == ["books": "root", "santi": "books", "music": "root"])
+        #expect(topology.files(inside: ["books"]) == ["ch1", "ch2", "intro"])
+        #expect(topology.files(inside: ["santi"]) == ["ch1", "ch2"])
+        #expect(topology.files(inside: ["root"]) == ["ch1", "ch2", "intro", "song", "loose"])
+        #expect(topology.files(inside: ["santi", "music"]) == ["ch1", "ch2", "song"])
+        #expect(topology.files(inside: []).isEmpty)
+        #expect(topology.files(inside: ["unknown-folder"]).isEmpty)
+
+        let rules = SpokenWordFolderRules(
+            folders: ["gd": ["books"]],
+            sources: [descriptor("gd", .googleDrive)],
+            taggedFolderFiles: ["gd": topology.files(inside: ["books"])]
+        )
+        #expect(!rules.isEmpty)
+        #expect(rules.containsSong(sourceID: "gd", filePath: "ch1"))
+        #expect(rules.containsSong(sourceID: "gd", filePath: "intro"))
+        #expect(!rules.containsSong(sourceID: "gd", filePath: "song"))
+        #expect(!rules.containsSong(sourceID: "other", filePath: "ch1"))
+        // 没有算出来的文件(扫描索引还没装载)时不算有规则。
+        let empty = SpokenWordFolderRules(
+            folders: ["gd": ["books"]], sources: [descriptor("gd", .googleDrive)], taggedFolderFiles: ["gd": []]
+        )
+        #expect(empty.isEmpty)
+    }
+
+    @Test("A folder listed as its own ancestor does not hang the walk")
+    func cloudFolderCycle() {
+        let topology = SpokenWordFolderTopology(
+            fileParents: ["f1": "a", "f2": "c"],
+            directoryParents: ["a": "b", "b": "a", "c": "books"]
+        )
+        #expect(topology.files(inside: ["books"]) == ["f2"])
+        #expect(topology.files(inside: ["b"]) == ["f1"])
+    }
+
     @Test("A server library tag matches by the library id stamped on the song, never by path")
     func libraryTag() {
         let path = SpokenWordFolderTag.libraryPath(libraryID: "lib-books")

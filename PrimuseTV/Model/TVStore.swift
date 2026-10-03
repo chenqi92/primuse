@@ -604,6 +604,11 @@ final class TVStore {
             albumArtistFolderParents = parents
             self.library.updateAlbumArtistFolders(AlbumArtistFolderIndex(parentsBySource: parents))
         }
+        if let data = try? Data(contentsOf: Self.folderDirectoryParentsURL(sessionStore: sessionStore)),
+           let parents = try? JSONDecoder().decode([String: [String: String]].self, from: data) {
+            folderDirectoryParents = parents
+        }
+        publishSpokenWordFolderTopologies()
         scanner.readingEnvironment = { [weak self] offline in
             .current(playbackActive: self?.isPlaying == true || self?.isLoading == true,
                      offlineSource: offline)
@@ -911,6 +916,9 @@ final class TVStore {
     /// 专辑艺术家推断按它分文件夹(见 `AlbumArtistFolderIndex`)。电视扫描完成后
     /// 检查点连同同步索引一起删掉, 所以目录单独存一份, 启动时交给资料库。
     @ObservationIgnored private var albumArtistFolderParents: [String: [String: String]] = [:]
+    /// 同一批网盘的目录上下级。目录上的「有声」标签(手机上打、经 iCloud 同步来)要顺着
+    /// 文件的父目录一路往上找,和上面那份一起交给 `SpokenWordStore`。
+    @ObservationIgnored private var folderDirectoryParents: [String: [String: String]] = [:]
 
     // 浏览数据直接读曲库的可见数组,按需转换成界面值(见 `TVLibraryList`)。
     // 下面几份是按查找修订号懒建的小索引:第一次用到才建,修订号一变就作废。
@@ -4269,6 +4277,11 @@ final class TVStore {
             .appendingPathComponent("album-artist-folders.json")
     }
 
+    private static func folderDirectoryParentsURL(sessionStore: PlaybackSessionStore) -> URL {
+        sessionStore.url.deletingLastPathComponent()
+            .appendingPathComponent("folder-directory-parents.json")
+    }
+
     /// 走完整个源的那次扫描替换这个源的目录; 半路见到目录变动的那次只补上
     /// 它列到的文件, 没列到的沿用上一次。已删除的源顺手清掉。
     private func recordAlbumArtistFolders(
@@ -4276,13 +4289,36 @@ final class TVStore {
         index: [String: SourceSyncIndexedItem],
         isCompleteListing: Bool
     ) {
+        let isLive: (String) -> Bool = { [sourcesStore] in sourcesStore.source(id: $0)?.isDeleted == false }
+        let directories = SpokenWordFolderTopology.directoryParents(fromSyncIndex: index)
+        var nextDirectories = folderDirectoryParents
+        nextDirectories[sourceID] = isCompleteListing
+            ? directories
+            : (nextDirectories[sourceID] ?? [:]).merging(directories) { _, listed in listed }
+        nextDirectories = nextDirectories.filter { isLive($0.key) && !$0.value.isEmpty }
+        let directoriesChanged = nextDirectories != folderDirectoryParents
+        if directoriesChanged {
+            folderDirectoryParents = nextDirectories
+            do {
+                try JSONEncoder().encode(nextDirectories).write(
+                    to: Self.folderDirectoryParentsURL(sessionStore: sessionStore),
+                    options: .atomic
+                )
+            } catch {
+                plog("⚠️ TV folder directories not saved: \(error.localizedDescription)")
+            }
+        }
+
         let parents = AlbumArtistFolderIndex.parents(fromSyncIndex: index)
         var next = albumArtistFolderParents
         next[sourceID] = isCompleteListing
             ? parents
             : (next[sourceID] ?? [:]).merging(parents) { _, listed in listed }
-        next = next.filter { sourcesStore.source(id: $0.key)?.isDeleted == false && !$0.value.isEmpty }
-        guard next != albumArtistFolderParents else { return }
+        next = next.filter { isLive($0.key) && !$0.value.isEmpty }
+        guard next != albumArtistFolderParents else {
+            if directoriesChanged { publishSpokenWordFolderTopologies() }
+            return
+        }
         albumArtistFolderParents = next
         do {
             try JSONEncoder().encode(next).write(
@@ -4293,6 +4329,18 @@ final class TVStore {
             plog("⚠️ TV album-artist folders not saved: \(error.localizedDescription)")
         }
         library.updateAlbumArtistFolders(AlbumArtistFolderIndex(parentsBySource: next))
+        publishSpokenWordFolderTopologies()
+    }
+
+    private func publishSpokenWordFolderTopologies() {
+        var topologies: [String: SpokenWordFolderTopology] = [:]
+        for (sourceID, files) in albumArtistFolderParents {
+            topologies[sourceID] = SpokenWordFolderTopology(
+                fileParents: files,
+                directoryParents: folderDirectoryParents[sourceID] ?? [:]
+            )
+        }
+        SpokenWordStore.shared.updateFolderTopologies(topologies)
     }
 
     /// 这一行和资料库里存着的完全一样(同一身份、同一文件位置):不必再提交。

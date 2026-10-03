@@ -332,11 +332,11 @@ struct DirectoryFolderTag {
     let isSpokenWord: Bool
     let set: (Bool) -> Void
 
-    /// The tag for `path` of `source`, or nil for sources whose songs do not
-    /// sit in real folders (item-id cloud drives, media servers).
+    /// The tag for `path` of `source`, or nil for sources that offer no
+    /// folders to choose (media servers and other whole-catalogue servers).
     @MainActor
     static func forFolder(path: String, of source: MusicSource) -> DirectoryFolderTag? {
-        guard SpokenWordFolderTag.supportsTags(LibraryFolderSourceDescriptor(source: source)) else { return nil }
+        guard SpokenWordFolderTag.supportsFolderTags(for: source.type) else { return nil }
         let store = SpokenWordStore.shared
         let sourceID = source.id
         return DirectoryFolderTag(

@@ -250,7 +250,7 @@ struct ConnectorDirectoryBrowserView: View {
 
     /// Every selected folder, wherever it is in the tree, for the bottom bar.
     private var selectionChips: [BrowserSelectionChip] {
-        let tagsSupported = SpokenWordFolderTag.supportsTags(LibraryFolderSourceDescriptor(source: source))
+        let tagsSupported = SpokenWordFolderTag.supportsFolderTags(for: source.type)
         let cloudNames = source.type.isCloudDrive ? CloudDirectoryNameStore.displayNames(for: source.id) : [:]
         return selectedDirectories.map { path in
             let title = source.scannedDirectoryDisplayNames[path]
@@ -300,7 +300,7 @@ struct ConnectorDirectoryBrowserView: View {
     /// supports tags.
     private var showsFolderTagHint: Bool {
         !selectedDirectories.isEmpty
-            && SpokenWordFolderTag.supportsTags(LibraryFolderSourceDescriptor(source: source))
+            && SpokenWordFolderTag.supportsFolderTags(for: source.type)
     }
 
     private var currentDirectorySubtitle: String? {

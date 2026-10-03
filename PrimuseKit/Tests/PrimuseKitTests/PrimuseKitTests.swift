@@ -153,6 +153,7 @@ import Testing
     #expect(MusicSourceType.audiobookshelf.organizesCatalogByServerLibrary)
     #expect(!MusicSourceType.audiobookshelf.supportsWholeSourceSpokenWordTag)
     #expect(MusicSourceType.navidrome.supportsWholeSourceSpokenWordTag)
+    #expect(!MusicSourceType.googleDrive.supportsWholeSourceSpokenWordTag)
     #expect(!MusicSourceType.jellyfin.supportsWholeSourceSpokenWordTag)
     #expect(!MusicSourceType.smb.supportsWholeSourceSpokenWordTag)
     #expect(MusicSourceType.fnos.category == .nas)
