@@ -1349,6 +1349,7 @@
 		BF9F981588768AF712318FC6 /* LyricsTranslationSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB3A3AB01792078E57665353 /* LyricsTranslationSettings.swift */; };
 		BFCC60729BE85F8FDFD6BD29 /* AudioDecodeBlockingLanePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A1DAB69FAAD3766B5A5F7E2 /* AudioDecodeBlockingLanePolicy.swift */; };
 		BFD82DD3CB51A95CD3175DD8 /* TVTabBarConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA6D2DB92A4A86173A812EF /* TVTabBarConfiguration.swift */; };
+		4139138D9E23E842DC067C32 /* TVHomeSectionConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C60DE7B7E4D2EECA9D6CF337 /* TVHomeSectionConfiguration.swift */; };
 		BFEE905717AEAA45FA3C56CB /* LocalImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03F527F89BB056AD3BB3E532 /* LocalImportService.swift */; };
 		C009F56F7DE98A3185E93549 /* TVMetadataInspectionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 095BFC637C29F6F7EC50F2C8 /* TVMetadataInspectionStore.swift */; };
 		C01852E2552E3239C1428EE0 /* LyricsAPIServerSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5AD2F4190CA1F04C0D4D50F /* LyricsAPIServerSettings.swift */; };
@@ -3139,6 +3140,7 @@
 		DD4042A3AF9DACA44993C08F /* es-MX */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "es-MX"; path = "es-MX.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		DD569EEE868A000CA3B5FE43 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/CacheSync.strings; sourceTree = "<group>"; };
 		DDA6D2DB92A4A86173A812EF /* TVTabBarConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVTabBarConfiguration.swift; sourceTree = "<group>"; };
+		C60DE7B7E4D2EECA9D6CF337 /* TVHomeSectionConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVHomeSectionConfiguration.swift; sourceTree = "<group>"; };
 		DE13E2DA7798D1EB66AAB221 /* PrimuseApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrimuseApp.swift; sourceTree = "<group>"; };
 		DE31F2433911A9807896DBFD /* hi */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = hi; path = hi.lproj/WiFiTransfer.strings; sourceTree = "<group>"; };
 		DE3348D035AA49E20E9D6767 /* TVAISettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVAISettingsView.swift; sourceTree = "<group>"; };
@@ -3974,6 +3976,7 @@
 				E1C899A774E84E601D74500D /* TVPlaybackPipelinePolicy.swift */,
 				D20345197F0912E9D2DB2082 /* TVScanPipelinePolicy.swift */,
 				DDA6D2DB92A4A86173A812EF /* TVTabBarConfiguration.swift */,
+				C60DE7B7E4D2EECA9D6CF337 /* TVHomeSectionConfiguration.swift */,
 				B42ECB5BBB56C922A4E4222A /* UpcomingPlaybackPrefetchPolicy.swift */,
 				5A31F272B5B73C0152E6A336 /* UserNotificationPolicy.swift */,
 				71764C36C066B03BD857CB82 /* WatchStateTickerPolicy.swift */,
@@ -6210,6 +6213,7 @@
 				532E0E072D027C4152E72129 /* TVScanPipelinePolicy.swift in Sources */,
 				6C03104D9FB6DC24E389421B /* TVSnapshotRowSelection.swift in Sources */,
 				BFD82DD3CB51A95CD3175DD8 /* TVTabBarConfiguration.swift in Sources */,
+				4139138D9E23E842DC067C32 /* TVHomeSectionConfiguration.swift in Sources */,
 				1774ACA052B140A50EA1B486 /* TabletopQueueStripPolicy.swift in Sources */,
 				07B5B73F64AE41F7F54E878C /* TagCleanupPolicy.swift in Sources */,
 				62E501A59F3D36C028455ACD /* LibraryInsight.swift in Sources */,

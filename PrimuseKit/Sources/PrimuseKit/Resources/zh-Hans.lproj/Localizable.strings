@@ -966,6 +966,9 @@
 "ext.tv.settings.tabBar.moveUp" = "上移";
 "ext.tv.settings.tabBar.moveDown" = "下移";
 "ext.tv.settings.tabBar.reset" = "恢复默认";
+"ext.tv.settings.homeSections" = "首页内容";
+"ext.tv.settings.homeSections.footer" = "调整首页各排的顺序，关掉不想看的排。";
+"ext.tv.settings.homeSections.keepOne" = "首页至少要保留一排。";
 "ext.tv.player.browse" = "浏览";
 "ext.tv.player.shelf.thisAlbum" = "本专辑";
 "ext.tv.player.shelf.moreByArtist" = "同艺术家";

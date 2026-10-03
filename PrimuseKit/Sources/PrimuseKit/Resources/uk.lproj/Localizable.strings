@@ -916,6 +916,9 @@
 "ext.tv.settings.tabBar.moveUp" = "Угору";
 "ext.tv.settings.tabBar.moveDown" = "Униз";
 "ext.tv.settings.tabBar.reset" = "Відновити стандартні";
+"ext.tv.settings.homeSections" = "Вміст головної";
+"ext.tv.settings.homeSections.footer" = "Змінюйте порядок рядів на головній і вимикайте ті, які не хочете бачити.";
+"ext.tv.settings.homeSections.keepOne" = "На головній має лишитися принаймні один ряд.";
 "ext.tv.player.browse" = "Огляд";
 "ext.tv.player.shelf.thisAlbum" = "Цей альбом";
 "ext.tv.player.shelf.moreByArtist" = "Цього виконавця";

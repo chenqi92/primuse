@@ -916,6 +916,9 @@
 "ext.tv.settings.tabBar.moveUp" = "ऊपर ले जाएँ";
 "ext.tv.settings.tabBar.moveDown" = "नीचे ले जाएँ";
 "ext.tv.settings.tabBar.reset" = "डिफ़ॉल्ट पर लौटाएँ";
+"ext.tv.settings.homeSections" = "होम की सामग्री";
+"ext.tv.settings.homeSections.footer" = "होम की पंक्तियों का क्रम बदलें और जिन्हें नहीं देखना है उन्हें बंद करें।";
+"ext.tv.settings.homeSections.keepOne" = "होम पर कम से कम एक पंक्ति रहनी चाहिए।";
 "ext.tv.player.browse" = "ब्राउज़ करें";
 "ext.tv.player.shelf.thisAlbum" = "यह एल्बम";
 "ext.tv.player.shelf.moreByArtist" = "इसी कलाकार के";

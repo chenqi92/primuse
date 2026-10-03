@@ -75,6 +75,8 @@ struct TVSettingsView: View {
     @State private var showsScraperSettings = tvDebugShowsScraperSettings
     @State private var showsMedleySettings = false
     @State private var showsTabBarSettings = false
+    @State private var showsHomeSectionsSettings = false
+    @AppStorage(TVHomeSectionConfiguration.storageKey) private var homeSectionsRawValue = ""
     @State private var showsBackdropSettings = tvDebugShowsBackdropSettings
     @State private var backdropSettings = PlayerBackdropSettingsStore.shared
     @AppStorage(TVTabBarConfiguration.storageKey) private var tabBarConfigurationRawValue = ""
@@ -170,6 +172,13 @@ struct TVSettingsView: View {
                                 PMString("ext.tv.settings.tabBar"),
                                 tabBarSummary,
                                 action: { showsTabBarSettings = true }
+                            )
+                            settingDivider
+                            navRow(
+                                "rectangle.grid.1x2",
+                                PMString("ext.tv.settings.homeSections"),
+                                TVHomeSectionsSettingsView.summary(homeSectionsRawValue),
+                                action: { showsHomeSectionsSettings = true }
                             )
                         }
                         settingsSection(String(localized: "playback")) {
@@ -313,6 +322,9 @@ struct TVSettingsView: View {
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: showsTranslationModelRemoval)
         .fullScreenCover(isPresented: $showsMedleySettings) { TVMedleySettingsView() }
         .fullScreenCover(isPresented: $showsTabBarSettings) { TVTabBarSettingsView() }
+        .fullScreenCover(isPresented: $showsHomeSectionsSettings) {
+            TVHomeSectionsSettingsView().environment(intelligence)
+        }
         .fullScreenCover(isPresented: $showsBackdropSettings) { TVPlayerBackdropSettingsView() }
         .fullScreenCover(isPresented: $showsAISettings) {
             TVAISettingsView()
@@ -328,6 +340,8 @@ struct TVSettingsView: View {
         .onExitCommand {
             if showsTabBarSettings {
                 showsTabBarSettings = false
+            } else if showsHomeSectionsSettings {
+                showsHomeSectionsSettings = false
             } else if showsMetadata {
                 showsMetadata = false
             } else if showsScraperSettings {
@@ -1179,83 +1193,20 @@ struct TVTabBarSettingsView: View {
     private static func downFocusID(_ item: TVTabBarItem) -> String { "tabBar.down." + item.rawValue }
 
     private func row(_ item: TVTabBarItem, in configuration: TVTabBarConfiguration) -> some View {
-        let isShown = configuration.isShown(item)
-        return HStack(spacing: 14) {
-            TVFocusButton(
-                radius: 14, scale: 1.0, lift: 0,
-                action: { toggle(item) },
-                focusBinding: $focusedID,
-                focusID: Self.toggleFocusID(item)
-            ) { focused in
-                HStack(spacing: 18) {
-                    Image(systemName: item.tvIcon)
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(isShown ? TVColor.text : TVColor.textGhost)
-                        .frame(width: 44)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(item.tvTitle)
-                            .tvFont(.cardTitle, weight: focused ? .bold : .medium)
-                            .foregroundStyle(isShown ? TVColor.text : TVColor.textMuted)
-                        if item.dependsOnContent {
-                            Text(PMString("ext.tv.settings.tabBar.contentHint"))
-                                .tvFont(.meta)
-                                .foregroundStyle(TVColor.textFaint)
-                        }
-                    }
-                    Spacer(minLength: 0)
-                    ZStack(alignment: isShown ? .trailing : .leading) {
-                        Capsule().fill(isShown ? AnyShapeStyle(TVColor.brand)
-                                               : AnyShapeStyle(TVColor.surfaceStrong))
-                            .frame(width: 62, height: 34)
-                        Circle().fill(.white).frame(width: 28, height: 28).padding(3)
-                    }
-                    .animation(.easeOut(duration: 0.18), value: isShown)
-                }
-                .padding(.horizontal, 22).padding(.vertical, 16)
-                .frame(maxWidth: .infinity)
-                .background(focused ? TVColor.surfaceStrong : .clear,
-                            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }
-            .accessibilityLabel(Text(item.tvTitle))
-            .accessibilityValue(Text(isShown
-                ? PMString("ext.tv.sources.status.enabled")
-                : PMString("ext.tv.sources.status.disabled")))
-
-            moveButton(item, by: -1, icon: "chevron.up",
-                       label: PMString("ext.tv.settings.tabBar.moveUp"),
-                       focusID: Self.upFocusID(item), in: configuration)
-            moveButton(item, by: 1, icon: "chevron.down",
-                       label: PMString("ext.tv.settings.tabBar.moveDown"),
-                       focusID: Self.downFocusID(item), in: configuration)
-        }
-        .padding(.vertical, 6)
-        .padding(.trailing, 16)
-    }
-
-    private func moveButton(
-        _ item: TVTabBarItem,
-        by offset: Int,
-        icon: String,
-        label: String,
-        focusID: String,
-        in configuration: TVTabBarConfiguration
-    ) -> some View {
-        let canMove = configuration.canMove(item, by: offset)
-        return TVFocusButton(
-            radius: 14, scale: 1.06, lift: 0,
-            action: { move(item, by: offset) },
+        TVOrderedSettingRow(
+            icon: item.tvIcon,
+            title: item.tvTitle,
+            hint: item.dependsOnContent ? PMString("ext.tv.settings.tabBar.contentHint") : nil,
+            isShown: configuration.isShown(item),
+            canMoveUp: configuration.canMove(item, by: -1),
+            canMoveDown: configuration.canMove(item, by: 1),
             focusBinding: $focusedID,
-            focusID: focusID
-        ) { focused in
-            Image(systemName: icon)
-                .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(!canMove ? TVColor.textGhost : (focused ? TVColor.bg : TVColor.text))
-                .frame(width: 64, height: 64)
-                .background(focused ? AnyShapeStyle(TVColor.text) : AnyShapeStyle(TVColor.surfaceStrong),
-                            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        }
-        .disabled(!canMove)
-        .accessibilityLabel(Text(label))
+            toggleFocusID: Self.toggleFocusID(item),
+            upFocusID: Self.upFocusID(item),
+            downFocusID: Self.downFocusID(item),
+            onToggle: { toggle(item) },
+            onMove: { move(item, by: $0) }
+        )
     }
 
     private func toggle(_ item: TVTabBarItem) {
@@ -1282,6 +1233,239 @@ struct TVTabBarSettingsView: View {
             focusedID = offset < 0 ? Self.upFocusID(item) : Self.downFocusID(item)
         } else {
             focusedID = offset < 0 ? Self.downFocusID(item) : Self.upFocusID(item)
+        }
+    }
+}
+// MARK: - 可排序的开关行
+
+/// 顶栏菜单、首页内容这类「开关 + 上移 / 下移」的设置行。tvOS 的列表拖不动,挪动靠两颗按钮;
+/// 挪到头的那颗变成不可用,焦点由父视图换到反方向那颗上。
+struct TVOrderedSettingRow: View {
+    let icon: String
+    let title: String
+    var hint: String?
+    let isShown: Bool
+    let canMoveUp: Bool
+    let canMoveDown: Bool
+    var focusBinding: FocusState<String?>.Binding
+    let toggleFocusID: String
+    let upFocusID: String
+    let downFocusID: String
+    let onToggle: () -> Void
+    let onMove: (Int) -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            TVFocusButton(
+                radius: 14, scale: 1.0, lift: 0,
+                action: onToggle,
+                focusBinding: focusBinding,
+                focusID: toggleFocusID
+            ) { focused in
+                HStack(spacing: 18) {
+                    Image(systemName: icon)
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(isShown ? TVColor.text : TVColor.textGhost)
+                        .frame(width: 44)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(title)
+                            .tvFont(.cardTitle, weight: focused ? .bold : .medium)
+                            .foregroundStyle(isShown ? TVColor.text : TVColor.textMuted)
+                        if let hint {
+                            Text(hint)
+                                .tvFont(.meta)
+                                .foregroundStyle(TVColor.textFaint)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    ZStack(alignment: isShown ? .trailing : .leading) {
+                        Capsule().fill(isShown ? AnyShapeStyle(TVColor.brand)
+                                               : AnyShapeStyle(TVColor.surfaceStrong))
+                            .frame(width: 62, height: 34)
+                        Circle().fill(.white).frame(width: 28, height: 28).padding(3)
+                    }
+                    .animation(.easeOut(duration: 0.18), value: isShown)
+                }
+                .padding(.horizontal, 22).padding(.vertical, 16)
+                .frame(maxWidth: .infinity)
+                .background(focused ? TVColor.surfaceStrong : .clear,
+                            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .accessibilityLabel(Text(title))
+            .accessibilityValue(Text(isShown
+                ? PMString("ext.tv.sources.status.enabled")
+                : PMString("ext.tv.sources.status.disabled")))
+
+            moveButton(by: -1, icon: "chevron.up", enabled: canMoveUp,
+                       label: PMString("ext.tv.settings.tabBar.moveUp"), focusID: upFocusID)
+            moveButton(by: 1, icon: "chevron.down", enabled: canMoveDown,
+                       label: PMString("ext.tv.settings.tabBar.moveDown"), focusID: downFocusID)
+        }
+        .padding(.vertical, 6)
+        .padding(.trailing, 16)
+    }
+
+    private func moveButton(by offset: Int, icon: String, enabled: Bool, label: String, focusID: String) -> some View {
+        TVFocusButton(
+            radius: 14, scale: 1.06, lift: 0,
+            action: { onMove(offset) },
+            focusBinding: focusBinding,
+            focusID: focusID
+        ) { focused in
+            Image(systemName: icon)
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(!enabled ? TVColor.textGhost : (focused ? TVColor.bg : TVColor.text))
+                .frame(width: 64, height: 64)
+                .background(focused ? AnyShapeStyle(TVColor.text) : AnyShapeStyle(TVColor.surfaceStrong),
+                            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .disabled(!enabled)
+        .accessibilityLabel(Text(label))
+    }
+}
+
+// MARK: - 首页内容
+
+/// 设置 → 首页内容:调整电视首页各排的顺序、关掉不想看的排。至少留一排
+/// (`TVHomeSectionConfiguration.canHide`)。改动立刻写进 UserDefaults,首页读同一个键。
+struct TVHomeSectionsSettingsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(MusicIntelligenceService.self) private var intelligence
+    @AppStorage(TVHomeSectionConfiguration.storageKey) private var rawValue = ""
+    @FocusState private var focusedID: String?
+    @State private var notice: String?
+
+    private var configuration: TVHomeSectionConfiguration { .decode(rawValue) }
+
+    var body: some View {
+        let configuration = self.configuration
+        ZStack {
+            TVColor.bg.ignoresSafeArea()
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 24) {
+                    Text(PMString("ext.tv.settings.homeSections"))
+                        .tvFont(.pageTitle)
+                        .foregroundStyle(TVColor.text)
+                    Text(PMString("ext.tv.settings.homeSections.footer"))
+                        .tvFont(.caption)
+                        .foregroundStyle(TVColor.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    VStack(spacing: 0) {
+                        ForEach(Array(configuration.order.enumerated()), id: \.element) { index, section in
+                            if index > 0 {
+                                Rectangle().fill(TVColor.divider).frame(height: 1).padding(.leading, 80)
+                            }
+                            TVOrderedSettingRow(
+                                icon: Self.icon(section),
+                                title: title(section),
+                                hint: section == .albumPick ? String(localized: "home_section_album_pick_hint") : nil,
+                                isShown: configuration.isShown(section),
+                                canMoveUp: configuration.canMove(section, by: -1),
+                                canMoveDown: configuration.canMove(section, by: 1),
+                                focusBinding: $focusedID,
+                                toggleFocusID: Self.toggleFocusID(section),
+                                upFocusID: Self.upFocusID(section),
+                                downFocusID: Self.downFocusID(section),
+                                onToggle: { toggle(section) },
+                                onMove: { move(section, by: $0) }
+                            )
+                        }
+                    }
+                    .tvPanel(radius: 20)
+                    .focusSection()
+
+                    if let notice {
+                        Label(notice, systemImage: "exclamationmark.circle")
+                            .tvFont(.caption, weight: .semibold)
+                            .foregroundStyle(TVColor.textMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    TVPillButton(
+                        title: PMString("ext.tv.settings.tabBar.reset"),
+                        systemImage: "arrow.counterclockwise",
+                        focusBinding: $focusedID,
+                        focusID: "homeSections.reset"
+                    ) {
+                        rawValue = ""
+                        notice = nil
+                        focusedID = Self.toggleFocusID(TVHomeSectionConfiguration.defaultOrder[0])
+                    }
+                    .disabled(configuration.isDefault)
+                    .padding(.top, 8)
+                }
+                .frame(maxWidth: 1200, alignment: .leading)
+                .padding(.horizontal, 80)
+                .padding(.vertical, 48)
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .onExitCommand { dismiss() }
+    }
+
+    static func summary(_ rawValue: String) -> String {
+        let configuration = TVHomeSectionConfiguration.decode(rawValue)
+        guard !configuration.isDefault else { return PMString("ext.tv.settings.tabBar.default") }
+        return PMString("ext.tv.settings.tabBar.shownCount", configuration.visibleSections.count)
+    }
+
+    /// 与首页上这一排的标题一致:推荐那一排开着智能服务时叫「场景推荐」。
+    private func title(_ section: TVHomeSection) -> String {
+        switch section {
+        case .albumPick: String(localized: "home_section_album_pick")
+        case .homeScenes: String(localized: "listening_scene_row_title")
+        case .recommendations:
+            intelligence.shouldShowRemoteRecommendations
+                ? PMString("ai_recommendation_home_title")
+                : PMString("ext.tv.home.madeForYou")
+        case .recentlyPlayed: PMString("ext.tv.home.recentlyPlayed")
+        case .likedAlbums: String(localized: "library_liked_albums_title")
+        case .recentlyAdded: PMString("ext.tv.home.recentlyAdded")
+        case .radio: PMString("ext.tv.radio.title")
+        }
+    }
+
+    private static func icon(_ section: TVHomeSection) -> String {
+        switch section {
+        case .albumPick: "opticaldisc"
+        case .homeScenes: "sofa.fill"
+        case .recommendations: "sparkles"
+        case .recentlyPlayed: "clock.arrow.circlepath"
+        case .likedAlbums: "heart.fill"
+        case .recentlyAdded: "clock.badge.checkmark"
+        case .radio: "radio.fill"
+        }
+    }
+
+    private static func toggleFocusID(_ section: TVHomeSection) -> String { "homeSections.toggle." + section.rawValue }
+    private static func upFocusID(_ section: TVHomeSection) -> String { "homeSections.up." + section.rawValue }
+    private static func downFocusID(_ section: TVHomeSection) -> String { "homeSections.down." + section.rawValue }
+
+    private func toggle(_ section: TVHomeSection) {
+        var updated = configuration
+        if updated.isShown(section) {
+            guard updated.setShown(false, for: section) else {
+                notice = PMString("ext.tv.settings.homeSections.keepOne")
+                return
+            }
+        } else {
+            updated.setShown(true, for: section)
+        }
+        notice = nil
+        rawValue = updated.encoded()
+    }
+
+    /// 挪完焦点跟着这一行走;挪到头了那颗按钮会变成不可用,焦点换到反方向那颗上。
+    private func move(_ section: TVHomeSection, by offset: Int) {
+        var updated = configuration
+        updated.move(section, by: offset)
+        notice = nil
+        rawValue = updated.encoded()
+        if updated.canMove(section, by: offset) {
+            focusedID = offset < 0 ? Self.upFocusID(section) : Self.downFocusID(section)
+        } else {
+            focusedID = offset < 0 ? Self.downFocusID(section) : Self.upFocusID(section)
         }
     }
 }

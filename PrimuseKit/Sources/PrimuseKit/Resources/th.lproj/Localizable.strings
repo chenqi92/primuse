@@ -916,6 +916,9 @@
 "ext.tv.settings.tabBar.moveUp" = "เลื่อนขึ้น";
 "ext.tv.settings.tabBar.moveDown" = "เลื่อนลง";
 "ext.tv.settings.tabBar.reset" = "คืนค่าเริ่มต้น";
+"ext.tv.settings.homeSections" = "เนื้อหาหน้าแรก";
+"ext.tv.settings.homeSections.footer" = "จัดลำดับแถวในหน้าแรกและปิดแถวที่ไม่อยากเห็น";
+"ext.tv.settings.homeSections.keepOne" = "ต้องเหลืออย่างน้อยหนึ่งแถวในหน้าแรก";
 "ext.tv.player.browse" = "เรียกดู";
 "ext.tv.player.shelf.thisAlbum" = "อัลบั้มนี้";
 "ext.tv.player.shelf.moreByArtist" = "ศิลปินเดียวกัน";

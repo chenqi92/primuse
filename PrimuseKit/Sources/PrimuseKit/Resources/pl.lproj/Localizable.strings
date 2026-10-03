@@ -916,6 +916,9 @@
 "ext.tv.settings.tabBar.moveUp" = "Przesuń w górę";
 "ext.tv.settings.tabBar.moveDown" = "Przesuń w dół";
 "ext.tv.settings.tabBar.reset" = "Przywróć domyślne";
+"ext.tv.settings.homeSections" = "Zawartość strony głównej";
+"ext.tv.settings.homeSections.footer" = "Zmień kolejność rzędów na stronie głównej i wyłącz te, których nie chcesz widzieć.";
+"ext.tv.settings.homeSections.keepOne" = "Na stronie głównej musi zostać co najmniej jeden rząd.";
 "ext.tv.player.browse" = "Przeglądaj";
 "ext.tv.player.shelf.thisAlbum" = "Ten album";
 "ext.tv.player.shelf.moreByArtist" = "Tego wykonawcy";

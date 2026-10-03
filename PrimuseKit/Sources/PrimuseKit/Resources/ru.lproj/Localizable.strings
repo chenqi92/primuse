@@ -916,6 +916,9 @@
 "ext.tv.settings.tabBar.moveUp" = "Вверх";
 "ext.tv.settings.tabBar.moveDown" = "Вниз";
 "ext.tv.settings.tabBar.reset" = "Восстановить по умолчанию";
+"ext.tv.settings.homeSections" = "Содержимое главной";
+"ext.tv.settings.homeSections.footer" = "Меняйте порядок рядов на главной и отключайте те, которые не хотите видеть.";
+"ext.tv.settings.homeSections.keepOne" = "На главной должен остаться хотя бы один ряд.";
 "ext.tv.player.browse" = "Обзор";
 "ext.tv.player.shelf.thisAlbum" = "Этот альбом";
 "ext.tv.player.shelf.moreByArtist" = "Этого исполнителя";

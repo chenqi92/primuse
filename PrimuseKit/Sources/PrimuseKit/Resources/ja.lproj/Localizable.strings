@@ -969,6 +969,9 @@
 "ext.tv.settings.tabBar.moveUp" = "上へ移動";
 "ext.tv.settings.tabBar.moveDown" = "下へ移動";
 "ext.tv.settings.tabBar.reset" = "デフォルトに戻す";
+"ext.tv.settings.homeSections" = "ホームの内容";
+"ext.tv.settings.homeSections.footer" = "ホームの各列の並び順を変えたり、見たくない列をオフにしたりできます。";
+"ext.tv.settings.homeSections.keepOne" = "ホームには少なくとも1列を残してください。";
 "ext.tv.player.browse" = "ブラウズ";
 "ext.tv.player.shelf.thisAlbum" = "このアルバム";
 "ext.tv.player.shelf.moreByArtist" = "同じアーティスト";

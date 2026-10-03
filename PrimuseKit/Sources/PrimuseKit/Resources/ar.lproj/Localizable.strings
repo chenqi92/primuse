@@ -916,6 +916,9 @@
 "ext.tv.settings.tabBar.moveUp" = "نقل لأعلى";
 "ext.tv.settings.tabBar.moveDown" = "نقل لأسفل";
 "ext.tv.settings.tabBar.reset" = "استعادة الافتراضي";
+"ext.tv.settings.homeSections" = "محتوى الرئيسية";
+"ext.tv.settings.homeSections.footer" = "غيّر ترتيب الصفوف في الرئيسية وأوقف ما لا تريد رؤيته.";
+"ext.tv.settings.homeSections.keepOne" = "أبقِ صفًا واحدًا على الأقل في الرئيسية.";
 "ext.tv.player.browse" = "تصفّح";
 "ext.tv.player.shelf.thisAlbum" = "هذا الألبوم";
 "ext.tv.player.shelf.moreByArtist" = "للفنان نفسه";

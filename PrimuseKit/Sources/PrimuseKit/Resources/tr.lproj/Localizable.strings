@@ -916,6 +916,9 @@
 "ext.tv.settings.tabBar.moveUp" = "Yukarı Taşı";
 "ext.tv.settings.tabBar.moveDown" = "Aşağı Taşı";
 "ext.tv.settings.tabBar.reset" = "Varsayılanlara Dön";
+"ext.tv.settings.homeSections" = "Ana Sayfa İçeriği";
+"ext.tv.settings.homeSections.footer" = "Ana sayfadaki satırların sırasını değiştirin, görmek istemediklerinizi kapatın.";
+"ext.tv.settings.homeSections.keepOne" = "Ana sayfada en az bir satır kalmalı.";
 "ext.tv.player.browse" = "Göz at";
 "ext.tv.player.shelf.thisAlbum" = "Bu albüm";
 "ext.tv.player.shelf.moreByArtist" = "Aynı sanatçıdan";

@@ -13,6 +13,7 @@ struct TVHomeView: View {
     private var coverDrivenAmbient = AppThemePreferences.defaultCoverDrivenAmbient
     @AppStorage("primuse.ai.recommendationScene.v1")
     private var recommendationSceneRawValue = AIRecommendationScene.automatic.rawValue
+    @AppStorage(TVHomeSectionConfiguration.storageKey) private var homeSectionsRawValue = ""
     @State private var recommendationCandidates: [Song] = []
     @State private var aiRecommendation = AIRecommendationViewModel()
     @State private var recommendationHistoryRevision = 0
@@ -177,83 +178,9 @@ struct TVHomeView: View {
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 30) {
-                    // 顺序:居家场景 → 情景推荐专辑 → 智能推荐 → 最近播放 → 最近添加 → 电台。
-                    if store.hasRealLibrary {
-                        TVHomeSceneRow(
-                            focusBinding: $focusedCardID,
-                            cardID: { cardID("scene", $0.rawValue) },
-                            onStarted: { playerOpener($0)() }
-                        )
-                        heroZone
-                    }
-                    if intelligence.shouldShowRemoteRecommendations,
-                       !recommendationCandidates.isEmpty {
-                        intelligentRecommendationSection
-                    } else if !store.recommended.isEmpty {
-                        TVRow(label: PMString("ext.tv.home.madeForYou")) {
-                            ForEach(Array(store.recommended.enumerated()), id: \.offset) { _, album in
-                                albumCard(album, row: "made")
-                            }
-                        }
-                    }
-                    if store.hasRealLibrary {
-                        if !store.recentlyPlayed.isEmpty {
-                            TVRow(label: PMString("ext.tv.home.recentlyPlayed")) {
-                                ForEach(store.recentlyPlayed) { song in
-                                    TVSongCard(song: song, action: playerOpener(cardID("recent", song.id)))
-                                        .focused($focusedCardID, equals: cardID("recent", song.id))
-                                }
-                            }
-                        } else if heroAlbum == nil {
-                            TVRow(label: PMString("ext.tv.nav.library")) {
-                                ForEach(Array(store.songs.prefix(15))) { song in
-                                    TVSongCard(song: song, action: playerOpener(cardID("songs", song.id)))
-                                        .focused($focusedCardID, equals: cardID("songs", song.id))
-                                }
-                            }
-                        }
-                        let likedAlbums = store.likedAlbums
-                        if !likedAlbums.isEmpty {
-                            TVRow(label: String(localized: "library_liked_albums_title")) {
-                                ForEach(likedAlbums) { album in
-                                    albumCard(album, row: "liked")
-                                }
-                            }
-                        }
-                    }
-                    if !store.recentlyAddedAlbums.isEmpty {
-                        TVRow(label: PMString("ext.tv.home.recentlyAdded")) {
-                            ForEach(store.recentlyAddedAlbums) { album in
-                                albumCard(album, row: "added")
-                            }
-                        }
-                    }
-                    // 有曲库没电台时也留着这一排,末尾的卡片就是电视端添加电台的入口。
-                    TVRow(
-                        label: PMString("ext.tv.radio.title"),
-                        sub: store.radioStations.isEmpty
-                            ? nil
-                            : TVRadioText.stationCount(store.radioStations.count)
-                    ) {
-                        let homeStations = homeRadioStations
-                        // 长按挪动只在这一排里算,台不会被挪出首页。
-                        let homeStationIDs = homeStations.map(\.id)
-                        ForEach(homeStations) { station in
-                            TVRadioStationCard(
-                                station: station,
-                                siblingIDs: homeStationIDs,
-                                focusBinding: $focusedRadioID,
-                                onDelete: {
-                                    radioDeleteRequest = TVRadioDeleteRequest(station: $0, siblingIDs: homeStationIDs)
-                                },
-                                onModalPresentationChanged: onModalPresentationChanged,
-                                action: playerOpener(cardID("radio", station.id))
-                            )
-                        }
-                        if store.radioStations.count > Self.homeRadioLimit {
-                            TVRadioAllStationsCard(count: store.radioStations.count, action: openRadioLibrary)
-                        }
-                        TVRadioAddCard(focusBinding: $focusedRadioID) { showsRadioAdd = true }
+                    // 顺序与显隐在设置「首页」里调(`TVHomeSectionConfiguration`)。
+                    ForEach(homeSections.visibleSections, id: \.self) { section in
+                        homeSection(section)
                     }
                 }
                 .tvPage()
@@ -302,7 +229,9 @@ struct TVHomeView: View {
             ListeningIntentService.shared.refresh(library: store.library)
         }
         .task(id: recommendationCandidateRefreshKey) {
-            guard intelligence.settingsStore.recommendationsEnabled else {
+            // 首页关掉了推荐那一排就不必再挑候选。
+            guard intelligence.settingsStore.recommendationsEnabled,
+                  homeSections.isShown(.recommendations) else {
                 recommendationCandidates = []
                 return
             }
@@ -315,6 +244,105 @@ struct TVHomeView: View {
             Timer.publish(every: 15 * 60, on: .main, in: .common).autoconnect()
         ) { _ in
             recommendationClockRevision &+= 1
+        }
+    }
+
+    private var homeSections: TVHomeSectionConfiguration { .decode(homeSectionsRawValue) }
+
+    /// 首页的一排。此刻没内容的排什么也不画(不占间距)。
+    @ViewBuilder
+    private func homeSection(_ section: TVHomeSection) -> some View {
+        switch section {
+        case .albumPick:
+            if store.hasRealLibrary { heroZone }
+        case .homeScenes:
+            if store.hasRealLibrary {
+                TVHomeSceneRow(
+                    focusBinding: $focusedCardID,
+                    cardID: { cardID("scene", $0.rawValue) },
+                    onStarted: { playerOpener($0)() }
+                )
+            }
+        case .recommendations:
+            if intelligence.shouldShowRemoteRecommendations,
+               !recommendationCandidates.isEmpty {
+                intelligentRecommendationSection
+            } else if !store.recommended.isEmpty {
+                TVRow(label: PMString("ext.tv.home.madeForYou")) {
+                    ForEach(Array(store.recommended.enumerated()), id: \.offset) { _, album in
+                        albumCard(album, row: "made")
+                    }
+                }
+            }
+        case .recentlyPlayed:
+            if store.hasRealLibrary {
+                if !store.recentlyPlayed.isEmpty {
+                    TVRow(label: PMString("ext.tv.home.recentlyPlayed")) {
+                        ForEach(store.recentlyPlayed) { song in
+                            TVSongCard(song: song, action: playerOpener(cardID("recent", song.id)))
+                                .focused($focusedCardID, equals: cardID("recent", song.id))
+                        }
+                    }
+                } else if heroAlbum == nil {
+                    TVRow(label: PMString("ext.tv.nav.library")) {
+                        ForEach(Array(store.songs.prefix(15))) { song in
+                            TVSongCard(song: song, action: playerOpener(cardID("songs", song.id)))
+                                .focused($focusedCardID, equals: cardID("songs", song.id))
+                        }
+                    }
+                }
+            }
+        case .likedAlbums:
+            if store.hasRealLibrary {
+                let likedAlbums = store.likedAlbums
+                if !likedAlbums.isEmpty {
+                    TVRow(label: String(localized: "library_liked_albums_title")) {
+                        ForEach(likedAlbums) { album in
+                            albumCard(album, row: "liked")
+                        }
+                    }
+                }
+            }
+        case .recentlyAdded:
+            if !store.recentlyAddedAlbums.isEmpty {
+                TVRow(label: PMString("ext.tv.home.recentlyAdded")) {
+                    ForEach(store.recentlyAddedAlbums) { album in
+                        albumCard(album, row: "added")
+                    }
+                }
+            }
+        case .radio:
+            radioRow
+        }
+    }
+
+    /// 有曲库没电台时也留着这一排,末尾的卡片就是电视端添加电台的入口。
+    private var radioRow: some View {
+        TVRow(
+            label: PMString("ext.tv.radio.title"),
+            sub: store.radioStations.isEmpty
+                ? nil
+                : TVRadioText.stationCount(store.radioStations.count)
+        ) {
+            let homeStations = homeRadioStations
+            // 长按挪动只在这一排里算,台不会被挪出首页。
+            let homeStationIDs = homeStations.map(\.id)
+            ForEach(homeStations) { station in
+                TVRadioStationCard(
+                    station: station,
+                    siblingIDs: homeStationIDs,
+                    focusBinding: $focusedRadioID,
+                    onDelete: {
+                        radioDeleteRequest = TVRadioDeleteRequest(station: $0, siblingIDs: homeStationIDs)
+                    },
+                    onModalPresentationChanged: onModalPresentationChanged,
+                    action: playerOpener(cardID("radio", station.id))
+                )
+            }
+            if store.radioStations.count > Self.homeRadioLimit {
+                TVRadioAllStationsCard(count: store.radioStations.count, action: openRadioLibrary)
+            }
+            TVRadioAddCard(focusBinding: $focusedRadioID) { showsRadioAdd = true }
         }
     }
 
@@ -473,7 +501,7 @@ struct TVHomeView: View {
 
     private var recommendationCandidateRefreshKey: String {
         "\(store.recommendationRevision)#\(recommendationHistoryRevision)#"
-            + "\(intelligence.settingsStore.recommendationsEnabled)"
+            + "\(intelligence.settingsStore.recommendationsEnabled)#\(homeSections.isShown(.recommendations))"
     }
 
     private var recommendationRefreshKey: String {

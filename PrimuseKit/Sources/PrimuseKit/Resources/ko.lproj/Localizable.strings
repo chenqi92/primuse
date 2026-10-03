@@ -969,6 +969,9 @@
 "ext.tv.settings.tabBar.moveUp" = "위로 이동";
 "ext.tv.settings.tabBar.moveDown" = "아래로 이동";
 "ext.tv.settings.tabBar.reset" = "기본값으로 복원";
+"ext.tv.settings.homeSections" = "홈 구성";
+"ext.tv.settings.homeSections.footer" = "홈의 각 줄 순서를 바꾸고 보고 싶지 않은 줄은 끕니다.";
+"ext.tv.settings.homeSections.keepOne" = "홈에는 적어도 한 줄을 남겨 두어야 합니다.";
 "ext.tv.player.browse" = "둘러보기";
 "ext.tv.player.shelf.thisAlbum" = "이 앨범";
 "ext.tv.player.shelf.moreByArtist" = "같은 아티스트";

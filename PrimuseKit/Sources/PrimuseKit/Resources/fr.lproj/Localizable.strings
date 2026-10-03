@@ -969,6 +969,9 @@
 "ext.tv.settings.tabBar.moveUp" = "Monter";
 "ext.tv.settings.tabBar.moveDown" = "Descendre";
 "ext.tv.settings.tabBar.reset" = "Rétablir les valeurs par défaut";
+"ext.tv.settings.homeSections" = "Contenu de l’accueil";
+"ext.tv.settings.homeSections.footer" = "Réorganisez les rangées de l’accueil et désactivez celles que vous ne voulez pas voir.";
+"ext.tv.settings.homeSections.keepOne" = "Gardez au moins une rangée sur l’accueil.";
 "ext.tv.player.browse" = "Parcourir";
 "ext.tv.player.shelf.thisAlbum" = "Cet album";
 "ext.tv.player.shelf.moreByArtist" = "Du même artiste";
