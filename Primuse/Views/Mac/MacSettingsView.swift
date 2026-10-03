@@ -452,6 +452,35 @@ private struct MacSTStorageView: View {
                         }
                     }
                     .settingsAnchor("storage.audioCacheLimit")
+                    MacSTRow(
+                        String(localized: "offline_download_quality"),
+                        hint: String(localized: "offline_download_quality_desc"),
+                        hintLineLimit: 4
+                    ) {
+                        MacSTPicker(
+                            selection: $settings.offlineDownloadQuality,
+                            options: StreamQualityPreference.allCases.map { ($0, $0.displayName) },
+                            width: 160
+                        )
+                    }
+                    .settingsAnchor("storage.offlineDownloadQuality")
+                    if settings.offlineDownloadQuality != .original
+                        || sourceManager.offlineCompactionSweepProgress != nil {
+                        MacSTRow(
+                            String(localized: "offline_compact_existing"),
+                            hint: offlineCompactionSweepHint
+                        ) {
+                            if sourceManager.offlineCompactionSweepProgress != nil {
+                                MacSTButton(title: String(localized: "cancel")) {
+                                    sourceManager.cancelOfflineCompactionSweep()
+                                }
+                            } else {
+                                MacSTButton(title: String(localized: "offline_compact_existing_action")) {
+                                    sourceManager.startOfflineCompactionSweep()
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -482,6 +511,27 @@ private struct MacSTStorageView: View {
                 notificationStatusDenied = await UserNotificationService.shared.isAuthorizationDenied()
             }
         }
+    }
+
+    private var offlineCompactionSweepHint: String? {
+        if let progress = sourceManager.offlineCompactionSweepProgress {
+            return String(
+                format: String(localized: "offline_compact_existing_progress_format"),
+                progress.completed,
+                progress.total
+            )
+        }
+        guard let result = sourceManager.lastOfflineCompactionSweepResult else { return nil }
+        guard result.convertedCount > 0 else {
+            return String(localized: "offline_compact_existing_none")
+        }
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .binary
+        return String(
+            format: String(localized: "offline_compact_existing_result_format"),
+            result.convertedCount,
+            formatter.string(fromByteCount: result.savedBytes)
+        )
     }
 
     private func audioCacheLimitLabel(_ bytes: Int64) -> String {

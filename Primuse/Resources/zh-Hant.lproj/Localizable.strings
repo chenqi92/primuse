@@ -4346,6 +4346,14 @@
 "streaming_quality_192" = "192 kbps";
 "streaming_quality_128" = "128 kbps";
 "streaming_quality_desc" = "在支援轉碼的伺服器（Subsonic / Navidrome、Emby、Jellyfin 及相容實作）上以較低位元率傳輸以節省流量。選擇「原始音質」則原樣傳輸來源檔案。轉碼曲目要先把轉碼檔案下載完整才開始播放，因此第一首與手動跳到的曲目開頭會有短暫等待，接著播的下一首會提前準備好。轉碼曲目在下載完成前不能拖曳進度，不參與無縫播放與交叉淡化，也不會寫入離線快取。切換網路會在下一首生效。";
+"offline_download_quality_section" = "離線快取";
+"offline_download_quality" = "離線快取音質";
+"offline_download_quality_desc" = "離線快取的歌曲在本機轉成所選位元率的 AAC 儲存，所有音樂來源都適用，雲端硬碟、WebDAV、NAS 裡的無損檔案能省下大半空間。快取時仍先下載原始檔案，轉換完成後只保留轉換後的版本。無損檔案都會轉換，有損檔案只在原位元率明顯更高時轉換；選擇「原始音質」則保存原始檔案。已經快取的原始檔案可以用「轉換已快取的歌曲」就地轉換，不必重新下載。";
+"offline_compact_existing" = "轉換已快取的歌曲";
+"offline_compact_existing_action" = "轉換";
+"offline_compact_existing_progress_format" = "正在轉換 %d / %d";
+"offline_compact_existing_result_format" = "已轉換 %d 首，節省 %@";
+"offline_compact_existing_none" = "沒有需要轉換的歌曲";
 
 // MARK: - Add source: address form
 "source_address_section" = "伺服器位址";

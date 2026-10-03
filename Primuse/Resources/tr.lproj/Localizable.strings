@@ -4275,6 +4275,14 @@
 "streaming_quality_192" = "192 kbps";
 "streaming_quality_128" = "128 kbps";
 "streaming_quality_desc" = "Kod dönüştürmeyi destekleyen sunucularda (Subsonic / Navidrome, Emby, Jellyfin ve uyumlular) mobil veriden tasarruf etmek için daha düşük bit hızıyla aktarır. “Orijinal”, kaynak dosyayı olduğu gibi gönderir. Kod dönüştürülen bir parça çalmaya başlamadan önce tamamen indirilir; bu yüzden ilk parça ve elle geçtiğiniz her parça kısa bir beklemeden sonra başlar, sıradaki parça ise önceden hazırlanır. Kod dönüştürülen bir parçada indirme bitene kadar ileri sarılamaz, boşluksuz çalma ve çapraz geçişe katılmaz ve çevrimdışı önbelleğe hiçbir zaman kaydedilmez. Ağ değişikliği bir sonraki parçada geçerli olur.";
+"offline_download_quality_section" = "Çevrimdışı önbellek";
+"offline_download_quality" = "Çevrimdışı önbellek kalitesi";
+"offline_download_quality_desc" = "Önbelleğe alınan şarkılar bu cihazda seçilen bit hızında AAC'ye dönüştürülür. Her kaynakta çalışır; bulut sürücü, WebDAV veya NAS'taki kayıpsız dosyalar alanın küçük bir kısmını kaplar. Önce yine özgün dosya indirilir, dönüştürme bitince yalnızca dönüştürülmüş kopya tutulur. Kayıpsız dosyalar her zaman dönüştürülür; kayıplı dosyalar yalnızca bit hızları belirgin biçimde yüksekse. \"Orijinal\" kaynak dosyayı korur. Özgün hâliyle önbellekte olan şarkılar, yeniden indirilmeden \"Önbellekteki şarkıları dönüştür\" ile dönüştürülebilir.";
+"offline_compact_existing" = "Önbellekteki şarkıları dönüştür";
+"offline_compact_existing_action" = "Dönüştür";
+"offline_compact_existing_progress_format" = "Dönüştürülüyor %d / %d";
+"offline_compact_existing_result_format" = "%d şarkı dönüştürüldü, %@ kazanıldı";
+"offline_compact_existing_none" = "Dönüştürülecek şarkı yok";
 
 // MARK: - Add source: address form
 "source_address_section" = "Sunucu adresi";

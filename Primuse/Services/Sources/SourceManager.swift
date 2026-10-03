@@ -748,6 +748,8 @@ enum AutomaticOfflineUntrustedCleanupPolicy {
             partial,
             URL(fileURLWithPath: partial.path + CloudPlaybackSource.prewarmMarkerSuffix),
             URL(fileURLWithPath: canonical.path + ".offline"),
+            // 从来历不明的原文件转出来的副本同样来历不明。
+            OfflineCompactArtifact.url(forCanonical: canonical),
         ]
     }
 
@@ -826,6 +828,12 @@ private struct OfflineDownloadSongResult: Sendable {
 private enum OfflineDownloadPinIntent: Sendable {
     case manual
     case playlists(Set<String>)
+}
+
+private struct OfflineCompactionTaskRecord {
+    let id: UUID
+    /// 转换省下的字节数; 没有转换时为 nil。
+    let task: Task<Int64?, Never>
 }
 
 private enum OfflineDownloadTransferResult: Sendable {
@@ -3092,6 +3100,11 @@ final class SourceManager {
     /// misleading selected/unselected flash during automatic retries.
     private(set) var lastSuccessfulConnectionRoutes: [String: SourceConnectionCandidateKind] = [:]
     private var offlineDownloadTasks: [String: OfflineDownloadTaskRecord] = [:]
+    /// 正在把离线原文件转成精简副本的任务, 按原文件缓存的相对路径单飞。会删掉
+    /// 这组文件的操作(移除下载、停用源、换账号、路径迁移)先取消它。
+    @ObservationIgnored private var offlineCompactionTasks: [String: OfflineCompactionTaskRecord] = [:]
+    /// 副本装好时原文件正被播放, 当时没删; 等这组文件没人用了再删。值是原文件字节数。
+    @ObservationIgnored private var supersededOfflineOriginalByteCounts: [String: Int64] = [:]
     @ObservationIgnored var metadataFileReplacementHandler: ((Song, Song) async throws -> Void)?
     @ObservationIgnored var automaticOfflineDownloadRemovedHandler: ((String) -> Void)?
     @ObservationIgnored private var automaticPlaylistPinnedSongsByID: [String: Song] = [:]
@@ -5137,7 +5150,7 @@ final class SourceManager {
                let cached = await cachedURLWithPlaybackLease(for: song) {
                 return cached
             }
-            if !acquirePlaybackCacheLease, let cached = cachedURL(for: song) {
+            if !acquirePlaybackCacheLease, let cached = cachedPlaybackURL(for: song) {
                 return cached
             }
         }
@@ -5475,7 +5488,7 @@ final class SourceManager {
         // 都直接回落音频。这样冷启动后立刻断网播放也不会卡在远端 MV 超时；
         // 已缓存 MV 已在上方优先命中，不会被这个回落误伤。
         if OfflinePlaybackPolicy.shouldSkipRemoteMusicVideo(
-            hasUsableCachedAudio: cachedURL(for: song) != nil,
+            hasUsableCachedAudio: cachedPlaybackURL(for: song) != nil,
             isStandaloneMusicVideo: song.isStandaloneMusicVideo,
             hasDeterminedNetworkPath: NetworkMonitor.shared.hasDeterminedPath,
             isNetworkReachable: NetworkMonitor.shared.isReachable
@@ -6491,6 +6504,7 @@ final class SourceManager {
             backgroundAudioCacheTasks[songID] = nil
         }
         musicVideoCacheDownloads.cancelAndRemoveAll { $0.hasPrefix("\(sourceID):") }
+        cancelOfflineCompactions(forSourceIDs: [sourceID])
         releasePlaybackAudioCacheLeases(sourceID: sourceID)
     }
 
@@ -6964,6 +6978,43 @@ final class SourceManager {
         return fileURL
     }
 
+    /// 能直接拿来播放的本地副本: 先找 `cachedURL(for:)` 的原文件, 没有时再找
+    /// 按离线缓存音质转出来的精简副本。读标签、读内嵌歌词、拖动时整曲物化这些
+    /// 要原文件字节的地方继续用 `cachedURL(for:)`。
+    func cachedPlaybackURL(for song: Song) -> URL? {
+        if let original = cachedURL(for: song) { return original }
+        return cachedCompactURL(for: song)
+    }
+
+    private func cachedCompactURL(for song: Song) -> URL? {
+        let relativePath = audioCacheRelativePath(for: song)
+        guard audioCacheReadsAreAllowed(for: song.sourceID),
+              !blockedUntrustedAudioCachePaths.contains(relativePath) else { return nil }
+        let compactURL = OfflineCompactArtifact.url(
+            forCanonical: audioCacheDirectory(for: song.sourceID)
+                .appendingPathComponent(cacheFileName(for: song))
+        )
+        guard FileManager.default.fileExists(atPath: compactURL.path) else { return nil }
+        let preservesExistingArtifact = preservingAutomaticRefreshPaths.contains(relativePath)
+            || contentChangeProtectionPendingPaths.contains(relativePath)
+            || (activePlaybackAudioCachePaths[relativePath] ?? 0) > 0
+        guard OfflineCompactArtifact.isUsable(
+            at: compactURL,
+            expectedOriginalByteCount: song.fileSize,
+            preservesExisting: preservesExistingArtifact
+        ) else {
+            // 与原文件不完整时同样处理: 服务器上的文件已经换了, 这份副本不会再变对。
+            plog("🗑 cachedPlaybackURL: 精简副本与当前文件对不上 '\(song.title)' — 删除并强制重下")
+            try? FileManager.default.removeItem(at: compactURL)
+            Task {
+                await AudioCacheManager.shared.refreshPathFamily(path: relativePath)
+            }
+            return nil
+        }
+        Task { await AudioCacheManager.shared.recordAccess(path: relativePath) }
+        return compactURL
+    }
+
     /// Queue traversal must not migrate files, publish cache state or record an
     /// access on every candidate. Resolution still acquires and validates the
     /// selected file's normal security-scoped playback lease.
@@ -6974,10 +7025,11 @@ final class SourceManager {
         let preservesExistingArtifact = preservingAutomaticRefreshPaths.contains(relativePath)
             || contentChangeProtectionPendingPaths.contains(relativePath)
             || (activePlaybackAudioCachePaths[relativePath] ?? 0) > 0
-        if Self.isUsableCacheFile(
+        if Self.usableCacheArtifactURL(
             at: cacheURL(for: song),
-            expectedSize: preservesExistingArtifact ? 0 : song.fileSize
-        ) { return true }
+            expectedSize: song.fileSize,
+            preservesExisting: preservesExistingArtifact
+        ) != nil { return true }
         // Playback adopts a file cached under the old naming the moment it
         // resolves the song. Answer the same way here, without moving it.
         return hasAdoptableLegacyAudioCache(for: song)
@@ -7006,7 +7058,8 @@ final class SourceManager {
             ticket: streamEpoch
         ) else { return nil }
 
-        let result = await downloadForOfflineBatch(songs: [song])
+        // 拖动要的是原文件, 这次临时下载不转精简副本。
+        let result = await downloadForOfflineBatch(songs: [song], compactsAfterPin: false)
         guard result.succeeded, let cached = cachedURL(for: song) else { return nil }
 
         // Seeking is normal playback cache behavior, not an explicit offline
@@ -7061,7 +7114,7 @@ final class SourceManager {
               audioCacheReadsAreAllowed(for: currentSong.sourceID) else {
             throw AudioCacheSyncImportError.sourceUnavailable
         }
-        if cachedURL(for: currentSong) != nil {
+        if cachedPlaybackURL(for: currentSong) != nil {
             throw AudioCacheSyncImportError.alreadyCached
         }
 
@@ -7269,14 +7322,15 @@ final class SourceManager {
         let preservesExistingArtifact = preservingAutomaticRefreshPaths.contains(relativePath)
             || contentChangeProtectionPendingPaths.contains(relativePath)
         let snapshot: OfflineAudioCacheSnapshot
-        if Self.isUsableCacheFile(
+        if let artifact = Self.usableCacheArtifactURL(
             at: url,
-            expectedSize: preservesExistingArtifact ? 0 : song.fileSize
+            expectedSize: song.fileSize,
+            preservesExisting: preservesExistingArtifact
         ) {
             snapshot = OfflineAudioCacheSnapshot(
                 state: .cached,
                 progress: nil,
-                byteCount: fileSize(at: url),
+                byteCount: fileSize(at: artifact),
                 errorMessage: nil
             )
         } else {
@@ -7455,9 +7509,13 @@ final class SourceManager {
         // 保留中的旧版本按新版本大小校验必然不够；和播放、后台读取一样只看文件在不在。
         let preservesExistingArtifact = preservingAutomaticRefreshPaths.contains(relativePath)
             || contentChangeProtectionPendingPaths.contains(relativePath)
-        let expectedSize = preservesExistingArtifact ? 0 : song.fileSize
+        let expectedSize = song.fileSize
         let info = await Task.detached(priority: .utility) {
-            Self.offlineFileInfo(at: url, expectedSize: expectedSize)
+            Self.offlineFileInfo(
+                at: url,
+                expectedSize: expectedSize,
+                preservesExisting: preservesExistingArtifact
+            )
         }.value
         guard offlineAudioSnapshotVersions[song.id, default: 0] == version else { return }
         guard audioCacheReadsAreAllowed(for: song.sourceID) else {
@@ -7477,12 +7535,17 @@ final class SourceManager {
 
     private nonisolated static func offlineFileInfo(
         at url: URL,
-        expectedSize: Int64
+        expectedSize: Int64,
+        preservesExisting: Bool = false
     ) -> (exists: Bool, byteCount: Int64?) {
-        guard isUsableCacheFile(at: url, expectedSize: expectedSize) else {
+        guard let artifact = usableCacheArtifactURL(
+            at: url,
+            expectedSize: expectedSize,
+            preservesExisting: preservesExisting
+        ) else {
             return (false, nil)
         }
-        let size = (try? url.resourceValues(forKeys: [.totalFileAllocatedSizeKey]))?
+        let size = (try? artifact.resourceValues(forKeys: [.totalFileAllocatedSizeKey]))?
             .totalFileAllocatedSize
             .map(Int64.init)
         return (true, size)
@@ -7540,6 +7603,28 @@ final class SourceManager {
               let actualSize = (attributes[.size] as? NSNumber)?.int64Value
         else { return false }
         return actualSize >= Int64(Double(expectedSize) * 0.95)
+    }
+
+    /// 这首歌在缓存目录里可以直接播放的那一份: 完整的原文件优先, 其次是按
+    /// 离线缓存音质转出来的精简副本。`preservesExisting` 表示这条路径正在
+    /// 「保留旧版本、新版本下完再替换」, 那时两种文件都只看在不在。
+    private nonisolated static func usableCacheArtifactURL(
+        at canonical: URL,
+        expectedSize: Int64,
+        preservesExisting: Bool
+    ) -> URL? {
+        if isUsableCacheFile(at: canonical, expectedSize: preservesExisting ? 0 : expectedSize) {
+            return canonical
+        }
+        let compact = OfflineCompactArtifact.url(forCanonical: canonical)
+        if OfflineCompactArtifact.isUsable(
+            at: compact,
+            expectedOriginalByteCount: expectedSize,
+            preservesExisting: preservesExisting
+        ) {
+            return compact
+        }
+        return nil
     }
 
     func downloadForOffline(song: Song) {
@@ -7639,10 +7724,14 @@ final class SourceManager {
             backgroundAudioCacheTasks[songID] = nil
         }
         musicVideoCacheDownloads.cancelAndRemoveAll { $0.hasPrefix("\(sourceID):") }
+        cancelOfflineCompactions(forSourceIDs: [sourceID])
         plog("⏹️ Source disabled: cancelled background transfers source=\(sourceID.prefix(8))")
     }
 
-    func downloadForOfflineBatch(songs: [Song]) async -> OfflineDownloadBatchResult {
+    func downloadForOfflineBatch(
+        songs: [Song],
+        compactsAfterPin: Bool = true
+    ) async -> OfflineDownloadBatchResult {
         let playableSongs = songs.filteredPlayable()
         var completedCount = 0
         var failedCount = 0
@@ -7661,7 +7750,11 @@ final class SourceManager {
                 nextIndex += 1
                 group.addTask {
                     var attempt = 1
-                    var result = await self.waitForOfflineDownload(song, pinIntent: .manual)
+                    var result = await self.waitForOfflineDownload(
+                        song,
+                        pinIntent: .manual,
+                        compactsAfterPin: compactsAfterPin
+                    )
                     while case .failed(let kind, _) = result,
                           OfflineBatchRetryPolicy.shouldRetry(
                             afterAttempt: attempt,
@@ -7679,7 +7772,11 @@ final class SourceManager {
                         guard !Task.isCancelled else { break }
                         attempt += 1
                         plog("🔁 Offline batch retry '\(song.title)' attempt=\(attempt) after \(kind.rawValue)")
-                        result = await self.waitForOfflineDownload(song, pinIntent: .manual)
+                        result = await self.waitForOfflineDownload(
+                            song,
+                            pinIntent: .manual,
+                            compactsAfterPin: compactsAfterPin
+                        )
                     }
                     return OfflineDownloadSongResult(
                         snapshot: await self.offlineAudioSnapshot(for: song),
@@ -7985,11 +8082,14 @@ final class SourceManager {
         }
     }
 
+    /// - Parameter compactsAfterPin: 固定之后按「离线缓存音质」转成精简副本。
+    ///   只有拖动时临时整曲物化(随后就取消固定)传 false。
     private func waitForOfflineDownload(
         _ song: Song,
         pinIntent: OfflineDownloadPinIntent,
         refreshDisposition: AutomaticOfflineRefreshDisposition = .none,
-        artifactSignature: String? = nil
+        artifactSignature: String? = nil,
+        compactsAfterPin: Bool = true
     ) async -> OfflineDownloadTransferResult {
         guard await ensureAudioCacheScopeValidated(for: song.sourceID) else {
             return .failed(
@@ -8017,6 +8117,9 @@ final class SourceManager {
                     song: song,
                     byteCount: byteCount
                 )
+                if compactsAfterPin, !Task.isCancelled {
+                    await compactOfflineArtifactIfNeeded(for: song)
+                }
             }
             return result
         } onCancel: {
@@ -8187,6 +8290,355 @@ final class SourceManager {
         }
     }
 
+    // MARK: - 离线缓存音质
+
+    /// 离线下载完成并固定之后, 按「离线缓存音质」把原文件在本机转成 AAC。
+    /// 设置是原始音质、格式不需要转、转换失败时原文件保持原样。整轨 CUE 的
+    /// 各分轨共用一个文件, 同一路径的转换只跑一份。返回省下的字节数。
+    @discardableResult
+    private func compactOfflineArtifactIfNeeded(for song: Song) async -> Int64? {
+        let preference = PlaybackSettings.load().offlineDownloadQuality
+        guard case .compact(let bitRateKbps) = OfflineDownloadQualityPolicy.plan(
+            preference: preference,
+            format: song.fileFormat,
+            isStreamDescriptor: song.isStreamDescriptor,
+            isStandaloneMusicVideo: song.isStandaloneMusicVideo,
+            isCueTrack: song.isCueTrack,
+            sourceBitRateKbps: song.bitRate,
+            fileSize: song.fileSize,
+            duration: song.duration
+        ) else { return nil }
+        let relativePath = audioCacheRelativePath(for: song)
+        if let running = offlineCompactionTasks[relativePath] {
+            _ = await running.task.value
+            return nil
+        }
+        let id = UUID()
+        let task = Task { @MainActor [weak self] () -> Int64? in
+            guard let self else { return nil }
+            return await self.performOfflineCompaction(
+                song: song,
+                relativePath: relativePath,
+                bitRateKbps: bitRateKbps
+            )
+        }
+        offlineCompactionTasks[relativePath] = OfflineCompactionTaskRecord(id: id, task: task)
+        let savedBytes = await task.value
+        if offlineCompactionTasks[relativePath]?.id == id {
+            offlineCompactionTasks[relativePath] = nil
+        }
+        return savedBytes
+    }
+
+    private func performOfflineCompaction(
+        song: Song,
+        relativePath: String,
+        bitRateKbps: Int
+    ) async -> Int64? {
+        guard await ensureAudioCacheScopeValidated(for: song.sourceID),
+              compactionMayTouch(relativePath, sourceID: song.sourceID),
+              await AudioCacheManager.shared.isPinned(path: relativePath) else { return nil }
+        let canonical = audioCacheTargetURL(for: song)
+        let compactURL = OfflineCompactArtifact.url(forCanonical: canonical)
+        let expectedSize = song.fileSize
+        let source = await Task.detached(priority: .utility) {
+            Self.offlineCompactionSourceState(
+                canonical: canonical,
+                compact: compactURL,
+                expectedSize: expectedSize
+            )
+        }.value
+        // 原文件已经不在(早就转过了)或不完整: 没有可转的。
+        guard let original = source.original, !Task.isCancelled else { return nil }
+
+        if let record = source.compactRecord,
+           record.originalByteCount == original.byteCount,
+           record.bitRateKbps == bitRateKbps {
+            // 副本早就转好了, 只是当时原文件正被播放没删掉。
+            await removeSupersededOfflineOriginal(
+                path: relativePath,
+                originalByteCount: original.byteCount
+            )
+            return nil
+        }
+
+        // 转换期间占着这组文件: 不被当成可回收的缓存, 换账号的整目录隔离也会等它。
+        guard let lease = await AudioCacheManager.shared.acquirePathFamilyLease(path: relativePath) else {
+            return nil
+        }
+        defer {
+            Task { await AudioCacheManager.shared.releasePathFamilyLease(lease) }
+        }
+
+        let startedAt = Date()
+        let isCueTrack = song.isCueTrack
+        let duration = song.duration
+        let encoding = Task.detached(priority: .utility) {
+            try await OfflineAudioCompactor.encode(
+                original: canonical,
+                originalByteCount: original.byteCount,
+                targetKbps: bitRateKbps,
+                expectedDuration: isCueTrack ? nil : duration
+            )
+        }
+        let output: OfflineAudioCompactor.Output
+        do {
+            output = try await withTaskCancellationHandler {
+                try await encoding.value
+            } onCancel: {
+                encoding.cancel()
+            }
+        } catch {
+            if !(error is CancellationError) {
+                plog("ℹ️ Offline compaction kept the original for '\(song.title)': \(String(describing: error))")
+            }
+            return nil
+        }
+
+        // 取消检查与安装之间没有挂起点: 移除下载、停用源这些都在主 actor 上先取消
+        // 这个任务, 已取消的转换绝不会再装出一份没人认领的副本。
+        guard !Task.isCancelled, compactionMayTouch(relativePath, sourceID: song.sourceID) else {
+            try? FileManager.default.removeItem(at: output.url)
+            return nil
+        }
+        do {
+            try OfflineCompactArtifact.install(
+                staging: output.url,
+                at: compactURL,
+                record: output.record
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: output.url)
+            plog("⚠️ Offline compaction install failed for '\(song.title)': \(String(describing: error))")
+            return nil
+        }
+
+        let outcome = await AudioCacheManager.shared.finishOfflineCompaction(
+            path: relativePath,
+            lease: lease,
+            originalByteCount: original.byteCount,
+            originalModifiedAt: original.modifiedAt
+        )
+        switch outcome {
+        case .abandoned:
+            plog("↩️ Offline compaction discarded for '\(song.title)': download removed or replaced meanwhile")
+            return nil
+        case .keptOriginal:
+            scheduleSupersededOfflineOriginalRetry(
+                path: relativePath,
+                originalByteCount: original.byteCount
+            )
+        case .replacedOriginal:
+            supersededOfflineOriginalByteCounts[relativePath] = nil
+        }
+        let allocated = fileSize(at: compactURL)
+        setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
+            state: .pinned,
+            progress: nil,
+            byteCount: allocated ?? output.byteCount,
+            errorMessage: nil
+        ), for: song.id)
+        plog(String(
+            format: "🗜 Offline: '%@' saved as AAC %ldkbps %lldKB → %lldKB elapsed=%.1fs%@",
+            song.title,
+            output.encodedBitRate / 1000,
+            original.byteCount / 1024,
+            output.byteCount / 1024,
+            Date().timeIntervalSince(startedAt),
+            outcome == .keptOriginal ? " (original in use, removed later)" : ""
+        ))
+        return max(0, original.byteCount - output.byteCount)
+    }
+
+    // MARK: 转换已缓存的歌曲
+
+    struct OfflineCompactionSweepProgress: Equatable, Sendable {
+        var completed: Int
+        var total: Int
+        var convertedCount: Int
+        var savedBytes: Int64
+    }
+
+    /// 「转换已缓存的歌曲」正在进行时的进度; nil 表示没在转。
+    private(set) var offlineCompactionSweepProgress: OfflineCompactionSweepProgress?
+    /// 上一轮转换的结果, 设置页拿它显示「已转换 N 首, 省下 X」。
+    private(set) var lastOfflineCompactionSweepResult: OfflineCompactionSweepProgress?
+    @ObservationIgnored private var offlineCompactionSweepTask: Task<Void, Never>?
+
+    /// 把已经离线、仍是原文件的歌按当前「离线缓存音质」逐首转换。改了设置之后,
+    /// 不必重新下载就能腾出空间。一次只跑一轮, 一次只转一首。
+    func startOfflineCompactionSweep() {
+        guard offlineCompactionSweepTask == nil,
+              PlaybackSettings.load().offlineDownloadQuality != .original else { return }
+        lastOfflineCompactionSweepResult = nil
+        offlineCompactionSweepProgress = OfflineCompactionSweepProgress(
+            completed: 0,
+            total: 0,
+            convertedCount: 0,
+            savedBytes: 0
+        )
+        offlineCompactionSweepTask = Task { @MainActor [weak self] in
+            await self?.runOfflineCompactionSweep()
+        }
+    }
+
+    /// 停在当前这首转完之后。
+    func cancelOfflineCompactionSweep() {
+        offlineCompactionSweepTask?.cancel()
+    }
+
+    private func runOfflineCompactionSweep() async {
+        defer {
+            lastOfflineCompactionSweepResult = offlineCompactionSweepProgress
+            offlineCompactionSweepProgress = nil
+            offlineCompactionSweepTask = nil
+        }
+        let preference = PlaybackSettings.load().offlineDownloadQuality
+        let pinnedPaths = await AudioCacheManager.shared.pinnedRelativePaths()
+        let songs = songsProvider()
+        let candidates = await Task.detached(priority: .utility) {
+            Self.offlineCompactionSweepCandidates(
+                songs: songs,
+                pinnedPaths: pinnedPaths,
+                preference: preference
+            )
+        }.value
+        guard !Task.isCancelled else { return }
+        offlineCompactionSweepProgress?.total = candidates.count
+        plog("🗜 Offline compaction sweep: \(candidates.count) pinned originals to convert")
+        for song in candidates {
+            guard !Task.isCancelled else { break }
+            let savedBytes = await compactOfflineArtifactIfNeeded(for: song)
+            offlineCompactionSweepProgress?.completed += 1
+            if let savedBytes {
+                offlineCompactionSweepProgress?.convertedCount += 1
+                offlineCompactionSweepProgress?.savedBytes += savedBytes
+            }
+        }
+    }
+
+    /// 已离线固定、原文件还在、按当前设置该转的歌; 同一个文件(整轨 CUE)只留一首。
+    private nonisolated static func offlineCompactionSweepCandidates(
+        songs: [Song],
+        pinnedPaths: Set<String>,
+        preference: StreamQualityPreference
+    ) -> [Song] {
+        guard !pinnedPaths.isEmpty else { return [] }
+        var seenPaths = Set<String>()
+        var candidates: [Song] = []
+        for song in songs {
+            guard case .compact = OfflineDownloadQualityPolicy.plan(
+                preference: preference,
+                format: song.fileFormat,
+                isStreamDescriptor: song.isStreamDescriptor,
+                isStandaloneMusicVideo: song.isStandaloneMusicVideo,
+                isCueTrack: song.isCueTrack,
+                sourceBitRateKbps: song.bitRate,
+                fileSize: song.fileSize,
+                duration: song.duration
+            ) else { continue }
+            let fileName = CacheFileNamePolicy.make(
+                path: song.filePath,
+                preferredExtension: song.fileFormat.rawValue
+            )
+            let path = "\(song.sourceID)/\(fileName)"
+            guard pinnedPaths.contains(path), !seenPaths.contains(path) else { continue }
+            let original = audioCacheDirectoryURL(for: song.sourceID).appendingPathComponent(fileName)
+            guard FileManager.default.fileExists(atPath: original.path) else { continue }
+            seenPaths.insert(path)
+            candidates.append(song)
+        }
+        return candidates
+    }
+
+    /// 这组文件此刻还能不能由转换来改: 读缓存被禁、来历不明、正在保留旧版本
+    /// 等新内容的路径都不碰。
+    private func compactionMayTouch(_ relativePath: String, sourceID: String) -> Bool {
+        audioCacheReadsAreAllowed(for: sourceID)
+            && !blockedUntrustedAudioCachePaths.contains(relativePath)
+            && !preservingAutomaticRefreshPaths.contains(relativePath)
+            && !contentChangeProtectionPendingPaths.contains(relativePath)
+    }
+
+    private struct OfflineCompactionSourceState: Sendable {
+        struct Original: Sendable {
+            let byteCount: Int64
+            let modifiedAt: Date?
+        }
+        let original: Original?
+        let compactRecord: OfflineCompactArtifactRecord?
+    }
+
+    private nonisolated static func offlineCompactionSourceState(
+        canonical: URL,
+        compact: URL,
+        expectedSize: Int64
+    ) -> OfflineCompactionSourceState {
+        var original: OfflineCompactionSourceState.Original?
+        if isUsableCacheFile(at: canonical, expectedSize: expectedSize),
+           let attributes = try? FileManager.default.attributesOfItem(atPath: canonical.path),
+           let size = (attributes[.size] as? NSNumber)?.int64Value,
+           size > 0 {
+            original = .init(byteCount: size, modifiedAt: attributes[.modificationDate] as? Date)
+        }
+        let record = FileManager.default.fileExists(atPath: compact.path)
+            ? OfflineCompactArtifact.readRecord(at: compact)
+            : nil
+        return OfflineCompactionSourceState(original: original, compactRecord: record)
+    }
+
+    /// 副本装好时原文件正被播放而留下的, 在这组文件没人用之后补删。播放放开
+    /// 文件时会再来一次; 刚下完、下载那把锁还没放开的情况由一次延迟重试接住。
+    private func removeSupersededOfflineOriginal(
+        path: String,
+        originalByteCount: Int64,
+        retriesWhenInUse: Bool = true
+    ) async {
+        let removed = await AudioCacheManager.shared.removeSupersededOfflineOriginal(
+            path: path,
+            originalByteCount: originalByteCount
+        )
+        switch removed {
+        case .removed, .notApplicable:
+            if supersededOfflineOriginalByteCounts[path] == originalByteCount {
+                supersededOfflineOriginalByteCounts[path] = nil
+            }
+        case .inUse:
+            supersededOfflineOriginalByteCounts[path] = originalByteCount
+            if retriesWhenInUse {
+                scheduleSupersededOfflineOriginalRetry(path: path, originalByteCount: originalByteCount)
+            }
+        }
+    }
+
+    private func scheduleSupersededOfflineOriginalRetry(path: String, originalByteCount: Int64) {
+        supersededOfflineOriginalByteCounts[path] = originalByteCount
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(30))
+            guard let self,
+                  self.supersededOfflineOriginalByteCounts[path] == originalByteCount else { return }
+            await self.removeSupersededOfflineOriginal(
+                path: path,
+                originalByteCount: originalByteCount,
+                retriesWhenInUse: false
+            )
+        }
+    }
+
+    private func cancelOfflineCompaction(path: String) {
+        offlineCompactionTasks.removeValue(forKey: path)?.task.cancel()
+        supersededOfflineOriginalByteCounts[path] = nil
+    }
+
+    private func cancelOfflineCompactions(forSourceIDs sourceIDs: Set<String>) {
+        guard !sourceIDs.isEmpty else { return }
+        let paths = Set(offlineCompactionTasks.keys).union(supersededOfflineOriginalByteCounts.keys)
+            .filter { sourceIDs.contains(Self.sourceID(in: $0, separator: "/")) }
+        for path in paths {
+            cancelOfflineCompaction(path: path)
+        }
+    }
+
     private func performOfflineDownload(
         _ song: Song,
         refreshDisposition: AutomaticOfflineRefreshDisposition = .none
@@ -8248,7 +8700,7 @@ final class SourceManager {
                 }
                 await AudioCacheManager.shared.refreshPathFamily(path: relativePath)
             }
-            if refreshDisposition == .none, let cached = cachedURL(for: song) {
+            if refreshDisposition == .none, let cached = cachedPlaybackURL(for: song) {
                 let size = fileSize(at: cached)
                 setOfflineAudioSnapshot(OfflineAudioCacheSnapshot(
                     state: .cached,
@@ -8435,6 +8887,11 @@ final class SourceManager {
             ) == .commit else {
                 throw CancellationError()
             }
+            // 新的原文件到位: 旧副本是从旧内容转出来的, 删掉; 需要时固定之后会按
+            // 当前设置重新转。
+            try? FileManager.default.removeItem(
+                at: OfflineCompactArtifact.url(forCanonical: canonicalTarget)
+            )
             let size = fileSize(at: canonicalTarget)
             preservingAutomaticRefreshPaths.remove(relativePath)
             contentChangeProtectionPendingPaths.remove(relativePath)
@@ -8487,8 +8944,12 @@ final class SourceManager {
     ) async {
         let relativePath = audioCacheRelativePath(for: song)
         if refreshDisposition == .preserveExisting,
-           FileManager.default.fileExists(atPath: canonicalTarget.path) {
-            let size = fileSize(at: canonicalTarget)
+           let existing = Self.usableCacheArtifactURL(
+               at: canonicalTarget,
+               expectedSize: 0,
+               preservesExisting: true
+           ) {
+            let size = fileSize(at: existing)
             let snapshot = await AudioCacheManager.shared.snapshot(
                 path: relativePath,
                 fileExists: true,
@@ -9349,7 +9810,9 @@ final class SourceManager {
                     }
                 } else {
                     let relativePath = "\(sid)/\(name)"
-                    if pinnedRelativePaths.contains(relativePath) {
+                    let owner = OfflineDownloadQualityPolicy.canonicalRelativePath(forCompact: relativePath)
+                        ?? relativePath
+                    if pinnedRelativePaths.contains(owner) {
                         result.pinnedBytes += size
                     } else {
                         result.completedBytes += size
@@ -9384,6 +9847,9 @@ final class SourceManager {
         for key in offlineDownloadTasks.keys {
             sourceIDs.insert(Self.sourceID(in: key, separator: "/"))
         }
+        for key in offlineCompactionTasks.keys {
+            sourceIDs.insert(Self.sourceID(in: key, separator: "/"))
+        }
         return sourceIDs
     }
 
@@ -9402,6 +9868,7 @@ final class SourceManager {
             offlineDownloadTasks[key]?.task.cancel()
             offlineDownloadTasks[key] = nil
         }
+        cancelOfflineCompactions(forSourceIDs: sourceIDs)
     }
 
     /// 一键清掉所有 `.partial` / `.offline` 半成品 (无视 mtime, 等价于用户主动决定
@@ -9625,6 +10092,7 @@ final class SourceManager {
             let previousTaskKey = audioCacheRelativePath(for: previous)
             offlineDownloadTasks[previousTaskKey]?.task.cancel()
             offlineDownloadTasks[previousTaskKey] = nil
+            cancelOfflineCompaction(path: previousTaskKey)
             preservingAutomaticRefreshPaths.remove(previousTaskKey)
             contentChangeProtectionPendingPaths.remove(previousTaskKey)
             contentChangeInvalidationGenerationByPath[previousTaskKey] = nil
@@ -9757,6 +10225,17 @@ final class SourceManager {
                     migratedAudioBytes = nil
                     plog("⚠️ Stable audio cache migration failed: \(error.localizedDescription)")
                 }
+                // 转成精简副本的离线歌曲盘上只剩副本, 跟着一起搬。
+                let migratedCompactBytes: Int64?
+                do {
+                    migratedCompactBytes = try SourceStableCacheFileMigration.migrateCompletedFile(
+                        from: OfflineCompactArtifact.url(forCanonical: item.previousAudioURL),
+                        to: OfflineCompactArtifact.url(forCanonical: item.currentAudioURL)
+                    )
+                } catch {
+                    migratedCompactBytes = nil
+                    plog("⚠️ Stable compact audio migration failed: \(error.localizedDescription)")
+                }
                 do {
                     try SourceStableCacheFileMigration.migrateCompletedFile(
                         from: item.previousCloudURL,
@@ -9769,7 +10248,7 @@ final class SourceManager {
                     plan: item.plan,
                     previousRelativePath: item.previousRelativePath,
                     currentRelativePath: item.currentRelativePath,
-                    migratedAudioBytes: migratedAudioBytes
+                    migratedAudioBytes: migratedAudioBytes ?? migratedCompactBytes
                 ))
             case .invalidate:
                 Self.removeCacheFileFamily(at: item.previousAudioURL)
@@ -9787,6 +10266,7 @@ final class SourceManager {
 
     func deleteAudioCache(for song: Song) {
         backgroundAudioCacheTasks[song.id]?.task.cancel()
+        cancelOfflineCompaction(path: audioCacheRelativePath(for: song))
         let cacheURL = cacheURL(for: song)
         Self.removeCacheFileFamily(at: cacheURL)
         deleteConnectorTempCaches(for: song)
@@ -9878,6 +10358,7 @@ final class SourceManager {
         for song in songs {
             backgroundAudioCacheTasks[song.id]?.task.cancel()
             let relativePath = audioCacheRelativePath(for: song)
+            cancelOfflineCompaction(path: relativePath)
             if preservingAudioPaths.contains(relativePath) {
                 preservingAutomaticRefreshPaths.insert(relativePath)
             } else {
@@ -10094,6 +10575,7 @@ final class SourceManager {
             refresh,
             URL(fileURLWithPath: refresh.path + ".installing"),
             URL(fileURLWithPath: refresh.path + ".offline"),
+            OfflineCompactArtifact.url(forCanonical: url),
         ]
     }
 
@@ -10161,6 +10643,7 @@ final class SourceManager {
             offlineDownloadTasks[key]?.task.cancel()
             offlineDownloadTasks[key] = nil
         }
+        cancelOfflineCompactions(forSourceIDs: sourceIDs)
         automaticPlaylistPinnedSongsByID = automaticPlaylistPinnedSongsByID.filter {
             !sourceIDs.contains($0.value.sourceID)
         }
@@ -10381,7 +10864,9 @@ final class SourceManager {
         if protectedAbsolutePaths.contains(fileURL.path) { return true }
         guard fileURL.path.hasPrefix(basePath.path + "/") else { return false }
         let relative = String(fileURL.path.dropFirst(basePath.path.count + 1))
-        return pinnedRelativePaths.contains(relative)
+        // 离线歌曲转成的精简副本跟着它所属原文件路径的固定走。
+        let owner = OfflineDownloadQualityPolicy.canonicalRelativePath(forCompact: relative) ?? relative
+        return pinnedRelativePaths.contains(owner)
     }
 
     /// 启动时清掉超过 `olderThanDays` 没动的 `.partial` 半成品 + 对应的
@@ -10394,6 +10879,8 @@ final class SourceManager {
     /// 是新的) 不会被误删。
     @discardableResult
     nonisolated static func pruneStalePartialFiles(olderThanDays days: Int = 7) -> Bool {
+        // 转精简副本时被打断(退出、被系统挂起)留下的临时 m4a。
+        OfflineAudioCompactor.removeStaleStagingFiles()
         let basePath = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent(Self.audioCacheDirName)
         guard let enumerator = FileManager.default.enumerator(
@@ -10537,7 +11024,7 @@ final class SourceManager {
     /// transfer instead of starting a duplicate foreground full download.
     func waitForBackgroundAudioCache(for song: Song) async {
         let record = backgroundAudioCacheTasks[song.id]
-        let hasUsableCachedAudio = cachedURL(for: song) != nil
+        let hasUsableCachedAudio = cachedPlaybackURL(for: song) != nil
         guard OfflinePlaybackPolicy.shouldWaitForBackgroundCache(
             hasUsableCachedAudio: hasUsableCachedAudio,
             hasInFlightTask: record != nil
@@ -10557,7 +11044,7 @@ final class SourceManager {
     /// a whole-file transfer or a still-queued seed never delays the start.
     func settleBackgroundAudioCacheForPlayback(of song: Song) async {
         guard let record = backgroundAudioCacheTasks[song.id] else { return }
-        if cachedURL(for: song) != nil {
+        if cachedPlaybackURL(for: song) != nil {
             record.task.cancel()
             return
         }
@@ -10606,7 +11093,7 @@ final class SourceManager {
         guard cacheEnabled,
               automaticAudioCachingEnabled,
               audioCacheReadsAreAllowed(for: song.sourceID),
-              cachedURL(for: song) == nil,
+              cachedPlaybackURL(for: song) == nil,
               offlineDownloadTasks[audioCacheRelativePath(for: song)] == nil else { return nil }
         if let record = backgroundAudioCacheTasks[song.id] {
             return record.task
@@ -10672,7 +11159,7 @@ final class SourceManager {
             await awaitPathKeyedReconcileReservation(for: audioCacheRelativePath(for: song))
             try Task.checkCancellation()
             guard await ensureAudioCacheScopeValidated(for: song.sourceID) else { return }
-            guard cachedURL(for: song) == nil else { return }
+            guard cachedPlaybackURL(for: song) == nil else { return }
 
             let sources = try await sourcesProvider()
             guard let source = sources.first(where: { $0.id == song.sourceID }) else {
@@ -10770,7 +11257,7 @@ final class SourceManager {
             try Task.checkCancellation()
             guard automaticAudioCachingEnabled,
                   await ensureAudioCacheScopeValidated(for: song.sourceID),
-                  cachedURL(for: song) == nil else { return }
+                  cachedPlaybackURL(for: song) == nil else { return }
 
             let sources = try await sourcesProvider()
             guard let source = sources.first(where: { $0.id == song.sourceID }) else {
@@ -11615,7 +12102,7 @@ final class SourceManager {
             }
             // lease 已经退场, 落到下面重新获取。
             if reusable {
-                return cachedURL(for: song)
+                return cachedPlaybackURL(for: song)
             }
         }
         let relativePath = audioCacheRelativePath(for: song)
@@ -11626,7 +12113,7 @@ final class SourceManager {
             await AudioCacheManager.shared.releasePathFamilyLease(lease)
             return nil
         }
-        guard let cached = cachedURL(for: song) else {
+        guard let cached = cachedPlaybackURL(for: song) else {
             await AudioCacheManager.shared.releasePathFamilyLease(lease)
             await removeBlockedArtifactIfPossible(path: relativePath)
             return nil
@@ -11658,6 +12145,12 @@ final class SourceManager {
         Task { @MainActor [weak self] in
             await AudioCacheManager.shared.releasePathFamilyLease(record.lease)
             await self?.removeBlockedArtifactIfPossible(path: releasedPath)
+            if let originalByteCount = self?.supersededOfflineOriginalByteCounts[releasedPath] {
+                await self?.removeSupersededOfflineOriginal(
+                    path: releasedPath,
+                    originalByteCount: originalByteCount
+                )
+            }
         }
     }
 
@@ -12057,7 +12550,7 @@ final class SourceManager {
         // Cold-start cache trust is established asynchronously. Do not probe a
         // disconnected NAS while a valid offline copy is waiting for that check.
         _ = await ensureAudioCacheScopeValidated(for: song.sourceID)
-        guard cachedURL(for: song) == nil else { return false }
+        guard cachedPlaybackURL(for: song) == nil else { return false }
         return await playbackSourceEndpointsAreUnavailable(
             sourceID: song.sourceID,
             refresh: retryKnownUnavailable && isSourceKnownUnavailableForPlayback(song.sourceID)

@@ -4275,6 +4275,14 @@
 "streaming_quality_192" = "192 kbps";
 "streaming_quality_128" = "128 kbps";
 "streaming_quality_desc" = "Em servidores compatíveis com transcodificação (Subsonic / Navidrome, Emby, Jellyfin e similares), transmite com taxa de bits menor para economizar dados móveis. “Original” envia o arquivo de origem sem alterações. Uma faixa transcodificada é baixada por inteiro antes de começar, então a primeira faixa e qualquer uma para a qual você pular manualmente começa após uma breve espera; a próxima faixa é preparada com antecedência. Uma faixa transcodificada só pode ser navegada após o download terminar, fica fora da reprodução sem intervalos e do crossfade, e nunca é salva no cache off-line. Trocar de rede passa a valer na próxima faixa.";
+"offline_download_quality_section" = "Cache offline";
+"offline_download_quality" = "Qualidade do cache offline";
+"offline_download_quality_desc" = "As músicas armazenadas em cache são convertidas neste dispositivo para AAC na taxa de bits escolhida. Funciona com qualquer fonte, então arquivos sem perdas de nuvens, WebDAV ou NAS ocupam uma fração do espaço. O arquivo original continua sendo baixado primeiro e, ao fim da conversão, só a cópia convertida é mantida. Arquivos sem perdas são sempre convertidos; arquivos com perdas, apenas quando a taxa de bits é claramente maior. \"Original\" mantém o arquivo de origem. Músicas já armazenadas como originais podem ser convertidas com \"Converter músicas em cache\", sem baixar de novo.";
+"offline_compact_existing" = "Converter músicas em cache";
+"offline_compact_existing_action" = "Converter";
+"offline_compact_existing_progress_format" = "Convertendo %d de %d";
+"offline_compact_existing_result_format" = "%d músicas convertidas, %@ economizados";
+"offline_compact_existing_none" = "Nenhuma música para converter";
 
 // MARK: - Add source: address form
 "source_address_section" = "Endereço do servidor";

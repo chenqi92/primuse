@@ -986,6 +986,7 @@
 		8B207EA5E70EC2EF2B683667 /* SynologyAudioStationSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54676B57B5334C97A45A4886 /* SynologyAudioStationSource.swift */; };
 		8B77D792AE4D2D370EFF3410 /* NIOCore in Frameworks */ = {isa = PBXBuildFile; productRef = 2BE904A0DE01349CEB7A473E /* NIOCore */; };
 		8B79263572E878595E3E44B3 /* AdaptiveStreamQualityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CA564A28322629895E223E4 /* AdaptiveStreamQualityPolicy.swift */; };
+		E0B28E00C7EC9B053E79375B /* OfflineDownloadQualityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B76DD9470988B0056D84576 /* OfflineDownloadQualityPolicy.swift */; };
 		8BDF9CCE0677364421CC5722 /* OfflineBatchRetryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC98773DADD9FA25A4451251 /* OfflineBatchRetryPolicy.swift */; };
 		8BE415B91722F03217B013F0 /* PlaybackVolumeControlPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9D38B5C0E897BC8060AE53 /* PlaybackVolumeControlPolicy.swift */; };
 		8BEA6CCE8C0A082112A37999 /* AppleMusicService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 029A35BDC1548EE87EBC6549 /* AppleMusicService.swift */; };
@@ -1067,6 +1068,7 @@
 		97FDC1287DB3CE7142AD3890 /* NativeAudioDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B638BB94F0E6542668978B3 /* NativeAudioDecoder.swift */; };
 		983084B9EA621EC0D7E43351 /* MacSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C45DBC29426E786513B5CFA0 /* MacSettingsView.swift */; };
 		984E943D37DB65FA159E3903 /* AudioCacheSyncPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8E2CAAEF4F1C45017F7770 /* AudioCacheSyncPolicyTests.swift */; };
+		A954C267323F6BEEC754822B /* OfflineAudioCompactorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E82D92ABDE35BC98F90DAE /* OfflineAudioCompactorTests.swift */; };
 		988DA2043A4AF89477D2B837 /* ArtworkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 363F869C6171BAEF3E787B3A /* ArtworkView.swift */; };
 		9890A532EA4CD72E2919AF7B /* MusicBrainzScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992934DD86AE09796F7BC1A3 /* MusicBrainzScraper.swift */; };
 		98954B7AC0C059FFF60D3316 /* AudioPlayerService+ListeningSpaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = EACEACAB9F73A78A0D396A5C /* AudioPlayerService+ListeningSpaces.swift */; };
@@ -1190,6 +1192,7 @@
 		AAFF7692A7D7CD5704F7DC64 /* DiagnosticReportsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B15B6CFA8E91CA7408F262EA /* DiagnosticReportsView.swift */; };
 		AB11470CFF39E686C288E1BC /* EncodingFixPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE93C100D879B2996CB013F6 /* EncodingFixPicker.swift */; };
 		AB336FFF4145009B17128D30 /* AudioCacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E0E5D6E03C437F8A3D75067 /* AudioCacheManager.swift */; };
+		D78485E738A3CD23B7DAF155 /* OfflineAudioCompactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A858052DB1D7448F5913BA /* OfflineAudioCompactor.swift */; };
 		AB33F6CC514589F6F0297D8E /* ServerCatalogDeletionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35F073A9086FA22C2E168810 /* ServerCatalogDeletionPolicy.swift */; };
 		AB3CC80AADA2D2DE9AC2BEFE /* PMSheetFitting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50A49AF5877E93784EC2F152 /* PMSheetFitting.swift */; };
 		AB5430F0497D7D8B0CD41ABF /* AppleMusicLibraryAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92321D20941FF769E9E1D17 /* AppleMusicLibraryAccess.swift */; };
@@ -1753,6 +1756,7 @@
 		FE04885061750139BF347CA3 /* PrimuseWatchApp.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 0C7964E39EEC2700BAB113F8 /* PrimuseWatchApp.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		FE254B5A76A25AC12D72FD33 /* TVFFmpegPCMDecoder.m in Sources */ = {isa = PBXBuildFile; fileRef = 71CBE75F71EE6BCE7F1A7252 /* TVFFmpegPCMDecoder.m */; };
 		FE51FB7F16264EC2262AFB9F /* AudioCacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E0E5D6E03C437F8A3D75067 /* AudioCacheManager.swift */; };
+		EA48A7BE16AAF5782429FB00 /* OfflineAudioCompactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A858052DB1D7448F5913BA /* OfflineAudioCompactor.swift */; };
 		FE58D4CAAB4142904F5E4D21 /* RadioStationsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 744DE8325645146B084C1FE7 /* RadioStationsStore.swift */; };
 		FE5BC409BF90F21EE564D974 /* LibrarySongAdmissionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23D06A49BA26CC677DEE933E /* LibrarySongAdmissionPolicy.swift */; };
 		FEB5F758E236185CCDAA50BC /* GRDB-dynamic in Frameworks */ = {isa = PBXBuildFile; productRef = 5200B61ECBAC6EE76E9886AF /* GRDB-dynamic */; };
@@ -2109,6 +2113,7 @@
 		0DAD9CD43100FAF6F83AA7ED /* LibraryFavoritesStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryFavoritesStoreTests.swift; sourceTree = "<group>"; };
 		0DAE8DE2AA494E9A92D7A2F4 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/HomeDiscovery.strings; sourceTree = "<group>"; };
 		0E0E5D6E03C437F8A3D75067 /* AudioCacheManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCacheManager.swift; sourceTree = "<group>"; };
+		E7A858052DB1D7448F5913BA /* OfflineAudioCompactor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineAudioCompactor.swift; sourceTree = "<group>"; };
 		0E3F1B3B62DB4C68515CC8A0 /* ServerSongIdentityCarryPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerSongIdentityCarryPolicy.swift; sourceTree = "<group>"; };
 		0E60AA3C090087F657145292 /* SynologySource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologySource.swift; sourceTree = "<group>"; };
 		0EA999555F455617E1DF9281 /* EqualizerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EqualizerService.swift; sourceTree = "<group>"; };
@@ -2505,6 +2510,7 @@
 		5BB00031B96FBABEE4773C15 /* CloudKitSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudKitSyncService.swift; sourceTree = "<group>"; };
 		5BB39C2EE3B1DD6E01169AE8 /* IncrementalSongStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IncrementalSongStore.swift; sourceTree = "<group>"; };
 		5CA564A28322629895E223E4 /* AdaptiveStreamQualityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdaptiveStreamQualityPolicy.swift; sourceTree = "<group>"; };
+		1B76DD9470988B0056D84576 /* OfflineDownloadQualityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineDownloadQualityPolicy.swift; sourceTree = "<group>"; };
 		5D229FE5BF339F4BB3310403 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist; name = "zh-Hant"; path = "zh-Hant.lproj/AppIntentVocabulary.plist"; sourceTree = "<group>"; };
 		5D2741FA5052447F5E1B27A4 /* QueueView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueView.swift; sourceTree = "<group>"; };
 		5D2BEDD6EA9A0207E8C8559A /* ServerListeningStatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerListeningStatsView.swift; sourceTree = "<group>"; };
@@ -3161,6 +3167,7 @@
 		DF62F5046D29F993786AE489 /* AudioDecoderProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioDecoderProtocol.swift; sourceTree = "<group>"; };
 		DF83CE305219EDE25101007A /* SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchView.swift; sourceTree = "<group>"; };
 		DF8E2CAAEF4F1C45017F7770 /* AudioCacheSyncPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCacheSyncPolicyTests.swift; sourceTree = "<group>"; };
+		B9E82D92ABDE35BC98F90DAE /* OfflineAudioCompactorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineAudioCompactorTests.swift; sourceTree = "<group>"; };
 		DFB1AA3E13884E8F217902DD /* ServerPlaylistSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerPlaylistSyncService.swift; sourceTree = "<group>"; };
 		DFF7D33EE6AA248113308216 /* CarPlayEditorComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayEditorComponents.swift; sourceTree = "<group>"; };
 		E00A2F4350C04D5A41A89E6D /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = ru.lproj/InfoPlist.strings; sourceTree = "<group>"; };
@@ -3423,6 +3430,7 @@
 			children = (
 				23F224C180F61FD6AD00DD7B /* AssetReaderDecoder.swift */,
 				0E0E5D6E03C437F8A3D75067 /* AudioCacheManager.swift */,
+				E7A858052DB1D7448F5913BA /* OfflineAudioCompactor.swift */,
 				79455C5F0C8A112D600E4423 /* AudioCacheSyncService.swift */,
 				DF62F5046D29F993786AE489 /* AudioDecoderProtocol.swift */,
 				78324748ACDF339A48E0E8D4 /* AudioEffectsService.swift */,
@@ -3755,6 +3763,7 @@
 				539C63BA2714A4F69419FFE1 /* Transfer */,
 				D8608BBF8D0FDFD02E528AC7 /* ActiveConnectionRouteOwnershipPolicy.swift */,
 				5CA564A28322629895E223E4 /* AdaptiveStreamQualityPolicy.swift */,
+				1B76DD9470988B0056D84576 /* OfflineDownloadQualityPolicy.swift */,
 				3F6C72174AFEF0BB14B9CD57 /* AddSourceDraft.swift */,
 				DE5F9F33E3579D59A21D8A8F /* AlbumArtistInferencePolicy.swift */,
 				D3D190973E7BC8F585A1EFA7 /* AlbumRecommender.swift */,
@@ -4986,6 +4995,7 @@
 				3EC5C57A1C23EDA835C82C97 /* AISmartPlaylistEngineTests.swift */,
 				948BBEDC6689BACAA9EB91B3 /* ArtistNameLibraryTests.swift */,
 				DF8E2CAAEF4F1C45017F7770 /* AudioCacheSyncPolicyTests.swift */,
+				B9E82D92ABDE35BC98F90DAE /* OfflineAudioCompactorTests.swift */,
 				E20F7B4C2CC5E6302579FD2E /* AudioEngineVolumeTests.swift */,
 				9088A2C3DC8D2D25A3C340DF /* AudioPlayerNodeClockReaderTests.m */,
 				C588137D563154EFEB2CCA68 /* AutoContinuationPlayerTests.swift */,
@@ -5785,6 +5795,7 @@
 				CD606731E71E796A7C3D0593 /* AISmartPlaylistEngineTests.swift in Sources */,
 				7AAF33E1F9F2C1947DC17FD8 /* ArtistNameLibraryTests.swift in Sources */,
 				984E943D37DB65FA159E3903 /* AudioCacheSyncPolicyTests.swift in Sources */,
+				A954C267323F6BEEC754822B /* OfflineAudioCompactorTests.swift in Sources */,
 				CCFBEA9ED1C863907F0814C8 /* AudioEngineVolumeTests.swift in Sources */,
 				2E430470240024D086AA4B67 /* AudioPlayerNodeClockReaderTests.m in Sources */,
 				D5C2DFC09F7264E9F533270D /* AutoContinuationPlayerTests.swift in Sources */,
@@ -5878,6 +5889,7 @@
 				6DB7A4FAB4B02D7A4E54E58A /* AIStreamingResponsePolicy.swift in Sources */,
 				4F143173989D3435C5DB1644 /* ActiveConnectionRouteOwnershipPolicy.swift in Sources */,
 				8B79263572E878595E3E44B3 /* AdaptiveStreamQualityPolicy.swift in Sources */,
+				E0B28E00C7EC9B053E79375B /* OfflineDownloadQualityPolicy.swift in Sources */,
 				0CC08354B4BA4E14C426FD2D /* AddSourceDraft.swift in Sources */,
 				5A7560150DC89DCF048C6B23 /* AirsonicTagEditingProtocol.swift in Sources */,
 				5D9C7448984A096646317144 /* Album.swift in Sources */,
@@ -6333,6 +6345,7 @@
 				988DA2043A4AF89477D2B837 /* ArtworkView.swift in Sources */,
 				00253E72EDEA9E0D926D0185 /* AssetReaderDecoder.swift in Sources */,
 				FE51FB7F16264EC2262AFB9F /* AudioCacheManager.swift in Sources */,
+				EA48A7BE16AAF5782429FB00 /* OfflineAudioCompactor.swift in Sources */,
 				5FC4EAB4277E768116173CEF /* AudioCacheSyncService.swift in Sources */,
 				197EEABCE5FD3B3DA3DB3BC3 /* AudioDecoderProtocol.swift in Sources */,
 				FFA8A0D80B2614FB9E78AE03 /* AudioEffectsService.swift in Sources */,
@@ -7017,6 +7030,7 @@
 				1794D1037671E0C9091F0E5E /* ArtworkView.swift in Sources */,
 				748DEA1522A12D44B1085058 /* AssetReaderDecoder.swift in Sources */,
 				AB336FFF4145009B17128D30 /* AudioCacheManager.swift in Sources */,
+				D78485E738A3CD23B7DAF155 /* OfflineAudioCompactor.swift in Sources */,
 				65C546B7D65CB03ED72BC9A3 /* AudioCacheSyncService.swift in Sources */,
 				FFD2B29D7B89BDA769B2D069 /* AudioDecoderProtocol.swift in Sources */,
 				F3EA7BACCB01D8BF92192A3E /* AudioEffectsService.swift in Sources */,

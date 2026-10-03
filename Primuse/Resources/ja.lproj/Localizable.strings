@@ -4370,6 +4370,14 @@
 "streaming_quality_192" = "192 kbps";
 "streaming_quality_128" = "128 kbps";
 "streaming_quality_desc" = "トランスコードに対応したサーバー（Subsonic / Navidrome、Emby、Jellyfin など）では、低いビットレートで転送して通信量を節約できます。「オリジナル」は元ファイルをそのまま転送します。トランスコードした曲は再生前にファイル全体をダウンロードするため、最初の曲と手動でスキップした曲は少し待ってから始まります。次の曲はあらかじめ準備されます。トランスコードした曲はダウンロードが終わるまでシークできず、ギャップレス再生とクロスフェードの対象外になり、オフラインキャッシュにも保存されません。ネットワークの切り替えは次の曲から反映されます。";
+"offline_download_quality_section" = "オフラインキャッシュ";
+"offline_download_quality" = "オフラインキャッシュの音質";
+"offline_download_quality_desc" = "キャッシュした曲をこのデバイス上で選択したビットレートの AAC に変換して保存します。すべての音楽ソースで使え、クラウドドライブや WebDAV、NAS のロスレスファイルも大幅に容量を節約できます。キャッシュ時はまず元のファイルをダウンロードし、変換が終わると変換後のファイルだけを残します。ロスレスファイルは常に変換し、非可逆ファイルは元のビットレートが明らかに高い場合だけ変換します。「オリジナル」を選ぶと元のファイルを保存します。キャッシュ済みの元ファイルは「キャッシュ済みの曲を変換」で再ダウンロードせずに変換できます。";
+"offline_compact_existing" = "キャッシュ済みの曲を変換";
+"offline_compact_existing_action" = "変換";
+"offline_compact_existing_progress_format" = "変換中 %d / %d";
+"offline_compact_existing_result_format" = "%d 曲を変換、%@ 節約";
+"offline_compact_existing_none" = "変換が必要な曲はありません";
 
 // MARK: - Add source: address form
 "source_address_section" = "サーバーのアドレス";

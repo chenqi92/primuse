@@ -4275,6 +4275,14 @@
 "streaming_quality_192" = "192 kbps";
 "streaming_quality_128" = "128 kbps";
 "streaming_quality_desc" = "En servidores compatibles con transcodificación (Subsonic / Navidrome, Emby, Jellyfin y similares), transmite con menor tasa de bits para ahorrar datos móviles. «Original» envía el archivo de origen sin cambios. Una pista transcodificada se descarga por completo antes de empezar, así que la primera pista y cualquiera a la que saltes manualmente comienza tras una breve espera; la siguiente pista se prepara con antelación. Una pista transcodificada no se puede desplazar hasta que termine su descarga, queda fuera de la reproducción sin pausas y del fundido cruzado, y nunca se guarda en la caché sin conexión. Cambiar de red surte efecto en la siguiente pista.";
+"offline_download_quality_section" = "Caché sin conexión";
+"offline_download_quality" = "Calidad de la caché sin conexión";
+"offline_download_quality_desc" = "Las canciones guardadas en caché se convierten en este dispositivo a AAC con la tasa de bits elegida. Funciona con cualquier fuente, así que los archivos sin pérdida de nubes, WebDAV o un NAS ocupan una fracción del espacio. Primero se sigue descargando el archivo original y, al terminar la conversión, solo se conserva la copia convertida. Los archivos sin pérdida siempre se convierten; los archivos con pérdida, solo si su tasa de bits es claramente mayor. «Original» conserva el archivo de origen. Las canciones ya guardadas como originales se pueden convertir con «Convertir canciones en caché» sin volver a descargarlas.";
+"offline_compact_existing" = "Convertir canciones en caché";
+"offline_compact_existing_action" = "Convertir";
+"offline_compact_existing_progress_format" = "Convirtiendo %d de %d";
+"offline_compact_existing_result_format" = "%d canciones convertidas, %@ ahorrados";
+"offline_compact_existing_none" = "No hay canciones por convertir";
 
 // MARK: - Add source: address form
 "source_address_section" = "Dirección del servidor";

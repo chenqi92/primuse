@@ -1834,7 +1834,10 @@ final class AudioPlayerService {
                 outputMode: graphMode
             )
         } else {
-            var sourceSampleRate = song.sampleRate.map(Double.init)
+            // 离线精简副本按 44.1 / 48 kHz 编码, 资料库里记的是原文件的采样率。
+            var sourceSampleRate = OfflineCompactArtifact.isCompactURL(url)
+                ? nil
+                : song.sampleRate.map(Double.init)
             if sourceSampleRate == nil, url.isFileURL {
                 let decoder: any PrimuseAudioDecoder = await usesFFmpegDecoder(
                     for: song,
@@ -2943,6 +2946,7 @@ final class AudioPlayerService {
         guard song.cueStartTime == nil,
               song.cueEndTime == nil,
               [.m4a, .mp4, .alac].contains(song.fileFormat),
+              !OfflineCompactArtifact.isCompactURL(url),
               !SourceManager.isTranscodedStreamURL(url),
               song.fileSize > 0 else { return nil }
 
@@ -6310,6 +6314,8 @@ final class AudioPlayerService {
     }
 
     func usesFFmpegDecoder(for song: Song, url: URL) async -> Bool {
+        // 离线精简副本是 AAC m4a, 与这首歌原文件的格式无关。
+        if OfflineCompactArtifact.isCompactURL(url) { return false }
         // Persisted format knowledge is authoritative and avoids re-reading a
         // dead mount merely to rediscover DTS-CD content.
         if FileFormatRouter.decoder(for: song.fileFormat) is FFmpegAudioDecoder {
@@ -6395,7 +6401,7 @@ final class AudioPlayerService {
                 if Task.isCancelled { return }
                 if song.id == currentSong?.id { continue }
                 if rank == 0 { await requestICloudDownloadForUpcomingLocalSong(song) }
-                if sourceManager?.cachedURL(for: song) != nil { continue }
+                if sourceManager?.cachedPlaybackURL(for: song) != nil { continue }
                 plog("⏩ Prefetching queued song #\(rank + 1): \(song.title)")
                 await sourceManager?.cacheForUpcomingPlayback(
                     song: song,

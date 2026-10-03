@@ -13,6 +13,22 @@ struct AudioCachePathLease: Hashable, Sendable {
     fileprivate let id: UUID
 }
 
+/// 精简副本装好之后原文件的去留。
+enum OfflineCompactionFinish: Sendable, Equatable {
+    /// 原文件已删, 只留副本。
+    case replacedOriginal
+    /// 原文件此刻正被播放或写入, 两份都先留着, 没人用之后再删。
+    case keptOriginal
+    /// 转换期间这首歌不再离线或原文件被换掉了, 副本已删。
+    case abandoned
+}
+
+enum SupersededOfflineOriginalRemoval: Sendable, Equatable {
+    case removed
+    case inUse
+    case notApplicable
+}
+
 enum AudioCacheTransferReservationApproval: Sendable, Equatable {
     case approved(Int64)
     case invalidLease
@@ -32,6 +48,7 @@ enum AudioCachePathFamily {
             refresh,
             refresh + ".installing",
             refresh + ".offline",
+            OfflineDownloadQualityPolicy.compactRelativePath(forCanonical: path),
         ]
     }
 }
@@ -562,12 +579,24 @@ actor AudioCacheManager {
                 continue
             }
             let fileURL = basePath.appendingPathComponent(request.path)
-            let byteCount = logicalFileSize(at: fileURL)
-            let isUsable = byteCount.map { size in
+            var byteCount = logicalFileSize(at: fileURL)
+            var isUsable = byteCount.map { size in
                 if preservedPaths.contains(request.path) { return size > 0 }
                 return request.expectedByteCount <= 0
                     || size >= Int64(Double(request.expectedByteCount) * 0.95)
             } ?? false
+            if !isUsable {
+                // 按离线缓存音质转过的歌只剩精简副本。
+                let compactURL = OfflineCompactArtifact.url(forCanonical: fileURL)
+                if OfflineCompactArtifact.isUsable(
+                    at: compactURL,
+                    expectedOriginalByteCount: request.expectedByteCount,
+                    preservesExisting: preservedPaths.contains(request.path)
+                ) {
+                    isUsable = true
+                    byteCount = logicalFileSize(at: compactURL)
+                }
+            }
             guard isUsable else {
                 missingPaths.insert(request.path)
                 continue
@@ -622,6 +651,86 @@ actor AudioCacheManager {
         return Set(offlineManifest.compactMap { path, entry in
             entry.isPinned ? path : nil
         })
+    }
+
+    func isPinned(path: String) -> Bool {
+        ensureInitialized()
+        return offlineManifest[path]?.isPinned == true
+    }
+
+    /// 精简副本装好之后调用。这组文件仍被离线固定、原文件也没在转换期间被换掉
+    /// 时删掉原文件、按副本记账; 判断与删除之间没有挂起点, 播放方取锁排在这之后,
+    /// 拿到的就是副本。原文件此刻正被别处读写时先留着。
+    func finishOfflineCompaction(
+        path: String,
+        lease: AudioCachePathLease,
+        originalByteCount: Int64,
+        originalModifiedAt: Date?
+    ) -> OfflineCompactionFinish {
+        ensureInitialized()
+        let originalURL = basePath.appendingPathComponent(path)
+        let compactPath = OfflineDownloadQualityPolicy.compactRelativePath(forCanonical: path)
+        guard var entry = offlineManifest[path],
+              entry.isPinned,
+              Self.file(
+                at: originalURL,
+                matchesByteCount: originalByteCount,
+                modifiedAt: originalModifiedAt
+              ) else {
+            try? FileManager.default.removeItem(at: basePath.appendingPathComponent(compactPath))
+            refreshTrackedPathFamily(path)
+            return .abandoned
+        }
+        guard !pathFamilyHasOtherLeases(path: path, excluding: lease) else {
+            refreshTrackedPathFamily(path)
+            return .keptOriginal
+        }
+        try? FileManager.default.removeItem(at: originalURL)
+        refreshTrackedPathFamily(path)
+        if let compactBytes = trackedFileSizes[compactPath] {
+            entry.byteCount = compactBytes
+            offlineManifest[path] = entry
+            scheduleManifestPersist()
+        }
+        return .replacedOriginal
+    }
+
+    /// 副本装好时原文件正被读写而留下的, 在这组文件没人用之后补删。
+    func removeSupersededOfflineOriginal(
+        path: String,
+        originalByteCount: Int64
+    ) -> SupersededOfflineOriginalRemoval {
+        ensureInitialized()
+        let originalURL = basePath.appendingPathComponent(path)
+        let compactPath = OfflineDownloadQualityPolicy.compactRelativePath(forCanonical: path)
+        guard var entry = offlineManifest[path],
+              entry.isPinned,
+              logicalFileSize(at: originalURL) == originalByteCount,
+              OfflineCompactArtifact.readRecord(
+                at: basePath.appendingPathComponent(compactPath)
+              )?.originalByteCount == originalByteCount else {
+            return .notApplicable
+        }
+        guard !isPathFamilyLeased(path: path) else { return .inUse }
+        try? FileManager.default.removeItem(at: originalURL)
+        refreshTrackedPathFamily(path)
+        if let compactBytes = trackedFileSizes[compactPath] {
+            entry.byteCount = compactBytes
+            offlineManifest[path] = entry
+            scheduleManifestPersist()
+        }
+        return .removed
+    }
+
+    private static func file(
+        at url: URL,
+        matchesByteCount byteCount: Int64,
+        modifiedAt: Date?
+    ) -> Bool {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              (attributes[.size] as? NSNumber)?.int64Value == byteCount else { return false }
+        guard let modifiedAt else { return true }
+        return (attributes[.modificationDate] as? Date) == modifiedAt
     }
 
     /// Returns only paths owned by at least one Always Download playlist.
@@ -1220,7 +1329,10 @@ actor AudioCacheManager {
         // Temporary transfer artifacts never represent a playable download.
         guard ![".partial", ".offline", ".refresh", ".installing",
                 CloudPlaybackSource.prewarmMarkerSuffix].contains(where: path.hasSuffix) else { return }
-        changedCompletePaths.insert(path)
+        // 精简副本代表它所属的那首歌: 按原文件缓存的路径通知, 歌曲行才认得出自己。
+        changedCompletePaths.insert(
+            OfflineDownloadQualityPolicy.canonicalRelativePath(forCompact: path) ?? path
+        )
         guard cacheChangeNotificationTask == nil else { return }
         cacheChangeNotificationTask = Task {
             try? await Task.sleep(for: .milliseconds(50))

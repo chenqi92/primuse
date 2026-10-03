@@ -4369,6 +4369,14 @@
 "streaming_quality_192" = "192 kbit/s";
 "streaming_quality_128" = "128 kbit/s";
 "streaming_quality_desc" = "Sur les serveurs prenant en charge le transcodage (Subsonic / Navidrome, Emby, Jellyfin et compatibles), diffuse à un débit plus faible pour économiser les données mobiles. « Originale » transmet le fichier source tel quel. Un morceau transcodé est téléchargé en entier avant de démarrer : le premier morceau et tout morceau atteint manuellement commence après une courte attente, tandis que le morceau suivant est préparé à l’avance. Un morceau transcodé ne peut pas être parcouru tant que son téléchargement n’est pas terminé, il est exclu de la lecture sans blanc et du fondu enchaîné, et n’est jamais enregistré dans le cache hors ligne. Un changement de réseau prend effet au morceau suivant.";
+"offline_download_quality_section" = "Cache hors ligne";
+"offline_download_quality" = "Qualité du cache hors ligne";
+"offline_download_quality_desc" = "Les morceaux mis en cache sont convertis sur cet appareil en AAC au débit choisi. Cela fonctionne avec toutes les sources : les fichiers sans perte d’un stockage cloud, de WebDAV ou d’un NAS n’occupent plus qu’une fraction de l’espace. Le fichier d’origine est toujours téléchargé d’abord, puis seule la copie convertie est conservée une fois la conversion terminée. Les fichiers sans perte sont toujours convertis ; les fichiers avec perte seulement si leur débit est nettement plus élevé. « Originale » conserve le fichier source. Les morceaux déjà en cache en version originale peuvent être convertis sur place avec « Convertir les morceaux en cache », sans nouveau téléchargement.";
+"offline_compact_existing" = "Convertir les morceaux en cache";
+"offline_compact_existing_action" = "Convertir";
+"offline_compact_existing_progress_format" = "Conversion %d sur %d";
+"offline_compact_existing_result_format" = "%d morceaux convertis, %@ libérés";
+"offline_compact_existing_none" = "Aucun morceau à convertir";
 
 // MARK: - Add source: address form
 "source_address_section" = "Adresse du serveur";

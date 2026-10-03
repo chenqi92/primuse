@@ -731,6 +731,7 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
                 "source/song.flac.refresh",
                 "source/song.flac.refresh.installing",
                 "source/song.flac.refresh.offline",
+                "source/song.flac.compact.m4a",
             ]
         )
     }
@@ -859,6 +860,7 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
 
         XCTAssertTrue(cleanupPaths.contains(canonical.path))
         XCTAssertTrue(cleanupPaths.contains(canonical.path + ".offline"))
+        XCTAssertTrue(cleanupPaths.contains(canonical.path + ".compact.m4a"))
         XCTAssertFalse(cleanupPaths.contains(canonical.path + ".refresh"))
         XCTAssertFalse(cleanupPaths.contains(canonical.path + ".refresh.installing"))
         XCTAssertFalse(cleanupPaths.contains(canonical.path + ".refresh.offline"))

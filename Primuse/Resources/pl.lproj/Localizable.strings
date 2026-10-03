@@ -4275,6 +4275,14 @@
 "streaming_quality_192" = "192 kb/s";
 "streaming_quality_128" = "128 kb/s";
 "streaming_quality_desc" = "Na serwerach obsługujących transkodowanie (Subsonic / Navidrome, Emby, Jellyfin i zgodne) przesyła z niższą przepływnością, aby oszczędzać dane komórkowe. „Oryginalna” przesyła plik źródłowy bez zmian. Transkodowany utwór jest pobierany w całości przed rozpoczęciem odtwarzania, więc pierwszy utwór i każdy, do którego przejdziesz ręcznie, zaczyna się po krótkim oczekiwaniu, a następny utwór jest przygotowywany z wyprzedzeniem. Transkodowanego utworu nie można przewijać, dopóki pobieranie się nie zakończy, nie bierze on udziału w odtwarzaniu bez przerw ani w przenikaniu i nigdy nie trafia do pamięci offline. Zmiana sieci działa od następnego utworu.";
+"offline_download_quality_section" = "Pamięć offline";
+"offline_download_quality" = "Jakość pamięci offline";
+"offline_download_quality_desc" = "Utwory zapisane w pamięci podręcznej są konwertowane na tym urządzeniu do AAC z wybraną przepływnością. Działa to dla każdego źródła, więc pliki bezstratne z chmury, WebDAV lub NAS zajmują ułamek miejsca. Najpierw nadal pobierany jest oryginalny plik, a po konwersji zostaje tylko przekonwertowana kopia. Pliki bezstratne są zawsze konwertowane, a stratne tylko wtedy, gdy ich przepływność jest wyraźnie wyższa. „Oryginalna” zachowuje plik źródłowy. Utwory już zapisane jako oryginały można przekonwertować opcją „Konwertuj utwory w pamięci” bez ponownego pobierania.";
+"offline_compact_existing" = "Konwertuj utwory w pamięci";
+"offline_compact_existing_action" = "Konwertuj";
+"offline_compact_existing_progress_format" = "Konwersja %d z %d";
+"offline_compact_existing_result_format" = "Przekonwertowano utwory: %d, zaoszczędzono %@";
+"offline_compact_existing_none" = "Brak utworów do konwersji";
 
 // MARK: - Add source: address form
 "source_address_section" = "Adres serwera";

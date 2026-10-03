@@ -72,6 +72,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "lyrics.islandSystemStatus", titleKey: "desktop_lyrics_island_system_status", iosPage: nil, macPage: .lyrics, keywords: ["headphones", "airpods", "volume", "battery", "charging", "耳机", "音量", "充电", "电量"]),
         SettingDefinition(id: "storage.audioCacheEnabled", titleKey: "audio_cache_enabled", iosPage: .storage, macPage: .storage, keywords: ["offline download", "缓存", "离线", "自动下载"]),
         SettingDefinition(id: "storage.audioCacheLimit", titleKey: "audio_cache_limit", iosPage: .storage, macPage: .storage, keywords: ["cache limit", "缓存上限", "存储空间", "下载限制"]),
+        SettingDefinition(id: "storage.offlineDownloadQuality", titleKey: "offline_download_quality", iosPage: .storage, macPage: .storage, keywords: ["offline", "download quality", "bitrate", "AAC", "transcode", "离线", "离线缓存", "下载", "码率", "音质", "转码", "压缩", "无损", "节省空间", "占空间", "存储空间"]),
         SettingDefinition(id: "storage.clearAudioCache", titleKey: "audio_cache", iosPage: .storage, macPage: .storage, keywords: ["clear cache", "清理缓存", "删除缓存", "释放空间", "clear_cache"], macAnchor: "storage.audioCacheLimit"),
         SettingDefinition(id: "storage.clearImageCache", titleKey: "image_cache", iosPage: .storage, macPage: nil),
         SettingDefinition(id: "storage.clearMetadata", titleKey: "cover_art_lyrics", iosPage: .storage, macPage: nil),

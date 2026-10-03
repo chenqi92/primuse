@@ -4132,6 +4132,14 @@
 "streaming_quality_192" = "192 kbps";
 "streaming_quality_128" = "128 kbps";
 "streaming_quality_desc" = "On servers that support transcoding (Subsonic / Navidrome, Emby, Jellyfin and compatible), stream at a lower bitrate to save mobile data. Original sends the source file untouched. A transcoded track is downloaded in full before playback starts, so the first track and any track you skip to begins after a short wait; the next track in the queue is prepared ahead of time. A transcoded track cannot be scrubbed until its download finishes, skips gapless and crossfade, and is never saved to the offline cache. Switching networks takes effect on the next track.";
+"offline_download_quality_section" = "Offline Cache";
+"offline_download_quality" = "Offline Cache Quality";
+"offline_download_quality_desc" = "Cached songs are converted on this device to AAC at the selected bitrate. This works for every source, so lossless files from cloud drives, WebDAV or a NAS take a fraction of the space. The original file is still downloaded first and only the converted copy is kept once conversion finishes. Lossless files are always converted; lossy files only when their bitrate is clearly higher. Original keeps the source file. Songs already cached as originals can be converted in place with Convert Cached Songs, without downloading them again.";
+"offline_compact_existing" = "Convert Cached Songs";
+"offline_compact_existing_action" = "Convert";
+"offline_compact_existing_progress_format" = "Converting %d of %d";
+"offline_compact_existing_result_format" = "Converted %d songs, saved %@";
+"offline_compact_existing_none" = "No songs need converting";
 
 // MARK: - Add source: address form
 "source_address_section" = "Server Address";

@@ -2523,6 +2523,24 @@ struct StorageManagementView: View {
             }
 
             Section {
+                Picker("offline_download_quality", selection: $settings.offlineDownloadQuality) {
+                    ForEach(StreamQualityPreference.allCases, id: \.self) { quality in
+                        Text(quality.displayName).tag(quality)
+                    }
+                }
+                .settingsAnchor("storage.offlineDownloadQuality")
+
+                if settings.offlineDownloadQuality != .original
+                    || sourceManager.offlineCompactionSweepProgress != nil {
+                    offlineCompactionSweepRow
+                }
+            } header: {
+                Text("offline_download_quality_section")
+            } footer: {
+                Text("offline_download_quality_desc")
+            }
+
+            Section {
                 storageRow(
                     icon: "music.note.list",
                     title: "cover_art_lyrics",
@@ -2626,6 +2644,52 @@ struct StorageManagementView: View {
             .controlSize(.small)
             .disabled(isClearing)
         }
+    }
+
+    /// 「转换已缓存的歌曲」: 进行中显示进度与停止, 结束后在按钮下面说一句结果。
+    @ViewBuilder
+    private var offlineCompactionSweepRow: some View {
+        if let progress = sourceManager.offlineCompactionSweepProgress {
+            HStack(spacing: 10) {
+                ProgressView()
+                Text(verbatim: String(
+                    format: String(localized: "offline_compact_existing_progress_format"),
+                    progress.completed,
+                    progress.total
+                ))
+                .monospacedDigit()
+                Spacer()
+                Button("cancel") {
+                    sourceManager.cancelOfflineCompactionSweep()
+                }
+            }
+        } else {
+            Button {
+                sourceManager.startOfflineCompactionSweep()
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("offline_compact_existing")
+                    if let result = sourceManager.lastOfflineCompactionSweepResult {
+                        Text(verbatim: offlineCompactionSweepSummary(result))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    private func offlineCompactionSweepSummary(
+        _ result: SourceManager.OfflineCompactionSweepProgress
+    ) -> String {
+        guard result.convertedCount > 0 else {
+            return String(localized: "offline_compact_existing_none")
+        }
+        return String(
+            format: String(localized: "offline_compact_existing_result_format"),
+            result.convertedCount,
+            formatBytes(result.savedBytes)
+        )
     }
 
     @ViewBuilder
