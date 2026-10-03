@@ -181,12 +181,15 @@ public enum ListeningIntentShelfPolicy {
     ///     intent ID (`smart:<id>`), with how many songs they match now.
     ///   - personal: the "for you" intents worked out for this listener;
     ///     they compete with the built-ins on the same ranking.
+    ///   - order: the suggestions' order from `ListeningIntentRankingPolicy`
+    ///     (by id); without it they follow the lighting score.
     public static func row(
         availability: ListeningIntentAvailability?,
         configuration: ListeningIntentShelfConfiguration,
         resumeSongCount: Int?,
         smartPlaylists: [String: Int] = [:],
         personal: [ListeningIntent] = [],
+        order: [String]? = nil,
         limit: Int = rowLimit
     ) -> [ListeningIntentShelfItem] {
         guard limit > 0 else { return [] }
@@ -230,7 +233,7 @@ public enum ListeningIntentShelfPolicy {
         }
 
         guard let availability else { return Array(items.prefix(limit)) }
-        for intent in availability.litIntents(personal + builtInCatalog) where items.count < limit {
+        for intent in ordered(availability.litIntents(personal + builtInCatalog), by: order) where items.count < limit {
             guard !used.contains(intent.id), !configuration.isHidden(intent.id) else { continue }
             let count = availability.songCount(for: intent)
             // An intent that matches the whole library ("newly added" right
@@ -250,7 +253,8 @@ public enum ListeningIntentShelfPolicy {
         availability: ListeningIntentAvailability?,
         configuration: ListeningIntentShelfConfiguration,
         smartPlaylists: [String: Int] = [:],
-        personal: [ListeningIntent] = []
+        personal: [ListeningIntent] = [],
+        order: [String]? = nil
     ) -> [ListeningIntentShelfSection] {
         let catalog = Dictionary(
             (builtInCatalog + personal).map { ($0.id, $0) },
@@ -285,7 +289,7 @@ public enum ListeningIntentShelfPolicy {
         // hidden ones stay so they can come back. Unlike the catalog, a
         // personal intent with too few songs (its album was removed, the
         // listening moved on) is not shown at all.
-        let personalItems = personal
+        let litPersonal = personal
             .filter { !configuration.isPinned($0.id) && (availability?.isLit($0) ?? false) }
             .enumerated()
             .sorted { lhs, rhs in
@@ -294,14 +298,15 @@ public enum ListeningIntentShelfPolicy {
                 if abs(left - right) > 1e-9 { return left > right }
                 return lhs.offset < rhs.offset
             }
-            .map { entry in
-                item(
-                    entry.element,
-                    count: availability?.songCount(for: entry.element) ?? 0,
-                    isLit: availability?.isLit(entry.element) ?? false,
-                    role: .suggested
-                )
-            }
+            .map(\.element)
+        let personalItems = ordered(litPersonal, by: order).map { intent in
+            item(
+                intent,
+                count: availability?.songCount(for: intent) ?? 0,
+                isLit: availability?.isLit(intent) ?? false,
+                role: .suggested
+            )
+        }
         if !personalItems.isEmpty {
             sections.append(ListeningIntentShelfSection(kind: .personal, items: personalItems))
         }
@@ -322,6 +327,22 @@ public enum ListeningIntentShelfPolicy {
             if !items.isEmpty { sections.append(ListeningIntentShelfSection(kind: kind, items: items)) }
         }
         return sections
+    }
+
+    /// `intents` in the given id order; ids the order does not know keep
+    /// their place after the known ones.
+    static func ordered(_ intents: [ListeningIntent], by order: [String]?) -> [ListeningIntent] {
+        guard let order, !order.isEmpty else { return intents }
+        var position: [String: Int] = [:]
+        for (index, id) in order.enumerated() where position[id] == nil { position[id] = index }
+        return intents.enumerated()
+            .sorted { lhs, rhs in
+                let left = position[lhs.element.id] ?? Int.max
+                let right = position[rhs.element.id] ?? Int.max
+                if left != right { return left < right }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.element)
     }
 
     /// A random, seed-stable pick of up to `limit` IDs, for intents whose

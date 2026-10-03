@@ -154,13 +154,8 @@ struct StartListeningShelf: View {
         let hiddenCount = items.count - collapsed
         let shown = isGridExpanded || hiddenCount == 0 ? items : Array(items.prefix(collapsed))
         VStack(spacing: 4) {
-            LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: Self.gridSpacing), count: columns),
-                spacing: Self.gridSpacing
-            ) {
-                ForEach(shown) { item in
-                    tile(item)
-                }
+            ListeningIntentEagerGrid(items: shown, columns: columns, spacing: Self.gridSpacing) { item in
+                tile(item)
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
                 Self.lastGridWidth = width
@@ -322,7 +317,8 @@ struct StartListeningShelf: View {
     #if DEBUG
     @MainActor private static var didOpenDebugPage = false
 
-    /// 截图钩子:`PRIMUSE_DEBUG_INTENTS=page` 打开「全部意图」,`songs:<内置意图 rawValue>` 打开它的「查看歌曲」。
+    /// 截图钩子:`PRIMUSE_DEBUG_INTENTS=page` 打开「全部意图」,`songs:<内置意图 rawValue>` 打开它的「查看歌曲」,
+    /// `toggleGrid` 带动画展开网格、两秒后再收起(看收起后有没有留空白)。
     /// 等点亮算出来再开,只开一次。
     private func openDebugPageIfRequested() async {
         guard let request = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_INTENTS"],
@@ -338,6 +334,10 @@ struct StartListeningShelf: View {
         plog("🧪 Debug: open listening intents \(request)")
         if request == "page" {
             openAll()
+        } else if request == "toggleGrid" {
+            pmWithAnimation(.list) { isGridExpanded = true }
+            try? await Task.sleep(for: .seconds(2))
+            pmWithAnimation(.list) { isGridExpanded = false }
         } else if request.hasPrefix("songs:"),
                   let builtIn = BuiltInListeningIntent(rawValue: String(request.dropFirst("songs:".count))) {
             openSongs(.builtIn(builtIn))
@@ -354,14 +354,16 @@ struct StartListeningShelf: View {
             }
             switch arrangement {
             case .grid:
-                LazyVGrid(
-                    columns: Array(repeating: GridItem(.flexible(), spacing: Self.gridSpacing), count: 2),
-                    spacing: Self.gridSpacing
-                ) {
-                    ForEach(0..<4, id: \.self) { _ in
-                        RoundedRectangle(cornerRadius: ListeningIntentTile.cornerRadius, style: .continuous)
-                            .fill(ListeningIntentCard.neutralSurface)
-                            .frame(height: ListeningIntentTile.minHeight)
+                VStack(spacing: Self.gridSpacing) {
+                    ForEach(0..<2, id: \.self) { _ in
+                        HStack(spacing: Self.gridSpacing) {
+                            ForEach(0..<2, id: \.self) { _ in
+                                RoundedRectangle(cornerRadius: ListeningIntentTile.cornerRadius, style: .continuous)
+                                    .fill(ListeningIntentCard.neutralSurface)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: ListeningIntentTile.minHeight)
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, horizontalInset)
@@ -548,6 +550,36 @@ struct ListeningIntentCard: View {
     }
 }
 
+/// 不懒加载的等宽网格:卡片只有几十张,直接一行行排好。懒加载网格嵌在首页的滚动视图里,
+/// 展开、收起带动画改变高度之后会算错可见区域,卡片不再渲染,留下一片空白。
+struct ListeningIntentEagerGrid<Item: Identifiable, Content: View>: View {
+    let items: [Item]
+    let columns: Int
+    let spacing: CGFloat
+    @ViewBuilder let content: (Item) -> Content
+
+    var body: some View {
+        let columns = max(1, columns)
+        VStack(alignment: .leading, spacing: spacing) {
+            ForEach(Array(stride(from: 0, to: items.count, by: columns)), id: \.self) { start in
+                let end = min(start + columns, items.count)
+                HStack(alignment: .top, spacing: spacing) {
+                    ForEach(items[start..<end]) { item in
+                        content(item)
+                            .frame(maxWidth: .infinity)
+                    }
+                    // 最后一行不满时补空位,卡片宽度和上面几行一样。
+                    ForEach(0..<(columns - (end - start)), id: \.self) { _ in
+                        Color.clear
+                            .frame(maxWidth: .infinity, maxHeight: 0)
+                            .accessibilityHidden(true)
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// 铺开时的一格:左边图标,右边名字和曲数,撑满列宽。底色与横排卡片同一套。
 struct ListeningIntentTile: View {
     static let minHeight: CGFloat = 56
@@ -660,7 +692,17 @@ struct ListeningIntentsPage: View {
 
     private var service: ListeningIntentService { .shared }
 
-    private let columns = [GridItem(.adaptive(minimum: 132, maximum: 220), spacing: 12)]
+    /// 页面内容宽度,定列数用。
+    @State private var contentWidth: CGFloat = 0
+    private static let tileSpacing: CGFloat = 12
+
+    private var columns: Int {
+        ListeningIntentShelfPolicy.gridColumns(
+            width: Double(contentWidth),
+            spacing: Double(Self.tileSpacing),
+            minimumTileWidth: 132
+        )
+    }
 
     var body: some View {
         ScrollView {
@@ -678,10 +720,8 @@ struct ListeningIntentsPage: View {
                         Text(LocalizedStringKey(section.titleKey))
                             .font(.headline)
                             .accessibilityAddTraits(.isHeader)
-                        LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
-                            ForEach(section.items) { item in
-                                tile(item, inPinned: section.kind == .pinned)
-                            }
+                        ListeningIntentEagerGrid(items: section.items, columns: columns, spacing: Self.tileSpacing) { item in
+                            tile(item, inPinned: section.kind == .pinned)
                         }
                         if section.kind == .personal {
                             PersonalIntentsFooter()
@@ -695,6 +735,9 @@ struct ListeningIntentsPage: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+                if abs(width - contentWidth) > 0.5 { contentWidth = width }
             }
             .padding(.horizontal, horizontalPadding)
             .padding(.top, 12)

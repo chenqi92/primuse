@@ -66,6 +66,9 @@ final class ListeningIntentService {
     private(set) var personalIntents: [ListeningIntent] = []
     private(set) var curationStatus: CurationStatus = .local
     private(set) var isAICurationEnabled: Bool
+    /// 建议卡片的顺序(意图 id),由 `ListeningIntentRankingPolicy` 排:收听、此刻的时段、
+    /// 你从货架上点过什么、同类打散。回到首页或回到前台时才重排,不在你刚点完时挪卡片。
+    private(set) var rankedOrder: [String] = []
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
@@ -84,6 +87,9 @@ final class ListeningIntentService {
     @ObservationIgnored private var localPersonalIntents: [ListeningIntent] = []
     @ObservationIgnored private var curated: CuratedIntents?
     @ObservationIgnored private var curationTask: Task<Void, Never>?
+    @ObservationIgnored private var usage: ListeningIntentUsage
+    @ObservationIgnored private var usageRevision = 0
+    @ObservationIgnored private var rankingKey: String?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -91,6 +97,7 @@ final class ListeningIntentService {
             defaults.string(forKey: ListeningIntentShelfConfiguration.storageKey) ?? ""
         )
         isAICurationEnabled = defaults.object(forKey: Self.aiCurationKey) as? Bool ?? true
+        usage = ListeningIntentUsage.decode(defaults.data(forKey: ListeningIntentUsage.storageKey))
         curated = defaults.data(forKey: Self.curationCacheKey)
             .flatMap { try? JSONDecoder().decode(CuratedIntents.self, from: $0) }
         if isAICurationEnabled, let curated {
@@ -129,6 +136,7 @@ final class ListeningIntentService {
         }
         guard library.isReady else { return }
         refreshSmartPlaylists(library: library)
+        updateRankingIfNeeded(now: now)
         let generation = library.musicSongsRevision
         // 停用集合与 `musicSongs` 在同一拍里换上,看到集合变了时数组已经是新的。
         let disabledSourceIDs = library.disabledSourceIDs
@@ -197,6 +205,7 @@ final class ListeningIntentService {
             }
             if let result, result.availability != self.availability {
                 self.availability = result.availability
+                self.updateRankingIfNeeded(now: Date())
                 if let library = self.library { self.refreshSmartPlaylists(library: library) }
                 plog(String(
                     format: "🎯 listening intents lit=%d personal=%d songs=%d %.0fms",
@@ -281,6 +290,47 @@ final class ListeningIntentService {
         smartPlaylistCountsKey = key
         if counts != smartPlaylistCounts { smartPlaylistCounts = counts }
         if names != smartPlaylistNames { smartPlaylistNames = names }
+    }
+
+    // MARK: Ranking
+
+    /// 排序的输入(时段、点过的记录、点亮结果、个人意图)变了才重排。
+    private func updateRankingIfNeeded(now: Date) {
+        #if !os(tvOS)
+        guard let availability else { return }
+        let moment = ListeningMoment.resolve(
+            at: now,
+            calendar: ListeningCalendar.current,
+            observesLunarFestivals: AlbumRecommendationService.observesLunarFestivals
+        )
+        let key = "\(moment.seedKey)|\(usageRevision)|\(availability.computedAt.timeIntervalSince1970)|"
+            + personalIntents.map(\.id).joined(separator: ",")
+        guard key != rankingKey else { return }
+        rankingKey = key
+        let lit = availability.litIntents(personalIntents + ListeningIntentShelfPolicy.builtInCatalog)
+        let order = ListeningIntentRankingPolicy.rank(
+            lit,
+            availability: availability,
+            moment: moment,
+            usage: usage,
+            now: now
+        ).map(\.id)
+        if order != rankedOrder { rankedOrder = order }
+        #endif
+    }
+
+    /// 从货架上起播了一个意图:记下时间和时段,下次排序时它在这个时段会靠前,刚放过的先让一让。
+    func recordStart(of intentID: String, now: Date = Date()) {
+        #if !os(tvOS)
+        let moment = ListeningMoment.resolve(
+            at: now,
+            calendar: ListeningCalendar.current,
+            observesLunarFestivals: AlbumRecommendationService.observesLunarFestivals
+        )
+        usage.record(intentID, at: now, situation: moment.situation)
+        usageRevision &+= 1
+        if let data = usage.encoded() { defaults.set(data, forKey: ListeningIntentUsage.storageKey) }
+        #endif
     }
 
     // MARK: AI curation
@@ -399,7 +449,8 @@ final class ListeningIntentService {
             availability: availability,
             configuration: configuration,
             smartPlaylists: smartPlaylistCounts,
-            personal: personalIntents
+            personal: personalIntents,
+            order: rankedOrder
         )
     }
 
@@ -549,6 +600,7 @@ extension ListeningIntentService {
             resumeSongCount: resumeSongCount(player: player),
             smartPlaylists: smartPlaylistCounts,
             personal: personalIntents,
+            order: rankedOrder,
             limit: limit
         )
     }
@@ -586,6 +638,7 @@ extension ListeningIntentService {
         guard !ids.isEmpty else { return false }
         player.shuffleEnabled = false
         await player.play(queueIDs: ids)
+        recordStart(of: intent.id)
         plog("🎯 listening intent \(intent.id) queued \(ids.count)")
         return true
     }
