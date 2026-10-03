@@ -5496,3 +5496,5 @@
 "library_insight_list_separator" = "、";
 "home_hero_section_title" = "顶部欢迎卡片";
 "album_pick_another_batch" = "换一批";
+
+"podcast_player_episode_details" = "单集详情";

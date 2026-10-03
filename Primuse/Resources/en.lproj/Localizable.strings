@@ -5166,3 +5166,5 @@
 "library_insight_list_separator" = ", ";
 "home_hero_section_title" = "Welcome Card";
 "album_pick_another_batch" = "Another Set";
+
+"podcast_player_episode_details" = "Episode Details";

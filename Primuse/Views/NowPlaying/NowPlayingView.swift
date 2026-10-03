@@ -740,6 +740,8 @@ struct NowPlayingView: View {
     @State private var albumPresentationSourceID: NowPlayingAlbumTransitionID?
     /// 「转到这本书」: 有声内容的书详情, 用法同 `presentedAlbum`。
     @State private var presentedBook: NowPlayingBookRoute?
+    /// 播客单集不在曲库里,「转到这本书」对它是空页, 换成这一集的详情。
+    @State private var presentedPodcastEpisode: PodcastEpisodeSheetTarget?
     #endif
     @State private var showLyrics = false
     @State private var activeMinimizeDragAxis: NowPlayingDismissGesturePolicy.Axis?
@@ -837,7 +839,7 @@ struct NowPlayingView: View {
 
     private var isAlbumPresentationActive: Bool {
         #if os(iOS)
-        presentedAlbum != nil || presentedBook != nil
+        presentedAlbum != nil || presentedBook != nil || presentedPodcastEpisode != nil
         #else
         false
         #endif
@@ -1123,12 +1125,28 @@ struct NowPlayingView: View {
     /// 有声内容的「转到这本书」: iPhone/iPad 在播放页上弹出书详情(和专辑一样
     /// 不收起播放页), Mac 交给主窗口的详情栈。
     private func presentCurrentBook() {
+        if PodcastPlaybackSong.isEpisode(player.currentSong) {
+            #if os(iOS)
+            if let episodeID = currentPodcastEpisodeID {
+                presentedPodcastEpisode = PodcastEpisodeSheetTarget(id: episodeID)
+            }
+            #endif
+            return
+        }
         guard let bookID = player.currentBookID else { return }
         #if os(iOS)
         presentedBook = NowPlayingBookRoute(id: bookID)
         #elseif os(macOS)
         NotificationCenter.default.post(name: .primuseDetailOpenSpokenWordBook, object: bookID)
         #endif
+    }
+
+    private var currentPodcastEpisodeID: String? {
+        SpokenWordPlayerText.openablePodcastEpisodeID(player)
+    }
+
+    private var currentPodcastShareURL: URL? {
+        SpokenWordPlayerText.podcastShareURL(player)
     }
 
     private func toggleLikedCurrent() {
@@ -1251,6 +1269,24 @@ struct NowPlayingView: View {
 
     private func toggleStandardLyrics() {
         setStandardLyricsVisible(!showLyrics)
+    }
+
+    /// 点大封面。音乐(和有文字稿的有声内容)切到歌词;有声内容没有文字时那一页是空的
+    /// 「暂无歌词」,改为打开目录 —— 播客没有章节时那里默认是节目说明。
+    private func openTextFromArtwork() {
+        if usesSpokenWordTransport {
+            if isPlayerSplit {
+                // 分栏时有声内容的右栏固定是目录 / 书签 / 文字,只把右栏打开;
+                // 别把 showLyrics 置真,那会让大封面不再充当匹配几何的源。
+                selectSidePane(showsQueue: true)
+                return
+            }
+            if lyrics.isEmpty {
+                showChapterList = true
+                return
+            }
+        }
+        setStandardLyricsVisible(true)
     }
 
     private func handleImmersiveContentTap() {
@@ -1932,7 +1968,7 @@ struct NowPlayingView: View {
                         )
                             .shadow(color: .black.opacity(0.3), radius: 24, y: 10)
                             .animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
-                            .onTapGesture { setStandardLyricsVisible(true) }
+                            .onTapGesture { openTextFromArtwork() }
                             .transition(playerArtworkTransition)
                     }
                 }
@@ -2481,6 +2517,12 @@ struct NowPlayingView: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
             .presentationCornerRadius(28)
+        }
+        .sheet(item: $presentedPodcastEpisode) { route in
+            NowPlayingPodcastEpisodeSheet(episodeID: route.id)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(28)
         }
         #endif
         .sheet(item: $scrapeTargetSong) { song in
@@ -3227,7 +3269,7 @@ struct NowPlayingView: View {
                 .spring(response: 0.5, dampingFraction: 0.75),
                 value: artworkAppearsPlaying
             )
-            .onTapGesture { setStandardLyricsVisible(true) }
+            .onTapGesture { openTextFromArtwork() }
             .frame(width: CGFloat(metrics.artworkColumnWidth))
     }
 
@@ -4233,7 +4275,7 @@ struct NowPlayingView: View {
                                 .animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
                                 .onTapGesture {
                                     guard !player.isMusicVideoPlaybackActive else { return }
-                                    setStandardLyricsVisible(true)
+                                    openTextFromArtwork()
                                 }
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
@@ -4621,6 +4663,9 @@ struct NowPlayingView: View {
                 sourceID: player.currentSong?.sourceID,
                 filePath: player.currentSong?.filePath,
                 fileFormat: player.currentSong?.fileFormat,
+                placeholderIcon: PodcastPlaybackSong.isEpisode(player.currentSong)
+                    ? "antenna.radiowaves.left.and.right"
+                    : "music.note",
                 fillsProposedSize: true,
                 revisionToken: player.coverRevision
             )
@@ -4730,10 +4775,16 @@ struct NowPlayingView: View {
         } else if usesSpokenWordTransport {
             // 书是竖的:封面放进 3:4 的书框,方形或横向的原图整张放进去、空出来的边用它自己的模糊放大垫上,
             // 和书架、书页是同一个零件。占的仍是原来那块方形槽位,别的布局不用跟着改。
+            // 暂停时的缩小直接算进尺寸(和音乐那一支一样),别在匹配几何外面再套 scaleEffect:
+            // 那样飞向小封面的起点和终点都会被一起缩向中心, 交接时跳一下。
+            // 播客的方形封面圆角跟音乐一致, 不按书缩小。
+            let isPodcastEpisode = PodcastPlaybackSong.isEpisode(player.currentSong)
             SpokenWordBookCover(
                 song: player.currentSong,
-                width: SpokenWordCoverLayout.width(forHeight: size),
-                cornerRadius: max(6, cornerRadius * 0.6),
+                width: SpokenWordCoverLayout.width(forHeight: displayedSize),
+                cornerRadius: isPodcastEpisode
+                    ? displayedCornerRadius
+                    : max(6, displayedCornerRadius * 0.6),
                 decodeSize: size
             )
             .matchedGeometryEffect(
@@ -4742,7 +4793,6 @@ struct NowPlayingView: View {
                 isSource: !isLyricsCompactArtworkVisible
             )
             .frame(width: size, height: size)
-            .scaleEffect(playbackScale)
         } else {
             lyricsArtworkSlot(
                 size: displayedSize,
@@ -4965,11 +5015,18 @@ struct NowPlayingView: View {
         // 有声内容只留听书用得上的项: 相似歌曲、串烧、卡拉OK、全屏效果、随机、
         // 在线刮削(查的是音乐库)与歌词动效都是音乐的玩法, 「转到专辑」换成
         // 「转到这本书」。
+        // 播客单集不在曲库里: 加歌单、改标签与歌词都没有落处, 「转到这本书」换成单集详情,
+        // 分享给单集的网页。
         let isSpokenWord = usesSpokenWordTransport
+        let isPodcastEpisode = PodcastPlaybackSong.isEpisode(player.currentSong)
+        let podcastShareURL = isPodcastEpisode ? currentPodcastShareURL : nil
         let snapshot = NowPlayingMoreMenuSnapshot(
             songID: player.currentSong?.id,
             isSpokenWord: isSpokenWord,
-            canOpenBook: isSpokenWord && player.currentBookID != nil,
+            isPodcastEpisode: isPodcastEpisode,
+            canOpenPodcastEpisode: isPodcastEpisode && currentPodcastEpisodeID != nil,
+            podcastShareURL: podcastShareURL,
+            canOpenBook: isSpokenWord && !isPodcastEpisode && player.currentBookID != nil,
             hasChapterList: player.hasChapters || isSpokenWord,
             hasSong: player.currentSong != nil,
             isScrapingCurrentSong: isScrapeActionUnavailable,
@@ -4982,13 +5039,14 @@ struct NowPlayingView: View {
                 )
             } ?? false,
             appleMusicCatalogURL: appleMusicCatalogURL,
-            showsLyricsPreferences: showLyrics,
+            // 有声内容没有文字时歌词页是空的, 字号与翻译无从调起。
+            showsLyricsPreferences: showLyrics && (!isSpokenWord || !lyrics.isEmpty),
             showsFullScreenAction: !isSpokenWord && !isLyricsImmersive && !isFullscreenPlayerPresented,
             albumID: currentAlbum?.id,
             artistID: currentArtist?.id,
             canOpenAlbum: canOpenCurrentAlbum,
             canOpenArtist: currentArtist != nil && onOpenArtist != nil,
-            canShare: player.currentSong != nil,
+            canShare: isPodcastEpisode ? podcastShareURL != nil : player.currentSong != nil,
             castingRendererName: player.castingRenderer?.friendlyName,
             isSleepTimerActive: player.isSleepTimerActive,
             lyricsFontScale: lyricsFontScale,
@@ -5507,7 +5565,8 @@ struct NowPlayingView: View {
 
     @ViewBuilder
     private var nowPlayingReviewSection: some View {
-        if let song = player.currentSong {
+        // 播客单集不在曲库里, 评分会记成一条对不上任何歌的评价。
+        if let song = player.currentSong, !PodcastPlaybackSong.isEpisode(song) {
             LibraryReviewSection(
                 subject: .song(song.id),
                 compact: true,
@@ -5539,13 +5598,21 @@ struct NowPlayingView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
         // 有声内容这一行点开是它所在的书: 艺人页与专辑页只收音乐, 对它是空的。
-        let opensBook = usesSpokenWordTransport && player.currentBookID != nil
+        // 播客单集点开是这一集的详情(节目还订着时)。
+        let isPodcastEpisode = PodcastPlaybackSong.isEpisode(player.currentSong)
+        let opensBook = usesSpokenWordTransport && (isPodcastEpisode
+            ? currentPodcastEpisodeID != nil
+            : player.currentBookID != nil)
         if opensBook {
             Button { presentCurrentBook() } label: {
                 label
             }
             .buttonStyle(.plain)
-            .accessibilityHint(Text("spoken_word_go_to_book"))
+            .accessibilityHint(isPodcastEpisode
+                ? Text("podcast_player_episode_details")
+                : Text("spoken_word_go_to_book"))
+        } else if usesSpokenWordTransport && isPodcastEpisode {
+            label
         } else if (onOpenArtist != nil && !currentArtists.isEmpty) || canOpenCurrentAlbum {
             Menu {
                 if onOpenArtist != nil {
@@ -7665,6 +7732,10 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let songID: String?
     /// 正在播有声内容: 菜单收起音乐专属的项。
     let isSpokenWord: Bool
+    /// 播客单集: 不在曲库里, 收起加歌单、改标签与歌词; 「歌曲信息」换成单集详情。
+    let isPodcastEpisode: Bool
+    let canOpenPodcastEpisode: Bool
+    let podcastShareURL: URL?
     let canOpenBook: Bool
     let hasChapterList: Bool
     let hasSong: Bool
@@ -7820,13 +7891,19 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                 }
 
                 if snapshot.canShare {
-                    // 歌词海报也从这里进：分享页里有一项「分享歌词」。
-                    Button(action: onShare) {
-                        Label(String(localized: "share"), systemImage: "square.and.arrow.up")
+                    if let url = snapshot.podcastShareURL {
+                        ShareLink(item: url) {
+                            Label(String(localized: "share"), systemImage: "square.and.arrow.up")
+                        }
+                    } else {
+                        // 歌词海报也从这里进：分享页里有一项「分享歌词」。
+                        Button(action: onShare) {
+                            Label(String(localized: "share"), systemImage: "square.and.arrow.up")
+                        }
                     }
                 }
 
-                if promotesAddToPlaylist {
+                if promotesAddToPlaylist, !snapshot.isPodcastEpisode {
                     addToPlaylistButton(inQuickRow: true)
                 }
 
@@ -7910,7 +7987,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
             }
 
             Section {
-                if !promotesAddToPlaylist {
+                if !promotesAddToPlaylist, !snapshot.isPodcastEpisode {
                     addToPlaylistButton(inQuickRow: false)
                 }
 
@@ -7938,7 +8015,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     .disabled(!snapshot.hasSong)
                 }
 
-                if !snapshot.isAppleMusicMode {
+                if !snapshot.isAppleMusicMode, !snapshot.isPodcastEpisode {
                     Button(action: onEditTags) {
                         Label(String(localized: "tag_editor_menu"), systemImage: "tag")
                     }
@@ -7952,10 +8029,18 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
             }
 
             Section {
-                Button(action: onShowSongInfo) {
-                    Label(String(localized: "song_info"), systemImage: "info.circle")
+                if snapshot.isPodcastEpisode {
+                    if snapshot.canOpenPodcastEpisode {
+                        Button(action: onOpenBook) {
+                            Label(String(localized: "podcast_player_episode_details"), systemImage: "info.circle")
+                        }
+                    }
+                } else {
+                    Button(action: onShowSongInfo) {
+                        Label(String(localized: "song_info"), systemImage: "info.circle")
+                    }
+                    .disabled(!snapshot.hasSong)
                 }
-                .disabled(!snapshot.hasSong)
 
                 if snapshot.isSpokenWord {
                     if snapshot.hasChapterList {

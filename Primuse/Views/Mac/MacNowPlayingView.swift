@@ -62,6 +62,8 @@ struct MacNowPlayingView: View {
     @State private var showsRadioSleepTimer = false
     @State private var showsSpokenWordSleepTimer = false
     @State private var radioDetailStationID: String?
+    /// 播客单集的详情:标题键「转到这本书」对单集是空页,换成这一页。
+    @State private var podcastEpisodeDetail: PodcastEpisodeSheetTarget?
     @State private var preferences = MacUIPreferences.shared
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
@@ -826,12 +828,19 @@ struct MacNowPlayingView: View {
                 partFont: .system(size: isWindowFullScreen ? 22 : 16),
                 alignment: alignment,
                 onOpenBook: {
-                    if let bookID = player.currentBookID {
+                    if PodcastPlaybackSong.isEpisode(player.currentSong) {
+                        if let episodeID = SpokenWordPlayerText.openablePodcastEpisodeID(player) {
+                            podcastEpisodeDetail = PodcastEpisodeSheetTarget(id: episodeID)
+                        }
+                    } else if let bookID = player.currentBookID {
                         NotificationCenter.default.post(name: .primuseDetailOpenSpokenWordBook, object: bookID)
                     }
                 },
                 onOpenContents: {}
             )
+            .sheet(item: $podcastEpisodeDetail) { target in
+                NowPlayingPodcastEpisodeSheet(episodeID: target.id)
+            }
 
             SpokenWordPartRemainingLabel(color: playerSecondaryColor)
 
@@ -1687,12 +1696,20 @@ private struct MacNowPlayingMetadata: View {
     let highlight: Color
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
+    @State private var podcastEpisodeDetail: PodcastEpisodeSheetTarget?
 
     /// 正在播的有声内容所在的书; 艺人页与专辑页只收音乐, 对它是空的。
+    /// 播客单集没有书, 专辑那一栏是节目名, 点开的是这一集的详情。
     private var bookID: String? {
         guard player.currentSong?.id == song.id,
-              player.currentItemIsSpokenWord, !player.isLiveRadio else { return nil }
+              player.currentItemIsSpokenWord, !player.isLiveRadio,
+              !PodcastPlaybackSong.isEpisode(song) else { return nil }
         return player.currentBookID
+    }
+
+    private var podcastEpisodeID: String? {
+        guard player.currentSong?.id == song.id else { return nil }
+        return SpokenWordPlayerText.openablePodcastEpisodeID(player)
     }
 
     var body: some View {
@@ -1716,10 +1733,16 @@ private struct MacNowPlayingMetadata: View {
                 }
             }
             if let title = trimmed(song.albumTitle) {
-                if let bookID {
+                if let podcastEpisodeID {
+                    metadataLink(title, help: "podcast_player_episode_details") {
+                        podcastEpisodeDetail = PodcastEpisodeSheetTarget(id: podcastEpisodeID)
+                    }
+                } else if let bookID {
                     metadataLink(title, help: "spoken_word_go_to_book") {
                         NotificationCenter.default.post(name: .primuseDetailOpenSpokenWordBook, object: bookID)
                     }
+                } else if PodcastPlaybackSong.isEpisode(song) {
+                    Text(verbatim: title).foregroundStyle(foreground)
                 } else if let album = matchingAlbum {
                     metadataLink(title, help: "go_to_album") {
                         NotificationCenter.default.post(name: .primuseDetailOpenAlbum, object: album)
@@ -1730,6 +1753,9 @@ private struct MacNowPlayingMetadata: View {
             }
         }
         .lineLimit(1)
+        .sheet(item: $podcastEpisodeDetail) { target in
+            NowPlayingPodcastEpisodeSheet(episodeID: target.id)
+        }
     }
 
     private func metadataLink(_ title: String, help: LocalizedStringKey, action: @escaping () -> Void) -> some View {

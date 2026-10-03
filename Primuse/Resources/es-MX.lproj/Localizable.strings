@@ -5309,3 +5309,5 @@
 "library_insight_list_separator" = ", ";
 "home_hero_section_title" = "Tarjeta de bienvenida";
 "album_pick_another_batch" = "Otra selección";
+
+"podcast_player_episode_details" = "Detalles del episodio";

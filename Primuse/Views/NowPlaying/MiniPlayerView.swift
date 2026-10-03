@@ -53,8 +53,9 @@ struct MiniPlayerSwipeContent: View {
     var body: some View {
         ZStack {
             HStack(spacing: 0) {
-                if isSpokenWord {
-                    // 书是竖的:同一块槽位里放 3:4 的书封。
+                if isSpokenWord, !SpokenWordPlayerText.isPodcastEpisode(player) {
+                    // 书是竖的:同一块槽位里放 3:4 的书封。播客单集的封面是方的,走下面那一支,
+                    // 和音乐一样占满槽位、圆角一致。
                     SpokenWordBookCover(
                         song: player.currentSong,
                         width: SpokenWordCoverLayout.width(forHeight: artworkSize),
@@ -72,6 +73,7 @@ struct MiniPlayerSwipeContent: View {
                         sourceID: player.currentSong?.sourceID,
                         filePath: player.currentSong?.filePath,
                         fileFormat: player.currentSong?.fileFormat,
+                        placeholderIcon: isSpokenWord ? "antenna.radiowaves.left.and.right" : "music.note",
                         revisionToken: player.coverRevision
                     )
                     .artworkCrossfade()

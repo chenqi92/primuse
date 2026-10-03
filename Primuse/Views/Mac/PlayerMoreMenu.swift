@@ -48,6 +48,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     /// Button 是真 Button,整个 frame 都是 hit-testable。
     @State private var menuShown = false
     @State private var fontPickerShown = false
+    /// 播客单集的详情(「转到这本书」对单集是空页, 换成这一页)。
+    @State private var podcastEpisodeDetail: PodcastEpisodeSheetTarget?
 
     var body: some View {
         #if os(macOS)
@@ -115,6 +117,9 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         .sheet(item: $shareSong) { song in
             SongShareSheet(song: song)
         }
+        .sheet(item: $podcastEpisodeDetail) { target in
+            NowPlayingPodcastEpisodeSheet(episodeID: target.id)
+        }
         .sheet(isPresented: $showTagEditor) {
             if let song = player.currentSong {
                 TagEditorView(song: song) { updated in
@@ -177,6 +182,11 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         player.currentItemIsSpokenWord && !player.isLiveRadio
     }
 
+    /// 播客单集不在曲库里: 加歌单、改标签与歌词、歌曲信息都没有落处。
+    private var isPodcastEpisode: Bool {
+        PodcastPlaybackSong.isEpisode(player.currentSong)
+    }
+
     /// Popover 内的菜单内容。每个 row 都是真 Button,整个行 hit-testable,
     /// 没有 NSPopUpButton 那种"只点中图标才响应"的问题。
     @ViewBuilder
@@ -205,10 +215,12 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 }
                 divider()
             }
-            menuRow(title: "add_to_playlist",
-                    symbol: "text.badge.plus",
-                    disabled: player.currentSong == nil) {
-                showAddToPlaylist = true
+            if !isPodcastEpisode {
+                menuRow(title: "add_to_playlist",
+                        symbol: "text.badge.plus",
+                        disabled: player.currentSong == nil) {
+                    showAddToPlaylist = true
+                }
             }
             if !isSpokenWord {
                 // 相似歌曲 —— 飞出二级浮层 (和字号子菜单一致),点外部自动消失,
@@ -245,7 +257,13 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                     }
                 }
             }
-            if isSpokenWord, let bookID = player.currentBookID {
+            if isPodcastEpisode {
+                if let episodeID = SpokenWordPlayerText.openablePodcastEpisodeID(player) {
+                    menuRow(title: "podcast_player_episode_details", symbol: "info.circle") {
+                        podcastEpisodeDetail = PodcastEpisodeSheetTarget(id: episodeID)
+                    }
+                }
+            } else if isSpokenWord, let bookID = player.currentBookID {
                 menuRow(title: "spoken_word_go_to_book", symbol: "books.vertical") {
                     NotificationCenter.default.post(name: .primuseDetailOpenSpokenWordBook, object: bookID)
                 }
@@ -264,15 +282,17 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 }
             }
             divider()
-            menuRow(title: "tag_editor_menu",
-                    symbol: "tag",
-                    disabled: player.currentSong == nil) {
-                showTagEditor = true
-            }
-            menuRow(title: "lyrics_editor_menu",
-                    symbol: "quote.bubble",
-                    disabled: player.currentSong == nil) {
-                lyricsEditorTargetSong = player.currentSong
+            if !isPodcastEpisode {
+                menuRow(title: "tag_editor_menu",
+                        symbol: "tag",
+                        disabled: player.currentSong == nil) {
+                    showTagEditor = true
+                }
+                menuRow(title: "lyrics_editor_menu",
+                        symbol: "quote.bubble",
+                        disabled: player.currentSong == nil) {
+                    lyricsEditorTargetSong = player.currentSong
+                }
             }
             // 在线刮削查的是音乐资料库, 拿有声内容的章节名去搜只会配错。
             if !isSpokenWord {
@@ -291,16 +311,37 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 }
             }
             divider()
-            menuRow(title: "song_info", symbol: "info.circle",
-                    disabled: player.currentSong == nil) {
-                showSongInfo = true
-            }
-            menuRow(
-                title: "share",
-                symbol: "square.and.arrow.up",
-                disabled: player.currentSong == nil
-            ) {
-                shareSong = player.currentSong
+            if isPodcastEpisode {
+                // 单集分享网页地址: 歌曲分享页的可播放链接和歌词海报对它都用不上。
+                if let url = SpokenWordPlayerText.podcastShareURL(player) {
+                    ShareLink(item: url) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "square.and.arrow.up")
+                                .frame(width: 18)
+                                .foregroundStyle(PMColor.textMuted)
+                            Text("share")
+                                .font(.callout)
+                                .foregroundStyle(PMColor.text)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .pmRowBackground(cornerRadius: 6)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            } else {
+                menuRow(title: "song_info", symbol: "info.circle",
+                        disabled: player.currentSong == nil) {
+                    showSongInfo = true
+                }
+                menuRow(
+                    title: "share",
+                    symbol: "square.and.arrow.up",
+                    disabled: player.currentSong == nil
+                ) {
+                    shareSong = player.currentSong
+                }
             }
             divider()
             if !isSpokenWord {

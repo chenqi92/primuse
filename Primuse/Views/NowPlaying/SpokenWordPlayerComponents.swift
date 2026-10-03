@@ -15,6 +15,28 @@ struct SpokenWordPlayerPalette {
     var tileFill: Color
 }
 
+// MARK: - Podcast episode sheet
+
+/// 播放页里打开正在播的那一集:单集详情(节目说明、章节、下载、标记),从那里还能去节目页。
+/// 播客单集不在曲库里,「转到这本书」对它是空页,iPhone、iPad、Mac 都换成这一页。
+struct NowPlayingPodcastEpisodeSheet: View {
+    let episodeID: String
+
+    var body: some View {
+        NavigationStack {
+            PodcastEpisodeDetailView(episodeID: episodeID)
+        }
+        #if os(macOS)
+        .frame(minWidth: 460, minHeight: 560)
+        #endif
+    }
+}
+
+/// `.sheet(item:)` 要一个 Identifiable; 单集详情只认单集的 id。
+struct PodcastEpisodeSheetTarget: Identifiable, Hashable {
+    let id: String
+}
+
 // MARK: - Text
 
 /// What the spoken-word player writes about the book: its title, the part
@@ -42,6 +64,34 @@ enum SpokenWordPlayerText {
     private static func podcastEpisode(_ player: AudioPlayerService) -> Song? {
         guard let song = player.currentSong, PodcastPlaybackSong.isEpisode(song) else { return nil }
         return song
+    }
+
+    static func isPodcastEpisode(_ player: AudioPlayerService) -> Bool {
+        podcastEpisode(player) != nil
+    }
+
+    /// 正在播的播客单集,节目还订着才有详情可看(退订后单集就不在了,入口跟着收起)。
+    static func openablePodcastEpisodeID(_ player: AudioPlayerService) -> String? {
+        guard let episode = podcastEpisode(player),
+              PodcastStore.shared.episode(id: episode.id) != nil else { return nil }
+        return episode.id
+    }
+
+    /// 分享播客单集:单集自己的网页,没有就给节目的(见 `PodcastShare`)。
+    static func podcastShareURL(_ player: AudioPlayerService) -> URL? {
+        guard let episode = podcastEpisode(player),
+              let found = PodcastStore.shared.episode(id: episode.id) else { return nil }
+        return found.episode.link ?? PodcastShare.url(for: found.show)
+    }
+
+    /// 语速菜单的标题:书按本记速度,播客按节目记,别对播客说「本书」。
+    static func rateTitleKey(_ player: AudioPlayerService) -> LocalizedStringKey {
+        isPodcastEpisode(player) ? "playback_rate" : "spoken_word_book_speed"
+    }
+
+    /// 标题键的旁白提示:书是「前往这本书」,播客是这一集的详情。
+    static func openTitleHintKey(_ player: AudioPlayerService) -> LocalizedStringKey {
+        isPodcastEpisode(player) ? "podcast_player_episode_details" : "spoken_word_go_to_book"
     }
 
     static func bookTitle(_ player: AudioPlayerService) -> String {
@@ -254,7 +304,7 @@ struct SpokenWordActionTiles: View {
                     Text(verbatim: SpokenWordPlaybackRatePolicy.label(for: rate)).tag(rate)
                 }
             } label: {
-                Text("spoken_word_book_speed")
+                Text(SpokenWordPlayerText.rateTitleKey(player))
             }
         } label: {
             tile {
@@ -267,7 +317,7 @@ struct SpokenWordActionTiles: View {
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
-        .accessibilityLabel(Text("spoken_word_book_speed"))
+        .accessibilityLabel(Text(SpokenWordPlayerText.rateTitleKey(player)))
         .accessibilityValue(Text(verbatim: SpokenWordPlaybackRatePolicy.label(for: player.currentSpokenWordRate)))
     }
 
@@ -371,7 +421,8 @@ struct SpokenWordPlayerHeading<Trailing: View>: View {
                 Button(action: onOpenBook) {
                     Text(verbatim: SpokenWordPlayerText.bookTitle(player))
                         .font(titleFont.weight(.bold))
-                        .fontDesign(.serif)
+                        // 书名用衬线体像书脊;播客单集就是一集节目的标题。
+                        .fontDesign(SpokenWordPlayerText.isPodcastEpisode(player) ? Font.Design.default : Font.Design.serif)
                         .foregroundStyle(palette.primary)
                         .lineLimit(titleLineLimit)
                         .minimumScaleFactor(0.8)
@@ -381,7 +432,7 @@ struct SpokenWordPlayerHeading<Trailing: View>: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityHint(Text("spoken_word_go_to_book"))
+                .accessibilityHint(Text(SpokenWordPlayerText.openTitleHintKey(player)))
                 .layoutPriority(1)
 
                 trailing()
