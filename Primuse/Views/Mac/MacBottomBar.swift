@@ -184,7 +184,8 @@ struct MacBottomBar: View {
             HStack(spacing: 6) {
                 // 有声内容两端换成上一章 / 下一章: 一本书不随机, 也不单曲循环。
                 if isSpokenWord {
-                    transportBtn("backward.end.fill", size: 12, help: "spoken_word_previous_chapter") {
+                    transportBtn("backward.end.fill", size: 12,
+                                 help: SpokenWordPlayerText.partButtonLabelKey(player, forward: false)) {
                         player.goToPreviousSpokenWordPart()
                     }
                     .pmFadeTransition()
@@ -247,7 +248,8 @@ struct MacBottomBar: View {
                     .pmFadeTransition()
                 }
                 if isSpokenWord {
-                    transportBtn("forward.end.fill", size: 12, help: "spoken_word_next_chapter") {
+                    transportBtn("forward.end.fill", size: 12,
+                                 help: SpokenWordPlayerText.partButtonLabelKey(player, forward: true)) {
                         player.goToNextSpokenWordPart()
                     }
                     .disabled(!player.canGoToNextSpokenWordPart)

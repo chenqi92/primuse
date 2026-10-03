@@ -5353,3 +5353,9 @@
 
 "podcast_region_hidden_note %lld" = "Ещё %lld подписок нет в каталоге подкастов для этого региона App Store, поэтому они скрыты на этом устройстве.";
 "podcast_region_directory_only" = "В этом регионе App Store подкасты можно добавлять только из каталога подкастов.";
+
+"podcast_player_up_next_short" = "Далее";
+"podcast_player_notes_short" = "Описание";
+"podcast_player_notes_empty" = "У этого выпуска нет описания.";
+"podcast_player_up_next_empty" = "После этого выпуска ничего нет — воспроизведение остановится.";
+"podcast_player_remove_from_up_next" = "Убрать из «Далее»";

@@ -5353,3 +5353,9 @@
 
 "podcast_region_hidden_note %lld" = "%lld abonelik daha bu App Store bölgesinin podcast dizininde bulunmadığından bu cihazda gizleniyor.";
 "podcast_region_directory_only" = "Bu App Store bölgesinde podcast'ler yalnızca podcast dizininden eklenebilir.";
+
+"podcast_player_up_next_short" = "Sıradaki";
+"podcast_player_notes_short" = "Notlar";
+"podcast_player_notes_empty" = "Bu bölümün notu yok.";
+"podcast_player_up_next_empty" = "Bu bölümden sonra sırada bir şey yok; bitince oynatma durur.";
+"podcast_player_remove_from_up_next" = "Sıradakilerden kaldır";

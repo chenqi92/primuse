@@ -15,28 +15,6 @@ struct SpokenWordPlayerPalette {
     var tileFill: Color
 }
 
-// MARK: - Podcast episode sheet
-
-/// 播放页里打开正在播的那一集:单集详情(节目说明、章节、下载、标记),从那里还能去节目页。
-/// 播客单集不在曲库里,「转到这本书」对它是空页,iPhone、iPad、Mac 都换成这一页。
-struct NowPlayingPodcastEpisodeSheet: View {
-    let episodeID: String
-
-    var body: some View {
-        NavigationStack {
-            PodcastEpisodeDetailView(episodeID: episodeID)
-        }
-        #if os(macOS)
-        .frame(minWidth: 460, minHeight: 560)
-        #endif
-    }
-}
-
-/// `.sheet(item:)` 要一个 Identifiable; 单集详情只认单集的 id。
-struct PodcastEpisodeSheetTarget: Identifiable, Hashable {
-    let id: String
-}
-
 // MARK: - Text
 
 /// What the spoken-word player writes about the book: its title, the part
@@ -82,6 +60,32 @@ enum SpokenWordPlayerText {
         guard let episode = podcastEpisode(player),
               let found = PodcastStore.shared.episode(id: episode.id) else { return nil }
         return found.episode.link ?? PodcastShare.url(for: found.show)
+    }
+
+    /// 正在播的这一集所在的节目(节目页的入口)。退订了的节目没有页面可去。
+    static func podcastShowID(_ player: AudioPlayerService) -> String? {
+        guard let episode = podcastEpisode(player) else { return nil }
+        return PodcastStore.shared.episode(id: episode.id)?.show.id
+    }
+
+    /// 标题块里节目名后面那一小段:这一集是哪天发的。
+    static func podcastPublishedLine(_ player: AudioPlayerService) -> String? {
+        guard let episode = podcastEpisode(player) else { return nil }
+        return PodcastFormat.date(PodcastStore.shared.episode(id: episode.id)?.episode.publishedAt)
+    }
+
+    /// 两侧小键的旁白:书是上一章 / 下一章;播客有章节时按章,没有(或到了最后一章)是上一集 / 下一集。
+    static func partButtonLabelKey(_ player: AudioPlayerService, forward: Bool) -> LocalizedStringKey {
+        guard podcastEpisode(player) != nil else {
+            return forward ? "spoken_word_next_chapter" : "spoken_word_previous_chapter"
+        }
+        let unit = forward ? player.podcastForwardUnit : player.podcastBackwardUnit
+        switch (unit, forward) {
+        case (.chapter, true): return "spoken_word_next_chapter"
+        case (.chapter, false): return "spoken_word_previous_chapter"
+        case (.episode, true): return "spoken_word_next_item"
+        case (.episode, false): return "spoken_word_previous_item"
+        }
     }
 
     /// 语速菜单的标题:书按本记速度,播客按节目记,别对播客说「本书」。
@@ -281,17 +285,38 @@ struct SpokenWordActionTiles: View {
     var tileHeight: CGFloat = 56
     let onSleep: () -> Void
     let onContents: () -> Void
+    /// 播客的「接下来」。给了才有这一块(书没有队列可看)。
+    var onUpNext: (() -> Void)? = nil
 
     @Environment(AudioPlayerService.self) private var player
     @State private var bookmarkFeedbackToken = 0
+
+    private var isPodcast: Bool { SpokenWordPlayerText.isPodcastEpisode(player) }
 
     var body: some View {
         HStack(spacing: 8) {
             rateTile
             sleepTile
-            bookmarkTile
+            // 播客把「书签」让给「接下来」:书签仍在说明面板里,也能从那里加。
+            // 目录常驻在旁边一栏时(iPad、Mac)位置够,书签留着。
+            if !isPodcast || !showsContents || onUpNext == nil { bookmarkTile }
             if showsContents { contentsTile }
+            if isPodcast, let onUpNext { upNextTile(onUpNext) }
         }
+    }
+
+    private func upNextTile(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            tile {
+                Image(systemName: "list.bullet")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(palette.primary)
+            } caption: {
+                Text("podcast_player_up_next_short")
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("up_next"))
     }
 
     private var rateTile: some View {
@@ -362,18 +387,19 @@ struct SpokenWordActionTiles: View {
         .accessibilityLabel(Text("spoken_word_add_bookmark"))
     }
 
+    /// 书是「目录」;播客打开的是节目说明(有章节时还有章节、书签)。
     private var contentsTile: some View {
         Button(action: onContents) {
             tile {
-                Image(systemName: "list.bullet")
+                Image(systemName: isPodcast ? "text.alignleft" : "list.bullet")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(palette.primary)
             } caption: {
-                Text("spoken_word_contents_title")
+                Text(isPodcast ? "podcast_player_notes_short" : "spoken_word_contents_title")
             }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(Text("spoken_word_contents_title"))
+        .accessibilityLabel(Text(isPodcast ? "podcast_show_notes" : "spoken_word_contents_title"))
     }
 
     private func tile<Icon: View, Caption: View>(
@@ -407,6 +433,8 @@ struct SpokenWordPlayerHeading<Trailing: View>: View {
     var titleLineLimit = 2
     /// Whole-book progress under the narrator line.
     var showsBookProgress = true
+    /// 播客:节目名单独可点,打开节目页。
+    var onOpenShow: (() -> Void)? = nil
     let onOpenBook: () -> Void
     let onOpenContents: () -> Void
     @ViewBuilder var trailing: () -> Trailing
@@ -450,9 +478,19 @@ struct SpokenWordPlayerHeading<Trailing: View>: View {
 
             HStack(spacing: 10) {
                 if let author = SpokenWordPlayerText.author(player) {
-                    Text(verbatim: author)
+                    if let onOpenShow, SpokenWordPlayerText.podcastShowID(player) != nil {
+                        podcastShowLink(author, action: onOpenShow)
+                    } else {
+                        Text(verbatim: author)
+                            .lineLimit(1)
+                            .foregroundStyle(palette.secondary)
+                    }
+                }
+                if let published = SpokenWordPlayerText.podcastPublishedLine(player) {
+                    Text(verbatim: published)
                         .lineLimit(1)
-                        .foregroundStyle(palette.secondary)
+                        .foregroundStyle(palette.tertiary)
+                        .fixedSize()
                 }
                 if alignment != .center { Spacer(minLength: 0) }
                 if let position = SpokenWordPlayerText.partPosition(player.spokenWordNowPlayingSummary(live: false)) {
@@ -484,6 +522,22 @@ struct SpokenWordPlayerHeading<Trailing: View>: View {
         .contentTransition(.opacity)
         .pmAnimation(.trackChange, value: player.currentSong?.id)
     }
+
+    /// 节目名:点开节目页。和单集名(点开这一集)分开,两处各去各的地方。
+    private func podcastShowLink(_ name: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 3) {
+                Text(verbatim: name)
+                    .lineLimit(1)
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+            }
+            .foregroundStyle(palette.secondary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint(Text("podcast_go_to_show"))
+    }
 }
 
 extension SpokenWordPlayerHeading where Trailing == EmptyView {
@@ -494,6 +548,7 @@ extension SpokenWordPlayerHeading where Trailing == EmptyView {
         alignment: HorizontalAlignment = .leading,
         titleLineLimit: Int = 2,
         showsBookProgress: Bool = true,
+        onOpenShow: (() -> Void)? = nil,
         onOpenBook: @escaping () -> Void,
         onOpenContents: @escaping () -> Void
     ) {
@@ -504,6 +559,7 @@ extension SpokenWordPlayerHeading where Trailing == EmptyView {
             alignment: alignment,
             titleLineLimit: titleLineLimit,
             showsBookProgress: showsBookProgress,
+            onOpenShow: onOpenShow,
             onOpenBook: onOpenBook,
             onOpenContents: onOpenContents,
             trailing: { EmptyView() }
@@ -515,6 +571,7 @@ extension SpokenWordPlayerHeading where Trailing == EmptyView {
 
 /// The small previous / next chapter buttons either side of the big skip
 /// buttons. Chapter marks first, then the neighbouring file of the book.
+/// 播客:有章节先按章,然后是队列里的上一集 / 下一集(不分节目)。
 struct SpokenWordPartButton: View {
     let forward: Bool
     let color: Color
@@ -539,6 +596,6 @@ struct SpokenWordPartButton: View {
         .buttonStyle(.plain)
         .disabled(forward && !player.canGoToNextSpokenWordPart)
         .opacity(forward && !player.canGoToNextSpokenWordPart ? 0.35 : 1)
-        .accessibilityLabel(Text(forward ? "spoken_word_next_chapter" : "spoken_word_previous_chapter"))
+        .accessibilityLabel(Text(SpokenWordPlayerText.partButtonLabelKey(player, forward: forward)))
     }
 }

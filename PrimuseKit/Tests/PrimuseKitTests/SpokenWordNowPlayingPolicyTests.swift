@@ -315,3 +315,28 @@ struct SpokenWordNowPlayingPolicyTests {
         ))
     }
 }
+
+@Suite("Podcast queue navigation")
+struct PodcastQueueNavigationPolicyTests {
+    @Test func neighboursAcrossShowsAreEpisodes() {
+        // 0、1、2 是不同节目的单集,3 是插进来的歌。
+        let episodes = [true, true, true, false]
+        let isEpisode: (Int) -> Bool = { episodes[$0] }
+        #expect(PodcastQueueNavigationPolicy.adjacentEpisodeIndex(currentIndex: 1, offset: 1, count: 4, isEpisode: isEpisode) == 2)
+        #expect(PodcastQueueNavigationPolicy.adjacentEpisodeIndex(currentIndex: 1, offset: -1, count: 4, isEpisode: isEpisode) == 0)
+        #expect(PodcastQueueNavigationPolicy.adjacentEpisodeIndex(currentIndex: 2, offset: 1, count: 4, isEpisode: isEpisode) == nil)
+        #expect(PodcastQueueNavigationPolicy.adjacentEpisodeIndex(currentIndex: 0, offset: -1, count: 4, isEpisode: isEpisode) == nil)
+        #expect(PodcastQueueNavigationPolicy.adjacentEpisodeIndex(currentIndex: 1, offset: 0, count: 4, isEpisode: isEpisode) == nil)
+        // 位置已经不在队列里(队列刚被清掉)。
+        #expect(PodcastQueueNavigationPolicy.adjacentEpisodeIndex(currentIndex: 5, offset: 1, count: 4, isEpisode: isEpisode) == nil)
+    }
+
+    @Test func sideButtonsSayChapterUntilTheLastOne() {
+        #expect(PodcastQueueNavigationPolicy.backwardUnit(chapterCount: 0) == .episode)
+        #expect(PodcastQueueNavigationPolicy.backwardUnit(chapterCount: 4) == .chapter)
+        #expect(PodcastQueueNavigationPolicy.forwardUnit(chapterCount: 0, currentChapterIndex: nil) == .episode)
+        #expect(PodcastQueueNavigationPolicy.forwardUnit(chapterCount: 4, currentChapterIndex: nil) == .chapter)
+        #expect(PodcastQueueNavigationPolicy.forwardUnit(chapterCount: 4, currentChapterIndex: 2) == .chapter)
+        #expect(PodcastQueueNavigationPolicy.forwardUnit(chapterCount: 4, currentChapterIndex: 3) == .episode)
+    }
+}

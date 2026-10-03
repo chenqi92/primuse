@@ -104,6 +104,39 @@ extension AudioPlayerService {
         }
     }
 
+    // MARK: - Player page
+
+    /// 播放页两侧小键这一下走的是章还是集(旁白据此说「下一章」还是「下一集」)。
+    var podcastForwardUnit: PodcastQueueNavigationPolicy.Unit {
+        PodcastQueueNavigationPolicy.forwardUnit(
+            chapterCount: spokenWordChapters.count,
+            currentChapterIndex: currentChapterIndex
+        )
+    }
+
+    var podcastBackwardUnit: PodcastQueueNavigationPolicy.Unit {
+        PodcastQueueNavigationPolicy.backwardUnit(chapterCount: spokenWordChapters.count)
+    }
+
+    /// 播放页「标为已播放」:队列里还有下一集就接着放,没有就停下。
+    ///
+    /// 记位置会把听完的单集重新打开,所以先让这一集最后记一次(换集或暂停时),再标听完。
+    func markCurrentPodcastEpisodePlayed() {
+        guard let song = currentSong, PodcastPlaybackSong.isEpisode(song),
+              let found = PodcastStore.shared.episode(id: song.id) else { return }
+        let store = PodcastStore.shared
+        if hasNextBookItem {
+            // 换集时起播会先给上一集记一次位置,那会把刚标的「听完」又打开。
+            PodcastPlaybackState.shared.positionSaveSuppressedEpisodeID = song.id
+            store.setPlayed(true, episode: found.episode)
+            skipToNextBookItem()
+        } else {
+            // 先停(停的时候照常记位置),再标听完。之后又接着听,自动存档会照常把它重新打开。
+            pause()
+            store.setPlayed(true, episode: found.episode)
+        }
+    }
+
     // MARK: - Per-item setup
 
     /// 换到一集时(`handleSpokenWordItemChange` 里调):没有续播位置就按节目设置跳过片头;
@@ -112,6 +145,7 @@ extension AudioPlayerService {
         guard PodcastPlaybackSong.isEpisode(song),
               let found = PodcastStore.shared.episode(id: song.id) else { return }
         PodcastPlaybackState.shared.outroHandledEpisodeID = nil
+        PodcastPlaybackState.shared.positionSaveSuppressedEpisodeID = nil
         let intro = found.show.settings.skipIntroSeconds
         if intro > 0,
            pendingSpokenWordSeekOverride == nil,
@@ -142,6 +176,7 @@ extension AudioPlayerService {
         let total = duration > 0 ? duration : song.duration
         guard outro > 0, total > outro + 30, currentTime > 10, total - currentTime <= outro else { return }
         PodcastPlaybackState.shared.outroHandledEpisodeID = song.id
+        PodcastPlaybackState.shared.positionSaveSuppressedEpisodeID = song.id
         plog("🎙️ Skipping the last \(Int(outro))s of '\(song.title)'")
         SpokenWordStore.shared.markFinished(true, songIDs: [song.id])
         Task { @MainActor [weak self] in
@@ -159,6 +194,8 @@ final class PodcastPlaybackState {
     static let shared = PodcastPlaybackState()
     /// 这一集的片尾已经处理过,别每拍再触发一次。
     var outroHandledEpisodeID: String?
+    /// 这一集刚标成听完、正在换下一集:换集时别再给它记位置(记位置会把听完重新打开)。换到下一集时清掉。
+    var positionSaveSuppressedEpisodeID: String?
 }
 
 /// 最近一次播客队列里的那几集,冷启动恢复播放会话时用。

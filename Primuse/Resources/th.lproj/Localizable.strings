@@ -5353,3 +5353,9 @@
 
 "podcast_region_hidden_note %lld" = "การติดตามอีก %lld รายการไม่มีในไดเรกทอรีพอดแคสต์ของภูมิภาค App Store นี้ จึงถูกซ่อนไว้ในอุปกรณ์นี้";
 "podcast_region_directory_only" = "ในภูมิภาค App Store นี้ เพิ่มพอดแคสต์ได้จากไดเรกทอรีพอดแคสต์เท่านั้น";
+
+"podcast_player_up_next_short" = "ถัดไป";
+"podcast_player_notes_short" = "รายละเอียด";
+"podcast_player_notes_empty" = "ตอนนี้ไม่มีรายละเอียดรายการ";
+"podcast_player_up_next_empty" = "ไม่มีตอนที่รออยู่ต่อจากนี้ เล่นจบตอนนี้แล้วจะหยุด";
+"podcast_player_remove_from_up_next" = "นำออกจากถัดไป";

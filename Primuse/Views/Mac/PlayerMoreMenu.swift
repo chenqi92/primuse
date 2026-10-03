@@ -49,7 +49,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var menuShown = false
     @State private var fontPickerShown = false
     /// 播客单集的详情(「转到这本书」对单集是空页, 换成这一页)。
-    @State private var podcastEpisodeDetail: PodcastEpisodeSheetTarget?
+    @State private var podcastSheet: PodcastPlayerSheetTarget?
 
     var body: some View {
         #if os(macOS)
@@ -117,8 +117,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         .sheet(item: $shareSong) { song in
             SongShareSheet(song: song)
         }
-        .sheet(item: $podcastEpisodeDetail) { target in
-            NowPlayingPodcastEpisodeSheet(episodeID: target.id)
+        .sheet(item: $podcastSheet) { target in
+            NowPlayingPodcastSheet(target: target)
         }
         .sheet(isPresented: $showTagEditor) {
             if let song = player.currentSong {
@@ -185,6 +185,29 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     /// 播客单集不在曲库里: 加歌单、改标签与歌词、歌曲信息都没有落处。
     private var isPodcastEpisode: Bool {
         PodcastPlaybackSong.isEpisode(player.currentSong)
+    }
+
+    /// 播客这一集:标为已播放(有下一集就接着放)、下载或取消下载。
+    /// 已经下好的不给删:正在播的就是这个文件。
+    @ViewBuilder
+    private var podcastEpisodeRows: some View {
+        if SpokenWordPlayerText.openablePodcastEpisodeID(player) != nil {
+            menuRow(title: "podcast_mark_played", symbol: "checkmark.circle") {
+                player.markCurrentPodcastEpisodePlayed()
+            }
+            switch PodcastPlayerEpisodeActions.download(player) {
+            case .available:
+                menuRow(title: "podcast_download", symbol: "arrow.down.circle") {
+                    PodcastPlayerEpisodeActions.toggleDownload(player)
+                }
+            case .inProgress:
+                menuRow(title: "podcast_cancel_download", symbol: "xmark.circle") {
+                    PodcastPlayerEpisodeActions.toggleDownload(player)
+                }
+            case .downloaded, nil:
+                EmptyView()
+            }
+        }
     }
 
     /// Popover 内的菜单内容。每个 row 都是真 Button,整个行 hit-testable,
@@ -260,9 +283,15 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             if isPodcastEpisode {
                 if let episodeID = SpokenWordPlayerText.openablePodcastEpisodeID(player) {
                     menuRow(title: "podcast_player_episode_details", symbol: "info.circle") {
-                        podcastEpisodeDetail = PodcastEpisodeSheetTarget(id: episodeID)
+                        podcastSheet = .episode(episodeID)
                     }
                 }
+                if let showID = SpokenWordPlayerText.podcastShowID(player) {
+                    menuRow(title: "podcast_go_to_show", symbol: "rectangle.stack") {
+                        podcastSheet = .show(showID)
+                    }
+                }
+                podcastEpisodeRows
             } else if isSpokenWord, let bookID = player.currentBookID {
                 menuRow(title: "spoken_word_go_to_book", symbol: "books.vertical") {
                     NotificationCenter.default.post(name: .primuseDetailOpenSpokenWordBook, object: bookID)

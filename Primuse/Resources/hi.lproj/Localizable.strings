@@ -5353,3 +5353,9 @@
 
 "podcast_region_hidden_note %lld" = "%lld और सदस्यताएँ इस App Store क्षेत्र की पॉडकास्ट डायरेक्टरी में नहीं हैं, इसलिए इस डिवाइस पर छिपी हैं।";
 "podcast_region_directory_only" = "इस App Store क्षेत्र में पॉडकास्ट केवल पॉडकास्ट डायरेक्टरी से जोड़े जा सकते हैं।";
+
+"podcast_player_up_next_short" = "आगे";
+"podcast_player_notes_short" = "विवरण";
+"podcast_player_notes_empty" = "इस एपिसोड का कोई विवरण नहीं है।";
+"podcast_player_up_next_empty" = "इस एपिसोड के बाद कुछ भी कतार में नहीं है, इसलिए यह खत्म होने पर प्लेबैक रुक जाएगा।";
+"podcast_player_remove_from_up_next" = "आगे से हटाएं";

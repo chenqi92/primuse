@@ -151,6 +151,7 @@ extension AudioPlayerService {
         // A resume seek has not landed yet, so the clock is still reporting
         // the opening of the file. Writing that would erase the position.
         guard pendingSpokenWordResumeSongID == nil else { return }
+        guard PodcastPlaybackState.shared.positionSaveSuppressedEpisodeID != song.id else { return }
         let position = currentTime
         guard position.isFinite else { return }
         if !force {
@@ -595,8 +596,20 @@ extension AudioPlayerService {
     var hasNextBookItem: Bool { adjacentBookQueueIndex(offset: 1) != nil }
 
     private func adjacentBookQueueIndex(offset: Int) -> Int? {
-        guard let song = currentSong,
-              let targetID = SpokenWordBookNavigationPolicy.adjacentItemID(
+        guard let song = currentSong else { return nil }
+        // 播客单集不按节目划成书:队列里挨着的单集就是上一集 / 下一集,哪档节目都行。
+        if PodcastPlaybackSong.isEpisode(song) {
+            let index = queueEntries.indices.contains(currentIndex) && queueEntries[currentIndex].song.id == song.id
+                ? currentIndex
+                : queueEntries.firstIndex { $0.song.id == song.id }
+            guard let index else { return nil }
+            return PodcastQueueNavigationPolicy.adjacentEpisodeIndex(
+                currentIndex: index,
+                offset: offset,
+                count: queueEntries.count
+            ) { PodcastPlaybackSong.isEpisode(self.queueEntries[$0].song) }
+        }
+        guard let targetID = SpokenWordBookNavigationPolicy.adjacentItemID(
                   from: song.id,
                   offset: offset,
                   in: currentBookItemIDs

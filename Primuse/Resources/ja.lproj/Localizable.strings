@@ -5448,3 +5448,9 @@
 
 "podcast_region_hidden_note %lld" = "ほかに %lld 件の登録番組は、この App Store 地域のポッドキャストディレクトリにないため、このデバイスでは表示されません。";
 "podcast_region_directory_only" = "この App Store 地域では、ポッドキャストディレクトリからのみ番組を登録できます。";
+
+"podcast_player_up_next_short" = "次に再生";
+"podcast_player_notes_short" = "説明";
+"podcast_player_notes_empty" = "このエピソードには説明がありません。";
+"podcast_player_up_next_empty" = "このあとに予定されているエピソードはありません。再生が終わると停止します。";
+"podcast_player_remove_from_up_next" = "「次に再生」から削除";

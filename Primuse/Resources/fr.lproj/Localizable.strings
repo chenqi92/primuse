@@ -5447,3 +5447,9 @@
 
 "podcast_region_hidden_note %lld" = "%lld autres abonnements ne figurent pas dans l'annuaire de podcasts de cette région de l'App Store et sont masqués sur cet appareil.";
 "podcast_region_directory_only" = "Dans cette région de l'App Store, les podcasts ne peuvent être ajoutés que depuis l'annuaire de podcasts.";
+
+"podcast_player_up_next_short" = "À suivre";
+"podcast_player_notes_short" = "Notes";
+"podcast_player_notes_empty" = "Cet épisode n’a pas de notes.";
+"podcast_player_up_next_empty" = "Rien n’est prévu après cet épisode : la lecture s’arrêtera à la fin.";
+"podcast_player_remove_from_up_next" = "Retirer de À suivre";

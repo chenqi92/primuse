@@ -5353,3 +5353,9 @@
 
 "podcast_region_hidden_note %lld" = "Kolejne subskrypcje (%lld) nie występują w katalogu podcastów dla tego regionu App Store, więc są ukryte na tym urządzeniu.";
 "podcast_region_directory_only" = "W tym regionie App Store podcasty można dodawać tylko z katalogu podcastów.";
+
+"podcast_player_up_next_short" = "Następne";
+"podcast_player_notes_short" = "Opis";
+"podcast_player_notes_empty" = "Ten odcinek nie ma opisu.";
+"podcast_player_up_next_empty" = "Po tym odcinku nic nie czeka w kolejce — odtwarzanie zatrzyma się po jego zakończeniu.";
+"podcast_player_remove_from_up_next" = "Usuń z Następnych";

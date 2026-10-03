@@ -5353,3 +5353,9 @@
 
 "podcast_region_hidden_note %lld" = "Ще %lld підписок немає в каталозі подкастів для цього регіону App Store, тому їх приховано на цьому пристрої.";
 "podcast_region_directory_only" = "У цьому регіоні App Store подкасти можна додавати лише з каталогу подкастів.";
+
+"podcast_player_up_next_short" = "Далі";
+"podcast_player_notes_short" = "Опис";
+"podcast_player_notes_empty" = "Цей випуск не має опису.";
+"podcast_player_up_next_empty" = "Після цього випуску нічого немає — відтворення зупиниться.";
+"podcast_player_remove_from_up_next" = "Прибрати з «Далі»";

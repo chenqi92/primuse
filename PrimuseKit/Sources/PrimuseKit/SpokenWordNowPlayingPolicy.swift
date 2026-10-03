@@ -412,3 +412,39 @@ public enum SpokenWordPartNavigationPolicy {
         next(chapters: chapters, currentChapterIndex: currentChapterIndex, hasNextItem: hasNextItem) != .none
     }
 }
+
+/// 播客单集在播放页上的上一集 / 下一集,和两侧小键说的是「章」还是「集」。
+///
+/// 单集不按节目划成「书」:队列里紧挨着的那一项只要也是播客单集,就是上一集 / 下一集,
+/// 不管是哪档节目(从「最新单集」列表起播时队列本来就跨节目)。中间夹着插进来的歌不算,
+/// 那一键说的是「集」。
+public enum PodcastQueueNavigationPolicy {
+    public enum Unit: Equatable, Sendable {
+        case chapter
+        case episode
+    }
+
+    public static func adjacentEpisodeIndex(
+        currentIndex: Int,
+        offset: Int,
+        count: Int,
+        isEpisode: (Int) -> Bool
+    ) -> Int? {
+        let target = currentIndex + offset
+        guard offset != 0,
+              (0..<count).contains(currentIndex),
+              (0..<count).contains(target),
+              isEpisode(target) else { return nil }
+        return target
+    }
+
+    /// 后退键:有章节时按章走(到第一章开头才换上一集),没有章节就是上一集。
+    public static func backwardUnit(chapterCount: Int) -> Unit {
+        chapterCount > 0 ? .chapter : .episode
+    }
+
+    /// 前进键:后面还有章节就是下一章;最后一章(或者根本没有章节)时就是下一集。
+    public static func forwardUnit(chapterCount: Int, currentChapterIndex: Int?) -> Unit {
+        (currentChapterIndex ?? -1) + 1 < chapterCount ? .chapter : .episode
+    }
+}

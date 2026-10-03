@@ -691,6 +691,8 @@ struct NowPlayingView: View {
     var isPresentationSettled = true
     var isPresentationActive = true
     @State private var showChapterList = false
+    /// 目录面板(sheet 或右栏)该翻到哪一页;播客的「接下来」块与队列键用它。
+    @State private var contentsRequestedTab: SpokenWordContentsView.Tab?
     @State private var bookmarkFeedbackToken = 0
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
@@ -741,7 +743,7 @@ struct NowPlayingView: View {
     /// 「转到这本书」: 有声内容的书详情, 用法同 `presentedAlbum`。
     @State private var presentedBook: NowPlayingBookRoute?
     /// 播客单集不在曲库里,「转到这本书」对它是空页, 换成这一集的详情。
-    @State private var presentedPodcastEpisode: PodcastEpisodeSheetTarget?
+    @State private var presentedPodcastSheet: PodcastPlayerSheetTarget?
     #endif
     @State private var showLyrics = false
     @State private var activeMinimizeDragAxis: NowPlayingDismissGesturePolicy.Axis?
@@ -839,7 +841,7 @@ struct NowPlayingView: View {
 
     private var isAlbumPresentationActive: Bool {
         #if os(iOS)
-        presentedAlbum != nil || presentedBook != nil || presentedPodcastEpisode != nil
+        presentedAlbum != nil || presentedBook != nil || presentedPodcastSheet != nil
         #else
         false
         #endif
@@ -1128,7 +1130,7 @@ struct NowPlayingView: View {
         if PodcastPlaybackSong.isEpisode(player.currentSong) {
             #if os(iOS)
             if let episodeID = currentPodcastEpisodeID {
-                presentedPodcastEpisode = PodcastEpisodeSheetTarget(id: episodeID)
+                presentedPodcastSheet = .episode(episodeID)
             }
             #endif
             return
@@ -1143,6 +1145,30 @@ struct NowPlayingView: View {
 
     private var currentPodcastEpisodeID: String? {
         SpokenWordPlayerText.openablePodcastEpisodeID(player)
+    }
+
+    /// 播客标题块里的节目名:在播放页上弹出节目页(不收起播放页)。
+    private var openCurrentPodcastShow: (() -> Void)? {
+        #if os(iOS)
+        guard SpokenWordPlayerText.isPodcastEpisode(player) else { return nil }
+        return {
+            if let showID = SpokenWordPlayerText.podcastShowID(player) {
+                presentedPodcastSheet = .show(showID)
+            }
+        }
+        #else
+        return nil
+        #endif
+    }
+
+    /// 打开目录面板(播客是节目说明),`tab` 给了就翻到那一页。分栏时打开右栏。
+    private func openContentsPanel(tab: SpokenWordContentsView.Tab? = nil) {
+        contentsRequestedTab = tab
+        if isPlayerSplit {
+            selectSidePane(showsQueue: true)
+        } else {
+            showChapterList = true
+        }
     }
 
     private var currentPodcastShareURL: URL? {
@@ -1282,7 +1308,7 @@ struct NowPlayingView: View {
                 return
             }
             if lyrics.isEmpty {
-                showChapterList = true
+                openContentsPanel()
                 return
             }
         }
@@ -1664,18 +1690,23 @@ struct NowPlayingView: View {
 
     /// 队列键:分栏时打开右栏的「接下来播放」(已经在看就收起右栏),其它时候弹出半屏队列。
     private func openQueue() {
+        // 播客的「队列」就是后面排着的单集:直接翻到「接下来」。
+        let podcastUpNext: SpokenWordContentsView.Tab? = usesSpokenWordTransport
+            && SpokenWordPlayerText.isPodcastEpisode(player) ? .upNext : nil
         guard isPlayerSplit else {
             // 有声内容的「队列」就是这本书的目录。
             if usesSpokenWordTransport {
+                contentsRequestedTab = podcastUpNext
                 showChapterList = true
             } else {
                 showQueue = true
             }
             return
         }
-        if !sidePaneHidden, !showLyrics {
+        if !sidePaneHidden, !showLyrics, podcastUpNext == nil {
             closeSidePane()
         } else {
+            contentsRequestedTab = podcastUpNext
             selectSidePane(showsQueue: true)
         }
     }
@@ -2445,6 +2476,13 @@ struct NowPlayingView: View {
                 // 有声内容的目录与书签面板。
                 try? await Task.sleep(for: .seconds(1))
                 showChapterList = true
+            case "podcastUpNext":
+                // 播客的说明面板,直接翻到「接下来」。
+                try? await Task.sleep(for: .seconds(1))
+                openContentsPanel(tab: .upNext)
+            case "podcastNotes":
+                try? await Task.sleep(for: .seconds(1))
+                openContentsPanel(tab: .notes)
             case "fullscreen":
                 // 全屏播放(当前选的全屏效果;原生效果时是全屏歌词)。
                 try? await Task.sleep(for: .seconds(1))
@@ -2499,7 +2537,7 @@ struct NowPlayingView: View {
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showChapterList) {
-            SpokenWordContentsView()
+            SpokenWordContentsView(requestedTab: $contentsRequestedTab)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
@@ -2518,8 +2556,8 @@ struct NowPlayingView: View {
             .presentationDragIndicator(.visible)
             .presentationCornerRadius(28)
         }
-        .sheet(item: $presentedPodcastEpisode) { route in
-            NowPlayingPodcastEpisodeSheet(episodeID: route.id)
+        .sheet(item: $presentedPodcastSheet) { target in
+            NowPlayingPodcastSheet(target: target)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(28)
@@ -3354,8 +3392,9 @@ struct NowPlayingView: View {
                 titleLineLimit: 1,
                 // 右栏按固定高度排版,全书进度在目录里看。
                 showsBookProgress: false,
+                onOpenShow: openCurrentPodcastShow,
                 onOpenBook: { presentCurrentBook() },
-                onOpenContents: { openQueue() }
+                onOpenContents: { openContentsPanel() }
             )
         } else {
             compactLandscapeMusicHeading(metrics: metrics)
@@ -3918,7 +3957,9 @@ struct NowPlayingView: View {
                     showsContents: false,
                     tileHeight: 52,
                     onSleep: { showSleepTimer = true },
-                    onContents: {}
+                    onContents: {},
+                    // 右栏常驻:「接下来」只是把它翻到那一页。
+                    onUpNext: { contentsRequestedTab = .upNext }
                 )
                 .padding(.horizontal, 36).padding(.top, 16)
             } else {
@@ -3966,7 +4007,8 @@ struct NowPlayingView: View {
     private var spokenWordContentsPane: some View {
         SpokenWordContentsView(
             presentation: .embedded(spokenWordPalette),
-            textTab: lyrics.isEmpty ? nil : AnyView(lyricsFullView)
+            textTab: lyrics.isEmpty ? nil : AnyView(lyricsFullView),
+            requestedTab: $contentsRequestedTab
         )
     }
 
@@ -4434,7 +4476,8 @@ struct NowPlayingView: View {
             SpokenWordActionTiles(
                 palette: spokenWordPalette,
                 onSleep: { showSleepTimer = true },
-                onContents: { openQueue() }
+                onContents: { openContentsPanel() },
+                onUpNext: { openContentsPanel(tab: .upNext) }
             )
             .padding(.horizontal, 22)
             .padding(.top, 16)
@@ -5025,6 +5068,7 @@ struct NowPlayingView: View {
             isSpokenWord: isSpokenWord,
             isPodcastEpisode: isPodcastEpisode,
             canOpenPodcastEpisode: isPodcastEpisode && currentPodcastEpisodeID != nil,
+            canOpenPodcastShow: isPodcastEpisode && SpokenWordPlayerText.podcastShowID(player) != nil,
             podcastShareURL: podcastShareURL,
             canOpenBook: isSpokenWord && !isPodcastEpisode && player.currentBookID != nil,
             hasChapterList: player.hasChapters || isSpokenWord,
@@ -5118,7 +5162,9 @@ struct NowPlayingView: View {
                 onOpenArtist?(artist)
             },
             onOpenBook: { presentCurrentBook() },
-            onShowChapterList: { showChapterList = true },
+            onOpenPodcastShow: { openCurrentPodcastShow?() },
+            onMarkPodcastPlayed: { player.markCurrentPodcastEpisodePlayed() },
+            onShowChapterList: { openContentsPanel() },
             onOpenInAppleMusic: {
                 guard let url = appleMusicCatalogURL else { return }
                 openURL(url)
@@ -5306,8 +5352,9 @@ struct NowPlayingView: View {
             palette: spokenWordPalette,
             titleFont: titleFont,
             partFont: partFont,
+            onOpenShow: openCurrentPodcastShow,
             onOpenBook: { presentCurrentBook() },
-            onOpenContents: { openQueue() }
+            onOpenContents: { openContentsPanel() }
         ) {
             HStack(spacing: 4) {
                 if inlineActions {
@@ -7735,6 +7782,7 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     /// 播客单集: 不在曲库里, 收起加歌单、改标签与歌词; 「歌曲信息」换成单集详情。
     let isPodcastEpisode: Bool
     let canOpenPodcastEpisode: Bool
+    let canOpenPodcastShow: Bool
     let podcastShareURL: URL?
     let canOpenBook: Bool
     let hasChapterList: Bool
@@ -7807,6 +7855,8 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onOpenAlbum: () -> Void
     let onOpenArtist: () -> Void
     let onOpenBook: () -> Void
+    let onOpenPodcastShow: () -> Void
+    let onMarkPodcastPlayed: () -> Void
     let onShowChapterList: () -> Void
     let onOpenInAppleMusic: () -> Void
     let onShare: () -> Void
@@ -7912,6 +7962,16 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                         Label(String(localized: "delete"), systemImage: "trash")
                     }
                     .disabled(!snapshot.hasSong)
+                }
+            }
+
+            if snapshot.isPodcastEpisode, snapshot.canOpenPodcastEpisode {
+                // 听播客最常做的两件事:这一集算听完(有下一集就接着放),和存下来离线听。
+                Section {
+                    Button(action: onMarkPodcastPlayed) {
+                        Label(String(localized: "podcast_mark_played"), systemImage: "checkmark.circle")
+                    }
+                    PodcastPlayerDownloadMenuItem()
                 }
             }
 
@@ -8033,6 +8093,11 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     if snapshot.canOpenPodcastEpisode {
                         Button(action: onOpenBook) {
                             Label(String(localized: "podcast_player_episode_details"), systemImage: "info.circle")
+                        }
+                    }
+                    if snapshot.canOpenPodcastShow {
+                        Button(action: onOpenPodcastShow) {
+                            Label(String(localized: "podcast_go_to_show"), systemImage: "rectangle.stack")
                         }
                     }
                 } else {

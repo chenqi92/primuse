@@ -177,8 +177,10 @@ struct MiniPlayerSwipeContent: View {
         return parts.filter { !$0.isEmpty }.joined(separator: ": ")
     }
 
+    /// 书不滑动换条目;播客可以:队列里的下一集就是下一档要听的节目。
     private var allowsSwipe: Bool {
-        player.currentListeningSpace?.playbackFamily != .spokenWord
+        player.currentListeningSpace == .podcast
+            || player.currentListeningSpace?.playbackFamily != .spokenWord
     }
 
     private var isSpokenWord: Bool {
@@ -192,7 +194,7 @@ struct MiniPlayerSwipeContent: View {
     private func swipeGesture(containerWidth: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: MiniPlayerSwipePolicy.minimumGestureDistance)
             .onChanged { value in
-                // 有声内容不滑动换条目:下一条是另一集甚至另一本,误触代价太大。
+                // 有声书不滑动换条目:下一条是另一集甚至另一本,误触代价太大(播客除外)。
                 guard allowsSwipe else { return }
                 let sample = swipeSample(value, containerWidth: containerWidth)
                 directionHint = MiniPlayerSwipePolicy.directionHint(for: sample)

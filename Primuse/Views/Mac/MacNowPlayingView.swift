@@ -62,8 +62,10 @@ struct MacNowPlayingView: View {
     @State private var showsRadioSleepTimer = false
     @State private var showsSpokenWordSleepTimer = false
     @State private var radioDetailStationID: String?
-    /// 播客单集的详情:标题键「转到这本书」对单集是空页,换成这一页。
-    @State private var podcastEpisodeDetail: PodcastEpisodeSheetTarget?
+    /// 播客单集的详情或节目页:标题键「转到这本书」对单集是空页,换成这两页。
+    @State private var podcastSheet: PodcastPlayerSheetTarget?
+    /// 右栏目录面板该翻到哪一页(播客的「接下来」块)。
+    @State private var contentsRequestedTab: SpokenWordContentsView.Tab?
     @State private var preferences = MacUIPreferences.shared
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
@@ -219,7 +221,8 @@ struct MacNowPlayingView: View {
                                 // 有声内容的右栏是这本书的目录与书签;有文字稿时多一页文字。
                                 SpokenWordContentsView(
                                     presentation: .embedded(spokenWordPalette),
-                                    textTab: lyrics.isEmpty ? nil : AnyView(lyricsPane)
+                                    textTab: lyrics.isEmpty ? nil : AnyView(lyricsPane),
+                                    requestedTab: $contentsRequestedTab
                                 )
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                             } else {
@@ -814,6 +817,16 @@ struct MacNowPlayingView: View {
         }
     }
 
+    /// 播客标题块里的节目名:弹出节目页。
+    private var openCurrentPodcastShow: (() -> Void)? {
+        guard SpokenWordPlayerText.isPodcastEpisode(player) else { return nil }
+        return {
+            if let showID = SpokenWordPlayerText.podcastShowID(player) {
+                podcastSheet = .show(showID)
+            }
+        }
+    }
+
     /// 有声内容的左栏下半截:书名、正在听的章、演播者与「第几章」,全书进度,
     /// 语速 / 定时 / 书签三块(目录在右栏)。窗口模式下进度条在底栏,这里只补全书那一行。
     private func spokenWordDetails(
@@ -827,10 +840,11 @@ struct MacNowPlayingView: View {
                 titleFont: .system(size: isWindowFullScreen ? 48 : 30),
                 partFont: .system(size: isWindowFullScreen ? 22 : 16),
                 alignment: alignment,
+                onOpenShow: openCurrentPodcastShow,
                 onOpenBook: {
                     if PodcastPlaybackSong.isEpisode(player.currentSong) {
                         if let episodeID = SpokenWordPlayerText.openablePodcastEpisodeID(player) {
-                            podcastEpisodeDetail = PodcastEpisodeSheetTarget(id: episodeID)
+                            podcastSheet = .episode(episodeID)
                         }
                     } else if let bookID = player.currentBookID {
                         NotificationCenter.default.post(name: .primuseDetailOpenSpokenWordBook, object: bookID)
@@ -838,8 +852,8 @@ struct MacNowPlayingView: View {
                 },
                 onOpenContents: {}
             )
-            .sheet(item: $podcastEpisodeDetail) { target in
-                NowPlayingPodcastEpisodeSheet(episodeID: target.id)
+            .sheet(item: $podcastSheet) { target in
+                NowPlayingPodcastSheet(target: target)
             }
 
             SpokenWordPartRemainingLabel(color: playerSecondaryColor)
@@ -849,7 +863,9 @@ struct MacNowPlayingView: View {
                 showsContents: false,
                 tileHeight: isWindowFullScreen ? 58 : 50,
                 onSleep: { showsSpokenWordSleepTimer = true },
-                onContents: {}
+                onContents: {},
+                // 目录面板常驻右栏:「接下来」只是把它翻到那一页。
+                onUpNext: { contentsRequestedTab = .upNext }
             )
             .popover(isPresented: $showsSpokenWordSleepTimer, arrowEdge: .bottom) {
                 MacSleepTimerPopover {
@@ -1696,10 +1712,10 @@ private struct MacNowPlayingMetadata: View {
     let highlight: Color
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
-    @State private var podcastEpisodeDetail: PodcastEpisodeSheetTarget?
+    @State private var podcastSheet: PodcastPlayerSheetTarget?
 
     /// 正在播的有声内容所在的书; 艺人页与专辑页只收音乐, 对它是空的。
-    /// 播客单集没有书, 专辑那一栏是节目名, 点开的是这一集的详情。
+    /// 播客单集没有书, 专辑那一栏是节目名, 点开的是节目页。
     private var bookID: String? {
         guard player.currentSong?.id == song.id,
               player.currentItemIsSpokenWord, !player.isLiveRadio,
@@ -1707,9 +1723,9 @@ private struct MacNowPlayingMetadata: View {
         return player.currentBookID
     }
 
-    private var podcastEpisodeID: String? {
+    private var podcastShowID: String? {
         guard player.currentSong?.id == song.id else { return nil }
-        return SpokenWordPlayerText.openablePodcastEpisodeID(player)
+        return SpokenWordPlayerText.podcastShowID(player)
     }
 
     var body: some View {
@@ -1733,9 +1749,9 @@ private struct MacNowPlayingMetadata: View {
                 }
             }
             if let title = trimmed(song.albumTitle) {
-                if let podcastEpisodeID {
-                    metadataLink(title, help: "podcast_player_episode_details") {
-                        podcastEpisodeDetail = PodcastEpisodeSheetTarget(id: podcastEpisodeID)
+                if let podcastShowID {
+                    metadataLink(title, help: "podcast_go_to_show") {
+                        podcastSheet = .show(podcastShowID)
                     }
                 } else if let bookID {
                     metadataLink(title, help: "spoken_word_go_to_book") {
@@ -1753,8 +1769,8 @@ private struct MacNowPlayingMetadata: View {
             }
         }
         .lineLimit(1)
-        .sheet(item: $podcastEpisodeDetail) { target in
-            NowPlayingPodcastEpisodeSheet(episodeID: target.id)
+        .sheet(item: $podcastSheet) { target in
+            NowPlayingPodcastSheet(target: target)
         }
     }
 

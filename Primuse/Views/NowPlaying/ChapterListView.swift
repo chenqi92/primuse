@@ -16,7 +16,7 @@ struct SpokenWordContentsView: View {
         case embedded(SpokenWordPlayerPalette)
     }
 
-    enum Tab: Hashable { case contents, bookmarks, text, notes }
+    enum Tab: Hashable { case contents, bookmarks, text, notes, upNext }
 
     var presentation: Presentation = .sheet
     /// A third tab with the item's timed text (a transcript read as
@@ -24,6 +24,9 @@ struct SpokenWordContentsView: View {
     var textTab: AnyView?
     /// Called after a row was opened, so a sheet can close.
     var onOpen: (() -> Void)?
+    /// 播放页要面板翻到哪一页(「接下来」块、队列键)。面板接手后清回 nil,
+    /// 常驻右栏的面板再被要一次同一页也能翻过去。
+    var requestedTab: Binding<Tab?> = .constant(nil)
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.dismiss) private var dismiss
@@ -83,13 +86,23 @@ struct SpokenWordContentsView: View {
     private var content: some View {
         VStack(spacing: 0) {
             Picker(selection: $tab) {
-                Text("spoken_word_contents_title").tag(Tab.contents)
-                Text(bookmarksTabTitle).tag(Tab.bookmarks)
-                if textTab != nil {
-                    Text("spoken_word_text_tab").tag(Tab.text)
-                }
-                if !notesBlocks.isEmpty {
-                    Text("podcast_show_notes").tag(Tab.notes)
+                if isPodcast {
+                    // 播客:节目说明在前;章节只在单集带章节时有;「接下来」是队列里后面的单集。
+                    Text("podcast_player_notes_short").tag(Tab.notes)
+                    if player.hasChapters {
+                        Text("podcast_chapters").tag(Tab.contents)
+                    }
+                    if textTab != nil {
+                        Text("spoken_word_text_tab").tag(Tab.text)
+                    }
+                    Text(bookmarksTabTitle).tag(Tab.bookmarks)
+                    Text("podcast_player_up_next_short").tag(Tab.upNext)
+                } else {
+                    Text("spoken_word_contents_title").tag(Tab.contents)
+                    Text(bookmarksTabTitle).tag(Tab.bookmarks)
+                    if textTab != nil {
+                        Text("spoken_word_text_tab").tag(Tab.text)
+                    }
                 }
             } label: {
                 EmptyView()
@@ -110,19 +123,61 @@ struct SpokenWordContentsView: View {
                     contentsList
                 }
             case .notes:
-                ScrollView {
-                    PodcastShowNotesView(blocks: notesBlocks) { seconds in
-                        player.seek(to: seconds, startPlaying: true)
-                    }
-                    .padding(16)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                notesPage
+            case .upNext:
+                PodcastUpNextList(palette: palette) {
+                    onOpen?()
+                    if isSheet { dismiss() }
                 }
             }
         }
         .onChange(of: textTab == nil) { _, hasNoText in
-            if hasNoText, tab == .text { tab = .contents }
+            if hasNoText, tab == .text { tab = defaultTab }
+        }
+        .onChange(of: isPodcast) { _, podcast in
+            // 从播客换到书(或反过来)时,别停在对方才有的那一页。
+            if !podcast, tab == .notes || tab == .upNext { tab = .contents }
+            if podcast, tab == .contents, !player.hasChapters { tab = .notes }
+        }
+        .onChange(of: requestedTab.wrappedValue) { _, _ in applyRequestedTab() }
+        .onAppear {
+            if tab == .contents { tab = defaultTab }
+            applyRequestedTab()
         }
         .task(id: podcastEpisode?.id) { await loadPodcastNotes() }
+    }
+
+    private var isPodcast: Bool { PodcastPlaybackSong.isEpisode(player.currentSong) }
+
+    /// 书先看目录;播客有章节时先看章节,没有就是节目说明。
+    private var defaultTab: Tab {
+        isPodcast && !player.hasChapters ? .notes : .contents
+    }
+
+    private func applyRequestedTab() {
+        guard let requested = requestedTab.wrappedValue else { return }
+        tab = requested
+        requestedTab.wrappedValue = nil
+    }
+
+    @ViewBuilder
+    private var notesPage: some View {
+        if notesBlocks.isEmpty {
+            Text("podcast_player_notes_empty")
+                .font(.footnote)
+                .foregroundStyle(palette?.secondary ?? .secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+            Spacer(minLength: 0)
+        } else {
+            ScrollView {
+                PodcastShowNotesView(blocks: notesBlocks) { seconds in
+                    player.seek(to: seconds, startPlaying: true)
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
     }
 
     /// 正在放的播客单集(放的是书时为空)。
@@ -131,19 +186,15 @@ struct SpokenWordContentsView: View {
         return PodcastStore.shared.episode(id: song.id)?.episode
     }
 
-    /// 播客单集的节目说明放进第四个分页;单集没有章节时一打开就是它,点里面的时间跳过去。
+    /// 播客单集的节目说明;单集没有章节时面板一打开就是这一页,点里面的时间跳过去。
     private func loadPodcastNotes() async {
         guard let episode = podcastEpisode, let notes = episode.showNotes, !notes.isEmpty else {
             notesBlocks = []
-            if tab == .notes { tab = .contents }
             return
         }
         notesBlocks = await Task.detached(priority: .userInitiated) {
             PodcastShowNotes.blocks(from: notes)
         }.value
-        if !notesBlocks.isEmpty, player.spokenWordChapters.isEmpty, tab == .contents {
-            tab = .notes
-        }
     }
 
     private var bookmarksTabTitle: String {

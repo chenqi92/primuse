@@ -5424,3 +5424,9 @@
 
 "podcast_region_hidden_note %lld" = "另有 %lld 個訂閱在目前 App Store 地區的播客目錄中沒有，這部裝置上不會顯示。";
 "podcast_region_directory_only" = "目前的 App Store 地區只能從播客目錄搜尋訂閱節目。";
+
+"podcast_player_up_next_short" = "接下來";
+"podcast_player_notes_short" = "說明";
+"podcast_player_notes_empty" = "這一集沒有節目說明。";
+"podcast_player_up_next_empty" = "後面沒有排著的單集，這一集播完就停。";
+"podcast_player_remove_from_up_next" = "從接下來移除";

@@ -5447,3 +5447,9 @@
 
 "podcast_region_hidden_note %lld" = "%lld weitere Abos sind im Podcast-Verzeichnis dieser App Store-Region nicht verfügbar und werden auf diesem Gerät ausgeblendet.";
 "podcast_region_directory_only" = "In dieser App Store-Region können Podcasts nur aus dem Podcast-Verzeichnis hinzugefügt werden.";
+
+"podcast_player_up_next_short" = "Als Nächstes";
+"podcast_player_notes_short" = "Notizen";
+"podcast_player_notes_empty" = "Diese Folge hat keine Shownotes.";
+"podcast_player_up_next_empty" = "Nach dieser Folge ist nichts eingereiht – die Wiedergabe endet mit ihr.";
+"podcast_player_remove_from_up_next" = "Aus „Als Nächstes“ entfernen";

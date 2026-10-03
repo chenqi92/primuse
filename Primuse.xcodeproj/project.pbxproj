@@ -841,9 +841,11 @@
 		7786CB5EF89B2EBA3756CF48 /* MetadataInspectionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F1B93D05CDCAFE2A5C5E1CB /* MetadataInspectionPolicy.swift */; };
 		7797CFB95ADC01F53D418110 /* LocalBookmarkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0187D5AA8EC6AB3F8B14ECA6 /* LocalBookmarkStore.swift */; };
 		77D0B826FFF2C7ECF3507191 /* SpokenWordPlayerComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28A13C5C56C77AC4A1F8232C /* SpokenWordPlayerComponents.swift */; };
+		3979EC80B1863F8DF67E7E2D /* PodcastPlayerComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB0BDDF972885E1FC2DE5C3D /* PodcastPlayerComponents.swift */; };
 		77EB742266627332E3E8723B /* LyricsAPIServerSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5AD2F4190CA1F04C0D4D50F /* LyricsAPIServerSettings.swift */; };
 		77F52F217A57328E7FC3E19B /* PlaylistExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 285C1472009479A6CC7B2177 /* PlaylistExporter.swift */; };
 		7814030E97D0D88E7252DC4D /* SpokenWordPlayerComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28A13C5C56C77AC4A1F8232C /* SpokenWordPlayerComponents.swift */; };
+		286A699698411352DBB847CA /* PodcastPlayerComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB0BDDF972885E1FC2DE5C3D /* PodcastPlayerComponents.swift */; };
 		7817038FB96764E70301F8AA /* PlayerBackdropImagingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8454552C91A726FE2314337 /* PlayerBackdropImagingTests.swift */; };
 		7838A8CFB758F37EE9CAB726 /* LibrarySongBrowseMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B89002BB9DE5179461BC5B7 /* LibrarySongBrowseMode.swift */; };
 		785F0F6AA934D5F04071DE06 /* WidgetSnapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10EA195119C963A2DA62FC69 /* WidgetSnapshots.swift */; };
@@ -2239,6 +2241,7 @@
 		285C1472009479A6CC7B2177 /* PlaylistExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistExporter.swift; sourceTree = "<group>"; };
 		285DF2C9DD2043B4D2C937FC /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		28A13C5C56C77AC4A1F8232C /* SpokenWordPlayerComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenWordPlayerComponents.swift; sourceTree = "<group>"; };
+		CB0BDDF972885E1FC2DE5C3D /* PodcastPlayerComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastPlayerComponents.swift; sourceTree = "<group>"; };
 		28EE6B136CE82FFC872F9E86 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		291FDF1C384E333B90E3337E /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/SettingsSearch.strings; sourceTree = "<group>"; };
 		29281CC03025CD5519BC481C /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = de.lproj/InfoPlist.strings; sourceTree = "<group>"; };
@@ -4132,6 +4135,7 @@
 				5D2741FA5052447F5E1B27A4 /* QueueView.swift */,
 				11180515D910975A39CBE6C5 /* ScrapeOptionsView.swift */,
 				28A13C5C56C77AC4A1F8232C /* SpokenWordPlayerComponents.swift */,
+				CB0BDDF972885E1FC2DE5C3D /* PodcastPlayerComponents.swift */,
 				FDD0AECB6D461DFB993C8CD2 /* TabletopQueueStrip.swift */,
 				1DF2B6809C0482D58CDE61E7 /* VisualizerBarsView.swift */,
 			);
@@ -6706,6 +6710,7 @@
 				7A9DEF1B3E6DD0B7C5D1F722 /* SourcesView.swift in Sources */,
 				620C22596174B16A2958B096 /* SpokenWordLibraryView.swift in Sources */,
 				7814030E97D0D88E7252DC4D /* SpokenWordPlayerComponents.swift in Sources */,
+				286A699698411352DBB847CA /* PodcastPlayerComponents.swift in Sources */,
 				4364BBE73E5E16055CBA24B9 /* SpokenWordStore.swift in Sources */,
 				95C089EDFB01121E3DD6D6A8 /* SpokenWordWidgetPublisher.swift in Sources */,
 				C885E78943983DD9E36A9A1B /* SpotlightIndexService.swift in Sources */,
@@ -7387,6 +7392,7 @@
 				389FD71E5AB9C4E87852B1FB /* SourcesView.swift in Sources */,
 				278054AFB875BFD0D4548D29 /* SpokenWordLibraryView.swift in Sources */,
 				77D0B826FFF2C7ECF3507191 /* SpokenWordPlayerComponents.swift in Sources */,
+				3979EC80B1863F8DF67E7E2D /* PodcastPlayerComponents.swift in Sources */,
 				325C09DC9D9271795E966AAD /* SpokenWordStore.swift in Sources */,
 				76BB91A5F90E05B719ACD10F /* SpokenWordWidgetPublisher.swift in Sources */,
 				953074ECE1F5A2939361B90D /* SpotlightIndexService.swift in Sources */,

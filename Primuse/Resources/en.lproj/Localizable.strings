@@ -5210,3 +5210,9 @@
 
 "podcast_region_hidden_note %lld" = "%lld more subscriptions aren't in the podcast directory for this App Store region, so they're hidden on this device.";
 "podcast_region_directory_only" = "In this App Store region, podcasts can only be added from the podcast directory.";
+
+"podcast_player_up_next_short" = "Up Next";
+"podcast_player_notes_short" = "Notes";
+"podcast_player_notes_empty" = "This episode has no show notes.";
+"podcast_player_up_next_empty" = "Nothing is queued after this episode, so playback stops when it ends.";
+"podcast_player_remove_from_up_next" = "Remove from Up Next";

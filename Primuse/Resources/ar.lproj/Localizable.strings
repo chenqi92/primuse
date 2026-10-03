@@ -5353,3 +5353,9 @@
 
 "podcast_region_hidden_note %lld" = "هناك %lld اشتراكات أخرى غير متوفرة في دليل البودكاست لمنطقة App Store الحالية، لذا فهي مخفية على هذا الجهاز.";
 "podcast_region_directory_only" = "في منطقة App Store هذه، يمكن إضافة البودكاست من دليل البودكاست فقط.";
+
+"podcast_player_up_next_short" = "التالي";
+"podcast_player_notes_short" = "الملاحظات";
+"podcast_player_notes_empty" = "لا توجد ملاحظات لهذه الحلقة.";
+"podcast_player_up_next_empty" = "لا يوجد شيء في الانتظار بعد هذه الحلقة، لذا سيتوقف التشغيل عند انتهائها.";
+"podcast_player_remove_from_up_next" = "إزالة من التالي";
