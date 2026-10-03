@@ -5252,8 +5252,8 @@
 /* AI intros for albums and artists */
 "library_insight_album_title" = "Sobre este álbum";
 "library_insight_artist_title" = "Sobre este artista";
-"library_insight_prompt_album" = "Peça à IA uma breve apresentação e algumas tags de estilo para este álbum.";
-"library_insight_prompt_artist" = "Peça à IA uma breve apresentação e algumas tags de estilo para este artista.";
+"library_insight_prompt_album" = "Adicione uma breve apresentação e algumas tags de estilo a este álbum: escreva você mesmo ou deixe a IA preencher.";
+"library_insight_prompt_artist" = "Adicione uma breve apresentação e algumas tags de estilo a este artista: escreva você mesmo ou deixe a IA preencher.";
 "library_insight_generate" = "Escrever apresentação";
 "library_insight_generating" = "Escrevendo apresentação…";
 "library_insight_regenerate" = "Escrever de novo";
@@ -5268,3 +5268,19 @@
 "library_insight_not_configured" = "Ainda não há serviço de IA disponível. Ative a IA integrada ou adicione seu próprio serviço nos ajustes de IA e tente de novo.";
 "library_insight_builtin_not_offered" = "A IA integrada ainda não escreve apresentações. Você pode adicionar seu próprio serviço de IA nos ajustes de IA.";
 "library_insight_failed_daily_limit" = "As apresentações de hoje acabaram. Volte amanhã.";
+
+/* Editable album and artist intros */
+"library_insight_edit" = "Editar";
+"library_insight_write_own" = "Escrever a minha";
+"library_insight_editor_title_album" = "Editar apresentação do álbum";
+"library_insight_editor_title_artist" = "Editar apresentação do artista";
+"library_insight_editor_summary" = "Apresentação";
+"library_insight_editor_tags" = "Tags de estilo";
+"library_insight_editor_tags_placeholder" = "Separe com vírgulas, ex.: Pop, anos 90";
+"library_insight_ai_fill" = "Preencher com IA";
+"library_insight_ai_filling" = "A IA está preenchendo…";
+"library_insight_ai_fill_hint" = "A IA substitui o rascunho abaixo; você ainda pode mudá-lo antes de salvar.";
+"library_insight_footer_edited" = "Editada";
+"library_insight_regenerate_confirm_title" = "Substituir sua apresentação editada?";
+"library_insight_regenerate_confirm_message" = "Escrever de novo com IA sobrescreve a apresentação e as tags que você escreveu ou mudou.";
+"library_insight_regenerate_confirm_action" = "Substituir";

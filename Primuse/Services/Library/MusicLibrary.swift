@@ -3433,6 +3433,8 @@ final class MusicLibrary {
     private(set) var allPlaylists: [Playlist] = []
     private var artworkOverridesByOwner: [String: LibraryArtworkOverride] = [:]
     private var libraryReviewsBySubject: [String: LibraryReview] = [:]
+    /// 专辑 / 艺人简介(含删除留下的墓碑),按记录 id 存。
+    private var libraryInsightRecordsByID: [String: LibraryInsightRecord] = [:]
     @ObservationIgnored private var didMigrateLegacyArtistIdentities = false
     @ObservationIgnored
     private var automaticArtistArtworkCatalogsBySource: [String: SourceArtistArtworkCatalog] = [:]
@@ -3447,6 +3449,10 @@ final class MusicLibrary {
     private(set) var libraryReviewRevision: Int = 0
     var allLibraryReviews: [LibraryReview] {
         libraryReviewsBySubject.values.sorted { $0.id < $1.id }
+    }
+    private(set) var libraryInsightRevision: Int = 0
+    var allLibraryInsightRecords: [LibraryInsightRecord] {
+        libraryInsightRecordsByID.values.sorted { $0.id < $1.id }
     }
     private var mirrorPlaylistSuppressions: [String: MirrorPlaylistSuppression] = [:]
     @ObservationIgnored private var disabledSourcePlaylistCache: (
@@ -6988,6 +6994,29 @@ final class MusicLibrary {
         libraryReviewRevision &+= 1
         persistSnapshot(after: 0.2)
         if changedRating { ratingStateMutationHandler?(review) }
+    }
+
+    /// 专辑 / 艺人简介;删掉的不返回。
+    func libraryInsightRecord(id: String) -> LibraryInsightRecord? {
+        guard let record = libraryInsightRecordsByID[id], !record.isDeleted else { return nil }
+        return record
+    }
+
+    /// 连墓碑一起返回:新版本要排在它后面。
+    func storedLibraryInsightRecord(id: String) -> LibraryInsightRecord? {
+        libraryInsightRecordsByID[id]
+    }
+
+    /// 保存一份简介(删除就是保存墓碑)。比现有的旧才落盘,和同步合并用同一条规则。
+    func saveLibraryInsightRecord(_ record: LibraryInsightRecord) {
+        // S2: 发布时存储里的值会整体覆盖内存,必须排队重放。
+        if deferringUntilReady({ [weak self] in self?.saveLibraryInsightRecord(record) }) { return }
+        if let existing = libraryInsightRecordsByID[record.id] {
+            guard existing != record, LibraryInsightEditing.winner(existing, record) == record else { return }
+        }
+        libraryInsightRecordsByID[record.id] = record
+        libraryInsightRevision &+= 1
+        persistSnapshot(after: 0.2)
     }
 
     func songs(forAlbum albumID: String) -> [Song] {
@@ -11245,6 +11274,7 @@ final class MusicLibrary {
         var automaticArtistArtworkCatalogsBySource: [String: SourceArtistArtworkCatalog] = [:]
         var artworkOverridesByOwner: [String: LibraryArtworkOverride] = [:]
         var libraryReviewsBySubject: [String: LibraryReview] = [:]
+        var libraryInsightRecordsByID: [String: LibraryInsightRecord] = [:]
         var mirrorPlaylistSuppressions: [String: MirrorPlaylistSuppression] = [:]
         var deviceLocalExcludedSongIdentities: Set<String> = []
         var deviceLocalExcludedSongsByID: [String: Song] = [:]
@@ -11617,6 +11647,10 @@ final class MusicLibrary {
                     LibraryReviewReconciliationPolicy.winner(local: local, remote: remote)
                 }
             )
+            libraryInsightRecordsByID = Dictionary(
+                (snapshot.libraryInsights ?? []).map { ($0.id, $0) },
+                uniquingKeysWith: { LibraryInsightEditing.winner($0, $1) }
+            )
             mirrorPlaylistSuppressions = Dictionary(
                 uniqueKeysWithValues: (snapshot.mirrorPlaylistSuppressions ?? []).map { ($0.id, $0) }
             )
@@ -11872,6 +11906,7 @@ final class MusicLibrary {
         storage.automaticArtistArtworkCatalogsBySource = automaticArtistArtworkCatalogsBySource
         storage.artworkOverridesByOwner = artworkOverridesByOwner
         storage.libraryReviewsBySubject = libraryReviewsBySubject
+        storage.libraryInsightRecordsByID = libraryInsightRecordsByID
         storage.mirrorPlaylistSuppressions = mirrorPlaylistSuppressions
         storage.deviceLocalExcludedSongIdentities = deviceLocalExcludedSongIdentities
         storage.deviceLocalExcludedSongsByID = deviceLocalExcludedSongsByID
@@ -11987,6 +12022,19 @@ final class MusicLibrary {
                     deferredPersistRequested = true
                 }
             }
+            let liveInsights = libraryInsightRecordsByID
+            libraryInsightRecordsByID = storage.libraryInsightRecordsByID
+            if isExternalSnapshotWriteOwned {
+                // 同上:外部快照准备期间本机写的简介要留下来。
+                for (id, record) in liveInsights {
+                    libraryInsightRecordsByID[id] = libraryInsightRecordsByID[id].map {
+                        LibraryInsightEditing.winner(record, $0)
+                    } ?? record
+                }
+                if libraryInsightRecordsByID != storage.libraryInsightRecordsByID {
+                    deferredPersistRequested = true
+                }
+            }
             songStoreRequiresReplacement = storage.songStoreRequiresReplacement
             pendingSnapshotImportID = storage.pendingSnapshotImportID
             derivedIndexSignature = storage.derivedIndexSignature
@@ -11996,6 +12044,7 @@ final class MusicLibrary {
             playlistCollectionRevision &+= 1
             artworkOverrideRevision &+= 1
             libraryReviewRevision &+= 1
+            libraryInsightRevision &+= 1
         }
 
         markPublish("apply")
@@ -12680,6 +12729,7 @@ final class MusicLibrary {
             playlists: allPlaylists,
             artworkOverrides: allArtworkOverrides.isEmpty ? nil : allArtworkOverrides,
             libraryReviews: allLibraryReviews.isEmpty ? nil : allLibraryReviews,
+            libraryInsights: libraryInsightRecordsByID.isEmpty ? nil : allLibraryInsightRecords,
             automaticArtistArtworkCatalogs: automaticArtistArtworkCatalogsBySource
                 .values
                 .sorted { $0.sourceID < $1.sourceID },
@@ -13159,6 +13209,11 @@ final class MusicLibrary {
             }
         }
         incoming.libraryReviews = reviewsBySubject.values.sorted { $0.id < $1.id }
+        let insights = LibraryInsightEditing.merged(
+            local.libraryInsights ?? [],
+            incoming.libraryInsights ?? []
+        )
+        incoming.libraryInsights = insights.isEmpty ? nil : insights
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
@@ -14411,6 +14466,8 @@ final class MusicLibrary {
         var playlists: [Playlist]
         var artworkOverrides: [LibraryArtworkOverride]? = nil
         var libraryReviews: [LibraryReview]? = nil
+        /// 专辑 / 艺人简介。旧版本读不到这个键,合并时按 id 取新的那份。
+        var libraryInsights: [LibraryInsightRecord]? = nil
         var automaticArtistArtworkCatalogs: [SourceArtistArtworkCatalog]? = nil
         /// Transport-only copies used by the Apple TV/LAN library snapshot.
         /// Normal local persistence always writes nil; images remain canonical

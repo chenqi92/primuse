@@ -1,12 +1,13 @@
 import SwiftUI
 import PrimuseKit
 
-/// 专辑页 / 艺人页里的「关于这张专辑」「关于这位艺人」:
-/// 点一下让 AI 写一段简介和几个风格标签,结果缓存在本机,随时能重新生成。
+/// 专辑页 / 艺人页里的「关于这张专辑」「关于这位艺人」:简介和风格标签。
+/// 可以自己写、随时改,也可以让 AI 填写;内容存在曲库里,随曲库同步。
 struct LibraryInsightCard: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
+    @Environment(MusicLibrary.self) private var library
 
-    /// 只用名字认出是哪张专辑/哪位艺人(缓存键);曲目、风格等在点「生成」时才由 `details` 收集。
+    /// 只用名字认出是哪张专辑/哪位艺人;曲目、风格等在要问 AI 时才由 `details` 收集。
     let subject: LibraryInsightSubject
     let details: () -> LibraryInsightSubject
     #if os(iOS)
@@ -14,6 +15,8 @@ struct LibraryInsightCard: View {
     #endif
 
     @State private var isExpanded = false
+    @State private var isEditing = false
+    @State private var confirmsRegenerate = false
 
     private var store: LibraryInsightStore { .shared }
 
@@ -24,11 +27,11 @@ struct LibraryInsightCard: View {
     }
 
     var body: some View {
-        let insight = store.insight(for: subject)
-        if LibraryInsightStore.isIntroducible(subject), insight != nil || canAskAI {
+        let record = store.record(for: subject, in: library)
+        if LibraryInsightStore.isIntroducible(subject) {
             VStack(alignment: .leading, spacing: 10) {
-                header
-                content(insight)
+                header(record)
+                content(record)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(14)
@@ -38,29 +41,54 @@ struct LibraryInsightCard: View {
             .pmGlass(cornerRadius: PMRadius.m10)
             #endif
             .pmAnimation(.control, value: store.isGenerating(subject))
+            .sheet(isPresented: $isEditing) {
+                LibraryInsightEditorSheet(subject: subject, details: details, record: record)
+            }
+            .confirmationDialog(
+                Text("library_insight_regenerate_confirm_title"),
+                isPresented: $confirmsRegenerate,
+                titleVisibility: .visible
+            ) {
+                Button("library_insight_regenerate_confirm_action", role: .destructive, action: generate)
+                Button("cancel", role: .cancel) {}
+            } message: {
+                Text("library_insight_regenerate_confirm_message")
+            }
         }
     }
 
-    private var header: some View {
+    private func header(_ record: LibraryInsightRecord?) -> some View {
         HStack(spacing: 8) {
             Label(
                 subject.kind == .album
                     ? LocalizedStringKey("library_insight_album_title")
                     : LocalizedStringKey("library_insight_artist_title"),
-                systemImage: "sparkles"
+                systemImage: "text.quote"
             )
             .font(.headline)
             Spacer(minLength: 8)
-            if store.insight(for: subject) != nil, !store.isGenerating(subject) {
+            if record != nil, !store.isGenerating(subject) {
                 Menu {
                     Button {
-                        generate()
+                        isEditing = true
                     } label: {
-                        Label("library_insight_regenerate", systemImage: "arrow.clockwise")
+                        Label("library_insight_edit", systemImage: "pencil")
                     }
-                    .disabled(!canAskAI || store.retryDate(for: subject) != nil)
+                    if canAskAI {
+                        Button {
+                            if record?.isUserEdited == true && record?.hasContent == true {
+                                confirmsRegenerate = true
+                            } else {
+                                generate()
+                            }
+                        } label: {
+                            Label("library_insight_regenerate", systemImage: "sparkles")
+                        }
+                        .disabled(store.retryDate(for: subject) != nil)
+                    }
+                    Divider()
                     Button(role: .destructive) {
-                        store.remove(subject)
+                        store.remove(subject, library: library)
                     } label: {
                         Label("library_insight_remove", systemImage: "trash")
                     }
@@ -81,7 +109,7 @@ struct LibraryInsightCard: View {
     }
 
     @ViewBuilder
-    private func content(_ insight: LibraryInsight?) -> some View {
+    private func content(_ record: LibraryInsightRecord?) -> some View {
         if store.isGenerating(subject) {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
@@ -91,16 +119,17 @@ struct LibraryInsightCard: View {
             }
         } else if let failure = store.failure(for: subject) {
             failureView(failure)
-        } else if let insight {
-            if insight.known {
-                knownInsight(insight)
-            } else {
+        } else if let record, record.hasContent {
+            recordView(record)
+        } else if let record, record.aiKnown == false {
+            VStack(alignment: .leading, spacing: 10) {
                 Text(subject.kind == .album
                     ? LocalizedStringKey("library_insight_unknown_album")
                     : LocalizedStringKey("library_insight_unknown_artist"))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                actionButtons(showsGenerate: false)
             }
         } else {
             VStack(alignment: .leading, spacing: 10) {
@@ -110,6 +139,14 @@ struct LibraryInsightCard: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                actionButtons(showsGenerate: canAskAI)
+            }
+        }
+    }
+
+    private func actionButtons(showsGenerate: Bool) -> some View {
+        HStack(spacing: 10) {
+            if showsGenerate {
                 Button(action: generate) {
                     Label("library_insight_generate", systemImage: "sparkles")
                         .font(.subheadline.weight(.semibold))
@@ -117,46 +154,43 @@ struct LibraryInsightCard: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
             }
+            Button {
+                isEditing = true
+            } label: {
+                Label("library_insight_write_own", systemImage: "pencil")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
         }
     }
 
-    private func knownInsight(_ insight: LibraryInsight) -> some View {
+    private func recordView(_ record: LibraryInsightRecord) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(verbatim: insight.summary)
-                .font(.subheadline)
-                .lineSpacing(3)
-                .lineLimit(isExpanded ? nil : 4)
-                .fixedSize(horizontal: false, vertical: true)
-                #if os(macOS)
-                .textSelection(.enabled)
-                #endif
-            if insight.summary.count > 90 {
-                Button(isExpanded ? LocalizedStringKey("library_insight_less") : LocalizedStringKey("more")) {
-                    isExpanded.toggle()
-                }
-                .font(.caption.weight(.semibold))
-                .buttonStyle(.plain)
-                .foregroundStyle(Color.accentColor)
-            }
-            if !insight.tags.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(insight.tags, id: \.self) { tag in
-                            Text(verbatim: tag)
-                                .font(.caption.weight(.semibold))
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 4)
-                                .background(Color.primary.opacity(0.08), in: Capsule())
-                        }
+            if !record.summary.isEmpty {
+                Text(verbatim: record.summary)
+                    .font(.subheadline)
+                    .lineSpacing(3)
+                    .lineLimit(isExpanded ? nil : 4)
+                    .fixedSize(horizontal: false, vertical: true)
+                    #if os(macOS)
+                    .textSelection(.enabled)
+                    #endif
+                if record.summary.count > 90 || record.summary.contains("\n") {
+                    Button(isExpanded ? LocalizedStringKey("library_insight_less") : LocalizedStringKey("more")) {
+                        isExpanded.toggle()
                     }
+                    .font(.caption.weight(.semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
                 }
             }
-            Text(verbatim: String(
-                format: String(localized: "library_insight_footer_format"),
-                insight.providerName
-            ))
-            .font(.caption2)
-            .foregroundStyle(.tertiary)
+            if !record.tags.isEmpty {
+                LibraryInsightTagRow(tags: record.tags)
+            }
+            Text(verbatim: LibraryInsightStore.footer(for: record))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
         }
     }
 
@@ -181,7 +215,7 @@ struct LibraryInsightCard: View {
                     .controlSize(.small)
                 case .notConfigured, .builtInNotOffered:
                     if intelligence.shouldExposeRemoteConfiguration {
-                        settingsLink
+                        LibraryInsightSettingsLink()
                     }
                 case .failed, .noTasteProfile:
                     Button(action: generate) {
@@ -191,12 +225,45 @@ struct LibraryInsightCard: View {
                     .controlSize(.small)
                     .disabled(store.retryDate(for: subject) != nil)
                 }
+                Button("library_insight_write_own") {
+                    store.clearFailure(for: subject)
+                    isEditing = true
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
         }
     }
 
-    @ViewBuilder
-    private var settingsLink: some View {
+    private func generate() {
+        isExpanded = false
+        let full = details()
+        Task { await store.generate(full, library: library, intelligence: intelligence) }
+    }
+}
+
+/// 标签胶囊一行,放不下可以横向滑。
+struct LibraryInsightTagRow: View {
+    let tags: [String]
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(tags, id: \.self) { tag in
+                    Text(verbatim: tag)
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 4)
+                        .background(Color.primary.opacity(0.08), in: Capsule())
+                }
+            }
+        }
+    }
+}
+
+/// 去智能设置:Mac 开设置窗口,iPhone / iPad 推入设置页。
+struct LibraryInsightSettingsLink: View {
+    var body: some View {
         #if os(macOS)
         Button("ai_song_discovery_open_settings") {
             SettingsWindowController.shared.show(tab: .intelligence)
@@ -212,10 +279,172 @@ struct LibraryInsightCard: View {
         }
         #endif
     }
+}
 
-    private func generate() {
-        isExpanded = false
+/// 编辑简介和风格标签。「用 AI 填写」只换掉草稿,点保存才算数。
+struct LibraryInsightEditorSheet: View {
+    @Environment(MusicIntelligenceService.self) private var intelligence
+    @Environment(MusicLibrary.self) private var library
+    @Environment(\.dismiss) private var dismiss
+
+    let subject: LibraryInsightSubject
+    let details: () -> LibraryInsightSubject
+
+    @State private var summary: String
+    @State private var tagText: String
+    @State private var aiDraft: LibraryInsightDraft?
+    @State private var aiMessage: String?
+    @State private var isFilling = false
+
+    private var store: LibraryInsightStore { .shared }
+
+    init(subject: LibraryInsightSubject, details: @escaping () -> LibraryInsightSubject, record: LibraryInsightRecord?) {
+        self.subject = subject
+        self.details = details
+        _summary = State(initialValue: record?.summary ?? "")
+        _tagText = State(initialValue: LibraryInsightEditing.tagText(record?.tags ?? []))
+    }
+
+    private var canAskAI: Bool {
+        intelligence.isLibraryInsightAvailable || intelligence.libraryInsightNeedsRemoteConsent
+    }
+
+    var body: some View {
+        #if os(macOS)
+        VStack(alignment: .leading, spacing: 0) {
+            Text(verbatim: title)
+                .font(.title3.bold())
+                .padding([.horizontal, .top], 20)
+                .padding(.bottom, 8)
+            form
+            HStack {
+                Spacer()
+                Button("cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("save", action: save)
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+            }
+            .padding(20)
+        }
+        .frame(minWidth: 520, minHeight: 480)
+        #else
+        NavigationStack {
+            form
+                .navigationTitle(Text(verbatim: title))
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("cancel") { dismiss() }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("save", action: save)
+                    }
+                }
+        }
+        #endif
+    }
+
+    private var title: String {
+        subject.kind == .album
+            ? String(localized: "library_insight_editor_title_album")
+            : String(localized: "library_insight_editor_title_artist")
+    }
+
+    private var subjectLine: String {
+        subject.kind == .album
+            ? [subject.albumTitle, subject.artistName].filter { !$0.isEmpty }.joined(separator: " · ")
+            : subject.artistName
+    }
+
+    private var form: some View {
+        Form {
+            Section {
+                Text(verbatim: subjectLine)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            if canAskAI {
+                Section {
+                    Button(action: fillWithAI) {
+                        HStack(spacing: 8) {
+                            if isFilling {
+                                ProgressView().controlSize(.small)
+                                Text("library_insight_ai_filling")
+                            } else {
+                                Label("library_insight_ai_fill", systemImage: "sparkles")
+                            }
+                        }
+                    }
+                    .disabled(isFilling || store.retryDate(for: subject) != nil)
+                    if let aiMessage {
+                        Text(verbatim: aiMessage)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } footer: {
+                    Text("library_insight_ai_fill_hint")
+                }
+            }
+
+            Section {
+                TextEditor(text: $summary)
+                    .frame(minHeight: 160)
+            } header: {
+                Text("library_insight_editor_summary")
+            }
+
+            Section {
+                TextField("library_insight_editor_tags_placeholder", text: $tagText, axis: .vertical)
+                let tags = LibraryInsightEditing.tags(fromText: tagText)
+                if !tags.isEmpty {
+                    LibraryInsightTagRow(tags: tags)
+                }
+            } header: {
+                Text("library_insight_editor_tags")
+            }
+        }
+        #if os(macOS)
+        .formStyle(.grouped)
+        #endif
+    }
+
+    private func fillWithAI() {
+        aiMessage = nil
+        isFilling = true
         let full = details()
-        Task { await store.generate(full, intelligence: intelligence) }
+        Task {
+            if intelligence.libraryInsightNeedsRemoteConsent {
+                try? intelligence.grantRemoteConsent()
+            }
+            let draft = await store.aiDraft(for: full, intelligence: intelligence)
+            isFilling = false
+            guard let draft else {
+                aiMessage = store.failure(for: subject).map { LibraryInsightStore.message(for: $0) }
+                store.clearFailure(for: subject)
+                return
+            }
+            guard draft.answer.known else {
+                aiMessage = subject.kind == .album
+                    ? String(localized: "library_insight_unknown_album")
+                    : String(localized: "library_insight_unknown_artist")
+                return
+            }
+            aiDraft = draft
+            summary = draft.answer.summary
+            tagText = LibraryInsightEditing.tagText(draft.answer.tags)
+        }
+    }
+
+    private func save() {
+        store.saveEdit(
+            details(),
+            summary: summary,
+            tags: LibraryInsightEditing.tags(fromText: tagText),
+            aiDraft: aiDraft,
+            library: library
+        )
+        dismiss()
     }
 }

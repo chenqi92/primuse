@@ -5323,8 +5323,8 @@
 /* AI intros for albums and artists */
 "library_insight_album_title" = "關於這張專輯";
 "library_insight_artist_title" = "關於這位藝人";
-"library_insight_prompt_album" = "讓 AI 寫一段這張專輯的簡介和幾個風格標籤。";
-"library_insight_prompt_artist" = "讓 AI 寫一段這位藝人的簡介和幾個風格標籤。";
+"library_insight_prompt_album" = "替這張專輯寫一段簡介和幾個風格標籤，可以自己寫，也可以讓 AI 填寫。";
+"library_insight_prompt_artist" = "替這位藝人寫一段簡介和幾個風格標籤，可以自己寫，也可以讓 AI 填寫。";
 "library_insight_generate" = "產生簡介";
 "library_insight_generating" = "正在產生簡介…";
 "library_insight_regenerate" = "重新產生";
@@ -5339,3 +5339,19 @@
 "library_insight_not_configured" = "還沒有可用的 AI 服務。打開內建 AI，或在智能設定裡填寫自己的服務後再試。";
 "library_insight_builtin_not_offered" = "內建 AI 暫時還不能寫簡介，可以在智能設定裡填寫自己的 AI 服務。";
 "library_insight_failed_daily_limit" = "今天的簡介產生次數已用完，明天再來。";
+
+/* Editable album and artist intros */
+"library_insight_edit" = "編輯";
+"library_insight_write_own" = "自己寫";
+"library_insight_editor_title_album" = "編輯專輯簡介";
+"library_insight_editor_title_artist" = "編輯藝人簡介";
+"library_insight_editor_summary" = "簡介";
+"library_insight_editor_tags" = "風格標籤";
+"library_insight_editor_tags_placeholder" = "用逗號分隔，例如：流行, 九十年代";
+"library_insight_ai_fill" = "用 AI 填寫";
+"library_insight_ai_filling" = "AI 正在填寫…";
+"library_insight_ai_fill_hint" = "AI 填寫的內容會換掉下面的草稿，儲存前都可以再改。";
+"library_insight_footer_edited" = "已編輯";
+"library_insight_regenerate_confirm_title" = "取代你編輯過的簡介？";
+"library_insight_regenerate_confirm_message" = "用 AI 重新產生會覆蓋你寫過或改過的簡介和標籤。";
+"library_insight_regenerate_confirm_action" = "取代";

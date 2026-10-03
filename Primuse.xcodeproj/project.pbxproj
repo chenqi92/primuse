@@ -1363,6 +1363,7 @@
 		C27FC4095CCA4C732D2E235A /* QuickAccessWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6938B4831BD4508FCE2FB6C0 /* QuickAccessWidget.swift */; };
 		C29C30F584C1E5C9F4158F4C /* PMLayoutChangeFade.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82DE90F4A0194B1571C2E0A2 /* PMLayoutChangeFade.swift */; };
 		C29F3487C05D7218574FC1B5 /* RecentlyDeletedBatchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B0B8A327D0C4E40CEE9787 /* RecentlyDeletedBatchTests.swift */; };
+		BDF4CBE7B6FC80C805111066 /* LibraryInsightRecordStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C61063BFF1B222F5263461B /* LibraryInsightRecordStoreTests.swift */; };
 		C2A580459ECE4BEDAEE0A928 /* WebDAVBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 637B2519A8207FCB3ABC3E34 /* WebDAVBrowserView.swift */; };
 		C2B1ED1940A5313133B3C27C /* AlbumCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A82FE12BD255B40B05629442 /* AlbumCardView.swift */; };
 		C2BFAB8F831F6DC779847A68 /* ScrapeWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAE593077B230AED26E36FAF /* ScrapeWindowController.swift */; };
@@ -2125,6 +2126,7 @@
 		142C5FA8521F68AC38200D7F /* TVLyricsTranslationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVLyricsTranslationController.swift; sourceTree = "<group>"; };
 		14A06F63118CCCC80BB1B7B5 /* KaraokeSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaraokeSession.swift; sourceTree = "<group>"; };
 		14B0B8A327D0C4E40CEE9787 /* RecentlyDeletedBatchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentlyDeletedBatchTests.swift; sourceTree = "<group>"; };
+		9C61063BFF1B222F5263461B /* LibraryInsightRecordStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryInsightRecordStoreTests.swift; sourceTree = "<group>"; };
 		1576FEA02472EAE01D3B8952 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = de.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		15C4A3FB0E0A7BB759142DE6 /* PlayerBackdrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerBackdrop.swift; sourceTree = "<group>"; };
 		1604A05D29B43EA0C4926D6E /* pl */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = pl; path = pl.lproj/WiFiTransfer.strings; sourceTree = "<group>"; };
@@ -4974,6 +4976,7 @@
 				766981F3FAD61D135993C16C /* PrimuseAIRelayClientTests.swift */,
 				E94FDA18A33B351B72A07D1A /* QueueWindowPlayerTests.swift */,
 				14B0B8A327D0C4E40CEE9787 /* RecentlyDeletedBatchTests.swift */,
+				9C61063BFF1B222F5263461B /* LibraryInsightRecordStoreTests.swift */,
 				CFA3B7E6ABB7F9FBF66FCEF2 /* RemoteMediaHTTPErrorTests.swift */,
 				04268E35349CDAE4C8DCD94E /* ScrapeOptionsTaskTests.swift */,
 				502D5EFB720F730676C38919 /* SearchExperienceTests.swift */,
@@ -5769,6 +5772,7 @@
 				66DA814A2AC936FD19DFA2FC /* PrimuseAIRelayClientTests.swift in Sources */,
 				9CF7EDD75FF1905A518019D2 /* QueueWindowPlayerTests.swift in Sources */,
 				C29F3487C05D7218574FC1B5 /* RecentlyDeletedBatchTests.swift in Sources */,
+				BDF4CBE7B6FC80C805111066 /* LibraryInsightRecordStoreTests.swift in Sources */,
 				CB2392A6661A46E7045549EF /* RemoteMediaHTTPErrorTests.swift in Sources */,
 				E08851B7FF43EDE50DB58AEB /* ScrapeOptionsTaskTests.swift in Sources */,
 				49C04C8ECE526F33E1822F24 /* SearchExperienceTests.swift in Sources */,

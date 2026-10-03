@@ -2,9 +2,10 @@ import SwiftUI
 import PrimuseKit
 
 /// 电视专辑页 / 艺人页右栏顶上的「关于这张专辑」「关于这位艺人」。
-/// 按下生成或展开全文;长按可以重新生成或删除。
+/// 按下生成或展开全文;长按可以重新生成或删除。编辑在 iPhone、iPad 或 Mac 上做,随曲库同步过来。
 struct TVLibraryInsightBlock: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
+    @Environment(TVStore.self) private var tvStore
 
     /// 只用名字认出是哪张专辑/哪位艺人;曲目、风格在按下生成时才由 `details` 收集。
     let subject: LibraryInsightSubject
@@ -21,7 +22,7 @@ struct TVLibraryInsightBlock: View {
     }
 
     var body: some View {
-        let insight = store.insight(for: subject)
+        let insight = store.record(for: subject, in: tvStore.library)
         if LibraryInsightStore.isIntroducible(subject), insight != nil || canAskAI {
             VStack(alignment: .leading, spacing: 14) {
                 TVEyebrow(text: (subject.kind == .album ? String(localized: "library_insight_album_title") : String(localized: "library_insight_artist_title")))
@@ -32,14 +33,17 @@ struct TVLibraryInsightBlock: View {
                         .background(TVColor.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
                 .contextMenu {
-                    if insight != nil, !store.isGenerating(subject) {
-                        Button {
-                            generate()
-                        } label: {
-                            Label(String(localized: "library_insight_regenerate"), systemImage: "arrow.clockwise")
+                    if let insight, !store.isGenerating(subject) {
+                        // 自己写的简介在电视上不给一键覆盖。
+                        if !(insight.isUserEdited && insight.hasContent), canAskAI {
+                            Button {
+                                generate()
+                            } label: {
+                                Label(String(localized: "library_insight_regenerate"), systemImage: "arrow.clockwise")
+                            }
                         }
                         Button(role: .destructive) {
-                            store.remove(subject)
+                            store.remove(subject, library: tvStore.library)
                         } label: {
                             Label(String(localized: "library_insight_remove"), systemImage: "trash")
                         }
@@ -51,7 +55,7 @@ struct TVLibraryInsightBlock: View {
     }
 
     @ViewBuilder
-    private func content(_ insight: LibraryInsight?) -> some View {
+    private func content(_ insight: LibraryInsightRecord?) -> some View {
         if store.isGenerating(subject) {
             HStack(spacing: 14) {
                 ProgressView()
@@ -71,12 +75,14 @@ struct TVLibraryInsightBlock: View {
             }
         } else if let insight {
             VStack(alignment: .leading, spacing: 12) {
-                if insight.known {
-                    Text(verbatim: insight.summary)
-                        .tvFont(.body)
-                        .foregroundStyle(TVColor.text)
-                        .lineLimit(isExpanded ? nil : 4)
-                        .fixedSize(horizontal: false, vertical: true)
+                if insight.hasContent {
+                    if !insight.summary.isEmpty {
+                        Text(verbatim: insight.summary)
+                            .tvFont(.body)
+                            .foregroundStyle(TVColor.text)
+                            .lineLimit(isExpanded ? nil : 4)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     if !insight.tags.isEmpty {
                         Text(verbatim: insight.tags.joined(separator: " · "))
                             .tvFont(.caption, weight: .semibold)
@@ -89,12 +95,9 @@ struct TVLibraryInsightBlock: View {
                         .foregroundStyle(TVColor.textMuted)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                Text(verbatim: String(
-                    format: String(localized: "library_insight_footer_format"),
-                    insight.providerName
-                ))
-                .tvFont(.meta)
-                .foregroundStyle(TVColor.textFaint)
+                Text(verbatim: LibraryInsightStore.footer(for: insight))
+                    .tvFont(.meta)
+                    .foregroundStyle(TVColor.textFaint)
             }
         } else {
             VStack(alignment: .leading, spacing: 10) {
@@ -109,7 +112,7 @@ struct TVLibraryInsightBlock: View {
         }
     }
 
-    private func primaryAction(_ insight: LibraryInsight?) {
+    private func primaryAction(_ insight: LibraryInsightRecord?) {
         guard !store.isGenerating(subject) else { return }
         if let failure = store.failure(for: subject) {
             if failure == .needsConsent {
@@ -123,9 +126,9 @@ struct TVLibraryInsightBlock: View {
             generate()
             return
         }
-        if let insight, insight.known {
+        if let insight, insight.hasContent {
             isExpanded.toggle()
-        } else {
+        } else if canAskAI {
             generate()
         }
     }
@@ -133,6 +136,6 @@ struct TVLibraryInsightBlock: View {
     private func generate() {
         isExpanded = false
         let full = details()
-        Task { await store.generate(full, intelligence: intelligence) }
+        Task { await store.generate(full, library: tvStore.library, intelligence: intelligence) }
     }
 }

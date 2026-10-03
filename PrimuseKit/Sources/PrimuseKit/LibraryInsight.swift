@@ -1,7 +1,7 @@
 import Foundation
 
-/// 专辑与艺人的「AI 简介」:一段简短介绍加几个风格标签。
-/// AI 不认识这张专辑或这位艺人时如实记下「不了解」,不写简介。
+/// 专辑与艺人的简介:一段介绍加几个风格标签。用户可以自己写、随时改,
+/// 也可以让 AI 填写;AI 不认识这张专辑或这位艺人时如实记下「不了解」,不编。
 
 public enum LibraryInsightKind: String, Codable, Sendable {
     case album
@@ -56,16 +56,14 @@ public struct LibraryInsightSubject: Equatable, Sendable {
         )
     }
 
-    /// 缓存键:和「喜欢」用同一套名字折叠,再按简介语言区分。
-    public func cacheKey(languageCode: String, unknownArtistName: String? = nil) -> String {
-        let favoriteKind: LibraryFavoriteKind = kind == .album ? .album : .artist
-        let base = LibraryFavoriteKey.id(
-            kind: favoriteKind,
+    /// 记录 id:和「喜欢」用同一套名字折叠(大小写、全半角、空白都不算),跨设备一致。
+    public func recordID(unknownArtistName: String? = nil) -> String {
+        LibraryFavoriteKey.id(
+            kind: kind == .album ? .album : .artist,
             albumTitle: albumTitle,
             artistName: artistName,
             unknownArtistName: unknownArtistName
         )
-        return base + "|" + LibraryInsightAIExchange.normalizedLanguageCode(languageCode)
     }
 
     /// 从一组歌的风格字段里挑出最常见的几个(「Pop; Rock」这类会拆开)。
@@ -101,33 +99,203 @@ public struct LibraryInsightSubject: Equatable, Sendable {
     }
 }
 
-/// 一份生成好的简介。
-public struct LibraryInsight: Codable, Equatable, Sendable {
+/// 一张专辑或一位艺人的简介。存在曲库快照里,随曲库同步到别的设备;
+/// 删除留下墓碑(`deletedAt`),免得别的设备把旧的带回来。
+public struct LibraryInsightRecord: Codable, Hashable, Sendable, Identifiable {
+    public var id: String
     public var kind: LibraryInsightKind
-    /// AI 认得这张专辑/这位艺人;不认得时 `summary` 与 `tags` 为空。
-    public var known: Bool
+    public var albumTitle: String
+    public var artistName: String
     public var summary: String
     public var tags: [String]
-    public var providerName: String
-    public var languageCode: String
-    public var generatedAt: Date
+    /// AI 最近一次填写时是否认得它;从没让 AI 填过为 nil。
+    public var aiKnown: Bool?
+    /// AI 最近一次填写时用的服务。
+    public var aiProviderName: String?
+    public var aiLanguageCode: String?
+    /// 内容是用户写的或改过的(不再是 AI 原样给的)。
+    public var isUserEdited: Bool
+    public var updatedAt: Date
+    public var deletedAt: Date?
 
     public init(
+        id: String,
         kind: LibraryInsightKind,
-        known: Bool,
+        albumTitle: String,
+        artistName: String,
         summary: String,
         tags: [String],
-        providerName: String,
-        languageCode: String,
-        generatedAt: Date
+        aiKnown: Bool? = nil,
+        aiProviderName: String? = nil,
+        aiLanguageCode: String? = nil,
+        isUserEdited: Bool,
+        updatedAt: Date,
+        deletedAt: Date? = nil
     ) {
+        self.id = id
         self.kind = kind
-        self.known = known
+        self.albumTitle = albumTitle
+        self.artistName = artistName
         self.summary = summary
         self.tags = tags
-        self.providerName = providerName
-        self.languageCode = languageCode
-        self.generatedAt = generatedAt
+        self.aiKnown = aiKnown
+        self.aiProviderName = aiProviderName
+        self.aiLanguageCode = aiLanguageCode
+        self.isUserEdited = isUserEdited
+        self.updatedAt = updatedAt
+        self.deletedAt = deletedAt
+    }
+
+    public var isDeleted: Bool { deletedAt != nil }
+    public var hasContent: Bool { !summary.isEmpty || !tags.isEmpty }
+}
+
+/// 简介的编辑与合并规则。
+public enum LibraryInsightEditing {
+    public static let maximumUserSummaryLength = 2_000
+    public static let maximumUserTags = 10
+
+    /// 用户写的简介:去掉首尾空白、行内多余空白,最多保留空一行分段,超长截断。
+    public static func normalizedSummary(_ text: String) -> String {
+        var paragraphs: [String] = []
+        var blank = false
+        for line in text.components(separatedBy: .newlines) {
+            let collapsed = line.components(separatedBy: .whitespaces).filter { !$0.isEmpty }.joined(separator: " ")
+            if collapsed.isEmpty {
+                blank = !paragraphs.isEmpty
+                continue
+            }
+            if blank { paragraphs.append("") }
+            blank = false
+            paragraphs.append(collapsed)
+        }
+        return String(paragraphs.joined(separator: "\n").prefix(maximumUserSummaryLength))
+    }
+
+    /// 标签输入框的文字拆成标签:逗号、顿号、分号、换行都算分隔;去重,每个不超过 24 字。
+    public static func tags(fromText text: String) -> [String] {
+        let separators = CharacterSet(charactersIn: ",，、;；|\n")
+        return normalizedTags(text.components(separatedBy: separators))
+    }
+
+    public static func normalizedTags(_ values: [String]) -> [String] {
+        var seen: Set<String> = []
+        var result: [String] = []
+        for value in values {
+            let tag = value.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
+            guard !tag.isEmpty, tag.count <= LibraryInsightAIExchange.maximumTagLength,
+                  seen.insert(SongDiscoveryMatching.key(tag).isEmpty ? tag : SongDiscoveryMatching.key(tag)).inserted
+            else { continue }
+            result.append(tag)
+            if result.count == maximumUserTags { break }
+        }
+        return result
+    }
+
+    public static func tagText(_ tags: [String], separator: String = ", ") -> String {
+        tags.joined(separator: separator)
+    }
+
+    /// AI 直接填写(卡片上「生成简介」/「重新生成」):内容整份换成 AI 的。
+    public static func recordAfterAIFill(
+        _ answer: LibraryInsightAIExchange.Answer,
+        subject: LibraryInsightSubject,
+        id: String,
+        providerName: String,
+        languageCode: String,
+        previous: LibraryInsightRecord?,
+        now: Date
+    ) -> LibraryInsightRecord {
+        LibraryInsightRecord(
+            id: id,
+            kind: subject.kind,
+            albumTitle: subject.albumTitle,
+            artistName: subject.artistName,
+            summary: answer.known ? answer.summary : "",
+            tags: answer.known ? answer.tags : [],
+            aiKnown: answer.known,
+            aiProviderName: providerName,
+            aiLanguageCode: languageCode,
+            isUserEdited: false,
+            updatedAt: nextVersion(after: previous, now: now)
+        )
+    }
+
+    /// 用户在编辑页保存。内容和这次 AI 草稿一字不差时仍算 AI 写的;两项都空就删除(墓碑)。
+    /// 什么都没改时返回 nil,不必保存。
+    public static func recordAfterUserEdit(
+        summary rawSummary: String,
+        tags rawTags: [String],
+        subject: LibraryInsightSubject,
+        id: String,
+        previous: LibraryInsightRecord?,
+        aiDraft: (answer: LibraryInsightAIExchange.Answer, providerName: String, languageCode: String)?,
+        now: Date
+    ) -> LibraryInsightRecord? {
+        let summary = normalizedSummary(rawSummary)
+        let tags = normalizedTags(rawTags)
+        let live = previous.flatMap { $0.isDeleted ? nil : $0 }
+        if let live, live.summary == summary, live.tags == tags { return nil }
+        if summary.isEmpty, tags.isEmpty {
+            guard let live else { return nil }
+            var tombstone = live
+            tombstone.summary = ""
+            tombstone.tags = []
+            tombstone.updatedAt = nextVersion(after: live, now: now)
+            tombstone.deletedAt = tombstone.updatedAt
+            return tombstone
+        }
+        let matchesDraft = aiDraft.map { $0.answer.known && $0.answer.summary == summary && $0.answer.tags == tags } ?? false
+        return LibraryInsightRecord(
+            id: id,
+            kind: subject.kind,
+            albumTitle: subject.albumTitle,
+            artistName: subject.artistName,
+            summary: summary,
+            tags: tags,
+            aiKnown: aiDraft.map { $0.answer.known } ?? live?.aiKnown,
+            aiProviderName: aiDraft?.providerName ?? live?.aiProviderName,
+            aiLanguageCode: aiDraft?.languageCode ?? live?.aiLanguageCode,
+            isUserEdited: !matchesDraft,
+            updatedAt: nextVersion(after: previous, now: now)
+        )
+    }
+
+    /// 删除:留墓碑。
+    public static func tombstone(of record: LibraryInsightRecord, now: Date) -> LibraryInsightRecord {
+        var tombstone = record
+        tombstone.summary = ""
+        tombstone.tags = []
+        tombstone.updatedAt = nextVersion(after: record, now: now)
+        tombstone.deletedAt = tombstone.updatedAt
+        return tombstone
+    }
+
+    /// 两台设备各有一份时:后改的赢;同一时刻按内容定个先后,两边结果一致。
+    public static func winner(_ lhs: LibraryInsightRecord, _ rhs: LibraryInsightRecord) -> LibraryInsightRecord {
+        if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt ? lhs : rhs }
+        if lhs.isDeleted != rhs.isDeleted { return lhs.isDeleted ? lhs : rhs }
+        let left = lhs.summary + "\u{1F}" + lhs.tags.joined(separator: "\u{1F}")
+        let right = rhs.summary + "\u{1F}" + rhs.tags.joined(separator: "\u{1F}")
+        return left >= right ? lhs : rhs
+    }
+
+    /// 把两份记录表按 id 合并。
+    public static func merged(
+        _ local: [LibraryInsightRecord],
+        _ incoming: [LibraryInsightRecord]
+    ) -> [LibraryInsightRecord] {
+        var byID: [String: LibraryInsightRecord] = [:]
+        for record in local + incoming {
+            byID[record.id] = byID[record.id].map { winner($0, record) } ?? record
+        }
+        return byID.values.sorted { $0.id < $1.id }
+    }
+
+    /// 新版本时间一定晚于上一版,哪怕两台设备的钟不太准。
+    static func nextVersion(after previous: LibraryInsightRecord?, now: Date) -> Date {
+        guard let previous, previous.updatedAt >= now else { return now }
+        return previous.updatedAt.addingTimeInterval(0.001)
     }
 }
 
@@ -388,42 +556,4 @@ public enum LibraryInsightAIExchange {
 public enum LibraryInsightAIExchangeError: Error, Equatable, Sendable {
     case malformedResponse
     case containsLink
-}
-
-/// 本机缓存的简介,按 `LibraryInsightSubject.cacheKey` 存;超过上限丢最旧的。
-public struct LibraryInsightCache: Codable, Equatable, Sendable {
-    public var entries: [String: LibraryInsight]
-
-    public init(entries: [String: LibraryInsight] = [:]) {
-        self.entries = entries
-    }
-
-    public static let maximumEntries = 1_000
-
-    public static func decode(_ data: Data?) -> LibraryInsightCache {
-        guard let data else { return LibraryInsightCache() }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .secondsSince1970
-        return (try? decoder.decode(LibraryInsightCache.self, from: data)) ?? LibraryInsightCache()
-    }
-
-    public func encoded() -> Data? {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .secondsSince1970
-        encoder.outputFormatting = [.sortedKeys]
-        return try? encoder.encode(self)
-    }
-
-    public mutating func store(_ insight: LibraryInsight, for key: String) {
-        entries[key] = insight
-        guard entries.count > Self.maximumEntries else { return }
-        let overflow = entries.count - Self.maximumEntries
-        let oldest = entries
-            .sorted { $0.value.generatedAt != $1.value.generatedAt
-                ? $0.value.generatedAt < $1.value.generatedAt
-                : $0.key < $1.key }
-            .prefix(overflow)
-            .map(\.key)
-        for key in oldest { entries.removeValue(forKey: key) }
-    }
 }

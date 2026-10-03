@@ -5252,8 +5252,8 @@
 /* AI intros for albums and artists */
 "library_insight_album_title" = "عن هذا الألبوم";
 "library_insight_artist_title" = "عن هذا الفنان";
-"library_insight_prompt_album" = "اطلب من الذكاء الاصطناعي نبذة قصيرة وبعض وسوم الأسلوب لهذا الألبوم.";
-"library_insight_prompt_artist" = "اطلب من الذكاء الاصطناعي نبذة قصيرة وبعض وسوم الأسلوب لهذا الفنان.";
+"library_insight_prompt_album" = "أضف نبذة قصيرة وبعض وسوم الأسلوب لهذا الألبوم، اكتبها بنفسك أو دع الذكاء الاصطناعي يملؤها.";
+"library_insight_prompt_artist" = "أضف نبذة قصيرة وبعض وسوم الأسلوب لهذا الفنان، اكتبها بنفسك أو دع الذكاء الاصطناعي يملؤها.";
 "library_insight_generate" = "كتابة نبذة";
 "library_insight_generating" = "جارٍ كتابة النبذة…";
 "library_insight_regenerate" = "إعادة الكتابة";
@@ -5268,3 +5268,19 @@
 "library_insight_not_configured" = "لا تتوفر خدمة ذكاء اصطناعي بعد. شغّل الذكاء الاصطناعي المدمج أو أضف خدمتك الخاصة في إعدادات الذكاء الاصطناعي ثم حاول مجددًا.";
 "library_insight_builtin_not_offered" = "لا يستطيع الذكاء الاصطناعي المدمج كتابة النبذات بعد. يمكنك إضافة خدمتك الخاصة في إعدادات الذكاء الاصطناعي.";
 "library_insight_failed_daily_limit" = "نفدت النبذات لهذا اليوم. عد غدًا.";
+
+/* Editable album and artist intros */
+"library_insight_edit" = "تعديل";
+"library_insight_write_own" = "أكتبها بنفسي";
+"library_insight_editor_title_album" = "تعديل نبذة الألبوم";
+"library_insight_editor_title_artist" = "تعديل نبذة الفنان";
+"library_insight_editor_summary" = "النبذة";
+"library_insight_editor_tags" = "وسوم الأسلوب";
+"library_insight_editor_tags_placeholder" = "افصل بفواصل، مثل: بوب، التسعينيات";
+"library_insight_ai_fill" = "الملء بالذكاء الاصطناعي";
+"library_insight_ai_filling" = "يملأ الذكاء الاصطناعي…";
+"library_insight_ai_fill_hint" = "يستبدل الذكاء الاصطناعي المسودة أدناه، ويمكنك تعديلها قبل الحفظ.";
+"library_insight_footer_edited" = "معدّلة";
+"library_insight_regenerate_confirm_title" = "استبدال النبذة التي عدّلتها؟";
+"library_insight_regenerate_confirm_message" = "إعادة الكتابة بالذكاء الاصطناعي تستبدل النبذة والوسوم التي كتبتها أو عدّلتها.";
+"library_insight_regenerate_confirm_action" = "استبدال";

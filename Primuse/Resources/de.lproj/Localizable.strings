@@ -5346,8 +5346,8 @@
 /* AI intros for albums and artists */
 "library_insight_album_title" = "Über dieses Album";
 "library_insight_artist_title" = "Über diesen Künstler";
-"library_insight_prompt_album" = "Lass die KI eine kurze Einführung und ein paar Stil-Tags zu diesem Album schreiben.";
-"library_insight_prompt_artist" = "Lass die KI eine kurze Einführung und ein paar Stil-Tags zu diesem Künstler schreiben.";
+"library_insight_prompt_album" = "Füge eine kurze Einführung und ein paar Stil-Tags zu diesem Album hinzu – selbst geschrieben oder von der KI ausgefüllt.";
+"library_insight_prompt_artist" = "Füge eine kurze Einführung und ein paar Stil-Tags zu diesem Künstler hinzu – selbst geschrieben oder von der KI ausgefüllt.";
 "library_insight_generate" = "Einführung schreiben";
 "library_insight_generating" = "Einführung wird geschrieben …";
 "library_insight_regenerate" = "Neu schreiben";
@@ -5362,3 +5362,19 @@
 "library_insight_not_configured" = "Noch kein KI-Dienst verfügbar. Schalte die integrierte KI ein oder füge in den KI-Einstellungen einen eigenen Dienst hinzu und versuche es erneut.";
 "library_insight_builtin_not_offered" = "Die integrierte KI kann noch keine Einführungen schreiben. Du kannst in den KI-Einstellungen einen eigenen KI-Dienst hinzufügen.";
 "library_insight_failed_daily_limit" = "Die Einführungen für heute sind aufgebraucht. Versuche es morgen wieder.";
+
+/* Editable album and artist intros */
+"library_insight_edit" = "Bearbeiten";
+"library_insight_write_own" = "Selbst schreiben";
+"library_insight_editor_title_album" = "Album-Einführung bearbeiten";
+"library_insight_editor_title_artist" = "Künstler-Einführung bearbeiten";
+"library_insight_editor_summary" = "Einführung";
+"library_insight_editor_tags" = "Stil-Tags";
+"library_insight_editor_tags_placeholder" = "Mit Kommas trennen, z. B. Pop, 90er";
+"library_insight_ai_fill" = "Mit KI ausfüllen";
+"library_insight_ai_filling" = "KI füllt aus …";
+"library_insight_ai_fill_hint" = "Die KI ersetzt den Entwurf unten; vor dem Sichern kannst du alles noch ändern.";
+"library_insight_footer_edited" = "Bearbeitet";
+"library_insight_regenerate_confirm_title" = "Bearbeitete Einführung ersetzen?";
+"library_insight_regenerate_confirm_message" = "Neu schreiben mit KI überschreibt die Einführung und Tags, die du geschrieben oder geändert hast.";
+"library_insight_regenerate_confirm_action" = "Ersetzen";

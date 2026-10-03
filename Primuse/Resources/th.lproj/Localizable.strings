@@ -5252,8 +5252,8 @@
 /* AI intros for albums and artists */
 "library_insight_album_title" = "เกี่ยวกับอัลบั้มนี้";
 "library_insight_artist_title" = "เกี่ยวกับศิลปินนี้";
-"library_insight_prompt_album" = "ให้ AI เขียนแนะนำสั้นๆ และแท็กแนวเพลงสำหรับอัลบั้มนี้";
-"library_insight_prompt_artist" = "ให้ AI เขียนแนะนำสั้นๆ และแท็กแนวเพลงสำหรับศิลปินนี้";
+"library_insight_prompt_album" = "เพิ่มคำแนะนำสั้นๆ และแท็กแนวเพลงให้อัลบั้มนี้ เขียนเองหรือให้ AI กรอกก็ได้";
+"library_insight_prompt_artist" = "เพิ่มคำแนะนำสั้นๆ และแท็กแนวเพลงให้ศิลปินนี้ เขียนเองหรือให้ AI กรอกก็ได้";
 "library_insight_generate" = "เขียนคำแนะนำ";
 "library_insight_generating" = "กำลังเขียนคำแนะนำ…";
 "library_insight_regenerate" = "เขียนใหม่";
@@ -5268,3 +5268,19 @@
 "library_insight_not_configured" = "ยังไม่มีบริการ AI ที่ใช้ได้ เปิด AI ในตัว หรือเพิ่มบริการของคุณเองในการตั้งค่า AI แล้วลองอีกครั้ง";
 "library_insight_builtin_not_offered" = "AI ในตัวยังเขียนคำแนะนำไม่ได้ คุณเพิ่มบริการ AI ของคุณเองได้ในการตั้งค่า AI";
 "library_insight_failed_daily_limit" = "ใช้สิทธิ์เขียนคำแนะนำของวันนี้หมดแล้ว กลับมาใหม่พรุ่งนี้";
+
+/* Editable album and artist intros */
+"library_insight_edit" = "แก้ไข";
+"library_insight_write_own" = "เขียนเอง";
+"library_insight_editor_title_album" = "แก้ไขคำแนะนำอัลบั้ม";
+"library_insight_editor_title_artist" = "แก้ไขคำแนะนำศิลปิน";
+"library_insight_editor_summary" = "คำแนะนำ";
+"library_insight_editor_tags" = "แท็กแนวเพลง";
+"library_insight_editor_tags_placeholder" = "คั่นด้วยจุลภาค เช่น ป๊อป, ยุค 90";
+"library_insight_ai_fill" = "ให้ AI กรอก";
+"library_insight_ai_filling" = "AI กำลังกรอก…";
+"library_insight_ai_fill_hint" = "AI จะแทนที่ร่างด้านล่าง คุณยังแก้ไขได้ก่อนบันทึก";
+"library_insight_footer_edited" = "แก้ไขแล้ว";
+"library_insight_regenerate_confirm_title" = "แทนที่คำแนะนำที่คุณแก้ไขไว้ไหม";
+"library_insight_regenerate_confirm_message" = "การให้ AI เขียนใหม่จะเขียนทับคำแนะนำและแท็กที่คุณเขียนหรือแก้ไขไว้";
+"library_insight_regenerate_confirm_action" = "แทนที่";

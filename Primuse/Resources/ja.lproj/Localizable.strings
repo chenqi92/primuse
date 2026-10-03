@@ -5347,8 +5347,8 @@
 /* AI intros for albums and artists */
 "library_insight_album_title" = "このアルバムについて";
 "library_insight_artist_title" = "このアーティストについて";
-"library_insight_prompt_album" = "このアルバムの短い紹介とスタイルタグを AI に書いてもらいます。";
-"library_insight_prompt_artist" = "このアーティストの短い紹介とスタイルタグを AI に書いてもらいます。";
+"library_insight_prompt_album" = "このアルバムの紹介とスタイルタグを追加できます。自分で書くことも、AI に入力してもらうこともできます。";
+"library_insight_prompt_artist" = "このアーティストの紹介とスタイルタグを追加できます。自分で書くことも、AI に入力してもらうこともできます。";
 "library_insight_generate" = "紹介を作成";
 "library_insight_generating" = "紹介を作成中…";
 "library_insight_regenerate" = "作り直す";
@@ -5363,3 +5363,19 @@
 "library_insight_not_configured" = "利用できる AI サービスがありません。内蔵 AI をオンにするか、AI 設定で自分のサービスを追加してからお試しください。";
 "library_insight_builtin_not_offered" = "内蔵 AI はまだ紹介を書けません。AI 設定で自分の AI サービスを追加できます。";
 "library_insight_failed_daily_limit" = "今日の紹介作成の回数を使い切りました。また明日お試しください。";
+
+/* Editable album and artist intros */
+"library_insight_edit" = "編集";
+"library_insight_write_own" = "自分で書く";
+"library_insight_editor_title_album" = "アルバム紹介を編集";
+"library_insight_editor_title_artist" = "アーティスト紹介を編集";
+"library_insight_editor_summary" = "紹介";
+"library_insight_editor_tags" = "スタイルタグ";
+"library_insight_editor_tags_placeholder" = "カンマで区切ります（例：ポップ, 90年代）";
+"library_insight_ai_fill" = "AI で入力";
+"library_insight_ai_filling" = "AI が入力中…";
+"library_insight_ai_fill_hint" = "AI の内容で下の下書きが置き換わります。保存する前に自由に変更できます。";
+"library_insight_footer_edited" = "編集済み";
+"library_insight_regenerate_confirm_title" = "編集した紹介を置き換えますか？";
+"library_insight_regenerate_confirm_message" = "AI で作り直すと、自分で書いたり変更したりした紹介とタグが上書きされます。";
+"library_insight_regenerate_confirm_action" = "置き換える";

@@ -5109,8 +5109,8 @@
 /* AI intros for albums and artists */
 "library_insight_album_title" = "About This Album";
 "library_insight_artist_title" = "About This Artist";
-"library_insight_prompt_album" = "Let AI write a short intro and a few style tags for this album.";
-"library_insight_prompt_artist" = "Let AI write a short intro and a few style tags for this artist.";
+"library_insight_prompt_album" = "Add a short intro and a few style tags for this album — write your own or let AI fill them in.";
+"library_insight_prompt_artist" = "Add a short intro and a few style tags for this artist — write your own or let AI fill them in.";
 "library_insight_generate" = "Write Intro";
 "library_insight_generating" = "Writing intro…";
 "library_insight_regenerate" = "Regenerate";
@@ -5125,3 +5125,19 @@
 "library_insight_not_configured" = "No AI service is available yet. Turn on the built-in AI or add your own service in AI settings, then try again.";
 "library_insight_builtin_not_offered" = "The built-in AI can't write intros yet. You can add your own AI service in AI settings.";
 "library_insight_failed_daily_limit" = "Today's intros are used up. Come back tomorrow.";
+
+/* Editable album and artist intros */
+"library_insight_edit" = "Edit";
+"library_insight_write_own" = "Write My Own";
+"library_insight_editor_title_album" = "Edit Album Intro";
+"library_insight_editor_title_artist" = "Edit Artist Intro";
+"library_insight_editor_summary" = "Intro";
+"library_insight_editor_tags" = "Style Tags";
+"library_insight_editor_tags_placeholder" = "Separate with commas, e.g. Pop, 1990s";
+"library_insight_ai_fill" = "Fill In with AI";
+"library_insight_ai_filling" = "AI is filling in…";
+"library_insight_ai_fill_hint" = "AI replaces the draft below; you can still change it before saving.";
+"library_insight_footer_edited" = "Edited";
+"library_insight_regenerate_confirm_title" = "Replace Your Edited Intro?";
+"library_insight_regenerate_confirm_message" = "Regenerating with AI overwrites the intro and tags you wrote or changed.";
+"library_insight_regenerate_confirm_action" = "Replace";

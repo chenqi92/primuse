@@ -106,15 +106,14 @@ struct LibraryInsightTests {
         #expect(hard.summary.hasSuffix("…"))
     }
 
-    @Test func cacheKeysFollowFoldedNamesAndScript() {
+    @Test func recordIDsFollowFoldedNamesOnly() {
         let a = LibraryInsightSubject.album(title: "First Love", artist: "Ｕｔａｄａ", year: nil, genres: [], tracks: [])
         let b = LibraryInsightSubject.album(title: " first love", artist: "utada", year: 1999, genres: ["Pop"], tracks: ["x"])
-        #expect(a.cacheKey(languageCode: "zh-Hans") == b.cacheKey(languageCode: "zh_CN"))
-        #expect(a.cacheKey(languageCode: "zh-Hans") != a.cacheKey(languageCode: "zh-Hant"))
-        #expect(a.cacheKey(languageCode: "en-US") == a.cacheKey(languageCode: "en"))
+        #expect(a.recordID() == b.recordID())
         let artist = LibraryInsightSubject.artist(name: "Utada", genres: [], albums: [], tracks: [])
-        #expect(artist.cacheKey(languageCode: "en") != a.cacheKey(languageCode: "en"))
+        #expect(artist.recordID() != a.recordID())
         #expect(LibraryInsightAIExchange.normalizedLanguageCode("zh-HK") == "zh-Hant")
+        #expect(LibraryInsightAIExchange.normalizedLanguageCode("zh_CN") == "zh-Hans")
         #expect(LibraryInsightAIExchange.normalizedLanguageCode("ja-JP") == "ja")
     }
 
@@ -123,24 +122,94 @@ struct LibraryInsightTests {
         #expect(genres == ["Pop", "Rock"])
     }
 
-    @Test func cacheRoundTripsAndDropsOldestPastTheLimit() {
-        var cache = LibraryInsightCache()
-        let base = Date(timeIntervalSince1970: 1_800_000_000)
-        for index in 0..<(LibraryInsightCache.maximumEntries + 2) {
-            cache.store(
-                LibraryInsight(
-                    kind: .album, known: true, summary: "S\(index)", tags: [],
-                    providerName: "AI", languageCode: "en",
-                    generatedAt: base.addingTimeInterval(TimeInterval(index))
-                ),
-                for: "k\(index)"
+    private let subject = LibraryInsightSubject.album(title: "First Love", artist: "Utada", year: nil, genres: [], tracks: [])
+    private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+
+    @Test func userTextIsNormalized() {
+        let summary = LibraryInsightEditing.normalizedSummary("  第一段   内容 \n\n\n  第二段\t文字 \n")
+        #expect(summary == "第一段 内容\n\n第二段 文字")
+        #expect(LibraryInsightEditing.tags(fromText: "流行， 九十年代、流行; R&B\n ") == ["流行", "九十年代", "R&B"])
+        #expect(LibraryInsightEditing.tags(fromText: (0..<15).map { "t\($0)" }.joined(separator: ",")).count == 10)
+        #expect(LibraryInsightEditing.normalizedSummary(String(repeating: "a", count: 3_000)).count == 2_000)
+    }
+
+    @Test func aiFillReplacesContentAndUnknownClearsIt() {
+        let known = LibraryInsightEditing.recordAfterAIFill(
+            .init(known: true, summary: "Intro.", tags: ["Pop"]),
+            subject: subject, id: "album-x", providerName: "AI", languageCode: "en", previous: nil, now: t0
+        )
+        #expect(known.summary == "Intro.")
+        #expect(known.aiKnown == true)
+        #expect(!known.isUserEdited)
+        #expect(known.updatedAt == t0)
+
+        let unknown = LibraryInsightEditing.recordAfterAIFill(
+            .init(known: false, summary: "", tags: []),
+            subject: subject, id: "album-x", providerName: "AI", languageCode: "en", previous: known, now: t0
+        )
+        #expect(unknown.summary.isEmpty && unknown.tags.isEmpty)
+        #expect(unknown.aiKnown == false)
+        #expect(unknown.updatedAt > known.updatedAt)
+    }
+
+    @Test func userEditMarksEditedUnlessItKeepsTheAIDraft() throws {
+        let draft = (answer: LibraryInsightAIExchange.Answer(known: true, summary: "Intro.", tags: ["Pop"]),
+                     providerName: "AI", languageCode: "en")
+        let untouched = try #require(LibraryInsightEditing.recordAfterUserEdit(
+            summary: "Intro.", tags: ["Pop"], subject: subject, id: "album-x",
+            previous: nil, aiDraft: draft, now: t0
+        ))
+        #expect(!untouched.isUserEdited)
+        #expect(untouched.aiProviderName == "AI")
+
+        let edited = try #require(LibraryInsightEditing.recordAfterUserEdit(
+            summary: "My own intro.", tags: ["Pop", "pop", "Live"], subject: subject, id: "album-x",
+            previous: untouched, aiDraft: nil, now: t0.addingTimeInterval(10)
+        ))
+        #expect(edited.isUserEdited)
+        #expect(edited.tags == ["Pop", "Live"])
+        #expect(edited.aiProviderName == "AI")
+
+        let unchanged = LibraryInsightEditing.recordAfterUserEdit(
+            summary: " My own intro. ", tags: ["Pop", "Live"], subject: subject, id: "album-x",
+            previous: edited, aiDraft: nil, now: t0.addingTimeInterval(20)
+        )
+        #expect(unchanged == nil)
+    }
+
+    @Test func clearingEverythingLeavesATombstone() throws {
+        let live = try #require(LibraryInsightEditing.recordAfterUserEdit(
+            summary: "Mine", tags: [], subject: subject, id: "album-x", previous: nil, aiDraft: nil, now: t0
+        ))
+        let cleared = try #require(LibraryInsightEditing.recordAfterUserEdit(
+            summary: "  ", tags: [], subject: subject, id: "album-x", previous: live, aiDraft: nil, now: t0
+        ))
+        #expect(cleared.isDeleted)
+        #expect(!cleared.hasContent)
+        #expect(cleared.updatedAt > live.updatedAt)
+        #expect(LibraryInsightEditing.recordAfterUserEdit(
+            summary: "", tags: [], subject: subject, id: "album-x", previous: nil, aiDraft: nil, now: t0
+        ) == nil)
+        let deleted = LibraryInsightEditing.tombstone(of: live, now: t0)
+        #expect(deleted.isDeleted && deleted.summary.isEmpty)
+    }
+
+    @Test func mergeKeepsTheNewestVersionPerRecord() {
+        func record(_ id: String, _ summary: String, _ at: TimeInterval, deleted: Bool = false) -> LibraryInsightRecord {
+            LibraryInsightRecord(
+                id: id, kind: .album, albumTitle: id, artistName: "A", summary: summary, tags: [],
+                isUserEdited: true, updatedAt: t0.addingTimeInterval(at),
+                deletedAt: deleted ? t0.addingTimeInterval(at) : nil
             )
         }
-        #expect(cache.entries.count == LibraryInsightCache.maximumEntries)
-        #expect(cache.entries["k0"] == nil)
-        #expect(cache.entries["k1"] == nil)
-        #expect(cache.entries["k2"] != nil)
-        #expect(LibraryInsightCache.decode(cache.encoded()) == cache)
-        #expect(LibraryInsightCache.decode(Data("bad".utf8)) == LibraryInsightCache())
+        let local = [record("a", "old", 1), record("b", "local only", 1), record("c", "", 5, deleted: true)]
+        let incoming = [record("a", "new", 2), record("c", "revived", 3), record("d", "remote only", 1)]
+        let merged = LibraryInsightEditing.merged(local, incoming)
+        #expect(merged.map(\.id) == ["a", "b", "c", "d"])
+        #expect(merged[0].summary == "new")
+        #expect(merged[2].isDeleted)
+        let tieA = record("x", "aaa", 1)
+        let tieB = record("x", "bbb", 1)
+        #expect(LibraryInsightEditing.winner(tieA, tieB) == LibraryInsightEditing.winner(tieB, tieA))
     }
 }

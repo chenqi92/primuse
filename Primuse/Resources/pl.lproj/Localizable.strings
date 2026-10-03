@@ -5252,8 +5252,8 @@
 /* AI intros for albums and artists */
 "library_insight_album_title" = "O tym albumie";
 "library_insight_artist_title" = "O tym wykonawcy";
-"library_insight_prompt_album" = "Poproś AI o krótkie wprowadzenie i kilka tagów stylu dla tego albumu.";
-"library_insight_prompt_artist" = "Poproś AI o krótkie wprowadzenie i kilka tagów stylu dla tego wykonawcy.";
+"library_insight_prompt_album" = "Dodaj krótkie wprowadzenie i kilka tagów stylu do tego albumu – napisz je sam albo pozwól AI je wypełnić.";
+"library_insight_prompt_artist" = "Dodaj krótkie wprowadzenie i kilka tagów stylu do tego wykonawcy – napisz je sam albo pozwól AI je wypełnić.";
 "library_insight_generate" = "Napisz wprowadzenie";
 "library_insight_generating" = "Piszę wprowadzenie…";
 "library_insight_regenerate" = "Napisz ponownie";
@@ -5268,3 +5268,19 @@
 "library_insight_not_configured" = "Brak dostępnej usługi AI. Włącz wbudowane AI lub dodaj własną usługę w ustawieniach AI i spróbuj ponownie.";
 "library_insight_builtin_not_offered" = "Wbudowane AI nie potrafi jeszcze pisać wprowadzeń. Własną usługę AI możesz dodać w ustawieniach AI.";
 "library_insight_failed_daily_limit" = "Dzisiejszy limit wprowadzeń został wykorzystany. Wróć jutro.";
+
+/* Editable album and artist intros */
+"library_insight_edit" = "Edytuj";
+"library_insight_write_own" = "Napisz sam";
+"library_insight_editor_title_album" = "Edytuj wprowadzenie albumu";
+"library_insight_editor_title_artist" = "Edytuj wprowadzenie wykonawcy";
+"library_insight_editor_summary" = "Wprowadzenie";
+"library_insight_editor_tags" = "Tagi stylu";
+"library_insight_editor_tags_placeholder" = "Oddziel przecinkami, np. Pop, lata 90.";
+"library_insight_ai_fill" = "Wypełnij przez AI";
+"library_insight_ai_filling" = "AI wypełnia…";
+"library_insight_ai_fill_hint" = "AI zastąpi poniższy szkic; przed zapisaniem nadal możesz go zmienić.";
+"library_insight_footer_edited" = "Edytowane";
+"library_insight_regenerate_confirm_title" = "Zastąpić edytowane wprowadzenie?";
+"library_insight_regenerate_confirm_message" = "Ponowne napisanie przez AI nadpisze wprowadzenie i tagi, które napisałeś lub zmieniłeś.";
+"library_insight_regenerate_confirm_action" = "Zastąp";

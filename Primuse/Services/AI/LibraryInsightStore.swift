@@ -2,107 +2,137 @@ import Foundation
 import Observation
 import PrimuseKit
 
-/// 专辑与艺人的 AI 简介:本机缓存、生成中的状态和最近一次失败。
-/// 简介随时能重新生成,所以存在 Caches 里,不跨设备同步;
-/// 用户自己的看法写在专辑「点评」里,那份会同步。
+/// AI 这次给的内容,以及用的服务和语言;编辑页保存时据此判断内容是不是 AI 原样给的。
+typealias LibraryInsightDraft = (answer: LibraryInsightAIExchange.Answer, providerName: String, languageCode: String)
+
+/// 专辑与艺人简介的读写入口,以及 AI 正在填写、最近一次失败这些界面状态。
+/// 简介本身存在曲库快照里(`MusicLibrary.saveLibraryInsightRecord`),随曲库同步到别的设备。
 @MainActor
 @Observable
 final class LibraryInsightStore {
     static let shared = LibraryInsightStore()
 
-    private(set) var cache = LibraryInsightCache()
-    private(set) var generatingKeys: Set<String> = []
+    private(set) var generatingIDs: Set<String> = []
     private(set) var failures: [String: AILibraryContentFailure] = [:]
     private(set) var retryDates: [String: Date] = [:]
 
-    @ObservationIgnored private let fileURL: URL
-    @ObservationIgnored private var saveTask: Task<Void, Never>?
-    @ObservationIgnored private var didLoad = false
-
-    init(fileURL: URL? = nil) {
-        self.fileURL = fileURL ?? FileManager.default
+    init() {
+        // 上一版只在本机 Caches 里缓存过一份,现在改存曲库,旧文件清掉。
+        let legacy = FileManager.default
             .primuseDirectoryURL(for: .cachesDirectory)
             .appendingPathComponent("Primuse", isDirectory: true)
             .appendingPathComponent("library-insights.json")
-        loadIfNeeded()
+        Task.detached(priority: .utility) {
+            try? FileManager.default.removeItem(at: legacy)
+        }
     }
 
-    /// 简介用界面语言写。
+    /// AI 用界面语言写。
     static var languageCode: String {
         Bundle.main.preferredLocalizations.first ?? "en"
     }
 
-    func key(for subject: LibraryInsightSubject) -> String {
-        subject.cacheKey(
-            languageCode: Self.languageCode,
-            unknownArtistName: String(localized: "unknown_artist")
-        )
+    func recordID(for subject: LibraryInsightSubject) -> String {
+        subject.recordID(unknownArtistName: String(localized: "unknown_artist"))
     }
 
-    func insight(for subject: LibraryInsightSubject) -> LibraryInsight? {
-        cache.entries[key(for: subject)]
+    func record(for subject: LibraryInsightSubject, in library: MusicLibrary) -> LibraryInsightRecord? {
+        library.libraryInsightRecord(id: recordID(for: subject))
     }
 
     func isGenerating(_ subject: LibraryInsightSubject) -> Bool {
-        generatingKeys.contains(key(for: subject))
+        generatingIDs.contains(recordID(for: subject))
     }
 
     func failure(for subject: LibraryInsightSubject) -> AILibraryContentFailure? {
-        failures[key(for: subject)]
+        failures[recordID(for: subject)]
     }
 
     func retryDate(for subject: LibraryInsightSubject) -> Date? {
-        guard let date = retryDates[key(for: subject)], date > Date() else { return nil }
+        guard let date = retryDates[recordID(for: subject)], date > Date() else { return nil }
         return date
     }
 
-    /// 问 AI 要一份简介;同一张专辑/同一位艺人已经在问就不再重复发。
-    func generate(_ subject: LibraryInsightSubject, intelligence: MusicIntelligenceService) async {
-        let key = key(for: subject)
-        guard !generatingKeys.contains(key) else { return }
+    func clearFailure(for subject: LibraryInsightSubject) {
+        let id = recordID(for: subject)
+        failures[id] = nil
+        retryDates[id] = nil
+    }
+
+    /// 让 AI 写一份并直接存下(卡片上的「生成简介」「重新生成」)。用户改过的内容会被换掉,
+    /// 由调用方先确认。
+    func generate(
+        _ subject: LibraryInsightSubject,
+        library: MusicLibrary,
+        intelligence: MusicIntelligenceService
+    ) async {
+        let id = recordID(for: subject)
+        guard let draft = await aiDraft(for: subject, intelligence: intelligence) else { return }
+        plog("✨ Library insight kind=\(subject.kind.rawValue) known=\(draft.answer.known) tags=\(draft.answer.tags.count)")
+        library.saveLibraryInsightRecord(LibraryInsightEditing.recordAfterAIFill(
+            draft.answer,
+            subject: subject,
+            id: id,
+            providerName: draft.providerName,
+            languageCode: draft.languageCode,
+            previous: library.storedLibraryInsightRecord(id: id),
+            now: Date()
+        ))
+    }
+
+    /// 只问 AI 不保存(编辑页的「用 AI 填写」)。失败时记下原因并返回 nil;
+    /// 同一张专辑/同一位艺人已经在问就不再重复发。
+    func aiDraft(
+        for subject: LibraryInsightSubject,
+        intelligence: MusicIntelligenceService
+    ) async -> LibraryInsightDraft? {
+        let id = recordID(for: subject)
+        guard !generatingIDs.contains(id) else { return nil }
         let languageCode = Self.languageCode
         guard let request = LibraryInsightAIExchange.request(for: subject, languageCode: languageCode) else {
-            failures[key] = .noTasteProfile
-            return
+            failures[id] = .noTasteProfile
+            return nil
         }
-        generatingKeys.insert(key)
-        failures[key] = nil
-        retryDates[key] = nil
-        defer { generatingKeys.remove(key) }
-
+        generatingIDs.insert(id)
+        failures[id] = nil
+        retryDates[id] = nil
+        defer { generatingIDs.remove(id) }
         switch await intelligence.libraryInsight(request) {
         case .success(let answer, let providerName):
-            plog("✨ Library insight kind=\(subject.kind.rawValue) known=\(answer.known) tags=\(answer.tags.count)")
-            cache.store(
-                LibraryInsight(
-                    kind: subject.kind,
-                    known: answer.known,
-                    summary: answer.summary,
-                    tags: answer.tags,
-                    providerName: providerName,
-                    languageCode: languageCode,
-                    generatedAt: Date()
-                ),
-                for: key
-            )
-            scheduleSave()
+            return (answer, providerName, languageCode)
         case .failed(let failure, let retryAt):
-            failures[key] = failure
-            retryDates[key] = retryAt
+            failures[id] = failure
+            retryDates[id] = retryAt
+            return nil
         }
     }
 
-    func remove(_ subject: LibraryInsightSubject) {
-        let key = key(for: subject)
-        guard cache.entries.removeValue(forKey: key) != nil else { return }
-        failures[key] = nil
-        scheduleSave()
+    /// 编辑页保存。两项都清空就删除;和这次 AI 草稿一字不差时仍记作 AI 写的。
+    func saveEdit(
+        _ subject: LibraryInsightSubject,
+        summary: String,
+        tags: [String],
+        aiDraft: LibraryInsightDraft?,
+        library: MusicLibrary
+    ) {
+        let id = recordID(for: subject)
+        guard let record = LibraryInsightEditing.recordAfterUserEdit(
+            summary: summary,
+            tags: tags,
+            subject: subject,
+            id: id,
+            previous: library.storedLibraryInsightRecord(id: id),
+            aiDraft: aiDraft,
+            now: Date()
+        ) else { return }
+        library.saveLibraryInsightRecord(record)
+        failures[id] = nil
     }
 
-    func clearFailure(for subject: LibraryInsightSubject) {
-        let key = key(for: subject)
-        failures[key] = nil
-        retryDates[key] = nil
+    func remove(_ subject: LibraryInsightSubject, library: MusicLibrary) {
+        guard let record = record(for: subject, in: library) else { return }
+        library.saveLibraryInsightRecord(LibraryInsightEditing.tombstone(of: record, now: Date()))
+        failures[recordID(for: subject)] = nil
     }
 
     /// 「未知专辑」「未知艺术家」这类占位名字没什么可介绍的。
@@ -116,6 +146,14 @@ final class LibraryInsightStore {
         case .album: return !isPlaceholder(subject.albumTitle)
         case .artist: return !isPlaceholder(subject.artistName)
         }
+    }
+
+    /// 卡片底部的出处:自己写/改过的标「已编辑」,AI 原样给的标服务名和「可能有误」。
+    nonisolated static func footer(for record: LibraryInsightRecord) -> String {
+        guard !record.isUserEdited, let provider = record.aiProviderName else {
+            return String(localized: "library_insight_footer_edited")
+        }
+        return String(format: String(localized: "library_insight_footer_format"), provider)
     }
 
     nonisolated static func message(for failure: AILibraryContentFailure) -> String {
@@ -138,46 +176,6 @@ final class LibraryInsightStore {
             case .empty, .unavailable, .deviceRegistration, .authentication, .upstream:
                 return String(localized: "ai_song_discovery_failed_generic")
             }
-        }
-    }
-
-    // MARK: - Persistence
-
-    private func loadIfNeeded() {
-        guard !didLoad else { return }
-        didLoad = true
-        let url = fileURL
-        Task { [weak self] in
-            let loaded = await Task.detached(priority: .utility) {
-                LibraryInsightCache.decode(try? Data(contentsOf: url))
-            }.value
-            guard let self else { return }
-            // 读盘期间已经生成了新的,以内存里的为准。
-            var merged = loaded
-            for (key, insight) in self.cache.entries {
-                merged.store(insight, for: key)
-            }
-            self.cache = merged
-        }
-    }
-
-    private func scheduleSave() {
-        saveTask?.cancel()
-        let url = fileURL
-        saveTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(500))
-            guard !Task.isCancelled, let data = self?.cache.encoded() else { return }
-            await Task.detached(priority: .utility) {
-                do {
-                    try FileManager.default.createDirectory(
-                        at: url.deletingLastPathComponent(),
-                        withIntermediateDirectories: true
-                    )
-                    try data.write(to: url, options: .atomic)
-                } catch {
-                    plog("⚠️ Library insight cache write failed: \(error.localizedDescription)")
-                }
-            }.value
         }
     }
 }

@@ -5439,8 +5439,8 @@
 /* AI intros for albums and artists */
 "library_insight_album_title" = "关于这张专辑";
 "library_insight_artist_title" = "关于这位艺人";
-"library_insight_prompt_album" = "让 AI 写一段这张专辑的简介和几个风格标签。";
-"library_insight_prompt_artist" = "让 AI 写一段这位艺人的简介和几个风格标签。";
+"library_insight_prompt_album" = "给这张专辑写一段简介和几个风格标签，可以自己写，也可以让 AI 填写。";
+"library_insight_prompt_artist" = "给这位艺人写一段简介和几个风格标签，可以自己写，也可以让 AI 填写。";
 "library_insight_generate" = "生成简介";
 "library_insight_generating" = "正在生成简介…";
 "library_insight_regenerate" = "重新生成";
@@ -5455,3 +5455,19 @@
 "library_insight_not_configured" = "还没有可用的 AI 服务。打开内置 AI，或在智能设置里填写自己的服务后再试。";
 "library_insight_builtin_not_offered" = "内置 AI 暂时还不能写简介，可以在智能设置里填写自己的 AI 服务。";
 "library_insight_failed_daily_limit" = "今天的简介生成次数已用完，明天再来。";
+
+/* Editable album and artist intros */
+"library_insight_edit" = "编辑";
+"library_insight_write_own" = "自己写";
+"library_insight_editor_title_album" = "编辑专辑简介";
+"library_insight_editor_title_artist" = "编辑艺人简介";
+"library_insight_editor_summary" = "简介";
+"library_insight_editor_tags" = "风格标签";
+"library_insight_editor_tags_placeholder" = "用逗号分隔，例如：流行, 九十年代";
+"library_insight_ai_fill" = "用 AI 填写";
+"library_insight_ai_filling" = "AI 正在填写…";
+"library_insight_ai_fill_hint" = "AI 填写的内容会换掉下面的草稿，保存前都可以再改。";
+"library_insight_footer_edited" = "已编辑";
+"library_insight_regenerate_confirm_title" = "替换你编辑过的简介？";
+"library_insight_regenerate_confirm_message" = "用 AI 重新生成会覆盖你写过或改过的简介和标签。";
+"library_insight_regenerate_confirm_action" = "替换";

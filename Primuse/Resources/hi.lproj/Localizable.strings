@@ -5252,8 +5252,8 @@
 /* AI intros for albums and artists */
 "library_insight_album_title" = "इस एल्बम के बारे में";
 "library_insight_artist_title" = "इस कलाकार के बारे में";
-"library_insight_prompt_album" = "इस एल्बम के लिए AI से एक छोटा परिचय और कुछ स्टाइल टैग लिखवाएँ।";
-"library_insight_prompt_artist" = "इस कलाकार के लिए AI से एक छोटा परिचय और कुछ स्टाइल टैग लिखवाएँ।";
+"library_insight_prompt_album" = "इस एल्बम के लिए छोटा परिचय और कुछ स्टाइल टैग जोड़ें — खुद लिखें या AI से भरवाएँ।";
+"library_insight_prompt_artist" = "इस कलाकार के लिए छोटा परिचय और कुछ स्टाइल टैग जोड़ें — खुद लिखें या AI से भरवाएँ।";
 "library_insight_generate" = "परिचय लिखें";
 "library_insight_generating" = "परिचय लिखा जा रहा है…";
 "library_insight_regenerate" = "फिर से लिखें";
@@ -5268,3 +5268,19 @@
 "library_insight_not_configured" = "अभी कोई AI सेवा उपलब्ध नहीं है। बिल्ट-इन AI चालू करें या AI सेटिंग्स में अपनी सेवा जोड़ें, फिर दोबारा कोशिश करें।";
 "library_insight_builtin_not_offered" = "बिल्ट-इन AI अभी परिचय नहीं लिख सकता। आप AI सेटिंग्स में अपनी AI सेवा जोड़ सकते हैं।";
 "library_insight_failed_daily_limit" = "आज के परिचय खत्म हो गए। कल फिर आएँ।";
+
+/* Editable album and artist intros */
+"library_insight_edit" = "संपादित करें";
+"library_insight_write_own" = "खुद लिखें";
+"library_insight_editor_title_album" = "एल्बम परिचय संपादित करें";
+"library_insight_editor_title_artist" = "कलाकार परिचय संपादित करें";
+"library_insight_editor_summary" = "परिचय";
+"library_insight_editor_tags" = "स्टाइल टैग";
+"library_insight_editor_tags_placeholder" = "कॉमा से अलग करें, जैसे: पॉप, 90 का दशक";
+"library_insight_ai_fill" = "AI से भरें";
+"library_insight_ai_filling" = "AI भर रहा है…";
+"library_insight_ai_fill_hint" = "AI नीचे का ड्राफ़्ट बदल देगा; सहेजने से पहले आप इसे फिर भी बदल सकते हैं।";
+"library_insight_footer_edited" = "संपादित";
+"library_insight_regenerate_confirm_title" = "अपना संपादित परिचय बदलें?";
+"library_insight_regenerate_confirm_message" = "AI से फिर से लिखने पर आपका लिखा या बदला गया परिचय और टैग बदल जाएँगे।";
+"library_insight_regenerate_confirm_action" = "बदलें";

@@ -5252,8 +5252,8 @@
 /* AI intros for albums and artists */
 "library_insight_album_title" = "Про цей альбом";
 "library_insight_artist_title" = "Про цього виконавця";
-"library_insight_prompt_album" = "Попросіть ШІ написати короткий опис і кілька тегів стилю для цього альбому.";
-"library_insight_prompt_artist" = "Попросіть ШІ написати короткий опис і кілька тегів стилю для цього виконавця.";
+"library_insight_prompt_album" = "Додайте короткий опис і кілька тегів стилю для цього альбому — напишіть самі або дайте ШІ заповнити.";
+"library_insight_prompt_artist" = "Додайте короткий опис і кілька тегів стилю для цього виконавця — напишіть самі або дайте ШІ заповнити.";
 "library_insight_generate" = "Написати опис";
 "library_insight_generating" = "Пишу опис…";
 "library_insight_regenerate" = "Написати знову";
@@ -5268,3 +5268,19 @@
 "library_insight_not_configured" = "Поки немає доступного сервісу ШІ. Увімкніть вбудований ШІ або додайте свій сервіс у налаштуваннях ШІ й спробуйте знову.";
 "library_insight_builtin_not_offered" = "Вбудований ШІ поки не вміє писати описи. Свій сервіс ШІ можна додати в налаштуваннях ШІ.";
 "library_insight_failed_daily_limit" = "Описи на сьогодні вичерпано. Повертайтеся завтра.";
+
+/* Editable album and artist intros */
+"library_insight_edit" = "Змінити";
+"library_insight_write_own" = "Написати самому";
+"library_insight_editor_title_album" = "Опис альбому";
+"library_insight_editor_title_artist" = "Опис виконавця";
+"library_insight_editor_summary" = "Опис";
+"library_insight_editor_tags" = "Теги стилю";
+"library_insight_editor_tags_placeholder" = "Через кому, наприклад: поп, 90-ті";
+"library_insight_ai_fill" = "Заповнити за допомогою ШІ";
+"library_insight_ai_filling" = "ШІ заповнює…";
+"library_insight_ai_fill_hint" = "ШІ замінить чернетку нижче; до збереження її можна змінити.";
+"library_insight_footer_edited" = "Змінено";
+"library_insight_regenerate_confirm_title" = "Замінити змінений опис?";
+"library_insight_regenerate_confirm_message" = "Якщо написати знову за допомогою ШІ, опис і теги, які ви написали чи змінили, буде перезаписано.";
+"library_insight_regenerate_confirm_action" = "Замінити";

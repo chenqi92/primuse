@@ -5252,8 +5252,8 @@
 /* AI intros for albums and artists */
 "library_insight_album_title" = "Об этом альбоме";
 "library_insight_artist_title" = "Об этом исполнителе";
-"library_insight_prompt_album" = "Попросите ИИ написать краткое описание и несколько тегов стиля для этого альбома.";
-"library_insight_prompt_artist" = "Попросите ИИ написать краткое описание и несколько тегов стиля для этого исполнителя.";
+"library_insight_prompt_album" = "Добавьте краткое описание и несколько тегов стиля для этого альбома — напишите сами или дайте ИИ заполнить.";
+"library_insight_prompt_artist" = "Добавьте краткое описание и несколько тегов стиля для этого исполнителя — напишите сами или дайте ИИ заполнить.";
 "library_insight_generate" = "Написать описание";
 "library_insight_generating" = "Пишу описание…";
 "library_insight_regenerate" = "Написать заново";
@@ -5268,3 +5268,19 @@
 "library_insight_not_configured" = "Пока нет доступного сервиса ИИ. Включите встроенный ИИ или добавьте свой сервис в настройках ИИ и попробуйте снова.";
 "library_insight_builtin_not_offered" = "Встроенный ИИ пока не умеет писать описания. Свой сервис ИИ можно добавить в настройках ИИ.";
 "library_insight_failed_daily_limit" = "Описания на сегодня закончились. Возвращайтесь завтра.";
+
+/* Editable album and artist intros */
+"library_insight_edit" = "Изменить";
+"library_insight_write_own" = "Написать самому";
+"library_insight_editor_title_album" = "Описание альбома";
+"library_insight_editor_title_artist" = "Описание исполнителя";
+"library_insight_editor_summary" = "Описание";
+"library_insight_editor_tags" = "Теги стиля";
+"library_insight_editor_tags_placeholder" = "Через запятую, например: поп, 90-е";
+"library_insight_ai_fill" = "Заполнить с помощью ИИ";
+"library_insight_ai_filling" = "ИИ заполняет…";
+"library_insight_ai_fill_hint" = "ИИ заменит черновик ниже; до сохранения его можно изменить.";
+"library_insight_footer_edited" = "Изменено";
+"library_insight_regenerate_confirm_title" = "Заменить изменённое описание?";
+"library_insight_regenerate_confirm_message" = "Если написать заново с помощью ИИ, описание и теги, которые вы написали или изменили, будут перезаписаны.";
+"library_insight_regenerate_confirm_action" = "Заменить";
