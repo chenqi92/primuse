@@ -15,6 +15,11 @@ import ApplicationServices
 ///   并把 Mac 主窗口下次启动恢复的页面设成它。
 /// - `scrollend` / `scrolltop`：对所有暴露 `AXScrollToBottom` / `AXScrollToTop` 的元素执行该动作。
 /// - `report`：记下窗口里每个滚动视图的位置与文档尺寸。
+/// - `window:<宽>x<高>`：把主窗口改成这个尺寸（点）。
+/// - `scroll:<y>`：把主窗口里最大的那个竖向滚动视图滚到 y。
+/// - `route:<页面>`：主窗口换到这一页，写法同 `primuse.navigation.macRoute.v1`（home、section:albums…）。
+/// - `snapshot:<png 路径>`：把主窗口内容离屏画成 PNG —— 锁屏时 screencapture 只拍得到壁纸。
+/// - `quit`：退出 App。
 /// 每一步都写 🧪 日志。
 enum DebugAccessibilityScript {
     @MainActor
@@ -46,6 +51,17 @@ enum DebugAccessibilityScript {
             await perform("AXScrollToTop")
         case "report":
             report()
+        case "window":
+            resizeMainWindow(argument)
+        case "scroll":
+            scrollMainWindow(to: Double(argument) ?? 0)
+        case "route":
+            NotificationCenter.default.post(name: .primuseDebugSelectRoute, object: argument)
+            plog("🧪 AX script: route -> \(argument)")
+        case "snapshot":
+            snapshotMainWindow(to: argument)
+        case "quit":
+            NSApp.terminate(nil)
         default:
             plog("🧪 AX script: unknown step \(step)")
         }
@@ -142,6 +158,65 @@ enum DebugAccessibilityScript {
     }
 
     @MainActor
+    private static var mainWindow: NSWindow? {
+        NSApp.windows
+            .filter { $0.isVisible && $0.styleMask.contains(.titled) }
+            .max { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
+    }
+
+    @MainActor
+    private static func resizeMainWindow(_ argument: String) {
+        let size = argument.split(separator: "x").compactMap { Double($0) }
+        guard size.count == 2, let window = mainWindow else {
+            plog("🧪 AX script: window \(argument) skipped")
+            return
+        }
+        var frame = window.frame
+        frame.size = NSSize(width: size[0], height: size[1])
+        window.setFrame(frame, display: true)
+        plog("🧪 AX script: window -> \(window.frame.size)")
+    }
+
+    @MainActor
+    private static func scrollMainWindow(to y: Double) {
+        guard let content = mainWindow?.contentView,
+              let scrollView = scrollViews(in: content)
+                .filter({ ($0.documentView?.frame.height ?? 0) > $0.contentView.bounds.height })
+                .max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }),
+              let document = scrollView.documentView else {
+            plog("🧪 AX script: scroll found no vertical scroll view")
+            return
+        }
+        let maxY = max(0, document.frame.height - scrollView.contentView.bounds.height)
+        let target = min(max(0, y), maxY)
+        scrollView.contentView.scroll(to: NSPoint(
+            x: scrollView.contentView.bounds.origin.x,
+            y: document.isFlipped ? target : maxY - target
+        ))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        plog("🧪 AX script: scroll -> \(target) of \(maxY)")
+    }
+
+    @MainActor
+    private static func snapshotMainWindow(to path: String) {
+        for window in NSApp.windows where window.isVisible {
+            plog("🧪 AX script: window \(type(of: window)) '\(window.title)' frame=\(window.frame) key=\(window.isKeyWindow)")
+        }
+        guard let view = mainWindow?.contentView,
+              let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+            plog("🧪 AX script: snapshot found no window")
+            return
+        }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        do {
+            try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+            plog("🧪 AX script: snapshot \(view.bounds.size) -> \(path)")
+        } catch {
+            plog("🧪 AX script: snapshot failed \(error.localizedDescription)")
+        }
+    }
+
+    @MainActor
     private static func scrollViews(in view: NSView) -> [NSScrollView] {
         var found: [NSScrollView] = []
         if let scrollView = view as? NSScrollView, scrollView.documentView != nil {
@@ -152,5 +227,10 @@ enum DebugAccessibilityScript {
         }
         return found
     }
+}
+
+extension Notification.Name {
+    /// 调试脚本让主窗口换页，object 是页面的持久化写法。
+    static let primuseDebugSelectRoute = Notification.Name("primuse.debug.selectRoute")
 }
 #endif

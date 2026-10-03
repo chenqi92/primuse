@@ -671,8 +671,10 @@ struct TVNowPlayingView: View {
             }
             .foregroundStyle(focused ? TVColor.text : TVColor.textFaint)
             .padding(.horizontal, 20).padding(.vertical, 8)
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        // 图标与上面的传输键对齐,聚焦的底色往外长。
+        .padding(.leading, -20)
         .accessibilityLabel(Text(PMString("ext.tv.player.shelf.hint")))
     }
 
@@ -900,11 +902,12 @@ struct TVNowPlayingView: View {
         let dur = store.duration
         let p = dur > 0 ? max(0, min(1, cur / dur)) : 0
         return HStack(spacing: 16) {
+            // 左栏里时间贴着封面、歌名的左边线;沉浸展示居中排,时间靠向进度条。
             Text(TVFmt.time(cur)).tvFont(.meta, design: .monospaced)
                 .foregroundStyle(immersiveDark ? Color.white.opacity(0.60) : TVColor.textMuted)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-                .frame(width: timeLabelWidth, alignment: .trailing)
+                .frame(width: timeLabelWidth, alignment: immersiveDark ? .trailing : .leading)
             TVScrubber(progress: p, tint: TVColor.brand, immersiveDark: immersiveDark,
                        currentTime: cur, duration: dur,
                        onBack: { store.skipBackward() }, onForward: { store.skipForward() },
@@ -927,7 +930,10 @@ struct TVNowPlayingView: View {
         let likedSongID = isSpokenWord ? nil : store.currentSongID
         let liked = likedSongID.map(store.isLiked) ?? false
         return HStack(spacing: 16) {
-            Spacer()
+            // 沉浸展示里居中;左栏里和上面的封面、歌名一样靠左(听书的传输键也是靠左)。
+            if immersiveDark {
+                Spacer()
+            }
             // 喜欢是最常按的一颗,放在传输键这一行,不再藏在「更多」里。
             if let likedSongID {
                 TVRoundBtn(icon: liked ? "heart.fill" : "heart", size: 56, active: liked,

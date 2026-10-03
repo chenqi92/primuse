@@ -46,7 +46,8 @@ struct TVQueueView: View {
             TVAmbientBackdrop(tint: colors.primary, tint2: colors.secondary, strength: 0.55)
             TVColor.bg.opacity(0.48).ignoresSafeArea()
 
-            HStack(alignment: .center, spacing: 80) {
+            // 两栏顶端对齐:左边「正在播放」与右边「接下来」的小标题在同一条线上。
+            HStack(alignment: .top, spacing: 80) {
                 VStack(alignment: .leading, spacing: 0) {
                     TVEyebrow(text: PMString("ext.tv.queue.nowPlaying")).padding(.bottom, 20)
                     TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,

@@ -423,6 +423,24 @@ extension View {
             }
             .shadow(color: TVColor.cardShadow, radius: 18, y: 10)
     }
+
+    /// 详情页右栏这种没到屏幕底就结束的滚动列表:上下沿淡出,不在半行处硬切。
+    /// 列表内容的上下留白不要少于淡出高度,滚到两头时首末行才完整。
+    func tvScrollEdgeFade(top: CGFloat = 20, bottom: CGFloat = TVScrollEdgeFade.bottom) -> some View {
+        mask {
+            VStack(spacing: 0) {
+                LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                    .frame(height: top)
+                Color.black
+                LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: bottom)
+            }
+        }
+    }
+}
+
+enum TVScrollEdgeFade {
+    static let bottom: CGFloat = 48
 }
 
 /// 纯渲染 label 的 ButtonStyle — 不加 tvOS 默认的聚焦平台层(大白卡)/缩放,

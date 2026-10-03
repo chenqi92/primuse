@@ -216,10 +216,11 @@ struct TVPlayerShelf: View, @MainActor Equatable {
         .background {
             LinearGradient(
                 stops: [
-                    // 上沿柔和过渡,卡片那一带要压得住后面的标题和进度条,不能透出来。
+                    // 上沿柔和过渡只占顶上的留白,到分栏那一行已经不透明:
+                    // 半透明时后面的歌名、歌词会从分栏和卡片后面透出来。
                     .init(color: TVColor.bg.opacity(0), location: 0),
-                    .init(color: TVColor.bg.opacity(0.9), location: 0.1),
-                    .init(color: TVColor.bg.opacity(0.98), location: 0.24),
+                    .init(color: TVColor.bg.opacity(0.85), location: 0.06),
+                    .init(color: TVColor.bg, location: 0.11),
                     .init(color: TVColor.bg, location: 1),
                 ],
                 startPoint: .top, endPoint: .bottom

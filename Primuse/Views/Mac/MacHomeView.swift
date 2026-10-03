@@ -237,13 +237,14 @@ struct MacHomeView: View {
         // 每个区块自己淡入: 骨架换内容、推荐/电台这些异步算完才出现的区块都只动透明度。
         // 成对分支不做交叉淡入 —— 过渡期间新旧两块会同时占着这个 VStack 的位置。
         // 「接着听」: 每个收听空间最多一张卡, 最新的在前, 正在播的那个不出现。
-        if showContinueSpaces {
-            MacHomeResumeRow(
-                onResumeMusic: { song in playSong(song) },
-                onTuneIn: { station in tuneIn(station) }
-            )
+        // 和主卡排在一起: 宽窗口在主卡右边, 窄窗口在主卡上面。
+        MacHomeResumeRow(
+            showsResume: showContinueSpaces,
+            onResumeMusic: { song in playSong(song) },
+            onTuneIn: { station in tuneIn(station) }
+        ) {
+            heroOrAlbumPick
         }
-        heroOrAlbumPick
         if hasContent, showStartListening {
             // 「开始听」:主卡下面一行意图卡片,点了直接起播。
             StartListeningShelf(
@@ -336,7 +337,7 @@ struct MacHomeView: View {
                     .padding(.horizontal, PMSpace.xxl)
                     .padding(.vertical, PMSpace.l24)
                 }
-                .frame(height: 296)
+                .frame(height: MacHomeHeroMetrics.height)
                 .clipShape(RoundedRectangle(cornerRadius: PMRadius.xxl, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: PMRadius.xxl, style: .continuous)
@@ -744,6 +745,8 @@ struct MacHomeView: View {
                 darkAccent: PMColor.brand.opacity(0.55),
                 strength: 0.72
             )
+            // 色斑是 720 见方的固定圆, 不让它把主卡撑到 720 宽: 窄窗口下主卡会越出右边。
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
             .allowsHitTesting(false)
 
             HStack(alignment: .center, spacing: 36) {
@@ -806,7 +809,7 @@ struct MacHomeView: View {
             .padding(.horizontal, PMSpace.xxl)
             .padding(.vertical, PMSpace.l24)
         }
-        .frame(height: 296)
+        .frame(height: MacHomeHeroMetrics.height)
         // 3. 整张 Hero 强制裁剪到圆角矩形 — AmbientBackdrop 的 blur 圈会越界, 必须在
         //    最外层统一切, 否则暖色会"漏"到 Hero 上下方区域。
         .clipShape(RoundedRectangle(cornerRadius: PMRadius.xxl, style: .continuous))
@@ -1890,15 +1893,15 @@ private struct MacHomePipelineSection: View {
 
     var body: some View {
         HStack(spacing: PMSpace.s8) {
-            node("externaldrive.fill", "Sources",
+            node("externaldrive.fill", "home_pipeline_sources",
                  statusText: "\(enabledSourcesCount) \(Lz("online"))",
                  isActive: !sourcesStore.sources.isEmpty)
             connector(isActive: !activeScans.isEmpty || hasContent)
-            node("arrow.triangle.2.circlepath", "Scan",
+            node("arrow.triangle.2.circlepath", "home_pipeline_scan",
                  statusText: activeScans.isEmpty ? Lz("No Scan") : "\(activeScans.count) \(Lz("in progress"))",
                  isActive: !activeScans.isEmpty || hasContent)
             connector(isActive: hasContent)
-            node("tag.fill", "Metadata",
+            node("tag.fill", "home_pipeline_metadata",
                  statusText: scraperService.isScraping
                     ? "\(scraperService.processedCount)/\(scraperService.totalCount) \(Lz("in progress"))"
                     : (backfill.remainingCount(forSource: nil) == 0
@@ -1906,7 +1909,7 @@ private struct MacHomePipelineSection: View {
                         : "\(backfill.remainingCount(forSource: nil)) \(Lz("pending backfill"))"),
                  isActive: hasContent || scraperService.isScraping)
             connector(isActive: player.currentSong != nil)
-            node("play.fill", "Listen",
+            node("play.fill", "home_pipeline_listen",
                  statusText: player.currentSong?.title ?? Lz("Not Playing"),
                  isActive: player.currentSong != nil)
         }
@@ -1922,7 +1925,7 @@ private struct MacHomePipelineSection: View {
 
     private var enabledSourcesCount: Int { sourcesStore.sources.filter(\.isEnabled).count }
 
-    private func node(_ icon: String, _ title: String, statusText: String, isActive: Bool) -> some View {
+    private func node(_ icon: String, _ title: LocalizedStringKey, statusText: String, isActive: Bool) -> some View {
         VStack(alignment: .center, spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 22, weight: .semibold))
@@ -1930,7 +1933,7 @@ private struct MacHomePipelineSection: View {
                 .frame(width: 52, height: 52)
                 .background(isActive ? PMColor.brand.opacity(0.18) : PMColor.brand.opacity(0.10),
                             in: .rect(cornerRadius: 12, style: .continuous))
-            Text(verbatim: title)
+            Text(title)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(PMColor.text)
                 .lineLimit(1)
@@ -2001,11 +2004,18 @@ private final class WindowSafeNSButton: NSButton {
 
 // MARK: - Continue listening (one card per listening space)
 
-/// 首页第一行「接着听」。单独成一个视图: 它要盯播放器、电台库和听书位置,
+/// 首页最上面一块: 主卡 + 「接着听」。单独成一个视图: 它要盯播放器、电台库和听书位置,
 /// 这些都比首页其余部分变得勤, 放在这里只重算这一小块。
-private struct MacHomeResumeRow: View {
+///
+/// 窗口够宽时「接着听」是主卡右边一张同高的面板, 张数越少每张越大; 不够宽时是主卡
+/// 上面一行, 卡片平分整行。不按固定格数留位, 只有一张时也不会缩在左上角。
+private struct MacHomeResumeRow<Hero: View>: View {
+    let showsResume: Bool
     let onResumeMusic: (Song) -> Void
     let onTuneIn: (RadioStation) -> Void
+    @ViewBuilder let hero: Hero
+
+    @State private var availableWidth: CGFloat = 0
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
@@ -2032,31 +2042,121 @@ private struct MacHomeResumeRow: View {
         }
     }
 
-    var body: some View {
-        let cards = resumeCards
-        if !cards.isEmpty {
-            VStack(alignment: .leading, spacing: PMSpace.m) {
-                Text("home_continue_spaces_title")
-                    .font(.system(size: 17, weight: .semibold))
-                    .tracking(-0.3)
-                    .foregroundStyle(PMColor.text)
+    /// 两张卡怎么摆: 主卡旁边的面板里一行一张, 或主卡上面平分一行。
+    private enum CardStyle {
+        case strip
+        /// `count` 是面板里一共几张: 一张时竖排大封面, 两张中等, 三四张紧凑。
+        case panel(count: Int)
 
-                HStack(spacing: PMSpace.m14) {
-                    ForEach(cards) { card in
-                        cardView(card)
-                            .frame(maxWidth: .infinity)
-                    }
-                    // 不足三张时不把卡片拉成整行宽。
-                    ForEach(min(cards.count, 3)..<3, id: \.self) { _ in
-                        Color.clear.frame(maxWidth: .infinity, maxHeight: 1)
-                    }
-                }
+        var artworkSize: CGFloat {
+            switch self {
+            case .strip: return 56
+            case .panel(let count): return count <= 1 ? 112 : (count == 2 ? 64 : 44)
             }
-            .pmAppearFade(.contentAppear)
+        }
+
+        var titleSize: CGFloat {
+            switch self {
+            case .strip: return 13.5
+            case .panel(let count): return count <= 1 ? 16 : (count == 2 ? 14 : 13)
+            }
+        }
+
+        var isTile: Bool {
+            if case .panel(let count) = self { return count <= 1 }
+            return false
         }
     }
 
+    /// 并排时主卡至少要留这么宽(封面 240 + 文字列放得下三颗按钮), 面板宽 300–380。
+    private static var sideBySideMinWidth: CGFloat { 1040 }
+
+    private var panelWidth: CGFloat {
+        min(380, max(300, availableWidth * 0.3))
+    }
+
+    var body: some View {
+        let cards = showsResume ? resumeCards : []
+        Group {
+            if cards.isEmpty {
+                hero
+            } else if availableWidth >= Self.sideBySideMinWidth {
+                HStack(alignment: .top, spacing: PMSpace.m16) {
+                    hero
+                        .frame(minWidth: 0, maxWidth: .infinity)
+                    resumePanel(cards)
+                        .frame(width: panelWidth)
+                        .pmAppearFade(.contentAppear)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: PMSpace.xxl) {
+                    resumeStrip(cards)
+                        .pmAppearFade(.contentAppear)
+                    hero
+                }
+            }
+        }
+        // 不向窗口要最小宽度: 并排时主卡加面板比切换宽度还宽, 要是由它定最小宽度,
+        // 窗口就再也缩不到切回上下排的宽度了。
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
+            availableWidth = width
+        }
+    }
+
+    private var title: some View {
+        Text("home_continue_spaces_title")
+            .font(.system(size: 17, weight: .semibold))
+            .tracking(-0.3)
+            .foregroundStyle(PMColor.text)
+    }
+
+    private func resumeStrip(_ cards: [Card]) -> some View {
+        // 四张挤一行时标题只剩几个字, 改成两行两列。
+        let columns = cards.count == 4 ? 2 : max(1, cards.count)
+        return VStack(alignment: .leading, spacing: PMSpace.m) {
+            title
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(), spacing: PMSpace.m14), count: columns),
+                spacing: PMSpace.m14
+            ) {
+                ForEach(cards) { card in
+                    cardView(card, style: .strip)
+                }
+            }
+        }
+    }
+
+    private func resumePanel(_ cards: [Card]) -> some View {
+        let style = CardStyle.panel(count: cards.count)
+        return VStack(alignment: .leading, spacing: 0) {
+            title
+                .padding(.horizontal, PMSpace.m16)
+                .padding(.top, PMSpace.m14)
+                .padding(.bottom, PMSpace.xs)
+            ForEach(Array(cards.enumerated()), id: \.element.id) { index, card in
+                if index > 0 {
+                    Rectangle()
+                        .fill(PMColor.divider)
+                        .frame(height: 0.5)
+                        .padding(.leading, PMSpace.m16 + style.artworkSize + PMSpace.m)
+                        .padding(.trailing, PMSpace.m16)
+                }
+                cardView(card, style: style)
+            }
+        }
+        .padding(.bottom, PMSpace.s)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(height: MacHomeHeroMetrics.height)
+        .pmCard(cornerRadius: PMRadius.xxl)
+    }
+
     private var resumeCards: [Card] {
+        #if DEBUG
+        if let cards = debugResumeCards { return cards }
+        #endif
         var candidates: [ListeningResumeCandidate] = []
         var cardsBySpace: [ListeningSpace: Card] = [:]
 
@@ -2116,13 +2216,50 @@ private struct MacHomeResumeRow: View {
         .compactMap { cardsBySpace[$0.space] }
     }
 
+    #if DEBUG
+    /// 截图钩子 `PRIMUSE_DEBUG_RESUME_CARDS=podcast,radio,book,music`: 按列出的顺序摆演示卡片,
+    /// 不看播放记录 —— 编译机上的测试曲库没有可接着听的东西。
+    private var debugResumeCards: [Card]? {
+        guard let raw = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_RESUME_CARDS"],
+              !raw.isEmpty else { return nil }
+        let song = library.musicSongs.first
+        return raw.split(separator: ",").compactMap { name -> Card? in
+            switch name.trimmingCharacters(in: .whitespaces) {
+            case "music":
+                return song.map { .music($0) }
+            case "radio":
+                return .radio(RadioStation(id: "debug-radio", name: "Jazz FM 102.2", streamURL: "https://example.invalid/jazz"))
+            case "book":
+                guard let song else { return nil }
+                let item = SpokenWordBookItem(
+                    id: song.id, title: "第三章", albumTitle: "三体 II：黑暗森林", artist: "刘慈欣",
+                    duration: 3600, position: 1500, positionUpdatedAt: Date()
+                )
+                return SpokenWordBookGrouping.books(from: [item]).first.map { .book($0, songs: [song]) }
+            case "podcast":
+                guard let feed = URL(string: "https://example.invalid/feed"),
+                      let enclosure = URL(string: "https://example.invalid/episode.mp3") else { return nil }
+                let show = PodcastShow(id: "debug-show", feedURL: feed, title: "The Daily", subscribedAt: Date())
+                let episode = PodcastEpisode(
+                    id: "debug-episode", showID: show.id, guid: "debug-episode",
+                    title: "The Firestorm Over a Rape Allegation at a Boarding School",
+                    duration: 1800, enclosureURL: enclosure, firstSeenAt: Date()
+                )
+                return .podcast(episode, show)
+            default:
+                return nil
+            }
+        }
+    }
+    #endif
+
     @ViewBuilder
-    private func cardView(_ card: Card) -> some View {
+    private func cardView(_ card: Card, style: CardStyle) -> some View {
         switch card {
         case .musicMemory(let memory, let song):
             resumeCard(
                 space: .music,
-                spaceLabel: ListeningSpace.music.titleKey,
+                style: style,
                 title: memory.title,
                 subtitle: memory.subtitle ?? "",
                 progress: nil,
@@ -2132,30 +2269,30 @@ private struct MacHomeResumeRow: View {
                         if !resumed, let song { onResumeMusic(song) }
                     }
                 }
-            ) {
+            ) { size in
                 if let song {
                     CachedArtworkView(
                         coverRef: song.coverArtFileName, songID: song.id,
-                        size: 56, cornerRadius: PMRadius.m,
+                        size: size, cornerRadius: PMRadius.m,
                         sourceID: song.sourceID, filePath: song.filePath,
                         fileFormat: song.fileFormat
                     )
                 } else {
-                    CoverArtView(data: nil, size: 56, cornerRadius: PMRadius.m)
+                    CoverArtView(data: nil, size: size, cornerRadius: PMRadius.m)
                 }
             }
         case .music(let song):
             resumeCard(
                 space: .music,
-                spaceLabel: ListeningSpace.music.titleKey,
+                style: style,
                 title: song.title,
                 subtitle: library.artistDisplayName(for: song) ?? song.albumTitle ?? "",
                 progress: nil,
                 action: { onResumeMusic(song) }
-            ) {
+            ) { size in
                 CachedArtworkView(
                     coverRef: song.coverArtFileName, songID: song.id,
-                    size: 56, cornerRadius: PMRadius.m,
+                    size: size, cornerRadius: PMRadius.m,
                     sourceID: song.sourceID, filePath: song.filePath,
                     fileFormat: song.fileFormat
                 )
@@ -2163,43 +2300,43 @@ private struct MacHomeResumeRow: View {
         case .radio(let station):
             resumeCard(
                 space: .radio,
-                spaceLabel: ListeningSpace.radio.titleKey,
+                style: style,
                 title: station.name,
                 subtitle: station.playbackSubtitle,
                 progress: nil,
                 action: { onTuneIn(station) }
-            ) {
-                RadioStationArtworkContent(station: station, decodeSize: 56)
-                    .frame(width: 56, height: 56)
+            ) { size in
+                RadioStationArtworkContent(station: station, decodeSize: size)
+                    .frame(width: size, height: size)
                     .clipShape(RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous))
             }
         case .book(let book, let songs):
             let cover = songs.first { $0.id == book.resumeItemID } ?? songs[0]
             resumeCard(
                 space: .spokenWord,
-                spaceLabel: ListeningSpace.spokenWord.titleKey,
+                style: style,
                 title: book.title,
                 subtitle: MacHomeBookText.detail(book),
                 progress: book.fractionComplete,
                 action: {
                     SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
                 }
-            ) {
-                // Book-shaped at the row's 56 pt height, centred in the same
-                // 56 pt slot as the square covers so titles stay aligned.
+            ) { size in
+                // Book-shaped at the slot's height, centred in the same square
+                // slot as the other covers so titles stay aligned.
                 SpokenWordBookCover(
                     song: cover,
-                    width: SpokenWordCoverLayout.width(forHeight: 56),
+                    width: SpokenWordCoverLayout.width(forHeight: size),
                     cornerRadius: PMRadius.s
                 )
-                .frame(width: 56, height: 56)
+                .frame(width: size, height: size)
             }
         case .podcast(let episode, let show):
             let position = SpokenWordStore.shared.position(forSongID: episode.id)?.position ?? 0
             let total = episode.duration ?? 0
             resumeCard(
                 space: .podcast,
-                spaceLabel: ListeningSpace.podcast.titleKey,
+                style: style,
                 title: episode.title,
                 subtitle: show.title,
                 progress: total > 0 ? min(1, position / total) : nil,
@@ -2208,63 +2345,122 @@ private struct MacHomeResumeRow: View {
                         NotificationCenter.default.post(name: .primuseSelectSpokenWord, object: LibrarySection.podcasts)
                     }
                 }
-            ) {
-                PodcastArtwork(episode: episode, show: show, size: 56, cornerRadius: PMRadius.m)
+            ) { size in
+                PodcastArtwork(episode: episode, show: show, size: size, cornerRadius: PMRadius.m)
             }
         }
     }
 
+    @ViewBuilder
     private func resumeCard<Artwork: View>(
         space: ListeningSpace,
-        spaceLabel: LocalizedStringKey,
+        style: CardStyle,
         title: String,
         subtitle: String,
         progress: Double?,
         action: @escaping () -> Void,
-        @ViewBuilder artwork: () -> Artwork
+        @ViewBuilder artwork: (CGFloat) -> Artwork
     ) -> some View {
         let tint = MacListeningSpaceStyle.color(for: space)
-        return Button(action: action) {
-            HStack(spacing: PMSpace.m) {
-                artwork()
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 5) {
-                        Circle().fill(tint).frame(width: 6, height: 6)
-                        Text(spaceLabel)
-                            .font(.system(size: 10.5, weight: .semibold))
-                            .tracking(0.6)
-                            .textCase(.uppercase)
-                            .foregroundStyle(tint)
-                    }
-                    Text(verbatim: title)
-                        .font(.system(size: 13.5, weight: .semibold))
-                        .foregroundStyle(PMColor.text)
-                        .lineLimit(1)
-                    if !subtitle.isEmpty {
-                        Text(verbatim: subtitle)
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(PMColor.textMuted)
-                            .lineLimit(1)
-                    }
-                    if let progress {
-                        MacHomeBookProgressBar(fraction: progress, tint: tint)
-                            .padding(.top, 2)
-                    }
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "play.fill")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 28, height: 28)
-                    .background(tint, in: Circle())
+        let text = VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 5) {
+                Circle().fill(tint).frame(width: 6, height: 6)
+                Text(space.titleKey)
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .tracking(0.6)
+                    .textCase(.uppercase)
+                    .foregroundStyle(tint)
             }
-            .padding(PMSpace.m)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+            Text(verbatim: title)
+                .font(.system(size: style.titleSize, weight: .semibold))
+                .foregroundStyle(PMColor.text)
+                .lineLimit(style.isTile ? 2 : 1)
+                .fixedSize(horizontal: false, vertical: style.isTile)
+            if !subtitle.isEmpty {
+                Text(verbatim: subtitle)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+            }
+            if let progress {
+                MacHomeBookProgressBar(fraction: progress, tint: tint)
+                    .padding(.top, 2)
+            }
+        }
+        let playGlyph = Image(systemName: "play.fill")
+            .font(.system(size: style.isTile ? 13 : 11, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(width: style.isTile ? 36 : 28, height: style.isTile ? 36 : 28)
+            .background(tint, in: Circle())
+
+        switch style {
+        case .strip:
+            Button(action: action) {
+                HStack(spacing: PMSpace.m) {
+                    artwork(style.artworkSize)
+                    text
+                    Spacer(minLength: 0)
+                    playGlyph
+                }
+                .padding(PMSpace.m)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .pmCard(cornerRadius: PMRadius.l14)
+            .pmHoverLift()
+            .accessibilityElement(children: .combine)
+        case .panel:
+            MacHomeResumePanelRow(action: action) {
+                if style.isTile {
+                    // 面板里只有一张: 大封面在上, 播放键贴着封面右下, 文字在下面。
+                    VStack(alignment: .leading, spacing: PMSpace.m) {
+                        HStack(alignment: .bottom) {
+                            artwork(style.artworkSize)
+                            Spacer(minLength: 0)
+                            playGlyph
+                        }
+                        text
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(.top, PMSpace.s8)
+                } else {
+                    HStack(spacing: PMSpace.m) {
+                        artwork(style.artworkSize)
+                        text
+                        Spacer(minLength: 0)
+                        playGlyph
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+}
+
+/// 「接着听」面板里的一行: 撑满分到的高度, 悬停时整行浅底。
+private struct MacHomeResumePanelRow<Content: View>: View {
+    let action: () -> Void
+    @ViewBuilder let content: Content
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            content
+                .padding(.horizontal, PMSpace.s10)
+                .padding(.vertical, PMSpace.xs)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .background(
+                    isHovered ? PMColor.rowHover : .clear,
+                    in: RoundedRectangle(cornerRadius: PMRadius.m10, style: .continuous)
+                )
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .pmCard(cornerRadius: PMRadius.l14)
-        .pmHoverLift()
+        .padding(.horizontal, PMSpace.s)
+        .padding(.vertical, 2)
+        .onHover { isHovered = $0 }
         .accessibilityElement(children: .combine)
     }
 }

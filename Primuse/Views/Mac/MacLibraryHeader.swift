@@ -73,6 +73,8 @@ struct MacLibraryHeader: View {
                             Text("play")
                                 .font(.system(size: 12.5, weight: .semibold))
                         }
+                        // 头部窄(三栏的艺人页、窄窗口)时不能被挤成一字一行。
+                        .fixedSize()
                         .foregroundStyle(.white)
                         .padding(.horizontal, 18)
                         .frame(height: 32)
@@ -83,11 +85,17 @@ struct MacLibraryHeader: View {
                     .pmHoverLift()
 
                     Button(action: onShuffle) {
-                        HStack(spacing: 7) {
+                        // 放不下文字时只留图标,悬停有说明。
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 7) {
+                                Image(systemName: "shuffle")
+                                    .font(.system(size: 12))
+                                Text("shuffle")
+                                    .font(.system(size: 12.5, weight: .semibold))
+                            }
+                            .fixedSize()
                             Image(systemName: "shuffle")
                                 .font(.system(size: 12))
-                            Text("shuffle")
-                                .font(.system(size: 12.5, weight: .semibold))
                         }
                         .foregroundStyle(.white)
                         .padding(.horizontal, 14)
@@ -96,6 +104,7 @@ struct MacLibraryHeader: View {
                         .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.22), lineWidth: 0.5) }
                     }
                     .buttonStyle(.pmPressable)
+                    .help(Text("shuffle"))
                     .pmHoverLift()
 
                     if let favorite {

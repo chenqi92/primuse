@@ -34,7 +34,7 @@ struct TVPlaylistsView: View {
                         if playlists.isEmpty {
                             TVEmptyState(
                                 icon: "music.note.list",
-                                title: PMString("ext.tv.playlists.title", 0)
+                                title: String(localized: "no_playlists")
                             )
                             .frame(minHeight: 500)
                         } else {

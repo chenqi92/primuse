@@ -144,70 +144,78 @@ struct TVSourcesView: View {
                 .focusSection()
 
                 // 右侧操作栏撑满高度,从左列任意一行往右都能到达(焦点区 frame 满高)。
-                VStack(alignment: .leading, spacing: 18) {
-                    Text(PMString("ext.tv.sources.addSource"))
-                        .tvFont(.caption, weight: .medium).foregroundStyle(TVColor.textMuted)
-                    TVSourcesInfoCard()
-                    // 直接对全部可扫描的源重读,不再先让用户挑源;单个源重读在该源的长按菜单里。
-                    // 重读进度每首都在变,放进独立子视图,不让它带着整页(连同源列表)重绘。
-                    TVSourcesRereadAllButton(action: toggleRereadAllTags)
-                    .focused($focusedPrimaryAction, equals: .metadata)
-                    .accessibilityIdentifier("tv.sources.metadata")
-                    Button { showTransfer = true } label: {
-                        Label(TVTransferText.string("receive"), systemImage: "arrow.down.circle")
-                            .tvFont(.meta, weight: .semibold)
-                            .foregroundStyle(focusedPrimaryAction == .receive ? TVColor.onBrand : TVColor.text)
-                            .padding(.horizontal, 24).padding(.vertical, 16)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(focusedPrimaryAction == .receive ? TVColor.brand : TVColor.surface,
-                                        in: RoundedRectangle(cornerRadius: 16))
-                            .tvFocusRing(focusedPrimaryAction == .receive, radius: 16, accent: TVColor.brand, scale: 1.02, lift: 0)
-                    }
-                    .buttonStyle(TVBareButtonStyle()).focused($focusedPrimaryAction, equals: .receive)
-                    .focusEffectDisabled().accessibilityIdentifier("tv.sources.receive")
-                    Button { typePicker = true } label: {
-                        Label(PMString("ext.tv.sources.addOnTV"), systemImage: "plus.circle.fill")
-                            .tvFont(.meta, weight: .semibold)
-                            .foregroundStyle(focusedPrimaryAction == .addSource ? TVColor.onBrand : TVColor.text)
-                            .padding(.horizontal, 24).padding(.vertical, 16)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(focusedPrimaryAction == .addSource ? TVColor.brand : TVColor.surface,
-                                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                            .tvFocusRing(
-                                focusedPrimaryAction == .addSource,
-                                radius: 16,
-                                accent: TVColor.brand,
-                                scale: 1.02,
-                                lift: 0
-                            )
-                    }
-                    .buttonStyle(TVBareButtonStyle())
-                    .focused($focusedPrimaryAction, equals: .addSource)
-                    .focusEffectDisabled()
-                    .accessibilityLabel(PMString("ext.tv.sources.addOnTV"))
-                    .accessibilityHint(PMString("ext.tv.sources.chooseTypeBody"))
-                    .accessibilityIdentifier("tv.sources.addOnTV")
+                // 扫码说明按语言可能比一屏高,整栏可以滚动,说明文字不再被截成省略号;
+                // 内边距留给按钮聚焦时放大的那一圈。
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        Text(PMString("ext.tv.sources.addSource"))
+                            .tvFont(.caption, weight: .medium).foregroundStyle(TVColor.textMuted)
+                        TVSourcesInfoCard()
+                        // 直接对全部可扫描的源重读,不再先让用户挑源;单个源重读在该源的长按菜单里。
+                        // 重读进度每首都在变,放进独立子视图,不让它带着整页(连同源列表)重绘。
+                        TVSourcesRereadAllButton(action: toggleRereadAllTags)
+                        .focused($focusedPrimaryAction, equals: .metadata)
+                        .accessibilityIdentifier("tv.sources.metadata")
+                        Button { showTransfer = true } label: {
+                            Label(TVTransferText.string("receive"), systemImage: "arrow.down.circle")
+                                .tvFont(.meta, weight: .semibold)
+                                .foregroundStyle(focusedPrimaryAction == .receive ? TVColor.onBrand : TVColor.text)
+                                .padding(.horizontal, 24).padding(.vertical, 16)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(focusedPrimaryAction == .receive ? TVColor.brand : TVColor.surface,
+                                            in: RoundedRectangle(cornerRadius: 16))
+                                .tvFocusRing(focusedPrimaryAction == .receive, radius: 16, accent: TVColor.brand, scale: 1.02, lift: 0)
+                        }
+                        .buttonStyle(TVBareButtonStyle()).focused($focusedPrimaryAction, equals: .receive)
+                        .focusEffectDisabled().accessibilityIdentifier("tv.sources.receive")
+                        Button { typePicker = true } label: {
+                            Label(PMString("ext.tv.sources.addOnTV"), systemImage: "plus.circle.fill")
+                                .tvFont(.meta, weight: .semibold)
+                                .foregroundStyle(focusedPrimaryAction == .addSource ? TVColor.onBrand : TVColor.text)
+                                .padding(.horizontal, 24).padding(.vertical, 16)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(focusedPrimaryAction == .addSource ? TVColor.brand : TVColor.surface,
+                                            in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                .tvFocusRing(
+                                    focusedPrimaryAction == .addSource,
+                                    radius: 16,
+                                    accent: TVColor.brand,
+                                    scale: 1.02,
+                                    lift: 0
+                                )
+                        }
+                        .buttonStyle(TVBareButtonStyle())
+                        .focused($focusedPrimaryAction, equals: .addSource)
+                        .focusEffectDisabled()
+                        .accessibilityLabel(PMString("ext.tv.sources.addOnTV"))
+                        .accessibilityHint(PMString("ext.tv.sources.chooseTypeBody"))
+                        .accessibilityIdentifier("tv.sources.addOnTV")
 
-                    Button { recycleBin = true } label: {
-                        Label(PMString("ext.tv.sources.recycleBin"), systemImage: "trash.circle")
-                            .tvFont(.meta, weight: .semibold).foregroundStyle(TVColor.text)
-                            .padding(.horizontal, 24).padding(.vertical, 16)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(focusedPrimaryAction == .recycleBin ? TVColor.surfaceStrong : TVColor.surfaceSubtle,
-                                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                            .tvFocusRing(
-                                focusedPrimaryAction == .recycleBin,
-                                radius: 16,
-                                scale: 1.02,
-                                lift: 0
-                            )
+                        Button { recycleBin = true } label: {
+                            Label(PMString("ext.tv.sources.recycleBin"), systemImage: "trash.circle")
+                                .tvFont(.meta, weight: .semibold).foregroundStyle(TVColor.text)
+                                .padding(.horizontal, 24).padding(.vertical, 16)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(focusedPrimaryAction == .recycleBin ? TVColor.surfaceStrong : TVColor.surfaceSubtle,
+                                            in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                .tvFocusRing(
+                                    focusedPrimaryAction == .recycleBin,
+                                    radius: 16,
+                                    scale: 1.02,
+                                    lift: 0
+                                )
+                        }
+                        .buttonStyle(TVBareButtonStyle())
+                        .focused($focusedPrimaryAction, equals: .recycleBin)
+                        .focusEffectDisabled()
+                        .accessibilityIdentifier("tv.sources.recycleBin")
                     }
-                    .buttonStyle(TVBareButtonStyle())
-                    .focused($focusedPrimaryAction, equals: .recycleBin)
-                    .focusEffectDisabled()
-                    .accessibilityIdentifier("tv.sources.recycleBin")
+                    .padding(.horizontal, 10)
+                    .padding(.top, 6)
+                    .padding(.bottom, TVScrollEdgeFade.bottom)
                 }
-                .frame(width: 520)
+                .tvScrollEdgeFade(top: 6)
+                .frame(width: 620)
                 .frame(maxHeight: .infinity, alignment: .top)
                 .focusSection()
             }
@@ -599,16 +607,13 @@ private struct TVSourcesInfoCard: View {
                 Image(systemName: "qrcode").font(.system(size: 28)).foregroundStyle(TVColor.brand)
                 Text(PMString("ext.tv.sources.scanTitle")).tvFont(.rowTitle, weight: .bold).foregroundStyle(TVColor.text)
             }
+            // 二维码旁边只放确认码 / 传输进度,两段说明在下面占满整张卡片的宽度:
+            // 挤在二维码旁边的窄列里时,长一点的语言放不下就被截掉了。
             HStack(alignment: .top, spacing: 22) {
                 TVQRCode(content: store.pairingQRContent, size: 190)
                 VStack(alignment: .leading, spacing: 12) {
-                    Text(PMString("ext.tv.sources.scanBody1"))
-                        .tvFont(.caption).foregroundStyle(TVColor.textMuted).lineSpacing(5)
-                    Text(PMString("ext.tv.sources.scanBody2"))
-                        .tvFont(.meta).foregroundStyle(TVColor.textGhost).lineSpacing(4)
                     if let transfer = store.pairingTransfer {
                         TVPairingTransferStatusView(status: transfer, settings: store.pairingSettingsCategories)
-                            .padding(.top, 8)
                     } else if !store.pairingCode.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(PMString("ext.tv.sources.confirmCode"))
@@ -620,11 +625,17 @@ private struct TVSourcesInfoCard: View {
                             Text(PMString("ext.tv.sources.confirmCodeHint"))
                                 .tvFont(.meta)
                                 .foregroundStyle(TVColor.textMuted)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
-                        .padding(.top, 8)
                     }
                 }
             }
+            Text(PMString("ext.tv.sources.scanBody1"))
+                .tvFont(.caption).foregroundStyle(TVColor.textMuted).lineSpacing(5)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(PMString("ext.tv.sources.scanBody2"))
+                .tvFont(.meta).foregroundStyle(TVColor.textGhost).lineSpacing(4)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(28).frame(maxWidth: .infinity, alignment: .leading)
         .background(TVColor.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))

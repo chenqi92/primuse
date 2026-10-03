@@ -2,6 +2,11 @@
 import SwiftUI
 import PrimuseKit
 
+/// 首页主卡的尺寸。叙事版、情景推荐版和旁边的「接着听」面板共用一个高度。
+enum MacHomeHeroMetrics {
+    static let height: CGFloat = 296
+}
+
 /// Mac 首页主卡的情景推荐版:原来的「叙事文案 + 封面拼贴」换成此刻情景下推荐的一整张
 /// 专辑 —— 单张封面、情景标题(通勤路上 / 周末午后 / 睡前…)、推荐理由,整张播放、
 /// 换一张,以及原有的随机播放整个曲库。推荐与 iPhone 首页、电视首页同源
@@ -28,6 +33,8 @@ struct MacHomeAlbumPickHero: View {
                 darkAccent: PMColor.brand.opacity(0.55),
                 strength: 0.72
             )
+            // 色斑是 720 见方的固定圆, 不让它把主卡撑到 720 宽: 窄窗口下主卡会越出右边。
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
             .allowsHitTesting(false)
 
             HStack(alignment: .center, spacing: 36) {
@@ -65,24 +72,11 @@ struct MacHomeAlbumPickHero: View {
                         .foregroundStyle(.white.opacity(0.92))
                         .lineLimit(2)
 
-                    HStack(spacing: PMSpace.s10) {
-                        Button(action: onPlay) {
-                            Label("album_pick_play", systemImage: "play.fill")
-                                .font(.system(size: 13.5, weight: .semibold))
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 11)
-                                .background(PMColor.brand, in: Capsule())
-                                .foregroundStyle(.white)
-                        }
-                        .buttonStyle(.plain)
-                        .shadow(color: PMColor.brand.opacity(0.45), radius: 10, y: 4)
-                        .accessibilityIdentifier("macHome.albumPick.play")
-
-                        glassButton("album_pick_another", symbol: "arrow.triangle.2.circlepath", action: onAnother)
-                            .disabled(!canShowAnother)
-                            .accessibilityIdentifier("macHome.albumPick.another")
-
-                        glassButton("shuffle_all", symbol: "shuffle", action: onShuffleLibrary)
+                    // 窗口窄、或旁边摆着「接着听」时文字列放不下三颗带字按钮,
+                    // 后两颗收成只有图标的圆钮(悬停有说明)。
+                    ViewThatFits(in: .horizontal) {
+                        actionButtons(compact: false)
+                        actionButtons(compact: true)
                     }
                     .padding(.top, 6)
                 }
@@ -91,7 +85,7 @@ struct MacHomeAlbumPickHero: View {
             .padding(.horizontal, PMSpace.xxl)
             .padding(.vertical, PMSpace.l24)
         }
-        .frame(height: 296)
+        .frame(height: MacHomeHeroMetrics.height)
         .clipShape(RoundedRectangle(cornerRadius: PMRadius.xxl, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: PMRadius.xxl, style: .continuous)
@@ -100,17 +94,61 @@ struct MacHomeAlbumPickHero: View {
         .shadow(color: .black.opacity(0.45), radius: 8, y: 4)
     }
 
-    private func glassButton(_ title: LocalizedStringKey, symbol: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: symbol)
-                .font(.system(size: 13.5, weight: .semibold))
-                .padding(.horizontal, 18)
-                .padding(.vertical, 11)
-                .background(Color.white.opacity(0.18), in: Capsule())
-                .overlay { Capsule().strokeBorder(.white.opacity(0.24), lineWidth: 0.5) }
-                .foregroundStyle(.white)
+    private func actionButtons(compact: Bool) -> some View {
+        HStack(spacing: PMSpace.s10) {
+            Button(action: onPlay) {
+                Label("album_pick_play", systemImage: "play.fill")
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 11)
+                    .background(PMColor.brand, in: Capsule())
+                    .foregroundStyle(.white)
+            }
+            .buttonStyle(.plain)
+            .shadow(color: PMColor.brand.opacity(0.45), radius: 10, y: 4)
+            .accessibilityIdentifier("macHome.albumPick.play")
+
+            glassButton("album_pick_another", symbol: "arrow.triangle.2.circlepath", compact: compact, action: onAnother)
+                .disabled(!canShowAnother)
+                .accessibilityIdentifier("macHome.albumPick.another")
+
+            glassButton("shuffle_all", symbol: "shuffle", compact: compact, action: onShuffleLibrary)
         }
-        .buttonStyle(.plain)
+        .fixedSize()
+    }
+
+    @ViewBuilder
+    private func glassButton(
+        _ title: LocalizedStringKey,
+        symbol: String,
+        compact: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        if compact {
+            Button(action: action) {
+                Image(systemName: symbol)
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .frame(width: 40, height: 40)
+                    .background(Color.white.opacity(0.18), in: Circle())
+                    .overlay { Circle().strokeBorder(.white.opacity(0.24), lineWidth: 0.5) }
+                    .foregroundStyle(.white)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help(Text(title))
+            .accessibilityLabel(Text(title))
+        } else {
+            Button(action: action) {
+                Label(title, systemImage: symbol)
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 11)
+                    .background(Color.white.opacity(0.18), in: Capsule())
+                    .overlay { Capsule().strokeBorder(.white.opacity(0.24), lineWidth: 0.5) }
+                    .foregroundStyle(.white)
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     @ViewBuilder

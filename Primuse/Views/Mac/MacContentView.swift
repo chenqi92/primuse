@@ -204,6 +204,12 @@ struct MacContentView: View {
                         .onReceive(NotificationCenter.default.publisher(for: .primuseRevealSearchResults)) { _ in
                             closeNowPlayingForSearch()
                         }
+                        #if DEBUG
+                        // 调试脚本的 `route:<页面>`: 锁屏的编译机上按不了侧栏, 由这里换页。
+                        .onReceive(NotificationCenter.default.publisher(for: .primuseDebugSelectRoute)) { note in
+                            selectRoute((note.object as? String).flatMap(route(for:)) ?? .home)
+                        }
+                        #endif
 
                     if nowPlayingPresented {
                         MacNowPlayingView(onClose: {

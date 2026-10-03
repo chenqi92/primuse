@@ -871,7 +871,7 @@ struct PlaylistDetailView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
                     MacLibraryHeader(
-                        eyebrow: "playlist",
+                        eyebrow: "server_share_kind_playlist",
                         title: currentPlaylist?.name ?? playlist.name,
                         subtitle: playlistSubtitle,
                         iconSystemName: coverPlaceholderIcon,

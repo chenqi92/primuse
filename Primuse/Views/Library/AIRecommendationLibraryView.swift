@@ -951,7 +951,7 @@ struct AIRecommendationLibraryView: View {
     private var platformHorizontalPadding: CGFloat { PMSpace.xxxl }
     private var platformTopPadding: CGFloat { PMSpace.l24 }
     private var platformSectionSpacing: CGFloat { PMSpace.l }
-    private var platformCardMinimumWidth: CGFloat { 330 }
+    private var platformCardMinimumWidth: CGFloat { 300 }
     private var platformArtworkSize: CGFloat { 88 }
     private var platformTitleFont: Font { PMFont.pageTitle(28) }
     private var platformAccentColor: Color { PMColor.brand }

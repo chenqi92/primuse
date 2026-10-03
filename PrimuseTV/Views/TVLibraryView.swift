@@ -1030,8 +1030,10 @@ struct TVArtistDetailView: View {
                         }
                     }
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 20)
+                    .padding(.top, 20)
+                    .padding(.bottom, TVScrollEdgeFade.bottom)
                 }
+                .tvScrollEdgeFade()
                 .focusSection()
             }
             .padding(.horizontal, 100)
@@ -1283,8 +1285,10 @@ struct TVAlbumDetailView: View {
                         }
                     }
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 20)
+                    .padding(.top, 20)
+                    .padding(.bottom, TVScrollEdgeFade.bottom)
                 }
+                .tvScrollEdgeFade()
                 .focusSection()
             }
             .padding(.horizontal, 100)
