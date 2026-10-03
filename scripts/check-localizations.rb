@@ -319,6 +319,11 @@ HAN_LITERAL_ALLOWLIST = {
     /title: "第\\\(chapter \+ 1\)章"/,
     /"书籍 %04d · 故事"/
   ],
+  # DEBUG-only resume-card screenshot hook (PRIMUSE_DEBUG_RESUME_CARDS):
+  # fabricated book data, never compiled into release builds.
+  "Primuse/Views/Mac/MacHomeView.swift" => [
+    /title: "第三章", albumTitle: "三体 II：黑暗森林", artist: "刘慈欣"/
+  ],
   # Placeholder track titles that CUE sheets and scanners write ("第3轨",
   # "曲目 01"); matched against sheet data and file names, never shown.
   "PrimuseKit/Sources/PrimuseKit/CueTrackLyricsSidecarPolicy.swift" => [
