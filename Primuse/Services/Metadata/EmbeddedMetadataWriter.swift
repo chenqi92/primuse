@@ -202,8 +202,8 @@ enum EmbeddedMetadataWriter {
             )
         }
 
-        if fileExtension == "m4a", let tags = edits.tags, edits.writes(.album) {
-            try await rewriteM4AAlbum(tags.albumTitle, at: fileURL)
+        if fileExtension == "m4a" {
+            try repairM4AItemList(at: fileURL)
         }
 
         let verifiedFile = try AudioFile(readingPropertiesAndMetadataFrom: fileURL)
@@ -304,34 +304,25 @@ enum EmbeddedMetadataWriter {
         return unified.isEmpty ? nil : unified
     }
 
-    /// SFBAudioEngine 0.12.1 writes the MP4 album atom as `©ALB` instead of
-    /// the standard `©alb`, leaving an existing album unchanged. A passthrough
-    /// AVFoundation export corrects that single field without re-encoding the
-    /// audio stream and carries all metadata produced above into the new file.
-    private static func rewriteM4AAlbum(_ albumTitle: String?, at fileURL: URL) async throws {
-        let asset = AVURLAsset(url: fileURL)
-        guard let exporter = AVAssetExportSession(
-            asset: asset,
-            presetName: AVAssetExportPresetPassthrough
-        ) else {
-            throw EmbeddedMetadataWriterError.verificationFailed("album export")
+    /// SFBAudioEngine 0.12.1 writes the MP4 album as `©ALB` (leaving any old
+    /// `©alb` behind) and writes empty items for unset fields, including an
+    /// empty `covr` box. AVFoundation stops reading the item list at an empty
+    /// or `free` box, so system and third-party readers saw no tags at all.
+    /// The item list is fixed in place and the freed bytes become padding
+    /// right after it, so the file keeps its length and layout. This replaces
+    /// an AVFoundation passthrough export that rebuilt the file from what
+    /// AVFoundation could read — after such a write that was nothing, and
+    /// every other edited tag was lost (the edit then failed verification).
+    private static func repairM4AItemList(at fileURL: URL) throws {
+        let data = try Data(contentsOf: fileURL, options: .mappedIfSafe)
+        guard let rewrites = M4AMetadataAtomRepair.rewrites(in: data), !rewrites.isEmpty else { return }
+        let handle = try FileHandle(forUpdating: fileURL)
+        defer { try? handle.close() }
+        for rewrite in rewrites {
+            try handle.seek(toOffset: UInt64(rewrite.offset))
+            try handle.write(contentsOf: rewrite.bytes)
         }
-
-        var metadata = try await asset.load(.metadata)
-        metadata.removeAll { $0.identifier == .iTunesMetadataAlbum }
-        if let albumTitle = normalized(albumTitle) {
-            let item = AVMutableMetadataItem()
-            item.identifier = .iTunesMetadataAlbum
-            item.value = albumTitle as NSString
-            metadata.append(item)
-        }
-        exporter.metadata = metadata
-
-        let outputURL = fileURL.deletingLastPathComponent()
-            .appendingPathComponent("m4a-metadata-\(UUID().uuidString).m4a")
-        defer { try? FileManager.default.removeItem(at: outputURL) }
-        try await exporter.export(to: outputURL, as: .m4a)
-        _ = try FileManager.default.replaceItemAt(fileURL, withItemAt: outputURL)
+        try handle.synchronize()
     }
 
     /// SFBAudioEngine currently emits an empty APIC MIME field even though it

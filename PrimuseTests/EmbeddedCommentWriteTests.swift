@@ -63,8 +63,6 @@ final class EmbeddedCommentWriteTests: XCTestCase {
         XCTAssertEqual(tags.artist, "Artist")
     }
 
-    /// Core Audio 现写的 M4A 没有 iTunes 标签块,先写曲名那一步在这种样本上本来就过不了回读,
-    /// 所以这里只验注释本身,并确认写注释不改动其它标签。
     func testCommentRoundTripsInM4A() async throws {
         let url = try makeFixture(fileExtension: "m4a", settings: [
             AVFormatIDKey: kAudioFormatMPEG4AAC,
@@ -72,17 +70,7 @@ final class EmbeddedCommentWriteTests: XCTestCase {
             AVNumberOfChannelsKey: 2,
             AVEncoderBitRateKey: 128_000,
         ])
-        let before = try EmbeddedMetadataWriter.currentTags(at: url)
-        _ = try await EmbeddedMetadataWriter.writeAndVerify(
-            EmbeddedMetadataEdits(tags: nil, coverData: nil, lyrics: .keep, comment: .set("专辑简介。")),
-            to: url
-        )
-        XCTAssertEqual(try EmbeddedMetadataWriter.currentTags(at: url), before)
-        _ = try await EmbeddedMetadataWriter.writeAndVerify(
-            EmbeddedMetadataEdits(tags: nil, coverData: nil, lyrics: .keep, comment: .remove),
-            to: url
-        )
-        XCTAssertEqual(try EmbeddedMetadataWriter.currentTags(at: url), before)
+        try await assertCommentRoundTrip(at: url)
     }
 
     func testCommentRoundTripsInFLAC() async throws {
