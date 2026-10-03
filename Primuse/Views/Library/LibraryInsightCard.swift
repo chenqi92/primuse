@@ -352,6 +352,11 @@ struct LibraryInsightSynopsis: View {
             noteAndActions(Text(subject.kind == .album
                 ? LocalizedStringKey("library_insight_unknown_album")
                 : LocalizedStringKey("library_insight_unknown_artist"))) {
+                // 换了服务或改了提示词之后,原来说不认识的可能认识了。
+                if actions.canAskAI {
+                    chip("library_insight_regenerate", systemImage: "sparkles") { actions.generate() }
+                        .disabled(store.retryDate(for: subject) != nil)
+                }
                 chip("library_insight_write_own", systemImage: "pencil") { isEditing = true }
             }
         } else if actions.canAskAI {

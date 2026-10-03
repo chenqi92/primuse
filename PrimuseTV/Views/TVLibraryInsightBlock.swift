@@ -133,6 +133,12 @@ struct TVLibraryInsightBlock: View {
                 Text(verbatim: LibraryInsightStore.footer(for: insight))
                     .tvFont(.meta)
                     .foregroundStyle(TVColor.textFaint)
+                // 按下就重新问一次(换了服务或提示词之后可能就认识了)。
+                if canAskAI {
+                    Label(String(localized: "library_insight_regenerate"), systemImage: "sparkles")
+                        .tvFont(.caption, weight: .semibold)
+                        .foregroundStyle(TVColor.text)
+                }
             }
         } else {
             VStack(alignment: .leading, spacing: 10) {

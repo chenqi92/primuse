@@ -92,7 +92,8 @@ final class LibraryInsightStore {
     ) async {
         let id = recordID(for: subject)
         guard let draft = await aiDraft(for: subject, intelligence: intelligence) else { return }
-        plog("✨ Library insight kind=\(subject.kind.rawValue) known=\(draft.answer.known) tags=\(draft.answer.tags.count)")
+        plog("✨ Library insight kind=\(subject.kind.rawValue) known=\(draft.answer.known) tags=\(draft.answer.tags.count)"
+             + " provider=\(draft.providerName) tracks=\(subject.tracks.count) albums=\(subject.albums.count)")
         library.saveLibraryInsightRecord(LibraryInsightEditing.recordAfterAIFill(
             draft.answer,
             subject: subject,
