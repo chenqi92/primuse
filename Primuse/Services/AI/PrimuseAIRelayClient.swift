@@ -37,6 +37,8 @@ enum PrimuseAIRelayDiagnosticCategory: Equatable, Sendable {
 struct PrimuseAIRelayDiagnostic: Equatable, Sendable {
     var category: PrimuseAIRelayDiagnosticCategory
     var code: String
+    /// 设备注册时 App Attest 被拒、StoreKit 兜底也没成:兜底那次的诊断码。
+    var fallbackCode: String? = nil
 
     static func classify(_ error: Error) -> PrimuseAIRelayDiagnostic {
         let nsError = error as NSError
@@ -312,6 +314,9 @@ actor PrimuseAIRelayClient {
     private let transientRetryDelay: Duration
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    /// App Attest 注册被拒、StoreKit 兜底也没成时,兜底那次的诊断码。对外仍报 App Attest 的错误,
+    /// 连接测试把这一段一起显示,兜底为什么没成就不会被盖住。
+    private(set) var lastEnrollmentFallbackCode: String?
 
     init(
         baseURL: URL = PrimuseAIRelayClient.productionBaseURL,
@@ -346,6 +351,7 @@ actor PrimuseAIRelayClient {
     }
 
     func testConnection() async throws -> PrimuseAIRelayAuthenticationMethod {
+        lastEnrollmentFallbackCode = nil
         let request = AISemanticSearchRequest(
             query: "quiet evening music",
             languageCode: "en",
@@ -1191,6 +1197,7 @@ actor PrimuseAIRelayClient {
             return try await ensureStoreKitEnrollment(allowsRefresh: allowsStoreKitRefresh)
         } catch {
             if let appAttestFailure {
+                lastEnrollmentFallbackCode = PrimuseAIRelayDiagnostic.classify(error).code
                 throw appAttestFailure
             }
             throw error

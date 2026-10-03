@@ -259,9 +259,11 @@ final class AISettingsEditorModel {
             return String(localized: "ai_primuse_relay_test_success_storekit_detail")
         case .unavailable(let diagnostic):
             var lines = [primuseRelayDiagnosticDetail(for: diagnostic)]
+            // App Attest 被拒后 StoreKit 兜底也没成时,两段诊断码都给出来。
+            let codes = [diagnostic.code] + (diagnostic.fallbackCode.map { ["StoreKit \($0)"] } ?? [])
             lines.append(String(
                 format: String(localized: "ai_primuse_relay_diagnostic_code_format"),
-                diagnostic.code
+                codes.joined(separator: " · ")
             ))
             switch report.fallback {
             case .none:

@@ -2070,8 +2070,12 @@ final class MusicIntelligenceService {
                 fallback: .none
             )
         } catch {
+            var diagnostic = PrimuseAIRelayDiagnostic.classify(error)
+            if diagnostic.category == .deviceRegistration {
+                diagnostic.fallbackCode = await primuseRelayClient.lastEnrollmentFallbackCode
+            }
             return PrimuseAIRelayConnectionReport(
-                outcome: .unavailable(PrimuseAIRelayDiagnostic.classify(error)),
+                outcome: .unavailable(diagnostic),
                 fallback: await verifiedPrimuseRelayFallback(
                     providerSet: providerSet,
                     apiKeyOverrides: apiKeyOverrides

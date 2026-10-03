@@ -915,6 +915,29 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         )
     }
 
+    func testFailedStoreKitFallbackKeepsAppAttestErrorAndRecordsFallbackCode() async throws {
+        let host = "primuse-relay-app-attest-fallback-failed.invalid"
+        PrimuseRelayURLProtocol.configure(host: host)
+        let attestor = TestPrimuseAppAttestor(attestationFailuresRemaining: 1)
+        let (client, session, _, _) = makeClient(host: host, attestor: attestor)
+        defer { session.invalidateAndCancel() }
+
+        do {
+            _ = try await client.testConnection()
+            XCTFail("App Attest 与 StoreKit 兜底都失败时连接测试应当报错")
+        } catch {
+            XCTAssertEqual(
+                PrimuseAIRelayDiagnostic.classify(error),
+                PrimuseAIRelayDiagnostic(
+                    category: .deviceRegistration,
+                    code: "app_attest_\(DCError.serverUnavailable.rawValue)"
+                )
+            )
+        }
+        let fallbackCode = await client.lastEnrollmentFallbackCode
+        XCTAssertEqual(fallbackCode, "unsupported_device")
+    }
+
     func testServerRejectedAppAttestInstallationReenrollsOnceAndRetries() async throws {
         let host = "primuse-relay-server-app-attest-recovery.invalid"
         PrimuseRelayURLProtocol.configure(
