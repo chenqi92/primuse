@@ -365,16 +365,25 @@ private struct TVFocusRingModifier: ViewModifier {
 
     let focused: Bool
     let radius: CGFloat
+    let capsule: Bool
     let accent: Color
     let scale: CGFloat
     let lift: CGFloat
 
+    @ViewBuilder
     func body(content: Content) -> some View {
+        if capsule {
+            ring(content, shape: Capsule())
+        } else {
+            ring(content, shape: RoundedRectangle(cornerRadius: radius, style: .continuous))
+        }
+    }
+
+    private func ring<S: InsettableShape>(_ content: Content, shape: S) -> some View {
         content
-            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .clipShape(shape)
             .overlay {
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .strokeBorder(accent.opacity(0.85), lineWidth: focused ? 2 : 0)
+                shape.strokeBorder(accent.opacity(0.85), lineWidth: focused ? 2 : 0)
             }
             .shadow(color: focused ? TVColor.focusShadow.opacity(0.65) : TVColor.cardShadow,
                     radius: focused ? 14 : 8, x: 0, y: focused ? 6 : 4)
@@ -387,14 +396,17 @@ private struct TVFocusRingModifier: ViewModifier {
 
 extension View {
     /// 细描边与轻微浮起保持焦点可见，避免彩色光晕与封面氛围叠加。
+    /// `capsule` 用于胶囊形的按钮:描边和裁切跟着胶囊走,圆角不随按钮高度对不上。
     func tvFocusRing(_ focused: Bool,
                      radius: CGFloat = TVRadius.card,
+                     capsule: Bool = false,
                      accent: Color = TVColor.focusRing,
                      scale: CGFloat = 1.06,
                      lift: CGFloat = 12) -> some View {
         modifier(TVFocusRingModifier(
             focused: focused,
             radius: radius,
+            capsule: capsule,
             accent: accent,
             scale: scale,
             lift: lift
@@ -426,6 +438,8 @@ struct TVBareButtonStyle: ButtonStyle {
 /// 可聚焦按钮 — 选中触发 action，label 闭包拿到当前焦点态自行换样式。
 struct TVFocusButton<Label: View>: View {
     var radius: CGFloat
+    /// 按钮本身画成胶囊时打开,焦点描边才和按钮外形重合(`radius` 此时不用)。
+    var capsule: Bool
     var accent: Color
     var scale: CGFloat
     var lift: CGFloat
@@ -441,6 +455,7 @@ struct TVFocusButton<Label: View>: View {
     @FocusState private var focused: Bool
 
     init(radius: CGFloat = TVRadius.card,
+         capsule: Bool = false,
          accent: Color = TVColor.focusRing,
          scale: CGFloat = 1.06,
          lift: CGFloat = 12,
@@ -451,6 +466,7 @@ struct TVFocusButton<Label: View>: View {
          focusID: String? = nil,
          @ViewBuilder label: @escaping (Bool) -> Label) {
         self.radius = radius
+        self.capsule = capsule
         self.accent = accent
         self.scale = scale
         self.lift = lift
@@ -466,7 +482,9 @@ struct TVFocusButton<Label: View>: View {
         Button(action: action) {
             Group {
                 if ring {
-                    label(focused).tvFocusRing(focused, radius: radius, accent: accent, scale: scale, lift: lift)
+                    label(focused).tvFocusRing(
+                        focused, radius: radius, capsule: capsule, accent: accent, scale: scale, lift: lift
+                    )
                 } else {
                     label(focused)
                 }

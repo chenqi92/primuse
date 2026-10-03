@@ -275,7 +275,7 @@ struct TVSearchView: View {
                     .focused($inputActive)
             }
             if !trimmed.isEmpty {
-                TVFocusButton(radius: 18, scale: 1.06, lift: 0, action: { query = "" }) { f in
+                TVFocusButton(capsule: true, scale: 1.06, lift: 0, action: { query = "" }) { f in
                     Text(PMString("ext.tv.search.clear"))
                         .tvFont(.caption, weight: .medium).foregroundStyle(TVColor.text)
                         .padding(.horizontal, 16).padding(.vertical, 8)

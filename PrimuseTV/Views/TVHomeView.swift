@@ -591,7 +591,7 @@ struct TVHomeView: View {
     private func recommendationSceneButton(_ scene: AIRecommendationScene) -> some View {
         let selected = recommendationScene == scene
         return TVFocusButton(
-            radius: 14,
+            capsule: true,
             scale: 1.05,
             lift: 4,
             action: { recommendationSceneRawValue = scene.rawValue }
