@@ -49,7 +49,7 @@ struct PrimuseRadioStationEntity: AppEntity, Identifiable, Hashable {
 
 struct PrimuseRadioStationEntityQuery: EntityStringQuery {
     func entities(for identifiers: [String]) async throws -> [PrimuseRadioStationEntity] {
-        await MainActor.run {
+        let entities: [PrimuseRadioStationEntity] = await MainActor.run {
             let store = AppServices.shared.radioStationsStore
             var seen = Set<String>()
             return identifiers.compactMap { identifier in
@@ -65,10 +65,12 @@ struct PrimuseRadioStationEntityQuery: EntityStringQuery {
                 )
             }
         }
+        plog("🎙️ AppIntent radio entities requested=\(identifiers.count) found=\(entities.count)")
+        return entities
     }
 
     func entities(matching string: String) async throws -> [PrimuseRadioStationEntity] {
-        await MainActor.run {
+        let entities: [PrimuseRadioStationEntity] = await MainActor.run {
             let services = AppServices.shared
             guard let result = SiriNamedMediaResolver.resolve(
                 query: string,
@@ -93,17 +95,21 @@ struct PrimuseRadioStationEntityQuery: EntityStringQuery {
                 }
             }
         }
+        plog("🎙️ AppIntent radio match results=\(entities.count)")
+        return entities
     }
 
     /// These become the values of "用 Primuse 播放 <台名>". Only stations in
     /// this list can be named in that one sentence; see
     /// `SiriRadioStationCatalog.appShortcutStationLimit` for the budget.
     func suggestedEntities() async throws -> [PrimuseRadioStationEntity] {
-        await MainActor.run {
+        let entities: [PrimuseRadioStationEntity] = await MainActor.run {
             AppServices.shared.siriShortcutRadioStations.map {
                 Self.entity(for: $0)
             }
         }
+        plog("🎙️ AppIntent radio suggestions=\(entities.count)")
+        return entities
     }
 
     private static func entity(
@@ -143,6 +149,7 @@ struct PrimusePlayRadioIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
+        plog("🎙️ AppIntent play radio confirm=\(station.requiresPlaybackConfirmation)")
         guard let parsedIdentifier = PrimuseRadioStationEntityIdentifier.parse(station.id),
               let currentStation = AppServices.shared.radioStationsStore.station(
                   id: parsedIdentifier.stationID
@@ -173,6 +180,7 @@ struct PrimusePlayRadioIntent: AudioPlaybackIntent {
         let outcome = await PrimuseIntentBridge.shared.playRadioStation(
             parsedIdentifier.stationID
         )
+        plog("🎙️ AppIntent play radio outcome=\(Self.label(outcome))")
         switch outcome {
         case .playing(let name), .connecting(let name):
             let message = String(
@@ -192,6 +200,20 @@ struct PrimusePlayRadioIntent: AudioPlaybackIntent {
             return .result(dialog: IntentDialog("The radio station's source is disabled."))
         case .unavailable:
             return .result(dialog: IntentDialog("The radio station is currently unavailable."))
+        }
+    }
+}
+
+extension PrimusePlayRadioIntent {
+    /// Station names stay out of the log.
+    static func label(_ outcome: PrimuseRadioIntentOutcome) -> String {
+        switch outcome {
+        case .playing: "playing"
+        case .connecting: "connecting"
+        case .needsApp: "needs-app"
+        case .notFound: "not-found"
+        case .sourceDisabled: "source-disabled"
+        case .unavailable: "unavailable"
         }
     }
 }

@@ -126,7 +126,9 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
     }
 
     func application(_ application: UIApplication, handlerFor intent: INIntent) -> Any? {
-        intent is INPlayMediaIntent || intent is INSearchForMediaIntent
+        // First sign that a Siri request reached the app at all.
+        plog("🎙️ TV SiriKit handler requested intent=\(type(of: intent)) state=\(application.applicationState.rawValue)")
+        return intent is INPlayMediaIntent || intent is INSearchForMediaIntent
             ? playMediaHandler
             : nil
     }

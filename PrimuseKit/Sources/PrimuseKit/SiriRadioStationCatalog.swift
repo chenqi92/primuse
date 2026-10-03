@@ -78,6 +78,18 @@ public enum SiriRadioStationCatalog {
         return Array((played + unplayed).prefix(max(0, limit)))
     }
 
+    /// What "播放电台" plays when it names no station: the one last listened
+    /// to, else the first the radio page shows. Siri expects a default for a
+    /// request that names nothing ("resume, or something sensible"), not a
+    /// follow-up question — answering one with `needsValue` left Siri saying
+    /// the app was not responding.
+    public static func defaultStation(
+        from stations: [RadioStation],
+        enabledSourceIDs: Set<String>
+    ) -> RadioStation? {
+        appShortcutStations(from: stations, enabledSourceIDs: enabledSourceIDs, limit: 1).first
+    }
+
     public static func namedItems(
         from stations: [RadioStation],
         enabledSourceIDs: Set<String>

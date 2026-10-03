@@ -63,6 +63,7 @@ struct PrimuseContinueListeningIntent: AudioPlaybackIntent {
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let services = AppServices.shared
         let books = await services.siriSpokenWordBooksWhenReady()
+        plog("🎙️ AppIntent continue book named=\(book != nil) books=\(books.count)")
         let candidate: SpokenWordBook?
         if let book {
             candidate = books.first { $0.id == book.id }
@@ -149,6 +150,7 @@ struct PrimusePlayPodcastIntent: AudioPlaybackIntent {
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let services = AppServices.shared
         let shows = await services.siriPodcastShowsWhenLoaded()
+        plog("🎙️ AppIntent podcast named=\(show != nil) shows=\(shows.count)")
         guard !shows.isEmpty else {
             return .result(dialog: IntentDialog("intent_podcast_none_subscribed"))
         }
@@ -163,7 +165,9 @@ struct PrimusePlayPodcastIntent: AudioPlaybackIntent {
         guard let plan = candidate else {
             return .result(dialog: IntentDialog("intent_podcast_nothing"))
         }
-        switch await services.startPodcastForIntent(plan) {
+        let start = await services.startPodcastForIntent(plan)
+        plog("🎙️ AppIntent podcast start=\(String(describing: start))")
+        switch start {
         case .started, .stillStarting:
             let message = String(
                 format: String(localized: "intent_podcast_playing_format"),
@@ -224,6 +228,7 @@ struct PrimuseSetSleepTimerIntent: AudioPlaybackIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let player = AppServices.shared.playerService
+        plog("🎙️ AppIntent sleep timer choice=\(duration.rawValue)")
         switch duration.request.resolution(
             space: player.currentListeningSpace,
             hasChapters: player.hasChapters

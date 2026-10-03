@@ -50,10 +50,17 @@ final class TVPlayMediaIntentHandler: NSObject,
     }
 
     func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
-        let completion = TVUncheckedBox(completion)
+        let startedAt = Date()
+        let reply = completion
+        let completion = TVUncheckedBox<(INPlayMediaIntentResponse) -> Void> { response in
+            let elapsedMS = Int(Date().timeIntervalSince(startedAt) * 1_000)
+            plog("🎙️ TV SiriKit response code=\(response.code.rawValue) elapsed=\(elapsedMS)ms")
+            reply(response)
+        }
         Task { @MainActor in
             let query = Self.query(for: intent)
             let identifierGroups = Self.selectedIdentifierGroups(for: intent)
+            plog("🎙️ TV SiriKit request kind=\(String(describing: query.kind)) groups=\(identifierGroups.map(\.count))")
             await store.prepareForSiri(
                 needsLibrary: SiriRequestNeeds.libraryForPlayback(query, identifierGroups: identifierGroups)
             )
@@ -119,11 +126,20 @@ final class TVPlayMediaIntentHandler: NSObject,
         for intent: INPlayMediaIntent,
         with completion: @escaping ([INPlayMediaMediaItemResolutionResult]) -> Void
     ) {
-        let completion = TVUncheckedBox(completion)
+        // Resolution ends a request as surely as `handle` does, so it is
+        // logged the same way.
+        let startedAt = Date()
+        let reply = completion
+        let completion = TVUncheckedBox<([INPlayMediaMediaItemResolutionResult]) -> Void> { results in
+            let elapsedMS = Int(Date().timeIntervalSince(startedAt) * 1_000)
+            plog("🎙️ TV SiriKit resolve done results=\(results.count) elapsed=\(elapsedMS)ms")
+            reply(results)
+        }
         Task { @MainActor in
             let query = Self.query(for: intent)
             let identifierGroups = Self.selectedIdentifierGroups(for: intent)
             let identifiers = identifierGroups.flatMap { $0 }
+            plog("🎙️ TV SiriKit resolve kind=\(String(describing: query.kind)) identifiers=\(identifiers.count)")
             await store.prepareForSiri(
                 needsLibrary: SiriRequestNeeds.libraryForResolution(query, identifiers: identifiers)
             )
@@ -496,6 +512,12 @@ final class TVPlayMediaIntentHandler: NSObject,
         }
 
         if query.kind == .radioStation {
+            if identifiers.isEmpty,
+               query.mediaName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+                return defaultRadioItem()
+                    .flatMap { item in radioStations().first { $0.id == item.id } }
+                    .map(TVIntentTarget.radio)
+            }
             guard let resolved = SiriNamedMediaResolver.resolve(
                 query: query.mediaName,
                 selectedItemIDs: identifiers,
@@ -721,6 +743,17 @@ final class TVPlayMediaIntentHandler: NSObject,
         )
     }
 
+    /// The station a request naming none plays: the one last listened to.
+    @MainActor
+    private func defaultRadioItem() -> SiriNamedMediaItem? {
+        let enabled = Set(store.sourcesStore.sources.lazy.filter(\.isEnabled).map(\.id))
+        guard let station = SiriRadioStationCatalog.defaultStation(
+            from: store.radioStations,
+            enabledSourceIDs: enabled
+        ) else { return nil }
+        return SiriRadioStationCatalog.namedItems(from: [station], enabledSourceIDs: enabled).first
+    }
+
     @MainActor
     private func radioStations() -> [RadioStation] {
         SiriRadioStationCatalog.availableStations(
@@ -822,10 +855,17 @@ final class TVPlayMediaIntentHandler: NSObject,
     ) {
         let catalog = radioItems()
         if identifiers.isEmpty,
-           query?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
-           !catalog.isEmpty {
-            // "用 Primuse 播放电台": ask which one instead of failing.
-            completion.value([INPlayMediaMediaItemResolutionResult.needsValue()])
+           query?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+            // "播放猿音的电台" names no station. Siri wants a default for a
+            // request that names nothing, not a follow-up question.
+            guard let station = defaultRadioItem(),
+                  let item = radioMediaItems(from: [station]).first else {
+                completion.value([
+                    INPlayMediaMediaItemResolutionResult.unsupported(forReason: .serviceUnavailable),
+                ])
+                return
+            }
+            completion.value([INPlayMediaMediaItemResolutionResult.success(with: item)])
             return
         }
         guard let result = SiriNamedMediaResolver.resolve(

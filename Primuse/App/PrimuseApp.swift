@@ -68,6 +68,8 @@ final class PrimuseAppDelegate: NSObject, UIApplicationDelegate {
     static let playMediaHandler = PlayMediaIntentHandler()
 
     func application(_ application: UIApplication, handlerFor intent: INIntent) -> Any? {
+        // First sign that a Siri request reached the app at all.
+        plog("🎙️ SiriKit handler requested intent=\(type(of: intent)) state=\(application.applicationState.rawValue)")
         if intent is INPlayMediaIntent || intent is INSearchForMediaIntent {
             return Self.playMediaHandler
         }

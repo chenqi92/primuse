@@ -198,11 +198,24 @@ final class PlayMediaIntentHandler: NSObject,
         for intent: INPlayMediaIntent,
         with completion: @escaping ([INPlayMediaMediaItemResolutionResult]) -> Void
     ) {
-        let completion = UncheckedBox(completion)
+        // Resolution ends a request as surely as `handle` does (unsupported,
+        // a question Siri cannot ask), so it is logged the same way.
+        let startedAt = Date()
+        let reply = completion
+        let completion = UncheckedBox<([INPlayMediaMediaItemResolutionResult]) -> Void> { results in
+            let elapsedMS = Int(Date().timeIntervalSince(startedAt) * 1_000)
+            plog("🎙️ SiriKit resolve done results=\(results.count) elapsed=\(elapsedMS)ms")
+            reply(results)
+        }
         Task { @MainActor in
             let query = Self.query(for: intent)
             let identifierGroups = Self.selectedIdentifierGroups(for: intent)
             let identifiers = identifierGroups.flatMap { $0 }
+            plog(
+                "🎙️ SiriKit resolve kind=\(String(describing: query.kind)) "
+                    + "queryFields=\(Self.queryFieldCount(query)) "
+                    + "identifiers=\(identifiers.count)"
+            )
             // 同 `handle(intent:completion:)`: 歌单 / 专辑 / 艺术家 / 歌曲候选
             // 全部来自资料库, 发布之前列表是空的; 电台候选与 `.notRequired`
             // 的两类则完全不读库, 不为它们花预算。
@@ -701,6 +714,11 @@ final class PlayMediaIntentHandler: NSObject,
         query: String?,
         identifiers: [String]
     ) -> IntentTarget? {
+        if identifiers.isEmpty, query?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+            return defaultRadioItem()
+                .flatMap { item in radioStations().first { $0.id == item.id } }
+                .map(IntentTarget.radio)
+        }
         guard let result = SiriNamedMediaResolver.resolve(
             query: query,
             selectedItemIDs: identifiers,
@@ -810,6 +828,18 @@ final class PlayMediaIntentHandler: NSObject,
         AppServices.shared.siriRadioItems
     }
 
+    /// The station a request naming none plays: the one last listened to.
+    @MainActor
+    private static func defaultRadioItem() -> SiriNamedMediaItem? {
+        let services = AppServices.shared
+        let enabled = Set(services.sourcesStore.sources.lazy.filter(\.isEnabled).map(\.id))
+        guard let station = SiriRadioStationCatalog.defaultStation(
+            from: services.radioStationsStore.stations,
+            enabledSourceIDs: enabled
+        ) else { return nil }
+        return SiriRadioStationCatalog.namedItems(from: [station], enabledSourceIDs: enabled).first
+    }
+
     @MainActor
     private static func radioStations() -> [RadioStation] {
         AppServices.shared.siriRadioStations
@@ -908,10 +938,17 @@ final class PlayMediaIntentHandler: NSObject,
     ) {
         let catalog = radioItems()
         if identifiers.isEmpty,
-           query?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
-           !catalog.isEmpty {
-            // "用 Primuse 播放电台": ask which one instead of failing.
-            completion.value([INPlayMediaMediaItemResolutionResult.needsValue()])
+           query?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+            // "播放猿音的电台" names no station. Siri wants a default for a
+            // request that names nothing, not a follow-up question.
+            guard let station = defaultRadioItem(),
+                  let item = radioMediaItems(from: [station]).first else {
+                completion.value([
+                    INPlayMediaMediaItemResolutionResult.unsupported(forReason: .serviceUnavailable),
+                ])
+                return
+            }
+            completion.value([INPlayMediaMediaItemResolutionResult.success(with: item)])
             return
         }
         guard let result = SiriNamedMediaResolver.resolve(

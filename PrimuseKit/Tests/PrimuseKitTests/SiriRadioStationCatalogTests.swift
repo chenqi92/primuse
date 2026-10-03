@@ -230,6 +230,19 @@ struct SiriRadioStationCatalogTests {
         #expect(capped.map(\.name) == ["D Recent", "C Older", "A First"])
     }
 
+    @Test("A request naming no station plays the one last listened to")
+    func defaultStation() {
+        var first = RadioStation(name: "A First", streamURL: "https://radio.example/a")
+        first.sortOrder = 0
+        var played = RadioStation(name: "B Played", streamURL: "https://radio.example/b")
+        played.sortOrder = 1_024
+        played.lastPlayedAt = Date(timeIntervalSince1970: 1_000)
+
+        #expect(SiriRadioStationCatalog.defaultStation(from: [first, played], enabledSourceIDs: [])?.name == "B Played")
+        #expect(SiriRadioStationCatalog.defaultStation(from: [first], enabledSourceIDs: [])?.name == "A First")
+        #expect(SiriRadioStationCatalog.defaultStation(from: [], enabledSourceIDs: []) == nil)
+    }
+
     @Test("A station chosen by name equality or prefix is a strong match")
     func namedMatchStrength() throws {
         let items = [
