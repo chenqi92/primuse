@@ -6215,20 +6215,27 @@ private struct MacSTThemeView: View {
             }
 
             MacSTGroup {
-                ForEach(Array(swatches.enumerated()), id: \.offset) { index, swatch in
-                    MacBrandSwatchRow(
-                        swatch: swatch,
-                        selected: preferences.themeColorMode == .fixed
-                            && normHex(swatch.hex) == preferences.brandColorHex,
-                        divider: index != 0
-                    ) {
-                        setThemeColorMode(.fixed)
-                        preferences.brandColorHex = normHex(swatch.hex)
-                        // 同步 ambient fallback, 让 NowPlaying / 桌面歌词没有封面取色时
-                        // 也跟着换成新品牌色。
-                        themeService.setBaseAccent(swatch.color)
+                // 色块排成网格, 一行放好几个; 一色一行时十几种颜色要占大半屏。
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 132), spacing: 8)],
+                    alignment: .leading,
+                    spacing: 8
+                ) {
+                    ForEach(swatches, id: \.hex) { swatch in
+                        MacBrandSwatchChip(
+                            swatch: swatch,
+                            selected: preferences.themeColorMode == .fixed
+                                && normHex(swatch.hex) == preferences.brandColorHex
+                        ) {
+                            setThemeColorMode(.fixed)
+                            preferences.brandColorHex = normHex(swatch.hex)
+                            // 同步 ambient fallback, 让 NowPlaying / 桌面歌词没有封面取色时
+                            // 也跟着换成新品牌色。
+                            themeService.setBaseAccent(swatch.color)
+                        }
                     }
                 }
+                .padding(12)
             }
         }
         .settingsAnchor("appearance.palette")
@@ -7020,63 +7027,55 @@ private struct MacThemeChoiceCard: View {
     }
 }
 
-private struct MacBrandSwatchRow: View {
+/// 固定品牌色的一个色块: 色点 + 名字, 选中时描边换成这个颜色。色值放在悬停提示里。
+private struct MacBrandSwatchChip: View {
     let swatch: (hex: String, name: String, sub: String, color: Color)
     let selected: Bool
-    let divider: Bool
     let action: () -> Void
 
     @State private var hover = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            if divider {
-                Rectangle().fill(PMColor.divider).frame(height: 0.5)
-            }
-
-            Button(action: action) {
-                HStack(spacing: 12) {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(swatch.color)
-                        .frame(width: 28, height: 28)
-                        .shadow(color: swatch.color.opacity(0.28), radius: 3, y: 1)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(verbatim: swatch.name)
-                            .font(.system(size: 12.5, weight: .semibold))
-                            .foregroundStyle(PMColor.text)
-                        if !swatch.sub.isEmpty {
-                            Text(verbatim: swatch.sub)
-                                .font(.system(size: 10.5))
-                                .foregroundStyle(PMColor.textFaint)
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(swatch.color)
+                    .frame(width: 18, height: 18)
+                    .shadow(color: swatch.color.opacity(0.28), radius: 2, y: 1)
+                    .overlay {
+                        if selected {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.white)
                         }
                     }
 
-                    Spacer()
+                Text(verbatim: swatch.name)
+                    .font(.system(size: 12, weight: selected ? .semibold : .medium))
+                    .foregroundStyle(selected ? PMColor.text : PMColor.textMuted)
+                    .lineLimit(1)
 
-                    Text(verbatim: swatch.hex)
-                        .font(.system(size: 10.5, design: .monospaced))
-                        .foregroundStyle(PMColor.textFaint)
-
-                    if selected {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(PMColor.brand)
-                    } else {
-                        Circle()
-                            .strokeBorder(PMColor.dividerStrong, lineWidth: 1.5)
-                            .frame(width: 14, height: 14)
-                    }
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(hover ? PMColor.rowHover : .clear)
-                .contentShape(Rectangle())
-                .pmAnimation(.hover, value: hover)
+                Spacer(minLength: 0)
             }
-            .buttonStyle(.plain)
-            .onHover { hover = $0 }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                selected ? swatch.color.opacity(0.14) : (hover ? PMColor.rowHover : PMColor.glassBtn),
+                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(selected ? swatch.color : PMColor.dividerStrong, lineWidth: selected ? 1.5 : 0.5)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .pmAnimation(.hover, value: hover)
+            .pmAnimation(.hover, value: selected)
         }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .help(Text(verbatim: swatch.hex.uppercased()))
+        .accessibilityLabel(Text(verbatim: swatch.name))
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
