@@ -59,6 +59,9 @@
 "Play" = "चलाएँ";
 "Pause" = "रोकें";
 "Play or Pause" = "चलाएँ या रोकें";
+"Resume" = "फिर से चलाएँ";
+"Next Track" = "अगला ट्रैक";
+"Previous Track" = "पिछला ट्रैक";
 "Control Playback" = "प्लेबैक नियंत्रित करें";
 "Play, pause, or toggle Primuse playback." = "Primuse में प्लेबैक चलाएँ, रोकें या बदलें।";
 "Sync User Library" = "सिंक यूजर लाइब्रेरी";

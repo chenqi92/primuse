@@ -8,6 +8,10 @@ public enum SiriMediaSearchKind: Sendable, Equatable {
     case playlist
     case radioStation
     case algorithmicRadioStation
+    /// Spoken-word books in the library.
+    case audiobook
+    /// Subscribed podcast shows.
+    case podcast
     case music
     case unsupported
 }
@@ -55,6 +59,7 @@ public struct SiriMediaSearchQuery: Sendable {
 public enum SiriMediaIdentifier {
     private static let knownNamespaces: Set<String> = [
         "song", "album", "artist", "genre", "playlist", "radio", "station",
+        "audiobook", "podcastshow",
     ]
 
     public static func namespaced(_ identifier: String, as namespace: String) -> String {
@@ -443,7 +448,7 @@ public enum SiriMediaSearchResolver {
                 candidates: [],
                 needsDisambiguation: false
             )
-        case .playlist, .radioStation, .algorithmicRadioStation, .unsupported:
+        case .playlist, .radioStation, .algorithmicRadioStation, .audiobook, .podcast, .unsupported:
             return nil
         }
     }
@@ -512,7 +517,7 @@ public enum SiriMediaSearchResolver {
                 if let selected { return selected }
             }
             return nil
-        case .playlist, .radioStation, .unsupported:
+        case .playlist, .radioStation, .audiobook, .podcast, .unsupported:
             return nil
         }
     }
@@ -565,7 +570,7 @@ public enum SiriMediaSearchResolver {
     private static func inferredKind(for query: SiriMediaSearchQuery) -> SiriMediaSearchKind {
         switch query.kind {
         case .album, .artist, .genre, .playlist, .radioStation,
-             .algorithmicRadioStation, .song, .unsupported:
+             .algorithmicRadioStation, .audiobook, .podcast, .song, .unsupported:
             return query.kind
         case .music:
             if query.albumName != nil, query.mediaName == nil { return .album }
@@ -915,7 +920,7 @@ public enum SiriRequestNeeds {
         case .music:
             return query.mediaName != nil
         case .album, .artist, .genre, .playlist, .radioStation,
-             .algorithmicRadioStation, .unsupported:
+             .algorithmicRadioStation, .audiobook, .podcast, .unsupported:
             return false
         }
     }
@@ -928,23 +933,24 @@ public enum SiriRequestNeeds {
         identifiers: [String]
     ) -> Bool {
         switch query.kind {
-        case .radioStation, .algorithmicRadioStation, .unsupported:
+        case .radioStation, .algorithmicRadioStation, .podcast, .unsupported:
             return false
         case .song, .music:
             if allRadio(identifiers) { return false }
             return !identifiers.isEmpty || resolvesSongItems(query)
-        case .album, .artist, .genre, .playlist:
+        case .album, .artist, .genre, .playlist, .audiobook:
             return !identifiers.isEmpty || query.hasSearchTerm
         }
     }
 
-    /// `handle`: stations are not in the library, and a request typed as
-    /// neither music nor a station (podcast, show) can only be a station.
+    /// `handle`: stations and podcasts are not in the library, and a request
+    /// typed as none of the known kinds can only be a station.
     public static func libraryForPlayback(
         _ query: SiriMediaSearchQuery,
         identifierGroups: [[String]]
     ) -> Bool {
-        if query.kind == .radioStation { return false }
+        if query.kind == .radioStation || query.kind == .podcast { return false }
+        if query.kind == .audiobook { return true }
         let groups = identifierGroups.filter { !$0.isEmpty }
         guard !groups.isEmpty else { return query.kind != .unsupported }
         return !groups.allSatisfy(allRadio)

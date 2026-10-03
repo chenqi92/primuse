@@ -46,6 +46,9 @@
 "Play" = "Lire";
 "Pause" = "Mettre en pause";
 "Play or Pause" = "Lire ou mettre en pause";
+"Resume" = "Reprendre";
+"Next Track" = "Morceau suivant";
+"Previous Track" = "Morceau précédent";
 "Control Playback" = "Contrôler la lecture";
 "Play, pause, or toggle Primuse playback." = "Lire, mettre en pause ou basculer la lecture dans Primuse.";
 "Play the ${direction} track" = "Lire le morceau ${direction}";

@@ -1,4 +1,5 @@
 #if os(tvOS)
+import Intents
 import SwiftUI
 import PrimuseKit
 
@@ -69,6 +70,7 @@ struct TVSettingsView: View {
     @State private var showsEffectPicker = tvDebugShowsEffectPicker
     @State private var showsThemePicker = tvDebugShowsThemePicker
     @State private var showsAISettings = false
+    @State private var siriAuthorization = TVSiriAuthorizationRuntime.status
     @State private var showsMetadata = false
     @State private var showsScraperSettings = tvDebugShowsScraperSettings
     @State private var showsMedleySettings = false
@@ -198,6 +200,8 @@ struct TVSettingsView: View {
                             )
                             settingDivider
                             appleMusicRow
+                            settingDivider
+                            siriRow
                         }
                         lyricsTranslationSection
                         settingsSection(PMString("ext.tv.settings.library")) {
@@ -666,6 +670,34 @@ struct TVSettingsView: View {
 
     private func authorizeAppleMusic() {
         Task { @MainActor in await appleMusic.requestAuthorization() }
+    }
+
+    /// Siri 授权入口。电台、有声书和播客的名字要授权后才登记给 Siri,
+    /// 「播放 某某」才听得懂;第一次播电台时也会问一次。
+    @ViewBuilder
+    private var siriRow: some View {
+        let title = PMString("ext.tv.settings.siri")
+        switch siriAuthorization {
+        case .authorized:
+            infoRow("mic.fill", title, PMString("ext.tv.settings.siri.authorized"))
+        case .denied:
+            infoRow("mic.fill", title, PMString("ext.tv.settings.siri.denied"))
+        case .notDetermined:
+            navRow("mic.fill", title, PMString("ext.tv.settings.siri.authorize"), action: authorizeSiri)
+        case .restricted:
+            infoRow("mic.fill", title, PMString("ext.tv.settings.siri.restricted"))
+        @unknown default:
+            infoRow("mic.fill", title, PMString("ext.tv.settings.siri.restricted"))
+        }
+    }
+
+    private func authorizeSiri() {
+        TVSiriAuthorizationRuntime.request { status in
+            siriAuthorization = status
+            if status == .authorized {
+                NotificationCenter.default.post(name: .primuseTVSiriRadioCatalogDidChange, object: nil)
+            }
+        }
     }
 
     private func navRow(_ icon: String, _ title: String, _ value: String,

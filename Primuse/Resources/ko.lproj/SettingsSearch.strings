@@ -46,6 +46,9 @@
 "Play" = "재생";
 "Pause" = "일시 정지";
 "Play or Pause" = "재생 또는 일시 정지";
+"Resume" = "이어서 재생";
+"Next Track" = "다음 곡";
+"Previous Track" = "이전 곡";
 "Control Playback" = "재생 제어";
 "Play, pause, or toggle Primuse playback." = "Primuse를 재생하거나 일시 정지하거나 전환합니다.";
 "Play the ${direction} track" = "${direction} 곡 재생";

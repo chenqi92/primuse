@@ -59,6 +59,9 @@
 "Play" = "شغّل الموسيقى";
 "Pause" = "أوقف مؤقتًا";
 "Play or Pause" = "شغّل الموسيقى أو أوقفها مؤقتًا";
+"Resume" = "استئناف";
+"Next Track" = "المقطع التالي";
+"Previous Track" = "المقطع السابق";
 "Control Playback" = "التحكم في التشغيل";
 "Play, pause, or toggle Primuse playback." = "شغّل Primuse أو أوقفه مؤقتًا أو بدّل حالة التشغيل.";
 "Sync User Library" = "مزامنة مكتبة المستخدم";

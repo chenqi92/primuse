@@ -1934,17 +1934,30 @@ final class AppServices {
         appleMusicLibrary.sync()
     }
 
+    /// Re-registers the station, book and podcast names Siri knows, both as
+    /// App Shortcut values and as vocabulary. Source changes arrive many times
+    /// a second during a scan, so only a different set is sent; `force`
+    /// re-sends it once Siri permission has just been granted.
+    func refreshSiriCatalog(force: Bool = false) {
+        let stations = siriShortcutRadioStations
+        let books = Array(siriSpokenWordBooks.prefix(50))
+        let shows = Array(PodcastStore.shared.shows.prefix(50))
+        let signature = stations.map { "r\($0.id)\u{1F}\($0.name)" }
+            + books.map { "b\($0.id)\u{1F}\($0.title)" }
+            + shows.map { "p\($0.id)\u{1F}\($0.title)" }
+        guard force || signature != siriRadioCatalogSignature else { return }
+        siriRadioCatalogSignature = signature
+        SiriMediaInteractionDonor.refreshCatalog(
+            stationNames: stations.map(\.name),
+            bookTitles: books.map(\.title),
+            podcastTitles: shows.map(\.title)
+        )
+    }
+
     private func observeSiriRadioCatalog() {
         let center = NotificationCenter.default
         let refresh: @MainActor () -> Void = { [weak self] in
-            guard let self else { return }
-            // Source changes arrive many times a second during a scan; only a
-            // different station list is worth re-registering with Siri.
-            let stations = self.siriShortcutRadioStations
-            let signature = stations.map { "\($0.id)\u{1F}\($0.name)" }
-            guard signature != self.siriRadioCatalogSignature else { return }
-            self.siriRadioCatalogSignature = signature
-            SiriMediaInteractionDonor.refreshRadioCatalog(stations: stations)
+            self?.refreshSiriCatalog()
         }
 
         sourceLifecycleObserverTokens.append(
@@ -1966,6 +1979,13 @@ final class AppServices {
             }
         )
         refresh()
+        // Books come with the library and podcasts from disk, both after launch.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.musicLibrary.whenReady()
+            _ = await self.siriPodcastShowsWhenLoaded(timeout: .seconds(30))
+            self.refreshSiriCatalog()
+        }
     }
 
     private func observeApplicationActivity() {
@@ -1997,6 +2017,8 @@ final class AppServices {
                     RadioSubscriptionService.shared.refreshDueSubscriptions()
                     PodcastStore.shared.refreshAllIfDue()
                     #endif
+                    // New books and subscriptions reach Siri the next time the app is opened.
+                    self?.refreshSiriCatalog()
                 }
             }
         )
@@ -2422,19 +2444,8 @@ final class AppServices {
         }
         bridge.resumeSpokenWordBook = { [self] bookID in
             await awaitLibraryForIntent()
-            let songs = library.spokenWordSongs.filter { library.spokenWordBookIDs[$0.id] == bookID }
-            guard !songs.isEmpty else { return false }
-            let store = SpokenWordStore.shared
-            let books = SpokenWordBookGrouping.books(
-                from: songs.map { SpokenWordBookSupport.item(for: $0, store: store) }
-            )
-            guard let book = books.first(where: { $0.id == bookID }) ?? books.first else { return false }
-            let songsByID = Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-            let ordered = book.items.compactMap { songsByID[$0.id] }
-            guard let index = SpokenWordBookSupport.prepareStart(of: book, songs: ordered, from: nil) else {
-                return false
-            }
-            await player.play(queue: ordered, startingAt: index)
+            guard let start = spokenWordBookStart(bookID: bookID) else { return false }
+            await player.play(queue: start.songs, startingAt: start.index)
             return true
         }
         bridge.resumePlayback = {

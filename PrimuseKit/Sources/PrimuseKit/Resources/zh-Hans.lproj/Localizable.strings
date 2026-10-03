@@ -848,6 +848,11 @@
 "ext.tv.settings.appleMusic.authorize" = "点按允许访问";
 "ext.tv.settings.appleMusic.denied" = "已拒绝 · 请在系统设置中开启";
 "ext.tv.settings.appleMusic.restricted" = "访问受限";
+"ext.tv.settings.siri" = "Siri";
+"ext.tv.settings.siri.authorized" = "已允许";
+"ext.tv.settings.siri.authorize" = "点按允许访问";
+"ext.tv.settings.siri.denied" = "已拒绝 · 请在系统设置中开启";
+"ext.tv.settings.siri.restricted" = "访问受限";
 "ext.tv.playlists.appleMusic" = "Apple Music 歌单";
 "ext.tv.playlists.appleMusicLoading" = "正在加载 Apple Music 歌单…";
 

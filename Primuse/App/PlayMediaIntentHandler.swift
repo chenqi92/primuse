@@ -51,6 +51,9 @@ final class PlayMediaIntentHandler: NSObject,
             if SiriRequestNeeds.libraryForPlayback(query, identifierGroups: identifierGroups) {
                 _ = await AppServices.shared.musicLibrary.whenReady(timeout: .seconds(8))
             }
+            if query.kind == .podcast {
+                _ = await AppServices.shared.siriPodcastShowsWhenLoaded()
+            }
 
             guard let target = Self.resolveTarget(
                 intent: intent,
@@ -163,6 +166,30 @@ final class PlayMediaIntentHandler: NSObject,
                         detail: "radio-unavailable"
                     )
                 }
+
+            case .book(let book):
+                let started = AppServices.shared.startSpokenWordBookForIntent(book)
+                Self.respond(
+                    started ? .success : .failure,
+                    completion: completion,
+                    startedAt: startedAt,
+                    detail: started ? "book-accepted" : "book-unavailable"
+                )
+
+            case .podcast(let plan):
+                switch await AppServices.shared.startPodcastForIntent(plan) {
+                case .started, .stillStarting:
+                    Self.respond(.success, completion: completion, startedAt: startedAt, detail: "podcast-accepted")
+                case .needsApp:
+                    Self.respond(
+                        .failureRequiringAppLaunch,
+                        completion: completion,
+                        startedAt: startedAt,
+                        detail: "podcast-needs-app"
+                    )
+                case .failed:
+                    Self.respond(.failure, completion: completion, startedAt: startedAt, detail: "podcast-unavailable")
+                }
             }
         }
     }
@@ -240,9 +267,60 @@ final class PlayMediaIntentHandler: NSObject,
                 completion.value([INPlayMediaMediaItemResolutionResult.notRequired()])
                 return
 
+            case .audiobook:
+                guard query.mediaName != nil || !identifiers.isEmpty else {
+                    // "播放有声书": carry on with the book last listened to.
+                    completion.value([INPlayMediaMediaItemResolutionResult.notRequired()])
+                    return
+                }
+                Self.resolveNamedItems(
+                    query: query.mediaName,
+                    identifiers: identifiers,
+                    namespace: "audiobook",
+                    type: .audioBook,
+                    items: SiriListeningCatalog.namedItems(books: AppServices.shared.siriSpokenWordBooks),
+                    completion: completion
+                )
+                return
+
+            case .podcast:
+                guard query.mediaName != nil || !identifiers.isEmpty else {
+                    // "播放播客": carry on with the episode in progress.
+                    completion.value([INPlayMediaMediaItemResolutionResult.notRequired()])
+                    return
+                }
+                let shows = SiriListeningCatalog.namedItems(
+                    shows: await AppServices.shared.siriPodcastShowsWhenLoaded()
+                )
+                if !SiriRequestNeeds.allRadio(identifiers),
+                   SiriNamedMediaResolver.resolve(
+                       query: query.mediaName,
+                       selectedItemIDs: identifiers,
+                       namespace: "podcastshow",
+                       items: shows
+                   ) != nil {
+                    Self.resolveNamedItems(
+                        query: query.mediaName,
+                        identifiers: identifiers,
+                        namespace: "podcastshow",
+                        type: .podcastShow,
+                        items: shows,
+                        completion: completion
+                    )
+                } else {
+                    // Station names are registered with Siri as show titles too.
+                    Self.resolveRadioItems(
+                        query: query.mediaName,
+                        identifiers: identifiers,
+                        completion: completion
+                    )
+                }
+                return
+
             case .unsupported:
-                // Podcast- and show-typed requests: the only titles Primuse
-                // registers with Siri as shows are its saved stations.
+                // Other typed requests (TV shows, news): the only titles
+                // Primuse registers with Siri as shows are its saved stations
+                // and podcasts, and a podcast name would have been typed so.
                 if query.mediaName != nil || SiriRequestNeeds.allRadio(identifiers) {
                     Self.resolveRadioItems(
                         query: query.mediaName,
@@ -488,6 +566,12 @@ final class PlayMediaIntentHandler: NSObject,
         if query.kind == .algorithmicRadioStation {
             return resolveSongRadio(query: query, identifierGroups: identifierGroups)
         }
+        if query.kind == .audiobook {
+            return resolveBook(query: query.mediaName, identifiers: identifiers)
+        }
+        if query.kind == .podcast {
+            return resolvePodcast(query: query.mediaName, identifiers: identifiers)
+        }
         if SiriRequestNeeds.allRadio(identifiers) {
             return resolveRadio(query: query.mediaName, identifiers: identifiers)
         }
@@ -559,7 +643,8 @@ final class PlayMediaIntentHandler: NSObject,
                 case nil:
                     return nil
                 }
-            case .album, .artist, .genre, .playlist, .radioStation, .algorithmicRadioStation:
+            case .album, .artist, .genre, .playlist, .radioStation, .algorithmicRadioStation,
+                 .audiobook, .podcast:
                 break
             }
         }
@@ -627,6 +712,48 @@ final class PlayMediaIntentHandler: NSObject,
             return nil
         }
         return .radio(station)
+    }
+
+    /// No title: the book last listened to. A title or a book chosen during
+    /// resolution: that book, where it was left.
+    @MainActor
+    private static func resolveBook(query: String?, identifiers: [String]) -> IntentTarget? {
+        let books = AppServices.shared.siriSpokenWordBooks
+        if identifiers.isEmpty, query == nil {
+            return SiriListeningCatalog.bookToContinue(books).map(IntentTarget.book)
+        }
+        guard let resolved = SiriNamedMediaResolver.resolve(
+            query: query,
+            selectedItemIDs: identifiers,
+            namespace: "audiobook",
+            items: SiriListeningCatalog.namedItems(books: books)
+        ), !identifiers.isEmpty || (!resolved.needsDisambiguation && !resolved.requiresConfirmation) else {
+            return nil
+        }
+        return books.first { $0.id == resolved.selected.id }.map(IntentTarget.book)
+    }
+
+    /// No name: the episode in progress. A show's name: the episode its page
+    /// would play. A name no show carries may be a station's.
+    @MainActor
+    private static func resolvePodcast(query: String?, identifiers: [String]) -> IntentTarget? {
+        let services = AppServices.shared
+        if identifiers.isEmpty, query == nil {
+            return services.podcastPlanForInProgressEpisode().map(IntentTarget.podcast)
+        }
+        if !SiriRequestNeeds.allRadio(identifiers),
+           let resolved = SiriNamedMediaResolver.resolve(
+               query: query,
+               selectedItemIDs: identifiers,
+               namespace: "podcastshow",
+               items: SiriListeningCatalog.namedItems(shows: PodcastStore.shared.shows)
+           ) {
+            guard !identifiers.isEmpty || (!resolved.needsDisambiguation && !resolved.requiresConfirmation) else {
+                return nil
+            }
+            return services.podcastPlanForIntent(showID: resolved.selected.id).map(IntentTarget.podcast)
+        }
+        return resolveRadio(query: query, identifiers: identifiers)
     }
 
     @MainActor
@@ -847,6 +974,10 @@ final class PlayMediaIntentHandler: NSObject,
             return .radioStation
         case .algorithmicRadioStation:
             return .algorithmicRadioStation
+        case .audioBook:
+            return .audiobook
+        case .podcastShow, .podcastEpisode, .podcastPlaylist, .podcastStation:
+            return .podcast
         case .unknown, .music:
             return .music
         default:
@@ -962,6 +1093,8 @@ final class PlayMediaIntentHandler: NSObject,
 private enum IntentTarget {
     case songs([Song], shouldShuffle: Bool)
     case radio(RadioStation)
+    case book(SpokenWordBook)
+    case podcast(PodcastIntentPlan)
 }
 
 /// Intents completion handlers aren't `@Sendable`; this box crosses into the
@@ -1016,12 +1149,6 @@ struct PrimuseShortcuts: AppShortcutsProvider {
             systemImageName: "play.fill"
         )
         AppShortcut(
-            intent: PrimuseSkipTrackIntent(),
-            phrases: ["Play the \(\.$direction) track in \(.applicationName)"],
-            shortTitle: LocalizedStringResource("Skip Track", table: "SettingsSearch"),
-            systemImageName: "forward.end"
-        )
-        AppShortcut(
             intent: PrimuseOpenSettingIntent(),
             phrases: [
                 "Open \(\.$target) in \(.applicationName)",
@@ -1055,14 +1182,6 @@ struct PrimuseShortcuts: AppShortcutsProvider {
             systemImageName: "music.note.list"
         )
         AppShortcut(
-            intent: PrimuseResumePlaybackIntent(),
-            phrases: [
-                "Resume \(.applicationName)",
-            ],
-            shortTitle: "Resume",
-            systemImageName: "play.circle"
-        )
-        AppShortcut(
             intent: PrimusePlayRadioIntent(),
             phrases: [
                 "Play \(\.$station) in \(.applicationName)",
@@ -1079,12 +1198,28 @@ struct PrimuseShortcuts: AppShortcutsProvider {
             systemImageName: "dot.radiowaves.left.and.right"
         )
         AppShortcut(
-            intent: PrimuseScrapeCurrentSongIntent(),
+            intent: PrimuseContinueListeningIntent(),
             phrases: [
-                "Scrape the current song in \(.applicationName)",
+                "Continue listening to \(\.$book) in \(.applicationName)",
             ],
-            shortTitle: "Scrape Song",
-            systemImageName: "wand.and.stars"
+            shortTitle: "Continue Listening",
+            systemImageName: "book"
+        )
+        AppShortcut(
+            intent: PrimusePlayPodcastIntent(),
+            phrases: [
+                "Play the podcast \(\.$show) in \(.applicationName)",
+            ],
+            shortTitle: "Play Podcast",
+            systemImageName: "antenna.radiowaves.left.and.right"
+        )
+        AppShortcut(
+            intent: PrimuseSetSleepTimerIntent(),
+            phrases: [
+                "Set a sleep timer for \(\.$duration) in \(.applicationName)",
+            ],
+            shortTitle: "Sleep Timer",
+            systemImageName: "moon.zzz"
         )
     }
 }

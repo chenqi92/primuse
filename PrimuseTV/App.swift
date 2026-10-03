@@ -68,6 +68,16 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
             }
         }
         playMediaHandler.refreshRadioVocabulary()
+        // Book titles come with the library and podcast shows from disk, both
+        // after launch.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.store.library.whenReady()
+            for _ in 0..<150 where !PodcastStore.shared.isLoaded {
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+            self.playMediaHandler.refreshRadioVocabulary()
+        }
         return true
     }
 

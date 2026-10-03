@@ -798,6 +798,11 @@
 "ext.tv.settings.appleMusic.authorize" = "İzin vermek için dokun";
 "ext.tv.settings.appleMusic.denied" = "Reddedildi · tvOS Ayarları'ndan açın";
 "ext.tv.settings.appleMusic.restricted" = "Kısıtlı";
+"ext.tv.settings.siri" = "Siri";
+"ext.tv.settings.siri.authorized" = "İzin verildi";
+"ext.tv.settings.siri.authorize" = "İzin vermek için dokun";
+"ext.tv.settings.siri.denied" = "Reddedildi · tvOS Ayarları'ndan açın";
+"ext.tv.settings.siri.restricted" = "Kısıtlı";
 "ext.tv.playlists.appleMusic" = "Apple Music çalma listeleri";
 "ext.tv.playlists.appleMusicLoading" = "Apple Music çalma listeleri yükleniyor…";
 

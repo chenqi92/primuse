@@ -7,6 +7,9 @@
 "Play" = "Çal";
 "Pause" = "Duraklat";
 "Play or Pause" = "Çal veya duraklat";
+"Resume" = "Devam et";
+"Next Track" = "Sonraki parça";
+"Previous Track" = "Önceki parça";
 "Control Playback" = "Oynatmayı denetle";
 "Play, pause, or toggle Primuse playback." = "Primuse'ta oynatmayı başlatır, duraklatır veya değiştirir.";
 "Wrapped" = "Sarılmış";

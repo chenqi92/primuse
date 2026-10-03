@@ -17,7 +17,8 @@
             "state" : "translated",
             "values" : [
               "${applicationName} ${action}",
-              "In ${applicationName} ${action}"
+              "In ${applicationName} ${action}",
+              "${action} in ${applicationName}"
             ]
           }
         },
@@ -26,7 +27,8 @@
             "state" : "translated",
             "values" : [
               "${action} in ${applicationName}",
-              "${action} ${applicationName}"
+              "${action} ${applicationName}",
+              "Play the ${action} in ${applicationName}"
             ]
           }
         },
@@ -132,7 +134,8 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "用 ${applicationName} ${action}"
+              "用 ${applicationName} ${action}",
+              "用 ${applicationName} 播放${action}"
             ]
           }
         },
@@ -140,7 +143,172 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "用 ${applicationName} ${action}"
+              "用 ${applicationName} ${action}",
+              "用 ${applicationName} 播放${action}"
+            ]
+          }
+        }
+      }
+    },
+    "Continue listening to ${book} in ${applicationName}" : {
+      "localizations" : {
+        "ar" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "تابع الاستماع إلى ${book} في ${applicationName}",
+              "تابع كتابي في ${applicationName}",
+              "شغّل الكتاب الصوتي في ${applicationName}"
+            ]
+          }
+        },
+        "de" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${book} in ${applicationName} weiterhören",
+              "Mein Hörbuch in ${applicationName} weiterhören",
+              "Hörbuch in ${applicationName} abspielen"
+            ]
+          }
+        },
+        "en" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Continue listening to ${book} in ${applicationName}",
+              "Continue my book in ${applicationName}",
+              "Resume my audiobook in ${applicationName}"
+            ]
+          }
+        },
+        "es-MX" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Seguir escuchando ${book} en ${applicationName}",
+              "Seguir escuchando mi audiolibro en ${applicationName}",
+              "Reproduce mi audiolibro en ${applicationName}"
+            ]
+          }
+        },
+        "fr" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Reprendre ${book} dans ${applicationName}",
+              "Reprendre mon livre audio dans ${applicationName}",
+              "Lire mon livre audio dans ${applicationName}"
+            ]
+          }
+        },
+        "hi" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName} में ${book} सुनना जारी रखें",
+              "${applicationName} में मेरी किताब जारी रखें",
+              "${applicationName} में ऑडियोबुक चलाएँ"
+            ]
+          }
+        },
+        "ja" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName}で${book}の続きを聴く",
+              "${applicationName}で本の続きを聴く",
+              "${applicationName}でオーディオブックを再生"
+            ]
+          }
+        },
+        "ko" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName}에서 ${book} 이어 듣기",
+              "${applicationName}에서 책 이어 듣기",
+              "${applicationName}에서 오디오북 재생"
+            ]
+          }
+        },
+        "pl" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Słuchaj dalej ${book} w ${applicationName}",
+              "Słuchaj dalej audiobooka w ${applicationName}",
+              "Odtwórz audiobooka w ${applicationName}"
+            ]
+          }
+        },
+        "pt-BR" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Continuar ouvindo ${book} no ${applicationName}",
+              "Continuar ouvindo meu audiolivro no ${applicationName}",
+              "Tocar meu audiolivro no ${applicationName}"
+            ]
+          }
+        },
+        "ru" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Продолжи ${book} в ${applicationName}",
+              "Продолжи аудиокнигу в ${applicationName}",
+              "Включи аудиокнигу в ${applicationName}"
+            ]
+          }
+        },
+        "th" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "ฟัง${book}ต่อใน ${applicationName}",
+              "ฟังหนังสือต่อใน ${applicationName}",
+              "เล่นหนังสือเสียงใน ${applicationName}"
+            ]
+          }
+        },
+        "tr" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName} uygulamasında ${book} dinlemeye devam et",
+              "${applicationName} uygulamasında sesli kitabıma devam et",
+              "${applicationName} uygulamasında sesli kitap çal"
+            ]
+          }
+        },
+        "uk" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Продовж ${book} у ${applicationName}",
+              "Продовж аудіокнигу в ${applicationName}",
+              "Увімкни аудіокнигу в ${applicationName}"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "用 ${applicationName} 继续听${book}",
+              "用 ${applicationName} 继续听书",
+              "用 ${applicationName} 播放有声书"
+            ]
+          }
+        },
+        "zh-Hant" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "用 ${applicationName} 繼續聽${book}",
+              "用 ${applicationName} 繼續聽書",
+              "用 ${applicationName} 播放有聲書"
             ]
           }
         }
@@ -955,13 +1123,14 @@
         }
       }
     },
-    "Play the ${direction} track in ${applicationName}" : {
+    "Play the podcast ${show} in ${applicationName}" : {
       "localizations" : {
         "ar" : {
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "شغّل المقطع ${direction} في ${applicationName}"
+              "شغّل البودكاست ${show} في ${applicationName}",
+              "تابع البودكاست في ${applicationName}"
             ]
           }
         },
@@ -969,7 +1138,8 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "In ${applicationName} ${direction} abspielen"
+              "Podcast ${show} in ${applicationName} abspielen",
+              "Podcast in ${applicationName} weiterhören"
             ]
           }
         },
@@ -977,7 +1147,9 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "Play the ${direction} track in ${applicationName}"
+              "Play the podcast ${show} in ${applicationName}",
+              "Play ${show} in ${applicationName}",
+              "Continue my podcast in ${applicationName}"
             ]
           }
         },
@@ -985,7 +1157,8 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "Reproduce la canción ${direction} en ${applicationName}"
+              "Reproduce el podcast ${show} en ${applicationName}",
+              "Sigue mi podcast en ${applicationName}"
             ]
           }
         },
@@ -993,7 +1166,8 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "Lire le morceau ${direction} dans ${applicationName}"
+              "Lire le podcast ${show} dans ${applicationName}",
+              "Reprendre mon podcast dans ${applicationName}"
             ]
           }
         },
@@ -1001,7 +1175,8 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "${applicationName} में ${direction} ट्रैक चलाएँ"
+              "${applicationName} में पॉडकास्ट ${show} चलाएँ",
+              "${applicationName} में मेरा पॉडकास्ट जारी रखें"
             ]
           }
         },
@@ -1009,7 +1184,8 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "${applicationName}で${direction}の曲を再生"
+              "${applicationName}でポッドキャスト${show}を再生",
+              "${applicationName}でポッドキャストを再生"
             ]
           }
         },
@@ -1017,7 +1193,8 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "${applicationName}에서 ${direction} 곡 재생"
+              "${applicationName}에서 팟캐스트 ${show} 재생",
+              "${applicationName}에서 팟캐스트 재생"
             ]
           }
         },
@@ -1025,7 +1202,8 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "Odtwórz ${direction} utwór w ${applicationName}"
+              "Odtwórz podcast ${show} w ${applicationName}",
+              "Słuchaj dalej podcastu w ${applicationName}"
             ]
           }
         },
@@ -1033,7 +1211,8 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "Reproduza a música ${direction} no ${applicationName}"
+              "Tocar o podcast ${show} no ${applicationName}",
+              "Continuar meu podcast no ${applicationName}"
             ]
           }
         },
@@ -1041,7 +1220,8 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "Воспроизведи ${direction} трек в ${applicationName}"
+              "Включи подкаст ${show} в ${applicationName}",
+              "Продолжи подкаст в ${applicationName}"
             ]
           }
         },
@@ -1049,7 +1229,8 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "เล่นเพลง${direction}ใน ${applicationName}"
+              "เล่นพอดแคสต์${show}ใน ${applicationName}",
+              "ฟังพอดแคสต์ต่อใน ${applicationName}"
             ]
           }
         },
@@ -1057,7 +1238,8 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "${applicationName} uygulamasında ${direction} parçayı çal"
+              "${applicationName} uygulamasında ${show} podcast’ini çal",
+              "${applicationName} uygulamasında podcast’ime devam et"
             ]
           }
         },
@@ -1065,7 +1247,8 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "Відтвори ${direction} трек у ${applicationName}"
+              "Увімкни подкаст ${show} у ${applicationName}",
+              "Продовж подкаст у ${applicationName}"
             ]
           }
         },
@@ -1073,7 +1256,10 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "用 ${applicationName} 播放${direction}"
+              "用 ${applicationName} 播放播客${show}",
+              "用 ${applicationName} 听播客${show}",
+              "用 ${applicationName} 播放播客",
+              "用 ${applicationName} 继续听播客"
             ]
           }
         },
@@ -1081,19 +1267,24 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "用 ${applicationName} 播放${direction}"
+              "用 ${applicationName} 播放 Podcast ${show}",
+              "用 ${applicationName} 聽 Podcast ${show}",
+              "用 ${applicationName} 播放 Podcast",
+              "用 ${applicationName} 繼續聽 Podcast"
             ]
           }
         }
       }
     },
-    "Resume ${applicationName}" : {
+    "Set a sleep timer for ${duration} in ${applicationName}" : {
       "localizations" : {
         "ar" : {
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "استأنف التشغيل في ${applicationName}"
+              "مؤقت نوم ${duration} في ${applicationName}",
+              "أوقف ${applicationName} بعد ${duration}",
+              "اضبط مؤقت النوم في ${applicationName}"
             ]
           }
         },
@@ -1101,7 +1292,9 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "${applicationName} fortsetzen"
+              "Sleep-Timer in ${applicationName} auf ${duration} stellen",
+              "${applicationName} nach ${duration} stoppen",
+              "Sleep-Timer in ${applicationName} stellen"
             ]
           }
         },
@@ -1109,7 +1302,10 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "Resume ${applicationName}"
+              "Set a sleep timer for ${duration} in ${applicationName}",
+              "Stop ${applicationName} after ${duration}",
+              "Turn the sleep timer ${duration} in ${applicationName}",
+              "Set a sleep timer in ${applicationName}"
             ]
           }
         },
@@ -1117,7 +1313,9 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "Reanuda ${applicationName}"
+              "Temporizador de apagado de ${duration} en ${applicationName}",
+              "Detén ${applicationName} en ${duration}",
+              "Pon el temporizador de apagado en ${applicationName}"
             ]
           }
         },
@@ -1125,7 +1323,9 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "Reprendre la lecture dans ${applicationName}"
+              "Minuterie de veille de ${duration} dans ${applicationName}",
+              "Arrêter ${applicationName} dans ${duration}",
+              "Régler la minuterie de veille dans ${applicationName}"
             ]
           }
         },
@@ -1133,7 +1333,9 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "${applicationName} फिर से चलाएँ"
+              "${applicationName} में ${duration} का स्लीप टाइमर",
+              "${applicationName} को ${duration} बाद रोकें",
+              "${applicationName} में स्लीप टाइमर लगाएँ"
             ]
           }
         },
@@ -1141,7 +1343,9 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "${applicationName}の再生を再開"
+              "${applicationName}で${duration}のスリープタイマー",
+              "${applicationName}を${duration}で停止",
+              "${applicationName}でスリープタイマーを設定"
             ]
           }
         },
@@ -1149,7 +1353,9 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "${applicationName} 재생 재개"
+              "${applicationName} 취침 타이머 ${duration}",
+              "${applicationName} ${duration} 후 정지",
+              "${applicationName}에서 취침 타이머 설정"
             ]
           }
         },
@@ -1157,7 +1363,9 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "Wznów ${applicationName}"
+              "Zegar uśpienia na ${duration} w ${applicationName}",
+              "Zatrzymaj ${applicationName} za ${duration}",
+              "Ustaw zegar uśpienia w ${applicationName}"
             ]
           }
         },
@@ -1165,7 +1373,9 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "Retome o ${applicationName}"
+              "Temporizador de ${duration} no ${applicationName}",
+              "Parar o ${applicationName} em ${duration}",
+              "Definir temporizador no ${applicationName}"
             ]
           }
         },
@@ -1173,7 +1383,9 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "Продолжи воспроизведение в ${applicationName}"
+              "Таймер сна на ${duration} в ${applicationName}",
+              "Останови ${applicationName} через ${duration}",
+              "Поставь таймер сна в ${applicationName}"
             ]
           }
         },
@@ -1181,7 +1393,9 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "เล่นต่อใน ${applicationName}"
+              "ตั้งเวลาปิด ${duration} ใน ${applicationName}",
+              "หยุด ${applicationName} หลัง ${duration}",
+              "ตั้งเวลาปิดใน ${applicationName}"
             ]
           }
         },
@@ -1189,7 +1403,9 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "${applicationName} uygulamasında çalmayı sürdür"
+              "${applicationName} uygulamasında ${duration} uyku zamanlayıcısı",
+              "${applicationName} uygulamasını ${duration} sonra durdur",
+              "${applicationName} uygulamasında uyku zamanlayıcısı kur"
             ]
           }
         },
@@ -1197,7 +1413,9 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "Продовж відтворення у ${applicationName}"
+              "Таймер сну на ${duration} у ${applicationName}",
+              "Зупини ${applicationName} через ${duration}",
+              "Постав таймер сну в ${applicationName}"
             ]
           }
         },
@@ -1205,7 +1423,10 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "用 ${applicationName} 继续播放"
+              "用 ${applicationName} 定时${duration}",
+              "用 ${applicationName} ${duration}后停止播放",
+              "用 ${applicationName} ${duration}睡眠定时",
+              "用 ${applicationName} 设置睡眠定时"
             ]
           }
         },
@@ -1213,288 +1434,10 @@
           "stringSet" : {
             "state" : "translated",
             "values" : [
-              "用 ${applicationName} 繼續播放"
-            ]
-          }
-        }
-      }
-    },
-    "Scrape the current song in ${applicationName}" : {
-      "localizations" : {
-        "ar" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "اجلب بيانات الأغنية الحالية في ${applicationName}"
-            ]
-          }
-        },
-        "de" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Metadaten des aktuellen Titels in ${applicationName} abrufen"
-            ]
-          }
-        },
-        "en" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Scrape the current song in ${applicationName}"
-            ]
-          }
-        },
-        "es-MX" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Obtén los metadatos de la canción actual en ${applicationName}"
-            ]
-          }
-        },
-        "fr" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Récupérer les métadonnées du morceau actuel dans ${applicationName}"
-            ]
-          }
-        },
-        "hi" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "${applicationName} में वर्तमान गाने का मेटाडेटा खोजें"
-            ]
-          }
-        },
-        "ja" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "${applicationName}で現在の曲のメタデータを取得"
-            ]
-          }
-        },
-        "ko" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "${applicationName}에서 현재 곡의 메타데이터 가져오기"
-            ]
-          }
-        },
-        "pl" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Pobierz metadane bieżącego utworu w ${applicationName}"
-            ]
-          }
-        },
-        "pt-BR" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Busque os metadados da música atual no ${applicationName}"
-            ]
-          }
-        },
-        "ru" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Найди метаданные текущей песни в ${applicationName}"
-            ]
-          }
-        },
-        "th" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "ค้นหาเมทาดาทาเพลงปัจจุบันใน ${applicationName}"
-            ]
-          }
-        },
-        "tr" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "${applicationName} uygulamasında geçerli şarkının üst verilerini bul"
-            ]
-          }
-        },
-        "uk" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Знайди метадані поточної пісні у ${applicationName}"
-            ]
-          }
-        },
-        "zh-Hans" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "用 ${applicationName} 补全当前歌曲信息"
-            ]
-          }
-        },
-        "zh-Hant" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "用 ${applicationName} 補齊目前歌曲資訊"
-            ]
-          }
-        }
-      }
-    },
-    "Search for ${station} radio in ${applicationName}" : {
-      "extractionState" : "extracted_with_value",
-      "localizations" : {
-        "ar" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "ابحث عن محطة ${station} في ${applicationName}",
-              "ابحث عن الراديو في ${applicationName}"
-            ]
-          }
-        },
-        "de" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "In ${applicationName} nach dem Radiosender ${station} suchen",
-              "Radio in ${applicationName} suchen"
-            ]
-          }
-        },
-        "en" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Search for ${station} radio in ${applicationName}",
-              "Search radio in ${applicationName}"
-            ]
-          }
-        },
-        "es-MX" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Busca la estación ${station} en ${applicationName}",
-              "Busca radio en ${applicationName}"
-            ]
-          }
-        },
-        "fr" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Rechercher la radio ${station} dans ${applicationName}",
-              "Rechercher une radio dans ${applicationName}"
-            ]
-          }
-        },
-        "hi" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "${applicationName} में ${station} रेडियो खोजें",
-              "${applicationName} में रेडियो खोजें"
-            ]
-          }
-        },
-        "ja" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "${applicationName}で${station}ラジオを検索",
-              "${applicationName}でラジオを検索"
-            ]
-          }
-        },
-        "ko" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "${applicationName}에서 ${station} 라디오 검색",
-              "${applicationName}에서 라디오 검색"
-            ]
-          }
-        },
-        "pl" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Wyszukaj radio ${station} w ${applicationName}",
-              "Wyszukaj radio w ${applicationName}"
-            ]
-          }
-        },
-        "pt-BR" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Busque a estação ${station} no ${applicationName}",
-              "Busque rádio no ${applicationName}"
-            ]
-          }
-        },
-        "ru" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Найди радио ${station} в ${applicationName}",
-              "Найди радио в ${applicationName}"
-            ]
-          }
-        },
-        "th" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "ค้นหาสถานีวิทยุ ${station} ใน ${applicationName}",
-              "ค้นหาวิทยุใน ${applicationName}"
-            ]
-          }
-        },
-        "tr" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "${applicationName} uygulamasında ${station} radyosunu ara",
-              "${applicationName} uygulamasında radyo ara"
-            ]
-          }
-        },
-        "uk" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "Знайди радіо ${station} у ${applicationName}",
-              "Знайди радіо у ${applicationName}"
-            ]
-          }
-        },
-        "zh-Hans" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "用 ${applicationName} 搜索电台 ${station}",
-              "用 ${applicationName} 搜索电台"
-            ]
-          }
-        },
-        "zh-Hant" : {
-          "stringSet" : {
-            "state" : "translated",
-            "values" : [
-              "用 ${applicationName} 搜尋電台 ${station}",
-              "用 ${applicationName} 搜尋電台"
+              "用 ${applicationName} 定時${duration}",
+              "用 ${applicationName} ${duration}後停止播放",
+              "用 ${applicationName} ${duration}睡眠定時",
+              "用 ${applicationName} 設定睡眠定時"
             ]
           }
         }

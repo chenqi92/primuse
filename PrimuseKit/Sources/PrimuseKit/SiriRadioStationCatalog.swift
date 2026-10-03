@@ -50,10 +50,11 @@ public enum SiriRadioStationCatalog {
     /// Every value is multiplied by each spoken form of the app name (display
     /// name plus every INAlternativeAppNames entry, five in all) and counts
     /// against the system's limit of 1,000 trigger phrases per language, which
-    /// all App Shortcuts share. The Mac registers stations in two phrases
-    /// (play and search), so 60 keeps it under 800. Any other station is still
-    /// reachable through "用 Primuse 播放电台" followed by its name.
-    public static let appShortcutStationLimit = 60
+    /// all App Shortcuts share — with books, podcast shows, settings pages and
+    /// sleep-timer lengths, about 150 values in the busiest language, ×5.
+    /// Any other station is still reachable through "用 Primuse 播放电台"
+    /// followed by its name.
+    public static let appShortcutStationLimit = 50
 
     /// The stations Siri should learn by name first: the ones the listener
     /// actually plays, most recent first, then the rest in the order the

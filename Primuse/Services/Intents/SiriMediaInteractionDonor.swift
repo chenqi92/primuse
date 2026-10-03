@@ -25,6 +25,21 @@ enum SiriAuthorizationRuntime {
         INPreferences.requestSiriAuthorization(completion)
         #endif
     }
+
+    /// Station, book and podcast names reach Siri only with permission, and
+    /// otherwise only the Siri settings page asks for it. Ask once, the first
+    /// time a station is played from the app — the moment the question is
+    /// about something the listener just did.
+    @MainActor
+    static func requestOnceFromPlayback(_ completion: @escaping @MainActor (INSiriAuthorizationStatus) -> Void) {
+        guard status == .notDetermined else { return }
+        let key = "siri.authorizationRequestedFromPlayback"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        request { status in
+            Task { @MainActor in completion(status) }
+        }
+    }
 }
 #endif
 
@@ -84,8 +99,15 @@ enum SiriMediaInteractionDonor {
 
     static func donate(station: RadioStation) {
         #if os(iOS)
-        guard SiriAuthorizationRuntime.status == .authorized,
-              SiriRadioStationCatalog.isSafeIdentifier(station.id),
+        guard SiriAuthorizationRuntime.status == .authorized else {
+            SiriAuthorizationRuntime.requestOnceFromPlayback { status in
+                guard status == .authorized else { return }
+                donate(station: station)
+                AppServices.shared.refreshSiriCatalog(force: true)
+            }
+            return
+        }
+        guard SiriRadioStationCatalog.isSafeIdentifier(station.id),
               let safeName = SiriRadioStationCatalog.safeDisplayName(station.name) else {
             return
         }
@@ -119,13 +141,19 @@ enum SiriMediaInteractionDonor {
         #endif
     }
 
-    static func refreshRadioCatalog(stations: [RadioStation]) {
+    /// Each call replaces the whole set for a vocabulary type, so podcast
+    /// shows and stations, which share `.mediaShowTitle`, go in together.
+    static func refreshCatalog(stationNames: [String], bookTitles: [String], podcastTitles: [String]) {
         #if os(iOS)
         if SiriAuthorizationRuntime.status == .authorized {
-            let names = stations.prefix(100).map(\.name)
-            INVocabulary.shared().setVocabularyStrings(
-                NSOrderedSet(array: names),
+            let vocabulary = INVocabulary.shared()
+            vocabulary.setVocabularyStrings(
+                NSOrderedSet(array: podcastTitles + stationNames),
                 of: .mediaShowTitle
+            )
+            vocabulary.setVocabularyStrings(
+                NSOrderedSet(array: bookTitles),
+                of: .mediaAudiobookTitle
             )
         }
         #endif

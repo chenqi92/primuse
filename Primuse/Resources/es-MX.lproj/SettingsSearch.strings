@@ -59,6 +59,9 @@
 "Play" = "Reproduce";
 "Pause" = "Pausa";
 "Play or Pause" = "Reproduce o pausa";
+"Resume" = "Reanudar";
+"Next Track" = "Siguiente canción";
+"Previous Track" = "Canción anterior";
 "Control Playback" = "Controlar la reproducción";
 "Play, pause, or toggle Primuse playback." = "Reproduce, pausa o alterna la reproducción en Primuse.";
 "Sync User Library" = "Sincronizar biblioteca de usuario";

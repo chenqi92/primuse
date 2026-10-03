@@ -46,6 +46,9 @@
 "Play" = "Play";
 "Pause" = "Pause";
 "Play or Pause" = "Play or Pause";
+"Resume" = "Resume";
+"Next Track" = "Next Track";
+"Previous Track" = "Previous Track";
 "Control Playback" = "Control Playback";
 "Play, pause, or toggle Primuse playback." = "Play, pause, or toggle Primuse playback.";
 "Play the ${direction} track" = "Play the ${direction} track";

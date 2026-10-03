@@ -851,6 +851,11 @@
 "ext.tv.settings.appleMusic.authorize" = "タップして許可";
 "ext.tv.settings.appleMusic.denied" = "拒否済み · システム設定で許可してください";
 "ext.tv.settings.appleMusic.restricted" = "制限あり";
+"ext.tv.settings.siri" = "Siri";
+"ext.tv.settings.siri.authorized" = "許可済み";
+"ext.tv.settings.siri.authorize" = "タップして許可";
+"ext.tv.settings.siri.denied" = "拒否済み · システム設定で許可してください";
+"ext.tv.settings.siri.restricted" = "制限あり";
 "ext.tv.playlists.appleMusic" = "Apple Music のプレイリスト";
 "ext.tv.playlists.appleMusicLoading" = "Apple Music のプレイリストを読み込み中…";
 

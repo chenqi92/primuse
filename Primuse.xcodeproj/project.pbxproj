@@ -1084,6 +1084,7 @@
 		9C36C8B4E2455B26E1DD2EF5 /* TVSpokenWordView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C188EF6C043E88268C83241F /* TVSpokenWordView.swift */; };
 		9C6943E4C782BC8CF76B2143 /* LyricPosterSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6165DCB0F15976CF31CD3492 /* LyricPosterSelection.swift */; };
 		9CD3A703DEE9F5A5DAD72E1B /* SiriRadioStationCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFC99787799DFBA7FE0F2C6D /* SiriRadioStationCatalog.swift */; };
+		134070D5B974F302E3D57F4B /* SiriListeningCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2086FCDEA46B3F6C17F35FD6 /* SiriListeningCatalog.swift */; };
 		9CEDDC85144C3D65E30A9126 /* PodcastNetwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = F130E9C212ECBE573672CF94 /* PodcastNetwork.swift */; };
 		9CF7EDD75FF1905A518019D2 /* QueueWindowPlayerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E94FDA18A33B351B72A07D1A /* QueueWindowPlayerTests.swift */; };
 		9D473241BD1B489658F931A8 /* KaraokeSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14A06F63118CCCC80BB1B7B5 /* KaraokeSession.swift */; };
@@ -1634,6 +1635,7 @@
 		EDFA84B8E0916E46BAF78A7D /* PathKeyedCacheReconciliationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D214552F9BF70CB5F6000423 /* PathKeyedCacheReconciliationPolicy.swift */; };
 		EE40C14EC379B339FE3A1C41 /* Citadel in Frameworks */ = {isa = PBXBuildFile; productRef = 0606057AA8A4360CCC6E7DCC /* Citadel */; };
 		EE6D78AE8A6BAC03DAEBF824 /* PrimuseRadioAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC58680E103085AFD9B2E909 /* PrimuseRadioAppIntents.swift */; };
+		6CA116A1BB374AC1B6B9251C /* PrimuseListeningAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3121D2FA06E982937681871F /* PrimuseListeningAppIntents.swift */; };
 		EEB5B873F81C5BEDCB6978B3 /* AppleMusicLibrarySource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BE82C5DF65A566D6D3CDE4E /* AppleMusicLibrarySource.swift */; };
 		EEC42360EF551FD4A043202A /* ListeningStatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70AF95E5E81784D9E3FB8D36 /* ListeningStatsView.swift */; };
 		EEF9A313CE3B945DAACA62F0 /* MacResourceRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A329CA93AC88CAE08B84F0A /* MacResourceRegressionTests.swift */; };
@@ -1696,6 +1698,7 @@
 		F70EAD0DDB121C4B26DB471D /* ServerRatingSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BF3FCADF9ED4848533CF280 /* ServerRatingSyncService.swift */; };
 		F71064BDCCEB2F5D1F5CC801 /* TVAudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C891ECCBAEB4EF0ED63759C7 /* TVAudioEngine.swift */; };
 		F7146B96978777BFCFB56832 /* PrimuseRadioAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC58680E103085AFD9B2E909 /* PrimuseRadioAppIntents.swift */; };
+		ECB4441702E88C2D43B4D049 /* PrimuseListeningAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3121D2FA06E982937681871F /* PrimuseListeningAppIntents.swift */; };
 		F71F3C835F6BD10816ED6B92 /* PodcastHomeSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0219F4AD4BD373BFC27719ED /* PodcastHomeSections.swift */; };
 		F7470F73EEFE3458FDC6D345 /* PodcastComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 431799442571F9F1AAF9218B /* PodcastComponents.swift */; };
 		F79F326876ABF324B5E317C6 /* ServerFavoriteSyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB256319740D20E5F27C1FDC /* ServerFavoriteSyncServiceTests.swift */; };
@@ -2913,6 +2916,7 @@
 		AF561533EC649E1C87772C4A /* MinimalNavigationDetailLedger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MinimalNavigationDetailLedger.swift; sourceTree = "<group>"; };
 		AFBFD411F0195479667050DF /* SettingsSearchIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSearchIndex.swift; sourceTree = "<group>"; };
 		AFC99787799DFBA7FE0F2C6D /* SiriRadioStationCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiriRadioStationCatalog.swift; sourceTree = "<group>"; };
+		2086FCDEA46B3F6C17F35FD6 /* SiriListeningCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiriListeningCatalog.swift; sourceTree = "<group>"; };
 		AFFB42471DF5D9BEF29B46A0 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = de.lproj/WiFiTransfer.strings; sourceTree = "<group>"; };
 		B03A62E0E020B107BF69C26A /* LyricPosterStyleRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricPosterStyleRenderer.swift; sourceTree = "<group>"; };
 		B09C4FBAAE2E4BE5F74A9E51 /* hi */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = hi; path = hi.lproj/InfoPlist.strings; sourceTree = "<group>"; };
@@ -3125,6 +3129,7 @@
 		DBB6099288DBCBB2E75611D2 /* PrimuseControlWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrimuseControlWidgets.swift; sourceTree = "<group>"; };
 		DBCB026F846B0E1D4C27C84B /* ID3TextMetadataParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ID3TextMetadataParser.swift; sourceTree = "<group>"; };
 		DC58680E103085AFD9B2E909 /* PrimuseRadioAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrimuseRadioAppIntents.swift; sourceTree = "<group>"; };
+		3121D2FA06E982937681871F /* PrimuseListeningAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrimuseListeningAppIntents.swift; sourceTree = "<group>"; };
 		DCF14896C5977140D504187F /* RecentlyDeletedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentlyDeletedView.swift; sourceTree = "<group>"; };
 		DD09951914FB65D3573E5824 /* ExternalDisplayNowPlayingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalDisplayNowPlayingView.swift; sourceTree = "<group>"; };
 		DD23D48B7298FECE44ABE083 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = de.lproj/Localizable.strings; sourceTree = "<group>"; };
@@ -3917,6 +3922,7 @@
 				2E0FB3345193EA2D67A00D95 /* SingleSongScrapeGatePolicy.swift */,
 				0A0A68B54B7A480C64D2DF3F /* SiriMediaSearchResolver.swift */,
 				AFC99787799DFBA7FE0F2C6D /* SiriRadioStationCatalog.swift */,
+				2086FCDEA46B3F6C17F35FD6 /* SiriListeningCatalog.swift */,
 				71FC29F0BEE2515FB72BA35E /* SmartNudgePolicy.swift */,
 				D17991F821D80A04544F35DD /* SmartTransitionPolicy.swift */,
 				B705F84F128EDD24EE3C5CF2 /* SnapshotFileTransaction.swift */,
@@ -4457,6 +4463,7 @@
 			children = (
 				4ECCDD80F05FA4A71FA0CB32 /* PrimuseAppIntents.swift */,
 				DC58680E103085AFD9B2E909 /* PrimuseRadioAppIntents.swift */,
+				3121D2FA06E982937681871F /* PrimuseListeningAppIntents.swift */,
 				465B35F98B45AB86C0B0080B /* PrimuseSettingsIntents.swift */,
 				0BCC0F5CA18E10E082FBC516 /* SiriMediaInteractionDonor.swift */,
 			);
@@ -6138,6 +6145,7 @@
 				73B6C372A8A78B8A33E5B01C /* SingleSongScrapeGatePolicy.swift in Sources */,
 				B32FC2E13ECA019E4C5E4911 /* SiriMediaSearchResolver.swift in Sources */,
 				9CD3A703DEE9F5A5DAD72E1B /* SiriRadioStationCatalog.swift in Sources */,
+				134070D5B974F302E3D57F4B /* SiriListeningCatalog.swift in Sources */,
 				A6FD805DCC55CC035D0503BB /* SmartNudgePolicy.swift in Sources */,
 				4104522A47C989851CAB4E72 /* SmartPlaylist.swift in Sources */,
 				AFA18D8A09161106B1311158 /* SmartTransitionPolicy.swift in Sources */,
@@ -6600,6 +6608,7 @@
 				A81CAB815CAEF7AA50690D02 /* PrimuseApp.swift in Sources */,
 				792835F98B1AABE297CC5D22 /* PrimuseAppIntents.swift in Sources */,
 				EE6D78AE8A6BAC03DAEBF824 /* PrimuseRadioAppIntents.swift in Sources */,
+				6CA116A1BB374AC1B6B9251C /* PrimuseListeningAppIntents.swift in Sources */,
 				5A5D5C6FBB0B1D5F481DCB96 /* PrimuseSettingsIntents.swift in Sources */,
 				1B7A7E074FABC7B3C0FCCA49 /* PrimuseTheme.swift in Sources */,
 				CA2D0A1CAB5859411F6DF739 /* QnapAPI.swift in Sources */,
@@ -7280,6 +7289,7 @@
 				6BD1C7F83B80EF5C35376167 /* PrimuseApp.swift in Sources */,
 				448D9C545A04EA47EFC97B60 /* PrimuseAppIntents.swift in Sources */,
 				F7146B96978777BFCFB56832 /* PrimuseRadioAppIntents.swift in Sources */,
+				ECB4441702E88C2D43B4D049 /* PrimuseListeningAppIntents.swift in Sources */,
 				F9049DEBC46D78EB9137EB7D /* PrimuseSettingsIntents.swift in Sources */,
 				E89792F8B9D0D52C48A7875A /* PrimuseTheme.swift in Sources */,
 				646CC1ED5ED9429DB506546B /* QnapAPI.swift in Sources */,

@@ -46,6 +46,9 @@
 "Play" = "Abspielen";
 "Pause" = "Pausieren";
 "Play or Pause" = "Abspielen oder pausieren";
+"Resume" = "Fortsetzen";
+"Next Track" = "Nächster Titel";
+"Previous Track" = "Vorheriger Titel";
 "Control Playback" = "Wiedergabe steuern";
 "Play, pause, or toggle Primuse playback." = "Primuse abspielen, pausieren oder umschalten.";
 "Play the ${direction} track" = "Spiele ${direction}";

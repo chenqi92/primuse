@@ -798,6 +798,11 @@
 "ext.tv.settings.appleMusic.authorize" = "अनुमति देने के लिए दबाएँ";
 "ext.tv.settings.appleMusic.denied" = "अस्वीकृत · tvOS सेटिंग्स में चालू करें";
 "ext.tv.settings.appleMusic.restricted" = "प्रतिबंधित";
+"ext.tv.settings.siri" = "Siri";
+"ext.tv.settings.siri.authorized" = "अनुमति दी गई";
+"ext.tv.settings.siri.authorize" = "अनुमति देने के लिए दबाएँ";
+"ext.tv.settings.siri.denied" = "अस्वीकृत · tvOS सेटिंग्स में चालू करें";
+"ext.tv.settings.siri.restricted" = "प्रतिबंधित";
 "ext.tv.playlists.appleMusic" = "Apple Music प्लेलिस्ट";
 "ext.tv.playlists.appleMusicLoading" = "Apple Music प्लेलिस्ट लोड हो रही हैं…";
 

@@ -7,6 +7,9 @@
 "Play" = "Включи музыку";
 "Pause" = "Приостанови";
 "Play or Pause" = "Включи или приостанови музыку";
+"Resume" = "Продолжи";
+"Next Track" = "Следующий трек";
+"Previous Track" = "Предыдущий трек";
 "Control Playback" = "Управление воспроизведением";
 "Play, pause, or toggle Primuse playback." = "Включает, приостанавливает или переключает воспроизведение в Primuse.";
 "Wrapped" = "Завернутый";

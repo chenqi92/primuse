@@ -46,6 +46,9 @@
 "Play" = "播放";
 "Pause" = "暫停";
 "Play or Pause" = "播放或暫停";
+"Resume" = "繼續播放";
+"Next Track" = "下一首";
+"Previous Track" = "上一首";
 "Control Playback" = "控制播放";
 "Play, pause, or toggle Primuse playback." = "播放、暫停或切換 Primuse 的播放。";
 "Play the ${direction} track" = "播放${direction}";

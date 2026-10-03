@@ -46,6 +46,9 @@
 "Play" = "再生";
 "Pause" = "一時停止";
 "Play or Pause" = "再生または一時停止";
+"Resume" = "再開";
+"Next Track" = "次の曲";
+"Previous Track" = "前の曲";
 "Control Playback" = "再生を操作";
 "Play, pause, or toggle Primuse playback." = "Primuse の再生、一時停止、切り替えを行います。";
 "Play the ${direction} track" = "${direction}の曲を再生";

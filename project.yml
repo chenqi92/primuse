@@ -263,7 +263,9 @@ targets:
           - INPlayMediaIntent
           - INSearchForMediaIntent
         INSupportedMediaCategories:
+          - INMediaCategoryAudiobooks
           - INMediaCategoryMusic
+          - INMediaCategoryPodcasts
           - INMediaCategoryRadio
         NSAppleMusicUsageDescription: "Primuse uses Apple Music to search the catalog and play tracks if you have an active subscription."
         NSMicrophoneUsageDescription: "Primuse uses the microphone in karaoke mode to score your singing, let you hear yourself in headphones, and record your performance on this device."
@@ -917,7 +919,9 @@ targets:
           - INPlayMediaIntent
           - INSearchForMediaIntent
         INSupportedMediaCategories:
+          - INMediaCategoryAudiobooks
           - INMediaCategoryMusic
+          - INMediaCategoryPodcasts
           - INMediaCategoryRadio
         # 用户配置的 NAS 端点可能使用自签 HTTPS；实际放行仍由应用层端点指纹确认控制。
         NSAppTransportSecurity:

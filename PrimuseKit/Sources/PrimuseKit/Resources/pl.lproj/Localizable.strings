@@ -798,6 +798,11 @@
 "ext.tv.settings.appleMusic.authorize" = "Naciśnij, aby zezwolić";
 "ext.tv.settings.appleMusic.denied" = "Odrzucono · włącz w Ustawieniach tvOS";
 "ext.tv.settings.appleMusic.restricted" = "Ograniczone";
+"ext.tv.settings.siri" = "Siri";
+"ext.tv.settings.siri.authorized" = "Dozwolone";
+"ext.tv.settings.siri.authorize" = "Naciśnij, aby zezwolić";
+"ext.tv.settings.siri.denied" = "Odrzucono · włącz w Ustawieniach tvOS";
+"ext.tv.settings.siri.restricted" = "Ograniczone";
 "ext.tv.playlists.appleMusic" = "Playlisty Apple Music";
 "ext.tv.playlists.appleMusicLoading" = "Wczytywanie playlist Apple Music…";
 

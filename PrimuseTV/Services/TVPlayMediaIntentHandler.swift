@@ -2,13 +2,39 @@
 @preconcurrency import Intents
 import PrimuseKit
 
-private enum TVSiriAuthorizationRuntime {
-    static var isAuthorized: Bool {
+enum TVSiriAuthorizationRuntime {
+    /// Unsigned simulator builds lack the Siri entitlement, and
+    /// `INPreferences` raises an Objective-C exception without it.
+    static var status: INSiriAuthorizationStatus {
         #if targetEnvironment(simulator)
-        false
+        .restricted
         #else
-        INPreferences.siriAuthorizationStatus() == .authorized
+        INPreferences.siriAuthorizationStatus()
         #endif
+    }
+
+    static var isAuthorized: Bool { status == .authorized }
+
+    static func request(_ completion: @escaping @MainActor (INSiriAuthorizationStatus) -> Void) {
+        #if targetEnvironment(simulator)
+        Task { @MainActor in completion(.restricted) }
+        #else
+        INPreferences.requestSiriAuthorization { status in
+            Task { @MainActor in completion(status) }
+        }
+        #endif
+    }
+
+    /// Station, book and podcast names reach Siri only with permission. Ask
+    /// once, the first time a station is played on this TV; the settings page
+    /// asks on demand.
+    @MainActor
+    static func requestOnceFromPlayback(_ completion: @escaping @MainActor (INSiriAuthorizationStatus) -> Void) {
+        guard status == .notDetermined else { return }
+        let key = "tv.siri.authorizationRequestedFromPlayback"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        request(completion)
     }
 }
 
@@ -31,6 +57,7 @@ final class TVPlayMediaIntentHandler: NSObject,
             await store.prepareForSiri(
                 needsLibrary: SiriRequestNeeds.libraryForPlayback(query, identifierGroups: identifierGroups)
             )
+            if query.kind == .podcast { await Self.waitForPodcasts() }
             // "继续播放" names nothing: carry on with what is loaded (restored
             // once the library is ready) instead of shuffling the whole
             // library over a station or a book.
@@ -75,6 +102,14 @@ final class TVPlayMediaIntentHandler: NSObject,
                 case .needsApp: code = .failureRequiringAppLaunch
                 case .failed: code = .failure
                 }
+            case .book(let book):
+                code = store.playSpokenWordBook(
+                    songIDs: book.items.map(\.id),
+                    startingAt: book.resumeItemID
+                ) ? .success : .failure
+            case .podcast(let episode, let continuing):
+                store.playPodcast(episode, continuing: continuing)
+                code = .success
             }
             completion.value(INPlayMediaIntentResponse(code: code, userActivity: nil))
         }
@@ -144,9 +179,57 @@ final class TVPlayMediaIntentHandler: NSObject,
             case .algorithmicRadioStation:
                 completion.value([INPlayMediaMediaItemResolutionResult.notRequired()])
                 return
+            case .audiobook:
+                guard query.mediaName != nil || !identifiers.isEmpty else {
+                    // "播放有声书": carry on with the book last listened to.
+                    completion.value([INPlayMediaMediaItemResolutionResult.notRequired()])
+                    return
+                }
+                resolveNamedItems(
+                    query: query.mediaName,
+                    identifiers: identifiers,
+                    namespace: "audiobook",
+                    type: .audioBook,
+                    items: SiriListeningCatalog.namedItems(books: spokenWordBooks()),
+                    completion: completion
+                )
+                return
+            case .podcast:
+                guard query.mediaName != nil || !identifiers.isEmpty else {
+                    // "播放播客": carry on with the episode in progress.
+                    completion.value([INPlayMediaMediaItemResolutionResult.notRequired()])
+                    return
+                }
+                await Self.waitForPodcasts()
+                let shows = SiriListeningCatalog.namedItems(shows: PodcastStore.shared.shows)
+                if !SiriRequestNeeds.allRadio(identifiers),
+                   SiriNamedMediaResolver.resolve(
+                       query: query.mediaName,
+                       selectedItemIDs: identifiers,
+                       namespace: "podcastshow",
+                       items: shows
+                   ) != nil {
+                    resolveNamedItems(
+                        query: query.mediaName,
+                        identifiers: identifiers,
+                        namespace: "podcastshow",
+                        type: .podcastShow,
+                        items: shows,
+                        completion: completion
+                    )
+                } else {
+                    // Station names are registered with Siri as show titles too.
+                    resolveRadioItems(
+                        query: query.mediaName,
+                        identifiers: identifiers,
+                        completion: completion
+                    )
+                }
+                return
             case .unsupported:
-                // Podcast- and show-typed requests: the only titles registered
-                // with Siri as shows are the saved stations.
+                // Other typed requests (TV shows, news): the only titles
+                // registered with Siri as shows are the saved stations and
+                // podcasts, and a podcast name would have been typed so.
                 if query.mediaName != nil || SiriRequestNeeds.allRadio(identifiers) {
                     resolveRadioItems(
                         query: query.mediaName,
@@ -276,13 +359,21 @@ final class TVPlayMediaIntentHandler: NSObject,
         }
     }
 
+    /// Each call replaces the whole set for a vocabulary type, so podcast
+    /// shows and stations, which share `.mediaShowTitle`, go in together.
     @MainActor
     func refreshRadioVocabulary() {
         guard TVSiriAuthorizationRuntime.isAuthorized else { return }
-        let names = radioStations().prefix(100).map(\.name)
-        INVocabulary.shared().setVocabularyStrings(
-            NSOrderedSet(array: names),
-            of: .mediaShowTitle
+        let stations = SiriRadioStationCatalog.appShortcutStations(
+            from: store.radioStations,
+            enabledSourceIDs: Set(store.sourcesStore.sources.lazy.filter(\.isEnabled).map(\.id))
+        ).map(\.name)
+        let shows = PodcastStore.shared.shows.prefix(50).map(\.title)
+        let vocabulary = INVocabulary.shared()
+        vocabulary.setVocabularyStrings(NSOrderedSet(array: shows + stations), of: .mediaShowTitle)
+        vocabulary.setVocabularyStrings(
+            NSOrderedSet(array: spokenWordBooks().prefix(50).map(\.title)),
+            of: .mediaAudiobookTitle
         )
     }
 
@@ -419,6 +510,12 @@ final class TVPlayMediaIntentHandler: NSObject,
         }
 
         guard query.kind != .algorithmicRadioStation else { return nil }
+        if query.kind == .audiobook {
+            return resolveBook(query: query.mediaName, identifiers: identifiers)
+        }
+        if query.kind == .podcast {
+            return resolvePodcast(query: query.mediaName, identifiers: identifiers)
+        }
         if SiriRequestNeeds.allRadio(identifiers) {
             guard let resolved = SiriNamedMediaResolver.resolve(
                 query: query.mediaName,
@@ -501,7 +598,8 @@ final class TVPlayMediaIntentHandler: NSObject,
                 case nil:
                     return nil
                 }
-            case .album, .artist, .genre, .playlist, .radioStation, .algorithmicRadioStation:
+            case .album, .artist, .genre, .playlist, .radioStation, .algorithmicRadioStation,
+                 .audiobook, .podcast:
                 break
             }
         }
@@ -520,6 +618,82 @@ final class TVPlayMediaIntentHandler: NSObject,
             result.queue,
             shuffled: intent.playShuffled == true || playsWholeLibrary
         )
+    }
+
+    @MainActor
+    private func spokenWordBooks() -> [SpokenWordBook] {
+        TVSpokenWordBooks.books(songs: store.library.spokenWordSongs, store: .shared)
+    }
+
+    /// No title: the book last listened to. A title or a book chosen during
+    /// resolution: that book, where it was left.
+    @MainActor
+    private func resolveBook(query: String?, identifiers: [String]) -> TVIntentTarget? {
+        let books = spokenWordBooks()
+        if identifiers.isEmpty, query == nil {
+            return SiriListeningCatalog.bookToContinue(books).map(TVIntentTarget.book)
+        }
+        guard let resolved = SiriNamedMediaResolver.resolve(
+            query: query,
+            selectedItemIDs: identifiers,
+            namespace: "audiobook",
+            items: SiriListeningCatalog.namedItems(books: books)
+        ), !identifiers.isEmpty || (!resolved.needsDisambiguation && !resolved.requiresConfirmation) else {
+            return nil
+        }
+        return books.first { $0.id == resolved.selected.id }.map(TVIntentTarget.book)
+    }
+
+    /// No name: the episode in progress. A show's name: the episode its page
+    /// would play. A name no show carries may be a station's.
+    @MainActor
+    private func resolvePodcast(query: String?, identifiers: [String]) -> TVIntentTarget? {
+        let podcasts = PodcastStore.shared
+        if identifiers.isEmpty, query == nil {
+            guard let current = podcasts.mostRecentInProgress else { return nil }
+            return podcastTarget(current.episode, showID: current.show.id)
+        }
+        if !SiriRequestNeeds.allRadio(identifiers),
+           let resolved = SiriNamedMediaResolver.resolve(
+               query: query,
+               selectedItemIDs: identifiers,
+               namespace: "podcastshow",
+               items: SiriListeningCatalog.namedItems(shows: podcasts.shows)
+           ) {
+            guard !identifiers.isEmpty || (!resolved.needsDisambiguation && !resolved.requiresConfirmation),
+                  let show = podcasts.show(id: resolved.selected.id),
+                  let episode = PodcastEpisodeListPolicy.resumeTarget(
+                      in: podcasts.episodes(forShowID: show.id),
+                      isSerial: show.isSerial,
+                      state: { podcasts.state(for: $0) }
+                  ) else {
+                return nil
+            }
+            return podcastTarget(episode, showID: show.id)
+        }
+        return namedRadioTarget(query)
+    }
+
+    @MainActor
+    private func podcastTarget(_ episode: PodcastEpisode, showID: String) -> TVIntentTarget {
+        let podcasts = PodcastStore.shared
+        let continuing = Array(PodcastEpisodeListPolicy.continuation(
+            from: episode.id,
+            in: podcasts.episodes(forShowID: showID),
+            state: { podcasts.state(for: $0) }
+        ).dropFirst())
+        return .podcast(episode, continuing: continuing)
+    }
+
+    /// Subscriptions are read from disk after launch; Siri may ask before.
+    @MainActor
+    private static func waitForPodcasts() async {
+        let podcasts = PodcastStore.shared
+        podcasts.loadIfNeeded()
+        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+        while !podcasts.isLoaded, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
     }
 
     @MainActor
@@ -707,6 +881,8 @@ final class TVPlayMediaIntentHandler: NSObject,
         case .playlist: .playlist
         case .musicStation, .radioStation, .station: .radioStation
         case .algorithmicRadioStation: .algorithmicRadioStation
+        case .audioBook: .audiobook
+        case .podcastShow, .podcastEpisode, .podcastPlaylist, .podcastStation: .podcast
         case .unknown, .music: .music
         default: .unsupported
         }
@@ -751,6 +927,8 @@ final class TVPlayMediaIntentHandler: NSObject,
 private enum TVIntentTarget {
     case songs([Song], shuffled: Bool)
     case radio(RadioStation)
+    case book(SpokenWordBook)
+    case podcast(PodcastEpisode, continuing: [PodcastEpisode])
 }
 
 private enum TVRadioIntentStart {
@@ -765,8 +943,15 @@ private final class TVUncheckedBox<T>: @unchecked Sendable {
 @MainActor
 enum TVSiriMediaInteractionDonor {
     static func donate(station: RadioStation) {
-        guard TVSiriAuthorizationRuntime.isAuthorized,
-              SiriRadioStationCatalog.isSafeIdentifier(station.id),
+        guard TVSiriAuthorizationRuntime.isAuthorized else {
+            TVSiriAuthorizationRuntime.requestOnceFromPlayback { status in
+                guard status == .authorized else { return }
+                donate(station: station)
+                NotificationCenter.default.post(name: .primuseTVSiriRadioCatalogDidChange, object: nil)
+            }
+            return
+        }
+        guard SiriRadioStationCatalog.isSafeIdentifier(station.id),
               let safeName = SiriRadioStationCatalog.safeDisplayName(station.name) else {
             return
         }

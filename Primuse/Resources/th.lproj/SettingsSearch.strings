@@ -59,6 +59,9 @@
 "Play" = "เล่น";
 "Pause" = "พัก";
 "Play or Pause" = "เล่นหรือพัก";
+"Resume" = "เล่นต่อ";
+"Next Track" = "เพลงถัดไป";
+"Previous Track" = "เพลงก่อนหน้า";
 "Control Playback" = "ควบคุมการเล่น";
 "Play, pause, or toggle Primuse playback." = "เล่น พัก หรือสลับการเล่นใน Primuse";
 "Sync User Library" = "ซิงค์คลังเพลงผู้ใช้";

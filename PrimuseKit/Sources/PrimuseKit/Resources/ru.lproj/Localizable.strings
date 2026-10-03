@@ -798,6 +798,11 @@
 "ext.tv.settings.appleMusic.authorize" = "Нажмите, чтобы разрешить";
 "ext.tv.settings.appleMusic.denied" = "Запрещено · включите в настройках tvOS";
 "ext.tv.settings.appleMusic.restricted" = "Ограничено";
+"ext.tv.settings.siri" = "Siri";
+"ext.tv.settings.siri.authorized" = "Разрешено";
+"ext.tv.settings.siri.authorize" = "Нажмите, чтобы разрешить";
+"ext.tv.settings.siri.denied" = "Запрещено · включите в настройках tvOS";
+"ext.tv.settings.siri.restricted" = "Ограничено";
 "ext.tv.playlists.appleMusic" = "Плейлисты Apple Music";
 "ext.tv.playlists.appleMusicLoading" = "Загрузка плейлистов Apple Music…";
 

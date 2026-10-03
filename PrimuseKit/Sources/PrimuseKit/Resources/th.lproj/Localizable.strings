@@ -798,6 +798,11 @@
 "ext.tv.settings.appleMusic.authorize" = "แตะเพื่ออนุญาต";
 "ext.tv.settings.appleMusic.denied" = "ถูกปฏิเสธ · เปิดใช้ในการตั้งค่า tvOS";
 "ext.tv.settings.appleMusic.restricted" = "ถูกจำกัด";
+"ext.tv.settings.siri" = "Siri";
+"ext.tv.settings.siri.authorized" = "อนุญาตแล้ว";
+"ext.tv.settings.siri.authorize" = "แตะเพื่ออนุญาต";
+"ext.tv.settings.siri.denied" = "ถูกปฏิเสธ · เปิดใช้ในการตั้งค่า tvOS";
+"ext.tv.settings.siri.restricted" = "ถูกจำกัด";
 "ext.tv.playlists.appleMusic" = "เพลย์ลิสต์ Apple Music";
 "ext.tv.playlists.appleMusicLoading" = "กำลังโหลดเพลย์ลิสต์ Apple Music…";
 

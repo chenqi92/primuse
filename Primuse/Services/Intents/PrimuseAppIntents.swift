@@ -53,11 +53,13 @@ struct PrimuseSetPlayingIntent: AudioPlaybackIntent, SetValueIntent {
     }
 }
 
-/// What "用 Primuse 播放 / 暂停" asks for. Spoken one-way commands must do
-/// exactly what they say: bound to the toggle above, "暂停" while paused
-/// started playback and "播放" while playing paused it.
+/// What "用 Primuse 播放 / 暂停 / 下一首" asks for. Spoken one-way commands
+/// must do exactly what they say: bound to the toggle above, "暂停" while
+/// paused started playback and "播放" while playing paused it. One App
+/// Shortcut carries all of them, leaving room for books, podcasts and the
+/// sleep timer within the ten the system allows.
 enum PrimusePlaybackAction: String, AppEnum {
-    case play, pause, toggle
+    case play, pause, toggle, resume, next, previous
 
     static let typeDisplayRepresentation = TypeDisplayRepresentation(
         name: LocalizedStringResource("Playback Action", table: "SettingsSearch")
@@ -66,6 +68,9 @@ enum PrimusePlaybackAction: String, AppEnum {
         .play: DisplayRepresentation(title: LocalizedStringResource("Play", table: "SettingsSearch")),
         .pause: DisplayRepresentation(title: LocalizedStringResource("Pause", table: "SettingsSearch")),
         .toggle: DisplayRepresentation(title: LocalizedStringResource("Play or Pause", table: "SettingsSearch")),
+        .resume: DisplayRepresentation(title: LocalizedStringResource("Resume", table: "SettingsSearch")),
+        .next: DisplayRepresentation(title: LocalizedStringResource("Next Track", table: "SettingsSearch")),
+        .previous: DisplayRepresentation(title: LocalizedStringResource("Previous Track", table: "SettingsSearch")),
     ]
 }
 
@@ -90,7 +95,7 @@ struct PrimusePlaybackControlIntent: AudioPlaybackIntent {
     func perform() async throws -> some IntentResult {
         let bridge = PrimuseIntentBridge.shared
         switch action {
-        case .play:
+        case .play, .resume:
             // Nothing to resume: "play" starts the music library, as Siri's
             // own "play music" does.
             if bridge.hasPlaybackSession() {
@@ -102,6 +107,10 @@ struct PrimusePlaybackControlIntent: AudioPlaybackIntent {
             bridge.setPlaying(false)
         case .toggle:
             bridge.togglePlayPause()
+        case .next:
+            await bridge.next()
+        case .previous:
+            await bridge.previous()
         }
         return .result()
     }
@@ -469,12 +478,6 @@ struct PrimuseShortcuts: AppShortcutsProvider {
             systemImageName: "play.fill"
         )
         AppShortcut(
-            intent: PrimuseSkipTrackIntent(),
-            phrases: ["Play the \(\.$direction) track in \(.applicationName)"],
-            shortTitle: LocalizedStringResource("Skip Track", table: "SettingsSearch"),
-            systemImageName: "forward.end"
-        )
-        AppShortcut(
             intent: PrimuseOpenSettingIntent(),
             phrases: [
                 "Open \(\.$target) in \(.applicationName)",
@@ -508,14 +511,6 @@ struct PrimuseShortcuts: AppShortcutsProvider {
             systemImageName: "music.note.list"
         )
         AppShortcut(
-            intent: PrimuseResumePlaybackIntent(),
-            phrases: [
-                "Resume \(.applicationName)",
-            ],
-            shortTitle: "Resume",
-            systemImageName: "play.circle"
-        )
-        AppShortcut(
             intent: PrimusePlayRadioIntent(),
             phrases: [
                 "Play \(\.$station) in \(.applicationName)",
@@ -532,12 +527,28 @@ struct PrimuseShortcuts: AppShortcutsProvider {
             systemImageName: "dot.radiowaves.left.and.right"
         )
         AppShortcut(
-            intent: PrimuseSearchRadioIntent(),
+            intent: PrimuseContinueListeningIntent(),
             phrases: [
-                "Search for \(\.$station) radio in \(.applicationName)",
+                "Continue listening to \(\.$book) in \(.applicationName)",
             ],
-            shortTitle: "Search Radio",
-            systemImageName: "magnifyingglass"
+            shortTitle: "Continue Listening",
+            systemImageName: "book"
+        )
+        AppShortcut(
+            intent: PrimusePlayPodcastIntent(),
+            phrases: [
+                "Play the podcast \(\.$show) in \(.applicationName)",
+            ],
+            shortTitle: "Play Podcast",
+            systemImageName: "antenna.radiowaves.left.and.right"
+        )
+        AppShortcut(
+            intent: PrimuseSetSleepTimerIntent(),
+            phrases: [
+                "Set a sleep timer for \(\.$duration) in \(.applicationName)",
+            ],
+            shortTitle: "Sleep Timer",
+            systemImageName: "moon.zzz"
         )
     }
 }
