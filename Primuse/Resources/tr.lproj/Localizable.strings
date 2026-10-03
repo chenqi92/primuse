@@ -5346,6 +5346,7 @@
 "library_insight_writeback_comments_format" = "%d şarkının yorumu";
 "library_insight_footer_imported_format" = "%@ kaynağından";
 "library_insight_list_separator" = ", ";
+"library_insight_add" = "Tanıtım ekle";
 "home_hero_section_title" = "Karşılama kartı";
 "album_pick_another_batch" = "Başka seçki";
 

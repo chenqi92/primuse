@@ -5203,6 +5203,7 @@
 "library_insight_writeback_comments_format" = "comments of %d songs";
 "library_insight_footer_imported_format" = "From %@";
 "library_insight_list_separator" = ", ";
+"library_insight_add" = "Add Intro";
 "home_hero_section_title" = "Welcome Card";
 "album_pick_another_batch" = "Another Set";
 

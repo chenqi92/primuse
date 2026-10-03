@@ -178,10 +178,7 @@ struct AlbumDetailView: View {
         return ImmersiveLibraryDetailScrollView { insets in
             iosHero(insets: insets)
         } content: {
-            VStack(spacing: 18) {
-                trackList(discs: discs, showsDiscHeaders: showsDiscHeaders)
-                LibraryInsightCard(subject: insightIdentity, details: insightDetails, songs: { songs }, tint: tint)
-            }
+            trackList(discs: discs, showsDiscHeaders: showsDiscHeaders)
                 .padding(.horizontal, 16)
                 .padding(.top, 18)
                 .padding(.bottom, BottomChromeClearancePolicy.clearance(
@@ -235,6 +232,8 @@ struct AlbumDetailView: View {
     ///
     /// 手机横屏只剩三百多点高, 封面、间距、留白各降一档并改成封面在左的一行,
     /// 头图压到 190pt 以内, 首屏才露得出歌。
+    ///
+    /// 简介照影片介绍页的位置放在播放键下面: 风格、几行摘录, 点开读全文。
     private func iosHero(insets: ImmersiveLibraryDetailInsets) -> some View {
         let compact = heightClass.isCompact
         // 无障碍字号下横排放不下, 一律回到竖排居中。
@@ -264,6 +263,13 @@ struct AlbumDetailView: View {
                 play: { playAll() },
                 shuffle: shuffleAll,
                 favorite: albumFavorite
+            )
+
+            LibraryInsightSynopsis(
+                subject: insightIdentity,
+                details: insightDetails,
+                songs: { songs },
+                compact: compact
             )
 
             LibraryReviewSection(subject: .album(album.id), compact: true, onArtwork: true)
@@ -382,13 +388,17 @@ struct AlbumDetailView: View {
                     onPlay: { playAll() },
                     onShuffle: shuffleAll,
                     moreMenu: albumMoreMenu,
-                    favorite: albumFavorite
+                    favorite: albumFavorite,
+                    synopsis: AnyView(LibraryInsightSynopsis(
+                        subject: insightIdentity,
+                        details: insightDetails,
+                        songs: { songs }
+                    )),
+                    artworkBackdrop: true
                 )
 
                 VStack(alignment: .leading, spacing: PMSpace.l) {
-                    albumInfoCard
                     LibraryReviewSection(subject: .album(album.id))
-                    LibraryInsightCard(subject: insightIdentity, details: insightDetails, songs: { songs })
                     macToolbar
 
                     if songs.isEmpty {
@@ -509,40 +519,6 @@ struct AlbumDetailView: View {
         parts.append("\(album.songCount) \(String(localized: "songs_count"))")
         parts.append(formatDuration(album.totalDuration))
         return parts.joined(separator: " · ")
-    }
-
-    private var albumInfoCard: some View {
-        HStack(spacing: 14) {
-            Image(systemName: "opticaldisc")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(PMColor.brand)
-                .frame(width: 42, height: 42)
-                .background(PMColor.brand.opacity(0.16), in: .rect(cornerRadius: 9))
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(album.artistName ?? String(localized: "unknown_artist"))
-                    .font(.system(size: 13.5, weight: .semibold))
-                    .foregroundStyle(PMColor.text)
-                    .lineLimit(1)
-                Text(verbatim: "\(songs.filteredPlayable().count) \(String(localized: "home_playable")) · \(album.totalDuration.formattedShort)")
-                    .font(.system(size: 12))
-                    .foregroundStyle(PMColor.textMuted)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            if let year = album.year {
-                Text(verbatim: "\(year)")
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundStyle(PMColor.textFaint)
-                    .padding(.horizontal, 10)
-                    .frame(height: 24)
-                    .background(PMColor.glassBtn, in: .capsule)
-            }
-        }
-        .padding(14)
-        .pmGlass(cornerRadius: PMRadius.m10)
     }
 
     private var macToolbar: some View {

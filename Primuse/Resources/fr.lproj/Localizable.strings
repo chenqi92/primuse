@@ -5440,6 +5440,7 @@
 "library_insight_writeback_comments_format" = "commentaires de %d titres";
 "library_insight_footer_imported_format" = "Depuis %@";
 "library_insight_list_separator" = ", ";
+"library_insight_add" = "Ajouter une présentation";
 "home_hero_section_title" = "Carte d’accueil";
 "album_pick_another_batch" = "Autre sélection";
 

@@ -5533,6 +5533,7 @@
 "library_insight_writeback_comments_format" = "%d 首歌的注释";
 "library_insight_footer_imported_format" = "来自 %@";
 "library_insight_list_separator" = "、";
+"library_insight_add" = "添加简介";
 "home_hero_section_title" = "顶部欢迎卡片";
 "album_pick_another_batch" = "换一批";
 

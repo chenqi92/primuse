@@ -5440,6 +5440,7 @@
 "library_insight_writeback_comments_format" = "%d곡의 코멘트";
 "library_insight_footer_imported_format" = "%@에서";
 "library_insight_list_separator" = ", ";
+"library_insight_add" = "소개 추가";
 "home_hero_section_title" = "환영 카드";
 "album_pick_another_batch" = "다른 추천";
 

@@ -25,13 +25,20 @@ struct MacLibraryHeader: View {
     var showsMoreButton = true
     /// 有值时「随机播放」后多一颗心（专辑、艺人页）。
     var favorite: LibraryDetailFavoriteToggle? = nil
+    /// 专辑、艺人页的简介摘录，放在副标题和按钮之间；有内容时头部跟着长高。
+    var synopsis: AnyView? = nil
+    /// 底图用这张专辑 / 这位艺人的封面虚化铺满，像影片介绍页的海报底图；
+    /// 关掉（歌单、风格等）照旧是固定色的氛围底。
+    var artworkBackdrop = false
 
     @State private var showMoreMenu = false
+
+    private var coverSide: CGFloat { artworkBackdrop ? 196 : 160 }
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 24) {
             coverArt
-                .frame(width: 160, height: 160)
+                .frame(width: coverSide, height: coverSide)
 
             VStack(alignment: .leading, spacing: 8) {
                 Text(eyebrow)
@@ -51,6 +58,12 @@ struct MacLibraryHeader: View {
                     .font(.system(size: 13))
                     .foregroundStyle(.white.opacity(0.72))
                     .lineLimit(1)
+
+                if let synopsis {
+                    synopsis
+                        .frame(maxWidth: 640, alignment: .leading)
+                        .padding(.top, 6)
+                }
 
                 HStack(spacing: 8) {
                     Button(action: onPlay) {
@@ -137,11 +150,16 @@ struct MacLibraryHeader: View {
         .padding(.horizontal, 36)
         .padding(.top, 32)
         .padding(.bottom, 24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        // 没有简介时内容不到 240，照旧是 240 高、内容贴底；有简介时按内容长高。
+        .frame(maxWidth: .infinity, minHeight: 240, alignment: .bottomLeading)
         .background {
             // Keeping the ambient layer in background avoids an offscreen sibling
             // rendering above the header when the view is reused in a split view.
-            AmbientBackdrop(accent: accent, darkAccent: darkAccent, strength: 0.4)
+            if artworkBackdrop, coverAlbum != nil || coverArtist != nil {
+                artworkBackdropLayer
+            } else {
+                AmbientBackdrop(accent: accent, darkAccent: darkAccent, strength: 0.4)
+            }
         }
         .overlay(alignment: .topTrailing) {
             if let onBack {
@@ -154,8 +172,46 @@ struct MacLibraryHeader: View {
                 .padding(.trailing, 36)
             }
         }
-        .frame(height: 240)
         .clipped()
+    }
+
+    /// 封面虚化成整幅底图。只取一张小图放大再糊开 —— 糊掉之后分辨率看不出来，
+    /// 也不必为一张底图解出整幅大图；压暗层保证白字在亮封面上也读得清，
+    /// 最底下一小段化进页面底色，头部不再是一刀切的边。
+    private var artworkBackdropLayer: some View {
+        GeometryReader { geometry in
+            let side: CGFloat = 240
+            let scale = max(geometry.size.width, geometry.size.height) / side * 1.3
+            backdropArtwork(side: side)
+                .blur(radius: 14, opaque: true)
+                .scaleEffect(scale)
+                .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+        .background(PMColor.ambientDarkBase)
+        .overlay {
+            LinearGradient(
+                stops: [
+                    .init(color: .black.opacity(0.34), location: 0),
+                    .init(color: .black.opacity(0.58), location: 0.62),
+                    .init(color: .black.opacity(0.66), location: 0.9),
+                    .init(color: PMColor.bg, location: 1),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+        .clipped()
+        .accessibilityHidden(true)
+        .allowsHitTesting(false)
+    }
+
+    @ViewBuilder
+    private func backdropArtwork(side: CGFloat) -> some View {
+        if let album = coverAlbum {
+            AlbumArtworkView(album: album, size: side, cornerRadius: 0)
+        } else if let artist = coverArtist {
+            ArtistArtworkView(artist: artist, size: side, cornerRadius: 0)
+        }
     }
 
     @ViewBuilder
@@ -171,7 +227,7 @@ struct MacLibraryHeader: View {
         } else if let album = coverAlbum {
             AlbumArtworkView(
                 album: album,
-                size: 160,
+                size: coverSide,
                 cornerRadius: PMRadius.l,
                 presentationRole: .animatedHero
             )
@@ -179,8 +235,8 @@ struct MacLibraryHeader: View {
         } else if let artist = coverArtist {
             ArtistArtworkView(
                 artist: artist,
-                size: 160,
-                cornerRadius: 80
+                size: coverSide,
+                cornerRadius: coverSide / 2
             )
             .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
         } else if let song = coverSong {

@@ -5417,6 +5417,7 @@
 "library_insight_writeback_comments_format" = "%d 首歌的註解";
 "library_insight_footer_imported_format" = "來自 %@";
 "library_insight_list_separator" = "、";
+"library_insight_add" = "加入簡介";
 "home_hero_section_title" = "頂部歡迎卡片";
 "album_pick_another_batch" = "換一批";
 

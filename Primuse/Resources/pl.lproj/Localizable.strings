@@ -5346,6 +5346,7 @@
 "library_insight_writeback_comments_format" = "komentarze %d utworów";
 "library_insight_footer_imported_format" = "Z: %@";
 "library_insight_list_separator" = ", ";
+"library_insight_add" = "Dodaj wprowadzenie";
 "home_hero_section_title" = "Karta powitalna";
 "album_pick_another_batch" = "Inny zestaw";
 

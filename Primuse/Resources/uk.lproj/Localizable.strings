@@ -5346,6 +5346,7 @@
 "library_insight_writeback_comments_format" = "коментарі %d пісень";
 "library_insight_footer_imported_format" = "З: %@";
 "library_insight_list_separator" = ", ";
+"library_insight_add" = "Додати опис";
 "home_hero_section_title" = "Вітальна картка";
 "album_pick_another_batch" = "Інша добірка";
 

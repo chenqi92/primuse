@@ -2790,6 +2790,8 @@ struct NowPlayingAccessory: View {
 /// 同一份曲库只记一次。
 /// `PRIMUSE_DEBUG_SEED_PLAYLISTS=1` 先建两张取证歌单：整库一张（封面墙）、Evidence 专辑一张（单封面）；
 /// 另建两张同样形态的取证智能歌单（Evidence Smart Wall / Evidence Smart Single），用 `smart:<名字片段>` 打开。
+/// `PRIMUSE_DEBUG_SEED_INSIGHT=<专辑名片段>` 给这张专辑和它的专辑艺人各写一段简介和风格标签（看头图里的简介摘录），
+/// 正文可用 `PRIMUSE_DEBUG_SEED_INSIGHT_TEXT` 换掉。
 extension ContentView {
     @MainActor
     private func runDebugOpenPage() async {
@@ -2810,6 +2812,7 @@ extension ContentView {
         debugSeedPlaylistsIfRequested()
         debugSeedRadioIfRequested()
         debugSeedPlaysIfRequested()
+        Task { await debugSeedInsightIfRequested() }
         if let orientation = ProcessInfo.processInfo.environment["PRIMUSE_ORIENTATION"]?.lowercased(),
            ["landscape", "portrait", "landscapeleft", "landscaperight"].contains(orientation) {
             InterfaceOrientationLock.debugRequest(named: orientation)
@@ -2961,6 +2964,42 @@ extension ContentView {
         }
         UserDefaults.standard.set(true, forKey: marker)
         plog("🧪 DebugLaunchAutomation: seeded \(songs.count * 4) plays")
+    }
+
+    /// `PRIMUSE_DEBUG_SEED_INSIGHT=<专辑名片段>`：已经有简介的不覆盖。刚扫进来的歌要等标签读完
+    /// 才有专辑名，所以最多等一分钟。
+    @MainActor
+    private func debugSeedInsightIfRequested() async {
+        let environment = ProcessInfo.processInfo.environment
+        guard let needle = environment["PRIMUSE_DEBUG_SEED_INSIGHT"]?.lowercased(), !needle.isEmpty else { return }
+        var match: PrimuseKit.Album?
+        for _ in 0..<30 {
+            match = library.visibleAlbums.first(where: { $0.title.lowercased().contains(needle) })
+            if match != nil { break }
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+        }
+        guard let album = match else {
+            plog("🧪 DebugLaunchAutomation: no album matching '\(needle)' to seed an insight")
+            return
+        }
+        let summary = environment["PRIMUSE_DEBUG_SEED_INSIGHT_TEXT"] ?? """
+            Recorded over one long winter, this album trades the band's early guitar sound for analog synths and \
+            drum machines. The songs move from late-night city drives to quiet bedroom confessions, and the closing \
+            track stretches past nine minutes.
+
+            Critics at the time were divided, but it has since become the record most fans start with.
+            """
+        let artistName = album.artistName ?? ""
+        let store = LibraryInsightStore.shared
+        let subjects: [LibraryInsightSubject] = [
+            .album(title: album.title, artist: artistName, year: album.year, genres: [], tracks: []),
+            .artist(name: artistName, genres: [], albums: [], tracks: []),
+        ]
+        for subject in subjects where store.record(for: subject, in: library) == nil {
+            store.saveEdit(subject, summary: summary, tags: ["Synth-pop", "New wave", "1980s"], aiDraft: nil, library: library)
+        }
+        plog("🧪 DebugLaunchAutomation: seeded insight for '\(album.title)'")
     }
 
     /// `PRIMUSE_DEBUG_SEED_PLAYLISTS=1`：没有就建两张取证歌单，名字固定，重复启动不会重复建。

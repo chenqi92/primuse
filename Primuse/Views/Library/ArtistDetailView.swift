@@ -246,8 +246,6 @@ struct ArtistDetailView: View {
                     if !appearsOnAlbums.isEmpty {
                         iosAlbumShelf(title: "artist_appears_on", albums: appearsOnAlbums)
                     }
-                    LibraryInsightCard(subject: insightIdentity, details: insightDetails, songs: { songs }, tint: tint)
-                        .padding(.horizontal, 20)
                     if !songs.isEmpty {
                         allSongsLink.padding(.horizontal, 20)
                     }
@@ -264,6 +262,8 @@ struct ArtistDetailView: View {
 
     /// 手机横屏只剩三百多点高, 头像、块间距、上下留白都按竖屏标定过一遍,
     /// 紧凑高度下各降一档, 让 hero 压到 170pt 以内, 首屏才露得出热门单曲。
+    ///
+    /// 简介照影片介绍页的位置放在播放键下面, 跟着虚化头像的底图一起铺开。
     private func iosHero(insets: ImmersiveLibraryDetailInsets) -> some View {
         let identityLayout = dynamicTypeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
@@ -310,6 +310,13 @@ struct ArtistDetailView: View {
                 play: playAll,
                 shuffle: shuffleAll,
                 favorite: artistFavorite
+            )
+
+            LibraryInsightSynopsis(
+                subject: insightIdentity,
+                details: insightDetails,
+                songs: { songs },
+                compact: heightClass.isCompact
             )
         }
         // 底图铺满整幅屏幕, 文字与按钮按侧留在安全区内 —— 横屏两侧安全区不一定相等。
@@ -494,7 +501,6 @@ struct ArtistDetailView: View {
                                 albums: appearsOnAlbums
                             )
                         }
-                        LibraryInsightCard(subject: insightIdentity, details: insightDetails, songs: { songs })
                         if !songs.isEmpty { allSongsLink }
                     }
                 }
@@ -526,7 +532,13 @@ struct ArtistDetailView: View {
             onPlay: playAll,
             onShuffle: shuffleAll,
             moreMenu: artistMoreMenu,
-            favorite: artistFavorite
+            favorite: artistFavorite,
+            synopsis: AnyView(LibraryInsightSynopsis(
+                subject: insightIdentity,
+                details: insightDetails,
+                songs: { songs }
+            )),
+            artworkBackdrop: true
         )
     }
 

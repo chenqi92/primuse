@@ -5346,6 +5346,7 @@
 "library_insight_writeback_comments_format" = "คำอธิบายของ %d เพลง";
 "library_insight_footer_imported_format" = "จาก %@";
 "library_insight_list_separator" = ", ";
+"library_insight_add" = "เพิ่มคำแนะนำ";
 "home_hero_section_title" = "การ์ดต้อนรับ";
 "album_pick_another_batch" = "ชุดอื่น";
 

@@ -5346,6 +5346,7 @@
 "library_insight_writeback_comments_format" = "%d गानों की टिप्पणियाँ";
 "library_insight_footer_imported_format" = "%@ से";
 "library_insight_list_separator" = ", ";
+"library_insight_add" = "परिचय जोड़ें";
 "home_hero_section_title" = "स्वागत कार्ड";
 "album_pick_another_batch" = "दूसरा सेट";
 
