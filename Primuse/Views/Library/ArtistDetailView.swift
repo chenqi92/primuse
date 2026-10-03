@@ -28,6 +28,8 @@ struct ArtistDetailView: View {
 
     @State private var selection = SongSelectionModel()
     @State private var showArtworkEditor = false
+    /// 「全部歌曲」从页面根上推进去:链接在染色正文里(深色外观),从那里推的页面会带着深色外观。
+    @State private var showsAllSongs = false
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
     @State private var listeningSnapshot = ArtistListeningSnapshot()
 
@@ -171,6 +173,9 @@ struct ArtistDetailView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseListeningStatsDidChange)) { _ in
             refreshListeningSnapshot()
+        }
+        .navigationDestination(isPresented: $showsAllSongs) {
+            ArtistAllSongsView(artist: artist)
         }
         #if os(iOS) || os(macOS)
         .sheet(isPresented: $showArtworkEditor) {
@@ -347,7 +352,7 @@ struct ArtistDetailView: View {
     private var iosTopSongs: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionHeader("artist_popular") {
-                NavigationLink("see_all") { ArtistAllSongsView(artist: artist) }
+                Button("see_all") { showsAllSongs = true }
                     .font(.subheadline.weight(.semibold))
             }
 
@@ -679,8 +684,8 @@ struct ArtistDetailView: View {
     #endif
 
     private var allSongsLink: some View {
-        NavigationLink {
-            ArtistAllSongsView(artist: artist)
+        Button {
+            showsAllSongs = true
         } label: {
             HStack(spacing: 14) {
                 Image(systemName: "music.note.list")

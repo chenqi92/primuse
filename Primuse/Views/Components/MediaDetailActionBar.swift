@@ -165,6 +165,7 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
 
     @Environment(\.libraryDetailTint) private var tint
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.libraryDetailUnderlyingColorScheme) private var outerUnderlyingColorScheme
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.pmHeightClass) private var heightClass
     @Environment(\.pmIsPhoneIdiom) private var isPhoneIdiomEnvironment
@@ -220,6 +221,8 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
                 // 底色是深的, 页面里的语义色(主/次文字、分隔线、行高亮)就得按深色外观
                 // 取值 —— 否则浅色模式下会是黑字压在深底上。
                 .environment(\.colorScheme, tint == nil ? colorScheme : .dark)
+                // 正文里弹出的页面要换回 App 本来的外观,见 `libraryDetailPresentationReset()`。
+                .environment(\.libraryDetailUnderlyingColorScheme, underlyingColorScheme)
                 // 链接和图标按钮改用白色: 主题色来自正在播放的那首歌, 跟本页底色撞色
                 // 的概率不低。
                 .tint(tint == nil ? nil : Color.white)
@@ -281,9 +284,15 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
             .pmLayoutSwitchFade()
         }
         .environment(\.colorScheme, tint == nil ? colorScheme : .dark)
+        .environment(\.libraryDetailUnderlyingColorScheme, underlyingColorScheme)
         .tint(tint == nil ? nil : Color.white)
         .ignoresSafeArea(.container, edges: [.top, .horizontal])
         .transition(PMLayoutSwitchTransition())
+    }
+
+    /// 正文被强制成深色时 App 本来的外观;没染色时正文不改外观,沿用外层记下的值。
+    private var underlyingColorScheme: ColorScheme? {
+        tint == nil ? outerUnderlyingColorScheme : (outerUnderlyingColorScheme ?? colorScheme)
     }
 }
 #endif
@@ -922,8 +931,13 @@ struct LibraryReviewSection: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, topSpacing)
-            .sheet(isPresented: $showsCommentEditor) {
-                LibraryReviewCommentEditor(subject: subject)
+            // 同简介卡片:编辑页挂在透明宿主上,在宿主外层换回 App 本来的外观。
+            .background {
+                Color.clear
+                    .sheet(isPresented: $showsCommentEditor) {
+                        LibraryReviewCommentEditor(subject: subject)
+                    }
+                    .libraryDetailPresentationReset()
             }
         }
     }
@@ -1417,5 +1431,41 @@ struct LibraryCollectionMenuItems: View {
         let queue = shuffled ? playable.shuffled() : playable
         if shuffled { player.shuffleEnabled = true }
         Task { await player.play(queue: queue, startingAt: 0) }
+    }
+}
+
+// MARK: - 从染色详情页弹出的页面
+
+extension EnvironmentValues {
+    /// 专辑、艺人、风格详情页染了封面底色时,正文被强制成深色外观,这里记着 App 本来的外观。
+    /// 正文里弹出的 sheet、全屏页和推进去的子页会继承那份深色外观,背景却按本来的外观画 ——
+    /// 浅色模式下就成了白底白字;它们经 `libraryDetailPresentationReset()` 换回来。
+    @Entry var libraryDetailUnderlyingColorScheme: ColorScheme? = nil
+}
+
+extension View {
+    /// 包在弹出修饰器(`.sheet`、`.fullScreenCover`……)外层:弹出页的外观与主题色回到
+    /// App 本来的样子,也不再带着详情页的底色。环境值只往里传,挂在 `.sheet` 里面的内容上
+    /// 管不到弹出页本身的外观,所以要挂在透明宿主上、放在弹出修饰器之后。
+    /// 不在染色详情页里时外观不变。
+    func libraryDetailPresentationReset() -> some View {
+        modifier(LibraryDetailPresentationReset())
+    }
+}
+
+private struct LibraryDetailPresentationReset: ViewModifier {
+    @Environment(\.libraryDetailUnderlyingColorScheme) private var underlyingColorScheme
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(ThemeService.self) private var theme: ThemeService?
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.colorScheme, underlyingColorScheme ?? colorScheme)
+            .environment(\.libraryDetailUnderlyingColorScheme, nil)
+            #if os(iOS)
+            .environment(\.libraryDetailTint, nil)
+            #endif
+            // 染色详情页把链接、按钮的主题色换成了白色,弹出页里要换回 App 的主题色。
+            .tint(theme?.uiAccentColor)
     }
 }

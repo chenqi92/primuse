@@ -154,7 +154,27 @@ struct SongRowView: View {
                     .onAppear { hasMountedPresentations = true }
             }
         }
+        #if DEBUG
+        .task { await openDebugTagEditorIfRequested() }
+        #endif
     }
+
+    #if DEBUG
+    @MainActor private static var didOpenDebugTagEditor = false
+
+    /// 截图钩子:`PRIMUSE_DEBUG_TAG_EDITOR=<歌名片段>` 让第一行歌名含这个片段的歌打开标签编辑,只开一次
+    /// (配合 `PRIMUSE_OPEN_PAGE=artist:<名字>` 看染色详情页里弹出的编辑页)。
+    private func openDebugTagEditorIfRequested() async {
+        guard actionRequest == nil, !actionsOnly, !Self.didOpenDebugTagEditor,
+              let fragment = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_TAG_EDITOR"],
+              !fragment.isEmpty, song.title.localizedCaseInsensitiveContains(fragment) else { return }
+        Self.didOpenDebugTagEditor = true
+        try? await Task.sleep(for: .seconds(3))
+        guard !Task.isCancelled else { return }
+        plog("🧪 Debug: open tag editor for \(song.title)")
+        showTagEditor = true
+    }
+    #endif
 
     private var hasPresentationRequest: Bool {
         showScrapeOptions || showNoScraperSourceAlert || showAddToPlaylist
@@ -337,6 +357,10 @@ struct SongRowView: View {
             }
         }
         #endif
+        // 行可能在染了封面底色的专辑/艺人页里(那里正文被强制成深色),这里弹出的编辑页、
+        // 刮削页等要按 App 本来的外观画。必须包在所有弹出修饰器外面才管得到它们;
+        // 宿主本身是透明的,换外观不影响行的显示。
+        .libraryDetailPresentationReset()
     }
 
     @ViewBuilder

@@ -30,6 +30,22 @@ struct LibraryInsightCard: View {
             || intelligence.shouldExposeRemoteConfiguration
     }
 
+    #if DEBUG
+    /// 截图钩子:`PRIMUSE_DEBUG_INSIGHT_EDIT=1` 让首个出现的简介卡片打开编辑页,只开一次
+    /// (配合 `PRIMUSE_OPEN_PAGE=artist:<名字>` 看染色详情页里弹出的编辑页)。
+    @MainActor private static var didOpenDebugEditor = false
+
+    private func openDebugEditorIfRequested() async {
+        guard !Self.didOpenDebugEditor,
+              ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_INSIGHT_EDIT"] == "1" else { return }
+        Self.didOpenDebugEditor = true
+        try? await Task.sleep(for: .seconds(3))
+        guard !Task.isCancelled else { return }
+        plog("🧪 Debug: open insight editor")
+        isEditing = true
+    }
+    #endif
+
     var body: some View {
         let record = store.record(for: subject, in: library)
         if LibraryInsightStore.isIntroducible(subject) {
@@ -45,9 +61,18 @@ struct LibraryInsightCard: View {
             .pmGlass(cornerRadius: PMRadius.m10)
             #endif
             .pmAnimation(.control, value: store.isGenerating(subject))
-            .sheet(isPresented: $isEditing) {
-                LibraryInsightEditorSheet(subject: subject, details: details, record: record, onSaved: writeBack)
+            // 编辑页挂在透明宿主上:卡片在染色详情页里是深色外观,弹出页要在宿主外层
+            // 换回 App 本来的外观,否则浅色模式下会白底白字。
+            .background {
+                Color.clear
+                    .sheet(isPresented: $isEditing) {
+                        LibraryInsightEditorSheet(subject: subject, details: details, record: record, onSaved: writeBack)
+                    }
+                    .libraryDetailPresentationReset()
             }
+            #if DEBUG
+            .task { await openDebugEditorIfRequested() }
+            #endif
             .task(id: store.recordID(for: subject)) {
                 guard store.record(for: subject, in: library) == nil else { return }
                 await LibraryInsightWriteback.importIfAvailable(

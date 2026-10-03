@@ -216,7 +216,9 @@ struct EqualizerView: View {
             }
             .frame(maxHeight: .infinity)
         }
-        .padding(.vertical)
+        // 只留顶部间距:预设区的滚动视图要贴到底边,才能像其它设置页一样滚到标签栏、
+        // 迷你播放条下面并柔和渐隐;底下再垫一截会让它停在半空、硬生生切掉。
+        .padding(.top)
         .navigationTitle("equalizer")
         .navigationBarTitleDisplayMode(.inline)
     }
