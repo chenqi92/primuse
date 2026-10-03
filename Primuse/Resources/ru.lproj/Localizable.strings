@@ -5297,3 +5297,5 @@
 "library_insight_writeback_comments_format" = "комментарии %d песен";
 "library_insight_footer_imported_format" = "Из: %@";
 "library_insight_list_separator" = ", ";
+"home_hero_section_title" = "Приветственная карточка";
+"album_pick_another_batch" = "Другая подборка";

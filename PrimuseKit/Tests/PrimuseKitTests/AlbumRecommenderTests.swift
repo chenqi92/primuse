@@ -265,3 +265,34 @@ struct AlbumRecommenderTests {
         #expect(ranked.count == 12)
     }
 }
+
+@Suite("Album pick batches")
+struct AlbumPickBatchPolicyTests {
+    @Test("一张时仍是一张加五张备选,多张时多备一整批")
+    func poolSize() {
+        #expect(AlbumPickBatchPolicy.poolSize(visibleCount: 1) == AlbumRecommender.pickCount)
+        #expect(AlbumPickBatchPolicy.poolSize(visibleCount: 3) == 6)
+        #expect(AlbumPickBatchPolicy.poolSize(visibleCount: 4) == 8)
+        #expect(AlbumPickBatchPolicy.poolSize(visibleCount: 10) == 20)
+        #expect(AlbumPickBatchPolicy.poolSize(visibleCount: 40) == 20)
+        #expect(AlbumPickBatchPolicy.poolSize(visibleCount: 0) == AlbumRecommender.pickCount)
+    }
+
+    @Test("一批从起点往后排,到尾绕回开头,不重复")
+    func indices() {
+        #expect(AlbumPickBatchPolicy.indices(start: 0, count: 3, total: 8) == [0, 1, 2])
+        #expect(AlbumPickBatchPolicy.indices(start: 6, count: 3, total: 8) == [6, 7, 0])
+        #expect(AlbumPickBatchPolicy.indices(start: 2, count: 10, total: 4) == [2, 3, 0, 1])
+        #expect(AlbumPickBatchPolicy.indices(start: 9, count: 2, total: 4) == [3, 0])
+        #expect(AlbumPickBatchPolicy.indices(start: 0, count: 2, total: 0).isEmpty)
+    }
+
+    @Test("换一批整批往后换,全摆得下时不动")
+    func nextStart() {
+        #expect(AlbumPickBatchPolicy.nextStart(after: 0, count: 4, total: 8) == 4)
+        #expect(AlbumPickBatchPolicy.nextStart(after: 4, count: 4, total: 8) == 0)
+        #expect(AlbumPickBatchPolicy.nextStart(after: 0, count: 1, total: 6) == 1)
+        #expect(AlbumPickBatchPolicy.nextStart(after: 5, count: 1, total: 6) == 0)
+        #expect(AlbumPickBatchPolicy.nextStart(after: 2, count: 5, total: 5) == 0)
+    }
+}

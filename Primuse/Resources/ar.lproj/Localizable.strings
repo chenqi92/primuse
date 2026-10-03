@@ -5297,3 +5297,5 @@
 "library_insight_writeback_comments_format" = "تعليقات %d أغنية";
 "library_insight_footer_imported_format" = "من %@";
 "library_insight_list_separator" = "، ";
+"home_hero_section_title" = "بطاقة الترحيب";
+"album_pick_another_batch" = "مجموعة أخرى";

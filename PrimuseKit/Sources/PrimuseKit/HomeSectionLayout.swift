@@ -172,7 +172,9 @@ public enum HomeSectionLayoutPolicy {
         case .podcasts: 3...30
         // 铺开时是收起状态放几张,其余点「展开」;横排时是一共放几张。
         case .startListening: 2...24
-        case .quickAccess, .folders, .stats, .continueSpaces, .albumPick: nil
+        // 一张是原来的大卡片,多张时横着滑。
+        case .albumPick: AlbumPickBatchPolicy.visibleCountRange
+        case .quickAccess, .folders, .stats, .continueSpaces: nil
         }
     }
 
@@ -194,7 +196,8 @@ public enum HomeSectionLayoutPolicy {
         case .audiobooks: 10
         case .podcasts: 10
         case .startListening: 6
-        case .quickAccess, .folders, .stats, .continueSpaces, .albumPick: 0
+        case .albumPick: 1
+        case .quickAccess, .folders, .stats, .continueSpaces: 0
         }
     }
 

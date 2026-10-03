@@ -427,6 +427,34 @@ public struct AlbumRecommendationContext: Sendable {
 /// rerank. Pure and deterministic for a given moment, so the pick holds still
 /// through the moment and changes with it; "another one" steps through the
 /// alternates.
+/// 首页「情景推荐专辑」一次摆几张,「换一批」怎么轮。
+///
+/// 一张时就是原来的大卡片和「换一张」;多张时横着滑,「换一批」整批往后换。
+public enum AlbumPickBatchPolicy {
+    /// 首页编辑里能调的张数。
+    public static let visibleCountRange = 1...10
+
+    /// 这个情景一共排出多少张:摆出来的那一批,后面再备一整批给「换一批」。
+    /// 一张时仍是原来的一张加五张备选。
+    public static func poolSize(visibleCount: Int) -> Int {
+        let count = min(max(visibleCount, visibleCountRange.lowerBound), visibleCountRange.upperBound)
+        return max(AlbumRecommender.pickCount, count * 2)
+    }
+
+    /// 从 `start` 起摆 `count` 张,排到尾就绕回开头,一张不重复。
+    public static func indices(start: Int, count: Int, total: Int) -> [Int] {
+        guard total > 0, count > 0 else { return [] }
+        let first = min(max(start, 0), total - 1)
+        return (0..<min(count, total)).map { (first + $0) % total }
+    }
+
+    /// 「换一批」之后从第几张起。整批都摆得下时原地不动。
+    public static func nextStart(after start: Int, count: Int, total: Int) -> Int {
+        guard total > count, count > 0 else { return 0 }
+        return (min(max(start, 0), total - 1) + count) % total
+    }
+}
+
 public enum AlbumRecommender {
     /// Current pick plus five alternates.
     public static let pickCount = 6

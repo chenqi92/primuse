@@ -3,6 +3,16 @@ import Testing
 @testable import PrimuseKit
 
 struct CarPlayLayoutEditorTests {
+    @Test func podcastTabIsOptionalAndSurvivesSaving() throws {
+        #expect(!CarPlayMainTab.defaults.contains { $0.kind == .podcast })
+        #expect(CarPlayMainTab.Kind.podcast.titleKey == "listening_space_podcast")
+        var configuration = CarPlayLayoutConfiguration()
+        configuration.tabs = CarPlayMainTab.defaults + [.init(id: "podcasts", kind: .podcast)]
+        let restored = try JSONDecoder().decode(CarPlayLayoutConfiguration.self, from: JSONEncoder().encode(configuration))
+        #expect(restored.tabs.last?.kind == .podcast)
+        #expect(restored.tabs.last?.isValid == true)
+    }
+
     @Test func retiredSplitLayoutKeepsContentAndUsesSupportedPresentation() throws {
         let data = Data(#"{"visualStyle":"split","browseStyle":"list","customBlocks":[{"id":"favorite","kind":"custom","style":"list","items":[{"id":"p","kind":"playlist","targetID":"commute","title":"Commute"}]}]}"#.utf8)
         let configuration = try JSONDecoder().decode(CarPlayLayoutConfiguration.self, from: data)

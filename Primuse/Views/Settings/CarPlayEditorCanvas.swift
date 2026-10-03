@@ -184,6 +184,7 @@ struct CarPlayEditorCanvas: View {
             mediaRows((CarPlayFolderLibrary.shared.index?.sourceNodes ?? []).prefix(60).map { CarPlayEditorCatalog.Snapshot.folder($0).configured(directly: false) })
         case .search: searchRows
         case .spokenWord: spokenWordRows
+        case .podcast: podcastRows
         case .collection:
             if let content = tab.content {
                 if let folderID = content.folderID, let node = CarPlayFolderLibrary.shared.index?.node(withID: folderID) {
@@ -202,10 +203,36 @@ struct CarPlayEditorCanvas: View {
         return blockView(CarPlayHomeBlock(configuration: block, items: items))
     }
 
-    /// The car's library menu, which lists spoken word once there is some.
+    /// The car's library menu, which lists spoken word and podcasts once there are some.
     private var libraryPreviewKinds: [CarPlayMainTab.Kind] {
         let hasSpokenWord = !AppServices.shared.musicLibrary.spokenWordSongs.isEmpty
-        return [.folders, .playlists, .songs, .albums, .artists] + (hasSpokenWord ? [.spokenWord] : []) + [.radio, .search]
+        let hasPodcasts = !PodcastStore.shared.shows.isEmpty
+        return [.folders, .playlists, .songs, .albums, .artists]
+            + (hasSpokenWord ? [.spokenWord] : [])
+            + (hasPodcasts ? [.podcast] : [])
+            + [.radio, .search]
+    }
+
+    /// 车上播客页的第一层:听到一半的单集、新出的单集,再是各档节目,顺序与车机一致。
+    @ViewBuilder private var podcastRows: some View {
+        let store = PodcastStore.shared
+        let inProgress = store.inProgressEpisodes(limit: 6)
+        let skipped = Set(inProgress.map(\.episode.id))
+        let latest = store.latestEpisodes(limit: 12).filter { !skipped.contains($0.id) }
+        let shows = store.shows.sorted { ($0.latestEpisodeAt ?? .distantPast) > ($1.latestEpisodeAt ?? .distantPast) }
+        let symbol = CarPlayMainTab.Kind.podcast.symbol
+        ForEach(inProgress, id: \.episode.id) { entry in
+            menuRow(entry.episode.title, symbol: symbol)
+        }
+        ForEach(latest.prefix(12), id: \.id) { episode in
+            menuRow(episode.title, symbol: symbol)
+        }
+        ForEach(shows.prefix(30), id: \.id) { show in
+            menuRow(show.title, symbol: "square.stack")
+        }
+        if inProgress.isEmpty, latest.isEmpty, shows.isEmpty {
+            Text("podcast_invite_title").font(.system(size: 16)).foregroundStyle(CarPlayEditorTheme.secondary).padding(24)
+        }
     }
 
     /// Book titles in the order the car lists them.

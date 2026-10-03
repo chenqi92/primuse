@@ -5391,3 +5391,5 @@
 "library_insight_writeback_comments_format" = "Kommentare von %d Songs";
 "library_insight_footer_imported_format" = "Aus %@";
 "library_insight_list_separator" = ", ";
+"home_hero_section_title" = "Begrüßungskarte";
+"album_pick_another_batch" = "Andere Auswahl";

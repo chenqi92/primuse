@@ -5297,3 +5297,5 @@
 "library_insight_writeback_comments_format" = "comentarios de %d canciones";
 "library_insight_footer_imported_format" = "De %@";
 "library_insight_list_separator" = ", ";
+"home_hero_section_title" = "Tarjeta de bienvenida";
+"album_pick_another_batch" = "Otra selección";

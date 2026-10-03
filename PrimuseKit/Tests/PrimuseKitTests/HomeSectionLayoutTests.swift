@@ -57,4 +57,18 @@ struct HomeSectionLayoutTests {
         #expect(configuration.style(for: .startListening) == .grid)
         #expect(configuration.styles[HomeSectionKind.startListening.rawValue] == nil)
     }
+
+    @Test("情景推荐专辑默认一张,能调到十张,没有排布可换")
+    func albumPickCount() {
+        #expect(HomeSectionLayoutPolicy.itemCountRange(for: .albumPick) == 1...10)
+        #expect(HomeSectionLayoutPolicy.defaultItemCount(for: .albumPick) == 1)
+        #expect(!HomeSectionLayoutPolicy.isConfigurable(.albumPick))
+
+        var configuration = HomeSectionLayoutConfiguration()
+        #expect(configuration.itemCount(for: .albumPick) == nil)
+        configuration.setItemCount(12, for: .albumPick)
+        #expect(configuration.itemCount(for: .albumPick) == 10)
+        configuration.setItemCount(0, for: .albumPick)
+        #expect(configuration.itemCount(for: .albumPick) == 1)
+    }
 }

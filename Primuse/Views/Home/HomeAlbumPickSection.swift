@@ -7,7 +7,11 @@ import PrimuseKit
 /// 推荐本身由 `AlbumRecommendationService` 在后台算好(整库遍历不进主线程,候选
 /// 索引最多五分钟重建一次),这里只读结果。整张播放按碟号/轨号排队,「换一张」在
 /// 这个情景的几张备选之间轮换,长按可以下一张播放、加入队列、不再推荐、前往专辑。
+/// 首页编辑里调成多张时横着滑,「换一批」整批往后换。
 struct HomeAlbumPickSection: View {
+    /// 一次摆几张(首页编辑里调,1–10)。
+    var count = 1
+
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.scenePhase) private var scenePhase
@@ -18,28 +22,41 @@ struct HomeAlbumPickSection: View {
 
     private var coverSide: CGFloat { heightClass.value(124, compact: 96) }
 
+    /// 多张时每张卡片的宽度:露出下一张的一角,提示还能往后滑;大屏不拉得太宽。
+    private static let carouselCardMaxWidth: CGFloat = 400
+
     var body: some View {
-        let pick = service.currentPick
-        let album = pick.flatMap { library.visibleAlbum(id: $0.albumID) }
+        // 按这里的张数取,不等服务那边记下新张数:调张数的那一刻就照新的摆。
+        let all = service.picks
+        let picks = AlbumPickBatchPolicy.indices(start: service.selectedIndex, count: count, total: all.count)
+            .map { all[$0] }
+        let shown = picks.compactMap { pick in
+            library.visibleAlbum(id: pick.albumID).map { ShownPick(pick: pick, album: $0) }
+        }
         Group {
-            if let pick, let album, let moment = service.moment {
+            if let first = shown.first, let moment = service.moment {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text(moment.title)
-                        .font(.title3.weight(.bold))
-                        .padding(.horizontal, 20)
-                        .accessibilityAddTraits(.isHeader)
-                        .accessibilityIdentifier("home.albumPick.title")
-                    card(pick, album: album)
-                        .padding(.horizontal, 16)
-                        .id(pick.albumID)
-                        .transition(.opacity)
+                    header(moment, showsAnotherBatch: count > 1, canShowAnotherBatch: all.count > count)
+                    if count > 1 {
+                        carousel(shown)
+                    } else {
+                        card(first.pick, album: first.album)
+                            .padding(.horizontal, 16)
+                            .id(first.pick.albumID)
+                            .transition(.opacity)
+                    }
                 }
             } else if service.recommendations == nil, !library.visibleAlbums.isEmpty {
                 placeholder
             }
         }
-        .pmAnimation(.contentAppear, value: pick?.albumID)
+        .pmAnimation(.contentAppear, value: shown.map(\.id))
         .task(id: library.searchRevision) {
+            service.setVisibleCount(count)
+            service.refresh(library: library)
+        }
+        .onChange(of: count) { _, count in
+            service.setVisibleCount(count)
             service.refresh(library: library)
         }
         .onChange(of: scenePhase) { _, phase in
@@ -50,7 +67,55 @@ struct HomeAlbumPickSection: View {
         }
     }
 
-    private func card(_ pick: AlbumRecommendation, album: Album) -> some View {
+    private func header(_ moment: ListeningMoment, showsAnotherBatch: Bool, canShowAnotherBatch: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(moment.title)
+                .font(.title3.weight(.bold))
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("home.albumPick.title")
+            Spacer(minLength: 8)
+            if showsAnotherBatch {
+                Button {
+                    pmWithAnimation(.contentAppear) { service.showAnotherBatch() }
+                } label: {
+                    Label("album_pick_another_batch", systemImage: "arrow.triangle.2.circlepath")
+                        .font(.subheadline)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
+                .disabled(!canShowAnotherBatch)
+                .accessibilityIdentifier("home.albumPick.anotherBatch")
+            }
+        }
+        .padding(.horizontal, 20)
+    }
+
+    private struct ShownPick: Identifiable {
+        let pick: AlbumRecommendation
+        let album: Album
+        var id: String { pick.albumID }
+    }
+
+    /// 多张:整张卡片横着滑,一次停一张。
+    private func carousel(_ shown: [ShownPick]) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            LazyHStack(alignment: .top, spacing: 12) {
+                ForEach(shown) { entry in
+                    card(entry.pick, album: entry.album, inCarousel: true)
+                        .containerRelativeFrame(.horizontal) { width, _ in
+                            min(width - 48, Self.carouselCardMaxWidth)
+                        }
+                        .transition(.opacity)
+                }
+            }
+            .scrollTargetLayout()
+        }
+        .contentMargins(.horizontal, 16, for: .scrollContent)
+        .scrollTargetBehavior(.viewAligned)
+    }
+
+    private func card(_ pick: AlbumRecommendation, album: Album, inCarousel: Bool = false) -> some View {
         HStack(alignment: .center, spacing: 14) {
             NavigationLink(value: album) {
                 AlbumArtworkView(album: album, size: coverSide, cornerRadius: 14)
@@ -66,7 +131,7 @@ struct HomeAlbumPickSection: View {
                         Text(pick.title)
                             .font(.headline)
                             .foregroundStyle(.primary)
-                            .lineLimit(2)
+                            .lineLimit(inCarousel ? 1 : 2)
                         if !pick.artistName.isEmpty {
                             Text(pick.artistName)
                                 .font(.subheadline)
@@ -86,12 +151,17 @@ struct HomeAlbumPickSection: View {
                 Label(pick.reason.text, systemImage: "sparkles")
                     .font(.caption)
                     .foregroundStyle(.tint)
-                    .lineLimit(2)
+                    .lineLimit(inCarousel ? 1 : 2)
                     .padding(.top, 2)
 
                 Spacer(minLength: 8)
 
-                actions(pick)
+                // 多张时「换一批」在标题旁边,卡片上只留播放。
+                if inCarousel {
+                    playButton(pick)
+                } else {
+                    actions(pick)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }

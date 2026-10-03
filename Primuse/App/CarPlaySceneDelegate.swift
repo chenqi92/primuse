@@ -317,6 +317,7 @@ final class CarPlaySceneDelegate: UIResponder {
     private var connectionGeneration = 0
     private var likeChangesObserver: NSObjectProtocol?
     private var spokenWordChangesObserver: NSObjectProtocol?
+    private var podcastChangesObserver: NSObjectProtocol?
 
     private var layout: CarPlayLayoutConfiguration { CarPlaySettingsStore.shared.configuration }
 }
@@ -403,6 +404,7 @@ extension CarPlaySceneDelegate: CPTemplateApplicationSceneDelegate {
         observePlayerState(generation: generation)
         observeLikeChanges()
         observeSpokenWordChanges(generation: generation)
+        observePodcastChanges(generation: generation)
         observeLayoutChanges(generation: generation)
         carplayLog.notice("📱 CarPlay scene fully initialized ✅")
     }
@@ -459,6 +461,8 @@ extension CarPlaySceneDelegate: CPTemplateApplicationSceneDelegate {
             self.likeChangesObserver = nil
             if let observer = self.spokenWordChangesObserver { NotificationCenter.default.removeObserver(observer) }
             self.spokenWordChangesObserver = nil
+            if let observer = self.podcastChangesObserver { NotificationCenter.default.removeObserver(observer) }
+            self.podcastChangesObserver = nil
         }
     }
 }
@@ -571,7 +575,9 @@ extension CarPlaySceneDelegate {
         template.tabTitle = tab.displayTitle
         template.tabImage = Self.symbolImage(tab.symbol)
         if tab.kind == .search { template.userInfo = "carplay.search" }
-        template.emptyViewTitleVariants = [String(localized: "carplay_no_content")]
+        template.emptyViewTitleVariants = [
+            tab.kind == .podcast ? String(localized: "podcast_invite_title") : String(localized: "carplay_no_content")
+        ]
         configureNavigation(on: template, configuration: configuration, isTabRoot: true)
         return template
     }
@@ -1747,8 +1753,12 @@ extension CarPlaySceneDelegate {
 // MARK: - Podcasts
 
 extension CarPlaySceneDelegate {
+    /// 从资料库推进来的播客列表,订阅或收听进度变了要认得出来就地重建。
+    fileprivate static let podcastListUserInfo = "carplay.podcasts"
+
     fileprivate func pushPodcasts() {
         let template = CPListTemplate(title: String(localized: "listening_space_podcast"), sections: podcastSections())
+        template.userInfo = Self.podcastListUserInfo
         template.emptyViewTitleVariants = [String(localized: "podcast_invite_title")]
         safePush(template, label: "Podcasts")
     }
@@ -2341,6 +2351,37 @@ extension CarPlaySceneDelegate {
             Task { @MainActor [weak self] in
                 guard let self, self.interfaceController != nil, self.connectionGeneration == generation else { return }
                 self.refreshSpokenWordListsIfVisible()
+                // 播客单集的收听进度也记在有声那边。
+                self.refreshPodcastListsIfVisible()
+            }
+        }
+    }
+
+    /// 订阅变了、刷出了新单集:屏上的播客列表就地重建,不在屏上的标签页等切过去时再建。
+    private func observePodcastChanges(generation: Int) {
+        podcastChangesObserver = NotificationCenter.default.addObserver(
+            forName: .primusePodcastsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.interfaceController != nil, self.connectionGeneration == generation else { return }
+                self.refreshPodcastListsIfVisible()
+            }
+        }
+    }
+
+    private func refreshPodcastListsIfVisible() {
+        let top = interfaceController?.topTemplate as? CPListTemplate
+        if let top, top.userInfo as? String == Self.podcastListUserInfo {
+            top.updateSections(podcastSections())
+        }
+        let roots = configuredTabs.filter { $0.kind == .podcast }.compactMap { menuTemplates[$0.id] }
+        for root in roots {
+            if interfaceController?.templates.count == 1, tabBarTemplate?.selectedTemplate === root {
+                rebuildRootTemplate(root)
+            } else {
+                staleRootTemplates.insert(ObjectIdentifier(root))
             }
         }
     }
@@ -2555,6 +2596,7 @@ extension CarPlaySceneDelegate {
         case .artists: template.updateSections(artistsSections())
         case .search: template.updateSections(searchSections())
         case .spokenWord: template.updateSections(spokenWordSections())
+        case .podcast: template.updateSections(podcastSections())
         case .folders:
             if case .folder(let id) = template.userInfo as? DetailContext { updateFolderTemplate(template, nodeID: id) }
             else { updateFolderTemplate(template, nodeID: nil) }

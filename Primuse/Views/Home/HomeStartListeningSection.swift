@@ -232,7 +232,9 @@ struct StartListeningShelf: View {
             .padding(.horizontal, horizontalInset)
             .padding(.vertical, 2)
         }
-        .scrollClipDisabled()
+        // 自己留边距时滑动区已经铺满所在的那一块,不必越界;越界只会让卡片画到
+        // 首页编辑的虚线框、两栏首页的另一栏上。外层留白(Mac 首页)时才让卡片滑进留白里。
+        .scrollClipDisabled(horizontalInset == 0)
     }
 
     private func card(_ item: ListeningIntentShelfItem) -> some View {

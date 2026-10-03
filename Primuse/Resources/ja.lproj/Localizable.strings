@@ -5392,3 +5392,5 @@
 "library_insight_writeback_comments_format" = "%d 曲のコメント";
 "library_insight_footer_imported_format" = "%@ から";
 "library_insight_list_separator" = "、";
+"home_hero_section_title" = "ウェルカムカード";
+"album_pick_another_batch" = "別の組み合わせ";

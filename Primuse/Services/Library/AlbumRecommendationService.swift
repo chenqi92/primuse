@@ -45,6 +45,18 @@ final class AlbumRecommendationService {
     var moment: ListeningMoment? { recommendations?.moment }
     var canShowAnother: Bool { picks.count > 1 }
 
+    /// The batch the iPhone/iPad home section shows: `visibleCount` picks
+    /// from the current one on, wrapping round.
+    var visiblePicks: [AlbumRecommendation] {
+        let picks = picks
+        return AlbumPickBatchPolicy.indices(start: selectedIndex, count: visibleCount, total: picks.count)
+            .map { picks[$0] }
+    }
+
+    /// How many albums the iPhone/iPad home section shows at once (home
+    /// editor, 1–10). Mac and Apple TV show one and never change it.
+    private(set) var visibleCount = 1
+
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var index: AlbumCandidateIndex?
     @ObservationIgnored private var indexBuiltAt: Date?
@@ -130,6 +142,7 @@ final class AlbumRecommendationService {
             ? Set(favorites.likedArtists(in: library.visibleArtists).map { ListeningTextKey.folded($0.name) })
             : []
         let dismissed = dismissedAlbumIDs
+        let pickCount = AlbumPickBatchPolicy.poolSize(visibleCount: visibleCount)
         let reusableIndex = indexIsStale ? nil : index
         let startedAt = ProcessInfo.processInfo.systemUptime
 
@@ -160,13 +173,13 @@ final class AlbumRecommendationService {
                         likedArtistKeys: likedArtistKeys,
                         dismissedAlbumIDs: dismissed
                     ),
-                    limit: AlbumRecommender.pickCount + Self.forYouAlbumCount
+                    limit: pickCount + Self.forYouAlbumCount
                 )
                 let set = AlbumRecommendationSet(
                     moment: moment,
-                    picks: Array(ranked.prefix(AlbumRecommender.pickCount))
+                    picks: Array(ranked.prefix(pickCount))
                 )
-                let forYou = Array(ranked.dropFirst(AlbumRecommender.pickCount))
+                let forYou = Array(ranked.dropFirst(pickCount))
                 guard !Task.isCancelled else { return nil }
                 return (index, set, forYou, Self.trackOrder(for: ranked, in: songs))
             }
@@ -240,13 +253,34 @@ final class AlbumRecommendationService {
         return grouped.mapValues { AlbumTrackOrder.sorted($0).map(\.id) }
     }
 
+    /// The home editor's album count. A bigger batch needs a bigger pool
+    /// behind it, so the moment is ranked again on the next refresh.
+    func setVisibleCount(_ count: Int) {
+        let range = AlbumPickBatchPolicy.visibleCountRange
+        let count = min(max(count, range.lowerBound), range.upperBound)
+        guard count != visibleCount else { return }
+        let poolChanges = AlbumPickBatchPolicy.poolSize(visibleCount: count)
+            != AlbumPickBatchPolicy.poolSize(visibleCount: visibleCount)
+        visibleCount = count
+        if poolChanges { forcePicksOnNextRefresh = true }
+    }
+
     // MARK: Actions
 
     /// "Another one": the next alternate for this moment, round and round.
     func showAnother() {
+        step(by: 1)
+    }
+
+    /// "Another set": the whole batch on show moves on to the next one.
+    func showAnotherBatch() {
+        step(by: visibleCount)
+    }
+
+    private func step(by count: Int) {
         let picks = picks
-        guard picks.count > 1, let moment else { return }
-        selectedIndex = (selectedIndex + 1) % picks.count
+        guard picks.count > count, let moment else { return }
+        selectedIndex = AlbumPickBatchPolicy.nextStart(after: selectedIndex, count: count, total: picks.count)
         defaults.set(["moment": moment.seedKey, "index": selectedIndex], forKey: Self.selectionKey)
     }
 
@@ -271,11 +305,11 @@ final class AlbumRecommendationService {
 
     /// Album cards for the head of "For You": the albums ranked after the
     /// moment's picks. A small library that runs out there borrows the
-    /// moment's alternates — never the one the album card is showing now.
+    /// moment's alternates — never the ones the album section is showing now.
     func forYouAlbumCandidates(excludingCurrentPick: Bool) -> [AlbumRecommendation] {
         guard forYouAlbums.isEmpty else { return forYouAlbums }
-        let current = excludingCurrentPick ? currentPick?.albumID : nil
-        return picks.filter { $0.albumID != current }
+        let shown = excludingCurrentPick ? Set(visiblePicks.map(\.albumID)) : []
+        return picks.filter { !shown.contains($0.albumID) }
     }
 
     private var dismissedAlbumIDsInOrder: [String] {

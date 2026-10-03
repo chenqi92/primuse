@@ -30,6 +30,8 @@ public struct CarPlayMainTab: Codable, Equatable, Identifiable, Sendable {
         case home, library, radio, playlists, songs, albums, artists, folders, search, collection
         /// Books and other spoken word: in progress first, never shuffled.
         case spokenWord
+        /// Subscribed podcasts: episodes in progress, the latest ones, then the shows.
+        case podcast
 
         public var titleKey: String {
             switch self {
@@ -41,6 +43,7 @@ public struct CarPlayMainTab: Codable, Equatable, Identifiable, Sendable {
             case .search: "search_title"
             case .collection: "carplay_content_sources"
             case .spokenWord: "listening_space_spoken_word"
+            case .podcast: "listening_space_podcast"
             }
         }
 
@@ -56,6 +59,7 @@ public struct CarPlayMainTab: Codable, Equatable, Identifiable, Sendable {
             case .folders: "folder"
             case .search: "magnifyingglass"
             case .spokenWord: "books.vertical"
+            case .podcast: "antenna.radiowaves.left.and.right"
             }
         }
     }

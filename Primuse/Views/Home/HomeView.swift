@@ -968,7 +968,8 @@ struct HomeView: View {
 
     // MARK: - Content
 
-    // Section toggles. Hero is mandatory (always shown).
+    // Section toggles. 顶部欢迎卡片不参与排序,但同样可以在首页编辑里隐藏。
+    @AppStorage("primuse.home.showHero") private var showHero = true
     @AppStorage("primuse.home.showStatsGlimpse") private var showStatsGlimpse: Bool = true
     @AppStorage("primuse.home.showForYou") private var showForYou: Bool = true
     @AppStorage("primuse.home.showTopArtists") private var showTopArtists: Bool = true
@@ -1121,7 +1122,8 @@ struct HomeView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 20)
-                } else if model.snapshot.hasContent {
+                    heroEditorRow
+                } else if model.snapshot.hasContent, showHero {
                     libraryHeroSection
                 }
 
@@ -1168,7 +1170,10 @@ struct HomeView: View {
             }
         case .albumPick:
             // 音乐的区块: 「全部」与筛到音乐时都在。
-            if showAlbumPick { HomeDeferredSection { HomeAlbumPickSection() } }
+            if showAlbumPick {
+                let count = sectionItemCount(.albumPick, HomeSectionLayoutPolicy.defaultItemCount(for: .albumPick))
+                HomeDeferredSection { HomeAlbumPickSection(count: count) }
+            }
         case .booksInProgress:
             if showBooksInProgress, showsCrossSpace {
                 // 接着听已经给了最近那本;它开着时这一排从第二本起才值得占位。
@@ -1362,10 +1367,70 @@ struct HomeView: View {
         homeSectionOrderRawValue = HomeSectionConfiguration.encode(order)
     }
 
+    /// 编辑态里一块的外框:一层底色加虚线描边,隐藏的块整体压暗。
+    private func editorBlockFrame<Content: View>(
+        visible: Bool,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10, content: content)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(homeCardSurface.opacity(visible ? 0.55 : 0.28))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(
+                        .tint.opacity(visible ? 0.45 : 0.18),
+                        style: StrokeStyle(lineWidth: 1, dash: [5, 4])
+                    )
+            }
+            .opacity(visible ? 1 : 0.55)
+            .padding(.horizontal, 12)
+    }
+
+    /// 顶部欢迎卡片钉在所有区块之上,不参与排序,编辑态只给显隐。
+    private var heroEditorRow: some View {
+        editorBlockFrame(visible: showHero) {
+            HStack(spacing: 10) {
+                Image(systemName: "pin.fill")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+
+                Text("home_hero_section_title")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+
+                Spacer(minLength: 8)
+
+                Button {
+                    pmWithAnimation(.list) { showHero.toggle() }
+                } label: {
+                    Image(systemName: showHero ? "eye" : "eye.slash")
+                        .font(.footnote.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .controlSize(.small)
+                .accessibilityLabel(Text("home_hero_section_title"))
+                .accessibilityIdentifier("home.edit.visibility.hero")
+            }
+            .padding(.horizontal, 20)
+
+            if showHero, model.snapshot.hasContent {
+                libraryHeroSection
+                    .allowsHitTesting(false)
+            }
+        }
+        .settingsAnchor("home.hero")
+    }
+
     @ViewBuilder
     private func homeSectionRow(_ section: HomeSectionKind, books: SpokenWordLibrarySnapshot) -> some View {
         if editorMode {
-            VStack(alignment: .leading, spacing: 10) {
+            editorBlockFrame(visible: isSectionVisible(section)) {
                 homeSectionEditBar(section)
                 if isSectionVisible(section) {
                     // 编辑的是版面，不是内容：区块里的封面和按钮一律不响应，
@@ -1374,21 +1439,6 @@ struct HomeView: View {
                         .allowsHitTesting(false)
                 }
             }
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(homeCardSurface.opacity(isSectionVisible(section) ? 0.55 : 0.28))
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(
-                        .tint.opacity(isSectionVisible(section) ? 0.45 : 0.18),
-                        style: StrokeStyle(lineWidth: 1, dash: [5, 4])
-                    )
-            }
-            .opacity(isSectionVisible(section) ? 1 : 0.55)
-            .padding(.horizontal, 12)
             // 拖动会把内容搬进独立的预览宿主,那里拿不到本页注入的环境对象,
             // 区块里读 MusicLibrary / HomeDiscoveryModel 之类的子视图会当场闪退。
             // 给一个只有区块名字的轻量预览,整块内容就不会在那个宿主里重新渲染。
