@@ -68,6 +68,28 @@ import Testing
     #expect(MediaDecodingPathPolicy.make(path: "807776640", preferredExtension: "../wav") == "807776640")
 }
 
+@Test func remoteMediaURLsDropQueryBeforeTheDecoderHint() {
+    // 播客 enclosure 带跟踪参数:扩展名不能变成 `mp3?aid=…`。
+    let daily = "https://dts.podtrac.com/redirect.mp3/pdst.fm/e/nyt.simplecastaudio.com/03d8b493/episodes/272d581e/audio/128/default.mp3?aid=rss_feed&feed=Sl5CSM3S"
+    #expect(MediaDecodingPathPolicy.make(path: daily, preferredExtension: "mp3")
+        == "/dts.podtrac.com/redirect.mp3/pdst.fm/e/nyt.simplecastaudio.com/03d8b493/episodes/272d581e/audio/128/default.mp3")
+    #expect(MediaDecodingPathPolicy.make(path: "https://media.xyzfm.space/a/b.m4a?token=a.b#t=10", preferredExtension: "m4a")
+        == "/media.xyzfm.space/a/b.m4a")
+    // 路径不带音频扩展名:用条目自己的格式。
+    #expect(MediaDecodingPathPolicy.make(path: "https://feeds.example.com/play.php?id=7", preferredExtension: "mp3")
+        == "/feeds.example.com/play.php.mp3")
+    #expect(MediaDecodingPathPolicy.make(path: "HTTP://192.168.1.2:8200/MediaItems/123", preferredExtension: "FLAC")
+        == "/192.168.1.2:8200/MediaItems/123.flac")
+    // 路径自己的音频扩展名优先(m4b 也算)。
+    #expect(MediaDecodingPathPolicy.make(path: "https://cdn.example.com/book.m4b?x=1", preferredExtension: "m4a")
+        == "/cdn.example.com/book.m4b")
+    // 没转义的中文和空格也照样处理。
+    #expect(MediaDecodingPathPolicy.make(path: "https://example.cn/节目 01.mp3?s=1", preferredExtension: "mp3")
+        == "/example.cn/节目 01.mp3")
+    // 不是 http(s) 的路径行为不变。
+    #expect(MediaDecodingPathPolicy.make(path: "/music/what?.mp3", preferredExtension: "mp3") == "/music/what?.mp3")
+}
+
 @Test func tokenRefreshPolicyKeepsTemporaryFailuresRetryable() {
     #expect(CloudTokenRefreshPolicy.disposition(statusCode: 429) == .transient)
     #expect(CloudTokenRefreshPolicy.disposition(statusCode: 503) == .transient)
