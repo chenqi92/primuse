@@ -5284,3 +5284,16 @@
 "library_insight_regenerate_confirm_title" = "¿Reemplazar tu presentación editada?";
 "library_insight_regenerate_confirm_message" = "Volver a escribir con IA sobrescribe la presentación y las etiquetas que escribiste o cambiaste.";
 "library_insight_regenerate_confirm_action" = "Reemplazar";
+
+/* Writing album and artist intros to sources */
+"library_insight_writeback_section" = "Presentaciones de álbumes y artistas";
+"library_insight_writeback_files" = "Escribir en archivos NFO y servidores";
+"library_insight_writeback_footer" = "Al guardar una presentación se escribe en album.nfo y artist.nfo de las carpetas del álbum y del artista (los leen Kodi, Jellyfin y Emby) y en el campo de descripción de Jellyfin, Emby y Plex. Si tu biblioteca aún no tiene presentación, se leen las que ya existan ahí.";
+"library_insight_writeback_comment" = "Escribir también en el comentario de cada canción";
+"library_insight_writeback_comment_confirm_title" = "¿Escribir la presentación del álbum en el comentario de cada canción?";
+"library_insight_writeback_comment_confirm_message" = "Solo para MP3, FLAC y M4A. Cada canción se descarga completa, se reescribe y se vuelve a subir a su origen, y se reemplaza su comentario actual.";
+"library_insight_writeback_written_format" = "Escrito en %@";
+"library_insight_writeback_failed_format" = "No se escribió: %@";
+"library_insight_writeback_comments_format" = "comentarios de %d canciones";
+"library_insight_footer_imported_format" = "De %@";
+"library_insight_list_separator" = ", ";

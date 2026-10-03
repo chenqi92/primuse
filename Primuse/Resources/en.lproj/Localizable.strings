@@ -5141,3 +5141,16 @@
 "library_insight_regenerate_confirm_title" = "Replace Your Edited Intro?";
 "library_insight_regenerate_confirm_message" = "Regenerating with AI overwrites the intro and tags you wrote or changed.";
 "library_insight_regenerate_confirm_action" = "Replace";
+
+/* Writing album and artist intros to sources */
+"library_insight_writeback_section" = "Album & Artist Intros";
+"library_insight_writeback_files" = "Write to NFO Files and Media Servers";
+"library_insight_writeback_footer" = "Saving an intro writes album.nfo and artist.nfo in the album and artist folders (read by Kodi, Jellyfin and Emby), and the intro field on Jellyfin, Emby and Plex. When your library has no intro yet, existing ones there are read back.";
+"library_insight_writeback_comment" = "Also Write into Each Song's Comment";
+"library_insight_writeback_comment_confirm_title" = "Write the album intro into each song's comment?";
+"library_insight_writeback_comment_confirm_message" = "Works for MP3, FLAC and M4A only. Every song is downloaded in full, rewritten and uploaded back to its source, and its existing comment is replaced.";
+"library_insight_writeback_written_format" = "Written to %@";
+"library_insight_writeback_failed_format" = "Not written: %@";
+"library_insight_writeback_comments_format" = "comments of %d songs";
+"library_insight_footer_imported_format" = "From %@";
+"library_insight_list_separator" = ", ";

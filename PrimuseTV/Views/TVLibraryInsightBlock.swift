@@ -35,7 +35,7 @@ struct TVLibraryInsightBlock: View {
                 .contextMenu {
                     if let insight, !store.isGenerating(subject) {
                         // 自己写的简介在电视上不给一键覆盖。
-                        if !(insight.isUserEdited && insight.hasContent), canAskAI {
+                        if !insight.isWorthKeeping, canAskAI {
                             Button {
                                 generate()
                             } label: {

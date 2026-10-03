@@ -295,6 +295,10 @@ PMSTRING_SOURCE_ROOTS = %w[
 ].freeze
 
 HAN_LITERAL_ALLOWLIST = {
+  # Disc-folder names ("碟1", "光盘 2") matched when locating an album folder; never shown.
+  "PrimuseKit/Sources/PrimuseKit/LibraryInsightFiles.swift" => [
+    /\(cd\|disc\|disk\|dvd\|碟\|光盘\|ディスク\)/
+  ],
   # Placeholder genre/artist names the new-song taste profile skips: matching
   # vocabulary for tag values, never shown.
   "PrimuseKit/Sources/PrimuseKit/SongDiscovery.swift" => [

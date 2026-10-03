@@ -166,6 +166,8 @@ enum SettingsCatalogData {
         SettingDefinition(id: "scraping.writeLyrics", titleKey: "Lyrics Write-Back", iosPage: nil, macPage: .scraping),
         SettingDefinition(id: "scraping.embedLyrics", titleKey: "lyrics_embed_copy_title", iosPage: .scraping, macPage: .scraping, keywords: ["lyrics_embed_copy_header", "lyrics_embed_copy_hint", "embed", "USLT", "嵌入", "内嵌"]),
         SettingDefinition(id: "scraping.embedCover", titleKey: "cover_embed_copy_title", iosPage: .scraping, macPage: .scraping, keywords: ["cover_embed_copy_header", "cover_embed_copy_hint", "embed", "APIC", "artwork", "cover.jpg", "嵌入", "内嵌", "封面"]),
+        SettingDefinition(id: "scraping.insightWriteback", titleKey: "library_insight_writeback_files", iosPage: .scraping, macPage: .scraping, keywords: ["nfo", "album.nfo", "artist.nfo", "简介", "专辑简介", "艺人简介", "Jellyfin", "Emby", "Plex", "Kodi", "写回"]),
+        SettingDefinition(id: "scraping.insightComment", titleKey: "library_insight_writeback_comment", iosPage: .scraping, macPage: .scraping, keywords: ["注释", "comment", "COMM", "简介", "嵌入"]),
         SettingDefinition(id: "scraping.writeTimeout", titleKey: "Write Timeout", iosPage: nil, macPage: .scraping),
         SettingDefinition(id: "intelligence.relay", titleKey: "ai_primuse_relay_enabled", iosPage: .intelligence, macPage: .intelligence),
         SettingDefinition(id: "intelligence.relayTest", titleKey: "ai_primuse_relay_test_connection", iosPage: .intelligence, macPage: .intelligence),

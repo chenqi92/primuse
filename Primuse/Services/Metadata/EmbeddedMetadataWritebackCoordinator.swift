@@ -183,6 +183,21 @@ extension EmbeddedMetadataWritebackAdapter {
         )
     }
 
+    func writeEmbeddedComment(
+        _ comment: EmbeddedLyricsEdit,
+        for song: Song
+    ) async throws -> EmbeddedMetadataWritebackResult {
+        try await EmbeddedMetadataWritebackCoordinator.write(
+            adapter: self,
+            original: song,
+            updated: song,
+            coverData: nil,
+            lyrics: .keep,
+            writesTextTags: false,
+            comment: comment
+        )
+    }
+
     /// Convenience for path-addressed providers. ID-addressed cloud drives
     /// implement `metadataWritebackState` with their native item lookup API.
     func listedMetadataWritebackState(
@@ -212,7 +227,8 @@ enum EmbeddedMetadataWritebackCoordinator {
         updated: Song,
         coverData: Data?,
         lyrics: EmbeddedLyricsEdit = .keep,
-        writesTextTags: Bool = true
+        writesTextTags: Bool = true,
+        comment: EmbeddedLyricsEdit = .keep
     ) async throws -> EmbeddedMetadataWritebackResult {
         guard AudioMetadataWritebackPolicy.embeddedFormats.contains(updated.fileFormat),
               !updated.isCueTrack,
@@ -271,7 +287,8 @@ enum EmbeddedMetadataWritebackCoordinator {
                 from: original,
                 to: updated,
                 includesCover: false
-            )
+            ),
+            comment: comment
         )
         let previousTags = try? EmbeddedMetadataWriter.currentTags(at: workingURL)
         let verification = try await run(source: sourceName, stage: .edit) {

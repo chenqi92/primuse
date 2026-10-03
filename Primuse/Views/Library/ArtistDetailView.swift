@@ -241,7 +241,7 @@ struct ArtistDetailView: View {
                     if !appearsOnAlbums.isEmpty {
                         iosAlbumShelf(title: "artist_appears_on", albums: appearsOnAlbums)
                     }
-                    LibraryInsightCard(subject: insightIdentity, details: insightDetails, tint: tint)
+                    LibraryInsightCard(subject: insightIdentity, details: insightDetails, songs: { songs }, tint: tint)
                         .padding(.horizontal, 20)
                     if !songs.isEmpty {
                         allSongsLink.padding(.horizontal, 20)
@@ -489,7 +489,7 @@ struct ArtistDetailView: View {
                                 albums: appearsOnAlbums
                             )
                         }
-                        LibraryInsightCard(subject: insightIdentity, details: insightDetails)
+                        LibraryInsightCard(subject: insightIdentity, details: insightDetails, songs: { songs })
                         if !songs.isEmpty { allSongsLink }
                     }
                 }

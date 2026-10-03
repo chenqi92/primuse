@@ -115,6 +115,8 @@ public struct LibraryInsightRecord: Codable, Hashable, Sendable, Identifiable {
     public var aiLanguageCode: String?
     /// 内容是用户写的或改过的(不再是 AI 原样给的)。
     public var isUserEdited: Bool
+    /// 从音乐源读回来的出处,比如「album.nfo」或服务器名;不是读回来的为 nil。
+    public var importedFrom: String?
     public var updatedAt: Date
     public var deletedAt: Date?
 
@@ -129,6 +131,7 @@ public struct LibraryInsightRecord: Codable, Hashable, Sendable, Identifiable {
         aiProviderName: String? = nil,
         aiLanguageCode: String? = nil,
         isUserEdited: Bool,
+        importedFrom: String? = nil,
         updatedAt: Date,
         deletedAt: Date? = nil
     ) {
@@ -142,12 +145,15 @@ public struct LibraryInsightRecord: Codable, Hashable, Sendable, Identifiable {
         self.aiProviderName = aiProviderName
         self.aiLanguageCode = aiLanguageCode
         self.isUserEdited = isUserEdited
+        self.importedFrom = importedFrom
         self.updatedAt = updatedAt
         self.deletedAt = deletedAt
     }
 
     public var isDeleted: Bool { deletedAt != nil }
     public var hasContent: Bool { !summary.isEmpty || !tags.isEmpty }
+    /// 用户写的、改过的或从音乐源读回来的:用 AI 重新生成前要先问一句。
+    public var isWorthKeeping: Bool { hasContent && (isUserEdited || importedFrom != nil) }
 }
 
 /// 简介的编辑与合并规则。
@@ -257,7 +263,33 @@ public enum LibraryInsightEditing {
             aiProviderName: aiDraft?.providerName ?? live?.aiProviderName,
             aiLanguageCode: aiDraft?.languageCode ?? live?.aiLanguageCode,
             isUserEdited: !matchesDraft,
+            importedFrom: matchesDraft ? nil : live?.importedFrom,
             updatedAt: nextVersion(after: previous, now: now)
+        )
+    }
+
+    /// 从音乐源读回来的简介(album.nfo、服务器上的简介)。
+    public static func recordFromImport(
+        summary rawSummary: String,
+        tags rawTags: [String],
+        subject: LibraryInsightSubject,
+        id: String,
+        sourceLabel: String,
+        now: Date
+    ) -> LibraryInsightRecord? {
+        let summary = normalizedSummary(rawSummary)
+        let tags = normalizedTags(rawTags)
+        guard !summary.isEmpty || !tags.isEmpty else { return nil }
+        return LibraryInsightRecord(
+            id: id,
+            kind: subject.kind,
+            albumTitle: subject.albumTitle,
+            artistName: subject.artistName,
+            summary: summary,
+            tags: tags,
+            isUserEdited: false,
+            importedFrom: sourceLabel,
+            updatedAt: now
         )
     }
 

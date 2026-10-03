@@ -5284,3 +5284,16 @@
 "library_insight_regenerate_confirm_title" = "Zastąpić edytowane wprowadzenie?";
 "library_insight_regenerate_confirm_message" = "Ponowne napisanie przez AI nadpisze wprowadzenie i tagi, które napisałeś lub zmieniłeś.";
 "library_insight_regenerate_confirm_action" = "Zastąp";
+
+/* Writing album and artist intros to sources */
+"library_insight_writeback_section" = "Wprowadzenia albumów i wykonawców";
+"library_insight_writeback_files" = "Zapisuj w plikach NFO i na serwerach";
+"library_insight_writeback_footer" = "Zapisanie wprowadzenia zapisuje je w album.nfo i artist.nfo w folderach albumu i wykonawcy (czytają je Kodi, Jellyfin i Emby) oraz w polu opisu w Jellyfin, Emby i Plex. Gdy biblioteka nie ma jeszcze wprowadzenia, odczytywane są istniejące.";
+"library_insight_writeback_comment" = "Zapisuj też w komentarzu każdego utworu";
+"library_insight_writeback_comment_confirm_title" = "Zapisać wprowadzenie albumu w komentarzu każdego utworu?";
+"library_insight_writeback_comment_confirm_message" = "Tylko dla MP3, FLAC i M4A. Każdy utwór jest pobierany w całości, przepisywany i wysyłany z powrotem do źródła, a jego dotychczasowy komentarz zostaje zastąpiony.";
+"library_insight_writeback_written_format" = "Zapisano w: %@";
+"library_insight_writeback_failed_format" = "Nie zapisano: %@";
+"library_insight_writeback_comments_format" = "komentarze %d utworów";
+"library_insight_footer_imported_format" = "Z: %@";
+"library_insight_list_separator" = ", ";

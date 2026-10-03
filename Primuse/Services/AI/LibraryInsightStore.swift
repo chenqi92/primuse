@@ -15,6 +15,8 @@ final class LibraryInsightStore {
     private(set) var generatingIDs: Set<String> = []
     private(set) var failures: [String: AILibraryContentFailure] = [:]
     private(set) var retryDates: [String: Date] = [:]
+    /// 最近一次写回音乐源的结果(写进了哪些、哪些没写成),只给界面看。
+    private(set) var writebackNotes: [String: String] = [:]
 
     init() {
         // 上一版只在本机 Caches 里缓存过一份,现在改存曲库,旧文件清掉。
@@ -51,6 +53,28 @@ final class LibraryInsightStore {
     func retryDate(for subject: LibraryInsightSubject) -> Date? {
         guard let date = retryDates[recordID(for: subject)], date > Date() else { return nil }
         return date
+    }
+
+    func writebackNote(for subject: LibraryInsightSubject) -> String? {
+        writebackNotes[recordID(for: subject)]
+    }
+
+    func setWritebackNote(written: [String], failed: [String], for subject: LibraryInsightSubject) {
+        let separator = String(localized: "library_insight_list_separator")
+        var parts: [String] = []
+        if !written.isEmpty {
+            parts.append(String(
+                format: String(localized: "library_insight_writeback_written_format"),
+                written.joined(separator: separator)
+            ))
+        }
+        if !failed.isEmpty {
+            parts.append(String(
+                format: String(localized: "library_insight_writeback_failed_format"),
+                failed.joined(separator: separator)
+            ))
+        }
+        writebackNotes[recordID(for: subject)] = parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     func clearFailure(for subject: LibraryInsightSubject) {
@@ -150,6 +174,9 @@ final class LibraryInsightStore {
 
     /// 卡片底部的出处:自己写/改过的标「已编辑」,AI 原样给的标服务名和「可能有误」。
     nonisolated static func footer(for record: LibraryInsightRecord) -> String {
+        if !record.isUserEdited, let source = record.importedFrom {
+            return String(format: String(localized: "library_insight_footer_imported_format"), source)
+        }
         guard !record.isUserEdited, let provider = record.aiProviderName else {
             return String(localized: "library_insight_footer_edited")
         }

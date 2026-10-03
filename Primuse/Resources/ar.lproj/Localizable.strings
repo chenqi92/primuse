@@ -5284,3 +5284,16 @@
 "library_insight_regenerate_confirm_title" = "استبدال النبذة التي عدّلتها؟";
 "library_insight_regenerate_confirm_message" = "إعادة الكتابة بالذكاء الاصطناعي تستبدل النبذة والوسوم التي كتبتها أو عدّلتها.";
 "library_insight_regenerate_confirm_action" = "استبدال";
+
+/* Writing album and artist intros to sources */
+"library_insight_writeback_section" = "نبذات الألبومات والفنانين";
+"library_insight_writeback_files" = "الكتابة في ملفات NFO وخوادم الوسائط";
+"library_insight_writeback_footer" = "عند الحفظ تُكتب النبذة في album.nfo وartist.nfo داخل مجلدي الألبوم والفنان (يقرؤها Kodi وJellyfin وEmby) وفي حقل الوصف في Jellyfin وEmby وPlex. وإذا لم تكن في المكتبة نبذة بعد، تُقرأ النبذات الموجودة هناك.";
+"library_insight_writeback_comment" = "الكتابة أيضًا في تعليق كل أغنية";
+"library_insight_writeback_comment_confirm_title" = "كتابة نبذة الألبوم في تعليق كل أغنية؟";
+"library_insight_writeback_comment_confirm_message" = "لـ MP3 وFLAC وM4A فقط. تُنزَّل كل أغنية كاملة وتُعاد كتابتها ثم تُرفع إلى مصدرها، ويُستبدل تعليقها الحالي.";
+"library_insight_writeback_written_format" = "كُتبت في %@";
+"library_insight_writeback_failed_format" = "لم تُكتب: %@";
+"library_insight_writeback_comments_format" = "تعليقات %d أغنية";
+"library_insight_footer_imported_format" = "من %@";
+"library_insight_list_separator" = "، ";

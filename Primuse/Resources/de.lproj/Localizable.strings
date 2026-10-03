@@ -5378,3 +5378,16 @@
 "library_insight_regenerate_confirm_title" = "Bearbeitete Einführung ersetzen?";
 "library_insight_regenerate_confirm_message" = "Neu schreiben mit KI überschreibt die Einführung und Tags, die du geschrieben oder geändert hast.";
 "library_insight_regenerate_confirm_action" = "Ersetzen";
+
+/* Writing album and artist intros to sources */
+"library_insight_writeback_section" = "Album- & Künstler-Einführungen";
+"library_insight_writeback_files" = "In NFO-Dateien und Medienserver schreiben";
+"library_insight_writeback_footer" = "Beim Sichern wird die Einführung in album.nfo und artist.nfo in den Album- und Künstlerordnern geschrieben (von Kodi, Jellyfin und Emby gelesen) sowie ins Beschreibungsfeld von Jellyfin, Emby und Plex. Hat die Mediathek noch keine Einführung, werden vorhandene von dort übernommen.";
+"library_insight_writeback_comment" = "Auch in den Kommentar jedes Songs schreiben";
+"library_insight_writeback_comment_confirm_title" = "Album-Einführung in den Kommentar jedes Songs schreiben?";
+"library_insight_writeback_comment_confirm_message" = "Nur für MP3, FLAC und M4A. Jeder Song wird vollständig geladen, umgeschrieben und zurück in die Quelle hochgeladen; der vorhandene Kommentar wird ersetzt.";
+"library_insight_writeback_written_format" = "Geschrieben in %@";
+"library_insight_writeback_failed_format" = "Nicht geschrieben: %@";
+"library_insight_writeback_comments_format" = "Kommentare von %d Songs";
+"library_insight_footer_imported_format" = "Aus %@";
+"library_insight_list_separator" = ", ";

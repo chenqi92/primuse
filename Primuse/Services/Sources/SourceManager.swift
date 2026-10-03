@@ -2009,6 +2009,15 @@ private extension RoutedConnectorProxy {
         }
     }
 
+    func writeEmbeddedComment(
+        _ comment: EmbeddedLyricsEdit,
+        for song: Song
+    ) async throws -> EmbeddedMetadataWritebackResult {
+        try await routing.withMutation {
+            try await $0.writeEmbeddedComment(comment, for: song)
+        }
+    }
+
     func deleteFile(at path: String) async throws {
         try await routing.withMutation { try await $0.deleteFile(at: path) }
     }
@@ -13391,23 +13400,50 @@ final class SourceManager {
         return updated
     }
 
+    /// Stores or removes the comment inside the audio file and leaves every
+    /// other tag alone. Returns the song with the replaced file's identity.
+    func writeEmbeddedComment(_ comment: EmbeddedLyricsEdit, for song: Song) async throws -> Song {
+        let updated = try await replaceEmbeddedAssets(of: song, coverData: nil, lyrics: .keep, comment: comment)
+        plog("Embedded comment writeback completed for songID=\(song.id) edit=\(comment.logName)")
+        return updated
+    }
+
+    /// Whether this song's source and format take part in the guarded
+    /// whole-file tag rewrite.
+    func supportsEmbeddedTagWrite(for song: Song) async -> Bool {
+        guard let sources = try? await sourcesProvider(),
+              let source = sources.first(where: { $0.id == song.sourceID }) else { return false }
+        return EmbeddedLyricsCopyPolicy.canEmbed(
+            sourceType: source.type,
+            format: song.fileFormat,
+            isCueTrack: song.isCueTrack,
+            isStreamDescriptor: song.isStreamDescriptor
+        )
+    }
+
     private func replaceEmbeddedAssets(
         of song: Song,
         coverData: Data?,
-        lyrics: EmbeddedLyricsEdit
+        lyrics: EmbeddedLyricsEdit,
+        comment: EmbeddedLyricsEdit = .keep
     ) async throws -> Song {
         let connector = try await connectorForSong(song)
         // The file may already have reached the replace stage when a later
         // step fails, so cached bytes are dropped in either outcome.
         defer { deleteAudioCache(for: song) }
         do {
-            let result = try await connector.writeEmbeddedMetadata(
-                original: song,
-                updated: song,
-                coverData: coverData,
-                lyrics: lyrics,
-                writesTextTags: false
-            )
+            let result: EmbeddedMetadataWritebackResult
+            if comment == .keep {
+                result = try await connector.writeEmbeddedMetadata(
+                    original: song,
+                    updated: song,
+                    coverData: coverData,
+                    lyrics: lyrics,
+                    writesTextTags: false
+                )
+            } else {
+                result = try await connector.writeEmbeddedComment(comment, for: song)
+            }
             var updated = song
             updated.filePath = result.filePath ?? song.filePath
             updated.fileSize = result.fileSize

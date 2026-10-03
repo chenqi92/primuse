@@ -822,6 +822,13 @@ protocol MusicSourceConnector: Sendable {
         writesTextTags: Bool
     ) async throws -> EmbeddedMetadataWritebackResult
 
+    /// Rewrites only the embedded comment, with the same guarded whole-file
+    /// replacement as `writeEmbeddedMetadata`; every other tag stays as it is.
+    func writeEmbeddedComment(
+        _ comment: EmbeddedLyricsEdit,
+        for song: Song
+    ) async throws -> EmbeddedMetadataWritebackResult
+
     /// Delete a remote file. Used by song deletion to remove the source audio
     /// file and safe same-name sidecars.
     func deleteFile(at path: String) async throws
@@ -1591,6 +1598,13 @@ extension MusicSourceConnector {
         coverData: Data?,
         lyrics: EmbeddedLyricsEdit,
         writesTextTags: Bool
+    ) async throws -> EmbeddedMetadataWritebackResult {
+        throw EmbeddedMetadataWritebackSourceError.unsupported
+    }
+
+    func writeEmbeddedComment(
+        _ comment: EmbeddedLyricsEdit,
+        for song: Song
     ) async throws -> EmbeddedMetadataWritebackResult {
         throw EmbeddedMetadataWritebackSourceError.unsupported
     }

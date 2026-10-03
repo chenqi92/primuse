@@ -5355,3 +5355,16 @@
 "library_insight_regenerate_confirm_title" = "取代你編輯過的簡介？";
 "library_insight_regenerate_confirm_message" = "用 AI 重新產生會覆蓋你寫過或改過的簡介和標籤。";
 "library_insight_regenerate_confirm_action" = "取代";
+
+/* Writing album and artist intros to sources */
+"library_insight_writeback_section" = "專輯與藝人簡介";
+"library_insight_writeback_files" = "寫入 nfo 與媒體伺服器";
+"library_insight_writeback_footer" = "儲存簡介時寫進專輯、藝人資料夾裡的 album.nfo、artist.nfo（Kodi、Jellyfin、Emby 都讀），Jellyfin、Emby、Plex 寫進它們的簡介。資料庫裡還沒有簡介時，也會讀回這些地方已有的。";
+"library_insight_writeback_comment" = "同時寫進每首歌的註解";
+"library_insight_writeback_comment_confirm_title" = "把專輯簡介寫進每首歌的註解？";
+"library_insight_writeback_comment_confirm_message" = "只對 MP3、FLAC、M4A 有效。每首歌都要整首下載、改寫後再傳回音樂來源，並會覆蓋歌曲裡原有的註解。";
+"library_insight_writeback_written_format" = "已寫入 %@";
+"library_insight_writeback_failed_format" = "沒寫成：%@";
+"library_insight_writeback_comments_format" = "%d 首歌的註解";
+"library_insight_footer_imported_format" = "來自 %@";
+"library_insight_list_separator" = "、";

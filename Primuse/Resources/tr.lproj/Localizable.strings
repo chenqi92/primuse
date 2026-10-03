@@ -5284,3 +5284,16 @@
 "library_insight_regenerate_confirm_title" = "Düzenlediğin tanıtım değiştirilsin mi?";
 "library_insight_regenerate_confirm_message" = "Yapay zekâyla yeniden yazmak, yazdığın ya da değiştirdiğin tanıtımın ve etiketlerin üzerine yazar.";
 "library_insight_regenerate_confirm_action" = "Değiştir";
+
+/* Writing album and artist intros to sources */
+"library_insight_writeback_section" = "Albüm ve sanatçı tanıtımları";
+"library_insight_writeback_files" = "NFO dosyalarına ve medya sunucularına yaz";
+"library_insight_writeback_footer" = "Tanıtımı kaydetmek onu albüm ve sanatçı klasörlerindeki album.nfo ve artist.nfo'ya (Kodi, Jellyfin ve Emby okur) ve Jellyfin, Emby ile Plex'in tanıtım alanına yazar. Arşivde henüz tanıtım yoksa oradaki mevcut tanıtımlar okunur.";
+"library_insight_writeback_comment" = "Her şarkının yorumuna da yaz";
+"library_insight_writeback_comment_confirm_title" = "Albüm tanıtımı her şarkının yorumuna yazılsın mı?";
+"library_insight_writeback_comment_confirm_message" = "Yalnızca MP3, FLAC ve M4A için. Her şarkı tamamen indirilir, yeniden yazılır ve kaynağına geri yüklenir; mevcut yorumu değiştirilir.";
+"library_insight_writeback_written_format" = "%@ dosyasına yazıldı";
+"library_insight_writeback_failed_format" = "Yazılamadı: %@";
+"library_insight_writeback_comments_format" = "%d şarkının yorumu";
+"library_insight_footer_imported_format" = "%@ kaynağından";
+"library_insight_list_separator" = ", ";

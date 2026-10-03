@@ -5284,3 +5284,16 @@
 "library_insight_regenerate_confirm_title" = "แทนที่คำแนะนำที่คุณแก้ไขไว้ไหม";
 "library_insight_regenerate_confirm_message" = "การให้ AI เขียนใหม่จะเขียนทับคำแนะนำและแท็กที่คุณเขียนหรือแก้ไขไว้";
 "library_insight_regenerate_confirm_action" = "แทนที่";
+
+/* Writing album and artist intros to sources */
+"library_insight_writeback_section" = "คำแนะนำอัลบั้มและศิลปิน";
+"library_insight_writeback_files" = "เขียนลงไฟล์ NFO และเซิร์ฟเวอร์สื่อ";
+"library_insight_writeback_footer" = "เมื่อบันทึกคำแนะนำ จะเขียนลง album.nfo และ artist.nfo ในโฟลเดอร์อัลบั้มและศิลปิน (Kodi, Jellyfin, Emby อ่านได้) และช่องคำอธิบายของ Jellyfin, Emby, Plex ถ้าคลังเพลงยังไม่มีคำแนะนำ จะอ่านของที่มีอยู่ที่นั่นกลับมา";
+"library_insight_writeback_comment" = "เขียนลงคำอธิบายของแต่ละเพลงด้วย";
+"library_insight_writeback_comment_confirm_title" = "เขียนคำแนะนำอัลบั้มลงคำอธิบายของแต่ละเพลงไหม";
+"library_insight_writeback_comment_confirm_message" = "ใช้ได้กับ MP3, FLAC และ M4A เท่านั้น แต่ละเพลงจะถูกดาวน์โหลดทั้งไฟล์ แก้ไข แล้วอัปโหลดกลับไปยังแหล่งที่มา และจะเขียนทับคำอธิบายเดิม";
+"library_insight_writeback_written_format" = "เขียนลง %@ แล้ว";
+"library_insight_writeback_failed_format" = "เขียนไม่สำเร็จ: %@";
+"library_insight_writeback_comments_format" = "คำอธิบายของ %d เพลง";
+"library_insight_footer_imported_format" = "จาก %@";
+"library_insight_list_separator" = ", ";

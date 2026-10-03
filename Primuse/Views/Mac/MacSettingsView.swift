@@ -2976,6 +2976,9 @@ private struct MacSTScrapingView: View {
     @State private var importError: String?
     @AppStorage(MusicScraperService.sidecarCoverWriteEnabledKey) private var sidecarCoverWriteEnabled = true
     @AppStorage(MusicScraperService.sidecarLyricsWriteEnabledKey) private var sidecarLyricsWriteEnabled = true
+    @AppStorage(LibraryInsightWritebackPolicy.fileWriteEnabledKey) private var insightFileWriteEnabled = true
+    @AppStorage(LibraryInsightWritebackPolicy.embedCommentEnabledKey) private var insightCommentEnabled = false
+    @State private var confirmsInsightComment = false
     @AppStorage(MusicScraperService.sidecarWriteTimeoutKey) private var sidecarWriteTimeout = 30.0
     @AppStorage(EmbeddedLyricsCopyPolicy.modeDefaultsKey) private var lyricsEmbeddingModeRaw = ""
     @State private var pendingLyricsEmbeddingMode: LyricsEmbeddingMode?
@@ -3075,7 +3078,38 @@ private struct MacSTScrapingView: View {
                     )
                 }
                 .settingsAnchor("scraping.writeTimeout")
+                MacSTRow(
+                    Lz("library_insight_writeback_files"),
+                    hint: Lz("library_insight_writeback_footer"),
+                    hintLineLimit: 3
+                ) {
+                    MacSTToggle(isOn: $insightFileWriteEnabled)
+                }
+                .settingsAnchor("scraping.insightWriteback")
+                MacSTRow(
+                    Lz("library_insight_writeback_comment"),
+                    hint: Lz("library_insight_writeback_comment_confirm_message"),
+                    hintLineLimit: 3
+                ) {
+                    MacSTToggle(isOn: Binding(
+                        get: { insightCommentEnabled },
+                        set: { newValue in
+                            if newValue {
+                                confirmsInsightComment = true
+                            } else {
+                                insightCommentEnabled = false
+                            }
+                        }
+                    ))
+                }
+                .settingsAnchor("scraping.insightComment")
             }
+        }
+        .alert("library_insight_writeback_comment_confirm_title", isPresented: $confirmsInsightComment) {
+            Button("cancel", role: .cancel) {}
+            Button("enable") { insightCommentEnabled = true }
+        } message: {
+            Text("library_insight_writeback_comment_confirm_message")
         }
         .alert(
             "lyrics_embed_confirm_title",

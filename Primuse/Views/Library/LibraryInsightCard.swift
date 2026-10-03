@@ -6,10 +6,14 @@ import PrimuseKit
 struct LibraryInsightCard: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
     @Environment(MusicLibrary.self) private var library
+    @Environment(SourceManager.self) private var sourceManager
+    @Environment(SourcesStore.self) private var sourcesStore
 
     /// 只用名字认出是哪张专辑/哪位艺人;曲目、风格等在要问 AI 时才由 `details` 收集。
     let subject: LibraryInsightSubject
     let details: () -> LibraryInsightSubject
+    /// 这张专辑 / 这位艺人在曲库里的歌:写回音乐源、从音乐源读简介时用。
+    let songs: () -> [Song]
     #if os(iOS)
     var tint: LibraryDetailTintStyle?
     #endif
@@ -42,7 +46,17 @@ struct LibraryInsightCard: View {
             #endif
             .pmAnimation(.control, value: store.isGenerating(subject))
             .sheet(isPresented: $isEditing) {
-                LibraryInsightEditorSheet(subject: subject, details: details, record: record)
+                LibraryInsightEditorSheet(subject: subject, details: details, record: record, onSaved: writeBack)
+            }
+            .task(id: store.recordID(for: subject)) {
+                guard store.record(for: subject, in: library) == nil else { return }
+                await LibraryInsightWriteback.importIfAvailable(
+                    subject: subject,
+                    songs: songs(),
+                    library: library,
+                    sourceManager: sourceManager,
+                    sourcesStore: sourcesStore
+                )
             }
             .confirmationDialog(
                 Text("library_insight_regenerate_confirm_title"),
@@ -76,7 +90,7 @@ struct LibraryInsightCard: View {
                     }
                     if canAskAI {
                         Button {
-                            if record?.isUserEdited == true && record?.hasContent == true {
+                            if record?.isWorthKeeping == true {
                                 confirmsRegenerate = true
                             } else {
                                 generate()
@@ -89,6 +103,7 @@ struct LibraryInsightCard: View {
                     Divider()
                     Button(role: .destructive) {
                         store.remove(subject, library: library)
+                        writeBack()
                     } label: {
                         Label("library_insight_remove", systemImage: "trash")
                     }
@@ -191,6 +206,12 @@ struct LibraryInsightCard: View {
             Text(verbatim: LibraryInsightStore.footer(for: record))
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
+            if let note = store.writebackNote(for: subject) {
+                Text(verbatim: note)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -238,7 +259,28 @@ struct LibraryInsightCard: View {
     private func generate() {
         isExpanded = false
         let full = details()
-        Task { await store.generate(full, library: library, intelligence: intelligence) }
+        Task {
+            await store.generate(full, library: library, intelligence: intelligence)
+            if store.failure(for: subject) == nil { writeBack() }
+        }
+    }
+
+    /// 存下来的简介按各音乐源能写的方式写出去,结果显示在卡片底部。
+    private func writeBack() {
+        let subject = subject
+        let songs = songs()
+        Task {
+            let record = library.storedLibraryInsightRecord(id: store.recordID(for: subject))
+            let report = await LibraryInsightWriteback.write(
+                record,
+                subject: subject,
+                songs: songs,
+                library: library,
+                sourceManager: sourceManager,
+                sourcesStore: sourcesStore
+            )
+            store.setWritebackNote(written: report.written, failed: report.failed, for: subject)
+        }
     }
 }
 
@@ -289,6 +331,7 @@ struct LibraryInsightEditorSheet: View {
 
     let subject: LibraryInsightSubject
     let details: () -> LibraryInsightSubject
+    let onSaved: () -> Void
 
     @State private var summary: String
     @State private var tagText: String
@@ -298,9 +341,15 @@ struct LibraryInsightEditorSheet: View {
 
     private var store: LibraryInsightStore { .shared }
 
-    init(subject: LibraryInsightSubject, details: @escaping () -> LibraryInsightSubject, record: LibraryInsightRecord?) {
+    init(
+        subject: LibraryInsightSubject,
+        details: @escaping () -> LibraryInsightSubject,
+        record: LibraryInsightRecord?,
+        onSaved: @escaping () -> Void
+    ) {
         self.subject = subject
         self.details = details
+        self.onSaved = onSaved
         _summary = State(initialValue: record?.summary ?? "")
         _tagText = State(initialValue: LibraryInsightEditing.tagText(record?.tags ?? []))
     }
@@ -445,6 +494,7 @@ struct LibraryInsightEditorSheet: View {
             aiDraft: aiDraft,
             library: library
         )
+        onSaved()
         dismiss()
     }
 }

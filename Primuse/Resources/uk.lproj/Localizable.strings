@@ -5284,3 +5284,16 @@
 "library_insight_regenerate_confirm_title" = "Замінити змінений опис?";
 "library_insight_regenerate_confirm_message" = "Якщо написати знову за допомогою ШІ, опис і теги, які ви написали чи змінили, буде перезаписано.";
 "library_insight_regenerate_confirm_action" = "Замінити";
+
+/* Writing album and artist intros to sources */
+"library_insight_writeback_section" = "Описи альбомів і виконавців";
+"library_insight_writeback_files" = "Записувати в NFO та медіасервери";
+"library_insight_writeback_footer" = "Під час збереження опис записується в album.nfo і artist.nfo у теках альбому й виконавця (їх читають Kodi, Jellyfin і Emby) та в поле опису Jellyfin, Emby і Plex. Якщо в медіатеці опису ще немає, підхоплюються наявні.";
+"library_insight_writeback_comment" = "Записувати й у коментар кожної пісні";
+"library_insight_writeback_comment_confirm_title" = "Записати опис альбому в коментар кожної пісні?";
+"library_insight_writeback_comment_confirm_message" = "Лише для MP3, FLAC і M4A. Кожну пісню завантажують повністю, переписують і надсилають назад у джерело; попередній коментар замінюється.";
+"library_insight_writeback_written_format" = "Записано: %@";
+"library_insight_writeback_failed_format" = "Не записано: %@";
+"library_insight_writeback_comments_format" = "коментарі %d пісень";
+"library_insight_footer_imported_format" = "З: %@";
+"library_insight_list_separator" = ", ";

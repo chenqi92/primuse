@@ -194,6 +194,31 @@ struct LibraryInsightTests {
         #expect(deleted.isDeleted && deleted.summary.isEmpty)
     }
 
+    @Test func importedIntrosAreLabelledAndWorthKeeping() throws {
+        let imported = try #require(LibraryInsightEditing.recordFromImport(
+            summary: " From the file. ", tags: ["Pop"], subject: subject, id: "album-x",
+            sourceLabel: "album.nfo", now: t0
+        ))
+        #expect(imported.importedFrom == "album.nfo")
+        #expect(!imported.isUserEdited)
+        #expect(imported.isWorthKeeping)
+        #expect(LibraryInsightEditing.recordFromImport(
+            summary: "", tags: [], subject: subject, id: "album-x", sourceLabel: "x", now: t0
+        ) == nil)
+        let edited = try #require(LibraryInsightEditing.recordAfterUserEdit(
+            summary: "Changed.", tags: [], subject: subject, id: "album-x",
+            previous: imported, aiDraft: nil, now: t0
+        ))
+        #expect(edited.isUserEdited)
+        #expect(edited.importedFrom == "album.nfo")
+        let ai = LibraryInsightEditing.recordAfterAIFill(
+            .init(known: true, summary: "AI.", tags: []), subject: subject, id: "album-x",
+            providerName: "AI", languageCode: "en", previous: edited, now: t0
+        )
+        #expect(ai.importedFrom == nil)
+        #expect(!ai.isWorthKeeping)
+    }
+
     @Test func mergeKeepsTheNewestVersionPerRecord() {
         func record(_ id: String, _ summary: String, _ at: TimeInterval, deleted: Bool = false) -> LibraryInsightRecord {
             LibraryInsightRecord(

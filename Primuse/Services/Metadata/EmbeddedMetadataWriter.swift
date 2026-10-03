@@ -41,6 +41,9 @@ struct EmbeddedMetadataEdits: Sendable, Equatable {
     /// and writing the row's value for an untouched field would replace the
     /// file's real tag with that gap. `nil` writes every field.
     var changedFields: Set<TagMetadataWritebackField>? = nil
+    /// The comment tag, kept / set / removed like the lyrics; album intros
+    /// are written into each track with it.
+    var comment: EmbeddedLyricsEdit = .keep
 
     func writes(_ field: TagMetadataWritebackField) -> Bool {
         changedFields?.contains(field) ?? true
@@ -159,6 +162,15 @@ enum EmbeddedMetadataWriter {
             expectedM4ALyrics = nil
         }
 
+        switch edits.comment {
+        case .keep:
+            break
+        case .set(let text):
+            metadata.comment = text
+        case .remove:
+            metadata.comment = nil
+        }
+
         if let coverData = edits.coverData {
             if fileExtension == "m4a" {
                 // MP4 `covr` entries do not retain ID3/FLAC picture roles.
@@ -221,6 +233,17 @@ enum EmbeddedMetadataWriter {
         }
         if let coverData = edits.coverData {
             try require(verified.coverData == coverData, field: "cover artwork")
+        }
+        switch edits.comment {
+        case .keep:
+            break
+        case .set(let text):
+            try require(
+                comparableLyrics(verifiedFile.metadata.comment) == comparableLyrics(text),
+                field: "comment"
+            )
+        case .remove:
+            try require(comparableLyrics(verifiedFile.metadata.comment) == nil, field: "comment")
         }
 
         if fileExtension == "m4a" {

@@ -5284,3 +5284,16 @@
 "library_insight_regenerate_confirm_title" = "अपना संपादित परिचय बदलें?";
 "library_insight_regenerate_confirm_message" = "AI से फिर से लिखने पर आपका लिखा या बदला गया परिचय और टैग बदल जाएँगे।";
 "library_insight_regenerate_confirm_action" = "बदलें";
+
+/* Writing album and artist intros to sources */
+"library_insight_writeback_section" = "एल्बम और कलाकार परिचय";
+"library_insight_writeback_files" = "NFO फ़ाइलों और मीडिया सर्वर में लिखें";
+"library_insight_writeback_footer" = "परिचय सहेजने पर वह एल्बम और कलाकार फ़ोल्डर की album.nfo और artist.nfo (Kodi, Jellyfin, Emby इन्हें पढ़ते हैं) में और Jellyfin, Emby, Plex के परिचय फ़ील्ड में लिखा जाता है। लाइब्रेरी में अभी परिचय न हो तो वहाँ मौजूद परिचय पढ़ लिए जाते हैं।";
+"library_insight_writeback_comment" = "हर गाने की टिप्पणी में भी लिखें";
+"library_insight_writeback_comment_confirm_title" = "एल्बम परिचय हर गाने की टिप्पणी में लिखें?";
+"library_insight_writeback_comment_confirm_message" = "सिर्फ़ MP3, FLAC और M4A के लिए। हर गाना पूरा डाउनलोड होकर दोबारा लिखा जाता है और स्रोत पर वापस अपलोड होता है, और उसकी मौजूदा टिप्पणी बदल जाती है।";
+"library_insight_writeback_written_format" = "%@ में लिखा गया";
+"library_insight_writeback_failed_format" = "नहीं लिखा जा सका: %@";
+"library_insight_writeback_comments_format" = "%d गानों की टिप्पणियाँ";
+"library_insight_footer_imported_format" = "%@ से";
+"library_insight_list_separator" = ", ";

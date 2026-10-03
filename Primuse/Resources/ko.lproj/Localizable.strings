@@ -5378,3 +5378,16 @@
 "library_insight_regenerate_confirm_title" = "편집한 소개를 바꿀까요?";
 "library_insight_regenerate_confirm_message" = "AI로 다시 만들면 직접 쓰거나 고친 소개와 태그를 덮어씁니다.";
 "library_insight_regenerate_confirm_action" = "바꾸기";
+
+/* Writing album and artist intros to sources */
+"library_insight_writeback_section" = "앨범·아티스트 소개";
+"library_insight_writeback_files" = "NFO와 미디어 서버에 쓰기";
+"library_insight_writeback_footer" = "소개를 저장하면 앨범·아티스트 폴더의 album.nfo, artist.nfo(Kodi, Jellyfin, Emby가 읽음)와 Jellyfin, Emby, Plex의 소개 항목에 씁니다. 보관함에 아직 소개가 없으면 그곳에 있는 소개를 읽어 옵니다.";
+"library_insight_writeback_comment" = "각 곡의 코멘트에도 쓰기";
+"library_insight_writeback_comment_confirm_title" = "앨범 소개를 각 곡의 코멘트에 쓸까요?";
+"library_insight_writeback_comment_confirm_message" = "MP3, FLAC, M4A에만 적용됩니다. 곡마다 파일 전체를 내려받아 고친 뒤 소스로 다시 올리며, 기존 코멘트는 덮어씁니다.";
+"library_insight_writeback_written_format" = "%@에 썼습니다";
+"library_insight_writeback_failed_format" = "쓰지 못함: %@";
+"library_insight_writeback_comments_format" = "%d곡의 코멘트";
+"library_insight_footer_imported_format" = "%@에서";
+"library_insight_list_separator" = ", ";

@@ -1188,6 +1188,9 @@ struct MetadataScrapingView: View {
     @State private var pendingLyricsEmbeddingMode: LyricsEmbeddingMode?
     @AppStorage(EmbeddedCoverPolicy.modeDefaultsKey) private var coverEmbeddingModeRaw = ""
     @State private var pendingCoverEmbeddingMode: CoverEmbeddingMode?
+    @AppStorage(LibraryInsightWritebackPolicy.fileWriteEnabledKey) private var insightFileWriteEnabled = true
+    @AppStorage(LibraryInsightWritebackPolicy.embedCommentEnabledKey) private var insightCommentEnabled = false
+    @State private var confirmsInsightComment = false
     @State private var showLyricsServers = false
     @State private var lyricsServerStore = LyricsAPIServerStore.shared
     @State private var libraryTidySongs: BatchSongSelection?
@@ -1376,6 +1379,17 @@ struct MetadataScrapingView: View {
             }
 
             Section {
+                Toggle("library_insight_writeback_files", isOn: $insightFileWriteEnabled)
+                    .settingsAnchor("scraping.insightWriteback")
+                Toggle("library_insight_writeback_comment", isOn: insightCommentSelection)
+                    .settingsAnchor("scraping.insightComment")
+            } header: {
+                Text("library_insight_writeback_section")
+            } footer: {
+                Text("library_insight_writeback_footer")
+            }
+
+            Section {
                 if scraperService.isScraping {
                     VStack(alignment: .leading, spacing: 10) {
                         ProgressView(value: scraperService.progress)
@@ -1505,6 +1519,26 @@ struct MetadataScrapingView: View {
         } message: { mode in
             Text(verbatim: mode.confirmationMessage)
         }
+        .alert("library_insight_writeback_comment_confirm_title", isPresented: $confirmsInsightComment) {
+            Button("cancel", role: .cancel) {}
+            Button("enable") { insightCommentEnabled = true }
+        } message: {
+            Text("library_insight_writeback_comment_confirm_message")
+        }
+    }
+
+    /// 打开前先说清代价(整首重传、覆盖原注释),关掉不用问。
+    private var insightCommentSelection: Binding<Bool> {
+        Binding(
+            get: { insightCommentEnabled },
+            set: { newValue in
+                if newValue {
+                    confirmsInsightComment = true
+                } else {
+                    insightCommentEnabled = false
+                }
+            }
+        )
     }
 
     private var currentCoverEmbeddingMode: CoverEmbeddingMode {

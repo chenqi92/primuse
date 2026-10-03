@@ -180,7 +180,7 @@ struct AlbumDetailView: View {
         } content: {
             VStack(spacing: 18) {
                 trackList(discs: discs, showsDiscHeaders: showsDiscHeaders)
-                LibraryInsightCard(subject: insightIdentity, details: insightDetails, tint: tint)
+                LibraryInsightCard(subject: insightIdentity, details: insightDetails, songs: { songs }, tint: tint)
             }
                 .padding(.horizontal, 16)
                 .padding(.top, 18)
@@ -388,7 +388,7 @@ struct AlbumDetailView: View {
                 VStack(alignment: .leading, spacing: PMSpace.l) {
                     albumInfoCard
                     LibraryReviewSection(subject: .album(album.id))
-                    LibraryInsightCard(subject: insightIdentity, details: insightDetails)
+                    LibraryInsightCard(subject: insightIdentity, details: insightDetails, songs: { songs })
                     macToolbar
 
                     if songs.isEmpty {

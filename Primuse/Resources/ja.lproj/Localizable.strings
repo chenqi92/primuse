@@ -5379,3 +5379,16 @@
 "library_insight_regenerate_confirm_title" = "編集した紹介を置き換えますか？";
 "library_insight_regenerate_confirm_message" = "AI で作り直すと、自分で書いたり変更したりした紹介とタグが上書きされます。";
 "library_insight_regenerate_confirm_action" = "置き換える";
+
+/* Writing album and artist intros to sources */
+"library_insight_writeback_section" = "アルバムとアーティストの紹介";
+"library_insight_writeback_files" = "NFO とメディアサーバーに書き込む";
+"library_insight_writeback_footer" = "紹介を保存すると、アルバム・アーティストのフォルダの album.nfo、artist.nfo（Kodi、Jellyfin、Emby が読み込みます）と、Jellyfin、Emby、Plex の紹介欄に書き込みます。ライブラリに紹介がまだないときは、そこにある紹介を読み込みます。";
+"library_insight_writeback_comment" = "各曲のコメントにも書き込む";
+"library_insight_writeback_comment_confirm_title" = "アルバム紹介を各曲のコメントに書き込みますか？";
+"library_insight_writeback_comment_confirm_message" = "MP3、FLAC、M4A のみ対象です。曲ごとにファイル全体をダウンロードし、書き換えてからソースに戻すため、元のコメントは上書きされます。";
+"library_insight_writeback_written_format" = "%@ に書き込みました";
+"library_insight_writeback_failed_format" = "書き込めませんでした：%@";
+"library_insight_writeback_comments_format" = "%d 曲のコメント";
+"library_insight_footer_imported_format" = "%@ から";
+"library_insight_list_separator" = "、";

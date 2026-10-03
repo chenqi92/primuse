@@ -5340,3 +5340,144 @@ extension MediaServerSource: CatalogDriftReportingConnector {
         return catalogDriftInLastWalk
     }
 }
+
+/// 专辑、艺人在服务器上的「简介」:Jellyfin / Emby 的 Overview,Plex 的 summary。
+/// 由某一首歌反查它所在的专辑、它的专辑艺人。
+protocol LibraryInsightServerConnector: MusicSourceConnector {
+    func collectionOverview(_ collection: LibraryInsightKind, for song: Song) async throws -> String?
+    func writeCollectionOverview(
+        _ summary: String,
+        tags: [String],
+        collection: LibraryInsightKind,
+        for song: Song
+    ) async throws
+}
+
+extension MediaServerSource: LibraryInsightServerConnector {
+    func collectionOverview(_ collection: LibraryInsightKind, for song: Song) async throws -> String? {
+        try await connect()
+        guard let songItemID = itemID(from: song.filePath) else {
+            throw SourceError.fileNotFound(song.filePath)
+        }
+        switch kind {
+        case .jellyfin, .emby:
+            guard let targetID = try await jellyfinOrEmbyCollectionID(collection, songItemID: songItemID) else {
+                return nil
+            }
+            return try await jellyfinOrEmbyItem(targetID)["Overview"] as? String
+        case .plex:
+            guard let key = try await plexCollectionKey(collection, songRatingKey: songItemID) else { return nil }
+            return try await plexSummary(ratingKey: key)
+        }
+    }
+
+    func writeCollectionOverview(
+        _ summary: String,
+        tags: [String],
+        collection: LibraryInsightKind,
+        for song: Song
+    ) async throws {
+        try await connect()
+        guard let songItemID = itemID(from: song.filePath) else {
+            throw SourceError.fileNotFound(song.filePath)
+        }
+        switch kind {
+        case .jellyfin, .emby:
+            guard let targetID = try await jellyfinOrEmbyCollectionID(collection, songItemID: songItemID) else {
+                throw SourceError.fileNotFound(song.filePath)
+            }
+            var item = try await jellyfinOrEmbyItem(targetID)
+            item["Overview"] = summary
+            // 只加不删:服务器上原有的标签留着。
+            var existingTags = (item["Tags"] as? [String]) ?? []
+            for tag in tags where !existingTags.contains(where: { $0.caseInsensitiveCompare(tag) == .orderedSame }) {
+                existingTags.append(tag)
+            }
+            item["Tags"] = existingTags
+            // 锁住简介,免得服务器下次刷新元数据时用网上抓来的换掉。
+            var locked = (item["LockedFields"] as? [String]) ?? []
+            if !summary.isEmpty, !locked.contains("Overview") { locked.append("Overview") }
+            item["LockedFields"] = locked
+            let body = try SafeJSONSerialization.data(withJSONObject: item)
+            _ = try await performRequest(path: "/Items/\(targetID)", method: "POST", body: body)
+            let stored = try await jellyfinOrEmbyItem(targetID)["Overview"] as? String
+            guard Self.sameOverview(stored, summary) else {
+                throw SourceError.connectionFailed(String(localized: "metadata_writeback_media_readback_mismatch"))
+            }
+        case .plex:
+            guard let key = try await plexCollectionKey(collection, songRatingKey: songItemID) else {
+                throw SourceError.fileNotFound(song.filePath)
+            }
+            _ = try await performRequest(
+                path: "/library/metadata/\(key)",
+                method: "PUT",
+                queryItems: [
+                    URLQueryItem(name: "summary", value: summary),
+                    URLQueryItem(name: "summary.locked", value: summary.isEmpty ? "0" : "1")
+                ],
+                contentType: "application/octet-stream",
+                accept: "*/*"
+            )
+            let stored = try await plexSummary(ratingKey: key)
+            guard Self.sameOverview(stored, summary) else {
+                throw SourceError.connectionFailed(String(localized: "metadata_writeback_media_readback_mismatch"))
+            }
+        }
+    }
+
+    private static func sameOverview(_ stored: String?, _ expected: String) -> Bool {
+        func comparable(_ text: String?) -> String {
+            (text ?? "")
+                .replacingOccurrences(of: "\r\n", with: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return comparable(stored) == comparable(expected)
+    }
+
+    private func jellyfinOrEmbyItem(_ id: String) async throws -> [String: Any] {
+        let path: String
+        switch kind {
+        case .jellyfin:
+            path = "/Items/\(id)"
+        case .emby:
+            guard let userID else { throw SourceError.authenticationFailed }
+            path = "/Users/\(userID)/Items/\(id)"
+        case .plex:
+            throw SourceError.connectionFailed("Invalid media-server item route")
+        }
+        let data = try await performRequest(path: path)
+        guard let item = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw SourceError.connectionFailed("Invalid item metadata response")
+        }
+        return item
+    }
+
+    /// 歌曲所在的专辑,或它的专辑艺人(没有就取第一位演出艺人)。
+    private func jellyfinOrEmbyCollectionID(
+        _ collection: LibraryInsightKind,
+        songItemID: String
+    ) async throws -> String? {
+        let song = try await jellyfinOrEmbyItem(songItemID)
+        switch collection {
+        case .album:
+            return song["AlbumId"] as? String
+        case .artist:
+            let albumArtists = song["AlbumArtists"] as? [[String: Any]]
+            let artists = song["ArtistItems"] as? [[String: Any]]
+            return (albumArtists?.first?["Id"] ?? artists?.first?["Id"]) as? String
+        }
+    }
+
+    private func plexCollectionKey(_ collection: LibraryInsightKind, songRatingKey: String) async throws -> String? {
+        let track = try await fetchPlexTrack(ratingKey: songRatingKey)
+        return collection == .album ? track.parentRatingKey : track.grandparentRatingKey
+    }
+
+    private func plexSummary(ratingKey: String) async throws -> String? {
+        let data = try await performRequest(path: "/library/metadata/\(ratingKey)")
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let container = root["MediaContainer"] as? [String: Any],
+              let metadata = container["Metadata"] as? [[String: Any]] else { return nil }
+        return metadata.first?["summary"] as? String
+    }
+}
