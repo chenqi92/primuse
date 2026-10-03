@@ -243,6 +243,40 @@ struct SiriRadioStationCatalogTests {
         #expect(SiriRadioStationCatalog.defaultStation(from: [], enabledSourceIDs: []) == nil)
     }
 
+    @Test("A shuffled request naming no station never starts with the one last listened to")
+    func shuffledStations() {
+        var played = RadioStation(id: "p", name: "Played", streamURL: "https://radio.example/p")
+        played.lastPlayedAt = Date(timeIntervalSince1970: 1_000)
+        let others = (0..<4).map {
+            RadioStation(id: "s\($0)", name: "Station \($0)", streamURL: "https://radio.example/\($0)")
+        }
+        var deleted = RadioStation(id: "d", name: "Deleted", streamURL: "https://radio.example/d")
+        deleted.isDeleted = true
+        let stations = [played] + others + [deleted]
+
+        for seed in 0..<64 {
+            var generator = SeededGenerator(seed: UInt64(seed))
+            let shuffled = SiriRadioStationCatalog.shuffledStations(
+                from: stations,
+                enabledSourceIDs: [],
+                limit: 10,
+                using: &generator
+            )
+            #expect(shuffled.count == 5)
+            #expect(shuffled.first?.id != "p")
+            #expect(Set(shuffled.map(\.id)) == ["p", "s0", "s1", "s2", "s3"])
+        }
+
+        var generator = SeededGenerator(seed: 7)
+        #expect(SiriRadioStationCatalog.shuffledStations(
+            from: [played],
+            enabledSourceIDs: [],
+            using: &generator
+        ).map(\.id) == ["p"])
+        #expect(SiriRadioStationCatalog.shuffledStations(from: [], enabledSourceIDs: []).isEmpty)
+        #expect(SiriRadioStationCatalog.shuffledStations(from: stations, enabledSourceIDs: [], limit: 2).count == 2)
+    }
+
     @Test("Equally good station matches are settled without asking: last listened first")
     func preferredStation() throws {
         var first = RadioStation(id: "a", name: "交通广播", streamURL: "https://radio.example/a")
@@ -332,5 +366,18 @@ struct SiriRadioStationCatalogTests {
                 serverStationID: serverID
             )
         )
+    }
+}
+
+/// splitmix64: the same seed gives the same shuffle on every run.
+private struct SeededGenerator: RandomNumberGenerator {
+    var state: UInt64
+    init(seed: UInt64) { state = seed }
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
     }
 }

@@ -157,8 +157,7 @@
             "state" : "translated",
             "values" : [
               "تابع الاستماع إلى ${book} في ${applicationName}",
-              "تابع كتابي في ${applicationName}",
-              "شغّل الكتاب الصوتي في ${applicationName}"
+              "تابع كتابي في ${applicationName}"
             ]
           }
         },
@@ -167,8 +166,7 @@
             "state" : "translated",
             "values" : [
               "${book} in ${applicationName} weiterhören",
-              "Mein Hörbuch in ${applicationName} weiterhören",
-              "Hörbuch in ${applicationName} abspielen"
+              "Mein Hörbuch in ${applicationName} weiterhören"
             ]
           }
         },
@@ -187,8 +185,7 @@
             "state" : "translated",
             "values" : [
               "Seguir escuchando ${book} en ${applicationName}",
-              "Seguir escuchando mi audiolibro en ${applicationName}",
-              "Reproduce mi audiolibro en ${applicationName}"
+              "Seguir escuchando mi audiolibro en ${applicationName}"
             ]
           }
         },
@@ -197,8 +194,7 @@
             "state" : "translated",
             "values" : [
               "Reprendre ${book} dans ${applicationName}",
-              "Reprendre mon livre audio dans ${applicationName}",
-              "Lire mon livre audio dans ${applicationName}"
+              "Reprendre mon livre audio dans ${applicationName}"
             ]
           }
         },
@@ -207,8 +203,7 @@
             "state" : "translated",
             "values" : [
               "${applicationName} में ${book} सुनना जारी रखें",
-              "${applicationName} में मेरी किताब जारी रखें",
-              "${applicationName} में ऑडियोबुक चलाएँ"
+              "${applicationName} में मेरी किताब जारी रखें"
             ]
           }
         },
@@ -217,8 +212,7 @@
             "state" : "translated",
             "values" : [
               "${applicationName}で${book}の続きを聴く",
-              "${applicationName}で本の続きを聴く",
-              "${applicationName}でオーディオブックを再生"
+              "${applicationName}で本の続きを聴く"
             ]
           }
         },
@@ -227,8 +221,7 @@
             "state" : "translated",
             "values" : [
               "${applicationName}에서 ${book} 이어 듣기",
-              "${applicationName}에서 책 이어 듣기",
-              "${applicationName}에서 오디오북 재생"
+              "${applicationName}에서 책 이어 듣기"
             ]
           }
         },
@@ -237,8 +230,7 @@
             "state" : "translated",
             "values" : [
               "Słuchaj dalej ${book} w ${applicationName}",
-              "Słuchaj dalej audiobooka w ${applicationName}",
-              "Odtwórz audiobooka w ${applicationName}"
+              "Słuchaj dalej audiobooka w ${applicationName}"
             ]
           }
         },
@@ -247,8 +239,7 @@
             "state" : "translated",
             "values" : [
               "Continuar ouvindo ${book} no ${applicationName}",
-              "Continuar ouvindo meu audiolivro no ${applicationName}",
-              "Tocar meu audiolivro no ${applicationName}"
+              "Continuar ouvindo meu audiolivro no ${applicationName}"
             ]
           }
         },
@@ -257,8 +248,7 @@
             "state" : "translated",
             "values" : [
               "Продолжи ${book} в ${applicationName}",
-              "Продолжи аудиокнигу в ${applicationName}",
-              "Включи аудиокнигу в ${applicationName}"
+              "Продолжи аудиокнигу в ${applicationName}"
             ]
           }
         },
@@ -267,8 +257,7 @@
             "state" : "translated",
             "values" : [
               "ฟัง${book}ต่อใน ${applicationName}",
-              "ฟังหนังสือต่อใน ${applicationName}",
-              "เล่นหนังสือเสียงใน ${applicationName}"
+              "ฟังหนังสือต่อใน ${applicationName}"
             ]
           }
         },
@@ -277,8 +266,7 @@
             "state" : "translated",
             "values" : [
               "${applicationName} uygulamasında ${book} dinlemeye devam et",
-              "${applicationName} uygulamasında sesli kitabıma devam et",
-              "${applicationName} uygulamasında sesli kitap çal"
+              "${applicationName} uygulamasında sesli kitabıma devam et"
             ]
           }
         },
@@ -287,8 +275,7 @@
             "state" : "translated",
             "values" : [
               "Продовж ${book} у ${applicationName}",
-              "Продовж аудіокнигу в ${applicationName}",
-              "Увімкни аудіокнигу в ${applicationName}"
+              "Продовж аудіокнигу в ${applicationName}"
             ]
           }
         },
@@ -297,8 +284,7 @@
             "state" : "translated",
             "values" : [
               "用 ${applicationName} 继续听${book}",
-              "用 ${applicationName} 继续听书",
-              "用 ${applicationName} 播放有声书"
+              "用 ${applicationName} 继续听书"
             ]
           }
         },
@@ -307,8 +293,7 @@
             "state" : "translated",
             "values" : [
               "用 ${applicationName} 繼續聽${book}",
-              "用 ${applicationName} 繼續聽書",
-              "用 ${applicationName} 播放有聲書"
+              "用 ${applicationName} 繼續聽書"
             ]
           }
         }
@@ -604,7 +589,8 @@
             "state" : "translated",
             "values" : [
               "Play ${station} in ${applicationName}",
-              "Play radio in ${applicationName}"
+              "Play radio in ${applicationName}",
+              "Listen to the radio in ${applicationName}"
             ]
           }
         },
@@ -712,7 +698,9 @@
             "state" : "translated",
             "values" : [
               "用 ${applicationName} 播放 ${station}",
-              "用 ${applicationName} 播放电台"
+              "用 ${applicationName} 播放电台",
+              "用 ${applicationName} 听电台",
+              "用 ${applicationName} 播放广播"
             ]
           }
         },
@@ -721,7 +709,9 @@
             "state" : "translated",
             "values" : [
               "用 ${applicationName} 播放 ${station}",
-              "用 ${applicationName} 播放電台"
+              "用 ${applicationName} 播放電台",
+              "用 ${applicationName} 聽電台",
+              "用 ${applicationName} 播放廣播"
             ]
           }
         }
@@ -1185,7 +1175,7 @@
             "state" : "translated",
             "values" : [
               "${applicationName}でポッドキャスト${show}を再生",
-              "${applicationName}でポッドキャストを再生"
+              "${applicationName}でポッドキャストの続きを聴く"
             ]
           }
         },
@@ -1194,7 +1184,7 @@
             "state" : "translated",
             "values" : [
               "${applicationName}에서 팟캐스트 ${show} 재생",
-              "${applicationName}에서 팟캐스트 재생"
+              "${applicationName}에서 팟캐스트 이어 듣기"
             ]
           }
         },
@@ -1258,7 +1248,6 @@
             "values" : [
               "用 ${applicationName} 播放播客${show}",
               "用 ${applicationName} 听播客${show}",
-              "用 ${applicationName} 播放播客",
               "用 ${applicationName} 继续听播客"
             ]
           }
@@ -1269,7 +1258,6 @@
             "values" : [
               "用 ${applicationName} 播放 Podcast ${show}",
               "用 ${applicationName} 聽 Podcast ${show}",
-              "用 ${applicationName} 播放 Podcast",
               "用 ${applicationName} 繼續聽 Podcast"
             ]
           }

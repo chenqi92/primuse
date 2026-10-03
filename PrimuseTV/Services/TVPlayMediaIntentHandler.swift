@@ -67,8 +67,11 @@ final class TVPlayMediaIntentHandler: NSObject,
             if query.kind == .podcast { await Self.waitForPodcasts() }
             // "继续播放" names nothing: carry on with what is loaded (restored
             // once the library is ready) instead of shuffling the whole
-            // library over a station or a book.
+            // library over a station or a book. Only a request naming no kind
+            // of media: "播放电台" with Siri's resume flag set must not carry
+            // on with the book that was playing.
             if intent.resumePlayback == true,
+               query.kind == .music,
                identifierGroups.isEmpty,
                !query.hasSearchTerm,
                store.resumeFromSiri() {

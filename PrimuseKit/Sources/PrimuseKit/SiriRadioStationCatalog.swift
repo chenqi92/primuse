@@ -91,6 +91,36 @@ public enum SiriRadioStationCatalog {
         appShortcutStations(from: stations, enabledSourceIDs: enabledSourceIDs, limit: 1).first
     }
 
+    /// What "随机播放电台" plays: any playable station, in a random order,
+    /// the first playing and the rest offered as alternatives. With more than
+    /// one to choose from, the station last listened to never comes first —
+    /// otherwise a shuffle would sound like a resume.
+    public static func shuffledStations<G: RandomNumberGenerator>(
+        from stations: [RadioStation],
+        enabledSourceIDs: Set<String>,
+        limit: Int = 5,
+        using generator: inout G
+    ) -> [RadioStation] {
+        var available = availableStations(from: stations, enabledSourceIDs: enabledSourceIDs)
+        guard limit > 0, !available.isEmpty else { return [] }
+        available.shuffle(using: &generator)
+        let lastPlayed = available.filter { $0.lastPlayedAt != nil }
+            .max { ($0.lastPlayedAt ?? .distantPast) < ($1.lastPlayedAt ?? .distantPast) }
+        if available.count > 1, let lastPlayed, available.first?.id == lastPlayed.id {
+            available.append(available.removeFirst())
+        }
+        return Array(available.prefix(limit))
+    }
+
+    public static func shuffledStations(
+        from stations: [RadioStation],
+        enabledSourceIDs: Set<String>,
+        limit: Int = 5
+    ) -> [RadioStation] {
+        var generator = SystemRandomNumberGenerator()
+        return shuffledStations(from: stations, enabledSourceIDs: enabledSourceIDs, limit: limit, using: &generator)
+    }
+
     /// The station a name resolves to: among equally good matches (the same
     /// station from two subscriptions, or two "交通广播") the one last
     /// listened to, then the resolver's order; a lone weak match counts too.

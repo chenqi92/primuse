@@ -27,7 +27,10 @@ final class PlayMediaIntentHandler: NSObject,
                 intent: intent
             )
 
+            // 只有没说要什么的「播放」才是接着放;「播放电台」「播放播客」即使 Siri
+            // 带着 resumePlayback,也不能把正在听的有声书接着放下去。
             if intent.resumePlayback == true,
+               query.kind == .music,
                identifiers.isEmpty,
                !query.hasSearchTerm,
                player.currentSong != nil {
@@ -239,6 +242,7 @@ final class PlayMediaIntentHandler: NSObject,
                 Self.resolveRadioItems(
                     query: query.mediaName,
                     identifiers: identifiers,
+                    shuffled: intent.playShuffled == true,
                     completion: completion
                 )
                 return
@@ -422,6 +426,99 @@ final class PlayMediaIntentHandler: NSObject,
         }
     }
 
+    // MARK: Playback options
+    //
+    // A request carrying an option ("随机播放电台", "repeat this album",
+    // "play it at 1.5x", "play this next") reaches `handle` only when the
+    // option's resolver exists; without one Siri answers that Primuse cannot
+    // do it. `handle` applies them: the shuffle flag of a song queue or a
+    // random station, `applyPlaybackOptions`, the queue position of songs.
+
+    func resolvePlayShuffled(
+        for intent: INPlayMediaIntent,
+        with completion: @escaping (INBooleanResolutionResult) -> Void
+    ) {
+        guard let shuffled = intent.playShuffled else {
+            completion(INBooleanResolutionResult.notRequired())
+            return
+        }
+        switch Self.query(for: intent).kind {
+        case .audiobook, .podcast:
+            // A book or an episode plays in order; the request still plays.
+            completion(INBooleanResolutionResult.notRequired())
+        default:
+            completion(INBooleanResolutionResult.success(with: shuffled))
+        }
+    }
+
+    func resolvePlaybackRepeatMode(
+        for intent: INPlayMediaIntent,
+        with completion: @escaping (INPlaybackRepeatModeResolutionResult) -> Void
+    ) {
+        switch intent.playbackRepeatMode {
+        case .none, .all, .one:
+            completion(INPlaybackRepeatModeResolutionResult.success(with: intent.playbackRepeatMode))
+        default:
+            completion(INPlaybackRepeatModeResolutionResult.notRequired())
+        }
+    }
+
+    func resolveResumePlayback(
+        for intent: INPlayMediaIntent,
+        with completion: @escaping (INBooleanResolutionResult) -> Void
+    ) {
+        guard let resume = intent.resumePlayback else {
+            completion(INBooleanResolutionResult.notRequired())
+            return
+        }
+        completion(INBooleanResolutionResult.success(with: resume))
+    }
+
+    func resolvePlaybackQueueLocation(
+        for intent: INPlayMediaIntent,
+        with completion: @escaping (INPlaybackQueueLocationResolutionResult) -> Void
+    ) {
+        let location = intent.playbackQueueLocation
+        switch location {
+        case .now:
+            completion(INPlaybackQueueLocationResolutionResult.success(with: .now))
+        case .next, .later:
+            switch Self.query(for: intent).kind {
+            case .radioStation, .audiobook, .podcast:
+                // A station, a book or an episode has no place in the song
+                // queue; it starts now.
+                completion(INPlaybackQueueLocationResolutionResult.success(with: .now))
+            default:
+                completion(INPlaybackQueueLocationResolutionResult.success(with: location))
+            }
+        default:
+            completion(INPlaybackQueueLocationResolutionResult.notRequired())
+        }
+    }
+
+    func resolvePlaybackSpeed(
+        for intent: INPlayMediaIntent,
+        with completion: @escaping (INPlayMediaPlaybackSpeedResolutionResult) -> Void
+    ) {
+        guard let speed = intent.playbackSpeed, speed.isFinite, speed > 0 else {
+            completion(INPlayMediaPlaybackSpeedResolutionResult.notRequired())
+            return
+        }
+        let completion = UncheckedBox(completion)
+        Task { @MainActor in
+            if AppServices.shared.playbackSettingsStore.outputMode != .effects {
+                // High Fidelity Direct plays at the source's own speed.
+                completion.value(INPlayMediaPlaybackSpeedResolutionResult.unsupported())
+            } else if speed < 0.5 {
+                completion.value(INPlayMediaPlaybackSpeedResolutionResult.unsupported(forReason: .belowMinimum))
+            } else if speed > 2.0 {
+                completion.value(INPlayMediaPlaybackSpeedResolutionResult.unsupported(forReason: .aboveMaximum))
+            } else {
+                completion.value(INPlayMediaPlaybackSpeedResolutionResult.success(with: speed))
+            }
+        }
+    }
+
     func handle(
         intent: INSearchForMediaIntent,
         completion: @escaping (INSearchForMediaIntentResponse) -> Void
@@ -576,7 +673,11 @@ final class PlayMediaIntentHandler: NSObject,
             return resolvePlaylist(query: query.mediaName, identifiers: identifiers, intent: intent)
         }
         if query.kind == .radioStation {
-            return resolveRadio(query: query.mediaName, identifiers: identifiers)
+            return resolveRadio(
+                query: query.mediaName,
+                identifiers: identifiers,
+                shuffled: intent.playShuffled == true
+            )
         }
         if query.kind == .algorithmicRadioStation {
             return resolveSongRadio(query: query, identifierGroups: identifierGroups)
@@ -728,10 +829,12 @@ final class PlayMediaIntentHandler: NSObject,
     @MainActor
     private static func resolveRadio(
         query: String?,
-        identifiers: [String]
+        identifiers: [String],
+        shuffled: Bool = false
     ) -> IntentTarget? {
         if identifiers.isEmpty, query?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
-            return defaultRadioItem()
+            let item = shuffled ? shuffledRadioItems().first : defaultRadioItem()
+            return item
                 .flatMap { item in radioStations().first { $0.id == item.id } }
                 .map(IntentTarget.radio)
         }
@@ -860,6 +963,25 @@ final class PlayMediaIntentHandler: NSObject,
         }
     }
 
+    /// "随机播放电台": stations in a random order, never starting with the
+    /// one last listened to while there is another.
+    @MainActor
+    private static func shuffledRadioItems() -> [SiriNamedMediaItem] {
+        let services = AppServices.shared
+        let enabled = Set(services.sourcesStore.sources.lazy.filter(\.isEnabled).map(\.id))
+        return SiriRadioStationCatalog.shuffledStations(
+            from: services.radioStationsStore.stations,
+            enabledSourceIDs: enabled,
+            limit: alternativeLimit
+        ).map {
+            SiriNamedMediaItem(
+                id: $0.id,
+                name: SiriRadioStationCatalog.safeDisplayName($0.name) ?? $0.name,
+                aliases: SiriRadioStationCatalog.aliases(for: $0)
+            )
+        }
+    }
+
     /// The station a request naming none plays: the one last listened to.
     @MainActor
     private static func defaultRadioItem() -> SiriNamedMediaItem? {
@@ -966,6 +1088,7 @@ final class PlayMediaIntentHandler: NSObject,
     private static func resolveRadioItems(
         query: String?,
         identifiers: [String],
+        shuffled: Bool = false,
         completion: UncheckedBox<([INPlayMediaMediaItemResolutionResult]) -> Void>
     ) {
         let catalog = radioItems()
@@ -974,15 +1097,15 @@ final class PlayMediaIntentHandler: NSObject,
             // "播放猿音的电台" names no station. Siri wants a default for a
             // request that names nothing, not a follow-up question: the
             // station last listened to, with the other recent ones as
-            // alternatives.
-            let items = radioMediaItems(from: recentRadioItems())
+            // alternatives. "随机播放电台": a random one first instead.
+            let items = radioMediaItems(from: shuffled ? shuffledRadioItems() : recentRadioItems())
             guard !items.isEmpty else {
                 completion.value([
                     INPlayMediaMediaItemResolutionResult.unsupported(forReason: .serviceUnavailable),
                 ])
                 return
             }
-            logSettled("radio-default", tied: false, weak: false, offered: items.count)
+            logSettled(shuffled ? "radio-shuffled" : "radio-default", tied: false, weak: false, offered: items.count)
             completion.value(INPlayMediaMediaItemResolutionResult.successes(with: items))
             return
         }
@@ -1123,8 +1246,9 @@ final class PlayMediaIntentHandler: NSObject,
             break
         }
 
-        if let speed = intent.playbackSpeed, speed.isFinite, speed > 0 {
-            AppServices.shared.playbackSettingsStore.playbackRate = Float(speed)
+        if let speed = intent.playbackSpeed, speed.isFinite, speed > 0,
+           AppServices.shared.playbackSettingsStore.outputMode == .effects {
+            AppServices.shared.playbackSettingsStore.playbackRate = Float(min(max(speed, 0.5), 2.0))
             player.applyPlaybackRate()
         }
     }
