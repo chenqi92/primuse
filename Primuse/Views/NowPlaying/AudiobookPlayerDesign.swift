@@ -71,9 +71,6 @@ struct AudiobookPlayerStyle: Equatable {
         isNocturne ? accent : Color(red: 0.62, green: 0.17, blue: 0.14)
     }
 
-    /// 字标后面那个点,两套一样。
-    static let brandDot = Color(red: 0.91, green: 0.40, blue: 0.29)
-
     /// 给通用有声零件(语速、定时、书签、目录那一排)用的配色。
     var palette: SpokenWordPlayerPalette {
         SpokenWordPlayerPalette(
@@ -90,25 +87,6 @@ struct AudiobookPlayerStyle: Equatable {
 }
 
 // MARK: - Chrome
-
-/// 顶栏正中的字标:「primuse.」,点用品牌色。纯装饰,旁白不念。
-struct AudiobookPlayerWordmark: View {
-    let color: Color
-
-    var body: some View {
-        HStack(spacing: 0) {
-            Text(verbatim: "primuse")
-                .foregroundStyle(color)
-            Text(verbatim: ".")
-                .foregroundStyle(AudiobookPlayerStyle.brandDot)
-        }
-        .font(.system(size: 19, weight: .semibold))
-        .tracking(-0.4)
-        .lineLimit(1)
-        .fixedSize()
-        .accessibilityHidden(true)
-    }
-}
 
 /// 字距放开的小标签:「CHAPTER」「当前章节」「正在收听」。
 struct AudiobookPlayerEyebrow: View {

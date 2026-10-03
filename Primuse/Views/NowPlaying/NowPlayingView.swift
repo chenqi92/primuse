@@ -4571,7 +4571,7 @@ struct NowPlayingView: View {
         .padding(.trailing, insets.containerTrailing)
     }
 
-    /// 收起键 · 字标 · 文字稿 / 投放 / 更多。字标压在整行正中,不随两侧按钮多少偏移。
+    /// 收起键 · 文字稿 / 投放 / 更多。正中留空,书名就在下面,不再重复什么。
     private func audiobookTopBar(style: AudiobookPlayerStyle, usesToolColumn: Bool) -> some View {
         HStack(spacing: 0) {
             if let onMinimize {
@@ -4599,9 +4599,6 @@ struct NowPlayingView: View {
             }
         }
         .frame(height: 44)
-        .overlay {
-            AudiobookPlayerWordmark(color: style.primary)
-        }
     }
 
     /// 正方形的书封。方的原图正好铺满,竖的、横的整张放进来,空出的边用它自己的模糊放大垫上。
@@ -4621,7 +4618,7 @@ struct NowPlayingView: View {
             fillsProposedSize: true,
             revisionToken: player.coverRevision
         )
-        .bookCoverLayout()
+        .bookCoverLayout(frameAspectRatio: 1)
         .artworkCrossfade()
         .clipShape(shape)
         .overlay {

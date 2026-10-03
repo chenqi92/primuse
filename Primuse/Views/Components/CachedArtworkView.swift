@@ -67,6 +67,9 @@ struct CachedArtworkView: View {
     /// 书籍封面位专用，见 `bookCoverLayout(_:)`：不强制方形，整张图等比放进
     /// 调用方给的框，空出的边用同一张图的模糊放大版垫底。
     private var fitsWholeArtwork = false
+    /// 书籍封面位的框是什么比例（宽 ÷ 高）。图本身就是这个比例时，整张图已经铺满框，
+    /// 垫底那层模糊一像素都露不出来，干脆不画。
+    private var wholeArtworkFrameAspectRatio: CGFloat?
 
     @Environment(SourceManager.self) private var sourceManager
     @Environment(MusicLibrary.self) private var library
@@ -482,23 +485,36 @@ struct CachedArtworkView: View {
 
     /// 整张封面等比放进框里，不裁不压。模糊背景用 `Color.clear.overlay` 钉在框内：
     /// 直接把 aspect-fill 的图放进 ZStack 会按图的比例把容器撑大。
+    @ViewBuilder
     private func wholeArtwork(_ image: PlatformImage) -> some View {
-        ZStack {
-            Color.clear
-                .overlay {
-                    Image(platformImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                }
-                .clipped()
-                .blur(radius: max(6, (size ?? 120) * 0.08), opaque: true)
-                .overlay(Color.black.opacity(0.16))
+        if SpokenWordCoverLayout.artworkFillsFrame(
+            imageSize: image.size,
+            frameAspectRatio: wholeArtworkFrameAspectRatio
+        ) {
             Image(platformImage: image)
                 .resizable()
-                .aspectRatio(contentMode: .fit)
-                .shadow(color: .black.opacity(0.22), radius: 3, y: 1)
+                .aspectRatio(contentMode: .fill)
+        } else {
+            ZStack {
+                Color.clear
+                    .overlay {
+                        Image(platformImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    }
+                    .clipped()
+                    .blur(radius: max(6, (size ?? 120) * 0.08), opaque: true)
+                    .overlay(Color.black.opacity(0.16))
+                    // 模糊先离屏画成一张图。直接挂滤镜的话，播放页整页滑入滑出、列表滚动时
+                    // 每一帧都要把它重算一遍，大半径的模糊就是有声书页进出场掉帧的来源。
+                    .drawingGroup()
+                Image(platformImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .shadow(color: .black.opacity(0.22), radius: 3, y: 1)
+            }
+            .clipped()
         }
-        .clipped()
     }
 
     private func appleMusicArtworkView(_ artwork: MusicKit.Artwork) -> some View {
@@ -2076,9 +2092,12 @@ extension CachedArtworkView {
 
     /// 书籍封面位：外层给定竖长的框（`fillsProposedSize` 一并打开），封面按原比例
     /// 整张显示，不再强制方形，也不填满裁切。动态封面在这里只取静态帧。
-    func bookCoverLayout(_ enabled: Bool = true) -> CachedArtworkView {
+    /// - Parameter frameAspectRatio: 框的宽 ÷ 高。给了的话，图本身就是这个比例时直接铺满，
+    ///   不垫模糊底。
+    func bookCoverLayout(_ enabled: Bool = true, frameAspectRatio: CGFloat? = nil) -> CachedArtworkView {
         var copy = self
         copy.fitsWholeArtwork = enabled
+        copy.wholeArtworkFrameAspectRatio = frameAspectRatio
         return copy
     }
 }

@@ -21,4 +21,19 @@ public enum SpokenWordCoverLayout {
         guard height.isFinite, height > 0 else { return 0 }
         return (height * aspectRatio).rounded()
     }
+
+    /// How far an image's shape may stray from its frame's and still count
+    /// as filling it.
+    public static let fillTolerance: CGFloat = 0.03
+
+    /// Whether art of `imageSize` already fills a frame of `frameAspectRatio`
+    /// (width ÷ height), so it can be drawn filling the frame — losing a
+    /// pixel or two — instead of fitted over a blurred enlargement of itself
+    /// that would not show anywhere.
+    public static func artworkFillsFrame(imageSize: CGSize, frameAspectRatio: CGFloat?) -> Bool {
+        guard let frameAspectRatio, frameAspectRatio.isFinite, frameAspectRatio > 0,
+              imageSize.width > 0, imageSize.height > 0 else { return false }
+        let imageAspectRatio = imageSize.width / imageSize.height
+        return abs(imageAspectRatio / frameAspectRatio - 1) <= fillTolerance
+    }
 }

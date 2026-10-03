@@ -947,7 +947,7 @@ struct SpokenWordBookCover: View {
                     placeholderIcon: "book.closed",
                     fillsProposedSize: true
                 )
-                .bookCoverLayout()
+                .bookCoverLayout(frameAspectRatio: SpokenWordCoverLayout.aspectRatio)
             }
             .clipShape(shape)
             .overlay {
