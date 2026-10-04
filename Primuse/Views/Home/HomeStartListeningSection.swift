@@ -355,11 +355,18 @@ struct StartListeningShelf: View {
                     .redacted(reason: .placeholder)
             }
             switch arrangement {
-            case .grid:
+            case .grid(let limit):
+                // 列数、行数与收起时的真网格一致(手机默认三行两列),换上真卡片时下面的区块不被顶开;
+                // 宽度在占位上就量,iPad 不会先排两列再跳成四列。
+                let columns = ListeningIntentShelfPolicy.gridColumns(
+                    width: Double(gridWidth > 0 ? gridWidth : Self.lastGridWidth),
+                    spacing: Double(Self.gridSpacing)
+                )
+                let rows = (max(1, limit) + columns - 1) / columns
                 VStack(spacing: Self.gridSpacing) {
-                    ForEach(0..<2, id: \.self) { _ in
+                    ForEach(0..<rows, id: \.self) { _ in
                         HStack(spacing: Self.gridSpacing) {
-                            ForEach(0..<2, id: \.self) { _ in
+                            ForEach(0..<columns, id: \.self) { _ in
                                 RoundedRectangle(cornerRadius: ListeningIntentTile.cornerRadius, style: .continuous)
                                     .fill(ListeningIntentCard.neutralSurface)
                                     .frame(maxWidth: .infinity)
@@ -368,17 +375,33 @@ struct StartListeningShelf: View {
                         }
                     }
                 }
-                .padding(.horizontal, horizontalInset)
-            case .carousel:
-                HStack(spacing: 10) {
-                    ForEach(0..<4, id: \.self) { _ in
-                        RoundedRectangle(cornerRadius: ListeningIntentCard.cornerRadius, style: .continuous)
-                            .fill(ListeningIntentCard.neutralSurface)
-                            .frame(width: ListeningIntentCard.size.width, height: ListeningIntentCard.size.height)
-                    }
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+                    Self.lastGridWidth = width
+                    if abs(width - gridWidth) > 0.5 { gridWidth = width }
                 }
                 .padding(.horizontal, horizontalInset)
-                .padding(.vertical, 2)
+            case .carousel(let rows, _):
+                // 和真卡片一样放进横向滚动区:几张定宽卡片直接排在 HStack 里会比手机屏幕宽,
+                // 冷启动时把整页撑宽、左右一起被裁。行数也照真卡片,换上来时高度不跳。
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHGrid(
+                        rows: Array(
+                            repeating: GridItem(.fixed(ListeningIntentCard.size.height), spacing: 10),
+                            count: max(1, rows)
+                        ),
+                        spacing: 10
+                    ) {
+                        ForEach(0..<(4 * max(1, rows)), id: \.self) { _ in
+                            RoundedRectangle(cornerRadius: ListeningIntentCard.cornerRadius, style: .continuous)
+                                .fill(ListeningIntentCard.neutralSurface)
+                                .frame(width: ListeningIntentCard.size.width, height: ListeningIntentCard.size.height)
+                        }
+                    }
+                    .padding(.horizontal, horizontalInset)
+                    .padding(.vertical, 2)
+                }
+                .scrollDisabled(true)
+                .scrollClipDisabled(horizontalInset == 0)
             }
         }
         .accessibilityHidden(true)
