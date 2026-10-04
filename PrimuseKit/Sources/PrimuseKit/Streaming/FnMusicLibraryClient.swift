@@ -74,7 +74,7 @@ public struct FnMusicLibraryClient: Sendable {
                         continue
                     }
                     trackIDs[summary.id] = ids
-                    log("stage=detail result=complete \(context) received=\(ids.count)")
+                    log("stage=detail result=complete \(context) received=\(ids.count) id_shape=\(Self.identifierShape(ids.first))")
                     await onPlaylist?(FnMusicPlaylist(
                         id: summary.id, name: summary.name,
                         coverReference: summary.coverReference, trackIDs: ids
@@ -120,7 +120,7 @@ public struct FnMusicLibraryClient: Sendable {
         log("stage=fetch result=started")
         do {
             let tracks: [Track] = try await pages(path: "/favorite-track/list", diagnosticLogger: log, parse: Track.init)
-            log("stage=fetch result=complete received=\(tracks.count)")
+            log("stage=fetch result=complete received=\(tracks.count) id_shape=\(Self.identifierShape(tracks.first?.id))")
             return tracks.map(\.id)
         } catch {
             let result = OperationCancellationPolicy.isCancellation(error) ? "cancelled" : "failed"
@@ -264,7 +264,7 @@ public struct FnMusicLibraryClient: Sendable {
                 do {
                     item = try parse(json)
                 } catch {
-                    diagnosticLogger?("page=\(page) result=invalid-item row=\(row + 1) guid=\(Self.fieldState(json["guid"], identifier: true)) trackGUID=\(Self.fieldState(json["trackGUID"], identifier: true)) id=\(Self.fieldState(json["id"], identifier: true)) access=\(Self.accessState(json["accessStatus"]))")
+                    diagnosticLogger?("page=\(page) result=invalid-item row=\(row + 1) guid=\(Self.fieldState(json["guid"])) trackGUID=\(Self.fieldState(json["trackGUID"])) id=\(Self.fieldState(json["id"])) access=\(Self.accessState(json["accessStatus"]))")
                     throw error
                 }
                 guard allowsDuplicates || seen.insert(item.id).inserted else {
@@ -321,6 +321,25 @@ public struct FnMusicLibraryClient: Sendable {
         return "other"
     }
 
+    /// 只描述 id 的形状、不带内容（`hex32`、`len=40 chars=alnum,slash`），
+    /// 歌单读出来却对不上曲库时，靠它认出服务端是不是换了 id 格式。
+    private static func identifierShape(_ id: String?) -> String {
+        guard let id, !id.isEmpty else { return "none" }
+        let scalars = id.unicodeScalars
+        if scalars.allSatisfy({ $0.properties.isASCIIHexDigit }) { return "hex\(scalars.count)" }
+        let classes: [(String, (Unicode.Scalar) -> Bool)] = [
+            ("alnum", { $0.isASCII && ($0.properties.isAlphabetic || $0.properties.isASCIIHexDigit) }),
+            ("dash", { $0 == "-" || $0 == "_" }),
+            ("dot", { $0 == "." || $0 == ":" }),
+            ("slash", { $0 == "/" || $0 == "\\" }),
+            ("space", { $0.properties.isWhitespace }),
+            ("control", { CharacterSet.controlCharacters.contains($0) }),
+        ]
+        var present = classes.filter { scalars.contains(where: $0.1) }.map(\.0)
+        if scalars.contains(where: { scalar in !classes.contains { $0.1(scalar) } }) { present.append("other") }
+        return "len=\(scalars.count) chars=\(present.joined(separator: ","))"
+    }
+
     private static func accessState(_ value: Any?) -> String {
         switch integer(value) {
         case 0: return "available"
@@ -354,12 +373,13 @@ public struct FnMusicLibraryClient: Sendable {
         return page
     }
 
+    /// 曲目 id 只拿去对本地曲库、不拼路径，取法要和曲库扫描（`FnMusicCatalogTrack`）一致：
+    /// 去首尾空白、非空就收。原先另套文件名规则，飞牛 1.0.10 上曲库照收的 guid 到了歌单明细、
+    /// 收藏里被判无效，一首不过整份歌单作废，歌单和收藏一个都同步不下来。
     private struct Track: FnMusicLibraryItem {
         let id: String
         init(_ json: [String: Any]) throws {
-            guard let id = ["guid", "trackGUID", "id"].lazy.compactMap({
-                FnMusicLibraryClient.identifier(json[$0])
-            }).first else {
+            guard let id = fnMusicFirstNonemptyString(json, keys: ["guid", "trackGUID", "id"]) else {
                 throw FnMusicLibraryClient.invalidResponse("track without a usable guid")
             }
             self.id = id

@@ -756,7 +756,8 @@ private func fnMusicNonemptyString(_ value: Any?) -> String? {
     return value
 }
 
-private func fnMusicFirstNonemptyString(
+/// 歌单明细、收藏读曲目 guid 也走这里：曲库收下的 id，那边必须原样认得出。
+func fnMusicFirstNonemptyString(
     _ dictionary: [String: Any]?,
     keys: [String]
 ) -> String? {

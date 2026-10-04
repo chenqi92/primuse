@@ -330,6 +330,39 @@ struct FnMusicLibraryTests {
         #expect(try await client.library.favorites() == ["s0", "s1", "s2"])
     }
 
+    @Test func trackIdentifiersFollowTheCatalogInsteadOfFilenameRules() async throws {
+        let rows: [[String: Any]] = [" s0 ", "private-test/1", "s\u{200B}2", ".", "s4\n"].map {
+            ["guid": $0, "accessStatus": 0]
+        }
+        let catalogIDs = try rows.map { try #require(FnMusicCatalogTrack(json: $0)).guid }
+        let fixture = FnMusicLibraryFixture()
+        fixture.setPage("/playlist/list", page: 1, list: [["guid": "p", "name": "List"]], total: 1)
+        fixture.setPage("/track/playlist-detail/list", playlist: "p", page: 1, list: rows, total: rows.count)
+        fixture.setPage("/favorite-track/list", page: 1, list: rows, total: rows.count)
+        let (client, _, _) = fixture.clients()
+        let diagnostics = PlaylistDiagnostics()
+        let snapshot = try await client.library.playlists(diagnosticLogger: { diagnostics.append($0) })
+        #expect(snapshot.failedPlaylistIDs.isEmpty)
+        #expect(snapshot.playlists.first?.trackIDs == catalogIDs)
+        #expect(try await client.library.favorites(diagnosticLogger: { diagnostics.append($0) }) == catalogIDs)
+        #expect(diagnostics.messages.filter { $0.contains("result=complete") && $0.contains("id_shape=len=2 chars=alnum") }.count == 2)
+    }
+
+    @Test func identifierShapeDiagnosticsDescribeFormatWithoutContent() async throws {
+        let fixture = FnMusicLibraryFixture()
+        fixture.setPage("/playlist/list", page: 1, list: [["guid": "hex", "name": "A"], ["guid": "slash", "name": "B"]], total: 2)
+        fixture.setPage("/track/playlist-detail/list", playlist: "hex", page: 1,
+                        list: [["guid": "0123456789abcdef0123456789ABCDEF"]], total: 1)
+        fixture.setPage("/track/playlist-detail/list", playlist: "slash", page: 1,
+                        list: [["guid": "private-test/song:1 x"]], total: 1)
+        let (client, _, _) = fixture.clients()
+        let diagnostics = PlaylistDiagnostics()
+        _ = try await client.library.playlists(diagnosticLogger: { diagnostics.append($0) })
+        #expect(diagnostics.messages.contains { $0.hasSuffix("received=1 id_shape=hex32") })
+        #expect(diagnostics.messages.contains { $0.hasSuffix("received=1 id_shape=len=21 chars=alnum,dash,dot,slash,space") })
+        #expect(diagnostics.messages.allSatisfy { !$0.contains("private-test") })
+    }
+
     @Test func unavailableFavoriteWithoutIdentityFailsClosedAndLogsOnlyFieldStates() async {
         let fixture = FnMusicLibraryFixture()
         fixture.setPage("/favorite-track/list", page: 1, list: [
