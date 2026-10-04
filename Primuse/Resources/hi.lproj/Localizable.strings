@@ -5516,3 +5516,4 @@
 "playlist_remove_offline_turns_off_always" = "इस प्लेलिस्ट के लिए \"हमेशा डाउनलोड करें\" भी बंद हो जाएगा।";
 "playlist_remove_offline_kept_format" = "दूसरी प्लेलिस्ट द्वारा ऑफ़लाइन रखे गए %d गाने बने रहेंगे।";
 "playlist_remove_offline_none" = "इस प्लेलिस्ट में कोई ऑफ़लाइन डाउनलोड नहीं है।";
+"settings_info_button" = "अधिक जानकारी";

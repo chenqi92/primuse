@@ -5516,3 +5516,4 @@
 "playlist_remove_offline_turns_off_always" = "จะปิด “ดาวน์โหลดเสมอ” ของเพลย์ลิสต์นี้ด้วย";
 "playlist_remove_offline_kept_format" = "อีก %d เพลงที่เพลย์ลิสต์อื่นเก็บออฟไลน์ไว้จะยังอยู่";
 "playlist_remove_offline_none" = "เพลย์ลิสต์นี้ไม่มีดาวน์โหลดออฟไลน์";
+"settings_info_button" = "ข้อมูลเพิ่มเติม";

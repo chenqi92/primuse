@@ -5516,3 +5516,4 @@
 "playlist_remove_offline_turns_off_always" = "سيتم أيضًا إيقاف «التنزيل دائمًا» لقائمة التشغيل هذه.";
 "playlist_remove_offline_kept_format" = "ستبقى %d من الأغاني التي تحفظها قوائم تشغيل أخرى دون اتصال.";
 "playlist_remove_offline_none" = "لا تحتوي قائمة التشغيل هذه على تنزيلات دون اتصال.";
+"settings_info_button" = "مزيد من المعلومات";

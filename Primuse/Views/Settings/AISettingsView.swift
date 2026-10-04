@@ -1349,11 +1349,15 @@ struct AISettingsView: View {
 
     private var defaultEngineSection: some View {
         Section {
-            LabeledContent("ai_default_engine_label") {
+            LabeledContent {
                 Menu {
                     defaultEngineMenuItems
                 } label: {
                     menuValueLabel(editor.defaultEngineTitle)
+                }
+            } label: {
+                SettingsInfoLabel("ai_default_engine_label") {
+                    Text("ai_default_engine_footer")
                 }
             }
             .settingsAnchor("intelligence.relay")
@@ -1370,11 +1374,9 @@ struct AISettingsView: View {
                     .foregroundStyle(.secondary)
             }
         } footer: {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("ai_default_engine_footer")
-                if editor.defaultEngine == .builtIn {
-                    Text("ai_builtin_service_footer")
-                }
+            // 内置 AI 可能限流、下线或改收费,这段提醒不收进圈问号。
+            if editor.defaultEngine == .builtIn {
+                Text("ai_builtin_service_footer")
             }
         }
     }
@@ -1450,9 +1452,7 @@ struct AISettingsView: View {
                 routeRow(.listeningIntents)
             }
         } header: {
-            Text("ai_capability_section")
-        } footer: {
-            VStack(alignment: .leading, spacing: 6) {
+            SettingsInfoHeader("ai_capability_section") {
                 Text("ai_recommendation_unit_footer")
                 Text("ai_settings_lyrics_translation_footer")
             }
@@ -1474,9 +1474,9 @@ struct AISettingsView: View {
             routeRow(.libraryInsight, title: AIFeature.libraryInsight.localizedTitle)
             routeRow(.listeningMood, title: AIFeature.listeningMood.localizedTitle)
         } header: {
-            Text("ai_features_on_demand_section")
-        } footer: {
-            Text("ai_features_on_demand_footer")
+            SettingsInfoHeader("ai_features_on_demand_section") {
+                Text("ai_features_on_demand_footer")
+            }
         }
     }
 
@@ -1588,12 +1588,10 @@ struct AISettingsView: View {
                 isOn: editor.listeningContextConsentBinding
             )
         } header: {
-            Text("ai_privacy_section")
-                .settingsAnchor("intelligence.privacy")
-        } footer: {
-            if !usesCompactMobileLayout {
+            SettingsInfoHeader("ai_privacy_section") {
                 Text("ai_privacy_footer")
             }
+            .settingsAnchor("intelligence.privacy")
         }
     }
 
@@ -1836,9 +1834,9 @@ struct AISettingsView: View {
                 }
             }
         } header: {
-            Text("ai_service_manage_section")
-        } footer: {
-            Text("ai_fallback_footer")
+            SettingsInfoHeader("ai_service_manage_section") {
+                Text("ai_fallback_footer")
+            }
         }
     }
 
@@ -1893,12 +1891,9 @@ struct AISettingsView: View {
                     .foregroundStyle(.secondary)
             }
         } footer: {
-            if usesCompactMobileLayout {
-                if editor.usesOpenAIPlatformAPI {
-                    Text("ai_openai_platform_billing_footer")
-                }
-            } else {
-                Text(editor.providerFooterText)
+            // 订阅不含 API 用量、要单独计费,这条直接摆出来;发送范围的说明在下面隐私分区的圈问号里。
+            if editor.usesOpenAIPlatformAPI {
+                Text("ai_openai_platform_billing_footer")
             }
         }
     }
@@ -1961,9 +1956,9 @@ struct AISettingsView: View {
 
             statusView(onlyModelStatus: true)
         } header: {
-            Text("ai_models_section")
-        } footer: {
-            Text("ai_models_routing_footer")
+            SettingsInfoHeader("ai_models_section") {
+                Text("ai_models_routing_footer")
+            }
         }
     }
 
@@ -2004,7 +1999,10 @@ struct AISettingsView: View {
                 )
             )
         } header: {
-            Text("ai_privacy_section")
+            SettingsInfoHeader("ai_privacy_section") {
+                Text("ai_provider_footer")
+                Text("ai_key_sync_footer")
+            }
         }
     }
 
@@ -2025,19 +2023,7 @@ struct AISettingsView: View {
             }
 
             statusView(onlyModelStatus: false)
-        } footer: {
-            if !usesCompactMobileLayout {
-                Text("ai_key_sync_footer")
-            }
         }
-    }
-
-    private var usesCompactMobileLayout: Bool {
-        #if os(iOS)
-        true
-        #else
-        false
-        #endif
     }
 
     @ViewBuilder

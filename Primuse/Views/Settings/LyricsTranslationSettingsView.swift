@@ -15,26 +15,30 @@ struct LyricsSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Toggle("lyrics_translation_enabled", isOn: $settings.isEnabled)
+                Toggle(isOn: $settings.isEnabled) {
+                    SettingsInfoLabel("lyrics_translation_enabled") {
+                        Text("lyrics_translation_overall_footer")
+                    }
+                }
                 .settingsAnchor("lyrics.translationEnabled")
-            } footer: {
-                Text("lyrics_translation_overall_footer")
             }
 
             if settings.isEnabled {
                 Section {
-                    Picker("lyrics_translation_mode", selection: displayedMode) {
+                    Picker(selection: displayedMode) {
                         Text("lyrics_translation_mode_system")
                             .tag(LyricsTranslationMode.system)
                         if intelligence.shouldExposeRemoteConfiguration {
                             Text("lyrics_translation_mode_intelligent")
                                 .tag(LyricsTranslationMode.intelligentWithSystemFallback)
                         }
+                    } label: {
+                        SettingsInfoLabel("lyrics_translation_mode") {
+                            Text(displayedMode.wrappedValue == .system
+                                 ? "lyrics_translation_mode_system_footer"
+                                 : "lyrics_translation_mode_intelligent_footer")
+                        }
                     }
-                } footer: {
-                    Text(displayedMode.wrappedValue == .system
-                         ? "lyrics_translation_mode_system_footer"
-                         : "lyrics_translation_mode_intelligent_footer")
                 }
 
                 Section("lyrics_translation_target_language") {
@@ -64,9 +68,9 @@ struct LyricsSettingsView: View {
                         }
                     }
                 } header: {
-                    Text("lyrics_translation_cache_section")
-                } footer: {
-                    Text("lyrics_translation_cache_footer")
+                    SettingsInfoHeader("lyrics_translation_cache_section") {
+                        Text("lyrics_translation_cache_footer")
+                    }
                 }
             }
 
@@ -95,9 +99,9 @@ struct LyricsSettingsView: View {
                     }
                 }
             } header: {
-                Text("lyrics_audio_tools_section")
-            } footer: {
-                Text("lyrics_audio_tools_footer")
+                SettingsInfoHeader("lyrics_audio_tools_section") {
+                    Text("lyrics_audio_tools_footer")
+                }
             }
             .settingsAnchor("lyrics.transcription")
         }
@@ -299,6 +303,7 @@ struct GoogleLyricsTranscriptionSettingsView: View {
                     }
                     .settingsAnchor("lyrics.transcriptionService")
                 } footer: {
+                    // 内置 AI 的次数取决于套餐、音频交给谁识别,这段告知不收进圈问号。
                     if editor.usesBuiltIn {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("lyrics_transcription_builtin_footer")
@@ -368,9 +373,9 @@ struct GoogleLyricsTranscriptionSettingsView: View {
                             }
                         }
                     } header: {
-                        Text("lyrics_transcription_configuration_section")
-                    } footer: {
-                        Text("lyrics_transcription_model_footer")
+                        SettingsInfoHeader("lyrics_transcription_configuration_section") {
+                            Text("lyrics_transcription_model_footer")
+                        }
                     }
                 }
 

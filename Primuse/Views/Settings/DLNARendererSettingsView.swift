@@ -11,7 +11,11 @@ struct DLNARendererSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Toggle(String(localized: "settings_dlna_enable"), isOn: $enabled)
+                Toggle(isOn: $enabled) {
+                    SettingsInfoLabel("settings_dlna_enable") {
+                        Text("settings_dlna_footer")
+                    }
+                }
                 .settingsAnchor("dlna.enabled")
                     .onChange(of: enabled) { _, new in
                         if new { renderer.start() } else { renderer.stop() }
@@ -25,21 +29,19 @@ struct DLNARendererSettingsView: View {
                             .lineLimit(2)
                     }
                 }
-            } footer: {
-                Text(String(localized: "settings_dlna_footer"))
-                    .font(.footnote)
             }
 
             Section {
-                Toggle(String(localized: "settings_dlna_keepalive"), isOn: $keepAlive)
+                Toggle(isOn: $keepAlive) {
+                    SettingsInfoLabel("settings_dlna_keepalive") {
+                        Text("settings_dlna_keepalive_footer")
+                    }
+                }
                 .settingsAnchor("dlna.keepAlive")
                     .disabled(!enabled)
                     .onChange(of: keepAlive) { _, new in
                         renderer.setKeepAliveInBackground(new)
                     }
-            } footer: {
-                Text(String(localized: "settings_dlna_keepalive_footer"))
-                    .font(.footnote)
             }
 
             if renderer.isRunning {

@@ -5703,3 +5703,4 @@
 "playlist_remove_offline_turns_off_always" = "同时会关闭这个歌单的「始终保持离线」。";
 "playlist_remove_offline_kept_format" = "另有 %d 首由其他歌单保持离线，会保留。";
 "playlist_remove_offline_none" = "这个歌单里没有离线下载的歌曲。";
+"settings_info_button" = "说明";

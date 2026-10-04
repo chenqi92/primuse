@@ -87,9 +87,9 @@ struct AppearanceSettingsView: View {
                     Label("minimal_mode_title", systemImage: "rectangle.topthird.inset.filled")
                 }
             } header: {
-                Text("navigation_mode_title")
-            } footer: {
-                Text("minimal_mode_description")
+                SettingsInfoHeader("navigation_mode_title") {
+                    Text("minimal_mode_description")
+                }
             }
             .settingsAnchor("appearance.minimalNavigation")
 

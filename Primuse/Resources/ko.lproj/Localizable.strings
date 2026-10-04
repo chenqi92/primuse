@@ -5610,3 +5610,4 @@
 "playlist_remove_offline_turns_off_always" = "이 재생 목록의 '항상 오프라인으로 유지'도 꺼집니다.";
 "playlist_remove_offline_kept_format" = "다른 재생 목록에서 오프라인으로 유지 중인 %d곡은 남습니다.";
 "playlist_remove_offline_none" = "이 재생 목록에는 오프라인 다운로드가 없습니다.";
+"settings_info_button" = "설명";

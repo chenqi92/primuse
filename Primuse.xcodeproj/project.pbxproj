@@ -1050,6 +1050,7 @@
 		953439D65552DF4F98DADC01 /* LibraryDisplayConfigurationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11F8874E486A4FC4E629861 /* LibraryDisplayConfigurationTests.swift */; };
 		953506057FBB8C8638906545 /* GoogleDriveSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FF18B2B6584B7988608C004 /* GoogleDriveSource.swift */; };
 		953F0A17E59BDE10CD67684E /* SearchExperienceUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B4495EA2FA7EF8F2DBE4290 /* SearchExperienceUITests.swift */; };
+		62B2584CA9507620C091671D /* SettingsInfoButtonUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F45135656FD7942B7A2D152 /* SettingsInfoButtonUITests.swift */; };
 		9592BBC06A894C525901C382 /* KaraokeSeparationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08FFC4385F8728673FC14C44 /* KaraokeSeparationService.swift */; };
 		95A46BF131D560E1897BAE8B /* MediaServerSTRMRedirectTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84E23C9293FD5D2A2D5CB33F /* MediaServerSTRMRedirectTests.swift */; };
 		95C089EDFB01121E3DD6D6A8 /* SpokenWordWidgetPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10921CA6E8EF4E5856C9AF9E /* SpokenWordWidgetPublisher.swift */; };
@@ -1346,6 +1347,7 @@
 		BD0BDF735869A9109E313E0E /* CarPlaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C8D0CD987CACC83D845497B /* CarPlaySceneDelegate.swift */; };
 		BD0D1C7E9179D8C0B8F13FBF /* EQPresets.json in Resources */ = {isa = PBXBuildFile; fileRef = 82BEE71CAE2A1F50A90AB53C /* EQPresets.json */; };
 		BD171C64A3DC7AABAE3144FB /* SettingsSearchComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F9BECB6D861A8EB9E8B4816 /* SettingsSearchComponents.swift */; };
+		CE9ECDF0025F5D821F3C4AB6 /* SettingsInfoButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = D52408759D25DC34AF4B38F2 /* SettingsInfoButton.swift */; };
 		BD43C09F5EE8E43023150698 /* RadioFLACAudioDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BDA4BF8B2BC7C8290D21F46 /* RadioFLACAudioDecoder.swift */; };
 		BD93FE850DB510CE12624C27 /* MenuBarPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CC059C2CB9CE5328D923210 /* MenuBarPlayerView.swift */; };
 		BD977311BC272B1E6739BC96 /* RadioStation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C778F0BDBC9B4352156B5C31 /* RadioStation.swift */; };
@@ -1632,6 +1634,7 @@
 		E8CB010A3953279CA9A1C9BD /* SubsonicSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6821FC1BF97641265A739D6F /* SubsonicSource.swift */; };
 		E8F79A1D17901745289271D1 /* TVPodcastsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 183428AA38423D63C046545B /* TVPodcastsView.swift */; };
 		E92A2FE9955437F2B057C4F4 /* SettingsSearchComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F9BECB6D861A8EB9E8B4816 /* SettingsSearchComponents.swift */; };
+		E88751780F0B271AB0A5EB75 /* SettingsInfoButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = D52408759D25DC34AF4B38F2 /* SettingsInfoButton.swift */; };
 		E9DA9BF865A83BB49A173446 /* PodcastFeedParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C5E2C918D2E802937A7EE8 /* PodcastFeedParser.swift */; };
 		EA237C94D49D7420947E8446 /* M4ATagWritebackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62DEF619469BFB99247669CD /* M4ATagWritebackTests.swift */; };
 		EA28DFE79AF807B40A5B91B4 /* CredentialBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2536FC64E50FD6E0FAE8B75B /* CredentialBundle.swift */; };
@@ -2139,6 +2142,7 @@
 		0F8FB229B285DCA5BF46F542 /* MusicLibrarySourceRemovalFenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicLibrarySourceRemovalFenceTests.swift; sourceTree = "<group>"; };
 		0F99AA6FC13E79A7AE9255BE /* SongRowColumnsPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongRowColumnsPolicy.swift; sourceTree = "<group>"; };
 		0F9BECB6D861A8EB9E8B4816 /* SettingsSearchComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSearchComponents.swift; sourceTree = "<group>"; };
+		D52408759D25DC34AF4B38F2 /* SettingsInfoButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsInfoButton.swift; sourceTree = "<group>"; };
 		0FD4E0DFCC3418ECC05E35E3 /* SettingsCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsCatalog.swift; sourceTree = "<group>"; };
 		10101623A825B5DA960255C3 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		10921CA6E8EF4E5856C9AF9E /* SpokenWordWidgetPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenWordWidgetPublisher.swift; sourceTree = "<group>"; };
@@ -2801,6 +2805,7 @@
 		8B11045F68E8DA6DE3DCBB4A /* LibraryDetailTintPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryDetailTintPolicy.swift; sourceTree = "<group>"; };
 		8B306CA2E70BA21B75018DA1 /* ar */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ar; path = ar.lproj/HomeDiscovery.strings; sourceTree = "<group>"; };
 		8B4495EA2FA7EF8F2DBE4290 /* SearchExperienceUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchExperienceUITests.swift; sourceTree = "<group>"; };
+		0F45135656FD7942B7A2D152 /* SettingsInfoButtonUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsInfoButtonUITests.swift; sourceTree = "<group>"; };
 		8BE8990000EEE4B1133209E1 /* PMVerticalBarChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PMVerticalBarChrome.swift; sourceTree = "<group>"; };
 		8C0CE835B0917CEB6C1D80E4 /* RadioImportParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioImportParser.swift; sourceTree = "<group>"; };
 		8C63C384948C23C9211655CF /* SourceChangeScanInvalidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceChangeScanInvalidationTests.swift; sourceTree = "<group>"; };
@@ -4107,6 +4112,7 @@
 			children = (
 				CC751DB281538ACD1BD13986 /* CarPlayEditorUITests.swift */,
 				8B4495EA2FA7EF8F2DBE4290 /* SearchExperienceUITests.swift */,
+				0F45135656FD7942B7A2D152 /* SettingsInfoButtonUITests.swift */,
 			);
 			path = CarPlayEditorUITests;
 			sourceTree = "<group>";
@@ -5180,6 +5186,7 @@
 				4FC226D745AC023E7E54BF0F /* ScrobbleSettingsView.swift */,
 				5D2BEDD6EA9A0207E8C8559A /* ServerListeningStatsView.swift */,
 				0F9BECB6D861A8EB9E8B4816 /* SettingsSearchComponents.swift */,
+				D52408759D25DC34AF4B38F2 /* SettingsInfoButton.swift */,
 				E05FB8ABE512AF46E3B6BF38 /* SettingsShortcutsHelpView.swift */,
 				5E8868307C8B45B391847C2B /* SettingsView.swift */,
 				E4594D0319561A60EC0EE970 /* OfflineDownloadsView.swift */,
@@ -5899,6 +5906,7 @@
 			files = (
 				DE548F712D4D5F4D04A332BD /* CarPlayEditorUITests.swift in Sources */,
 				953F0A17E59BDE10CD67684E /* SearchExperienceUITests.swift in Sources */,
+				62B2584CA9507620C091671D /* SettingsInfoButtonUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6759,6 +6767,7 @@
 				CA3110CF3684D19D182462A1 /* SettingsCatalog.swift in Sources */,
 				BAB329B295BBA063310D3056 /* SettingsCatalogData.swift in Sources */,
 				BD171C64A3DC7AABAE3144FB /* SettingsSearchComponents.swift in Sources */,
+				CE9ECDF0025F5D821F3C4AB6 /* SettingsInfoButton.swift in Sources */,
 				360222EF64603752EA8A1977 /* SettingsShortcutsHelpView.swift in Sources */,
 				A16CCCDDB616A31F67877A67 /* SettingsView.swift in Sources */,
 				33734DFA72E0A1C067D831D8 /* OfflineDownloadsView.swift in Sources */,
@@ -7450,6 +7459,7 @@
 				B698A5CCF045A11C1A5B9DC7 /* SettingsCatalog.swift in Sources */,
 				8485F49F2EE6DF52BCFFD372 /* SettingsCatalogData.swift in Sources */,
 				E92A2FE9955437F2B057C4F4 /* SettingsSearchComponents.swift in Sources */,
+				E88751780F0B271AB0A5EB75 /* SettingsInfoButton.swift in Sources */,
 				4940361B60A0D96918705C0B /* SettingsShortcutsHelpView.swift in Sources */,
 				C87A6A4DE1FD7B3D1C4CA8CB /* SettingsView.swift in Sources */,
 				EE9A799CC9E6530B1B3D1792 /* OfflineDownloadsView.swift in Sources */,

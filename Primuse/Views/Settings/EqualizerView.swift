@@ -145,9 +145,9 @@ struct EqualizerView: View {
             Section {
                 EQDeviceBindingList(eq: eq)
             } header: {
-                Text("eq_device_section_title")
-            } footer: {
-                Text("eq_device_section_hint")
+                SettingsInfoHeader("eq_device_section_title") {
+                    Text("eq_device_section_hint")
+                }
             }
             .settingsAnchor("equalizer.devices")
         }
@@ -195,12 +195,13 @@ struct EqualizerView: View {
                 .settingsAnchor("equalizer.preset")
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("eq_device_section_title")
-                        .font(.headline)
-                    Text("eq_device_section_hint")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 6) {
+                        Text("eq_device_section_title")
+                            .font(.headline)
+                        SettingsInfoButton {
+                            Text("eq_device_section_hint")
+                        }
+                    }
                     EQDeviceBindingList(eq: eq)
                         .padding(.horizontal, 12)
                         .background(

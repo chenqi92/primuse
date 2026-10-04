@@ -5370,3 +5370,4 @@
 "playlist_remove_offline_turns_off_always" = "Always Download will also be turned off for this playlist.";
 "playlist_remove_offline_kept_format" = "%d songs kept offline by other playlists will stay.";
 "playlist_remove_offline_none" = "This playlist has no offline downloads.";
+"settings_info_button" = "More Info";

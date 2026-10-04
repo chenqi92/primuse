@@ -570,10 +570,11 @@ private struct PlayerAppearanceSettingsView: View {
             }
 
             Section {
-                Toggle(
-                    "motion_artwork_service_enabled",
-                    isOn: $motionArtworkServiceEnabled
-                )
+                Toggle(isOn: $motionArtworkServiceEnabled) {
+                    SettingsInfoLabel("motion_artwork_service_enabled") {
+                        Text("motion_artwork_service_description")
+                    }
+                }
                 .settingsAnchor("appearance.motionArtworkService")
                 TextField(
                     "motion_artwork_service_endpoint",
@@ -584,8 +585,6 @@ private struct PlayerAppearanceSettingsView: View {
                 .autocorrectionDisabled()
                 .keyboardType(.URL)
                 .disabled(!motionArtworkServiceEnabled)
-            } footer: {
-                Text("motion_artwork_service_description")
             }
 
             Section {
@@ -594,17 +593,27 @@ private struct PlayerAppearanceSettingsView: View {
                     .accessibilityHint(Text("player_volume_bar_description"))
             }
             Section {
-                Picker("player_audio_info_title", selection: audioInfoModeBinding) {
+                Picker(selection: audioInfoModeBinding) {
                     ForEach(NowPlayingAudioInfoMode.allCases, id: \.self) { mode in
                         Text(LocalizedStringKey(mode.titleKey)).tag(mode)
                     }
+                } label: {
+                    SettingsInfoLabel("player_audio_info_title") {
+                        Text("player_audio_info_footer")
+                    }
                 }
                 .settingsAnchor("appearance.audioInfo")
-            } footer: {
-                Text("player_audio_info_footer")
             }
             Section {
-                Toggle("player_keep_screen_awake_title", isOn: $keepsScreenAwake)
+                Toggle(isOn: $keepsScreenAwake) {
+                    SettingsInfoLabel("player_keep_screen_awake_title") {
+                        Text(
+                            keepsScreenAwake && screenWakeRequiresCharging
+                                ? "player_keep_screen_awake_charging_only_subtitle"
+                                : "player_keep_screen_awake_subtitle"
+                        )
+                    }
+                }
                 .settingsAnchor("player.keepScreenAwake")
                 .accessibilityIdentifier("playerKeepScreenAwakeToggle")
                 if keepsScreenAwake {
@@ -615,12 +624,6 @@ private struct PlayerAppearanceSettingsView: View {
                     .settingsAnchor("player.keepScreenAwakeChargingOnly")
                     .accessibilityIdentifier("playerKeepScreenAwakeChargingOnlyToggle")
                 }
-            } footer: {
-                Text(
-                    keepsScreenAwake && screenWakeRequiresCharging
-                        ? "player_keep_screen_awake_charging_only_subtitle"
-                        : "player_keep_screen_awake_subtitle"
-                )
             }
             Section {
                 NavigationLink {
@@ -733,10 +736,12 @@ private struct LibraryDisplaySettingsView: View {
     var body: some View {
         Form {
             Section {
-                Toggle("library_review_feature_title", isOn: $ratingsAndCommentsEnabled)
-                    .settingsAnchor("library.ratingsAndComments")
-            } footer: {
-                Text("library_review_feature_description")
+                Toggle(isOn: $ratingsAndCommentsEnabled) {
+                    SettingsInfoLabel("library_review_feature_title") {
+                        Text("library_review_feature_description")
+                    }
+                }
+                .settingsAnchor("library.ratingsAndComments")
             }
 
             Section {
@@ -749,9 +754,9 @@ private struct LibraryDisplaySettingsView: View {
                 .settingsAnchor("library.quickAccessCoverStyle")
                 .accessibilityHint(Text("library_quick_access_cover_description"))
             } header: {
-                Text("library_quick_access")
-            } footer: {
-                Text("library_quick_access_cover_description")
+                SettingsInfoHeader("library_quick_access") {
+                    Text("library_quick_access_cover_description")
+                }
             }
 
             Section {
@@ -870,9 +875,9 @@ private struct LibraryDisplaySettingsView: View {
                         >= AIRecommendationIntentStoragePolicy.maximumCustomIntents
                 )
             } header: {
-                Text("ai_recommendation_intents_settings_title")
-            } footer: {
-                Text("ai_recommendation_intents_settings_footer")
+                SettingsInfoHeader("ai_recommendation_intents_settings_title") {
+                    Text("ai_recommendation_intents_settings_footer")
+                }
             }
             .settingsAnchor("library.recommendationDirections")
 
@@ -884,10 +889,12 @@ private struct LibraryDisplaySettingsView: View {
 
             #if os(iOS)
             Section {
-                Toggle("listening_intent_minimal_songs_toggle", isOn: $showsMinimalStartListening)
-                    .settingsAnchor("library.minimalStartListening")
-            } footer: {
-                Text("listening_intent_minimal_songs_footer")
+                Toggle(isOn: $showsMinimalStartListening) {
+                    SettingsInfoLabel("listening_intent_minimal_songs_toggle") {
+                        Text("listening_intent_minimal_songs_footer")
+                    }
+                }
+                .settingsAnchor("library.minimalStartListening")
             }
             #endif
         }
@@ -1303,7 +1310,11 @@ struct MetadataScrapingView: View {
                 Toggle("only_fill_missing", isOn: $settings.onlyFillMissingFields)
                 .settingsAnchor("scraping.onlyMissing")
 
-                Toggle("auto_online_lyrics", isOn: $settings.autoFetchOnlineLyrics)
+                Toggle(isOn: $settings.autoFetchOnlineLyrics) {
+                    SettingsInfoLabel("auto_online_lyrics") {
+                        Text("auto_online_lyrics_footer")
+                    }
+                }
                 .settingsAnchor("scraping.autoOnlineLyrics")
 
                 Button("reset_scraper_defaults") {
@@ -1313,8 +1324,6 @@ struct MetadataScrapingView: View {
                 .foregroundStyle(.red)
             } header: {
                 Text("scraper_options")
-            } footer: {
-                Text("auto_online_lyrics_footer")
             }
 
             Section {
@@ -1325,9 +1334,9 @@ struct MetadataScrapingView: View {
                 }
                 .settingsAnchor("scraping.embedLyrics")
             } header: {
-                Text("lyrics_embed_copy_header")
-            } footer: {
-                Text("lyrics_embed_copy_footer")
+                SettingsInfoHeader("lyrics_embed_copy_header") {
+                    Text("lyrics_embed_copy_footer")
+                }
             }
 
             Section {
@@ -1338,9 +1347,9 @@ struct MetadataScrapingView: View {
                 }
                 .settingsAnchor("scraping.embedCover")
             } header: {
-                Text("cover_embed_copy_header")
-            } footer: {
-                Text("cover_embed_copy_footer")
+                SettingsInfoHeader("cover_embed_copy_header") {
+                    Text("cover_embed_copy_footer")
+                }
             }
 
             Section {
@@ -1349,9 +1358,9 @@ struct MetadataScrapingView: View {
                 Toggle("library_insight_writeback_comment", isOn: insightCommentSelection)
                     .settingsAnchor("scraping.insightComment")
             } header: {
-                Text("library_insight_writeback_section")
-            } footer: {
-                Text("library_insight_writeback_footer")
+                SettingsInfoHeader("library_insight_writeback_section") {
+                    Text("library_insight_writeback_footer")
+                }
             }
 
             Section {
@@ -1393,20 +1402,24 @@ struct MetadataScrapingView: View {
                     .pmAppearFade(.control)
                 }
             } header: {
-                Text("scrape_actions")
-            } footer: {
-                Text("scrape_description")
+                SettingsInfoHeader("scrape_actions") {
+                    Text("scrape_description")
+                }
             }
 
             Section {
-                Button {
-                    libraryTidySongs = .wholeLibraryForTidy(library)
-                } label: {
-                    Label("tag_tidy_library_action", systemImage: "wand.and.sparkles")
+                HStack(spacing: 6) {
+                    Button {
+                        libraryTidySongs = .wholeLibraryForTidy(library)
+                    } label: {
+                        Label("tag_tidy_library_action", systemImage: "wand.and.sparkles")
+                    }
+                    SettingsInfoButton {
+                        Text("tag_tidy_library_footer")
+                    }
+                    Spacer(minLength: 0)
                 }
                 .settingsAnchor("scraping.tidyLibrary")
-            } footer: {
-                Text("tag_tidy_library_footer")
             }
         }
         .sheet(item: $libraryTidySongs) { batch in
@@ -1913,13 +1926,13 @@ struct PlaybackSettingsView: View {
                 }
                 .settingsAnchor("playback.dsdMode")
             } header: {
-                Text("audio_output_section")
-            } footer: {
-                if settings.outputMode == .highFidelity {
-                    Text(verbatim: AudioOutputMode.highFidelityExplanation)
-                } else {
-                    Text(verbatim: String(localized: "output_mode_effects_desc")
-                         + "\n\n" + String(localized: "output_sr_matching_desc"))
+                SettingsInfoHeader("audio_output_section") {
+                    if settings.outputMode == .highFidelity {
+                        Text(verbatim: AudioOutputMode.highFidelityExplanation)
+                    } else {
+                        Text("output_mode_effects_desc")
+                        Text("output_sr_matching_desc")
+                    }
                 }
             }
 
@@ -1938,16 +1951,18 @@ struct PlaybackSettingsView: View {
                 }
                 .settingsAnchor("playback.cellularStreamQuality")
             } header: {
-                Text("streaming_quality_section")
-            } footer: {
-                Text("streaming_quality_desc")
+                SettingsInfoHeader("streaming_quality_section") {
+                    Text("streaming_quality_desc")
+                }
             }
 
             Section {
-                Toggle("auto_continue_similar", isOn: $settings.autoContinueSimilarEnabled)
-                    .settingsAnchor("playback.autoContinueSimilar")
-            } footer: {
-                Text("auto_continue_similar_footer")
+                Toggle(isOn: $settings.autoContinueSimilarEnabled) {
+                    SettingsInfoLabel("auto_continue_similar") {
+                        Text("auto_continue_similar_footer")
+                    }
+                }
+                .settingsAnchor("playback.autoContinueSimilar")
             }
 
             Section {
@@ -1960,17 +1975,21 @@ struct PlaybackSettingsView: View {
 
                 // 只有音效模式会在同一张专辑里先重采样保持连续；高保真直通总是切换。
                 if showsSampleRateWithinAlbumOption {
-                    Toggle("output_sr_matching_within_album", isOn: $settings.matchSampleRateWithinAlbum)
-                        .settingsAnchor("playback.matchSampleRateWithinAlbum")
-                }
-            } footer: {
-                if showsSampleRateWithinAlbumOption {
-                    Text("output_sr_matching_within_album_footer")
+                    Toggle(isOn: $settings.matchSampleRateWithinAlbum) {
+                        SettingsInfoLabel("output_sr_matching_within_album") {
+                            Text("output_sr_matching_within_album_footer")
+                        }
+                    }
+                    .settingsAnchor("playback.matchSampleRateWithinAlbum")
                 }
             }
 
             Section {
-                Toggle("crossfade", isOn: $settings.crossfadeEnabled.pmAnimated())
+                Toggle(isOn: $settings.crossfadeEnabled.pmAnimated()) {
+                    SettingsInfoLabel("crossfade") {
+                        Text("crossfade_footer")
+                    }
+                }
                 .settingsAnchor("playback.crossfade")
                     .onChange(of: settings.crossfadeEnabled) { _, enabled in
                         if enabled { settings.gaplessEnabled = false }
@@ -2004,18 +2023,18 @@ struct PlaybackSettingsView: View {
                     }
                     .pmFadeTransition()
                 }
-            } footer: {
-                Text("crossfade_footer")
             }
             .disabled(settings.outputMode == .highFidelity)
 
             Section {
-                Toggle("skip_leading_silence", isOn: $settings.skipLeadingSilenceEnabled)
+                Toggle(isOn: $settings.skipLeadingSilenceEnabled) {
+                    SettingsInfoLabel("skip_leading_silence") {
+                        Text("silence_skipping_desc")
+                    }
+                }
                 .settingsAnchor("playback.skipLeadingSilence")
                 Toggle("skip_trailing_silence", isOn: $settings.skipTrailingSilenceEnabled)
                 .settingsAnchor("playback.skipTrailingSilence")
-            } footer: {
-                Text("silence_skipping_desc")
             }
             .disabled(settings.outputMode == .highFidelity)
 
@@ -2103,9 +2122,9 @@ struct PlaybackSettingsView: View {
                     }
                 }
             } header: {
-                Text("spoken_word_settings_section")
-            } footer: {
-                Text("spoken_word_settings_footer")
+                SettingsInfoHeader("spoken_word_settings_section") {
+                    Text("spoken_word_settings_footer")
+                }
             }
 
             Section {
@@ -2120,19 +2139,21 @@ struct PlaybackSettingsView: View {
                     set: { medleyDataPromptDisabled = !$0 }
                 ))
             } header: {
-                Text("medley_title")
-            } footer: {
-                Text("medley_settings_footer")
+                SettingsInfoHeader("medley_title") {
+                    Text("medley_settings_footer")
+                }
             }
 
             SmartNudgeSettingsSection()
 
             #if os(iOS)
             Section {
-                Toggle("lock_screen_lyrics", isOn: $settings.lockScreenLyricsEnabled)
-                    .settingsAnchor("lyrics.lockScreen")
-            } footer: {
-                Text("lock_screen_lyrics_desc")
+                Toggle(isOn: $settings.lockScreenLyricsEnabled) {
+                    SettingsInfoLabel("lock_screen_lyrics") {
+                        Text("lock_screen_lyrics_desc")
+                    }
+                }
+                .settingsAnchor("lyrics.lockScreen")
             }
             #endif
         }
@@ -2249,7 +2270,11 @@ struct RelaySettingsView: View {
             }
 
             Section {
-                Toggle(String(localized: "settings_relay_enable"), isOn: $enabled)
+                Toggle(isOn: $enabled) {
+                    SettingsInfoLabel("settings_relay_enable") {
+                        Text("settings_relay_footer")
+                    }
+                }
                 .settingsAnchor("relay.enabled")
                     .onChange(of: enabled) { _, on in
                         if on { startRelay() } else { PhoneRelayServer.shared.stop() }
@@ -2279,9 +2304,6 @@ struct RelaySettingsView: View {
                         .pmAppearFade(.control)
                     }
                 }
-            } footer: {
-                Text(String(localized: "settings_relay_footer"))
-                    .font(.footnote)
             }
         }
         .navigationTitle("settings_relay_section")
@@ -2416,9 +2438,9 @@ struct StorageManagementView: View {
                     }
                 }
             } header: {
-                Text("network")
-            } footer: {
-                Text("cloud_scan_wifi_only_footer")
+                SettingsInfoHeader("network") {
+                    Text("cloud_scan_wifi_only_footer")
+                }
             }
 
             Section {
@@ -2436,9 +2458,9 @@ struct StorageManagementView: View {
                         .foregroundStyle(.orange)
                 }
             } header: {
-                Text("notifications_section")
-            } footer: {
-                Text("notify_long_tasks_footer")
+                SettingsInfoHeader("notifications_section") {
+                    Text("notify_long_tasks_footer")
+                }
             }
             .task {
                 // 用户可能在系统设置里关掉了通知：开关还开着，就提示为什么不生效。
@@ -2497,9 +2519,9 @@ struct StorageManagementView: View {
                 }
                 .settingsAnchor("storage.clearImageCache")
             } header: {
-                Text("cache")
-            } footer: {
-                Text("cache_clear_footer")
+                SettingsInfoHeader("cache") {
+                    Text("cache_clear_footer")
+                }
             }
 
             Section {
@@ -2528,9 +2550,7 @@ struct StorageManagementView: View {
                     offlineCompactionSweepRow
                 }
             } header: {
-                Text("offline_downloads")
-            } footer: {
-                VStack(alignment: .leading, spacing: 8) {
+                SettingsInfoHeader("offline_downloads") {
                     Text("offline_downloads_footer")
                     Text("offline_download_quality_desc")
                 }
@@ -2553,9 +2573,9 @@ struct StorageManagementView: View {
                 }
                 .settingsAnchor("storage.clearMetadata")
             } header: {
-                Text("persistent_data")
-            } footer: {
-                Text("metadata_clear_footer")
+                SettingsInfoHeader("persistent_data") {
+                    Text("metadata_clear_footer")
+                }
             }
 
         }
@@ -2877,9 +2897,9 @@ struct TrustedDomainsView: View {
                         .foregroundStyle(.secondary)
                 }
             } header: {
-                Text("https_certificate_trust")
-            } footer: {
-                Text("trusted_domains_footer")
+                SettingsInfoHeader("https_certificate_trust") {
+                    Text("trusted_domains_footer")
+                }
             }
             .settingsAnchor("security.httpsTrust")
 

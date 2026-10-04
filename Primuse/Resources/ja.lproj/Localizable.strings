@@ -5611,3 +5611,4 @@
 "playlist_remove_offline_turns_off_always" = "このプレイリストの「常にオフラインで保持」もオフになります。";
 "playlist_remove_offline_kept_format" = "ほかのプレイリストでオフライン保持中の%d曲は残ります。";
 "playlist_remove_offline_none" = "このプレイリストにはオフラインダウンロードがありません。";
+"settings_info_button" = "説明";

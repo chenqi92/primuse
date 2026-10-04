@@ -250,9 +250,9 @@ struct PlayerBackdropSettingsSections: View {
                 }
             }
         } header: {
-            Text("player_backdrop_title")
-        } footer: {
-            Text("player_backdrop_footer")
+            SettingsInfoHeader("player_backdrop_title") {
+                Text("player_backdrop_footer")
+            }
         }
         .settingsAnchor("appearance.playerBackdrop")
         .onChange(of: pickerItems) { _, items in

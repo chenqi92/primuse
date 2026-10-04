@@ -5610,3 +5610,4 @@
 "playlist_remove_offline_turns_off_always" = "« Toujours disponible hors ligne » sera aussi désactivé pour cette liste de lecture.";
 "playlist_remove_offline_kept_format" = "%d morceaux gardés hors ligne par d’autres listes de lecture seront conservés.";
 "playlist_remove_offline_none" = "Cette liste de lecture n’a aucun téléchargement hors ligne.";
+"settings_info_button" = "Plus d'infos";

@@ -114,9 +114,9 @@ struct RecentlyDeletedView: View {
                     hiddenMirrorRow(suppression)
                 }
             } header: {
-                Text("hidden_source_playlists")
-            } footer: {
-                Text("hidden_source_playlists_desc")
+                SettingsInfoHeader("hidden_source_playlists") {
+                    Text("hidden_source_playlists_desc")
+                }
             }
             .settingsAnchor("deleted.hiddenPlaylists")
             .pmFadeTransition()
@@ -204,9 +204,9 @@ struct RecentlyDeletedView: View {
                     }
                 }
             } header: {
-                Text("local_removals_title")
-            } footer: {
-                Text("local_removals_footer")
+                SettingsInfoHeader("local_removals_title") {
+                    Text("local_removals_footer")
+                }
             }
             .settingsAnchor("deleted.localRemovals")
             .pmFadeTransition()

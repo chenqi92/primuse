@@ -763,8 +763,11 @@ struct DuplicateSongsView: View {
 
     private var summarySection: some View {
         Section {
-            HStack {
+            HStack(spacing: 6) {
                 Label("dup_groups_count", systemImage: "square.stack.3d.up")
+                SettingsInfoButton {
+                    Text("dup_summary_footer")
+                }
                 Spacer()
                 Text("\(groups.count)").foregroundStyle(.secondary).monospacedDigit()
             }
@@ -773,8 +776,6 @@ struct DuplicateSongsView: View {
                 Spacer()
                 Text("\(totalRedundantCount)").foregroundStyle(.secondary).monospacedDigit()
             }
-        } footer: {
-            Text("dup_summary_footer")
         }
     }
 

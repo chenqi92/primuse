@@ -201,9 +201,9 @@ struct SmartNudgeSettingsSection: View {
                 Button("smart_nudge_reset") { center.resetHistory() }
             }
         } header: {
-            Text("smart_nudge_section")
-        } footer: {
-            Text("smart_nudge_footer")
+            SettingsInfoHeader("smart_nudge_section") {
+                Text("smart_nudge_footer")
+            }
         }
     }
 }

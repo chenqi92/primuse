@@ -117,15 +117,17 @@ struct ScrobbleSettingsView: View {
     private var iosBody: some View {
         Form {
             Section {
-                Toggle("scrobble_enabled", isOn: $settings.isEnabled.pmAnimated())
+                Toggle(isOn: $settings.isEnabled.pmAnimated()) {
+                    SettingsInfoLabel("scrobble_enabled") {
+                        Text("scrobble_overall_footer")
+                    }
+                }
                 .settingsAnchor("scrobble.enabled")
                 if settings.isEnabled {
                     Toggle("scrobble_send_now_playing", isOn: $settings.sendNowPlaying)
                     .settingsAnchor("scrobble.nowPlaying")
                     .pmFadeTransition()
                 }
-            } footer: {
-                Text("scrobble_overall_footer")
             }
 
             // Section 里有 ForEach, 位移会在 Form 里引发多轮重布局, 只用透明度。

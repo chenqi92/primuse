@@ -25,9 +25,13 @@ struct ArtistNameSettingsView: View {
             }
 
             Section {
-                LabeledContent("artist_name_settings_preview", value: preview)
-            } footer: {
-                Text("artist_name_settings_intro")
+                LabeledContent {
+                    Text(preview)
+                } label: {
+                    SettingsInfoLabel("artist_name_settings_preview") {
+                        Text("artist_name_settings_intro")
+                    }
+                }
             }
 
             Section {
@@ -46,9 +50,9 @@ struct ArtistNameSettingsView: View {
                         .disabled(newSeparator.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             } header: {
-                Text("artist_name_settings_separators")
-            } footer: {
-                Text("artist_name_settings_separators_footer")
+                SettingsInfoHeader("artist_name_settings_separators") {
+                    Text("artist_name_settings_separators_footer")
+                }
             }
             .settingsAnchor("artists.separators")
 
@@ -67,9 +71,9 @@ struct ArtistNameSettingsView: View {
                         .disabled(newProtectedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             } header: {
-                Text("artist_name_settings_protected_names")
-            } footer: {
-                Text("artist_name_settings_protected_footer")
+                SettingsInfoHeader("artist_name_settings_protected_names") {
+                    Text("artist_name_settings_protected_footer")
+                }
             }
             .settingsAnchor("artists.protectedNames")
 
@@ -86,9 +90,9 @@ struct ArtistNameSettingsView: View {
                         .disabled(displaySeparatorDraft.isEmpty)
                 }
             } header: {
-                Text("artist_name_settings_display_separator")
-            } footer: {
-                Text("artist_name_settings_display_footer")
+                SettingsInfoHeader("artist_name_settings_display_separator") {
+                    Text("artist_name_settings_display_footer")
+                }
             }
             .settingsAnchor("artists.displaySeparator")
 

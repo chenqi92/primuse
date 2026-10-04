@@ -5516,3 +5516,4 @@
 "playlist_remove_offline_turns_off_always" = "Sempre baixar também será desativado para esta playlist.";
 "playlist_remove_offline_kept_format" = "%d músicas mantidas offline por outras playlists continuarão.";
 "playlist_remove_offline_none" = "Esta playlist não tem downloads offline.";
+"settings_info_button" = "Mais informações";

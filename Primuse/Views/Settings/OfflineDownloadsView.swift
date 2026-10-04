@@ -127,12 +127,12 @@ struct OfflineDownloadsView: View {
                             }
                     }
                 } header: {
-                    Text(verbatim: Self.summaryText(
+                    SettingsInfoHeader(verbatim: Self.summaryText(
                         songCount: items.count,
                         byteCount: items.reduce(0) { $0 + $1.byteCount }
-                    ))
-                } footer: {
-                    Text("offline_downloads_footer")
+                    )) {
+                        Text("offline_downloads_footer")
+                    }
                 }
             }
         }

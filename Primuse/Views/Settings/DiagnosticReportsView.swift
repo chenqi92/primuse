@@ -197,9 +197,9 @@ struct DiagnosticReportsView: View {
                 }
                 .settingsAnchor("storage.exportLog")
             } header: {
-                Text("diagnostics_logs_title")
-            } footer: {
-                Text("storage_export_log_footer")
+                SettingsInfoHeader("diagnostics_logs_title") {
+                    Text("storage_export_log_footer")
+                }
             }
         }
         #endif

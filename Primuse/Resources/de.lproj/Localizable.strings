@@ -5610,3 +5610,4 @@
 "playlist_remove_offline_turns_off_always" = "„Immer offline verfügbar“ wird für diese Wiedergabeliste ebenfalls ausgeschaltet.";
 "playlist_remove_offline_kept_format" = "%d Titel, die andere Wiedergabelisten offline halten, bleiben erhalten.";
 "playlist_remove_offline_none" = "Diese Wiedergabeliste hat keine Offline-Downloads.";
+"settings_info_button" = "Weitere Infos";

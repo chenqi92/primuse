@@ -5516,3 +5516,4 @@
 "playlist_remove_offline_turns_off_always" = "Bu çalma listesi için Her Zaman İndir de kapatılacak.";
 "playlist_remove_offline_kept_format" = "Diğer çalma listelerinin çevrimdışı tuttuğu %d şarkı kalacak.";
 "playlist_remove_offline_none" = "Bu çalma listesinde çevrimdışı indirme yok.";
+"settings_info_button" = "Daha fazla bilgi";

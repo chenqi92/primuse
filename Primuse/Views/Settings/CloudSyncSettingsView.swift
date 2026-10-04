@@ -21,7 +21,11 @@ struct CloudSyncSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Toggle("icloud_sync_enabled", isOn: $enabled.pmAnimated())
+                Toggle(isOn: $enabled.pmAnimated()) {
+                    SettingsInfoLabel("icloud_sync_enabled") {
+                        Text("icloud_sync_footer")
+                    }
+                }
                 .settingsAnchor("cloud.enabled")
                     .onChange(of: enabled) { _, newValue in
                         Task {
@@ -33,8 +37,6 @@ struct CloudSyncSettingsView: View {
                         }
                     }
                     .disabled(!sync.isAvailableInCurrentBuild)
-            } footer: {
-                Text("icloud_sync_footer")
             }
 
             if enabled {
@@ -109,9 +111,7 @@ struct CloudSyncSettingsView: View {
                 channelToggle("stats_title", systemImage: "chart.bar.xaxis", isOn: $syncListeningStats, channel: .listeningStats)
                 .settingsAnchor("cloud.listeningStats")
             } header: {
-                Text("synced_items")
-            } footer: {
-                VStack(alignment: .leading, spacing: 6) {
+                SettingsInfoHeader("synced_items") {
                     Text("synced_items_footer")
                     Text("credentials_channel_footer")
                         .foregroundStyle(.secondary)

@@ -30,7 +30,9 @@ struct LyricsAPIServersView: View {
                 }
             } header: {
                 HStack {
-                    Text("lyrics_server_list")
+                    SettingsInfoHeader("lyrics_server_list") {
+                        Text("lyrics_server_protocol_footer")
+                    }
                     Spacer()
                     if store.servers.count > 1 {
                         Button(isReordering ? String(localized: "done") : String(localized: "reorder")) {
@@ -40,8 +42,6 @@ struct LyricsAPIServersView: View {
                         .textCase(nil)
                     }
                 }
-            } footer: {
-                Text("lyrics_server_protocol_footer")
             }
 
             Section {
@@ -163,9 +163,9 @@ private struct LyricsAPIServerEditorSheet: View {
                         #endif
                         .autocorrectionDisabled()
                 } header: {
-                    Text("lyrics_server_auth")
-                } footer: {
-                    Text("lyrics_server_auth_footer")
+                    SettingsInfoHeader("lyrics_server_auth") {
+                        Text("lyrics_server_auth_footer")
+                    }
                 }
 
                 Section {

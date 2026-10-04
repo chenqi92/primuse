@@ -49,9 +49,9 @@ struct SiriSettingsView: View {
                 ShortcutsLink()
                     .shortcutsLinkStyle(.automaticOutline)
             } header: {
-                Text("siri_examples_title")
-            } footer: {
-                Text("siri_shortcuts_hint")
+                SettingsInfoHeader("siri_examples_title") {
+                    Text("siri_shortcuts_hint")
+                }
             }
             .settingsAnchor("siri.shortcuts")
         }

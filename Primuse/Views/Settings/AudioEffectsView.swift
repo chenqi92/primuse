@@ -48,9 +48,9 @@ struct AudioEffectsView: View {
                     .pmFadeTransition()
                 }
             } header: {
-                Text("reverb")
-            } footer: {
-                Text("reverb_desc")
+                SettingsInfoHeader("reverb") {
+                    Text("reverb_desc")
+                }
             }
             .settingsAnchor("effects.reverbPreset")
 
@@ -110,9 +110,9 @@ struct AudioEffectsView: View {
                     .pmFadeTransition()
                 }
             } header: {
-                Text("compressor_limiter")
-            } footer: {
-                Text("compressor_desc")
+                SettingsInfoHeader("compressor_limiter") {
+                    Text("compressor_desc")
+                }
             }
             .settingsAnchor("effects.compressorPreset")
         }

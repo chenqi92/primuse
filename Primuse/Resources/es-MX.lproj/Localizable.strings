@@ -5516,3 +5516,4 @@
 "playlist_remove_offline_turns_off_always" = "También se desactivará Descargar siempre en esta lista de reproducción.";
 "playlist_remove_offline_kept_format" = "Se conservarán %d canciones que otras listas de reproducción mantienen sin conexión.";
 "playlist_remove_offline_none" = "Esta lista de reproducción no tiene descargas sin conexión.";
+"settings_info_button" = "Más información";
