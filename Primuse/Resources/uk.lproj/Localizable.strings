@@ -174,7 +174,7 @@
 "onboarding_privacy_icloud" = "Параметри медіатеки синхронізуються лише через iCloud";
 "local_import_progress_discovering" = "Пошук імпортованого аудіо…";
 "scrobble_mac_confirming" = "Підтверджую";
-"library_add_quick_access" = "Додати ярлик";
+"library_add_quick_access" = "Додати до обраного";
 "smart_field_durationSec" = "Тривалість (с)";
 "yearly_card_top_artist_detail_format" = "Зіграно %d разів, всього %@";
 "onboarding_privacy_local" = "Аудіофайли ніколи не залишають ваших джерел";
@@ -531,7 +531,7 @@
 "Update Available" = "Доступне оновлення";
 "scrobble_lastfm_api_secret_placeholder" = "API Секрет";
 "Shuffle Library" = "Перемішати медіатеку";
-"onboarding_personalization_quick" = "Закріпіть альбоми, виконавців і списки відтворення для швидкого доступу";
+"onboarding_personalization_quick" = "Додавайте альбоми, виконавців, плейлисти й папки до обраного, щоб відкривати їх будь-коли";
 "update_banner_later" = "Нагадати мені пізніше";
 "search_section_metadata" = "Назва / Виконавець / Альбом";
 "lyrics_translation_enabled" = "Увімкнути переклад";
@@ -1155,7 +1155,6 @@
 "smart_field_lastPlayedAt" = "Остання гра";
 "search_apple_music_catalog_section" = "Apple Music · Каталог";
 "stats_range_subtitle_format" = "%1$@ — Сьогодні · %2$d днів";
-"library_quick_access_count" = "Лічильник швидкого доступу";
 "lang_zh_hans" = "китайська (спрощена)";
 "family_sharing_shared_header" = "Спільно з родиною";
 "playlist_import_unmatched_group" = "Незрівнянний";
@@ -1332,7 +1331,7 @@
 "lyrics_play_from_line" = "Відтворити з цього рядка";
 "artist_name_settings_display_separator_placeholder" = "Наприклад, /";
 "tag_editor_lyrics_placeholder" = "Введіть простий текст, LRC або ELRC…";
-"library_quick_access_selected_empty" = "Ярлики не вибрано";
+"library_quick_access_selected_empty" = "В обраному поки нічого немає";
 "family_sharing_create" = "Створіть сімейний пакет";
 "fullscreen_effect_collection_cover_reactive" = "На основі обкладинки";
 "material_liquid_glass" = "Рідке скло";
@@ -1555,7 +1554,7 @@
 "song_details_parse_failed_message" = "Було прочитано байтів файлу, але поточний аналізатор не зміг підтвердити повну інформацію. Будь-який доступний шлях відтворення залишається активним.";
 "Sleep Timer" = "Таймер сну";
 "delete_song_message" = "Якщо джерело підтримує видалення, вихідний файл пісні буде видалено. Однойменні файли обкладинок/пісень пісень видаляються лише тоді, коли їх не використовує жодна інша пісня, а локальні кеші очищаються.";
-"library_quick_access_selected" = "Вибрано";
+"library_quick_access_selected" = "В обраному";
 "Target Language" = "Цільова мова";
 "smart_mac_match_satisfy" = "Збіг";
 "relay_import_ticket_note" = "Цей квиток на імпорт працює один раз і закінчується через 10 хвилин. Він не містить спільного пароля.";
@@ -1785,7 +1784,6 @@
 "lyrics_editor_clear_stamp" = "Видалити часову мітку";
 "Apple Music · Restricted" = "Apple Music · Обмежено";
 "Sync Now" = "Синхронізувати зараз";
-"library_quick_access_limit_description" = "Відрегулюйте це обмеження в меню «Налаштування» > «Вигляд» > «Відображення медіатеки».";
 "cloud_guide_pan115" = "Перейдіть на відкриту платформу 115.com, щоб подати заявку на програму розробника";
 "home_hero_narrative_night" = "Сьогодні у вашій бібліотеці є історії %@";
 "Current" = "Поточний";
@@ -1813,7 +1811,7 @@
 "sort_oldest_to_newest" = "Від старих до найновіших";
 "ai_add_provider" = "Додати послугу";
 "lyrics_editor_clear_all" = "Очистити все";
-"library_edit_quick_access" = "Редагувати швидкий доступ";
+"library_edit_quick_access" = "Редагувати обране";
 "ai_primuse_relay_diagnostic_storekit_unavailable_detail" = "Ця інсталяція не може отримати трансакцію App Store, яку можна перевірити. Увійдіть до App Store і повторіть спробу; збірка для розробки Xcode може вимагати встановлення TestFlight або App Store для перевірки.";
 "metadata_status_incomplete_unverified_reason" = "Цей запис не завершив повне читання того самого файлу, тому він ще не може відрізнити відсутні вихідні теги від неповного читання чи аналізу. Перечитайте цю пісню, щоб підтвердити.";
 "fullscreen_effect_cover_gallery" = "Галерея обкладинок";
@@ -2061,7 +2059,7 @@
 "fullscreen_effect_visualizer_subtitle" = "Туманність частинок і спектральний горизонт";
 "Enabled Sources" = "Увімкнені джерела";
 "error_credential_read_failed %@" = "Не вдалося прочитати збережені облікові дані (%@).";
-"home_section_quick_access" = "Швидкий доступ";
+"home_section_quick_access" = "Обране";
 "lyrics_transcription_model_footer" = "Сумісні моделі завантажуються з каталогу автентифікованих моделей Google; Primuse не передбачає назви випуску.";
 "live_badge" = "НАЖИВО";
 "source_diag_config_missing_bucket" = "Відро S3 відсутнє.";
@@ -2789,12 +2787,12 @@
 "check_for_updates_up_to_date" = "Ви використовуєте останню версію";
 "ai_remove_provider_confirm" = "Видалити цю службу та її локальний ключ?";
 "lang_ru" = "рос";
-"library_liked_albums_title" = "Вподобані альбоми";
-"library_liked_artists_title" = "Вподобані виконавці";
-"library_favorite_like" = "Подобається";
-"library_favorite_unlike" = "Більше не подобається";
-"library_favorite_filter" = "Лише вподобані";
-"library_favorite_filter_short" = "Вподобані";
+"library_liked_albums_title" = "Обрані альбоми";
+"library_liked_artists_title" = "Обрані виконавці";
+"library_favorite_like" = "До обраного";
+"library_favorite_unlike" = "Прибрати з обраного";
+"library_favorite_filter" = "Лише обране";
+"library_favorite_filter_short" = "Обране";
 "library_folder_rescan" = "Пересканувати цю папку";
 "reread_song_tags" = "Прочитайте теги файлів ще раз";
 "radio_live" = "Живе радіо";
@@ -3124,6 +3122,8 @@
 "tag_editor_lyrics_summary_partial" = "Синхронізовано рядків: %1$d із %2$d";
 "library_quick_access_loading" = "Завантаження медіатеки…";
 "library_quick_access_search_prompt" = "Пошук альбомів, виконавців або списків відтворення";
+"favorites_empty_description" = "Торкніться серця на альбомі, виконавці, плейлисті чи папці, щоб додати їх сюди.";
+"favorites_count_format" = "Елементів: %d";
 "Drag to Reorder" = "Перетягніть, щоб змінити порядок";
 "tag_editor_lyrics_delete_confirm_message" = "У доступних для запису джерелах також буде видалено однойменний файл тексту пісні. Для джерел лише для читання видаляється тільки кеш тексту в Primuse.";
 "s3_access_key" = "Ключ доступу";
@@ -3284,7 +3284,6 @@
 "filter_songs_placeholder" = "Фільтрувати пісні…";
 "paste_config" = "Вставити конфіг";
 "home_active_scans" = "Сканування";
-"library_quick_access_count_description" = "Встановіть максимальну кількість елементів швидкого доступу, які відображаються в бібліотеці та на головній сторінці.";
 "add_trusted_domain_message" = "Введіть ім’я домену (наприклад, nas.example.com). Перевірку сертифіката SSL для цього домену буде пропущено.";
 "ssh_key" = "Ключ SSH";
 "source_cache_all_loading" = "Кешування";
@@ -3852,7 +3851,7 @@
 "player_current_lyric_color_description" = "Змінює лише колір виділення поточного рядка та слова; неактивні тексти зберігають існуючий вигляд.";
 "cloud_recheck" = "Повторна перевірка";
 "home_pipeline_sources" = "Джерела";
-"library_quick_access" = "Швидкий доступ";
+"library_quick_access" = "Обране";
 "intent_scrape_deferred" = "Отримання метаданих розпочнеться, коли Primuse стане активним.";
 "similar_failed" = "Не вдалося завантажити";
 "ai_primuse_relay_diagnostic_auth_detail" = "Primuse повторно зареєструвався та спробував один раз, але служба все одно відхилила ці облікові дані встановлення.";
@@ -3920,12 +3919,12 @@
 "stats_chart_minutes" = "Хвилини";
 "stats_chart_hour" = "Година";
 
-"library_quick_access_cover_style" = "Обкладинки швидкого доступу";
+"library_quick_access_cover_style" = "Обкладинки обраного";
 "library_quick_access_cover_default" = "Типово (за типом)";
 "library_quick_access_cover_circle" = "Усі круглі";
 "library_quick_access_cover_square" = "Усі квадратні";
 "library_quick_access_cover_collage" = "Усі колажі";
-"library_quick_access_cover_description" = "Застосовується до швидкого доступу на головній і в медіатеці. Типовий стиль зберігає поточний вигляд. Єдині стилі використовують обкладинки пісень для улюблених треків; колажі повторюють доступні зображення, заповнюючи чотири клітинки.";
+"library_quick_access_cover_description" = "Застосовується до обраного на головній і в медіатеці. Типовий стиль зберігає поточний вигляд. Єдині стилі використовують обкладинки пісень для вподобаних треків; колажі повторюють доступні зображення, заповнюючи чотири клітинки.";
 
 "playback_error_local_audio" = "Не вдалося декодувати аудіофайл. Можливо, його пошкоджено або він використовує непідтримуване кодування.";
 "apple_music_subscription_check_failed" = "Не вдалося перевірити права на відтворення Apple Music. Перевірте підключення та спробуйте ще раз.";

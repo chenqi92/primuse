@@ -18,15 +18,13 @@
 "artist_name_settings_tv_summary" = "%1$d separators · %2$d protected";
 "artist_name_settings_tv_read_only" = "Edit on iPhone, iPad, or Mac";
 "library_title" = "Library";
-"library_quick_access" = "Quick Access";
+"library_quick_access" = "Favorites";
 "library_browse" = "Browse Library";
 "library_default_flat_view" = "Show Songs as a Flat List by Default";
 "library_default_flat_view_description" = "When off, songs open in the source and folder hierarchy. When on, the song library opens as a flat list.";
 "library_display_settings_title" = "Library Display";
-"library_edit_quick_access" = "Edit Quick Access";
-"library_add_quick_access" = "Add Shortcut";
-"library_quick_access_count" = "Quick Access Count";
-"library_quick_access_count_description" = "Set the maximum number of Quick Access items shown in Library and Home.";
+"library_edit_quick_access" = "Edit Favorites";
+"library_add_quick_access" = "Add Favorites";
 "library_review_feature_title" = "Ratings & Comments";
 "library_review_feature_description" = "Show personal star ratings and comments on songs, albums, playlists, and genres. This is off by default.";
 "library_review_title" = "Rating & Comment";
@@ -35,11 +33,12 @@
 "library_review_comment_hint" = "Opens the comment editor.";
 "library_review_comment_title" = "Comment";
 "library_review_star_format" = "%d Stars";
-"library_quick_access_limit_description" = "Adjust this limit in Settings > Appearance > Library Display.";
-"library_quick_access_selected" = "Selected";
-"library_quick_access_selected_empty" = "No shortcuts selected";
+"library_quick_access_selected" = "In Favorites";
+"library_quick_access_selected_empty" = "No favorites yet";
 "library_quick_access_loading" = "Loading library…";
 "library_quick_access_search_prompt" = "Search albums, artists, or playlists";
+"favorites_empty_description" = "Tap the heart on an album, artist, playlist, or directory to add it here.";
+"favorites_count_format" = "%d items";
 "library_sections_settings_label" = "Library Categories";
 "library_sections_settings_footer" = "Drag to reorder. Visibility and order apply to Library, the sidebar, and minimal mode tabs.";
 "library_sections_restore_default_order" = "Restore Default Order";
@@ -500,12 +499,12 @@
 "song_details_parse_failed" = "Song details parsing failed";
 "song_details_parse_failed_message" = "File bytes were read, but the current parser could not confirm complete details. Any available playback path remains enabled.";
 "song_details_retry" = "Retry reading";
-"library_liked_albums_title" = "Liked Albums";
-"library_liked_artists_title" = "Liked Artists";
-"library_favorite_like" = "Like";
-"library_favorite_unlike" = "Unlike";
-"library_favorite_filter" = "Show Liked Only";
-"library_favorite_filter_short" = "Liked";
+"library_liked_albums_title" = "Favorite Albums";
+"library_liked_artists_title" = "Favorite Artists";
+"library_favorite_like" = "Favorite";
+"library_favorite_unlike" = "Remove from Favorites";
+"library_favorite_filter" = "Show Favorites Only";
+"library_favorite_filter_short" = "Favorites";
 "library_folder_rescan" = "Rescan This Folder";
 "reread_song_tags" = "Read File Tags Again";
 "reread_song_tags_in_progress" = "Reading file tags…";
@@ -1259,7 +1258,7 @@
 "home_section_top_artists" = "Frequently Listened";
 "home_section_recently_added" = "Recently Added";
 "home_section_continue_listening" = "Continue Listening";
-"home_section_quick_access" = "Quick Access";
+"home_section_quick_access" = "Favorites";
 "home_section_playlists" = "My Playlists";
 "home_layout_list" = "List";
 "home_layout_carousel" = "Carousel";
@@ -2306,7 +2305,7 @@
 "onboarding_personalization_title" = "Make Home feel like yours";
 "onboarding_personalization_icon" = "Choose your App icon in Settings > Appearance";
 "onboarding_personalization_home" = "Show, hide, and reorder the sections on Home";
-"onboarding_personalization_quick" = "Pin albums, artists, and playlists for quick access";
+"onboarding_personalization_quick" = "Favorite albums, artists, playlists, and directories to open them anytime";
 "onboarding_personalization_footer" = "You can change all of these options anytime.";
 "onboarding_guide_sources_title" = "Add a source in three steps";
 "onboarding_guide_sources_step1 %@" = "Open “%@”, tap + in the top-right corner, and choose a source type";
@@ -3785,12 +3784,12 @@
 "stats_chart_minutes" = "Minutes";
 "stats_chart_hour" = "Hour";
 
-"library_quick_access_cover_style" = "Quick Access Covers";
+"library_quick_access_cover_style" = "Favorites Covers";
 "library_quick_access_cover_default" = "Default (By Type)";
 "library_quick_access_cover_circle" = "Uniform Circles";
 "library_quick_access_cover_square" = "Uniform Squares";
 "library_quick_access_cover_collage" = "Uniform Collages";
-"library_quick_access_cover_description" = "Applies to Quick Access in Home and Library. Default keeps existing styles. Uniform styles use song artwork for Liked Songs; collages repeat available images to fill four tiles.";
+"library_quick_access_cover_description" = "Applies to Favorites in Home and Library. Default keeps existing styles. Uniform styles use song artwork for Liked Songs; collages repeat available images to fill four tiles.";
 
 "playback_error_local_audio" = "This audio file could not be decoded. It may be damaged or use an unsupported encoding.";
 "apple_music_subscription_check_failed" = "Apple Music playback access could not be verified. Check your connection and try again.";

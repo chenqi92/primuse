@@ -19,15 +19,13 @@
 "artist_name_settings_tv_read_only" = "請在 iPhone、iPad 或 Mac 上編輯";
 
 "library_title" = "資料庫";
-"library_quick_access" = "快捷收藏";
+"library_quick_access" = "收藏";
 "library_browse" = "瀏覽資料庫";
 "library_default_flat_view" = "預設平鋪顯示歌曲";
 "library_default_flat_view_description" = "關閉時預設依來源與資料夾層級瀏覽；開啟後進入歌曲資料庫即顯示平鋪列表。";
 "library_display_settings_title" = "資料庫顯示";
-"library_edit_quick_access" = "編輯快捷收藏";
-"library_add_quick_access" = "新增快捷收藏";
-"library_quick_access_count" = "快捷收藏數量";
-"library_quick_access_count_description" = "設定資料庫與首頁最多顯示的快捷收藏數量。";
+"library_edit_quick_access" = "編輯收藏";
+"library_add_quick_access" = "新增收藏";
 "library_review_feature_title" = "評分與評論";
 "library_review_feature_description" = "在歌曲、專輯、播放清單和曲風頁面顯示個人星級與評論。此功能預設關閉。";
 "library_review_title" = "評分與評論";
@@ -36,11 +34,12 @@
 "library_review_comment_hint" = "開啟評論編輯器。";
 "library_review_comment_title" = "評論";
 "library_review_star_format" = "%d 星";
-"library_quick_access_limit_description" = "可在「設定 > 外觀 > 資料庫顯示」中調整數量上限。";
-"library_quick_access_selected" = "已選擇";
-"library_quick_access_selected_empty" = "尚未選擇快捷收藏";
+"library_quick_access_selected" = "已收藏";
+"library_quick_access_selected_empty" = "還沒有收藏";
 "library_quick_access_loading" = "正在載入資料庫…";
 "library_quick_access_search_prompt" = "搜尋專輯、演出者或歌單";
+"favorites_empty_description" = "在專輯、演出者、播放清單或目錄頁點心形按鈕，就會收進這裡。";
+"favorites_count_format" = "%d 項";
 "library_sections_settings_label" = "資料庫分類";
 "library_sections_settings_footer" = "拖移以調整順序；分類的顯示、隱藏與順序會同步套用至資料庫、側邊欄及極簡模式標籤。";
 "library_sections_restore_default_order" = "還原預設順序";
@@ -489,12 +488,12 @@
 "song_details_parse_failed" = "歌曲詳情解析失敗";
 "song_details_parse_failed_message" = "已讀取檔案位元組，但目前的解析器無法確認完整詳情；這不會停用可用的播放路徑。";
 "song_details_retry" = "重試讀取";
-"library_liked_albums_title" = "喜歡的專輯";
-"library_liked_artists_title" = "喜歡的藝人";
-"library_favorite_like" = "喜歡";
-"library_favorite_unlike" = "取消喜歡";
-"library_favorite_filter" = "只看喜歡的";
-"library_favorite_filter_short" = "喜歡";
+"library_liked_albums_title" = "收藏的專輯";
+"library_liked_artists_title" = "收藏的藝人";
+"library_favorite_like" = "收藏";
+"library_favorite_unlike" = "取消收藏";
+"library_favorite_filter" = "只看收藏的";
+"library_favorite_filter_short" = "收藏";
 "library_folder_rescan" = "重新掃描此資料夾";
 "reread_song_tags" = "重新讀取檔案標籤";
 "reread_song_tags_in_progress" = "正在讀取檔案標籤";
@@ -1195,7 +1194,7 @@
 "home_section_top_artists" = "常聽演出者";
 "home_section_recently_added" = "最近加入";
 "home_section_continue_listening" = "繼續聽";
-"home_section_quick_access" = "快捷收藏";
+"home_section_quick_access" = "收藏";
 "home_section_playlists" = "我的歌單";
 "home_layout_list" = "列表";
 "home_layout_carousel" = "橫排";
@@ -2456,7 +2455,7 @@
 "onboarding_personalization_title" = "讓首頁更像你的";
 "onboarding_personalization_icon" = "在「設定 > 外觀」中自由切換 App 圖示";
 "onboarding_personalization_home" = "顯示、隱藏並調整首頁模組的顯示順序";
-"onboarding_personalization_quick" = "編輯快速收藏，快速開啟專輯、藝人與播放清單";
+"onboarding_personalization_quick" = "收藏專輯、演出者、播放清單和目錄，隨時開啟";
 "onboarding_personalization_footer" = "這些選項之後都可以隨時修改。";
 "onboarding_guide_sources_title" = "三步新增音樂來源";
 "onboarding_guide_sources_step1 %@" = "打開「%@」，點右上角的 +，選擇音樂來源類型";
@@ -3999,12 +3998,12 @@
 "stats_chart_minutes" = "分鐘";
 "stats_chart_hour" = "時段";
 
-"library_quick_access_cover_style" = "快捷收藏封面";
+"library_quick_access_cover_style" = "收藏封面";
 "library_quick_access_cover_default" = "預設（依類型）";
 "library_quick_access_cover_circle" = "統一圓形";
 "library_quick_access_cover_square" = "統一方形";
 "library_quick_access_cover_collage" = "統一多圖合併";
-"library_quick_access_cover_description" = "套用至首頁和資料庫的快捷收藏。預設保留現有樣式；統一樣式會為「我喜歡的」使用歌曲封面，多圖不足四張時重複補齊。";
+"library_quick_access_cover_description" = "套用至首頁和資料庫的收藏。預設保留現有樣式；統一樣式會為「我喜歡的」使用歌曲封面，多圖不足四張時重複補齊。";
 
 "playback_error_local_audio" = "無法解碼此音訊檔案，檔案可能已損壞或使用不支援的編碼。";
 "apple_music_subscription_check_failed" = "暫時無法確認 Apple Music 播放權限。請檢查網路後再試。";

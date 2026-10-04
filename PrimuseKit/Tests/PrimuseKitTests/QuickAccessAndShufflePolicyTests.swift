@@ -8,11 +8,7 @@ struct QuickAccessPinStorageCodecTests {
 
     @Test("Fresh storage defaults to Liked Songs")
     func defaultsLikedSongs() {
-        #expect(QuickAccessPinStorageCodec.decode(
-            "",
-            defaultPins: [liked],
-            maximumCount: 5
-        ) == [liked])
+        #expect(QuickAccessPinStorageCodec.decode("", defaultPins: [liked]) == [liked])
     }
 
     @Test("Legacy arrays migrate Liked Songs into the ordered selection")
@@ -20,33 +16,99 @@ struct QuickAccessPinStorageCodecTests {
         let album = QuickAccessPinReference(kind: .album, itemID: "album-1")
         let legacy = String(decoding: try JSONEncoder().encode([album]), as: UTF8.self)
 
-        #expect(QuickAccessPinStorageCodec.decode(
-            legacy,
-            defaultPins: [liked],
-            maximumCount: 5
-        ) == [liked, album])
+        #expect(QuickAccessPinStorageCodec.decode(legacy, defaultPins: [liked]) == [liked, album])
     }
 
     @Test("Version 2 preserves an empty selection and custom order")
     func preservesDeselectionAndOrder() {
         let album = QuickAccessPinReference(kind: .album, itemID: "album-1")
         let artist = QuickAccessPinReference(kind: .artist, itemID: "artist-1")
-        let encoded = QuickAccessPinStorageCodec.encode(
-            [artist, liked, album],
-            maximumCount: 5
-        )
-        #expect(QuickAccessPinStorageCodec.decode(
-            encoded,
-            defaultPins: [liked],
-            maximumCount: 5
-        ) == [artist, liked, album])
+        let encoded = QuickAccessPinStorageCodec.encode([artist, liked, album])
+        #expect(QuickAccessPinStorageCodec.decode(encoded, defaultPins: [liked]) == [artist, liked, album])
 
-        let empty = QuickAccessPinStorageCodec.encode([], maximumCount: 5)
-        #expect(QuickAccessPinStorageCodec.decode(
-            empty,
-            defaultPins: [liked],
-            maximumCount: 5
-        ).isEmpty)
+        let empty = QuickAccessPinStorageCodec.encode([])
+        #expect(QuickAccessPinStorageCodec.decode(empty, defaultPins: [liked]).isEmpty)
+    }
+
+    @Test("Favorites keep every entry instead of stopping at the old limit of twelve")
+    func keepsEveryEntry() {
+        let pins = (0..<40).map { QuickAccessPinReference(kind: .album, itemID: "album-\($0)") }
+        let decoded = QuickAccessPinStorageCodec.decode(
+            QuickAccessPinStorageCodec.encode(pins + [pins[3]]),
+            defaultPins: [liked]
+        )
+        #expect(decoded == pins)
+    }
+
+    @Test("An entry of a kind this build does not know is skipped, the rest survive")
+    func skipsUnknownKinds() {
+        let raw = #"{"version":2,"pins":[{"kind":"playlist","itemID":"liked"},{"kind":"station","itemID":"s1"},{"kind":"album","itemID":"a1"}]}"#
+        #expect(QuickAccessPinStorageCodec.decode(raw, defaultPins: []) == [
+            liked,
+            QuickAccessPinReference(kind: .album, itemID: "a1"),
+        ])
+    }
+
+    @Test("Folder favorites round-trip through their item ID")
+    func folderReferenceRoundTrip() {
+        let node = LibraryFolderNodeID(sourceID: "nas-1", kind: .folder, normalizedRelativePath: "Music/Jazz|Live")
+        let pin = QuickAccessPinReference.folder(node)
+        #expect(pin.kind == .folder)
+        #expect(pin.folderNodeID == node)
+        #expect(QuickAccessPinReference.folder(node) == pin)
+
+        let root = LibraryFolderNodeID(sourceID: "nas-1", kind: .source, normalizedRelativePath: "")
+        #expect(QuickAccessPinReference.folder(root).folderNodeID == root)
+        #expect(QuickAccessPinReference(kind: .album, itemID: pin.itemID).folderNodeID == nil)
+    }
+}
+
+@Suite("Favorite collection order")
+struct FavoriteCollectionOrderPolicyTests {
+    private let liked = QuickAccessPinReference(kind: .playlist, itemID: "liked")
+    private let a = QuickAccessPinReference(kind: .album, itemID: "a")
+    private let b = QuickAccessPinReference(kind: .artist, itemID: "b")
+    private let c = QuickAccessPinReference(kind: .playlist, itemID: "c")
+    private let d = QuickAccessPinReference(kind: .album, itemID: "d")
+
+    @Test("A new favorite goes first, right after a leading Liked Songs")
+    func insertsAfterLeadingAnchor() {
+        #expect(FavoriteCollectionOrderPolicy.inserting([c], into: [liked, a, b], anchor: liked) == [liked, c, a, b])
+        #expect(FavoriteCollectionOrderPolicy.inserting([c], into: [a, liked, b], anchor: liked) == [c, a, liked, b])
+        #expect(FavoriteCollectionOrderPolicy.inserting([c], into: [], anchor: liked) == [c])
+    }
+
+    @Test("Favoriting something already in the list moves it to the front instead of duplicating it")
+    func movesExistingEntry() {
+        #expect(FavoriteCollectionOrderPolicy.inserting([b], into: [liked, a, b], anchor: liked) == [liked, b, a])
+        #expect(FavoriteCollectionOrderPolicy.inserting([d, a, d], into: [liked, a, b], anchor: liked) == [liked, d, a, b])
+    }
+
+    @Test("Liked Songs added back goes to the very front")
+    func reAddedAnchorLeads() {
+        #expect(FavoriteCollectionOrderPolicy.inserting([liked], into: [a, b], anchor: liked) == [liked, a, b])
+    }
+
+    @Test("Display order drops what is no longer a favorite and leads with favorites not yet ordered")
+    func mergesMembership() {
+        let merged = FavoriteCollectionOrderPolicy.merged(
+            stored: [liked, a, b, c, a],
+            isCollected: { $0 != b },
+            collectedButUnordered: [d, a],
+            anchor: liked
+        )
+        #expect(merged == [liked, d, a, c])
+    }
+
+    @Test("Without a leading Liked Songs the unordered favorites simply go first")
+    func mergesWithoutAnchor() {
+        let merged = FavoriteCollectionOrderPolicy.merged(
+            stored: [a, liked],
+            isCollected: { _ in true },
+            collectedButUnordered: [d],
+            anchor: liked
+        )
+        #expect(merged == [d, a, liked])
     }
 }
 

@@ -22,20 +22,19 @@
 // Tabs / Sections
 "home_title" = "Accueil";
 "library_title" = "Bibliothèque";
-"library_quick_access" = "Accès rapide";
+"library_quick_access" = "Favoris";
 "library_browse" = "Parcourir la bibliothèque";
 "library_default_flat_view" = "Afficher les morceaux à plat par défaut";
 "library_default_flat_view_description" = "Si cette option est désactivée, les morceaux s’ouvrent par source et dossier. Si elle est activée, la bibliothèque s’ouvre sous forme de liste à plat.";
 "library_display_settings_title" = "Affichage de la bibliothèque";
-"library_edit_quick_access" = "Modifier les accès rapides";
-"library_add_quick_access" = "Ajouter un raccourci";
-"library_quick_access_count" = "Nombre d’accès rapides";
-"library_quick_access_count_description" = "Définissez le nombre maximal d’accès rapides affichés dans la bibliothèque et l’accueil.";
-"library_quick_access_limit_description" = "Réglez cette limite dans Réglages > Apparence > Affichage de la bibliothèque.";
-"library_quick_access_selected" = "Sélectionnés";
-"library_quick_access_selected_empty" = "Aucun raccourci sélectionné";
+"library_edit_quick_access" = "Modifier les favoris";
+"library_add_quick_access" = "Ajouter aux favoris";
+"library_quick_access_selected" = "Dans les favoris";
+"library_quick_access_selected_empty" = "Aucun favori pour l’instant";
 "library_quick_access_loading" = "Chargement de la bibliothèque…";
 "library_quick_access_search_prompt" = "Rechercher des albums, artistes ou playlists";
+"favorites_empty_description" = "Touchez le cœur d’un album, d’un artiste, d’une playlist ou d’un dossier pour l’ajouter ici.";
+"favorites_count_format" = "%d éléments";
 "library_sections_settings_label" = "Catégories de la bibliothèque";
 "library_sections_settings_footer" = "Faites glisser pour réorganiser. Désactivez une catégorie pour la masquer dans la bibliothèque et la barre latérale.";
 "library_sections_restore_default_order" = "Rétablir l’ordre par défaut";
@@ -723,8 +722,8 @@
 "song_details_retry" = "Réessayer la lecture";
 "library_liked_albums_title" = "Albums favoris";
 "library_liked_artists_title" = "Artistes favoris";
-"library_favorite_like" = "J’aime";
-"library_favorite_unlike" = "Je n’aime plus";
+"library_favorite_like" = "Ajouter aux favoris";
+"library_favorite_unlike" = "Retirer des favoris";
 "library_favorite_filter" = "Afficher uniquement les favoris";
 "library_favorite_filter_short" = "Favoris";
 "library_folder_rescan" = "Réanalyser ce dossier";
@@ -1420,7 +1419,7 @@
 "home_section_top_artists" = "Écoutés fréquemment";
 "home_section_recently_added" = "Ajoutés récemment";
 "home_section_continue_listening" = "Reprendre l'écoute";
-"home_section_quick_access" = "Accès rapide";
+"home_section_quick_access" = "Favoris";
 "home_section_playlists" = "Mes playlists";
 "home_layout_list" = "Liste";
 "home_layout_carousel" = "Carrousel";
@@ -2471,7 +2470,7 @@
 "onboarding_personalization_title" = "Un accueil qui vous ressemble";
 "onboarding_personalization_icon" = "Choisissez l’icône de l’App dans Réglages > Apparence";
 "onboarding_personalization_home" = "Affichez, masquez et réorganisez les sections de l’accueil";
-"onboarding_personalization_quick" = "Épinglez albums, artistes et playlists pour un accès rapide";
+"onboarding_personalization_quick" = "Ajoutez albums, artistes, playlists et dossiers aux favoris pour les ouvrir à tout moment";
 "onboarding_personalization_footer" = "Vous pourrez modifier ces options à tout moment.";
 "onboarding_guide_sources_title" = "Ajouter une source en trois étapes";
 "onboarding_guide_sources_step1 %@" = "Ouvrez « %@ », touchez + en haut à droite et choisissez un type de source";
@@ -4014,12 +4013,12 @@
 "stats_chart_minutes" = "Minutes";
 "stats_chart_hour" = "Heure";
 
-"library_quick_access_cover_style" = "Pochettes des accès rapides";
+"library_quick_access_cover_style" = "Pochettes des favoris";
 "library_quick_access_cover_default" = "Par défaut (par type)";
 "library_quick_access_cover_circle" = "Cercles uniformes";
 "library_quick_access_cover_square" = "Carrés uniformes";
 "library_quick_access_cover_collage" = "Collages uniformes";
-"library_quick_access_cover_description" = "S’applique aux accès rapides de l’accueil et de la bibliothèque. Le style par défaut conserve l’apparence actuelle. Les styles uniformes utilisent des pochettes pour les titres aimés ; les collages répètent les images disponibles pour remplir quatre cases.";
+"library_quick_access_cover_description" = "S’applique aux favoris de l’accueil et de la bibliothèque. Le style par défaut conserve l’apparence actuelle. Les styles uniformes utilisent des pochettes pour les titres aimés ; les collages répètent les images disponibles pour remplir quatre cases.";
 
 "playback_error_local_audio" = "Ce fichier audio n’a pas pu être décodé. Il est peut-être endommagé ou utilise un encodage non pris en charge.";
 "apple_music_subscription_check_failed" = "Impossible de vérifier les droits de lecture Apple Music. Vérifiez votre connexion, puis réessayez.";

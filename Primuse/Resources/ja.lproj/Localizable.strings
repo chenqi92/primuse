@@ -23,20 +23,19 @@
 // Tabs / Sections
 "home_title" = "ホーム";
 "library_title" = "ライブラリ";
-"library_quick_access" = "クイックアクセス";
+"library_quick_access" = "お気に入り";
 "library_browse" = "ライブラリをブラウズ";
 "library_default_flat_view" = "曲をデフォルトでフラット表示";
 "library_default_flat_view_description" = "オフの場合はソースとフォルダ階層で開き、オンの場合は曲ライブラリをフラットリストで開きます。";
 "library_display_settings_title" = "ライブラリ表示";
-"library_edit_quick_access" = "クイックアクセスを編集";
-"library_add_quick_access" = "ショートカットを追加";
-"library_quick_access_count" = "クイックアクセスの数";
-"library_quick_access_count_description" = "ライブラリとホームに表示するクイックアクセスの最大数を設定します。";
-"library_quick_access_limit_description" = "この上限は「設定 > 外観 > ライブラリ表示」で変更できます。";
-"library_quick_access_selected" = "選択済み";
-"library_quick_access_selected_empty" = "ショートカットが選択されていません";
+"library_edit_quick_access" = "お気に入りを編集";
+"library_add_quick_access" = "お気に入りに追加";
+"library_quick_access_selected" = "追加済み";
+"library_quick_access_selected_empty" = "お気に入りはまだありません";
 "library_quick_access_loading" = "ライブラリを読み込み中…";
 "library_quick_access_search_prompt" = "アルバム、アーティスト、プレイリストを検索";
+"favorites_empty_description" = "アルバム、アーティスト、プレイリスト、フォルダのハートをタップすると、ここに追加されます。";
+"favorites_count_format" = "%d 項目";
 "library_sections_settings_label" = "ライブラリのカテゴリ";
 "library_sections_settings_footer" = "ドラッグして並べ替えます。オフにするとライブラリとサイドバーで非表示になります。";
 "library_sections_restore_default_order" = "デフォルトの順序に戻す";
@@ -724,8 +723,8 @@
 "song_details_retry" = "もう一度読み込む";
 "library_liked_albums_title" = "お気に入りのアルバム";
 "library_liked_artists_title" = "お気に入りのアーティスト";
-"library_favorite_like" = "お気に入り";
-"library_favorite_unlike" = "お気に入りを解除";
+"library_favorite_like" = "お気に入りに追加";
+"library_favorite_unlike" = "お気に入りから削除";
 "library_favorite_filter" = "お気に入りのみ表示";
 "library_favorite_filter_short" = "お気に入り";
 "library_folder_rescan" = "このフォルダを再スキャン";
@@ -1421,7 +1420,7 @@
 "home_section_top_artists" = "よく聴くアーティスト";
 "home_section_recently_added" = "最近追加";
 "home_section_continue_listening" = "続きを聴く";
-"home_section_quick_access" = "クイックアクセス";
+"home_section_quick_access" = "お気に入り";
 "home_section_playlists" = "マイプレイリスト";
 "home_layout_list" = "リスト";
 "home_layout_carousel" = "横スクロール";
@@ -2472,7 +2471,7 @@
 "onboarding_personalization_title" = "自分らしいホーム画面に";
 "onboarding_personalization_icon" = "「設定 > 外観」で App アイコンを自由に変更";
 "onboarding_personalization_home" = "ホームのセクションを表示・非表示・並べ替え";
-"onboarding_personalization_quick" = "アルバム、アーティスト、プレイリストをすばやく登録";
+"onboarding_personalization_quick" = "アルバム、アーティスト、プレイリスト、フォルダをお気に入りに追加していつでも開けます";
 "onboarding_personalization_footer" = "これらの設定はいつでも変更できます。";
 "onboarding_guide_sources_title" = "3 ステップでソースを追加";
 "onboarding_guide_sources_step1 %@" = "「%@」を開き、右上の + をタップしてソースの種類を選びます";
@@ -4015,12 +4014,12 @@
 "stats_chart_minutes" = "分";
 "stats_chart_hour" = "時間帯";
 
-"library_quick_access_cover_style" = "クイックアクセスのカバー";
+"library_quick_access_cover_style" = "お気に入りのカバー";
 "library_quick_access_cover_default" = "デフォルト（種類別）";
 "library_quick_access_cover_circle" = "すべて円形";
 "library_quick_access_cover_square" = "すべて正方形";
 "library_quick_access_cover_collage" = "すべてコラージュ";
-"library_quick_access_cover_description" = "ホームとライブラリのクイックアクセスに適用します。デフォルトは現在のスタイルを維持します。統一スタイルではお気に入りに曲の画像を使用し、コラージュは画像を繰り返して4枠を埋めます。";
+"library_quick_access_cover_description" = "ホームとライブラリのお気に入りに適用します。デフォルトは現在のスタイルを維持します。統一スタイルでは「好きな曲」に曲の画像を使用し、コラージュは画像を繰り返して4枠を埋めます。";
 
 "playback_error_local_audio" = "この音声ファイルをデコードできませんでした。ファイルが破損しているか、非対応のエンコードが使用されている可能性があります。";
 "apple_music_subscription_check_failed" = "Apple Music の再生権限を確認できませんでした。ネットワーク接続を確認して、もう一度お試しください。";

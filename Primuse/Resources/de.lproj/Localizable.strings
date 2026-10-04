@@ -22,20 +22,19 @@
 // Tabs / Sections
 "home_title" = "Start";
 "library_title" = "Mediathek";
-"library_quick_access" = "Schnellzugriff";
+"library_quick_access" = "Favoriten";
 "library_browse" = "Mediathek durchsuchen";
 "library_default_flat_view" = "Titel standardmäßig als flache Liste anzeigen";
 "library_default_flat_view_description" = "Wenn deaktiviert, werden Titel nach Quelle und Ordnern geöffnet. Wenn aktiviert, öffnet sich die Mediathek als flache Liste.";
 "library_display_settings_title" = "Mediatheksanzeige";
-"library_edit_quick_access" = "Schnellzugriff bearbeiten";
-"library_add_quick_access" = "Kurzbefehl hinzufügen";
-"library_quick_access_count" = "Anzahl der Schnellzugriffe";
-"library_quick_access_count_description" = "Legt fest, wie viele Schnellzugriffe maximal in Mediathek und Start angezeigt werden.";
-"library_quick_access_limit_description" = "Diese Grenze lässt sich unter Einstellungen > Darstellung > Mediatheksanzeige ändern.";
-"library_quick_access_selected" = "Ausgewählt";
-"library_quick_access_selected_empty" = "Keine Kurzbefehle ausgewählt";
+"library_edit_quick_access" = "Favoriten bearbeiten";
+"library_add_quick_access" = "Favoriten hinzufügen";
+"library_quick_access_selected" = "In Favoriten";
+"library_quick_access_selected_empty" = "Noch keine Favoriten";
 "library_quick_access_loading" = "Mediathek wird geladen …";
 "library_quick_access_search_prompt" = "Alben, Künstler oder Playlists suchen";
+"favorites_empty_description" = "Tippe bei einem Album, Künstler, einer Playlist oder einem Ordner auf das Herz, um es hier hinzuzufügen.";
+"favorites_count_format" = "%d Einträge";
 "library_sections_settings_label" = "Mediathekskategorien";
 "library_sections_settings_footer" = "Zum Sortieren ziehen. Deaktivierte Kategorien werden in der Mediathek und Seitenleiste ausgeblendet.";
 "library_sections_restore_default_order" = "Standardreihenfolge wiederherstellen";
@@ -723,8 +722,8 @@
 "song_details_retry" = "Erneut lesen";
 "library_liked_albums_title" = "Lieblingsalben";
 "library_liked_artists_title" = "Lieblingskünstler";
-"library_favorite_like" = "Gefällt mir";
-"library_favorite_unlike" = "Gefällt mir nicht mehr";
+"library_favorite_like" = "Favorisieren";
+"library_favorite_unlike" = "Aus Favoriten entfernen";
 "library_favorite_filter" = "Nur Favoriten anzeigen";
 "library_favorite_filter_short" = "Favoriten";
 "library_folder_rescan" = "Diesen Ordner erneut scannen";
@@ -1420,7 +1419,7 @@
 "home_section_top_artists" = "Häufig gehört";
 "home_section_recently_added" = "Zuletzt hinzugefügt";
 "home_section_continue_listening" = "Weiterhören";
-"home_section_quick_access" = "Schnellzugriff";
+"home_section_quick_access" = "Favoriten";
 "home_section_playlists" = "Meine Playlists";
 "home_layout_list" = "Liste";
 "home_layout_carousel" = "Karussell";
@@ -2471,7 +2470,7 @@
 "onboarding_personalization_title" = "Deine persönliche Startseite";
 "onboarding_personalization_icon" = "App-Symbol unter Einstellungen > Darstellung frei wählen";
 "onboarding_personalization_home" = "Bereiche der Startseite ein-/ausblenden und neu anordnen";
-"onboarding_personalization_quick" = "Alben, Künstler und Playlists für den Schnellzugriff anheften";
+"onboarding_personalization_quick" = "Alben, Künstler, Playlists und Ordner favorisieren und jederzeit öffnen";
 "onboarding_personalization_footer" = "Diese Optionen kannst du jederzeit wieder ändern.";
 "onboarding_guide_sources_title" = "Quelle in drei Schritten hinzufügen";
 "onboarding_guide_sources_step1 %@" = "Öffne „%@“, tippe oben rechts auf + und wähle einen Quellentyp";
@@ -4014,12 +4013,12 @@
 "stats_chart_minutes" = "Minuten";
 "stats_chart_hour" = "Stunde";
 
-"library_quick_access_cover_style" = "Schnellzugriff-Cover";
+"library_quick_access_cover_style" = "Favoriten-Cover";
 "library_quick_access_cover_default" = "Standard (nach Typ)";
 "library_quick_access_cover_circle" = "Einheitlich rund";
 "library_quick_access_cover_square" = "Einheitlich quadratisch";
 "library_quick_access_cover_collage" = "Einheitliche Collagen";
-"library_quick_access_cover_description" = "Gilt für den Schnellzugriff auf der Startseite und in der Mediathek. Standard behält die bisherigen Stile bei. Einheitliche Stile verwenden Songcover für Lieblingstitel; Collagen wiederholen verfügbare Bilder für vier Kacheln.";
+"library_quick_access_cover_description" = "Gilt für die Favoriten auf der Startseite und in der Mediathek. Standard behält die bisherigen Stile bei. Einheitliche Stile verwenden Songcover für Lieblingstitel; Collagen wiederholen verfügbare Bilder für vier Kacheln.";
 
 "playback_error_local_audio" = "Diese Audiodatei konnte nicht dekodiert werden. Sie ist möglicherweise beschädigt oder verwendet eine nicht unterstützte Kodierung.";
 "apple_music_subscription_check_failed" = "Die Wiedergabeberechtigung für Apple Music konnte nicht geprüft werden. Prüfe deine Verbindung und versuche es erneut.";

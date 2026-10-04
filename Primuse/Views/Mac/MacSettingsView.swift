@@ -6208,8 +6208,6 @@ private struct MacSTThemeView: View {
     @State private var homeSectionRowHeight: CGFloat = 40
     @AppStorage(LibrarySongBrowseModePreference.storageKey)
     private var libraryBrowseModeRawValue = LibrarySongBrowseMode.flat.rawValue
-    @AppStorage(LibraryDisplayConfiguration.quickAccessLimitKey)
-    private var configuredQuickAccessLimit = LibraryDisplayConfiguration.defaultQuickAccessLimit
     @AppStorage(LibraryDisplayConfiguration.sectionOrderKey)
     private var librarySectionOrderRawValue = ""
     @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey)
@@ -6269,10 +6267,6 @@ private struct MacSTThemeView: View {
         )
     }
 
-    private var quickAccessLimit: Int {
-        LibraryDisplayConfiguration.normalizedQuickAccessLimit(configuredQuickAccessLimit)
-    }
-
     /// 「开始听」铺开成网格还是横排。
     private var startListeningStyleBinding: Binding<HomeSectionLayoutStyle> {
         Binding(
@@ -6299,13 +6293,6 @@ private struct MacSTThemeView: View {
                 configuration.setItemCount(Int(value.rounded()), for: .startListening)
                 homeSectionLayoutRawValue = configuration.encoded()
             }
-        )
-    }
-
-    private var quickAccessLimitBinding: Binding<Double> {
-        Binding(
-            get: { Double(quickAccessLimit) },
-            set: { configuredQuickAccessLimit = Int($0.rounded()) }
         )
     }
 
@@ -6682,20 +6669,6 @@ private struct MacSTThemeView: View {
                     MacSTToggle(isOn: $ratingsAndCommentsEnabled)
                 }
                 .settingsAnchor("library.ratingsAndComments")
-                MacSTRow(
-                    String(localized: "library_quick_access_count"),
-                    divider: true
-                ) {
-                    MacSTSlider(
-                        value: quickAccessLimitBinding,
-                        in: Double(LibraryDisplayConfiguration.quickAccessLimitRange.lowerBound)...Double(
-                            LibraryDisplayConfiguration.quickAccessLimitRange.upperBound
-                        ),
-                        formatter: { "\(Int($0.rounded()))" }
-                    )
-                    .accessibilityHint(Text("library_quick_access_count_description"))
-                }
-                .settingsAnchor("library.quickAccessCount")
                 MacSTRow(String(localized: "library_quick_access_cover_style")) {
                     MacSTPicker(
                         selection: $quickAccessCoverStyle,

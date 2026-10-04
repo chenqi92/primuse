@@ -30,6 +30,7 @@ struct PlaylistListView: View {
     @State private var playlistSelection: Set<String> = []
     @State private var showBatchDeleteConfirm = false
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
+    @AppStorage(LibraryPinStorage.defaultsKey) private var favoritesRawValue = ""
 
     /// 系统歌单（Apple Music 镜像 / 「我喜欢」）不参与批量删除，理由同
     /// `isSystemPlaylist`：删完下次 sync 或 heart toggle 又会重建。
@@ -185,6 +186,7 @@ struct PlaylistListView: View {
                                     }
                                 }
                                 .contextMenu {
+                                    favoriteToggleButton(for: playlist)
                                     serverMediaShareButton(for: playlist)
                                 }
                             }
@@ -203,13 +205,16 @@ struct PlaylistListView: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                if isManagingPlaylists {
+            if isManagingPlaylists {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button("done") {
                         isManagingPlaylists = false
                         playlistSelection = []
                     }
-                } else {
+                }
+            } else {
+                // 「+」只管新建与导入；整理已有歌单（调整顺序、多选）放进旁边的「⋯」。
+                ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button {
                             showNewPlaylist = true
@@ -227,14 +232,21 @@ struct PlaylistListView: View {
                             Label("new_rule_smart_playlist", systemImage: "slider.horizontal.3")
                         }
                         if operationAvailability.supportsImport {
+                            Divider()
                             Button {
                                 showPlaylistImport = true
                             } label: {
                                 Label("playlist_import_title", systemImage: "tray.and.arrow.down")
                             }
                         }
-                        if !playlists.isEmpty {
-                            Divider()
+                    } label: {
+                        PMToolbarItemLabel("new_playlist", systemImage: "plus", titled: verticalBarEdge != nil)
+                    }
+                    .accessibilityIdentifier("playlists.new")
+                }
+                if !playlists.isEmpty {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Menu {
                             if canReorderPlaylists {
                                 Button {
                                     showPlaylistOrder = true
@@ -247,9 +259,10 @@ struct PlaylistListView: View {
                             } label: {
                                 Label("batch_select", systemImage: "checkmark.circle")
                             }
+                        } label: {
+                            PMToolbarItemLabel("a11y_more_actions", systemImage: "ellipsis", titled: verticalBarEdge != nil)
                         }
-                    } label: {
-                        PMToolbarItemLabel("new_playlist", systemImage: "plus", titled: verticalBarEdge != nil)
+                        .accessibilityIdentifier("playlists.more")
                     }
                 }
             }
@@ -846,6 +859,7 @@ struct PlaylistListView: View {
         }
         .disabled(playlistSongs.isEmpty || scraperService.isScraping)
 
+        favoriteToggleButton(for: playlist)
         serverMediaShareButton(for: playlist)
 
         if !isSystemPlaylist(playlist.id) {
@@ -888,6 +902,20 @@ struct PlaylistListView: View {
             } label: {
                 Label("server_share_action", systemImage: "link.badge.plus")
             }
+        }
+    }
+
+    /// 长按菜单里的「收藏 / 取消收藏」，和歌单页头部那颗心是同一件事。
+    private func favoriteToggleButton(for playlist: Playlist) -> some View {
+        let pin = QuickAccessPinReference(kind: .playlist, itemID: playlist.id)
+        let isCollected = LibraryPinStorage.decode(favoritesRawValue).contains(pin)
+        return Button {
+            FavoriteCollectionStore.shared.setCollected(!isCollected, pin, library: library)
+        } label: {
+            Label(
+                isCollected ? "library_favorite_unlike" : "library_favorite_like",
+                systemImage: isCollected ? "heart.slash" : "heart"
+            )
         }
     }
 

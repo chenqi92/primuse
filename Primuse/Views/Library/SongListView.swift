@@ -5731,13 +5731,13 @@ private struct LibraryFolderNormalToolbarMenu: View {
     @AppStorage(LibraryFolderSongOrderPreference.followsListSortKey)
     private var followsListSort = false
     @AppStorage(HomeFolderPinStorage.key) private var pinsRawValue = ""
-    @AppStorage(HomeFolderPinStorage.displayCountKey) private var displayCount = HomeFolderPinStorage.defaultDisplayCount
 
     /// 只给出菜单项,由系统竖栏的溢出菜单收进去,自己不再套一层「⋯」。
     var asOverflowItems = false
 
+    /// 收藏的目录（也是首页「目录」区块摆的那几个）。没收藏过时首页自动推荐的不算。
     private var pins: [LibraryFolderNodeID] {
-        HomeFolderPinStorage.resolvedPins(pinsRawValue, index: index, defaultCount: displayCount)
+        FavoriteCollectionStore.collectedFolderIDs(in: pinsRawValue)
     }
 
     @ViewBuilder
@@ -5764,13 +5764,9 @@ private struct LibraryFolderNormalToolbarMenu: View {
             PMMenuQuickActionButton(
                 short: HomeDiscoveryText.string(pinned ? "unpin_folder_short" : "pin_folder_short"),
                 full: HomeDiscoveryText.string(pinned ? "unpin_folder" : "pin_folder"),
-                systemImage: pinned ? "pin.slash" : "pin"
+                systemImage: pinned ? "heart.slash" : "heart"
             ) {
-                var updated = pins
-                if pinned { updated.removeAll { $0 == nodeID } } else { updated.insert(nodeID, at: 0) }
-                pinsRawValue = HomeFolderPinStorage.replacingVisiblePins(
-                    in: pinsRawValue, with: updated, index: index, defaultCount: displayCount
-                )
+                FavoriteCollectionStore.shared.setCollected(!pinned, .folder(nodeID), library: library)
             }
             .disabled(index?.node(withID: nodeID) == nil)
             .accessibilityIdentifier("libraryFolder.pinToHome")

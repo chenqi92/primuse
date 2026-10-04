@@ -1573,7 +1573,7 @@
 "home_edit_move_up" = "تحريك لأعلى";
 "home_edit_move_down" = "تحريك لأسفل";
 "home_settings_restore_all" = "استعادة التخطيط الافتراضي";
-"home_section_quick_access" = "الوصول السريع";
+"home_section_quick_access" = "المفضلة";
 "home_section_recently_added" = "أضيف مؤخرا";
 "home_section_top_artists" = "استمع كثيرا";
 "home_section_view_all" = "انظر الكل";
@@ -1783,7 +1783,7 @@
 "later" = "فيما بعد";
 "library" = "المكتبة";
 "library_preparing" = "يتم تحضير المكتبة...";
-"library_add_quick_access" = "إضافة اختصار";
+"library_add_quick_access" = "إضافة إلى المفضلة";
 "library_browse" = "تصفح المكتبة";
 "library_browse_flat" = "مسطحة";
 "library_browse_folder" = "المجلدات";
@@ -1796,7 +1796,7 @@
 "library_default_flat_view" = "عرض الأغاني كقائمة مسطحة بشكل افتراضي";
 "library_default_flat_view_description" = "عند إيقاف التشغيل، يتم فتح الأغاني في التسلسل الهرمي للمصدر والمجلدات. عند التشغيل، يتم فتح مكتبة الأغاني كقائمة مسطحة.";
 "library_display_settings_title" = "عرض المكتبة";
-"library_edit_quick_access" = "تحرير الوصول السريع";
+"library_edit_quick_access" = "تحرير المفضلة";
 "library_folder_apple_music_library_songs" = "مكتبة الأغاني";
 "library_folder_apple_music_not_in_playlist" = "ليس في قائمة التشغيل";
 "library_folder_apple_music_unnamed_playlist" = "قائمة التشغيل بدون عنوان";
@@ -1810,14 +1810,13 @@
 "library_folder_uncategorized" = "غير مصنف";
 "library_info" = "المكتبة";
 "library_manage_header" = "إدارة";
-"library_quick_access" = "الوصول السريع";
-"library_quick_access_count" = "عدد الوصول السريع";
-"library_quick_access_count_description" = "قم بتعيين الحد الأقصى لعدد عناصر الوصول السريع المعروضة في المكتبة والصفحة الرئيسية.";
-"library_quick_access_limit_description" = "اضبط هذا الحد في الإعدادات > المظهر > عرض المكتبة.";
+"library_quick_access" = "المفضلة";
 "library_quick_access_loading" = "جارٍ تحميل المكتبة…";
 "library_quick_access_search_prompt" = "البحث في الألبومات أو الفنانين أو قوائم التشغيل";
-"library_quick_access_selected" = "محدد";
-"library_quick_access_selected_empty" = "لم يتم تحديد أي اختصارات";
+"favorites_empty_description" = "اضغط على القلب في ألبوم أو فنان أو قائمة تشغيل أو مجلد لإضافته هنا.";
+"favorites_count_format" = "%d عنصر";
+"library_quick_access_selected" = "في المفضلة";
+"library_quick_access_selected_empty" = "لا توجد عناصر مفضلة بعد";
 "library_recommendations_description" = "يتم تحديد الأغاني القابلة للتشغيل على الجهاز أولاً. عندما يتم تمكين خدمة ذكية، فإنها تقوم فقط بإعادة ترتيبها وتوضيح السبب.";
 "library_recommendations_empty_description" = "إضافة مصدر موسيقى ومسحه ضوئيًا لتنظيم الأغاني من خلال مشهد الاستماع والتركيز على التوصية.";
 "library_recommendations_empty_title" = "لا شيء يوصي به بعد";
@@ -2314,7 +2313,7 @@
 "onboarding_guide_player_more" = "المزيد: البث إلى أجهزة DLNA، ومؤقت الإيقاف، ومشاركة ملصق الكلمات";
 "onboarding_personalization_home" = "إظهار وإخفاء وإعادة ترتيب الأقسام في الصفحة الرئيسية";
 "onboarding_personalization_icon" = "اختر أيقونة التطبيق الخاص بك في الإعدادات > المظهر";
-"onboarding_personalization_quick" = "قم بتثبيت الألبومات والفنانين وقوائم التشغيل للوصول السريع";
+"onboarding_personalization_quick" = "أضف الألبومات والفنانين وقوائم التشغيل والمجلدات إلى المفضلة لفتحها في أي وقت";
 "onboarding_personalization_title" = "اجعل منزلك يبدو وكأنه منزلك";
 "onboarding_privacy_icloud" = "مزامنة إعدادات المكتبة من خلال iCloud الخاص بك فقط";
 "onboarding_privacy_local" = "الملفات الصوتية لا تترك مصادرك أبدًا";
@@ -2701,12 +2700,12 @@
 "repeat" = "تكرار";
 "replay_gain" = "ReplayGain";
 "replay_gain_desc" = "ضبط مستوى الصوت تلقائيًا بناءً على علامات ReplayGain المضمنة في الملفات الصوتية.";
-"library_liked_albums_title" = "الألبومات المُعجَب بها";
-"library_liked_artists_title" = "الفنانون المُعجَب بهم";
-"library_favorite_like" = "أعجبني";
-"library_favorite_unlike" = "إلغاء الإعجاب";
-"library_favorite_filter" = "عرض المُعجَب بها فقط";
-"library_favorite_filter_short" = "المُعجَب بها";
+"library_liked_albums_title" = "الألبومات المفضلة";
+"library_liked_artists_title" = "الفنانون المفضلون";
+"library_favorite_like" = "إضافة إلى المفضلة";
+"library_favorite_unlike" = "إزالة من المفضلة";
+"library_favorite_filter" = "عرض المفضلة فقط";
+"library_favorite_filter_short" = "المفضلة";
 "library_folder_rescan" = "إعادة فحص هذا المجلد";
 "reread_song_tags" = "اقرأ علامات الملف مرة أخرى";
 "reread_song_tags_completed" = "تمت قراءة علامات الملف مرة أخرى.";
@@ -3920,12 +3919,12 @@
 "stats_chart_minutes" = "دقائق";
 "stats_chart_hour" = "الساعة";
 
-"library_quick_access_cover_style" = "أغلفة الوصول السريع";
+"library_quick_access_cover_style" = "أغلفة المفضلة";
 "library_quick_access_cover_default" = "الافتراضي (حسب النوع)";
 "library_quick_access_cover_circle" = "دوائر موحّدة";
 "library_quick_access_cover_square" = "مربعات موحّدة";
 "library_quick_access_cover_collage" = "صور مجمّعة موحّدة";
-"library_quick_access_cover_description" = "ينطبق على الوصول السريع في الرئيسية والمكتبة. يحافظ الافتراضي على الأنماط الحالية. تستخدم الأنماط الموحّدة صور الأغاني للأغاني المفضلة، وتكرّر الصور المجمّعة الصور المتاحة لملء أربع خانات.";
+"library_quick_access_cover_description" = "ينطبق على المفضلة في الرئيسية والمكتبة. يحافظ الافتراضي على الأنماط الحالية. تستخدم الأنماط الموحّدة صور الأغاني للأغاني التي أعجبتني، وتكرّر الصور المجمّعة الصور المتاحة لملء أربع خانات.";
 
 "playback_error_local_audio" = "تعذر فك ترميز ملف الصوت هذا. قد يكون تالفًا أو يستخدم ترميزًا غير مدعوم.";
 "apple_music_subscription_check_failed" = "تعذر التحقق من صلاحية تشغيل Apple Music. تحقق من اتصالك وحاول مجددًا.";

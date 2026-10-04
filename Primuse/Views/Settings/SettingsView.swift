@@ -686,8 +686,6 @@ private struct LibraryDisplaySettingsView: View {
     @AppStorage(QuickAccessCoverStyle.storageKey) private var quickAccessCoverStyle = QuickAccessCoverStyle.automatic
     @AppStorage(LibrarySongBrowseModePreference.storageKey)
     private var libraryBrowseModeRawValue = LibrarySongBrowseMode.folder.rawValue
-    @AppStorage(LibraryDisplayConfiguration.quickAccessLimitKey)
-    private var configuredQuickAccessLimit = LibraryDisplayConfiguration.defaultQuickAccessLimit
     @AppStorage(LibraryDisplayConfiguration.sectionOrderKey)
     private var sectionOrderRawValue = ""
     @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey)
@@ -704,10 +702,6 @@ private struct LibraryDisplaySettingsView: View {
     @State private var inspectedRecommendationIntent: AIRecommendationIntentDetails?
     @AppStorage(ListeningIntentService.minimalSongsVisibilityKey)
     private var showsMinimalStartListening = true
-
-    private var quickAccessLimit: Int {
-        LibraryDisplayConfiguration.normalizedQuickAccessLimit(configuredQuickAccessLimit)
-    }
 
     private var sectionOrder: [LibrarySection] {
         LibraryDisplayConfiguration.decodeSectionOrder(sectionOrderRawValue)
@@ -736,13 +730,6 @@ private struct LibraryDisplaySettingsView: View {
         )
     }
 
-    private var quickAccessLimitBinding: Binding<Double> {
-        Binding(
-            get: { Double(quickAccessLimit) },
-            set: { configuredQuickAccessLimit = Int($0.rounded()) }
-        )
-    }
-
     var body: some View {
         Form {
             Section {
@@ -753,28 +740,6 @@ private struct LibraryDisplaySettingsView: View {
             }
 
             Section {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Label("library_quick_access_count", systemImage: "pin")
-                        Spacer()
-                        Text("\(quickAccessLimit)")
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
-                    .settingsAnchor("library.quickAccessCount")
-
-                    Slider(
-                        value: quickAccessLimitBinding,
-                        in: Double(LibraryDisplayConfiguration.quickAccessLimitRange.lowerBound)...Double(
-                            LibraryDisplayConfiguration.quickAccessLimitRange.upperBound
-                        ),
-                        step: 1
-                    )
-                    .accessibilityLabel(Text("library_quick_access_count"))
-                    .accessibilityValue(Text("\(quickAccessLimit)"))
-                    .accessibilityHint(Text("library_quick_access_count_description"))
-                }
-                .padding(.vertical, 4)
                 Picker("library_quick_access_cover_style", selection: $quickAccessCoverStyle) {
                     ForEach(QuickAccessCoverStyle.allCases, id: \.self) { style in
                         Text(style.localizedTitle).tag(style)

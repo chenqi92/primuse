@@ -77,7 +77,7 @@ final class HomePresentationCacheTests: XCTestCase {
             visibleSongCount: 2, visibleAlbumCount: 1, visibleArtistCount: 1,
             recentSongIDs: ["one"], dayStamp: 20260908,
             localeIdentifier: "zh-Hans_CN", timeZoneIdentifier: "Asia/Shanghai",
-            quickAccess: pins, quickAccessLimit: 6, showsRecommendations: recommendations
+            quickAccess: pins, favoritesRevision: 6, showsRecommendations: recommendations
         )
     }
 

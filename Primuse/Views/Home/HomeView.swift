@@ -821,7 +821,8 @@ struct HomeView: View {
             // until another library revision happened to arrive.
             refreshHomeSnapshot()
         }
-        .onChange(of: configuredQuickAccessLimit) { _, _ in
+        .onChange(of: LibraryFavoritesStore.shared.revision) { _, _ in
+            // 收藏的专辑 / 艺人记在喜欢的账本里，详情页点一下心就该在首页收藏区出现。
             refreshHomeSnapshot()
         }
         .onChange(of: showForYou) { _, _ in
@@ -991,8 +992,6 @@ struct HomeView: View {
     @AppStorage(HomeSectionConfiguration.orderKey) private var homeSectionOrderRawValue = ""
     @AppStorage(HomeSectionLayoutConfiguration.storageKey) private var homeSectionLayoutRawValue = ""
     @AppStorage(LibraryPinStorage.defaultsKey) private var quickAccessRawValue = ""
-    @AppStorage(LibraryDisplayConfiguration.quickAccessLimitKey)
-    private var configuredQuickAccessLimit = LibraryDisplayConfiguration.defaultQuickAccessLimit
     /// 首页这一层导航栈的 zoom 命名空间:卡片放大成详情页,返回时缩回卡片。
     @Namespace private var homeZoomNamespace
     @State private var needsHomeRefreshWhenActive = false
@@ -1040,7 +1039,7 @@ struct HomeView: View {
         let localeIdentifier: String
         let timeZoneIdentifier: String
         let quickAccess: String
-        let quickAccessLimit: Int
+        let favoritesRevision: Int
         let showsRecommendations: Bool
     }
 
@@ -1939,7 +1938,7 @@ struct HomeView: View {
             localeIdentifier: Locale.current.identifier,
             timeZoneIdentifier: TimeZone.current.identifier,
             quickAccess: quickAccessRawValue,
-            quickAccessLimit: configuredQuickAccessLimit,
+            favoritesRevision: LibraryFavoritesStore.shared.revision,
             showsRecommendations: showForYou
         )
     }
@@ -2376,33 +2375,20 @@ struct HomeView: View {
         )
     }
 
+    /// 首页收藏区：收藏的顺序，目录除外（首页有自己的「目录」区块，收藏的目录就摆在那里）。
     private func makeHomeQuickItems(
         allPlaylists: [Playlist]
     ) -> [HomeQuickItem] {
-        let albumsByID = Dictionary(
-            library.visibleAlbums.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let artistsByID = Dictionary(
-            library.visibleArtists.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
         let playlistsByID = Dictionary(
             allPlaylists.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        let quickAccessLimit = LibraryDisplayConfiguration.normalizedQuickAccessLimit(
-            configuredQuickAccessLimit
-        )
-        return LibraryPinStorage.decode(
-            quickAccessRawValue,
-            maximumCount: quickAccessLimit
-        ).compactMap { pin in
+        return FavoriteCollectionStore.shared.references(library: library).compactMap { pin in
             switch pin.kind {
             case .album:
-                return albumsByID[pin.itemID].map(HomeQuickItem.album)
+                return library.visibleAlbum(id: pin.itemID).map(HomeQuickItem.album)
             case .artist:
-                return artistsByID[pin.itemID].map(HomeQuickItem.artist)
+                return library.favoriteArtist(id: pin.itemID).map(HomeQuickItem.artist)
             case .playlist:
                 if pin.itemID == MusicLibrary.likedSongsPlaylistID {
                     return .liked(
@@ -2416,6 +2402,8 @@ struct HomeView: View {
                 return playlistsByID[pin.itemID]
                     .map(makeHomePlaylistTile)
                     .map(HomeQuickItem.playlist)
+            case .folder:
+                return nil
             }
         }
     }
@@ -2832,17 +2820,38 @@ struct HomeView: View {
 
     @ViewBuilder
     private func quickAccessSection(_ style: HomeSectionLayoutStyle) -> some View {
+        let items = Array(model.snapshot.quickItems.prefix(
+            sectionItemCount(.quickAccess, HomeSectionLayoutPolicy.defaultItemCount(for: .quickAccess))
+        ))
         VStack(alignment: .leading, spacing: 10) {
-            Text("home_section_quick_access")
-                .font(.title3.weight(.bold))
-                .padding(.horizontal, 20)
+            HStack {
+                Text("home_section_quick_access")
+                    .font(.title3.weight(.bold))
+                Spacer()
+                NavigationLink {
+                    FavoriteCollectionView()
+                        .navigationTitle(Text("library_quick_access"))
+                        #if os(iOS)
+                        .navigationBarTitleDisplayMode(.inline)
+                        .minimalNavigationDetail()
+                        #endif
+                } label: {
+                    HStack(spacing: 5) {
+                        Text("see_all")
+                        Image(systemName: "chevron.right").font(.caption)
+                    }
+                    .font(.subheadline).foregroundStyle(.secondary)
+                }
+                .accessibilityIdentifier("home.allFavorites")
+            }
+            .padding(.horizontal, 20)
 
             if style == .carousel {
                 // 横排档去掉整块底卡:一行图标本来就不高,再包一层圆角面板
                 // 会让它看着比内容重。
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHGrid(rows: carouselRows(.quickAccess, height: 96, spacing: 16), spacing: 16) {
-                        ForEach(model.snapshot.quickItems) { item in
+                        ForEach(items) { item in
                             homeQuickDockItem(item)
                                 .frame(width: 76)
                         }
@@ -2858,7 +2867,7 @@ struct HomeView: View {
                     ),
                     spacing: 14
                 ) {
-                    ForEach(model.snapshot.quickItems) { item in
+                    ForEach(items) { item in
                         homeQuickDockItem(item)
                     }
                 }

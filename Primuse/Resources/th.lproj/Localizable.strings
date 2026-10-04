@@ -1573,7 +1573,7 @@
 "home_edit_move_up" = "ย้ายขึ้น";
 "home_edit_move_down" = "ย้ายลง";
 "home_settings_restore_all" = "คืนค่าเลย์เอาต์เริ่มต้น";
-"home_section_quick_access" = "การเข้าถึงด่วน";
+"home_section_quick_access" = "รายการโปรด";
 "home_section_recently_added" = "เพิ่มล่าสุด";
 "home_section_top_artists" = "ฟังบ่อยๆ";
 "home_section_view_all" = "ดูทั้งหมด";
@@ -1783,7 +1783,7 @@
 "later" = "ต่อมา";
 "library" = "คลังเพลง";
 "library_preparing" = "กำลังเตรียมคลังเพลง...";
-"library_add_quick_access" = "เพิ่มทางลัด";
+"library_add_quick_access" = "เพิ่มในรายการโปรด";
 "library_browse" = "เรียกดูคลังเพลง";
 "library_browse_flat" = "แบน";
 "library_browse_folder" = "โฟลเดอร์";
@@ -1796,7 +1796,7 @@
 "library_default_flat_view" = "แสดงเพลงเป็นรายการแบบเรียบตามค่าเริ่มต้น";
 "library_default_flat_view_description" = "เมื่อปิด เพลงจะเปิดในแหล่งที่มาและลำดับชั้นโฟลเดอร์ เมื่อเปิด คลังเพลงจะเปิดเป็นรายการเดี่ยว";
 "library_display_settings_title" = "การแสดงคลังเพลง";
-"library_edit_quick_access" = "แก้ไขการเข้าถึงด่วน";
+"library_edit_quick_access" = "แก้ไขรายการโปรด";
 "library_folder_apple_music_library_songs" = "เพลงคลังเพลง";
 "library_folder_apple_music_not_in_playlist" = "ไม่อยู่ในเพลย์ลิสต์";
 "library_folder_apple_music_unnamed_playlist" = "เพลย์ลิสต์ที่ไม่มีชื่อ";
@@ -1810,14 +1810,13 @@
 "library_folder_uncategorized" = "ไม่มีหมวดหมู่";
 "library_info" = "คลังเพลง";
 "library_manage_header" = "จัดการ";
-"library_quick_access" = "การเข้าถึงด่วน";
-"library_quick_access_count" = "จำนวนการเข้าถึงด่วน";
-"library_quick_access_count_description" = "ตั้งค่าจำนวนสูงสุดของรายการการเข้าถึงด่วนที่แสดงในคลังเพลงและหน้าแรก";
-"library_quick_access_limit_description" = "ปรับขีดจำกัดนี้ในการตั้งค่า > ลักษณะที่ปรากฏ > การแสดงคลังเพลง";
+"library_quick_access" = "รายการโปรด";
 "library_quick_access_loading" = "กำลังโหลดคลังเพลง…";
 "library_quick_access_search_prompt" = "ค้นหาอัลบั้ม ศิลปิน หรือเพลย์ลิสต์";
-"library_quick_access_selected" = "เลือกแล้ว";
-"library_quick_access_selected_empty" = "ไม่ได้เลือกทางลัด";
+"favorites_empty_description" = "แตะรูปหัวใจที่อัลบั้ม ศิลปิน เพลย์ลิสต์ หรือโฟลเดอร์ เพื่อเพิ่มไว้ที่นี่";
+"favorites_count_format" = "%d รายการ";
+"library_quick_access_selected" = "อยู่ในรายการโปรด";
+"library_quick_access_selected_empty" = "ยังไม่มีรายการโปรด";
 "library_recommendations_description" = "เพลงที่สามารถเล่นได้จะถูกเลือกบนอุปกรณ์ก่อน เมื่อเปิดใช้งานบริการอัจฉริยะ บริการจะจัดลำดับใหม่และอธิบายเหตุผลเท่านั้น";
 "library_recommendations_empty_description" = "เพิ่มและสแกนแหล่งเพลงเพื่อจัดระเบียบเพลงตามฉากการฟังและโฟกัสการแนะนำ";
 "library_recommendations_empty_title" = "ไม่มีอะไรจะแนะนำเลย";
@@ -2314,7 +2313,7 @@
 "onboarding_guide_player_more" = "เพิ่มเติม: แคสต์ไปยังอุปกรณ์ DLNA ตั้งเวลาปิด หรือแชร์โปสเตอร์เนื้อเพลง";
 "onboarding_personalization_home" = "แสดง ซ่อน และจัดลำดับส่วนต่างๆ ในหน้าแรกใหม่";
 "onboarding_personalization_icon" = "เลือกไอคอนแอปของคุณในการตั้งค่า > ลักษณะที่ปรากฏ";
-"onboarding_personalization_quick" = "ปักหมุดอัลบั้ม ศิลปิน และเพลย์ลิสต์เพื่อการเข้าถึงที่รวดเร็ว";
+"onboarding_personalization_quick" = "เพิ่มอัลบั้ม ศิลปิน เพลย์ลิสต์ และโฟลเดอร์ในรายการโปรด แล้วเปิดได้ทุกเมื่อ";
 "onboarding_personalization_title" = "ทำให้บ้านรู้สึกเหมือนเป็นของคุณ";
 "onboarding_privacy_icloud" = "การตั้งค่าคลังเพลงจะซิงค์ผ่าน iCloud ของคุณเท่านั้น";
 "onboarding_privacy_local" = "ไฟล์เสียงจะไม่ออกจากแหล่งที่มาของคุณ";
@@ -2701,12 +2700,12 @@
 "repeat" = "เล่นซ้ำ";
 "replay_gain" = "ReplayGain";
 "replay_gain_desc" = "ปรับระดับเสียงโดยอัตโนมัติตามแท็ก ReplayGain ที่ฝังอยู่ในไฟล์เสียง";
-"library_liked_albums_title" = "อัลบั้มที่ถูกใจ";
-"library_liked_artists_title" = "ศิลปินที่ถูกใจ";
-"library_favorite_like" = "ถูกใจ";
-"library_favorite_unlike" = "เลิกถูกใจ";
-"library_favorite_filter" = "แสดงเฉพาะที่ถูกใจ";
-"library_favorite_filter_short" = "ที่ถูกใจ";
+"library_liked_albums_title" = "อัลบั้มโปรด";
+"library_liked_artists_title" = "ศิลปินโปรด";
+"library_favorite_like" = "เพิ่มในรายการโปรด";
+"library_favorite_unlike" = "นำออกจากรายการโปรด";
+"library_favorite_filter" = "แสดงเฉพาะรายการโปรด";
+"library_favorite_filter_short" = "รายการโปรด";
 "library_folder_rescan" = "สแกนโฟลเดอร์นี้อีกครั้ง";
 "reread_song_tags" = "อ่านแท็กไฟล์อีกครั้ง";
 "reread_song_tags_completed" = "แท็กไฟล์ถูกอ่านอีกครั้ง";
@@ -3920,12 +3919,12 @@
 "stats_chart_minutes" = "นาที";
 "stats_chart_hour" = "ชั่วโมง";
 
-"library_quick_access_cover_style" = "ปกการเข้าถึงด่วน";
+"library_quick_access_cover_style" = "ปกรายการโปรด";
 "library_quick_access_cover_default" = "ค่าเริ่มต้น (ตามประเภท)";
 "library_quick_access_cover_circle" = "วงกลมทั้งหมด";
 "library_quick_access_cover_square" = "สี่เหลี่ยมจัตุรัสทั้งหมด";
 "library_quick_access_cover_collage" = "ภาพปะติดทั้งหมด";
-"library_quick_access_cover_description" = "ใช้กับการเข้าถึงด่วนในหน้าหลักและคลัง ค่าเริ่มต้นคงรูปแบบเดิม รูปแบบเดียวกันใช้ภาพเพลงสำหรับเพลงที่ชอบ และภาพปะติดจะใช้ภาพที่มีซ้ำเพื่อเติมให้ครบสี่ช่อง";
+"library_quick_access_cover_description" = "ใช้กับรายการโปรดในหน้าหลักและคลัง ค่าเริ่มต้นคงรูปแบบเดิม รูปแบบเดียวกันใช้ภาพเพลงสำหรับเพลงที่ชอบ และภาพปะติดจะใช้ภาพที่มีซ้ำเพื่อเติมให้ครบสี่ช่อง";
 
 "playback_error_local_audio" = "ไม่สามารถถอดรหัสไฟล์เสียงนี้ได้ ไฟล์อาจเสียหายหรือใช้การเข้ารหัสที่ไม่รองรับ";
 "apple_music_subscription_check_failed" = "ไม่สามารถตรวจสอบสิทธิ์การเล่น Apple Music ได้ โปรดตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง";

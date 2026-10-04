@@ -156,7 +156,8 @@ public enum HomeSectionLayoutPolicy {
     /// 可以自定义条目数的区域及其范围。
     ///
     /// 上限受首页快照本身的取数上限约束 —— 调到比快照更多没有意义,只会让用户
-    /// 以为设置没生效。文件夹与快捷入口另有自己的条目数设置,不在这里重复一份。
+    /// 以为设置没生效。文件夹另有自己的条目数设置,不在这里重复一份。收藏不设上限之后,
+    /// 首页收藏区摆几项就在这里调。
     public static func itemCountRange(for section: HomeSectionKind) -> ClosedRange<Int>? {
         switch section {
         case .continueListening: 4...24
@@ -174,7 +175,8 @@ public enum HomeSectionLayoutPolicy {
         case .startListening: 2...24
         // 一张是原来的大卡片,多张时横着滑。
         case .albumPick: AlbumPickBatchPolicy.visibleCountRange
-        case .quickAccess, .folders, .stats, .continueSpaces: nil
+        case .quickAccess: 3...30
+        case .folders, .stats, .continueSpaces: nil
         }
     }
 
@@ -197,7 +199,9 @@ public enum HomeSectionLayoutPolicy {
         case .podcasts: 10
         case .startListening: 6
         case .albumPick: 1
-        case .quickAccess, .folders, .stats, .continueSpaces: 0
+        // 网格是三列,三行正好九个。
+        case .quickAccess: 9
+        case .folders, .stats, .continueSpaces: 0
         }
     }
 

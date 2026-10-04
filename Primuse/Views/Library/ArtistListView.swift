@@ -180,18 +180,14 @@ struct ArtistListView: View {
                 prompt: Text("filter_artists_placeholder")
             )
             .toolbar {
-                if browsesLibrary {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        ArtistBrowseModeMenu(modeRaw: $browseModeRaw, titled: verticalBarEdge != nil)
-                    }
-                }
-                if showsLikedFilter {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        LibraryLikedFilterButton(isOn: $showsLikedOnly)
-                    }
-                }
                 ToolbarItem(placement: .topBarTrailing) {
-                    ArtistLayoutToolbarButton(titled: verticalBarEdge != nil)
+                    ArtistDisplayMenu(
+                        modeRaw: $browseModeRaw,
+                        offersBrowseModes: browsesLibrary,
+                        showsLikedOnly: $showsLikedOnly,
+                        offersLikedFilter: showsLikedFilter,
+                        titled: verticalBarEdge != nil
+                    )
                 }
             }
             #endif
@@ -452,65 +448,65 @@ struct ArtistListView: View {
 }
 
 #if os(iOS)
-/// 资料库艺术家页列哪些人。工具栏条目跑在自己的视图图里，只收 Binding、不读环境。
-private struct ArtistBrowseModeMenu: View {
+/// 艺术家页右上角唯一的一颗「显示」：列哪些人（全部 / 专辑艺术家）、网格还是列表，
+/// 以及有收藏的艺人时「只看收藏的」。
+/// 工具栏条目跑在自己的视图图里，只收 Binding 与 `@AppStorage`，不读环境。
+private struct ArtistDisplayMenu: View {
     @Binding var modeRaw: String
+    let offersBrowseModes: Bool
+    @Binding var showsLikedOnly: Bool
+    let offersLikedFilter: Bool
     /// 系统竖栏里带上标题(收进溢出菜单时要用),其它时候仍是纯图标。
     var titled = false
 
+    @AppStorage(ArtistLayoutMode.storageKey)
+    private var layoutModeRaw = ArtistLayoutMode.grid.rawValue
+
     private var mode: ArtistBrowseMode { .resolved(modeRaw) }
+
+    /// 列表被收窄了（只列专辑艺术家、只看收藏）时图标实心。
+    private var isNarrowed: Bool {
+        (offersBrowseModes && mode != .allArtists) || showsLikedOnly
+    }
 
     var body: some View {
         Menu {
-            Picker("artist_browse_mode", selection: $modeRaw) {
-                ForEach(ArtistBrowseMode.allCases, id: \.self) { option in
-                    Label(String(localized: option.titleKey), systemImage: option.systemImage)
+            if offersBrowseModes {
+                Picker("artist_browse_mode", selection: $modeRaw) {
+                    ForEach(ArtistBrowseMode.allCases, id: \.self) { option in
+                        Label(String(localized: option.titleKey), systemImage: option.systemImage)
+                            .tag(option.rawValue)
+                    }
+                }
+                .pickerStyle(.inline)
+            }
+
+            Picker("artist_layout", selection: $layoutModeRaw) {
+                ForEach(ArtistLayoutMode.allCases) { option in
+                    Label(String(localized: option.titleKey), systemImage: option.icon)
                         .tag(option.rawValue)
                 }
             }
             .pickerStyle(.inline)
+
+            if offersLikedFilter {
+                Section {
+                    Toggle(isOn: $showsLikedOnly) {
+                        Label("library_favorite_filter", systemImage: "heart")
+                    }
+                }
+            }
         } label: {
-            // 不是默认的「全部艺术家」时图标实心，一眼看出列表被收窄了。
             PMToolbarItemLabel(
-                "artist_browse_mode",
-                systemImage: mode == .allArtists
-                    ? "line.3.horizontal.decrease.circle"
-                    : "line.3.horizontal.decrease.circle.fill",
+                "songs_display_mode",
+                systemImage: isNarrowed
+                    ? "line.3.horizontal.decrease.circle.fill"
+                    : "line.3.horizontal.decrease.circle",
                 titled: titled
             )
         }
-        .accessibilityLabel(Text("artist_browse_mode"))
-        .accessibilityValue(Text(String(localized: mode.titleKey)))
+        .accessibilityLabel(Text("songs_display_mode"))
         .accessibilityIdentifier("artistBrowseMode.menu")
-    }
-}
-
-/// 只有网格/列表两种版式, 与其点开菜单再选, 不如按一下就换 —— 图标画的是「按下去
-/// 会变成的那种」, 当前版式留给旁白读。
-/// 工具栏条目跑在自己的视图图里, 所以这里只读 `@AppStorage`, 不读环境。
-private struct ArtistLayoutToolbarButton: View {
-    @AppStorage(ArtistLayoutMode.storageKey)
-    private var layoutModeRaw = ArtistLayoutMode.grid.rawValue
-    /// 系统竖栏里带上标题(收进溢出菜单时要用),其它时候仍是纯图标。
-    var titled = false
-
-    private var layoutMode: ArtistLayoutMode {
-        ArtistLayoutMode(rawValue: layoutModeRaw) ?? .grid
-    }
-
-    private var nextMode: ArtistLayoutMode {
-        layoutMode == .grid ? .list : .grid
-    }
-
-    var body: some View {
-        Button {
-            layoutModeRaw = nextMode.rawValue
-        } label: {
-            PMToolbarItemLabel(verbatim: String(localized: nextMode.titleKey), systemImage: nextMode.icon, titled: titled)
-        }
-        .accessibilityLabel(Text(String(localized: nextMode.titleKey)))
-        .accessibilityValue(Text(String(localized: layoutMode.titleKey)))
-        .accessibilityIdentifier("artistLayout.toggle")
     }
 }
 #endif

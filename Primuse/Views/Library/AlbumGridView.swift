@@ -117,11 +117,12 @@ struct AlbumGridView: View {
                     prompt: Text("filter_albums_placeholder")
                 )
                 .toolbar {
-                    ToolbarItemGroup(placement: .topBarTrailing) {
-                        AlbumGridOrderMenu(order: albumOrderBinding)
-                        if showsLikedFilter {
-                            LibraryLikedFilterButton(isOn: $showsLikedOnly)
-                        }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        AlbumGridDisplayMenu(
+                            order: albumOrderBinding,
+                            showsLikedOnly: $showsLikedOnly,
+                            offersLikedFilter: showsLikedFilter
+                        )
                     }
                 }
                 .task(id: orderRequest) { await prepareOrderedAlbums(orderRequest) }
@@ -570,9 +571,12 @@ final class AlbumGridOrderCache {
 }
 
 #if !os(macOS)
-/// 专辑页工具栏的排序菜单。工具栏条目跑在自己的视图图里，只收 Binding、不读环境。
-private struct AlbumGridOrderMenu: View {
+/// 专辑页右上角唯一的一颗：排序，以及有收藏的专辑时「只看收藏的」。
+/// 工具栏条目跑在自己的视图图里，只收 Binding、不读环境。
+private struct AlbumGridDisplayMenu: View {
     @Binding var order: AlbumGridOrder
+    @Binding var showsLikedOnly: Bool
+    let offersLikedFilter: Bool
 
     var body: some View {
         Menu {
@@ -583,8 +587,22 @@ private struct AlbumGridOrderMenu: View {
                 }
             }
             .pickerStyle(.inline)
+
+            if offersLikedFilter {
+                Section {
+                    Toggle(isOn: $showsLikedOnly) {
+                        Label("library_favorite_filter", systemImage: "heart")
+                    }
+                }
+            }
         } label: {
-            Label("sort_by", systemImage: "arrow.up.arrow.down")
+            // 只看收藏时图标实心，一眼看出列表被收窄了。
+            Label(
+                "songs_display_mode",
+                systemImage: showsLikedOnly
+                    ? "line.3.horizontal.decrease.circle.fill"
+                    : "line.3.horizontal.decrease.circle"
+            )
         }
         .accessibilityIdentifier("albumGrid.sort")
     }

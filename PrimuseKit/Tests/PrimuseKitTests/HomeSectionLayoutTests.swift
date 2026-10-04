@@ -58,6 +58,17 @@ struct HomeSectionLayoutTests {
         #expect(configuration.styles[HomeSectionKind.startListening.rawValue] == nil)
     }
 
+    @Test("收藏不设上限之后,首页收藏区默认摆九个,能在三到三十之间调")
+    func quickAccessCount() {
+        #expect(HomeSectionLayoutPolicy.itemCountRange(for: .quickAccess) == 3...30)
+        #expect(HomeSectionLayoutPolicy.defaultItemCount(for: .quickAccess) == 9)
+
+        var configuration = HomeSectionLayoutConfiguration()
+        #expect(configuration.itemCount(for: .quickAccess) == nil)
+        configuration.setItemCount(50, for: .quickAccess)
+        #expect(configuration.itemCount(for: .quickAccess) == 30)
+    }
+
     @Test("情景推荐专辑默认一张,能调到十张,没有排布可换")
     func albumPickCount() {
         #expect(HomeSectionLayoutPolicy.itemCountRange(for: .albumPick) == 1...10)

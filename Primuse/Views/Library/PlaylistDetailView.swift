@@ -44,6 +44,8 @@ struct PlaylistDetailView: View {
     @State private var selection = SongSelectionModel()
     /// 空串 = 歌单顺序。存 raw value 是为了让"歌单顺序"也能占一个合法取值。
     @AppStorage("playlistDetailSortOrder") private var displaySortRawValue = ""
+    /// 收藏的顺序就是收藏歌单的账：头部那颗心看它。
+    @AppStorage(LibraryPinStorage.defaultsKey) private var favoritesRawValue = ""
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
 
     /// 镜像歌单 (Apple Music 资料库 / 服务端曲库) 里的条目不给移除入口 —— 我们
@@ -359,6 +361,24 @@ struct PlaylistDetailView: View {
         } message: { Text(exportError ?? "") }
     }
 
+    private var favoritePin: QuickAccessPinReference {
+        QuickAccessPinReference(kind: .playlist, itemID: playlist.id)
+    }
+
+    private var isCollected: Bool {
+        LibraryPinStorage.decode(favoritesRawValue).contains(favoritePin)
+    }
+
+    /// Mac 头部那颗心：和 iPhone 头部、歌单列表长按菜单里的收藏是同一件事。
+    private var playlistFavorite: LibraryDetailFavoriteToggle {
+        let pin = favoritePin
+        let isFavorite = isCollected
+        let library = library
+        return LibraryDetailFavoriteToggle(isLiked: isFavorite) {
+            FavoriteCollectionStore.shared.setCollected(!isFavorite, pin, library: library)
+        }
+    }
+
     /// 工具栏里那颗「⋯」。
     @ToolbarContentBuilder
     private var playlistMoreToolbarItem: some ToolbarContent {
@@ -366,7 +386,7 @@ struct PlaylistDetailView: View {
             Menu {
                 playlistMoreMenuContent
             } label: {
-                Image(systemName: "ellipsis.circle")
+                Image(systemName: "ellipsis")
             }
             // Do not disable the whole menu for an empty playlist. Actions
             // that require tracks already carry their own disabled state,
@@ -623,6 +643,21 @@ struct PlaylistDetailView: View {
             .buttonStyle(.bordered)
             .controlSize(.large)
             .accessibilityLabel(Text("shuffle"))
+
+            let isFavorite = isCollected
+            Button {
+                FavoriteCollectionStore.shared.setCollected(!isFavorite, favoritePin, library: library)
+            } label: {
+                Image(systemName: isFavorite ? "heart.fill" : "heart")
+                    .font(.headline)
+                    .frame(width: 24, height: 24)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .accessibilityLabel(Text(isFavorite ? "library_favorite_unlike" : "library_favorite_like"))
+            .accessibilityAddTraits(isFavorite ? .isSelected : [])
+            .accessibilityIdentifier("playlistDetail.favorite")
 
             Button {
                 sourceManager.downloadForOffline(songs: songs)
@@ -887,7 +922,8 @@ struct PlaylistDetailView: View {
                         onShuffle: {
                             playAll(shuffled: true)
                         },
-                        moreMenu: playlistMoreMenu
+                        moreMenu: playlistMoreMenu,
+                        favorite: playlistFavorite
                     )
 
                     VStack(alignment: .leading, spacing: PMSpace.l) {

@@ -1638,6 +1638,8 @@ final class AppServices {
         // 服务器上新建的歌单不该等到用户想起来去手动扫一次曲库才出现(#142)。
         serverMirrorRefresh.startColdLaunchRefresh()
         #if os(iOS) || os(macOS)
+        // 收藏区跟着专辑 / 艺人的收藏调整顺序；改成「收藏」那一版的迁移也在这里做一次。
+        FavoriteCollectionStore.shared.start(library: musicLibrary)
         // 电台清单订阅：等启动忙完再查哪些到期了，别和首屏抢网络。
         RadioSubscriptionService.shared.startAfterLaunch()
         // 播客：订阅读盘、按店面判定能用哪些入口，再刷新到期的节目。

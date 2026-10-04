@@ -3017,14 +3017,15 @@ public enum AppleMusicPlaybackEndPolicy {
     }
 }
 
-/// Versioned persistence for the Library/Home quick-access selection.
+/// Versioned persistence for the Library/Home favorites (formerly a capped
+/// quick-access selection).
 ///
 /// Version 1 stored a bare array and rendered Liked Songs outside that array,
 /// which meant it could neither be hidden nor reordered. Version 2 stores the
 /// complete ordered selection, including Liked Songs. Decoding a legacy array
 /// prepends the supplied default pin once, preserving the old visible result.
 public enum QuickAccessPinKind: String, Codable, Sendable {
-    case album, artist, playlist
+    case album, artist, playlist, folder
 }
 
 public struct QuickAccessPinReference: Codable, Hashable, Identifiable, Sendable {
@@ -3037,6 +3038,28 @@ public struct QuickAccessPinReference: Codable, Hashable, Identifiable, Sendable
     }
 
     public var id: String { "\(kind.rawValue):\(itemID)" }
+}
+
+extension QuickAccessPinReference {
+    /// 收藏的目录。`itemID` 是「来源 id · 节点类型 · 相对路径」用 U+001F 拼起来的串：
+    /// 和首页目录置顶列表的 JSON 不同，它不受编码器键序影响，同一个目录永远是同一个串。
+    public static func folder(_ id: LibraryFolderNodeID) -> QuickAccessPinReference {
+        QuickAccessPinReference(
+            kind: .folder,
+            itemID: [id.sourceID, id.kind.rawValue, id.normalizedRelativePath].joined(separator: "\u{1F}")
+        )
+    }
+
+    public var folderNodeID: LibraryFolderNodeID? {
+        guard kind == .folder else { return nil }
+        let parts = itemID.split(separator: "\u{1F}", maxSplits: 2, omittingEmptySubsequences: false)
+        guard parts.count == 3, let kind = LibraryFolderNodeKind(rawValue: String(parts[1])) else { return nil }
+        return LibraryFolderNodeID(
+            sourceID: String(parts[0]),
+            kind: kind,
+            normalizedRelativePath: String(parts[2])
+        )
+    }
 }
 
 /// 「编辑快捷收藏」候选列表的筛选规则。
@@ -3070,58 +3093,111 @@ public enum QuickAccessCandidatePolicy {
     }
 }
 
+/// 收藏不再有数量上限：存多少读多少。读的时候认不出类型的条目（更新的版本存下的）
+/// 跳过，不让整份收藏因为一条读不懂就退回默认。
 public enum QuickAccessPinStorageCodec {
-    private struct Envelope: Codable {
+    private struct Envelope: Encodable {
         let version: Int
         let pins: [QuickAccessPinReference]
     }
 
-    public static func decode(
-        _ rawValue: String,
-        defaultPins: [QuickAccessPinReference],
-        maximumCount: Int
-    ) -> [QuickAccessPinReference] {
-        guard maximumCount > 0 else { return [] }
-        guard !rawValue.isEmpty, let data = rawValue.data(using: .utf8) else {
-            return normalized(defaultPins, maximumCount: maximumCount)
-        }
-
-        if let envelope = try? JSONDecoder().decode(Envelope.self, from: data),
-           envelope.version >= 2 {
-            return normalized(envelope.pins, maximumCount: maximumCount)
-        }
-
-        if let legacyPins = try? JSONDecoder().decode([QuickAccessPinReference].self, from: data) {
-            return normalized(defaultPins + legacyPins, maximumCount: maximumCount)
-        }
-
-        return normalized(defaultPins, maximumCount: maximumCount)
+    private struct StoredEnvelope: Decodable {
+        let version: Int
+        let pins: [StoredPin]
     }
 
-    public static func encode(
-        _ pins: [QuickAccessPinReference],
-        maximumCount: Int
-    ) -> String {
-        let envelope = Envelope(
-            version: 2,
-            pins: normalized(pins, maximumCount: maximumCount)
-        )
+    private struct StoredPin: Decodable {
+        let pin: QuickAccessPinReference?
+
+        private enum CodingKeys: String, CodingKey { case kind, itemID }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let kind = (try? container.decode(String.self, forKey: .kind)).flatMap(QuickAccessPinKind.init(rawValue:))
+            let itemID = try? container.decode(String.self, forKey: .itemID)
+            if let kind, let itemID {
+                pin = QuickAccessPinReference(kind: kind, itemID: itemID)
+            } else {
+                pin = nil
+            }
+        }
+    }
+
+    public static func decode(
+        _ rawValue: String,
+        defaultPins: [QuickAccessPinReference]
+    ) -> [QuickAccessPinReference] {
+        guard !rawValue.isEmpty, let data = rawValue.data(using: .utf8) else {
+            return normalized(defaultPins)
+        }
+
+        if let envelope = try? JSONDecoder().decode(StoredEnvelope.self, from: data),
+           envelope.version >= 2 {
+            return normalized(envelope.pins.compactMap(\.pin))
+        }
+
+        if let legacyPins = try? JSONDecoder().decode([StoredPin].self, from: data) {
+            return normalized(defaultPins + legacyPins.compactMap(\.pin))
+        }
+
+        return normalized(defaultPins)
+    }
+
+    public static func encode(_ pins: [QuickAccessPinReference]) -> String {
+        let envelope = Envelope(version: 2, pins: normalized(pins))
         guard let data = try? JSONEncoder().encode(envelope) else { return "" }
         return String(decoding: data, as: UTF8.self)
     }
 
-    private static func normalized(
-        _ pins: [QuickAccessPinReference],
-        maximumCount: Int
+    private static func normalized(_ pins: [QuickAccessPinReference]) -> [QuickAccessPinReference] {
+        var seen = Set<QuickAccessPinReference>()
+        return pins.filter { seen.insert($0).inserted }
+    }
+}
+
+/// 收藏区的顺序。
+///
+/// 存下来的顺序只决定「怎么排」，不全决定「有没有」：专辑与艺人收没收藏以喜欢的账本为准
+/// （会经 iCloud、服务端同步过来），目录以首页目录的置顶列表为准，歌单就看存下来的这一份。
+/// 显示时存着的顺序里已经不再收藏的跳过；收藏着却还没排进顺序的（另一台设备点的、服务端带回来的）
+/// 和新收藏一样排在最前。
+public enum FavoriteCollectionOrderPolicy {
+    /// 新收藏插进去的位置：最前；开头是 `anchor`（「我喜欢」）时排在它后面。
+    public static func insertionIndex(
+        in pins: [QuickAccessPinReference],
+        anchor: QuickAccessPinReference?
+    ) -> Int {
+        guard let anchor, pins.first == anchor else { return 0 }
+        return 1
+    }
+
+    /// 把一批新收藏按给定顺序放到最前（`added[0]` 排第一）。已经在列表里的先拿出来再放，
+    /// 不会出现两份。
+    public static func inserting(
+        _ added: [QuickAccessPinReference],
+        into pins: [QuickAccessPinReference],
+        anchor: QuickAccessPinReference?
     ) -> [QuickAccessPinReference] {
         var seen = Set<QuickAccessPinReference>()
-        var result: [QuickAccessPinReference] = []
-        result.reserveCapacity(min(pins.count, maximumCount))
-        for pin in pins where seen.insert(pin).inserted {
-            result.append(pin)
-            if result.count == maximumCount { break }
-        }
+        let moving = added.filter { seen.insert($0).inserted }
+        guard !moving.isEmpty else { return pins }
+        var result = pins.filter { !seen.contains($0) }
+        result.insert(contentsOf: moving, at: insertionIndex(in: result, anchor: anchor))
         return result
+    }
+
+    /// 显示顺序：`stored` 里仍收藏着的照原顺序，`collectedButUnordered` 里还没在 `stored` 中的
+    /// 按给定顺序排到最前。
+    public static func merged(
+        stored: [QuickAccessPinReference],
+        isCollected: (QuickAccessPinReference) -> Bool,
+        collectedButUnordered: [QuickAccessPinReference],
+        anchor: QuickAccessPinReference?
+    ) -> [QuickAccessPinReference] {
+        var seen = Set<QuickAccessPinReference>()
+        let kept = stored.filter { seen.insert($0).inserted && isCollected($0) }
+        let unordered = collectedButUnordered.filter { seen.insert($0).inserted }
+        return inserting(unordered, into: kept, anchor: anchor)
     }
 }
 

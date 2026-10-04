@@ -174,7 +174,7 @@
 "onboarding_privacy_icloud" = "Arşiv ayarları yalnızca iCloud cihazınız aracılığıyla senkronize edilir";
 "local_import_progress_discovering" = "İçe aktarılabilir ses bulunuyor…";
 "scrobble_mac_confirming" = "Onaylanıyor";
-"library_add_quick_access" = "Kısayol Ekle";
+"library_add_quick_access" = "Favorilere Ekle";
 "smart_field_durationSec" = "Süre (ler)";
 "yearly_card_top_artist_detail_format" = "%d defa oynandı, toplam %@";
 "onboarding_privacy_local" = "Ses dosyaları asla kaynaklarınızdan ayrılmaz";
@@ -531,7 +531,7 @@
 "Update Available" = "Güncelleme Mevcut";
 "scrobble_lastfm_api_secret_placeholder" = "API Gizli";
 "Shuffle Library" = "Arşivi karıştır";
-"onboarding_personalization_quick" = "Hızlı erişim için albümleri, sanatçıları ve çalma listelerini sabitleyin";
+"onboarding_personalization_quick" = "Albümleri, sanatçıları, çalma listelerini ve klasörleri favorilere ekleyip istediğiniz an açın";
 "update_banner_later" = "Daha Sonra Hatırlat";
 "search_section_metadata" = "Başlık / Sanatçı / Albüm";
 "lyrics_translation_enabled" = "Çeviriyi Etkinleştir";
@@ -1155,7 +1155,6 @@
 "smart_field_lastPlayedAt" = "Son Oynanan";
 "search_apple_music_catalog_section" = "Apple Music · Katalog";
 "stats_range_subtitle_format" = "%1$@ — Bugün · %2$d günler";
-"library_quick_access_count" = "Hızlı Erişim Sayısı";
 "lang_zh_hans" = "Çince (Basitleştirilmiş)";
 "family_sharing_shared_header" = "Aileyle paylaşıldı";
 "playlist_import_unmatched_group" = "Eşsiz";
@@ -1332,7 +1331,7 @@
 "lyrics_play_from_line" = "Bu satırdan çal";
 "artist_name_settings_display_separator_placeholder" = "Örneğin, /";
 "tag_editor_lyrics_placeholder" = "Sade şarkı sözlerini girin, LRC veya ELRC…";
-"library_quick_access_selected_empty" = "Hiçbir kısayol seçilmedi";
+"library_quick_access_selected_empty" = "Henüz favori yok";
 "family_sharing_create" = "Aile paketi oluştur";
 "fullscreen_effect_collection_cover_reactive" = "Kapak odaklı";
 "material_liquid_glass" = "Sıvı Cam";
@@ -1555,7 +1554,7 @@
 "song_details_parse_failed_message" = "Dosya baytları okundu, ancak mevcut ayrıştırıcı tüm ayrıntıları doğrulayamadı. Mevcut herhangi bir oynatma yolu etkin durumda kalır.";
 "Sleep Timer" = "Uyku Zamanlayıcısı";
 "delete_song_message" = "Kaynak silmeyi desteklediğinde kaynak şarkı dosyası kaldırılacaktır. Aynı isimli cover/şarkı sözü dosyaları yalnızca başka hiçbir şarkı bunları kullanmadığında kaldırılır ve yerel önbellekler temizlenir.";
-"library_quick_access_selected" = "Seçildi";
+"library_quick_access_selected" = "Favorilerde";
 "Target Language" = "Hedef Dil";
 "smart_mac_match_satisfy" = "Maç";
 "relay_import_ticket_note" = "Bu ithalat bileti bir kez çalışır ve 10 dakika sonra geçerliliği sona erer. Paylaşım şifresini içermez.";
@@ -1785,7 +1784,6 @@
 "lyrics_editor_clear_stamp" = "Zaman damgasını sil";
 "Apple Music · Restricted" = "Apple Music · Sınırlı";
 "Sync Now" = "Şimdi Eşitle";
-"library_quick_access_limit_description" = "Bu sınırı Ayarlar > Görünüm > Arşiv Görünümü'nde ayarlayın.";
 "cloud_guide_pan115" = "Geliştirici uygulamasına başvurmak için 115.com açık platformuna gidin";
 "home_hero_narrative_night" = "Bu gece arşivinizde %@ hikayeleri var";
 "Current" = "Güncel";
@@ -1813,7 +1811,7 @@
 "sort_oldest_to_newest" = "En eskiden en yeniye";
 "ai_add_provider" = "Hizmet Ekle";
 "lyrics_editor_clear_all" = "Tümünü Temizle";
-"library_edit_quick_access" = "Hızlı Erişimi Düzenle";
+"library_edit_quick_access" = "Favorileri Düzenle";
 "ai_primuse_relay_diagnostic_storekit_unavailable_detail" = "Bu kurulum doğrulanabilir bir App Store işlemi elde edemedi. App Store'de oturum açın ve yeniden deneyin; Xcode geliştirme yapısı, doğrulama için TestFlight veya App Store kurulumu gerektirebilir.";
 "metadata_status_incomplete_unverified_reason" = "Bu kayıt aynı dosyanın tam okunmasını tamamlamamıştır, dolayısıyla eksik kaynak etiketlerini eksik okuma veya ayrıştırmadan henüz ayırt edemez. Onaylamak için bu şarkıyı tekrar okuyun.";
 "fullscreen_effect_cover_gallery" = "Kapak Galerisi";
@@ -2061,7 +2059,7 @@
 "fullscreen_effect_visualizer_subtitle" = "Parçacık bulutsusu ve spektral ufuk";
 "Enabled Sources" = "Etkinleştirilen Kaynaklar";
 "error_credential_read_failed %@" = "Saklanan kimlik bilgisi okunamadı (%@).";
-"home_section_quick_access" = "Hızlı erişim";
+"home_section_quick_access" = "Favoriler";
 "lyrics_transcription_model_footer" = "Uyumlu modeller Google'nin kimliği doğrulanmış model kataloğundan yüklenir; Primuse bir yayın adı üstlenmez.";
 "live_badge" = "CANLI";
 "source_diag_config_missing_bucket" = "S3 kovası eksik.";
@@ -2789,12 +2787,12 @@
 "check_for_updates_up_to_date" = "Son sürümdesiniz";
 "ai_remove_provider_confirm" = "Bu hizmet ve yerel anahtarı kaldırılsın mı?";
 "lang_ru" = "Rusça";
-"library_liked_albums_title" = "Beğenilen albümler";
-"library_liked_artists_title" = "Beğenilen sanatçılar";
-"library_favorite_like" = "Beğen";
-"library_favorite_unlike" = "Beğenmekten vazgeç";
-"library_favorite_filter" = "Yalnızca beğenilenleri göster";
-"library_favorite_filter_short" = "Beğenilenler";
+"library_liked_albums_title" = "Favori albümler";
+"library_liked_artists_title" = "Favori sanatçılar";
+"library_favorite_like" = "Favorilere Ekle";
+"library_favorite_unlike" = "Favorilerden Çıkar";
+"library_favorite_filter" = "Yalnızca favorileri göster";
+"library_favorite_filter_short" = "Favoriler";
 "library_folder_rescan" = "Bu klasörü yeniden tara";
 "reread_song_tags" = "Dosya Etiketlerini Tekrar Okuyun";
 "radio_live" = "Canlı radyo";
@@ -3124,6 +3122,8 @@
 "tag_editor_lyrics_summary_partial" = "%2$d satırdan %1$d tanesi zamanlandı";
 "library_quick_access_loading" = "Kitaplık yükleniyor…";
 "library_quick_access_search_prompt" = "Albümleri, sanatçıları veya çalma listelerini arayın";
+"favorites_empty_description" = "Bir albüm, sanatçı, çalma listesi veya klasördeki kalbe dokunarak buraya ekleyin.";
+"favorites_count_format" = "%d öğe";
 "Drag to Reorder" = "Yeniden Sıralamak için Sürükleyin";
 "tag_editor_lyrics_delete_confirm_message" = "Yazılabilir kaynaklarda aynı adlı şarkı sözü dosyası da silinir. Salt okunur kaynaklarda yalnızca Primuse'ın önbelleğindeki sözler kaldırılır.";
 "s3_access_key" = "Erişim Anahtarı";
@@ -3284,7 +3284,6 @@
 "filter_songs_placeholder" = "Şarkıları filtrele…";
 "paste_config" = "Yapılandırmayı Yapıştır";
 "home_active_scans" = "Tarama";
-"library_quick_access_count_description" = "Arşiv ve Ana Sayfa'da gösterilen Hızlı Erişim öğelerinin maksimum sayısını ayarlayın.";
 "add_trusted_domain_message" = "Bir alan adı girin (ör. nas.example.com). Bu alan adı için SSL sertifika doğrulaması atlanacak.";
 "ssh_key" = "SSH Anahtarı";
 "source_cache_all_loading" = "Önbelleğe alma";
@@ -3852,7 +3851,7 @@
 "player_current_lyric_color_description" = "Yalnızca geçerli satırı ve sözcük düzeyindeki vurgu rengini değiştirir; Aktif olmayan şarkı sözleri mevcut görünümlerini korur.";
 "cloud_recheck" = "Tekrar kontrol edin";
 "home_pipeline_sources" = "Kaynaklar";
-"library_quick_access" = "Hızlı erişim";
+"library_quick_access" = "Favoriler";
 "intent_scrape_deferred" = "Primuse aktif hale geldiğinde üst veri alma üst verisi başlayacaktır.";
 "similar_failed" = "Yüklenemedi";
 "ai_primuse_relay_diagnostic_auth_detail" = "Primuse yeniden kaydoldu ve bir kez yeniden denendi, ancak hizmet yine de bu yükleme kimlik bilgisini reddetti.";
@@ -3920,12 +3919,12 @@
 "stats_chart_minutes" = "Dakika";
 "stats_chart_hour" = "Saat";
 
-"library_quick_access_cover_style" = "Hızlı Erişim Kapakları";
+"library_quick_access_cover_style" = "Favori Kapakları";
 "library_quick_access_cover_default" = "Varsayılan (türe göre)";
 "library_quick_access_cover_circle" = "Tümü yuvarlak";
 "library_quick_access_cover_square" = "Tümü kare";
 "library_quick_access_cover_collage" = "Tümü kolaj";
-"library_quick_access_cover_description" = "Ana Sayfa ve Arşivdeki Hızlı Erişime uygulanır. Varsayılan, mevcut stilleri korur. Tek tip stiller beğenilen şarkılar için şarkı görsellerini kullanır; kolajlar dört kutuyu doldurmak için mevcut görselleri tekrarlar.";
+"library_quick_access_cover_description" = "Ana Sayfa ve Arşivdeki Favorilere uygulanır. Varsayılan, mevcut stilleri korur. Tek tip stiller beğenilen şarkılar için şarkı görsellerini kullanır; kolajlar dört kutuyu doldurmak için mevcut görselleri tekrarlar.";
 
 "playback_error_local_audio" = "Bu ses dosyasının kodu çözülemedi. Dosya bozuk olabilir veya desteklenmeyen bir kodlama kullanıyor olabilir.";
 "apple_music_subscription_check_failed" = "Apple Music çalma izni doğrulanamadı. Bağlantınızı kontrol edip tekrar deneyin.";

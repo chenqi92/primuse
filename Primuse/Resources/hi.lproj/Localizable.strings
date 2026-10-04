@@ -1573,7 +1573,7 @@
 "home_edit_move_up" = "ऊपर ले जाएँ";
 "home_edit_move_down" = "नीचे ले जाएँ";
 "home_settings_restore_all" = "डिफ़ॉल्ट लेआउट पुनर्स्थापित करें";
-"home_section_quick_access" = "त्वरित पहुंच";
+"home_section_quick_access" = "पसंदीदा";
 "home_section_recently_added" = "हाल ही में जोड़ा गया";
 "home_section_top_artists" = "बार-बार सुना गया";
 "home_section_view_all" = "सभी देखें";
@@ -1783,7 +1783,7 @@
 "later" = "बाद में";
 "library" = "लाइब्रेरी";
 "library_preparing" = "लाइब्रेरी तैयार की जा रही है...";
-"library_add_quick_access" = "शॉर्टकट जोड़ें";
+"library_add_quick_access" = "पसंदीदा में जोड़ें";
 "library_browse" = "लाइब्रेरी ब्राउज़ करें";
 "library_browse_flat" = "सपाट";
 "library_browse_folder" = "फ़ोल्डर्स";
@@ -1796,7 +1796,7 @@
 "library_default_flat_view" = "गानों को डिफ़ॉल्ट रूप से एक सपाट सूची के रूप में दिखाएं";
 "library_default_flat_view_description" = "बंद होने पर, गाने स्रोत और फ़ोल्डर पदानुक्रम में खुलते हैं। चालू होने पर, गीत लाइब्रेरी एक सपाट सूची के रूप में खुलती है।";
 "library_display_settings_title" = "लाइब्रेरी प्रदर्शन";
-"library_edit_quick_access" = "त्वरित पहुँच संपादित करें";
+"library_edit_quick_access" = "पसंदीदा संपादित करें";
 "library_folder_apple_music_library_songs" = "लाइब्रेरी गाने";
 "library_folder_apple_music_not_in_playlist" = "प्लेलिस्ट में नहीं";
 "library_folder_apple_music_unnamed_playlist" = "शीर्षकहीन प्लेलिस्ट";
@@ -1810,14 +1810,13 @@
 "library_folder_uncategorized" = "अवर्गीकृत";
 "library_info" = "लाइब्रेरी";
 "library_manage_header" = "प्रबंधित करें";
-"library_quick_access" = "त्वरित पहुंच";
-"library_quick_access_count" = "त्वरित पहुंच गणना";
-"library_quick_access_count_description" = "लाइब्रेरी और होम में दिखाए गए त्वरित एक्सेस आइटम की अधिकतम संख्या निर्धारित करें।";
-"library_quick_access_limit_description" = "इस सीमा को सेटिंग्स > उपस्थिति > लाइब्रेरी डिस्प्ले में समायोजित करें।";
+"library_quick_access" = "पसंदीदा";
 "library_quick_access_loading" = "लाइब्रेरी लोड हो रही है…";
 "library_quick_access_search_prompt" = "एल्बम, कलाकार या प्लेलिस्ट खोजें";
-"library_quick_access_selected" = "चयनित";
-"library_quick_access_selected_empty" = "कोई शॉर्टकट चयनित नहीं";
+"favorites_empty_description" = "किसी एल्बम, कलाकार, प्लेलिस्ट या फ़ोल्डर पर दिल टैप करें, वह यहाँ जुड़ जाएगा।";
+"favorites_count_format" = "%d आइटम";
+"library_quick_access_selected" = "पसंदीदा में";
+"library_quick_access_selected_empty" = "अभी कोई पसंदीदा नहीं";
 "library_recommendations_description" = "बजाने योग्य गाने पहले डिवाइस पर चुने जाते हैं। जब कोई बुद्धिमान सेवा सक्षम होती है, तो यह केवल उन्हें पुन: व्यवस्थित करती है और बताती है कि क्यों।";
 "library_recommendations_empty_description" = "सुनने के दृश्य और अनुशंसा फ़ोकस द्वारा गाने व्यवस्थित करने के लिए संगीत स्रोत जोड़ें और स्कैन करें।";
 "library_recommendations_empty_title" = "अभी तक अनुशंसा करने योग्य कुछ भी नहीं है";
@@ -2314,7 +2313,7 @@
 "onboarding_guide_player_more" = "अधिक: DLNA डिवाइस पर कास्ट करें, स्लीप टाइमर लगाएँ या लिरिक्स पोस्टर साझा करें";
 "onboarding_personalization_home" = "होम पर अनुभाग दिखाएं, छुपाएं और पुन: व्यवस्थित करें";
 "onboarding_personalization_icon" = "सेटिंग्स > उपस्थिति में अपना ऐप आइकन चुनें";
-"onboarding_personalization_quick" = "त्वरित पहुंच के लिए एल्बम, कलाकार और प्लेलिस्ट पिन करें";
+"onboarding_personalization_quick" = "एल्बम, कलाकार, प्लेलिस्ट और फ़ोल्डर पसंदीदा में जोड़ें और कभी भी खोलें";
 "onboarding_personalization_title" = "घर को अपने जैसा महसूस कराएं";
 "onboarding_privacy_icloud" = "लाइब्रेरी सेटिंग्स केवल आपके iCloud के माध्यम से सिंक होती हैं";
 "onboarding_privacy_local" = "ऑडियो फ़ाइलें आपके स्रोत कभी नहीं छोड़तीं";
@@ -2703,8 +2702,8 @@
 "replay_gain_desc" = "ऑडियो फ़ाइलों में एम्बेडेड ReplayGain टैग के आधार पर स्वचालित रूप से वॉल्यूम समायोजित करें।";
 "library_liked_albums_title" = "पसंदीदा एल्बम";
 "library_liked_artists_title" = "पसंदीदा कलाकार";
-"library_favorite_like" = "पसंद करें";
-"library_favorite_unlike" = "पसंद हटाएँ";
+"library_favorite_like" = "पसंदीदा में जोड़ें";
+"library_favorite_unlike" = "पसंदीदा से हटाएँ";
 "library_favorite_filter" = "केवल पसंदीदा दिखाएँ";
 "library_favorite_filter_short" = "पसंदीदा";
 "library_folder_rescan" = "इस फ़ोल्डर को फिर से स्कैन करें";
@@ -3920,12 +3919,12 @@
 "stats_chart_minutes" = "मिनट";
 "stats_chart_hour" = "घंटा";
 
-"library_quick_access_cover_style" = "त्वरित पहुँच के कवर";
+"library_quick_access_cover_style" = "पसंदीदा के कवर";
 "library_quick_access_cover_default" = "डिफ़ॉल्ट (प्रकार के अनुसार)";
 "library_quick_access_cover_circle" = "सभी गोलाकार";
 "library_quick_access_cover_square" = "सभी वर्गाकार";
 "library_quick_access_cover_collage" = "सभी कोलाज";
-"library_quick_access_cover_description" = "होम और लाइब्रेरी की त्वरित पहुँच पर लागू होता है। डिफ़ॉल्ट मौजूदा शैली रखता है। एकसमान शैलियाँ पसंदीदा गानों के लिए गाने की तस्वीरें इस्तेमाल करती हैं; कोलाज चार खानों को भरने के लिए उपलब्ध तस्वीरें दोहराता है।";
+"library_quick_access_cover_description" = "होम और लाइब्रेरी के पसंदीदा पर लागू होता है। डिफ़ॉल्ट मौजूदा शैली रखता है। एकसमान शैलियाँ पसंदीदा गानों के लिए गाने की तस्वीरें इस्तेमाल करती हैं; कोलाज चार खानों को भरने के लिए उपलब्ध तस्वीरें दोहराता है।";
 
 "playback_error_local_audio" = "इस ऑडियो फ़ाइल को डिकोड नहीं किया जा सका। यह क्षतिग्रस्त हो सकती है या असमर्थित एन्कोडिंग का उपयोग कर सकती है।";
 "apple_music_subscription_check_failed" = "Apple Music की प्लेबैक अनुमति की पुष्टि नहीं हो सकी। अपना कनेक्शन जाँचें और दोबारा कोशिश करें।";

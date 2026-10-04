@@ -274,6 +274,7 @@ struct HomeFolderManagementView: View {
 struct HomeFolderArtwork: View {
     let node: LibraryFolderNode
     var size: CGFloat = 54
+    var cornerRadius: CGFloat = 9
     @Environment(HomeDiscoveryModel.self) private var model
 
     var body: some View {
@@ -296,7 +297,7 @@ struct HomeFolderArtwork: View {
             }
         }
         .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: 9))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .accessibilityHidden(true)
     }
 
@@ -359,14 +360,13 @@ private struct HomeFolderRow: View {
         .contextMenu {
             Button("play", systemImage: "play.fill") { play(shuffle: false) }
             Button("shuffle", systemImage: "shuffle") { play(shuffle: true) }
-            Button(HomeDiscoveryText.string("unpin_folder"), systemImage: "pin.slash") {
-                pinsRawValue = HomeFolderPinStorage.replacingVisiblePins(
-                    in: pinsRawValue,
-                    with: model.pins(from: pinsRawValue).filter { $0 != node.id },
-                    index: model.index,
-                    defaultCount: UserDefaults.standard.object(forKey: HomeFolderPinStorage.displayCountKey) as? Int
-                        ?? HomeFolderPinStorage.defaultDisplayCount
-                )
+            // 没收藏过目录时首页摆的是自动推荐的几个，它们还不算收藏。
+            let collected = FavoriteCollectionStore.collectedFolderIDs(in: pinsRawValue).contains(node.id)
+            Button(
+                HomeDiscoveryText.string(collected ? "unpin_folder" : "pin_folder"),
+                systemImage: collected ? "heart.slash" : "heart"
+            ) {
+                FavoriteCollectionStore.shared.setCollected(!collected, .folder(node.id), library: library)
             }
         }
     }
@@ -465,7 +465,10 @@ struct HomeFolderBrowser: View {
     }
 
     private var node: LibraryFolderNode? { currentNodeID.flatMap { model.index?.node(withID: $0) } }
-    private var pins: [LibraryFolderNodeID] { model.pins(from: pinsRawValue) }
+    /// 收藏的目录。没收藏过时首页自动推荐的那几个不算，这里也不列。
+    private var pins: [LibraryFolderNodeID] {
+        pinsRawValue.isEmpty ? [] : model.pins(from: pinsRawValue)
+    }
     private var children: [LibraryFolderNode] {
         if let currentNodeID, let index = model.index {
             return LibraryFolderBrowsePolicy.displayedChildren(in: index, of: currentNodeID)
@@ -510,12 +513,14 @@ struct HomeFolderBrowser: View {
         directSongs = (nodeID, ordered)
     }
 
+    /// 收藏的目录排过序、删过之后：顺序只改这一份，删掉的也从收藏区拿掉。
     private func savePins(_ updated: [LibraryFolderNodeID]) {
         pinsRawValue = HomeFolderPinStorage.replacingVisiblePins(
             in: pinsRawValue, with: updated, index: model.index,
             defaultCount: UserDefaults.standard.object(forKey: HomeFolderPinStorage.displayCountKey) as? Int
                 ?? HomeFolderPinStorage.defaultDisplayCount
         )
+        FavoriteCollectionStore.shared.didEditCollectedFolders(pinsRawValue)
     }
 
     private var legacyBottomClearance: CGFloat {
@@ -724,14 +729,6 @@ struct HomeFolderBrowser: View {
             if let node {
                 ToolbarItemGroup(placement: .primaryAction) {
                     pinButton(node.id, titled: verticalBarEdge != nil)
-                    Menu {
-                        Button("play", systemImage: "play.fill") { playFolder(node.id, shuffle: false) }
-                        Button("shuffle", systemImage: "shuffle") { playFolder(node.id, shuffle: true) }
-                    } label: {
-                        PMToolbarItemLabel("play", systemImage: "play.circle", titled: verticalBarEdge != nil)
-                    }
-                    .disabled(node.descendantSongCount == 0)
-                    .accessibilityLabel("play")
                     if verticalBarEdge == nil {
                         Menu {
                             folderMoreItems(node)
@@ -757,9 +754,19 @@ struct HomeFolderBrowser: View {
         #endif
     }
 
-    /// 目录页「⋯」里的动作：用作歌单（有的来源才有）和歌曲排序。
+    /// 目录页「⋯」里的动作：顶上一行播放、随机播放，下面是用作歌单（有的来源才有）和歌曲排序。
     @ViewBuilder
     private func folderMoreItems(_ node: LibraryFolderNode) -> some View {
+        PMMenuQuickActions {
+            PMMenuQuickActionButton(shortKey: "play", fullKey: "play", systemImage: "play.fill") {
+                playFolder(node.id, shuffle: false)
+            }
+            .disabled(node.descendantSongCount == 0)
+            PMMenuQuickActionButton(shortKey: "shuffle", fullKey: "shuffle", systemImage: "shuffle") {
+                playFolder(node.id, shuffle: true)
+            }
+            .disabled(node.descendantSongCount == 0)
+        }
         if FolderPlaylistMenuButton.supports(node) {
             FolderPlaylistMenuButton(
                 node: node,
@@ -792,7 +799,7 @@ struct HomeFolderBrowser: View {
                         .foregroundStyle(PMColor.textMuted)
                         .frame(maxWidth: .infinity, minHeight: 84, alignment: .leading)
                         .contextMenu {
-                            Button(HomeDiscoveryText.string("unpin_folder"), systemImage: "pin.slash") { togglePin(id) }
+                            Button(HomeDiscoveryText.string("unpin_folder"), systemImage: "heart.slash") { togglePin(id) }
                         }
                 }
             }
@@ -831,7 +838,7 @@ struct HomeFolderBrowser: View {
             .disabled(pins.first == folder.id)
         Button("ai_move_down", systemImage: "arrow.down") { moveMacPin(folder.id, by: 1) }
             .disabled(pins.last == folder.id)
-        Button(HomeDiscoveryText.string("unpin_folder"), systemImage: "pin.slash") { togglePin(folder.id) }
+        Button(HomeDiscoveryText.string("unpin_folder"), systemImage: "heart.slash") { togglePin(folder.id) }
     }
 
     private func moveMacPin(_ id: LibraryFolderNodeID, by offset: Int) {
@@ -1114,7 +1121,7 @@ struct HomeFolderBrowser: View {
         if child.kind != .source {
             let pinned = pins.contains(child.id)
             Button(HomeDiscoveryText.string(pinned ? "unpin_folder" : "pin_folder"),
-                   systemImage: pinned ? "pin.slash" : "pin") {
+                   systemImage: pinned ? "heart.slash" : "heart") {
                 togglePin(child.id)
             }
         }
@@ -1232,14 +1239,14 @@ struct HomeFolderBrowser: View {
             Button {
                 togglePin(id)
             } label: {
-                PMToolbarItemLabel(verbatim: title, systemImage: pinned ? "pin.fill" : "pin", titled: true)
+                PMToolbarItemLabel(verbatim: title, systemImage: pinned ? "heart.fill" : "heart", titled: true)
             }
             .accessibilityLabel(title)
         } else {
             Button {
                 togglePin(id)
             } label: {
-                Image(systemName: pinned ? "pin.fill" : "pin")
+                Image(systemName: pinned ? "heart.fill" : "heart")
                     #if os(macOS)
                     .frame(width: 30, height: 30)
                     #else
@@ -1252,10 +1259,9 @@ struct HomeFolderBrowser: View {
         }
     }
 
+    /// 目录的心就是收藏：收藏的目录也是首页「目录」区块摆的那几个。
     private func togglePin(_ id: LibraryFolderNodeID) {
-        var updated = pins
-        if updated.contains(id) { updated.removeAll { $0 == id } } else { updated.insert(id, at: 0) }
-        savePins(updated)
+        FavoriteCollectionStore.shared.setCollected(!pins.contains(id), .folder(id), library: library)
     }
 
     private func playFolder(_ id: LibraryFolderNodeID, shuffle: Bool) {

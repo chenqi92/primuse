@@ -191,23 +191,71 @@ struct ArtistDetailView: View {
         #endif
         #if os(iOS)
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                if let target = artistServerMediaShareTarget {
-                    Button {
-                        serverMediaShareTarget = target
-                    } label: {
-                        PMToolbarItemLabel("server_share_action", systemImage: "link.badge.plus", titled: verticalBarEdge != nil)
+            if verticalBarEdge != nil {
+                // 系统竖栏(iPhone Duo):「⋯」里的动作并进系统溢出菜单。
+                if #available(iOS 27.0, *) {
+                    ToolbarOverflowMenu {
+                        artistMoreMenuContent
                     }
-                    .accessibilityLabel(Text("server_share_action"))
                 }
-                Button { showArtworkEditor = true } label: {
-                    PMToolbarItemLabel("artwork_edit", systemImage: "photo.badge.plus", titled: verticalBarEdge != nil)
+            } else {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        artistMoreMenuContent
+                    } label: {
+                        Image(systemName: "ellipsis")
+                    }
+                    .accessibilityLabel(Text("a11y_more_actions"))
+                    .accessibilityIdentifier("artistDetail.more")
                 }
-                .accessibilityLabel(Text("artwork_edit"))
             }
         }
         #endif
     }
+
+    #if os(iOS)
+    /// 艺人页右上角「⋯」：顶上一行是接下来播放、加入队列，下面是这位艺人本身的整理。
+    /// 收藏在头图那一行的心上，播放与随机也在那里。
+    @ViewBuilder
+    private var artistMoreMenuContent: some View {
+        // 菜单内容随页面一起构造；一位艺人可能有上千首，可播放的那部分点下去时才筛。
+        let hasSongs = !songs.isEmpty
+        PMMenuQuickActions {
+            PMMenuQuickActionButton(
+                shortKey: "insert_next_short",
+                fullKey: "insert_next",
+                systemImage: "text.line.first.and.arrowtriangle.forward"
+            ) {
+                _ = player.insertNextInQueue(songs.filteredPlayable())
+            }
+            .disabled(!hasSongs)
+
+            PMMenuQuickActionButton(
+                shortKey: "add_to_queue_short",
+                fullKey: "add_to_queue",
+                systemImage: "text.line.last.and.arrowtriangle.forward"
+            ) {
+                player.appendToQueue(songs.filteredPlayable())
+            }
+            .disabled(!hasSongs)
+        }
+
+        Section {
+            if let target = artistServerMediaShareTarget {
+                Button {
+                    serverMediaShareTarget = target
+                } label: {
+                    Label("server_share_action", systemImage: "link.badge.plus")
+                }
+            }
+            Button {
+                showArtworkEditor = true
+            } label: {
+                Label("artwork_edit", systemImage: "photo.badge.plus")
+            }
+        }
+    }
+    #endif
 
     private var artistFavorite: LibraryDetailFavoriteToggle {
         let favorites = LibraryFavoritesStore.shared

@@ -22,20 +22,19 @@
 // Tabs / Sections
 "home_title" = "홈";
 "library_title" = "라이브러리";
-"library_quick_access" = "빠른 접근";
+"library_quick_access" = "즐겨찾기";
 "library_browse" = "라이브러리 둘러보기";
 "library_default_flat_view" = "기본적으로 노래를 평면 목록으로 표시";
 "library_default_flat_view_description" = "끄면 소스와 폴더 계층으로 열리고, 켜면 노래 보관함이 평면 목록으로 열립니다.";
 "library_display_settings_title" = "보관함 표시";
-"library_edit_quick_access" = "빠른 접근 편집";
-"library_add_quick_access" = "바로가기 추가";
-"library_quick_access_count" = "빠른 접근 개수";
-"library_quick_access_count_description" = "라이브러리와 홈에 표시할 빠른 접근 항목의 최대 개수를 설정합니다.";
-"library_quick_access_limit_description" = "설정 > 모양 > 보관함 표시에서 이 한도를 조정할 수 있습니다.";
-"library_quick_access_selected" = "선택됨";
-"library_quick_access_selected_empty" = "선택한 바로가기가 없습니다";
+"library_edit_quick_access" = "즐겨찾기 편집";
+"library_add_quick_access" = "즐겨찾기 추가";
+"library_quick_access_selected" = "즐겨찾기됨";
+"library_quick_access_selected_empty" = "아직 즐겨찾기가 없습니다";
 "library_quick_access_loading" = "보관함 불러오는 중…";
 "library_quick_access_search_prompt" = "앨범, 아티스트 또는 플레이리스트 검색";
+"favorites_empty_description" = "앨범, 아티스트, 재생 목록, 폴더에서 하트를 탭하면 여기에 추가됩니다.";
+"favorites_count_format" = "%d개";
 "library_sections_settings_label" = "라이브러리 카테고리";
 "library_sections_settings_footer" = "드래그하여 순서를 바꾸고, 끄면 라이브러리와 사이드바에서 숨깁니다.";
 "library_sections_restore_default_order" = "기본 순서 복원";
@@ -721,12 +720,12 @@
 "song_details_parse_failed" = "곡 세부 정보 구문 분석 실패";
 "song_details_parse_failed_message" = "파일 바이트를 읽었지만 현재 구문 분석기가 전체 세부 정보를 확인하지 못했습니다. 사용 가능한 재생 경로는 유지됩니다.";
 "song_details_retry" = "다시 읽기";
-"library_liked_albums_title" = "좋아요한 앨범";
-"library_liked_artists_title" = "좋아요한 아티스트";
-"library_favorite_like" = "좋아요";
-"library_favorite_unlike" = "좋아요 취소";
-"library_favorite_filter" = "좋아요만 보기";
-"library_favorite_filter_short" = "좋아요";
+"library_liked_albums_title" = "즐겨찾는 앨범";
+"library_liked_artists_title" = "즐겨찾는 아티스트";
+"library_favorite_like" = "즐겨찾기";
+"library_favorite_unlike" = "즐겨찾기 해제";
+"library_favorite_filter" = "즐겨찾기만 보기";
+"library_favorite_filter_short" = "즐겨찾기";
 "library_folder_rescan" = "이 폴더 다시 스캔";
 "reread_song_tags" = "파일 태그 다시 읽기";
 "reread_song_tags_in_progress" = "파일 태그 읽는 중…";
@@ -1420,7 +1419,7 @@
 "home_section_top_artists" = "자주 듣는 아티스트";
 "home_section_recently_added" = "최근 추가됨";
 "home_section_continue_listening" = "이어서 듣기";
-"home_section_quick_access" = "빠른 접근";
+"home_section_quick_access" = "즐겨찾기";
 "home_section_playlists" = "내 플레이리스트";
 "home_layout_list" = "목록";
 "home_layout_carousel" = "가로 스크롤";
@@ -2471,7 +2470,7 @@
 "onboarding_personalization_title" = "나만의 홈 화면";
 "onboarding_personalization_icon" = "설정 > 외관에서 App 아이콘을 자유롭게 변경";
 "onboarding_personalization_home" = "홈 섹션을 표시하거나 숨기고 순서를 변경";
-"onboarding_personalization_quick" = "앨범, 아티스트 및 재생목록을 빠른 항목으로 지정";
+"onboarding_personalization_quick" = "앨범, 아티스트, 재생 목록, 폴더를 즐겨찾기에 추가하고 언제든 열어 보세요";
 "onboarding_personalization_footer" = "이 옵션은 언제든지 다시 변경할 수 있습니다.";
 "onboarding_guide_sources_title" = "3단계로 소스 추가하기";
 "onboarding_guide_sources_step1 %@" = "“%@”에서 오른쪽 위의 +를 탭하고 소스 유형을 선택하세요";
@@ -4014,12 +4013,12 @@
 "stats_chart_minutes" = "분";
 "stats_chart_hour" = "시간대";
 
-"library_quick_access_cover_style" = "빠른 접근 커버";
+"library_quick_access_cover_style" = "즐겨찾기 커버";
 "library_quick_access_cover_default" = "기본값(유형별)";
 "library_quick_access_cover_circle" = "모두 원형";
 "library_quick_access_cover_square" = "모두 정사각형";
 "library_quick_access_cover_collage" = "모두 콜라주";
-"library_quick_access_cover_description" = "홈과 보관함의 빠른 접근에 적용됩니다. 기본값은 기존 스타일을 유지합니다. 통일된 스타일은 좋아요 표시한 곡에 노래 이미지를 사용하며, 콜라주는 사용 가능한 이미지를 반복하여 네 칸을 채웁니다.";
+"library_quick_access_cover_description" = "홈과 보관함의 즐겨찾기에 적용됩니다. 기본값은 기존 스타일을 유지합니다. 통일된 스타일은 좋아요 표시한 곡에 노래 이미지를 사용하며, 콜라주는 사용 가능한 이미지를 반복하여 네 칸을 채웁니다.";
 
 "playback_error_local_audio" = "이 오디오 파일을 디코딩할 수 없습니다. 파일이 손상되었거나 지원하지 않는 인코딩을 사용했을 수 있습니다.";
 "apple_music_subscription_check_failed" = "Apple Music 재생 권한을 확인할 수 없습니다. 네트워크 연결을 확인한 후 다시 시도하세요.";

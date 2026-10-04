@@ -1573,7 +1573,7 @@
 "home_edit_move_up" = "Mover arriba";
 "home_edit_move_down" = "Mover abajo";
 "home_settings_restore_all" = "Restablecer el diseño predeterminado";
-"home_section_quick_access" = "Acceso Rápido";
+"home_section_quick_access" = "Favoritos";
 "home_section_recently_added" = "Agregado recientemente";
 "home_section_top_artists" = "Escuchado frecuentemente";
 "home_section_view_all" = "Ver todo";
@@ -1783,7 +1783,7 @@
 "later" = "Más tarde";
 "library" = "Biblioteca";
 "library_preparing" = "Preparando tu biblioteca…";
-"library_add_quick_access" = "Agregar acceso directo";
+"library_add_quick_access" = "Agregar favoritos";
 "library_browse" = "Explorar biblioteca";
 "library_browse_flat" = "Plano";
 "library_browse_folder" = "Carpetas";
@@ -1796,7 +1796,7 @@
 "library_default_flat_view" = "Mostrar canciones como una lista plana de forma predeterminada";
 "library_default_flat_view_description" = "Cuando está desactivado, las canciones se abren en la jerarquía de fuentes y carpetas. Cuando está activado, la biblioteca de canciones se abre como una lista plana.";
 "library_display_settings_title" = "Visualización de biblioteca";
-"library_edit_quick_access" = "Editar Acceso Rápido";
+"library_edit_quick_access" = "Editar favoritos";
 "library_folder_apple_music_library_songs" = "Biblioteca de canciones";
 "library_folder_apple_music_not_in_playlist" = "No en una lista de reproducción";
 "library_folder_apple_music_unnamed_playlist" = "Lista de reproducción sin título";
@@ -1810,14 +1810,13 @@
 "library_folder_uncategorized" = "Sin categoría";
 "library_info" = "Biblioteca";
 "library_manage_header" = "Administrar";
-"library_quick_access" = "Acceso Rápido";
-"library_quick_access_count" = "Conteo de acceso rápido";
-"library_quick_access_count_description" = "Establezca la cantidad máxima de elementos de acceso rápido que se muestran en Biblioteca y Inicio.";
-"library_quick_access_limit_description" = "Ajuste este límite en Configuración > Apariencia > Pantalla de biblioteca.";
+"library_quick_access" = "Favoritos";
 "library_quick_access_loading" = "Cargando la biblioteca…";
 "library_quick_access_search_prompt" = "Buscar álbumes, artistas o listas de reproducción";
-"library_quick_access_selected" = "Seleccionado";
-"library_quick_access_selected_empty" = "No se seleccionaron atajos";
+"favorites_empty_description" = "Toca el corazón en un álbum, artista, lista de reproducción o carpeta para agregarlo aquí.";
+"favorites_count_format" = "%d elementos";
+"library_quick_access_selected" = "En favoritos";
+"library_quick_access_selected_empty" = "Aún no hay favoritos";
 "library_recommendations_description" = "Las canciones reproducibles se seleccionan primero en el dispositivo. Cuando se habilita un servicio inteligente, solo los reordena y explica por qué.";
 "library_recommendations_empty_description" = "Agregue y escanee una fuente de música para organizar canciones por escena de escucha y enfoque de recomendación.";
 "library_recommendations_empty_title" = "Nada que recomendar todavía";
@@ -2314,7 +2313,7 @@
 "onboarding_guide_player_more" = "Más: transmitir a dispositivos DLNA, temporizador de apagado o compartir un póster de letras";
 "onboarding_personalization_home" = "Mostrar, ocultar y reordenar las secciones en Inicio";
 "onboarding_personalization_icon" = "Elija el ícono de su aplicación en Configuración > Apariencia";
-"onboarding_personalization_quick" = "Fija álbumes, artistas y listas de reproducción para un acceso rápido";
+"onboarding_personalization_quick" = "Agrega álbumes, artistas, listas de reproducción y carpetas a favoritos para abrirlos en cualquier momento";
 "onboarding_personalization_title" = "Haz que tu hogar sea tuyo";
 "onboarding_privacy_icloud" = "La configuración de la biblioteca se sincroniza solo a través de tu iCloud";
 "onboarding_privacy_local" = "Los archivos de audio nunca salen de tus fuentes";
@@ -2703,8 +2702,8 @@
 "replay_gain_desc" = "Ajusta automáticamente el volumen según las etiquetas ReplayGain incrustadas en archivos de audio.";
 "library_liked_albums_title" = "Álbumes favoritos";
 "library_liked_artists_title" = "Artistas favoritos";
-"library_favorite_like" = "Me gusta";
-"library_favorite_unlike" = "Ya no me gusta";
+"library_favorite_like" = "Agregar a favoritos";
+"library_favorite_unlike" = "Quitar de favoritos";
 "library_favorite_filter" = "Mostrar solo favoritos";
 "library_favorite_filter_short" = "Favoritos";
 "library_folder_rescan" = "Volver a escanear esta carpeta";
@@ -3920,12 +3919,12 @@
 "stats_chart_minutes" = "Minutos";
 "stats_chart_hour" = "Hora";
 
-"library_quick_access_cover_style" = "Portadas de acceso rápido";
+"library_quick_access_cover_style" = "Portadas de favoritos";
 "library_quick_access_cover_default" = "Predeterminado (por tipo)";
 "library_quick_access_cover_circle" = "Círculos uniformes";
 "library_quick_access_cover_square" = "Cuadrados uniformes";
 "library_quick_access_cover_collage" = "Collages uniformes";
-"library_quick_access_cover_description" = "Se aplica al acceso rápido en Inicio y Biblioteca. El estilo predeterminado conserva el aspecto actual. Los estilos uniformes usan portadas para las canciones favoritas; los collages repiten las imágenes disponibles para llenar cuatro espacios.";
+"library_quick_access_cover_description" = "Se aplica a Favoritos en Inicio y Biblioteca. El estilo predeterminado conserva el aspecto actual. Los estilos uniformes usan portadas para las canciones favoritas; los collages repiten las imágenes disponibles para llenar cuatro espacios.";
 
 "playback_error_local_audio" = "No se pudo decodificar este archivo de audio. Puede estar dañado o usar una codificación no compatible.";
 "apple_music_subscription_check_failed" = "No se pudo verificar el permiso de reproducción de Apple Music. Revisa tu conexión e inténtalo de nuevo.";

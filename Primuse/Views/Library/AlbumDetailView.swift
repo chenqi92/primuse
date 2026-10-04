@@ -188,40 +188,80 @@ struct AlbumDetailView: View {
                 ))
         }
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button {
-                    sourceManager.downloadForOffline(songs: songs)
-                } label: {
-                    PMToolbarItemLabel("offline_download", systemImage: "arrow.down.circle", titled: verticalBarEdge != nil)
-                }
-                .disabled(songs.filteredPlayable().isEmpty)
-                .accessibilityLabel(Text("offline_download"))
-                if let target = albumServerMediaShareTarget {
-                    Button {
-                        serverMediaShareTarget = target
-                    } label: {
-                        PMToolbarItemLabel("server_share_action", systemImage: "link.badge.plus", titled: verticalBarEdge != nil)
+            if verticalBarEdge != nil {
+                // 系统竖栏(iPhone Duo):「⋯」里的动作并进系统溢出菜单。
+                if #available(iOS 27.0, *) {
+                    ToolbarOverflowMenu {
+                        albumMoreMenuContent
                     }
-                    .accessibilityLabel(Text("server_share_action"))
                 }
-                Button {
-                    showArtworkEditor = true
-                } label: {
-                    PMToolbarItemLabel("artwork_edit", systemImage: "photo.badge.plus", titled: verticalBarEdge != nil)
-                }
-                .accessibilityLabel(Text("artwork_edit"))
-                // 只在有改过的歌时出现,平时不占工具栏的位置。
-                if hasUserEditedSongs {
-                    Button {
-                        showsRestoreFileTagsConfirmation = true
+            } else {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        albumMoreMenuContent
                     } label: {
-                        PMToolbarItemLabel(
-                            "restore_file_tags",
-                            systemImage: "arrow.uturn.backward",
-                            titled: verticalBarEdge != nil
-                        )
+                        Image(systemName: "ellipsis")
                     }
-                    .accessibilityLabel(Text("restore_file_tags"))
+                    .accessibilityLabel(Text("a11y_more_actions"))
+                    .accessibilityIdentifier("albumDetail.more")
+                }
+            }
+        }
+    }
+
+    /// 专辑页右上角「⋯」：顶上一行是接下来播放、加入队列、离线下载，下面是这张专辑本身的整理。
+    /// 收藏在头图那一行的心上，播放与随机也在那里。
+    @ViewBuilder
+    private var albumMoreMenuContent: some View {
+        let playable = songs.filteredPlayable()
+        PMMenuQuickActions {
+            PMMenuQuickActionButton(
+                shortKey: "insert_next_short",
+                fullKey: "insert_next",
+                systemImage: "text.line.first.and.arrowtriangle.forward"
+            ) {
+                _ = player.insertNextInQueue(playable)
+            }
+            .disabled(playable.isEmpty)
+
+            PMMenuQuickActionButton(
+                shortKey: "add_to_queue_short",
+                fullKey: "add_to_queue",
+                systemImage: "text.line.last.and.arrowtriangle.forward"
+            ) {
+                player.appendToQueue(playable)
+            }
+            .disabled(playable.isEmpty)
+
+            PMMenuQuickActionButton(
+                shortKey: "offline_download",
+                fullKey: "offline_download",
+                systemImage: "arrow.down.circle"
+            ) {
+                sourceManager.downloadForOffline(songs: songs)
+            }
+            .disabled(playable.isEmpty)
+        }
+
+        Section {
+            if let target = albumServerMediaShareTarget {
+                Button {
+                    serverMediaShareTarget = target
+                } label: {
+                    Label("server_share_action", systemImage: "link.badge.plus")
+                }
+            }
+            Button {
+                showArtworkEditor = true
+            } label: {
+                Label("artwork_edit", systemImage: "photo.badge.plus")
+            }
+            // 只在有改过的歌时出现。
+            if hasUserEditedSongs {
+                Button {
+                    showsRestoreFileTagsConfirmation = true
+                } label: {
+                    Label("restore_file_tags", systemImage: "arrow.uturn.backward")
                 }
             }
         }
