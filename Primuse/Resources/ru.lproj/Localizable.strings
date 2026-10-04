@@ -5407,3 +5407,7 @@
 "exclusive_output_failed" = "macOS не предоставила монопольный доступ; воспроизведение в общем режиме";
 "exclusive_output_active_device %@" = "%@ используется монопольно";
 "exclusive_output_active_device_bit_depth %@ %lld" = "%1$@ используется монопольно · %2$lld бит";
+
+"eq_menu_off" = "Выключен";
+"eq_menu_adjust" = "Настроить эквалайзер…";
+"eq_menu_high_fidelity_unavailable" = "Недоступно в режиме высокой точности";

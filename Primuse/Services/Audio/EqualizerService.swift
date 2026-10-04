@@ -195,6 +195,45 @@ final class EqualizerService {
         }
     }
 
+    // MARK: - Player menu
+
+    /// 播放器「更多」里均衡器子菜单的「关闭」项。预设 id 是内置名、`user.` 前缀或
+    /// `custom`,撞不上它。
+    static let menuOffID = "off"
+
+    /// 子菜单勾着的那一项:关着是「关闭」,开着是正在用的预设。
+    var menuSelectionID: String {
+        isEnabled ? currentPreset.id : Self.menuOffID
+    }
+
+    /// 菜单行上显示的当前值。
+    var menuSelectionTitle: String {
+        isEnabled ? currentPreset.localizedName : String(localized: "eq_menu_off")
+    }
+
+    /// 子菜单里的预设,与均衡器页的卡片同序:内置、自己存的、自定义。自定义曲线没拖过
+    /// (全平,和「平坦」是同一条线)又没在用时不列。
+    var menuPresets: [EQPreset] {
+        let showsCustom = currentPreset.isCustom || customBands.contains { $0 != 0 }
+        return EQPreset.builtInPresets + library.userPresets + (showsCustom ? [customPreset] : [])
+    }
+
+    /// 从子菜单选一项。「关闭」只关开关,曲线留着,再打开还是它;选预设顺手打开均衡器,
+    /// 不然选了听不出变化。
+    func selectFromMenu(_ id: String) {
+        guard id != Self.menuOffID else {
+            setEnabled(false)
+            return
+        }
+        guard let preset = preset(withID: id) else { return }
+        if currentPreset.id != id {
+            applyPreset(preset)
+        }
+        if !isEnabled {
+            setEnabled(true)
+        }
+    }
+
     // MARK: - Engine
 
     /// 换上一条曲线;不改自动切换的记忆。

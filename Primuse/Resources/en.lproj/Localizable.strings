@@ -5261,3 +5261,7 @@
 "exclusive_output_failed" = "macOS didn't grant exclusive access; playing in shared mode";
 "exclusive_output_active_device %@" = "Using %@ exclusively";
 "exclusive_output_active_device_bit_depth %@ %lld" = "Using %1$@ exclusively · %2$lld-bit";
+
+"eq_menu_off" = "Off";
+"eq_menu_adjust" = "Adjust Equalizer…";
+"eq_menu_high_fidelity_unavailable" = "Unavailable in High Fidelity Direct";

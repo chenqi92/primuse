@@ -5407,3 +5407,7 @@
 "exclusive_output_failed" = "macOS nie przyznał wyłącznego dostępu; odtwarzanie w trybie współdzielonym";
 "exclusive_output_active_device %@" = "%@ używane na wyłączność";
 "exclusive_output_active_device_bit_depth %@ %lld" = "%1$@ używane na wyłączność · %2$lld bit";
+
+"eq_menu_off" = "Wyłączony";
+"eq_menu_adjust" = "Dostosuj korektor…";
+"eq_menu_high_fidelity_unavailable" = "Niedostępny w trybie Hi-Fi";

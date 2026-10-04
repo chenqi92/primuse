@@ -5407,3 +5407,7 @@
 "exclusive_output_failed" = "macOS özel erişime izin vermedi; paylaşımlı modda çalınıyor";
 "exclusive_output_active_device %@" = "%@ özel olarak kullanılıyor";
 "exclusive_output_active_device_bit_depth %@ %lld" = "%1$@ özel olarak kullanılıyor · %2$lld bit";
+
+"eq_menu_off" = "Kapalı";
+"eq_menu_adjust" = "Ekolayzırı Ayarla…";
+"eq_menu_high_fidelity_unavailable" = "Yüksek doğruluklu modda kullanılamaz";

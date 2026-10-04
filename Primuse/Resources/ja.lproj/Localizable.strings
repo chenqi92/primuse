@@ -5502,3 +5502,7 @@
 "exclusive_output_failed" = "システムが占有を許可しなかったため、共有モードで再生しています";
 "exclusive_output_active_device %@" = "%@ を占有しています";
 "exclusive_output_active_device_bit_depth %@ %lld" = "%1$@ を占有しています · %2$lldbit";
+
+"eq_menu_off" = "オフ";
+"eq_menu_adjust" = "イコライザを調整…";
+"eq_menu_high_fidelity_unavailable" = "高音質ダイレクトでは使用できません";

@@ -5501,3 +5501,7 @@
 "exclusive_output_failed" = "macOS n’a pas accordé l’accès exclusif ; lecture en mode partagé";
 "exclusive_output_active_device %@" = "%@ utilisé en exclusivité";
 "exclusive_output_active_device_bit_depth %@ %lld" = "%1$@ utilisé en exclusivité · %2$lld bits";
+
+"eq_menu_off" = "Désactivé";
+"eq_menu_adjust" = "Régler l’égaliseur…";
+"eq_menu_high_fidelity_unavailable" = "Indisponible en Haute fidélité directe";

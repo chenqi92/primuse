@@ -5594,3 +5594,7 @@
 "exclusive_output_failed" = "系统没有允许独占，已改为共享输出";
 "exclusive_output_active_device %@" = "正在独占 %@";
 "exclusive_output_active_device_bit_depth %@ %lld" = "正在独占 %1$@ · %2$lldbit";
+
+"eq_menu_off" = "关闭";
+"eq_menu_adjust" = "调整均衡器…";
+"eq_menu_high_fidelity_unavailable" = "高保真直通时不可用";

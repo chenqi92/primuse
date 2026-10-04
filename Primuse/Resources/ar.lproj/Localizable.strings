@@ -5407,3 +5407,7 @@
 "exclusive_output_failed" = "لم يمنح macOS الوصول الحصري؛ يجري التشغيل في الوضع المشترك";
 "exclusive_output_active_device %@" = "يُستخدم %@ حصريًا";
 "exclusive_output_active_device_bit_depth %@ %lld" = "يُستخدم %1$@ حصريًا · %2$lld بت";
+
+"eq_menu_off" = "إيقاف";
+"eq_menu_adjust" = "ضبط المعادل…";
+"eq_menu_high_fidelity_unavailable" = "غير متاح في وضع الدقة العالية المباشرة";

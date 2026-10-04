@@ -5407,3 +5407,7 @@
 "exclusive_output_failed" = "macOS ไม่อนุญาตให้ใช้แบบเฉพาะ จึงเล่นในโหมดใช้ร่วมกัน";
 "exclusive_output_active_device %@" = "กำลังใช้ %@ แบบเฉพาะ";
 "exclusive_output_active_device_bit_depth %@ %lld" = "กำลังใช้ %1$@ แบบเฉพาะ · %2$lld บิต";
+
+"eq_menu_off" = "ปิด";
+"eq_menu_adjust" = "ปรับอีควอไลเซอร์…";
+"eq_menu_high_fidelity_unavailable" = "ใช้ไม่ได้ในโหมดความเที่ยงตรงสูงโดยตรง";

@@ -5501,3 +5501,7 @@
 "exclusive_output_failed" = "시스템이 독점을 허용하지 않아 공유 모드로 재생합니다";
 "exclusive_output_active_device %@" = "%@ 독점 중";
 "exclusive_output_active_device_bit_depth %@ %lld" = "%1$@ 독점 중 · %2$lld비트";
+
+"eq_menu_off" = "끔";
+"eq_menu_adjust" = "이퀄라이저 조절…";
+"eq_menu_high_fidelity_unavailable" = "고음질 다이렉트에서는 사용할 수 없음";

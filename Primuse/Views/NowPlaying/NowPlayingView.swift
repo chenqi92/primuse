@@ -804,6 +804,8 @@ struct NowPlayingView: View {
     @State private var showCastPicker = false
     @State private var showSongInfo = false
     @State private var showSleepTimer = false
+    /// 「更多」› 均衡器 › 调整均衡器… 打开的完整均衡器页。
+    @State private var showEqualizer = false
     /// A medley waiting for the listener to agree to use mobile data.
     @State private var pendingMedleySongs: [Song]?
     /// 电台的「刚播过」:这个台上听到过的曲目标题。
@@ -862,6 +864,7 @@ struct NowPlayingView: View {
             || showMusicVideoFullScreen
             || isAlbumPresentationActive
             || showSleepTimer
+            || showEqualizer
             || showDeleteConfirm
             || scrapeAlertMessage != nil
             || sourceLyricsReloadAlertMessage != nil
@@ -2661,6 +2664,19 @@ struct NowPlayingView: View {
                 .presentationDragIndicator(.visible)
         }
         #if os(iOS)
+        .sheet(isPresented: $showEqualizer) {
+            NavigationStack {
+                EqualizerView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("done") { showEqualizer = false }
+                        }
+                    }
+            }
+            .environment(player.equalizerService)
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
         .fullScreenCover(
             isPresented: $showMusicVideoFullScreen,
             onDismiss: finishMusicVideoFullScreenDismissal
@@ -5452,6 +5468,9 @@ struct NowPlayingView: View {
             isSleepTimerActive: player.isSleepTimerActive,
             lyricsFontScale: lyricsFontScale,
             canChangePlaybackRate: canChangeCurrentPlaybackRate,
+            // Apple Music 由系统播放器出声,投放时由对方设备出声,都不经过本机均衡器。
+            showsEqualizer: !player.isAppleMusicMode && player.castingRenderer == nil,
+            isEqualizerBypassed: player.outputMode(for: player.currentSong) == .highFidelity,
             playbackRate: !canChangeCurrentPlaybackRate
                 ? 1
                 : (player.currentItemIsSpokenWord
@@ -5496,6 +5515,7 @@ struct NowPlayingView: View {
             ),
             immersiveChrome: immersiveChrome,
             chromeGlass: chromeGlass,
+            equalizer: player.equalizerService,
             onEnterFullScreen: { presentImmersiveLyrics() },
             onAddToPlaylist: { showAddToPlaylist = true },
             onScrape: { openScrapeForCurrentSong() },
@@ -5541,6 +5561,7 @@ struct NowPlayingView: View {
                 LyricsTranslationSettingsStore.shared.isEnabled.toggle()
             },
             onShowSleepTimer: { showSleepTimer = true },
+            onAdjustEqualizer: { openEqualizer() },
             onToggleShuffle: { player.shuffleEnabled.toggle() },
             onCycleRepeatMode: { cycleRepeatMode() },
             onStartMedley: {
@@ -5558,6 +5579,14 @@ struct NowPlayingView: View {
             onDelete: { showDeleteConfirm = true }
         )
         .equatable()
+    }
+
+    private func openEqualizer() {
+        #if os(macOS)
+        SettingsWindowController.shared.show(tab: .equalizer)
+        #else
+        showEqualizer = true
+        #endif
     }
 
     // MARK: - Ambient background from cover dominant color
@@ -8221,6 +8250,9 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let isSleepTimerActive: Bool
     let lyricsFontScale: Double
     let canChangePlaybackRate: Bool
+    let showsEqualizer: Bool
+    /// 高保真直通的图里没有均衡器。
+    let isEqualizerBypassed: Bool
     let playbackRate: Float
     let isLyricsTranslationEnabled: Bool
     /// 手机横屏右栏窄到摆不下两端的随机 / 循环时为真, 菜单里补上这两个入口,
@@ -8260,6 +8292,8 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let immersiveChrome: Bool
     /// 只在 `immersiveChrome` 为真时起作用：圆钮底用固定深色还是跟随明暗外观。
     let chromeGlass: NowPlayingChromeGlass
+    /// 同一个实例一直不变,不进相等比较;子菜单自己读它的状态。
+    let equalizer: EqualizerService
 
     let onEnterFullScreen: () -> Void
     let onAddToPlaylist: () -> Void
@@ -8283,6 +8317,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onLockControls: () -> Void
     let onToggleLyricsTranslation: () -> Void
     let onShowSleepTimer: () -> Void
+    let onAdjustEqualizer: () -> Void
     let onToggleShuffle: () -> Void
     let onCycleRepeatMode: () -> Void
     let onStartMedley: () -> Void
@@ -8622,6 +8657,14 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     )
                 }
 
+                if snapshot.showsEqualizer {
+                    NowPlayingEqualizerMenu(
+                        eq: equalizer,
+                        isBypassed: snapshot.isEqualizerBypassed,
+                        onAdjust: onAdjustEqualizer
+                    )
+                }
+
                 if !snapshot.isAppleMusicMode {
                     Picker(selection: $playbackRate) {
                         Text("0.5×").tag(Float(0.5))
@@ -8693,6 +8736,54 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
         case .barColumn(let itemSize):
             NowPlayingBarColumnIcon(symbol: "ellipsis", appearance: appearance, size: itemSize)
         }
+    }
+}
+
+/// 「更多」里的均衡器子菜单:第一项「关闭」,往下是预设(与均衡器页的卡片同序),
+/// 最后一项打开完整的均衡器页。自己读 `EqualizerService`,开关、换预设只重画这一小块,
+/// 不经过外层那份菜单快照。
+private struct NowPlayingEqualizerMenu: View {
+    let eq: EqualizerService
+    let isBypassed: Bool
+    let onAdjust: () -> Void
+
+    var body: some View {
+        Menu {
+            Section {
+                Picker(selection: Binding(
+                    get: { eq.menuSelectionID },
+                    set: { eq.selectFromMenu($0) }
+                )) {
+                    Text("eq_menu_off")
+                        .tag(EqualizerService.menuOffID)
+                    ForEach(eq.menuPresets) { preset in
+                        Text(verbatim: preset.localizedName)
+                            .tag(preset.id)
+                    }
+                } label: {
+                    Text("equalizer")
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            }
+
+            Section {
+                Button(action: onAdjust) {
+                    Label(String(localized: "eq_menu_adjust"), systemImage: "slider.horizontal.3")
+                }
+            }
+        } label: {
+            Label {
+                Text("equalizer")
+                Text(verbatim: isBypassed
+                    ? String(localized: "eq_menu_high_fidelity_unavailable")
+                    : eq.menuSelectionTitle)
+            } icon: {
+                Image(systemName: "slider.vertical.3")
+            }
+        }
+        // 高保真直通不经过均衡器:整项置灰,副标题说明原因(和倍速一样留着不藏)。
+        .disabled(isBypassed)
     }
 }
 

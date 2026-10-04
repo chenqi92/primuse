@@ -5501,3 +5501,7 @@
 "exclusive_output_failed" = "macOS hat den exklusiven Zugriff nicht erlaubt; Wiedergabe im gemeinsamen Modus";
 "exclusive_output_active_device %@" = "%@ wird exklusiv genutzt";
 "exclusive_output_active_device_bit_depth %@ %lld" = "%1$@ wird exklusiv genutzt · %2$lld Bit";
+
+"eq_menu_off" = "Aus";
+"eq_menu_adjust" = "Equalizer anpassen …";
+"eq_menu_high_fidelity_unavailable" = "Bei Hi-Fi-Direktausgabe nicht verfügbar";

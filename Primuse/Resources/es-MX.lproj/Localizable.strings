@@ -5407,3 +5407,7 @@
 "exclusive_output_failed" = "macOS no concedió el acceso exclusivo; se reproduce en modo compartido";
 "exclusive_output_active_device %@" = "Usando %@ en exclusiva";
 "exclusive_output_active_device_bit_depth %@ %lld" = "Usando %1$@ en exclusiva · %2$lld bits";
+
+"eq_menu_off" = "Desactivado";
+"eq_menu_adjust" = "Ajustar ecualizador…";
+"eq_menu_high_fidelity_unavailable" = "No disponible con Alta fidelidad directa";

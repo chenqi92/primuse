@@ -5407,3 +5407,7 @@
 "exclusive_output_failed" = "macOS ने विशेष उपयोग की अनुमति नहीं दी; साझा मोड में चल रहा है";
 "exclusive_output_active_device %@" = "%@ का विशेष उपयोग हो रहा है";
 "exclusive_output_active_device_bit_depth %@ %lld" = "%1$@ का विशेष उपयोग हो रहा है · %2$lld-बिट";
+
+"eq_menu_off" = "बंद";
+"eq_menu_adjust" = "तुल्यकारक समायोजित करें…";
+"eq_menu_high_fidelity_unavailable" = "हाई फिडेलिटी डायरेक्ट में उपलब्ध नहीं";

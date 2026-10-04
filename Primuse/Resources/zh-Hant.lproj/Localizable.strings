@@ -5478,3 +5478,7 @@
 "exclusive_output_failed" = "系統沒有允許獨佔，已改為共享輸出";
 "exclusive_output_active_device %@" = "正在獨佔 %@";
 "exclusive_output_active_device_bit_depth %@ %lld" = "正在獨佔 %1$@ · %2$lldbit";
+
+"eq_menu_off" = "關閉";
+"eq_menu_adjust" = "調整等化器…";
+"eq_menu_high_fidelity_unavailable" = "高傳真直通時無法使用";
