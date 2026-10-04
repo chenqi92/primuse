@@ -111,14 +111,19 @@ struct ListeningStatsView: View {
 
     #if DEBUG
     /// 截图钩子：`PRIMUSE_DEBUG_STATS_SCROLL=<章节>`（cover、artists、songs、taste、time、moments、
-    /// month、sources、personality、closing）在报告算好后滚到那一章；模拟器没法用命令行滚动。
+    /// month、sources、personality、closing，或 albums 即最常听的专辑）在报告算好后滚过去；
+    /// 模拟器没法用命令行滚动。
     private func debugScroll(_ proxy: ScrollViewProxy) async {
         guard model.snapshot?.report != nil,
-              let raw = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_STATS_SCROLL"],
-              let chapter = YearlyChapterKind(rawValue: raw) else { return }
+              let raw = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_STATS_SCROLL"] else { return }
         try? await Task.sleep(for: .seconds(1.5))
         guard !Task.isCancelled else { return }
-        proxy.scrollTo(chapter, anchor: .top)
+        if raw == "albums" {
+            // 专辑横排在歌曲那一章最下面：把这一章的底边对到屏幕底边。
+            proxy.scrollTo(YearlyChapterKind.songs, anchor: .bottom)
+        } else if let chapter = YearlyChapterKind(rawValue: raw) {
+            proxy.scrollTo(chapter, anchor: .top)
+        }
     }
     #endif
 

@@ -351,7 +351,7 @@ struct ListeningRankRowLabel<Artwork: View>: View {
                 }
 
                 if shareStyle == .underline {
-                    shareBar.frame(height: 3).padding(.top, 2)
+                    shareBar.frame(height: 4).padding(.top, 4)
                 }
             }
 
@@ -389,12 +389,13 @@ struct ListeningRankRowLabel<Artwork: View>: View {
         )
     }
 
+    /// 主题色细条：底轨是同色的淡色，不是灰的，整行看着是一种颜色。
     private var shareBar: some View {
         GeometryReader { geometry in
-            let width: CGFloat = geometry.size.width * CGFloat(share)
+            let width: CGFloat = max(4, geometry.size.width * CGFloat(share))
             ZStack(alignment: .leading) {
-                Capsule().fill(.primary.opacity(0.08))
-                Capsule().fill(.tint.opacity(0.6)).frame(width: width)
+                Capsule().fill(.tint.opacity(0.14))
+                Capsule().fill(.tint).frame(width: width)
             }
         }
         .accessibilityHidden(true)
