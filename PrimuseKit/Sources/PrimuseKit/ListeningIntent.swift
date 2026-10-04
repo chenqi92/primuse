@@ -669,21 +669,31 @@ public struct ListeningIntentAvailability: Equatable, Sendable {
     /// The library generation (`musicSongsRevision`) the counts belong to.
     public var libraryGeneration: UInt64
     public var computedAt: Date
+    /// For each intent, songs from up to `ListeningIntentEngine.coverSampleLimit`
+    /// different albums whose covers its card shows. Only songs with a known
+    /// cover; the albums change from day to day.
+    public var coverSongIDs: [String: [String]]
 
     public init(
         songCounts: [String: Int],
         scores: [String: Double] = [:],
         libraryGeneration: UInt64,
-        computedAt: Date
+        computedAt: Date,
+        coverSongIDs: [String: [String]] = [:]
     ) {
         self.songCounts = songCounts
         self.scores = scores
         self.libraryGeneration = libraryGeneration
         self.computedAt = computedAt
+        self.coverSongIDs = coverSongIDs
     }
 
     public func songCount(for intent: ListeningIntent) -> Int {
         songCounts[intent.id] ?? 0
+    }
+
+    public func coverSongIDs(for intent: ListeningIntent) -> [String] {
+        coverSongIDs[intent.id] ?? []
     }
 
     public func score(for intent: ListeningIntent) -> Double {
@@ -847,6 +857,8 @@ public enum ListeningIntentEngine {
         let countsPlays = history.recentPlays > 0
         var tallies = Array(repeating: 0, count: ruled.count)
         var playTallies = Array(repeating: 0, count: ruled.count)
+        var covers = Array(repeating: [CoverSample](), count: ruled.count)
+        let coverDay = UInt64(max(0, history.now.timeIntervalSince1970 / 86_400))
         var memo = ListeningGenreClassifier.Memo()
         var artistMemo = ListeningArtistKeyMemo()
         var playable = 0
@@ -858,18 +870,25 @@ public enum ListeningIntentEngine {
             let mask = memo.mask(for: song.genre)
             let artistKey = needsArtistKey ? artistMemo.key(for: song) : nil
             let plays = countsPlays ? history.recentPlayCounts[song.id] ?? 0 : 0
+            var cover: CoverSample??
             for slot in ruled.indices
             where ruled[slot].rule.matches(song, mask: mask, artistKey: artistKey, history: history) {
                 tallies[slot] += 1
                 playTallies[slot] += plays
+                if cover == nil { cover = CoverSample(song, day: coverDay) }
+                if let sample = cover ?? nil { sample.offer(to: &covers[slot]) }
             }
         }
         let ranksByListening = history.recentPlays >= minimumRecentPlaysForRanking
         var counts: [String: Int] = [:]
         var scores: [String: Double] = [:]
+        var coverSongIDs: [String: [String]] = [:]
         for slot in ruled.indices where tallies[slot] > 0 {
             let id = ruled[slot].id
             counts[id, default: 0] += tallies[slot]
+            if coverSongIDs[id] == nil, !covers[slot].isEmpty {
+                coverSongIDs[id] = covers[slot].sorted { $0.rank < $1.rank }.map(\.songID)
+            }
             let libraryShare = playable > 0 ? Double(tallies[slot]) / Double(playable) : 0
             var score = libraryShare
             if ranksByListening {
@@ -883,8 +902,45 @@ public enum ListeningIntentEngine {
             songCounts: counts,
             scores: scores,
             libraryGeneration: libraryGeneration,
-            computedAt: history.now
+            computedAt: history.now,
+            coverSongIDs: coverSongIDs
         )
+    }
+
+    /// Covers on an intent card come from this many different albums.
+    public static let coverSampleLimit = 3
+
+    /// One song offered for an intent card's covers. Albums are ranked by a
+    /// hash of the album and the day, so each card keeps the same covers all
+    /// day and shows others tomorrow, whatever order the library is in.
+    private struct CoverSample {
+        let rank: UInt64
+        let album: String
+        let songID: String
+
+        /// Nil for a song without a known cover.
+        init?<Song: ListeningSongTraits>(_ song: Song, day: UInt64) {
+            guard song.isPlayable, let cover = song.coverArtFileName, !cover.isEmpty else { return nil }
+            let album = song.albumID ?? song.albumTitle ?? song.id
+            var hash: UInt64 = 0xcbf2_9ce4_8422_2325 ^ day &* 0x9e37_79b9_7f4a_7c15
+            for byte in album.utf8 {
+                hash = (hash ^ UInt64(byte)) &* 0x0000_0100_0000_01b3
+            }
+            rank = hash
+            self.album = album
+            songID = song.id
+        }
+
+        /// Keeps the lowest-ranked albums, one song each.
+        func offer(to samples: inout [CoverSample]) {
+            guard !samples.contains(where: { $0.album == album }) else { return }
+            if samples.count < ListeningIntentEngine.coverSampleLimit {
+                samples.append(self)
+            } else if let worst = samples.indices.max(by: { samples[$0].rank < samples[$1].rank }),
+                      rank < samples[worst].rank {
+                samples[worst] = self
+            }
+        }
     }
 
     /// The first queue for a rule-based intent: up to `playback.songLimit`

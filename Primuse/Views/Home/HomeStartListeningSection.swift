@@ -140,22 +140,28 @@ struct StartListeningShelf: View {
 
     // MARK: Grid
 
+    /// 第一张(接着上次 / 随便听听)占满一整行,收起时算一整行的张数;其余按列铺开。
     @ViewBuilder
     private func grid(_ items: [ListeningIntentShelfItem], limit: Int) -> some View {
         let columns = ListeningIntentShelfPolicy.gridColumns(
             width: Double(gridWidth > 0 ? gridWidth : Self.lastGridWidth),
             spacing: Double(Self.gridSpacing)
         )
+        let lead = items.first { $0.role == .lead }
+        let rest = items.filter { $0.role != .lead }
         let collapsed = ListeningIntentShelfPolicy.collapsedGridCount(
-            limit: limit,
+            limit: Self.collapsedTileLimit(limit, columns: columns, hasLead: lead != nil),
             columns: columns,
-            available: items.count
+            available: rest.count
         )
-        let hiddenCount = items.count - collapsed
-        let shown = isGridExpanded || hiddenCount == 0 ? items : Array(items.prefix(collapsed))
+        let hiddenCount = rest.count - collapsed
+        let shown = isGridExpanded || hiddenCount == 0 ? rest : Array(rest.prefix(collapsed))
         VStack(spacing: 4) {
-            ListeningIntentEagerGrid(items: shown, columns: columns, spacing: Self.gridSpacing) { item in
-                tile(item)
+            VStack(spacing: Self.gridSpacing) {
+                if let lead { heroTile(lead) }
+                ListeningIntentEagerGrid(items: shown, columns: columns, spacing: Self.gridSpacing) { item in
+                    tile(item)
+                }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
                 Self.lastGridWidth = width
@@ -166,6 +172,51 @@ struct StartListeningShelf: View {
             }
         }
         .padding(.horizontal, horizontalInset)
+    }
+
+    /// 收起时网格里放几张:首卡占了一整行,从设定的张数里扣掉一行。
+    private static func collapsedTileLimit(_ limit: Int, columns: Int, hasLead: Bool) -> Int {
+        hasLead ? max(1, limit - max(1, columns)) : limit
+    }
+
+    private func heroTile(_ item: ListeningIntentShelfItem) -> some View {
+        let title = service.title(for: item.intent)
+        let detail = ListeningIntentText.songCount(item.songCount)
+        return Button {
+            start(item.intent)
+        } label: {
+            ListeningIntentHeroTile(
+                title: title,
+                detail: detail,
+                tint: item.intent.tint,
+                symbolName: item.intent.symbolName,
+                covers: covers(for: item, limit: 3),
+                isWorking: startingIntentID == item.id
+            )
+        }
+        .buttonStyle(.pmPressable)
+        .contextMenu { menu(item) }
+        .accessibilityLabel(Text(verbatim: "\(title), \(detail)"))
+        .accessibilityIdentifier("home.startListening." + item.id)
+    }
+
+    /// 首卡上的封面:「接着上次」取记下的队列里前几张不同专辑的,「随便听听」取点亮时挑好的。
+    private func covers(for item: ListeningIntentShelfItem, limit: Int) -> [Song] {
+        if item.intent.habit == .resume {
+            var albums = Set<String>()
+            var songs: [Song] = []
+            for id in MusicSessionMemoryStore.shared.memory?.snapshot.queueSongIDs ?? [] {
+                guard let song = library.unobservedVisibleSong(id: id),
+                      song.coverArtFileName?.isEmpty == false,
+                      albums.insert(song.albumID ?? song.albumTitle ?? song.id).inserted else { continue }
+                songs.append(song)
+                if songs.count == limit { break }
+            }
+            return songs
+        }
+        return (service.availability?.coverSongIDs(for: item.intent) ?? [])
+            .prefix(limit)
+            .compactMap { library.unobservedVisibleSong(id: $0) }
     }
 
     private func tile(_ item: ListeningIntentShelfItem) -> some View {
@@ -180,7 +231,8 @@ struct StartListeningShelf: View {
                 detail: detail,
                 tint: item.intent.tint,
                 badgeSymbol: item.badgeSymbol,
-                isWorking: startingIntentID == item.id
+                isWorking: startingIntentID == item.id,
+                decade: item.decade
             )
         }
         .buttonStyle(.pmPressable)
@@ -249,7 +301,8 @@ struct StartListeningShelf: View {
                 detail: detail,
                 tint: item.intent.tint,
                 badgeSymbol: item.badgeSymbol,
-                isWorking: startingIntentID == item.id
+                isWorking: startingIntentID == item.id,
+                decade: item.decade
             )
         }
         .buttonStyle(.pmPressable)
@@ -356,14 +409,19 @@ struct StartListeningShelf: View {
             }
             switch arrangement {
             case .grid(let limit):
-                // 列数、行数与收起时的真网格一致(手机默认三行两列),换上真卡片时下面的区块不被顶开;
+                // 首卡与收起时的行数、列数都和真网格一致,换上真卡片时下面的区块不被顶开;
                 // 宽度在占位上就量,iPad 不会先排两列再跳成四列。
                 let columns = ListeningIntentShelfPolicy.gridColumns(
                     width: Double(gridWidth > 0 ? gridWidth : Self.lastGridWidth),
                     spacing: Double(Self.gridSpacing)
                 )
-                let rows = (max(1, limit) + columns - 1) / columns
+                let tiles = Self.collapsedTileLimit(limit, columns: columns, hasLead: true)
+                let rows = (tiles + columns - 1) / columns
                 VStack(spacing: Self.gridSpacing) {
+                    RoundedRectangle(cornerRadius: ListeningIntentHeroTile.cornerRadius, style: .continuous)
+                        .fill(ListeningIntentCard.neutralSurface)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: ListeningIntentHeroTile.minHeight)
                     ForEach(0..<rows, id: \.self) { _ in
                         HStack(spacing: Self.gridSpacing) {
                             ForEach(0..<columns, id: \.self) { _ in
@@ -490,7 +548,7 @@ struct ListeningIntentMenuItems: View {
     }
 }
 
-/// 一张意图卡片:左上图标,底部名字,右下小字曲数。
+/// 一张意图卡片:左上名字和曲数,右下角压一个放大的半透明符号。
 struct ListeningIntentCard: View {
     static let size = CGSize(width: 120, height: 88)
     static let cornerRadius: CGFloat = 14
@@ -502,15 +560,19 @@ struct ListeningIntentCard: View {
     var badgeSymbol: String? = nil
     var isWorking = false
     var isDimmed = false
+    /// 年代意图用大号的「80s」代替符号。
+    var decade: ListeningDecade? = nil
     /// 整页网格里按列宽撑满;首页行里是固定的 120×88。
     var fillsWidth = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let shape = RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+        VStack(alignment: .leading, spacing: 1) {
             HStack(alignment: .top, spacing: 4) {
-                Image(systemName: symbolName)
-                    .font(.system(size: 18, weight: .semibold))
-                    .frame(height: 22)
+                Text(verbatim: title)
+                    .font(.subheadline.weight(.bold))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
                 Spacer(minLength: 0)
                 if isWorking {
                     ProgressView()
@@ -522,18 +584,12 @@ struct ListeningIntentCard: View {
                         .opacity(0.9)
                 }
             }
-            Spacer(minLength: 4)
-            Text(verbatim: title)
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
             if let detail {
                 Text(verbatim: detail)
                     .font(.caption2)
                     .monospacedDigit()
-                    .opacity(0.85)
+                    .opacity(0.82)
                     .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
         .foregroundStyle(.white)
@@ -545,23 +601,38 @@ struct ListeningIntentCard: View {
         )
         .frame(maxWidth: fillsWidth ? .infinity : nil, alignment: .topLeading)
         .background {
-            Self.surface(tint: tint, cornerRadius: Self.cornerRadius)
+            ZStack(alignment: .bottomTrailing) {
+                Self.surface(tint: tint, cornerRadius: Self.cornerRadius)
+                ListeningIntentWatermark(symbolName: symbolName, decade: decade, size: 56)
+            }
         }
-        .contentShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
+        .clipShape(shape)
+        .contentShape(shape)
         .opacity(isDimmed ? 0.42 : 1)
     }
 
-    /// 黑底上叠主题色渐变:浅色、深色外观下都是同一种偏深的颜色,白字始终看得清。
+    /// 黑底上叠同色系双色渐变(左上偏亮、右下压深),左上角一团柔光,再描一圈很细的高光边。
+    /// 浅色、深色外观下都是同一种偏深的颜色,白字始终看得清。
     static func surface(tint: Color, cornerRadius: CGFloat) -> some View {
-        ZStack {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return ZStack {
             Color.black
             LinearGradient(
-                colors: [tint, tint.opacity(0.72)],
+                colors: [tint.mix(with: .white, by: 0.08), tint.mix(with: .black, by: 0.42)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
+            RadialGradient(
+                colors: [.white.opacity(0.2), .white.opacity(0)],
+                center: .topLeading,
+                startRadius: 0,
+                endRadius: 150
+            )
         }
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .clipShape(shape)
+        .overlay {
+            shape.strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+        }
     }
 
     static var neutralSurface: Color {
@@ -605,9 +676,9 @@ struct ListeningIntentEagerGrid<Item: Identifiable, Content: View>: View {
     }
 }
 
-/// 铺开时的一格:左边图标,右边名字和曲数,撑满列宽。底色与横排卡片同一套。
+/// 铺开时的一格:名字和曲数靠左,右下角压一个放大的半透明符号,撑满列宽。底色与横排卡片同一套。
 struct ListeningIntentTile: View {
-    static let minHeight: CGFloat = 56
+    static let minHeight: CGFloat = 64
     static let cornerRadius: CGFloat = 12
 
     let title: String
@@ -616,25 +687,15 @@ struct ListeningIntentTile: View {
     let tint: Color
     var badgeSymbol: String? = nil
     var isWorking = false
+    /// 年代意图用大号的「80s」代替符号。
+    var decade: ListeningDecade? = nil
 
     var body: some View {
-        HStack(spacing: 10) {
-            ZStack {
-                Circle()
-                    .fill(.white.opacity(0.18))
-                if isWorking {
-                    ProgressView()
-                        .controlSize(.mini)
-                        .tint(.white)
-                } else {
-                    Image(systemName: symbolName)
-                        .font(.system(size: 15, weight: .semibold))
-                }
-            }
-            .frame(width: 34, height: 34)
+        let shape = RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+        HStack(spacing: 6) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(verbatim: title)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.subheadline.weight(.bold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
                 if let detail {
@@ -646,20 +707,179 @@ struct ListeningIntentTile: View {
                 }
             }
             Spacer(minLength: 0)
-            if let badgeSymbol {
+            if isWorking {
+                ProgressView()
+                    .controlSize(.mini)
+                    .tint(.white)
+            } else if let badgeSymbol {
                 Image(systemName: badgeSymbol)
                     .font(.caption2.weight(.semibold))
                     .opacity(0.9)
             }
         }
         .foregroundStyle(.white)
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, minHeight: Self.minHeight, alignment: .leading)
+        .background {
+            ZStack(alignment: .bottomTrailing) {
+                ListeningIntentCard.surface(tint: tint, cornerRadius: Self.cornerRadius)
+                ListeningIntentWatermark(symbolName: symbolName, decade: decade, size: 50)
+            }
+        }
+        .clipShape(shape)
+        .contentShape(shape)
+    }
+}
+
+/// 卡片右下角压着的放大符号,半透明、一部分伸出卡片被裁掉。年代意图用大号的「80s」「00s」。
+struct ListeningIntentWatermark: View {
+    let symbolName: String
+    var decade: ListeningDecade? = nil
+    /// 符号的字号;年代数字按它的八成。
+    var size: CGFloat
+
+    var body: some View {
+        Group {
+            if let decade {
+                Text(verbatim: Self.decadeLabel(decade))
+                    .font(.system(size: size * 0.8, weight: .heavy, design: .rounded))
+                    .fixedSize()
+                    .offset(x: size * 0.12, y: size * 0.2)
+            } else {
+                Image(systemName: symbolName)
+                    .font(.system(size: size, weight: .bold))
+                    .rotationEffect(.degrees(-12))
+                    .offset(x: size * 0.24, y: size * 0.28)
+            }
+        }
+        .foregroundStyle(.white.opacity(0.22))
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    /// 「80s」「90s」「00s」「10s」。
+    static func decadeLabel(_ decade: ListeningDecade) -> String {
+        String(format: "%02ds", decade.rawValue % 100)
+    }
+}
+
+/// 第一张(接着上次 / 随便听听)占满一整行:左边三张封面叠成一摞,中间名字、曲数与歌手,右边播放键。
+struct ListeningIntentHeroTile: View {
+    static let minHeight: CGFloat = 78
+    static let cornerRadius: CGFloat = 16
+
+    let title: String
+    let detail: String?
+    let tint: Color
+    let symbolName: String
+    var covers: [Song] = []
+    var isWorking = false
+
+    private static let coverSide: CGFloat = 52
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+        HStack(spacing: 12) {
+            coverStack
+            VStack(alignment: .leading, spacing: 3) {
+                Text(verbatim: title)
+                    .font(.headline.weight(.bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                if let line = subtitle {
+                    Text(verbatim: line)
+                        .font(.caption)
+                        .opacity(0.82)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 4)
+            ZStack {
+                Circle()
+                    .fill(.white)
+                if isWorking {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(tint)
+                } else {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(tint)
+                        .offset(x: 1)
+                }
+            }
+            .frame(width: 38, height: 38)
+            .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
+            .accessibilityHidden(true)
+        }
+        .foregroundStyle(.white)
+        .padding(12)
         .frame(maxWidth: .infinity, minHeight: Self.minHeight, alignment: .leading)
         .background {
             ListeningIntentCard.surface(tint: tint, cornerRadius: Self.cornerRadius)
         }
-        .contentShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
+        .clipShape(shape)
+        .contentShape(shape)
+    }
+
+    /// 曲数在前(一行放不下时截掉的是歌手),后面接封面里的歌手,去重、最多两位。
+    private var subtitle: String? {
+        var artists: [String] = []
+        for song in covers {
+            guard let name = song.artistName?.trimmingCharacters(in: .whitespaces), !name.isEmpty,
+                  !artists.contains(name) else { continue }
+            artists.append(name)
+            if artists.count == 2 { break }
+        }
+        let parts = (detail.map { [$0] } ?? []) + artists
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    @ViewBuilder
+    private var coverStack: some View {
+        let side = Self.coverSide
+        if covers.isEmpty {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(.white.opacity(0.18))
+                Image(systemName: symbolName)
+                    .font(.system(size: 20, weight: .semibold))
+            }
+            .frame(width: side, height: side)
+        } else {
+            let shown = Array(covers.prefix(3).enumerated())
+            ZStack(alignment: .leading) {
+                ForEach(shown.reversed(), id: \.element.id) { index, song in
+                    ListeningIntentCoverArt(song: song, size: side, cornerRadius: 8)
+                        .brightness(index == 0 ? 0 : -0.08 * Double(index))
+                        .scaleEffect(1 - 0.1 * CGFloat(index), anchor: .trailing)
+                        .shadow(color: .black.opacity(0.3), radius: 3, x: 1, y: 1)
+                        .offset(x: CGFloat(index) * 16)
+                }
+            }
+            .frame(width: side + CGFloat(max(0, shown.count - 1)) * 16, height: side, alignment: .leading)
+        }
+    }
+}
+
+/// 卡片上的一张小封面。
+struct ListeningIntentCoverArt: View {
+    let song: Song
+    let size: CGFloat
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        CachedArtworkView(
+            coverRef: song.coverArtFileName,
+            songID: song.id,
+            size: size,
+            cornerRadius: cornerRadius,
+            sourceID: song.sourceID,
+            filePath: song.filePath,
+            fileFormat: song.fileFormat
+        )
+        .frame(width: size, height: size)
     }
 }
 
@@ -841,6 +1061,7 @@ struct ListeningIntentsPage: View {
                 badgeSymbol: item.isHidden ? "eye.slash" : item.badgeSymbol,
                 isWorking: startingIntentID == item.id,
                 isDimmed: !item.isLit || item.isHidden,
+                decade: item.decade,
                 fillsWidth: true
             )
         }
@@ -866,7 +1087,8 @@ struct ListeningIntentsPage: View {
                         title: title,
                         symbolName: item.intent.symbolName,
                         detail: detail,
-                        tint: item.intent.tint
+                        tint: item.intent.tint,
+                        decade: item.decade
                     )
                 }
                 .dropDestination(for: String.self) { ids, _ in
@@ -963,6 +1185,12 @@ struct PersonalIntentsFooter: View {
 }
 
 extension ListeningIntentShelfItem {
+    /// 年代意图的那个年代,其余为 nil。
+    var decade: ListeningDecade? {
+        if case .builtIn(let builtIn) = intent.source { return builtIn.decade }
+        return nil
+    }
+
     /// 钉选的显示图钉;AI 整理出来的显示一点星光。
     var badgeSymbol: String? {
         if isPinned { return "pin.fill" }

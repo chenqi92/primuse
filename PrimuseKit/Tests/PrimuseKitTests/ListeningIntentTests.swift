@@ -135,6 +135,37 @@ struct ListeningIntentTests {
         #expect(availability.libraryGeneration == 7)
     }
 
+    @Test("Each intent gets covers from up to three different albums, the same all day")
+    func coverSamples() throws {
+        var songs: [ListeningTestSong] = []
+        for album in 0..<6 {
+            for track in 0..<4 {
+                songs.append(ListeningTestSong(
+                    id: "j\(album)-\(track)", albumID: "a\(album)", genre: "Jazz", coverArtFileName: "c\(album)"
+                ))
+            }
+        }
+        for index in 0..<20 { songs.append(ListeningTestSong(id: "r\(index)", albumID: "rock", genre: "Rock")) }
+        func covers(at date: Date, _ songs: [ListeningTestSong]) throws -> [String] {
+            let availability = try #require(ListeningIntentEngine.availability(
+                songs: songs,
+                intents: ListeningIntent.builtIns,
+                history: .empty(now: date),
+                libraryGeneration: 1
+            ))
+            #expect(availability.coverSongIDs(for: .builtIn(.rock)).isEmpty)
+            return availability.coverSongIDs(for: .builtIn(.jazz))
+        }
+        let jazz = try covers(at: now, songs)
+        #expect(jazz.count == ListeningIntentEngine.coverSampleLimit)
+        let albums = jazz.compactMap { id in songs.first { $0.id == id }?.albumID }
+        #expect(Set(albums).count == jazz.count)
+        // Same day, other library order: the same albums.
+        let reordered = try covers(at: now.addingTimeInterval(3_600), Array(songs.reversed()))
+        let reorderedAlbums = reordered.compactMap { id in songs.first { $0.id == id }?.albumID }
+        #expect(reorderedAlbums == albums)
+    }
+
     @Test("Lighting is cancellable")
     func availabilityCancels() {
         let songs = (0..<5_000).map { ListeningTestSong(id: "s\($0)", genre: "Pop") }
