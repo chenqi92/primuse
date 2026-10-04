@@ -5577,3 +5577,26 @@
 "stats_trait_vintage" = "Classiques";
 "stats_recap_mood_not_offered" = "L’IA intégrée ne propose pas encore cette lecture. Dans « Fonctions intelligentes », vous pouvez confier l’humeur d’écoute à votre propre service d’IA.";
 "stats_recap_mood_failed" = "La lecture n’a pas abouti cette fois ; ceci se base sur vos habitudes d’écoute.";
+
+// MARK: - Offline Downloads
+"offline_downloads" = "Téléchargements hors ligne";
+"offline_downloads_footer" = "Les téléchargements hors ligne sont stockés à part et ne comptent pas dans la limite du cache audio. Vider le cache ne les supprime pas, et le système ne les efface pas quand l’espace manque.";
+"offline_downloads_summary_format" = "%1$d morceaux · %2$@";
+"offline_downloads_empty" = "Aucun téléchargement hors ligne";
+"offline_downloads_empty_hint" = "Choisissez « Télécharger » dans le menu d’une liste de lecture, d’un album ou d’un morceau, ou activez « Toujours disponible hors ligne » pour une liste de lecture.";
+"offline_downloads_remove" = "Supprimer";
+"offline_downloads_remove_all" = "Tout supprimer";
+"offline_downloads_remove_selected_format" = "Supprimer la sélection (%d)";
+"offline_downloads_remove_confirm_title_format" = "Supprimer %d téléchargements hors ligne ?";
+"offline_downloads_remove_confirm_message_format" = "Cela libère %@. Il faudra ensuite une connexion pour écouter ces morceaux.";
+"offline_downloads_kept_by_format" = "Gardé hors ligne par %@";
+"offline_downloads_owned_title" = "Désactivez d’abord « Toujours disponible hors ligne »";
+"offline_downloads_owned_message_format" = "« Toujours disponible hors ligne » est activé pour %@ : les morceaux supprimés seraient retéléchargés. Une fois l’option désactivée, les autres morceaux téléchargés de ces listes repassent dans le cache ordinaire.";
+"offline_downloads_owned_confirm" = "Désactiver et supprimer";
+"offline_downloads_manage" = "Gérer…";
+"playlist_remove_offline_downloads" = "Supprimer les téléchargements hors ligne";
+"playlist_remove_offline_confirm_title" = "Supprimer les téléchargements hors ligne de cette liste de lecture ?";
+"playlist_remove_offline_confirm_message_format" = "%1$d morceaux téléchargés (%2$@) seront supprimés. Il faudra ensuite une connexion pour les écouter.";
+"playlist_remove_offline_turns_off_always" = "« Toujours disponible hors ligne » sera aussi désactivé pour cette liste de lecture.";
+"playlist_remove_offline_kept_format" = "%d morceaux gardés hors ligne par d’autres listes de lecture seront conservés.";
+"playlist_remove_offline_none" = "Cette liste de lecture n’a aucun téléchargement hors ligne.";

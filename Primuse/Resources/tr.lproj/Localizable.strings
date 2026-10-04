@@ -5483,3 +5483,26 @@
 "stats_trait_vintage" = "Klasikler";
 "stats_recap_mood_not_offered" = "Yerleşik yapay zekâ bu yorumu henüz yapamıyor. Zeka bölümünden Dinleme Ruh Hâli'ni kendi yapay zekâ hizmetine atayabilirsin.";
 "stats_recap_mood_failed" = "Bu sefer yorumlanamadı; gösterilen durum dinleme alışkanlıklarına dayanıyor.";
+
+// MARK: - Offline Downloads
+"offline_downloads" = "Çevrimdışı İndirmeler";
+"offline_downloads_footer" = "Çevrimdışı indirmeler ayrı saklanır ve ses önbellek limitine sayılmaz. Önbelleği temizlemek bunları silmez, depolama azaldığında sistem de silmez.";
+"offline_downloads_summary_format" = "%1$d şarkı · %2$@";
+"offline_downloads_empty" = "Çevrimdışı İndirme Yok";
+"offline_downloads_empty_hint" = "Bir çalma listesi, albüm veya şarkı menüsünden İndir'i seçin ya da bir çalma listesi için Her Zaman İndir'i açın.";
+"offline_downloads_remove" = "Kaldır";
+"offline_downloads_remove_all" = "Tümünü Kaldır";
+"offline_downloads_remove_selected_format" = "Seçilenleri Kaldır (%d)";
+"offline_downloads_remove_confirm_title_format" = "%d çevrimdışı indirme kaldırılsın mı?";
+"offline_downloads_remove_confirm_message_format" = "%@ yer açılır. Bu şarkıları daha sonra çalmak için bağlantı gerekir.";
+"offline_downloads_kept_by_format" = "%@ tarafından çevrimdışı tutuluyor";
+"offline_downloads_owned_title" = "Önce Her Zaman İndir'i Kapatın";
+"offline_downloads_owned_message_format" = "%@ için Her Zaman İndir açık; kaldırılan şarkılar yeniden indirilir. Kapatınca bu listelerdeki diğer indirilmiş şarkılar normal önbelleğe döner.";
+"offline_downloads_owned_confirm" = "Kapat ve Kaldır";
+"offline_downloads_manage" = "Yönet…";
+"playlist_remove_offline_downloads" = "Çevrimdışı İndirmeleri Kaldır";
+"playlist_remove_offline_confirm_title" = "Bu çalma listesinin çevrimdışı indirmeleri kaldırılsın mı?";
+"playlist_remove_offline_confirm_message_format" = "İndirilmiş %1$d şarkı (%2$@) silinecek. Daha sonra çalmak için bağlantı gerekir.";
+"playlist_remove_offline_turns_off_always" = "Bu çalma listesi için Her Zaman İndir de kapatılacak.";
+"playlist_remove_offline_kept_format" = "Diğer çalma listelerinin çevrimdışı tuttuğu %d şarkı kalacak.";
+"playlist_remove_offline_none" = "Bu çalma listesinde çevrimdışı indirme yok.";

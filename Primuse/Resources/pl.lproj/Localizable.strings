@@ -5483,3 +5483,26 @@
 "stats_trait_vintage" = "Klasyka";
 "stats_recap_mood_not_offered" = "Wbudowana AI nie obsługuje jeszcze tego opisu. W sekcji Inteligencja możesz przypisać nastrój słuchania własnej usłudze AI.";
 "stats_recap_mood_failed" = "Tym razem nie udało się uzyskać opisu — poniżej to, co wynika z twoich nawyków.";
+
+// MARK: - Offline Downloads
+"offline_downloads" = "Pobrane offline";
+"offline_downloads_footer" = "Pobrane offline są przechowywane osobno i nie liczą się do limitu pamięci podręcznej audio. Czyszczenie pamięci podręcznej ich nie usuwa, a system nie kasuje ich przy braku miejsca.";
+"offline_downloads_summary_format" = "Utwory: %1$d · %2$@";
+"offline_downloads_empty" = "Brak pobranych offline";
+"offline_downloads_empty_hint" = "Wybierz Pobierz w menu playlisty, albumu lub utworu albo włącz Zawsze pobieraj dla playlisty.";
+"offline_downloads_remove" = "Usuń";
+"offline_downloads_remove_all" = "Usuń wszystko";
+"offline_downloads_remove_selected_format" = "Usuń zaznaczone (%d)";
+"offline_downloads_remove_confirm_title_format" = "Usunąć pobrane offline (%d)?";
+"offline_downloads_remove_confirm_message_format" = "Zwolni to %@. Potem do odtwarzania tych utworów potrzebne będzie połączenie.";
+"offline_downloads_kept_by_format" = "Trzymane offline przez %@";
+"offline_downloads_owned_title" = "Najpierw wyłącz Zawsze pobieraj";
+"offline_downloads_owned_message_format" = "Dla %@ włączono Zawsze pobieraj, więc usunięte utwory zostałyby pobrane ponownie. Po wyłączeniu pozostałe pobrane utwory z tych playlist staną się zwykłą pamięcią podręczną.";
+"offline_downloads_owned_confirm" = "Wyłącz i usuń";
+"offline_downloads_manage" = "Zarządzaj…";
+"playlist_remove_offline_downloads" = "Usuń pobrane offline";
+"playlist_remove_offline_confirm_title" = "Usunąć pobrane offline z tej playlisty?";
+"playlist_remove_offline_confirm_message_format" = "Pobrane utwory zostaną usunięte: %1$d (%2$@). Potem do odtwarzania potrzebne będzie połączenie.";
+"playlist_remove_offline_turns_off_always" = "Dla tej playlisty zostanie też wyłączone Zawsze pobieraj.";
+"playlist_remove_offline_kept_format" = "Utwory trzymane offline przez inne playlisty (%d) pozostaną.";
+"playlist_remove_offline_none" = "Ta playlista nie ma pobranych offline.";

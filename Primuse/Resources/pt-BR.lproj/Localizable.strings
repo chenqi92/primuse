@@ -5483,3 +5483,26 @@
 "stats_trait_vintage" = "Clássicos";
 "stats_recap_mood_not_offered" = "A IA integrada ainda não faz essa leitura. Em Inteligência, você pode atribuir o momento de escuta ao seu próprio serviço de IA.";
 "stats_recap_mood_failed" = "Não foi possível fazer a leitura desta vez; isto se baseia nos seus hábitos de escuta.";
+
+// MARK: - Offline Downloads
+"offline_downloads" = "Downloads offline";
+"offline_downloads_footer" = "Os downloads offline ficam guardados à parte e não contam para o limite do cache de áudio. Limpar o cache não os remove, e o sistema não os apaga quando falta espaço.";
+"offline_downloads_summary_format" = "%1$d músicas · %2$@";
+"offline_downloads_empty" = "Nenhum download offline";
+"offline_downloads_empty_hint" = "Escolha Baixar no menu de uma playlist, álbum ou música, ou ative Sempre baixar em uma playlist.";
+"offline_downloads_remove" = "Remover";
+"offline_downloads_remove_all" = "Remover tudo";
+"offline_downloads_remove_selected_format" = "Remover seleção (%d)";
+"offline_downloads_remove_confirm_title_format" = "Remover %d downloads offline?";
+"offline_downloads_remove_confirm_message_format" = "Isso libera %@. Depois será preciso conexão para tocar essas músicas.";
+"offline_downloads_kept_by_format" = "Mantida offline por %@";
+"offline_downloads_owned_title" = "Desative Sempre baixar primeiro";
+"offline_downloads_owned_message_format" = "Sempre baixar está ativado em %@, então as músicas removidas seriam baixadas de novo. Ao desativar, as outras músicas baixadas dessas playlists voltam ao cache comum.";
+"offline_downloads_owned_confirm" = "Desativar e remover";
+"offline_downloads_manage" = "Gerenciar…";
+"playlist_remove_offline_downloads" = "Remover downloads offline";
+"playlist_remove_offline_confirm_title" = "Remover os downloads offline desta playlist?";
+"playlist_remove_offline_confirm_message_format" = "%1$d músicas baixadas (%2$@) serão excluídas. Depois será preciso conexão para tocá-las.";
+"playlist_remove_offline_turns_off_always" = "Sempre baixar também será desativado para esta playlist.";
+"playlist_remove_offline_kept_format" = "%d músicas mantidas offline por outras playlists continuarão.";
+"playlist_remove_offline_none" = "Esta playlist não tem downloads offline.";

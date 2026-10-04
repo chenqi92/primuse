@@ -60,3 +60,50 @@ public enum AudioCacheEvictionPlanPolicy {
         return planned
     }
 }
+
+/// 离线下载的歌除了缓存目录里那个入口, 在离线目录(不会被系统清理)里还有一个
+/// 指向同一份数据的硬链接。这里决定一个文件的两个入口该怎么对齐。纯函数,
+/// 不碰文件系统: 两边是不是同一个文件由调用方按 (设备, inode) 判断好再传进来。
+public enum OfflineAudioMirrorPolicy {
+    public struct FileIdentity: Sendable, Equatable {
+        public let device: UInt64
+        public let inode: UInt64
+
+        public init(device: UInt64, inode: UInt64) {
+            self.device = device
+            self.inode = inode
+        }
+    }
+
+    public enum Action: Sendable, Equatable {
+        case keep
+        /// 把缓存目录里的文件链进离线目录, 离线目录里有旧的就换掉。
+        case mirror
+        /// 缓存目录被系统清过: 从离线目录把入口链回缓存目录。
+        case restore
+        /// 离线目录里这个入口不该再留着。
+        case drop
+    }
+
+    /// 缓存目录是读写的正本, 两边不一致时以它为准。缓存目录里没有、离线目录
+    /// 里有, 只有在缓存目录被整体清掉过时才是「丢了要找回」; 平时就是歌被
+    /// 有意删掉了(移除、内容更新、转成精简副本), 跟着删。
+    public static func action(
+        isPinned: Bool,
+        cacheFile: FileIdentity?,
+        mirrorFile: FileIdentity?,
+        cacheDirectoryIntact: Bool
+    ) -> Action {
+        guard isPinned else { return mirrorFile == nil ? .keep : .drop }
+        switch (cacheFile, mirrorFile) {
+        case (nil, nil):
+            return .keep
+        case (.some, nil):
+            return .mirror
+        case let (.some(cache), .some(mirror)):
+            return cache == mirror ? .keep : .mirror
+        case (nil, .some):
+            return cacheDirectoryIntact ? .drop : .restore
+        }
+    }
+}

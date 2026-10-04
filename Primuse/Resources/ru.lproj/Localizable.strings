@@ -5483,3 +5483,26 @@
 "stats_trait_vintage" = "Классика";
 "stats_recap_mood_not_offered" = "Встроенный ИИ пока не умеет такое описание. В разделе «Интеллект» можно передать «Настроение прослушивания» своему ИИ-сервису.";
 "stats_recap_mood_failed" = "В этот раз описание получить не удалось — показано то, что следует из ваших привычек.";
+
+// MARK: - Offline Downloads
+"offline_downloads" = "Офлайн-загрузки";
+"offline_downloads_footer" = "Офлайн-загрузки хранятся отдельно и не учитываются в ограничении аудиокэша. Очистка кэша их не удаляет, и система не стирает их при нехватке места.";
+"offline_downloads_summary_format" = "%1$d песен · %2$@";
+"offline_downloads_empty" = "Нет офлайн-загрузок";
+"offline_downloads_empty_hint" = "Выберите «Скачать» в меню плейлиста, альбома или песни либо включите «Всегда скачивать» для плейлиста.";
+"offline_downloads_remove" = "Удалить";
+"offline_downloads_remove_all" = "Удалить все";
+"offline_downloads_remove_selected_format" = "Удалить выбранное (%d)";
+"offline_downloads_remove_confirm_title_format" = "Удалить офлайн-загрузки (%d)?";
+"offline_downloads_remove_confirm_message_format" = "Освободится %@. Потом для воспроизведения этих песен понадобится подключение.";
+"offline_downloads_kept_by_format" = "Хранится офлайн плейлистом %@";
+"offline_downloads_owned_title" = "Сначала выключите «Всегда скачивать»";
+"offline_downloads_owned_message_format" = "Для %@ включено «Всегда скачивать», поэтому удалённые песни скачаются снова. После выключения остальные скачанные песни этих плейлистов станут обычным кэшем.";
+"offline_downloads_owned_confirm" = "Выключить и удалить";
+"offline_downloads_manage" = "Управление…";
+"playlist_remove_offline_downloads" = "Удалить офлайн-загрузки";
+"playlist_remove_offline_confirm_title" = "Удалить офлайн-загрузки этого плейлиста?";
+"playlist_remove_offline_confirm_message_format" = "Будут удалены скачанные песни: %1$d (%2$@). Потом для воспроизведения понадобится подключение.";
+"playlist_remove_offline_turns_off_always" = "Для этого плейлиста также выключится «Всегда скачивать».";
+"playlist_remove_offline_kept_format" = "Песни, которые хранят офлайн другие плейлисты (%d), останутся.";
+"playlist_remove_offline_none" = "В этом плейлисте нет офлайн-загрузок.";

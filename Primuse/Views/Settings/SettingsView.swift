@@ -2315,6 +2315,7 @@ struct StorageManagementView: View {
     var opensCacheSync = false
     @State private var showsCacheSync = false
     @Environment(SourceManager.self) private var sourceManager
+    @Environment(MusicLibrary.self) private var library
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
     @Environment(MetadataBackfillService.self) private var backfill
     @AppStorage(MetadataBackfillService.wifiOnlyDefaultsKey) private var cloudScanWifiOnly: Bool = true
@@ -2324,6 +2325,7 @@ struct StorageManagementView: View {
     /// 仍是 on 但显示"已被系统拒绝"提示, 让用户知道为什么开关无效。
     @State private var notificationStatusDenied: Bool = false
     @State private var audioCacheSize: String = "..."
+    @State private var offlineDownloadsSummary: String = "..."
     @State private var imageCacheSize: String = "..."
     @State private var metadataSize: String = "..."
     @State private var isClearingAudio = false
@@ -2484,6 +2486,25 @@ struct StorageManagementView: View {
             }
 
             Section {
+                NavigationLink {
+                    OfflineDownloadsView()
+                } label: {
+                    HStack {
+                        Label("offline_downloads", systemImage: "arrow.down.circle")
+                        Spacer()
+                        Text(verbatim: offlineDownloadsSummary)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
+                .settingsAnchor("storage.offlineDownloads")
+            } header: {
+                Text("offline_downloads")
+            } footer: {
+                Text("offline_downloads_footer")
+            }
+
+            Section {
                 Picker("offline_download_quality", selection: $settings.offlineDownloadQuality) {
                     ForEach(StreamQualityPreference.allCases, id: \.self) { quality in
                         Text(quality.displayName).tag(quality)
@@ -2547,6 +2568,11 @@ struct StorageManagementView: View {
         }
         #endif
         .task { await refreshSizes() }
+        .onAppear {
+            // 从「离线下载」列表移除后返回时更新两边的大小。
+            guard offlineDownloadsSummary != "..." else { return }
+            Task { await refreshSizes() }
+        }
         .overlay(alignment: .bottom) {
             if let msg = cacheActionToast {
                 Text(msg)
@@ -2660,17 +2686,6 @@ struct StorageManagementView: View {
 
         // 缩进 + 小一号字, 提示是 audio cache 的细分
         VStack(alignment: .leading, spacing: 8) {
-            if bd.pinnedBytes > 0 {
-                HStack {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .foregroundStyle(.tint).font(.caption)
-                    Text("cache_pinned").font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    Text(fmt.string(fromByteCount: bd.pinnedBytes))
-                        .font(.caption).foregroundStyle(.tint).monospacedDigit()
-                }
-            }
-
             HStack {
                 Image(systemName: "checkmark.circle")
                     .foregroundStyle(.secondary).font(.caption)
@@ -2771,8 +2786,15 @@ struct StorageManagementView: View {
         formatter.countStyle = .file
 
         let audio = await sourceManager.audioCacheSizeAsync()
-        audioCacheSize = formatter.string(fromByteCount: audio)
-        audioBreakdown = await sourceManager.audioCacheBreakdown()
+        let breakdown = await sourceManager.audioCacheBreakdown()
+        audioBreakdown = breakdown
+        // 离线下载在缓存目录里也有入口, 单独列在下面, 这里只算普通缓存。
+        audioCacheSize = formatter.string(fromByteCount: max(0, audio - breakdown.pinnedBytes))
+        let offline = await sourceManager.offlineDownloadItems(in: library.songs)
+        offlineDownloadsSummary = OfflineDownloadsView.summaryText(
+            songCount: offline.count,
+            byteCount: offline.reduce(0) { $0 + $1.byteCount }
+        )
 
         let images = (try? await ImageCache.shared.diskCacheSize()) ?? 0
         imageCacheSize = formatter.string(fromByteCount: images)

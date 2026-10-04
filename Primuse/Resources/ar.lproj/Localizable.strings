@@ -5483,3 +5483,26 @@
 "stats_trait_vintage" = "الكلاسيكي";
 "stats_recap_mood_not_offered" = "لا يدعم الذكاء الاصطناعي المدمج هذه القراءة بعد. يمكنك في «الميزات الذكية» إسناد «حالة الاستماع» إلى خدمة الذكاء الاصطناعي الخاصة بك.";
 "stats_recap_mood_failed" = "تعذّرت القراءة هذه المرة، لذا تُعرض الحالة بناءً على عادات استماعك.";
+
+// MARK: - Offline Downloads
+"offline_downloads" = "التنزيلات دون اتصال";
+"offline_downloads_footer" = "تُحفَظ التنزيلات دون اتصال بشكل منفصل ولا تُحتسب ضمن حد ذاكرة التخزين المؤقت للصوت. لا يحذفها مسح ذاكرة التخزين المؤقت، ولا يحذفها النظام عند انخفاض المساحة.";
+"offline_downloads_summary_format" = "%1$d أغنية · %2$@";
+"offline_downloads_empty" = "لا توجد تنزيلات دون اتصال";
+"offline_downloads_empty_hint" = "اختر «تحميل» من قائمة قائمة تشغيل أو ألبوم أو أغنية، أو شغّل «التنزيل دائمًا» لقائمة تشغيل.";
+"offline_downloads_remove" = "إزالة";
+"offline_downloads_remove_all" = "إزالة الكل";
+"offline_downloads_remove_selected_format" = "إزالة المحدد (%d)";
+"offline_downloads_remove_confirm_title_format" = "هل تريد إزالة %d من التنزيلات دون اتصال؟";
+"offline_downloads_remove_confirm_message_format" = "سيتم تحرير %@. بعد ذلك ستحتاج إلى اتصال لتشغيل هذه الأغاني.";
+"offline_downloads_kept_by_format" = "محفوظة دون اتصال بواسطة %@";
+"offline_downloads_owned_title" = "أوقف «التنزيل دائمًا» أولًا";
+"offline_downloads_owned_message_format" = "«التنزيل دائمًا» مفعّل في %@، لذا ستُنزَّل الأغاني المزالة مجددًا. بعد إيقافه تصبح الأغاني المنزّلة الأخرى في قوائم التشغيل هذه ذاكرة تخزين مؤقت عادية.";
+"offline_downloads_owned_confirm" = "إيقاف وإزالة";
+"offline_downloads_manage" = "إدارة…";
+"playlist_remove_offline_downloads" = "إزالة التنزيلات دون اتصال";
+"playlist_remove_offline_confirm_title" = "هل تريد إزالة التنزيلات دون اتصال لقائمة التشغيل هذه؟";
+"playlist_remove_offline_confirm_message_format" = "سيتم حذف %1$d من الأغاني المنزّلة (%2$@). بعد ذلك ستحتاج إلى اتصال لتشغيلها.";
+"playlist_remove_offline_turns_off_always" = "سيتم أيضًا إيقاف «التنزيل دائمًا» لقائمة التشغيل هذه.";
+"playlist_remove_offline_kept_format" = "ستبقى %d من الأغاني التي تحفظها قوائم تشغيل أخرى دون اتصال.";
+"playlist_remove_offline_none" = "لا تحتوي قائمة التشغيل هذه على تنزيلات دون اتصال.";

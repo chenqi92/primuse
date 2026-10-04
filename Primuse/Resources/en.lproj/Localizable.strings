@@ -5337,3 +5337,26 @@
 "stats_trait_vintage" = "Classics";
 "stats_recap_mood_not_offered" = "The built-in AI can’t do this reading yet. You can assign Listening Mood to your own AI service in Intelligence.";
 "stats_recap_mood_failed" = "Couldn’t get a reading this time, so this is based on your listening habits.";
+
+// MARK: - Offline Downloads
+"offline_downloads" = "Offline Downloads";
+"offline_downloads_footer" = "Offline downloads are stored separately and don't count toward the audio cache limit. Clearing the cache won't remove them, and the system won't purge them when storage runs low.";
+"offline_downloads_summary_format" = "%1$d songs · %2$@";
+"offline_downloads_empty" = "No Offline Downloads";
+"offline_downloads_empty_hint" = "Choose Download from a playlist, album, or song menu, or turn on Always Download for a playlist.";
+"offline_downloads_remove" = "Remove";
+"offline_downloads_remove_all" = "Remove All";
+"offline_downloads_remove_selected_format" = "Remove Selected (%d)";
+"offline_downloads_remove_confirm_title_format" = "Remove %d Offline Downloads?";
+"offline_downloads_remove_confirm_message_format" = "This frees up %@. Playing these songs will need a connection afterward.";
+"offline_downloads_kept_by_format" = "Kept offline by %@";
+"offline_downloads_owned_title" = "Turn Off Always Download First";
+"offline_downloads_owned_message_format" = "Always Download is on for %@, so removed songs would be downloaded again. Turning it off also returns the other downloaded songs in these playlists to the regular cache.";
+"offline_downloads_owned_confirm" = "Turn Off and Remove";
+"offline_downloads_manage" = "Manage…";
+"playlist_remove_offline_downloads" = "Remove Offline Downloads";
+"playlist_remove_offline_confirm_title" = "Remove This Playlist's Offline Downloads?";
+"playlist_remove_offline_confirm_message_format" = "%1$d downloaded songs (%2$@) will be deleted. Playing them will need a connection afterward.";
+"playlist_remove_offline_turns_off_always" = "Always Download will also be turned off for this playlist.";
+"playlist_remove_offline_kept_format" = "%d songs kept offline by other playlists will stay.";
+"playlist_remove_offline_none" = "This playlist has no offline downloads.";

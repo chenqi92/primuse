@@ -2013,6 +2013,9 @@ final class AppServices {
                     self?.plexServerLinks.applicationDidBecomeActive()
                     self?.serverCatalogAutoRefresh.setApplicationActive(true)
                     self?.alwaysDownload.setApplicationActive(true)
+                    Task.detached(priority: .utility) {
+                        await AudioCacheManager.shared.restoreOfflineEntriesIfCacheCleared()
+                    }
                     self?.serverRatingSync.resume()
                     #if os(iOS) || os(macOS)
                     // 每次回到前台查一次到期的清单订阅(启动后的等待结束前不算数)。

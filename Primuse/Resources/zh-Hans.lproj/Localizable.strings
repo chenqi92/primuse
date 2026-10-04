@@ -5670,3 +5670,26 @@
 "stats_trait_vintage" = "爱老歌";
 "stats_recap_mood_not_offered" = "内置 AI 暂时还不能做这项解读；可以在「智能功能」里把「听歌状态解读」交给你自己的 AI 服务。";
 "stats_recap_mood_failed" = "这次没能解读，先显示根据听歌习惯得出的状态。";
+
+// MARK: - Offline Downloads
+"offline_downloads" = "离线下载";
+"offline_downloads_footer" = "离线下载单独存放，不计入音频缓存上限；清除缓存不会删除它们，手机空间紧张时系统也不会清理。";
+"offline_downloads_summary_format" = "%1$d 首 · %2$@";
+"offline_downloads_empty" = "还没有离线下载的歌曲";
+"offline_downloads_empty_hint" = "在歌单、专辑或歌曲菜单里选择「离线下载」，或打开歌单的「始终保持离线」。";
+"offline_downloads_remove" = "移除";
+"offline_downloads_remove_all" = "全部移除";
+"offline_downloads_remove_selected_format" = "移除所选（%d）";
+"offline_downloads_remove_confirm_title_format" = "移除 %d 首离线下载？";
+"offline_downloads_remove_confirm_message_format" = "将释放 %@，之后播放这些歌需要联网。";
+"offline_downloads_kept_by_format" = "由 %@ 保持离线";
+"offline_downloads_owned_title" = "需要先关闭「始终保持离线」";
+"offline_downloads_owned_message_format" = "%@ 开着「始终保持离线」，单独移除后会被重新下载。关闭后，这些歌单里其他已下载的歌会转为普通缓存。";
+"offline_downloads_owned_confirm" = "关闭并移除";
+"offline_downloads_manage" = "管理…";
+"playlist_remove_offline_downloads" = "移除离线下载";
+"playlist_remove_offline_confirm_title" = "移除这个歌单的离线下载？";
+"playlist_remove_offline_confirm_message_format" = "将删除 %1$d 首已离线下载的歌（%2$@），之后播放需要联网。";
+"playlist_remove_offline_turns_off_always" = "同时会关闭这个歌单的「始终保持离线」。";
+"playlist_remove_offline_kept_format" = "另有 %d 首由其他歌单保持离线，会保留。";
+"playlist_remove_offline_none" = "这个歌单里没有离线下载的歌曲。";

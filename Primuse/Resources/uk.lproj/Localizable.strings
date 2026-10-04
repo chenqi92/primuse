@@ -5483,3 +5483,26 @@
 "stats_trait_vintage" = "Класика";
 "stats_recap_mood_not_offered" = "Вбудований ШІ поки не вміє такий опис. У розділі «Інтелект» можна передати «Настрій прослуховування» своєму ШІ-сервісу.";
 "stats_recap_mood_failed" = "Цього разу опис отримати не вдалося — показано те, що випливає з ваших звичок.";
+
+// MARK: - Offline Downloads
+"offline_downloads" = "Офлайн-завантаження";
+"offline_downloads_footer" = "Офлайн-завантаження зберігаються окремо й не враховуються в ліміті аудіокешу. Очищення кешу їх не видаляє, і система не стирає їх, коли бракує місця.";
+"offline_downloads_summary_format" = "%1$d пісень · %2$@";
+"offline_downloads_empty" = "Немає офлайн-завантажень";
+"offline_downloads_empty_hint" = "Виберіть «Завантажити» в меню списку відтворення, альбому чи пісні або увімкніть «Завжди завантажувати» для списку відтворення.";
+"offline_downloads_remove" = "Вилучити";
+"offline_downloads_remove_all" = "Вилучити все";
+"offline_downloads_remove_selected_format" = "Вилучити вибране (%d)";
+"offline_downloads_remove_confirm_title_format" = "Вилучити офлайн-завантаження (%d)?";
+"offline_downloads_remove_confirm_message_format" = "Звільниться %@. Потім для відтворення цих пісень знадобиться підключення.";
+"offline_downloads_kept_by_format" = "Зберігається офлайн списком %@";
+"offline_downloads_owned_title" = "Спершу вимкніть «Завжди завантажувати»";
+"offline_downloads_owned_message_format" = "Для %@ увімкнено «Завжди завантажувати», тож вилучені пісні завантажаться знову. Після вимкнення інші завантажені пісні цих списків стануть звичайним кешем.";
+"offline_downloads_owned_confirm" = "Вимкнути й вилучити";
+"offline_downloads_manage" = "Керувати…";
+"playlist_remove_offline_downloads" = "Вилучити офлайн-завантаження";
+"playlist_remove_offline_confirm_title" = "Вилучити офлайн-завантаження цього списку відтворення?";
+"playlist_remove_offline_confirm_message_format" = "Буде видалено завантажені пісні: %1$d (%2$@). Потім для відтворення знадобиться підключення.";
+"playlist_remove_offline_turns_off_always" = "Для цього списку відтворення також вимкнеться «Завжди завантажувати».";
+"playlist_remove_offline_kept_format" = "Пісні, які зберігають офлайн інші списки (%d), залишаться.";
+"playlist_remove_offline_none" = "У цьому списку відтворення немає офлайн-завантажень.";

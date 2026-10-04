@@ -5483,3 +5483,26 @@
 "stats_trait_vintage" = "Clásicos";
 "stats_recap_mood_not_offered" = "La IA integrada todavía no hace esta lectura. En Inteligencia puedes asignar el estado de escucha a tu propio servicio de IA.";
 "stats_recap_mood_failed" = "Esta vez no se pudo hacer la lectura; esto se basa en tus hábitos de escucha.";
+
+// MARK: - Offline Downloads
+"offline_downloads" = "Descargas sin conexión";
+"offline_downloads_footer" = "Las descargas sin conexión se guardan aparte y no cuentan para el límite de caché de audio. Borrar la caché no las elimina, y el sistema no las borra cuando falta espacio.";
+"offline_downloads_summary_format" = "%1$d canciones · %2$@";
+"offline_downloads_empty" = "No hay descargas sin conexión";
+"offline_downloads_empty_hint" = "Elige Descargar en el menú de una lista de reproducción, álbum o canción, o activa Descargar siempre en una lista de reproducción.";
+"offline_downloads_remove" = "Eliminar";
+"offline_downloads_remove_all" = "Eliminar todo";
+"offline_downloads_remove_selected_format" = "Eliminar selección (%d)";
+"offline_downloads_remove_confirm_title_format" = "¿Eliminar %d descargas sin conexión?";
+"offline_downloads_remove_confirm_message_format" = "Se liberarán %@. Después necesitarás conexión para reproducir estas canciones.";
+"offline_downloads_kept_by_format" = "Sin conexión por %@";
+"offline_downloads_owned_title" = "Primero desactiva Descargar siempre";
+"offline_downloads_owned_message_format" = "Descargar siempre está activado en %@, así que las canciones eliminadas se volverían a descargar. Al desactivarlo, las demás canciones descargadas de esas listas pasan a la caché normal.";
+"offline_downloads_owned_confirm" = "Desactivar y eliminar";
+"offline_downloads_manage" = "Administrar…";
+"playlist_remove_offline_downloads" = "Eliminar descargas sin conexión";
+"playlist_remove_offline_confirm_title" = "¿Eliminar las descargas sin conexión de esta lista de reproducción?";
+"playlist_remove_offline_confirm_message_format" = "Se eliminarán %1$d canciones descargadas (%2$@). Después necesitarás conexión para reproducirlas.";
+"playlist_remove_offline_turns_off_always" = "También se desactivará Descargar siempre en esta lista de reproducción.";
+"playlist_remove_offline_kept_format" = "Se conservarán %d canciones que otras listas de reproducción mantienen sin conexión.";
+"playlist_remove_offline_none" = "Esta lista de reproducción no tiene descargas sin conexión.";

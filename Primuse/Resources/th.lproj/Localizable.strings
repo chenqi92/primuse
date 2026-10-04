@@ -5483,3 +5483,26 @@
 "stats_trait_vintage" = "เพลงเก่า";
 "stats_recap_mood_not_offered" = "AI ในตัวยังตีความแบบนี้ไม่ได้ คุณกำหนดให้บริการ AI ของคุณเองทำ “อารมณ์การฟัง” ได้ในส่วนความฉลาด";
 "stats_recap_mood_failed" = "ครั้งนี้ตีความไม่สำเร็จ จึงแสดงสถานะจากนิสัยการฟังของคุณแทน";
+
+// MARK: - Offline Downloads
+"offline_downloads" = "ดาวน์โหลดออฟไลน์";
+"offline_downloads_footer" = "ดาวน์โหลดออฟไลน์เก็บแยกไว้และไม่นับรวมในขีดจำกัดแคชเสียง การล้างแคชจะไม่ลบรายการเหล่านี้ และระบบจะไม่ลบเมื่อพื้นที่เหลือน้อย";
+"offline_downloads_summary_format" = "%1$d เพลง · %2$@";
+"offline_downloads_empty" = "ไม่มีดาวน์โหลดออฟไลน์";
+"offline_downloads_empty_hint" = "เลือก “ดาวน์โหลด” จากเมนูเพลย์ลิสต์ อัลบั้ม หรือเพลง หรือเปิด “ดาวน์โหลดเสมอ” ให้เพลย์ลิสต์";
+"offline_downloads_remove" = "เอาออก";
+"offline_downloads_remove_all" = "เอาออกทั้งหมด";
+"offline_downloads_remove_selected_format" = "เอารายการที่เลือกออก (%d)";
+"offline_downloads_remove_confirm_title_format" = "เอาดาวน์โหลดออฟไลน์ %d เพลงออกไหม";
+"offline_downloads_remove_confirm_message_format" = "จะได้พื้นที่คืน %@ หลังจากนี้ต้องเชื่อมต่อเครือข่ายเพื่อเล่นเพลงเหล่านี้";
+"offline_downloads_kept_by_format" = "เก็บออฟไลน์โดย %@";
+"offline_downloads_owned_title" = "ต้องปิด “ดาวน์โหลดเสมอ” ก่อน";
+"offline_downloads_owned_message_format" = "%@ เปิด “ดาวน์โหลดเสมอ” อยู่ เพลงที่เอาออกจะถูกดาวน์โหลดใหม่ เมื่อปิดแล้ว เพลงอื่นที่ดาวน์โหลดไว้ในเพลย์ลิสต์เหล่านี้จะกลายเป็นแคชทั่วไป";
+"offline_downloads_owned_confirm" = "ปิดและเอาออก";
+"offline_downloads_manage" = "จัดการ…";
+"playlist_remove_offline_downloads" = "เอาดาวน์โหลดออฟไลน์ออก";
+"playlist_remove_offline_confirm_title" = "เอาดาวน์โหลดออฟไลน์ของเพลย์ลิสต์นี้ออกไหม";
+"playlist_remove_offline_confirm_message_format" = "จะลบเพลงที่ดาวน์โหลดไว้ %1$d เพลง (%2$@) หลังจากนี้ต้องเชื่อมต่อเครือข่ายเพื่อเล่น";
+"playlist_remove_offline_turns_off_always" = "จะปิด “ดาวน์โหลดเสมอ” ของเพลย์ลิสต์นี้ด้วย";
+"playlist_remove_offline_kept_format" = "อีก %d เพลงที่เพลย์ลิสต์อื่นเก็บออฟไลน์ไว้จะยังอยู่";
+"playlist_remove_offline_none" = "เพลย์ลิสต์นี้ไม่มีดาวน์โหลดออฟไลน์";

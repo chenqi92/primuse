@@ -141,3 +141,56 @@ struct AudioCacheEvictionPlanPolicyTests {
         #expect(plan.map(\.relativePath) == ["a.flac", "b.flac"])
     }
 }
+
+@Suite("Offline audio mirror")
+struct OfflineAudioMirrorPolicyTests {
+    private let file = OfflineAudioMirrorPolicy.FileIdentity(device: 1, inode: 10)
+    private let replaced = OfflineAudioMirrorPolicy.FileIdentity(device: 1, inode: 11)
+
+    @Test("A pinned file is linked into the offline store and kept once linked")
+    func pinnedFileIsMirrored() {
+        #expect(OfflineAudioMirrorPolicy.action(
+            isPinned: true, cacheFile: file, mirrorFile: nil, cacheDirectoryIntact: true
+        ) == .mirror)
+        #expect(OfflineAudioMirrorPolicy.action(
+            isPinned: true, cacheFile: file, mirrorFile: file, cacheDirectoryIntact: true
+        ) == .keep)
+    }
+
+    @Test("A file replaced in the cache (refresh, re-download) replaces the offline copy")
+    func replacedFileRefreshesMirror() {
+        #expect(OfflineAudioMirrorPolicy.action(
+            isPinned: true, cacheFile: replaced, mirrorFile: file, cacheDirectoryIntact: true
+        ) == .mirror)
+    }
+
+    @Test("After the system purges the cache directory the offline copy is linked back")
+    func purgedCacheIsRestored() {
+        #expect(OfflineAudioMirrorPolicy.action(
+            isPinned: true, cacheFile: nil, mirrorFile: file, cacheDirectoryIntact: false
+        ) == .restore)
+    }
+
+    @Test("A pinned file deleted on purpose in an intact cache is not resurrected")
+    func deliberateDeletionDropsMirror() {
+        #expect(OfflineAudioMirrorPolicy.action(
+            isPinned: true, cacheFile: nil, mirrorFile: file, cacheDirectoryIntact: true
+        ) == .drop)
+    }
+
+    @Test("Unpinned files leave the offline store but stay in the cache")
+    func unpinnedFileLeavesMirror() {
+        #expect(OfflineAudioMirrorPolicy.action(
+            isPinned: false, cacheFile: file, mirrorFile: file, cacheDirectoryIntact: true
+        ) == .drop)
+        #expect(OfflineAudioMirrorPolicy.action(
+            isPinned: false, cacheFile: nil, mirrorFile: file, cacheDirectoryIntact: false
+        ) == .drop)
+        #expect(OfflineAudioMirrorPolicy.action(
+            isPinned: false, cacheFile: file, mirrorFile: nil, cacheDirectoryIntact: true
+        ) == .keep)
+        #expect(OfflineAudioMirrorPolicy.action(
+            isPinned: true, cacheFile: nil, mirrorFile: nil, cacheDirectoryIntact: false
+        ) == .keep)
+    }
+}

@@ -5578,3 +5578,26 @@
 "stats_trait_vintage" = "懐メロ派";
 "stats_recap_mood_not_offered" = "内蔵AIはまだこの解釈に対応していません。「インテリジェンス」で「リスニングの気分」を自分のAIサービスに割り当てられます。";
 "stats_recap_mood_failed" = "今回は解釈できなかったため、リスニング習慣にもとづく内容を表示しています。";
+
+// MARK: - Offline Downloads
+"offline_downloads" = "オフラインダウンロード";
+"offline_downloads_footer" = "オフラインダウンロードは別に保存され、オーディオキャッシュの上限には含まれません。キャッシュを消去しても削除されず、空き容量が少なくなってもシステムに削除されません。";
+"offline_downloads_summary_format" = "%1$d曲 · %2$@";
+"offline_downloads_empty" = "オフラインダウンロードはありません";
+"offline_downloads_empty_hint" = "プレイリスト、アルバム、曲のメニューで「ダウンロード」を選ぶか、プレイリストの「常にオフラインで保持」をオンにしてください。";
+"offline_downloads_remove" = "削除";
+"offline_downloads_remove_all" = "すべて削除";
+"offline_downloads_remove_selected_format" = "選択項目を削除（%d）";
+"offline_downloads_remove_confirm_title_format" = "%d曲のオフラインダウンロードを削除しますか？";
+"offline_downloads_remove_confirm_message_format" = "%@の空き容量が増えます。今後これらの曲を再生するにはネットワーク接続が必要です。";
+"offline_downloads_kept_by_format" = "%@ でオフライン保持中";
+"offline_downloads_owned_title" = "先に「常にオフラインで保持」をオフにしてください";
+"offline_downloads_owned_message_format" = "%@ は「常にオフラインで保持」がオンのため、削除しても再ダウンロードされます。オフにすると、これらのプレイリストのほかのダウンロード済みの曲は通常のキャッシュに戻ります。";
+"offline_downloads_owned_confirm" = "オフにして削除";
+"offline_downloads_manage" = "管理…";
+"playlist_remove_offline_downloads" = "オフラインダウンロードを削除";
+"playlist_remove_offline_confirm_title" = "このプレイリストのオフラインダウンロードを削除しますか？";
+"playlist_remove_offline_confirm_message_format" = "ダウンロード済みの%1$d曲（%2$@）を削除します。今後再生するにはネットワーク接続が必要です。";
+"playlist_remove_offline_turns_off_always" = "このプレイリストの「常にオフラインで保持」もオフになります。";
+"playlist_remove_offline_kept_format" = "ほかのプレイリストでオフライン保持中の%d曲は残ります。";
+"playlist_remove_offline_none" = "このプレイリストにはオフラインダウンロードがありません。";

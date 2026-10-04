@@ -5577,3 +5577,26 @@
 "stats_trait_vintage" = "Klassiker";
 "stats_recap_mood_not_offered" = "Die integrierte KI kann diese Deutung noch nicht. Unter „Intelligente Funktionen“ kannst du die Hörstimmung deinem eigenen KI-Dienst zuweisen.";
 "stats_recap_mood_failed" = "Diesmal hat die Deutung nicht geklappt – das hier basiert auf deinen Hörgewohnheiten.";
+
+// MARK: - Offline Downloads
+"offline_downloads" = "Offline-Downloads";
+"offline_downloads_footer" = "Offline-Downloads werden separat gespeichert und zählen nicht zum Audio-Cache-Limit. Beim Leeren des Caches bleiben sie erhalten, und das System entfernt sie auch bei wenig Speicherplatz nicht.";
+"offline_downloads_summary_format" = "%1$d Titel · %2$@";
+"offline_downloads_empty" = "Keine Offline-Downloads";
+"offline_downloads_empty_hint" = "Wähle „Herunterladen“ im Menü einer Wiedergabeliste, eines Albums oder Titels, oder aktiviere „Immer offline verfügbar“ für eine Wiedergabeliste.";
+"offline_downloads_remove" = "Entfernen";
+"offline_downloads_remove_all" = "Alle entfernen";
+"offline_downloads_remove_selected_format" = "Auswahl entfernen (%d)";
+"offline_downloads_remove_confirm_title_format" = "%d Offline-Downloads entfernen?";
+"offline_downloads_remove_confirm_message_format" = "Dadurch werden %@ frei. Zum Abspielen dieser Titel ist danach eine Verbindung nötig.";
+"offline_downloads_kept_by_format" = "Offline gehalten von %@";
+"offline_downloads_owned_title" = "Zuerst „Immer offline verfügbar“ ausschalten";
+"offline_downloads_owned_message_format" = "Für %@ ist „Immer offline verfügbar“ aktiv, entfernte Titel würden erneut geladen. Nach dem Ausschalten werden die übrigen geladenen Titel dieser Wiedergabelisten zu normalem Cache.";
+"offline_downloads_owned_confirm" = "Ausschalten und entfernen";
+"offline_downloads_manage" = "Verwalten …";
+"playlist_remove_offline_downloads" = "Offline-Downloads entfernen";
+"playlist_remove_offline_confirm_title" = "Offline-Downloads dieser Wiedergabeliste entfernen?";
+"playlist_remove_offline_confirm_message_format" = "%1$d geladene Titel (%2$@) werden gelöscht. Zum Abspielen ist danach eine Verbindung nötig.";
+"playlist_remove_offline_turns_off_always" = "„Immer offline verfügbar“ wird für diese Wiedergabeliste ebenfalls ausgeschaltet.";
+"playlist_remove_offline_kept_format" = "%d Titel, die andere Wiedergabelisten offline halten, bleiben erhalten.";
+"playlist_remove_offline_none" = "Diese Wiedergabeliste hat keine Offline-Downloads.";

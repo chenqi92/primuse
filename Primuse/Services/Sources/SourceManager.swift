@@ -7166,7 +7166,8 @@ final class SourceManager {
         do {
             let maximumByteCount = try await prepareOfflineTransferCapacity(
                 expectedSize: expectedByteCount,
-                lease: lease
+                lease: lease,
+                respectsConfiguredCacheLimit: false
             )
             guard audioCacheReadsAreAllowed(for: currentSong.sourceID) else {
                 throw AudioCacheSyncImportError.sourceUnavailable
@@ -7868,6 +7869,65 @@ final class SourceManager {
         deleteAudioCache(for: song)
         setOfflineAudioSnapshot(.notCached, for: song.id)
         automaticOfflineDownloadRemovedHandler?(song.id)
+    }
+
+    struct OfflineDownloadItem: Identifiable, Sendable {
+        let song: Song
+        /// 同一个文件对应多首歌(CUE 分轨)时只算在第一首上, 合计才不重复。
+        let byteCount: Int64
+        /// 开着「始终保持离线」、正把这首歌保持离线的歌单。
+        let playlistIDs: Set<String>
+        let downloadedAt: Date?
+
+        var id: String { song.id }
+    }
+
+    /// 存储管理里「离线下载」的清单, 最近下载的在前。曲库里已经没有这首歌的
+    /// 离线文件不列出。
+    func offlineDownloadItems(in songs: [Song]) async -> [OfflineDownloadItem] {
+        let entries = await AudioCacheManager.shared.offlineDownloadEntries()
+        guard !entries.isEmpty, !songs.isEmpty else { return [] }
+        return await Task.detached(priority: .userInitiated) {
+            Self.offlineDownloadItems(entries: entries, songs: songs)
+        }.value
+    }
+
+    nonisolated static func offlineDownloadItems(
+        entries: [AudioCacheManager.OfflineDownloadEntry],
+        songs: [Song]
+    ) -> [OfflineDownloadItem] {
+        let entriesByPath = Dictionary(
+            entries.map { ($0.path, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var countedPaths = Set<String>()
+        var items: [OfflineDownloadItem] = []
+        for song in songs {
+            let path = "\(song.sourceID)/" + CacheFileNamePolicy.make(
+                path: song.filePath,
+                preferredExtension: song.fileFormat.rawValue
+            )
+            guard let entry = entriesByPath[path] else { continue }
+            items.append(OfflineDownloadItem(
+                song: song,
+                byteCount: countedPaths.insert(path).inserted ? entry.byteCount : 0,
+                playlistIDs: entry.playlistIDs,
+                downloadedAt: entry.downloadedAt
+            ))
+        }
+        return items.sorted {
+            let lhs = $0.downloadedAt ?? .distantPast
+            let rhs = $1.downloadedAt ?? .distantPast
+            return lhs == rhs
+                ? $0.song.title.localizedStandardCompare($1.song.title) == .orderedAscending
+                : lhs > rhs
+        }
+    }
+
+    /// 移除这些歌的离线下载。还被开着「始终保持离线」的歌单保持着的, 调用方要先
+    /// 关掉那些歌单, 否则移除后会被重新下载。
+    func removeOfflineDownloads(_ songs: [Song]) {
+        for song in songs { removeOfflineDownload(song: song) }
     }
 
     func reconcileAutomaticPlaylistPins(
@@ -8680,6 +8740,7 @@ final class SourceManager {
         }
     }
 
+    /// 离线下载单独存放、不计入缓存上限, 这里的传输只受手机剩余空间约束。
     private func performOfflineDownload(
         _ song: Song,
         refreshDisposition: AutomaticOfflineRefreshDisposition = .none
@@ -8769,7 +8830,8 @@ final class SourceManager {
                 case .remote(let url):
                     maximumTransferBytes = try await prepareOfflineTransferCapacity(
                         expectedSize: 0,
-                        lease: lease
+                        lease: lease,
+                        respectsConfiguredCacheLimit: false
                     )
                     try await downloadOfflineFromURL(
                         url,
@@ -8783,7 +8845,8 @@ final class SourceManager {
                     }
                     maximumTransferBytes = try await prepareOfflineTransferCapacity(
                         expectedSize: 0,
-                        lease: lease
+                        lease: lease,
+                        respectsConfiguredCacheLimit: false
                     )
                     let localURL = try await webDAV.downloadBoundedOpenListSTRM(
                         for: path,
@@ -8806,7 +8869,8 @@ final class SourceManager {
                         expectedTransferSize = byteSize(at: localURL)
                         maximumTransferBytes = try await prepareOfflineTransferCapacity(
                             expectedSize: expectedTransferSize,
-                            lease: lease
+                            lease: lease,
+                            respectsConfiguredCacheLimit: false
                         )
                         let localExpectedSize = expectedTransferSize
                         let localMaximum = maximumTransferBytes
@@ -8828,7 +8892,8 @@ final class SourceManager {
                         )
                         maximumTransferBytes = try await prepareOfflineTransferCapacity(
                             expectedSize: expectedTransferSize,
-                            lease: lease
+                            lease: lease,
+                            respectsConfiguredCacheLimit: false
                         )
                         try await downloadOfflineByRanges(
                             song: song,
@@ -8843,7 +8908,8 @@ final class SourceManager {
             } else if let oneDrive = connector as? OneDriveSource {
                 maximumTransferBytes = try await prepareOfflineTransferCapacity(
                     expectedSize: expectedTransferSize,
-                    lease: lease
+                    lease: lease,
+                    respectsConfiguredCacheLimit: false
                 )
                 do {
                     let directURL = try await oneDrive.publicDownloadURL(path: song.filePath)
@@ -8875,7 +8941,8 @@ final class SourceManager {
                       song.fileSize > 0 {
                 maximumTransferBytes = try await prepareOfflineTransferCapacity(
                     expectedSize: expectedTransferSize,
-                    lease: lease
+                    lease: lease,
+                    respectsConfiguredCacheLimit: false
                 )
                 try await downloadOfflineByRanges(
                     song: song,
@@ -8891,7 +8958,8 @@ final class SourceManager {
                 expectedTransferSize = byteSize(at: localURL)
                 maximumTransferBytes = try await prepareOfflineTransferCapacity(
                     expectedSize: expectedTransferSize,
-                    lease: lease
+                    lease: lease,
+                    respectsConfiguredCacheLimit: false
                 )
                 let localExpectedSize = expectedTransferSize
                 let localMaximum = maximumTransferBytes

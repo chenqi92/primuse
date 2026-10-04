@@ -5483,3 +5483,26 @@
 "stats_trait_vintage" = "पुराने गाने";
 "stats_recap_mood_not_offered" = "बिल्ट-इन AI अभी यह विवरण नहीं दे सकता। “इंटेलिजेंस” में आप “सुनने का मूड” अपनी AI सेवा को सौंप सकते हैं।";
 "stats_recap_mood_failed" = "इस बार विवरण नहीं मिल सका, इसलिए यह आपकी सुनने की आदतों पर आधारित है।";
+
+// MARK: - Offline Downloads
+"offline_downloads" = "ऑफ़लाइन डाउनलोड";
+"offline_downloads_footer" = "ऑफ़लाइन डाउनलोड अलग से सहेजे जाते हैं और ऑडियो कैश सीमा में नहीं गिने जाते। कैश साफ़ करने से ये नहीं हटते, और जगह कम होने पर सिस्टम भी इन्हें नहीं हटाता।";
+"offline_downloads_summary_format" = "%1$d गाने · %2$@";
+"offline_downloads_empty" = "कोई ऑफ़लाइन डाउनलोड नहीं";
+"offline_downloads_empty_hint" = "प्लेलिस्ट, एल्बम या गाने के मेनू में \"डाउनलोड करें\" चुनें, या किसी प्लेलिस्ट के लिए \"हमेशा डाउनलोड करें\" चालू करें।";
+"offline_downloads_remove" = "हटाएं";
+"offline_downloads_remove_all" = "सभी हटाएं";
+"offline_downloads_remove_selected_format" = "चुने हुए हटाएं (%d)";
+"offline_downloads_remove_confirm_title_format" = "%d ऑफ़लाइन डाउनलोड हटाएं?";
+"offline_downloads_remove_confirm_message_format" = "इससे %@ जगह खाली होगी। इसके बाद इन गानों को चलाने के लिए कनेक्शन चाहिए होगा।";
+"offline_downloads_kept_by_format" = "%@ द्वारा ऑफ़लाइन रखा गया";
+"offline_downloads_owned_title" = "पहले \"हमेशा डाउनलोड करें\" बंद करें";
+"offline_downloads_owned_message_format" = "%@ के लिए \"हमेशा डाउनलोड करें\" चालू है, इसलिए हटाए गए गाने फिर से डाउनलोड होंगे। बंद करने पर इन प्लेलिस्ट के बाकी डाउनलोड किए गाने सामान्य कैश बन जाएंगे।";
+"offline_downloads_owned_confirm" = "बंद करें और हटाएं";
+"offline_downloads_manage" = "प्रबंधित करें…";
+"playlist_remove_offline_downloads" = "ऑफ़लाइन डाउनलोड हटाएं";
+"playlist_remove_offline_confirm_title" = "इस प्लेलिस्ट के ऑफ़लाइन डाउनलोड हटाएं?";
+"playlist_remove_offline_confirm_message_format" = "डाउनलोड किए गए %1$d गाने (%2$@) हटा दिए जाएंगे। इसके बाद चलाने के लिए कनेक्शन चाहिए होगा।";
+"playlist_remove_offline_turns_off_always" = "इस प्लेलिस्ट के लिए \"हमेशा डाउनलोड करें\" भी बंद हो जाएगा।";
+"playlist_remove_offline_kept_format" = "दूसरी प्लेलिस्ट द्वारा ऑफ़लाइन रखे गए %d गाने बने रहेंगे।";
+"playlist_remove_offline_none" = "इस प्लेलिस्ट में कोई ऑफ़लाइन डाउनलोड नहीं है।";

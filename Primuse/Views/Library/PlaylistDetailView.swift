@@ -35,6 +35,8 @@ struct PlaylistDetailView: View {
     @State private var exportShareItem: ExportShareItem?
     @State private var exportError: String?
     @State private var showExportFormats = false
+    @State private var pendingOfflineRemoval: PlaylistOfflineRemoval?
+    @State private var showsNoOfflineDownloads = false
     @State private var showReorderSheet = false
     @State private var scrapeFeedback: ScrapeFeedback?
     @State private var showNoScraperSourceAlert = false
@@ -242,6 +244,25 @@ struct PlaylistDetailView: View {
             Button { export(format: .m3u8) } label: { Text(verbatim: "M3U8") }
             Button { export(format: .json) } label: { Text(verbatim: "Primuse JSON") }
             Button("cancel", role: .cancel) {}
+        }
+        .confirmationDialog(
+            String(localized: "playlist_remove_offline_confirm_title"),
+            isPresented: Binding(
+                get: { pendingOfflineRemoval != nil },
+                set: { if !$0 { pendingOfflineRemoval = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingOfflineRemoval
+        ) { removal in
+            Button("offline_downloads_remove", role: .destructive) {
+                removal.request.perform(sourceManager: sourceManager)
+            }
+            Button("cancel", role: .cancel) {}
+        } message: { removal in
+            Text(verbatim: removal.message)
+        }
+        .alert("playlist_remove_offline_none", isPresented: $showsNoOfflineDownloads) {
+            Button("ok", role: .cancel) {}
         }
         .overlay(alignment: .bottom) {
             scrapeFeedbackToast
@@ -469,6 +490,15 @@ struct PlaylistDetailView: View {
             } label: {
                 Label("export", systemImage: "square.and.arrow.up")
             }
+        }
+
+        Section {
+            Button(role: .destructive) {
+                prepareOfflineRemoval()
+            } label: {
+                Label("playlist_remove_offline_downloads", systemImage: "minus.circle")
+            }
+            .disabled(storedSongs.isEmpty)
         }
 
         if canDeletePlaylist(playlist.id) {
@@ -784,6 +814,55 @@ struct PlaylistDetailView: View {
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(Color.secondary.opacity(0.12), lineWidth: 0.5)
+        }
+    }
+
+    private struct PlaylistOfflineRemoval {
+        let request: OfflineDownloadRemovalRequest
+        let message: String
+    }
+
+    /// 「移除离线下载」: 关掉这个歌单的「始终保持离线」(开着的话), 删掉歌单里的离线下载。
+    /// 还被其他开着「始终保持离线」的歌单保持着的歌留着, 删了也会被那个歌单重新下载。
+    private func prepareOfflineRemoval() {
+        let playlistSongs = storedSongs
+        Task {
+            let items = await sourceManager.offlineDownloadItems(in: playlistSongs)
+            let alwaysDownload = AppServices.shared.alwaysDownload
+            let turnsOffAlwaysDownload = alwaysDownload.isEnabled(for: playlist.id)
+            let otherOwners = alwaysDownload.enabledPlaylistIDs.subtracting([playlist.id])
+            let removable = items.filter { $0.playlistIDs.isDisjoint(with: otherOwners) }
+            guard !removable.isEmpty || turnsOffAlwaysDownload else {
+                showsNoOfflineDownloads = true
+                return
+            }
+            let byteCount = removable.reduce(Int64(0)) { $0 + $1.byteCount }
+            var lines: [String] = [
+                removable.isEmpty
+                    ? String(localized: "playlist_remove_offline_none")
+                    : String(
+                        format: String(localized: "playlist_remove_offline_confirm_message_format"),
+                        removable.count,
+                        ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file)
+                    ),
+            ]
+            if turnsOffAlwaysDownload {
+                lines.append(String(localized: "playlist_remove_offline_turns_off_always"))
+            }
+            if items.count > removable.count {
+                lines.append(String(
+                    format: String(localized: "playlist_remove_offline_kept_format"),
+                    items.count - removable.count
+                ))
+            }
+            pendingOfflineRemoval = PlaylistOfflineRemoval(
+                request: OfflineDownloadRemovalRequest(
+                    songs: removable.map(\.song),
+                    byteCount: byteCount,
+                    playlistIDs: turnsOffAlwaysDownload ? [playlist.id] : []
+                ),
+                message: lines.joined(separator: "\n")
+            )
         }
     }
 
@@ -1104,6 +1183,10 @@ struct PlaylistDetailView: View {
                 alwaysDownloadBinding.wrappedValue.toggle()
             })
         }
+        middle.append(.init(icon: "minus.circle", title: String(localized: "playlist_remove_offline_downloads"),
+                            enabled: !storedSongs.isEmpty) {
+            prepareOfflineRemoval()
+        })
         middle.append(.init(
             icon: showsNetworkNotice ? "eye.slash" : "eye",
             title: String(localized: showsNetworkNotice

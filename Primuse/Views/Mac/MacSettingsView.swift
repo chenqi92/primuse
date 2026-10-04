@@ -422,9 +422,12 @@ struct MacSettingsView: View {
 private struct MacSTStorageView: View {
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
     @Environment(SourceManager.self) private var sourceManager
+    @Environment(MusicLibrary.self) private var library
     @AppStorage(UserNotificationService.notifyLongTasksKey) private var notifyLongTasks: Bool =
         UserNotificationPolicy.completionNotificationsDefault
     @State private var notificationStatusDenied = false
+    @State private var offlineDownloadsSummary = "…"
+    @State private var showsOfflineDownloads = false
 
     var body: some View {
         @Bindable var settings = playbackSettings
@@ -484,6 +487,25 @@ private struct MacSTStorageView: View {
                 }
             }
 
+            MacSTSection(String(localized: "offline_downloads")) {
+                MacSTGroup {
+                    MacSTRow(
+                        String(localized: "offline_downloads"),
+                        hint: String(localized: "offline_downloads_footer"),
+                        hintLineLimit: 3,
+                        divider: false
+                    ) {
+                        Text(verbatim: offlineDownloadsSummary)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                        MacSTButton(title: String(localized: "offline_downloads_manage")) {
+                            showsOfflineDownloads = true
+                        }
+                    }
+                    .settingsAnchor("storage.offlineDownloads")
+                }
+            }
+
             MacSTSection(String(localized: "notifications_section")) {
                 MacSTGroup {
                     MacSTRow(
@@ -511,6 +533,23 @@ private struct MacSTStorageView: View {
                 notificationStatusDenied = await UserNotificationService.shared.isAuthorizationDenied()
             }
         }
+        .task { await refreshOfflineDownloadsSummary() }
+        .sheet(isPresented: $showsOfflineDownloads, onDismiss: {
+            Task { await refreshOfflineDownloadsSummary() }
+        }) {
+            NavigationStack {
+                OfflineDownloadsView(showsDoneButton: true)
+            }
+            .frame(minWidth: 560, minHeight: 520)
+        }
+    }
+
+    private func refreshOfflineDownloadsSummary() async {
+        let items = await sourceManager.offlineDownloadItems(in: library.songs)
+        offlineDownloadsSummary = OfflineDownloadsView.summaryText(
+            songCount: items.count,
+            byteCount: items.reduce(0) { $0 + $1.byteCount }
+        )
     }
 
     private var offlineCompactionSweepHint: String? {
