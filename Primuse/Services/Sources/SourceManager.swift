@@ -7769,7 +7769,11 @@ final class SourceManager {
         songs: [Song],
         compactsAfterPin: Bool = true
     ) async -> OfflineDownloadBatchResult {
-        let playableSongs = songs.filteredPlayable()
+        // Apple Music 的歌由系统播放器播放、拿不到音频文件, 和歌曲行菜单一样不进离线下载;
+        // 混进整张歌单里只会逐首失败, 还按源不可用各重试几轮。
+        let playableSongs = songs.filteredPlayable().filter {
+            $0.sourceID != AppleMusicLibraryIdentity.sourceID
+        }
         var completedCount = 0
         var failedCount = 0
         var inProgressCount = 0

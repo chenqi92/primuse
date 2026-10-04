@@ -171,6 +171,21 @@ final class AudioCacheSyncPolicyTests: XCTestCase {
 
 @MainActor
 final class OfflineAudioSnapshotTests: XCTestCase {
+    func testOfflineBatchSkipsAppleMusicSongs() async {
+        let source = MusicSource(
+            id: AppleMusicLibraryIdentity.sourceID,
+            name: "Apple Music",
+            type: .appleMusic
+        )
+        let song = Song(id: UUID().uuidString, title: "Catalog song", fileFormat: .m4a,
+                        filePath: "i.catalog", sourceID: source.id, fileSize: 128)
+        XCTAssertTrue(song.isPlayable)
+        let manager = SourceManager(sourcesProvider: { [source] }, songsProvider: { [song] })
+        let result = await manager.downloadForOfflineBatch(songs: [song])
+        XCTAssertEqual(result.requestedCount, 0)
+        XCTAssertEqual(result.failedCount, 0)
+    }
+
     func testStreamingCompletionUpdatesNegativeSnapshotAndDownloadedMembership() async throws {
         let fixture = try await fixture()
         defer { fixture.manager.deleteLocalCaches(for: [fixture.song]) }
