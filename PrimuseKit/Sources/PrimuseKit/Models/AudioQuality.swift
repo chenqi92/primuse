@@ -100,6 +100,26 @@ public enum OutputSampleRateTextPolicy {
     }
 }
 
+/// Apple TV「匹配歌曲采样率」:起播前要不要替这首歌请求 HDMI 输出采样率。
+public enum OutputSampleRateRequestPolicy {
+    /// Apple TV HDMI 的默认输出采样率:关掉开关、播视频时把请求改回它。
+    public static let televisionDefaultSampleRate = 48_000.0
+
+    /// 这首要请求的采样率;nil 表示不替它请求(开关关着、音乐视频、采样率未知或
+    /// 不是 PCM 能用的值,比如 DSD 的 2.8 MHz)。
+    public static func requestedSampleRate(
+        enabled: Bool,
+        sourceSampleRate: Int?,
+        isVideo: Bool
+    ) -> Double? {
+        guard enabled, !isVideo, let sourceSampleRate else { return nil }
+        let rate = Double(sourceSampleRate)
+        guard rate >= DirectPCMOutputSampleRatePolicy.minimumSampleRate,
+              rate <= DirectPCMOutputSampleRatePolicy.maximumSampleRate else { return nil }
+        return rate
+    }
+}
+
 /// 播放页标题下那行音频信息的显示档位(设置里的三档)。
 public enum NowPlayingAudioInfoMode: String, CaseIterable, Sendable {
     case off

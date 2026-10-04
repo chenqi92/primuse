@@ -417,7 +417,7 @@
 "playback_rate_reset" = "恢復正常速度";
 "playback_rate_desc" = "0.5×–2.0×。保持音調不變，適合 Podcast 或慢速學習。";
 "output_sr_matching" = "符合輸出取樣率";
-"output_sr_matching_desc" = "提示系統把硬體輸出取樣率切換到當前歌曲的取樣率，減少重新取樣。僅 iOS 實機有效，部分硬體可能忽略。";
+"output_sr_matching_desc" = "把輸出切到每首歌的取樣率，避免重新取樣。藍牙、AirPlay 等部分輸出會忽略，播放頁會顯示實際使用的取樣率。";
 "search_running" = "搜尋中…";
 "search_section_metadata" = "標題 / 演出者 / 專輯";
 "search_section_lyrics" = "歌詞命中";
@@ -2516,7 +2516,7 @@
 "dsd_mode_auto" = "自動";
 "dsd_mode_pcm" = "轉換為 PCM";
 "dsd_mode_dop" = "優先 DoP";
-"output_sr_matching_fidelity_desc" = "高傳真直通模式會固定啟用。作業系統或輸出裝置仍可能拒絕要求的取樣率。";
+"tv_output_sr_matching_desc" = "起播時請求依歌曲切換 HDMI 取樣率，需 tvOS 27 與 Apple TV 4K（第三代）接擴大機；其他情況固定 48 kHz。播放頁顯示實際輸出。";
 "credential_save_failed_title" = "憑證儲存失敗";
 "credential_save_failed_message" = "密碼未能安全儲存，來源尚未儲存，請重試。";
 "credential_temporarily_unavailable" = "暫時無法讀取密碼，請解鎖裝置後重試。";

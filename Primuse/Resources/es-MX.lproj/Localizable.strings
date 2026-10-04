@@ -2345,8 +2345,8 @@
 "output_mode_high_fidelity_confirm_title" = "¿Activar Alta fidelidad directa?";
 "output_mode_high_fidelity_hardware_note" = "Este modo tiene sentido sobre todo con un DAC externo o un amplificador de audífonos. Por Bluetooth o con las bocinas integradas el audio se vuelve a procesar de todos modos, así que la diferencia casi no se percibe.";
 "output_sr_matching" = "Ajustar la frecuencia de muestreo de salida";
-"output_sr_matching_desc" = "Solicite al sistema que cambie la frecuencia de muestreo del hardware para que coincida con la pista actual y reduzca el remuestreo. Dispositivo iOS únicamente; Es posible que algún hardware ignore la pista.";
-"output_sr_matching_fidelity_desc" = "Siempre habilitado en modo High Fidelity Direct. Es posible que el sistema operativo y el dispositivo de salida aún rechacen una frecuencia de muestreo solicitada.";
+"output_sr_matching_desc" = "Cambia la salida a la frecuencia de muestreo de cada canción para evitar el remuestreo. Bluetooth, AirPlay y otras salidas lo ignoran; el reproductor muestra la frecuencia que se usa realmente.";
+"tv_output_sr_matching_desc" = "Solicita por HDMI la frecuencia de muestreo de cada canción. Requiere tvOS 27 y un Apple TV 4K (3.ª generación) conectado a un receptor AV; si no, la salida se queda en 48 kHz. El reproductor muestra la salida real.";
 "password" = "Contraseña";
 "password_ascii_hint" = "Usar letras inglesas y caracteres ASCII";
 "password_edit_hint" = "Déjelo en blanco para mantener la contraseña actual";

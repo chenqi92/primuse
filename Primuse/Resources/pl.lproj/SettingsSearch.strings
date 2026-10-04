@@ -68,6 +68,7 @@
 "This setting is unavailable on this device." = "To ustawienie jest niedostępne na tym urządzeniu.";
 "Turn a supported Primuse setting on or off." = "Włącz lub wyłącz obsługiwane ustawienie Primuse.";
 "Unavailable in High Fidelity mode. Change the output mode in %@." = "Niedostępne w trybie High Fidelity. Zmień tryb wyjściowy w %@.";
+"Available only in High Fidelity mode. Change the output mode in %@." = "Dostępne tylko w trybie High Fidelity. Zmień tryb wyjściowy w %@.";
 "Use Siri to open settings, or combine setting actions in Shortcuts." = "Używaj Siri, aby otwierać ustawienia, lub łącz działania dotyczące ustawień w Skrótach.";
 "Widgets" = "Widżety";
 "Wrapped" = "Podsumowanie roku";

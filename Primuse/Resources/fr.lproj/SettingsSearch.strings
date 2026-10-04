@@ -6,6 +6,7 @@
 "Enabled" = "Activé";
 "Disabled" = "Désactivé";
 "Unavailable in High Fidelity mode. Change the output mode in %@." = "Indisponible en mode haute fidélité. Modifiez le mode de sortie dans « %@ ».";
+"Available only in High Fidelity mode. Change the output mode in %@." = "Disponible uniquement en mode haute fidélité. Modifiez le mode de sortie dans « %@ ».";
 "Enable crossfade to adjust this setting." = "Activez le fondu enchaîné pour modifier ce réglage.";
 "Enable ReplayGain to adjust this setting." = "Activez ReplayGain pour modifier ce réglage.";
 "Enable spatial audio to adjust head tracking." = "Activez l’audio spatial pour régler le suivi de la tête.";

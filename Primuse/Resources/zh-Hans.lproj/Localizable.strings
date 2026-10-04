@@ -429,7 +429,7 @@
 "playback_rate_reset" = "恢复正常速度";
 "playback_rate_desc" = "0.5×–2.0×。保持音调不变，适合播客或慢速学习。";
 "output_sr_matching" = "匹配输出采样率";
-"output_sr_matching_desc" = "提示系统把硬件输出采样率切换到当前歌曲的采样率，减少重采样。仅 iOS 真机有效，部分硬件可能忽略。";
+"output_sr_matching_desc" = "把输出切到每首歌的采样率，避免重采样。蓝牙、AirPlay 等部分输出会忽略，播放页会显示实际使用的采样率。";
 "search_running" = "搜索中…";
 "search_section_metadata" = "标题 / 艺术家 / 专辑";
 "search_section_lyrics" = "歌词命中";
@@ -2632,7 +2632,7 @@
 "dsd_mode_auto" = "自动";
 "dsd_mode_pcm" = "转换为 PCM";
 "dsd_mode_dop" = "优先 DoP";
-"output_sr_matching_fidelity_desc" = "高保真直通模式始终启用。操作系统或输出设备仍可能拒绝请求的采样率。";
+"tv_output_sr_matching_desc" = "起播时请求按歌曲切换 HDMI 采样率，需 tvOS 27 与 Apple TV 4K（第三代）接功放；其他情况固定 48 kHz。播放页显示实际输出。";
 "credential_save_failed_title" = "凭据保存失败";
 "credential_save_failed_message" = "密码未能安全保存，来源尚未保存，请重试。";
 "credential_temporarily_unavailable" = "密码暂时无法读取，请解锁设备后重试。";

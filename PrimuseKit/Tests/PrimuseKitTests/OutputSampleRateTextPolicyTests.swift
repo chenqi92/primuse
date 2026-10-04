@@ -21,3 +21,39 @@ struct OutputSampleRateTextPolicyTests {
         #expect(OutputSampleRateTextPolicy.text(sourceSampleRate: 0, outputSampleRate: 48_000) == nil)
     }
 }
+
+@Suite("Output sample rate request")
+struct OutputSampleRateRequestPolicyTests {
+    @Test("A PCM song asks for its own rate when matching is on")
+    func requestsSongRate() {
+        #expect(OutputSampleRateRequestPolicy.requestedSampleRate(
+            enabled: true, sourceSampleRate: 96_000, isVideo: false
+        ) == 96_000)
+        #expect(OutputSampleRateRequestPolicy.requestedSampleRate(
+            enabled: true, sourceSampleRate: 44_100, isVideo: false
+        ) == 44_100)
+    }
+
+    @Test("Nothing is requested when matching is off or for music videos")
+    func offOrVideo() {
+        #expect(OutputSampleRateRequestPolicy.requestedSampleRate(
+            enabled: false, sourceSampleRate: 96_000, isVideo: false
+        ) == nil)
+        #expect(OutputSampleRateRequestPolicy.requestedSampleRate(
+            enabled: true, sourceSampleRate: 48_000, isVideo: true
+        ) == nil)
+    }
+
+    @Test("Unknown rates and DSD bit rates are not requested")
+    func unknownOrDSD() {
+        #expect(OutputSampleRateRequestPolicy.requestedSampleRate(
+            enabled: true, sourceSampleRate: nil, isVideo: false
+        ) == nil)
+        #expect(OutputSampleRateRequestPolicy.requestedSampleRate(
+            enabled: true, sourceSampleRate: 0, isVideo: false
+        ) == nil)
+        #expect(OutputSampleRateRequestPolicy.requestedSampleRate(
+            enabled: true, sourceSampleRate: 2_822_400, isVideo: false
+        ) == nil)
+    }
+}

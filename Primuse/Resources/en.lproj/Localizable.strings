@@ -429,7 +429,7 @@
 "playback_rate_reset" = "Reset to normal";
 "playback_rate_desc" = "0.5×–2.0×. Pitch is preserved — useful for podcasts or careful listening.";
 "output_sr_matching" = "Match Output Sample Rate";
-"output_sr_matching_desc" = "Ask the system to switch hardware sample rate to match the current track and reduce resampling. iOS device only; some hardware may ignore the hint.";
+"output_sr_matching_desc" = "Switches the output to each song's sample rate to avoid resampling. Bluetooth, AirPlay and some other outputs ignore it; the player shows the rate actually used.";
 "search_running" = "Searching…";
 "search_section_metadata" = "Title / Artist / Album";
 "search_section_lyrics" = "Lyrics matches";
@@ -2342,7 +2342,7 @@
 "dsd_mode_auto" = "Automatic";
 "dsd_mode_pcm" = "Convert to PCM";
 "dsd_mode_dop" = "Prefer DoP";
-"output_sr_matching_fidelity_desc" = "Always enabled in High Fidelity Direct mode. The operating system and output device may still reject a requested sample rate.";
+"tv_output_sr_matching_desc" = "Requests each song's sample rate over HDMI. Needs tvOS 27 and Apple TV 4K (3rd generation) with an AV receiver; otherwise output stays at 48 kHz. The player shows the actual output.";
 "credential_save_failed_title" = "Credential Save Failed";
 "credential_save_failed_message" = "The password couldn’t be saved securely. The source was not saved. Please try again.";
 "credential_temporarily_unavailable" = "The password is temporarily unavailable. Unlock your device and try again.";

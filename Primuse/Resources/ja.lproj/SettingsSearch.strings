@@ -6,6 +6,7 @@
 "Enabled" = "オン";
 "Disabled" = "オフ";
 "Unavailable in High Fidelity mode. Change the output mode in %@." = "高音質モードでは利用できません。「%@」で出力モードを変更できます。";
+"Available only in High Fidelity mode. Change the output mode in %@." = "高音質モードでのみ利用できます。「%@」で出力モードを変更できます。";
 "Enable crossfade to adjust this setting." = "クロスフェードをオンにすると変更できます。";
 "Enable ReplayGain to adjust this setting." = "ReplayGainをオンにすると変更できます。";
 "Enable spatial audio to adjust head tracking." = "空間オーディオをオンにするとヘッドトラッキングを変更できます。";

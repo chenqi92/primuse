@@ -506,6 +506,11 @@ final class TVPlaybackCoordinator {
                 return
             }
         }
+        engine.requestOutputSampleRate(OutputSampleRateRequestPolicy.requestedSampleRate(
+            enabled: UserDefaults.standard.bool(forKey: TVAudioEngine.matchSongSampleRateKey),
+            sourceSampleRate: asset.song.sampleRate,
+            isVideo: asset.isVideo
+        ))
         if asset.isVideo, asset.needsConversion {
             await playConvertedMusicVideo(
                 asset,

@@ -64,6 +64,7 @@ struct TVSettingsView: View {
     @AppStorage(PlayerAppearancePreferences.animatedArtworkEnabledKey)
     private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
     @AppStorage(TVStore.autoContinueSimilarKey) private var autoContinueSimilar = true
+    @AppStorage(TVAudioEngine.matchSongSampleRateKey) private var matchSongSampleRate = false
     @AppStorage(TVHomeSceneRow.nightSleepTimerKey) private var nightSceneSleepTimer = true
     @AppStorage(LibraryReviewPreferences.enabledKey)
     private var ratingsAndCommentsEnabled = false
@@ -206,6 +207,13 @@ struct TVSettingsView: View {
                                 "photo.stack.fill",
                                 PMString("player_animated_artwork"),
                                 isOn: $animatedArtworkEnabled
+                            )
+                            settingDivider
+                            toggleRow(
+                                "waveform",
+                                String(localized: "output_sr_matching"),
+                                detail: String(localized: "tv_output_sr_matching_desc"),
+                                isOn: $matchSongSampleRate
                             )
                             settingDivider
                             appleMusicRow
@@ -734,13 +742,20 @@ struct TVSettingsView: View {
         }
     }
 
-    /// 开关行 — 真实持久化偏好(@AppStorage),启动时被读取。
-    private func toggleRow(_ icon: String, _ title: String, isOn: Binding<Bool>) -> some View {
+    /// 开关行 — 真实持久化偏好(@AppStorage),启动时被读取。`detail` 是标题下的一行说明。
+    private func toggleRow(_ icon: String, _ title: String, detail: String? = nil, isOn: Binding<Bool>) -> some View {
         TVFocusButton(radius: 14, scale: 1.0, lift: 0, action: { isOn.wrappedValue.toggle() }) { focused in
             HStack(spacing: 18) {
                 settingIcon(icon, focused: focused)
-                Text(title).tvFont(.cardTitle, weight: focused ? .bold : .medium).foregroundStyle(TVColor.text)
-                    .fixedSize(horizontal: false, vertical: true).layoutPriority(1)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(title).tvFont(.cardTitle, weight: focused ? .bold : .medium).foregroundStyle(TVColor.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let detail {
+                        Text(detail).tvFont(.caption).foregroundStyle(TVColor.textMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .layoutPriority(1)
                 Spacer(minLength: 0)
                 ZStack(alignment: isOn.wrappedValue ? .trailing : .leading) {
                     Capsule().fill(isOn.wrappedValue ? AnyShapeStyle(TVColor.brand)

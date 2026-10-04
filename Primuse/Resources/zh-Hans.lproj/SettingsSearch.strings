@@ -6,6 +6,7 @@
 "Enabled" = "已开启";
 "Disabled" = "已关闭";
 "Unavailable in High Fidelity mode. Change the output mode in %@." = "高保真模式下不可用。可前往“%@”调整输出模式。";
+"Available only in High Fidelity mode. Change the output mode in %@." = "只在高保真模式下可用。可前往“%@”调整输出模式。";
 "Enable crossfade to adjust this setting." = "开启交叉淡化后可调整此选项。";
 "Enable ReplayGain to adjust this setting." = "开启 ReplayGain 后可调整此选项。";
 "Enable spatial audio to adjust head tracking." = "开启空间音频后可调整头部跟踪。";

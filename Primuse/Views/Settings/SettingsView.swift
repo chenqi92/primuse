@@ -1926,6 +1926,14 @@ struct PlaybackSettingsView: View {
                 }
                 .settingsAnchor("playback.outputMode")
 
+                // 高保真直通本来就按歌曲切采样率，这时开关只显示为开着。
+                Toggle("output_sr_matching", isOn: Binding(
+                    get: { settings.outputMode == .highFidelity || settings.matchOutputSampleRate },
+                    set: { settings.matchOutputSampleRate = $0 }
+                ))
+                .settingsAnchor("playback.matchSampleRate")
+                .disabled(settings.outputMode == .highFidelity)
+
                 Picker("dsd_playback_mode", selection: $settings.dsdPlaybackMode) {
                     ForEach(DSDPlaybackMode.allCases, id: \.self) { mode in
                         Text(mode.displayName).tag(mode)
@@ -1938,7 +1946,8 @@ struct PlaybackSettingsView: View {
                 if settings.outputMode == .highFidelity {
                     Text(verbatim: AudioOutputMode.highFidelityExplanation)
                 } else {
-                    Text("output_mode_effects_desc")
+                    Text(verbatim: String(localized: "output_mode_effects_desc")
+                         + "\n\n" + String(localized: "output_sr_matching_desc"))
                 }
             }
 
@@ -1961,19 +1970,6 @@ struct PlaybackSettingsView: View {
             } footer: {
                 Text("streaming_quality_desc")
             }
-
-            Section {
-                Toggle("output_sr_matching", isOn: Binding(
-                    get: { settings.outputMode == .highFidelity || settings.matchOutputSampleRate },
-                    set: { settings.matchOutputSampleRate = $0 }
-                ))
-                .settingsAnchor("playback.matchSampleRate")
-            } footer: {
-                Text(settings.outputMode == .highFidelity
-                     ? "output_sr_matching_fidelity_desc"
-                     : "output_sr_matching_desc")
-            }
-            .disabled(settings.outputMode == .highFidelity)
 
             Section {
                 Toggle("auto_continue_similar", isOn: $settings.autoContinueSimilarEnabled)

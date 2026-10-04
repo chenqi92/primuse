@@ -68,6 +68,7 @@
 "This setting is unavailable on this device." = "การตั้งค่านี้ไม่พร้อมใช้งานบนอุปกรณ์นี้";
 "Turn a supported Primuse setting on or off." = "เปิดหรือปิดการตั้งค่า Primuse ที่รองรับ";
 "Unavailable in High Fidelity mode. Change the output mode in %@." = "ไม่พร้อมใช้งานในโหมด High Fidelity เปลี่ยนโหมดเอาต์พุตเป็น %@";
+"Available only in High Fidelity mode. Change the output mode in %@." = "ใช้ได้เฉพาะในโหมด High Fidelity เปลี่ยนโหมดเอาต์พุตเป็น %@";
 "Use Siri to open settings, or combine setting actions in Shortcuts." = "ใช้ Siri เพื่อเปิดการตั้งค่าหรือรวมการดำเนินการตั้งค่าในทางลัด";
 "Widgets" = "วิดเจ็ต";
 "Wrapped" = "ห่อแล้ว";

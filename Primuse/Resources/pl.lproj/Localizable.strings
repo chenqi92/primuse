@@ -2345,8 +2345,8 @@
 "output_mode_high_fidelity_confirm_title" = "Włączyć bezpośrednie odtwarzanie Hi-Fi?";
 "output_mode_high_fidelity_hardware_note" = "Ten tryb ma sens głównie z zewnętrznym przetwornikiem DAC lub wzmacniaczem słuchawkowym. Przez Bluetooth lub wbudowane głośniki dźwięk i tak jest ponownie przetwarzany, więc różnica jest prawie niesłyszalna.";
 "output_sr_matching" = "Dopasuj częstotliwość próbkowania wyjścia";
-"output_sr_matching_desc" = "Poproś system o przełączenie sprzętowej częstotliwości próbkowania, aby dopasować ją do bieżącej ścieżki i zmniejszyć ponowne próbkowanie. Tylko urządzenie iOS; niektóre urządzenia mogą zignorować podpowiedź.";
-"output_sr_matching_fidelity_desc" = "Zawsze włączone w trybie High Fidelity Direct. System operacyjny i urządzenie wyjściowe mogą w dalszym ciągu odrzucić żądaną częstotliwość próbkowania.";
+"output_sr_matching_desc" = "Przełącza wyjście na częstotliwość próbkowania każdego utworu, aby uniknąć przepróbkowania. Bluetooth, AirPlay i niektóre inne wyjścia to ignorują; faktyczna częstotliwość jest widoczna w odtwarzaczu.";
+"tv_output_sr_matching_desc" = "Żąda przez HDMI częstotliwości próbkowania każdego utworu. Wymaga tvOS 27 i Apple TV 4K (3. generacji) podłączonego do amplitunera AV; w innym razie wyjście zostaje przy 48 kHz. Odtwarzacz pokazuje faktyczne wyjście.";
 "password" = "Hasło";
 "password_ascii_hint" = "Używaj angielskich liter i znaków ASCII";
 "password_edit_hint" = "Pozostaw puste, aby zachować aktualne hasło";

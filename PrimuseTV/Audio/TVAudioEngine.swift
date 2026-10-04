@@ -463,6 +463,30 @@ final class TVAudioEngine {
         }
     }
 
+    /// 设置里「匹配歌曲采样率」的开关,只存在这台 Apple TV 上。
+    static let matchSongSampleRateKey = "tv.playback.matchSongSampleRate"
+    /// 上一次替歌曲请求的输出采样率;nil 表示没请求过,会话保持系统默认。
+    @ObservationIgnored private var requestedOutputSampleRate: Double?
+
+    /// 起播前请求这首歌的 HDMI 输出采样率。tvOS 27 起 Apple TV 4K(第三代)接功放时
+    /// 输出能跟着切;更早的系统、机型和电视喇叭固定 48 kHz,请求被忽略,播放页照实
+    /// 写出被重采样。传 nil(开关关着、视频、采样率未知)时,只有请求过才改回 48 kHz。
+    func requestOutputSampleRate(_ sampleRate: Double?) {
+        guard managesSystemPlayback else { return }
+        guard let target = sampleRate ?? requestedOutputSampleRate.map({ _ in
+            OutputSampleRateRequestPolicy.televisionDefaultSampleRate
+        }) else { return }
+        requestedOutputSampleRate = sampleRate
+        let session = AVAudioSession.sharedInstance()
+        guard abs(session.preferredSampleRate - target) >= 1 else { return }
+        do {
+            try session.setPreferredSampleRate(target)
+            plog("📺 TV preferred sample rate \(target) actual=\(session.sampleRate)")
+        } catch {
+            plog("📺 TV preferred sample rate \(target) rejected: \(error)")
+        }
+    }
+
     private func deactivateAudioSession() {
         guard managesSystemPlayback else { return }
         guard sessionIsActive else { return }
@@ -609,6 +633,8 @@ final class TVAudioEngine {
         streamFormat: RadioStreamFormat,
         isSourceBacked: Bool = false
     ) {
+        // 电台流是 44.1 / 48 kHz,上一首歌请求过的高采样率不能留给它。
+        requestOutputSampleRate(nil)
         let request = LiveRequest(
             id: UUID(),
             url: url,

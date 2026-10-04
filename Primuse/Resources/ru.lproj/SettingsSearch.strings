@@ -44,6 +44,7 @@
 "Settings you can change" = "Настройки, которые можно изменить.";
 "Direction" = "Направление";
 "Unavailable in High Fidelity mode. Change the output mode in %@." = "Недоступно в режиме высокой точности. Измените режим вывода в разделе «%@».";
+"Available only in High Fidelity mode. Change the output mode in %@." = "Доступно только в режиме высокой точности. Измените режим вывода в разделе «%@».";
 "Get ${setting}" = "Получите ${setting}";
 "Set Audio Output Mode" = "Установить режим вывода звука";
 "Enabled" = "Включено";

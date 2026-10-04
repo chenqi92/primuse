@@ -649,7 +649,7 @@
 "playback_rate_reset" = "Rétablir la vitesse normale";
 "playback_rate_desc" = "0,5×–2,0×. La hauteur tonale est préservée — idéal pour les podcasts ou une écoute attentive.";
 "output_sr_matching" = "Adapter la fréquence d'échantillonnage de sortie";
-"output_sr_matching_desc" = "Demande au système d'adapter la fréquence d'échantillonnage matérielle à celle du morceau en cours afin de réduire le rééchantillonnage. Appareils iOS uniquement ; certains matériels peuvent ignorer cette demande.";
+"output_sr_matching_desc" = "Règle la sortie sur la fréquence d’échantillonnage de chaque morceau pour éviter le rééchantillonnage. Bluetooth, AirPlay et certaines autres sorties l’ignorent ; la fréquence réellement utilisée s’affiche dans le lecteur.";
 "search_running" = "Recherche…";
 "search_section_metadata" = "Titre / Artiste / Album";
 "search_section_lyrics" = "Correspondances dans les paroles";
@@ -2531,7 +2531,7 @@
 "dsd_mode_auto" = "Automatique";
 "dsd_mode_pcm" = "Convertir en PCM";
 "dsd_mode_dop" = "Préférer DoP";
-"output_sr_matching_fidelity_desc" = "Toujours actif en mode haute fidélité directe. Le système ou le périphérique peut refuser la fréquence demandée.";
+"tv_output_sr_matching_desc" = "Demande la fréquence d’échantillonnage de chaque morceau en HDMI. Nécessite tvOS 27 et une Apple TV 4K (3e génération) reliée à un amplificateur AV ; sinon la sortie reste à 48 kHz. Le lecteur affiche la sortie réelle.";
 "credential_save_failed_title" = "Échec de l’enregistrement des identifiants";
 "credential_save_failed_message" = "Le mot de passe n’a pas pu être enregistré de façon sécurisée. La source n’a pas été enregistrée. Réessayez.";
 "credential_temporarily_unavailable" = "Le mot de passe est temporairement indisponible. Déverrouillez votre appareil et réessayez.";

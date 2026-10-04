@@ -68,6 +68,7 @@
 "This setting is unavailable on this device." = "هذا الإعداد غير متوفر على هذا الجهاز.";
 "Turn a supported Primuse setting on or off." = "تشغيل أو إيقاف إعداد Primuse المدعوم.";
 "Unavailable in High Fidelity mode. Change the output mode in %@." = "غير متوفر في وضع الدقة العالية. قم بتغيير وضع الإخراج في %@.";
+"Available only in High Fidelity mode. Change the output mode in %@." = "متوفر في وضع الدقة العالية فقط. قم بتغيير وضع الإخراج في %@.";
 "Use Siri to open settings, or combine setting actions in Shortcuts." = "استخدم Siri لفتح الإعدادات أو دمج إجراءات الإعداد في الاختصارات.";
 "Widgets" = "الحاجيات";
 "Wrapped" = "ملفوف";

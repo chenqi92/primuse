@@ -68,6 +68,7 @@
 "This setting is unavailable on this device." = "यह सेटिंग इस डिवाइस पर उपलब्ध नहीं है।";
 "Turn a supported Primuse setting on or off." = "समर्थित Primuse सेटिंग को चालू या बंद करें।";
 "Unavailable in High Fidelity mode. Change the output mode in %@." = "हाई फिडेलिटी मोड में अनुपलब्ध। आउटपुट मोड को %@ में बदलें।";
+"Available only in High Fidelity mode. Change the output mode in %@." = "केवल हाई फिडेलिटी मोड में उपलब्ध। आउटपुट मोड को %@ में बदलें।";
 "Use Siri to open settings, or combine setting actions in Shortcuts." = "सेटिंग्स खोलने के लिए, या शॉर्टकट में सेटिंग क्रियाओं को संयोजित करने के लिए Siri का उपयोग करें।";
 "Widgets" = "विजेट";
 "Wrapped" = "लपेटा हुआ";

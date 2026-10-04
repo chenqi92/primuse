@@ -649,7 +649,7 @@
 "playback_rate_reset" = "Auf Normal zurücksetzen";
 "playback_rate_desc" = "0,5×–2,0×. Die Tonhöhe bleibt erhalten – praktisch für Podcasts oder konzentriertes Zuhören.";
 "output_sr_matching" = "An Ausgabe-Samplerate anpassen";
-"output_sr_matching_desc" = "Bittet das System, die Hardware-Samplerate an den aktuellen Titel anzupassen und so das Resampling zu reduzieren. Nur auf iOS-Geräten; manche Hardware ignoriert den Hinweis möglicherweise.";
+"output_sr_matching_desc" = "Stellt die Ausgabe auf die Samplerate des jeweiligen Titels um, damit nicht neu abgetastet wird. Bluetooth, AirPlay und manche andere Ausgaben ignorieren das; die tatsächlich genutzte Rate steht in der Wiedergabeansicht.";
 "search_running" = "Suchen …";
 "search_section_metadata" = "Titel / Künstler / Album";
 "search_section_lyrics" = "Treffer im Liedtext";
@@ -2531,7 +2531,7 @@
 "dsd_mode_auto" = "Automatisch";
 "dsd_mode_pcm" = "In PCM umwandeln";
 "dsd_mode_dop" = "DoP bevorzugen";
-"output_sr_matching_fidelity_desc" = "Im Hi-Fi-Direktmodus immer aktiv. System oder Ausgabegeraet koennen die angeforderte Abtastrate ablehnen.";
+"tv_output_sr_matching_desc" = "Fordert über HDMI die Samplerate des jeweiligen Titels an. Erfordert tvOS 27 und ein Apple TV 4K (3. Generation) an einem AV-Receiver; sonst bleibt die Ausgabe bei 48 kHz. Die tatsächliche Ausgabe steht in der Wiedergabeansicht.";
 "credential_save_failed_title" = "Anmeldedaten konnten nicht gespeichert werden";
 "credential_save_failed_message" = "Das Passwort konnte nicht sicher gespeichert werden. Die Quelle wurde nicht gespeichert. Versuche es erneut.";
 "credential_temporarily_unavailable" = "Das Passwort ist vorübergehend nicht verfügbar. Entsperre dein Gerät und versuche es erneut.";

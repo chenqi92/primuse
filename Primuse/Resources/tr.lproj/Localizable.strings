@@ -260,7 +260,7 @@
 "reread_song_tags_completed_embedded" = "Standart gömülü etiketler okundu.";
 "<Song Name>-cover.jpg" = "<Şarkı Adı>-cover.jpg";
 "dup_clean_all_action" = "Akıllı seçim (gereksiz kopyaları kaldır)";
-"output_sr_matching_desc" = "Sistemden donanım örnekleme hızını mevcut parçayla eşleşecek ve yeniden örneklemeyi azaltacak şekilde değiştirmesini isteyin. Yalnızca iOS cihazı; bazı donanımlar bu ipucunu görmezden gelebilir.";
+"output_sr_matching_desc" = "Çıkışı her şarkının örnekleme hızına geçirerek yeniden örneklemeyi önler. Bluetooth, AirPlay ve bazı diğer çıkışlar bunu yok sayar; gerçekte kullanılan hız oynatıcıda gösterilir.";
 "onboarding_mac_welcome_title" = "Primuse'ye hoş geldiniz";
 "status_up_to_date" = "Güncel";
 "ai_connection_needs_key" = "Modelleri getirmek için URL ve API hizmet anahtarını girin";
@@ -1144,7 +1144,7 @@
 "home_artists_subtitle" = "En çok kimi dinliyorsunuz";
 "ssh_key_placeholder" = "PEM özel anahtarını buraya yapıştırın...";
 "playlist_always_download_description" = "Bu çalma listesini bu cihazda Wi-Fi üzerinden tutar. Cihaz koşulları izin verdiğinde yeni veya değiştirilmiş şarkılar otomatik olarak indirilir; bunu kapatmak mevcut dosyaları korur.";
-"output_sr_matching_fidelity_desc" = "Her zaman High Fidelity Direct modunda etkindir. İşletim sistemi ve çıkış cihazı yine de istenen örnekleme hızını reddedebilir.";
+"tv_output_sr_matching_desc" = "HDMI üzerinden her şarkının örnekleme hızını ister. tvOS 27 ve AV alıcıya bağlı Apple TV 4K (3. nesil) gerekir; aksi halde çıkış 48 kHz'de kalır. Gerçek çıkış oynatıcıda gösterilir.";
 "Now Playing" = "Şu an çalıyor";
 "for_you" = "Sizin İçin";
 "yearly_card_growth_less_format" = "%d%% geçen yıla göre daha az — devam edin";

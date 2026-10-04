@@ -6,6 +6,7 @@
 "Enabled" = "Aktiviert";
 "Disabled" = "Deaktiviert";
 "Unavailable in High Fidelity mode. Change the output mode in %@." = "Im Hi-Fi-Modus nicht verfügbar. Ändere den Ausgabemodus unter „%@“.";
+"Available only in High Fidelity mode. Change the output mode in %@." = "Nur im Hi-Fi-Modus verfügbar. Ändere den Ausgabemodus unter „%@“.";
 "Enable crossfade to adjust this setting." = "Aktiviere Überblenden, um diese Einstellung zu ändern.";
 "Enable ReplayGain to adjust this setting." = "Aktiviere ReplayGain, um diese Einstellung zu ändern.";
 "Enable spatial audio to adjust head tracking." = "Aktiviere räumliches Audio, um die Kopferfassung zu ändern.";

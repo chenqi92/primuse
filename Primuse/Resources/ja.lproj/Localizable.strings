@@ -650,7 +650,7 @@
 "playback_rate_reset" = "標準速度に戻す";
 "playback_rate_desc" = "0.5×〜2.0×。音程は保たれるため、ポッドキャストやじっくり聴く場面に便利です。";
 "output_sr_matching" = "出力サンプルレートを合わせる";
-"output_sr_matching_desc" = "現在のトラックに合わせてハードウェアのサンプルレートを切り替えるようシステムに要求し、リサンプリングを減らします。iOS 実機のみ対応。一部のハードウェアではこの指定が無視される場合があります。";
+"output_sr_matching_desc" = "曲ごとのサンプルレートに出力を切り替え、リサンプリングを避けます。Bluetooth や AirPlay など一部の出力では無視されます。実際のレートは再生画面に表示されます。";
 "search_running" = "検索中…";
 "search_section_metadata" = "タイトル / アーティスト / アルバム";
 "search_section_lyrics" = "歌詞の一致";
@@ -2532,7 +2532,7 @@
 "dsd_mode_auto" = "自動";
 "dsd_mode_pcm" = "PCM に変換";
 "dsd_mode_dop" = "DoP を優先";
-"output_sr_matching_fidelity_desc" = "高音質ダイレクトでは常に有効です。システムや出力機器が要求したサンプルレートを拒否する場合があります。";
+"tv_output_sr_matching_desc" = "再生開始時に曲ごとのサンプルレートを HDMI に要求します。tvOS 27 と AV アンプにつないだ Apple TV 4K（第3世代）が必要です。それ以外は 48 kHz 固定です。実際の出力は再生画面に表示されます。";
 "credential_save_failed_title" = "認証情報の保存に失敗しました";
 "credential_save_failed_message" = "パスワードを安全に保存できなかったため、ソースは保存されていません。もう一度お試しください。";
 "credential_temporarily_unavailable" = "パスワードを一時的に読み取れません。デバイスのロックを解除してから、もう一度お試しください。";

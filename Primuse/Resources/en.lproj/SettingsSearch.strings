@@ -6,6 +6,7 @@
 "Enabled" = "Enabled";
 "Disabled" = "Disabled";
 "Unavailable in High Fidelity mode. Change the output mode in %@." = "Unavailable in High Fidelity mode. Change the output mode in %@.";
+"Available only in High Fidelity mode. Change the output mode in %@." = "Available only in High Fidelity mode. Change the output mode in %@.";
 "Enable crossfade to adjust this setting." = "Enable crossfade to adjust this setting.";
 "Enable ReplayGain to adjust this setting." = "Enable ReplayGain to adjust this setting.";
 "Enable spatial audio to adjust head tracking." = "Enable spatial audio to adjust head tracking.";

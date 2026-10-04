@@ -6,6 +6,7 @@
 "Enabled" = "켬";
 "Disabled" = "끔";
 "Unavailable in High Fidelity mode. Change the output mode in %@." = "고음질 모드에서는 사용할 수 없습니다. ‘%@’에서 출력 모드를 변경하세요.";
+"Available only in High Fidelity mode. Change the output mode in %@." = "고음질 모드에서만 사용할 수 있습니다. ‘%@’에서 출력 모드를 변경하세요.";
 "Enable crossfade to adjust this setting." = "크로스페이드를 켜면 이 설정을 변경할 수 있습니다.";
 "Enable ReplayGain to adjust this setting." = "ReplayGain을 켜면 이 설정을 변경할 수 있습니다.";
 "Enable spatial audio to adjust head tracking." = "공간 음향을 켜면 머리 추적을 변경할 수 있습니다.";
