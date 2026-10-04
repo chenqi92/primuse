@@ -5482,3 +5482,6 @@
 "eq_menu_off" = "關閉";
 "eq_menu_adjust" = "調整等化器…";
 "eq_menu_high_fidelity_unavailable" = "高傳真直通時無法使用";
+"eq_high_fidelity_alert_title" = "高傳真直通時等化器不會生效";
+"eq_high_fidelity_alert_message" = "高傳真直通會把音訊原樣送到輸出裝置，不經過等化器。切換到音效輸出後就能使用等化器。";
+"eq_use_effects_output" = "切換到音效輸出";

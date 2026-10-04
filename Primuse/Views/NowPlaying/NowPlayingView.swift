@@ -806,6 +806,8 @@ struct NowPlayingView: View {
     @State private var showSleepTimer = false
     /// 「更多」› 均衡器 › 调整均衡器… 打开的完整均衡器页。
     @State private var showEqualizer = false
+    /// 高保真直通时点了均衡器,说明为什么不生效。
+    @State private var showEqualizerBypassNotice = false
     /// A medley waiting for the listener to agree to use mobile data.
     @State private var pendingMedleySongs: [Song]?
     /// 电台的「刚播过」:这个台上听到过的曲目标题。
@@ -865,6 +867,7 @@ struct NowPlayingView: View {
             || isAlbumPresentationActive
             || showSleepTimer
             || showEqualizer
+            || showEqualizerBypassNotice
             || showDeleteConfirm
             || scrapeAlertMessage != nil
             || sourceLyricsReloadAlertMessage != nil
@@ -2720,6 +2723,10 @@ struct NowPlayingView: View {
         )) { item in
             RadioStationDetailView(stationID: item.id)
         }
+        .equalizerHighFidelityNotice(
+            isPresented: $showEqualizerBypassNotice,
+            playbackSettings: playbackSettings
+        )
         .confirmationDialog(String(localized: "sleep_timer"), isPresented: $showSleepTimer) {
             // 三种收听各有各的「到哪儿停」:电台只有分钟数,有声多出本章、本集、整本。
             ForEach(sleepTimerOptions, id: \.self) { option in
@@ -5562,6 +5569,7 @@ struct NowPlayingView: View {
             },
             onShowSleepTimer: { showSleepTimer = true },
             onAdjustEqualizer: { openEqualizer() },
+            onShowEqualizerBypassNotice: { showEqualizerBypassNotice = true },
             onToggleShuffle: { player.shuffleEnabled.toggle() },
             onCycleRepeatMode: { cycleRepeatMode() },
             onStartMedley: {
@@ -8318,6 +8326,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onToggleLyricsTranslation: () -> Void
     let onShowSleepTimer: () -> Void
     let onAdjustEqualizer: () -> Void
+    let onShowEqualizerBypassNotice: () -> Void
     let onToggleShuffle: () -> Void
     let onCycleRepeatMode: () -> Void
     let onStartMedley: () -> Void
@@ -8661,7 +8670,8 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     NowPlayingEqualizerMenu(
                         eq: equalizer,
                         isBypassed: snapshot.isEqualizerBypassed,
-                        onAdjust: onAdjustEqualizer
+                        onAdjust: onAdjustEqualizer,
+                        onShowBypassNotice: onShowEqualizerBypassNotice
                     )
                 }
 
@@ -8746,8 +8756,19 @@ private struct NowPlayingEqualizerMenu: View {
     let eq: EqualizerService
     let isBypassed: Bool
     let onAdjust: () -> Void
+    let onShowBypassNotice: () -> Void
 
     var body: some View {
+        if isBypassed {
+            // 高保真直通不经过均衡器。系统菜单里置灰的项点不动,所以这里不置灰:
+            // 副标题写明原因,点了弹说明,可以一键切到音效输出。
+            Button(action: onShowBypassNotice) { label }
+        } else {
+            presetMenu
+        }
+    }
+
+    private var presetMenu: some View {
         Menu {
             Section {
                 Picker(selection: Binding(
@@ -8773,17 +8794,19 @@ private struct NowPlayingEqualizerMenu: View {
                 }
             }
         } label: {
-            Label {
-                Text("equalizer")
-                Text(verbatim: isBypassed
-                    ? String(localized: "eq_menu_high_fidelity_unavailable")
-                    : eq.menuSelectionTitle)
-            } icon: {
-                Image(systemName: "slider.vertical.3")
-            }
+            label
         }
-        // 高保真直通不经过均衡器:整项置灰,副标题说明原因(和倍速一样留着不藏)。
-        .disabled(isBypassed)
+    }
+
+    private var label: some View {
+        Label {
+            Text("equalizer")
+            Text(verbatim: isBypassed
+                ? String(localized: "eq_menu_high_fidelity_unavailable")
+                : eq.menuSelectionTitle)
+        } icon: {
+            Image(systemName: "slider.vertical.3")
+        }
     }
 }
 

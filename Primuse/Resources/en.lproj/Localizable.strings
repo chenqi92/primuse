@@ -5265,3 +5265,6 @@
 "eq_menu_off" = "Off";
 "eq_menu_adjust" = "Adjust Equalizer…";
 "eq_menu_high_fidelity_unavailable" = "Unavailable in High Fidelity Direct";
+"eq_high_fidelity_alert_title" = "Equalizer Is Off in High Fidelity Direct";
+"eq_high_fidelity_alert_message" = "High Fidelity Direct sends audio to the output device untouched, bypassing the equalizer. Switch to effects output to use the equalizer.";
+"eq_use_effects_output" = "Switch to Effects Output";

@@ -5506,3 +5506,6 @@
 "eq_menu_off" = "オフ";
 "eq_menu_adjust" = "イコライザを調整…";
 "eq_menu_high_fidelity_unavailable" = "高音質ダイレクトでは使用できません";
+"eq_high_fidelity_alert_title" = "高音質ダイレクトではイコライザは効きません";
+"eq_high_fidelity_alert_message" = "高音質ダイレクトでは音声をイコライザに通さず、そのまま出力デバイスに送ります。イコライザを使うにはエフェクト出力に切り替えてください。";
+"eq_use_effects_output" = "エフェクト出力に切り替える";

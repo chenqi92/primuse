@@ -5411,3 +5411,6 @@
 "eq_menu_off" = "Kapalı";
 "eq_menu_adjust" = "Ekolayzırı Ayarla…";
 "eq_menu_high_fidelity_unavailable" = "Yüksek doğruluklu modda kullanılamaz";
+"eq_high_fidelity_alert_title" = "Yüksek doğruluklu modda ekolayzır devre dışı";
+"eq_high_fidelity_alert_message" = "Yüksek doğruluklu doğrudan oynatma, sesi ekolayzırdan geçirmeden olduğu gibi çıkış aygıtına gönderir. Ekolayzırı kullanmak için efektli çıkışa geçin.";
+"eq_use_effects_output" = "Efektli çıkışa geç";

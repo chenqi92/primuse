@@ -432,6 +432,22 @@ extension EQOutputDevice.Kind {
 // MARK: - Preset Naming
 
 extension View {
+    /// 高保真直通时点了播放器「更多」里的均衡器:说明它为什么不生效,可以一键切到音效输出
+    /// (切过去当场在原位置重建播放图,不用等下一首)。iOS 与 Mac 的「更多」共用。
+    func equalizerHighFidelityNotice(
+        isPresented: Binding<Bool>,
+        playbackSettings: PlaybackSettingsStore
+    ) -> some View {
+        alert("eq_high_fidelity_alert_title", isPresented: isPresented) {
+            Button("eq_use_effects_output") {
+                playbackSettings.outputMode = .effects
+            }
+            Button("cancel", role: .cancel) {}
+        } message: {
+            Text("eq_high_fidelity_alert_message")
+        }
+    }
+
     /// 「存为预设」与「重命名」两个输入名字的弹框;iOS 与 Mac 设置页共用。
     func eqPresetNamingAlerts(
         eq: EqualizerService,

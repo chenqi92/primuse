@@ -5505,3 +5505,6 @@
 "eq_menu_off" = "끔";
 "eq_menu_adjust" = "이퀄라이저 조절…";
 "eq_menu_high_fidelity_unavailable" = "고음질 다이렉트에서는 사용할 수 없음";
+"eq_high_fidelity_alert_title" = "고음질 다이렉트에서는 이퀄라이저가 적용되지 않음";
+"eq_high_fidelity_alert_message" = "고음질 다이렉트는 오디오를 이퀄라이저를 거치지 않고 그대로 출력 기기로 보냅니다. 이퀄라이저를 사용하려면 효과 출력으로 전환하세요.";
+"eq_use_effects_output" = "효과 출력으로 전환";

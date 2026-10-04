@@ -5505,3 +5505,6 @@
 "eq_menu_off" = "Désactivé";
 "eq_menu_adjust" = "Régler l’égaliseur…";
 "eq_menu_high_fidelity_unavailable" = "Indisponible en Haute fidélité directe";
+"eq_high_fidelity_alert_title" = "L’égaliseur est inactif en Haute fidélité directe";
+"eq_high_fidelity_alert_message" = "La Haute fidélité directe envoie l’audio tel quel à l’appareil de sortie, sans passer par l’égaliseur. Passez à la sortie avec effets pour utiliser l’égaliseur.";
+"eq_use_effects_output" = "Passer à la sortie avec effets";

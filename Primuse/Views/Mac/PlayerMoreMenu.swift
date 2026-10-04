@@ -49,6 +49,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var menuShown = false
     @State private var fontPickerShown = false
     @State private var equalizerPickerShown = false
+    /// 高保真直通时点了均衡器,说明为什么不生效。
+    @State private var showEqualizerBypassNotice = false
     /// 播客单集的详情(「转到这本书」对单集是空页, 换成这一页)。
     @State private var podcastSheet: PodcastPlayerSheetTarget?
 
@@ -158,6 +160,10 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             Text(sourceLyricsReloadAlertMessage ?? "")
         }
         .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
+        .equalizerHighFidelityNotice(
+            isPresented: $showEqualizerBypassNotice,
+            playbackSettings: player.playbackSettings
+        )
         .alert(String(localized: "delete_song"), isPresented: $showDeleteConfirm) {
             Button(String(localized: "cancel"), role: .cancel) {}
             Button(String(localized: "delete"), role: .destructive) { deleteCurrentSong() }
@@ -597,22 +603,29 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     }
 
     /// 均衡器 —— 和字号一样用 popover 打开第二层,行尾带着当前值。高保真直通的图里
-    /// 没有均衡器:整行置灰,第二行写明原因。
+    /// 没有均衡器:整行画成灰的、第二行写明原因,但仍然能点,点了弹说明,可一键切到音效输出。
     private var equalizerRow: some View {
         let eq = player.equalizerService
         let isBypassed = player.outputMode(for: player.currentSong) == .highFidelity
-        return Button { equalizerPickerShown.toggle() } label: {
+        return Button {
+            if isBypassed {
+                menuShown = false
+                showEqualizerBypassNotice = true
+            } else {
+                equalizerPickerShown.toggle()
+            }
+        } label: {
             HStack(spacing: 10) {
                 Image(systemName: "slider.vertical.3").frame(width: 18)
-                    .foregroundStyle(PMColor.textMuted)
+                    .foregroundStyle(isBypassed ? PMColor.textFaint : PMColor.textMuted)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("equalizer")
                         .font(.callout)
-                        .foregroundStyle(PMColor.text)
+                        .foregroundStyle(isBypassed ? PMColor.textMuted : PMColor.text)
                     if isBypassed {
                         Text("eq_menu_high_fidelity_unavailable")
                             .font(.caption2)
-                            .foregroundStyle(PMColor.textMuted)
+                            .foregroundStyle(PMColor.textFaint)
                             .lineLimit(2)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -633,7 +646,6 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(isBypassed)
         .popover(isPresented: $equalizerPickerShown, arrowEdge: .leading) {
             equalizerPopover
         }

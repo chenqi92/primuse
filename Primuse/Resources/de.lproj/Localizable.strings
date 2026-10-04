@@ -5505,3 +5505,6 @@
 "eq_menu_off" = "Aus";
 "eq_menu_adjust" = "Equalizer anpassen …";
 "eq_menu_high_fidelity_unavailable" = "Bei Hi-Fi-Direktausgabe nicht verfügbar";
+"eq_high_fidelity_alert_title" = "Equalizer bei Hi-Fi-Direktausgabe inaktiv";
+"eq_high_fidelity_alert_message" = "Die Hi-Fi-Direktausgabe leitet den Ton unverändert an das Ausgabegerät und umgeht den Equalizer. Wechsle zur Effektausgabe, um den Equalizer zu verwenden.";
+"eq_use_effects_output" = "Zur Effektausgabe wechseln";

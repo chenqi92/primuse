@@ -5598,3 +5598,6 @@
 "eq_menu_off" = "关闭";
 "eq_menu_adjust" = "调整均衡器…";
 "eq_menu_high_fidelity_unavailable" = "高保真直通时不可用";
+"eq_high_fidelity_alert_title" = "高保真直通时均衡器不生效";
+"eq_high_fidelity_alert_message" = "高保真直通把音频原样送到输出设备，不经过均衡器。切换到音效输出后就能使用均衡器。";
+"eq_use_effects_output" = "切换到音效输出";
