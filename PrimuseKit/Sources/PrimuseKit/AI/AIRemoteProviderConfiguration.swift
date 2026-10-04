@@ -524,6 +524,9 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
     public var apiPathMode: AIAPIPathMode
     public var authenticationStyle: AIAuthenticationStyle
     public var generationModel: String
+    /// 除默认模型外,这项服务还给各功能挑的生成模型(同一家服务商的不同模型
+    /// 分给不同功能)。默认模型不在这里面。
+    public var additionalGenerationModels: [String]
     public var embeddingModel: String
     public var transcriptionModel: String
     public var requestTimeout: TimeInterval
@@ -539,6 +542,7 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         apiPathMode: AIAPIPathMode = .automatic,
         authenticationStyle: AIAuthenticationStyle = .automatic,
         generationModel: String = "",
+        additionalGenerationModels: [String] = [],
         embeddingModel: String = "",
         transcriptionModel: String = "",
         requestTimeout: TimeInterval = 12,
@@ -553,6 +557,7 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         self.apiPathMode = apiPathMode
         self.authenticationStyle = authenticationStyle
         self.generationModel = generationModel
+        self.additionalGenerationModels = additionalGenerationModels
         self.embeddingModel = embeddingModel
         self.transcriptionModel = transcriptionModel
         self.requestTimeout = AIRequestTimeoutPolicy.normalizedForInitialization(requestTimeout)
@@ -586,6 +591,16 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         )
     }
 
+    /// 各功能可以挑的生成模型:默认模型在前,其余按添加顺序,去掉空白与重复。
+    public var selectableGenerationModels: [String] {
+        var seen = Set<String>()
+        return ([generationModel] + additionalGenerationModels).compactMap { model in
+            let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, seen.insert(trimmed).inserted else { return nil }
+            return trimmed
+        }
+    }
+
     public var supportsEmbeddings: Bool {
         switch apiStyle {
         case .responses, .chatCompletions:
@@ -603,6 +618,7 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         case apiPathMode
         case authenticationStyle
         case generationModel
+        case additionalGenerationModels
         case embeddingModel
         case transcriptionModel
         case requestTimeout
@@ -632,6 +648,10 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
             forKey: .authenticationStyle
         ) ?? .automatic
         generationModel = try container.decode(String.self, forKey: .generationModel)
+        additionalGenerationModels = (try? container.decodeIfPresent(
+            [String].self,
+            forKey: .additionalGenerationModels
+        )) ?? []
         embeddingModel = try container.decode(String.self, forKey: .embeddingModel)
         transcriptionModel = try container.decodeIfPresent(
             String.self,
@@ -664,6 +684,9 @@ public struct AIRemoteProviderConfiguration: Identifiable, Codable, Equatable, S
         try container.encode(apiPathMode, forKey: .apiPathMode)
         try container.encode(authenticationStyle, forKey: .authenticationStyle)
         try container.encode(generationModel, forKey: .generationModel)
+        if !additionalGenerationModels.isEmpty {
+            try container.encode(additionalGenerationModels, forKey: .additionalGenerationModels)
+        }
         try container.encode(embeddingModel, forKey: .embeddingModel)
         try container.encode(transcriptionModel, forKey: .transcriptionModel)
         try container.encode(requestTimeout, forKey: .requestTimeout)
@@ -681,11 +704,15 @@ public struct AIRemoteProviderSet: Codable, Equatable, Sendable {
     public var providers: [AIRemoteProviderConfiguration]
     public var primaryProviderID: UUID
     public var fallbackEnabled: Bool
+    /// 各功能的分工,键是 `AIFeature.rawValue`。没有记录的功能跟随默认;
+    /// 新版本才有的功能键原样保留,旧版本读写时不丢。
+    public var featureRoutes: [String: AIFeatureRoute]
 
     public init(
         providers: [AIRemoteProviderConfiguration] = [],
         primaryProviderID: UUID? = nil,
-        fallbackEnabled: Bool = true
+        fallbackEnabled: Bool = true,
+        featureRoutes: [String: AIFeatureRoute] = [:]
     ) {
         var normalizedProviders: [AIRemoteProviderConfiguration] = []
         var seen = Set<UUID>()
@@ -706,6 +733,49 @@ public struct AIRemoteProviderSet: Codable, Equatable, Sendable {
             $0.id == primaryProviderID
         } ? primaryProviderID! : normalizedProviders[0].id
         self.fallbackEnabled = fallbackEnabled
+        // 服务删掉了,交给它的分工也就没有了;停用的服务保留分工,重新启用还在。
+        let providerIDs = Set(normalizedProviders.map(\.id))
+        self.featureRoutes = featureRoutes.filter { _, route in
+            guard case .provider(let id, _) = route else { return true }
+            return providerIDs.contains(id)
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case providers
+        case primaryProviderID
+        case fallbackEnabled
+        case featureRoutes
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        providers = try container.decode([AIRemoteProviderConfiguration].self, forKey: .providers)
+        primaryProviderID = try container.decode(UUID.self, forKey: .primaryProviderID)
+        fallbackEnabled = try container.decode(Bool.self, forKey: .fallbackEnabled)
+        // 认不出的单条分工丢掉就好,不能连累整份智能设置读不出来。
+        featureRoutes = (try? container.decodeIfPresent(
+            [String: LenientFeatureRoute].self,
+            forKey: .featureRoutes
+        ))?.compactMapValues(\.route) ?? [:]
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(providers, forKey: .providers)
+        try container.encode(primaryProviderID, forKey: .primaryProviderID)
+        try container.encode(fallbackEnabled, forKey: .fallbackEnabled)
+        if !featureRoutes.isEmpty {
+            try container.encode(featureRoutes, forKey: .featureRoutes)
+        }
+    }
+
+    private struct LenientFeatureRoute: Decodable {
+        let route: AIFeatureRoute?
+
+        init(from decoder: any Decoder) throws {
+            route = try? AIFeatureRoute(from: decoder)
+        }
     }
 
     public var primaryProvider: AIRemoteProviderConfiguration {
@@ -726,12 +796,118 @@ public struct AIRemoteProviderSet: Codable, Equatable, Sendable {
         return result
     }
 
+    /// 记下的分工;`nil` 是跟随默认。
+    public func route(for feature: AIFeature) -> AIFeatureRoute? {
+        featureRoutes[feature.rawValue]
+    }
+
+    public mutating func setRoute(_ route: AIFeatureRoute?, for feature: AIFeature) {
+        featureRoutes[feature.rawValue] = route
+    }
+
+    /// 实际生效的分工:交给了已停用(或已删除)的服务时,先按跟随默认处理。
+    public func effectiveRoute(for feature: AIFeature) -> AIFeatureRoute? {
+        guard let route = route(for: feature) else { return nil }
+        if case .provider(let id, _) = route,
+           !providers.contains(where: { $0.id == id && $0.isEnabled }) {
+            return nil
+        }
+        return route
+    }
+
+    /// 这个功能要不要先问内置 AI:点名内置 AI 的要,点名自己服务的不要,
+    /// 跟随默认的看内置 AI 是不是默认。
+    public func asksBuiltInFirst(for feature: AIFeature, relayEnabled: Bool) -> Bool {
+        switch effectiveRoute(for: feature) {
+        case .builtIn: true
+        case .provider: false
+        case nil: relayEnabled
+        }
+    }
+
+    /// 这个功能依次去问的自己的服务。点名了某个服务时它排第一并换上点名的模型;
+    /// 打开了「出错时改用其他服务」才接着按原来的顺序问其余的服务。
+    public func routedProviders(for feature: AIFeature) -> [AIRemoteProviderConfiguration] {
+        guard case .provider(let id, let model)? = effectiveRoute(for: feature),
+              var assigned = providers.first(where: { $0.id == id }) else {
+            return routedProviders
+        }
+        let trimmedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedModel.isEmpty {
+            assigned.generationModel = trimmedModel
+        }
+        guard fallbackEnabled else { return [assigned] }
+        return [assigned] + routedProviders.filter { $0.id != id }
+    }
+
     public func normalized() -> AIRemoteProviderSet {
         AIRemoteProviderSet(
             providers: providers,
             primaryProviderID: primaryProviderID,
-            fallbackEnabled: fallbackEnabled
+            fallbackEnabled: fallbackEnabled,
+            featureRoutes: featureRoutes
         )
+    }
+}
+
+/// 会用到 AI 的功能。每个功能可以跟随默认、交给内置 AI,或交给自己某个服务的某个模型。
+public enum AIFeature: String, Codable, CaseIterable, Sendable {
+    case recommendations
+    case semanticSearch
+    case lyricsTranslation
+    case listeningIntents
+    case tagCleanup
+    case songDiscovery
+    case libraryInsight
+}
+
+/// 一个功能交给谁。没有记录就是跟随默认。
+public enum AIFeatureRoute: Hashable, Sendable {
+    case builtIn
+    /// 自己的服务;`model` 为空表示用这个服务的默认模型。
+    case provider(id: UUID, model: String)
+
+    public var providerID: UUID? {
+        guard case .provider(let id, _) = self else { return nil }
+        return id
+    }
+}
+
+extension AIFeatureRoute: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case providerID
+        case model
+    }
+
+    private enum Kind: String, Codable {
+        case builtIn
+        case provider
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(Kind.self, forKey: .kind) {
+        case .builtIn:
+            self = .builtIn
+        case .provider:
+            self = .provider(
+                id: try container.decode(UUID.self, forKey: .providerID),
+                model: try container.decodeIfPresent(String.self, forKey: .model) ?? ""
+            )
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .builtIn:
+            try container.encode(Kind.builtIn, forKey: .kind)
+        case .provider(let id, let model):
+            try container.encode(Kind.provider, forKey: .kind)
+            try container.encode(id, forKey: .providerID)
+            try container.encode(model, forKey: .model)
+        }
     }
 }
 

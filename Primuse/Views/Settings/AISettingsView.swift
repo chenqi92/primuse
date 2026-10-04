@@ -418,6 +418,216 @@ final class AISettingsEditorModel {
         }
     }
 
+    // MARK: 功能分工
+
+    /// 「默认使用」:内置 AI,或自己的某项服务(用它的默认模型)。
+    enum DefaultEngine: Hashable {
+        case builtIn
+        case provider(UUID)
+    }
+
+    var defaultEngine: DefaultEngine {
+        primuseRelayEnabled ? .builtIn : .provider(draftProviderSet.primaryProviderID)
+    }
+
+    /// 选一项服务当默认就是关掉内置 AI、把它设为主服务;没启用的顺手启用。
+    func chooseDefaultEngine(_ engine: DefaultEngine) {
+        switch engine {
+        case .builtIn:
+            primuseRelayEnabled = true
+        case .provider(let id):
+            guard let index = draftProviderSet.providers.firstIndex(where: { $0.id == id }) else {
+                return
+            }
+            primuseRelayEnabled = false
+            draftProviderSet.primaryProviderID = id
+            draftProviderSet.providers[index].isEnabled = true
+        }
+        draftDidChange()
+    }
+
+    func provider(_ id: UUID) -> AIRemoteProviderConfiguration? {
+        draftProviderSet.providers.first { $0.id == id }
+    }
+
+    func providerTitle(_ provider: AIRemoteProviderConfiguration) -> String {
+        let name = provider.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? String(localized: "ai_provider_default_name") : name
+    }
+
+    /// 「DeepSeek · deepseek-chat」;`model` 为空时用这项服务的默认模型,还没有模型就只写服务名。
+    func providerModelTitle(_ provider: AIRemoteProviderConfiguration, model: String = "") -> String {
+        let chosen = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolved = chosen.isEmpty
+            ? provider.generationModel.trimmingCharacters(in: .whitespacesAndNewlines)
+            : chosen
+        return resolved.isEmpty ? providerTitle(provider) : "\(providerTitle(provider)) · \(resolved)"
+    }
+
+    var defaultEngineTitle: String {
+        switch defaultEngine {
+        case .builtIn:
+            return String(localized: "ai_settings_engine_builtin")
+        case .provider(let id):
+            return self.provider(id).map { providerModelTitle($0) }
+                ?? String(localized: "ai_provider_default_name")
+        }
+    }
+
+    func route(for feature: AIFeature) -> AIFeatureRoute? {
+        draftProviderSet.route(for: feature)
+    }
+
+    func setRoute(_ route: AIFeatureRoute?, for feature: AIFeature) {
+        guard draftProviderSet.route(for: feature) != route else { return }
+        draftProviderSet.setRoute(route, for: feature)
+        draftDidChange()
+    }
+
+    /// 点名的模型照原样记下,以后改这项服务的默认模型也不会把它换掉。
+    func route(_ feature: AIFeature, to provider: AIRemoteProviderConfiguration, model: String) {
+        setRoute(.provider(id: provider.id, model: model), for: feature)
+    }
+
+    func routeTitle(for feature: AIFeature) -> String {
+        switch route(for: feature) {
+        case nil:
+            return String(
+                format: String(localized: "ai_route_follow_default_format"),
+                defaultEngineTitle
+            )
+        case .builtIn:
+            return String(localized: "ai_settings_engine_builtin")
+        case .provider(let id, let model):
+            guard let configuration = self.provider(id) else {
+                return String(localized: "ai_route_follow_default")
+            }
+            return providerModelTitle(configuration, model: model)
+        }
+    }
+
+    /// 交给了已停用的服务时说一声:眼下由默认服务顶着。
+    func routeNote(for feature: AIFeature) -> String? {
+        guard case .provider(let id, _)? = route(for: feature),
+              let configuration = self.provider(id), !configuration.isEnabled else { return nil }
+        return String(format: String(localized: "ai_route_stale_format"), providerTitle(configuration))
+    }
+
+    /// 分工菜单里列的服务:启用了的才列,没填密钥的也能先选上。
+    var routableProviders: [AIRemoteProviderConfiguration] {
+        draftProviderSet.providers.filter(\.isEnabled)
+    }
+
+    /// 菜单里这项服务能选的模型。分给某功能后又从列表里拿掉的模型也留着,勾选才看得见。
+    func routeModels(
+        for provider: AIRemoteProviderConfiguration,
+        feature: AIFeature
+    ) -> [String] {
+        var models = provider.selectableGenerationModels
+        if case .provider(let id, let model)? = route(for: feature), id == provider.id {
+            let chosen = model.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !chosen.isEmpty, !models.contains(chosen) { models.append(chosen) }
+        }
+        return models
+    }
+
+    func isRouted(
+        _ feature: AIFeature,
+        to provider: AIRemoteProviderConfiguration,
+        model: String
+    ) -> Bool {
+        guard case .provider(let id, let routed)? = route(for: feature),
+              id == provider.id else { return false }
+        let chosen = routed.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolved = chosen.isEmpty
+            ? provider.generationModel.trimmingCharacters(in: .whitespacesAndNewlines)
+            : chosen
+        return resolved == model
+    }
+
+    /// 服务页的「正在用于」:是不是默认、哪些功能点名了它、会不会在别的服务出错时接手。
+    /// `providerID` 为 nil 指内置 AI。
+    func usageLines(forProvider providerID: UUID?) -> [String] {
+        let isDefault = providerID == nil
+            ? primuseRelayEnabled
+            : !primuseRelayEnabled && draftProviderSet.primaryProviderID == providerID
+        let assigned = AIFeature.allCases.filter { feature in
+            switch draftProviderSet.route(for: feature) {
+            case .builtIn: providerID == nil
+            case .provider(let id, _): id == providerID
+            case nil: false
+            }
+        }
+        var lines: [String] = []
+        if isDefault {
+            lines.append(String(localized: "ai_service_usage_default"))
+        }
+        if !assigned.isEmpty {
+            lines.append(String(
+                format: String(localized: "ai_service_usage_assigned_format"),
+                ListFormatter.localizedString(byJoining: assigned.map(\.localizedTitle))
+            ))
+        }
+        if !isDefault, assigned.isEmpty {
+            lines.append(String(localized: "ai_service_usage_none"))
+        }
+        if let providerID, !isDefault, draftProviderSet.fallbackEnabled,
+           provider(providerID)?.isEnabled == true {
+            lines.append(String(localized: "ai_service_usage_fallback"))
+        }
+        return lines
+    }
+
+    // MARK: 一项服务的多个模型
+
+    /// 当前服务除默认模型以外、给各功能挑的模型。
+    var additionalModels: [String] {
+        let defaultModel = draftConfiguration.generationModel
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return draftConfiguration.selectableGenerationModels.filter { $0 != defaultModel }
+    }
+
+    /// 在线模型里还没加进来的,给「添加模型」菜单用。
+    var addableModels: [AIProviderModel] {
+        let existing = Set(draftConfiguration.selectableGenerationModels)
+        return availableModels.filter { !existing.contains($0.id) }
+    }
+
+    func addModel(_ model: String) {
+        let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              !draftConfiguration.selectableGenerationModels.contains(trimmed) else { return }
+        if draftConfiguration.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            draftConfiguration.generationModel = trimmed
+        } else {
+            draftConfiguration.additionalGenerationModels.append(trimmed)
+        }
+        draftDidChange()
+    }
+
+    func removeAdditionalModel(_ model: String) {
+        draftConfiguration.additionalGenerationModels.removeAll {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines) == model
+        }
+        draftDidChange()
+    }
+
+    /// 原来的默认模型挪进其余模型的最前面,还能继续分给功能。
+    func makeDefaultModel(_ model: String) {
+        var configuration = draftConfiguration
+        let previous = configuration.generationModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard previous != model else { return }
+        configuration.additionalGenerationModels.removeAll {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines) == model
+        }
+        if !previous.isEmpty {
+            configuration.additionalGenerationModels.insert(previous, at: 0)
+        }
+        configuration.generationModel = model
+        draftConfiguration = configuration
+        draftDidChange()
+    }
+
     func configurationBinding<Value>(
         _ keyPath: WritableKeyPath<AIRemoteProviderConfiguration, Value>,
         clearModels: Bool = false,
@@ -589,6 +799,10 @@ final class AISettingsEditorModel {
         status = .idle
         pendingRemovedProviders[provider.id] = provider
         draftProviderSet.providers.remove(at: index)
+        for feature in AIFeature.allCases
+        where draftProviderSet.route(for: feature)?.providerID == provider.id {
+            draftProviderSet.setRoute(nil, for: feature)
+        }
         providerPresets[provider.id] = nil
         apiKeyDrafts[provider.id] = nil
         storedAPIKeyScopes[provider.id] = nil
@@ -610,6 +824,14 @@ final class AISettingsEditorModel {
             return
         }
         draftConfiguration = preset.applying(to: draftConfiguration)
+        // 换了服务商,原来那家的其余模型和点名的模型都用不上了,回到它的默认模型。
+        draftConfiguration.additionalGenerationModels = []
+        for feature in AIFeature.allCases {
+            if case .provider(let id, _)? = draftProviderSet.route(for: feature),
+               id == selectedProviderID {
+                draftProviderSet.setRoute(.provider(id: id, model: ""), for: feature)
+            }
+        }
         apiKeyDraft = ""
         draftDidChange(clearModels: true)
     }
@@ -980,30 +1202,39 @@ final class AISettingsEditorModel {
 // `AISettingsEditorModel` 仍然全平台共用。
 #if !os(tvOS)
 struct AISettingsView: View {
+    /// 「功能」管每个功能交给谁,「服务」管每项服务怎么连。
+    private enum Tab: Hashable {
+        case features
+        case services
+    }
+
+    /// 「服务」栏正在看的:内置 AI,或自己的某项服务。
+    private enum ServiceSelection: Hashable {
+        case builtIn
+        case provider(UUID)
+    }
+
     @Environment(MusicIntelligenceService.self) private var intelligence
-    @Environment(MusicLibrary.self) private var library
     @State private var editor = AISettingsEditorModel()
+    @State private var tab: Tab = .features
+    @State private var serviceSelection: ServiceSelection?
     @State private var showsRemoveProviderConfirmation = false
-    @State private var libraryTidySongs: BatchSongSelection?
-    /// 正在编辑的服务。导航挂在页面根上:引导行在密钥填好后就会消失,
-    /// 不能让它自己持有被推出去的详情页。
-    @State private var editingProviderID: UUID?
+    @State private var showsManualModelEntry = false
+    @State private var manualModelDraft = ""
     /// 歌词翻译开关与「歌词」设置页同源。
     @State private var lyricsTranslation = LyricsTranslationSettingsStore.shared
+    /// 「为你」由 AI 整理的开关与全部意图页同源。
+    @State private var listeningIntents = ListeningIntentService.shared
     /// 首页「为你推荐」的推荐单位:歌曲 / 专辑 / 混合。
     @AppStorage(AIRecommendationUnit.storageKey)
     private var recommendationUnitRawValue = AIRecommendationUnit.defaultUnit.rawValue
-    /// 「高级」(连接测试、我的 AI 服务、降级、隐私)展开过就记着,下次进来照旧展开。
-    @AppStorage("primuse.ai.settings.advancedExpanded") private var showsAdvanced = false
     @Environment(\.settingsFocusedAnchor) private var focusedSettingsAnchor
 
-    /// 设置搜索要定位到「高级」里的项目时,先把它展开。
-    private static let advancedAnchors: Set<String> = [
+    /// 设置搜索要定位到这些项目时,先切到「服务」栏。
+    private static let serviceAnchors: Set<String> = [
         "intelligence.relayTest",
         "intelligence.providers",
-        "intelligence.fallback",
         "intelligence.addProvider",
-        "intelligence.privacy",
     ]
 
     var body: some View {
@@ -1025,32 +1256,41 @@ struct AISettingsView: View {
                     )
                 }
             } else {
-                if !usesCompactMobileLayout {
-                    connectionSummary
-                }
-                // ① 一键开关与当前状态;② 各项功能;③ 服务商、降级、隐私与测试收在「高级」里。
-                primuseRelaySection
-                capabilitySection
-                tagCleanupSection
-                advancedSection
-                if showsAdvanced {
-                    primuseRelayConnectionSection
-                    providerListSection
+                tabPicker
+                switch tab {
+                case .features:
+                    defaultEngineSection
+                    automaticFeatureSection
+                    onDemandFeatureSection
                     privacySection
+                case .services:
+                    switch resolvedServiceSelection {
+                    case .builtIn:
+                        builtInServiceSection
+                        primuseRelayConnectionSection
+                    case .provider:
+                        providerHeaderSection
+                        providerSection
+                        modelSection
+                        actionSection
+                        providerManagementSection
+                        providerPrivacySection
+                    }
                 }
             }
         }
-        .onAppear(perform: expandAdvancedForFocusedSetting)
-        .onChange(of: focusedSettingsAnchor) { _, _ in expandAdvancedForFocusedSetting() }
+        .onAppear(perform: followFocusedSetting)
+        .onChange(of: focusedSettingsAnchor) { _, _ in followFocusedSetting() }
         .navigationTitle("ai_settings_title")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .navigationDestination(item: $editingProviderID) { _ in
-            providerDetailPage
-        }
-        .sheet(item: $libraryTidySongs) { batch in
-            TagTidyView(songs: batch.songs, isLibraryWide: true)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                if tab == .services, intelligence.shouldExposeRemoteConfiguration {
+                    serviceSwitcher
+                }
+            }
         }
         .onChange(of: intelligence.settingsStore.revision) {
             editor.adoptStoredConsent(from: intelligence)
@@ -1066,161 +1306,209 @@ struct AISettingsView: View {
             }
             Button("cancel", role: .cancel) {}
         }
-    }
-
-    private var connectionSummary: some View {
-        let usesRelay = editor.primuseRelayEnabled && editor.status == .idle
-        let isReady = usesRelay ? primuseRelayIsOperational : editor.hasUsableAPIKey
-        let stateColor = usesRelay ? primuseRelayConnectionColor
-            : (isReady ? Color.green : Color.secondary.opacity(0.35))
-        return Section {
-            HStack(spacing: 14) {
-                Image(systemName: isReady ? "sparkles" : "key.horizontal")
-                    .font(.system(size: 19, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
-                    .frame(width: 38, height: 38)
-                    .background(
-                        Color.accentColor.opacity(0.12),
-                        in: RoundedRectangle(cornerRadius: 10)
-                )
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(usesRelay
-                         ? String(localized: "ai_primuse_relay_name")
-                         : (editor.draftConfiguration.displayName.isEmpty
-                            ? String(localized: "ai_provider_default_name")
-                            : editor.draftConfiguration.displayName))
-                        .font(.headline)
-                    Text(verbatim: connectionSummaryText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Circle()
-                    .fill(stateColor)
-                    .frame(width: 8, height: 8)
+        .alert("ai_model_add", isPresented: $showsManualModelEntry) {
+            TextField("ai_model_name_prompt", text: $manualModelDraft)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            Button("cancel", role: .cancel) { manualModelDraft = "" }
+            Button("add") {
+                editor.addModel(manualModelDraft)
+                manualModelDraft = ""
             }
-            .padding(.vertical, 4)
         }
     }
 
-    private var primuseRelaySection: some View {
+    private var tabPicker: some View {
         Section {
-            Toggle("ai_primuse_relay_enabled", isOn: editor.primuseRelayBinding.animation())
+            Picker("ai_settings_title", selection: $tab) {
+                Text("ai_settings_tab_features").tag(Tab.features)
+                Text("ai_settings_tab_services").tag(Tab.services)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .accessibilityIdentifier("ai.settings.tab")
+        }
+        .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets())
+    }
+
+    private func followFocusedSetting() {
+        guard let focusedSettingsAnchor,
+              focusedSettingsAnchor.hasPrefix("intelligence.") else { return }
+        if Self.serviceAnchors.contains(focusedSettingsAnchor) {
+            if focusedSettingsAnchor == "intelligence.relayTest" {
+                serviceSelection = .builtIn
+            }
+            tab = .services
+        } else {
+            tab = .features
+        }
+    }
+
+    // MARK: 功能
+
+    private var defaultEngineSection: some View {
+        Section {
+            LabeledContent("ai_default_engine_label") {
+                Menu {
+                    defaultEngineMenuItems
+                } label: {
+                    menuValueLabel(editor.defaultEngineTitle)
+                }
+            }
             .settingsAnchor("intelligence.relay")
+            .accessibilityIdentifier("ai.settings.defaultEngine")
 
             serviceGuidanceRow
 
-            if let engine = editor.activeEngine(hasOfflinePacks: hasOfflineTranslationPacks) {
-                LabeledContent("ai_settings_engine_label") {
-                    Text(verbatim: editor.activeEngineTitle(engine))
-                        .foregroundStyle(engine == .none ? Color.secondary : Color.primary)
-                }
-                .accessibilityIdentifier("ai.settings.engine")
-            }
+            Toggle("ai_fallback_enabled", isOn: editor.fallbackBinding)
+                .settingsAnchor("intelligence.fallback")
+
             if !PrimuseAIRelayClient.isSupportedOnCurrentDevice {
-                Label(
-                    "ai_primuse_relay_unsupported",
-                    systemImage: "exclamationmark.shield"
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-        } header: {
-            if !usesCompactMobileLayout {
-                Text("ai_primuse_relay_section")
-            }
-        } footer: {
-            Text("ai_primuse_relay_footer")
-        }
-    }
-
-    /// 「高级」里的第一组:内置 AI 的连接测试与结果。
-    private var primuseRelayConnectionSection: some View {
-        Section {
-            if !usesCompactMobileLayout || editor.primuseRelayEnabled {
-                Button {
-                    Task { await editor.testPrimuseRelayConnection(using: intelligence) }
-                } label: {
-                    HStack(spacing: 8) {
-                        if editor.isTestingPrimuseRelay {
-                            ProgressView()
-                        } else {
-                            Image(systemName: "network")
-                        }
-                        Text("ai_primuse_relay_test_connection")
-                    }
-                    .settingsAnchor("intelligence.relayTest")
-                }
-                .disabled(!editor.canTestPrimuseRelayConnection)
-
-                if editor.primuseRelayConnectionPresentation != .notTested {
-                    HStack(alignment: .top, spacing: 10) {
-                        Image(systemName: primuseRelayConnectionIcon)
-                            .foregroundStyle(primuseRelayConnectionColor)
-                            .frame(width: 20)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(verbatim: editor.primuseRelayConnectionTitle)
-                                .font(.subheadline.weight(.semibold))
-                            if let detail = editor.primuseRelayConnectionDetail {
-                                Text(verbatim: detail)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .accessibilityElement(children: .combine)
-                }
-            } else {
-                Text("ai_settings_relay_test_needs_relay")
+                Label("ai_primuse_relay_unsupported", systemImage: "exclamationmark.shield")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-        } header: {
-            Text("ai_connection_section")
-        }
-    }
-
-    /// ③ 的折叠开关。
-    private var advancedSection: some View {
-        Section {
-            Button {
-                withAnimation(.snappy(duration: 0.25)) { showsAdvanced.toggle() }
-            } label: {
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("ai_settings_advanced_title")
-                            .foregroundStyle(.primary)
-                        Text("ai_settings_advanced_detail")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer(minLength: 8)
-                    Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                        .rotationEffect(.degrees(showsAdvanced ? 90 : 0))
+        } footer: {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("ai_default_engine_footer")
+                if editor.defaultEngine == .builtIn {
+                    Text("ai_builtin_service_footer")
                 }
-                .contentShape(Rectangle())
             }
-            .accessibilityValue(Text(showsAdvanced ? "ai_settings_advanced_expanded" : "ai_settings_advanced_collapsed"))
-            .accessibilityIdentifier("ai.settings.advanced")
         }
     }
 
-    private func expandAdvancedForFocusedSetting() {
-        guard let focusedSettingsAnchor,
-              Self.advancedAnchors.contains(focusedSettingsAnchor),
-              !showsAdvanced else { return }
-        showsAdvanced = true
+    @ViewBuilder
+    private var defaultEngineMenuItems: some View {
+        Button {
+            withAnimation { editor.chooseDefaultEngine(.builtIn) }
+        } label: {
+            AIMenuChoiceLabel(
+                title: String(localized: "ai_settings_engine_builtin"),
+                isSelected: editor.defaultEngine == .builtIn
+            )
+        }
+        .disabled(!PrimuseAIRelayClient.isSupportedOnCurrentDevice)
+        Section {
+            ForEach(editor.draftProviderSet.providers) { provider in
+                Button {
+                    withAnimation { editor.chooseDefaultEngine(.provider(provider.id)) }
+                } label: {
+                    AIMenuChoiceLabel(
+                        title: editor.providerModelTitle(provider),
+                        detail: providerMenuDetail(provider),
+                        isSelected: editor.defaultEngine == .provider(provider.id)
+                    )
+                }
+            }
+        }
     }
 
-    /// 离线素材包只管歌词翻译:翻译关着时不算在用,也就不去碰素材包管理
-    /// (和「歌词」设置页一样,开着翻译才查)。
-    private var hasOfflineTranslationPacks: Bool {
-        guard lyricsTranslation.isEnabled, LocalLyricsTranslationModel.isSystemSupported else { return false }
-        return LocalLyricsTranslationModel.Pack.allCases.contains {
-            LocalLyricsTranslationService.shared.modelState(for: $0) == .ready
+    /// 菜单里服务名下面那行:没配好的说缺什么。
+    private func providerMenuDetail(_ provider: AIRemoteProviderConfiguration) -> String? {
+        guard let state = editor.setupState(for: provider), state != .ready else { return nil }
+        return state.localizedTitle
+    }
+
+    private var automaticFeatureSection: some View {
+        Section {
+            Toggle("ai_enable_recommendations", isOn: editor.recommendationsBinding.animation())
+                .settingsAnchor("intelligence.recommendations")
+            Picker("ai_recommendation_unit", selection: $recommendationUnitRawValue) {
+                ForEach([AIRecommendationUnit.songs, .albums, .mixed], id: \.self) { unit in
+                    Text(verbatim: unit.localizedTitle).tag(unit.rawValue)
+                }
+            }
+            .settingsAnchor("intelligence.recommendationUnit")
+            if editor.recommendationsEnabled {
+                routeRow(.recommendations)
+            }
+
+            Toggle("ai_enable_semantic_search", isOn: editor.semanticSearchBinding.animation())
+                .settingsAnchor("intelligence.semanticSearch")
+            if editor.semanticSearchEnabled {
+                routeRow(.semanticSearch)
+            }
+
+            Toggle("lyrics_translation_enabled", isOn: $lyricsTranslation.isEnabled.animation())
+                .settingsAnchor("intelligence.lyricsTranslation")
+            if lyricsTranslation.isEnabled {
+                Picker("lyrics_translation_mode", selection: $lyricsTranslation.mode.animation()) {
+                    Text("lyrics_translation_mode_system")
+                        .tag(LyricsTranslationMode.system)
+                    Text("lyrics_translation_mode_intelligent")
+                        .tag(LyricsTranslationMode.intelligentWithSystemFallback)
+                }
+                if lyricsTranslation.mode == .intelligentWithSystemFallback {
+                    routeRow(.lyricsTranslation)
+                }
+            }
+
+            Toggle("listening_intent_ai_toggle", isOn: listeningIntentCurationBinding.animation())
+            if listeningIntents.isAICurationEnabled {
+                routeRow(.listeningIntents)
+            }
+        } header: {
+            Text("ai_capability_section")
+        } footer: {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("ai_recommendation_unit_footer")
+                Text("ai_settings_lyrics_translation_footer")
+            }
         }
+    }
+
+    private var listeningIntentCurationBinding: Binding<Bool> {
+        Binding(
+            get: { listeningIntents.isAICurationEnabled },
+            set: { listeningIntents.setAICurationEnabled($0) }
+        )
+    }
+
+    private var onDemandFeatureSection: some View {
+        Section {
+            routeRow(.tagCleanup, title: AIFeature.tagCleanup.localizedTitle)
+                .settingsAnchor("intelligence.routes")
+            routeRow(.songDiscovery, title: AIFeature.songDiscovery.localizedTitle)
+            routeRow(.libraryInsight, title: AIFeature.libraryInsight.localizedTitle)
+        } header: {
+            Text("ai_features_on_demand_section")
+        } footer: {
+            Text("ai_features_on_demand_footer")
+        }
+    }
+
+    /// 一个功能交给谁。开关下面的那种标题是「由谁处理」,按需功能直接用功能名。
+    private func routeRow(_ feature: AIFeature, title: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            LabeledContent {
+                Menu {
+                    AIFeatureRouteMenuItems(editor: editor, feature: feature)
+                } label: {
+                    menuValueLabel(editor.routeTitle(for: feature))
+                }
+            } label: {
+                Text(verbatim: title ?? String(localized: "ai_route_label"))
+            }
+            if let note = editor.routeNote(for: feature) {
+                Text(verbatim: note)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        }
+        .accessibilityIdentifier("ai.settings.route.\(feature.rawValue)")
+    }
+
+    private func menuValueLabel(_ value: String) -> some View {
+        HStack(spacing: 4) {
+            Text(verbatim: value)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.caption2.weight(.semibold))
+        }
+        .foregroundStyle(.secondary)
     }
 
     @ViewBuilder
@@ -1230,7 +1518,7 @@ struct AISettingsView: View {
             EmptyView()
         case .configureOwnService(let providerID):
             Button {
-                openProvider(providerID)
+                showService(.provider(providerID))
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "key.horizontal.fill")
@@ -1266,12 +1554,23 @@ struct AISettingsView: View {
                 }
                 Spacer(minLength: 8)
                 Button("ai_setup_use_own_service") {
-                    editor.primuseRelayBinding.animation().wrappedValue = false
+                    withAnimation { useReadyServiceAsDefault() }
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
             }
         }
+    }
+
+    /// 「改用我的服务」:默认改成配好了的服务,主服务配好了就用它。
+    private func useReadyServiceAsDefault() {
+        let ready = editor.draftProviderSet.providers.filter {
+            editor.setupState(for: $0) == .ready
+        }
+        guard let target = ready.first(where: {
+            $0.id == editor.draftProviderSet.primaryProviderID
+        }) ?? ready.first else { return }
+        editor.chooseDefaultEngine(.provider(target.id))
     }
 
     private var disclosureChevron: some View {
@@ -1280,204 +1579,265 @@ struct AISettingsView: View {
             .foregroundStyle(.tertiary)
     }
 
-    private func openProvider(_ providerID: UUID) {
-        editor.selectProvider(providerID)
-        editingProviderID = providerID
-    }
-
-    private var capabilitySection: some View {
+    private var privacySection: some View {
         Section {
+            Toggle("ai_remote_consent", isOn: editor.consentBinding)
             Toggle(
-                "ai_enable_semantic_search",
-                isOn: editor.semanticSearchBinding
+                "ai_listening_context_consent",
+                isOn: editor.listeningContextConsentBinding
             )
-            .settingsAnchor("intelligence.semanticSearch")
-            Toggle(
-                "ai_enable_recommendations",
-                isOn: editor.recommendationsBinding
-            )
-            .settingsAnchor("intelligence.recommendations")
-            Picker("ai_recommendation_unit", selection: $recommendationUnitRawValue) {
-                ForEach([AIRecommendationUnit.songs, .albums, .mixed], id: \.self) { unit in
-                    Text(verbatim: unit.localizedTitle).tag(unit.rawValue)
-                }
-            }
-            .settingsAnchor("intelligence.recommendationUnit")
-            Toggle("lyrics_translation_enabled", isOn: $lyricsTranslation.isEnabled)
-                .settingsAnchor("intelligence.lyricsTranslation")
-            if lyricsTranslation.isEnabled {
-                Picker("lyrics_translation_mode", selection: $lyricsTranslation.mode) {
-                    Text("lyrics_translation_mode_system")
-                        .tag(LyricsTranslationMode.system)
-                    Text("lyrics_translation_mode_intelligent")
-                        .tag(LyricsTranslationMode.intelligentWithSystemFallback)
-                }
-            }
         } header: {
-            if usesCompactMobileLayout {
-                Text("ai_capability_section")
-            }
+            Text("ai_privacy_section")
+                .settingsAnchor("intelligence.privacy")
         } footer: {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("ai_recommendation_unit_footer")
-                Text("ai_settings_lyrics_translation_footer")
+            if !usesCompactMobileLayout {
+                Text("ai_privacy_footer")
             }
         }
     }
 
-    /// The one AI feature started by hand rather than switched on: it opens
-    /// the same library-wide tidy-up as the scraping settings.
-    private var tagCleanupSection: some View {
-        Section {
+    // MARK: 服务
+
+    private var resolvedServiceSelection: ServiceSelection {
+        switch serviceSelection {
+        case .builtIn:
+            return .builtIn
+        case .provider(let id) where editor.provider(id) != nil:
+            return .provider(id)
+        default:
+            return .provider(editor.selectedProviderID)
+        }
+    }
+
+    private func showService(_ selection: ServiceSelection) {
+        if case .provider(let id) = selection {
+            editor.selectProvider(id)
+        }
+        serviceSelection = selection
+        tab = .services
+    }
+
+    private var currentServiceTitle: String {
+        switch resolvedServiceSelection {
+        case .builtIn:
+            return String(localized: "ai_settings_engine_builtin")
+        case .provider:
+            return editor.providerTitle(editor.draftConfiguration)
+        }
+    }
+
+    /// 右上角:切换正在看的服务、添加服务。
+    private var serviceSwitcher: some View {
+        Menu {
             Button {
-                libraryTidySongs = .wholeLibraryForTidy(library)
+                showService(.builtIn)
             } label: {
-                Label("tag_tidy_ai_settings_action", systemImage: "wand.and.sparkles")
+                AIMenuChoiceLabel(
+                    title: String(localized: "ai_settings_engine_builtin"),
+                    detail: editor.defaultEngine == .builtIn
+                        ? String(localized: "ai_primary_provider") : nil,
+                    isSelected: resolvedServiceSelection == .builtIn
+                )
             }
-            .settingsAnchor("intelligence.tagCleanup")
-        } footer: {
-            Text("tag_tidy_ai_settings_footer")
-        }
-    }
-
-    private var providerListSection: some View {
-        Section {
-            ForEach(Array(editor.draftProviderSet.providers.enumerated()), id: \.element.id) {
-                index, provider in
-                providerRow(provider, index: index)
-            }
-
-            Toggle("ai_fallback_enabled", isOn: editor.fallbackBinding)
-            .settingsAnchor("intelligence.fallback")
-
-            Button {
-                editor.addProvider()
-                editingProviderID = editor.selectedProviderID
-            } label: {
-                Label("ai_add_provider", systemImage: "plus")
-            }
-            .settingsAnchor("intelligence.addProvider")
-        } header: {
-            Text("ai_provider_list_section")
-        } footer: {
-            Text(verbatim: editor.serviceListFooterText)
-        }
-        .settingsAnchor("intelligence.providers")
-    }
-
-    /// 一行一项服务,点进去就是它自己的地址、密钥和模型;
-    /// 行内只报它配到哪一步,排序、设为主服务、删除放在长按菜单和左右滑动里。
-    private func providerRow(
-        _ provider: AIRemoteProviderConfiguration,
-        index: Int
-    ) -> some View {
-        let isPrimary = provider.id == editor.draftProviderSet.primaryProviderID
-        let state = editor.setupState(for: provider)
-        let canRemove = editor.draftProviderSet.providers.count > 1
-        return Button {
-            openProvider(provider.id)
-        } label: {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(provider.displayName.isEmpty
-                         ? String(localized: "ai_provider_default_name")
-                         : provider.displayName)
-                        .foregroundStyle(.primary)
-                    if let state {
-                        Text(verbatim: state.localizedTitle)
-                            .font(.caption)
-                            .foregroundStyle(providerStateColor(state))
+            Section {
+                ForEach(editor.draftProviderSet.providers) { provider in
+                    Button {
+                        showService(.provider(provider.id))
+                    } label: {
+                        AIMenuChoiceLabel(
+                            title: editor.providerTitle(provider),
+                            detail: serviceMenuDetail(provider),
+                            isSelected: resolvedServiceSelection == .provider(provider.id)
+                        )
                     }
                 }
-                Spacer(minLength: 8)
-                if isPrimary {
-                    Text("ai_primary_provider")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(Color.accentColor)
-                }
-                disclosureChevron
             }
-            .contentShape(Rectangle())
-        }
-        .contextMenu {
-            if !isPrimary {
-                Button("ai_set_primary", systemImage: "star") {
-                    editor.makePrimary(provider.id)
+            Section {
+                Button {
+                    editor.addProvider()
+                    showService(.provider(editor.selectedProviderID))
+                } label: {
+                    Label("ai_add_provider", systemImage: "plus")
                 }
             }
-            Button("ai_move_up", systemImage: "arrow.up") {
-                editor.moveProvider(provider.id, offset: -1)
+        } label: {
+            HStack(spacing: 3) {
+                Text(verbatim: currentServiceTitle)
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.semibold))
             }
-            .disabled(index == 0)
-            Button("ai_move_down", systemImage: "arrow.down") {
-                editor.moveProvider(provider.id, offset: 1)
-            }
-            .disabled(index == editor.draftProviderSet.providers.count - 1)
-            if canRemove {
-                Divider()
-                Button("ai_remove_provider", systemImage: "trash", role: .destructive) {
-                    confirmRemoval(of: provider.id)
-                }
-            }
+            .frame(maxWidth: 200)
         }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            // 删除要先确认,不用 destructive 角色:它会让行在确认前就先滑走。
-            if canRemove {
-                Button("ai_remove_provider", systemImage: "trash") {
-                    confirmRemoval(of: provider.id)
-                }
-                .tint(.red)
-            }
-        }
-        .aiProviderPrimaryAction(isPrimary: isPrimary) {
-            editor.makePrimary(provider.id)
-        }
+        .accessibilityLabel(Text("ai_service_switcher"))
+        .accessibilityValue(Text(verbatim: currentServiceTitle))
+        .accessibilityIdentifier("ai.settings.serviceSwitcher")
     }
 
-    /// 内置 AI 开着时自己的服务只是备用,缺密钥不算问题,不用橙色催。
+    private func serviceMenuDetail(_ provider: AIRemoteProviderConfiguration) -> String? {
+        var parts: [String] = []
+        if editor.defaultEngine == .provider(provider.id) {
+            parts.append(String(localized: "ai_primary_provider"))
+        }
+        if let state = editor.setupState(for: provider), state != .ready {
+            parts.append(state.localizedTitle)
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// 服务页最上面:是谁、配到哪一步、正在用于哪些功能。
+    private func serviceHeader(
+        title: String,
+        systemImage: String,
+        state: AIProviderSetupState?,
+        usage: [String]
+    ) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: systemImage)
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 38, height: 38)
+                .background(
+                    Color.accentColor.opacity(0.12),
+                    in: RoundedRectangle(cornerRadius: 10)
+                )
+            VStack(alignment: .leading, spacing: 3) {
+                Text(verbatim: title)
+                    .font(.headline)
+                if let state {
+                    Text(verbatim: state.localizedTitle)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(providerStateColor(state))
+                }
+                ForEach(usage, id: \.self) { line in
+                    Text(verbatim: line)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
+    }
+
+    /// 别的功能用不到它时,缺密钥不算问题,不用橙色催。
     private func providerStateColor(_ state: AIProviderSetupState) -> Color {
         switch state {
         case .ready:
             return .green
         case .needsAPIKey, .needsModel:
-            return editor.isPrimuseRelayActive ? .secondary : .orange
+            return editor.defaultEngine == .provider(editor.selectedProviderID)
+                ? .orange : .secondary
         case .disabled:
             return .secondary
         }
     }
 
-    private func confirmRemoval(of providerID: UUID) {
-        editor.selectProvider(providerID)
-        showsRemoveProviderConfirmation = true
+    private var builtInServiceSection: some View {
+        Section {
+            serviceHeader(
+                title: String(localized: "ai_primuse_relay_name"),
+                systemImage: "sparkles",
+                state: nil,
+                usage: editor.usageLines(forProvider: nil)
+            )
+            if editor.defaultEngine != .builtIn {
+                Button("ai_set_primary", systemImage: "star") {
+                    withAnimation { editor.chooseDefaultEngine(.builtIn) }
+                }
+                .disabled(!PrimuseAIRelayClient.isSupportedOnCurrentDevice)
+            }
+            if !PrimuseAIRelayClient.isSupportedOnCurrentDevice {
+                Label("ai_primuse_relay_unsupported", systemImage: "exclamationmark.shield")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } footer: {
+            Text("ai_builtin_service_footer")
+        }
     }
 
-    private var providerDetailPage: some View {
-        Form {
-            providerSection
-            modelSection
-            actionSection
-            providerManagementSection
-            providerPrivacySection
+    /// 内置 AI 的连接测试与结果。
+    private var primuseRelayConnectionSection: some View {
+        Section {
+            Button {
+                Task { await editor.testPrimuseRelayConnection(using: intelligence) }
+            } label: {
+                HStack(spacing: 8) {
+                    if editor.isTestingPrimuseRelay {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "network")
+                    }
+                    Text("ai_primuse_relay_test_connection")
+                }
+                .settingsAnchor("intelligence.relayTest")
+            }
+            .disabled(!editor.canTestPrimuseRelayConnection)
+
+            if editor.primuseRelayConnectionPresentation != .notTested {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: primuseRelayConnectionIcon)
+                        .foregroundStyle(primuseRelayConnectionColor)
+                        .frame(width: 20)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(verbatim: editor.primuseRelayConnectionTitle)
+                            .font(.subheadline.weight(.semibold))
+                        if let detail = editor.primuseRelayConnectionDetail {
+                            Text(verbatim: detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .accessibilityElement(children: .combine)
+            }
+        } header: {
+            Text("ai_connection_section")
         }
-        .navigationTitle(editor.draftConfiguration.displayName.isEmpty
-                         ? String(localized: "ai_provider_default_name")
-                         : editor.draftConfiguration.displayName)
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
+    }
+
+    private var providerHeaderSection: some View {
+        Section {
+            serviceHeader(
+                title: editor.providerTitle(editor.draftConfiguration),
+                systemImage: "key.horizontal",
+                state: editor.setupState(for: editor.draftConfiguration),
+                usage: editor.usageLines(forProvider: editor.selectedProviderID)
+            )
+        }
+        .settingsAnchor("intelligence.providers")
     }
 
     private var providerManagementSection: some View {
-        Section {
-            Toggle(
-                "ai_provider_enabled",
-                isOn: editor.providerEnabledBinding(editor.selectedProviderID)
-            )
-            if editor.selectedProviderID != editor.draftProviderSet.primaryProviderID {
+        let providerID = editor.selectedProviderID
+        let providers = editor.draftProviderSet.providers
+        let index = providers.firstIndex { $0.id == providerID } ?? 0
+        return Section {
+            Toggle("ai_provider_enabled", isOn: editor.providerEnabledBinding(providerID))
+            if editor.defaultEngine != .provider(providerID) {
                 Button("ai_set_primary", systemImage: "star") {
-                    editor.makePrimary(editor.selectedProviderID)
+                    withAnimation { editor.chooseDefaultEngine(.provider(providerID)) }
                 }
             }
+            if providers.count > 1 {
+                Button("ai_move_up", systemImage: "arrow.up") {
+                    editor.moveProvider(providerID, offset: -1)
+                }
+                .disabled(index == 0)
+                Button("ai_move_down", systemImage: "arrow.down") {
+                    editor.moveProvider(providerID, offset: 1)
+                }
+                .disabled(index == providers.count - 1)
+                Button("ai_remove_provider", systemImage: "trash", role: .destructive) {
+                    showsRemoveProviderConfirmation = true
+                }
+            }
+        } header: {
+            Text("ai_service_manage_section")
+        } footer: {
+            Text("ai_fallback_footer")
         }
     }
 
@@ -1545,10 +1905,34 @@ struct AISettingsView: View {
     private var modelSection: some View {
         Section {
             AIModelSelectionField(
-                title: String(localized: "ai_generation_model"),
+                title: String(localized: "ai_default_model"),
                 text: editor.configurationBinding(\.generationModel),
                 models: editor.availableModels
             )
+            ForEach(editor.additionalModels, id: \.self) { model in
+                Text(verbatim: model)
+                    .contextMenu {
+                        Button("ai_model_make_default", systemImage: "star") {
+                            editor.makeDefaultModel(model)
+                        }
+                        Button("ai_model_remove", systemImage: "trash", role: .destructive) {
+                            editor.removeAdditionalModel(model)
+                        }
+                    }
+                    .swipeActions(edge: .trailing) {
+                        Button("ai_model_remove", systemImage: "trash", role: .destructive) {
+                            editor.removeAdditionalModel(model)
+                        }
+                    }
+                    .swipeActions(edge: .leading) {
+                        Button("ai_model_make_default", systemImage: "star") {
+                            editor.makeDefaultModel(model)
+                        }
+                        .tint(.accentColor)
+                    }
+            }
+            addModelControl
+
             if editor.draftConfiguration.supportsEmbeddings {
                 AIModelSelectionField(
                     title: String(localized: "ai_embedding_model"),
@@ -1577,22 +1961,33 @@ struct AISettingsView: View {
             statusView(onlyModelStatus: true)
         } header: {
             Text("ai_models_section")
+        } footer: {
+            Text("ai_models_routing_footer")
         }
     }
 
-    private var privacySection: some View {
-        Section {
-            Toggle("ai_remote_consent", isOn: editor.consentBinding)
-            Toggle(
-                "ai_listening_context_consent",
-                isOn: editor.listeningContextConsentBinding
-            )
-        } header: {
-            Text("ai_privacy_section")
-                .settingsAnchor("intelligence.privacy")
-        } footer: {
-            if !usesCompactMobileLayout {
-                Text("ai_privacy_footer")
+    /// 拉过在线模型就从里面挑,也能手动输入。
+    @ViewBuilder
+    private var addModelControl: some View {
+        if editor.addableModels.isEmpty {
+            Button {
+                manualModelDraft = ""
+                showsManualModelEntry = true
+            } label: {
+                Label("ai_model_add", systemImage: "plus")
+            }
+        } else {
+            Menu {
+                ForEach(editor.addableModels) { model in
+                    Button(model.id) { editor.addModel(model.id) }
+                }
+                Divider()
+                Button("ai_model_add_manual") {
+                    manualModelDraft = ""
+                    showsManualModelEntry = true
+                }
+            } label: {
+                Label("ai_model_add", systemImage: "plus")
             }
         }
     }
@@ -1680,34 +2075,6 @@ struct AISettingsView: View {
         }
     }
 
-    private var connectionSummaryText: String {
-        switch editor.status {
-        case .saving:
-            return String(localized: "ai_saving_changes")
-        case .saved:
-            return String(localized: "ai_settings_saved")
-        case .connectionSucceeded:
-            return String(localized: "ai_connection_success")
-        case .failed(let message, _):
-            return message
-        default:
-            if editor.primuseRelayEnabled {
-                return editor.primuseRelayConnectionTitle
-            }
-            return String(
-                format: String(localized: "ai_provider_count_format"),
-                editor.draftProviderSet.providers.count
-            )
-        }
-    }
-
-    private var primuseRelayIsOperational: Bool {
-        guard let report = editor.primuseRelayConnectionReport else { return false }
-        if report.isDirectlyAvailable { return true }
-        if case .remoteProvider = report.fallback { return true }
-        return false
-    }
-
     private var primuseRelayConnectionIcon: String {
         switch editor.primuseRelayConnectionPresentation {
         case .notTested:
@@ -1745,7 +2112,112 @@ struct AISettingsView: View {
     }
 }
 
+/// 一个功能「由谁处理」的菜单内容:跟随默认、内置 AI,再按服务分组列出各自的模型。
+/// iPhone 与 Mac 的设置页共用。
+struct AIFeatureRouteMenuItems: View {
+    let editor: AISettingsEditorModel
+    let feature: AIFeature
+
+    var body: some View {
+        Button {
+            editor.setRoute(nil, for: feature)
+        } label: {
+            AIMenuChoiceLabel(
+                title: String(
+                    format: String(localized: "ai_route_follow_default_format"),
+                    editor.defaultEngineTitle
+                ),
+                isSelected: editor.route(for: feature) == nil
+            )
+        }
+        Button {
+            editor.setRoute(.builtIn, for: feature)
+        } label: {
+            AIMenuChoiceLabel(
+                title: String(localized: "ai_settings_engine_builtin"),
+                isSelected: editor.route(for: feature) == .builtIn
+            )
+        }
+        .disabled(!PrimuseAIRelayClient.isSupportedOnCurrentDevice)
+        ForEach(editor.routableProviders) { provider in
+            Section(sectionTitle(provider)) {
+                let models = editor.routeModels(for: provider, feature: feature)
+                if models.isEmpty {
+                    Button("ai_route_no_model") {}
+                        .disabled(true)
+                }
+                ForEach(models, id: \.self) { model in
+                    Button {
+                        editor.route(feature, to: provider, model: model)
+                    } label: {
+                        AIMenuChoiceLabel(
+                            title: modelTitle(model, of: provider),
+                            isSelected: editor.isRouted(feature, to: provider, model: model)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private func sectionTitle(_ provider: AIRemoteProviderConfiguration) -> String {
+        let name = editor.providerTitle(provider)
+        guard let state = editor.setupState(for: provider), state != .ready else { return name }
+        return "\(name) · \(state.localizedTitle)"
+    }
+
+    private func modelTitle(_ model: String, of provider: AIRemoteProviderConfiguration) -> String {
+        guard model == provider.generationModel.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return model
+        }
+        return String(format: String(localized: "ai_route_default_model_format"), model)
+    }
+}
+
+/// 菜单里可勾选的一项:选中的带勾(macOS 27 起菜单默认不画图标,勾要显式要求)。
+/// 第二行文字是副标题。
+struct AIMenuChoiceLabel: View {
+    let title: String
+    var detail: String?
+    let isSelected: Bool
+
+    var body: some View {
+        if isSelected {
+            Label {
+                titleLines
+            } icon: {
+                Image(systemName: "checkmark")
+            }
+            .labelStyle(.titleAndIcon)
+        } else {
+            titleLines
+        }
+    }
+
+    @ViewBuilder
+    private var titleLines: some View {
+        Text(verbatim: title)
+        if let detail {
+            Text(verbatim: detail)
+        }
+    }
+}
+
 #endif
+
+extension AIFeature {
+    var localizedTitle: String {
+        switch self {
+        case .recommendations: String(localized: "ai_enable_recommendations")
+        case .semanticSearch: String(localized: "ai_enable_semantic_search")
+        case .lyricsTranslation: String(localized: "lyrics_translation_title")
+        case .listeningIntents: String(localized: "ai_feature_listening_intents")
+        case .tagCleanup: String(localized: "ai_feature_tag_cleanup")
+        case .songDiscovery: String(localized: "ai_song_discovery_title")
+        case .libraryInsight: String(localized: "ai_feature_library_insight")
+        }
+    }
+}
 
 extension AIProviderSetupState {
     var localizedTitle: String {
@@ -1803,21 +2275,6 @@ extension AIProviderCompatibilityMode {
 }
 
 #if !os(tvOS)
-private extension View {
-    @ViewBuilder
-    func aiProviderPrimaryAction(
-        isPrimary: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        swipeActions(edge: .leading) {
-            if !isPrimary {
-                Button("ai_set_primary", action: action)
-                    .tint(.accentColor)
-            }
-        }
-    }
-}
-
 private struct AIModelSelectionField: View {
     let title: String
     @Binding var text: String

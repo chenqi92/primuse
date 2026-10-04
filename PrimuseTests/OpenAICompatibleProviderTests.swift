@@ -2248,6 +2248,69 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testFeatureRouteKeepsTheChosenModelOfAService() throws {
+        let editor = AISettingsEditorModel()
+        let providerID = editor.selectedProviderID
+        editor.configurationBinding(\.generationModel).wrappedValue = "model-a"
+        editor.addModel("model-b")
+        editor.addModel("model-b")
+        XCTAssertEqual(editor.additionalModels, ["model-b"])
+
+        XCTAssertNil(editor.route(for: .lyricsTranslation))
+        let provider = try XCTUnwrap(editor.provider(providerID))
+        editor.route(.lyricsTranslation, to: provider, model: "model-b")
+        XCTAssertEqual(
+            editor.route(for: .lyricsTranslation),
+            .provider(id: providerID, model: "model-b")
+        )
+        XCTAssertTrue(editor.isRouted(.lyricsTranslation, to: provider, model: "model-b"))
+        XCTAssertEqual(
+            editor.draftProviderSet.routedProviders(for: .lyricsTranslation).first?.generationModel,
+            "model-b"
+        )
+        XCTAssertEqual(
+            editor.draftProviderSet.routedProviders(for: .recommendations).first?.generationModel,
+            "model-a"
+        )
+
+        editor.makeDefaultModel("model-b")
+        XCTAssertEqual(editor.draftConfiguration.generationModel, "model-b")
+        XCTAssertEqual(editor.additionalModels, ["model-a"])
+        XCTAssertEqual(
+            editor.route(for: .lyricsTranslation),
+            .provider(id: providerID, model: "model-b")
+        )
+
+        editor.removeAdditionalModel("model-a")
+        XCTAssertTrue(editor.additionalModels.isEmpty)
+    }
+
+    @MainActor
+    func testChoosingDefaultServiceAndRemovingAServiceUpdateRoutes() {
+        let editor = AISettingsEditorModel()
+        XCTAssertEqual(editor.defaultEngine, .builtIn)
+        editor.addProvider()
+        let secondID = editor.selectedProviderID
+        editor.providerEnabledBinding(secondID).wrappedValue = false
+
+        editor.chooseDefaultEngine(.provider(secondID))
+        XCTAssertFalse(editor.primuseRelayEnabled)
+        XCTAssertEqual(editor.draftProviderSet.primaryProviderID, secondID)
+        XCTAssertEqual(editor.provider(secondID)?.isEnabled, true)
+        XCTAssertEqual(editor.defaultEngine, .provider(secondID))
+
+        editor.setRoute(.provider(id: secondID, model: ""), for: .tagCleanup)
+        editor.setRoute(.builtIn, for: .recommendations)
+        editor.removeSelectedProvider()
+        XCTAssertNil(editor.route(for: .tagCleanup))
+        XCTAssertEqual(editor.route(for: .recommendations), .builtIn)
+
+        editor.chooseDefaultEngine(.builtIn)
+        XCTAssertTrue(editor.primuseRelayEnabled)
+        XCTAssertEqual(editor.defaultEngine, .builtIn)
+    }
+
     private func makeProvider(
         host: String,
         apiStyle: AICompatibleAPIStyle

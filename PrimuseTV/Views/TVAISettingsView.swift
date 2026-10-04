@@ -16,12 +16,19 @@ private struct TVAIProviderTarget: Identifiable {
     let id: UUID
 }
 
+/// 打开「由谁处理」选择页用的载体。
+private struct TVAIRouteTarget: Identifiable {
+    let feature: AIFeature
+    var id: String { feature.rawValue }
+}
+
 struct TVAISettingsView: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
     @Environment(\.dismiss) private var dismiss
 
     @State private var editor = AISettingsEditorModel()
     @State private var providerTarget: TVAIProviderTarget?
+    @State private var routeTarget: TVAIRouteTarget?
     /// 推荐单位:首页智能推荐那一排开头放不放整张专辑。
     @AppStorage(AIRecommendationUnit.storageKey)
     private var recommendationUnitRawValue = AIRecommendationUnit.defaultUnit.rawValue
@@ -63,6 +70,9 @@ struct TVAISettingsView: View {
         .fullScreenCover(item: $providerTarget) { target in
             TVAIProviderDetailView(editor: editor, providerID: target.id)
                 .environment(intelligence)
+        }
+        .fullScreenCover(item: $routeTarget) { target in
+            TVAIRoutePickerView(editor: editor, feature: target.feature)
         }
         .accessibilityIdentifier("tv.ai.settings")
     }
@@ -206,12 +216,20 @@ struct TVAISettingsView: View {
                 title: String(localized: "ai_enable_semantic_search"),
                 isOn: editor.semanticSearchBinding
             )
+            if editor.semanticSearchEnabled {
+                TVAIDivider()
+                routeRow(.semanticSearch)
+            }
             TVAIDivider()
             TVAIToggleRow(
                 icon: "wand.and.stars",
                 title: String(localized: "ai_enable_recommendations"),
                 isOn: editor.recommendationsBinding
             )
+            if editor.recommendationsEnabled {
+                TVAIDivider()
+                routeRow(.recommendations)
+            }
             TVAIDivider()
             // 遥控器上按一下换到下一档:混合 → 歌曲 → 专辑。
             TVAIActionRow(
@@ -230,13 +248,27 @@ struct TVAISettingsView: View {
         .stored(recommendationUnitRawValue)
     }
 
+    /// 开关下面的「由谁处理」:跟随默认、内置 AI,或自己某项服务的某个模型。
+    private func routeRow(_ feature: AIFeature) -> some View {
+        TVAIActionRow(
+            icon: "arrow.triangle.branch",
+            title: String(localized: "ai_route_label"),
+            subtitle: editor.routeNote(for: feature),
+            value: editor.routeTitle(for: feature),
+            trailing: "chevron.right"
+        ) {
+            routeTarget = TVAIRouteTarget(feature: feature)
+        }
+        .accessibilityIdentifier("tv.ai.route.\(feature.rawValue)")
+    }
+
     // MARK: - 服务商
 
     private var providerSection: some View {
         TVAISection(title: String(localized: "ai_provider_list_section")) {
             ForEach(editor.draftProviderSet.providers) { provider in
                 TVAIActionRow(
-                    icon: provider.id == editor.draftProviderSet.primaryProviderID
+                    icon: editor.defaultEngine == .provider(provider.id)
                         ? "star.fill" : "server.rack",
                     title: provider.displayName.isEmpty
                         ? String(localized: "ai_provider_default_name")
@@ -269,7 +301,7 @@ struct TVAISettingsView: View {
 
     /// 服务行右侧的一句状态:还缺密钥或模型时先说缺什么,其余标出主服务或启用 / 停用。
     private func providerStatusText(_ provider: AIRemoteProviderConfiguration) -> String {
-        let isPrimary = provider.id == editor.draftProviderSet.primaryProviderID
+        let isPrimary = editor.defaultEngine == .provider(provider.id)
         if let state = editor.setupState(for: provider),
            state == .needsAPIKey || state == .needsModel {
             return isPrimary
@@ -354,6 +386,109 @@ struct TVAISettingsView: View {
     }
 }
 
+// MARK: - 由谁处理
+
+/// 一个功能交给谁:一屏列出跟随默认、内置 AI 与各服务的各个模型,选中即返回。
+private struct TVAIRoutePickerView: View {
+    let editor: AISettingsEditorModel
+    let feature: AIFeature
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack {
+            TVColor.bg.ignoresSafeArea()
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(alignment: .center, spacing: 24) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("ai_route_label").tvFont(.pageTitle)
+                            Text(verbatim: feature.localizedTitle)
+                                .tvFont(.body).foregroundStyle(TVColor.textMuted)
+                        }
+                        Spacer(minLength: 0)
+                        TVPillButton(title: String(localized: "done"), systemImage: "xmark") { dismiss() }
+                    }
+                    .padding(.bottom, 28)
+
+                    TVAISection(title: String(localized: "ai_default_engine_label")) {
+                        choiceRow(
+                            icon: "arrow.uturn.backward",
+                            title: String(
+                                format: String(localized: "ai_route_follow_default_format"),
+                                editor.defaultEngineTitle
+                            ),
+                            isSelected: editor.route(for: feature) == nil
+                        ) {
+                            editor.setRoute(nil, for: feature)
+                        }
+                        if PrimuseAIRelayClient.isSupportedOnCurrentDevice {
+                            TVAIDivider()
+                            choiceRow(
+                                icon: "sparkles",
+                                title: String(localized: "ai_settings_engine_builtin"),
+                                isSelected: editor.route(for: feature) == .builtIn
+                            ) {
+                                editor.setRoute(.builtIn, for: feature)
+                            }
+                        }
+                    }
+
+                    ForEach(editor.routableProviders) { provider in
+                        TVAISection(title: editor.providerTitle(provider)) {
+                            let models = editor.routeModels(for: provider, feature: feature)
+                            if models.isEmpty {
+                                TVAINoteRow(
+                                    icon: "info.circle",
+                                    tint: TVColor.textFaint,
+                                    text: String(localized: "ai_route_no_model")
+                                )
+                            }
+                            ForEach(Array(models.enumerated()), id: \.element) { index, model in
+                                if index > 0 { TVAIDivider() }
+                                choiceRow(
+                                    icon: "cpu",
+                                    title: modelTitle(model, of: provider),
+                                    isSelected: editor.isRouted(feature, to: provider, model: model)
+                                ) {
+                                    editor.route(feature, to: provider, model: model)
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 80)
+                .padding(.vertical, 48)
+            }
+        }
+        .foregroundStyle(TVColor.text)
+        .onExitCommand { dismiss() }
+    }
+
+    private func choiceRow(
+        icon: String,
+        title: String,
+        isSelected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        TVAIActionRow(
+            icon: icon,
+            title: title,
+            trailing: isSelected ? "checkmark" : "circle",
+            tint: isSelected ? TVColor.brand : TVColor.text
+        ) {
+            action()
+            dismiss()
+        }
+    }
+
+    private func modelTitle(_ model: String, of provider: AIRemoteProviderConfiguration) -> String {
+        guard model == provider.generationModel.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return model
+        }
+        return String(format: String(localized: "ai_route_default_model_format"), model)
+    }
+}
+
 // MARK: - 服务商详情
 
 /// 单个服务商的地址 / 密钥 / 模型 / 次序。电视上这些字段一屏放不下,拆成左右两栏:
@@ -375,8 +510,9 @@ struct TVAIProviderDetailView: View {
         editor.draftProviderSet.providers.firstIndex { $0.id == providerID }
     }
 
+    /// 「默认」指不开内置 AI 时直接用它,和手机、Mac 的「默认使用」一致。
     private var isPrimary: Bool {
-        editor.draftProviderSet.primaryProviderID == providerID
+        editor.defaultEngine == .provider(providerID)
     }
 
     private var providerTitle: String {
@@ -638,7 +774,7 @@ struct TVAIProviderDetailView: View {
                     trailing: "chevron.right",
                     isEnabled: !isPrimary
                 ) {
-                    editor.makePrimary(providerID)
+                    editor.chooseDefaultEngine(.provider(providerID))
                 }
             }
             Group {

@@ -406,12 +406,20 @@ final class MusicIntelligenceService {
         settingsStore.recommendationsEnabled && shouldExposeRemoteConfiguration
     }
 
-    private var isPrimuseRelayAvailable: Bool {
+    /// 这个功能要不要先问内置 AI:按智能设置里的分工,跟随默认的看内置 AI 开没开。
+    private func asksBuiltInFirst(_ feature: AIFeature) -> Bool {
+        settingsStore.providerSet.asksBuiltInFirst(
+            for: feature,
+            relayEnabled: settingsStore.primuseRelayEnabled
+        )
+    }
+
+    private func isPrimuseRelayAvailable(for feature: AIFeature) -> Bool {
         let decision = AIAvailabilityPolicy.decision(
             for: .bundledRemote,
             regionContext: regionAvailability.context
         )
-        return settingsStore.primuseRelayEnabled
+        return asksBuiltInFirst(feature)
             && PrimuseAIRelayClient.isSupportedOnCurrentDevice
             && decision.isAllowed
     }
@@ -421,13 +429,14 @@ final class MusicIntelligenceService {
     }
 
     private func canUsePrimuseRelay(
+        feature: AIFeature,
         captured: AIRegionSnapshot,
         latest: AIRegionSnapshot,
         hasRequiredConsent: Bool
     ) -> Bool {
         guard captured == latest,
               hasRequiredConsent,
-              settingsStore.primuseRelayEnabled,
+              asksBuiltInFirst(feature),
               PrimuseAIRelayClient.isSupportedOnCurrentDevice else { return false }
         return AIAvailabilityPolicy.decision(
             for: .bundledRemote,
@@ -436,11 +445,12 @@ final class MusicIntelligenceService {
     }
 
     private func primuseRelayFallbackReason(
+        feature: AIFeature,
         captured: AIRegionSnapshot,
         latest: AIRegionSnapshot,
         hasRequiredConsent: Bool
     ) -> AIRecommendationFallbackReason {
-        guard hasRequiredConsent, settingsStore.primuseRelayEnabled else {
+        guard hasRequiredConsent, asksBuiltInFirst(feature) else {
             return .unavailable
         }
         guard PrimuseAIRelayClient.isSupportedOnCurrentDevice else {
@@ -460,7 +470,7 @@ final class MusicIntelligenceService {
         let decision = regionAvailability.remoteProviderDecision
         guard settingsStore.semanticSearchEnabled,
               settingsStore.hasExplicitRemoteConsent else { return false }
-        let hasCustomProvider = settingsStore.providerSet.routedProviders.contains {
+        let hasCustomProvider = settingsStore.providerSet.routedProviders(for: .semanticSearch).contains {
                 !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     && AIProviderRegionPolicy.allows(
                         configuration: $0,
@@ -470,14 +480,14 @@ final class MusicIntelligenceService {
             }
             && decision.isAllowed
             && (!decision.requiresExplicitConsent || settingsStore.hasExplicitRemoteConsent)
-        return isPrimuseRelayAvailable || hasCustomProvider
+        return isPrimuseRelayAvailable(for: .semanticSearch) || hasCustomProvider
     }
 
     var isPersonalizedRecommendationsConfigured: Bool {
         let decision = regionAvailability.remoteProviderDecision
         guard settingsStore.recommendationsEnabled,
               settingsStore.hasExplicitListeningContextConsent else { return false }
-        let hasCustomProvider = settingsStore.providerSet.routedProviders.contains {
+        let hasCustomProvider = settingsStore.providerSet.routedProviders(for: .recommendations).contains {
                 !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     && AIProviderRegionPolicy.allows(
                         configuration: $0,
@@ -488,7 +498,7 @@ final class MusicIntelligenceService {
             && decision.isAllowed
             && (!decision.requiresExplicitConsent
                 || settingsStore.hasExplicitListeningContextConsent)
-        return isPrimuseRelayAvailable || hasCustomProvider
+        return isPrimuseRelayAvailable(for: .recommendations) || hasCustomProvider
     }
 
     var isAudioTranscriptionConfigured: Bool {
@@ -534,8 +544,9 @@ final class MusicIntelligenceService {
         var lastEmptyProvider: (name: String, fallbackDepth: Int)?
         var customFallbackOffset = 0
 
-        if isPrimuseRelayAvailable {
+        if isPrimuseRelayAvailable(for: .semanticSearch) {
             guard canUsePrimuseRelay(
+                feature: .semanticSearch,
                 captured: regionSnapshot,
                 latest: regionAvailability.snapshot,
                 hasRequiredConsent: settingsStore.hasExplicitRemoteConsent
@@ -567,6 +578,7 @@ final class MusicIntelligenceService {
                     for try await event in await primuseRelayClient.semanticSearchEvents(request) {
                         try Task.checkCancellation()
                         guard canUsePrimuseRelay(
+                            feature: .semanticSearch,
                             captured: regionSnapshot,
                             latest: regionAvailability.snapshot,
                             hasRequiredConsent: settingsStore.hasExplicitRemoteConsent
@@ -586,6 +598,7 @@ final class MusicIntelligenceService {
                     plan = try await primuseRelayClient.interpretSearch(request)
                 }
                 guard canUsePrimuseRelay(
+                    feature: .semanticSearch,
                     captured: regionSnapshot,
                     latest: regionAvailability.snapshot,
                     hasRequiredConsent: settingsStore.hasExplicitRemoteConsent
@@ -617,7 +630,7 @@ final class MusicIntelligenceService {
             }
         }
 
-        let providers = settingsStore.providerSet.routedProviders.filter {
+        let providers = settingsStore.providerSet.routedProviders(for: .semanticSearch).filter {
             !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && AIProviderRegionPolicy.allows(
                     configuration: $0,
@@ -714,8 +727,9 @@ final class MusicIntelligenceService {
         guard consent, !candidates.isEmpty else { return nil }
 
         var customFallbackOffset = 0
-        if isPrimuseRelayAvailable {
+        if isPrimuseRelayAvailable(for: .lyricsTranslation) {
             guard canUsePrimuseRelay(
+                feature: .lyricsTranslation,
                 captured: regionSnapshot,
                 latest: regionAvailability.snapshot,
                 hasRequiredConsent: settingsStore.hasExplicitRemoteConsent
@@ -731,6 +745,7 @@ final class MusicIntelligenceService {
                     ) {
                         try Task.checkCancellation()
                         guard canUsePrimuseRelay(
+                            feature: .lyricsTranslation,
                             captured: regionSnapshot,
                             latest: regionAvailability.snapshot,
                             hasRequiredConsent: settingsStore.hasExplicitRemoteConsent
@@ -753,6 +768,7 @@ final class MusicIntelligenceService {
                     )
                 }
                 guard canUsePrimuseRelay(
+                    feature: .lyricsTranslation,
                     captured: regionSnapshot,
                     latest: regionAvailability.snapshot,
                     hasRequiredConsent: settingsStore.hasExplicitRemoteConsent
@@ -775,7 +791,7 @@ final class MusicIntelligenceService {
         )
         guard decision.isAllowed else { return nil }
 
-        for (fallbackDepth, configuration) in settingsStore.providerSet.routedProviders.enumerated() {
+        for (fallbackDepth, configuration) in settingsStore.providerSet.routedProviders(for: .lyricsTranslation).enumerated() {
             let effectiveFallbackDepth = fallbackDepth + customFallbackOffset
             guard !configuration.generationModel
                 .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -842,18 +858,24 @@ final class MusicIntelligenceService {
     /// Whether tag cleanup has an AI service to ask: the built-in AI, or a
     /// user-configured provider with a generation model. Either way remote
     /// processing must be agreed to and the region must allow it.
-    var isTagCleanupAvailable: Bool {
-        guard settingsStore.hasExplicitRemoteConsent else { return false }
-        if isPrimuseRelayAvailable { return true }
-        return canUseCustomTagCleanupProviders(regionContext: regionAvailability.snapshot.context)
-    }
+    var isTagCleanupAvailable: Bool { isLibraryContentAvailable(for: .tagCleanup) }
 
     /// Tag cleanup has a service to ask and only the permission to send
     /// content is missing: the tidy-up page offers to turn it on in place.
-    var tagCleanupNeedsRemoteConsent: Bool {
+    var tagCleanupNeedsRemoteConsent: Bool { libraryContentNeedsRemoteConsent(for: .tagCleanup) }
+
+    /// A library-content feature (tag cleanup, discovery, intros, "for you"
+    /// intents) has the service its route names, or a fallback, to ask.
+    private func isLibraryContentAvailable(for feature: AIFeature) -> Bool {
+        guard settingsStore.hasExplicitRemoteConsent else { return false }
+        if isPrimuseRelayAvailable(for: feature) { return true }
+        return canUseOwnProviders(for: feature, regionContext: regionAvailability.snapshot.context)
+    }
+
+    private func libraryContentNeedsRemoteConsent(for feature: AIFeature) -> Bool {
         !settingsStore.hasExplicitRemoteConsent
-            && (isPrimuseRelayAvailable
-                || canUseCustomTagCleanupProviders(regionContext: regionAvailability.snapshot.context))
+            && (isPrimuseRelayAvailable(for: feature)
+                || canUseOwnProviders(for: feature, regionContext: regionAvailability.snapshot.context))
     }
 
     /// Turns on sending content to AI services from a feature's own prompt,
@@ -887,12 +909,12 @@ final class MusicIntelligenceService {
         )
     }
 
-    private func canUseCustomTagCleanupProviders(regionContext: AIRegionContext) -> Bool {
+    private func canUseOwnProviders(for feature: AIFeature, regionContext: AIRegionContext) -> Bool {
         guard AIAvailabilityPolicy.decision(
             for: .userConfiguredRemote,
             regionContext: regionContext
         ).isAllowed else { return false }
-        return settingsStore.providerSet.routedProviders.contains {
+        return settingsStore.providerSet.routedProviders(for: feature).contains {
             !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
     }
@@ -915,7 +937,7 @@ final class MusicIntelligenceService {
         let batches = stride(from: 0, to: limited.count, by: TagCleanupAIExchange.batchSize).map {
             Array(limited[$0..<min($0 + TagCleanupAIExchange.batchSize, limited.count)])
         }
-        var usesPrimuseRelay = isPrimuseRelayAvailable
+        var usesPrimuseRelay = isPrimuseRelayAvailable(for: .tagCleanup)
         onProgress(0, batches.count)
         for (index, batch) in batches.enumerated() {
             if Task.isCancelled { break }
@@ -923,6 +945,7 @@ final class MusicIntelligenceService {
             var answered = false
 
             if usesPrimuseRelay, canUsePrimuseRelay(
+                feature: .tagCleanup,
                 captured: regionSnapshot,
                 latest: regionAvailability.snapshot,
                 hasRequiredConsent: settingsStore.hasExplicitRemoteConsent
@@ -934,6 +957,7 @@ final class MusicIntelligenceService {
                         currentYear: currentYear
                     )
                     if canUsePrimuseRelay(
+                        feature: .tagCleanup,
                         captured: regionSnapshot,
                         latest: regionAvailability.snapshot,
                         hasRequiredConsent: settingsStore.hasExplicitRemoteConsent
@@ -952,8 +976,8 @@ final class MusicIntelligenceService {
                 }
             }
 
-            if !answered, canUseCustomTagCleanupProviders(regionContext: regionSnapshot.context) {
-                for configuration in settingsStore.providerSet.routedProviders {
+            if !answered, canUseOwnProviders(for: .tagCleanup, regionContext: regionSnapshot.context) {
+                for configuration in settingsStore.providerSet.routedProviders(for: .tagCleanup) {
                     guard !configuration.generationModel
                         .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                           AIRegionRequestPolicy.canSendRemoteRequest(
@@ -1022,9 +1046,9 @@ final class MusicIntelligenceService {
     /// Whether new-song discovery has an AI service to ask. It sends the
     /// library's genre/artist/decade profile, so it takes the same consent
     /// as other library content (tag cleanup, semantic search).
-    var isSongDiscoveryAvailable: Bool { isTagCleanupAvailable }
+    var isSongDiscoveryAvailable: Bool { isLibraryContentAvailable(for: .songDiscovery) }
 
-    var songDiscoveryNeedsRemoteConsent: Bool { tagCleanupNeedsRemoteConsent }
+    var songDiscoveryNeedsRemoteConsent: Bool { libraryContentNeedsRemoteConsent(for: .songDiscovery) }
 
     /// Real songs outside the library that fit its taste: the built-in AI
     /// first, then the listener's own services. The answer is validated
@@ -1032,6 +1056,7 @@ final class MusicIntelligenceService {
     func discoverSongs(_ request: SongDiscoveryAIExchange.Request) async -> AISongDiscoveryOutcome {
         let currentYear = Calendar.current.component(.year, from: Date())
         let run = await runLibraryContentRequest(
+            feature: .songDiscovery,
             label: "Song discovery",
             relay: { try await self.primuseRelayClient.songDiscovery(request, currentYear: currentYear) },
             custom: { configuration, snapshot, consent in
@@ -1055,15 +1080,16 @@ final class MusicIntelligenceService {
 
     /// Album/artist intros take the same consent and services as the other
     /// library-content requests.
-    var isLibraryInsightAvailable: Bool { isTagCleanupAvailable }
+    var isLibraryInsightAvailable: Bool { isLibraryContentAvailable(for: .libraryInsight) }
 
-    var libraryInsightNeedsRemoteConsent: Bool { tagCleanupNeedsRemoteConsent }
+    var libraryInsightNeedsRemoteConsent: Bool { libraryContentNeedsRemoteConsent(for: .libraryInsight) }
 
     /// A short intro for one album or artist: the built-in AI first, then the
     /// listener's own services. An answer saying the AI does not know the
     /// album/artist is a success with `known == false`.
     func libraryInsight(_ request: LibraryInsightAIExchange.Request) async -> AILibraryInsightOutcome {
         let run = await runLibraryContentRequest(
+            feature: .libraryInsight,
             label: "Library insight",
             relay: { try await self.primuseRelayClient.libraryInsight(request) },
             custom: { configuration, snapshot, consent in
@@ -1093,19 +1119,24 @@ final class MusicIntelligenceService {
     /// generation model, under the remote-content consent. The failure that
     /// is reported is the own service's when one was asked, else the relay's.
     private func runLibraryContentRequest<Value: Sendable>(
+        feature: AIFeature,
         label: String,
         relay: () async throws -> Value,
         custom: (AIRemoteProviderConfiguration, AIRegionSnapshot, Bool) async throws -> Value
     ) async -> LibraryContentRun<Value> {
         guard settingsStore.hasExplicitRemoteConsent else {
-            return .failure(tagCleanupNeedsRemoteConsent ? .needsConsent : .notConfigured, retryAt: nil)
+            return .failure(
+                libraryContentNeedsRemoteConsent(for: feature) ? .needsConsent : .notConfigured,
+                retryAt: nil
+            )
         }
         let consent = settingsStore.hasExplicitRemoteConsent
         let regionSnapshot = regionAvailability.snapshot
         var relayError: Error?
         var customError: Error?
 
-        if isPrimuseRelayAvailable, canUsePrimuseRelay(
+        if isPrimuseRelayAvailable(for: feature), canUsePrimuseRelay(
+            feature: feature,
             captured: regionSnapshot,
             latest: regionAvailability.snapshot,
             hasRequiredConsent: consent
@@ -1113,6 +1144,7 @@ final class MusicIntelligenceService {
             do {
                 let value = try await relay()
                 if canUsePrimuseRelay(
+                    feature: feature,
                     captured: regionSnapshot,
                     latest: regionAvailability.snapshot,
                     hasRequiredConsent: settingsStore.hasExplicitRemoteConsent
@@ -1127,8 +1159,8 @@ final class MusicIntelligenceService {
             }
         }
 
-        if canUseCustomTagCleanupProviders(regionContext: regionSnapshot.context) {
-            for configuration in settingsStore.providerSet.routedProviders {
+        if canUseOwnProviders(for: feature, regionContext: regionSnapshot.context) {
+            for configuration in settingsStore.providerSet.routedProviders(for: feature) {
                 guard !configuration.generationModel
                     .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                       AIRegionRequestPolicy.canSendRemoteRequest(
@@ -1181,7 +1213,7 @@ final class MusicIntelligenceService {
 
     /// Whether "for you" intents can be curated by an AI service: the same
     /// library content and consent as tag cleanup.
-    var isListeningIntentCurationAvailable: Bool { isTagCleanupAvailable }
+    var isListeningIntentCurationAvailable: Bool { isLibraryContentAvailable(for: .listeningIntents) }
 
     /// Whether play figures may go along (listening context consent).
     var allowsListeningContextForCuration: Bool { settingsStore.hasExplicitListeningContextConsent }
@@ -1195,7 +1227,8 @@ final class MusicIntelligenceService {
         let regionSnapshot = regionAvailability.snapshot
         var relayRetryAt: Date?
 
-        if isPrimuseRelayAvailable, canUsePrimuseRelay(
+        if isPrimuseRelayAvailable(for: .listeningIntents), canUsePrimuseRelay(
+            feature: .listeningIntents,
             captured: regionSnapshot,
             latest: regionAvailability.snapshot,
             hasRequiredConsent: consent
@@ -1203,6 +1236,7 @@ final class MusicIntelligenceService {
             do {
                 let drafts = try await primuseRelayClient.listeningIntents(request)
                 if !drafts.isEmpty, canUsePrimuseRelay(
+                    feature: .listeningIntents,
                     captured: regionSnapshot,
                     latest: regionAvailability.snapshot,
                     hasRequiredConsent: settingsStore.hasExplicitRemoteConsent
@@ -1217,8 +1251,8 @@ final class MusicIntelligenceService {
             }
         }
 
-        if canUseCustomTagCleanupProviders(regionContext: regionSnapshot.context) {
-            for configuration in settingsStore.providerSet.routedProviders {
+        if canUseOwnProviders(for: .listeningIntents, regionContext: regionSnapshot.context) {
+            for configuration in settingsStore.providerSet.routedProviders(for: .listeningIntents) {
                 guard !configuration.generationModel
                     .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                       AIRegionRequestPolicy.canSendRemoteRequest(
@@ -1273,13 +1307,15 @@ final class MusicIntelligenceService {
         var streamedSelections: [AIRecommendationSelection] = []
         var streamedSelectionIDs = Set<String>()
 
-        if isPrimuseRelayAvailable {
+        if isPrimuseRelayAvailable(for: .recommendations) {
             guard canUsePrimuseRelay(
+                feature: .recommendations,
                 captured: regionSnapshot,
                 latest: regionAvailability.snapshot,
                 hasRequiredConsent: settingsStore.hasExplicitListeningContextConsent
             ) else {
                 return .failed(primuseRelayFallbackReason(
+                    feature: .recommendations,
                     captured: regionSnapshot,
                     latest: regionAvailability.snapshot,
                     hasRequiredConsent: settingsStore.hasExplicitListeningContextConsent
@@ -1297,11 +1333,13 @@ final class MusicIntelligenceService {
                     for try await event in await primuseRelayClient.recommendationEvents(request) {
                         try Task.checkCancellation()
                         guard canUsePrimuseRelay(
+                            feature: .recommendations,
                             captured: regionSnapshot,
                             latest: regionAvailability.snapshot,
                             hasRequiredConsent: settingsStore.hasExplicitListeningContextConsent
                         ) else {
                             return .failed(primuseRelayFallbackReason(
+                                feature: .recommendations,
                                 captured: regionSnapshot,
                                 latest: regionAvailability.snapshot,
                                 hasRequiredConsent: settingsStore
@@ -1336,11 +1374,13 @@ final class MusicIntelligenceService {
                         .recommendations(request)
                 }
                 guard canUsePrimuseRelay(
+                    feature: .recommendations,
                     captured: regionSnapshot,
                     latest: regionAvailability.snapshot,
                     hasRequiredConsent: settingsStore.hasExplicitListeningContextConsent
                 ) else {
                     return .failed(primuseRelayFallbackReason(
+                        feature: .recommendations,
                         captured: regionSnapshot,
                         latest: regionAvailability.snapshot,
                         hasRequiredConsent: settingsStore.hasExplicitListeningContextConsent
@@ -1374,6 +1414,7 @@ final class MusicIntelligenceService {
                 lastRetryAt = (error as? PrimuseAIRelayError)?.retryAt
                 if !Task.isCancelled, !streamedSelections.isEmpty,
                    canUsePrimuseRelay(
+                    feature: .recommendations,
                     captured: regionSnapshot,
                     latest: regionAvailability.snapshot,
                     hasRequiredConsent: settingsStore.hasExplicitListeningContextConsent
@@ -1406,7 +1447,7 @@ final class MusicIntelligenceService {
             }
         }
 
-        let providers = settingsStore.providerSet.routedProviders.filter {
+        let providers = settingsStore.providerSet.routedProviders(for: .recommendations).filter {
             !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && AIProviderRegionPolicy.allows(
                     configuration: $0,
@@ -1577,7 +1618,7 @@ final class MusicIntelligenceService {
               !request.candidates.isEmpty else { return nil }
         let now = ProcessInfo.processInfo.systemUptime
         var customFallbackOffset = 0
-        if isPrimuseRelayAvailable {
+        if isPrimuseRelayAvailable(for: .recommendations) {
             customFallbackOffset = 1
             let key = PrimuseRelayRecommendationCacheKey(
                 request: request,
@@ -1594,7 +1635,7 @@ final class MusicIntelligenceService {
                 ))
             }
         }
-        let providers = settingsStore.providerSet.routedProviders.filter {
+        let providers = settingsStore.providerSet.routedProviders(for: .recommendations).filter {
             !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && AIProviderRegionPolicy.allows(
                     configuration: $0,

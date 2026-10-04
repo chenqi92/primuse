@@ -818,6 +818,49 @@ private struct MacSTPicker<T: Hashable>: View {
     }
 }
 
+/// 和 `MacSTPicker` 一样的描边下拉盒子,但菜单内容自己给:可以分组、带副标题和勾。
+private struct MacAIChoiceMenu<Items: View>: View {
+    let title: String
+    var width: CGFloat = 260
+    private let items: Items
+
+    init(title: String, width: CGFloat = 260, @ViewBuilder items: () -> Items) {
+        self.title = title
+        self.width = width
+        self.items = items()
+    }
+
+    var body: some View {
+        Menu {
+            items
+        } label: {
+            HStack(spacing: 6) {
+                Text(verbatim: title)
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(PMColor.textFaint)
+            }
+            .padding(.horizontal, 10)
+            .frame(width: width, height: 22)
+            .background(PMColor.bgElev, in: .rect(cornerRadius: 5))
+            .overlay {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .strokeBorder(PMColor.dividerStrong, lineWidth: 0.5)
+            }
+            .contentShape(.rect(cornerRadius: 5))
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+    }
+}
+
 private struct MacSTButton: View {
     let title: String
     var systemImage: String? = nil
@@ -920,34 +963,41 @@ private struct MacAIModelField: View {
 }
 
 private struct MacSTIntelligenceView: View {
+    /// 「功能」管每个功能交给谁,「服务」管每项服务怎么连。
+    private enum Tab: Hashable {
+        case features
+        case services
+    }
+
+    /// 「服务」栏正在看的:内置 AI,或自己的某项服务。
+    private enum ServiceSelection: Hashable {
+        case builtIn
+        case provider(UUID)
+    }
+
     @Environment(MusicIntelligenceService.self) private var intelligence
-    @Environment(MusicLibrary.self) private var library
     @State private var editor = AISettingsEditorModel()
-    @State private var libraryTidySongs: BatchSongSelection?
+    @State private var tab: Tab = .features
+    @State private var serviceSelection: ServiceSelection?
     @State private var showsRemoveProviderConfirmation = false
-    @State private var showsProviderDetails = false
-    @State private var providerEditorScrollRequest = 0
+    @State private var modelDraft = ""
     /// 歌词翻译开关与「歌词」设置页同源。
     @State private var lyricsTranslation = LyricsTranslationSettingsStore.shared
+    /// 「为你」由 AI 整理的开关与全部意图页同源。
+    @State private var listeningIntents = ListeningIntentService.shared
     /// 首页「为你推荐」的推荐单位:歌曲 / 专辑 / 混合。
     @AppStorage(AIRecommendationUnit.storageKey)
     private var recommendationUnitRawValue = AIRecommendationUnit.defaultUnit.rawValue
-    /// 「高级」(连接测试、我的 AI 服务、降级、隐私)展开过就记着。
-    @AppStorage("primuse.ai.settings.advancedExpanded") private var showsAdvanced = false
     @Environment(\.settingsFocusedAnchor) private var focusedSettingsAnchor
 
-    private static let providerEditorAnchor = "intelligence.providerEditor"
-    /// 设置搜索要定位到「高级」里的项目时,先把它展开。
-    private static let advancedAnchors: Set<String> = [
+    /// 设置搜索要定位到这些项目时,先切到「服务」栏。
+    private static let serviceAnchors: Set<String> = [
         "intelligence.relayTest",
         "intelligence.providers",
-        "intelligence.fallback",
         "intelligence.addProvider",
-        "intelligence.privacy",
     ]
 
     var body: some View {
-        ScrollViewReader { scrollProxy in
         Group {
             if !intelligence.shouldExposeRemoteConfiguration,
                intelligence.regionAvailability.isRefreshing {
@@ -972,82 +1022,454 @@ private struct MacSTIntelligenceView: View {
                 }
             }
             } else {
-            // ① 一键开关与当前状态;② 各项功能;③ 服务商、降级、隐私与测试收在「高级」里。
             statusCard
-            primuseRelaySection
-
-            MacSTSection(
-                String(localized: "ai_capability_section"),
-                hint: String(localized: "ai_settings_lyrics_translation_footer")
-            ) {
-                MacSTGroup {
-                    MacSTRow(
-                        String(localized: "ai_enable_semantic_search"),
-                        divider: false
-                    ) {
-                        MacSTToggle(isOn: editor.semanticSearchBinding)
-                    }
-                    .settingsAnchor("intelligence.semanticSearch")
-                    MacSTRow(
-                        String(localized: "ai_enable_recommendations")
-                    ) {
-                        MacSTToggle(isOn: editor.recommendationsBinding)
-                    }
-                    .settingsAnchor("intelligence.recommendations")
-                    MacSTRow(
-                        String(localized: "ai_recommendation_unit"),
-                        hint: String(localized: "ai_recommendation_unit_footer")
-                    ) {
-                        MacSTPicker(
-                            selection: $recommendationUnitRawValue,
-                            options: [AIRecommendationUnit.songs, .albums, .mixed].map {
-                                ($0.rawValue, $0.localizedTitle)
-                            },
-                            width: 160
-                        )
-                    }
-                    .settingsAnchor("intelligence.recommendationUnit")
-                    MacSTRow(String(localized: "lyrics_translation_enabled")) {
-                        MacSTToggle(isOn: $lyricsTranslation.isEnabled.pmAnimated(.list))
-                    }
-                    .settingsAnchor("intelligence.lyricsTranslation")
-                    if lyricsTranslation.isEnabled {
-                        MacSTRow(String(localized: "lyrics_translation_mode")) {
-                            MacSTPicker(
-                                selection: $lyricsTranslation.mode,
-                                options: [
-                                    (.system, String(localized: "lyrics_translation_mode_system")),
-                                    (.intelligentWithSystemFallback,
-                                     String(localized: "lyrics_translation_mode_intelligent")),
-                                ],
-                                width: 220
-                            )
-                        }
-                        .pmSlideTransition(edge: .top, motion: .list)
-                    }
-                    MacSTRow(
-                        String(localized: "tag_tidy_ai_settings_action"),
-                        hint: String(localized: "tag_tidy_ai_settings_footer")
-                    ) {
-                        MacSTButton(
-                            title: String(localized: "tag_tidy_ai_settings_button"),
-                            systemImage: "wand.and.sparkles"
-                        ) {
-                            libraryTidySongs = .wholeLibraryForTidy(library)
-                        }
-                    }
-                    .settingsAnchor("intelligence.tagCleanup")
+            tabPicker
+            switch tab {
+            case .features:
+                defaultEngineSection
+                automaticFeatureSection
+                onDemandFeatureSection
+                privacySection
+            case .services:
+                serviceSwitcherSection
+                switch resolvedServiceSelection {
+                case .builtIn:
+                    builtInServiceSection
+                case .provider:
+                    providerEditorSections
                 }
             }
+            }
+        }
+        .onAppear(perform: followFocusedSetting)
+        .onChange(of: focusedSettingsAnchor) { _, _ in followFocusedSetting() }
+        .task { await editor.load(using: intelligence) }
+        .confirmationDialog(
+            String(localized: "ai_remove_provider_confirm"),
+            isPresented: $showsRemoveProviderConfirmation
+        ) {
+            Button(String(localized: "ai_remove_provider"), role: .destructive) {
+                pmWithAnimation(.list) { editor.removeSelectedProvider() }
+            }
+            Button(String(localized: "cancel"), role: .cancel) {}
+        }
+        .onChange(of: intelligence.settingsStore.revision) {
+            editor.adoptStoredConsent(from: intelligence)
+        }
+    }
 
-            advancedToggleSection
+    private var tabPicker: some View {
+        Picker(String(localized: "ai_settings_title"), selection: $tab.pmAnimated(.pageSwitch)) {
+            Text(verbatim: String(localized: "ai_settings_tab_features")).tag(Tab.features)
+            Text(verbatim: String(localized: "ai_settings_tab_services")).tag(Tab.services)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(width: 260)
+        .frame(maxWidth: .infinity)
+        .padding(.bottom, 18)
+        .accessibilityIdentifier("macSettings.ai.tab")
+    }
 
-            if showsAdvanced {
-            primuseRelayConnectionSection
-            providerListSection
-            providerDetailToggleSection
+    private func followFocusedSetting() {
+        guard let focusedSettingsAnchor,
+              focusedSettingsAnchor.hasPrefix("intelligence.") else { return }
+        if Self.serviceAnchors.contains(focusedSettingsAnchor) {
+            if focusedSettingsAnchor == "intelligence.relayTest" {
+                serviceSelection = .builtIn
+            }
+            tab = .services
+        } else {
+            tab = .features
+        }
+    }
 
-            if showsProviderDetails {
+    // MARK: 功能
+
+    private var defaultEngineSection: some View {
+        MacSTSection(
+            hint: editor.defaultEngine == .builtIn
+                ? "\(String(localized: "ai_default_engine_footer"))\n\n\(String(localized: "ai_builtin_service_footer"))"
+                : String(localized: "ai_default_engine_footer")
+        ) {
+            MacSTGroup {
+                MacSTRow(String(localized: "ai_default_engine_label"), divider: false) {
+                    MacAIChoiceMenu(title: editor.defaultEngineTitle) {
+                        Button {
+                            pmWithAnimation(.list) { editor.chooseDefaultEngine(.builtIn) }
+                        } label: {
+                            AIMenuChoiceLabel(
+                                title: String(localized: "ai_settings_engine_builtin"),
+                                isSelected: editor.defaultEngine == .builtIn
+                            )
+                        }
+                        .disabled(!PrimuseAIRelayClient.isSupportedOnCurrentDevice)
+                        Section {
+                            ForEach(editor.draftProviderSet.providers) { provider in
+                                Button {
+                                    pmWithAnimation(.list) {
+                                        editor.chooseDefaultEngine(.provider(provider.id))
+                                    }
+                                } label: {
+                                    AIMenuChoiceLabel(
+                                        title: editor.providerModelTitle(provider),
+                                        detail: providerSetupDetail(provider),
+                                        isSelected: editor.defaultEngine == .provider(provider.id)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                .settingsAnchor("intelligence.relay")
+                serviceGuidanceRow
+                MacSTRow(String(localized: "ai_fallback_enabled")) {
+                    MacSTToggle(isOn: editor.fallbackBinding)
+                }
+                .settingsAnchor("intelligence.fallback")
+                if !PrimuseAIRelayClient.isSupportedOnCurrentDevice {
+                    MacSTRow(String(localized: "ai_primuse_relay_unsupported")) {
+                        Image(systemName: "exclamationmark.shield")
+                            .foregroundStyle(PMColor.textFaint)
+                    }
+                }
+            }
+        }
+    }
+
+    private func providerSetupDetail(_ provider: AIRemoteProviderConfiguration) -> String? {
+        guard let state = editor.setupState(for: provider), state != .ready else { return nil }
+        return state.localizedTitle
+    }
+
+    private var automaticFeatureSection: some View {
+        MacSTSection(
+            String(localized: "ai_capability_section"),
+            hint: String(localized: "ai_settings_lyrics_translation_footer")
+        ) {
+            MacSTGroup {
+                MacSTRow(String(localized: "ai_enable_semantic_search"), divider: false) {
+                    MacSTToggle(isOn: editor.semanticSearchBinding.pmAnimated(.list))
+                }
+                .settingsAnchor("intelligence.semanticSearch")
+                if editor.semanticSearchEnabled {
+                    routeRow(.semanticSearch)
+                }
+                MacSTRow(String(localized: "ai_enable_recommendations")) {
+                    MacSTToggle(isOn: editor.recommendationsBinding.pmAnimated(.list))
+                }
+                .settingsAnchor("intelligence.recommendations")
+                MacSTRow(
+                    String(localized: "ai_recommendation_unit"),
+                    hint: String(localized: "ai_recommendation_unit_footer")
+                ) {
+                    MacSTPicker(
+                        selection: $recommendationUnitRawValue,
+                        options: [AIRecommendationUnit.songs, .albums, .mixed].map {
+                            ($0.rawValue, $0.localizedTitle)
+                        },
+                        width: 160
+                    )
+                }
+                .settingsAnchor("intelligence.recommendationUnit")
+                if editor.recommendationsEnabled {
+                    routeRow(.recommendations)
+                }
+                MacSTRow(String(localized: "lyrics_translation_enabled")) {
+                    MacSTToggle(isOn: $lyricsTranslation.isEnabled.pmAnimated(.list))
+                }
+                .settingsAnchor("intelligence.lyricsTranslation")
+                if lyricsTranslation.isEnabled {
+                    MacSTRow(String(localized: "lyrics_translation_mode")) {
+                        MacSTPicker(
+                            selection: $lyricsTranslation.mode.pmAnimated(.list),
+                            options: [
+                                (.system, String(localized: "lyrics_translation_mode_system")),
+                                (.intelligentWithSystemFallback,
+                                 String(localized: "lyrics_translation_mode_intelligent")),
+                            ],
+                            width: 220
+                        )
+                    }
+                    .pmSlideTransition(edge: .top, motion: .list)
+                    if lyricsTranslation.mode == .intelligentWithSystemFallback {
+                        routeRow(.lyricsTranslation)
+                    }
+                }
+                MacSTRow(String(localized: "listening_intent_ai_toggle")) {
+                    MacSTToggle(isOn: listeningIntentCurationBinding.pmAnimated(.list))
+                }
+                if listeningIntents.isAICurationEnabled {
+                    routeRow(.listeningIntents)
+                }
+            }
+        }
+    }
+
+    private var listeningIntentCurationBinding: Binding<Bool> {
+        Binding(
+            get: { listeningIntents.isAICurationEnabled },
+            set: { listeningIntents.setAICurationEnabled($0) }
+        )
+    }
+
+    private var onDemandFeatureSection: some View {
+        MacSTSection(
+            String(localized: "ai_features_on_demand_section"),
+            hint: String(localized: "ai_features_on_demand_footer")
+        ) {
+            MacSTGroup {
+                routeRow(.tagCleanup, title: AIFeature.tagCleanup.localizedTitle, divider: false)
+                    .settingsAnchor("intelligence.routes")
+                routeRow(.songDiscovery, title: AIFeature.songDiscovery.localizedTitle)
+                routeRow(.libraryInsight, title: AIFeature.libraryInsight.localizedTitle)
+            }
+        }
+    }
+
+    /// 一个功能交给谁。开关下面那行叫「由谁处理」,按需功能直接用功能名。
+    private func routeRow(
+        _ feature: AIFeature,
+        title: String? = nil,
+        divider: Bool = true
+    ) -> some View {
+        MacSTRow(
+            title ?? String(localized: "ai_route_label"),
+            hint: editor.routeNote(for: feature),
+            divider: divider
+        ) {
+            MacAIChoiceMenu(title: editor.routeTitle(for: feature)) {
+                AIFeatureRouteMenuItems(editor: editor, feature: feature)
+            }
+        }
+        .pmSlideTransition(edge: .top, motion: .list)
+        .accessibilityIdentifier("macSettings.ai.route.\(feature.rawValue)")
+    }
+
+    @ViewBuilder
+    private var serviceGuidanceRow: some View {
+        switch editor.serviceSetupGuidance {
+        case .none:
+            EmptyView()
+        case .configureOwnService(let providerID):
+            MacSTRow(
+                String(localized: "ai_setup_needs_service_title"),
+                hint: String(localized: "ai_setup_needs_service_detail")
+            ) {
+                MacSTButton(
+                    title: String(localized: "ai_setup_configure_action"),
+                    systemImage: "key.horizontal",
+                    prominent: true
+                ) {
+                    showService(.provider(providerID))
+                }
+            }
+            .pmSlideTransition(edge: .top, motion: .list)
+        case .relayTakesPriority:
+            MacSTRow(
+                String(localized: "ai_setup_relay_first_title"),
+                hint: String(localized: "ai_setup_relay_first_detail")
+            ) {
+                MacSTButton(title: String(localized: "ai_setup_use_own_service")) {
+                    pmWithAnimation(.list) { useReadyServiceAsDefault() }
+                }
+            }
+            .pmSlideTransition(edge: .top, motion: .list)
+        }
+    }
+
+    /// 「改用我的服务」:默认改成配好了的服务,主服务配好了就用它。
+    private func useReadyServiceAsDefault() {
+        let ready = editor.draftProviderSet.providers.filter {
+            editor.setupState(for: $0) == .ready
+        }
+        guard let target = ready.first(where: {
+            $0.id == editor.draftProviderSet.primaryProviderID
+        }) ?? ready.first else { return }
+        editor.chooseDefaultEngine(.provider(target.id))
+    }
+
+    private var privacySection: some View {
+        MacSTSection(
+            String(localized: "ai_privacy_section"),
+            hint: String(localized: "ai_privacy_footer")
+        ) {
+            MacSTGroup {
+                MacSTRow(String(localized: "ai_remote_consent"), divider: false) {
+                    MacSTToggle(isOn: editor.consentBinding)
+                }
+                .settingsAnchor("intelligence.privacy")
+                MacSTRow(String(localized: "ai_listening_context_consent")) {
+                    MacSTToggle(isOn: editor.listeningContextConsentBinding)
+                }
+            }
+        }
+    }
+
+    // MARK: 服务
+
+    private var resolvedServiceSelection: ServiceSelection {
+        switch serviceSelection {
+        case .builtIn:
+            return .builtIn
+        case .provider(let id) where editor.provider(id) != nil:
+            return .provider(id)
+        default:
+            return .provider(editor.selectedProviderID)
+        }
+    }
+
+    private func showService(_ selection: ServiceSelection) {
+        if case .provider(let id) = selection {
+            editor.selectProvider(id)
+        }
+        pmWithAnimation(.pageSwitch) {
+            serviceSelection = selection
+            tab = .services
+        }
+    }
+
+    private var currentServiceTitle: String {
+        switch resolvedServiceSelection {
+        case .builtIn:
+            return String(localized: "ai_primuse_relay_name")
+        case .provider:
+            return editor.providerTitle(editor.draftConfiguration)
+        }
+    }
+
+    private var currentServiceUsage: String {
+        switch resolvedServiceSelection {
+        case .builtIn:
+            return editor.usageLines(forProvider: nil).joined(separator: "\n")
+        case .provider(let id):
+            var lines = editor.usageLines(forProvider: id)
+            if let state = editor.setupState(for: editor.draftConfiguration), state != .ready {
+                lines.insert(state.localizedTitle, at: 0)
+            }
+            return lines.joined(separator: "\n")
+        }
+    }
+
+    /// 切换正在看的服务、添加服务。
+    private var serviceSwitcherSection: some View {
+        MacSTSection {
+            MacSTGroup {
+                MacSTRow(
+                    currentServiceTitle,
+                    hint: currentServiceUsage,
+                    hintLineLimit: 4,
+                    divider: false
+                ) {
+                    HStack(spacing: 8) {
+                        MacAIChoiceMenu(title: String(localized: "ai_service_switcher"), width: 180) {
+                            Button {
+                                showService(.builtIn)
+                            } label: {
+                                AIMenuChoiceLabel(
+                                    title: String(localized: "ai_settings_engine_builtin"),
+                                    detail: editor.defaultEngine == .builtIn
+                                        ? String(localized: "ai_primary_provider") : nil,
+                                    isSelected: resolvedServiceSelection == .builtIn
+                                )
+                            }
+                            Section {
+                                ForEach(editor.draftProviderSet.providers) { provider in
+                                    Button {
+                                        showService(.provider(provider.id))
+                                    } label: {
+                                        AIMenuChoiceLabel(
+                                            title: editor.providerTitle(provider),
+                                            detail: serviceMenuDetail(provider),
+                                            isSelected: resolvedServiceSelection
+                                                == .provider(provider.id)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        .accessibilityIdentifier("macSettings.ai.serviceSwitcher")
+                        MacSTButton(
+                            title: String(localized: "ai_add_provider"),
+                            systemImage: "plus",
+                            prominent: true
+                        ) {
+                            pmWithAnimation(.list) { editor.addProvider() }
+                            showService(.provider(editor.selectedProviderID))
+                        }
+                    }
+                }
+            }
+        }
+        .settingsAnchor("intelligence.providers")
+    }
+
+    private func serviceMenuDetail(_ provider: AIRemoteProviderConfiguration) -> String? {
+        var parts: [String] = []
+        if editor.defaultEngine == .provider(provider.id) {
+            parts.append(String(localized: "ai_primary_provider"))
+        }
+        if let state = editor.setupState(for: provider), state != .ready {
+            parts.append(state.localizedTitle)
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private var builtInServiceSection: some View {
+        MacSTSection(
+            String(localized: "ai_connection_section"),
+            hint: String(localized: "ai_builtin_service_footer")
+        ) {
+            MacSTGroup {
+                MacSTRow(
+                    String(localized: "ai_primuse_relay_name"),
+                    divider: false
+                ) {
+                    HStack(spacing: 8) {
+                        if editor.isTestingPrimuseRelay {
+                            ProgressView().controlSize(.small)
+                        }
+                        if editor.defaultEngine != .builtIn {
+                            MacSTButton(title: String(localized: "ai_set_primary"), systemImage: "star") {
+                                pmWithAnimation(.list) { editor.chooseDefaultEngine(.builtIn) }
+                            }
+                            .disabled(!PrimuseAIRelayClient.isSupportedOnCurrentDevice)
+                        }
+                        MacSTButton(
+                            title: String(localized: "ai_primuse_relay_test_connection"),
+                            systemImage: "network"
+                        ) {
+                            Task {
+                                await editor.testPrimuseRelayConnection(using: intelligence)
+                            }
+                        }
+                        .disabled(!editor.canTestPrimuseRelayConnection)
+                    }
+                }
+                .settingsAnchor("intelligence.relayTest")
+                if editor.primuseRelayConnectionPresentation != .notTested {
+                    MacSTRow(
+                        editor.primuseRelayConnectionTitle,
+                        hint: editor.primuseRelayConnectionDetail
+                    ) {
+                        Image(systemName: primuseRelayConnectionIcon)
+                            .foregroundStyle(primuseRelayConnectionColor)
+                    }
+                    // 连通性结果由测试回调裸赋值, 调用点包不住事务, 曲线附在过渡上。
+                    .pmSlideTransition(edge: .top, motion: .list)
+                }
+                if !PrimuseAIRelayClient.isSupportedOnCurrentDevice {
+                    MacSTRow(String(localized: "ai_primuse_relay_unsupported")) {
+                        Image(systemName: "exclamationmark.shield")
+                            .foregroundStyle(PMColor.textFaint)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var providerEditorSections: some View {
             MacSTSection(
                 hint: editor.providerFooterText
             ) {
@@ -1108,16 +1530,73 @@ private struct MacSTIntelligenceView: View {
                     }
                 }
             }
-            .id(Self.providerEditorAnchor)
             .pmFadeTransition()
 
-            MacSTSection(String(localized: "ai_models_section")) {
+            MacSTSection(
+                String(localized: "ai_models_section"),
+                hint: String(localized: "ai_models_routing_footer")
+            ) {
                 MacSTGroup {
-                    MacSTRow(String(localized: "ai_generation_model"), divider: false) {
+                    MacSTRow(String(localized: "ai_default_model"), divider: false) {
                         MacAIModelField(
                             text: editor.configurationBinding(\.generationModel),
                             models: editor.availableModels
                         )
+                    }
+                    ForEach(editor.additionalModels, id: \.self) { model in
+                        MacSTRow(model) {
+                            HStack(spacing: 8) {
+                                MacSTButton(
+                                    title: String(localized: "ai_model_make_default"),
+                                    systemImage: "star"
+                                ) {
+                                    pmWithAnimation(.list) { editor.makeDefaultModel(model) }
+                                }
+                                MacSTButton(
+                                    title: String(localized: "ai_model_remove"),
+                                    destructive: true
+                                ) {
+                                    pmWithAnimation(.list) { editor.removeAdditionalModel(model) }
+                                }
+                            }
+                        }
+                        .pmSlideTransition(edge: .top, motion: .list)
+                    }
+                    MacSTRow(String(localized: "ai_model_add")) {
+                        HStack(spacing: 6) {
+                            MacSTTextField(
+                                text: $modelDraft,
+                                prompt: String(localized: "ai_model_name_prompt"),
+                                width: editor.addableModels.isEmpty ? 254 : 218
+                            )
+                            .onSubmit(addDraftModel)
+                            if !editor.addableModels.isEmpty {
+                                Menu {
+                                    ForEach(editor.addableModels) { model in
+                                        Button(model.id) {
+                                            pmWithAnimation(.list) { editor.addModel(model.id) }
+                                        }
+                                    }
+                                } label: {
+                                    Image(systemName: "chevron.down")
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .foregroundStyle(PMColor.textFaint)
+                                        .frame(width: 30, height: 24)
+                                        .background(PMColor.glassBtn, in: .rect(cornerRadius: 5))
+                                        .overlay {
+                                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                                .strokeBorder(PMColor.dividerStrong, lineWidth: 0.5)
+                                        }
+                                }
+                                .menuStyle(.button)
+                                .buttonStyle(.plain)
+                                .menuIndicator(.hidden)
+                            }
+                            MacSTButton(title: String(localized: "add"), systemImage: "plus") {
+                                addDraftModel()
+                            }
+                            .disabled(modelDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
                     }
                     if editor.draftConfiguration.supportsEmbeddings {
                         MacSTRow(String(localized: "ai_embedding_model")) {
@@ -1156,43 +1635,64 @@ private struct MacSTIntelligenceView: View {
                 }
             }
             .pmFadeTransition()
-            }
 
             MacSTSection(
-                String(localized: "ai_privacy_section"),
-                hint: String(localized: "ai_privacy_footer")
+                String(localized: "ai_service_manage_section"),
+                hint: String(localized: "ai_fallback_footer")
             ) {
                 MacSTGroup {
-                    if showsProviderDetails {
-                        MacSTRow(
-                            String(localized: "ai_allow_insecure_local_http"),
-                            divider: false
-                        ) {
-                            MacSTToggle(
-                                isOn: editor.configurationBinding(
-                                    \.allowInsecureLocalHTTP,
-                                    clearModels: true,
-                                    autoSaveDelayNanoseconds: 0
-                                )
-                            )
+                    MacSTRow(String(localized: "ai_provider_enabled"), divider: false) {
+                        MacSTToggle(isOn: editor.providerEnabledBinding(editor.selectedProviderID))
+                    }
+                    MacSTRow(String(localized: "ai_actions_section")) {
+                        HStack(spacing: 8) {
+                            if editor.defaultEngine != .provider(editor.selectedProviderID) {
+                                MacSTButton(
+                                    title: String(localized: "ai_set_primary"),
+                                    systemImage: "star"
+                                ) {
+                                    pmWithAnimation(.list) {
+                                        editor.chooseDefaultEngine(.provider(editor.selectedProviderID))
+                                    }
+                                }
+                            }
+                            if editor.draftProviderSet.providers.count > 1 {
+                                MacSTButton(title: String(localized: "ai_move_up"), systemImage: "arrow.up") {
+                                    pmWithAnimation(.list) {
+                                        editor.moveProvider(editor.selectedProviderID, offset: -1)
+                                    }
+                                }
+                                .disabled(selectedProviderIndex == 0)
+                                MacSTButton(title: String(localized: "ai_move_down"), systemImage: "arrow.down") {
+                                    pmWithAnimation(.list) {
+                                        editor.moveProvider(editor.selectedProviderID, offset: 1)
+                                    }
+                                }
+                                .disabled(selectedProviderIndex == editor.draftProviderSet.providers.count - 1)
+                                MacSTButton(
+                                    title: String(localized: "ai_remove_provider"),
+                                    destructive: true
+                                ) {
+                                    showsRemoveProviderConfirmation = true
+                                }
+                            }
                         }
-                        .pmSlideTransition(edge: .top)
                     }
-                    MacSTRow(String(localized: "ai_remote_consent")) {
-                        MacSTToggle(isOn: editor.consentBinding)
-                    }
-                    .settingsAnchor("intelligence.privacy")
-                    MacSTRow(
-                        String(localized: "ai_listening_context_consent")
-                    ) {
-                        MacSTToggle(isOn: editor.listeningContextConsentBinding)
+                    MacSTRow(String(localized: "ai_allow_insecure_local_http")) {
+                        MacSTToggle(
+                            isOn: editor.configurationBinding(
+                                \.allowInsecureLocalHTTP,
+                                clearModels: true,
+                                autoSaveDelayNanoseconds: 0
+                            )
+                        )
                     }
                 }
             }
 
             MacSTSection {
                 MacSTGroup {
-                    MacSTRow(String(localized: "ai_actions_section"), divider: false) {
+                    MacSTRow(String(localized: "ai_test_connection"), divider: false) {
                         HStack(spacing: 8) {
                             if editor.isWorking {
                                 ProgressView().controlSize(.small)
@@ -1228,137 +1728,24 @@ private struct MacSTIntelligenceView: View {
                     }
                 }
             }
-            }
-            }
-        }
-        .onAppear(perform: expandAdvancedForFocusedSetting)
-        .onChange(of: focusedSettingsAnchor) { _, _ in expandAdvancedForFocusedSetting() }
-        .task(id: providerEditorScrollRequest) {
-            guard providerEditorScrollRequest > 0 else { return }
-            // 等展开的编辑区先排进布局,再滚过去。
-            try? await Task.sleep(for: .milliseconds(80))
-            pmWithAnimation(.pageSwitch) {
-                scrollProxy.scrollTo(Self.providerEditorAnchor, anchor: .top)
-            }
-        }
-        }
-        .task { await editor.load(using: intelligence) }
-        .confirmationDialog(
-            String(localized: "ai_remove_provider_confirm"),
-            isPresented: $showsRemoveProviderConfirmation
-        ) {
-            Button(String(localized: "ai_remove_provider"), role: .destructive) {
-                pmWithAnimation(.list) { editor.removeSelectedProvider() }
-            }
-            Button(String(localized: "cancel"), role: .cancel) {}
-        }
-        .sheet(item: $libraryTidySongs) { batch in
-            TagTidyView(songs: batch.songs, isLibraryWide: true)
-        }
-        .onChange(of: intelligence.settingsStore.revision) {
-            editor.adoptStoredConsent(from: intelligence)
-        }
     }
 
-    private var primuseRelaySection: some View {
-        MacSTSection(
-            String(localized: "ai_primuse_relay_section"),
-            hint: String(localized: "ai_primuse_relay_footer")
-        ) {
-            MacSTGroup {
-                MacSTRow(String(localized: "ai_primuse_relay_enabled"), divider: false) {
-                    MacSTToggle(isOn: editor.primuseRelayBinding.pmAnimated(.list))
-                }
-                .settingsAnchor("intelligence.relay")
-                serviceGuidanceRow
-                if let engine = editor.activeEngine(hasOfflinePacks: hasOfflineTranslationPacks) {
-                    MacSTRow(String(localized: "ai_settings_engine_label")) {
-                        Text(verbatim: editor.activeEngineTitle(engine))
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(engine == .none ? PMColor.textFaint : PMColor.text)
-                            .lineLimit(1)
-                    }
-                }
-                if !PrimuseAIRelayClient.isSupportedOnCurrentDevice {
-                    MacSTRow(
-                        String(localized: "ai_primuse_relay_unsupported"),
-                        divider: false
-                    ) {
-                        Image(systemName: "exclamationmark.shield")
-                            .foregroundStyle(PMColor.textFaint)
-                    }
-                }
-            }
-        }
+    private var selectedProviderIndex: Int {
+        editor.draftProviderSet.providers.firstIndex { $0.id == editor.selectedProviderID } ?? 0
     }
 
-    /// 「高级」里的第一组:内置 AI 的连接测试与结果。
-    private var primuseRelayConnectionSection: some View {
-        MacSTSection(String(localized: "ai_connection_section")) {
-            MacSTGroup {
-                MacSTRow(
-                    String(localized: "ai_primuse_relay_name"),
-                    divider: false
-                ) {
-                    HStack(spacing: 8) {
-                        if editor.isTestingPrimuseRelay {
-                            ProgressView().controlSize(.small)
-                        }
-                        MacSTButton(
-                            title: String(localized: "ai_primuse_relay_test_connection"),
-                            systemImage: "network"
-                        ) {
-                            Task {
-                                await editor.testPrimuseRelayConnection(using: intelligence)
-                            }
-                        }
-                        .disabled(!editor.canTestPrimuseRelayConnection)
-                    }
-                }
-                .settingsAnchor("intelligence.relayTest")
-                if editor.primuseRelayConnectionPresentation != .notTested {
-                    MacSTRow(
-                        editor.primuseRelayConnectionTitle,
-                        hint: editor.primuseRelayConnectionDetail,
-                        divider: false
-                    ) {
-                        Image(systemName: primuseRelayConnectionIcon)
-                            .foregroundStyle(primuseRelayConnectionColor)
-                    }
-                    // 连通性结果由测试回调裸赋值, 调用点包不住事务, 曲线附在过渡上。
-                    .pmSlideTransition(edge: .top, motion: .list)
-                }
-            }
-        }
+    private func addDraftModel() {
+        let model = modelDraft
+        pmWithAnimation(.list) { editor.addModel(model) }
+        modelDraft = ""
     }
 
-    /// ③ 的折叠开关。
-    private var advancedToggleSection: some View {
-        MacSTSection {
-            MacSTGroup {
-                MacSTRow(
-                    String(localized: "ai_settings_advanced_title"),
-                    hint: String(localized: "ai_settings_advanced_detail"),
-                    divider: false
-                ) {
-                    MacSTButton(
-                        title: String(localized: showsAdvanced
-                                      ? "ai_settings_advanced_hide" : "ai_settings_advanced_show"),
-                        systemImage: showsAdvanced ? "chevron.up" : "chevron.down"
-                    ) {
-                        pmWithAnimation(.pageSwitch) { showsAdvanced.toggle() }
-                    }
-                    .accessibilityIdentifier("macSettings.ai.advanced")
-                }
-            }
-        }
-    }
-
-    private func expandAdvancedForFocusedSetting() {
-        guard let focusedSettingsAnchor,
-              Self.advancedAnchors.contains(focusedSettingsAnchor),
-              !showsAdvanced else { return }
-        showsAdvanced = true
+    private var visibleProviderPresets: [AIProviderPreset] {
+        var presets = [AIProviderPreset.custom]
+        presets.append(contentsOf: AIProviderPreset.catalog(
+            for: intelligence.regionAvailability.context.region
+        ))
+        return presets
     }
 
     /// 离线素材包只管歌词翻译:翻译关着时不算在用,也就不去碰素材包管理
@@ -1368,170 +1755,6 @@ private struct MacSTIntelligenceView: View {
         return LocalLyricsTranslationModel.Pack.allCases.contains {
             LocalLyricsTranslationService.shared.modelState(for: $0) == .ready
         }
-    }
-
-    @ViewBuilder
-    private var serviceGuidanceRow: some View {
-        switch editor.serviceSetupGuidance {
-        case .none:
-            EmptyView()
-        case .configureOwnService(let providerID):
-            MacSTRow(
-                String(localized: "ai_setup_needs_service_title"),
-                hint: String(localized: "ai_setup_needs_service_detail")
-            ) {
-                MacSTButton(
-                    title: String(localized: "ai_setup_configure_action"),
-                    systemImage: "key.horizontal",
-                    prominent: true
-                ) {
-                    editor.selectProvider(providerID)
-                    pmWithAnimation(.pageSwitch) {
-                        showsAdvanced = true
-                        showsProviderDetails = true
-                    }
-                    providerEditorScrollRequest += 1
-                }
-            }
-            .pmSlideTransition(edge: .top, motion: .list)
-        case .relayTakesPriority:
-            MacSTRow(
-                String(localized: "ai_setup_relay_first_title"),
-                hint: String(localized: "ai_setup_relay_first_detail")
-            ) {
-                MacSTButton(title: String(localized: "ai_setup_use_own_service")) {
-                    pmWithAnimation(.list) { editor.primuseRelayBinding.wrappedValue = false }
-                }
-            }
-            .pmSlideTransition(edge: .top, motion: .list)
-        }
-    }
-
-    private func providerRowHint(_ provider: AIRemoteProviderConfiguration) -> String {
-        guard let state = editor.setupState(for: provider), state != .ready else {
-            return provider.baseURL
-        }
-        return "\(state.localizedTitle) · \(provider.baseURL)"
-    }
-
-    private var providerDetailToggleSection: some View {
-        MacSTSection(String(localized: "ai_provider_detail_section")) {
-            MacSTGroup {
-                MacSTRow(
-                    editor.draftConfiguration.displayName.isEmpty
-                        ? String(localized: "ai_provider_default_name")
-                        : editor.draftConfiguration.displayName,
-                    hint: editor.draftConfiguration.baseURL,
-                    divider: false
-                ) {
-                    MacSTButton(
-                        title: String(localized: showsProviderDetails
-                                      ? "done" : "ai_edit_provider"),
-                        systemImage: showsProviderDetails ? "chevron.up" : "slider.horizontal.3",
-                        prominent: !showsProviderDetails
-                    ) {
-                        pmWithAnimation(.pageSwitch) {
-                            showsProviderDetails.toggle()
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private var providerListSection: some View {
-        MacSTSection(
-            String(localized: "ai_provider_list_section"),
-            hint: editor.serviceListFooterText
-        ) {
-            MacSTGroup {
-                ForEach(Array(editor.draftProviderSet.providers.enumerated()), id: \.element.id) {
-                    index, provider in
-                    MacSTRow(
-                        provider.displayName.isEmpty
-                            ? String(localized: "ai_provider_default_name")
-                            : provider.displayName,
-                        hint: providerRowHint(provider),
-                        divider: index < editor.draftProviderSet.providers.count - 1
-                    ) {
-                        HStack(spacing: 8) {
-                            if provider.id == editor.draftProviderSet.primaryProviderID {
-                                MacSTBadge(text: String(localized: "ai_primary_provider"))
-                            }
-                            MacSTToggle(isOn: editor.providerEnabledBinding(provider.id))
-                            MacSTButton(
-                                title: String(localized: provider.id == editor.selectedProviderID
-                                              ? "ai_provider_editing" : "ai_edit_provider")
-                            ) {
-                                editor.selectProvider(provider.id)
-                                pmWithAnimation(.pageSwitch) { showsProviderDetails = true }
-                            }
-                            Menu {
-                                if provider.id != editor.draftProviderSet.primaryProviderID {
-                                    Button(String(localized: "ai_set_primary")) {
-                                        editor.makePrimary(provider.id)
-                                    }
-                                }
-                                Button(String(localized: "ai_move_up")) {
-                                    pmWithAnimation(.list) {
-                                        editor.moveProvider(provider.id, offset: -1)
-                                    }
-                                }
-                                .disabled(index == 0)
-                                Button(String(localized: "ai_move_down")) {
-                                    pmWithAnimation(.list) {
-                                        editor.moveProvider(provider.id, offset: 1)
-                                    }
-                                }
-                                .disabled(index == editor.draftProviderSet.providers.count - 1)
-                                if editor.draftProviderSet.providers.count > 1 {
-                                    Divider()
-                                    Button(
-                                        String(localized: "ai_remove_provider"),
-                                        role: .destructive
-                                    ) {
-                                        editor.selectProvider(provider.id)
-                                        showsRemoveProviderConfirmation = true
-                                    }
-                                }
-                            } label: {
-                                Image(systemName: "ellipsis")
-                                    .frame(width: 24, height: 22)
-                                    .foregroundStyle(PMColor.textMuted)
-                            }
-                            .menuStyle(.button)
-                            .buttonStyle(.plain)
-                            .menuIndicator(.hidden)
-                        }
-                    }
-                }
-                MacSTRow(String(localized: "ai_fallback_enabled")) {
-                    MacSTToggle(isOn: editor.fallbackBinding)
-                }
-                .settingsAnchor("intelligence.fallback")
-                MacSTRow(String(localized: "ai_provider_actions"), divider: false) {
-                    HStack(spacing: 8) {
-                        MacSTButton(
-                            title: String(localized: "ai_add_provider"),
-                            systemImage: "plus",
-                            prominent: true
-                        ) {
-                            pmWithAnimation(.list) { editor.addProvider() }
-                        }
-                    }
-                }
-                .settingsAnchor("intelligence.addProvider")
-            }
-        }
-        .settingsAnchor("intelligence.providers")
-    }
-
-    private var visibleProviderPresets: [AIProviderPreset] {
-        var presets = [AIProviderPreset.custom]
-        presets.append(contentsOf: AIProviderPreset.catalog(
-            for: intelligence.regionAvailability.context.region
-        ))
-        return presets
     }
 
     private var statusCard: some View {
