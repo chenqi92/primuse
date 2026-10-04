@@ -3808,7 +3808,6 @@
 "yearly_time_evening" = "ยามเย็น";
 "yearly_time_late_night" = "ดึกดื่น";
 "yearly_time_morning" = "เช้า";
-"yearly_unknown_source" = "แหล่งเพลงที่ไม่รู้จัก";
 "yearly_wrapped_brand" = "Primuse ห่อแล้ว";
 "yearly_cover_lead_complete" = "เวลาที่คุณใช้ไปกับเพลงตลอดทั้งปี";
 "yearly_cover_lead_in_progress_format" = "เวลาที่ใช้กับเพลงตั้งแต่ 1 มกราคมถึง %@";
@@ -3844,6 +3843,8 @@
 "yearly_closing_in_progress_lead" = "ทุกเพลงที่คุณฟังต่อจากนี้จะถูกเพิ่มลงในรายงานนี้";
 "yearly_this_year_needs_more_format" = "ฟังอีก %2$d เพลงเพื่อดูรายงานปี %1$@";
 "yearly_not_enough_format" = "ฟังอีก %2$d เพลงในปี %1$@ แล้วปีแห่งเพลงของคุณจะปรากฏที่นี่";
+"yearly_source_deleted" = "ถูกลบแล้ว";
+"yearly_source_deleted_unknown" = "แหล่งเพลงที่ถูกลบ";
 "· Yu Xi Tan" = "· หยู ซี ตัน";
 "● Ready" = "● พร้อมแล้ว";
 "● Syncing…" = "● กำลังซิงค์...";

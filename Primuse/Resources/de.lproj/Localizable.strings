@@ -2711,7 +2711,6 @@
 "apple_music_library_not_authorized_in_sources" = "Apple Music ist nicht autorisiert. Verbinde es unter „Quellen verwalten“ bei der Quelle „Apple Music“.";
 "apple_music_library_sync_timeout" = "Zeitüberschreitung bei der Apple Music-Synchronisierung. Prüfe die Musik-Berechtigungen oder versuche es später erneut.";
 "apple_music_library_access_failed_format" = "Zugriff auf die Apple Music-Mediathek nicht möglich: %@";
-"yearly_unknown_source" = "Unbekannte Musikquelle";
 "yearly_time_dawn" = "Frühmorgens";
 "yearly_time_morning" = "Vormittags";
 "yearly_time_afternoon" = "Nachmittags";
@@ -2783,6 +2782,8 @@
 "yearly_closing_in_progress_lead" = "Jeder Song, den du ab jetzt hörst, fließt in diesen Bericht ein";
 "yearly_this_year_needs_more_format" = "Noch %2$d Songs, dann gibt es deinen Bericht für %1$@";
 "yearly_not_enough_format" = "Noch %2$d Songs in %1$@, dann entfaltet sich hier dein Musikjahr";
+"yearly_source_deleted" = "Gelöscht";
+"yearly_source_deleted_unknown" = "Gelöschte Musikquellen";
 "auth_two_factor_required" = "Eine Zwei-Schritt-Verifizierung ist erforderlich.";
 "auth_verification_code_invalid" = "Der Bestätigungscode ist ungültig.";
 "auth_login_failed" = "Anmeldung fehlgeschlagen.";

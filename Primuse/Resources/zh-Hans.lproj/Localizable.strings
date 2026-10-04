@@ -2812,7 +2812,6 @@
 "apple_music_library_not_authorized_in_sources" = "Apple Music 未授权，请在「音乐源管理」的 Apple Music 上点「连接 Apple Music」。";
 "apple_music_library_sync_timeout" = "Apple Music 同步超时，请检查音乐权限或稍后重试。";
 "apple_music_library_access_failed_format" = "无法访问 Apple Music 资料库：%@";
-"yearly_unknown_source" = "未知音乐源";
 "yearly_time_dawn" = "清晨";
 "yearly_time_morning" = "上午";
 "yearly_time_afternoon" = "下午";
@@ -2884,6 +2883,8 @@
 "yearly_closing_in_progress_lead" = "接下来听的每一首，都会写进这份报告";
 "yearly_this_year_needs_more_format" = "%1$@ 年再听 %2$d 首歌，就有今年的报告了";
 "yearly_not_enough_format" = "%1$@ 年再听 %2$d 首歌，年度报告就会在这里展开";
+"yearly_source_deleted" = "已删除";
+"yearly_source_deleted_unknown" = "已删除的音乐源";
 "auth_two_factor_required" = "需要两步验证。";
 "auth_verification_code_invalid" = "验证码错误。";
 "auth_login_failed" = "登录失败。";

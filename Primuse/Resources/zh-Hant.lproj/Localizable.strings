@@ -2696,7 +2696,6 @@
 "apple_music_library_not_authorized_in_sources" = "Apple Music 未授權，請在「音樂來源管理」的 Apple Music 上點「連接 Apple Music」。";
 "apple_music_library_sync_timeout" = "Apple Music 同步逾時，請檢查音樂權限或稍後再試。";
 "apple_music_library_access_failed_format" = "無法存取 Apple Music 資料庫：%@";
-"yearly_unknown_source" = "未知音樂來源";
 "yearly_time_dawn" = "清晨";
 "yearly_time_morning" = "上午";
 "yearly_time_afternoon" = "下午";
@@ -2768,6 +2767,8 @@
 "yearly_closing_in_progress_lead" = "接下來聽的每一首，都會寫進這份報告";
 "yearly_this_year_needs_more_format" = "%1$@ 年再聽 %2$d 首歌，就有今年的報告了";
 "yearly_not_enough_format" = "%1$@ 年再聽 %2$d 首歌，年度報告就會在這裡展開";
+"yearly_source_deleted" = "已刪除";
+"yearly_source_deleted_unknown" = "已刪除的音樂來源";
 "auth_two_factor_required" = "需要兩步驗證。";
 "auth_verification_code_invalid" = "驗證碼錯誤。";
 "auth_login_failed" = "登入失敗。";

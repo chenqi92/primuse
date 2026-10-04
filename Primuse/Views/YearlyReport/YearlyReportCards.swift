@@ -426,7 +426,7 @@ struct YearlyAlbumShelf: View {
     }
 }
 
-/// 音乐源一行：来源插画、名字、次数，行尾是时长占比。
+/// 音乐源一行：来源插画、名字、次数，行尾是时长占比。已经删掉的源插画压淡，次数前标上「已删除」。
 struct YearlySourceRow: View {
     let share: YearlyReportData.SourceShare
     let percent: Int
@@ -440,21 +440,30 @@ struct YearlySourceRow: View {
                 maxHeight: 46
             ))
             .frame(width: 46, height: 46)
+            .saturation(share.isDeleted ? 0 : 1)
+            .opacity(share.isDeleted ? 0.55 : 1)
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: share.name)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(share.isDeleted ? .secondary : .primary)
                     .lineLimit(1)
-                Text(verbatim: String(format: String(localized: "yearly_card_genres_plays_format"), share.plays))
+                Text(verbatim: detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
             Text(verbatim: "\(percent)%")
                 .font(.system(.title3, design: .rounded, weight: .bold).monospacedDigit())
-                .foregroundStyle(.primary)
+                .foregroundStyle(share.isDeleted ? .secondary : .primary)
         }
         .accessibilityElement(children: .combine)
+    }
+
+    private var detail: String {
+        let plays = String(format: String(localized: "yearly_card_genres_plays_format"), share.plays)
+        // 合成一行的「已删除的音乐源」名字里已经说了。
+        guard share.isDeleted, share.sourceID != "deleted" else { return plays }
+        return String(localized: "yearly_source_deleted") + " · " + plays
     }
 }
 

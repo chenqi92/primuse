@@ -227,6 +227,8 @@ struct ListeningStatsView: View {
         model.corpus = nil
         model.snapshot = nil
         model.snapshotKey = nil
+        model.attribution = nil
+        model.attributionKey = nil
         refreshGeneration &+= 1
     }
 }
@@ -243,8 +245,19 @@ extension ListeningStatsView {
         fileprivate var corpus: Corpus?
         fileprivate var snapshot: Snapshot?
         fileprivate var snapshotKey: SnapshotKey?
+        /// 播放记录里的音乐源各记到哪里；记录或音乐源变了才重算（可能要扫一遍曲库）。
+        fileprivate var attribution: [String: ListeningSourceAttribution.Resolution]?
+        fileprivate var attributionKey: AttributionKey?
 
         init() {}
+    }
+
+    fileprivate struct AttributionKey: Equatable, Sendable {
+        let corpus: CorpusKey
+        let liveSources: [String]
+        let deletedSources: [String]
+        /// 曲库装载完之前按歌认源认不出东西，装载完要重算一次。
+        let libraryReady: Bool
     }
 
     fileprivate struct ArchivedHistory: Sendable {
@@ -276,6 +289,8 @@ extension ListeningStatsView {
         let day: Date
         let localeIdentifier: String
         let timeZoneIdentifier: String
+        /// 风格、年份和按歌认源都要查曲库；打开页面时曲库可能还在装载，装载完再算一遍。
+        let libraryReady: Bool
     }
 
     fileprivate struct RefreshTrigger: Equatable {
@@ -302,7 +317,8 @@ extension ListeningStatsView {
             year: selectedYear,
             day: statsCalendar.startOfDay(for: Date()),
             localeIdentifier: statsCalendar.locale?.identifier ?? Locale.current.identifier,
-            timeZoneIdentifier: statsCalendar.timeZone.identifier
+            timeZoneIdentifier: statsCalendar.timeZone.identifier,
+            libraryReady: library?.isReady ?? false
         )
     }
 
@@ -349,6 +365,29 @@ extension ListeningStatsView {
             corpus = loaded.1
         }
 
+        let live = sourcesStore.sources
+        let deleted = YearlyReportAnalyzer.deletedSources(in: sourcesStore)
+        let attributionKey = AttributionKey(
+            corpus: corpusKey,
+            liveSources: live.map(\.id).sorted(),
+            deletedSources: deleted.map(\.id).sorted(),
+            libraryReady: trigger.presentation.libraryReady
+        )
+        let attribution: [String: ListeningSourceAttribution.Resolution]
+        if let cached = model.attribution, model.attributionKey == attributionKey {
+            attribution = cached
+        } else {
+            let librarySongs = library?.songs ?? []
+            attribution = await Task.detached(priority: .userInitiated) {
+                YearlyReportAnalyzer.attributeSources(music: corpus.music, live: live, deleted: deleted, librarySongs: librarySongs)
+            }.value
+            guard !Task.isCancelled, trigger == refreshTrigger else { return }
+            model.attribution = attribution
+            model.attributionKey = attributionKey
+            // 归属变了，算好的报告里音乐源那一章也要跟着换。
+            model.snapshotKey = nil
+        }
+
         let key = SnapshotKey(corpus: corpusKey, presentation: trigger.presentation)
         guard model.snapshotKey != key || model.snapshot == nil else { return }
         let traits = library.map { YearlyReportAnalyzer.songTraits(for: corpus.music, library: $0) } ?? [:]
@@ -360,7 +399,7 @@ extension ListeningStatsView {
         }.value
         guard !Task.isCancelled, trigger == refreshTrigger else { return }
         if var report = snapshot.report {
-            YearlyReportAnalyzer.resolveSources(in: &report, sourcesStore: sourcesStore)
+            YearlyReportAnalyzer.resolveSources(in: &report, attribution: attribution, sourcesStore: sourcesStore)
             snapshot = snapshot.replacing(report: report)
         }
         model.snapshotKey = key
