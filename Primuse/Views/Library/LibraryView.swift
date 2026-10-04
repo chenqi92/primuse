@@ -1517,7 +1517,7 @@ struct LibraryView: View {
         case .folders:
             HomeFolderManagementView(usesInlineControls: usesMinimalSectionControls)
         case .statistics:
-            ListeningStatsView(usesInlineSourcePicker: usesMinimalSectionControls)
+            ListeningStatsView()
         case .releaseDate:
             ReleaseDateLibraryView()
         case .recommendations:

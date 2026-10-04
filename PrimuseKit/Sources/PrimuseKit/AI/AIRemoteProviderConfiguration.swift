@@ -859,6 +859,7 @@ public enum AIFeature: String, Codable, CaseIterable, Sendable {
     case tagCleanup
     case songDiscovery
     case libraryInsight
+    case listeningMood
 }
 
 /// 一个功能交给谁。没有记录就是跟随默认。

@@ -64,6 +64,11 @@ enum AILibraryInsightOutcome: Sendable {
     case failed(AILibraryContentFailure, retryAt: Date? = nil)
 }
 
+enum AIListeningMoodOutcome: Sendable {
+    case success(ListeningMoodAIExchange.Answer, providerName: String)
+    case failed(AILibraryContentFailure, retryAt: Date? = nil)
+}
+
 struct AIListeningIntentExecution: Sendable {
     var drafts: [ListeningIntentAIExchange.Draft]
     var providerName: String
@@ -1094,6 +1099,63 @@ final class MusicIntelligenceService {
             relay: { try await self.primuseRelayClient.libraryInsight(request) },
             custom: { configuration, snapshot, consent in
                 try await self.engine.libraryInsight(
+                    request,
+                    configuration: configuration,
+                    regionContext: snapshot.context,
+                    hasExplicitRemoteConsent: consent,
+                    requestAuthorization: self.regionAuthorization(for: snapshot, configuration: configuration)
+                )
+            }
+        )
+        switch run {
+        case .success(let answer, let providerName):
+            return .success(answer, providerName: providerName)
+        case .failure(let failure, let retryAt):
+            return .failed(failure, retryAt: retryAt)
+        }
+    }
+
+    /// 听歌状态解读要发的是播放习惯（时长、时段、常听的艺人），所以除了发送内容的授权，
+    /// 还要「发送听歌情况」那一项。
+    var isListeningMoodAvailable: Bool {
+        settingsStore.hasExplicitListeningContextConsent && isLibraryContentAvailable(for: .listeningMood)
+    }
+
+    /// 有服务可问、只差授权：状态卡上就地给出开启的按钮。
+    var listeningMoodNeedsConsent: Bool {
+        let hasService = isPrimuseRelayAvailable(for: .listeningMood)
+            || canUseOwnProviders(for: .listeningMood, regionContext: regionAvailability.snapshot.context)
+        return hasService
+            && (!settingsStore.hasExplicitRemoteConsent || !settingsStore.hasExplicitListeningContextConsent)
+    }
+
+    /// 状态卡上的「开启」：只补上这项功能要的两项授权，其余设置原样保留。
+    func grantListeningMoodConsent() throws {
+        guard !settingsStore.hasExplicitRemoteConsent
+                || !settingsStore.hasExplicitListeningContextConsent else { return }
+        try settingsStore.save(
+            providerSet: settingsStore.providerSet,
+            primuseRelayEnabled: settingsStore.primuseRelayEnabled,
+            semanticSearchEnabled: settingsStore.semanticSearchEnabled,
+            recommendationsEnabled: settingsStore.recommendationsEnabled,
+            audioTranscriptionEnabled: settingsStore.audioTranscriptionEnabled,
+            hasExplicitRemoteConsent: true,
+            hasExplicitListeningContextConsent: true,
+            hasExplicitAudioUploadConsent: settingsStore.hasExplicitAudioUploadConsent
+        )
+    }
+
+    /// 最近 30 天的听歌状态：内置 AI 先，再是自己的服务。
+    func listeningMood(_ request: ListeningMoodAIExchange.Request) async -> AIListeningMoodOutcome {
+        guard settingsStore.hasExplicitListeningContextConsent else {
+            return .failed(listeningMoodNeedsConsent ? .needsConsent : .notConfigured)
+        }
+        let run = await runLibraryContentRequest(
+            feature: .listeningMood,
+            label: "Listening mood",
+            relay: { try await self.primuseRelayClient.listeningMood(request) },
+            custom: { configuration, snapshot, consent in
+                try await self.engine.listeningMood(
                     request,
                     configuration: configuration,
                     regionContext: snapshot.context,
@@ -2961,6 +3023,42 @@ private actor MusicIntelligenceEngine {
         }
         return try await withTimeout(seconds: max(configuration.requestTimeout, 30)) {
             try await provider.libraryInsight(request)
+        }
+    }
+
+    /// 听歌状态解读同样是一小段文字生成，和简介走同一类服务。
+    func listeningMood(
+        _ request: ListeningMoodAIExchange.Request,
+        configuration: AIRemoteProviderConfiguration,
+        regionContext: AIRegionContext,
+        hasExplicitRemoteConsent: Bool,
+        requestAuthorization: @escaping @Sendable () async -> Bool
+    ) async throws -> ListeningMoodAIExchange.Answer {
+        let routed = AIProviderRoutingPolicy.candidates(
+            from: [configuration.descriptor],
+            capability: .lyricsTranslation,
+            regionContext: regionContext,
+            hasExplicitRemoteConsent: hasExplicitRemoteConsent
+        )
+        guard routed.first?.id == configuration.id else {
+            let reason: AIProviderUnavailableReason = regionContext.region == .mainlandChina
+                ? .regionRestricted
+                : .disabled
+            throw MusicIntelligenceError.unavailable(reason)
+        }
+        let provider = OpenAICompatibleProvider(
+            configuration: configuration,
+            credentialStore: credentialStore,
+            requestAuthorization: requestAuthorization
+        )
+        switch await provider.runtimeAvailability() {
+        case .available:
+            break
+        case .unavailable(let reason):
+            throw MusicIntelligenceError.unavailable(reason)
+        }
+        return try await withTimeout(seconds: max(configuration.requestTimeout, 30)) {
+            try await provider.listeningMood(request)
         }
     }
 

@@ -1,8 +1,8 @@
 import SwiftUI
 import PrimuseKit
 
-/// 听歌排行的公共零件。首页的「听歌排行」和统计页的榜单共用同一套领奖台、
-/// 名次行、名次变化标记与大数字货架卡 —— 两处各画各的，样子迟早会走散。
+/// 听歌排行的公共零件：第一名聚光、编号名次行、名次变化标记与大数字货架卡。
+/// 首页「听歌排行」和听歌统计的榜单共用 —— 两处各画各的，样子迟早会走散。
 ///
 /// 这里只管「长什么样」：点了播什么、跳到哪，由各自的页面包一层 Button /
 /// NavigationLink 决定。名次怎么排、台阶多高、露出几名都在 Kit 的
@@ -124,287 +124,6 @@ struct ListeningRankTrendBadge: View {
     }
 }
 
-// MARK: - 领奖台
-
-/// 前三名的站位：亚军、冠军、季军，脚下一条台基。
-struct ListeningRankPodium<Column: View>: View {
-    let count: Int
-    @ViewBuilder let column: (Int) -> Column
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .bottom, spacing: 8) {
-                ForEach(HomeListeningRankBoardPolicy.podiumOrder(count: count), id: \.self) { place in
-                    column(place).frame(maxWidth: 156)
-                }
-            }
-            .padding(.horizontal, 8)
-
-            Capsule()
-                .fill(.primary.opacity(0.1))
-                .frame(height: 4)
-        }
-    }
-}
-
-struct ListeningRankPodiumMetrics {
-    /// 冠军的封面边长。
-    var championArtwork: CGFloat = 96
-    var runnerUpArtwork: CGFloat = 74
-    /// 冠军脚下那一级的高度，其余两级按 Kit 里的比例缩。
-    var championStep: CGFloat = 62
-
-    /// 手机横屏：整块要控制在视口的一半以内。
-    static let compactHeight = ListeningRankPodiumMetrics(
-        championArtwork: 72, runnerUpArtwork: 58, championStep: 44
-    )
-    /// 统计页的表单行里不需要首页那么大的排场。
-    static let form = ListeningRankPodiumMetrics(
-        championArtwork: 84, runnerUpArtwork: 66, championStep: 52
-    )
-
-    func artwork(place: Int) -> CGFloat {
-        place == 0 ? championArtwork : runnerUpArtwork
-    }
-
-    func step(place: Int) -> CGFloat {
-        let fraction = CGFloat(HomeListeningRankBoardPolicy.stepHeightFraction(place: place))
-        return (championStep * fraction).rounded()
-    }
-}
-
-/// 领奖台上的一位：上半截是 `ListeningRankPodiumHeadline`（由页面包成按钮），
-/// 脚下一级写着名次的台阶。台阶不参与点击，这样上半截下面还能再放一排
-/// 评分之类的控件，而不至于按钮套按钮。
-struct ListeningRankPodiumColumn<Headline: View>: View {
-    let place: Int
-    /// 取色用哪首歌的封面。没有就用主题色 / 中性灰。
-    let tintSong: Song?
-    var metrics = ListeningRankPodiumMetrics()
-    @ViewBuilder let headline: () -> Headline
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var hasRisen = false
-
-    var body: some View {
-        VStack(spacing: 8) {
-            headline()
-            ListeningRankPodiumStep(place: place, tintSong: tintSong, height: metrics.step(place: place))
-        }
-        .frame(maxWidth: .infinity)
-        // 入场只动透明度和位移，不动布局：台阶真的从 0 长高会把下面的区块
-        // 一路顶下去再弹回来。
-        .opacity(hasRisen ? 1 : 0)
-        .offset(y: hasRisen ? 0 : metrics.step(place: place) * 0.6)
-        .animation(riseAnimation, value: hasRisen)
-        .onAppear { hasRisen = true }
-    }
-
-    /// 季军先站上来，冠军压轴。
-    private var riseAnimation: Animation? {
-        PMMotion.selection.resolved(reduceMotion: reduceMotion)?
-            .delay(Double(HomeListeningRankBoardPolicy.podiumSize - 1 - place) * 0.07)
-    }
-}
-
-/// 领奖台一位的上半截：皇冠（仅冠军）、封面、名字、次数。
-struct ListeningRankPodiumHeadline<Artwork: View>: View {
-    let place: Int
-    let title: String
-    let subtitle: String
-    let playCount: Int
-    let trend: HomeListeningRankTrend?
-    var metrics = ListeningRankPodiumMetrics()
-    @ViewBuilder let artwork: (CGFloat) -> Artwork
-
-    var body: some View {
-        VStack(spacing: 3) {
-            if place == 0 {
-                Image(systemName: "crown.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color.yellow.gradient)
-                    .rotationEffect(.degrees(-8))
-            }
-
-            artwork(metrics.artwork(place: place))
-                .shadow(color: .black.opacity(place == 0 ? 0.2 : 0.12), radius: place == 0 ? 9 : 5, y: 4)
-                .padding(.bottom, 4)
-
-            // 各列底边对齐，冠军的名字多占一行只是把它的封面再托高一点。
-            Text(title)
-                .font(place == 0 ? .subheadline.weight(.semibold) : .caption.weight(.semibold))
-                .foregroundStyle(.primary)
-                .multilineTextAlignment(.center)
-                .lineLimit(place == 0 ? 2 : 1)
-
-            if !subtitle.isEmpty {
-                Text(subtitle)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            HStack(spacing: 4) {
-                ListeningRankTrendBadge(trend: trend)
-                // 「%d reproducciones」这类译文在三分之一屏宽里放不下原字号。
-                Text(ListeningRankText.playCount(playCount))
-                    .font(.caption2.weight(.medium).monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            ListeningRankText.accessibilityLabel(
-                position: place, title: title, playCount: playCount, trend: trend
-            )
-        )
-    }
-}
-
-/// 台阶的颜色取自站在上面那张封面。单独成一个视图，是为了取色缓存一更新
-/// 只重画这三小块，而不是整个排行区块。
-private struct ListeningRankPodiumStep: View {
-    let place: Int
-    let tintSong: Song?
-    let height: CGFloat
-    @Environment(CoverTintProvider.self) private var tintProvider: CoverTintProvider?
-
-    var body: some View {
-        let tint = tintSong.flatMap { tintProvider?.tint(forSongID: $0.id) }
-        UnevenRoundedRectangle(topLeadingRadius: 11, topTrailingRadius: 11, style: .continuous)
-            .fill(fill(tint))
-            .frame(height: height)
-            .overlay {
-                Text(verbatim: "\(place + 1)")
-                    .font(.system(size: numeralSize, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.primary.opacity(place == 0 ? 0.78 : 0.5))
-                    .minimumScaleFactor(0.6)
-                    .lineLimit(1)
-            }
-            .pmAnimation(.ambient, value: tint != nil)
-            .accessibilityHidden(true)
-            .task(id: tintSong?.id) {
-                if let tintSong { tintProvider?.prepare([tintSong]) }
-            }
-    }
-
-    private var numeralSize: CGFloat {
-        min(30, max(15, height * 0.52))
-    }
-
-    private func fill(_ tint: Color?) -> LinearGradient {
-        let base: Color = tint ?? (place == 0 ? Color.accentColor : Color.secondary)
-        let strength: Double = place == 0 ? 1 : 0.72
-        return LinearGradient(
-            colors: [base.opacity(0.46 * strength), base.opacity(0.12 * strength)],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-    }
-}
-
-// MARK: - 名次行
-
-/// 第四名起的一行。
-struct ListeningRankRowLabel<Artwork: View>: View {
-    enum ShareStyle {
-        /// 整行底色按占比铺开 —— 榜单本身就是一张横向条形图。用在自绘的卡片里。
-        case rowFill
-        /// 标题下面一条细线。表单行的底色归系统管，铺不了整行。
-        case underline
-    }
-
-    let position: Int
-    let title: String
-    let subtitle: String
-    let playCount: Int
-    let listenedSeconds: TimeInterval
-    let trend: HomeListeningRankTrend?
-    /// 相对榜首的播放占比，0...1。
-    let share: Double
-    var shareStyle: ShareStyle = .rowFill
-    @ViewBuilder let artwork: () -> Artwork
-
-    var body: some View {
-        HStack(spacing: 11) {
-            VStack(spacing: 2) {
-                Text(verbatim: "\(position + 1)")
-                    .font(.system(.subheadline, design: .rounded).weight(.bold).monospacedDigit())
-                    .foregroundStyle(.secondary)
-                ListeningRankTrendBadge(trend: trend)
-            }
-            .frame(width: 30)
-
-            artwork()
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-
-                if !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                if shareStyle == .underline {
-                    shareBar.frame(height: 3).padding(.top, 2)
-                }
-            }
-
-            Spacer(minLength: 6)
-
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(ListeningRankText.playCount(playCount))
-                    .font(.subheadline.weight(.semibold).monospacedDigit())
-                    .foregroundStyle(.primary)
-                Text(ListeningRankText.duration(listenedSeconds))
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-            .fixedSize(horizontal: true, vertical: false)
-        }
-        .padding(.horizontal, shareStyle == .rowFill ? 12 : 0)
-        .padding(.vertical, shareStyle == .rowFill ? 9 : 2)
-        .background(alignment: .leading) {
-            if shareStyle == .rowFill {
-                GeometryReader { geometry in
-                    let width: CGFloat = geometry.size.width * CGFloat(share)
-                    Rectangle()
-                        .fill(.tint.opacity(0.08))
-                        .frame(width: width)
-                }
-                .accessibilityHidden(true)
-            }
-        }
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            ListeningRankText.accessibilityLabel(
-                position: position, title: title, playCount: playCount, trend: trend
-            )
-        )
-    }
-
-    private var shareBar: some View {
-        GeometryReader { geometry in
-            let width: CGFloat = geometry.size.width * CGFloat(share)
-            ZStack(alignment: .leading) {
-                Capsule().fill(.primary.opacity(0.08))
-                Capsule().fill(.tint.opacity(0.6)).frame(width: width)
-            }
-        }
-        .accessibilityHidden(true)
-    }
-}
-
 // MARK: - 大数字货架
 
 /// 横排里的一张卡：名次是一个和封面差不多高的大数字，封面压住它半边。
@@ -486,10 +205,10 @@ struct ListeningRankShelfCard<Artwork: View>: View {
         )
     }
 
-    /// 前三名用主题色，往后退成中性灰 —— 一眼分得出领奖台和其余名次。
+    /// 前三名用主题色，往后退成中性灰 —— 一眼分得出前三和其余名次。
     private var numeralFill: LinearGradient {
-        let base: Color = position < HomeListeningRankBoardPolicy.podiumSize ? Color.accentColor : Color.primary
-        let top: Double = position < HomeListeningRankBoardPolicy.podiumSize ? 0.95 : 0.5
+        let base: Color = position < HomeListeningRankBoardPolicy.highlightedPlaces ? Color.accentColor : Color.primary
+        let top: Double = position < HomeListeningRankBoardPolicy.highlightedPlaces ? 0.95 : 0.5
         return LinearGradient(
             colors: [base.opacity(top), base.opacity(top * 0.3)],
             startPoint: .top,
@@ -498,57 +217,199 @@ struct ListeningRankShelfCard<Artwork: View>: View {
     }
 }
 
-// MARK: - 统计页
+// MARK: - 第一名聚光与编号行
 
-/// 统计页「排行榜」一节的内容：前三名合成一行领奖台，第四名起逐行。
-///
-/// body 直接产出多行，由外层的 Form 分节去排。这里不能套 LazyVGrid 之类自适应
-/// 高度的惰性容器 —— 表单行里的惰性网格会和 cell 的自适应高度形成布局反馈环，
-/// 统计页的日历就因此崩过。
-struct ListeningStatsRankList: View {
+/// 统计页的榜单：第一名单独一块（大封面、大号名次、播放数据），第二名起是编号行。
+/// 不画占比条 —— 播放次数已经写在行尾，再铺一条横条只是噪音。
+struct ListeningRankSpotlightList: View {
     let items: [PlayHistoryStore.RankedItem]
     let isArtistRanking: Bool
-    /// 换榜（歌曲 / 艺人 / 专辑、时间范围）时变化，领奖台据此重新入场。
+    /// 换榜（歌曲 / 艺人 / 专辑、时间范围）时变化：收起展开，第一名重新入场。
     let identity: String
+    /// 收起时露出几名（含第一名）。
+    var collapsedCount = 6
+    var spotlightArtwork: CGFloat = 116
     @Environment(MusicLibrary.self) private var library: MusicLibrary?
+    @State private var isExpanded = false
 
     var body: some View {
-        let podiumCount = min(items.count, HomeListeningRankBoardPolicy.podiumSize)
-        let leaderPlayCount = items.first?.playCount ?? 0
+        let others = Array(items.dropFirst())
+        let visible = isExpanded ? others : Array(others.prefix(max(0, collapsedCount - 1)))
 
-        ListeningRankPodium(count: podiumCount) { place in
-            let item = items[place]
-            ListeningRankPodiumColumn(place: place, tintSong: song(for: item), metrics: .form) {
-                ListeningRankPodiumHeadline(
-                    place: place, title: item.title, subtitle: item.subtitle,
-                    playCount: item.playCount, trend: nil, metrics: .form
+        VStack(alignment: .leading, spacing: 0) {
+            if let leader = items.first {
+                ListeningRankSpotlight(
+                    title: leader.title,
+                    subtitle: leader.subtitle,
+                    playCount: leader.playCount,
+                    listenedSeconds: leader.totalSec,
+                    artworkSize: spotlightArtwork
                 ) { size in
                     ListeningRankArtwork(
-                        song: song(for: item), size: size,
-                        isArtist: isArtistRanking, cornerRadius: place == 0 ? 12 : 10
+                        song: song(for: leader), size: size,
+                        isArtist: isArtistRanking, cornerRadius: 16
+                    )
+                }
+                .id(identity)
+                .pmAppearFade(.contentAppear)
+                .padding(.bottom, visible.isEmpty ? 0 : 14)
+            }
+
+            ForEach(Array(visible.enumerated()), id: \.element.id) { offset, item in
+                if offset > 0 {
+                    Rectangle()
+                        .fill(.primary.opacity(0.07))
+                        .frame(height: 0.5)
+                        .padding(.leading, ListeningRankNumberedRow<EmptyView>.textLeading)
+                }
+                ListeningRankNumberedRow(
+                    position: offset + 1,
+                    title: item.title,
+                    subtitle: item.subtitle,
+                    playCount: item.playCount,
+                    listenedSeconds: item.totalSec
+                ) {
+                    ListeningRankArtwork(
+                        song: song(for: item), size: ListeningRankNumberedRow<EmptyView>.artworkSize,
+                        isArtist: isArtistRanking, cornerRadius: 8
                     )
                 }
             }
-        }
-        .id(identity)
-        .padding(.top, 6)
-        .listRowSeparator(.hidden, edges: .bottom)
 
-        ForEach(Array(items.enumerated().dropFirst(HomeListeningRankBoardPolicy.podiumSize)), id: \.element.id) { position, item in
-            ListeningRankRowLabel(
-                position: position, title: item.title, subtitle: item.subtitle,
-                playCount: item.playCount, listenedSeconds: item.totalSec, trend: nil,
-                share: HomeListeningRankBoardPolicy.share(
-                    playCount: item.playCount, leaderPlayCount: leaderPlayCount
-                ),
-                shareStyle: .underline
-            ) {
-                ListeningRankArtwork(song: song(for: item), size: 40, isArtist: isArtistRanking, cornerRadius: 7)
+            if others.count > collapsedCount - 1 {
+                Button {
+                    pmWithAnimation(.list) { isExpanded.toggle() }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(isExpanded ? LocalizedStringKey("update_show_less") : LocalizedStringKey("see_all"))
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.caption2.weight(.bold))
+                    }
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
             }
         }
+        .onChange(of: identity) { _, _ in isExpanded = false }
     }
 
     private func song(for item: PlayHistoryStore.RankedItem) -> Song? {
         item.artworkSongID.flatMap { library?.unobservedVisibleSong(id: $0) }
+    }
+}
+
+/// 第一名：大封面在左，右边一个大号「1」、名字和这段时间听了多少。
+struct ListeningRankSpotlight<Artwork: View>: View {
+    let title: String
+    let subtitle: String
+    let playCount: Int
+    let listenedSeconds: TimeInterval
+    var trend: HomeListeningRankTrend? = nil
+    var artworkSize: CGFloat = 116
+    @ViewBuilder let artwork: (CGFloat) -> Artwork
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 18) {
+            artwork(artworkSize)
+                .shadow(color: .black.opacity(0.22), radius: 16, x: 0, y: 10)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .center, spacing: 8) {
+                    Text(verbatim: "1")
+                        .font(.system(size: 40, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.tint)
+                    ListeningRankTrendBadge(trend: trend)
+                }
+                .padding(.bottom, -2)
+                Text(title)
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Text(verbatim: ListeningRankText.playCount(playCount) + "  ·  " + ListeningRankText.duration(listenedSeconds))
+                    .font(.footnote.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            ListeningRankText.accessibilityLabel(position: 0, title: title, playCount: playCount, trend: trend)
+        )
+    }
+}
+
+/// 第二名起的一行：名次数字、封面、名字，行尾是次数与时长。
+struct ListeningRankNumberedRow<Artwork: View>: View {
+    static var artworkSize: CGFloat { 46 }
+    static var numberWidth: CGFloat { 30 }
+    /// 分隔线从文字开始的位置起画。
+    static var textLeading: CGFloat { numberWidth + 10 + artworkSize + 12 }
+
+    let position: Int
+    let title: String
+    let subtitle: String
+    let playCount: Int
+    let listenedSeconds: TimeInterval
+    var trend: HomeListeningRankTrend? = nil
+    @ViewBuilder let artwork: () -> Artwork
+
+    var body: some View {
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: "\(position + 1)")
+                    .font(.system(size: 18, weight: .bold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                ListeningRankTrendBadge(trend: trend)
+            }
+            .frame(width: Self.numberWidth, alignment: .leading)
+            .padding(.trailing, 10)
+
+            artwork()
+                .padding(.trailing, 12)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(ListeningRankText.playCount(playCount))
+                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(.primary)
+                Text(ListeningRankText.duration(listenedSeconds))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            .fixedSize(horizontal: true, vertical: false)
+        }
+        .padding(.vertical, 9)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            ListeningRankText.accessibilityLabel(position: position, title: title, playCount: playCount, trend: trend)
+        )
     }
 }

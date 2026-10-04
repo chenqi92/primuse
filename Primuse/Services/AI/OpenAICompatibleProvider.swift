@@ -464,6 +464,24 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         }
     }
 
+    func listeningMood(
+        _ request: ListeningMoodAIExchange.Request
+    ) async throws -> ListeningMoodAIExchange.Answer {
+        guard let payload = ListeningMoodAIExchange.payloadJSON(request) else {
+            throw OpenAICompatibleProviderError.invalidResponse
+        }
+        let output = try await generateText(
+            instructions: ListeningMoodAIExchange.instructions,
+            input: payload,
+            maximumTokens: 700
+        )
+        do {
+            return try ListeningMoodAIExchange.answer(from: output)
+        } catch {
+            throw OpenAICompatibleProviderError.invalidResponse
+        }
+    }
+
     func recommendations(
         _ request: AIRecommendationRequest
     ) async throws -> AIRecommendationPlan {

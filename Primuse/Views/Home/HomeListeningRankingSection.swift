@@ -42,7 +42,7 @@ struct HomeListeningRankingSection: View {
         let calendar: Calendar
     }
 
-    /// 想要「领奖台在左、名次榜在右」：iPad，以及所有横屏的手机。真正并不并排还要看
+    /// 想要「第一名在左、名次卡在右」：iPad，以及所有横屏的手机。真正并不并排还要看
     /// 这一栏实际有多宽，见 `ListeningRankBoardLayout`。
     private var usesSideBySideBoard: Bool {
         sizeClass == .regular || heightClass.isCompact
@@ -80,7 +80,7 @@ struct HomeListeningRankingSection: View {
                     }
                 }
                 .pmAppearFade(.contentAppear)
-                // 换榜时整块重建：领奖台的入场只在新榜站上来时走一次，
+                // 换榜时整块重建：第一名的入场只在新榜站上来时走一次，
                 // 播放记录更新引起的原地刷新不重播。淡入挂在 id 里面才会跟着重播。
                 .id(BoardIdentity(period: rankedPeriod, category: rankedCategory))
             } else {
@@ -179,7 +179,7 @@ struct HomeListeningRankingSection: View {
             : NSLocalizedString("stats_rank_" + category.rawValue, comment: "")
     }
 
-    // MARK: - 列表：领奖台 + 名次榜
+    // MARK: - 列表：第一名聚光 + 名次卡
 
     private var visibleRanks: ArraySlice<HomeListeningRank> {
         ranks.prefix(
@@ -194,16 +194,15 @@ struct HomeListeningRankingSection: View {
     }
 
     private var board: some View {
-        let podiumCount = min(visibleRanks.count, HomeListeningRankBoardPolicy.podiumSize)
-        let rows = Array(visibleRanks.enumerated().dropFirst(HomeListeningRankBoardPolicy.podiumSize))
+        let rows = Array(visibleRanks.enumerated().dropFirst())
         let showsCard = !rows.isEmpty || offersExpansion
-        // 横竖屏之间只换排布、不换子树：名次行和领奖台上都挂着长按菜单，
+        // 横竖屏之间只换排布、不换子树：第一名和名次行上都挂着长按菜单，
         // 旋转时把菜单的宿主换掉是记录在案的崩溃形态。
         return ListeningRankBoardLayout(prefersSideBySide: usesSideBySideBoard) {
-            ListeningRankPodium(count: podiumCount) { place in
-                podiumColumn(ranks[place], place: place)
+            if let leader = ranks.first {
+                leaderSpotlight(leader)
+                    .frame(maxWidth: usesSideBySideBoard && showsCard ? 360 : .infinity, alignment: .leading)
             }
-            .frame(maxWidth: usesSideBySideBoard && showsCard ? 360 : .infinity)
 
             if showsCard {
                 rankCard(rows)
@@ -211,27 +210,30 @@ struct HomeListeningRankingSection: View {
         }
     }
 
-    private var podiumMetrics: ListeningRankPodiumMetrics {
-        heightClass.isCompact ? .compactHeight : ListeningRankPodiumMetrics()
+    private var spotlightArtwork: CGFloat {
+        usesPadMetrics ? 128 : heightClass.value(112, compact: 84)
     }
 
-    private func podiumColumn(_ rank: HomeListeningRank, place: Int) -> some View {
-        ListeningRankPodiumColumn(place: place, tintSong: artworkSong(for: rank), metrics: podiumMetrics) {
-            VStack(spacing: 4) {
-                rankAction(rank) {
-                    ListeningRankPodiumHeadline(
-                        place: place, title: rankTitle(rank), subtitle: rank.subtitle,
-                        playCount: rank.playCount, trend: rank.trend, metrics: podiumMetrics
-                    ) { size in
-                        rankArtwork(rank, size: size, cornerRadius: place == 0 ? 12 : 10)
-                    }
+    /// 第一名：大封面、大号名次和这段时间听了多少。上半截是按钮，评分星星放在按钮外面，
+    /// 免得按钮套按钮。
+    private func leaderSpotlight(_ rank: HomeListeningRank) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            rankAction(rank) {
+                ListeningRankSpotlight(
+                    title: rankTitle(rank), subtitle: rank.subtitle,
+                    playCount: rank.playCount, listenedSeconds: rank.listenedSeconds,
+                    trend: rank.trend, artworkSize: spotlightArtwork
+                ) { size in
+                    rankArtwork(rank, size: size, cornerRadius: 16)
                 }
-                .buttonStyle(.pmPressable)
-                .contextMenu { rankMenu(rank) }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.pmPressable)
+            .contextMenu { rankMenu(rank) }
 
-                if rankedCategory == .songs, reviewsEnabled, let song = artworkSong(for: rank) {
-                    compactRatingPicker(for: song, symbolSize: 9, buttonSize: 17)
-                }
+            if rankedCategory == .songs, reviewsEnabled, let song = artworkSong(for: rank) {
+                compactRatingPicker(for: song)
+                    .padding(.leading, spotlightArtwork + 18)
             }
         }
     }
@@ -240,7 +242,7 @@ struct HomeListeningRankingSection: View {
         VStack(spacing: 0) {
             ForEach(rows, id: \.element.id) { position, rank in
                 if position != rows.first?.offset {
-                    Divider().padding(.leading, 53)
+                    Divider().padding(.leading, 12 + ListeningRankNumberedRow<EmptyView>.textLeading)
                 }
                 rankRow(rank, position: position)
             }
@@ -270,24 +272,20 @@ struct HomeListeningRankingSection: View {
                 .accessibilityIdentifier("home.rankingExpand")
             }
         }
-        .background(cardSurface)
-        // 名次行的占比底色是直角的，靠卡片的圆角把四个角裁掉。
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(cardSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private func rankRow(_ rank: HomeListeningRank, position: Int) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             rankAction(rank) {
-                ListeningRankRowLabel(
+                ListeningRankNumberedRow(
                     position: position, title: rankTitle(rank), subtitle: rank.subtitle,
                     playCount: rank.playCount, listenedSeconds: rank.listenedSeconds,
-                    trend: rank.trend,
-                    share: HomeListeningRankBoardPolicy.share(
-                        playCount: rank.playCount, leaderPlayCount: ranks.first?.playCount ?? 0
-                    )
+                    trend: rank.trend
                 ) {
-                    rankArtwork(rank, size: 42, cornerRadius: 8)
+                    rankArtwork(rank, size: ListeningRankNumberedRow<EmptyView>.artworkSize, cornerRadius: 8)
                 }
+                .padding(.horizontal, 12)
             }
             .buttonStyle(.plain)
 
@@ -462,7 +460,7 @@ struct HomeListeningRankingSection: View {
         }
         let result = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
         guard !Task.isCancelled else { return }
-        // 结果没变就不写：写一次整张榜连同领奖台都要重新描述。
+        // 结果没变就不写：写一次整张榜连同第一名都要重新描述。
         if result != ranks { ranks = result }
         rankedCategory = category
         rankedPeriod = period
@@ -518,10 +516,10 @@ private struct HomeRankedSongsView: View {
     }
 }
 
-/// 领奖台与名次卡的排布:想并排、而且这一栏确实放得下才并排,否则上下叠。
+/// 第一名与名次卡的排布:想并排、而且这一栏确实放得下才并排,否则上下叠。
 ///
 /// 只看 size class 不够 —— iPad mini 竖屏开着侧栏时详情栏只有四百多点,仍是 regular。
-/// 领奖台三张封面加评分最窄三百来点,名次卡最窄两百出头,硬并排时整块比这一栏还宽,
+/// 第一名的大封面加文字最窄两百多点,名次卡最窄两百出头,硬并排时整块比这一栏还宽,
 /// 把首页整个撑宽,左右两边的内容一起被裁掉。宽度要在布局阶段按父视图给的建议宽度判,
 /// 不能测完再写回状态:溢出时量到的正是被撑大的宽度。
 private struct ListeningRankBoardLayout: Layout {
@@ -547,57 +545,57 @@ private struct ListeningRankBoardLayout: Layout {
         }
     }
 
-    /// 并排时的分法与原来的 `HStack(alignment: .top, spacing: 20)` 相同:领奖台先拿
+    /// 并排时的分法与原来的 `HStack(alignment: .top, spacing: 20)` 相同:第一名先拿
     /// 一半(被它自己的 360 上限和最窄宽度夹住),名次卡拿剩下的。上下叠时与
     /// `VStack(spacing: 14)` 相同:各自按整栏宽度量,水平居中。
     private func arrange(width: CGFloat?, subviews: Subviews) -> [CGRect] {
-        guard let podium = subviews.first else { return [] }
+        guard let leader = subviews.first else { return [] }
         guard subviews.count > 1 else {
-            let size = podium.sizeThatFits(ProposedViewSize(width: width, height: nil))
+            let size = leader.sizeThatFits(ProposedViewSize(width: width, height: nil))
             return [CGRect(origin: .zero, size: size)]
         }
         let card = subviews[1]
 
-        if usesRow(width: width, podium: podium, card: card) {
+        if usesRow(width: width, leader: leader, card: card) {
             guard let width else {
-                let podiumSize = podium.sizeThatFits(.unspecified)
+                let leaderSize = leader.sizeThatFits(.unspecified)
                 let cardSize = card.sizeThatFits(.unspecified)
                 return [
-                    CGRect(origin: .zero, size: podiumSize),
-                    CGRect(x: podiumSize.width + Self.rowSpacing, y: 0,
+                    CGRect(origin: .zero, size: leaderSize),
+                    CGRect(x: leaderSize.width + Self.rowSpacing, y: 0,
                            width: cardSize.width, height: cardSize.height),
                 ]
             }
-            let podiumSize = podium.sizeThatFits(
+            let leaderSize = leader.sizeThatFits(
                 ProposedViewSize(width: max(0, (width - Self.rowSpacing) / 2), height: nil)
             )
-            let cardWidth = max(0, width - Self.rowSpacing - podiumSize.width)
+            let cardWidth = max(0, width - Self.rowSpacing - leaderSize.width)
             let cardSize = card.sizeThatFits(ProposedViewSize(width: cardWidth, height: nil))
             return [
-                CGRect(origin: .zero, size: podiumSize),
-                CGRect(x: podiumSize.width + Self.rowSpacing, y: 0,
+                CGRect(origin: .zero, size: leaderSize),
+                CGRect(x: leaderSize.width + Self.rowSpacing, y: 0,
                        width: cardSize.width, height: cardSize.height),
             ]
         }
 
         let proposal = ProposedViewSize(width: width, height: nil)
-        let podiumSize = podium.sizeThatFits(proposal)
+        let leaderSize = leader.sizeThatFits(proposal)
         let cardSize = card.sizeThatFits(proposal)
-        let columnWidth = max(podiumSize.width, cardSize.width)
+        let columnWidth = max(leaderSize.width, cardSize.width)
         return [
-            CGRect(x: (columnWidth - podiumSize.width) / 2, y: 0,
-                   width: podiumSize.width, height: podiumSize.height),
-            CGRect(x: (columnWidth - cardSize.width) / 2, y: podiumSize.height + Self.columnSpacing,
+            CGRect(x: (columnWidth - leaderSize.width) / 2, y: 0,
+                   width: leaderSize.width, height: leaderSize.height),
+            CGRect(x: (columnWidth - cardSize.width) / 2, y: leaderSize.height + Self.columnSpacing,
                    width: cardSize.width, height: cardSize.height),
         ]
     }
 
-    private func usesRow(width: CGFloat?, podium: LayoutSubview, card: LayoutSubview) -> Bool {
+    private func usesRow(width: CGFloat?, leader: LayoutSubview, card: LayoutSubview) -> Bool {
         guard prefersSideBySide else { return false }
         // 求理想尺寸(没有建议宽度)时按并排报。
         guard let width, width.isFinite else { return true }
         let narrowest = ProposedViewSize(width: 0, height: nil)
-        let required = podium.sizeThatFits(narrowest).width
+        let required = leader.sizeThatFits(narrowest).width
             + Self.rowSpacing
             + card.sizeThatFits(narrowest).width
             + Self.titleAllowance

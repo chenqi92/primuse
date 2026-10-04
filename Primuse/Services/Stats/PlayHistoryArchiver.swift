@@ -12,13 +12,15 @@ import PrimuseKit
 /// 触发时机:
 /// 1. App 启动时检查 `lastArchivedYear`, 把上次归档之后到当前年-1 之间的
 ///    每个年份都归档一次。
-/// 2. 12/28 之后启动也预归档当前年 (防止用户在 12/31 当天没开 app 跨年)。
+/// 2. 当年每天第一次启动时也归档一次 (合并去重): 听歌回顾随时能看「今年」,
+///    不能等到年底, 年初的记录早被 5000 条上限挤掉了。
 ///
 /// 大小: 2k 条 entries 约 200KB JSON, 很小。
 @MainActor
 enum PlayHistoryArchiver {
-    private static let directoryName = "yearly-archives"
+    nonisolated private static let directoryName = "yearly-archives"
     private static let lastArchivedYearKey = "primuse.playHistory.lastArchivedYear"
+    private static let currentYearArchivedDayKey = "primuse.playHistory.currentYearArchivedDay"
 
     struct ArchivedYear: Codable, Sendable {
         let year: Int
@@ -57,11 +59,16 @@ enum PlayHistoryArchiver {
             }
         }
 
-        // 12/28 之后预归档当前年。即便已归档过, 后续 entries 增加时再归档一次
-        // 覆盖之前的版本 ── 文件 atomic write, 不会留半成品。
-        if currentMonth == 12 && currentDay >= 28 {
-            let yearEntries = entriesByYear[currentYear] ?? []
-            archive(year: currentYear, entries: yearEntries)
+        // 当年每天归档一次: 和已有归档合并, 文件 atomic write, 不会留半成品。
+        // 编码几千条要几十毫秒, 放到后台, 不占启动的主线程。
+        let today = "\(currentYear)-\(currentMonth)-\(currentDay)"
+        let yearEntries = entriesByYear[currentYear] ?? []
+        if !yearEntries.isEmpty,
+           UserDefaults.standard.string(forKey: currentYearArchivedDayKey) != today {
+            UserDefaults.standard.set(today, forKey: currentYearArchivedDayKey)
+            Task.detached(priority: .utility) {
+                archive(year: currentYear, entries: yearEntries)
+            }
         }
 
         // lastArchivedYear 标记到 currentYear - 1 (完整年)。当前年随时可能再来
@@ -70,7 +77,7 @@ enum PlayHistoryArchiver {
     }
 
     /// 加载某年的 archive。返回 nil 表示没归档过。
-    static func loadArchive(year: Int) -> ArchivedYear? {
+    nonisolated static func loadArchive(year: Int) -> ArchivedYear? {
         let url = archiveURL(for: year)
         guard let data = try? Data(contentsOf: url),
               let archive = try? makeDecoder().decode(ArchivedYear.self, from: data)
@@ -79,7 +86,7 @@ enum PlayHistoryArchiver {
     }
 
     /// 列出所有已归档的年份, 倒序 (最近年份在前)。
-    static func availableArchivedYears() -> [Int] {
+    nonisolated static func availableArchivedYears() -> [Int] {
         let dir = archiveDirectory()
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else {
             return []
@@ -93,19 +100,50 @@ enum PlayHistoryArchiver {
         return years.sorted(by: >)
     }
 
-    /// 给定年份, 优先返回 archive 的 entries; 没归档则从 live store 过滤当年。
-    /// 适合 YearlyReportAnalyzer 用 ── 不关心数据来源, 只要拿到该年所有 entries。
+    /// 给定年份的全部记录: 归档与本机记录合并去重 (当年的归档只到今天第一次
+    /// 启动, 之后的还在本机记录里)。适合 YearlyReportAnalyzer 用 ── 不关心数据
+    /// 来源, 只要拿到该年所有 entries。
     static func entries(forYear year: Int, history: PlayHistoryStore = .shared) -> [PlayHistoryStore.Entry] {
-        if let archive = loadArchive(year: year) {
-            return archive.entries
-        }
         let calendar = Calendar.current
-        return history.entries.filter { calendar.component(.year, from: $0.playedAt) == year }
+        let live = history.entries.filter { calendar.component(.year, from: $0.playedAt) == year }
+        return merged(live: live, archived: loadArchive(year: year)?.entries ?? [], clearedAt: history.clearedAt)
+    }
+
+    /// 本机记录加上全部归档, 给听歌回顾的「今年」「全部」用。读文件, 放在后台调。
+    nonisolated static func completeHistory(
+        live: [PlayHistoryStore.Entry],
+        clearedAt: Date?
+    ) -> [PlayHistoryStore.Entry] {
+        let archived = availableArchivedYears().flatMap { loadArchive(year: $0)?.entries ?? [] }
+        return merged(live: live, archived: archived, clearedAt: clearedAt)
+    }
+
+    /// 同一条 (songID + 开始时间) 只留一份, 本机的优先; 清空听歌记录之前的都不算 ──
+    /// 清空也可能来自另一台设备, 那时这台的归档文件还在。
+    nonisolated static func merged(
+        live: [PlayHistoryStore.Entry],
+        archived: [PlayHistoryStore.Entry],
+        clearedAt: Date?
+    ) -> [PlayHistoryStore.Entry] {
+        let cutoff = clearedAt ?? .distantPast
+        var seen = Set<String>()
+        var result: [PlayHistoryStore.Entry] = []
+        result.reserveCapacity(live.count + archived.count)
+        for entry in live + archived where entry.playedAt >= cutoff && seen.insert(entry.id).inserted {
+            result.append(entry)
+        }
+        return result
+    }
+
+    /// 「清空听歌记录」时归档一起删掉, 否则年度回顾还会读出清空前的歌。
+    static func removeAll() {
+        try? FileManager.default.removeItem(at: archiveDirectory())
+        UserDefaults.standard.removeObject(forKey: currentYearArchivedDayKey)
     }
 
     // MARK: - Internals
 
-    private static func archive(year: Int, entries: [PlayHistoryStore.Entry]) {
+    nonisolated private static func archive(year: Int, entries: [PlayHistoryStore.Entry]) {
         // 跟已有归档合并: live store 是 5000 条 FIFO, 跨年重度听歌会淘汰当年
         // 早期 entries, 直接覆盖会丢掉 12/28 预归档时存下的更完整数据。按
         // (songID, playedAt) == Entry.id 去重, 旧归档优先保留。
@@ -134,27 +172,27 @@ enum PlayHistoryArchiver {
         }
     }
 
-    private static func archiveURL(for year: Int) -> URL {
+    nonisolated private static func archiveURL(for year: Int) -> URL {
         archiveDirectory().appendingPathComponent("year-\(year).json")
     }
 
-    private static func archiveDirectory() -> URL {
+    nonisolated private static func archiveDirectory() -> URL {
         FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
             .appendingPathComponent("Primuse", isDirectory: true)
             .appendingPathComponent(directoryName, isDirectory: true)
     }
 
-    private static func ensureDirectory() throws {
+    nonisolated private static func ensureDirectory() throws {
         try FileManager.default.createDirectory(at: archiveDirectory(), withIntermediateDirectories: true)
     }
 
-    private static func makeEncoder() -> JSONEncoder {
+    nonisolated private static func makeEncoder() -> JSONEncoder {
         let e = JSONEncoder()
         e.dateEncodingStrategy = .iso8601
         return e
     }
 
-    private static func makeDecoder() -> JSONDecoder {
+    nonisolated private static func makeDecoder() -> JSONDecoder {
         let d = JSONDecoder()
         d.dateDecodingStrategy = .iso8601
         return d

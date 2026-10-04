@@ -1,4 +1,5 @@
 import Foundation
+import PrimuseKit
 
 /// 音乐人格 ── 4 维度二值化, 16 种组合 (类似 MBTI)。
 ///
@@ -75,4 +76,16 @@ struct MusicPersonality: Sendable, Equatable {
 
     /// Asset 名 ── 跟 Docs/YearlyReport.md §七 命名规则一致。
     var assetName: String { "personality_\(code)" }
+}
+
+extension MusicPersonality {
+    /// 判定规则在 Kit 的 `ListeningPersonalityTraits` 里, 年度报告和听歌回顾共用。
+    init(_ traits: ListeningPersonalityTraits) {
+        self.init(
+            exploration: traits.exploration == .explorer ? .explorer : .loyalist,
+            diversity: traits.diversity == .omnivore ? .omnivore : .focused,
+            recency: traits.recency == .new ? .new : .vintage,
+            dayCycle: traits.dayCycle == .day ? .day : .moon
+        )
+    }
 }

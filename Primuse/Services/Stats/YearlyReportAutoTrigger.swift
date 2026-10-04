@@ -7,8 +7,8 @@ import PrimuseKit
 /// - **时机**: 每年 1 月 (1/1 起的任意一天) 用户启动 / 切前台 app 时检查
 /// - **条件**: 上一年 PlayHistory 跨度 ≥ 2 个不同月份 (避免新装用户只听过
 ///   12/30 然后 1/1 弹一份基本是空白的报告)
-/// - **去重**: 弹过一次后写 UserDefaults, 整年不再自动弹 (用户主动从入口
-///   还能进, 但本次没做入口 ── 自动弹是唯一渠道)
+/// - **去重**: 弹过一次后写 UserDefaults, 整年不再自动弹 (随时还能从
+///   「听歌统计」底部的年度回顾进)
 @MainActor
 enum YearlyReportAutoTrigger {
     private static let lastAutoShownYearKey = "primuse.yearlyReport.lastAutoShownForYear"
@@ -36,7 +36,10 @@ enum YearlyReportAutoTrigger {
         // 检查上一年 entries 是否覆盖 ≥ minDistinctMonths 个不同月份。
         // 优先读 archive (PlayHistoryArchiver 启动时归档过), 没有则从 live
         // entries 过滤当年 ── 跨年新装用户去年没数据自然不会弹。
-        let entries = PlayHistoryArchiver.entries(forYear: lastYear)
+        let entries = PlayHistoryStore.musicEntries(
+            PlayHistoryArchiver.entries(forYear: lastYear),
+            excluding: PlayHistoryStore.shared.spokenWordSongIDs
+        )
         let distinctMonths = Set(entries.map { calendar.component(.month, from: $0.playedAt) })
         guard distinctMonths.count >= minDistinctMonths else {
             // 数据不够: 不弹, 但也不记录 lastShown ── 万一用户下次启动数据更全

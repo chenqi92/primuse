@@ -7,15 +7,27 @@ import PrimuseKit
 /// PlayHistoryStore.Entry 不存这些字段), 输出一份完整的 `YearlyReportData`
 /// 给 UI 用。
 enum YearlyReportAnalyzer {
-    /// 主入口。后台 Task 调用即可, 1w 条 entries 内 < 100ms。
+    /// 主入口。1w 条 entries 内 < 100ms。
     @MainActor
     static func analyze(year: Int, entries: [PlayHistoryStore.Entry], library: MusicLibrary, sourcesStore: SourcesStore? = nil) -> YearlyReportData {
-        let songLookup: [String: Song] = Dictionary(
-            library.songs.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        var data = Self.compute(year: year, entries: entries, songLookup: songLookup)
+        var data = Self.compute(year: year, entries: entries, songLookup: songLookup(for: entries, library: library))
+        resolveSources(in: &data, sourcesStore: sourcesStore)
+        return data
+    }
 
+    /// 只查记录里出现过的歌 (O(1) 按 id), 不为整个曲库建字典 ── 几十万首的库
+    /// 每打开一次年度回顾就整库过一遍不划算。
+    @MainActor
+    static func songLookup(for entries: [PlayHistoryStore.Entry], library: MusicLibrary) -> [String: Song] {
+        var lookup: [String: Song] = [:]
+        for songID in Set(entries.map(\.songID)) {
+            if let song = library.song(id: songID) { lookup[songID] = song }
+        }
+        return lookup
+    }
+
+    @MainActor
+    static func resolveSources(in data: inout YearlyReportData, sourcesStore: SourcesStore?) {
         // 把 source 显示信息烘到 SourceBreakdown, UI 层不用 @Environment 也能
         // 显示正确名字 / 图标。分享 ImageRenderer 拍快照时尤其重要 ── 它不
         // 继承 SwiftUI environment, 没烘的话 SourcesCard 会 crash。
@@ -33,7 +45,6 @@ enum YearlyReportAnalyzer {
                 return resolved
             }
         }
-        return data
     }
 
     private static func symbolName(for type: MusicSourceType) -> String {
@@ -194,7 +205,7 @@ enum YearlyReportAnalyzer {
             }
             .sorted { $0.totalSec > $1.totalSec }
 
-        // ===== 人格判定 =====
+        // ===== 人格判定 ===== (门槛在 Kit 里, 听歌回顾用同一套)
 
         // E/L: Top 5 艺术家累计占比
         let top5ArtistShare: Double = {
@@ -203,34 +214,22 @@ enum YearlyReportAnalyzer {
             let top5 = topArtists.prefix(5).reduce(0) { $0 + $1.playCount }
             return Double(top5) / Double(total)
         }()
-        let exploration: MusicPersonality.Exploration = top5ArtistShare < 0.35 ? .explorer : .loyalist
 
         // O/F: 不同 genre 数 (从 library 反查)
         let genreSet = Set(genreGroups.keys)
-        let diversity: MusicPersonality.Diversity = genreSet.count >= 6 ? .omnivore : .focused
 
         // N/V: year 中位数
         let songYears: [Int] = entries.compactMap { songLookup[$0.songID]?.year }
             .filter { $0 > 1900 && $0 <= calendar.component(.year, from: Date()) }
-        let recencyCutoff = year - 5
-        let recency: MusicPersonality.Recency
-        if songYears.isEmpty {
-            recency = .new   // 没数据时倾向 new (大多数人新歌占比高)
-        } else {
-            let sorted = songYears.sorted()
-            let median = sorted[sorted.count / 2]
-            recency = median >= recencyCutoff ? .new : .vintage
-        }
+            .sorted()
 
-        // D/M
-        let dayCycle: MusicPersonality.DayCycle = nightRatio > 0.55 ? .moon : .day
-
-        let personality = MusicPersonality(
-            exploration: exploration,
-            diversity: diversity,
-            recency: recency,
-            dayCycle: dayCycle
-        )
+        let personality = MusicPersonality(ListeningPersonalityTraits.classify(
+            topFiveArtistShare: top5ArtistShare,
+            genreCount: genreSet.count,
+            medianReleaseYear: songYears.isEmpty ? nil : songYears[songYears.count / 2],
+            referenceYear: year,
+            nightShare: nightRatio
+        ))
 
         return YearlyReportData(
             year: year,

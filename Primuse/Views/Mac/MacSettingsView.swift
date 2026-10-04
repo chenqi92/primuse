@@ -1223,6 +1223,7 @@ private struct MacSTIntelligenceView: View {
                     .settingsAnchor("intelligence.routes")
                 routeRow(.songDiscovery, title: AIFeature.songDiscovery.localizedTitle)
                 routeRow(.libraryInsight, title: AIFeature.libraryInsight.localizedTitle)
+                routeRow(.listeningMood, title: AIFeature.listeningMood.localizedTitle)
             }
         }
     }

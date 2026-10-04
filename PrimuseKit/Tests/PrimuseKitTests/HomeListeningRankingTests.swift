@@ -88,22 +88,6 @@ struct HomeListeningRankingTests {
         #expect(artists.first?.artworkSongID == "a")
     }
 
-    @Test func podiumPlacesTheChampionInTheMiddleAndShrinksWithFewerEntries() {
-        #expect(HomeListeningRankBoardPolicy.podiumOrder(count: 0).isEmpty)
-        #expect(HomeListeningRankBoardPolicy.podiumOrder(count: 1) == [0])
-        #expect(HomeListeningRankBoardPolicy.podiumOrder(count: 2) == [1, 0])
-        #expect(HomeListeningRankBoardPolicy.podiumOrder(count: 3) == [1, 0, 2])
-        #expect(HomeListeningRankBoardPolicy.podiumOrder(count: 20) == [1, 0, 2])
-        #expect(HomeListeningRankBoardPolicy.podiumOrder(count: -1).isEmpty)
-        let champion = HomeListeningRankBoardPolicy.stepHeightFraction(place: 0)
-        let second = HomeListeningRankBoardPolicy.stepHeightFraction(place: 1)
-        let third = HomeListeningRankBoardPolicy.stepHeightFraction(place: 2)
-        #expect(champion == 1)
-        #expect(champion > second)
-        #expect(second > third)
-        #expect(third > 0)
-    }
-
     @Test func boardShowsFiveUntilExpandedAndTheShelfNeverDropsBelowFive() {
         typealias Policy = HomeListeningRankBoardPolicy
         #expect(Policy.visibleCount(total: 30, expandedLimit: 20, isExpanded: false) == 5)
@@ -123,15 +107,6 @@ struct HomeListeningRankingTests {
         #expect(Policy.shelfCount(total: 30, expandedLimit: 0) == 5)
         #expect(Policy.shelfCount(total: 3, expandedLimit: 20) == 3)
         #expect(Policy.shelfCount(total: 0, expandedLimit: 20) == 0)
-    }
-
-    @Test func playShareIsRelativeToTheLeaderAndStaysInsideTheRow() {
-        typealias Policy = HomeListeningRankBoardPolicy
-        #expect(Policy.share(playCount: 10, leaderPlayCount: 10) == 1)
-        #expect(Policy.share(playCount: 5, leaderPlayCount: 10) == 0.5)
-        #expect(Policy.share(playCount: 12, leaderPlayCount: 10) == 1)
-        #expect(Policy.share(playCount: 0, leaderPlayCount: 10) == 0)
-        #expect(Policy.share(playCount: 3, leaderPlayCount: 0) == 0)
     }
 
     @Test func rankingOffersTheBoardAndTheShelfButNoStackedShelfRows() {

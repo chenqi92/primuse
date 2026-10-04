@@ -689,6 +689,33 @@ actor PrimuseAIRelayClient {
         }
     }
 
+    /// 最近 30 天听歌状态的一段解读。只发习惯层面的数字和常听的名字；回答在设备上
+    /// 再校验一遍。
+    func listeningMood(
+        _ request: ListeningMoodAIExchange.Request
+    ) async throws -> ListeningMoodAIExchange.Answer {
+        var completed: ListeningMoodOutput?
+        try await performStreamingFeature(
+            path: "/v1/listening/mood",
+            purpose: "listening_mood",
+            input: request,
+            output: ListeningMoodOutput.self,
+            progress: ListeningMoodProgress.self
+        ) { event in
+            if case .completed(let output) = event { completed = output }
+        }
+        guard let completed else { throw PrimuseAIRelayError.invalidResponse }
+        do {
+            return try ListeningMoodAIExchange.validated(
+                title: completed.title,
+                summary: completed.summary,
+                keywords: completed.keywords ?? []
+            )
+        } catch {
+            throw PrimuseAIRelayError.invalidResponse
+        }
+    }
+
     nonisolated static func assertionClientDataHash(
         challenge: String,
         method: String,
@@ -1833,6 +1860,15 @@ actor PrimuseAIRelayClient {
 
     /// The relay sends no progress lines for intros; any that appear are ignored.
     private struct LibraryInsightProgress: Decodable, Sendable {}
+
+    private struct ListeningMoodOutput: Decodable, Sendable {
+        var title: String?
+        var summary: String?
+        var keywords: [String]?
+    }
+
+    /// The relay sends no progress lines for mood readings; any that appear are ignored.
+    private struct ListeningMoodProgress: Decodable, Sendable {}
 }
 
 private extension Data {

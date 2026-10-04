@@ -110,32 +110,12 @@ public enum HomeListeningRankTrend: Equatable, Sendable {
     case newEntry
 }
 
-/// 榜单怎么摆：前三名站领奖台，其余列成名次榜；横排则是一条封面货架。
+/// 榜单怎么摆：列表是第一名聚光加一张名次卡，横排则是一条封面货架。
 public enum HomeListeningRankBoardPolicy {
-    public static let podiumSize = 3
-    /// 收起时一共露出几名（含领奖台）。
+    /// 前几名的名次数字用主题色。
+    public static let highlightedPlaces = 3
+    /// 收起时一共露出几名（含第一名）。
     public static let collapsedCount = 5
-
-    /// 领奖台从左到右依次站谁（下标即名次 - 1）：亚军、冠军、季军。
-    /// 不足三名时按人数收拢，不给缺席的名次留空台阶。
-    public static func podiumOrder(count: Int) -> [Int] {
-        switch max(0, min(count, podiumSize)) {
-        case 0: return []
-        case 1: return [0]
-        case 2: return [1, 0]
-        default: return [1, 0, 2]
-        }
-    }
-
-    /// 台阶相对冠军台阶的高度。固定三级而不是按播放次数算 —— 前三名次数
-    /// 接近时按比例画出来是一排齐平的柱子，看不出是领奖台。
-    public static func stepHeightFraction(place: Int) -> Double {
-        switch place {
-        case 0: return 1
-        case 1: return 0.68
-        default: return 0.46
-        }
-    }
 
     public static func offersExpansion(total: Int, expandedLimit: Int) -> Bool {
         total > collapsedCount && expandedLimit > collapsedCount
@@ -151,12 +131,6 @@ public enum HomeListeningRankBoardPolicy {
     /// 横排没有展开这一说，直接铺到设置里的名次；设置调到 5 以下也至少铺 5 名。
     public static func shelfCount(total: Int, expandedLimit: Int) -> Int {
         max(0, min(total, max(expandedLimit, collapsedCount)))
-    }
-
-    /// 相对榜首的播放占比，给名次行的底色条用。
-    public static func share(playCount: Int, leaderPlayCount: Int) -> Double {
-        guard leaderPlayCount > 0, playCount > 0 else { return 0 }
-        return min(1, Double(playCount) / Double(leaderPlayCount))
     }
 }
 

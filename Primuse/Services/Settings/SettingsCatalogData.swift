@@ -311,7 +311,6 @@ enum SettingsCatalogData {
         SettingDefinition(id: "diagnostics.shareReport", titleKey: "diagnostics_title", iosPage: .diagnostics, macPage: nil, anchor: "page.diagnostics", macAnchor: "diagnostics.shareReport", hint: "Choose a diagnostic report to share. Reports appear here when available."),
         SettingDefinition(id: "diagnostics.sendReports", titleKey: "diagnostics_send_button", iosPage: .diagnostics, macPage: nil, keywords: ["hi@yzs.ai", "email", "邮箱", "反馈", "建议"]),
         SettingDefinition(id: "diagnostics.clearReports", titleKey: "diagnostics_clear", iosPage: .diagnostics, macPage: nil),
-        SettingDefinition(id: "stats.source", titleKey: "stats_data_source", iosPage: .statistics, macPage: nil),
         SettingDefinition(id: "stats.range", titleKey: "stats_range", iosPage: .statistics, macPage: nil),
         SettingDefinition(id: "stats.rank", titleKey: "rank_by", iosPage: .statistics, macPage: nil),
         SettingDefinition(id: "stats.clear", titleKey: "stats_clear_action", iosPage: .statistics, macPage: nil),

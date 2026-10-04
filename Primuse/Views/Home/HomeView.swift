@@ -2488,7 +2488,7 @@ struct HomeView: View {
     @ViewBuilder
     private func statsGlimpseSection(_ summary: PlayHistoryStore.Summary) -> some View {
         NavigationLink {
-            ListeningStatsView(initialRange: .week, initiallyShowsLocalHistory: true)
+            ListeningStatsView(initialRange: .week)
                 #if os(iOS)
                 .minimalNavigationDetail()
                 #endif
