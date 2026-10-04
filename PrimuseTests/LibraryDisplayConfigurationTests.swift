@@ -1697,6 +1697,76 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
         XCTAssertEqual(snapshot, .notCached)
     }
 
+    /// 开机后第一次解锁前被后台拉起时作用域记录读不出来。读不出来不能当成
+    /// 换了账号去隔离整个源, 要等读得到了再比对。
+    @MainActor
+    func testUnreadableScopeStateDefersValidationInsteadOfQuarantining() async throws {
+        let source = MusicSource(id: UUID().uuidString, name: "Scope fixture", type: .navidrome)
+        let song = Song(id: UUID().uuidString, title: "Scope fixture", fileFormat: .flac,
+                        filePath: "/songs/fixture.flac", sourceID: source.id, fileSize: 128)
+        let caches = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+        let sourceDirectory = caches
+            .appendingPathComponent("primuse_audio_cache", isDirectory: true)
+            .appendingPathComponent(source.id, isDirectory: true)
+        let quarantineDirectory = caches
+            .appendingPathComponent("primuse_audio_cache_quarantine", isDirectory: true)
+            .appendingPathComponent(source.id, isDirectory: true)
+        let scopeStateURL = FileManager.default
+            .primuseDirectoryURL(for: .applicationSupportDirectory)
+            .appendingPathComponent("audio_cache_source_scopes.json")
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o644],
+                ofItemAtPath: scopeStateURL.path
+            )
+            try? FileManager.default.removeItem(at: sourceDirectory)
+            try? FileManager.default.removeItem(at: quarantineDirectory)
+        }
+
+        // 上次运行留下的作用域记录与缓存文件。只建一个实例: 两个实例共用缓存
+        // 管理器的清理代际, 第二个会先被那道门挡住, 测不到隔离。
+        var signatures = (try? JSONDecoder().decode(
+            [String: String].self,
+            from: Data(contentsOf: scopeStateURL)
+        )) ?? [:]
+        signatures[source.id] = MusicSourceSecurityRevision.scopedFingerprint(for: source)
+        try FileManager.default.createDirectory(
+            at: scopeStateURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try JSONEncoder().encode(signatures).write(to: scopeStateURL, options: .atomic)
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        let cachedURL = sourceDirectory.appendingPathComponent("fixture.flac")
+        try Data(repeating: 7, count: 128).write(to: cachedURL)
+
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o000],
+            ofItemAtPath: scopeStateURL.path
+        )
+        XCTAssertThrowsError(try Data(contentsOf: scopeStateURL))
+        let relaunched = SourceManager(sourcesProvider: { [source] }, songsProvider: { [song] })
+        let validatedWhileUnreadable = await relaunched.prepareAutomaticOfflineDownload(
+            song: song,
+            forceRedownload: false
+        )
+        XCTAssertFalse(validatedWhileUnreadable)
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cachedURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: quarantineDirectory.path))
+
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o644],
+            ofItemAtPath: scopeStateURL.path
+        )
+        let readableDeadline = Date().addingTimeInterval(5)
+        while !(await relaunched.prepareAutomaticOfflineDownload(song: song, forceRedownload: false)) {
+            guard Date() < readableDeadline else { throw URLError(.timedOut) }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cachedURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: quarantineDirectory.path))
+    }
+
     func testSourcePurgeGateRejectsLateOlderGenerationAndNewLeases() async {
         let prefix = "scope-gate-\(UUID().uuidString)/"
         let path = prefix + "song.flac"

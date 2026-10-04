@@ -7,13 +7,67 @@ struct AudioCacheEvictionPlanPolicyTests {
     private func candidate(
         _ path: String,
         size: Int64,
-        age: TimeInterval
+        age: TimeInterval,
+        isIncomplete: Bool = false
     ) -> AudioCacheEvictionPlanPolicy.Candidate {
         AudioCacheEvictionPlanPolicy.Candidate(
             relativePath: path,
             size: size,
-            lastUsed: Date(timeIntervalSince1970: age)
+            lastUsed: Date(timeIntervalSince1970: age),
+            isIncomplete: isIncomplete
         )
+    }
+
+    private let now = Date(timeIntervalSince1970: 100_000)
+
+    @Test("Abandoned partial downloads go before older complete files")
+    func planAbandonedIncompleteFirst() {
+        let plan = AudioCacheEvictionPlanPolicy.plan(
+            candidates: [
+                candidate("oldest.flac", size: 100, age: 100),
+                candidate("newer.flac.partial", size: 100, age: 50_000, isIncomplete: true),
+                candidate("older.flac.partial", size: 100, age: 40_000, isIncomplete: true),
+                candidate("middle.flac", size: 100, age: 200),
+            ],
+            excludedPaths: [],
+            neededBytes: 300,
+            now: now
+        )
+        #expect(plan.map(\.relativePath) == [
+            "older.flac.partial",
+            "newer.flac.partial",
+            "oldest.flac",
+        ])
+    }
+
+    @Test("A partial written moments ago is ordered by use like a complete file")
+    func planKeepsFreshIncompleteInLRUOrder() {
+        let fresh = now.timeIntervalSince1970
+            - AudioCacheEvictionPlanPolicy.abandonedIncompleteAge + 1
+        let plan = AudioCacheEvictionPlanPolicy.plan(
+            candidates: [
+                candidate("next.flac.partial", size: 100, age: fresh, isIncomplete: true),
+                candidate("old.flac", size: 100, age: 100),
+            ],
+            excludedPaths: [],
+            neededBytes: 100,
+            now: now
+        )
+        #expect(plan.map(\.relativePath) == ["old.flac"])
+    }
+
+    @Test("Partial downloads still respect the exclusion set")
+    func planSkipsExcludedIncomplete() {
+        let plan = AudioCacheEvictionPlanPolicy.plan(
+            candidates: [
+                candidate("streaming.flac.partial", size: 100, age: 100, isIncomplete: true),
+                candidate("old.flac", size: 100, age: 200),
+            ],
+            excludedPaths: ["streaming.flac.partial"],
+            neededBytes: 100,
+            now: now
+        )
+        #expect(plan.map(\.relativePath) == ["old.flac"])
     }
 
     @Test("Oldest entries are planned first and the plan stops once satisfied")

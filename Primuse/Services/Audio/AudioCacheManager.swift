@@ -51,6 +51,12 @@ enum AudioCachePathFamily {
             OfflineDownloadQualityPolicy.compactRelativePath(forCanonical: path),
         ]
     }
+
+    /// 传输中途的临时文件, 从来不代表一份能播的下载。
+    static func isTransferArtifact(_ path: String) -> Bool {
+        [".partial", ".offline", ".refresh", ".installing",
+         CloudPlaybackSource.prewarmMarkerSuffix].contains(where: path.hasSuffix)
+    }
 }
 
 enum AudioCacheTransferCapacityPolicy {
@@ -395,12 +401,22 @@ actor AudioCacheManager {
     }
 
     private var initialized = false
+    /// 开机后第一次解锁前被后台拉起时, 数据保护让访问记录与离线清单读不出来。
+    /// 读不出来不等于没有: 这期间不写盘(空表会盖掉盘上的记录)、不淘汰(认不出
+    /// 哪些文件是固定的), 每次进来重读, 读到了再和这段时间的新记录合并。
+    private var accessLogAwaitingRead = false
+    private var manifestAwaitingRead = false
+
     private func ensureInitialized() {
-        guard !initialized else { return }
-        initialized = true
-        loadAccessLog()
-        loadOfflineManifest()
-        migrateExistingFiles()
+        guard initialized else {
+            initialized = true
+            loadAccessLog()
+            loadOfflineManifest()
+            migrateExistingFiles()
+            return
+        }
+        if accessLogAwaitingRead { loadAccessLog() }
+        if manifestAwaitingRead { loadOfflineManifest() }
     }
 
     /// 启动后在后台先读访问记录、清点缓存目录。远端歌第一次起播要拿缓存租约,
@@ -1110,6 +1126,8 @@ actor AudioCacheManager {
         ) else { return true }
 
         guard currentSize > target else { return true }
+        // 离线清单还读不出来时认不出哪些文件是固定的, 宁可这次腾不出地方也不能删错。
+        guard !manifestAwaitingRead else { return false }
 
         let protectedPaths = protectedRelativePaths()
         let activeStreamingPaths = activeStreamingRelativePaths()
@@ -1122,16 +1140,20 @@ actor AudioCacheManager {
         var candidates: [AudioCacheEvictionPlanPolicy.Candidate] = []
         candidates.reserveCapacity(trackedFileSizes.count)
         for (relative, size) in trackedFileSizes {
+            let isIncomplete = AudioCachePathFamily.isTransferArtifact(relative)
+            // 半成品闲置多久看最后一次写入; 完整文件看最后一次使用。
+            let lastUsed = isIncomplete
+                ? trackedFileModificationDates[relative] ?? accessLog[relative]
+                : accessLog[relative] ?? trackedFileModificationDates[relative]
             candidates.append(AudioCacheEvictionPlanPolicy.Candidate(
                 relativePath: relative,
                 size: size,
-                lastUsed: accessLog[relative]
-                    ?? trackedFileModificationDates[relative]
-                    ?? .distantPast
+                lastUsed: lastUsed ?? .distantPast,
+                isIncomplete: isIncomplete
             ))
         }
 
-        // 最旧的优先 evict, 攒够 needed 就停。
+        // 中断的半成品先删, 再删最久没用的, 攒够 needed 就停。
         let needed = currentSize - target
         let plan = AudioCacheEvictionPlanPolicy.plan(
             candidates: candidates,
@@ -1139,6 +1161,8 @@ actor AudioCacheManager {
             neededBytes: needed
         )
         var freed: Int64 = 0
+        var removedFiles = 0
+        var removedIncomplete = 0
         for cand in plan {
             if freed >= needed { break }
             // 本方法从快照到删除之间没有挂起点, 活跃流路径不可能变化, 所以
@@ -1153,12 +1177,17 @@ actor AudioCacheManager {
                 let removedSize = trackedFileSizes[cand.relativePath] ?? cand.size
                 removeTrackedPath(cand.relativePath)
                 freed += removedSize
+                removedFiles += 1
+                if cand.isIncomplete { removedIncomplete += 1 }
                 accessLog[cand.relativePath] = nil
             } catch {
                 plog("⚠️ evictIfNeeded: failed to remove \(cand.relativePath): \(error.localizedDescription)")
             }
         }
-        plog("🧹 evictIfNeeded: freed \(freed / 1024 / 1024)MB / needed \(needed / 1024 / 1024)MB")
+        plog(
+            "🧹 evictIfNeeded: freed \(freed / 1024 / 1024)MB / needed \(needed / 1024 / 1024)MB"
+                + " files=\(removedFiles) incomplete=\(removedIncomplete)"
+        )
 
         schedulePersist()
         return AudioCacheTransferCapacityPolicy.isSatisfied(
@@ -1251,6 +1280,29 @@ actor AudioCacheManager {
     /// For files already in cache with no access log entry, use modification date.
     private func migrateExistingFiles() {
         rebuildTrackedInventory(migrateAccessDates: true)
+        pruneRecordsWithoutFiles()
+    }
+
+    /// 两份记录以前每次启动都读丢、按现存文件重建, 等于顺手清掉了已删文件的
+    /// 旧键。现在能读回来了, 启动清点后把整组文件都不在的键删掉。
+    private func pruneRecordsWithoutFiles() {
+        func hasFiles(_ path: String) -> Bool {
+            AudioCachePathFamily.relativePaths(for: path).contains { trackedFileSizes[$0] != nil }
+        }
+        if !accessLogAwaitingRead {
+            let staleKeys = accessLog.keys.filter { !hasFiles($0) }
+            if !staleKeys.isEmpty {
+                for key in staleKeys { accessLog[key] = nil }
+                persistNow()
+            }
+        }
+        if !manifestAwaitingRead {
+            let staleKeys = offlineManifest.keys.filter { !hasFiles($0) }
+            if !staleKeys.isEmpty {
+                for key in staleKeys { offlineManifest[key] = nil }
+                persistManifestNow()
+            }
+        }
     }
 
     private func rebuildTrackedInventory(migrateAccessDates: Bool) {
@@ -1326,9 +1378,7 @@ actor AudioCacheManager {
     }
 
     private func scheduleCacheFileChange(_ path: String) {
-        // Temporary transfer artifacts never represent a playable download.
-        guard ![".partial", ".offline", ".refresh", ".installing",
-                CloudPlaybackSource.prewarmMarkerSuffix].contains(where: path.hasSuffix) else { return }
+        guard !AudioCachePathFamily.isTransferArtifact(path) else { return }
         // 精简副本代表它所属的那首歌: 按原文件缓存的路径通知, 歌曲行才认得出自己。
         changedCompletePaths.insert(
             OfflineDownloadQualityPolicy.canonicalRelativePath(forCompact: path) ?? path
@@ -1377,15 +1427,48 @@ actor AudioCacheManager {
     // MARK: - Persistence
 
     private func loadAccessLog() {
-        guard let data = try? Data(contentsOf: logURL),
-              let log = try? JSONDecoder().decode([String: Date].self, from: data) else { return }
-        accessLog = log
+        let wasAwaitingRead = accessLogAwaitingRead
+        guard let data = Self.readPersistedState(at: logURL, awaitingRead: &accessLogAwaitingRead),
+              let log = try? Self.persistedStateDecoder().decode([String: Date].self, from: data)
+        else { return }
+        // 读不出来那段时间记下的访问, 和盘上的取较新的一次。
+        accessLog.merge(log) { current, persisted in max(current, persisted) }
+        if wasAwaitingRead { schedulePersist() }
     }
 
     private func loadOfflineManifest() {
-        guard let data = try? Data(contentsOf: manifestURL),
-              let manifest = try? JSONDecoder().decode([String: OfflineManifestEntry].self, from: data) else { return }
-        offlineManifest = manifest
+        let wasAwaitingRead = manifestAwaitingRead
+        guard let data = Self.readPersistedState(at: manifestURL, awaitingRead: &manifestAwaitingRead),
+              let manifest = try? Self.persistedStateDecoder()
+                  .decode([String: OfflineManifestEntry].self, from: data)
+        else { return }
+        // 读不出来那段时间新固定、新下载的条目比盘上的新。
+        offlineManifest.merge(manifest) { current, _ in current }
+        if wasAwaitingRead {
+            scheduleManifestPersist()
+            plog("🗄️ audio cache offline manifest readable again entries=\(manifest.count)")
+        }
+    }
+
+    /// 文件在却读不出字节时记为等待重读; 不存在或读到了都算读完。
+    private static func readPersistedState(at url: URL, awaitingRead: inout Bool) -> Data? {
+        do {
+            let data = try Data(contentsOf: url)
+            awaitingRead = false
+            return data
+        } catch {
+            awaitingRead = FileManager.default.fileExists(atPath: url.path)
+            return nil
+        }
+    }
+
+    /// 两份记录一直按 ISO8601 写日期, 读时必须用同一种。曾经用默认解码器
+    /// (只认数字时间戳), 只要有一个日期整份就解不出来, 每次启动访问时间与
+    /// 离线固定全丢, 固定过的歌退成普通缓存, 缓存满了就被淘汰。
+    private static func persistedStateDecoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
     }
 
     private func schedulePersist() {
@@ -1407,6 +1490,7 @@ actor AudioCacheManager {
     }
 
     private func persistNow() {
+        guard !accessLogAwaitingRead else { return }
         try? FileManager.default.createDirectory(at: basePath, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -1415,6 +1499,7 @@ actor AudioCacheManager {
     }
 
     private func persistManifestNow() {
+        guard !manifestAwaitingRead else { return }
         try? FileManager.default.createDirectory(at: basePath, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601

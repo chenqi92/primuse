@@ -3154,6 +3154,7 @@ final class SourceManager {
     @ObservationIgnored private var knownCredentialScopeFingerprints: [String: String] = [:]
     @ObservationIgnored private var legacyAudioCacheAdoptionSourceIDs: Set<String>
     @ObservationIgnored private var needsLegacyAudioCacheAdoptionDiscovery: Bool
+    @ObservationIgnored private var audioCacheScopeStateAwaitingRead: Bool
     @ObservationIgnored private var validatedAudioCacheSourceIDs: Set<String> = []
     @ObservationIgnored private var blockedAudioCacheSourceIDs: Set<String> = []
     @ObservationIgnored private var audioCacheScopeGenerationBySourceID: [String: Int] = [:]
@@ -3179,6 +3180,7 @@ final class SourceManager {
             initialCacheScopeState.credentialSignatures
         self.legacyAudioCacheAdoptionSourceIDs = initialCacheScopeState.legacyAdoptionSourceIDs
         self.needsLegacyAudioCacheAdoptionDiscovery = initialCacheScopeState.needsLegacyDiscovery
+        self.audioCacheScopeStateAwaitingRead = initialCacheScopeState.awaitingRead
         self.sourcesProvider = {
             try await database.allSources()
         }
@@ -3198,6 +3200,7 @@ final class SourceManager {
             initialCacheScopeState.credentialSignatures
         self.legacyAudioCacheAdoptionSourceIDs = initialCacheScopeState.legacyAdoptionSourceIDs
         self.needsLegacyAudioCacheAdoptionDiscovery = initialCacheScopeState.needsLegacyDiscovery
+        self.audioCacheScopeStateAwaitingRead = initialCacheScopeState.awaitingRead
         self.connectorFactory = connectorFactory
         self.sourcesProvider = sourcesProvider
         self.songsProvider = songsProvider
@@ -6051,6 +6054,9 @@ final class SourceManager {
         var credentialSignatures: [String: String]
         var legacyAdoptionSourceIDs: Set<String>
         var needsLegacyDiscovery: Bool
+        /// 有记录文件在却读不出字节。开机后第一次解锁前被后台拉起就是这样
+        /// (数据保护), 这时的空表不代表「从没记录过」。
+        var awaitingRead = false
     }
 
     private nonisolated static var audioCacheScopeStateURL: URL {
@@ -6077,9 +6083,18 @@ final class SourceManager {
     private nonisolated static func loadInitialAudioCacheScopeState()
         -> InitialAudioCacheScopeState {
         let fileManager = FileManager.default
+        var awaitingRead = false
+        func readStateFile(_ url: URL) -> Data? {
+            do {
+                return try Data(contentsOf: url)
+            } catch {
+                if fileManager.fileExists(atPath: url.path) { awaitingRead = true }
+                return nil
+            }
+        }
         let scopeStateExists = fileManager.fileExists(atPath: audioCacheScopeStateURL.path)
         let signatures: [String: String]
-        if let data = try? Data(contentsOf: audioCacheScopeStateURL),
+        if let data = readStateFile(audioCacheScopeStateURL),
            let decoded = try? JSONDecoder().decode([String: String].self, from: data) {
             signatures = decoded
         } else {
@@ -6087,7 +6102,7 @@ final class SourceManager {
         }
 
         let credentialSignatures: [String: String]
-        if let data = try? Data(contentsOf: audioCacheCredentialScopeStateURL),
+        if let data = readStateFile(audioCacheCredentialScopeStateURL),
            let decoded = try? JSONDecoder().decode([String: String].self, from: data) {
             credentialSignatures = decoded
         } else {
@@ -6097,7 +6112,7 @@ final class SourceManager {
         let adoptionStateExists = fileManager.fileExists(
             atPath: legacyAudioCacheAdoptionStateURL.path
         )
-        if let data = try? Data(contentsOf: legacyAudioCacheAdoptionStateURL),
+        if let data = readStateFile(legacyAudioCacheAdoptionStateURL),
            let state = try? JSONDecoder().decode(
                LegacyAudioCacheAdoptionState.self,
                from: data
@@ -6107,19 +6122,38 @@ final class SourceManager {
                 signatures: signatures,
                 credentialSignatures: credentialSignatures,
                 legacyAdoptionSourceIDs: state.pendingSourceIDs,
-                needsLegacyDiscovery: false
+                needsLegacyDiscovery: false,
+                awaitingRead: awaitingRead
             )
         }
 
         // Only the complete absence of both files identifies an installation
         // upgrading from a version that predates source-scoped cache state.
-        // A corrupt/unreadable state stays fail-closed and is quarantined.
+        // A corrupt state stays fail-closed and is quarantined; one that exists
+        // but cannot be read yet is re-read before any source is reconciled.
         return InitialAudioCacheScopeState(
             signatures: signatures,
             credentialSignatures: credentialSignatures,
             legacyAdoptionSourceIDs: [],
-            needsLegacyDiscovery: !scopeStateExists && !adoptionStateExists
+            needsLegacyDiscovery: !scopeStateExists && !adoptionStateExists,
+            awaitingRead: awaitingRead
         )
+    }
+
+    /// 启动时作用域记录读不出来, 内存里那份空表拿去比对, 每个源都会被当成换了
+    /// 账号、整个缓存目录被隔离 —— 用户看到的就是缓存一下子全没了。能读了就
+    /// 换成盘上的再比对; 还读不出来就等下一轮, 期间这个源的缓存只是暂不可读。
+    private func reloadAudioCacheScopeStateIfAwaitingRead() -> Bool {
+        guard audioCacheScopeStateAwaitingRead else { return true }
+        let state = Self.loadInitialAudioCacheScopeState()
+        guard !state.awaitingRead else { return false }
+        recordedAudioCacheScopeSignatures = state.signatures
+        recordedAudioCacheCredentialScopeSignatures = state.credentialSignatures
+        legacyAudioCacheAdoptionSourceIDs = state.legacyAdoptionSourceIDs
+        needsLegacyAudioCacheAdoptionDiscovery = state.needsLegacyDiscovery
+        audioCacheScopeStateAwaitingRead = false
+        plog("🛡️ Audio cache source-scope state readable again sources=\(state.signatures.count)")
+        return true
     }
 
     /// Writes the route-insensitive record first. If only that write lands, the
@@ -6191,7 +6225,7 @@ final class SourceManager {
     private func discoverLegacyAudioCacheAdoptionCandidatesIfNeeded(
         from sources: [MusicSource]
     ) {
-        guard needsLegacyAudioCacheAdoptionDiscovery else { return }
+        guard needsLegacyAudioCacheAdoptionDiscovery, !audioCacheScopeStateAwaitingRead else { return }
         legacyAudioCacheAdoptionSourceIDs = Set(
             sources.lazy.filter { !$0.isDeleted }.map(\.id)
         )
@@ -6587,6 +6621,9 @@ final class SourceManager {
             return .finishedBlocked
         }
         guard let sources = try? await sourcesProvider() else { return .retry }
+        // 记录真读到了才能下「不符」的结论, 读不出来不等于换了账号。
+        // (账号纪元读不出来时 hasPendingChange 已经按有待定变更挡住了。)
+        guard reloadAudioCacheScopeStateIfAwaitingRead() else { return .retry }
         discoverLegacyAudioCacheAdoptionCandidatesIfNeeded(from: sources)
         guard (audioCacheScopeGenerationBySourceID[sourceID] ?? 0) == generation else {
             return .finishedBlocked
