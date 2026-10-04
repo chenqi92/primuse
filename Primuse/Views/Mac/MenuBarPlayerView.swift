@@ -19,6 +19,7 @@ struct MenuBarPlayerView: View {
     @AppStorage(MacMenuBarController.lyricsEnabledKey) private var menuBarLyricsEnabled = false
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
+    @State private var equalizerPanelShown = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -73,6 +74,11 @@ struct MenuBarPlayerView: View {
             menuRow(icon: "arrow.up.left.and.arrow.down.right", title: "full_screen_player",
                     shortcut: shortcut(.toggleFullScreenPlayer)) {
                 PrimuseAppDelegate.shared?.toggleFullScreenPlayer()
+            }
+
+            // Apple Music 由系统播放器出声,投放时由对方设备出声,都不经过本机均衡器。
+            if !player.isAppleMusicMode, player.castingRenderer == nil {
+                equalizerRow
             }
 
             Divider().background(PMColor.divider).padding(.vertical, 2)
@@ -287,6 +293,61 @@ struct MenuBarPlayerView: View {
 
     private func shortcutHelp(_ action: MacKeyboardShortcutAction) -> Text {
         Text(verbatim: action.localizedTitle) + shortcutSuffix(action)
+    }
+
+    /// 均衡器:和播放器「更多」共用第二层面板,行尾带着当前值。高保真直通的图里没有均衡器,
+    /// 这一行画成灰的、第二行写明原因,但仍然能点,第二层先说明原因并可切到音效输出。
+    private var equalizerRow: some View {
+        let isBypassed = player.outputMode(for: player.currentSong) == .highFidelity
+        return Button { equalizerPanelShown.toggle() } label: {
+            HStack(spacing: 9) {
+                // 和其它行的勾选列对齐。
+                Color.clear.frame(width: 11, height: 1)
+                Image(systemName: "slider.vertical.3")
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(isBypassed ? PMColor.textFaint : PMColor.textMuted)
+                    .frame(width: 14)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("equalizer")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(isBypassed ? PMColor.textMuted : PMColor.text)
+                    if isBypassed {
+                        Text("eq_menu_high_fidelity_unavailable")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(PMColor.textFaint)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                // 预设名长时先截它,别把「均衡器」截掉。
+                .layoutPriority(1)
+                Spacer(minLength: 8)
+                if !isBypassed {
+                    Text(verbatim: player.equalizerService.menuSelectionTitle)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(PMColor.textFaint)
+                        .lineLimit(1)
+                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(PMColor.textFaint)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(MenuBarActionButtonStyle())
+        .pmPointingHand()
+        .popover(isPresented: $equalizerPanelShown, arrowEdge: .leading) {
+            MacEqualizerMenuPanel(
+                player: player,
+                onPicked: { equalizerPanelShown = false },
+                onAdjust: {
+                    equalizerPanelShown = false
+                    SettingsWindowController.shared.show(tab: .equalizer)
+                }
+            )
+        }
     }
 
     private func menuRow(icon: String, title: LocalizedStringKey,

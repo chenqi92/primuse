@@ -49,8 +49,6 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var menuShown = false
     @State private var fontPickerShown = false
     @State private var equalizerPickerShown = false
-    /// 高保真直通时点了均衡器,说明为什么不生效。
-    @State private var showEqualizerBypassNotice = false
     /// 播客单集的详情(「转到这本书」对单集是空页, 换成这一页)。
     @State private var podcastSheet: PodcastPlayerSheetTarget?
 
@@ -160,10 +158,6 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             Text(sourceLyricsReloadAlertMessage ?? "")
         }
         .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
-        .equalizerHighFidelityNotice(
-            isPresented: $showEqualizerBypassNotice,
-            playbackSettings: player.playbackSettings
-        )
         .alert(String(localized: "delete_song"), isPresented: $showDeleteConfirm) {
             Button(String(localized: "cancel"), role: .cancel) {}
             Button(String(localized: "delete"), role: .destructive) { deleteCurrentSong() }
@@ -603,18 +597,10 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     }
 
     /// 均衡器 —— 和字号一样用 popover 打开第二层,行尾带着当前值。高保真直通的图里
-    /// 没有均衡器:整行画成灰的、第二行写明原因,但仍然能点,点了弹说明,可一键切到音效输出。
+    /// 没有均衡器:整行画成灰的、第二行写明原因,但仍然能点,第二层先说明原因。
     private var equalizerRow: some View {
-        let eq = player.equalizerService
         let isBypassed = player.outputMode(for: player.currentSong) == .highFidelity
-        return Button {
-            if isBypassed {
-                menuShown = false
-                showEqualizerBypassNotice = true
-            } else {
-                equalizerPickerShown.toggle()
-            }
-        } label: {
+        return Button { equalizerPickerShown.toggle() } label: {
             HStack(spacing: 10) {
                 Image(systemName: "slider.vertical.3").frame(width: 18)
                     .foregroundStyle(isBypassed ? PMColor.textFaint : PMColor.textMuted)
@@ -634,12 +620,12 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 .layoutPriority(1)
                 Spacer(minLength: 8)
                 if !isBypassed {
-                    Text(verbatim: eq.menuSelectionTitle)
+                    Text(verbatim: player.equalizerService.menuSelectionTitle)
                         .font(.caption)
                         .foregroundStyle(PMColor.textMuted)
                         .lineLimit(1)
-                    Image(systemName: "chevron.right").font(.caption2).foregroundStyle(PMColor.textFaint)
                 }
+                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(PMColor.textFaint)
             }
             .padding(.horizontal, 12).padding(.vertical, 6)
             .pmRowBackground(cornerRadius: 6)
@@ -647,83 +633,16 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         }
         .buttonStyle(.plain)
         .popover(isPresented: $equalizerPickerShown, arrowEdge: .leading) {
-            equalizerPopover
-        }
-    }
-
-    @ViewBuilder
-    private var equalizerPopover: some View {
-        let presets = player.equalizerService.menuPresets
-        // 自己存的预设多了,中间这段改成滚动,别把浮层撑出屏幕。
-        let visibleRows = 14
-        VStack(alignment: .leading, spacing: 0) {
-            equalizerPickerRow(String(localized: "eq_menu_off"), id: EqualizerService.menuOffID)
-            divider()
-            if presets.count > visibleRows {
-                ScrollView {
-                    equalizerPresetRows(presets)
+            MacEqualizerMenuPanel(
+                player: player,
+                onPicked: { equalizerPickerShown = false },
+                onAdjust: {
+                    equalizerPickerShown = false
+                    menuShown = false
+                    SettingsWindowController.shared.show(tab: .equalizer)
                 }
-                .frame(height: CGFloat(visibleRows) * 28)
-            } else {
-                equalizerPresetRows(presets)
-            }
-            divider()
-            Button {
-                equalizerPickerShown = false
-                menuShown = false
-                SettingsWindowController.shared.show(tab: .equalizer)
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "slider.horizontal.3").frame(width: 18)
-                        .foregroundStyle(PMColor.textMuted)
-                    Text("eq_menu_adjust")
-                        .font(.callout)
-                        .foregroundStyle(PMColor.text)
-                    Spacer()
-                }
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .pmRowBackground(cornerRadius: 6)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
+            )
         }
-        .padding(.vertical, 6)
-        .frame(width: 210)
-        .focusEffectDisabled()
-    }
-
-    private func equalizerPresetRows(_ presets: [EQPreset]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(presets) { preset in
-                equalizerPickerRow(preset.localizedName, id: preset.id)
-            }
-        }
-    }
-
-    private func equalizerPickerRow(_ title: String, id: String) -> some View {
-        let isSelected = player.equalizerService.menuSelectionID == id
-        return Button {
-            player.equalizerService.selectFromMenu(id)
-            equalizerPickerShown = false
-        } label: {
-            HStack {
-                Text(verbatim: title)
-                    .font(.callout)
-                    .foregroundStyle(PMColor.text)
-                    .lineLimit(1)
-                Spacer()
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.caption)
-                        .foregroundStyle(PMColor.brand)
-                }
-            }
-            .padding(.horizontal, 12).padding(.vertical, 6)
-            .pmRowBackground(cornerRadius: 6)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var fontPickerPopover: some View {
@@ -961,6 +880,128 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     private func openSettingsWindow() {
         NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
+/// 均衡器的第二层,播放器「更多」与菜单栏面板共用:「关闭」、预设(与均衡器页的卡片同序)、
+/// 「调整均衡器…」。高保真直通的图里没有均衡器,这时先说明原因、给一个切到音效输出的按钮;
+/// 切过去播放图当场重建,这一层随即换成预设列表,接着就能选。
+struct MacEqualizerMenuPanel: View {
+    let player: AudioPlayerService
+    let onPicked: () -> Void
+    let onAdjust: () -> Void
+
+    private var eq: EqualizerService { player.equalizerService }
+
+    var body: some View {
+        Group {
+            if player.outputMode(for: player.currentSong) == .highFidelity {
+                bypassNotice
+            } else {
+                presetList
+            }
+        }
+        .padding(.vertical, 6)
+        .focusEffectDisabled()
+    }
+
+    private var bypassNotice: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("eq_high_fidelity_alert_title")
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(PMColor.text)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("eq_high_fidelity_alert_message")
+                .font(.caption)
+                .foregroundStyle(PMColor.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("eq_use_effects_output") {
+                player.playbackSettings.outputMode = .effects
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .padding(.top, 2)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+        .frame(width: 250, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var presetList: some View {
+        let presets = eq.menuPresets
+        // 自己存的预设多了,中间这段改成滚动,别把浮层撑出屏幕。
+        let visibleRows = 14
+        VStack(alignment: .leading, spacing: 0) {
+            pickerRow(String(localized: "eq_menu_off"), id: EqualizerService.menuOffID)
+            divider
+            if presets.count > visibleRows {
+                ScrollView {
+                    presetRows(presets)
+                }
+                .frame(height: CGFloat(visibleRows) * 28)
+            } else {
+                presetRows(presets)
+            }
+            divider
+            Button(action: onAdjust) {
+                HStack(spacing: 10) {
+                    Image(systemName: "slider.horizontal.3").frame(width: 18)
+                        .foregroundStyle(PMColor.textMuted)
+                    Text("eq_menu_adjust")
+                        .font(.callout)
+                        .foregroundStyle(PMColor.text)
+                    Spacer()
+                }
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .pmRowBackground(cornerRadius: 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(width: 210)
+    }
+
+    private func presetRows(_ presets: [EQPreset]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(presets) { preset in
+                pickerRow(preset.localizedName, id: preset.id)
+            }
+        }
+    }
+
+    private func pickerRow(_ title: String, id: String) -> some View {
+        let isSelected = eq.menuSelectionID == id
+        return Button {
+            eq.selectFromMenu(id)
+            onPicked()
+        } label: {
+            HStack {
+                Text(verbatim: title)
+                    .font(.callout)
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
+                Spacer()
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.caption)
+                        .foregroundStyle(PMColor.brand)
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .pmRowBackground(cornerRadius: 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var divider: some View {
+        Rectangle()
+            .fill(PMColor.divider)
+            .frame(height: 0.5)
+            .padding(.vertical, 4)
+            .padding(.horizontal, 8)
     }
 }
 
