@@ -2501,6 +2501,7 @@
 "lyrics_transcription_builtin_needs_relay" = "Увімкніть вбудований AI у розділі «Інтелект», щоб використовувати його для транскрипції пісень.";
 "lyrics_transcription_builtin_not_offered" = "Вбудований AI поки не підтримує транскрипцію пісень. Поки що можна використовувати власний ключ Google API.";
 "ai_audio_transcription_limit_reached" = "Транскрипції пісень на сьогодні вичерпано. Спробуйте завтра або перейдіть у налаштуваннях на власний ключ Google API.";
+"ai_audio_transcription_monthly_limit_reached" = "Транскрипції пісень на цей місяць вичерпано. Вони повернуться наступного місяця, або перейдіть у налаштуваннях на власний ключ Google API.";
 "ai_audio_transcription_too_long" = "Вбудований AI розпізнає лише пісні до 10 хвилин.";
 "Album" = "Альбом";
 "songs_found" = "пісень";
@@ -3801,6 +3802,7 @@
 "credential_temporarily_unavailable" = "Пароль тимчасово недоступний. Розблокуйте пристрій і повторіть спробу.";
 "offline_remove_song_cache" = "Видалити кеш пісні";
 "ai_recommendation_status_daily_limit_local" = "Сьогоднішня квота інтелектуальних послуг вичерпана; існуючі рекомендації збережено";
+"ai_recommendation_status_monthly_limit_local" = "Квота інтелектуальних послуг на цей місяць вичерпана; існуючі рекомендації збережено";
 "reread_song_tags_failure_requires_complete_technical_read" = "Заголовок файлу було прочитано, але надійні технічні характеристики вимагають повної перевірки файлу.";
 "synology_password_edit_validation_hint" = "Паролі Synology перевіряються та оновлюються під час підключення; поточний пароль залишається незмінним.";
 "scrobble_mac_rules_title" = "Правила подання";
@@ -5260,6 +5262,7 @@
 "ai_song_discovery_failed_busy" = "Сервіс ШІ зайнятий. Спробуйте пізніше.";
 "ai_song_discovery_failed_minute_limit" = "Забагато запитів. Спробуйте пізніше.";
 "ai_song_discovery_failed_daily_limit" = "Добірки нових пісень на сьогодні вичерпано. Повертайтеся завтра.";
+"ai_song_discovery_failed_monthly_limit" = "Добірки нових пісень на цей місяць вичерпано. Повертайтеся наступного місяця.";
 "ai_song_discovery_failed_region" = "Цей сервіс ШІ недоступний у вашому регіоні.";
 "ai_song_discovery_failed_network" = "Немає підключення до мережі. Перевірте мережу й спробуйте знову.";
 "ai_song_discovery_failed_empty" = "Цього разу ШІ нічого не запропонував. Виберіть інший жанр або спробуйте пізніше.";
@@ -5284,6 +5287,7 @@
 "library_insight_not_configured" = "Поки немає доступного сервісу ШІ. Увімкніть вбудований ШІ або додайте свій сервіс у налаштуваннях ШІ й спробуйте знову.";
 "library_insight_builtin_not_offered" = "Вбудований ШІ поки не вміє писати описи. Свій сервіс ШІ можна додати в налаштуваннях ШІ.";
 "library_insight_failed_daily_limit" = "Описи на сьогодні вичерпано. Повертайтеся завтра.";
+"library_insight_failed_monthly_limit" = "Описи на цей місяць вичерпано. Повертайтеся наступного місяця.";
 
 /* Editable album and artist intros */
 "library_insight_edit" = "Змінити";

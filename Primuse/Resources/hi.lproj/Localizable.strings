@@ -754,6 +754,7 @@
 "ai_recommendation_status_busy_local" = "इंटेलिजेंट सेवा व्यस्त है; मौजूदा सिफ़ारिशें सुरक्षित रखी गईं";
 "ai_recommendation_status_cached_format" = "%@ · हाल के परिणाम %@ के लिए पुन: उपयोग किए गए";
 "ai_recommendation_status_daily_limit_local" = "आज का बुद्धिमान सेवा कोटा समाप्त हो गया है; मौजूदा सिफ़ारिशें सुरक्षित रखी गईं";
+"ai_recommendation_status_monthly_limit_local" = "इस महीने का बुद्धिमान सेवा कोटा समाप्त हो गया है; मौजूदा सिफ़ारिशें सुरक्षित रखी गईं";
 "ai_recommendation_status_device_registration_local" = "डिवाइस पंजीकरण विफल; मौजूदा सिफ़ारिशें सुरक्षित रखी गईं";
 "ai_recommendation_status_failed_local" = "इंटेलिजेंट सेवा अनुपलब्ध है; मौजूदा सिफ़ारिशें सुरक्षित रखी गईं";
 "ai_recommendation_status_fallback_format" = "प्राथमिक अनुपलब्ध; %@ ने %@ के लिए पदभार संभाला";
@@ -2043,6 +2044,7 @@
 "lyrics_transcription_builtin_needs_relay" = "गाने के ट्रांसक्रिप्शन के लिए इंटेलिजेंस में अंतर्निहित एआई चालू करें।";
 "lyrics_transcription_builtin_not_offered" = "अंतर्निहित एआई अभी गाने का ट्रांसक्रिप्शन नहीं देता। फ़िलहाल आप अपनी Google API कुंजी इस्तेमाल कर सकते हैं।";
 "ai_audio_transcription_limit_reached" = "आज के गाने के ट्रांसक्रिप्शन खत्म हो गए हैं। कल फिर कोशिश करें या सेटिंग्स में अपनी Google API कुंजी पर जाएँ।";
+"ai_audio_transcription_monthly_limit_reached" = "इस महीने के गाने के ट्रांसक्रिप्शन खत्म हो गए हैं। ये अगले महीने फिर मिलेंगे, या सेटिंग्स में अपनी Google API कुंजी पर जाएँ।";
 "ai_audio_transcription_too_long" = "अंतर्निहित एआई केवल 10 मिनट तक के गाने ट्रांसक्राइब कर सकता है।";
 "lyrics_transcription_consent_footer" = "ऑडियो केवल तभी अपलोड किया जाता है जब आप स्पष्ट रूप से ट्रांसक्रिप्शन शुरू करते हैं। संपादन योग्य परिणाम तब तक सहेजा नहीं जाता जब तक आप इसकी पुष्टि नहीं कर देते।";
 "lyrics_transcription_enabled" = "गीत प्रतिलेखन की अनुमति दें";
@@ -5260,6 +5262,7 @@
 "ai_song_discovery_failed_busy" = "AI सेवा व्यस्त है। बाद में कोशिश करें।";
 "ai_song_discovery_failed_minute_limit" = "बहुत ज़्यादा अनुरोध। बाद में कोशिश करें।";
 "ai_song_discovery_failed_daily_limit" = "आज के नए गानों के सुझाव खत्म हो गए। कल फिर आएँ।";
+"ai_song_discovery_failed_monthly_limit" = "इस महीने के नए गानों के सुझाव खत्म हो गए। अगले महीने फिर आएँ।";
 "ai_song_discovery_failed_region" = "यह AI सेवा आपके क्षेत्र में उपलब्ध नहीं है।";
 "ai_song_discovery_failed_network" = "नेटवर्क कनेक्शन नहीं है। नेटवर्क जाँचें और दोबारा कोशिश करें।";
 "ai_song_discovery_failed_empty" = "इस बार AI ने कुछ नहीं सुझाया। कोई दूसरी शैली चुनें या बाद में कोशिश करें।";
@@ -5284,6 +5287,7 @@
 "library_insight_not_configured" = "अभी कोई AI सेवा उपलब्ध नहीं है। बिल्ट-इन AI चालू करें या AI सेटिंग्स में अपनी सेवा जोड़ें, फिर दोबारा कोशिश करें।";
 "library_insight_builtin_not_offered" = "बिल्ट-इन AI अभी परिचय नहीं लिख सकता। आप AI सेटिंग्स में अपनी AI सेवा जोड़ सकते हैं।";
 "library_insight_failed_daily_limit" = "आज के परिचय खत्म हो गए। कल फिर आएँ।";
+"library_insight_failed_monthly_limit" = "इस महीने के परिचय खत्म हो गए। अगले महीने फिर आएँ।";
 
 /* Editable album and artist intros */
 "library_insight_edit" = "संपादित करें";

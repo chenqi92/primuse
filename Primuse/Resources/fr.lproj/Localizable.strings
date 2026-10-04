@@ -3278,6 +3278,7 @@
 "ai_recommendation_status_busy_local" = "Service intelligent occupé ; recommandations existantes conservées";
 "ai_recommendation_status_minute_limit_local" = "Trop de requêtes. Réessayez plus tard ; recommandations existantes conservées";
 "ai_recommendation_status_daily_limit_local" = "Quota quotidien du service intelligent épuisé ; recommandations existantes conservées";
+"ai_recommendation_status_monthly_limit_local" = "Quota mensuel du service intelligent épuisé ; recommandations existantes conservées";
 "ai_recommendation_status_region_restricted_local" = "Service intelligent indisponible dans cette région ; recommandations existantes conservées";
 "ai_recommendation_status_device_registration_local" = "Échec de l’enregistrement de l’appareil ; recommandations existantes conservées";
 "ai_recommendation_status_authentication_local" = "Échec de l’authentification du service intelligent ; recommandations existantes conservées";
@@ -3619,6 +3620,7 @@
 "lyrics_transcription_builtin_needs_relay" = "Activez l’IA intégrée dans « Fonctions intelligentes » pour l’utiliser pour la transcription de morceaux.";
 "lyrics_transcription_builtin_not_offered" = "L’IA intégrée ne propose pas encore la transcription de morceaux. Vous pouvez utiliser votre propre clé API Google en attendant.";
 "ai_audio_transcription_limit_reached" = "Vous avez utilisé toutes les transcriptions de morceaux d’aujourd’hui. Réessayez demain ou passez à votre propre clé API Google dans les réglages.";
+"ai_audio_transcription_monthly_limit_reached" = "Vous avez utilisé toutes les transcriptions de morceaux de ce mois. Elles reviennent le mois prochain, ou passez à votre propre clé API Google dans les réglages.";
 "ai_audio_transcription_too_long" = "L’IA intégrée ne peut transcrire que des morceaux de 10 minutes maximum.";
 
 // macOS settings and shared labels
@@ -5354,6 +5356,7 @@
 "ai_song_discovery_failed_busy" = "Le service d’IA est occupé. Réessayez plus tard.";
 "ai_song_discovery_failed_minute_limit" = "Trop de requêtes. Réessayez plus tard.";
 "ai_song_discovery_failed_daily_limit" = "Les suggestions de nouveaux titres sont épuisées pour aujourd’hui. Revenez demain.";
+"ai_song_discovery_failed_monthly_limit" = "Les suggestions de nouveaux titres sont épuisées pour ce mois. Revenez le mois prochain.";
 "ai_song_discovery_failed_region" = "Ce service d’IA n’est pas disponible dans votre région.";
 "ai_song_discovery_failed_network" = "Aucune connexion réseau. Vérifiez votre réseau et réessayez.";
 "ai_song_discovery_failed_empty" = "L’IA n’a rien suggéré cette fois. Choisissez un autre genre ou réessayez plus tard.";
@@ -5378,6 +5381,7 @@
 "library_insight_not_configured" = "Aucun service d’IA disponible. Activez l’IA intégrée ou ajoutez votre propre service dans les réglages IA, puis réessayez.";
 "library_insight_builtin_not_offered" = "L’IA intégrée ne peut pas encore rédiger de présentations. Vous pouvez ajouter votre propre service d’IA dans les réglages IA.";
 "library_insight_failed_daily_limit" = "Les présentations du jour sont épuisées. Revenez demain.";
+"library_insight_failed_monthly_limit" = "Les présentations de ce mois sont épuisées. Revenez le mois prochain.";
 
 /* Editable album and artist intros */
 "library_insight_edit" = "Modifier";

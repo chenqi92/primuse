@@ -754,6 +754,7 @@
 "ai_recommendation_status_busy_local" = "الخدمة الذكية مشغولة؛ تم الحفاظ على التوصيات الحالية";
 "ai_recommendation_status_cached_format" = "%@ · إعادة استخدام النتائج الأخيرة لـ %@";
 "ai_recommendation_status_daily_limit_local" = "تم استنفاد حصة الخدمة الذكية اليوم؛ تم الحفاظ على التوصيات الحالية";
+"ai_recommendation_status_monthly_limit_local" = "تم استنفاد حصة الخدمة الذكية لهذا الشهر؛ تم الحفاظ على التوصيات الحالية";
 "ai_recommendation_status_device_registration_local" = "فشل تسجيل الجهاز؛ تم الحفاظ على التوصيات الحالية";
 "ai_recommendation_status_failed_local" = "الخدمة الذكية غير متوفرة؛ تم الحفاظ على التوصيات الحالية";
 "ai_recommendation_status_fallback_format" = "الابتدائي غير متاح؛ %@ استحوذ على %@";
@@ -2043,6 +2044,7 @@
 "lyrics_transcription_builtin_needs_relay" = "شغّل الذكاء الاصطناعي المدمج من «الميزات الذكية» لاستخدامه في نسخ الأغاني.";
 "lyrics_transcription_builtin_not_offered" = "لا يوفّر الذكاء الاصطناعي المدمج نسخ الأغاني بعد. يمكنك استخدام مفتاح Google API الخاص بك حاليًا.";
 "ai_audio_transcription_limit_reached" = "استنفدت عمليات نسخ الأغاني لهذا اليوم. حاول مجددًا غدًا أو انتقل إلى مفتاح Google API الخاص بك من الإعدادات.";
+"ai_audio_transcription_monthly_limit_reached" = "استنفدت عمليات نسخ الأغاني لهذا الشهر. تعود في الشهر القادم، أو انتقل إلى مفتاح Google API الخاص بك من الإعدادات.";
 "ai_audio_transcription_too_long" = "يمكن للذكاء الاصطناعي المدمج نسخ الأغاني التي لا تتجاوز 10 دقائق فقط.";
 "lyrics_transcription_consent_footer" = "لا يتم تحميل الصوت إلا بعد بدء النسخ بشكل صريح. لا يتم حفظ النتيجة القابلة للتحرير حتى تقوم بتأكيدها.";
 "lyrics_transcription_enabled" = "السماح بنسخ الأغنية";
@@ -5260,6 +5262,7 @@
 "ai_song_discovery_failed_busy" = "خدمة الذكاء الاصطناعي مشغولة. حاول لاحقًا.";
 "ai_song_discovery_failed_minute_limit" = "طلبات كثيرة جدًا. حاول لاحقًا.";
 "ai_song_discovery_failed_daily_limit" = "نفدت اقتراحات الأغاني الجديدة لهذا اليوم. عد غدًا.";
+"ai_song_discovery_failed_monthly_limit" = "نفدت اقتراحات الأغاني الجديدة لهذا الشهر. عد الشهر القادم.";
 "ai_song_discovery_failed_region" = "خدمة الذكاء الاصطناعي هذه غير متاحة في منطقتك.";
 "ai_song_discovery_failed_network" = "لا يوجد اتصال بالشبكة. تحقق من الشبكة وحاول مجددًا.";
 "ai_song_discovery_failed_empty" = "لم يقترح الذكاء الاصطناعي شيئًا هذه المرة. اختر نوعًا آخر أو حاول لاحقًا.";
@@ -5284,6 +5287,7 @@
 "library_insight_not_configured" = "لا تتوفر خدمة ذكاء اصطناعي بعد. شغّل الذكاء الاصطناعي المدمج أو أضف خدمتك الخاصة في إعدادات الذكاء الاصطناعي ثم حاول مجددًا.";
 "library_insight_builtin_not_offered" = "لا يستطيع الذكاء الاصطناعي المدمج كتابة النبذات بعد. يمكنك إضافة خدمتك الخاصة في إعدادات الذكاء الاصطناعي.";
 "library_insight_failed_daily_limit" = "نفدت النبذات لهذا اليوم. عد غدًا.";
+"library_insight_failed_monthly_limit" = "نفدت النبذات لهذا الشهر. عد الشهر القادم.";
 
 /* Editable album and artist intros */
 "library_insight_edit" = "تعديل";

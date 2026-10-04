@@ -3263,6 +3263,7 @@
 "ai_recommendation_status_busy_local" = "智能服務忙碌中，已保留現有推薦";
 "ai_recommendation_status_minute_limit_local" = "請求過於頻繁，請稍後再試；已保留現有推薦";
 "ai_recommendation_status_daily_limit_local" = "今日智能服務額度已用完，已保留現有推薦";
+"ai_recommendation_status_monthly_limit_local" = "本月智能服務次數已用完，已保留現有推薦";
 "ai_recommendation_status_region_restricted_local" = "目前地區暫不提供智能服務，已保留現有推薦";
 "ai_recommendation_status_device_registration_local" = "裝置註冊失敗，已保留現有推薦";
 "ai_recommendation_status_authentication_local" = "智能服務驗證失敗，已保留現有推薦";
@@ -3604,6 +3605,7 @@
 "lyrics_transcription_builtin_needs_relay" = "先在「智慧功能」裡開啟內建 AI，才能用它聽歌識詞。";
 "lyrics_transcription_builtin_not_offered" = "內建 AI 尚未開放聽歌識詞，可以先改用自己的 Google 金鑰。";
 "ai_audio_transcription_limit_reached" = "今天的聽歌識詞次數已用完，明天再試，或在設定裡改用自己的 Google 金鑰。";
+"ai_audio_transcription_monthly_limit_reached" = "本月的聽歌識詞次數已用完，下個月恢復，或在設定裡改用自己的 Google 金鑰。";
 "ai_audio_transcription_too_long" = "內建 AI 只能辨識 10 分鐘以內的歌曲。";
 
 // macOS settings and shared labels
@@ -5331,6 +5333,7 @@
 "ai_song_discovery_failed_busy" = "AI 服務正忙，請稍後再試。";
 "ai_song_discovery_failed_minute_limit" = "請求太頻繁了，請稍後再試。";
 "ai_song_discovery_failed_daily_limit" = "今天的新歌推薦次數已用完，明天再來。";
+"ai_song_discovery_failed_monthly_limit" = "本月的新歌推薦次數已用完，下個月再來。";
 "ai_song_discovery_failed_region" = "目前地區暫不提供這項智能服務。";
 "ai_song_discovery_failed_network" = "網路連線無法使用，請檢查網路後再試。";
 "ai_song_discovery_failed_empty" = "AI 這次沒有給出推薦，換個風格或稍後再試。";
@@ -5355,6 +5358,7 @@
 "library_insight_not_configured" = "還沒有可用的 AI 服務。打開內建 AI，或在智能設定裡填寫自己的服務後再試。";
 "library_insight_builtin_not_offered" = "內建 AI 暫時還不能寫簡介，可以在智能設定裡填寫自己的 AI 服務。";
 "library_insight_failed_daily_limit" = "今天的簡介產生次數已用完，明天再來。";
+"library_insight_failed_monthly_limit" = "本月的簡介產生次數已用完，下個月再來。";
 
 /* Editable album and artist intros */
 "library_insight_edit" = "編輯";

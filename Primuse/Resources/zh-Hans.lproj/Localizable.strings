@@ -3379,6 +3379,7 @@
 "ai_recommendation_status_busy_local" = "智能服务繁忙，已保留现有推荐";
 "ai_recommendation_status_minute_limit_local" = "请求过于频繁，请稍后再试；已保留现有推荐";
 "ai_recommendation_status_daily_limit_local" = "今日智能服务额度已用完，已保留现有推荐";
+"ai_recommendation_status_monthly_limit_local" = "本月智能服务次数已用完，已保留现有推荐";
 "ai_recommendation_status_region_restricted_local" = "当前地区暂不提供智能服务，已保留现有推荐";
 "ai_recommendation_status_device_registration_local" = "设备注册失败，已保留现有推荐";
 "ai_recommendation_status_authentication_local" = "智能服务鉴权失败，已保留现有推荐";
@@ -3720,6 +3721,7 @@
 "lyrics_transcription_builtin_needs_relay" = "先在「智能功能」里打开内置 AI，才能用它听歌识词。";
 "lyrics_transcription_builtin_not_offered" = "内置 AI 暂未开放听歌识词，可以先改用自己的 Google 密钥。";
 "ai_audio_transcription_limit_reached" = "今天的听歌识词次数已用完，明天再试，或在设置里改用自己的 Google 密钥。";
+"ai_audio_transcription_monthly_limit_reached" = "本月的听歌识词次数已用完，下个月恢复，或在设置里改用自己的 Google 密钥。";
 "ai_audio_transcription_too_long" = "内置 AI 只能识别 10 分钟以内的歌曲。";
 
 // macOS settings and shared labels
@@ -5447,6 +5449,7 @@
 "ai_song_discovery_failed_busy" = "AI 服务正忙，请稍后再试。";
 "ai_song_discovery_failed_minute_limit" = "请求太频繁了，请稍后再试。";
 "ai_song_discovery_failed_daily_limit" = "今天的新歌推荐次数已用完，明天再来。";
+"ai_song_discovery_failed_monthly_limit" = "本月的新歌推荐次数已用完，下个月再来。";
 "ai_song_discovery_failed_region" = "当前地区暂不提供这项智能服务。";
 "ai_song_discovery_failed_network" = "网络连接不可用，请检查网络后再试。";
 "ai_song_discovery_failed_empty" = "AI 这次没有给出推荐，换个风格或稍后再试。";
@@ -5471,6 +5474,7 @@
 "library_insight_not_configured" = "还没有可用的 AI 服务。打开内置 AI，或在智能设置里填写自己的服务后再试。";
 "library_insight_builtin_not_offered" = "内置 AI 暂时还不能写简介，可以在智能设置里填写自己的 AI 服务。";
 "library_insight_failed_daily_limit" = "今天的简介生成次数已用完，明天再来。";
+"library_insight_failed_monthly_limit" = "本月的简介生成次数已用完，下个月再来。";
 
 /* Editable album and artist intros */
 "library_insight_edit" = "编辑";

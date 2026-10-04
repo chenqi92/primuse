@@ -3279,6 +3279,7 @@
 "ai_recommendation_status_busy_local" = "スマートサービスが混み合っているため、現在のおすすめを維持しました";
 "ai_recommendation_status_minute_limit_local" = "リクエストが多すぎます。しばらくしてから再試行してください。現在のおすすめを維持しました";
 "ai_recommendation_status_daily_limit_local" = "本日のスマートサービス利用上限に達したため、現在のおすすめを維持しました";
+"ai_recommendation_status_monthly_limit_local" = "今月のスマートサービス利用上限に達したため、現在のおすすめを維持しました";
 "ai_recommendation_status_region_restricted_local" = "この地域ではスマートサービスを利用できないため、現在のおすすめを維持しました";
 "ai_recommendation_status_device_registration_local" = "デバイスの登録に失敗したため、現在のおすすめを維持しました";
 "ai_recommendation_status_authentication_local" = "スマートサービスの認証に失敗したため、現在のおすすめを維持しました";
@@ -3620,6 +3621,7 @@
 "lyrics_transcription_builtin_needs_relay" = "「インテリジェンス」で内蔵 AI をオンにすると、曲の文字起こしに使えます。";
 "lyrics_transcription_builtin_not_offered" = "内蔵 AI はまだ曲の文字起こしに対応していません。当面は自分の Google API キーを使えます。";
 "ai_audio_transcription_limit_reached" = "今日の曲の文字起こし回数を使い切りました。明日もう一度試すか、設定で自分の Google API キーに切り替えてください。";
+"ai_audio_transcription_monthly_limit_reached" = "今月の曲の文字起こし回数を使い切りました。来月に回復します。設定で自分の Google API キーに切り替えることもできます。";
 "ai_audio_transcription_too_long" = "内蔵 AI で文字起こしできるのは 10 分以内の曲です。";
 
 // macOS settings and shared labels
@@ -5355,6 +5357,7 @@
 "ai_song_discovery_failed_busy" = "AI サービスが混み合っています。しばらくしてからお試しください。";
 "ai_song_discovery_failed_minute_limit" = "リクエストが多すぎます。しばらくしてからお試しください。";
 "ai_song_discovery_failed_daily_limit" = "今日の新曲おすすめの回数を使い切りました。また明日お試しください。";
+"ai_song_discovery_failed_monthly_limit" = "今月の新曲おすすめの回数を使い切りました。来月またお試しください。";
 "ai_song_discovery_failed_region" = "この地域ではこの AI サービスを利用できません。";
 "ai_song_discovery_failed_network" = "ネットワークに接続できません。接続を確認してからお試しください。";
 "ai_song_discovery_failed_empty" = "今回は AI からおすすめがありませんでした。ジャンルを変えるか、しばらくしてからお試しください。";
@@ -5379,6 +5382,7 @@
 "library_insight_not_configured" = "利用できる AI サービスがありません。内蔵 AI をオンにするか、AI 設定で自分のサービスを追加してからお試しください。";
 "library_insight_builtin_not_offered" = "内蔵 AI はまだ紹介を書けません。AI 設定で自分の AI サービスを追加できます。";
 "library_insight_failed_daily_limit" = "今日の紹介作成の回数を使い切りました。また明日お試しください。";
+"library_insight_failed_monthly_limit" = "今月の紹介作成の回数を使い切りました。来月またお試しください。";
 
 /* Editable album and artist intros */
 "library_insight_edit" = "編集";

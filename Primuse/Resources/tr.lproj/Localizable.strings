@@ -2501,6 +2501,7 @@
 "lyrics_transcription_builtin_needs_relay" = "Şarkı transkripsiyonunda kullanmak için Zeka bölümünden yerleşik yapay zekayı açın.";
 "lyrics_transcription_builtin_not_offered" = "Yerleşik yapay zeka henüz şarkı transkripsiyonu sunmuyor. Şimdilik kendi Google API anahtarınızı kullanabilirsiniz.";
 "ai_audio_transcription_limit_reached" = "Bugünkü şarkı transkripsiyonu hakkınız doldu. Yarın tekrar deneyin veya ayarlardan kendi Google API anahtarınıza geçin.";
+"ai_audio_transcription_monthly_limit_reached" = "Bu ayki şarkı transkripsiyonu hakkınız doldu. Gelecek ay yenilenir; ayarlardan kendi Google API anahtarınıza da geçebilirsiniz.";
 "ai_audio_transcription_too_long" = "Yerleşik yapay zeka yalnızca 10 dakikaya kadar olan şarkıların transkripsiyonunu yapabilir.";
 "Album" = "Albüm";
 "songs_found" = "şarkılar bulundu";
@@ -3801,6 +3802,7 @@
 "credential_temporarily_unavailable" = "Şifre geçici olarak kullanılamıyor. Cihazınızın kilidini açın ve tekrar deneyin.";
 "offline_remove_song_cache" = "Şarkı Önbelleğini Kaldır";
 "ai_recommendation_status_daily_limit_local" = "Bugünün akıllı servis kotası doldu; mevcut öneriler korundu";
+"ai_recommendation_status_monthly_limit_local" = "Bu ayın akıllı servis kotası doldu; mevcut öneriler korundu";
 "reread_song_tags_failure_requires_complete_technical_read" = "Dosya başlığı okundu ancak güvenilir teknik özellikler, dosyanın tamamının incelenmesini gerektirir.";
 "synology_password_edit_validation_hint" = "Synology şifreleri bağlanırken doğrulanır ve güncellenir; mevcut şifre değişmeden kalır.";
 "scrobble_mac_rules_title" = "Gönderim Kuralları";
@@ -5260,6 +5262,7 @@
 "ai_song_discovery_failed_busy" = "Yapay zekâ hizmeti meşgul. Daha sonra yeniden dene.";
 "ai_song_discovery_failed_minute_limit" = "Çok fazla istek. Daha sonra yeniden dene.";
 "ai_song_discovery_failed_daily_limit" = "Bugünkü yeni şarkı önerisi hakkın doldu. Yarın yeniden dene.";
+"ai_song_discovery_failed_monthly_limit" = "Bu ayki yeni şarkı önerisi hakkın doldu. Gelecek ay yeniden dene.";
 "ai_song_discovery_failed_region" = "Bu yapay zekâ hizmeti bölgende kullanılamıyor.";
 "ai_song_discovery_failed_network" = "Ağ bağlantısı yok. Ağını kontrol edip yeniden dene.";
 "ai_song_discovery_failed_empty" = "Yapay zekâ bu kez öneri vermedi. Başka bir tür seç ya da daha sonra yeniden dene.";
@@ -5284,6 +5287,7 @@
 "library_insight_not_configured" = "Henüz kullanılabilir bir yapay zekâ hizmeti yok. Yerleşik yapay zekâyı aç ya da yapay zekâ ayarlarından kendi hizmetini ekleyip yeniden dene.";
 "library_insight_builtin_not_offered" = "Yerleşik yapay zekâ henüz tanıtım yazamıyor. Yapay zekâ ayarlarından kendi hizmetini ekleyebilirsin.";
 "library_insight_failed_daily_limit" = "Bugünkü tanıtım hakkın doldu. Yarın yeniden dene.";
+"library_insight_failed_monthly_limit" = "Bu ayki tanıtım hakkın doldu. Gelecek ay yeniden dene.";
 
 /* Editable album and artist intros */
 "library_insight_edit" = "Düzenle";

@@ -93,6 +93,8 @@ enum AIAudioTranscriptionOutcome: Sendable {
     case failed
     /// 内置 AI 今天的听歌识词次数已经用完。
     case limitReached
+    /// 内置 AI 这个月(订阅周期)的听歌识词次数已经用完。
+    case monthlyLimitReached
     /// 内置 AI 只收 10 分钟以内的歌(资料库里没有时长时才会走到服务端才知道)。
     case tooLong
 }
@@ -118,6 +120,8 @@ enum AIRecommendationFallbackReason: Equatable, Sendable {
     case busy
     case minuteLimit
     case dailyLimit
+    /// 这个月(订阅周期)的次数用完了,要等下个周期。
+    case monthlyLimit
     case regionRestricted
     case deviceRegistration
     case authentication
@@ -142,6 +146,8 @@ enum AIRecommendationFallbackReason: Equatable, Sendable {
                 case "daily_request_limit_exhausted", "daily_quota_exhausted",
                      "feature_quota_exhausted":
                     return .dailyLimit
+                case "period_quota_exhausted":
+                    return .monthlyLimit
                 case "country_not_allowed", "region_restricted":
                     return .regionRestricted
                 default:
@@ -1090,6 +1096,7 @@ final class MusicIntelligenceService {
                 "daily_quota_exhausted",
                 "feature_quota_exhausted",
                 "daily_request_limit_exhausted",
+                "period_quota_exhausted",
             ].contains(code) { return true }
             return [400, 401, 403, 404, 501].contains(statusCode)
         case .invalidResponse, .responseTooLarge:
@@ -1917,6 +1924,8 @@ final class MusicIntelligenceService {
             switch code {
             case "feature_quota_exhausted", "daily_request_limit_exhausted", "daily_quota_exhausted":
                 return .limitReached
+            case "period_quota_exhausted":
+                return .monthlyLimitReached
             case "audio_too_long", "request_too_large":
                 return .tooLong
             case "feature_not_in_plan", "feature_disabled", "feature_unavailable", "route_not_found":
@@ -2835,6 +2844,8 @@ final class AIRecommendationViewModel {
                 key = "ai_recommendation_status_minute_limit_local"
             case .dailyLimit:
                 key = "ai_recommendation_status_daily_limit_local"
+            case .monthlyLimit:
+                key = "ai_recommendation_status_monthly_limit_local"
             case .regionRestricted:
                 key = "ai_recommendation_status_region_restricted_local"
             case .deviceRegistration:

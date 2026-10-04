@@ -386,6 +386,7 @@ struct AISongDiscoveryView: View {
             case .busy: return String(localized: "ai_song_discovery_failed_busy")
             case .minuteLimit: return String(localized: "ai_song_discovery_failed_minute_limit")
             case .dailyLimit: return String(localized: "ai_song_discovery_failed_daily_limit")
+            case .monthlyLimit: return String(localized: "ai_song_discovery_failed_monthly_limit")
             case .regionRestricted: return String(localized: "ai_song_discovery_failed_region")
             case .network: return String(localized: "ai_song_discovery_failed_network")
             case .empty: return String(localized: "ai_song_discovery_failed_empty")

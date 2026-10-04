@@ -652,6 +652,8 @@ struct LyricsEditorView: View {
                 transcriptionMessage = String(localized: "ai_audio_transcription_failed")
             case .limitReached:
                 transcriptionMessage = String(localized: "ai_audio_transcription_limit_reached")
+            case .monthlyLimitReached:
+                transcriptionMessage = String(localized: "ai_audio_transcription_monthly_limit_reached")
             case .tooLong:
                 transcriptionMessage = String(localized: "ai_audio_transcription_too_long")
             case .success(let execution):

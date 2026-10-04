@@ -754,6 +754,7 @@
 "ai_recommendation_status_busy_local" = "O serviço inteligente está ocupado; recomendações existentes preservadas";
 "ai_recommendation_status_cached_format" = "%@ · resultados recentes reutilizados para %@";
 "ai_recommendation_status_daily_limit_local" = "A cota atual de serviços inteligentes está esgotada; recomendações existentes preservadas";
+"ai_recommendation_status_monthly_limit_local" = "A cota de serviços inteligentes deste mês está esgotada; recomendações existentes preservadas";
 "ai_recommendation_status_device_registration_local" = "Falha no registro do dispositivo; recomendações existentes preservadas";
 "ai_recommendation_status_failed_local" = "Serviço inteligente indisponível; recomendações existentes preservadas";
 "ai_recommendation_status_fallback_format" = "Primário indisponível; %@ substituiu %@";
@@ -2043,6 +2044,7 @@
 "lyrics_transcription_builtin_needs_relay" = "Ative a IA integrada em Inteligência para usá-la na transcrição de músicas.";
 "lyrics_transcription_builtin_not_offered" = "A IA integrada ainda não oferece transcrição de músicas. Por enquanto, você pode usar sua própria chave de API do Google.";
 "ai_audio_transcription_limit_reached" = "Você já usou as transcrições de músicas de hoje. Tente de novo amanhã ou mude para sua própria chave de API do Google nos ajustes.";
+"ai_audio_transcription_monthly_limit_reached" = "Você já usou as transcrições de músicas deste mês. Elas voltam no próximo mês, ou mude para sua própria chave de API do Google nos ajustes.";
 "ai_audio_transcription_too_long" = "A IA integrada só transcreve músicas de até 10 minutos.";
 "lyrics_transcription_consent_footer" = "O áudio é carregado somente depois que você inicia explicitamente a transcrição. O resultado editável não é salvo até que você o confirme.";
 "lyrics_transcription_enabled" = "Permitir transcrição de música";
@@ -5260,6 +5262,7 @@
 "ai_song_discovery_failed_busy" = "O serviço de IA está ocupado. Tente mais tarde.";
 "ai_song_discovery_failed_minute_limit" = "Muitas solicitações. Tente mais tarde.";
 "ai_song_discovery_failed_daily_limit" = "As sugestões de músicas de hoje acabaram. Volte amanhã.";
+"ai_song_discovery_failed_monthly_limit" = "As sugestões de músicas deste mês acabaram. Volte no próximo mês.";
 "ai_song_discovery_failed_region" = "Este serviço de IA não está disponível na sua região.";
 "ai_song_discovery_failed_network" = "Sem conexão de rede. Verifique sua rede e tente de novo.";
 "ai_song_discovery_failed_empty" = "A IA não sugeriu nada desta vez. Escolha outro gênero ou tente mais tarde.";
@@ -5284,6 +5287,7 @@
 "library_insight_not_configured" = "Ainda não há serviço de IA disponível. Ative a IA integrada ou adicione seu próprio serviço nos ajustes de IA e tente de novo.";
 "library_insight_builtin_not_offered" = "A IA integrada ainda não escreve apresentações. Você pode adicionar seu próprio serviço de IA nos ajustes de IA.";
 "library_insight_failed_daily_limit" = "As apresentações de hoje acabaram. Volte amanhã.";
+"library_insight_failed_monthly_limit" = "As apresentações deste mês acabaram. Volte no próximo mês.";
 
 /* Editable album and artist intros */
 "library_insight_edit" = "Editar";

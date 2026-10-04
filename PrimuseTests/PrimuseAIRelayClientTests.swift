@@ -358,6 +358,18 @@ final class PrimuseAIRelayClientTests: XCTestCase {
             AIRecommendationFallbackReason.classify(
                 PrimuseAIRelayError.requestFailed(
                     statusCode: 429,
+                    code: "period_quota_exhausted"
+                )
+            ),
+            .monthlyLimit
+        )
+        XCTAssertTrue(MusicIntelligenceService.primuseRelayStopsTagCleanup(
+            after: PrimuseAIRelayError.requestFailed(statusCode: 429, code: "period_quota_exhausted")
+        ))
+        XCTAssertEqual(
+            AIRecommendationFallbackReason.classify(
+                PrimuseAIRelayError.requestFailed(
+                    statusCode: 429,
                     code: "minute_request_limit_exhausted"
                 )
             ),

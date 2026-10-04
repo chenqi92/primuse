@@ -754,6 +754,7 @@
 "ai_recommendation_status_busy_local" = "บริการอัจฉริยะไม่ว่าง คำแนะนำที่มีอยู่ยังคงอยู่";
 "ai_recommendation_status_cached_format" = "%@ · ผลลัพธ์ล่าสุดนำมาใช้ใหม่สำหรับ %@";
 "ai_recommendation_status_daily_limit_local" = "โควต้าบริการอัจฉริยะในปัจจุบันหมดแล้ว คำแนะนำที่มีอยู่ยังคงอยู่";
+"ai_recommendation_status_monthly_limit_local" = "โควต้าบริการอัจฉริยะของเดือนนี้หมดแล้ว คำแนะนำที่มีอยู่ยังคงอยู่";
 "ai_recommendation_status_device_registration_local" = "การลงทะเบียนอุปกรณ์ล้มเหลว คำแนะนำที่มีอยู่ยังคงอยู่";
 "ai_recommendation_status_failed_local" = "บริการอัจฉริยะไม่พร้อมใช้งาน คำแนะนำที่มีอยู่ยังคงอยู่";
 "ai_recommendation_status_fallback_format" = "หลักไม่พร้อมใช้งาน %@ เข้ามาแทนที่ %@";
@@ -2043,6 +2044,7 @@
 "lyrics_transcription_builtin_needs_relay" = "เปิด AI ในตัวใน “ความฉลาด” ก่อน จึงจะใช้ถอดเสียงเพลงได้";
 "lyrics_transcription_builtin_not_offered" = "AI ในตัวยังไม่เปิดให้ถอดเสียงเพลง ตอนนี้ใช้คีย์ Google API ของคุณเองได้";
 "ai_audio_transcription_limit_reached" = "ใช้สิทธิ์ถอดเสียงเพลงของวันนี้หมดแล้ว ลองใหม่พรุ่งนี้ หรือเปลี่ยนไปใช้คีย์ Google API ของคุณเองในการตั้งค่า";
+"ai_audio_transcription_monthly_limit_reached" = "ใช้สิทธิ์ถอดเสียงเพลงของเดือนนี้หมดแล้ว จะกลับมาในเดือนหน้า หรือเปลี่ยนไปใช้คีย์ Google API ของคุณเองในการตั้งค่า";
 "ai_audio_transcription_too_long" = "AI ในตัวถอดเสียงได้เฉพาะเพลงที่ยาวไม่เกิน 10 นาที";
 "lyrics_transcription_consent_footer" = "เสียงจะถูกอัปโหลดหลังจากที่คุณเริ่มถอดเสียงอย่างชัดเจนเท่านั้น ผลลัพธ์ที่แก้ไขได้จะไม่ถูกบันทึกจนกว่าคุณจะยืนยัน";
 "lyrics_transcription_enabled" = "อนุญาตการถอดเสียงเพลง";
@@ -5260,6 +5262,7 @@
 "ai_song_discovery_failed_busy" = "บริการ AI ไม่ว่าง โปรดลองอีกครั้งภายหลัง";
 "ai_song_discovery_failed_minute_limit" = "ส่งคำขอบ่อยเกินไป โปรดลองอีกครั้งภายหลัง";
 "ai_song_discovery_failed_daily_limit" = "ใช้สิทธิ์แนะนำเพลงใหม่ของวันนี้หมดแล้ว กลับมาใหม่พรุ่งนี้";
+"ai_song_discovery_failed_monthly_limit" = "ใช้สิทธิ์แนะนำเพลงใหม่ของเดือนนี้หมดแล้ว กลับมาใหม่เดือนหน้า";
 "ai_song_discovery_failed_region" = "บริการ AI นี้ไม่พร้อมใช้งานในภูมิภาคของคุณ";
 "ai_song_discovery_failed_network" = "ไม่มีการเชื่อมต่อเครือข่าย ตรวจสอบเครือข่ายแล้วลองอีกครั้ง";
 "ai_song_discovery_failed_empty" = "ครั้งนี้ AI ไม่ได้แนะนำอะไร ลองเลือกแนวเพลงอื่นหรือลองใหม่ภายหลัง";
@@ -5284,6 +5287,7 @@
 "library_insight_not_configured" = "ยังไม่มีบริการ AI ที่ใช้ได้ เปิด AI ในตัว หรือเพิ่มบริการของคุณเองในการตั้งค่า AI แล้วลองอีกครั้ง";
 "library_insight_builtin_not_offered" = "AI ในตัวยังเขียนคำแนะนำไม่ได้ คุณเพิ่มบริการ AI ของคุณเองได้ในการตั้งค่า AI";
 "library_insight_failed_daily_limit" = "ใช้สิทธิ์เขียนคำแนะนำของวันนี้หมดแล้ว กลับมาใหม่พรุ่งนี้";
+"library_insight_failed_monthly_limit" = "ใช้สิทธิ์เขียนคำแนะนำของเดือนนี้หมดแล้ว กลับมาใหม่เดือนหน้า";
 
 /* Editable album and artist intros */
 "library_insight_edit" = "แก้ไข";

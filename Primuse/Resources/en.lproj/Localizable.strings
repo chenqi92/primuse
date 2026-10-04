@@ -3047,6 +3047,7 @@
 "ai_recommendation_status_busy_local" = "Intelligent service is busy; existing recommendations preserved";
 "ai_recommendation_status_minute_limit_local" = "Too many requests. Try again later; existing recommendations preserved";
 "ai_recommendation_status_daily_limit_local" = "Today's intelligent service quota is exhausted; existing recommendations preserved";
+"ai_recommendation_status_monthly_limit_local" = "This month's intelligent service quota is used up; existing recommendations preserved";
 "ai_recommendation_status_region_restricted_local" = "Intelligent service is unavailable in this region; existing recommendations preserved";
 "ai_recommendation_status_device_registration_local" = "Device registration failed; existing recommendations preserved";
 "ai_recommendation_status_authentication_local" = "Intelligent service authentication failed; existing recommendations preserved";
@@ -3388,6 +3389,7 @@
 "lyrics_transcription_builtin_needs_relay" = "Turn on the built-in AI in Intelligence settings to use it for song transcription.";
 "lyrics_transcription_builtin_not_offered" = "The built-in AI doesn’t offer song transcription yet. You can use your own Google API key for now.";
 "ai_audio_transcription_limit_reached" = "You’ve used today’s song transcriptions. Try again tomorrow, or switch to your own Google API key in Settings.";
+"ai_audio_transcription_monthly_limit_reached" = "This month's song transcriptions are used up. They come back next month, or switch to your own Google API key in Settings.";
 "ai_audio_transcription_too_long" = "The built-in AI can only transcribe songs up to 10 minutes long.";
 
 // macOS settings and shared labels
@@ -5117,6 +5119,7 @@
 "ai_song_discovery_failed_busy" = "The AI service is busy. Try again later.";
 "ai_song_discovery_failed_minute_limit" = "Too many requests. Try again later.";
 "ai_song_discovery_failed_daily_limit" = "Today's new-song suggestions are used up. Come back tomorrow.";
+"ai_song_discovery_failed_monthly_limit" = "This month's new-song suggestions are used up. They come back next month.";
 "ai_song_discovery_failed_region" = "This AI service isn't available in your region.";
 "ai_song_discovery_failed_network" = "No network connection. Check your network and try again.";
 "ai_song_discovery_failed_empty" = "The AI didn't suggest anything this time. Try another genre or try again later.";
@@ -5141,6 +5144,7 @@
 "library_insight_not_configured" = "No AI service is available yet. Turn on the built-in AI or add your own service in AI settings, then try again.";
 "library_insight_builtin_not_offered" = "The built-in AI can't write intros yet. You can add your own AI service in AI settings.";
 "library_insight_failed_daily_limit" = "Today's intros are used up. Come back tomorrow.";
+"library_insight_failed_monthly_limit" = "This month's intros are used up. They come back next month.";
 
 /* Editable album and artist intros */
 "library_insight_edit" = "Edit";
