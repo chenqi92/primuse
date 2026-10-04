@@ -270,9 +270,7 @@ struct HomeListeningRankingSection: View {
                 .accessibilityIdentifier("home.rankingExpand")
             }
         }
-        .background(cardSurface)
-        // 名次行的占比底色是直角的，靠卡片的圆角把四个角裁掉。
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(cardSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private func rankRow(_ rank: HomeListeningRank, position: Int) -> some View {

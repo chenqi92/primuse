@@ -305,15 +305,9 @@ private struct ListeningRankPodiumStep: View {
 
 // MARK: - 名次行
 
-/// 第四名起的一行。
+/// 名次榜的一行（首页第四名起、年度报告的整张榜）：编号、封面、名字，行尾是次数与时长；
+/// 名字下面一条主题色细条，长度是相对榜首的播放占比。内边距在行里面，整行都能点。
 struct ListeningRankRowLabel<Artwork: View>: View {
-    enum ShareStyle {
-        /// 整行底色按占比铺开 —— 榜单本身就是一张横向条形图。用在自绘的卡片里。
-        case rowFill
-        /// 标题下面一条细线。表单行的底色归系统管，铺不了整行。
-        case underline
-    }
-
     let position: Int
     let title: String
     let subtitle: String
@@ -322,7 +316,6 @@ struct ListeningRankRowLabel<Artwork: View>: View {
     let trend: HomeListeningRankTrend?
     /// 相对榜首的播放占比，0...1。
     let share: Double
-    var shareStyle: ShareStyle = .rowFill
     @ViewBuilder let artwork: () -> Artwork
 
     var body: some View {
@@ -350,9 +343,7 @@ struct ListeningRankRowLabel<Artwork: View>: View {
                         .lineLimit(1)
                 }
 
-                if shareStyle == .underline {
-                    shareBar.frame(height: 4).padding(.top, 4)
-                }
+                shareBar.frame(height: 4).padding(.top, 4)
             }
 
             Spacer(minLength: 6)
@@ -367,19 +358,8 @@ struct ListeningRankRowLabel<Artwork: View>: View {
             }
             .fixedSize(horizontal: true, vertical: false)
         }
-        .padding(.horizontal, shareStyle == .rowFill ? 12 : 0)
-        .padding(.vertical, shareStyle == .rowFill ? 9 : 2)
-        .background(alignment: .leading) {
-            if shareStyle == .rowFill {
-                GeometryReader { geometry in
-                    let width: CGFloat = geometry.size.width * CGFloat(share)
-                    Rectangle()
-                        .fill(.tint.opacity(0.08))
-                        .frame(width: width)
-                }
-                .accessibilityHidden(true)
-            }
-        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
@@ -389,7 +369,8 @@ struct ListeningRankRowLabel<Artwork: View>: View {
         )
     }
 
-    /// 主题色细条：底轨是同色的淡色，不是灰的，整行看着是一种颜色。
+    /// 主题色细条：底轨是同色的淡色，不是灰的，整行看着是一种颜色。之前是整行铺一层很淡的
+    /// 底色，看上去像灰条，用户觉得不好看（10-04）。
     private var shareBar: some View {
         GeometryReader { geometry in
             let width: CGFloat = max(4, geometry.size.width * CGFloat(share))

@@ -304,7 +304,7 @@ struct YearlyRankRows: View {
             VStack(spacing: 0) {
                 ForEach(Array(visible.enumerated()), id: \.element.id) { offset, item in
                     if offset > 0 {
-                        Divider().padding(.leading, 55)
+                        Divider().padding(.leading, 53)
                     }
                     ListeningRankRowLabel(
                         position: firstPosition + offset,
@@ -313,13 +313,10 @@ struct YearlyRankRows: View {
                         playCount: item.playCount,
                         listenedSeconds: item.totalSec,
                         trend: nil,
-                        share: HomeListeningRankBoardPolicy.share(playCount: item.playCount, leaderPlayCount: leaderPlayCount),
-                        shareStyle: .underline
+                        share: HomeListeningRankBoardPolicy.share(playCount: item.playCount, leaderPlayCount: leaderPlayCount)
                     ) {
                         ListeningRankArtwork(song: song(for: item), size: 42, isArtist: isArtistRanking, cornerRadius: 8)
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
                 }
                 if items.count > collapsedCount {
                     Divider()
