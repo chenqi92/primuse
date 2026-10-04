@@ -130,6 +130,48 @@ enum OfflineAudioCompactor {
         targetKbps: Int,
         expectedDuration: TimeInterval?
     ) async throws -> Output {
+        try await encode(
+            original: original,
+            originalByteCount: originalByteCount,
+            profile: EncodingProfile(targetKbps: targetKbps, sampleRate: nil, requiresSmaller: true),
+            expectedDuration: expectedDuration
+        )
+    }
+
+    /// 听歌识词上传用的副本: 同一套解码器(能播的格式都能转), 降到
+    /// `AIAudioTranscriptionPolicy` 定的采样率和码率; 不跟原文件比大小 ——
+    /// 本来就小的 MP3 也照转, 内置 AI 只收能读出时长的 M4A。
+    static func encodeForTranscription(
+        original: URL,
+        expectedDuration: TimeInterval?
+    ) async throws -> Output {
+        let byteCount = (try? FileManager.default.attributesOfItem(atPath: original.path)[.size] as? NSNumber)?
+            .int64Value ?? 0
+        return try await encode(
+            original: original,
+            originalByteCount: byteCount,
+            profile: EncodingProfile(
+                targetKbps: AIAudioTranscriptionPolicy.builtInUploadKbps,
+                sampleRate: AIAudioTranscriptionPolicy.builtInUploadSampleRate,
+                requiresSmaller: false
+            ),
+            expectedDuration: expectedDuration
+        )
+    }
+
+    private struct EncodingProfile {
+        var targetKbps: Int
+        /// nil: 跟随原文件(高于 48 kHz 的按家族降下来)。
+        var sampleRate: Double?
+        var requiresSmaller: Bool
+    }
+
+    private static func encode(
+        original: URL,
+        originalByteCount: Int64,
+        profile: EncodingProfile,
+        expectedDuration: TimeInterval?
+    ) async throws -> Output {
         let routed = await FileFormatRouter.decoder(for: original)
         var decoders: [any PrimuseAudioDecoder] = [routed]
         // SFB 的 DSD 转 PCM 只支持 DSD64, 播放时更高的码率也是交给 FFmpeg。
@@ -145,7 +187,7 @@ enum OfflineAudioCompactor {
                     original: original,
                     originalByteCount: originalByteCount,
                     decoder: decoder,
-                    targetKbps: targetKbps,
+                    profile: profile,
                     expectedDuration: expectedDuration
                 )
             } catch let error as CompactionError {
@@ -168,9 +210,10 @@ enum OfflineAudioCompactor {
         original: URL,
         originalByteCount: Int64,
         decoder: any PrimuseAudioDecoder,
-        targetKbps: Int,
+        profile: EncodingProfile,
         expectedDuration: TimeInterval?
     ) async throws -> Output {
+        let targetKbps = profile.targetKbps
         let info = try await decoder.fileInfo(for: original)
         guard let channelCount = OfflineDownloadQualityPolicy.encoderChannelCount(
             sourceChannelCount: info.channelCount
@@ -180,7 +223,7 @@ enum OfflineAudioCompactor {
         let sourceDuration = info.duration > 0 ? info.duration : (expectedDuration ?? 0)
         guard sourceDuration > 0 else { throw CompactionError.unknownDuration }
 
-        let sampleRate = OfflineDownloadQualityPolicy.encoderSampleRate(
+        let sampleRate = profile.sampleRate ?? OfflineDownloadQualityPolicy.encoderSampleRate(
             sourceSampleRate: info.sampleRate
         )
         let bitRate = OfflineDownloadQualityPolicy.encoderBitRate(
@@ -245,7 +288,7 @@ enum OfflineAudioCompactor {
         }
         let attributes = try FileManager.default.attributesOfItem(atPath: staging.path)
         let byteCount = (attributes[.size] as? NSNumber)?.int64Value ?? 0
-        guard OfflineDownloadQualityPolicy.compactIsWorthKeeping(
+        guard !profile.requiresSmaller || OfflineDownloadQualityPolicy.compactIsWorthKeeping(
             originalByteCount: originalByteCount,
             compactByteCount: byteCount
         ) else {

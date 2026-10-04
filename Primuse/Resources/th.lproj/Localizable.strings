@@ -2036,6 +2036,14 @@
 "lyrics_transcription_audio_consent" = "อนุญาตการอัปโหลดเสียง";
 "lyrics_transcription_configuration_section" = "บริการถอดเสียงของ Google";
 "lyrics_transcription_configure" = "กำหนดค่า";
+"lyrics_transcription_service" = "บริการ";
+"lyrics_transcription_service_builtin" = "AI ในตัว";
+"lyrics_transcription_service_own_key" = "คีย์ Google API ของฉัน";
+"lyrics_transcription_builtin_footer" = "เพลงจะถูกแปลงเป็นไฟล์เสียงขนาดเล็กบนอุปกรณ์นี้ก่อน แล้วส่งให้ AI ในตัวถอดเสียงด้วยโมเดลถอดเสียงของ Google และเสียงที่อัปโหลดจะถูกลบทันทีหลังถอดเสร็จ จำนวนเพลงที่ถอดได้ต่อวันขึ้นอยู่กับแพ็กเกจของคุณ สูงสุดเพลงละ 10 นาที";
+"lyrics_transcription_builtin_needs_relay" = "เปิด AI ในตัวใน “ความฉลาด” ก่อน จึงจะใช้ถอดเสียงเพลงได้";
+"lyrics_transcription_builtin_not_offered" = "AI ในตัวยังไม่เปิดให้ถอดเสียงเพลง ตอนนี้ใช้คีย์ Google API ของคุณเองได้";
+"ai_audio_transcription_limit_reached" = "ใช้สิทธิ์ถอดเสียงเพลงของวันนี้หมดแล้ว ลองใหม่พรุ่งนี้ หรือเปลี่ยนไปใช้คีย์ Google API ของคุณเองในการตั้งค่า";
+"ai_audio_transcription_too_long" = "AI ในตัวถอดเสียงได้เฉพาะเพลงที่ยาวไม่เกิน 10 นาที";
 "lyrics_transcription_consent_footer" = "เสียงจะถูกอัปโหลดหลังจากที่คุณเริ่มถอดเสียงอย่างชัดเจนเท่านั้น ผลลัพธ์ที่แก้ไขได้จะไม่ถูกบันทึกจนกว่าคุณจะยืนยัน";
 "lyrics_transcription_enabled" = "อนุญาตการถอดเสียงเพลง";
 "lyrics_transcription_fetch_models" = "โหลดโมเดลการถอดเสียงที่มีอยู่";
@@ -2047,7 +2055,7 @@
 "lyrics_transcription_provider" = "ผู้ให้บริการ";
 "lyrics_transcription_saved" = "บันทึกการตั้งค่าการถอดเสียงเพลงแล้ว";
 "lyrics_transcription_service_address" = "ที่อยู่ที่ให้บริการ";
-"lyrics_transcription_settings_title" = "การถอดเสียงเพลงของ Google";
+"lyrics_transcription_settings_title" = "การถอดเสียงเพลง";
 "lyrics_transcription_status_needs_setup" = "ตั้งค่า";
 "lyrics_transcription_status_ready" = "พร้อมแล้ว";
 "lyrics_translation_ai_cached" = "กู้คืนการแปลอัจฉริยะจากแคช";

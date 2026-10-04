@@ -2036,6 +2036,14 @@
 "lyrics_transcription_audio_consent" = "Permitir uploads de áudio";
 "lyrics_transcription_configuration_section" = "Serviço de transcrição Google";
 "lyrics_transcription_configure" = "Configurar";
+"lyrics_transcription_service" = "Serviço";
+"lyrics_transcription_service_builtin" = "IA integrada";
+"lyrics_transcription_service_own_key" = "Minha chave de API do Google";
+"lyrics_transcription_builtin_footer" = "A música é primeiro convertida neste dispositivo em um arquivo de áudio pequeno, depois enviada à IA integrada e reconhecida pelo modelo de transcrição do Google; o áudio enviado é excluído logo em seguida. Quantas músicas você pode transcrever por dia depende do seu plano, até 10 minutos por música.";
+"lyrics_transcription_builtin_needs_relay" = "Ative a IA integrada em Inteligência para usá-la na transcrição de músicas.";
+"lyrics_transcription_builtin_not_offered" = "A IA integrada ainda não oferece transcrição de músicas. Por enquanto, você pode usar sua própria chave de API do Google.";
+"ai_audio_transcription_limit_reached" = "Você já usou as transcrições de músicas de hoje. Tente de novo amanhã ou mude para sua própria chave de API do Google nos ajustes.";
+"ai_audio_transcription_too_long" = "A IA integrada só transcreve músicas de até 10 minutos.";
 "lyrics_transcription_consent_footer" = "O áudio é carregado somente depois que você inicia explicitamente a transcrição. O resultado editável não é salvo até que você o confirme.";
 "lyrics_transcription_enabled" = "Permitir transcrição de música";
 "lyrics_transcription_fetch_models" = "Carregar modelos de transcrição disponíveis";
@@ -2047,7 +2055,7 @@
 "lyrics_transcription_provider" = "Provedor";
 "lyrics_transcription_saved" = "Configurações de transcrição de música salvas.";
 "lyrics_transcription_service_address" = "Endereço do Serviço";
-"lyrics_transcription_settings_title" = "Transcrição da música Google";
+"lyrics_transcription_settings_title" = "Transcrição de músicas";
 "lyrics_transcription_status_needs_setup" = "Configurar";
 "lyrics_transcription_status_ready" = "Pronto";
 "lyrics_translation_ai_cached" = "Tradução inteligente restaurada do cache";

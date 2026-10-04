@@ -2560,6 +2560,14 @@
 "connecting_to" = "Bağlanılıyor";
 "backfill_done_body" = "%d şarkıları için dosya etiketleri incelendi.";
 "lyrics_transcription_configure" = "Yapılandır";
+"lyrics_transcription_service" = "Hizmet";
+"lyrics_transcription_service_builtin" = "Yerleşik yapay zeka";
+"lyrics_transcription_service_own_key" = "Kendi Google API anahtarım";
+"lyrics_transcription_builtin_footer" = "Şarkı önce bu cihazda küçük bir ses dosyasına dönüştürülür, ardından yerleşik yapay zekaya gönderilir ve Google’ın transkripsiyon modeliyle tanınır; yüklenen ses hemen ardından silinir. Günde kaç şarkının transkripsiyonunu yapabileceğiniz planınıza bağlıdır, şarkı başına en fazla 10 dakika.";
+"lyrics_transcription_builtin_needs_relay" = "Şarkı transkripsiyonunda kullanmak için Zeka bölümünden yerleşik yapay zekayı açın.";
+"lyrics_transcription_builtin_not_offered" = "Yerleşik yapay zeka henüz şarkı transkripsiyonu sunmuyor. Şimdilik kendi Google API anahtarınızı kullanabilirsiniz.";
+"ai_audio_transcription_limit_reached" = "Bugünkü şarkı transkripsiyonu hakkınız doldu. Yarın tekrar deneyin veya ayarlardan kendi Google API anahtarınıza geçin.";
+"ai_audio_transcription_too_long" = "Yerleşik yapay zeka yalnızca 10 dakikaya kadar olan şarkıların transkripsiyonunu yapabilir.";
 "Album" = "Albüm";
 "songs_found" = "şarkılar bulundu";
 "new_smart_playlist" = "Yeni Akıllı Çalma Listesi";
@@ -3425,7 +3433,7 @@
 "family_sharing_private_history" = "Dinleme geçmişi / yıllık rapor";
 "L-08 · Two-Line Display" = "L-08 · İki Satırlı Ekran";
 "directory_has_lrc" = ".lrc dosyalarını içerir";
-"lyrics_transcription_settings_title" = "Google Şarkı Transkripsiyonu";
+"lyrics_transcription_settings_title" = "Şarkı Transkripsiyonu";
 "a11y_unlike" = "Beğenilen Şarkılardan Kaldır";
 "immersive_now_playing" = "ŞİMDİ OYNANIYOR";
 "yearly_card_time_unit_hour" = "sa";

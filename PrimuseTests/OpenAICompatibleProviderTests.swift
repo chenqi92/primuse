@@ -1728,6 +1728,66 @@ final class OpenAICompatibleProviderTests: XCTestCase {
     }
 
     @MainActor
+    func testLyricsTranscriptionDefaultsToBuiltInAndKeepsConfiguredGoogleKeyUsers() throws {
+        let defaults = try XCTUnwrap(UserDefaults(
+            suiteName: "OpenAICompatibleProviderTests.\(UUID().uuidString)"
+        ))
+        let general = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
+        let fresh = LyricsTranscriptionSettingsStore(
+            defaults: defaults,
+            legacySettingsStore: general,
+            syncsThroughICloud: false,
+            identifier: UUID()
+        )
+        // 新装:默认交给内置 AI,不用先填 Google 模型也能打开。
+        XCTAssertTrue(fresh.usesBuiltIn)
+        XCTAssertFalse(fresh.isEnabled)
+        try fresh.save(
+            configuration: fresh.configuration,
+            isEnabled: true,
+            hasExplicitAudioUploadConsent: true,
+            usesBuiltIn: true
+        )
+        let reloaded = LyricsTranscriptionSettingsStore(
+            defaults: defaults,
+            legacySettingsStore: general,
+            syncsThroughICloud: false,
+            identifier: UUID()
+        )
+        XCTAssertTrue(reloaded.usesBuiltIn)
+        XCTAssertTrue(reloaded.isEnabled)
+        // 自己的密钥这条路仍然要一个转写模型。
+        XCTAssertThrowsError(try reloaded.save(
+            configuration: reloaded.configuration,
+            isEnabled: true,
+            hasExplicitAudioUploadConsent: true,
+            usesBuiltIn: false
+        ))
+
+        // 旧版记录没有这一项:已经配好转写模型的照旧用自己的密钥。
+        var configured = LyricsTranscriptionSettingsStore.defaultConfiguration()
+        configured.transcriptionModel = "gemini-3.5-transcribe"
+        let legacyJSON = try JSONSerialization.data(withJSONObject: [
+            "schemaVersion": 1,
+            "configuration": try JSONSerialization.jsonObject(
+                with: JSONEncoder().encode(configured)
+            ),
+            "isEnabled": true,
+            "hasExplicitAudioUploadConsent": true,
+            "credentialMigrationCompleted": true,
+        ])
+        defaults.set(legacyJSON, forKey: LyricsTranscriptionSettingsStore.storageKey)
+        let upgraded = LyricsTranscriptionSettingsStore(
+            defaults: defaults,
+            legacySettingsStore: general,
+            syncsThroughICloud: false,
+            identifier: UUID()
+        )
+        XCTAssertFalse(upgraded.usesBuiltIn)
+        XCTAssertTrue(upgraded.isEnabled)
+    }
+
+    @MainActor
     func testFreshLyricsTranscriptionSettingsDoNotAssumeModelRelease() throws {
         let defaults = try XCTUnwrap(UserDefaults(
             suiteName: "OpenAICompatibleProviderTests.\(UUID().uuidString)"

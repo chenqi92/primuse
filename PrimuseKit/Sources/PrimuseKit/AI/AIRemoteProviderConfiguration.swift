@@ -413,6 +413,31 @@ public enum AIAudioTranscriptionPolicy {
     public static let maximumFileBytes: Int64 = 2 * 1_024 * 1_024 * 1_024
     public static let requestTimeout: TimeInterval = 15 * 60
 
+    /// 内置 AI 一首最长 10 分钟(中转从上传的 M4A 里读时长,超过就拒)。
+    public static let builtInMaximumDuration: TimeInterval = 10 * 60
+    /// 上传前在本机转成的 AAC:Gemini 自己会降到 16 kHz 单声道,22.05 kHz、
+    /// 立体声 48 kbps(单声道减半)对唱词足够,10 分钟约 3.6 MB。
+    public static let builtInUploadSampleRate: Double = 22_050
+    public static let builtInUploadKbps = 48
+    /// 中转收的音频上限(解码后 8 MB)。
+    public static let builtInMaximumUploadBytes = 8 * 1_024 * 1_024
+
+    /// 这首歌能不能听歌识词:内置 AI 先在本机转码,能播的格式都行,但限 10 分钟;
+    /// 自己的 Google 密钥直接上传原文件,只认 Google 写明支持的格式,限 30 分钟。
+    /// 时长未知(≤ 0)时交给服务端判断。
+    public static func canTranscribe(
+        format: AudioFormat,
+        duration: TimeInterval,
+        builtIn: Bool,
+        ownKey: Bool
+    ) -> Bool {
+        let fitsBuiltIn = builtIn && (duration <= 0 || duration <= builtInMaximumDuration)
+        let fitsOwnKey = ownKey
+            && supportsInput(format: format)
+            && (duration <= 0 || duration <= maximumDuration)
+        return fitsBuiltIn || fitsOwnKey
+    }
+
     /// File formats explicitly documented by Google's transcription endpoint.
     /// Keep this conservative: playback support is broader than remote
     /// transcription support, and relabelling an unknown payload as MP3 only

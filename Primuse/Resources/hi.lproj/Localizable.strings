@@ -2036,6 +2036,14 @@
 "lyrics_transcription_audio_consent" = "ऑडियो अपलोड की अनुमति दें";
 "lyrics_transcription_configuration_section" = "गूगल ट्रांसक्रिप्शन सेवा";
 "lyrics_transcription_configure" = "कॉन्फ़िगर करें";
+"lyrics_transcription_service" = "सेवा";
+"lyrics_transcription_service_builtin" = "अंतर्निहित एआई";
+"lyrics_transcription_service_own_key" = "मेरी Google API कुंजी";
+"lyrics_transcription_builtin_footer" = "गाने को पहले इस डिवाइस पर एक छोटी ऑडियो फ़ाइल में बदला जाता है, फिर अंतर्निहित एआई को भेजा जाता है और Google का ट्रांसक्रिप्शन मॉडल उसे पहचानता है; अपलोड किया गया ऑडियो तुरंत हटा दिया जाता है। आप रोज़ कितने गाने ट्रांसक्राइब कर सकते हैं, यह आपके प्लान पर निर्भर है, हर गाना अधिकतम 10 मिनट।";
+"lyrics_transcription_builtin_needs_relay" = "गाने के ट्रांसक्रिप्शन के लिए इंटेलिजेंस में अंतर्निहित एआई चालू करें।";
+"lyrics_transcription_builtin_not_offered" = "अंतर्निहित एआई अभी गाने का ट्रांसक्रिप्शन नहीं देता। फ़िलहाल आप अपनी Google API कुंजी इस्तेमाल कर सकते हैं।";
+"ai_audio_transcription_limit_reached" = "आज के गाने के ट्रांसक्रिप्शन खत्म हो गए हैं। कल फिर कोशिश करें या सेटिंग्स में अपनी Google API कुंजी पर जाएँ।";
+"ai_audio_transcription_too_long" = "अंतर्निहित एआई केवल 10 मिनट तक के गाने ट्रांसक्राइब कर सकता है।";
 "lyrics_transcription_consent_footer" = "ऑडियो केवल तभी अपलोड किया जाता है जब आप स्पष्ट रूप से ट्रांसक्रिप्शन शुरू करते हैं। संपादन योग्य परिणाम तब तक सहेजा नहीं जाता जब तक आप इसकी पुष्टि नहीं कर देते।";
 "lyrics_transcription_enabled" = "गीत प्रतिलेखन की अनुमति दें";
 "lyrics_transcription_fetch_models" = "उपलब्ध ट्रांसक्रिप्शन मॉडल लोड करें";
@@ -2047,7 +2055,7 @@
 "lyrics_transcription_provider" = "प्रदाता";
 "lyrics_transcription_saved" = "गीत प्रतिलेखन सेटिंग्स सहेजी गईं।";
 "lyrics_transcription_service_address" = "सेवा पता";
-"lyrics_transcription_settings_title" = "गूगल सॉन्ग ट्रांसक्रिप्शन";
+"lyrics_transcription_settings_title" = "सॉन्ग ट्रांसक्रिप्शन";
 "lyrics_transcription_status_needs_setup" = "सेट अप";
 "lyrics_transcription_status_ready" = "तैयार";
 "lyrics_translation_ai_cached" = "कैश से बुद्धिमान अनुवाद बहाल किया गया";

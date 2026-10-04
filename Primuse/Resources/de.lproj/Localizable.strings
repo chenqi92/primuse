@@ -3664,7 +3664,7 @@
 "lyrics_display_section" = "Darstellung";
 "lyrics_audio_tools_section" = "Liedtext aus Audio";
 "lyrics_audio_tools_footer" = "Die Song-Transkription erstellt einen bearbeitbaren, zeitcodierten Liedtextentwurf. Gespeichert wird erst nach Prüfung und Bestätigung.";
-"lyrics_transcription_settings_title" = "Google-Songtranskription";
+"lyrics_transcription_settings_title" = "Songtranskription";
 "lyrics_transcription_status_ready" = "Bereit";
 "lyrics_transcription_status_needs_setup" = "Einrichten";
 "lyrics_transcription_provider" = "Anbieter";
@@ -3682,6 +3682,14 @@
 "lyrics_transcription_models_empty" = "Der Google-Modellkatalog enthält kein kompatibles Transkriptionsmodell.";
 "lyrics_transcription_saved" = "Einstellungen für die Songtranskription gespeichert.";
 "lyrics_transcription_configure" = "Konfigurieren";
+"lyrics_transcription_service" = "Dienst";
+"lyrics_transcription_service_builtin" = "Integrierte KI";
+"lyrics_transcription_service_own_key" = "Eigener Google-API-Schlüssel";
+"lyrics_transcription_builtin_footer" = "Der Song wird zuerst auf diesem Gerät in eine kleine Audiodatei umgewandelt, dann an die integrierte KI gesendet und von Googles Transkriptionsmodell erkannt; das hochgeladene Audio wird gleich danach gelöscht. Wie viele Songs du pro Tag transkribieren kannst, hängt von deinem Tarif ab, höchstens 10 Minuten pro Song.";
+"lyrics_transcription_builtin_needs_relay" = "Aktiviere die integrierte KI unter „Intelligente Funktionen“, um sie für die Songtranskription zu nutzen.";
+"lyrics_transcription_builtin_not_offered" = "Die integrierte KI bietet noch keine Songtranskription an. Du kannst vorerst deinen eigenen Google-API-Schlüssel verwenden.";
+"ai_audio_transcription_limit_reached" = "Die heutigen Songtranskriptionen sind aufgebraucht. Versuche es morgen erneut oder wechsle in den Einstellungen zu deinem eigenen Google-API-Schlüssel.";
+"ai_audio_transcription_too_long" = "Die integrierte KI kann nur Songs bis 10 Minuten transkribieren.";
 
 // macOS settings and shared labels
 "Audio Output" = "Audioausgabe";

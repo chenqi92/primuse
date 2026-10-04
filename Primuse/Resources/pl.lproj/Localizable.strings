@@ -2036,6 +2036,14 @@
 "lyrics_transcription_audio_consent" = "Zezwól na przesyłanie dźwięku";
 "lyrics_transcription_configuration_section" = "Usługa transkrypcji Google";
 "lyrics_transcription_configure" = "Konfiguruj";
+"lyrics_transcription_service" = "Usługa";
+"lyrics_transcription_service_builtin" = "Wbudowana sztuczna inteligencja";
+"lyrics_transcription_service_own_key" = "Własny klucz API Google";
+"lyrics_transcription_builtin_footer" = "Utwór jest najpierw zamieniany na tym urządzeniu w mały plik audio, a potem wysyłany do wbudowanej sztucznej inteligencji i rozpoznawany przez model transkrypcji Google; przesłane audio jest od razu usuwane. Liczba utworów, które możesz transkrybować dziennie, zależy od planu, do 10 minut na utwór.";
+"lyrics_transcription_builtin_needs_relay" = "Włącz wbudowaną sztuczną inteligencję w sekcji Inteligencja, aby używać jej do transkrypcji utworów.";
+"lyrics_transcription_builtin_not_offered" = "Wbudowana sztuczna inteligencja nie oferuje jeszcze transkrypcji utworów. Na razie możesz użyć własnego klucza API Google.";
+"ai_audio_transcription_limit_reached" = "Wykorzystano dzisiejsze transkrypcje utworów. Spróbuj jutro albo przełącz się w ustawieniach na własny klucz API Google.";
+"ai_audio_transcription_too_long" = "Wbudowana sztuczna inteligencja transkrybuje tylko utwory do 10 minut.";
 "lyrics_transcription_consent_footer" = "Dźwięk jest przesyłany dopiero po wyraźnym rozpoczęciu transkrypcji. Edytowalny wynik nie zostanie zapisany, dopóki go nie potwierdzisz.";
 "lyrics_transcription_enabled" = "Zezwól na transkrypcję utworu";
 "lyrics_transcription_fetch_models" = "Załaduj dostępne modele transkrypcji";
@@ -2047,7 +2055,7 @@
 "lyrics_transcription_provider" = "Dostawca";
 "lyrics_transcription_saved" = "Ustawienia transkrypcji utworu zostały zapisane.";
 "lyrics_transcription_service_address" = "Adres serwisowy";
-"lyrics_transcription_settings_title" = "Transkrypcja utworu Google";
+"lyrics_transcription_settings_title" = "Transkrypcja utworów";
 "lyrics_transcription_status_needs_setup" = "Konfiguracja";
 "lyrics_transcription_status_ready" = "Gotowe";
 "lyrics_translation_ai_cached" = "Inteligentne tłumaczenie przywrócone z pamięci podręcznej";

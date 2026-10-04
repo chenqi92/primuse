@@ -2560,6 +2560,14 @@
 "connecting_to" = "Підключення до";
 "backfill_done_body" = "Теги файлів перевірено на наявність пісень %d.";
 "lyrics_transcription_configure" = "Налаштувати";
+"lyrics_transcription_service" = "Сервіс";
+"lyrics_transcription_service_builtin" = "Вбудований AI";
+"lyrics_transcription_service_own_key" = "Власний ключ Google API";
+"lyrics_transcription_builtin_footer" = "Спочатку пісня перетворюється на цьому пристрої на невеликий аудіофайл, потім надсилається вбудованому AI й розпізнається моделлю транскрипції Google; завантажений звук одразу видаляється. Скільки пісень можна розпізнати за день, залежить від тарифу, до 10 хвилин на пісню.";
+"lyrics_transcription_builtin_needs_relay" = "Увімкніть вбудований AI у розділі «Інтелект», щоб використовувати його для транскрипції пісень.";
+"lyrics_transcription_builtin_not_offered" = "Вбудований AI поки не підтримує транскрипцію пісень. Поки що можна використовувати власний ключ Google API.";
+"ai_audio_transcription_limit_reached" = "Транскрипції пісень на сьогодні вичерпано. Спробуйте завтра або перейдіть у налаштуваннях на власний ключ Google API.";
+"ai_audio_transcription_too_long" = "Вбудований AI розпізнає лише пісні до 10 хвилин.";
 "Album" = "Альбом";
 "songs_found" = "пісень";
 "new_smart_playlist" = "Новий розумний список відтворення";
@@ -3425,7 +3433,7 @@
 "family_sharing_private_history" = "Історія прослуховування / річний звіт";
 "L-08 · Two-Line Display" = "L-08 · Дворядковий дисплей";
 "directory_has_lrc" = "Включає файли .lrc";
-"lyrics_transcription_settings_title" = "Google Транскрипція пісні";
+"lyrics_transcription_settings_title" = "Транскрипція пісень";
 "a11y_unlike" = "Видалити з пісень, які сподобалися";
 "immersive_now_playing" = "ЗАРАЗ ГРАЄТЬСЯ";
 "yearly_card_time_unit_hour" = "год";

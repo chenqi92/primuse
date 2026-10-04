@@ -3664,7 +3664,7 @@
 "lyrics_display_section" = "Affichage";
 "lyrics_audio_tools_section" = "Paroles depuis l’audio";
 "lyrics_audio_tools_footer" = "La transcription crée un brouillon de paroles horodatées et modifiables. Rien n’est enregistré avant vérification et confirmation.";
-"lyrics_transcription_settings_title" = "Transcription de morceaux Google";
+"lyrics_transcription_settings_title" = "Transcription de morceaux";
 "lyrics_transcription_status_ready" = "Prêt";
 "lyrics_transcription_status_needs_setup" = "À configurer";
 "lyrics_transcription_provider" = "Fournisseur";
@@ -3682,6 +3682,14 @@
 "lyrics_transcription_models_empty" = "Le catalogue de Google ne contient aucun modèle de transcription compatible.";
 "lyrics_transcription_saved" = "Réglages de transcription enregistrés.";
 "lyrics_transcription_configure" = "Configurer";
+"lyrics_transcription_service" = "Service";
+"lyrics_transcription_service_builtin" = "IA intégrée";
+"lyrics_transcription_service_own_key" = "Ma clé API Google";
+"lyrics_transcription_builtin_footer" = "Le morceau est d’abord converti sur cet appareil en un petit fichier audio, puis envoyé à l’IA intégrée et transcrit par le modèle de transcription de Google ; l’audio envoyé est supprimé aussitôt après. Le nombre de morceaux transcrits par jour dépend de votre forfait, jusqu’à 10 minutes par morceau.";
+"lyrics_transcription_builtin_needs_relay" = "Activez l’IA intégrée dans « Fonctions intelligentes » pour l’utiliser pour la transcription de morceaux.";
+"lyrics_transcription_builtin_not_offered" = "L’IA intégrée ne propose pas encore la transcription de morceaux. Vous pouvez utiliser votre propre clé API Google en attendant.";
+"ai_audio_transcription_limit_reached" = "Vous avez utilisé toutes les transcriptions de morceaux d’aujourd’hui. Réessayez demain ou passez à votre propre clé API Google dans les réglages.";
+"ai_audio_transcription_too_long" = "L’IA intégrée ne peut transcrire que des morceaux de 10 minutes maximum.";
 
 // macOS settings and shared labels
 "Audio Output" = "Sortie audio";

@@ -3433,7 +3433,7 @@
 "lyrics_display_section" = "Display";
 "lyrics_audio_tools_section" = "Lyrics from Audio";
 "lyrics_audio_tools_footer" = "Song transcription creates an editable, timed lyric draft. Nothing is saved until you review and confirm it.";
-"lyrics_transcription_settings_title" = "Google Song Transcription";
+"lyrics_transcription_settings_title" = "Song Transcription";
 "lyrics_transcription_status_ready" = "Ready";
 "lyrics_transcription_status_needs_setup" = "Set Up";
 "lyrics_transcription_provider" = "Provider";
@@ -3451,6 +3451,14 @@
 "lyrics_transcription_models_empty" = "Google’s model catalog returned no compatible transcription model.";
 "lyrics_transcription_saved" = "Song transcription settings saved.";
 "lyrics_transcription_configure" = "Configure";
+"lyrics_transcription_service" = "Service";
+"lyrics_transcription_service_builtin" = "Built-in AI";
+"lyrics_transcription_service_own_key" = "My Google API Key";
+"lyrics_transcription_builtin_footer" = "The song is first converted on this device into a small audio file, then sent to the built-in AI and transcribed by Google’s transcription model; the uploaded audio is deleted right after. How many songs you can transcribe each day depends on your plan, up to 10 minutes per song.";
+"lyrics_transcription_builtin_needs_relay" = "Turn on the built-in AI in Intelligence settings to use it for song transcription.";
+"lyrics_transcription_builtin_not_offered" = "The built-in AI doesn’t offer song transcription yet. You can use your own Google API key for now.";
+"ai_audio_transcription_limit_reached" = "You’ve used today’s song transcriptions. Try again tomorrow, or switch to your own Google API key in Settings.";
+"ai_audio_transcription_too_long" = "The built-in AI can only transcribe songs up to 10 minutes long.";
 
 // macOS settings and shared labels
 "Audio Output" = "Audio Output";

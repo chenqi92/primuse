@@ -716,6 +716,65 @@ actor PrimuseAIRelayClient {
         }
     }
 
+    /// 听歌识词:把本机转好的 M4A 整份交给内置 AI,等它把每个词的起止时间带回来。
+    /// 一首歌要转写几十秒,中转在 NDJSON 流里每 10 秒发一个空行保活;时长以中转
+    /// 从文件里读出来的为准(上限 10 分钟)。
+    func transcribeAudio(
+        fileURL: URL,
+        languageCodes: [String] = []
+    ) async throws -> AIAudioTranscriptionResult {
+        let audio = try Data(contentsOf: fileURL, options: .mappedIfSafe)
+        guard !audio.isEmpty,
+              audio.count <= AIAudioTranscriptionPolicy.builtInMaximumUploadBytes else {
+            throw PrimuseAIRelayError.requestFailed(statusCode: 413, code: "request_too_large")
+        }
+        var completed: AudioTranscriptionOutput?
+        try await performStreamingFeature(
+            path: "/v1/audio/transcriptions",
+            purpose: "audio_transcription",
+            input: AudioTranscriptionInput(
+                audioBase64: audio.base64EncodedString(),
+                mimeType: "audio/m4a",
+                languageCodes: languageCodes.isEmpty ? nil : Array(languageCodes.prefix(3))
+            ),
+            output: AudioTranscriptionOutput.self,
+            progress: AudioTranscriptionProgress.self
+        ) { event in
+            if case .completed(let output) = event { completed = output }
+        }
+        guard let completed else { throw PrimuseAIRelayError.invalidResponse }
+        return AIAudioTranscriptionResult(
+            transcript: completed.transcript ?? "",
+            words: (completed.words ?? []).map {
+                AIAudioTranscriptionWord(text: $0.text, startTime: $0.start, endTime: $0.end)
+            }
+        )
+    }
+
+    /// 内置 AI 现在有没有转写模型可用(后台没配好时听歌识词入口不该出现)。
+    /// 读不到就是不知道,返回 nil。
+    func isAudioTranscriptionOffered() async -> Bool? {
+        guard let url = URL(string: "/v1/service-info", relativeTo: baseURL)?.absoluteURL else { return nil }
+        var request = URLRequest(
+            url: url,
+            cachePolicy: .reloadIgnoringLocalCacheData,
+            timeoutInterval: 15
+        )
+        request.httpMethod = "GET"
+        guard let (data, response) = try? await session.data(for: request),
+              let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode),
+              data.count <= Self.maximumResponseBytes,
+              let envelope = try? decoder.decode(SuccessEnvelope<ServiceInfoOutput>.self, from: data) else {
+            return nil
+        }
+        switch envelope.data.audioTranscription {
+        case "available": return true
+        case nil: return nil
+        default: return false
+        }
+    }
+
     nonisolated static func assertionClientDataHash(
         challenge: String,
         method: String,
@@ -1869,6 +1928,40 @@ actor PrimuseAIRelayClient {
 
     /// The relay sends no progress lines for mood readings; any that appear are ignored.
     private struct ListeningMoodProgress: Decodable, Sendable {}
+
+    private struct AudioTranscriptionInput: Encodable, Sendable {
+        var audioBase64: String
+        var mimeType: String
+        var languageCodes: [String]?
+
+        private enum CodingKeys: String, CodingKey {
+            case audioBase64 = "audio_base64"
+            case mimeType = "mime_type"
+            case languageCodes = "language_codes"
+        }
+    }
+
+    private struct AudioTranscriptionOutput: Decodable, Sendable {
+        struct Word: Decodable, Sendable {
+            var text: String
+            var start: TimeInterval
+            var end: TimeInterval
+        }
+
+        var transcript: String?
+        var words: [Word]?
+    }
+
+    /// A transcription arrives whole; the stream only carries keep-alive blank lines.
+    private struct AudioTranscriptionProgress: Decodable, Sendable {}
+
+    private struct ServiceInfoOutput: Decodable, Sendable {
+        var audioTranscription: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case audioTranscription = "audio_transcription"
+        }
+    }
 }
 
 private extension Data {

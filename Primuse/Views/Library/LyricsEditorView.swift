@@ -127,6 +127,8 @@ struct LyricsEditorView: View {
     var body: some View {
         content
             .task(id: song.id) { await trackPlaybackTime() }
+            // 选了内置 AI 时先问一下后台有没有开放听歌识词,入口据此出现。
+            .task { await intelligence.refreshBuiltInTranscriptionOffer() }
             .task(id: "\(song.id)#\(autoStartsAudioTranscription)") {
                 guard autoStartsAudioTranscription,
                       !didAutoStartAudioTranscription,
@@ -439,12 +441,7 @@ struct LyricsEditorView: View {
     // MARK: - 零歌词空状态
 
     private var canTranscribeSongAudio: Bool {
-        intelligence.isAudioTranscriptionConfigured
-            && AIAudioTranscriptionPolicy.supportsInput(format: song.fileFormat)
-            && song.sourceID != AppleMusicLibraryIdentity.sourceID
-            && song.cueSheetPath == nil
-            && (song.duration <= 0
-                || song.duration <= AIAudioTranscriptionPolicy.maximumDuration)
+        intelligence.canTranscribeAudio(of: song)
     }
 
     /// 完全没歌词时不给一个空白输入框 —— 那等于把「从哪开始」的问题丢回给用户。
@@ -653,6 +650,10 @@ struct LyricsEditorView: View {
                 )
             case .failed:
                 transcriptionMessage = String(localized: "ai_audio_transcription_failed")
+            case .limitReached:
+                transcriptionMessage = String(localized: "ai_audio_transcription_limit_reached")
+            case .tooLong:
+                transcriptionMessage = String(localized: "ai_audio_transcription_too_long")
             case .success(let execution):
                 let transcribed = AIAudioTranscriptionLyricsFormatter.document(
                     from: execution.result
@@ -682,10 +683,14 @@ struct LyricsEditorView: View {
 
     private func localTranscriptionInput() async throws -> LocalTranscriptionInput {
         let resolvedURL = try await sourceManager.resolveFullDownloadSourceURL(for: song)
+        // 内置 AI 先在本机转成 M4A 再上传,原文件是什么格式都行;自己的 Google 密钥
+        // 直接传原文件,只能是 Google 写明支持的格式。
         guard let mimeType = Self.audioTranscriptionMIMEType(
             for: resolvedURL,
             fallbackFormat: song.fileFormat
-        ) else {
+        ) ?? (intelligence.lyricsTranscriptionSettingsStore.usesBuiltIn
+            ? "application/octet-stream"
+            : nil) else {
             throw CocoaError(.fileReadUnsupportedScheme)
         }
         if resolvedURL.isFileURL {

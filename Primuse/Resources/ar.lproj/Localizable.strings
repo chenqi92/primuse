@@ -2036,6 +2036,14 @@
 "lyrics_transcription_audio_consent" = "السماح بتحميلات الصوت";
 "lyrics_transcription_configuration_section" = "خدمة النسخ من جوجل";
 "lyrics_transcription_configure" = "تكوين";
+"lyrics_transcription_service" = "الخدمة";
+"lyrics_transcription_service_builtin" = "الذكاء الاصطناعي المدمج";
+"lyrics_transcription_service_own_key" = "مفتاح Google API الخاص بي";
+"lyrics_transcription_builtin_footer" = "تُحوَّل الأغنية أولًا على هذا الجهاز إلى ملف صوتي صغير، ثم تُرسل إلى الذكاء الاصطناعي المدمج ليتعرّف عليها نموذج النسخ من Google، ويُحذف الصوت المرفوع فور الانتهاء. يعتمد عدد الأغاني التي يمكنك نسخها يوميًا على خطتك، بحد أقصى 10 دقائق للأغنية.";
+"lyrics_transcription_builtin_needs_relay" = "شغّل الذكاء الاصطناعي المدمج من «الميزات الذكية» لاستخدامه في نسخ الأغاني.";
+"lyrics_transcription_builtin_not_offered" = "لا يوفّر الذكاء الاصطناعي المدمج نسخ الأغاني بعد. يمكنك استخدام مفتاح Google API الخاص بك حاليًا.";
+"ai_audio_transcription_limit_reached" = "استنفدت عمليات نسخ الأغاني لهذا اليوم. حاول مجددًا غدًا أو انتقل إلى مفتاح Google API الخاص بك من الإعدادات.";
+"ai_audio_transcription_too_long" = "يمكن للذكاء الاصطناعي المدمج نسخ الأغاني التي لا تتجاوز 10 دقائق فقط.";
 "lyrics_transcription_consent_footer" = "لا يتم تحميل الصوت إلا بعد بدء النسخ بشكل صريح. لا يتم حفظ النتيجة القابلة للتحرير حتى تقوم بتأكيدها.";
 "lyrics_transcription_enabled" = "السماح بنسخ الأغنية";
 "lyrics_transcription_fetch_models" = "تحميل نماذج النسخ المتوفرة";
@@ -2047,7 +2055,7 @@
 "lyrics_transcription_provider" = "المزود";
 "lyrics_transcription_saved" = "تم حفظ إعدادات نسخ الأغنية.";
 "lyrics_transcription_service_address" = "عنوان الخدمة";
-"lyrics_transcription_settings_title" = "نسخ الأغاني من جوجل";
+"lyrics_transcription_settings_title" = "نسخ الأغاني";
 "lyrics_transcription_status_needs_setup" = "إعداد";
 "lyrics_transcription_status_ready" = "جاهز";
 "lyrics_translation_ai_cached" = "تمت استعادة الترجمة الذكية من ذاكرة التخزين المؤقت";

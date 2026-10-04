@@ -3649,7 +3649,7 @@
 "lyrics_display_section" = "顯示";
 "lyrics_audio_tools_section" = "從音訊產生歌詞";
 "lyrics_audio_tools_footer" = "聽歌識詞會產生可編輯的時間軸歌詞草稿；校對並確認前不會儲存。";
-"lyrics_transcription_settings_title" = "Google 聽歌識詞";
+"lyrics_transcription_settings_title" = "聽歌識詞";
 "lyrics_transcription_status_ready" = "已就緒";
 "lyrics_transcription_status_needs_setup" = "需要設定";
 "lyrics_transcription_provider" = "服務商";
@@ -3667,6 +3667,14 @@
 "lyrics_transcription_models_empty" = "Google 模型目錄中沒有相容的轉寫模型。";
 "lyrics_transcription_saved" = "聽歌識詞設定已儲存。";
 "lyrics_transcription_configure" = "設定";
+"lyrics_transcription_service" = "辨識服務";
+"lyrics_transcription_service_builtin" = "內建 AI";
+"lyrics_transcription_service_own_key" = "自己的 Google 金鑰";
+"lyrics_transcription_builtin_footer" = "歌曲先在本機轉成小體積音訊，再交給內建 AI 由 Google 的轉寫模型辨識，上傳的音訊辨識完即刪除。每天能辨識幾首取決於你的方案，單首不超過 10 分鐘。";
+"lyrics_transcription_builtin_needs_relay" = "先在「智慧功能」裡開啟內建 AI，才能用它聽歌識詞。";
+"lyrics_transcription_builtin_not_offered" = "內建 AI 尚未開放聽歌識詞，可以先改用自己的 Google 金鑰。";
+"ai_audio_transcription_limit_reached" = "今天的聽歌識詞次數已用完，明天再試，或在設定裡改用自己的 Google 金鑰。";
+"ai_audio_transcription_too_long" = "內建 AI 只能辨識 10 分鐘以內的歌曲。";
 
 // macOS settings and shared labels
 "Audio Output" = "音訊輸出";

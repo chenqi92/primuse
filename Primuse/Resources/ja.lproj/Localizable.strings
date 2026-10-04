@@ -3665,7 +3665,7 @@
 "lyrics_display_section" = "表示";
 "lyrics_audio_tools_section" = "音声から歌詞を作成";
 "lyrics_audio_tools_footer" = "曲の文字起こしは、編集可能なタイムコード付き歌詞の下書きを作成します。確認するまで保存されません。";
-"lyrics_transcription_settings_title" = "Google 曲文字起こし";
+"lyrics_transcription_settings_title" = "曲文字起こし";
 "lyrics_transcription_status_ready" = "準備完了";
 "lyrics_transcription_status_needs_setup" = "設定が必要";
 "lyrics_transcription_provider" = "プロバイダー";
@@ -3683,6 +3683,14 @@
 "lyrics_transcription_models_empty" = "Google のモデルカタログに互換性のある文字起こしモデルがありません。";
 "lyrics_transcription_saved" = "曲の文字起こし設定を保存しました。";
 "lyrics_transcription_configure" = "設定";
+"lyrics_transcription_service" = "認識サービス";
+"lyrics_transcription_service_builtin" = "内蔵 AI";
+"lyrics_transcription_service_own_key" = "自分の Google API キー";
+"lyrics_transcription_builtin_footer" = "曲はまずこのデバイスで小さな音声ファイルに変換され、内蔵 AI に送られて Google の文字起こしモデルで認識されます。アップロードした音声は認識後すぐに削除されます。1 日に文字起こしできる曲数はプランによって異なり、1 曲 10 分までです。";
+"lyrics_transcription_builtin_needs_relay" = "「インテリジェンス」で内蔵 AI をオンにすると、曲の文字起こしに使えます。";
+"lyrics_transcription_builtin_not_offered" = "内蔵 AI はまだ曲の文字起こしに対応していません。当面は自分の Google API キーを使えます。";
+"ai_audio_transcription_limit_reached" = "今日の曲の文字起こし回数を使い切りました。明日もう一度試すか、設定で自分の Google API キーに切り替えてください。";
+"ai_audio_transcription_too_long" = "内蔵 AI で文字起こしできるのは 10 分以内の曲です。";
 
 // macOS settings and shared labels
 "Audio Output" = "オーディオ出力";

@@ -671,6 +671,38 @@ struct AIRemoteEndpointPolicyTests {
         #expect(!AIAudioTranscriptionPolicy.supportsInput(mimeType: "video/mp4"))
     }
 
+    @Test func builtInTranscriptionTakesAnyFormatUpToTenMinutes() {
+        // 内置 AI 先在本机转码:原文件格式不限,时长到 10 分钟为止;未知时长交给服务端。
+        for format in [AudioFormat.m4a, .alac, .opus, .ape, .flac] {
+            #expect(AIAudioTranscriptionPolicy.canTranscribe(
+                format: format, duration: 240, builtIn: true, ownKey: false
+            ))
+        }
+        #expect(AIAudioTranscriptionPolicy.canTranscribe(
+            format: .m4a, duration: 600, builtIn: true, ownKey: false
+        ))
+        #expect(!AIAudioTranscriptionPolicy.canTranscribe(
+            format: .m4a, duration: 601, builtIn: true, ownKey: false
+        ))
+        #expect(AIAudioTranscriptionPolicy.canTranscribe(
+            format: .m4a, duration: 0, builtIn: true, ownKey: false
+        ))
+
+        // 自己的 Google 密钥直接传原文件:只认 Google 写明支持的格式,最长 30 分钟。
+        #expect(!AIAudioTranscriptionPolicy.canTranscribe(
+            format: .m4a, duration: 240, builtIn: false, ownKey: true
+        ))
+        #expect(AIAudioTranscriptionPolicy.canTranscribe(
+            format: .mp3, duration: 25 * 60, builtIn: false, ownKey: true
+        ))
+        #expect(!AIAudioTranscriptionPolicy.canTranscribe(
+            format: .mp3, duration: 31 * 60, builtIn: false, ownKey: true
+        ))
+        #expect(!AIAudioTranscriptionPolicy.canTranscribe(
+            format: .mp3, duration: 240, builtIn: false, ownKey: false
+        ))
+    }
+
     @Test func credentialAccountIsStableAndContainsNoSecretMaterial() {
         let profileID = UUID(uuidString: "F36F1DD2-7471-4D96-A6B8-BBA6A3EF02C0")!
         #expect(AICredentialStoragePolicy.legacyAccount(profileID: profileID)

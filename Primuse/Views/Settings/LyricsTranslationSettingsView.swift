@@ -151,6 +151,8 @@ final class LyricsTranscriptionSettingsEditorModel {
     var configuration = LyricsTranscriptionSettingsStore.defaultConfiguration()
     var isEnabled = false
     var hasExplicitAudioUploadConsent = false
+    /// 交给内置 AI(本机转码后上传)还是自己的 Google 密钥。
+    var usesBuiltIn = true
     var apiKeyDraft = ""
     var hasStoredAPIKey = false
     var availableModels: [AIProviderModel] = []
@@ -172,9 +174,9 @@ final class LyricsTranscriptionSettingsEditorModel {
     var canSave: Bool {
         guard didLoad, !isWorking, !isFetchingModels else { return false }
         guard isEnabled else { return true }
-        return hasExplicitAudioUploadConsent
-            && hasUsableAPIKey
-            && AIAudioTranscriptionPolicy.supports(configuration: configuration)
+        guard hasExplicitAudioUploadConsent else { return false }
+        return usesBuiltIn
+            || (hasUsableAPIKey && AIAudioTranscriptionPolicy.supports(configuration: configuration))
     }
 
     func load(using intelligence: MusicIntelligenceService) async {
@@ -187,8 +189,10 @@ final class LyricsTranscriptionSettingsEditorModel {
         configuration = store.configuration
         isEnabled = store.isEnabled
         hasExplicitAudioUploadConsent = store.hasExplicitAudioUploadConsent
+        usesBuiltIn = store.usesBuiltIn
         hasStoredAPIKey = await intelligence.hasStoredLyricsTranscriptionAPIKey()
         didLoad = true
+        await intelligence.refreshBuiltInTranscriptionOffer(force: true)
     }
 
     func fetchModels(using intelligence: MusicIntelligenceService) async {
@@ -234,6 +238,7 @@ final class LyricsTranscriptionSettingsEditorModel {
                 configuration: configuration,
                 isEnabled: isEnabled,
                 hasExplicitAudioUploadConsent: hasExplicitAudioUploadConsent,
+                usesBuiltIn: usesBuiltIn,
                 apiKey: apiKeyDraft.isEmpty ? nil : apiKeyDraft
             )
             configuration = intelligence.lyricsTranscriptionSettingsStore.configuration
@@ -288,62 +293,85 @@ struct GoogleLyricsTranscriptionSettingsView: View {
                 }
             } else {
                 Section {
-                    LabeledContent("lyrics_transcription_provider") {
-                        Text(verbatim: "Google")
+                    Picker("lyrics_transcription_service", selection: $editor.usesBuiltIn) {
+                        Text("lyrics_transcription_service_builtin").tag(true)
+                        Text("lyrics_transcription_service_own_key").tag(false)
                     }
-                    LabeledContent("lyrics_transcription_service_address") {
-                        Text(verbatim: "generativelanguage.googleapis.com")
-                            .font(.caption.monospaced())
-                    }
+                    .settingsAnchor("lyrics.transcriptionService")
                 } footer: {
-                    Text("lyrics_transcription_google_footer")
+                    if editor.usesBuiltIn {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("lyrics_transcription_builtin_footer")
+                            if !intelligence.settingsStore.primuseRelayEnabled {
+                                Text("lyrics_transcription_builtin_needs_relay")
+                                    .foregroundStyle(.orange)
+                            } else if !intelligence.isBuiltInTranscriptionReady {
+                                Text("lyrics_transcription_builtin_not_offered")
+                                    .foregroundStyle(.orange)
+                            }
+                        }
+                    } else {
+                        Text("lyrics_transcription_google_footer")
+                    }
                 }
 
-                Section {
-                    SecureField("lyrics_transcription_api_key", text: $editor.apiKeyDraft)
-                    .settingsAnchor("lyrics.transcriptionAPIKey")
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    if editor.hasStoredAPIKey && editor.apiKeyDraft.isEmpty {
-                        Label("ai_api_key_stored", systemImage: "checkmark.shield")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Button {
-                        Task { await editor.fetchModels(using: intelligence) }
-                    } label: {
-                        HStack {
-                            Label("lyrics_transcription_fetch_models", systemImage: "arrow.triangle.2.circlepath")
-                            if editor.isFetchingModels {
-                                Spacer()
-                                ProgressView()
-                            }
+                if !editor.usesBuiltIn {
+                    Section {
+                        LabeledContent("lyrics_transcription_provider") {
+                            Text(verbatim: "Google")
                         }
-                        .settingsAnchor("lyrics.transcriptionFetchModels")
-                    }
-                    .disabled(!editor.canFetchModels)
-
-                    if !editor.availableModels.isEmpty {
-                        Picker(
-                            "lyrics_transcription_model",
-                            selection: $editor.configuration.transcriptionModel
-                        ) {
-                            ForEach(editor.availableModels) { model in
-                                Text(verbatim: model.id).tag(model.id)
-                            }
-                        }
-                        .settingsAnchor("lyrics.transcriptionModel")
-                    } else if !editor.configuration.transcriptionModel.isEmpty {
-                        LabeledContent("lyrics_transcription_model") {
-                            Text(verbatim: editor.configuration.transcriptionModel)
+                        LabeledContent("lyrics_transcription_service_address") {
+                            Text(verbatim: "generativelanguage.googleapis.com")
                                 .font(.caption.monospaced())
                         }
                     }
-                } header: {
-                    Text("lyrics_transcription_configuration_section")
-                } footer: {
-                    Text("lyrics_transcription_model_footer")
+
+                    Section {
+                        SecureField("lyrics_transcription_api_key", text: $editor.apiKeyDraft)
+                        .settingsAnchor("lyrics.transcriptionAPIKey")
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        if editor.hasStoredAPIKey && editor.apiKeyDraft.isEmpty {
+                            Label("ai_api_key_stored", systemImage: "checkmark.shield")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Button {
+                            Task { await editor.fetchModels(using: intelligence) }
+                        } label: {
+                            HStack {
+                                Label("lyrics_transcription_fetch_models", systemImage: "arrow.triangle.2.circlepath")
+                                if editor.isFetchingModels {
+                                    Spacer()
+                                    ProgressView()
+                                }
+                            }
+                            .settingsAnchor("lyrics.transcriptionFetchModels")
+                        }
+                        .disabled(!editor.canFetchModels)
+
+                        if !editor.availableModels.isEmpty {
+                            Picker(
+                                "lyrics_transcription_model",
+                                selection: $editor.configuration.transcriptionModel
+                            ) {
+                                ForEach(editor.availableModels) { model in
+                                    Text(verbatim: model.id).tag(model.id)
+                                }
+                            }
+                            .settingsAnchor("lyrics.transcriptionModel")
+                        } else if !editor.configuration.transcriptionModel.isEmpty {
+                            LabeledContent("lyrics_transcription_model") {
+                                Text(verbatim: editor.configuration.transcriptionModel)
+                                    .font(.caption.monospaced())
+                            }
+                        }
+                    } header: {
+                        Text("lyrics_transcription_configuration_section")
+                    } footer: {
+                        Text("lyrics_transcription_model_footer")
+                    }
                 }
 
                 Section {
@@ -372,7 +400,7 @@ struct GoogleLyricsTranscriptionSettingsView: View {
                     }
                     .disabled(!editor.canSave)
 
-                    if editor.hasStoredAPIKey {
+                    if editor.hasStoredAPIKey && !editor.usesBuiltIn {
                         Button("ai_delete_current_api_key", role: .destructive) {
                             Task { await editor.deleteAPIKey(using: intelligence) }
                         }

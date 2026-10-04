@@ -91,6 +91,10 @@ enum AIAudioTranscriptionOutcome: Sendable {
     case unavailable
     case success(AIAudioTranscriptionExecution)
     case failed
+    /// 内置 AI 今天的听歌识词次数已经用完。
+    case limitReached
+    /// 内置 AI 只收 10 分钟以内的歌(资料库里没有时长时才会走到服务端才知道)。
+    case tooLong
 }
 
 struct AIRecommendationExecution: Sendable {
@@ -300,6 +304,10 @@ final class MusicIntelligenceService {
     let lyricsTranscriptionSettingsStore: LyricsTranscriptionSettingsStore
     let regionAvailability: AIRegionAvailabilityService
     private(set) var lyricsTranscriptionCredentialAvailable = false
+    /// 内置 AI 的后台有没有配好转写模型(service-info 说的),没问到之前当作没有,
+    /// 免得给出一个点了必失败的入口。
+    private(set) var builtInTranscriptionOffered = false
+    @ObservationIgnored private var builtInTranscriptionCheckedAt: Date?
 
     private let credentialStore: any AICredentialStoring
     private let engine: MusicIntelligenceEngine
@@ -400,7 +408,47 @@ final class MusicIntelligenceService {
         }
         Task { @MainActor [weak self] in
             await self?.prepareLyricsTranscriptionCredentialMigration()
+            await self?.refreshBuiltInTranscriptionOffer()
         }
+    }
+
+    /// 问一次内置 AI 有没有开放听歌识词;半小时内问过就不再问(`force` 除外)。
+    /// 内置 AI 关着时不问。
+    func refreshBuiltInTranscriptionOffer(force: Bool = false) async {
+        guard settingsStore.primuseRelayEnabled,
+              PrimuseAIRelayClient.isSupportedOnCurrentDevice else { return }
+        if !force, let checkedAt = builtInTranscriptionCheckedAt,
+           Date().timeIntervalSince(checkedAt) < 30 * 60 {
+            return
+        }
+        guard let offered = await primuseRelayClient.isAudioTranscriptionOffered() else { return }
+        builtInTranscriptionCheckedAt = Date()
+        builtInTranscriptionOffered = offered
+    }
+
+    /// 内置 AI 这条路现在能不能用(不看用户选没选它)。
+    var isBuiltInTranscriptionReady: Bool {
+        settingsStore.primuseRelayEnabled
+            && PrimuseAIRelayClient.isSupportedOnCurrentDevice
+            && AIAvailabilityPolicy.decision(
+                for: .bundledRemote,
+                regionContext: regionAvailability.context
+            ).isAllowed
+            && builtInTranscriptionOffered
+    }
+
+    /// 这首歌现在能不能听歌识词:设置都齐了,且按所选的服务看格式和时长。
+    /// Apple Music 的歌拿不到音频,CUE 分轨只是整轨文件里的一段。
+    func canTranscribeAudio(of song: Song) -> Bool {
+        isAudioTranscriptionConfigured
+            && song.sourceID != AppleMusicLibraryIdentity.sourceID
+            && song.cueSheetPath == nil
+            && AIAudioTranscriptionPolicy.canTranscribe(
+                format: song.fileFormat,
+                duration: song.duration,
+                builtIn: lyricsTranscriptionSettingsStore.usesBuiltIn,
+                ownKey: !lyricsTranscriptionSettingsStore.usesBuiltIn
+            )
     }
 
     var shouldExposeRemoteConfiguration: Bool {
@@ -507,6 +555,11 @@ final class MusicIntelligenceService {
     }
 
     var isAudioTranscriptionConfigured: Bool {
+        if lyricsTranscriptionSettingsStore.usesBuiltIn {
+            return lyricsTranscriptionSettingsStore.isEnabled
+                && lyricsTranscriptionSettingsStore.hasExplicitAudioUploadConsent
+                && isBuiltInTranscriptionReady
+        }
         let decision = regionAvailability.remoteProviderDecision
         let configuration = lyricsTranscriptionSettingsStore.configuration
         return lyricsTranscriptionSettingsStore.isEnabled
@@ -1739,6 +1792,9 @@ final class MusicIntelligenceService {
         duration: TimeInterval,
         customVocabulary: [String] = []
     ) async -> AIAudioTranscriptionOutcome {
+        if lyricsTranscriptionSettingsStore.usesBuiltIn {
+            return await transcribeAudioWithBuiltIn(at: audioFileURL, duration: duration)
+        }
         let regionSnapshot = regionAvailability.snapshot
         let configuration = await resolvedLyricsTranscriptionConfiguration()
         let decision = regionAvailability.remoteProviderDecision
@@ -1809,6 +1865,73 @@ final class MusicIntelligenceService {
         return .failed
     }
 
+    /// 内置 AI:先在本机转成 22.05 kHz、48 kbps 的 M4A(能播的格式都能转),
+    /// 整份交给中转;中转从文件里读时长、按首扣套餐次数。临时文件用完即删。
+    private func transcribeAudioWithBuiltIn(
+        at audioFileURL: URL,
+        duration: TimeInterval
+    ) async -> AIAudioTranscriptionOutcome {
+        let regionSnapshot = regionAvailability.snapshot
+        guard lyricsTranscriptionSettingsStore.isEnabled,
+              lyricsTranscriptionSettingsStore.hasExplicitAudioUploadConsent,
+              isBuiltInTranscriptionReady else {
+            return .unavailable
+        }
+        guard duration <= 0 || duration <= AIAudioTranscriptionPolicy.builtInMaximumDuration else {
+            return .tooLong
+        }
+        let compact: OfflineAudioCompactor.Output
+        do {
+            compact = try await OfflineAudioCompactor.encodeForTranscription(
+                original: audioFileURL,
+                expectedDuration: duration > 0 ? duration : nil
+            )
+        } catch is CancellationError {
+            return .failed
+        } catch {
+            plog("[transcription] encode failed: \(error)")
+            return .failed
+        }
+        defer { try? FileManager.default.removeItem(at: compact.url) }
+        guard compact.byteCount <= Int64(AIAudioTranscriptionPolicy.builtInMaximumUploadBytes) else {
+            return .tooLong
+        }
+        guard regionSnapshot == regionAvailability.snapshot,
+              lyricsTranscriptionSettingsStore.hasExplicitAudioUploadConsent,
+              isBuiltInTranscriptionReady else {
+            return .failed
+        }
+        do {
+            let result = try await primuseRelayClient.transcribeAudio(fileURL: compact.url)
+            guard regionSnapshot == regionAvailability.snapshot else { return .failed }
+            return .success(AIAudioTranscriptionExecution(
+                result: result,
+                providerName: String(localized: "ai_primuse_relay_name"),
+                fallbackDepth: 0
+            ))
+        } catch is CancellationError {
+            return .failed
+        } catch let error as PrimuseAIRelayError {
+            guard case .requestFailed(let statusCode, let code, _) = error else { return .failed }
+            plog("[transcription] built-in AI refused: \(statusCode) \(code)")
+            switch code {
+            case "feature_quota_exhausted", "daily_request_limit_exhausted", "daily_quota_exhausted":
+                return .limitReached
+            case "audio_too_long", "request_too_large":
+                return .tooLong
+            case "feature_not_in_plan", "feature_disabled", "feature_unavailable", "route_not_found":
+                // 后台撤了转写模型:入口先收起来,下次问到开放再出现。
+                builtInTranscriptionOffered = false
+                builtInTranscriptionCheckedAt = Date()
+                return .unavailable
+            default:
+                return .failed
+            }
+        } catch {
+            return .failed
+        }
+    }
+
     func prepareLyricsTranscriptionCredentialMigration() async {
         _ = await hasStoredLyricsTranscriptionAPIKey()
     }
@@ -1829,12 +1952,13 @@ final class MusicIntelligenceService {
         configuration: AIRemoteProviderConfiguration,
         isEnabled: Bool,
         hasExplicitAudioUploadConsent: Bool,
+        usesBuiltIn: Bool,
         apiKey: String?
     ) async throws {
         let normalized = LyricsTranscriptionSettingsStore
             .normalizedGoogleConfiguration(configuration)
         let decision = AIAvailabilityPolicy.decision(
-            for: .userConfiguredRemote,
+            for: usesBuiltIn ? .bundledRemote : .userConfiguredRemote,
             regionContext: regionAvailability.context
         )
         guard decision.isAllowed else {
@@ -1862,10 +1986,12 @@ final class MusicIntelligenceService {
             configuration: normalized,
             isEnabled: isEnabled,
             hasExplicitAudioUploadConsent: hasExplicitAudioUploadConsent,
+            usesBuiltIn: usesBuiltIn,
             credentialMigrationCompleted: hasDedicatedCredential
                 || lyricsTranscriptionSettingsStore.legacyCredentialConfiguration == nil
         )
         _ = await hasStoredLyricsTranscriptionAPIKey()
+        if usesBuiltIn { await refreshBuiltInTranscriptionOffer(force: true) }
     }
 
     func deleteLyricsTranscriptionAPIKey() async throws {

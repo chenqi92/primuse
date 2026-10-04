@@ -314,6 +314,9 @@ final class LyricsTranscriptionSettingsStore {
         var legacyCredentialConfiguration: AIRemoteProviderConfiguration?
         var credentialMigrationCompleted: Bool
         var awaitsLegacySettingsMigration: Bool?
+        /// 交给内置 AI 还是自己的 Google 密钥。旧记录没有这一项:已经配好
+        /// 转写模型的照旧用自己的密钥,其余用内置 AI。
+        var usesBuiltIn: Bool?
     }
 
     nonisolated static let storageKey = "lyrics.transcription.settings.v1"
@@ -324,6 +327,8 @@ final class LyricsTranscriptionSettingsStore {
     private(set) var configuration: AIRemoteProviderConfiguration
     private(set) var isEnabled: Bool
     private(set) var hasExplicitAudioUploadConsent: Bool
+    /// 听歌识词交给内置 AI(在本机转码后上传),而不是自己的 Google 密钥。
+    private(set) var usesBuiltIn: Bool
     private(set) var legacyCredentialConfiguration: AIRemoteProviderConfiguration?
     private(set) var credentialMigrationCompleted: Bool
     private(set) var awaitsLegacySettingsMigration: Bool
@@ -342,9 +347,12 @@ final class LyricsTranscriptionSettingsStore {
            let persisted = try? JSONDecoder().decode(PersistedSettingsV1.self, from: data),
            persisted.schemaVersion == 1 {
             let normalized = Self.normalizedGoogleConfiguration(persisted.configuration)
+            let usesBuiltIn = persisted.usesBuiltIn
+                ?? !AIAudioTranscriptionPolicy.supports(configuration: normalized)
             configuration = normalized
+            self.usesBuiltIn = usesBuiltIn
             isEnabled = persisted.isEnabled
-                && AIAudioTranscriptionPolicy.supports(configuration: normalized)
+                && (usesBuiltIn || AIAudioTranscriptionPolicy.supports(configuration: normalized))
             hasExplicitAudioUploadConsent = persisted.hasExplicitAudioUploadConsent
             legacyCredentialConfiguration = persisted.legacyCredentialConfiguration
             credentialMigrationCompleted = persisted.credentialMigrationCompleted
@@ -356,6 +364,7 @@ final class LyricsTranscriptionSettingsStore {
             var migrated = Self.normalizedGoogleConfiguration(legacy)
             migrated.id = identifier()
             configuration = migrated
+            usesBuiltIn = false
             isEnabled = legacySettingsStore.audioTranscriptionEnabled
                 && AIAudioTranscriptionPolicy.supports(configuration: migrated)
             hasExplicitAudioUploadConsent = legacySettingsStore
@@ -366,6 +375,7 @@ final class LyricsTranscriptionSettingsStore {
             persistCurrentSettings()
         } else {
             configuration = Self.defaultConfiguration(id: identifier())
+            usesBuiltIn = true
             isEnabled = false
             hasExplicitAudioUploadConsent = false
             legacyCredentialConfiguration = nil
@@ -403,6 +413,7 @@ final class LyricsTranscriptionSettingsStore {
         configuration: AIRemoteProviderConfiguration,
         isEnabled: Bool,
         hasExplicitAudioUploadConsent: Bool,
+        usesBuiltIn: Bool,
         credentialMigrationCompleted: Bool = true
     ) throws {
         let normalized = Self.normalizedGoogleConfiguration(configuration)
@@ -412,6 +423,7 @@ final class LyricsTranscriptionSettingsStore {
             throw AIRemoteEndpointValidationError.unsupportedCapability
         }
         if isEnabled,
+           !usesBuiltIn,
            !AIAudioTranscriptionPolicy.supports(configuration: normalized) {
             throw AIRemoteEndpointValidationError.unsupportedCapability
         }
@@ -422,10 +434,12 @@ final class LyricsTranscriptionSettingsStore {
             hasExplicitAudioUploadConsent: hasExplicitAudioUploadConsent,
             legacyCredentialConfiguration: legacyCredentialConfiguration,
             credentialMigrationCompleted: credentialMigrationCompleted,
-            awaitsLegacySettingsMigration: false
+            awaitsLegacySettingsMigration: false,
+            usesBuiltIn: usesBuiltIn
         )
         defaults.set(try JSONEncoder().encode(persisted), forKey: Self.storageKey)
         self.configuration = normalized
+        self.usesBuiltIn = usesBuiltIn
         self.isEnabled = isEnabled
         self.hasExplicitAudioUploadConsent = hasExplicitAudioUploadConsent
         self.credentialMigrationCompleted = credentialMigrationCompleted
@@ -451,8 +465,10 @@ final class LyricsTranscriptionSettingsStore {
               let persisted = try? JSONDecoder().decode(PersistedSettingsV1.self, from: data),
               persisted.schemaVersion == 1 else { return }
         configuration = Self.normalizedGoogleConfiguration(persisted.configuration)
+        usesBuiltIn = persisted.usesBuiltIn
+            ?? !AIAudioTranscriptionPolicy.supports(configuration: configuration)
         isEnabled = persisted.isEnabled
-            && AIAudioTranscriptionPolicy.supports(configuration: configuration)
+            && (usesBuiltIn || AIAudioTranscriptionPolicy.supports(configuration: configuration))
         hasExplicitAudioUploadConsent = persisted.hasExplicitAudioUploadConsent
         legacyCredentialConfiguration = persisted.legacyCredentialConfiguration
         credentialMigrationCompleted = persisted.credentialMigrationCompleted
@@ -471,7 +487,8 @@ final class LyricsTranscriptionSettingsStore {
             hasExplicitAudioUploadConsent: hasExplicitAudioUploadConsent,
             legacyCredentialConfiguration: legacyCredentialConfiguration,
             credentialMigrationCompleted: credentialMigrationCompleted,
-            awaitsLegacySettingsMigration: awaitsLegacySettingsMigration
+            awaitsLegacySettingsMigration: awaitsLegacySettingsMigration,
+            usesBuiltIn: usesBuiltIn
         )
         if let data = try? JSONEncoder().encode(persisted) {
             defaults.set(data, forKey: Self.storageKey)
@@ -492,6 +509,7 @@ final class LyricsTranscriptionSettingsStore {
         var migrated = Self.normalizedGoogleConfiguration(legacy)
         migrated.id = configuration.id
         configuration = migrated
+        usesBuiltIn = false
         isEnabled = store.audioTranscriptionEnabled
             && AIAudioTranscriptionPolicy.supports(configuration: migrated)
         hasExplicitAudioUploadConsent = store.hasExplicitAudioUploadConsent
