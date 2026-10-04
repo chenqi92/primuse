@@ -2050,8 +2050,11 @@ struct NowPlayingView: View {
                 }
                 portraitBottomBar
                 .padding(.top, showsQueueStrip ? 6 : 0)
-                .padding(.bottom, bottomSafeArea)
                 .pmLayoutSwitchFade()
+                nowPlayingStatusBand(
+                    height: max(bottomSafeArea, Self.statusBandMinimumHeight),
+                    horizontalPadding: 36
+                )
             }
             .frame(maxHeight: .infinity)
         }
@@ -3987,7 +3990,7 @@ struct NowPlayingView: View {
             }
 
             // 底排停在原来那行音质小字还在时的高度。
-            Spacer().frame(height: max(bottomSafeArea, 16) + 16)
+            nowPlayingStatusBand(height: max(bottomSafeArea, 16) + 16, horizontalPadding: 36)
         }
     }
 
@@ -4387,11 +4390,12 @@ struct NowPlayingView: View {
                             .pmLayoutSwitchFade()
                         }
 
-                        // 这套版面铺满整屏、不经安全区。底排停在原来那行音质小字还在时的高度:
-                        // 下面空出的一截正是 Home 指示条那一带,不放可点的东西;没有指示条的机型也留一点边。
-                        Color.clear
-                            .frame(height: max(bottomSafeArea - 8, 12))
-                            .accessibilityHidden(true)
+                        // 这套版面铺满整屏、不经安全区。底排停在原来那行音质小字还在时的高度,
+                        // 下面那一截正是 Home 指示条那一带;没有指示条的机型也留出一行字的高度。
+                        nowPlayingStatusBand(
+                            height: max(bottomSafeArea - 8, Self.statusBandMinimumHeight),
+                            horizontalPadding: 26 + insets.rows
+                        )
                     }
                 }
                 // 侧边安全区按侧取值；上下仍沿用窗口安全区的既有处理。整屏居中(iPhone Duo)时两侧都是 0。
@@ -5809,6 +5813,24 @@ struct NowPlayingView: View {
 
     private var audioInfoMode: NowPlayingAudioInfoMode {
         PlayerAppearancePreferences.audioInfoMode(rawValue: audioInfoModeRawValue)
+    }
+
+    /// 底排下面那一截至少这么高,放得下一行状态。
+    private static var statusBandMinimumHeight: CGFloat { 20 }
+
+    /// 底排下面那一截:让开 Home 指示条,有事时在顶上写一行状态(输出设备、睡眠定时)。
+    /// 往上提一点,贴着底排按钮的留白,不压到指示条。
+    private func nowPlayingStatusBand(height: CGFloat, horizontalPadding: CGFloat) -> some View {
+        Color.clear
+            .frame(height: height)
+            .overlay(alignment: .top) {
+                NowPlayingStatusLine(
+                    showsSleepTimer: !usesSpokenWordTransport,
+                    tint: appearance.tertiary
+                )
+                .padding(.horizontal, horizontalPadding)
+                .offset(y: -4)
+            }
     }
 
     /// 不止一个音乐源时标出这首歌来自哪个源。
@@ -10706,6 +10728,127 @@ fileprivate struct PlaybackProgressBar<CenterAccessory: View>: View {
 extension PlaybackProgressBar where CenterAccessory == EmptyView {
     init(fillTint: Color? = nil) {
         self.init(fillTint: fillTint) { EmptyView() }
+    }
+}
+
+// MARK: - 底部状态行
+
+/// 播放页最底下那一行,只在有事时出现:声音没从手机扬声器出(耳机、蓝牙、隔空播放、车载、
+/// 投放到 DLNA 设备)时写设备名,开着睡眠定时时写还剩多久。都没有就空着。
+/// 落在 Home 指示条那一带,只是文字、不可点。自己读播放器状态,倒计时每秒只重画这一行。
+fileprivate struct NowPlayingStatusLine: View {
+    /// 有声内容的定时写在下面的「定时」块里,这里不重复。
+    let showsSleepTimer: Bool
+    let tint: Color
+    @Environment(AudioPlayerService.self) private var player
+
+    #if DEBUG
+    /// 取证用:模拟器没有耳机,`PRIMUSE_DEBUG_STATUS_OUTPUT=<设备名>` 冒充连着这台蓝牙设备;
+    /// `PRIMUSE_DEBUG_SLEEP_MINUTES=<分钟>` 一出现就开一个睡眠定时。
+    private static let debugOutputName = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_STATUS_OUTPUT"]
+    private static let debugSleepMinutes = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SLEEP_MINUTES"]
+        .flatMap(Int.init)
+    #endif
+
+    private struct Output: Equatable {
+        let symbol: String
+        let name: String
+    }
+
+    var body: some View {
+        let output = self.output
+        let showsSleep = showsSleepTimer && player.isSleepTimerActive
+        HStack(spacing: 6) {
+            if let output {
+                HStack(spacing: 3) {
+                    Image(systemName: output.symbol)
+                        .imageScale(.small)
+                    Text(verbatim: output.name)
+                }
+                .transition(.opacity)
+            }
+            if output != nil, showsSleep {
+                Text(verbatim: "·")
+                    .accessibilityHidden(true)
+            }
+            if showsSleep {
+                sleepLabel
+                    .fixedSize()
+                    .layoutPriority(1)
+                    .transition(.opacity)
+            }
+        }
+        .font(.caption2.monospacedDigit())
+        .foregroundStyle(tint)
+        .lineLimit(1)
+        .accessibilityElement(children: .combine)
+        .pmAnimation(.control, value: output)
+        .pmAnimation(.control, value: showsSleep)
+        #if DEBUG
+        .task {
+            guard let minutes = Self.debugSleepMinutes, !player.isSleepTimerActive else { return }
+            player.scheduleSleep(minutes: minutes)
+        }
+        #endif
+    }
+
+    private var sleepLabel: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "moon.zzz.fill")
+                .imageScale(.small)
+                .accessibilityLabel(Text("sleep_timer_active"))
+            if let end = player.sleepTimerEndDate {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text(verbatim: max(0, end.timeIntervalSince(context.date)).formattedDuration)
+                }
+            } else {
+                Text(verbatim: sleepModeText)
+            }
+        }
+    }
+
+    private var sleepModeText: String {
+        if player.sleepStopAfterChapter != nil {
+            return String(localized: "sleep_at_chapter_end")
+        }
+        if player.sleepStopAfterBook != nil {
+            return String(localized: "sleep_at_book_end")
+        }
+        return String(localized: "Stop After Current Song")
+    }
+
+    /// 投放时写投放的那台;否则是音频会话现在的出口,手机自己的扬声器不写。
+    private var output: Output? {
+        if let renderer = player.castingRenderer {
+            return Output(symbol: "hifispeaker", name: renderer.friendlyName)
+        }
+        #if DEBUG
+        if let name = Self.debugOutputName {
+            return Output(symbol: Self.symbol(for: EQOutputDevice(id: name, name: name, kind: .bluetooth)), name: name)
+        }
+        #endif
+        guard let device = player.equalizerService.currentOutputDevice,
+              device.kind != .builtInSpeaker else { return nil }
+        let name = device.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return nil }
+        return Output(symbol: Self.symbol(for: device), name: name)
+    }
+
+    private static func symbol(for device: EQOutputDevice) -> String {
+        switch device.kind {
+        case .airPlay: return "airplayaudio"
+        case .carAudio: return "car"
+        case .hdmi: return "tv"
+        case .usb: return "cable.connector"
+        case .headphones, .bluetooth:
+            let name = device.name.lowercased()
+            if name.contains("airpods max") { return "airpodsmax" }
+            if name.contains("airpods pro") { return "airpodspro" }
+            if name.contains("airpods") { return "airpods" }
+            if name.contains("beats") { return "beats.headphones" }
+            return "headphones"
+        case .builtInSpeaker, .other: return "hifispeaker"
+        }
     }
 }
 
