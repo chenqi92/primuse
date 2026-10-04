@@ -1930,9 +1930,8 @@ actor GeminiAudioTranscriptionProvider: AIAudioTranscriptionProviding {
         if !request.languageCodes.isEmpty {
             transcriptionConfig["language_codes"] = request.languageCodes
         }
-        if !request.customVocabulary.isEmpty {
-            transcriptionConfig["custom_vocabulary"] = request.customVocabulary
-        }
+        // 自定义词表不能和逐词时间戳同时用:Google 会以「custom_vocabulary is
+        // incompatible with timestamps」直接拒绝整个请求,所以词表不发。
         let payload: [String: Any] = [
             "model": AIAudioTranscriptionPolicy.normalizedModel(
                 configuration.transcriptionModel

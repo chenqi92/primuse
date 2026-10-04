@@ -627,7 +627,8 @@ final class OpenAICompatibleProviderTests: XCTestCase {
             generation["transcription_config"] as? [String: Any]
         )
         XCTAssertEqual(transcription["language_codes"] as? [String], ["zh-CN"])
-        XCTAssertEqual(transcription["custom_vocabulary"] as? [String], ["故乡", "Primuse"])
+        // 词表与逐词时间戳不能同用（Google 会拒绝整个请求），所以即使传了也不发。
+        XCTAssertNil(transcription["custom_vocabulary"])
         let mode = try XCTUnwrap(transcription["mode"] as? [String: Any])
         XCTAssertEqual(mode["type"] as? String, "verbatim")
         XCTAssertEqual(mode["timestamp_granularities"] as? [String], ["word"])

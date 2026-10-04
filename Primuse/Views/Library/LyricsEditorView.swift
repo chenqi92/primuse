@@ -638,16 +638,12 @@ struct LyricsEditorView: View {
                 }
             }
             try Task.checkCancellation()
+            // 逐词时间戳不能和自定义词表同时用(Google 会直接拒绝请求),所以不传歌名、歌手做词表。
             let outcome = await intelligence.transcribeAudio(
                 at: input.url,
                 mimeType: input.mimeType,
                 displayName: song.title,
-                duration: song.duration,
-                customVocabulary: [
-                    song.title,
-                    song.artistName,
-                    song.albumTitle,
-                ].compactMap { $0 }
+                duration: song.duration
             )
             try Task.checkCancellation()
             switch outcome {
