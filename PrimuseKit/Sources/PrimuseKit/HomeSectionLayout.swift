@@ -97,7 +97,7 @@ public enum HomeSectionLayoutPolicy {
     ///
     /// 不是每块都该给选择:统计概览是一张固定卡片,硬塞一个「网格」只会做出
     /// 难看的东西。给不出第二种像样排布的区域就返回空数组 —— 编辑态据此不显示
-    /// 方案按钮。听歌排行的两种是「第一名聚光 + 名次卡」和「大数字封面货架」。
+    /// 方案按钮。听歌排行的两种是「领奖台 + 名次榜」和「大数字封面货架」。
     public static func supportedStyles(for section: HomeSectionKind) -> [HomeSectionLayoutStyle] {
         switch section {
         case .continueListening: [.carousel, .list]
