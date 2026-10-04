@@ -1,9 +1,10 @@
 # Primuse app icon system
 
-The production catalog contains one primary icon and six alternates:
+The production catalog contains one primary icon and seven alternates:
 
-- `00-soft-note.png` — primary icon: a cream dimensional eighth note with a soft cast shadow, on a mint-to-aqua gradient. It was the primary icon before Chris’s Muse, spent a day as alternate 18, and is primary again; number 18 is retired.
-- `19-chris-muse.png` — the previous primary icon, retained as an alternate: Chris’s Muse, designed by Chris, with a white dimensional note on red in Light and a pink-red note on charcoal in Dark.
+- `00-primuse.png` — primary icon, named Primuse: a folded magenta ribbon that forms a P, with an eighth note set into its bowl. Light puts it on warm white, Dark on deep navy with a soft pink glow, and Tinted renders it as a white ribbon on grey.
+- `20-soft-note.png` — the previous primary icon, retained as an alternate: a cream dimensional eighth note with a soft cast shadow, on a mint-to-aqua gradient. It was primary twice (before and after Chris’s Muse) and briefly alternate 18; number 18 is retired.
+- `19-chris-muse.png` — an earlier primary icon, retained as an alternate: Chris’s Muse, designed by Chris, with a white dimensional note on red in Light and a pink-red note on charcoal in Dark.
 - `16-nonoend.png` — NonoEnd: a pink-violet bass clef. Light sets it on a neutral grey gradient with a top-left rim light and a cast shadow; Dark sets the same clef on a deep indigo-to-plum plate.
 - `17-splash.png` — an earlier primary icon, retained as an alternate: a milky-white dimensional splash with an engraved ring and a note in its opening, on solid berry pink.
 - `14-letter-p.png` — the letter P in the same material in pure white on solid cobalt blue. Its bowl is an open counter; the note sits at the lower right on the P's own baseline, where its stem and flag double as a lowercase r — together they read Pr.
@@ -14,7 +15,7 @@ Private Library, Lossless Audio, Record Collection, Speaker Play, Muse Spark, Co
 
 ## Appearance system
 
-The soft note, folded note, and Pikaqiu preserve their Light, Dark, and Tinted PNGs without palette normalization. The soft note's Tinted plate is the one exception to the catalog's usual polarity: it carries a dark glyph on a light field rather than a light glyph on a near-black one.
+Primuse, the soft note, the folded note, and Pikaqiu preserve their Light, Dark, and Tinted PNGs without palette normalization; Primuse's three supplied plates share one composition and are only resized to 1024×1024. The soft note's Tinted plate is the one exception to the catalog's usual polarity: it carries a dark glyph on a light field rather than a light glyph on a near-black one.
 
 The splash and Letter P share one material: a white glyph with its own shading and a soft cast shadow over a single solid colour. Their Dark variants keep the identical composition with a colour-tinted glyph on charcoal, and their Tinted variants use a silver glyph on near-black.
 
@@ -26,7 +27,7 @@ All iOS masters are 1024×1024 full-bleed RGB PNGs with no baked platform corner
 
 ## tvOS
 
-tvOS uses the primary soft-note design in independently composed landscape/parallax assets: the glyph and its cast shadow form the transparent `Front` layer, the mint-to-aqua field is the `Back` layer. Compositing `Front` over `Back` reproduces the square plate, so the shadow is encoded as black-with-alpha rather than baked into the ground. The two are separated by channel difference — the cream glyph has R ≈ G while the mint field keeps G ≫ R — and the ground is a polynomial fit sampled clear of the glyph and its shadow. `BrandMark` is the square plate at 256×256. The square-icon generator does not produce any of these; `Front` sits at 63% of canvas height, the Top Shelf mark at 50%.
+tvOS uses the Dark Primuse plate, since a white plate glares on a television, in independently composed landscape/parallax assets: the ribbon P and its pink glow form the transparent `Front` layer, the navy field is the `Back` layer. Compositing `Front` over `Back` reproduces the square plate (rms 0.8). The ground is a polynomial fit sampled 150 px clear of the glyph so the glow is excluded; the glyph is opaque wherever it differs from the ground by more than 60 levels, and the glow fades out with that difference, keeping its hue. `BrandMark` is the Dark square plate at 256×256. The square-icon generator does not produce any of these; the P stands 56% of canvas height in `Front` and 44% on the Top Shelf, keeping the square plate's centring.
 
 The asset structure remains:
 
@@ -39,4 +40,4 @@ The asset structure remains:
 
 Run `python3 scripts/generate_app_icon_assets.py` from the repository root. The script regenerates the retained iOS iconsets and previews, the macOS and watchOS primary icons, the contact sheet, and the Light/Dark comparison sheet.
 
-The source inputs live in `raw/`. `00-soft-note*.png` and `15-folded-note*.png` preserve their exact artwork. A `NN-` prefix is the icon's alternate number; `00-` marks whichever design is currently primary. Retired numbers are never reused. In-app preview imagesets are written at 512×512.
+The source inputs live in `raw/`. `00-primuse*.png`, `20-soft-note*.png` and `15-folded-note*.png` preserve their exact artwork. A `NN-` prefix is the icon's alternate number; `00-` marks whichever design is currently primary. Retired numbers are never reused. In-app preview imagesets are written at 512×512.

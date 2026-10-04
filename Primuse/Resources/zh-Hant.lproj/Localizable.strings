@@ -171,11 +171,12 @@
 "player_backdrop_tv_images_empty" = "電視上還沒有圖片。在 iPhone 或 Mac 上選好「我的圖片」後掃碼直傳，圖片會一起帶過來；在那之前顯示封面取色。";
 "app_icon" = "App 圖示";
 "app_icon_dock_hint" = "macOS 只能在 Primuse 執行時替換 Dock 圖示，結束後 Dock 會顯示 App 套件內建的圖示。";
-"icon_default" = "清新音符";
+"icon_default" = "Primuse";
 "icon_appearance_gray" = "灰色";
 "icon_appearance_hint" = "圖示會跟隨主畫面外觀切換。請長按主畫面空白處，然後選擇「編輯」→「自訂」→「自動」。";
 "icon_theme_12" = "皮卡丘";
 "icon_theme_19" = "Chris’s Muse";
+"icon_theme_20" = "清新音符";
 "icon_theme_14" = "字母 P";
 "icon_theme_15" = "折頁音符";
 "icon_theme_16" = "NonoEnd";

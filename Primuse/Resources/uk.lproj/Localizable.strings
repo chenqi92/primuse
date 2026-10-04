@@ -1081,6 +1081,7 @@
 "new" = "Новинка";
 "icon_theme_12" = "pikaqiu";
 "icon_theme_19" = "Chris’s Muse";
+"icon_theme_20" = "М'яка нота";
 "icon_theme_14" = "Літера P";
 "icon_theme_15" = "Складена нота";
 "icon_theme_16" = "NonoEnd";
@@ -3810,7 +3811,7 @@
 "share_song_information_action" = "Поділіться інформацією про пісню";
 "source_remove_confirm_title" = "Видалити це музичне джерело?";
 "dup_keep_newest" = "Зберігати найновіші";
-"icon_default" = "М'яка нота";
+"icon_default" = "Primuse";
 "relay_share_action" = "Створити зв’язок із приватним ретранслятором";
 "dup_mac_cleanup_action" = "Очистити дублікати (перемістити до нещодавно видалених)";
 "save_then_scan_library_hint" = "Спочатку збережіть, потім торкніться джерела, щоб підключитися та відсканувати повний каталог сервера";

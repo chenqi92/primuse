@@ -410,11 +410,12 @@
 "player_backdrop_tv_images_empty" = "이 Apple TV에는 아직 사진이 없습니다. iPhone이나 Mac에서 내 사진을 고른 뒤 코드를 스캔해 전송하면 사진도 함께 옵니다. 그전까지는 커버 색상을 표시합니다.";
 "app_icon" = "앱 아이콘";
 "app_icon_dock_hint" = "macOS는 Primuse가 실행 중일 때만 Dock 아이콘을 바꿀 수 있어, 종료하면 Dock은 앱 번들에 들어 있는 아이콘으로 돌아갑니다.";
-"icon_default" = "부드러운 음표";
+"icon_default" = "Primuse";
 "icon_appearance_gray" = "회색";
 "icon_appearance_hint" = "아이콘은 홈 화면 모드를 따릅니다. 홈 화면을 길게 누른 다음 편집 → 사용자화 → 자동을 선택하세요.";
 "icon_theme_12" = "pikaqiu";
 "icon_theme_19" = "Chris’s Muse";
+"icon_theme_20" = "부드러운 음표";
 "icon_theme_14" = "문자 P";
 "icon_theme_15" = "접힌 음표";
 "icon_theme_16" = "NonoEnd";

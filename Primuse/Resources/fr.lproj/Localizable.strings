@@ -410,11 +410,12 @@
 "player_backdrop_tv_images_empty" = "Aucune image sur cette Apple TV pour l’instant. Choisissez Mes images sur l’iPhone ou le Mac puis transférez en scannant le code : les images suivent. En attendant, les couleurs de la pochette sont affichées.";
 "app_icon" = "Icône de l'app";
 "app_icon_dock_hint" = "macOS ne peut remplacer l’icône du Dock que pendant l’exécution de Primuse ; une fois l’app quittée, le Dock réaffiche l’icône incluse dans le paquet.";
-"icon_default" = "Note douce";
+"icon_default" = "Primuse";
 "icon_appearance_gray" = "Gris";
 "icon_appearance_hint" = "L’icône suit l’apparence de l’écran d’accueil. Maintenez l’écran d’accueil, puis choisissez Modifier → Personnaliser → Automatique.";
 "icon_theme_12" = "pikaqiu";
 "icon_theme_19" = "Chris’s Muse";
+"icon_theme_20" = "Note douce";
 "icon_theme_14" = "Lettre P";
 "icon_theme_15" = "Note pliée";
 "icon_theme_16" = "NonoEnd";
