@@ -3619,8 +3619,10 @@
 "lyrics_transcription_builtin_footer" = "곡은 먼저 이 기기에서 작은 오디오 파일로 변환된 뒤 내장 AI로 보내져 Google의 받아쓰기 모델이 인식합니다. 업로드한 오디오는 인식이 끝나면 바로 삭제됩니다. 하루에 받아쓸 수 있는 곡 수는 요금제에 따라 다르며, 곡당 최대 10분입니다.";
 "lyrics_transcription_builtin_needs_relay" = "‘지능형 기능’에서 내장 AI를 켜야 곡 받아쓰기에 사용할 수 있습니다.";
 "lyrics_transcription_builtin_not_offered" = "내장 AI는 아직 곡 받아쓰기를 제공하지 않습니다. 우선 내 Google API 키를 사용할 수 있습니다.";
+"lyrics_transcription_builtin_not_in_plan" = "현재 요금제에는 내장 AI 곡 받아쓰기가 포함되어 있지 않습니다. 내 Google API 키를 대신 사용할 수 있습니다.";
 "ai_audio_transcription_limit_reached" = "오늘의 곡 받아쓰기 횟수를 모두 사용했습니다. 내일 다시 시도하거나 설정에서 내 Google API 키로 바꾸세요.";
 "ai_audio_transcription_monthly_limit_reached" = "이번 달 곡 받아쓰기 횟수를 모두 사용했습니다. 다음 달에 다시 사용할 수 있으며, 설정에서 내 Google API 키로 바꿀 수도 있습니다.";
+"ai_audio_transcription_not_in_plan" = "현재 요금제에는 곡 받아쓰기가 포함되어 있지 않습니다. 설정에서 내 Google API 키로 바꿀 수 있습니다.";
 "ai_audio_transcription_too_long" = "내장 AI는 10분 이하의 곡만 받아쓸 수 있습니다.";
 
 // macOS settings and shared labels

@@ -2043,8 +2043,10 @@
 "lyrics_transcription_builtin_footer" = "Utwór jest najpierw zamieniany na tym urządzeniu w mały plik audio, a potem wysyłany do wbudowanej sztucznej inteligencji i rozpoznawany przez model transkrypcji Google; przesłane audio jest od razu usuwane. Liczba utworów, które możesz transkrybować dziennie, zależy od planu, do 10 minut na utwór.";
 "lyrics_transcription_builtin_needs_relay" = "Włącz wbudowaną sztuczną inteligencję w sekcji Inteligencja, aby używać jej do transkrypcji utworów.";
 "lyrics_transcription_builtin_not_offered" = "Wbudowana sztuczna inteligencja nie oferuje jeszcze transkrypcji utworów. Na razie możesz użyć własnego klucza API Google.";
+"lyrics_transcription_builtin_not_in_plan" = "Twój obecny plan nie obejmuje transkrypcji utworów przez wbudowaną sztuczną inteligencję. Możesz zamiast tego użyć własnego klucza API Google.";
 "ai_audio_transcription_limit_reached" = "Wykorzystano dzisiejsze transkrypcje utworów. Spróbuj jutro albo przełącz się w ustawieniach na własny klucz API Google.";
 "ai_audio_transcription_monthly_limit_reached" = "Wykorzystano transkrypcje utworów na ten miesiąc. Wrócą w przyszłym miesiącu; możesz też przełączyć się w ustawieniach na własny klucz API Google.";
+"ai_audio_transcription_not_in_plan" = "Twój obecny plan nie obejmuje transkrypcji utworów. W ustawieniach możesz przełączyć się na własny klucz API Google.";
 "ai_audio_transcription_too_long" = "Wbudowana sztuczna inteligencja transkrybuje tylko utwory do 10 minut.";
 "lyrics_transcription_consent_footer" = "Dźwięk jest przesyłany dopiero po wyraźnym rozpoczęciu transkrypcji. Edytowalny wynik nie zostanie zapisany, dopóki go nie potwierdzisz.";
 "lyrics_transcription_enabled" = "Zezwól na transkrypcję utworu";

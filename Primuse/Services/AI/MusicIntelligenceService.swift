@@ -95,6 +95,8 @@ enum AIAudioTranscriptionOutcome: Sendable {
     case limitReached
     /// 内置 AI 这个月(订阅周期)的听歌识词次数已经用完。
     case monthlyLimitReached
+    /// 当前套餐没有听歌识词。
+    case notInPlan
     /// 内置 AI 只收 10 分钟以内的歌(资料库里没有时长时才会走到服务端才知道)。
     case tooLong
 }
@@ -310,9 +312,11 @@ final class MusicIntelligenceService {
     let lyricsTranscriptionSettingsStore: LyricsTranscriptionSettingsStore
     let regionAvailability: AIRegionAvailabilityService
     private(set) var lyricsTranscriptionCredentialAvailable = false
-    /// 内置 AI 的后台有没有配好转写模型(service-info 说的),没问到之前当作没有,
-    /// 免得给出一个点了必失败的入口。
+    /// 内置 AI 的后台有没有配好转写模型(service-info 说的),且当前套餐能用;没问到
+    /// 之前当作没有,免得给出一个点了必失败的入口。
     private(set) var builtInTranscriptionOffered = false
+    /// 后台开放了听歌识词,但当前套餐没有(免费档不给,或转写线路只留给更高的套餐)。
+    private(set) var builtInTranscriptionNotInPlan = false
     @ObservationIgnored private var builtInTranscriptionCheckedAt: Date?
 
     private let credentialStore: any AICredentialStoring
@@ -419,7 +423,8 @@ final class MusicIntelligenceService {
     }
 
     /// 问一次内置 AI 有没有开放听歌识词;半小时内问过就不再问(`force` 除外)。
-    /// 内置 AI 关着时不问。
+    /// 内置 AI 关着时不问。套餐要签名请求才查得到,只在选了内置 AI 识别或打开
+    /// 设置页(`force`)时查;查不到套餐就只看后台开没开。
     func refreshBuiltInTranscriptionOffer(force: Bool = false) async {
         guard settingsStore.primuseRelayEnabled,
               PrimuseAIRelayClient.isSupportedOnCurrentDevice else { return }
@@ -428,8 +433,14 @@ final class MusicIntelligenceService {
             return
         }
         guard let offered = await primuseRelayClient.isAudioTranscriptionOffered() else { return }
+        var inPlan = true
+        if offered, force || lyricsTranscriptionSettingsStore.usesBuiltIn,
+           let planned = await primuseRelayClient.isAudioTranscriptionInPlan() {
+            inPlan = planned
+        }
         builtInTranscriptionCheckedAt = Date()
-        builtInTranscriptionOffered = offered
+        builtInTranscriptionOffered = offered && inPlan
+        builtInTranscriptionNotInPlan = offered && !inPlan
     }
 
     /// 内置 AI 这条路现在能不能用(不看用户选没选它)。
@@ -1928,7 +1939,13 @@ final class MusicIntelligenceService {
                 return .monthlyLimitReached
             case "audio_too_long", "request_too_large":
                 return .tooLong
-            case "feature_not_in_plan", "feature_disabled", "feature_unavailable", "route_not_found":
+            case "feature_not_in_plan":
+                // 当前套餐没有听歌识词:入口收起来,设置里说明原因,自己的密钥照常能用。
+                builtInTranscriptionOffered = false
+                builtInTranscriptionNotInPlan = true
+                builtInTranscriptionCheckedAt = Date()
+                return .notInPlan
+            case "feature_disabled", "feature_unavailable", "route_not_found":
                 // 后台撤了转写模型:入口先收起来,下次问到开放再出现。
                 builtInTranscriptionOffered = false
                 builtInTranscriptionCheckedAt = Date()

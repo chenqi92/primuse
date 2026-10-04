@@ -3620,8 +3620,10 @@
 "lyrics_transcription_builtin_footer" = "曲はまずこのデバイスで小さな音声ファイルに変換され、内蔵 AI に送られて Google の文字起こしモデルで認識されます。アップロードした音声は認識後すぐに削除されます。1 日に文字起こしできる曲数はプランによって異なり、1 曲 10 分までです。";
 "lyrics_transcription_builtin_needs_relay" = "「インテリジェンス」で内蔵 AI をオンにすると、曲の文字起こしに使えます。";
 "lyrics_transcription_builtin_not_offered" = "内蔵 AI はまだ曲の文字起こしに対応していません。当面は自分の Google API キーを使えます。";
+"lyrics_transcription_builtin_not_in_plan" = "現在のプランには内蔵 AI による曲の文字起こしが含まれていません。自分の Google API キーを使うことはできます。";
 "ai_audio_transcription_limit_reached" = "今日の曲の文字起こし回数を使い切りました。明日もう一度試すか、設定で自分の Google API キーに切り替えてください。";
 "ai_audio_transcription_monthly_limit_reached" = "今月の曲の文字起こし回数を使い切りました。来月に回復します。設定で自分の Google API キーに切り替えることもできます。";
+"ai_audio_transcription_not_in_plan" = "現在のプランには曲の文字起こしが含まれていません。設定で自分の Google API キーに切り替えられます。";
 "ai_audio_transcription_too_long" = "内蔵 AI で文字起こしできるのは 10 分以内の曲です。";
 
 // macOS settings and shared labels

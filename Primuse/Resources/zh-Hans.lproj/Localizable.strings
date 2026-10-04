@@ -3720,8 +3720,10 @@
 "lyrics_transcription_builtin_footer" = "歌曲先在本机转成小体积音频，再交给内置 AI 由 Google 的转写模型识别，上传的音频识别完即删除。每天能识别几首取决于你的套餐，单首不超过 10 分钟。";
 "lyrics_transcription_builtin_needs_relay" = "先在「智能功能」里打开内置 AI，才能用它听歌识词。";
 "lyrics_transcription_builtin_not_offered" = "内置 AI 暂未开放听歌识词，可以先改用自己的 Google 密钥。";
+"lyrics_transcription_builtin_not_in_plan" = "你当前的套餐不含内置 AI 听歌识词，可以改用自己的 Google 密钥。";
 "ai_audio_transcription_limit_reached" = "今天的听歌识词次数已用完，明天再试，或在设置里改用自己的 Google 密钥。";
 "ai_audio_transcription_monthly_limit_reached" = "本月的听歌识词次数已用完，下个月恢复，或在设置里改用自己的 Google 密钥。";
+"ai_audio_transcription_not_in_plan" = "你当前的套餐不含听歌识词，可以在设置里改用自己的 Google 密钥。";
 "ai_audio_transcription_too_long" = "内置 AI 只能识别 10 分钟以内的歌曲。";
 
 // macOS settings and shared labels

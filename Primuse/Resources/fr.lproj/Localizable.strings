@@ -3619,8 +3619,10 @@
 "lyrics_transcription_builtin_footer" = "Le morceau est d’abord converti sur cet appareil en un petit fichier audio, puis envoyé à l’IA intégrée et transcrit par le modèle de transcription de Google ; l’audio envoyé est supprimé aussitôt après. Le nombre de morceaux transcrits par jour dépend de votre forfait, jusqu’à 10 minutes par morceau.";
 "lyrics_transcription_builtin_needs_relay" = "Activez l’IA intégrée dans « Fonctions intelligentes » pour l’utiliser pour la transcription de morceaux.";
 "lyrics_transcription_builtin_not_offered" = "L’IA intégrée ne propose pas encore la transcription de morceaux. Vous pouvez utiliser votre propre clé API Google en attendant.";
+"lyrics_transcription_builtin_not_in_plan" = "Votre formule actuelle n’inclut pas la transcription de morceaux par l’IA intégrée. Vous pouvez utiliser votre propre clé API Google à la place.";
 "ai_audio_transcription_limit_reached" = "Vous avez utilisé toutes les transcriptions de morceaux d’aujourd’hui. Réessayez demain ou passez à votre propre clé API Google dans les réglages.";
 "ai_audio_transcription_monthly_limit_reached" = "Vous avez utilisé toutes les transcriptions de morceaux de ce mois. Elles reviennent le mois prochain, ou passez à votre propre clé API Google dans les réglages.";
+"ai_audio_transcription_not_in_plan" = "Votre formule actuelle n’inclut pas la transcription de morceaux. Vous pouvez passer à votre propre clé API Google dans les réglages.";
 "ai_audio_transcription_too_long" = "L’IA intégrée ne peut transcrire que des morceaux de 10 minutes maximum.";
 
 // macOS settings and shared labels

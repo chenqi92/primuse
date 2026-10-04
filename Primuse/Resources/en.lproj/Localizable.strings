@@ -3388,8 +3388,10 @@
 "lyrics_transcription_builtin_footer" = "The song is first converted on this device into a small audio file, then sent to the built-in AI and transcribed by Google’s transcription model; the uploaded audio is deleted right after. How many songs you can transcribe each day depends on your plan, up to 10 minutes per song.";
 "lyrics_transcription_builtin_needs_relay" = "Turn on the built-in AI in Intelligence settings to use it for song transcription.";
 "lyrics_transcription_builtin_not_offered" = "The built-in AI doesn’t offer song transcription yet. You can use your own Google API key for now.";
+"lyrics_transcription_builtin_not_in_plan" = "Your current plan doesn’t include song transcription with the built-in AI. You can use your own Google API key instead.";
 "ai_audio_transcription_limit_reached" = "You’ve used today’s song transcriptions. Try again tomorrow, or switch to your own Google API key in Settings.";
 "ai_audio_transcription_monthly_limit_reached" = "This month's song transcriptions are used up. They come back next month, or switch to your own Google API key in Settings.";
+"ai_audio_transcription_not_in_plan" = "Your current plan doesn’t include song transcription. You can switch to your own Google API key in Settings.";
 "ai_audio_transcription_too_long" = "The built-in AI can only transcribe songs up to 10 minutes long.";
 
 // macOS settings and shared labels

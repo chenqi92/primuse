@@ -310,6 +310,9 @@ struct GoogleLyricsTranscriptionSettingsView: View {
                             if !intelligence.settingsStore.primuseRelayEnabled {
                                 Text("lyrics_transcription_builtin_needs_relay")
                                     .foregroundStyle(.orange)
+                            } else if intelligence.builtInTranscriptionNotInPlan {
+                                Text("lyrics_transcription_builtin_not_in_plan")
+                                    .foregroundStyle(.orange)
                             } else if !intelligence.isBuiltInTranscriptionReady {
                                 Text("lyrics_transcription_builtin_not_offered")
                                     .foregroundStyle(.orange)

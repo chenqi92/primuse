@@ -775,6 +775,17 @@ actor PrimuseAIRelayClient {
         }
     }
 
+    /// 当前套餐有没有听歌识词:套餐没开放,或转写线路都只留给更高的套餐时,中转在
+    /// 用量接口的套餐里不列出它,这时去识别只会被拒。读不到就是不知道,返回 nil。
+    func isAudioTranscriptionInPlan() async -> Bool? {
+        guard let usage: UsagePlanOutput = try? await performFeature(
+            path: "/v1/account/usage",
+            purpose: "usage",
+            input: UsageQueryInput(limit: 1)
+        ) else { return nil }
+        return (usage.plan?.features?["audio_transcription"] ?? 0) > 0
+    }
+
     nonisolated static func assertionClientDataHash(
         challenge: String,
         method: String,
@@ -1954,6 +1965,20 @@ actor PrimuseAIRelayClient {
 
     /// A transcription arrives whole; the stream only carries keep-alive blank lines.
     private struct AudioTranscriptionProgress: Decodable, Sendable {}
+
+    /// 只借用量接口看套餐,流水取一条就够。
+    private struct UsageQueryInput: Encodable, Sendable {
+        var limit: Int
+    }
+
+    private struct UsagePlanOutput: Decodable, Sendable {
+        struct Plan: Decodable, Sendable {
+            /// 当前套餐能用的功能和每天的次数。
+            var features: [String: Int]?
+        }
+
+        var plan: Plan?
+    }
 
     private struct ServiceInfoOutput: Decodable, Sendable {
         var audioTranscription: String?

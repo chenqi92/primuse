@@ -3619,8 +3619,10 @@
 "lyrics_transcription_builtin_footer" = "Der Song wird zuerst auf diesem Gerät in eine kleine Audiodatei umgewandelt, dann an die integrierte KI gesendet und von Googles Transkriptionsmodell erkannt; das hochgeladene Audio wird gleich danach gelöscht. Wie viele Songs du pro Tag transkribieren kannst, hängt von deinem Tarif ab, höchstens 10 Minuten pro Song.";
 "lyrics_transcription_builtin_needs_relay" = "Aktiviere die integrierte KI unter „Intelligente Funktionen“, um sie für die Songtranskription zu nutzen.";
 "lyrics_transcription_builtin_not_offered" = "Die integrierte KI bietet noch keine Songtranskription an. Du kannst vorerst deinen eigenen Google-API-Schlüssel verwenden.";
+"lyrics_transcription_builtin_not_in_plan" = "Dein aktueller Tarif enthält keine Songtranskription mit der integrierten KI. Du kannst stattdessen deinen eigenen Google-API-Schlüssel verwenden.";
 "ai_audio_transcription_limit_reached" = "Die heutigen Songtranskriptionen sind aufgebraucht. Versuche es morgen erneut oder wechsle in den Einstellungen zu deinem eigenen Google-API-Schlüssel.";
 "ai_audio_transcription_monthly_limit_reached" = "Die Songtranskriptionen für diesen Monat sind aufgebraucht. Im nächsten Monat geht es weiter, oder wechsle in den Einstellungen zu deinem eigenen Google-API-Schlüssel.";
+"ai_audio_transcription_not_in_plan" = "Dein aktueller Tarif enthält keine Songtranskription. In den Einstellungen kannst du zu deinem eigenen Google-API-Schlüssel wechseln.";
 "ai_audio_transcription_too_long" = "Die integrierte KI kann nur Songs bis 10 Minuten transkribieren.";
 
 // macOS settings and shared labels

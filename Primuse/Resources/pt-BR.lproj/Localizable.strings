@@ -2043,8 +2043,10 @@
 "lyrics_transcription_builtin_footer" = "A música é primeiro convertida neste dispositivo em um arquivo de áudio pequeno, depois enviada à IA integrada e reconhecida pelo modelo de transcrição do Google; o áudio enviado é excluído logo em seguida. Quantas músicas você pode transcrever por dia depende do seu plano, até 10 minutos por música.";
 "lyrics_transcription_builtin_needs_relay" = "Ative a IA integrada em Inteligência para usá-la na transcrição de músicas.";
 "lyrics_transcription_builtin_not_offered" = "A IA integrada ainda não oferece transcrição de músicas. Por enquanto, você pode usar sua própria chave de API do Google.";
+"lyrics_transcription_builtin_not_in_plan" = "Seu plano atual não inclui a transcrição de músicas com a IA integrada. Você pode usar sua própria chave de API do Google.";
 "ai_audio_transcription_limit_reached" = "Você já usou as transcrições de músicas de hoje. Tente de novo amanhã ou mude para sua própria chave de API do Google nos ajustes.";
 "ai_audio_transcription_monthly_limit_reached" = "Você já usou as transcrições de músicas deste mês. Elas voltam no próximo mês, ou mude para sua própria chave de API do Google nos ajustes.";
+"ai_audio_transcription_not_in_plan" = "Seu plano atual não inclui a transcrição de músicas. Você pode mudar para sua própria chave de API do Google nos ajustes.";
 "ai_audio_transcription_too_long" = "A IA integrada só transcreve músicas de até 10 minutos.";
 "lyrics_transcription_consent_footer" = "O áudio é carregado somente depois que você inicia explicitamente a transcrição. O resultado editável não é salvo até que você o confirme.";
 "lyrics_transcription_enabled" = "Permitir transcrição de música";

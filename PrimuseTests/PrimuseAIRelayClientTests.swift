@@ -1200,6 +1200,41 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         XCTAssertEqual(try jsonObject(challenge)["purpose"] as? String, "tag_cleanup")
     }
 
+    func testTranscriptionPlanCheckReadsTheSignedUsagePlan() async throws {
+        let credentials = TestPrimuseRelayCredentialStore(
+            credential: PrimuseAIRelayCredential(
+                keyID: "test-app-attest-key",
+                installationID: "test-installation"
+            )
+        )
+        let cases: [(String, Bool?)] = [
+            (#"{"data":{"plan":{"id":"plus","features":{"audio_transcription":10,"tag_cleanup":40}}}}"#, true),
+            (#"{"data":{"plan":{"id":"anonymous_free","features":{"tag_cleanup":10}}}}"#, false),
+            (#"{"data":{"plan":null}}"#, false),
+        ]
+        for (index, (body, expected)) in cases.enumerated() {
+            let host = "primuse-relay-transcription-plan-\(index).invalid"
+            PrimuseRelayURLProtocol.configure(host: host, featureBody: body)
+            let (client, session, _, _) = makeClient(host: host, credentials: credentials)
+            defer { session.invalidateAndCancel() }
+            let inPlan = await client.isAudioTranscriptionInPlan()
+            XCTAssertEqual(inPlan, expected, body)
+            let requests = PrimuseRelayURLProtocol.requests(host: host)
+            let usage = try XCTUnwrap(requests.first { $0.url?.path == "/v1/account/usage" })
+            XCTAssertEqual(try jsonObject(usage)["limit"] as? Int, 1)
+            let challenge = try XCTUnwrap(requests.first { $0.url?.path == "/v1/auth/challenge" })
+            XCTAssertEqual(try jsonObject(challenge)["purpose"] as? String, "usage")
+        }
+
+        // Not knowing is not a refusal: the offer then follows the service alone.
+        let host = "primuse-relay-transcription-plan-down.invalid"
+        PrimuseRelayURLProtocol.configure(host: host, featureStatusCode: 503, featureBody: #"{"error":{"code":"unavailable"}}"#)
+        let (client, session, _, _) = makeClient(host: host, credentials: credentials)
+        defer { session.invalidateAndCancel() }
+        let unknown = await client.isAudioTranscriptionInPlan()
+        XCTAssertNil(unknown)
+    }
+
     func testTagCleanupStopsAskingTheRelayOnlyForLastingRefusals() {
         let stops: [PrimuseAIRelayError] = [
             .requestFailed(statusCode: 429, code: "feature_quota_exhausted"),
