@@ -2498,13 +2498,7 @@ struct StorageManagementView: View {
                     }
                 }
                 .settingsAnchor("storage.offlineDownloads")
-            } header: {
-                Text("offline_downloads")
-            } footer: {
-                Text("offline_downloads_footer")
-            }
 
-            Section {
                 Picker("offline_download_quality", selection: $settings.offlineDownloadQuality) {
                     ForEach(StreamQualityPreference.allCases, id: \.self) { quality in
                         Text(quality.displayName).tag(quality)
@@ -2517,9 +2511,12 @@ struct StorageManagementView: View {
                     offlineCompactionSweepRow
                 }
             } header: {
-                Text("offline_download_quality_section")
+                Text("offline_downloads")
             } footer: {
-                Text("offline_download_quality_desc")
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("offline_downloads_footer")
+                    Text("offline_download_quality_desc")
+                }
             }
 
             Section {

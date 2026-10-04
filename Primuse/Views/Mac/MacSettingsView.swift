@@ -455,6 +455,25 @@ private struct MacSTStorageView: View {
                         }
                     }
                     .settingsAnchor("storage.audioCacheLimit")
+                }
+            }
+
+            MacSTSection(String(localized: "offline_downloads")) {
+                MacSTGroup {
+                    MacSTRow(
+                        String(localized: "offline_downloads"),
+                        hint: String(localized: "offline_downloads_footer"),
+                        hintLineLimit: 3,
+                        divider: false
+                    ) {
+                        Text(verbatim: offlineDownloadsSummary)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                        MacSTButton(title: String(localized: "offline_downloads_manage")) {
+                            showsOfflineDownloads = true
+                        }
+                    }
+                    .settingsAnchor("storage.offlineDownloads")
                     MacSTRow(
                         String(localized: "offline_download_quality"),
                         hint: String(localized: "offline_download_quality_desc"),
@@ -484,25 +503,6 @@ private struct MacSTStorageView: View {
                             }
                         }
                     }
-                }
-            }
-
-            MacSTSection(String(localized: "offline_downloads")) {
-                MacSTGroup {
-                    MacSTRow(
-                        String(localized: "offline_downloads"),
-                        hint: String(localized: "offline_downloads_footer"),
-                        hintLineLimit: 3,
-                        divider: false
-                    ) {
-                        Text(verbatim: offlineDownloadsSummary)
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                        MacSTButton(title: String(localized: "offline_downloads_manage")) {
-                            showsOfflineDownloads = true
-                        }
-                    }
-                    .settingsAnchor("storage.offlineDownloads")
                 }
             }
 
