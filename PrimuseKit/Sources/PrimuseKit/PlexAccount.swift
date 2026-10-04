@@ -39,19 +39,16 @@ public enum PlexAccountAPI {
     public static let accountTokenCredentialKey = "plex_account_token"
 
     /// `app.plex.tv/auth` 的授权页地址。参数写在 `#?` 后面，这是 Plex 网页应用自己的约定。
-    public static func authorizationPageURL(
-        clientIdentifier: String,
-        code: String,
-        forwardURL: URL? = nil
-    ) -> URL {
-        var parameters: [(String, String)] = [
+    ///
+    /// 不带 `forwardUrl`：授权页只认 http(s) 和它白名单里的几个 App scheme（Plexamp、Infuse 等），
+    /// 别的 scheme（比如 `primuse://`）会被当成非法参数，页面不显示授权，直接跳去 www.plex.tv
+    /// （再 301 到 watch.plex.tv）。授权结果本来就靠轮询 PIN 拿，拿到后由调用方关掉网页。
+    public static func authorizationPageURL(clientIdentifier: String, code: String) -> URL {
+        let parameters: [(String, String)] = [
             ("clientID", clientIdentifier),
             ("code", code),
             ("context[device][product]", product),
         ]
-        if let forwardURL {
-            parameters.append(("forwardUrl", forwardURL.absoluteString))
-        }
         var allowed = CharacterSet.urlQueryAllowed
         allowed.remove(charactersIn: "&=+#?[]/:")
         // 类型写明：PrimuseKit 链接了 GRDB，它的 `SQL` 也接受字符串插值并带 `joined(separator:)`，

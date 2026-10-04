@@ -279,19 +279,18 @@ struct PlexAccountTests {
     }
     #endif
 
-    @Test func authorizationPageCarriesClientCodeAndForwardURLInTheFragment() throws {
-        let url = PlexAccountAPI.authorizationPageURL(
-            clientIdentifier: "primuse-abc",
-            code: "ab12cd",
-            forwardURL: URL(string: "primuse://plex-auth")
-        )
+    /// 授权页对 `forwardUrl` 只放行 http(s) 和它自己的白名单 scheme，带上 `primuse://` 会被直接
+    /// 跳去 www.plex.tv（#168）。所以地址里只有 clientID、code 和产品名。
+    @Test func authorizationPageCarriesClientCodeAndProductOnlyInTheFragment() throws {
+        let url = PlexAccountAPI.authorizationPageURL(clientIdentifier: "primuse-abc", code: "ab12cd")
         #expect(url.host == "app.plex.tv")
+        #expect(url.path == "/auth")
+        #expect(url.query == nil)
         let fragment = try #require(
             URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedFragment
         )
-        #expect(fragment.hasPrefix("?clientID=primuse-abc&code=ab12cd&"))
-        #expect(fragment.contains("context%5Bdevice%5D%5Bproduct%5D=Primuse"))
-        #expect(fragment.contains("forwardUrl=primuse%3A%2F%2Fplex-auth"))
+        #expect(fragment == "?clientID=primuse-abc&code=ab12cd&context%5Bdevice%5D%5Bproduct%5D=Primuse")
+        #expect(!fragment.contains("forwardUrl"))
     }
 
     @Test func clientSendsDeviceHeadersAndMapsStatusCodes() async throws {

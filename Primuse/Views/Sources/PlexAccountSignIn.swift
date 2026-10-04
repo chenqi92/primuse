@@ -10,7 +10,7 @@ import AppKit
 /// 「使用 Plex 账号登录」这一块的状态：建 PIN → 打开授权页 → 轮询 → 列服务器。
 ///
 /// 授权页只负责让用户点「允许」，结果靠轮询 PIN 拿：iPhone 上授权页是系统的网页登录面板，
-/// Mac 上交给默认浏览器（沙盒下的网页登录面板经常不显示，见 `OAuthService`）。
+/// 拿到 token 就由这边关掉；Mac 上交给默认浏览器（沙盒下的网页登录面板经常不显示，见 `OAuthService`）。
 @MainActor
 @Observable
 final class PlexAccountSignInModel {
@@ -27,10 +27,9 @@ final class PlexAccountSignInModel {
     /// 轮询途中网络抖一下不该让整次登录失败，连续失败这么多次才放弃。
     private static let maximumConsecutivePollFailures = 5
     #if os(iOS)
+    /// 网页登录面板要一个回调 scheme，但授权页不会跳回来（见 `PlexAccountAPI.authorizationPageURL`），
+    /// 面板靠轮询拿到 token 后关掉。
     private static let callbackScheme = "primuse"
-    private static let forwardURL = URL(string: "primuse://plex-auth")
-    #else
-    private static let forwardURL: URL? = nil
     #endif
 
     private(set) var phase: Phase = .idle
@@ -100,8 +99,7 @@ final class PlexAccountSignInModel {
             try Task.checkCancellation()
             openAuthorizationPage(PlexAccountAPI.authorizationPageURL(
                 clientIdentifier: client.clientIdentifier,
-                code: pin.code,
-                forwardURL: Self.forwardURL
+                code: pin.code
             ))
             let token = try await waitForToken(pinID: pin.id, client: client)
             closeAuthorizationPage()
