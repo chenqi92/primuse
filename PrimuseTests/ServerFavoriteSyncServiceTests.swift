@@ -66,6 +66,23 @@ final class ServerFavoriteSyncServiceTests: XCTestCase {
         XCTAssertTrue(library.isLiked(songID: local.id))
     }
 
+    func testIncompleteServerListAddsLikesButNeverRemovesThem() async {
+        let source = makeSource(type: .navidrome)
+        let kept = makeSong(sourceID: source.id, path: "/songs/song-1.flac")
+        let added = makeSong(sourceID: source.id, path: "/songs/song-2.flac")
+        let manager = FavoriteManagerFake()
+        manager.serverItemIDs = ["song-2"]
+        manager.isComplete = false
+        let library = FavoriteLibraryFake(songs: [kept, added])
+        library.setLocalLiked(kept.id, true)
+        let service = makeService(source: source, manager: manager, library: library)
+
+        await service.refresh(source: source)
+
+        XCTAssertTrue(library.isLiked(songID: kept.id))
+        XCTAssertTrue(library.isLiked(songID: added.id))
+    }
+
     func testStaleRefreshCannotOverwriteMutationCompletedWhileFetchIsInFlight() async {
         let source = makeSource(type: .navidrome)
         let song = makeSong(sourceID: source.id, path: "/songs/song-1.flac")
@@ -446,6 +463,7 @@ private final class FavoriteManagerFake: ServerFavoriteManaging {
     }
 
     var serverItemIDs = Set<String>()
+    var isComplete = true
     var setError: Error?
     var fetchError: Error?
     private(set) var setCalls: [SetCall] = []
@@ -455,13 +473,13 @@ private final class FavoriteManagerFake: ServerFavoriteManaging {
     func fetchServerFavorites(for source: MusicSource) async throws -> ServerFavoriteSnapshot? {
         fetchForSourceCount += 1
         if let fetchError { throw fetchError }
-        return ServerFavoriteSnapshot(itemIDs: Array(serverItemIDs))
+        return ServerFavoriteSnapshot(itemIDs: Array(serverItemIDs), isComplete: isComplete)
     }
 
     func fetchServerFavorites(sourceID: String) async throws -> ServerFavoriteSnapshot? {
         fetchBySourceIDCount += 1
         if let fetchError { throw fetchError }
-        return ServerFavoriteSnapshot(itemIDs: Array(serverItemIDs))
+        return ServerFavoriteSnapshot(itemIDs: Array(serverItemIDs), isComplete: isComplete)
     }
 
     func setServerFavorite(

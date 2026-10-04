@@ -507,18 +507,20 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
 
     private static func serverPlaylist(_ playlist: FnMusicPlaylist) -> ServerPlaylist {
         ServerPlaylist(id: playlist.id, name: playlist.name, coverArtReference: playlist.coverReference,
-                       trackIDs: playlist.trackIDs, reportedTrackCount: playlist.trackIDs.count)
+                       trackIDs: playlist.trackIDs, reportedTrackCount: playlist.reportedTrackCount)
     }
 
     func fetchServerFavorites() async throws -> ServerFavoriteSnapshot {
         let sourceTag = LogRedactionPolicy.digest(sourceID)
-        return ServerFavoriteSnapshot(itemIDs: try await libraryClient.favorites(
+        let snapshot = try await libraryClient.favoriteSnapshot(
             diagnosticLogger: { plog("source=\(sourceTag) \($0)") }
-        ))
+        )
+        return ServerFavoriteSnapshot(itemIDs: snapshot.trackIDs, isComplete: snapshot.isComplete)
     }
 
     func setServerFavorite(itemID: String, isFavorite: Bool) async throws -> ServerFavoriteSnapshot {
-        ServerFavoriteSnapshot(itemIDs: try await libraryClient.setFavorite(trackID: itemID, isFavorite: isFavorite))
+        let confirmed = try await libraryClient.setFavorite(trackID: itemID, isFavorite: isFavorite)
+        return ServerFavoriteSnapshot(itemIDs: confirmed.trackIDs, isComplete: confirmed.isComplete)
     }
 
     // MARK: - Audio

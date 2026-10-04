@@ -4601,22 +4601,29 @@ final class TVStore {
         guard isCurrentScan(source: source, generation: generation),
               let revision = serverFeedback.favoriteRefreshRevision(sourceID: source.id) else { return }
         do {
-            guard let itemIDs = try await scanner.fetchServerFavorites(
+            guard let snapshot = try await scanner.fetchServerFavorites(
                 source: source, credential: credential
             ) else { return }
             guard isCurrentScan(source: source, generation: generation),
                   serverFeedback.favoriteRefreshRevision(sourceID: source.id) == revision else { return }
-            let favorites = Set(itemIDs)
-            let songIDs = library.songs.filter {
-                $0.sourceID == source.id && ServerFavoriteWritebackPolicy.songID(
-                    fromConnectorPath: $0.filePath, sourceType: source.type
-                ).map(favorites.contains) == true
-            }.map(\.id)
-            library.replaceLikedSongs(fromSourceID: source.id, with: songIDs)
+            applyServerFavorites(snapshot, source: source)
         } catch {
             if OperationCancellationPolicy.isCancellation(error) { return }
             plog("Server favorites source=\(LogRedactionPolicy.digest(source.id)) result=failed \(LogRedactionPolicy.errorSummary(error))")
         }
+    }
+
+    /// 清单不完整（有条目认不出被跳过）时只加不撤：被跳过的那几条里可能就有本机已喜欢的歌。
+    private func applyServerFavorites(_ snapshot: ServerFavoriteSnapshot, source: MusicSource) {
+        let favorites = Set(snapshot.itemIDs)
+        let songIDs = library.songs.filter {
+            guard $0.sourceID == source.id else { return false }
+            if !snapshot.isComplete, library.isLiked(songID: $0.id) { return true }
+            return ServerFavoriteWritebackPolicy.songID(
+                fromConnectorPath: $0.filePath, sourceType: source.type
+            ).map(favorites.contains) == true
+        }.map(\.id)
+        library.replaceLikedSongs(fromSourceID: source.id, with: songIDs)
     }
 
     private func syncFnMusicLibrary(source: MusicSource, credential: SourceCredential?, generation: UUID) async {
@@ -4652,16 +4659,10 @@ final class TVStore {
         guard isCurrentScan(source: source, generation: generation),
               let revision = serverFeedback.favoriteRefreshRevision(sourceID: source.id) else { return }
         do {
-            let itemIDs = try await scanner.fetchFnMusicFavorites(source: source, credential: credential)
+            let snapshot = try await scanner.fetchFnMusicFavorites(source: source, credential: credential)
             guard isCurrentScan(source: source, generation: generation),
                   serverFeedback.favoriteRefreshRevision(sourceID: source.id) == revision else { return }
-            let favorites = Set(itemIDs)
-            let songIDs = library.songs.filter {
-                $0.sourceID == source.id && ServerFavoriteWritebackPolicy.songID(
-                    fromConnectorPath: $0.filePath, sourceType: .fnMusic
-                ).map(favorites.contains) == true
-            }.map(\.id)
-            library.replaceLikedSongs(fromSourceID: source.id, with: songIDs)
+            applyServerFavorites(snapshot, source: source)
         } catch {
             if OperationCancellationPolicy.isCancellation(error) { return }
             plog("Server favorites source=\(LogRedactionPolicy.digest(source.id)) result=failed \(LogRedactionPolicy.errorSummary(error))")
@@ -4670,7 +4671,7 @@ final class TVStore {
 
     private static func serverPlaylist(_ playlist: FnMusicPlaylist) -> ServerPlaylist {
         ServerPlaylist(id: playlist.id, name: playlist.name, coverArtReference: playlist.coverReference,
-                       trackIDs: playlist.trackIDs, reportedTrackCount: playlist.trackIDs.count)
+                       trackIDs: playlist.trackIDs, reportedTrackCount: playlist.reportedTrackCount)
     }
 
     private func isCurrentScan(source: MusicSource, generation: UUID) -> Bool {

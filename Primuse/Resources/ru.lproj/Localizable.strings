@@ -4970,6 +4970,8 @@
 "server_playlist_append_failed_title" = "Не удалось добавить в плейлист сервера";
 "server_playlist_append_read_only" = "Это умный плейлист или плейлист другого пользователя, поэтому сервер не разрешает добавлять в него треки.";
 "server_playlist_append_not_confirmed" = "Сервер не подтвердил добавленные треки. Повторите попытку позже.";
+"server_playlist_append_partial_title" = "Некоторые песни не добавлены";
+"server_playlist_append_partial_message %lld %lld" = "Добавлено песен: %1$lld. Ещё %2$lld не удалось сопоставить с треками на сервере, они не добавлены.";
 "server_playlist_append_footer" = "Треки добавляются в плейлист на сервере. Чтобы удалить их, отредактируйте плейлист на сервере.";
 
 // MARK: - Apple TV scraping

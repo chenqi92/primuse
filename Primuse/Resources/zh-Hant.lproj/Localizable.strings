@@ -5041,6 +5041,8 @@
 "server_playlist_append_failed_title" = "未能加入伺服器播放列表";
 "server_playlist_append_read_only" = "這是智慧型播放列表或其他使用者的播放列表，伺服器不允許加入歌曲。";
 "server_playlist_append_not_confirmed" = "伺服器沒有確認剛加入的歌曲，請稍後再試。";
+"server_playlist_append_partial_title" = "部分歌曲沒有加入";
+"server_playlist_append_partial_message %lld %lld" = "已加入 %1$lld 首；另有 %2$lld 首在伺服器上找不到對應曲目，沒有加入。";
 "server_playlist_append_footer" = "歌曲會加入伺服器上的這個播放列表；若要移除，請到伺服器上編輯。";
 
 // MARK: - Apple TV 刮削

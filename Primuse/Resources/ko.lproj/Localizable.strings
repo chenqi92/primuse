@@ -5064,6 +5064,8 @@
 "server_playlist_append_failed_title" = "서버 플레이리스트에 추가하지 못함";
 "server_playlist_append_read_only" = "스마트 플레이리스트이거나 다른 사용자의 플레이리스트이므로 서버에서 곡 추가를 허용하지 않습니다.";
 "server_playlist_append_not_confirmed" = "서버가 추가한 곡을 확인하지 못했습니다. 나중에 다시 시도하세요.";
+"server_playlist_append_partial_title" = "일부 곡을 추가하지 못함";
+"server_playlist_append_partial_message %lld %lld" = "%1$lld곡을 추가했습니다. %2$lld곡은 서버에서 해당 곡을 찾을 수 없어 추가하지 못했습니다.";
 "server_playlist_append_footer" = "곡은 서버의 플레이리스트에 추가됩니다. 제거하려면 서버에서 플레이리스트를 편집하세요.";
 
 // MARK: - Apple TV scraping

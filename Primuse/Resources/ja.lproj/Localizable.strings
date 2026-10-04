@@ -5065,6 +5065,8 @@
 "server_playlist_append_failed_title" = "サーバーのプレイリストに追加できませんでした";
 "server_playlist_append_read_only" = "スマートプレイリストまたは他のユーザーのプレイリストのため、サーバーが曲の追加を許可していません。";
 "server_playlist_append_not_confirmed" = "追加した曲をサーバーが確認できませんでした。しばらくしてからもう一度お試しください。";
+"server_playlist_append_partial_title" = "一部の曲は追加されませんでした";
+"server_playlist_append_partial_message %lld %lld" = "%1$lld 曲を追加しました。%2$lld 曲はサーバー上の対応する曲が見つからないため追加されませんでした。";
 "server_playlist_append_footer" = "曲はサーバー上のプレイリストに追加されます。削除するにはサーバー側で編集してください。";
 
 // MARK: - Apple TV scraping

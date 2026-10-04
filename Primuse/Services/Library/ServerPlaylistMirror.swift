@@ -107,7 +107,7 @@ enum ServerPlaylistMirror {
 
     /// 同步途中每读全一个歌单就先落地, 不必等整轮读完。只新建/覆盖, 从不删除:
     /// 哪些镜像该删只有整轮的快照说了算, 半路中断时已显示的歌单留到下一轮核对。
-    /// 取舍与 `apply` 相同 —— 自报数量对不上或一首都没对上的不动。
+    /// 取舍与 `apply` 相同 —— 服务端说有曲目却一首都没对上的不动。
     @MainActor
     final class ProgressiveApplier {
         private let source: MusicSource

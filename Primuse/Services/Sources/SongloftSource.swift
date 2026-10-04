@@ -214,12 +214,14 @@ actor SongloftSource: RefreshingMetadataSongConnector, ServerLyricsConnector,
     }
 
     func fetchServerFavorites() async throws -> ServerFavoriteSnapshot {
-        ServerFavoriteSnapshot(itemIDs: try await client.favorites().map(String.init))
+        let favorites = try await client.favoriteSongIDList()
+        return ServerFavoriteSnapshot(itemIDs: favorites.ids.map(String.init), isComplete: favorites.unreadableCount == 0)
     }
 
     func setServerFavorite(itemID: String, isFavorite: Bool) async throws -> ServerFavoriteSnapshot {
         guard let id = Int64(itemID), id > 0 else { throw SongloftServiceError.invalidResponse }
-        return ServerFavoriteSnapshot(itemIDs: try await client.setFavorite(id: id, isFavorite: isFavorite).map(String.init))
+        let confirmed = try await client.setFavorite(id: id, isFavorite: isFavorite)
+        return ServerFavoriteSnapshot(itemIDs: confirmed.ids.map(String.init), isComplete: confirmed.unreadableCount == 0)
     }
 
     func scrobble(songPath: String, submission: Bool) async {

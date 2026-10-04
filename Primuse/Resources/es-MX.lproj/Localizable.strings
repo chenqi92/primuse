@@ -4970,6 +4970,8 @@
 "server_playlist_append_failed_title" = "No se pudo agregar a la playlist del servidor";
 "server_playlist_append_read_only" = "Esta playlist es inteligente o pertenece a otro usuario, así que el servidor no permite agregarle canciones.";
 "server_playlist_append_not_confirmed" = "El servidor no confirmó las canciones agregadas. Inténtalo más tarde.";
+"server_playlist_append_partial_title" = "Algunas canciones no se agregaron";
+"server_playlist_append_partial_message %lld %lld" = "Se agregaron %1$lld canciones. %2$lld canciones no coinciden con ninguna pista del servidor y no se agregaron.";
 "server_playlist_append_footer" = "Las canciones se agregan a la playlist en el servidor. Para quitarlas, edita la playlist en el servidor.";
 
 // MARK: - Apple TV scraping

@@ -2555,7 +2555,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
 
     private func fetchEmbyFavoriteSnapshot() async throws -> ServerFavoriteSnapshot {
         guard let userID else { throw SourceError.authenticationFailed }
-        let response = try await fetchAllJellyfinOrEmbyItems(
+        // 只要 Id，逐条读：一首收藏的别的字段写怪了不该让整份收藏读不出来。
+        let response = try await fetchAllJellyfinOrEmbyPages(
             path: "/Users/\(userID)/Items",
             baseQueryItems: [
                 URLQueryItem(name: "Filters", value: "IsFavorite"),
@@ -2566,9 +2567,16 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 URLQueryItem(name: "SortOrder", value: "Ascending")
             ],
             maximumCount: Self.maximumCatalogTracks,
-            deduplicatesItems: true
+            deduplicatesItems: false,
+            as: MediaServerPlaylistEntry.self
         )
-        return ServerFavoriteSnapshot(itemIDs: response.items.map(\.id))
+        var seen = Set<String>()
+        let itemIDs = response.items.compactMap(\.id).filter { seen.insert($0).inserted }
+        let unreadable = response.items.filter { $0.id == nil }.count
+        if unreadable > 0 {
+            plog("⚠️ \(kind == .jellyfin ? "Jellyfin" : "Emby") favorites skipped \(unreadable) unreadable item(s)")
+        }
+        return ServerFavoriteSnapshot(itemIDs: itemIDs, isComplete: unreadable == 0)
     }
 
     /// Plex 没有布尔型的「收藏」,曲目上只有 0–10 的 `userRating`;Plex 自家客户端
@@ -2588,6 +2596,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     private func fetchPlexFavoriteSnapshot() async throws -> ServerFavoriteSnapshot {
         var itemIDs: [String] = []
         var seen = Set<String>()
+        var unreadable = 0
         for sectionID in try await plexMusicSectionIDs() {
             var startIndex = 0
             var expectedTotal: Int?
@@ -2609,7 +2618,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                         ),
                     ]
                 )
-                let page = try decoder.decode(PlexTrackResponse.self, from: data)
+                let page = try decoder.decode(PlexFavoriteTrackResponse.self, from: data)
                 try Self.validatePlaylistPageTotal(
                     page.totalCount,
                     expectedTotal: &expectedTotal,
@@ -2622,15 +2631,20 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                     }
                     break
                 }
-                for item in items where seen.insert(item.ratingKey).inserted {
-                    itemIDs.append(item.ratingKey)
+                for item in items {
+                    guard let ratingKey = item.ratingKey else {
+                        unreadable += 1
+                        continue
+                    }
+                    if seen.insert(ratingKey).inserted { itemIDs.append(ratingKey) }
                 }
                 startIndex += items.count
                 if let expectedTotal, startIndex >= expectedTotal { break }
                 if items.count < Self.playlistPageSize { break }
             }
         }
-        return ServerFavoriteSnapshot(itemIDs: itemIDs)
+        if unreadable > 0 { plog("⚠️ Plex favorites skipped \(unreadable) unreadable item(s)") }
+        return ServerFavoriteSnapshot(itemIDs: itemIDs, isComplete: unreadable == 0)
     }
 
     private func setPlexFavorite(
@@ -5275,6 +5289,36 @@ private struct PlexPlaylistItemsContainer: Decodable {
             )
         }
     }
+}
+
+/// 收藏（评分达标的曲目）只要 ratingKey, 和歌单明细一样逐条读: 一首的标题、年份写怪了
+/// 只让它自己读不出, 不作废整页收藏。
+private struct PlexFavoriteTrackResponse: Decodable {
+    let mediaContainer: Container
+
+    enum CodingKeys: String, CodingKey {
+        case mediaContainer = "MediaContainer"
+    }
+
+    struct Container: Decodable {
+        let metadata: [PlexPlaylistTrack]
+        let totalSize: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case metadata = "Metadata"
+            case totalSize
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            // 越过末尾的空页 Plex 不给 `Metadata`。
+            metadata = try container.decodeIfPresent([PlexPlaylistTrack].self, forKey: .metadata) ?? []
+            totalSize = try container.decodeIfPresent(Int.self, forKey: .totalSize)
+        }
+    }
+
+    var items: [PlexPlaylistTrack] { mediaContainer.metadata }
+    var totalCount: Int? { mediaContainer.totalSize }
 }
 
 /// 歌单明细里的一条, 只要 ratingKey; 读不出的那条记为 nil, 不作废整页。

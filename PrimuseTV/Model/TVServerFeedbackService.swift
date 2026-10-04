@@ -632,7 +632,7 @@ actor TVServerFeedbackHTTPClient: TVServerFeedbackClient {
             let library = FnMusicLibraryClient { [self] request in
                 try await fnMusicLibraryPayload(request, resolved: resolved)
             }
-            return try await library.setFavorite(trackID: itemID, isFavorite: desired).contains(itemID)
+            return try await library.setFavorite(trackID: itemID, isFavorite: desired).trackIDs.contains(itemID)
         case .subsonic, .navidrome:
             return try await setSubsonicFavorite(
                 song: song,

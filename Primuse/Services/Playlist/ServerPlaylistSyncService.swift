@@ -88,25 +88,28 @@ enum ServerPlaylistAppendService {
         return source
     }
 
+    /// 返回因为对不上服务端曲目而没加进去的首数。
+    @discardableResult
     static func append(
         _ songs: [Song],
         toMirrorPlaylist playlistID: String,
         library: MusicLibrary,
         sourcesStore: SourcesStore,
         sourceManager: SourceManager
-    ) async throws {
+    ) async throws -> Int {
         guard let source = source(for: songs, sourcesStore: sourcesStore),
               let serverPlaylistID = ServerPlaylistWritebackPolicy.serverPlaylistID(
                   fromMirrorPlaylistID: playlistID,
                   sourceID: source.id
               ) else { throw CancellationError() }
-        let refreshed = try await sourceManager.appendSongs(
+        let (refreshed, skippedCount) = try await sourceManager.appendSongs(
             songs,
             toServerPlaylist: serverPlaylistID,
             source: source
         )
         ServerPlaylistMirror.applyAppended(refreshed, source: source, library: library)
-        plog("Server playlists source=\(LogRedactionPolicy.digest(source.id)) playlist=\(LogRedactionPolicy.digest(refreshed.id)) stage=append result=complete tracks=\(songs.count)")
+        plog("Server playlists source=\(LogRedactionPolicy.digest(source.id)) playlist=\(LogRedactionPolicy.digest(refreshed.id)) stage=append result=complete tracks=\(songs.count - skippedCount) skipped=\(skippedCount)")
+        return skippedCount
     }
 }
 
@@ -463,7 +466,10 @@ final class ServerFavoriteSyncService {
         sourceType: MusicSourceType
     ) {
         var songsByServerItemID: [String: String] = [:]
+        var retainedLikes: [String] = []
         for song in library.songs where song.sourceID == sourceID {
+            // 清单不完整时只加不撤：被跳过的那几条里可能就有本机已喜欢的歌。
+            if !snapshot.isComplete, library.isLiked(songID: song.id) { retainedLikes.append(song.id) }
             guard let itemID = ServerFavoriteWritebackPolicy.songID(
                 fromConnectorPath: song.filePath,
                 sourceType: sourceType
@@ -473,7 +479,7 @@ final class ServerFavoriteSyncService {
         }
         library.replaceLikedSongs(
             fromSourceID: sourceID,
-            with: snapshot.itemIDs.compactMap { songsByServerItemID[$0] }
+            with: retainedLikes + snapshot.itemIDs.compactMap { songsByServerItemID[$0] }
         )
     }
 

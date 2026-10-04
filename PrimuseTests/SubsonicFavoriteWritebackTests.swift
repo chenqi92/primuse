@@ -71,6 +71,29 @@ final class SubsonicFavoriteWritebackTests: XCTestCase {
         XCTAssertTrue(mutationPaths.isEmpty)
     }
 
+    func testUnreadableStarredEntriesAreSkippedAndMarkTheSnapshotIncomplete() async throws {
+        let host = "favorite-irregular.invalid"
+        SubsonicFavoriteURLProtocol.configure(host: host, mode: .irregularStarred)
+        let (source, session) = makeSource(host: host)
+        defer { session.invalidateAndCancel() }
+
+        let snapshot = try await source.fetchServerFavorites()
+        XCTAssertEqual(snapshot.itemIDs, ["song-1", "42", "song-3"])
+        XCTAssertFalse(snapshot.isComplete)
+        do {
+            _ = try await source.fetchServerCollectionFavorites()
+            XCTFail("Album favorites with an unreadable entry must not be reconciled")
+        } catch {
+            guard let sourceError = error as? SourceError, case .connectionFailed = sourceError else {
+                return XCTFail("Unexpected error: \(type(of: error))")
+            }
+        }
+
+        SubsonicFavoriteURLProtocol.configure(host: host, mode: .success)
+        let healthy = try await source.fetchServerFavorites()
+        XCTAssertTrue(healthy.isComplete)
+    }
+
     private func assertAuthenticationFailure(
         mode: SubsonicFavoriteURLProtocol.Mode,
         host: String
@@ -159,6 +182,7 @@ private final class SubsonicFavoriteURLProtocol: URLProtocol, @unchecked Sendabl
         case timedOut
         case offline
         case confirmationMismatch
+        case irregularStarred
     }
 
     private struct State {
@@ -206,6 +230,9 @@ private final class SubsonicFavoriteURLProtocol: URLProtocol, @unchecked Sendabl
             respond(json: #"{"subsonic-response":{"status":"ok","type":"navidrome","openSubsonic":true}}"#)
         case "/rest/star.view", "/rest/unstar.view":
             handleMutation(host: host, url: url, state: state)
+        case "/rest/getStarred2.view" where state.mode == .irregularStarred:
+            // 第二首 id 是数字、第三首年份写成字符串都还认得出；缺 id 的那首和坏专辑只丢它们自己。
+            respond(json: #"{"subsonic-response":{"status":"ok","starred2":{"song":[{"id":"song-1"},{"id":42},{"id":"song-3","year":"2003"},{"title":"no id"}],"album":[{"id":"album-1","name":"A"},{"name":"no id"}]}}}"#)
         case "/rest/getStarred2.view":
             respondWithStarredSnapshot(host: host)
         default:
@@ -229,7 +256,7 @@ private final class SubsonicFavoriteURLProtocol: URLProtocol, @unchecked Sendabl
             fail(.timedOut)
         case .offline:
             fail(.notConnectedToInternet)
-        case .success, .confirmationMismatch:
+        case .success, .confirmationMismatch, .irregularStarred:
             if state.mode == .success,
                let itemID = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                 .queryItems?.first(where: { $0.name == "id" })?.value {

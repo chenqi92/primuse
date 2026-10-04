@@ -4970,6 +4970,8 @@
 "server_playlist_append_failed_title" = "Nie udało się dodać do playlisty serwera";
 "server_playlist_append_read_only" = "To inteligentna playlista lub playlista innego użytkownika, więc serwer nie pozwala dodawać do niej utworów.";
 "server_playlist_append_not_confirmed" = "Serwer nie potwierdził dodanych utworów. Spróbuj ponownie później.";
+"server_playlist_append_partial_title" = "Niektóre utwory nie zostały dodane";
+"server_playlist_append_partial_message %lld %lld" = "Dodano utwory: %1$lld. Utworów, których nie dopasowano do żadnego utworu na serwerze i nie dodano: %2$lld.";
 "server_playlist_append_footer" = "Utwory są dodawane do playlisty na serwerze. Aby je usunąć, edytuj playlistę na serwerze.";
 
 // MARK: - Apple TV scraping

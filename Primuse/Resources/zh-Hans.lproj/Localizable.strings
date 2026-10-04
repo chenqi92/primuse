@@ -5157,6 +5157,8 @@
 "server_playlist_append_failed_title" = "未能加入服务器歌单";
 "server_playlist_append_read_only" = "这是智能歌单或其他用户的歌单，服务器不允许往里加歌。";
 "server_playlist_append_not_confirmed" = "服务器没有确认刚加入的歌曲，请稍后再试。";
+"server_playlist_append_partial_title" = "部分歌曲没有加入";
+"server_playlist_append_partial_message %lld %lld" = "已加入 %1$lld 首；另有 %2$lld 首在服务器上找不到对应曲目，没有加入。";
 "server_playlist_append_footer" = "歌曲会加进服务器上的这个歌单；要移出请到服务器上编辑。";
 
 // MARK: - Apple TV 刮削

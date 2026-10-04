@@ -1272,14 +1272,16 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         if mirrorsStarredSongsAsPlaylist {
             do {
                 let starred: Starred2Container = try await requestJSON("getStarred2")
-                let songs = starred.starred2?.song ?? []
-                if !songs.isEmpty {
+                let songIDs = starred.starred2?.songIDs ?? []
+                // 读不出的也算进自报数量：全都读不出时保留旧镜像，而不是当成收藏被清空。
+                let listedCount = songIDs.count + (starred.starred2?.unreadableSongCount ?? 0)
+                if listedCount > 0 {
                     let starredPlaylist = ServerPlaylist(
                         id: Self.starredPlaylistID,
                         name: String(localized: "playlist_liked_name"),
-                        coverArtReference: songs.first?.coverArt.flatMap { coverArtURLString(for: $0) },
-                        trackIDs: songs.map(\.id),
-                        reportedTrackCount: songs.count
+                        coverArtReference: starred.starred2?.song.first?.coverArt.flatMap { coverArtURLString(for: $0) },
+                        trackIDs: songIDs,
+                        reportedTrackCount: listedCount
                     )
                     result.append(starredPlaylist)
                     await progress(starredPlaylist)
@@ -1411,7 +1413,10 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
 
     private func fetchServerFavoriteSnapshot() async throws -> ServerFavoriteSnapshot {
         let starred: Starred2Container = try await requestJSON("getStarred2")
-        return ServerFavoriteSnapshot(itemIDs: (starred.starred2?.song ?? []).map(\.id))
+        return ServerFavoriteSnapshot(
+            itemIDs: starred.starred2?.songIDs ?? [],
+            isComplete: (starred.starred2?.unreadableSongCount ?? 0) == 0
+        )
     }
 
     // MARK: - Album / artist favorites
@@ -1419,6 +1424,10 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     func fetchServerCollectionFavorites() async throws -> [ServerCollectionFavorite] {
         try await connect()
         let starred: Starred2Container = try await requestJSON("getStarred2")
+        // 专辑/艺人收藏按基线对账，缺一条会被当成服务端取消了收藏；读不全就整份不用。
+        guard (starred.starred2?.unreadableCollectionCount ?? 0) == 0 else {
+            throw SourceError.connectionFailed("Subsonic getStarred2 has unreadable album or artist entries")
+        }
         let albums = (starred.starred2?.album ?? []).compactMap { album -> ServerCollectionFavorite? in
             let title = (album.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !album.id.isEmpty, !title.isEmpty else { return nil }
@@ -2454,10 +2463,31 @@ private struct Starred2Container: SubsonicResponseContainer {
     let starred2: Starred2?
 }
 
+/// 逐条读：一首收藏缺 id 或字段类型写怪了只丢它自己，不让整份收藏、「我喜欢」镜像和
+/// 专辑/艺人收藏一起解码失败。读不出的条数留着，调用方据此判断清单是否完整。
 private struct Starred2: Decodable {
-    let song: [SubsonicChild]?
-    let album: [AlbumSummary]?
-    let artist: [SubsonicArtistID3]?
+    let songIDs: [String]
+    /// 完整读出的曲目，只用来取封面。
+    let song: [SubsonicChild]
+    let album: [AlbumSummary]
+    let artist: [SubsonicArtistID3]
+    let unreadableSongCount: Int
+    let unreadableCollectionCount: Int
+
+    enum CodingKeys: String, CodingKey { case song, album, artist }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let songRefs = (try? container.decodeIfPresent(SubsonicLenientList<PlaylistEntryRef>.self, forKey: .song))?.elements ?? []
+        songIDs = songRefs.compactMap { $0?.id }
+        unreadableSongCount = songRefs.count - songIDs.count
+        song = (try? container.decodeIfPresent(SubsonicLenientList<SubsonicChild>.self, forKey: .song))?.elements.compactMap { $0 } ?? []
+        let albums = (try? container.decodeIfPresent(SubsonicLenientList<AlbumSummary>.self, forKey: .album))?.elements ?? []
+        let artists = (try? container.decodeIfPresent(SubsonicLenientList<SubsonicArtistID3>.self, forKey: .artist))?.elements ?? []
+        album = albums.compactMap { $0 }
+        artist = artists.compactMap { $0 }
+        unreadableCollectionCount = albums.count - album.count + artists.count - artist.count
+    }
 }
 
 /// `playlistWithSongs`: 曲目字段是单数 `entry`, 装的是 Child 数组。

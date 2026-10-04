@@ -4970,6 +4970,8 @@
 "server_playlist_append_failed_title" = "تعذّرت الإضافة إلى قائمة تشغيل الخادم";
 "server_playlist_append_read_only" = "قائمة التشغيل هذه ذكية أو تخص مستخدمًا آخر، لذا لا يسمح الخادم بإضافة أغانٍ إليها.";
 "server_playlist_append_not_confirmed" = "لم يؤكد الخادم الأغاني المضافة. حاول مرة أخرى لاحقًا.";
+"server_playlist_append_partial_title" = "لم تُضَف بعض الأغاني";
+"server_playlist_append_partial_message %lld %lld" = "تمت إضافة %1$lld أغنية. تعذّرت مطابقة %2$lld أغنية مع مقطع على الخادم فلم تُضَف.";
 "server_playlist_append_footer" = "تُضاف الأغاني إلى قائمة التشغيل على الخادم. لإزالتها، عدّل القائمة على الخادم.";
 
 // MARK: - Apple TV scraping

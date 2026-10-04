@@ -83,7 +83,19 @@ final class AppleMusicLibraryService {
         var playlistOnlySongs: [PrimuseKit.Song] = []
         /// 这次读不到、要原样保留的已有镜像。
         var retainedMirrorIDs: Set<String> = []
+        /// 歌单列表里有连 id 都读不出的条目时为 false：这轮证明不了哪个歌单被删了，不清理镜像。
+        var isIndexComplete = true
         var firstFailure: UserPlaylistSyncFailure?
+    }
+
+    /// 云端资料库逐页逐条解出来的结果。解不出的条目记下资源 id（连 id 都没有的记 nil）。
+    private struct CloudLibraryItems<Item> {
+        var items: [Item]
+        var unreadableIDs: [String?]
+    }
+
+    private struct CloudLibraryUnreadableItems: Error {
+        let count: Int
     }
 
     /// macOS 会优先读云端资料库；云端权限不可用时仍保留 Music.app 的本机歌曲，
@@ -1532,7 +1544,12 @@ final class AppleMusicLibraryService {
     private func fetchLibrarySongs(acceptEmptyCloudSnapshot: Bool) async throws -> LibrarySongFetchResult {
         #if os(macOS)
         do {
-            let cloudSongs: [MusicKit.Song] = try await fetchCloudLibraryItems(endpoint: .songs)
+            let cloud: CloudLibraryItems<MusicKit.Song> = try await fetchCloudLibraryItems(endpoint: .songs)
+            // 歌曲照旧要么全读出、要么退回本机资料库：少读的歌会被整源替换当成已删除。
+            guard cloud.unreadableIDs.isEmpty else {
+                throw CloudLibraryUnreadableItems(count: cloud.unreadableIDs.count)
+            }
+            let cloudSongs = cloud.items
             if !cloudSongs.isEmpty || acceptEmptyCloudSnapshot {
                 plog("🎵 Apple Music cloud library fetched: \(cloudSongs.count) songs")
                 return LibrarySongFetchResult(
@@ -1615,10 +1632,11 @@ final class AppleMusicLibraryService {
     /// PrimuseKit before another authenticated request is issued.
     private func fetchCloudLibraryItems<Item>(
         endpoint: AppleMusicLibraryAPI.Endpoint
-    ) async throws -> [Item] where Item: MusicKit.MusicItem & Decodable {
+    ) async throws -> CloudLibraryItems<Item> where Item: MusicKit.MusicItem & Decodable {
         var nextURL: URL? = AppleMusicLibraryAPI.initialURL(for: endpoint)
         var visitedURLs = Set<String>()
         var items: [Item] = []
+        var unreadableIDs: [String?] = []
 
         while let pageURL = nextURL {
             try Task.checkCancellation()
@@ -1629,12 +1647,43 @@ final class AppleMusicLibraryService {
             var urlRequest = URLRequest(url: pageURL)
             urlRequest.timeoutInterval = Self.syncStallTimeout
             let response = try await MusicDataRequest(urlRequest: urlRequest).response()
-            let page = try JSONDecoder().decode(MusicItemCollection<Item>.self, from: response.data)
-            items.append(contentsOf: page)
+            if let page = try? JSONDecoder().decode(LossyCloudLibraryPage<Item>.self, from: response.data) {
+                for entry in page.entries {
+                    if let item = entry.item { items.append(item) } else { unreadableIDs.append(entry.id) }
+                }
+            } else {
+                items.append(contentsOf: try JSONDecoder().decode(MusicItemCollection<Item>.self, from: response.data))
+            }
             nextURL = try AppleMusicLibraryAPI.nextPageURL(from: response.data, endpoint: endpoint)
             markSyncProgress()
         }
-        return Self.uniquedMusicItems(items)
+        if !unreadableIDs.isEmpty {
+            plog("⚠️ Apple Music cloud library \(endpoint) has \(unreadableIDs.count) unreadable item(s)")
+        }
+        return CloudLibraryItems(items: Self.uniquedMusicItems(items), unreadableIDs: unreadableIDs)
+    }
+
+    /// 一页里逐条解：某个资源写坏了只丢它自己（记下它的 id），不让整页、进而整轮同步失败。
+    private struct LossyCloudLibraryPage<Item: Decodable>: Decodable {
+        let entries: [Entry]
+
+        struct Entry: Decodable {
+            let item: Item?
+            let id: String?
+
+            private enum CodingKeys: String, CodingKey { case id }
+
+            init(from decoder: Decoder) throws {
+                item = try? Item(from: decoder)
+                id = try? decoder.container(keyedBy: CodingKeys.self).decode(String.self, forKey: .id)
+            }
+        }
+
+        private enum CodingKeys: String, CodingKey { case data }
+
+        init(from decoder: Decoder) throws {
+            entries = try decoder.container(keyedBy: CodingKeys.self).decode([Entry].self, forKey: .data)
+        }
     }
 
     /// 每个 user playlist 在 Primuse 里建独立的镜像歌单 ── ID 用 amID 派生固定,
@@ -1646,10 +1695,22 @@ final class AppleMusicLibraryService {
         access: AppleMusicLibraryAccess,
         librarySongIDs: Set<String>
     ) async throws -> UserPlaylistSnapshot {
-        let allPlaylists = try await fetchLibraryPlaylists()
+        let listed = try await fetchLibraryPlaylists()
+        let allPlaylists = listed.playlists
         plog("🎵 Apple Music user playlists: \(allPlaylists.count)")
 
         var snapshot = UserPlaylistSnapshot()
+        // 列表里解不出的歌单不拖累别的歌单：有 id 就原样保留它的旧镜像，连 id 都没有就这轮不清理镜像。
+        for id in listed.unreadableIDs {
+            if let id {
+                snapshot.retainedMirrorIDs.insert("\(Self.userPlaylistIDPrefix)\(id)")
+            } else {
+                snapshot.isIndexComplete = false
+            }
+        }
+        if !listed.unreadableIDs.isEmpty {
+            plog("⚠️ AM playlist list has \(listed.unreadableIDs.count) unreadable entr(ies); keeping their existing mirrors")
+        }
         var playlistOnlySongIDs = Set<String>()
         for amPlaylist in allPlaylists {
             try Task.checkCancellation()
@@ -1750,6 +1811,7 @@ final class AppleMusicLibraryService {
         }
 
         let keepIDs = Set(mirrorsToKeep.map(\.id)).union(snapshot.retainedMirrorIDs)
+        guard snapshot.isIndexComplete else { return mirrorsToKeep.count }
         playlistArtworkCache = playlistArtworkCache.filter { keepIDs.contains($0.key) }
         library.prunePlaylists(
             withIDPrefix: Self.userPlaylistIDPrefix,
@@ -1758,9 +1820,10 @@ final class AppleMusicLibraryService {
         return mirrorsToKeep.count
     }
 
-    private func fetchLibraryPlaylists() async throws -> [MusicKit.Playlist] {
+    private func fetchLibraryPlaylists() async throws -> (playlists: [MusicKit.Playlist], unreadableIDs: [String?]) {
         #if os(macOS)
-        return try await fetchCloudLibraryItems(endpoint: .playlists)
+        let listed: CloudLibraryItems<MusicKit.Playlist> = try await fetchCloudLibraryItems(endpoint: .playlists)
+        return (listed.items, listed.unreadableIDs)
         #else
         var request = MusicLibraryRequest<MusicKit.Playlist>()
         request.limit = 100
@@ -1775,7 +1838,7 @@ final class AppleMusicLibraryService {
             currentBatch = next
             markSyncProgress()
         }
-        return Self.uniquedMusicItems(playlists)
+        return (Self.uniquedMusicItems(playlists), [])
         #endif
     }
 

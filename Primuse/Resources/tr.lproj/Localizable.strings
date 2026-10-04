@@ -4970,6 +4970,8 @@
 "server_playlist_append_failed_title" = "Sunucu çalma listesine eklenemedi";
 "server_playlist_append_read_only" = "Bu akıllı bir çalma listesi veya başka bir kullanıcıya ait, bu yüzden sunucu şarkı eklenmesine izin vermiyor.";
 "server_playlist_append_not_confirmed" = "Sunucu eklenen şarkıları onaylamadı. Daha sonra tekrar deneyin.";
+"server_playlist_append_partial_title" = "Bazı şarkılar eklenmedi";
+"server_playlist_append_partial_message %lld %lld" = "%1$lld şarkı eklendi. %2$lld şarkı sunucudaki bir parçayla eşleştirilemediği için eklenmedi.";
 "server_playlist_append_footer" = "Şarkılar sunucudaki çalma listesine eklenir. Kaldırmak için listeyi sunucuda düzenleyin.";
 
 // MARK: - Apple TV scraping

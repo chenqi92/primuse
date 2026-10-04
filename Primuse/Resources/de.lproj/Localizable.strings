@@ -5064,6 +5064,8 @@
 "server_playlist_append_failed_title" = "Hinzufügen zur Server-Playlist fehlgeschlagen";
 "server_playlist_append_read_only" = "Diese Playlist ist eine intelligente Playlist oder gehört einem anderen Benutzer, daher erlaubt der Server keine neuen Titel.";
 "server_playlist_append_not_confirmed" = "Der Server hat die hinzugefügten Titel nicht bestätigt. Versuche es später erneut.";
+"server_playlist_append_partial_title" = "Einige Titel wurden nicht hinzugefügt";
+"server_playlist_append_partial_message %lld %lld" = "%1$lld Titel hinzugefügt. %2$lld Titel konnten keinem Titel auf dem Server zugeordnet werden und wurden nicht hinzugefügt.";
 "server_playlist_append_footer" = "Titel werden der Playlist auf dem Server hinzugefügt. Zum Entfernen die Playlist auf dem Server bearbeiten.";
 
 // MARK: - Apple TV scraping

@@ -2321,7 +2321,7 @@ final class TVSourceScanner {
     func fetchServerFavorites(
         source: MusicSource,
         credential: SourceCredential?
-    ) async throws -> [String]? {
+    ) async throws -> ServerFavoriteSnapshot? {
         guard Self.serverPlaylistTypes.contains(source.type),
               ServerFavoriteWritebackPolicy.supports(source.type) else { return nil }
         return try await withRoutedSource(source) { routedSource in
@@ -2331,17 +2331,18 @@ final class TVSourceScanner {
             ) as? any ServerFavoriteConnector else { return nil }
             defer { Task { await connector.disconnect() } }
             try await connector.connect()
-            return try await connector.fetchServerFavorites().itemIDs
+            return try await connector.fetchServerFavorites()
         }
     }
 
-    func fetchFnMusicFavorites(source: MusicSource, credential: SourceCredential?) async throws -> [String] {
+    func fetchFnMusicFavorites(source: MusicSource, credential: SourceCredential?) async throws -> ServerFavoriteSnapshot {
         let sourceTag = LogRedactionPolicy.digest(source.id)
-        return try await withRoutedSource(source) { routedSource in
-            try await self.fnMusicClient(source: routedSource, credential: credential).library.favorites(
+        let snapshot = try await withRoutedSource(source) { routedSource in
+            try await self.fnMusicClient(source: routedSource, credential: credential).library.favoriteSnapshot(
                 diagnosticLogger: { plog("source=\(sourceTag) \($0)") }
             )
         }
+        return ServerFavoriteSnapshot(itemIDs: snapshot.trackIDs, isComplete: snapshot.isComplete)
     }
 
     func validateDaoLiYuConnection(

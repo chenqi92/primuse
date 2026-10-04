@@ -363,7 +363,7 @@ struct FnMusicLibraryTests {
         #expect(diagnostics.messages.allSatisfy { !$0.contains("private-test") })
     }
 
-    @Test func unavailableFavoriteWithoutIdentityFailsClosedAndLogsOnlyFieldStates() async {
+    @Test func unreadableFavoriteIsSkippedAndMarksTheSnapshotIncomplete() async throws {
         let fixture = FnMusicLibraryFixture()
         fixture.setPage("/favorite-track/list", page: 1, list: [
             ["guid": "private-test-song", "accessStatus": 0],
@@ -371,15 +371,42 @@ struct FnMusicLibraryTests {
         ], total: 2)
         let (client, _, _) = fixture.clients()
         let diagnostics = PlaylistDiagnostics()
-        await #expect(throws: FnMusicServiceError.self) {
-            try await client.library.favorites(diagnosticLogger: { diagnostics.append($0) })
-        }
+        let snapshot = try await client.library.favoriteSnapshot(diagnosticLogger: { diagnostics.append($0) })
+        #expect(snapshot.trackIDs == ["private-test-song"])
+        #expect(!snapshot.isComplete)
         #expect(diagnostics.messages.contains {
-            $0.contains("page=1 result=invalid-item row=2 guid=null trackGUID=missing id=missing access=missing")
+            $0.contains("page=1 result=invalid-item row=2 guid=null trackGUID=missing id=missing access=missing action=skip")
         })
-        #expect(diagnostics.messages.last?.hasSuffix("result=failed error=invalid-response reason=track-identity") == true)
+        #expect(diagnostics.messages.contains { $0.hasSuffix("result=skipped-items skipped=1 kept=1") })
+        #expect(diagnostics.messages.last?.contains("stage=fetch result=complete received=1") == true)
         #expect(diagnostics.messages.allSatisfy { !$0.contains("private-test") })
-        #expect(!diagnostics.messages.contains { $0.contains("result=complete") })
+
+        let healthy = FnMusicLibraryFixture()
+        healthy.setPage("/favorite-track/list", page: 1, list: [["guid": "s0"]], total: 1)
+        #expect(try await healthy.clients().0.library.favoriteSnapshot().isComplete)
+    }
+
+    @Test func unreadablePlaylistRowsAreSkippedWithoutBreakingPagingOrEmptyingThePlaylist() async throws {
+        let fixture = FnMusicLibraryFixture()
+        fixture.setPage("/playlist/list", page: 1, list: [
+            ["guid": "mixed", "name": "Mixed"], ["guid": "unreadable", "name": "Unreadable"],
+        ], total: 2)
+        var firstPage: [[String: Any]] = (0..<50).map { ["guid": "s\($0)"] }
+        firstPage[3] = ["guid": NSNull(), "accessStatus": 3]
+        fixture.setPage("/track/playlist-detail/list", playlist: "mixed", page: 1, list: firstPage, total: 52)
+        fixture.setRawPage("/track/playlist-detail/list", playlist: "mixed", page: 2,
+                           data: ["list": [["guid": "s50"], "not-an-object"], "total": 52])
+        fixture.setPage("/track/playlist-detail/list", playlist: "unreadable", page: 1,
+                        list: [["guid": ""], ["trackGUID": 7]], total: 2)
+        let (client, _, _) = fixture.clients()
+        let snapshot = try await client.library.playlists()
+        #expect(snapshot.failedPlaylistIDs.isEmpty)
+        let mixed = try #require(snapshot.playlists.first { $0.id == "mixed" })
+        #expect(mixed.trackIDs == (0...50).filter { $0 != 3 }.map { "s\($0)" })
+        #expect(mixed.reportedTrackCount == 52)
+        let unreadable = try #require(snapshot.playlists.first { $0.id == "unreadable" })
+        #expect(unreadable.trackIDs.isEmpty)
+        #expect(unreadable.reportedTrackCount == 2)
     }
 
     @Test func serverVersionDiagnosticsExcludeOtherConfigurationFields() async throws {
@@ -434,9 +461,9 @@ struct FnMusicLibraryTests {
         let fixture = FnMusicLibraryFixture(favorites: (0..<51).map { "s\($0)" })
         let (client, _, _) = fixture.clients()
         #expect(try await client.library.favorites().count == 51)
-        #expect(try await client.library.setFavorite(trackID: "new.track", isFavorite: true).contains("new.track"))
+        #expect(try await client.library.setFavorite(trackID: "new.track", isFavorite: true).trackIDs.contains("new.track"))
         _ = try await client.library.setFavorite(trackID: "new.track", isFavorite: true)
-        #expect(try await !client.library.setFavorite(trackID: "new.track", isFavorite: false).contains("new.track"))
+        #expect(try await !client.library.setFavorite(trackID: "new.track", isFavorite: false).trackIDs.contains("new.track"))
         _ = try await client.library.setFavorite(trackID: "new.track", isFavorite: false)
         let writes = fixture.requests.filter { $0.url?.path.contains("/favorite-track/") == true && $0.httpMethod == "POST" }
         #expect(writes.map { $0.url!.lastPathComponent } == ["create", "delete"])

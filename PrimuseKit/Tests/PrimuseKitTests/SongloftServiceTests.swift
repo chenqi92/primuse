@@ -272,9 +272,9 @@ struct SongloftServiceTests {
     @Test func favoritesWriteThroughAndReadBackWithoutDeletingAudio() async throws {
         let fixture = SongloftFixture()
         let client = fixture.client()
-        #expect(try await client.setFavorite(id: 1, isFavorite: true) == [1])
-        #expect(try await client.setFavorite(id: 1, isFavorite: true) == [1])
-        #expect(try await client.setFavorite(id: 1, isFavorite: false).isEmpty)
+        #expect(try await client.setFavorite(id: 1, isFavorite: true).ids == [1])
+        #expect(try await client.setFavorite(id: 1, isFavorite: true).ids == [1])
+        #expect(try await client.setFavorite(id: 1, isFavorite: false).ids.isEmpty)
         let mutations = await fixture.requests.filter { ["POST", "DELETE"].contains($0.httpMethod) && $0.url?.path.contains("/playlists/") == true }
         #expect(mutations.count == 2)
         #expect(mutations.map { $0.url!.path } == ["/prefix/api/v1/playlists/1/songs", "/prefix/api/v1/playlists/1/songs/1"])
@@ -297,6 +297,15 @@ struct SongloftServiceTests {
         #expect(index.playlists.last?.songCount == 9)
         #expect(index.unreadableCount == 1)
         #expect(try await client.playlistSongIDs(id: 4) == [7, 7, 1])
+    }
+
+    /// 曲目 id 里混进 null、小数、乱写的字符串时只丢这几项，整份歌单照样同步，并报出丢了几项。
+    @Test func unreadablePlaylistSongIDsAreSkippedAndCounted() async throws {
+        let client = SongloftFixture(mode: .irregularPlaylists).client()
+        let list = try await client.playlistSongIDList(id: 5)
+        #expect(list.ids == [7, 8, 1])
+        #expect(list.unreadableCount == 3)
+        #expect(try await client.playlistSongIDList(id: 3).unreadableCount == 0)
     }
 
     @Test func playbackEventsAcceptNoContentResponse() async throws {
@@ -393,6 +402,7 @@ private actor SongloftFixture {
             return response(url, json: #"{"playlists":[{"id":3,"name":"Ordered","type":"normal","song_count":2}],"total":1,"offset":0,"limit":500}"#)
         case "/playlists/3/song-ids": return response(url, json: #"{"ids":[7,1],"total":2}"#)
         case "/playlists/4/song-ids": return response(url, json: #"{"ids":[7,7,1,0],"total":9}"#)
+        case "/playlists/5/song-ids": return response(url, json: #"{"ids":[7,null,"x",1.5,"8",1]}"#)
         case "/songs/1/played": return response(url, status: 204, json: "")
         case "/songs/1": return response(url, json: #"{"id":1,"type":"local","format":"flac"}"#)
         case "/songs/2": return response(url, json: #"{"id":2,"type":"radio","title":"Radio","url":"/api/v1/songs/2/play.m3u8","is_live":true}"#)

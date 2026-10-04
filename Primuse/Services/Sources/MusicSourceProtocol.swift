@@ -2270,9 +2270,12 @@ protocol ServerMediaSharingConnector: MusicSourceConnector {
 /// considered confirmed.
 struct ServerFavoriteSnapshot: Sendable {
     let itemIDs: [String]
+    /// 有条目认不出、被跳过时为 false：这份清单只能证明哪些歌被收藏，证明不了哪些被取消。
+    let isComplete: Bool
 
-    init(itemIDs: [String]) {
+    init(itemIDs: [String], isComplete: Bool = true) {
         self.itemIDs = itemIDs
+        self.isComplete = isComplete
     }
 }
 

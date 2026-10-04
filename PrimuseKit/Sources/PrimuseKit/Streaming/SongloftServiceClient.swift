@@ -27,6 +27,12 @@ public struct SongloftRequestTransport: Sendable {
     }
 }
 
+public struct SongloftPlaylistSongIDs: Sendable {
+    public let ids: [Int64]
+    /// 写坏而跳过的项数; 不为 0 时这份清单证明不了哪首歌被移出去了。
+    public let unreadableCount: Int
+}
+
 public actor SongloftServiceClient {
     private struct Tokens: Decodable, Sendable {
         let accessToken: String
@@ -46,9 +52,32 @@ public actor SongloftServiceClient {
                   values.allSatisfy({ $0 > 0 }) else { throw SongloftServiceError.invalidResponse }
             return values
         }
-        /// 歌单曲目照单全收: 同一首歌可以出现多次, 自报总数对不上(刚删的歌还算着)
-        /// 也不作废整份歌单, 只丢掉不可能是曲目的 id。
-        var playlistValues: [Int64] { (ids ?? []).filter { $0 > 0 } }
+    }
+    /// 歌单曲目照单全收: 同一首歌可以出现多次, 自报总数对不上(刚删的歌还算着)
+    /// 也不作废整份歌单, 只丢掉不可能是曲目的 id。逐项读: 某一项写成 null、小数
+    /// 或别的类型只丢它自己, 记进 `unreadableCount`。
+    private struct PlaylistIDList: Decodable, Sendable {
+        let values: [Int64]
+        let unreadableCount: Int
+
+        enum CodingKeys: String, CodingKey { case ids }
+
+        private struct LossyID: Decodable {
+            let value: Int64?
+            init(from decoder: Decoder) throws {
+                let container = try? decoder.singleValueContainer()
+                value = (try? container?.decode(Int64.self))
+                    ?? (try? container?.decode(String.self)).flatMap { Int64($0) }
+            }
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let entries = try container.decodeIfPresent([LossyID].self, forKey: .ids) ?? []
+            let readable = entries.compactMap(\.value)
+            values = readable.filter { $0 > 0 }
+            unreadableCount = entries.count - readable.count
+        }
     }
     private struct PlaylistPage: Decodable, Sendable {
         let playlists: [LossyPlaylist]?
@@ -243,20 +272,28 @@ public actor SongloftServiceClient {
     }
 
     public func playlistSongIDs(id: Int64) async throws -> [Int64] {
+        try await playlistSongIDList(id: id).ids
+    }
+
+    public func playlistSongIDList(id: Int64) async throws -> SongloftPlaylistSongIDs {
         guard id > 0 else { throw SongloftServiceError.invalidResponse }
-        let result: IDList = try await json(path: "/playlists/\(id)/song-ids", query: [
+        let result: PlaylistIDList = try await json(path: "/playlists/\(id)/song-ids", query: [
             URLQueryItem(name: "sort", value: "position"), URLQueryItem(name: "order", value: "asc"),
         ])
-        return result.playlistValues
+        return SongloftPlaylistSongIDs(ids: result.values, unreadableCount: result.unreadableCount)
     }
 
     public func favorites() async throws -> [Int64] {
-        let playlist: SongloftPlaylist = try await json(path: "/playlists/1")
-        guard playlist.isFavorite else { throw SongloftServiceError.invalidResponse }
-        return try await playlistSongIDs(id: playlist.id)
+        try await favoriteSongIDList().ids
     }
 
-    public func setFavorite(id: Int64, isFavorite: Bool) async throws -> [Int64] {
+    public func favoriteSongIDList() async throws -> SongloftPlaylistSongIDs {
+        let playlist: SongloftPlaylist = try await json(path: "/playlists/1")
+        guard playlist.isFavorite else { throw SongloftServiceError.invalidResponse }
+        return try await playlistSongIDList(id: playlist.id)
+    }
+
+    public func setFavorite(id: Int64, isFavorite: Bool) async throws -> SongloftPlaylistSongIDs {
         guard id > 0 else { throw SongloftServiceError.invalidResponse }
         let existing = try await favorites()
         if existing.contains(id) != isFavorite {
@@ -266,8 +303,8 @@ public actor SongloftServiceClient {
                 body: isFavorite ? JSONEncoder().encode(["song_ids": [id]]) : nil
             )
         }
-        let confirmed = try await favorites()
-        guard confirmed.contains(id) == isFavorite else { throw SongloftServiceError.invalidResponse }
+        let confirmed = try await favoriteSongIDList()
+        guard confirmed.ids.contains(id) == isFavorite else { throw SongloftServiceError.invalidResponse }
         return confirmed
     }
 

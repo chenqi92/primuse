@@ -13383,21 +13383,19 @@ final class SourceManager {
     }
 
     /// 往服务端歌单里追加这些歌。歌必须都来自 `source`; 源在请求途中被停用、
-    /// 删除或换了账户时按取消处理, 回来的明细不再落地。
+    /// 删除或换了账户时按取消处理, 回来的明细不再落地。对不上服务端曲目 id 的
+    /// 歌只跳过它自己, 其余照加, 跳过的首数随结果带回; 一首都对不上才报错。
     func appendSongs(
         _ songs: [Song],
         toServerPlaylist serverPlaylistID: String,
         source: MusicSource
-    ) async throws -> ServerPlaylist {
+    ) async throws -> (playlist: ServerPlaylist, skippedCount: Int) {
         guard ServerPlaylistWritebackPolicy.supports(source.type),
               songs.allSatisfy({ $0.sourceID == source.id }) else { throw CancellationError() }
-        let itemIDs = try songs.map { song -> String in
-            guard let itemID = ServerPlaylistWritebackPolicy.songID(
-                fromConnectorPath: song.filePath,
-                sourceType: source.type
-            ) else { throw SourceError.fileNotFound(song.filePath) }
-            return itemID
+        let itemIDs = songs.compactMap { song in
+            ServerPlaylistWritebackPolicy.songID(fromConnectorPath: song.filePath, sourceType: source.type)
         }
+        if itemIDs.isEmpty, let first = songs.first { throw SourceError.fileNotFound(first.filePath) }
         let expectedScope = Self.audioCacheScopeSignature(for: source)
         guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: expectedScope),
               let conn = connector(for: source) as? any ServerPlaylistAppendingConnector else {
@@ -13407,7 +13405,7 @@ final class SourceManager {
         guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: expectedScope) else {
             throw CancellationError()
         }
-        return playlist
+        return (playlist, songs.count - itemIDs.count)
     }
 
     func serverMediaSharingAvailability(

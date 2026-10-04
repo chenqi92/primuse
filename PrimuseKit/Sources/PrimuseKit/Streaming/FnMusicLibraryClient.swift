@@ -15,6 +15,21 @@ public struct FnMusicPlaylist: Sendable {
     public let name: String
     public let coverReference: String?
     public let trackIDs: [String]
+    /// 服务端列出的条数，读不出而跳过的也算在内：只要它大于 0，一首都没认出来也不能当成歌单被清空。
+    public let reportedTrackCount: Int
+}
+
+extension FnMusicPlaylist {
+    fileprivate init(summary: FnMusicLibraryClient.Summary, tracks: FnMusicLibraryClient.PlaylistTracks) {
+        self.init(id: summary.id, name: summary.name, coverReference: summary.coverReference,
+                  trackIDs: tracks.ids, reportedTrackCount: tracks.listed)
+    }
+}
+
+/// `isComplete == false` 表示有条目认不出被跳过了，这份清单不能证明哪首歌被取消了收藏。
+public struct FnMusicFavoriteSnapshot: Sendable {
+    public let trackIDs: [String]
+    public let isComplete: Bool
 }
 
 public struct FnMusicPlaylistSnapshot: Sendable {
@@ -56,16 +71,16 @@ public struct FnMusicLibraryClient: Sendable {
             let result = index.isComplete ? "complete" : "partial"
             log("stage=index result=\(result) listed=\(index.listedCount) usable=\(summaries.count) invalid=\(index.invalidCount)")
             stage = "detail"
-            var trackIDs: [String: [String]] = [:]
+            var trackIDs: [String: PlaylistTracks] = [:]
             // 明细翻到一半失败（会话被顶掉、网络抖一下、歌单正被改）整份歌单就不会出现。
             // 一轮读完再把失败的补读一次，这时别的请求多半已经结束；两轮都没读全的才算失败。
             for attempt in 1...2 {
                 for summary in summaries where trackIDs[summary.id] == nil {
                     try Task.checkCancellation()
                     let context = "playlist=\(LogRedactionPolicy.digest(summary.id)) attempt=\(attempt) expected=\(summary.trackCount.map(String.init) ?? "unknown")"
-                    let ids: [String]
+                    let tracks: PlaylistTracks
                     do {
-                        ids = try await playlistTrackIDs(summary, diagnosticLogger: {
+                        tracks = try await playlistTracks(summary, diagnosticLogger: {
                             log("stage=detail-page \(context) \($0)")
                         })
                     } catch {
@@ -73,19 +88,13 @@ public struct FnMusicLibraryClient: Sendable {
                         log("stage=detail result=failed \(context) \(LogRedactionPolicy.errorSummary(error))")
                         continue
                     }
-                    trackIDs[summary.id] = ids
-                    log("stage=detail result=complete \(context) received=\(ids.count) id_shape=\(Self.identifierShape(ids.first))")
-                    await onPlaylist?(FnMusicPlaylist(
-                        id: summary.id, name: summary.name,
-                        coverReference: summary.coverReference, trackIDs: ids
-                    ))
+                    trackIDs[summary.id] = tracks
+                    log("stage=detail result=complete \(context) received=\(tracks.ids.count) id_shape=\(Self.identifierShape(tracks.ids.first))")
+                    await onPlaylist?(FnMusicPlaylist(summary: summary, tracks: tracks))
                 }
             }
             let playlists = summaries.compactMap { summary in
-                trackIDs[summary.id].map {
-                    FnMusicPlaylist(id: summary.id, name: summary.name,
-                                    coverReference: summary.coverReference, trackIDs: $0)
-                }
+                trackIDs[summary.id].map { FnMusicPlaylist(summary: summary, tracks: $0) }
             }
             let failed = Set(summaries.map(\.id).filter { trackIDs[$0] == nil }).union(index.failedIDs)
             log("stage=fetch result=\(result) listed=\(index.listedCount) detailed=\(playlists.count) failed=\(failed.count) index_complete=\(index.isComplete) invalid=\(index.invalidCount) elapsed_ms=\(Int(Date().timeIntervalSince(startedAt) * 1_000))")
@@ -97,11 +106,16 @@ public struct FnMusicLibraryClient: Sendable {
         }
     }
 
-    private func playlistTrackIDs(
+    fileprivate struct PlaylistTracks {
+        var ids: [String]
+        var listed: Int
+    }
+
+    private func playlistTracks(
         _ summary: Summary,
         diagnosticLogger: (@Sendable (String) -> Void)? = nil
-    ) async throws -> [String] {
-        let tracks: [Track] = try await pages(
+    ) async throws -> PlaylistTracks {
+        let rows: Rows<Track> = try await pages(
             path: "/track/playlist-detail/list",
             query: [URLQueryItem(name: "playlistGUID", value: summary.id)],
             expectedTotal: summary.trackCount,
@@ -109,19 +123,23 @@ public struct FnMusicLibraryClient: Sendable {
             diagnosticLogger: diagnosticLogger,
             parse: Track.init
         )
-        return tracks.map(\.id)
+        return PlaylistTracks(ids: rows.items.map(\.id), listed: rows.listed)
     }
 
     public func favorites(diagnosticLogger: (@Sendable (String) -> Void)? = nil) async throws -> [String] {
+        try await favoriteSnapshot(diagnosticLogger: diagnosticLogger).trackIDs
+    }
+
+    public func favoriteSnapshot(diagnosticLogger: (@Sendable (String) -> Void)? = nil) async throws -> FnMusicFavoriteSnapshot {
         let runID = String(UUID().uuidString.prefix(8))
         let log: @Sendable (String) -> Void = { message in
             diagnosticLogger?("FN favorites run=\(runID) \(message)")
         }
         log("stage=fetch result=started")
         do {
-            let tracks: [Track] = try await pages(path: "/favorite-track/list", diagnosticLogger: log, parse: Track.init)
-            log("stage=fetch result=complete received=\(tracks.count) id_shape=\(Self.identifierShape(tracks.first?.id))")
-            return tracks.map(\.id)
+            let rows: Rows<Track> = try await pages(path: "/favorite-track/list", diagnosticLogger: log, parse: Track.init)
+            log("stage=fetch result=complete received=\(rows.items.count) id_shape=\(Self.identifierShape(rows.items.first?.id))")
+            return FnMusicFavoriteSnapshot(trackIDs: rows.items.map(\.id), isComplete: rows.items.count == rows.listed)
         } catch {
             let result = OperationCancellationPolicy.isCancellation(error) ? "cancelled" : "failed"
             log("stage=fetch result=\(result) \(LogRedactionPolicy.errorSummary(error))")
@@ -151,7 +169,7 @@ public struct FnMusicLibraryClient: Sendable {
         return value
     }
 
-    public func setFavorite(trackID: String, isFavorite: Bool) async throws -> [String] {
+    public func setFavorite(trackID: String, isFavorite: Bool) async throws -> FnMusicFavoriteSnapshot {
         guard Self.validID(trackID) else { throw Self.invalidResponse("favorite id \(trackID) is not a track id") }
         let existing = try await favorites()
         if existing.contains(trackID) != isFavorite {
@@ -162,8 +180,8 @@ public struct FnMusicLibraryClient: Sendable {
                 queryItems: [], body: ["trackGUID": trackID]
             ))
         }
-        let confirmed = try await favorites()
-        guard confirmed.contains(trackID) == isFavorite else {
+        let confirmed = try await favoriteSnapshot()
+        guard confirmed.trackIDs.contains(trackID) == isFavorite else {
             throw Self.invalidResponse("favorite-track/list does not reflect the write to \(trackID)")
         }
         return confirmed
@@ -232,11 +250,15 @@ public struct FnMusicLibraryClient: Sendable {
         allowsDuplicates: Bool = false,
         diagnosticLogger: (@Sendable (String) -> Void)? = nil,
         parse: ([String: Any]) throws -> Item
-    ) async throws -> [Item] {
+    ) async throws -> Rows<Item> {
         var page = 1
         var total = expectedTotal
         var result: [Item] = []
         var seen: Set<String> = []
+        // 翻页与 total 按服务端给出的行数算；认不出的单行只跳过它自己。那一行本来就对不上
+        // 本地曲库，拿整份歌单或收藏去陪葬反而让读得出的歌也同步不了。
+        var received = 0
+        var skipped = 0
         while true {
             try Task.checkCancellation()
             let data = try await load(FnMusicLibraryRequest(
@@ -248,47 +270,61 @@ public struct FnMusicLibraryClient: Sendable {
             ))
             try Task.checkCancellation()
             let current = try Self.page(path: path, data: data)
-            diagnosticLogger?("page=\(page) received=\(current.list.count) accumulated=\(result.count) reported_total=\(current.total.map(String.init) ?? "unknown")")
+            diagnosticLogger?("page=\(page) received=\(current.list.count) accumulated=\(received) reported_total=\(current.total.map(String.init) ?? "unknown")")
             if let pageTotal = current.total {
                 guard total == nil || total == pageTotal else {
                     throw Self.invalidResponse("\(path): total changed from \(total ?? -1) to \(pageTotal)")
                 }
                 total = pageTotal
             }
+            received += current.list.count
             for (row, raw) in current.list.enumerated() {
                 guard let json = raw as? [String: Any] else {
-                    diagnosticLogger?("page=\(page) result=invalid-item row=\(row + 1) item=\(Self.fieldState(raw))")
-                    throw Self.invalidResponse("\(path): item is not an object")
+                    skipped += 1
+                    diagnosticLogger?("page=\(page) result=invalid-item row=\(row + 1) item=\(Self.fieldState(raw)) action=skip")
+                    continue
                 }
                 let item: Item
                 do {
                     item = try parse(json)
                 } catch {
-                    diagnosticLogger?("page=\(page) result=invalid-item row=\(row + 1) guid=\(Self.fieldState(json["guid"])) trackGUID=\(Self.fieldState(json["trackGUID"])) id=\(Self.fieldState(json["id"])) access=\(Self.accessState(json["accessStatus"]))")
-                    throw error
+                    skipped += 1
+                    diagnosticLogger?("page=\(page) result=invalid-item row=\(row + 1) guid=\(Self.fieldState(json["guid"])) trackGUID=\(Self.fieldState(json["trackGUID"])) id=\(Self.fieldState(json["id"])) access=\(Self.accessState(json["accessStatus"])) action=skip")
+                    continue
                 }
                 guard allowsDuplicates || seen.insert(item.id).inserted else {
                     throw Self.invalidResponse("\(path): repeated item \(item.id)")
                 }
                 result.append(item)
             }
+            let finished: Bool
             if let total {
-                guard result.count <= total else {
-                    throw Self.invalidResponse("\(path): \(result.count) items exceed total \(total)")
+                guard received <= total else {
+                    throw Self.invalidResponse("\(path): \(received) items exceed total \(total)")
                 }
-                if result.count == total { return result }
-                guard current.list.count == Self.pageSize else {
+                finished = received == total
+                guard finished || current.list.count == Self.pageSize else {
                     throw Self.invalidResponse("\(path): page \(page) is short (\(current.list.count)) with total \(total)")
                 }
-            } else if current.list.count != Self.pageSize {
+            } else {
                 // 没有 total 时短页就是末页；不分页、一次全给的清单也从这里返回。
-                return result
+                finished = current.list.count != Self.pageSize
+            }
+            if finished {
+                if skipped > 0 { diagnosticLogger?("result=skipped-items skipped=\(skipped) kept=\(result.count)") }
+                return Rows(items: result, listed: received)
             }
             page += 1
             guard page <= Self.pageLimit else {
                 throw Self.invalidResponse("\(path): more than \(Self.pageLimit) pages")
             }
         }
+    }
+
+    private struct Rows<Item> {
+        var items: [Item]
+        /// 服务端给出的行数，含认不出而跳过的。
+        var listed: Int
     }
 
     private struct Page {
@@ -386,7 +422,7 @@ public struct FnMusicLibraryClient: Sendable {
         }
     }
 
-    private struct Summary: FnMusicLibraryItem {
+    fileprivate struct Summary: FnMusicLibraryItem {
         let id: String
         let name: String
         let coverReference: String?

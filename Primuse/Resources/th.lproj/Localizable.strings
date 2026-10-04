@@ -4970,6 +4970,8 @@
 "server_playlist_append_failed_title" = "เพิ่มลงในเพลย์ลิสต์ของเซิร์ฟเวอร์ไม่ได้";
 "server_playlist_append_read_only" = "เพลย์ลิสต์นี้เป็นเพลย์ลิสต์อัจฉริยะหรือเป็นของผู้ใช้อื่น เซิร์ฟเวอร์จึงไม่อนุญาตให้เพิ่มเพลง";
 "server_playlist_append_not_confirmed" = "เซิร์ฟเวอร์ไม่ได้ยืนยันเพลงที่เพิ่ม โปรดลองอีกครั้งภายหลัง";
+"server_playlist_append_partial_title" = "บางเพลงไม่ได้ถูกเพิ่ม";
+"server_playlist_append_partial_message %lld %lld" = "เพิ่มแล้ว %1$lld เพลง อีก %2$lld เพลงไม่พบแทร็กที่ตรงกันบนเซิร์ฟเวอร์จึงไม่ได้เพิ่ม";
 "server_playlist_append_footer" = "เพลงจะถูกเพิ่มลงในเพลย์ลิสต์บนเซิร์ฟเวอร์ หากต้องการนำออก ให้แก้ไขเพลย์ลิสต์บนเซิร์ฟเวอร์";
 
 // MARK: - Apple TV scraping

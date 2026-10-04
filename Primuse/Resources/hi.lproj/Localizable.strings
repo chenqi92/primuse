@@ -4970,6 +4970,8 @@
 "server_playlist_append_failed_title" = "सर्वर प्लेलिस्ट में नहीं जोड़ा जा सका";
 "server_playlist_append_read_only" = "यह स्मार्ट प्लेलिस्ट है या किसी अन्य उपयोगकर्ता की है, इसलिए सर्वर इसमें गाने जोड़ने की अनुमति नहीं देता।";
 "server_playlist_append_not_confirmed" = "सर्वर ने जोड़े गए गानों की पुष्टि नहीं की। बाद में फिर से कोशिश करें।";
+"server_playlist_append_partial_title" = "कुछ गाने नहीं जोड़े गए";
+"server_playlist_append_partial_message %lld %lld" = "%1$lld गाने जोड़े गए। %2$lld गाने सर्वर पर किसी ट्रैक से मेल नहीं खाए, इसलिए नहीं जोड़े गए।";
 "server_playlist_append_footer" = "गाने सर्वर पर मौजूद प्लेलिस्ट में जोड़े जाते हैं। हटाने के लिए सर्वर पर प्लेलिस्ट संपादित करें।";
 
 // MARK: - Apple TV scraping

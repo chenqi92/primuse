@@ -20,6 +20,8 @@ struct BatchAddToPlaylistSheet: View {
     @State private var newPlaylistName = ""
     @State private var isAppending = false
     @State private var appendErrorMessage: String?
+    /// 部分歌曲没加进服务端歌单时的说明; 关掉提示后再收起面板。
+    @State private var partialAppendMessage: String?
 
     /// 镜像歌单 (Apple Music / 服务端曲库) 会在下次同步时覆盖，不能作为写入
     /// 目标。「我喜欢」仍是本地可编辑歌单，批量加入与逐曲点心形使用同一份成员关系。
@@ -44,6 +46,13 @@ struct BatchAddToPlaylistSheet: View {
         Binding(
             get: { appendErrorMessage != nil },
             set: { if !$0 { appendErrorMessage = nil } }
+        )
+    }
+
+    private var partialAppendBinding: Binding<Bool> {
+        Binding(
+            get: { partialAppendMessage != nil },
+            set: { if !$0 { partialAppendMessage = nil } }
         )
     }
 
@@ -91,13 +100,20 @@ struct BatchAddToPlaylistSheet: View {
         Task { @MainActor in
             defer { isAppending = false }
             do {
-                try await ServerPlaylistAppendService.append(
+                let skippedCount = try await ServerPlaylistAppendService.append(
                     songs,
                     toMirrorPlaylist: playlistID,
                     library: library,
                     sourcesStore: sourcesStore,
                     sourceManager: sourceManager
                 )
+                guard skippedCount == 0 else {
+                    partialAppendMessage = String(
+                        format: String(localized: "server_playlist_append_partial_message %lld %lld"),
+                        songs.count - skippedCount, skippedCount
+                    )
+                    return
+                }
                 onFinish()
                 dismiss()
             } catch is CancellationError {
@@ -195,6 +211,11 @@ struct BatchAddToPlaylistSheet: View {
                 Button(String(localized: "ok"), role: .cancel) {}
             } message: {
                 Text(verbatim: appendErrorMessage ?? "")
+            }
+            .alert(String(localized: "server_playlist_append_partial_title"), isPresented: partialAppendBinding) {
+                Button(String(localized: "ok"), role: .cancel) { onFinish(); dismiss() }
+            } message: {
+                Text(verbatim: partialAppendMessage ?? "")
             }
         }
     }
@@ -333,6 +354,11 @@ struct BatchAddToPlaylistSheet: View {
             Button(String(localized: "ok"), role: .cancel) {}
         } message: {
             Text(verbatim: appendErrorMessage ?? "")
+        }
+        .alert(String(localized: "server_playlist_append_partial_title"), isPresented: partialAppendBinding) {
+            Button(String(localized: "ok"), role: .cancel) { onFinish(); dismiss() }
+        } message: {
+            Text(verbatim: partialAppendMessage ?? "")
         }
     }
 
