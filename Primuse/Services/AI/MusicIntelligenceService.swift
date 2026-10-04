@@ -1889,6 +1889,9 @@ final class MusicIntelligenceService {
         at audioFileURL: URL,
         duration: TimeInterval
     ) async -> AIAudioTranscriptionOutcome {
+        #if os(tvOS)
+        return .unavailable
+        #else
         let regionSnapshot = regionAvailability.snapshot
         guard lyricsTranscriptionSettingsStore.isEnabled,
               lyricsTranscriptionSettingsStore.hasExplicitAudioUploadConsent,
@@ -1956,6 +1959,7 @@ final class MusicIntelligenceService {
         } catch {
             return .failed
         }
+        #endif
     }
 
     func prepareLyricsTranscriptionCredentialMigration() async {
