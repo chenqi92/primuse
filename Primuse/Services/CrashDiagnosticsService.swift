@@ -13,7 +13,7 @@ private let crashLog = Logger(subsystem: "com.welape.yuanyin", category: "Crash"
 /// 落本地 (App Group container),用户在设置里能查看 + 通过分享面板手动
 /// 发邮件给我。
 ///
-/// 系统通过异步序列或旧版 subscriber 交付诊断，每份报告保存为 JSON，文件名
+/// 系统通过 subscriber 交付诊断，每份报告保存为 JSON，文件名
 ///   形如 `crash-<unix-ts>-<uuid8>.json`(uuid8 保证同一秒内多份 payload 不互相覆盖)
 /// 文件容量上限 50 份, 超过按时间最老的删 (LRU)
 ///
@@ -22,6 +22,12 @@ private let crashLog = Logger(subsystem: "com.welape.yuanyin", category: "Crash"
 /// "闪退"根本不产生崩溃报告, 只会计在指标载荷的 `applicationExitMetrics` 里,
 /// 内存峰值也只在这里。丢掉它, 用户报"闪退"而 Organizer 的 Crashes 一条没有
 /// 时就只剩猜。两份分开存、分开计数, 崩溃列表的空状态才仍然代表"没崩过"。
+///
+/// 不要换成系统 27 的 `MetricKit.MetricManager`。它内部注册一个订阅者, 在 init
+/// 里就把指标和诊断两条序列都建好, 不读 `metricReports` 也会把每份指标载荷转成
+/// `MetricReport`; 27.0.1 上这一步在 MetricKit 自己的投递线程里于 Foundation
+/// 内陷入断言 (SIGTRAP), 启动收载荷时直接闪退。它本来就架在同一套 subscriber
+/// 投递上, 换过去只多了这个风险。
 @MainActor
 final class CrashDiagnosticsService: NSObject {
     /// 启动哨兵在主执行器之外也要拼出这个目录, 所以它不跟着类型留在 MainActor 上。
@@ -32,10 +38,6 @@ final class CrashDiagnosticsService: NSObject {
     static let metricFilePrefix = "metrics-"
     private static let crashFilePrefix = "crash-"
     private var isRegistered = false
-    private var diagnosticTask: Task<Void, Never>?
-    /// 诊断报告是否已经由新的异步序列接管。接管后旧订阅者只负责指标载荷,
-    /// 否则同一份诊断会被两条路各写一遍。
-    private var usesModernDiagnosticStream = false
     private var memoryPressureSource: DispatchSourceMemoryPressure?
     /// block-based observer 的令牌 —— 必须持有并在 deinit 注销,否则观察者永远
     /// 留在 NotificationCenter 里。nonisolated(unsafe): 只有 `register()`
@@ -53,7 +55,6 @@ final class CrashDiagnosticsService: NSObject {
     }
 
     deinit {
-        diagnosticTask?.cancel()
         memoryPressureSource?.cancel()
         if let memoryWarningObserver {
             NotificationCenter.default.removeObserver(memoryWarningObserver)
@@ -63,29 +64,6 @@ final class CrashDiagnosticsService: NSObject {
     func register() {
         guard !isRegistered else { return }
         isRegistered = true
-        #if compiler(>=6.4)
-        if #available(iOS 27.0, macOS 27.0, *) {
-            usesModernDiagnosticStream = true
-            diagnosticTask = Task.detached(priority: .utility) { [weak self] in
-                let manager = MetricKit.MetricManager()
-                // Keep the manager alive for the entire asynchronous subscription.
-                defer { withExtendedLifetime(manager) {} }
-                for await report in manager.diagnosticReports {
-                    guard !Task.isCancelled else { break }
-                    do {
-                        let data = try JSONEncoder().encode(report)
-                        await self?.persistData(data)
-                    } catch {
-                        crashLog.error("Failed to encode diagnostic report: \(error.localizedDescription)")
-                    }
-                }
-            }
-            crashLog.notice("CrashDiagnosticsService registered with MetricManager")
-        }
-        #endif
-        // 指标载荷只有旧订阅者这一条路。新序列接管诊断之后仍然要订阅, 否则
-        // 内存上限终止 / watchdog / 非正常退出这些"没有崩溃报告的闪退"就没有
-        // 任何记录。诊断那一路由 `usesModernDiagnosticStream` 让开, 不会重复写。
         MXMetricManager.shared.add(self)
         crashLog.notice("CrashDiagnosticsService subscribed to MetricKit payloads")
         startMemoryPressureMonitoring()
@@ -240,8 +218,7 @@ extension CrashDiagnosticsService: MXMetricManagerSubscriber {
         // payload.jsonRepresentation() 给完整结构化数据,可直接写盘
         let datas = payloads.map { $0.jsonRepresentation() }
         Task { @MainActor [weak self] in
-            // 新序列已经接管时这一路让开, 否则同一份诊断写两遍。
-            guard let self, !self.usesModernDiagnosticStream else { return }
+            guard let self else { return }
             crashLog.notice("Received \(datas.count) diagnostic payloads")
             for data in datas {
                 self.persistData(data)
