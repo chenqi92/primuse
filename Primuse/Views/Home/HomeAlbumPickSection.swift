@@ -64,6 +64,7 @@ struct HomeAlbumPickSection: View {
         }
         .navigationDestination(item: $openedAlbum) { album in
             AlbumDetailView(album: album)
+                .mediaZoomDestination(.album, id: album.id)
         }
     }
 

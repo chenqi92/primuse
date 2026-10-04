@@ -290,6 +290,7 @@ struct HomeForYouSection: View {
         .pmAnimation(.contentAppear, value: presentation.isIntelligent)
         .navigationDestination(item: $openedAlbum) { album in
             AlbumDetailView(album: album)
+                .mediaZoomDestination(.album, id: album.id)
         }
         .task(id: AlbumPoolRefreshKey(includesAlbums: unit.includesAlbums, libraryRevision: library.searchRevision)) {
             // 情景推荐那一块关着时没人替这里算专辑候选;算过的五分钟内直接复用。
@@ -344,6 +345,8 @@ struct HomeForYouSection: View {
                 }
                 .buttonStyle(.pmPressable)
                 .contextMenu { albumMenu(pick, album: album) }
+                // 点卡片是整张播放;长按「前往专辑」时专辑页从这张卡片放大出来。
+                .mediaZoomSource(.album, id: album.id)
                 .accessibilityIdentifier("home.forYou.album")
             }
         }
@@ -369,6 +372,7 @@ struct HomeForYouSection: View {
                 }
                 .buttonStyle(.pmPressable)
                 .contextMenu { albumMenu(pick, album: album) }
+                .mediaZoomSource(.album, id: album.id)
             }
         }
     }

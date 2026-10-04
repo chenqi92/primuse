@@ -73,14 +73,13 @@ private struct RecentlyAddedAlbumsView: View {
                     )],
                     spacing: heightClass.value(20, compact: 14)
                 ) {
+                    // 走首页导航栈上的 Album 目的地,和资料库的专辑网格一样从卡片放大展开。
                     ForEach(filteredAlbums) { album in
-                        NavigationLink {
-                            AlbumDetailView(album: album)
-                                .navigationTitle(album.title)
-                        } label: {
+                        NavigationLink(value: album) {
                             AlbumCardView(album: album, showsSongCount: true)
                         }
                         .buttonStyle(.pmPressable)
+                        .mediaZoomSource(.album, id: album.id)
                     }
                 }
                 .padding(20)
@@ -3015,6 +3014,7 @@ struct HomeView: View {
                             playlistListRow(tile)
                         }
                         .buttonStyle(.plain)
+                        .mediaZoomSource(.playlist, id: tile.playlist.id)
 
                         if index < displayed.count - 1 {
                             Divider()
@@ -3289,6 +3289,7 @@ struct HomeView: View {
                             albumListRow(tile.album)
                         }
                         .buttonStyle(.plain)
+                        .mediaZoomSource(.album, id: tile.album.id)
 
                         if index < displayed.count - 1 {
                             Divider().padding(.leading, 66)
