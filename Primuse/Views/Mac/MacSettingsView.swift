@@ -2257,6 +2257,17 @@ private struct MacSTPlaybackView: View {
                         .accessibilityHint(Text(verbatim: Lz("P-16 · On by Default")))
                 }
                 .settingsAnchor("playback.gapless")
+                // 只有音效模式会在同一张专辑里先重采样保持连续；高保真直通总是切换。
+                if s.gaplessEnabled, s.outputMode == .effects, s.matchOutputSampleRate {
+                    MacSTRow(
+                        String(localized: "output_sr_matching_within_album"),
+                        hint: String(localized: "output_sr_matching_within_album_footer"),
+                        hintLineLimit: 5
+                    ) {
+                        MacSTToggle(isOn: $s.matchSampleRateWithinAlbum)
+                    }
+                    .settingsAnchor("playback.matchSampleRateWithinAlbum")
+                }
                 // 三句话的说明在英文等语言下要占四五行, 默认的两行会把后半截截掉。
                 MacSTRow(
                     String(localized: "crossfade"),

@@ -651,6 +651,8 @@
 "playback_rate_desc" = "0.5×〜2.0×。音程は保たれるため、ポッドキャストやじっくり聴く場面に便利です。";
 "output_sr_matching" = "出力サンプルレートを合わせる";
 "output_sr_matching_desc" = "曲ごとのサンプルレートに出力を切り替え、リサンプリングを避けます。Bluetooth や AirPlay など一部の出力では無視されます。実際のレートは再生画面に表示されます。";
+"output_sr_matching_within_album" = "同じアルバム内でもサンプルレートを切り替える";
+"output_sr_matching_within_album_footer" = "サンプルレートが異なる曲の間では次の曲を前もって準備し、できるだけ前の曲の終わりの無音で切り替えます。同じアルバムの曲は標準ではリサンプリングして途切れずに再生し、アルバムが変わるときに切り替えます。オンにするとアルバム内でも切り替え、曲間にごく短い途切れが出ることがあります。";
 "search_running" = "検索中…";
 "search_section_metadata" = "タイトル / アーティスト / アルバム";
 "search_section_lyrics" = "歌詞の一致";

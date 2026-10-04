@@ -430,6 +430,8 @@
 "playback_rate_desc" = "0.5×–2.0×. Pitch is preserved — useful for podcasts or careful listening.";
 "output_sr_matching" = "Match Output Sample Rate";
 "output_sr_matching_desc" = "Switches the output to each song's sample rate to avoid resampling. Bluetooth, AirPlay and some other outputs ignore it; the player shows the rate actually used.";
+"output_sr_matching_within_album" = "Switch Sample Rate Within Albums";
+"output_sr_matching_within_album_footer" = "When sample rates differ, the next song is prepared ahead and the switch happens in the previous song’s closing silence where possible. Tracks on the same album stay continuous by default (resampled) and the rate switches when the album changes. Turn this on to switch inside an album too; there may be a very short pause between tracks.";
 "search_running" = "Searching…";
 "search_section_metadata" = "Title / Artist / Album";
 "search_section_lyrics" = "Lyrics matches";

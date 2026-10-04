@@ -28,6 +28,8 @@ final class PlayerNodeRegistry: @unchecked Sendable {
     private var crossfadeNode: AVAudioPlayerNode?
     private var primaryTimeline = PlaybackTimelineTracker()
     private var crossfadeTimeline = PlaybackTimelineTracker()
+    private var primarySilence = TrailingSilenceTracker()
+    private var crossfadeSilence = TrailingSilenceTracker()
 
     func attach(_ node: AVAudioPlayerNode?, to role: PlayerNodeRole) {
         lock.lock()
@@ -50,14 +52,19 @@ final class PlayerNodeRegistry: @unchecked Sendable {
         lock.lock()
         swap(&primaryNode, &crossfadeNode)
         swap(&primaryTimeline, &crossfadeTimeline)
+        swap(&primarySilence, &crossfadeSilence)
         lock.unlock()
     }
 
     func resetTimeline(for role: PlayerNodeRole) {
         lock.lock()
         switch role {
-        case .primary: primaryTimeline.reset()
-        case .crossfade: crossfadeTimeline.reset()
+        case .primary:
+            primaryTimeline.reset()
+            primarySilence.reset()
+        case .crossfade:
+            crossfadeTimeline.reset()
+            crossfadeSilence.reset()
         }
         lock.unlock()
     }
@@ -67,11 +74,12 @@ final class PlayerNodeRegistry: @unchecked Sendable {
         _ buffer: AVAudioPCMBuffer,
         on role: PlayerNodeRole
     ) -> PlaybackTimelineTracker.BoundaryToken? {
+        let audibleEnd = Self.audibleEnd(of: buffer)
         lock.lock()
         defer { lock.unlock() }
         guard let node = role == .primary ? primaryNode : crossfadeNode else { return nil }
         node.scheduleBuffer(buffer)
-        return record(frames: Int64(buffer.frameLength), on: role)
+        return record(frames: Int64(buffer.frameLength), audibleEnd: audibleEnd, on: role)
     }
 
     @discardableResult
@@ -81,6 +89,7 @@ final class PlayerNodeRegistry: @unchecked Sendable {
         completionCallbackType: AVAudioPlayerNodeCompletionCallbackType,
         completionHandler: @escaping @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void
     ) -> PlaybackTimelineTracker.BoundaryToken? {
+        let audibleEnd = Self.audibleEnd(of: buffer)
         lock.lock()
         defer { lock.unlock() }
         guard let node = role == .primary ? primaryNode : crossfadeNode else { return nil }
@@ -89,7 +98,7 @@ final class PlayerNodeRegistry: @unchecked Sendable {
             completionCallbackType: completionCallbackType,
             completionHandler: completionHandler
         )
-        return record(frames: Int64(buffer.frameLength), on: role)
+        return record(frames: Int64(buffer.frameLength), audibleEnd: audibleEnd, on: role)
     }
 
     @discardableResult
@@ -105,14 +114,82 @@ final class PlayerNodeRegistry: @unchecked Sendable {
         }
     }
 
+    /// The silent frames that close what is scheduled on `role`, and the
+    /// timeline frame they end at.
+    func trailingSilence(on role: PlayerNodeRole) -> (endFrame: Int64, silentFrames: Int64) {
+        lock.lock()
+        defer { lock.unlock() }
+        switch role {
+        case .primary: return (primaryTimeline.scheduledFrameCursor, primarySilence.silentFrames)
+        case .crossfade: return (crossfadeTimeline.scheduledFrameCursor, crossfadeSilence.silentFrames)
+        }
+    }
+
+    func isLive(_ token: PlaybackTimelineTracker.BoundaryToken, on role: PlayerNodeRole) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return role == .primary ? primaryTimeline.isLive(token) : crossfadeTimeline.isLive(token)
+    }
+
     /// Caller must already hold `lock`.
     private func record(
         frames: Int64,
+        audibleEnd: Int64?,
         on role: PlayerNodeRole
     ) -> PlaybackTimelineTracker.BoundaryToken? {
         switch role {
-        case .primary: return primaryTimeline.recordScheduledFrames(frames)
-        case .crossfade: return crossfadeTimeline.recordScheduledFrames(frames)
+        case .primary:
+            let token = primaryTimeline.recordScheduledFrames(frames)
+            if token != nil { primarySilence.record(frameCount: frames, audibleEnd: audibleEnd) }
+            return token
+        case .crossfade:
+            let token = crossfadeTimeline.recordScheduledFrames(frames)
+            if token != nil { crossfadeSilence.record(frameCount: frames, audibleEnd: audibleEnd) }
+            return token
+        }
+    }
+
+    /// About -60 dBFS: quieter samples count as the closing silence a
+    /// sample-rate switch may start in.
+    private static let silenceThreshold: Float = 0.001
+
+    /// The frame just past the buffer's last sample above the silence
+    /// threshold, or nil when the whole buffer is silent. A format it cannot
+    /// read counts as audible to the end, so nothing is ever cut on a guess.
+    private static func audibleEnd(of buffer: AVAudioPCMBuffer) -> Int64? {
+        let frameCount = Int(buffer.frameLength)
+        let channelCount = Int(buffer.format.channelCount)
+        guard frameCount > 0, channelCount > 0 else { return Int64(frameCount) }
+        let interleaved = buffer.format.isInterleaved
+
+        func scan<T>(_ channels: UnsafePointer<UnsafeMutablePointer<T>>, isAudible: (T) -> Bool) -> Int64? {
+            var frame = frameCount - 1
+            while frame >= 0 {
+                for channel in 0..<channelCount {
+                    let sample = interleaved
+                        ? channels[0][frame * channelCount + channel]
+                        : channels[channel][frame]
+                    if isAudible(sample) { return Int64(frame + 1) }
+                }
+                frame -= 1
+            }
+            return nil
+        }
+
+        switch buffer.format.commonFormat {
+        case .pcmFormatFloat32:
+            guard let data = buffer.floatChannelData else { return Int64(frameCount) }
+            return scan(data) { abs($0) > silenceThreshold }
+        case .pcmFormatInt16:
+            guard let data = buffer.int16ChannelData else { return Int64(frameCount) }
+            let threshold = Int32(silenceThreshold * Float(Int16.max))
+            return scan(data) { abs(Int32($0)) > threshold }
+        case .pcmFormatInt32:
+            guard let data = buffer.int32ChannelData else { return Int64(frameCount) }
+            let threshold = Int64(silenceThreshold * Float(Int32.max))
+            return scan(data) { abs(Int64($0)) > threshold }
+        default:
+            return Int64(frameCount)
         }
     }
 }
@@ -125,6 +202,12 @@ final class AudioEngine {
     /// 直通图这一刻搬的是不是 DoP/DSD 码流。DSD 的样本里装的是 1bit 码流，
     /// 乘任何系数都会变成噪声，所以这种图不能加增益。
     private(set) var usesDSDCarrier = false
+    #if os(iOS)
+    /// Rates the current route has refused. iOS treats a preferred rate as a
+    /// wish, so the plan for a gapless boundary asks the route's history
+    /// rather than assuming a switch that would only end in a restart.
+    @ObservationIgnored private var refusedPreferredSampleRates: (routeKey: String, rates: Set<Int>) = ("", [])
+    #endif
     #if os(macOS)
     /// 直通图上一次写应用级输出音量是否成功。
     private(set) var directOutputVolumeIsSupported = false
@@ -565,6 +648,7 @@ final class AudioEngine {
                 .outputRouteIsSystemManagedWireless
         ) {
             _ = AudioSessionManager.shared.setPreferredSampleRate(targetHz)
+            recordPreferredSampleRateOutcome(requested: targetHz, actual: session.sampleRate)
         }
         return session.sampleRate
         #elseif os(macOS)
@@ -577,24 +661,11 @@ final class AudioEngine {
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
-        var settable = DarwinBoolean(false)
-        let propertyIsSettable = AudioObjectIsPropertySettable(
-            deviceID, &address, &settable
-        ) == noErr && settable.boolValue
-        let shouldRequestChange = DirectPCMOutputSampleRatePolicy
-            .shouldRequestNominalSampleRateChange(
-                requestedSampleRate: targetHz,
-                currentHardwareSampleRate: currentRate,
-                propertyIsSettable: propertyIsSettable,
-                requestedRateIsSupported: Self.availableNominalSampleRates(deviceID: deviceID)?
-                    .contains { range in
-                        targetHz >= range.mMinimum && targetHz <= range.mMaximum
-                    },
-                isSystemManagedWirelessOutput: Self.isSystemManagedWirelessOutput(
-                    deviceID: deviceID
-                )
-            )
-        guard shouldRequestChange else { return currentRate }
+        guard Self.shouldRequestNominalSampleRate(
+            targetHz,
+            deviceID: deviceID,
+            currentRate: currentRate
+        ) else { return currentRate }
         let startedAt = ContinuousClock.now
         plog("🎧 Hardware rate request device=\(deviceID) current=\(currentRate) target=\(targetHz)")
         let result = try await hardwareSampleRateNegotiator.prepare(
@@ -640,6 +711,112 @@ final class AudioEngine {
         #if os(macOS)
         hardwareSampleRateNegotiator.cancel()
         #endif
+    }
+
+    /// The rate the output will report after `prepareHardwareSampleRate`
+    /// with `targetHz`: the target when a request would be made, otherwise
+    /// the current rate. iOS only takes the request as a preference, so the
+    /// rate reported afterwards still has the final word.
+    func predictedHardwareSampleRate(afterRequesting targetHz: Double) -> Double {
+        let currentRate = currentHardwareSampleRate
+        guard targetHz >= 8_000, targetHz <= 384_000 else { return currentRate }
+        #if os(iOS)
+        // Built-in speakers stay at the system rate whatever is asked, and a
+        // route that already refused this rate will refuse it again.
+        let sessionManager = AudioSessionManager.shared
+        if sessionManager.outputRouteIsBuiltIn { return currentRate }
+        if refusedPreferredSampleRates.routeKey == sessionManager.outputRouteKey,
+           refusedPreferredSampleRates.rates.contains(Int(targetHz.rounded())) {
+            return currentRate
+        }
+        return DirectPCMOutputSampleRatePolicy.shouldRequestNominalSampleRateChange(
+            requestedSampleRate: targetHz,
+            currentHardwareSampleRate: currentRate,
+            propertyIsSettable: true,
+            requestedRateIsSupported: nil,
+            isSystemManagedWirelessOutput: AudioSessionManager.shared
+                .outputRouteIsSystemManagedWireless
+        ) ? targetHz : currentRate
+        #elseif os(macOS)
+        guard let deviceID = hardwareOutputDeviceID else { return currentRate }
+        return Self.shouldRequestNominalSampleRate(
+            targetHz,
+            deviceID: deviceID,
+            currentRate: currentRate
+        ) ? targetHz : currentRate
+        #else
+        return currentRate
+        #endif
+    }
+
+    #if os(iOS)
+    private func recordPreferredSampleRateOutcome(requested: Double, actual: Double) {
+        let routeKey = AudioSessionManager.shared.outputRouteKey
+        if refusedPreferredSampleRates.routeKey != routeKey {
+            refusedPreferredSampleRates = (routeKey, [])
+        }
+        let rate = Int(requested.rounded())
+        if DirectPCMOutputSampleRatePolicy.hardwareMatches(
+            requestedSampleRate: requested,
+            actualHardwareSampleRate: actual
+        ) {
+            refusedPreferredSampleRates.rates.remove(rate)
+        } else {
+            refusedPreferredSampleRates.rates.insert(rate)
+        }
+    }
+    #endif
+
+    /// The format the graph will render at once the device runs at
+    /// `hardwareSampleRate`, so the next song can be decoded before the switch.
+    func predictedGraphFormat(
+        hardwareSampleRate: Double,
+        outputMode mode: AudioOutputMode
+    ) -> AVAudioFormat? {
+        switch mode {
+        case .highFidelity:
+            return directPCMFormat(sampleRate: hardwareSampleRate)
+        case .effects:
+            guard hardwareSampleRate >= DirectPCMOutputSampleRatePolicy.minimumSampleRate,
+                  hardwareSampleRate <= DirectPCMOutputSampleRatePolicy.maximumSampleRate,
+                  let channels = outputFormat?.channelCount,
+                  channels > 0 else { return nil }
+            return AVAudioFormat(standardFormatWithSampleRate: hardwareSampleRate, channels: channels)
+        }
+    }
+
+    /// True when the graph renders exactly `format`, so buffers decoded for it
+    /// can be scheduled without conversion.
+    func graphRenders(_ format: AVAudioFormat) -> Bool {
+        guard let outputFormat else { return false }
+        return DirectPCMOutputSampleRatePolicy.hardwareMatches(
+            requestedSampleRate: format.sampleRate,
+            actualHardwareSampleRate: outputFormat.sampleRate
+        )
+            && outputFormat.channelCount == format.channelCount
+            && outputFormat.commonFormat == format.commonFormat
+            && outputFormat.isInterleaved == format.isInterleaved
+    }
+
+    /// Builds a fresh graph on the next `configure`, which then reads the
+    /// device's settled format instead of trusting the running one.
+    func requireGraphRebuild() {
+        hardwareConfigurationRecoveryState.configurationChanged()
+    }
+
+    /// The silent frames that close what is scheduled on the primary node, and
+    /// the timeline frame they end at.
+    func primaryTrailingSilence() -> (endFrame: Int64, silentFrames: Int64) {
+        nodeRegistry.trailingSilence(on: .primary)
+    }
+
+    func isPrimaryTimelineLive(_ token: PlaybackTimelineTracker.BoundaryToken) -> Bool {
+        nodeRegistry.isLive(token, on: .primary)
+    }
+
+    /// Where the primary node is rendering on its timeline; nil while it is not.
+    var primaryRenderedFrame: Int64? {
+        playbackClockSample(for: playerNode)?.sampleTime
     }
 
     #if os(macOS)
@@ -773,6 +950,32 @@ final class AudioEngine {
         var size = UInt32(MemoryLayout<UInt32>.size)
         return AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &alive) == noErr
             && alive != 0
+    }
+
+    private static func shouldRequestNominalSampleRate(
+        _ targetHz: Double,
+        deviceID: AudioDeviceID,
+        currentRate: Double
+    ) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var settable = DarwinBoolean(false)
+        let propertyIsSettable = AudioObjectIsPropertySettable(
+            deviceID, &address, &settable
+        ) == noErr && settable.boolValue
+        return DirectPCMOutputSampleRatePolicy.shouldRequestNominalSampleRateChange(
+            requestedSampleRate: targetHz,
+            currentHardwareSampleRate: currentRate,
+            propertyIsSettable: propertyIsSettable,
+            requestedRateIsSupported: availableNominalSampleRates(deviceID: deviceID)?
+                .contains { range in
+                    targetHz >= range.mMinimum && targetHz <= range.mMaximum
+                },
+            isSystemManagedWirelessOutput: isSystemManagedWirelessOutput(deviceID: deviceID)
+        )
     }
 
     private static func isSystemManagedWirelessOutput(deviceID: AudioDeviceID) -> Bool {

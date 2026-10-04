@@ -1879,6 +1879,13 @@ struct PlaybackSettingsView: View {
         )
     }
 
+    /// 无缝播放、音效模式、匹配采样率三者都开着时，同专辑内切不切才有意义。
+    private var showsSampleRateWithinAlbumOption: Bool {
+        playbackSettings.gaplessEnabled
+            && playbackSettings.outputMode == .effects
+            && playbackSettings.matchOutputSampleRate
+    }
+
     var body: some View {
         @Bindable var settings = playbackSettings
 
@@ -1950,6 +1957,16 @@ struct PlaybackSettingsView: View {
                         if enabled { settings.crossfadeEnabled = false }
                     }
                     .accessibilityHint(Text("gapless_desc"))
+
+                // 只有音效模式会在同一张专辑里先重采样保持连续；高保真直通总是切换。
+                if showsSampleRateWithinAlbumOption {
+                    Toggle("output_sr_matching_within_album", isOn: $settings.matchSampleRateWithinAlbum)
+                        .settingsAnchor("playback.matchSampleRateWithinAlbum")
+                }
+            } footer: {
+                if showsSampleRateWithinAlbumOption {
+                    Text("output_sr_matching_within_album_footer")
+                }
             }
 
             Section {

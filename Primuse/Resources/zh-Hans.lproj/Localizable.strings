@@ -430,6 +430,8 @@
 "playback_rate_desc" = "0.5×–2.0×。保持音调不变，适合播客或慢速学习。";
 "output_sr_matching" = "匹配输出采样率";
 "output_sr_matching_desc" = "把输出切到每首歌的采样率，避免重采样。蓝牙、AirPlay 等部分输出会忽略，播放页会显示实际使用的采样率。";
+"output_sr_matching_within_album" = "同一张专辑内也切换采样率";
+"output_sr_matching_within_album_footer" = "采样率不同的歌之间会提前备好下一首，并尽量在上一首结尾的静音里切换。同一张专辑里的相邻曲目默认不切换、先重采样保持连续，换专辑时再切；打开后同专辑内也切换，衔接处可能有极短的停顿。";
 "search_running" = "搜索中…";
 "search_section_metadata" = "标题 / 艺术家 / 专辑";
 "search_section_lyrics" = "歌词命中";

@@ -215,6 +215,14 @@ final class AudioSessionManager {
         }
     }
 
+    /// Identifies the current output route, so what one route did with a
+    /// preferred sample rate is not assumed of the next.
+    var outputRouteKey: String {
+        AVAudioSession.sharedInstance().currentRoute.outputs
+            .map { "\($0.portType.rawValue)#\($0.uid)" }
+            .joined(separator: "|")
+    }
+
     var outputRouteIsBuiltIn: Bool {
         AVAudioSession.sharedInstance().currentRoute.outputs.contains {
             $0.portType == .builtInSpeaker || $0.portType == .builtInReceiver

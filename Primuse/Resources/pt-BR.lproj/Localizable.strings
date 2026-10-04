@@ -2346,6 +2346,8 @@
 "output_mode_high_fidelity_hardware_note" = "Este modo faz diferença principalmente com um DAC externo ou amplificador de fones. Por Bluetooth ou nos alto-falantes integrados o áudio é processado de novo de qualquer forma, então a diferença quase não é percebida.";
 "output_sr_matching" = "Ajustar a taxa de amostragem de saída";
 "output_sr_matching_desc" = "Muda a saída para a taxa de amostragem de cada música para evitar reamostragem. Bluetooth, AirPlay e outras saídas ignoram; o player mostra a taxa realmente usada.";
+"output_sr_matching_within_album" = "Trocar a taxa também dentro de um álbum";
+"output_sr_matching_within_album_footer" = "Quando as taxas são diferentes, a próxima música é preparada antes e a troca acontece, se possível, no silêncio final da música anterior. Faixas do mesmo álbum seguem sem cortes por padrão (reamostradas) e a taxa muda quando o álbum muda. Ative para trocar também dentro de um álbum; pode haver uma pausa muito curta entre as faixas.";
 "tv_output_sr_matching_desc" = "Solicita pelo HDMI a taxa de amostragem de cada música. Requer tvOS 27 e Apple TV 4K (3ª geração) ligada a um receiver; caso contrário, a saída fica em 48 kHz. O player mostra a saída real.";
 "password" = "Senha";
 "password_ascii_hint" = "Use letras inglesas e caracteres ASCII";

@@ -17,6 +17,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "playback.resetSpeed", titleKey: "playback_rate_reset", iosPage: .playback, macPage: nil, anchor: "playback.speed"),
         SettingDefinition(id: "playback.autoContinueSimilar", titleKey: "auto_continue_similar", iosPage: .playback, macPage: .playback, keywords: ["autoplay", "相似歌曲", "自动续播", "继续播放", "播完", "Siri", "CarPlay"]),
         SettingDefinition(id: "playback.gapless", titleKey: "gapless_playback", iosPage: .playback, macPage: .playback, keywords: ["gapless", "无缝", "曲目间隔", "歌曲衔接", "Gapless Playback"]),
+        SettingDefinition(id: "playback.matchSampleRateWithinAlbum", titleKey: "output_sr_matching_within_album", iosPage: .playback, macPage: .playback, keywords: ["sample rate", "album", "gapless", "DAC", "采样率", "同一张专辑", "专辑内", "无缝", "停顿", "切换"]),
         SettingDefinition(id: "playback.crossfade", titleKey: "crossfade", iosPage: .playback, macPage: .playback, keywords: ["cross fade", "crossfade", "淡入淡出", "歌曲衔接", "转场"]),
         SettingDefinition(id: "playback.crossfadeMode", titleKey: "crossfade_mode", iosPage: .playback, macPage: .playback, keywords: ["Crossfade Mode"], anchor: "playback.crossfade"),
         SettingDefinition(id: "playback.crossfadeDuration", titleKey: "crossfade_duration", iosPage: .playback, macPage: .playback, keywords: ["crossfade_max_duration", "Crossfade Duration"], anchor: "playback.crossfade"),

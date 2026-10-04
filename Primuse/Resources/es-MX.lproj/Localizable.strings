@@ -2346,6 +2346,8 @@
 "output_mode_high_fidelity_hardware_note" = "Este modo tiene sentido sobre todo con un DAC externo o un amplificador de audífonos. Por Bluetooth o con las bocinas integradas el audio se vuelve a procesar de todos modos, así que la diferencia casi no se percibe.";
 "output_sr_matching" = "Ajustar la frecuencia de muestreo de salida";
 "output_sr_matching_desc" = "Cambia la salida a la frecuencia de muestreo de cada canción para evitar el remuestreo. Bluetooth, AirPlay y otras salidas lo ignoran; el reproductor muestra la frecuencia que se usa realmente.";
+"output_sr_matching_within_album" = "Cambiar la frecuencia también dentro de un álbum";
+"output_sr_matching_within_album_footer" = "Cuando las frecuencias difieren, la siguiente canción se prepara antes y el cambio se hace, si es posible, en el silencio final de la canción anterior. Las pistas del mismo álbum siguen sin cortes de forma predeterminada (remuestreadas) y la frecuencia cambia al cambiar de álbum. Actívalo para cambiar también dentro de un álbum; puede quedar una pausa muy breve entre pistas.";
 "tv_output_sr_matching_desc" = "Solicita por HDMI la frecuencia de muestreo de cada canción. Requiere tvOS 27 y un Apple TV 4K (3.ª generación) conectado a un receptor AV; si no, la salida se queda en 48 kHz. El reproductor muestra la salida real.";
 "password" = "Contraseña";
 "password_ascii_hint" = "Usar letras inglesas y caracteres ASCII";

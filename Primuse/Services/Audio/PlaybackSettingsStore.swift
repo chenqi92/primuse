@@ -132,6 +132,9 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
     /// 是否让 AVAudioSession 把硬件输出 SR 切到当前歌曲采样率, 避免
     /// CoreAudio 自动重采样。仅 iOS 真机有效, 部分老款硬件无视该 hint。
     var matchOutputSampleRate: Bool = false
+    /// 无缝播放 + 音效模式下匹配采样率时，同一张专辑里采样率不同的相邻曲目也切换
+    /// 硬件采样率。默认关：同专辑内先重采样保持连续，换专辑时再切。
+    var matchSampleRateWithinAlbum: Bool = false
     /// Mac 高保真直通时独占输出设备(Core Audio hog mode), 设备物理位深跟随歌曲。
     var exclusiveOutputEnabled: Bool = false
 
@@ -187,6 +190,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         autoContinueSimilarEnabled = try c.decodeIfPresent(Bool.self, forKey: .autoContinueSimilarEnabled) ?? true
         lockScreenLyricsEnabled = try c.decodeIfPresent(Bool.self, forKey: .lockScreenLyricsEnabled) ?? true
         matchOutputSampleRate = try c.decodeIfPresent(Bool.self, forKey: .matchOutputSampleRate) ?? false
+        matchSampleRateWithinAlbum = try c.decodeIfPresent(Bool.self, forKey: .matchSampleRateWithinAlbum) ?? false
         exclusiveOutputEnabled = try c.decodeIfPresent(Bool.self, forKey: .exclusiveOutputEnabled) ?? false
         effectChainEnabled = try c.decodeIfPresent(Bool.self, forKey: .effectChainEnabled) ?? true
         compressorEnabled = try c.decodeIfPresent(Bool.self, forKey: .compressorEnabled) ?? false
@@ -229,6 +233,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         autoContinueSimilarEnabled: Bool = true,
         lockScreenLyricsEnabled: Bool = true,
         matchOutputSampleRate: Bool = false,
+        matchSampleRateWithinAlbum: Bool = false,
         exclusiveOutputEnabled: Bool = false,
         effectChainEnabled: Bool = true,
         compressorEnabled: Bool = false,
@@ -269,6 +274,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         self.autoContinueSimilarEnabled = autoContinueSimilarEnabled
         self.lockScreenLyricsEnabled = lockScreenLyricsEnabled
         self.matchOutputSampleRate = matchOutputSampleRate
+        self.matchSampleRateWithinAlbum = matchSampleRateWithinAlbum
         self.exclusiveOutputEnabled = exclusiveOutputEnabled
         self.effectChainEnabled = effectChainEnabled
         self.compressorEnabled = compressorEnabled
@@ -301,6 +307,8 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         .init("dsdPlaybackMode", \.dsdPlaybackMode),
         // 让硬件输出采样率跟随歌曲只对 iOS 真机有意义, 而且部分硬件无视。
         .init("matchOutputSampleRate", \.matchOutputSampleRate),
+        // 同专辑内切不切跟着这台设备接的 DAC 切换时停顿多长走。
+        .init("matchSampleRateWithinAlbum", \.matchSampleRateWithinAlbum),
         // 独占的是接在这台 Mac 上的 DAC。
         .init("exclusiveOutputEnabled", \.exclusiveOutputEnabled),
         // 提前准备几首是本机内存与网络预算的取舍。
@@ -486,6 +494,7 @@ final class PlaybackSettingsStore {
     var autoContinueSimilarEnabled: Bool { didSet { persist() } }
     var lockScreenLyricsEnabled: Bool { didSet { persist() } }
     var matchOutputSampleRate: Bool { didSet { persist() } }
+    var matchSampleRateWithinAlbum: Bool { didSet { persist() } }
     var exclusiveOutputEnabled: Bool { didSet { persist() } }
 
     // Compressor / Limiter
@@ -540,6 +549,7 @@ final class PlaybackSettingsStore {
         self.autoContinueSimilarEnabled = s.autoContinueSimilarEnabled
         self.lockScreenLyricsEnabled = s.lockScreenLyricsEnabled
         self.matchOutputSampleRate = s.matchOutputSampleRate
+        self.matchSampleRateWithinAlbum = s.matchSampleRateWithinAlbum
         self.exclusiveOutputEnabled = s.exclusiveOutputEnabled
         self.effectChainEnabled = s.effectChainEnabled
         self.compressorEnabled = s.compressorEnabled
@@ -616,6 +626,7 @@ final class PlaybackSettingsStore {
         autoContinueSimilarEnabled = s.autoContinueSimilarEnabled
         lockScreenLyricsEnabled = s.lockScreenLyricsEnabled
         matchOutputSampleRate = s.matchOutputSampleRate
+        matchSampleRateWithinAlbum = s.matchSampleRateWithinAlbum
         exclusiveOutputEnabled = s.exclusiveOutputEnabled
         effectChainEnabled = s.effectChainEnabled
         compressorEnabled = s.compressorEnabled
@@ -667,6 +678,7 @@ final class PlaybackSettingsStore {
             autoContinueSimilarEnabled: autoContinueSimilarEnabled,
             lockScreenLyricsEnabled: lockScreenLyricsEnabled,
             matchOutputSampleRate: matchOutputSampleRate,
+            matchSampleRateWithinAlbum: matchSampleRateWithinAlbum,
             exclusiveOutputEnabled: exclusiveOutputEnabled,
             effectChainEnabled: effectChainEnabled,
             compressorEnabled: compressorEnabled,

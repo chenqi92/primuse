@@ -2346,6 +2346,8 @@
 "output_mode_high_fidelity_hardware_note" = "Ten tryb ma sens głównie z zewnętrznym przetwornikiem DAC lub wzmacniaczem słuchawkowym. Przez Bluetooth lub wbudowane głośniki dźwięk i tak jest ponownie przetwarzany, więc różnica jest prawie niesłyszalna.";
 "output_sr_matching" = "Dopasuj częstotliwość próbkowania wyjścia";
 "output_sr_matching_desc" = "Przełącza wyjście na częstotliwość próbkowania każdego utworu, aby uniknąć przepróbkowania. Bluetooth, AirPlay i niektóre inne wyjścia to ignorują; faktyczna częstotliwość jest widoczna w odtwarzaczu.";
+"output_sr_matching_within_album" = "Przełączaj częstotliwość także w obrębie albumu";
+"output_sr_matching_within_album_footer" = "Gdy częstotliwości się różnią, następny utwór jest przygotowywany wcześniej, a przełączenie następuje w miarę możliwości w ciszy na końcu poprzedniego. Utwory z jednego albumu domyślnie grają bez przerw (z przepróbkowaniem), a częstotliwość zmienia się wraz z albumem. Włącz, aby przełączać także w obrębie albumu; między utworami może pojawić się bardzo krótka przerwa.";
 "tv_output_sr_matching_desc" = "Żąda przez HDMI częstotliwości próbkowania każdego utworu. Wymaga tvOS 27 i Apple TV 4K (3. generacji) podłączonego do amplitunera AV; w innym razie wyjście zostaje przy 48 kHz. Odtwarzacz pokazuje faktyczne wyjście.";
 "password" = "Hasło";
 "password_ascii_hint" = "Używaj angielskich liter i znaków ASCII";

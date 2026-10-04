@@ -650,6 +650,8 @@
 "playback_rate_desc" = "0.5×–2.0×. 음높이는 유지됩니다. 팟캐스트나 집중해서 들을 때 유용합니다.";
 "output_sr_matching" = "출력 샘플링 레이트 일치";
 "output_sr_matching_desc" = "곡마다 출력 샘플레이트를 맞춰 리샘플링을 줄입니다. 블루투스, AirPlay 등 일부 출력에서는 무시되며, 실제로 쓰이는 샘플레이트는 재생 화면에 표시됩니다.";
+"output_sr_matching_within_album" = "같은 앨범 안에서도 샘플레이트 전환";
+"output_sr_matching_within_album_footer" = "샘플레이트가 다른 곡 사이에서는 다음 곡을 미리 준비하고, 가능하면 앞 곡 끝의 무음 구간에서 전환합니다. 같은 앨범의 곡은 기본적으로 리샘플링해 끊김 없이 이어 주고 앨범이 바뀔 때 전환합니다. 켜면 앨범 안에서도 전환하며 곡 사이에 아주 짧은 끊김이 생길 수 있습니다.";
 "search_running" = "검색 중…";
 "search_section_metadata" = "제목 / 아티스트 / 앨범";
 "search_section_lyrics" = "가사 일치";

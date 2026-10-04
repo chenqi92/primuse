@@ -261,6 +261,8 @@
 "<Song Name>-cover.jpg" = "<Şarkı Adı>-cover.jpg";
 "dup_clean_all_action" = "Akıllı seçim (gereksiz kopyaları kaldır)";
 "output_sr_matching_desc" = "Çıkışı her şarkının örnekleme hızına geçirerek yeniden örneklemeyi önler. Bluetooth, AirPlay ve bazı diğer çıkışlar bunu yok sayar; gerçekte kullanılan hız oynatıcıda gösterilir.";
+"output_sr_matching_within_album" = "Albüm içinde de örnekleme hızını değiştir";
+"output_sr_matching_within_album_footer" = "Örnekleme hızları farklıysa sonraki şarkı önceden hazırlanır ve geçiş mümkünse önceki şarkının sonundaki sessizlikte yapılır. Aynı albümdeki parçalar varsayılan olarak kesintisiz çalar (yeniden örneklenir) ve hız albüm değişince değişir. Albüm içinde de geçiş yapmak için açın; parçalar arasında çok kısa bir duraklama olabilir.";
 "onboarding_mac_welcome_title" = "Primuse'ye hoş geldiniz";
 "status_up_to_date" = "Güncel";
 "ai_connection_needs_key" = "Modelleri getirmek için URL ve API hizmet anahtarını girin";

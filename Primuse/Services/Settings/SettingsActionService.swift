@@ -22,8 +22,9 @@ struct SettingsActionService {
     var showsIntelligence = true
 
     nonisolated static let toggleIDs: Set<String> = [
-        "playback.matchSampleRate", "playback.exclusiveOutput", "playback.autoContinueSimilar", "playback.gapless",
-        "playback.crossfade", "playback.skipLeadingSilence", "playback.skipTrailingSilence", "playback.replayGain",
+        "playback.matchSampleRate", "playback.matchSampleRateWithinAlbum", "playback.exclusiveOutput",
+        "playback.autoContinueSimilar", "playback.gapless", "playback.crossfade", "playback.skipLeadingSilence",
+        "playback.skipTrailingSilence", "playback.replayGain",
         "playback.spatialAudio", "playback.headTracking", "lyrics.lockScreen",
         "storage.audioCacheEnabled", "effects.chain", "effects.reverb", "effects.compressor",
         "lyrics.translationEnabled", "lyrics.tapToSeek", "lyrics.browseTimeline", "lyrics.blurInactive",
@@ -35,8 +36,9 @@ struct SettingsActionService {
         "lyrics.translationTarget", "lyrics.translationMode", "about.version", "about.build"
     ])
     private static let effectsOnly: Set<String> = [
-        "playback.matchSampleRate", "playback.crossfade", "playback.crossfadeMode", "playback.crossfadeDuration",
-        "playback.skipLeadingSilence", "playback.skipTrailingSilence", "playback.replayGain", "playback.replayGainMode",
+        "playback.matchSampleRate", "playback.matchSampleRateWithinAlbum", "playback.crossfade",
+        "playback.crossfadeMode", "playback.crossfadeDuration", "playback.skipLeadingSilence",
+        "playback.skipTrailingSilence", "playback.replayGain", "playback.replayGainMode",
         "playback.spatialAudio", "playback.headTracking", "playback.speed", "playback.resetSpeed"
     ]
 
@@ -114,6 +116,7 @@ struct SettingsActionService {
     func booleanValue(for id: String) -> Bool? {
         switch id {
         case "playback.matchSampleRate": playback.outputMode == .highFidelity || playback.matchOutputSampleRate
+        case "playback.matchSampleRateWithinAlbum": playback.matchSampleRateWithinAlbum
         case "playback.exclusiveOutput": playback.exclusiveOutputEnabled
         case "playback.autoContinueSimilar": playback.autoContinueSimilarEnabled
         case "playback.gapless": playback.gaplessEnabled
@@ -149,6 +152,7 @@ struct SettingsActionService {
         let disablesCrossfade = id == "playback.gapless" && enabled && playback.crossfadeEnabled
         switch id {
         case "playback.matchSampleRate": playback.matchOutputSampleRate = enabled
+        case "playback.matchSampleRateWithinAlbum": playback.matchSampleRateWithinAlbum = enabled
         case "playback.exclusiveOutput": playback.exclusiveOutputEnabled = enabled
         case "playback.autoContinueSimilar": playback.autoContinueSimilarEnabled = enabled
         case "playback.gapless": playback.gaplessEnabled = enabled

@@ -650,6 +650,8 @@
 "playback_rate_desc" = "0,5×–2,0×. Die Tonhöhe bleibt erhalten – praktisch für Podcasts oder konzentriertes Zuhören.";
 "output_sr_matching" = "An Ausgabe-Samplerate anpassen";
 "output_sr_matching_desc" = "Stellt die Ausgabe auf die Samplerate des jeweiligen Titels um, damit nicht neu abgetastet wird. Bluetooth, AirPlay und manche andere Ausgaben ignorieren das; die tatsächlich genutzte Rate steht in der Wiedergabeansicht.";
+"output_sr_matching_within_album" = "Samplerate auch innerhalb eines Albums wechseln";
+"output_sr_matching_within_album_footer" = "Bei unterschiedlichen Sampleraten wird der nächste Titel vorbereitet und möglichst in der Stille am Ende des vorherigen umgeschaltet. Titel desselben Albums laufen standardmäßig nahtlos weiter (neu abgetastet), umgeschaltet wird beim Albumwechsel. Eingeschaltet wird auch innerhalb eines Albums umgeschaltet; zwischen den Titeln kann eine sehr kurze Pause entstehen.";
 "search_running" = "Suchen …";
 "search_section_metadata" = "Titel / Künstler / Album";
 "search_section_lyrics" = "Treffer im Liedtext";

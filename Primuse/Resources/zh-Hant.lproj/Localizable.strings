@@ -418,6 +418,8 @@
 "playback_rate_desc" = "0.5×–2.0×。保持音調不變，適合 Podcast 或慢速學習。";
 "output_sr_matching" = "符合輸出取樣率";
 "output_sr_matching_desc" = "把輸出切到每首歌的取樣率，避免重新取樣。藍牙、AirPlay 等部分輸出會忽略，播放頁會顯示實際使用的取樣率。";
+"output_sr_matching_within_album" = "同一張專輯內也切換取樣率";
+"output_sr_matching_within_album_footer" = "取樣率不同的歌之間會提前備好下一首，並盡量在上一首結尾的靜音裡切換。同一張專輯裡的相鄰曲目預設不切換、先重新取樣保持連續，換專輯時再切；開啟後同專輯內也切換，銜接處可能有極短的停頓。";
 "search_running" = "搜尋中…";
 "search_section_metadata" = "標題 / 演出者 / 專輯";
 "search_section_lyrics" = "歌詞命中";

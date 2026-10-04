@@ -255,3 +255,37 @@ struct PlaybackTimelineTrackerTests {
         #expect(maximumCommit == Int64.max)
     }
 }
+
+@Suite("Playback timeline liveness and trailing silence")
+struct PlaybackTimelineLivenessTests {
+    @Test("A boundary token dies with its timeline")
+    func tokenLiveness() throws {
+        var tracker = PlaybackTimelineTracker()
+        let recorded = tracker.recordScheduledFrames(1_024)
+        let token = try #require(recorded)
+        #expect(tracker.isLive(token))
+        tracker.reset()
+        #expect(!tracker.isLive(token))
+        let other = PlaybackTimelineTracker()
+        #expect(!other.isLive(token))
+    }
+
+    @Test("Silent buffers extend the closing run and audio restarts it")
+    func trailingSilence() {
+        var tracker = TrailingSilenceTracker()
+        tracker.record(frameCount: 4_096, audibleEnd: 4_096)
+        #expect(tracker.silentFrames == 0)
+        tracker.record(frameCount: 4_096, audibleEnd: 1_000)
+        #expect(tracker.silentFrames == 3_096)
+        tracker.record(frameCount: 4_096, audibleEnd: nil)
+        #expect(tracker.silentFrames == 7_192)
+        tracker.record(frameCount: 0, audibleEnd: nil)
+        #expect(tracker.silentFrames == 7_192)
+        tracker.record(frameCount: 2_048, audibleEnd: 2_048)
+        #expect(tracker.silentFrames == 0)
+        tracker.record(frameCount: 512, audibleEnd: 0)
+        #expect(tracker.silentFrames == 512)
+        tracker.reset()
+        #expect(tracker.silentFrames == 0)
+    }
+}

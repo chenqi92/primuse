@@ -650,6 +650,8 @@
 "playback_rate_desc" = "0,5×–2,0×. La hauteur tonale est préservée — idéal pour les podcasts ou une écoute attentive.";
 "output_sr_matching" = "Adapter la fréquence d'échantillonnage de sortie";
 "output_sr_matching_desc" = "Règle la sortie sur la fréquence d’échantillonnage de chaque morceau pour éviter le rééchantillonnage. Bluetooth, AirPlay et certaines autres sorties l’ignorent ; la fréquence réellement utilisée s’affiche dans le lecteur.";
+"output_sr_matching_within_album" = "Changer de fréquence même au sein d’un album";
+"output_sr_matching_within_album_footer" = "Quand les fréquences diffèrent, le morceau suivant est préparé à l’avance et le changement a lieu si possible dans le silence de fin du morceau précédent. Les pistes d’un même album s’enchaînent par défaut sans coupure (rééchantillonnées) et la fréquence change avec l’album. Activez cette option pour changer aussi au sein d’un album ; une très courte pause peut apparaître entre les pistes.";
 "search_running" = "Recherche…";
 "search_section_metadata" = "Titre / Artiste / Album";
 "search_section_lyrics" = "Correspondances dans les paroles";

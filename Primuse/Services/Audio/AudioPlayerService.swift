@@ -76,6 +76,9 @@ final class GaplessTransitionState: @unchecked Sendable {
         didSet { if didFail { settle() } }
     }
     var boundary: PlaybackTimelineTracker.BoundaryToken?
+    /// The closing silence on the node when this transition's final buffer was
+    /// scheduled. A sample-rate handoff starts the switch inside it.
+    var trailingSilence: (endFrame: Int64, silentFrames: Int64)?
     /// Set when a gapless boundary activates the track this preparation
     /// scheduled. The loop then keeps decoding the *current* track, so
     /// traversal edits must no longer treat it as a successor preparation.
@@ -106,6 +109,103 @@ struct GaplessPreparedTrack: @unchecked Sendable {
     /// relative to the shared node volume, so activation must leave the node
     /// volume alone.
     let carriesProgramGain: Bool
+    /// The successor's rate as the output pipeline will read it (an offline
+    /// compact copy reports its own), so the boundary judges the same plan.
+    let sourceSampleRate: Double?
+    /// Set when the successor waits in memory for a device sample-rate switch
+    /// instead of sitting behind the final buffer on the node.
+    let sampleRateHandoff: SampleRateHandoffPreparation?
+
+    var hasScheduledBuffers: Bool {
+        sampleRateHandoff.map(\.isActivated) ?? true
+    }
+}
+
+/// The start of the next song, decoded at the rate the device is about to
+/// switch to and held in memory until the switch is done. The preparation
+/// loop waits on it; the boundary schedules the held audio on the rebuilt
+/// graph and then lets the loop carry on decoding. Mutated on the main actor
+/// only, like `GaplessTransitionState`.
+final class SampleRateHandoffPreparation: @unchecked Sendable {
+    let format: AVAudioFormat
+    private(set) var heldBuffers: [AVAudioPCMBuffer] = []
+    private(set) var heldDuration: TimeInterval = 0
+    private(set) var heldBytes = 0
+    /// Set once the boundary has put the held audio on the rebuilt graph.
+    private(set) var isActivated = false
+    private var outcome: Bool?
+    private var waiter: CheckedContinuation<Bool, Never>?
+
+    init(format: AVAudioFormat) {
+        self.format = format
+    }
+
+    var prerollIsComplete: Bool {
+        SampleRateHandoffTimingPolicy.prerollIsComplete(
+            heldDuration: heldDuration,
+            heldBytes: heldBytes,
+            heldBufferCount: heldBuffers.count
+        )
+    }
+
+    @MainActor
+    func hold(_ buffer: AVAudioPCMBuffer, duration: TimeInterval, byteCount: Int) {
+        guard outcome == nil else { return }
+        heldBuffers.append(buffer)
+        heldDuration += duration
+        heldBytes += byteCount
+    }
+
+    @MainActor
+    func takeHeldBuffers() -> [AVAudioPCMBuffer] {
+        let buffers = heldBuffers
+        heldBuffers = []
+        heldDuration = 0
+        heldBytes = 0
+        return buffers
+    }
+
+    /// Suspends the preparation loop until the boundary activates (true) or
+    /// drops (false) this handoff. Cancelling the waiting task drops it.
+    @MainActor
+    func waitForActivation() async -> Bool {
+        if let outcome { return outcome }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if let outcome {
+                    continuation.resume(returning: outcome)
+                } else {
+                    waiter = continuation
+                }
+            }
+        } onCancel: {
+            Task { @MainActor in self.finish(false) }
+        }
+    }
+
+    @MainActor
+    func activate() {
+        isActivated = true
+        finish(true)
+    }
+
+    @MainActor
+    func cancel() {
+        finish(false)
+    }
+
+    @MainActor
+    private func finish(_ value: Bool) {
+        guard outcome == nil else { return }
+        outcome = value
+        if !value {
+            heldBuffers.removeAll()
+            heldDuration = 0
+            heldBytes = 0
+        }
+        waiter?.resume(returning: value)
+        waiter = nil
+    }
 }
 
 /// One slot in the play queue. Wraps a `Song` with a per-slot UUID so
@@ -1157,6 +1257,9 @@ final class AudioPlayerService {
     /// The preparation loop that a gapless boundary promoted to the current
     /// track's decoder, so a traversal edit can re-arm its follow-up.
     @ObservationIgnored var activeGaplessFeed: ActiveGaplessFeed?
+    /// Waits for the outgoing song to reach its closing silence and starts a
+    /// prepared sample-rate handoff there.
+    @ObservationIgnored var sampleRateHandoffWatchTask: Task<Void, Never>?
     var crossfadeStartupTask: Task<Void, Never>?
     var crossfadeDecodingTask: Task<Void, Never>?
     var crossfadeAttemptID: UUID?
@@ -6726,6 +6829,7 @@ final class AudioPlayerService {
                 await self.handleGaplessBoundary(transition: transition, playID: id)
             }
         }
+        transition.trailingSilence = audioEngine.primaryTrailingSilence()
 
         startGaplessPreparation(playID: id, transition: transition)
     }
@@ -6803,36 +6907,66 @@ final class AudioPlayerService {
     }
 
     func shouldAttemptGapless(settings: PlaybackSettings) -> Bool {
+        continuousTransitionPlan(settings: settings) != .restart
+    }
+
+    /// How the coming boundary joins the next song: queued on the running
+    /// graph, through a prepared sample-rate handoff, or not continuously at
+    /// all. `nextSourceSampleRate` replaces the library's rate once the
+    /// resolved file has been inspected (`.some(nil)` means still unknown).
+    func continuousTransitionPlan(
+        settings: PlaybackSettings,
+        nextSourceSampleRate: Double?? = nil
+    ) -> ContinuousTransitionPlan {
         guard settings.gaplessEnabled,
               !shouldUseCrossfade(settings),
-              repeatMode != .one else { return false }
+              repeatMode != .one else { return .restart }
 
+        let next = nextSongInQueue()
         // Spoken word forces the effects graph (`outputMode(for:)`); a book
         // next to music on the bit-exact graph needs the graph rebuilt.
-        if let next = nextSongInQueue(), outputMode(for: next) != outputMode(for: currentSong) {
-            return false
+        if let next, outputMode(for: next) != outputMode(for: currentSong) {
+            return .restart
         }
-
-        if settings.outputMode == .highFidelity, let next = nextSongInQueue() {
-            // A real sample-rate switch or DSD/DoP carrier change requires a
-            // graph restart. Do not hide it behind the same-node gapless path.
-            let currentIsDSD = currentSong.map { $0.fileFormat == .dsf || $0.fileFormat == .dff } ?? false
-            let nextIsDSD = next.fileFormat == .dsf || next.fileFormat == .dff
-            if currentIsDSD || nextIsDSD || currentSong?.sampleRate != next.sampleRate {
-                return false
-            }
+        if shouldBypassContinuousAudioTransition(for: next) {
+            return .restart
         }
-
-        if shouldBypassContinuousAudioTransition(for: nextSongInQueue()) {
-            return false
-        }
-
         switch activeDecoderKind {
         case .native, .ffmpeg, .httpStream, .cloudStream:
-            return true
+            break
         case .streaming, .assetReader:
-            return false
+            return .restart
         }
+        guard let next else { return .seamless }
+
+        let isHighFidelity = outputMode(for: next) == .highFidelity
+        let currentIsDSD = currentSong.map { $0.fileFormat == .dsf || $0.fileFormat == .dff } ?? false
+        let nextIsDSD = next.fileFormat == .dsf || next.fileFormat == .dff
+        let nextRate = nextSourceSampleRate ?? next.sampleRate.map(Double.init)
+        let isSameAlbum = currentSong.map {
+            ContinuousTransitionSampleRatePolicy.isSameAlbum(Self.albumKey($0), Self.albumKey(next))
+        } ?? false
+        return ContinuousTransitionSampleRatePolicy.plan(
+            isHighFidelity: isHighFidelity,
+            followsSourceSampleRate: isHighFidelity || settings.matchOutputSampleRate,
+            involvesDSD: currentIsDSD || nextIsDSD,
+            currentSourceSampleRate: currentSong?.sampleRate.map(Double.init),
+            nextSourceSampleRate: nextRate,
+            graphSampleRate: audioEngine.outputFormat?.sampleRate,
+            nextHardwareSampleRate: nextRate.map {
+                audioEngine.predictedHardwareSampleRate(afterRequesting: $0)
+            },
+            isSameAlbum: isSameAlbum,
+            switchesWithinAlbum: settings.matchSampleRateWithinAlbum
+        )
+    }
+
+    nonisolated static func albumKey(_ song: Song) -> ContinuousTransitionSampleRatePolicy.AlbumKey {
+        ContinuousTransitionSampleRatePolicy.AlbumKey(
+            albumID: song.albumID,
+            albumTitle: song.albumTitle,
+            albumArtist: song.albumArtistName ?? song.artistName
+        )
     }
 
     func shouldBypassContinuousAudioTransition(for song: Song?) -> Bool {
@@ -6915,14 +7049,24 @@ final class AudioPlayerService {
     /// Cancels only the successor preparation. A loop that already put part of
     /// the successor behind the current track's final buffer is marked stale:
     /// the boundary must then fall back to a normal advance instead of
-    /// activating a track nobody keeps feeding.
+    /// activating a track nobody keeps feeding. A sample-rate handoff that is
+    /// still waiting in memory has put nothing on the node, so it is simply
+    /// dropped and the boundary may prepare again or advance normally.
     func cancelGaplessPreparation() {
         gaplessPreparationTask?.cancel()
         gaplessPreparationTask = nil
+        sampleRateHandoffWatchTask?.cancel()
+        sampleRateHandoffWatchTask = nil
         guard let transition = gaplessPreparationTransition else { return }
         gaplessPreparationTransition = nil
+        if let handoff = transition.prepared?.sampleRateHandoff, !handoff.isActivated {
+            handoff.cancel()
+            transition.prepared = nil
+            transition.bufferGate = nil
+            return
+        }
         if GaplessSuccessorDiscardPolicy.marksPreparationStale(
-            hasScheduledBuffers: transition.prepared != nil,
+            hasScheduledBuffers: transition.prepared?.hasScheduledBuffers ?? false,
             isFullyScheduled: transition.isFullyScheduled
         ) {
             transition.shouldCancelPreparation = true

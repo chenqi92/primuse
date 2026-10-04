@@ -131,6 +131,14 @@ public struct PlaybackTimelineTracker: Equatable, Sendable {
         return token.frameCursor
     }
 
+    /// True while `token` still belongs to this node timeline: no stop, seek
+    /// or graph rebuild has started a new one since it was issued.
+    public func isLive(_ token: BoundaryToken) -> Bool {
+        token.timelineID == timelineID
+            && token.generation == generation
+            && token.frameCursor <= scheduledFrameCursor
+    }
+
     /// Starts a new physical-node timeline. Seek position remains a separate
     /// playback offset and never changes this scheduled-frame coordinate.
     public mutating func reset() {
@@ -140,5 +148,29 @@ public struct PlaybackTimelineTracker: Equatable, Sendable {
         }
         scheduledFrameCursor = 0
         committedBoundaryFrameCursor = 0
+    }
+}
+
+/// Counts the silent frames at the end of everything scheduled on one player
+/// node, so a sample-rate switch can start inside a song's closing silence.
+public struct TrailingSilenceTracker: Equatable, Sendable {
+    public private(set) var silentFrames: Int64 = 0
+
+    public init() {}
+
+    /// - Parameter audibleEnd: the frame just past the buffer's last audible
+    ///   sample; nil when the whole buffer is silent.
+    public mutating func record(frameCount: Int64, audibleEnd: Int64?) {
+        guard frameCount > 0 else { return }
+        guard let audibleEnd, audibleEnd > 0 else {
+            let (sum, overflowed) = silentFrames.addingReportingOverflow(frameCount)
+            silentFrames = overflowed ? .max : sum
+            return
+        }
+        silentFrames = frameCount - min(audibleEnd, frameCount)
+    }
+
+    public mutating func reset() {
+        silentFrames = 0
     }
 }
