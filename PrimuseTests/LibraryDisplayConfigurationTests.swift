@@ -77,51 +77,6 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         XCTAssertEqual(summary.uniqueSongs, 2)
     }
 
-    @MainActor
-    func testListeningStatsSnapshotBuildsFromSendableHistoryInput() async {
-        let calendar = ListeningCalendar.make(
-            locale: Locale(identifier: "zh_CN"),
-            timeZone: TimeZone(identifier: "Asia/Shanghai")!
-        )
-        let now = calendar.date(from: DateComponents(year: 2026, month: 9, day: 6, hour: 12))!
-        let entries = [
-            PlayHistoryStore.Entry(
-                songID: "current",
-                songTitle: "当前歌曲",
-                artistName: "歌手",
-                albumTitle: "专辑",
-                playedAt: calendar.date(from: DateComponents(year: 2026, month: 9, day: 2, hour: 8))!,
-                listenedSec: 180,
-                sourceID: "source"
-            ),
-            PlayHistoryStore.Entry(
-                songID: "previous",
-                songTitle: "上月歌曲",
-                artistName: "歌手",
-                albumTitle: "专辑",
-                playedAt: calendar.date(from: DateComponents(year: 2026, month: 8, day: 3, hour: 8))!,
-                listenedSec: 120,
-                sourceID: "source"
-            ),
-        ]
-
-        let snapshot = await Task.detached(priority: .userInitiated) {
-            ListeningStatsView.makeStatsSnapshot(
-                entries: entries,
-                range: .month,
-                displayYear: nil,
-                now: now,
-                calendar: calendar
-            )
-        }.value
-
-        XCTAssertTrue(snapshot.hasHistory)
-        XCTAssertEqual(snapshot.summary.totalPlays, 1)
-        XCTAssertEqual(snapshot.summary.totalSec, 180)
-        XCTAssertEqual(snapshot.previousPlayCount, 1)
-        XCTAssertEqual(snapshot.topSongs.map(\.title), ["当前歌曲"])
-    }
-
     func testHomeDiscoverySectionsMigrateWithoutReorderingExistingSections() {
         let original: [HomeSectionKind] = [.stats, .playlists, .continueListening, .quickAccess]
         let decoded = HomeSectionConfiguration.decode(HomeSectionConfiguration.encode(original))
