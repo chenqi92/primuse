@@ -773,7 +773,7 @@ struct ContentView: View {
     @State private var scraperSettingsRoute = ScraperSettingsRouteState()
     /// 跨年自动弹年度报告的状态。1/1 之后用户首次进 app + 上一年听满 2 个月
     /// 时由 YearlyReportAutoTrigger 触发。
-    @State private var autoYearlyReport: YearlyReportData?
+    @State private var autoYearlyReport: YearlyReportYear?
     /// 首启 onboarding —— @AppStorage 持久, 关掉后永久 true。
     @AppStorage("primuse.hasSeenOnboarding") private var hasSeenOnboarding: Bool = false
     @AppStorage(LibraryDisplayConfiguration.sectionOrderKey)
@@ -1300,11 +1300,8 @@ struct ContentView: View {
             if !hasSeenOnboarding && sourcesStore.sources.isEmpty {
                 hasSeenOnboarding = true
                 showInitialOnboarding = true
-            } else if let report = YearlyReportAutoTrigger.shouldShowReport(
-                library: library,
-                sourcesStore: sourcesStore
-            ) {
-                autoYearlyReport = report
+            } else if let year = YearlyReportAutoTrigger.yearToShow() {
+                autoYearlyReport = YearlyReportYear(year: year)
             } else {
                 // 上次切出去时进程被系统结束、没填完的音乐源表单: 回到
                 // 「设置 › 音乐源」接着填。和引导页、年度报告不同时弹。
@@ -1323,8 +1320,8 @@ struct ContentView: View {
                   minimalLibrarySection.map({ !sections.contains($0) }) ?? true else { return }
             selectMinimalPage(MinimalNavigationPolicy.homePage(visibleSections: sections))
         }
-        .fullScreenCover(item: $autoYearlyReport) { data in
-            YearlyReportView(data: data)
+        .fullScreenCover(item: $autoYearlyReport) { item in
+            YearlyReportScreen(year: item.year)
         }
         // 首启 onboarding —— 仅当未看过且库里没源 (避免 CloudKit 同步迟到时
         // 让老用户重看一次)

@@ -323,6 +323,7 @@
 		2DE29813B2ABA1EE9C842C1E /* LibraryInsight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B8720399A6FC02B83945A2E /* LibraryInsight.swift */; };
 		08825943853E227CFB96B66A /* ListeningMood.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6479C3CB92713A6D0B65F14C /* ListeningMood.swift */; };
 		652239187516F8FC806F7FFB /* ListeningRecap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E724DCEF256B13D2F7C9BD2 /* ListeningRecap.swift */; };
+		F1616FB90782449656D1C0F5 /* ListeningYearReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 525C04A4D51FFBCD42496638 /* ListeningYearReport.swift */; };
 		2DE5CBCD78C24632ACAA814D /* BaiduPanIncrementalSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6260D8F4F4648F9D7376C4F5 /* BaiduPanIncrementalSync.swift */; };
 		2DED987AE3223DFB6B07CEA9 /* libavformat.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9ED8DF4FB0288A04F35DE51C /* libavformat.xcframework */; };
 		2E037012923883AA81D72003 /* FnMusicStreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E544642E7DCB96C625600B /* FnMusicStreamResolver.swift */; };
@@ -2369,6 +2370,7 @@
 		3B8720399A6FC02B83945A2E /* LibraryInsight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryInsight.swift; sourceTree = "<group>"; };
 		6479C3CB92713A6D0B65F14C /* ListeningMood.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningMood.swift; sourceTree = "<group>"; };
 		5E724DCEF256B13D2F7C9BD2 /* ListeningRecap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningRecap.swift; sourceTree = "<group>"; };
+		525C04A4D51FFBCD42496638 /* ListeningYearReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningYearReport.swift; sourceTree = "<group>"; };
 		3C221E974A2E6E831F7EAF27 /* SynologyStreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyStreamResolver.swift; sourceTree = "<group>"; };
 		3C3121FC0DB2F2843B4D7718 /* RadioPlaylistText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioPlaylistText.swift; sourceTree = "<group>"; };
 		3C85D6EDF29DAED03773957A /* OAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OAuthService.swift; sourceTree = "<group>"; };
@@ -3878,6 +3880,7 @@
 				3B8720399A6FC02B83945A2E /* LibraryInsight.swift */,
 				6479C3CB92713A6D0B65F14C /* ListeningMood.swift */,
 				5E724DCEF256B13D2F7C9BD2 /* ListeningRecap.swift */,
+				525C04A4D51FFBCD42496638 /* ListeningYearReport.swift */,
 				1D504656A2B34850802ED8B9 /* LibraryInsightFiles.swift */,
 				B8FE29DD8C9B3D2E0893EB09 /* LibrarySnapshotBackupPolicy.swift */,
 				23D06A49BA26CC677DEE933E /* LibrarySongAdmissionPolicy.swift */,
@@ -6069,6 +6072,7 @@
 				2DE29813B2ABA1EE9C842C1E /* LibraryInsight.swift in Sources */,
 				08825943853E227CFB96B66A /* ListeningMood.swift in Sources */,
 				652239187516F8FC806F7FFB /* ListeningRecap.swift in Sources */,
+				F1616FB90782449656D1C0F5 /* ListeningYearReport.swift in Sources */,
 				C255E3FDC4A56F2B75E9AD25 /* LibraryInsightFiles.swift in Sources */,
 				0A9266DEA85637E71C6A6CEB /* LibrarySectionLayoutPolicy.swift in Sources */,
 				5D6DF2063BE555D3078CF910 /* LibrarySnapshotBackupPolicy.swift in Sources */,

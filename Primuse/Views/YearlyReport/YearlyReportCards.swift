@@ -1,1054 +1,464 @@
 import SwiftUI
 import PrimuseKit
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
-// MARK: - 入场动效
+// MARK: - 配色
 //
-// 分享图是 ImageRenderer 拍的静态快照, 那条路径上 onAppear 不会跑。所以入场
-// 动效默认关着 —— 默认开着的话导出的图会停在动画起点(空白内容、长度为 0 的
-// 进度条)。只有真正显示在翻页器里的那张卡才把它打开。
+// 年度报告从上往下一章接一章，每章一种底色：浅色模式下是很淡的奶油、杏、薰衣草、
+// 薄荷，深色模式下是同一色相的深夜色，全部取自插画里的那几种颜色。每一章的底从自己
+// 的颜色渐变到下一章的颜色，整页连成一条色带，不再是一张张拼起来的卡片。
+// 正文用系统的主 / 次文字色，两种模式下都读得清。
 
-private struct YearlyCardRevealEnabledKey: EnvironmentKey {
-    static let defaultValue = false
+enum YearlyReportPalette {
+    /// 章节名、名次、按钮。浅色下是插画里的紫，深色下是插画里的橙（紫在深底上不够亮）。
+    static let accent = Color(light: (92, 64, 192), dark: (246, 168, 86))
 }
 
-extension EnvironmentValues {
-    /// 这张卡是显示给用户看的(而不是被静态渲染成分享图)。
-    var yearlyCardRevealsContent: Bool {
-        get { self[YearlyCardRevealEnabledKey.self] }
-        set { self[YearlyCardRevealEnabledKey.self] = newValue }
-    }
-}
+/// 每一章的底色。时段和月份跟着内容变：深夜一章是夜蓝，八月一章是盛夏的天蓝。
+enum YearlyReportTone: Hashable, Sendable {
+    case cover, firstSong, artists, songs, taste, moments, sources, personality, closing
+    case time(ListeningDaypart)
+    case month(Int)
 
-/// 卡片内容入场: 淡入并轻轻上移。翻页器会把每张卡整块重建, 这里只认「这个
-/// 实例第一次出现」, 重复触发的 onAppear 不会把内容打回起点。
-private struct YearlyCardRevealModifier: ViewModifier {
-    let delay: Double
-
-    @Environment(\.yearlyCardRevealsContent) private var reveals
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var revealed = false
-
-    func body(content: Content) -> some View {
-        content
-            .opacity(shown ? 1 : 0)
-            .offset(y: riseOffset)
-            .onAppear {
-                guard reveals, !revealed else { return }
-                withAnimation(PMMotion.contentAppear.animation.delay(delay)) {
-                    revealed = true
-                }
+    var color: Color {
+        switch self {
+        case .cover: Color(light: (255, 243, 228), dark: (34, 25, 52))
+        case .firstSong: Color(light: (253, 235, 222), dark: (44, 26, 42))
+        case .artists: Color(light: (244, 236, 255), dark: (32, 24, 62))
+        case .songs: Color(light: (235, 238, 255), dark: (22, 27, 60))
+        case .taste: Color(light: (233, 245, 238), dark: (16, 36, 42))
+        case .moments: Color(light: (255, 243, 219), dark: (44, 33, 22))
+        case .sources: Color(light: (238, 236, 255), dark: (26, 24, 56))
+        case .personality: Color(light: (245, 234, 255), dark: (40, 22, 58))
+        case .closing: Color(light: (255, 235, 225), dark: (46, 20, 30))
+        case .time(let daypart):
+            switch daypart {
+            case .dawn: Color(light: (255, 237, 221), dark: (48, 30, 46))
+            case .morning, .afternoon: Color(light: (229, 242, 255), dark: (17, 34, 58))
+            case .evening: Color(light: (255, 232, 214), dark: (52, 28, 36))
+            case .lateNight: Color(light: (232, 230, 251), dark: (15, 18, 44))
             }
-    }
-
-    private var shown: Bool { revealed || !reveals }
-
-    /// 上移是「减少动态效果」要挡掉的那部分, 淡入照常。
-    private var riseOffset: CGFloat {
-        guard !shown, !reduceMotion else { return 0 }
-        return Self.rise
-    }
-
-    private static let rise: CGFloat = 14
-}
-
-/// 进度条从 0 长到目标值。用缩放而不是改 frame —— 目标长度是 GeometryReader
-/// 或数据算出来的, 缩放不必把动画状态塞进那串计算里。
-private struct YearlyBarGrowthModifier: ViewModifier {
-    let axis: Axis
-
-    @Environment(\.yearlyCardRevealsContent) private var reveals
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var grown = false
-
-    func body(content: Content) -> some View {
-        content
-            .scaleEffect(scale, anchor: anchor)
-            .onAppear {
-                guard grows, !grown else { return }
-                withAnimation(PMMotion.ambient.animation.delay(Self.delay)) {
-                    grown = true
-                }
+        case .month(let month):
+            switch month {
+            case 3...5: Color(light: (239, 248, 229), dark: (24, 38, 30))
+            case 6...8: Color(light: (230, 245, 255), dark: (15, 35, 56))
+            case 9...11: Color(light: (255, 238, 221), dark: (50, 32, 24))
+            default: Color(light: (235, 240, 252), dark: (22, 26, 48))
             }
-    }
-
-    /// 长度变化是位移类效果, 开了「减少动态效果」就直接画成最终长度。
-    private var grows: Bool { reveals && !reduceMotion }
-
-    private var anchor: UnitPoint { axis == .horizontal ? .leading : .bottom }
-
-    private var scale: CGSize {
-        guard grows, !grown else { return CGSize(width: 1, height: 1) }
-        if axis == .horizontal { return CGSize(width: 0, height: 1) }
-        return CGSize(width: 1, height: 0)
-    }
-
-    private static let delay: Double = 0.12
-}
-
-extension View {
-    fileprivate func yearlyCardReveal(delay: Double = 0) -> some View {
-        modifier(YearlyCardRevealModifier(delay: delay))
-    }
-
-    fileprivate func yearlyBarGrowth(_ axis: Axis) -> some View {
-        modifier(YearlyBarGrowthModifier(axis: axis))
-    }
-}
-
-// MARK: - Reusable: 占位插图视图
-//
-// 美术阶段插图未到位时, 用渐变方块 + SF Symbol + 文字兜底, 让 UI 不空白。
-// 命名规则严格匹配 Docs/YearlyReport.md §七: personality_<CODE> /
-// timeofday_<dawn|noon|dusk|night> / month_<01..12> / decor_<name>。
-
-struct YearlyArtView: View {
-    let assetName: String
-    let fallbackSymbol: String
-    let fallbackText: String?
-
-    var body: some View {
-        #if os(iOS)
-        if let img = UIImage(named: assetName) {
-            Image(uiImage: img)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-        } else {
-            fallbackContent
         }
+    }
+}
+
+private extension Color {
+    /// 浅色、深色各一个值。
+    init(light: (Int, Int, Int), dark: (Int, Int, Int)) {
+        #if os(macOS)
+        self.init(nsColor: NSColor(name: nil) { appearance in
+            let rgb = appearance.bestMatch(from: [.darkAqua, .vibrantDark]) != nil ? dark : light
+            return NSColor(srgbRed: CGFloat(rgb.0) / 255, green: CGFloat(rgb.1) / 255, blue: CGFloat(rgb.2) / 255, alpha: 1)
+        })
         #else
-        if let img = NSImage(named: assetName) {
-            Image(nsImage: img)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-        } else {
-            fallbackContent
-        }
+        self.init(uiColor: UIColor { traits in
+            let rgb = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: CGFloat(rgb.0) / 255, green: CGFloat(rgb.1) / 255, blue: CGFloat(rgb.2) / 255, alpha: 1)
+        })
         #endif
     }
+}
 
-    private var fallbackContent: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 24)
-                .fill(LinearGradient(
-                    colors: [Color.white.opacity(0.18), Color.white.opacity(0.05)],
+// MARK: - 插画
+
+/// 一章的插画：资源名、找不到图时的 SF Symbol，以及最大尺寸（宽图按宽、方图按高收）。
+struct YearlyArt: Hashable {
+    let name: String
+    let fallbackSymbol: String
+    var maxWidth: CGFloat = 320
+    var maxHeight: CGFloat = 180
+}
+
+/// 插画统一是贴纸风格的透明 PNG（同一个戴耳机的角色、同一套紫橙配色），命名见
+/// `personality_<CODE>` / `timeofday_<dawn|noon|dusk|night>` / `month_<01..12>` / `decor_<name>`。
+/// 资源缺失时用一圈淡底加 SF Symbol 兜底，版面不塌。
+struct YearlyArtView: View {
+    let art: YearlyArt
+
+    var body: some View {
+        Group {
+            if let image = Self.image(named: art.name) {
+                image
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+            } else {
+                fallback
+            }
+        }
+        .frame(maxWidth: art.maxWidth, maxHeight: art.maxHeight)
+        .accessibilityHidden(true)
+    }
+
+    private var fallback: some View {
+        let side = min(art.maxWidth, art.maxHeight) * 0.8
+        return Circle()
+            .fill(YearlyReportPalette.accent.opacity(0.10))
+            .frame(width: side, height: side)
+            .overlay {
+                Image(systemName: art.fallbackSymbol)
+                    .font(.system(size: side * 0.36, weight: .light))
+                    .foregroundStyle(YearlyReportPalette.accent.opacity(0.8))
+            }
+    }
+
+    static func image(named name: String) -> Image? {
+        #if os(iOS)
+        UIImage(named: name).map { Image(uiImage: $0) }
+        #else
+        NSImage(named: name).map { Image(nsImage: $0) }
+        #endif
+    }
+}
+
+// MARK: - 一章
+
+/// 每一章同一个版式：插画、章节名、大标题、一两句说明，下面是这一章的内容。
+/// 标题和说明居中，成块的内容占满整栏。
+struct YearlyChapter<Headline: View, Content: View>: View {
+    let eyebrow: String
+    let art: YearlyArt?
+    let lead: [String]
+    @ViewBuilder let headline: () -> Headline
+    @ViewBuilder let content: () -> Content
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(
+        eyebrow: String,
+        art: YearlyArt?,
+        lead: [String] = [],
+        @ViewBuilder headline: @escaping () -> Headline,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.eyebrow = eyebrow
+        self.art = art
+        self.lead = lead
+        self.headline = headline
+        self.content = content
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if let art {
+                YearlyArtView(art: art)
+                    // 滚进视野时插画轻轻放大落位；「减少动态效果」下静止。
+                    .scrollTransition(.interactive, axis: .vertical) { view, phase in
+                        view
+                            .scaleEffect(reduceMotion || phase.isIdentity ? 1 : 0.92)
+                            .opacity(reduceMotion || phase.isIdentity ? 1 : 0.55)
+                    }
+                    .padding(.bottom, 22)
+            }
+            Text(verbatim: eyebrow)
+                .font(.footnote.weight(.bold))
+                .tracking(0.8)
+                .foregroundStyle(YearlyReportPalette.accent)
+                .multilineTextAlignment(.center)
+                .accessibilityAddTraits(.isHeader)
+            headline()
+                .padding(.top, 8)
+            ForEach(Array(lead.enumerated()), id: \.offset) { _, line in
+                Text(verbatim: line)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 8)
+            }
+            content()
+                .padding(.top, 24)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+extension YearlyChapter where Content == EmptyView {
+    init(
+        eyebrow: String,
+        art: YearlyArt?,
+        lead: [String] = [],
+        @ViewBuilder headline: @escaping () -> Headline
+    ) {
+        self.init(eyebrow: eyebrow, art: art, lead: lead, headline: headline) { EmptyView() }
+    }
+}
+
+/// 一章的大标题：歌名、艺人名、人格名都用它，长了换行，不缩成看不清的小字。
+struct YearlyHeadline: View {
+    let text: String
+    var style: Font.TextStyle = .title
+
+    var body: some View {
+        Text(verbatim: text)
+            .font(.system(style, design: .rounded, weight: .bold))
+            .foregroundStyle(.primary)
+            .multilineTextAlignment(.center)
+            .lineLimit(4)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// 章与章之间的一小段竖线，把上一章接到下一章。
+struct YearlyThread: View {
+    var body: some View {
+        Capsule()
+            .fill(
+                LinearGradient(
+                    colors: [YearlyReportPalette.accent.opacity(0), YearlyReportPalette.accent.opacity(0.4)],
                     startPoint: .top,
                     endPoint: .bottom
-                ))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24)
-                        .stroke(Color.white.opacity(0.2), lineWidth: 1)
                 )
-            VStack(spacing: 6) {
-                Image(systemName: fallbackSymbol)
-                    .font(.system(size: 50, weight: .light))
-                if let fallbackText {
-                    Text(fallbackText)
-                        .font(.caption2.weight(.semibold))
-                }
-            }
-            .foregroundStyle(.white.opacity(0.8))
-        }
-    }
-}
-
-// MARK: - 通用文本组件
-
-private struct CardTitle: View {
-    let text: String
-    var body: some View {
-        Text(text)
-            .font(.system(.largeTitle, design: .rounded).weight(.bold))
-            .foregroundStyle(.white)
-            .multilineTextAlignment(.center)
-    }
-}
-
-/// 十三张卡都用它当副标题, 卡片的入场就挂在这里 —— 装饰图跟着翻页本身的
-/// 过渡进来, 文字随后落位, 一张卡就有了先后。
-private struct CardSubtitle: View {
-    let text: String
-    var body: some View {
-        Text(text)
-            .font(.system(.body, design: .rounded))
-            .foregroundStyle(.white.opacity(0.85))
-            .multilineTextAlignment(.center)
-            .yearlyCardReveal(delay: Self.revealDelay)
-    }
-
-    private static let revealDelay: Double = 0.08
-}
-
-private struct BigNumber: View {
-    let value: String
-    let unit: String?
-
-    @Environment(\.yearlyCardRevealsContent) private var reveals
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var counted = false
-
-    /// 整数才数得上来; 已经格式化过的字符串原样显示。
-    private var countsUp: Bool { reveals && !reduceMotion && Int(value) != nil }
-
-    private var displayedValue: String {
-        countsUp && !counted ? "0" : value
-    }
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Text(displayedValue)
-                .font(.system(size: 80, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-                .monospacedDigit()
-                .contentTransition(.numericText())
-            if let unit {
-                Text(unit)
-                    .font(.system(.title3, design: .rounded).weight(.medium))
-                    .foregroundStyle(.white.opacity(0.85))
-            }
-        }
-        .onAppear {
-            guard countsUp, !counted else { return }
-            withAnimation(PMMotion.ambient.animation.delay(Self.countDelay)) {
-                counted = true
-            }
-        }
-    }
-
-    private static let countDelay: Double = 0.1
-}
-
-// MARK: - Card 1: 封面
-
-struct HeroCard: View {
-    let data: YearlyReportData
-    var body: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            Text("\(String(data.year))")
-                .font(.system(size: 28, weight: .light, design: .rounded))
-                .foregroundStyle(.white.opacity(0.7))
-                .tracking(8)
-            Text(String(localized: "yearly_card_hero_title"))
-                .font(.system(size: 36, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-
-            if let personality = data.personality {
-                YearlyArtView(
-                    assetName: personality.assetName,
-                    fallbackSymbol: "person.fill",
-                    fallbackText: personality.code
-                )
-                .frame(width: 240, height: 240)
-                .padding(.top, 24)
-
-                Text(personality.displayName)
-                    .font(.system(.title2, design: .rounded).weight(.bold))
-                    .foregroundStyle(.white)
-                    .padding(.top, 8)
-            } else {
-                YearlyArtView(
-                    assetName: "decor_overview_hourglass",
-                    fallbackSymbol: "hourglass",
-                    fallbackText: nil
-                )
-                .frame(width: 200, height: 200)
-                .padding(.top, 32)
-            }
-            Spacer()
-            Text(String(localized: "yearly_card_hero_swipe"))
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.6))
-                .padding(.bottom, 100)
-        }
-        .padding(.horizontal, 32)
-        // 封面卡没有副标题, 而它是整份报告的开场, 入场挂在整张卡上。
-        .yearlyCardReveal()
-    }
-}
-
-// MARK: - Card 2: 总览
-
-struct OverviewCard: View {
-    let data: YearlyReportData
-    var body: some View {
-        VStack(spacing: 24) {
-            Spacer()
-            CardSubtitle(text: String(localized: "yearly_card_overview_subtitle"))
-
-            BigNumber(value: "\(Int(data.totalSec / 3600))", unit: String(localized: "yearly_card_unit_hours"))
-
-            HStack(spacing: 32) {
-                statColumn(value: "\(data.uniqueSongCount)", label: String(localized: "yearly_card_unit_songs"))
-                divider
-                statColumn(value: "\(data.uniqueArtistCount)", label: String(localized: "yearly_card_unit_artists"))
-                divider
-                statColumn(value: "\(data.totalEntries)", label: String(localized: "yearly_card_unit_plays"))
-            }
-            .padding(.top, 16)
-
-            if let growth = MainActorAccessor.yearOverYearGrowth(currentYear: data.year) {
-                Text(growthText(growth))
-                    .font(.system(.body, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .padding(.top, 24)
-            }
-            Spacer()
-            YearlyArtView(
-                assetName: "decor_overview_hourglass",
-                fallbackSymbol: "hourglass",
-                fallbackText: nil
             )
-            .frame(width: 160, height: 160)
-            .padding(.bottom, 80)
-        }
-        .padding(.horizontal, 32)
-    }
-
-    private var divider: some View {
-        Rectangle().fill(Color.white.opacity(0.3)).frame(width: 1, height: 36)
-    }
-
-    private func statColumn(value: String, label: String) -> some View {
-        VStack(spacing: 4) {
-            Text(value)
-                .font(.system(.title2, design: .rounded).weight(.bold))
-                .foregroundStyle(.white)
-                .monospacedDigit()
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.7))
-        }
-    }
-
-    private func growthText(_ growth: Double) -> String {
-        let pct = abs(growth * 100).finiteInt()
-        if growth > 0.05 {
-            return String(format: String(localized: "yearly_card_growth_more_format"), pct)
-        } else if growth < -0.05 {
-            return String(format: String(localized: "yearly_card_growth_less_format"), pct)
-        }
-        return String(localized: "yearly_card_growth_same")
+            .frame(width: 2, height: 40)
+            .accessibilityHidden(true)
     }
 }
 
-// MARK: - Card 3: 首播之歌
+// MARK: - 内容零件
 
-struct FirstSongCard: View {
-    let data: YearlyReportData
-    var body: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            YearlyArtView(
-                assetName: "decor_first_song",
-                fallbackSymbol: "play.rectangle.fill",
-                fallbackText: nil
-            )
-            .frame(width: 180, height: 240)
-
-            CardSubtitle(text: String(format: String(localized: "yearly_card_first_song_subtitle_format"), String(data.year)))
-                .padding(.top, 24)
-
-            if let first = data.firstSong {
-                Text(first.songTitle)
-                    .font(.system(.title2, design: .rounded).weight(.bold))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-                if !first.artistName.isEmpty {
-                    Text(first.artistName)
-                        .font(.system(.body, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.7))
-                }
-                Text(first.playedAt, format: .dateTime.month().day().hour().minute())
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.5))
-                    .padding(.top, 8)
-            } else {
-                Text(String(localized: "yearly_no_record"))
-                    .font(.system(.body, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.6))
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 32)
-        .padding(.bottom, 80)
-    }
-}
-
-// MARK: - Card 4: Top 艺术家 (No.1)
-
-struct TopArtistHeroCard: View {
-    let data: YearlyReportData
-    var body: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            CardSubtitle(text: String(localized: "yearly_card_top_artist_subtitle"))
-            if let top = data.topArtists.first {
-                Text(top.title)
-                    .font(.system(size: 44, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-
-                Text(String(format: String(localized: "yearly_card_top_artist_detail_format"), top.playCount, formatDuration(top.totalSec)))
-                    .font(.system(.body, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .padding(.top, 8)
-            } else {
-                Text(String(localized: "yearly_no_record"))
-                    .foregroundStyle(.white.opacity(0.6))
-            }
-            Spacer()
-            YearlyArtView(
-                assetName: "decor_trophy",
-                fallbackSymbol: "trophy.fill",
-                fallbackText: nil
-            )
-            .frame(width: 180, height: 180)
-            .padding(.bottom, 100)
-        }
-        .padding(.horizontal, 32)
-    }
-}
-
-// MARK: - Card 5: Top 艺术家 2-5
-
-struct TopArtistsListCard: View {
-    let data: YearlyReportData
-    private var artists: [YearlyReportData.RankedItem] {
-        Array(data.topArtists.dropFirst().prefix(4))
-    }
-    var body: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            YearlyArtView(
-                assetName: "decor_artists_chorus",
-                fallbackSymbol: "person.3.fill",
-                fallbackText: nil
-            )
-            .frame(width: 200, height: 120)
-
-            CardSubtitle(text: String(localized: "yearly_card_artists_subtitle"))
-                .padding(.top, 4)
-
-            VStack(spacing: 12) {
-                ForEach(Array(artists.enumerated()), id: \.element.id) { index, artist in
-                    HStack {
-                        Text("\(index + 2)")
-                            .font(.system(.title, design: .rounded).weight(.bold))
-                            .foregroundStyle(.white.opacity(0.6))
-                            .frame(width: 32)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(artist.title)
-                                .font(.system(.title3, design: .rounded).weight(.semibold))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
-                            Text(String(format: String(localized: "yearly_card_plays_count_format"), artist.playCount))
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(0.6))
-                        }
-                        Spacer()
-                    }
-                    .padding(.vertical, 8)
-                    .padding(.horizontal, 16)
-                    .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-                }
-            }
-            .padding(.horizontal, 24)
-            Spacer()
-        }
-    }
-}
-
-// MARK: - Card 6: Top 歌曲
-
-/// 今年循环榜 ── Top 3 大卡 (前三名带金银铜深浅渐变 / 大数字 + 播放次数
-/// 突出显示) + 4-8 名紧凑列表。比之前的"8 行平铺"层次感强, 视觉焦点
-/// 自然落在前三。
-struct TopSongsCard: View {
-    let data: YearlyReportData
-
-    private var top3: [YearlyReportData.RankedItem] {
-        Array(data.topSongs.prefix(3))
-    }
-    private var rest: [YearlyReportData.RankedItem] {
-        Array(data.topSongs.dropFirst(3).prefix(5))
-    }
+/// 封面那一排数字：居中、平分整行，数字在上、说明在下。
+struct YearlyFigureGrid: View {
+    let figures: [RecapFigureRow.Figure]
 
     var body: some View {
-        VStack(spacing: 14) {
-            Spacer()
-            CardSubtitle(text: String(localized: "yearly_card_top_songs_subtitle"))
-
-            // Top 3 ── 第一名最大, 第二三名稍小, 形成"领奖台"层次感。
-            VStack(spacing: 8) {
-                ForEach(Array(top3.enumerated()), id: \.element.id) { idx, song in
-                    podiumRow(rank: idx + 1, song: song)
-                }
-            }
-            .padding(.horizontal, 20)
-
-            // 4-8 名 ── 单行紧凑显示。
-            if !rest.isEmpty {
+        HStack(alignment: .top, spacing: 6) {
+            ForEach(figures) { figure in
                 VStack(spacing: 4) {
-                    ForEach(Array(rest.enumerated()), id: \.element.id) { idx, song in
-                        compactRow(rank: idx + 4, song: song)
-                    }
-                }
-                .padding(.horizontal, 24)
-                .padding(.top, 4)
-            }
-            Spacer()
-        }
-    }
-
-    private func podiumRow(rank: Int, song: YearlyReportData.RankedItem) -> some View {
-        HStack(spacing: 14) {
-            // 排名徽章 (圆形 + 金/银/铜渐变), 大数字
-            ZStack {
-                Circle()
-                    .fill(podiumGradient(rank: rank))
-                    .frame(width: rank == 1 ? 56 : 48, height: rank == 1 ? 56 : 48)
-                Text("\(rank)")
-                    .font(.system(size: rank == 1 ? 28 : 22, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white)
-            }
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(song.title)
-                    .font(.system(rank == 1 ? .title3 : .body, design: .rounded).weight(.bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                if let sub = song.subtitle {
-                    Text(sub)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.65))
+                    Text(verbatim: figure.value)
+                        .font(.system(.title3, design: .rounded, weight: .bold).monospacedDigit())
+                        .foregroundStyle(.primary)
                         .lineLimit(1)
-                }
-            }
-            Spacer()
-
-            // 播放次数 + "次" 标签, 跟标题区分开
-            VStack(alignment: .trailing, spacing: 0) {
-                Text("\(song.playCount)")
-                    .font(.system(size: rank == 1 ? 26 : 22, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .monospacedDigit()
-                Text(String(localized: "yearly_card_plays_unit"))
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.6))
-            }
-        }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 14)
-        .background(.white.opacity(rank == 1 ? 0.12 : 0.08), in: RoundedRectangle(cornerRadius: 14))
-    }
-
-    private func compactRow(rank: Int, song: YearlyReportData.RankedItem) -> some View {
-        HStack(spacing: 12) {
-            Text("\(rank)")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.5))
-                .frame(width: 20)
-            Text(song.title)
-                .font(.callout)
-                .foregroundStyle(.white.opacity(0.85))
-                .lineLimit(1)
-            Spacer()
-            Text(String(format: String(localized: "yearly_card_plays_count_format"), song.playCount))
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.55))
-                .monospacedDigit()
-        }
-        .padding(.vertical, 4)
-    }
-
-    private func podiumGradient(rank: Int) -> LinearGradient {
-        switch rank {
-        case 1: return LinearGradient(colors: [Color(red: 1.00, green: 0.78, blue: 0.30), Color(red: 0.95, green: 0.55, blue: 0.10)],
-                                      startPoint: .topLeading, endPoint: .bottomTrailing)  // 金
-        case 2: return LinearGradient(colors: [Color(red: 0.85, green: 0.85, blue: 0.90), Color(red: 0.55, green: 0.58, blue: 0.65)],
-                                      startPoint: .topLeading, endPoint: .bottomTrailing)  // 银
-        case 3: return LinearGradient(colors: [Color(red: 0.88, green: 0.55, blue: 0.35), Color(red: 0.55, green: 0.30, blue: 0.18)],
-                                      startPoint: .topLeading, endPoint: .bottomTrailing)  // 铜
-        default: return LinearGradient(colors: [.white.opacity(0.3), .white.opacity(0.1)],
-                                       startPoint: .topLeading, endPoint: .bottomTrailing)
-        }
-    }
-}
-
-// MARK: - Card 7: 高光时刻
-
-struct MomentsCard: View {
-    let data: YearlyReportData
-    var body: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            YearlyArtView(
-                assetName: "decor_badge_moment",
-                fallbackSymbol: "rosette",
-                fallbackText: nil
-            )
-            .frame(width: 160, height: 160)
-
-            CardSubtitle(text: String(localized: "yearly_card_moments_subtitle"))
-                .padding(.top, 16)
-
-            VStack(spacing: 16) {
-                if let mostPlayed = data.mostPlayedSong {
-                    momentRow(
-                        icon: "repeat",
-                        label: String(localized: "yearly_card_moment_repeat_label"),
-                        title: mostPlayed.title,
-                        detail: String(format: String(localized: "yearly_card_moment_repeat_detail_format"), mostPlayed.playCount)
-                    )
-                }
-                if let session = data.longestSession {
-                    momentRow(
-                        icon: "headphones",
-                        label: String(localized: "yearly_card_moment_session_label"),
-                        title: formatDuration(session.totalSec),
-                        detail: String(format: String(localized: "yearly_card_moment_session_detail_format"), session.songCount)
-                    )
-                }
-                if let latest = data.latestEntry {
-                    momentRow(
-                        icon: "moon.stars.fill",
-                        label: String(localized: "yearly_card_moment_latest_label"),
-                        title: latest.songTitle,
-                        detail: latest.playedAt.formatted(.dateTime.month().day().hour().minute())
-                    )
-                }
-            }
-            .padding(.horizontal, 24)
-            .padding(.top, 16)
-            Spacer()
-        }
-    }
-
-    private func momentRow(icon: String, label: String, title: String, detail: String) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.title2)
-                .foregroundStyle(.white)
-                .frame(width: 36, height: 36)
-                .background(.white.opacity(0.15), in: Circle())
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.6))
-                Text(title)
-                    .font(.system(.callout, design: .rounded).weight(.semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                Text(detail)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.7))
-            }
-            Spacer()
-        }
-    }
-}
-
-// MARK: - Card 8: 时段画像
-
-struct TimeOfDayCard: View {
-    let data: YearlyReportData
-    var body: some View {
-        VStack(spacing: 12) {
-            Spacer()
-            YearlyArtView(
-                assetName: data.timeOfDayAsset,
-                fallbackSymbol: timeSymbol,
-                fallbackText: data.timeOfDayLabel
-            )
-            .frame(height: 120)
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 16)
-
-            CardSubtitle(text: String(localized: "yearly_card_time_subtitle"))
-                .padding(.top, 16)
-
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text("\(data.peakHour)")
-                    .font(.system(size: 80, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .monospacedDigit()
-                Text(String(localized: "yearly_card_time_unit_hour"))
-                    .font(.system(.title3, design: .rounded).weight(.medium))
-                    .foregroundStyle(.white.opacity(0.85))
-            }
-            Text(String(format: String(localized: "yearly_card_time_detail_format"), data.timeOfDayLabel))
-                .font(.system(.body, design: .rounded))
-                .foregroundStyle(.white.opacity(0.85))
-                .multilineTextAlignment(.center)
-
-            // 24h 柱图
-            HStack(alignment: .bottom, spacing: 3) {
-                ForEach(0..<24, id: \.self) { hour in
-                    let value = data.hourDistribution.indices.contains(hour) ? data.hourDistribution[hour] : 0
-                    let peakValue = data.hourDistribution.max() ?? 1
-                    let ratio = peakValue > 0 ? value / peakValue : 0
-                    Capsule()
-                        .fill(hour == data.peakHour ? Color.white : Color.white.opacity(0.4))
-                        .frame(width: 8, height: Swift.max(4, ratio * 100))
-                        .yearlyBarGrowth(.vertical)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-    }
-
-    private var timeSymbol: String {
-        switch data.peakHour {
-        case 5...8: return "sun.horizon.fill"
-        case 9...13: return "sun.max.fill"
-        case 14...18: return "sun.dust.fill"
-        default: return "moon.stars.fill"
-        }
-    }
-}
-
-// MARK: - Card 9: 流派画像
-
-struct GenreCard: View {
-    let data: YearlyReportData
-
-    private var genres: [YearlyReportData.RankedItem] {
-        Array(data.topGenres.prefix(5))
-    }
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            YearlyArtView(
-                assetName: "decor_record_stack",
-                fallbackSymbol: "guitars",
-                fallbackText: nil
-            )
-            .frame(width: 190, height: 150)
-
-            CardSubtitle(text: String(localized: "yearly_card_genres_subtitle"))
-                .padding(.top, 10)
-
-            BigNumber(value: "\(data.genreCount)", unit: String(localized: "yearly_card_genres_unit"))
-
-            VStack(spacing: 9) {
-                if genres.isEmpty {
-                    Text(String(localized: "yearly_card_genres_empty"))
-                        .font(.system(.callout, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.75))
+                        .minimumScaleFactor(0.6)
+                    Text(verbatim: figure.label)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
-                } else {
-                    ForEach(Array(genres.enumerated()), id: \.element.id) { index, genre in
-                        genreRow(rank: index + 1, genre: genre)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity)
+                .accessibilityElement(children: .combine)
+            }
+        }
+        .recapPanel(padding: 16)
+    }
+}
+
+/// 一组「一句话」：图标加一句完整的话，放在一块衬底里。
+struct YearlyFactList: View {
+    struct Fact: Identifiable {
+        let symbol: String
+        let text: String
+        var id: String { symbol + text }
+    }
+
+    let facts: [Fact]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(facts) { fact in
+                RecapMomentRow(symbol: fact.symbol, text: fact.text)
+            }
+        }
+        .recapPanel(padding: 16)
+    }
+}
+
+/// 一张榜：编号、封面、名字，行尾是次数与时长，整行底色按相对榜首的播放占比铺开
+/// （和首页的名次榜同一种行）。收起时露出几行，可以展开。
+struct YearlyRankRows: View {
+    var title: String?
+    let items: [PlayHistoryStore.RankedItem]
+    /// 榜首的播放次数，底色按它算占比。
+    let leaderPlayCount: Int
+    /// 第一行的名次（从 0 数）。
+    var firstPosition = 0
+    var isArtistRanking = false
+    var collapsedCount = 4
+
+    @Environment(MusicLibrary.self) private var library: MusicLibrary?
+    @State private var isExpanded = false
+
+    var body: some View {
+        let visible = isExpanded ? items : Array(items.prefix(collapsedCount))
+        VStack(alignment: .leading, spacing: 8) {
+            if let title {
+                Text(verbatim: title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 4)
+            }
+            VStack(spacing: 0) {
+                ForEach(Array(visible.enumerated()), id: \.element.id) { offset, item in
+                    if offset > 0 {
+                        Divider().padding(.leading, 53)
+                    }
+                    ListeningRankRowLabel(
+                        position: firstPosition + offset,
+                        title: item.title,
+                        subtitle: item.subtitle,
+                        playCount: item.playCount,
+                        listenedSeconds: item.totalSec,
+                        trend: nil,
+                        share: HomeListeningRankBoardPolicy.share(playCount: item.playCount, leaderPlayCount: leaderPlayCount)
+                    ) {
+                        ListeningRankArtwork(song: song(for: item), size: 42, isArtist: isArtistRanking, cornerRadius: 8)
                     }
                 }
+                if items.count > collapsedCount {
+                    Divider()
+                    Button {
+                        pmWithAnimation(.list) { isExpanded.toggle() }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(isExpanded ? LocalizedStringKey("update_show_less") : LocalizedStringKey("see_all"))
+                            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                                .font(.caption2.weight(.bold))
+                        }
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 11)
+                        .frame(maxWidth: .infinity)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 4)
-            Spacer()
+            .background(.primary.opacity(0.045))
+            // 名次行的占比底色是直角的，靠衬底的圆角把四个角裁掉。
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(.primary.opacity(0.07), lineWidth: 0.5)
+            }
         }
     }
 
-    private func genreRow(rank: Int, genre: YearlyReportData.RankedItem) -> some View {
-        HStack(spacing: 12) {
-            Text("\(rank)")
-                .font(.system(.headline, design: .rounded).weight(.bold))
-                .foregroundStyle(.white.opacity(0.62))
-                .frame(width: 24)
+    private func song(for item: PlayHistoryStore.RankedItem) -> Song? {
+        item.artworkSongID.flatMap { library?.unobservedVisibleSong(id: $0) }
+    }
+}
+
+/// 第一名的大封面（艺人是圆的、尽量用艺人自己的图）。
+struct YearlyLeaderArtwork: View {
+    let item: PlayHistoryStore.RankedItem
+    var isArtist = false
+    var size: CGFloat = 132
+
+    @Environment(MusicLibrary.self) private var library: MusicLibrary?
+
+    var body: some View {
+        ListeningRankArtwork(
+            song: item.artworkSongID.flatMap { library?.unobservedVisibleSong(id: $0) },
+            size: size,
+            isArtist: isArtist,
+            cornerRadius: 18
+        )
+        .shadow(color: .black.opacity(0.18), radius: 18, x: 0, y: 10)
+    }
+}
+
+/// 最常听的几张专辑：横着一排封面。
+struct YearlyAlbumShelf: View {
+    let title: String
+    let items: [PlayHistoryStore.RankedItem]
+
+    @Environment(MusicLibrary.self) private var library: MusicLibrary?
+    private static let cover: CGFloat = 104
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(verbatim: title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 14) {
+                    ForEach(items) { item in
+                        VStack(alignment: .leading, spacing: 6) {
+                            ListeningRankArtwork(
+                                song: item.artworkSongID.flatMap { library?.unobservedVisibleSong(id: $0) },
+                                size: Self.cover,
+                                cornerRadius: 12
+                            )
+                            Text(verbatim: item.title)
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                            Text(verbatim: ListeningRankText.playCount(item.playCount))
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        .frame(width: Self.cover, alignment: .leading)
+                        .accessibilityElement(children: .combine)
+                    }
+                }
+            }
+            .scrollClipDisabled()
+        }
+        .recapPanel(padding: 16)
+    }
+}
+
+/// 音乐源一行：来源插画、名字、次数，行尾是时长占比。
+struct YearlySourceRow: View {
+    let share: YearlyReportData.SourceShare
+    let percent: Int
+
+    var body: some View {
+        HStack(spacing: 14) {
+            YearlyArtView(art: YearlyArt(
+                name: share.kind.artworkName,
+                fallbackSymbol: share.kind.fallbackSymbol,
+                maxWidth: 46,
+                maxHeight: 46
+            ))
+            .frame(width: 46, height: 46)
             VStack(alignment: .leading, spacing: 2) {
-                Text(genre.title)
-                    .font(.system(.callout, design: .rounded).weight(.semibold))
-                    .foregroundStyle(.white)
+                Text(verbatim: share.name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
-                Text(String(format: String(localized: "yearly_card_genres_plays_format"), genre.playCount))
+                Text(verbatim: String(format: String(localized: "yearly_card_genres_plays_format"), share.plays))
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(0.62))
+                    .foregroundStyle(.secondary)
             }
-            Spacer()
-            Text(formatDuration(genre.totalSec))
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.white.opacity(0.72))
+            Spacer(minLength: 8)
+            Text(verbatim: "\(percent)%")
+                .font(.system(.title3, design: .rounded, weight: .bold).monospacedDigit())
+                .foregroundStyle(.primary)
         }
-        .padding(.vertical, 9)
-        .padding(.horizontal, 14)
-        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
+        .accessibilityElement(children: .combine)
     }
 }
 
-// MARK: - Card 10: 探索度
-
-struct ExplorationCard: View {
-    let data: YearlyReportData
-
-    private var focusPercent: Int {
-        (data.explorationTopArtistShare * 100).rounded().finiteInt()
-    }
-
-    private var explorationPercent: Int {
-        max(0, 100 - focusPercent)
-    }
+/// 一排标签：放得下就居中一行，放不下折行。
+struct YearlyChipRow: View {
+    let labels: [String]
+    var isEmphasized = true
 
     var body: some View {
-        VStack(spacing: 18) {
-            Spacer()
-            YearlyArtView(
-                assetName: "decor_sources_pipeline",
-                fallbackSymbol: "safari.fill",
-                fallbackText: nil
-            )
-            .frame(width: 200, height: 130)
-
-            CardSubtitle(text: String(localized: "yearly_card_exploration_subtitle"))
-                .padding(.top, 12)
-
-            BigNumber(value: "\(explorationPercent)", unit: "%")
-
-            Text(data.personality?.exploration == .explorer
-                 ? String(localized: "yearly_card_exploration_explorer")
-                 : String(localized: "yearly_card_exploration_deep"))
-                .font(.system(.body, design: .rounded))
-                .foregroundStyle(.white.opacity(0.85))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text(String(localized: "yearly_card_exploration_top5_label"))
-                    Spacer()
-                    Text("\(focusPercent)%")
-                        .monospacedDigit()
-                }
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.white.opacity(0.70))
-
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(.white.opacity(0.16))
-                        Capsule()
-                            .fill(.white.opacity(0.86))
-                            .frame(width: geo.size.width * CGFloat(min(max(data.explorationTopArtistShare, 0), 1)))
-                            .yearlyBarGrowth(.horizontal)
-                    }
-                }
-                .frame(height: 10)
-            }
-            .padding(.horizontal, 32)
-            .padding(.top, 12)
-
-            Spacer()
-        }
-    }
-}
-
-// MARK: - Card 11: 音乐人格
-
-struct PersonalityCard: View {
-    let data: YearlyReportData
-    var body: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            CardSubtitle(text: String(localized: "yearly_card_personality_subtitle"))
-
-            if let p = data.personality {
-                YearlyArtView(
-                    assetName: p.assetName,
-                    fallbackSymbol: "person.crop.circle.fill",
-                    fallbackText: p.code
-                )
-                .frame(width: 240, height: 240)
-                .padding(.top, 8)
-
-                Text(p.displayName)
-                    .font(.system(size: 36, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .padding(.top, 8)
-
-                Text(p.code)
-                    .font(.system(.callout, design: .rounded).weight(.medium))
-                    .foregroundStyle(.white.opacity(0.6))
-                    .tracking(4)
-
-                Text(p.oneLiner)
-                    .font(.system(.callout, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
-                    .padding(.top, 16)
-            } else {
-                Text(String(localized: "yearly_card_personality_insufficient"))
-                    .foregroundStyle(.white.opacity(0.6))
-            }
-            Spacer()
-        }
-    }
-}
-
-// MARK: - Card 12: 音乐源画像
-
-struct SourcesCard: View {
-    let data: YearlyReportData
-
-    private var topThree: [YearlyReportData.SourceBreakdown] {
-        Array(data.sourceBreakdown.prefix(3))
-    }
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            YearlyArtView(
-                assetName: "decor_sources_pipeline",
-                fallbackSymbol: "point.3.connected.trianglepath.dotted",
-                fallbackText: nil
-            )
-            .frame(width: 220, height: 110)
-
-            CardSubtitle(text: String(localized: "yearly_card_sources_subtitle"))
-                .padding(.top, 4)
-
-            VStack(spacing: 12) {
-                ForEach(topThree) { item in
-                    sourceRow(item: item)
-                }
-            }
-            .padding(.horizontal, 24)
-            .padding(.top, 8)
-
-            Spacer()
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 6) { chips }
+            RecapFlowLayout(spacing: 6) { chips }
         }
     }
 
-    private func sourceRow(item: YearlyReportData.SourceBreakdown) -> some View {
-        // displayName / iconSymbol 在 analyze 时已从 SourcesStore 烘到 data,
-        // 这里直接读, 不用 @Environment ── 分享 ImageRenderer 拍快照也能正确显示。
-        let total = data.sourceBreakdown.reduce(0.0) { $0 + $1.totalSec }
-        let pct = total > 0 ? Int(item.totalSec / total * 100) : 0
-        return HStack(spacing: 12) {
-            Image(systemName: item.iconSymbol)
-                .font(.title2)
-                .foregroundStyle(.white)
-                .frame(width: 44, height: 44)
-                .background(.white.opacity(0.15), in: Circle())
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.displayName)
-                    .font(.system(.callout, design: .rounded).weight(.semibold))
-                    .foregroundStyle(.white)
-                Text(String(format: String(localized: "yearly_card_genres_plays_format"), item.playCount))
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.6))
-            }
-            Spacer()
-            Text("\(pct)%")
-                .font(.system(.title3, design: .rounded).weight(.bold))
-                .foregroundStyle(.white)
-                .monospacedDigit()
-        }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 14)
-        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
-    }
-}
-
-// MARK: - Card 13: 代表月份
-
-struct PeakMonthCard: View {
-    let data: YearlyReportData
-    var body: some View {
-        VStack(spacing: 12) {
-            Spacer()
-            YearlyArtView(
-                assetName: String(format: "month_%02d", data.peakMonth),
-                fallbackSymbol: "calendar",
-                fallbackText: String(format: String(localized: "yearly_month_n_format"), data.peakMonth)
-            )
-            .frame(height: 200)
-            .frame(maxWidth: .infinity)
-
-            CardSubtitle(text: String(format: String(localized: "yearly_card_peak_month_subtitle_format"), monthName(data.peakMonth)))
-                .padding(.top, 16)
-
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text("\(data.peakMonth)")
-                    .font(.system(size: 100, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                Text(String(localized: "yearly_card_peak_month_unit"))
-                    .font(.system(.title2, design: .rounded).weight(.medium))
-                    .foregroundStyle(.white.opacity(0.85))
-            }
-
-            if let song = data.peakMonthTopSong {
-                Text(String(format: String(localized: "yearly_card_peak_month_top_format"), song))
-                    .font(.system(.callout, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
-                    .padding(.top, 8)
-            }
-            Spacer()
-        }
-    }
-
-    private func monthName(_ m: Int) -> String {
-        guard m >= 1, m <= 12 else {
-            return String(format: String(localized: "yearly_month_n_format"), m)
-        }
-        return String(localized: LocalizedStringResource(stringLiteral: "yearly_month_\(m)"))
-    }
-}
-
-// MARK: - Card 14: 年终感言
-
-struct ClosingCard: View {
-    let data: YearlyReportData
-    var body: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            CardSubtitle(text: String(localized: "yearly_card_closing_subtitle"))
-            BigNumber(value: "\(Int(data.totalSec / 3600))", unit: String(localized: "yearly_card_unit_hours"))
-
-            Text(String(localized: "yearly_card_closing_thanks"))
-                .font(.system(.title3, design: .rounded).weight(.medium))
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-                .padding(.top, 24)
-
-            Text(String(format: String(localized: "yearly_card_closing_next_format"), String(data.year + 1)))
-                .font(.system(.body, design: .rounded))
-                .foregroundStyle(.white.opacity(0.7))
-                .padding(.top, 8)
-            Spacer()
-            YearlyArtView(
-                assetName: "decor_curtain_close",
-                fallbackSymbol: "music.note",
-                fallbackText: nil
-            )
-            .frame(height: 220)
-            .frame(maxWidth: .infinity)
-            .padding(.bottom, 100)
-        }
-        .padding(.horizontal, 32)
-    }
-}
-
-// MARK: - Helpers
-
-private func formatDuration(_ seconds: TimeInterval) -> String {
-    let h = (seconds / 3600).finiteInt()
-    let m = (seconds.truncatingRemainder(dividingBy: 3600) / 60).finiteInt()
-    if h > 0 { return String(format: String(localized: "yearly_duration_hm_format"), h, m) }
-    return String(format: String(localized: "yearly_duration_minutes_format"), m)
-}
-
-/// SwiftUI body 是 nonisolated 的, 直接调 @MainActor 静态方法会编译报错。
-/// 这里包一层让 Overview Card body 能拿到同比数据。
-@MainActor
-private enum MainActorAccessor {
-    static func yearOverYearGrowth(currentYear: Int) -> Double? {
-        YearlyReportAnalyzer.yearOverYearGrowth(currentYear: currentYear)
+    @ViewBuilder
+    private var chips: some View {
+        ForEach(labels, id: \.self) { RecapChip(text: $0, isEmphasized: isEmphasized) }
     }
 }

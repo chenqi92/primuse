@@ -1,324 +1,94 @@
 import Foundation
 import PrimuseKit
 
-/// 年度报告数据分析器 ── 从 entries 派生所有指标 + 判定音乐人格。
+/// 年度报告的数据：一年（今年就是一月一日到现在）的听歌回顾，加上报告自己的几个时刻和音乐源。
 ///
-/// 纯计算, 输入 `entries` + 可选的 `library` (用于反查 song.year / song.genre,
-/// PlayHistoryStore.Entry 不存这些字段), 输出一份完整的 `YearlyReportData`
-/// 给 UI 用。
+/// 总量、高峰时段、连听、风格、人格都走 Kit 里的 `ListeningRecapBuilder`，榜单走首页排行
+/// 那一套，同一首歌、同一位艺人在哪里看到的数字都一样。
 enum YearlyReportAnalyzer {
-    /// 主入口。1w 条 entries 内 < 100ms。
-    @MainActor
-    static func analyze(year: Int, entries: [PlayHistoryStore.Entry], library: MusicLibrary, sourcesStore: SourcesStore? = nil) -> YearlyReportData {
-        var data = Self.compute(year: year, entries: entries, songLookup: songLookup(for: entries, library: library))
-        resolveSources(in: &data, sourcesStore: sourcesStore)
-        return data
-    }
+    /// 排行露出多少名（收起时更少）。
+    static let rankingLimit = 20
 
-    /// 只查记录里出现过的歌 (O(1) 按 id), 不为整个曲库建字典 ── 几十万首的库
-    /// 每打开一次年度回顾就整库过一遍不划算。
+    /// 播放记录里没有风格和年份，按 id 去曲库查（O(1)），只查记录里出现过的歌 ——
+    /// 几十万首的库不必为了一份报告整库过一遍。
     @MainActor
-    static func songLookup(for entries: [PlayHistoryStore.Entry], library: MusicLibrary) -> [String: Song] {
-        var lookup: [String: Song] = [:]
+    static func songTraits(for entries: [PlayHistoryStore.Entry], library: MusicLibrary) -> [String: ListeningRecapSongTraits] {
+        var traits: [String: ListeningRecapSongTraits] = [:]
         for songID in Set(entries.map(\.songID)) {
-            if let song = library.song(id: songID) { lookup[songID] = song }
+            guard let song = library.song(id: songID) else { continue }
+            traits[songID] = ListeningRecapSongTraits(genre: song.genre, year: song.year)
         }
-        return lookup
+        return traits
     }
 
-    @MainActor
-    static func resolveSources(in data: inout YearlyReportData, sourcesStore: SourcesStore?) {
-        // 把 source 显示信息烘到 SourceBreakdown, UI 层不用 @Environment 也能
-        // 显示正确名字 / 图标。分享 ImageRenderer 拍快照时尤其重要 ── 它不
-        // 继承 SwiftUI environment, 没烘的话 SourcesCard 会 crash。
-        if let sourcesStore {
-            let sourceLookup: [String: MusicSource] = Dictionary(
-                sourcesStore.allSources.map { ($0.id, $0) },
-                uniquingKeysWith: { first, _ in first }
+    /// - Parameter music: 全部音乐播放记录，不只这一年：「这一年第一次听到」要往前看，
+    ///   和去年同期比也要用到去年的记录。
+    /// - Returns: 这一年还没开始时为 nil。
+    nonisolated static func compute(
+        year: Int,
+        music: [PlayHistoryStore.Entry],
+        traits: [String: ListeningRecapSongTraits],
+        now: Date,
+        calendar: Calendar
+    ) -> YearlyReportData? {
+        guard let interval = ListeningYearReportPolicy.interval(year: year, now: now, calendar: calendar) else { return nil }
+        let events = music.map {
+            ListeningRecapEvent(
+                songID: $0.songID,
+                title: $0.songTitle,
+                artist: $0.artistName,
+                album: $0.albumTitle,
+                playedAt: $0.playedAt,
+                seconds: $0.listenedSec.isFinite ? max(0, $0.listenedSec) : 0
             )
-            data.sourceBreakdown = data.sourceBreakdown.map { item in
-                var resolved = item
-                if let source = sourceLookup[item.sourceID] {
-                    resolved.displayName = source.name
-                    resolved.iconSymbol = symbolName(for: source.type)
-                }
-                return resolved
-            }
         }
-    }
+        let recap = ListeningRecapBuilder.build(
+            events: events,
+            interval: interval,
+            previousInterval: ListeningYearReportPolicy.comparisonInterval(for: interval, calendar: calendar),
+            traits: traits,
+            calendar: calendar,
+            referenceYear: year
+        )
+        let scoped = music.filter { interval.contains($0.playedAt) }
 
-    private static func symbolName(for type: MusicSourceType) -> String {
-        switch type {
-        case .local: return type.iconName
-        case .synology, .qnap, .ugreen, .fnos: return "externaldrive.fill"
-        case .fnMusic: return "music.note.list"
-        case .daoliyu, .songloft, .synologyAudioStation: return "music.note.house"
-        case .audiobookshelf: return "books.vertical.fill"
-        case .smb, .webdav, .ftp, .sftp, .nfs, .upnp: return "network"
-        case .baiduPan, .aliyunDrive, .oneDrive, .dropbox, .googleDrive, .drime, .pan115, .pan123,
-             .guangya, .s3: return "icloud.fill"
-        case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic: return "play.tv.fill"
-        case .appleMusic, .appleMusicLibrary: return "music.note"
+        var sources: [String: (plays: Int, seconds: TimeInterval)] = [:]
+        for entry in scoped {
+            sources[entry.sourceID, default: (0, 0)].plays += 1
+            sources[entry.sourceID, default: (0, 0)].seconds += entry.listenedSec.isFinite ? max(0, entry.listenedSec) : 0
         }
-    }
-
-    /// 比较两年总时长 → 同比百分比 (正 = 增长, 负 = 减少)。
-    @MainActor
-    static func yearOverYearGrowth(currentYear: Int) -> Double? {
-        let lastYearEntries = PlayHistoryArchiver.entries(forYear: currentYear - 1)
-        let currentEntries = PlayHistoryArchiver.entries(forYear: currentYear)
-        let prev = lastYearEntries.reduce(0.0) { $0 + $1.listenedSec }
-        let curr = currentEntries.reduce(0.0) { $0 + $1.listenedSec }
-        guard prev > 0 else { return nil }
-        return (curr - prev) / prev
-    }
-
-    // MARK: - Pure compute
-
-    nonisolated static func compute(year: Int, entries: [PlayHistoryStore.Entry], songLookup: [String: Song]) -> YearlyReportData {
-        guard !entries.isEmpty else {
-            return YearlyReportData(year: year, isEmpty: true)
-        }
-
-        let totalSec = entries.reduce(0.0) { $0 + $1.listenedSec }
-        let totalEntries = entries.count
-        let uniqueSongCount = Set(entries.map(\.songID)).count
-        let uniqueArtistCount = Set(entries.map(\.artistName).filter { !$0.isEmpty }).count
-
-        // Top artists / songs / albums
-        let artistGroups = Dictionary(grouping: entries, by: \.artistName)
-        let topArtists: [YearlyReportData.RankedItem] = artistGroups
-            .compactMap { name, plays in
-                guard !name.isEmpty else { return nil }
-                let totalListened = plays.reduce(0.0) { $0 + $1.listenedSec }
-                return YearlyReportData.RankedItem(
-                    id: "artist:\(name)",
-                    title: name,
-                    subtitle: nil,
-                    playCount: plays.count,
-                    totalSec: totalListened
-                )
-            }
-            .sorted { $0.playCount > $1.playCount }
-
-        let songGroups = Dictionary(grouping: entries, by: \.songID)
-        let topSongs: [YearlyReportData.RankedItem] = songGroups
-            .compactMap { id, plays -> YearlyReportData.RankedItem? in
-                guard let first = plays.first else { return nil }
-                return YearlyReportData.RankedItem(
-                    id: "song:\(id)",
-                    title: first.songTitle,
-                    subtitle: first.artistName.isEmpty ? nil : first.artistName,
-                    playCount: plays.count,
-                    totalSec: plays.reduce(0.0) { $0 + $1.listenedSec }
-                )
-            }
-            .sorted { $0.playCount > $1.playCount }
-
-        let albumGroups = Dictionary(grouping: entries) { e -> String in
-            "\(e.albumTitle)|\(e.artistName)"
-        }
-        let topAlbums: [YearlyReportData.RankedItem] = albumGroups
-            .compactMap { key, plays -> YearlyReportData.RankedItem? in
-                guard let first = plays.first, !first.albumTitle.isEmpty else { return nil }
-                return YearlyReportData.RankedItem(
-                    id: "album:\(key)",
-                    title: first.albumTitle,
-                    subtitle: first.artistName.isEmpty ? nil : first.artistName,
-                    playCount: plays.count,
-                    totalSec: plays.reduce(0.0) { $0 + $1.listenedSec }
-                )
-            }
-            .sorted { $0.playCount > $1.playCount }
-
-        var genreGroups: [String: [PlayHistoryStore.Entry]] = [:]
-        var genreDisplayNames: [String: String] = [:]
-        for entry in entries {
-            guard let rawGenre = songLookup[entry.songID]?.genre else { continue }
-            let genre = rawGenre.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !genre.isEmpty else { continue }
-            let key = genre.lowercased()
-            genreDisplayNames[key] = genreDisplayNames[key] ?? genre
-            genreGroups[key, default: []].append(entry)
-        }
-        let topGenres: [YearlyReportData.RankedItem] = genreGroups
-            .map { key, plays in
-                YearlyReportData.RankedItem(
-                    id: "genre:\(key)",
-                    title: genreDisplayNames[key] ?? key,
-                    subtitle: nil,
-                    playCount: plays.count,
-                    totalSec: plays.reduce(0.0) { $0 + $1.listenedSec }
-                )
-            }
-            .sorted { $0.playCount > $1.playCount }
-
-        // 首播之歌
-        let firstSongEntry = entries.min(by: { $0.playedAt < $1.playedAt })
-
-        // 单歌最多次
-        let mostPlayedSongEntry = topSongs.first
-
-        // 最长连听: 相邻 entries 间隔 < 5min 视为同一段。
-        let connectedSessions = computeLongestSession(entries: entries)
-
-        // 最晚一次
-        let latestEntry = entries.max(by: { $0.playedAt < $1.playedAt })
-
-        // 24h 时段分布 (0-23 各小时的总秒数)
-        let calendar = Calendar.current
-        var hourBuckets = Array(repeating: 0.0, count: 24)
-        for e in entries {
-            let h = calendar.component(.hour, from: e.playedAt)
-            hourBuckets[h] += e.listenedSec
-        }
-        let peakHour = hourBuckets.indices.max(by: { hourBuckets[$0] < hourBuckets[$1] }) ?? 0
-        // 18-06 占比 → DayCycle
-        let nightSec = (18..<24).reduce(0.0) { $0 + hourBuckets[$1] }
-            + (0..<6).reduce(0.0) { $0 + hourBuckets[$1] }
-        let nightRatio = totalSec > 0 ? nightSec / totalSec : 0
-
-        // 月份分布
-        var monthBuckets = Array(repeating: 0.0, count: 12)
-        for e in entries {
-            let m = calendar.component(.month, from: e.playedAt)
-            if m >= 1, m <= 12 { monthBuckets[m - 1] += e.listenedSec }
-        }
-        let peakMonthIndex = monthBuckets.indices.max(by: { monthBuckets[$0] < monthBuckets[$1] }) ?? 0
-        // 该月 Top 1 歌
-        let peakMonthEntries = entries.filter { calendar.component(.month, from: $0.playedAt) == peakMonthIndex + 1 }
-        let peakMonthTopSong: String? = {
-            let groups = Dictionary(grouping: peakMonthEntries, by: \.songID)
-            let top = groups.max(by: { $0.value.count < $1.value.count })
-            return top?.value.first?.songTitle
-        }()
-
-        // 音乐源分布
-        let sourceGroups = Dictionary(grouping: entries, by: \.sourceID)
-        let sourceBreakdown: [YearlyReportData.SourceBreakdown] = sourceGroups
-            .map { id, plays in
-                YearlyReportData.SourceBreakdown(
-                    sourceID: id,
-                    playCount: plays.count,
-                    totalSec: plays.reduce(0.0) { $0 + $1.listenedSec }
-                )
-            }
-            .sorted { $0.totalSec > $1.totalSec }
-
-        // ===== 人格判定 ===== (门槛在 Kit 里, 听歌回顾用同一套)
-
-        // E/L: Top 5 艺术家累计占比
-        let top5ArtistShare: Double = {
-            let total = artistGroups.values.reduce(0) { $0 + $1.count }
-            guard total > 0 else { return 0 }
-            let top5 = topArtists.prefix(5).reduce(0) { $0 + $1.playCount }
-            return Double(top5) / Double(total)
-        }()
-
-        // O/F: 不同 genre 数 (从 library 反查)
-        let genreSet = Set(genreGroups.keys)
-
-        // N/V: year 中位数
-        let songYears: [Int] = entries.compactMap { songLookup[$0.songID]?.year }
-            .filter { $0 > 1900 && $0 <= calendar.component(.year, from: Date()) }
-            .sorted()
-
-        let personality = MusicPersonality(ListeningPersonalityTraits.classify(
-            topFiveArtistShare: top5ArtistShare,
-            genreCount: genreSet.count,
-            medianReleaseYear: songYears.isEmpty ? nil : songYears[songYears.count / 2],
-            referenceYear: year,
-            nightShare: nightRatio
-        ))
 
         return YearlyReportData(
             year: year,
-            isEmpty: false,
-            totalSec: totalSec,
-            totalEntries: totalEntries,
-            uniqueSongCount: uniqueSongCount,
-            uniqueArtistCount: uniqueArtistCount,
-            topArtists: Array(topArtists.prefix(10)),
-            topSongs: Array(topSongs.prefix(10)),
-            topAlbums: Array(topAlbums.prefix(10)),
-            topGenres: Array(topGenres.prefix(6)),
-            genreCount: genreSet.count,
-            explorationTopArtistShare: top5ArtistShare,
-            firstSong: firstSongEntry.map { entryToBrief($0) },
-            mostPlayedSong: mostPlayedSongEntry,
-            longestSession: connectedSessions,
-            latestEntry: latestEntry.map { entryToBrief($0) },
-            hourDistribution: hourBuckets,
-            peakHour: peakHour,
-            nightRatio: nightRatio,
-            monthDistribution: monthBuckets,
-            peakMonth: peakMonthIndex + 1,
-            peakMonthTopSong: peakMonthTopSong,
-            sourceBreakdown: sourceBreakdown,
-            personality: personality
+            interval: interval,
+            isInProgress: ListeningYearReportPolicy.isInProgress(interval, year: year, calendar: calendar),
+            recap: recap,
+            highlights: ListeningYearHighlights.build(events: events, interval: interval, calendar: calendar),
+            songs: PlayHistoryStore.rankedItems(from: scoped, category: .songs, limit: rankingLimit),
+            artists: PlayHistoryStore.rankedItems(from: scoped, category: .artists, limit: rankingLimit),
+            albums: PlayHistoryStore.rankedItems(from: scoped, category: .albums, limit: rankingLimit),
+            sources: sources
+                .map { .init(sourceID: $0.key, plays: $0.value.plays, seconds: $0.value.seconds) }
+                .sorted { $0.seconds > $1.seconds }
         )
     }
 
-    // MARK: - Helpers
-
-    nonisolated private static func entryToBrief(_ entry: PlayHistoryStore.Entry) -> YearlyReportData.EntryBrief {
-        YearlyReportData.EntryBrief(
-            songID: entry.songID,
-            songTitle: entry.songTitle,
-            artistName: entry.artistName,
-            playedAt: entry.playedAt
+    /// 把音乐源的名字和类别写进数据里，分享图拍快照时不读环境也能显示对。
+    @MainActor
+    static func resolveSources(in data: inout YearlyReportData, sourcesStore: SourcesStore?) {
+        guard let sourcesStore else { return }
+        let lookup = Dictionary(
+            sourcesStore.allSources.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
         )
-    }
-
-    /// 最长连听 session: 相邻 entries 间隔 ≤ 5 分钟视为同一段, 计算总秒数。
-    nonisolated private static func computeLongestSession(entries: [PlayHistoryStore.Entry]) -> YearlyReportData.SessionInfo? {
-        let sorted = entries.sorted(by: { $0.playedAt < $1.playedAt })
-        guard !sorted.isEmpty else { return nil }
-        let gapThreshold: TimeInterval = 5 * 60   // 5 分钟
-
-        var bestStart: Date = sorted[0].playedAt
-        var bestEnd: Date = sorted[0].playedAt.addingTimeInterval(sorted[0].listenedSec)
-        var bestSec: TimeInterval = sorted[0].listenedSec
-        var bestSongCount = 1
-
-        var currentStart = bestStart
-        var currentEnd = bestEnd
-        var currentSec = bestSec
-        var currentSongCount = 1
-
-        for i in 1..<sorted.count {
-            let entry = sorted[i]
-            let gap = entry.playedAt.timeIntervalSince(currentEnd)
-            if gap <= gapThreshold {
-                currentEnd = entry.playedAt.addingTimeInterval(entry.listenedSec)
-                currentSec += entry.listenedSec
-                currentSongCount += 1
-            } else {
-                if currentSec > bestSec {
-                    bestStart = currentStart
-                    bestEnd = currentEnd
-                    bestSec = currentSec
-                    bestSongCount = currentSongCount
-                }
-                currentStart = entry.playedAt
-                currentEnd = entry.playedAt.addingTimeInterval(entry.listenedSec)
-                currentSec = entry.listenedSec
-                currentSongCount = 1
+        data.sources = data.sources.map { share in
+            var resolved = share
+            if let source = lookup[share.sourceID] {
+                resolved.name = source.name
+                resolved.kind = YearlyReportData.SourceShare.Kind(source.type)
             }
+            return resolved
         }
-        if currentSec > bestSec {
-            bestStart = currentStart
-            bestEnd = currentEnd
-            bestSec = currentSec
-            bestSongCount = currentSongCount
-        }
-
-        return YearlyReportData.SessionInfo(
-            startedAt: bestStart,
-            endedAt: bestEnd,
-            totalSec: bestSec,
-            songCount: bestSongCount
-        )
     }
 }
 
@@ -327,116 +97,66 @@ enum YearlyReportAnalyzer {
 struct YearlyReportData: Sendable, Identifiable {
     var id: Int { year }
     let year: Int
-    let isEmpty: Bool
+    /// 今年是一月一日到现在。
+    let interval: DateInterval
+    let isInProgress: Bool
+    let recap: ListeningRecap
+    let highlights: ListeningYearHighlights
+    let songs: [PlayHistoryStore.RankedItem]
+    let artists: [PlayHistoryStore.RankedItem]
+    let albums: [PlayHistoryStore.RankedItem]
+    var sources: [SourceShare]
 
-    // 总览
-    var totalSec: TimeInterval = 0
-    var totalEntries: Int = 0
-    var uniqueSongCount: Int = 0
-    var uniqueArtistCount: Int = 0
+    var isEmpty: Bool { recap.isEmpty }
 
-    // Top
-    var topArtists: [RankedItem] = []
-    var topSongs: [RankedItem] = []
-    var topAlbums: [RankedItem] = []
-    var topGenres: [RankedItem] = []
-    var genreCount: Int = 0
-    var explorationTopArtistShare: Double = 0
+    var personality: MusicPersonality? { recap.personality.map(MusicPersonality.init) }
 
-    // 关键时刻
-    var firstSong: EntryBrief?
-    var mostPlayedSong: RankedItem?
-    var longestSession: SessionInfo?
-    var latestEntry: EntryBrief?
-
-    // 时段
-    var hourDistribution: [Double] = []
-    var peakHour: Int = 0
-    var nightRatio: Double = 0
-
-    // 月份
-    var monthDistribution: [Double] = []
-    var peakMonth: Int = 1
-    var peakMonthTopSong: String?
-
-    // 音乐源
-    var sourceBreakdown: [SourceBreakdown] = []
-
-    // 人格
-    var personality: MusicPersonality?
-
-    struct RankedItem: Sendable, Identifiable {
-        let id: String
-        let title: String
-        let subtitle: String?
-        let playCount: Int
-        let totalSec: TimeInterval
+    /// 听歌时长和去年比：今年还没过完时只比到去年的同一天。
+    var growth: Double? {
+        recap.previous?.secondsChange(to: recap.totals.seconds).flatMap { $0.isFinite ? $0 : nil }
     }
 
-    struct EntryBrief: Sendable {
-        let songID: String
-        let songTitle: String
-        let artistName: String
-        let playedAt: Date
-    }
-
-    struct SessionInfo: Sendable {
-        let startedAt: Date
-        let endedAt: Date
-        let totalSec: TimeInterval
-        let songCount: Int
-    }
-
-    struct SourceBreakdown: Sendable, Identifiable {
+    struct SourceShare: Sendable, Identifiable {
         var id: String { sourceID }
         let sourceID: String
-        let playCount: Int
-        let totalSec: TimeInterval
-        /// 已 resolve 的 source 显示名 (analyze 时从 SourcesStore 烘到 data,
-        /// 这样 UI 层不用 @Environment, 分享 ImageRenderer 拍快照也能正常工作)。
-        var displayName: String = String(localized: "yearly_unknown_source")
-        /// SF Symbol 名 (e.g. "iphone" / "externaldrive.fill" / "network" /
-        /// "icloud.fill" / "play.tv.fill" / "music.note"), 同样 analyze 时填。
-        var iconSymbol: String = "music.note"
-    }
-}
+        let plays: Int
+        let seconds: TimeInterval
+        var name = String(localized: "yearly_unknown_source")
+        var kind: Kind = .device
 
-extension YearlyReportData {
-    /// 总秒数 → "X 小时 Y 分" 文案。
-    var totalDurationDisplay: String {
-        let hours = Int(totalSec / 3600)
-        let minutes = Int(totalSec.truncatingRemainder(dividingBy: 3600) / 60)
-        if hours > 0 {
-            return String(
-                format: String(localized: "yearly_duration_hm_format"),
-                hours,
-                minutes
-            )
-        }
-        return String(
-            format: String(localized: "yearly_duration_minutes_format"),
-            minutes
-        )
-    }
+        /// 报告里的三种来源插画。
+        enum Kind: Sendable {
+            case device, server, cloud
 
-    /// 主导时段 → 文案 (清晨 / 正午 / 黄昏 / 深夜)
-    var timeOfDayLabel: String {
-        switch peakHour {
-        case 5...8: return String(localized: "yearly_time_dawn")
-        case 9...13: return String(localized: "yearly_time_morning")
-        case 14...17: return String(localized: "yearly_time_afternoon")
-        case 18...22: return String(localized: "yearly_time_evening")
-        default: return String(localized: "yearly_time_late_night")
-        }
-    }
+            init(_ type: MusicSourceType) {
+                switch type {
+                case .local, .appleMusicLibrary:
+                    self = .device
+                case .synology, .qnap, .ugreen, .fnos, .fnMusic, .daoliyu, .songloft, .synologyAudioStation,
+                     .audiobookshelf, .smb, .webdav, .ftp, .sftp, .nfs, .upnp,
+                     .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic:
+                    self = .server
+                case .baiduPan, .aliyunDrive, .oneDrive, .dropbox, .googleDrive, .drime, .pan115, .pan123,
+                     .guangya, .s3, .appleMusic:
+                    self = .cloud
+                }
+            }
 
-    /// 主导时段 → asset name (timeofday_dawn / noon / dusk / night)
-    var timeOfDayAsset: String {
-        switch peakHour {
-        case 5...8: return "timeofday_dawn"
-        case 9...14: return "timeofday_noon"
-        case 15...18: return "timeofday_dusk"
-        default: return "timeofday_night"
+            var artworkName: String {
+                switch self {
+                case .device: "decor_source_local"
+                case .server: "decor_source_nas"
+                case .cloud: "decor_source_cloud"
+                }
+            }
+
+            var fallbackSymbol: String {
+                switch self {
+                case .device: "iphone"
+                case .server: "externaldrive.fill"
+                case .cloud: "icloud.fill"
+                }
+            }
         }
     }
 }

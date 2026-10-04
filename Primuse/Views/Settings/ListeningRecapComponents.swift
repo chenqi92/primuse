@@ -4,11 +4,10 @@ import PrimuseKit
 import UIKit
 #endif
 
-/// 听歌统计页的版式零件。
+/// 听歌统计（年度报告）和服务器统计页共用的版式零件。
 ///
-/// 整页是一层随第一名封面变色的底，内容直接排在底上，靠字号和留白分层；只有
-/// 「最近的状态」和年度回顾成块。不画图表 —— 一段时间听了多少，几个数字和几句话
-/// 就说清楚了。服务器统计页也用这一套，两页看着是一回事。
+/// 内容直接排在底色上，靠字号和留白分层，成块的内容垫一层很淡的衬底。不画图表 ——
+/// 听了多少，几个数字和几句话就说清楚了。
 enum RecapStyle {
     static var pageBase: Color {
         #if os(macOS)
@@ -523,127 +522,6 @@ extension ListeningDaypart {
         case .afternoon: String(localized: "yearly_time_afternoon")
         case .evening: String(localized: "yearly_time_evening")
         case .lateNight: String(localized: "yearly_time_late_night")
-        }
-    }
-}
-
-// MARK: - 听歌人格
-
-struct ListeningPersonalitySection: View {
-    let traits: ListeningPersonalityTraits
-
-    var body: some View {
-        let personality = MusicPersonality(traits)
-        VStack(alignment: .leading, spacing: 10) {
-            RecapSectionHeader("stats_recap_personality_title")
-            Text(verbatim: personality.displayName)
-                .font(.system(.title, design: .rounded).weight(.heavy))
-                .foregroundStyle(.tint)
-                .fixedSize(horizontal: false, vertical: true)
-            if !personality.oneLiner.isEmpty {
-                Text(verbatim: personality.oneLiner)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            RecapFlowLayout(spacing: 6) {
-                ForEach(traitLabels, id: \.self) { RecapChip(text: $0, isEmphasized: true) }
-            }
-            .padding(.top, 2)
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    private var traitLabels: [String] {
-        [
-            traits.exploration == .explorer ? "stats_trait_explorer" : "stats_trait_loyalist",
-            traits.diversity == .omnivore ? "stats_trait_omnivore" : "stats_trait_focused",
-            traits.recency == .new ? "stats_trait_new" : "stats_trait_vintage",
-            traits.dayCycle == .day ? "stats_trait_day" : "stats_trait_moon",
-        ].map { String(localized: String.LocalizationValue($0)) }
-    }
-}
-
-// MARK: - 年度回顾
-
-/// 年度回顾的入口：一块年度报告配色的渐变，下面是往年。
-struct YearlyReviewEntry: View {
-    let primaryYear: Int
-    let isInProgress: Bool
-    let pastYears: [Int]
-    let open: @MainActor (Int) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Button {
-                open(primaryYear)
-            } label: {
-                HStack(alignment: .center, spacing: 14) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Label("stats_recap_year_title", systemImage: "sparkles")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.75))
-                        Text(verbatim: String(format: String(localized: "yearly_report_entry_title"), primaryYear))
-                            .font(.system(.title2, design: .rounded).weight(.bold))
-                            .foregroundStyle(.white)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text(isInProgress
-                             ? LocalizedStringKey("stats_recap_year_in_progress")
-                             : LocalizedStringKey("stats_recap_year_ready"))
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.82))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 8)
-                    Image(systemName: "chevron.right")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.7))
-                }
-                .padding(20)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background {
-                    ZStack {
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.20, green: 0.10, blue: 0.45),
-                                Color(red: 0.55, green: 0.22, blue: 0.42),
-                                Color(red: 0.88, green: 0.45, blue: 0.27),
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                        Circle()
-                            .fill(.white.opacity(0.10))
-                            .frame(width: 180, height: 180)
-                            .offset(x: 120, y: -60)
-                            .blur(radius: 2)
-                    }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            }
-            .buttonStyle(.plain)
-
-            if !pastYears.isEmpty {
-                HStack(spacing: 8) {
-                    Text("stats_recap_year_past")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    ForEach(pastYears, id: \.self) { year in
-                        Button {
-                            open(year)
-                        } label: {
-                            Text(verbatim: String(year))
-                                .font(.footnote.weight(.semibold).monospacedDigit())
-                                .padding(.horizontal, 11)
-                                .padding(.vertical, 5)
-                                .background(.primary.opacity(0.07), in: Capsule())
-                                .contentShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
         }
     }
 }

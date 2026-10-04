@@ -27,7 +27,6 @@
 "batch_scrape_completed_artwork_format" = "Внутрішній кеш ілюстрацій: %d з %d доступні, %d не отримано.";
 "update_banner_skip" = "Пропустити цю версію";
 "no_folder_selected" = "Папка не вибрана";
-"yearly_card_hero_swipe" = "Проведіть пальцем угору, щоб розпочати перегляд";
 "cast_local_subtitle" = "Грати на цьому пристрої";
 "settings_relay_waiting" = "Отримання адреси LAN… (переконайтеся, що Wi-Fi підключено)";
 "stats_range" = "Діапазон";
@@ -36,7 +35,6 @@
 "scrape_no_changes" = "Нові дані не знайдені";
 "home_radio_wall_manage %lld" = "Керувати · %lld";
 "queue_title" = "Черга";
-"yearly_meta_closing_big_format" = "Primuse склав вам компанію протягом %d днів музики";
 "source_diag_run_again" = "Біжи знову";
 "theme_color_custom" = "Нестандартний колір";
 "notify_scan_failed_body" = "Сканування «%@» перервано: %@";
@@ -49,7 +47,6 @@
 "ai_authentication_style" = "Автентифікація";
 "playlist_import_err_empty" = "У списку відтворення немає треків";
 "recently_played" = "Нещодавно прослухані";
-"yearly_no_artist" = "Виконавця ще немає";
 "tag_editor_album" = "Альбом";
 "SFTP client" = "Клієнт SFTP";
 "scraping_album_covers" = "Отримання обкладинок альбомів...";
@@ -95,7 +92,6 @@
 "auth_connection_limit_reached" = "Досягнуто ліміту підключення до сервера.";
 "source_diag_advice_certificate_title" = "Проблема із сертифікатом";
 "update_modal_subtitle" = "Оновлення для отримання останніх функцій і покращень";
-"yearly_empty_desc" = "Цього року ще недостатньо прослуховування\nПісні, які відтворюються 30 секунд або більше, автоматично зараховуються до вашої річної статистики";
 "radio_batch_file_hint" = "Виберіть список відтворення .m3u, .m3u8 або .pls. Назви станцій у файлі зберігаються.";
 "library_folder_selection_all" = "Вибрано";
 "Custom" = "Власний";
@@ -141,7 +137,6 @@
 "lyrics_font_size" = "Розмір шрифту";
 "search_chip_local" = "Місцевий";
 "later" = "Пізніше";
-"yearly_sub_top_songs" = "Топ пісень";
 "scan_complete" = "Сканування завершено";
 "scrobble_mac_i_authorized" = "Я дозволив це";
 "family_sharing_manage" = "Запросити учасників / керувати";
@@ -158,7 +153,6 @@
 "synology_auth_error_404" = "Код перевірки недійсний. Спробуйте знову.";
 "discovery_reason_notRecentlyPlayed" = "Недавно грали";
 "no_results" = "Немає результатів";
-"yearly_meta_personality_title" = "Ваша музична індивідуальність";
 "last_modified_label" = "Дата джерела";
 "radio_batch_entry_paste" = "Вставити";
 "delete_permanently" = "Видалити назавжди";
@@ -237,7 +231,6 @@
 "Now Playing · FLAC" = "Зараз грає · FLAC";
 "tv_siri_remote_badge" = "SIRI REMOTE";
 "tag_editor_metadata_writeback_embedded" = "Теги та обкладинку буде вбудовано у вихідний аудіофайл. Primuse спочатку перевіряє версію вихідного файлу, а після збереження завантажує та перевіряє файл і метадані.";
-"yearly_card_exploration_top5_label" = "Топ-5 виконавців";
 "baidu_error_invalid_parameter" = "Недійсний параметр (помилка 2).";
 "library_folder_selection_partial" = "Вибрано частково";
 "yearly_card_time_detail_format" = "%@ – це час, коли ви слухаєте найбільше";
@@ -253,7 +246,6 @@
 "source_diag_config_missing_share_suggestion" = "Підключіться один раз і виберіть спільну папку, щоб зробити сканування швидшим і надійнішим.";
 "synced_playback_history" = "Останнє відтворення (5-хвилинний газ)";
 "a11y_more_actions" = "Більше дій";
-"yearly_card_peak_month_subtitle_format" = "%@ був вашим музичним місяцем цього року";
 "lyrics_editor_mode_timing" = "Мітки";
 "stats_server_error_connector_unavailable" = "З’єднувач статистики сервера недоступний для цієї вихідної конфігурації.";
 "yearly_personality_lfnm_description" = "Присвячується кільком виконавцям, одному стилю та новим релізам, переважно вночі.";
@@ -298,7 +290,6 @@
 "ai_provider_count_format" = "Служби %d налаштовано";
 "scrobble_clear_queue" = "Очистити чергу";
 "keyboard_shortcuts_recording_short" = "Запис...";
-"yearly_meta_closing_title" = "Дякую";
 "allow_insecure_http" = "Все одно дозволити HTTP";
 "scan_runs_in_background_hint" = "Ви можете залишити цю сторінку; сканування продовжується у фоновому режимі.";
 "metadata_status_card_source_problem_format" = "Проблема джерела/файлу %d";
@@ -338,7 +329,6 @@
 "lyrics_translation_ai_loading" = "Розумний переклад";
 "tag_editor_split_preview %@ %@" = "→ “%1$@” · “%2$@”";
 "import_scraper_source" = "Імпорт джерела метаданих";
-"stats_comparison_format" = "%1$@ проти %2$@";
 "reread_song_tags_failure_song_changed" = "Пісня або її джерело змінилися під час читання тегів.";
 "cancel" = "Скасувати";
 "error_oauth_invalid_callback %@" = "Недійсний зворотний виклик авторизації: %@";
@@ -351,7 +341,6 @@
 "metadata_status_actions" = "Дії читання";
 "source_diag_connection_title" = "Підключення";
 "recently_deleted_clear_all_confirm_title" = "Очистити нещодавно видалені?";
-"yearly_card_plays_unit" = "грає";
 "lyrics_editor_play_this_song" = "Відтворити";
 "lyrics_converter_ttml_help" = "Apple Music-сумісний TTML";
 "smart_rule_group_exclude" = "Виключити цю групу";
@@ -388,7 +377,6 @@
 "stats_server_heatmap_footer" = "Кожна клітинка походить від окремої події історії сервера; краєзнавство не додається.";
 "immersive_demo_lyric_08" = "За вікном повільно спливає ніч";
 "settings_appletv_section" = "Apple TV";
-"stats_previous_month" = "минулого місяця";
 "Fill Missing" = "Відсутня заливка";
 "title_changed" = "Назва оновлено";
 "scrape_candidate_loading_details" = "Завантаження даних кандидата…";
@@ -399,7 +387,6 @@
 "metadata_status_search" = "Пошук за назвою, виконавцем, шляхом або форматом";
 "fnmusic_connection_method" = "Спосіб підключення";
 "cloud_setup_step_back_to_app" = "Поверніться до Primuse, відредагуйте це джерело та введіть облікові дані";
-"yearly_meta_time_sub_format" = "%@ найбільш активний · пік на %d:00";
 "Covers / Lyrics" = "Обкладинки / Тексти пісень";
 "lyrics_editor_return_to_playback" = "Повернутися до відтворення";
 "storage_export_log_footer" = "Експорт primuse_debug.log через ShareSheet (AirDrop / пошта / збереження у файли). Використовується для передачі журналів розробнику. Автоматично обертається понад 10 Мб.";
@@ -427,12 +414,10 @@
 "base_path" = "Базовий шлях";
 "build" = "Збірка";
 "local_import_done_title" = "Імпорт завершено";
-"yearly_sub_personality" = "Музична особистість";
 "year" = "Рік";
 "keyboard_shortcuts_conflict_title" = "Ярлик уже використовується";
 "home_hero_narrative_afternoon" = "Доброго дня. У вашій бібліотеці є історії %@";
 "updated_count" = "оновлено";
-"yearly_card_moment_session_label" = "Ваше найбільш захоплююче слухання";
 "auto_scrape" = "Автопошук метаданих";
 "shuffle_all" = "Перемішати все";
 "ai_recommendation_intent_familiarContinuity_detail" = "Залишається близьким до улюблених виконавців і знайомих жанрів";
@@ -465,7 +450,6 @@
 "next_song" = "Далі";
 "artwork_mode_automatic" = "Автоматично";
 "no_albums_desc" = "Щоб почати, додайте джерело музики";
-"yearly_card_first_song_subtitle_format" = "Ваш %@ почався з цієї пісні";
 "batch_select_all" = "Вибрати все";
 "relay_import_title" = "Імпортувати спільну пісню";
 "library_recommendations_subtitle" = "Досліджуйте свою медіатеку за настроєм і налаштуванням";
@@ -522,7 +506,6 @@
 "radio_name" = "Назва станції";
 "Fixed overlap" = "Виправлено перекриття";
 "reverb_small_room" = "Мала кімната";
-"yearly_sub_genres" = "Профіль жанру";
 "metadata_status_no_retryable_work" = "Зараз жодну пісню не можна знову поставити в чергу. Ви все ще можете перечитати окремий рядок.";
 "radio_manage_pin_top" = "Закріпити вгорі";
 "radio_manage_pin_top_short" = "Нагору";
@@ -546,7 +529,6 @@
 "scrobble_lastfm_signout" = "Від’єднайте Last.fm";
 "apple_music_open_in_app" = "Відкрити в Apple Music";
 "output_mode_effects_desc" = "Використовує повний графік обробки для EQ, динаміки, реверберації, просторового аудіо, ReplayGain, швидкості відтворення, перехресного переходу, гучності програми та візуалізації.";
-"yearly_no_source" = "Джерела ще немає";
 "error_scrobble_not_configured" = "Скроблінг не налаштовано.";
 "ai_error_missing_key" = "Введіть ключ API.";
 "weekday_tuesday_short" = "Вт";
@@ -620,7 +602,6 @@
 "scraper_review_requests" = "Запити";
 "dup_mac_copies_format" = "%d копії";
 "Dark · Medium" = "Темний · Середній";
-"stats_previous_year" = "минулого року";
 "radio_manage_delete_confirm_title" = "Видалити вибрані станції?";
 "local_import_reason_invalid_audio" = "Скопійований вміст є заповнювачем або відповіддю на помилку, а не оригінальним аудіо";
 "search_limit_per_source" = "Результати за джерелом";
@@ -660,7 +641,6 @@
 "desktop_widget_sync_continue" = "Продовжуйте";
 "weekday_sunday_short" = "Нд";
 "more" = "Більше";
-"stats_top_header" = "Вгору";
 "keyboard_shortcuts_changes_apply_immediately" = "Зміни застосовуються негайно.";
 "ai_resolved_endpoint" = "Кінцева точка запиту";
 "home_section_playlists" = "Мої списки відтворення";
@@ -771,7 +751,6 @@
 "stats_server_unavailable_desc" = "Немає повного знімка сервера. Перевірте підключення та оновіть.";
 "ai_path_mode_automatic" = "Автоматично";
 "Go to System Settings → Privacy to re-enable" = "Перейдіть до Системних налаштувань → Конфіденційність, щоб повторно ввімкнути";
-"yearly_meta_first_song_placeholder_artist" = "Ваше перше відтворення почнеться тут";
 "local_import_failure_item_format" = "%1$@: %2$@";
 "synology_connection_address" = "Адреса сервера";
 "ssl_trust_title" = "Помилка сертифіката SSL";
@@ -812,7 +791,6 @@
 "smart_field_playCount" = "Грати";
 "relay_share_error_response" = "Реле повернуло недійсну або небезпечну відповідь.";
 "scrape_writeback_metadata" = "Метадані пісні";
-"yearly_card_personality_subtitle" = "Цього року ваша музична індивідуальність";
 "lyrics_converter_title" = "Конвертер пісень";
 "server_base_path_hint" = "Підшлях до сервера URL (необов’язково, наприклад, /jellyfin)";
 "credential_save_failed_message" = "Не вдалося безпечно зберегти пароль. Джерело не збереглося. Спробуйте ще раз.";
@@ -898,7 +876,6 @@
 "server_share_target_name" = "Ім'я";
 "local_import_progress_indexing" = "Перевірка раніше імпортованих файлів…";
 "start_similar_mix" = "Розпочати подібний мікс";
-"yearly_no_date" = "Без дати";
 "library_recommendations_description" = "Пісні, які можна відтворити, спочатку вибираються на пристрої. Коли інтелектуальна служба ввімкнена, вона лише змінює їх порядок і пояснює, чому.";
 "relay_share_access_password" = "Пароль";
 "apple_music_notice_denied" = "У доступі до Apple Music відмовлено. Знову ввімкніть його в системних налаштуваннях → конфіденційність → медіа та Apple Music.";
@@ -944,7 +921,6 @@
 "Push Status" = "Стан передавання";
 "stats_unique_songs" = "Унікальні пісні";
 "connecting_title" = "Підключення";
-"yearly_meta_time_big_format" = "%d%% ніч";
 "sync_now" = "Синхронізувати зараз";
 "library_recommendations_title" = "Рекомендації";
 "volume_high_fidelity_system_hint" = "High Fidelity Direct використовує одиничне посилення. Регулюйте гучність за допомогою системних елементів керування.";
@@ -1021,7 +997,6 @@
 "metadata_status_state_source_unavailable" = "Джерело недоступне";
 "ai_primuse_relay_diagnostic_credential_detail" = "Не вдалося прочитати або зберегти облікові дані локального пристрою. Primuse відтворить його під час наступного тесту; підтвердьте, що доступ до Keychain доступний, якщо це продовжується.";
 "lyrics_editor_empty_live" = "Вводити під час прослуховування";
-"yearly_meta_moments_title" = "Найдовший сеанс";
 "Invite…" = "Запросити…";
 "played" = "Зіграно";
 "lyrics_source_reload_unsupported" = "Це музичне джерело не підтримує перезавантаження вихідних текстів.";
@@ -1039,14 +1014,12 @@
 "Tracks Played" = "Відтворені треки";
 "browse" = "Перегляньте";
 "lyrics_editor_unstamped_warning_title" = "Деякі рядки не мають часових міток";
-"yearly_card_hero_title" = "Рік у музиці";
 "scrape_candidates_count_format" = "Кандидати (%d)";
 "No matching artist in your library." = "У вашій бібліотеці немає відповідного виконавця.";
 "offline_retry_download" = "Повторити завантаження";
 "yearly_personality_efnd_description" = "Знаходить різноманітні нові пісні в одному улюбленому стилі та слухає їх по днях.";
 "library_browse_flat" = "Список";
 "player_lyrics_alignment_right" = "Праворуч";
-"yearly_meta_sources_sub_format" = "%d грає · %@";
 "Enable Effects Chain" = "Увімкнути ланцюжок ефектів";
 "share_continue_music_server" = "Продовжити з музичним сервером";
 "relay_import_scanning" = "Імпортований. Оновлення медіатеки…";
@@ -1063,7 +1036,6 @@
 "lyrics_source_reload_unchanged" = "Вихідний текст вже збігається з кешованим.";
 "discovery_reason_sameFolder" = "Та сама папка";
 "Display Style" = "Стиль відображення";
-"yearly_card_unit_hours" = "годин";
 "Manifest fetched · 4.2 KB" = "Маніфест отримано · 4,2 КБ";
 "spatial_head_tracking_desc" = "На підтримуваному AirPods звукова сцена залишається зафіксованою, коли ви рухаєте головою.";
 "lang_ja" = "Японська";
@@ -1091,7 +1063,6 @@
 "lyrics_editor_paste_redo" = "Почніть спочатку";
 "ai_recommendation_intent_description_label" = "Опис фокусу";
 "META-03 · Custom Source JSON" = "META-03 · Спеціальне джерело JSON";
-"yearly_meta_peak_month_big_format" = "Місяць %d";
 "Most Played This Month" = "Найчастіше грали цього місяця";
 "fullscreen_effect_collection_audio_reactive" = "Аудіо реактивний";
 "artwork_choose_file" = "Завантажити";
@@ -1125,12 +1096,10 @@
 "source_cache_all_short" = "Кеш";
 "yearly_time_late_night" = "Пізня ніч";
 "server_share_created" = "Публічне посилання";
-"yearly_duration_minutes_format" = "%d мін";
 "lyrics_translation_target" = "Перекласти на";
 "home_hero_narrative_evening" = "Доброго вечора. У вашій бібліотеці є історії %@";
 "lyrics_editor_next_line" = "Наступний рядок";
 "discovery_reason_sameGenre" = "Той самий жанр";
-"yearly_meta_top_artist_title" = "Топ артист";
 "ugreen_login_missing_token" = "UGREEN ввійшов успішно, але маркер не повернув.";
 "Sidecar Write-Back" = "Запис у супровідні файли";
 "player_keep_screen_awake_title" = "Не вимикати екран у плеєрі";
@@ -1189,7 +1158,6 @@
 "intent_playing_similar_format" = "Відтворення пісень, схожих на %@.";
 "source_diag_summary_failed" = "Потребує уваги";
 "batch_scrape_start_failed" = "Не вдалося розпочати пакетне отримання метаданих. Повторіть спробу незабаром.";
-"yearly_meta_closing_sub" = "Так тримати · поділіться своїм звітом";
 "greeting_evening" = "Доброго вечора";
 "Resume pending" = "Очікується резюме";
 "scrape_candidates_searching" = "Пошук кандидатів...";
@@ -1237,7 +1205,6 @@
 "stats_rank_albums" = "Альбоми";
 "home_hero_stats_hours_only" = "З джерел %d · Альбоми %d · Виконавці %d · Загальна кількість годин %d";
 "rescrape_library" = "Оновити метадані медіатеки";
-"yearly_meta_artists_title" = "Звичайний склад";
 "error_not_authenticated" = "Не автентифіковано.";
 "smart_mac_header_format" = "Розумний список відтворення · %@";
 "playlist_import_missing" = "Не знайдено";
@@ -1459,7 +1426,6 @@
 "scrape_candidates_search_prompt" = "Пошук кандидатів";
 "stats_server_stale_clock" = "Годинник пристрою відрізняється від часу знімка";
 "synology_session_expired" = "Сеанс закінчився. Увійдіть знову.";
-"yearly_sub_top_artists" = "Кращі артисти";
 "onboarding_mac_connect_smb" = "Підключитися до SMB · NAS";
 "source_deleted_toast" = "Видалено “%@”";
 "home_section_for_you" = "Для вас";
@@ -1538,7 +1504,6 @@
 "apple_music_notice_notDetermined" = "Apple Music ще не підключено. Перейдіть до Налаштування → Apple Music, щоб увімкнути пошук по каталогу.";
 "apple_music_notice_notDetermined_in_sources" = "Apple Music ще не підключено. Підключіть його в джерелі Apple Music у розділі «Керування джерелами», щоб увімкнути пошук по каталогу.";
 "relay_share_qr_accessibility" = "Поділіться QR-кодом посилання";
-"yearly_card_exploration_subtitle" = "Ваше дослідження";
 "spotlight_playlist_subtitle_format" = "Список відтворення Primuse · треки %d";
 "home_no_scans" = "Немає сканувань";
 "library_folder_other" = "Інше";
@@ -1576,7 +1541,6 @@
 "intent_set_liked_description" = "Додати або видалити поточну пісню зі списку «Сподобалося».";
 "cloud_authorizing_step4" = "Primuse отримує зворотний виклик і зберігає маркер доступу";
 "theme_color_teal" = "Бірюзовий";
-"yearly_meta_genres_sub" = "Кольори звуку, які ви чули найчастіше цього року";
 "family_sharing_active" = "Сімейний доступ активний";
 "exit_full_screen" = "Вийти з повноекранного режиму";
 "source_diag_directory_ok_format" = "Прочитано каталог успішно, знайдено видимі елементи %d.";
@@ -1613,7 +1577,6 @@
 "smart_rule_group_add" = "Додати групу правил";
 "search_ai_reason_format" = "Пов’язані з “%@”";
 "scrobble_provider_section" = "Сервіс";
-"yearly_card_personality_insufficient" = "Недостатньо даних для визначення особистості";
 "server_share_create" = "Створити публічне посилання";
 "ai_playlist_add_songs" = "Додайте пісні за допомогою ШІ";
 "smart_mac_preview_meta_format" = "· %@ · у джерелах %d";
@@ -1628,8 +1591,6 @@
 "library_cleanup_trash_count_format" = "%d елементи";
 "send_to_tv_lan_message" = "Надішліть свою медіатеку, джерела та облікові дані безпосередньо на цей Apple TV через локальну мережу. iCloud не використовується.";
 "Open-Source Licenses…" = "Ліцензії з відкритим кодом…";
-"yearly_meta_peak_month_title" = "Піковий місяць";
-"yearly_meta_overview_big_format" = "%d годин";
 "System" = "Як у системі";
 "gapless_not_available" = "Безперервне відтворення доступне для треків у черзі. Crossfade вимикає його.";
 "lyrics_converter_copy" = "Копіювати перетворений текст";
@@ -1687,7 +1648,6 @@
 "directory_selected_count_format" = "Вибрано каталоги %d";
 "search_lyrics_hits_format" = "Збіги в текстах · %d";
 "yearly_personality_lfnd_description" = "Присвячується кільком виконавцям, одному стилю та новим релізам, переважно вдень.";
-"yearly_card_moment_latest_label" = "Пісня, яка залишилася з вами останньою";
 "player_animated_artwork_description" = "Відтворюйте надані джерелом GIF, APNG та анімовані ілюстрації WebP на деталях альбому та обкладинці основного програвача. У списках завжди використовується статичний перший кадр, і системні налаштування руху та потужності дотримуються.";
 "relay_share_link_secure" = "Постійне захищене посилання";
 "cookie_config" = "Конфігурація файлів cookie";
@@ -1720,7 +1680,6 @@
 "recently_deleted_empty" = "Нещодавно нічого видалено";
 "onboarding_mac_continue" = "Продовжуйте";
 "library_recommendations_empty_description" = "Додайте та відскануйте джерело музики, щоб упорядкувати пісні за сценою прослуховування та фокусом рекомендацій.";
-"yearly_meta_genres_title" = "Карта жанру";
 "ai_key_sync_footer" = "Налаштування синхронізуються через iCloud, а ключі – через iCloud Keychain. Тести підключення надсилають лише фіксовану діагностичну фразу.";
 "local_import_reason_permission" = "Немає дозволу на читання";
 "scrape_writeback_sidecar_hint" = "Записує супровідні файли поруч із вихідним · Час очікування 30 с · Фонове завдання";
@@ -1798,7 +1757,6 @@
 "lyrics_converter_overview_empty" = "Щоб почати, перетягніть файл лірики або вставте його вміст";
 "stats_heatmap_dimensions_format" = "7×%1$d · %2$d днів";
 "scrobble_pending_count" = "Очікує повторної спроби";
-"yearly_sub_overview" = "Огляд";
 "ext.tv.search.aiSuccess" = "%@ активний";
 "invalid_url" = "Недійсний URL";
 "backfill_retry_failed" = "Повторно перевірте %d призупинену пісню(-и)";
@@ -1849,7 +1807,6 @@
 "metadata_status_reread_filtered" = "Повторно прочитати теги всіх відфільтрованих композицій";
 "metadata_status_reread_progress_format" = "Читання тегів: %1$lld / %2$lld";
 "metadata_status_reread_result_format" = "Завершено: %1$lld. Помилок: %2$lld. Пропущено (уже читаються або недоступні): %3$lld.";
-"yearly_meta_sources_title" = "Найчастіше використовуване джерело";
 "lyrics_editor_mode_structured" = "Рядки";
 "Search…" = "Пошук…";
 "playlist_import_match_path" = "Шлях";
@@ -1875,16 +1832,13 @@
 "technical_info" = "Технічна інформація";
 "open" = "Відкрити";
 "scrape_options" = "Які дані шукати";
-"yearly_sub_peak_month" = "Місяць підпису";
 "radio_manage_selected %lld" = "%lld Вибрано";
 "Search Radio Stations" = "Пошук радіостанцій";
-"yearly_no_record" = "Записів ще немає";
 "enable" = "Увімкнути";
 "cloud_guide_dropbox" = "Перейдіть на dropbox.com/developers/apps, щоб створити програму";
 "scrobble_enabled" = "Увімкнути Scrobble";
 "ai_path_mode_append_v1" = "Додайте /v1";
 "ai_playlist_current_section" = "Поточний список відтворення";
-"stats_previous_week" = "минулого тижня";
 "Index Status · online dot" = "Статус індексу · онлайн точка";
 "tag_editor_mac_title" = "Редагувати теги";
 "ai_provider_preset_kimi" = "Kimi";
@@ -1915,7 +1869,6 @@
 "Playback Rate & Quality" = "Швидкість і якість відтворення";
 "eq_reset" = "Скинути";
 "stats_server_error_unsupported" = "Це джерело не надає читабельної статистики прослуховування сервера.";
-"yearly_meta_top_songs_title" = "Топ пісень";
 "playlist_import_pick_file" = "Виберіть файл";
 "No Scan" = "Без сканування";
 "Shui Diao Ge Tou · FLAC 988 kbps" = "Shui Diao Ge Tou · FLAC 988 кбіт/с";
@@ -1951,7 +1904,6 @@
 "Music Sources" = "Джерела музики";
 "scrobble_clear_queue_confirm" = "Очистити всі незавершені прослуховування?";
 "smart_date_days_unit_short" = "д";
-"yearly_sub_top_artist_hero" = "Ваш улюблений";
 "source_diag_summary_detail_format" = "%@ · %@";
 "lyrics_translation_unavailable" = "Переклад тексту недоступний";
 "stats_server_stale_refresh" = "Помилка оновлення сервера; відображаються кешовані дані";
@@ -1964,12 +1916,10 @@
 "stats_heatmap_style_title" = "Heatmap у стилі GitHub";
 "tag_editor_tap_candidate_hint" = "Торкніться пропозиції, щоб заповнити";
 "playlist_name_example" = "Пізня нічна поїздка";
-"yearly_no_song" = "Пісні ще немає";
 "source_connection_public_port" = "Зовнішній порт";
 "playlist_export_json" = "Експорт як Primuse JSON";
 "custom_sources" = "Спеціальні джерела";
 "search_match_lyrics" = "Відповідний текст";
-"yearly_meta_personality_placeholder" = "Все ще набуває форми";
 "username" = "Ім'я користувача";
 "open_folder" = "Відкрити папку";
 "cloud_err_token_save_failed" = "Не вдалося зберегти маркер авторизації";
@@ -2067,7 +2017,6 @@
 "source_diag_config_missing_bucket" = "Відро S3 відсутнє.";
 "material_auto_desc" = "Вибирає найкращий вигляд, який підтримує цей Mac.";
 "ai_recommendation_scene_bedtime" = "Час спати";
-"yearly_card_plays_count_format" = "Грає %d";
 "Yu Xi Tan" = "Ю Сі Тан";
 "tag_editor_cover_revert" = "Зберігайте оригінальну обкладинку";
 "apple_music_library_idle" = "Ще не синхронізовано";
@@ -2093,7 +2042,6 @@
 "track_label" = "Трек";
 "lyrics_editor_paste_parsed %lld" = "Отримано рядків: %lld";
 "settings_apple_music_denied" = "Доступ до Apple Music заборонено. Увімкніть його в Налаштуваннях → Primuse.";
-"yearly_sub_exploration" = "Розвідка";
 "local_import_files_title" = "Підключити файли без копіювання";
 "fullscreen_effect_collection_native" = "Оригінал";
 "crossfade_mode_fixed" = "Фіксований";
@@ -2138,7 +2086,6 @@
 "relay_import_error_too_large" = "Файл перевищує 20 ГБ, тому його не можна імпортувати.";
 "dsd_mode_pcm" = "Перетворити на PCM";
 "scrobble_mac_disabled_title" = "Scrobble вимкнено";
-"yearly_sub_moments" = "Основні моменти";
 "fullscreen_effect_light_field" = "Світлове поле";
 "tag_editor_field_duration" = "Тривалість";
 "weekday_wednesday_short" = "Ср";
@@ -2164,13 +2111,10 @@
 "ai_playlist_prompt_summary_format" = "Створено з “%@”";
 "relay_import_error_title" = "Не вдалося імпортувати пісню";
 "go_to_artist" = "Перейдіть до Виконавця";
-"yearly_sub_time_of_day" = "Час доби";
 "song_details_loading" = "Читання інформації про трек";
-"yearly_card_top_songs_subtitle" = "Повторний чарт цього року";
 "version" = "Версія";
 "local_reference_permission_missing" = "Primuse більше не може отримати доступ до цього файлу чи папки. Додайте його знову, щоб відновити доступ.";
 "metadata_writeback_stage_edit" = "запис і перевірка метаданих";
-"yearly_card_moment_repeat_detail_format" = "Грали з вами в %d разів";
 "stats_server_event_boundary" = "Цей сервер надає індивідуальні мітки часу гри, тому діапазони та щоденна активність використовують історію сервера. Він не показує фактичну тривалість прослуховування, тому загальна тривалість не відображається.";
 "family_sharing_shared_sources" = "NAS / хмара / Apple Music джерела";
 "ai_connection_success" = "Підключення вдалось";
@@ -2180,7 +2124,6 @@
 "yearly_card_peak_month_top_format" = "У вас найчастіше грали того місяця: %@";
 "local_import_progress_copying_format" = "Оброблено %1$d/%2$d · Імпортовано %3$d · Пропущено %4$d";
 "smart_mac_limit_to" = "Обмежити до";
-"yearly_sub_sources" = "Вихідний профіль";
 "Word-by-Word Lyrics" = "Текст із синхронізацією за словами";
 "source_diag_checks" = "Чеки";
 "server_share_unsupported_message" = "Цей сервер не підтримує спільний доступ до OpenSubsonic, або його адміністратор вимкнув спільний доступ.";
@@ -2267,14 +2210,11 @@
 "ugreen_rsa_fallback_failed_format" = "%1$@; Помилка ініціалізації входу RSA: %2$@";
 "C-07 · Newly Written Credentials" = "C-07 · Нові облікові дані";
 "fnmusic_account_hint" = "Використовуйте обліковий запис, який може входити в Feiniu Music і має доступ до медіатеки.";
-"yearly_next_card" = "Наступна картка";
-"yearly_previous_card" = "Попередня картка";
 "library_folder_selection_none" = "Не вибрано";
 "cache_size" = "Розмір кешу";
 "dup_mac_keep_read_only" = "Зберегти (тільки для читання)";
 "search_top_match" = "Кращий збіг";
 "ai_delete_current_api_key" = "Видалити поточний ключ API";
-"yearly_meta_moments_sub_format" = "%d пісні поспіль · %@";
 "search_jump_to_lyrics_context" = "Перейти до тексту пісні";
 "online" = "онлайн";
 "scrape_lyrics_not_found" = "Тексти не знайдено. Спробуйте інший запит або джерело тексту.";
@@ -2395,7 +2335,6 @@
 "stats_heatmap_title" = "Щоденна активність";
 "source_remove_managed_confirm_action" = "Видалити джерело й копії";
 "recently_added" = "Нещодавно додані";
-"yearly_meta_peak_month_sub_format" = "Пісня, яка звучала найчастіше цього місяця, була %@";
 "smart_mac_between_groups" = "Між групами правил";
 "add_to_queue" = "Додати до черги";
 "smart_sort_direction" = "Напрямок";
@@ -2426,7 +2365,6 @@
 "lyrics_display_section" = "Дисплей";
 "lyrics_editor_save_anyway" = "Усе одно зберегти";
 "relay_import_source" = "Поділитися джерелом";
-"yearly_card_exploration_explorer" = "Цього року ви почули багато нових імен";
 "cloud_oauth_config" = "Хмарна авторизація";
 "source_remove_managed_confirm_title" = "Видалити джерело та скопійовані файли?";
 "scrobble_lastfm_err_missing_creds" = "Спочатку заповніть ключ API і секрет API.";
@@ -2461,7 +2399,6 @@
 "source_cache_size_known_plus_unknown_format" = "%@ + %d пісні з невідомим розміром";
 "yearly_personality_efnd_name" = "Сонячний мандрівник";
 "Auto-check for updates (daily)" = "Автоматична перевірка оновлень (щодня)";
-"yearly_card_moment_session_detail_format" = "%d пісні одним диханням";
 "synology_password_update_save_failed" = "DSM прийняв новий пароль, але його не вдалося безпечно зберегти. Збережений пароль залишається незмінним. Спробуйте ще раз.";
 "smart_playlist_name" = "Ім'я";
 "lyrics_converter_invalid_notice" = "Ці тексти не вдалося проаналізувати. Перевірте структуру документа та часові позначки.";
@@ -2477,7 +2414,6 @@
 "no_insecure_http_domains" = "Жодним публічним хостам не дозволено використовувати HTTP";
 "Primuse is a native macOS player for NAS / media-server enthusiasts, built on SFBAudioEngine. This design covers 200+ features: Set A uses .glassEffect() on macOS 26+, Set B falls back to .regularMaterial.\n\n© 2026 Primuse Project · Made for lossless lovers." = "Primuse — рідний програвач macOS для ентузіастів NAS / медіасерверів, побудований на SFBAudioEngine. Цей дизайн охоплює понад 200 функцій: набір A використовує .glassEffect() на macOS 26+, набір B повертається до .regularMaterial.\n\n© 2026 Primuse Project · Створено для любителів без втрат.";
 "rules_count" = "правил";
-"yearly_meta_hero_sub" = "Нехай Primuse проведе вас у цьогорічній музичній подорожі";
 "scrobble_lastfm_err_token_format" = "Не вдалося отримати маркер: %@";
 "ai_recommendation_status_upstream_local" = "Помилка інтелектуальної служби вгорі; існуючі рекомендації збережено";
 "scrobble_mac_rules_value" = "50% · 4 хв";
@@ -2512,7 +2448,6 @@
 "reverb_medium_room" = "Середня кімната";
 "intent_set_liked_parameter" = "Сподобалось";
 "radio_flac_error_allocate" = "Неможливо призначити живий аудіовихід FLAC.";
-"yearly_duration_hm_format" = "%d год %d хв";
 "apple_music_scrape_lyrics_only" = "Apple Music метадані та офіційні ілюстрації залишаються без змін; отримання метаданих зберігає лише зовнішні тексти пісень, які ви підтверджуєте.";
 "ai_primuse_relay_diagnostic_registration_detail" = "Ця інсталяція не може створити облікові дані надійного пристрою. Перевстановіть оновлену підписану збірку та повторіть спробу.";
 "onboarding_metadata_title" = "Заповніть свою медіатеку";
@@ -2531,7 +2466,6 @@
 "Wine in hand, I ask the sky" = "Вино в руці, прошу неба";
 "relay_share_error_server_format" = "Реле відхилило запит (HTTP %d).";
 "Open System Settings" = "Відкрийте налаштування системи";
-"yearly_empty_title_format" = "%@ Огляд року";
 "settings_menu_item" = "Налаштування…";
 "greeting_afternoon" = "Доброго дня";
 "tag_editor_lyrics_clear" = "Очистити";
@@ -2572,7 +2506,6 @@
 "songs_found" = "пісень";
 "new_smart_playlist" = "Новий розумний список відтворення";
 "ai_provider_footer" = "Надсилається лише вміст, необхідний для ввімкнених авторизованих функцій. Структура медіатеки та шляхи до файлів залишаються на цьому пристрої; аудіо завантажується лише для явно схваленої транскрипції пісні.";
-"yearly_card_sources_subtitle" = "Звідки ваша музика";
 "search_ai_section" = "Інтелектуальні додаткові результати";
 "Delete Permanently" = "Видалити назавжди";
 "dlna_device_casting" = "Трансляція";
@@ -2603,7 +2536,6 @@
 "Go to App Store" = "Перейти до App Store";
 "Reverb" = "Реверберація";
 "settings_title" = "Параметри";
-"yearly_meta_overview_title" = "Загальний час";
 "synology_auth_error_408" = "Термін дії пароля закінчився, і його неможливо змінити тут. Спочатку скиньте його в DSM.";
 "Live Logs" = "Живі журнали";
 "local_import_provider_error_title" = "Cloud Drive не повернув звук";
@@ -2652,7 +2584,6 @@
 "local_import_progress_failed_format" = "Помилка %d";
 "reverb_large_room" = "Велика кімната";
 "playlist_import_mac_intro_title" = "Щоб почати, виберіть файл списку відтворення";
-"yearly_card_genres_empty" = "Заповніть жанри пісень, і ваша карта жанрів з’явиться тут";
 "metadata_writeback_error_embedded_verification_format" = "Оновлений аудіофайл не пройшов перевірку вбудованих метаданих (%@).";
 "home_playable_count_short" = "Грає";
 "server_share_target_type" = "Тип";
@@ -2701,7 +2632,6 @@
 "lyrics_editor_tap_sync" = "Синхронізація натисканнями";
 "source_diag_advice_invalid_response" = "Джерело повернуло нечитабельну відповідь.";
 "radio_batch_add_title" = "Масове додавання станцій";
-"yearly_sub_first_song" = "Перша пісня";
 "relay_share_size" = "Розмір";
 "intent_scrape_live_radio_unsupported" = "Неможливо отримати живе радіо.";
 "update_banner_action" = "Оновлення";
@@ -2754,10 +2684,8 @@
 "error_rate_limited" = "Забагато запитів. Повторіть спробу пізніше.";
 "password_edit_hint" = "Залиште порожнім, щоб зберегти поточний пароль";
 "compressor_medium" = "Середній";
-"yearly_card_unit_artists" = "виконавці";
 "lyrics_editor_reorder_line" = "Змініть порядок рядків лірики";
 "relay_share_revoke" = "Відкликати посилання";
-"yearly_card_moment_repeat_label" = "Повтор пісні цього року";
 "remember_device" = "Запам'ятати пристрій";
 "ai_recommendation_intent_rightNow_detail" = "Використовує контекст і історію прослуховування без додаткової підказки ШІ";
 "no_playlists_desc" = "Створіть список відтворення, щоб упорядкувати свою музику";
@@ -2857,7 +2785,6 @@
 "Restore Defaults" = "Відновити налаштування за замовчуванням";
 "source_cache_all_confirm" = "Кешувати все";
 "source_diag_select_dirs" = "Каталог сканування не вибрано.";
-"yearly_meta_genres_sub_empty" = "Заповніть жанри для своєї медіатеки, і вона стане багатшою";
 "cloud_guide_default" = "Зареєструватися в центрі розробників відповідної платформи";
 "artist_releases" = "Релізи";
 "radio_batch_add_count %lld" = "Додати станції %lld";
@@ -2889,7 +2816,6 @@
 "smb_error_refused" = "SMB: сервер відмовив у підключенні (перевірте порт)";
 "onboarding_welcome_subtitle" = "Primuse грає з вашого NAS, хмарних дисків і домашньої мережі — без завантаження жодного файлу нікому.";
 "replay_gain" = "ReplayGain";
-"yearly_card_unit_songs" = "пісні";
 "playlist_import_export_unmatched_csv" = "Експорт Unmatched → CSV";
 "close" = "Закрити";
 "library_recommendations_intent_title" = "Що ти хочеш почути?";
@@ -2931,7 +2857,6 @@
 "local_import_folder_title" = "Підключити папку без копіювання";
 "tag_editor_lyrics_writeback_read_only" = "Джерело лише для читання: дані зберігаються в Primuse й синхронізуються через iCloud, але їх не можна записати безпосередньо в джерело.";
 "Parse Result" = "Результат аналізу";
-"yearly_meta_genres_placeholder_format" = "Жанри %d";
 "minutes" = "хв";
 "scrobble_lastfm_reopen_authorization" = "Знову відкрити сторінку авторизації";
 "play" = "Відтворити";
@@ -2975,17 +2900,14 @@
 "tag_editor_disc" = "Диск №";
 "smb_error_auth" = "SMB: неправильне ім'я користувача або пароль";
 "sort_newest_to_oldest" = "Від нових до найстаріших";
-"yearly_report_year_title_format" = "%@ Огляд року";
 "dup_keep_largest_file" = "Зберігати найбільший файл";
 "desktop_widget_sync_status_disabled" = "Вимкнено";
-"yearly_sub_hero" = "Обкладинка";
 "start_song_radio" = "Запустіть Song Radio";
 "local_import_cancelled" = "Імпорт скасовано";
 "import_mode" = "Режим імпорту";
 "lyrics_converter_choose_file" = "Виберіть файл";
 "scrobble_mac_footer_empty" = "Токени зберігаються лише в локальній в’язці ключів · останніх надсилань немає";
 "The radio station is currently unavailable." = "Радіостанція наразі недоступна.";
-"yearly_card_genres_subtitle" = "Жанри, які ви чули цього року";
 "stats_server_loading" = "Завантаження статистики сервера…";
 "dont_trust" = "Не довіряй";
 "source_label" = "Джерело";
@@ -3039,7 +2961,6 @@
 "s3_secret_key" = "Секретний ключ";
 "Domain" = "Домен";
 "metadata_status_filter_pending" = "Очікується";
-"yearly_meta_exploration_title" = "Розвідка";
 "radio_batch_duplicate_of %@" = "Вже збережено як “%@”";
 "scan_needs_connect" = "Спершу підключіться (потрібен OTP)";
 "Recently Deleted" = "Нещодавно видалені";
@@ -3073,7 +2994,6 @@
 "intent_playing_playlist_format" = "Відтворення списку відтворення %@.";
 "scraper_review_capabilities" = "Можливості";
 "edit_source" = "Редагувати джерело";
-"yearly_card_genres_unit" = "типи";
 "notify_backfill_complete" = "Сповіщати про завершення довгих завдань";
 "onboarding_mac_welcome_desc" = "Нативний плеєр macOS, створений для ентузіастів NAS / медіасерверів. Помістіть свої файли FLAC, DSD і APE в одну об’єднану медіатеку.";
 "ai_audio_transcription_action" = "Транскрибувати пісню";
@@ -3113,9 +3033,7 @@
 "immersive_demo_lyric_06" = "Приплив залишає мелодію на березі";
 "discovery_reason_newToLibrary" = "Нове у вашій бібліотеці";
 "songs_view_grid" = "Сітка";
-"yearly_card_overview_subtitle" = "Цього року вам компанію склала музика";
 "lyrics_editor_empty_manual_detail" = "Введіть рядки вручну, а потім додайте часові мітки";
-"yearly_meta_artists_sub" = "Ці імена були вашими найвідомішими звуками цього року";
 "radio_batch_entry_directory" = "Довідник";
 "Import" = "Імпорт";
 "error_range_http %@" = "Потоковий сервер повернув HTTP %@.";
@@ -3149,7 +3067,6 @@
 "home_todays_pick_title" = "Сьогоднішній вибір";
 "scrape_preview" = "Знайдені метадані";
 "song_info" = "Інформація про пісню";
-"yearly_card_peak_month_unit" = "Місяць";
 "artist_name_settings_separators_footer" = "Роздільники зіставляються буквально. Крапки з комою обох ширин, скісна риска та ідеографічна кома (、) увімкнено за замовчуванням.";
 "last_played_label" = "Остання гра";
 "lyrics_editor_shift_clamped" = "Уже на початку — подальший зсув переніс би перший рядок до нульової позначки.";
@@ -3174,7 +3091,6 @@
 "relay_share_no_actions_warning" = "Дозволити принаймні одну дію доступу.";
 "carplay_up_next" = "Далі";
 "apple_music_notice_no_results" = "Немає результатів Apple Music (ця вітрина може не мати такої назви).";
-"yearly_meta_personality_sub" = "Продовжуйте слухати, і звіт розширить ваш профіль";
 "ai_playlist_name_section" = "Назва списку відтворення";
 "ai_primuse_relay_diagnostic_storekit_cancelled_detail" = "Перевірку App Store скасовано. Повторно запустіть тест і завершіть вхід у систему.";
 "discovery_reason_recentFavorite" = "З ваших останніх улюблених";
@@ -3220,7 +3136,6 @@
 "Last Synced" = "Остання синхронізація";
 "check_for_updates_available_format" = "Доступна версія %@ — натисніть, щоб відкрити App Store";
 "local_import_title" = "Копіювати до Primuse";
-"yearly_share_card" = "Картка для поширення";
 "desktop_lyrics_locked" = "Настільні тексти пісень заблоковано";
 "Playlist" = "Список відтворення";
 "reset" = "Скинути";
@@ -3272,10 +3187,8 @@
 "ai_provider_preset_nvidia_nim" = "NVIDIA NIM";
 "lyrics_transcription_saved" = "Налаштування транскрипції пісні збережено.";
 "lyrics_converter_exported_format" = "Збережено %@";
-"yearly_meta_top_artist_sub_format" = "%d грає · %@";
 "use_ssl" = "Використовуйте SSL/TLS";
 "yearly_time_dawn" = "Світанок";
-"rank_by" = "Ранжувати за";
 "playlist_drop_cover" = "Перетягніть сюди обкладинку";
 "lyrics_font_xlarge" = "Дуже великий";
 "fnmusic_access_code" = "Код доступу FN Connect (необов’язково)";
@@ -3372,10 +3285,8 @@
 "Enable Audio Cache" = "Увімкнути кеш аудіо";
 "audio_effects" = "Аудіоефекти";
 "relay_share_error_configuration" = "Виберіть вбудовану службу або введіть дійсний HTTPS URL і ключ адміністратора.";
-"yearly_card_unit_plays" = "грає";
 "source_diag_advice_auth_title" = "Проблема автентифікації";
 "yearly_unknown_source" = "Невідоме музичне джерело";
-"yearly_meta_peak_month_sub_default" = "Цей місяць припав на ваш пік відтворення за рік";
 "ai_playlist_prompt_footer" = "AI вибирає лише пісні з вашої медіатеки та використовує згоду на конфіденційність у налаштуваннях AI.";
 "song_details_loading_message" = "Завантаження заголовка тегу цієї пісні (~256 КБ) із хмари, щоб отримати тривалість, обкладинку та виконавця. Після цього його можна додати до черги відтворення.";
 "source_cache_partial_title" = "Кешування завершено частково";
@@ -3397,7 +3308,6 @@
 "family_sharing_shared_apple_mirror" = "Бібліотечне дзеркало Apple Music";
 "ai_actions_section" = "Підключення та збереження";
 "local_import_progress_title" = "Імпорт музики";
-"yearly_card_artists_subtitle" = "Ще кілька постійних клієнтів";
 "tag_editor_lyrics_summary_format" = "Рядків: %1$d · %2$@";
 "There is no current song to scrape." = "Немає поточної пісні для отримання метаданих.";
 "Import from URL…" = "Імпорт із URL…";
@@ -3409,7 +3319,6 @@
 "There is no Primuse playback session to resume." = "Немає сеансу відтворення Primuse для відновлення.";
 "stats_no_previous_comparison" = "Немає попереднього періоду для порівняння";
 "onboarding_experience_insights" = "Розумні списки відтворення, статистика прослуховування та річні звіти";
-"yearly_card_top_artist_subtitle" = "Ваш найпопулярніший виконавець цього року";
 "radio_batch_paste_from_clipboard" = "Вставити з буфера обміну";
 "keyboard_shortcuts_replace" = "Замінити";
 "lyrics_transcription_models_empty" = "Каталог моделей Google не повернув жодної сумісної моделі транскрипції.";
@@ -3436,7 +3345,6 @@
 "lyrics_transcription_settings_title" = "Транскрипція пісень";
 "a11y_unlike" = "Видалити з пісень, які сподобалися";
 "immersive_now_playing" = "ЗАРАЗ ГРАЄТЬСЯ";
-"yearly_card_time_unit_hour" = "год";
 "Open-Source Licenses" = "Ліцензії з відкритим кодом";
 "smart_sort_field_lastPlayedAt" = "Остання гра";
 "scrobble_lastfm_pending_hint" = "Триває авторизація Last.fm. Увійдіть, торкніть «Дозволити», потім торкніть «Готово», щоб повернутися до Primuse.";
@@ -3560,12 +3468,9 @@
 "relay_share_password_placeholder" = "Додатковий пароль слухача";
 "a11y_close_lyrics" = "Сховати слова";
 "icloud_sync_enabled" = "Увімкнути синхронізацію iCloud";
-"yearly_meta_exploration_sub_format" = "5 найкращих виконавців %d%% · %@";
 "lyrics_word" = "Текст пісні";
-"yearly_meta_overview_sub_format" = "Пісні %d · Виконавці %d · Відтворення %d";
 "playlist_import_match_fuzzy" = "Фузі";
 "SRC-29 · Cross-Process Cache" = "SRC-29 · Міжпроцесний кеш";
-"yearly_card_closing_subtitle" = "Музика склала вам компанію цього року";
 "error_range_timeout" = "Час очікування запиту потокового передавання минув.";
 "cache_active" = "Зараз відтворюється/транслюється";
 "Now Playing · 3 Sizes" = "Зараз грає · 3 розміри";
@@ -3583,7 +3488,6 @@
 "source_diag_advice_oauth_title" = "Термін дії хмарної авторизації минув";
 "Checking for Updates" = "Перевірка оновлень";
 "local_import_progress_validating" = "Перевірка поточного аудіофайлу…";
-"yearly_card_moments_subtitle" = "Ваші основні моменти";
 "scrape_actions" = "Дії з метаданими";
 "Tranquil Woods" = "Тихий ліс";
 "export" = "Експорт";
@@ -3595,12 +3499,10 @@
 "scrobble_lastfm_connect" = "Підключіть обліковий запис Last.fm";
 "Play a saved internet-radio station in Primuse." = "Слухайте збережену інтернет-радіостанцію в Primuse.";
 "keyboard_shortcuts_window_section" = "Windows і навігація";
-"yearly_meta_time_title" = "Ранок проти ночі";
 "tag_editor_lyrics_error_title" = "Не вдалося зберегти текст";
 "synology_password_edit_validation_title" = "Synology Пароль вимагає перевірки підключення";
 "smart_op_between" = "між";
 "Artist" = "Виконавець";
-"yearly_exploration_deep" = "схильний до глибокого слухання";
 "update_banner_subtitle" = "Оновлення через App Store";
 "song_sort_progress_cancelled" = "Сортування скасовано";
 "searching" = "Пошук...";
@@ -3623,14 +3525,12 @@
 "source_diag_connection_ok" = "Рукостискання сервера успішне.";
 "synology_connection_method" = "Спосіб підключення";
 "scraper_no_source_title" = "Немає ввімкнених джерел метаданих";
-"yearly_duration_zero" = "0 хв";
 "Year in Review · Medium" = "Огляд року · Середній";
 "ai_recommendation_status_device_registration_local" = "Помилка реєстрації пристрою; існуючі рекомендації збережено";
 "lyrics_converter_input" = "Вхід";
 "Live Data" = "Живі дані";
 "select_changes" = "Виберіть Зміни, щоб застосувати";
 "rating" = "Рейтинг";
-"yearly_card_time_subtitle" = "Ваші години прослуховування";
 "settings_dlna_footer" = "Інші пристрої на тому самому Wi-Fi (VLC, Synology Audio Station, Plex, Hi-Fi Cast тощо) бачитимуть Primuse як медіа-рендерер і можуть передавати аудіо для відтворення.";
 "batch_scrape_counts_format" = "Оновлено %d · Не оновлено %d · Помилка %d";
 "no_lyrics" = "Немає тексту";
@@ -3711,7 +3611,6 @@
 "songs_column_bitrate" = "Бітрейт";
 "scrobble_mac_token_saved" = "Токен збережено";
 "onboarding_sources_footer" = "Ви можете будь-коли додати скільки завгодно.";
-"yearly_card_exploration_deep" = "Цього року ви віддали перевагу глибшому слуханню звуків, які вам подобаються";
 "widget_preview_hours_format" = "%d h";
 "output_sr_matching" = "Відповідність вихідній частоті дискретизації";
 "immersive_demo_lyric_07" = "Найтихіше відлуння все ще може перетинати кімнату";
@@ -3772,6 +3671,40 @@
 "clear" = "Очистити";
 "tv_remote_siri" = "Siri";
 "yearly_meta_top_songs_sub_format" = "%@ · %d грає";
+"yearly_cover_lead_complete" = "Стільки часу ви провели з музикою за рік";
+"yearly_cover_lead_in_progress_format" = "Час із музикою з 1 січня до %@";
+"yearly_growth_more_so_far_format" = "На %d%% більше, ніж за той самий період минулого року";
+"yearly_growth_less_so_far_format" = "На %d%% менше, ніж за той самий період минулого року";
+"yearly_growth_same_so_far" = "Приблизно стільки ж, скільки за той самий період минулого року";
+"yearly_chapter_first_song" = "Перша пісня";
+"yearly_chapter_artists" = "Виконавці року";
+"yearly_chapter_songs" = "Пісні року";
+"yearly_chapter_taste" = "Ваш смак";
+"yearly_chapter_time" = "Коли ви слухаєте";
+"yearly_chapter_moments" = "Яскраві моменти";
+"yearly_chapter_month" = "Ваш музичний місяць";
+"yearly_chapter_sources" = "Звідки ваша музика";
+"yearly_chapter_personality" = "Музична особистість";
+"yearly_chapter_closing" = "Фінал";
+"yearly_chapter_to_be_continued" = "Далі буде";
+"yearly_top_albums_title" = "Найчастіше слухані альбоми";
+"yearly_taste_explorer_title" = "Завжди в пошуку нового";
+"yearly_taste_loyalist_title" = "Глибше в улюблене";
+"yearly_taste_explorer_lead" = "Ви відкрили для себе багато нових імен";
+"yearly_taste_loyalist_lead" = "Ви знову й знову поверталися до улюбленого";
+"yearly_taste_artists_format" = "%1$d виконавців, на п'ятірку лідерів припадає %2$d%% прослуховувань";
+"yearly_taste_genres_format" = "%1$d жанрів, найчастіше — %2$@";
+"yearly_discoveries_format" = "%d пісень ви почули вперше";
+"yearly_time_night_share_format" = "%d%% часу прослуховування — з 18:00 до 6:00";
+"yearly_latest_night_format" = "Найпізніше вночі з вами була «%1$@», %2$@";
+"yearly_moments_session_lead_format" = "%1$@ ви прослухали %2$d пісень поспіль";
+"yearly_moments_streak_lead" = "Найдовша серія за рік";
+"yearly_month_lead_format" = "Цього місяця ви слухали %@";
+"yearly_sources_lead_format" = "%d%% часу прослуховування — звідси";
+"yearly_closing_in_progress_title_format" = "%@ ще не закінчився";
+"yearly_closing_in_progress_lead" = "Кожна пісня, яку ви послухаєте, потрапить до цього звіту";
+"yearly_this_year_needs_more_format" = "Послухайте ще %2$d пісень, і з'явиться звіт за %1$@";
+"yearly_not_enough_format" = "Послухайте ще %2$d пісень у %1$@ році, і тут з'явиться музичний підсумок року";
 "lyrics_converter_plain_notice" = "Виведення звичайного тексту видаляє синхронізацію та голосову інформацію.";
 "metadata_status_state_unreadable" = "Теги не читаються";
 "ai_primuse_relay_diagnostic_region_detail" = "Вбудована служба недоступна для поточного регіону вітрини, тому запит на ретрансляцію не надіслано.";
@@ -3799,7 +3732,6 @@
 "onboarding_mac_step_format" = "Крок %d / 3";
 "cache" = "Кеш";
 "relay_share_uploading" = "Завантаження зашифрованого спільного доступу…";
-"yearly_exploration_explorer" = "схильний до дослідження";
 "lyrics_editor_previous_line" = "Попередній рядок";
 "playlist_import_intro_title" = "Виберіть файл m3u8 або Primuse JSON";
 "cloud_oauth_browser_subtitle" = "Авторизація системного браузера";
@@ -3812,7 +3744,6 @@
 "ai_primuse_relay_test_running" = "Перевірка вбудованої служби…";
 "scraper_warn_includes_cookie" = "Ця конфігурація містить дані Cookie. Імпортуйте конфігурації лише від тих, кому довіряєте.";
 "fullscreen_effect_typography_subtitle" = "Композиція, створена з метаданих треку";
-"yearly_sub_closing" = "Дякую та до побачення";
 "Not checked yet" = "Ще не перевірено";
 "playlist_reorder" = "Змінити замовлення";
 "cache_prewarm_seed" = "Попередньо тепле насіння (голова+хвіст)";
@@ -3866,7 +3797,6 @@
 "similar_failed" = "Не вдалося завантажити";
 "ai_primuse_relay_diagnostic_auth_detail" = "Primuse повторно зареєструвався та спробував один раз, але служба все одно відхилила ці облікові дані встановлення.";
 "lyrics_editor_no_timing_lines" = "Немає рядків тексту для синхронізації";
-"yearly_meta_first_song_title" = "Перша пісня року";
 "Authorize" = "Авторизуватися";
 "credential_temporarily_unavailable" = "Пароль тимчасово недоступний. Розблокуйте пристрій і повторіть спробу.";
 "offline_remove_song_cache" = "Видалити кеш пісні";
@@ -5431,10 +5361,6 @@
 "ai_feature_listening_mood" = "Настрій прослуховування";
 "stats_clear_recap_message" = "Уся історія прослуховування на цьому пристрої, зокрема річні архіви, буде видалена без можливості відновлення.";
 "stats_moment_busiest_day_format" = "Наймузичніший день — %1$@: усього %2$@";
-"stats_moment_discoveries_format" = "Уперше почуто пісень: %d";
-"stats_moment_genres_format" = "Улюблені стилі: %@";
-"stats_moment_peak_format" = "Найчастіше ви слухаєте: %1$@, особливо близько %2$@";
-"stats_moment_session_format" = "Найдовша сесія — %1$@, пісень поспіль: %2$d";
 "stats_moment_spoken_format" = "А ще %@ аудіокниг і розмовного контенту";
 "stats_moment_streak_format" = "Днів поспіль із музикою: %d";
 "stats_mood_looping_title" = "На повторі";
@@ -5454,11 +5380,6 @@
 "stats_mood_steady_title" = "Рівний ритм";
 "stats_mood_steady_summary" = "Ви слухаєте стабільно: майже щодня є час для музики.";
 "stats_recap_figure_artists" = "Виконавці";
-"stats_recap_lead_all" = "За весь час ви слухали";
-"stats_recap_lead_month" = "Цього місяця ви слухали";
-"stats_recap_lead_week" = "Цього тижня ви слухали";
-"stats_recap_lead_year" = "Цього року ви слухали";
-"stats_recap_moments_title" = "Головне";
 "stats_recap_mood_ai_footer_format" = "Опис: %1$@ · %2$@";
 "stats_recap_mood_consent_confirm" = "Дозволити й прочитати";
 "stats_recap_mood_consent_message" = "Час прослуховування, звичні години, а також найчастіші виконавці, пісні та стилі за останні 30 днів буде надіслано вибраному вами ШІ-сервісу, щоб отримати короткий опис. Він оновлюється автоматично не частіше ніж раз на тиждень. При цьому в розділі «Інтелект» увімкнуться обидва дозволи: на надсилання вмісту медіатеки та вподобань прослуховування.";
@@ -5469,20 +5390,9 @@
 "stats_recap_mood_refresh" = "Прочитати знову";
 "stats_recap_mood_title" = "Останнім часом";
 "stats_recap_mood_window" = "Останні 30 днів";
-"stats_recap_personality_title" = "Ваш тип слухача";
 "stats_recap_privacy_footer" = "Історія прослуховування зберігається на ваших пристроях і синхронізується між ними, коли ввімкнено синхронізацію iCloud.";
 "stats_recap_server_open" = "Торкніться, щоб відкрити статистику сервера";
-"stats_recap_server_plays_format" = "Усього прослуховувань: %@";
-"stats_recap_server_top_artist_format" = "Найчастіше: %@";
-"stats_recap_servers_footer" = "Ці прослуховування записав сам сервер, зокрема з інших пристроїв і застосунків, тож вони показані окремо й не додаються до цифр вище.";
-"stats_recap_servers_title" = "На ваших серверах";
-"stats_recap_since_format" = "З %@";
-"stats_recap_span_format" = "З %@ по сьогодні";
 "stats_recap_top_title" = "Найчастіше";
-"stats_recap_year_in_progress" = "Ваш рік на сьогодні — дивіться будь-коли";
-"stats_recap_year_past" = "Минулі роки";
-"stats_recap_year_ready" = "Історія цього року готова";
-"stats_recap_year_title" = "Підсумки року";
 "stats_trait_day" = "Удень";
 "stats_trait_explorer" = "Дослідник";
 "stats_trait_focused" = "Зосереджений";

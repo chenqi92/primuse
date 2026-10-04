@@ -27,7 +27,6 @@
 "batch_scrape_completed_artwork_format" = "Кэш иллюстраций в приложении: доступны %d или %d, %d не получен.";
 "update_banner_skip" = "Пропустить эту версию";
 "no_folder_selected" = "Папка не выбрана.";
-"yearly_card_hero_swipe" = "Проведите пальцем вверх, чтобы начать отзыв.";
 "cast_local_subtitle" = "Играй на этом устройстве";
 "settings_relay_waiting" = "Получение адреса локальной сети… (убедитесь, что Wi-Fi подключен)";
 "stats_range" = "Диапазон";
@@ -36,7 +35,6 @@
 "scrape_no_changes" = "Новых данных не найдено.";
 "home_radio_wall_manage %lld" = "Управление · %lld";
 "queue_title" = "Очередь";
-"yearly_meta_closing_big_format" = "Primuse составил вам компанию в %d дни музыки";
 "source_diag_run_again" = "Беги снова";
 "theme_color_custom" = "Пользовательский цвет";
 "notify_scan_failed_body" = "Сканирование «%@» прервано: %@";
@@ -49,7 +47,6 @@
 "ai_authentication_style" = "Аутентификация";
 "playlist_import_err_empty" = "В плейлисте нет треков.";
 "recently_played" = "Недавно прослушанные";
-"yearly_no_artist" = "Пока нет исполнителя";
 "tag_editor_album" = "Альбом";
 "SFTP client" = "Клиент SFTP";
 "scraping_album_covers" = "Загрузка обложек альбомов...";
@@ -95,7 +92,6 @@
 "auth_connection_limit_reached" = "Достигнут лимит подключений к серверу.";
 "source_diag_advice_certificate_title" = "Проблема с сертификатом";
 "update_modal_subtitle" = "Обновление с новейшими функциями и улучшениями.";
-"yearly_empty_desc" = "В этом году еще недостаточно прослушиваний\nПесни, проигрываемые в течение 30 секунд и более, автоматически засчитываются в вашу годовую статистику.";
 "radio_batch_file_hint" = "Выберите плейлист .m3u, .m3u8 или .pls. Названия станций в файле сохраняются.";
 "library_folder_selection_all" = "Выбрано";
 "Custom" = "Пользовательский";
@@ -141,7 +137,6 @@
 "lyrics_font_size" = "Размер шрифта";
 "search_chip_local" = "Местный";
 "later" = "Позже";
-"yearly_sub_top_songs" = "Лучшие песни";
 "scan_complete" = "Сканирование завершено";
 "scrobble_mac_i_authorized" = "Я разрешил это";
 "family_sharing_manage" = "Приглашать участников/управлять";
@@ -158,7 +153,6 @@
 "synology_auth_error_404" = "Код проверки недействителен. Попробуйте еще раз.";
 "discovery_reason_notRecentlyPlayed" = "Недавно не играл";
 "no_results" = "Нет результатов";
-"yearly_meta_personality_title" = "Ваша музыкальная личность";
 "last_modified_label" = "Дата источника";
 "radio_batch_entry_paste" = "Вставить";
 "delete_permanently" = "Удалить навсегда";
@@ -237,7 +231,6 @@
 "Now Playing · FLAC" = "Сейчас играет · FLAC";
 "tv_siri_remote_badge" = "ПУЛЬТ SIRI";
 "tag_editor_metadata_writeback_embedded" = "Теги и обложка будут встроены в исходный аудиофайл. Primuse сначала проверяет версию исходного файла, затем после сохранения скачивает и проверяет файл и метаданные.";
-"yearly_card_exploration_top5_label" = "Доля топ-5 исполнителей";
 "baidu_error_invalid_parameter" = "Неверный параметр (ошибка 2).";
 "library_folder_selection_partial" = "Частично выбрано";
 "yearly_card_time_detail_format" = "%@ — это когда ты слушаешь больше всего";
@@ -253,7 +246,6 @@
 "source_diag_config_missing_share_suggestion" = "Подключитесь один раз и выберите общую папку, чтобы сделать сканирование быстрее и надежнее.";
 "synced_playback_history" = "Недавнее воспроизведение (5-минутный дроссель)";
 "a11y_more_actions" = "Дополнительные действия";
-"yearly_card_peak_month_subtitle_format" = "%@ был твоим музыкальным месяцем в этом году";
 "lyrics_editor_mode_timing" = "Метки";
 "stats_server_error_connector_unavailable" = "Коннектор статистики сервера недоступен для этой исходной конфигурации.";
 "yearly_personality_lfnm_description" = "Посвящается нескольким артистам, одному стилю и новым релизам, в основном ночью.";
@@ -298,7 +290,6 @@
 "ai_provider_count_format" = "Службы %d настроены.";
 "scrobble_clear_queue" = "Очистить очередь";
 "keyboard_shortcuts_recording_short" = "Запись…";
-"yearly_meta_closing_title" = "Спасибо";
 "allow_insecure_http" = "В любом случае разрешить HTTP";
 "scan_runs_in_background_hint" = "Вы можете покинуть эту страницу; сканирование продолжается в фоновом режиме.";
 "metadata_status_card_source_problem_format" = "Проблема с исходным кодом/файлом %d";
@@ -338,7 +329,6 @@
 "lyrics_translation_ai_loading" = "Грамотный перевод";
 "tag_editor_split_preview %@ %@" = "→ «%1$@» · «%2$@»";
 "import_scraper_source" = "Импорт источника метаданных";
-"stats_comparison_format" = "%1$@ против %2$@";
 "reread_song_tags_failure_song_changed" = "Песня или ее источник изменились во время чтения тегов.";
 "cancel" = "Отмена";
 "error_oauth_invalid_callback %@" = "Неверный обратный вызов авторизации: %@.";
@@ -351,7 +341,6 @@
 "metadata_status_actions" = "Действия по чтению";
 "source_diag_connection_title" = "Соединение";
 "recently_deleted_clear_all_confirm_title" = "Очистить Недавно удаленные?";
-"yearly_card_plays_unit" = "играет";
 "lyrics_editor_play_this_song" = "Воспроизвести";
 "lyrics_converter_ttml_help" = "Apple Music-совместимый TTML";
 "smart_rule_group_exclude" = "Исключить эту группу";
@@ -388,7 +377,6 @@
 "stats_server_heatmap_footer" = "Каждая ячейка извлекается из отдельного события истории сервера; местная история не добавляется.";
 "immersive_demo_lyric_08" = "Ночь медленно движется за окном.";
 "settings_appletv_section" = "Apple TV";
-"stats_previous_month" = "в прошлом месяце";
 "Fill Missing" = "Отсутствует заполнение";
 "title_changed" = "Название обновлено";
 "scrape_candidate_loading_details" = "Загрузка данных кандидата…";
@@ -399,7 +387,6 @@
 "metadata_status_search" = "Поиск по названию, исполнителю, пути или формату.";
 "fnmusic_connection_method" = "Способ подключения";
 "cloud_setup_step_back_to_app" = "Вернитесь в Primuse, отредактируйте этот источник и введите учетные данные.";
-"yearly_meta_time_sub_format" = "%@ наиболее активен · пик на %d:00";
 "Covers / Lyrics" = "Обложки / Тексты песен";
 "lyrics_editor_return_to_playback" = "Вернуться к воспроизведению";
 "storage_export_log_footer" = "Экспортируйте primuse_debug.log через ShareSheet (AirDrop/почта/сохранение в файлы). Используется для передачи логов разработчику. Автоматически поворачивает файлы размером более 10 МБ.";
@@ -427,12 +414,10 @@
 "base_path" = "Базовый путь";
 "build" = "Сборка";
 "local_import_done_title" = "Импорт завершен.";
-"yearly_sub_personality" = "Музыкальная личность";
 "year" = "Год";
 "keyboard_shortcuts_conflict_title" = "Ярлык уже используется.";
 "home_hero_narrative_afternoon" = "Добрый день. В вашей медиатеке есть истории %@.";
 "updated_count" = "обновлено";
-"yearly_card_moment_session_label" = "Ваше самое захватывающее прослушивание";
 "auto_scrape" = "Автопоиск метаданных";
 "shuffle_all" = "Перемешать все";
 "ai_recommendation_intent_familiarContinuity_detail" = "Остается рядом с любимыми исполнителями и знакомыми жанрами.";
@@ -465,7 +450,6 @@
 "next_song" = "Далее";
 "artwork_mode_automatic" = "Автоматический";
 "no_albums_desc" = "Чтобы начать, добавьте источник музыки.";
-"yearly_card_first_song_subtitle_format" = "Ваш %@ начался с этой песни";
 "batch_select_all" = "Выбрать все";
 "relay_import_title" = "Импортировать общую песню";
 "library_recommendations_subtitle" = "Исследуйте свою медиатеку по настроению и обстановке.";
@@ -522,7 +506,6 @@
 "radio_name" = "Название станции";
 "Fixed overlap" = "Исправлено перекрытие";
 "reverb_small_room" = "Маленькая комната";
-"yearly_sub_genres" = "Жанровый профиль";
 "metadata_status_no_retryable_work" = "Теперь песни нельзя снова поставить в очередь. Вы все равно можете перечитать отдельную строку.";
 "radio_manage_pin_top" = "Закрепить вверху";
 "radio_manage_pin_top_short" = "Наверх";
@@ -546,7 +529,6 @@
 "scrobble_lastfm_signout" = "Отключить Last.fm";
 "apple_music_open_in_app" = "Открыть в Apple Music";
 "output_mode_effects_desc" = "Использует полный график обработки для EQ, динамику, реверберацию, пространственный звук, ReplayGain, скорость воспроизведения, плавное затухание, громкость приложения и визуализацию.";
-"yearly_no_source" = "Источника пока нет.";
 "error_scrobble_not_configured" = "Скробблинг не настроен.";
 "ai_error_missing_key" = "Введите ключ API.";
 "weekday_tuesday_short" = "Вт";
@@ -620,7 +602,6 @@
 "scraper_review_requests" = "Запросы";
 "dup_mac_copies_format" = "%d копии";
 "Dark · Medium" = "Темный · Средний";
-"stats_previous_year" = "в прошлом году";
 "radio_manage_delete_confirm_title" = "Удалить выбранные станции?";
 "local_import_reason_invalid_audio" = "Скопированный контент представляет собой заполнитель или ответ об ошибке, а не исходный звук.";
 "search_limit_per_source" = "Результаты по источникам";
@@ -660,7 +641,6 @@
 "desktop_widget_sync_continue" = "Продолжить";
 "weekday_sunday_short" = "Вс";
 "more" = "Ещё";
-"stats_top_header" = "Топ";
 "keyboard_shortcuts_changes_apply_immediately" = "Изменения вступают в силу немедленно.";
 "ai_resolved_endpoint" = "Конечная точка запроса";
 "home_section_playlists" = "Мои плейлисты";
@@ -771,7 +751,6 @@
 "stats_server_unavailable_desc" = "Полный снимок сервера недоступен. Проверьте соединение и обновите.";
 "ai_path_mode_automatic" = "Автоматический";
 "Go to System Settings → Privacy to re-enable" = "Перейдите в «Настройки системы» → «Конфиденциальность», чтобы снова включить.";
-"yearly_meta_first_song_placeholder_artist" = "Здесь начнется ваше первое воспроизведение.";
 "local_import_failure_item_format" = "%1$@: %2$@";
 "synology_connection_address" = "Адрес сервера";
 "ssl_trust_title" = "Ошибка сертификата SSL";
@@ -812,7 +791,6 @@
 "smart_field_playCount" = "Счетчик игр";
 "relay_share_error_response" = "Реле вернуло неверный или небезопасный ответ.";
 "scrape_writeback_metadata" = "Метаданные песни";
-"yearly_card_personality_subtitle" = "В этом году твоя музыкальная личность станет";
 "lyrics_converter_title" = "Конвертер текстов";
 "server_base_path_hint" = "Подпуть к серверу URL (необязательно, например /jellyfin)";
 "credential_save_failed_message" = "Не удалось надежно сохранить пароль. Исходник не сохранился. Пожалуйста, попробуйте еще раз.";
@@ -898,7 +876,6 @@
 "server_share_target_name" = "Имя";
 "local_import_progress_indexing" = "Проверка ранее импортированных файлов…";
 "start_similar_mix" = "Начать аналогичный микс";
-"yearly_no_date" = "Без даты";
 "library_recommendations_description" = "Сначала на устройстве выбираются воспроизводимые песни. Когда интеллектуальная служба включена, она лишь меняет их порядок и объясняет, почему.";
 "relay_share_access_password" = "Пароль";
 "apple_music_notice_denied" = "Apple Music доступ запрещен. Снова включите его в «Настройки системы» → «Конфиденциальность» → «Медиа и Apple Music».";
@@ -944,7 +921,6 @@
 "Push Status" = "Статус передачи";
 "stats_unique_songs" = "Уникальные песни";
 "connecting_title" = "Соединение";
-"yearly_meta_time_big_format" = "%d%% ночь";
 "sync_now" = "Синхронизировать сейчас";
 "library_recommendations_title" = "Рекомендации";
 "volume_high_fidelity_system_hint" = "High Fidelity Direct использует единичный коэффициент усиления. Отрегулируйте громкость с помощью элементов управления системы.";
@@ -1021,7 +997,6 @@
 "metadata_status_state_source_unavailable" = "Источник недоступен";
 "ai_primuse_relay_diagnostic_credential_detail" = "Не удалось прочитать или сохранить учетные данные локального устройства. Primuse воссоздаст его в следующем тесте; подтвердите, что доступ к связке ключей доступен, если это продолжится.";
 "lyrics_editor_empty_live" = "Вводить во время прослушивания";
-"yearly_meta_moments_title" = "Самая длинная сессия";
 "Invite…" = "Пригласить…";
 "played" = "Сыграно";
 "lyrics_source_reload_unsupported" = "Этот источник музыки не поддерживает перезагрузку исходных текстов.";
@@ -1039,14 +1014,12 @@
 "Tracks Played" = "Проигранные треки";
 "browse" = "Обзор";
 "lyrics_editor_unstamped_warning_title" = "У некоторых строк нет временных меток";
-"yearly_card_hero_title" = "Год в музыке";
 "scrape_candidates_count_format" = "Кандидаты (%d)";
 "No matching artist in your library." = "В вашей медиатеке нет подходящего исполнителя.";
 "offline_retry_download" = "Повторить загрузку";
 "yearly_personality_efnd_description" = "Находит все виды новых песен в одном любимом стиле и слушает их каждый день.";
 "library_browse_flat" = "Список";
 "player_lyrics_alignment_right" = "Справа";
-"yearly_meta_sources_sub_format" = "%d играет · %@";
 "Enable Effects Chain" = "Включить цепочку эффектов";
 "share_continue_music_server" = "Продолжить работу с музыкальным сервером";
 "relay_import_scanning" = "Импортировано. Обновление медиатеки…";
@@ -1063,7 +1036,6 @@
 "lyrics_source_reload_unchanged" = "Исходный текст уже соответствует кэшированному тексту.";
 "discovery_reason_sameFolder" = "Та же папка";
 "Display Style" = "Стиль отображения";
-"yearly_card_unit_hours" = "часов";
 "Manifest fetched · 4.2 KB" = "Манифест получен · 4,2 КБ";
 "spatial_head_tracking_desc" = "На поддерживаемом AirPods звуковая сцена остается зафиксированной, когда вы двигаете головой.";
 "lang_ja" = "японский";
@@ -1091,7 +1063,6 @@
 "lyrics_editor_paste_redo" = "Начать сначала";
 "ai_recommendation_intent_description_label" = "Описание фокуса";
 "META-03 · Custom Source JSON" = "МЕТА-03 · Пользовательский источник JSON";
-"yearly_meta_peak_month_big_format" = "Месяц %d";
 "Most Played This Month" = "Самые популярные в этом месяце";
 "fullscreen_effect_collection_audio_reactive" = "Реактивный звук";
 "artwork_choose_file" = "Загрузить";
@@ -1125,12 +1096,10 @@
 "source_cache_all_short" = "Кэш";
 "yearly_time_late_night" = "Поздняя ночь";
 "server_share_created" = "Публичная ссылка";
-"yearly_duration_minutes_format" = "%d мин.";
 "lyrics_translation_target" = "Перевести на";
 "home_hero_narrative_evening" = "Добрый вечер. В вашей медиатеке есть истории %@.";
 "lyrics_editor_next_line" = "Следующая строка";
 "discovery_reason_sameGenre" = "Тот же жанр";
-"yearly_meta_top_artist_title" = "Лучший артист";
 "ugreen_login_missing_token" = "Вход в систему UGREEN выполнен успешно, но токен не возвращен.";
 "Sidecar Write-Back" = "Запись в сопутствующие файлы";
 "player_keep_screen_awake_title" = "Не гасить экран в плеере";
@@ -1189,7 +1158,6 @@
 "intent_playing_similar_format" = "Воспроизведение песен, похожих на %@.";
 "source_diag_summary_failed" = "Требует внимания";
 "batch_scrape_start_failed" = "Не удалось запустить пакетное получение метаданных. Повторите попытку через некоторое время.";
-"yearly_meta_closing_sub" = "Продолжайте в том же духе · поделитесь своим отчетом";
 "greeting_evening" = "Добрый вечер";
 "Resume pending" = "Ожидается возобновление";
 "scrape_candidates_searching" = "Ищем кандидатов…";
@@ -1237,7 +1205,6 @@
 "stats_rank_albums" = "Альбомы";
 "home_hero_stats_hours_only" = "Из источников %d · Альбомы %d · Исполнители %d · Всего %d часов";
 "rescrape_library" = "Обновить метаданные медиатеки";
-"yearly_meta_artists_title" = "Обычный состав";
 "error_not_authenticated" = "Не аутентифицирован.";
 "smart_mac_header_format" = "Умный плейлист · %@";
 "playlist_import_missing" = "Не найдено";
@@ -1459,7 +1426,6 @@
 "scrape_candidates_search_prompt" = "Поиск кандидатов";
 "stats_server_stale_clock" = "Часы устройства отличаются от времени снимка.";
 "synology_session_expired" = "Срок сеанса истек. Войдите снова.";
-"yearly_sub_top_artists" = "Лучшие артисты";
 "onboarding_mac_connect_smb" = "Подключиться к SMB · NAS";
 "source_deleted_toast" = "Удален «%@»";
 "home_section_for_you" = "Для тебя";
@@ -1538,7 +1504,6 @@
 "apple_music_notice_notDetermined" = "Apple Music еще не подключен. Перейдите в Настройки → Apple Music, чтобы включить поиск по каталогу.";
 "apple_music_notice_notDetermined_in_sources" = "Apple Music еще не подключен. Подключите его в источнике Apple Music в разделе «Управление источниками», чтобы включить поиск по каталогу.";
 "relay_share_qr_accessibility" = "Поделиться QR-кодом ссылки";
-"yearly_card_exploration_subtitle" = "Ваше исследование";
 "spotlight_playlist_subtitle_format" = "Плейлист Primuse · Треки %d";
 "home_no_scans" = "Сканирование не выполняется.";
 "library_folder_other" = "Другое";
@@ -1576,7 +1541,6 @@
 "intent_set_liked_description" = "Добавьте или удалите текущую песню из списка понравившихся.";
 "cloud_authorizing_step4" = "Primuse получает обратный вызов и сохраняет токен доступа.";
 "theme_color_teal" = "Бирюзовый";
-"yearly_meta_genres_sub" = "Цвета звука, которые вы чаще всего слышали в этом году";
 "family_sharing_active" = "Семейный доступ активен";
 "exit_full_screen" = "Выход из полноэкранного режима";
 "source_diag_directory_ok_format" = "Каталог успешно прочитан, обнаружены видимые элементы %d.";
@@ -1613,7 +1577,6 @@
 "smart_rule_group_add" = "Добавить группу правил";
 "search_ai_reason_format" = "Относится к «%@»";
 "scrobble_provider_section" = "Сервис";
-"yearly_card_personality_insufficient" = "Недостаточно данных для определения личности.";
 "server_share_create" = "Создать общедоступную ссылку";
 "ai_playlist_add_songs" = "Добавляйте песни с помощью AI";
 "smart_mac_preview_meta_format" = "· %@ · в источниках %d";
@@ -1628,8 +1591,6 @@
 "library_cleanup_trash_count_format" = "Предметы %d";
 "send_to_tv_lan_message" = "Отправьте свою медиатеку, исходники и учетные данные непосредственно на этот Apple TV по локальной сети. iCloud не используется.";
 "Open-Source Licenses…" = "Лицензии с открытым исходным кодом…";
-"yearly_meta_peak_month_title" = "Пиковый месяц";
-"yearly_meta_overview_big_format" = "%d часов";
 "System" = "Как в системе";
 "gapless_not_available" = "Для треков в очереди доступно воспроизведение без пауз. Кроссфейд отключает его.";
 "lyrics_converter_copy" = "Копировать преобразованные тексты песен";
@@ -1687,7 +1648,6 @@
 "directory_selected_count_format" = "Выбраны каталоги %d";
 "search_lyrics_hits_format" = "Совпадения в текстах · %d";
 "yearly_personality_lfnd_description" = "Посвящается нескольким исполнителям, одному стилю и новым релизам, в основном днём.";
-"yearly_card_moment_latest_label" = "Песня, которая осталась с тобой последней";
 "player_animated_artwork_description" = "Воспроизведение предоставленных исходным кодом изображений GIF, APNG и анимированных изображений WebP в сведениях об альбоме и основных изображениях проигрывателя. В списках всегда используется статический первый кадр, при этом учитываются системные настройки движения и мощности.";
 "relay_share_link_secure" = "Постоянная защищенная ссылка";
 "cookie_config" = "Конфигурация файлов cookie";
@@ -1720,7 +1680,6 @@
 "recently_deleted_empty" = "Недавно ничего не удалялось";
 "onboarding_mac_continue" = "Продолжить";
 "library_recommendations_empty_description" = "Добавьте и отсканируйте источник музыки, чтобы упорядочить песни по сценам прослушивания и рекомендациям.";
-"yearly_meta_genres_title" = "Карта жанров";
 "ai_key_sync_footer" = "Настройки синхронизируются через iCloud, а ключи — через iCloud Keychain. Тесты соединения отправляют только фиксированную диагностическую фразу.";
 "local_import_reason_permission" = "Нет разрешения на чтение.";
 "scrape_writeback_sidecar_hint" = "Записывает сопутствующие файлы рядом с исходным · Тайм-аут 30 с · Фоновая задача";
@@ -1798,7 +1757,6 @@
 "lyrics_converter_overview_empty" = "Чтобы начать, перетащите файл с текстом песни или вставьте его содержимое.";
 "stats_heatmap_dimensions_format" = "7×%1$d · %2$d дней";
 "scrobble_pending_count" = "Ожидается повторная попытка";
-"yearly_sub_overview" = "Обзор";
 "ext.tv.search.aiSuccess" = "%@ активен";
 "invalid_url" = "Неверный URL";
 "backfill_retry_failed" = "Перепроверить приостановленные песни %d";
@@ -1849,7 +1807,6 @@
 "metadata_status_reread_filtered" = "Повторно прочитать теги всех отфильтрованных треков";
 "metadata_status_reread_progress_format" = "Чтение тегов: %1$lld / %2$lld";
 "metadata_status_reread_result_format" = "Завершено: %1$lld. Ошибок: %2$lld. Пропущено (уже читаются или недоступны): %3$lld.";
-"yearly_meta_sources_title" = "Наиболее часто используемый источник";
 "lyrics_editor_mode_structured" = "Строки";
 "Search…" = "Искать…";
 "playlist_import_match_path" = "Путь";
@@ -1875,16 +1832,13 @@
 "technical_info" = "Техническая информация";
 "open" = "Открыть";
 "scrape_options" = "Какие данные искать";
-"yearly_sub_peak_month" = "Месяц подписи";
 "radio_manage_selected %lld" = "%lld Выбрано";
 "Search Radio Stations" = "Поиск радиостанций";
-"yearly_no_record" = "Пока нет записей";
 "enable" = "Включить";
 "cloud_guide_dropbox" = "Перейдите на сайт dropbox.com/developers/apps, чтобы создать приложение.";
 "scrobble_enabled" = "Включить скроббл";
 "ai_path_mode_append_v1" = "Добавить /v1";
 "ai_playlist_current_section" = "Текущий плейлист";
-"stats_previous_week" = "на прошлой неделе";
 "Index Status · online dot" = "Статус индекса · онлайн точка";
 "tag_editor_mac_title" = "Редактировать теги";
 "ai_provider_preset_kimi" = "Kimi";
@@ -1915,7 +1869,6 @@
 "Playback Rate & Quality" = "Скорость и качество воспроизведения";
 "eq_reset" = "Сброс";
 "stats_server_error_unsupported" = "Этот источник не предоставляет читаемую статистику прослушивания сервера.";
-"yearly_meta_top_songs_title" = "Лучшие песни";
 "playlist_import_pick_file" = "Выбрать файл";
 "No Scan" = "Нет сканирования";
 "Shui Diao Ge Tou · FLAC 988 kbps" = "Шуй Дяо Гэ Тоу · FLAC 988 кбит/с";
@@ -1951,7 +1904,6 @@
 "Music Sources" = "Источники музыки";
 "scrobble_clear_queue_confirm" = "Очистить все ожидающие прослушивания?";
 "smart_date_days_unit_short" = "д";
-"yearly_sub_top_artist_hero" = "Твой любимый";
 "source_diag_summary_detail_format" = "%@ · %@";
 "lyrics_translation_unavailable" = "Перевод текста недоступен.";
 "stats_server_stale_refresh" = "Не удалось обновить сервер; отображаются кэшированные данные";
@@ -1964,12 +1916,10 @@
 "stats_heatmap_style_title" = "Тепловая карта в стиле GitHub";
 "tag_editor_tap_candidate_hint" = "Нажмите на вариант, который нужно заполнить.";
 "playlist_name_example" = "Ночная поездка";
-"yearly_no_song" = "Пока нет песни";
 "source_connection_public_port" = "Внешний порт";
 "playlist_export_json" = "Экспортировать как Primuse JSON";
 "custom_sources" = "Пользовательские источники";
 "search_match_lyrics" = "Соответствующие тексты песен";
-"yearly_meta_personality_placeholder" = "Все еще обретает форму.";
 "username" = "Имя пользователя";
 "open_folder" = "Открыть папку";
 "cloud_err_token_save_failed" = "Не удалось сохранить токен авторизации.";
@@ -2067,7 +2017,6 @@
 "source_diag_config_missing_bucket" = "Ведро S3 отсутствует.";
 "material_auto_desc" = "Выбирает лучший внешний вид, поддерживаемый этим Mac.";
 "ai_recommendation_scene_bedtime" = "Перед сном";
-"yearly_card_plays_count_format" = "%d играет";
 "Yu Xi Tan" = "Юй Си Тан";
 "tag_editor_cover_revert" = "Сохраните оригинальную обложку.";
 "apple_music_library_idle" = "Еще не синхронизировано";
@@ -2093,7 +2042,6 @@
 "track_label" = "Трек";
 "lyrics_editor_paste_parsed %lld" = "Получено строк: %lld";
 "settings_apple_music_denied" = "Apple Music доступ запрещен. Включите его в Настройках → Primuse.";
-"yearly_sub_exploration" = "Исследование";
 "local_import_files_title" = "Подключить файлы без копирования";
 "fullscreen_effect_collection_native" = "Оригинал";
 "crossfade_mode_fixed" = "Фиксированный";
@@ -2138,7 +2086,6 @@
 "relay_import_error_too_large" = "Размер файла превышает 20 ГБ, и его невозможно импортировать.";
 "dsd_mode_pcm" = "Конвертировать в PCM";
 "scrobble_mac_disabled_title" = "Скроббл выключен.";
-"yearly_sub_moments" = "Основные моменты";
 "fullscreen_effect_light_field" = "Световое поле";
 "tag_editor_field_duration" = "Продолжительность";
 "weekday_wednesday_short" = "Ср";
@@ -2164,13 +2111,10 @@
 "ai_playlist_prompt_summary_format" = "Создано из «%@»";
 "relay_import_error_title" = "Не удалось импортировать песню.";
 "go_to_artist" = "Перейти к исполнителю";
-"yearly_sub_time_of_day" = "Время суток";
 "song_details_loading" = "Чтение информации о треке";
-"yearly_card_top_songs_subtitle" = "Повторяющийся график этого года";
 "version" = "Версия";
 "local_reference_permission_missing" = "Primuse больше не может получить доступ к этому файлу или папке. Добавьте его еще раз, чтобы восстановить доступ.";
 "metadata_writeback_stage_edit" = "запись и проверка метаданных";
-"yearly_card_moment_repeat_detail_format" = "Сыграл с вами в %d раз";
 "stats_server_event_boundary" = "Этот сервер предоставляет отдельные временные метки игры, поэтому диапазоны и ежедневная активность используют историю сервера. Он не раскрывает фактическую продолжительность прослушивания, поэтому общая продолжительность не отображается.";
 "family_sharing_shared_sources" = "NAS / облако / источники Apple Music";
 "ai_connection_success" = "Соединение выполнено успешно.";
@@ -2180,7 +2124,6 @@
 "yearly_card_peak_month_top_format" = "Ваш самый популярный игрок в этом месяце: %@";
 "local_import_progress_copying_format" = "Обработано %1$d/%2$d · Импортировано %3$d · Пропущено %4$d";
 "smart_mac_limit_to" = "Ограничение до";
-"yearly_sub_sources" = "Исходный профиль";
 "Word-by-Word Lyrics" = "Текст с синхронизацией по словам";
 "source_diag_checks" = "Чеки";
 "server_share_unsupported_message" = "Этот сервер не поддерживает общий доступ OpenSubsonic, или его администратор отключил общий доступ.";
@@ -2267,14 +2210,11 @@
 "ugreen_rsa_fallback_failed_format" = "%1$@; Ошибка инициализации входа в систему RSA: %2$@";
 "C-07 · Newly Written Credentials" = "C-07 · Недавно выписанные полномочия";
 "fnmusic_account_hint" = "Используйте учетную запись, которая позволяет войти в Feiniu Music и имеет доступ к медиатеке.";
-"yearly_next_card" = "Следующая карта";
-"yearly_previous_card" = "Предыдущая карта";
 "library_folder_selection_none" = "Не выбрано";
 "cache_size" = "Размер кэша";
 "dup_mac_keep_read_only" = "Сохранить (только чтение)";
 "search_top_match" = "Лучшее совпадение";
 "ai_delete_current_api_key" = "Удалить текущий ключ API";
-"yearly_meta_moments_sub_format" = "%d песни подряд · %@";
 "search_jump_to_lyrics_context" = "Перейти к контексту текста песни";
 "online" = "онлайн";
 "scrape_lyrics_not_found" = "Тексты песен не найдены. Попробуйте другой запрос или источник текста.";
@@ -2395,7 +2335,6 @@
 "stats_heatmap_title" = "Ежедневная активность";
 "source_remove_managed_confirm_action" = "Удалить источник и копии";
 "recently_added" = "Недавно добавленные";
-"yearly_meta_peak_month_sub_format" = "Больше всего в этом месяце звучала песня %@.";
 "smart_mac_between_groups" = "Между группами правил";
 "add_to_queue" = "Добавить в очередь";
 "smart_sort_direction" = "Направление";
@@ -2426,7 +2365,6 @@
 "lyrics_display_section" = "Дисплей";
 "lyrics_editor_save_anyway" = "Всё равно сохранить";
 "relay_import_source" = "Поделиться Источником";
-"yearly_card_exploration_explorer" = "В этом году вы подарили уши множеству новых имен.";
 "cloud_oauth_config" = "Авторизация облака";
 "source_remove_managed_confirm_title" = "Удалить источник и скопированные файлы?";
 "scrobble_lastfm_err_missing_creds" = "Сначала введите ключ API и секрет API.";
@@ -2461,7 +2399,6 @@
 "source_cache_size_known_plus_unknown_format" = "Песня(ы) %@ + %d неизвестного размера";
 "yearly_personality_efnd_name" = "Солнечный странник";
 "Auto-check for updates (daily)" = "Автоматическая проверка обновлений (ежедневно)";
-"yearly_card_moment_session_detail_format" = "Песни %d за один раз";
 "synology_password_update_save_failed" = "DSM принял новый пароль, но его не удалось надежно сохранить. Сохраненный пароль остается неизменным. Пожалуйста, попробуйте еще раз.";
 "smart_playlist_name" = "Имя";
 "lyrics_converter_invalid_notice" = "Не удалось разобрать этот текст. Проверьте структуру документа и временные метки.";
@@ -2477,7 +2414,6 @@
 "no_insecure_http_domains" = "Ни одному общедоступному хосту не разрешено использовать HTTP.";
 "Primuse is a native macOS player for NAS / media-server enthusiasts, built on SFBAudioEngine. This design covers 200+ features: Set A uses .glassEffect() on macOS 26+, Set B falls back to .regularMaterial.\n\n© 2026 Primuse Project · Made for lossless lovers." = "Primuse — это родной проигрыватель macOS для энтузиастов NAS/медиа-серверов, созданный на базе SFBAudioEngine. Этот дизайн охватывает более 200 функций: набор A использует .glassEffect() на macOS 26+, набор B возвращается к .regularMaterial.\n\n© 2026 Primuse Project · Создан для любителей без потерь.";
 "rules_count" = "правила";
-"yearly_meta_hero_sub" = "Пусть Primuse проведет вас через музыкальное путешествие этого года.";
 "scrobble_lastfm_err_token_format" = "Не удалось получить токен: %@.";
 "ai_recommendation_status_upstream_local" = "Ошибка восходящего канала интеллектуальной службы; существующие рекомендации сохранены";
 "scrobble_mac_rules_value" = "50% · 4 мин.";
@@ -2512,7 +2448,6 @@
 "reverb_medium_room" = "Средняя комната";
 "intent_set_liked_parameter" = "Понравилось";
 "radio_flac_error_allocate" = "Невозможно выделить прямой аудиовыход FLAC.";
-"yearly_duration_hm_format" = "%d ч %d мин";
 "apple_music_scrape_lyrics_only" = "Метаданные Apple Music и официальное оформление остаются неизменными; при извлечении метаданных сохраняются только внешние тексты песен, которые вы подтверждаете.";
 "ai_primuse_relay_diagnostic_registration_detail" = "При этой установке не удалось создать учетные данные доверенного устройства. Переустановите актуальную подписанную сборку и повторите попытку.";
 "onboarding_metadata_title" = "Пополните свою медиатеку";
@@ -2531,7 +2466,6 @@
 "Wine in hand, I ask the sky" = "Вино в руке, я прошу небо";
 "relay_share_error_server_format" = "Реле отклонило запрос (HTTP %d).";
 "Open System Settings" = "Открыть настройки системы.";
-"yearly_empty_title_format" = "%@ Обзор года";
 "settings_menu_item" = "Настройки…";
 "greeting_afternoon" = "Добрый день.";
 "tag_editor_lyrics_clear" = "Очистить";
@@ -2572,7 +2506,6 @@
 "songs_found" = "найдено песен";
 "new_smart_playlist" = "Новый смарт-плейлист";
 "ai_provider_footer" = "Отправляется только контент, необходимый для включенных авторизованных функций. Структура медиатеки и пути к файлам остаются на этом устройстве; аудио загружается только для явно одобренной транскрипции песни.";
-"yearly_card_sources_subtitle" = "Откуда твоя музыка";
 "search_ai_section" = "Интеллектуальные дополнительные результаты";
 "Delete Permanently" = "Удалить навсегда";
 "dlna_device_casting" = "Трансляция";
@@ -2603,7 +2536,6 @@
 "Go to App Store" = "Перейти к App Store";
 "Reverb" = "Реверберация";
 "settings_title" = "Настройки";
-"yearly_meta_overview_title" = "Общее время";
 "synology_auth_error_408" = "Срок действия пароля истек, и его нельзя изменить здесь. Сначала сбросьте его в DSM.";
 "Live Logs" = "Живые журналы";
 "local_import_provider_error_title" = "Облачный диск вернулся. Нет звука.";
@@ -2652,7 +2584,6 @@
 "local_import_progress_failed_format" = "Ошибка %d";
 "reverb_large_room" = "Большая комната";
 "playlist_import_mac_intro_title" = "Выберите файл списка воспроизведения, чтобы начать.";
-"yearly_card_genres_empty" = "Введите жанры песен, и здесь появится ваша карта жанров.";
 "metadata_writeback_error_embedded_verification_format" = "Обновленный аудиофайл не прошел проверку встроенных метаданных (%@).";
 "home_playable_count_short" = "Играет";
 "server_share_target_type" = "Тип";
@@ -2701,7 +2632,6 @@
 "lyrics_editor_tap_sync" = "Синхронизация нажатиями";
 "source_diag_advice_invalid_response" = "Источник вернул нечитаемый ответ.";
 "radio_batch_add_title" = "Массовое добавление станций";
-"yearly_sub_first_song" = "Первая песня";
 "relay_share_size" = "Размер";
 "intent_scrape_live_radio_unsupported" = "Невозможно получить прямую трансляцию радио.";
 "update_banner_action" = "Обновление";
@@ -2754,10 +2684,8 @@
 "error_rate_limited" = "Слишком много запросов. Повторите попытку позже.";
 "password_edit_hint" = "Оставьте пустым, чтобы сохранить текущий пароль.";
 "compressor_medium" = "Средний";
-"yearly_card_unit_artists" = "исполнители";
 "lyrics_editor_reorder_line" = "Изменить порядок строк текста";
 "relay_share_revoke" = "Отозвать ссылку";
-"yearly_card_moment_repeat_label" = "Песня в этом году повторится";
 "remember_device" = "Запомнить устройство";
 "ai_recommendation_intent_rightNow_detail" = "Использует контекст и историю прослушивания без дополнительной подсказки ИИ.";
 "no_playlists_desc" = "Создайте список воспроизведения, чтобы систематизировать свою музыку.";
@@ -2857,7 +2785,6 @@
 "Restore Defaults" = "Восстановить настройки по умолчанию";
 "source_cache_all_confirm" = "Кэшировать все";
 "source_diag_select_dirs" = "Каталог сканирования не выбран.";
-"yearly_meta_genres_sub_empty" = "Добавьте жанры в свою медиатеку, и она станет богаче.";
 "cloud_guide_default" = "Зарегистрируйтесь в центре разработчиков соответствующей платформы.";
 "artist_releases" = "Релизы";
 "radio_batch_add_count %lld" = "Добавить станции %lld";
@@ -2889,7 +2816,6 @@
 "smb_error_refused" = "SMB: Сервер отказался подключиться (проверьте порт)";
 "onboarding_welcome_subtitle" = "Primuse воспроизводится с вашего NAS, облачных дисков и домашней сети — никому не загружая ни одного файла.";
 "replay_gain" = "ReplayGain";
-"yearly_card_unit_songs" = "песни";
 "playlist_import_export_unmatched_csv" = "Экспорт непревзойденного → CSV";
 "close" = "Закрыть";
 "library_recommendations_intent_title" = "Что ты хочешь услышать?";
@@ -2931,7 +2857,6 @@
 "local_import_folder_title" = "Подключить папку без копирования";
 "tag_editor_lyrics_writeback_read_only" = "Источник только для чтения: данные сохраняются в Primuse и синхронизируются через iCloud, но их нельзя записать непосредственно в источник.";
 "Parse Result" = "Результат анализа";
-"yearly_meta_genres_placeholder_format" = "Жанры %d";
 "minutes" = "мин.";
 "scrobble_lastfm_reopen_authorization" = "Повторно открыть страницу авторизации.";
 "play" = "Воспроизвести";
@@ -2975,17 +2900,14 @@
 "tag_editor_disc" = "Номер диска";
 "smb_error_auth" = "SMB: Неверное имя пользователя или пароль.";
 "sort_newest_to_oldest" = "От нового к самому старому";
-"yearly_report_year_title_format" = "%@ Обзор года";
 "dup_keep_largest_file" = "Сохранить самый большой файл";
 "desktop_widget_sync_status_disabled" = "Отключено";
-"yearly_sub_hero" = "Обложка";
 "start_song_radio" = "Запустить песенное радио";
 "local_import_cancelled" = "Импорт отменен.";
 "import_mode" = "Режим импорта";
 "lyrics_converter_choose_file" = "Выберите файл.";
 "scrobble_mac_footer_empty" = "Токены хранятся только в локальной связке ключей · недавних отправок нет.";
 "The radio station is currently unavailable." = "Радиостанция в данный момент недоступна.";
-"yearly_card_genres_subtitle" = "Жанры, которые вы слышали в этом году";
 "stats_server_loading" = "Загрузка статистики сервера…";
 "dont_trust" = "Не доверяй";
 "source_label" = "Источник";
@@ -3039,7 +2961,6 @@
 "s3_secret_key" = "Секретный ключ";
 "Domain" = "Домен";
 "metadata_status_filter_pending" = "Ожидается";
-"yearly_meta_exploration_title" = "Исследование";
 "radio_batch_duplicate_of %@" = "Уже сохранено как «%@»";
 "scan_needs_connect" = "Сначала подключитесь (требуется OTP)";
 "Recently Deleted" = "Недавно удалённые";
@@ -3073,7 +2994,6 @@
 "intent_playing_playlist_format" = "Воспроизводю плейлист %@.";
 "scraper_review_capabilities" = "Возможности";
 "edit_source" = "Редактировать источник";
-"yearly_card_genres_unit" = "типы";
 "notify_backfill_complete" = "Уведомлять о завершении долгих задач";
 "onboarding_mac_welcome_desc" = "Родной проигрыватель macOS, созданный для энтузиастов NAS/медиа-серверов. Поместите файлы FLAC, DSD и APE в одну единую медиатеку.";
 "ai_audio_transcription_action" = "Расшифровать песню";
@@ -3113,9 +3033,7 @@
 "immersive_demo_lyric_06" = "Прилив оставляет мелодию вдоль берега.";
 "discovery_reason_newToLibrary" = "Новое в вашей медиатеке.";
 "songs_view_grid" = "Сетка";
-"yearly_card_overview_subtitle" = "В этом году музыка составляла вам компанию.";
 "lyrics_editor_empty_manual_detail" = "Введите строки вручную, затем добавьте временные метки";
-"yearly_meta_artists_sub" = "Эти имена составили ваши самые знакомые звуки в этом году.";
 "radio_batch_entry_directory" = "Каталог";
 "Import" = "Импорт";
 "error_range_http %@" = "Сервер потоковой передачи вернул HTTP %@.";
@@ -3149,7 +3067,6 @@
 "home_todays_pick_title" = "Выбор сегодняшнего дня";
 "scrape_preview" = "Найденные метаданные";
 "song_info" = "Информация о песне";
-"yearly_card_peak_month_unit" = "Месяц";
 "artist_name_settings_separators_footer" = "Разделители совпадают буквально. Точки с запятой обеих ширин, косая черта и идеографическая запятая (、) включены по умолчанию.";
 "last_played_label" = "Последняя игра";
 "lyrics_editor_shift_clamped" = "Уже в начале — дальнейший сдвиг перенёс бы первую строку до нулевой отметки.";
@@ -3174,7 +3091,6 @@
 "relay_share_no_actions_warning" = "Разрешить хотя бы одно действие доступа.";
 "carplay_up_next" = "Далее";
 "apple_music_notice_no_results" = "Нет результатов по Apple Music (эта витрина может не иметь такого названия).";
-"yearly_meta_personality_sub" = "Продолжайте слушать, и отчет расширит ваш профиль.";
 "ai_playlist_name_section" = "Название плейлиста";
 "ai_primuse_relay_diagnostic_storekit_cancelled_detail" = "Проверка App Store отменена. Запустите тест еще раз и завершите вход в систему.";
 "discovery_reason_recentFavorite" = "Из вашего недавнего избранного";
@@ -3220,7 +3136,6 @@
 "Last Synced" = "Последняя синхронизация";
 "check_for_updates_available_format" = "Доступна версия %@ — коснитесь, чтобы открыть App Store.";
 "local_import_title" = "Копировать в Primuse.";
-"yearly_share_card" = "Карточка для обмена";
 "desktop_lyrics_locked" = "Тексты песен на рабочем столе заблокированы";
 "Playlist" = "Плейлист";
 "reset" = "Сброс";
@@ -3272,10 +3187,8 @@
 "ai_provider_preset_nvidia_nim" = "NVIDIA NIM";
 "lyrics_transcription_saved" = "Настройки транскрипции песни сохранены.";
 "lyrics_converter_exported_format" = "Сохранено %@";
-"yearly_meta_top_artist_sub_format" = "%d играет · %@";
 "use_ssl" = "Используйте SSL/TLS.";
 "yearly_time_dawn" = "Рассвет";
-"rank_by" = "Рейтинг по";
 "playlist_drop_cover" = "Перетащите сюда обложку";
 "lyrics_font_xlarge" = "Очень большой";
 "fnmusic_access_code" = "Код доступа FN Connect (необязательно)";
@@ -3372,10 +3285,8 @@
 "Enable Audio Cache" = "Включить аудиокэш";
 "audio_effects" = "Аудиоэффекты";
 "relay_share_error_configuration" = "Выберите встроенную службу или введите действительный локальный HTTPS URL и ключ администратора.";
-"yearly_card_unit_plays" = "играет";
 "source_diag_advice_auth_title" = "Проблема аутентификации";
 "yearly_unknown_source" = "Неизвестный источник музыки.";
-"yearly_meta_peak_month_sub_default" = "Пик воспроизведения за год пришелся на этот месяц.";
 "ai_playlist_prompt_footer" = "ИИ выбирает песни только из вашей медиатеки и использует согласие на конфиденциальность в настройках ИИ.";
 "song_details_loading_message" = "Загрузка заголовка тега этой песни (~ 256 КБ) из облака, чтобы узнать продолжительность, обложку и исполнителя. После этого его можно добавить в очередь воспроизведения.";
 "source_cache_partial_title" = "Кэширование завершено частично";
@@ -3397,7 +3308,6 @@
 "family_sharing_shared_apple_mirror" = "Зеркало медиатеки Apple Music";
 "ai_actions_section" = "Подключение и сохранение";
 "local_import_progress_title" = "Импорт музыки";
-"yearly_card_artists_subtitle" = "Еще несколько завсегдатаев";
 "tag_editor_lyrics_summary_format" = "Строк: %1$d · %2$@";
 "There is no current song to scrape." = "Нет текущей песни для получения метаданных.";
 "Import from URL…" = "Импорт из URL…";
@@ -3409,7 +3319,6 @@
 "There is no Primuse playback session to resume." = "Нет сеанса воспроизведения Primuse, который можно было бы возобновить.";
 "stats_no_previous_comparison" = "Нет предыдущего периода для сравнения.";
 "onboarding_experience_insights" = "Умные плейлисты, статистика прослушивания и годовые отчеты.";
-"yearly_card_top_artist_subtitle" = "Ваш самый популярный артист в этом году";
 "radio_batch_paste_from_clipboard" = "Вставить из буфера обмена.";
 "keyboard_shortcuts_replace" = "Заменить";
 "lyrics_transcription_models_empty" = "Каталог моделей Google не возвратил совместимую модель транскрипции.";
@@ -3436,7 +3345,6 @@
 "lyrics_transcription_settings_title" = "Транскрипция песен";
 "a11y_unlike" = "Удалить из понравившихся песен";
 "immersive_now_playing" = "СЕЙЧАС ИГРАЕТ";
-"yearly_card_time_unit_hour" = "ч";
 "Open-Source Licenses" = "Лицензии с открытым исходным кодом";
 "smart_sort_field_lastPlayedAt" = "Последняя игра";
 "scrobble_lastfm_pending_hint" = "Выполняется авторизация Last.fm. Войдите в систему, нажмите «Разрешить», затем нажмите «Готово», чтобы вернуться в Primuse.";
@@ -3560,12 +3468,9 @@
 "relay_share_password_placeholder" = "Дополнительный пароль прослушивателя.";
 "a11y_close_lyrics" = "Скрыть текст";
 "icloud_sync_enabled" = "Включить синхронизацию iCloud.";
-"yearly_meta_exploration_sub_format" = "Топ-5 артистов составляют %d%% · %@";
 "lyrics_word" = "Текст песни";
-"yearly_meta_overview_sub_format" = "Песни %d · Исполнители %d · Пьесы %d";
 "playlist_import_match_fuzzy" = "Нечеткий";
 "SRC-29 · Cross-Process Cache" = "SRC-29 · Межпроцессный кэш";
-"yearly_card_closing_subtitle" = "Музыка составляла вам компанию в этом году";
 "error_range_timeout" = "Время ожидания запроса на потоковую передачу истекло.";
 "cache_active" = "Сейчас воспроизводится/транслируется";
 "Now Playing · 3 Sizes" = "Сейчас играет · 3 размера";
@@ -3583,7 +3488,6 @@
 "source_diag_advice_oauth_title" = "Срок авторизации в облаке истек.";
 "Checking for Updates" = "Проверка обновлений";
 "local_import_progress_validating" = "Проверка текущего аудиофайла…";
-"yearly_card_moments_subtitle" = "Ваши лучшие моменты";
 "scrape_actions" = "Действия с метаданными";
 "Tranquil Woods" = "Безмятежный лес";
 "export" = "Экспорт";
@@ -3595,12 +3499,10 @@
 "scrobble_lastfm_connect" = "Подключить аккаунт Last.fm";
 "Play a saved internet-radio station in Primuse." = "Включите сохраненную интернет-радиостанцию в Primuse.";
 "keyboard_shortcuts_window_section" = "Окна и навигация";
-"yearly_meta_time_title" = "Утро против ночи";
 "tag_editor_lyrics_error_title" = "Не удалось сохранить текст";
 "synology_password_edit_validation_title" = "Пароль Synology требует проверки соединения";
 "smart_op_between" = "между";
 "Artist" = "Исполнитель";
-"yearly_exploration_deep" = "склоняюсь к внимательному слушанию";
 "update_banner_subtitle" = "Обновление через App Store";
 "song_sort_progress_cancelled" = "Сортировка отменена.";
 "searching" = "Ищем...";
@@ -3623,14 +3525,12 @@
 "source_diag_connection_ok" = "Установление связи с сервером выполнено успешно.";
 "synology_connection_method" = "Способ подключения";
 "scraper_no_source_title" = "Нет включённых источников метаданных";
-"yearly_duration_zero" = "0 мин.";
 "Year in Review · Medium" = "Обзор года · Средний";
 "ai_recommendation_status_device_registration_local" = "Не удалось зарегистрировать устройство; существующие рекомендации сохранены";
 "lyrics_converter_input" = "Ввод";
 "Live Data" = "Текущие данные";
 "select_changes" = "Выберите изменения для применения.";
 "rating" = "Рейтинг";
-"yearly_card_time_subtitle" = "Ваши часы прослушивания";
 "settings_dlna_footer" = "Другие устройства на том же Wi-Fi (VLC, Synology Audio Station, Plex, Hi-Fi Cast и т. д.) будут видеть Primuse как средство рендеринга мультимедиа и могут передавать звук для воспроизведения.";
 "batch_scrape_counts_format" = "Обновлено %d · Не обновлено %d · Не выполнено %d";
 "no_lyrics" = "Тексты песен недоступны.";
@@ -3711,7 +3611,6 @@
 "songs_column_bitrate" = "Скорость передачи данных";
 "scrobble_mac_token_saved" = "Токен сохранен.";
 "onboarding_sources_footer" = "Вы можете добавить столько, сколько захотите, в любое время.";
-"yearly_card_exploration_deep" = "В этом году вы предпочитали глубже слушать звуки, которые вам нравятся.";
 "widget_preview_hours_format" = "%d ч";
 "output_sr_matching" = "Согласование частоты дискретизации вывода";
 "immersive_demo_lyric_07" = "Самое тихое эхо все еще может разноситься по комнате.";
@@ -3772,6 +3671,40 @@
 "clear" = "Очистить";
 "tv_remote_siri" = "Siri";
 "yearly_meta_top_songs_sub_format" = "%@ · %d играет";
+"yearly_cover_lead_complete" = "Столько времени вы провели с музыкой за год";
+"yearly_cover_lead_in_progress_format" = "Время с музыкой с 1 января по %@";
+"yearly_growth_more_so_far_format" = "На %d%% больше, чем за тот же период прошлого года";
+"yearly_growth_less_so_far_format" = "На %d%% меньше, чем за тот же период прошлого года";
+"yearly_growth_same_so_far" = "Примерно столько же, сколько за тот же период прошлого года";
+"yearly_chapter_first_song" = "Первая песня";
+"yearly_chapter_artists" = "Исполнители года";
+"yearly_chapter_songs" = "Песни года";
+"yearly_chapter_taste" = "Ваш вкус";
+"yearly_chapter_time" = "Когда вы слушаете";
+"yearly_chapter_moments" = "Яркие моменты";
+"yearly_chapter_month" = "Ваш музыкальный месяц";
+"yearly_chapter_sources" = "Откуда ваша музыка";
+"yearly_chapter_personality" = "Музыкальная личность";
+"yearly_chapter_closing" = "Финал";
+"yearly_chapter_to_be_continued" = "Продолжение следует";
+"yearly_top_albums_title" = "Самые прослушиваемые альбомы";
+"yearly_taste_explorer_title" = "Всегда в поиске нового";
+"yearly_taste_loyalist_title" = "Глубже в любимое";
+"yearly_taste_explorer_lead" = "Вы открыли для себя много новых имён";
+"yearly_taste_loyalist_lead" = "Вы снова и снова возвращались к любимому";
+"yearly_taste_artists_format" = "%1$d исполнителей, на пятёрку лидеров приходится %2$d%% прослушиваний";
+"yearly_taste_genres_format" = "%1$d жанров, чаще всего — %2$@";
+"yearly_discoveries_format" = "%d песен вы услышали впервые";
+"yearly_time_night_share_format" = "%d%% времени прослушивания — с 18:00 до 6:00";
+"yearly_latest_night_format" = "Дольше всех ночью с вами была «%1$@», %2$@";
+"yearly_moments_session_lead_format" = "%1$@ вы послушали %2$d песен подряд";
+"yearly_moments_streak_lead" = "Самая длинная серия за год";
+"yearly_month_lead_format" = "В этом месяце вы слушали %@";
+"yearly_sources_lead_format" = "%d%% времени прослушивания — отсюда";
+"yearly_closing_in_progress_title_format" = "%@ ещё не закончился";
+"yearly_closing_in_progress_lead" = "Каждая песня, которую вы послушаете, попадёт в этот отчёт";
+"yearly_this_year_needs_more_format" = "Послушайте ещё %2$d песен, и появится отчёт за %1$@";
+"yearly_not_enough_format" = "Послушайте ещё %2$d песен в %1$@ году, и здесь появится музыкальный итог года";
 "lyrics_converter_plain_notice" = "При выводе обычного текста удаляется временная и голосовая информация.";
 "metadata_status_state_unreadable" = "Теги нечитабельны";
 "ai_primuse_relay_diagnostic_region_detail" = "Встроенный сервис недоступен для текущего региона витрины, поэтому запрос на ретрансляцию не был отправлен.";
@@ -3799,7 +3732,6 @@
 "onboarding_mac_step_format" = "Шаг %d / 3";
 "cache" = "Кэш";
 "relay_share_uploading" = "Загрузка зашифрованного общего ресурса…";
-"yearly_exploration_explorer" = "склоняюсь к исследованию";
 "lyrics_editor_previous_line" = "Предыдущая строка";
 "playlist_import_intro_title" = "Выберите файл m3u8 или Primuse JSON.";
 "cloud_oauth_browser_subtitle" = "Авторизация в системном браузере";
@@ -3812,7 +3744,6 @@
 "ai_primuse_relay_test_running" = "Проверка встроенной службы…";
 "scraper_warn_includes_cookie" = "Эта конфигурация содержит данные Cookie. Импортируйте конфигурации только от тех, кому доверяете.";
 "fullscreen_effect_typography_subtitle" = "Композиция, построенная на основе метаданных трека.";
-"yearly_sub_closing" = "Спасибо и до свидания";
 "Not checked yet" = "Еще не проверено";
 "playlist_reorder" = "Изменить порядок";
 "cache_prewarm_seed" = "Предварительно тёплое семя (головка+хвост)";
@@ -3866,7 +3797,6 @@
 "similar_failed" = "Не удалось загрузить";
 "ai_primuse_relay_diagnostic_auth_detail" = "Primuse перерегистрировался и повторил попытку один раз, но служба все равно отклонила эти учетные данные для установки.";
 "lyrics_editor_no_timing_lines" = "Нет строк текста для синхронизации";
-"yearly_meta_first_song_title" = "Первая песня года";
 "Authorize" = "Авторизоваться";
 "credential_temporarily_unavailable" = "Пароль временно недоступен. Разблокируйте устройство и повторите попытку.";
 "offline_remove_song_cache" = "Удалить кэш песен";
@@ -5431,10 +5361,6 @@
 "ai_feature_listening_mood" = "Настроение прослушивания";
 "stats_clear_recap_message" = "Вся история прослушивания на этом устройстве, включая годовые архивы, будет удалена без возможности восстановления.";
 "stats_moment_busiest_day_format" = "Самый музыкальный день — %1$@: всего %2$@";
-"stats_moment_discoveries_format" = "Впервые услышано песен: %d";
-"stats_moment_genres_format" = "Любимые стили: %@";
-"stats_moment_peak_format" = "Чаще всего вы слушаете: %1$@, особенно около %2$@";
-"stats_moment_session_format" = "Самая долгая сессия — %1$@, песен подряд: %2$d";
 "stats_moment_spoken_format" = "А ещё %@ аудиокниг и разговорного контента";
 "stats_moment_streak_format" = "Дней подряд с музыкой: %d";
 "stats_mood_looping_title" = "На повторе";
@@ -5454,11 +5380,6 @@
 "stats_mood_steady_title" = "Ровный ритм";
 "stats_mood_steady_summary" = "Вы слушаете стабильно: почти каждый день находится время для музыки.";
 "stats_recap_figure_artists" = "Исполнители";
-"stats_recap_lead_all" = "За всё время вы слушали";
-"stats_recap_lead_month" = "В этом месяце вы слушали";
-"stats_recap_lead_week" = "На этой неделе вы слушали";
-"stats_recap_lead_year" = "В этом году вы слушали";
-"stats_recap_moments_title" = "Главное";
 "stats_recap_mood_ai_footer_format" = "Описание: %1$@ · %2$@";
 "stats_recap_mood_consent_confirm" = "Разрешить и прочитать";
 "stats_recap_mood_consent_message" = "Время прослушивания, привычные часы, а также самые частые исполнители, песни и стили за последние 30 дней будут отправлены выбранному вами ИИ-сервису, чтобы получить короткое описание. Оно обновляется автоматически не чаще раза в неделю. При этом в разделе «Интеллект» включатся оба разрешения: на отправку содержимого медиатеки и предпочтений прослушивания.";
@@ -5469,20 +5390,9 @@
 "stats_recap_mood_refresh" = "Прочитать заново";
 "stats_recap_mood_title" = "В последнее время";
 "stats_recap_mood_window" = "Последние 30 дней";
-"stats_recap_personality_title" = "Ваш тип слушателя";
 "stats_recap_privacy_footer" = "История прослушивания хранится на ваших устройствах и синхронизируется между ними, когда включена синхронизация iCloud.";
 "stats_recap_server_open" = "Нажмите, чтобы открыть статистику сервера";
-"stats_recap_server_plays_format" = "Всего прослушиваний: %@";
-"stats_recap_server_top_artist_format" = "Чаще всего: %@";
-"stats_recap_servers_footer" = "Эти прослушивания записал сам сервер, включая другие устройства и приложения, поэтому они показаны отдельно и не прибавляются к цифрам выше.";
-"stats_recap_servers_title" = "На ваших серверах";
-"stats_recap_since_format" = "С %@";
-"stats_recap_span_format" = "С %@ по сегодня";
 "stats_recap_top_title" = "Чаще всего";
-"stats_recap_year_in_progress" = "Ваш год на сегодня — смотрите в любое время";
-"stats_recap_year_past" = "Прошлые годы";
-"stats_recap_year_ready" = "История этого года готова";
-"stats_recap_year_title" = "Итоги года";
 "stats_trait_day" = "Днём";
 "stats_trait_explorer" = "Исследователь";
 "stats_trait_focused" = "Сосредоточенный";

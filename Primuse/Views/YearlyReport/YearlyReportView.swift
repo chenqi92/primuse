@@ -8,781 +8,682 @@ import AppKit
 typealias YearlyReportShareImage = NSImage
 #endif
 
-/// 年度音乐报告主容器 ── Stories 风格的纵向翻页卡片浏览器。
+/// 年度报告的章节，按讲述的先后排：听了多久 → 从哪首歌开始 → 听谁、听什么 → 口味 →
+/// 什么时候听 → 高光 → 哪个月 → 从哪来 → 你是谁 → 谢幕。没有数据的章不出现。
+enum YearlyChapterKind: String, Hashable, CaseIterable {
+    case cover, firstSong, artists, songs, taste, time, moments, month, sources, personality, closing
+
+    static func visible(in data: YearlyReportData) -> [YearlyChapterKind] {
+        allCases.filter { $0.isAvailable(in: data) }
+    }
+
+    func isAvailable(in data: YearlyReportData) -> Bool {
+        let recap = data.recap
+        switch self {
+        case .cover, .closing: return true
+        case .firstSong: return data.highlights.firstPlay != nil
+        case .artists: return !data.artists.isEmpty
+        case .songs: return !data.songs.isEmpty
+        case .taste, .personality: return data.personality != nil
+        case .time: return recap.peakHour != nil
+        case .moments:
+            return (recap.longestSession?.songs ?? 0) >= YearlyReportFacts.minimumSessionSongs
+                || (recap.longestStreak?.days ?? 0) >= YearlyReportFacts.minimumStreakDays
+        case .month:
+            // 一年里只在一个月听过歌，「你的音乐月」没有可比的。
+            guard let peak = data.highlights.peakMonth else { return false }
+            return peak.plays < recap.totals.plays
+        case .sources: return !data.sources.isEmpty
+        }
+    }
+
+    func tone(in data: YearlyReportData) -> YearlyReportTone {
+        switch self {
+        case .cover: .cover
+        case .firstSong: .firstSong
+        case .artists: .artists
+        case .songs: .songs
+        case .taste: .taste
+        case .time: .time(data.recap.peakDaypart ?? .evening)
+        case .moments: .moments
+        case .month: .month(data.highlights.peakMonth?.month ?? 1)
+        case .sources: .sources
+        case .personality: .personality
+        case .closing: .closing
+        }
+    }
+}
+
+/// 几章共用的门槛。
+enum YearlyReportFacts {
+    /// 连听不到三首算不上「一口气」。
+    static let minimumSessionSongs = 3
+    static let minimumStreakDays = 3
+}
+
+/// 「最近的状态」要用的东西：只在今年的报告里接在音乐人格后面。
+struct YearlyReportMood {
+    let signals: ListeningMoodSignals
+    /// 最近的播放时间，新的在前。
+    let recentPlayDates: [Date]
+    let clearedAt: Date?
+}
+
+/// 年度报告：一章接一章从上往下铺开。
 ///
-/// - 12 张卡片按顺序播放, 每张默认 ~6s
-/// - 上下滑翻页 (上滑下一张 / 下滑上一张)
-/// - 右上 X 退出
-/// - 仅"音乐人格"卡显示分享按钮 ── 渲染当前卡为图片直接分享
-///
-/// 设计来源: Spotify Wrapped / Instagram Stories 同款交互。
-struct YearlyReportView: View {
+/// 每章自己画一段从本章底色渐变到下一章底色的背景，整页连成一条色带；章与章之间
+/// 一小段竖线接着。`header` 放在封面那一章最上面（换年份），`footer` 放在最后一章
+/// 下面（清空记录），都落在同一条色带里。
+struct YearlyReportPages<Header: View, Footer: View>: View {
     let data: YearlyReportData
-    @Environment(\.dismiss) private var dismiss
+    var mood: YearlyReportMood?
+    /// 这一年听有声内容的时长；有声内容不进报告的任何一项，只在高光里提一句。
+    var spokenWordSeconds: TimeInterval = 0
+    @ViewBuilder let header: () -> Header
+    @ViewBuilder let footer: () -> Footer
 
-    @State private var currentIndex: Int = 0
-    @State private var elapsed: TimeInterval = 0
-    @State private var lastTickAt: Date = Date()
-    @State private var shareImageItem: ShareImageItem?
-    /// 滑动方向 ── 上滑下一张时新卡从下方进入, 下滑上一张时从上方进入,
-    /// 跟手势方向一致, 比单纯 opacity 更有"翻页"质感。
-    @State private var lastTransitionDirection: TransitionDirection = .forward
-
-    private static let cardDuration: TimeInterval = 6.0
-    private let cards: [YearlyReportCard] = YearlyReportCard.allCases
-
-    private var currentCard: YearlyReportCard { cards[currentIndex] }
-
-    enum TransitionDirection { case forward, backward }
+    @State private var shareItem: ShareImageItem?
 
     var body: some View {
-        if data.isEmpty {
-            emptyStateView
-        } else {
-            #if os(macOS)
-            macMainBody
-            #else
-            mainBody
-            #endif
-        }
-    }
-
-    /// 真实数据为空时显示的占位 ── 让用户知道"听够多歌再来看"。
-    private var emptyStateView: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Color(red: 0.20, green: 0.10, blue: 0.45), Color(red: 0.10, green: 0.10, blue: 0.25)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-
-            VStack(spacing: 16) {
-                Image(systemName: "music.note.list")
-                    .font(.system(size: 80, weight: .light))
-                    .foregroundStyle(.white.opacity(0.6))
-                Text(String(format: String(localized: "yearly_empty_title_format"), String(data.year)))
-                    .font(.system(.title2, design: .rounded).weight(.bold))
-                    .foregroundStyle(.white)
-                Text(String(localized: "yearly_empty_desc"))
-                    .font(.callout)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
-                Button("close") { dismiss() }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.white.opacity(0.2))
-                    .foregroundStyle(.white)
-                    .padding(.top, 24)
+        let chapters = YearlyChapterKind.visible(in: data)
+        VStack(spacing: 0) {
+            ForEach(Array(chapters.enumerated()), id: \.element) { index, kind in
+                section(kind, index: index, of: chapters)
             }
         }
-        .preferredColorScheme(.dark)
-    }
-
-    #if os(macOS)
-    /// macOS follows `design/猿音/scenes/yearly.jsx`: one wide report
-    /// window with a horizontal story strip, not the iOS vertical Stories
-    /// pager. The data source and share renderer stay shared.
-    private var macMainBody: some View {
-        ZStack {
-            Color(red: 0.055, green: 0.050, blue: 0.042).ignoresSafeArea()
-            AmbientBackdrop(
-                accent: Color(red: 0.85, green: 0.43, blue: 0.27),
-                darkAccent: Color(red: 0.16, green: 0.10, blue: 0.23),
-                strength: 0.86
-            )
-            .ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                macHeader
-                    .padding(.horizontal, 48)
-                    .padding(.top, 36)
-                    .padding(.bottom, 24)
-
-                macStoryStrip
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                macFooter
-                    .padding(.horizontal, 48)
-                    .padding(.top, 18)
-                    .padding(.bottom, 48)
-            }
-        }
-        .frame(minWidth: 980, minHeight: 680)
-        .preferredColorScheme(.dark)
-        .gesture(
-            DragGesture(minimumDistance: 24)
-                .onEnded { value in
-                    if value.translation.width < -60 { macAdvance() }
-                    else if value.translation.width > 60 { macBack() }
-                }
-        )
-        .task {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(200))
-                guard !Task.isCancelled else { break }
-                tick()
-            }
-        }
-        .sheet(item: $shareImageItem) { item in
+        .tint(YearlyReportPalette.accent)
+        .sheet(item: $shareItem) { item in
             ShareSheet(items: item.images)
         }
     }
 
-    private var macHeader: some View {
-        HStack(spacing: 14) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(Color(red: 0.85, green: 0.43, blue: 0.27))
+    /// 底色：本章的颜色渐到下一章的颜色。首尾两章各自延伸到页面外（见 `YearlyReportBackdrop`）。
+    static func edgeTones(of data: YearlyReportData) -> (top: YearlyReportTone, bottom: YearlyReportTone) {
+        let chapters = YearlyChapterKind.visible(in: data)
+        return (chapters.first?.tone(in: data) ?? .cover, chapters.last?.tone(in: data) ?? .closing)
+    }
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(String(localized: "yearly_wrapped_brand"))
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(0.55))
-                Text(String(format: String(localized: "yearly_report_year_title_format"), String(data.year)))
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundStyle(Color(red: 0.95, green: 0.93, blue: 0.90))
+    private func section(_ kind: YearlyChapterKind, index: Int, of chapters: [YearlyChapterKind]) -> some View {
+        let tone = kind.tone(in: data)
+        let next = index + 1 < chapters.count ? chapters[index + 1].tone(in: data) : tone
+        let isLast = index == chapters.count - 1
+        return VStack(spacing: 0) {
+            if index == 0 {
+                header()
+                    .padding(.bottom, 18)
+            } else {
+                YearlyThread()
+                    .padding(.bottom, 22)
             }
+            chapter(kind, number: index)
+            if isLast {
+                footer()
+                    .padding(.top, 40)
+            }
+        }
+        .padding(.horizontal, RecapStyle.horizontalPadding)
+        .padding(.top, index == 0 ? 12 : 0)
+        .padding(.bottom, isLast ? 56 : 30)
+        .frame(maxWidth: RecapStyle.maximumContentWidth)
+        .frame(maxWidth: .infinity)
+        .background {
+            LinearGradient(colors: [tone.color, next.color], startPoint: .top, endPoint: .bottom)
+        }
+        .id(kind)
+    }
 
-            Spacer()
+    @ViewBuilder
+    private func chapter(_ kind: YearlyChapterKind, number: Int) -> some View {
+        switch kind {
+        case .cover: coverChapter
+        case .firstSong: firstSongChapter(number)
+        case .artists: artistsChapter(number)
+        case .songs: songsChapter(number)
+        case .taste: tasteChapter(number)
+        case .time: timeChapter(number)
+        case .moments: momentsChapter(number)
+        case .month: monthChapter(number)
+        case .sources: sourcesChapter(number)
+        case .personality: personalityChapter(number)
+        case .closing: closingChapter
+        }
+    }
 
-            Text(verbatim: "\(currentIndex + 1) / \(cards.count)")
-                .font(.system(size: 11.5, design: .monospaced))
-                .foregroundStyle(Color.white.opacity(0.50))
+    /// 「02 · 年度艺人」。
+    private func eyebrow(_ number: Int, _ key: String.LocalizationValue) -> String {
+        String(format: "%02d", number) + "  ·  " + String(localized: key)
+    }
 
-            PMRoundBtn(icon: "xmark", size: 28, iconSize: 11, style: .glass, help: "close") {
-                dismiss()
+    private var yearText: String { String(data.year) }
+
+    // MARK: 封面
+
+    private var coverChapter: some View {
+        let totals = data.recap.totals
+        return YearlyChapter(
+            eyebrow: String(format: String(localized: "yearly_report_entry_title"), data.year),
+            art: YearlyArt(name: "decor_overview_hourglass", fallbackSymbol: "hourglass", maxWidth: 200, maxHeight: 168),
+            lead: [coverLead, growthLine].compactMap { $0 }
+        ) {
+            RecapHeroDuration(seconds: totals.seconds, numberSize: 56)
+                .multilineTextAlignment(.center)
+        } content: {
+            YearlyFigureGrid(figures: [
+                .init(id: "songs", value: totals.uniqueSongs.formatted(), label: String(localized: "stats_unique_songs")),
+                .init(id: "artists", value: totals.uniqueArtists.formatted(), label: String(localized: "stats_recap_figure_artists")),
+                .init(id: "plays", value: totals.plays.formatted(), label: String(localized: "stats_total_plays")),
+                .init(id: "days", value: totals.activeDays.formatted(), label: String(localized: "stats_active_days")),
+            ])
+        }
+    }
+
+    private var coverLead: String {
+        guard data.isInProgress else { return String(localized: "yearly_cover_lead_complete") }
+        return String(
+            format: String(localized: "yearly_cover_lead_in_progress_format"),
+            data.interval.end.formatted(.dateTime.month().day())
+        )
+    }
+
+    /// 今年还没过完就比去年同期，过完了比去年整年。
+    private var growthLine: String? {
+        guard let growth = data.growth else { return nil }
+        let percent = Int((abs(growth) * 100).rounded())
+        if growth > 0.05 {
+            return String(format: String(localized: data.isInProgress ? "yearly_growth_more_so_far_format" : "yearly_card_growth_more_format"), percent)
+        }
+        if growth < -0.05 {
+            return String(format: String(localized: data.isInProgress ? "yearly_growth_less_so_far_format" : "yearly_card_growth_less_format"), percent)
+        }
+        return String(localized: data.isInProgress ? "yearly_growth_same_so_far" : "yearly_card_growth_same")
+    }
+
+    // MARK: 第一首歌
+
+    @ViewBuilder
+    private func firstSongChapter(_ number: Int) -> some View {
+        if let first = data.highlights.firstPlay {
+            let when = first.playedAt.formatted(.dateTime.month().day().hour().minute())
+            YearlyChapter(
+                eyebrow: eyebrow(number, "yearly_chapter_first_song"),
+                art: YearlyArt(name: "decor_first_song", fallbackSymbol: "play.rectangle.fill", maxWidth: 150, maxHeight: 190),
+                lead: [first.artist.isEmpty ? when : first.artist + "  ·  " + when]
+            ) {
+                YearlyHeadline(text: first.title)
             }
         }
     }
 
-    private var macStoryStrip: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 18) {
-                    ForEach(Array(cards.enumerated()), id: \.element) { index, card in
-                        macStoryTile(card: card, index: index)
-                            .id(card)
-                    }
-                }
-                .padding(.horizontal, 48)
-                .padding(.vertical, 28)
-            }
-            .pmStopsAtVerticalBar()
-            .onChange(of: currentIndex) { _, newValue in
-                pmWithAnimation(.trackChange) {
-                    proxy.scrollTo(cards[newValue], anchor: .center)
-                }
-            }
-            .onAppear {
-                proxy.scrollTo(currentCard, anchor: .center)
+    // MARK: 年度艺人
+
+    @ViewBuilder
+    private func artistsChapter(_ number: Int) -> some View {
+        if let leader = data.artists.first {
+            YearlyChapter(
+                eyebrow: eyebrow(number, "yearly_chapter_artists"),
+                art: YearlyArt(name: "decor_trophy", fallbackSymbol: "trophy.fill", maxWidth: 180, maxHeight: 170),
+                lead: [String(
+                    format: String(localized: "yearly_card_top_artist_detail_format"),
+                    leader.playCount,
+                    RecapHeroDuration.format(leader.totalSec)
+                )]
+            ) {
+                YearlyHeadline(text: leader.title)
+            } content: {
+                YearlyRankRows(
+                    items: data.artists,
+                    leaderPlayCount: leader.playCount,
+                    firstPosition: 0,
+                    isArtistRanking: true,
+                    collapsedCount: 5
+                )
             }
         }
     }
 
-    private func macStoryTile(card: YearlyReportCard, index: Int) -> some View {
-        let selected = index == currentIndex
-        let dimmed = abs(index - currentIndex) > 2
-        let meta = macMetadata(for: card)
+    // MARK: 年度歌曲
 
-        return Button {
-            pmWithAnimation(.trackChange) {
-                lastTransitionDirection = index >= currentIndex ? .forward : .backward
-                currentIndex = index
-                elapsed = 0
-            }
-        } label: {
-            VStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(verbatim: meta.title)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.white.opacity(0.62))
-                        .lineLimit(1)
-
-                    Text(verbatim: meta.big)
-                        .font(.system(size: selected ? 56 : 34, weight: .bold))
-                        .foregroundStyle(Color(red: 0.95, green: 0.93, blue: 0.90))
-                        .lineLimit(3)
-                        .minimumScaleFactor(0.62)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 16)
-
-                if meta.showsBars && selected {
-                    macBars
-                        .frame(height: 100)
-                        .padding(.bottom, 18)
-                } else {
-                    Image(systemName: meta.symbol)
-                        .font(.system(size: selected ? 64 : 46, weight: .light))
-                        .foregroundStyle(Color.white.opacity(selected ? 0.42 : 0.22))
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.bottom, selected ? 28 : 18)
-                }
-
-                VStack(alignment: .leading, spacing: 16) {
-                    Text(verbatim: meta.sub)
-                        .font(.system(size: 13))
-                        .foregroundStyle(Color.white.opacity(0.78))
-                        .lineLimit(4)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    if selected {
-                        HStack(spacing: 8) {
-                            Button {
-                                shareCurrent()
-                            } label: {
-                                Label(String(localized: "yearly_share_card"), systemImage: "square.and.arrow.up")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .labelStyle(.titleAndIcon)
-                                    .padding(.horizontal, 12)
-                                    .frame(height: 30)
-                                    .background(Color.white.opacity(0.12), in: .rect(cornerRadius: 8))
-                            }
-                            .buttonStyle(.plain)
-
-                            Button {
-                                macAdvance()
-                            } label: {
-                                Text(String(localized: "yearly_next_card"))
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundStyle(Color.white.opacity(0.72))
-                                    .padding(.horizontal, 12)
-                                    .frame(height: 30)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-            }
-            .padding(28)
-            .frame(width: selected ? 380 : 260, height: selected ? 580 : 460)
-            .background {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(selected ? 0.16 : 0.10),
-                                Color.white.opacity(selected ? 0.04 : 0.02),
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
+    @ViewBuilder
+    private func songsChapter(_ number: Int) -> some View {
+        if let leader = data.songs.first {
+            YearlyChapter(
+                eyebrow: eyebrow(number, "yearly_chapter_songs"),
+                art: YearlyArt(name: "decor_record_stack", fallbackSymbol: "music.note.list", maxWidth: 140, maxHeight: 200),
+                lead: [leader.subtitle.isEmpty
+                    ? ListeningRankText.playCount(leader.playCount)
+                    : String(format: String(localized: "yearly_meta_top_songs_sub_format"), leader.subtitle, leader.playCount)]
+            ) {
+                YearlyHeadline(text: leader.title)
+            } content: {
+                VStack(spacing: 16) {
+                    YearlyRankRows(
+                        items: data.songs,
+                        leaderPlayCount: leader.playCount,
+                        firstPosition: 0,
+                        collapsedCount: 5
                     )
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .strokeBorder(Color.white.opacity(selected ? 0.24 : 0.14), lineWidth: 0.5)
-            }
-            .shadow(color: .black.opacity(selected ? 0.45 : 0.25),
-                    radius: selected ? 30 : 18,
-                    y: selected ? 24 : 12)
-            .offset(y: selected ? -8 : 0)
-            .opacity(dimmed ? 0.55 : 1)
-            .animation(.easeInOut(duration: 0.24), value: currentIndex)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var macBars: some View {
-        let values: [CGFloat] = [24, 28, 32, 40, 46, 52, 58, 72, 76, 82, 98, 92]
-        return HStack(alignment: .bottom, spacing: 4) {
-            ForEach(Array(values.enumerated()), id: \.offset) { index, value in
-                RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .fill(index == 10
-                          ? Color(red: 0.85, green: 0.43, blue: 0.27)
-                          : Color.white.opacity(0.62))
-                    .frame(height: value)
+                    if data.albums.count > 1 {
+                        YearlyAlbumShelf(
+                            title: String(localized: "yearly_top_albums_title"),
+                            items: Array(data.albums.prefix(8))
+                        )
+                    }
+                }
             }
         }
     }
 
-    private var macFooter: some View {
-        HStack(spacing: 10) {
-            PMRoundBtn(icon: "chevron.left", size: 32, iconSize: 13, style: .glass, help: "yearly_previous_card") {
-                macBack()
-            }
+    // MARK: 口味
 
-            HStack(spacing: 4) {
-                ForEach(cards.indices, id: \.self) { index in
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(Color.white.opacity(index <= currentIndex ? 0.40 : 0.18))
-                            if index < currentIndex {
-                                Capsule().fill(Color.white.opacity(0.72))
-                            } else if index == currentIndex {
-                                Capsule().fill(Color.white)
-                                    .frame(width: max(4, geo.size.width * CGFloat(min(elapsed / Self.cardDuration, 1))))
-                            }
+    @ViewBuilder
+    private func tasteChapter(_ number: Int) -> some View {
+        if let personality = data.personality {
+            let recap = data.recap
+            let explorer = personality.exploration == .explorer
+            YearlyChapter(
+                eyebrow: eyebrow(number, "yearly_chapter_taste"),
+                art: YearlyArt(name: "decor_artists_chorus", fallbackSymbol: "person.3.fill", maxWidth: 300, maxHeight: 170),
+                lead: [String(localized: explorer ? "yearly_taste_explorer_lead" : "yearly_taste_loyalist_lead")]
+            ) {
+                YearlyHeadline(text: String(localized: explorer ? "yearly_taste_explorer_title" : "yearly_taste_loyalist_title"))
+            } content: {
+                YearlyFactList(facts: tasteFacts(recap))
+            }
+        }
+    }
+
+    private func tasteFacts(_ recap: ListeningRecap) -> [YearlyFactList.Fact] {
+        var facts = [YearlyFactList.Fact(
+            symbol: "person.2.fill",
+            text: String(
+                format: String(localized: "yearly_taste_artists_format"),
+                recap.totals.uniqueArtists,
+                Int((recap.topFiveArtistShare * 100).rounded())
+            )
+        )]
+        if recap.genreCount > 0, !recap.topGenres.isEmpty {
+            facts.append(.init(symbol: "guitars.fill", text: String(
+                format: String(localized: "yearly_taste_genres_format"),
+                recap.genreCount,
+                recap.topGenres.map(\.name).formatted(.list(type: .and))
+            )))
+        }
+        if let discoveries = recap.discoveries, discoveries > 0 {
+            facts.append(.init(symbol: "sparkles", text: String(
+                format: String(localized: "yearly_discoveries_format"),
+                discoveries
+            )))
+        }
+        return facts
+    }
+
+    // MARK: 听歌的时间
+
+    @ViewBuilder
+    private func timeChapter(_ number: Int) -> some View {
+        if let hour = data.recap.peakHour {
+            let daypart = data.recap.peakDaypart ?? .of(hour: hour)
+            YearlyChapter(
+                eyebrow: eyebrow(number, "yearly_chapter_time"),
+                art: YearlyArt(name: daypart.yearlyArtworkName, fallbackSymbol: daypart.symbolName, maxWidth: 340, maxHeight: 136),
+                lead: [
+                    String(format: String(localized: "yearly_card_time_detail_format"), daypart.localizedLabel),
+                    String(format: String(localized: "yearly_time_night_share_format"), Int((data.recap.nightShare * 100).rounded())),
+                ]
+            ) {
+                YearlyHeadline(text: hourLabel(hour))
+            } content: {
+                if let latest = data.highlights.latestNight {
+                    YearlyFactList(facts: [.init(symbol: "moon.stars.fill", text: String(
+                        format: String(localized: "yearly_latest_night_format"),
+                        latest.title,
+                        latest.playedAt.formatted(.dateTime.month().day().hour().minute())
+                    ))])
+                }
+            }
+        }
+    }
+
+    /// 「晚上11时」「11 PM」：按当前语言写钟点。
+    private func hourLabel(_ hour: Int) -> String {
+        let calendar = ListeningCalendar.current
+        let date = calendar.date(bySettingHour: hour, minute: 0, second: 0, of: Date()) ?? Date()
+        return date.formatted(.dateTime.hour())
+    }
+
+    // MARK: 高光时刻
+
+    private func momentsChapter(_ number: Int) -> some View {
+        let recap = data.recap
+        let session = recap.longestSession.flatMap { $0.songs >= YearlyReportFacts.minimumSessionSongs ? $0 : nil }
+        let streak = recap.longestStreak.flatMap { $0.days >= YearlyReportFacts.minimumStreakDays ? $0 : nil }
+        let facts = momentFacts(session: session, streak: streak)
+        let headline: String
+        let lead: String
+        if let session {
+            headline = RecapHeroDuration.format(session.seconds)
+            lead = String(
+                format: String(localized: "yearly_moments_session_lead_format"),
+                session.start.formatted(.dateTime.month().day()),
+                session.songs
+            )
+        } else {
+            headline = String(format: String(localized: "stats_moment_streak_format"), streak?.days ?? 0)
+            lead = String(localized: "yearly_moments_streak_lead")
+        }
+        return YearlyChapter(
+            eyebrow: eyebrow(number, "yearly_chapter_moments"),
+            art: YearlyArt(name: "decor_badge_moment", fallbackSymbol: "rosette", maxWidth: 160, maxHeight: 150),
+            lead: [lead]
+        ) {
+            YearlyHeadline(text: headline)
+        } content: {
+            if !facts.isEmpty {
+                YearlyFactList(facts: facts)
+            }
+        }
+    }
+
+    /// 标题讲了最长的一次连听，这里补上连续天数、听得最多的一天和有声内容。
+    private func momentFacts(session: ListeningRecap.Session?, streak: ListeningRecap.Streak?) -> [YearlyFactList.Fact] {
+        let recap = data.recap
+        var facts: [YearlyFactList.Fact] = []
+        if session != nil, let streak {
+            facts.append(.init(symbol: "flame.fill", text: String(format: String(localized: "stats_moment_streak_format"), streak.days)))
+        }
+        if recap.totals.activeDays > 1, let day = recap.busiestDay {
+            facts.append(.init(symbol: "calendar", text: String(
+                format: String(localized: "stats_moment_busiest_day_format"),
+                day.date.formatted(.dateTime.month().day()),
+                RecapHeroDuration.format(day.seconds)
+            )))
+        }
+        if spokenWordSeconds >= 60 {
+            facts.append(.init(symbol: ListeningSpace.spokenWord.systemImage, text: String(
+                format: String(localized: "stats_moment_spoken_format"),
+                RecapHeroDuration.format(spokenWordSeconds)
+            )))
+        }
+        return facts
+    }
+
+    // MARK: 音乐月
+
+    @ViewBuilder
+    private func monthChapter(_ number: Int) -> some View {
+        if let peak = data.highlights.peakMonth {
+            YearlyChapter(
+                eyebrow: eyebrow(number, "yearly_chapter_month"),
+                art: YearlyArt(name: String(format: "month_%02d", peak.month), fallbackSymbol: "calendar", maxWidth: 340, maxHeight: 164),
+                lead: monthLead(peak)
+            ) {
+                YearlyHeadline(text: monthName(peak.month))
+            }
+        }
+    }
+
+    private func monthLead(_ peak: ListeningYearHighlights.Month) -> [String] {
+        var lead = [String(format: String(localized: "yearly_month_lead_format"), RecapHeroDuration.format(peak.seconds))]
+        if let song = peak.topSong {
+            lead.append(String(format: String(localized: "yearly_card_peak_month_top_format"), song.title))
+        }
+        return lead
+    }
+
+    private func monthName(_ month: Int) -> String {
+        guard (1...12).contains(month) else {
+            return String(format: String(localized: "yearly_month_n_format"), month)
+        }
+        // 先拼成普通字符串：直接写插值字面量会被当成带占位符的键「yearly_month_%lld」。
+        let key = "yearly_month_\(month)"
+        return String(localized: String.LocalizationValue(key))
+    }
+
+    // MARK: 音乐源
+
+    @ViewBuilder
+    private func sourcesChapter(_ number: Int) -> some View {
+        if let top = data.sources.first {
+            let total = data.sources.reduce(0.0) { $0 + $1.seconds }
+            let percent: (YearlyReportData.SourceShare) -> Int = { total > 0 ? Int(($0.seconds / total * 100).rounded()) : 0 }
+            YearlyChapter(
+                eyebrow: eyebrow(number, "yearly_chapter_sources"),
+                art: YearlyArt(name: "decor_sources_pipeline", fallbackSymbol: "point.3.connected.trianglepath.dotted", maxWidth: 300, maxHeight: 150),
+                lead: [String(format: String(localized: "yearly_sources_lead_format"), percent(top))]
+            ) {
+                YearlyHeadline(text: top.name)
+            } content: {
+                if data.sources.count > 1 {
+                    VStack(spacing: 14) {
+                        ForEach(data.sources.prefix(4)) { share in
+                            YearlySourceRow(share: share, percent: percent(share))
                         }
                     }
-                    .frame(height: 3)
+                    .recapPanel(padding: 16)
                 }
             }
-
-            PMRoundBtn(icon: "chevron.right", size: 32, iconSize: 13, style: .glass, help: "yearly_next_card") {
-                macAdvance()
-            }
-            PMRoundBtn(icon: "square.and.arrow.down", size: 32, iconSize: 13, style: .glass, help: "share") {
-                shareCurrent()
-            }
         }
     }
 
-    private func macMetadata(for card: YearlyReportCard) -> (title: String, big: String, sub: String, symbol: String, showsBars: Bool) {
-        let hours = Int(data.totalSec / 3600)
-        let topSong = data.mostPlayedSong ?? data.topSongs.first
-        let topArtist = data.topArtists.first
-        let topSource = data.sourceBreakdown.first
-        let personality = data.personality
-
-        switch card {
-        case .hero:
-            return (String(localized: "yearly_wrapped_brand"), "\(data.year)", String(localized: "yearly_meta_hero_sub"), "sparkles", false)
-        case .overview:
-            return (String(localized: "yearly_meta_overview_title"),
-                    String(format: String(localized: "yearly_meta_overview_big_format"), hours),
-                    String(format: String(localized: "yearly_meta_overview_sub_format"), data.uniqueSongCount, data.uniqueArtistCount, data.totalEntries),
-                    "chart.bar.xaxis", true)
-        case .firstSong:
-            return (String(localized: "yearly_meta_first_song_title"),
-                    data.firstSong?.songTitle ?? String(localized: "yearly_no_record"),
-                    data.firstSong?.artistName ?? String(localized: "yearly_meta_first_song_placeholder_artist"),
-                    "play.rectangle.fill", false)
-        case .topArtistHero:
-            return (String(localized: "yearly_meta_top_artist_title"),
-                    topArtist?.title ?? String(localized: "yearly_no_artist"),
-                    String(format: String(localized: "yearly_meta_top_artist_sub_format"), topArtist?.playCount ?? 0, formatDuration(topArtist?.totalSec ?? 0)),
-                    "person.wave.2", false)
-        case .topArtistsList:
-            return (String(localized: "yearly_meta_artists_title"), topArtistsText, String(localized: "yearly_meta_artists_sub"), "person.3.fill", false)
-        case .topSongs:
-            return (String(localized: "yearly_meta_top_songs_title"),
-                    topSong?.title ?? String(localized: "yearly_no_song"),
-                    String(format: String(localized: "yearly_meta_top_songs_sub_format"), topSong?.subtitle ?? "", topSong?.playCount ?? 0),
-                    "music.note.list", false)
-        case .moments:
-            return (String(localized: "yearly_meta_moments_title"),
-                    formatDuration(data.longestSession?.totalSec ?? 0),
-                    String(format: String(localized: "yearly_meta_moments_sub_format"), data.longestSession?.songCount ?? 0, dateText(data.longestSession?.startedAt)),
-                    "clock.arrow.circlepath", false)
-        case .timeOfDay:
-            return (String(localized: "yearly_meta_time_title"),
-                    String(format: String(localized: "yearly_meta_time_big_format"), Int(data.nightRatio * 100)),
-                    String(format: String(localized: "yearly_meta_time_sub_format"), data.timeOfDayLabel, data.peakHour),
-                    "moon.stars.fill", false)
-        case .genres:
-            let topGenre = data.topGenres.first
-            let names = data.topGenres.prefix(3).map(\.title).joined(separator: " · ")
-            return (String(localized: "yearly_meta_genres_title"),
-                    topGenre?.title ?? String(format: String(localized: "yearly_meta_genres_placeholder_format"), data.genreCount),
-                    names.isEmpty ? String(localized: "yearly_meta_genres_sub_empty") : String(localized: "yearly_meta_genres_sub"),
-                    "guitars", false)
-        case .exploration:
-            let focus = (data.explorationTopArtistShare * 100).rounded().finiteInt()
-            let exploration = max(0, 100 - focus)
-            let tendency = data.personality?.exploration == .explorer
-                ? String(localized: "yearly_exploration_explorer")
-                : String(localized: "yearly_exploration_deep")
-            return (String(localized: "yearly_meta_exploration_title"),
-                    "\(exploration)%",
-                    String(format: String(localized: "yearly_meta_exploration_sub_format"), focus, tendency),
-                    "safari.fill", false)
-        case .sources:
-            return (String(localized: "yearly_meta_sources_title"),
-                    topSource?.displayName ?? String(localized: "yearly_no_source"),
-                    String(format: String(localized: "yearly_meta_sources_sub_format"), topSource?.playCount ?? 0, formatDuration(topSource?.totalSec ?? 0)),
-                    topSource?.iconSymbol ?? "externaldrive", false)
-        case .peakMonth:
-            return (String(localized: "yearly_meta_peak_month_title"),
-                    String(format: String(localized: "yearly_meta_peak_month_big_format"), data.peakMonth),
-                    data.peakMonthTopSong.map { String(format: String(localized: "yearly_meta_peak_month_sub_format"), $0) } ?? String(localized: "yearly_meta_peak_month_sub_default"),
-                    "calendar", false)
-        case .personality:
-            return (String(localized: "yearly_meta_personality_title"),
-                    personality?.displayName ?? String(localized: "yearly_meta_personality_placeholder"),
-                    personality?.oneLiner ?? String(localized: "yearly_meta_personality_sub"),
-                    "person.crop.circle.badge.checkmark", false)
-        case .closing:
-            return (String(localized: "yearly_meta_closing_title"),
-                    String(format: String(localized: "yearly_meta_closing_big_format"), max(1, hours / 24)),
-                    String(localized: "yearly_meta_closing_sub"), "heart.fill", false)
-        }
-    }
-
-    private var topArtistsText: String {
-        let names = data.topArtists.prefix(3).map(\.title)
-        return names.isEmpty ? String(localized: "yearly_no_artist") : names.joined(separator: " · ")
-    }
-
-    private func macAdvance() {
-        lastTransitionDirection = .forward
-        pmWithAnimation(.trackChange) {
-            currentIndex = min(cards.count - 1, currentIndex + 1)
-            elapsed = 0
-        }
-    }
-
-    private func macBack() {
-        lastTransitionDirection = .backward
-        pmWithAnimation(.trackChange) {
-            currentIndex = max(0, currentIndex - 1)
-            elapsed = 0
-        }
-    }
-
-    private func formatDuration(_ sec: TimeInterval) -> String {
-        guard sec > 0 else { return String(localized: "yearly_duration_zero") }
-        let hours = (sec / 3600).finiteInt()
-        let minutes = (sec.truncatingRemainder(dividingBy: 3600) / 60).finiteInt()
-        if hours > 0 { return String(format: String(localized: "yearly_duration_hm_format"), hours, minutes) }
-        return String(format: String(localized: "yearly_duration_minutes_format"), minutes)
-    }
-
-    private func dateText(_ date: Date?) -> String {
-        guard let date else { return String(localized: "yearly_no_date") }
-        return date.formatted(.dateTime.month().day())
-    }
-    #endif
-
-    private var mainBody: some View {
-        ZStack {
-            // 卡片背景渐变 ── 每张卡各自的色调, 用 transition 衔接。
-            currentCard.backgroundGradient(data: data)
-                .ignoresSafeArea()
-
-            // 卡片内容 ── 顶 / 底 padding 给 topBar / bottomBar 让位, 内容
-            // 在中间区域居中显示。Transition 跟手势方向一致, 上滑时新卡从下
-            // 方进入。
-            cardContent
-                .id(currentCard)
-                .padding(.top, 60)
-                .padding(.bottom, 60)
-                .transition(slideTransition)
-                .contentShape(Rectangle())
-                // 只有翻页器里这一份要做入场动效; 分享图那条路径走 ImageRenderer,
-                // 跑不到 onAppear, 拿的是默认关闭的静态形态。
-                .environment(\.yearlyCardRevealsContent, true)
-
-            // 关闭 / 分享按钮 ── 放在 ZStack 最上层, 不会被翻页手势吞。
-            // 之前左右 tap hit area 在最上层吞掉了 X / 分享按钮的 tap; 改成
-            // 全屏 DragGesture 让按钮能正常 hit test。
-            VStack(spacing: 0) {
-                topBar
-                    .padding(.top, 12)
-                    .padding(.horizontal, 16)
-                Spacer()
-                bottomBar
-                    .padding(.bottom, 16)
-                    .padding(.horizontal, 16)
-            }
-        }
-        .preferredColorScheme(.dark)
-        // 上下滑动翻页。minimumDistance=20 防止跟系统边缘手势 / VoiceOver
-        // 冲突。50pt 阈值是体感平衡点。
-        .gesture(
-            DragGesture(minimumDistance: 20)
-                .onEnded { value in
-                    let dy = value.translation.height
-                    if dy < -50 { advance() }
-                    else if dy > 50 { back() }
-                }
-        )
-        .task {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(200))
-                guard !Task.isCancelled else { break }
-                tick()
-            }
-        }
-        .sheet(item: $shareImageItem) { item in
-            ShareSheet(items: item.images)
-        }
-        #if os(iOS)
-        // 卡片是按竖版画幅排的 (分享图也是 1080×1920), 上下滑又是切卡手势, 横屏下每张卡
-        // 都溢出且滚不到。进来请求竖屏, 关掉还原进来之前的朝向。
-        .onAppear {
-            InterfaceOrientationLock.enterPortrait()
-        }
-        .onDisappear {
-            // 还原排到下一轮主线程事务: 几何请求与 cover 撤场撞在一起时, 播放页那边
-            // 记录过会被系统吞掉。即使这次还原没生效, 用户转一下设备就会跟上。
-            Task { @MainActor in
-                InterfaceOrientationLock.restore()
-            }
-        }
-        #endif
-    }
-
-    /// 根据滑动方向构造 transition: forward (上滑) 时新卡从下进 / 旧卡从上出,
-    /// backward (下滑) 时反向。两个方向都带 opacity 更柔和。
-    private var slideTransition: AnyTransition {
-        switch lastTransitionDirection {
-        case .forward:
-            return .asymmetric(
-                insertion: .move(edge: .bottom).combined(with: .opacity),
-                removal: .move(edge: .top).combined(with: .opacity)
-            )
-        case .backward:
-            return .asymmetric(
-                insertion: .move(edge: .top).combined(with: .opacity),
-                removal: .move(edge: .bottom).combined(with: .opacity)
-            )
-        }
-    }
-
-    // MARK: - Subviews
+    // MARK: 音乐人格
 
     @ViewBuilder
-    private var cardContent: some View {
-        switch currentCard {
-        case .hero: HeroCard(data: data)
-        case .overview: OverviewCard(data: data)
-        case .firstSong: FirstSongCard(data: data)
-        case .topArtistHero: TopArtistHeroCard(data: data)
-        case .topArtistsList: TopArtistsListCard(data: data)
-        case .topSongs: TopSongsCard(data: data)
-        case .moments: MomentsCard(data: data)
-        case .timeOfDay: TimeOfDayCard(data: data)
-        case .genres: GenreCard(data: data)
-        case .exploration: ExplorationCard(data: data)
-        case .personality: PersonalityCard(data: data)
-        case .sources: SourcesCard(data: data)
-        case .peakMonth: PeakMonthCard(data: data)
-        case .closing: ClosingCard(data: data)
-        }
-    }
-
-    private var topBar: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("yearly_report_title")
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.7))
-                Text("\(String(data.year)) ・ \(currentCard.subtitle)")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.white)
-            }
-            Spacer()
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .padding(8)
-                    .background(.white.opacity(0.15), in: Circle())
-            }
-        }
-    }
-
-    /// 分享按钮 ── 仅在"音乐人格"卡显示。设计上人格是整段报告的核心精华,
-    /// 用户最有动机分享它; 总览 / Top 列表 / 时段等数据卡分享出去对其他人
-    /// 来说价值低 (隐私性也偏高), 索性都不给分享入口。
-    @ViewBuilder
-    private var bottomBar: some View {
-        if currentCard == .personality {
-            HStack {
-                Spacer()
-                Button {
-                    shareCurrent()
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "square.and.arrow.up")
-                        Text("share")
+    private func personalityChapter(_ number: Int) -> some View {
+        if let personality = data.personality {
+            YearlyChapter(
+                eyebrow: eyebrow(number, "yearly_chapter_personality"),
+                art: YearlyArt(name: personality.assetName, fallbackSymbol: "person.crop.circle.fill", maxWidth: 230, maxHeight: 230),
+                lead: personality.oneLiner.isEmpty ? [] : [personality.oneLiner]
+            ) {
+                YearlyHeadline(text: personality.displayName)
+            } content: {
+                VStack(spacing: 20) {
+                    YearlyChipRow(labels: personality.traitLabels)
+                    Button {
+                        share(personality)
+                    } label: {
+                        Label("share", systemImage: "square.and.arrow.up")
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 9)
+                            .background(YearlyReportPalette.accent.opacity(0.12), in: Capsule())
+                            .contentShape(Capsule())
                     }
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(.white.opacity(0.18), in: Capsule())
+                    .buttonStyle(.plain)
+                    .foregroundStyle(YearlyReportPalette.accent)
+
+                    if let mood, mood.signals.plays >= ListeningMoodRefreshPolicy.minimumPlays {
+                        ListeningMoodCard(
+                            signals: mood.signals,
+                            recentPlayDates: mood.recentPlayDates,
+                            clearedAt: mood.clearedAt
+                        )
+                        .padding(.top, 8)
+                    }
                 }
             }
         }
     }
 
-    // MARK: - Logic
-
-    private func tick() {
-        let now = Date()
-        // 分享面板打开期间暂停计时, 否则底层卡片会继续 advance, 最终走到
-        // 末张的 dismiss() 把报告连同分享面板一起关掉, 打断用户分享。
-        guard shareImageItem == nil else {
-            lastTickAt = now
-            return
-        }
-        let dt = now.timeIntervalSince(lastTickAt)
-        lastTickAt = now
-        // 单次 dt 设上限: App 退后台再回前台时 dt 会包含整个后台时长,
-        // 直接累计会跳过若干张卡, 丢弃这类异常大的间隔。
-        guard dt <= 1 else { return }
-        elapsed += dt
-        if elapsed >= Self.cardDuration {
-            advance()
-        }
-    }
-
-    private func advance() {
-        lastTransitionDirection = .forward
-        pmWithAnimation(.trackChange) {
-            if currentIndex < cards.count - 1 {
-                currentIndex += 1
-                elapsed = 0
-            } else {
-                dismiss()
-            }
-        }
-    }
-
-    private func back() {
-        lastTransitionDirection = .backward
-        pmWithAnimation(.trackChange) {
-            if elapsed > 1.5 {
-                elapsed = 0
-            } else if currentIndex > 0 {
-                currentIndex -= 1
-                elapsed = 0
-            } else {
-                elapsed = 0
-            }
-        }
-    }
-
     @MainActor
-    private func shareCurrent() {
-        if let image = renderCardImage(card: currentCard) {
-            shareImageItem = ShareImageItem(images: [image])
-        }
-    }
-
-    /// 公共渲染逻辑: 给定 card, 返回 1080×1920 平台图。失败返回 nil。
-    @MainActor
-    private func renderCardImage(card: YearlyReportCard) -> YearlyReportShareImage? {
-        let snapshotView = ZStack {
-            card.backgroundGradient(data: data).ignoresSafeArea()
-            cardForSharing(card: card)
-            VStack {
-                Spacer()
-                Text(String(localized: "yearly_share_footer"))
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.6))
-                    .padding(.bottom, 12)
-            }
-        }
-        .frame(width: 1080, height: 1920)
-        .preferredColorScheme(.dark)
-
-        let renderer = ImageRenderer(content: snapshotView)
-        renderer.scale = 1
+    private func share(_ personality: MusicPersonality) {
+        let card = YearlyPersonalityShareCard(year: data.year, personality: personality)
+            .environment(\.colorScheme, .dark)
+        let renderer = ImageRenderer(content: card)
+        renderer.scale = 3
         #if os(iOS)
-        return renderer.uiImage
+        let image = renderer.uiImage
         #else
-        return renderer.nsImage
+        let image = renderer.nsImage
         #endif
+        if let image { shareItem = ShareImageItem(images: [image]) }
     }
 
-    @ViewBuilder
-    private func cardForSharing(card: YearlyReportCard) -> some View {
-        switch card {
-        case .hero: HeroCard(data: data)
-        case .overview: OverviewCard(data: data)
-        case .firstSong: FirstSongCard(data: data)
-        case .topArtistHero: TopArtistHeroCard(data: data)
-        case .topArtistsList: TopArtistsListCard(data: data)
-        case .topSongs: TopSongsCard(data: data)
-        case .moments: MomentsCard(data: data)
-        case .timeOfDay: TimeOfDayCard(data: data)
-        case .genres: GenreCard(data: data)
-        case .exploration: ExplorationCard(data: data)
-        case .personality: PersonalityCard(data: data)
-        case .sources: SourcesCard(data: data)
-        case .peakMonth: PeakMonthCard(data: data)
-        case .closing: ClosingCard(data: data)
+    // MARK: 谢幕
+
+    private var closingChapter: some View {
+        YearlyChapter(
+            eyebrow: String(localized: data.isInProgress ? "yearly_chapter_to_be_continued" : "yearly_chapter_closing"),
+            art: YearlyArt(name: "decor_curtain_close", fallbackSymbol: "music.note", maxWidth: 340, maxHeight: 180),
+            lead: [data.isInProgress
+                ? String(localized: "yearly_closing_in_progress_lead")
+                : String(format: String(localized: "yearly_card_closing_next_format"), String(data.year + 1))]
+        ) {
+            YearlyHeadline(
+                text: data.isInProgress
+                    ? String(format: String(localized: "yearly_closing_in_progress_title_format"), yearText)
+                    : String(localized: "yearly_card_closing_thanks"),
+                style: data.isInProgress ? .title : .title2
+            )
         }
     }
 }
 
-// MARK: - 卡片枚举
-
-enum YearlyReportCard: Int, CaseIterable {
-    // 人格放倒数第二 ── 是整段叙事的"点睛之笔", 让用户看完所有数据再揭晓
-    // 人格类型, 仪式感更强。closing 是收尾的告别。
-    case hero, overview, firstSong, topArtistHero, topArtistsList, topSongs
-    case moments, timeOfDay, genres, exploration, sources, peakMonth, personality, closing
-
-    /// 顶部副标题 (在 progress 条下方显示)
-    var subtitle: String {
-        switch self {
-        case .hero: return String(localized: "yearly_sub_hero")
-        case .overview: return String(localized: "yearly_sub_overview")
-        case .firstSong: return String(localized: "yearly_sub_first_song")
-        case .topArtistHero: return String(localized: "yearly_sub_top_artist_hero")
-        case .topArtistsList: return String(localized: "yearly_sub_top_artists")
-        case .topSongs: return String(localized: "yearly_sub_top_songs")
-        case .moments: return String(localized: "yearly_sub_moments")
-        case .timeOfDay: return String(localized: "yearly_sub_time_of_day")
-        case .genres: return String(localized: "yearly_sub_genres")
-        case .exploration: return String(localized: "yearly_sub_exploration")
-        case .sources: return String(localized: "yearly_sub_sources")
-        case .peakMonth: return String(localized: "yearly_sub_peak_month")
-        case .personality: return String(localized: "yearly_sub_personality")
-        case .closing: return String(localized: "yearly_sub_closing")
-        }
-    }
-
-    /// 每张卡的背景渐变 (上下双色)
-    @ViewBuilder
-    func backgroundGradient(data: YearlyReportData) -> some View {
-        let colors: [Color] = self.gradientColors(data: data)
-        LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
-    }
-
-    private func gradientColors(data: YearlyReportData) -> [Color] {
-        switch self {
-        case .hero:
-            return [Color(red: 0.20, green: 0.10, blue: 0.45), Color(red: 0.45, green: 0.18, blue: 0.62)]
-        case .overview:
-            return [Color(red: 0.10, green: 0.18, blue: 0.40), Color(red: 0.32, green: 0.30, blue: 0.65)]
-        case .firstSong:
-            return [Color(red: 0.85, green: 0.55, blue: 0.30), Color(red: 0.55, green: 0.20, blue: 0.40)]
-        case .topArtistHero:
-            return [Color(red: 0.35, green: 0.10, blue: 0.55), Color(red: 0.65, green: 0.30, blue: 0.40)]
-        case .topArtistsList:
-            return [Color(red: 0.20, green: 0.30, blue: 0.55), Color(red: 0.10, green: 0.50, blue: 0.55)]
-        case .topSongs:
-            return [Color(red: 0.12, green: 0.40, blue: 0.55), Color(red: 0.30, green: 0.20, blue: 0.55)]
-        case .moments:
-            return [Color(red: 0.65, green: 0.40, blue: 0.15), Color(red: 0.35, green: 0.18, blue: 0.40)]
-        case .timeOfDay:
-            // 主导时段决定颜色
-            switch data.peakHour {
-            case 5...8: return [Color(red: 0.95, green: 0.65, blue: 0.40), Color(red: 0.55, green: 0.30, blue: 0.55)]
-            case 9...13: return [Color(red: 0.40, green: 0.65, blue: 0.85), Color(red: 0.20, green: 0.40, blue: 0.65)]
-            case 14...18: return [Color(red: 0.85, green: 0.45, blue: 0.30), Color(red: 0.40, green: 0.20, blue: 0.55)]
-            default: return [Color(red: 0.10, green: 0.10, blue: 0.30), Color(red: 0.25, green: 0.15, blue: 0.45)]
-            }
-        case .genres:
-            return [Color(red: 0.14, green: 0.42, blue: 0.36), Color(red: 0.56, green: 0.26, blue: 0.42)]
-        case .exploration:
-            return [Color(red: 0.18, green: 0.36, blue: 0.62), Color(red: 0.52, green: 0.30, blue: 0.20)]
-        case .personality:
-            return [Color(red: 0.45, green: 0.20, blue: 0.55), Color(red: 0.20, green: 0.30, blue: 0.55)]
-        case .sources:
-            return [Color(red: 0.15, green: 0.35, blue: 0.45), Color(red: 0.30, green: 0.20, blue: 0.55)]
-        case .peakMonth:
-            return [Color(red: 0.55, green: 0.25, blue: 0.45), Color(red: 0.25, green: 0.30, blue: 0.65)]
-        case .closing:
-            return [Color(red: 0.10, green: 0.10, blue: 0.25), Color(red: 0.35, green: 0.18, blue: 0.55)]
-        }
+extension YearlyReportPages where Header == EmptyView, Footer == EmptyView {
+    init(data: YearlyReportData, mood: YearlyReportMood? = nil, spokenWordSeconds: TimeInterval = 0) {
+        self.init(data: data, mood: mood, spokenWordSeconds: spokenWordSeconds, header: { EmptyView() }, footer: { EmptyView() })
     }
 }
 
-// MARK: - Share helpers
+/// 页面上下拉过头时露出的底色：上半是第一章的颜色，下半是最后一章的颜色。
+struct YearlyReportBackdrop: View {
+    let top: YearlyReportTone
+    let bottom: YearlyReportTone
+
+    var body: some View {
+        VStack(spacing: 0) {
+            top.color
+            bottom.color
+        }
+        .ignoresSafeArea()
+        .accessibilityHidden(true)
+    }
+}
+
+// MARK: - 分享图
+
+/// 音乐人格的分享图：固定深色，竖版 360 × 640 点，按 3 倍渲染成 1080 × 1920。
+private struct YearlyPersonalityShareCard: View {
+    let year: Int
+    let personality: MusicPersonality
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text(verbatim: String(format: String(localized: "yearly_report_entry_title"), year))
+                .font(.system(size: 13, weight: .bold))
+                .tracking(0.8)
+                .foregroundStyle(YearlyReportPalette.accent)
+                .padding(.top, 54)
+            Spacer(minLength: 12)
+            YearlyArtView(art: YearlyArt(
+                name: personality.assetName,
+                fallbackSymbol: "person.crop.circle.fill",
+                maxWidth: 260,
+                maxHeight: 260
+            ))
+            Text(verbatim: String(localized: "yearly_chapter_personality"))
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.6))
+                .padding(.top, 24)
+            Text(verbatim: personality.displayName)
+                .font(.system(size: 34, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+                .padding(.top, 6)
+            Text(verbatim: personality.oneLiner)
+                .font(.system(size: 15))
+                .foregroundStyle(.white.opacity(0.78))
+                .multilineTextAlignment(.center)
+                .lineSpacing(3)
+                .padding(.top, 12)
+            YearlyChipRow(labels: personality.traitLabels)
+                .padding(.top, 18)
+            Spacer(minLength: 12)
+            Text(verbatim: String(localized: "yearly_share_footer"))
+                .font(.system(size: 11))
+                .foregroundStyle(.white.opacity(0.5))
+                .padding(.bottom, 28)
+        }
+        .padding(.horizontal, 32)
+        .frame(width: 360, height: 640)
+        .tint(YearlyReportPalette.accent)
+        .background {
+            LinearGradient(
+                colors: [YearlyReportTone.personality.color, YearlyReportTone.closing.color],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+    }
+}
 
 private struct ShareImageItem: Identifiable {
     let id = UUID()
     let images: [YearlyReportShareImage]
+}
+
+// MARK: - 一月自动弹出的报告
+
+/// 去年报告的那一年，给 `fullScreenCover(item:)` 用。
+struct YearlyReportYear: Identifiable {
+    let year: Int
+    var id: Int { year }
+}
+
+/// 一月自动弹出的去年报告：就是「听歌统计」这一页，单独开一屏，右上角关掉。
+struct YearlyReportScreen: View {
+    let year: Int
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ListeningStatsView(initialYear: year, showsManagement: false)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "xmark")
+                        }
+                        .accessibilityLabel(Text("close"))
+                    }
+                }
+        }
+    }
+}
+
+// MARK: - 叫法
+
+extension MusicPersonality {
+    /// 四个维度的标签：爱探索 / 杂食 / 追新 / 夜行……
+    var traitLabels: [String] {
+        [
+            exploration == .explorer ? "stats_trait_explorer" : "stats_trait_loyalist",
+            diversity == .omnivore ? "stats_trait_omnivore" : "stats_trait_focused",
+            recency == .new ? "stats_trait_new" : "stats_trait_vintage",
+            dayCycle == .day ? "stats_trait_day" : "stats_trait_moon",
+        ].map { String(localized: String.LocalizationValue($0)) }
+    }
+}
+
+extension ListeningDaypart {
+    var symbolName: String {
+        switch self {
+        case .dawn: "sunrise.fill"
+        case .morning: "sun.max.fill"
+        case .afternoon: "sun.haze.fill"
+        case .evening: "sunset.fill"
+        case .lateNight: "moon.stars.fill"
+        }
+    }
+
+    /// 时段插画：清晨、白天、傍晚、深夜四张。
+    var yearlyArtworkName: String {
+        switch self {
+        case .dawn: "timeofday_dawn"
+        case .morning, .afternoon: "timeofday_noon"
+        case .evening: "timeofday_dusk"
+        case .lateNight: "timeofday_night"
+        }
+    }
 }

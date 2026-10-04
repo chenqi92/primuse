@@ -126,7 +126,9 @@ struct ServerListeningStatsView: View {
 
             if isEventHistory {
                 RecapPillPicker(options: ServerListeningStatsRange.allCases, selection: $range, scrolls: true) { item in
-                    Text(LocalizedStringKey("stats_range_\(item.rawValue)"))
+                    // 键先拼成普通字符串：插值字面量会被当成「stats_range_%@」去查。
+                    let key = "stats_range_\(item.rawValue)"
+                    return Text(LocalizedStringKey(key))
                 }
             }
         }
