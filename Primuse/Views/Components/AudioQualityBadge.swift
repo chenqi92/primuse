@@ -50,8 +50,8 @@ struct NowPlayingAudioTag: View {
     }
 }
 
-/// 进度条下、两个时间中间那组标签:音质(带规格简写)与来源(不止一个音乐源时)。
-/// 起播前在 iCloud 云盘下载时整组换成下载提示。
+/// 进度条下、两个时间中间那组标签:音质(带规格简写),版面底下没有状态行时再加来源
+/// (不止一个音乐源时)。起播前在 iCloud 云盘下载时整组换成下载提示。
 ///
 /// 轻点打开「音频信息」小卡:等级、完整规格、实际输出的采样率与来源。放不下两枚时只留音质那枚。
 struct NowPlayingAudioTagRow: View {
@@ -60,6 +60,8 @@ struct NowPlayingAudioTagRow: View {
     let showsAudio: Bool
     let isDownloadingFromICloud: Bool
     let source: NowPlayingSourceLabel?
+    /// 来源要不要也挂成一枚标签。有底部状态行的版面把来源写在那一行,这里只在小卡里列出。
+    var showsSourceTag = true
     /// 输出设备此刻的采样率(Hz),拿不到为 0。
     let outputSampleRate: Double
     /// Apple Music 目录曲由系统播放器出声,输出采样率说不准,卡片里不写。
@@ -87,7 +89,7 @@ struct NowPlayingAudioTagRow: View {
                 )
                 .accessibilityElement(children: .combine)
                 .transition(.opacity)
-            } else if audioTag != nil || source != nil {
+            } else if audioTag != nil || taggedSource != nil {
                 Button { showsDetails = true } label: {
                     tags
                         // 牌子只有 17pt 高,命中区往下补到够手指点;上面紧挨着进度条,不往上补。
@@ -145,9 +147,13 @@ struct NowPlayingAudioTagRow: View {
         return NowPlayingAudioTag(title: qualityLabel, detail: detail, tint: tint)
     }
 
+    private var taggedSource: NowPlayingSourceLabel? {
+        showsSourceTag ? source : nil
+    }
+
     @ViewBuilder
     private var sourceTag: some View {
-        if let source {
+        if let source = taggedSource {
             NowPlayingWidthCap(maxWidth: Self.sourceMaxWidth) {
                 NowPlayingAudioTag(symbol: source.iconName, title: nil, detail: source.name, tint: tint)
             }
@@ -237,7 +243,7 @@ struct NowPlayingAudioTagRow: View {
         if let audioTag {
             parts.append(contentsOf: [audioTag.title, audioTag.detail].compactMap { $0 })
         }
-        if let source { parts.append(source.name) }
+        if let taggedSource { parts.append(taggedSource.name) }
         return parts.joined(separator: ", ")
     }
 }

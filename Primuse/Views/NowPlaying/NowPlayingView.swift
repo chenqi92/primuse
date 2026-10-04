@@ -2031,7 +2031,7 @@ struct NowPlayingView: View {
                     .matchedLayoutElement(.songHeading, in: layoutNamespace)
                     .padding(.horizontal, 36)
                     .padding(.top, 18)
-                PlaybackProgressBar(fillTint: themedControlAccent) { progressAudioTags }
+                PlaybackProgressBar(fillTint: themedControlAccent) { progressAudioTags(showsSource: false) }
                     .matchedLayoutElement(.progress, in: layoutNamespace)
                     .padding(.horizontal, 36)
                     .padding(.top, 10)
@@ -3374,7 +3374,8 @@ struct NowPlayingView: View {
                 }
             }
 
-            PlaybackProgressBar(fillTint: themedControlAccent) { progressAudioTags }
+            // 手机横屏底下没有状态行,来源仍挂在进度条下的标签里。
+            PlaybackProgressBar(fillTint: themedControlAccent) { progressAudioTags(showsSource: true) }
                 .matchedLayoutElement(.progress, in: layoutNamespace)
                 .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.progressTopSpacing))
                 .opacity(compactLandscapeControlsHidden ? 0 : 1)
@@ -3904,7 +3905,7 @@ struct NowPlayingView: View {
             nowPlayingReviewSection
                 .padding(.horizontal, 36)
 
-            PlaybackProgressBar(fillTint: themedControlAccent) { progressAudioTags }
+            PlaybackProgressBar(fillTint: themedControlAccent) { progressAudioTags(showsSource: false) }
                 .padding(.horizontal, 36).padding(.top, 10)
 
             HStack(spacing: 0) {
@@ -4363,7 +4364,7 @@ struct NowPlayingView: View {
                     // 被强制关闭)。SwiftUI Observation 是 per-body 追踪——子 view
                     // 自己读 player.currentTime,父 view body 完全不读高频属性。
                     if !showLyrics || !isLyricsImmersive {
-                        PlaybackProgressBar(fillTint: themedControlAccent) { progressAudioTags }
+                        PlaybackProgressBar(fillTint: themedControlAccent) { progressAudioTags(showsSource: false) }
                             .matchedLayoutElement(.progress, in: layoutNamespace)
                             .padding(.horizontal, 26).padding(.top, 8)
                             .padding(.horizontal, insets.rows)
@@ -5826,6 +5827,7 @@ struct NowPlayingView: View {
             .overlay(alignment: .top) {
                 NowPlayingStatusLine(
                     showsSleepTimer: !usesSpokenWordTransport,
+                    source: usesSpokenWordTransport ? nil : player.currentSong.flatMap(nowPlayingSourceLabel(for:)),
                     tint: appearance.tertiary
                 )
                 .padding(.horizontal, horizontalPadding)
@@ -5833,18 +5835,29 @@ struct NowPlayingView: View {
             }
     }
 
+    #if DEBUG
+    /// 取证用:模拟器里通常只有一个音乐源,`PRIMUSE_DEBUG_SOURCE_LABEL=1` 时照样标出来源。
+    private static let debugAlwaysShowsSource =
+        ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SOURCE_LABEL"] == "1"
+    #endif
+
     /// 不止一个音乐源时标出这首歌来自哪个源。
     private func nowPlayingSourceLabel(for song: Song) -> NowPlayingSourceLabel? {
-        guard sourcesStore.sources.count > 1, let source = sourcesStore.source(id: song.sourceID) else {
+        var hasSeveralSources = sourcesStore.sources.count > 1
+        #if DEBUG
+        hasSeveralSources = hasSeveralSources || Self.debugAlwaysShowsSource
+        #endif
+        guard hasSeveralSources, let source = sourcesStore.source(id: song.sourceID) else {
             return nil
         }
         return NowPlayingSourceLabel(iconName: source.type.iconName, name: source.name)
     }
 
-    /// 进度条下、两个时间中间的标签:音乐按设置的档位标音质(带规格简写),再加来源;
-    /// 有声内容那里写本章还剩多久,只在等 iCloud 下载时出现。轻点看完整规格与实际输出。
+    /// 进度条下、两个时间中间的标签:音乐按设置的档位标音质(带规格简写);底下有状态行的版面
+    /// 来源写在状态行里,没有的(手机横屏)才在这里加一枚来源。有声内容那里写本章还剩多久,
+    /// 只在等 iCloud 下载时出现。轻点看完整规格、实际输出与来源。
     @ViewBuilder
-    private var progressAudioTags: some View {
+    private func progressAudioTags(showsSource: Bool) -> some View {
         if let song = player.currentSong {
             let isSpokenWord = usesSpokenWordTransport
             NowPlayingAudioTagRow(
@@ -5852,6 +5865,7 @@ struct NowPlayingView: View {
                 showsAudio: !isSpokenWord && audioInfoMode.showsSummary(for: song.audioQuality),
                 isDownloadingFromICloud: player.iCloudDownloadingSongID == song.id,
                 source: isSpokenWord ? nil : nowPlayingSourceLabel(for: song),
+                showsSourceTag: showsSource,
                 outputSampleRate: player.audioEngine.observedOutputSampleRate,
                 allowsOutputDetail: !player.isAppleMusicMode,
                 tint: appearance.tertiary
@@ -10728,12 +10742,15 @@ extension PlaybackProgressBar where CenterAccessory == EmptyView {
 
 // MARK: - 底部状态行
 
-/// 播放页最底下那一行,只在有事时出现:声音没从手机扬声器出(耳机、蓝牙、隔空播放、车载、
-/// 投放到 DLNA 设备)时写设备名,开着睡眠定时时写还剩多久。都没有就空着。
-/// 落在 Home 指示条那一带,只是文字、不可点。自己读播放器状态,倒计时每秒只重画这一行。
+/// 播放页最底下那一行:不止一个音乐源时写这首歌来自哪个源;声音没从手机扬声器出(耳机、蓝牙、
+/// 隔空播放、车载、投放到 DLNA 设备)时写设备名,开着睡眠定时时写还剩多久。
+/// 只有来源时来源居中;来源和设备名/定时都有时来源靠左、另外两项靠右,两端对齐上面进度条的时间。
+/// 什么都没有就空着。落在 Home 指示条那一带,只是文字、不可点。自己读播放器状态,
+/// 倒计时每秒只重画这一行。
 fileprivate struct NowPlayingStatusLine: View {
     /// 有声内容的定时写在下面的「定时」块里,这里不重复。
     let showsSleepTimer: Bool
+    let source: NowPlayingSourceLabel?
     let tint: Color
     @Environment(AudioPlayerService.self) private var player
 
@@ -10753,6 +10770,40 @@ fileprivate struct NowPlayingStatusLine: View {
     var body: some View {
         let output = self.output
         let showsSleep = showsSleepTimer && player.isSleepTimerActive
+        let hasStatus = output != nil || showsSleep
+        HStack(spacing: 12) {
+            if let source {
+                HStack(spacing: 3) {
+                    Image(systemName: source.iconName)
+                        .imageScale(.small)
+                    Text(verbatim: source.name)
+                        .contentTransition(.opacity)
+                }
+                // 独自一项时撑满整行居中;旁边有设备名或定时时贴左。
+                .frame(maxWidth: .infinity, alignment: hasStatus ? .leading : .center)
+                .transition(.opacity)
+            }
+            if hasStatus {
+                statusItems(output: output, showsSleep: showsSleep)
+                    .transition(.opacity)
+            }
+        }
+        .font(.caption2.monospacedDigit())
+        .foregroundStyle(tint)
+        .lineLimit(1)
+        .accessibilityElement(children: .combine)
+        .pmAnimation(.control, value: output)
+        .pmAnimation(.control, value: showsSleep)
+        .pmAnimation(.trackChange, value: source)
+        #if DEBUG
+        .task {
+            guard let minutes = Self.debugSleepMinutes, !player.isSleepTimerActive else { return }
+            player.scheduleSleep(minutes: minutes)
+        }
+        #endif
+    }
+
+    private func statusItems(output: Output?, showsSleep: Bool) -> some View {
         HStack(spacing: 6) {
             if let output {
                 HStack(spacing: 3) {
@@ -10773,18 +10824,6 @@ fileprivate struct NowPlayingStatusLine: View {
                     .transition(.opacity)
             }
         }
-        .font(.caption2.monospacedDigit())
-        .foregroundStyle(tint)
-        .lineLimit(1)
-        .accessibilityElement(children: .combine)
-        .pmAnimation(.control, value: output)
-        .pmAnimation(.control, value: showsSleep)
-        #if DEBUG
-        .task {
-            guard let minutes = Self.debugSleepMinutes, !player.isSleepTimerActive else { return }
-            player.scheduleSleep(minutes: minutes)
-        }
-        #endif
     }
 
     private var sleepLabel: some View {
