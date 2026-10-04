@@ -2112,7 +2112,7 @@
 "Width" = "너비";
 "Wine in hand, I ask the sky" = "Wine in hand, I ask the sky";
 "Word-by-Word Lyrics" = "한 글자씩 가사";
-"Works on physical iOS devices; ignored by some hardware" = "실제 iOS 기기에서 작동하며, 일부 하드웨어에서는 무시됩니다";
+"Switches the output device to each song's sample rate; some devices ignore it" = "출력 기기를 곡마다 샘플레이트에 맞춰 전환합니다. 일부 기기에서는 무시됩니다";
 "Year in Review" = "연말 결산";
 "Widget Gallery" = "위젯 갤러리";
 "Year in Review · Medium" = "연말 결산 · 중간";
@@ -5486,3 +5486,17 @@
 "spoken_word_player_now_listening" = "듣는 중";
 "spoken_word_part_remaining_under_minute" = "이 장 1분 미만 남음";
 "podcast_remaining_under_minute" = "1분 미만 남음";
+
+"Exclusive Output Device" = "출력 기기 독점";
+"While playing, other apps and alerts can't use the device and its bit depth follows each song; released when paused" = "재생 중에는 다른 앱과 알림음이 이 기기를 쓸 수 없고 비트 심도가 곡을 따라갑니다. 일시정지하면 해제됩니다";
+"Requires High-Fidelity Direct output mode" = "출력 모드를 고음질 다이렉트로 설정해야 합니다";
+"exclusive_output_active" = "독점";
+"exclusive_output_shared" = "독점 안 됨";
+"exclusive_output_active_detail" = "이 기기를 독점 중";
+"exclusive_output_active_bit_depth %lld" = "이 기기를 독점 중 · %lld비트";
+"exclusive_output_held_by_app %@" = "%@에서 이 기기를 독점 중이어서 공유 모드로 재생합니다";
+"exclusive_output_held_by_other_app" = "다른 앱이 이 기기를 독점 중이어서 공유 모드로 재생합니다";
+"exclusive_output_unsupported" = "이 기기는 독점할 수 없어 공유 모드로 재생합니다";
+"exclusive_output_failed" = "시스템이 독점을 허용하지 않아 공유 모드로 재생합니다";
+"exclusive_output_active_device %@" = "%@ 독점 중";
+"exclusive_output_active_device_bit_depth %@ %lld" = "%1$@ 독점 중 · %2$lld비트";

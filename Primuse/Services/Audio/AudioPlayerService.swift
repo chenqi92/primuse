@@ -1416,6 +1416,9 @@ final class AudioPlayerService {
         applyPlaybackRate()
         observeSpatialAudioSettings()
         observePlaybackRate()
+        #if os(macOS)
+        audioEngine.exclusiveOutputRequested = playbackSettings.exclusiveOutputEnabled
+        #endif
         observeOutputPipelineSettings()
         observeReplayGainSettings()
         NotificationCenter.default.addObserver(
@@ -1724,6 +1727,23 @@ final class AudioPlayerService {
         guard playID == expectedPlayID else { throw CancellationError() }
     }
 
+    /// Mac 独占输出时让设备的物理位深跟随这首歌；要在采样率协商之后、配图之前做。
+    private func matchExclusiveOutputBitDepth(
+        sourceBitDepth: Int?,
+        carriesDSD: Bool,
+        expectedPlayID: UUID
+    ) async throws {
+        #if os(macOS)
+        guard let targetBitDepth = PhysicalOutputBitDepthPolicy.targetBitDepth(
+            sourceBitDepth: sourceBitDepth,
+            carriesDSD: carriesDSD
+        ) else { return }
+        await audioEngine.matchExclusiveOutputBitDepth(targetBitDepth)
+        try Task.checkCancellation()
+        guard playID == expectedPlayID else { throw CancellationError() }
+        #endif
+    }
+
     private func beginOutputPipelineConfiguration(expectedPlayID: UUID) -> UUID {
         let token = UUID()
         outputPipelineConfiguration = (token, expectedPlayID)
@@ -1792,6 +1812,12 @@ final class AudioPlayerService {
         try activateAudioSession(reacquiringLocalRouteFocus)
         // 把会话激活与后面的采样率协商分开计时:每首都重设会话值不值得省,看这一段(#170)。
         logPlayStage("session-activated", playID: expectedPlayID)
+        #if os(macOS)
+        audioEngine.prepareExclusiveOutput(
+            requested: settings.exclusiveOutputEnabled,
+            graphMode: graphMode
+        )
+        #endif
         // 打开 DSD 解码器要同步读文件头, 在 NAS / Files provider 上是真实
         // I/O。放到主线程外做, 回来后必须重新校验代次, 否则被顶掉的请求会
         // 继续去配置引擎。
@@ -1809,6 +1835,11 @@ final class AudioPlayerService {
         }
         if let dopFormat {
             try await prepareHardwareSampleRate(dopFormat.sampleRate, expectedPlayID: expectedPlayID)
+            try await matchExclusiveOutputBitDepth(
+                sourceBitDepth: nil,
+                carriesDSD: true,
+                expectedPlayID: expectedPlayID
+            )
             if audioEngine.hardwareSupportsDirectFormat(dopFormat) {
                 try audioEngine.configure(
                     outputMode: .highFidelity,
@@ -1829,6 +1860,11 @@ final class AudioPlayerService {
         }
         if let pcmFormat = dsdPCMFormat {
             try await prepareHardwareSampleRate(pcmFormat.sampleRate, expectedPlayID: expectedPlayID)
+            try await matchExclusiveOutputBitDepth(
+                sourceBitDepth: nil,
+                carriesDSD: true,
+                expectedPlayID: expectedPlayID
+            )
             directPCMFormat = safeDirectPCMFormat(
                 requestedSourceSampleRate: pcmFormat.sampleRate,
                 outputMode: graphMode
@@ -1850,6 +1886,14 @@ final class AudioPlayerService {
                let sourceSampleRate,
                sourceSampleRate > 0 {
                 try await prepareHardwareSampleRate(sourceSampleRate, expectedPlayID: expectedPlayID)
+            }
+            if graphMode == .highFidelity {
+                // 离线精简副本是 AAC，资料库里记的位深属于原文件。
+                try await matchExclusiveOutputBitDepth(
+                    sourceBitDepth: OfflineCompactArtifact.isCompactURL(url) ? nil : song.bitDepth,
+                    carriesDSD: song.audioQuality == .dsd,
+                    expectedPlayID: expectedPlayID
+                )
             }
             directPCMFormat = safeDirectPCMFormat(
                 requestedSourceSampleRate: sourceSampleRate,
@@ -1947,9 +1991,15 @@ final class AudioPlayerService {
         withObservationTracking {
             _ = playbackSettings.outputMode
             _ = playbackSettings.dsdPlaybackMode
+            #if os(macOS)
+            _ = playbackSettings.exclusiveOutputEnabled
+            #endif
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                #if os(macOS)
+                self.audioEngine.exclusiveOutputRequested = self.playbackSettings.exclusiveOutputEnabled
+                #endif
                 if self.currentSong != nil, !self.isLoading, !self.isSystemMediaPlaybackActive {
                     self.seek(to: self.currentTime, startPlaying: self.isPlaying)
                 } else {

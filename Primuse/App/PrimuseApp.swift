@@ -522,6 +522,8 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated {
             AppServices.shared.playerService.flushSpokenWordPosition()
+            // 独占的设备和改过的位深在退出时还回去。
+            AppServices.shared.playerService.audioEngine.releaseExclusiveOutput(restoringFormats: true)
         }
     }
 

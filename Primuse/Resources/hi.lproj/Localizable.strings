@@ -445,7 +445,7 @@
 "Width" = "चौड़ाई";
 "Wine in hand, I ask the sky" = "हाथ में शराब, मैं आसमान से मांगता हूं";
 "Word-by-Word Lyrics" = "शब्द-दर-शब्द गीत के बोल";
-"Works on physical iOS devices; ignored by some hardware" = "भौतिक iOS उपकरणों पर काम करता है; कुछ हार्डवेयर द्वारा अनदेखा किया गया";
+"Switches the output device to each song's sample rate; some devices ignore it" = "आउटपुट डिवाइस को हर गाने के सैंपल रेट पर बदलता है; कुछ डिवाइस इसे अनदेखा करते हैं";
 "Wrapped" = "लपेटा हुआ";
 "Write Timeout" = "टाइमआउट लिखें";
 "Write sidecar files next to source tracks" = "स्रोत ट्रैक के आगे साइडकार फ़ाइलें लिखें";
@@ -5392,3 +5392,17 @@
 "spoken_word_player_now_listening" = "अभी सुन रहे हैं";
 "spoken_word_part_remaining_under_minute" = "अध्याय में एक मिनट से कम बाकी";
 "podcast_remaining_under_minute" = "एक मिनट से कम बाक़ी";
+
+"Exclusive Output Device" = "आउटपुट डिवाइस का विशेष उपयोग";
+"While playing, other apps and alerts can't use the device and its bit depth follows each song; released when paused" = "चलते समय दूसरे ऐप और अलर्ट ध्वनियाँ डिवाइस का उपयोग नहीं कर सकतीं और बिट डेप्थ हर गाने के अनुसार रहती है; रोकने पर छोड़ दिया जाता है";
+"Requires High-Fidelity Direct output mode" = "हाई फिडेलिटी डायरेक्ट आउटपुट मोड ज़रूरी है";
+"exclusive_output_active" = "विशेष";
+"exclusive_output_shared" = "विशेष नहीं";
+"exclusive_output_active_detail" = "यह डिवाइस विशेष रूप से उपयोग हो रहा है";
+"exclusive_output_active_bit_depth %lld" = "यह डिवाइस विशेष रूप से उपयोग हो रहा है · %lld-बिट";
+"exclusive_output_held_by_app %@" = "%@ इस डिवाइस का विशेष उपयोग कर रहा है; साझा मोड में चल रहा है";
+"exclusive_output_held_by_other_app" = "कोई दूसरा ऐप इस डिवाइस का विशेष उपयोग कर रहा है; साझा मोड में चल रहा है";
+"exclusive_output_unsupported" = "इस डिवाइस का विशेष उपयोग नहीं हो सकता; साझा मोड में चल रहा है";
+"exclusive_output_failed" = "macOS ने विशेष उपयोग की अनुमति नहीं दी; साझा मोड में चल रहा है";
+"exclusive_output_active_device %@" = "%@ का विशेष उपयोग हो रहा है";
+"exclusive_output_active_device_bit_depth %@ %lld" = "%1$@ का विशेष उपयोग हो रहा है · %2$lld-बिट";

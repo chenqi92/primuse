@@ -445,7 +445,7 @@
 "Width" = "Szerokość";
 "Wine in hand, I ask the sky" = "Wino w dłoni, pytam niebo";
 "Word-by-Word Lyrics" = "Tekst słowo po słowie";
-"Works on physical iOS devices; ignored by some hardware" = "Działa na fizycznych urządzeniach iOS; ignorowane przez jakiś sprzęt";
+"Switches the output device to each song's sample rate; some devices ignore it" = "Przełącza urządzenie wyjściowe na częstotliwość próbkowania każdego utworu; niektóre urządzenia to ignorują";
 "Wrapped" = "Podsumowanie roku";
 "Write Timeout" = "Limit czasu zapisu";
 "Write sidecar files next to source tracks" = "Zapisz pliki poboczne obok ścieżek źródłowych";
@@ -5392,3 +5392,17 @@
 "spoken_word_player_now_listening" = "Teraz słuchasz";
 "spoken_word_part_remaining_under_minute" = "Do końca rozdziału mniej niż minuta";
 "podcast_remaining_under_minute" = "Pozostało mniej niż minuta";
+
+"Exclusive Output Device" = "Wyłączny dostęp do wyjścia";
+"While playing, other apps and alerts can't use the device and its bit depth follows each song; released when paused" = "Podczas odtwarzania inne aplikacje i dźwięki alertów nie mogą używać urządzenia, a głębia bitowa podąża za utworem; zwalniane po pauzie";
+"Requires High-Fidelity Direct output mode" = "Wymaga trybu wyjścia Bezpośrednie odtwarzanie Hi-Fi";
+"exclusive_output_active" = "Wyłączny";
+"exclusive_output_shared" = "Bez wyłączności";
+"exclusive_output_active_detail" = "Urządzenie używane na wyłączność";
+"exclusive_output_active_bit_depth %lld" = "Urządzenie używane na wyłączność · %lld bit";
+"exclusive_output_held_by_app %@" = "%@ używa tego urządzenia na wyłączność; odtwarzanie w trybie współdzielonym";
+"exclusive_output_held_by_other_app" = "Inna aplikacja używa tego urządzenia na wyłączność; odtwarzanie w trybie współdzielonym";
+"exclusive_output_unsupported" = "Tego urządzenia nie można używać na wyłączność; odtwarzanie w trybie współdzielonym";
+"exclusive_output_failed" = "macOS nie przyznał wyłącznego dostępu; odtwarzanie w trybie współdzielonym";
+"exclusive_output_active_device %@" = "%@ używane na wyłączność";
+"exclusive_output_active_device_bit_depth %@ %lld" = "%1$@ używane na wyłączność · %2$lld bit";

@@ -1558,7 +1558,7 @@
 "Target Language" = "Hedef Dil";
 "smart_mac_match_satisfy" = "Maç";
 "relay_import_ticket_note" = "Bu ithalat bileti bir kez çalışır ve 10 dakika sonra geçerliliği sona erer. Paylaşım şifresini içermez.";
-"Works on physical iOS devices; ignored by some hardware" = "Fiziksel iOS cihazlarda çalışır; bazı donanımlar tarafından göz ardı edildi";
+"Switches the output device to each song's sample rate; some devices ignore it" = "Çıkış aygıtını her şarkının örnekleme hızına geçirir; bazı aygıtlar bunu yok sayar";
 "update_banner_now" = "Şimdi Güncelle";
 "scrobble_lastfm_signout_confirm" = "Last.fm'nin bağlantısı kesilsin mi? API Anahtarınız/Sırrınız saklanacak, böylece bunları yeniden girmeden yeniden bağlanabilirsiniz.";
 "api_key" = "API Anahtarı";
@@ -5392,3 +5392,17 @@
 "spoken_word_player_now_listening" = "Şu an dinleniyor";
 "spoken_word_part_remaining_under_minute" = "Bölümün bitmesine bir dakikadan az";
 "podcast_remaining_under_minute" = "Bir dakikadan az kaldı";
+
+"Exclusive Output Device" = "Çıkış aygıtını özel kullan";
+"While playing, other apps and alerts can't use the device and its bit depth follows each song; released when paused" = "Çalarken diğer uygulamalar ve uyarı sesleri aygıtı kullanamaz, bit derinliği şarkıya uyar; duraklatınca serbest bırakılır";
+"Requires High-Fidelity Direct output mode" = "Yüksek doğruluklu doğrudan oynatma çıkış modu gerekir";
+"exclusive_output_active" = "Özel";
+"exclusive_output_shared" = "Özel değil";
+"exclusive_output_active_detail" = "Bu aygıt özel olarak kullanılıyor";
+"exclusive_output_active_bit_depth %lld" = "Bu aygıt özel olarak kullanılıyor · %lld bit";
+"exclusive_output_held_by_app %@" = "%@ bu aygıtı özel olarak kullanıyor; paylaşımlı modda çalınıyor";
+"exclusive_output_held_by_other_app" = "Başka bir uygulama bu aygıtı özel olarak kullanıyor; paylaşımlı modda çalınıyor";
+"exclusive_output_unsupported" = "Bu aygıt özel olarak kullanılamıyor; paylaşımlı modda çalınıyor";
+"exclusive_output_failed" = "macOS özel erişime izin vermedi; paylaşımlı modda çalınıyor";
+"exclusive_output_active_device %@" = "%@ özel olarak kullanılıyor";
+"exclusive_output_active_device_bit_depth %@ %lld" = "%1$@ özel olarak kullanılıyor · %2$lld bit";

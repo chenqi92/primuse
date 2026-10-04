@@ -445,7 +445,7 @@
 "Width" = "العرض";
 "Wine in hand, I ask the sky" = "النبيذ في اليد أسأل السماء";
 "Word-by-Word Lyrics" = "كلمات متزامنة كلمة بكلمة";
-"Works on physical iOS devices; ignored by some hardware" = "يعمل على أجهزة iOS مادية؛ تجاهلها بعض الأجهزة";
+"Switches the output device to each song's sample rate; some devices ignore it" = "يبدّل جهاز الإخراج إلى معدل عيّنات كل أغنية؛ تتجاهل بعض الأجهزة ذلك";
 "Wrapped" = "ملفوف";
 "Write Timeout" = "مهلة الكتابة";
 "Write sidecar files next to source tracks" = "كتابة الملفات الجانبية بجوار مسارات المصدر";
@@ -5392,3 +5392,17 @@
 "spoken_word_player_now_listening" = "قيد الاستماع";
 "spoken_word_part_remaining_under_minute" = "يتبقى أقل من دقيقة من الفصل";
 "podcast_remaining_under_minute" = "متبقٍ أقل من دقيقة";
+
+"Exclusive Output Device" = "استخدام جهاز الإخراج حصريًا";
+"While playing, other apps and alerts can't use the device and its bit depth follows each song; released when paused" = "أثناء التشغيل لا يمكن للتطبيقات الأخرى وأصوات التنبيه استخدام الجهاز، وتتبع عمق البت كل أغنية؛ يُحرَّر عند الإيقاف المؤقت";
+"Requires High-Fidelity Direct output mode" = "يتطلب وضع الإخراج الدقة العالية المباشرة";
+"exclusive_output_active" = "حصري";
+"exclusive_output_shared" = "غير حصري";
+"exclusive_output_active_detail" = "يُستخدم هذا الجهاز حصريًا";
+"exclusive_output_active_bit_depth %lld" = "يُستخدم هذا الجهاز حصريًا · %lld بت";
+"exclusive_output_held_by_app %@" = "يستخدم %@ هذا الجهاز حصريًا؛ يجري التشغيل في الوضع المشترك";
+"exclusive_output_held_by_other_app" = "يستخدم تطبيق آخر هذا الجهاز حصريًا؛ يجري التشغيل في الوضع المشترك";
+"exclusive_output_unsupported" = "لا يمكن استخدام هذا الجهاز حصريًا؛ يجري التشغيل في الوضع المشترك";
+"exclusive_output_failed" = "لم يمنح macOS الوصول الحصري؛ يجري التشغيل في الوضع المشترك";
+"exclusive_output_active_device %@" = "يُستخدم %@ حصريًا";
+"exclusive_output_active_device_bit_depth %@ %lld" = "يُستخدم %1$@ حصريًا · %2$lld بت";

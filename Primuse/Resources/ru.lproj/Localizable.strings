@@ -1558,7 +1558,7 @@
 "Target Language" = "Целевой язык";
 "smart_mac_match_satisfy" = "Матч";
 "relay_import_ticket_note" = "Этот импортный билет действует один раз и истекает через 10 минут. Он не содержит пароль общего доступа.";
-"Works on physical iOS devices; ignored by some hardware" = "Работает на физических устройствах iOS; игнорируется некоторым оборудованием";
+"Switches the output device to each song's sample rate; some devices ignore it" = "Переключает устройство вывода на частоту дискретизации каждого трека; некоторые устройства это игнорируют";
 "update_banner_now" = "Обновить сейчас";
 "scrobble_lastfm_signout_confirm" = "Отключить Last.fm? Ваш ключ/секрет API будет сохранен, поэтому вы сможете повторно подключиться, не вводя их повторно.";
 "api_key" = "Ключ API";
@@ -5392,3 +5392,17 @@
 "spoken_word_player_now_listening" = "Сейчас слушаете";
 "spoken_word_part_remaining_under_minute" = "До конца главы меньше минуты";
 "podcast_remaining_under_minute" = "Осталось меньше минуты";
+
+"Exclusive Output Device" = "Монопольный доступ к устройству";
+"While playing, other apps and alerts can't use the device and its bit depth follows each song; released when paused" = "Во время воспроизведения другие приложения и звуки уведомлений не могут использовать устройство, а разрядность следует за треком; при паузе доступ освобождается";
+"Requires High-Fidelity Direct output mode" = "Требуется режим вывода «Прямое воспроизведение высокой точности»";
+"exclusive_output_active" = "Монопольно";
+"exclusive_output_shared" = "Без монопольного доступа";
+"exclusive_output_active_detail" = "Устройство используется монопольно";
+"exclusive_output_active_bit_depth %lld" = "Устройство используется монопольно · %lld бит";
+"exclusive_output_held_by_app %@" = "%@ использует это устройство монопольно; воспроизведение в общем режиме";
+"exclusive_output_held_by_other_app" = "Другое приложение использует это устройство монопольно; воспроизведение в общем режиме";
+"exclusive_output_unsupported" = "Это устройство не поддерживает монопольный доступ; воспроизведение в общем режиме";
+"exclusive_output_failed" = "macOS не предоставила монопольный доступ; воспроизведение в общем режиме";
+"exclusive_output_active_device %@" = "%@ используется монопольно";
+"exclusive_output_active_device_bit_depth %@ %lld" = "%1$@ используется монопольно · %2$lld бит";

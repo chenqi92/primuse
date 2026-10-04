@@ -2112,7 +2112,7 @@
 "Width" = "Breite";
 "Wine in hand, I ask the sky" = "Den Becher in der Hand, frage ich den Himmel";
 "Word-by-Word Lyrics" = "Wortgenauer Liedtext";
-"Works on physical iOS devices; ignored by some hardware" = "Funktioniert auf echten iOS-Geräten; von mancher Hardware ignoriert";
+"Switches the output device to each song's sample rate; some devices ignore it" = "Stellt das Ausgabegerät auf die Abtastrate des jeweiligen Titels um; manche Geräte ignorieren das";
 "Year in Review" = "Jahresrückblick";
 "Widget Gallery" = "Widget-Galerie";
 "Year in Review · Medium" = "Jahresrückblick · Mittel";
@@ -5486,3 +5486,17 @@
 "spoken_word_player_now_listening" = "Läuft gerade";
 "spoken_word_part_remaining_under_minute" = "Noch knapp eine Minute im Kapitel";
 "podcast_remaining_under_minute" = "Noch knapp eine Minute";
+
+"Exclusive Output Device" = "Ausgabegerät exklusiv nutzen";
+"While playing, other apps and alerts can't use the device and its bit depth follows each song; released when paused" = "Während der Wiedergabe können andere Apps und Hinweistöne das Gerät nicht nutzen, die Bittiefe folgt dem Titel; bei Pause wird es freigegeben";
+"Requires High-Fidelity Direct output mode" = "Erfordert den Ausgabemodus Hi-Fi-Direktausgabe";
+"exclusive_output_active" = "Exklusiv";
+"exclusive_output_shared" = "Nicht exklusiv";
+"exclusive_output_active_detail" = "Gerät wird exklusiv genutzt";
+"exclusive_output_active_bit_depth %lld" = "Gerät wird exklusiv genutzt · %lld Bit";
+"exclusive_output_held_by_app %@" = "%@ nutzt das Gerät exklusiv; Wiedergabe im gemeinsamen Modus";
+"exclusive_output_held_by_other_app" = "Eine andere App nutzt das Gerät exklusiv; Wiedergabe im gemeinsamen Modus";
+"exclusive_output_unsupported" = "Dieses Gerät kann nicht exklusiv genutzt werden; Wiedergabe im gemeinsamen Modus";
+"exclusive_output_failed" = "macOS hat den exklusiven Zugriff nicht erlaubt; Wiedergabe im gemeinsamen Modus";
+"exclusive_output_active_device %@" = "%@ wird exklusiv genutzt";
+"exclusive_output_active_device_bit_depth %@ %lld" = "%1$@ wird exklusiv genutzt · %2$lld Bit";

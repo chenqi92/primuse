@@ -1558,7 +1558,7 @@
 "Target Language" = "Цільова мова";
 "smart_mac_match_satisfy" = "Збіг";
 "relay_import_ticket_note" = "Цей квиток на імпорт працює один раз і закінчується через 10 хвилин. Він не містить спільного пароля.";
-"Works on physical iOS devices; ignored by some hardware" = "Працює на фізичних пристроях iOS; ігнорується деяким обладнанням";
+"Switches the output device to each song's sample rate; some devices ignore it" = "Перемикає пристрій виведення на частоту дискретизації кожного треку; деякі пристрої це ігнорують";
 "update_banner_now" = "Оновити зараз";
 "scrobble_lastfm_signout_confirm" = "Відключити Last.fm? Ваш ключ/секрет API буде збережено, щоб ви могли повторно підключитися, не вводячи їх повторно.";
 "api_key" = "API Ключ";
@@ -5392,3 +5392,17 @@
 "spoken_word_player_now_listening" = "Зараз слухаєте";
 "spoken_word_part_remaining_under_minute" = "До кінця розділу менше хвилини";
 "podcast_remaining_under_minute" = "Лишилося менше хвилини";
+
+"Exclusive Output Device" = "Монопольний доступ до пристрою";
+"While playing, other apps and alerts can't use the device and its bit depth follows each song; released when paused" = "Під час відтворення інші програми та звуки сповіщень не можуть використовувати пристрій, а розрядність відповідає треку; на паузі доступ звільняється";
+"Requires High-Fidelity Direct output mode" = "Потрібен режим виведення «Пряме відтворення високої точності»";
+"exclusive_output_active" = "Монопольно";
+"exclusive_output_shared" = "Без монопольного доступу";
+"exclusive_output_active_detail" = "Пристрій використовується монопольно";
+"exclusive_output_active_bit_depth %lld" = "Пристрій використовується монопольно · %lld біт";
+"exclusive_output_held_by_app %@" = "%@ використовує цей пристрій монопольно; відтворення в спільному режимі";
+"exclusive_output_held_by_other_app" = "Інша програма використовує цей пристрій монопольно; відтворення в спільному режимі";
+"exclusive_output_unsupported" = "Цей пристрій не підтримує монопольний доступ; відтворення в спільному режимі";
+"exclusive_output_failed" = "macOS не надала монопольний доступ; відтворення в спільному режимі";
+"exclusive_output_active_device %@" = "%@ використовується монопольно";
+"exclusive_output_active_device_bit_depth %@ %lld" = "%1$@ використовується монопольно · %2$lld біт";

@@ -445,7 +445,7 @@
 "Width" = "ความกว้าง";
 "Wine in hand, I ask the sky" = "ไวน์ในมือฉันถามท้องฟ้า";
 "Word-by-Word Lyrics" = "เนื้อเพลงแบบซิงค์รายคำ";
-"Works on physical iOS devices; ignored by some hardware" = "ทำงานบนอุปกรณ์ทางกายภาพ iOS ฮาร์ดแวร์บางตัวถูกละเลย";
+"Switches the output device to each song's sample rate; some devices ignore it" = "สลับอุปกรณ์เอาต์พุตไปใช้อัตราสุ่มตัวอย่างของแต่ละเพลง อุปกรณ์บางตัวอาจไม่ทำตาม";
 "Wrapped" = "ห่อแล้ว";
 "Write Timeout" = "หมดเวลาเขียน";
 "Write sidecar files next to source tracks" = "เขียนไฟล์ไซด์คาร์ถัดจากแทร็กต้นฉบับ";
@@ -5392,3 +5392,17 @@
 "spoken_word_player_now_listening" = "กำลังฟัง";
 "spoken_word_part_remaining_under_minute" = "เหลือไม่ถึง 1 นาทีในบทนี้";
 "podcast_remaining_under_minute" = "เหลือไม่ถึง 1 นาที";
+
+"Exclusive Output Device" = "ใช้อุปกรณ์เอาต์พุตแบบเฉพาะ";
+"While playing, other apps and alerts can't use the device and its bit depth follows each song; released when paused" = "ระหว่างเล่น แอปอื่นและเสียงแจ้งเตือนจะใช้อุปกรณ์นี้ไม่ได้ และความลึกบิตจะตามแต่ละเพลง ปล่อยคืนเมื่อหยุดชั่วคราว";
+"Requires High-Fidelity Direct output mode" = "ต้องใช้โหมดเอาท์พุตความเที่ยงตรงสูงโดยตรง";
+"exclusive_output_active" = "ใช้เฉพาะ";
+"exclusive_output_shared" = "ใช้เฉพาะไม่ได้";
+"exclusive_output_active_detail" = "กำลังใช้อุปกรณ์นี้แบบเฉพาะ";
+"exclusive_output_active_bit_depth %lld" = "กำลังใช้อุปกรณ์นี้แบบเฉพาะ · %lld บิต";
+"exclusive_output_held_by_app %@" = "%@ กำลังใช้อุปกรณ์นี้แบบเฉพาะ จึงเล่นในโหมดใช้ร่วมกัน";
+"exclusive_output_held_by_other_app" = "แอปอื่นกำลังใช้อุปกรณ์นี้แบบเฉพาะ จึงเล่นในโหมดใช้ร่วมกัน";
+"exclusive_output_unsupported" = "อุปกรณ์นี้ใช้แบบเฉพาะไม่ได้ จึงเล่นในโหมดใช้ร่วมกัน";
+"exclusive_output_failed" = "macOS ไม่อนุญาตให้ใช้แบบเฉพาะ จึงเล่นในโหมดใช้ร่วมกัน";
+"exclusive_output_active_device %@" = "กำลังใช้ %@ แบบเฉพาะ";
+"exclusive_output_active_device_bit_depth %@ %lld" = "กำลังใช้ %1$@ แบบเฉพาะ · %2$lld บิต";

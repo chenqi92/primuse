@@ -2112,7 +2112,7 @@
 "Width" = "Largeur";
 "Wine in hand, I ask the sky" = "Coupe en main, j'interroge le ciel";
 "Word-by-Word Lyrics" = "Paroles mot à mot";
-"Works on physical iOS devices; ignored by some hardware" = "Fonctionne sur les appareils iOS physiques ; ignoré par certains matériels";
+"Switches the output device to each song's sample rate; some devices ignore it" = "Règle l’appareil de sortie sur la fréquence d’échantillonnage de chaque morceau ; certains appareils l’ignorent";
 "Year in Review" = "Bilan de l'année";
 "Widget Gallery" = "Galerie de widgets";
 "Year in Review · Medium" = "Rétrospective de l'année · Moyen";
@@ -5486,3 +5486,17 @@
 "spoken_word_player_now_listening" = "En écoute";
 "spoken_word_part_remaining_under_minute" = "Moins d’une minute restante dans le chapitre";
 "podcast_remaining_under_minute" = "Moins d’une minute restante";
+
+"Exclusive Output Device" = "Utiliser la sortie en exclusivité";
+"While playing, other apps and alerts can't use the device and its bit depth follows each song; released when paused" = "Pendant la lecture, les autres apps et les sons d’alerte ne peuvent pas utiliser l’appareil et la profondeur de bits suit chaque morceau ; libéré à la pause";
+"Requires High-Fidelity Direct output mode" = "Nécessite le mode de sortie Haute fidélité directe";
+"exclusive_output_active" = "Exclusif";
+"exclusive_output_shared" = "Non exclusif";
+"exclusive_output_active_detail" = "Appareil utilisé en exclusivité";
+"exclusive_output_active_bit_depth %lld" = "Appareil utilisé en exclusivité · %lld bits";
+"exclusive_output_held_by_app %@" = "%@ utilise cet appareil en exclusivité ; lecture en mode partagé";
+"exclusive_output_held_by_other_app" = "Une autre app utilise cet appareil en exclusivité ; lecture en mode partagé";
+"exclusive_output_unsupported" = "Cet appareil ne peut pas être utilisé en exclusivité ; lecture en mode partagé";
+"exclusive_output_failed" = "macOS n’a pas accordé l’accès exclusif ; lecture en mode partagé";
+"exclusive_output_active_device %@" = "%@ utilisé en exclusivité";
+"exclusive_output_active_device_bit_depth %@ %lld" = "%1$@ utilisé en exclusivité · %2$lld bits";

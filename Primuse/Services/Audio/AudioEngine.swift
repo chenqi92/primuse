@@ -129,6 +129,23 @@ final class AudioEngine {
     /// 直通图上一次写应用级输出音量是否成功。
     private(set) var directOutputVolumeIsSupported = false
     private let hardwareSampleRateNegotiator = HardwareSampleRateNegotiator()
+    /// 设置里的「独占输出设备」。只在高保真直通图上生效；打开后由下一次配图去拿设备。
+    var exclusiveOutputRequested = false {
+        didSet {
+            guard oldValue, !exclusiveOutputRequested else { return }
+            releaseExclusiveOutput(restoringFormats: true)
+        }
+    }
+    /// 独占的结果，给设置页、播放页和输出设备面板显示。
+    private(set) var exclusiveOutputStatus: ExclusiveOutputStatus = .inactive
+    private let exclusiveOutputController = ExclusiveOutputDeviceController()
+    private var exclusiveOutputIdleReleaseTask: Task<Void, Never>?
+    /// 跟随系统输出时，这一轮独占认定的设备。设备被独占后系统会把默认输出挪到
+    /// 别的设备上，「系统默认」不能再当目标；图也要钉在这台设备上，不然会跟着跑。
+    private var exclusiveSessionDeviceID: AudioDeviceID?
+    private var systemDefaultOutputListener: AudioObjectPropertyListenerBlock?
+    /// 暂停、停下或换歌后多久放掉独占：换歌通常在这之内就重新出声，不必来回拿放。
+    private static let exclusiveOutputIdleReleaseDelay: Duration = .seconds(2)
     #endif
     private var engine: AVAudioEngine?
     private var playerNode: AVAudioPlayerNode?
@@ -290,7 +307,7 @@ final class AudioEngine {
 
         #if os(macOS)
         let wasFollowingSystem = followsSystemOutput
-        let previousDevice = wasFollowingSystem ? nil : currentOutputDeviceID
+        let previousDevice = wasFollowingSystem ? exclusiveOutputDeviceID : currentOutputDeviceID
         #endif
 
         tearDownGraph()
@@ -342,6 +359,7 @@ final class AudioEngine {
         outputFormat = nil
         #if os(macOS)
         directOutputVolumeIsSupported = false
+        scheduleExclusiveOutputIdleRelease()
         #endif
         isSetUp = false
         isPlaying = false
@@ -496,6 +514,9 @@ final class AudioEngine {
     func start() throws {
         cancelEngineIdleShutdown()
         try setUp()
+        #if os(macOS)
+        claimExclusiveOutputIfRequested()
+        #endif
         applySpatialAudioConfiguration()
         guard let engine, !engine.isRunning else { return }
         flushEffectChain()
@@ -514,6 +535,9 @@ final class AudioEngine {
         engine?.stop()
         stopSpatialHeadTracking()
         isPlaying = false
+        #if os(macOS)
+        releaseExclusiveOutput(restoringFormats: false)
+        #endif
     }
 
     // MARK: - Hardware format negotiation
@@ -584,9 +608,10 @@ final class AudioEngine {
                 return .init(deviceID: activeDevice, sampleRate: rate)
             },
             observe: { [self] callback in
+                // 独占期间系统默认输出会因为独占被挪走，那不是用户换了设备。
                 try Self.observeHardwareSampleRate(
                     deviceID: deviceID,
-                    followsSystem: followsSystemOutput,
+                    followsSystem: followsSystemOutput && exclusiveOutputDeviceID == nil,
                     callback: callback
                 )
             },
@@ -626,8 +651,22 @@ final class AudioEngine {
     }
 
     private var hardwareOutputDeviceID: AudioDeviceID? {
+        if let exclusiveOutputDeviceID { return exclusiveOutputDeviceID }
         if followsSystemOutput { return Self.systemDefaultOutputDeviceID() }
         return currentOutputDeviceID ?? Self.systemDefaultOutputDeviceID()
+    }
+
+    /// 正独占的设备；跟随系统输出时还包括这一轮独占认定的设备(暂停后放掉了也算)。
+    private var exclusiveOutputDeviceID: AudioDeviceID? {
+        if let held = exclusiveOutputController.heldDeviceID, Self.deviceIsAlive(held) {
+            return held
+        }
+        if followsSystemOutput,
+           let session = exclusiveSessionDeviceID,
+           Self.deviceIsAlive(session) {
+            return session
+        }
+        return nil
     }
 
     /// Primuse 实际在往哪台设备输出:跟随系统时是系统默认输出,钉了设备时是钉的那台。
@@ -829,10 +868,13 @@ final class AudioEngine {
     func setOutputDevice(deviceID: AudioDeviceID) throws {
         try setUp()
         guard let engine else { return }
+        // 换设备前把旧设备的独占和位深还回去；还在播就去拿新设备。
+        releaseExclusiveOutput(restoringFormats: true)
         try Self.applyOutputDevice(deviceID, to: engine)
         // 显式钉到了某设备, 退出跟随系统状态并持久化。
         UserDefaults.standard.set(false, forKey: Self.followsSystemKey)
         markHardwareConfigurationChanged()
+        if isActuallyPlaying { claimExclusiveOutputIfRequested() }
         NotificationCenter.default.post(name: .primuseAudioOutputSelectionDidChange, object: nil)
     }
 
@@ -860,6 +902,7 @@ final class AudioEngine {
         )
         // 取不到真实默认设备就别动 output unit, 维持 AUHAL 既有(默认)路由。
         guard getStatus == noErr, defaultID != AudioDeviceID(kAudioObjectUnknown) else { return }
+        releaseExclusiveOutput(restoringFormats: true)
 
         var id = defaultID
         let status = AudioUnitSetProperty(
@@ -879,6 +922,7 @@ final class AudioEngine {
             ])
         }
         markHardwareConfigurationChanged()
+        if isActuallyPlaying { claimExclusiveOutputIfRequested() }
     }
 
     /// 用户上次是否选了「跟随系统」。默认 true(从未显式钉过设备就是跟随)。
@@ -902,6 +946,158 @@ final class AudioEngine {
             &size
         )
         return status == noErr ? id : nil
+    }
+
+    // MARK: - Exclusive output (macOS only)
+
+    /// 开始出声前调用：要独占就拿下当前输出设备，不该独占就放掉并把位深改回去。
+    private func claimExclusiveOutputIfRequested() {
+        cancelExclusiveOutputIdleRelease()
+        guard exclusiveOutputRequested, outputMode == .highFidelity else {
+            releaseExclusiveOutput(restoringFormats: true)
+            return
+        }
+        // 跟随系统输出时，第一次拿设备要等配图那一步把图钉在设备上之后再拿。
+        guard !followsSystemOutput || exclusiveSessionDeviceID != nil,
+              let deviceID = hardwareOutputDeviceID else { return }
+        if followsSystemOutput, let engine, currentOutputDeviceID != deviceID {
+            // 暂停时用户换了系统输出：先把图挪过去再拿。
+            do {
+                try Self.applyOutputDevice(deviceID, to: engine)
+                hardwareConfigurationRecoveryState.configurationChanged()
+            } catch {
+                plog("⚠️ Exclusive output could not move to device=\(deviceID): \(error.localizedDescription)")
+                return
+            }
+        }
+        claimExclusiveOutput(deviceID: deviceID)
+    }
+
+    private func claimExclusiveOutput(deviceID: AudioDeviceID) {
+        let status = exclusiveOutputController.claim(
+            deviceID: deviceID,
+            isSystemManagedWireless: Self.isSystemManagedWirelessOutput(deviceID: deviceID)
+        )
+        if status != exclusiveOutputStatus { exclusiveOutputStatus = status }
+    }
+
+    /// 起播配图之前调用：这首要独占就先拿下设备，后面切采样率和位深时别的 App
+    /// 插不进来。图这时还没换，所以由调用方告诉这首走哪种图。这首没能播起来的话，
+    /// 过一会儿照常放掉。
+    func prepareExclusiveOutput(requested: Bool, graphMode: AudioOutputMode) {
+        exclusiveOutputRequested = requested
+        guard requested, graphMode == .highFidelity else {
+            releaseExclusiveOutput(restoringFormats: true)
+            return
+        }
+        guard let deviceID = hardwareOutputDeviceID else { return }
+        if followsSystemOutput, exclusiveSessionDeviceID != deviceID {
+            // 接下来的配图要重建，并钉在这台设备上。
+            exclusiveSessionDeviceID = deviceID
+            hardwareConfigurationRecoveryState.configurationChanged()
+            observeSystemDefaultOutput()
+        }
+        claimExclusiveOutput(deviceID: deviceID)
+        if !isActuallyPlaying { scheduleExclusiveOutputIdleRelease() }
+    }
+
+    /// 独占时让设备的物理位深跟随这首歌。在采样率协商之后、配图之前调用。
+    func matchExclusiveOutputBitDepth(_ targetBitDepth: Int) async {
+        guard exclusiveOutputRequested,
+              case .exclusive(let deviceName, _) = exclusiveOutputStatus,
+              let deviceID = exclusiveOutputController.heldDeviceID,
+              deviceID == hardwareOutputDeviceID else { return }
+        let bitDepth = await exclusiveOutputController.matchPhysicalBitDepth(
+            targetBitDepth,
+            deviceID: deviceID
+        )
+        guard case .exclusive = exclusiveOutputStatus,
+              exclusiveOutputController.heldDeviceID == deviceID else { return }
+        exclusiveOutputStatus = .exclusive(deviceName: deviceName, bitDepth: bitDepth)
+    }
+
+    /// 放掉独占。restoringFormats 是整轮结束(关掉独占、换设备、退出)：改过位深的
+    /// 设备改回去，跟随系统输出时下一次配图也不再钉在那台设备上。
+    func releaseExclusiveOutput(restoringFormats: Bool) {
+        cancelExclusiveOutputIdleRelease()
+        exclusiveOutputController.release()
+        if restoringFormats {
+            exclusiveOutputController.restorePhysicalFormats()
+            if exclusiveSessionDeviceID != nil {
+                exclusiveSessionDeviceID = nil
+                stopObservingSystemDefaultOutput()
+                hardwareConfigurationRecoveryState.configurationChanged()
+            }
+        }
+        if exclusiveOutputStatus != .inactive {
+            exclusiveOutputStatus = .inactive
+        }
+    }
+
+    /// 暂停、停下或换歌后不马上放：换歌一般在延时之内就重新出声。到点还没出声
+    /// 才放掉，别的 App 这时就能用这台设备了。
+    private func scheduleExclusiveOutputIdleRelease() {
+        cancelExclusiveOutputIdleRelease()
+        guard exclusiveOutputController.heldDeviceID != nil
+                || exclusiveOutputStatus != .inactive else { return }
+        exclusiveOutputIdleReleaseTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: Self.exclusiveOutputIdleReleaseDelay)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.exclusiveOutputIdleReleaseTask = nil
+            guard !self.isActuallyPlaying else { return }
+            self.releaseExclusiveOutput(restoringFormats: false)
+        }
+    }
+
+    /// 跟随系统输出、这一轮独占还没结束时盯着系统默认输出：只有没在独占(暂停后
+    /// 放掉了)时的变化才是用户换了设备，独占期间的变化是独占本身挪走的。
+    private func observeSystemDefaultOutput() {
+        guard systemDefaultOutputListener == nil else { return }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            MainActor.assumeIsolated { self?.systemDefaultOutputDidChange() }
+        }
+        guard AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject), &address, .main, listener
+        ) == noErr else { return }
+        systemDefaultOutputListener = listener
+    }
+
+    private func stopObservingSystemDefaultOutput() {
+        guard let listener = systemDefaultOutputListener else { return }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        AudioObjectRemovePropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject), &address, .main, listener
+        )
+        systemDefaultOutputListener = nil
+    }
+
+    private func systemDefaultOutputDidChange() {
+        guard followsSystemOutput,
+              let session = exclusiveSessionDeviceID,
+              exclusiveOutputController.heldDeviceID == nil,
+              let newDefault = Self.systemDefaultOutputDeviceID(),
+              newDefault != session else { return }
+        plog("🎧 Exclusive output follows the new system output device=\(newDefault)")
+        exclusiveSessionDeviceID = newDefault
+        hardwareConfigurationRecoveryState.configurationChanged()
+    }
+
+    private func cancelExclusiveOutputIdleRelease() {
+        exclusiveOutputIdleReleaseTask?.cancel()
+        exclusiveOutputIdleReleaseTask = nil
     }
     #endif
 
@@ -1106,6 +1302,9 @@ final class AudioEngine {
             isPlaying = false
             return false
         }
+        #if os(macOS)
+        claimExclusiveOutputIfRequested()
+        #endif
         applySpatialAudioConfiguration()
         if !engine.isRunning {
             flushEffectChain()
@@ -1182,6 +1381,9 @@ final class AudioEngine {
         // freezing it. The idle timer releases the hardware once the pause
         // turns out not to be a quick one.
         scheduleEngineIdleShutdown()
+        #if os(macOS)
+        scheduleExclusiveOutputIdleRelease()
+        #endif
         isPlaying = false
     }
 
@@ -1236,6 +1438,9 @@ final class AudioEngine {
         // After audio interruption (e.g. phone call, other app), the engine stops.
         // Restart it before resuming playback.
         cancelEngineIdleShutdown()
+        #if os(macOS)
+        claimExclusiveOutputIfRequested()
+        #endif
         applySpatialAudioConfiguration()
         if let engine, !engine.isRunning {
             flushEffectChain()
@@ -1269,6 +1474,9 @@ final class AudioEngine {
         playerNode?.stop()
         playerNode?.reset()
         isPlaying = false
+        #if os(macOS)
+        scheduleExclusiveOutputIdleRelease()
+        #endif
     }
 
     /// Restart the engine and player node if they were stopped (e.g. by a configuration change).
@@ -1279,6 +1487,9 @@ final class AudioEngine {
             isPlaying = false
             return false
         }
+        #if os(macOS)
+        claimExclusiveOutputIfRequested()
+        #endif
         if !engine.isRunning {
             do {
                 applySpatialAudioConfiguration()

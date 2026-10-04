@@ -445,7 +445,7 @@
 "Width" = "Largura";
 "Wine in hand, I ask the sky" = "Vinho na mão, peço ao céu";
 "Word-by-Word Lyrics" = "Letras palavra por palavra";
-"Works on physical iOS devices; ignored by some hardware" = "Funciona em dispositivos físicos iOS; ignorado por algum hardware";
+"Switches the output device to each song's sample rate; some devices ignore it" = "Muda o dispositivo de saída para a taxa de amostragem de cada música; alguns dispositivos ignoram";
 "Wrapped" = "Retrospectiva anual";
 "Write Timeout" = "Tempo limite de gravação";
 "Write sidecar files next to source tracks" = "Grave arquivos secundários próximos às faixas de origem";
@@ -5392,3 +5392,17 @@
 "spoken_word_player_now_listening" = "Ouvindo agora";
 "spoken_word_part_remaining_under_minute" = "Falta menos de um minuto no capítulo";
 "podcast_remaining_under_minute" = "Falta menos de um minuto";
+
+"Exclusive Output Device" = "Usar a saída com exclusividade";
+"While playing, other apps and alerts can't use the device and its bit depth follows each song; released when paused" = "Durante a reprodução, outros apps e sons de alerta não podem usar o dispositivo e a profundidade de bits acompanha cada música; liberado ao pausar";
+"Requires High-Fidelity Direct output mode" = "Requer o modo de saída Alta fidelidade direta";
+"exclusive_output_active" = "Exclusivo";
+"exclusive_output_shared" = "Sem exclusividade";
+"exclusive_output_active_detail" = "Usando este dispositivo com exclusividade";
+"exclusive_output_active_bit_depth %lld" = "Usando este dispositivo com exclusividade · %lld bits";
+"exclusive_output_held_by_app %@" = "%@ está usando este dispositivo com exclusividade; reproduzindo no modo compartilhado";
+"exclusive_output_held_by_other_app" = "Outro app está usando este dispositivo com exclusividade; reproduzindo no modo compartilhado";
+"exclusive_output_unsupported" = "Este dispositivo não pode ser usado com exclusividade; reproduzindo no modo compartilhado";
+"exclusive_output_failed" = "O macOS não concedeu acesso exclusivo; reproduzindo no modo compartilhado";
+"exclusive_output_active_device %@" = "Usando %@ com exclusividade";
+"exclusive_output_active_device_bit_depth %@ %lld" = "Usando %1$@ com exclusividade · %2$lld bits";

@@ -2012,6 +2012,19 @@ private struct MacSTPlaybackView: View {
         )
     }
 
+    /// 独占这一行的说明：没开高保真直通时说前提，开着却没拿到独占时说原因。
+    private var exclusiveOutputHint: String {
+        guard store.outputMode == .highFidelity else {
+            return Lz("Requires High-Fidelity Direct output mode")
+        }
+        if store.exclusiveOutputEnabled,
+           let reason = AppServices.shared.playerService.audioEngine
+            .exclusiveOutputStatus.fallbackDescription {
+            return reason
+        }
+        return Lz("While playing, other apps and alerts can't use the device and its bit depth follows each song; released when paused")
+    }
+
     var body: some View {
         @Bindable var s = store
 
@@ -2035,7 +2048,7 @@ private struct MacSTPlaybackView: View {
                     )
                 }
                 .settingsAnchor("playback.dsdMode")
-                MacSTRow(Lz("Match Hardware Sample Rate"), hint: Lz("Works on physical iOS devices; ignored by some hardware")) {
+                MacSTRow(Lz("Match Hardware Sample Rate"), hint: Lz("Switches the output device to each song's sample rate; some devices ignore it")) {
                     MacSTToggle(isOn: Binding(
                         get: { s.outputMode == .highFidelity || s.matchOutputSampleRate },
                         set: { s.matchOutputSampleRate = $0 }
@@ -2043,6 +2056,11 @@ private struct MacSTPlaybackView: View {
                 }
                 .settingsAnchor("playback.matchSampleRate")
                 .disabled(s.outputMode == .highFidelity)
+                MacSTRow(Lz("Exclusive Output Device"), hint: exclusiveOutputHint) {
+                    MacSTToggle(isOn: $s.exclusiveOutputEnabled)
+                }
+                .settingsAnchor("playback.exclusiveOutput")
+                .disabled(s.outputMode != .highFidelity)
             }
         }
         .alert("output_mode_high_fidelity_confirm_title", isPresented: $highFidelityConfirmShown) {

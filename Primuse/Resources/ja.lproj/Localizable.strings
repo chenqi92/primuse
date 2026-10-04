@@ -2113,7 +2113,7 @@
 "Width" = "幅";
 "Wine in hand, I ask the sky" = "把酒問青天";
 "Word-by-Word Lyrics" = "一文字ずつ表示する歌詞";
-"Works on physical iOS devices; ignored by some hardware" = "iOS の実機で有効です。一部のハードウェアでは無視されます";
+"Switches the output device to each song's sample rate; some devices ignore it" = "出力デバイスを曲ごとのサンプルレートに切り替えます。一部のデバイスでは無視されます";
 "Year in Review" = "年間レポート";
 "Widget Gallery" = "ウィジェットギャラリー";
 "Year in Review · Medium" = "ふりかえり · 中";
@@ -5487,3 +5487,17 @@
 "spoken_word_player_now_listening" = "再生中";
 "spoken_word_part_remaining_under_minute" = "この章の残り 1分未満";
 "podcast_remaining_under_minute" = "残り 1分未満";
+
+"Exclusive Output Device" = "出力デバイスを占有";
+"While playing, other apps and alerts can't use the device and its bit depth follows each song; released when paused" = "再生中はほかのアプリや通知音がこのデバイスを使えず、ビット深度は曲に合わせます。一時停止すると解放します";
+"Requires High-Fidelity Direct output mode" = "出力モードを高音質ダイレクトにすると使えます";
+"exclusive_output_active" = "占有";
+"exclusive_output_shared" = "占有できません";
+"exclusive_output_active_detail" = "このデバイスを占有しています";
+"exclusive_output_active_bit_depth %lld" = "このデバイスを占有しています · %lldbit";
+"exclusive_output_held_by_app %@" = "%@ がこのデバイスを占有しているため、共有モードで再生しています";
+"exclusive_output_held_by_other_app" = "ほかのアプリがこのデバイスを占有しているため、共有モードで再生しています";
+"exclusive_output_unsupported" = "このデバイスは占有できないため、共有モードで再生しています";
+"exclusive_output_failed" = "システムが占有を許可しなかったため、共有モードで再生しています";
+"exclusive_output_active_device %@" = "%@ を占有しています";
+"exclusive_output_active_device_bit_depth %@ %lld" = "%1$@ を占有しています · %2$lldbit";

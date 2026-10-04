@@ -132,6 +132,8 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
     /// 是否让 AVAudioSession 把硬件输出 SR 切到当前歌曲采样率, 避免
     /// CoreAudio 自动重采样。仅 iOS 真机有效, 部分老款硬件无视该 hint。
     var matchOutputSampleRate: Bool = false
+    /// Mac 高保真直通时独占输出设备(Core Audio hog mode), 设备物理位深跟随歌曲。
+    var exclusiveOutputEnabled: Bool = false
 
     // Compressor / Limiter
     var effectChainEnabled: Bool = true
@@ -185,6 +187,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         autoContinueSimilarEnabled = try c.decodeIfPresent(Bool.self, forKey: .autoContinueSimilarEnabled) ?? true
         lockScreenLyricsEnabled = try c.decodeIfPresent(Bool.self, forKey: .lockScreenLyricsEnabled) ?? true
         matchOutputSampleRate = try c.decodeIfPresent(Bool.self, forKey: .matchOutputSampleRate) ?? false
+        exclusiveOutputEnabled = try c.decodeIfPresent(Bool.self, forKey: .exclusiveOutputEnabled) ?? false
         effectChainEnabled = try c.decodeIfPresent(Bool.self, forKey: .effectChainEnabled) ?? true
         compressorEnabled = try c.decodeIfPresent(Bool.self, forKey: .compressorEnabled) ?? false
         compressorThreshold = try c.decodeIfPresent(Float.self, forKey: .compressorThreshold) ?? -20
@@ -226,6 +229,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         autoContinueSimilarEnabled: Bool = true,
         lockScreenLyricsEnabled: Bool = true,
         matchOutputSampleRate: Bool = false,
+        exclusiveOutputEnabled: Bool = false,
         effectChainEnabled: Bool = true,
         compressorEnabled: Bool = false,
         compressorThreshold: Float = -20,
@@ -265,6 +269,7 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         self.autoContinueSimilarEnabled = autoContinueSimilarEnabled
         self.lockScreenLyricsEnabled = lockScreenLyricsEnabled
         self.matchOutputSampleRate = matchOutputSampleRate
+        self.exclusiveOutputEnabled = exclusiveOutputEnabled
         self.effectChainEnabled = effectChainEnabled
         self.compressorEnabled = compressorEnabled
         self.compressorThreshold = compressorThreshold
@@ -296,6 +301,8 @@ struct PlaybackSettings: Codable, Sendable, Equatable {
         .init("dsdPlaybackMode", \.dsdPlaybackMode),
         // 让硬件输出采样率跟随歌曲只对 iOS 真机有意义, 而且部分硬件无视。
         .init("matchOutputSampleRate", \.matchOutputSampleRate),
+        // 独占的是接在这台 Mac 上的 DAC。
+        .init("exclusiveOutputEnabled", \.exclusiveOutputEnabled),
         // 提前准备几首是本机内存与网络预算的取舍。
         .init("prewarmQueueCount", \.prewarmQueueCount),
         // 头部追踪要这台设备连着带传感器的耳机; 空间音频本身是听感偏好, 照常同步。
@@ -479,6 +486,7 @@ final class PlaybackSettingsStore {
     var autoContinueSimilarEnabled: Bool { didSet { persist() } }
     var lockScreenLyricsEnabled: Bool { didSet { persist() } }
     var matchOutputSampleRate: Bool { didSet { persist() } }
+    var exclusiveOutputEnabled: Bool { didSet { persist() } }
 
     // Compressor / Limiter
     var effectChainEnabled: Bool { didSet { persist() } }
@@ -532,6 +540,7 @@ final class PlaybackSettingsStore {
         self.autoContinueSimilarEnabled = s.autoContinueSimilarEnabled
         self.lockScreenLyricsEnabled = s.lockScreenLyricsEnabled
         self.matchOutputSampleRate = s.matchOutputSampleRate
+        self.exclusiveOutputEnabled = s.exclusiveOutputEnabled
         self.effectChainEnabled = s.effectChainEnabled
         self.compressorEnabled = s.compressorEnabled
         self.compressorThreshold = s.compressorThreshold
@@ -607,6 +616,7 @@ final class PlaybackSettingsStore {
         autoContinueSimilarEnabled = s.autoContinueSimilarEnabled
         lockScreenLyricsEnabled = s.lockScreenLyricsEnabled
         matchOutputSampleRate = s.matchOutputSampleRate
+        exclusiveOutputEnabled = s.exclusiveOutputEnabled
         effectChainEnabled = s.effectChainEnabled
         compressorEnabled = s.compressorEnabled
         compressorThreshold = s.compressorThreshold
@@ -657,6 +667,7 @@ final class PlaybackSettingsStore {
             autoContinueSimilarEnabled: autoContinueSimilarEnabled,
             lockScreenLyricsEnabled: lockScreenLyricsEnabled,
             matchOutputSampleRate: matchOutputSampleRate,
+            exclusiveOutputEnabled: exclusiveOutputEnabled,
             effectChainEnabled: effectChainEnabled,
             compressorEnabled: compressorEnabled,
             compressorThreshold: compressorThreshold,

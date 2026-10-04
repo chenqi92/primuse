@@ -1285,6 +1285,10 @@ struct MacNowPlayingView: View {
         if let bitDepth = song.formattedBitDepth {
             parts.append(bitDepth)
         }
+        // 设置里开了独占输出：拿到了写「独占」，没拿到写「未能独占」。
+        if let exclusive = player.audioEngine.exclusiveOutputStatus.nowPlayingLabel {
+            parts.append(exclusive)
+        }
         return parts.joined(separator: " · ")
     }
 

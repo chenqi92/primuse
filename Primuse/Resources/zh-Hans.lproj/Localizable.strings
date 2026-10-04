@@ -2124,7 +2124,7 @@
 "Width" = "宽度";
 "Wine in hand, I ask the sky" = "把酒问青天";
 "Word-by-Word Lyrics" = "逐字歌词";
-"Works on physical iOS devices; ignored by some hardware" = "iOS 真机有效, 部分硬件忽略";
+"Switches the output device to each song's sample rate; some devices ignore it" = "把输出设备切到每首歌的采样率，部分设备会忽略";
 "Year in Review" = "年度报告";
 "Widget Gallery" = "小组件图库";
 "Year in Review · Medium" = "年度报告 · 中号";
@@ -5579,3 +5579,17 @@
 "spoken_word_player_now_listening" = "正在收听";
 "spoken_word_part_remaining_under_minute" = "本章还剩不到 1 分钟";
 "podcast_remaining_under_minute" = "剩余不到 1 分钟";
+
+"Exclusive Output Device" = "独占输出设备";
+"While playing, other apps and alerts can't use the device and its bit depth follows each song; released when paused" = "播放时其他 App 和提示音用不了这台设备，位深跟随歌曲；暂停后释放";
+"Requires High-Fidelity Direct output mode" = "需先把输出模式设为高保真直通";
+"exclusive_output_active" = "独占";
+"exclusive_output_shared" = "未能独占";
+"exclusive_output_active_detail" = "正在独占这台设备";
+"exclusive_output_active_bit_depth %lld" = "正在独占这台设备 · %lldbit";
+"exclusive_output_held_by_app %@" = "%@ 正在独占这台设备，已改为共享输出";
+"exclusive_output_held_by_other_app" = "另一个 App 正在独占这台设备，已改为共享输出";
+"exclusive_output_unsupported" = "这台设备不支持独占，已改为共享输出";
+"exclusive_output_failed" = "系统没有允许独占，已改为共享输出";
+"exclusive_output_active_device %@" = "正在独占 %@";
+"exclusive_output_active_device_bit_depth %@ %lld" = "正在独占 %1$@ · %2$lldbit";

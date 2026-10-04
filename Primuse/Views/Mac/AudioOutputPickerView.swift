@@ -92,6 +92,23 @@ struct AudioOutputPickerView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 6)
             }
+
+            // 设置里开了独占输出：说清楚这台设备现在是独占还是共享。
+            if let exclusive = engine.exclusiveOutputStatus.pickerDescription {
+                Rectangle().fill(PMColor.divider).frame(height: 0.5)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: engine.exclusiveOutputStatus.fallbackDescription == nil
+                          ? "lock.fill" : "exclamationmark.triangle.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(verbatim: exclusive)
+                        .font(.caption)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .foregroundStyle(engine.exclusiveOutputStatus.fallbackDescription == nil
+                                 ? PMColor.textMuted : PMColor.warn)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+            }
         }
         .frame(width: 280)
         // popover 一打开就会把键盘焦点放在第一个按钮上, 给它描一圈 accent 焦点环。

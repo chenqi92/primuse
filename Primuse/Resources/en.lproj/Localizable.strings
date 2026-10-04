@@ -5249,3 +5249,14 @@
 "spoken_word_player_now_listening" = "Now Listening";
 "spoken_word_part_remaining_under_minute" = "Less than a minute left in chapter";
 "podcast_remaining_under_minute" = "Less than a minute left";
+
+"exclusive_output_active" = "Exclusive";
+"exclusive_output_shared" = "Not exclusive";
+"exclusive_output_active_detail" = "Using this device exclusively";
+"exclusive_output_active_bit_depth %lld" = "Using this device exclusively · %lld-bit";
+"exclusive_output_held_by_app %@" = "%@ is using this device exclusively; playing in shared mode";
+"exclusive_output_held_by_other_app" = "Another app is using this device exclusively; playing in shared mode";
+"exclusive_output_unsupported" = "This device can't be used exclusively; playing in shared mode";
+"exclusive_output_failed" = "macOS didn't grant exclusive access; playing in shared mode";
+"exclusive_output_active_device %@" = "Using %@ exclusively";
+"exclusive_output_active_device_bit_depth %@ %lld" = "Using %1$@ exclusively · %2$lld-bit";
