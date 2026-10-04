@@ -5348,6 +5348,7 @@
 
 /* Editable album and artist intros */
 "library_insight_edit" = "Düzenle";
+"library_insight_show_less" = "Daha az göster";
 "library_insight_write_own" = "Kendim yazayım";
 "library_insight_editor_title_album" = "Albüm tanıtımını düzenle";
 "library_insight_editor_title_artist" = "Sanatçı tanıtımını düzenle";

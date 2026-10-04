@@ -5442,6 +5442,7 @@
 
 /* Editable album and artist intros */
 "library_insight_edit" = "편집";
+"library_insight_show_less" = "접기";
 "library_insight_write_own" = "직접 쓰기";
 "library_insight_editor_title_album" = "앨범 소개 편집";
 "library_insight_editor_title_artist" = "아티스트 소개 편집";

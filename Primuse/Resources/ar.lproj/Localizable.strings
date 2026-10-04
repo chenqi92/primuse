@@ -5348,6 +5348,7 @@
 
 /* Editable album and artist intros */
 "library_insight_edit" = "تعديل";
+"library_insight_show_less" = "عرض أقل";
 "library_insight_write_own" = "أكتبها بنفسي";
 "library_insight_editor_title_album" = "تعديل نبذة الألبوم";
 "library_insight_editor_title_artist" = "تعديل نبذة الفنان";

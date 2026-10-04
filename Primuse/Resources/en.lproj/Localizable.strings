@@ -5205,6 +5205,7 @@
 
 /* Editable album and artist intros */
 "library_insight_edit" = "Edit";
+"library_insight_show_less" = "Show Less";
 "library_insight_write_own" = "Write My Own";
 "library_insight_editor_title_album" = "Edit Album Intro";
 "library_insight_editor_title_artist" = "Edit Artist Intro";

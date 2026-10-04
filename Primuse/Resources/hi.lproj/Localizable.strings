@@ -5348,6 +5348,7 @@
 
 /* Editable album and artist intros */
 "library_insight_edit" = "संपादित करें";
+"library_insight_show_less" = "कम दिखाएं";
 "library_insight_write_own" = "खुद लिखें";
 "library_insight_editor_title_album" = "एल्बम परिचय संपादित करें";
 "library_insight_editor_title_artist" = "कलाकार परिचय संपादित करें";

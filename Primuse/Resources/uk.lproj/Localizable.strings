@@ -5348,6 +5348,7 @@
 
 /* Editable album and artist intros */
 "library_insight_edit" = "Змінити";
+"library_insight_show_less" = "Згорнути";
 "library_insight_write_own" = "Написати самому";
 "library_insight_editor_title_album" = "Опис альбому";
 "library_insight_editor_title_artist" = "Опис виконавця";

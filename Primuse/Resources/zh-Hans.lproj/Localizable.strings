@@ -5535,6 +5535,7 @@
 
 /* Editable album and artist intros */
 "library_insight_edit" = "编辑";
+"library_insight_show_less" = "收起";
 "library_insight_write_own" = "自己写";
 "library_insight_editor_title_album" = "编辑专辑简介";
 "library_insight_editor_title_artist" = "编辑艺人简介";

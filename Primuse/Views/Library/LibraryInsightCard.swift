@@ -2,7 +2,6 @@ import SwiftUI
 import PrimuseKit
 
 /// 简介的几样操作:让 AI 生成、写回音乐源、删除、读回音乐源已有的。
-/// 头图里的摘录和全文页共用,逻辑只有一份。
 @MainActor
 struct LibraryInsightActions {
     /// 只用名字认出是哪张专辑/哪位艺人;曲目、风格等在要问 AI 时才由 `details` 收集。
@@ -45,7 +44,7 @@ struct LibraryInsightActions {
         writeBack()
     }
 
-    /// 存下来的简介按各音乐源能写的方式写出去,结果显示在全文页底部。
+    /// 存下来的简介按各音乐源能写的方式写出去,结果在简介展开后的来源下面显示。
     func writeBack() {
         let subject = subject
         let songs = songs()
@@ -76,7 +75,7 @@ struct LibraryInsightActions {
     }
 }
 
-/// 详情页头图里的简介,照影片介绍页的摆法:风格一行、几行摘录、来源一行,点开读全文。
+/// 详情页头图里的简介,照影片介绍页的摆法:风格一行、几行摘录、来源一行,点「更多」就地展开全文。
 /// 白字压在详情页的深色头图上(iPhone、iPad、Mac 都是)。还没有简介时只占一颗
 /// 「添加简介」小胶囊;生成中、失败、AI 不认识时就地显示 —— 页尾不再另放一张卡片,
 /// 让 AI 写完不用滚回顶上找。
@@ -93,11 +92,11 @@ struct LibraryInsightSynopsis: View {
     /// 位置不随横竖屏换 —— 这里挂着菜单和弹页,换宿主会把它们一起拆掉。
     var compact = false
 
-    @State private var showsReader = false
     @State private var isEditing = false
     @State private var confirmsRegenerate = false
-    @State private var excerptHeight: CGFloat = 0
-    @State private var fullHeight: CGFloat = 0
+    @State private var isExpanded = false
+    @State private var collapsedTextHeight: CGFloat = 0
+    @State private var expandedTextHeight: CGFloat = 0
 
     private var store: LibraryInsightStore { .shared }
 
@@ -126,19 +125,19 @@ struct LibraryInsightSynopsis: View {
     #endif
 
     #if DEBUG
-    /// 截图钩子:`PRIMUSE_DEBUG_INSIGHT_EDIT=1` 让首个出现的简介打开编辑页,`=reader` 打开全文页,只开一次
+    /// 截图钩子:`PRIMUSE_DEBUG_INSIGHT_EDIT=1` 让首个出现的简介打开编辑页,`=expanded` 就地展开,只开一次
     /// (配合 `PRIMUSE_OPEN_PAGE=artist:<名字>` 看染色详情页里弹出的页面)。
     @MainActor private static var didOpenDebugEditor = false
 
     private func openDebugEditorIfRequested() async {
         let mode = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_INSIGHT_EDIT"]
-        guard !Self.didOpenDebugEditor, mode == "1" || mode == "reader" else { return }
+        guard !Self.didOpenDebugEditor, mode == "1" || mode == "expanded" else { return }
         Self.didOpenDebugEditor = true
         try? await Task.sleep(for: .seconds(3))
         guard !Task.isCancelled else { return }
-        plog("🧪 Debug: open insight \(mode == "reader" ? "reader" : "editor")")
-        if mode == "reader" {
-            showsReader = true
+        plog("🧪 Debug: open insight \(mode == "expanded" ? "expanded" : "editor")")
+        if mode == "expanded" {
+            isExpanded = true
         } else {
             isEditing = true
         }
@@ -159,13 +158,10 @@ struct LibraryInsightSynopsis: View {
             // 头图恒为深底白字,转圈、菜单这些系统控件也按深色画。
             .environment(\.colorScheme, .dark)
             .pmAnimation(.control, value: store.isGenerating(subject))
-            // 弹出的全文页、编辑页挂在透明宿主上:头图在染色详情页里是深色外观,
+            // 弹出的编辑页、确认框挂在透明宿主上:头图在染色详情页里是深色外观,
             // 弹出页要在宿主外层换回 App 本来的外观,否则浅色模式下会白底白字。
             .background {
                 Color.clear
-                    .sheet(isPresented: $showsReader) {
-                        LibraryInsightReaderSheet(actions: actions)
-                    }
                     .sheet(isPresented: $isEditing) {
                         LibraryInsightEditorSheet(subject: subject, details: details, record: record) {
                             actions.writeBack()
@@ -189,40 +185,54 @@ struct LibraryInsightSynopsis: View {
             .task(id: store.recordID(for: subject)) {
                 await actions.importIfAvailable()
             }
+            // 同一个头部换成别的专辑 / 艺人时回到收起的样子。
+            .onChange(of: store.recordID(for: subject)) { isExpanded = false }
         }
     }
 
     // MARK: 有简介
 
+    /// 收起时风格一行、摘录三行,排出来被截了才有「更多」;点了就地展开全文,「收起」回到原来几行。
     private func excerpt(_ record: LibraryInsightRecord) -> some View {
-        Button {
-            showsReader = true
-        } label: {
-            if compact {
-                compactExcerpt(record)
-            } else {
-                fullExcerpt(record)
+        excerptBody(record)
+            .background(alignment: .topLeading) {
+                if !compact { textMeasurements(record) }
             }
+            .contextMenu { menuItems(record) }
+    }
+
+    @ViewBuilder
+    private func excerptBody(_ record: LibraryInsightRecord) -> some View {
+        if isExpanded {
+            expandedExcerpt(record)
+        } else if compact {
+            // 一行里放不下来源,「更多」总在。
+            Button { setExpanded(true) } label: { compactExcerpt(record) }
+                .buttonStyle(.plain)
+        } else if canExpand {
+            Button { setExpanded(true) } label: { fullExcerpt(record) }
+                .buttonStyle(.plain)
+        } else {
+            fullExcerpt(record)
         }
-        .buttonStyle(.plain)
-        .contextMenu { menuItems(record) }
+    }
+
+    /// 摘录被截了,或者有写回结果要看(收起时没地方放)。
+    private var canExpand: Bool {
+        expandedTextHeight > collapsedTextHeight + 1 || store.writebackNote(for: subject) != nil
+    }
+
+    private func setExpanded(_ expanded: Bool) {
+        pmWithAnimation(.panel) { isExpanded = expanded }
     }
 
     private func fullExcerpt(_ record: LibraryInsightRecord) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            if !record.tags.isEmpty {
-                Text(verbatim: record.tags.joined(separator: " \u{00B7} "))
-                    .font(tagFont)
-                    .foregroundStyle(.white.opacity(0.74))
-                    .lineLimit(1)
-            }
-            if !record.summary.isEmpty {
-                summaryText(record.summary)
-            }
+            excerptText(record, expanded: false)
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 sourceLine(record)
                 Spacer(minLength: 8)
-                if fullHeight > excerptHeight + 1 {
+                if canExpand {
                     Text("more")
                         .font(tagFont)
                         .foregroundStyle(.white)
@@ -231,6 +241,81 @@ struct LibraryInsightSynopsis: View {
         }
         .multilineTextAlignment(.leading)
         .contentShape(Rectangle())
+    }
+
+    /// 展开:风格、简介不限行数,来源下面跟写回结果;编辑这几样也摆出来,不必知道要长按。
+    private func expandedExcerpt(_ record: LibraryInsightRecord) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            excerptText(record, expanded: true)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    sourceLine(record)
+                    if let note = store.writebackNote(for: subject) {
+                        Text(verbatim: note)
+                            .font(metaFont)
+                            .foregroundStyle(.white.opacity(0.55))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 8)
+                Menu {
+                    menuItems(record)
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(tagFont)
+                        .foregroundStyle(.white)
+                        .frame(width: 28, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .accessibilityLabel(Text("more"))
+                Button { setExpanded(false) } label: {
+                    Text("library_insight_show_less")
+                        .font(tagFont)
+                        .foregroundStyle(.white)
+                        .padding(.vertical, 4)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .multilineTextAlignment(.leading)
+    }
+
+    /// 风格一行、摘录三行;展开时都不限行数。
+    private func excerptText(_ record: LibraryInsightRecord, expanded: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if !record.tags.isEmpty {
+                Text(verbatim: record.tags.joined(separator: " \u{00B7} "))
+                    .font(tagFont)
+                    .foregroundStyle(.white.opacity(0.74))
+                    .lineLimit(expanded ? nil : 1)
+            }
+            if !record.summary.isEmpty {
+                Text(verbatim: record.summary)
+                    .font(summaryFont)
+                    .lineSpacing(2)
+                    .foregroundStyle(.white.opacity(0.88))
+                    .lineLimit(expanded ? nil : 3)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// 同宽排两份看不见的:收起时的行数和不限行数,一样高就是没被截。展开收起都不影响它们。
+    private func textMeasurements(_ record: LibraryInsightRecord) -> some View {
+        ZStack(alignment: .topLeading) {
+            excerptText(record, expanded: false)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { collapsedTextHeight = $0 }
+            excerptText(record, expanded: true)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { expandedTextHeight = $0 }
+        }
+        .hidden()
+        .accessibilityHidden(true)
     }
 
     /// 一行:AI 写的带个星标(来源那行收掉了,标记不能跟着丢),摘录,「更多」。
@@ -257,25 +342,6 @@ struct LibraryInsightSynopsis: View {
                 .foregroundStyle(.white)
         }
         .contentShape(Rectangle())
-    }
-
-    private func summaryText(_ summary: String) -> some View {
-        Text(verbatim: summary)
-            .font(summaryFont)
-            .lineSpacing(2)
-            .foregroundStyle(.white.opacity(0.88))
-            .lineLimit(3)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { excerptHeight = $0 }
-            .background(alignment: .topLeading) {
-                // 不限行数时有多高:比摘录高才露出「更多」。
-                Text(verbatim: summary)
-                    .font(summaryFont)
-                    .lineSpacing(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .hidden()
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fullHeight = $0 }
-            }
     }
 
     /// 摘录下面那一行:平时是来源(AI 生成 · 服务 · 可能有误 / 已编辑 / 来自 album.nfo),
@@ -323,6 +389,7 @@ struct LibraryInsightSynopsis: View {
         }
         Divider()
         Button(role: .destructive) {
+            isExpanded = false
             actions.remove()
         } label: {
             Label("library_insight_remove", systemImage: "trash")
@@ -453,191 +520,6 @@ private struct LibraryInsightChipBackground: ViewModifier {
             .padding(.vertical, compact ? 4 : 7)
             .background(.white.opacity(0.16), in: Capsule())
             .overlay { Capsule().strokeBorder(.white.opacity(0.22), lineWidth: 0.5) }
-    }
-}
-
-/// 简介全文:风格标签、整段简介、来源和写回结果;编辑、重新生成、删除也在这里。
-struct LibraryInsightReaderSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
-    let actions: LibraryInsightActions
-
-    @State private var isEditing = false
-    @State private var confirmsRegenerate = false
-
-    private var store: LibraryInsightStore { .shared }
-    private var subject: LibraryInsightSubject { actions.subject }
-
-    var body: some View {
-        let record = store.record(for: subject, in: actions.library)
-        Group {
-            #if os(macOS)
-            VStack(alignment: .leading, spacing: 0) {
-                ScrollView {
-                    content(record)
-                        .padding(24)
-                }
-                Divider()
-                HStack(spacing: 10) {
-                    if record?.hasContent == true {
-                        Button("library_insight_edit") { isEditing = true }
-                        if actions.canAskAI {
-                            Button("library_insight_regenerate") { regenerate(record) }
-                                .disabled(regenerateDisabled)
-                        }
-                        Button("library_insight_remove", role: .destructive) {
-                            actions.remove()
-                            dismiss()
-                        }
-                    }
-                    Spacer()
-                    Button("done") { dismiss() }
-                        .keyboardShortcut(.defaultAction)
-                        .buttonStyle(.borderedProminent)
-                }
-                .padding(16)
-            }
-            .frame(minWidth: 520, idealWidth: 560, minHeight: 360, idealHeight: 440)
-            #else
-            NavigationStack {
-                ScrollView {
-                    content(record)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 16)
-                }
-                .navigationTitle(Text(subject.kind == .album
-                    ? LocalizedStringKey("library_insight_album_title")
-                    : LocalizedStringKey("library_insight_artist_title")))
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("done") { dismiss() }
-                    }
-                    if record?.hasContent == true {
-                        ToolbarItem(placement: .topBarLeading) {
-                            Menu {
-                                Button {
-                                    isEditing = true
-                                } label: {
-                                    Label("library_insight_edit", systemImage: "pencil")
-                                }
-                                if actions.canAskAI {
-                                    Button {
-                                        regenerate(record)
-                                    } label: {
-                                        Label("library_insight_regenerate", systemImage: "sparkles")
-                                    }
-                                    .disabled(regenerateDisabled)
-                                }
-                                Divider()
-                                Button(role: .destructive) {
-                                    actions.remove()
-                                    dismiss()
-                                } label: {
-                                    Label("library_insight_remove", systemImage: "trash")
-                                }
-                            } label: {
-                                Image(systemName: "ellipsis.circle")
-                            }
-                            .accessibilityLabel(Text("more"))
-                        }
-                    }
-                }
-            }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-            #endif
-        }
-        .sheet(isPresented: $isEditing) {
-            LibraryInsightEditorSheet(subject: subject, details: actions.details, record: record) {
-                actions.writeBack()
-            }
-        }
-        .confirmationDialog(
-            Text("library_insight_regenerate_confirm_title"),
-            isPresented: $confirmsRegenerate,
-            titleVisibility: .visible
-        ) {
-            Button("library_insight_regenerate_confirm_action", role: .destructive) { actions.generate() }
-            Button("cancel", role: .cancel) {}
-        } message: {
-            Text("library_insight_regenerate_confirm_message")
-        }
-    }
-
-    private var regenerateDisabled: Bool {
-        store.isGenerating(subject) || store.retryDate(for: subject) != nil
-    }
-
-    private func regenerate(_ record: LibraryInsightRecord?) {
-        if record?.isWorthKeeping == true {
-            confirmsRegenerate = true
-        } else {
-            actions.generate()
-        }
-    }
-
-    private var subjectTitle: String {
-        subject.kind == .album ? subject.albumTitle : subject.artistName
-    }
-
-    private var subjectSubtitle: String? {
-        guard subject.kind == .album, !subject.artistName.isEmpty else { return nil }
-        return subject.artistName
-    }
-
-    private func content(_ record: LibraryInsightRecord?) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(verbatim: subjectTitle)
-                    .font(.title2.weight(.bold))
-                    .fixedSize(horizontal: false, vertical: true)
-                if let subjectSubtitle {
-                    Text(verbatim: subjectSubtitle)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            if let record, !record.tags.isEmpty {
-                LibraryInsightTagRow(tags: record.tags)
-            }
-
-            if store.isGenerating(subject) {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("library_insight_generating")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            } else if let failure = store.failure(for: subject) {
-                Text(verbatim: LibraryInsightStore.message(for: failure))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if let record, !record.summary.isEmpty {
-                Text(verbatim: record.summary)
-                    .font(.body)
-                    .lineSpacing(4)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-            }
-
-            if let record, record.hasContent {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(verbatim: LibraryInsightStore.footer(for: record))
-                    if let note = store.writebackNote(for: subject) {
-                        Text(verbatim: note)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

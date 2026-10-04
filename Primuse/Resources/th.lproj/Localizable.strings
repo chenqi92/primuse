@@ -5348,6 +5348,7 @@
 
 /* Editable album and artist intros */
 "library_insight_edit" = "แก้ไข";
+"library_insight_show_less" = "แสดงน้อยลง";
 "library_insight_write_own" = "เขียนเอง";
 "library_insight_editor_title_album" = "แก้ไขคำแนะนำอัลบั้ม";
 "library_insight_editor_title_artist" = "แก้ไขคำแนะนำศิลปิน";

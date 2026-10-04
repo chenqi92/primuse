@@ -5419,6 +5419,7 @@
 
 /* Editable album and artist intros */
 "library_insight_edit" = "編輯";
+"library_insight_show_less" = "收起";
 "library_insight_write_own" = "自己寫";
 "library_insight_editor_title_album" = "編輯專輯簡介";
 "library_insight_editor_title_artist" = "編輯藝人簡介";

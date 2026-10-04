@@ -233,7 +233,7 @@ struct AlbumDetailView: View {
     /// 手机横屏只剩三百多点高, 封面、间距、留白各降一档并改成封面在左的一行,
     /// 头图压到 190pt 以内, 首屏才露得出歌。
     ///
-    /// 简介照影片介绍页的位置放在播放键下面: 风格、几行摘录, 点开读全文。
+    /// 简介照影片介绍页的位置放在播放键下面: 风格、几行摘录, 点「更多」就地展开全文。
     private func iosHero(insets: ImmersiveLibraryDetailInsets) -> some View {
         let compact = heightClass.isCompact
         // 无障碍字号下横排放不下, 一律回到竖排居中。

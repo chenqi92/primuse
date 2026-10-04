@@ -5443,6 +5443,7 @@
 
 /* Editable album and artist intros */
 "library_insight_edit" = "編集";
+"library_insight_show_less" = "折りたたむ";
 "library_insight_write_own" = "自分で書く";
 "library_insight_editor_title_album" = "アルバム紹介を編集";
 "library_insight_editor_title_artist" = "アーティスト紹介を編集";

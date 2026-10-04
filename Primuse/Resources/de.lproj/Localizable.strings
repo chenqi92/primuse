@@ -5442,6 +5442,7 @@
 
 /* Editable album and artist intros */
 "library_insight_edit" = "Bearbeiten";
+"library_insight_show_less" = "Weniger anzeigen";
 "library_insight_write_own" = "Selbst schreiben";
 "library_insight_editor_title_album" = "Album-Einführung bearbeiten";
 "library_insight_editor_title_artist" = "Künstler-Einführung bearbeiten";
