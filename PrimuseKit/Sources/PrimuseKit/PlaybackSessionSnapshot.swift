@@ -523,6 +523,11 @@ public enum LargeQueueRequestOrder: Sendable, Equatable {
     case rotatedToStart
     /// A fresh random order starting with its first song.
     case shuffled
+    /// Start at the requested song; every other song follows once, in a fresh
+    /// random order. The requested ID may appear again further down the list
+    /// (a caller can prepend it to the whole library); it still plays once.
+    /// When the requested song cannot be queued, the whole list is shuffled.
+    case shuffledAfterStart
 }
 
 /// The part of a play request the player installs now, plus the rest.
@@ -562,8 +567,10 @@ public enum LargeQueueRequestPlanner {
         var kept: [String] = []
         kept.reserveCapacity(ids.count)
         var startPosition: Int?
+        var keptRequestedStart = false
         for (index, id) in ids.enumerated() where includes(id) {
             if startPosition == nil, index >= startIndex { startPosition = kept.count }
+            if index == startIndex { keptRequestedStart = true }
             kept.append(id)
         }
         guard !kept.isEmpty else { return nil }
@@ -585,6 +592,20 @@ public enum LargeQueueRequestPlanner {
             selected = 0
         case .shuffled:
             sequence = shuffle(kept)
+            selected = 0
+        case .shuffledAfterStart:
+            if keptRequestedStart, let start = startPosition {
+                let first = kept[start]
+                var rest: [String] = []
+                rest.reserveCapacity(kept.count - 1)
+                for (position, id) in kept.enumerated() where position != start && id != first {
+                    rest.append(id)
+                }
+                sequence = [first]
+                sequence.append(contentsOf: shuffle(rest))
+            } else {
+                sequence = shuffle(kept)
+            }
             selected = 0
         }
         kept = []

@@ -1981,7 +1981,7 @@ struct HomeView: View {
         )
         let snapshot = makeHomeSnapshot(
             forYouResults: showForYou ? (payload?.forYouResults ?? []) : [],
-            heroCoverSongs: payload?.heroCoverSongs ?? Array(visibleSongs.prefix(6)),
+            heroCoverSongs: payload?.heroCoverSongs ?? Self.provisionalHeroCoverSongs(from: library.musicSongs),
             recentlyAddedAlbums: payload?.recentlyAddedAlbums ?? []
         )
         publishInitialHomeSnapshot(snapshot, signature: signature)
@@ -1990,8 +1990,10 @@ struct HomeView: View {
         guard !Task.isCancelled else { return }
         scheduleLibraryHighlightsRefresh(
             songs: visibleSongs,
+            musicSongs: library.musicSongs,
             albums: visibleAlbums,
             recentSongs: library.recentlyPlayedSongs(limit: 30),
+            playedAlbumKeys: recentlyPlayedAlbumKeys(),
             signature: signature
         )
         if showForYou {
@@ -2096,10 +2098,7 @@ struct HomeView: View {
     private var initialLoadingView: some View {
         LoadingSkeletonGroup {
             VStack(alignment: .leading, spacing: 24) {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(homeCardSurface)
-                    .frame(height: heightClass.value(154, compact: 96))
-                    .padding(.horizontal, 16)
+                heroLoadingPlaceholder
 
                 VStack(alignment: .leading, spacing: 12) {
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
@@ -2120,6 +2119,44 @@ struct HomeView: View {
                 .padding(.horizontal, 16)
             }
         }
+    }
+
+    /// 顶部那一块的占位,和换上来的内容同样高:竖屏是封面轮播的形状,手机横屏是原来的卡片。
+    @ViewBuilder
+    private var heroLoadingPlaceholder: some View {
+        #if os(iOS)
+        if !heightClass.isCompact {
+            let metrics = HomeHeroCarouselMetrics(viewportWidth: homeCanvas.width)
+            VStack(spacing: 0) {
+                // 问候语、轮播上方的间距
+                Color.clear.frame(height: 22)
+                RoundedRectangle(cornerRadius: HomeHeroCarouselMetrics.cornerRadius, style: .continuous)
+                    .fill(homeCardSurface)
+                    .frame(width: metrics.cardSide, height: metrics.cardSide)
+                    .padding(.vertical, metrics.verticalBleed)
+                // 歌名两行、圆点及上下间距
+                Color.clear.frame(height: 4 + 42 + 10 + 6 + 14)
+                HStack(spacing: 10) {
+                    Capsule().fill(homeCardSurface)
+                    Capsule().fill(homeCardSurface)
+                }
+                .frame(height: 42)
+                .padding(.horizontal, 16)
+            }
+            .frame(maxWidth: .infinity)
+        } else {
+            heroCardLoadingPlaceholder
+        }
+        #else
+        heroCardLoadingPlaceholder
+        #endif
+    }
+
+    private var heroCardLoadingPlaceholder: some View {
+        RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .fill(homeCardSurface)
+            .frame(height: heightClass.value(154, compact: 96))
+            .padding(.horizontal, 16)
     }
 
     private func refreshHomeSnapshot() {
@@ -2169,8 +2206,10 @@ struct HomeView: View {
 
         scheduleLibraryHighlightsRefresh(
             songs: visibleSongs,
+            musicSongs: library.musicSongs,
             albums: visibleAlbums,
             recentSongs: library.recentlyPlayedSongs(limit: 30),
+            playedAlbumKeys: recentlyPlayedAlbumKeys(),
             signature: signature
         )
 
@@ -2204,10 +2243,14 @@ struct HomeView: View {
 
     /// Hero 封面和最近专辑都需要遍历整库；它们与推荐一样不应该参与
     /// Tab 切换首帧。保留旧快照，后台算完后再一次性发布。
+    /// `musicSongs` 给顶部封面与「最近添加的歌」用 —— 有声内容不该出现在顶部封面里;
+    /// 最近添加的专辑仍按全部可见歌曲算。
     private func scheduleLibraryHighlightsRefresh(
         songs: [Song],
+        musicSongs: [Song],
         albums: [Album],
         recentSongs: [Song],
+        playedAlbumKeys: Set<String>,
         signature: HomeSnapshotSignature
     ) {
         refreshCoordinator.libraryHighlightsTask?.cancel()
@@ -2216,12 +2259,14 @@ struct HomeView: View {
                 let startedAt = Date()
                 // 两处都只要最近加入的头几十首: 有界选择一次, 不为它把整库复制、
                 // 排序两遍(百万首各要几百 MB)。与 `sorted(by:).prefix` 结果相同。
-                let latestAdded = CarPlayListSelection.firstSorted(songs.indices, limit: 60) {
-                    songs[$0].dateAdded > songs[$1].dateAdded
-                }.map { songs[$0] }
+                let latestAdded = CarPlayListSelection.firstSorted(musicSongs.indices, limit: 60) {
+                    musicSongs[$0].dateAdded > musicSongs[$1].dateAdded
+                }.map { musicSongs[$0] }
                 let heroCoverSongs = Self.makeHeroCoverSongs(
+                    musicSongs: musicSongs,
                     latestAdded: latestAdded,
                     recentSongs: recentSongs,
+                    playedAlbumKeys: playedAlbumKeys,
                     dayStamp: signature.dayStamp
                 )
                 let albumTiles = Self.makeRecentlyAddedAlbumTiles(
@@ -2568,13 +2613,29 @@ struct HomeView: View {
         return pool[idx]
     }
 
-    /// Hero 顶部 ── 一直走 libraryMixHeroFallback (问候语 + 4 张封面拼贴 +
-    /// 随机播放 / 全部播放两个按钮)。
+    /// Hero 顶部 ── iPhone 竖屏与 iPad 是封面轮播(`HomeHeroCarousel`);手机横屏放不下
+    /// (整块要压在视口四成以内)、或者今天挑出来的封面不到三张时,仍是
+    /// libraryMixHeroFallback (问候语 + 4 张封面拼贴 + 随机播放 / 全部播放两个按钮)。
     /// 之前的 todaysPickHero (今日精选大封面 + Play / Shuffle) 视觉上不够干净,
     /// 用户反馈不好看, 暂时不用; 代码保留方便将来需要时切回去。
     @ViewBuilder
     private var libraryHeroSection: some View {
+        #if os(iOS)
+        if !heightClass.isCompact,
+           model.snapshot.heroCoverSongs.count >= HomeHeroCarouselSelection.minimumCardCount {
+            HomeHeroCarousel(
+                songs: model.snapshot.heroCoverSongs,
+                greeting: greeting,
+                isInteractive: !editorMode,
+                playFromSong: playLibraryShuffled(startingWith:),
+                playAll: { playLibrary(shuffled: false) }
+            )
+        } else {
+            libraryMixHeroFallback
+        }
+        #else
         libraryMixHeroFallback
+        #endif
     }
 
     @ViewBuilder
@@ -2731,8 +2792,8 @@ struct HomeView: View {
     }
 
     /// 4 张封面错落叠放 — 用 ZStack 加旋转 + 偏移, 跟 Spotify Mix /
-    /// Apple Music「For You」拼贴风格一致。封面来自最近添加 + 最近播放
-    /// 的按日期稳定挑选, 同一天不换人。
+    /// Apple Music「For You」拼贴风格一致。封面与轮播是同一组(取前 4 张),
+    /// 按日期稳定挑选, 同一天不换人。
     @ViewBuilder
     private var heroCoverCollage: some View {
         // 手机横屏整块 hero 要压到视口四成以内,拼贴跟着等比缩一档:
@@ -2791,28 +2852,85 @@ struct HomeView: View {
         return CGSize(width: base.width * spread, height: base.height * spread)
     }
 
-    /// `latestAdded`: 按加入时间从新到旧的前 60 首。
+    /// 顶部封面轮播的一组歌,规则见 `HomeHeroCarouselSelection`(最近听过 / 好久没听 / 最近添加,
+    /// 一张专辑一张卡,同一天不换)。只从音乐里取:`musicSongs` 与 `recentSongs` 都已去掉有声内容,
+    /// 电台和播客单集本来就不在曲库里。
+    ///
+    /// `latestAdded`: 按加入时间从新到旧的前 60 首。`playedAlbumKeys`: 近 30 天放过的专辑,
+    /// 「好久没听」那一组跳过它们。
     nonisolated private static func makeHeroCoverSongs(
-        latestAdded added: [Song],
+        musicSongs: [Song],
+        latestAdded: [Song],
         recentSongs: [Song],
+        playedAlbumKeys: Set<String>,
         dayStamp: Int
     ) -> [Song] {
-        // 优先最近播放, 不够再补最近添加, 都过滤出有 cover 的歌, 再按日期稳定地
-        // 挑 4 首。不能随机：冷启动时快照会连着重算好几次，每次换一组就是满屏闪。
-        // 用 seen-set 按 id 去重: recentSongs 自身可能含重复 id (脏快照/跨源未彻底
-        // 去重), 否则下方 ForEach(id: \.element.id) 会因重复 id 触发 SwiftUI 告警/崩溃。
-        var pool: [Song] = []
-        var seenIDs = Set<String>()
-        for song in recentSongs + added where seenIDs.insert(song.id).inserted {
-            pool.append(song)
+        func candidate(_ song: Song) -> HomeHeroCarouselSelection.Candidate? {
+            guard let key = heroAlbumKey(song) else { return nil }
+            return HomeHeroCarouselSelection.Candidate(songID: song.id, albumKey: key)
         }
-        let withCover = pool.filter { $0.coverArtFileName?.isEmpty == false }
-        let byID = Dictionary(withCover.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        return HomeHeroCoverSelection.pick(
-            candidateIDs: withCover.map(\.id),
+
+        // 整库只扫一遍:候选表只留当天排名靠前的几十张专辑,进表的那首歌顺手记下来,
+        // 挑完按专辑键取回。
+        var pool = HomeHeroCarouselSelection.RediscoveryPool(
             dayStamp: dayStamp,
-            limit: 4
-        ).compactMap { byID[$0] }
+            playedAlbumKeys: playedAlbumKeys
+        )
+        var representatives: [String: Song] = [:]
+        for (offset, song) in musicSongs.enumerated() {
+            if offset & 0x1FFF == 0, Task.isCancelled { return [] }
+            guard let key = heroAlbumKey(song) else { continue }
+            if pool.consider(songID: song.id, albumKey: key, trackNumber: song.trackNumber) {
+                representatives[key] = song
+            }
+        }
+        let rediscovery = pool.candidates()
+
+        let ids = HomeHeroCarouselSelection.pick(
+            recent: recentSongs.compactMap(candidate),
+            added: latestAdded.compactMap(candidate),
+            rediscovery: rediscovery,
+            dayStamp: dayStamp
+        )
+        var byID: [String: Song] = [:]
+        for song in recentSongs + latestAdded { byID[song.id] = byID[song.id] ?? song }
+        for entry in rediscovery {
+            if let song = representatives[entry.albumKey], song.id == entry.songID { byID[song.id] = song }
+        }
+        return ids.compactMap { byID[$0] }
+    }
+
+    /// 没封面的歌不进顶部封面;有封面的按专辑(没有专辑按封面文件)去重。
+    nonisolated private static func heroAlbumKey(_ song: Song) -> String? {
+        guard let cover = song.coverArtFileName, !cover.isEmpty else { return nil }
+        return HomeHeroCarouselSelection.albumKey(albumID: song.albumID, coverRef: cover)
+    }
+
+    /// 第一次打开、还没有上次存下的首页时先顶上的封面:从曲库开头找几张不同专辑的。
+    /// 最多看两千首,不在主线程上扫整库;后台挑好的那一组随后换上。
+    private static func provisionalHeroCoverSongs(from songs: [Song]) -> [Song] {
+        var picked: [Song] = []
+        var albums = Set<String>()
+        for song in songs.prefix(2_000) {
+            guard let key = heroAlbumKey(song), albums.insert(key).inserted else { continue }
+            picked.append(song)
+            if picked.count == HomeHeroCarouselSelection.cardCount { break }
+        }
+        return picked
+    }
+
+    /// 近 30 天放过的专辑键,给「好久没听」那一组排除用。播放记录最多几千条,按 id 查歌是 O(1)。
+    private func recentlyPlayedAlbumKeys(now: Date = Date()) -> Set<String> {
+        let cutoff = now.addingTimeInterval(-Double(HomeHeroCarouselSelection.rediscoveryWindowDays) * 86_400)
+        var keys = Set<String>()
+        var seenSongIDs = Set<String>()
+        for entry in PlayHistoryStore.shared.entries where entry.playedAt >= cutoff {
+            guard seenSongIDs.insert(entry.songID).inserted,
+                  let song = library.unobservedVisibleSong(id: entry.songID),
+                  let key = Self.heroAlbumKey(song) else { continue }
+            keys.insert(key)
+        }
+        return keys
     }
 
     // MARK: - Quick Access
@@ -3523,6 +3641,16 @@ struct HomeView: View {
         plog("🏠 calling player.play(song: '\(resolved.title)')")
         SiriMediaInteractionDonor.donate(song: resolved)
         Task { await player.play(queue: queueSongs, startingAt: startIndex) }
+    }
+
+    /// 先放这一首,其余音乐随机接在后面(顶部封面轮播)。同 `playLibrary`,只把 id 交出去,
+    /// 过滤与打乱在后台做;这一首在整库里还会再出现一次,排队时只留开头那次。
+    private func playLibraryShuffled(startingWith song: Song) {
+        let ids = library.musicSongs.map(\.id)
+        guard !ids.isEmpty else { return }
+        player.shuffleEnabled = false
+        SiriMediaInteractionDonor.donate(song: song)
+        Task { await player.play(queueIDs: [song.id] + ids, startingAt: 0, order: .shuffledAfterStart) }
     }
 
     private func playLibrary(shuffled: Bool) {

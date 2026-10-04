@@ -350,6 +350,54 @@ struct QueueContinuationTests {
         #expect(Set(prepared?.continuation?.requestedIDs ?? []).count == 2_500)
     }
 
+    @Test("Shuffling after a chosen song plays it first and every other song once")
+    func largeRequestShuffledAfterStart() {
+        let library = (0..<2_500).map { "s\($0)" }
+        // The home carousel prepends the chosen song to the whole library.
+        let ids = ["s1234"] + library
+        var shuffledInput: [String] = []
+        let prepared = LargeQueueRequestPlanner.plan(
+            ids: ids,
+            startIndex: 0,
+            order: .shuffledAfterStart,
+            includes: { _ in true },
+            resolve: { $0 },
+            shuffle: { shuffledInput = $0; return Array($0.reversed()) }
+        )
+        #expect(prepared?.selectedIndex == 0)
+        #expect(prepared?.items.first == "s1234")
+        #expect(prepared?.items[1] == "s2499")
+        #expect(!shuffledInput.contains("s1234"))
+        let requested = prepared?.continuation?.requestedIDs ?? []
+        #expect(requested.count == 2_500)
+        #expect(Set(requested).count == 2_500)
+    }
+
+    @Test("Shuffling after a song that cannot play shuffles the whole list")
+    func shuffledAfterUnplayableStart() {
+        let ids = ["c", "a", "b", "c", "d"]
+        let prepared = LargeQueueRequestPlanner.plan(
+            ids: ids,
+            startIndex: 0,
+            order: .shuffledAfterStart,
+            includes: { $0 != "c" },
+            resolve: { $0 },
+            shuffle: { Array($0.reversed()) }
+        )
+        #expect(prepared?.items == ["d", "b", "a"])
+        #expect(prepared?.selectedIndex == 0)
+
+        let fromMiddle = LargeQueueRequestPlanner.plan(
+            ids: ["a", "b", "c", "d"],
+            startIndex: 2,
+            order: .shuffledAfterStart,
+            includes: { _ in true },
+            resolve: { $0 },
+            shuffle: { Array($0.reversed()) }
+        )
+        #expect(fromMiddle?.items == ["c", "d", "b", "a"])
+    }
+
     @Test("Songs that no longer resolve drop out of the window without moving the start")
     func unresolvedSongsInWindow() {
         let ids = (0..<10).map { "s\($0)" }

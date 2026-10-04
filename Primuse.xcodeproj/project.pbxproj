@@ -837,6 +837,7 @@
 		74DE67BEEAC95A373BD53B59 /* ArtistNameConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5BE81CEAC830E3A3AF8EF9B /* ArtistNameConfiguration.swift */; };
 		74E89B78303995C74AB17177 /* DesktopLyricsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54D5EDD9A322FF83F0612BEF /* DesktopLyricsView.swift */; };
 		7514AE9FA845FCDE3CE8AE6E /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56FB421EEBD96C4651F28FD5 /* HomeView.swift */; };
+		4DC171FFF7F7BBAC865B8033 /* HomeHeroCarousel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F8EEE28E5FD5E0A59541E07 /* HomeHeroCarousel.swift */; };
 		7556EAFB8DAAC196BE324DA8 /* TVQueueView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01A3E8F6656778B940F633F3 /* TVQueueView.swift */; };
 		75B17A9CFC163869AD0DEA84 /* MacHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB092854D451A9F1235A2B2A /* MacHomeView.swift */; };
 		75B8FDAEDD57548B9A9EBA8F /* PMHeightClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56EFA2B79F3B52F97EEC1E85 /* PMHeightClass.swift */; };
@@ -1358,6 +1359,7 @@
 		BE4C8ABADBEDEAA6AFB57A3C /* AppIntentVocabulary.plist in Resources */ = {isa = PBXBuildFile; fileRef = 2A854F368F59E5BB35E0510A /* AppIntentVocabulary.plist */; };
 		BE4CE2F57CBC68FAAA6E9C5E /* LyricsTranslationTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17B0AA78E88E38E994B2B300 /* LyricsTranslationTask.swift */; };
 		BE77E1812F27C8479B2F9EC9 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56FB421EEBD96C4651F28FD5 /* HomeView.swift */; };
+		AA1FCE81DC4CB0C8861E2C03 /* HomeHeroCarousel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F8EEE28E5FD5E0A59541E07 /* HomeHeroCarousel.swift */; };
 		BE9698D4C5FE3F9639DDAECB /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 60849A3BA068DBB563EFA62E /* InfoPlist.strings */; };
 		BEB291FBADAB1813D2379B09 /* PMVolumeSlider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C762DE96ECE88A51C812174 /* PMVolumeSlider.swift */; };
 		BEB7D80462349BF2B227ED79 /* PlayHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCE1922E4E88CC38539151C4 /* PlayHistoryStore.swift */; };
@@ -2515,6 +2517,7 @@
 		5673EE19A59EAB3BD3B87AF3 /* RadioLogoBackdropPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioLogoBackdropPolicy.swift; sourceTree = "<group>"; };
 		56EFA2B79F3B52F97EEC1E85 /* PMHeightClass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PMHeightClass.swift; sourceTree = "<group>"; };
 		56FB421EEBD96C4651F28FD5 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		2F8EEE28E5FD5E0A59541E07 /* HomeHeroCarousel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeHeroCarousel.swift; sourceTree = "<group>"; };
 		56FB4632E608A0B378DB3FDE /* MacNowPlayingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacNowPlayingView.swift; sourceTree = "<group>"; };
 		570F23F829B17D41796D2954 /* pt-BR */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "pt-BR"; path = "pt-BR.lproj/HomeDiscovery.strings"; sourceTree = "<group>"; };
 		57617F084B3B9CEF89DD3541 /* MacQueuePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacQueuePanel.swift; sourceTree = "<group>"; };
@@ -3628,6 +3631,7 @@
 				8AFBA8DC0C727712FFE7F7B1 /* HomeListeningSpaces.swift */,
 				81119E6E832DAD7DC7750C0F /* HomeStartListeningSection.swift */,
 				56FB421EEBD96C4651F28FD5 /* HomeView.swift */,
+				2F8EEE28E5FD5E0A59541E07 /* HomeHeroCarousel.swift */,
 				428DCE75417C9BAE087880F9 /* UpdateBannerSheet.swift */,
 			);
 			path = Home;
@@ -6525,6 +6529,7 @@
 				47739E0B4A1BF80DBFEAEACB /* HomeSectionsSettingsView.swift in Sources */,
 				B62364C685F911FBDFB2B603 /* HomeStartListeningSection.swift in Sources */,
 				7514AE9FA845FCDE3CE8AE6E /* HomeView.swift in Sources */,
+				4DC171FFF7F7BBAC865B8033 /* HomeHeroCarousel.swift in Sources */,
 				9DDF813005BEC7D6D53E4BB7 /* ITunesScraper.swift in Sources */,
 				B3C5916D2A8452DC747DA1FF /* ImageCache.swift in Sources */,
 				76B15ED04C6D439ADF7DCBD3 /* ImmersiveEffectDrawer.swift in Sources */,
@@ -7217,6 +7222,7 @@
 				632CD8EEB3DB977BBEF96472 /* HomeSectionsSettingsView.swift in Sources */,
 				43EAB92367D069296EBEB44E /* HomeStartListeningSection.swift in Sources */,
 				BE77E1812F27C8479B2F9EC9 /* HomeView.swift in Sources */,
+				AA1FCE81DC4CB0C8861E2C03 /* HomeHeroCarousel.swift in Sources */,
 				ED5197E708CC23A311F0D6B6 /* ITunesScraper.swift in Sources */,
 				3DB35BA7BA5DF8173F45CA98 /* ImageCache.swift in Sources */,
 				247CCD18F184ABFABF6B4F2F /* ImmersiveEffectDrawer.swift in Sources */,
