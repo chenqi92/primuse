@@ -2432,12 +2432,12 @@
 "player_audio_info_off" = "ปิด";
 "player_audio_info_lossless_only" = "เฉพาะแบบไม่สูญเสีย";
 "player_audio_info_always" = "แสดงเสมอ";
-"player_audio_info_footer" = "แสดงที่ด้านล่างของหน้าเล่นเพลง เช่น FLAC · 24bit/96kHz แตะเพื่อดูอัตราสุ่มตัวอย่างที่อุปกรณ์เอาต์พุตใช้งานจริง";
+"player_audio_info_footer" = "แสดงใต้แถบความคืบหน้า เช่น Hi-Res 24/96 แตะเพื่อดูรายละเอียดรูปแบบไฟล์ทั้งหมดและอัตราสุ่มตัวอย่างที่อุปกรณ์เอาต์พุตใช้งานจริง";
 "player_audio_info_mac_hint" = "รูปแบบ บิตเรต และอัตราสุ่มตัวอย่างเหนือชื่อเพลง";
 "now_playing_audio_output_matched" = "เอาต์พุต %@ · ตรงกับต้นฉบับ";
 "now_playing_audio_output_resampled" = "เอาต์พุต %@ · สุ่มตัวอย่างใหม่";
 "now_playing_audio_output_plain" = "เอาต์พุต %@";
-"now_playing_audio_info_hint" = "แตะเพื่อดูอัตราสุ่มตัวอย่างจริงของเอาต์พุต";
+"now_playing_audio_info_hint" = "แตะเพื่อดูรายละเอียดรูปแบบไฟล์และอัตราสุ่มตัวอย่างจริงของเอาต์พุต";
 "playlist_always_download" = "ดาวน์โหลดเสมอ";
 "playlist_always_download_description" = "เก็บเพลย์ลิสต์นี้ไว้ในอุปกรณ์นี้มากกว่า Wi-Fi เพลงใหม่หรือเพลงที่เปลี่ยนแปลงจะดาวน์โหลดโดยอัตโนมัติเมื่อเงื่อนไขของอุปกรณ์อนุญาต การปิดนี้จะเก็บไฟล์ที่มีอยู่ไว้";
 "playlist_description_optional" = "คำอธิบาย (ไม่บังคับ)";

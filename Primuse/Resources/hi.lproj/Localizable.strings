@@ -2432,12 +2432,12 @@
 "player_audio_info_off" = "बंद";
 "player_audio_info_lossless_only" = "केवल लॉसलेस";
 "player_audio_info_always" = "हमेशा";
-"player_audio_info_footer" = "प्लेयर में सबसे नीचे दिखाई देती है, जैसे FLAC · 24bit/96kHz। आउटपुट डिवाइस वास्तव में कौन-सा सैंपल रेट इस्तेमाल कर रहा है, यह देखने के लिए टैप करें।";
+"player_audio_info_footer" = "प्रोग्रेस बार के नीचे दिखाई देती है, जैसे Hi-Res 24/96। पूरी फ़ॉर्मैट जानकारी और आउटपुट डिवाइस वास्तव में कौन-सा सैंपल रेट इस्तेमाल कर रहा है, यह देखने के लिए टैप करें।";
 "player_audio_info_mac_hint" = "गाने के नाम के ऊपर फ़ॉर्मेट, बिट रेट और सैंपल रेट";
 "now_playing_audio_output_matched" = "आउटपुट %@ · स्रोत जैसा";
 "now_playing_audio_output_resampled" = "आउटपुट %@ · रीसैंपल किया गया";
 "now_playing_audio_output_plain" = "आउटपुट %@";
-"now_playing_audio_info_hint" = "आउटपुट का वास्तविक सैंपल रेट देखने के लिए टैप करें";
+"now_playing_audio_info_hint" = "पूरी फ़ॉर्मैट जानकारी और आउटपुट का वास्तविक सैंपल रेट देखने के लिए टैप करें";
 "playlist_always_download" = "हमेशा डाउनलोड करें";
 "playlist_always_download_description" = "इस डिवाइस पर इस प्लेलिस्ट को Wi-Fi से अधिक रखता है। जब डिवाइस की स्थिति अनुमति देती है तो नए या बदले हुए गाने स्वचालित रूप से डाउनलोड होते हैं; इसे बंद करने से मौजूदा फ़ाइलें बनी रहती हैं।";
 "playlist_description_optional" = "विवरण (वैकल्पिक)";

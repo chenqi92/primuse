@@ -3829,12 +3829,12 @@
 "player_audio_info_off" = "Выкл.";
 "player_audio_info_lossless_only" = "Только без потерь";
 "player_audio_info_always" = "Всегда";
-"player_audio_info_footer" = "Показывается внизу экрана воспроизведения, например FLAC · 24bit/96kHz. Коснитесь, чтобы увидеть частоту дискретизации, которую фактически использует выход.";
+"player_audio_info_footer" = "Показывается под полосой воспроизведения, например Hi-Res 24/96. Коснитесь, чтобы увидеть все сведения о формате и частоту дискретизации, которую фактически использует выход.";
 "player_audio_info_mac_hint" = "Формат, битрейт и частота дискретизации над названием";
 "now_playing_audio_output_matched" = "Выход %@ · как у источника";
 "now_playing_audio_output_resampled" = "Выход %@ · с передискретизацией";
 "now_playing_audio_output_plain" = "Выход %@";
-"now_playing_audio_info_hint" = "Коснитесь, чтобы увидеть фактическую частоту выхода";
+"now_playing_audio_info_hint" = "Коснитесь, чтобы увидеть все сведения о формате и фактическую частоту выхода";
 "home_pending_details" = "Ожидается";
 "lyrics_transcription_service_address" = "Адрес службы";
 "radio_batch_select_playable" = "Выбрать все пригодные для использования";

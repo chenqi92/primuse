@@ -38,6 +38,37 @@ struct NowPlayingAudioInfoPolicyTests {
         ).isEmpty)
     }
 
+    @Test("The quality tag carries a short form of the spec")
+    func tagDetail() {
+        #expect(NowPlayingAudioInfoTextPolicy.tagDetail(
+            formatName: "FLAC", sampleRate: 96_000, bitDepth: 24, bitRate: 2_304, isDSD: false, isLossless: true
+        ) == "24/96")
+        #expect(NowPlayingAudioInfoTextPolicy.tagDetail(
+            formatName: "ALAC", sampleRate: 44_100, bitDepth: 16, bitRate: nil, isDSD: false, isLossless: true
+        ) == "16/44.1")
+        #expect(NowPlayingAudioInfoTextPolicy.tagDetail(
+            formatName: "WAV", sampleRate: 48_000, bitDepth: 0, bitRate: nil, isDSD: false, isLossless: true
+        ) == "48kHz")
+        #expect(NowPlayingAudioInfoTextPolicy.tagDetail(
+            formatName: "FLAC", sampleRate: nil, bitDepth: 24, bitRate: nil, isDSD: false, isLossless: true
+        ) == nil)
+        #expect(NowPlayingAudioInfoTextPolicy.tagDetail(
+            formatName: "DSF", sampleRate: 5_644_800, bitDepth: 1, bitRate: nil, isDSD: true, isLossless: true
+        ) == "DSD128")
+        #expect(NowPlayingAudioInfoTextPolicy.tagDetail(
+            formatName: "DFF", sampleRate: nil, bitDepth: 1, bitRate: nil, isDSD: true, isLossless: true
+        ) == nil)
+        #expect(NowPlayingAudioInfoTextPolicy.tagDetail(
+            formatName: "AAC", sampleRate: 44_100, bitDepth: nil, bitRate: 256, isDSD: false, isLossless: false
+        ) == "AAC 256k")
+        #expect(NowPlayingAudioInfoTextPolicy.tagDetail(
+            formatName: "MP3", sampleRate: 44_100, bitDepth: nil, bitRate: 0, isDSD: false, isLossless: false
+        ) == "MP3")
+        #expect(NowPlayingAudioInfoTextPolicy.tagDetail(
+            formatName: "—", sampleRate: nil, bitDepth: nil, bitRate: nil, isDSD: false, isLossless: false
+        ) == nil)
+    }
+
     @Test("The output line says whether the device resamples")
     func output() {
         let resampled = NowPlayingAudioInfoTextPolicy.output(sourceSampleRate: 96_000, outputSampleRate: 48_000)

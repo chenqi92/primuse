@@ -2031,7 +2031,7 @@ struct NowPlayingView: View {
                     .matchedLayoutElement(.songHeading, in: layoutNamespace)
                     .padding(.horizontal, 36)
                     .padding(.top, 18)
-                PlaybackProgressBar(fillTint: themedControlAccent)
+                PlaybackProgressBar(fillTint: themedControlAccent) { progressAudioTags }
                     .matchedLayoutElement(.progress, in: layoutNamespace)
                     .padding(.horizontal, 36)
                     .padding(.top, 10)
@@ -2048,13 +2048,7 @@ struct NowPlayingView: View {
                 if !showsQueueStrip {
                     Spacer(minLength: 0)
                 }
-                VStack(spacing: 0) {
-                    portraitBottomBar
-                    if let song = player.currentSong {
-                        nowPlayingFooterInfo(for: song)
-                            .padding(.horizontal, 36)
-                    }
-                }
+                portraitBottomBar
                 .padding(.top, showsQueueStrip ? 6 : 0)
                 .padding(.bottom, bottomSafeArea)
                 .pmLayoutSwitchFade()
@@ -3377,7 +3371,7 @@ struct NowPlayingView: View {
                 }
             }
 
-            PlaybackProgressBar(fillTint: themedControlAccent)
+            PlaybackProgressBar(fillTint: themedControlAccent) { progressAudioTags }
                 .matchedLayoutElement(.progress, in: layoutNamespace)
                 .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.progressTopSpacing))
                 .opacity(compactLandscapeControlsHidden ? 0 : 1)
@@ -3497,23 +3491,9 @@ struct NowPlayingView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder
+    /// 艺人 / 专辑沿用竖屏那套可点跳转的 Menu，横屏只是压成一行。音质与来源在进度条下的标签里。
     private var compactLandscapeArtistRow: some View {
-        HStack(spacing: 8) {
-            // 艺人 / 专辑沿用竖屏那套可点跳转的 Menu，横屏只是压成一行。
-            nowPlayingMetadataLinks(font: .title3, lineLimit: 1)
-
-            // 横屏右栏放不下整行规格,只标音质等级;关掉音频信息时不标。
-            if let song = player.currentSong, player.iCloudDownloadingSongID == song.id {
-                Image(systemName: "icloud.and.arrow.down")
-                    .foregroundStyle(appearance.secondary)
-                    .symbolEffect(.pulse, options: .repeating)
-                    .accessibilityLabel(Text("playback_icloud_downloading"))
-            } else if let song = player.currentSong, audioInfoMode != .off, song.audioQuality != .standard {
-                AudioQualityBadge(quality: song.audioQuality)
-                    .fixedSize()
-            }
-        }
+        nowPlayingMetadataLinks(font: .title3, lineLimit: 1)
     }
 
     private func compactLandscapeLyricLine(
@@ -3921,7 +3901,7 @@ struct NowPlayingView: View {
             nowPlayingReviewSection
                 .padding(.horizontal, 36)
 
-            PlaybackProgressBar(fillTint: themedControlAccent)
+            PlaybackProgressBar(fillTint: themedControlAccent) { progressAudioTags }
                 .padding(.horizontal, 36).padding(.top, 10)
 
             HStack(spacing: 0) {
@@ -4006,13 +3986,8 @@ struct NowPlayingView: View {
                 .font(.body).padding(.horizontal, 80).padding(.top, 14)
             }
 
-            if let song = player.currentSong {
-                nowPlayingFooterInfo(for: song)
-                    .padding(.horizontal, 36)
-                    .padding(.top, 1).padding(.bottom, 11)
-            } else {
-                Spacer().frame(height: 16)
-            }
+            // 底排停在原来那行音质小字还在时的高度。
+            Spacer().frame(height: max(bottomSafeArea, 16) + 16)
         }
     }
 
@@ -4385,7 +4360,7 @@ struct NowPlayingView: View {
                     // 被强制关闭)。SwiftUI Observation 是 per-body 追踪——子 view
                     // 自己读 player.currentTime,父 view body 完全不读高频属性。
                     if !showLyrics || !isLyricsImmersive {
-                        PlaybackProgressBar(fillTint: themedControlAccent)
+                        PlaybackProgressBar(fillTint: themedControlAccent) { progressAudioTags }
                             .matchedLayoutElement(.progress, in: layoutNamespace)
                             .padding(.horizontal, 26).padding(.top, 8)
                             .padding(.horizontal, insets.rows)
@@ -4412,14 +4387,11 @@ struct NowPlayingView: View {
                             .pmLayoutSwitchFade()
                         }
 
-                        // 音质、规格与来源
-                        if let song = player.currentSong {
-                            nowPlayingFooterInfo(for: song)
-                                .padding(.horizontal, 26)
-                                .padding(.horizontal, insets.rows)
-                                .padding(.bottom, 2)
-                                .pmLayoutSwitchFade()
-                        }
+                        // 这套版面铺满整屏、不经安全区。底排停在原来那行音质小字还在时的高度:
+                        // 下面空出的一截正是 Home 指示条那一带,不放可点的东西;没有指示条的机型也留一点边。
+                        Color.clear
+                            .frame(height: max(bottomSafeArea - 8, 12))
+                            .accessibilityHidden(true)
                     }
                 }
                 // 侧边安全区按侧取值；上下仍沿用窗口安全区的既有处理。整屏居中(iPhone Duo)时两侧都是 0。
@@ -5839,37 +5811,49 @@ struct NowPlayingView: View {
         PlayerAppearancePreferences.audioInfoMode(rawValue: audioInfoModeRawValue)
     }
 
-    /// 底部那行的音频信息:音乐按设置的档位给音质小标与完整规格,其余只写格式与采样率;
-    /// 有声内容不标音质。
-    private func footerAudioDetail(for song: Song) -> NowPlayingFooterInfoRow.AudioDetail {
-        guard audioInfoMode != .off else { return .hidden }
-        if !usesSpokenWordTransport, audioInfoMode.showsSummary(for: song.audioQuality) {
-            return .summary
+    /// 不止一个音乐源时标出这首歌来自哪个源。
+    private func nowPlayingSourceLabel(for song: Song) -> NowPlayingSourceLabel? {
+        guard sourcesStore.sources.count > 1, let source = sourcesStore.source(id: song.sourceID) else {
+            return nil
         }
-        return .brief
+        return NowPlayingSourceLabel(iconName: source.type.iconName, name: source.name)
     }
 
-    /// 播放页最下面那行:音质、规格与来源(不止一个音乐源时)。起播前在 iCloud 下载时,
+    /// 进度条下、两个时间中间的标签:音乐按设置的档位标音质(带规格简写),再加来源;
+    /// 有声内容那里写本章还剩多久,只在等 iCloud 下载时出现。轻点看完整规格与实际输出。
+    @ViewBuilder
+    private var progressAudioTags: some View {
+        if let song = player.currentSong {
+            let isSpokenWord = usesSpokenWordTransport
+            NowPlayingAudioTagRow(
+                song: song,
+                showsAudio: !isSpokenWord && audioInfoMode.showsSummary(for: song.audioQuality),
+                isDownloadingFromICloud: player.iCloudDownloadingSongID == song.id,
+                source: isSpokenWord ? nil : nowPlayingSourceLabel(for: song),
+                outputSampleRate: player.audioEngine.observedOutputSampleRate,
+                allowsOutputDetail: !player.isAppleMusicMode,
+                tint: appearance.tertiary
+            )
+        }
+    }
+
+    /// 有声书版面最下面那行:格式、采样率与来源。起播前在 iCloud 下载时,
     /// 音频信息那段换成下载提示。
     private func nowPlayingFooterInfo(
         for song: Song,
-        infoColor: Color? = nil,
-        sourceColor: Color? = nil,
-        noticeColor: Color? = nil
+        infoColor: Color,
+        sourceColor: Color,
+        noticeColor: Color
     ) -> some View {
-        let source = sourcesStore.sources.count > 1 ? sourcesStore.source(id: song.sourceID) : nil
-        return NowPlayingFooterInfoRow(
+        NowPlayingFooterInfoRow(
             song: song,
-            audioDetail: footerAudioDetail(for: song),
+            showsAudioDetail: audioInfoMode != .off,
             isDownloadingFromICloud: player.iCloudDownloadingSongID == song.id,
-            source: source.map {
-                NowPlayingFooterInfoRow.SourceLabel(iconName: $0.type.iconName, name: $0.name)
-            },
+            source: nowPlayingSourceLabel(for: song),
             outputSampleRate: player.audioEngine.observedOutputSampleRate,
-            allowsOutputDetail: !player.isAppleMusicMode,
-            infoColor: infoColor ?? appearance.tertiary,
-            sourceColor: sourceColor ?? appearance.faint,
-            noticeColor: noticeColor ?? appearance.secondary
+            infoColor: infoColor,
+            sourceColor: sourceColor,
+            noticeColor: noticeColor
         )
     }
 
@@ -10628,12 +10612,25 @@ private struct LyricsTranslationStatusChip: View {
 /// 把高频属性的 Observation 追踪限制在本 view 内。这样 currentTime 每 0.5s 变化
 /// 只重算本 view,不会让父 body 重算 → 父 view 里的 SwiftUI Menu submenu (字号
 /// 选择)在用户操作期间不会被强制关闭。
-fileprivate struct PlaybackProgressBar: View {
-    var fillTint: Color? = nil
+///
+/// 两个时间中间可以放一组标签(`centerAccessory`,音质与来源)。标签叠在时间那一行上、不占
+/// 高度 —— 手机横屏是按这一行原本的高度排版的。有声内容那里写本章还剩多久,标签只在等
+/// iCloud 下载时借这个位置。
+fileprivate struct PlaybackProgressBar<CenterAccessory: View>: View {
+    var fillTint: Color?
+    let centerAccessory: CenterAccessory
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @State private var previewTime: TimeInterval?
+
+    /// 两端时间各留这么宽,中间的标签不会压到「-1:02:34」这种长时间上。
+    private static var timeLabelReserve: CGFloat { 50 }
+
+    init(fillTint: Color? = nil, @ViewBuilder centerAccessory: () -> CenterAccessory) {
+        self.fillTint = fillTint
+        self.centerAccessory = centerAccessory()
+    }
 
     private var appearance: NowPlayingAppearance {
         NowPlayingAppearance(colorScheme: colorScheme, contrast: colorSchemeContrast)
@@ -10660,6 +10657,9 @@ fileprivate struct PlaybackProgressBar: View {
                 .foregroundStyle(appearance.secondary)
             } else {
                 let isSpokenWord = player.currentItemIsSpokenWord
+                let isFetchingFromICloud = player.currentSong.map {
+                    player.iCloudDownloadingSongID == $0.id
+                } ?? false
                 VStack(spacing: 4) {
                     ProgressSlider(
                         value: player.currentTime,
@@ -10678,7 +10678,7 @@ fileprivate struct PlaybackProgressBar: View {
                     HStack {
                         Text(displayedTime.formattedDuration)
                             .contentTransition(.numericText()); Spacer()
-                        if isSpokenWord, previewTime == nil,
+                        if isSpokenWord, previewTime == nil, !isFetchingFromICloud,
                            let remaining = SpokenWordPlayerText.partRemaining(player) {
                             // 按这本书的语速折算,不是内容时长。
                             Text(verbatim: remaining)
@@ -10691,10 +10691,21 @@ fileprivate struct PlaybackProgressBar: View {
                     }
                     .font(.caption2).foregroundStyle(appearance.tertiary).monospacedDigit()
                     .pmAnimation(.control, value: animatedSecond)
-
+                    .overlay {
+                        if !isSpokenWord || isFetchingFromICloud {
+                            centerAccessory
+                                .padding(.horizontal, Self.timeLabelReserve)
+                        }
+                    }
                 }
             }
         }
+    }
+}
+
+extension PlaybackProgressBar where CenterAccessory == EmptyView {
+    init(fillTint: Color? = nil) {
+        self.init(fillTint: fillTint) { EmptyView() }
     }
 }
 

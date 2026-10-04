@@ -3203,12 +3203,12 @@
 "player_audio_info_off" = "關閉";
 "player_audio_info_lossless_only" = "僅無損音質";
 "player_audio_info_always" = "永遠顯示";
-"player_audio_info_footer" = "顯示在播放頁底部，例如 FLAC · 24bit/96kHz。輕點可查看輸出裝置實際使用的取樣率。";
+"player_audio_info_footer" = "顯示在進度條下方，例如 Hi-Res 24/96。輕點可查看完整規格和輸出裝置實際使用的取樣率。";
 "player_audio_info_mac_hint" = "播放頁歌名上方的格式、位元率與取樣率";
 "now_playing_audio_output_matched" = "輸出 %@ · 與來源一致";
 "now_playing_audio_output_resampled" = "輸出 %@ · 已重新取樣";
 "now_playing_audio_output_plain" = "輸出 %@";
-"now_playing_audio_info_hint" = "輕點查看輸出裝置實際使用的取樣率";
+"now_playing_audio_info_hint" = "輕點查看完整規格和實際輸出的取樣率";
 "player_animated_artwork" = "動態專輯封面";
 "player_animated_artwork_description" = "在專輯詳細資訊和播放器主封面中播放來源提供的 GIF、APNG 與動態 WebP。列表一律顯示靜態首格，並遵循系統動態效果與電量設定。";
 "player_animated_artwork_unmetered_only" = "僅透過 Wi-Fi 下載原始封面";

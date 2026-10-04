@@ -173,6 +173,35 @@ public enum NowPlayingAudioInfoTextPolicy {
         return parts
     }
 
+    /// 播放页音质标签里规格那一截,要短:无损写「24/96」「16/44.1」,DSD 写「DSD64」,
+    /// 有损写「AAC 256k」。只知道位深说明不了什么,不写;什么都拿不到时 nil。
+    public static func tagDetail(
+        formatName: String,
+        sampleRate: Int?,
+        bitDepth: Int?,
+        bitRate: Int?,
+        isDSD: Bool,
+        isLossless: Bool
+    ) -> String? {
+        let sampleRate = sampleRate.flatMap { $0 > 0 ? $0 : nil }
+        if isDSD {
+            guard let sampleRate, sampleRate >= 2_822_400 else { return nil }
+            return "DSD\(Int((Double(sampleRate) / 44_100).rounded()))"
+        }
+        if isLossless {
+            guard let sampleRate else { return nil }
+            let rate = OutputSampleRateTextPolicy.kilohertz(Double(sampleRate))
+            if let bitDepth, bitDepth > 0 { return "\(bitDepth)/\(rate)" }
+            return "\(rate)kHz"
+        }
+        let format = formatName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = [
+            format.isEmpty || format == "—" ? nil : format,
+            bitRate.flatMap { $0 > 0 ? "\($0)k" : nil }
+        ].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+
     public enum OutputMatch: Equatable, Sendable {
         /// 输出与源采样率一致。
         case matched

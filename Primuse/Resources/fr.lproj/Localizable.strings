@@ -3218,12 +3218,12 @@
 "player_audio_info_off" = "Désactivé";
 "player_audio_info_lossless_only" = "Sans perte uniquement";
 "player_audio_info_always" = "Toujours";
-"player_audio_info_footer" = "Affiché en bas du lecteur, par exemple FLAC · 24bit/96kHz. Touchez-le pour voir la fréquence d’échantillonnage réellement utilisée par la sortie.";
+"player_audio_info_footer" = "Affiché sous la barre de progression, par exemple Hi-Res 24/96. Touchez-le pour voir tous les détails du format et la fréquence d’échantillonnage réellement utilisée par la sortie.";
 "player_audio_info_mac_hint" = "Format, débit et fréquence d’échantillonnage au-dessus du titre";
 "now_playing_audio_output_matched" = "Sortie %@ · identique à la source";
 "now_playing_audio_output_resampled" = "Sortie %@ · rééchantillonnée";
 "now_playing_audio_output_plain" = "Sortie %@";
-"now_playing_audio_info_hint" = "Touchez pour voir la fréquence réellement utilisée par la sortie";
+"now_playing_audio_info_hint" = "Touchez pour voir tous les détails du format et la fréquence réellement utilisée par la sortie";
 "player_animated_artwork" = "Pochette dynamique";
 "player_animated_artwork_description" = "Lit les pochettes GIF, APNG et WebP animées fournies par la source dans les détails de l’album et sur la pochette principale du lecteur. Les listes affichent toujours la première image statique et respectent les réglages système et d’énergie.";
 "player_animated_artwork_unmetered_only" = "Pochette originale via Wi-Fi uniquement";

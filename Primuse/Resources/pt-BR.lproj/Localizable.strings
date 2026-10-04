@@ -2432,12 +2432,12 @@
 "player_audio_info_off" = "Desativado";
 "player_audio_info_lossless_only" = "Somente sem perdas";
 "player_audio_info_always" = "Sempre";
-"player_audio_info_footer" = "Aparece na parte inferior do player, por exemplo FLAC · 24bit/96kHz. Toque para ver a taxa de amostragem usada de fato pela saída.";
+"player_audio_info_footer" = "Aparece abaixo da barra de progresso, por exemplo Hi-Res 24/96. Toque para ver todos os detalhes do formato e a taxa de amostragem usada de fato pela saída.";
 "player_audio_info_mac_hint" = "Formato, taxa de bits e taxa de amostragem acima do título";
 "now_playing_audio_output_matched" = "Saída %@ · igual à origem";
 "now_playing_audio_output_resampled" = "Saída %@ · reamostrada";
 "now_playing_audio_output_plain" = "Saída %@";
-"now_playing_audio_info_hint" = "Toque para ver a taxa usada de fato pela saída";
+"now_playing_audio_info_hint" = "Toque para ver todos os detalhes do formato e a taxa usada de fato pela saída";
 "playlist_always_download" = "Sempre baixar";
 "playlist_always_download_description" = "Mantém esta playlist neste dispositivo por meio de Wi-Fi. As músicas novas ou alteradas são baixadas automaticamente quando as condições do dispositivo permitem; desativar isso mantém os arquivos existentes.";
 "playlist_description_optional" = "Descrição (Opcional)";

@@ -3829,12 +3829,12 @@
 "player_audio_info_off" = "Kapalı";
 "player_audio_info_lossless_only" = "Yalnızca kayıpsız";
 "player_audio_info_always" = "Her zaman";
-"player_audio_info_footer" = "Oynatıcının alt kısmında gösterilir, örneğin FLAC · 24bit/96kHz. Çıkışın gerçekte kullandığı örnekleme hızını görmek için dokunun.";
+"player_audio_info_footer" = "İlerleme çubuğunun altında gösterilir, örneğin Hi-Res 24/96. Tüm biçim ayrıntılarını ve çıkışın gerçekte kullandığı örnekleme hızını görmek için dokunun.";
 "player_audio_info_mac_hint" = "Şarkı adının üstünde biçim, bit hızı ve örnekleme hızı";
 "now_playing_audio_output_matched" = "Çıkış %@ · kaynakla aynı";
 "now_playing_audio_output_resampled" = "Çıkış %@ · yeniden örneklendi";
 "now_playing_audio_output_plain" = "Çıkış %@";
-"now_playing_audio_info_hint" = "Çıkışın gerçek örnekleme hızını görmek için dokunun";
+"now_playing_audio_info_hint" = "Tüm biçim ayrıntılarını ve çıkışın gerçek örnekleme hızını görmek için dokunun";
 "home_pending_details" = "Beklemede";
 "lyrics_transcription_service_address" = "Hizmet Adresi";
 "radio_batch_select_playable" = "Kullanılabilir Tümünü Seç";
