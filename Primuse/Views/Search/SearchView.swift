@@ -1826,20 +1826,34 @@ struct SearchView: View {
     }
 
     /// 把条目按栏竖着排; 条目不够时空栏也占位, 栏宽和别的行对齐。
+    /// `lazily`: 「查看全部」展开的电台/有声书不设上限, 每栏改用懒加载, 只建滚到的行。
     private func macColumns<Item: Identifiable, Content: View>(
         _ items: [Item],
         columns: Int,
         spacing: CGFloat,
         rowSpacing: CGFloat,
+        lazily: Bool = false,
         @ViewBuilder content: @escaping (Item) -> Content
     ) -> some View {
         let chunks = SearchResultPageLayout.columnMajorChunks(items, columns: columns)
         return HStack(alignment: .top, spacing: spacing) {
             ForEach(0..<max(columns, 1), id: \.self) { index in
-                VStack(spacing: rowSpacing) {
-                    if chunks.indices.contains(index) {
-                        ForEach(chunks[index]) { item in
-                            content(item)
+                Group {
+                    if lazily {
+                        LazyVStack(spacing: rowSpacing) {
+                            if chunks.indices.contains(index) {
+                                ForEach(chunks[index]) { item in
+                                    content(item)
+                                }
+                            }
+                        }
+                    } else {
+                        VStack(spacing: rowSpacing) {
+                            if chunks.indices.contains(index) {
+                                ForEach(chunks[index]) { item in
+                                    content(item)
+                                }
+                            }
                         }
                     }
                 }
@@ -2403,7 +2417,7 @@ struct SearchView: View {
                     systemImage: "dot.radiowaves.left.and.right",
                     seeAll: !showsAll && radioHits.count > hits.count ? .radio : nil
                 )
-                macColumns(hits, columns: columns, spacing: 16, rowSpacing: 4) { hit in
+                macColumns(hits, columns: columns, spacing: 16, rowSpacing: 4, lazily: showsAll) { hit in
                     Button {
                         playStation(hit.station)
                     } label: {
@@ -2429,7 +2443,7 @@ struct SearchView: View {
                     systemImage: "books.vertical",
                     seeAll: !showsAll && bookHits.count > hits.count ? .spokenWord : nil
                 )
-                macColumns(hits, columns: columns, spacing: 16, rowSpacing: 4) { hit in
+                macColumns(hits, columns: columns, spacing: 16, rowSpacing: 4, lazily: showsAll) { hit in
                     Button {
                         playBook(hit)
                     } label: {
@@ -2605,7 +2619,8 @@ struct SearchView: View {
             ? matches
             : Array(matches.prefix(kind == .lyrics ? 3 : 6))
         if !bucket.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
+            // 在文件夹里搜索时命中不设上限, 可能上千首: 用懒加载, 只建滚到的行。
+            LazyVStack(alignment: .leading, spacing: 6) {
                 macSectionLabel(title)
                 ForEach(bucket) { result in
                     macSongBlockItem(result)

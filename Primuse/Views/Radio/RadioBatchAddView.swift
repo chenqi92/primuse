@@ -675,7 +675,8 @@ struct RadioBatchAddView: View {
         let libraryKeys = isSubscribing
             ? Set(store.stations.compactMap { RadioImportParser.streamIdentityKey($0.streamURL) })
             : []
-        return VStack(spacing: 8) {
+        // 一份公开电台清单可能有上千条: 用懒加载, 只建 (和取台标) 滚到的行。
+        return LazyVStack(spacing: 8) {
             ForEach(candidates) { candidate in
                 candidateRow(candidate, libraryKeys: libraryKeys)
             }
