@@ -6157,7 +6157,8 @@ public enum NowPlayingArtworkRefreshPolicy {
 /// - 最近听过:打底的熟悉感;
 /// - 好久没听:整个音乐曲库里近 30 天没放过的专辑,轮播值得滑主要靠这一组;
 /// - 最近添加。
-/// 某一组不够时由其余组补满。
+/// 某一组不够时由其余组补满。这三组配额只管正中那几张「今天的」封面,再往两边
+/// 三组轮流接着摆,轮播首尾相接循环滑动,一圈要够长才滑不腻(见 `HomeHeroCarouselLoop`)。
 ///
 /// 按「日期 + 专辑」的稳定哈希排名,不随机:冷启动期间资料库、播放记录、回填每变一次
 /// 首页就重算一次,以前用 `shuffled()` 时每次都换一组,封面跟着换人、从占位淡入,看起来
@@ -6177,7 +6178,10 @@ public enum HomeHeroCarouselSelection {
         }
     }
 
-    public static let cardCount = 8
+    /// 一圈最多这么多张。
+    public static let cardCount = 48
+    /// 正中按三组配额挑的「今天的」几张。
+    public static let featuredCount = 8
     /// 少于这么多张时首页仍用原来的欢迎卡片,两三张撑不起一条轮播。
     public static let minimumCardCount = 3
     /// 「好久没听」看的是这么多天里有没有放过。
@@ -6213,6 +6217,7 @@ public enum HomeHeroCarouselSelection {
         count: Int = cardCount
     ) -> [String] {
         guard count > 0 else { return [] }
+        let featured = min(count, featuredCount)
         var used = Set<String>()
         let groups = [
             ranked(recent, dayStamp: dayStamp),
@@ -6223,13 +6228,13 @@ public enum HomeHeroCarouselSelection {
         var taken: [[Candidate]] = [[], [], []]
         for (index, group) in groups.enumerated() {
             for candidate in group where taken[index].count < quotas[index] {
-                guard used.count < count, used.insert(candidate.albumKey).inserted else { continue }
+                guard used.count < featured, used.insert(candidate.albumKey).inserted else { continue }
                 taken[index].append(candidate)
             }
         }
         // 名额没用完:先从好久没听补,再最近添加,最后最近听过。
         for index in [1, 2, 0] {
-            for candidate in groups[index] where used.count < count {
+            for candidate in groups[index] where used.count < featured {
                 guard used.insert(candidate.albumKey).inserted else { continue }
                 taken[index].append(candidate)
             }
@@ -6237,13 +6242,30 @@ public enum HomeHeroCarouselSelection {
 
         // 三组轮流排,摆到轮播上时相邻的卡来自不同的组。
         var ordered: [String] = []
-        ordered.reserveCapacity(used.count)
+        ordered.reserveCapacity(count)
         var cursor = 0
         while ordered.count < used.count {
             for index in taken.indices where cursor < taken[index].count {
                 ordered.append(taken[index][cursor].songID)
             }
             cursor += 1
+        }
+
+        // 「今天的」几张之后,好久没听、最近添加、最近听过轮流各接一张,直到一圈摆满。
+        var next = [0, 0, 0]
+        var progressed = true
+        while ordered.count < count, progressed {
+            progressed = false
+            for index in [1, 2, 0] where ordered.count < count {
+                while next[index] < groups[index].count {
+                    let candidate = groups[index][next[index]]
+                    next[index] += 1
+                    guard used.insert(candidate.albumKey).inserted else { continue }
+                    ordered.append(candidate.songID)
+                    progressed = true
+                    break
+                }
+            }
         }
         return centerOut(ordered)
     }
@@ -6305,7 +6327,7 @@ public enum HomeHeroCarouselSelection {
         private var worst: (key: String, rank: UInt64)?
 
         /// - Parameter playedAlbumKeys: 近 `rediscoveryWindowDays` 天放过的专辑键。
-        public init(dayStamp: Int, playedAlbumKeys: Set<String>, limit: Int = 32) {
+        public init(dayStamp: Int, playedAlbumKeys: Set<String>, limit: Int = 64) {
             self.limit = max(1, limit)
             self.playedAlbumKeys = playedAlbumKeys
             var seed: UInt64 = 14_695_981_039_346_656_037
@@ -6378,6 +6400,46 @@ public enum HomeHeroCarouselSelection {
             worst = resolved
             return resolved
         }
+    }
+}
+
+/// 首页顶部封面轮播首尾相接:同一组卡片在一条很长的虚拟序列上一圈圈重复摆开,
+/// 轮播只渲染滑到眼前的那几张,左右都滑不到头。
+///
+/// 一出现停在正中那一圈,两头各有上千张的余量;真滑到外侧,停稳后换算回正中那一圈的
+/// 同一张(`recenteredSlot`)。序列不做得更长:滚动偏移上百万点时,渲染用的单精度坐标
+/// 精度不够,卡片会抖。
+public enum HomeHeroCarouselLoop {
+    /// 虚拟序列大约这么多格。
+    static let targetSlotCount = 4_000
+
+    /// 虚拟序列一共多少格:整圈,圈数是奇数,正中有完整的一圈。
+    public static func slotCount(itemCount: Int) -> Int {
+        guard itemCount > 0 else { return 0 }
+        var laps = max(3, targetSlotCount / itemCount)
+        if laps.isMultiple(of: 2) { laps += 1 }
+        return laps * itemCount
+    }
+
+    /// 第 `index` 张卡在正中那一圈里的格子。
+    public static func middleSlot(forIndex index: Int, itemCount: Int) -> Int {
+        guard itemCount > 0 else { return 0 }
+        let laps = slotCount(itemCount: itemCount) / itemCount
+        return (laps / 2) * itemCount + min(max(index, 0), itemCount - 1)
+    }
+
+    /// 格子上放的是第几张卡。
+    public static func index(ofSlot slot: Int, itemCount: Int) -> Int {
+        guard itemCount > 0 else { return 0 }
+        let remainder = slot % itemCount
+        return remainder >= 0 ? remainder : remainder + itemCount
+    }
+
+    /// 停在离正中超过四分之一序列的地方时,返回正中那一圈里同一张卡的格子;否则 nil。
+    public static func recenteredSlot(_ slot: Int, itemCount: Int) -> Int? {
+        let total = slotCount(itemCount: itemCount)
+        guard total > 0, abs(slot - total / 2) > total / 4 else { return nil }
+        return middleSlot(forIndex: index(ofSlot: slot, itemCount: itemCount), itemCount: itemCount)
     }
 }
 

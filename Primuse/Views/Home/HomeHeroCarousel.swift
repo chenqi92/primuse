@@ -2,8 +2,10 @@
 import SwiftUI
 import PrimuseKit
 
-/// 首页顶部的封面轮播:今天挑出的几张音乐封面(见 `HomeHeroCarouselSelection`)左右滑着看,
-/// 居中那张最大、两边的依次缩小并朝中间转开、叠在后面。
+/// 首页顶部的封面轮播:今天挑出的一圈音乐封面(见 `HomeHeroCarouselSelection`)左右滑着看,
+/// 居中那张最大、两边的依次缩小并朝中间转开、叠在后面。首尾相接,往哪边都滑不到头:
+/// 同一圈卡片在一条很长的虚拟序列上重复摆开(`HomeHeroCarouselLoop`),惰性堆栈只建
+/// 滑到眼前的那几张。
 ///
 /// - 点居中的封面、或者点「随机播放」:先放这一首,其余音乐随机接在后面。
 /// - 点两边的封面:把它挪到中间。
@@ -13,7 +15,6 @@ import PrimuseKit
 /// 把透视变换挂到滚动视图上在 iOS 27 上闪退过。
 struct HomeHeroCarousel: View {
     let songs: [Song]
-    let greeting: String
     /// 界面编辑里只看版面:不响应点击,也不接长按菜单。
     let isInteractive: Bool
     let playFromSong: (Song) -> Void
@@ -23,45 +24,33 @@ struct HomeHeroCarousel: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(CoverTintProvider.self) private var tintProvider
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var centeredID: String?
+    /// 居中那张在虚拟序列里的格子(不是第几首歌,同一首歌每一圈各有一格)。
+    @State private var centeredSlot: Int?
     @State private var viewportWidth: CGFloat = 0
 
     init(
         songs: [Song],
-        greeting: String,
         isInteractive: Bool,
         playFromSong: @escaping (Song) -> Void,
         playAll: @escaping () -> Void
     ) {
         self.songs = songs
-        self.greeting = greeting
         self.isInteractive = isInteractive
         self.playFromSong = playFromSong
         self.playAll = playAll
-        _centeredID = State(initialValue: Self.initialID(in: songs))
+        _centeredSlot = State(initialValue: Self.initialSlot(in: songs))
     }
 
     var body: some View {
         let metrics = HomeHeroCarouselMetrics(viewportWidth: viewportWidth)
         VStack(spacing: 0) {
-            Text(greeting)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 20)
-
             carousel(metrics)
-                .padding(.top, 2)
 
             caption
                 .padding(.top, 4)
 
-            pageDots
-                .padding(.top, 10)
-
             buttons
-                .padding(.top, 14)
+                .padding(.top, HomeHeroCarouselMetrics.buttonsTopSpacing)
                 .padding(.horizontal, 16)
         }
         .onGeometryChange(for: CGFloat.self) { proxy in
@@ -69,26 +58,43 @@ struct HomeHeroCarousel: View {
         } action: { width in
             viewportWidth = width
         }
-        .task(id: songs.map(\.id)) {
-            tintProvider.prepare(songs)
+        .task(id: nearbySongs.map(\.id)) {
+            // 只给居中和左右各两张取色;一圈几十张一次全取,第一圈光晕要等最后一张。
+            // 甩一下连着滑过很多张时,停稳了才取,路过的不取。
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled else { return }
+            tintProvider.prepare(nearbySongs)
         }
     }
 
-    private static func initialID(in songs: [Song]) -> String? {
-        guard !songs.isEmpty else { return nil }
-        let index = HomeHeroCarouselSelection.initialIndex(count: songs.count)
-        return songs[min(index, songs.count - 1)].id
+    private static func initialIndex(in songs: [Song]) -> Int {
+        min(HomeHeroCarouselSelection.initialIndex(count: songs.count), max(0, songs.count - 1))
+    }
+
+    private static func initialSlot(in songs: [Song]) -> Int {
+        HomeHeroCarouselLoop.middleSlot(forIndex: initialIndex(in: songs), itemCount: songs.count)
+    }
+
+    private var resolvedCenteredSlot: Int {
+        centeredSlot ?? Self.initialSlot(in: songs)
     }
 
     private var centeredIndex: Int {
-        if let centeredID, let index = songs.firstIndex(where: { $0.id == centeredID }) {
-            return index
-        }
-        return min(HomeHeroCarouselSelection.initialIndex(count: songs.count), max(0, songs.count - 1))
+        HomeHeroCarouselLoop.index(ofSlot: resolvedCenteredSlot, itemCount: songs.count)
     }
 
     private var centeredSong: Song? {
         songs.indices.contains(centeredIndex) ? songs[centeredIndex] : nil
+    }
+
+    private var nearbySongs: [Song] {
+        guard !songs.isEmpty else { return [] }
+        let center = resolvedCenteredSlot
+        var seen = Set<String>()
+        return (-2...2).compactMap { offset in
+            let song = songs[HomeHeroCarouselLoop.index(ofSlot: center + offset, itemCount: songs.count)]
+            return seen.insert(song.id).inserted ? song : nil
+        }
     }
 
     // MARK: - 轮播
@@ -100,16 +106,18 @@ struct HomeHeroCarousel: View {
         let viewport = metrics.viewportWidth
         let fallbackCenter = metrics.viewportWidth / 2 - metrics.sideMargin
         let reducesMotion = reduceMotion
-        let centered = centeredIndex
+        let centered = resolvedCenteredSlot
         let ids = songs.map(\.id)
+        let count = songs.count
         return ScrollViewReader { reader in
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: metrics.spacing) {
-                    ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
-                        card(song, isCentered: index == centered, side: side) { id in
+                LazyHStack(spacing: metrics.spacing) {
+                    ForEach(0..<HomeHeroCarouselLoop.slotCount(itemCount: count), id: \.self) { slot in
+                        let song = songs[HomeHeroCarouselLoop.index(ofSlot: slot, itemCount: count)]
+                        card(song, isCentered: slot == centered, side: side) {
                             pmWithAnimation(.selection) {
-                                centeredID = id
-                                reader.scrollTo(id, anchor: .center)
+                                centeredSlot = slot
+                                reader.scrollTo(slot, anchor: .center)
                             }
                         }
                         .visualEffect { content, proxy in
@@ -132,26 +140,42 @@ struct HomeHeroCarousel: View {
                             )
                         }
                         // 居中的叠在最上面,越往两边越靠后。
-                        .zIndex(-Double(abs(index - centered)))
+                        .zIndex(-Double(abs(slot - centered)))
                     }
                 }
                 .padding(.vertical, metrics.verticalBleed)
                 .scrollTargetLayout()
             }
-            .scrollTargetBehavior(.viewAligned)
-            .scrollPosition(id: $centeredID, anchor: .center)
+            // 甩得重就一口气滑过好几张,停下时对齐到最近的一张。
+            .scrollTargetBehavior(.viewAligned(limitBehavior: .never))
+            .scrollPosition(id: $centeredSlot, anchor: .center)
             .contentMargins(.horizontal, metrics.sideMargin, for: .scrollContent)
+            // 换了一组(隔天、加了新歌):原来居中的那首还在就停在它身上,不在了回到正中那张。
+            // 格子号按新的一圈重新算,两组张数不同时同一个格子上放的已经不是同一首歌。
+            .onChange(of: ids) { oldIDs, newIDs in
+                let oldIndex = HomeHeroCarouselLoop.index(ofSlot: resolvedCenteredSlot, itemCount: oldIDs.count)
+                let kept = oldIDs.indices.contains(oldIndex) ? newIDs.firstIndex(of: oldIDs[oldIndex]) : nil
+                centeredSlot = HomeHeroCarouselLoop.middleSlot(
+                    forIndex: kept ?? Self.initialIndex(in: songs),
+                    itemCount: newIDs.count
+                )
+            }
             // scrollPosition 的初值不会把轮播滚过去(编译机模拟器上实测停在第一张,而居中记的是
             // 正中那张,叠放与压暗全按错的那张算),所以出现、换了一组、宽度变了都显式滚一次。
             .task(id: RecenterKey(ids: ids, width: viewport)) {
-                // 换了一组(隔天、加了新歌):原来居中的那张还在就留着,不在了回到正中。
-                if centeredID.map({ !ids.contains($0) }) ?? true {
-                    centeredID = Self.initialID(in: songs)
-                }
                 // 等这一轮布局把卡片摆上去再滚,内容刚换的同一轮里滚动会落空。
                 await Task.yield()
-                guard !Task.isCancelled, let centeredID else { return }
-                reader.scrollTo(centeredID, anchor: .center)
+                guard !Task.isCancelled else { return }
+                reader.scrollTo(resolvedCenteredSlot, anchor: .center)
+            }
+            // 真滑到了序列外侧:停稳后换到正中那一圈的同一张,两边又各有上千张可滑。
+            // 两处摆的是同一首歌,换过去看不出来。
+            .onScrollPhaseChange { _, phase in
+                guard phase == .idle,
+                      let recentered = HomeHeroCarouselLoop.recenteredSlot(resolvedCenteredSlot, itemCount: count)
+                else { return }
+                centeredSlot = recentered
+                reader.scrollTo(recentered, anchor: .center)
             }
         }
         .background { glow() }
@@ -166,14 +190,14 @@ struct HomeHeroCarousel: View {
         _ song: Song,
         isCentered: Bool,
         side: CGFloat,
-        bringToCenter: @escaping (String) -> Void
+        bringToCenter: @escaping () -> Void
     ) -> some View {
         let shape = RoundedRectangle(cornerRadius: HomeHeroCarouselMetrics.cornerRadius, style: .continuous)
         return Button {
             if isCentered {
                 playFromSong(song)
             } else {
-                bringToCenter(song.id)
+                bringToCenter()
             }
         } label: {
             CachedArtworkView(
@@ -233,12 +257,12 @@ struct HomeHeroCarousel: View {
                 .transition(.opacity)
             }
         }
-        .pmAnimation(.ambient, value: centeredID)
+        .pmAnimation(.ambient, value: centeredSong?.id)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
 
-    // MARK: - 歌名、圆点、按钮
+    // MARK: - 歌名、按钮
 
     @ViewBuilder
     private var caption: some View {
@@ -254,7 +278,7 @@ struct HomeHeroCarousel: View {
         .lineLimit(1)
         .multilineTextAlignment(.center)
         .contentTransition(.opacity)
-        .pmAnimation(.trackChange, value: centeredID)
+        .pmAnimation(.trackChange, value: centeredSong?.id)
         .padding(.horizontal, 32)
         .frame(maxWidth: .infinity)
 
@@ -267,19 +291,6 @@ struct HomeHeroCarousel: View {
         } else {
             label
         }
-    }
-
-    private var pageDots: some View {
-        let current = centeredIndex
-        return HStack(spacing: 7) {
-            ForEach(songs.indices, id: \.self) { index in
-                Circle()
-                    .fill(index == current ? Color.primary.opacity(0.85) : Color.secondary.opacity(0.32))
-                    .frame(width: 6, height: 6)
-            }
-        }
-        .pmAnimation(.selection, value: current)
-        .accessibilityHidden(true)
     }
 
     private var buttons: some View {
@@ -335,6 +346,8 @@ struct HomeHeroCarouselMetrics {
     var sideMargin: CGFloat { max(0, (viewportWidth - cardSide) / 2) }
     /// 给阴影和转开后变高的近边留的上下空间。
     var verticalBleed: CGFloat { 16 }
+    /// 歌名与下面两个按钮之间的距离。
+    static let buttonsTopSpacing: CGFloat = 16
     var carouselHeight: CGFloat { cardSide + verticalBleed * 2 }
 }
 

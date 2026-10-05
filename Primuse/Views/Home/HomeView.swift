@@ -2128,14 +2128,12 @@ struct HomeView: View {
         if !heightClass.isCompact {
             let metrics = HomeHeroCarouselMetrics(viewportWidth: homeCanvas.width)
             VStack(spacing: 0) {
-                // 问候语、轮播上方的间距
-                Color.clear.frame(height: 22)
                 RoundedRectangle(cornerRadius: HomeHeroCarouselMetrics.cornerRadius, style: .continuous)
                     .fill(homeCardSurface)
                     .frame(width: metrics.cardSide, height: metrics.cardSide)
                     .padding(.vertical, metrics.verticalBleed)
-                // 歌名两行、圆点及上下间距
-                Color.clear.frame(height: 4 + 42 + 10 + 6 + 14)
+                // 歌名两行及上下间距
+                Color.clear.frame(height: 4 + 42 + HomeHeroCarouselMetrics.buttonsTopSpacing)
                 HStack(spacing: 10) {
                     Capsule().fill(homeCardSurface)
                     Capsule().fill(homeCardSurface)
@@ -2615,7 +2613,7 @@ struct HomeView: View {
 
     /// Hero 顶部 ── iPhone 竖屏与 iPad 是封面轮播(`HomeHeroCarousel`);手机横屏放不下
     /// (整块要压在视口四成以内)、或者今天挑出来的封面不到三张时,仍是
-    /// libraryMixHeroFallback (问候语 + 4 张封面拼贴 + 随机播放 / 全部播放两个按钮)。
+    /// libraryMixHeroFallback (标题 + 4 张封面拼贴 + 随机播放 / 全部播放两个按钮)。
     /// 之前的 todaysPickHero (今日精选大封面 + Play / Shuffle) 视觉上不够干净,
     /// 用户反馈不好看, 暂时不用; 代码保留方便将来需要时切回去。
     @ViewBuilder
@@ -2625,7 +2623,6 @@ struct HomeView: View {
            model.snapshot.heroCoverSongs.count >= HomeHeroCarouselSelection.minimumCardCount {
             HomeHeroCarousel(
                 songs: model.snapshot.heroCoverSongs,
-                greeting: greeting,
                 isInteractive: !editorMode,
                 playFromSong: playLibraryShuffled(startingWith:),
                 playAll: { playLibrary(shuffled: false) }
@@ -2729,17 +2726,12 @@ struct HomeView: View {
     private var libraryMixHeroFallback: some View {
         VStack(spacing: heightClass.value(14, compact: 10)) {
             HStack(alignment: .center, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(greeting)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Text("home_library_mix_title")
-                        .font(.title3)
-                        .fontWeight(.bold)
-                        .lineLimit(heightClass.pick(2, compact: 1))
-                        .minimumScaleFactor(0.85)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                Text("home_library_mix_title")
+                    .font(.title3)
+                    .fontWeight(.bold)
+                    .lineLimit(heightClass.pick(2, compact: 1))
+                    .minimumScaleFactor(0.85)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 heroCoverCollage
             }

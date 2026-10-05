@@ -37,14 +37,57 @@ struct HomeHeroCarouselSelectionTests {
         let added = candidates("n", albums: 10, songsPerAlbum: 3)
         let rediscovery = candidates("o", albums: 10)
         let picked = HomeHeroCarouselSelection.pick(
-            recent: recent, added: added, rediscovery: rediscovery, dayStamp: 20261004
+            recent: recent, added: added, rediscovery: rediscovery, dayStamp: 20261004,
+            count: HomeHeroCarouselSelection.featuredCount
         )
-        #expect(picked.count == HomeHeroCarouselSelection.cardCount)
+        #expect(picked.count == HomeHeroCarouselSelection.featuredCount)
         #expect(picked.filter { $0.hasPrefix("r-") }.count == 3)
         #expect(picked.filter { $0.hasPrefix("o-") }.count == 3)
         #expect(picked.filter { $0.hasPrefix("n-") }.count == 2)
         let albums = picked.map { $0.split(separator: "-").prefix(2).joined(separator: "-") }
         #expect(Set(albums).count == picked.count)
+    }
+
+    @Test("一圈摆满:正中 8 张仍按配额,往外三组轮流接着摆,专辑不重复")
+    func fullLapKeepsFeaturedCenter() {
+        let picked = HomeHeroCarouselSelection.pick(
+            recent: candidates("r", albums: 30),
+            added: candidates("n", albums: 30),
+            rediscovery: candidates("o", albums: 30),
+            dayStamp: 20261004
+        )
+        #expect(picked.count == HomeHeroCarouselSelection.cardCount)
+        #expect(Set(picked).count == picked.count)
+        // 前 8 张从正中往两边摆,落在 [正中 - 3, 正中 + 4]。
+        let center = HomeHeroCarouselSelection.initialIndex(count: picked.count)
+        let featured = picked[(center - 3)...(center + 4)]
+        #expect(featured.filter { $0.hasPrefix("r-") }.count == 3)
+        #expect(featured.filter { $0.hasPrefix("o-") }.count == 3)
+        #expect(featured.filter { $0.hasPrefix("n-") }.count == 2)
+        for prefix in ["r-", "o-", "n-"] {
+            #expect(picked.filter { $0.hasPrefix(prefix) }.count >= 15)
+        }
+    }
+
+    @Test("一圈里某一组用完时其余组接着轮,候选不够就有多少摆多少")
+    func fullLapWithUnevenGroups() {
+        let picked = HomeHeroCarouselSelection.pick(
+            recent: candidates("r", albums: 2),
+            added: [],
+            rediscovery: candidates("o", albums: 100),
+            dayStamp: 20261004
+        )
+        #expect(picked.count == HomeHeroCarouselSelection.cardCount)
+        #expect(picked.filter { $0.hasPrefix("r-") }.count == 2)
+
+        let few = HomeHeroCarouselSelection.pick(
+            recent: candidates("r", albums: 4),
+            added: candidates("n", albums: 4),
+            rediscovery: candidates("o", albums: 4),
+            dayStamp: 20261004
+        )
+        #expect(few.count == 12)
+        #expect(Set(few).count == 12)
     }
 
     @Test("同一张专辑出现在两组里只算一次")
@@ -63,7 +106,8 @@ struct HomeHeroCarouselSelectionTests {
             recent: [],
             added: candidates("n", albums: 3),
             rediscovery: candidates("o", albums: 20),
-            dayStamp: 20261004
+            dayStamp: 20261004,
+            count: HomeHeroCarouselSelection.featuredCount
         )
         #expect(picked.count == 8)
         #expect(picked.filter { $0.hasPrefix("n-") }.count == 2)
@@ -105,7 +149,8 @@ struct HomeHeroCarouselSelectionTests {
             recent: candidates("r", albums: 5),
             added: candidates("n", albums: 5),
             rediscovery: candidates("o", albums: 5),
-            dayStamp: 20261004
+            dayStamp: 20261004,
+            count: HomeHeroCarouselSelection.featuredCount
         )
         #expect(picked[HomeHeroCarouselSelection.initialIndex(count: picked.count)].hasPrefix("r-"))
         for index in picked.indices.dropLast() {
@@ -160,5 +205,55 @@ struct HomeHeroCarouselSelectionTests {
         #expect(pool(songs, played: all, limit: 4).isEmpty)
         let picked = pool(songs, played: all.subtracting(["album-7"]), limit: 4)
         #expect(picked.map(\.albumKey) == ["album-7"])
+    }
+}
+
+@Suite("Home Hero Carousel Loop")
+struct HomeHeroCarouselLoopTests {
+    private typealias Loop = HomeHeroCarouselLoop
+
+    @Test("虚拟序列是整圈、圈数为奇数,长度不超过五千格")
+    func slotCount() {
+        for count in [1, 3, 7, 8, 48, 500, 5_000] {
+            let total = Loop.slotCount(itemCount: count)
+            #expect(total.isMultiple(of: count))
+            #expect(!(total / count).isMultiple(of: 2))
+            #expect(total / count >= 3)
+            #expect(total <= max(5_000, count * 3))
+        }
+        #expect(Loop.slotCount(itemCount: 0) == 0)
+    }
+
+    @Test("正中那一圈的格子换算回原来的卡,负数格子也对")
+    func slotIndexMapping() {
+        let count = 48
+        for index in [0, 1, 23, 47] {
+            let slot = Loop.middleSlot(forIndex: index, itemCount: count)
+            #expect(Loop.index(ofSlot: slot, itemCount: count) == index)
+            #expect(Loop.index(ofSlot: slot + count * 5, itemCount: count) == index)
+        }
+        #expect(Loop.index(ofSlot: -1, itemCount: count) == 47)
+        #expect(Loop.index(ofSlot: -48, itemCount: count) == 0)
+        let middle = Loop.middleSlot(forIndex: 23, itemCount: count)
+        let total = Loop.slotCount(itemCount: count)
+        #expect(abs(middle - total / 2) < count)
+    }
+
+    @Test("中间一段不动,滑到外侧换回正中那一圈的同一张")
+    func recentering() {
+        let count = 48
+        let total = Loop.slotCount(itemCount: count)
+        let middle = Loop.middleSlot(forIndex: 10, itemCount: count)
+        #expect(Loop.recenteredSlot(middle, itemCount: count) == nil)
+        #expect(Loop.recenteredSlot(middle + count * 10, itemCount: count) == nil)
+        for far in [5, total - 3, -20, total + 40] {
+            let recentered = Loop.recenteredSlot(far, itemCount: count)
+            #expect(recentered != nil)
+            if let recentered {
+                #expect(Loop.index(ofSlot: recentered, itemCount: count) == Loop.index(ofSlot: far, itemCount: count))
+                #expect(Loop.recenteredSlot(recentered, itemCount: count) == nil)
+            }
+        }
+        #expect(Loop.recenteredSlot(3, itemCount: 0) == nil)
     }
 }
