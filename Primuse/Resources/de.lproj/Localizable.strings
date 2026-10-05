@@ -5528,3 +5528,11 @@
 "playlist_remove_offline_kept_format" = "%d Titel, die andere Wiedergabelisten offline halten, bleiben erhalten.";
 "playlist_remove_offline_none" = "Diese Wiedergabeliste hat keine Offline-Downloads.";
 "settings_info_button" = "Weitere Infos";
+"ai_recommendation_refresh_interval" = "Aktualisierungsintervall";
+"ai_recommendation_refresh_automatic" = "Automatisch";
+"ai_recommendation_refresh_automatic_format" = "Automatisch (%@)";
+"ai_recommendation_refresh_realtime" = "Echtzeit";
+"ai_recommendation_refresh_hourly" = "Stündlich";
+"ai_recommendation_refresh_six_hours" = "Alle 6 Stunden";
+"ai_recommendation_refresh_daily" = "Einmal täglich";
+"ai_recommendation_refresh_footer" = "Legt fest, wie oft Szenenempfehlungen den intelligenten Dienst erneut abfragen. Automatisch: mit der integrierten KI alle 6 Stunden, mit deinem eigenen Dienst in Echtzeit beim Hören. Innerhalb des Intervalls wird beim erneuten Öffnen der App oder beim Seitenwechsel das letzte Ergebnis verwendet; auf der Seite „Empfehlungen“ kannst du jederzeit neu erzeugen.";

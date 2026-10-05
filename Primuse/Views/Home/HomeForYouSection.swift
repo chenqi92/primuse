@@ -6,7 +6,8 @@ import PrimuseKit
 /// 候选永远是本地算好的:歌曲来自本地每日推荐,整张专辑来自 `AlbumRecommender`
 /// (情景推荐那几张之后的);智能服务只重排、写一句理由,和资料库「智能推荐」走同一套
 /// `/v1/recommendations`。同一份候选只问一次:结果在 `MusicIntelligenceService` 里
-/// 缓存 6 小时,失败的也要隔半小时才再问,首页来回出现不会反复发请求。智能服务不可用、
+/// 缓存 6 小时,失败的也要隔半小时才再问,首页来回出现不会反复发请求;「刷新频率」不是实时时,
+/// 间隔内候选随播放变了也沿用首页上次的结果(重开 App 也是)。智能服务不可用、
 /// 还在出结果、没开,或服务端还不认专辑时,照旧显示本地推荐与本地挑的专辑。
 @MainActor
 @Observable
@@ -106,7 +107,8 @@ final class HomeForYouAIFeed {
             maximumResults: max(1, candidates.count),
             minimumResults: min(10, max(1, candidates.count)),
             unit: unit,
-            albumCandidates: albumCandidates
+            albumCandidates: albumCandidates,
+            reuseSurface: .home
         )
         if Task.isCancelled {
             // 首页被换走打断的不算问过,回来时再问。

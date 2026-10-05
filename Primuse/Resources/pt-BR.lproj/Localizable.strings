@@ -5434,3 +5434,11 @@
 "playlist_remove_offline_kept_format" = "%d músicas mantidas offline por outras playlists continuarão.";
 "playlist_remove_offline_none" = "Esta playlist não tem downloads offline.";
 "settings_info_button" = "Mais informações";
+"ai_recommendation_refresh_interval" = "Frequência de atualização";
+"ai_recommendation_refresh_automatic" = "Automática";
+"ai_recommendation_refresh_automatic_format" = "Automática (%@)";
+"ai_recommendation_refresh_realtime" = "Em tempo real";
+"ai_recommendation_refresh_hourly" = "A cada hora";
+"ai_recommendation_refresh_six_hours" = "A cada 6 horas";
+"ai_recommendation_refresh_daily" = "Uma vez por dia";
+"ai_recommendation_refresh_footer" = "Define com que frequência as recomendações por cena consultam novamente o serviço inteligente. Automática: a cada 6 horas com a IA integrada e em tempo real enquanto você ouve com seu próprio serviço. Dentro do intervalo, reabrir o app ou trocar de página reaproveita o último resultado; você pode gerar de novo a qualquer momento na página Recomendações.";

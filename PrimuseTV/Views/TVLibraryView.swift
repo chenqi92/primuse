@@ -278,7 +278,8 @@ struct TVLibraryView: View {
                 scene: .automatic,
                 intent: selectedRecommendationIntent?.semanticIntent,
                 candidates: candidates,
-                using: intelligence
+                using: intelligence,
+                reuseSurface: .tvLibrary
             )
         }
         .fullScreenCover(item: $selectedArtist, onDismiss: finishArtistDismissal) { artist in

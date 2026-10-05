@@ -5434,3 +5434,11 @@
 "playlist_remove_offline_kept_format" = "อีก %d เพลงที่เพลย์ลิสต์อื่นเก็บออฟไลน์ไว้จะยังอยู่";
 "playlist_remove_offline_none" = "เพลย์ลิสต์นี้ไม่มีดาวน์โหลดออฟไลน์";
 "settings_info_button" = "ข้อมูลเพิ่มเติม";
+"ai_recommendation_refresh_interval" = "ความถี่ในการรีเฟรช";
+"ai_recommendation_refresh_automatic" = "อัตโนมัติ";
+"ai_recommendation_refresh_automatic_format" = "อัตโนมัติ (%@)";
+"ai_recommendation_refresh_realtime" = "แบบเรียลไทม์";
+"ai_recommendation_refresh_hourly" = "ทุกชั่วโมง";
+"ai_recommendation_refresh_six_hours" = "ทุก 6 ชั่วโมง";
+"ai_recommendation_refresh_daily" = "วันละครั้ง";
+"ai_recommendation_refresh_footer" = "กำหนดว่าคำแนะนำฉากจะถามบริการอัจฉริยะใหม่บ่อยแค่ไหน อัตโนมัติ: ทุก 6 ชั่วโมงเมื่อใช้ AI ในตัว และแบบเรียลไทม์ขณะฟังเมื่อใช้บริการของคุณเอง ภายในช่วงเวลานี้ การเปิดแอปใหม่หรือสลับหน้าจะใช้ผลลัพธ์ล่าสุด และคุณสร้างใหม่ได้ทุกเมื่อในหน้า “คำแนะนำ”";

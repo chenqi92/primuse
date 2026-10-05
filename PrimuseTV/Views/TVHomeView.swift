@@ -583,7 +583,8 @@ struct TVHomeView: View {
                 candidates: recommendationCandidates,
                 using: intelligence,
                 unit: recommendationUnit,
-                albumCandidates: recommendationAlbumCandidates
+                albumCandidates: recommendationAlbumCandidates,
+                reuseSurface: .tvHome
             )
         }
     }

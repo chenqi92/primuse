@@ -5621,3 +5621,11 @@
 "playlist_remove_offline_kept_format" = "另有 %d 首由其他歌单保持离线，会保留。";
 "playlist_remove_offline_none" = "这个歌单里没有离线下载的歌曲。";
 "settings_info_button" = "说明";
+"ai_recommendation_refresh_interval" = "刷新频率";
+"ai_recommendation_refresh_automatic" = "自动";
+"ai_recommendation_refresh_automatic_format" = "自动（%@）";
+"ai_recommendation_refresh_realtime" = "实时";
+"ai_recommendation_refresh_hourly" = "每小时";
+"ai_recommendation_refresh_six_hours" = "每 6 小时";
+"ai_recommendation_refresh_daily" = "每天";
+"ai_recommendation_refresh_footer" = "刷新频率决定场景推荐多久重新问一次智能服务。自动：用内置 AI 时每 6 小时一次，用自己的服务时随听歌实时更新。间隔内重开 App、来回切换页面都沿用上次的结果；在「智能推荐」页可以随时重新生成。";

@@ -5434,3 +5434,11 @@
 "playlist_remove_offline_kept_format" = "Diğer çalma listelerinin çevrimdışı tuttuğu %d şarkı kalacak.";
 "playlist_remove_offline_none" = "Bu çalma listesinde çevrimdışı indirme yok.";
 "settings_info_button" = "Daha fazla bilgi";
+"ai_recommendation_refresh_interval" = "Yenileme sıklığı";
+"ai_recommendation_refresh_automatic" = "Otomatik";
+"ai_recommendation_refresh_automatic_format" = "Otomatik (%@)";
+"ai_recommendation_refresh_realtime" = "Anlık";
+"ai_recommendation_refresh_hourly" = "Saatte bir";
+"ai_recommendation_refresh_six_hours" = "6 saatte bir";
+"ai_recommendation_refresh_daily" = "Günde bir";
+"ai_recommendation_refresh_footer" = "Sahne önerilerinin akıllı hizmete ne sıklıkla yeniden soracağını belirler. Otomatik: yerleşik yapay zekâyla 6 saatte bir, kendi hizmetinizle dinledikçe anlık olarak. Aralık içinde uygulamayı yeniden açmak veya sayfa değiştirmek son sonucu kullanır; Öneriler sayfasından istediğiniz zaman yeniden oluşturabilirsiniz.";

@@ -5529,3 +5529,11 @@
 "playlist_remove_offline_kept_format" = "ほかのプレイリストでオフライン保持中の%d曲は残ります。";
 "playlist_remove_offline_none" = "このプレイリストにはオフラインダウンロードがありません。";
 "settings_info_button" = "説明";
+"ai_recommendation_refresh_interval" = "更新頻度";
+"ai_recommendation_refresh_automatic" = "自動";
+"ai_recommendation_refresh_automatic_format" = "自動（%@）";
+"ai_recommendation_refresh_realtime" = "リアルタイム";
+"ai_recommendation_refresh_hourly" = "1時間ごと";
+"ai_recommendation_refresh_six_hours" = "6時間ごと";
+"ai_recommendation_refresh_daily" = "1日1回";
+"ai_recommendation_refresh_footer" = "シーン別おすすめがスマートサービスに問い合わせ直す頻度です。自動：内蔵 AI では 6 時間ごと、自分のサービスでは再生に合わせてリアルタイムに更新します。間隔内はアプリを開き直したりページを切り替えたりしても前回の結果を使います。「スマートおすすめ」ページからいつでも再生成できます。";

@@ -5505,3 +5505,11 @@
 "playlist_remove_offline_kept_format" = "另有 %d 首由其他歌單保持離線，會保留。";
 "playlist_remove_offline_none" = "這個歌單中沒有離線下載的歌曲。";
 "settings_info_button" = "說明";
+"ai_recommendation_refresh_interval" = "重新整理頻率";
+"ai_recommendation_refresh_automatic" = "自動";
+"ai_recommendation_refresh_automatic_format" = "自動（%@）";
+"ai_recommendation_refresh_realtime" = "即時";
+"ai_recommendation_refresh_hourly" = "每小時";
+"ai_recommendation_refresh_six_hours" = "每 6 小時";
+"ai_recommendation_refresh_daily" = "每天";
+"ai_recommendation_refresh_footer" = "重新整理頻率決定情境推薦多久重新詢問一次智慧服務。自動：使用內建 AI 時每 6 小時一次，使用自己的服務時隨聽歌即時更新。間隔內重新開啟 App、來回切換頁面都會沿用上次的結果；在「智慧推薦」頁面可隨時重新產生。";

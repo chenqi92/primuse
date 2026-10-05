@@ -1228,6 +1228,9 @@ struct AISettingsView: View {
     /// 首页「为你推荐」的推荐单位:歌曲 / 专辑 / 混合。
     @AppStorage(AIRecommendationUnit.storageKey)
     private var recommendationUnitRawValue = AIRecommendationUnit.defaultUnit.rawValue
+    /// 场景推荐多久重新问一次智能服务。
+    @AppStorage(AIRecommendationRefreshInterval.storageKey)
+    private var recommendationRefreshRawValue = AIRecommendationRefreshInterval.defaultInterval.rawValue
     @Environment(\.settingsFocusedAnchor) private var focusedSettingsAnchor
 
     /// 设置搜索要定位到这些项目时,先切到「服务」栏。
@@ -1423,6 +1426,14 @@ struct AISettingsView: View {
                 }
             }
             .settingsAnchor("intelligence.recommendationUnit")
+            Picker("ai_recommendation_refresh_interval", selection: $recommendationRefreshRawValue) {
+                ForEach(AIRecommendationRefreshInterval.pickerCases, id: \.self) { interval in
+                    Text(verbatim: interval.displayTitle(
+                        automatic: intelligence.automaticRecommendationRefreshInterval
+                    )).tag(interval.rawValue)
+                }
+            }
+            .settingsAnchor("intelligence.recommendationRefresh")
             if editor.recommendationsEnabled {
                 routeRow(.recommendations)
             }
@@ -1454,6 +1465,7 @@ struct AISettingsView: View {
         } header: {
             SettingsInfoHeader("ai_capability_section") {
                 Text("ai_recommendation_unit_footer")
+                Text("ai_recommendation_refresh_footer")
                 Text("ai_settings_lyrics_translation_footer")
             }
         }

@@ -774,7 +774,8 @@ struct AIRecommendationLibraryView: View {
             using: intelligence,
             forceRefresh: forceAIRefresh,
             maximumResults: Self.recommendationPageSize,
-            minimumResults: Self.minimumRecommendationPageSize
+            minimumResults: Self.minimumRecommendationPageSize,
+            reuseSurface: .library
         )
     }
 

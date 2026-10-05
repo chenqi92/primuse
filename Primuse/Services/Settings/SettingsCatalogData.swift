@@ -178,6 +178,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "intelligence.semanticSearch", titleKey: "ai_enable_semantic_search", iosPage: .intelligence, macPage: .intelligence),
         SettingDefinition(id: "intelligence.recommendations", titleKey: "ai_enable_recommendations", iosPage: .intelligence, macPage: .intelligence),
         SettingDefinition(id: "intelligence.recommendationUnit", titleKey: "ai_recommendation_unit", iosPage: .intelligence, macPage: .intelligence, keywords: ["album", "albums", "整张专辑", "专辑推荐", "推荐单位", "CUE"]),
+        SettingDefinition(id: "intelligence.recommendationRefresh", titleKey: "ai_recommendation_refresh_interval", iosPage: .intelligence, macPage: .intelligence, keywords: ["ai_recommendation_refresh_footer", "refresh", "frequency", "quota", "刷新", "频率", "次数", "额度", "个性推荐"]),
         SettingDefinition(id: "intelligence.lyricsTranslation", titleKey: "lyrics_translation_enabled", iosPage: .intelligence, macPage: .intelligence, keywords: ["translate", "translation", "歌词翻译", "智能翻译", "翻译"]),
         SettingDefinition(id: "intelligence.providers", titleKey: "ai_provider_list_section", iosPage: .intelligence, macPage: .intelligence),
         SettingDefinition(id: "intelligence.fallback", titleKey: "ai_fallback_enabled", iosPage: .intelligence, macPage: .intelligence),

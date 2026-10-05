@@ -5528,3 +5528,11 @@
 "playlist_remove_offline_kept_format" = "%d morceaux gardés hors ligne par d’autres listes de lecture seront conservés.";
 "playlist_remove_offline_none" = "Cette liste de lecture n’a aucun téléchargement hors ligne.";
 "settings_info_button" = "Plus d'infos";
+"ai_recommendation_refresh_interval" = "Fréquence d’actualisation";
+"ai_recommendation_refresh_automatic" = "Automatique";
+"ai_recommendation_refresh_automatic_format" = "Automatique (%@)";
+"ai_recommendation_refresh_realtime" = "En temps réel";
+"ai_recommendation_refresh_hourly" = "Toutes les heures";
+"ai_recommendation_refresh_six_hours" = "Toutes les 6 heures";
+"ai_recommendation_refresh_daily" = "Une fois par jour";
+"ai_recommendation_refresh_footer" = "Définit la fréquence à laquelle les recommandations par situation interrogent à nouveau le service intelligent. Automatique : toutes les 6 heures avec l’IA intégrée, en temps réel pendant l’écoute avec votre propre service. Pendant l’intervalle, rouvrir l’app ou changer de page réutilise le dernier résultat ; vous pouvez régénérer à tout moment depuis la page « Recommandations ».";

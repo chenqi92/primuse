@@ -5528,3 +5528,11 @@
 "playlist_remove_offline_kept_format" = "다른 재생 목록에서 오프라인으로 유지 중인 %d곡은 남습니다.";
 "playlist_remove_offline_none" = "이 재생 목록에는 오프라인 다운로드가 없습니다.";
 "settings_info_button" = "설명";
+"ai_recommendation_refresh_interval" = "새로 고침 빈도";
+"ai_recommendation_refresh_automatic" = "자동";
+"ai_recommendation_refresh_automatic_format" = "자동(%@)";
+"ai_recommendation_refresh_realtime" = "실시간";
+"ai_recommendation_refresh_hourly" = "1시간마다";
+"ai_recommendation_refresh_six_hours" = "6시간마다";
+"ai_recommendation_refresh_daily" = "하루 한 번";
+"ai_recommendation_refresh_footer" = "상황별 추천이 지능형 서비스에 다시 요청하는 빈도입니다. 자동: 내장 AI는 6시간마다, 직접 설정한 서비스는 감상에 맞춰 실시간으로 업데이트합니다. 간격 안에서는 앱을 다시 열거나 페이지를 전환해도 마지막 결과를 사용하며, ‘맞춤 추천’ 페이지에서 언제든 다시 생성할 수 있습니다.";

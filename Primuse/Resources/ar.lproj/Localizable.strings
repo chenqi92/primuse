@@ -5434,3 +5434,11 @@
 "playlist_remove_offline_kept_format" = "ستبقى %d من الأغاني التي تحفظها قوائم تشغيل أخرى دون اتصال.";
 "playlist_remove_offline_none" = "لا تحتوي قائمة التشغيل هذه على تنزيلات دون اتصال.";
 "settings_info_button" = "مزيد من المعلومات";
+"ai_recommendation_refresh_interval" = "معدل التحديث";
+"ai_recommendation_refresh_automatic" = "تلقائي";
+"ai_recommendation_refresh_automatic_format" = "تلقائي (%@)";
+"ai_recommendation_refresh_realtime" = "فوري";
+"ai_recommendation_refresh_hourly" = "كل ساعة";
+"ai_recommendation_refresh_six_hours" = "كل 6 ساعات";
+"ai_recommendation_refresh_daily" = "مرة يوميًا";
+"ai_recommendation_refresh_footer" = "يحدد عدد المرات التي تعيد فيها توصيات المشهد سؤال الخدمة الذكية. تلقائي: كل 6 ساعات مع الذكاء الاصطناعي المدمج، وفوريًا أثناء الاستماع مع خدمتك الخاصة. خلال الفترة، يعيد فتح التطبيق أو التنقل بين الصفحات استخدام آخر نتيجة؛ ويمكنك إعادة إنشائها في أي وقت من صفحة «التوصيات».";

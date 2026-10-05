@@ -5434,3 +5434,11 @@
 "playlist_remove_offline_kept_format" = "Песни, которые хранят офлайн другие плейлисты (%d), останутся.";
 "playlist_remove_offline_none" = "В этом плейлисте нет офлайн-загрузок.";
 "settings_info_button" = "Подробнее";
+"ai_recommendation_refresh_interval" = "Частота обновления";
+"ai_recommendation_refresh_automatic" = "Автоматически";
+"ai_recommendation_refresh_automatic_format" = "Автоматически (%@)";
+"ai_recommendation_refresh_realtime" = "В реальном времени";
+"ai_recommendation_refresh_hourly" = "Каждый час";
+"ai_recommendation_refresh_six_hours" = "Каждые 6 часов";
+"ai_recommendation_refresh_daily" = "Раз в день";
+"ai_recommendation_refresh_footer" = "Определяет, как часто рекомендации по сценам заново обращаются к интеллектуальному сервису. Автоматически: каждые 6 часов со встроенным ИИ и в реальном времени по мере прослушивания с вашим собственным сервисом. В пределах интервала при повторном открытии приложения или смене страниц используется последний результат; обновить их можно в любой момент на странице «Рекомендации».";

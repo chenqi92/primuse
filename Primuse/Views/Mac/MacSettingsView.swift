@@ -1027,6 +1027,9 @@ private struct MacSTIntelligenceView: View {
     /// 首页「为你推荐」的推荐单位:歌曲 / 专辑 / 混合。
     @AppStorage(AIRecommendationUnit.storageKey)
     private var recommendationUnitRawValue = AIRecommendationUnit.defaultUnit.rawValue
+    /// 场景推荐多久重新问一次智能服务。
+    @AppStorage(AIRecommendationRefreshInterval.storageKey)
+    private var recommendationRefreshRawValue = AIRecommendationRefreshInterval.defaultInterval.rawValue
     @Environment(\.settingsFocusedAnchor) private var focusedSettingsAnchor
 
     /// 设置搜索要定位到这些项目时,先切到「服务」栏。
@@ -1211,6 +1214,21 @@ private struct MacSTIntelligenceView: View {
                     )
                 }
                 .settingsAnchor("intelligence.recommendationUnit")
+                MacSTRow(
+                    String(localized: "ai_recommendation_refresh_interval"),
+                    hint: String(localized: "ai_recommendation_refresh_footer")
+                ) {
+                    MacSTPicker(
+                        selection: $recommendationRefreshRawValue,
+                        options: AIRecommendationRefreshInterval.pickerCases.map {
+                            ($0.rawValue, $0.displayTitle(
+                                automatic: intelligence.automaticRecommendationRefreshInterval
+                            ))
+                        },
+                        width: 200
+                    )
+                }
+                .settingsAnchor("intelligence.recommendationRefresh")
                 if editor.recommendationsEnabled {
                     routeRow(.recommendations)
                 }

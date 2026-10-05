@@ -5434,3 +5434,11 @@
 "playlist_remove_offline_kept_format" = "Utwory trzymane offline przez inne playlisty (%d) pozostaną.";
 "playlist_remove_offline_none" = "Ta playlista nie ma pobranych offline.";
 "settings_info_button" = "Więcej informacji";
+"ai_recommendation_refresh_interval" = "Częstotliwość odświeżania";
+"ai_recommendation_refresh_automatic" = "Automatycznie";
+"ai_recommendation_refresh_automatic_format" = "Automatycznie (%@)";
+"ai_recommendation_refresh_realtime" = "Na bieżąco";
+"ai_recommendation_refresh_hourly" = "Co godzinę";
+"ai_recommendation_refresh_six_hours" = "Co 6 godzin";
+"ai_recommendation_refresh_daily" = "Raz dziennie";
+"ai_recommendation_refresh_footer" = "Określa, jak często rekomendacje scen ponownie pytają inteligentną usługę. Automatycznie: co 6 godzin z wbudowaną AI, na bieżąco podczas słuchania z własną usługą. W obrębie interwału ponowne otwarcie aplikacji lub przełączanie stron korzysta z ostatniego wyniku; w każdej chwili możesz wygenerować je od nowa na stronie „Polecane”.";

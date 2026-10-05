@@ -32,6 +32,9 @@ struct TVAISettingsView: View {
     /// 推荐单位:首页智能推荐那一排开头放不放整张专辑。
     @AppStorage(AIRecommendationUnit.storageKey)
     private var recommendationUnitRawValue = AIRecommendationUnit.defaultUnit.rawValue
+    /// 场景推荐多久重新问一次智能服务。
+    @AppStorage(AIRecommendationRefreshInterval.storageKey)
+    private var recommendationRefreshRawValue = AIRecommendationRefreshInterval.defaultInterval.rawValue
 
     var body: some View {
         ZStack {
@@ -241,11 +244,28 @@ struct TVAISettingsView: View {
                 recommendationUnitRawValue = recommendationUnit.next.rawValue
             }
             .accessibilityIdentifier("tv.ai.recommendationUnit")
+            TVAIDivider()
+            // 遥控器上按一下换到下一档:自动 → 实时 → 每小时 → 每 6 小时 → 每天。
+            TVAIActionRow(
+                icon: "clock.arrow.circlepath",
+                title: String(localized: "ai_recommendation_refresh_interval"),
+                value: recommendationRefresh.displayTitle(
+                    automatic: intelligence.automaticRecommendationRefreshInterval
+                ),
+                trailing: "arrow.triangle.2.circlepath"
+            ) {
+                recommendationRefreshRawValue = recommendationRefresh.next.rawValue
+            }
+            .accessibilityIdentifier("tv.ai.recommendationRefresh")
         }
     }
 
     private var recommendationUnit: AIRecommendationUnit {
         .stored(recommendationUnitRawValue)
+    }
+
+    private var recommendationRefresh: AIRecommendationRefreshInterval {
+        .stored(recommendationRefreshRawValue)
     }
 
     /// 开关下面的「由谁处理」:跟随默认、内置 AI,或自己某项服务的某个模型。

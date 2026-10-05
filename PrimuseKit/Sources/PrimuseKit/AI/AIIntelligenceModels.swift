@@ -725,6 +725,148 @@ public struct AIRecommendationPlan: Codable, Hashable, Sendable {
     }
 }
 
+/// 智能推荐多久重新问一次服务。间隔之内同一处推荐沿用上次的结果(按这次的候选过滤),
+/// 放了几首歌、重开 App、来回切页面都不再问。
+public enum AIRecommendationRefreshInterval: String, Codable, CaseIterable, Hashable, Sendable {
+    /// 用内置 AI 时按 `builtInAutomaticInterval`,用自己的服务时实时。
+    case automatic
+    /// 候选一变就重新问;同一份候选仍只问一次。
+    case realtime
+    case hourly
+    case sixHours
+    case daily
+
+    public static let storageKey = "primuse.ai.recommendationRefreshInterval.v1"
+    public static let defaultInterval: AIRecommendationRefreshInterval = .automatic
+    public static let builtInAutomaticInterval: AIRecommendationRefreshInterval = .sixHours
+
+    /// 存着的设置;没存过或认不出时是自动。
+    public static func stored(_ rawValue: String?) -> AIRecommendationRefreshInterval {
+        rawValue.flatMap(AIRecommendationRefreshInterval.init(rawValue:)) ?? defaultInterval
+    }
+
+    /// 自动换算成实际的档位;其余原样。
+    public func resolved(usesBuiltIn: Bool) -> AIRecommendationRefreshInterval {
+        guard self == .automatic else { return self }
+        return usesBuiltIn ? Self.builtInAutomaticInterval : .realtime
+    }
+
+    /// 结果按时间沿用多久;nil 是不按时间沿用(实时)。
+    public var reuseWindow: TimeInterval? {
+        switch self {
+        case .automatic, .realtime: nil
+        case .hourly: 60 * 60
+        case .sixHours: 6 * 60 * 60
+        case .daily: 24 * 60 * 60
+        }
+    }
+}
+
+/// 哪一处的智能推荐。各处候选条数和意图不同,结果分开沿用。
+public enum AIRecommendationSurface: String, Codable, Hashable, Sendable {
+    case home
+    case library
+    case tvHome
+    case tvLibrary
+}
+
+/// 某一处推荐上一次问到的结果,以及是谁、什么时候给的。
+public struct AIRecommendationReuseEntry: Codable, Hashable, Sendable {
+    public var plan: AIRecommendationPlan
+    public var providerName: String
+    public var fallbackDepth: Int
+    /// 给出结果的服务;它不再参与推荐时这份结果就不沿用。
+    public var route: String
+    /// 问的时候按时段换算出的场景。
+    public var scene: AIRecommendationScene
+    public var createdAt: Date
+
+    public init(
+        plan: AIRecommendationPlan,
+        providerName: String,
+        fallbackDepth: Int,
+        route: String,
+        scene: AIRecommendationScene,
+        createdAt: Date
+    ) {
+        self.plan = plan
+        self.providerName = providerName
+        self.fallbackDepth = fallbackDepth
+        self.route = route
+        self.scene = scene
+        self.createdAt = createdAt
+    }
+}
+
+public enum AIRecommendationReusePolicy {
+    public static let maximumEntries = 16
+    /// 时钟往回拨超过这么多,就当结果已经过期。
+    public static let clockSkewTolerance: TimeInterval = 5 * 60
+
+    /// 同一处、同样的选择共用一份结果:用户选的场景(不是按时段换算后的)、意图、单位、语言。
+    /// 候选和听歌偏好不在里面 —— 它们随每次播放变化,正是刷新间隔里要忽略的部分。
+    public static func slotKey(
+        surface: AIRecommendationSurface,
+        sceneSelection: AIRecommendationScene,
+        request: AIRecommendationRequest
+    ) -> String {
+        [
+            surface.rawValue,
+            sceneSelection.rawValue,
+            request.unit.rawValue,
+            request.languageCode ?? "",
+            request.intent ?? "",
+        ].joined(separator: "\u{1F}")
+    }
+
+    public static func isFresh(
+        _ entry: AIRecommendationReuseEntry,
+        interval: AIRecommendationRefreshInterval,
+        now: Date
+    ) -> Bool {
+        guard let window = interval.reuseWindow else { return false }
+        let age = now.timeIntervalSince(entry.createdAt)
+        return age >= -clockSkewTolerance && age < window
+    }
+
+    /// 能沿用时给出按这次候选过滤后的结果;过期、换了服务,或挑中的已全不在候选里时为 nil。
+    /// 过滤后变少不算不完整:是否完整只看当初那份。
+    public static func reusablePlan(
+        _ entry: AIRecommendationReuseEntry,
+        for request: AIRecommendationRequest,
+        routes: Set<String>,
+        interval: AIRecommendationRefreshInterval,
+        now: Date
+    ) -> AIRecommendationPlan? {
+        guard routes.contains(entry.route),
+              isFresh(entry, interval: interval, now: now) else { return nil }
+        let adapted = entry.plan.normalized(for: request)
+        guard !adapted.selections.isEmpty else { return nil }
+        return AIRecommendationPlan(
+            summary: adapted.summary,
+            selections: adapted.selections,
+            isPartial: entry.plan.isPartial
+        )
+    }
+
+    /// 记下一份新结果,只留最近的 `maximumEntries` 处。没挑出东西的不记。
+    public static func storing(
+        _ entry: AIRecommendationReuseEntry,
+        for slot: String,
+        in entries: [String: AIRecommendationReuseEntry]
+    ) -> [String: AIRecommendationReuseEntry] {
+        guard !entry.plan.selections.isEmpty else { return entries }
+        var updated = entries
+        updated[slot] = entry
+        if updated.count > maximumEntries {
+            let kept = updated.sorted { $0.value.createdAt > $1.value.createdAt }
+                .prefix(maximumEntries)
+            updated = Dictionary(uniqueKeysWithValues: kept.map { ($0.key, $0.value) })
+        }
+        return updated
+    }
+}
+
 public enum AIRecommendationStreamEvent: Hashable, Sendable {
     case reset
     case selection(AIRecommendationSelection)

@@ -5434,3 +5434,11 @@
 "playlist_remove_offline_kept_format" = "दूसरी प्लेलिस्ट द्वारा ऑफ़लाइन रखे गए %d गाने बने रहेंगे।";
 "playlist_remove_offline_none" = "इस प्लेलिस्ट में कोई ऑफ़लाइन डाउनलोड नहीं है।";
 "settings_info_button" = "अधिक जानकारी";
+"ai_recommendation_refresh_interval" = "रीफ़्रेश आवृत्ति";
+"ai_recommendation_refresh_automatic" = "स्वचालित";
+"ai_recommendation_refresh_automatic_format" = "स्वचालित (%@)";
+"ai_recommendation_refresh_realtime" = "रीयल-टाइम";
+"ai_recommendation_refresh_hourly" = "हर घंटे";
+"ai_recommendation_refresh_six_hours" = "हर 6 घंटे";
+"ai_recommendation_refresh_daily" = "दिन में एक बार";
+"ai_recommendation_refresh_footer" = "तय करता है कि दृश्य अनुशंसाएँ कितनी बार बुद्धिमान सेवा से दोबारा पूछें। स्वचालित: बिल्ट-इन AI के साथ हर 6 घंटे, अपनी सेवा के साथ सुनते समय रीयल-टाइम। अंतराल के भीतर ऐप दोबारा खोलने या पेज बदलने पर पिछला परिणाम ही इस्तेमाल होता है; “सिफ़ारिशें” पेज पर आप कभी भी दोबारा बना सकते हैं।";

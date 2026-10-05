@@ -333,6 +333,7 @@ final class MusicIntelligenceService {
     @ObservationIgnored private var primuseRelayRecommendationCache: [
         PrimuseRelayRecommendationCacheKey: RecommendationCacheEntry
     ] = [:]
+    private let recommendationReuseStore: AIRecommendationReuseStore
 
     private struct SemanticPlanCacheKey: Hashable {
         var profileID: UUID
@@ -387,9 +388,11 @@ final class MusicIntelligenceService {
         settingsStore: AISettingsStore = AISettingsStore(),
         lyricsTranscriptionSettingsStore: LyricsTranscriptionSettingsStore? = nil,
         regionAvailability: AIRegionAvailabilityService = AIRegionAvailabilityService(),
-        credentialStore: any AICredentialStoring = AICredentialStore()
+        credentialStore: any AICredentialStoring = AICredentialStore(),
+        recommendationReuseDefaults: UserDefaults = .standard
     ) {
         self.settingsStore = settingsStore
+        recommendationReuseStore = AIRecommendationReuseStore(defaults: recommendationReuseDefaults)
         self.lyricsTranscriptionSettingsStore = lyricsTranscriptionSettingsStore
             ?? LyricsTranscriptionSettingsStore(legacySettingsStore: settingsStore)
         self.regionAvailability = regionAvailability
@@ -1420,15 +1423,19 @@ final class MusicIntelligenceService {
         return .unavailable(retryAt: relayRetryAt)
     }
 
+    /// `reuseSlot` 是哪一处推荐(`AIRecommendationReusePolicy.slotKey`):给了就在刷新间隔内
+    /// 沿用这一处上次的结果,问到新结果也记在这一处。翻页追加、生成歌单不给。
     func recommendationOutcome(
         for request: AIRecommendationRequest,
         forceRefresh: Bool = false,
+        reuseSlot: String? = nil,
         onStreamEvent: ((AIRecommendationStreamEvent) -> Void)? = nil
     ) async -> AIRecommendationOutcome {
         let regionSnapshot = regionAvailability.snapshot
         guard isPersonalizedRecommendationsConfigured,
               !request.candidates.isEmpty else { return .unavailable }
-        if !forceRefresh, let cached = cachedRecommendationOutcome(for: request) {
+        if !forceRefresh,
+           let cached = cachedRecommendationOutcome(for: request, reuseSlot: reuseSlot) {
             return cached
         }
 
@@ -1533,6 +1540,14 @@ final class MusicIntelligenceService {
                    })?.key {
                     primuseRelayRecommendationCache[oldestKey] = nil
                 }
+                rememberRecommendation(
+                    plan,
+                    providerName: primuseRelayProviderName,
+                    fallbackDepth: 0,
+                    route: Self.builtInRecommendationRoute,
+                    request: request,
+                    slot: reuseSlot
+                )
                 return .success(AIRecommendationExecution(
                     plan: plan,
                     providerName: primuseRelayProviderName,
@@ -1567,6 +1582,14 @@ final class MusicIntelligenceService {
                            })?.key {
                             primuseRelayRecommendationCache[oldestKey] = nil
                         }
+                        rememberRecommendation(
+                            partial,
+                            providerName: primuseRelayProviderName,
+                            fallbackDepth: 0,
+                            route: Self.builtInRecommendationRoute,
+                            request: request,
+                            slot: reuseSlot
+                        )
                         return .success(AIRecommendationExecution(
                             plan: partial,
                             providerName: primuseRelayProviderName,
@@ -1678,6 +1701,14 @@ final class MusicIntelligenceService {
                    })?.key {
                     recommendationCache[oldestKey] = nil
                 }
+                rememberRecommendation(
+                    plan,
+                    providerName: configuration.displayName,
+                    fallbackDepth: effectiveFallbackDepth,
+                    route: Self.recommendationRoute(for: configuration),
+                    request: request,
+                    slot: reuseSlot
+                )
                 return .success(AIRecommendationExecution(
                     plan: plan,
                     providerName: configuration.displayName,
@@ -1744,7 +1775,8 @@ final class MusicIntelligenceService {
     }
 
     func cachedRecommendationOutcome(
-        for request: AIRecommendationRequest
+        for request: AIRecommendationRequest,
+        reuseSlot: String? = nil
     ) -> AIRecommendationOutcome? {
         let regionSnapshot = regionAvailability.snapshot
         guard isPersonalizedRecommendationsConfigured,
@@ -1800,7 +1832,74 @@ final class MusicIntelligenceService {
                 isCached: true
             ))
         }
+        if let reuseSlot,
+           let entry = recommendationReuseStore.entry(for: reuseSlot),
+           let plan = AIRecommendationReusePolicy.reusablePlan(
+               entry,
+               for: request,
+               routes: recommendationRoutes(providers: providers),
+               interval: recommendationRefreshInterval,
+               now: Date()
+           ) {
+            return .success(AIRecommendationExecution(
+                plan: plan,
+                providerName: entry.providerName,
+                fallbackDepth: entry.fallbackDepth,
+                resolvedScene: entry.scene,
+                isCached: true
+            ))
+        }
         return nil
+    }
+
+    /// 智能推荐实际的刷新档位:设置里选的,「自动」按这时谁先回答换算。
+    var recommendationRefreshInterval: AIRecommendationRefreshInterval {
+        AIRecommendationRefreshInterval.stored(
+            recommendationReuseStore.defaults.string(forKey: AIRecommendationRefreshInterval.storageKey)
+        ).resolved(usesBuiltIn: isPrimuseRelayAvailable(for: .recommendations))
+    }
+
+    /// 「自动」此刻相当于哪一档,设置里写在选项上。
+    var automaticRecommendationRefreshInterval: AIRecommendationRefreshInterval {
+        AIRecommendationRefreshInterval.automatic
+            .resolved(usesBuiltIn: isPrimuseRelayAvailable(for: .recommendations))
+    }
+
+    private static let builtInRecommendationRoute = "builtIn"
+
+    private static func recommendationRoute(for configuration: AIRemoteProviderConfiguration) -> String {
+        "provider:\(configuration.id.uuidString):\(configuration.generationModel):\(configuration.baseURL)"
+    }
+
+    /// 此刻还能给推荐的服务;别的服务给的旧结果不沿用。
+    private func recommendationRoutes(providers: [AIRemoteProviderConfiguration]) -> Set<String> {
+        var routes = Set(providers.map(Self.recommendationRoute(for:)))
+        if isPrimuseRelayAvailable(for: .recommendations) {
+            routes.insert(Self.builtInRecommendationRoute)
+        }
+        return routes
+    }
+
+    private func rememberRecommendation(
+        _ plan: AIRecommendationPlan,
+        providerName: String,
+        fallbackDepth: Int,
+        route: String,
+        request: AIRecommendationRequest,
+        slot: String?
+    ) {
+        guard let slot else { return }
+        recommendationReuseStore.store(
+            AIRecommendationReuseEntry(
+                plan: plan,
+                providerName: providerName,
+                fallbackDepth: fallbackDepth,
+                route: route,
+                scene: request.scene,
+                createdAt: Date()
+            ),
+            for: slot
+        )
     }
 
     func transcribeAudio(
@@ -2432,6 +2531,32 @@ final class MusicIntelligenceService {
     }
 }
 
+/// 各处智能推荐上一次的结果。存在本机(不同步),重开 App 也接着沿用到刷新间隔结束。
+@MainActor
+final class AIRecommendationReuseStore {
+    static let storageKey = "primuse.ai.recommendationReuse.v1"
+
+    let defaults: UserDefaults
+    private var entries: [String: AIRecommendationReuseEntry]
+
+    init(defaults: UserDefaults) {
+        self.defaults = defaults
+        entries = defaults.data(forKey: Self.storageKey).flatMap {
+            try? JSONDecoder().decode([String: AIRecommendationReuseEntry].self, from: $0)
+        } ?? [:]
+    }
+
+    func entry(for slot: String) -> AIRecommendationReuseEntry? {
+        entries[slot]
+    }
+
+    func store(_ entry: AIRecommendationReuseEntry, for slot: String) {
+        entries = AIRecommendationReusePolicy.storing(entry, for: slot, in: entries)
+        guard let data = try? JSONEncoder().encode(entries) else { return }
+        defaults.set(data, forKey: Self.storageKey)
+    }
+}
+
 enum AIRecommendationFeedback: Equatable {
     case idle
     case loading
@@ -2555,7 +2680,8 @@ final class AIRecommendationViewModel {
         minimumResults: Int = 10,
         appending: Bool = false,
         unit: AIRecommendationUnit = .songs,
-        albumCandidates: [AIRecommendationAlbumCandidate] = []
+        albumCandidates: [AIRecommendationAlbumCandidate] = [],
+        reuseSurface: AIRecommendationSurface? = nil
     ) async -> Bool {
         finishRetryCooldown()
         generation &+= 1
@@ -2601,6 +2727,10 @@ final class AIRecommendationViewModel {
             return false
         }
 
+        // 翻页追加问的是剩下的候选,不能顶替这一处的整份结果。
+        let reuseSlot = appending ? nil : reuseSurface.map {
+            AIRecommendationReusePolicy.slotKey(surface: $0, sceneSelection: scene, request: request)
+        }
         let startingSongIDs = orderedSongIDs
         let startingIDs = Set(startingSongIDs)
         let startingReasons = reasonsBySongID
@@ -2608,7 +2738,7 @@ final class AIRecommendationViewModel {
         let startingAlbumReasons = reasonsByAlbumKey
         let outcome: AIRecommendationOutcome
         if !forceRefresh,
-           let cached = intelligence.cachedRecommendationOutcome(for: request) {
+           let cached = intelligence.cachedRecommendationOutcome(for: request, reuseSlot: reuseSlot) {
             isStreaming = false
             outcome = cached
         } else {
@@ -2621,6 +2751,7 @@ final class AIRecommendationViewModel {
             outcome = await intelligence.recommendationOutcome(
                 for: request,
                 forceRefresh: forceRefresh,
+                reuseSlot: reuseSlot,
                 onStreamEvent: { [weak self] event in
                     guard let self,
                           operationGeneration == self.generation,
@@ -2905,6 +3036,38 @@ extension AIRecommendationUnit {
         case .songs: .albums
         case .albums: .mixed
         }
+    }
+}
+
+extension AIRecommendationRefreshInterval {
+    static let pickerCases: [AIRecommendationRefreshInterval] = [
+        .automatic, .realtime, .hourly, .sixHours, .daily,
+    ]
+
+    var localizedTitle: String {
+        switch self {
+        case .automatic: String(localized: "ai_recommendation_refresh_automatic")
+        case .realtime: String(localized: "ai_recommendation_refresh_realtime")
+        case .hourly: String(localized: "ai_recommendation_refresh_hourly")
+        case .sixHours: String(localized: "ai_recommendation_refresh_six_hours")
+        case .daily: String(localized: "ai_recommendation_refresh_daily")
+        }
+    }
+
+    /// 选项上的名字;「自动」带上它此刻相当于哪一档。
+    func displayTitle(automatic resolved: AIRecommendationRefreshInterval) -> String {
+        guard self == .automatic else { return localizedTitle }
+        return String(
+            format: String(localized: "ai_recommendation_refresh_automatic_format"),
+            resolved.localizedTitle
+        )
+    }
+
+    /// 电视设置里按一下换到的下一档。
+    var next: AIRecommendationRefreshInterval {
+        let cases = Self.pickerCases
+        let index = cases.firstIndex(of: self) ?? 0
+        return cases[(index + 1) % cases.count]
     }
 }
 
