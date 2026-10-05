@@ -243,24 +243,28 @@ struct PlaylistDetailView: View {
             LibrarySearchScope(title: currentPlaylist?.name ?? playlist.name, songIDs: Set(songs.map(\.id)))
         }
         #endif
-        .confirmationDialog("playlist_export_choose_format", isPresented: $showExportFormats, titleVisibility: .visible) {
-            Button { export(format: .m3u8) } label: { Text(verbatim: "M3U8") }
-            Button { export(format: .json) } label: { Text(verbatim: "Primuse JSON") }
-            Button("cancel", role: .cancel) {}
+        // 这两个确认框平时挂在工具栏的「⋯」上（见 playlistMoreToolbarItem）；
+        // 系统竖栏的溢出菜单和 Mac 头部菜单没有本页的视图可挂，才由整页弹。
+        .confirmationDialog(
+            "playlist_export_choose_format",
+            isPresented: Binding(
+                get: { !moreMenuHostsDialogs && showExportFormats },
+                set: { showExportFormats = $0 }
+            ),
+            titleVisibility: .visible
+        ) {
+            exportFormatActions
         }
         .confirmationDialog(
             String(localized: "playlist_remove_offline_confirm_title"),
             isPresented: Binding(
-                get: { pendingOfflineRemoval != nil },
+                get: { !moreMenuHostsDialogs && pendingOfflineRemoval != nil },
                 set: { if !$0 { pendingOfflineRemoval = nil } }
             ),
             titleVisibility: .visible,
             presenting: pendingOfflineRemoval
         ) { removal in
-            Button("offline_downloads_remove", role: .destructive) {
-                removal.request.perform(sourceManager: sourceManager)
-            }
-            Button("cancel", role: .cancel) {}
+            offlineRemovalActions(removal)
         } message: { removal in
             Text(verbatim: removal.message)
         }
@@ -416,7 +420,53 @@ struct PlaylistDetailView: View {
             // that require tracks already carry their own disabled state,
             // while exporting or deleting the playlist must remain usable.
             .accessibilityLabel(Text("a11y_more_actions"))
+            // 菜单里「导出」「移除离线下载」的确认框挂在这颗「⋯」上，从按钮长出来。
+            .confirmationDialog(
+                "playlist_export_choose_format",
+                isPresented: $showExportFormats,
+                titleVisibility: .visible
+            ) {
+                exportFormatActions
+            }
+            .confirmationDialog(
+                String(localized: "playlist_remove_offline_confirm_title"),
+                isPresented: Binding(
+                    get: { pendingOfflineRemoval != nil },
+                    set: { if !$0 { pendingOfflineRemoval = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: pendingOfflineRemoval
+            ) { removal in
+                offlineRemovalActions(removal)
+            } message: { removal in
+                Text(verbatim: removal.message)
+            }
         }
+    }
+
+    /// 工具栏里有自己的「⋯」时(普通 iPhone/iPad)确认框挂在它上面;
+    /// 系统竖栏(iPhone Duo)把菜单收进系统溢出菜单、Mac 用头部菜单，这两种退回整页。
+    private var moreMenuHostsDialogs: Bool {
+        #if os(iOS)
+        verticalBarEdge == nil
+        #else
+        false
+        #endif
+    }
+
+    @ViewBuilder
+    private var exportFormatActions: some View {
+        Button { export(format: .m3u8) } label: { Text(verbatim: "M3U8") }
+        Button { export(format: .json) } label: { Text(verbatim: "Primuse JSON") }
+        Button("cancel", role: .cancel) {}
+    }
+
+    @ViewBuilder
+    private func offlineRemovalActions(_ removal: PlaylistOfflineRemoval) -> some View {
+        Button("offline_downloads_remove", role: .destructive) {
+            removal.request.perform(sourceManager: sourceManager)
+        }
+        Button("cancel", role: .cancel) {}
     }
 
     /// 歌单页「⋯」菜单的内容。普通 iPhone 上是工具栏里那颗「⋯」,iPhone Duo 竖栏里并进系统溢出菜单。

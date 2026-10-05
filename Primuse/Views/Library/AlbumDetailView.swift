@@ -90,13 +90,17 @@ struct AlbumDetailView: View {
             resolve: { library.song(id: $0) }
         )
         .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
+        // 平时挂在工具栏的「⋯」上（见 iosBody）；系统竖栏的溢出菜单和 Mac 头部菜单
+        // 没有本页的视图可挂，才由整页弹。
         .confirmationDialog(
             Text("restore_file_tags"),
-            isPresented: $showsRestoreFileTagsConfirmation,
+            isPresented: Binding(
+                get: { !moreMenuHostsDialogs && showsRestoreFileTagsConfirmation },
+                set: { showsRestoreFileTagsConfirmation = $0 }
+            ),
             titleVisibility: .visible
         ) {
-            Button("restore_file_tags_confirm", role: .destructive, action: restoreFileTags)
-            Button("cancel", role: .cancel) {}
+            restoreFileTagsActions
         } message: {
             Text("restore_file_tags_message")
         }
@@ -110,6 +114,22 @@ struct AlbumDetailView: View {
         .sheet(item: $serverMediaShareTarget) { target in
             ServerMediaShareSheet(target: target)
         }
+    }
+
+    /// 工具栏里有自己的「⋯」时(普通 iPhone/iPad)确认框挂在它上面;
+    /// 系统竖栏(iPhone Duo)把菜单收进系统溢出菜单、Mac 用头部菜单，这两种退回整页。
+    private var moreMenuHostsDialogs: Bool {
+        #if os(iOS)
+        verticalBarEdge == nil
+        #else
+        false
+        #endif
+    }
+
+    @ViewBuilder
+    private var restoreFileTagsActions: some View {
+        Button("restore_file_tags_confirm", role: .destructive, action: restoreFileTags)
+        Button("cancel", role: .cancel) {}
     }
 
     /// 「关于这张专辑」的身份:只看专辑名和专辑艺人。
@@ -204,6 +224,16 @@ struct AlbumDetailView: View {
                     }
                     .accessibilityLabel(Text("a11y_more_actions"))
                     .accessibilityIdentifier("albumDetail.more")
+                    // 菜单里「恢复文件标签」的确认框挂在这颗「⋯」上，从按钮长出来。
+                    .confirmationDialog(
+                        Text("restore_file_tags"),
+                        isPresented: $showsRestoreFileTagsConfirmation,
+                        titleVisibility: .visible
+                    ) {
+                        restoreFileTagsActions
+                    } message: {
+                        Text("restore_file_tags_message")
+                    }
                 }
             }
         }

@@ -141,18 +141,18 @@ struct LyricsEditorView: View {
                 audioTranscriptionTask = nil
             }
             .sheet(isPresented: $showTimingRepair) { timingRepairSheet }
+            #if os(macOS)
+            // iOS 的这个确认挂在顶栏的「⋯」上（见 editorActionsMenu）。
             .confirmationDialog(
                 String(localized: "ai_audio_transcription_replace_title"),
                 isPresented: $showTranscriptionReplaceConfirm,
                 titleVisibility: .visible
             ) {
-                Button(String(localized: "ai_audio_transcription_replace"), role: .destructive) {
-                    startAudioTranscriptionTask()
-                }
-                Button(String(localized: "cancel"), role: .cancel) {}
+                transcriptionReplaceActions
             } message: {
                 Text(String(localized: "ai_audio_transcription_replace_message"))
             }
+            #endif
             .alert(
                 String(localized: "ai_audio_transcription_title"),
                 isPresented: Binding(
@@ -201,11 +201,6 @@ struct LyricsEditorView: View {
             }
         }
         .interactiveDismissDisabled()
-        .confirmationDialog(
-            String(localized: "lyrics_editor_unstamped_warning_title"),
-            isPresented: $showUnstampedWarning,
-            titleVisibility: .visible
-        ) { unstampedWarningActions } message: { unstampedWarningMessage }
         .sheet(isPresented: $showShiftPanel) { shiftPanel }
     }
 
@@ -224,6 +219,12 @@ struct LyricsEditorView: View {
                 editorActionsMenu
                 Button(String(localized: "done")) { requestCommit() }
                     .font(.subheadline.weight(.semibold))
+                    // 挂在「完成」上，弹框从按钮长出来而不是贴在整页边缘。
+                    .confirmationDialog(
+                        String(localized: "lyrics_editor_unstamped_warning_title"),
+                        isPresented: $showUnstampedWarning,
+                        titleVisibility: .visible
+                    ) { unstampedWarningActions } message: { unstampedWarningMessage }
             }
             .frame(minWidth: 72, alignment: .trailing)
         }
@@ -424,17 +425,6 @@ struct LyricsEditorView: View {
                     textModeStack
                 }
             }
-        }
-        .confirmationDialog(
-            String(localized: "lyrics_editor_clear_confirm_title"),
-            isPresented: $showClearConfirm,
-            titleVisibility: .visible
-        ) {
-            Button(String(localized: "lyrics_editor_clear_all"), role: .destructive) {
-                document = LyricsEditorDocument()
-                sourceText = ""
-            }
-            Button(String(localized: "cancel"), role: .cancel) {}
         }
     }
 
@@ -1407,6 +1397,35 @@ struct LyricsEditorView: View {
                 .contentShape(.rect)
         }
         .accessibilityLabel(String(localized: "lyrics_editor_more_actions"))
+        // 菜单里「听歌识词」「清空」的确认框挂在这颗「⋯」上，从按钮长出来。
+        .confirmationDialog(
+            String(localized: "ai_audio_transcription_replace_title"),
+            isPresented: $showTranscriptionReplaceConfirm,
+            titleVisibility: .visible
+        ) {
+            transcriptionReplaceActions
+        } message: {
+            Text(String(localized: "ai_audio_transcription_replace_message"))
+        }
+        .confirmationDialog(
+            String(localized: "lyrics_editor_clear_confirm_title"),
+            isPresented: $showClearConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "lyrics_editor_clear_all"), role: .destructive) {
+                document = LyricsEditorDocument()
+                sourceText = ""
+            }
+            Button(String(localized: "cancel"), role: .cancel) {}
+        }
+    }
+
+    @ViewBuilder
+    private var transcriptionReplaceActions: some View {
+        Button(String(localized: "ai_audio_transcription_replace"), role: .destructive) {
+            startAudioTranscriptionTask()
+        }
+        Button(String(localized: "cancel"), role: .cancel) {}
     }
 
     private var modeBinding: Binding<Mode> {

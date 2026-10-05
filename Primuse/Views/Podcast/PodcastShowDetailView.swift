@@ -22,7 +22,8 @@ struct PodcastShowDetailView: View {
     @State private var filter: PodcastEpisodeFilter = .all
     @State private var expandsSummary = false
     @State private var showsSettings = false
-    @State private var confirmsUnsubscribe = false
+    /// 退订确认从哪颗菜单发起:对勾和「…」都有这一项,各挂一份,只让发起的那颗弹。
+    @State private var unsubscribeOrigin: UnsubscribeOrigin?
     @State private var pushedEpisodeID: String?
     @State private var isSubscribing = false
 
@@ -134,17 +135,25 @@ struct PodcastShowDetailView: View {
                 .frame(minWidth: 420, minHeight: 460)
             #endif
         }
-        .confirmationDialog(
-            "podcast_unsubscribe_confirm_title",
-            isPresented: $confirmsUnsubscribe,
-            titleVisibility: .visible
-        ) {
-            Button("podcast_unsubscribe", role: .destructive) {
-                store.unsubscribe(show.id)
-                dismiss()
-            }
-        } message: {
-            Text("podcast_unsubscribe_confirm_message")
+    }
+
+    private enum UnsubscribeOrigin {
+        case subscribedMenu
+        case moreMenu
+    }
+
+    private func unsubscribeConfirmation(_ origin: UnsubscribeOrigin) -> Binding<Bool> {
+        Binding(
+            get: { unsubscribeOrigin == origin },
+            set: { if !$0 { unsubscribeOrigin = nil } }
+        )
+    }
+
+    @ViewBuilder
+    private func unsubscribeActions(_ show: PodcastShow) -> some View {
+        Button("podcast_unsubscribe", role: .destructive) {
+            store.unsubscribe(show.id)
+            dismiss()
         }
     }
 
@@ -270,7 +279,7 @@ struct PodcastShowDetailView: View {
                         Label("podcast_show_settings", systemImage: "slider.horizontal.3")
                     }
                     Button(role: .destructive) {
-                        confirmsUnsubscribe = true
+                        unsubscribeOrigin = .subscribedMenu
                     } label: {
                         Label("podcast_unsubscribe", systemImage: "minus.circle")
                     }
@@ -282,6 +291,16 @@ struct PodcastShowDetailView: View {
                 .menuIndicator(.hidden)
                 .accessibilityLabel(Text("podcast_subscribed"))
                 .accessibilityIdentifier("podcast.show.subscribed")
+                // 退订确认挂在发起它的菜单上，从这颗圆键长出来。
+                .confirmationDialog(
+                    "podcast_unsubscribe_confirm_title",
+                    isPresented: unsubscribeConfirmation(.subscribedMenu),
+                    titleVisibility: .visible
+                ) {
+                    unsubscribeActions(show)
+                } message: {
+                    Text("podcast_unsubscribe_confirm_message")
+                }
             } else {
                 Button {
                     isSubscribing = true
@@ -320,6 +339,15 @@ struct PodcastShowDetailView: View {
             .menuIndicator(.hidden)
             .accessibilityLabel(Text("more"))
             .accessibilityIdentifier("podcast.show.more")
+            .confirmationDialog(
+                "podcast_unsubscribe_confirm_title",
+                isPresented: unsubscribeConfirmation(.moreMenu),
+                titleVisibility: .visible
+            ) {
+                unsubscribeActions(show)
+            } message: {
+                Text("podcast_unsubscribe_confirm_message")
+            }
         }
     }
 
@@ -422,7 +450,7 @@ struct PodcastShowDetailView: View {
         if store.isSubscribed(show.id) {
             Divider()
             Button(role: .destructive) {
-                confirmsUnsubscribe = true
+                unsubscribeOrigin = .moreMenu
             } label: {
                 Label("podcast_unsubscribe", systemImage: "minus.circle")
             }

@@ -157,38 +157,27 @@ struct RadioStationsView: View {
             contentType: .m3uPlaylist,
             defaultFilename: "primuse-radio"
         ) { _ in }
+        // 平时挂在工具栏的整理菜单上（见 radioManageMenuItem）；系统竖栏里菜单收进
+        // 系统溢出菜单，没有本页的视图可挂，才由整页弹。
         .confirmationDialog(
             String(localized: "radio_manage_delete_confirm_title"),
-            isPresented: $showDeleteConfirm,
+            isPresented: Binding(
+                get: { !manageMenuHostsDialogs && showDeleteConfirm },
+                set: { showDeleteConfirm = $0 }
+            ),
             titleVisibility: .visible
         ) {
-            Button(
-                String(
-                    format: String(localized: "radio_manage_delete_count %lld"),
-                    selectedStations.count
-                ),
-                role: .destructive
-            ) {
-                deleteSelected()
-            }
-            Button("cancel", role: .cancel) {}
+            deleteSelectedActions
         } message: {
-            if selectedStations.contains(where: { $0.isSubscribed }) {
-                Text(
-                    String(localized: "radio_manage_delete_confirm_message")
-                        + "\n" + String(localized: "radio_subscription_delete_note")
-                )
-            } else {
-                Text("radio_manage_delete_confirm_message")
-            }
+            deleteSelectedMessage
         }
-        .confirmationDialog(
+        // 由惰性网格里卡片的菜单发起，逐格挂确认框不划算，用居中的 alert。
+        .alert(
             String(localized: "radio_manage_delete_confirm_title"),
             isPresented: Binding(
                 get: { subscribedStationToDelete != nil },
                 set: { if !$0 { subscribedStationToDelete = nil } }
             ),
-            titleVisibility: .visible,
             presenting: subscribedStationToDelete
         ) { station in
             Button("delete", role: .destructive) {
@@ -231,13 +220,13 @@ struct RadioStationsView: View {
             Button("cancel", role: .cancel) { namePrompt = nil }
             Button("save") { commitNamePrompt() }
         }
-        .confirmationDialog(
+        // 文件夹胶囊和网格分段标题的长按菜单都能发起，没有唯一的锚点，用居中的 alert。
+        .alert(
             String(localized: "radio_folder_delete"),
             isPresented: Binding(
                 get: { folderToDelete != nil },
                 set: { if !$0 { folderToDelete = nil } }
-            ),
-            titleVisibility: .visible
+            )
         ) {
             Button("delete", role: .destructive) {
                 guard let name = folderToDelete else { return }
@@ -251,24 +240,6 @@ struct RadioStationsView: View {
             Button("cancel", role: .cancel) { folderToDelete = nil }
         } message: {
             Text("radio_folder_delete_message")
-        }
-        .confirmationDialog(
-            String(localized: "radio_tag_delete"),
-            isPresented: Binding(
-                get: { tagToDelete != nil },
-                set: { if !$0 { tagToDelete = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("delete", role: .destructive) {
-                guard let name = tagToDelete else { return }
-                activeTags.remove(name)
-                store.deleteTag(name)
-                tagToDelete = nil
-            }
-            Button("cancel", role: .cancel) { tagToDelete = nil }
-        } message: {
-            Text("radio_tag_delete_message")
         }
     }
 
@@ -379,6 +350,24 @@ struct RadioStationsView: View {
                                     }
                                 }
                                 .contextMenu { tagChipActions(tag.name) }
+                                // 删除确认挂在长按的这枚胶囊上，从它长出来。
+                                .confirmationDialog(
+                                    String(localized: "radio_tag_delete"),
+                                    isPresented: Binding(
+                                        get: { tagToDelete == tag.name },
+                                        set: { if !$0 { tagToDelete = nil } }
+                                    ),
+                                    titleVisibility: .visible
+                                ) {
+                                    Button("delete", role: .destructive) {
+                                        activeTags.remove(tag.name)
+                                        store.deleteTag(tag.name)
+                                        tagToDelete = nil
+                                    }
+                                    Button("cancel", role: .cancel) { tagToDelete = nil }
+                                } message: {
+                                    Text("radio_tag_delete_message")
+                                }
                             }
                         }
                         .padding(.horizontal, 16)
@@ -486,6 +475,52 @@ struct RadioStationsView: View {
             } label: {
                 Label("radio_manage", systemImage: "ellipsis.circle")
             }
+            // 菜单里「删除」的确认框挂在这颗菜单上，从按钮长出来。
+            .confirmationDialog(
+                String(localized: "radio_manage_delete_confirm_title"),
+                isPresented: $showDeleteConfirm,
+                titleVisibility: .visible
+            ) {
+                deleteSelectedActions
+            } message: {
+                deleteSelectedMessage
+            }
+        }
+    }
+
+    /// 整理菜单是本页工具栏里的视图时确认框挂在它上面;系统竖栏(iPhone Duo)
+    /// 把批量操作收进系统溢出菜单，这时退回整页。
+    private var manageMenuHostsDialogs: Bool {
+        #if os(iOS)
+        verticalBarEdge == nil
+        #else
+        true
+        #endif
+    }
+
+    @ViewBuilder
+    private var deleteSelectedActions: some View {
+        Button(
+            String(
+                format: String(localized: "radio_manage_delete_count %lld"),
+                selectedStations.count
+            ),
+            role: .destructive
+        ) {
+            deleteSelected()
+        }
+        Button("cancel", role: .cancel) {}
+    }
+
+    @ViewBuilder
+    private var deleteSelectedMessage: some View {
+        if selectedStations.contains(where: { $0.isSubscribed }) {
+            Text(
+                String(localized: "radio_manage_delete_confirm_message")
+                    + "\n" + String(localized: "radio_subscription_delete_note")
+            )
+        } else {
+            Text("radio_manage_delete_confirm_message")
         }
     }
 

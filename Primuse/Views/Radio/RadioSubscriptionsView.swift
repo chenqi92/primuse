@@ -780,19 +780,6 @@ struct RadioSubscriptionDetailView: View {
         #endif
         .onAppear { nameDraft = subscription?.name ?? "" }
         .onDisappear { commitRename() }
-        .confirmationDialog(
-            String(localized: "radio_subscription_unsubscribe_title"),
-            isPresented: $showingUnsubscribe,
-            titleVisibility: .visible
-        ) {
-            Button("radio_subscription_unsubscribe_keep") { unsubscribe(keepStations: true) }
-            Button("radio_subscription_unsubscribe_remove", role: .destructive) {
-                unsubscribe(keepStations: false)
-            }
-            Button("cancel", role: .cancel) {}
-        } message: {
-            Text("radio_subscription_unsubscribe_message")
-        }
         .alert("insecure_http_warning_title", isPresented: Binding(
             get: { insecurePrompt != nil },
             set: { if !$0 { insecurePrompt = nil } }
@@ -933,6 +920,20 @@ struct RadioSubscriptionDetailView: View {
             Section {
                 Button("radio_subscription_unsubscribe", role: .destructive) {
                     showingUnsubscribe = true
+                }
+                // 挂在触发按钮上，弹框从按钮长出来而不是贴在整页边缘。
+                .confirmationDialog(
+                    String(localized: "radio_subscription_unsubscribe_title"),
+                    isPresented: $showingUnsubscribe,
+                    titleVisibility: .visible
+                ) {
+                    Button("radio_subscription_unsubscribe_keep") { unsubscribe(keepStations: true) }
+                    Button("radio_subscription_unsubscribe_remove", role: .destructive) {
+                        unsubscribe(keepStations: false)
+                    }
+                    Button("cancel", role: .cancel) {}
+                } message: {
+                    Text("radio_subscription_unsubscribe_message")
                 }
             }
         }

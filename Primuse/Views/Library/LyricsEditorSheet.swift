@@ -78,10 +78,10 @@ struct LyricsEditorSheet: View {
         } message: {
             Text(completionMessage ?? "")
         }
-        .confirmationDialog(
+        // 由编辑器的完成回调发起（可能隔着打轴提醒或修复面板），没有可挂的按钮，用居中的 alert。
+        .alert(
             String(localized: "tag_editor_lyrics_delete_confirm_title"),
-            isPresented: $pendingRemoval,
-            titleVisibility: .visible
+            isPresented: $pendingRemoval
         ) {
             Button(String(localized: "tag_editor_lyrics_delete"), role: .destructive) {
                 Task { await save(allowRemoval: true) }

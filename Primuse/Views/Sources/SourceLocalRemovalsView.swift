@@ -111,23 +111,24 @@ struct SourceLocalRemovalsView: View {
                     Button("local_removals_restore_all") {
                         showRestoreAllConfirmation = true
                     }
+                    // 挂在工具栏的按钮上，弹框从按钮长出来。
+                    .confirmationDialog(
+                        "local_removals_restore_all",
+                        isPresented: $showRestoreAllConfirmation,
+                        titleVisibility: .visible
+                    ) {
+                        Button("restore") {
+                            restore(entries.map(\.song.id))
+                        }
+                        Button("cancel", role: .cancel) {}
+                    } message: {
+                        Text(verbatim: String(
+                            format: String(localized: "local_removals_restore_all_message_format"),
+                            entries.count
+                        ))
+                    }
                 }
             }
-        }
-        .confirmationDialog(
-            "local_removals_restore_all",
-            isPresented: $showRestoreAllConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("restore") {
-                restore(entries.map(\.song.id))
-            }
-            Button("cancel", role: .cancel) {}
-        } message: {
-            Text(verbatim: String(
-                format: String(localized: "local_removals_restore_all_message_format"),
-                entries.count
-            ))
         }
         .alert(
             "local_removals_restore_failed_title",

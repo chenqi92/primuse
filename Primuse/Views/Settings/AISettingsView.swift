@@ -1299,16 +1299,6 @@ struct AISettingsView: View {
             editor.adoptStoredConsent(from: intelligence)
         }
         .task { await editor.load(using: intelligence) }
-        .confirmationDialog(
-            "ai_remove_provider_confirm",
-            isPresented: $showsRemoveProviderConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("ai_remove_provider", role: .destructive) {
-                editor.removeSelectedProvider()
-            }
-            Button("cancel", role: .cancel) {}
-        }
         .alert("ai_model_add", isPresented: $showsManualModelEntry) {
             TextField("ai_model_name_prompt", text: $manualModelDraft)
                 .textInputAutocapitalization(.never)
@@ -1843,6 +1833,17 @@ struct AISettingsView: View {
                 .disabled(index == providers.count - 1)
                 Button("ai_remove_provider", systemImage: "trash", role: .destructive) {
                     showsRemoveProviderConfirmation = true
+                }
+                // 挂在按钮上才从这一行弹出;挂在整页上,iOS 26 起会锚到页面顶部或底部。
+                .confirmationDialog(
+                    "ai_remove_provider_confirm",
+                    isPresented: $showsRemoveProviderConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("ai_remove_provider", role: .destructive) {
+                        editor.removeSelectedProvider()
+                    }
+                    Button("cancel", role: .cancel) {}
                 }
             }
         } header: {

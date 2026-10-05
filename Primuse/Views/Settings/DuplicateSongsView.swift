@@ -1272,6 +1272,35 @@ private struct DuplicateDeletionFailuresView: View {
                                 )
                             }
                             .disabled(cleaner.progress != nil)
+                            // 挂在这个源自己的按钮上，弹框从按钮长出来。
+                            .confirmationDialog(
+                                "dup_remove_local_only_title",
+                                isPresented: Binding(
+                                    get: { pendingDeviceLocalRemoval?.id == failure.id },
+                                    set: { if !$0 { pendingDeviceLocalRemoval = nil } }
+                                ),
+                                titleVisibility: .visible,
+                                presenting: pendingDeviceLocalRemoval
+                            ) { pending in
+                                Button("dup_remove_local_only_action", role: .destructive) {
+                                    do {
+                                        try cleaner.removeFromThisDeviceOnly(sourceID: pending.sourceID)
+                                    } catch {
+                                        recoveryError = error.localizedDescription
+                                    }
+                                    pendingDeviceLocalRemoval = nil
+                                    // 仍有其它源端失败时留在本表, 让剩余条目继续可见可处理。
+                                    if cleaner.lastSourceFailures.isEmpty {
+                                        dismiss()
+                                    }
+                                }
+                                Button("cancel", role: .cancel) { pendingDeviceLocalRemoval = nil }
+                            } message: { pending in
+                                Text(String(
+                                    format: String(localized: "dup_remove_local_only_message_format"),
+                                    pending.count
+                                ))
+                            }
                         }
                     }
                 }
@@ -1338,34 +1367,6 @@ private struct DuplicateDeletionFailuresView: View {
             }
         }
         #endif
-        .confirmationDialog(
-            "dup_remove_local_only_title",
-            isPresented: Binding(
-                get: { pendingDeviceLocalRemoval != nil },
-                set: { if !$0 { pendingDeviceLocalRemoval = nil } }
-            ),
-            titleVisibility: .visible,
-            presenting: pendingDeviceLocalRemoval
-        ) { pending in
-            Button("dup_remove_local_only_action", role: .destructive) {
-                do {
-                    try cleaner.removeFromThisDeviceOnly(sourceID: pending.sourceID)
-                } catch {
-                    recoveryError = error.localizedDescription
-                }
-                pendingDeviceLocalRemoval = nil
-                // 仍有其它源端失败时留在本表, 让剩余条目继续可见可处理。
-                if cleaner.lastSourceFailures.isEmpty {
-                    dismiss()
-                }
-            }
-            Button("cancel", role: .cancel) { pendingDeviceLocalRemoval = nil }
-        } message: { pending in
-            Text(String(
-                format: String(localized: "dup_remove_local_only_message_format"),
-                pending.count
-            ))
-        }
         .alert("dup_delete_result_title", isPresented: Binding(get: { recoveryError != nil && localSource == nil && recoveringSource == nil }, set: { if !$0 { recoveryError = nil } })) {
             Button("close", role: .cancel) { recoveryError = nil }
         } message: {

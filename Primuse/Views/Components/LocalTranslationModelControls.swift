@@ -40,8 +40,7 @@ struct LocalTranslationModelBadge: View {
 /// progress, retry with the failure reason, and removal.
 struct LocalTranslationModelSection: View {
     private var service: LocalLyricsTranslationService { .shared }
-    @State private var showRemoveConfirm = false
-    @State private var removalPack: LocalLyricsTranslationModel.Pack = .persian
+    @State private var pendingRemovalPack: LocalLyricsTranslationModel.Pack?
 
     var body: some View {
         ForEach(LocalLyricsTranslationModel.Pack.allCases) { pack in
@@ -56,15 +55,6 @@ struct LocalTranslationModelSection: View {
                 } footer: {
                     Text(LocalizedStringKey(pack.footerKey))
                 }
-            }
-        }
-        .confirmationDialog(
-            "lyrics_translation_local_remove_confirm",
-            isPresented: $showRemoveConfirm,
-            titleVisibility: .visible
-        ) {
-            Button("lyrics_translation_local_remove", role: .destructive) {
-                Task { await service.removeModel(removalPack) }
             }
         }
         .task { service.refreshAvailability() }
@@ -101,8 +91,20 @@ struct LocalTranslationModelSection: View {
             }
         case .ready:
             Button("lyrics_translation_local_remove", role: .destructive) {
-                removalPack = pack
-                showRemoveConfirm = true
+                pendingRemovalPack = pack
+            }
+            // 挂在各自的移除按钮上，弹框从按钮长出来。
+            .confirmationDialog(
+                "lyrics_translation_local_remove_confirm",
+                isPresented: Binding(
+                    get: { pendingRemovalPack == pack },
+                    set: { if !$0 { pendingRemovalPack = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("lyrics_translation_local_remove", role: .destructive) {
+                    Task { await service.removeModel(pack) }
+                }
             }
         case .downloading, .unsupportedSystem:
             EmptyView()

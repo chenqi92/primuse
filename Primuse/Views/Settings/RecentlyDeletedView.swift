@@ -52,27 +52,28 @@ struct RecentlyDeletedView: View {
                         .disabled(!sourcesStore.permanentDeletionInProgressIDs.isDisjoint(
                             with: purgePlan.sourceIDs
                         ))
+                        // 挂在工具栏的按钮上，弹框从按钮长出来。
+                        .confirmationDialog(
+                            "recently_deleted_clear_all_confirm_title",
+                            isPresented: $showClearAllConfirmation,
+                            titleVisibility: .visible
+                        ) {
+                            Button("clear_all", role: .destructive) {
+                                if let pendingPurgePlan {
+                                    Task { await clearAll(pendingPurgePlan) }
+                                }
+                                pendingPurgePlan = nil
+                            }
+                            Button("cancel", role: .cancel) { pendingPurgePlan = nil }
+                        } message: {
+                            Text(verbatim: String(
+                                format: String(localized: "recently_deleted_clear_all_confirm_message_format"),
+                                pendingPurgePlan?.count ?? 0
+                            ))
+                        }
                     }
                 }
             }
-        }
-        .confirmationDialog(
-            "recently_deleted_clear_all_confirm_title",
-            isPresented: $showClearAllConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("clear_all", role: .destructive) {
-                if let pendingPurgePlan {
-                    Task { await clearAll(pendingPurgePlan) }
-                }
-                pendingPurgePlan = nil
-            }
-            Button("cancel", role: .cancel) { pendingPurgePlan = nil }
-        } message: {
-            Text(verbatim: String(
-                format: String(localized: "recently_deleted_clear_all_confirm_message_format"),
-                pendingPurgePlan?.count ?? 0
-            ))
         }
         .alert(
             "recently_deleted_clear_all_failed_title",

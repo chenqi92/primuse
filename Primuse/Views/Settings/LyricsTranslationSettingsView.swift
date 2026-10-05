@@ -66,6 +66,18 @@ struct LyricsSettingsView: View {
                         Button("lyrics_translation_clear_cache", role: .destructive) {
                             showClearConfirm = true
                         }
+                        // 挂在触发按钮上，弹框从按钮长出来而不是贴在整页边缘。
+                        .confirmationDialog(
+                            "lyrics_translation_clear_confirm",
+                            isPresented: $showClearConfirm,
+                            titleVisibility: .visible
+                        ) {
+                            Button("clear_all", role: .destructive) {
+                                LyricsTranslationCache.shared.clearAll()
+                                cacheCount = 0
+                            }
+                            Button("cancel", role: .cancel) {}
+                        }
                     }
                 } header: {
                     SettingsInfoHeader("lyrics_translation_cache_section") {
@@ -114,17 +126,6 @@ struct LyricsSettingsView: View {
         }
         .task {
             await languageCatalog.refresh()
-        }
-        .confirmationDialog(
-            "lyrics_translation_clear_confirm",
-            isPresented: $showClearConfirm,
-            titleVisibility: .visible
-        ) {
-            Button("clear_all", role: .destructive) {
-                LyricsTranslationCache.shared.clearAll()
-                cacheCount = 0
-            }
-            Button("cancel", role: .cancel) {}
         }
         #if os(macOS)
         .macReadablePane(maxWidth: 720)

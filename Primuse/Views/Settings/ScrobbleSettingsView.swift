@@ -106,12 +106,15 @@ struct ScrobbleSettingsView: View {
                                     set: { if !$0 { credentialSaveError = nil } })) {
             Button("ok", role: .cancel) {}
         } message: { Text(credentialSaveError ?? "") }
+        #if os(macOS)
+        // iOS 的清空确认挂在表单里的按钮上（见 queueSection）。
         .confirmationDialog("scrobble_clear_queue_confirm", isPresented: $showClearQueueConfirm, titleVisibility: .visible) {
             Button("clear_all", role: .destructive) {
                 service.clearQueue()
             }
             Button("cancel", role: .cancel) {}
         }
+        #endif
     }
 
     private var iosBody: some View {
@@ -889,6 +892,13 @@ struct ScrobbleSettingsView: View {
                 .settingsAnchor("scrobble.retryQueue")
                 Button("scrobble_clear_queue", role: .destructive) {
                     showClearQueueConfirm = true
+                }
+                // 挂在触发按钮上，弹框从按钮长出来而不是贴在整页边缘。
+                .confirmationDialog("scrobble_clear_queue_confirm", isPresented: $showClearQueueConfirm, titleVisibility: .visible) {
+                    Button("clear_all", role: .destructive) {
+                        service.clearQueue()
+                    }
+                    Button("cancel", role: .cancel) {}
                 }
                 .settingsAnchor("scrobble.clearQueue")
             }

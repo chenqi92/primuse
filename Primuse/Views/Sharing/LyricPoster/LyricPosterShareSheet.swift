@@ -851,22 +851,23 @@ struct LyricPosterShareSheet: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .buttonBorderShape(.capsule)
+                // 挂在「分享」上，不挂整排按钮，弹框从这颗按钮长出来。
+                .confirmationDialog(
+                    Text("share"),
+                    isPresented: $isShareChoicePresented,
+                    titleVisibility: .hidden
+                ) {
+                    Button(String(localized: "lyric_poster_share_image")) {
+                        exportAndShare(motion: false)
+                    }
+                    Button(String(localized: "lyric_poster_share_video")) {
+                        exportAndShare(motion: true)
+                    }
+                    Button(String(localized: "cancel"), role: .cancel) {}
+                }
             }
             .controlSize(.large)
             .disabled(!composer.hasSelection || composer.isExporting)
-            .confirmationDialog(
-                Text("share"),
-                isPresented: $isShareChoicePresented,
-                titleVisibility: .hidden
-            ) {
-                Button(String(localized: "lyric_poster_share_image")) {
-                    exportAndShare(motion: false)
-                }
-                Button(String(localized: "lyric_poster_share_video")) {
-                    exportAndShare(motion: true)
-                }
-                Button(String(localized: "cancel"), role: .cancel) {}
-            }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)

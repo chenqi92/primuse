@@ -847,21 +847,6 @@ struct IOSAudioCacheSyncView: View {
         .onChange(of: cacheSync.peers, initial: true) { _, peers in
             updateSelection(for: peers)
         }
-        .confirmationDialog(
-            localized("cache_sync_confirm_all_title"),
-            isPresented: $showsFullSyncConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button(localized("cache_sync_sync_all")) {
-                startSync(maximumFileCount: nil)
-            }
-            Button(role: .cancel) {
-            } label: {
-                Text("cancel")
-            }
-        } message: {
-            Text(verbatim: fullSyncConfirmationMessage)
-        }
     }
 
     private var localInventorySection: some View {
@@ -1030,6 +1015,22 @@ struct IOSAudioCacheSyncView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(cacheSync.operation != .idle)
+                    // 挂在触发按钮上，弹框从按钮长出来而不是贴在整页边缘。
+                    .confirmationDialog(
+                        localized("cache_sync_confirm_all_title"),
+                        isPresented: $showsFullSyncConfirmation,
+                        titleVisibility: .visible
+                    ) {
+                        Button(localized("cache_sync_sync_all")) {
+                            startSync(maximumFileCount: nil)
+                        }
+                        Button(role: .cancel) {
+                        } label: {
+                            Text("cancel")
+                        }
+                    } message: {
+                        Text(verbatim: fullSyncConfirmationMessage)
+                    }
                 } else {
                     Label {
                         Text(verbatim: localized("cache_sync_up_to_date"))

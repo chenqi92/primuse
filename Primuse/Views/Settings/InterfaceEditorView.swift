@@ -34,20 +34,21 @@ struct HomeInterfaceEditor: View {
                         showsRestoreConfirm = true
                     }
                     .accessibilityIdentifier("interfaceEditor.home.restore")
+                    // 挂在工具栏的按钮上，弹框从按钮长出来。
+                    .confirmationDialog(
+                        "home_settings_restore_all",
+                        isPresented: $showsRestoreConfirm,
+                        titleVisibility: .visible
+                    ) {
+                        Button("home_settings_restore_all", role: .destructive) {
+                            sectionOrderRawValue = HomeSectionConfiguration.encode(
+                                HomeSectionConfiguration.defaultOrder
+                            )
+                            sectionLayoutRawValue = ""
+                        }
+                        Button("cancel", role: .cancel) {}
+                    }
                 }
-            }
-            .confirmationDialog(
-                "home_settings_restore_all",
-                isPresented: $showsRestoreConfirm,
-                titleVisibility: .visible
-            ) {
-                Button("home_settings_restore_all", role: .destructive) {
-                    sectionOrderRawValue = HomeSectionConfiguration.encode(
-                        HomeSectionConfiguration.defaultOrder
-                    )
-                    sectionLayoutRawValue = ""
-                }
-                Button("cancel", role: .cancel) {}
             }
     }
 }

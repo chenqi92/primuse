@@ -44,6 +44,9 @@ struct OfflineDownloadsView: View {
     @State private var hasLoaded = false
     @State private var selection = Set<String>()
     @State private var pendingRemoval: OfflineDownloadRemovalRequest?
+    /// 确认从哪儿发起:底栏两颗按钮各挂一份确认框,从按钮长出来;
+    /// 其余(行的左滑、长按菜单,Mac 底栏)由整页弹。
+    @State private var removalOrigin: RemovalOrigin = .page
     @State private var reloadTask: Task<Void, Never>?
     #if os(iOS)
     @State private var editMode: EditMode = .inactive
@@ -64,27 +67,29 @@ struct OfflineDownloadsView: View {
                 scheduleReload()
             }
             .onDisappear { reloadTask?.cancel() }
+            #if os(macOS)
             .confirmationDialog(
                 pendingRemoval.map(confirmationTitle) ?? "",
-                isPresented: Binding(
-                    get: { pendingRemoval != nil },
-                    set: { if !$0 { pendingRemoval = nil } }
-                ),
+                isPresented: removalPresented(from: .page),
                 titleVisibility: .visible,
                 presenting: pendingRemoval
             ) { request in
-                Button(
-                    request.playlistIDs.isEmpty
-                        ? String(localized: "offline_downloads_remove")
-                        : String(localized: "offline_downloads_owned_confirm"),
-                    role: .destructive
-                ) {
-                    perform(request)
-                }
-                Button("cancel", role: .cancel) {}
+                removalActions(request)
             } message: { request in
                 Text(verbatim: confirmationMessage(request))
             }
+            #else
+            // 行的左滑、长按菜单发起的:惰性长列表不逐行挂确认框,用居中的 alert。
+            .alert(
+                pendingRemoval.map(confirmationTitle) ?? "",
+                isPresented: removalPresented(from: .page),
+                presenting: pendingRemoval
+            ) { request in
+                removalActions(request)
+            } message: { request in
+                Text(verbatim: confirmationMessage(request))
+            }
+            #endif
             #if os(iOS)
             // 放在最外层: 工具栏里的「编辑」按钮和列表都要读到同一个编辑状态。
             .environment(\.editMode, $editMode)
@@ -191,15 +196,35 @@ struct OfflineDownloadsView: View {
         if editMode.isEditing {
             ToolbarItemGroup(placement: .bottomBar) {
                 Button("offline_downloads_remove_all", role: .destructive) {
-                    requestRemoval(items, confirmsPlainRemoval: true)
+                    requestRemoval(items, confirmsPlainRemoval: true, from: .removeAll)
+                }
+                .confirmationDialog(
+                    pendingRemoval.map(confirmationTitle) ?? "",
+                    isPresented: removalPresented(from: .removeAll),
+                    titleVisibility: .visible,
+                    presenting: pendingRemoval
+                ) { request in
+                    removalActions(request)
+                } message: { request in
+                    Text(verbatim: confirmationMessage(request))
                 }
                 Spacer()
                 Button(role: .destructive) {
-                    requestRemoval(selectedItems, confirmsPlainRemoval: true)
+                    requestRemoval(selectedItems, confirmsPlainRemoval: true, from: .removeSelected)
                 } label: {
                     Text(verbatim: removeSelectedTitle)
                 }
                 .disabled(selection.isEmpty)
+                .confirmationDialog(
+                    pendingRemoval.map(confirmationTitle) ?? "",
+                    isPresented: removalPresented(from: .removeSelected),
+                    titleVisibility: .visible,
+                    presenting: pendingRemoval
+                ) { request in
+                    removalActions(request)
+                } message: { request in
+                    Text(verbatim: confirmationMessage(request))
+                }
             }
         }
         #else
@@ -255,7 +280,8 @@ struct OfflineDownloadsView: View {
 
     private func requestRemoval(
         _ targets: [SourceManager.OfflineDownloadItem],
-        confirmsPlainRemoval: Bool
+        confirmsPlainRemoval: Bool,
+        from origin: RemovalOrigin = .page
     ) {
         guard !targets.isEmpty else { return }
         let request = OfflineDownloadRemovalRequest.make(
@@ -265,8 +291,35 @@ struct OfflineDownloadsView: View {
         if request.playlistIDs.isEmpty && !confirmsPlainRemoval {
             perform(request)
         } else {
+            removalOrigin = origin
             pendingRemoval = request
         }
+    }
+
+    private enum RemovalOrigin {
+        case page
+        case removeAll
+        case removeSelected
+    }
+
+    private func removalPresented(from origin: RemovalOrigin) -> Binding<Bool> {
+        Binding(
+            get: { pendingRemoval != nil && removalOrigin == origin },
+            set: { if !$0 { pendingRemoval = nil } }
+        )
+    }
+
+    @ViewBuilder
+    private func removalActions(_ request: OfflineDownloadRemovalRequest) -> some View {
+        Button(
+            request.playlistIDs.isEmpty
+                ? String(localized: "offline_downloads_remove")
+                : String(localized: "offline_downloads_owned_confirm"),
+            role: .destructive
+        ) {
+            perform(request)
+        }
+        Button("cancel", role: .cancel) {}
     }
 
     private func perform(_ request: OfflineDownloadRemovalRequest) {

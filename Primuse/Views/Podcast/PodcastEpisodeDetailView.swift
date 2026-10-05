@@ -400,6 +400,12 @@ struct PodcastSettingsView: View {
                     confirmsDeleteAll = true
                 }
                 .disabled(downloads.records.isEmpty)
+                // 挂在触发按钮上，弹框从按钮长出来而不是贴在整页边缘。
+                .confirmationDialog("podcast_remove_all_downloads", isPresented: $confirmsDeleteAll, titleVisibility: .visible) {
+                    Button("podcast_remove_all_downloads", role: .destructive) {
+                        downloads.deleteAll()
+                    }
+                }
             }
             Section {
                 Text("podcast_skip_interval_note")
@@ -419,11 +425,6 @@ struct PodcastSettingsView: View {
         }
         .onChange(of: deletePlayed) { _, enabled in
             if enabled { PodcastStore.shared.purgePlayedDownloads() }
-        }
-        .confirmationDialog("podcast_remove_all_downloads", isPresented: $confirmsDeleteAll, titleVisibility: .visible) {
-            Button("podcast_remove_all_downloads", role: .destructive) {
-                downloads.deleteAll()
-            }
         }
     }
 }

@@ -100,6 +100,17 @@ struct ArtistNameSettingsView: View {
                 Button("artist_name_settings_reset", role: .destructive) {
                     showsResetConfirmation = true
                 }
+                // 挂在触发按钮上，弹框从按钮长出来而不是贴在整页边缘。
+                .confirmationDialog(
+                    "artist_name_settings_reset_confirm",
+                    isPresented: $showsResetConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("artist_name_settings_reset", role: .destructive) {
+                        store.resetToDefaults()
+                    }
+                    Button("cancel", role: .cancel) {}
+                }
             }
         }
         .navigationTitle("artist_name_settings_title")
@@ -111,16 +122,6 @@ struct ArtistNameSettingsView: View {
         }
         .onChange(of: store.revision) {
             displaySeparatorDraft = store.configuration.displaySeparator
-        }
-        .confirmationDialog(
-            "artist_name_settings_reset_confirm",
-            isPresented: $showsResetConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("artist_name_settings_reset", role: .destructive) {
-                store.resetToDefaults()
-            }
-            Button("cancel", role: .cancel) {}
         }
     }
 

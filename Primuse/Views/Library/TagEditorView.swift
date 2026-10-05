@@ -156,18 +156,18 @@ struct TagEditorView: View {
         } message: {
             Text(writebackNoticeMessage ?? "")
         }
+        #if os(macOS)
+        // iOS 的这个确认挂在工具栏的「保存」上（见 legacyBody）。
         .confirmationDialog(
             String(localized: "tag_editor_lyrics_delete_confirm_title"),
             isPresented: $showLyricsDeleteConfirm,
             titleVisibility: .visible
         ) {
-            Button(String(localized: "tag_editor_lyrics_delete"), role: .destructive) {
-                Task { _ = await save(allowLyricsRemoval: true) }
-            }
-            Button(String(localized: "cancel"), role: .cancel) {}
+            lyricsDeleteConfirmActions
         } message: {
             Text(String(localized: "tag_editor_lyrics_delete_confirm_message"))
         }
+        #endif
         #if os(iOS)
         .fullScreenCover(isPresented: $showLyricsEditor) {
             embeddedLyricsEditor
@@ -187,6 +187,14 @@ struct TagEditorView: View {
                 }
             )
         }
+    }
+
+    @ViewBuilder
+    private var lyricsDeleteConfirmActions: some View {
+        Button(String(localized: "tag_editor_lyrics_delete"), role: .destructive) {
+            Task { _ = await save(allowLyricsRemoval: true) }
+        }
+        Button(String(localized: "cancel"), role: .cancel) {}
     }
 
     private var embeddedLyricsEditor: some View {
@@ -265,15 +273,17 @@ struct TagEditorView: View {
                         }
                     }
                     .disabled(!canSubmitChanges)
+                    // 保存时要清空歌词的确认挂在「保存」上，从按钮长出来。
+                    .confirmationDialog(
+                        String(localized: "tag_editor_lyrics_delete_confirm_title"),
+                        isPresented: $showLyricsDeleteConfirm,
+                        titleVisibility: .visible
+                    ) {
+                        lyricsDeleteConfirmActions
+                    } message: {
+                        Text(String(localized: "tag_editor_lyrics_delete_confirm_message"))
+                    }
                 }
-            }
-            .confirmationDialog(
-                String(localized: "tag_editor_reset_confirm"),
-                isPresented: $showResetConfirm,
-                titleVisibility: .visible
-            ) {
-                Button(String(localized: "tag_editor_reset"), role: .destructive) { resetFromOriginal() }
-                Button(String(localized: "cancel"), role: .cancel) {}
             }
             .onChange(of: coverPickerItem) { _, newItem in
                 Task { await loadPickedCover(newItem) }
@@ -706,6 +716,15 @@ struct TagEditorView: View {
             .buttonStyle(.plain)
             .foregroundStyle(.red)
             .disabled(!hasChanges || isSaving)
+            // 挂在触发按钮上，弹框从按钮长出来而不是贴在整页边缘。
+            .confirmationDialog(
+                String(localized: "tag_editor_reset_confirm"),
+                isPresented: $showResetConfirm,
+                titleVisibility: .visible
+            ) {
+                Button(String(localized: "tag_editor_reset"), role: .destructive) { resetFromOriginal() }
+                Button(String(localized: "cancel"), role: .cancel) {}
+            }
         }
         .padding(.top, 4)
     }

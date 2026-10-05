@@ -2724,7 +2724,9 @@ struct NowPlayingView: View {
             isPresented: $showEqualizerBypassNotice,
             playbackSettings: playbackSettings
         )
-        .confirmationDialog(String(localized: "sleep_timer"), isPresented: $showSleepTimer) {
+        // 发起处散在电台底栏、有声的「定时」块和各个版式的更多菜单里，挂在整页上会贴着页边弹，
+        // 用居中的 alert。
+        .alert(String(localized: "sleep_timer"), isPresented: $showSleepTimer) {
             // 三种收听各有各的「到哪儿停」:电台只有分钟数,有声多出本章、本集、整本。
             ForEach(sleepTimerOptions, id: \.self) { option in
                 sleepTimerOptionButton(option)

@@ -391,23 +391,6 @@ struct ListeningMoodCard: View {
         .recapPanel()
         .pmAnimation(.contentAppear, value: reading)
         .task(id: signals) { refresh(force: false) }
-        .confirmationDialog(
-            "stats_recap_mood_consent_title",
-            isPresented: $showsConsent,
-            titleVisibility: .visible
-        ) {
-            Button("stats_recap_mood_consent_confirm") {
-                do {
-                    try intelligence.grantListeningMoodConsent()
-                    refresh(force: true)
-                } catch {
-                    plog("🎧 Listening mood: could not save consent: \(error.localizedDescription)")
-                }
-            }
-            Button("cancel", role: .cancel) {}
-        } message: {
-            Text("stats_recap_mood_consent_message")
-        }
     }
 
     @ViewBuilder
@@ -436,6 +419,24 @@ struct ListeningMoodCard: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.tint)
                     .fontWeight(.semibold)
+                    // 挂在触发按钮上，弹框从按钮长出来而不是贴在卡片边缘。
+                    .confirmationDialog(
+                        "stats_recap_mood_consent_title",
+                        isPresented: $showsConsent,
+                        titleVisibility: .visible
+                    ) {
+                        Button("stats_recap_mood_consent_confirm") {
+                            do {
+                                try intelligence.grantListeningMoodConsent()
+                                refresh(force: true)
+                            } catch {
+                                plog("🎧 Listening mood: could not save consent: \(error.localizedDescription)")
+                            }
+                        }
+                        Button("cancel", role: .cancel) {}
+                    } message: {
+                        Text("stats_recap_mood_consent_message")
+                    }
                 } else if intelligence.isListeningMoodAvailable,
                           signals.plays >= ListeningMoodRefreshPolicy.minimumPlays,
                           store.nextManualRefresh() == nil {

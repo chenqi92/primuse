@@ -79,16 +79,6 @@ struct RadioStationDetailView: View {
                 store.setFolder(name, forStationIDs: [stationID])
             }
         }
-        .confirmationDialog(
-            String(localized: "radio_detail_heard_clear_title"),
-            isPresented: $showsClearHistoryConfirm,
-            titleVisibility: .visible
-        ) {
-            Button("clear", role: .destructive) {
-                RadioTitleHistoryStore.shared.clear(stationID: stationID)
-            }
-            Button("cancel", role: .cancel) {}
-        }
     }
 
     // MARK: - 内容
@@ -382,6 +372,17 @@ struct RadioStationDetailView: View {
                         .font(.subheadline)
                         .buttonStyle(.plain)
                         .foregroundStyle(RadioSpacePalette.accent)
+                        // 挂在触发按钮上，弹框从按钮长出来而不是贴在整页边缘。
+                        .confirmationDialog(
+                            String(localized: "radio_detail_heard_clear_title"),
+                            isPresented: $showsClearHistoryConfirm,
+                            titleVisibility: .visible
+                        ) {
+                            Button("clear", role: .destructive) {
+                                RadioTitleHistoryStore.shared.clear(stationID: stationID)
+                            }
+                            Button("cancel", role: .cancel) {}
+                        }
                 }
             }
 
