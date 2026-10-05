@@ -1210,6 +1210,14 @@ struct ContentView: View {
         .onContinueUserActivity("com.welape.yuanyin.nowplaying") { activity in
             library.onReady { handleHandoffActivity(activity) }
         }
+        // 主屏幕快捷菜单的「搜索」。请求先记在快捷菜单那边,这里接手:冷启动时同样
+        // 只有外层挂着,切页和弹键盘的状态留到搜索页出来再用。
+        .onChange(of: HomeScreenQuickActionCenter.shared.pendingSearch, initial: true) { _, pending in
+            guard pending else { return }
+            HomeScreenQuickActionCenter.shared.consumeSearchRequest()
+            searchFieldActivationRequested = true
+            selectMinimalPage(.search)
+        }
     }
 
     private var mainContent: some View {

@@ -62,6 +62,40 @@ final class PrimuseAppDelegate: NSObject, UIApplicationDelegate {
         }
     }
 
+    /// 主窗口场景挂上 `PrimuseWindowSceneDelegate` 接主屏幕快捷菜单;冷启动时点的那一项
+    /// 跟着连接选项一起到,在这里交出去。CarPlay、外接屏等其它角色照 Info.plist 里登记的
+    /// 配置走。
+    func application(
+        _ application: UIApplication,
+        configurationForConnecting connectingSceneSession: UISceneSession,
+        options: UIScene.ConnectionOptions
+    ) -> UISceneConfiguration {
+        let role = connectingSceneSession.role
+        guard role == .windowApplication else {
+            return UISceneConfiguration(name: Self.manifestConfigurationName(for: role), sessionRole: role)
+        }
+        if let shortcutItem = options.shortcutItem {
+            HomeScreenQuickActionCenter.shared.handle(shortcutItem)
+        }
+        #if DEBUG
+        // 模拟器上没法长按图标,按冷启动的同一条路把动作交出去(值为 HomeScreenQuickAction 的 rawValue)。
+        if let type = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_QUICK_ACTION"] {
+            HomeScreenQuickActionCenter.shared.handle(UIApplicationShortcutItem(type: type, localizedTitle: type))
+        }
+        #endif
+        let configuration = UISceneConfiguration(name: nil, sessionRole: role)
+        configuration.delegateClass = PrimuseWindowSceneDelegate.self
+        return configuration
+    }
+
+    /// Info.plist 场景清单里给这个角色登记的第一份配置的名字。
+    static func manifestConfigurationName(for role: UISceneSession.Role) -> String? {
+        let manifest = Bundle.main.object(forInfoDictionaryKey: "UIApplicationSceneManifest") as? [String: Any]
+        let configurations = manifest?["UISceneConfigurations"] as? [String: Any]
+        let entries = configurations?[role.rawValue] as? [[String: Any]]
+        return entries?.first?["UISceneConfigurationName"] as? String
+    }
+
     // Routes Siri voice intents (INPlayMediaIntent etc.) directly into the app.
     // iOS 14+ can launch a media app in the background for this path, so a
     // separate Intents Extension isn't required.
@@ -1915,6 +1949,8 @@ struct PrimuseApp: App {
                         radioStationsStore.flushPendingPersist()
                         RadioTitleHistoryStore.shared.flush()
                         #if os(iOS)
+                        // 主屏幕快捷菜单按现在的状态重新登记(「继续播放」写着这首歌)。
+                        HomeScreenQuickActionCenter.shared.publishShortcutItems()
                         // Only iOS suspends the process, and it can do so while
                         // a cancelled scan task is still unwinding — so from
                         // here coalesced counters write straight through. Set
