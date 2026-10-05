@@ -232,7 +232,8 @@ public enum ListeningRecapBuilder {
         totals.plays = scoped.count
         totals.seconds = scoped.reduce(0) { $0 + $1.seconds }
         totals.uniqueSongs = Set(scoped.map(\.songID)).count
-        totals.uniqueArtists = Set(scoped.compactMap { normalizedKey($0.artist) }).count
+        var artistKeys = ArtistKeyMemo()
+        totals.uniqueArtists = Set(scoped.compactMap { artistKeys.key($0.artist) }).count
         totals.uniqueAlbums = Set(scoped.compactMap { event -> String? in
             normalizedKey(event.album).map { $0 + "\u{1F}" + (normalizedKey(event.artist) ?? "") }
         }).count
@@ -275,7 +276,7 @@ public enum ListeningRecapBuilder {
         // 艺人集中度
         var artistPlays: [String: Int] = [:]
         for event in scoped {
-            guard let key = normalizedKey(event.artist) else { continue }
+            guard let key = artistKeys.key(event.artist) else { continue }
             artistPlays[key, default: 0] += 1
         }
         let artistTotal = artistPlays.values.reduce(0, +)
@@ -404,5 +405,17 @@ public enum ListeningRecapBuilder {
     private static func normalizedKey(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// 算作一位艺人的键;「群星」这类占位署名不算。同一个名字出现很多次,判一次就记下。
+    private struct ArtistKeyMemo {
+        private var keys: [String: String?] = [:]
+
+        mutating func key(_ value: String) -> String? {
+            if let known = keys[value] { return known }
+            let key = ListeningRecapBuilder.normalizedKey(value).flatMap { PlaceholderArtistPolicy.isPlaceholder($0) ? nil : $0 }
+            keys[value] = .some(key)
+            return key
+        }
     }
 }

@@ -234,6 +234,8 @@ public enum HomeListeningRanking {
         category: HomeListeningCategory, interval: DateInterval, includesEnd: Bool
     ) -> [HomeListeningRank] {
         var groups: [GroupKey: Accumulator] = [:]
+        // 同一个名字会出现成百上千次,判一次就记下。
+        var placeholderArtists: [String: Bool] = [:]
         for event in events {
             guard event.playedAt >= interval.start,
                   includesEnd ? event.playedAt <= interval.end : event.playedAt < interval.end else { continue }
@@ -251,6 +253,9 @@ public enum HomeListeningRanking {
                 subtitle = artist
             case .artists:
                 guard !artist.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+                let isPlaceholder = placeholderArtists[artist] ?? PlaceholderArtistPolicy.isPlaceholder(artist)
+                placeholderArtists[artist] = isPlaceholder
+                guard !isPlaceholder else { continue }
                 components = [artist]
                 title = artist
                 subtitle = ""

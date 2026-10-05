@@ -103,7 +103,7 @@ public struct ListeningMoodSignals: Sendable, Equatable {
             let song = songPlays[event.songID]
             songPlays[event.songID] = ((song?.count ?? 0) + 1, event.title, event.artist, event.playedAt)
             let artist = event.artist.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !artist.isEmpty else { continue }
+            guard !artist.isEmpty, !PlaceholderArtistPolicy.isPlaceholder(artist) else { continue }
             let key = artist.lowercased()
             artistPlays[key] = ((artistPlays[key]?.count ?? 0) + 1, artistPlays[key]?.name ?? artist)
         }

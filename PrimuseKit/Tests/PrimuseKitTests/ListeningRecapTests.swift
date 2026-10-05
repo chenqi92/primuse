@@ -58,6 +58,27 @@ struct ListeningRecapTests {
         #expect(recap.personality == nil)
     }
 
+    @Test func compilationCreditsDoNotCountAsArtists() {
+        let events = [
+            Self.event("a", artist: "群星", album: "Hits", at: Self.date(2026, 10, 2, 9)),
+            Self.event("a", artist: "群星", album: "Hits", at: Self.date(2026, 10, 2, 10)),
+            Self.event("a", artist: "群星", album: "Hits", at: Self.date(2026, 10, 2, 11)),
+            Self.event("b", artist: "Various Artists", album: "Mix", at: Self.date(2026, 10, 3, 9)),
+            Self.event("c", artist: "Faye", album: "Eyes", at: Self.date(2026, 10, 4, 9)),
+        ]
+        let recap = ListeningRecapBuilder.build(
+            events: events,
+            interval: Self.october(),
+            previousInterval: nil,
+            traits: [:],
+            calendar: Self.calendar,
+            referenceYear: 2026
+        )
+        #expect(recap.totals.uniqueArtists == 1)
+        #expect(recap.totals.uniqueAlbums == 3)
+        #expect(recap.topFiveArtistShare == 1)
+    }
+
     @Test func emptyIntervalStillReportsThePreviousPeriod() {
         let recap = ListeningRecapBuilder.build(
             events: [Self.event("a", at: Self.date(2026, 9, 3))],

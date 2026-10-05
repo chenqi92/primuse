@@ -32,3 +32,23 @@ struct ArtistLinkResolutionPolicyTests {
         #expect(ArtistLinkResolutionPolicy.fallbackPieces(of: "A x B × C, D & E") == ["A", "B", "C", "D", "E"])
     }
 }
+
+@Suite("Placeholder artist credits")
+struct PlaceholderArtistPolicyTests {
+    @Test("Compilation and unknown credits are not an artist")
+    func placeholdersAreRecognised() {
+        for name in [
+            "群星", " 羣星 ", "华语群星", "欧美群星", "Various Artists", "VARIOUS  ARTISTS", "V.A.", "va",
+            "ＶＡＲＩＯＵＳ ＡＲＴＩＳＴＳ", "Unknown Artist", "未知艺术家", "多位藝人", "Varios Artistas", "Разные исполнители",
+        ] {
+            #expect(PlaceholderArtistPolicy.isPlaceholder(name), "\(name)")
+        }
+    }
+
+    @Test("Real artists are kept, including names that merely contain the words")
+    func realArtistsAreKept() {
+        for name in ["周杰伦", "群星闪耀合唱团", "Various Cruelties", "Vanessa", "VAST", "Unknown Mortal Orchestra", "王菲", "", "  "] {
+            #expect(!PlaceholderArtistPolicy.isPlaceholder(name), "\(name)")
+        }
+    }
+}

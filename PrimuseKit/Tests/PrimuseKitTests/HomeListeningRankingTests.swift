@@ -22,6 +22,20 @@ struct HomeListeningRankingTests {
         HomeListeningEvent(songID: song, playedAt: date(day, month: month), listenedSeconds: seconds)
     }
 
+    @Test func artistRankingSkipsCompilationCredits() {
+        let songs = [
+            "a": song("a", artist: "群星"), "b": song("b", artist: "Various Artists"),
+            "c": song("c", artist: "王菲"), "d": song("d", artist: "华语群星"),
+        ]
+        let events = [event("a", day: 1), event("a", day: 2), event("a", day: 3), event("b", day: 3),
+                      event("d", day: 4), event("c", day: 4)]
+        let ranks = HomeListeningRanking.ranks(events: events, songs: songs, folders: nil, period: .all, category: .artists, now: date(5), calendar: calendar)
+        #expect(ranks.map(\.title) == ["王菲"])
+        // 专辑榜照常列合辑,副标题还是原来的署名。
+        let albums = HomeListeningRanking.ranks(events: events, songs: songs, folders: nil, period: .all, category: .albums, now: date(5), calendar: calendar)
+        #expect(albums.first?.subtitle == "群星")
+    }
+
     @Test func periodsUseCalendarBoundariesAndExcludeFutureEvents() {
         let events = [event("a", day: 30, month: 8), event("a", day: 31, month: 8), event("a", day: 1), event("a", day: 6)]
         let songs = ["a": song("a")]
