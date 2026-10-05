@@ -4713,6 +4713,7 @@
 "karaoke_loop_lines_format" = "Zapętlone wersy: %d";
 "karaoke_loop_extend" = "Dodaj wers";
 "karaoke_practice_not_scored" = "Tryb ćwiczeń: bez oceniania i nagrywania.";
+"karaoke_ai_model_incomplete" = "Model AI jest niekompletny. Stuknij „Ponów”, aby pobrać go ponownie.";
 
 /* Listening spaces: music, radio and spoken word */
 "listening_space_music" = "Muzyka";

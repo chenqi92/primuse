@@ -4713,6 +4713,7 @@
 "karaoke_loop_lines_format" = "Повтор строк: %d";
 "karaoke_loop_extend" = "Добавить строку";
 "karaoke_practice_not_scored" = "Режим практики: без оценки и записи.";
+"karaoke_ai_model_incomplete" = "Модель ИИ повреждена. Нажмите «Повторить», чтобы загрузить её снова.";
 
 /* Listening spaces: music, radio and spoken word */
 "listening_space_music" = "Музыка";

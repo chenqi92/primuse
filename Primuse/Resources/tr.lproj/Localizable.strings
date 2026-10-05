@@ -4713,6 +4713,7 @@
 "karaoke_loop_lines_format" = "%d satır döngüde";
 "karaoke_loop_extend" = "Satır ekle";
 "karaoke_practice_not_scored" = "Alıştırmada puanlama ve kayıt yapılmaz.";
+"karaoke_ai_model_incomplete" = "Yapay zekâ modeli eksik. Yeniden indirmek için “Yeniden dene”ye dokunun.";
 
 /* Listening spaces: music, radio and spoken word */
 "listening_space_music" = "Müzik";

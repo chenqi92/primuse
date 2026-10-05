@@ -17,9 +17,8 @@ enum KaraokeVocalModel {
     static let assetPackID = "KaraokeVocalModel"
     /// Compiled model directory inside the pack.
     static let modelDirectory = "HTDemucsVocals.mlmodelc"
-    /// A file that is always inside the compiled model, used to locate it:
-    /// the pack API resolves files, not directories.
-    static let anchorFile = "HTDemucsVocals.mlmodelc/coremldata.bin"
+    /// What Core ML reads first from a compiled ML program.
+    static let requiredModelFiles = ["coremldata.bin", "model.mil"]
     /// Separated stems are cached per model build; bump when the model changes.
     static let cacheVersion = "htdemucs4-fp16-v1"
     /// Shown before the download: the compressed pack is about 80 MB.
@@ -43,25 +42,52 @@ enum KaraokeVocalModel {
         return false
     }
 
-    /// The model if it is already on this device.
-    static func localModelURL() -> URL? {
+    /// Whether the pack is on this device.
+    static func isAvailableLocally() -> Bool {
+        #if DEBUG
+        if debugOverrideURL != nil { return true }
+        #endif
+        #if canImport(BackgroundAssets)
+        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *), BackgroundAssetsPrerequisites.isSatisfied {
+            return AssetPackManager.shared.assetPackIsAvailableLocally(withID: assetPackID)
+        }
+        #endif
+        return false
+    }
+
+    /// The compiled model on this device. The pack API is asked for the
+    /// model directory itself: only a requested directory is merged whole,
+    /// and the parent of one file inside the model need not hold the rest.
+    /// Core ML then finds `coremldata.bin` but no `model.mil` and fails with
+    /// "Error in reading the MIL network". Merging takes a moment, so this
+    /// never runs on the main thread.
+    static func resolveModelURL() throws -> URL {
         #if DEBUG
         if let url = debugOverrideURL { return url }
         #endif
         #if canImport(BackgroundAssets)
         if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *),
            BackgroundAssetsPrerequisites.isSatisfied,
-           AssetPackManager.shared.assetPackIsAvailableLocally(withID: assetPackID),
-           let anchor = try? AssetPackManager.shared.url(for: FilePath(anchorFile)) {
-            return anchor.deletingLastPathComponent()
+           AssetPackManager.shared.assetPackIsAvailableLocally(withID: assetPackID) {
+            let url = try AssetPackManager.shared.url(for: FilePath(modelDirectory))
+            let fileManager = FileManager.default
+            let missing = requiredModelFiles.filter {
+                !fileManager.fileExists(atPath: url.appendingPathComponent($0).path)
+            }
+            guard missing.isEmpty else {
+                let contents = (try? fileManager.contentsOfDirectory(atPath: url.path)) ?? []
+                plog("⚠️ Karaoke: vocal model incomplete missing=\(missing) contents=\(contents.sorted())")
+                throw KaraokeSeparationError.modelIncomplete
+            }
+            return url
         }
         #endif
-        return nil
+        throw KaraokeSeparationError.modelUnavailable
     }
 
     /// Downloads the pack if needed; `progress` receives 0...1.
-    static func download(progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
-        if let url = localModelURL() { return url }
+    static func download(progress: @escaping @Sendable (Double) -> Void) async throws {
+        if isAvailableLocally() { return }
         #if canImport(BackgroundAssets)
         if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *), BackgroundAssetsPrerequisites.isSatisfied {
             let manager = AssetPackManager.shared
@@ -75,7 +101,7 @@ enum KaraokeVocalModel {
             }
             defer { watcher.cancel() }
             try await manager.ensureLocalAvailability(of: pack, requireLatestVersion: false)
-            if let url = localModelURL() { return url }
+            if isAvailableLocally() { return }
         }
         #endif
         throw KaraokeSeparationError.modelUnavailable
@@ -90,10 +116,19 @@ enum KaraokeVocalModel {
     }
 }
 
-enum KaraokeSeparationError: Error {
+enum KaraokeSeparationError: LocalizedError {
     case modelUnavailable
+    /// The pack is on the device but the compiled model in it is not whole.
+    case modelIncomplete
     case unreadableAudio
     case tooLong
+
+    var errorDescription: String? {
+        switch self {
+        case .modelIncomplete: String(localized: "karaoke_ai_model_incomplete")
+        case .modelUnavailable, .unreadableAudio, .tooLong: nil
+        }
+    }
 }
 
 /// A borrowed source file or a download owned solely by this separation job.
@@ -150,6 +185,9 @@ final class KaraokeSeparationService {
     /// Why a song's last separation failed, shown next to its retry button.
     private(set) var songFailureReasons: [String: String] = [:]
     @ObservationIgnored private var separator: KaraokeVocalSeparator?
+    /// The pack on this device is missing part of the model: the next
+    /// download removes it first instead of finding it "already there".
+    @ObservationIgnored private var replacesModelOnDownload = false
     @ObservationIgnored private var jobs: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var downloadTask: Task<Void, Never>?
     @ObservationIgnored private var onsetCache: [String: [KaraokeOnset]] = [:]
@@ -163,7 +201,7 @@ final class KaraokeSeparationService {
         if !KaraokeVocalModel.isSystemSupported {
             modelState = .unsupportedSystem
         } else {
-            modelState = KaraokeVocalModel.localModelURL() == nil ? .notDownloaded : .ready
+            modelState = KaraokeVocalModel.isAvailableLocally() ? .ready : .notDownloaded
         }
     }
 
@@ -176,7 +214,12 @@ final class KaraokeSeparationService {
         // The service lives for the whole process, so strong captures are fine.
         downloadTask = Task { @MainActor in
             do {
-                _ = try await KaraokeVocalModel.download { fraction in
+                if self.replacesModelOnDownload {
+                    self.separator = nil
+                    await KaraokeVocalModel.remove()
+                    self.replacesModelOnDownload = false
+                }
+                try await KaraokeVocalModel.download { fraction in
                     Task { @MainActor in
                         guard case .downloading = self.modelState else { return }
                         self.modelState = .downloading(fraction)
@@ -272,6 +315,14 @@ final class KaraokeSeparationService {
                 self.songStates[song.id] = .unsupported
             } catch KaraokeSeparationError.tooLong {
                 self.songStates[song.id] = .unsupported
+            } catch KaraokeSeparationError.modelIncomplete {
+                // No song can be separated until the model is downloaded
+                // again; the retry button does that, and this song starts
+                // over once it is back.
+                self.songStates[song.id] = nil
+                self.replacesModelOnDownload = true
+                self.modelFailureReason = KaraokeSeparationError.modelIncomplete.localizedDescription
+                self.modelState = .failed
             } catch is CancellationError {
                 self.songStates[song.id] = nil
             } catch {
@@ -407,13 +458,12 @@ final class KaraokeSeparationService {
 
     // MARK: Work
 
-    /// Compiling and loading the model takes a second or two; never on the
-    /// main thread.
+    /// Locating, compiling and loading the model takes a second or two;
+    /// never on the main thread.
     private func loadSeparator() async throws -> KaraokeVocalSeparator {
         if let separator { return separator }
-        guard let url = KaraokeVocalModel.localModelURL() else { throw KaraokeSeparationError.modelUnavailable }
         let created = try await Task.detached(priority: .userInitiated) {
-            try KaraokeVocalSeparator(modelURL: url)
+            try KaraokeVocalSeparator(modelURL: KaraokeVocalModel.resolveModelURL())
         }.value
         separator = created
         return created

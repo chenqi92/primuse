@@ -4713,6 +4713,7 @@
 "karaoke_loop_lines_format" = "กำลังวน %d ท่อน";
 "karaoke_loop_extend" = "เพิ่มหนึ่งท่อน";
 "karaoke_practice_not_scored" = "ระหว่างฝึกจะไม่ให้คะแนนและไม่บันทึกเสียง";
+"karaoke_ai_model_incomplete" = "โมเดล AI ไม่สมบูรณ์ แตะ “ลองอีกครั้ง” เพื่อดาวน์โหลดใหม่";
 
 /* Listening spaces: music, radio and spoken word */
 "listening_space_music" = "เพลง";

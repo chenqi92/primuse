@@ -4807,6 +4807,7 @@
 "karaoke_loop_lines_format" = "%d lignes en boucle";
 "karaoke_loop_extend" = "Ajouter une ligne";
 "karaoke_practice_not_scored" = "En entraînement : pas de score ni d’enregistrement.";
+"karaoke_ai_model_incomplete" = "Le modèle IA est incomplet. Touchez « Réessayer » pour le télécharger à nouveau.";
 
 /* Listening spaces: music, radio and spoken word */
 "listening_space_music" = "Musique";

@@ -4807,6 +4807,7 @@
 "karaoke_loop_lines_format" = "%d Zeilen in Schleife";
 "karaoke_loop_extend" = "Zeile hinzufügen";
 "karaoke_practice_not_scored" = "Beim Üben wird nicht bewertet oder aufgenommen.";
+"karaoke_ai_model_incomplete" = "Das KI-Modell ist unvollständig. Tippe auf „Erneut versuchen“, um es neu zu laden.";
 
 /* Listening spaces: music, radio and spoken word */
 "listening_space_music" = "Musik";

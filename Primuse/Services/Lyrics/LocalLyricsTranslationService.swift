@@ -57,11 +57,15 @@ enum LocalLyricsTranslationModel {
     struct Located: Sendable {
         let manifest: LocalLyricTranslationManifest
         fileprivate let files: [String: URL]
+        fileprivate let pack: Pack
 
+        /// The compiled model directory, asked of the pack API as a directory:
+        /// only a requested directory is merged whole, and the parent of the
+        /// anchor file need not hold the rest of the model. Not on the main
+        /// thread.
         func modelURL(for direction: LocalLyricTranslationPolicy.Direction) -> URL? {
             guard let entry = manifest.entry(for: direction) else { return nil }
-            return files["\(entry.model)/\(LocalLyricTranslationManifest.compiledModelAnchor)"]?
-                .deletingLastPathComponent()
+            return LocalLyricsTranslationModel.fileURL(entry.model, pack: pack)
         }
 
         func vocabularyURL(for direction: LocalLyricTranslationPolicy.Direction) -> URL? {
@@ -91,7 +95,7 @@ enum LocalLyricsTranslationModel {
             }
             files[path] = url
         }
-        return Located(manifest: manifest, files: files)
+        return Located(manifest: manifest, files: files, pack: pack)
     }
 
     private static func fileURL(_ path: String, pack: Pack) -> URL? {

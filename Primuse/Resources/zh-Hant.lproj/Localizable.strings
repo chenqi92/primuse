@@ -4784,6 +4784,7 @@
 "karaoke_loop_lines_format" = "循環 %d 句";
 "karaoke_loop_extend" = "加一句";
 "karaoke_practice_not_scored" = "練習中不計分、不錄音。";
+"karaoke_ai_model_incomplete" = "AI 模型檔案不完整，點「重試」重新下載。";
 
 /* Listening spaces: music, radio and spoken word */
 "listening_space_music" = "音樂";

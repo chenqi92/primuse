@@ -4808,6 +4808,7 @@
 "karaoke_loop_lines_format" = "%d 行をループ中";
 "karaoke_loop_extend" = "1 行追加";
 "karaoke_practice_not_scored" = "練習中は採点・録音しません。";
+"karaoke_ai_model_incomplete" = "AIモデルが不完全です。「再試行」でもう一度ダウンロードします。";
 
 /* Listening spaces: music, radio and spoken word */
 "listening_space_music" = "ミュージック";

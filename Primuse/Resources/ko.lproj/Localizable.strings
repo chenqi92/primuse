@@ -4807,6 +4807,7 @@
 "karaoke_loop_lines_format" = "%d소절 반복 중";
 "karaoke_loop_extend" = "한 소절 추가";
 "karaoke_practice_not_scored" = "연습 중에는 채점·녹음하지 않습니다.";
+"karaoke_ai_model_incomplete" = "AI 모델 파일이 불완전합니다. ‘다시 시도’를 눌러 다시 다운로드하세요.";
 
 /* Listening spaces: music, radio and spoken word */
 "listening_space_music" = "음악";
