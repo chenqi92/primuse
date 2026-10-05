@@ -405,8 +405,12 @@ struct TVSpokenWordBookDetailView: View {
                     LazyVStack(alignment: .leading, spacing: 10) {
                         TVEyebrow(text: String(localized: "tv_spoken_word_chapters"))
                             .padding(.bottom, 6)
-                        ForEach(Array(book.items.enumerated()), id: \.element.id) { index, item in
-                            chapterRow(item, index: index, isResume: item.id == book.resumeItemID) {
+                        // 一本书可能拆成上千个文件:分页渲染,焦点走到末尾附近再续。
+                        TVPagedList(book.items, id: \.id, alignment: .leading, spacing: 10) { index, item, focusChanged in
+                            chapterRow(
+                                item, index: index, isResume: item.id == book.resumeItemID,
+                                onFocusChanged: focusChanged
+                            ) {
                                 play(book, from: item.id)
                             }
                         }
@@ -429,9 +433,13 @@ struct TVSpokenWordBookDetailView: View {
         _ item: SpokenWordBookItem,
         index: Int,
         isResume: Bool,
+        onFocusChanged: @escaping (Bool) -> Void,
         action: @escaping () -> Void
     ) -> some View {
-        TVFocusButton(radius: 16, scale: 1.02, lift: 0, ring: false, action: action) { focused in
+        TVFocusButton(
+            radius: 16, scale: 1.02, lift: 0, ring: false,
+            action: action, onFocusChanged: onFocusChanged
+        ) { focused in
             HStack(spacing: 22) {
                 Text(verbatim: "\(index + 1)")
                     .tvFont(.caption, design: .monospaced)

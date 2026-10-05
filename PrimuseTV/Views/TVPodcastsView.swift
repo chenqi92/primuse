@@ -1064,8 +1064,9 @@ struct TVPodcastShowDetailView: View {
                             .tvFont(.body)
                             .foregroundStyle(TVColor.textFaint)
                     }
-                    ForEach(ordered) { episode in
-                        episodeRow(episode, show: show, all: all)
+                    // 一档节目可能有上千集:分页渲染,焦点走到末尾附近再续。
+                    TVPagedList(ordered, alignment: .leading, spacing: 10) { _, episode, focusChanged in
+                        episodeRow(episode, show: show, all: all, onFocusChanged: focusChanged)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -1141,10 +1142,18 @@ struct TVPodcastShowDetailView: View {
         return String(localized: show.isSerial ? "podcast_play_from_start" : "podcast_play_latest")
     }
 
-    private func episodeRow(_ episode: PodcastEpisode, show: PodcastShow, all: [PodcastEpisode]) -> some View {
+    private func episodeRow(
+        _ episode: PodcastEpisode,
+        show: PodcastShow,
+        all: [PodcastEpisode],
+        onFocusChanged: @escaping (Bool) -> Void
+    ) -> some View {
         let state = podcasts.state(for: episode)
         let isCurrent = store.currentPodcastEpisodeID == episode.id
-        return TVFocusButton(radius: 16, scale: 1.02, lift: 0, ring: false, action: { play(episode, all: all) }) { focused in
+        return TVFocusButton(
+            radius: 16, scale: 1.02, lift: 0, ring: false,
+            action: { play(episode, all: all) }, onFocusChanged: onFocusChanged
+        ) { focused in
             HStack(spacing: 22) {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 12) {

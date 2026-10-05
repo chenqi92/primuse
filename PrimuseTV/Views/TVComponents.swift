@@ -407,6 +407,7 @@ struct TVRadioStationCard: View {
     let onDelete: (RadioStation) -> Void
     /// 重命名面板弹出 / 关闭。只报给 TVRoot 登记,关闭后系统自己把焦点还给这张卡片。
     var onModalPresentationChanged: (Bool) -> Void = { _ in }
+    var onFocusChanged: (Bool) -> Void = { _ in }
     var action: () -> Void = {}
     @State private var showsRename = false
 
@@ -421,7 +422,10 @@ struct TVRadioStationCard: View {
     }
 
     var body: some View {
-        TVFocusButton(ring: false, action: play, focusBinding: focusBinding, focusID: station.id) { focused in
+        TVFocusButton(
+            ring: false, action: play, onFocusChanged: onFocusChanged,
+            focusBinding: focusBinding, focusID: station.id
+        ) { focused in
             VStack(alignment: .leading, spacing: 0) {
                 TVRadioArtworkView(station: station, size: width, radius: TVRadius.cover, store: store)
                     .tvCardFocus(focused, radius: TVRadius.cover)
@@ -947,13 +951,15 @@ struct TVPagedList<Item, ID: Hashable, Row: View>: View {
     private let spacing: CGFloat
     private let row: (Int, Item, @escaping (Bool) -> Void) -> Row
 
-    @State private var renderedRowCount = TVLongListPagingPolicy.pageSize
+    @State private var renderedRowCount: Int
 
+    /// `revealing`:首次渲染就要覆盖到的那一行 (打开时要滚过去的当前章节之类)。
     init(
         _ items: [Item],
         id: KeyPath<Item, ID>,
         alignment: HorizontalAlignment = .center,
         spacing: CGFloat = 10,
+        revealing: Int? = nil,
         @ViewBuilder row: @escaping (Int, Item, @escaping (Bool) -> Void) -> Row
     ) {
         self.items = items
@@ -961,6 +967,9 @@ struct TVPagedList<Item, ID: Hashable, Row: View>: View {
         self.alignment = alignment
         self.spacing = spacing
         self.row = row
+        _renderedRowCount = State(initialValue: TVLongListPagingPolicy.initialLimit(
+            revealing: revealing, totalCount: items.count
+        ))
     }
 
     var body: some View {
@@ -987,9 +996,67 @@ extension TVPagedList where Item: Identifiable, ID == Item.ID {
         _ items: [Item],
         alignment: HorizontalAlignment = .center,
         spacing: CGFloat = 10,
+        revealing: Int? = nil,
         @ViewBuilder row: @escaping (Int, Item, @escaping (Bool) -> Void) -> Row
     ) {
-        self.init(items, id: \.id, alignment: alignment, spacing: spacing, row: row)
+        self.init(items, id: \.id, alignment: alignment, spacing: spacing, revealing: revealing, row: row)
+    }
+}
+
+/// `TVPagedList` 的网格版:先渲染一页格子,焦点挪到末尾附近再续。上千个电台、
+/// 流派的网格交给焦点引擎时,方向键同样会变迟钝。渲染到的格数凑满整行,
+/// 最后一行不会只露出半行让焦点往下落空。
+///
+/// `cell` 拿到的第三个参数同样必须接到格子自身的焦点回调上。
+struct TVPagedGrid<Item: Identifiable, Cell: View>: View {
+    private struct Entry: Identifiable {
+        let id: Item.ID
+        let index: Int
+        let item: Item
+    }
+
+    private let items: [Item]
+    private let columns: [GridItem]
+    private let alignment: HorizontalAlignment
+    private let spacing: CGFloat?
+    private let cell: (Int, Item, @escaping (Bool) -> Void) -> Cell
+
+    @State private var renderedCount = TVLongListPagingPolicy.pageSize
+
+    init(
+        _ items: [Item],
+        columns: [GridItem],
+        alignment: HorizontalAlignment = .center,
+        spacing: CGFloat? = nil,
+        @ViewBuilder cell: @escaping (Int, Item, @escaping (Bool) -> Void) -> Cell
+    ) {
+        self.items = items
+        self.columns = columns
+        self.alignment = alignment
+        self.spacing = spacing
+        self.cell = cell
+    }
+
+    var body: some View {
+        let total = items.count
+        let shown = TVLongListPagingPolicy.wholeRows(
+            TVLongListPagingPolicy.clamped(limit: renderedCount, totalCount: total),
+            columns: columns.count,
+            totalCount: total
+        )
+        let entries = items.prefix(shown).enumerated().map {
+            Entry(id: $1.id, index: $0, item: $1)
+        }
+        LazyVGrid(columns: columns, alignment: alignment, spacing: spacing) {
+            ForEach(entries) { entry in
+                cell(entry.index, entry.item) { focused in
+                    guard focused else { return }
+                    renderedCount = TVLongListPagingPolicy.limit(
+                        after: shown, focusedRow: entry.index, totalCount: total
+                    )
+                }
+            }
+        }
     }
 }
 

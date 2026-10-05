@@ -9,6 +9,9 @@ import PrimuseKit
 final class TVLibraryBrowseMemory {
     var albumID: String?
     var artistID: String?
+    /// 上次聚焦的专辑 / 艺人在墙上的位置,同歌曲页:只用来免掉整墙逐个找。
+    var albumIndex: Int?
+    var artistIndex: Int?
     /// 歌曲页上次聚焦的那首和它在列表里的位置(位置只用来免掉几十万首里逐个找)。
     var songID: String?
     var songIndex: Int?
@@ -453,6 +456,15 @@ struct TVLibraryView: View {
     private static func songFocusID(_ id: String) -> String { "song:" + id }
 
     /// 歌曲页上次聚焦的那首在当前列表里的位置;记下的位置对不上(曲库变了)才逐个找。
+    /// 记住的那张卡片在当前墙上的位置:先认记下的位置,对不上 (曲库变了) 才整墙逐个找。
+    private static func rememberedIndex<Element: Identifiable>(
+        of id: String?, at index: Int?, in source: [Element]
+    ) -> Int? where Element.ID == String {
+        guard let id else { return nil }
+        if let index, source.indices.contains(index), source[index].id == id { return index }
+        return source.firstIndex { $0.id == id }
+    }
+
     private func rememberedSongIndex(in ids: [String]) -> Int? {
         guard let id = browseMemory.songID else { return nil }
         if let index = browseMemory.songIndex, ids.indices.contains(index), ids[index] == id { return index }
@@ -668,9 +680,9 @@ struct TVLibraryView: View {
             if let layout = store.albumBrowseLayout(wallOrder) {
                 TVIndexedGrid(
                     items: layout.items, sections: layout.sections, columns: columns, spacing: gap,
-                    revealingIndex: browseMemory.albumID.flatMap { id in
-                        layout.items.source.firstIndex { $0.id == id }
-                    },
+                    revealingIndex: Self.rememberedIndex(
+                        of: browseMemory.albumID, at: browseMemory.albumIndex, in: layout.items.source
+                    ),
                     jumpRequest: gridJumpRequest,
                     scrollProxy: proxy,
                     focusItem: { focusedGridItem = Self.albumFocusID($0) },
@@ -682,7 +694,10 @@ struct TVLibraryView: View {
                                 action: openPlayer,
                                 onFocusChanged: { focused in
                                     focusChanged(focused)
-                                    if focused { browseMemory.albumID = album.id }
+                                    if focused {
+                                        browseMemory.albumID = album.id
+                                        browseMemory.albumIndex = index
+                                    }
                                 },
                                 onOpen: { selectedAlbum = album },
                                 focusBinding: $focusedGridItem,
@@ -771,9 +786,9 @@ struct TVLibraryView: View {
                 : store.artistBrowseLayout(artistBrowseMode) {
                 TVIndexedGrid(
                     items: layout.items, sections: layout.sections, columns: columns, spacing: gap,
-                    revealingIndex: browseMemory.artistID.flatMap { id in
-                        layout.items.source.firstIndex { $0.id == id }
-                    },
+                    revealingIndex: Self.rememberedIndex(
+                        of: browseMemory.artistID, at: browseMemory.artistIndex, in: layout.items.source
+                    ),
                     jumpRequest: gridJumpRequest,
                     scrollProxy: proxy,
                     focusItem: { focusedGridItem = Self.artistFocusID($0) },
@@ -785,7 +800,10 @@ struct TVLibraryView: View {
                         action: { selectedArtist = artist },
                         onFocusChanged: { focused in
                             focusChanged(focused)
-                            if focused { browseMemory.artistID = artist.id }
+                            if focused {
+                                browseMemory.artistID = artist.id
+                                browseMemory.artistIndex = index
+                            }
                         },
                         focusBinding: $focusedGridItem,
                         focusID: Self.artistFocusID(artist.id)

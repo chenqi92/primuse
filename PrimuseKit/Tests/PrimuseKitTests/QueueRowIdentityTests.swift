@@ -87,6 +87,28 @@ struct TVLongListPagingPolicyTests {
 
         #expect(extended > 500)
     }
+
+    @Test("Opening at a far row renders through it on the first pass")
+    func initialLimitCoversTheRevealedRow() {
+        let page = TVLongListPagingPolicy.pageSize
+        #expect(TVLongListPagingPolicy.initialLimit(revealing: nil, totalCount: 7568) == page)
+        #expect(TVLongListPagingPolicy.initialLimit(revealing: nil, totalCount: 12) == 12)
+        #expect(TVLongListPagingPolicy.initialLimit(revealing: -1, totalCount: 7568) == page)
+        #expect(TVLongListPagingPolicy.initialLimit(revealing: 3, totalCount: 7568) == page)
+        for row in [page - 1, 500, 7567] {
+            #expect(TVLongListPagingPolicy.initialLimit(revealing: row, totalCount: 7568) > row)
+        }
+        #expect(TVLongListPagingPolicy.initialLimit(revealing: 9_999, totalCount: 80) == 80)
+    }
+
+    @Test("Grid windows fill whole rows without passing the total")
+    func gridWindowsFillWholeRows() {
+        #expect(TVLongListPagingPolicy.wholeRows(60, columns: 7, totalCount: 2_000) == 63)
+        #expect(TVLongListPagingPolicy.wholeRows(60, columns: 5, totalCount: 2_000) == 60)
+        #expect(TVLongListPagingPolicy.wholeRows(60, columns: 7, totalCount: 61) == 61)
+        #expect(TVLongListPagingPolicy.wholeRows(0, columns: 4, totalCount: 10) == 0)
+        #expect(TVLongListPagingPolicy.wholeRows(9, columns: 0, totalCount: 10) == 9)
+    }
 }
 
 @Suite("Queue presentation rounds")

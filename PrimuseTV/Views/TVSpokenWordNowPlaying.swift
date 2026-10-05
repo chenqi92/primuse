@@ -226,10 +226,9 @@ struct TVSpokenWordContentsColumn: View {
         )
         return ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    ForEach(rows) { row in
-                        contentsRow(row).id(row.id)
-                    }
+                // 上千个文件的书分页渲染;首屏就覆盖到要滚过去的当前章节。
+                TVPagedList(rows, alignment: .leading, spacing: 10, revealing: initial) { _, row, focusChanged in
+                    contentsRow(row, onFocusChanged: focusChanged).id(row.id)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 16)
@@ -242,11 +241,11 @@ struct TVSpokenWordContentsColumn: View {
         }
     }
 
-    private func contentsRow(_ row: SpokenWordContentsRow) -> some View {
+    private func contentsRow(_ row: SpokenWordContentsRow, onFocusChanged: @escaping (Bool) -> Void) -> some View {
         TVFocusButton(radius: 16, scale: 1.02, lift: 0, ring: false, action: {
             onInteraction()
             store.openSpokenWordContentsRow(row)
-        }) { focused in
+        }, onFocusChanged: onFocusChanged) { focused in
             HStack(spacing: 22) {
                 Text(verbatim: "\(row.number)")
                     .tvFont(.caption, design: .monospaced)

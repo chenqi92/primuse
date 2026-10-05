@@ -1258,19 +1258,20 @@ struct TVRadioLibrarySection: View {
                 let shownIDs = shown.map(\.id)
                 VStack(alignment: .leading, spacing: 26) {
                     chips
-                    LazyVGrid(columns: columns, alignment: .leading, spacing: spacing) {
-                        ForEach(shown) { station in
-                            TVRadioStationCard(
-                                station: station,
-                                width: cell,
-                                siblingIDs: shownIDs,
-                                focusBinding: $focusedRadioID,
-                                onDelete: { deleteRequest = TVRadioDeleteRequest(station: $0, siblingIDs: shownIDs) },
-                                onModalPresentationChanged: onModalPresentationChanged,
-                                action: openPlayer
-                            )
-                        }
+                    // 镜像来的电台动辄上千个:分页渲染,焦点走到末尾附近再续;换文件夹从头来。
+                    TVPagedGrid(shown, columns: columns, alignment: .leading, spacing: spacing) { _, station, focusChanged in
+                        TVRadioStationCard(
+                            station: station,
+                            width: cell,
+                            siblingIDs: shownIDs,
+                            focusBinding: $focusedRadioID,
+                            onDelete: { deleteRequest = TVRadioDeleteRequest(station: $0, siblingIDs: shownIDs) },
+                            onModalPresentationChanged: onModalPresentationChanged,
+                            onFocusChanged: focusChanged,
+                            action: openPlayer
+                        )
                     }
+                    .id(effectiveSelection)
                 }
             }
         }

@@ -6998,6 +6998,19 @@ public enum TVLongListPagingPolicy {
         // 一次至少续一页;焦点若被直接送到很靠后的位置,一次补到够用为止。
         return min(total, max(current + pageSize, focusedRow + focusTriggerDistance + 1))
     }
+
+    /// 首次渲染的行数:打开时要滚到第 `revealing` 行 (当前章节之类) 就一次覆盖到它,否则一页。
+    public static func initialLimit(revealing: Int?, totalCount: Int) -> Int {
+        guard let revealing, revealing >= 0 else { return clamped(limit: pageSize, totalCount: totalCount) }
+        return limit(after: pageSize, focusedRow: revealing, totalCount: totalCount)
+    }
+
+    /// 网格按整行渲染:把格数补成列数的整数倍,不超过总数。
+    public static func wholeRows(_ count: Int, columns: Int, totalCount: Int) -> Int {
+        let columns = max(columns, 1)
+        let rounded = (max(count, 0) + columns - 1) / columns * columns
+        return min(rounded, max(totalCount, 0))
+    }
 }
 
 /// Splits a queue's current shuffle round into played and upcoming occurrences.

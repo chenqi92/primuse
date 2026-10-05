@@ -71,27 +71,30 @@ struct TVGenreBrowser: View {
             TVEmptyState(icon: "guitars", title: String(localized: "tab_genres"))
                 .frame(minHeight: 400)
         } else {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 24, alignment: .top), count: 3), spacing: 26) {
-                ForEach(store.library.visibleGenres) { genre in
-                    let ids = store.library.songs(forGenre: genre.id).map(\.id)
-                    TVFocusButton(radius: 18, scale: 1.03, lift: 0, action: {
-                        destination = TVBrowseDestination(id: genre.id, title: genre.name, songIDs: ids)
-                    }) { focused in
-                        VStack(alignment: .leading, spacing: 18) {
-                            HStack(spacing: 6) {
-                                ForEach(Array(ids.prefix(3)), id: \.self) { id in
-                                    if let song = store.song(id) {
-                                        TVBrowseSongArtwork(song: song, size: 76)
-                                    }
+            // 标签乱的曲库流派能上千个:分页渲染,焦点走到末尾附近再续。
+            TVPagedGrid(
+                store.library.visibleGenres,
+                columns: Array(repeating: GridItem(.flexible(), spacing: 24, alignment: .top), count: 3),
+                spacing: 26
+            ) { _, genre, focusChanged in
+                let ids = store.library.songs(forGenre: genre.id).map(\.id)
+                TVFocusButton(radius: 18, scale: 1.03, lift: 0, action: {
+                    destination = TVBrowseDestination(id: genre.id, title: genre.name, songIDs: ids)
+                }, onFocusChanged: focusChanged) { focused in
+                    VStack(alignment: .leading, spacing: 18) {
+                        HStack(spacing: 6) {
+                            ForEach(Array(ids.prefix(3)), id: \.self) { id in
+                                if let song = store.song(id) {
+                                    TVBrowseSongArtwork(song: song, size: 76)
                                 }
                             }
-                            Text(genre.name).tvFont(.cardTitle).lineLimit(2, reservesSpace: true)
-                            Text(PMString("ext.tv.songsCount", ids.count)).tvFont(.caption)
-                                .foregroundStyle(TVColor.textMuted)
                         }
-                        .padding(24).frame(maxWidth: .infinity, alignment: .leading)
-                        .background(focused ? TVColor.surfaceStrong : TVColor.card)
+                        Text(genre.name).tvFont(.cardTitle).lineLimit(2, reservesSpace: true)
+                        Text(PMString("ext.tv.songsCount", ids.count)).tvFont(.caption)
+                            .foregroundStyle(TVColor.textMuted)
                     }
+                    .padding(24).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(focused ? TVColor.surfaceStrong : TVColor.card)
                 }
             }
             .foregroundStyle(TVColor.text)
