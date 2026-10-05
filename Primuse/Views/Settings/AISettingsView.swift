@@ -779,17 +779,6 @@ final class AISettingsEditorModel {
         draftDidChange(clearModels: true)
     }
 
-    func moveProvider(_ providerID: UUID, offset: Int) {
-        guard let source = draftProviderSet.providers.firstIndex(where: {
-            $0.id == providerID
-        }) else { return }
-        let destination = source + offset
-        guard draftProviderSet.providers.indices.contains(destination) else { return }
-        let provider = draftProviderSet.providers.remove(at: source)
-        draftProviderSet.providers.insert(provider, at: destination)
-        draftDidChange()
-    }
-
     func removeSelectedProvider() {
         guard draftProviderSet.providers.count > 1,
               let index = draftProviderSet.providers.firstIndex(where: {
@@ -1813,8 +1802,6 @@ struct AISettingsView: View {
 
     private var providerManagementSection: some View {
         let providerID = editor.selectedProviderID
-        let providers = editor.draftProviderSet.providers
-        let index = providers.firstIndex { $0.id == providerID } ?? 0
         return Section {
             Toggle("ai_provider_enabled", isOn: editor.providerEnabledBinding(providerID))
             if editor.defaultEngine != .provider(providerID) {
@@ -1822,15 +1809,7 @@ struct AISettingsView: View {
                     withAnimation { editor.chooseDefaultEngine(.provider(providerID)) }
                 }
             }
-            if providers.count > 1 {
-                Button("ai_move_up", systemImage: "arrow.up") {
-                    editor.moveProvider(providerID, offset: -1)
-                }
-                .disabled(index == 0)
-                Button("ai_move_down", systemImage: "arrow.down") {
-                    editor.moveProvider(providerID, offset: 1)
-                }
-                .disabled(index == providers.count - 1)
+            if editor.draftProviderSet.providers.count > 1 {
                 Button("ai_remove_provider", systemImage: "trash", role: .destructive) {
                     showsRemoveProviderConfirmation = true
                 }

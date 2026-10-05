@@ -526,10 +526,6 @@ struct TVAIProviderDetailView: View {
         editor.draftProviderSet.providers.first { $0.id == providerID }
     }
 
-    private var providerIndex: Int? {
-        editor.draftProviderSet.providers.firstIndex { $0.id == providerID }
-    }
-
     /// 「默认」指不开内置 AI 时直接用它,和手机、Mac 的「默认使用」一致。
     private var isPrimary: Bool {
         editor.defaultEngine == .provider(providerID)
@@ -769,7 +765,7 @@ struct TVAIProviderDetailView: View {
 
     private var actionSection: some View {
         TVAISection(title: String(localized: "ai_provider_actions")) {
-            // 分成三组只是为了绕开 ViewBuilder 的 10 个子视图上限,视觉上仍是一列。
+            // 分成两组只是为了绕开 ViewBuilder 的 10 个子视图上限,视觉上仍是一列。
             Group {
                 TVAIActionRow(
                     icon: "network",
@@ -795,26 +791,6 @@ struct TVAIProviderDetailView: View {
                     isEnabled: !isPrimary
                 ) {
                     editor.chooseDefaultEngine(.provider(providerID))
-                }
-            }
-            Group {
-                TVAIDivider()
-                TVAIActionRow(
-                    icon: "arrow.up",
-                    title: String(localized: "ai_move_up"),
-                    trailing: "chevron.up",
-                    isEnabled: (providerIndex ?? 0) > 0
-                ) {
-                    editor.moveProvider(providerID, offset: -1)
-                }
-                TVAIDivider()
-                TVAIActionRow(
-                    icon: "arrow.down",
-                    title: String(localized: "ai_move_down"),
-                    trailing: "chevron.down",
-                    isEnabled: (providerIndex ?? 0) < editor.draftProviderSet.providers.count - 1
-                ) {
-                    editor.moveProvider(providerID, offset: 1)
                 }
             }
             Group {

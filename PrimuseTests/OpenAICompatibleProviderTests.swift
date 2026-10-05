@@ -2286,7 +2286,7 @@ final class OpenAICompatibleProviderTests: XCTestCase {
     }
 
     @MainActor
-    func testProviderReorderingAndSwitchesControlFallbackOrder() {
+    func testProviderSwitchesControlFallbackOrder() {
         let editor = AISettingsEditorModel()
         let primaryID = editor.draftProviderSet.primaryProviderID
         editor.addProvider()
@@ -2294,11 +2294,9 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         editor.addProvider()
         let thirdID = editor.selectedProviderID
 
-        editor.moveProvider(thirdID, offset: -1)
-
         XCTAssertEqual(
             editor.draftProviderSet.routedProviders.map(\.id),
-            [primaryID, thirdID, secondID]
+            [primaryID, secondID, thirdID]
         )
 
         editor.providerEnabledBinding(thirdID).wrappedValue = false

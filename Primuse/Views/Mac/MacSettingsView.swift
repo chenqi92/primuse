@@ -1715,18 +1715,6 @@ private struct MacSTIntelligenceView: View {
                                 }
                             }
                             if editor.draftProviderSet.providers.count > 1 {
-                                MacSTButton(title: String(localized: "ai_move_up"), systemImage: "arrow.up") {
-                                    pmWithAnimation(.list) {
-                                        editor.moveProvider(editor.selectedProviderID, offset: -1)
-                                    }
-                                }
-                                .disabled(selectedProviderIndex == 0)
-                                MacSTButton(title: String(localized: "ai_move_down"), systemImage: "arrow.down") {
-                                    pmWithAnimation(.list) {
-                                        editor.moveProvider(editor.selectedProviderID, offset: 1)
-                                    }
-                                }
-                                .disabled(selectedProviderIndex == editor.draftProviderSet.providers.count - 1)
                                 MacSTButton(
                                     title: String(localized: "ai_remove_provider"),
                                     destructive: true
@@ -1786,10 +1774,6 @@ private struct MacSTIntelligenceView: View {
                     }
                 }
             }
-    }
-
-    private var selectedProviderIndex: Int {
-        editor.draftProviderSet.providers.firstIndex { $0.id == editor.selectedProviderID } ?? 0
     }
 
     private func addDraftModel() {
