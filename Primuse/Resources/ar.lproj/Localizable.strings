@@ -3808,7 +3808,6 @@
 "yearly_time_evening" = "المساء";
 "yearly_time_late_night" = "آخر الليل";
 "yearly_time_morning" = "الصباح";
-"yearly_unknown_source" = "مصدر موسيقى غير معروف";
 "yearly_wrapped_brand" = "Primuse مغلفة";
 "yearly_cover_lead_complete" = "الوقت الذي قضيته مع الموسيقى على مدار العام";
 "yearly_cover_lead_in_progress_format" = "وقتك مع الموسيقى من 1 يناير حتى %@";
@@ -3844,6 +3843,8 @@
 "yearly_closing_in_progress_lead" = "كل أغنية تستمع إليها من الآن ستُضاف إلى هذا التقرير";
 "yearly_this_year_needs_more_format" = "استمع إلى %2$d أغنية أخرى ليظهر تقرير %1$@";
 "yearly_not_enough_format" = "استمع إلى %2$d أغنية أخرى في %1$@ وسيظهر عامك الموسيقي هنا";
+"yearly_source_deleted" = "محذوف";
+"yearly_source_deleted_unknown" = "مصادر موسيقى محذوفة";
 "· Yu Xi Tan" = "· يو شي تان";
 "● Ready" = "● جاهز";
 "● Syncing…" = "● المزامنة…";

@@ -2711,7 +2711,6 @@
 "apple_music_library_not_authorized_in_sources" = "Apple Music n’est pas autorisé. Connectez-le depuis la source Apple Music dans « Gérer les sources ».";
 "apple_music_library_sync_timeout" = "La synchronisation Apple Music a expiré. Vérifiez les autorisations Musique ou réessayez plus tard.";
 "apple_music_library_access_failed_format" = "Impossible d’accéder à la bibliothèque Apple Music : %@";
-"yearly_unknown_source" = "Source musicale inconnue";
 "yearly_time_dawn" = "Aube";
 "yearly_time_morning" = "Matin";
 "yearly_time_afternoon" = "Après-midi";
@@ -2783,6 +2782,8 @@
 "yearly_closing_in_progress_lead" = "Chaque titre que vous écouterez désormais s'ajoutera à ce bilan";
 "yearly_this_year_needs_more_format" = "Encore %2$d titres pour débloquer votre bilan %1$@";
 "yearly_not_enough_format" = "Encore %2$d titres en %1$@ et votre année musicale s'affichera ici";
+"yearly_source_deleted" = "Supprimée";
+"yearly_source_deleted_unknown" = "Sources musicales supprimées";
 "auth_two_factor_required" = "La validation en deux étapes est requise.";
 "auth_verification_code_invalid" = "Le code de validation est incorrect.";
 "auth_login_failed" = "Échec de la connexion.";

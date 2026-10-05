@@ -2712,7 +2712,6 @@
 "apple_music_library_not_authorized_in_sources" = "Apple Music が許可されていません。「ソースを管理」の Apple Music ソースで接続してください。";
 "apple_music_library_sync_timeout" = "Apple Music の同期がタイムアウトしました。ミュージックの権限を確認するか、後でもう一度お試しください。";
 "apple_music_library_access_failed_format" = "Apple Music ライブラリにアクセスできません：%@";
-"yearly_unknown_source" = "不明な音楽ソース";
 "yearly_time_dawn" = "明け方";
 "yearly_time_morning" = "午前";
 "yearly_time_afternoon" = "午後";
@@ -2784,6 +2783,8 @@
 "yearly_closing_in_progress_lead" = "これから聴く一曲一曲も、このレポートに書き加えられます";
 "yearly_this_year_needs_more_format" = "あと %2$d 曲聴くと %1$@ 年のレポートが見られます";
 "yearly_not_enough_format" = "%1$@ 年にあと %2$d 曲聴くと、ここに年間レポートが広がります";
+"yearly_source_deleted" = "削除済み";
+"yearly_source_deleted_unknown" = "削除された音楽ソース";
 "auth_two_factor_required" = "2 ステップ確認が必要です。";
 "auth_verification_code_invalid" = "確認コードが正しくありません。";
 "auth_login_failed" = "サインインに失敗しました。";

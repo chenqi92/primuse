@@ -3808,7 +3808,6 @@
 "yearly_time_evening" = "शाम";
 "yearly_time_late_night" = "देर रात";
 "yearly_time_morning" = "सुबह";
-"yearly_unknown_source" = "अज्ञात संगीत स्रोत";
 "yearly_wrapped_brand" = "Primuse लपेटा हुआ";
 "yearly_cover_lead_complete" = "साल भर में संगीत के साथ बिताया गया समय";
 "yearly_cover_lead_in_progress_format" = "1 जनवरी से %@ तक संगीत के साथ बिताया गया समय";
@@ -3844,6 +3843,8 @@
 "yearly_closing_in_progress_lead" = "अब से सुना हर गाना इस रिपोर्ट में जुड़ता जाएगा";
 "yearly_this_year_needs_more_format" = "%1$@ की रिपोर्ट के लिए %2$d और गाने सुनें";
 "yearly_not_enough_format" = "%1$@ में %2$d और गाने सुनें, फिर आपका संगीत भरा साल यहाँ दिखेगा";
+"yearly_source_deleted" = "हटाया गया";
+"yearly_source_deleted_unknown" = "हटाए गए संगीत स्रोत";
 "· Yu Xi Tan" = "· यू शी टैन";
 "● Ready" = "● तैयार";
 "● Syncing…" = "● सिंक हो रहा है…";

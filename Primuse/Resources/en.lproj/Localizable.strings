@@ -2522,7 +2522,6 @@
 "apple_music_library_not_authorized_in_sources" = "Apple Music is not authorized. Connect it on the Apple Music source in Manage Sources.";
 "apple_music_library_sync_timeout" = "Apple Music sync timed out. Check Music permissions or try again later.";
 "apple_music_library_access_failed_format" = "Unable to access the Apple Music library: %@";
-"yearly_unknown_source" = "Unknown music source";
 "yearly_time_dawn" = "Dawn";
 "yearly_time_morning" = "Morning";
 "yearly_time_afternoon" = "Afternoon";
@@ -2594,6 +2593,8 @@
 "yearly_closing_in_progress_lead" = "Every song you play from here on goes into this report";
 "yearly_this_year_needs_more_format" = "Play %2$d more songs to unlock your %1$@ report";
 "yearly_not_enough_format" = "Play %2$d more songs in %1$@ and your year in music will unfold here";
+"yearly_source_deleted" = "Deleted";
+"yearly_source_deleted_unknown" = "Deleted music sources";
 "auth_two_factor_required" = "Two-step verification is required.";
 "auth_verification_code_invalid" = "The verification code is invalid.";
 "auth_login_failed" = "Sign-in failed.";

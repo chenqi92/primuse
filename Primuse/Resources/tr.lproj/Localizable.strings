@@ -3289,7 +3289,6 @@
 "audio_effects" = "Ses Efektleri";
 "relay_share_error_configuration" = "Yerleşik hizmeti seçin veya şirket içinde barındırılan geçerli bir HTTPS URL ve yönetici anahtarını girin.";
 "source_diag_advice_auth_title" = "Kimlik doğrulama sorunu";
-"yearly_unknown_source" = "Bilinmeyen müzik kaynağı";
 "ai_playlist_prompt_footer" = "AI yalnızca arşivinizdeki şarkıları seçer ve AI ayarlarındaki gizlilik iznini kullanır.";
 "song_details_loading_message" = "Süreyi, kapağı ve sanatçıyı çıkarmak için bu şarkının etiket başlığını (~256 KB) buluttan indiriyorum. Bittiğinde oyun kuyruğuna eklenebilir.";
 "source_cache_partial_title" = "Önbelleğe alma kısmen tamamlandı";
@@ -3708,6 +3707,8 @@
 "yearly_closing_in_progress_lead" = "Bundan sonra dinlediğin her şarkı bu rapora eklenecek";
 "yearly_this_year_needs_more_format" = "%1$@ raporun için %2$d şarkı daha dinle";
 "yearly_not_enough_format" = "%1$@ yılında %2$d şarkı daha dinle, müzik yılın burada açılsın";
+"yearly_source_deleted" = "Silindi";
+"yearly_source_deleted_unknown" = "Silinen müzik kaynakları";
 "lyrics_converter_plain_notice" = "Düz metin çıkışı, zamanlamayı ve ses bilgisini kaldırır.";
 "metadata_status_state_unreadable" = "Etiketler Okunamıyor";
 "ai_primuse_relay_diagnostic_region_detail" = "Yerleşik hizmet mevcut vitrin bölgesi için kullanılamadığından geçiş isteği gönderilmedi.";

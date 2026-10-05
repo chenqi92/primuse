@@ -277,8 +277,8 @@ struct YearlyFactList: View {
     }
 }
 
-/// 一张榜：编号、封面、名字，行尾是次数与时长，整行底色按相对榜首的播放占比铺开
-/// （和首页的名次榜同一种行）。收起时露出几行，可以展开。
+/// 一张榜：编号、封面、名字，行尾是次数与时长；名字下面一条主题色细条，长度是相对榜首的
+/// 播放占比。收起时露出几行，可以展开。
 struct YearlyRankRows: View {
     var title: String?
     let items: [PlayHistoryStore.RankedItem]
@@ -304,7 +304,7 @@ struct YearlyRankRows: View {
             VStack(spacing: 0) {
                 ForEach(Array(visible.enumerated()), id: \.element.id) { offset, item in
                     if offset > 0 {
-                        Divider().padding(.leading, 53)
+                        Divider().padding(.leading, 55)
                     }
                     ListeningRankRowLabel(
                         position: firstPosition + offset,
@@ -313,10 +313,13 @@ struct YearlyRankRows: View {
                         playCount: item.playCount,
                         listenedSeconds: item.totalSec,
                         trend: nil,
-                        share: HomeListeningRankBoardPolicy.share(playCount: item.playCount, leaderPlayCount: leaderPlayCount)
+                        share: HomeListeningRankBoardPolicy.share(playCount: item.playCount, leaderPlayCount: leaderPlayCount),
+                        shareStyle: .underline
                     ) {
                         ListeningRankArtwork(song: song(for: item), size: 42, isArtist: isArtistRanking, cornerRadius: 8)
                     }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
                 }
                 if items.count > collapsedCount {
                     Divider()
@@ -337,9 +340,7 @@ struct YearlyRankRows: View {
                     .buttonStyle(.plain)
                 }
             }
-            .background(.primary.opacity(0.045))
-            // 名次行的占比底色是直角的，靠衬底的圆角把四个角裁掉。
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .strokeBorder(.primary.opacity(0.07), lineWidth: 0.5)
@@ -371,19 +372,23 @@ struct YearlyLeaderArtwork: View {
     }
 }
 
-/// 最常听的几张专辑：横着一排封面。
+/// 最常听的几张专辑：横着一排封面。横滑的内容裁在衬底的圆角里：滚动区铺满衬底的
+/// 整个宽度，左右留白放在内容里，静止时第一张和标题对齐，滑动时不会画到边框外面。
 struct YearlyAlbumShelf: View {
     let title: String
     let items: [PlayHistoryStore.RankedItem]
 
     @Environment(MusicLibrary.self) private var library: MusicLibrary?
     private static let cover: CGFloat = 104
+    private static let inset: CGFloat = 16
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
         VStack(alignment: .leading, spacing: 10) {
             Text(verbatim: title)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
+                .padding(.horizontal, Self.inset)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 14) {
                     ForEach(items) { item in
@@ -406,14 +411,22 @@ struct YearlyAlbumShelf: View {
                         .accessibilityElement(children: .combine)
                     }
                 }
+                .padding(.horizontal, Self.inset)
             }
-            .scrollClipDisabled()
+            #if DEBUG
+            // 截图钩子：`PRIMUSE_DEBUG_ALBUM_SHELF_END=1` 打开时就滑到最右，看左边是不是裁在边框里。
+            .defaultScrollAnchor(ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_ALBUM_SHELF_END"] == nil ? nil : .trailing)
+            #endif
         }
-        .recapPanel(padding: 16)
+        .padding(.vertical, Self.inset)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.primary.opacity(0.045), in: shape)
+        .clipShape(shape)
+        .overlay { shape.strokeBorder(.primary.opacity(0.07), lineWidth: 0.5) }
     }
 }
 
-/// 音乐源一行：来源插画、名字、次数，行尾是时长占比。
+/// 音乐源一行：来源插画、名字、次数，行尾是时长占比。已经删掉的源插画压淡，次数前标上「已删除」。
 struct YearlySourceRow: View {
     let share: YearlyReportData.SourceShare
     let percent: Int
@@ -427,21 +440,30 @@ struct YearlySourceRow: View {
                 maxHeight: 46
             ))
             .frame(width: 46, height: 46)
+            .saturation(share.isDeleted ? 0 : 1)
+            .opacity(share.isDeleted ? 0.55 : 1)
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: share.name)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(share.isDeleted ? .secondary : .primary)
                     .lineLimit(1)
-                Text(verbatim: String(format: String(localized: "yearly_card_genres_plays_format"), share.plays))
+                Text(verbatim: detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
             Text(verbatim: "\(percent)%")
                 .font(.system(.title3, design: .rounded, weight: .bold).monospacedDigit())
-                .foregroundStyle(.primary)
+                .foregroundStyle(share.isDeleted ? .secondary : .primary)
         }
         .accessibilityElement(children: .combine)
+    }
+
+    private var detail: String {
+        let plays = String(format: String(localized: "yearly_card_genres_plays_format"), share.plays)
+        // 合成一行的「已删除的音乐源」名字里已经说了。
+        guard share.isDeleted, share.sourceID != "deleted" else { return plays }
+        return String(localized: "yearly_source_deleted") + " · " + plays
     }
 }
 

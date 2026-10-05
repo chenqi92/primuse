@@ -3808,7 +3808,6 @@
 "yearly_time_evening" = "Tarde";
 "yearly_time_late_night" = "Tarde en la noche";
 "yearly_time_morning" = "Mañana";
-"yearly_unknown_source" = "Fuente de música desconocida";
 "yearly_wrapped_brand" = "Primuse envuelto";
 "yearly_cover_lead_complete" = "El tiempo que pasaste con la música a lo largo del año";
 "yearly_cover_lead_in_progress_format" = "Tu tiempo con la música del 1 de enero al %@";
@@ -3844,6 +3843,8 @@
 "yearly_closing_in_progress_lead" = "Cada canción que escuches a partir de ahora se sumará a este resumen";
 "yearly_this_year_needs_more_format" = "Escucha %2$d canciones más para ver tu resumen de %1$@";
 "yearly_not_enough_format" = "Escucha %2$d canciones más en %1$@ y tu año en música aparecerá aquí";
+"yearly_source_deleted" = "Eliminada";
+"yearly_source_deleted_unknown" = "Fuentes de música eliminadas";
 "· Yu Xi Tan" = "· Yu Xi Tan";
 "● Ready" = "● Listo";
 "● Syncing…" = "● Sincronizando…";
