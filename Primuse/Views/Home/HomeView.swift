@@ -759,7 +759,9 @@ struct HomeView: View {
                             .transition(homeFaceTransition)
                     } else if hasContent {
                         contentView
-                            .transition(homeFaceTransition)
+                            // 从加载骨架换过来时原地淡入:骨架与内容同形状,带位移会叠出两层错开的卡片。
+                            .transition(hasShownHomeContent ? homeFaceTransition : .opacity)
+                            .onAppear { hasShownHomeContent = true }
                     } else {
                         emptyView
                             .transition(homeFaceTransition)
@@ -998,6 +1000,7 @@ struct HomeView: View {
     /// `scenePhase` 是任务创建那一刻的值，冷启动时首页若在场景进入前台之前出现，任务醒来后仍以为
     /// 在后台，把首次加载推给「回到前台」—— 而那次回到前台已经过去了，首页就一直停在加载占位。
     @State private var isSceneActive = false
+    @State private var hasShownHomeContent = false
     /// 有源在扫描。扫描期间资料库版本驱动的重算放宽到更长的最小间隔。
     @State private var isLibraryScanning = false
     // Debounce for `searchRevision`-driven refreshes. MusicLibrary bumps
@@ -2121,27 +2124,16 @@ struct HomeView: View {
         }
     }
 
-    /// 顶部那一块的占位,和换上来的内容同样高:竖屏是封面轮播的形状,手机横屏是原来的卡片。
+    /// 顶部那一块的占位,和换上来的内容同样高:竖屏是封面轮播的形状(卡片叠放、转角、歌名与
+    /// 两个按钮的位置都和轮播一样,换成真内容时只是封面在原位淡进来),手机横屏是原来的卡片。
     @ViewBuilder
     private var heroLoadingPlaceholder: some View {
         #if os(iOS)
         if !heightClass.isCompact {
-            let metrics = HomeHeroCarouselMetrics(viewportWidth: homeCanvas.width)
-            VStack(spacing: 0) {
-                RoundedRectangle(cornerRadius: HomeHeroCarouselMetrics.cornerRadius, style: .continuous)
-                    .fill(homeCardSurface)
-                    .frame(width: metrics.cardSide, height: metrics.cardSide)
-                    .padding(.vertical, metrics.verticalBleed)
-                // 歌名两行及上下间距
-                Color.clear.frame(height: 4 + 42 + HomeHeroCarouselMetrics.buttonsTopSpacing)
-                HStack(spacing: 10) {
-                    Capsule().fill(homeCardSurface)
-                    Capsule().fill(homeCardSurface)
-                }
-                .frame(height: 42)
-                .padding(.horizontal, 16)
-            }
-            .frame(maxWidth: .infinity)
+            HomeHeroCarouselSkeleton(
+                metrics: HomeHeroCarouselMetrics(viewportWidth: homeCanvas.width),
+                showsButtons: true
+            )
         } else {
             heroCardLoadingPlaceholder
         }

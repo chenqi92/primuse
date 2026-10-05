@@ -27,6 +27,12 @@ struct HomeHeroCarousel: View {
     /// 居中那张在虚拟序列里的格子(不是第几首歌,同一首歌每一圈各有一格)。
     @State private var centeredSlot: Int?
     @State private var viewportWidth: CGFloat = 0
+    /// 刚挂上时先画和轮播同形状的骨架,等滚到居中那张、眼前三张封面也读好了(或者等够一会儿)
+    /// 再整组淡进来:不露出还没滚到位的那一帧,封面也不一张张蹦出来。
+    @State private var isRevealed = false
+    @State private var isPositioned = false
+    @State private var settledSlots: Set<Int> = []
+    @State private var hasPreparedTints = false
 
     init(
         songs: [Song],
@@ -44,10 +50,21 @@ struct HomeHeroCarousel: View {
     var body: some View {
         let metrics = HomeHeroCarouselMetrics(viewportWidth: viewportWidth)
         VStack(spacing: 0) {
-            carousel(metrics)
+            VStack(spacing: 0) {
+                carousel(metrics)
 
-            caption
-                .padding(.top, 4)
+                caption
+                    .padding(.top, 4)
+            }
+            .opacity(isRevealed ? 1 : 0)
+            .overlay(alignment: .top) {
+                if !isRevealed {
+                    LoadingSkeletonGroup {
+                        HomeHeroCarouselSkeleton(metrics: metrics)
+                    }
+                    .transition(.opacity)
+                }
+            }
 
             buttons
                 .padding(.top, HomeHeroCarouselMetrics.buttonsTopSpacing)
@@ -60,11 +77,36 @@ struct HomeHeroCarousel: View {
         }
         .task(id: nearbySongs.map(\.id)) {
             // 只给居中和左右各两张取色;一圈几十张一次全取,第一圈光晕要等最后一张。
-            // 甩一下连着滑过很多张时,停稳了才取,路过的不取。
-            try? await Task.sleep(for: .milliseconds(150))
-            guard !Task.isCancelled else { return }
+            // 甩一下连着滑过很多张时,停稳了才取,路过的不取。刚出现那一次不等,光晕和封面一起亮。
+            if hasPreparedTints {
+                try? await Task.sleep(for: .milliseconds(150))
+                guard !Task.isCancelled else { return }
+            }
+            hasPreparedTints = true
             tintProvider.prepare(nearbySongs)
         }
+        .task {
+            // 封面读得慢(远端源、没有盘缓存)也不一直挂着骨架:到点先亮出来,没到的封面各自淡入。
+            try? await Task.sleep(for: .milliseconds(600))
+            guard !Task.isCancelled else { return }
+            reveal()
+        }
+    }
+
+    private func noteSettled(_ slot: Int) {
+        guard !isRevealed, settledSlots.insert(slot).inserted else { return }
+        revealIfReady()
+    }
+
+    private func revealIfReady() {
+        let center = resolvedCenteredSlot
+        guard isPositioned, (center - 1...center + 1).allSatisfy(settledSlots.contains) else { return }
+        reveal()
+    }
+
+    private func reveal() {
+        guard !isRevealed else { return }
+        pmWithAnimation(.trackChange) { isRevealed = true }
     }
 
     private static func initialIndex(in songs: [Song]) -> Int {
@@ -119,6 +161,8 @@ struct HomeHeroCarousel: View {
                                 centeredSlot = slot
                                 reader.scrollTo(slot, anchor: .center)
                             }
+                        } onSettled: {
+                            noteSettled(slot)
                         }
                         .visualEffect { content, proxy in
                             // 离中线多远,在这张卡自己的坐标里量:`bounds(of:)` 给的是换算到本地坐标的
@@ -167,6 +211,12 @@ struct HomeHeroCarousel: View {
                 await Task.yield()
                 guard !Task.isCancelled else { return }
                 reader.scrollTo(resolvedCenteredSlot, anchor: .center)
+                guard !isPositioned else { return }
+                // 滚动要到下一轮布局才落地,再等两帧才算摆好,骨架才能换成封面。
+                try? await Task.sleep(for: .milliseconds(32))
+                guard !Task.isCancelled else { return }
+                isPositioned = true
+                revealIfReady()
             }
             // 真滑到了序列外侧:停稳后换到正中那一圈的同一张,两边又各有上千张可滑。
             // 两处摆的是同一首歌,换过去看不出来。
@@ -190,7 +240,8 @@ struct HomeHeroCarousel: View {
         _ song: Song,
         isCentered: Bool,
         side: CGFloat,
-        bringToCenter: @escaping () -> Void
+        bringToCenter: @escaping () -> Void,
+        onSettled: @escaping () -> Void
     ) -> some View {
         let shape = RoundedRectangle(cornerRadius: HomeHeroCarouselMetrics.cornerRadius, style: .continuous)
         return Button {
@@ -207,8 +258,11 @@ struct HomeHeroCarousel: View {
                 cornerRadius: HomeHeroCarouselMetrics.cornerRadius,
                 sourceID: song.sourceID,
                 filePath: song.filePath,
-                fileFormat: song.fileFormat
+                fileFormat: song.fileFormat,
+                onResolutionChange: { _ in onSettled() }
             )
+            // 换了一组(隔天、后台算完)同一个格子换歌:旧封面留到新封面到手再交叉淡入,不先闪空。
+            .artworkCrossfade()
             .overlay {
                 // 不在中间的压暗一点,视线自然落到正中那张上。
                 shape.fill(Color.black.opacity(isCentered ? 0 : 0.22))
@@ -245,8 +299,9 @@ struct HomeHeroCarousel: View {
     /// 居中封面的取色在背后晕开一圈,换到下一张时跟着淡过去。
     /// 椭圆贴着轮播的边框、到边上正好淡完,上下不留一道硬边。
     private func glow() -> some View {
-        ZStack {
-            if let centeredSong, let tint = tintProvider.tint(forSongID: centeredSong.id) {
+        let tint = centeredSong.flatMap { tintProvider.tint(forSongID: $0.id) }
+        return ZStack {
+            if let centeredSong, let tint {
                 EllipticalGradient(
                     colors: [tint.opacity(0.45), tint.opacity(0.18), tint.opacity(0)],
                     center: .center,
@@ -258,6 +313,8 @@ struct HomeHeroCarousel: View {
             }
         }
         .pmAnimation(.ambient, value: centeredSong?.id)
+        // 取色晚到一步时光晕也是淡进来,不是突然出现。
+        .pmAnimation(.ambient, value: tint == nil)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -298,28 +355,127 @@ struct HomeHeroCarousel: View {
             Button {
                 if let centeredSong { playFromSong(centeredSong) }
             } label: {
-                Label("shuffle", systemImage: "shuffle")
-                    .font(.subheadline.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 11)
+                Self.buttonLabel("shuffle", systemImage: "shuffle")
             }
             .buttonStyle(.borderedProminent)
             .clipShape(Capsule())
 
             Button(action: playAll) {
-                Label("play_all", systemImage: "play.fill")
-                    .font(.subheadline.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 11)
+                Self.buttonLabel("play_all", systemImage: "play.fill")
             }
             .buttonStyle(.bordered)
             .clipShape(Capsule())
         }
     }
 
+    /// 骨架按同一个标签量高度,换成真按钮时下面的区块不跳。
+    static func buttonLabel(_ titleKey: LocalizedStringKey, systemImage: String) -> some View {
+        Label(titleKey, systemImage: systemImage)
+            .font(.subheadline.weight(.semibold))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 11)
+    }
+
     private func accessibilityText(for song: Song) -> String {
         guard let artist = library.artistDisplayName(for: song), !artist.isEmpty else { return song.title }
         return "\(song.title), \(artist)"
+    }
+}
+
+/// 轮播的骨架:和轮播同样的位置、大小与转角。首页加载占位、轮播自己还没摆好时都画它,
+/// 换成真封面时形状不动,封面在原位淡进来。
+struct HomeHeroCarouselSkeleton: View {
+    let metrics: HomeHeroCarouselMetrics
+    /// 首页加载占位连下面两个按钮一起画;轮播自己的按钮一直是真的,不用画。
+    var showsButtons = false
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var fill: Color { Color(uiColor: .secondarySystemBackground) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            cards
+
+            captionBars
+                .padding(.top, 4)
+
+            if showsButtons {
+                HStack(spacing: 10) {
+                    placeholderButton(HomeHeroCarousel.buttonLabel("shuffle", systemImage: "shuffle"))
+                    placeholderButton(HomeHeroCarousel.buttonLabel("play_all", systemImage: "play.fill"))
+                }
+                .padding(.top, HomeHeroCarouselMetrics.buttonsTopSpacing)
+                .padding(.horizontal, 16)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityHidden(true)
+    }
+
+    /// 居中一张、两边各三张,叠放、缩小、转角都走轮播同一个函数。
+    private var cards: some View {
+        let side = metrics.cardSide
+        let step = metrics.step
+        let reducesMotion = reduceMotion
+        let shape = RoundedRectangle(cornerRadius: HomeHeroCarouselMetrics.cornerRadius, style: .continuous)
+        return ZStack {
+            ForEach(-3...3, id: \.self) { position in
+                let offset = CGFloat(position) * step
+                shape.fill(fill)
+                    .overlay {
+                        // 两边的压暗一点、描一道细边,叠在一起时分得出前后,和真封面的层次一样。
+                        shape.fill(Color.black.opacity(position == 0 ? 0 : 0.06))
+                    }
+                    .overlay {
+                        shape.strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+                    }
+                    .shadow(color: .black.opacity(0.08), radius: 10, y: 6)
+                    .frame(width: side, height: side)
+                    .visualEffect { content, _ in
+                        homeHeroCarouselEffect(
+                            content,
+                            offsetFromCenter: offset,
+                            side: side,
+                            step: step,
+                            reduceMotion: reducesMotion
+                        )
+                    }
+                    .offset(x: offset)
+                    .zIndex(-Double(abs(position)))
+            }
+        }
+        // 外面的脉动是整组改透明度;不先合成成一层,叠在后面的卡会从居中那张里透出来。
+        .compositingGroup()
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, metrics.verticalBleed)
+    }
+
+    /// 歌名、歌手两行:用同样字体的空白行撑出高度,条子画在中间。
+    private var captionBars: some View {
+        VStack(spacing: 2) {
+            Text(verbatim: " ")
+                .font(.headline)
+                .hidden()
+                .overlay {
+                    Capsule().fill(fill).frame(width: metrics.cardSide * 0.5, height: 12)
+                }
+            Text(verbatim: " ")
+                .font(.subheadline)
+                .hidden()
+                .overlay {
+                    Capsule().fill(fill).frame(width: metrics.cardSide * 0.32, height: 10)
+                }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func placeholderButton(_ label: some View) -> some View {
+        Button {} label: { label }
+            .buttonStyle(.bordered)
+            .clipShape(Capsule())
+            .hidden()
+            .overlay { Capsule().fill(fill) }
     }
 }
 
