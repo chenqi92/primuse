@@ -66,6 +66,58 @@ public struct CueTrack: Equatable, Sendable {
     }
 }
 
+public extension CueSheet {
+    /// 按音频文件名(不分大小写;CUE 里带目录的写法只看最后一段)和起点找回一轨,
+    /// 起点对不上时退回轨号。曲库里的轨号可能被刮削改过,起点不会。按 ID 寻址的网盘
+    /// 上曲库里只有文件 ID、对不上名字,表里只有一个 FILE 时就是它。
+    func track(audioFileName: String, startTime: TimeInterval?, number: Int?) -> CueTrack? {
+        var matchedFiles = files.filter { file in
+            let referenced = (file.name.replacingOccurrences(of: "\\", with: "/") as NSString).lastPathComponent
+            return referenced.caseInsensitiveCompare(audioFileName) == .orderedSame
+        }
+        if matchedFiles.isEmpty, files.count == 1 { matchedFiles = files }
+        let tracks = matchedFiles
+            .flatMap(\.tracks)
+            .filter { $0.type == "AUDIO" && $0.startTime != nil }
+        if let startTime,
+           let match = tracks.first(where: { abs(($0.startTime ?? -1) - startTime) < 0.01 }) {
+            return match
+        }
+        guard let number else { return nil }
+        return tracks.first { $0.number == number }
+    }
+}
+
+/// 一轨在曲库里的身份,与扫描时建 CUE 分轨的写法一致:艺术家取这一轨的 PERFORMER,
+/// 没有就用整张的;专辑艺术家取整张的 PERFORMER,没有就跟这一轨的艺术家。
+/// CUE 里没写的就是空的(标题除外,由调用方给占位名)。
+public struct CueTrackIdentity: Equatable, Sendable {
+    public var title: String?
+    public var artist: String?
+    public var albumTitle: String?
+    public var albumArtist: String?
+    public var trackNumber: Int
+    public var genre: String?
+    public var year: Int?
+
+    public init(sheet: CueSheet, track: CueTrack) {
+        title = Self.trimmedNonEmpty(track.title)
+        artist = Self.trimmedNonEmpty(track.performer) ?? Self.trimmedNonEmpty(sheet.performer)
+        albumTitle = Self.trimmedNonEmpty(sheet.title)
+        albumArtist = Self.trimmedNonEmpty(sheet.performer) ?? artist
+        trackNumber = track.number
+        genre = Self.trimmedNonEmpty(sheet.genre)
+        year = sheet.year
+    }
+
+    private static func trimmedNonEmpty(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+}
+
 /// Tolerant parser for the CDRWIN CUE subset used by music archives.
 ///
 /// It deliberately ignores unknown directives while preserving the pieces a

@@ -5410,9 +5410,9 @@ public extension ScrapedMetadataMergePolicy.Fields {
 }
 
 public extension ScrapeCueIdentityPolicy {
-    /// 批量 / 整张专辑补全合并完之后,CUE 分轨的身份字段以 CUE 表为准:标题、艺术家、
-    /// 专辑、专辑艺术家有值就不换,轨号、碟号只补空缺。在线结果描述的是整个音频文件,
-    /// 覆盖模式下照搬会把每一轨改成同一个名字、拆出专辑。
+    /// 批量 / 整张专辑补全合并完之后,CUE 分轨的身份字段以 CUE 表为准:标题、艺术家有值
+    /// 就不换,轨号只补空缺,专辑归属见 `protectingCueAlbumGrouping`。在线结果描述的是
+    /// 整个音频文件,覆盖模式下照搬会把每一轨改成同一个名字、拆出专辑。
     static func protectingCueIdentity(
         _ merged: ScrapedMetadataMergePolicy.Fields,
         original: ScrapedMetadataMergePolicy.Fields
@@ -5421,15 +5421,70 @@ public extension ScrapeCueIdentityPolicy {
         result.title = resolvedTitle(original: original.title, scraped: merged.title, isCueTrack: true)
         result.artist = resolvedOptionalText(original: original.artist, scraped: merged.artist, isCueTrack: true)
         if result.artist == original.artist { result.sourceArtistNames = original.sourceArtistNames }
-        result.albumTitle = resolvedOptionalText(
-            original: original.albumTitle, scraped: merged.albumTitle, isCueTrack: true
-        )
-        result.albumArtist = resolvedOptionalText(
-            original: original.albumArtist, scraped: merged.albumArtist, isCueTrack: true
-        )
         result.trackNumber = original.trackNumber ?? merged.trackNumber
-        result.discNumber = original.discNumber ?? merged.discNumber
+        return protectingCueAlbumGrouping(result, original: original)
+    }
+
+    /// CUE 分轨归在哪张专辑由 CUE 表决定:专辑名、专辑艺术家、碟号保持原样,CUE 里没写的
+    /// 也不从在线结果补;艺术家只在不改变专辑归属时才换。在线结果是一首一首各自找的,
+    /// 每一首对上的专辑艺术家、碟号可能都不一样,补进来整张专辑就散成一首一张。
+    static func protectingCueAlbumGrouping(
+        _ proposed: ScrapedMetadataMergePolicy.Fields,
+        original: ScrapedMetadataMergePolicy.Fields
+    ) -> ScrapedMetadataMergePolicy.Fields {
+        var result = proposed
+        result.albumTitle = original.albumTitle
+        result.albumArtist = original.albumArtist
+        result.discNumber = original.discNumber
+        // CUE 没写专辑艺术家时专辑跟着这一轨的艺术家走,换艺术家就等于换专辑。
+        if albumGroupingKey(result) != albumGroupingKey(original) {
+            result.artist = original.artist
+            result.sourceArtistNames = original.sourceArtistNames
+        }
         return result
+    }
+
+    private static func albumGroupingKey(_ fields: ScrapedMetadataMergePolicy.Fields) -> [String?] {
+        [
+            trimmedNonEmpty(fields.albumTitle),
+            trimmedNonEmpty(fields.albumArtist) ?? trimmedNonEmpty(fields.artist),
+        ]
+    }
+
+    private static func trimmedNonEmpty(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+}
+
+public extension Song {
+    /// 刮削会改动的那几项标签。
+    var scrapeFields: ScrapedMetadataMergePolicy.Fields {
+        ScrapedMetadataMergePolicy.Fields(
+            title: title,
+            artist: artistName,
+            sourceArtistNames: sourceArtistNames,
+            albumTitle: albumTitle,
+            albumArtist: albumArtistName,
+            year: year,
+            genre: genre,
+            trackNumber: trackNumber,
+            discNumber: discNumber
+        )
+    }
+
+    mutating func applyScrapeFields(_ fields: ScrapedMetadataMergePolicy.Fields) {
+        title = fields.title
+        artistName = fields.artist
+        sourceArtistNames = fields.sourceArtistNames
+        albumTitle = fields.albumTitle
+        albumArtistName = fields.albumArtist
+        year = fields.year
+        genre = fields.genre
+        trackNumber = fields.trackNumber
+        discNumber = fields.discNumber
     }
 }
 

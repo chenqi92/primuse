@@ -1342,6 +1342,75 @@ final class TVLibraryStateTests: XCTestCase {
         XCTAssertFalse(ledger.contains { $0.songID == songID })
     }
 
+    func testRestoreFileTagsRegroupsCueAlbumSplitByScrape() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let store = fixture.store()
+        store.reload()
+        let source = try store.prepareTransferSource()
+        let folderName = "TV CUE Restore QA \(UUID().uuidString)"
+        let folder = TVLocalTransferSource.root.appendingPathComponent(folderName, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try waveFixture(duration: 6).write(to: folder.appendingPathComponent("Album.wav"))
+        // 整张没写 PERFORMER:专辑归属全靠 CUE 里的专辑名,补全最容易把它拆开。
+        try Data("""
+        TITLE "Live Tape"
+        FILE "Album.wav" WAVE
+          TRACK 01 AUDIO
+            TITLE "First"
+            INDEX 01 00:00:00
+          TRACK 02 AUDIO
+            TITLE "Second"
+            INDEX 01 00:02:00
+          TRACK 03 AUDIO
+            TITLE "Third"
+            INDEX 01 00:04:00
+        """.utf8).write(to: folder.appendingPathComponent("Album.cue"))
+        let scanned = await store.runScan(source: source, lister: TVLocalDirectoryLister(), dirs: ["/"])
+        XCTAssertTrue(scanned)
+        func tracks() -> [Song] {
+            fixture.library.songs
+                .filter { $0.cueSheetPath == "/\(folderName)/Album.cue" }
+                .sorted { ($0.cueStartTime ?? 0) < ($1.cueStartTime ?? 0) }
+        }
+        let original = tracks()
+        XCTAssertEqual(original.map(\.title), ["First", "Second", "Third"])
+        XCTAssertEqual(Set(original.map(\.albumID)).count, 1)
+
+        // 旧版本「补全专辑信息」的样子:前两轨各填上了在线结果的艺术家、专辑艺术家和碟号,
+        // 轨号也被换了,各自成了一张专辑。只补空缺的改动不打「用户编辑」标记,只记在台账里。
+        for index in 0..<2 {
+            var song = original[index]
+            song.artistName = "Online Artist \(index)"
+            song.albumArtistName = "Online Album Artist \(index)"
+            song.discNumber = 2
+            song.trackNumber = 9 + index
+            fixture.library.replaceSong(song)
+            await TVMetadataOverrideStore.shared.record(
+                songID: song.id, kind: .filledMissing, editedAt: Date(),
+                fields: song.scrapeFields, cover: nil, lyrics: nil
+            )
+        }
+        XCTAssertEqual(Set(tracks().map(\.albumID)).count, 3)
+        let hasLocalChanges = await store.metadataScraper.hasLocalTagChanges(songIDs: [original[0].id])
+        XCTAssertTrue(hasLocalChanges)
+
+        // 只对还留在原专辑里的第三轨点「恢复文件标签」,同一张 CUE 的另外两轨一起回来。
+        let result = await store.metadataScraper.restoreFileTags(songIDs: [original[2].id]) { _ in }
+        XCTAssertTrue(result.isFinished)
+        XCTAssertEqual(result.completed, 3)
+        let restored = tracks()
+        XCTAssertEqual(restored.map(\.title), ["First", "Second", "Third"])
+        XCTAssertEqual(restored.map(\.trackNumber), [1, 2, 3])
+        XCTAssertEqual(restored.map(\.discNumber), original.map(\.discNumber))
+        XCTAssertEqual(restored.map(\.artistName), original.map(\.artistName))
+        XCTAssertEqual(restored.map(\.albumArtistName), original.map(\.albumArtistName))
+        XCTAssertEqual(Set(restored.map(\.albumID)), Set(original.map(\.albumID)))
+        let ledger = await TVMetadataOverrideStore.shared.allEntries()
+        XCTAssertFalse(ledger.contains { entry in original.contains { $0.id == entry.songID } })
+    }
+
     func testIncrementalAlbumScanPreservesPreviousArtworkLikesAndScopeAcrossReload() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }

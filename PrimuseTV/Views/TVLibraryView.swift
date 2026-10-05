@@ -323,8 +323,22 @@ struct TVLibraryView: View {
                 try? await Task.sleep(nanoseconds: 200_000_000)
                 tries += 1
             }
-            selectedAlbum = store.albums.first { (4...40).contains(store.songIDs(forAlbum: $0.id).count) }
+            // TV_ALBUM_DETAIL=<专辑名片段> 打开指定的专辑;TV_ALBUM_DETAIL_PLAY=1 进页后播第一首
+            // (留在专辑页,看正在播放那一行)。
+            let environment = ProcessInfo.processInfo.environment
+            let wanted = environment["TV_ALBUM_DETAIL"].flatMap { name in
+                store.albums.first { $0.title.localizedCaseInsensitiveContains(name) }
+            }
+            selectedAlbum = wanted
+                ?? store.albums.first { (4...40).contains(store.songIDs(forAlbum: $0.id).count) }
                 ?? store.albums.first
+            if environment["TV_ALBUM_DETAIL_PLAY"] == "1", let album = selectedAlbum {
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                let songIDs = store.songIDs(forAlbum: album.id)
+                if let first = songIDs.first.flatMap({ store.song($0) }) {
+                    _ = store.play(first, in: songIDs)
+                }
+            }
         }
         .task {
             // 截图用:TV_SCREEN=libraryIndex 等专辑墙排好后从字母栏跳到 TV_INDEX_JUMP(默认 M)。
@@ -1226,6 +1240,8 @@ struct TVAlbumDetailView: View {
     @State private var showsRestoreConfirmation = false
     /// 「恢复文件标签」进行中 / 刚做完:显示在按钮下面,离开这一页才清掉。
     @State private var restoreProgress: TVRestoreFileTagsProgress?
+    /// 这张专辑里有在电视上补全 / 匹配改过标签的歌(只补空缺的不打「用户编辑」标记)。
+    @State private var hasLocallyScrapedSongs = false
     /// 恢复按钮与确认面板里的两颗按钮,值见 `RestoreFocus`。
     @FocusState private var focusedRestoreControl: String?
     @FocusState private var focusedTrackID: String?
@@ -1276,7 +1292,8 @@ struct TVAlbumDetailView: View {
         let songIDs = songs.map(\.id)
         let tracks = Self.tracks(for: songs, library: store.library)
         // 有手动编辑或刮削改过、不再跟随文件标签的歌时才给「恢复文件标签」。
-        let hasEditedSongs = songIDs.contains { store.library.song(id: $0)?.userMetadataEditedAt != nil }
+        let hasEditedSongs = hasLocallyScrapedSongs
+            || songIDs.contains { store.library.song(id: $0)?.userMetadataEditedAt != nil }
         ZStack {
             TVAmbientBackdrop(tint: album.tint, tint2: album.tint2, strength: 0.55)
             TVColor.bg.opacity(0.34).ignoresSafeArea()
@@ -1409,15 +1426,23 @@ struct TVAlbumDetailView: View {
         .task {
             // 截图用:TV_SCREEN=albumDetail TV_RESTORE_DEBUG=1 先把第一首的标题改掉并打上「用户编辑」
             // (相当于刮削改过),弹出确认面板,6 秒后真的恢复;日志 `TV restore debug` 前后对比标题。
+            // CUE 专辑上还把这一首的专辑艺术家、碟号换掉(补全拆专辑的样子),它会先离开这张专辑,
+            // 恢复时靠同一张 CUE 的其它轨把它带回来;日志里 `tracks=` 是前后的曲目数。
             guard ProcessInfo.processInfo.environment["TV_RESTORE_DEBUG"] == "1",
                   let songID = store.songIDs(forAlbum: albumID).first,
                   var edited = store.library.song(id: songID) else { return }
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             let original = edited.title
+            let tracksBefore = store.songIDs(forAlbum: albumID).count
             edited.title = original + " · Scraped"
+            if edited.isCueTrack {
+                edited.albumArtistName = "Scraped Album Artist"
+                edited.discNumber = 2
+            }
             edited.userMetadataEditedAt = Date()
             store.library.replaceSong(edited)
             try? await Task.sleep(nanoseconds: 1_000_000_000)
+            let tracksSplit = store.songIDs(forAlbum: albumID).count
             showsRestoreConfirmation = true
             focusedRestoreControl = RestoreFocus.cancel
             try? await Task.sleep(nanoseconds: 6_000_000_000)
@@ -1427,13 +1452,25 @@ struct TVAlbumDetailView: View {
             }
             let after = store.library.song(id: songID)
             plog("TV restore debug before=\(original) edited=\(edited.title) after=\(after?.title ?? "-")"
-                 + " stamp=\(after?.userMetadataEditedAt == nil ? "cleared" : "kept")")
+                 + " stamp=\(after?.userMetadataEditedAt == nil ? "cleared" : "kept")"
+                 + " cue=\(edited.isCueTrack) tracks=\(tracksBefore)->\(tracksSplit)->\(store.songIDs(forAlbum: albumID).count)"
+                 + " albumArtist=\(after?.albumArtistName ?? "-") disc=\(after?.discNumber.map(String.init) ?? "-")")
         }
         #endif
-        .fullScreenCover(isPresented: $showsAlbumScrape, onDismiss: followAlbumAfterScrape) {
+        .fullScreenCover(isPresented: $showsAlbumScrape, onDismiss: albumScrapeDismissed) {
             TVAlbumScrapeView(albumID: albumID).environment(store)
         }
+        .task(id: songIDs) { await refreshLocallyScrapedSongs(songIDs) }
         .accessibilityIdentifier("tv.album.detail")
+    }
+
+    private func albumScrapeDismissed() {
+        followAlbumAfterScrape()
+        Task { @MainActor in await refreshLocallyScrapedSongs(store.songIDs(forAlbum: albumID)) }
+    }
+
+    private func refreshLocallyScrapedSongs(_ songIDs: [String]) async {
+        hasLocallyScrapedSongs = await store.metadataScraper.hasLocalTagChanges(songIDs: songIDs)
     }
 
     @ViewBuilder
@@ -1548,6 +1585,7 @@ struct TVAlbumDetailView: View {
             restoreProgress = await scraper.restoreFileTags(songIDs: songIDs) { restoreProgress = $0 }
             // 换回文件里的专辑名后,这张专辑的歌可能归到了另一个专辑 id 下。
             followAlbumAfterScrape()
+            await refreshLocallyScrapedSongs(store.songIDs(forAlbum: albumID))
         }
     }
 

@@ -68,7 +68,7 @@ struct TVRestoreFileTagsProgress: Sendable, Equatable {
     var processed = 0
     var completed = 0
     var failed = 0
-    /// 服务器曲库源、CUE 分轨、电视读不了文件的源,以及读的时候正在扫描的:只撤了改动标记。
+    /// 服务器曲库源、电视读不了文件的源,以及读的时候正在扫描的:只撤了改动标记。
     var skipped = 0
     var isFinished = false
 }
@@ -241,12 +241,8 @@ final class TVMetadataScrapeService {
             )
             proposed.sourceArtistNames = proposed.artist == original.artist
                 ? original.sourceArtistNames : proposed.sourceArtistNames
-            proposed.albumTitle = ScrapeCueIdentityPolicy.resolvedOptionalText(
-                original: original.albumTitle, scraped: proposed.albumTitle, isCueTrack: true
-            )
-            proposed.albumArtist = original.albumArtist
             proposed.trackNumber = original.trackNumber ?? proposed.trackNumber
-            proposed.discNumber = original.discNumber
+            proposed = ScrapeCueIdentityPolicy.protectingCueAlbumGrouping(proposed, original: original)
         }
 
         var coverData: Data?
@@ -297,7 +293,11 @@ final class TVMetadataScrapeService {
 
         // 没勾的标签保持这一行现在的值(预览打开之后它可能已经变了)。
         let current = song.scrapeFields
-        let chosen = current.applying(preview.proposed, fields: fields)
+        var chosen = current.applying(preview.proposed, fields: fields)
+        // 勾了「艺术家」时专辑艺术家会跟着新艺术家走;CUE 分轨的专辑归属不能因此改变。
+        if song.isCueTrack {
+            chosen = ScrapeCueIdentityPolicy.protectingCueAlbumGrouping(chosen, original: current)
+        }
         let appliedTags = !Self.sameVisibleTags(current, chosen)
         if appliedTags {
             song.applyScrapeFields(chosen)
@@ -472,14 +472,19 @@ final class TVMetadataScrapeService {
     /// 恢复文件标签:这些歌在电视上匹配 / 补全过的记录从本机台账删掉(之后装手机快照也不再
     /// 补回来),清掉「用户编辑」标记,电视能直接读文件的再按文件重读一遍 —— 标题、艺术家、
     /// 专辑、年份等换回文件里的标签,文件里有封面(内嵌或同目录的封面图)的也换回来;文件里
-    /// 没有的字段保留现在的值,与 iPhone / Mac 一致。服务器曲库源、CUE 分轨和电视读不了
-    /// 文件的源只撤标记和台账,下次同步 / 扫描跟随源。`progress` 在主线程上报。
+    /// 没有的字段保留现在的值,与 iPhone / Mac 一致。CUE 分轨按 CUE 表换回标题、艺术家、专辑
+    /// 与轨号,同一张 CUE 的其它轨一起恢复:补全把专辑拆散过的话,散出去的那几首已经不在
+    /// 这张专辑里了。服务器曲库源和电视读不了文件的源只撤标记和台账,下次同步 / 扫描跟随源。
+    /// `progress` 在主线程上报。
     func restoreFileTags(
         songIDs: [String],
         progress: @escaping @MainActor (TVRestoreFileTagsProgress) -> Void
     ) async -> TVRestoreFileTagsProgress {
         guard let store else { return TVRestoreFileTagsProgress(isFinished: true) }
-        let songs = songIDs.compactMap { store.library.song(id: $0) }
+        let songs = Self.includingCueSiblings(
+            songIDs.compactMap { store.library.song(id: $0) },
+            library: store.library
+        )
         for song in songs {
             await overrides.remove(songID: song.id)
         }
@@ -494,7 +499,10 @@ final class TVMetadataScrapeService {
         progress(state)
         plog("🔁 TV restore file tags songs=\(songs.count) cleared=\(cleared.count) rereading=\(rereadable.count)")
 
+        // 重读的结果攒到最后一次写回:同一张 CUE 的几轨分开写的话,先写的那首会跟还没恢复的
+        // 兄弟轨一起按目录推断专辑艺术家,又落进别的专辑。
         var restored: [Song] = []
+        var inspectionComplete: [String: Bool] = [:]
         for (sourceID, group) in Dictionary(grouping: rereadable, by: \.sourceID) {
             guard !Task.isCancelled, let source = store.sourcesStore.source(id: sourceID) else {
                 state.skipped += group.count
@@ -504,7 +512,8 @@ final class TVMetadataScrapeService {
             // 按「重读」开:专辑封面也按文件里的换回来,不留着刮削来的那张。
             let pool = TVMetadataReaderPool(source: source, credential: credential, rereadMetadata: true)
             let lister = TVFolderRescanPolicy.supports(source.type) ? store.makeLister(for: source) : nil
-            var sidecarsByDirectory: [String: SidecarDirectoryIndex<TVDirEntry>] = [:]
+            var entriesByDirectory: [String: [TVDirEntry]] = [:]
+            var cueSheets: [String: CueSheet] = [:]
             for original in group {
                 defer {
                     state.processed += 1
@@ -512,56 +521,159 @@ final class TVMetadataScrapeService {
                 }
                 // 以库里最新的一行为准;这期间又被改过(重新打了标记)就不动它。
                 guard !Task.isCancelled,
-                      let live = store.library.song(id: original.id), live.userMetadataEditedAt == nil else {
+                      var live = store.library.song(id: original.id), live.userMetadataEditedAt == nil else {
                     state.skipped += 1
                     continue
                 }
-                // 同目录的封面图、歌词也算文件标签的一部分:列一次目录,同一目录的歌共用。
-                var sidecars = SidecarDirectoryIndex<TVDirEntry>([])
+                // 同目录的封面图、歌词(以及 CUE 表)也算文件标签的一部分:列一次目录,同一目录的歌共用。
+                var entries: [TVDirEntry] = []
                 if let lister,
                    let directory = TVFolderRescanPolicy.directory(containingFilePath: live.filePath, levelsAbove: 0) {
-                    if let cached = sidecarsByDirectory[directory] {
-                        sidecars = cached
-                    } else if let entries = try? await lister.list(directory) {
-                        sidecars = SidecarDirectoryIndex(entries)
-                        sidecarsByDirectory[directory] = sidecars
+                    if let cached = entriesByDirectory[directory] {
+                        entries = cached
+                    } else if let listed = try? await lister.list(directory) {
+                        entries = listed
+                        entriesByDirectory[directory] = listed
                     }
                 }
-                let result = await TVMetadataEnricher.enrich(song: live, sidecars: sidecars, using: pool)
-                switch result.status {
-                case .enriched:
-                    guard let current = store.library.song(id: live.id), current.userMetadataEditedAt == nil else {
-                        state.skipped += 1
+                var restoredCueIdentity = false
+                if live.isCueTrack {
+                    guard let fromSheet = await Self.restoringCueIdentity(
+                        live, entries: entries, readerPool: pool, sheets: &cueSheets
+                    ) else {
+                        state.failed += 1
                         continue
                     }
-                    store.library.replaceSong(result.song)
-                    await TVMetadataInspectionStore.shared.record(result.song, complete: result.inspectionComplete)
-                    store.refreshNowPlayingAfterMetadataEdit(result.song, lyrics: nil)
+                    restoredCueIdentity = fromSheet != live
+                    live = fromSheet
+                }
+                let result = await TVMetadataEnricher.enrich(
+                    song: live, sidecars: SidecarDirectoryIndex(entries), using: pool
+                )
+                switch result.status {
+                case .enriched:
                     restored.append(result.song)
+                    inspectionComplete[result.song.id] = result.inspectionComplete
                     state.completed += 1
                 case .failed, .timedOut:
-                    state.failed += 1
+                    // CUE 表已经读到:标题、专辑这些照样换回来,只是封面没能重读。
+                    if restoredCueIdentity {
+                        restored.append(live)
+                        state.completed += 1
+                    } else {
+                        state.failed += 1
+                    }
                 case .cancelled:
                     state.skipped += 1
                 }
             }
             await pool.closeAll()
         }
-        if !restored.isEmpty { Self.postArtworkChanged(songs: restored) }
+        // 读的这段时间里又被改过(重新打了标记)的不动它。
+        let writable = restored.filter { store.library.song(id: $0.id)?.userMetadataEditedAt == nil }
+        state.completed -= restored.count - writable.count
+        state.skipped += restored.count - writable.count
+        if !writable.isEmpty {
+            store.library.replaceSongs(writable)
+            for song in writable {
+                if let complete = inspectionComplete[song.id] {
+                    await TVMetadataInspectionStore.shared.record(song, complete: complete)
+                }
+                store.refreshNowPlayingAfterMetadataEdit(song, lyrics: nil)
+            }
+            Self.postArtworkChanged(songs: writable)
+        }
         state.isFinished = true
         progress(state)
         plog("🔁 TV restore file tags done completed=\(state.completed) failed=\(state.failed) skipped=\(state.skipped)")
         return state
     }
 
-    /// 能按文件重读:电视能直接按段读的文件型源,不是 CUE 分轨(标题等来自 CUE 表,
-    /// 读文件换不回来),这个源也没在扫描。
+    /// 能按文件重读:电视能直接按段读的文件型源,这个源也没在扫描。CUE 分轨的标题等
+    /// 来自 CUE 表,按它记下的 CUE 路径读回来。
     private func canRereadFileTags(_ song: Song, store: TVStore) -> Bool {
-        guard !song.isCueTrack,
-              let source = store.sourcesStore.source(id: song.sourceID),
+        guard let source = store.sourcesStore.source(id: song.sourceID),
               source.isEnabled, !source.isDeleted, !source.type.isServerLibrary,
               store.activeScanSourceID != source.id else { return false }
         return TVMetadataReaderPool.canRead(source)
+    }
+
+    /// 这些歌里有没有在电视上匹配 / 补全改过标签或封面的(本机台账里有记录)。「只补全缺失
+    /// 字段」的改动不打「用户编辑」标记,专辑页靠这个决定要不要给「恢复文件标签」。
+    func hasLocalTagChanges(songIDs: [String]) async -> Bool {
+        let ids = Set(songIDs)
+        return await overrides.allEntries().contains {
+            ids.contains($0.songID) && ($0.fields != nil || $0.coverFile != nil)
+        }
+    }
+
+    private struct CueImageKey: Hashable {
+        let sourceID: String
+        let filePath: String
+        let cuePath: String
+    }
+
+    /// 加上与这些 CUE 分轨同一张 CUE、同一个音频文件的其它轨。
+    private static func includingCueSiblings(_ songs: [Song], library: MusicLibrary) -> [Song] {
+        let images = Set(songs.compactMap { song in
+            song.cueSheetPath.map { CueImageKey(sourceID: song.sourceID, filePath: song.filePath, cuePath: $0) }
+        })
+        guard !images.isEmpty else { return songs }
+        var seen = Set(songs.map(\.id))
+        var result = songs
+        for song in library.songs {
+            guard let cuePath = song.cueSheetPath,
+                  images.contains(CueImageKey(sourceID: song.sourceID, filePath: song.filePath, cuePath: cuePath)),
+                  seen.insert(song.id).inserted else { continue }
+            result.append(song)
+        }
+        return result
+    }
+
+    /// 按 CUE 表换回一轨的标题、艺术家、专辑、专辑艺术家与轨号,写法与扫描时建分轨一致:
+    /// CUE 里没写的就空着,碟号 CUE 里没有也清掉;流派、年份 CUE 里有才换。
+    /// CUE 读不到、太大或表里找不到这一轨 → nil。
+    private static func restoringCueIdentity(
+        _ song: Song,
+        entries: [TVDirEntry],
+        readerPool: TVMetadataReaderPool,
+        sheets: inout [String: CueSheet]
+    ) async -> Song? {
+        guard let cuePath = song.cueSheetPath else { return nil }
+        let sheet: CueSheet
+        if let cached = sheets[cuePath] {
+            sheet = cached
+        } else {
+            // 与扫描时一样最多读 1MB。按 ID 寻址的网盘列不了目录,不知道大小时先读 64KB。
+            let size = entries.first(where: { !$0.isDir && $0.path == cuePath })?.size ?? 0
+            guard size <= 1024 * 1024,
+                  let data = try? await readerPool.read(
+                    path: cuePath,
+                    size: size,
+                    offset: 0,
+                    length: min(max(size, 64 * 1024), 1024 * 1024)
+                  ),
+                  let parsed = CueSheetParser.parse(data: data) else { return nil }
+            sheets[cuePath] = parsed
+            sheet = parsed
+        }
+        guard let track = sheet.track(
+            audioFileName: (song.filePath as NSString).lastPathComponent,
+            startTime: song.cueStartTime,
+            number: song.trackNumber
+        ) else { return nil }
+        let identity = CueTrackIdentity(sheet: sheet, track: track)
+        var restored = song
+        restored.title = identity.title ?? PMString("cue_track_title_format", identity.trackNumber)
+        if identity.artist != song.artistName { restored.sourceArtistNames = nil }
+        restored.artistName = identity.artist
+        restored.albumTitle = identity.albumTitle
+        restored.albumArtistName = identity.albumArtist
+        restored.trackNumber = identity.trackNumber
+        restored.discNumber = nil
+        restored.genre = identity.genre ?? song.genre
+        restored.year = identity.year ?? song.year
+        return restored
     }
 
     // MARK: - 本机改动台账的回放
@@ -589,11 +701,18 @@ final class TVMetadataScrapeService {
             }
             let before = song
             if let local = entry.fields {
-                let replayed = LocalMetadataOverridePolicy.replayedFields(
+                var replayed = LocalMetadataOverridePolicy.replayedFields(
                     incoming: song.scrapeFields,
                     local: local,
                     kind: entry.kind
                 )
+                // 旧版本补全时记下的 CUE 分轨标签可能带着在线结果的专辑艺术家、碟号,
+                // 照着回放会在每次装完快照后再把专辑拆一遍。
+                if song.isCueTrack {
+                    replayed = ScrapeCueIdentityPolicy.protectingCueAlbumGrouping(
+                        replayed, original: song.scrapeFields
+                    )
+                }
                 if !Self.sameVisibleTags(song.scrapeFields, replayed) {
                     song.applyScrapeFields(replayed)
                 }
@@ -959,35 +1078,6 @@ actor TVMetadataOverrideStore {
 }
 
 // MARK: - 与曲库的衔接
-
-extension Song {
-    /// 刮削会改动的那几项标签。
-    var scrapeFields: ScrapedMetadataMergePolicy.Fields {
-        ScrapedMetadataMergePolicy.Fields(
-            title: title,
-            artist: artistName,
-            sourceArtistNames: sourceArtistNames,
-            albumTitle: albumTitle,
-            albumArtist: albumArtistName,
-            year: year,
-            genre: genre,
-            trackNumber: trackNumber,
-            discNumber: discNumber
-        )
-    }
-
-    mutating func applyScrapeFields(_ fields: ScrapedMetadataMergePolicy.Fields) {
-        title = fields.title
-        artistName = fields.artist
-        sourceArtistNames = fields.sourceArtistNames
-        albumTitle = fields.albumTitle
-        albumArtistName = fields.albumArtist
-        year = fields.year
-        genre = fields.genre
-        trackNumber = fields.trackNumber
-        discNumber = fields.discNumber
-    }
-}
 
 extension TVStore {
     /// 「匹配信息」只对曲库里的普通歌曲开放:电台、Apple Music、串烧播放中都不行。

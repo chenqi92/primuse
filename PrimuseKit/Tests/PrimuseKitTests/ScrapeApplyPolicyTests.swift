@@ -102,9 +102,10 @@ struct ScrapeApplyPolicyTests {
         #expect(protected.year == 1994)
         #expect(protected.genre == "Rock")
 
+        // CUE 里没有碟号也不补:每一首对上的碟号可能不同,补进来专辑页就被切成几张碟。
         var blank = original
         blank.discNumber = nil
-        #expect(ScrapeCueIdentityPolicy.protectingCueIdentity(merged, original: blank).discNumber == 2)
+        #expect(ScrapeCueIdentityPolicy.protectingCueIdentity(merged, original: blank).discNumber == nil)
     }
 
     private func fields(title: String, artist: String, album: String, track: Int) -> ScrapedMetadataMergePolicy.Fields {

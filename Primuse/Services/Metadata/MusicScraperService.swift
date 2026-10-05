@@ -2299,6 +2299,14 @@ final class MusicScraperService {
             ? (metadata.lyricsFileName ?? song.lyricsFileName)
             : song.lyricsFileName
         merged.mvPath = metadata.mvPath ?? song.mvPath
+        // CUE 分轨归在哪张专辑由 CUE 表决定:CUE 里没写的专辑艺术家、碟号也不从刮削结果补,
+        // 否则整张专辑会按每一首各自对上的结果散开。
+        if song.isCueTrack {
+            merged.applyScrapeFields(ScrapeCueIdentityPolicy.protectingCueAlbumGrouping(
+                merged.scrapeFields,
+                original: song.scrapeFields
+            ))
+        }
         return merged
     }
 
