@@ -307,6 +307,14 @@ HAN_LITERAL_ALLOWLIST = {
   "Primuse/Views/Library/AISongDiscoveryView.swift" => [
     /"群星", "未知艺术家", "未知歌手"/
   ],
+  # Compilation and unknown-artist credits ("群星", "未知艺术家") that the
+  # listening ranking and recap skip; matched against tag values, never shown.
+  "PrimuseKit/Sources/PrimuseKit/ArtistIdentityPolicy.swift" => [
+    /hasSuffix\("群星"\) \|\| key\.hasSuffix\("羣星"\)/,
+    /"群星", "羣星", "多位艺术家", "多位藝術家", "多位艺人", "多位藝人"/,
+    /"未知", "未知艺术家", "未知藝術家", "未知艺人", "未知藝人", "未知歌手", "佚名"/,
+    /"ヴァリアス・アーティスト", "オムニバス", "不明なアーティスト"/
+  ],
   # Credit and role labels are matching vocabulary, not interface text.
   "PrimuseKit/Sources/PrimuseKit/LyricTranslationContentPolicy.swift" => [
     /\A\s*(?:private static let (?:titleLabels|artistLabels|creditLabels|productionRoles|productionPrefixes|productionSuffixes)\b|")/
