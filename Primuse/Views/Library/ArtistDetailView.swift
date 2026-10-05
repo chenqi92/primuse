@@ -7,6 +7,31 @@ private struct ArtistListeningSnapshot {
     var playCountsByAlbumID: [String: Int] = [:]
 }
 
+private struct ArtistAlbumShelves {
+    struct Key: Equatable {
+        let albumsRevision: Int
+        let artistID: String
+        let artistName: String
+    }
+
+    var release: [Album] = []
+    var appearsOn: [Album] = []
+}
+
+/// 只在重绘时读写, 不参与 Observation。
+@MainActor
+private final class ArtistAlbumShelvesCache {
+    private var key: ArtistAlbumShelves.Key?
+    private var cached = ArtistAlbumShelves()
+
+    func shelves(for key: ArtistAlbumShelves.Key, make: () -> ArtistAlbumShelves) -> ArtistAlbumShelves {
+        if key == self.key { return cached }
+        cached = make()
+        self.key = key
+        return cached
+    }
+}
+
 struct ArtistDetailView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
@@ -32,6 +57,7 @@ struct ArtistDetailView: View {
     @State private var showsAllSongs = false
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
     @State private var listeningSnapshot = ArtistListeningSnapshot()
+    @State private var albumShelvesCache = ArtistAlbumShelvesCache()
 
     init(artist: Artist, onMacInlineBack: (() -> Void)? = nil) {
         self.artist = artist
@@ -55,16 +81,36 @@ struct ArtistDetailView: View {
     }
     #endif
 
-    private var releaseAlbums: [Album] {
-        library.visibleAlbums.filter(isPrimaryArtistAlbum).sorted(by: albumOrder)
+    /// 发行与参与的专辑要把整库专辑筛一遍、排一遍, 一次重绘却会问好几回 (头部计数、
+    /// 各个货架、最常听), 所以按专辑表的修订号记住结果。
+    private var albumShelves: ArtistAlbumShelves {
+        let key = ArtistAlbumShelves.Key(
+            albumsRevision: library.visibleAlbumsRevision,
+            artistID: artist.id,
+            artistName: artist.name
+        )
+        return albumShelvesCache.shelves(for: key) {
+            let name = displayArtistName
+            let albums = library.visibleAlbums
+            let songAlbumIDs = Set(songs.compactMap(\.albumID))
+            var release: [Album] = []
+            var appearsOn: [Album] = []
+            for album in albums {
+                if isPrimaryArtistAlbum(album, displayName: name) {
+                    release.append(album)
+                } else if songAlbumIDs.contains(album.id) {
+                    appearsOn.append(album)
+                }
+            }
+            return ArtistAlbumShelves(
+                release: release.sorted(by: albumOrder),
+                appearsOn: appearsOn.sorted(by: albumOrder)
+            )
+        }
     }
 
-    private var appearsOnAlbums: [Album] {
-        let songAlbumIDs = Set(songs.compactMap(\.albumID))
-        return library.visibleAlbums
-            .filter { songAlbumIDs.contains($0.id) && !isPrimaryArtistAlbum($0) }
-            .sorted(by: albumOrder)
-    }
+    private var releaseAlbums: [Album] { albumShelves.release }
+    private var appearsOnAlbums: [Album] { albumShelves.appearsOn }
 
     private var mostPlayedAlbums: [Album] {
         releaseAlbums
@@ -495,8 +541,9 @@ struct ArtistDetailView: View {
                     .font(.subheadline.weight(.semibold))
             }
 
+            let popular = topSongs
             LazyVStack(spacing: 0) {
-                ForEach(Array(topSongs.enumerated()), id: \.element.id) { index, song in
+                ForEach(Array(popular.enumerated()), id: \.element.id) { index, song in
                     SongRowView(
                         song: song,
                         isPlaying: player.currentSong?.id == song.id,
@@ -517,7 +564,7 @@ struct ArtistDetailView: View {
                         orderedIDs: { selectableSongIDs }
                     )
 
-                    if index != topSongs.count - 1 {
+                    if index != popular.count - 1 {
                         Divider().padding(.leading, 66)
                     }
                 }
@@ -870,12 +917,12 @@ struct ArtistDetailView: View {
         .buttonStyle(.plain)
     }
 
-    private func isPrimaryArtistAlbum(_ album: Album) -> Bool {
+    private func isPrimaryArtistAlbum(_ album: Album, displayName: String) -> Bool {
         if album.artistID == artist.id { return true }
         guard let albumArtist = album.artistName?.trimmingCharacters(in: .whitespacesAndNewlines),
               !albumArtist.isEmpty else { return false }
         return albumArtist.compare(
-            displayArtistName,
+            displayName,
             options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive]
         ) == .orderedSame
     }

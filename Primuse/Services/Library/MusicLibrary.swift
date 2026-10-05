@@ -3832,9 +3832,13 @@ final class MusicLibrary {
         set {
             let previous = visibleAlbumsReference
             visibleAlbumsReference = LibraryArrayReference(newValue)
+            visibleAlbumsRevision &+= 1
             LibraryArrayReclaimer.release(previous)
         }
     }
+    /// 每换上一份 `visibleAlbums` 加一。要把整库专辑筛一遍的视图拿它当缓存键,
+    /// 一次重绘里问好几回也只筛一遍。
+    private(set) var visibleAlbumsRevision = 0
     private var visibleArtistsReference = LibraryArrayReference<Artist>()
     private(set) var visibleArtists: [Artist] {
         get { visibleArtistsReference.value }
