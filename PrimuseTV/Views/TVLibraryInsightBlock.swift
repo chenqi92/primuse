@@ -2,8 +2,9 @@ import SwiftUI
 import PrimuseKit
 
 /// 电视专辑页 / 艺人页右栏顶上的「关于这张专辑」「关于这位艺人」。
-/// 有简介时像影片介绍页那样直接是风格、几行摘录和来源,不套卡片,按下打开全文;
-/// 还没有时是一张「生成简介」卡片。长按可以重新生成或删除。编辑在 iPhone、iPad 或 Mac 上做,随曲库同步过来。
+/// 有简介时像影片介绍页那样是风格、几行摘录和来源,垫一层半透明底;摘录放不下时自己慢慢
+/// 往上滚,按下打开全文。还没有时是一张「生成简介」卡片。长按可以重新生成或删除。
+/// 编辑在 iPhone、iPad 或 Mac 上做,随曲库同步过来。
 struct TVLibraryInsightBlock: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
     @Environment(TVStore.self) private var tvStore
@@ -13,8 +14,7 @@ struct TVLibraryInsightBlock: View {
     let details: () -> LibraryInsightSubject
 
     @State private var showsReader = false
-    @State private var excerptHeight: CGFloat = 0
-    @State private var fullHeight: CGFloat = 0
+    @State private var summaryOverflows = false
 
     private var store: LibraryInsightStore { .shared }
 
@@ -78,11 +78,12 @@ struct TVLibraryInsightBlock: View {
         }
     }
 
-    /// 摘录平时直接压在底图上,「生成简介」这类卡片平时与曲目行同底;焦点到了都换亮一档的底(与曲目行一致)。
-    /// 卡片原来只多一圈细描边,电视上看不出焦点已经从曲目移到了这里。
+    /// 摘录平时垫一层半透明的页面底色,压在封面取色的底图上也看得清;「生成简介」这类卡片平时
+    /// 与曲目行同底;焦点到了都换亮一档的底(与曲目行一致)。卡片原来只多一圈细描边,电视上看不出
+    /// 焦点已经从曲目移到了这里。
     private static func background(showsSynopsis: Bool, focused: Bool) -> Color {
         if focused { return TVColor.surfaceStrong }
-        return showsSynopsis ? .clear : TVColor.card
+        return showsSynopsis ? TVColor.bg.opacity(0.38) : TVColor.card
     }
 
     #if DEBUG
@@ -169,20 +170,7 @@ struct TVLibraryInsightBlock: View {
                     .lineLimit(1)
             }
             if !insight.summary.isEmpty {
-                Text(verbatim: insight.summary)
-                    .tvFont(.body)
-                    .foregroundStyle(TVColor.text)
-                    .lineLimit(4)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { excerptHeight = $0 }
-                    .background(alignment: .topLeading) {
-                        // 不限行数时有多高:比摘录高才露出「更多」。
-                        Text(verbatim: insight.summary)
-                            .tvFont(.body)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .hidden()
-                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fullHeight = $0 }
-                    }
+                TVInsightScrollingExcerpt(text: insight.summary, overflows: $summaryOverflows)
             }
             HStack(alignment: .firstTextBaseline, spacing: 16) {
                 Group {
@@ -202,7 +190,7 @@ struct TVLibraryInsightBlock: View {
                 Text(String(localized: "more"))
                     .tvFont(.meta, weight: .semibold)
                     .foregroundStyle(focused ? TVColor.text : TVColor.textMuted)
-                    .opacity(fullHeight > excerptHeight + 1 ? 1 : 0)
+                    .opacity(summaryOverflows ? 1 : 0)
             }
         }
     }
@@ -233,6 +221,131 @@ struct TVLibraryInsightBlock: View {
     private func generate() {
         let full = details()
         Task { await store.generate(full, library: tvStore.library, intelligence: intelligence) }
+    }
+}
+
+/// 简介摘录:四行高的窗口。放得下就静止;放不下时先停 5 秒,再由下往上慢慢滚到末尾,末尾停
+/// 5 秒后淡出、回到开头重来。上下边缘只在有字滚出去 / 还有字没滚上来时才渐隐。
+/// 「减弱动态效果」打开时只显示前四行(按下仍可看全文)。
+private struct TVInsightScrollingExcerpt: View {
+    let text: String
+    @Binding var overflows: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var windowHeight: CGFloat = 0
+    @State private var fullHeight: CGFloat = 0
+    @State private var offset: CGFloat = 0
+    @State private var textOpacity: Double = 1
+    @State private var topFade: Double = 0
+    @State private var bottomFade: Double = 1
+
+    private static let visibleLines = 4
+    private static let holdSeconds: Double = 5
+    /// 大约两秒多一行,隔着几米也来得及读。
+    private static let pointsPerSecond: Double = 18
+    private static let fadeHeight: CGFloat = 26
+    private static let swapSeconds: Double = 0.5
+
+    private struct Cycle: Equatable {
+        let text: String
+        let overflow: CGFloat
+        let scrolls: Bool
+    }
+
+    private var overflow: CGFloat { max(0, (fullHeight - windowHeight).rounded()) }
+    private var scrolls: Bool { overflow > 1 && !reduceMotion }
+
+    var body: some View {
+        // 限四行的这一份定出窗口大小;要滚时它让位给上面那份全文。
+        Text(verbatim: text)
+            .tvFont(.body)
+            .foregroundStyle(TVColor.text)
+            .lineLimit(Self.visibleLines)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .opacity(scrolls ? 0 : 1)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { windowHeight = $0 }
+            .overlay(alignment: .topLeading) {
+                if scrolls {
+                    Text(verbatim: text)
+                        .tvFont(.body)
+                        .foregroundStyle(TVColor.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .offset(y: offset)
+                        .opacity(textOpacity)
+                        // 写明最小高度 0:不写的话框会被全文撑高,下边缘就裁不住。
+                        .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
+                        .mask(edgeMask)
+                        .accessibilityHidden(true)
+                }
+            }
+            .clipped()
+            .background(alignment: .topLeading) {
+                // 不限行数时有多高:比窗口高才滚、才露出「更多」。
+                Text(verbatim: text)
+                    .tvFont(.body)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .hidden()
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fullHeight = $0 }
+            }
+            .onChange(of: overflow > 1, initial: true) { _, value in overflows = value }
+            .task(id: Cycle(text: text, overflow: overflow, scrolls: scrolls)) { await runCycle() }
+    }
+
+    private var edgeMask: some View {
+        VStack(spacing: 0) {
+            LinearGradient(
+                colors: [.black.opacity(1 - topFade), .black],
+                startPoint: .top, endPoint: .bottom
+            )
+            .frame(height: Self.fadeHeight)
+            Color.black
+            LinearGradient(
+                colors: [.black, .black.opacity(1 - bottomFade)],
+                startPoint: .top, endPoint: .bottom
+            )
+            .frame(height: Self.fadeHeight)
+        }
+    }
+
+    private func runCycle() async {
+        resetToTop()
+        guard scrolls else { return }
+        let distance = overflow
+        let travel = Double(distance) / Self.pointsPerSecond
+        while !Task.isCancelled {
+            guard await pause(Self.holdSeconds) else { return }
+            withAnimation(.linear(duration: travel)) { offset = -distance }
+            withAnimation(.easeInOut(duration: Self.swapSeconds)) { topFade = 1 }
+            guard await pause(max(0, travel - Self.swapSeconds)) else { return }
+            withAnimation(.easeInOut(duration: Self.swapSeconds)) { bottomFade = 0 }
+            guard await pause(Self.swapSeconds + Self.holdSeconds) else { return }
+            withAnimation(.easeInOut(duration: Self.swapSeconds)) { textOpacity = 0 }
+            guard await pause(Self.swapSeconds) else { return }
+            resetToTop(visible: false)
+            withAnimation(.easeInOut(duration: Self.swapSeconds)) { textOpacity = 1 }
+        }
+    }
+
+    private func resetToTop(visible: Bool = true) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            offset = 0
+            topFade = 0
+            bottomFade = 1
+            textOpacity = visible ? 1 : 0
+        }
+    }
+
+    /// 等一会儿;页面离开或文字变了(任务被取消)→ false。
+    private func pause(_ seconds: Double) async -> Bool {
+        do {
+            try await Task.sleep(for: .seconds(seconds))
+            return true
+        } catch {
+            return false
+        }
     }
 }
 

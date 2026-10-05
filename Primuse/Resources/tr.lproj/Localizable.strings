@@ -5285,7 +5285,7 @@
 "library_insight_regenerate" = "Yeniden yaz";
 "library_insight_remove" = "Tanıtımı sil";
 "library_insight_less" = "Daha az";
-"library_insight_footer_format" = "Yapay zekâ yazdı · %@ · hata içerebilir";
+"library_insight_footer_format" = "%@ tarafından yazıldı · yalnızca bilgi amaçlıdır";
 "library_insight_unknown_album" = "Yapay zekâ bu albümü pek tanımadığı için tanıtım yazmadı.";
 "library_insight_unknown_artist" = "Yapay zekâ bu sanatçıyı pek tanımadığı için tanıtım yazmadı.";
 "library_insight_allow_and_generate" = "İzin ver ve yaz";

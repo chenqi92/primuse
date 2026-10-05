@@ -5285,7 +5285,7 @@
 "library_insight_regenerate" = "फिर से लिखें";
 "library_insight_remove" = "परिचय हटाएँ";
 "library_insight_less" = "कम दिखाएँ";
-"library_insight_footer_format" = "AI ने लिखा · %@ · इसमें गलतियाँ हो सकती हैं";
+"library_insight_footer_format" = "%@ द्वारा लिखा गया · केवल संदर्भ के लिए";
 "library_insight_unknown_album" = "AI इस एल्बम के बारे में ज़्यादा नहीं जानता, इसलिए परिचय नहीं लिखा।";
 "library_insight_unknown_artist" = "AI इस कलाकार के बारे में ज़्यादा नहीं जानता, इसलिए परिचय नहीं लिखा।";
 "library_insight_allow_and_generate" = "अनुमति दें और लिखें";

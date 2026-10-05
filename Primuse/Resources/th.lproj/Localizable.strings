@@ -5285,7 +5285,7 @@
 "library_insight_regenerate" = "เขียนใหม่";
 "library_insight_remove" = "ลบคำแนะนำ";
 "library_insight_less" = "ย่อ";
-"library_insight_footer_format" = "เขียนโดย AI · %@ · อาจมีข้อผิดพลาด";
+"library_insight_footer_format" = "เขียนโดย %@ · ใช้เพื่ออ้างอิงเท่านั้น";
 "library_insight_unknown_album" = "AI ไม่ค่อยรู้จักอัลบั้มนี้ จึงไม่ได้เขียนคำแนะนำ";
 "library_insight_unknown_artist" = "AI ไม่ค่อยรู้จักศิลปินนี้ จึงไม่ได้เขียนคำแนะนำ";
 "library_insight_allow_and_generate" = "อนุญาตและเขียน";

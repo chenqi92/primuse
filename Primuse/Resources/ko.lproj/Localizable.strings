@@ -5379,7 +5379,7 @@
 "library_insight_regenerate" = "다시 만들기";
 "library_insight_remove" = "소개 삭제";
 "library_insight_less" = "접기";
-"library_insight_footer_format" = "AI 작성 · %@ · 오류가 있을 수 있음";
+"library_insight_footer_format" = "%@이(가) 작성한 소개 · 참고용";
 "library_insight_unknown_album" = "AI가 이 앨범을 잘 알지 못해 소개를 쓰지 않았습니다.";
 "library_insight_unknown_artist" = "AI가 이 아티스트를 잘 알지 못해 소개를 쓰지 않았습니다.";
 "library_insight_allow_and_generate" = "허용하고 만들기";

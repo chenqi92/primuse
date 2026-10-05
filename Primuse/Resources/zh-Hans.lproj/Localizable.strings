@@ -5472,7 +5472,7 @@
 "library_insight_regenerate" = "重新生成";
 "library_insight_remove" = "删除简介";
 "library_insight_less" = "收起";
-"library_insight_footer_format" = "AI 生成 · %@ · 可能有误";
+"library_insight_footer_format" = "简介由 %@ 生成，仅供参考";
 "library_insight_unknown_album" = "AI 对这张专辑了解不多，没有写简介。";
 "library_insight_unknown_artist" = "AI 对这位艺人了解不多，没有写简介。";
 "library_insight_allow_and_generate" = "允许并生成";

@@ -5285,7 +5285,7 @@
 "library_insight_regenerate" = "Написать заново";
 "library_insight_remove" = "Удалить описание";
 "library_insight_less" = "Свернуть";
-"library_insight_footer_format" = "Написано ИИ · %@ · возможны ошибки";
+"library_insight_footer_format" = "Автор описания: %@ · только для справки";
 "library_insight_unknown_album" = "ИИ почти ничего не знает об этом альбоме, поэтому описание не написано.";
 "library_insight_unknown_artist" = "ИИ почти ничего не знает об этом исполнителе, поэтому описание не написано.";
 "library_insight_allow_and_generate" = "Разрешить и написать";

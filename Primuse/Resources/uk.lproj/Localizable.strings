@@ -5285,7 +5285,7 @@
 "library_insight_regenerate" = "Написати знову";
 "library_insight_remove" = "Видалити опис";
 "library_insight_less" = "Згорнути";
-"library_insight_footer_format" = "Написано ШІ · %@ · можливі помилки";
+"library_insight_footer_format" = "Автор опису: %@ · лише для довідки";
 "library_insight_unknown_album" = "ШІ майже нічого не знає про цей альбом, тому опис не написано.";
 "library_insight_unknown_artist" = "ШІ майже нічого не знає про цього виконавця, тому опис не написано.";
 "library_insight_allow_and_generate" = "Дозволити й написати";

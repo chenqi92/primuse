@@ -5285,7 +5285,7 @@
 "library_insight_regenerate" = "Escrever de novo";
 "library_insight_remove" = "Apagar apresentação";
 "library_insight_less" = "Menos";
-"library_insight_footer_format" = "Escrito por IA · %@ · pode conter erros";
+"library_insight_footer_format" = "Escrito por %@ · apenas para referência";
 "library_insight_unknown_album" = "A IA não conhece bem este álbum, por isso não escreveu uma apresentação.";
 "library_insight_unknown_artist" = "A IA não conhece bem este artista, por isso não escreveu uma apresentação.";
 "library_insight_allow_and_generate" = "Permitir e escrever";

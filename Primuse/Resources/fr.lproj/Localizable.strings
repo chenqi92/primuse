@@ -5379,7 +5379,7 @@
 "library_insight_regenerate" = "Rédiger à nouveau";
 "library_insight_remove" = "Supprimer la présentation";
 "library_insight_less" = "Moins";
-"library_insight_footer_format" = "Rédigé par l’IA · %@ · peut contenir des erreurs";
+"library_insight_footer_format" = "Rédigé par %@ · à titre indicatif";
 "library_insight_unknown_album" = "L’IA connaît mal cet album, elle n’a donc pas rédigé de présentation.";
 "library_insight_unknown_artist" = "L’IA connaît mal cet artiste, elle n’a donc pas rédigé de présentation.";
 "library_insight_allow_and_generate" = "Autoriser et rédiger";

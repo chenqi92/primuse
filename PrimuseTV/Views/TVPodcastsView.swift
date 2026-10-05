@@ -1181,9 +1181,7 @@ struct TVPodcastShowDetailView: View {
                 }
                 Spacer(minLength: 12)
                 if isCurrent {
-                    Image(systemName: store.isPlaying ? "speaker.wave.2.fill" : "pause.fill")
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(TVColor.podcastSpace)
+                    TVNowPlayingBars(isPlaying: store.isPlaying, color: TVColor.podcastSpace)
                 } else if state.isFinished {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 26, weight: .semibold))

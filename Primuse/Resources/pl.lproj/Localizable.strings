@@ -5285,7 +5285,7 @@
 "library_insight_regenerate" = "Napisz ponownie";
 "library_insight_remove" = "Usuń wprowadzenie";
 "library_insight_less" = "Mniej";
-"library_insight_footer_format" = "Napisane przez AI · %@ · może zawierać błędy";
+"library_insight_footer_format" = "Opis: %@ · tylko poglądowo";
 "library_insight_unknown_album" = "AI słabo zna ten album, więc nie napisało wprowadzenia.";
 "library_insight_unknown_artist" = "AI słabo zna tego wykonawcę, więc nie napisało wprowadzenia.";
 "library_insight_allow_and_generate" = "Zezwól i napisz";

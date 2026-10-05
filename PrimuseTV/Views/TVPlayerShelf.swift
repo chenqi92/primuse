@@ -508,9 +508,7 @@ struct TVPlayerShelf: View, @MainActor Equatable {
     }
 
     private var nowPlayingBadge: some View {
-        Image(systemName: store.isPlaying ? "speaker.wave.2.fill" : "speaker.fill")
-            .font(.system(size: 22, weight: .semibold))
-            .foregroundStyle(TVColor.onBrand)
+        TVNowPlayingBars(isPlaying: store.isPlaying, color: TVColor.onBrand, barWidth: 4, height: 20)
             .frame(width: 48, height: 48)
             .background(TVColor.brand, in: Circle())
             .padding(10)

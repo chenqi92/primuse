@@ -5285,7 +5285,7 @@
 "library_insight_regenerate" = "إعادة الكتابة";
 "library_insight_remove" = "حذف النبذة";
 "library_insight_less" = "أقل";
-"library_insight_footer_format" = "كتبها الذكاء الاصطناعي · %@ · قد تحتوي على أخطاء";
+"library_insight_footer_format" = "كتبه %@ · للاسترشاد فقط";
 "library_insight_unknown_album" = "لا يعرف الذكاء الاصطناعي الكثير عن هذا الألبوم، لذا لم يكتب نبذة.";
 "library_insight_unknown_artist" = "لا يعرف الذكاء الاصطناعي الكثير عن هذا الفنان، لذا لم يكتب نبذة.";
 "library_insight_allow_and_generate" = "السماح والكتابة";

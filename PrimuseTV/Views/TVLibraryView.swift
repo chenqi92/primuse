@@ -1224,6 +1224,45 @@ struct TVAlbumDetailPresenter: ViewModifier {
 
 /// 专辑页:按下专辑封面先看到整张专辑的曲目,从哪一首点下去就从哪一首播,
 /// 整张专辑仍是队列。「全部播放 / 随机播放 / 串烧」与艺人页同一排布。
+/// 专辑页大封面的缓慢浮动:六七秒一个来回地上浮几点、略微放大,投影跟着变远变淡,像离开了
+/// 页面;左右再按另一个节奏挪一点,两个节奏错开就不显得机械。只动封面这一层(动画限定在
+/// 修饰器里,页面推入的位移不会被带着循环),「减弱动态效果」打开时静止。
+private struct TVArtworkGentleFloat: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var lifted = false
+    @State private var drifted = false
+
+    func body(content: Content) -> some View {
+        content
+            .animation(reduceMotion ? nil : .easeInOut(duration: 6.5).repeatForever(autoreverses: true)) {
+                $0
+                    .shadow(
+                        color: TVColor.focusShadow.opacity(lifted ? 0.75 : 0.55),
+                        radius: lifted ? 34 : 20,
+                        x: 0,
+                        y: lifted ? 26 : 12
+                    )
+                    .scaleEffect(lifted ? 1.02 : 1)
+                    .offset(y: lifted ? -7 : 0)
+            }
+            .animation(reduceMotion ? nil : .easeInOut(duration: 9.5).repeatForever(autoreverses: true)) {
+                $0.offset(x: drifted ? 4 : 0)
+            }
+            .task(id: reduceMotion) {
+                guard !reduceMotion else {
+                    lifted = false
+                    drifted = false
+                    return
+                }
+                // 等页面推入的动画走完再开始,封面先稳稳落位。
+                try? await Task.sleep(for: .milliseconds(600))
+                guard !Task.isCancelled else { return }
+                lifted = true
+                drifted = true
+            }
+    }
+}
+
 struct TVAlbumDetailView: View {
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -1300,6 +1339,7 @@ struct TVAlbumDetailView: View {
             HStack(alignment: .top, spacing: 72) {
                 VStack(alignment: .leading, spacing: 22) {
                     TVArtworkView(album: album, size: 300, radius: 18)
+                        .modifier(TVArtworkGentleFloat())
                     Text(album.title)
                         .tvFont(.pageTitle)
                         .foregroundStyle(TVColor.text)
@@ -1618,10 +1658,9 @@ struct TVAlbumDetailView: View {
                         .tvFont(.caption, design: .monospaced)
                         .foregroundStyle(TVColor.textFaint)
                         .opacity(isCurrent ? 0 : 1)
-                    Image(systemName: "speaker.wave.2.fill")
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(TVColor.brand)
-                        .opacity(isCurrent ? 1 : 0)
+                    if isCurrent {
+                        TVNowPlayingBars(isPlaying: store.isPlaying)
+                    }
                 }
                 .frame(width: 56, alignment: .trailing)
                 VStack(alignment: .leading, spacing: 4) {
@@ -1711,6 +1750,7 @@ struct TVSongRow: View {
 
     var body: some View {
         let album = store.albumOf(song)
+        let isCurrent = store.hasNowPlaying && store.currentSongID == song.id
         TVFocusButton(radius: TVRadius.card, scale: 1.02, lift: 0,
                       action: {
                           // 列表内点歌保持该列表为队列,并沿用当前随机开关;
@@ -1728,6 +1768,15 @@ struct TVSongRow: View {
                               album: album?.title ?? "", songID: song.id, coverRef: song.coverRef,
                               tint: album?.tint ?? TVColor.brand,
                               tint2: album?.tint2 ?? .black, glyph: album?.glyph ?? "♪", size: 64, radius: 8)
+                    .overlay {
+                        if isCurrent {
+                            ZStack {
+                                Color.black.opacity(0.42)
+                                TVNowPlayingBars(isPlaying: store.isPlaying, color: .white, barWidth: 4, height: 22)
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        }
+                    }
                 VStack(alignment: .leading, spacing: 3) {
                     if let reason {
                         Label(reason, systemImage: "sparkles")
@@ -1736,7 +1785,7 @@ struct TVSongRow: View {
                             .lineLimit(1)
                     }
                     Text(song.title).tvFont(.cardTitle)
-                        .foregroundStyle(TVColor.text).lineLimit(2)
+                        .foregroundStyle(isCurrent ? TVColor.brand : TVColor.text).lineLimit(2)
                     Text(song.artist).tvFont(.caption)
                         .foregroundStyle(TVColor.textFaint).lineLimit(1)
                 }

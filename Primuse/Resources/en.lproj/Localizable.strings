@@ -5142,7 +5142,7 @@
 "library_insight_regenerate" = "Regenerate";
 "library_insight_remove" = "Remove Intro";
 "library_insight_less" = "Less";
-"library_insight_footer_format" = "Written by AI · %@ · may contain mistakes";
+"library_insight_footer_format" = "Written by %@ · for reference only";
 "library_insight_unknown_album" = "The AI doesn't know much about this album, so it didn't write an intro.";
 "library_insight_unknown_artist" = "The AI doesn't know much about this artist, so it didn't write an intro.";
 "library_insight_allow_and_generate" = "Allow and Write";

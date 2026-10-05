@@ -1060,4 +1060,43 @@ struct TVPagedGrid<Item: Identifiable, Cell: View>: View {
     }
 }
 
+/// 「正在播放」那一行的跳动音柱:播放时四根柱子按各自的节奏起落(两条不同频率的正弦叠在一起,
+/// 不像单一往复那么机械),暂停时落成高低错落的一排静止。「减弱动态效果」打开时也静止。
+struct TVNowPlayingBars: View {
+    var isPlaying: Bool
+    var color: Color = TVColor.brand
+    var barWidth: CGFloat = 5
+    var height: CGFloat = 24
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private static let restingLevels: [Double] = [0.45, 0.8, 0.6, 0.35]
+    private static let speeds: [Double] = [2.3, 3.4, 2.8, 3.9]
+    private static let phases: [Double] = [0, 1.3, 2.5, 0.7]
+
+    var body: some View {
+        let animates = isPlaying && !reduceMotion
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !animates)) { context in
+            let time = context.date.timeIntervalSinceReferenceDate
+            HStack(alignment: .bottom, spacing: barWidth * 0.7) {
+                ForEach(0..<4, id: \.self) { index in
+                    Capsule()
+                        .fill(color)
+                        .frame(width: barWidth, height: height * Self.level(index, time: time, animates: animates))
+                }
+            }
+            .frame(height: height, alignment: .bottom)
+        }
+        .animation(.easeOut(duration: 0.25), value: animates)
+        .accessibilityHidden(true)
+    }
+
+    private static func level(_ index: Int, time: TimeInterval, animates: Bool) -> CGFloat {
+        guard animates else { return restingLevels[index] }
+        let primary = sin(time * speeds[index] * .pi + phases[index])
+        let secondary = sin(time * speeds[index] * 1.9 + phases[index] * 2)
+        return CGFloat(min(1, max(0.18, 0.56 + 0.3 * primary + 0.14 * secondary)))
+    }
+}
+
 #endif

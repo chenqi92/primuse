@@ -5356,7 +5356,7 @@
 "library_insight_regenerate" = "重新產生";
 "library_insight_remove" = "刪除簡介";
 "library_insight_less" = "收合";
-"library_insight_footer_format" = "AI 產生 · %@ · 可能有誤";
+"library_insight_footer_format" = "簡介由 %@ 產生，僅供參考";
 "library_insight_unknown_album" = "AI 對這張專輯了解不多，沒有寫簡介。";
 "library_insight_unknown_artist" = "AI 對這位藝人了解不多，沒有寫簡介。";
 "library_insight_allow_and_generate" = "允許並產生";

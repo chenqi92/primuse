@@ -5380,7 +5380,7 @@
 "library_insight_regenerate" = "作り直す";
 "library_insight_remove" = "紹介を削除";
 "library_insight_less" = "閉じる";
-"library_insight_footer_format" = "AI 作成 · %@ · 誤りを含む場合があります";
+"library_insight_footer_format" = "紹介文は %@ が作成したもので、参考情報です";
 "library_insight_unknown_album" = "AI はこのアルバムをよく知らないため、紹介を書きませんでした。";
 "library_insight_unknown_artist" = "AI はこのアーティストをよく知らないため、紹介を書きませんでした。";
 "library_insight_allow_and_generate" = "許可して作成";

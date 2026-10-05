@@ -5379,7 +5379,7 @@
 "library_insight_regenerate" = "Neu schreiben";
 "library_insight_remove" = "Einführung entfernen";
 "library_insight_less" = "Weniger";
-"library_insight_footer_format" = "Von KI geschrieben · %@ · kann Fehler enthalten";
+"library_insight_footer_format" = "Verfasst von %@ · nur zur Orientierung";
 "library_insight_unknown_album" = "Die KI kennt dieses Album kaum und hat deshalb keine Einführung geschrieben.";
 "library_insight_unknown_artist" = "Die KI kennt diesen Künstler kaum und hat deshalb keine Einführung geschrieben.";
 "library_insight_allow_and_generate" = "Erlauben und schreiben";
