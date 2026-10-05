@@ -4807,6 +4807,9 @@
 "karaoke_loop_lines_format" = "%d Zeilen in Schleife";
 "karaoke_loop_extend" = "Zeile hinzufügen";
 "karaoke_practice_not_scored" = "Beim Üben wird nicht bewertet oder aufgenommen.";
+"karaoke_finish_needs_microphone" = "Mikrofon an und singen für eine Wertung";
+"karaoke_finish_needs_singing" = "Erst ein, zwei Zeilen singen, dann beenden";
+"karaoke_record_needs_microphone" = "Mikrofon einschalten, um aufzunehmen";
 "karaoke_ai_model_incomplete" = "Das KI-Modell ist unvollständig. Tippe auf „Erneut versuchen“, um es neu zu laden.";
 
 /* Listening spaces: music, radio and spoken word */

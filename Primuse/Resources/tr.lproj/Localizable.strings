@@ -4713,6 +4713,9 @@
 "karaoke_loop_lines_format" = "%d satır döngüde";
 "karaoke_loop_extend" = "Satır ekle";
 "karaoke_practice_not_scored" = "Alıştırmada puanlama ve kayıt yapılmaz.";
+"karaoke_finish_needs_microphone" = "Puan için mikrofonu açıp şarkı söyleyin";
+"karaoke_finish_needs_singing" = "Bitirmeden önce bir iki satır söyleyin";
+"karaoke_record_needs_microphone" = "Kayıt için mikrofonu açın";
 "karaoke_ai_model_incomplete" = "Yapay zekâ modeli eksik. Yeniden indirmek için “Yeniden dene”ye dokunun.";
 
 /* Listening spaces: music, radio and spoken word */

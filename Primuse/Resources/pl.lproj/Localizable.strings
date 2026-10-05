@@ -4713,6 +4713,9 @@
 "karaoke_loop_lines_format" = "Zapętlone wersy: %d";
 "karaoke_loop_extend" = "Dodaj wers";
 "karaoke_practice_not_scored" = "Tryb ćwiczeń: bez oceniania i nagrywania.";
+"karaoke_finish_needs_microphone" = "Włącz mikrofon i śpiewaj, by dostać wynik";
+"karaoke_finish_needs_singing" = "Zaśpiewaj wers lub dwa, potem zakończ";
+"karaoke_record_needs_microphone" = "Włącz mikrofon, aby nagrywać";
 "karaoke_ai_model_incomplete" = "Model AI jest niekompletny. Stuknij „Ponów”, aby pobrać go ponownie.";
 
 /* Listening spaces: music, radio and spoken word */

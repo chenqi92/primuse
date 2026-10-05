@@ -4713,6 +4713,9 @@
 "karaoke_loop_lines_format" = "กำลังวน %d ท่อน";
 "karaoke_loop_extend" = "เพิ่มหนึ่งท่อน";
 "karaoke_practice_not_scored" = "ระหว่างฝึกจะไม่ให้คะแนนและไม่บันทึกเสียง";
+"karaoke_finish_needs_microphone" = "เปิดไมโครโฟนแล้วร้องเพื่อรับคะแนน";
+"karaoke_finish_needs_singing" = "ร้องสักท่อนสองท่อนก่อน แล้วค่อยสรุปผล";
+"karaoke_record_needs_microphone" = "เปิดไมโครโฟนเพื่ออัดเสียง";
 "karaoke_ai_model_incomplete" = "โมเดล AI ไม่สมบูรณ์ แตะ “ลองอีกครั้ง” เพื่อดาวน์โหลดใหม่";
 
 /* Listening spaces: music, radio and spoken word */

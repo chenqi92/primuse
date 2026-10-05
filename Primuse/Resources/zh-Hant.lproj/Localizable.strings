@@ -4784,6 +4784,9 @@
 "karaoke_loop_lines_format" = "循環 %d 句";
 "karaoke_loop_extend" = "加一句";
 "karaoke_practice_not_scored" = "練習中不計分、不錄音。";
+"karaoke_finish_needs_microphone" = "打開麥克風唱幾句，才有分數可以結算";
+"karaoke_finish_needs_singing" = "唱完一兩句就能結算";
+"karaoke_record_needs_microphone" = "打開麥克風後才能錄音";
 "karaoke_ai_model_incomplete" = "AI 模型檔案不完整，點「重試」重新下載。";
 
 /* Listening spaces: music, radio and spoken word */

@@ -744,7 +744,8 @@ private struct KaraokeMixerCard: View {
 }
 
 /// 与播放页同一条进度条，可拖动。拖离循环的句子会照常退出循环。
-/// 时间那一行定高，循环中的「循环 N 句 / 加一句」胶囊就放在两端时间中间，来去不改高度。
+/// 时间那一行定高，循环中的「循环 N 句 / 加一句」胶囊和点了「结算」「录音」后的提示
+/// 都放在两端时间中间，来去不改高度。
 private struct KaraokeProgressRow: View {
     let session: KaraokeSession
 
@@ -762,7 +763,10 @@ private struct KaraokeProgressRow: View {
             HStack(spacing: 8) {
                 Text(player.currentTime.formattedDuration)
                 Spacer(minLength: 0)
-                if let loop = session.loop {
+                if let hint = session.transportHint {
+                    KaraokeHintChip(text: hint.message)
+                        .transition(.opacity)
+                } else if let loop = session.loop {
                     KaraokeLoopChip(session: session, lineCount: loop.lineCount)
                         .transition(.opacity)
                 }
@@ -772,6 +776,10 @@ private struct KaraokeProgressRow: View {
             .font(.caption2.monospacedDigit())
             .foregroundStyle(.white.opacity(0.55))
             .frame(height: 22)
+            .animation(.easeInOut(duration: 0.25), value: session.transportHint)
+            .onChange(of: session.transportHint) { _, hint in
+                if let hint { AccessibilityNotification.Announcement(hint.message).post() }
+            }
             // 进度条自带 44 点高的拖动热区，时间贴回细条下方。
             .padding(.top, -12)
         }
@@ -801,14 +809,16 @@ private struct KaraokeTransportRow: View {
                     ? LocalizedStringKey("karaoke_stop_recording")
                     : LocalizedStringKey("karaoke_record")
             ) {
+                // 差的是用户自己能补的一步（开麦克风、退出练习）时照样能点，点了说明差什么。
                 KaraokeGlassToggle(
                     systemImage: session.isRecording ? "stop.fill" : "record.circle",
                     isOn: session.isRecording,
                     tint: .red,
                     isBusy: session.isMixingRecording,
+                    isDimmed: session.recordBlocker != nil,
                     action: session.toggleRecording
                 )
-                .disabled(!session.isRecording && !session.canRecord)
+                .disabled(!session.isRecording && !session.canRecord && session.recordBlocker == nil)
                 .accessibilityLabel(Text(session.isRecording
                     ? LocalizedStringKey("karaoke_stop_recording")
                     : LocalizedStringKey("karaoke_record")))
@@ -841,12 +851,13 @@ private struct KaraokeTransportRow: View {
                     : LocalizedStringKey("karaoke_loop")))
             }
             KaraokeTransportSlot(titleKey: "karaoke_finish") {
+                // 还没有分数时不置灰禁用：点了说明要先开麦克风唱几句，免得像坏了一样没反应。
                 KaraokeGlassToggle(
                     systemImage: "flag.checkered",
                     isOn: false,
+                    isDimmed: session.finishBlocker != nil,
                     action: session.finishPerformance
                 )
-                .disabled(session.runningScore == nil)
                 .accessibilityLabel(Text("karaoke_finish"))
             }
         }
@@ -884,6 +895,8 @@ private struct KaraokeGlassToggle: View {
     let isOn: Bool
     var tint: Color = .white
     var isBusy = false
+    /// Looks unavailable but still takes the tap, which explains what is missing.
+    var isDimmed = false
     let action: () -> Void
 
     @Environment(\.isEnabled) private var isEnabled
@@ -906,7 +919,7 @@ private struct KaraokeGlassToggle: View {
                         .karaokeGlass(Circle())
                 }
             }
-            .opacity(isEnabled ? 1 : 0.4)
+            .opacity(isEnabled && !isDimmed ? 1 : 0.4)
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isOn ? .isSelected : [])
@@ -1155,6 +1168,33 @@ private struct KaraokeLoopChip: View {
         .padding(.trailing, session.canExtendLoop ? 2 : 9)
         .frame(height: 22)
         .karaokeGlass(Capsule())
+    }
+}
+
+/// 点了暂时用不了的「结算」「录音」后，说明还差哪一步。
+private struct KaraokeHintChip: View {
+    let text: String
+
+    var body: some View {
+        Label(text, systemImage: "info.circle")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.white.opacity(0.92))
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .padding(.horizontal, 9)
+            .frame(height: 22)
+            .karaokeGlass(Capsule())
+    }
+}
+
+private extension KaraokeSession.TransportHint {
+    var message: String {
+        switch self {
+        case .finishNeedsMicrophone: String(localized: "karaoke_finish_needs_microphone")
+        case .finishNeedsSinging: String(localized: "karaoke_finish_needs_singing")
+        case .recordNeedsMicrophone: String(localized: "karaoke_record_needs_microphone")
+        case .practicing: String(localized: "karaoke_practice_not_scored")
+        }
     }
 }
 

@@ -4808,6 +4808,9 @@
 "karaoke_loop_lines_format" = "%d 行をループ中";
 "karaoke_loop_extend" = "1 行追加";
 "karaoke_practice_not_scored" = "練習中は採点・録音しません。";
+"karaoke_finish_needs_microphone" = "マイクをオンにして歌うと採点できます";
+"karaoke_finish_needs_singing" = "1〜2行歌うと終了できます";
+"karaoke_record_needs_microphone" = "録音するにはマイクをオンにしてください";
 "karaoke_ai_model_incomplete" = "AIモデルが不完全です。「再試行」でもう一度ダウンロードします。";
 
 /* Listening spaces: music, radio and spoken word */

@@ -4713,6 +4713,9 @@
 "karaoke_loop_lines_format" = "Repitiendo %d líneas";
 "karaoke_loop_extend" = "Agregar línea";
 "karaoke_practice_not_scored" = "Practicando: sin puntuación ni grabación.";
+"karaoke_finish_needs_microphone" = "Activa el micrófono y canta para puntuar";
+"karaoke_finish_needs_singing" = "Canta una o dos líneas antes de terminar";
+"karaoke_record_needs_microphone" = "Activa el micrófono para grabar";
 "karaoke_ai_model_incomplete" = "El modelo de IA está incompleto. Toca “Reintentar” para volver a descargarlo.";
 
 /* Listening spaces: music, radio and spoken word */

@@ -4713,6 +4713,9 @@
 "karaoke_loop_lines_format" = "تكرار %d أسطر";
 "karaoke_loop_extend" = "إضافة سطر";
 "karaoke_practice_not_scored" = "وضع التمرين: بلا تقييم أو تسجيل.";
+"karaoke_finish_needs_microphone" = "شغّل الميكروفون وغنِّ لتحصل على نتيجة";
+"karaoke_finish_needs_singing" = "غنِّ سطرًا أو سطرين أولًا ثم أنهِ";
+"karaoke_record_needs_microphone" = "شغّل الميكروفون للتسجيل";
 "karaoke_ai_model_incomplete" = "نموذج الذكاء الاصطناعي غير مكتمل. اضغط «إعادة المحاولة» لتنزيله مرة أخرى.";
 
 /* Listening spaces: music, radio and spoken word */

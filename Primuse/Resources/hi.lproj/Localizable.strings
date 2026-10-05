@@ -4713,6 +4713,9 @@
 "karaoke_loop_lines_format" = "%d पंक्तियाँ दोहराई जा रही हैं";
 "karaoke_loop_extend" = "पंक्ति जोड़ें";
 "karaoke_practice_not_scored" = "अभ्यास के दौरान न स्कोर होगा, न रिकॉर्डिंग।";
+"karaoke_finish_needs_microphone" = "स्कोर के लिए माइक चालू करके गाएँ";
+"karaoke_finish_needs_singing" = "पहले एक-दो पंक्तियाँ गाएँ, फिर समाप्त करें";
+"karaoke_record_needs_microphone" = "रिकॉर्ड करने के लिए माइक चालू करें";
 "karaoke_ai_model_incomplete" = "AI मॉडल अधूरा है। इसे दोबारा डाउनलोड करने के लिए “फिर से कोशिश करें” पर टैप करें।";
 
 /* Listening spaces: music, radio and spoken word */

@@ -4713,6 +4713,9 @@
 "karaoke_loop_lines_format" = "Повтор рядків: %d";
 "karaoke_loop_extend" = "Додати рядок";
 "karaoke_practice_not_scored" = "Режим практики: без оцінки та запису.";
+"karaoke_finish_needs_microphone" = "Увімкніть мікрофон і заспівайте для оцінки";
+"karaoke_finish_needs_singing" = "Заспівайте рядок-другий, потім завершіть";
+"karaoke_record_needs_microphone" = "Увімкніть мікрофон, щоб записувати";
 "karaoke_ai_model_incomplete" = "Модель ШІ неповна. Натисніть «Повторити», щоб завантажити її знову.";
 
 /* Listening spaces: music, radio and spoken word */

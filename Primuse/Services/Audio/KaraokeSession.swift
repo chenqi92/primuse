@@ -93,6 +93,14 @@ final class KaraokeSession {
         case unavailable
     }
 
+    /// A step the singer has to take before finish or record can work.
+    enum TransportHint: Equatable {
+        case finishNeedsMicrophone
+        case finishNeedsSinging
+        case recordNeedsMicrophone
+        case practicing
+    }
+
     struct PitchPoint: Equatable {
         var time: TimeInterval
         var reference: Double?
@@ -220,6 +228,10 @@ final class KaraokeSession {
     private(set) var liveLineScore: KaraokeLineScore?
     private(set) var runningScore: Int?
     var completedPerformance: KaraokePerformance?
+    /// Why the last tap on finish or record had nothing to do; shown for a
+    /// moment instead of the button silently doing nothing.
+    private(set) var transportHint: TransportHint?
+    @ObservationIgnored private var transportHintTask: Task<Void, Never>?
 
     private(set) var isRecording = false
     private(set) var isMixingRecording = false
@@ -327,6 +339,8 @@ final class KaraokeSession {
         lyricsTask = nil
         companionTask?.cancel()
         companionTask = nil
+        transportHintTask?.cancel()
+        transportHintTask = nil
         if isRecording { finishRecording() }
         stopMicrophone()
         removeStem()
@@ -829,9 +843,11 @@ final class KaraokeSession {
         runningScore = summary.isEmpty ? nil : summary.totalScore
     }
 
-    /// Publishes the finished song's score for the result card.
-    private func concludePerformance() {
-        guard microphoneState == .on || lastRecordingURL != nil else { return }
+    /// Publishes the finished song's score for the result card. When the
+    /// song changes, only if the microphone is still on (or a take was
+    /// recorded); the finish button shows whatever was sung.
+    private func concludePerformance(requiresMicrophone: Bool = true) {
+        guard !requiresMicrophone || microphoneState == .on || lastRecordingURL != nil else { return }
         let summary = scorer.summary()
         guard !summary.isEmpty else { return }
         let bestText = summary.bestLine.flatMap { best in
@@ -846,11 +862,33 @@ final class KaraokeSession {
         )
     }
 
-    /// Shows the result card for what has been sung so far.
+    /// Nothing scored yet, and what it takes to get a score.
+    var finishBlocker: TransportHint? {
+        guard runningScore == nil else { return nil }
+        if microphoneState != .on { return .finishNeedsMicrophone }
+        return isPracticing ? .practicing : .finishNeedsSinging
+    }
+
+    /// Shows the result card for what has been sung so far, or says what is
+    /// missing. The score outlives turning the microphone off.
     func finishPerformance() {
+        if let blocker = finishBlocker {
+            showTransportHint(blocker)
+            return
+        }
         if isRecording { finishRecording() }
-        concludePerformance()
+        concludePerformance(requiresMicrophone: false)
         rebuildScorer()
+    }
+
+    private func showTransportHint(_ hint: TransportHint) {
+        transportHint = hint
+        transportHintTask?.cancel()
+        transportHintTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            self?.transportHint = nil
+        }
     }
 
     // MARK: - Microphone
@@ -875,6 +913,7 @@ final class KaraokeSession {
                     return
                 }
                 self.microphoneState = .on
+                self.transportHint = nil
                 self.canMonitor = AudioSessionManager.shared.outputRouteSupportsMicrophoneMonitoring
                 self.isMonitoring = self.isMonitoring && self.canMonitor
                 self.rebuildScorer()
@@ -977,9 +1016,18 @@ final class KaraokeSession {
         }
     }
 
+    /// Why recording cannot start, when it is a step the singer can take.
+    var recordBlocker: TransportHint? {
+        guard !isRecording, !canRecord else { return nil }
+        if microphoneState != .on { return .recordNeedsMicrophone }
+        return isPracticing ? .practicing : nil
+    }
+
     func toggleRecording() {
         if isRecording {
             finishRecording()
+        } else if let blocker = recordBlocker {
+            showTransportHint(blocker)
         } else {
             startRecording()
         }
