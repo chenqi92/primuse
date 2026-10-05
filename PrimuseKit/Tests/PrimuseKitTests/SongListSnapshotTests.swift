@@ -59,6 +59,40 @@ struct SongListSnapshotTests {
         #expect(window(11_558, 0, 1_000_000) == 0..<11_558)
     }
 
+    @Test("Mixed-height rows map scroll offsets to rows and windows still cover the viewport")
+    func mixedHeightRowOffsets() {
+        let heights = (0..<5_000).map { $0 % 37 == 5 ? 61.0 : 45.0 }
+        let offsets = SongListScrollRowOffsets(rowHeights: heights)
+        #expect(offsets.rowCount == 5_000)
+        #expect(offsets.totalHeight == heights.reduce(0, +))
+        #expect(offsets.top(of: -3) == 0)
+        #expect(offsets.top(of: 9_999) == offsets.totalHeight)
+
+        for row in stride(from: 0, to: 5_000, by: 13) {
+            let top = offsets.top(of: row)
+            #expect(offsets.row(at: top) == row)
+            #expect(offsets.row(at: top + heights[row] - 0.5) == row)
+        }
+        #expect(offsets.row(at: -40) == 0)
+        #expect(offsets.row(at: .nan) == 0)
+        #expect(offsets.row(at: offsets.totalHeight + 500) == 4_999)
+        #expect(SongListScrollRowOffsets(rowHeights: []).row(at: 100) == 0)
+
+        let viewport = 900.0
+        for y in stride(from: 0.0, to: offsets.totalHeight, by: 211.0) {
+            let first = offsets.row(at: y)
+            let stride = SongListScrollWindow.rowStride
+            let range = SongListScrollWindow.range(
+                totalCount: offsets.rowCount,
+                firstVisibleRow: first / stride * stride,
+                viewportHeight: viewport,
+                rowHeight: 45
+            )
+            #expect(range.contains(first))
+            #expect(range.contains(offsets.row(at: y + viewport)))
+        }
+    }
+
     @Test("Builds sorted lightweight rows and aggregates")
     func buildsRowsAndAggregates() {
         let songs = [

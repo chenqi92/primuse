@@ -250,6 +250,46 @@ public enum SongListScrollWindow {
     }
 }
 
+/// Row tops for a manually windowed list whose rows are not all one height
+/// (a playlist table mixes song rows with taller greyed-out placeholders).
+/// Find the first visible row here, then size the window with the shortest
+/// row so it still covers the viewport.
+public struct SongListScrollRowOffsets: Sendable {
+    /// `tops[i]` is where row `i` starts; the extra last element is the total height.
+    public let tops: [Double]
+
+    public init(rowHeights: some Sequence<Double>) {
+        var tops = [0.0]
+        tops.reserveCapacity(rowHeights.underestimatedCount + 1)
+        var y = 0.0
+        for height in rowHeights {
+            y += height.isFinite ? max(0, height) : 0
+            tops.append(y)
+        }
+        self.tops = tops
+    }
+
+    public var rowCount: Int { tops.count - 1 }
+    public var totalHeight: Double { tops[rowCount] }
+
+    /// Where `row` starts; rows past the end start at the total height.
+    public func top(of row: Int) -> Double {
+        tops[min(max(0, row), rowCount)]
+    }
+
+    /// The row under `y`, clamped to the rows that exist.
+    public func row(at y: Double) -> Int {
+        guard rowCount > 0, y.isFinite, y > 0 else { return 0 }
+        var low = 0
+        var high = rowCount - 1
+        while low < high {
+            let mid = (low + high + 1) / 2
+            if tops[mid] <= y { low = mid } else { high = mid - 1 }
+        }
+        return low
+    }
+}
+
 public enum SongListSectionIndexHitTesting {
     public static func index(
         at locationY: Double,

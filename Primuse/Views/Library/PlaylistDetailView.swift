@@ -21,6 +21,9 @@ struct PlaylistDetailView: View {
     @State private var tableLayout = MacSongTableLayout(scope: .playlist)
     @State private var showColumnOptions = false
     @AppStorage("playlist.mac.showNetworkNotice.v1") private var showsNetworkNotice = true
+    /// 歌曲表手工分窗：页面滚到的首行 (按 SongListScrollWindow.rowStride 取整) 和表格行在页面里的起点。
+    @State private var macTableFirstVisibleRow = 0
+    @State private var macTableRowsTop: CGFloat = 0
     #endif
     /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题,收进系统溢出菜单时看得懂。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
@@ -982,6 +985,7 @@ struct PlaylistDetailView: View {
     #if os(macOS)
     private var macPlaylistDetail: some View {
         GeometryReader { geometry in
+            let table = macTableRows()
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
                     MacLibraryHeader(
@@ -1036,15 +1040,30 @@ struct PlaylistDetailView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.top, 48)
                         } else {
-                            macSongTable(viewportWidth: max(0, geometry.size.width - PMSpace.xxxl * 2))
+                            macSongTable(
+                                table,
+                                viewportWidth: max(0, geometry.size.width - PMSpace.xxxl * 2),
+                                viewportHeight: geometry.size.height
+                            )
                         }
                     }
                     .padding(.horizontal, PMSpace.xxxl)
                     .padding(.top, PMSpace.l)
                 }
                 .padding(.bottom, 112)
+                .coordinateSpace(.named(Self.macScrollContentSpace))
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
+            .onScrollGeometryChange(for: Int.self) { scroll in
+                let row = table.offsets.row(at: Double(scroll.visibleRect.minY - macTableRowsTop))
+                return row / SongListScrollWindow.rowStride * SongListScrollWindow.rowStride
+            } action: { _, row in
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    macTableFirstVisibleRow = row
+                }
+            }
         }
         .background(PMColor.bg.ignoresSafeArea())
         .sheet(isPresented: $showReorderSheet) {
@@ -1252,19 +1271,63 @@ struct PlaylistDetailView: View {
         ]))
     }
 
-    private func macSongTable(viewportWidth: CGFloat) -> some View {
-        // 序号只数真正的歌, 置灰的行不占号。
-        var songCounter = 0
-        let rows: [(entry: MusicLibrary.PlaylistEntry, songIndex: Int)] = displayEntries.map { entry in
-            guard case .song = entry else { return (entry, songCounter) }
-            defer { songCounter += 1 }
-            return (entry, songCounter)
+    /// 歌曲表的一行。序号只数真正的歌, 置灰的行不占号。
+    private struct MacTableRow: Identifiable {
+        let entry: MusicLibrary.PlaylistEntry
+        let songIndex: Int
+        var id: String { entry.id }
+    }
+
+    private struct MacTableRows {
+        let rows: [MacTableRow]
+        let songCount: Int
+        let offsets: SongListScrollRowOffsets
+    }
+
+    /// 行高固定, 歌曲表才能只建页面滚到的那一段 (见 macSongTable)。
+    private static let macSongRowHeight: CGFloat = 44
+    private static let macPendingRowHeight: CGFloat = 60
+    private static let macRowSpacing: CGFloat = 1
+    private nonisolated static let macScrollContentSpace = "playlistDetail.macScrollContent"
+
+    private static func macRowHeight(_ entry: MusicLibrary.PlaylistEntry) -> CGFloat {
+        switch entry {
+        case .song: macSongRowHeight
+        case .pending: macPendingRowHeight
         }
+    }
+
+    private func macTableRows() -> MacTableRows {
+        var songCounter = 0
+        let rows = displayEntries.map { entry in
+            guard case .song = entry else { return MacTableRow(entry: entry, songIndex: songCounter) }
+            defer { songCounter += 1 }
+            return MacTableRow(entry: entry, songIndex: songCounter)
+        }
+        return MacTableRows(
+            rows: rows,
+            songCount: songCounter,
+            offsets: SongListScrollRowOffsets(
+                rowHeights: rows.lazy.map { Double(Self.macRowHeight($0.entry) + Self.macRowSpacing) }
+            )
+        )
+    }
+
+    /// 横向可滚的表格放在纵向滚动的页面里, 里面不能用 LazyVStack: 横向 ScrollView 给不了它
+    /// 有限的高度, 每次布局都要把整张歌单逐行估一遍高度, 「我喜欢」这种上千首的歌单一点进去
+    /// 主线程就卡死。这里按页面的滚动位置只建可见的一段行, 上下用占位撑出整张表的高度。
+    private func macSongTable(_ table: MacTableRows, viewportWidth: CGFloat, viewportHeight: CGFloat) -> some View {
         let playCounts = playCountsBySongID
-        let lastRowNumber = songCounter.formatted(.number.locale(locale))
+        let lastRowNumber = table.songCount.formatted(.number.locale(locale))
         let indexColumnWidth = max(32, ceil((lastRowNumber as NSString).size(withAttributes: [
             .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
         ]).width) + 4)
+        let window = SongListScrollWindow.range(
+            totalCount: table.rows.count,
+            firstVisibleRow: macTableFirstVisibleRow,
+            viewportHeight: Double(viewportHeight),
+            rowHeight: Double(Self.macSongRowHeight + Self.macRowSpacing)
+        )
         return ScrollView(.horizontal) {
             VStack(alignment: .leading, spacing: 0) {
                 if tableLayout.showsHeader {
@@ -1279,32 +1342,50 @@ struct PlaylistDetailView: View {
                     Rectangle().fill(PMColor.divider).frame(height: 0.5)
                 }
 
-                LazyVStack(spacing: 1) {
-                    ForEach(rows, id: \.entry.id) { row in
-                        switch row.entry {
-                        case .song(let song):
-                            macSongRow(
-                                song,
-                                index: row.songIndex,
-                                indexColumnWidth: indexColumnWidth,
-                                playCount: playCounts[song.id, default: 0]
-                            )
-                                .songSelectable(
-                                    songID: song.id,
-                                    selection: selection,
-                                    orderedIDs: { songs.map(\.id) },
-                                    defaultAction: { playSong(song) }
+                VStack(alignment: .leading, spacing: 0) {
+                    Color.clear
+                        .frame(height: CGFloat(table.offsets.top(of: window.lowerBound)))
+                        .accessibilityHidden(true)
+
+                    ForEach(table.rows[window]) { row in
+                        Group {
+                            switch row.entry {
+                            case .song(let song):
+                                macSongRow(
+                                    song,
+                                    index: row.songIndex,
+                                    indexColumnWidth: indexColumnWidth,
+                                    playCount: playCounts[song.id, default: 0]
                                 )
-                        case .pending(let pending):
-                            PlaylistPendingEntryRow(
-                                entry: pending,
-                                playlistID: playlist.id,
-                                allowsEditing: allowsPlaylistRemoval
-                            )
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
+                                    .songSelectable(
+                                        songID: song.id,
+                                        selection: selection,
+                                        orderedIDs: { songs.map(\.id) },
+                                        defaultAction: { playSong(song) }
+                                    )
+                            case .pending(let pending):
+                                PlaylistPendingEntryRow(
+                                    entry: pending,
+                                    playlistID: playlist.id,
+                                    allowsEditing: allowsPlaylistRemoval
+                                )
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 4)
+                            }
                         }
+                        .frame(height: Self.macRowHeight(row.entry))
+                        .padding(.bottom, Self.macRowSpacing)
                     }
+
+                    Color.clear
+                        .frame(height: CGFloat(table.offsets.totalHeight - table.offsets.top(of: window.upperBound)))
+                        .accessibilityHidden(true)
+                }
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.frame(in: .named(Self.macScrollContentSpace)).minY
+                } action: { top in
+                    guard abs(macTableRowsTop - top) > 0.5 else { return }
+                    macTableRowsTop = top
                 }
                 .padding(.vertical, 4)
             }
