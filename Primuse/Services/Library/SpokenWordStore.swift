@@ -467,6 +467,30 @@ final class SpokenWordStore {
         didChange(cloud: .prompt)
     }
 
+    /// Moves songs to `kind` the way a song's own menu does: a song whose tags
+    /// or folder already say `kind` just drops its correction and keeps
+    /// following them; the rest get one.
+    func move(_ songs: [Song], to kind: ListeningContentKind) {
+        let inputs = classificationSnapshot
+        var corrected: [String] = []
+        var inferred: [String] = []
+        for song in songs {
+            let inferredKind = inputs.inferredKind(
+                sourceID: song.sourceID,
+                filePath: song.filePath,
+                genre: song.genre,
+                serverLibraryID: song.serverLibraryID
+            )
+            if inferredKind == kind {
+                inferred.append(song.id)
+            } else {
+                corrected.append(song.id)
+            }
+        }
+        setKind(kind, forSongIDs: corrected)
+        setKind(nil, forSongIDs: inferred)
+    }
+
     // MARK: - Positions
 
     func position(forSongID songID: String) -> StoredPosition? { positions[songID] }

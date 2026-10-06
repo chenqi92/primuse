@@ -467,6 +467,8 @@ private struct SongBatchActionsModifier: ViewModifier {
                 Label("tag_tidy_title", systemImage: "wand.and.sparkles")
             }
             .disabled(onlyAppleMusic)
+
+            spokenWordMoveButton
         }
 
         Section {
@@ -604,6 +606,28 @@ private struct SongBatchActionsModifier: ViewModifier {
             songs: songs,
             source: source
         )
+    }
+
+    /// 一本书往往是整个文件夹或一张专辑:选中后一次搬过去,不必一首一首地标。
+    /// 全都已是有声内容时这一项变成「标记为音乐」。
+    @ViewBuilder
+    private var spokenWordMoveButton: some View {
+        let spokenWordIDs = library.spokenWordSongIDs
+        let ids = selection.selectedIDs
+        let allSpokenWord = !ids.isEmpty && ids.allSatisfy { spokenWordIDs.contains($0) }
+        Button {
+            SpokenWordStore.shared.move(selectedSongs(), to: allSpokenWord ? .music : .spokenWord)
+            library.refreshContentClassification()
+            // 搬走的歌会离开当前列表,选择随之结束。
+            selection.deactivate()
+        } label: {
+            if allSpokenWord {
+                Label("mark_as_music", systemImage: "music.note")
+            } else {
+                Label("mark_as_spoken_word", systemImage: "books.vertical")
+            }
+        }
+        .disabled(selection.isEmpty)
     }
 
     /// Apple Music rows have no tags of ours to edit.

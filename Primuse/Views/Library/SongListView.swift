@@ -2602,6 +2602,8 @@ struct SongListView: View {
             } label: {
                 Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
             }
+
+            macSpokenWordClassificationButton(for: song)
         }
 
         if song.sourceID != AppleMusicLibraryService.systemSourceID {
@@ -2628,6 +2630,24 @@ struct SongListView: View {
                 contextShareSong = latestSong(song)
             } label: {
                 Label(String(localized: "share"), systemImage: "square.and.arrow.up")
+            }
+        }
+    }
+
+    /// iPhone 的歌曲菜单里早就有这一项; Mac 的本地文件夹没有可以标成有声的目录页,
+    /// 没有它就只能靠播放时的提示一首一首地搬。
+    @ViewBuilder
+    private func macSpokenWordClassificationButton(for song: Song) -> some View {
+        let isSpokenWord = SpokenWordStore.shared.isSpokenWord(song)
+        Button {
+            SpokenWordStore.shared.move([latestSong(song)], to: isSpokenWord ? .music : .spokenWord)
+            library.refreshContentClassification()
+        } label: {
+            // 两条分支各写各的 key: 三元表达式里的文案提取不到。
+            if isSpokenWord {
+                Label(String(localized: "mark_as_music"), systemImage: "music.note")
+            } else {
+                Label(String(localized: "mark_as_spoken_word"), systemImage: "books.vertical")
             }
         }
     }

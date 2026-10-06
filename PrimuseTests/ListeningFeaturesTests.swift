@@ -190,6 +190,24 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertFalse(store.isFinished(songID: "x"))
     }
 
+    func testMovingSongsStoresCorrectionsOnlyWhereTheTagsDisagree() throws {
+        let store = SpokenWordStore(storeURL: makeDirectory().appendingPathComponent("s.json"))
+        let tagged = song("tagged", genre: "Audiobook")
+        let plain = song("plain")
+
+        store.move([tagged, plain], to: .spokenWord)
+        XCTAssertFalse(store.hasOverride(songID: tagged.id))
+        XCTAssertTrue(store.hasOverride(songID: plain.id))
+        XCTAssertTrue(store.isSpokenWord(tagged))
+        XCTAssertTrue(store.isSpokenWord(plain))
+
+        store.move([tagged, plain], to: .music)
+        XCTAssertTrue(store.hasOverride(songID: tagged.id))
+        XCTAssertFalse(store.hasOverride(songID: plain.id))
+        XCTAssertFalse(store.isSpokenWord(tagged))
+        XCTAssertFalse(store.isSpokenWord(plain))
+    }
+
     func testMarkingThePlayingItemChangesItsKindWithoutWaitingForTheNextItem() throws {
         let player = try makePlayer()
         let track = song(UUID().uuidString, duration: 3_600)
