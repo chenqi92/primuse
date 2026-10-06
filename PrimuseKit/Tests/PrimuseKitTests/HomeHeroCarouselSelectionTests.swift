@@ -17,11 +17,11 @@ struct HomeHeroCarouselSelectionTests {
     private func pool(
         _ songs: [(id: String, album: String, track: Int?)],
         played: Set<String> = [],
-        dayStamp: Int = 20261004,
+        seed: UInt64 = 20261004,
         limit: Int = 32
     ) -> [Candidate] {
         var pool = HomeHeroCarouselSelection.RediscoveryPool(
-            dayStamp: dayStamp,
+            seed: seed,
             playedAlbumKeys: played,
             limit: limit
         )
@@ -37,7 +37,7 @@ struct HomeHeroCarouselSelectionTests {
         let added = candidates("n", albums: 10, songsPerAlbum: 3)
         let rediscovery = candidates("o", albums: 10)
         let picked = HomeHeroCarouselSelection.pick(
-            recent: recent, added: added, rediscovery: rediscovery, dayStamp: 20261004,
+            recent: recent, added: added, rediscovery: rediscovery, seed: 20261004,
             count: HomeHeroCarouselSelection.featuredCount
         )
         #expect(picked.count == HomeHeroCarouselSelection.featuredCount)
@@ -54,7 +54,7 @@ struct HomeHeroCarouselSelectionTests {
             recent: candidates("r", albums: 30),
             added: candidates("n", albums: 30),
             rediscovery: candidates("o", albums: 30),
-            dayStamp: 20261004
+            seed: 20261004
         )
         #expect(picked.count == HomeHeroCarouselSelection.cardCount)
         #expect(Set(picked).count == picked.count)
@@ -75,7 +75,7 @@ struct HomeHeroCarouselSelectionTests {
             recent: candidates("r", albums: 2),
             added: [],
             rediscovery: candidates("o", albums: 100),
-            dayStamp: 20261004
+            seed: 20261004
         )
         #expect(picked.count == HomeHeroCarouselSelection.cardCount)
         #expect(picked.filter { $0.hasPrefix("r-") }.count == 2)
@@ -84,7 +84,7 @@ struct HomeHeroCarouselSelectionTests {
             recent: candidates("r", albums: 4),
             added: candidates("n", albums: 4),
             rediscovery: candidates("o", albums: 4),
-            dayStamp: 20261004
+            seed: 20261004
         )
         #expect(few.count == 12)
         #expect(Set(few).count == 12)
@@ -95,7 +95,7 @@ struct HomeHeroCarouselSelectionTests {
         let shared = Candidate(songID: "recent-song", albumKey: "same-album")
         let again = Candidate(songID: "added-song", albumKey: "same-album")
         let picked = HomeHeroCarouselSelection.pick(
-            recent: [shared], added: [again], rediscovery: [], dayStamp: 1
+            recent: [shared], added: [again], rediscovery: [], seed: 1
         )
         #expect(picked == ["recent-song"])
     }
@@ -106,7 +106,7 @@ struct HomeHeroCarouselSelectionTests {
             recent: [],
             added: candidates("n", albums: 3),
             rediscovery: candidates("o", albums: 20),
-            dayStamp: 20261004,
+            seed: 20261004,
             count: HomeHeroCarouselSelection.featuredCount
         )
         #expect(picked.count == 8)
@@ -114,25 +114,25 @@ struct HomeHeroCarouselSelectionTests {
         #expect(picked.filter { $0.hasPrefix("o-") }.count == 6)
     }
 
-    @Test("同一天反复计算不变,候选顺序不影响结果,隔天换一组")
-    func dailyStable() {
+    @Test("同一个种子反复计算不变,候选顺序不影响结果,换个种子换一组")
+    func stableForSeed() {
         let recent = candidates("r", albums: 12)
         let added = candidates("n", albums: 12)
         let rediscovery = candidates("o", albums: 12)
         let today = HomeHeroCarouselSelection.pick(
-            recent: recent, added: added, rediscovery: rediscovery, dayStamp: 20261004
+            recent: recent, added: added, rediscovery: rediscovery, seed: 20261004
         )
         for _ in 0..<10 {
             #expect(HomeHeroCarouselSelection.pick(
-                recent: recent, added: added, rediscovery: rediscovery, dayStamp: 20261004
+                recent: recent, added: added, rediscovery: rediscovery, seed: 20261004
             ) == today)
         }
         #expect(HomeHeroCarouselSelection.pick(
             recent: recent.reversed(), added: added.reversed(), rediscovery: rediscovery,
-            dayStamp: 20261004
+            seed: 20261004
         ) == today)
         #expect(HomeHeroCarouselSelection.pick(
-            recent: recent, added: added, rediscovery: rediscovery, dayStamp: 20261005
+            recent: recent, added: added, rediscovery: rediscovery, seed: 20261005
         ) != today)
     }
 
@@ -149,13 +149,30 @@ struct HomeHeroCarouselSelectionTests {
             recent: candidates("r", albums: 5),
             added: candidates("n", albums: 5),
             rediscovery: candidates("o", albums: 5),
-            dayStamp: 20261004,
+            seed: 20261004,
             count: HomeHeroCarouselSelection.featuredCount
         )
         #expect(picked[HomeHeroCarouselSelection.initialIndex(count: picked.count)].hasPrefix("r-"))
         for index in picked.indices.dropLast() {
             #expect(picked[index].prefix(1) != picked[index + 1].prefix(1))
         }
+    }
+
+    @Test("正中那张出自哪一组由种子定,领头的组空着就轮到下一组")
+    func seedPicksLeadGroup() {
+        let recent = candidates("r", albums: 5)
+        let added = candidates("n", albums: 5)
+        let rediscovery = candidates("o", albums: 5)
+        func centered(_ seed: UInt64, recent: [Candidate]) -> String {
+            let picked = HomeHeroCarouselSelection.pick(
+                recent: recent, added: added, rediscovery: rediscovery, seed: seed
+            )
+            return String(picked[HomeHeroCarouselSelection.initialIndex(count: picked.count)].prefix(2))
+        }
+        #expect(centered(30, recent: recent) == "r-")
+        #expect(centered(31, recent: recent) == "o-")
+        #expect(centered(32, recent: recent) == "n-")
+        #expect(centered(30, recent: []) == "o-")
     }
 
     @Test("专辑键:有专辑用专辑,没有专辑按封面,都没有不进候选")
@@ -183,7 +200,7 @@ struct HomeHeroCarouselSelectionTests {
         #expect(forward.allSatisfy { $0.songID.hasSuffix("-t1") })
     }
 
-    @Test("整库扫描的结果等于对全部专辑按当天排名取前若干")
+    @Test("整库扫描的结果等于对全部专辑按种子排名取前若干")
     func rediscoveryPoolMatchesFullRanking() {
         let songs: [(id: String, album: String, track: Int?)] = (0..<500).map {
             (id: "s\($0)", album: "album-\($0 % 250)", track: $0 / 250)
@@ -191,7 +208,7 @@ struct HomeHeroCarouselSelectionTests {
         let picked = pool(songs, limit: 20).map(\.albumKey)
         let expected = HomeHeroCarouselSelection.ranked(
             (0..<250).map { Candidate(songID: "s\($0)", albumKey: "album-\($0)") },
-            dayStamp: 20261004
+            seed: 20261004
         ).prefix(20).map(\.albumKey)
         #expect(picked == Array(expected))
     }
@@ -205,6 +222,46 @@ struct HomeHeroCarouselSelectionTests {
         #expect(pool(songs, played: all, limit: 4).isEmpty)
         let picked = pool(songs, played: all.subtracting(["album-7"]), limit: 4)
         #expect(picked.map(\.albumKey) == ["album-7"])
+    }
+}
+
+@Suite("Home Hero Carousel Seeds")
+struct HomeHeroCarouselSeedsTests {
+    private final class Draws {
+        var values: [UInt64]
+        init(_ values: [UInt64]) { self.values = values }
+        func next() -> UInt64 { values.removeFirst() }
+    }
+
+    @Test("冷启动沿用上次准备好的种子,同时抽好下次的")
+    func launchAdoptsPreparedSeed() {
+        let draws = Draws([7])
+        let seeds = HomeHeroCarouselSeeds(prepared: 42, dayStamp: 20261006, random: draws.next)
+        #expect(seeds.current == 42)
+        #expect(seeds.next == 7)
+        #expect(draws.values.isEmpty)
+    }
+
+    @Test("没有准备好的种子就现抽,下次的不会和这次撞上")
+    func launchWithoutPreparedSeed() {
+        let draws = Draws([5, 5])
+        let seeds = HomeHeroCarouselSeeds(prepared: nil, dayStamp: 20261006, random: draws.next)
+        #expect(seeds.current == 5)
+        #expect(seeds.next != seeds.current)
+    }
+
+    @Test("同一天不换;跨了天换成准备好的下一组,再抽新的下次")
+    func advancesOnlyAcrossDays() {
+        let draws = Draws([7, 9])
+        var seeds = HomeHeroCarouselSeeds(prepared: 42, dayStamp: 20261006, random: draws.next)
+        let sameDay = seeds.advance(toDay: 20261006, random: draws.next)
+        #expect(!sameDay)
+        #expect(seeds.current == 42 && seeds.next == 7)
+        let nextDay = seeds.advance(toDay: 20261007, random: draws.next)
+        #expect(nextDay)
+        #expect(seeds.current == 7)
+        #expect(seeds.next == 9)
+        #expect(seeds.dayStamp == 20261007)
     }
 }
 

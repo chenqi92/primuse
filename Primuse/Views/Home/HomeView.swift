@@ -118,9 +118,12 @@ struct PersistedHomeSnapshot: Codable, Sendable {
     let visibleAlbumCount: Int
     let visibleArtistCount: Int
     let recentSongIDs: [String]
+    /// 顶部封面轮播留给下次打开的那一组,按 `heroSeed` 挑的;下次打开沿用这个种子,
+    /// 首帧与后台重算是同一组(`HomeHeroCarouselSeeds`)。旧快照没有种子。
     let heroSongIDs: [String]
     let recentlyAddedAlbums: [PersistedHomeAlbumTile]
     let recommendations: [PersistedHomeRecommendation]
+    var heroSeed: UInt64? = nil
 }
 
 private actor HomeInitialSnapshotCacheStore {
@@ -1021,6 +1024,10 @@ struct HomeView: View {
         @ObservationIgnored var signature: HomeSnapshotSignature?
         @ObservationIgnored var highlightsSignature: HomeSnapshotSignature?
         @ObservationIgnored var recommendationSignature: HomeSnapshotSignature?
+        /// 顶部封面轮播这一次与下一次打开的种子,第一次装载首页时按上次存下的定。
+        @ObservationIgnored var heroSeeds: HomeHeroCarouselSeeds?
+        /// 按 `heroSeeds.next` 挑好、随首页快照存下留给下次打开的那一组。
+        @ObservationIgnored var preparedNextHero: (seed: UInt64, songIDs: [String])?
 
         func needsRefresh(for signature: HomeSnapshotSignature) -> Bool {
             !isPrepared || self.signature != signature
@@ -1975,6 +1982,13 @@ struct HomeView: View {
         let persistedSnapshot = await HomeInitialSnapshotCacheStore.shared.load()
         guard !Task.isCancelled else { return }
         let signature = homeSnapshotSignature
+        if model.heroSeeds == nil {
+            // 存下的那一组就是按这个种子挑的,沿用它,首帧画的封面后台重算完不会整组换掉。
+            model.heroSeeds = HomeHeroCarouselSeeds(
+                prepared: persistedSnapshot?.heroSeed,
+                dayStamp: signature.dayStamp
+            )
+        }
         let visibleSongs = library.visibleSongs
         let visibleAlbums = library.visibleAlbums
         let payload = Self.rehydrateInitialHomePayload(
@@ -2070,7 +2084,8 @@ struct HomeView: View {
 
     private func persistInitialHomeSnapshotCache(signature: HomeSnapshotSignature) {
         guard model.highlightsSignature == signature,
-              !signature.showsRecommendations || model.recommendationSignature == signature else { return }
+              !signature.showsRecommendations || model.recommendationSignature == signature,
+              let nextHero = model.preparedNextHero else { return }
         let persisted = PersistedHomeSnapshot(
             version: PersistedHomeSnapshot.currentVersion,
             dayStamp: signature.dayStamp,
@@ -2078,7 +2093,7 @@ struct HomeView: View {
             visibleAlbumCount: signature.visibleAlbumCount,
             visibleArtistCount: signature.visibleArtistCount,
             recentSongIDs: signature.recentSongIDs,
-            heroSongIDs: model.snapshot.heroCoverSongs.map(\.id),
+            heroSongIDs: nextHero.songIDs,
             recentlyAddedAlbums: model.snapshot.recentlyAddedAlbums.map {
                 PersistedHomeAlbumTile(
                     albumID: $0.album.id,
@@ -2091,7 +2106,8 @@ struct HomeView: View {
                     score: $0.score,
                     reasons: $0.reasons.map(\.rawValue)
                 )
-            }
+            },
+            heroSeed: nextHero.seed
         )
         Task(priority: .utility) {
             await HomeInitialSnapshotCacheStore.shared.save(persisted)
@@ -2244,6 +2260,7 @@ struct HomeView: View {
         signature: HomeSnapshotSignature
     ) {
         refreshCoordinator.libraryHighlightsTask?.cancel()
+        let heroSeeds = currentHeroSeeds(for: signature)
         refreshCoordinator.libraryHighlightsTask = Task { @MainActor in
             let worker = Task.detached(priority: .utility) {
                 let startedAt = Date()
@@ -2252,12 +2269,12 @@ struct HomeView: View {
                 let latestAdded = CarPlayListSelection.firstSorted(musicSongs.indices, limit: 60) {
                     musicSongs[$0].dateAdded > musicSongs[$1].dateAdded
                 }.map { musicSongs[$0] }
-                let heroCoverSongs = Self.makeHeroCoverSongs(
+                let heroCovers = Self.makeHeroCoverSongs(
                     musicSongs: musicSongs,
                     latestAdded: latestAdded,
                     recentSongs: recentSongs,
                     playedAlbumKeys: playedAlbumKeys,
-                    dayStamp: signature.dayStamp
+                    seeds: heroSeeds
                 )
                 let albumTiles = Self.makeRecentlyAddedAlbumTiles(
                     songs: songs,
@@ -2268,10 +2285,11 @@ struct HomeView: View {
                     ? Array(latestAdded.prefix(30))
                     : recentSongs
                 return (
-                    heroCoverSongs,
+                    heroCovers.current,
                     albumTiles,
                     Date().timeIntervalSince(startedAt),
-                    resolvedRecentSongs
+                    resolvedRecentSongs,
+                    heroCovers.next.map(\.id)
                 )
             }
             let payload = await withTaskCancellationHandler {
@@ -2292,6 +2310,7 @@ struct HomeView: View {
                 snapshot.recentSongs = payload.3
                 model.snapshot = snapshot
             }
+            model.preparedNextHero = (heroSeeds.next, payload.4)
             model.highlightsSignature = signature
             persistInitialHomeSnapshotCache(signature: signature)
 
@@ -2305,6 +2324,14 @@ struct HomeView: View {
             }
             #endif
         }
+    }
+
+    /// 顶部封面轮播这一次与下一次打开的种子。一直开着跨了天,换成给下次准备的那组。
+    private func currentHeroSeeds(for signature: HomeSnapshotSignature) -> HomeHeroCarouselSeeds {
+        var seeds = model.heroSeeds ?? HomeHeroCarouselSeeds(prepared: nil, dayStamp: signature.dayStamp)
+        seeds.advance(toDay: signature.dayStamp)
+        model.heroSeeds = seeds
+        return seeds
     }
 
     /// Capture array references on the main actor; prepare and score the
@@ -2617,6 +2644,7 @@ struct HomeView: View {
                 songs: model.snapshot.heroCoverSongs,
                 isInteractive: !editorMode,
                 playFromSong: playLibraryShuffled(startingWith:),
+                shuffleAll: { playLibrary(shuffled: true) },
                 playAll: { playLibrary(shuffled: false) }
             )
         } else {
@@ -2837,8 +2865,8 @@ struct HomeView: View {
     }
 
     /// 顶部封面轮播的一组歌,规则见 `HomeHeroCarouselSelection`(最近听过 / 好久没听 / 最近添加,
-    /// 一张专辑一张卡,同一天不换)。只从音乐里取:`musicSongs` 与 `recentSongs` 都已去掉有声内容,
-    /// 电台和播客单集本来就不在曲库里。
+    /// 一张专辑一张卡)。只从音乐里取:`musicSongs` 与 `recentSongs` 都已去掉有声内容,
+    /// 电台和播客单集本来就不在曲库里。这一次的一组之外,顺手按下次打开的种子也挑好一组。
     ///
     /// `latestAdded`: 按加入时间从新到旧的前 60 首。`playedAlbumKeys`: 近 30 天放过的专辑,
     /// 「好久没听」那一组跳过它们。
@@ -2847,41 +2875,42 @@ struct HomeView: View {
         latestAdded: [Song],
         recentSongs: [Song],
         playedAlbumKeys: Set<String>,
-        dayStamp: Int
-    ) -> [Song] {
+        seeds: HomeHeroCarouselSeeds
+    ) -> (current: [Song], next: [Song]) {
         func candidate(_ song: Song) -> HomeHeroCarouselSelection.Candidate? {
             guard let key = heroAlbumKey(song) else { return nil }
             return HomeHeroCarouselSelection.Candidate(songID: song.id, albumKey: key)
         }
 
-        // 整库只扫一遍:候选表只留当天排名靠前的几十张专辑,进表的那首歌顺手记下来,
-        // 挑完按专辑键取回。
-        var pool = HomeHeroCarouselSelection.RediscoveryPool(
-            dayStamp: dayStamp,
-            playedAlbumKeys: playedAlbumKeys
-        )
-        var representatives: [String: Song] = [:]
+        // 整库只扫一遍,两个种子各一张候选表:只留排名靠前的几十张专辑,进表的那首歌
+        // 顺手记下来,挑完按 id 取回。
+        let seedOrder = [seeds.current, seeds.next]
+        var pools = seedOrder.map {
+            HomeHeroCarouselSelection.RediscoveryPool(seed: $0, playedAlbumKeys: playedAlbumKeys)
+        }
+        var byID: [String: Song] = [:]
         for (offset, song) in musicSongs.enumerated() {
-            if offset & 0x1FFF == 0, Task.isCancelled { return [] }
+            if offset & 0x1FFF == 0, Task.isCancelled { return ([], []) }
             guard let key = heroAlbumKey(song) else { continue }
-            if pool.consider(songID: song.id, albumKey: key, trackNumber: song.trackNumber) {
-                representatives[key] = song
+            for index in pools.indices {
+                if pools[index].consider(songID: song.id, albumKey: key, trackNumber: song.trackNumber) {
+                    byID[song.id] = song
+                }
             }
         }
-        let rediscovery = pool.candidates()
 
-        let ids = HomeHeroCarouselSelection.pick(
-            recent: recentSongs.compactMap(candidate),
-            added: latestAdded.compactMap(candidate),
-            rediscovery: rediscovery,
-            dayStamp: dayStamp
-        )
-        var byID: [String: Song] = [:]
+        let recent = recentSongs.compactMap(candidate)
+        let added = latestAdded.compactMap(candidate)
         for song in recentSongs + latestAdded { byID[song.id] = byID[song.id] ?? song }
-        for entry in rediscovery {
-            if let song = representatives[entry.albumKey], song.id == entry.songID { byID[song.id] = song }
+        let picked = zip(seedOrder, pools).map { seed, pool in
+            HomeHeroCarouselSelection.pick(
+                recent: recent,
+                added: added,
+                rediscovery: pool.candidates(),
+                seed: seed
+            ).compactMap { byID[$0] }
         }
-        return ids.compactMap { byID[$0] }
+        return (picked[0], picked[1])
     }
 
     /// 没封面的歌不进顶部封面;有封面的按专辑(没有专辑按封面文件)去重。

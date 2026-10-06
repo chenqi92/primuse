@@ -6215,12 +6215,14 @@ public enum NowPlayingArtworkRefreshPolicy {
 /// 某一组不够时由其余组补满。这三组配额只管正中那几张「今天的」封面,再往两边
 /// 三组轮流接着摆,轮播首尾相接循环滑动,一圈要够长才滑不腻(见 `HomeHeroCarouselLoop`)。
 ///
-/// 按「日期 + 专辑」的稳定哈希排名,不随机:冷启动期间资料库、播放记录、回填每变一次
-/// 首页就重算一次,以前用 `shuffled()` 时每次都换一组,封面跟着换人、从占位淡入,看起来
-/// 一直在闪,「相同结果不写快照」也拦不住。现在同一天里候选不变结果就不变,候选进出一张
-/// 也最多换掉一张;隔天自然换一组。
+/// 按「种子 + 专辑」的稳定哈希排名,不直接 `shuffled()`:冷启动期间资料库、播放记录、回填
+/// 每变一次首页就重算一次,以前用 `shuffled()` 时每次都换一组,封面跟着换人、从占位淡入,
+/// 看起来一直在闪,「相同结果不写快照」也拦不住。种子和候选不变结果就不变,候选进出一张
+/// 也最多换掉一张。种子每次打开 App 换一个(`HomeHeroCarouselSeeds`);以前按日期定,
+/// 同一天怎么重开正中都是同一张(#185)。
 ///
-/// 结果从中间往两边摆 —— 第一张(最近听过里排第一的)落在正中,轮播一出现两边都有卡。
+/// 结果从中间往两边摆,轮播一出现两边都有卡。正中那张出自哪一组也由种子定,
+/// 不总是最近听过的那张。
 public enum HomeHeroCarouselSelection {
     public struct Candidate: Equatable, Sendable {
         public let songID: String
@@ -6268,16 +6270,16 @@ public enum HomeHeroCarouselSelection {
         recent: [Candidate],
         added: [Candidate],
         rediscovery: [Candidate],
-        dayStamp: Int,
+        seed: UInt64,
         count: Int = cardCount
     ) -> [String] {
         guard count > 0 else { return [] }
         let featured = min(count, featuredCount)
         var used = Set<String>()
         let groups = [
-            ranked(recent, dayStamp: dayStamp),
-            ranked(rediscovery, dayStamp: dayStamp),
-            ranked(added, dayStamp: dayStamp),
+            ranked(recent, seed: seed),
+            ranked(rediscovery, seed: seed),
+            ranked(added, seed: seed),
         ]
         let quotas = [recentQuota, rediscoveryQuota, addedQuota]
         var taken: [[Candidate]] = [[], [], []]
@@ -6295,12 +6297,14 @@ public enum HomeHeroCarouselSelection {
             }
         }
 
-        // 三组轮流排,摆到轮播上时相邻的卡来自不同的组。
+        // 三组轮流排,摆到轮播上时相邻的卡来自不同的组。哪一组领头、落在正中由种子定。
+        let lead = Int(seed % 3)
+        let turns = (0..<3).map { (lead + $0) % 3 }
         var ordered: [String] = []
         ordered.reserveCapacity(count)
         var cursor = 0
         while ordered.count < used.count {
-            for index in taken.indices where cursor < taken[index].count {
+            for index in turns where cursor < taken[index].count {
                 ordered.append(taken[index][cursor].songID)
             }
             cursor += 1
@@ -6343,14 +6347,14 @@ public enum HomeHeroCarouselSelection {
         return slots.compactMap { $0 }
     }
 
-    /// 组内去重(同一张专辑留最先出现的那首),再按当天的排名排。
-    static func ranked(_ candidates: [Candidate], dayStamp: Int) -> [Candidate] {
+    /// 组内去重(同一张专辑留最先出现的那首),再按种子定的排名排。
+    static func ranked(_ candidates: [Candidate], seed: UInt64) -> [Candidate] {
         var seen = Set<String>()
         var scored: [(candidate: Candidate, rank: UInt64)] = []
         scored.reserveCapacity(candidates.count)
         for candidate in candidates where !candidate.songID.isEmpty && !candidate.albumKey.isEmpty {
             guard seen.insert(candidate.albumKey).inserted else { continue }
-            scored.append((candidate, rank(albumKey: candidate.albumKey, dayStamp: dayStamp)))
+            scored.append((candidate, rank(albumKey: candidate.albumKey, seed: seed)))
         }
         scored.sort { lhs, rhs in
             if lhs.rank != rhs.rank { return lhs.rank < rhs.rank }
@@ -6359,11 +6363,11 @@ public enum HomeHeroCarouselSelection {
         return scored.map(\.candidate)
     }
 
-    static func rank(albumKey: String, dayStamp: Int) -> UInt64 {
-        StableFNV1a64.hash("\(dayStamp)|\(albumKey)")
+    static func rank(albumKey: String, seed: UInt64) -> UInt64 {
+        StableFNV1a64.hash("\(seed)|\(albumKey)")
     }
 
-    /// 整个音乐曲库扫一遍,留下当天排名最靠前、近期没放过的若干张专辑。
+    /// 整个音乐曲库扫一遍,留下按种子排名最靠前、近期没放过的若干张专辑。
     ///
     /// 不排序整库:只维护一个 `limit` 大小的候选表,每首歌只做一次表查找;新专辑要进表时
     /// 才算排名、查是不是近期放过。一张专辑挑轨号最小的那首当代表(同号取 id 小的),
@@ -6382,15 +6386,15 @@ public enum HomeHeroCarouselSelection {
         private var worst: (key: String, rank: UInt64)?
 
         /// - Parameter playedAlbumKeys: 近 `rediscoveryWindowDays` 天放过的专辑键。
-        public init(dayStamp: Int, playedAlbumKeys: Set<String>, limit: Int = 64) {
+        public init(seed: UInt64, playedAlbumKeys: Set<String>, limit: Int = 64) {
             self.limit = max(1, limit)
             self.playedAlbumKeys = playedAlbumKeys
-            var seed: UInt64 = 14_695_981_039_346_656_037
-            for byte in "\(dayStamp)|".utf8 {
-                seed ^= UInt64(byte)
-                seed = seed &* 1_099_511_628_211
+            var hash: UInt64 = 14_695_981_039_346_656_037
+            for byte in "\(seed)|".utf8 {
+                hash ^= UInt64(byte)
+                hash = hash &* 1_099_511_628_211
             }
-            self.seed = seed
+            self.seed = hash
             best.reserveCapacity(self.limit)
         }
 
@@ -6455,6 +6459,48 @@ public enum HomeHeroCarouselSelection {
             worst = resolved
             return resolved
         }
+    }
+}
+
+/// 首页顶部封面轮播用哪个种子挑(`HomeHeroCarouselSelection.pick`):每次打开 App 换一组(#185)。
+///
+/// 冷启动首帧画的是上次存下的那一组,后台再按这次的种子重算;两边种子不同,封面刚亮出来就会
+/// 整组换掉。所以下一次的种子这一次就定好:存首页快照时顺手按 `next` 挑好一组存下,
+/// 下次打开拿存下的种子当 `current`,首帧与重算出来的是同一组。
+/// 一直开着跨了天也换一组 —— 后台一直放歌的人可能好几天都不冷启动。
+public struct HomeHeroCarouselSeeds: Equatable, Sendable {
+    public private(set) var current: UInt64
+    public private(set) var next: UInt64
+    public private(set) var dayStamp: Int
+
+    /// - Parameter prepared: 上次给这次准备的种子;没有(第一次打开、快照是旧版本)就新抽一个。
+    public init(
+        prepared: UInt64?,
+        dayStamp: Int,
+        random: () -> UInt64 = { UInt64.random(in: .min ... .max) }
+    ) {
+        let current = prepared ?? random()
+        self.current = current
+        self.next = Self.draw(differentFrom: current, random)
+        self.dayStamp = dayStamp
+    }
+
+    /// 跨了天:换成给下次准备的那组,再抽一个新的下次。同一天什么都不动。
+    @discardableResult
+    public mutating func advance(
+        toDay dayStamp: Int,
+        random: () -> UInt64 = { UInt64.random(in: .min ... .max) }
+    ) -> Bool {
+        guard dayStamp != self.dayStamp else { return false }
+        self.dayStamp = dayStamp
+        current = next
+        next = Self.draw(differentFrom: current, random)
+        return true
+    }
+
+    private static func draw(differentFrom current: UInt64, _ random: () -> UInt64) -> UInt64 {
+        let value = random()
+        return value == current ? value &+ 1 : value
     }
 }
 

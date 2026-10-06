@@ -7,7 +7,8 @@ import PrimuseKit
 /// 同一圈卡片在一条很长的虚拟序列上重复摆开(`HomeHeroCarouselLoop`),惰性堆栈只建
 /// 滑到眼前的那几张。
 ///
-/// - 点居中的封面、或者点「随机播放」:先放这一首,其余音乐随机接在后面。
+/// - 点居中的封面:先放这一首,其余音乐随机接在后面。
+/// - 点「随机播放」:整个音乐曲库洗一遍,不从封面那首开始(#185)。
 /// - 点两边的封面:把它挪到中间。
 /// - 点封面下面的歌名:前往专辑。
 ///
@@ -18,6 +19,7 @@ struct HomeHeroCarousel: View {
     /// 界面编辑里只看版面:不响应点击,也不接长按菜单。
     let isInteractive: Bool
     let playFromSong: (Song) -> Void
+    let shuffleAll: () -> Void
     let playAll: () -> Void
 
     @Environment(MusicLibrary.self) private var library
@@ -38,11 +40,13 @@ struct HomeHeroCarousel: View {
         songs: [Song],
         isInteractive: Bool,
         playFromSong: @escaping (Song) -> Void,
+        shuffleAll: @escaping () -> Void,
         playAll: @escaping () -> Void
     ) {
         self.songs = songs
         self.isInteractive = isInteractive
         self.playFromSong = playFromSong
+        self.shuffleAll = shuffleAll
         self.playAll = playAll
         _centeredSlot = State(initialValue: Self.initialSlot(in: songs))
     }
@@ -352,9 +356,7 @@ struct HomeHeroCarousel: View {
 
     private var buttons: some View {
         HStack(spacing: 10) {
-            Button {
-                if let centeredSong { playFromSong(centeredSong) }
-            } label: {
+            Button(action: shuffleAll) {
                 Self.buttonLabel("shuffle", systemImage: "shuffle")
             }
             .buttonStyle(.borderedProminent)
