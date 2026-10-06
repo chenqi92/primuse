@@ -4507,6 +4507,7 @@
 "spoken_word_remaining_format" = "残り %@";
 "spoken_word_clear_progress" = "再生位置を消去";
 "mark_as_spoken_word" = "オーディオブックにする";
+"mark_as_podcast" = "ポッドキャストにする";
 "mark_as_music" = "音楽にする";
 "chapters_title" = "チャプター";
 "a11y_skip_backward" = "15秒戻る";
@@ -5246,6 +5247,8 @@
 "podcast_mark_played" = "再生済みにする";
 "podcast_mark_unplayed" = "未再生にする";
 "podcast_my_shows" = "番組";
+"podcast_local_shows" = "手持ちのファイル";
+"podcast_local_episode_count %lld" = "%lld 件のエピソード";
 "podcast_new_episodes_count %lld" = "新しいエピソード %lld 件";
 "podcast_no_episodes" = "まだエピソードがありません。";
 "podcast_no_matching_episodes" = "該当するエピソードはありません。";

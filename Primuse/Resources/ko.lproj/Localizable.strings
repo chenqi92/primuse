@@ -4506,6 +4506,7 @@
 "spoken_word_remaining_format" = "%@ 남음";
 "spoken_word_clear_progress" = "재생 위치 지우기";
 "mark_as_spoken_word" = "오디오북으로 표시";
+"mark_as_podcast" = "팟캐스트로 표시";
 "mark_as_music" = "음악으로 표시";
 "chapters_title" = "챕터";
 "a11y_skip_backward" = "15초 뒤로";
@@ -5245,6 +5246,8 @@
 "podcast_mark_played" = "재생한 것으로 표시";
 "podcast_mark_unplayed" = "재생 안 한 것으로 표시";
 "podcast_my_shows" = "프로그램";
+"podcast_local_shows" = "내 파일";
+"podcast_local_episode_count %lld" = "에피소드 %lld개";
 "podcast_new_episodes_count %lld" = "새 에피소드 %lld개";
 "podcast_no_episodes" = "아직 에피소드가 없습니다.";
 "podcast_no_matching_episodes" = "해당하는 에피소드가 없습니다.";

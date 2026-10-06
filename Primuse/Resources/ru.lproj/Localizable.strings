@@ -4412,6 +4412,7 @@
 "spoken_word_remaining_format" = "Осталось %@";
 "spoken_word_clear_progress" = "Сбросить позицию прослушивания";
 "mark_as_spoken_word" = "Отметить как аудиокнигу";
+"mark_as_podcast" = "Отметить как подкаст";
 "mark_as_music" = "Отметить как музыку";
 "chapters_title" = "Главы";
 "a11y_skip_backward" = "Назад на 15 секунд";
@@ -5151,6 +5152,8 @@
 "podcast_mark_played" = "Отметить как прослушанный";
 "podcast_mark_unplayed" = "Отметить как непрослушанный";
 "podcast_my_shows" = "Подкасты";
+"podcast_local_shows" = "Свои файлы";
+"podcast_local_episode_count %lld" = "Выпусков: %lld";
 "podcast_new_episodes_count %lld" = "Новых выпусков: %lld";
 "podcast_no_episodes" = "Выпусков пока нет.";
 "podcast_no_matching_episodes" = "Здесь нет выпусков.";

@@ -609,23 +609,20 @@ private struct SongBatchActionsModifier: ViewModifier {
     }
 
     /// 一本书往往是整个文件夹或一张专辑:选中后一次搬过去,不必一首一首地标。
-    /// 全都已是有声内容时这一项变成「标记为音乐」。
+    /// 全都已是同一类时不列那一类;分属几类时三项都给。
     @ViewBuilder
     private var spokenWordMoveButton: some View {
         let spokenWordIDs = library.spokenWordSongIDs
+        let podcastIDs = Set(library.localPodcastSongs.map(\.id))
         let ids = selection.selectedIDs
-        let allSpokenWord = !ids.isEmpty && ids.allSatisfy { spokenWordIDs.contains($0) }
-        Button {
-            SpokenWordStore.shared.move(selectedSongs(), to: allSpokenWord ? .music : .spokenWord)
+        let kinds = Set(ids.lazy.map { id -> ListeningContentKind in
+            podcastIDs.contains(id) ? .podcast : spokenWordIDs.contains(id) ? .spokenWord : .music
+        })
+        ListeningKindMoveButtons(current: kinds.count == 1 ? kinds.first : nil) { kind in
+            SpokenWordStore.shared.move(selectedSongs(), to: kind)
             library.refreshContentClassification()
             // 搬走的歌会离开当前列表,选择随之结束。
             selection.deactivate()
-        } label: {
-            if allSpokenWord {
-                Label("mark_as_music", systemImage: "music.note")
-            } else {
-                Label("mark_as_spoken_word", systemImage: "books.vertical")
-            }
         }
         .disabled(selection.isEmpty)
     }

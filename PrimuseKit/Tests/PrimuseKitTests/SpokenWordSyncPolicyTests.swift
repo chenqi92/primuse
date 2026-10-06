@@ -85,6 +85,32 @@ struct SpokenWordSyncPolicyTests {
         #expect(Policy.decode(data) == state)
     }
 
+    @Test func podcastCorrectionsTravelAsSpokenWordPlusAMark() throws {
+        let records = SpokenWordLocalRecords(
+            overrides: ["s1": "spokenWord"],
+            podcastSongIDs: ["s1"],
+            ledger: SpokenWordSyncLedger(overrideChangedAt: ["s1": at(10)], podcastMarkChangedAt: ["s1": at(10)])
+        )
+        let state = Policy.state(from: records)
+        // A version without podcasts reads the kind alone: spoken word, never music.
+        #expect(state.overrides["s1"]?.value == "spokenWord")
+        #expect(state.podcastMarks["s1"]?.value == true)
+        #expect(Policy.records(from: state) == records)
+
+        let cleared = SpokenWordLocalRecords(
+            overrides: ["s1": "spokenWord"],
+            ledger: SpokenWordSyncLedger(overrideChangedAt: ["s1": at(20)], podcastMarkChangedAt: ["s1": at(20)])
+        )
+        let merged = Policy.merge(state, Policy.state(from: cleared))
+        #expect(merged.podcastMarks["s1"]?.value == nil)
+        #expect(!Policy.records(from: merged).podcastSongIDs.contains("s1"))
+
+        let data = try #require(Policy.encode(state))
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["pk"] != nil)
+        #expect(Policy.decode(data) == state)
+    }
+
     @Test func archivedBooksTravelAndComeBackOut() throws {
         let archived = SpokenWordSyncState(archived: ["book": .init(value: true, stamp: at(10))])
         let restored = SpokenWordSyncState(archived: ["book": .init(value: nil, stamp: at(20))])

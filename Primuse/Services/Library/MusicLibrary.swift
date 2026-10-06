@@ -3822,6 +3822,16 @@ final class MusicLibrary {
     /// 列表的读者(电视的查找表、随机队列)靠这一个失效。
     private(set) var spokenWordClassificationRevision = 0
 
+    /// The listener's own podcast files — downloaded episodes in a music
+    /// source, marked or tagged as podcasts. Played the spoken-word way, kept
+    /// off the book shelf, shown with the podcasts.
+    private(set) var localPodcastSongs: [Song] = [] {
+        didSet { localPodcastContentRevision &+= 1 }
+    }
+    private(set) var localPodcastContentRevision: UInt64 = 0
+    /// Local podcast item id → the show it is grouped into, the way
+    /// `spokenWordBookIDs` does it for books.
+    @ObservationIgnored private(set) var localPodcastBookIDs: [String: String] = [:]
     /// Spoken-word item id → the id of the book the shelf puts it in.
     @ObservationIgnored private(set) var spokenWordBookIDs: [String: String] = [:]
     /// How many books the spoken-word items make.
@@ -3946,8 +3956,15 @@ final class MusicLibrary {
         /// surfaces (songs list, albums, artists, genres) are built from. It
         /// is the same array instance when the library holds no spoken word.
         let musicSongs: [Song]
+        /// The book shelf's items: spoken word that is not a podcast.
         let spokenWordSongs: [Song]
+        /// Everything played the spoken-word way — books and the listener's own
+        /// podcast files — which is what the music lists leave out.
         let spokenWordSongIDs: Set<String>
+        /// The listener's own podcast files (`ListeningContentKind.podcast`).
+        let podcastSongs: [Song]
+        /// Local podcast item id → show id, grouped like books.
+        let podcastBookIDs: [String: String]
         /// Spoken-word item id → book id, as the bookshelf groups them.
         let spokenWordBookIDs: [String: String]
         let albums: [Album]
@@ -4435,6 +4452,11 @@ final class MusicLibrary {
         musicSongs = musicShares ? [] : prepared.musicSongs
         spokenWordSongs = prepared.spokenWordSongs
         spokenWordSongIDs = prepared.spokenWordSongIDs
+        // 扫描时每批都发布一次,没变就不写,播客页不必跟着重画。
+        localPodcastBookIDs = prepared.podcastBookIDs
+        if localPodcastSongs != prepared.podcastSongs {
+            localPodcastSongs = prepared.podcastSongs
+        }
         spokenWordBookIDs = prepared.spokenWordBookIDs
         spokenWordBookCount = Set(prepared.spokenWordBookIDs.values).count
         visibleAlbums = prepared.albums
@@ -4523,9 +4545,14 @@ final class MusicLibrary {
                 !spokenWordSongIDs.contains($0.id) && !collectionOnlySongIDs.contains($0.id)
             }
             : nextVisibleSongs
+        // 本机下载的播客单集也是有声的听法(不进音乐),但不上书架,单独放在播客那边。
+        let podcastSongIDs = lookups.podcastSongIDs
         let spokenWordSongs = spokenWordSongIDs.isEmpty
             ? []
-            : nextVisibleSongs.filter { spokenWordSongIDs.contains($0.id) }
+            : nextVisibleSongs.filter { spokenWordSongIDs.contains($0.id) && !podcastSongIDs.contains($0.id) }
+        let podcastSongs = podcastSongIDs.isEmpty
+            ? []
+            : nextVisibleSongs.filter { podcastSongIDs.contains($0.id) }
         let nextVisibleAlbums: [Album]
         let candidateVisibleArtists: [Artist]
         if disabledSourceIDs.isEmpty, !splitsMusic {
@@ -4560,6 +4587,10 @@ final class MusicLibrary {
             musicSongs: musicSongs,
             spokenWordSongs: spokenWordSongs,
             spokenWordSongIDs: spokenWordSongIDs,
+            podcastSongs: podcastSongs,
+            podcastBookIDs: podcastSongs.isEmpty
+                ? [:]
+                : SpokenWordBookGrouping.bookIDs(for: podcastSongs.map { SpokenWordBookItem(song: $0) }),
             // Grouping reads other items (a folder's album, an album's only
             // author), so it is done once per library change, here, rather
             // than per item wherever a book id is needed.
@@ -4615,6 +4646,7 @@ final class MusicLibrary {
         countBySourceID: [String: Int],
         preferredArtworkSongIDByArtistID: [String: String],
         spokenWordSongIDs: Set<String>,
+        podcastSongIDs: Set<String>,
         collectionOnlySongIDs: Set<String>,
         musicArtistIDs: Set<String>
     ) {
@@ -4635,31 +4667,34 @@ final class MusicLibrary {
         // to one extension check plus one genre check per song; a separate
         // filter over the library would walk every row a second time.
         var spokenWordSongIDs: Set<String> = []
+        var podcastSongIDs: Set<String> = []
         var collectionOnlySongIDs: Set<String> = []
         let collectionOnlyCandidates = spokenWordClassification.collectionOnlySongIDs
         var musicArtistIDs: Set<String> = []
         // 同一组艺术家字段在整库里反复出现(6.6 万首通常只有几千种), 而每次
         // 解析都要做带区域设置的分隔符检索、折叠和哈希, 这一趟按字段记一次。
         var artistIDsByFields: [ArtistResolutionFields: [String]] = [:]
-        var spokenWordGenreVerdicts: [String: Bool] = [:]
+        var spokenWordGenreVerdicts: [String: ListeningContentKind] = [:]
         for (index, song) in songs.enumerated() {
             indexByID[song.id] = index
             let isCollectionOnly = collectionOnlyCandidates.contains(song.id)
-            let isSpokenWord: Bool
+            let kind: ListeningContentKind
             if isCollectionOnly {
-                isSpokenWord = false
+                kind = .music
                 collectionOnlySongIDs.insert(song.id)
             } else {
-                isSpokenWord = spokenWordClassification.kind(
+                kind = spokenWordClassification.kind(
                     songID: song.id,
                     sourceID: song.sourceID,
                     filePath: song.filePath,
                     genre: song.genre,
                     serverLibraryID: song.serverLibraryID,
                     genreVerdicts: &spokenWordGenreVerdicts
-                ) == .spokenWord
+                )
             }
+            let isSpokenWord = kind.isSpokenWordListening
             if isSpokenWord { spokenWordSongIDs.insert(song.id) }
+            if kind == .podcast { podcastSongIDs.insert(song.id) }
             let artistFields = ArtistResolutionFields(song)
             let artistIDs: [String]
             if let memoized = artistIDsByFields[artistFields] {
@@ -4696,6 +4731,7 @@ final class MusicLibrary {
             countBySourceID,
             preferredArtworkPositionByArtistID.mapValues { songs[$0].id },
             spokenWordSongIDs,
+            podcastSongIDs,
             collectionOnlySongIDs,
             musicArtistIDs
         )

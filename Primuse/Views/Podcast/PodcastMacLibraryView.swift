@@ -20,8 +20,11 @@ struct MacPodcastLibraryView: View {
     @State private var feedPreviewURL: URL?
     @FocusState private var searchFocused: Bool
 
+    @Environment(MusicLibrary.self) private var library
     private var store: PodcastStore { PodcastStore.shared }
     private var hasShows: Bool { !store.shows.isEmpty }
+    /// 没订阅也可能有自己下载的节目:那时同样有「我的」这一页。
+    private var hasLibraryContent: Bool { hasShows || !library.localPodcastSongs.isEmpty }
     private var isSearching: Bool { !search.trimmedQuery.isEmpty }
 
     init(initialPage: Page = .library, initialQuery: String = "") {
@@ -76,7 +79,7 @@ struct MacPodcastLibraryView: View {
                 if store.isRefreshingAll {
                     ProgressView().controlSize(.small)
                 }
-                if hasShows {
+                if hasLibraryContent {
                     pagePicker
                 }
                 searchField
@@ -210,21 +213,30 @@ struct MacPodcastLibraryView: View {
         if isSearching {
             VStack(alignment: .leading, spacing: 28) {
                 // 先列已订阅里名字或作者对得上的, 再是播客目录里的搜索结果。
-                if let findQuery = LibraryFindPolicy.query(search.query),
-                   !PodcastShowsGrid.shows(matching: findQuery, in: store.shows).isEmpty {
-                    PodcastShowsGrid(navigation: navigation, findQuery: findQuery)
+                if let findQuery = LibraryFindPolicy.query(search.query) {
+                    PodcastLocalShowsSection(navigation: navigation, findQuery: findQuery)
                         .padding(.horizontal, -16)
+                    if !PodcastShowsGrid.shows(matching: findQuery, in: store.shows).isEmpty {
+                        PodcastShowsGrid(navigation: navigation, findQuery: findQuery)
+                            .padding(.horizontal, -16)
+                    }
                 }
                 MacPodcastSearchResults(search: search, openShow: openDirectoryShow) { feedPreviewURL = $0 }
             }
         } else if !store.isLoaded {
             ProgressView()
                 .frame(maxWidth: .infinity, minHeight: 240)
-        } else if hasShows, page == .library {
+        } else if hasLibraryContent, page == .library {
             // 订阅内容沿用各端共用的区块;它们自带 16 点边距,这里只补到和页头对齐。
-            PodcastLibraryContent(navigation: navigation)
-                .padding(.horizontal, -16)
-                .pmAppearFade(.contentAppear)
+            Group {
+                if hasShows {
+                    PodcastLibraryContent(navigation: navigation)
+                } else {
+                    PodcastLocalShowsSection(navigation: navigation)
+                }
+            }
+            .padding(.horizontal, -16)
+            .pmAppearFade(.contentAppear)
         } else {
             VStack(alignment: .leading, spacing: 20) {
                 MacPodcastDiscoverSection(openShow: openDirectoryShow)

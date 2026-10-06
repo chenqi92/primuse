@@ -362,6 +362,18 @@ struct TVRoot: View {
                 .animation(.easeInOut(duration: 0.25), value: hidesTabBar)
             }
         }
+        // 第一次有了资料库里自己下载的播客:默认收着的播客页亮出来一次。这些文件原先在有声页,
+        // 归到播客以后页面还收着的话,看起来就是丢了。之后再关掉就照用户的来。
+        .onChange(of: store.library.localPodcastSongs.isEmpty, initial: true) { _, isEmpty in
+            guard !isEmpty else { return }
+            let key = "primuse.tv.podcastsRevealedForLocalFiles.v1"
+            guard !UserDefaults.standard.bool(forKey: key) else { return }
+            UserDefaults.standard.set(true, forKey: key)
+            var configuration = tabBarConfiguration
+            guard !configuration.isShown(.podcasts) else { return }
+            configuration.setShown(true, for: .podcasts)
+            tabBarConfigurationRawValue = configuration.encoded()
+        }
         .onChange(of: rootModalPresentationCount) { _, count in
             modalActivityChanged(count > 0 || hasChildModalPresentation)
         }

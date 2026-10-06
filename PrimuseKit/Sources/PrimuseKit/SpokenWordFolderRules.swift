@@ -313,7 +313,7 @@ public struct SpokenWordClassificationInputs: Equatable, Sendable {
         filePath: String,
         genre: String?,
         serverLibraryID: String? = nil,
-        genreVerdicts: inout [String: Bool]
+        genreVerdicts: inout [String: ListeningContentKind]
     ) -> ListeningContentKind {
         if let override = overrides[songID] { return override }
         if folderRules.containsSong(sourceID: sourceID, filePath: filePath, serverLibraryID: serverLibraryID) {
@@ -321,9 +321,9 @@ public struct SpokenWordClassificationInputs: Equatable, Sendable {
         }
         if SpokenWordContentPolicy.pathHasAudiobookExtension(filePath) { return .spokenWord }
         guard let genre else { return .music }
-        if let verdict = genreVerdicts[genre] { return verdict ? .spokenWord : .music }
-        let verdict = SpokenWordContentPolicy.genreNamesSpokenWord(genre)
+        if let verdict = genreVerdicts[genre] { return verdict }
+        let verdict = SpokenWordContentPolicy.genreKind(genre) ?? .music
         genreVerdicts[genre] = verdict
-        return verdict ? .spokenWord : .music
+        return verdict
     }
 }

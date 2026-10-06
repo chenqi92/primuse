@@ -26,7 +26,7 @@ struct SpokenWordContentPolicyTests {
     @Test("Genres that name the category are recognized across languages")
     func categoryGenres() {
         let genres = [
-            "Audiobook", "audio book", "Spoken Word", "Podcast", "Radio Drama",
+            "Audiobook", "audio book", "Spoken Word", "Radio Drama",
             "Hörbuch", "Livre audio", "Audiolibro", "Lecture", "Storytelling",
         ]
         for genre in genres {
@@ -35,6 +35,18 @@ struct SpokenWordContentPolicyTests {
                 "\(genre) should be spoken word"
             )
         }
+    }
+
+    @Test("A genre that names a podcast files the episode with the podcasts")
+    func podcastGenres() {
+        for genre in ["Podcast", "Podcasts", "播客", "ポッドキャスト", "팟캐스트", "Tech Podcast"] {
+            #expect(SpokenWordContentPolicy.classify(filePath: "/a.mp3", genre: genre) == .podcast, "\(genre)")
+            #expect(SpokenWordContentPolicy.genreNamesSpokenWord(genre), "\(genre) is still not music")
+        }
+        // A book container is a book whatever the genre says.
+        #expect(SpokenWordContentPolicy.classify(filePath: "/a.m4b", genre: "Podcast") == .spokenWord)
+        #expect(ListeningContentKind.podcast.isSpokenWordListening)
+        #expect(!ListeningContentKind.music.isSpokenWordListening)
     }
 
     @Test("Chinese spoken-word categories are recognized")

@@ -309,7 +309,7 @@ extension AudioPlayerService {
     /// that is playing. The library groups books once per change; an item it
     /// does not hold falls back to what its own tags and path say.
     func spokenWordBookID(for song: Song) -> String {
-        if let bookID = library?.spokenWordBookIDs[song.id] { return bookID }
+        if let bookID = library?.spokenWordBookIDs[song.id] ?? library?.localPodcastBookIDs[song.id] { return bookID }
         return SpokenWordBookGrouping.bookID(for: SpokenWordBookItem(song: song))
     }
 

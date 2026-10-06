@@ -147,4 +147,28 @@ struct LibrarySectionLayoutPolicyTests {
         #expect(LibrarySectionLayoutPolicy.decodeNames("") == nil)
         #expect(LibrarySectionLayoutPolicy.decodeNames("not json") == nil)
     }
+
+    @Test("A default-hidden section with content is shown once, then left to the listener")
+    func revealingASectionOnce() {
+        let defaults = ["recommendations", "podcasts"]
+        // Never set: written out as the defaults minus the section.
+        let fromDefaults = LibrarySectionLayoutPolicy.revealingSection(
+            "podcasts", storedHiddenRawValue: nil, defaultHidden: defaults, alreadyRevealed: false
+        )
+        #expect(fromDefaults.flatMap(LibrarySectionLayoutPolicy.decodeNames) == ["recommendations"])
+        // A stored set keeps everything else the listener hid.
+        let stored = LibrarySectionLayoutPolicy.encodeNames(["statistics", "podcasts"])
+        let fromStored = LibrarySectionLayoutPolicy.revealingSection(
+            "podcasts", storedHiddenRawValue: stored, defaultHidden: defaults, alreadyRevealed: false
+        )
+        #expect(fromStored.flatMap(LibrarySectionLayoutPolicy.decodeNames) == ["statistics"])
+        // Already shown, or already done once: nothing to write.
+        #expect(LibrarySectionLayoutPolicy.revealingSection(
+            "podcasts", storedHiddenRawValue: LibrarySectionLayoutPolicy.encodeNames([]),
+            defaultHidden: defaults, alreadyRevealed: false
+        ) == nil)
+        #expect(LibrarySectionLayoutPolicy.revealingSection(
+            "podcasts", storedHiddenRawValue: stored, defaultHidden: defaults, alreadyRevealed: true
+        ) == nil)
+    }
 }

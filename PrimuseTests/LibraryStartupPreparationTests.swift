@@ -162,6 +162,31 @@ final class LibraryStartupPreparationTests: XCTestCase {
         XCTAssertEqual(changes.withLock { $0 }, 1)
     }
 
+    func testPodcastFilesLeaveBothTheMusicListsAndTheBookShelf() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let book = Self.makeSong(id: UUID().uuidString, sourceID: "kind-fixture")
+        let episode = Self.makeSong(id: UUID().uuidString, sourceID: "kind-fixture")
+        let music = Self.makeSong(id: UUID().uuidString, sourceID: "kind-fixture")
+        let seed = MusicLibrary(storageDirectory: directory)
+        seed.addSongs([book, episode, music], affectedSourceIDs: [book.sourceID])
+        guard case .success = await seed.persistNowAndWait() else { return XCTFail("Fixture did not persist") }
+        let prepared = await MusicLibrary.prepareStartup(
+            storageDirectory: directory,
+            spokenWordClassification: SpokenWordClassificationInputs(
+                overrides: [book.id: .spokenWord, episode.id: .podcast]
+            )
+        )
+        let library = MusicLibrary.makePreparing(storageDirectory: directory)
+        library.publish(prepared)
+        XCTAssertEqual(library.spokenWordSongs.map(\.id), [book.id])
+        XCTAssertEqual(library.localPodcastSongs.map(\.id), [episode.id])
+        XCTAssertEqual(library.musicSongs.map(\.id), [music.id])
+        XCTAssertEqual(library.spokenWordSongIDs, [book.id, episode.id])
+        XCTAssertNotNil(library.localPodcastBookIDs[episode.id])
+        XCTAssertNil(library.spokenWordBookIDs[episode.id])
+    }
+
     func testClassificationChangeWhilePreparingSurvivesPublication() async throws {
         let directory = try Self.makeStorageDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

@@ -4269,6 +4269,7 @@
 "spoken_word_remaining_format" = "%@ left";
 "spoken_word_clear_progress" = "Clear Listening Position";
 "mark_as_spoken_word" = "Mark as Audiobook";
+"mark_as_podcast" = "Mark as Podcast";
 "mark_as_music" = "Mark as Music";
 "chapters_title" = "Chapters";
 "a11y_skip_backward" = "Skip back 15 seconds";
@@ -5008,6 +5009,8 @@
 "podcast_mark_played" = "Mark as Played";
 "podcast_mark_unplayed" = "Mark as Unplayed";
 "podcast_my_shows" = "Shows";
+"podcast_local_shows" = "On This Device";
+"podcast_local_episode_count %lld" = "%lld episodes";
 "podcast_new_episodes_count %lld" = "%lld new episodes";
 "podcast_no_episodes" = "No episodes yet.";
 "podcast_no_matching_episodes" = "No episodes here.";

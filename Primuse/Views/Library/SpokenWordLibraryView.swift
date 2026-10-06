@@ -108,7 +108,30 @@ final class SpokenWordBooksModel {
     }
 }
 
+/// 按书分组的有声内容:书架上的书,或者播客那边本机下载的节目(按节目分组,一集是一章)。
+enum SpokenWordCollection: Hashable, Sendable {
+    case books
+    case localPodcasts
+
+    @MainActor
+    func songs(in library: MusicLibrary) -> [Song] {
+        switch self {
+        case .books: library.spokenWordSongs
+        case .localPodcasts: library.localPodcastSongs
+        }
+    }
+
+    @MainActor
+    func revision(in library: MusicLibrary) -> UInt64 {
+        switch self {
+        case .books: library.spokenWordContentRevision
+        case .localPodcasts: library.localPodcastContentRevision
+        }
+    }
+}
+
 struct SpokenWordLibraryContent<Content: View>: View {
+    var collection: SpokenWordCollection = .books
     @ViewBuilder var content: (SpokenWordLibrarySnapshot) -> Content
 
     @Environment(MusicLibrary.self) private var library
@@ -122,10 +145,10 @@ struct SpokenWordLibraryContent<Content: View>: View {
 
     var body: some View {
         content(books.snapshot)
-            .task(id: RefreshIdentity(libraryRevision: library.spokenWordContentRevision, progressRevision: progressRevision)) {
+            .task(id: RefreshIdentity(libraryRevision: collection.revision(in: library), progressRevision: progressRevision)) {
                 let store = SpokenWordStore.shared
                 await books.refresh(
-                    songs: library.spokenWordSongs,
+                    songs: collection.songs(in: library),
                     positions: store.positions,
                     finishedAt: store.finishedAt,
                     archived: store.archivedBookIDs
@@ -766,6 +789,8 @@ private struct SpokenWordNowListeningCard: View {
 /// is in each.
 struct SpokenWordBookDetailView: View {
     let bookID: String
+    /// 本机下载的播客节目也用这一页:一集是一章。
+    var collection: SpokenWordCollection = .books
 
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
@@ -773,7 +798,7 @@ struct SpokenWordBookDetailView: View {
     private var store: SpokenWordStore { SpokenWordStore.shared }
 
     var body: some View {
-        SpokenWordLibraryContent { snapshot in
+        SpokenWordLibraryContent(collection: collection) { snapshot in
             detailContent(snapshot)
         }
         #if os(iOS)
@@ -841,6 +866,9 @@ struct SpokenWordBookDetailView: View {
                 .navigationTitle(book.title)
             } else if !snapshot.isPrepared {
                 ProgressView()
+            } else if collection == .books, library.localPodcastBookIDs.values.contains(bookID) {
+                // 「转到这本书」从播放页、Mac 主窗口进来时只带着 id:本机下载的播客节目不在书架上。
+                SpokenWordBookDetailView(bookID: bookID, collection: .localPodcasts)
             } else {
                 ContentUnavailableView("tab_spoken_word", systemImage: "books.vertical")
             }
@@ -1021,8 +1049,8 @@ struct SpokenWordBookCover: View {
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        if let song, PodcastPlaybackSong.isEpisode(song), let width {
-            // 播客单集不是书:封面是方的,边长取书框的高,占的还是同一块槽位。
+        if let song, PodcastPlaybackSong.isEpisode(song) || SpokenWordStore.shared.isPodcast(song), let width {
+            // 播客单集(订阅的,或本机下载的)不是书:封面是方的,边长取书框的高,占的还是同一块槽位。
             let side = SpokenWordCoverLayout.height(forWidth: width)
             CachedArtworkView(
                 coverRef: song.coverArtFileName,

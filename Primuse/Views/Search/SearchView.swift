@@ -812,7 +812,8 @@ struct SearchView: View {
             stationByID[match.stationID].map { RadioSearchHit(station: $0, field: match.field) }
         }
 
-        let spokenSongs = showsSpace(.spokenWord) ? library.spokenWordSongs : []
+        // 本机下载的播客节目也在这里搜得到:它们原本就在书架上,挪到播客以后不该从搜索里消失。
+        let spokenSongs = showsSpace(.spokenWord) ? library.spokenWordSongs + library.localPodcastSongs : []
         guard !spokenSongs.isEmpty else {
             bookHits = []
             return

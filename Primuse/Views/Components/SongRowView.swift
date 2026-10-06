@@ -658,26 +658,16 @@ struct SongRowView: View {
     ///
     /// 离线状态由调用方传进来：尾部菜单用的是行渲染时量到的那一份快照，
     /// 跟行上的徽标是同一个值。
-    /// 把一首歌在「音乐」和「有声内容」之间搬家。判定平时是推断出来的
+    /// 把一首歌在「音乐」「有声书」「播客」之间搬家。判定平时是推断出来的
     /// (.m4b 容器、点名了类别的流派), 这里只记下与推断不同的那一次决定 ——
     /// 改完标签或换了文件之后, 没被手动改过的歌仍然跟着文件走。
+    /// 推断值要连目录标签一起算(`SpokenWordStore.move`): 标成有声的目录里「标为音乐」
+    /// 必须存下显式的 .music, 只清掉记录的话目录标签还在, 这一下等于没点。
     @ViewBuilder
     private var spokenWordClassificationButton: some View {
-        let store = SpokenWordStore.shared
-        let isSpokenWord = store.isSpokenWord(song)
-        Button {
-            // 推断值要连目录标签一起算: 标成有声的目录里「标为音乐」必须存下
-            // 显式的 .music, 只清掉记录的话目录标签还在, 这一下等于没点。
-            store.move([song], to: isSpokenWord ? .music : .spokenWord)
+        ListeningKindMoveButtons(current: SpokenWordStore.shared.kind(for: song)) { kind in
+            SpokenWordStore.shared.move([song], to: kind)
             library.refreshContentClassification()
-        } label: {
-            // 两条分支各写各的 key: 三元表达式里的文案提取不到,
-            // 会以键名原样上屏。
-            if isSpokenWord {
-                Label(String(localized: "mark_as_music"), systemImage: "music.note")
-            } else {
-                Label(String(localized: "mark_as_spoken_word"), systemImage: "books.vertical")
-            }
         }
     }
 
@@ -1996,6 +1986,31 @@ struct SongOfflineActionButtons: View {
                 sourceManager.downloadForOffline(song: song)
             } label: {
                 Label(String(localized: "offline_cache_song"), systemImage: "arrow.down.circle")
+            }
+        }
+    }
+}
+
+/// 「标记为音乐 / 有声书 / 播客」:列出当前分类以外的几项。`current` 为 nil 表示选中的歌
+/// 分属不同分类,三项都给。歌曲菜单、Mac 右键菜单和批量操作共用。
+struct ListeningKindMoveButtons: View {
+    let current: ListeningContentKind?
+    let move: (ListeningContentKind) -> Void
+
+    var body: some View {
+        ForEach(ListeningContentKind.allCases.filter { $0 != current }, id: \.self) { kind in
+            Button {
+                move(kind)
+            } label: {
+                // 三条分支各写各的 key: 拼出来的键提取不到, 会以键名原样上屏。
+                switch kind {
+                case .music:
+                    Label(String(localized: "mark_as_music"), systemImage: "music.note")
+                case .spokenWord:
+                    Label(String(localized: "mark_as_spoken_word"), systemImage: "books.vertical")
+                case .podcast:
+                    Label(String(localized: "mark_as_podcast"), systemImage: ListeningSpace.podcast.systemImage)
+                }
             }
         }
     }

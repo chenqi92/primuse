@@ -16,12 +16,15 @@ enum TVPodcastShowSource: Hashable {
 enum TVPodcastPresentation: Identifiable, Hashable {
     case show(TVPodcastShowSource)
     case discover
+    /// 资料库里自己下载的一档节目(按专辑分组的播客文件),各集按章节列出。
+    case localShow(SpokenWordBook)
 
     var id: String {
         switch self {
         case .show(.show(let id)): "show:\(id)"
         case .show(.directory(let show)): "directory:\(show.id)"
         case .discover: "discover"
+        case .localShow(let book): "local:\(book.id)"
         }
     }
 }
@@ -52,11 +55,13 @@ struct TVPodcastsView: View {
                         ProgressView()
                             .frame(maxWidth: .infinity, minHeight: 420)
                     } else if podcasts.shows.isEmpty {
+                        localShowsSection(cell: cell)
                         welcome(cell: cell)
                         regionHiddenNote
                     } else {
                         continueListening
                         latestEpisodes
+                        localShowsSection(cell: cell)
                         showsSection(cell: cell)
                         regionHiddenNote
                     }
@@ -75,6 +80,10 @@ struct TVPodcastsView: View {
                     TVPodcastShowDetailView(source: source) { opensPlayerAfterDismissal = true }
                 case .discover:
                     TVPodcastDiscoverView { opensPlayerAfterDismissal = true }
+                case .localShow(let book):
+                    TVSpokenWordBookDetailView(bookID: book.id, fallback: book) {
+                        opensPlayerAfterDismissal = true
+                    }
                 }
             }
             .environment(store)
@@ -192,6 +201,29 @@ struct TVPodcastsView: View {
                     }
                     .contextMenu { episodeMenu(episode, continuing: continuing) }
                 }
+            }
+        }
+    }
+
+    /// 资料库里自己下载的播客文件,按节目(专辑)分组。和书架用同一套卡片与章节页。
+    @ViewBuilder
+    private func localShowsSection(cell: CGFloat) -> some View {
+        let shows = TVSpokenWordBooks.books(songs: store.library.localPodcastSongs, store: SpokenWordStore.shared)
+        if !shows.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(String(localized: "podcast_local_shows"))
+                    .tvFont(.sectionTitle)
+                    .foregroundStyle(TVColor.text)
+                    .padding(.horizontal, 14)
+                LazyVGrid(columns: gridMetrics.gridItems(cell: cell), alignment: .leading, spacing: gridMetrics.gap) {
+                    ForEach(shows) { book in
+                        TVSpokenWordBookCard(book: book, width: cell) {
+                            presented = .localShow(book)
+                        }
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 20)
             }
         }
     }

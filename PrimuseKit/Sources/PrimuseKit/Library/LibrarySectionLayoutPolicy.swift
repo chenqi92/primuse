@@ -138,6 +138,49 @@ public enum LibrarySectionLayoutPolicy {
         return updated != nil
     }
 
+    // MARK: 默认收起的分类第一次有了内容
+
+    /// 默认收起的分类第一次有了内容时亮出来一次(本机下载的播客从书架挪到播客那天,
+    /// 播客分类还收着,东西就像没了)。之后再收起就照用户的来。不用写时返回 nil。
+    public static func revealingSection(
+        _ name: String,
+        storedHiddenRawValue: String?,
+        defaultHidden: [String],
+        alreadyRevealed: Bool
+    ) -> String? {
+        guard !alreadyRevealed else { return nil }
+        let stored = storedHiddenRawValue ?? ""
+        let names: [String]
+        if stored.isEmpty {
+            names = defaultHidden
+        } else {
+            guard let decoded = decodeNames(stored) else { return nil }
+            names = decoded
+        }
+        guard names.contains(name) else { return nil }
+        return encodeNames(names.filter { $0 != name })
+    }
+
+    /// 在 UserDefaults 上做一次 `revealingSection`。
+    @discardableResult
+    public static func revealSectionIfNeeded(
+        _ name: String,
+        defaultHidden: [String],
+        migrationKey: String,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        let revealed = defaults.bool(forKey: migrationKey)
+        let updated = revealingSection(
+            name,
+            storedHiddenRawValue: defaults.string(forKey: hiddenKey),
+            defaultHidden: defaultHidden,
+            alreadyRevealed: revealed
+        )
+        if let updated { defaults.set(updated, forKey: hiddenKey) }
+        if !revealed { defaults.set(true, forKey: migrationKey) }
+        return updated != nil
+    }
+
     // MARK: 存档格式
 
     /// 解出存档里的名字;空串或不是字符串数组时返回 nil。

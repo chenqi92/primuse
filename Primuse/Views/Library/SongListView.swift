@@ -2638,17 +2638,9 @@ struct SongListView: View {
     /// 没有它就只能靠播放时的提示一首一首地搬。
     @ViewBuilder
     private func macSpokenWordClassificationButton(for song: Song) -> some View {
-        let isSpokenWord = SpokenWordStore.shared.isSpokenWord(song)
-        Button {
-            SpokenWordStore.shared.move([latestSong(song)], to: isSpokenWord ? .music : .spokenWord)
+        ListeningKindMoveButtons(current: SpokenWordStore.shared.kind(for: song)) { kind in
+            SpokenWordStore.shared.move([latestSong(song)], to: kind)
             library.refreshContentClassification()
-        } label: {
-            // 两条分支各写各的 key: 三元表达式里的文案提取不到。
-            if isSpokenWord {
-                Label(String(localized: "mark_as_music"), systemImage: "music.note")
-            } else {
-                Label(String(localized: "mark_as_spoken_word"), systemImage: "books.vertical")
-            }
         }
     }
 

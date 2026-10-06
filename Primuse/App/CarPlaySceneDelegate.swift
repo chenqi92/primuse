@@ -1003,8 +1003,10 @@ extension CarPlaySceneDelegate {
                 self?.pushBrowse(.spokenWord, title: String(localized: "listening_space_spoken_word"))
             },
         ]
-        // 订了播客才给入口:继续收听、最新单集、各档节目。
-        let podcasts: [CollectionEntry] = PodcastStore.shared.shows.isEmpty ? [] : [
+        // 订了播客、或资料库里有自己下载的节目才给入口:继续收听、最新单集、本地节目、各档节目。
+        let hasPodcasts = !PodcastStore.shared.shows.isEmpty
+            || !AppServices.shared.musicLibrary.localPodcastSongs.isEmpty
+        let podcasts: [CollectionEntry] = !hasPodcasts ? [] : [
             CollectionEntry(
                 title: String(localized: "listening_space_podcast"),
                 symbol: ListeningSpace.podcast.systemImage
@@ -1824,6 +1826,28 @@ extension CarPlaySceneDelegate {
             }
             budget -= items.count
             sections.append(CPListSection(items: items, header: String(localized: "podcast_latest_episodes"), sectionIndexTitle: nil))
+        }
+
+        // 资料库里自己下载的节目:按节目分组,和有声书一样整档放进队列、从听到的那一集接着。
+        let localSongs = AppServices.shared.musicLibrary.localPodcastSongs
+        if !localSongs.isEmpty, budget > 0 {
+            let spokenStore = SpokenWordStore.shared
+            let songsByID = Dictionary(localSongs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            let currentBookID = AppServices.shared.playerService.currentBookID
+            let localShows = SpokenWordBookGrouping.books(
+                from: localSongs.map { SpokenWordBookSupport.item(for: $0, store: spokenStore) }
+            ).prefix(budget)
+            let items = localShows.map { book -> CPListItem in
+                defer { artworkIndex += 1 }
+                return spokenWordBookItem(
+                    book,
+                    songs: book.items.compactMap { songsByID[$0.id] },
+                    isCurrent: book.id == currentBookID,
+                    loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: artworkIndex)
+                )
+            }
+            budget -= items.count
+            sections.append(CPListSection(items: Array(items), header: String(localized: "podcast_local_shows"), sectionIndexTitle: nil))
         }
 
         let shows = store.shows

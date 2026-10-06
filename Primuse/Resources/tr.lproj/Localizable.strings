@@ -4412,6 +4412,7 @@
 "spoken_word_remaining_format" = "%@ kaldı";
 "spoken_word_clear_progress" = "Dinleme Konumunu Sil";
 "mark_as_spoken_word" = "Sesli kitap olarak işaretle";
+"mark_as_podcast" = "Podcast Olarak İşaretle";
 "mark_as_music" = "Müzik Olarak İşaretle";
 "chapters_title" = "Bölümler";
 "a11y_skip_backward" = "15 saniye geri";
@@ -5151,6 +5152,8 @@
 "podcast_mark_played" = "Dinlendi olarak işaretle";
 "podcast_mark_unplayed" = "Dinlenmedi olarak işaretle";
 "podcast_my_shows" = "Programlar";
+"podcast_local_shows" = "Kendi Dosyalarım";
+"podcast_local_episode_count %lld" = "%lld bölüm";
 "podcast_new_episodes_count %lld" = "%lld yeni bölüm";
 "podcast_no_episodes" = "Henüz bölüm yok.";
 "podcast_no_matching_episodes" = "Burada bölüm yok.";

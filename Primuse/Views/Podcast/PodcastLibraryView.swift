@@ -45,6 +45,8 @@ final class PodcastNavigationModel {
     var pushedShowID: String?
     var pushedEpisodeID: String?
     var pushedAllEpisodes = false
+    /// 本机下载的播客文件按节目分组后的那一档(`SpokenWordBook.id`)。
+    var pushedLocalShowID: String?
     /// 从热门榜点进去、还没订的节目。
     var pushedDirectoryShow: PodcastDirectoryShow?
 
@@ -73,6 +75,9 @@ private struct PodcastNavigationDestinations: ViewModifier {
             }
             .navigationDestination(isPresented: $navigation.pushedAllEpisodes) {
                 PodcastEpisodeFeedView()
+            }
+            .navigationDestination(item: $navigation.pushedLocalShowID) { showID in
+                SpokenWordBookDetailView(bookID: showID, collection: .localPodcasts)
             }
             .navigationDestination(item: $navigation.pushedDirectoryShow) { show in
                 PodcastShowDetailView(source: .directory(show))
@@ -189,6 +194,7 @@ struct PodcastLibraryContent: View {
     /// 播客页「在本页里找」的输入; 首页那一面不传。在找节目时只摆命中的节目。
     var findText = ""
 
+    @Environment(MusicLibrary.self) private var library
     private var store: PodcastStore { PodcastStore.shared }
 
     var body: some View {
@@ -198,21 +204,28 @@ struct PodcastLibraryContent: View {
                     .frame(maxWidth: .infinity, minHeight: 200)
             } else if store.shows.isEmpty {
                 VStack(spacing: 20) {
+                    // 没订阅、但资料库里有自己下载的节目:先摆出来,再是发现。
+                    PodcastLocalShowsSection(navigation: navigation)
                     PodcastWelcomeView(navigation: navigation)
                     PodcastRegionHiddenNote()
                 }
             } else if let findQuery = LibraryFindPolicy.query(findText) {
-                if PodcastShowsGrid.shows(matching: findQuery, in: store.shows).isEmpty {
+                let localMatches = PodcastLocalShowsSection.hasMatches(findQuery, in: library)
+                if PodcastShowsGrid.shows(matching: findQuery, in: store.shows).isEmpty, !localMatches {
                     ContentUnavailableView.search(text: findText)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 40)
                 } else {
-                    PodcastShowsGrid(navigation: navigation, findQuery: findQuery)
+                    LazyVStack(alignment: .leading, spacing: 28) {
+                        PodcastLocalShowsSection(navigation: navigation, findQuery: findQuery)
+                        PodcastShowsGrid(navigation: navigation, findQuery: findQuery)
+                    }
                 }
             } else {
                 LazyVStack(alignment: .leading, spacing: 28) {
                     PodcastContinueListeningRow(navigation: navigation)
                     PodcastLatestEpisodesSection(navigation: navigation)
+                    PodcastLocalShowsSection(navigation: navigation)
                     PodcastShowsGrid(navigation: navigation)
                     PodcastRegionHiddenNote()
                 }
@@ -512,6 +525,108 @@ struct PodcastShowsGrid: View {
 extension PodcastShowsGrid {
     static func shows(matching query: LibraryFindPolicy.Query, in shows: [PodcastShow]) -> [PodcastShow] {
         shows.filter { LibraryFindPolicy.matches(query, fields: [$0.title, $0.author]) }
+    }
+}
+
+// MARK: - Local shows
+
+/// 资料库里自己下载的播客文件(标成播客,或流派写着播客的),按节目(专辑)分组。
+/// 点进去是这档节目的各集,播放、续听、倍速和有声书一样。
+struct PodcastLocalShowsSection: View {
+    let navigation: PodcastNavigationModel
+    var findQuery: LibraryFindPolicy.Query?
+
+    @Environment(MusicLibrary.self) private var library
+
+    private var columns: [GridItem] {
+        #if os(macOS)
+        [GridItem(.adaptive(minimum: 130, maximum: 170), spacing: 18, alignment: .top)]
+        #else
+        [GridItem(.adaptive(minimum: 100, maximum: 160), spacing: 14, alignment: .top)]
+        #endif
+    }
+
+    /// 在找节目时,本机节目里有没有命中的(节目名、作者,或某一集的标题)。
+    @MainActor
+    static func hasMatches(_ query: LibraryFindPolicy.Query, in library: MusicLibrary) -> Bool {
+        library.localPodcastSongs.contains {
+            LibraryFindPolicy.matches(query, fields: [$0.albumTitle, $0.albumArtistName ?? $0.artistName, $0.title])
+        }
+    }
+
+    var body: some View {
+        if !library.localPodcastSongs.isEmpty {
+            SpokenWordLibraryContent(collection: .localPodcasts) { snapshot in
+                let shows = (snapshot.allEntries + snapshot.archived).filter { entry in
+                    guard let findQuery else { return true }
+                    return LibraryFindPolicy.matches(findQuery, fields: [entry.book.title, entry.book.author])
+                        || entry.songs.contains { LibraryFindPolicy.matches(findQuery, fields: [$0.title]) }
+                }
+                if !shows.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        PodcastSectionHeader(titleKey: "podcast_local_shows")
+                            .padding(.horizontal, 16)
+                            .pmClearOfVerticalBar()
+                        LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
+                            ForEach(shows) { entry in
+                                Button {
+                                    navigation.pushedLocalShowID = entry.id
+                                } label: {
+                                    PodcastLocalShowTile(entry: entry)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("podcast.localShow")
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 一档本机节目:方形封面(第一集的),名字,几集、听到哪。
+private struct PodcastLocalShowTile: View {
+    let entry: SpokenWordLibrarySnapshot.Entry
+
+    var body: some View {
+        let book = entry.book
+        VStack(alignment: .leading, spacing: 6) {
+            GeometryReader { proxy in
+                CachedArtworkView(
+                    coverRef: entry.songs.first?.coverArtFileName,
+                    songID: entry.songs.first?.id,
+                    size: proxy.size.width,
+                    cornerRadius: 12,
+                    sourceID: entry.songs.first?.sourceID,
+                    filePath: entry.songs.first?.filePath,
+                    fileFormat: entry.songs.first?.fileFormat,
+                    placeholderIcon: "antenna.radiowaves.left.and.right",
+                    fillsProposedSize: true
+                )
+                .frame(width: proxy.size.width, height: proxy.size.width)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .aspectRatio(1, contentMode: .fit)
+            .overlay(alignment: .bottom) {
+                if book.isInProgress {
+                    ProgressView(value: book.fractionComplete)
+                        .tint(ListeningSpace.podcast.tint)
+                        .padding(.horizontal, 8)
+                        .padding(.bottom, 6)
+                }
+            }
+            Text(book.title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+            Text(String(format: String(localized: "podcast_local_episode_count %lld"), book.items.count))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .contentShape(Rectangle())
     }
 }
 

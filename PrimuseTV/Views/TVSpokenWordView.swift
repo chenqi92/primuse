@@ -389,7 +389,11 @@ struct TVSpokenWordBookDetailView: View {
     var openPlayer: () -> Void = {}
 
     private var currentBook: SpokenWordBook {
-        TVSpokenWordBooks.books(songs: store.library.spokenWordSongs, store: SpokenWordStore.shared)
+        // 播客页里本机下载的节目也用这一页。
+        let songs = store.library.localPodcastBookIDs.values.contains(bookID)
+            ? store.library.localPodcastSongs
+            : store.library.spokenWordSongs
+        return TVSpokenWordBooks.books(songs: songs, store: SpokenWordStore.shared)
             .first { $0.id == bookID } ?? fallback
     }
 

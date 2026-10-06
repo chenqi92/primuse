@@ -109,8 +109,11 @@ extension AudioPlayerService {
     func listeningSpace(of song: Song) -> ListeningSpace {
         if isRadioPlaybackSong(song) { return .radio }
         if PodcastPlaybackSong.isEpisode(song) { return .podcast }
-        if SpokenWordStore.shared.isSpokenWord(song) { return .spokenWord }
-        return .music
+        switch SpokenWordStore.shared.kind(for: song) {
+        case .podcast: return .podcast
+        case .spokenWord: return .spokenWord
+        case .music: return .music
+        }
     }
 
     /// Radio plays a synthetic song standing in for the station.

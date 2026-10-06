@@ -167,7 +167,7 @@ struct SpokenWordFolderRulesTests {
         #expect(inputs.kind(songID: "music-in-abs", sourceID: "abs", filePath: "/items/x/files/1.mp3", genre: nil) == .music)
         #expect(inputs.kind(songID: "other", sourceID: "abs", filePath: "/items/x/files/2.mp3", genre: "Rock") == .spokenWord)
         #expect(inputs.inferredKind(sourceID: "abs", filePath: "/items/x/files/1.mp3", genre: nil) == .spokenWord)
-        var verdicts: [String: Bool] = [:]
+        var verdicts: [String: ListeningContentKind] = [:]
         #expect(inputs.kind(songID: "other", sourceID: "abs", filePath: "/items/x/files/2.mp3", genre: "Rock", genreVerdicts: &verdicts) == .spokenWord)
     }
 
@@ -178,7 +178,7 @@ struct SpokenWordFolderRulesTests {
             sources: [descriptor("jf", .jellyfin)]
         )
         let inputs = SpokenWordClassificationInputs(folderRules: rules)
-        var verdicts: [String: Bool] = [:]
+        var verdicts: [String: ListeningContentKind] = [:]
         #expect(inputs.kind(songID: "a", sourceID: "jf", filePath: "/items/1.mp3", genre: "Pop", serverLibraryID: "books") == .spokenWord)
         #expect(inputs.kind(songID: "a", sourceID: "jf", filePath: "/items/1.mp3", genre: "Pop", serverLibraryID: "music") == .music)
         #expect(inputs.kind(songID: "a", sourceID: "jf", filePath: "/items/1.mp3", genre: "Pop", serverLibraryID: "books", genreVerdicts: &verdicts) == .spokenWord)
@@ -216,14 +216,17 @@ struct SpokenWordFolderRulesTests {
     @Test("The memoized whole-library pass classifies exactly like the per-song call")
     func memoizedPassMatches() {
         let rules = SpokenWordFolderRules(folders: ["nas": ["/Books"]], sources: [descriptor("nas", .smb)])
-        let inputs = SpokenWordClassificationInputs(overrides: ["forced-music": .music, "forced-book": .spokenWord], folderRules: rules)
+        let inputs = SpokenWordClassificationInputs(
+            overrides: ["forced-music": .music, "forced-book": .spokenWord, "forced-podcast": .podcast],
+            folderRules: rules
+        )
         let paths = [
             "/Books/a.mp3", "/Music/a.m4b", "/Music/a.M4B", "/Music/a.m4b/", "/Music/m4b/a.mp3",
             "/Music/a.m4bx", "/Music/a.xm4b", "/Music/M4B", "/Music/a.m4a", "/Music/有声.mp3", "",
         ]
-        let genres: [String?] = [nil, "", "Pop", "Audio Book", "audio-book", "有声书", "Rock", "Pop", "相声 集锦"]
-        var verdicts: [String: Bool] = [:]
-        for songID in ["plain", "forced-music", "forced-book"] {
+        let genres: [String?] = [nil, "", "Pop", "Audio Book", "audio-book", "有声书", "Rock", "Pop", "相声 集锦", "Podcast", "播客"]
+        var verdicts: [String: ListeningContentKind] = [:]
+        for songID in ["plain", "forced-music", "forced-book", "forced-podcast"] {
             for sourceID in ["nas", "cloud"] {
                 for path in paths {
                     for genre in genres {

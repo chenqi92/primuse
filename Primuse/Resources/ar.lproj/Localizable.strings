@@ -4412,6 +4412,7 @@
 "spoken_word_remaining_format" = "يتبقى %@";
 "spoken_word_clear_progress" = "مسح موضع الاستماع";
 "mark_as_spoken_word" = "تمييز ككتاب صوتي";
+"mark_as_podcast" = "وضع علامة كبودكاست";
 "mark_as_music" = "تمييز كموسيقى";
 "chapters_title" = "الفصول";
 "a11y_skip_backward" = "الرجوع 15 ثانية";
@@ -5151,6 +5152,8 @@
 "podcast_mark_played" = "تمييز كمستمع إليه";
 "podcast_mark_unplayed" = "تمييز كغير مستمع إليه";
 "podcast_my_shows" = "البرامج";
+"podcast_local_shows" = "ملفاتي";
+"podcast_local_episode_count %lld" = "%lld حلقة";
 "podcast_new_episodes_count %lld" = "%lld حلقة جديدة";
 "podcast_no_episodes" = "لا توجد حلقات بعد.";
 "podcast_no_matching_episodes" = "لا توجد حلقات هنا.";

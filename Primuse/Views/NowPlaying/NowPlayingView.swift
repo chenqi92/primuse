@@ -4476,11 +4476,17 @@ struct NowPlayingView: View {
 
     // MARK: - 有声书竖版(墨黑 / 暖白)
 
+    /// 正在放的是播客:订阅的单集,或资料库里标成播客的文件。播客不套书的版式。
+    private var currentItemIsPodcast: Bool {
+        guard let song = player.currentSong else { return false }
+        return PodcastPlaybackSong.isEpisode(song) || SpokenWordStore.shared.isPodcast(song)
+    }
+
     /// 有声书(播客单集不算)用专门的两套设计,见 `AudiobookPlayerStyle`。iPhone 与 iPad 竖屏是
     /// 专门的版面;横屏、iPad 双栏沿用通用的有声版面,只把底换成同一种纯色。
     private var usesAudiobookPlayerDesign: Bool {
         #if os(iOS)
-        usesSpokenWordTransport && !PodcastPlaybackSong.isEpisode(player.currentSong)
+        usesSpokenWordTransport && !currentItemIsPodcast
         #else
         false
         #endif
@@ -5247,7 +5253,7 @@ struct NowPlayingView: View {
             // 暂停时的缩小直接算进尺寸(和音乐那一支一样),别在匹配几何外面再套 scaleEffect:
             // 那样飞向小封面的起点和终点都会被一起缩向中心, 交接时跳一下。
             // 播客的方形封面圆角跟音乐一致, 不按书缩小。
-            let isPodcastEpisode = PodcastPlaybackSong.isEpisode(player.currentSong)
+            let isPodcastEpisode = currentItemIsPodcast
             SpokenWordBookCover(
                 song: player.currentSong,
                 width: SpokenWordCoverLayout.width(forHeight: displayedSize),

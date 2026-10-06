@@ -4412,6 +4412,7 @@
 "spoken_word_remaining_format" = "Faltam %@";
 "spoken_word_clear_progress" = "Limpar posição de escuta";
 "mark_as_spoken_word" = "Marcar como audiolivro";
+"mark_as_podcast" = "Marcar como podcast";
 "mark_as_music" = "Marcar como música";
 "chapters_title" = "Capítulos";
 "a11y_skip_backward" = "Voltar 15 segundos";
@@ -5151,6 +5152,8 @@
 "podcast_mark_played" = "Marcar como reproduzido";
 "podcast_mark_unplayed" = "Marcar como não reproduzido";
 "podcast_my_shows" = "Programas";
+"podcast_local_shows" = "Meus arquivos";
+"podcast_local_episode_count %lld" = "%lld episódios";
 "podcast_new_episodes_count %lld" = "%lld episódios novos";
 "podcast_no_episodes" = "Ainda não há episódios.";
 "podcast_no_matching_episodes" = "Não há episódios aqui.";

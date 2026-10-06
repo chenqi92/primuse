@@ -4412,6 +4412,7 @@
 "spoken_word_remaining_format" = "Залишилось %@";
 "spoken_word_clear_progress" = "Скинути позицію прослуховування";
 "mark_as_spoken_word" = "Позначити як аудіокнигу";
+"mark_as_podcast" = "Позначити як подкаст";
 "mark_as_music" = "Позначити як музику";
 "chapters_title" = "Розділи";
 "a11y_skip_backward" = "Назад на 15 секунд";
@@ -5151,6 +5152,8 @@
 "podcast_mark_played" = "Позначити як прослуханий";
 "podcast_mark_unplayed" = "Позначити як непрослуханий";
 "podcast_my_shows" = "Подкасти";
+"podcast_local_shows" = "Власні файли";
+"podcast_local_episode_count %lld" = "Випусків: %lld";
 "podcast_new_episodes_count %lld" = "Нових випусків: %lld";
 "podcast_no_episodes" = "Випусків поки немає.";
 "podcast_no_matching_episodes" = "Тут немає випусків.";

@@ -4412,6 +4412,7 @@
 "spoken_word_remaining_format" = "เหลือ %@";
 "spoken_word_clear_progress" = "ล้างตำแหน่งการฟัง";
 "mark_as_spoken_word" = "ทำเครื่องหมายเป็นหนังสือเสียง";
+"mark_as_podcast" = "ทำเครื่องหมายเป็นพอดแคสต์";
 "mark_as_music" = "ทำเครื่องหมายเป็นเพลง";
 "chapters_title" = "บท";
 "a11y_skip_backward" = "ย้อนกลับ 15 วินาที";
@@ -5151,6 +5152,8 @@
 "podcast_mark_played" = "ทำเครื่องหมายว่าฟังแล้ว";
 "podcast_mark_unplayed" = "ทำเครื่องหมายว่ายังไม่ได้ฟัง";
 "podcast_my_shows" = "รายการ";
+"podcast_local_shows" = "ไฟล์ของฉัน";
+"podcast_local_episode_count %lld" = "%lld ตอน";
 "podcast_new_episodes_count %lld" = "%lld ตอนใหม่";
 "podcast_no_episodes" = "ยังไม่มีตอน";
 "podcast_no_matching_episodes" = "ไม่มีตอนในส่วนนี้";

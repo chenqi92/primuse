@@ -4599,6 +4599,7 @@
 "spoken_word_remaining_format" = "剩余 %@";
 "spoken_word_clear_progress" = "清除收听位置";
 "mark_as_spoken_word" = "标记为有声书";
+"mark_as_podcast" = "标记为播客";
 "mark_as_music" = "标记为音乐";
 "chapters_title" = "章节";
 "a11y_skip_backward" = "后退 15 秒";
@@ -5338,6 +5339,8 @@
 "podcast_mark_played" = "标为已播放";
 "podcast_mark_unplayed" = "标为未播放";
 "podcast_my_shows" = "我的节目";
+"podcast_local_shows" = "本地节目";
+"podcast_local_episode_count %lld" = "%lld 集";
 "podcast_new_episodes_count %lld" = "%lld 个新单集";
 "podcast_no_episodes" = "还没有单集。";
 "podcast_no_matching_episodes" = "这里没有单集。";

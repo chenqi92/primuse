@@ -1487,6 +1487,7 @@ final class AppServices {
         let spokenWordWidgets = SpokenWordWidgetPublisher(library: musicLibrary)
         spokenWordWidgets.start()
         spokenWordWidgetPublisher = spokenWordWidgets
+        observeLocalPodcastFiles()
         observeSiriRadioCatalog()
         observeSpotlightSynchronization()
         musicIntelligence.start()
@@ -1523,6 +1524,18 @@ final class AppServices {
     /// decoding and whole-library reconciliation are intentionally absent from
     /// `init`, where even background-capable work would extend Time to First
     /// Draw on the main actor.
+    /// 第一次有了本机的播客文件:收着的播客分类亮出来一次。这些文件原先在有声书架上,
+    /// 归到播客以后分类还收着的话,看起来就是丢了。亮过一次就不再盯着。
+    private func observeLocalPodcastFiles() {
+        guard !UserDefaults.standard.bool(forKey: LibraryDisplayConfiguration.podcastsRevealedForLocalFilesKey) else { return }
+        let hasLocalPodcasts = withObservationTracking {
+            !musicLibrary.localPodcastSongs.isEmpty
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.observeLocalPodcastFiles() }
+        }
+        if hasLocalPodcasts { LibraryDisplayConfiguration.revealPodcastsForLocalFilesIfNeeded() }
+    }
+
     func completeDeferredStartup() async {
         guard !didCompleteDeferredStartup else { return }
         didCompleteDeferredStartup = true

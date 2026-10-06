@@ -176,6 +176,27 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertFalse(store.isFinished(songID: "ch1"), "only marking it unheard reopens it")
     }
 
+    func testPodcastCorrectionsPersistAsSpokenWordForOlderVersions() throws {
+        let url = makeDirectory().appendingPathComponent("kinds.json")
+        let store = SpokenWordStore(storeURL: url)
+        let episode = song("episode")
+        store.setKind(.podcast, forSongIDs: [episode.id])
+        XCTAssertTrue(store.isPodcast(episode))
+        XCTAssertTrue(store.isSpokenWord(episode), "a podcast plays the spoken-word way")
+        store.persistLocally()
+
+        XCTAssertTrue(SpokenWordStore(storeURL: url).isPodcast(episode))
+        // A version without podcasts reads only the kind: spoken word, never music.
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let overrides = try XCTUnwrap(json["overrides"] as? [String: String])
+        XCTAssertEqual(overrides[episode.id], "spokenWord")
+
+        store.move([episode], to: .spokenWord)
+        XCTAssertEqual(store.kind(for: episode), .spokenWord)
+        store.move([song("tagged", genre: "Podcast")], to: .podcast)
+        XCTAssertFalse(store.hasOverride(songID: "tagged"), "the genre already says podcast")
+    }
+
     func testArchivingABookPersistsAndKeepsItOutOfTheShelfSections() throws {
         let url = makeDirectory().appendingPathComponent("archive.json")
         let store = SpokenWordStore(storeURL: url)

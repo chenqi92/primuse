@@ -1,10 +1,16 @@
 import Foundation
 
 /// What kind of listening an item is for. Music is played as a collection;
-/// spoken word is played as one long thing you come back to.
+/// spoken word is played as one long thing you come back to. A podcast is
+/// spoken word too — it plays the same way — but lives with the podcasts
+/// rather than on the book shelf.
 public enum ListeningContentKind: String, Codable, Sendable, CaseIterable {
     case music
     case spokenWord
+    case podcast
+
+    /// Played the spoken-word way: per-item position, skip buttons, own speed.
+    public var isSpokenWordListening: Bool { self != .music }
 }
 
 /// Decides whether an item is spoken word (audiobook, 相声/评书, radio drama,
@@ -34,8 +40,7 @@ public enum SpokenWordContentPolicy {
            fileExtension.lowercased() == audiobookFileExtension {
             return .spokenWord
         }
-        if genreNamesSpokenWord(genre) { return .spokenWord }
-        return .music
+        return genreKind(genre) ?? .music
     }
 
     /// Convenience for the scan/aggregation paths that hold a whole path.
@@ -71,15 +76,31 @@ public enum SpokenWordContentPolicy {
         return (filePath as NSString).pathExtension.lowercased() == audiobookFileExtension
     }
 
+    /// Whether the genre names spoken-word listening of any kind, podcasts
+    /// included.
     public static func genreNamesSpokenWord(_ genre: String?) -> Bool {
-        guard let genre else { return false }
+        genreKind(genre) != nil
+    }
+
+    /// The kind a genre names: `.podcast`, `.spokenWord`, or nil when it names
+    /// neither (music, or nothing to go on).
+    public static func genreKind(_ genre: String?) -> ListeningContentKind? {
+        guard let genre else { return nil }
         let normalized = genre.lowercased()
             .replacingOccurrences(of: " ", with: "")
             .replacingOccurrences(of: "-", with: "")
             .replacingOccurrences(of: "_", with: "")
-        guard !normalized.isEmpty, normalized.count <= 64 else { return false }
-        return spokenWordGenreMarkers.contains { normalized.contains($0) }
+        guard !normalized.isEmpty, normalized.count <= 64 else { return nil }
+        if podcastGenreMarkers.contains(where: { normalized.contains($0) }) { return .podcast }
+        if spokenWordGenreMarkers.contains(where: { normalized.contains($0) }) { return .spokenWord }
+        return nil
     }
+
+    /// Genre spellings that name a podcast. Checked before the spoken-word
+    /// ones, so a downloaded episode goes to the podcasts, not the book shelf.
+    private static let podcastGenreMarkers: Set<String> = [
+        "podcast", "播客", "ポッドキャスト", "팟캐스트",
+    ]
 
     /// Genre spellings that name the category itself rather than a mood. Each
     /// one is long enough that it cannot appear inside an unrelated music
@@ -87,12 +108,12 @@ public enum SpokenWordContentPolicy {
     /// *music*, so it would misfile real records.
     private static let spokenWordGenreMarkers: Set<String> = [
         // English and other Latin-script spellings
-        "audiobook", "audiobooks", "spokenword", "podcast", "radiodrama",
+        "audiobook", "audiobooks", "spokenword", "radiodrama",
         "radioplay", "audiodrama", "audiotheatre", "audiotheater", "audiobuch",
         "hörbuch", "horbuch", "livreaudio", "audiolibro", "audiolivro",
         "аудиокнига", "lecture", "speech", "sermon", "storytelling",
         // Chinese categories, including the ones with no Western equivalent
-        "有声书", "有声小说", "有声读物", "有声故事", "广播剧", "播客",
+        "有声书", "有声小说", "有声读物", "有声故事", "广播剧",
         "评书", "相声", "快板", "小品", "曲艺", "说书", "单口", "对口",
         "脱口秀", "讲座", "演讲", "朗读", "朗诵", "故事会", "儿童故事",
         // Japanese and Korean

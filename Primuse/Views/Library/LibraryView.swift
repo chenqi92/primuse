@@ -154,6 +154,18 @@ enum LibraryDisplayConfiguration {
             migrationKey: podcastsDefaultHiddenMigrationKey
         )
     }
+
+    static let podcastsRevealedForLocalFilesKey = "primuse.library.podcastsRevealedForLocalFiles.v1"
+
+    /// 资料库里第一次有了本机的播客文件:播客分类亮出来一次。这些文件原先在有声书架上,
+    /// 归到播客以后分类还收着的话,看起来就是丢了。
+    static func revealPodcastsForLocalFilesIfNeeded() {
+        LibrarySectionLayoutPolicy.revealSectionIfNeeded(
+            LibrarySection.podcasts.rawValue,
+            defaultHidden: defaultSectionOrder.filter(defaultHiddenSections.contains).map(\.rawValue),
+            migrationKey: podcastsRevealedForLocalFilesKey
+        )
+    }
 }
 
 #if DEBUG

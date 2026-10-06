@@ -36,6 +36,8 @@ final class SpokenWordStore {
         var finishedAt: [String: Date]?
         var bookRates: [String: Float]?
         var archivedAt: [String: Date]?
+        /// Songs whose `overrides` entry (written as spoken word) is a podcast.
+        var podcastSongIDs: [String]?
         var ledger: SpokenWordSyncLedger?
     }
 
@@ -132,7 +134,10 @@ final class SpokenWordStore {
         )
     }
 
-    func isSpokenWord(_ song: Song) -> Bool { kind(for: song) == .spokenWord }
+    /// Played the spoken-word way: a book or one of the listener's podcast files.
+    func isSpokenWord(_ song: Song) -> Bool { kind(for: song).isSpokenWordListening }
+
+    func isPodcast(_ song: Song) -> Bool { kind(for: song) == .podcast }
 
     /// The kind the song falls back to once its own correction is removed:
     /// folder tags count, so "mark as music" inside a tagged folder must store
@@ -454,10 +459,12 @@ final class SpokenWordStore {
         var changed = false
         let now = Date()
         for songID in songIDs where overrides[songID] != kind {
+            let wasPodcast = overrides[songID] == .podcast
             overrides[songID] = kind
             // Stamped so a later correction on another device wins, and a
             // return to inference is not undone by an older override.
             ledger.overrideChangedAt[songID] = now
+            if wasPodcast || kind == .podcast { ledger.podcastMarkChangedAt[songID] = now }
             changed = true
         }
         // Music does not carry a resume position, so dropping it here keeps a
@@ -762,7 +769,7 @@ final class SpokenWordStore {
     private func load() {
         guard let data = try? Data(contentsOf: storeURL),
               let payload = try? JSONDecoder().decode(Payload.self, from: data) else { return }
-        overrides = payload.overrides.compactMapValues(ListeningContentKind.init(rawValue:))
+        overrides = Self.overrides(from: payload.overrides, podcastSongIDs: Set(payload.podcastSongIDs ?? []))
         positions = payload.positions
         bookmarks = payload.bookmarks ?? [:]
         finishedAt = payload.finishedAt ?? [:]
@@ -800,12 +807,13 @@ final class SpokenWordStore {
 
     private func saveNow() {
         let payload = Payload(
-            overrides: overrides.mapValues(\.rawValue),
+            overrides: storedOverrideValues,
             positions: positions,
             bookmarks: bookmarks,
             finishedAt: finishedAt,
             bookRates: bookRates,
             archivedAt: archivedAt,
+            podcastSongIDs: podcastOverrideIDs.sorted(),
             ledger: ledger
         )
         guard let data = try? JSONEncoder().encode(payload) else { return }
@@ -821,11 +829,35 @@ final class SpokenWordStore {
             },
             finishedAt: finishedAt,
             bookmarks: bookmarks,
-            overrides: overrides.mapValues(\.rawValue),
+            overrides: storedOverrideValues,
             bookRates: bookRates,
             archivedAt: archivedAt,
+            podcastSongIDs: podcastOverrideIDs,
             ledger: ledger
         )
+    }
+
+    /// Kind corrections as they are written to disk and to iCloud. A podcast
+    /// goes down as spoken word — all a version without podcasts knows, so it
+    /// keeps the item off its music lists instead of dropping the correction —
+    /// with the podcast part kept apart (`podcastOverrideIDs`).
+    private var storedOverrideValues: [String: String] {
+        overrides.mapValues { $0 == .podcast ? ListeningContentKind.spokenWord.rawValue : $0.rawValue }
+    }
+
+    private var podcastOverrideIDs: Set<String> {
+        Set(overrides.lazy.filter { $0.value == .podcast }.map(\.key))
+    }
+
+    private static func overrides(
+        from stored: [String: String],
+        podcastSongIDs: Set<String>
+    ) -> [String: ListeningContentKind] {
+        var result = stored.compactMapValues(ListeningContentKind.init(rawValue:))
+        for songID in podcastSongIDs where result[songID] == .spokenWord {
+            result[songID] = .podcast
+        }
+        return result
     }
 
     /// Batches pushes: a position alone waits up to a minute and a half (it
@@ -882,7 +914,7 @@ final class SpokenWordStore {
         let nextPositions = records.positions.mapValues {
             StoredPosition(position: $0.position, duration: $0.duration, updatedAt: $0.updatedAt)
         }
-        let nextOverrides = records.overrides.compactMapValues(ListeningContentKind.init(rawValue:))
+        let nextOverrides = Self.overrides(from: records.overrides, podcastSongIDs: records.podcastSongIDs)
         let contentChanged = nextPositions != positions
             || records.finishedAt != finishedAt
             || records.bookmarks != bookmarks

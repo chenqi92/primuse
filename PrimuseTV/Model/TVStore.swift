@@ -5041,7 +5041,7 @@ final class TVStore {
 
     /// `songID` 所在的书;曲库算好的优先,算不到按它自己的标签与路径。
     func spokenWordBookID(forSongID songID: String) -> String? {
-        if let bookID = library.spokenWordBookIDs[songID] { return bookID }
+        if let bookID = library.spokenWordBookIDs[songID] ?? library.localPodcastBookIDs[songID] { return bookID }
         if let podcastSong = currentPodcastSong, podcastSong.id == songID {
             return SpokenWordBookGrouping.bookID(for: SpokenWordBookItem(song: podcastSong))
         }
