@@ -338,6 +338,11 @@ extension CarPlaySceneDelegate: CPTemplateApplicationSceneDelegate {
             // Install the player's observers before announcing the connection.
             _ = AppServices.shared.playerService
             NotificationCenter.default.post(name: .primuseCarPlaySceneDidConnect, object: nil)
+            // 只在车机上启动时手机主界面不出现, 上次的队列不会自己恢复: 正在
+            // 播放是空的, 系统也拿不到可以继续播放的歌。这里自己恢复(暂停态)。
+            Task { @MainActor in
+                await AppServices.shared.awaitPlaybackSessionRestore(timeout: nil)
+            }
             self.interfaceController = interfaceController
             self.navigationTransitionInFlight = false
             self.isNowPlayingTransitionInFlight = false
@@ -392,6 +397,8 @@ extension CarPlaySceneDelegate: CPTemplateApplicationSceneDelegate {
             Task { @MainActor in
                 guard let self, success, self.connectionGeneration == generation,
                       self.layout.opensNowPlayingOnConnect else { return }
+                await AppServices.shared.awaitPlaybackSessionRestore()
+                guard self.connectionGeneration == generation else { return }
                 self.showExistingNowPlaying()
             }
         }

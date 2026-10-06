@@ -27,6 +27,16 @@ final class PlayMediaIntentHandler: NSObject,
                 intent: intent
             )
 
+            // 没在手机上打开过就被 Siri 叫起来(车上、锁屏)时上次的队列还没恢复,
+            // 「继续播放」会落到下面的随机播放整个曲库。先把它恢复出来。
+            if intent.resumePlayback == true,
+               query.kind == .music,
+               identifiers.isEmpty,
+               !query.hasSearchTerm,
+               player.currentSong == nil {
+                await AppServices.shared.awaitPlaybackSessionRestore()
+            }
+
             // 明说「播放音乐」而正在放的是书、播客或电台:不接着放它们,回到离开
             // 音乐时的那个队列;没有记下的队列就照常随机放整个曲库。
             let asksForMusicOverOtherListening = intent.mediaSearch?.mediaType == .music

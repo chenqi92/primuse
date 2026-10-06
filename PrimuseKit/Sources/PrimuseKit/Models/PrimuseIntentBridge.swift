@@ -92,8 +92,11 @@ public final class PrimuseIntentBridge {
     public static let shared = PrimuseIntentBridge()
 
     public var togglePlayPause: @MainActor () -> Void = {}
-    /// A song or station is loaded (playing or paused), so "play" can resume it.
-    public var hasPlaybackSession: @MainActor () -> Bool = { false }
+    /// A song or station is loaded (playing or paused), so "play" can resume
+    /// it. Woken in the background before the phone UI ever appeared, the last
+    /// queue is not restored yet: this restores it first. Returns at once when
+    /// something is already loaded.
+    public var restorePlaybackSession: @MainActor () async -> Bool = { false }
     /// Control Widget 的 toggle 走这个: 系统把"用户想要的下一帧状态"直接
     /// 给我们 (true = 想播放, false = 想暂停), 我们对齐到实际播放器即可。
     public var setPlaying: @MainActor (Bool) -> Void = { _ in }

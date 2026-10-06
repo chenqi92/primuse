@@ -2431,7 +2431,6 @@ final class AppServices {
         let library = self.musicLibrary
 
         bridge.togglePlayPause = { player.togglePlayPause() }
-        bridge.hasPlaybackSession = { player.currentSong != nil }
         bridge.setPlaying = { desired in
             // 状态对齐: 想播放且当前没播 → toggle 一下; 想暂停且当前在播 → toggle。
             // 已经对齐就别动 (避免来回开停)。
@@ -2453,8 +2452,11 @@ final class AppServices {
             await player.play(queue: start.songs, startingAt: start.index)
             return true
         }
-        bridge.resumePlayback = {
-            guard player.currentSong != nil else { return false }
+        bridge.restorePlaybackSession = { [self] in
+            await awaitPlaybackSessionRestore()
+        }
+        bridge.resumePlayback = { [self] in
+            guard await awaitPlaybackSessionRestore() else { return false }
             player.resume()
             return true
         }
@@ -2721,6 +2723,38 @@ final class AppServices {
     @discardableResult
     private func awaitLibraryForIntent() async -> Bool {
         await musicLibrary.whenReady(timeout: .seconds(8))
+    }
+
+    /// 上次的队列只在手机主界面出现后由 `completeDeferredStartup` 恢复。只连了
+    /// CarPlay、或被 Siri / 快捷指令 / 小组件叫到后台时主界面根本不出现, 队列就
+    /// 一直不恢复: CarPlay 正在播放是空的、播放键是灰的,「继续播放」无从续起。
+    /// 这些入口先等资料库、把恢复跑完(已经在跑就等它跑完); `timeout` 为 nil 时
+    /// 一直等资料库。返回此刻有没有可续的歌。
+    @discardableResult
+    func awaitPlaybackSessionRestore(timeout: Duration? = .seconds(8)) async -> Bool {
+        let player = playerService
+        if player.currentSong != nil { return true }
+        #if os(iOS)
+        // 安全模式下启动收尾整条让开, 恢复播放是嫌疑之一, 这里同样不碰。
+        guard !LaunchDiagnostics.isSafeModeActive else { return false }
+        #endif
+        let deadline = timeout.map { ContinuousClock.now.advanced(by: $0) }
+        if player.playbackSessionRestoreLifecycle.phase == .pending {
+            // 资料库没装好就恢复, 队列里的歌一首也对不上, 这次启动唯一一次
+            // 恢复就白白用掉了。
+            if let timeout {
+                guard await musicLibrary.whenReady(timeout: timeout) else { return false }
+            } else {
+                await musicLibrary.whenReady()
+            }
+            await player.restorePlaybackSessionIfAvailable()
+        }
+        while player.playbackSessionRestoreLifecycle.phase == .restoring,
+              !Task.isCancelled,
+              deadline.map({ ContinuousClock.now < $0 }) ?? true {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        return player.currentSong != nil
     }
 
     /// Queue acceptance is synchronous; remote URL resolution and first-buffer

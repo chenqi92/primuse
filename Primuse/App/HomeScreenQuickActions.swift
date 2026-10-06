@@ -35,7 +35,8 @@ final class HomeScreenQuickActionCenter {
         case .search:
             pendingSearch = true
         case .resume:
-            Task { await Self.resumeRestoredPlayback() }
+            // 冷启动点进来时上次的队列还在装回来,它会先等装好(有上限)再续。
+            Task { _ = await PrimuseIntentBridge.shared.resumePlayback() }
         case .shuffleLibrary:
             Task { await PrimuseIntentBridge.shared.shuffleLibrary() }
         case .shuffleLiked:
@@ -86,18 +87,6 @@ final class HomeScreenQuickActionCenter {
         UIApplication.shared.shortcutItems = items
         let published = items.compactMap { HomeScreenQuickAction(rawValue: $0.type).map { "\($0)" } }
         plog("Home screen quick actions published: \(published.joined(separator: ","))")
-    }
-
-    /// 冷启动点进来时,上次的队列还在后台装回来,装好了才有歌可续;等的时间有上限。
-    private static func resumeRestoredPlayback() async {
-        let services = AppServices.shared
-        _ = await services.musicLibrary.whenReady(timeout: .seconds(8))
-        let deadline = ContinuousClock.now.advanced(by: .seconds(8))
-        while ContinuousClock.now < deadline,
-              [.pending, .restoring].contains(services.playerService.playbackSessionRestoreLifecycle.phase) {
-            try? await Task.sleep(for: .milliseconds(100))
-        }
-        _ = await PrimuseIntentBridge.shared.resumePlayback()
     }
 
     private static func shuffleLikedSongs() async {

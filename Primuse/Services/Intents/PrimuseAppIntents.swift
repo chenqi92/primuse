@@ -27,7 +27,9 @@ struct PrimusePlayPauseIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        PrimuseIntentBridge.shared.togglePlayPause()
+        let bridge = PrimuseIntentBridge.shared
+        _ = await bridge.restorePlaybackSession()
+        bridge.togglePlayPause()
         return .result()
     }
 }
@@ -48,7 +50,9 @@ struct PrimuseSetPlayingIntent: AudioPlaybackIntent, SetValueIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        PrimuseIntentBridge.shared.setPlaying(value)
+        let bridge = PrimuseIntentBridge.shared
+        if value { _ = await bridge.restorePlaybackSession() }
+        bridge.setPlaying(value)
         return .result()
     }
 }
@@ -98,7 +102,7 @@ struct PrimusePlaybackControlIntent: AudioPlaybackIntent {
         case .play, .resume:
             // Nothing to resume: "play" starts the music library, as Siri's
             // own "play music" does.
-            if bridge.hasPlaybackSession() {
+            if await bridge.restorePlaybackSession() {
                 bridge.setPlaying(true)
             } else {
                 await bridge.shuffleLibrary()
@@ -106,6 +110,7 @@ struct PrimusePlaybackControlIntent: AudioPlaybackIntent {
         case .pause:
             bridge.setPlaying(false)
         case .toggle:
+            _ = await bridge.restorePlaybackSession()
             bridge.togglePlayPause()
         case .next:
             await bridge.next()
