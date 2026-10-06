@@ -979,6 +979,17 @@ struct NowPlayingView: View {
         return library.isLiked(songID: songID)
     }
 
+    /// 心形键给不给。有声书的每个文件也是曲库里的一首,和锁屏上的「喜欢」一样能加进「我喜欢」;
+    /// 播客单集不在曲库里,加不进去。
+    private var offersLikeAction: Bool {
+        !usesSpokenWordTransport || !PodcastPlaybackSong.isEpisode(player.currentSong)
+    }
+
+    /// 已喜欢时心形的颜色:有声书那两套设计用它自己的强调色,其余是红色。
+    private var likedHeartTint: Color {
+        usesAudiobookPlayerDesign ? themedControlAccent : .red
+    }
+
     /// Resolve the currently playing song back to the library entities used by
     /// the detail screens. Older scans may not have persisted artistID/albumID,
     /// so retain a normalized-name fallback instead of silently hiding links.
@@ -1821,10 +1832,11 @@ struct NowPlayingView: View {
             margin: 12
         )
         let music = !usesSpokenWordTransport
+        let likes = offersLikeAction
         // 有声内容没有文字稿时不给文字键,这一组只剩目录。
         let showsTextToggle = music || !lyrics.isEmpty
         // 放不下时依次收进「更多」的:锁、全屏效果、喜欢。
-        let droppable = (offersLock ? 1 : 0) + (music ? 2 : 0)
+        let droppable = (offersLock ? 1 : 0) + (music ? 1 : 0) + (likes ? 1 : 0)
         let spacing = 12.0
         let capsulePadding = 4.0
         let fit = OcclusionAvoidancePolicy.columnFit(
@@ -1832,7 +1844,7 @@ struct NowPlayingView: View {
             groups: [
                 1,
                 showsTextToggle ? 2 : 1,
-                (music ? 2 : 0) + 2 + (offersLock ? 1 : 0),
+                (music ? 1 : 0) + (likes ? 1 : 0) + 2 + (offersLock ? 1 : 0),
             ],
             droppable: droppable,
             spacing: spacing,
@@ -1843,7 +1855,7 @@ struct NowPlayingView: View {
         var remaining = fit.overflowCount
         if offersLock, remaining > 0 { overflow.lock = true; remaining -= 1 }
         if music, remaining > 0 { overflow.effect = true; remaining -= 1 }
-        if music, remaining > 0 { overflow.like = true; remaining -= 1 }
+        if likes, remaining > 0 { overflow.like = true; remaining -= 1 }
         let lyricsSelected = isPlayerSplit ? (!sidePaneHidden && showLyrics) : showLyrics
         let queueSelected = isPlayerSplit && !sidePaneHidden && !showLyrics
 
@@ -1903,8 +1915,7 @@ struct NowPlayingView: View {
                 }
 
                 barColumnGroup {
-                    // 「我喜欢」是音乐歌单, 有声内容不出现。
-                    if music, !overflow.like {
+                    if likes, !overflow.like {
                         Button {
                             toggleLikedCurrent()
                         } label: {
@@ -1912,7 +1923,7 @@ struct NowPlayingView: View {
                                 symbol: isCurrentLiked ? "heart.fill" : "heart",
                                 appearance: appearance,
                                 size: itemSize,
-                                tint: .red,
+                                tint: likedHeartTint,
                                 isSelected: isCurrentLiked
                             )
                         }
@@ -3744,13 +3755,12 @@ struct NowPlayingView: View {
                 immersiveEffectButton(glass: .adaptive)
             }
 
-            // 「我喜欢」是音乐歌单, 有声内容不出现。
-            if !usesSpokenWordTransport {
+            if offersLikeAction {
                 NowPlayingGlassActionButton(
                     symbol: isCurrentLiked ? "heart.fill" : "heart",
                     label: isCurrentLiked ? "a11y_unlike" : "a11y_like",
                     appearance: appearance,
-                    tint: isCurrentLiked ? .red : appearance.primary,
+                    tint: isCurrentLiked ? likedHeartTint : appearance.primary,
                     diameter: diameter,
                     isSelected: isCurrentLiked
                 ) {
@@ -4056,12 +4066,11 @@ struct NowPlayingView: View {
 
                     Spacer()
 
-                    // 「我喜欢」是音乐歌单, 有声内容不出现。
-                    if !usesSpokenWordTransport {
+                    if offersLikeAction {
                         Button { toggleLikedCurrent() } label: {
                             nowPlayingActionIcon(
                                 symbol: isCurrentLiked ? "heart.fill" : "heart",
-                                tint: isCurrentLiked ? .red : appearance.secondary,
+                                tint: isCurrentLiked ? likedHeartTint : appearance.secondary,
                                 isSelected: isCurrentLiked
                             )
                         }
@@ -4275,12 +4284,11 @@ struct NowPlayingView: View {
 
                             // 竖栏里排着那一列按钮时(iPhone Duo),喜欢与更多在那一列里。
                             if !usesToolColumn {
-                                // 「我喜欢」是音乐歌单, 有声内容不出现。
-                                if !usesSpokenWordTransport {
+                                if offersLikeAction {
                                     Button { toggleLikedCurrent() } label: {
                                         nowPlayingActionIcon(
                                             symbol: isCurrentLiked ? "heart.fill" : "heart",
-                                            tint: isCurrentLiked ? .red : appearance.secondary,
+                                            tint: isCurrentLiked ? likedHeartTint : appearance.secondary,
                                             isSelected: isCurrentLiked
                                         )
                                     }
@@ -4573,7 +4581,7 @@ struct NowPlayingView: View {
         .padding(.trailing, insets.containerTrailing)
     }
 
-    /// 收起键 · 文字稿 / 投放 / 更多。正中留空,书名就在下面,不再重复什么。
+    /// 收起键 · 文字稿 / 投放 / 喜欢 / 更多。正中留空,书名就在下面,不再重复什么。
     private func audiobookTopBar(style: AudiobookPlayerStyle, usesToolColumn: Bool) -> some View {
         HStack(spacing: 0) {
             if let onMinimize {
@@ -4588,13 +4596,14 @@ struct NowPlayingView: View {
                 .accessibilityLabel(Text("a11y_minimize_player"))
             }
             Spacer(minLength: 0)
-            // 竖栏里排着那一列按钮时(iPhone Duo),投放与更多在那一列里。
+            // 竖栏里排着那一列按钮时(iPhone Duo),投放、喜欢与更多在那一列里。
             if !usesToolColumn {
                 HStack(spacing: 0) {
                     spokenWordTextToggle
                     AirPlayButton()
                         .frame(width: 30, height: 30)
                         .frame(width: 40, height: 44)
+                    spokenWordLikeButton
                     moreMenu
                 }
                 .fixedSize()
@@ -4925,12 +4934,11 @@ struct NowPlayingView: View {
                         immersiveEffectButton()
                     }
 
-                    // 「我喜欢」是音乐歌单, 有声内容不出现。
-                    if !usesSpokenWordTransport {
+                    if offersLikeAction {
                         ImmersiveGlassActionButton(
                             symbol: isCurrentLiked ? "heart.fill" : "heart",
                             label: isCurrentLiked ? "a11y_unlike" : "a11y_like",
-                            tint: isCurrentLiked ? .red : appearance.primary,
+                            tint: isCurrentLiked ? likedHeartTint : appearance.primary,
                             diameter: 44,
                             isSelected: isCurrentLiked
                         ) {
@@ -5719,7 +5727,7 @@ struct NowPlayingView: View {
     }
 
     /// 有声内容的标题块:书名作主标题,下面是正在听的章与演播者,「第 12 / 120 章 ›」打开目录。
-    /// 右侧是投放与更多(竖栏那一列里已经有的不重复),有文字稿时多一颗文字键。
+    /// 右侧是投放、喜欢与更多(竖栏那一列里已经有的不重复),有文字稿时多一颗文字键。
     private func spokenWordHeading(titleFont: Font, partFont: Font, inlineActions: Bool) -> some View {
         SpokenWordPlayerHeading(
             palette: spokenWordPalette,
@@ -5735,10 +5743,29 @@ struct NowPlayingView: View {
                     AirPlayButton()
                         .frame(width: 30, height: 30)
                         .frame(width: 40, height: 44)
+                    spokenWordLikeButton
                     moreMenu
                 }
             }
             .fixedSize()
+        }
+    }
+
+    /// 把正在听的这一个文件加进「我喜欢」,和锁屏上的「喜欢」是同一件事。播客单集没有这颗键。
+    @ViewBuilder
+    private var spokenWordLikeButton: some View {
+        if offersLikeAction {
+            Button { toggleLikedCurrent() } label: {
+                nowPlayingActionIcon(
+                    symbol: isCurrentLiked ? "heart.fill" : "heart",
+                    tint: isCurrentLiked ? likedHeartTint : appearance.secondary,
+                    isSelected: isCurrentLiked
+                )
+            }
+            .frame(width: 40, height: 44)
+            .buttonStyle(.plain)
+            .disabled(player.currentSong == nil)
+            .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
         }
     }
 
@@ -5788,8 +5815,8 @@ struct NowPlayingView: View {
 
                 HStack(spacing: 4) {
                     musicVideoToggleButton(font: .title3, trailing: 0)
-                    // 「我喜欢」是音乐歌单, 有声内容不出现。竖栏那一列里已经有的就不在这里重复。
-                    if inlineActions, !usesSpokenWordTransport {
+                    // 竖栏那一列里已经有的就不在这里重复。
+                    if inlineActions, offersLikeAction {
                         Button { toggleLikedCurrent() } label: {
                             nowPlayingActionIcon(
                                 symbol: isCurrentLiked ? "heart.fill" : "heart",

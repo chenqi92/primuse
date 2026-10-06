@@ -2204,7 +2204,9 @@ extension CarPlaySceneDelegate {
         } else {
             buttons = [shuffleButton, repeatButton]
         }
-        if let songID = player.currentSong?.id, !layout.minimalNowPlaying {
+        // 播客单集不在曲库里, 点了也加不进「我喜欢」。
+        if let songID = player.currentSong?.id, !layout.minimalNowPlaying,
+           !PodcastPlaybackSong.isEpisode(player.currentSong) {
             let liked = AppServices.shared.musicLibrary.isLiked(songID: songID)
             let likeButton = CPNowPlayingImageButton(
                 image: Self.symbolImage(liked ? "heart.fill" : "heart")

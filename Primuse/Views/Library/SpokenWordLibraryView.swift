@@ -237,6 +237,8 @@ struct SpokenWordShelfContent: View {
     @AppStorage("spokenWord.shelf.layout") private var layout = SpokenWordShelfLayout.bookshelf
     @AppStorage("spokenWord.shelf.order") private var savedOrder = ""
     @AppStorage(HomeSpotlightSelection.booksStorageKey) private var homeSpotlightRawValue = ""
+    /// 要整本加进歌单的那本书。
+    @State private var playlistTarget: SpokenWordLibrarySnapshot.Entry?
 
     private var store: SpokenWordStore { SpokenWordStore.shared }
 
@@ -254,6 +256,14 @@ struct SpokenWordShelfContent: View {
 
     var body: some View {
         shelfContent(snapshot)
+            // 整本书按目录顺序一次加进去;「我喜欢」也在可选的歌单里。
+            .sheet(item: $playlistTarget) { entry in
+                BatchAddToPlaylistSheet(songs: entry.songs)
+                    #if !os(macOS)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+                    #endif
+            }
     }
 
     private func shelfContent(_ snapshot: SpokenWordLibrarySnapshot) -> some View {
@@ -475,6 +485,12 @@ struct SpokenWordShelfContent: View {
                 Label(String(localized: "spoken_word_mark_finished"), systemImage: "checkmark.circle")
             }
         }
+        Button {
+            playlistTarget = SpokenWordLibrarySnapshot.Entry(book: book, songs: songs)
+        } label: {
+            Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
+        }
+        .disabled(songs.isEmpty)
         // 首页的「有声书」一排放哪些书。Mac 首页挑过就放挑中的,没挑过仍只列在听的书。
         let homeSelection = HomeSpotlightSelection.decode(homeSpotlightRawValue)
         let isOnHome = homeSelection.isPinned(book.id)

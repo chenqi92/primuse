@@ -108,8 +108,8 @@ struct MacBottomBar: View {
 
             Spacer(minLength: 4)
 
-            // 「我喜欢」是音乐歌单, 有声内容不出现。
-            if let song = player.currentSong, !player.isLiveRadio, !isSpokenWord {
+            // 有声书的每个文件也能加进「我喜欢」;播客单集不在曲库里, 没有这颗。
+            if let song = player.currentSong, !player.isLiveRadio, !PodcastPlaybackSong.isEpisode(song) {
                 let liked = library.isLiked(songID: song.id)
                 Button {
                     library.toggleLiked(songID: song.id)
