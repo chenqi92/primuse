@@ -5452,3 +5452,4 @@
 "ai_recommendation_refresh_six_hours" = "Cada 6 horas";
 "ai_recommendation_refresh_daily" = "Una vez al día";
 "ai_recommendation_refresh_footer" = "Define cada cuánto las recomendaciones por escena vuelven a consultar el servicio inteligente. Automática: cada 6 horas con la IA integrada y en tiempo real mientras escuchas con tu propio servicio. Dentro del intervalo, volver a abrir la app o cambiar de página reutiliza el último resultado; puedes regenerarlas en cualquier momento en la página Recomendaciones.";
+"playlist_find_prompt" = "Buscar en la lista";

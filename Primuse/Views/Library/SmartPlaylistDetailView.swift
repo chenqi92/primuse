@@ -30,6 +30,11 @@ struct SmartPlaylistDetailView: View {
 
     @State private var showEditor = false
     @State private var showNoScraperSourceAlert = false
+    /// 「在歌单里找歌」的输入。只筛眼前的行：播放照旧按整张歌单。
+    @State private var findText = ""
+    #if os(iOS)
+    @State private var isFindPresented = false
+    #endif
 
     /// 手机横屏 (纵向紧凑) 才把头部换成矮横带。Mac 没有纵向尺寸等级, 恒为 false。
     private var usesCompactHeaderLayout: Bool {
@@ -51,6 +56,33 @@ struct SmartPlaylistDetailView: View {
         return SmartPlaylistEngine.match(smart, in: library, history: PlayHistoryStore.shared)
     }
 
+    private var findQuery: PlaylistFindPolicy.Query? {
+        PlaylistFindPolicy.query(findText)
+    }
+
+    /// 输入框弹着(哪怕还没输字)也算在找: 头部让开, 结果紧挨着输入框。
+    private var isFinding: Bool {
+        #if os(iOS)
+        isFindPresented || findQuery != nil
+        #else
+        findQuery != nil
+        #endif
+    }
+
+    private struct ShownRow: Identifiable {
+        /// 在整张歌单里的位置: 找歌时 Mac 曲目表的序号照旧是它。
+        let offset: Int
+        let song: Song
+        var id: String { song.id }
+    }
+
+    /// 找歌时只留命中的行, 顺序不变。
+    private func shownRows(_ matched: [Song]) -> [ShownRow] {
+        let rows = matched.enumerated().map { ShownRow(offset: $0.offset, song: $0.element) }
+        guard let query = findQuery else { return rows }
+        return rows.filter { PlaylistFindPolicy.matches(query, song: $0.song) }
+    }
+
     var body: some View {
         // matched 是 computed property, 每次访问都完整跑一遍 SmartPlaylistEngine.match
         // (全库 filter + PlayStats 聚合 + 排序)。单次 body 渲染会被多处访问 6-8 次,
@@ -61,6 +93,13 @@ struct SmartPlaylistDetailView: View {
         #else
         return AnyView(
             legacyBody(matched)
+                // 收在导航栏下面, 往下拉就出来; 往上滚自己收起, 不占曲目表的地方。
+                .searchable(
+                    text: $findText,
+                    isPresented: $isFindPresented,
+                    placement: .navigationBarDrawer(displayMode: .automatic),
+                    prompt: Text("playlist_find_prompt")
+                )
                 .minimalNavigationDetail()
                 .librarySearchContext {
                     LibrarySearchScope(
@@ -81,13 +120,16 @@ struct SmartPlaylistDetailView: View {
                 LibraryDetailWideColumns {
                     ScrollView {
                         VStack(spacing: 20) {
-                            legacyHeader(smart, matched: matched)
-                                // iPhone Duo 竖栏：曲目铺到屏幕边缘，头部的按钮照旧让开竖栏里的返回键与工具栏。
-                                .pmClearOfVerticalBar()
-                                .libraryDetailMatchedHeader()
+                            // 找歌时头部让开: 键盘弹起后剩下的那点高度全留给结果。
+                            if !isFinding {
+                                legacyHeader(smart, matched: matched)
+                                    // iPhone Duo 竖栏：曲目铺到屏幕边缘，头部的按钮照旧让开竖栏里的返回键与工具栏。
+                                    .pmClearOfVerticalBar()
+                                    .libraryDetailMatchedHeader()
 
-                            smartReviewSection(smart)
-                                .pmLayoutSwitchFade()
+                                smartReviewSection(smart)
+                                    .pmLayoutSwitchFade()
+                            }
 
                             smartListSections(smart, matched: matched)
                                 .pmLayoutSwitchFade()
@@ -108,6 +150,18 @@ struct SmartPlaylistDetailView: View {
                 }
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
+                    #if os(iOS)
+                    // 导航栏下面的搜索框平时收着, 这颗按钮直接把它弹出来并聚焦。
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            isFindPresented = true
+                        } label: {
+                            PMToolbarItemLabel("playlist_find_prompt", systemImage: "magnifyingglass", titled: verticalBarEdge != nil)
+                        }
+                        .disabled(matched.isEmpty)
+                        .accessibilityIdentifier("smartPlaylist.find")
+                    }
+                    #endif
                     ToolbarItem(placement: .topBarTrailing) {
                         // 钉为「开始听」里的一个意图。
                         let pinned = ListeningIntentService.shared.isSmartPlaylistPinned(smart.id)
@@ -157,7 +211,7 @@ struct SmartPlaylistDetailView: View {
     /// 头部之下的操作与曲目表。单栏时它们与头部排在同一列里，两栏时单独成右栏。
     @ViewBuilder
     private func smartListSections(_ smart: SmartPlaylist, matched: [Song]) -> some View {
-        if smart.effectiveKind == .ai {
+        if smart.effectiveKind == .ai, !isFinding {
             Button {
                 showEditor = true
             } label: {
@@ -169,6 +223,7 @@ struct SmartPlaylistDetailView: View {
         }
 
         // Songs
+        let rows = shownRows(matched)
         if matched.isEmpty {
             EmptyStateView(
                 titleKey: "smart_playlist_no_matches",
@@ -177,9 +232,13 @@ struct SmartPlaylistDetailView: View {
             )
             .padding(.top, 24)
             .pmAppearFade(.contentAppear)
+        } else if rows.isEmpty {
+            ContentUnavailableView.search(text: findText)
+                .padding(.top, 40)
         } else {
             LazyVStack(spacing: 0) {
-                ForEach(matched) { song in
+                ForEach(rows) { row in
+                    let song = row.song
                     SongRowView(
                         song: song,
                         isPlaying: player.currentSong?.id == song.id,
@@ -361,7 +420,7 @@ struct SmartPlaylistDetailView: View {
                         VStack(alignment: .leading, spacing: PMSpace.l) {
                             macDefinitionCard(smart)
                             LibraryReviewSection(subject: .playlist(smart.id))
-                            macToolbar(smart)
+                            macToolbar(smart, matched: matched)
 
                             if matched.isEmpty {
                                 EmptyStateView(
@@ -372,6 +431,10 @@ struct SmartPlaylistDetailView: View {
                                 .frame(maxWidth: .infinity)
                                 .padding(.top, 48)
                                 .pmAppearFade(.contentAppear)
+                            } else if shownRows(matched).isEmpty {
+                                ContentUnavailableView.search(text: findText)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.top, 32)
                             } else {
                                 macSongTable(matched)
                                     .pmAppearFade(.contentAppear)
@@ -515,7 +578,7 @@ struct SmartPlaylistDetailView: View {
         .pmGlass(cornerRadius: PMRadius.m10)
     }
 
-    private func macToolbar(_ smart: SmartPlaylist) -> some View {
+    private func macToolbar(_ smart: SmartPlaylist, matched: [Song]) -> some View {
         // 只留"歌曲"小标题。下载 / 编辑入口都在上方: 编辑在"智能规则"卡片的
         // "编辑规则"按钮, 下载/编辑/删除在 header 右上角"更多"菜单, 不再重复。
         HStack(spacing: 8) {
@@ -524,6 +587,9 @@ struct SmartPlaylistDetailView: View {
                 .textCase(.uppercase)
                 .foregroundStyle(PMColor.textFaint)
             Spacer()
+            if !matched.isEmpty {
+                MacPlaylistFindField(text: $findText)
+            }
         }
         .padding(.top, -2)
     }
@@ -551,8 +617,8 @@ struct SmartPlaylistDetailView: View {
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
 
             LazyVStack(spacing: 1) {
-                ForEach(Array(matched.enumerated()), id: \.element.id) { index, song in
-                    macSongRow(song, index: index, ordinalWidth: ordinalWidth)
+                ForEach(shownRows(matched)) { row in
+                    macSongRow(row.song, index: row.offset, ordinalWidth: ordinalWidth)
                 }
             }
             .padding(.vertical, 4)

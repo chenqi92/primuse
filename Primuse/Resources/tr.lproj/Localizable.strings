@@ -5452,3 +5452,4 @@
 "ai_recommendation_refresh_six_hours" = "6 saatte bir";
 "ai_recommendation_refresh_daily" = "Günde bir";
 "ai_recommendation_refresh_footer" = "Sahne önerilerinin akıllı hizmete ne sıklıkla yeniden soracağını belirler. Otomatik: yerleşik yapay zekâyla 6 saatte bir, kendi hizmetinizle dinledikçe anlık olarak. Aralık içinde uygulamayı yeniden açmak veya sayfa değiştirmek son sonucu kullanır; Öneriler sayfasından istediğiniz zaman yeniden oluşturabilirsiniz.";
+"playlist_find_prompt" = "Çalma listesinde ara";

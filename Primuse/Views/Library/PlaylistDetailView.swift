@@ -52,6 +52,11 @@ struct PlaylistDetailView: View {
     /// 收藏的顺序就是收藏歌单的账：头部那颗心看它。
     @AppStorage(LibraryPinStorage.defaultsKey) private var favoritesRawValue = ""
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
+    /// 「在歌单里找歌」的输入。只筛眼前的行：播放、加入队列、导出照旧按整张歌单。
+    @State private var findText = ""
+    #if os(iOS)
+    @State private var isFindPresented = false
+    #endif
 
     /// 镜像歌单 (Apple Music 资料库 / 服务端曲库) 里的条目不给移除入口 —— 我们
     /// 没法把改动推回服务端，下次 sync 又会把它们带回来，视觉上就是"删了又出现"。
@@ -79,15 +84,48 @@ struct PlaylistDetailView: View {
         return SongListSnapshot.sortedSongs(storedSongs, order: order, sortValues: values)
     }
 
-    /// 列表里的行: 歌单顺序下置灰的占位留在原位; 选了别的排序时它们没有可比的
+    /// 整张歌单的行: 歌单顺序下置灰的占位留在原位; 选了别的排序时它们没有可比的
     /// 值, 统一排到最后。
-    private var displayEntries: [MusicLibrary.PlaylistEntry] {
+    private var orderedEntries: [MusicLibrary.PlaylistEntry] {
         guard displaySortOrder != nil else { return library.entries(forPlaylist: playlist.id) }
         let pending = library.entries(forPlaylist: playlist.id).filter {
             if case .pending = $0 { return true }
             return false
         }
         return songs.map { MusicLibrary.PlaylistEntry.song($0) } + pending
+    }
+
+    private var findQuery: PlaylistFindPolicy.Query? {
+        PlaylistFindPolicy.query(findText)
+    }
+
+    /// 列表里的行: 在歌单里找歌时只留命中的, 顺序不变。
+    private var displayEntries: [MusicLibrary.PlaylistEntry] {
+        let entries = orderedEntries
+        guard let query = findQuery else { return entries }
+        return entries.filter { Self.entry($0, matches: query) }
+    }
+
+    private static func entry(_ entry: MusicLibrary.PlaylistEntry, matches query: PlaylistFindPolicy.Query) -> Bool {
+        switch entry {
+        case .song(let song): PlaylistFindPolicy.matches(query, song: song)
+        case .pending(let pending): PlaylistFindPolicy.matches(query, pending: pending)
+        }
+    }
+
+    /// 多选的「全选」与连选只认眼前这一列: 找歌时就是找到的那几首。
+    private var selectableSongIDs: [String] {
+        guard let query = findQuery else { return songs.map(\.id) }
+        return songs.filter { PlaylistFindPolicy.matches(query, song: $0) }.map(\.id)
+    }
+
+    /// 输入框弹着(哪怕还没输字)也算在找: 头部让开, 结果紧挨着输入框。
+    private var isFinding: Bool {
+        #if os(iOS)
+        isFindPresented || findQuery != nil
+        #else
+        findQuery != nil
+        #endif
     }
 
     private var pendingEntryCount: Int {
@@ -238,6 +276,13 @@ struct PlaylistDetailView: View {
         #endif
         }
         #if os(iOS)
+        // 收在导航栏下面, 往下拉就出来; 往上滚自己收起, 不占曲目表的地方。
+        .searchable(
+            text: $findText,
+            isPresented: $isFindPresented,
+            placement: .navigationBarDrawer(displayMode: .automatic),
+            prompt: Text("playlist_find_prompt")
+        )
         .minimalNavigationDetail()
         .librarySearchContext {
             LibrarySearchScope(title: currentPlaylist?.name ?? playlist.name, songIDs: Set(songs.map(\.id)))
@@ -277,9 +322,13 @@ struct PlaylistDetailView: View {
         .songBatchActions(
             selection: selection,
             context: .playlist(id: playlist.id, allowsRemoval: allowsPlaylistRemoval),
-            orderedIDs: { songs.map(\.id) },
+            orderedIDs: { selectableSongIDs },
             resolve: { library.song(id: $0) }
         )
+        .onChange(of: findText) { _, _ in
+            guard selection.isActive, !selection.isEmpty else { return }
+            selection.prune(to: Set(selectableSongIDs))
+        }
         .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
         .sheet(isPresented: $showArtworkEditor) {
             LibraryArtworkEditorSheet(
@@ -302,6 +351,17 @@ struct PlaylistDetailView: View {
             }
         }
         .onAppear {
+            #if DEBUG && os(iOS)
+            // 编译机截图用: `PRIMUSE_DEBUG_PLAYLIST_FIND=<词>` 打开歌单就弹出搜索框并填上这个词,
+            // 只写 `@` 就只弹出不填。
+            if let query = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_PLAYLIST_FIND"], !query.isEmpty {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(1))
+                    isFindPresented = true
+                    if query != "@" { findText = query }
+                }
+            }
+            #endif
             isViewVisible = true
             if scraperService.activeOriginPlaylistID == playlist.id {
                 trackedScrapeRunID = scraperService.activeRunID
@@ -320,13 +380,16 @@ struct PlaylistDetailView: View {
         LibraryDetailWideColumns {
             ScrollView {
                 VStack(spacing: 20) {
-                    playlistHeader
-                        // iPhone Duo 竖栏：曲目铺到屏幕边缘，头部的按钮照旧让开竖栏里的返回键与工具栏。
-                        .pmClearOfVerticalBar()
-                        .libraryDetailMatchedHeader()
+                    // 找歌时头部让开: 键盘弹起后剩下的那点高度全留给结果。
+                    if !isFinding {
+                        playlistHeader
+                            // iPhone Duo 竖栏：曲目铺到屏幕边缘，头部的按钮照旧让开竖栏里的返回键与工具栏。
+                            .pmClearOfVerticalBar()
+                            .libraryDetailMatchedHeader()
 
-                    playlistReviewSection
-                        .pmLayoutSwitchFade()
+                        playlistReviewSection
+                            .pmLayoutSwitchFade()
+                    }
 
                     playlistListSections
                         .pmLayoutSwitchFade()
@@ -347,6 +410,18 @@ struct PlaylistDetailView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            #if os(iOS)
+            // 导航栏下面的搜索框平时收着, 这颗按钮直接把它弹出来并聚焦。
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    isFindPresented = true
+                } label: {
+                    PMToolbarItemLabel("playlist_find_prompt", systemImage: "magnifyingglass", titled: verticalBarEdge != nil)
+                }
+                .disabled(songs.isEmpty && pendingEntryCount == 0)
+                .accessibilityIdentifier("playlistDetail.find")
+            }
+            #endif
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     sortMenuOptions
@@ -584,25 +659,36 @@ struct PlaylistDetailView: View {
     /// 头部之下的提示与曲目表。单栏时它们与头部排在同一列里，两栏时单独成右栏。
     @ViewBuilder
     private var playlistListSections: some View {
-        if hasSongsFromUnreachableSources {
-            unreachableSongsNotice
-                .padding(.horizontal)
+        if !isFinding {
+            if hasSongsFromUnreachableSources {
+                unreachableSongsNotice
+                    .padding(.horizontal)
+            }
+
+            if pendingEntryCount > 0 {
+                PlaylistPendingNotice(count: pendingEntryCount)
+                    .padding(.horizontal)
+            }
+
+            if supportsAlwaysDownload {
+                alwaysDownloadControl
+                    .padding(.horizontal)
+                    .pmFadeTransition(motion: .list)
+            }
         }
 
-        if pendingEntryCount > 0 {
-            PlaylistPendingNotice(count: pendingEntryCount)
-                .padding(.horizontal)
+        let entries = displayEntries
+        if entries.isEmpty, findQuery != nil {
+            ContentUnavailableView.search(text: findText)
+                .padding(.top, 40)
+        } else {
+            playlistRows(entries)
         }
+    }
 
-        if supportsAlwaysDownload {
-            alwaysDownloadControl
-                .padding(.horizontal)
-                .pmFadeTransition(motion: .list)
-        }
-
-        // Songs
+    private func playlistRows(_ entries: [MusicLibrary.PlaylistEntry]) -> some View {
         LazyVStack(spacing: 0) {
-            ForEach(displayEntries) { entry in
+            ForEach(entries) { entry in
                 switch entry {
                 case .song(let song):
                     songRow(song)
@@ -774,7 +860,7 @@ struct PlaylistDetailView: View {
         .songSelectable(
             songID: song.id,
             selection: selection,
-            orderedIDs: { songs.map(\.id) },
+            orderedIDs: { selectableSongIDs },
             defaultAction: { playSong(song) }
         )
         .padding(.horizontal)
@@ -1089,6 +1175,10 @@ struct PlaylistDetailView: View {
                             )
                             .frame(maxWidth: .infinity)
                             .padding(.top, 48)
+                        } else if table.rows.isEmpty, findQuery != nil {
+                            ContentUnavailableView.search(text: findText)
+                                .frame(maxWidth: .infinity)
+                                .padding(.top, 32)
                         } else {
                             macSongTable(
                                 table,
@@ -1186,6 +1276,7 @@ struct PlaylistDetailView: View {
                 .textCase(.uppercase)
                 .foregroundStyle(PMColor.textFaint)
             Spacer()
+            macFindField
             Menu {
                 sortMenuOptions
             } label: {
@@ -1221,6 +1312,14 @@ struct PlaylistDetailView: View {
             }
         }
         .padding(.top, -2)
+    }
+
+    /// 空歌单没什么可找, 不放。
+    @ViewBuilder
+    private var macFindField: some View {
+        if !songs.isEmpty || pendingEntryCount > 0 {
+            MacPlaylistFindField(text: $findText)
+        }
     }
 
     /// header 右上角"更多"按钮的菜单内容。播放 / 队列 / 重排 / 离线 / 导出 / 删除。
@@ -1349,10 +1448,14 @@ struct PlaylistDetailView: View {
 
     private func macTableRows() -> MacTableRows {
         var songCounter = 0
-        let rows = displayEntries.map { entry in
+        var rows = orderedEntries.map { entry in
             guard case .song = entry else { return MacTableRow(entry: entry, songIndex: songCounter) }
             defer { songCounter += 1 }
             return MacTableRow(entry: entry, songIndex: songCounter)
+        }
+        // 找歌时序号照旧是在整张歌单里的位置, 一眼看出这首排在第几。
+        if let query = findQuery {
+            rows = rows.filter { Self.entry($0.entry, matches: query) }
         }
         return MacTableRows(
             rows: rows,
@@ -1410,7 +1513,7 @@ struct PlaylistDetailView: View {
                                     .songSelectable(
                                         songID: song.id,
                                         selection: selection,
-                                        orderedIDs: { songs.map(\.id) },
+                                        orderedIDs: { selectableSongIDs },
                                         defaultAction: { playSong(song) }
                                     )
                             case .pending(let pending):
@@ -2126,3 +2229,42 @@ struct PlaylistReorderSheet: View {
     }
     #endif
 }
+
+#if os(macOS)
+/// 歌单与智能歌单页「在歌单里找歌」的输入框: 和歌曲页工具条上的过滤框同一个样子。
+struct MacPlaylistFindField: View {
+    @Binding var text: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11))
+                .foregroundStyle(PMColor.textFaint)
+            TextField("", text: $text, prompt: Text("playlist_find_prompt"))
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundStyle(PMColor.text)
+                .onExitCommand { text = "" }
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(PMColor.textFaint)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("clear"))
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(width: 200, height: 26)
+        .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
+        .overlay {
+            RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+        .accessibilityIdentifier("playlistDetail.find")
+    }
+}
+#endif
