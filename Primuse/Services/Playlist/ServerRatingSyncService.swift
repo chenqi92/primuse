@@ -47,6 +47,10 @@ final class ServerRatingSyncService {
     private var freshMutations = Set<UUID>()
     /// 正在反查服务端专辑 id 的本机专辑;查完时把那一刻最新的评分发出去。
     private var albumTargetResolutions: [String: Task<Void, Never>] = [:]
+    /// 各源曲库里现有歌曲的服务端条目 id,曲库一改(`songMutationGeneration` 前进)就作废。
+    /// 每条评分都整库逐首解析一遍路径时,评分一多启动、回前台都把主线程卡上十几秒(#182)。
+    private var songItemIDsGeneration: UInt64?
+    private var songItemIDsBySource: [String: (sourceType: MusicSourceType, itemIDs: Set<String>)] = [:]
 
     init(
         sourceManager: any ServerRatingManaging,
@@ -330,10 +334,11 @@ final class ServerRatingSyncService {
         guard library.readiness == .ready, !library.isExternalSnapshotWriteOwned else { return }
         // Acknowledgement can precede the debounced library snapshot. Keep
         // both pending and confirmed local edits recoverable after a restart.
-        for entry in entries.values where sourceID == nil || entry.target.sourceID == sourceID {
-            guard currentSource(for: entry) != nil, hasItem(for: entry.target) else { continue }
-            library.restoreLocallyAuthoredServerRating(entry.review)
-        }
+        library.restoreLocallyAuthoredServerRatings(entries.values.compactMap { entry in
+            guard sourceID == nil || entry.target.sourceID == sourceID,
+                  currentSource(for: entry) != nil, hasItem(for: entry) else { return nil }
+            return entry.review
+        })
         if !migratedExistingRatings {
             // The initial upgrade moves this installation's existing positive
             // ratings once. Bound/imported reviews and empty ratings are not writes.
@@ -463,24 +468,51 @@ final class ServerRatingSyncService {
         guard entries[entry.target]?.id == entry.id,
               let review = library.review(forServerRatingTarget: entry.target),
               review.ratingVersion == entry.version, review.rating == entry.rating,
-              hasItem(for: entry.target) else { return false }
+              hasItem(for: entry) else { return false }
         return true
     }
 
     /// 歌曲目标看曲库里还有没有这首;专辑目标看绑着它的那张本机专辑在这个源上还有没有歌。
-    private func hasItem(for target: ServerSongRatingTarget) -> Bool {
-        guard target.isAlbum else { return hasSong(for: target) }
+    private func hasItem(for entry: Entry) -> Bool {
+        let target = entry.target
+        guard target.isAlbum else { return hasSong(for: target, ratedSongID: entry.review.subject.entityID) }
         guard let review = library.review(forServerRatingTarget: target),
               review.subject.kind == .album else { return false }
         return library.songs(forAlbum: review.subject.entityID).contains { $0.sourceID == target.sourceID }
     }
 
-    private func hasSong(for target: ServerSongRatingTarget) -> Bool {
+    private func hasSong(for target: ServerSongRatingTarget, ratedSongID: String) -> Bool {
         guard let sourceType = sourcesStore.source(id: target.sourceID)?.type else { return false }
-        return library.songs.contains { song in
-            song.sourceID == target.sourceID && !song.isCueTrack && !song.isStreamDescriptor
-                && ServerRatingWritebackPolicy.songID(fromConnectorPath: song.filePath, sourceType: sourceType) == target.itemID
+        // 打分的那首通常还在,按 id 直接看它;换了 id 或已不在时才查整个源。
+        if let song = library.storedSong(id: ratedSongID),
+           Self.itemID(of: song, sourceID: target.sourceID, sourceType: sourceType) == target.itemID {
+            return true
         }
+        return songItemIDs(sourceID: target.sourceID, sourceType: sourceType).contains(target.itemID)
+    }
+
+    private func songItemIDs(sourceID: String, sourceType: MusicSourceType) -> Set<String> {
+        let generation = library.songMutationGenerationForMaintenance
+        if songItemIDsGeneration != generation {
+            songItemIDsGeneration = generation
+            songItemIDsBySource.removeAll()
+        }
+        if let cached = songItemIDsBySource[sourceID], cached.sourceType == sourceType {
+            return cached.itemIDs
+        }
+        var itemIDs = Set<String>()
+        for song in library.songs {
+            if let itemID = Self.itemID(of: song, sourceID: sourceID, sourceType: sourceType) {
+                itemIDs.insert(itemID)
+            }
+        }
+        songItemIDsBySource[sourceID] = (sourceType, itemIDs)
+        return itemIDs
+    }
+
+    private static func itemID(of song: Song, sourceID: String, sourceType: MusicSourceType) -> String? {
+        guard song.sourceID == sourceID, !song.isCueTrack, !song.isStreamDescriptor else { return nil }
+        return ServerRatingWritebackPolicy.songID(fromConnectorPath: song.filePath, sourceType: sourceType)
     }
 
     private func finish(_ entry: Entry, confirmed: Int? = nil) {

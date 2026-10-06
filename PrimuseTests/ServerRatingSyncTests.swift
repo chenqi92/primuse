@@ -108,6 +108,38 @@ final class ServerRatingSyncTests: XCTestCase {
         }
     }
 
+    func testRestartRestoresEverySongEditMissingFromOlderSnapshot() async throws {
+        try await withRig { rig in
+            await rig.library.whenReady()
+            let other = Song(id: "local-other", title: "Other", fileFormat: .mp3,
+                             filePath: "/songs/song.b-7.mp3", sourceID: rig.sourceID)
+            rig.library.addSongs([rig.song, other], affectedSourceIDs: [rig.sourceID])
+            rig.edit(5)
+            rig.library.updateLibraryReview(for: .song(other.id), rating: 4, comment: "")
+            await rig.settle()
+            _ = await rig.library.persistNowAndWait()
+            await rig.library.beginExternalSnapshotWrite()
+            rig.manager.writeError = URLError(.timedOut)
+            rig.edit(2)
+            rig.library.updateLibraryReview(for: .song(other.id), rating: 1, comment: "")
+            await rig.settle()
+            let restored = MusicLibrary(storageDirectory: rig.directory)
+            XCTAssertEqual(restored.libraryReview(for: rig.subject)?.rating, 5)
+            XCTAssertEqual(restored.libraryReview(for: .song(other.id))?.rating, 4)
+            let resumed = ServerRatingSyncService(sourceManager: rig.manager, sourcesStore: rig.sources,
+                                                  library: restored, defaults: rig.defaults)
+            restored.serverRatingTargetProvider = { [weak resumed] in resumed?.target(for: $0) }
+            rig.manager.writeError = nil
+            resumed.resume()
+            await resumed.waitForPendingMutations(sourceID: rig.sourceID)
+            XCTAssertEqual(restored.libraryReview(for: rig.subject)?.rating, 2)
+            XCTAssertEqual(restored.libraryReview(for: .song(other.id))?.rating, 1)
+            XCTAssertEqual(rig.manager.values[rig.target], 2)
+            _ = await restored.persistNowAndWait()
+            rig.library.endExternalSnapshotWrite()
+        }
+    }
+
     func testLostWriteResponseIsConfirmedWithoutRepeatingMutation() async throws {
         try await withRig { rig in
             rig.manager.applyBeforeThrowing = true
@@ -221,6 +253,27 @@ final class ServerRatingSyncTests: XCTestCase {
             await rig.settle()
             XCTAssertNil(rig.library.libraryReview(for: .song("remapped-local"))?.rating)
             XCTAssertEqual(rig.manager.writes.map(\.rating), [5, 0])
+        }
+    }
+
+    func testPendingWriteStopsOnceTheRemappedSongLeavesTheLibrary() async throws {
+        try await withRig { rig in
+            await rig.library.whenReady()
+            rig.manager.writeError = URLError(.timedOut)
+            rig.edit(4)
+            await rig.settle()
+            // 评分记着的本机 id 没了,只能按服务端条目 id 在整个源里找到这首。
+            rig.library.remapSongIDs([rig.song.id: "remapped-local"])
+            rig.service.resume()
+            await rig.settle()
+            XCTAssertEqual(rig.manager.writes.map(\.rating), [4, 4])
+            // 歌离开曲库后,上一次在源里找到它的结果不能再用。
+            rig.library.deleteSong(try XCTUnwrap(rig.library.storedSong(id: "remapped-local")))
+            rig.manager.writeError = nil
+            rig.service.resume()
+            await rig.settle()
+            XCTAssertEqual(rig.manager.writes.map(\.rating), [4, 4])
+            XCTAssertNil(rig.manager.values[rig.target])
         }
     }
 

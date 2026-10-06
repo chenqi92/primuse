@@ -6887,17 +6887,39 @@ final class MusicLibrary {
         persistSnapshot(after: 0.2)
     }
 
-    func restoreLocallyAuthoredServerRating(_ review: LibraryReview) {
-        guard let target = review.serverRatingTarget else { return }
-        let current = self.review(forServerRatingTarget: target)
-            ?? libraryReviewsBySubject[review.subject.storageKey]
-        guard current.map({ $0.ratingVersion < review.ratingVersion }) ?? true else { return }
-        let restored = current.map {
-            LibraryReviewReconciliationPolicy.winner(local: review, remote: $0)
-        } ?? review
-        libraryReviewsBySubject[restored.subject.storageKey] = restored
+    /// 按服务端条目建一次现有评分的表,不再每条都把全部评分过滤一遍(评分上千条时
+    /// 回前台就是几百万次比较,#182)。写进一条后表作废,下一条按写过的状态重建。
+    func restoreLocallyAuthoredServerRatings(_ reviews: [LibraryReview]) {
+        var reviewsByTarget: [ServerSongRatingTarget: LibraryReview]?
+        var changed = false
+        for review in reviews {
+            guard let target = review.serverRatingTarget else { continue }
+            let byTarget = reviewsByTarget ?? reviewsByServerRatingTarget()
+            reviewsByTarget = byTarget
+            let current = byTarget[target] ?? libraryReviewsBySubject[review.subject.storageKey]
+            guard current.map({ $0.ratingVersion < review.ratingVersion }) ?? true else { continue }
+            let restored = current.map {
+                LibraryReviewReconciliationPolicy.winner(local: review, remote: $0)
+            } ?? review
+            libraryReviewsBySubject[restored.subject.storageKey] = restored
+            reviewsByTarget = nil
+            changed = true
+        }
+        guard changed else { return }
         libraryReviewRevision &+= 1
         persistSnapshot(after: 0.2)
+    }
+
+    /// 与逐个调用 `review(forServerRatingTarget:)` 的结果相同:同一条目的评分按同样的顺序取胜者。
+    private func reviewsByServerRatingTarget() -> [ServerSongRatingTarget: LibraryReview] {
+        var result: [ServerSongRatingTarget: LibraryReview] = [:]
+        for review in libraryReviewsBySubject.values {
+            guard let target = review.serverRatingTarget else { continue }
+            result[target] = result[target].map {
+                LibraryReviewReconciliationPolicy.winner(local: $0, remote: review)
+            } ?? review
+        }
+        return result
     }
 
     /// 把扫描读到、别的客户端改过的服务端评分写回本机。和用户在本机改评分不同:不经
