@@ -120,6 +120,101 @@ public enum LyricSyllablePlaybackTimingPolicy {
     }
 }
 
+/// 逐字歌词里每个字的强调（参照 Apple Music）：唱到的字随演唱浮起、略微放大，唱完
+/// 停在那里，整句唱完稍停再一起落回 —— 不是每个字弹一下又缩回去；正在唱的字带一圈
+/// 柔光，唱完后慢慢散去。
+public enum LyricSyllableEmphasisPolicy {
+    /// 唱过的字上浮的高度（相对字号）。
+    public static let raisedLiftRatio: Double = 0.07
+    /// 唱过的字放大的比例。只给一点：每个字绕自己的中心放大，会吃掉词与词之间的空格，
+    /// 放大 5% 时整句唱完空格只剩三成，主要靠上浮。
+    public static let raisedScale: Double = 0.02
+    /// 整句唱完后保持放大的时长。
+    public static let settleHold: TimeInterval = 0.2
+    /// 整句落回原大小用的时长。
+    public static let settleDuration: TimeInterval = 0.3
+    /// 柔光亮起的时长。
+    public static let glowAttack: TimeInterval = 0.12
+    /// 字唱完后柔光散去的时长。
+    public static let glowRelease: TimeInterval = 0.45
+
+    /// 这个字已经放大了多少：开唱前 0，随演唱先快后慢地涨，唱完为 1 并保持。
+    public static func rise(
+        for syllable: LyricSyllable,
+        nextSyllableStart: TimeInterval? = nil,
+        at now: TimeInterval
+    ) -> Double {
+        guard now > syllable.start else { return 0 }
+        let duration = LyricSyllablePlaybackTimingPolicy.effectiveDuration(
+            for: syllable,
+            nextSyllableStart: nextSyllableStart
+        )
+        guard duration > 0, now < syllable.start + duration else { return 1 }
+        return easeOut((now - syllable.start) / duration)
+    }
+
+    /// 整句还保持放大的比例：最后一个字唱完再停 `settleHold`，然后用
+    /// `settleDuration` 落回。下一句接手（`deactivationTime`）之前一定落完，
+    /// 切行时不会整句一下子缩回去。
+    public static func lineHold(
+        syllables: [LyricSyllable],
+        deactivationTime: TimeInterval?,
+        at now: TimeInterval
+    ) -> Double {
+        guard let lineEnd = sungEnd(of: syllables) else { return 1 }
+        var settleEnd = lineEnd + settleHold + settleDuration
+        if let deactivationTime { settleEnd = min(settleEnd, deactivationTime) }
+        return 1 - smoothstep((now - (settleEnd - settleDuration)) / settleDuration)
+    }
+
+    /// 柔光强度：开唱后很快亮起，唱的过程中保持，唱完后散去。拖得越长的字越亮，
+    /// 一闪而过的字只留淡淡一层，免得快歌里整行一路闪。
+    public static func glow(
+        for syllable: LyricSyllable,
+        nextSyllableStart: TimeInterval? = nil,
+        at now: TimeInterval
+    ) -> Double {
+        let duration = LyricSyllablePlaybackTimingPolicy.effectiveDuration(
+            for: syllable,
+            nextSyllableStart: nextSyllableStart
+        )
+        let end = syllable.start + duration
+        guard now > syllable.start, now < end + glowRelease else { return 0 }
+        let attack = easeOut((now - syllable.start) / glowAttack)
+        let release = now <= end ? 1 : 1 - (now - end) / glowRelease
+        let strength = 0.45 + 0.55 * clamp((duration - 0.25) / 0.75)
+        return attack * release * strength
+    }
+
+    /// 整句最后一个字唱完的时刻（按各字的有效时长，不要求按时间排好序）。
+    public static func sungEnd(of syllables: [LyricSyllable]) -> TimeInterval? {
+        var end: TimeInterval?
+        for index in syllables.indices {
+            let next = syllables.indices.contains(index + 1) ? syllables[index + 1].start : nil
+            let candidate = LyricSyllablePlaybackTimingPolicy.effectiveEnd(
+                for: syllables[index],
+                nextSyllableStart: next
+            )
+            end = max(end ?? candidate, candidate)
+        }
+        return end
+    }
+
+    private static func clamp(_ value: Double) -> Double {
+        min(1, max(0, value))
+    }
+
+    private static func easeOut(_ value: Double) -> Double {
+        let t = clamp(value)
+        return 1 - (1 - t) * (1 - t)
+    }
+
+    private static func smoothstep(_ value: Double) -> Double {
+        let t = clamp(value)
+        return t * t * (3 - 2 * t)
+    }
+}
+
 /// Applies an LRC/ELRC `[offset:]` header. Jellyfin and OpenSubsonic both
 /// report a document offset, and hand-tuned `.lrc` files use the same tag, so
 /// the value has to reach the timeline instead of staying in metadata.
@@ -565,6 +660,23 @@ public enum LyricFlowPlacementPolicy {
 public enum LyricVoice: String, Codable, Sendable, CaseIterable {
     case primary    // 主声部 / 默认演唱者，左对齐
     case secondary  // 对唱声部，建议右对齐
+}
+
+/// 对唱歌词分左右（参照 Apple Music）：整首有两个声部时，对唱声部的行摆到
+/// 另一侧。用户选的对齐方式决定主声部那一侧；选居中时主声部靠前、对唱靠后。
+public enum LyricDuetLayoutPolicy {
+    public enum Side: Sendable, Equatable {
+        case leading
+        case center
+        case trailing
+    }
+
+    public static func side(for voice: LyricVoice, preferred: Side, isDuet: Bool) -> Side {
+        guard isDuet else { return preferred }
+        let primary: Side = preferred == .trailing ? .trailing : .leading
+        guard voice == .secondary else { return primary }
+        return primary == .leading ? .trailing : .leading
+    }
 }
 
 /// A human-authored translation that travels with its source lyric line. This

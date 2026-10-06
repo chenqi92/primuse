@@ -749,6 +749,10 @@ struct NowPlayingView: View {
     @State private var activeMinimizeDragAxis: NowPlayingDismissGesturePolicy.Axis?
     @State private var activeMinimizeDragStartLocation: CGPoint?
     @State private var isLyricsImmersive = false
+    /// 竖屏歌词里拖动歌词后收起了底部控件（歌词铺满，顶上的小封面与歌名还在）。
+    /// 与全屏歌词互斥：那一套会重建歌词视图，拖到一半切过去会打断滚动。
+    @State private var isLyricsChromeCollapsed = false
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     /// 上一轮已经落定的封面位置。换位置的那一次更新里它还是旧值，
     /// 进场的那一张封面据此判断是不是从另一张手里接过来的。
     @State private var settledLyricsArtworkPlacement: LyricsArtworkPlacement = .cover
@@ -1201,6 +1205,7 @@ struct NowPlayingView: View {
         if fullscreenPlayerEffect == .native {
             withAnimation(.easeInOut(duration: 0.3)) {
                 showLyrics = true
+                isLyricsChromeCollapsed = false
                 isLyricsImmersive = true
                 immersiveControlsState = immersiveControlsState.applying(.present)
             }
@@ -1306,12 +1311,39 @@ struct NowPlayingView: View {
         withAnimation(standardLyricsAnimation) {
             showLyrics = isVisible
             isLyricsImmersive = false
+            isLyricsChromeCollapsed = false
             immersiveControlsState = immersiveControlsState.applying(.dismiss)
         }
     }
 
     private func toggleStandardLyrics() {
         setStandardLyricsVisible(!showLyrics)
+    }
+
+    /// 竖屏歌词里一拖动歌词就收起底部控件、让歌词铺满（参照 Apple Music）。顶上的小封面
+    /// 与歌名留着，点它直接回封面；点歌词空白先叫回控件，控件在时再点才回封面。
+    /// VoiceOver 下不收：控件没了就摸不到。
+    private func collapseLyricsChrome() {
+        guard showLyrics,
+              !isLyricsImmersive,
+              !isLyricsChromeCollapsed,
+              !usesSpokenWordTransport,
+              !voiceOverEnabled,
+              !lyrics.isEmpty else { return }
+        withAnimation(lyricsChromeAnimation) {
+            isLyricsChromeCollapsed = true
+        }
+    }
+
+    private func restoreLyricsChrome() {
+        guard isLyricsChromeCollapsed else { return }
+        withAnimation(lyricsChromeAnimation) {
+            isLyricsChromeCollapsed = false
+        }
+    }
+
+    private var lyricsChromeAnimation: Animation {
+        reduceMotion ? .easeInOut(duration: 0.16) : .smooth(duration: 0.35, extraBounce: 0)
     }
 
     /// 点大封面。音乐(和有文字稿的有声内容)切到歌词;有声内容没有文字时那一页是空的
@@ -1693,6 +1725,7 @@ struct NowPlayingView: View {
             sidePaneHidden = false
             showLyrics = !showsQueue
             isLyricsImmersive = false
+            isLyricsChromeCollapsed = false
         }
     }
 
@@ -1702,6 +1735,7 @@ struct NowPlayingView: View {
             // 收起后整屏排开的是封面那一副;下次从歌词键或接下来播放键打开时再选右栏看哪一页。
             showLyrics = false
             isLyricsImmersive = false
+            isLyricsChromeCollapsed = false
         }
     }
 
@@ -2483,6 +2517,10 @@ struct NowPlayingView: View {
                 showLyrics = true
                 isLyricsImmersive = true
                 immersiveControlsState = .presented
+            case "lyricsCollapsed":
+                // 拖动歌词后收起底部控件的样子。
+                showLyrics = true
+                isLyricsChromeCollapsed = true
             case "queue":
                 showLyrics = false
                 sidePaneHidden = false
@@ -2797,6 +2835,11 @@ struct NowPlayingView: View {
             if !isVisible, isLyricsImmersive {
                 dismissImmersiveLyrics()
             }
+            if !isVisible { isLyricsChromeCollapsed = false }
+        }
+        .onChange(of: lyrics.isEmpty && !isResolvingLyrics) { _, hasNoLyrics in
+            // 换到一首没有歌词的歌：空页面点空白不回应，控件得先回来。
+            if hasNoLyrics { restoreLyricsChrome() }
         }
         .onChange(of: lyricsArtworkPlacement) { _, placement in
             settledLyricsArtworkPlacement = placement
@@ -4066,6 +4109,11 @@ struct NowPlayingView: View {
 
                     Spacer()
 
+                    if offersLyricsKaraokeAction {
+                        lyricsKaraokeButton
+                            .buttonStyle(.plain)
+                    }
+
                     if offersLikeAction {
                         Button { toggleLikedCurrent() } label: {
                             nowPlayingActionIcon(
@@ -4282,6 +4330,11 @@ struct NowPlayingView: View {
                             musicVideoToggleButton(font: .title3, trailing: 4)
                                 .lyricsHeaderReveal()
 
+                            if offersLyricsKaraokeAction {
+                                lyricsKaraokeButton
+                                    .lyricsHeaderReveal()
+                            }
+
                             // 竖栏里排着那一列按钮时(iPhone Duo),喜欢与更多在那一列里。
                             if !usesToolColumn {
                                 if offersLikeAction {
@@ -4323,11 +4376,13 @@ struct NowPlayingView: View {
                             }
                             .transition(.opacity)
                         } else {
-                            lyricsFullView
+                            collapsibleLyricsView
                                 .padding(.leading, insets.lyricsLeading)
                                 .padding(.trailing, insets.lyricsTrailing)
                                 .pmLayoutSwitchFade()
                                 .transition(lyricsPanelTransition)
+                                // 转去横屏等别的版面时收起状态不带过去，回来是完整的播放页。
+                                .onDisappear { isLyricsChromeCollapsed = false }
                         }
                     } else {
                         GeometryReader { artworkGeometry in
@@ -4373,7 +4428,7 @@ struct NowPlayingView: View {
                     // 重算,避免触发父 body re-render(进而让 toolbar Menu 的 submenu
                     // 被强制关闭)。SwiftUI Observation 是 per-body 追踪——子 view
                     // 自己读 player.currentTime,父 view body 完全不读高频属性。
-                    if !showLyrics || !isLyricsImmersive {
+                    if !showLyrics || !(isLyricsImmersive || isLyricsChromeCollapsed) {
                         PlaybackProgressBar(fillTint: themedControlAccent) { progressAudioTags(showsSource: false) }
                             .matchedLayoutElement(.progress, in: layoutNamespace)
                             .padding(.horizontal, 26).padding(.top, 8)
@@ -4407,6 +4462,10 @@ struct NowPlayingView: View {
                             height: max(bottomSafeArea - 8, Self.statusBandMinimumHeight),
                             horizontalPadding: 26 + insets.rows
                         )
+                    } else if isLyricsChromeCollapsed {
+                        // 控件收起后歌词铺到底，只让开 Home 指示条那一带。
+                        Color.clear
+                            .frame(height: max(bottomSafeArea - 8, Self.statusBandMinimumHeight))
                     }
                 }
                 // 侧边安全区按侧取值；上下仍沿用窗口安全区的既有处理。整屏居中(iPhone Duo)时两侧都是 0。
@@ -5215,6 +5274,21 @@ struct NowPlayingView: View {
         }
     }
 
+    /// 歌词页上直接进卡拉OK（参照 Apple Music 歌词页的「唱」）。条件与「更多」里那一项相同，
+    /// 另外要有歌词 —— 没词的页面是「暂无歌词」，放这颗键没意义。
+    private var offersLyricsKaraokeAction: Bool {
+        !usesSpokenWordTransport && player.currentSong != nil && !player.isAppleMusicMode
+            && !player.isLiveRadio && !lyrics.isEmpty
+    }
+
+    private var lyricsKaraokeButton: some View {
+        Button { showKaraoke = true } label: {
+            nowPlayingActionIcon(symbol: "music.mic", tint: appearance.secondary)
+        }
+        .frame(width: 44, height: 44)
+        .accessibilityLabel(Text("karaoke_title"))
+    }
+
     @ViewBuilder
     private func musicVideoToggleButton(font: Font, trailing: CGFloat) -> some View {
         // 独立 MV 始终走视频管线, 模式开关对它无意义, 不显示
@@ -5678,6 +5752,15 @@ struct NowPlayingView: View {
     // MARK: - Full Lyrics
 
     private var lyricsFullView: some View {
+        lyricsScrollView(collapsesChromeOnScroll: false)
+    }
+
+    /// 竖屏播放页里替换封面的那份歌词：拖动歌词时收起底部控件。
+    private var collapsibleLyricsView: some View {
+        lyricsScrollView(collapsesChromeOnScroll: true)
+    }
+
+    private func lyricsScrollView(collapsesChromeOnScroll: Bool) -> some View {
         LyricsScrollView(
             lyrics: lyrics,
             lyricsWritingDirection: lyricsWritingDirection,
@@ -5697,6 +5780,9 @@ struct NowPlayingView: View {
                     // immersive tap through it avoids the scroll recognizer
                     // swallowing the outer ZStack tap after chrome auto-hides.
                     handleImmersiveContentTap()
+                } else if collapsesChromeOnScroll, isLyricsChromeCollapsed {
+                    // 收起的控件先叫回来，控件在时再点才回封面。
+                    restoreLyricsChrome()
                 } else {
                     setStandardLyricsVisible(false)
                 }
@@ -5705,7 +5791,8 @@ struct NowPlayingView: View {
                 presentLyricPoster(anchorLineID: lineID)
             },
             translatedTextByLineID: lyricTranslationsByLineID,
-            translationActivity: lyricsTranslationActivity
+            translationActivity: lyricsTranslationActivity,
+            onUserScroll: collapsesChromeOnScroll ? { collapseLyricsChrome() } : nil
         )
     }
 
@@ -9234,6 +9321,8 @@ struct LyricsScrollView: View {
     /// 被重建，翻译任务不能跟着它一起消失。
     let translatedTextByLineID: [String: String]
     let translationActivity: LyricsTranslationActivity
+    /// 用户亲手拖动了歌词（程序滚动、双指缩放不算）。竖屏播放页用它收起底部控件。
+    var onUserScroll: (() -> Void)? = nil
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -9340,6 +9429,25 @@ struct LyricsScrollView: View {
 
     private var lyricsScaleAnchor: UnitPoint {
         lyricsAlignment.scaleAnchor(in: lyricLayoutDirection)
+    }
+
+    /// 整首有两个声部（TTML 的 ttm:agent、LYS/QRC 的对唱标记）时按声部分左右。
+    private var isDuetLyrics: Bool {
+        KaraokeDuetGatePolicy.hasDuetParts(lyrics)
+    }
+
+    /// 对唱时每一行按声部摆到一侧；不是对唱就是用户选的对齐方式。
+    private func duetAlignment(for line: LyricLine, isDuet: Bool) -> PlayerLyricsAlignment {
+        let preferred: LyricDuetLayoutPolicy.Side = switch lyricsAlignment {
+        case .leading: .leading
+        case .center: .center
+        case .trailing: .trailing
+        }
+        return switch LyricDuetLayoutPolicy.side(for: line.voice, preferred: preferred, isDuet: isDuet) {
+        case .leading: .leading
+        case .center: .center
+        case .trailing: .trailing
+        }
     }
 
     private func currentLyricStyle(opacity: Double = 1) -> AnyShapeStyle {
@@ -9558,6 +9666,7 @@ struct LyricsScrollView: View {
         GeometryReader { geo in
             let layoutWidth = lyricLayoutWidth(in: geo.size.width)
             let textWidth = lyricTextWidth(in: geo.size.width)
+            let isDuet = isDuetLyrics
 
             ScrollViewReader { proxy in
                 ScrollView(showsIndicators: false) {
@@ -9568,16 +9677,18 @@ struct LyricsScrollView: View {
 
                         ForEach(Array(lyrics.enumerated()), id: \.element.id) { index, line in
                             let activity = lineLevelRowVisualActivity(index: index)
+                            let alignment = duetAlignment(for: line, isDuet: isDuet)
                             LyricsScaleEnvelopeLayout(
                                 maximumScale: Self.lyricsActiveVisualScale,
-                                horizontalAnchor: lyricsScaleAnchor
+                                horizontalAnchor: alignment.scaleAnchor(in: lyricLayoutDirection)
                             ) {
                                 lyricsRow(
                                     line: line,
                                     index: index,
                                     dimmedByAmbient: true,
                                     availableWidth: textWidth,
-                                    visualScale: CGFloat(activity.scale)
+                                    visualScale: CGFloat(activity.scale),
+                                    rowAlignment: alignment
                                 )
                             }
                                 .id(LyricsScrollTarget.line(id: line.id))
@@ -9651,6 +9762,9 @@ struct LyricsScrollView: View {
                     browseTimelineIndicator(viewportHeight: geo.size.height)
                 }
                 .onScrollPhaseChange { oldPhase, newPhase in
+                    if newPhase == .interacting, oldPhase != .interacting, !isPinchingLyrics {
+                        onUserScroll?()
+                    }
                     switch newPhase {
                     case .tracking, .interacting, .decelerating:
                         beginLineManualBrowsing()
@@ -9705,6 +9819,7 @@ struct LyricsScrollView: View {
         GeometryReader { geo in
             let layoutWidth = lyricLayoutWidth(in: geo.size.width)
             let textWidth = lyricTextWidth(in: geo.size.width)
+            let isDuet = isDuetLyrics
             ScrollViewReader { proxy in
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 12) {
@@ -9714,16 +9829,18 @@ struct LyricsScrollView: View {
 
                         ForEach(Array(lyrics.enumerated()), id: \.element.id) { index, line in
                             let activity = rowVisualActivity(index: index)
+                            let alignment = duetAlignment(for: line, isDuet: isDuet)
                             LyricsScaleEnvelopeLayout(
                                 maximumScale: Self.lyricsActiveVisualScale,
-                                horizontalAnchor: lyricsScaleAnchor
+                                horizontalAnchor: alignment.scaleAnchor(in: lyricLayoutDirection)
                             ) {
                                 lyricsRow(
                                     line: line,
                                     index: index,
                                     dimmedByAmbient: true,
                                     availableWidth: textWidth,
-                                    visualScale: CGFloat(activity.scale)
+                                    visualScale: CGFloat(activity.scale),
+                                    rowAlignment: alignment
                                 )
                             }
                             .id(LyricsScrollTarget.line(id: line.id))
@@ -9769,6 +9886,9 @@ struct LyricsScrollView: View {
                     browseTimelineIndicator(viewportHeight: geo.size.height)
                 }
                 .onScrollPhaseChange { oldPhase, newPhase in
+                    if newPhase == .interacting, oldPhase != .interacting, !isPinchingLyrics {
+                        onUserScroll?()
+                    }
                     switch newPhase {
                     case .tracking, .interacting, .decelerating:
                         beginLineManualBrowsing()
@@ -10054,7 +10174,8 @@ struct LyricsScrollView: View {
         dimmedByAmbient: Bool = false,
         timelineTime: TimeInterval? = nil,
         availableWidth: CGFloat,
-        visualScale: CGFloat = 1
+        visualScale: CGFloat = 1,
+        rowAlignment: PlayerLyricsAlignment
     ) -> some View {
         let isActive = index == currentLineIndex
         let playbackTime = timelineTime ?? player.currentTime
@@ -10062,8 +10183,8 @@ struct LyricsScrollView: View {
         // weight 在统一动效模式下固定 .semibold。active 行已有 scale + opacity
         // 强调, weight 瞬时跳变只会让切句增加视觉颗粒感。
         let weight: Font.Weight = dimmedByAmbient ? .semibold : (isActive ? .bold : .semibold)
-        let alignment = lyricsAlignment.horizontalAlignment
-        let frameAlignment = lyricsAlignment.frameAlignment
+        let alignment = rowAlignment.horizontalAlignment
+        let frameAlignment = rowAlignment.frameAlignment
         let companions = Self.companionTexts(for: line, translatedTextByLineID: translatedTextByLineID)
 
         // 组内(原文与其译文)贴紧，组间(不同时间轴的两句)拉开 —— 两者此前都是
@@ -10076,7 +10197,7 @@ struct LyricsScrollView: View {
                 index: index,
                 fontSize: fontSize,
                 weight: weight,
-                textAlignment: lyricsAlignment.textAlignment,
+                textAlignment: rowAlignment.textAlignment,
                 dimmedByAmbient: dimmedByAmbient,
                 timelineTime: timelineTime,
                 deactivationTime: wordLevelDeactivationTime(for: index)
@@ -10112,7 +10233,7 @@ struct LyricsScrollView: View {
                                 ? appearance.primary.opacity(appearance.pastLyricOpacity * 0.72)
                                 : appearance.primary.opacity(appearance.futureLyricOpacity * 0.72)
                     )
-                    .multilineTextAlignment(lyricsAlignment.textAlignment)
+                    .multilineTextAlignment(rowAlignment.textAlignment)
                     // 长翻译在窄屏 / 大字号下要 wrap 多行。不加 fixedSize 时 SwiftUI
                     // 会优先单行 + 截断显示省略号。
                     .fixedSize(horizontal: false, vertical: true)
@@ -10139,7 +10260,7 @@ struct LyricsScrollView: View {
                         index: index,
                         fontSize: fontSize * 0.7,
                         weight: .medium,
-                        textAlignment: lyricsAlignment.textAlignment,
+                        textAlignment: rowAlignment.textAlignment,
                         dimmedByAmbient: dimmedByAmbient,
                         timelineTime: timelineTime,
                         deactivationTime: bg.endTime
@@ -10159,7 +10280,7 @@ struct LyricsScrollView: View {
                         Text(backgroundCompanions[slot])
                             .font(.system(size: fontSize * 0.7 * 0.65, weight: .medium))
                             .foregroundStyle(appearance.secondary)
-                            .multilineTextAlignment(lyricsAlignment.textAlignment)
+                            .multilineTextAlignment(rowAlignment.textAlignment)
                             .fixedSize(horizontal: false, vertical: true)
                             .contentShape(Rectangle())
                             .if(canSeekToLyricLine(bg)) { view in
@@ -10182,7 +10303,7 @@ struct LyricsScrollView: View {
         // already mirrors horizontal anchors; the pre-flipped
         // `lyricsScaleAnchor` (meant for the left-to-right envelope layout)
         // would flip twice and grow right-to-left lyrics off the right edge.
-        .scaleEffect(visualScale, anchor: lyricsAlignment.scaleAnchor(in: .leftToRight))
+        .scaleEffect(visualScale, anchor: rowAlignment.scaleAnchor(in: .leftToRight))
         .environment(\.layoutDirection, lyricLayoutDirection)
     }
 
@@ -10249,7 +10370,8 @@ struct LyricsScrollView: View {
                 fixedTime: fixedPlaybackTime,
                 isAnimationEnabled: animatesWords,
                 animatesSyllableBounce: visualActivityPolicy.shouldRunWordTimeline,
-                deactivationTime: dimmedByAmbient ? deactivationTime : nil
+                deactivationTime: dimmedByAmbient ? deactivationTime : nil,
+                glowsSungSyllables: !appearance.isLight
             )
         } else {
             Text(line.text)

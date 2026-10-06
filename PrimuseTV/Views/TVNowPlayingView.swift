@@ -1054,10 +1054,11 @@ struct TVNowPlayingView: View {
         //(`scrollTo(anchor:.center)` + `.smooth`),不再按 index 重算固定窗口硬跳。
         return ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
+                let isDuet = Self.isDuetLyrics(store.lyrics)
                 LazyVStack(alignment: .leading, spacing: 30) {
                     Color.clear.frame(height: 260)   // 顶部留白:首行也能滚到中心
                     ForEach(Array(store.lyrics.enumerated()), id: \.offset) { i, _ in
-                        lyricLine(index: i, current: cur).id(i)
+                        lyricLine(index: i, current: cur, isDuet: isDuet).id(i)
                     }
                     Color.clear.frame(height: 360)   // 底部留白:末行也能滚到中心
                 }
@@ -1099,9 +1100,20 @@ struct TVNowPlayingView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
+    /// 整首有两个声部时对唱分左右（与 iPhone 歌词页同一规则）。
+    private static func isDuetLyrics(_ lyrics: [TVLyricLine]) -> Bool {
+        lyrics.contains { $0.isSynchronized && $0.voice == .primary }
+            && lyrics.contains { $0.isSynchronized && $0.voice == .secondary }
+    }
+
     @ViewBuilder
-    private func lyricLine(index i: Int, current cur: Int?) -> some View {
+    private func lyricLine(index i: Int, current cur: Int?, isDuet: Bool) -> some View {
         let ln = store.lyrics[i]
+        let isTrailing = LyricDuetLayoutPolicy.side(for: ln.voice, preferred: .leading, isDuet: isDuet) == .trailing
+        let textAlignment: TextAlignment = isTrailing ? .trailing : .leading
+        let flowAlignment: LyricFlowHorizontalAlignment = isTrailing ? .trailing : .leading
+        // 下一句开唱时这一行让位，唱过的字要在那之前落回原大小。
+        let nextLineTime = store.lyrics.indices.contains(i + 1) ? store.lyrics[i + 1].time : nil
         let isCur = cur == i
         let dist = cur.map { abs(i - $0) }
         let opacity = isCur ? 1 : dist.map { max(0.42, 0.72 - Double($0) * 0.08) } ?? 0.82
@@ -1110,7 +1122,7 @@ struct TVNowPlayingView: View {
         let size = TVLyricsFontLevel.resolved(lyricsFontLevelRawValue).pointSize
         // 注音、译文跟着主歌词同比例放大缩小。
         let companionSize = TVLyricsFontLevel.companionPointSize(for: size)
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: isTrailing ? .trailing : .leading, spacing: 6) {
             if isCur, !ln.syllables.isEmpty {
                 // 逐字扫光必须按帧推进:直接读 `store.currentTime` 时一秒只有 4 个
                 // 台阶(AVPlayer 周期回调的频率),扫光会四格一跳、而且平均慢半拍。
@@ -1125,7 +1137,9 @@ struct TVNowPlayingView: View {
                         currentTime: store.interpolatedTime(at: context.date),
                         size: size,
                         tint: store.nowPlaying.tint,
-                        writingDirection: ln.writingDirection
+                        writingDirection: ln.writingDirection,
+                        alignment: flowAlignment,
+                        handoverTime: nextLineTime
                     )
                 }
             } else {
@@ -1133,7 +1147,7 @@ struct TVNowPlayingView: View {
                 Text(ln.text).font(.system(size: size, weight: isCur ? .bold : .semibold))
                     .foregroundStyle(TVColor.text)
                     .shadow(color: isCur ? store.nowPlaying.tint.opacity(0.5) : .clear, radius: 16, y: 2)
-                    .multilineTextAlignment(.leading)
+                    .multilineTextAlignment(textAlignment)
             }
             ForEach(ln.background) { background in
                 // Backing vocals sing over their own window inside this line,
@@ -1148,7 +1162,8 @@ struct TVNowPlayingView: View {
                             currentTime: store.interpolatedTime(at: context.date),
                             size: size * 0.7,
                             tint: store.nowPlaying.tint,
-                            writingDirection: background.writingDirection
+                            writingDirection: background.writingDirection,
+                            alignment: flowAlignment
                         )
                     }
                     .opacity(0.72)
@@ -1156,23 +1171,25 @@ struct TVNowPlayingView: View {
                     Text(background.text)
                         .font(.system(size: size * 0.7, weight: .semibold))
                         .foregroundStyle(TVColor.text.opacity(0.62))
-                        .multilineTextAlignment(.leading)
+                        .multilineTextAlignment(textAlignment)
                 }
             }
             if !ln.romanization.isEmpty {
                 Text(ln.romanization).tvFont(size: companionSize, relativeTo: .caption)
                     .foregroundStyle(TVColor.textFaint)
+                    .multilineTextAlignment(textAlignment)
             }
             if !ln.translation.isEmpty {
                 Text(LyricCompanionTextPolicy.displayText(ln.translation))
                     .tvFont(size: companionSize, relativeTo: .caption).italic()
                     .foregroundStyle(TVColor.textFaint)
+                    .multilineTextAlignment(textAlignment)
             }
         }
-        .scaleEffect(scale, anchor: .leading)
+        .scaleEffect(scale, anchor: isTrailing ? .trailing : .leading)
         .opacity(opacity)
         .animation(reduceMotion ? nil : .smooth(duration: 0.5, extraBounce: 0), value: cur)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: isTrailing ? .trailing : .leading)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(ln.text))
         .accessibilityValue(Text(isCur ? PMString("playback") : ""))
@@ -1229,6 +1246,9 @@ struct TVKaraokeLine: View {
     let size: CGFloat
     let tint: Color
     let writingDirection: LyricWritingDirection
+    var alignment: LyricFlowHorizontalAlignment = .leading
+    /// 下一句接手的时刻；唱过的字在那之前落回原大小。
+    var handoverTime: TimeInterval?
 
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1243,14 +1263,29 @@ struct TVKaraokeLine: View {
 
     var body: some View {
         let state = TVSyllableHighlightPolicy.state(in: syllables, at: currentTime)
-        TVSyllableFlowLayout(layoutDirection: lyricLayoutDirection) {
+        // 唱到的字浮起后停在那里，整句唱完再一起落回（与 iPhone 同一套强调曲线）。
+        let lyricSyllables = syllables.map(\.lyricSyllable)
+        let hold = reduceMotion
+            ? 0
+            : LyricSyllableEmphasisPolicy.lineHold(
+                syllables: lyricSyllables,
+                deactivationTime: handoverTime,
+                at: currentTime
+            )
+        TVSyllableFlowLayout(layoutDirection: lyricLayoutDirection, alignment: alignment) {
             ForEach(Array(syllables.enumerated()), id: \.offset) { i, s in
                 let active = i < state.index
                 let inFlight = i == state.index
                 let fillT: Double = active ? 1 : (inFlight ? state.progress : 0)
-                let scale = inFlight && !reduceMotion
-                    ? 1 + 0.05 * sin(state.progress * .pi)
-                    : 1
+                let raise = hold > 0
+                    ? LyricSyllableEmphasisPolicy.rise(
+                        for: lyricSyllables[i],
+                        nextSyllableStart: lyricSyllables.indices.contains(i + 1)
+                            ? lyricSyllables[i + 1].start
+                            : nil,
+                        at: currentTime
+                    ) * hold
+                    : 0
                 Text(s.w)
                     .foregroundStyle(TVColor.textGhost)
                     .overlay(alignment: .leading) {
@@ -1271,7 +1306,8 @@ struct TVKaraokeLine: View {
                                 .environment(\.layoutDirection, .leftToRight)
                             }
                     }
-                    .scaleEffect(scale, anchor: .bottom)
+                    .scaleEffect(1 + LyricSyllableEmphasisPolicy.raisedScale * raise, anchor: .bottom)
+                    .offset(y: -size * LyricSyllableEmphasisPolicy.raisedLiftRatio * raise)
             }
         }
         .font(.system(size: size, weight: .bold))
@@ -1282,6 +1318,7 @@ struct TVKaraokeLine: View {
 
 private struct TVSyllableFlowLayout: Layout {
     let layoutDirection: LayoutDirection
+    var alignment: LyricFlowHorizontalAlignment = .leading
 
     struct Cache {
         var sizes: [CGSize]
@@ -1339,7 +1376,7 @@ private struct TVSyllableFlowLayout: Layout {
             },
             containerWidth: Double(bounds.width),
             isRightToLeft: layoutDirection == .rightToLeft,
-            alignment: .leading
+            alignment: alignment
         )
 
         for placement in placements {

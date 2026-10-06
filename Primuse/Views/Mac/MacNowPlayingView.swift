@@ -950,13 +950,15 @@ struct MacNowPlayingView: View {
                             .pmAppearFade(.contentAppear)
                         }
                     } else {
+                        let isDuet = KaraokeDuetGatePolicy.hasDuetParts(lyrics)
                         ForEach(Array(lyrics.enumerated()), id: \.element.id) { i, line in
                             let isActive = i == currentIndex
                             macLyricLine(
                                 line: line,
                                 index: i,
                                 isActive: isActive,
-                                fontSize: lyricLayoutFontSize
+                                fontSize: lyricLayoutFontSize,
+                                isDuet: isDuet
                             )
                                 .id(line.id)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1135,8 +1137,23 @@ struct MacNowPlayingView: View {
     }
 
     @ViewBuilder
-    private func macLyricLine(line: LyricLine, index: Int, isActive: Bool, fontSize: CGFloat) -> some View {
+    private func macLyricLine(
+        line: LyricLine,
+        index: Int,
+        isActive: Bool,
+        fontSize: CGFloat,
+        isDuet: Bool
+    ) -> some View {
         let scaledSize = fontSize * CGFloat(lyricsFontScale)
+        // 对唱时对唱声部的行摆到另一侧（与 iPhone 歌词页同一规则）。
+        let isTrailing = LyricDuetLayoutPolicy.side(
+            for: line.voice,
+            preferred: .leading,
+            isDuet: isDuet
+        ) == .trailing
+        let horizontal: HorizontalAlignment = isTrailing ? .trailing : .leading
+        let frameAlignment: Alignment = isTrailing ? .trailing : .leading
+        let textAlignment: TextAlignment = isTrailing ? .trailing : .leading
         // Keep weight/layout stable and express activity through render-layer
         // scale + opacity, mirroring the iOS word-level lyrics treatment.
         let weight: Font.Weight = .semibold
@@ -1151,16 +1168,17 @@ struct MacNowPlayingView: View {
         )
         let visualScale = lyricVisualScale(isActive: isActive)
 
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: horizontal, spacing: 4) {
             macSingleLyricLine(
                 line: line,
                 index: index,
                 isActive: isActive,
                 fontSize: scaledSize,
                 weight: weight,
-                tint: tint
+                tint: tint,
+                textAlignment: textAlignment
             )
-            macLyricCompanions(for: line, fontSize: scaledSize)
+            macLyricCompanions(for: line, fontSize: scaledSize, textAlignment: textAlignment)
             if let backgrounds = line.background {
                 ForEach(backgrounds) { background in
                     macSingleLyricLine(
@@ -1169,27 +1187,32 @@ struct MacNowPlayingView: View {
                         isActive: activeBackgroundLineIDs.contains(background.id),
                         fontSize: scaledSize * 0.7,
                         weight: .medium,
-                        tint: tint
+                        tint: tint,
+                        textAlignment: textAlignment
                     )
                     .opacity(0.72)
                 }
             }
         }
         .opacity(opacity)
-        .frame(minHeight: scaledSize * 1.3, alignment: .leading)
-        .scaleEffect(visualScale, anchor: .leading)
+        .frame(minHeight: scaledSize * 1.3, alignment: frameAlignment)
+        .scaleEffect(visualScale, anchor: isTrailing ? .trailing : .leading)
         .animation(
             .smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0),
             value: currentIndex
         )
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: frameAlignment)
         .environment(\.layoutDirection, lyricLayoutDirection)
     }
 
     /// Romanization, translations written in the lyrics, and the translation
     /// task's result, smaller and dimmer under the sung line.
     @ViewBuilder
-    private func macLyricCompanions(for line: LyricLine, fontSize: CGFloat) -> some View {
+    private func macLyricCompanions(
+        for line: LyricLine,
+        fontSize: CGFloat,
+        textAlignment: TextAlignment
+    ) -> some View {
         let companions = LyricCompanionTextPolicy.texts(
             for: line,
             translatedText: lyricTranslationsByLineID[line.id]
@@ -1199,7 +1222,7 @@ struct MacNowPlayingView: View {
                 .font(.system(size: fontSize * 0.62, weight: .medium))
                 .foregroundStyle(playerSecondaryColor)
                 .lineSpacing(1)
-                .multilineTextAlignment(.leading)
+                .multilineTextAlignment(textAlignment)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -1211,7 +1234,8 @@ struct MacNowPlayingView: View {
         isActive: Bool,
         fontSize: CGFloat,
         weight: Font.Weight,
-        tint: Color
+        tint: Color,
+        textAlignment: TextAlignment
     ) -> some View {
         if shouldRenderWordTimeline(line: line, index: index, isActive: isActive) {
             KaraokeLineView(
@@ -1220,6 +1244,7 @@ struct MacNowPlayingView: View {
                 weight: weight,
                 activeColor: playerPrimaryColor,
                 inactiveColor: playerSecondaryColor,
+                textAlignment: textAlignment,
                 writingDirection: lyricsWritingDirection,
                 timeAt: { date in player.interpolatedTime(at: date) },
                 isPlaybackActive: player.isPlaybackActive,
@@ -1234,7 +1259,7 @@ struct MacNowPlayingView: View {
                 .font(.system(size: fontSize, weight: weight))
                 .foregroundStyle(playerPrimaryColor)
                 .lineSpacing(2)
-                .multilineTextAlignment(.leading)
+                .multilineTextAlignment(textAlignment)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }

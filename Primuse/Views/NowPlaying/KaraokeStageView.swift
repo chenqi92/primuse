@@ -296,7 +296,8 @@ private struct KaraokeLyricsStage: View {
                     timeAt: { _ in time },
                     fixedTime: time,
                     isPlaybackActive: isPlaying,
-                    animatesSyllableBounce: isPlaying
+                    animatesSyllableBounce: isPlaying,
+                    glowsSungSyllables: true
                 )
             case .previous, .next:
                 Text(line.text)

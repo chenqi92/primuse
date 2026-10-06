@@ -28,10 +28,12 @@ struct LyricsFlowMeasurementKey: Equatable {
 /// - **字内 mask 扫光**: 底层逐字绘制 inactive 色，整行 active 填充通过
 ///   每个 syllable 的进度 mask 露出。这样既保留字内过渡，也能让渐变色
 ///   在整行坐标系连续绘制。
-/// - **字级 bounce**: 当前唱的字 scale 1.0 → 1.04 → 1.0 走 sin 曲线, 像被
-///   节奏「点」起来一下。anchor=.bottom 让字向上抬, 不影响行高。
+/// - **字级上浮**: 唱到的字随演唱浮起、略微放大并停在那里, 整句唱完再一起落回
+///   (参照 Apple Music, 见 `LyricSyllableEmphasisPolicy`)。都是渲染层变换,
+///   不影响行高与换行。
+/// - **柔光**: 深色歌词上正在唱的字带一圈同色柔光, 唱完后散去。
 /// - **lookahead 提前唤醒 100ms**: 字真正唱出来那一刻, 扫光已基本到位。
-///   bounce 不提前, 避免切行前先弹一下旧句子。
+///   放大不提前, 避免切行前先抬一下旧句子。
 /// - **easeOut 曲线**: 前快后慢, 跟唱字的能量曲线吻合。
 struct KaraokeLineView: View {
     let line: LyricLine
@@ -55,9 +57,14 @@ struct KaraokeLineView: View {
     /// Timeline. This prevents active-row takeover from changing wrapping or
     /// measured height while still avoiding unnecessary 60 Hz updates.
     let isAnimationEnabled: Bool
-    /// Progress can be rendered at a fixed playback time while motion-only
-    /// bounce is disabled for paused, inactive, or Reduce Motion states.
+    /// Progress can be rendered at a fixed playback time while the motion-only
+    /// glow is disabled for paused, inactive, or Reduce Motion states. The
+    /// raised size of sung words is state, not motion, so it stays put when
+    /// paused and only Reduce Motion turns it off.
     let animatesSyllableBounce: Bool
+    /// 正在唱的字带柔光。只适合浅色字压在深色底上（深色字的「光」读起来像污渍），
+    /// 由调用方按当时的配色决定。
+    let glowsSungSyllables: Bool
     /// macOS lyrics keep both flow layouts outside TimelineView. Only a Canvas
     /// mask receives playback ticks, so glyph measurement and row placement do
     /// not become display-rate work.
@@ -80,7 +87,8 @@ struct KaraokeLineView: View {
         isAnimationEnabled: Bool = true,
         animatesSyllableBounce: Bool = true,
         isolatesAnimatedProgressFromLayout: Bool = false,
-        deactivationTime: TimeInterval? = nil
+        deactivationTime: TimeInterval? = nil,
+        glowsSungSyllables: Bool = false
     ) {
         self.line = line
         self.fontSize = fontSize
@@ -96,6 +104,7 @@ struct KaraokeLineView: View {
         self.animatesSyllableBounce = animatesSyllableBounce
         self.isolatesAnimatedProgressFromLayout = isolatesAnimatedProgressFromLayout
         self.deactivationTime = deactivationTime
+        self.glowsSungSyllables = glowsSungSyllables
     }
 
     init(
@@ -112,7 +121,8 @@ struct KaraokeLineView: View {
         isAnimationEnabled: Bool = true,
         animatesSyllableBounce: Bool = true,
         isolatesAnimatedProgressFromLayout: Bool = false,
-        deactivationTime: TimeInterval? = nil
+        deactivationTime: TimeInterval? = nil,
+        glowsSungSyllables: Bool = false
     ) {
         self.init(
             line: line,
@@ -128,15 +138,17 @@ struct KaraokeLineView: View {
             isAnimationEnabled: isAnimationEnabled,
             animatesSyllableBounce: animatesSyllableBounce,
             isolatesAnimatedProgressFromLayout: isolatesAnimatedProgressFromLayout,
-            deactivationTime: deactivationTime
+            deactivationTime: deactivationTime,
+            glowsSungSyllables: glowsSungSyllables
         )
     }
 
     /// 扫光提前进入过渡的时间 — 让字真正唱出来的时刻已经亮了 80-90%。
     private static let lookaheadSec: TimeInterval = 0.10
 
-    /// scale bounce 的峰值幅度 (1.0 → 1 + bumpAmount → 1.0)。
-    private static let bumpAmount: Double = 0.05
+    /// 柔光半径与字号之比、最亮时的不透明度。
+    private static let glowRadiusRatio: CGFloat = 0.22
+    private static let glowOpacity: Double = 0.85
 
     /// mask 扫光的边缘宽度 (0..1 progress 单位)。值越大边缘越柔, 越小越锐。
     /// 0.12 在汉字宽度上看着像一道柔光从左扫到右。
@@ -144,6 +156,19 @@ struct KaraokeLineView: View {
 
     @Environment(\.layoutDirection) private var inheritedLayoutDirection
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var showsSyllableLift: Bool { !reduceMotion }
+
+    private var showsSyllableGlow: Bool {
+        glowsSungSyllables && animatesSyllableBounce && !reduceMotion
+    }
+
+    /// 柔光与上浮都会画到行框外面，扫光那层要比行框大一圈才不会被裁掉。只随参数变，
+    /// 暂停/继续不改它，渐变色歌词的色带位置也就不会跟着跳。
+    private var activeLayerOverhang: CGFloat {
+        let lift = (fontSize * LyricSyllableEmphasisPolicy.raisedLiftRatio).rounded(.up) + 1
+        return glowsSungSyllables ? max(lift, (fontSize * Self.glowRadiusRatio * 2).rounded(.up)) : lift
+    }
 
     private var resolvedWritingDirection: LyricWritingDirection {
         LyricWritingDirectionPolicy.resolvePresentationDirection(
@@ -236,13 +261,22 @@ struct KaraokeLineView: View {
     @ViewBuilder
     private func renderLine(at now: TimeInterval) -> some View {
         if let syllables = line.syllables, !syllables.isEmpty {
-            inactiveSyllableLayer(syllables, at: now)
+            let hold = showsSyllableLift
+                ? LyricSyllableEmphasisPolicy.lineHold(
+                    syllables: syllables,
+                    deactivationTime: deactivationTime,
+                    at: now
+                )
+                : 0
+            inactiveSyllableLayer(syllables, lineHold: hold, at: now)
                 .overlay {
                     Rectangle()
                         .fill(activeStyle)
                         .mask {
-                            activeSyllableMask(syllables, at: now)
+                            activeSyllableMask(syllables, lineHold: hold, at: now)
+                                .padding(activeLayerOverhang)
                         }
+                        .padding(-activeLayerOverhang)
                 }
         } else {
             Text(line.text)
@@ -446,6 +480,7 @@ struct KaraokeLineView: View {
 
     private func inactiveSyllableLayer(
         _ syllables: [LyricSyllable],
+        lineHold: Double,
         at now: TimeInterval
     ) -> some View {
         LyricsFlowLayout(
@@ -459,6 +494,7 @@ struct KaraokeLineView: View {
                     nextSyllableStart: syllables.indices.contains(index + 1)
                         ? syllables[index + 1].start
                         : nil,
+                    lineHold: lineHold,
                     at: now
                 )
                     .environment(\.layoutDirection, lyricLayoutDirection)
@@ -471,6 +507,7 @@ struct KaraokeLineView: View {
 
     private func activeSyllableMask(
         _ syllables: [LyricSyllable],
+        lineHold: Double,
         at now: TimeInterval
     ) -> some View {
         LyricsFlowLayout(
@@ -484,6 +521,7 @@ struct KaraokeLineView: View {
                     nextSyllableStart: syllables.indices.contains(index + 1)
                         ? syllables[index + 1].start
                         : nil,
+                    lineHold: lineHold,
                     at: now
                 )
                     .environment(\.layoutDirection, lyricLayoutDirection)
@@ -495,23 +533,26 @@ struct KaraokeLineView: View {
     private func inactiveSyllable(
         _ syllable: LyricSyllable,
         nextSyllableStart: TimeInterval?,
+        lineHold: Double,
         at now: TimeInterval
     ) -> some View {
-        let scale = syllableScale(
+        let raise = syllableRaise(
             syllable,
             nextSyllableStart: nextSyllableStart,
+            lineHold: lineHold,
             at: now
         )
         return Text(syllable.text)
             .foregroundStyle(inactiveColor)
             .font(.system(size: fontSize, weight: weight))
-            .scaleEffect(scale, anchor: .bottom)
+            .modifier(SyllableRaise(amount: raise, fontSize: fontSize))
             .fixedSize()
     }
 
     private func activeSyllableMask(
         _ syllable: LyricSyllable,
         nextSyllableStart: TimeInterval?,
+        lineHold: Double,
         at now: TimeInterval
     ) -> some View {
         let sweepProgress = computeSweepProgress(
@@ -519,31 +560,42 @@ struct KaraokeLineView: View {
             nextSyllableStart: nextSyllableStart,
             now: now
         )
-        let scale = syllableScale(
+        let raise = syllableRaise(
             syllable,
             nextSyllableStart: nextSyllableStart,
+            lineHold: lineHold,
             at: now
         )
+        let glow = showsSyllableGlow
+            ? LyricSyllableEmphasisPolicy.glow(
+                for: syllable,
+                nextSyllableStart: nextSyllableStart,
+                at: now
+            )
+            : 0
+        // 柔光画在遮罩里：白色光晕的透明度透出上面那层歌词色，光就是歌词本身的颜色。
         return Text(syllable.text)
             .foregroundStyle(.white)
             .font(.system(size: fontSize, weight: weight))
             .mask(sweepMask(progress: sweepProgress))
-            .scaleEffect(scale, anchor: .bottom)
+            .modifier(SyllableGlow(intensity: glow * Self.glowOpacity, radius: fontSize * Self.glowRadiusRatio))
+            .modifier(SyllableRaise(amount: raise, fontSize: fontSize))
             .fixedSize()
     }
 
-    private func syllableScale(
+    /// 0...1：这个字现在浮起了多少（整句落回时一起乘下去）。
+    private func syllableRaise(
         _ syllable: LyricSyllable,
         nextSyllableStart: TimeInterval?,
+        lineHold: Double,
         at now: TimeInterval
     ) -> Double {
-        guard animatesSyllableBounce else { return 1 }
-        let bumpProgress = computeBumpProgress(
-            syl: syllable,
+        guard showsSyllableLift, lineHold > 0 else { return 0 }
+        return LyricSyllableEmphasisPolicy.rise(
+            for: syllable,
             nextSyllableStart: nextSyllableStart,
-            now: now
-        )
-        return 1.0 + Self.bumpAmount * bellCurve(bumpProgress)
+            at: now
+        ) * lineHold
     }
 
     /// 「扫光」mask: 沿文档书写方向推进；只改变字内的视觉填充方向，
@@ -596,33 +648,35 @@ struct KaraokeLineView: View {
         return easeOut(raw)
     }
 
-    /// bounce progress 不提前。切行时先切到新句, 再在新句的第一个字上弹动。
-    private func computeBumpProgress(
-        syl: LyricSyllable,
-        nextSyllableStart: TimeInterval?,
-        now: TimeInterval
-    ) -> Double {
-        let transitionStart = syl.start
-        let dur = LyricSyllablePlaybackTimingPolicy.effectiveDuration(
-            for: syl,
-            nextSyllableStart: nextSyllableStart
-        )
-        let transitionEnd = syl.start + dur
-        if now <= transitionStart { return 0 }
-        if now >= transitionEnd { return 1 }
-        return (now - transitionStart) / (transitionEnd - transitionStart)
-    }
-
     private func easeOut(_ t: Double) -> Double {
         let c = max(0, min(1, t))
         return 1 - (1 - c) * (1 - c)
     }
+}
 
-    /// 0..1..0 钟形曲线, 让 scale bump 在 progress=0.5 处到峰值, 两端为 1.0。
-    /// 用 sin(progress * π) 实现; 0 / 1 时为 0 (无 bump), 0.5 时为 1。
-    private func bellCurve(_ progress: Double) -> Double {
-        let c = max(0, min(1, progress))
-        return sin(c * .pi)
+/// 唱过的字浮起并略微放大。底层暗字与上层亮字用同一个变换，两层始终对齐。
+private struct SyllableRaise: ViewModifier {
+    let amount: Double
+    let fontSize: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(1 + LyricSyllableEmphasisPolicy.raisedScale * amount, anchor: .bottom)
+            .offset(y: -fontSize * LyricSyllableEmphasisPolicy.raisedLiftRatio * amount)
+    }
+}
+
+/// 光晕只在有光的那几帧挂上，其余时候不多一层阴影渲染。
+private struct SyllableGlow: ViewModifier {
+    let intensity: Double
+    let radius: CGFloat
+
+    func body(content: Content) -> some View {
+        if intensity > 0.01 {
+            content.shadow(color: .white.opacity(min(1, intensity)), radius: radius)
+        } else {
+            content
+        }
     }
 }
 
