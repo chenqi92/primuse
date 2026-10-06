@@ -350,6 +350,75 @@ struct AlbumDetailView: View {
         .padding(.top, insets.top + heroTopPadding)
         .padding(.bottom, heroBottomPadding)
         .frame(maxWidth: .infinity)
+        .background(alignment: .top) {
+            heroBackdrop(
+                coverSide: coverSide,
+                // 竖排时封面居中; 横排(手机横屏)时封面贴在左侧安全区里。
+                coverCenterX: stacksIdentity ? nil : insets.leading + 20 + coverSide / 2,
+                coverCenterY: insets.top + heroTopPadding + coverSide / 2,
+                topInset: insets.top
+            )
+        }
+    }
+
+    /// 头图背后那层封面氛围:把这张封面放大、轻度虚化,以封面为中心铺满头图上半截,再往下化进整页底色。
+    ///
+    /// 整页底色只取了封面主色一种颜色,平铺开来很素;这一层让封面里的画面往四周延伸出去 ——
+    /// 上半屏是这张专辑自己的画面,跟艺人页的人像海报一个分量。
+    /// 每个通道都乘一个上限再铺:浅色封面放大开是一片白,不压住的话标题和返回键都读不清。
+    /// 上限 0.5 时纯白封面也只压到 4:1;渐隐从封面下沿就开始,艺人名那一行已经掺进整页底色。
+    private func heroBackdrop(
+        coverSide: CGFloat,
+        coverCenterX: CGFloat?,
+        coverCenterY: CGFloat,
+        topInset: CGFloat
+    ) -> some View {
+        let coverBottom = coverCenterY + coverSide / 2
+        return GeometryReader { geometry in
+            let width = geometry.size.width
+            let height = max(geometry.size.height, 1)
+            // 渐隐收在头图里面:手机横屏头图很矮,收不完就在头图下沿留一道硬边。
+            let fadeEnd = min(coverBottom + 280, height)
+            let fadeStart = min(coverBottom + 10, fadeEnd * 0.6)
+            // 放大后的边缘落在屏幕外: 虚化会把边缘化成透明, 留在屏幕里就是一圈暗边。
+            let side = max(width, coverBottom + 60) * 1.3
+            // 按封面那么大取图(跟头图共用一份解码),放大交给图层。
+            AlbumArtworkView(
+                album: album,
+                size: coverSide,
+                cornerRadius: 0,
+                showsPlaceholder: false
+            )
+            .scaleEffect(side / coverSide)
+            .blur(radius: 20)
+            .saturation(1.25)
+            .colorMultiply(Color(white: 0.5))
+            .position(x: coverCenterX ?? width / 2, y: coverCenterY)
+            .frame(width: width, height: height)
+            .mask {
+                LinearGradient(
+                    stops: [
+                        .init(color: .black, location: 0),
+                        .init(color: .black, location: fadeStart / height),
+                        .init(color: .black.opacity(0.32), location: (fadeStart + fadeEnd) / 2 / height),
+                        .init(color: .clear, location: fadeEnd / height),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+            .overlay(alignment: .top) {
+                // 顶部压一点暗, 返回键和工具栏读得清。
+                LinearGradient(
+                    colors: [.black.opacity(0.18), .clear],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: topInset + 64)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     private func heroCover(side: CGFloat) -> some View {
@@ -370,6 +439,7 @@ struct AlbumDetailView: View {
                 .foregroundStyle(.white)
                 .lineLimit(heightClass.isCompact ? 2 : 3)
                 .fixedSize(horizontal: false, vertical: true)
+                .shadow(color: .black.opacity(0.22), radius: 12, y: 2)
 
             Text(album.artistName ?? String(localized: "unknown_artist"))
                 .font(.subheadline.weight(.semibold))
