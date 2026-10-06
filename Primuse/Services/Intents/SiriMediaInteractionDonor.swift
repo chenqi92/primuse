@@ -43,14 +43,26 @@ enum SiriAuthorizationRuntime {
 }
 #endif
 
-/// Donates only explicit song selections from Primuse's UI. Siri-triggered,
+/// What the person started from a list: a whole album, or a whole playlist
+/// (smart ones too). Titles are looked up when donating, so callers that only
+/// keep the ID, like CarPlay's detail pages, can pass it as is.
+enum SiriMediaDonationContainer {
+    case album(id: String)
+    case playlist(id: String)
+}
+
+/// Donates only explicit selections from Primuse's UI. Siri-triggered,
 /// automatic-next, restore, and remote-control playback paths do not call this
 /// helper because the system already knows about those interactions.
+///
+/// 系统拿这些捐赠在锁屏、控制中心等处推荐「接着听」, 点推荐时发回的是只带
+/// mediaContainer 的请求(PlayMedia.intentdefinition 声明了这种组合)。所以整张
+/// 专辑、整个歌单和电台只捐容器, 不逐首捐。捐赠不需要 Siri 授权, 不让它学的人
+/// 在系统设置里关掉这个 App 的「从此 App 学习」。
 @MainActor
 enum SiriMediaInteractionDonor {
     static func donate(song: Song) {
         #if os(iOS)
-        guard SiriAuthorizationRuntime.status == .authorized else { return }
         let artistName = AppServices.shared.musicLibrary.artistDisplayName(for: song)
 
         let item = INMediaItem(
@@ -74,38 +86,53 @@ enum SiriMediaInteractionDonor {
         } else {
             container = nil
         }
-        let intent = INPlayMediaIntent(
-            mediaItems: [item],
-            mediaContainer: container,
-            playShuffled: false,
-            playbackRepeatMode: .unknown,
-            resumePlayback: false,
-            playbackQueueLocation: .unknown,
-            playbackSpeed: nil,
-            mediaSearch: nil
+        submit(
+            playMedia(items: [item], container: container, shuffled: false),
+            identifier: SiriMediaIdentifier.namespaced(song.id, as: "song"),
+            kind: "media"
         )
-        let interaction = INInteraction(intent: intent, response: nil)
-        interaction.identifier = SiriMediaIdentifier.namespaced(song.id, as: "song")
-        interaction.donate { error in
-            if let error {
-                plog(
-                    "Siri media interaction donation failed errorType="
-                        + String(reflecting: type(of: error))
-                )
-            }
+        #endif
+    }
+
+    static func donate(_ container: SiriMediaDonationContainer, shuffled: Bool) {
+        #if os(iOS)
+        let library = AppServices.shared.musicLibrary
+        let item: INMediaItem
+        switch container {
+        case .album(let id):
+            guard let album = library.visibleAlbum(id: id) else { return }
+            item = INMediaItem(
+                identifier: SiriMediaIdentifier.namespaced(album.id, as: "album"),
+                title: album.title,
+                type: .album,
+                artwork: nil,
+                artist: album.artistName
+            )
+        case .playlist(let id):
+            guard let name = library.playlists.first(where: { $0.id == id })?.name
+                ?? library.smartPlaylists.first(where: { $0.id == id })?.name else { return }
+            item = INMediaItem(
+                identifier: SiriMediaIdentifier.namespaced(id, as: "playlist"),
+                title: name,
+                type: .playlist,
+                artwork: nil
+            )
         }
+        guard let identifier = item.identifier else { return }
+        submit(
+            playMedia(items: nil, container: item, shuffled: shuffled),
+            identifier: identifier,
+            kind: "media"
+        )
         #endif
     }
 
     static func donate(station: RadioStation) {
         #if os(iOS)
-        guard SiriAuthorizationRuntime.status == .authorized else {
-            SiriAuthorizationRuntime.requestOnceFromPlayback { status in
-                guard status == .authorized else { return }
-                donate(station: station)
-                AppServices.shared.refreshSiriCatalog(force: true)
-            }
-            return
+        // 电台名进 Siri 词表才听得懂, 词表要授权; 第一次放电台时问一次。
+        SiriAuthorizationRuntime.requestOnceFromPlayback { status in
+            guard status == .authorized else { return }
+            AppServices.shared.refreshSiriCatalog(force: true)
         }
         guard SiriRadioStationCatalog.isSafeIdentifier(station.id),
               let safeName = SiriRadioStationCatalog.safeDisplayName(station.name) else {
@@ -118,28 +145,47 @@ enum SiriMediaInteractionDonor {
             type: .radioStation,
             artwork: nil
         )
-        let intent = INPlayMediaIntent(
-            mediaItems: [item],
-            mediaContainer: nil,
-            playShuffled: false,
+        submit(
+            playMedia(items: nil, container: item, shuffled: false),
+            identifier: identifier,
+            kind: "radio"
+        )
+        #endif
+    }
+
+    #if os(iOS)
+    /// 没用到的参数一律留空: 填了 false 也算带了这个参数, 捐赠就对不上
+    /// intent 定义里声明的组合, 系统不会拿它来推荐。
+    private static func playMedia(
+        items: [INMediaItem]?,
+        container: INMediaItem?,
+        shuffled: Bool
+    ) -> INPlayMediaIntent {
+        INPlayMediaIntent(
+            mediaItems: items,
+            mediaContainer: container,
+            playShuffled: shuffled ? true : nil,
             playbackRepeatMode: .unknown,
-            resumePlayback: false,
-            playbackQueueLocation: .now,
+            resumePlayback: nil,
+            playbackQueueLocation: .unknown,
             playbackSpeed: nil,
             mediaSearch: nil
         )
+    }
+
+    private static func submit(_ intent: INPlayMediaIntent, identifier: String, kind: String) {
         let interaction = INInteraction(intent: intent, response: nil)
         interaction.identifier = identifier
         interaction.donate { error in
             if let error {
                 plog(
-                    "Siri radio interaction donation failed errorType="
+                    "Siri \(kind) interaction donation failed errorType="
                         + String(reflecting: type(of: error))
                 )
             }
         }
-        #endif
     }
+    #endif
 
     /// Each call replaces the whole set for a vocabulary type, so podcast
     /// shows and stations, which share `.mediaShowTitle`, go in together.

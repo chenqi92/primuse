@@ -1406,6 +1406,8 @@ struct LibraryCollectionMenuItems: View {
     let toggleLike: () -> Void
     let songs: () -> [Song]
     let player: AudioPlayerService
+    /// 整张专辑或整个歌单时告诉 Siri 放的是什么; 艺人、目录没有对应的。
+    var donation: SiriMediaDonationContainer? = nil
 
     var body: some View {
         Button(action: toggleLike) {
@@ -1442,6 +1444,7 @@ struct LibraryCollectionMenuItems: View {
         guard !playable.isEmpty else { return }
         let queue = shuffled ? playable.shuffled() : playable
         if shuffled { player.shuffleEnabled = true }
+        if let donation { SiriMediaInteractionDonor.donate(donation, shuffled: shuffled) }
         Task { await player.play(queue: queue, startingAt: 0) }
     }
 }

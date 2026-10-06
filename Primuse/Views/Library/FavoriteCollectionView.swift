@@ -111,6 +111,14 @@ enum FavoriteCollectionResolver {
             return LibraryFolderBrowsePolicy.sortedSongs(songs, order: HomeFolderSongOrderPreference.load())
         }
     }
+
+    static func siriDonation(_ entry: FavoriteCollectionEntry) -> SiriMediaDonationContainer? {
+        switch entry {
+        case .album(let album): .album(id: album.id)
+        case .playlist(let playlist): .playlist(id: playlist.id)
+        case .artist, .folder: nil
+        }
+    }
 }
 
 /// 收藏卡片的封面。封面样式设成统一圆形 / 方形 / 多图时也照着来，目录也不例外。
@@ -180,7 +188,8 @@ struct FavoriteCollectionMenuItems: View {
             isLiked: true,
             toggleLike: { FavoriteCollectionStore.shared.uncollect(entry.pin, library: library) },
             songs: { FavoriteCollectionResolver.songs(entry, library: library, folderIndex: folderIndex) },
-            player: player
+            player: player,
+            donation: FavoriteCollectionResolver.siriDonation(entry)
         )
     }
 }

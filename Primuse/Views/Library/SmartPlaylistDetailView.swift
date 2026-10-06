@@ -693,13 +693,14 @@ struct SmartPlaylistDetailView: View {
         let queue = shuffled ? playable.shuffled() : playable
         guard !queue.isEmpty else { return }
         if shuffled { player.shuffleEnabled = true }
+        SiriMediaInteractionDonor.donate(.playlist(id: smartPlaylistID), shuffled: shuffled)
         Task { await player.play(queue: queue, startingAt: 0) }
     }
 
     private func playSong(_ song: Song) {
         let queue = matched.filteredPlayable()
         guard let index = queue.firstIndex(where: { $0.id == song.id }) else { return }
-        SiriMediaInteractionDonor.donate(song: song)
+        SiriMediaInteractionDonor.donate(.playlist(id: smartPlaylistID), shuffled: false)
         Task { await player.play(queue: queue, startingAt: index) }
     }
 

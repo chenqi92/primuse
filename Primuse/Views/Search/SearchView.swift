@@ -4261,6 +4261,7 @@ struct SearchView: View {
 
     /// 整张播放:`songs(forAlbum:)` 已按碟号、曲目号排好,队列照这个顺序。
     private func playWholeAlbum(_ album: PrimuseKit.Album) {
+        SiriMediaInteractionDonor.donate(.album(id: album.id), shuffled: false)
         playCollection(library.songs(forAlbum: album.id))
     }
 

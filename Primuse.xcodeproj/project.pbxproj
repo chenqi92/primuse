@@ -932,6 +932,7 @@
 		8151A11712C2EC0E1B58A83E /* PlayerBackdropSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96CE75F0A073BB8CD03ED6A1 /* PlayerBackdropSettingsStore.swift */; };
 		815721DBF9C6091FB3742B5E /* TVOptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17D2E1F749F6B5DA908F4E77 /* TVOptionsView.swift */; };
 		816C685DF2972C76C00A88D1 /* AppUpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45727C23F384EA4681DAF4F3 /* AppUpdateChecker.swift */; };
+		81748BF272EA84509CA510A7 /* PlayMedia.intentdefinition in Sources */ = {isa = PBXBuildFile; fileRef = 204474AB9E176EF4CF5800A6 /* PlayMedia.intentdefinition */; settings = {ATTRIBUTES = (no_codegen, ); }; };
 		818F94F1655EE2B22FBDE04C /* PlaylistEntryMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 745C7ABC724D3B77BB846B33 /* PlaylistEntryMatcher.swift */; };
 		81964D06F64E5220CCCD7AC5 /* GRDB-dynamic in Frameworks */ = {isa = PBXBuildFile; productRef = 7E877D8D3BC58C7AA4DC4F9B /* GRDB-dynamic */; };
 		8212296C00137741AFC8C091 /* NasHttpStreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 984D9BE82FF301BBD6F0FAD7 /* NasHttpStreamResolver.swift */; };
@@ -2235,6 +2236,7 @@
 		1FDA42A505F2E43E118256B8 /* ConnectorRefreshInvalidationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectorRefreshInvalidationPolicy.swift; sourceTree = "<group>"; };
 		1FFB43F39C3A62C7EBDB2D72 /* TVCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVCredentialStore.swift; sourceTree = "<group>"; };
 		202FD9C3E6649FA70A64E987 /* AudioPlayerService+Crossfade.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AudioPlayerService+Crossfade.swift"; sourceTree = "<group>"; };
+		204474AB9E176EF4CF5800A6 /* PlayMedia.intentdefinition */ = {isa = PBXFileReference; lastKnownFileType = file.intentdefinition; path = PlayMedia.intentdefinition; sourceTree = "<group>"; };
 		20470D4A65FAE9AED53D633E /* ListeningIntentRanking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningIntentRanking.swift; sourceTree = "<group>"; };
 		20579F622A3ACBA0BFAA1D96 /* TVSourceSecurityFingerprintTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVSourceSecurityFingerprintTests.swift; sourceTree = "<group>"; };
 		20D0FA18DA5BB0A37757A83B /* TabletopQueueStripPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabletopQueueStripPolicy.swift; sourceTree = "<group>"; };
@@ -4552,6 +4554,7 @@
 		A5A9890BD4C94BCFEB02CC7C /* Intents */ = {
 			isa = PBXGroup;
 			children = (
+				204474AB9E176EF4CF5800A6 /* PlayMedia.intentdefinition */,
 				4ECCDD80F05FA4A71FA0CB32 /* PrimuseAppIntents.swift */,
 				62D6E69627D9C8F06B3BC8AC /* PrimuseListeningAppIntents.swift */,
 				DC58680E103085AFD9B2E909 /* PrimuseRadioAppIntents.swift */,
@@ -7382,6 +7385,7 @@
 				F45510F7EDAE425A749A03CF /* OnboardingView.swift in Sources */,
 				235C8FC6F296376EB5E6A8F1 /* OneDriveSource.swift in Sources */,
 				F807B1B51DE6DBC9D5B92CC6 /* OpenAICompatibleProvider.swift in Sources */,
+				81748BF272EA84509CA510A7 /* PlayMedia.intentdefinition in Sources */,
 				75B8FDAEDD57548B9A9EBA8F /* PMHeightClass.swift in Sources */,
 				FAF140A3DF3A94839742166A /* PMLayoutChangeFade.swift in Sources */,
 				85596F93306BD339283AB936 /* PMMenuLayout.swift in Sources */,

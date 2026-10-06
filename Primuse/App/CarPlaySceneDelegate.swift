@@ -1111,14 +1111,18 @@ extension CarPlaySceneDelegate {
                 presentPlayFailureAlert(songTitle: item.title)
                 return
             }
-            if directly { playCollection(library.songs(forPlaylist: id), title: playlist.name) }
+            if directly {
+                playCollection(library.songs(forPlaylist: id), title: playlist.name, donating: .playlist(id: id))
+            }
             else { pushPlaylistDetail(playlist) }
         case .album(let id, let directly):
             guard let album = library.visibleAlbums.first(where: { $0.id == id }) else {
                 presentPlayFailureAlert(songTitle: item.title)
                 return
             }
-            if directly { playCollection(CarPlayHomeContent.songs(for: item.target), title: album.title) }
+            if directly {
+                playCollection(CarPlayHomeContent.songs(for: item.target), title: album.title, donating: .album(id: id))
+            }
             else { pushAlbumDetail(album) }
         case .folder(let id, let directly):
             if directly { playCollection(CarPlayHomeContent.songs(for: item.target), title: item.title) }
@@ -1147,7 +1151,11 @@ extension CarPlaySceneDelegate {
                     self.presentPlayFailureAlert(songTitle: playlist.name)
                     return
                 }
-                self.playCollection(library.songs(forPlaylist: playlist.id), title: playlist.name)
+                self.playCollection(
+                    library.songs(forPlaylist: playlist.id),
+                    title: playlist.name,
+                    donating: .playlist(id: playlist.id)
+                )
             } else {
                 self.pushPlaylistDetail(playlist)
             }
@@ -1159,7 +1167,7 @@ extension CarPlaySceneDelegate {
             guard let self else { return }
             if self.layout.playsCollectionsDirectly {
                 let songs = AppServices.shared.musicLibrary.songs(forAlbum: album.id)
-                self.playCollection(songs, title: album.title)
+                self.playCollection(songs, title: album.title, donating: .album(id: album.id))
             } else {
                 self.pushAlbumDetail(album)
             }
@@ -1362,12 +1370,20 @@ extension CarPlaySceneDelegate {
         load()
     }
 
-    private func playCollection(_ songs: [Song], title: String, shuffled: Bool = false) {
+    /// `donating`: a whole album or playlist tells Siri what is playing, so
+    /// it can be suggested again later.
+    private func playCollection(
+        _ songs: [Song],
+        title: String,
+        shuffled: Bool = false,
+        donating donation: SiriMediaDonationContainer? = nil
+    ) {
         let playable = songs.filteredPlayable()
         guard !playable.isEmpty else {
             presentPlayFailureAlert(songTitle: title)
             return
         }
+        if let donation { SiriMediaInteractionDonor.donate(donation, shuffled: shuffled) }
         // A folder of chapters plays in order: the player keeps books out of
         // shuffle, but only for a queue that is not already scrambled.
         if Self.isSpokenWordOnly(playable) {
@@ -1616,7 +1632,7 @@ extension CarPlaySceneDelegate {
         let items = songs.prefix(max(0, CPListTemplate.maximumItemCount - 2)).enumerated().map { idx, song in
             songItem(song, queueProvider: { (songs, idx) }, loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: idx))
         }
-        return CPListSection(items: collectionPlaybackItems(songs) + items)
+        return CPListSection(items: collectionPlaybackItems(songs, donating: .playlist(id: playlistID)) + items)
     }
 
     private func albumDetailSection(albumID: String) -> CPListSection {
@@ -1624,7 +1640,7 @@ extension CarPlaySceneDelegate {
         let items = songs.prefix(max(0, CPListTemplate.maximumItemCount - 2)).enumerated().map { idx, song in
             songItem(song, queueProvider: { (songs, idx) }, loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: idx))
         }
-        return CPListSection(items: collectionPlaybackItems(songs) + items)
+        return CPListSection(items: collectionPlaybackItems(songs, donating: .album(id: albumID)) + items)
     }
 
     private func artistDetailSection(artistID: String) -> CPListSection {
@@ -1641,14 +1657,17 @@ extension CarPlaySceneDelegate {
         return CPListSection(items: collectionPlaybackItems(songs) + items)
     }
 
-    private func collectionPlaybackItems(_ songs: [Song]) -> [CPListItem] {
+    private func collectionPlaybackItems(
+        _ songs: [Song],
+        donating donation: SiriMediaDonationContainer? = nil
+    ) -> [CPListItem] {
         guard !songs.isEmpty else { return [] }
         // Chapters have no "shuffle all".
         let modes = Self.isSpokenWordOnly(songs) ? [false] : [false, true]
         return modes.map { shuffled in
             let title = shuffled ? String(localized: "carplay_shuffle_all") : String(localized: "carplay_play_all")
             return collectionItem(CollectionEntry(title: title, symbol: shuffled ? "shuffle" : "play.fill") { [weak self] in
-                self?.playCollection(songs, title: title, shuffled: shuffled)
+                self?.playCollection(songs, title: title, shuffled: shuffled, donating: donation)
             })
         }
     }

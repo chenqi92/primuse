@@ -738,6 +738,7 @@ struct AlbumDetailView: View {
         let queue = shuffled ? playable.shuffled() : playable
         guard !queue.isEmpty else { return }
         if shuffled { player.shuffleEnabled = true }
+        SiriMediaInteractionDonor.donate(.album(id: album.id), shuffled: shuffled)
         Task { await player.play(queue: queue, startingAt: 0) }
     }
 

@@ -150,6 +150,11 @@ targets:
           - "ThirdParty/**"
           - "**/AppSecrets.example.swift"
           - "**/AppSecrets.local.swift*"
+          - "**/*.intentdefinition"
+      # 定制系统 PlayMedia intent 只为向 Siri 声明支持的参数组合, 类由
+      # Intents 框架提供, 不生成代码。
+      - path: Primuse/Services/Intents/PlayMedia.intentdefinition
+        attributes: [no_codegen]
       - path: SiriVocabulary
         buildPhase: resources
     resources:
@@ -544,6 +549,7 @@ targets:
           - "ThirdParty/**"
           - "**/AppSecrets.example.swift"
           - "**/AppSecrets.local.swift*"
+          - "**/*.intentdefinition"
     resources:
       - path: Primuse/Resources
     dependencies:

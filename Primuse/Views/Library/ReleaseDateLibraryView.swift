@@ -206,7 +206,8 @@ struct ReleaseDateLibraryView: View {
             isLiked: favorites.isLiked(album),
             toggleLike: { favorites.toggle(album) },
             songs: { library.songs(forAlbum: album.id) },
-            player: player
+            player: player,
+            donation: .album(id: album.id)
         )
     }
 

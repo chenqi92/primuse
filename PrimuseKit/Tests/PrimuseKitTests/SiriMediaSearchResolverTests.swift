@@ -138,6 +138,25 @@ struct SiriMediaSearchResolverTests {
         #expect(result.queue.map(\.id) == ["wanted"])
     }
 
+    @Test("A suggestion naming only an album container plays that album")
+    func albumContainerAloneReplaysAlbum() throws {
+        var second = song(id: "second", title: "B", album: "Blue", track: 2)
+        second.albumID = "blue"
+        var first = song(id: "first", title: "A", album: "Blue", track: 1)
+        first.albumID = "blue"
+        var other = song(id: "other", title: "C", album: "Red", track: 1)
+        other.albumID = "red"
+
+        // 锁屏、控制中心的推荐点开时只带捐赠的 mediaContainer, 没有搜索词。
+        let result = try #require(SiriMediaSearchResolver.resolve(
+            query: SiriMediaSearchQuery(kind: .music),
+            resolvedItemIDs: ["album:blue"],
+            songs: [other, second, first]
+        ))
+
+        #expect(result.queue.map(\.id) == ["first", "second"])
+    }
+
     @Test("A selected artist identifier builds only that artist queue")
     func selectedArtistIdentifierWins() throws {
         var wanted = song(id: "wanted", title: "A", artist: "Same Name")
