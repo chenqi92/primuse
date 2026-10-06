@@ -1651,9 +1651,6 @@ struct PrimuseApp: App {
                         dlnaRenderer.start()
                     }
                     await AppServices.shared.completeDeferredStartup()
-                    SpokenWordStore.shared.pruneMissingSongs(
-                        existingIDs: Set(musicLibrary.visibleSongs.map(\.id))
-                    )
                     // This task keeps the `scenePhase` copy captured when the
                     // scene was first built, which can still be `.inactive`
                     // from the launch transition even though the app became

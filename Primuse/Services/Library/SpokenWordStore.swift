@@ -664,29 +664,6 @@ final class SpokenWordStore {
         didChange(cloud: .prompt)
     }
 
-    /// Drops positions for songs that no longer exist. Called after a library
-    /// removal rather than on every change: the map is small and a missing
-    /// entry is harmless.
-    func pruneMissingSongs(existingIDs: Set<String>) {
-        let stale = positions.keys.filter { !existingIDs.contains($0) }
-        // Folder tags are not songs; they go with their folder instead
-        // (`updateFolderTagSources`).
-        let staleOverrides = overrides.keys.filter {
-            !existingIDs.contains($0) && !SpokenWordFolderTag.isFolderKey($0)
-        }
-        let staleBookmarks = bookmarks.keys.filter { !existingIDs.contains($0) }
-        let staleFinished = finishedAt.keys.filter { !existingIDs.contains($0) }
-        guard !stale.isEmpty || !staleOverrides.isEmpty
-            || !staleBookmarks.isEmpty || !staleFinished.isEmpty else { return }
-        for songID in stale { positions.removeValue(forKey: songID) }
-        for songID in staleOverrides { overrides.removeValue(forKey: songID) }
-        for songID in staleBookmarks { bookmarks.removeValue(forKey: songID) }
-        for songID in staleFinished { finishedAt.removeValue(forKey: songID) }
-        // Forgotten locally only: another device may still have these songs,
-        // so no tombstones and nothing to push.
-        didChange(cloud: nil)
-    }
-
     private func resolvedDuration(for song: Song) -> TimeInterval {
         // A bare row can still have a remembered duration from when it played.
         song.duration > 0 ? song.duration : (positions[song.id]?.duration ?? 0)
@@ -809,13 +786,7 @@ final class SpokenWordStore {
         let remote = SpokenWordSyncPolicy.decode(
             UserDefaults.standard.data(forKey: Self.cloudStorageKey)
         ) ?? .empty
-        let local = SpokenWordSyncPolicy.state(from: localRecords)
-        let merged = SpokenWordSyncPolicy.pruned(
-            SpokenWordSyncPolicy.merge(local, remote),
-            now: Date()
-        )
-        adopt(merged)
-        publish(merged, over: remote)
+        settle(SpokenWordSyncPolicy.merge(SpokenWordSyncPolicy.state(from: localRecords), remote), over: remote)
     }
 
     /// The cloud copy changed (another device pushed, or sync was switched
@@ -825,13 +796,16 @@ final class SpokenWordStore {
         guard let remote = SpokenWordSyncPolicy.decode(
             UserDefaults.standard.data(forKey: Self.cloudStorageKey)
         ) else { return }
-        let local = SpokenWordSyncPolicy.state(from: localRecords)
-        let merged = SpokenWordSyncPolicy.pruned(
-            SpokenWordSyncPolicy.merge(local, remote),
-            now: Date()
-        )
-        adopt(merged)
-        publish(merged, over: remote)
+        settle(SpokenWordSyncPolicy.merge(SpokenWordSyncPolicy.state(from: localRecords), remote), over: remote)
+    }
+
+    /// Keeps the merge here and uploads it within the key-value store's room.
+    /// Only the upload is cut to size: cutting this device's own copy to the
+    /// upload's limits deleted the oldest kind corrections on every device.
+    private func settle(_ merged: SpokenWordSyncState, over remote: SpokenWordSyncState) {
+        let now = Date()
+        adopt(SpokenWordSyncPolicy.retained(merged, now: now))
+        publish(SpokenWordSyncPolicy.pruned(merged, now: now), over: remote)
     }
 
     /// Replaces the local dictionaries with a merged state when it differs.

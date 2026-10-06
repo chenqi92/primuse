@@ -167,6 +167,84 @@ struct SpokenWordSyncPolicyTests {
         #expect(Policy.state(from: records).positions["s1"]?.value?.position == 5)
     }
 
+    // MARK: Kind corrections forgotten on another device
+
+    /// A device that dropped corrections for songs it had not scanned yet kept
+    /// their stamps, which read back as removals at the very same instant.
+    private func forgetfulDevice(_ songID: String, stampedAt stamp: Date) -> SpokenWordSyncState {
+        var records = SpokenWordLocalRecords()
+        records.ledger.overrideChangedAt[songID] = stamp
+        return Policy.state(from: records)
+    }
+
+    @Test func aForgottenCorrectionDoesNotWipeItEverywhere() {
+        let marked = SpokenWordSyncState(overrides: ["s1": .init(value: "spokenWord", stamp: at(10))])
+        let forgetful = forgetfulDevice("s1", stampedAt: at(10))
+        #expect(forgetful.overrides["s1"]?.value == nil)
+
+        for merged in [Policy.merge(forgetful, marked), Policy.merge(marked, forgetful)] {
+            #expect(merged.overrides["s1"]?.value == "spokenWord")
+            #expect(merged.overrides["s1"]?.stamp == at(10).addingTimeInterval(Policy.overrideTieRestoreDelay))
+            #expect(Policy.records(from: merged).overrides["s1"] == "spokenWord")
+        }
+        #expect(Policy.merge(forgetful, marked) == Policy.merge(marked, forgetful))
+    }
+
+    @Test func theRestoredCorrectionWinsOnDevicesThatBreakTiesTheOldWay() {
+        let restored = Policy.merge(
+            forgetfulDevice("s1", stampedAt: at(10)),
+            SpokenWordSyncState(overrides: ["s1": .init(value: "spokenWord", stamp: at(10))])
+        )
+        let oldRemoval = SpokenWordSyncRegister<String>(value: nil, stamp: at(10))
+        #expect(Policy.winner(oldRemoval, restored.overrides["s1"]!).value == "spokenWord")
+        // Meeting the old removal again settles nothing new: no creeping stamp.
+        let again = Policy.merge(restored, SpokenWordSyncState(overrides: ["s1": oldRemoval]))
+        #expect(again == restored)
+        #expect(Policy.merge(restored, restored) == restored)
+    }
+
+    @Test func aLaterRemovalOfACorrectionStillWins() {
+        let marked = SpokenWordSyncState(overrides: ["s1": .init(value: "spokenWord", stamp: at(10))])
+        let cleared = SpokenWordSyncState(overrides: ["s1": .init(value: nil, stamp: at(11))])
+        #expect(Policy.merge(marked, cleared).overrides["s1"]?.value == nil)
+        #expect(Policy.merge(cleared, marked).overrides["s1"]?.value == nil)
+    }
+
+    @Test func otherRegistersStillLetARemovalWinATie() {
+        let rate = SpokenWordSyncState(rates: ["book": .init(value: 1.5, stamp: at(5))])
+        let cleared = SpokenWordSyncState(rates: ["book": .init(value: nil, stamp: at(5))])
+        #expect(Policy.merge(rate, cleared).rates["book"]?.value == nil)
+    }
+
+    @Test func aDeviceKeepsEveryCorrectionWhileTheUploadStaysCapped() {
+        var overrides: [String: SpokenWordSyncRegister<String>] = [:]
+        for index in 0..<(Policy.maximumOverrides + 50) {
+            overrides["s\(index)"] = .init(value: "spokenWord", stamp: at(TimeInterval(index)))
+        }
+        let state = SpokenWordSyncState(overrides: overrides)
+        #expect(Policy.retained(state, now: at(0)).overrides.count == Policy.maximumOverrides + 50)
+        #expect(Policy.pruned(state, now: at(0)).overrides.count == Policy.maximumOverrides)
+    }
+
+    @Test func keptStateStillDropsExpiredTombstonesAndBoundsPositions() {
+        let now = at(Policy.tombstoneLifetime + 100)
+        var positions: [String: SpokenWordSyncRegister<SpokenWordSyncPosition>] = [:]
+        for index in 0..<(Policy.maximumPositions + 5) {
+            positions["p\(index)"] = position(1, at(Policy.tombstoneLifetime + TimeInterval(index)))
+        }
+        let state = SpokenWordSyncState(
+            positions: positions,
+            overrides: [
+                "old-tomb": .init(value: nil, stamp: at(0)),
+                "old-live": .init(value: "spokenWord", stamp: at(0)),
+            ]
+        )
+        let kept = Policy.retained(state, now: now)
+        #expect(kept.overrides["old-tomb"] == nil)
+        #expect(kept.overrides["old-live"]?.value == "spokenWord")
+        #expect(kept.positions.count == Policy.maximumPositions)
+    }
+
     // MARK: Pruning and upload
 
     @Test func pruningDropsExpiredTombstonesOnly() {

@@ -217,7 +217,7 @@ public enum SpokenWordSyncPolicy {
         normalized(SpokenWordSyncState(
             positions: mergeRegisters(lhs.positions, rhs.positions),
             finished: mergeRegisters(lhs.finished, rhs.finished),
-            overrides: mergeRegisters(lhs.overrides, rhs.overrides),
+            overrides: mergeOverrideRegisters(lhs.overrides, rhs.overrides),
             rates: mergeRegisters(lhs.rates, rhs.rates),
             bookmarks: mergeRegisters(lhs.bookmarks, rhs.bookmarks)
         ))
@@ -255,6 +255,41 @@ public enum SpokenWordSyncPolicy {
         }
     }
 
+    /// How much later a kind correction that meets its own removal at the
+    /// same instant stands (see `overrideWinner`).
+    static let overrideTieRestoreDelay: TimeInterval = 0.001
+
+    static func mergeOverrideRegisters(
+        _ lhs: [String: SpokenWordSyncRegister<String>],
+        _ rhs: [String: SpokenWordSyncRegister<String>]
+    ) -> [String: SpokenWordSyncRegister<String>] {
+        var result = lhs
+        for (key, incoming) in rhs {
+            result[key] = result[key].map { overrideWinner($0, incoming) } ?? incoming
+        }
+        return result
+    }
+
+    /// Kind corrections settle one tie the other way: a correction and a
+    /// removal stamped at the very same instant keep the correction. No one
+    /// sets and clears a correction in the same instant; that pair came from
+    /// a device that forgot corrections for songs it had not scanned yet but
+    /// kept their stamps, which read as removals and wiped the corrections
+    /// on every device. The correction stands a moment later than both, so a
+    /// device that still breaks the tie the old way takes it as newer and
+    /// keeps it too, instead of the two pushing back and forth.
+    static func overrideWinner(
+        _ lhs: SpokenWordSyncRegister<String>,
+        _ rhs: SpokenWordSyncRegister<String>
+    ) -> SpokenWordSyncRegister<String> {
+        guard lhs.stamp == rhs.stamp,
+              let value = lhs.value ?? rhs.value,
+              lhs.value == nil || rhs.value == nil else {
+            return winner(lhs, rhs)
+        }
+        return SpokenWordSyncRegister(value: value, stamp: lhs.stamp.addingTimeInterval(overrideTieRestoreDelay))
+    }
+
     private static func tieKey<Value: Encodable>(_ value: Value) -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -280,8 +315,24 @@ public enum SpokenWordSyncPolicy {
 
     // MARK: Pruning
 
-    /// Forgets old tombstones and caps each section by recency. Run on the
-    /// merged state before it is stored or uploaded.
+    /// What a device keeps of a merged state: expired tombstones go, and
+    /// positions and finished marks keep the bounds the store keeps on its own.
+    /// Kind corrections, speeds and bookmarks are not cut — their caps are for
+    /// the upload, and cutting the device's own copy to them deleted the
+    /// oldest corrections everywhere.
+    public static func retained(_ state: SpokenWordSyncState, now: Date) -> SpokenWordSyncState {
+        let cutoff = now.addingTimeInterval(-tombstoneLifetime)
+        return SpokenWordSyncState(
+            positions: capped(dropExpiredTombstones(state.positions, cutoff: cutoff), limit: maximumPositions),
+            finished: capped(dropExpiredTombstones(state.finished, cutoff: cutoff), limit: maximumFinished),
+            overrides: dropExpiredTombstones(state.overrides, cutoff: cutoff),
+            rates: dropExpiredTombstones(state.rates, cutoff: cutoff),
+            bookmarks: dropExpiredTombstones(state.bookmarks, cutoff: cutoff)
+        )
+    }
+
+    /// Forgets old tombstones and caps each section by recency: the state as
+    /// it goes up to the key-value store.
     public static func pruned(_ state: SpokenWordSyncState, now: Date) -> SpokenWordSyncState {
         let cutoff = now.addingTimeInterval(-tombstoneLifetime)
         return SpokenWordSyncState(
