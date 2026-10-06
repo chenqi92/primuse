@@ -503,7 +503,7 @@ struct SpokenWordShelfContent: View {
         Button {
             SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
         } label: {
-            if book.isInProgress {
+            if book.canContinue {
                 Label(String(localized: "spoken_word_continue"), systemImage: "play.fill")
             } else {
                 Label(String(localized: "spoken_word_start"), systemImage: "play.fill")
@@ -729,7 +729,7 @@ struct SpokenWordBookDetailView: View {
                         SpokenWordChapterItemRow(
                             item: item,
                             number: index + 1,
-                            isResumeItem: item.id == book.resumeItemID && book.isInProgress,
+                            isResumeItem: item.id == book.resumeItemID && book.canContinue,
                             isPlaying: player.currentSong?.id == item.id
                         )
                     }
@@ -759,7 +759,7 @@ struct SpokenWordBookDetailView: View {
                             )
                         }
                         .disabled(index == 0)
-                        if item.isInProgress {
+                        if item.position != nil {
                             Button(role: .destructive) {
                                 store.clearPosition(forSongID: item.id)
                             } label: {
@@ -806,7 +806,7 @@ struct SpokenWordBookDetailView: View {
                         SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
                     } label: {
                         Group {
-                            if book.isInProgress {
+                            if book.canContinue {
                                 Label(String(localized: "spoken_word_continue"), systemImage: "play.fill")
                             } else {
                                 Label(String(localized: "spoken_word_start"), systemImage: "play.fill")
@@ -1390,18 +1390,14 @@ enum SpokenWordBookSupport {
     }
 
     /// The queue index playing `book` starts at: `itemID`, or where the
-    /// listener left off. A finished item that is replayed starts again from
-    /// the beginning, so its finished mark is lifted here. CarPlay shares
-    /// this and plays through its own path.
+    /// listener left off. A finished item heard again stays finished and
+    /// resumes from where its replay stopped, or from the top. CarPlay
+    /// shares this and plays through its own path.
     @MainActor
     static func prepareStart(of book: SpokenWordBook, songs: [Song], from itemID: String?) -> Int? {
         guard !songs.isEmpty else { return nil }
         let startID = SpokenWordCarPlayShelfPolicy.startItemID(for: book, requested: itemID) ?? songs[0].id
-        let index = songs.firstIndex { $0.id == startID } ?? 0
-        if SpokenWordStore.shared.isFinished(songID: songs[index].id) {
-            SpokenWordStore.shared.markFinished(false, songIDs: [songs[index].id])
-        }
-        return index
+        return songs.firstIndex { $0.id == startID } ?? 0
     }
 
     /// The "now listening" book: the in-progress one heard most recently.

@@ -142,7 +142,7 @@ final class ListeningFeaturesTests: XCTestCase {
 
     // MARK: - Spoken word store
 
-    func testListeningToTheEndMarksAnItemFinishedAndListeningAgainReopensIt() throws {
+    func testListeningAgainKeepsAFinishedItemFinishedAndRemembersWhereTheReplayIs() throws {
         let url = makeDirectory().appendingPathComponent("spoken.json")
         let store = SpokenWordStore(storeURL: url)
         store.rememberPosition(600, duration: 3_600, forSongID: "ch1")
@@ -154,7 +154,26 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertNil(store.position(forSongID: "ch1"), "a finished item starts over")
 
         store.rememberPosition(120, duration: 3_600, forSongID: "ch1")
-        XCTAssertFalse(store.isFinished(songID: "ch1"))
+        XCTAssertTrue(store.isFinished(songID: "ch1"), "hearing it again does not reopen it")
+        XCTAssertEqual(store.position(forSongID: "ch1")?.position, 120)
+        store.persistLocally()
+        let reloaded = SpokenWordStore(storeURL: url)
+        XCTAssertTrue(reloaded.isFinished(songID: "ch1"))
+        XCTAssertEqual(reloaded.position(forSongID: "ch1")?.position, 120)
+
+        // A server reporting it finished again leaves the replay alone.
+        store.adoptServerProgress(
+            songID: "ch1", position: 3_600, duration: 3_600, isFinished: true,
+            updatedAt: Date().addingTimeInterval(60)
+        )
+        XCTAssertEqual(store.position(forSongID: "ch1")?.position, 120)
+
+        store.rememberPosition(3_590, duration: 3_600, forSongID: "ch1")
+        XCTAssertTrue(store.isFinished(songID: "ch1"))
+        XCTAssertNil(store.position(forSongID: "ch1"))
+
+        store.markFinished(false, songIDs: ["ch1"])
+        XCTAssertFalse(store.isFinished(songID: "ch1"), "only marking it unheard reopens it")
     }
 
     func testBookmarksAndFinishedMarksPersistAndOldFilesStillLoad() throws {

@@ -157,7 +157,8 @@ public struct SpokenWordBookItem: Hashable, Sendable {
     /// whose files carry no usable album tag.
     public var fileName: String
     public var sourceID: String
-    /// Where the listener is in this item, if they are part way through.
+    /// Where the listener is in this item, if they are part way through —
+    /// also on a finished item being heard again, which stays finished.
     public var position: TimeInterval?
     public var positionUpdatedAt: Date?
     /// When the item was listened to the end, if it was.
@@ -210,7 +211,8 @@ public struct SpokenWordBook: Identifiable, Hashable, Sendable {
     public let title: String
     public let author: String?
     public let items: [SpokenWordBookItem]
-    /// The item "continue" starts from, or nil when every item is finished.
+    /// The item "continue" starts from, or nil when every item is finished
+    /// and none is being heard again.
     public let resumeItemID: String?
     public let lastListenedAt: Date?
 
@@ -220,6 +222,9 @@ public struct SpokenWordBook: Identifiable, Hashable, Sendable {
     public var isFinished: Bool { !items.isEmpty && finishedCount == items.count }
     /// Started and not finished: what the "continue listening" shelf shows.
     public var isInProgress: Bool { lastListenedAt != nil && !isFinished }
+    /// Whether playing it picks up mid-way: in progress, or finished and
+    /// being heard again. Decides "continue" over "start".
+    public var canContinue: Bool { isInProgress || resumeItem?.position != nil }
 
     public var resumeItem: SpokenWordBookItem? {
         guard let resumeItemID else { return nil }
@@ -357,11 +362,12 @@ public enum SpokenWordBookGrouping {
             .compactMap { $0 }
             .max()
 
-        // Continue from what was heard most recently if it is unfinished;
-        // otherwise the first chapter not yet heard, in reading order.
+        // Continue from what was heard most recently, finished or not — a
+        // finished chapter heard again keeps its place too; otherwise the
+        // first chapter not yet heard, in reading order.
         let resumeItemID: String?
         if let recent = items
-            .filter(\.isInProgress)
+            .filter({ $0.position != nil })
             .max(by: { ($0.positionUpdatedAt ?? .distantPast) < ($1.positionUpdatedAt ?? .distantPast) }) {
             resumeItemID = recent.id
         } else {

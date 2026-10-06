@@ -82,13 +82,21 @@ public struct SpokenWordSyncState: Codable, Equatable, Sendable {
         case overrides = "o"
         case rates = "r"
         case bookmarks = "b"
+        /// Positions of finished items being heard again. Kept apart from `p`
+        /// because a version that predates replays reads a finished item with a
+        /// newer position as reopened and would push that to every device; it
+        /// skips a section it does not know.
+        case replayPositions = "rp"
     }
 
     public init(from decoder: Decoder) throws {
         // Every section optional: a later version may drop one, and an older
         // one must still decode what is there.
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        positions = try container.decodeIfPresent([String: SpokenWordSyncRegister<SpokenWordSyncPosition>].self, forKey: .positions) ?? [:]
+        positions = SpokenWordSyncPolicy.mergeRegisters(
+            try container.decodeIfPresent([String: SpokenWordSyncRegister<SpokenWordSyncPosition>].self, forKey: .positions) ?? [:],
+            try container.decodeIfPresent([String: SpokenWordSyncRegister<SpokenWordSyncPosition>].self, forKey: .replayPositions) ?? [:]
+        )
         finished = try container.decodeIfPresent([String: SpokenWordSyncRegister<Bool>].self, forKey: .finished) ?? [:]
         overrides = try container.decodeIfPresent([String: SpokenWordSyncRegister<String>].self, forKey: .overrides) ?? [:]
         rates = try container.decodeIfPresent([String: SpokenWordSyncRegister<Float>].self, forKey: .rates) ?? [:]
@@ -97,7 +105,10 @@ public struct SpokenWordSyncState: Codable, Equatable, Sendable {
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        if !positions.isEmpty { try container.encode(positions, forKey: .positions) }
+        let replays = positions.filter { $0.value.value != nil && finished[$0.key]?.value == true }
+        let ordinary = positions.filter { replays[$0.key] == nil }
+        if !ordinary.isEmpty { try container.encode(ordinary, forKey: .positions) }
+        if !replays.isEmpty { try container.encode(replays, forKey: .replayPositions) }
         if !finished.isEmpty { try container.encode(finished, forKey: .finished) }
         if !overrides.isEmpty { try container.encode(overrides, forKey: .overrides) }
         if !rates.isEmpty { try container.encode(rates, forKey: .rates) }
@@ -297,20 +308,32 @@ public enum SpokenWordSyncPolicy {
         return String(decoding: data, as: UTF8.self)
     }
 
-    /// Resolves the one cross-register rule: an item cannot both be finished
-    /// and have a resume position. Whichever happened later stands; the other
-    /// becomes a tombstone at the same moment.
+    /// Resolves the one cross-register rule: finishing an item ends the
+    /// position it was heard to, so a position from before the finish becomes
+    /// a tombstone at that moment. A position from after it is the item being
+    /// heard again; it stays, and so does the finished mark — only marking the
+    /// item unheard reopens it.
     public static func normalized(_ state: SpokenWordSyncState) -> SpokenWordSyncState {
         var result = state
         for (songID, finished) in state.finished where finished.value == true {
-            guard let position = state.positions[songID], position.value != nil else { continue }
-            if finished.stamp >= position.stamp {
-                result.positions[songID] = SpokenWordSyncRegister(value: nil, stamp: finished.stamp)
-            } else {
-                result.finished[songID] = SpokenWordSyncRegister(value: nil, stamp: position.stamp)
-            }
+            guard let position = state.positions[songID], position.value != nil,
+                  finished.stamp >= position.stamp else { continue }
+            result.positions[songID] = SpokenWordSyncRegister(value: nil, stamp: finished.stamp)
         }
         return result
+    }
+
+    /// A finished item heard again has both a finished mark and a position.
+    /// When a cap drops the mark, the position goes too: on its own it would
+    /// read as the item being half heard.
+    static func droppingOrphanedReplays(
+        _ positions: [String: SpokenWordSyncRegister<SpokenWordSyncPosition>],
+        finishedBefore: [String: SpokenWordSyncRegister<Bool>],
+        finishedAfter: [String: SpokenWordSyncRegister<Bool>]
+    ) -> [String: SpokenWordSyncRegister<SpokenWordSyncPosition>] {
+        positions.filter { key, _ in
+            !(finishedBefore[key]?.value == true && finishedAfter[key] == nil)
+        }
     }
 
     // MARK: Pruning
@@ -322,9 +345,14 @@ public enum SpokenWordSyncPolicy {
     /// oldest corrections everywhere.
     public static func retained(_ state: SpokenWordSyncState, now: Date) -> SpokenWordSyncState {
         let cutoff = now.addingTimeInterval(-tombstoneLifetime)
+        let finished = capped(dropExpiredTombstones(state.finished, cutoff: cutoff), limit: maximumFinished)
         return SpokenWordSyncState(
-            positions: capped(dropExpiredTombstones(state.positions, cutoff: cutoff), limit: maximumPositions),
-            finished: capped(dropExpiredTombstones(state.finished, cutoff: cutoff), limit: maximumFinished),
+            positions: droppingOrphanedReplays(
+                capped(dropExpiredTombstones(state.positions, cutoff: cutoff), limit: maximumPositions),
+                finishedBefore: state.finished,
+                finishedAfter: finished
+            ),
+            finished: finished,
             overrides: dropExpiredTombstones(state.overrides, cutoff: cutoff),
             rates: dropExpiredTombstones(state.rates, cutoff: cutoff),
             bookmarks: dropExpiredTombstones(state.bookmarks, cutoff: cutoff)
@@ -335,9 +363,14 @@ public enum SpokenWordSyncPolicy {
     /// it goes up to the key-value store.
     public static func pruned(_ state: SpokenWordSyncState, now: Date) -> SpokenWordSyncState {
         let cutoff = now.addingTimeInterval(-tombstoneLifetime)
+        let finished = capped(dropExpiredTombstones(state.finished, cutoff: cutoff), limit: maximumFinished)
         return SpokenWordSyncState(
-            positions: capped(dropExpiredTombstones(state.positions, cutoff: cutoff), limit: maximumPositions),
-            finished: capped(dropExpiredTombstones(state.finished, cutoff: cutoff), limit: maximumFinished),
+            positions: droppingOrphanedReplays(
+                capped(dropExpiredTombstones(state.positions, cutoff: cutoff), limit: maximumPositions),
+                finishedBefore: state.finished,
+                finishedAfter: finished
+            ),
+            finished: finished,
             overrides: capped(dropExpiredTombstones(state.overrides, cutoff: cutoff), limit: maximumOverrides),
             rates: capped(dropExpiredTombstones(state.rates, cutoff: cutoff), limit: maximumRates),
             bookmarks: capped(dropExpiredTombstones(state.bookmarks, cutoff: cutoff), limit: maximumBookmarks)
@@ -412,7 +445,12 @@ public enum SpokenWordSyncPolicy {
             for candidate in ordered[index..<(index + chunk)] {
                 switch candidate.section {
                 case .positions: result.positions.removeValue(forKey: candidate.key)
-                case .finished: result.finished.removeValue(forKey: candidate.key)
+                case .finished:
+                    // A replay position without its finished mark would read
+                    // as the item being half heard.
+                    if result.finished.removeValue(forKey: candidate.key)?.value == true {
+                        result.positions.removeValue(forKey: candidate.key)
+                    }
                 case .overrides: result.overrides.removeValue(forKey: candidate.key)
                 case .rates: result.rates.removeValue(forKey: candidate.key)
                 case .bookmarks: result.bookmarks.removeValue(forKey: candidate.key)

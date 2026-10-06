@@ -4951,14 +4951,11 @@ final class TVStore {
     }
 
     /// 把一本有声书按章节顺序作为队列播放,从 `itemID`(缺省为续听的那一章)开始。
-    /// 听完的一章被重新点播时从头开始。队列不随机:章节必须按顺序听。
+    /// 听完的一章重听时仍算听完,从重听停下的地方(没有就从头)接着。队列不随机:章节必须按顺序听。
     @discardableResult
     func playSpokenWordBook(songIDs: [String], startingAt itemID: String?) -> Bool {
         guard let first = songIDs.first else { return false }
         let startID = itemID.flatMap { songIDs.contains($0) ? $0 : nil } ?? first
-        if SpokenWordStore.shared.isFinished(songID: startID) {
-            SpokenWordStore.shared.markFinished(false, songIDs: [startID])
-        }
         return playResolvedQueue(songIDs: songIDs, shuffled: false, startingAt: startID)
     }
 
@@ -5159,9 +5156,6 @@ final class TVStore {
             return
         }
         rememberSpokenWordPosition(force: true)
-        if SpokenWordStore.shared.isFinished(songID: itemID) {
-            SpokenWordStore.shared.markFinished(false, songIDs: [itemID])
-        }
         if let index = queue.firstIndex(of: itemID), let target = song(itemID) {
             queueIndex = index
             startPlaying(target, resumeTime: position ?? 0)
@@ -5315,8 +5309,11 @@ final class TVStore {
               source.type == .audiobookshelf else { return }
         if !force, abs(position - lastServerSpokenWordPositionPush) < 30 { return }
         lastServerSpokenWordPositionPush = position
-        let credential = TVCredentialStore.credential(for: source, bundle: credentialBundle)
         let isFinished = SpokenWordStore.shared.isFinished(songID: songID)
+        // 听完后重听:服务端仍记听完,重听到哪里只留在本机和 iCloud;听到结尾那一次照常报。
+        if isFinished, song.duration > 0,
+           position < song.duration - SpokenWordProgressPolicy.completionTailThreshold { return }
+        let credential = TVCredentialStore.credential(for: source, bundle: credentialBundle)
         Task {
             await TVSourceAssetReader.shared.reportAudiobookshelfProgress(
                 song: song,

@@ -122,7 +122,8 @@ extension AudioPlayerService {
                     updatedAt: progress.updatedAt
                ) {
                 // 服务端更新:时钟还没走起来就重新上膛,首个 tick 跳过去;已经在听了就不拉回。
-                if self.currentTime < 2, !progress.isFinished {
+                // 听完的一条也可能带着重听的位置,有位置就跳。
+                if self.currentTime < 2, SpokenWordStore.shared.resumePosition(for: song) != nil {
                     self.pendingSpokenWordResumeSongID = songID
                 }
                 plog("🎧 Spoken word: adopted server position \(Int(progress.position))s for '\(song.title)'")
@@ -139,9 +140,12 @@ extension AudioPlayerService {
     /// 把位置报给服务端。本机每 15 秒存一次,服务端 30 秒一次;暂停、切换、退后台那几次立刻报。
     func pushServerSpokenWordPosition(song: Song, position: TimeInterval, duration: TimeInterval, force: Bool) {
         guard let manager = sourceManager else { return }
+        let isFinished = SpokenWordStore.shared.isFinished(songID: song.id)
+        // 听完后重听:服务端仍记听完,重听到哪里只留在本机和 iCloud;听到结尾那一次照常报。
+        if isFinished, duration > 0,
+           position < duration - SpokenWordProgressPolicy.completionTailThreshold { return }
         if !force, abs(position - lastServerSpokenWordPositionPush) < Self.serverSpokenWordPushInterval { return }
         lastServerSpokenWordPositionPush = position
-        let isFinished = SpokenWordStore.shared.isFinished(songID: song.id)
         Task {
             guard await manager.supportsServerListeningProgress(for: song) else { return }
             await manager.reportServerListeningProgress(
@@ -415,9 +419,10 @@ extension AudioPlayerService {
 
     // MARK: - Contents navigation
 
-    /// Plays one item of the playing book from where it was left (a finished
-    /// one from the start). Installs the book as the queue when the item is
-    /// not in it, the way the shelf starts a book.
+    /// Plays one item of the playing book from where it was left; a finished
+    /// one stays finished and starts from where hearing it again stopped, or
+    /// from the top. Installs the book as the queue when the item is not in
+    /// it, the way the shelf starts a book.
     func playSpokenWordBookItem(id itemID: String, at position: TimeInterval? = nil) {
         guard currentSong?.id != itemID else {
             if let position {
@@ -427,10 +432,6 @@ extension AudioPlayerService {
             return
         }
         rememberSpokenWordPosition(force: true)
-        let store = SpokenWordStore.shared
-        if store.isFinished(songID: itemID) {
-            store.markFinished(false, songIDs: [itemID])
-        }
         if let position {
             pendingSpokenWordSeekOverride = (itemID, position)
         }

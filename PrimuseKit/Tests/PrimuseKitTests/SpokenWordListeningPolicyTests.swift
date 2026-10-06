@@ -240,7 +240,25 @@ struct SpokenWordBookGroupingTests {
         #expect(books[0].resumeItemID == nil)
         #expect(books[0].isFinished)
         #expect(!books[0].isInProgress)
+        #expect(!books[0].canContinue)
         #expect(books[0].fractionComplete == 1)
+    }
+
+    @Test("A finished book heard again stays finished and continues from the replay")
+    func finishedBookHeardAgain() {
+        let books = SpokenWordBookGrouping.books(from: [
+            chapter("1", track: 1, finished: 10),
+            chapter("2", track: 2, position: 300, updated: 40, finished: 20),
+        ])
+        let book = books[0]
+        #expect(book.isFinished)
+        #expect(!book.isInProgress)
+        #expect(book.canContinue)
+        #expect(book.resumeItemID == "2")
+        #expect(book.fractionComplete == 1)
+        #expect(SpokenWordCarPlayShelfPolicy.startItemID(for: book) == "2")
+        let sections = SpokenWordCarPlayShelfPolicy.sections(from: books, limit: 10)
+        #expect(sections.map(\.section) == [.finished])
     }
 
     @Test("An untouched book is not in progress and starts at chapter one")

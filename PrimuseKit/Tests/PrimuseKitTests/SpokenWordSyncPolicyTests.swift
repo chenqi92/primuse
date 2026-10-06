@@ -58,12 +58,45 @@ struct SpokenWordSyncPolicyTests {
         #expect(merged.positions["s1"]?.stamp == at(20))
     }
 
-    @Test func listeningAgainReopensAFinishedItem() {
+    @Test func listeningAgainKeepsAFinishedItemFinishedWithItsReplayPosition() {
         let a = SpokenWordSyncState(positions: ["s1": position(100, at(30))])
         let b = SpokenWordSyncState(finished: ["s1": .init(value: true, stamp: at(20))])
         let merged = Policy.merge(a, b)
         #expect(merged.positions["s1"]?.value?.position == 100)
-        #expect(merged.finished["s1"]?.value == nil)
+        #expect(merged.finished["s1"]?.value == true)
+        // Through the store's records and back, the pair survives.
+        let records = Policy.records(from: merged)
+        #expect(Policy.state(from: records) == merged)
+    }
+
+    @Test func replayPositionsTravelApartFromOrdinaryOnes() throws {
+        let state = SpokenWordSyncState(
+            positions: ["replay": position(100, at(30)), "plain": position(50, at(30))],
+            finished: ["replay": .init(value: true, stamp: at(20))]
+        )
+        let data = try #require(Policy.encode(state))
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        // A version that predates replays reads only `p`; the replay is not there
+        // to look like the finished item being reopened.
+        let ordinary = try #require(object["p"] as? [String: Any])
+        let replays = try #require(object["rp"] as? [String: Any])
+        #expect(ordinary.keys.sorted() == ["plain"])
+        #expect(replays.keys.sorted() == ["replay"])
+        #expect(Policy.decode(data) == state)
+    }
+
+    @Test func aCapThatDropsAFinishedMarkDropsItsReplayPositionToo() {
+        var finished: [String: SpokenWordSyncRegister<Bool>] = [:]
+        for index in 0...Policy.maximumFinished {
+            finished["s\(index)"] = .init(value: true, stamp: at(TimeInterval(100 + index)))
+        }
+        // The oldest mark is the one the cap drops; its replay is recent.
+        finished["s0"] = .init(value: true, stamp: at(1))
+        let state = SpokenWordSyncState(positions: ["s0": position(100, at(5_000))], finished: finished)
+        for kept in [Policy.retained(state, now: at(6_000)), Policy.pruned(state, now: at(6_000))] {
+            #expect(kept.finished["s0"] == nil)
+            #expect(kept.positions["s0"] == nil)
+        }
     }
 
     @Test func tieBreakIsCommutative() {

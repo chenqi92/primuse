@@ -532,10 +532,11 @@ final class SpokenWordStore {
         guard positions[songID] != stored else { return }
         positions[songID] = stored
         ledger.positionClearedAt.removeValue(forKey: songID)
-        // Listening again to a finished item reopens it.
-        let reopened = removeFinished(songID, at: stored.updatedAt)
+        // Listening again to a finished item keeps it finished, like a song
+        // played twice; only "mark as unfinished" reopens it. The position
+        // is still kept, so the replay continues where it stopped.
         evictOldestIfNeeded()
-        didChange(cloud: reopened ? .prompt : .relaxed)
+        didChange(cloud: .relaxed)
     }
 
     /// 采纳服务端记的进度(Audiobookshelf 这类自己记进度的源)。和 iCloud 一样按最后写入者获胜:
@@ -558,18 +559,21 @@ final class SpokenWordStore {
         if let newest = localStamps.max(), newest >= updatedAt { return false }
         var changed = false
         if isFinished {
+            // Only a newly finished item ends its position; one already
+            // finished here keeps the place it is being heard again from.
             if finishedAt[songID] == nil {
                 finishedAt[songID] = updatedAt
                 ledger.unfinishedAt.removeValue(forKey: songID)
+                if removePosition(songID, at: updatedAt) { changed = true }
                 changed = true
             }
-            if removePosition(songID, at: updatedAt) { changed = true }
         } else if SpokenWordProgressPolicy.shouldRemember(position: position, duration: duration) {
+            // A position never reopens a finished item; it is where hearing
+            // it again continues.
             let stored = StoredPosition(position: position, duration: duration, updatedAt: updatedAt)
             guard positions[songID] != stored else { return false }
             positions[songID] = stored
             ledger.positionClearedAt.removeValue(forKey: songID)
-            _ = removeFinished(songID, at: updatedAt)
             changed = true
         }
         guard changed else { return false }
@@ -585,14 +589,17 @@ final class SpokenWordStore {
     func finishedDate(forSongID songID: String) -> Date? { finishedAt[songID] }
 
     /// Marks items heard (or not). Marking heard drops the resume position;
-    /// marking unheard only clears the mark.
+    /// marking unheard only clears the mark, so an item being heard again
+    /// continues from where that stopped. Nothing else reopens an item.
     func markFinished(_ finished: Bool, songIDs: [String]) {
         guard !songIDs.isEmpty else { return }
         var changed = false
         let now = Date()
         for songID in songIDs {
             if finished {
-                if finishedAt[songID] == nil {
+                // Heard to the end again: the finish moves to now, so the
+                // book sorts by when it was last heard through.
+                if finishedAt[songID] == nil || positions[songID] != nil {
                     finishedAt[songID] = now
                     ledger.unfinishedAt.removeValue(forKey: songID)
                     changed = true
@@ -705,6 +712,9 @@ final class SpokenWordStore {
             let ordered = finishedAt.sorted { $0.value < $1.value }
             for (songID, _) in ordered.prefix(finishedAt.count - limit * 4) {
                 finishedAt.removeValue(forKey: songID)
+                // A replay position left without its finished mark would
+                // read as the item being half heard.
+                positions.removeValue(forKey: songID)
             }
         }
     }

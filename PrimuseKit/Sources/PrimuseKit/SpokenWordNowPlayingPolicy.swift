@@ -77,7 +77,8 @@ public enum SpokenWordNowPlayingPolicy {
             var current = items[index]
             if duration > 0 { current.duration = duration }
             current.position = livePosition
-            current.finishedAt = nil
+            // A finished item heard again stays finished: the book keeps
+            // counting it whole, as the shelf does.
             items[index] = current
         } else {
             items = [SpokenWordBookItem(

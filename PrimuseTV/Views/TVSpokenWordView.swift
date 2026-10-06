@@ -183,7 +183,7 @@ struct TVSpokenWordView: View {
     private func bookMenu(_ book: SpokenWordBook) -> some View {
         Button { play(book) } label: {
             Label(
-                book.isInProgress
+                book.canContinue
                     ? String(localized: "spoken_word_continue")
                     : String(localized: "spoken_word_start"),
                 systemImage: "play.fill"
@@ -389,7 +389,7 @@ struct TVSpokenWordBookDetailView: View {
                     TVSpokenWordProgressBar(fraction: book.fractionComplete, finished: book.isFinished)
                         .frame(width: 320)
                     TVPillButton(
-                        title: book.isInProgress
+                        title: book.canContinue
                             ? String(localized: "spoken_word_continue")
                             : String(localized: "spoken_word_start"),
                         systemImage: "play.fill",
@@ -455,7 +455,8 @@ struct TVSpokenWordBookDetailView: View {
                     }
                 }
                 Spacer(minLength: 12)
-                if isResume, !item.isFinished {
+                // 听完又在重听的一章仍是接着听的那一章。
+                if isResume, !item.isFinished || item.position != nil {
                     Image(systemName: "play.circle.fill")
                         .font(.system(size: 26, weight: .semibold))
                         .foregroundStyle(TVColor.spokenWordSpace)

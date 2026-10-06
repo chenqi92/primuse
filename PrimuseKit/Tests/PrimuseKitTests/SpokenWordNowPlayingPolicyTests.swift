@@ -62,8 +62,8 @@ struct SpokenWordNowPlayingPolicyTests {
         #expect(summary.bookRemaining == 900)
     }
 
-    @Test("A playing item marked finished still counts where the head is")
-    func playingFinishedItemUsesHead() {
+    @Test("A finished item heard again still counts whole")
+    func playingFinishedItemStaysFinished() {
         let summary = SpokenWordNowPlayingPolicy.summary(
             book: book([item("a", finished: true), item("b")]),
             currentItemID: "a",
@@ -72,8 +72,8 @@ struct SpokenWordNowPlayingPolicyTests {
             chapterCount: 0,
             currentChapterIndex: nil
         )
-        #expect(summary.bookFraction == 0)
-        #expect(summary.bookRemaining == 1200)
+        #expect(abs(summary.bookFraction - 0.5) < 0.0001)
+        #expect(summary.bookRemaining == 600)
     }
 
     @Test("A one-file book is numbered by its chapter marks")
