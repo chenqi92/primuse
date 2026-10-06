@@ -18,6 +18,13 @@ import Foundation
 ///    its untagged items join it. A folder holding no album is one book
 ///    named after the folder. "CD 2"-style folders count as their parent.
 /// 4. Only items at a source's root, or with no path at all, stand alone.
+///    A server catalogue's paths are made up from item ids (`/songs/<id>`)
+///    and name no folder, so its items count as having none.
+/// 5. One book holds each place once. When folders that tags joined each
+///    bring their own run of the same places (two recordings of one book,
+///    a copy kept elsewhere), each folder is a book of its own, its title
+///    told apart by the folder's name. A place is the disc and track, or for
+///    an untracked item a title that is more than a bare number.
 enum SpokenWordBookGroupingRules {
     struct Assignment {
         /// Item id → book id.
@@ -41,9 +48,12 @@ enum SpokenWordBookGroupingRules {
         var disc: Int?
     }
 
-    static func assign(_ items: [SpokenWordBookItem]) -> Assignment {
+    static func assign(
+        _ items: [SpokenWordBookItem],
+        catalogSourceIDs: Set<String> = SpokenWordBookSourcePaths.catalogSourceIDs
+    ) -> Assignment {
         let albums = items.map(album(of:))
-        let folders = items.map(folder(of:))
+        let folders = items.map { folder(of: $0, catalogSourceIDs: catalogSourceIDs) }
 
         // Album artists per album title, to settle rule 2.
         var authorsByAlbum: [String: Set<String>] = [:]
@@ -111,12 +121,23 @@ enum SpokenWordBookGroupingRules {
                 return lhs.key > rhs.key
             }?.key ?? unitOfItem[indices[0]]
 
-            for index in indices { assignment.bookIDs[items[index].id] = bookID }
-            if let title = mostCommon(indices.map { albums[$0]?.display }) {
-                assignment.titles[bookID] = title
-            } else if !bookID.hasPrefix("item:"),
-                      let name = mostCommon(indices.map { folders[$0]?.name }) {
-                assignment.titles[bookID] = name
+            var title = mostCommon(indices.map { albums[$0]?.display })
+            if title == nil, !bookID.hasPrefix("item:") {
+                title = mostCommon(indices.map { folders[$0]?.name })
+            }
+
+            // Rule 5. The part with the largest folder keeps the id the whole
+            // book had, so whatever was remembered under it stays with most of it.
+            let parts = partsHoldingEachPlaceOnce(indices, items: items, folders: folders)
+            guard parts.count > 1 else {
+                for index in indices { assignment.bookIDs[items[index].id] = bookID }
+                if let title { assignment.titles[bookID] = title }
+                continue
+            }
+            for (number, part) in parts.enumerated() {
+                let partID = number == 0 ? bookID : bookID + "\u{1F}" + part.folderKey
+                for index in part.indices { assignment.bookIDs[items[index].id] = partID }
+                assignment.titles[partID] = partTitle(title, folderName: part.folderName)
             }
         }
         for (index, item) in items.enumerated() {
@@ -130,8 +151,92 @@ enum SpokenWordBookGroupingRules {
         if let album = album(of: item) {
             return albumUnitKey(album: album.key, author: normalized(item.albumArtist))
         }
-        if let folder = folder(of: item) { return folderUnitKey(folder.key) }
+        if let folder = folder(of: item, catalogSourceIDs: SpokenWordBookSourcePaths.catalogSourceIDs) {
+            return folderUnitKey(folder.key)
+        }
         return "item:" + item.id
+    }
+
+    // MARK: - Rule 5
+
+    private struct Part {
+        var folderKey: String
+        var folderName: String
+        var indices: [Int]
+        var places: Set<String>
+    }
+
+    /// The book's items split so no two folders that bring the same places
+    /// share a part. Empty when the book stays whole. Folders join the first
+    /// part they do not clash with, largest folder first; items with no
+    /// folder stay with the first part.
+    private static func partsHoldingEachPlaceOnce(
+        _ indices: [Int],
+        items: [SpokenWordBookItem],
+        folders: [Folder?]
+    ) -> [Part] {
+        var byFolder: [String: Part] = [:]
+        var unplaced: [Int] = []
+        for index in indices {
+            guard let folder = folders[index] else {
+                unplaced.append(index)
+                continue
+            }
+            var part = byFolder[folder.key]
+                ?? Part(folderKey: folder.key, folderName: folder.name, indices: [], places: [])
+            part.indices.append(index)
+            if let place = place(of: items[index], folderDisc: folder.disc) {
+                part.places.insert(place)
+            }
+            byFolder[folder.key] = part
+        }
+        guard byFolder.count > 1 else { return [] }
+
+        let largestFirst = byFolder.values.sorted {
+            $0.indices.count != $1.indices.count
+                ? $0.indices.count > $1.indices.count
+                : $0.folderKey < $1.folderKey
+        }
+        var parts: [Part] = []
+        for folder in largestFirst {
+            if let index = parts.firstIndex(where: { !clash($0.places, folder.places) }) {
+                parts[index].indices += folder.indices
+                parts[index].places.formUnion(folder.places)
+            } else {
+                parts.append(folder)
+            }
+        }
+        guard parts.count > 1 else { return [] }
+        parts[0].indices += unplaced
+        return parts
+    }
+
+    /// Two runs of the same places, not a stray duplicate: at least two shared
+    /// places, and at least half of the smaller run.
+    private static func clash(_ lhs: Set<String>, _ rhs: Set<String>) -> Bool {
+        let (small, large) = lhs.count <= rhs.count ? (lhs, rhs) : (rhs, lhs)
+        let shared = small.reduce(0) { $0 + (large.contains($1) ? 1 : 0) }
+        return shared >= 2 && shared * 2 >= small.count
+    }
+
+    /// Where an item sits in its book. A title that is only a number (a file
+    /// name like "01") is no place: folders split by range often restart it.
+    private static func place(of item: SpokenWordBookItem, folderDisc: Int?) -> String? {
+        if let track = item.trackNumber {
+            return "t\(item.discNumber ?? folderDisc ?? 1)/\(track)"
+        }
+        let title = normalized(item.title)
+        guard title.unicodeScalars.contains(where: { !CharacterSet.decimalDigits.contains($0) })
+        else { return nil }
+        return "n" + title
+    }
+
+    /// A part of a split book shows which folder it is: the folder's own name
+    /// when that already says the title, else the title and the folder.
+    private static func partTitle(_ title: String?, folderName: String) -> String {
+        guard let title, !title.isEmpty else { return folderName }
+        if normalized(folderName).contains(normalized(title)) { return folderName }
+        return title + " \u{00B7} " + folderName
     }
 
     /// The most frequent non-empty value, earliest on a tie.
@@ -242,7 +347,8 @@ enum SpokenWordBookGroupingRules {
         options: [.caseInsensitive]
     )
 
-    private static func folder(of item: SpokenWordBookItem) -> Folder? {
+    private static func folder(of item: SpokenWordBookItem, catalogSourceIDs: Set<String>) -> Folder? {
+        guard !catalogSourceIDs.contains(item.sourceID) else { return nil }
         var components = item.fileName
             .split(separator: "/", omittingEmptySubsequences: true)
             .map(String.init)
@@ -291,5 +397,38 @@ private struct UnionFind {
         let left = find(lhs), right = find(rhs)
         guard left != right else { return }
         if left < right { parent[right] = left } else { parent[left] = right }
+    }
+}
+
+/// Sources whose item paths name no folder. A server catalogue (Subsonic,
+/// Jellyfin and the like) makes its paths up from item ids, so every item of
+/// the source sits under one made-up folder; taken as a folder, it would join
+/// books that only share a title. The app reports these sources whenever its
+/// source list changes (`SpokenWordStore.updateFolderTagSources`), before the
+/// library is first grouped.
+public enum SpokenWordBookSourcePaths {
+    private final class Storage: @unchecked Sendable {
+        let lock = NSLock()
+        var ids: Set<String> = []
+    }
+
+    private static let storage = Storage()
+
+    /// The ids of sources whose paths name no folder.
+    public static var catalogSourceIDs: Set<String> {
+        storage.lock.lock()
+        defer { storage.lock.unlock() }
+        return storage.ids
+    }
+
+    /// Replaces the reported sources. True when that changed them, so the
+    /// caller knows the books need grouping again.
+    @discardableResult
+    public static func update(catalogSourceIDs ids: Set<String>) -> Bool {
+        storage.lock.lock()
+        defer { storage.lock.unlock() }
+        guard storage.ids != ids else { return false }
+        storage.ids = ids
+        return true
     }
 }

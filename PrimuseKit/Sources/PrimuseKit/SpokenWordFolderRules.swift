@@ -260,15 +260,21 @@ public struct SpokenWordClassificationInputs: Equatable, Sendable {
     /// stay playable, searchable and in their playlists, but join neither the
     /// music lists nor the spoken-word shelf, as in the source's own app.
     public var collectionOnlySongIDs: Set<String>
+    /// Sources whose made-up item paths name no folder
+    /// (`SpokenWordBookSourcePaths`). Classification does not read it; it is
+    /// here so a change regroups the books along with everything else.
+    public var catalogPathSourceIDs: Set<String>
 
     public init(
         overrides: [String: ListeningContentKind] = [:],
         folderRules: SpokenWordFolderRules = .empty,
-        collectionOnlySongIDs: Set<String> = []
+        collectionOnlySongIDs: Set<String> = [],
+        catalogPathSourceIDs: Set<String> = []
     ) {
         self.overrides = overrides
         self.folderRules = folderRules
         self.collectionOnlySongIDs = collectionOnlySongIDs
+        self.catalogPathSourceIDs = catalogPathSourceIDs
     }
 
     public static let empty = SpokenWordClassificationInputs()

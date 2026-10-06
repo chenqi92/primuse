@@ -188,6 +188,157 @@ struct SpokenWordBookGroupingRulesTests {
         }
     }
 
+    // MARK: Two recordings of one book
+
+    @Test("Two recordings in their own folders, tagged alike, are two books")
+    func versionsInFoldersSplit() {
+        let books = SpokenWordBookGrouping.books(from: [
+            item("a1", title: "第1集", album: "三体", albumArtist: "刘慈欣", track: 1, path: "三体 张三版/01.mp3"),
+            item("a2", title: "第2集", album: "三体", albumArtist: "刘慈欣", track: 2, path: "三体 张三版/02.mp3"),
+            item("a3", title: "第3集", album: "三体", albumArtist: "刘慈欣", track: 3, path: "三体 张三版/03.mp3"),
+            item("b1", title: "第1集", album: "三体", albumArtist: "刘慈欣", track: 1, path: "李四演播/01.mp3"),
+            item("b2", title: "第2集", album: "三体", albumArtist: "刘慈欣", track: 2, path: "李四演播/02.mp3"),
+        ])
+        #expect(books.count == 2)
+        let larger = books.first { $0.items.count == 3 }
+        let smaller = books.first { $0.items.count == 2 }
+        #expect(larger?.items.map(\.id) == ["a1", "a2", "a3"])
+        #expect(smaller?.items.map(\.id) == ["b1", "b2"])
+        // The part with the larger folder keeps the id the whole book had.
+        #expect(larger?.id == "book:三体\u{1F}刘慈欣")
+        #expect(larger?.title == "三体 张三版")
+        #expect(smaller?.title == "三体 \u{00B7} 李四演播")
+    }
+
+    @Test("Recordings without track numbers clash on their episode titles")
+    func versionsWithoutTracksSplit() {
+        let books = SpokenWordBookGrouping.books(from: [
+            item("a1", title: "第一回", album: "红楼梦", path: "A/1.mp3"),
+            item("a2", title: "第二回", album: "红楼梦", path: "A/2.mp3"),
+            item("b1", title: "第一回", album: "红楼梦", path: "B/1.mp3"),
+            item("b2", title: "第二回", album: "红楼梦", path: "B/2.mp3"),
+        ])
+        #expect(books.count == 2)
+    }
+
+    @Test("Folders that continue the numbering stay one book")
+    func continuingFoldersStay() {
+        let books = SpokenWordBookGrouping.books(from: [
+            item("1", album: "三体", track: 1, path: "三体/001-002/1.mp3"),
+            item("2", album: "三体", track: 2, path: "三体/001-002/2.mp3"),
+            item("3", album: "三体", track: 3, path: "三体/003-004/3.mp3"),
+            item("4", album: "三体", track: 4, path: "三体/003-004/4.mp3"),
+        ])
+        #expect(books.count == 1)
+        #expect(books[0].items.map(\.id) == ["1", "2", "3", "4"])
+    }
+
+    @Test("Volumes told apart by disc number stay one book")
+    func discTaggedVolumesStay() {
+        let books = SpokenWordBookGrouping.books(from: [
+            item("v1c1", title: "第一章", album: "Dune", disc: 1, track: 1, path: "Dune/Vol 1/1.mp3"),
+            item("v1c2", title: "第二章", album: "Dune", disc: 1, track: 2, path: "Dune/Vol 1/2.mp3"),
+            item("v2c1", title: "第一章", album: "Dune", disc: 2, track: 1, path: "Dune/Vol 2/1.mp3"),
+            item("v2c2", title: "第二章", album: "Dune", disc: 2, track: 2, path: "Dune/Vol 2/2.mp3"),
+        ])
+        #expect(books.count == 1)
+        #expect(books[0].items.map(\.id) == ["v1c1", "v1c2", "v2c1", "v2c2"])
+    }
+
+    @Test("A single stray copy elsewhere does not split the book")
+    func strayCopyStays() {
+        let books = SpokenWordBookGrouping.books(from: [
+            item("1", album: "Dune", track: 1, path: "Dune/1.mp3"),
+            item("2", album: "Dune", track: 2, path: "Dune/2.mp3"),
+            item("3", album: "Dune", track: 3, path: "Dune/3.mp3"),
+            item("copy", album: "Dune", track: 1, path: "Downloads/1.mp3"),
+        ])
+        #expect(books.count == 1)
+    }
+
+    @Test("Bare-number titles are no place: range folders restarting 01 stay whole")
+    func bareNumberTitlesStay() {
+        let books = SpokenWordBookGrouping.books(from: [
+            item("1", title: "01", album: "鬼吹灯", path: "鬼吹灯/1-2/01.mp3"),
+            item("2", title: "02", album: "鬼吹灯", path: "鬼吹灯/1-2/02.mp3"),
+            item("3", title: "01", album: "鬼吹灯", path: "鬼吹灯/3-4/01.mp3"),
+            item("4", title: "02", album: "鬼吹灯", path: "鬼吹灯/3-4/02.mp3"),
+        ])
+        #expect(books.count == 1)
+    }
+
+    @Test("Untagged episodes of each recording follow their own folder")
+    func looseEpisodesFollowTheirFolder() {
+        let books = SpokenWordBookGrouping.books(from: [
+            item("a1", title: "第1集", album: "三体", track: 1, path: "A/01.mp3"),
+            item("a2", title: "第2集", album: "三体", track: 2, path: "A/02.mp3"),
+            item("a3", title: "第3集", path: "A/03.mp3"),
+            item("b1", title: "第1集", album: "三体", track: 1, path: "B/01.mp3"),
+            item("b2", title: "第2集", album: "三体", track: 2, path: "B/02.mp3"),
+            item("b3", title: "第3集", path: "B/03.mp3"),
+        ])
+        #expect(books.count == 2)
+        #expect(Set(books.map { Set($0.items.map(\.id)) }) == [["a1", "a2", "a3"], ["b1", "b2", "b3"]])
+    }
+
+    @Test("bookIDs agrees with split books")
+    func splitBookIDsMatchBooks() {
+        let items = [
+            item("a1", title: "第1集", album: "三体", track: 1, path: "A/01.mp3"),
+            item("a2", title: "第2集", album: "三体", track: 2, path: "A/02.mp3"),
+            item("b1", title: "第1集", album: "三体", track: 1, path: "B/01.mp3"),
+            item("b2", title: "第2集", album: "三体", track: 2, path: "B/02.mp3"),
+        ]
+        let ids = SpokenWordBookGrouping.bookIDs(for: items)
+        let books = SpokenWordBookGrouping.books(from: items)
+        #expect(Set(books.map(\.id)).count == 2)
+        for book in books {
+            for member in book.items { #expect(ids[member.id] == book.id) }
+        }
+    }
+
+    // MARK: Server catalogues
+
+    @Test("A server catalogue's made-up paths are no folder")
+    func catalogPathsNameNoFolder() {
+        let items = [
+            item("1", album: "三体", albumArtist: "张三", track: 1, path: "/songs/aa1.mp3", source: "navidrome"),
+            item("2", album: "三体", albumArtist: "李四", track: 1, path: "/songs/bb2.mp3", source: "navidrome"),
+            item("3", title: "访谈", path: "/songs/cc3.mp3", source: "navidrome"),
+            item("4", title: "花絮", path: "/songs/dd4.mp3", source: "navidrome"),
+        ]
+        // Taken as a folder, the made-up `/songs` joins the two recordings and
+        // every untagged item.
+        let asFolder = SpokenWordBookGroupingRules.assign(items, catalogSourceIDs: [])
+        #expect(asFolder.bookIDs["1"] == asFolder.bookIDs["2"])
+        #expect(asFolder.bookIDs["3"] == asFolder.bookIDs["4"])
+
+        let asCatalogue = SpokenWordBookGroupingRules.assign(items, catalogSourceIDs: ["navidrome"])
+        #expect(asCatalogue.bookIDs["1"] != asCatalogue.bookIDs["2"])
+        #expect(asCatalogue.bookIDs["3"] != asCatalogue.bookIDs["4"])
+        #expect(asCatalogue.bookIDs["1"] == "book:三体\u{1F}张三")
+    }
+
+    @Test("Only catalogue sources lose their folders")
+    func catalogueSetIsPerSource() {
+        let items = [
+            item("1", title: "访谈", path: "/songs/a.mp3", source: "nas"),
+            item("2", title: "花絮", path: "/songs/b.mp3", source: "nas"),
+        ]
+        let grouped = SpokenWordBookGroupingRules.assign(items, catalogSourceIDs: ["navidrome"])
+        #expect(grouped.bookIDs["1"] == grouped.bookIDs["2"])
+    }
+
+    @Test("Which source types make their paths up")
+    func catalogueSourceTypes() {
+        #expect(!MusicSourceType.navidrome.itemPathsNameFolders)
+        #expect(!MusicSourceType.jellyfin.itemPathsNameFolders)
+        #expect(!MusicSourceType.synologyAudioStation.itemPathsNameFolders)
+        #expect(MusicSourceType.audiobookshelf.itemPathsNameFolders)
+        #expect(MusicSourceType.webdav.itemPathsNameFolders)
+        #expect(MusicSourceType.smb.itemPathsNameFolders)
+    }
+
     @Test("A book tagged the plain way keeps the id it had before")
     func stableIDs() {
         let items = [

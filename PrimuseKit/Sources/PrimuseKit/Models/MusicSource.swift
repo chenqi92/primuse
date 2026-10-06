@@ -282,6 +282,13 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
             || self == .synologyAudioStation || self == .audiobookshelf
     }
 
+    /// 条目路径是不是真实的目录。曲库型服务器的路径是按条目 id 合成的（`/songs/<id>`、
+    /// `/items/<id>`），整个源都在同一层下；Audiobookshelf 的路径以每本书的条目为一层，
+    /// 一本书一个「目录」，仍然算。
+    public var itemPathsNameFolders: Bool {
+        !isServerLibrary || self == .audiobookshelf
+    }
+
     /// 源类型本身就决定了内容是哪种听法时在这里声明（有声书服务器里没有音乐）。
     /// nil 表示按文件、用户标签推断。
     public var declaredListeningContentKind: ListeningContentKind? {

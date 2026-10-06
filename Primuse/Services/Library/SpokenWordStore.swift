@@ -156,7 +156,8 @@ final class SpokenWordStore {
         SpokenWordClassificationInputs(
             overrides: overrides,
             folderRules: folderRules,
-            collectionOnlySongIDs: CollectionOnlySongStore.shared.songIDs
+            collectionOnlySongIDs: CollectionOnlySongStore.shared.songIDs,
+            catalogPathSourceIDs: reportedCatalogPathSourceIDs ?? []
         )
     }
 
@@ -194,6 +195,8 @@ final class SpokenWordStore {
 
     /// 按文件 ID 寻址的网盘(`usesOpaqueDirectoryIdentifiers`)。
     @ObservationIgnored private var opaqueFolderSourceIDs: Set<String> = []
+    /// 已经报给分书规则的「路径不是真实目录」的源; nil 表示还没报过(启动时那一次不必重新分类)。
+    @ObservationIgnored private var reportedCatalogPathSourceIDs: Set<String>?
     /// 这些网盘的目录上下级,由宿主从扫描索引交来(手机 ScanService、电视 TVStore)。
     @ObservationIgnored private var folderTopologies: [String: SpokenWordFolderTopology] = [:]
     /// 标签目录里的文件。落在本机文件里(不同步):启动时扫描索引往往还没装载,曲库先按
@@ -407,13 +410,25 @@ final class SpokenWordStore {
         )
         let opaqueChanged = opaque != opaqueFolderSourceIDs
         opaqueFolderSourceIDs = opaque
+        // 曲库型服务器按条目 id 合成路径, 分书时不能拿它当文件夹。曲库第一次分书之前就要报上去;
+        // 之后源有增减, 书要按新的认法重新分。
+        let catalogPaths = Set(
+            sources.lazy
+                .filter { !$0.isDeleted && !$0.type.itemPathsNameFolders }
+                .map(\.id)
+        )
+        let catalogPathsChanged = reportedCatalogPathSourceIDs != nil
+            && reportedCatalogPathSourceIDs != catalogPaths
+        reportedCatalogPathSourceIDs = catalogPaths
+        SpokenWordBookSourcePaths.update(catalogSourceIDs: catalogPaths)
         if removed {
             didChange(cloud: .prompt)
         } else if descriptorsChanged || declaredChanged || opaqueChanged {
             cachedFolderRules = nil
         }
         let hasTags = overrides.keys.contains(where: SpokenWordFolderTag.isFolderKey)
-        if removed || ((descriptorsChanged || opaqueChanged) && hasTags) || declaredChanged {
+        if removed || ((descriptorsChanged || opaqueChanged) && hasTags) || declaredChanged
+            || catalogPathsChanged {
             scheduleFolderTagReclassification()
         }
     }
