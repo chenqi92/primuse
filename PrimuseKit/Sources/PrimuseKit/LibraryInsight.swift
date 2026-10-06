@@ -602,3 +602,126 @@ public enum LibraryInsightAIExchangeError: Error, Equatable, Sendable {
     case malformedResponse
     case containsLink
 }
+
+/// 批量补简介:哪些要补、同时问几个,以及出错时是稍等再问、跳过这一个,还是整批停下。
+public enum LibraryInsightBatchPolicy {
+    /// 同时在问的个数。内置 AI 免费档每台设备同一时刻只放行一个请求(多发的只会被 429 拒掉,
+    /// 还会占掉歌词翻译这些眼前功能的名额);自己的服务问两个,大多数服务的每分钟次数都扛得住。
+    public static func concurrency(usesBuiltIn: Bool) -> Int {
+        usesBuiltIn ? 1 : 2
+    }
+
+    /// 两次开问之间至少隔这么久。内置 AI 每台设备每分钟 30 次,隔 2 秒怎么也碰不到。
+    public static func minimumSpacing(usesBuiltIn: Bool) -> TimeInterval {
+        usesBuiltIn ? 2 : 0
+    }
+
+    /// 只补曲库里一份记录都没有的:已有简介的、AI 说过不了解的、用户删掉的(墓碑)都不再问。
+    public static func needsFill(_ stored: LibraryInsightRecord?) -> Bool {
+        stored == nil
+    }
+
+    public enum Failure: Equatable, Sendable {
+        /// 今天或这个周期的次数、额度用完了。
+        case quotaExhausted
+        /// 问得太快,服务让等一会儿。
+        case rateLimited
+        /// 服务忙:同时在问的太多,或上游都排满了。
+        case busy
+        case network
+        /// 服务这会儿用不了(没配置、没授权、地区、设备注册、鉴权),问下一个也一样。
+        case unavailable
+        /// 只是这一个没成:回答不合格、上游出错。
+        case itemFailed
+    }
+
+    public enum Step: Equatable, Sendable {
+        /// 等这么久再问同一个。
+        case retry(after: TimeInterval)
+        /// 记一个没成,接着问下一个。
+        case skip
+        /// 整批停下。
+        case stop
+    }
+
+    /// 同一个最多问几次(含第一次)。
+    public static let maximumAttempts = 3
+    /// 连续这么多个没成就停下,别把额度耗在出了毛病的服务上。
+    public static let maximumConsecutiveFailures = 5
+    /// 要等的超过这个就不等了:限流等太久整批停下,忙或断网就跳过这一个。
+    public static let maximumWait: TimeInterval = 120
+
+    /// `attempt` 是这一个已经问了几次(从 1 起);`retryAt` 是服务给的重试时间。
+    public static func step(after failure: Failure, attempt: Int, retryAt: Date?, now: Date) -> Step {
+        let requested = retryAt.map { max(1, $0.timeIntervalSince(now)) }
+        switch failure {
+        case .quotaExhausted, .unavailable:
+            return .stop
+        case .rateLimited:
+            // 不是这一个的错:等服务说的时间(没说就等半分钟),等不起就停,免得一直撞限流。
+            let wait = requested ?? 30
+            guard wait <= maximumWait, attempt < maximumAttempts + 2 else { return .stop }
+            return .retry(after: wait)
+        case .busy, .network:
+            guard attempt < maximumAttempts else { return .skip }
+            let backoff = (failure == .busy ? 4.0 : 3.0) * Double(1 << (attempt - 1))
+            let wait = max(requested ?? 0, backoff)
+            return wait <= maximumWait ? .retry(after: wait) : .skip
+        case .itemFailed:
+            return .skip
+        }
+    }
+}
+
+/// 内置 AI 今天(和这个周期)用了多少、上限多少,来自用量接口;批量补简介前估一估还能写几个。
+public struct LibraryInsightBuiltInAllowance: Equatable, Sendable {
+    public var featureRequests: Int
+    public var featureLimit: Int?
+    public var requests: Int
+    public var requestLimit: Int?
+    public var credits: Int
+    public var creditLimit: Int?
+    public var periodFeatureRequests: Int
+    public var periodFeatureLimit: Int?
+    public var periodRequests: Int
+    public var periodRequestLimit: Int?
+
+    /// 一个简介大约花的额度(token):提示词、曲目、两段百科参考和回答。服务端开问前约预留 3,900,
+    /// 剩下的不够预留就拒,所以按偏多的算。
+    public static let estimatedCreditsPerIntro = 3_500
+
+    public init(
+        featureRequests: Int = 0,
+        featureLimit: Int? = nil,
+        requests: Int = 0,
+        requestLimit: Int? = nil,
+        credits: Int = 0,
+        creditLimit: Int? = nil,
+        periodFeatureRequests: Int = 0,
+        periodFeatureLimit: Int? = nil,
+        periodRequests: Int = 0,
+        periodRequestLimit: Int? = nil
+    ) {
+        self.featureRequests = featureRequests
+        self.featureLimit = featureLimit
+        self.requests = requests
+        self.requestLimit = requestLimit
+        self.credits = credits
+        self.creditLimit = creditLimit
+        self.periodFeatureRequests = periodFeatureRequests
+        self.periodFeatureLimit = periodFeatureLimit
+        self.periodRequests = periodRequests
+        self.periodRequestLimit = periodRequestLimit
+    }
+
+    /// 大约还能写几个简介,取各项上限里最紧的;一项上限都没有时返回 nil(不知道)。
+    public var remainingIntros: Int? {
+        var bounds: [Int] = []
+        if let featureLimit { bounds.append(featureLimit - featureRequests) }
+        if let requestLimit { bounds.append(requestLimit - requests) }
+        if let creditLimit { bounds.append((creditLimit - credits) / Self.estimatedCreditsPerIntro) }
+        if let periodFeatureLimit { bounds.append(periodFeatureLimit - periodFeatureRequests) }
+        if let periodRequestLimit { bounds.append(periodRequestLimit - periodRequests) }
+        return bounds.min().map { max(0, $0) }
+    }
+}

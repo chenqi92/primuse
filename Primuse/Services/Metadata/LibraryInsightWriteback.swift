@@ -180,12 +180,14 @@ enum LibraryInsightWriteback {
 
     /// 曲库里还没有这张专辑 / 这位艺人的简介(也没被删过)时,去音乐源找:
     /// 文件夹里的 nfo,或服务器上的简介。找到就存成一份「来自 …」的简介。
+    /// `persistAfter` 见 `MusicLibrary.saveLibraryInsightRecord`。
     static func importIfAvailable(
         subject: LibraryInsightSubject,
         songs: [Song],
         library: MusicLibrary,
         sourceManager: SourceManager,
-        sourcesStore: SourcesStore
+        sourcesStore: SourcesStore,
+        persistAfter: TimeInterval = 0.2
     ) async {
         let id = LibraryInsightStore.shared.recordID(for: subject)
         guard library.storedLibraryInsightRecord(id: id) == nil,
@@ -222,7 +224,7 @@ enum LibraryInsightWriteback {
                     now: Date()
                   ) else { return }
             plog("📥 Library insight imported kind=\(subject.kind.rawValue) from=\(isMediaServer(source.type) ? "server" : "nfo")")
-            library.saveLibraryInsightRecord(record)
+            library.saveLibraryInsightRecord(record, persistAfter: persistAfter)
             return
         }
     }

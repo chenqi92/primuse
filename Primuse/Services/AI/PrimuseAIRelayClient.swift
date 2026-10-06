@@ -786,6 +786,30 @@ actor PrimuseAIRelayClient {
         return (usage.plan?.features?["audio_transcription"] ?? 0) > 0
     }
 
+    /// 今天(和这个周期)简介用了几次、各项上限多少:批量补简介前估一下还能补几个。
+    /// 用量接口不占次数;读不到返回 nil。
+    func libraryInsightAllowance() async -> LibraryInsightBuiltInAllowance? {
+        guard let usage: UsageAllowanceOutput = try? await performFeature(
+            path: "/v1/account/usage",
+            purpose: "usage",
+            input: UsageQueryInput(limit: 1)
+        ), let today = usage.today else { return nil }
+        let feature = today.features?["library_insight"]
+        let periodFeature = usage.period?.features?["library_insight"]
+        return LibraryInsightBuiltInAllowance(
+            featureRequests: feature?.requests ?? 0,
+            featureLimit: feature?.limit,
+            requests: today.requests ?? 0,
+            requestLimit: today.requestLimit,
+            credits: Int(today.credits ?? 0),
+            creditLimit: today.creditLimit.map { Int($0) },
+            periodFeatureRequests: periodFeature?.requests ?? 0,
+            periodFeatureLimit: periodFeature?.limit,
+            periodRequests: usage.period?.requests ?? 0,
+            periodRequestLimit: usage.period?.requestLimit
+        )
+    }
+
     nonisolated static func assertionClientDataHash(
         challenge: String,
         method: String,
@@ -1978,6 +2002,34 @@ actor PrimuseAIRelayClient {
         }
 
         var plan: Plan?
+    }
+
+    /// 用量接口里今天和这个周期的计数;上限为 null 表示套餐没设。
+    private struct UsageAllowanceOutput: Decodable, Sendable {
+        struct FeatureCount: Decodable, Sendable {
+            var requests: Int?
+            var limit: Int?
+        }
+
+        struct Counts: Decodable, Sendable {
+            var requests: Int?
+            var requestLimit: Int?
+            /// token 数;按小数解,免得哪天带了小数整份读不出。
+            var credits: Double?
+            var creditLimit: Double?
+            var features: [String: FeatureCount]?
+
+            private enum CodingKeys: String, CodingKey {
+                case requests
+                case requestLimit = "request_limit"
+                case credits
+                case creditLimit = "credit_limit"
+                case features
+            }
+        }
+
+        var today: Counts?
+        var period: Counts?
     }
 
     private struct ServiceInfoOutput: Decodable, Sendable {

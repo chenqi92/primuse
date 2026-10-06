@@ -7012,15 +7012,16 @@ final class MusicLibrary {
     }
 
     /// 保存一份简介(删除就是保存墓碑)。比现有的旧才落盘,和同步合并用同一条规则。
-    func saveLibraryInsightRecord(_ record: LibraryInsightRecord) {
+    /// 每次落盘都是整库快照:批量补简介传更长的 `persistAfter`,把连着存的几十份并成一次写。
+    func saveLibraryInsightRecord(_ record: LibraryInsightRecord, persistAfter delay: TimeInterval = 0.2) {
         // S2: 发布时存储里的值会整体覆盖内存,必须排队重放。
-        if deferringUntilReady({ [weak self] in self?.saveLibraryInsightRecord(record) }) { return }
+        if deferringUntilReady({ [weak self] in self?.saveLibraryInsightRecord(record, persistAfter: delay) }) { return }
         if let existing = libraryInsightRecordsByID[record.id] {
             guard existing != record, LibraryInsightEditing.winner(existing, record) == record else { return }
         }
         libraryInsightRecordsByID[record.id] = record
         libraryInsightRevision &+= 1
-        persistSnapshot(after: 0.2)
+        persistSnapshot(after: delay)
     }
 
     func songs(forAlbum albumID: String) -> [Song] {

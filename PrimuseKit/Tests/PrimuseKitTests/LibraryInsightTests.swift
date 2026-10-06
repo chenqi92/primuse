@@ -238,3 +238,80 @@ struct LibraryInsightTests {
         #expect(LibraryInsightEditing.winner(tieA, tieB) == LibraryInsightEditing.winner(tieB, tieA))
     }
 }
+
+struct LibraryInsightBatchPolicyTests {
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    @Test func builtInAsksOneAtATimeWithSpacing() {
+        #expect(LibraryInsightBatchPolicy.concurrency(usesBuiltIn: true) == 1)
+        #expect(LibraryInsightBatchPolicy.minimumSpacing(usesBuiltIn: true) == 2)
+        #expect(LibraryInsightBatchPolicy.concurrency(usesBuiltIn: false) == 2)
+        #expect(LibraryInsightBatchPolicy.minimumSpacing(usesBuiltIn: false) == 0)
+    }
+
+    @Test func onlySubjectsWithoutAnyRecordAreFilled() {
+        let unknown = LibraryInsightRecord(
+            id: "a", kind: .album, albumTitle: "A", artistName: "B", summary: "", tags: [],
+            aiKnown: false, isUserEdited: false, updatedAt: now
+        )
+        let tombstone = LibraryInsightEditing.tombstone(of: unknown, now: now)
+        #expect(LibraryInsightBatchPolicy.needsFill(nil))
+        #expect(!LibraryInsightBatchPolicy.needsFill(unknown))
+        #expect(!LibraryInsightBatchPolicy.needsFill(tombstone))
+    }
+
+    @Test func quotaAndUnavailableStopTheBatch() {
+        for failure in [LibraryInsightBatchPolicy.Failure.quotaExhausted, .unavailable] {
+            let step = LibraryInsightBatchPolicy.step(after: failure, attempt: 1, retryAt: nil, now: now)
+            #expect(step == .stop)
+        }
+    }
+
+    @Test func rateLimitWaitsForTheServiceThenGivesUp() {
+        let soon = LibraryInsightBatchPolicy.step(
+            after: .rateLimited, attempt: 1, retryAt: now.addingTimeInterval(12), now: now
+        )
+        #expect(soon == .retry(after: 12))
+        let unspecified = LibraryInsightBatchPolicy.step(after: .rateLimited, attempt: 2, retryAt: nil, now: now)
+        #expect(unspecified == .retry(after: 30))
+        let tooLong = LibraryInsightBatchPolicy.step(
+            after: .rateLimited, attempt: 1, retryAt: now.addingTimeInterval(3_600), now: now
+        )
+        #expect(tooLong == .stop)
+        let tooOften = LibraryInsightBatchPolicy.step(after: .rateLimited, attempt: 5, retryAt: nil, now: now)
+        #expect(tooOften == .stop)
+    }
+
+    @Test func busyAndNetworkBackOffThenSkip() {
+        let first = LibraryInsightBatchPolicy.step(after: .busy, attempt: 1, retryAt: nil, now: now)
+        #expect(first == .retry(after: 4))
+        let second = LibraryInsightBatchPolicy.step(after: .network, attempt: 2, retryAt: nil, now: now)
+        #expect(second == .retry(after: 6))
+        let honoursServer = LibraryInsightBatchPolicy.step(
+            after: .busy, attempt: 1, retryAt: now.addingTimeInterval(9), now: now
+        )
+        #expect(honoursServer == .retry(after: 9))
+        let exhausted = LibraryInsightBatchPolicy.step(after: .busy, attempt: 3, retryAt: nil, now: now)
+        #expect(exhausted == .skip)
+        let itemFailed = LibraryInsightBatchPolicy.step(after: .itemFailed, attempt: 1, retryAt: nil, now: now)
+        #expect(itemFailed == .skip)
+    }
+
+    @Test func remainingIntrosTakesTheTightestLimit() {
+        let free = LibraryInsightBuiltInAllowance(
+            featureRequests: 4, featureLimit: 30,
+            requests: 20, requestLimit: 300,
+            credits: 9_000, creditLimit: 30_000
+        )
+        #expect(free.remainingIntros == 6)
+        let monthly = LibraryInsightBuiltInAllowance(
+            featureRequests: 0, featureLimit: 200,
+            credits: 0, creditLimit: 1_500_000,
+            periodFeatureRequests: 98, periodFeatureLimit: 100
+        )
+        #expect(monthly.remainingIntros == 2)
+        let spent = LibraryInsightBuiltInAllowance(featureRequests: 31, featureLimit: 30)
+        #expect(spent.remainingIntros == 0)
+        #expect(LibraryInsightBuiltInAllowance().remainingIntros == nil)
+    }
+}

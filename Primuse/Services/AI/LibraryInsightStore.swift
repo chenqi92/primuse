@@ -77,6 +77,20 @@ final class LibraryInsightStore {
         writebackNotes[recordID(for: subject)] = parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
+    /// 批量补简介开问前占上「正在生成」:详情页照样转圈,卡片上也不会对同一个再发一次。
+    /// 已经有人在问就返回 false。
+    func beginBatchGeneration(_ subject: LibraryInsightSubject) -> Bool {
+        let id = recordID(for: subject)
+        guard generatingIDs.insert(id).inserted else { return false }
+        failures[id] = nil
+        retryDates[id] = nil
+        return true
+    }
+
+    func endBatchGeneration(_ subject: LibraryInsightSubject) {
+        generatingIDs.remove(recordID(for: subject))
+    }
+
     func clearFailure(for subject: LibraryInsightSubject) {
         let id = recordID(for: subject)
         failures[id] = nil

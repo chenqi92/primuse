@@ -50,6 +50,9 @@ struct ArtistListView: View {
     @Environment(\.pmHeightClass) private var heightClass
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicIntelligenceService.self) private var intelligence
+    /// 右上角菜单里点了「补全缺少的简介」。
+    @State private var requestsIntroFill = false
     /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
 
@@ -100,6 +103,15 @@ struct ArtistListView: View {
 
     private var showsLikedFilter: Bool { showsLikedOnly || favorites.hasLikedArtists }
 
+    /// 资料库里的艺术家页才给:和详情页「添加简介」同一个条件。
+    private var offersIntroFill: Bool {
+        browsesLibrary && (
+            intelligence.isLibraryInsightAvailable
+                || intelligence.libraryInsightNeedsRemoteConsent
+                || intelligence.shouldExposeRemoteConfiguration
+        )
+    }
+
     private var filteredArtists: [Artist] {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let base = showsLikedOnly ? favorites.likedArtists(in: artists) : artists
@@ -137,8 +149,14 @@ struct ArtistListView: View {
                 searchText = ""
                 selectedArtistID = artist.id
             }
+            .libraryInsightBatchFill(kind: .artist, request: $requestsIntroFill) {
+                filteredArtists.map(LibraryInsightBatchItem.artist)
+            }
         #else
         iosBody
+            .libraryInsightBatchFill(kind: .artist, request: $requestsIntroFill) {
+                filteredArtists.map(LibraryInsightBatchItem.artist)
+            }
         #endif
     }
 
@@ -166,6 +184,14 @@ struct ArtistListView: View {
                 case .list: artistList.pmAppearFade()
                 }
             }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if browsesLibrary {
+                    LibraryInsightBatchStatusCard(
+                        kind: .artist,
+                        outerPadding: EdgeInsets(top: 6, leading: 16, bottom: 4, trailing: 16)
+                    )
+                }
+            }
             .overlay {
                 if showsEmptyBrowseList {
                     emptyBrowseList
@@ -182,6 +208,8 @@ struct ArtistListView: View {
                         offersBrowseModes: browsesLibrary,
                         showsLikedOnly: $showsLikedOnly,
                         offersLikedFilter: showsLikedFilter,
+                        offersIntroFill: offersIntroFill,
+                        fillIntros: { requestsIntroFill = true },
                         titled: verticalBarEdge != nil
                     )
                 }
@@ -322,6 +350,9 @@ struct ArtistListView: View {
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(PMColor.text)
                     Spacer(minLength: 0)
+                    if offersIntroFill {
+                        LibraryInsightBatchMacButton { requestsIntroFill = true }
+                    }
                     if browsesLibrary {
                         macBrowseModeMenu
                     }
@@ -336,6 +367,13 @@ struct ArtistListView: View {
             .padding(.horizontal, 16)
             .padding(.top, 20)
             .padding(.bottom, 12)
+
+            if browsesLibrary {
+                LibraryInsightBatchStatusCard(
+                    kind: .artist,
+                    outerPadding: EdgeInsets(top: 0, leading: 12, bottom: 10, trailing: 12)
+                )
+            }
 
             if showsEmptyBrowseList {
                 emptyBrowseList
@@ -445,13 +483,15 @@ struct ArtistListView: View {
 
 #if os(iOS)
 /// 艺术家页右上角唯一的一颗「显示」：列哪些人（全部 / 专辑艺术家）、网格还是列表，
-/// 以及有收藏的艺人时「只看收藏的」。
-/// 工具栏条目跑在自己的视图图里，只收 Binding 与 `@AppStorage`，不读环境。
+/// 有收藏的艺人时「只看收藏的」，以及补全缺少的简介。
+/// 工具栏条目跑在自己的视图图里，只收 Binding、闭包与 `@AppStorage`，不读环境。
 private struct ArtistDisplayMenu: View {
     @Binding var modeRaw: String
     let offersBrowseModes: Bool
     @Binding var showsLikedOnly: Bool
     let offersLikedFilter: Bool
+    let offersIntroFill: Bool
+    let fillIntros: () -> Void
     /// 系统竖栏里带上标题(收进溢出菜单时要用),其它时候仍是纯图标。
     var titled = false
 
@@ -490,6 +530,12 @@ private struct ArtistDisplayMenu: View {
                     Toggle(isOn: $showsLikedOnly) {
                         Label("library_favorite_filter", systemImage: "heart")
                     }
+                }
+            }
+
+            if offersIntroFill {
+                Section {
+                    LibraryInsightBatchMenuItem(start: fillIntros)
                 }
             }
         } label: {

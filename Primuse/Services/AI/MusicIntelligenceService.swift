@@ -1167,9 +1167,51 @@ final class MusicIntelligenceService {
     /// listener's own services. An answer saying the AI does not know the
     /// album/artist is a success with `known == false`.
     func libraryInsight(_ request: LibraryInsightAIExchange.Request) async -> AILibraryInsightOutcome {
+        await libraryInsight(request, skipsBuiltIn: false, onBuiltInFailure: { _ in })
+    }
+
+    /// 批量补简介问的一个。`skipsBuiltIn` 时只问自己的服务;`builtInStopped` 说明内置 AI
+    /// 这次的失败后面也不会好(额度用完、不提供、这台设备用不了),后面的就别再先问它。
+    func libraryInsightInBatch(
+        _ request: LibraryInsightAIExchange.Request,
+        skipsBuiltIn: Bool
+    ) async -> (outcome: AILibraryInsightOutcome, builtInStopped: Bool) {
+        var builtInStopped = false
+        let outcome = await libraryInsight(request, skipsBuiltIn: skipsBuiltIn) { error in
+            builtInStopped = Self.primuseRelayStopsTagCleanup(after: error)
+        }
+        return (outcome, builtInStopped)
+    }
+
+    /// 补简介会不会先问内置 AI(按智能设置里的分工)。
+    var libraryInsightAsksBuiltIn: Bool { isPrimuseRelayAvailable(for: .libraryInsight) }
+
+    /// 补简介能问的第一项自己的服务;没有能问的返回 nil。
+    var libraryInsightOwnServiceName: String? {
+        guard canUseOwnProviders(
+            for: .libraryInsight,
+            regionContext: regionAvailability.snapshot.context
+        ) else { return nil }
+        return settingsStore.providerSet.routedProviders(for: .libraryInsight).first {
+            !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }?.displayName
+    }
+
+    /// 内置 AI 今天还剩多少简介额度;问不到返回 nil。
+    func libraryInsightBuiltInAllowance() async -> LibraryInsightBuiltInAllowance? {
+        await primuseRelayClient.libraryInsightAllowance()
+    }
+
+    private func libraryInsight(
+        _ request: LibraryInsightAIExchange.Request,
+        skipsBuiltIn: Bool,
+        onBuiltInFailure: (Error) -> Void
+    ) async -> AILibraryInsightOutcome {
         let run = await runLibraryContentRequest(
             feature: .libraryInsight,
             label: "Library insight",
+            skipsBuiltIn: skipsBuiltIn,
+            onBuiltInFailure: onBuiltInFailure,
             relay: { try await self.primuseRelayClient.libraryInsight(request) },
             custom: { configuration, snapshot, consent in
                 try await self.engine.libraryInsight(
@@ -1257,6 +1299,8 @@ final class MusicIntelligenceService {
     private func runLibraryContentRequest<Value: Sendable>(
         feature: AIFeature,
         label: String,
+        skipsBuiltIn: Bool = false,
+        onBuiltInFailure: (Error) -> Void = { _ in },
         relay: () async throws -> Value,
         custom: (AIRemoteProviderConfiguration, AIRegionSnapshot, Bool) async throws -> Value
     ) async -> LibraryContentRun<Value> {
@@ -1271,7 +1315,7 @@ final class MusicIntelligenceService {
         var relayError: Error?
         var customError: Error?
 
-        if isPrimuseRelayAvailable(for: feature), canUsePrimuseRelay(
+        if !skipsBuiltIn, isPrimuseRelayAvailable(for: feature), canUsePrimuseRelay(
             feature: feature,
             captured: regionSnapshot,
             latest: regionAvailability.snapshot,
@@ -1291,6 +1335,7 @@ final class MusicIntelligenceService {
                 return .failure(.failed(.upstream), retryAt: nil)
             } catch {
                 relayError = error
+                onBuiltInFailure(error)
                 plog("🎵 \(label): built-in AI failed reason=\(AIRecommendationFallbackReason.classify(error)) unsupported=\(Self.primuseRelayDoesNotOfferFeature(error))")
             }
         }

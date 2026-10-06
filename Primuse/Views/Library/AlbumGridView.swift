@@ -4,7 +4,10 @@ import PrimuseKit
 struct AlbumGridView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicIntelligenceService.self) private var intelligence
     @State private var albumFilter = ""
+    /// 右上角菜单里点了「补全缺少的简介」。
+    @State private var requestsIntroFill = false
     /// 只看喜欢的专辑。有喜欢的专辑时才给这个开关。
     @State private var showsLikedOnly = false
     @AppStorage(AlbumGridOrder.storageKey) private var albumOrderRawValue = AlbumGridOrder.defaultOrder.rawValue
@@ -13,6 +16,13 @@ struct AlbumGridView: View {
     private let favorites = LibraryFavoritesStore.shared
 
     private var showsLikedFilter: Bool { showsLikedOnly || favorites.hasLikedAlbums }
+
+    /// 和详情页「添加简介」同一个条件:有 AI 可问、只差授权,或至少能去设置里配一个。
+    private var offersIntroFill: Bool {
+        intelligence.isLibraryInsightAvailable
+            || intelligence.libraryInsightNeedsRemoteConsent
+            || intelligence.shouldExposeRemoteConfiguration
+    }
 
     private var albumOrder: AlbumGridOrder { .resolved(albumOrderRawValue) }
 
@@ -109,8 +119,17 @@ struct AlbumGridView: View {
                     openAlbum(album)
                 }
                 .task(id: orderRequest) { await prepareOrderedAlbums(orderRequest) }
+                .libraryInsightBatchFill(kind: .album, request: $requestsIntroFill) {
+                    filteredAlbums.map(LibraryInsightBatchItem.album)
+                }
             #else
             iosGrid(filteredAlbums, isPreparing: sortedAlbums == nil)
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    LibraryInsightBatchStatusCard(
+                        kind: .album,
+                        outerPadding: EdgeInsets(top: 6, leading: 16, bottom: 4, trailing: 16)
+                    )
+                }
                 .pmExtendsUnderVerticalBar()
                 .libraryPageFind(text: $albumFilter, prompt: "filter_albums_placeholder")
                 .toolbar {
@@ -118,11 +137,16 @@ struct AlbumGridView: View {
                         AlbumGridDisplayMenu(
                             order: albumOrderBinding,
                             showsLikedOnly: $showsLikedOnly,
-                            offersLikedFilter: showsLikedFilter
+                            offersLikedFilter: showsLikedFilter,
+                            offersIntroFill: offersIntroFill,
+                            fillIntros: { requestsIntroFill = true }
                         )
                     }
                 }
                 .task(id: orderRequest) { await prepareOrderedAlbums(orderRequest) }
+                .libraryInsightBatchFill(kind: .album, request: $requestsIntroFill) {
+                    filteredAlbums.map(LibraryInsightBatchItem.album)
+                }
             #endif
         }
     }
@@ -198,6 +222,10 @@ struct AlbumGridView: View {
         return ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
                 albumsHeader(displayedCount: albums.count)
+                LibraryInsightBatchStatusCard(
+                    kind: .album,
+                    outerPadding: EdgeInsets(top: 0, leading: PMSpace.xxxl, bottom: 0, trailing: PMSpace.xxxl)
+                )
 
                 if sortedAlbums == nil {
                     ProgressView()
@@ -283,6 +311,9 @@ struct AlbumGridView: View {
                 albumFilterField
                 if showsLikedFilter {
                     LibraryLikedFilterButton(isOn: $showsLikedOnly)
+                }
+                if offersIntroFill {
+                    LibraryInsightBatchMacButton { requestsIntroFill = true }
                 }
                 albumViewSwitcher
                 albumSortMenu
@@ -568,12 +599,14 @@ final class AlbumGridOrderCache {
 }
 
 #if !os(macOS)
-/// 专辑页右上角唯一的一颗：排序，以及有收藏的专辑时「只看收藏的」。
-/// 工具栏条目跑在自己的视图图里，只收 Binding、不读环境。
+/// 专辑页右上角唯一的一颗：排序，有收藏的专辑时「只看收藏的」，以及补全缺少的简介。
+/// 工具栏条目跑在自己的视图图里，只收 Binding 与闭包、不读环境。
 private struct AlbumGridDisplayMenu: View {
     @Binding var order: AlbumGridOrder
     @Binding var showsLikedOnly: Bool
     let offersLikedFilter: Bool
+    let offersIntroFill: Bool
+    let fillIntros: () -> Void
 
     var body: some View {
         Menu {
@@ -590,6 +623,12 @@ private struct AlbumGridDisplayMenu: View {
                     Toggle(isOn: $showsLikedOnly) {
                         Label("library_favorite_filter", systemImage: "heart")
                     }
+                }
+            }
+
+            if offersIntroFill {
+                Section {
+                    LibraryInsightBatchMenuItem(start: fillIntros)
                 }
             }
         } label: {
