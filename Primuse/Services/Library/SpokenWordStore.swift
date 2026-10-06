@@ -35,6 +35,7 @@ final class SpokenWordStore {
         var bookmarks: [String: [SpokenWordBookmark]]?
         var finishedAt: [String: Date]?
         var bookRates: [String: Float]?
+        var archivedAt: [String: Date]?
         var ledger: SpokenWordSyncLedger?
     }
 
@@ -66,6 +67,10 @@ final class SpokenWordStore {
     /// Speeds the listener picked for single books, by `SpokenWordBook.id`.
     /// Absent means the global spoken-word speed.
     private(set) var bookRates: [String: Float] = [:]
+    /// Books the listener archived, by `SpokenWordBook.id`. They stay on the
+    /// library's shelf in a section of their own and leave every home and
+    /// continue-listening list.
+    private(set) var archivedAt: [String: Date] = [:]
     /// When removals and edits happened, so they survive a merge with a
     /// device that has not seen them yet.
     @ObservationIgnored private var ledger = SpokenWordSyncLedger()
@@ -695,6 +700,32 @@ final class SpokenWordStore {
         didChange(cloud: .prompt)
     }
 
+    // MARK: - Archive
+
+    var archivedBookIDs: Set<String> { Set(archivedAt.keys) }
+
+    func isArchived(bookID: String) -> Bool { archivedAt[bookID] != nil }
+
+    /// Archives books (or takes them back out). Listening to an archived book
+    /// does not take it out; only this does.
+    func setArchived(_ archived: Bool, bookIDs: [String]) {
+        let now = Date()
+        var changed = false
+        for bookID in bookIDs {
+            if archived {
+                guard archivedAt[bookID] == nil else { continue }
+                archivedAt[bookID] = now
+                ledger.unarchivedAt.removeValue(forKey: bookID)
+            } else {
+                guard archivedAt.removeValue(forKey: bookID) != nil else { continue }
+                ledger.unarchivedAt[bookID] = now
+            }
+            changed = true
+        }
+        guard changed else { return }
+        didChange(cloud: .prompt)
+    }
+
     private func resolvedDuration(for song: Song) -> TimeInterval {
         // A bare row can still have a remembered duration from when it played.
         song.duration > 0 ? song.duration : (positions[song.id]?.duration ?? 0)
@@ -736,6 +767,7 @@ final class SpokenWordStore {
         bookmarks = payload.bookmarks ?? [:]
         finishedAt = payload.finishedAt ?? [:]
         bookRates = payload.bookRates ?? [:]
+        archivedAt = payload.archivedAt ?? [:]
         ledger = payload.ledger ?? SpokenWordSyncLedger()
     }
 
@@ -773,6 +805,7 @@ final class SpokenWordStore {
             bookmarks: bookmarks,
             finishedAt: finishedAt,
             bookRates: bookRates,
+            archivedAt: archivedAt,
             ledger: ledger
         )
         guard let data = try? JSONEncoder().encode(payload) else { return }
@@ -790,6 +823,7 @@ final class SpokenWordStore {
             bookmarks: bookmarks,
             overrides: overrides.mapValues(\.rawValue),
             bookRates: bookRates,
+            archivedAt: archivedAt,
             ledger: ledger
         )
     }
@@ -854,6 +888,7 @@ final class SpokenWordStore {
             || records.bookmarks != bookmarks
             || nextOverrides != overrides
             || records.bookRates != bookRates
+            || records.archivedAt != archivedAt
         let overridesChanged = nextOverrides != overrides
         guard contentChanged || records.ledger != ledger else { return }
         positions = nextPositions
@@ -861,6 +896,7 @@ final class SpokenWordStore {
         bookmarks = records.bookmarks
         overrides = nextOverrides
         bookRates = records.bookRates
+        archivedAt = records.archivedAt
         ledger = records.ledger
         guard contentChanged else {
             scheduleSave()

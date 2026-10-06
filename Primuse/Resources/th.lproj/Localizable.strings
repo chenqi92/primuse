@@ -4452,6 +4452,9 @@
 "spoken_word_continue" = "ฟังต่อ";
 "spoken_word_start" = "เริ่มฟัง";
 "spoken_word_finished" = "ฟังจบแล้ว";
+"spoken_word_archive" = "เก็บถาวร";
+"spoken_word_unarchive" = "นำออกจากที่เก็บถาวร";
+"spoken_word_archived_section" = "เก็บถาวรแล้ว";
 "spoken_word_mark_finished" = "ทำเครื่องหมายว่าฟังจบแล้ว";
 "spoken_word_mark_unfinished" = "ทำเครื่องหมายว่ายังฟังไม่จบ";
 "spoken_word_mark_previous_finished" = "ทำเครื่องหมายบทก่อนหน้าว่าฟังจบแล้ว";

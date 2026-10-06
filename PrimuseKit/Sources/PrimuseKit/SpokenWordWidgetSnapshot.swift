@@ -121,10 +121,15 @@ public enum SpokenWordWidgetPolicy {
     /// shared covers can find them.
     public static let coverFilePrefix = "widget_book_"
 
-    /// The books being listened to, most recently heard first.
-    public static func shelfBooks(from books: [SpokenWordBook], limit: Int = shelfLimit) -> [SpokenWordBook] {
+    /// The books being listened to, most recently heard first; archived
+    /// books stay off it.
+    public static func shelfBooks(
+        from books: [SpokenWordBook],
+        archivedBookIDs: Set<String> = [],
+        limit: Int = shelfLimit
+    ) -> [SpokenWordBook] {
         Array(
-            books.filter(\.isInProgress)
+            books.filter { $0.isInProgress && !archivedBookIDs.contains($0.id) }
                 .sorted { ($0.lastListenedAt ?? .distantPast) > ($1.lastListenedAt ?? .distantPast) }
                 .prefix(max(0, limit))
         )

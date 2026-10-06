@@ -4452,6 +4452,9 @@
 "spoken_word_continue" = "Продовжити";
 "spoken_word_start" = "Почати слухати";
 "spoken_word_finished" = "Прослухано";
+"spoken_word_archive" = "Архівувати";
+"spoken_word_unarchive" = "Повернути з архіву";
+"spoken_word_archived_section" = "В архіві";
 "spoken_word_mark_finished" = "Позначити як прослухане";
 "spoken_word_mark_unfinished" = "Позначити як непрослухане";
 "spoken_word_mark_previous_finished" = "Позначити попередні розділи прослуханими";

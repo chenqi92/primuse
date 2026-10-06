@@ -453,7 +453,12 @@ struct HomeSpotlightManagementView: View {
                 content(radioCandidates, isPrepared: true)
             } else {
                 SpokenWordLibraryContent { snapshot in
-                    content(bookCandidates(snapshot), isPrepared: snapshot.isPrepared)
+                    // 归档的书不在候选里,但仍是书:挑过的不当成已删掉清理,取消归档后回到首页。
+                    content(
+                        bookCandidates(snapshot),
+                        isPrepared: snapshot.isPrepared,
+                        retainedIDs: Set(snapshot.archived.map(\.id))
+                    )
                 }
             }
         }
@@ -491,7 +496,7 @@ struct HomeSpotlightManagementView: View {
     }
 
     @ViewBuilder
-    private func content(_ candidates: [Candidate], isPrepared: Bool) -> some View {
+    private func content(_ candidates: [Candidate], isPrepared: Bool, retainedIDs: Set<String> = []) -> some View {
         let current = selection
         let byID = Dictionary(candidates.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         // 资料库还没装载完时不显示「已不存在」的条目,也不清理 —— 那时查不到不代表没了。
@@ -570,7 +575,7 @@ struct HomeSpotlightManagementView: View {
         .onChange(of: isPrepared, initial: true) { _, isPrepared in
             // 已删掉的台 / 书从挑选里清掉,免得「已选 3 个」首页却只出来 1 个。
             guard isPrepared, !candidates.isEmpty else { return }
-            let existing = Set(candidates.map(\.id))
+            let existing = Set(candidates.map(\.id)).union(retainedIDs)
             if current.pinnedIDs.contains(where: { !existing.contains($0) }) {
                 update { $0.prune(keeping: existing) }
             }

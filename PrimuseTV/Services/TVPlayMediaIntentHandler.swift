@@ -748,7 +748,10 @@ final class TVPlayMediaIntentHandler: NSObject,
     private func resolveBook(query: String?, identifiers: [String]) -> TVIntentTarget? {
         let books = spokenWordBooks()
         if identifiers.isEmpty, query == nil {
-            return SiriListeningCatalog.bookToContinue(books).map { .book($0, startingAt: nil) }
+            return SiriListeningCatalog.bookToContinue(
+                books,
+                archivedBookIDs: SpokenWordStore.shared.archivedBookIDs
+            ).map { .book($0, startingAt: nil) }
         }
         guard let resolved = SiriNamedMediaResolver.resolve(
             query: query,

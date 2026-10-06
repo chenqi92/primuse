@@ -44,7 +44,9 @@ struct PrimuseSpokenWordBookQuery: EntityStringQuery {
     /// The values of "用 Primuse 继续听<书名>".
     func suggestedEntities() async throws -> [PrimuseSpokenWordBookEntity] {
         let books = await AppServices.shared.siriSpokenWordBooksWhenReady()
-        return SiriListeningCatalog.shortcutBooks(books).map(PrimuseSpokenWordBookEntity.init)
+        let archived = await MainActor.run { SpokenWordStore.shared.archivedBookIDs }
+        return SiriListeningCatalog.shortcutBooks(books, archivedBookIDs: archived)
+            .map(PrimuseSpokenWordBookEntity.init)
     }
 }
 
@@ -71,7 +73,10 @@ struct PrimuseContinueListeningIntent: AudioPlaybackIntent {
                 return .result(dialog: IntentDialog("intent_book_not_found"))
             }
         } else {
-            candidate = SiriListeningCatalog.bookToContinue(books)
+            candidate = SiriListeningCatalog.bookToContinue(
+                books,
+                archivedBookIDs: SpokenWordStore.shared.archivedBookIDs
+            )
         }
         guard let chosen = candidate else {
             if books.isEmpty {
@@ -285,7 +290,10 @@ extension AppServices {
     }
 
     var siriShortcutBooks: [SpokenWordBook] {
-        SiriListeningCatalog.shortcutBooks(siriSpokenWordBooks)
+        SiriListeningCatalog.shortcutBooks(
+            siriSpokenWordBooks,
+            archivedBookIDs: SpokenWordStore.shared.archivedBookIDs
+        )
     }
 
     /// Starts a book where it was left and returns at once: the first

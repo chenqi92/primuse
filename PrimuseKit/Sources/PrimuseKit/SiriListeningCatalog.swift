@@ -12,17 +12,23 @@ public enum SiriListeningCatalog {
     public static let podcastShowLimit = 8
 
     /// Books in "continue listening" order — `SpokenWordBookGrouping.books`
-    /// already puts books in progress first, most recent first.
+    /// already puts books in progress first, most recent first. Archived
+    /// books are not offered; asking for one by name still finds it.
     public static func shortcutBooks(
         _ books: [SpokenWordBook],
+        archivedBookIDs: Set<String> = [],
         limit: Int = bookLimit
     ) -> [SpokenWordBook] {
-        Array(books.prefix(max(0, limit)))
+        Array(books.lazy.filter { !archivedBookIDs.contains($0.id) }.prefix(max(0, limit)))
     }
 
-    /// "继续听书" without a title: the book last listened to and not finished.
-    public static func bookToContinue(_ books: [SpokenWordBook]) -> SpokenWordBook? {
-        books.filter(\.isInProgress).max { lhs, rhs in
+    /// "继续听书" without a title: the book last listened to and not finished
+    /// nor archived.
+    public static func bookToContinue(
+        _ books: [SpokenWordBook],
+        archivedBookIDs: Set<String> = []
+    ) -> SpokenWordBook? {
+        books.filter { $0.isInProgress && !archivedBookIDs.contains($0.id) }.max { lhs, rhs in
             (lhs.lastListenedAt ?? .distantPast) < (rhs.lastListenedAt ?? .distantPast)
         }
     }

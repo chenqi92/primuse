@@ -244,6 +244,25 @@ struct SpokenWordBookGroupingTests {
         #expect(books[0].fractionComplete == 1)
     }
 
+    @Test("Archived books leave the car, the widget and Siri's continue")
+    func archivedBooksLeaveContinueSurfaces() throws {
+        let books = SpokenWordBookGrouping.books(from: [
+            chapter("a1", track: 1, position: 100, updated: 50),
+            chapter("b1", album: "Emma", author: "Jane Austen", track: 1, position: 100, updated: 40),
+        ])
+        let archivedID = try #require(books.first { $0.items.contains { $0.id == "a1" } }).id
+        let archived: Set<String> = [archivedID]
+
+        let car = SpokenWordCarPlayShelfPolicy.sections(from: books, archivedBookIDs: archived, limit: 10)
+            .flatMap(\.books)
+        #expect(car.count == 1)
+        #expect(!car.contains { $0.id == archivedID })
+        #expect(!SpokenWordWidgetPolicy.shelfBooks(from: books, archivedBookIDs: archived).contains { $0.id == archivedID })
+        #expect(SiriListeningCatalog.bookToContinue(books)?.id == archivedID)
+        #expect(SiriListeningCatalog.bookToContinue(books, archivedBookIDs: archived)?.id != archivedID)
+        #expect(!SiriListeningCatalog.shortcutBooks(books, archivedBookIDs: archived).contains { $0.id == archivedID })
+    }
+
     @Test("A finished book heard again stays finished and continues from the replay")
     func finishedBookHeardAgain() {
         let books = SpokenWordBookGrouping.books(from: [

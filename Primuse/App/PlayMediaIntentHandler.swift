@@ -965,7 +965,10 @@ final class PlayMediaIntentHandler: NSObject,
     private static func resolveBook(query: String?, identifiers: [String]) -> IntentTarget? {
         let books = AppServices.shared.siriSpokenWordBooks
         if identifiers.isEmpty, query == nil {
-            return SiriListeningCatalog.bookToContinue(books).map { .book($0, startingAt: nil) }
+            return SiriListeningCatalog.bookToContinue(
+                books,
+                archivedBookIDs: SpokenWordStore.shared.archivedBookIDs
+            ).map { .book($0, startingAt: nil) }
         }
         guard let resolved = SiriNamedMediaResolver.resolve(
             query: query,

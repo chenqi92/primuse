@@ -398,11 +398,14 @@ public enum SpokenWordCarPlayShelfPolicy {
 
     /// - Parameters:
     ///   - books: as `SpokenWordBookGrouping.books` returns them.
+    ///   - archivedBookIDs: books the listener archived; the car leaves them out.
     ///   - limit: how many rows the car's list takes in total.
     public static func sections(
         from books: [SpokenWordBook],
+        archivedBookIDs: Set<String> = [],
         limit: Int
     ) -> [(section: Section, books: [SpokenWordBook])] {
+        let books = books.filter { !archivedBookIDs.contains($0.id) }
         let inProgress = books.filter(\.isInProgress)
             .sorted { ($0.lastListenedAt ?? .distantPast) > ($1.lastListenedAt ?? .distantPast) }
         let shelf = books.filter { !$0.isInProgress && !$0.isFinished }

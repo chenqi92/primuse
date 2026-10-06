@@ -4546,6 +4546,9 @@
 "spoken_word_continue" = "Weiterhören";
 "spoken_word_start" = "Anhören";
 "spoken_word_finished" = "Fertig gehört";
+"spoken_word_archive" = "Archivieren";
+"spoken_word_unarchive" = "Aus dem Archiv holen";
+"spoken_word_archived_section" = "Archiviert";
 "spoken_word_mark_finished" = "Als gehört markieren";
 "spoken_word_mark_unfinished" = "Als ungehört markieren";
 "spoken_word_mark_previous_finished" = "Frühere Kapitel als gehört markieren";

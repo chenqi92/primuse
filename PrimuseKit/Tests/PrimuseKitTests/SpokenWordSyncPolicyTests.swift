@@ -85,6 +85,25 @@ struct SpokenWordSyncPolicyTests {
         #expect(Policy.decode(data) == state)
     }
 
+    @Test func archivedBooksTravelAndComeBackOut() throws {
+        let archived = SpokenWordSyncState(archived: ["book": .init(value: true, stamp: at(10))])
+        let restored = SpokenWordSyncState(archived: ["book": .init(value: nil, stamp: at(20))])
+        #expect(Policy.merge(archived, restored).archived["book"]?.value == nil)
+        #expect(Policy.merge(restored, archived).archived["book"]?.value == nil)
+
+        let records = Policy.records(from: archived)
+        #expect(records.archivedAt["book"] == at(10))
+        #expect(Policy.state(from: records) == archived)
+        let back = Policy.records(from: restored)
+        #expect(back.ledger.unarchivedAt["book"] == at(20))
+        #expect(Policy.state(from: back) == restored)
+
+        let data = try #require(Policy.encode(archived))
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["a"] != nil)
+        #expect(Policy.decode(data) == archived)
+    }
+
     @Test func aCapThatDropsAFinishedMarkDropsItsReplayPositionToo() {
         var finished: [String: SpokenWordSyncRegister<Bool>] = [:]
         for index in 0...Policy.maximumFinished {

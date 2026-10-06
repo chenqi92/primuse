@@ -66,6 +66,7 @@ struct TVSpokenWordView: View {
 
     @State private var selectedBook: SpokenWordBook?
     @State private var showsFinished = false
+    @State private var showsArchived = false
     @State private var opensPlayerAfterDetailDismissal = false
 
     // 书的封面是竖长的:一行六本,行高才和方形封面时的五本相当(见 `TVBrowseGridMetrics`)。
@@ -74,9 +75,13 @@ struct TVSpokenWordView: View {
     var body: some View {
         let spokenStore = SpokenWordStore.shared
         let books = TVSpokenWordBooks.books(songs: store.library.spokenWordSongs, store: spokenStore)
-        let listening = books.filter(\.isInProgress)
-        let shelf = books.filter { !$0.isFinished }
-        let finished = books.filter(\.isFinished)
+        // 归档的书只在最下面那一节,不进在听、书架和已听完。
+        let archivedIDs = spokenStore.archivedBookIDs
+        let active = books.filter { !archivedIDs.contains($0.id) }
+        let archived = books.filter { archivedIDs.contains($0.id) }
+        let listening = active.filter(\.isInProgress)
+        let shelf = active.filter { !$0.isFinished }
+        let finished = active.filter(\.isFinished)
 
         GeometryReader { geo in
             let cell = gridMetrics.cellWidth(pageWidth: geo.size.width)
@@ -118,7 +123,20 @@ struct TVSpokenWordView: View {
                             )
                         }
                         if !finished.isEmpty {
-                            finishedSection(finished, cell: cell)
+                            collapsibleSection(
+                                title: String(localized: "spoken_word_finished"),
+                                books: finished,
+                                isExpanded: $showsFinished,
+                                cell: cell
+                            )
+                        }
+                        if !archived.isEmpty {
+                            collapsibleSection(
+                                title: String(localized: "spoken_word_archived_section"),
+                                books: archived,
+                                isExpanded: $showsArchived,
+                                cell: cell
+                            )
                         }
                     }
                 }
@@ -152,17 +170,22 @@ struct TVSpokenWordView: View {
         }
     }
 
-    private func finishedSection(_ books: [SpokenWordBook], cell: CGFloat) -> some View {
+    private func collapsibleSection(
+        title: String,
+        books: [SpokenWordBook],
+        isExpanded: Binding<Bool>,
+        cell: CGFloat
+    ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             TVPillButton(
-                title: String(localized: "spoken_word_finished") + " · \(books.count)",
-                systemImage: showsFinished ? "chevron.down" : "chevron.right",
-                isSelected: showsFinished
+                title: title + " · \(books.count)",
+                systemImage: isExpanded.wrappedValue ? "chevron.down" : "chevron.right",
+                isSelected: isExpanded.wrappedValue
             ) {
-                showsFinished.toggle()
+                isExpanded.wrappedValue.toggle()
             }
             .padding(.horizontal, 14)
-            if showsFinished {
+            if isExpanded.wrappedValue {
                 grid(books, cell: cell)
             }
         }
@@ -191,6 +214,15 @@ struct TVSpokenWordView: View {
         }
         Button { selectedBook = book } label: {
             Label(String(localized: "tv_spoken_word_chapters"), systemImage: "list.bullet")
+        }
+        let isArchived = SpokenWordStore.shared.isArchived(bookID: book.id)
+        Button {
+            SpokenWordStore.shared.setArchived(!isArchived, bookIDs: [book.id])
+        } label: {
+            Label(
+                isArchived ? String(localized: "spoken_word_unarchive") : String(localized: "spoken_word_archive"),
+                systemImage: isArchived ? "tray.and.arrow.up" : "archivebox"
+            )
         }
     }
 

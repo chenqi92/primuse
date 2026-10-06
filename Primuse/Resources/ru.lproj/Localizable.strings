@@ -4452,6 +4452,9 @@
 "spoken_word_continue" = "Продолжить";
 "spoken_word_start" = "Начать прослушивание";
 "spoken_word_finished" = "Прослушано";
+"spoken_word_archive" = "Архивировать";
+"spoken_word_unarchive" = "Вернуть из архива";
+"spoken_word_archived_section" = "В архиве";
 "spoken_word_mark_finished" = "Отметить как прослушанное";
 "spoken_word_mark_unfinished" = "Отметить как непрослушанное";
 "spoken_word_mark_previous_finished" = "Отметить предыдущие главы прослушанными";

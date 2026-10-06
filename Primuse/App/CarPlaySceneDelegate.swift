@@ -1712,6 +1712,7 @@ extension CarPlaySceneDelegate {
         var artworkIndex = 0
         return SpokenWordCarPlayShelfPolicy.sections(
             from: books,
+            archivedBookIDs: store.archivedBookIDs,
             limit: CPListTemplate.maximumItemCount
         ).map { section, books in
             let items = books.map { book -> CPListItem in

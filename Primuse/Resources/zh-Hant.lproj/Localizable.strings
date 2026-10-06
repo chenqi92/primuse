@@ -4523,6 +4523,9 @@
 "spoken_word_continue" = "繼續收聽";
 "spoken_word_start" = "開始收聽";
 "spoken_word_finished" = "已聽完";
+"spoken_word_archive" = "封存";
+"spoken_word_unarchive" = "取消封存";
+"spoken_word_archived_section" = "已封存";
 "spoken_word_mark_finished" = "標記為已聽完";
 "spoken_word_mark_unfinished" = "標記為未聽完";
 "spoken_word_mark_previous_finished" = "將之前的章節標記為已聽完";

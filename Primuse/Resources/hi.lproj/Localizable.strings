@@ -4452,6 +4452,9 @@
 "spoken_word_continue" = "जारी रखें";
 "spoken_word_start" = "सुनना शुरू करें";
 "spoken_word_finished" = "पूरा सुना";
+"spoken_word_archive" = "आर्काइव करें";
+"spoken_word_unarchive" = "आर्काइव से निकालें";
+"spoken_word_archived_section" = "आर्काइव किए गए";
 "spoken_word_mark_finished" = "सुना हुआ चिह्नित करें";
 "spoken_word_mark_unfinished" = "न सुना हुआ चिह्नित करें";
 "spoken_word_mark_previous_finished" = "पिछले अध्याय सुने हुए चिह्नित करें";

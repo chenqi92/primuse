@@ -13,9 +13,11 @@ struct SpokenWordLibrarySnapshot: Sendable {
     let nowListening: Entry?
     let shelf: [Entry]
     let finished: [Entry]
+    /// 归档的书:书架页最下面单独一节,不进上面三节,也不进首页与「接着听」。
+    let archived: [Entry]
     let isPrepared: Bool
 
-    /// 每本书一次:在听的、书架、已听完,与书架页从上到下的顺序一致。
+    /// 每本书一次:在听的、书架、已听完,与书架页从上到下的顺序一致。归档的不在里面。
     var allEntries: [Entry] {
         (nowListening.map { [$0] } ?? []) + shelf + finished
     }
@@ -29,11 +31,18 @@ struct SpokenWordLibrarySnapshot: Sendable {
             .compactMap { entriesByID[$0] }
     }
 
-    init(books: [SpokenWordBook] = [], songsByID: [String: Song] = [:], isPrepared: Bool = true) {
-        let entries = books.map { book in
+    init(
+        books: [SpokenWordBook] = [],
+        songsByID: [String: Song] = [:],
+        archivedBookIDs: Set<String> = [],
+        isPrepared: Bool = true
+    ) {
+        let all = books.map { book in
             Entry(book: book, songs: book.items.compactMap { songsByID[$0.id] })
         }
-        entriesByID = Dictionary(entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        entriesByID = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        archived = all.filter { archivedBookIDs.contains($0.id) }
+        let entries = all.filter { !archivedBookIDs.contains($0.id) }
         let progressing = entries.filter { $0.book.isInProgress }
         inProgress = progressing.map { ($0.book, $0.songs) }
         let current = progressing.max {
@@ -59,7 +68,8 @@ final class SpokenWordBooksModel {
     func refresh(
         songs: [Song],
         positions: [String: SpokenWordStore.StoredPosition],
-        finishedAt: [String: Date]
+        finishedAt: [String: Date],
+        archived: Set<String> = []
     ) async {
         guard !Task.isCancelled else { return }
         requestRevision &+= 1
@@ -86,7 +96,7 @@ final class SpokenWordBooksModel {
             }
             let books = SpokenWordBookGrouping.books(from: items)
             try Task.checkCancellation()
-            return SpokenWordLibrarySnapshot(books: books, songsByID: songsByID)
+            return SpokenWordLibrarySnapshot(books: books, songsByID: songsByID, archivedBookIDs: archived)
         }
         let result = await withTaskCancellationHandler {
             try? await worker.value
@@ -114,7 +124,12 @@ struct SpokenWordLibraryContent<Content: View>: View {
         content(books.snapshot)
             .task(id: RefreshIdentity(libraryRevision: library.spokenWordContentRevision, progressRevision: progressRevision)) {
                 let store = SpokenWordStore.shared
-                await books.refresh(songs: library.spokenWordSongs, positions: store.positions, finishedAt: store.finishedAt)
+                await books.refresh(
+                    songs: library.spokenWordSongs,
+                    positions: store.positions,
+                    finishedAt: store.finishedAt,
+                    archived: store.archivedBookIDs
+                )
             }
             .onReceive(NotificationCenter.default.publisher(for: .primuseSpokenWordDidChange)) { _ in
                 progressRevision &+= 1
@@ -234,15 +249,17 @@ struct SpokenWordLibraryView: View {
     }
 }
 
-/// 书架本身:在听的那本大卡、书架网格、折叠的已听完。有声页与首页的「有声」一面共用,
+/// 书架本身:在听的那本大卡、书架网格、折叠的已听完与已归档。有声页与首页的「有声」一面共用,
 /// 外面的滚动容器与边距由放它的地方给。
 struct SpokenWordShelf: View {
     /// 书架页「在本页里找」的输入; 首页那一面不传。
     var findText = ""
+    /// 首页那一面不摆归档的书。
+    var showsArchived = true
 
     var body: some View {
         SpokenWordLibraryContent { snapshot in
-            SpokenWordShelfContent(snapshot: snapshot, findText: findText)
+            SpokenWordShelfContent(snapshot: snapshot, findText: findText, showsArchived: showsArchived)
         }
     }
 }
@@ -250,9 +267,11 @@ struct SpokenWordShelf: View {
 struct SpokenWordShelfContent: View {
     let snapshot: SpokenWordLibrarySnapshot
     var findText = ""
+    var showsArchived = true
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
     @AppStorage("spokenWord.shelf.showsFinished") private var showsFinished = false
+    @AppStorage("spokenWord.shelf.expandsArchived") private var expandsArchived = false
     @AppStorage("spokenWord.shelf.layout") private var layout = SpokenWordShelfLayout.bookshelf
     @AppStorage("spokenWord.shelf.order") private var savedOrder = ""
     @AppStorage(HomeSpotlightSelection.booksStorageKey) private var homeSpotlightRawValue = ""
@@ -294,6 +313,7 @@ struct SpokenWordShelfContent: View {
         }
         let shelf = ordered(snapshot.shelf, preferred: preferred).filter(matches)
         let finished = ordered(snapshot.finished, preferred: preferred).filter(matches)
+        let archived = showsArchived ? ordered(snapshot.archived, preferred: preferred).filter(matches) : []
         let nowListening = snapshot.nowListening.flatMap { matches($0) ? $0 : nil }
         return LazyVStack(alignment: .leading, spacing: 28) {
             if !snapshot.isPrepared {
@@ -302,7 +322,7 @@ struct SpokenWordShelfContent: View {
             }
 
             if findQuery != nil, snapshot.isPrepared,
-               nowListening == nil, shelf.isEmpty, finished.isEmpty {
+               nowListening == nil, shelf.isEmpty, finished.isEmpty, archived.isEmpty {
                 ContentUnavailableView.search(text: findText)
                     .frame(maxWidth: .infinity)
                     .padding(.top, 40)
@@ -365,6 +385,39 @@ struct SpokenWordShelfContent: View {
                     }
                 }
             }
+
+            if !archived.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Button {
+                        pmWithAnimation(.panel) { expandsArchived.toggle() }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text("spoken_word_archived_section")
+                                .font(.title3.weight(.semibold))
+                            Text(verbatim: "\(archived.count)")
+                                .font(.subheadline.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .rotationEffect(.degrees(expandsArchived ? 90 : 0))
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("spokenWord.shelf.archived")
+                    .pmClearOfVerticalBar()
+
+                    if expandsArchived || findQuery != nil {
+                        bookCollection(archived)
+                            .opacity(0.72)
+                            .pmFadeTransition(motion: .panel)
+                    }
+                }
+            }
         }
     }
 
@@ -407,7 +460,8 @@ struct SpokenWordShelfContent: View {
     }
 
     private func moveBook(_ id: String, onto target: String, entries: [SpokenWordLibrarySnapshot.Entry]) -> Bool {
-        let allIDs = snapshot.shelf.map(\.id) + snapshot.finished.map(\.id) + [snapshot.nowListening?.id].compactMap { $0 }
+        let allIDs = snapshot.shelf.map(\.id) + snapshot.finished.map(\.id) + snapshot.archived.map(\.id)
+            + [snapshot.nowListening?.id].compactMap { $0 }
         guard let moved = SpokenWordShelfOrder.moving(
             id, onto: target, visible: entries.map(\.id),
             preferred: SpokenWordShelfOrder.decode(savedOrder), allIDs: allIDs
@@ -524,18 +578,31 @@ struct SpokenWordShelfContent: View {
             Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
         }
         .disabled(songs.isEmpty)
-        // 首页的「有声书」一排放哪些书。Mac 首页挑过就放挑中的,没挑过仍只列在听的书。
-        let homeSelection = HomeSpotlightSelection.decode(homeSpotlightRawValue)
-        let isOnHome = homeSelection.isPinned(book.id)
+        // 归档的书不上首页,也就不给「放到首页」。
+        let isArchived = store.isArchived(bookID: book.id)
+        if !isArchived {
+            // 首页的「有声书」一排放哪些书。Mac 首页挑过就放挑中的,没挑过仍只列在听的书。
+            let homeSelection = HomeSpotlightSelection.decode(homeSpotlightRawValue)
+            let isOnHome = homeSelection.isPinned(book.id)
+            Button {
+                var updated = homeSelection
+                updated.togglePin(book.id)
+                homeSpotlightRawValue = updated.encoded()
+            } label: {
+                Label(
+                    String(localized: isOnHome ? "home_spotlight_remove" : "home_spotlight_add"),
+                    systemImage: isOnHome ? "house.slash" : "house"
+                )
+            }
+        }
         Button {
-            var updated = homeSelection
-            updated.togglePin(book.id)
-            homeSpotlightRawValue = updated.encoded()
+            store.setArchived(!isArchived, bookIDs: [book.id])
         } label: {
-            Label(
-                String(localized: isOnHome ? "home_spotlight_remove" : "home_spotlight_add"),
-                systemImage: isOnHome ? "house.slash" : "house"
-            )
+            if isArchived {
+                Label(String(localized: "spoken_word_unarchive"), systemImage: "tray.and.arrow.up")
+            } else {
+                Label(String(localized: "spoken_word_archive"), systemImage: "archivebox")
+            }
         }
         Button {
             store.setKind(.music, forSongIDs: book.items.map(\.id))

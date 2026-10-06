@@ -241,7 +241,11 @@ struct CarPlayEditorCanvas: View {
         let books = SpokenWordBookGrouping.books(
             from: library.spokenWordSongs.map { SpokenWordBookSupport.item(for: $0, store: .shared) }
         )
-        let listed = SpokenWordCarPlayShelfPolicy.sections(from: books, limit: 60).flatMap(\.books)
+        let listed = SpokenWordCarPlayShelfPolicy.sections(
+            from: books,
+            archivedBookIDs: SpokenWordStore.shared.archivedBookIDs,
+            limit: 60
+        ).flatMap(\.books)
         ForEach(listed) { book in
             menuRow(book.title, symbol: CarPlayMainTab.Kind.spokenWord.symbol)
         }

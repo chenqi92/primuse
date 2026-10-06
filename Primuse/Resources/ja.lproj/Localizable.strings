@@ -4547,6 +4547,9 @@
 "spoken_word_continue" = "続きから再生";
 "spoken_word_start" = "最初から再生";
 "spoken_word_finished" = "聴き終わり";
+"spoken_word_archive" = "アーカイブ";
+"spoken_word_unarchive" = "アーカイブから戻す";
+"spoken_word_archived_section" = "アーカイブ済み";
 "spoken_word_mark_finished" = "聴き終わりにする";
 "spoken_word_mark_unfinished" = "未聴にする";
 "spoken_word_mark_previous_finished" = "これより前を聴き終わりにする";

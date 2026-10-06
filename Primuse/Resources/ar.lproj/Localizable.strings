@@ -4452,6 +4452,9 @@
 "spoken_word_continue" = "متابعة";
 "spoken_word_start" = "بدء الاستماع";
 "spoken_word_finished" = "تم الاستماع";
+"spoken_word_archive" = "أرشفة";
+"spoken_word_unarchive" = "إلغاء الأرشفة";
+"spoken_word_archived_section" = "المؤرشفة";
 "spoken_word_mark_finished" = "وضع علامة كمسموع";
 "spoken_word_mark_unfinished" = "وضع علامة كغير مسموع";
 "spoken_word_mark_previous_finished" = "وضع علامة على الفصول السابقة كمسموعة";

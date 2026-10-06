@@ -4639,6 +4639,9 @@
 "spoken_word_continue" = "继续收听";
 "spoken_word_start" = "开始收听";
 "spoken_word_finished" = "已听完";
+"spoken_word_archive" = "归档";
+"spoken_word_unarchive" = "取消归档";
+"spoken_word_archived_section" = "已归档";
 "spoken_word_mark_finished" = "标记为已听完";
 "spoken_word_mark_unfinished" = "标记为未听完";
 "spoken_word_mark_previous_finished" = "将之前的章节标记为已听完";

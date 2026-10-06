@@ -4452,6 +4452,9 @@
 "spoken_word_continue" = "Continuar";
 "spoken_word_start" = "Empezar a escuchar";
 "spoken_word_finished" = "Terminado";
+"spoken_word_archive" = "Archivar";
+"spoken_word_unarchive" = "Desarchivar";
+"spoken_word_archived_section" = "Archivados";
 "spoken_word_mark_finished" = "Marcar como terminado";
 "spoken_word_mark_unfinished" = "Marcar como no terminado";
 "spoken_word_mark_previous_finished" = "Marcar capítulos anteriores como terminados";

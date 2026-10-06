@@ -2119,11 +2119,13 @@ private struct MacHomeResumeShelf: View {
             cardsBySpace[.radio] = .radio(station, lastPlayedAt: lastPlayedAt)
         }
 
-        // 有声: 最近在听、还没听完的那本 (书架排序已把它排在最前)。
+        // 有声: 最近在听、还没听完的那本 (书架排序已把它排在最前); 归档的书不算。
         if !library.spokenWordSongs.isEmpty {
             _ = store.revision
             let items = library.spokenWordSongs.map { SpokenWordBookSupport.item(for: $0, store: store) }
-            if let book = SpokenWordBookGrouping.books(from: items).first(where: \.isInProgress),
+            let archived = store.archivedBookIDs
+            if let book = SpokenWordBookGrouping.books(from: items)
+                .first(where: { $0.isInProgress && !archived.contains($0.id) }),
                let lastListenedAt = book.lastListenedAt {
                 let songsByID = Dictionary(
                     library.spokenWordSongs.map { ($0.id, $0) },
@@ -2436,11 +2438,13 @@ private struct MacHomeBooksStrip: View {
         return entries(for: picked)
     }
 
+    /// 首页上的书:归档的不在其中。
     private var allBooks: [SpokenWordBook] {
         guard !library.spokenWordSongs.isEmpty else { return [] }
         _ = store.revision
         let items = library.spokenWordSongs.map { SpokenWordBookSupport.item(for: $0, store: store) }
-        return SpokenWordBookGrouping.books(from: items)
+        let archived = store.archivedBookIDs
+        return SpokenWordBookGrouping.books(from: items).filter { !archived.contains($0.id) }
     }
 
     private func entries(for books: [SpokenWordBook]) -> [Entry] {

@@ -4309,6 +4309,9 @@
 "spoken_word_continue" = "Continue";
 "spoken_word_start" = "Start Listening";
 "spoken_word_finished" = "Finished";
+"spoken_word_archive" = "Archive";
+"spoken_word_unarchive" = "Unarchive";
+"spoken_word_archived_section" = "Archived";
 "spoken_word_mark_finished" = "Mark as Finished";
 "spoken_word_mark_unfinished" = "Mark as Unfinished";
 "spoken_word_mark_previous_finished" = "Mark Earlier Chapters as Finished";

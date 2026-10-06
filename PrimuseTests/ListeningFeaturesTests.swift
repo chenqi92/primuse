@@ -176,6 +176,35 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertFalse(store.isFinished(songID: "ch1"), "only marking it unheard reopens it")
     }
 
+    func testArchivingABookPersistsAndKeepsItOutOfTheShelfSections() throws {
+        let url = makeDirectory().appendingPathComponent("archive.json")
+        let store = SpokenWordStore(storeURL: url)
+        store.setArchived(true, bookIDs: ["book:a"])
+        store.persistLocally()
+        XCTAssertTrue(SpokenWordStore(storeURL: url).isArchived(bookID: "book:a"))
+        store.setArchived(false, bookIDs: ["book:a"])
+        XCTAssertFalse(store.isArchived(bookID: "book:a"))
+
+        let now = Date()
+        let books = SpokenWordBookGrouping.books(from: [
+            SpokenWordBookItem(
+                id: "1", title: "01", albumTitle: "Dune", albumArtist: "Frank Herbert", duration: 600,
+                fileName: "/dune/01.mp3", sourceID: "s", position: 60, positionUpdatedAt: now
+            ),
+            SpokenWordBookItem(
+                id: "2", title: "01", albumTitle: "Emma", albumArtist: "Jane Austen", duration: 600,
+                fileName: "/emma/01.mp3", sourceID: "s", position: 60, positionUpdatedAt: now
+            ),
+        ])
+        let dune = try XCTUnwrap(books.first { $0.items.contains { $0.id == "1" } })
+        let snapshot = SpokenWordLibrarySnapshot(books: books, archivedBookIDs: [dune.id])
+        XCTAssertEqual(snapshot.archived.map(\.id), [dune.id])
+        XCTAssertFalse(snapshot.allEntries.contains { $0.id == dune.id })
+        XCTAssertFalse(snapshot.inProgress.contains { $0.0.id == dune.id })
+        XCTAssertNotEqual(snapshot.nowListening?.id, dune.id)
+        XCTAssertNotNil(snapshot.entriesByID[dune.id])
+    }
+
     func testBookmarksAndFinishedMarksPersistAndOldFilesStillLoad() throws {
         let url = makeDirectory().appendingPathComponent("spoken.json")
         let store = SpokenWordStore(storeURL: url)

@@ -82,12 +82,14 @@ final class SpokenWordWidgetPublisher {
         let songs = library.spokenWordSongs
         let positions = store.positions
         let finishedAt = store.finishedAt
+        let archived = store.archivedBookIDs
         let alreadyWritten = writtenCovers
         let (entries, written) = await Task.detached(priority: .utility) {
             let shelf = Self.shelfEntries(
                 songs: songs,
                 positions: positions,
                 finishedAt: finishedAt,
+                archived: archived,
                 scope: scope,
                 alreadyWritten: alreadyWritten
             )
@@ -121,6 +123,7 @@ final class SpokenWordWidgetPublisher {
         songs: [Song],
         positions: [String: SpokenWordStore.StoredPosition],
         finishedAt: [String: Date],
+        archived: Set<String>,
         scope: WidgetSharedDataScope,
         alreadyWritten: Set<String>
     ) -> (entries: [SpokenWordShelfSnapshot.Book], coverJobs: [CoverJob]) {
@@ -135,7 +138,7 @@ final class SpokenWordWidgetPublisher {
                 finishedAt: finishedAt[song.id]
             )
         })
-        let shelf = SpokenWordWidgetPolicy.shelfBooks(from: books)
+        let shelf = SpokenWordWidgetPolicy.shelfBooks(from: books, archivedBookIDs: archived)
 
         var coverJobs: [CoverJob] = []
         let entries = shelf.map { book -> SpokenWordShelfSnapshot.Book in

@@ -54,26 +54,30 @@ public struct SpokenWordSyncState: Codable, Equatable, Sendable {
     public var rates: [String: SpokenWordSyncRegister<Float>]
     /// Keyed by the bookmark's UUID string.
     public var bookmarks: [String: SpokenWordSyncRegister<SpokenWordBookmark>]
+    /// Per book: `true` = archived at `stamp`; a tombstone = back on the shelf.
+    public var archived: [String: SpokenWordSyncRegister<Bool>]
 
     public init(
         positions: [String: SpokenWordSyncRegister<SpokenWordSyncPosition>] = [:],
         finished: [String: SpokenWordSyncRegister<Bool>] = [:],
         overrides: [String: SpokenWordSyncRegister<String>] = [:],
         rates: [String: SpokenWordSyncRegister<Float>] = [:],
-        bookmarks: [String: SpokenWordSyncRegister<SpokenWordBookmark>] = [:]
+        bookmarks: [String: SpokenWordSyncRegister<SpokenWordBookmark>] = [:],
+        archived: [String: SpokenWordSyncRegister<Bool>] = [:]
     ) {
         self.positions = positions
         self.finished = finished
         self.overrides = overrides
         self.rates = rates
         self.bookmarks = bookmarks
+        self.archived = archived
     }
 
     public static let empty = SpokenWordSyncState()
 
     public var isEmpty: Bool {
         positions.isEmpty && finished.isEmpty && overrides.isEmpty
-            && rates.isEmpty && bookmarks.isEmpty
+            && rates.isEmpty && bookmarks.isEmpty && archived.isEmpty
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -87,6 +91,7 @@ public struct SpokenWordSyncState: Codable, Equatable, Sendable {
         /// newer position as reopened and would push that to every device; it
         /// skips a section it does not know.
         case replayPositions = "rp"
+        case archived = "a"
     }
 
     public init(from decoder: Decoder) throws {
@@ -101,6 +106,7 @@ public struct SpokenWordSyncState: Codable, Equatable, Sendable {
         overrides = try container.decodeIfPresent([String: SpokenWordSyncRegister<String>].self, forKey: .overrides) ?? [:]
         rates = try container.decodeIfPresent([String: SpokenWordSyncRegister<Float>].self, forKey: .rates) ?? [:]
         bookmarks = try container.decodeIfPresent([String: SpokenWordSyncRegister<SpokenWordBookmark>].self, forKey: .bookmarks) ?? [:]
+        archived = try container.decodeIfPresent([String: SpokenWordSyncRegister<Bool>].self, forKey: .archived) ?? [:]
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -113,6 +119,7 @@ public struct SpokenWordSyncState: Codable, Equatable, Sendable {
         if !overrides.isEmpty { try container.encode(overrides, forKey: .overrides) }
         if !rates.isEmpty { try container.encode(rates, forKey: .rates) }
         if !bookmarks.isEmpty { try container.encode(bookmarks, forKey: .bookmarks) }
+        if !archived.isEmpty { try container.encode(archived, forKey: .archived) }
     }
 }
 
@@ -131,6 +138,8 @@ public struct SpokenWordSyncLedger: Codable, Equatable, Sendable {
     /// Last edit (creation or rename) of a live bookmark, by UUID string.
     public var bookmarkEditedAt: [String: Date]
     public var bookmarkDeletedAt: [String: Date]
+    /// Taken out of the archive, by book id.
+    public var unarchivedAt: [String: Date]
 
     public init(
         positionClearedAt: [String: Date] = [:],
@@ -138,7 +147,8 @@ public struct SpokenWordSyncLedger: Codable, Equatable, Sendable {
         overrideChangedAt: [String: Date] = [:],
         rateChangedAt: [String: Date] = [:],
         bookmarkEditedAt: [String: Date] = [:],
-        bookmarkDeletedAt: [String: Date] = [:]
+        bookmarkDeletedAt: [String: Date] = [:],
+        unarchivedAt: [String: Date] = [:]
     ) {
         self.positionClearedAt = positionClearedAt
         self.unfinishedAt = unfinishedAt
@@ -146,6 +156,7 @@ public struct SpokenWordSyncLedger: Codable, Equatable, Sendable {
         self.rateChangedAt = rateChangedAt
         self.bookmarkEditedAt = bookmarkEditedAt
         self.bookmarkDeletedAt = bookmarkDeletedAt
+        self.unarchivedAt = unarchivedAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -156,6 +167,7 @@ public struct SpokenWordSyncLedger: Codable, Equatable, Sendable {
         rateChangedAt = try container.decodeIfPresent([String: Date].self, forKey: .rateChangedAt) ?? [:]
         bookmarkEditedAt = try container.decodeIfPresent([String: Date].self, forKey: .bookmarkEditedAt) ?? [:]
         bookmarkDeletedAt = try container.decodeIfPresent([String: Date].self, forKey: .bookmarkDeletedAt) ?? [:]
+        unarchivedAt = try container.decodeIfPresent([String: Date].self, forKey: .unarchivedAt) ?? [:]
     }
 }
 
@@ -179,6 +191,8 @@ public struct SpokenWordLocalRecords: Equatable, Sendable {
     /// `ListeningContentKind` raw values.
     public var overrides: [String: String]
     public var bookRates: [String: Float]
+    /// When each archived book was archived, by book id.
+    public var archivedAt: [String: Date]
     public var ledger: SpokenWordSyncLedger
 
     public init(
@@ -187,6 +201,7 @@ public struct SpokenWordLocalRecords: Equatable, Sendable {
         bookmarks: [String: [SpokenWordBookmark]] = [:],
         overrides: [String: String] = [:],
         bookRates: [String: Float] = [:],
+        archivedAt: [String: Date] = [:],
         ledger: SpokenWordSyncLedger = SpokenWordSyncLedger()
     ) {
         self.positions = positions
@@ -194,6 +209,7 @@ public struct SpokenWordLocalRecords: Equatable, Sendable {
         self.bookmarks = bookmarks
         self.overrides = overrides
         self.bookRates = bookRates
+        self.archivedAt = archivedAt
         self.ledger = ledger
     }
 }
@@ -221,6 +237,7 @@ public enum SpokenWordSyncPolicy {
     public static let maximumBookmarks = 2000
     public static let maximumRates = 500
     public static let maximumOverrides = 5000
+    public static let maximumArchived = 2000
 
     // MARK: Merge
 
@@ -230,7 +247,8 @@ public enum SpokenWordSyncPolicy {
             finished: mergeRegisters(lhs.finished, rhs.finished),
             overrides: mergeOverrideRegisters(lhs.overrides, rhs.overrides),
             rates: mergeRegisters(lhs.rates, rhs.rates),
-            bookmarks: mergeRegisters(lhs.bookmarks, rhs.bookmarks)
+            bookmarks: mergeRegisters(lhs.bookmarks, rhs.bookmarks),
+            archived: mergeRegisters(lhs.archived, rhs.archived)
         ))
     }
 
@@ -355,7 +373,8 @@ public enum SpokenWordSyncPolicy {
             finished: finished,
             overrides: dropExpiredTombstones(state.overrides, cutoff: cutoff),
             rates: dropExpiredTombstones(state.rates, cutoff: cutoff),
-            bookmarks: dropExpiredTombstones(state.bookmarks, cutoff: cutoff)
+            bookmarks: dropExpiredTombstones(state.bookmarks, cutoff: cutoff),
+            archived: dropExpiredTombstones(state.archived, cutoff: cutoff)
         )
     }
 
@@ -373,7 +392,8 @@ public enum SpokenWordSyncPolicy {
             finished: finished,
             overrides: capped(dropExpiredTombstones(state.overrides, cutoff: cutoff), limit: maximumOverrides),
             rates: capped(dropExpiredTombstones(state.rates, cutoff: cutoff), limit: maximumRates),
-            bookmarks: capped(dropExpiredTombstones(state.bookmarks, cutoff: cutoff), limit: maximumBookmarks)
+            bookmarks: capped(dropExpiredTombstones(state.bookmarks, cutoff: cutoff), limit: maximumBookmarks),
+            archived: capped(dropExpiredTombstones(state.archived, cutoff: cutoff), limit: maximumArchived)
         )
     }
 
@@ -410,7 +430,7 @@ public enum SpokenWordSyncPolicy {
     ) -> SpokenWordSyncState {
         guard let size = encodedSize(state), size > byteBudget else { return state }
 
-        enum Section { case positions, finished, overrides, rates, bookmarks }
+        enum Section { case positions, finished, overrides, rates, bookmarks, archived }
         struct Candidate {
             let section: Section
             let key: String
@@ -426,6 +446,7 @@ public enum SpokenWordSyncPolicy {
                 + candidates(state.overrides, .overrides)
                 + candidates(state.rates, .rates)
                 + candidates(state.bookmarks, .bookmarks)
+                + candidates(state.archived, .archived)
         ).sorted { lhs, rhs in
             if lhs.isTombstone != rhs.isTombstone { return lhs.isTombstone }
             if lhs.stamp != rhs.stamp { return lhs.stamp < rhs.stamp }
@@ -454,6 +475,7 @@ public enum SpokenWordSyncPolicy {
                 case .overrides: result.overrides.removeValue(forKey: candidate.key)
                 case .rates: result.rates.removeValue(forKey: candidate.key)
                 case .bookmarks: result.bookmarks.removeValue(forKey: candidate.key)
+                case .archived: result.archived.removeValue(forKey: candidate.key)
                 }
             }
             index += chunk
@@ -520,6 +542,14 @@ public enum SpokenWordSyncPolicy {
             state.rates[bookID] = SpokenWordSyncRegister(value: rate, stamp: stamp)
         }
 
+        for (bookID, date) in ledger.unarchivedAt {
+            state.archived[bookID] = SpokenWordSyncRegister(value: nil, stamp: date)
+        }
+        for (bookID, date) in records.archivedAt {
+            let register = SpokenWordSyncRegister(value: true, stamp: date)
+            state.archived[bookID] = state.archived[bookID].map { winner($0, register) } ?? register
+        }
+
         for (bookmarkID, date) in ledger.bookmarkDeletedAt {
             state.bookmarks[bookmarkID] = SpokenWordSyncRegister(value: nil, stamp: date)
         }
@@ -565,6 +595,13 @@ public enum SpokenWordSyncPolicy {
             if let value = register.value { records.bookRates[bookID] = value }
             if register.stamp != .distantPast {
                 records.ledger.rateChangedAt[bookID] = register.stamp
+            }
+        }
+        for (bookID, register) in state.archived {
+            if register.value == true {
+                records.archivedAt[bookID] = register.stamp
+            } else {
+                records.ledger.unarchivedAt[bookID] = register.stamp
             }
         }
         for (key, register) in state.bookmarks {

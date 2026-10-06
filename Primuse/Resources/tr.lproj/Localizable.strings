@@ -4452,6 +4452,9 @@
 "spoken_word_continue" = "Devam et";
 "spoken_word_start" = "Dinlemeye başla";
 "spoken_word_finished" = "Bitti";
+"spoken_word_archive" = "Arşivle";
+"spoken_word_unarchive" = "Arşivden Çıkar";
+"spoken_word_archived_section" = "Arşivlenenler";
 "spoken_word_mark_finished" = "Bitti olarak işaretle";
 "spoken_word_mark_unfinished" = "Bitmedi olarak işaretle";
 "spoken_word_mark_previous_finished" = "Önceki bölümleri bitti olarak işaretle";

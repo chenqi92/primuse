@@ -4546,6 +4546,9 @@
 "spoken_word_continue" = "Reprendre";
 "spoken_word_start" = "Commencer l’écoute";
 "spoken_word_finished" = "Terminé";
+"spoken_word_archive" = "Archiver";
+"spoken_word_unarchive" = "Désarchiver";
+"spoken_word_archived_section" = "Archivés";
 "spoken_word_mark_finished" = "Marquer comme terminé";
 "spoken_word_mark_unfinished" = "Marquer comme non terminé";
 "spoken_word_mark_previous_finished" = "Marquer les chapitres précédents comme terminés";

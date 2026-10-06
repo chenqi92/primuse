@@ -756,7 +756,7 @@ struct HomeView: View {
                         radioModeContent
                             .transition(homeFaceTransition)
                     } else if activeHomeFilter == .spokenWord {
-                        SpokenWordShelf()
+                        SpokenWordShelf(showsArchived: false)
                             .padding(.horizontal, 16)
                             .transition(homeFaceTransition)
                     } else if activeHomeFilter == .podcast {
