@@ -5471,7 +5471,7 @@
 "library_insight_batch_builtin_title" = "حصة التجربة في الذكاء الاصطناعي المدمج محدودة";
 "library_insight_batch_builtin_message" = "الذكاء الاصطناعي المدمج قناة تجريبية مجانية. يمكنه كتابة عدد محدود من النبذات يوميًا ويتوقف عند نفاد الحصة. يمكنك إكمال الباقي غدًا.";
 "library_insight_batch_builtin_checking" = "جارٍ التحقق من الحصة المتبقية اليوم…";
-"library_insight_batch_builtin_remaining_format" = "يمكن كتابة نحو %d نبذة أخرى اليوم.";
+"library_insight_batch_builtin_remaining_format" = "النبذات التي يمكن كتابتها اليوم: نحو %d.";
 "library_insight_batch_builtin_exhausted" = "نفدت حصة الذكاء الاصطناعي المدمج لهذا اليوم.";
 "library_insight_batch_builtin_start" = "المتابعة بالذكاء الاصطناعي المدمج";
 "library_insight_batch_builtin_then_own_format" = "عند نفاد الحصة ستتولى «%@» المتابعة.";
@@ -5484,13 +5484,13 @@
 "library_insight_batch_own_confirm_format" = "ستكتبها «%@» واحدة تلو الأخرى. تُرسَل أسماء الألبوم والفنان والمقاطع فقط، ويمكنك الإيقاف في أي وقت.";
 "library_insight_batch_start" = "ابدأ";
 "library_insight_batch_progress_format" = "جارٍ إكمال النبذات %1$d/%2$d";
-"library_insight_batch_using_format" = "استخدام %@";
-"library_insight_batch_switched_format" = "نفدت حصة الذكاء الاصطناعي المدمج، والمتابعة باستخدام %@";
+"library_insight_batch_using_format" = "يُستخدم %@";
+"library_insight_batch_switched_format" = "نفدت حصة الذكاء الاصطناعي المدمج، وتجري المتابعة باستخدام %@";
 "library_insight_batch_waiting_format" = "طلبت الخدمة الانتظار. سيُستأنف بعد %d ث";
 "library_insight_batch_stop" = "إيقاف";
-"library_insight_batch_finished" = "اكتمل إكمال النبذات";
+"library_insight_batch_finished" = "انتهى إكمال النبذات";
 "library_insight_batch_stopped" = "تم إيقاف إكمال النبذات";
-"library_insight_batch_stopped_failures" = "فشلت عدة محاولات متتالية، لذا توقّف.";
+"library_insight_batch_stopped_failures" = "فشلت عدة نبذات متتالية، لذا توقّف الإكمال.";
 "library_insight_batch_result_filled_format" = "تمت كتابة %d";
 "library_insight_batch_result_imported_format" = "قُرئت %d من المصادر";
 "library_insight_batch_result_unknown_format" = "%d لا يعرفها الذكاء الاصطناعي";

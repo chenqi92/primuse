@@ -5493,7 +5493,7 @@
 "library_insight_batch_stopped_failures" = "Art arda birkaçı başarısız olduğu için durduruldu.";
 "library_insight_batch_result_filled_format" = "%d yazıldı";
 "library_insight_batch_result_imported_format" = "%d kaynaklardan okundu";
-"library_insight_batch_result_unknown_format" = "%d yapay zekâya bilinmiyor";
+"library_insight_batch_result_unknown_format" = "%d tanesini yapay zekâ bilmiyor";
 "library_insight_batch_result_failed_format" = "%d başarısız";
 "library_insight_batch_result_left_format" = "%d kaldı";
 "library_insight_batch_setup_own" = "Kendi Yapay Zekâ Hizmetini Kur";

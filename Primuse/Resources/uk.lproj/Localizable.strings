@@ -5458,7 +5458,7 @@
 "filter_spoken_word_placeholder" = "Фільтрувати аудіокниги…";
 "filter_podcasts_placeholder" = "Фільтрувати подкасти…";
 "library_insight_batch_fill" = "Доповнити відсутні описи";
-"library_insight_batch_stop_format" = "Зупинити (%1$d/%2$d)";
+"library_insight_batch_stop_format" = "Зупинити доповнення (%1$d/%2$d)";
 "library_insight_batch_title_album" = "Доповнити описи альбомів";
 "library_insight_batch_title_artist" = "Доповнити описи виконавців";
 "library_insight_batch_count_album_format" = "Альбомів без опису в цьому списку: %d.";
@@ -5468,10 +5468,10 @@
 "library_insight_batch_none_artist" = "У всіх виконавців у цьому списку вже є опис. Виконавці, про яких ШІ нічого не знає, і видалені вами описи повторно не доповнюються.";
 "library_insight_batch_consent_title" = "Спершу потрібен дозвіл";
 "library_insight_batch_allow" = "Дозволити й продовжити";
-"library_insight_batch_builtin_title" = "Пробний ліміт вбудованого ШІ обмежений";
+"library_insight_batch_builtin_title" = "Вбудований ШІ має обмежений пробний ліміт";
 "library_insight_batch_builtin_message" = "Вбудований ШІ — безкоштовний пробний доступ. Він може писати обмежену кількість описів на день і зупиняється, коли ліміт вичерпано. Решту можна доповнити завтра.";
 "library_insight_batch_builtin_checking" = "Перевіряємо залишок ліміту на сьогодні…";
-"library_insight_batch_builtin_remaining_format" = "Сьогодні можна написати ще приблизно %d описів.";
+"library_insight_batch_builtin_remaining_format" = "Сьогодні ще можна написати описів: приблизно %d.";
 "library_insight_batch_builtin_exhausted" = "Ліміт вбудованого ШІ на сьогодні вичерпано.";
 "library_insight_batch_builtin_start" = "Продовжити зі вбудованим ШІ";
 "library_insight_batch_builtin_then_own_format" = "Коли ліміт закінчиться, продовжить «%@».";
@@ -5490,7 +5490,7 @@
 "library_insight_batch_stop" = "Зупинити";
 "library_insight_batch_finished" = "Описи доповнено";
 "library_insight_batch_stopped" = "Доповнення описів зупинено";
-"library_insight_batch_stopped_failures" = "Кілька поспіль не вдалися, тому зупинено.";
+"library_insight_batch_stopped_failures" = "Кілька описів поспіль не вдалося написати, тому доповнення зупинено.";
 "library_insight_batch_result_filled_format" = "Написано: %d";
 "library_insight_batch_result_imported_format" = "Прочитано з джерел: %d";
 "library_insight_batch_result_unknown_format" = "ШІ не знає: %d";

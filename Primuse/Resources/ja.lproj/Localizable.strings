@@ -5588,7 +5588,7 @@
 "library_insight_batch_stopped_failures" = "何件か続けて失敗したため、いったん停止しました。";
 "library_insight_batch_result_filled_format" = "%d 件作成";
 "library_insight_batch_result_imported_format" = "%d 件を音楽ソースから取得";
-"library_insight_batch_result_unknown_format" = "%d 件は AI が不明";
+"library_insight_batch_result_unknown_format" = "%d 件は AI がよく知らない";
 "library_insight_batch_result_failed_format" = "%d 件失敗";
 "library_insight_batch_result_left_format" = "%d 件が未補完";
 "library_insight_batch_setup_own" = "自分の AI サービスを設定";

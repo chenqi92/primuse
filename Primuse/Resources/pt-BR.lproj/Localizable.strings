@@ -5458,14 +5458,14 @@
 "filter_spoken_word_placeholder" = "Filtrar audiolivros…";
 "filter_podcasts_placeholder" = "Filtrar podcasts…";
 "library_insight_batch_fill" = "Completar apresentações ausentes";
-"library_insight_batch_stop_format" = "Parar apresentações (%1$d/%2$d)";
+"library_insight_batch_stop_format" = "Parar de completar (%1$d/%2$d)";
 "library_insight_batch_title_album" = "Completar apresentações de álbuns";
 "library_insight_batch_title_artist" = "Completar apresentações de artistas";
 "library_insight_batch_count_album_format" = "Álbuns desta lista sem apresentação: %d.";
 "library_insight_batch_count_artist_format" = "Artistas desta lista sem apresentação: %d.";
 "library_insight_batch_none_title" = "Nada para completar";
 "library_insight_batch_none_album" = "Todos os álbuns desta lista já têm apresentação. Os que a IA não conhecia e as apresentações que você excluiu não são completados de novo.";
-"library_insight_batch_none_artist" = "Todos os artistas desta lista já têm apresentação. Os que a IA não conhecia e as apresentações que você excluiu não são completadas de novo.";
+"library_insight_batch_none_artist" = "Todos os artistas desta lista já têm apresentação. Os que a IA não conhecia e as apresentações que você excluiu não são completados de novo.";
 "library_insight_batch_consent_title" = "Permissão necessária primeiro";
 "library_insight_batch_allow" = "Permitir e continuar";
 "library_insight_batch_builtin_title" = "A IA integrada tem cota de teste limitada";

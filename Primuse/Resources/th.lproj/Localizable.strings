@@ -5479,7 +5479,7 @@
 "library_insight_batch_own_guide_format" = "เพิ่มบริการ AI ของคุณเองพร้อมคีย์ API ใน “%1$@” แล้วมอบหมาย “%3$@” ให้บริการนั้นใน “%2$@” จากนั้นการเติมคำแนะนำจะไม่ถูกจำกัดด้วยโควตาของ AI ในตัว";
 "library_insight_batch_own_route_format" = "คุณเพิ่ม “%1$@” แล้ว ให้มอบหมาย “%3$@” ให้บริการนั้นใน “%2$@” จากนี้การเติมคำแนะนำจะไม่ใช้โควตาของ AI ในตัว";
 "library_insight_batch_open_add_service" = "เพิ่มบริการ AI ของคุณเอง";
-"library_insight_batch_open_routes" = "เปลี่ยนผู้จัดการ";
+"library_insight_batch_open_routes" = "เปลี่ยนบริการที่จัดการ";
 "library_insight_batch_use_own_format" = "ใช้ “%@” ครั้งนี้";
 "library_insight_batch_own_confirm_format" = "“%@” จะเขียนทีละรายการ ส่งเฉพาะชื่ออัลบั้ม ศิลปิน และเพลงเท่านั้น และคุณหยุดได้ทุกเมื่อ";
 "library_insight_batch_start" = "เริ่มเติม";

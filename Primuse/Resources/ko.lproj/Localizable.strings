@@ -5587,7 +5587,7 @@
 "library_insight_batch_stopped_failures" = "여러 개가 연속으로 실패해 일단 멈췄습니다.";
 "library_insight_batch_result_filled_format" = "%d개 작성";
 "library_insight_batch_result_imported_format" = "%d개 음악 소스에서 가져옴";
-"library_insight_batch_result_unknown_format" = "%d개 AI가 모름";
+"library_insight_batch_result_unknown_format" = "%d개는 AI가 잘 모름";
 "library_insight_batch_result_failed_format" = "%d개 실패";
 "library_insight_batch_result_left_format" = "%d개 남음";
 "library_insight_batch_setup_own" = "내 AI 서비스 설정";

@@ -5458,7 +5458,7 @@
 "filter_spoken_word_placeholder" = "Фильтровать аудиокниги…";
 "filter_podcasts_placeholder" = "Фильтровать подкасты…";
 "library_insight_batch_fill" = "Дополнить недостающие описания";
-"library_insight_batch_stop_format" = "Остановить (%1$d/%2$d)";
+"library_insight_batch_stop_format" = "Остановить дополнение (%1$d/%2$d)";
 "library_insight_batch_title_album" = "Дополнить описания альбомов";
 "library_insight_batch_title_artist" = "Дополнить описания исполнителей";
 "library_insight_batch_count_album_format" = "Альбомов без описания в этом списке: %d.";
@@ -5468,10 +5468,10 @@
 "library_insight_batch_none_artist" = "У всех исполнителей в этом списке уже есть описание. Исполнители, о которых ИИ ничего не знает, и удалённые вами описания повторно не дополняются.";
 "library_insight_batch_consent_title" = "Сначала нужно разрешение";
 "library_insight_batch_allow" = "Разрешить и продолжить";
-"library_insight_batch_builtin_title" = "Пробный лимит встроенного ИИ ограничен";
+"library_insight_batch_builtin_title" = "У встроенного ИИ ограниченный пробный лимит";
 "library_insight_batch_builtin_message" = "Встроенный ИИ — бесплатный пробный доступ. Он может писать ограниченное число описаний в день и останавливается, когда лимит исчерпан. Остальное можно дополнить завтра.";
 "library_insight_batch_builtin_checking" = "Проверяем остаток лимита на сегодня…";
-"library_insight_batch_builtin_remaining_format" = "Сегодня можно написать ещё около %d описаний.";
+"library_insight_batch_builtin_remaining_format" = "Сегодня ещё можно написать описаний: около %d.";
 "library_insight_batch_builtin_exhausted" = "Лимит встроенного ИИ на сегодня исчерпан.";
 "library_insight_batch_builtin_start" = "Продолжить со встроенным ИИ";
 "library_insight_batch_builtin_then_own_format" = "Когда лимит закончится, продолжит «%@».";
@@ -5490,7 +5490,7 @@
 "library_insight_batch_stop" = "Остановить";
 "library_insight_batch_finished" = "Описания дополнены";
 "library_insight_batch_stopped" = "Дополнение описаний остановлено";
-"library_insight_batch_stopped_failures" = "Несколько подряд не удались, поэтому остановлено.";
+"library_insight_batch_stopped_failures" = "Несколько описаний подряд не удалось написать, поэтому дополнение остановлено.";
 "library_insight_batch_result_filled_format" = "Написано: %d";
 "library_insight_batch_result_imported_format" = "Прочитано из источников: %d";
 "library_insight_batch_result_unknown_format" = "ИИ не знает: %d";

@@ -5458,7 +5458,7 @@
 "filter_spoken_word_placeholder" = "Filtrar audiolibros…";
 "filter_podcasts_placeholder" = "Filtrar podcasts…";
 "library_insight_batch_fill" = "Completar presentaciones faltantes";
-"library_insight_batch_stop_format" = "Detener presentaciones (%1$d/%2$d)";
+"library_insight_batch_stop_format" = "Dejar de completar (%1$d/%2$d)";
 "library_insight_batch_title_album" = "Completar presentaciones de álbumes";
 "library_insight_batch_title_artist" = "Completar presentaciones de artistas";
 "library_insight_batch_count_album_format" = "Álbumes de esta lista sin presentación: %d.";
@@ -5489,7 +5489,7 @@
 "library_insight_batch_waiting_format" = "El servicio pidió esperar. Se reanuda en %d s";
 "library_insight_batch_stop" = "Detener";
 "library_insight_batch_finished" = "Presentaciones completadas";
-"library_insight_batch_stopped" = "Se detuvo la compleción de presentaciones";
+"library_insight_batch_stopped" = "Se dejaron de completar las presentaciones";
 "library_insight_batch_stopped_failures" = "Fallaron varias seguidas, así que se detuvo.";
 "library_insight_batch_result_filled_format" = "%d escritas";
 "library_insight_batch_result_imported_format" = "%d leídas de las fuentes";
