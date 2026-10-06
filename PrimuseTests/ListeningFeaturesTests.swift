@@ -190,6 +190,29 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertFalse(store.isFinished(songID: "x"))
     }
 
+    func testMarkingThePlayingItemChangesItsKindWithoutWaitingForTheNextItem() throws {
+        let player = try makePlayer()
+        let track = song(UUID().uuidString, duration: 3_600)
+        let store = SpokenWordStore.shared
+        defer {
+            store.setKind(nil, forSongIDs: [track.id])
+            store.clearPosition(forSongID: track.id)
+        }
+        player.currentSong = track
+        XCTAssertFalse(player.currentItemIsSpokenWord)
+
+        player.currentTime = 600
+        store.setKind(.spokenWord, forSongIDs: [track.id])
+        XCTAssertTrue(player.currentItemIsSpokenWord)
+        XCTAssertEqual(store.position(forSongID: track.id)?.position, 600)
+
+        store.setKind(.music, forSongIDs: [track.id])
+        XCTAssertFalse(player.currentItemIsSpokenWord)
+        player.currentTime = 900
+        player.rememberSpokenWordPosition(force: true)
+        XCTAssertNil(store.position(forSongID: track.id))
+    }
+
     // MARK: - Playback rate and chapter sleep
 
     func testSpokenWordAndMusicKeepSeparateRates() throws {

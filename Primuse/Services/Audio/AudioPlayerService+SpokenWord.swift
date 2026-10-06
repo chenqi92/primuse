@@ -62,6 +62,44 @@ extension AudioPlayerService {
         refreshServerSpokenWordState(for: song)
     }
 
+    /// Follows the store when the playing item's kind changes under it.
+    func observeSpokenWordClassification() {
+        for name in [Notification.Name.primuseSpokenWordDidChange, .primuseSpokenWordClassificationDidChange] {
+            NotificationCenter.default.addObserver(
+                forName: name,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refreshCurrentItemContentKind() }
+            }
+        }
+    }
+
+    /// Re-decides whether the playing item is spoken word.
+    ///
+    /// The kind can change while an item plays: the listener marks it from
+    /// its row or the smart nudge, tags its folder, or another device's
+    /// correction arrives. Deciding only on an item change left a book just
+    /// marked as one playing as music until the next item — no position
+    /// stored, so it started over after a relaunch, song buttons on the lock
+    /// screen and in the widgets, and nothing on the "continue listening"
+    /// shelf — while the library already showed it among the books.
+    func refreshCurrentItemContentKind() {
+        guard let song = currentSong else { return }
+        let isSpokenWord = SpokenWordStore.shared.isSpokenWord(song)
+        guard isSpokenWord != currentItemIsSpokenWord else { return }
+        currentItemIsSpokenWord = isSpokenWord
+        // Both only make sense for an item that was spoken word when it began.
+        pendingSpokenWordResumeSongID = nil
+        pendingSpokenWordSeekOverride = nil
+        applyPlaybackRate()
+        updateSpokenWordRemoteCommands()
+        updatePlaybackState()
+        plog("🎧 Spoken word: '\(song.title)' now plays as \(isSpokenWord ? "spoken word" : "music")")
+        // The book continues from here, not from the next autosave.
+        if isSpokenWord { rememberSpokenWordPosition(force: true) }
+    }
+
     // MARK: - Server-kept progress and chapters
 
     static let serverSpokenWordPushInterval: TimeInterval = 30

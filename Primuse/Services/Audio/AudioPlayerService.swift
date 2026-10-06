@@ -1524,6 +1524,7 @@ final class AudioPlayerService {
         #endif
         observeOutputPipelineSettings()
         observeReplayGainSettings()
+        observeSpokenWordClassification()
         NotificationCenter.default.addObserver(
             forName: .primuseArtistNameConfigurationDidChange,
             object: nil,
