@@ -1772,6 +1772,12 @@
 "immersive_unlock_controls" = "Bedienelemente entsperren";
 "immersive_lyrics_motion_title" = "Immersive Textbewegung";
 "immersive_lyrics_motion_subtitle" = "Steuert die Bewegung der Titelwand und den horizontalen Liedtextlauf; ausgeschaltet bleibt der Text statisch.";
+"immersive_frame_rate_title" = "Bildrate";
+"immersive_frame_rate_subtitle" = "„An Display anpassen“ zeichnet bei jeder Bildschirmaktualisierung (V-Sync): am flüssigsten, verbraucht aber am meisten Energie.";
+"immersive_frame_rate_balanced" = "Energiesparen";
+"immersive_frame_rate_30" = "30 fps";
+"immersive_frame_rate_60" = "60 fps";
+"immersive_frame_rate_display" = "An Display anpassen";
 "exit_landscape_video" = "Querformatvideo beenden";
 "show_lyrics_background" = "Liedtexthintergrund anzeigen";
 "hide_lyrics_background" = "Liedtexthintergrund ausblenden";

@@ -36,6 +36,8 @@ struct MacImmersivePlayerView: View {
     private var effectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
+    @AppStorage(ImmersiveFrameRateMode.storageKey)
+    private var frameRateRawValue = ImmersiveFrameRateMode.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
 
@@ -60,6 +62,10 @@ struct MacImmersivePlayerView: View {
         if let debugEffectOverride { return debugEffectOverride }
         #endif
         return FullscreenPlayerEffect(rawValue: effectRawValue) ?? .defaultValue
+    }
+
+    private var frameRate: ImmersiveFrameRateMode {
+        ImmersiveFrameRateMode(storedValue: frameRateRawValue)
     }
 
     private var presentationEffect: FullscreenPlayerEffect {
@@ -184,6 +190,9 @@ struct MacImmersivePlayerView: View {
         .onChange(of: presentationEffect) { _, value in
             if isStageReady { updateVisualizer(for: value) }
         }
+        .onChange(of: frameRateRawValue) { _, _ in
+            if isStageReady { updateVisualizer(for: presentationEffect) }
+        }
         .onChange(of: player.currentSong?.id) { _, _ in
             refreshArtworkInputs()
             if isStageReady { updateVisualizer(for: presentationEffect) }
@@ -256,6 +265,7 @@ struct MacImmersivePlayerView: View {
             isRenderingActive: isRenderingActive,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
+            frameRate: frameRate,
             lyricInterlude: lyricInterlude,
             lyricsPlaceholder: String(localized: "no_lyrics"),
             controlsInset: controlsInset(metrics),
@@ -1108,6 +1118,9 @@ struct MacImmersivePlayerView: View {
             visualizer.release(owner: visualizerOwnerID)
             return
         }
+        visualizer.setPacing(frameRate.spectrumPacing(
+            displayMaximumFramesPerSecond: ImmersiveDisplayRefresh.maximumFramesPerSecond
+        ))
         guard visualizer.acquire(
             owner: visualizerOwnerID,
             engine: audioEngine,

@@ -1773,6 +1773,12 @@
 "immersive_unlock_controls" = "没入モードの操作をロック解除";
 "immersive_lyrics_motion_title" = "イマーシブ文字モーション";
 "immersive_lyrics_motion_subtitle" = "曲名ウォールの緩やかな移動と横方向の歌詞マーキーを制御し、オフにすると文字が静止します。";
+"immersive_frame_rate_title" = "フレームレート";
+"immersive_frame_rate_subtitle" = "「ディスプレイに合わせる」は画面のリフレッシュごとに描画します（垂直同期）。最も滑らかですが、電力消費も最大です。";
+"immersive_frame_rate_balanced" = "省電力";
+"immersive_frame_rate_30" = "30 fps";
+"immersive_frame_rate_60" = "60 fps";
+"immersive_frame_rate_display" = "ディスプレイに合わせる";
 "exit_landscape_video" = "横向き動画を終了";
 "show_lyrics_background" = "歌詞の背景を表示";
 "hide_lyrics_background" = "歌詞の背景を非表示";

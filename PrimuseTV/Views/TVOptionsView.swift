@@ -37,10 +37,11 @@ struct TVOptionsView: View {
     private var sections: [OptionSection] {
         let liked = store.currentSongID.map(store.isLiked) ?? false
         let sleepOn = store.sleepTimerMinutes > 0
-        // 有声内容只留睡眠定时: 卡拉OK与「我喜欢」歌单都是音乐的玩法。
+        // 有声内容不给卡拉OK、歌词字号与串烧这些音乐的玩法。有声书的每个文件也能加进「我喜欢」,
+        // 播客单集不在曲库里,加不进去。
         let isSpokenWord = store.currentItemIsSpokenWord
         var song: [Action] = []
-        if !isSpokenWord {
+        if !(isSpokenWord && store.currentPodcastEpisodeID != nil) {
             song.append(.init(id: "love", icon: liked ? "heart.fill" : "heart",
                               label: liked ? PMString("ext.tv.options.loved") : PMString("ext.tv.options.love"), on: liked,
                               run: { if let id = store.currentSongID { store.toggleLiked(id) } }))
@@ -217,9 +218,16 @@ struct TVFullscreenEffectPicker: View {
     private var accentHex = AppThemePreferences.defaultAccentHex
     @AppStorage(AppThemePreferences.coverDrivenAmbientKey)
     private var coverDrivenAmbient = AppThemePreferences.defaultCoverDrivenAmbient
+    @AppStorage(ImmersiveFrameRateMode.storageKey)
+    private var frameRateRawValue = ImmersiveFrameRateMode.defaultValue.rawValue
 
     @FocusState private var focusedEffect: FullscreenPlayerEffect?
     @FocusState private var lyricsToggleFocused: Bool
+    @FocusState private var frameRateFocused: Bool
+
+    private var frameRate: ImmersiveFrameRateMode {
+        ImmersiveFrameRateMode(storedValue: frameRateRawValue)
+    }
 
     private var selectedEffect: FullscreenPlayerEffect {
         FullscreenPlayerEffect(rawValue: selectedRawValue) ?? .defaultValue
@@ -240,13 +248,14 @@ struct TVFullscreenEffectPicker: View {
                 Color.black.opacity(0.92).ignoresSafeArea()
 
                 VStack(alignment: .leading, spacing: 22) {
-                    HStack(alignment: .top) {
+                    HStack(alignment: .top, spacing: 18) {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(PMString("ext.tv.settings.immersive"))
                                 .tvFont(size: 38, weight: .bold, relativeTo: .title2)
                                 .foregroundStyle(.white)
                         }
                         Spacer()
+                        frameRateButton
                         Button {
                             lyricsMotionEnabled.toggle()
                         } label: {
@@ -303,6 +312,37 @@ struct TVFullscreenEffectPicker: View {
         .onAppear { focusedEffect = selectedEffect }
         .accessibilityAddTraits(.isModal)
         .environment(\.colorScheme, .dark)
+    }
+
+    /// 遥控器上按一下换到下一档，四档循环。
+    private var frameRateButton: some View {
+        Button {
+            let modes = ImmersiveFrameRateMode.allCases
+            let index = modes.firstIndex(of: frameRate) ?? 0
+            frameRateRawValue = modes[(index + 1) % modes.count].rawValue
+        } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                Label(
+                    String(localized: "immersive_frame_rate_title"),
+                    systemImage: "speedometer"
+                )
+                    .tvFont(.caption, weight: .semibold)
+                Text(verbatim: frameRate.localizedTitle)
+                    .tvFont(.meta)
+                    .foregroundStyle(.white.opacity(0.58))
+            }
+            .foregroundStyle(.white.opacity(0.82))
+            .padding(.horizontal, 22)
+            .padding(.vertical, 13)
+            .background(.white.opacity(frameRateFocused ? 0.18 : 0.08), in: RoundedRectangle(cornerRadius: 14))
+            .overlay { RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.20), lineWidth: 1) }
+            .tvFocusRing(frameRateFocused, radius: 14, accent: .white, scale: 1.04, lift: 5)
+        }
+        .buttonStyle(TVBareButtonStyle())
+        .focused($frameRateFocused)
+        .focusEffectDisabled()
+        .accessibilityLabel(Text("immersive_frame_rate_title"))
+        .accessibilityValue(Text(verbatim: frameRate.localizedTitle))
     }
 
     private func effectChoice(_ candidate: FullscreenPlayerEffect) -> some View {

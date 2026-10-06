@@ -10,6 +10,12 @@ import SwiftUI
 // 本文件只依赖 SwiftUI,不碰任何 app 模型,因此可以同时编进
 // Primuse(iOS)、PrimuseMac 和 PrimuseTV 三个 target(见 project.yml)。
 
+extension EnvironmentValues {
+    /// 全屏效果的重绘帧率档位，由 `ImmersiveStageView` 按设置注入；
+    /// 舞台外复用这些层（设置页预览等）时保持默认档。
+    @Entry var immersiveFrameRate: ImmersiveFrameRateMode = .defaultValue
+}
+
 // MARK: - 调色板
 
 /// Nocturne 语义色,取值对应设计稿 `_ds` 里的 CSS 变量。改这里等于改全端。
@@ -1163,6 +1169,7 @@ struct ImmersiveGlassActionButton: View {
 /// 规格串前面那一小簇跳动竖条。对应设计稿 CSS 的 `omEq` 关键帧
 /// (scaleY .28 → 1,相邻条错开 0.22s)。
 struct ImmersiveEqualizerTicks: View {
+    @Environment(\.immersiveFrameRate) private var frameRate
     var isAnimating: Bool
     var color: Color
     var barWidth: CGFloat
@@ -1171,7 +1178,7 @@ struct ImmersiveEqualizerTicks: View {
     var count: Int = 4
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 20, paused: !isAnimating)) { context in
+        TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 20), paused: !isAnimating)) { context in
             let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
             HStack(alignment: .bottom, spacing: spacing) {
                 ForEach(0..<count, id: \.self) { index in
@@ -1228,10 +1235,11 @@ struct ImmersiveFormatBadge: View {
 /// RadialGradient 直接出图,省掉整屏实时高斯模糊——Apple TV 的 GPU 扛不住
 /// 1080p 每帧一次 96pt 模糊,而两者观感几乎没有差别。
 struct ImmersiveAuroraBackdrop: View {
+    @Environment(\.immersiveFrameRate) private var frameRate
     var isAnimating: Bool
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 15, paused: !isAnimating)) { context in
+        TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 15), paused: !isAnimating)) { context in
             let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
 
             GeometryReader { geometry in
@@ -1291,12 +1299,13 @@ struct ImmersiveAuroraBackdrop: View {
 
 /// 两层锥形渐变反向自转(90s / 60s)并重度虚化,形成缓慢流动的虹彩金属。
 struct ImmersiveLiquidChromeBackdrop: View {
+    @Environment(\.immersiveFrameRate) private var frameRate
     var isAnimating: Bool
     /// 模糊半径。整屏只此一处模糊,tvOS 传更小的值以降低填充率压力。
     var blurRadius: CGFloat = 90
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 15, paused: !isAnimating)) { context in
+        TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 15), paused: !isAnimating)) { context in
             let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
 
             GeometryReader { geometry in
@@ -1359,6 +1368,7 @@ struct ImmersiveLiquidChromeBackdrop: View {
 /// 72 根柱子合成一条 Path 一次填充,渐变用以环心为中心的 RadialGradient——
 /// 柱子本来就沿半径方向排布,所以一个径向渐变等价于给每根柱子各画一遍纵向渐变。
 struct ImmersiveSpectrumRing: View {
+    @Environment(\.immersiveFrameRate) private var frameRate
     /// 0...1 的真实频段强度。少于 barCount 时镜像插值；为空时保持静止基线。
     var levels: [CGFloat]
     var barCount: Int = 72
@@ -1373,7 +1383,7 @@ struct ImmersiveSpectrumRing: View {
     var spinPeriod: Double = 120
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 24, paused: !isAnimating)) { context in
+        TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 24), paused: !isAnimating)) { context in
             let time = context.date.timeIntervalSinceReferenceDate
             let hasSignal = levels.contains { $0 > 0.002 }
             let spin = isAnimating && hasSignal
@@ -1531,10 +1541,11 @@ struct ImmersiveArtworkReflection: View {
 
 /// 三层确定性星点分别以 32 / 46 / 62 秒漂移；没有随机状态，也不会在重绘时闪烁。
 struct ImmersiveStarFieldBackdrop: View {
+    @Environment(\.immersiveFrameRate) private var frameRate
     var isAnimating: Bool
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 15, paused: !isAnimating)) { context in
+        TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 15), paused: !isAnimating)) { context in
             let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
             Canvas(rendersAsynchronously: true) { canvas, size in
                 canvas.fill(Path(CGRect(origin: .zero, size: size)), with: .color(ImmersiveStagePalette.obsidian))
@@ -1573,10 +1584,11 @@ struct ImmersiveStarFieldBackdrop: View {
 
 /// 两组椭圆轮廓以 44 / 66 秒反向旋转，并用 12 秒周期轻微呼吸。
 struct ImmersiveContourBackdrop: View {
+    @Environment(\.immersiveFrameRate) private var frameRate
     var isAnimating: Bool
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 15, paused: !isAnimating)) { context in
+        TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 15), paused: !isAnimating)) { context in
             let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
             GeometryReader { geometry in
                 let pulse = isAnimating ? 1 + CGFloat(sin(time / 12 * 2 * .pi)) * 0.035 : 1

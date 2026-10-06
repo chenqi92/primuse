@@ -12,6 +12,9 @@ private enum TVSpectrumConfiguration {
     /// 电视面板一排要排 130 多根柱子。32 带时一个频段被摊成四根等高的柱子,
     /// 波形糊成色块;1024 点 FFT 有 512 个 bin,96 带仍是每带多个 bin。
     static let bandCount = 96
+    static let windowSize = 1024
+    /// 时间平滑系数是按原来 40 ms 一次的轮询调出来的, 分析更勤时按真实间隔折算。
+    static let smoothingReferenceInterval: TimeInterval = 0.04
 }
 
 enum TVPlaybackInput: CaseIterable, Equatable, Sendable {
@@ -338,7 +341,12 @@ final class TVAudioEngine {
     private var liveMetadataOutput: AVPlayerItemMetadataOutput?
     private var liveMetadataReceiver: TVLiveMetadataReceiver?
     private var liveStartedAt: Date?
-    @ObservationIgnored private let spectrumPipeline = TVRealtimeSpectrumPipeline(capacity: 1024)
+    @ObservationIgnored private let spectrumPipeline = TVRealtimeSpectrumPipeline(
+        windowSize: TVSpectrumConfiguration.windowSize
+    )
+    /// 全屏页按「画面帧率」设置给出的频谱发布节奏。
+    @ObservationIgnored private(set) var spectrumPacing = ImmersiveFrameRateMode.defaultValue
+        .spectrumPacing(displayMaximumFramesPerSecond: 60)
     @ObservationIgnored private var spectrumTimer: Timer?
     @ObservationIgnored private var processingTap: MTAudioProcessingTap?
     @ObservationIgnored private weak var tappedMixer: AVAudioMixerNode?
@@ -1374,9 +1382,10 @@ final class TVAudioEngine {
         guard format.sampleRate.isFinite, format.sampleRate > 0, format.channelCount > 0 else {
             return
         }
+        spectrumPipeline.setSampleRate(format.sampleRate)
         TVMixerSpectrumTap.install(
             on: mixer,
-            bufferSize: AVAudioFrameCount(spectrumPipeline.capacity),
+            bufferSize: AVAudioFrameCount(spectrumPipeline.windowSize),
             format: format,
             pipeline: spectrumPipeline
         )
@@ -1384,14 +1393,29 @@ final class TVAudioEngine {
         startSpectrumPolling()
     }
 
+    /// 换节奏时只重启轮询任务, tap 与分析器的平滑状态都保留。
+    func setSpectrumPacing(_ value: SpectrumPublishPacing) {
+        guard spectrumPacing != value else { return }
+        spectrumPacing = value
+        guard spectrumTask != nil else { return }
+        spectrumTask?.cancel()
+        spectrumTask = nil
+        startSpectrumPolling()
+    }
+
     private func startSpectrumPolling() {
         guard !isExternallyDriven, spectrumAnalysisEnabled, isPlaying, spectrumTask == nil else { return }
         let pipeline = spectrumPipeline
+        let pacing = spectrumPacing
         spectrumTask = Task.detached(priority: .userInitiated) { [weak self, pipeline] in
+            var playout = TVSpectrumPlayoutState()
+            let interval = Duration.seconds(pacing.pollInterval)
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(40))
+                try? await Task.sleep(for: interval)
                 guard !Task.isCancelled else { break }
-                guard let next = pipeline.analyzeIfReady(
+                guard let next = pipeline.analyze(
+                    pacing: pacing,
+                    playout: &playout,
                     bandCount: TVSpectrumConfiguration.bandCount
                 ) else { continue }
                 await MainActor.run { [weak self] in
@@ -2175,26 +2199,30 @@ private final class TVLiveMetadataReceiver: NSObject, AVPlayerItemMetadataOutput
     }
 }
 
-/// 音频实时线程只把第一个声道复制进固定缓冲；FFT 始终在后台轮询任务执行。
-private final class TVRealtimeSpectrumPipeline: @unchecked Sendable {
-    let capacity: Int
+/// 轮询任务自己持有的读取进度：匀速档的游标与「省电」档上次分析到的位置。
+private struct TVSpectrumPlayoutState {
+    var cursor = SpectrumPlayoutCursor()
+    var analyzedWritten: Int64 = 0
+}
 
-    private var samples: [Float]
+/// 音频回调只把第一个声道整批写进采样环；FFT 始终在后台轮询任务执行。
+private final class TVRealtimeSpectrumPipeline: @unchecked Sendable {
+    let windowSize: Int
+
+    private let ring = SpectrumSampleRing()
     private var analysisSamples: [Float]
-    private var hasFreshSamples = false
-    private var sampleLock = os_unfair_lock_s()
     private var analysisLock = os_unfair_lock_s()
     private var formatLock = os_unfair_lock_s()
     private var acceptsFloat32 = false
     private var sampleStride = 1
+    private var sampleRate: Double = 0
     private let analyzer: TVSpectrumFFTAnalyzer
 
-    init(capacity: Int) {
-        self.capacity = capacity
-        self.samples = Array(repeating: 0, count: capacity)
-        self.analysisSamples = Array(repeating: 0, count: capacity)
+    init(windowSize: Int) {
+        self.windowSize = windowSize
+        self.analysisSamples = Array(repeating: 0, count: windowSize)
         self.analyzer = TVSpectrumFFTAnalyzer(
-            log2n: Int(log2(Double(capacity))),
+            log2n: Int(log2(Double(windowSize))),
             bandCount: TVSpectrumConfiguration.bandCount
         )
     }
@@ -2207,12 +2235,20 @@ private final class TVRealtimeSpectrumPipeline: @unchecked Sendable {
         sampleStride = (format.mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0
             ? 1
             : max(Int(format.mChannelsPerFrame), 1)
+        sampleRate = format.mSampleRate
+        os_unfair_lock_unlock(&formatLock)
+    }
+
+    /// 混音器 tap 不经过 `configure`，安装时单独告知采样率。
+    func setSampleRate(_ value: Double) {
+        os_unfair_lock_lock(&formatLock)
+        sampleRate = value
         os_unfair_lock_unlock(&formatLock)
     }
 
     func fill(from buffer: AVAudioPCMBuffer) {
         guard let channel = buffer.floatChannelData else { return }
-        fill(pointer: channel[0], frameCount: Int(buffer.frameLength), stride: 1)
+        ring.write(channel[0], frameCount: Int(buffer.frameLength))
     }
 
     func fill(from buffers: UnsafeMutablePointer<AudioBufferList>, frameCount: Int) {
@@ -2227,62 +2263,52 @@ private final class TVRealtimeSpectrumPipeline: @unchecked Sendable {
         let availableFrames = Int(first.mDataByteSize) / MemoryLayout<Float>.size / max(stride, 1)
         let frames = min(frameCount, availableFrames)
         guard frames > 0 else { return }
-        fill(
-            pointer: data.assumingMemoryBound(to: Float.self),
-            frameCount: frames,
-            stride: stride
-        )
+        ring.write(data.assumingMemoryBound(to: Float.self), frameCount: frames, stride: stride)
     }
 
-    private func fill(pointer: UnsafePointer<Float>, frameCount: Int, stride: Int) {
-        let frames = min(frameCount, capacity)
-        guard frames > 0, os_unfair_lock_trylock(&sampleLock) else { return }
-        samples.withUnsafeMutableBufferPointer { destination in
-            guard let base = destination.baseAddress else { return }
-            if stride == 1 {
-                memcpy(base, pointer, frames * MemoryLayout<Float>.size)
-            } else {
-                for index in 0..<frames {
-                    base[index] = pointer[index * stride]
-                }
-            }
-            if frames < capacity {
-                memset(
-                    base.advanced(by: frames),
-                    0,
-                    (capacity - frames) * MemoryLayout<Float>.size
-                )
-            }
-        }
-        hasFreshSamples = true
-        os_unfair_lock_unlock(&sampleLock)
-    }
-
-    func analyzeIfReady(bandCount: Int) -> [Float]? {
+    /// 按发布节奏取一窗分析；位置没往前走时返回 nil，界面沿用上一帧。
+    func analyze(
+        pacing: SpectrumPublishPacing,
+        playout: inout TVSpectrumPlayoutState,
+        bandCount: Int
+    ) -> [Float]? {
         os_unfair_lock_lock(&analysisLock)
         defer { os_unfair_lock_unlock(&analysisLock) }
-        os_unfair_lock_lock(&sampleLock)
-        guard hasFreshSamples else {
-            os_unfair_lock_unlock(&sampleLock)
-            return nil
+        os_unfair_lock_lock(&formatLock)
+        let rate = sampleRate
+        os_unfair_lock_unlock(&formatLock)
+        let state = ring.state()
+        let windowEnd: Int64
+        var elapsed: TimeInterval?
+        switch pacing {
+        case .onArrival:
+            guard state.written > 0, state.written != playout.analyzedWritten else { return nil }
+            playout.analyzedWritten = state.written
+            windowEnd = state.written
+        case .paced:
+            guard let step = playout.cursor.advance(
+                state: state,
+                nowUptime: DispatchTime.now().uptimeNanoseconds,
+                sampleRate: rate
+            ) else { return nil }
+            windowEnd = step.end
+            if step.advancedFrames > 0 {
+                elapsed = Double(step.advancedFrames) / rate
+            }
         }
-        hasFreshSamples = false
-        swap(&samples, &analysisSamples)
-        os_unfair_lock_unlock(&sampleLock)
-        return analyzer.bandLevels(samples: analysisSamples, bandCount: bandCount)
+        analysisSamples.withUnsafeMutableBufferPointer { buffer in
+            guard let base = buffer.baseAddress else { return }
+            ring.copyWindow(endingAt: windowEnd, count: windowSize, into: base)
+        }
+        return analyzer.bandLevels(samples: analysisSamples, bandCount: bandCount, elapsed: elapsed)
     }
 
     func reset() {
-        os_unfair_lock_lock(&sampleLock)
-        samples.withUnsafeMutableBufferPointer { buffer in
-            guard let base = buffer.baseAddress else { return }
-            memset(base, 0, buffer.count * MemoryLayout<Float>.size)
-        }
-        hasFreshSamples = false
-        os_unfair_lock_unlock(&sampleLock)
+        ring.reset()
         os_unfair_lock_lock(&formatLock)
         acceptsFloat32 = false
         sampleStride = 1
+        sampleRate = 0
         os_unfair_lock_unlock(&formatLock)
     }
 }
@@ -2410,7 +2436,7 @@ private final class TVSpectrumFFTAnalyzer: @unchecked Sendable {
         temporallySmoothed = Array(repeating: 0, count: bandCount)
     }
 
-    func bandLevels(samples: [Float], bandCount: Int) -> [Float] {
+    func bandLevels(samples: [Float], bandCount: Int, elapsed: TimeInterval? = nil) -> [Float] {
         guard samples.count >= n, let fft, bandCount > 0 else {
             return Array(repeating: 0, count: max(bandCount, 0))
         }
@@ -2501,10 +2527,13 @@ private final class TVSpectrumFFTAnalyzer: @unchecked Sendable {
             for index in 0..<bandCount { spectrallySmoothed[index] = bands[index] }
         }
 
+        let reference = TVSpectrumConfiguration.smoothingReferenceInterval
+        let attack = SpectrumTemporalSmoothing.blend(base: 0.72, elapsed: elapsed, reference: reference)
+        let decay = SpectrumTemporalSmoothing.blend(base: 0.18, elapsed: elapsed, reference: reference)
         for index in 0..<bandCount {
             let old = temporallySmoothed[index]
             let target = spectrallySmoothed[index]
-            let blend: Float = target >= old ? 0.72 : 0.18
+            let blend: Float = target >= old ? attack : decay
             temporallySmoothed[index] = old + (target - old) * blend
         }
 

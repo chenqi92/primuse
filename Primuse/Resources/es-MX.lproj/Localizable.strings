@@ -1627,6 +1627,12 @@
 "immersive_demo_title" = "Primuse";
 "immersive_lock_controls" = "Bloquear controles inmersivos";
 "immersive_lyrics_motion_subtitle" = "Controla el movimiento del mural de títulos y el desplazamiento horizontal de letras; desactívalo para mantener el texto estático.";
+"immersive_frame_rate_title" = "Velocidad de fotogramas";
+"immersive_frame_rate_subtitle" = "«Igual que la pantalla» dibuja en cada actualización de la pantalla (V-Sync): lo más fluido, pero con el mayor consumo de energía.";
+"immersive_frame_rate_balanced" = "Ahorro de energía";
+"immersive_frame_rate_30" = "30 fps";
+"immersive_frame_rate_60" = "60 fps";
+"immersive_frame_rate_display" = "Igual que la pantalla";
 "immersive_lyrics_motion_title" = "Movimiento tipo inmersivo";
 "immersive_now_playing" = "AHORA JUGANDO";
 "immersive_track_position_format" = "PISTA %02d";

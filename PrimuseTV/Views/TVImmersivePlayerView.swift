@@ -163,6 +163,8 @@ struct TVImmersivePlayerView: View {
     private var effectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
+    @AppStorage(ImmersiveFrameRateMode.storageKey)
+    private var frameRateRawValue = ImmersiveFrameRateMode.defaultValue.rawValue
     @AppStorage(AppThemePreferences.accentHexKey)
     private var accentHex = AppThemePreferences.defaultAccentHex
     @AppStorage(AppThemePreferences.coverDrivenAmbientKey)
@@ -343,6 +345,9 @@ struct TVImmersivePlayerView: View {
         .onChange(of: presentationEffect) { _, newValue in
             updateSpectrumAnalysis(for: newValue)
         }
+        .onChange(of: frameRateRawValue) { _, _ in
+            updateSpectrumAnalysis(for: presentationEffect)
+        }
         .onChange(of: store.nowPlaying.songID) { _, _ in
             refreshGallerySongs()
         }
@@ -380,9 +385,7 @@ struct TVImmersivePlayerView: View {
             currentLyric: currentLyric,
             nextLyric: nextLyric,
             lyricsWritingDirection: store.lyrics.first?.writingDirection ?? .natural,
-            levels: presentationEffect.usesRealtimeSpectrum
-                ? store.engine.spectrumLevels.map { min(max(CGFloat($0), 0), 1) }
-                : [],
+            levelsProvider: { spectrumLevels },
             galleryArtworkCount: gallerySongs.count,
             galleryArtwork: { index, side in
                 guard gallerySongs.indices.contains(index) else { return AnyView(Color.clear) }
@@ -408,6 +411,7 @@ struct TVImmersivePlayerView: View {
             isRenderingActive: presentationActivity.isRenderingActive,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
+            frameRate: ImmersiveFrameRateMode(storedValue: frameRateRawValue),
             lyricInterlude: lyricInterlude,
             lyricsPlaceholder: PMString("ext.tv.nowPlaying.noLyrics"),
             visualizerDisclosure: PMString("ext.tv.immersive.timelineDisclosure"),
@@ -885,7 +889,18 @@ struct TVImmersivePlayerView: View {
         }
     }
 
+    /// 由舞台叶子视图按需调用，频谱的读取与重算都限制在消费它的那一层。
+    private var spectrumLevels: [CGFloat] {
+        guard presentationEffect.usesRealtimeSpectrum else { return [] }
+        return store.engine.spectrumLevels.map { min(max(CGFloat($0), 0), 1) }
+    }
+
     private func updateSpectrumAnalysis(for presentation: FullscreenPlayerEffect) {
+        store.engine.setSpectrumPacing(
+            ImmersiveFrameRateMode(storedValue: frameRateRawValue).spectrumPacing(
+                displayMaximumFramesPerSecond: ImmersiveDisplayRefresh.maximumFramesPerSecond
+            )
+        )
         store.engine.setSpectrumAnalysisEnabled(
             presentationActivity.isRenderingActive
                 && effect != .native

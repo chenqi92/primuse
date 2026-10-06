@@ -2,6 +2,12 @@
 "cloud_authorizing_listening_format" = "URL Şemasını Dinleme · %@";
 "greeting_morning" = "Günaydın";
 "immersive_lyrics_motion_subtitle" = "Başlık duvarı kaymasını ve yatay şarkı sözü çerçevesini kontrol eder; Yazıyı sabit tutmak için kapatın.";
+"immersive_frame_rate_title" = "Kare hızı";
+"immersive_frame_rate_subtitle" = "“Ekrana uy” her ekran yenilemesinde çizer (V-Sync): en akıcı seçenektir ama en çok enerjiyi tüketir.";
+"immersive_frame_rate_balanced" = "Güç tasarrufu";
+"immersive_frame_rate_30" = "30 fps";
+"immersive_frame_rate_60" = "60 fps";
+"immersive_frame_rate_display" = "Ekrana uy";
 "home_radio_wall_title" = "İstasyonlarım";
 "tag_editor_metadata_writeback_local_only" = "Salt okunur kaynak: etiketler ve kapak resmi Primuse'de kalır; kaynak dosya değişmez.";
 "home_lyrics" = "Şarkı sözü kapsamı";

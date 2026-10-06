@@ -1,4 +1,5 @@
 #if os(iOS)
+import PrimuseKit
 import SwiftUI
 
 /// 全屏效果选择页直接缩放正式舞台作为预览。只有当前选中的卡片运行动画，
@@ -9,6 +10,8 @@ struct FullscreenPlayerEffectSettingsView: View {
     private var selectedRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
+    @AppStorage(ImmersiveFrameRateMode.storageKey)
+    private var frameRateRawValue = ImmersiveFrameRateMode.defaultValue.rawValue
 
     private var selectedEffect: FullscreenPlayerEffect {
         FullscreenPlayerEffect(rawValue: selectedRawValue) ?? .defaultValue
@@ -26,6 +29,7 @@ struct FullscreenPlayerEffectSettingsView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 22) {
                 lyricsMotionCard
+                frameRateCard
 
                 ForEach(FullscreenEffectCollection.allCases) { collection in
                     if !collection.effects.isEmpty {
@@ -68,6 +72,43 @@ struct FullscreenPlayerEffectSettingsView: View {
         .settingsAnchor("appearance.lyricsMotion")
         .accessibilityHint(Text("immersive_lyrics_motion_subtitle"))
         .tint(previewPalette.primary)
+        .padding(16)
+        .background(
+            Color(uiColor: .secondarySystemGroupedBackground),
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+        )
+    }
+
+    private var frameRateSelection: Binding<String> {
+        Binding(
+            get: { ImmersiveFrameRateMode(storedValue: frameRateRawValue).rawValue },
+            set: { frameRateRawValue = $0 }
+        )
+    }
+
+    private var frameRateCard: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("immersive_frame_rate_title")
+                    .font(.system(size: 16, weight: .semibold))
+                Text("immersive_frame_rate_subtitle")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            Picker(selection: frameRateSelection) {
+                ForEach(ImmersiveFrameRateMode.allCases) { mode in
+                    Text(verbatim: mode.localizedTitle).tag(mode.rawValue)
+                }
+            } label: {
+                Text("immersive_frame_rate_title")
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .tint(previewPalette.primary)
+        }
+        .settingsAnchor("appearance.immersiveFrameRate")
         .padding(16)
         .background(
             Color(uiColor: .secondarySystemGroupedBackground),

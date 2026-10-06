@@ -1772,6 +1772,12 @@
 "immersive_unlock_controls" = "Déverrouiller les commandes";
 "immersive_lyrics_motion_title" = "Mouvement typographique immersif";
 "immersive_lyrics_motion_subtitle" = "Contrôle la dérive du mur de titres et le bandeau horizontal de paroles ; désactivez pour figer le texte.";
+"immersive_frame_rate_title" = "Fréquence d’images";
+"immersive_frame_rate_subtitle" = "« Selon l’écran » dessine à chaque rafraîchissement de l’écran (V-Sync) : le plus fluide, mais aussi le plus énergivore.";
+"immersive_frame_rate_balanced" = "Économie d’énergie";
+"immersive_frame_rate_30" = "30 i/s";
+"immersive_frame_rate_60" = "60 i/s";
+"immersive_frame_rate_display" = "Selon l’écran";
 "exit_landscape_video" = "Quitter la vidéo en paysage";
 "show_lyrics_background" = "Afficher l'arrière-plan des paroles";
 "hide_lyrics_background" = "Masquer l'arrière-plan des paroles";

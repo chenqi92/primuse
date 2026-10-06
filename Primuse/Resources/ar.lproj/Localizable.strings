@@ -1627,6 +1627,12 @@
 "immersive_demo_title" = "Primuse";
 "immersive_lock_controls" = "قفل الضوابط الغامرة";
 "immersive_lyrics_motion_subtitle" = "يتحكم في انحراف جدار العنوان وشريط التحديد الغنائي الأفقي؛ قم بإيقاف التشغيل للحفاظ على الكتابة ثابتة.";
+"immersive_frame_rate_title" = "معدل الإطارات";
+"immersive_frame_rate_subtitle" = "«مطابقة الشاشة» يرسم مع كل تحديث للشاشة (المزامنة الرأسية): الأكثر سلاسة، لكنه الأكثر استهلاكًا للطاقة.";
+"immersive_frame_rate_balanced" = "توفير الطاقة";
+"immersive_frame_rate_30" = "30 إطارًا/ث";
+"immersive_frame_rate_60" = "60 إطارًا/ث";
+"immersive_frame_rate_display" = "مطابقة الشاشة";
 "immersive_lyrics_motion_title" = "حركة من النوع الغامر";
 "immersive_now_playing" = "قيد التشغيل الآن";
 "immersive_track_position_format" = "المسار %02d";

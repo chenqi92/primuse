@@ -1772,6 +1772,12 @@
 "immersive_unlock_controls" = "몰입형 컨트롤 잠금 해제";
 "immersive_lyrics_motion_title" = "몰입형 문자 모션";
 "immersive_lyrics_motion_subtitle" = "곡명 벽의 느린 이동과 가로 가사 흐름을 제어하며 끄면 문자가 정지합니다.";
+"immersive_frame_rate_title" = "프레임 레이트";
+"immersive_frame_rate_subtitle" = "‘디스플레이에 맞춤’은 화면이 갱신될 때마다 그립니다(수직 동기화). 가장 부드럽지만 전력도 가장 많이 씁니다.";
+"immersive_frame_rate_balanced" = "절전";
+"immersive_frame_rate_30" = "30fps";
+"immersive_frame_rate_60" = "60fps";
+"immersive_frame_rate_display" = "디스플레이에 맞춤";
 "exit_landscape_video" = "가로형 비디오 종료";
 "show_lyrics_background" = "가사 배경 표시";
 "hide_lyrics_background" = "가사 배경 숨기기";

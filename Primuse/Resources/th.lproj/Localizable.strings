@@ -1627,6 +1627,12 @@
 "immersive_demo_title" = "Primuse";
 "immersive_lock_controls" = "ล็อคการควบคุมที่สมจริง";
 "immersive_lyrics_motion_subtitle" = "ควบคุมการเลื่อนของผนังชื่อเรื่องและเนื้อเพลงแนวนอน ปิดเพื่อให้พิมพ์นิ่ง";
+"immersive_frame_rate_title" = "อัตราเฟรม";
+"immersive_frame_rate_subtitle" = "“ตามหน้าจอ” วาดทุกครั้งที่หน้าจอรีเฟรช (V-Sync) ลื่นไหลที่สุด แต่ใช้พลังงานมากที่สุด";
+"immersive_frame_rate_balanced" = "ประหยัดพลังงาน";
+"immersive_frame_rate_30" = "30 fps";
+"immersive_frame_rate_60" = "60 fps";
+"immersive_frame_rate_display" = "ตามหน้าจอ";
 "immersive_lyrics_motion_title" = "การเคลื่อนไหวแบบดื่มด่ำ";
 "immersive_now_playing" = "กำลังเล่น";
 "immersive_track_position_format" = "แทร็ก %02d";

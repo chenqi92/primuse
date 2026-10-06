@@ -131,6 +131,7 @@ final class TVMedleyPlayback {
             _ = current.engine.play()
         }
         current.engine.setSpectrumAnalysisEnabled(facade.wantsSpectrumAnalysis)
+        current.engine.setSpectrumPacing(facade.spectrumPacing)
 
         if let outgoing {
             if wantsPlaying, current.engine.isPlaying { fadeElapsed += delta }

@@ -124,6 +124,8 @@ struct ImmersiveStageView<Artwork: View>: View {
     var isRenderingActive = true
     var reduceMotion = false
     var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
+    /// 各动态层的重绘帧率；经环境传给舞台里的每一层。
+    var frameRate: ImmersiveFrameRateMode = .defaultValue
     var lyricInterlude = false
     var lyricsPlaceholder = ""
     var visualizerDisclosure = ""
@@ -170,6 +172,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         .frame(width: metrics.size.width, height: metrics.size.height)
         .background(palette.secondary)
         .foregroundStyle(ImmersiveStagePalette.ink)
+        .environment(\.immersiveFrameRate, frameRate)
         .overlay(alignment: .bottom) {
             ImmersiveHairlinePlaybackProgress(
                 initialElapsed: track.elapsed,
@@ -837,7 +840,10 @@ struct ImmersiveStageView<Artwork: View>: View {
 
     /// 旋转角取自同一时钟：暂停时停在当前角度，恢复时从原处继续，不会跳回起点。
     private func rotatingCircularArtwork(diameter: CGFloat) -> some View {
-        TimelineView(.animation(minimumInterval: 1 / 24, paused: !sceneIsAnimating)) { context in
+        TimelineView(.animation(
+            minimumInterval: frameRate.minimumInterval(base: 1 / 24),
+            paused: !sceneIsAnimating
+        )) { context in
             let seconds = context.date.timeIntervalSinceReferenceDate
             let angle = reduceMotion ? 0 : seconds.truncatingRemainder(dividingBy: 22) / 22 * 360
             artwork(diameter)
@@ -1003,7 +1009,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         Group {
             if isLineActive, line.syllables != nil || hasLineTiming(stageLyric) {
                 TimelineView(.animation(
-                    minimumInterval: reduceMotion ? 0.10 : 1 / 30,
+                    minimumInterval: reduceMotion ? 0.10 : frameRate.minimumInterval(base: 1 / 30),
                     paused: !playbackClockIsActive
                 )) { _ in
                     activeLyricText(
@@ -1045,7 +1051,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         Group {
             if line.isActive, line.syllables != nil || hasLineTiming(line) {
                 TimelineView(.animation(
-                    minimumInterval: reduceMotion ? 0.10 : 1 / 30,
+                    minimumInterval: reduceMotion ? 0.10 : frameRate.minimumInterval(base: 1 / 30),
                     paused: !playbackClockIsActive
                 )) { _ in
                     activeLyricText(
@@ -1300,6 +1306,7 @@ private enum ImmersivePlaybackClock {
 // MARK: - Dynamic scene renderers
 
 private struct ImmersiveGalleryBackdrop: View {
+    @Environment(\.immersiveFrameRate) private var frameRate
     let count: Int
     let palette: ImmersiveArtworkPalette
     let isAnimating: Bool
@@ -1322,7 +1329,7 @@ private struct ImmersiveGalleryBackdrop: View {
                 )
                 // Resolve the artwork as reusable symbols. Animation only moves
                 // rasterized tiles instead of laying out twenty image view trees.
-                TimelineView(.animation(minimumInterval: 1.0 / 12, paused: !isAnimating)) { context in
+                TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1.0 / 12), paused: !isAnimating)) { context in
                     Canvas(rendersAsynchronously: true) { canvas, _ in
                         let time = context.date.timeIntervalSinceReferenceDate
                         canvas.opacity = 0.50

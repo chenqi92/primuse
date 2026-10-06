@@ -35,6 +35,8 @@ struct ImmersivePlayerView: View {
     @Environment(\.pmIsPhoneIdiom) private var isPhoneIdiomEnvironment
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
+    @AppStorage(ImmersiveFrameRateMode.storageKey)
+    private var frameRateRawValue = ImmersiveFrameRateMode.defaultValue.rawValue
     @State private var showsChrome = true
     @State private var chromeTask: Task<Void, Never>?
     @State private var ambientTask: Task<Void, Never>?
@@ -55,6 +57,10 @@ struct ImmersivePlayerView: View {
     /// 不走 iPad / Mac 的大画布那一套。
     private var isPhoneIdiom: Bool {
         isPhoneIdiomEnvironment || UIDevice.current.userInterfaceIdiom == .phone
+    }
+
+    private var frameRate: ImmersiveFrameRateMode {
+        ImmersiveFrameRateMode(storedValue: frameRateRawValue)
     }
 
     private var presentationEffect: FullscreenPlayerEffect {
@@ -201,6 +207,9 @@ struct ImmersivePlayerView: View {
         .onChange(of: presentationEffect) { _, _ in
             synchronizeVisualizer()
         }
+        .onChange(of: frameRateRawValue) { _, _ in
+            synchronizeVisualizer()
+        }
         .onChange(of: player.isPlaying) { _, isPlaying in
             synchronizeVisualizer()
             guard isSceneActive else { return }
@@ -290,6 +299,7 @@ struct ImmersivePlayerView: View {
             isRenderingActive: isSceneActive,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
+            frameRate: frameRate,
             lyricInterlude: lyricInterlude,
             lyricsPlaceholder: isResolvingLyrics
                 ? String(localized: "lyrics_loading")
@@ -1202,6 +1212,9 @@ struct ImmersivePlayerView: View {
             return
         }
 
+        visualizer.setPacing(frameRate.spectrumPacing(
+            displayMaximumFramesPerSecond: ImmersiveDisplayRefresh.maximumFramesPerSecond
+        ))
         guard visualizer.acquire(
             owner: visualizerOwnerID,
             engine: engine,

@@ -1809,6 +1809,12 @@
 "immersive_unlock_controls" = "Unlock immersive controls";
 "immersive_lyrics_motion_title" = "Immersive type motion";
 "immersive_lyrics_motion_subtitle" = "Controls the title wall drift and horizontal lyric marquee; turn off to keep type still.";
+"immersive_frame_rate_title" = "Frame Rate";
+"immersive_frame_rate_subtitle" = "Match Display draws on every screen refresh (V-Sync): the smoothest option, and the one that uses the most power.";
+"immersive_frame_rate_balanced" = "Power Saving";
+"immersive_frame_rate_30" = "30 fps";
+"immersive_frame_rate_60" = "60 fps";
+"immersive_frame_rate_display" = "Match Display";
 "exit_landscape_video" = "Exit landscape video";
 "show_lyrics_background" = "Show lyrics background";
 "hide_lyrics_background" = "Hide lyrics background";

@@ -1,4 +1,5 @@
 import Foundation
+import PrimuseKit
 import SwiftUI
 
 // 沉浸舞台的动态渲染层：新增的黑胶、星夜极光、天际线、粒子场，以及既有
@@ -45,6 +46,7 @@ enum ImmersiveSeed {
 /// 深空星野：三层视差星点、一条斜向银河与偶尔划过的流星。
 /// 远层星点最小最慢，近层带光晕；所有位置由确定性种子决定。
 struct ImmersiveDeepStarField: View {
+    @Environment(\.immersiveFrameRate) private var frameRate
     var palette: ImmersiveArtworkPalette
     var isAnimating: Bool
     var showsMilkyWay = true
@@ -65,7 +67,7 @@ struct ImmersiveDeepStarField: View {
     ]
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 18, paused: !isAnimating)) { context in
+        TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 18), paused: !isAnimating)) { context in
             let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
             Canvas(rendersAsynchronously: true) { canvas, size in
                 let bounds = Path(CGRect(origin: .zero, size: size))
@@ -212,13 +214,14 @@ struct ImmersiveDeepStarField: View {
 /// 流动声纹的线场：以封面为圆心的多层轮廓线，叠加三组不同频率的波动持续
 /// 演化；每第四圈用封面色并带柔光，其余为淡色细线。
 struct ImmersiveOrganicContourField: View {
+    @Environment(\.immersiveFrameRate) private var frameRate
     var palette: ImmersiveArtworkPalette
     var isAnimating: Bool
     var center: UnitPoint = .center
     var ringCount = 26
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 18, paused: !isAnimating)) { context in
+        TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 18), paused: !isAnimating)) { context in
             let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
             Canvas(rendersAsynchronously: true) { canvas, size in
                 let origin = CGPoint(x: size.width * center.x, y: size.height * center.y)
@@ -292,13 +295,14 @@ struct ImmersiveOrganicContourField: View {
 
 /// 围绕圆形封面的轨道环：一段封面色渐变弧线与一颗亮点反向慢速绕行。
 struct ImmersiveOrbitRing: View {
+    @Environment(\.immersiveFrameRate) private var frameRate
     var palette: ImmersiveArtworkPalette
     var isAnimating: Bool
     var diameter: CGFloat
     var period: Double = 14
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 24, paused: !isAnimating)) { context in
+        TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 24), paused: !isAnimating)) { context in
             let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
             let angle = -time.truncatingRemainder(dividingBy: period) / period * 360
             ZStack {
@@ -333,13 +337,14 @@ struct ImmersiveOrbitRing: View {
 /// 从画面一角射入的柔和光束：若干楔形以不同周期缓慢摆动、明暗起伏，
 /// 经一次模糊后成为丁达尔光。
 struct ImmersiveLightRays: View {
+    @Environment(\.immersiveFrameRate) private var frameRate
     var palette: ImmersiveArtworkPalette
     var isAnimating: Bool
     var origin = UnitPoint(x: 0.10, y: -0.10)
     var rayCount = 7
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 15, paused: !isAnimating)) { context in
+        TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 15), paused: !isAnimating)) { context in
             let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
             Canvas(rendersAsynchronously: true) { canvas, size in
                 let source = CGPoint(x: size.width * origin.x, y: size.height * origin.y)
@@ -389,13 +394,14 @@ struct ImmersiveLightRays: View {
 
 /// 封面背后的呼吸光环：柔光随周期涨落，一圈渐变细环缓慢自转。
 struct ImmersiveBreathingHalo: View {
+    @Environment(\.immersiveFrameRate) private var frameRate
     var palette: ImmersiveArtworkPalette
     var isAnimating: Bool
     var diameter: CGFloat
     var period: Double = 8.4
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 20, paused: !isAnimating)) { context in
+        TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 20), paused: !isAnimating)) { context in
             let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
             // Double 与 CGFloat 分开标注,避免类型检查器在混算表达式里穷举组合。
             let breath: Double = isAnimating ? (sin(time / period * 2 * .pi) + 1) / 2 : 0.5
@@ -544,6 +550,7 @@ private struct ImmersiveVinylScratches: View, Equatable {
 /// 黑胶唱片：静态胶面 + 随播放旋转的圆标(封面)、划痕与中轴。
 /// 旋转角始终取自同一时钟，暂停时停在当前角度而不是跳回起点。
 struct ImmersiveVinylRecord<Label: View>: View {
+    @Environment(\.immersiveFrameRate) private var frameRate
     var palette: ImmersiveArtworkPalette
     var isSpinning: Bool
     var reduceMotion: Bool
@@ -559,7 +566,7 @@ struct ImmersiveVinylRecord<Label: View>: View {
                 .shadow(color: palette.primary.opacity(0.42), radius: diameter * 0.10, y: diameter * 0.04)
                 .shadow(color: .black.opacity(0.62), radius: diameter * 0.05, y: diameter * 0.03)
 
-            TimelineView(.animation(minimumInterval: 1 / 24, paused: !isSpinning || reduceMotion)) { context in
+            TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 24), paused: !isSpinning || reduceMotion)) { context in
                 let seconds = context.date.timeIntervalSinceReferenceDate
                 let angle = reduceMotion ? 0 : seconds.truncatingRemainder(dividingBy: spinPeriod) / spinPeriod * 360
                 ZStack {
@@ -672,6 +679,7 @@ struct ImmersiveVinylTonearm: View {
 /// 以不同速度起伏，幕内有闪烁的竖向光柱，底部压一层深色地面剪影。整层只做一次模糊。
 /// 星空里不放封面色星云：极光本身已经是封面色的彩色元素，再叠一层色团画面会发脏。
 struct ImmersiveAuroraCurtains: View {
+    @Environment(\.immersiveFrameRate) private var frameRate
     var palette: ImmersiveArtworkPalette
     var isAnimating: Bool
 
@@ -701,7 +709,7 @@ struct ImmersiveAuroraCurtains: View {
                 showsShootingStars: true
             )
 
-            TimelineView(.animation(minimumInterval: 1 / 15, paused: !isAnimating)) { context in
+            TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 15), paused: !isAnimating)) { context in
                 let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
                 Canvas(rendersAsynchronously: true) { canvas, size in
                     canvas.blendMode = .plusLighter
@@ -863,6 +871,7 @@ struct ImmersiveSpectrumSkyline: View {
 /// 从封面向外扩散的星尘：位置只由时间决定，保证运动连续；低频推高粒子
 /// 尺寸与封面背后的光晕，整体能量决定亮度。
 struct ImmersiveParticleField: View {
+    @Environment(\.immersiveFrameRate) private var frameRate
     var levelsProvider: @MainActor () -> [CGFloat]
     var palette: ImmersiveArtworkPalette
     var isAnimating: Bool
@@ -870,7 +879,7 @@ struct ImmersiveParticleField: View {
     var count = 150
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 24, paused: !isAnimating)) { context in
+        TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 24), paused: !isAnimating)) { context in
             let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
             let levels = levelsProvider()
             let bass = ImmersiveSpectrumSummary.bass(levels)
@@ -975,6 +984,7 @@ struct ImmersivePulsingArtwork<Artwork: View>: View {
 
 /// 从频谱环内缘向外扩散的三圈涟漪，透明度随低频强弱。
 struct ImmersiveBassRipples: View {
+    @Environment(\.immersiveFrameRate) private var frameRate
     var levelsProvider: @MainActor () -> [CGFloat]
     var palette: ImmersiveArtworkPalette
     var isAnimating: Bool
@@ -982,7 +992,7 @@ struct ImmersiveBassRipples: View {
     var startRatio: CGFloat
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 24, paused: !isAnimating)) { context in
+        TimelineView(.animation(minimumInterval: frameRate.minimumInterval(base: 1 / 24), paused: !isAnimating)) { context in
             let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
             let bass = ImmersiveSpectrumSummary.bass(levelsProvider())
             Canvas(rendersAsynchronously: true) { canvas, size in

@@ -1825,6 +1825,12 @@
 "immersive_unlock_controls" = "解锁沉浸式控制";
 "immersive_lyrics_motion_title" = "沉浸文字动效";
 "immersive_lyrics_motion_subtitle" = "控制曲名墙的缓慢漂移和歌词横向巡游；关闭后文字保持静态。";
+"immersive_frame_rate_title" = "画面帧率";
+"immersive_frame_rate_subtitle" = "“跟随屏幕”按屏幕刷新率逐帧绘制（垂直同步），最流畅，也最耗电。";
+"immersive_frame_rate_balanced" = "省电";
+"immersive_frame_rate_30" = "30 帧";
+"immersive_frame_rate_60" = "60 帧";
+"immersive_frame_rate_display" = "跟随屏幕";
 "exit_landscape_video" = "退出横屏视频";
 "show_lyrics_background" = "显示歌词背板";
 "hide_lyrics_background" = "隐藏歌词背板";

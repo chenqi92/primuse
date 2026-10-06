@@ -1,16 +1,21 @@
 import Accelerate
 import AVFoundation
+import Dispatch
 import Foundation
-import os.lock
+import PrimuseKit
 
 /// 实时音频频谱可视化器 —— 在 AudioEngine 的 mainMixerNode 上挂 tap, 拿到
 /// 输出 buffer 做 FFT, 把 1024 点频谱压成 32 个频段强度发布给 UI。
 ///
 /// **音频线程安全**:
-/// tap callback 跑在音频实时线程, 严格限制只做 memcpy + 翻 atomic flag,
+/// tap callback 跑在音频实时线程, 严格限制只做 memcpy + trylock,
 /// 不允许 Swift Array 分配 / 类型绑定 / FFT / MainActor hop ── 这些都会把
 /// 音频线程拖慢甚至抢占,在 iOS 26 上会触发硬崩溃。FFT + 发布到 UI 全部
 /// 在另起的 background Task 里跑。
+///
+/// **发布节奏**: tap 不管请求多大, 实测 macOS 都是 100 ms 才回调一次 (4800 帧)。
+/// 整批写进采样环, 「省电」档每到一批分析最新一窗; 其余档由
+/// `SpectrumPlayoutCursor` 在两批之间匀速推进读取位置, 按所选帧率发布。
 ///
 /// 启停语义:
 /// - iOS 沉浸式视图通过 owner lease 获取和释放频谱，最后一个 owner 离开时
@@ -22,6 +27,8 @@ final class AudioVisualizerService {
     // nonisolated 让 detached Task 和 SwiftUI 视图都能直接读, 不用 hop main actor。
     nonisolated static let bandCount = 32
     nonisolated static let fftSize = 1024
+    /// 时间平滑系数是按「每 100 ms 分析一次」调出来的, 分析更勤时按真实间隔折算。
+    nonisolated static let smoothingReferenceInterval: TimeInterval = 0.1
 
     /// 0...1 归一化的频段强度。bandLevels.count == bandCount 永远成立。
     /// UI 用 .animation(.linear(duration: 0.07), value: bandLevels) 即可平滑过渡。
@@ -29,7 +36,10 @@ final class AudioVisualizerService {
 
     private weak var engine: AVAudioEngine?
     private var tappedNode: AVAudioNode?
-    private let buffer = SharedSampleBuffer(capacity: fftSize)
+    private let ring = SpectrumSampleRing()
+    private var sampleRate: Double = 0
+    private var pacing = ImmersiveFrameRateMode.defaultValue
+        .spectrumPacing(displayMaximumFramesPerSecond: 60)
     private var pollTask: Task<Void, Never>?
     private var ownerIDs: Set<UUID> = []
     private let compatibilityOwnerID = UUID()
@@ -41,6 +51,14 @@ final class AudioVisualizerService {
 
     func stop() {
         release(owner: compatibilityOwnerID)
+    }
+
+    /// 全屏页按「画面帧率」设置给出发布节奏；多个 owner 时以最后一次为准。
+    func setPacing(_ value: SpectrumPublishPacing) {
+        guard pacing != value else { return }
+        pacing = value
+        guard pollTask != nil else { return }
+        startPolling()
     }
 
     @discardableResult
@@ -67,42 +85,16 @@ final class AudioVisualizerService {
         stopPipeline()
         self.engine = engine
 
-        // tap 闭包只 memcpy + 翻 flag, 完全不 alloc 不 hop actor。
-        let buffer = self.buffer
+        // tap 闭包只 memcpy + trylock, 完全不 alloc 不 hop actor。
         AudioVisualizerTap.install(
             on: node,
             bufferSize: AVAudioFrameCount(Self.fftSize),
             format: format,
-            buffer: buffer
+            ring: ring
         )
         self.tappedNode = node
-
-        // 用 detached Task 周期性拉 buffer 做 FFT, 跟音频线程完全解耦。
-        // 25Hz 节流, 落到 main actor 才更新 @Observable bandLevels。
-        let analyzer = FFTAnalyzer(
-            log2n: Int(log2(Double(Self.fftSize))),
-            bandCount: Self.bandCount
-        )
-        pollGeneration &+= 1
-        let generation = pollGeneration
-        let sampleRate = format.sampleRate
-        pollTask = Task.detached(priority: .userInitiated) { [weak self, buffer, analyzer] in
-            var samples = [Float](repeating: 0, count: Self.fftSize)
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(40))
-                guard !Task.isCancelled else { break }
-                guard buffer.copyLatest(into: &samples) else { continue }
-                let levels = analyzer.bandLevels(
-                    samples: samples,
-                    bandCount: Self.bandCount,
-                    sampleRate: sampleRate
-                )
-                await MainActor.run { [weak self] in
-                    guard let self, self.pollGeneration == generation else { return }
-                    self.bandLevels = levels
-                }
-            }
-        }
+        sampleRate = format.sampleRate
+        startPolling()
         return true
     }
 
@@ -110,6 +102,65 @@ final class AudioVisualizerService {
         guard ownerIDs.remove(owner) != nil,
               ownerIDs.isEmpty else { return }
         stopPipeline()
+    }
+
+    /// 用 detached Task 周期性取窗做 FFT, 跟音频线程完全解耦；落到 main actor
+    /// 才更新 @Observable bandLevels。换节奏时整个任务连同分析器重建, 旧任务
+    /// 可能还没退出, 两个任务不能共用一个分析器。
+    private func startPolling() {
+        pollTask?.cancel()
+        pollGeneration &+= 1
+        let generation = pollGeneration
+        let ring = self.ring
+        let sampleRate = self.sampleRate
+        let pacing = self.pacing
+        let analyzer = FFTAnalyzer(
+            log2n: Int(log2(Double(Self.fftSize))),
+            bandCount: Self.bandCount
+        )
+        pollTask = Task.detached(priority: .userInitiated) { [weak self, ring, analyzer] in
+            var samples = [Float](repeating: 0, count: Self.fftSize)
+            var cursor = SpectrumPlayoutCursor()
+            var analyzedWritten: Int64 = 0
+            let interval = Duration.seconds(pacing.pollInterval)
+            while !Task.isCancelled {
+                try? await Task.sleep(for: interval)
+                guard !Task.isCancelled else { break }
+                let state = ring.state()
+                let windowEnd: Int64
+                var elapsed: TimeInterval?
+                switch pacing {
+                case .onArrival:
+                    guard state.written > 0, state.written != analyzedWritten else { continue }
+                    analyzedWritten = state.written
+                    windowEnd = state.written
+                case .paced:
+                    guard let step = cursor.advance(
+                        state: state,
+                        nowUptime: DispatchTime.now().uptimeNanoseconds,
+                        sampleRate: sampleRate
+                    ) else { continue }
+                    windowEnd = step.end
+                    if step.advancedFrames > 0 {
+                        elapsed = Double(step.advancedFrames) / sampleRate
+                    }
+                }
+                samples.withUnsafeMutableBufferPointer { buffer in
+                    guard let base = buffer.baseAddress else { return }
+                    ring.copyWindow(endingAt: windowEnd, count: Self.fftSize, into: base)
+                }
+                let levels = analyzer.bandLevels(
+                    samples: samples,
+                    bandCount: Self.bandCount,
+                    sampleRate: sampleRate,
+                    elapsed: elapsed
+                )
+                await MainActor.run { [weak self] in
+                    guard let self, self.pollGeneration == generation else { return }
+                    self.bandLevels = levels
+                }
+            }
+        }
     }
 
     private func stopPipeline() {
@@ -121,7 +172,7 @@ final class AudioVisualizerService {
         }
         tappedNode = nil
         engine = nil
-        buffer.discardLatest()
+        ring.reset()
         bandLevels = Array(repeating: 0, count: Self.bandCount)
     }
 }
@@ -135,71 +186,13 @@ private enum AudioVisualizerTap {
         on node: AVAudioNode,
         bufferSize: AVAudioFrameCount,
         format: AVAudioFormat,
-        buffer: SharedSampleBuffer
+        ring: SpectrumSampleRing
     ) {
         node.installTap(onBus: 0, bufferSize: bufferSize, format: format) { audioBuffer, _ in
-            buffer.fill(from: audioBuffer)
+            // 第 0 声道整批写进采样环；锁忙就丢这一批, 不在音频线程上等。
+            guard let channels = audioBuffer.floatChannelData else { return }
+            ring.write(channels[0], frameCount: Int(audioBuffer.frameLength))
         }
-    }
-}
-
-// MARK: - Audio-thread-safe sample buffer
-
-/// 共享缓冲: 音频线程写,后台 Task 读。用 os_unfair_lock 替代 Swift actor —
-/// actor hop 在音频线程不允许。Lock 失败时直接 drop frame (轮询 tick 下一帧
-/// 会取最新数据)。
-private final class SharedSampleBuffer: @unchecked Sendable {
-    private let storage: UnsafeMutablePointer<Float>
-    private var hasFresh = false
-    private var lock = os_unfair_lock_s()
-    let capacity: Int
-
-    init(capacity: Int) {
-        self.capacity = capacity
-        self.storage = .allocate(capacity: capacity)
-        self.storage.initialize(repeating: 0, count: capacity)
-    }
-
-    deinit {
-        storage.deinitialize(count: capacity)
-        storage.deallocate()
-    }
-
-    /// 音频线程调用。AVAudioPCMBuffer 第 0 声道前 capacity 个样本拷进共享缓冲。
-    /// 失败 (锁忙 / 格式不对) 直接返回, 不在音频线程做任何复杂的事。
-    func fill(from buffer: AVAudioPCMBuffer) {
-        guard let ch = buffer.floatChannelData else { return }
-        let frames = min(Int(buffer.frameLength), capacity)
-        guard frames > 0 else { return }
-        guard os_unfair_lock_trylock(&lock) else { return }  // 锁忙就放弃这一帧
-        memcpy(storage, ch[0], frames * MemoryLayout<Float>.size)
-        if frames < capacity {
-            // 不足 capacity 时把尾部置零, FFT 自然就少高频能量, 视觉上正常
-            memset(storage.advanced(by: frames), 0, (capacity - frames) * MemoryLayout<Float>.size)
-        }
-        hasFresh = true
-        os_unfair_lock_unlock(&lock)
-    }
-
-    /// 后台 Task 调用。目标数组由轮询任务一次性预分配，避免每个 FFT tick
-    /// 创建快照；音频线程写入的也是独立裸缓冲，不会触发 Array 写时复制。
-    func copyLatest(into destination: inout [Float]) -> Bool {
-        guard destination.count >= capacity else { return false }
-        os_unfair_lock_lock(&lock)
-        defer { os_unfair_lock_unlock(&lock) }
-        guard hasFresh else { return false }
-        destination.withUnsafeMutableBufferPointer { target in
-            guard let base = target.baseAddress else { return }
-            memcpy(base, storage, capacity * MemoryLayout<Float>.size)
-        }
-        hasFresh = false
-        return true
-    }
-
-    func discardLatest() {
-        os_unfair_lock_lock(&lock)
-        hasFresh = false
-        os_unfair_lock_unlock(&lock)
     }
 }
 
@@ -236,7 +229,12 @@ private final class FFTAnalyzer: @unchecked Sendable {
         self.temporallySmoothed = Array(repeating: 0, count: bandCount)
     }
 
-    func bandLevels(samples: [Float], bandCount: Int, sampleRate: Double = 0) -> [Float] {
+    func bandLevels(
+        samples: [Float],
+        bandCount: Int,
+        sampleRate: Double = 0,
+        elapsed: TimeInterval? = nil
+    ) -> [Float] {
         guard samples.count >= n, fft != nil else {
             return Array(repeating: 0, count: bandCount)
         }
@@ -326,10 +324,13 @@ private final class FFTAnalyzer: @unchecked Sendable {
             for index in 0..<bandCount { spectrallySmoothed[index] = bands[index] }
         }
 
+        let reference = AudioVisualizerService.smoothingReferenceInterval
+        let attack = SpectrumTemporalSmoothing.blend(base: 0.72, elapsed: elapsed, reference: reference)
+        let decay = SpectrumTemporalSmoothing.blend(base: 0.18, elapsed: elapsed, reference: reference)
         for index in 0..<bandCount {
             let old = temporallySmoothed[index]
             let target = spectrallySmoothed[index]
-            let response: Float = target >= old ? 0.72 : 0.18
+            let response: Float = target >= old ? attack : decay
             temporallySmoothed[index] = old + (target - old) * response
         }
         return temporallySmoothed.withUnsafeBufferPointer { Array($0) }

@@ -1627,6 +1627,12 @@
 "immersive_demo_title" = "Primuse";
 "immersive_lock_controls" = "इमर्सिव नियंत्रणों को लॉक करें";
 "immersive_lyrics_motion_subtitle" = "शीर्षक दीवार बहाव और क्षैतिज गीत के बोल मार्की को नियंत्रित करता है; टाइप को स्थिर रखने के लिए बंद करें।";
+"immersive_frame_rate_title" = "फ़्रेम दर";
+"immersive_frame_rate_subtitle" = "“डिस्प्ले के अनुसार” हर स्क्रीन रीफ़्रेश पर चित्र बनाता है (V-Sync): सबसे सहज, पर सबसे ज़्यादा बिजली खर्च करता है।";
+"immersive_frame_rate_balanced" = "बिजली बचत";
+"immersive_frame_rate_30" = "30 fps";
+"immersive_frame_rate_60" = "60 fps";
+"immersive_frame_rate_display" = "डिस्प्ले के अनुसार";
 "immersive_lyrics_motion_title" = "इमर्सिव प्रकार की गति";
 "immersive_now_playing" = "अभी चल रहा है";
 "immersive_track_position_format" = "ट्रैक %02d";

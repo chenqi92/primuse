@@ -6278,6 +6278,8 @@ private struct MacSTThemeView: View {
     @State private var inspectedRecommendationIntent: AIRecommendationIntentDetails?
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
+    @AppStorage(ImmersiveFrameRateMode.storageKey)
+    private var immersiveFrameRateRawValue = ImmersiveFrameRateMode.defaultValue.rawValue
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
@@ -6422,6 +6424,20 @@ private struct MacSTThemeView: View {
                     )
                 }
                 .settingsAnchor("appearance.fullscreenEffect")
+                MacSTRow(
+                    String(localized: "immersive_frame_rate_title"),
+                    hint: String(localized: "immersive_frame_rate_subtitle")
+                ) {
+                    MacSTPicker(
+                        selection: Binding(
+                            get: { ImmersiveFrameRateMode(storedValue: immersiveFrameRateRawValue).rawValue },
+                            set: { immersiveFrameRateRawValue = $0 }
+                        ),
+                        options: ImmersiveFrameRateMode.allCases.map { ($0.rawValue, $0.localizedTitle) },
+                        width: 160
+                    )
+                }
+                .settingsAnchor("appearance.immersiveFrameRate")
             }
         }
 

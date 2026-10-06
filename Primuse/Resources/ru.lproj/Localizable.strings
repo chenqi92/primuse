@@ -2,6 +2,12 @@
 "cloud_authorizing_listening_format" = "Прослушивание по схеме URL · %@";
 "greeting_morning" = "Доброе утро.";
 "immersive_lyrics_motion_subtitle" = "Управляет перемещением стены заголовка и горизонтальной рамкой текста; выключите, чтобы текст оставался неподвижным.";
+"immersive_frame_rate_title" = "Частота кадров";
+"immersive_frame_rate_subtitle" = "«Как у экрана» рисует на каждом обновлении экрана (V-Sync): максимально плавно, но с наибольшим расходом энергии.";
+"immersive_frame_rate_balanced" = "Энергосбережение";
+"immersive_frame_rate_30" = "30 кадр/с";
+"immersive_frame_rate_60" = "60 кадр/с";
+"immersive_frame_rate_display" = "Как у экрана";
 "home_radio_wall_title" = "Мои станции";
 "tag_editor_metadata_writeback_local_only" = "Источник, доступный только для чтения: теги и обложки остаются в Primuse; исходный файл не изменяется.";
 "home_lyrics" = "Наличие текстов песен";

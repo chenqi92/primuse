@@ -1,6 +1,11 @@
 import Foundation
 import PrimuseKit
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 enum PlayerAppearancePreferences {
     static let animatedArtworkEnabledKey = "primuse.player.animatedArtworkEnabled"
@@ -478,6 +483,35 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
 enum ImmersiveLyricsMotionSettings {
     static let storageKey = "primuse.immersiveLyricsMotionEnabled"
     static let defaultValue = true
+}
+
+extension ImmersiveFrameRateMode {
+    var localizedTitle: String {
+        String(localized: String.LocalizationValue(titleKey))
+    }
+}
+
+/// 「跟随屏幕」档按屏幕最高刷新率发布频谱，免得在 60 Hz 屏上空算一倍。
+@MainActor
+enum ImmersiveDisplayRefresh {
+    static var maximumFramesPerSecond: Int {
+        #if os(macOS)
+        return NSScreen.screens.map(\.maximumFramesPerSecond).max() ?? 60
+        #else
+        let maximum = UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.screen.maximumFramesPerSecond }
+            .max() ?? 60
+        #if os(iOS)
+        // iPhone 没在 Info.plist 声明 CADisableMinimumFrameDurationOnPhone 时，
+        // 应用里的动画最高只到 60 帧，ProMotion 屏报 120 也画不到。
+        if UIDevice.current.userInterfaceIdiom == .phone,
+           Bundle.main.object(forInfoDictionaryKey: "CADisableMinimumFrameDurationOnPhone") as? Bool != true {
+            return min(maximum, 60)
+        }
+        #endif
+        return maximum
+        #endif
+    }
 }
 
 /// 只同步所选全屏呈现方式，不同步各端的动画强度、控件显隐或版式状态。
