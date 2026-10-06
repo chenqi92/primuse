@@ -646,9 +646,14 @@ struct HomeView: View {
     @State private var showUpdateSheet: Bool = false
     @State private var selectedHomeRadioID: String?
     @State private var pendingInsecureHomeStation: RadioStation?
-    /// 顶上筛选胶囊选中的那一类;nil 是「全部」,三类混排。只在这次打开 App 时记着:
-    /// 下次打开首页仍从全部开始,不会让人以为别的内容不见了。
-    @State private var homeFilter: ListeningSpace?
+    /// 顶上筛选胶囊选中的那一类,空串是「全部」。记在本机:听书的人退出再进来仍停在有声,
+    /// 电台、播客同理。不进 iCloud 同步的首页布局 —— 各台设备各听各的。
+    @AppStorage("primuse.home.filter") private var storedHomeFilter = ""
+
+    private var homeFilter: ListeningSpace? {
+        get { ListeningSpace(rawValue: storedHomeFilter) }
+        nonmutating set { storedHomeFilter = newValue?.rawValue ?? "" }
+    }
     @AppStorage("primuse.home.showRadio") private var showRadioOnHome = true
     @State private var showRadioBatchAdd = false
     @State private var isHomeVisible = false
