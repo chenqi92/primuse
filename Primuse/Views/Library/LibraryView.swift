@@ -1809,11 +1809,7 @@ struct GenreLibraryView: View {
                 }
             }
             .pmExtendsUnderVerticalBar()
-            .searchable(
-                text: $searchText,
-                placement: .navigationBarDrawer(displayMode: .always),
-                prompt: Text("genre_search_placeholder")
-            )
+            .libraryPageFind(text: $searchText, prompt: "genre_search_placeholder")
         }
     }
     #endif

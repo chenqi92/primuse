@@ -5524,3 +5524,7 @@
 "ai_recommendation_refresh_daily" = "每天";
 "ai_recommendation_refresh_footer" = "重新整理頻率決定情境推薦多久重新詢問一次智慧服務。自動：使用內建 AI 時每 6 小時一次，使用自己的服務時隨聽歌即時更新。間隔內重新開啟 App、來回切換頁面都會沿用上次的結果；在「智慧推薦」頁面可隨時重新產生。";
 "playlist_find_prompt" = "在播放清單中尋找";
+"filter_playlists_placeholder" = "篩選播放清單…";
+"filter_favorites_placeholder" = "篩選收藏…";
+"filter_spoken_word_placeholder" = "篩選有聲書…";
+"filter_podcasts_placeholder" = "篩選播客…";

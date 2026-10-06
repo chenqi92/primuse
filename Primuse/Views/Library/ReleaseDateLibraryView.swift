@@ -11,6 +11,8 @@ struct ReleaseDateLibraryView: View {
     @Environment(AudioPlayerService.self) private var player
     @State private var layout: ReleaseDateBrowseLayout?
     @State private var collapsedDecades: Set<String> = []
+    /// 「在本页里找」: 按专辑名、艺术家、年份筛, 分组与顺序不变。
+    @State private var findText = ""
     private let favorites = LibraryFavoritesStore.shared
     #if os(iOS)
     @Environment(\.pmHeightClass) private var heightClass
@@ -33,6 +35,9 @@ struct ReleaseDateLibraryView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        #if os(iOS)
+        .libraryPageFind(text: $findText, prompt: "filter_albums_placeholder")
+        #endif
         .task(id: ReleaseDateLayoutCache.Token(albums)) {
             let built = await ReleaseDateLayoutCache.shared.layout(for: albums)
             guard !Task.isCancelled else { return }
@@ -42,36 +47,56 @@ struct ReleaseDateLibraryView: View {
 
     // MARK: 页面
 
-    private func content(_ layout: ReleaseDateBrowseLayout) -> some View {
-        ScrollViewReader { proxy in
+    private func content(_ fullLayout: ReleaseDateBrowseLayout) -> some View {
+        let findQuery = LibraryFindPolicy.query(findText)
+        let layout = findQuery.map { query in
+            fullLayout.filtered { album in
+                LibraryFindPolicy.matches(query, fields: [
+                    album.title, album.artistName, album.year.map(String.init),
+                ])
+            }
+        } ?? fullLayout
+        return ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                     #if os(macOS)
-                    Text("library_release_date_title")
-                        .font(.system(size: 32, weight: .bold))
-                        .foregroundStyle(PMColor.text)
-                        .padding(.horizontal, horizontalInset)
-                        .padding(.top, 24)
-                        .padding(.bottom, 12)
-                    #endif
-                    ReleaseDateDistributionChart(
-                        bars: layout.chartBars,
-                        albumCount: layout.albumCount,
-                        title: Self.title(for:)
-                    ) { era in
-                        guard layout.decades.contains(where: { $0.era == era }) else { return }
-                        collapsedDecades.remove(era.id)
-                        pmWithAnimation(.list) {
-                            proxy.scrollTo(era.id, anchor: .top)
-                        }
+                    HStack(alignment: .center) {
+                        Text("library_release_date_title")
+                            .font(.system(size: 32, weight: .bold))
+                            .foregroundStyle(PMColor.text)
+                        Spacer()
+                        MacLibraryFindField(text: $findText, prompt: "filter_albums_placeholder")
                     }
                     .padding(.horizontal, horizontalInset)
-                    .padding(.top, 8)
-                    .padding(.bottom, 16)
+                    .padding(.top, 24)
+                    .padding(.bottom, 12)
+                    #endif
+                    if findQuery != nil, layout.decades.isEmpty {
+                        ContentUnavailableView.search(text: findText)
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 40)
+                    }
+                    // 找专辑时分布图让开: 柱子是整库的分布, 和眼前这几张对不上。
+                    if findQuery == nil {
+                        ReleaseDateDistributionChart(
+                            bars: layout.chartBars,
+                            albumCount: layout.albumCount,
+                            title: Self.title(for:)
+                        ) { era in
+                            guard layout.decades.contains(where: { $0.era == era }) else { return }
+                            collapsedDecades.remove(era.id)
+                            pmWithAnimation(.list) {
+                                proxy.scrollTo(era.id, anchor: .top)
+                            }
+                        }
+                        .padding(.horizontal, horizontalInset)
+                        .padding(.top, 8)
+                        .padding(.bottom, 16)
+                    }
 
                     ForEach(layout.decades) { decade in
                         Section {
-                            if !collapsedDecades.contains(decade.id) {
+                            if findQuery != nil || !collapsedDecades.contains(decade.id) {
                                 ForEach(decade.years) { year in
                                     yearBlock(year, showsHeader: decade.era != .unknown)
                                 }

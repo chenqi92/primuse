@@ -14,13 +14,16 @@ struct PodcastLibraryView: View {
     }
     #else
     @State private var navigation = PodcastNavigationModel()
+    /// 「在本页里找」: 按节目名与作者筛已订阅的节目。
+    @State private var findText = ""
 
     var body: some View {
         ScrollView {
-            PodcastLibraryContent(navigation: navigation)
+            PodcastLibraryContent(navigation: navigation, findText: findText)
                 .padding(.vertical, 12)
         }
         .pmExtendsUnderVerticalBar()
+        .libraryPageFind(text: $findText, prompt: "filter_podcasts_placeholder")
         .navigationTitle("listening_space_podcast")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { PodcastLibraryToolbar(navigation: navigation) }
@@ -183,6 +186,8 @@ struct PodcastLibraryToolbar: ToolbarContent {
 /// 主页正文。首页「播客」那一面直接放这个,外面的滚动容器由放它的地方给。
 struct PodcastLibraryContent: View {
     let navigation: PodcastNavigationModel
+    /// 播客页「在本页里找」的输入; 首页那一面不传。在找节目时只摆命中的节目。
+    var findText = ""
 
     private var store: PodcastStore { PodcastStore.shared }
 
@@ -195,6 +200,14 @@ struct PodcastLibraryContent: View {
                 VStack(spacing: 20) {
                     PodcastWelcomeView(navigation: navigation)
                     PodcastRegionHiddenNote()
+                }
+            } else if let findQuery = LibraryFindPolicy.query(findText) {
+                if PodcastShowsGrid.shows(matching: findQuery, in: store.shows).isEmpty {
+                    ContentUnavailableView.search(text: findText)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 40)
+                } else {
+                    PodcastShowsGrid(navigation: navigation, findQuery: findQuery)
                 }
             } else {
                 LazyVStack(alignment: .leading, spacing: 28) {
@@ -437,8 +450,9 @@ enum PodcastShowSort: String, CaseIterable {
     }
 }
 
-private struct PodcastShowsGrid: View {
+struct PodcastShowsGrid: View {
     let navigation: PodcastNavigationModel
+    var findQuery: LibraryFindPolicy.Query?
 
     @AppStorage("primuse.podcast.library.sort") private var sort = PodcastShowSort.recentlyUpdated
     private var store: PodcastStore { PodcastStore.shared }
@@ -478,7 +492,7 @@ private struct PodcastShowsGrid: View {
             }
             .pmClearOfVerticalBar()
             LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
-                ForEach(sort.sorted(store.shows)) { show in
+                ForEach(sort.sorted(findQuery.map { Self.shows(matching: $0, in: store.shows) } ?? store.shows)) { show in
                     Button {
                         navigation.open(showID: show.id)
                     } label: {
@@ -492,6 +506,12 @@ private struct PodcastShowsGrid: View {
             }
         }
         .padding(.horizontal, 16)
+    }
+}
+
+extension PodcastShowsGrid {
+    static func shows(matching query: LibraryFindPolicy.Query, in shows: [PodcastShow]) -> [PodcastShow] {
+        shows.filter { LibraryFindPolicy.matches(query, fields: [$0.title, $0.author]) }
     }
 }
 

@@ -5307,3 +5307,7 @@
 "ai_recommendation_refresh_daily" = "Once a Day";
 "ai_recommendation_refresh_footer" = "Sets how often scene recommendations ask the intelligence service again. Automatic: every 6 hours with the built-in AI, in real time as you listen with your own service. Within the interval, reopening the app or switching pages reuses the last result; you can regenerate any time on the Recommendations page.";
 "playlist_find_prompt" = "Find in Playlist";
+"filter_playlists_placeholder" = "Filter playlists…";
+"filter_favorites_placeholder" = "Filter favorites…";
+"filter_spoken_word_placeholder" = "Filter audiobooks…";
+"filter_podcasts_placeholder" = "Filter podcasts…";

@@ -5547,3 +5547,7 @@
 "ai_recommendation_refresh_daily" = "Einmal täglich";
 "ai_recommendation_refresh_footer" = "Legt fest, wie oft Szenenempfehlungen den intelligenten Dienst erneut abfragen. Automatisch: mit der integrierten KI alle 6 Stunden, mit deinem eigenen Dienst in Echtzeit beim Hören. Innerhalb des Intervalls wird beim erneuten Öffnen der App oder beim Seitenwechsel das letzte Ergebnis verwendet; auf der Seite „Empfehlungen“ kannst du jederzeit neu erzeugen.";
 "playlist_find_prompt" = "In Wiedergabeliste suchen";
+"filter_playlists_placeholder" = "Wiedergabelisten filtern…";
+"filter_favorites_placeholder" = "Favoriten filtern…";
+"filter_spoken_word_placeholder" = "Hörbücher filtern…";
+"filter_podcasts_placeholder" = "Podcasts filtern…";

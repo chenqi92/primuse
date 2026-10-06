@@ -103,6 +103,31 @@ struct ReleaseDateBrowseLayoutTests {
         #expect(layout.chartBars == [.init(era: .unknown, albumCount: 2)])
     }
 
+    @Test("Filtering keeps order, drops emptied years and decades, and recounts the chart")
+    func filteredLayout() {
+        let albums = [
+            album("adele-25", "25", "Adele", 2015),
+            album("adele-21", "21", "Adele", 2011),
+            album("jay-1", "范特西", "周杰伦", 2001),
+            album("jay-2", "叶惠美", "周杰伦", 2003),
+            album("blur", "Parklife", "Blur", 1994),
+        ]
+        let layout = ReleaseDateBrowseLayoutBuilder.layout(albums: albums, currentYear: currentYear)
+        let jay = layout.filtered { $0.artistName == "周杰伦" }
+
+        #expect(jay.decades.map(\.era) == [.decade(2000)])
+        #expect(jay.decades[0].years.map(\.year) == [2003, 2001])
+        #expect(jay.decades[0].albumCount == 2)
+        #expect(jay.albumCount == 2)
+        #expect(jay.chartBars.map(\.era) == layout.chartBars.map(\.era))
+        #expect(jay.chartBars.first { $0.era == .decade(2010) }?.albumCount == 0)
+        #expect(jay.chartBars.first { $0.era == .decade(2000) }?.albumCount == 2)
+
+        let none = layout.filtered { _ in false }
+        #expect(none.decades.isEmpty)
+        #expect(none.albumCount == 0)
+    }
+
     private func album(_ id: String, _ title: String, _ artist: String, _ year: Int?) -> Album {
         Album(id: id, title: title, artistName: artist, year: year)
     }

@@ -56,8 +56,8 @@ struct SmartPlaylistDetailView: View {
         return SmartPlaylistEngine.match(smart, in: library, history: PlayHistoryStore.shared)
     }
 
-    private var findQuery: PlaylistFindPolicy.Query? {
-        PlaylistFindPolicy.query(findText)
+    private var findQuery: LibraryFindPolicy.Query? {
+        LibraryFindPolicy.query(findText)
     }
 
     /// 输入框弹着(哪怕还没输字)也算在找: 头部让开, 结果紧挨着输入框。
@@ -80,7 +80,7 @@ struct SmartPlaylistDetailView: View {
     private func shownRows(_ matched: [Song]) -> [ShownRow] {
         let rows = matched.enumerated().map { ShownRow(offset: $0.offset, song: $0.element) }
         guard let query = findQuery else { return rows }
-        return rows.filter { PlaylistFindPolicy.matches(query, song: $0.song) }
+        return rows.filter { LibraryFindPolicy.matches(query, song: $0.song) }
     }
 
     var body: some View {
@@ -588,7 +588,7 @@ struct SmartPlaylistDetailView: View {
                 .foregroundStyle(PMColor.textFaint)
             Spacer()
             if !matched.isEmpty {
-                MacPlaylistFindField(text: $findText)
+                MacLibraryFindField(text: $findText, prompt: "playlist_find_prompt")
             }
         }
         .padding(.top, -2)

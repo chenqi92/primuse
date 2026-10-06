@@ -72,6 +72,27 @@ public struct ReleaseDateBrowseLayout: Sendable {
     }
 
     public static let empty = ReleaseDateBrowseLayout(decades: [], chartBars: [], albumCount: 0)
+
+    /// 只留下满足条件的专辑, 空了的年份与年代一并拿掉, 分布图各柱按留下的重新计数。
+    /// 顺序不变, 给「在本页里找」用 —— 不必把整库重新分组一遍。
+    public func filtered(_ isIncluded: (Album) -> Bool) -> ReleaseDateBrowseLayout {
+        var counts: [String: Int] = [:]
+        let keptDecades: [Decade] = decades.compactMap { decade in
+            let years = decade.years.compactMap { year -> Year? in
+                let albums = year.albums.filter(isIncluded)
+                return albums.isEmpty ? nil : Year(year: year.year, albums: albums)
+            }
+            guard !years.isEmpty else { return nil }
+            let count = years.reduce(0) { $0 + $1.albums.count }
+            counts[decade.id] = count
+            return Decade(era: decade.era, years: years, albumCount: count)
+        }
+        return ReleaseDateBrowseLayout(
+            decades: keptDecades,
+            chartBars: chartBars.map { ChartBar(era: $0.era, albumCount: counts[$0.id] ?? 0) },
+            albumCount: counts.values.reduce(0, +)
+        )
+    }
 }
 
 public enum ReleaseDateBrowseLayoutBuilder {

@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import PrimuseKit
 
-struct PlaylistFindPolicyTests {
-    typealias Policy = PlaylistFindPolicy
+struct LibraryFindPolicyTests {
+    typealias Policy = LibraryFindPolicy
 
     private func song(
         title: String,

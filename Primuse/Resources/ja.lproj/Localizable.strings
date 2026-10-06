@@ -5548,3 +5548,7 @@
 "ai_recommendation_refresh_daily" = "1日1回";
 "ai_recommendation_refresh_footer" = "シーン別おすすめがスマートサービスに問い合わせ直す頻度です。自動：内蔵 AI では 6 時間ごと、自分のサービスでは再生に合わせてリアルタイムに更新します。間隔内はアプリを開き直したりページを切り替えたりしても前回の結果を使います。「スマートおすすめ」ページからいつでも再生成できます。";
 "playlist_find_prompt" = "プレイリスト内を検索";
+"filter_playlists_placeholder" = "プレイリストを絞り込む…";
+"filter_favorites_placeholder" = "お気に入りを絞り込む…";
+"filter_spoken_word_placeholder" = "オーディオブックを絞り込む…";
+"filter_podcasts_placeholder" = "ポッドキャストを絞り込む…";

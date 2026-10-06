@@ -6,7 +6,7 @@ import Foundation
 /// 字段上（「周杰伦 晴天」）。比较时不分大小写、全半角和变音符号。
 ///
 /// 只决定一行留不留，不排序：歌单顺序或用户选的显示排序原样保留。
-public enum PlaylistFindPolicy {
+public enum LibraryFindPolicy {
     public struct Query: Equatable, Sendable {
         public let words: [String]
     }

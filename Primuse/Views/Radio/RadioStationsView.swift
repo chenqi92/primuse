@@ -123,7 +123,11 @@ struct RadioStationsView: View {
             content
         }
         .navigationTitle(navigationTitleText)
+        #if os(iOS)
+        .libraryPageFind(text: $searchText, prompt: "radio_search_placeholder")
+        #else
         .searchable(text: $searchText, prompt: Text("radio_search_placeholder"))
+        #endif
         .toolbar { toolbarContent }
         // 进列表时给还没有台标的电台排一次自动发现。重复进入是安全的 ——
         // 已有台标的、正在找的、还在退避期的都会被服务自己挡掉。

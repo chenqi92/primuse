@@ -31,6 +31,8 @@ struct PlaylistListView: View {
     @State private var showBatchDeleteConfirm = false
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
     @AppStorage(LibraryPinStorage.defaultsKey) private var favoritesRawValue = ""
+    /// 「在本页里找」。只按名字筛三类歌单、顺序不变；管理、排序仍对整份列表。
+    @State private var findText = ""
 
     /// 系统歌单（Apple Music 镜像 / 「我喜欢」）不参与批量删除，理由同
     /// `isSystemPlaylist`：删完下次 sync 或 heart toggle 又会重建。
@@ -49,6 +51,24 @@ struct PlaylistListView: View {
     private var ruleSmartPlaylists: [SmartPlaylist] {
         smartPlaylists.filter { $0.effectiveKind == .rules }
     }
+    private var findQuery: LibraryFindPolicy.Query? { LibraryFindPolicy.query(findText) }
+
+    private func shown<Item>(_ items: [Item], name: (Item) -> String) -> [Item] {
+        guard let query = findQuery else { return items }
+        return items.filter { LibraryFindPolicy.matches(query, fields: [name($0)]) }
+    }
+
+    private var shownPlaylists: [Playlist] { shown(playlists, name: \.name) }
+    private var shownAISmartPlaylists: [SmartPlaylist] { shown(aiSmartPlaylists, name: \.name) }
+    private var shownRuleSmartPlaylists: [SmartPlaylist] { shown(ruleSmartPlaylists, name: \.name) }
+
+    private var findHasNoResults: Bool {
+        findQuery != nil
+            && shownPlaylists.isEmpty
+            && shownAISmartPlaylists.isEmpty
+            && shownRuleSmartPlaylists.isEmpty
+    }
+
     private var operationAvailability: PlaylistOperationAvailability {
         #if os(tvOS)
         .television
@@ -121,9 +141,9 @@ struct PlaylistListView: View {
                 playlistManageList
             } else {
                 List {
-                    if !aiSmartPlaylists.isEmpty {
+                    if !shownAISmartPlaylists.isEmpty {
                         Section {
-                            ForEach(aiSmartPlaylists) { smart in
+                            ForEach(shownAISmartPlaylists) { smart in
                                 NavigationLink(value: smart) {
                                     smartPlaylistRow(smart)
                                 }
@@ -132,16 +152,16 @@ struct PlaylistListView: View {
                                 }
                             }
                             .onDelete { offsets in
-                                deleteSmartPlaylists(at: offsets, in: aiSmartPlaylists)
+                                deleteSmartPlaylists(at: offsets, in: shownAISmartPlaylists)
                             }
                         } header: {
                             Text("ai_smart_playlists_section")
                         }
                     }
 
-                    if !ruleSmartPlaylists.isEmpty {
+                    if !shownRuleSmartPlaylists.isEmpty {
                         Section {
-                            ForEach(ruleSmartPlaylists) { smart in
+                            ForEach(shownRuleSmartPlaylists) { smart in
                                 NavigationLink(value: smart) {
                                     smartPlaylistRow(smart)
                                 }
@@ -150,16 +170,16 @@ struct PlaylistListView: View {
                                 }
                             }
                             .onDelete { offsets in
-                                deleteSmartPlaylists(at: offsets, in: ruleSmartPlaylists)
+                                deleteSmartPlaylists(at: offsets, in: shownRuleSmartPlaylists)
                             }
                         } header: {
                             Text("rule_smart_playlists_section")
                         }
                     }
 
-                    if !playlists.isEmpty {
+                    if !shownPlaylists.isEmpty {
                         Section {
-                            ForEach(playlists) { playlist in
+                            ForEach(shownPlaylists) { playlist in
                                 NavigationLink(value: playlist) {
                                     playlistRow(playlist)
                                 }
@@ -202,6 +222,14 @@ struct PlaylistListView: View {
                     }
                 }
                 .pmExtendsUnderVerticalBar()
+                .overlay {
+                    if findHasNoResults {
+                        ContentUnavailableView.search(text: findText)
+                    }
+                }
+                #if os(iOS)
+                .libraryPageFind(text: $findText, prompt: "filter_playlists_placeholder")
+                #endif
             }
         }
         .toolbar {
@@ -433,10 +461,13 @@ struct PlaylistListView: View {
                         description: Text("no_playlists_desc")
                     )
                     .frame(maxWidth: .infinity, minHeight: 320)
+                } else if findHasNoResults {
+                    ContentUnavailableView.search(text: findText)
+                        .frame(maxWidth: .infinity, minHeight: 320)
                 } else {
                     playlistOverview
 
-                    if !aiSmartPlaylists.isEmpty {
+                    if !shownAISmartPlaylists.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             macSubsectionTitle("ai_smart_playlists_section")
                             LazyVGrid(
@@ -444,7 +475,7 @@ struct PlaylistListView: View {
                                 alignment: .leading,
                                 spacing: 12
                             ) {
-                                ForEach(aiSmartPlaylists) { smart in
+                                ForEach(shownAISmartPlaylists) { smart in
                                     NavigationLink(value: smart) {
                                         smartPlaylistCard(smart)
                                     }
@@ -456,7 +487,7 @@ struct PlaylistListView: View {
                         .pmFadeTransition(motion: .contentAppear)
                     }
 
-                    if !ruleSmartPlaylists.isEmpty {
+                    if !shownRuleSmartPlaylists.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             macSubsectionTitle("rule_smart_playlists_section")
                             LazyVGrid(
@@ -464,7 +495,7 @@ struct PlaylistListView: View {
                                 alignment: .leading,
                                 spacing: 12
                             ) {
-                                ForEach(ruleSmartPlaylists) { smart in
+                                ForEach(shownRuleSmartPlaylists) { smart in
                                     NavigationLink(value: smart) {
                                         smartPlaylistCard(smart)
                                     }
@@ -476,7 +507,7 @@ struct PlaylistListView: View {
                         .pmFadeTransition(motion: .contentAppear)
                     }
 
-                    if !playlists.isEmpty {
+                    if !shownPlaylists.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             if !smartPlaylists.isEmpty {
                                 macSubsectionTitle("playlists_section")
@@ -487,7 +518,7 @@ struct PlaylistListView: View {
                                 alignment: .leading,
                                 spacing: 12
                             ) {
-                                ForEach(playlists) { playlist in
+                                ForEach(shownPlaylists) { playlist in
                                     if isManagingPlaylists {
                                         playlistCard(playlist)
                                             .opacity(isSystemPlaylist(playlist.id) ? 0.45 : 1)
@@ -575,6 +606,9 @@ struct PlaylistListView: View {
                     .foregroundStyle(PMColor.text)
             }
             Spacer()
+            if !playlists.isEmpty || !smartPlaylists.isEmpty {
+                MacLibraryFindField(text: $findText, prompt: "filter_playlists_placeholder")
+            }
             Button {
                 showNewPlaylist = true
             } label: {

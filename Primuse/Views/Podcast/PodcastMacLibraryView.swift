@@ -208,7 +208,15 @@ struct MacPodcastLibraryView: View {
     @ViewBuilder
     private var content: some View {
         if isSearching {
-            MacPodcastSearchResults(search: search, openShow: openDirectoryShow) { feedPreviewURL = $0 }
+            VStack(alignment: .leading, spacing: 28) {
+                // 先列已订阅里名字或作者对得上的, 再是播客目录里的搜索结果。
+                if let findQuery = LibraryFindPolicy.query(search.query),
+                   !PodcastShowsGrid.shows(matching: findQuery, in: store.shows).isEmpty {
+                    PodcastShowsGrid(navigation: navigation, findQuery: findQuery)
+                        .padding(.horizontal, -16)
+                }
+                MacPodcastSearchResults(search: search, openShow: openDirectoryShow) { feedPreviewURL = $0 }
+            }
         } else if !store.isLoaded {
             ProgressView()
                 .frame(maxWidth: .infinity, minHeight: 240)

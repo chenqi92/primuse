@@ -197,6 +197,8 @@ struct FavoriteCollectionView: View {
     @State private var folderModel = HomeDiscoveryModel()
     @State private var kindFilter: QuickAccessPinKind?
     @State private var showsEditor = false
+    /// 「在本页里找」: 按名字与副标题(艺人、曲目数)筛, 收藏顺序不变。
+    @State private var findText = ""
 
     /// 筛选胶囊的顺序。
     private static let kindOrder: [QuickAccessPinKind] = [.playlist, .album, .artist, .folder]
@@ -228,7 +230,16 @@ struct FavoriteCollectionView: View {
             folderIndex: folderModel.index
         )
         let kinds = Self.kindOrder.filter { kind in all.contains { $0.pin.kind == kind } }
-        let shown = kindFilter.map { kind in all.filter { $0.pin.kind == kind } } ?? all
+        let findQuery = LibraryFindPolicy.query(findText)
+        let matched = findQuery.map { query in
+            all.filter { entry in
+                LibraryFindPolicy.matches(query, fields: [
+                    FavoriteCollectionResolver.title(entry),
+                    FavoriteCollectionResolver.subtitle(entry, library: library),
+                ])
+            }
+        } ?? all
+        let shown = kindFilter.map { kind in matched.filter { $0.pin.kind == kind } } ?? matched
 
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -236,10 +247,14 @@ struct FavoriteCollectionView: View {
                 macHeader
                 #endif
                 if kinds.count > 1 {
-                    filterBar(kinds: kinds, entries: all)
+                    filterBar(kinds: kinds, entries: matched)
                 }
                 if all.isEmpty, folderModel.index != nil || !hasFolderFavorites {
                     emptyState
+                } else if shown.isEmpty, findQuery != nil {
+                    ContentUnavailableView.search(text: findText)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 40)
                 } else {
                     LazyVGrid(
                         columns: [GridItem(.adaptive(minimum: gridMinimum), spacing: 16, alignment: .top)],
@@ -256,6 +271,9 @@ struct FavoriteCollectionView: View {
             .padding(.vertical, 16)
         }
         .pmExtendsUnderVerticalBar()
+        #if os(iOS)
+        .libraryPageFind(text: $findText, prompt: "filter_favorites_placeholder")
+        #endif
         .background {
             if hasFolderFavorites {
                 HomeDiscoveryObserver(model: folderModel)
@@ -284,6 +302,7 @@ struct FavoriteCollectionView: View {
             Text("library_quick_access")
                 .font(.title3.weight(.bold))
             Spacer()
+            MacLibraryFindField(text: $findText, prompt: "filter_favorites_placeholder")
             Button("edit") { showsEditor = true }
                 .font(.subheadline.weight(.medium))
         }

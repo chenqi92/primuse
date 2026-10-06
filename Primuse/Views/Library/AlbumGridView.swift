@@ -111,11 +111,7 @@ struct AlbumGridView: View {
             #else
             iosGrid(filteredAlbums, isPreparing: sortedAlbums == nil)
                 .pmExtendsUnderVerticalBar()
-                .searchable(
-                    text: $albumFilter,
-                    placement: .navigationBarDrawer(displayMode: .always),
-                    prompt: Text("filter_albums_placeholder")
-                )
+                .libraryPageFind(text: $albumFilter, prompt: "filter_albums_placeholder")
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         AlbumGridDisplayMenu(

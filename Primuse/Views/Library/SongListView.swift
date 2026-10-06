@@ -548,16 +548,12 @@ private final class SongListCache {
         var rows: [SongListRowIdentity] = []
         var playableCount = 0
         rows.reserveCapacity(candidates.rows.count)
+        // 搜索词按空白分词, 每个词落在歌名、艺人、专辑任一处即可(「周杰伦 晴天」)。
+        let findQuery = LibraryFindPolicy.query(query)
         for row in candidates.rows {
             if let includedSongIDs, !includedSongIDs.contains(row.id) { continue }
             guard let song = resolve(row.id) else { continue }
-            if !query.isEmpty,
-               !song.title.localizedCaseInsensitiveContains(query),
-               !(song.artistName?.localizedCaseInsensitiveContains(query) ?? false),
-               !(song.sourceArtistNames?.contains {
-                   $0.localizedCaseInsensitiveContains(query)
-               } ?? false),
-               !(song.albumTitle?.localizedCaseInsensitiveContains(query) ?? false) {
+            if let findQuery, !LibraryFindPolicy.matches(findQuery, song: song) {
                 continue
             }
             let id = row.id
@@ -800,6 +796,11 @@ struct SongListView: View {
     @State private var sortValuesVersion = SongListSortValuesVersion()
     @State private var listCache = SongListCache()
     @State private var searchText: String = ""
+    #if os(iOS)
+    /// 页内搜索真正拿去过滤的词: 停手一小会儿才跟上输入, 整库几十万首时不必每敲一个字
+    /// 就在主线程过一遍全表。
+    @State private var appliedSearchText: String = ""
+    #endif
     @State private var sortGeneration: Int = 0
     @State private var sortTask: Task<Void, Never>?
     @State private var sortFeedbackTask: Task<Void, Never>?
@@ -1496,6 +1497,8 @@ struct SongListView: View {
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if !projectionQuery.isEmpty, filteredRows.isEmpty {
+                    ContentUnavailableView.search(text: projectionQuery)
                 } else if songFilter == .downloaded, filteredRows.isEmpty {
                     ContentUnavailableView(
                         "filter_downloaded",
@@ -1503,10 +1506,11 @@ struct SongListView: View {
                         description: Text("filter_downloaded_empty_desc")
                     )
                 } else {
-                    if songFilter == .downloaded {
+                    if songFilter == .downloaded || !projectionQuery.isEmpty {
                         IOSSongListFilteredContainer(
                             projection: filteredProjection,
                             projectionRevision: downloadedFilterRevision,
+                            query: projectionQuery,
                             rowOrderRevision: listCache.rowOrderRevision,
                             cache: listCache,
                             selection: selection,
@@ -1540,6 +1544,15 @@ struct SongListView: View {
         }
         .toolbar {
             iosToolbar
+        }
+        .libraryPageFind(text: $searchText, prompt: "filter_songs_placeholder")
+        .task(id: searchText) {
+            // 清空立刻生效; 输入时等停手再过滤。
+            if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                try? await Task.sleep(for: .milliseconds(200))
+                guard !Task.isCancelled else { return }
+            }
+            appliedSearchText = searchText
         }
     }
 
@@ -2962,7 +2975,7 @@ struct SongListView: View {
         let includedSongIDs = songFilter == .downloaded ? downloadedSongIDs : nil
         return listCache.projection(
             sourceID: sourceID,
-            query: searchText.trimmingCharacters(in: .whitespacesAndNewlines),
+            query: projectionQuery,
             includedSongIDs: includedSongIDs,
             filterRevision: downloadedFilterRevision,
             replacementToken: songListVersion.replacementToken,
@@ -3011,6 +3024,14 @@ struct SongListView: View {
 
     private var filteredRows: [SongListRowIdentity] {
         filteredProjection.rows
+    }
+
+    private var projectionQuery: String {
+        #if os(iOS)
+        appliedSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        #else
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        #endif
     }
 
     private var filteredSongIDs: [String] {
@@ -4093,6 +4114,8 @@ private struct IOSSongAlphabetIndex: View {
 private struct IOSSongListFilteredContainer: View, @MainActor Equatable {
     let projection: SongListProjection
     let projectionRevision: Int
+    /// 页内搜索词: 换了词就是另一份结果, 修订号不会跟着变。
+    let query: String
     let rowOrderRevision: Int
     let cache: SongListCache
     let selection: SongSelectionModel
@@ -4100,6 +4123,7 @@ private struct IOSSongListFilteredContainer: View, @MainActor Equatable {
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.projectionRevision == rhs.projectionRevision
+            && lhs.query == rhs.query
             && lhs.rowOrderRevision == rhs.rowOrderRevision
             && lhs.cache === rhs.cache
             && lhs.selection === rhs.selection

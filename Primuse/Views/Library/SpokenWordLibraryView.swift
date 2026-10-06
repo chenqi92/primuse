@@ -176,15 +176,30 @@ enum SpokenWordShelfOrder {
 struct SpokenWordLibraryView: View {
     @Environment(MusicLibrary.self) private var library
     @State private var showsHomeSpotlight = false
+    /// 「在本页里找」: 按书名与作者筛书架。
+    @State private var findText = ""
 
     var body: some View {
         ScrollView {
-            SpokenWordShelf()
+            #if os(macOS)
+            if !library.spokenWordSongs.isEmpty {
+                HStack {
+                    Spacer()
+                    MacLibraryFindField(text: $findText, prompt: "filter_spoken_word_placeholder")
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+            }
+            #endif
+            SpokenWordShelf(findText: findText)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
         }
         // iPhone Duo 竖栏：书架铺到屏幕边缘，系统的玻璃胶囊浮在上面。
         .pmExtendsUnderVerticalBar()
+        #if os(iOS)
+        .libraryPageFind(text: $findText, prompt: "filter_spoken_word_placeholder")
+        #endif
         .navigationTitle("tab_spoken_word")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -222,15 +237,19 @@ struct SpokenWordLibraryView: View {
 /// 书架本身:在听的那本大卡、书架网格、折叠的已听完。有声页与首页的「有声」一面共用,
 /// 外面的滚动容器与边距由放它的地方给。
 struct SpokenWordShelf: View {
+    /// 书架页「在本页里找」的输入; 首页那一面不传。
+    var findText = ""
+
     var body: some View {
         SpokenWordLibraryContent { snapshot in
-            SpokenWordShelfContent(snapshot: snapshot)
+            SpokenWordShelfContent(snapshot: snapshot, findText: findText)
         }
     }
 }
 
 struct SpokenWordShelfContent: View {
     let snapshot: SpokenWordLibrarySnapshot
+    var findText = ""
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
     @AppStorage("spokenWord.shelf.showsFinished") private var showsFinished = false
@@ -268,15 +287,28 @@ struct SpokenWordShelfContent: View {
 
     private func shelfContent(_ snapshot: SpokenWordLibrarySnapshot) -> some View {
         let preferred = SpokenWordShelfOrder.decode(savedOrder)
-        let shelf = ordered(snapshot.shelf, preferred: preferred)
-        let finished = ordered(snapshot.finished, preferred: preferred)
+        let findQuery = LibraryFindPolicy.query(findText)
+        let matches: (SpokenWordLibrarySnapshot.Entry) -> Bool = { entry in
+            guard let findQuery else { return true }
+            return LibraryFindPolicy.matches(findQuery, fields: [entry.book.title, entry.book.author])
+        }
+        let shelf = ordered(snapshot.shelf, preferred: preferred).filter(matches)
+        let finished = ordered(snapshot.finished, preferred: preferred).filter(matches)
+        let nowListening = snapshot.nowListening.flatMap { matches($0) ? $0 : nil }
         return LazyVStack(alignment: .leading, spacing: 28) {
             if !snapshot.isPrepared {
                 ProgressView()
                     .frame(maxWidth: .infinity, minHeight: 120)
             }
 
-            if let current = snapshot.nowListening {
+            if findQuery != nil, snapshot.isPrepared,
+               nowListening == nil, shelf.isEmpty, finished.isEmpty {
+                ContentUnavailableView.search(text: findText)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 40)
+            }
+
+            if let current = nowListening {
                 SpokenWordNowListeningCard(book: current.book, songs: current.songs, tint: tint)
                     .contextMenu { bookMenu(current.book, songs: current.songs) }
                     // 铺到 iPhone Duo 竖栏底下时，静止时就在最上面、带着「继续」的这张卡照旧让开竖栏。
@@ -326,7 +358,8 @@ struct SpokenWordShelfContent: View {
                     .accessibilityAddTraits(.isHeader)
                     .pmClearOfVerticalBar()
 
-                    if showsFinished {
+                    // 在找书时听完的也直接摊开, 命中的不藏在折叠里。
+                    if showsFinished || findQuery != nil {
                         bookCollection(finished)
                             .pmFadeTransition(motion: .panel)
                     }

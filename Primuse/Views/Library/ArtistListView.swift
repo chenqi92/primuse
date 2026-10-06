@@ -174,11 +174,7 @@ struct ArtistListView: View {
                 }
             }
             #if os(iOS)
-            .searchable(
-                text: $searchText,
-                placement: .navigationBarDrawer(displayMode: .always),
-                prompt: Text("filter_artists_placeholder")
-            )
+            .libraryPageFind(text: $searchText, prompt: "filter_artists_placeholder")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     ArtistDisplayMenu(

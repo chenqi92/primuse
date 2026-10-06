@@ -95,8 +95,8 @@ struct PlaylistDetailView: View {
         return songs.map { MusicLibrary.PlaylistEntry.song($0) } + pending
     }
 
-    private var findQuery: PlaylistFindPolicy.Query? {
-        PlaylistFindPolicy.query(findText)
+    private var findQuery: LibraryFindPolicy.Query? {
+        LibraryFindPolicy.query(findText)
     }
 
     /// 列表里的行: 在歌单里找歌时只留命中的, 顺序不变。
@@ -106,17 +106,17 @@ struct PlaylistDetailView: View {
         return entries.filter { Self.entry($0, matches: query) }
     }
 
-    private static func entry(_ entry: MusicLibrary.PlaylistEntry, matches query: PlaylistFindPolicy.Query) -> Bool {
+    private static func entry(_ entry: MusicLibrary.PlaylistEntry, matches query: LibraryFindPolicy.Query) -> Bool {
         switch entry {
-        case .song(let song): PlaylistFindPolicy.matches(query, song: song)
-        case .pending(let pending): PlaylistFindPolicy.matches(query, pending: pending)
+        case .song(let song): LibraryFindPolicy.matches(query, song: song)
+        case .pending(let pending): LibraryFindPolicy.matches(query, pending: pending)
         }
     }
 
     /// 多选的「全选」与连选只认眼前这一列: 找歌时就是找到的那几首。
     private var selectableSongIDs: [String] {
         guard let query = findQuery else { return songs.map(\.id) }
-        return songs.filter { PlaylistFindPolicy.matches(query, song: $0) }.map(\.id)
+        return songs.filter { LibraryFindPolicy.matches(query, song: $0) }.map(\.id)
     }
 
     /// 输入框弹着(哪怕还没输字)也算在找: 头部让开, 结果紧挨着输入框。
@@ -1318,7 +1318,7 @@ struct PlaylistDetailView: View {
     @ViewBuilder
     private var macFindField: some View {
         if !songs.isEmpty || pendingEntryCount > 0 {
-            MacPlaylistFindField(text: $findText)
+            MacLibraryFindField(text: $findText, prompt: "playlist_find_prompt")
         }
     }
 
@@ -2229,42 +2229,3 @@ struct PlaylistReorderSheet: View {
     }
     #endif
 }
-
-#if os(macOS)
-/// 歌单与智能歌单页「在歌单里找歌」的输入框: 和歌曲页工具条上的过滤框同一个样子。
-struct MacPlaylistFindField: View {
-    @Binding var text: String
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 11))
-                .foregroundStyle(PMColor.textFaint)
-            TextField("", text: $text, prompt: Text("playlist_find_prompt"))
-                .textFieldStyle(.plain)
-                .font(.system(size: 12))
-                .foregroundStyle(PMColor.text)
-                .onExitCommand { text = "" }
-            if !text.isEmpty {
-                Button {
-                    text = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(PMColor.textFaint)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Text("clear"))
-            }
-        }
-        .padding(.horizontal, 10)
-        .frame(width: 200, height: 26)
-        .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
-        .overlay {
-            RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
-                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-        }
-        .accessibilityIdentifier("playlistDetail.find")
-    }
-}
-#endif

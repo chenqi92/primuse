@@ -5453,3 +5453,7 @@
 "ai_recommendation_refresh_daily" = "مرة يوميًا";
 "ai_recommendation_refresh_footer" = "يحدد عدد المرات التي تعيد فيها توصيات المشهد سؤال الخدمة الذكية. تلقائي: كل 6 ساعات مع الذكاء الاصطناعي المدمج، وفوريًا أثناء الاستماع مع خدمتك الخاصة. خلال الفترة، يعيد فتح التطبيق أو التنقل بين الصفحات استخدام آخر نتيجة؛ ويمكنك إعادة إنشائها في أي وقت من صفحة «التوصيات».";
 "playlist_find_prompt" = "البحث في قائمة التشغيل";
+"filter_playlists_placeholder" = "تصفية قوائم التشغيل...";
+"filter_favorites_placeholder" = "تصفية المفضلة...";
+"filter_spoken_word_placeholder" = "تصفية الكتب الصوتية...";
+"filter_podcasts_placeholder" = "تصفية البودكاست...";
