@@ -319,6 +319,26 @@ struct SpokenWordBookGroupingRulesTests {
         #expect(asCatalogue.bookIDs["1"] == "book:三体\u{1F}张三")
     }
 
+    @Test("A server catalogue's chapters go by title, not by item id")
+    func catalogueChaptersFollowTitles() {
+        let items = [
+            item("1", title: "10 终章", album: "三体", path: "/songs/0f3a.mp3", source: "navidrome"),
+            item("2", title: "02 疯狂年代", album: "三体", path: "/songs/9c1d.mp3", source: "navidrome"),
+            item("3", title: "01 科学边界", album: "三体", path: "/songs/d27e.mp3", source: "navidrome"),
+        ]
+        let catalogue = SpokenWordBookGrouping.books(from: items, catalogSourceIDs: ["navidrome"])
+        #expect(catalogue.count == 1)
+        #expect(catalogue.first?.items.map(\.id) == ["3", "2", "1"])
+
+        // A real path still decides first.
+        let nas = [
+            item("a", title: "第二章", album: "球状闪电", path: "/书/01.mp3"),
+            item("b", title: "第一章", album: "球状闪电", path: "/书/02.mp3"),
+        ]
+        let byPath = SpokenWordBookGrouping.books(from: nas, catalogSourceIDs: ["navidrome"])
+        #expect(byPath.first?.items.map(\.id) == ["a", "b"])
+    }
+
     @Test("Only catalogue sources lose their folders")
     func catalogueSetIsPerSource() {
         let items = [

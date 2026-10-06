@@ -259,10 +259,14 @@ public enum SpokenWordBookGrouping {
     ///
     /// Within a book the order is disc, track, then path — the order the
     /// files were numbered in — and never the position, so a rewind does not
-    /// reorder chapters. Books come back with the ones being listened to
-    /// first, most recent first, then the rest by title.
-    public static func books(from items: [SpokenWordBookItem]) -> [SpokenWordBook] {
-        let assignment = SpokenWordBookGroupingRules.assign(items)
+    /// reorder chapters. A server catalogue's paths are item ids, so its
+    /// chapters go by title after the track instead. Books come back with the
+    /// ones being listened to first, most recent first, then the rest by title.
+    public static func books(
+        from items: [SpokenWordBookItem],
+        catalogSourceIDs: Set<String> = SpokenWordBookSourcePaths.catalogSourceIDs
+    ) -> [SpokenWordBook] {
+        let assignment = SpokenWordBookGroupingRules.assign(items, catalogSourceIDs: catalogSourceIDs)
         var groups: [String: [SpokenWordBookItem]] = [:]
         var order: [String] = []
         for item in items {
@@ -273,7 +277,7 @@ public enum SpokenWordBookGrouping {
 
         let books = order.map { key -> SpokenWordBook in
             let members = (groups[key] ?? []).sorted {
-                chapterOrder($0, $1, discs: assignment.derivedDiscs)
+                chapterOrder($0, $1, discs: assignment.derivedDiscs, catalogSourceIDs: catalogSourceIDs)
             }
             return makeBook(id: key, items: members, title: assignment.titles[key])
         }
@@ -297,7 +301,8 @@ public enum SpokenWordBookGrouping {
     private static func chapterOrder(
         _ lhs: SpokenWordBookItem,
         _ rhs: SpokenWordBookItem,
-        discs: [String: Int]
+        discs: [String: Int],
+        catalogSourceIDs: Set<String>
     ) -> Bool {
         // A disc read from a "CD 2" folder counts when the tag is missing,
         // so two folders each numbered from track 1 do not interleave.
@@ -314,8 +319,12 @@ public enum SpokenWordBookGrouping {
         default:
             break
         }
-        let byFile = lhs.fileName.localizedStandardCompare(rhs.fileName)
-        if byFile != .orderedSame { return byFile == .orderedAscending }
+        // `/songs/<id>` from a server catalogue says nothing about order; the
+        // title still carries the "01", "02" the files were named with.
+        if !catalogSourceIDs.contains(lhs.sourceID), !catalogSourceIDs.contains(rhs.sourceID) {
+            let byFile = lhs.fileName.localizedStandardCompare(rhs.fileName)
+            if byFile != .orderedSame { return byFile == .orderedAscending }
+        }
         let byTitle = lhs.title.localizedStandardCompare(rhs.title)
         if byTitle != .orderedSame { return byTitle == .orderedAscending }
         return lhs.id < rhs.id
