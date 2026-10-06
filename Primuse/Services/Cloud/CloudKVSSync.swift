@@ -611,3 +611,124 @@ enum CloudKVSKey {
     // NOT synced: both are per-device security decisions. SSLTrustStore keeps
     // them in local UserDefaults only.
 }
+
+#if os(iOS) || os(macOS)
+// MARK: - Home and library layout
+
+/// 首页与资料库的界面布局跟着 iCloud 走: 区块顺序、显示哪些、每块的样式与条数。
+///
+/// 这些设置散在各个界面里用 `@AppStorage` 直接读写, 没有哪个 store 管着它们, 所以这里统一
+/// 登记、盯着 UserDefaults 的变化, 清单里的值真的变了才 `markChanged`。从云端拉下来的值先
+/// 记作已知, 不会被当成本机编辑推回去。
+///
+/// 只收用户在编辑页、首页编辑状态里改的键。会被程序自己改写的不收: 首页挑选的书和电台
+/// (管理页按本机有的清一遍)、收藏顺序(新喜欢到达时自动改写)、艺人页只看专辑艺术家
+/// (Mac 跳转时自动切换) —— 收了它们, 一台还没装齐内容的设备就会把别的设备的设置改掉。
+@MainActor
+final class InterfaceLayoutSync {
+    static let shared = InterfaceLayoutSync()
+
+    static let keys: [String] = [
+        // iPhone / iPad 首页
+        HomeSectionConfiguration.orderKey,
+        HomeSectionLayoutConfiguration.storageKey,
+        "primuse.home.showHero",
+        "primuse.home.showContinueSpaces",
+        AlbumRecommendationService.homeVisibilityKey,
+        ListeningIntentService.homeVisibilityKey,
+        "primuse.home.showContinueListening",
+        "primuse.home.showRadio",
+        "primuse.home.showBooksInProgress",
+        "primuse.home.showAudiobooks",
+        "primuse.home.showPodcasts",
+        "primuse.home.showQuickAccess",
+        "primuse.home.showFolders",
+        HomeFolderPinStorage.displayCountKey,
+        "primuse.home.showListeningRanking",
+        "primuse.home.showForYou",
+        "primuse.home.showPlaylists",
+        "primuse.home.showTopArtists",
+        "primuse.home.showRecentlyAdded",
+        "primuse.home.showStatsGlimpse",
+        // Mac 首页
+        MacHomeSectionLayout.orderKey,
+        MacHomeSectionLayout.showsOverviewKey,
+        MacHomeSectionLayout.showsPipelineKey,
+        MacHomeSectionLayout.showsBooksKey,
+        // 资料库
+        LibrarySectionLayoutPolicy.orderKey,
+        LibrarySectionLayoutPolicy.hiddenKey,
+        QuickAccessCoverStyle.storageKey,
+    ]
+
+    private let keys: [String]
+    private let cloud: CloudKVSSync
+    private let defaults: UserDefaults
+    private let checkDelay: Duration
+    /// 每个键上次见到的值: 本机编辑要和它比, 从云端拉下来的也先记在这里。
+    private var known: [String: NSObject] = [:]
+    private var pendingCheck: Task<Void, Never>?
+    private nonisolated(unsafe) var observer: NSObjectProtocol?
+
+    init(
+        keys: [String] = InterfaceLayoutSync.keys,
+        cloud: CloudKVSSync? = nil,
+        defaults: UserDefaults = .standard,
+        checkDelay: Duration = .milliseconds(300)
+    ) {
+        self.keys = keys
+        self.cloud = cloud ?? .shared
+        self.defaults = defaults
+        self.checkDelay = checkDelay
+    }
+
+    deinit {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+    }
+
+    func start() {
+        guard observer == nil else { return }
+        for key in keys {
+            cloud.register(key: key) { [weak self] in self?.remember(key) }
+        }
+        // 每次 UserDefaults 有写入都会到这里, 合批后只比这几十个键。
+        observer = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification, object: defaults, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.scheduleCheck() }
+        }
+    }
+
+    private func remember(_ key: String) {
+        known[key] = defaults.object(forKey: key) as? NSObject
+    }
+
+    private func scheduleCheck() {
+        pendingCheck?.cancel()
+        pendingCheck = Task { [weak self, checkDelay] in
+            try? await Task.sleep(for: checkDelay)
+            guard !Task.isCancelled else { return }
+            self?.pushEditedKeys()
+        }
+    }
+
+    /// 和上次见到的值比, 变了的推上去。
+    func pushEditedKeys() {
+        for key in keys {
+            let current = defaults.object(forKey: key) as? NSObject
+            guard !Self.same(current, known[key]) else { continue }
+            known[key] = current
+            cloud.markChanged(key: key)
+        }
+    }
+
+    private static func same(_ lhs: NSObject?, _ rhs: NSObject?) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil): true
+        case let (lhs?, rhs?): lhs.isEqual(rhs)
+        default: false
+        }
+    }
+}
+#endif
+

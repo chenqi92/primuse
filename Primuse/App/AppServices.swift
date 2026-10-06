@@ -1622,6 +1622,7 @@ final class AppServices {
         CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationIntents) { }
         CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationHiddenPresets) { }
         CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationSelectedIntent) { }
+        InterfaceLayoutSync.shared.start()
         _ = ArtistNameSettingsStore.shared
 
         // Phase 3: Apple TV relay is opt-in. Starting its listeners after the

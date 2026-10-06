@@ -31,6 +31,71 @@ final class CloudKVSSyncTests: XCTestCase {
         super.tearDown()
     }
 
+    // MARK: Home and library layout
+
+    func testLayoutEditIsPushedAndAPulledLayoutIsNotEchoed() {
+        let layoutKey = "test_layout_show"
+        let layout = InterfaceLayoutSync(keys: [layoutKey], cloud: sync, defaults: defaults)
+        layout.start()
+        layout.pushEditedKeys()
+        XCTAssertNil(store.object(forKey: layoutKey), "starting up pushes nothing")
+
+        defaults.set(false, forKey: layoutKey)
+        layout.pushEditedKeys()
+        XCTAssertEqual(store.object(forKey: layoutKey) as? Bool, false)
+        let pushedRevision = store.double(forKey: "\(layoutKey)__updatedAt")
+        XCTAssertGreaterThan(pushedRevision, 0)
+
+        // Another device turns the section back on: pulled and remembered,
+        // not pushed back as this device's edit.
+        store.set(true, forKey: layoutKey)
+        store.set(pushedRevision + 100, forKey: "\(layoutKey)__updatedAt")
+        store.set("mac", forKey: "\(layoutKey)__writerID")
+        XCTAssertEqual(sync.catchUp().pulled, 1)
+        XCTAssertTrue(defaults.bool(forKey: layoutKey))
+        layout.pushEditedKeys()
+        XCTAssertEqual(store.string(forKey: "\(layoutKey)__writerID"), "mac")
+        XCTAssertEqual(store.double(forKey: "\(layoutKey)__updatedAt"), pushedRevision + 100)
+    }
+
+    func testOnlyListedLayoutKeysArePushed() {
+        let layout = InterfaceLayoutSync(keys: ["test_layout_order"], cloud: sync, defaults: defaults)
+        layout.start()
+        defaults.set("[\"radio\"]", forKey: "test_unlisted_key")
+        layout.pushEditedKeys()
+        XCTAssertNil(store.object(forKey: "test_unlisted_key"))
+    }
+
+    func testAnyDefaultsWriteTriggersTheLayoutCheck() async throws {
+        let layoutKey = "test_layout_order"
+        let layout = InterfaceLayoutSync(
+            keys: [layoutKey], cloud: sync, defaults: defaults, checkDelay: .milliseconds(20)
+        )
+        layout.start()
+        defaults.set("[\"podcasts\",\"radio\"]", forKey: layoutKey)
+        for _ in 0..<50 where store.object(forKey: layoutKey) == nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(store.object(forKey: layoutKey) as? String, "[\"podcasts\",\"radio\"]")
+    }
+
+    func testLayoutKeysLeaveOutWhatTheAppRewritesOnItsOwn() {
+        let keys = InterfaceLayoutSync.keys
+        XCTAssertEqual(Set(keys).count, keys.count)
+        XCTAssertTrue(keys.contains(HomeSectionConfiguration.orderKey))
+        XCTAssertTrue(keys.contains(LibrarySectionLayoutPolicy.hiddenKey))
+        XCTAssertTrue(keys.contains("primuse.home.showHero"))
+        for rewritten in [
+            HomeSpotlightSelection.booksStorageKey,
+            HomeSpotlightSelection.radioStorageKey,
+            LibraryPinStorage.defaultsKey,
+            HomeFolderPinStorage.key,
+            ArtistBrowseMode.storageKey,
+        ] {
+            XCTAssertFalse(keys.contains(rewritten), rewritten)
+        }
+    }
+
     func testFreshInstallPullsCloudCopyAndNeverPushesDefaults() {
         defaults.set("local-default", forKey: key)
         var reloads = 0
