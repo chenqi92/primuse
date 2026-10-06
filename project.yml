@@ -256,6 +256,8 @@ targets:
         PrimuseLastFmAPIKey: "$(LASTFM_API_KEY)"
         PrimuseLastFmAPISecret: "$(LASTFM_API_SECRET)"
         UILaunchScreen: {}
+        # 让 ProMotion iPhone 上的动画能到 120 帧；全屏效果「跟随屏幕」档靠它（iPad 不需要）。
+        CADisableMinimumFrameDurationOnPhone: true
         ITSAppUsesNonExemptEncryption: false
         NSSiriUsageDescription: "用 Siri 语音点播、控制 Primuse 播放。"
         INIntentsSupported:

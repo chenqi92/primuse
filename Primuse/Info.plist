@@ -14,6 +14,8 @@
 		<string>com.welape.yuanyin.metadata-reading.*</string>
 		<string>com.welape.yuanyin.source-scan.*</string>
 	</array>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
