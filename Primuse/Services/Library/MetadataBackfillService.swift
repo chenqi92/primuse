@@ -1475,6 +1475,36 @@ final class MetadataBackfillService {
             UserDefaults.standard.set(true, forKey: cloudTitleAndDurationFixKey)
         }
 
+        // 半小时上下的 fast-start m4a/m4b 以前只读 256 KB 首段, moov 放不下时一个标签都
+        // 读不出来, 行被记成「读不全」或「读不了」后就再不重读 —— 有声书里时长长的那几集
+        // 因此没有流派、专辑, 留在了音乐里。现在按 moov 的长度声明补读, 这些行各再读一次。
+        let isoMoovHeadFixKey = "primuse.backfillState.v2026_10_isoMoovHead"
+        if !UserDefaults.standard.bool(forKey: isoMoovHeadFixKey) {
+            let sourceIDs = backfillableSourceIDs()
+            let stuckIDs = incompleteSongIDs.union(failedSongIDs)
+            let retryIDs = Set(library.songs.lazy.filter { song in
+                stuckIDs.contains(song.id)
+                    && sourceIDs.contains(song.sourceID)
+                    && song.userMetadataEditedAt == nil
+                    && RemoteMetadataInspectionPolicy.tailStrategy(
+                        fileExtension: song.fileFormat.rawValue,
+                        isExplicitReread: false
+                    ) == .isoBaseMedia
+            }.map(\.id))
+            if !retryIDs.isEmpty {
+                failedSongIDs.subtract(retryIDs)
+                incompleteSongIDs.subtract(retryIDs)
+                sessionGivenUpIDs.subtract(retryIDs)
+                titleCheckedIDs.subtract(retryIDs)
+                for id in retryIDs { transientFailureCounts[id] = nil }
+                saveFailed()
+                saveTitleChecked()
+                markQueueDirty()
+                plog("📥 Backfill: retrying \(retryIDs.count) ISO rows whose moov outgrew the head read")
+            }
+            UserDefaults.standard.set(true, forKey: isoMoovHeadFixKey)
+        }
+
         // Track artist used to have no independent completion marker. A FLAC
         // row could therefore be considered complete as soon as STREAMINFO
         // supplied duration, even when its Vorbis comments were beyond the
@@ -4705,6 +4735,31 @@ final class MetadataBackfillService {
                 metadataInputData = expandedHead
                 metadata = await extractMetadata(
                     from: expandedHead,
+                    song: song,
+                    readSession: readSession
+                )
+            }
+            if needsArtistInspection { artistInspectionCompleted = true }
+        } else if RemoteMetadataInspectionPolicy.tailStrategy(
+            fileExtension: parserExtension,
+            isExplicitReread: isExplicitReread
+        ) == .isoBaseMedia {
+            // 半小时上下的 fast-start 单集, moov 连同排在它最后的标签就超出了首段,
+            // AVFoundation 打不开截断的数据, 尾部读取也够不着 —— 按 moov 的长度声明补齐。
+            while let expandedByteCount = RemoteMetadataReadPolicy.expandedISOBaseMediaReadSize(
+                fileSize: song.fileSize,
+                currentData: metadataInputData
+            ) {
+                let expandedHead = try await fetchRange(offset: 0, length: Int64(expandedByteCount))
+                guard expandedHead.count > metadataInputData.count else {
+                    throw BackfillRangeExpansionError(format: parserExtension)
+                }
+                metadataInputData = expandedHead
+            }
+            if metadataInputData.count > headData.count {
+                plog("📥 Backfill: '\(song.title)' expanded ISO head to moov end bytes=\(metadataInputData.count)")
+                metadata = await extractMetadata(
+                    from: metadataInputData,
                     song: song,
                     readSession: readSession
                 )

@@ -570,6 +570,86 @@ public enum RemoteMetadataReadPolicy {
         }
     }
 
+    /// moov 在首段里放不下时补读的上限。moov 里只有样本表和标签, 十几个小时的整本书也就
+    /// 几 MB; 比别的格式的 4 MB 高, 是因为 moov 读不全就一个标签都拿不到。
+    public static let maximumISOBaseMediaHeadByteCount = 16 * 1024 * 1024
+
+    /// fast-start 的 m4a/m4b 把 moov(连同全部标签)紧接在 ftyp 后面, 而 moov 随时长线性
+    /// 增长: AAC 每分钟约 10 KB 的样本表, 标签还排在 moov 的最后。半小时上下的有声书单集
+    /// 就超出 256 KB 首段, AVFoundation 打不开这段截断的数据, 一个标签都读不出来; 尾部
+    /// 读取也帮不上, moov 不在那里。顶层 atom 的头部都写着自己的长度, 走到 moov 时按声明
+    /// 补到它的末尾。moov 排在 mdat 之后(尾部那种排法)返回 nil, 交给尾部读取。
+    public static func expandedISOBaseMediaReadSize(
+        fileSize: Int64,
+        currentData data: Data
+    ) -> Int? {
+        let fileLimit = fileSize > 0
+            ? min(Int(clamping: fileSize), maximumISOBaseMediaHeadByteCount)
+            : maximumISOBaseMediaHeadByteCount
+        guard fileLimit > data.count,
+              data.count >= 8,
+              isoAtomType(in: data, at: 0) == "ftyp" else { return nil }
+
+        var cursor = 0
+        while true {
+            let headerEnd = cursor + 16
+            guard cursor + 8 <= data.count else {
+                let requested = min(fileLimit, headerEnd)
+                return requested > data.count ? requested : nil
+            }
+            let size32 = isoUInt32(in: data, at: cursor)
+            let length: UInt64
+            switch size32 {
+            case 0:
+                // 一直延伸到文件末尾的 atom: 后面不会再有 moov 了。
+                return nil
+            case 1:
+                guard headerEnd <= data.count else {
+                    let requested = min(fileLimit, headerEnd)
+                    return requested > data.count ? requested : nil
+                }
+                length = isoUInt64(in: data, at: cursor + 8)
+                guard length >= 16 else { return nil }
+            default:
+                length = UInt64(size32)
+                guard length >= 8 else { return nil }
+            }
+            guard length <= UInt64(fileLimit) else { return nil }
+            let end = cursor + Int(length)
+            guard end <= fileLimit else { return nil }
+
+            switch isoAtomType(in: data, at: cursor) {
+            case "mdat":
+                return nil
+            case "moov":
+                return end > data.count ? end : nil
+            default:
+                // free/skip/uuid 这类垫在 moov 前面的 atom: 补到能看见下一个头部为止。
+                if end > data.count {
+                    let requested = min(fileLimit, end + 16)
+                    return requested > data.count ? requested : nil
+                }
+                cursor = end
+            }
+        }
+    }
+
+    private static func isoAtomType(in data: Data, at offset: Int) -> String? {
+        let start = data.startIndex + offset + 4
+        guard offset >= 0, start + 4 <= data.endIndex else { return nil }
+        return String(data: data[start..<(start + 4)], encoding: .isoLatin1)
+    }
+
+    private static func isoUInt32(in data: Data, at offset: Int) -> UInt32 {
+        let start = data.startIndex + offset
+        return data[start..<(start + 4)].reduce(0) { ($0 << 8) | UInt32($1) }
+    }
+
+    private static func isoUInt64(in data: Data, at offset: Int) -> UInt64 {
+        let start = data.startIndex + offset
+        return data[start..<(start + 8)].reduce(0) { ($0 << 8) | UInt64($1) }
+    }
+
     public static func expandedReadSize(
         fileSize: Int64,
         currentByteCount: Int,
