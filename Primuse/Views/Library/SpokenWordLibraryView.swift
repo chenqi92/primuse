@@ -144,7 +144,15 @@ struct SpokenWordLibraryContent<Content: View>: View {
     }
 
     var body: some View {
-        content(books.snapshot)
+        // A zero-height initial shelf can be skipped by its parent's lazy stack.
+        ZStack {
+            if books.snapshot.isPrepared {
+                content(books.snapshot)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, minHeight: 120)
+            }
+        }
             .task(id: RefreshIdentity(libraryRevision: collection.revision(in: library), progressRevision: progressRevision)) {
                 let store = SpokenWordStore.shared
                 await books.refresh(

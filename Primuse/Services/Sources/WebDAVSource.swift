@@ -2,6 +2,14 @@ import CryptoKit
 import Foundation
 import PrimuseKit
 
+enum WebDAVDirectoryVisibilityPolicy {
+    static func includes(path: String, isDirectory: Bool) -> Bool {
+        let components = path.split(separator: "/")
+        let directories = isDirectory ? components[...] : components.dropLast()
+        return !directories.contains { $0.caseInsensitiveCompare("#recycle") == .orderedSame }
+    }
+}
+
 enum WebDAVDirectoryListingConfirmationPolicy {
     static func missingPaths(
         previouslyObserved: Set<String>,
@@ -1539,7 +1547,9 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
 
         let items = resolvedEntries.compactMap { resolved -> RemoteFileItem? in
             let (entry, sourcePath) = resolved
-            guard sourcePath != currentSourcePath else { return nil }
+            guard sourcePath != currentSourcePath,
+                  WebDAVDirectoryVisibilityPolicy.includes(path: sourcePath, isDirectory: entry.isDirectory)
+            else { return nil }
             let fallbackName = (sourcePath as NSString).lastPathComponent
             let name = entry.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
             let resolvedName = (name?.isEmpty == false ? name : nil) ?? fallbackName

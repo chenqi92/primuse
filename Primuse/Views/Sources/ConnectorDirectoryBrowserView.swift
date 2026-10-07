@@ -261,8 +261,8 @@ struct ConnectorDirectoryBrowserView: View {
                 id: path,
                 // S3 的桶根存成 "",同样显示成源本身的名字。
                 title: SourceDirectorySelectionPolicy.isRootPath(path) ? (source.basePath ?? source.name) : title,
-                isSpokenWord: tagsSupported
-                    && SpokenWordStore.shared.isSpokenWordFolder(sourceID: source.id, path: path)
+                kind: tagsSupported
+                    ? SpokenWordStore.shared.folderKind(sourceID: source.id, path: path) : .music
             )
         }
     }

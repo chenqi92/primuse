@@ -1,6 +1,6 @@
 import Foundation
 
-/// A folder the listener marked as spoken word when choosing what to scan.
+/// A folder the listener marked as spoken word or podcast when choosing what to scan.
 ///
 /// A tag is a stronger hint than a file's genre and weaker than a per-song
 /// correction: a folder called "有声书" may still hold one stray song the
@@ -39,6 +39,15 @@ public enum SpokenWordFolderTag {
             folders[parsed.sourceID, default: []].append(parsed.path)
         }
         return folders.mapValues { $0.sorted() }
+    }
+
+    public static func folderTags(in overrides: [String: ListeningContentKind]) -> [String: [String: ListeningContentKind]] {
+        var folders: [String: [String: ListeningContentKind]] = [:]
+        for (key, kind) in overrides where kind != .music {
+            guard let parsed = parse(overrideKey: key) else { continue }
+            folders[parsed.sourceID, default: [:]][parsed.path] = kind
+        }
+        return folders
     }
 
     /// Whether folder tags make sense for this kind of source: its songs'
@@ -133,6 +142,29 @@ public struct SpokenWordFolderTopology: Equatable, Sendable {
         return result
     }
 
+    /// The nearest tagged ancestor wins when books and podcasts share a scan root.
+    public func fileKinds(in tags: [String: ListeningContentKind]) -> [String: ListeningContentKind] {
+        guard !tags.isEmpty else { return [:] }
+        var verdicts: [String: ListeningContentKind] = [:]
+        var result: [String: ListeningContentKind] = [:]
+        for (file, parent) in fileParents {
+            var chain: [String] = []
+            var current: String? = parent
+            var kind: ListeningContentKind = .music
+            while let id = current, chain.count < 256 {
+                if let known = tags[id] ?? verdicts[id] {
+                    kind = known
+                    break
+                }
+                chain.append(id)
+                current = directoryParents[id]
+            }
+            for id in chain { verdicts[id] = kind }
+            if kind != .music { result[file] = kind }
+        }
+        return result
+    }
+
     private func isInside(
         _ folder: String,
         _ taggedFolders: Set<String>,
@@ -173,81 +205,89 @@ public struct SpokenWordFolderTopology: Equatable, Sendable {
 /// - server library (Jellyfin / Emby / Plex / Audiobookshelf): a song matches
 ///   by the library id the connector stamped on it.
 public struct SpokenWordFolderRules: Equatable, Sendable {
-    public static let empty = SpokenWordFolderRules(
-        policies: [:], wholeSources: [], libraryIDs: [:], taggedFolderFiles: [:]
-    )
+    public static let empty = SpokenWordFolderRules(folders: [:], sources: [])
 
     private let policies: [String: LibraryFolderPathPolicy]
-    private let wholeSources: Set<String>
-    private let libraryIDs: [String: Set<String>]
-    private let taggedFolderFiles: [String: Set<String>]
+    private let rootKinds: [String: [String: ListeningContentKind]]
+    private let wholeSources: [String: ListeningContentKind]
+    private let libraryKinds: [String: [String: ListeningContentKind]]
+    private let taggedFileKinds: [String: [String: ListeningContentKind]]
 
-    private init(
-        policies: [String: LibraryFolderPathPolicy],
-        wholeSources: Set<String>,
-        libraryIDs: [String: Set<String>],
-        taggedFolderFiles: [String: Set<String>]
-    ) {
-        self.policies = policies
-        self.wholeSources = wholeSources
-        self.libraryIDs = libraryIDs
-        self.taggedFolderFiles = taggedFolderFiles
-    }
-
-    /// - Parameters:
-    ///   - folders: tagged folder paths by source id (reserved paths included).
-    ///   - sources: how each source's paths are spelled; a source missing
-    ///     here gets no folder rule.
-    ///   - declaredSpokenWordSourceIDs: sources whose type alone says
-    ///     everything in them is spoken word.
-    ///   - taggedFolderFiles: for item-id cloud drives, the files inside their
-    ///     tagged folders (`SpokenWordFolderTopology.files(inside:)`).
     public init(
         folders: [String: [String]],
         sources: [LibraryFolderSourceDescriptor],
         declaredSpokenWordSourceIDs: Set<String> = [],
         taggedFolderFiles: [String: Set<String>] = [:]
     ) {
+        self.init(
+            folderTags: folders.mapValues { Dictionary($0.map { ($0, ListeningContentKind.spokenWord) }, uniquingKeysWith: { first, _ in first }) },
+            sources: sources,
+            declaredSpokenWordSourceIDs: declaredSpokenWordSourceIDs,
+            taggedFileKinds: taggedFolderFiles.mapValues { Dictionary(uniqueKeysWithValues: $0.map { ($0, ListeningContentKind.spokenWord) }) }
+        )
+    }
+
+    public init(
+        folderTags: [String: [String: ListeningContentKind]],
+        sources: [LibraryFolderSourceDescriptor],
+        declaredSpokenWordSourceIDs: Set<String> = [],
+        taggedFileKinds: [String: [String: ListeningContentKind]] = [:]
+    ) {
         var policies: [String: LibraryFolderPathPolicy] = [:]
-        var wholeSources = declaredSpokenWordSourceIDs
-        var libraryIDs: [String: Set<String>] = [:]
-        if !folders.isEmpty {
-            for source in sources {
-                guard let paths = folders[source.sourceID], !paths.isEmpty else { continue }
-                if SpokenWordFolderTag.supportsTags(source) {
-                    policies[source.sourceID] = LibraryFolderPathPolicy(
-                        scanRoots: paths,
-                        semantics: source.pathSemantics,
-                        encoding: source.pathEncoding
+        var rootKinds: [String: [String: ListeningContentKind]] = [:]
+        var wholeSources = Dictionary(uniqueKeysWithValues: declaredSpokenWordSourceIDs.map { ($0, ListeningContentKind.spokenWord) })
+        var libraryKinds: [String: [String: ListeningContentKind]] = [:]
+        for source in sources {
+            guard let tags = folderTags[source.sourceID]?.filter({ $0.value != .music }), !tags.isEmpty else { continue }
+            if SpokenWordFolderTag.supportsTags(source) {
+                let paths = tags.keys.sorted()
+                policies[source.sourceID] = LibraryFolderPathPolicy(
+                    scanRoots: paths, semantics: source.pathSemantics, encoding: source.pathEncoding
+                )
+                for path in paths {
+                    let policy = LibraryFolderPathPolicy(
+                        scanRoots: [path], semantics: source.pathSemantics, encoding: source.pathEncoding
                     )
-                } else if SpokenWordFolderTag.supportsWholeSourceTag(source) {
-                    for path in paths {
-                        if path == SpokenWordFolderTag.wholeSourcePath {
-                            wholeSources.insert(source.sourceID)
-                        } else if let libraryID = SpokenWordFolderTag.libraryID(fromTagPath: path) {
-                            libraryIDs[source.sourceID, default: []].insert(libraryID)
-                        }
+                    if let root = policy.scanRoots.first,
+                       rootKinds[source.sourceID]?[root.identityPath] == nil {
+                        rootKinds[source.sourceID, default: [:]][root.identityPath] = tags[path]
+                    }
+                }
+            } else if SpokenWordFolderTag.supportsWholeSourceTag(source) {
+                for (path, kind) in tags {
+                    if path == SpokenWordFolderTag.wholeSourcePath {
+                        wholeSources[source.sourceID] = kind
+                    } else if let libraryID = SpokenWordFolderTag.libraryID(fromTagPath: path) {
+                        libraryKinds[source.sourceID, default: [:]][libraryID] = kind
                     }
                 }
             }
         }
         self.policies = policies
+        self.rootKinds = rootKinds
         self.wholeSources = wholeSources
-        self.libraryIDs = libraryIDs
-        self.taggedFolderFiles = taggedFolderFiles.filter { !$0.value.isEmpty }
+        self.libraryKinds = libraryKinds
+        self.taggedFileKinds = taggedFileKinds.filter { !$0.value.isEmpty }
     }
 
     public var isEmpty: Bool {
-        policies.isEmpty && wholeSources.isEmpty && libraryIDs.isEmpty && taggedFolderFiles.isEmpty
+        policies.isEmpty && wholeSources.isEmpty && libraryKinds.isEmpty && taggedFileKinds.isEmpty
+    }
+
+    public func kind(sourceID: String, filePath: String, serverLibraryID: String? = nil) -> ListeningContentKind? {
+        if let serverLibraryID, let kind = libraryKinds[sourceID]?[serverLibraryID] { return kind }
+        if let kind = taggedFileKinds[sourceID]?[filePath] { return kind }
+        if let policy = policies[sourceID] {
+            let placement = policy.placement(for: filePath)
+            if placement.category == .folder, let root = placement.scanRoot {
+                return rootKinds[sourceID]?[root.identityPath]
+            }
+        }
+        return wholeSources[sourceID]
     }
 
     public func containsSong(sourceID: String, filePath: String, serverLibraryID: String? = nil) -> Bool {
-        if wholeSources.contains(sourceID) { return true }
-        if let serverLibraryID, libraryIDs[sourceID]?.contains(serverLibraryID) == true { return true }
-        if taggedFolderFiles[sourceID]?.contains(filePath) == true { return true }
-        guard let policy = policies[sourceID] else { return false }
-        let placement = policy.placement(for: filePath)
-        return placement.category == .folder && placement.scanRoot != nil
+        kind(sourceID: sourceID, filePath: filePath, serverLibraryID: serverLibraryID) != nil
     }
 }
 
@@ -300,8 +340,8 @@ public struct SpokenWordClassificationInputs: Equatable, Sendable {
         genre: String?,
         serverLibraryID: String? = nil
     ) -> ListeningContentKind {
-        if folderRules.containsSong(sourceID: sourceID, filePath: filePath, serverLibraryID: serverLibraryID) {
-            return .spokenWord
+        if let kind = folderRules.kind(sourceID: sourceID, filePath: filePath, serverLibraryID: serverLibraryID) {
+            return kind
         }
         return SpokenWordContentPolicy.classify(filePath: filePath, genre: genre)
     }
@@ -316,8 +356,8 @@ public struct SpokenWordClassificationInputs: Equatable, Sendable {
         genreVerdicts: inout [String: ListeningContentKind]
     ) -> ListeningContentKind {
         if let override = overrides[songID] { return override }
-        if folderRules.containsSong(sourceID: sourceID, filePath: filePath, serverLibraryID: serverLibraryID) {
-            return .spokenWord
+        if let kind = folderRules.kind(sourceID: sourceID, filePath: filePath, serverLibraryID: serverLibraryID) {
+            return kind
         }
         if SpokenWordContentPolicy.pathHasAudiobookExtension(filePath) { return .spokenWord }
         guard let genre else { return .music }

@@ -1432,7 +1432,7 @@ struct RealDirectoryBrowserView: View {
                 BrowserSelectionChip(
                     id: path,
                     title: (path as NSString).lastPathComponent,
-                    isSpokenWord: folderTag(for: path)?.isSpokenWord == true
+                    kind: folderTag(for: path)?.kind ?? .music
                 )
             },
             onRemove: { path in
@@ -1575,6 +1575,10 @@ struct DirectoryCheckRow: View {
 
             Spacer()
 
+            if isSelected || isIncluded, let folderTag {
+                DirectoryFolderTagMenu(tag: folderTag)
+            }
+
             rescanButton
 
             if isNavigable {
@@ -1687,8 +1691,8 @@ struct DirectoryCheckRow: View {
     private var rowLabel: some View {
         HStack(spacing: 12) {
             DirectoryFolderTile(
-                icon: showsSpokenWordTile ? "books.vertical.fill" : icon,
-                tint: showsSpokenWordTile ? ListeningSpace.spokenWord.tint : iconColor
+                icon: taggedSpace?.systemImage ?? icon,
+                tint: taggedSpace?.tint ?? iconColor
             )
             VStack(alignment: .leading, spacing: 2) {
                 Text(name)
@@ -1716,8 +1720,9 @@ struct DirectoryCheckRow: View {
         .contentShape(Rectangle())
     }
 
-    private var showsSpokenWordTile: Bool {
-        (isSelected || isIncluded) && folderTag?.isSpokenWord == true
+    private var taggedSpace: ListeningSpace? {
+        guard isSelected || isIncluded, let folderTag, folderTag.kind != .music else { return nil }
+        return folderTag.space
     }
     #endif
 

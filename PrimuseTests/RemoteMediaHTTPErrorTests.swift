@@ -4,6 +4,24 @@ import XCTest
 @testable import Primuse
 
 final class RemoteMediaHTTPErrorTests: XCTestCase {
+    func testWebDAVListingsExcludeRecycleDirectoryAndDescendants() {
+        for path in ["/podcast/#recycle", "/podcast/#RECYCLE/", "/podcast/#recycle/old"] {
+            XCTAssertFalse(WebDAVDirectoryVisibilityPolicy.includes(path: path, isDirectory: true))
+        }
+        for path in ["/podcast/#recycle/episode.mp3", "/podcast/#RECYCLE/old/episode.mp3"] {
+            XCTAssertFalse(WebDAVDirectoryVisibilityPolicy.includes(path: path, isDirectory: false))
+        }
+    }
+
+    func testWebDAVRecycleFilterPreservesOrdinarySimilarNames() {
+        for path in ["/podcast", "/podcast/recycle", "/podcast/#recycle collection"] {
+            XCTAssertTrue(WebDAVDirectoryVisibilityPolicy.includes(path: path, isDirectory: true))
+        }
+        for path in ["/podcast/episode.mp3", "/podcast/#recycle.mp3", "/podcast/#recycle"] {
+            XCTAssertTrue(WebDAVDirectoryVisibilityPolicy.includes(path: path, isDirectory: false))
+        }
+    }
+
     func testWebDAVDirectoryRemovalRequiresConsistentIndependentListings() {
         let previous: Set<String> = ["/Music/A.flac", "/Music/B.flac"]
         let firstMissing = WebDAVDirectoryListingConfirmationPolicy.missingPaths(

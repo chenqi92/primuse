@@ -184,12 +184,12 @@ final class SpokenWordStore {
 
     private var folderRules: SpokenWordFolderRules {
         if let cached = cachedFolderRules, cached.revision == revision { return cached.rules }
-        let folders = SpokenWordFolderTag.spokenWordFolders(in: overrides)
+        let folders = SpokenWordFolderTag.folderTags(in: overrides)
         let rules = SpokenWordFolderRules(
-            folders: folders,
+            folderTags: folders,
             sources: folderTagSources,
             declaredSpokenWordSourceIDs: declaredSpokenWordSourceIDs,
-            taggedFolderFiles: taggedFolderFiles(folders: folders)
+            taggedFileKinds: taggedFolderFiles(folders: folders)
         )
         cachedFolderRules = (revision, rules)
         return rules
@@ -201,6 +201,16 @@ final class SpokenWordStore {
     private struct TaggedFolderFiles: Codable, Equatable {
         var folders: [String]
         var files: Set<String>
+        var folderKinds: [String: ListeningContentKind]?
+        var fileKinds: [String: ListeningContentKind]?
+
+        var tags: [String: ListeningContentKind] {
+            folderKinds ?? Dictionary(uniqueKeysWithValues: folders.map { ($0, .spokenWord) })
+        }
+
+        var kinds: [String: ListeningContentKind] {
+            fileKinds ?? Dictionary(uniqueKeysWithValues: files.map { ($0, .spokenWord) })
+        }
     }
 
     /// 按文件 ID 寻址的网盘(`usesOpaqueDirectoryIdentifiers`)。
@@ -220,31 +230,34 @@ final class SpokenWordStore {
         storeURL.deletingLastPathComponent().appendingPathComponent("spoken_word_folder_files.json")
     }
 
-    private func taggedFolderFiles(folders: [String: [String]]) -> [String: Set<String>] {
-        var result: [String: Set<String>] = [:]
+    private func taggedFolderFiles(folders: [String: [String: ListeningContentKind]]) -> [String: [String: ListeningContentKind]] {
+        var result: [String: [String: ListeningContentKind]] = [:]
         var cacheChanged = false
         for sourceID in opaqueFolderSourceIDs {
-            let tagged = (folders[sourceID] ?? []).filter { !SpokenWordFolderTag.isReservedPath($0) }
+            let tagged = (folders[sourceID] ?? [:]).filter { !SpokenWordFolderTag.isReservedPath($0.key) }
             guard !tagged.isEmpty else {
                 if taggedFolderFileCache.removeValue(forKey: sourceID) != nil { cacheChanged = true }
                 continue
             }
             let cached = taggedFolderFileCache[sourceID]
             if let topology = folderTopologies[sourceID], !topology.isEmpty {
-                if let cached, cached.folders == tagged, freshTaggedFolderSources.contains(sourceID) {
-                    result[sourceID] = cached.files
+                if let cached, cached.tags == tagged, freshTaggedFolderSources.contains(sourceID) {
+                    result[sourceID] = cached.kinds
                     continue
                 }
-                let entry = TaggedFolderFiles(folders: tagged, files: topology.files(inside: Set(tagged)))
+                let kinds = topology.fileKinds(in: tagged)
+                let entry = TaggedFolderFiles(
+                    folders: tagged.keys.sorted(), files: Set(kinds.keys), folderKinds: tagged, fileKinds: kinds
+                )
                 freshTaggedFolderSources.insert(sourceID)
                 if entry != cached {
                     taggedFolderFileCache[sourceID] = entry
                     cacheChanged = true
                 }
-                result[sourceID] = entry.files
-            } else if let cached, cached.folders == tagged {
+                result[sourceID] = entry.kinds
+            } else if let cached, cached.tags == tagged {
                 // 还没有目录(启动中、同步状态刚作废):沿用上次的结论,不让书先掉回音乐。
-                result[sourceID] = cached.files
+                result[sourceID] = cached.kinds
             }
         }
         for sourceID in taggedFolderFileCache.keys where !opaqueFolderSourceIDs.contains(sourceID) {
@@ -272,7 +285,7 @@ final class SpokenWordStore {
 
     private func hasFolderTags(sourceID: String) -> Bool {
         overrides.contains { key, kind in
-            guard kind == .spokenWord, let tag = SpokenWordFolderTag.parse(overrideKey: key) else { return false }
+            guard kind != .music, let tag = SpokenWordFolderTag.parse(overrideKey: key) else { return false }
             return tag.sourceID == sourceID && !SpokenWordFolderTag.isReservedPath(tag.path)
         }
     }
@@ -300,6 +313,15 @@ final class SpokenWordStore {
         }
     }
 
+    func folderKind(sourceID: String, path: String) -> ListeningContentKind {
+        overrides[SpokenWordFolderTag.overrideKey(sourceID: sourceID, path: path)] ?? .music
+    }
+
+    /// Music clears the folder tag and restores the existing file inference.
+    func setFolderKind(_ kind: ListeningContentKind, sourceID: String, path: String) {
+        setFolderTag(kind == .music ? nil : kind, sourceID: sourceID, path: path)
+    }
+
     /// Whether `path` of a source is tagged as spoken word.
     func isSpokenWordFolder(sourceID: String, path: String) -> Bool {
         overrides[SpokenWordFolderTag.overrideKey(sourceID: sourceID, path: path)] == .spokenWord
@@ -314,8 +336,11 @@ final class SpokenWordStore {
     private func setFolderTag(_ kind: ListeningContentKind?, sourceID: String, path: String) {
         let key = SpokenWordFolderTag.overrideKey(sourceID: sourceID, path: path)
         guard overrides[key] != kind else { return }
+        let wasPodcast = overrides[key] == .podcast
+        let now = Date()
         overrides[key] = kind
-        ledger.overrideChangedAt[key] = Date()
+        ledger.overrideChangedAt[key] = now
+        if wasPodcast || kind == .podcast { ledger.podcastMarkChangedAt[key] = now }
         didChange(cloud: .prompt)
         scheduleFolderTagReclassification()
     }
@@ -400,7 +425,7 @@ final class SpokenWordStore {
                   !entry.directories.contains(where: {
                       SourceDirectorySelectionPolicy.covers($0, tag.path, for: entry.type)
                   }) else { continue }
-            overrides.removeValue(forKey: key)
+            if overrides.removeValue(forKey: key) == .podcast { ledger.podcastMarkChangedAt[key] = now }
             ledger.overrideChangedAt[key] = now
             removed = true
         }

@@ -197,6 +197,99 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertFalse(store.hasOverride(songID: "tagged"), "the genre already says podcast")
     }
 
+    func testPodcastFolderTagPersistsAndClearsWithoutChangingSongOverrides() throws {
+        let url = makeDirectory().appendingPathComponent("kinds.json")
+        let source = MusicSource(id: "local-source", name: "NAS", type: .smb)
+        let store = SpokenWordStore(storeURL: url)
+        store.updateFolderTagSources([source])
+        let episode = song("episode", path: "/Podcasts/Show/01.mp3")
+        let corrected = song("corrected", path: "/Podcasts/Show/theme.mp3")
+        store.setKind(.music, forSongIDs: [corrected.id])
+        let tag = try XCTUnwrap(DirectoryFolderTag.forFolder(path: "/Podcasts", of: source, store: store))
+        XCTAssertEqual(tag.kind, .music)
+        tag.set(.podcast)
+        XCTAssertEqual(DirectoryFolderTag.forFolder(path: "/Podcasts", of: source, store: store)?.space, .podcast)
+        XCTAssertEqual(store.kind(for: episode), .podcast)
+        XCTAssertEqual(store.kind(for: corrected), .music)
+        XCTAssertEqual(store.kind(for: song("sibling", path: "/Podcasts2/01.mp3")), .music)
+        store.persistLocally()
+
+        let restored = SpokenWordStore(storeURL: url)
+        restored.updateFolderTagSources([source])
+        XCTAssertEqual(restored.folderKind(sourceID: source.id, path: "/Podcasts"), .podcast)
+        XCTAssertEqual(restored.kind(for: episode), .podcast)
+        let key = SpokenWordFolderTag.overrideKey(sourceID: source.id, path: "/Podcasts")
+        let initialJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        XCTAssertEqual((initialJSON["overrides"] as? [String: String])?[key], "spokenWord")
+        XCTAssertTrue((initialJSON["podcastSongIDs"] as? [String])?.contains(key) == true)
+
+        restored.setFolderKind(.spokenWord, sourceID: source.id, path: "/Podcasts")
+        XCTAssertEqual(restored.kind(for: episode), .spokenWord)
+        restored.persistLocally()
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let ledgerData = try JSONSerialization.data(withJSONObject: try XCTUnwrap(json["ledger"]))
+        let ledger = try JSONDecoder().decode(SpokenWordSyncLedger.self, from: ledgerData)
+        XCTAssertNotNil(ledger.podcastMarkChangedAt[key])
+        XCTAssertEqual(ledger.podcastMarkChangedAt[key], ledger.overrideChangedAt[key])
+        XCTAssertFalse((json["podcastSongIDs"] as? [String])?.contains(key) == true)
+
+        restored.setFolderKind(.music, sourceID: source.id, path: "/Podcasts")
+        XCTAssertEqual(restored.kind(for: episode), .music)
+        XCTAssertNil(restored.overrideSnapshot[key])
+        XCTAssertEqual(restored.kind(for: corrected), .music)
+    }
+
+    func testCloudPodcastFolderReclassifiesWhenTheScanTopologyArrivesOrChanges() {
+        let store = SpokenWordStore(storeURL: makeDirectory().appendingPathComponent("kinds.json"))
+        let source = MusicSource(id: "local-source", name: "Drive", type: .googleDrive)
+        store.updateFolderTagSources([source])
+        store.setFolderKind(.podcast, sourceID: source.id, path: "show")
+        let episode = song("episode", path: "file-id")
+        XCTAssertEqual(store.kind(for: episode), .music)
+        store.updateFolderTopologies([source.id: SpokenWordFolderTopology(
+            fileParents: ["file-id": "season"], directoryParents: ["season": "show"]
+        )])
+        XCTAssertEqual(store.kind(for: episode), .podcast)
+        store.setFolderKind(.spokenWord, sourceID: source.id, path: "show")
+        XCTAssertEqual(store.kind(for: episode), .spokenWord)
+        store.updateFolderTopologies([source.id: SpokenWordFolderTopology(
+            fileParents: ["file-id": "music"], directoryParents: [:]
+        )])
+        XCTAssertEqual(store.kind(for: episode), .music)
+    }
+
+    func testCloudPodcastFolderCacheSurvivesRestartWithoutScanIndex() async throws {
+        let directory = makeDirectory()
+        let url = directory.appendingPathComponent("kinds.json")
+        let cacheURL = directory.appendingPathComponent("spoken_word_folder_files.json")
+        let source = MusicSource(id: "local-source", name: "Drive", type: .googleDrive)
+        let store = SpokenWordStore(storeURL: url)
+        store.updateFolderTagSources([source])
+        store.setFolderKind(.podcast, sourceID: source.id, path: "show")
+        store.updateFolderTopologies([source.id: SpokenWordFolderTopology(
+            fileParents: ["episode-id": "show"], directoryParents: [:]
+        )])
+        let episode = song("episode", path: "episode-id")
+        XCTAssertEqual(store.kind(for: episode), .podcast)
+        store.persistLocally()
+        for _ in 0..<50 where !FileManager.default.fileExists(atPath: cacheURL.path) {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cacheURL.path))
+        let restored = SpokenWordStore(storeURL: url)
+        restored.updateFolderTagSources([source])
+        XCTAssertEqual(restored.kind(for: episode), .podcast)
+
+        // A cache from before podcast folders still restores audiobook membership.
+        let legacyCache: [String: Any] = [source.id: ["folders": ["show"], "files": ["episode-id"]]]
+        try JSONSerialization.data(withJSONObject: legacyCache).write(to: cacheURL)
+        restored.setFolderKind(.spokenWord, sourceID: source.id, path: "show")
+        restored.persistLocally()
+        let legacy = SpokenWordStore(storeURL: url)
+        legacy.updateFolderTagSources([source])
+        XCTAssertEqual(legacy.kind(for: episode), .spokenWord)
+    }
+
     func testArchivingABookPersistsAndKeepsItOutOfTheShelfSections() throws {
         let url = makeDirectory().appendingPathComponent("archive.json")
         let store = SpokenWordStore(storeURL: url)
@@ -604,6 +697,35 @@ extension ListeningFeaturesTests {
     }
 
     #if os(iOS)
+    func testLocalPodcastShelfLoadsFromInitiallyEmptyContent() async throws {
+        let library = MusicLibrary(storageDirectory: makeDirectory())
+        var episode = song("local-podcast-shelf", genre: "Podcast", path: "/podcast/episode.mp3")
+        episode.albumTitle = "Local podcast"
+        library.addSongs([episode])
+        await library.waitForPendingIndex()
+        XCTAssertEqual(library.localPodcastSongs.map(\.id), [episode.id])
+
+        let loaded = expectation(description: "File podcast appears after the empty initial snapshot")
+        loaded.assertForOverFulfill = false
+        let host = UIHostingController(rootView: ScrollView {
+            LazyVStack {
+                SpokenWordLibraryContent(collection: .localPodcasts) { snapshot in
+                    if let show = snapshot.allEntries.first {
+                        Text(show.book.title).onAppear { loaded.fulfill() }
+                    }
+                }
+            }
+        }.environment(library))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        window.rootViewController = host
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        await fulfillment(of: [loaded], timeout: 5)
+    }
+
     func testLargeSpokenWordShelfOnlyBuildsVisibleCells() async throws {
         let defaults = try makeDefaults()
         let library = MusicLibrary(storageDirectory: makeDirectory())

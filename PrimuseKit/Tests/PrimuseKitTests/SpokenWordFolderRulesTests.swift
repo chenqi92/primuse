@@ -30,6 +30,70 @@ struct SpokenWordFolderRulesTests {
         #expect(SpokenWordFolderTag.spokenWordFolders(in: overrides) == ["nas": ["/A", "/B"]])
     }
 
+    @Test("Folder podcast tags survive extraction and override file inference in both classification paths")
+    func podcastFolderClassification() {
+        let tags = SpokenWordFolderTag.folderTags(in: [
+            SpokenWordFolderTag.overrideKey(sourceID: "nas", path: "/Podcasts"): .podcast,
+            SpokenWordFolderTag.overrideKey(sourceID: "nas", path: "/Music"): .music,
+            "episode": .spokenWord,
+        ])
+        #expect(tags == ["nas": ["/Podcasts": .podcast]])
+        let inputs = SpokenWordClassificationInputs(
+            overrides: ["corrected": .music],
+            folderRules: SpokenWordFolderRules(folderTags: tags, sources: [descriptor("nas", .webdav)])
+        )
+        var verdicts: [String: ListeningContentKind] = [:]
+        for path in ["/Podcasts/show/01.mp3", "/Podcasts/episode.m4b"] {
+            #expect(inputs.kind(songID: "episode", sourceID: "nas", filePath: path, genre: "Audiobook") == .podcast)
+            #expect(inputs.kind(songID: "episode", sourceID: "nas", filePath: path, genre: "Audiobook", genreVerdicts: &verdicts) == .podcast)
+            #expect(inputs.kind(songID: "corrected", sourceID: "nas", filePath: path, genre: nil) == .music)
+        }
+        #expect(inputs.inferredKind(sourceID: "nas", filePath: "/Podcasts2/song.mp3", genre: nil) == .music)
+        #expect(inputs.inferredKind(sourceID: "other", filePath: "/Podcasts/song.mp3", genre: nil) == .music)
+    }
+
+    @Test("The closest folder tag wins in either direction without changing siblings")
+    func nestedPodcastFolders() {
+        for (parent, child) in [(ListeningContentKind.spokenWord, ListeningContentKind.podcast), (.podcast, .spokenWord)] {
+            let rules = SpokenWordFolderRules(
+                folderTags: ["nas": ["/Audio/": parent, "/Audio/Show": child]],
+                sources: [descriptor("nas", .smb)]
+            )
+            #expect(rules.kind(sourceID: "nas", filePath: "/Audio/Show/Season/01.mp3") == child)
+            #expect(rules.kind(sourceID: "nas", filePath: "/Audio/Show2/01.mp3") == parent)
+            #expect(rules.kind(sourceID: "nas", filePath: "/Elsewhere/01.mp3") == nil)
+        }
+    }
+
+    @Test("Opaque cloud folders retain podcast kinds through nested tags, moves and cycles")
+    func cloudPodcastFolders() {
+        let topology = SpokenWordFolderTopology(
+            fileParents: ["episode": "season", "chapter": "books", "song": "music", "cycle": "a"],
+            directoryParents: ["season": "show", "show": "books", "a": "b", "b": "a"]
+        )
+        let tags: [String: ListeningContentKind] = ["books": .spokenWord, "show": .podcast]
+        #expect(topology.fileKinds(in: tags) == ["episode": .podcast, "chapter": .spokenWord])
+        let rules = SpokenWordFolderRules(
+            folderTags: ["gd": tags], sources: [descriptor("gd", .googleDrive)],
+            taggedFileKinds: ["gd": topology.fileKinds(in: tags)]
+        )
+        #expect(rules.kind(sourceID: "gd", filePath: "episode") == .podcast)
+        #expect(rules.kind(sourceID: "gd", filePath: "chapter") == .spokenWord)
+        #expect(rules.kind(sourceID: "gd", filePath: "song") == nil)
+        #expect(topology.fileKinds(in: ["books": .podcast, "show": .spokenWord])["episode"] == .spokenWord)
+        #expect(topology.fileKinds(in: [:]).isEmpty)
+    }
+
+    @Test("A tagged podcast library takes priority over its audiobook source default")
+    func podcastLibraryOverridesSource() {
+        let rules = SpokenWordFolderRules(
+            folderTags: ["abs": [SpokenWordFolderTag.libraryPath(libraryID: "shows"): .podcast]],
+            sources: [descriptor("abs", .audiobookshelf)], declaredSpokenWordSourceIDs: ["abs"]
+        )
+        #expect(rules.kind(sourceID: "abs", filePath: "episode", serverLibraryID: "shows") == .podcast)
+        #expect(rules.kind(sourceID: "abs", filePath: "chapter", serverLibraryID: "books") == .spokenWord)
+    }
+
     @Test("Songs under a tagged folder match; siblings and look-alike names do not")
     func matching() {
         let rules = SpokenWordFolderRules(folders: ["nas": ["/Books"]], sources: [descriptor("nas", .smb)])

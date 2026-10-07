@@ -325,23 +325,34 @@ struct DirectoryRescanButton: View {
 
 // MARK: - Folder tags
 
-/// A selected scan folder's content tag: music (no tag, the usual
-/// inference) or spoken word, which sends everything inside to the books
-/// shelf. Stored by `SpokenWordStore.setSpokenWordFolder`.
+extension ListeningContentKind {
+    var directorySpace: ListeningSpace {
+        switch self {
+        case .music: .music
+        case .spokenWord: .spokenWord
+        case .podcast: .podcast
+        }
+    }
+}
+
+/// A selected scan folder's content tag; music keeps the usual file inference.
 struct DirectoryFolderTag {
-    let isSpokenWord: Bool
-    let set: (Bool) -> Void
+    let kind: ListeningContentKind
+    let set: (ListeningContentKind) -> Void
+
+    var space: ListeningSpace { kind.directorySpace }
 
     /// The tag for `path` of `source`, or nil for sources that offer no
     /// folders to choose (media servers and other whole-catalogue servers).
     @MainActor
-    static func forFolder(path: String, of source: MusicSource) -> DirectoryFolderTag? {
+    static func forFolder(
+        path: String, of source: MusicSource, store: SpokenWordStore = .shared
+    ) -> DirectoryFolderTag? {
         guard SpokenWordFolderTag.supportsFolderTags(for: source.type) else { return nil }
-        let store = SpokenWordStore.shared
         let sourceID = source.id
         return DirectoryFolderTag(
-            isSpokenWord: store.isSpokenWordFolder(sourceID: sourceID, path: path),
-            set: { store.setSpokenWordFolder($0, sourceID: sourceID, path: path) }
+            kind: store.folderKind(sourceID: sourceID, path: path),
+            set: { store.setFolderKind($0, sourceID: sourceID, path: path) }
         )
     }
 }
@@ -350,17 +361,18 @@ struct DirectoryFolderTag {
 struct DirectoryFolderTagMenu: View {
     let tag: DirectoryFolderTag
 
-    private var space: ListeningSpace { tag.isSpokenWord ? .spokenWord : .music }
+    private var space: ListeningSpace { tag.space }
 
     var body: some View {
         Menu {
             Section("directory_tag_menu_title") {
-                option(.music, isSpokenWord: false)
-                option(.spokenWord, isSpokenWord: true)
+                ForEach(ListeningContentKind.allCases, id: \.rawValue) { kind in
+                    option(kind.directorySpace, kind: kind)
+                }
             }
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: tag.isSpokenWord ? "books.vertical.fill" : "music.note")
+                Image(systemName: space.systemImage)
                     .font(.caption2.weight(.semibold))
                 Text(space.title)
                     .font(.caption.weight(.semibold))
@@ -381,11 +393,11 @@ struct DirectoryFolderTagMenu: View {
         .accessibilityValue(Text(space.title))
     }
 
-    private func option(_ space: ListeningSpace, isSpokenWord: Bool) -> some View {
+    private func option(_ space: ListeningSpace, kind: ListeningContentKind) -> some View {
         Button {
-            tag.set(isSpokenWord)
+            tag.set(kind)
         } label: {
-            if tag.isSpokenWord == isSpokenWord {
+            if tag.kind == kind {
                 Label(space.title, systemImage: "checkmark")
             } else {
                 Label(space.title, systemImage: space.systemImage)
@@ -414,7 +426,7 @@ struct DirectoryFolderTile: View {
 struct BrowserSelectionChip: Identifiable, Equatable {
     let id: String
     let title: String
-    let isSpokenWord: Bool
+    let kind: ListeningContentKind
 }
 
 // MARK: - Bottom bar
@@ -515,9 +527,9 @@ struct BrowserBottomBar: View {
 
     #if os(iOS)
     private func chipView(_ chip: BrowserSelectionChip) -> some View {
-        let space: ListeningSpace = chip.isSpokenWord ? .spokenWord : .music
+        let space = chip.kind.directorySpace
         return HStack(spacing: 6) {
-            Image(systemName: chip.isSpokenWord ? "books.vertical.fill" : "folder.fill")
+            Image(systemName: chip.kind == .music ? "folder.fill" : space.systemImage)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(space.tint)
             Text(verbatim: chip.title)

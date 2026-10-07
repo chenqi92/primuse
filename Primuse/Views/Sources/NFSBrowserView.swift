@@ -163,7 +163,7 @@ private struct NFSDirectoryBrowserView: View {
                         BrowserSelectionChip(
                             id: path,
                             title: (path as NSString).lastPathComponent,
-                            isSpokenWord: DirectoryFolderTag.forFolder(path: path, of: source)?.isSpokenWord == true
+                            kind: DirectoryFolderTag.forFolder(path: path, of: source)?.kind ?? .music
                         )
                     },
                     onRemove: { path in
