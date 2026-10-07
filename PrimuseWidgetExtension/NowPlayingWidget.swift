@@ -187,7 +187,6 @@ struct NowPlayingWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: NowPlayingProvider()) { entry in
             NowPlayingWidgetView(entry: entry)
-                .containerBackground(for: .widget) { Color.clear }
         }
         .contentMarginsDisabled()
         .configurationDisplayName(PMString("ext.widget.nowPlaying.displayName"))
@@ -280,59 +279,34 @@ struct PlaybackProgress {
 }
 
 // MARK: - Home Screen widgets
-//
-// 设计目标:
-// - 封面主导, 文字最少, 装饰最少
-// - 单一进度条贴在底部, 极细 + 半透明白
-// - 文字粗细对比强: 标题用 .bold(.body), 艺术家用 .secondary
-// - 没有封面时落回多色唱片占位, 不再整块品牌紫
 
 private struct SmallNowPlayingView: View {
     let state: PlaybackState
     let progress: PlaybackProgress
 
     var body: some View {
-        GeometryReader { geometry in
-            let size = geometry.size
-            ZStack {
-                // 封面填满整个 widget 当背景。先钉到小组件尺寸再放大, 既防止
-                // 边缘露出透明, 也不会让 fill 后的封面把布局撑出容器。
-                WidgetCoverImageView(
-                    coverImageName: state.coverImageName,
-                    cornerRadius: 0,
-                    placeholderIndex: 0
-                )
-                .widgetBounds(size)
-                .scaleEffect(1.05)
-                // 底部偏暗的渐变保证标题可读
-                LinearGradient(
-                    colors: [.black.opacity(0.0), .black.opacity(0.55)],
-                    startPoint: .center,
-                    endPoint: .bottom
-                )
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Spacer()
+        WidgetCanvas {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .top) {
+                    WidgetPlaybackArtwork(state: state)
+                        .frame(width: 62, height: 52)
+                    Spacer(minLength: 8)
+                    WidgetPlaybackButton(state: state, size: 36)
+                }
+                Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: 3) {
                     Text(state.songTitle ?? PMString("ext.widget.unknownSong"))
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(.white)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(WidgetDesign.strongText)
                         .lineLimit(2)
                     Text(nowPlayingSubtitle(state))
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.78))
+                        .font(.system(size: 12))
+                        .foregroundStyle(WidgetDesign.secondaryText)
                         .lineLimit(1)
-                    if state.isLiveStream {
-                        LiveIndicatorLine(lightText: true)
-                            .padding(.top, 2)
-                    } else {
-                        ProgressLine(progress: progress)
-                            .padding(.top, 2)
-                    }
                 }
-                .padding(14)
-                .widgetBounds(size, alignment: .bottomLeading)
+                if state.isLiveStream { LiveIndicatorLine() }
+                else { ProgressLine(progress: progress) }
             }
-            .widgetBounds(size)
         }
     }
 }
@@ -342,59 +316,28 @@ private struct MediumNowPlayingView: View {
     let progress: PlaybackProgress
 
     var body: some View {
-        GeometryReader { geometry in
-            let coverSide = min(112, max(88, geometry.size.height - 32))
-
-            WidgetCanvas(padding: 16) {
+        WidgetCanvas {
+            GeometryReader { geometry in
+                let side = min(112, geometry.size.height)
                 HStack(spacing: 16) {
-                    WidgetCoverImageView(
-                        coverImageName: state.coverImageName,
-                        cornerRadius: 12,
-                        placeholderIndex: 0
-                    )
-                    .frame(width: coverSide, height: coverSide)
-
+                    WidgetPlaybackArtwork(state: state)
+                        .frame(width: side, height: side)
                     VStack(alignment: .leading, spacing: 6) {
-                        NowPlayingEyebrow(state: state)
-
                         Text(state.songTitle ?? PMString("ext.widget.unknownSong"))
-                            .font(.system(size: 17, weight: .bold))
+                            .font(.system(size: 18, weight: .bold))
                             .foregroundStyle(WidgetDesign.strongText)
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.86)
+                            .lineLimit(2).minimumScaleFactor(0.88)
                         Text(nowPlayingSubtitle(state))
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(WidgetDesign.secondaryText)
-                            .lineLimit(1)
-                        Text(secondaryMetadata(state))
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(WidgetDesign.tertiaryText)
-                            .lineLimit(1)
-
+                            .foregroundStyle(WidgetDesign.secondaryText).lineLimit(1)
                         Spacer(minLength: 0)
-
-                        if state.isLiveStream {
-                            LiveIndicatorLine()
-                        } else {
-                            VStack(spacing: 5) {
-                                ProgressLine(progress: progress)
-                                HStack {
-                                    ElapsedTimeText(progress: progress)
-                                    Spacer()
-                                    Text(formatTime(state.duration))
-                                }
-                                .font(.system(size: 9.5, weight: .medium, design: .monospaced))
-                                .foregroundStyle(WidgetDesign.tertiaryText)
-                            }
-                        }
-
+                        if state.isLiveStream { LiveIndicatorLine() }
+                        else { ProgressLine(progress: progress) }
                         NowPlayingControls(state: state, compact: true)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .widgetBounds(geometry.size, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
@@ -411,11 +354,7 @@ private struct LargeNowPlayingView: View {
             WidgetCanvas(padding: 18) {
                 VStack(alignment: .leading, spacing: 13) {
                     HStack(alignment: .top, spacing: 14) {
-                        WidgetCoverImageView(
-                            coverImageName: state.coverImageName,
-                            cornerRadius: 14,
-                            placeholderIndex: 0
-                        )
+                        WidgetPlaybackArtwork(state: state)
                         .frame(width: coverSide, height: coverSide)
 
                         VStack(alignment: .leading, spacing: 6) {
@@ -424,6 +363,7 @@ private struct LargeNowPlayingView: View {
                                 .font(.system(size: 21, weight: .bold))
                                 .foregroundStyle(WidgetDesign.strongText)
                                 .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
                                 .minimumScaleFactor(0.82)
                             Text(nowPlayingSubtitle(state))
                                 .font(.system(size: 14, weight: .medium))
@@ -573,6 +513,7 @@ private struct LiveIndicatorLine: View {
 private struct NowPlayingControls: View {
     let state: PlaybackState
     var compact: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         if let spokenWord = state.spokenWord, state.isSpokenWord {
@@ -689,10 +630,7 @@ private struct NowPlayingControls: View {
             .foregroundStyle(active ? WidgetDesign.brandTint : WidgetDesign.strongText)
             .frame(width: controlFrame(symbol: symbol), height: controlFrame(symbol: symbol))
             .background(controlBackground(prominent: prominent, active: active), in: .circle)
-            .overlay {
-                Circle().strokeBorder(WidgetDesign.hairline, lineWidth: prominent ? 0 : 1)
-            }
-            .contentTransition(.symbolEffect(.replace))
+            .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
     }
 
     private func controlSize(symbol: String) -> CGFloat {
@@ -701,15 +639,15 @@ private struct NowPlayingControls: View {
     }
 
     private func controlFrame(symbol: String) -> CGFloat {
-        if symbol.contains("play") || symbol.contains("pause") || symbol.contains("stop") { return compact ? 26 : 34 }
-        return compact ? 22 : 28
+        if symbol.contains("play") || symbol.contains("pause") || symbol.contains("stop") { return compact ? 32 : 40 }
+        return compact ? 26 : 32
     }
 
     private func controlBackground(prominent: Bool, active: Bool) -> Color {
         if prominent || active {
             return WidgetDesign.brandTint.opacity(0.22)
         }
-        return Color.primary.opacity(0.06)
+        return .clear
     }
 }
 
@@ -755,14 +693,9 @@ private struct SpokenWordBookProgressPanel: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.vertical, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color.primary.opacity(0.055), in: .rect(cornerRadius: 12))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(WidgetDesign.hairline, lineWidth: 1)
-        }
+
     }
 }
 
@@ -797,13 +730,8 @@ private struct NowPlayingLyricsPreview: View {
             }
         }
         .clipped()
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color.primary.opacity(0.055), in: .rect(cornerRadius: 12))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(WidgetDesign.hairline, lineWidth: 1)
-        }
+        .padding(.vertical, 4)
+
     }
 }
 
@@ -811,63 +739,12 @@ private struct NowPlayingLyricsPreview: View {
 
 private struct SmallEmptyStateView: View {
     var body: some View {
-        WidgetCanvas(padding: 14) {
-            VStack(alignment: .leading, spacing: 8) {
-                Spacer()
-                WidgetEmptyStateIcon(systemName: "music.note", size: 42)
-                Text(PMString("ext.widget.nowPlaying.empty.title"))
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(WidgetDesign.strongText)
-                Text(PMString("ext.widget.nowPlaying.empty.openShort"))
-                    .font(.system(size: 11))
-                    .foregroundStyle(WidgetDesign.secondaryText)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        }
+        WidgetEmptyState(symbol: "music.note", title: PMString("ext.widget.nowPlaying.empty.title"),
+                         subtitle: PMString("ext.widget.nowPlaying.empty.openShort"))
     }
 }
-
-private struct MediumEmptyStateView: View {
-    var body: some View {
-        WidgetCanvas(padding: 18) {
-            HStack(spacing: 16) {
-                WidgetEmptyStateIcon(systemName: "music.note", size: 64)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(PMString("ext.widget.nowPlaying.empty.title"))
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(WidgetDesign.strongText)
-                    Text(PMString("ext.widget.nowPlaying.empty.openMedium"))
-                        .font(.system(size: 12))
-                        .foregroundStyle(WidgetDesign.secondaryText)
-                        .lineLimit(2)
-                }
-                Spacer()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        }
-    }
-}
-
-private struct LargeEmptyStateView: View {
-    var body: some View {
-        WidgetCanvas(padding: 22) {
-            VStack(alignment: .leading, spacing: 14) {
-                WidgetEmptyStateIcon(systemName: "music.note", size: 78)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(PMString("ext.widget.nowPlaying.empty.title"))
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundStyle(WidgetDesign.strongText)
-                    Text(PMString("ext.widget.nowPlaying.empty.openLarge"))
-                        .font(.system(size: 13))
-                        .foregroundStyle(WidgetDesign.secondaryText)
-                        .lineLimit(3)
-                }
-                Spacer()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        }
-    }
-}
+private typealias MediumEmptyStateView = SmallEmptyStateView
+private typealias LargeEmptyStateView = SmallEmptyStateView
 
 // MARK: - Lock Screen / Accessory families
 //
@@ -963,13 +840,14 @@ private struct AccessoryRectangularNowPlaying: View {
 /// (乐观更新), 点下去即刻有反馈, 不必等唤醒主 app 的往返。intent conform
 /// `AudioPlaybackIntent`, 系统会把 perform() 路由到主 app 进程。
 private struct AccessoryLikeToggle: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let isLiked: Bool
 
     var body: some View {
         Toggle(isOn: isLiked, intent: PrimuseSetLikedIntent(value: !isLiked)) {
             Image(systemName: isLiked ? "heart.fill" : "heart")
                 .font(.system(size: 15, weight: .semibold))
-                .contentTransition(.symbolEffect(.replace))
+                .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
         }
         .toggleStyle(.button)
         .buttonStyle(.plain)
@@ -1060,7 +938,7 @@ private struct ElapsedTimeText: View {
 ///
 /// 播放中走 `ProgressView(timerInterval:)`, 由系统逐帧推进; 暂停 / 无时长时落回
 /// 静态比例渲染。两条路径都套同一个 `HairlineProgressStyle`, 视觉完全一致。
-private struct ProgressLine: View {
+struct ProgressLine: View {
     let progress: PlaybackProgress
     @Environment(\.colorScheme) private var colorScheme
 

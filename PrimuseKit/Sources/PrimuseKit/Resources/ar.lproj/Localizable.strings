@@ -895,8 +895,8 @@
 "ext.widget.spokenWordShelf.displayName" = "متابعة الاستماع";
 "ext.widget.spokenWordShelf.description" = "تابع الكتاب الصوتي الذي كنت تستمع إليه.";
 "ext.widget.spokenWordShelf.eyebrow" = "متابعة الاستماع";
-"ext.widget.spokenWordShelf.empty.title" = "لا يوجد كتاب قيد الاستماع";
-"ext.widget.spokenWordShelf.empty.subtitle" = "ابدأ كتابًا صوتيًا في Primuse لمتابعته من هنا.";
+"ext.widget.spokenWordShelf.empty.title" = "استمع إلى كتاب";
+"ext.widget.spokenWordShelf.empty.subtitle" = "افتح Primuse وابدأ الاستماع إلى كتاب.";
 
 // 扫码直传的设置
 "ext.lanSettings.toggle" = "إرسال الإعدادات أيضًا";
@@ -938,3 +938,13 @@
 "error.audiobookshelf.authenticationFailed" = "فشل تسجيل الدخول إلى Audiobookshelf. تحقق من الحساب أو كلمة المرور أو مفتاح API.";
 "error.audiobookshelf.http" = "أعاد خادم Audiobookshelf الرمز HTTP %@.";
 "error.audiobookshelf.invalidResponse" = "أعاد Audiobookshelf بيانات غير صالحة: %@";
+
+"ext.widget.podcast.title" = "البودكاست";
+"ext.widget.podcast.description" = "تابع حلقة أو اكتشف الجديد.";
+"ext.widget.podcast.empty" = "تابع برنامجًا في Primuse للبدء.";
+"ext.widget.radio.title" = "الراديو";
+"ext.widget.radio.description" = "محطاتك المفضلة بلمسة واحدة.";
+"ext.widget.radio.empty" = "أضف محطة في Primuse للاستماع.";
+
+"ext.widget.desk.title" = "ركن الاستماع";
+"ext.widget.desk.description" = "المشغّل والبودكاست والراديو والألبومات الأخيرة في مكان واحد.";

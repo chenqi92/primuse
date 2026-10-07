@@ -171,7 +171,6 @@ struct LyricsWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: LyricsProvider()) { entry in
             LyricsWidgetView(entry: entry)
-                .containerBackground(for: .widget) { Color.clear }
         }
         .contentMarginsDisabled()
         .configurationDisplayName(PMString("ext.widget.lyrics.displayName"))
@@ -182,64 +181,81 @@ struct LyricsWidget: Widget {
 
 struct LyricsWidgetView: View {
     let entry: LyricsEntry
+    @Environment(\.widgetFamily) private var family
 
     var body: some View {
         if let snap = entry.snapshot, !snap.lines.isEmpty {
             content(snap)
         } else {
-            WidgetCanvas(padding: 18) {
-                HStack(spacing: 14) {
-                    WidgetEmptyStateIcon(systemName: "quote.bubble", size: 56)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(PMString("ext.widget.lyrics.empty.title"))
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(WidgetDesign.strongText)
-                        Text(PMString("ext.widget.lyrics.empty.subtitle"))
-                            .font(.system(size: 12))
-                            .foregroundStyle(WidgetDesign.tertiaryText)
-                            .lineLimit(2)
-                    }
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            }
+            WidgetEmptyState(symbol: "quote.bubble", title: PMString("ext.widget.lyrics.empty.title"),
+                             subtitle: PMString("ext.widget.lyrics.empty.subtitle"))
         }
     }
 
-    private func content(_ snap: LyricsSnapshot) -> some View {
-        return WidgetCanvas(padding: 16) {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 8) {
-                    WidgetCoverImageView(coverImageName: snap.coverImageName, cornerRadius: 5, placeholderIndex: 0)
-                        .frame(width: 24, height: 24)
-                    Text(snap.title)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(WidgetDesign.strongText)
-                        .lineLimit(1)
-                    Text("· \(snap.artist)")
-                        .font(.system(size: 10))
-                        .foregroundStyle(WidgetDesign.tertiaryText)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
+    @ViewBuilder private func content(_ snap: LyricsSnapshot) -> some View {
+        if family == .systemLarge {
+            WidgetCanvas(padding: 20, showsContours: false, coverImageName: snap.coverImageName, tint: WidgetDesign.brandTint) {
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(spacing: 14) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Image(systemName: "quote.opening")
+                                .font(.system(size: 26, weight: .bold))
+                                .foregroundStyle(WidgetDesign.brandTint).widgetAccentable()
+                                .accessibilityHidden(true)
+                            Text(snap.title).font(.system(size: 18, weight: .bold))
+                                .foregroundStyle(.primary).lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text(snap.artist).font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.secondary).lineLimit(2)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        WidgetRecordSleeve(coverImageName: snap.coverImageName, isPlaying: snap.isPlaying)
+                            .frame(width: 132, height: 132)
+                    }
+                    Capsule().fill(WidgetDesign.brandTint.opacity(0.45))
+                        .frame(width: 28, height: 3).widgetAccentable()
+                    AdaptiveWidgetLyricsView(lines: snap.lines, anchorIndex: snap.anchorIndex,
+                                             preferredDirection: snap.writingDirection, typography: .standaloneLarge)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .clipped()
                 }
-                .padding(.bottom, 10)
-
-                AdaptiveWidgetLyricsView(
-                    lines: snap.lines,
-                    anchorIndex: snap.anchorIndex,
-                    preferredDirection: snap.writingDirection,
-                    typography: .standalone
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .clipped()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        } else {
+            WidgetCanvas(padding: 0, showsContours: false, coverImageName: snap.coverImageName, tint: WidgetDesign.brandTint) {
+                GeometryReader { geometry in
+                    let coverWidth = geometry.size.width * 0.40
+                    HStack(spacing: 0) {
+                        VStack(alignment: .leading, spacing: 9) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(snap.title).font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(.primary).lineLimit(1)
+                                Text(snap.artist).font(.system(size: 10))
+                                    .foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            AdaptiveWidgetLyricsView(lines: snap.lines, anchorIndex: snap.anchorIndex,
+                                                     preferredDirection: snap.writingDirection, typography: .standalone)
+                        }
+                        .padding(.leading, 16).padding(.trailing, 8).padding(.vertical, 14)
+                        .frame(width: geometry.size.width - coverWidth, height: geometry.size.height)
+                        WidgetCoverImageView(coverImageName: snap.coverImageName, cornerRadius: 0)
+                            .frame(width: coverWidth, height: geometry.size.height).clipped()
+                            .mask {
+                                LinearGradient(stops: [.init(color: .clear, location: 0),
+                                                       .init(color: .black, location: 0.20)],
+                                               startPoint: .leading, endPoint: .trailing)
+                            }
+                            .accessibilityHidden(true)
+                    }
+                    .widgetBounds(geometry.size)
+                }
+            }
         }
     }
 }
 
 enum WidgetLyricsTypography: Equatable {
     case standalone
+    case standaloneLarge
     case compact
 }
 
@@ -273,23 +289,28 @@ struct AdaptiveWidgetLyricsView: View {
         GeometryReader { geometry in
             ViewThatFits(in: .vertical) {
                 lyricRows(maximumRowCount: 3, currentLineLimit: nil, adjacentLineLimit: 1)
+                    .frame(width: geometry.size.width)
                 lyricRows(maximumRowCount: 2, currentLineLimit: nil, adjacentLineLimit: 1)
+                    .frame(width: geometry.size.width)
                 lyricRows(
                     maximumRowCount: 1,
                     currentLineLimit: nil,
                     adjacentLineLimit: 1
                 )
+                .frame(width: geometry.size.width)
                 lyricRows(
                     maximumRowCount: 1,
-                    currentLineLimit: typography == .standalone ? 5 : 3,
+                    currentLineLimit: max(1, min(typography == .compact ? 3 : 5,
+                                               Int(geometry.size.height / (currentFontSize * 1.25)))),
                     adjacentLineLimit: 1,
                     currentMinimumScaleFactor: 0.78
                 )
+                .frame(width: geometry.size.width)
             }
             .frame(
                 width: geometry.size.width,
                 height: geometry.size.height,
-                alignment: .topLeading
+                alignment: typography == .standaloneLarge ? .leading : .topLeading
             )
             .modifier(WidgetLyricsDirectionModifier(direction: writingDirection))
         }
@@ -303,19 +324,19 @@ struct AdaptiveWidgetLyricsView: View {
     }
 
     private var currentFontSize: CGFloat {
-        typography == .standalone ? standaloneCurrentSize : compactCurrentSize
+        typography == .standaloneLarge ? standaloneCurrentSize * 1.55 : (typography == .standalone ? standaloneCurrentSize : compactCurrentSize)
     }
 
     private var adjacentFontSize: CGFloat {
-        typography == .standalone ? standaloneAdjacentSize : compactAdjacentSize
+        typography == .standaloneLarge ? standaloneAdjacentSize * 1.25 : (typography == .standalone ? standaloneAdjacentSize : compactAdjacentSize)
     }
 
     private var rowSpacing: CGFloat {
-        typography == .standalone ? 5 : 3
+        typography == .compact ? 3 : (typography == .standaloneLarge ? 10 : 5)
     }
 
     private var currentColor: Color {
-        typography == .standalone ? WidgetDesign.brandTint : WidgetDesign.strongText
+        typography == .compact ? WidgetDesign.strongText : WidgetDesign.brandTint
     }
 
     private func lyricRows(
@@ -409,7 +430,6 @@ struct ListeningStatsWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: StatsProvider()) { entry in
             StatsWidgetView(entry: entry)
-                .containerBackground(for: .widget) { Color.clear }
         }
         .contentMarginsDisabled()
         .configurationDisplayName(PMString("ext.widget.stats.displayName"))
@@ -519,7 +539,6 @@ struct MusicSourcesWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: SourcesProvider()) { entry in
             SourcesWidgetView(entry: entry)
-                .containerBackground(for: .widget) { Color.clear }
         }
         .contentMarginsDisabled()
         .configurationDisplayName(PMString("ext.widget.sources.displayName"))
@@ -625,7 +644,6 @@ struct YearInReviewWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: WrappedProvider()) { entry in
             WrappedWidgetView(entry: entry)
-                .containerBackground(for: .widget) { Color.clear }
         }
         .contentMarginsDisabled()
         .configurationDisplayName(PMString("ext.widget.wrapped.displayName"))
@@ -638,25 +656,15 @@ struct WrappedWidgetView: View {
     let entry: WrappedEntry
 
     var body: some View {
-        let tint = WidgetDesign.brandTint
         ZStack {
-            LinearGradient(
-                colors: [tint, Color(red: 0.16, green: 0.11, blue: 0.22), Color.black],
-                startPoint: .topLeading, endPoint: .bottomTrailing
-            )
-            RadialGradient(
-                colors: [Color.white.opacity(0.22), .clear],
-                center: .topTrailing, startRadius: 0, endRadius: 220
-            )
             if let snap = entry.snapshot {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(verbatim: PMString("ext.widget.wrapped.brand"))
                         .font(.system(size: 10, weight: .semibold))
-                        .tracking(1.2)
-                        .foregroundStyle(.white.opacity(0.72))
+                        .foregroundStyle(WidgetDesign.secondaryText)
                     Text(PMString("ext.widget.wrapped.headline", verbatimYear(snap.year), snap.totalHours))
                         .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(WidgetDesign.strongText)
                         .padding(.top, 6)
                     Spacer()
                     HStack(spacing: 6) {
@@ -666,7 +674,7 @@ struct WrappedWidgetView: View {
                             .font(.system(size: 10.5, weight: .medium))
                             .lineLimit(1)
                     }
-                    .foregroundStyle(.white.opacity(0.88))
+                    .foregroundStyle(WidgetDesign.secondaryText)
                 }
                 .padding(16)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -674,15 +682,14 @@ struct WrappedWidgetView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(verbatim: PMString("ext.widget.wrapped.brand"))
                         .font(.system(size: 10, weight: .semibold))
-                        .tracking(1.2)
-                        .foregroundStyle(.white.opacity(0.72))
+                        .foregroundStyle(WidgetDesign.secondaryText)
                     Spacer()
                     Text(PMString("ext.widget.wrapped.empty.title"))
                         .font(.system(size: 20, weight: .bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(WidgetDesign.strongText)
                     Text(PMString("ext.widget.wrapped.empty.subtitle"))
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.72))
+                        .foregroundStyle(WidgetDesign.secondaryText)
                         .padding(.top, 4)
                         .lineLimit(2)
                     Spacer()
@@ -691,6 +698,7 @@ struct WrappedWidgetView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             }
         }
+        .containerBackground(for: .widget) { WidgetCanvasBackground() }
     }
 
     /// Year without a grouping separator (2026, not 2,026).

@@ -45,7 +45,6 @@ struct QuickAccessWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: QuickAccessProvider()) { entry in
             QuickAccessWidgetView(entry: entry)
-                .containerBackground(for: .widget) { Color.clear }
         }
         .contentMarginsDisabled()
         .configurationDisplayName(PMString("ext.widget.recent.displayName"))
@@ -76,241 +75,121 @@ struct QuickAccessWidgetView: View {
     }
 }
 
-// MARK: - Small
-//
-// 对齐设计稿 ST-07「最近播放 · 小号」: 顶部一行 eyebrow + 2×2 专辑封面网格。
-// 方格按可用区域取正方形边长, 保证在 155×155 里不溢出。
-
 private struct SmallQuickAccessView: View {
     let albums: [RecentAlbumEntry]
-
-    private var tiles: [RecentAlbumEntry] { Array(albums.prefix(4)) }
-
     var body: some View {
-        WidgetCanvas(padding: 14) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(PMString("ext.widget.recent.eyebrow"))
-                    .font(.system(size: 9.5, weight: .bold))
-                    .foregroundStyle(WidgetDesign.tertiaryText)
-                    .tracking(0.4)
-
-                GeometryReader { geo in
-                    let gap: CGFloat = 5
-                    let side = min((geo.size.width - gap) / 2, (geo.size.height - gap) / 2)
-                    VStack(spacing: gap) {
-                        ForEach(0..<2, id: \.self) { row in
-                            HStack(spacing: gap) {
-                                ForEach(0..<2, id: \.self) { col in
-                                    let idx = row * 2 + col
-                                    if idx < tiles.count {
-                                        RecentAlbumCoverView(entry: tiles[idx], cornerRadius: 5, placeholderIndex: idx)
-                                            .frame(width: side, height: side)
-                                    } else {
-                                        RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                            .fill(Color.primary.opacity(0.06))
-                                            .frame(width: side, height: side)
-                                    }
-                                }
-                            }
+        WidgetCanvas {
+            VStack(alignment: .leading, spacing: 7) {
+                ZStack {
+                    ForEach(Array(albums.prefix(3).enumerated()).reversed(), id: \.element.id) { index, album in
+                        RecentAlbumCoverView(entry: album, cornerRadius: 7, placeholderIndex: index)
+                            .frame(width: 65, height: 65)
+                            .rotationEffect(.degrees(Double(index) * 9 - 6))
+                            .offset(x: CGFloat(index) * 16 - 14, y: CGFloat(index) * -3)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 76)
+                Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(albums.first?.title ?? "")
+                        .font(.system(size: 15, weight: .semibold)).foregroundStyle(WidgetDesign.strongText)
+                    Text(PMString("ext.widget.recent.eyebrow"))
+                        .font(.system(size: 11)).foregroundStyle(WidgetDesign.secondaryText)
+                }
+                .lineLimit(1)
+            }
+        }
+    }
+}
+private struct MediumQuickAccessView: View {
+    let albums: [RecentAlbumEntry]
+    var body: some View {
+        WidgetCanvas(showsContours: false) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(PMString("ext.widget.recent.eyebrow"))
+                        .font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                    Text(albums.first?.title ?? "")
+                        .font(.system(size: 21, weight: .bold)).foregroundStyle(.primary)
+                        .lineLimit(2).minimumScaleFactor(0.88)
+                    Text(albums.first?.artistName ?? "")
+                        .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                GeometryReader { geometry in
+                    let side = min(100, geometry.size.height - 16)
+                    ZStack {
+                        ForEach(Array(albums.prefix(3).enumerated()).reversed(), id: \.element.id) { index, album in
+                            RecentAlbumCoverView(entry: album, cornerRadius: 6, placeholderIndex: index)
+                                .frame(width: side, height: side)
+                                .rotationEffect(.degrees(Double(index) * 9 - 7))
+                                .offset(x: CGFloat(index) * 17 - 12, y: CGFloat(index) * -3)
                         }
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                }
+                .frame(width: 132)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(albums.prefix(3).map(\.title).joined(separator: ", "))
+            }
+        }
+    }
+}
+private struct LargeQuickAccessView: View {
+    let albums: [RecentAlbumEntry]
+    var body: some View { AlbumGrid(albums: albums, columns: 2, showsTitles: true, rows: 2) }
+}
+
+private struct AlbumGrid: View {
+    let albums: [RecentAlbumEntry]
+    let columns: Int
+    let showsTitles: Bool
+    var rows: Int = 1
+    @Environment(\.widgetFamily) private var family
+
+    var body: some View {
+        WidgetCanvas(padding: 16) {
+            VStack(alignment: .leading, spacing: 10) {
+                WidgetSectionEyebrow(text: PMString("ext.widget.recent.eyebrow"))
+                GeometryReader { geometry in
+                    let rowCount = family == .systemSmall ? 2 : rows
+                    let gap: CGFloat = 10
+                    let width = max(1, (geometry.size.width - CGFloat(columns - 1) * gap) / CGFloat(columns))
+                    let rowHeight = max(1, (geometry.size.height - CGFloat(rowCount - 1) * gap) / CGFloat(rowCount))
+                    let side = max(1, min(width, rowHeight - (showsTitles ? 35 : 0)))
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: gap, alignment: .leading), count: columns), alignment: .leading, spacing: gap) {
+                        ForEach(Array(albums.prefix(columns * rowCount).enumerated()), id: \.element.id) { index, album in
+                            VStack(alignment: .leading, spacing: 5) {
+                                RecentAlbumCoverView(entry: album, cornerRadius: 8, placeholderIndex: index)
+                                    .frame(width: side, height: side)
+                                if showsTitles {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(album.title).font(.system(size: 12, weight: .semibold))
+                                            .foregroundStyle(WidgetDesign.strongText)
+                                        Text(album.artistName).font(.system(size: 11))
+                                            .foregroundStyle(WidgetDesign.secondaryText)
+                                    }
+                                    .lineLimit(1)
+                                }
+                            }
+                            .frame(width: width, alignment: .leading)
+                            .accessibilityElement(children: .combine)
+                            .accessibilityLabel(album.title + ", " + album.artistName)
+                        }
+                    }
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
 }
 
 private struct SmallQuickAccessEmptyState: View {
     var body: some View {
-        WidgetCanvas(padding: 14) {
-            VStack(alignment: .leading, spacing: 8) {
-                Spacer()
-                WidgetEmptyStateIcon(systemName: "square.stack.fill", size: 42)
-                Text(PMString("ext.widget.recent.empty.title"))
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(WidgetDesign.strongText)
-                Text(PMString("ext.widget.recent.empty.short"))
-                    .font(.system(size: 10))
-                    .foregroundStyle(WidgetDesign.secondaryText)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        }
+        WidgetEmptyState(symbol: "square.stack", title: PMString("ext.widget.recent.empty.title"),
+                         subtitle: PMString("ext.widget.recent.empty.short"))
     }
 }
-
-// MARK: - Medium / Large
-//
-// 设计目标:
-// - 主专辑封面占左侧主导地位, 不再加 pill / eyebrow / "继续上次的氛围" 这类
-//   装饰文字
-// - 副专辑用最朴素的小方格 + 单行字, 而不是套 panel 边框
-// - 背景用第一张专辑的封面模糊扩散, 占位图改为多色唱片感渐变
-
-private struct MediumQuickAccessView: View {
-    let albums: [RecentAlbumEntry]
-
-    private var featured: RecentAlbumEntry { albums[0] }
-    private var others: [RecentAlbumEntry] { Array(albums.dropFirst().prefix(3)) }
-
-    var body: some View {
-        GeometryReader { geometry in
-            let size = geometry.size
-            let coverSide = min(112, max(88, size.height - 32))
-
-            ZStack {
-                // 背景必须先钉到小组件尺寸再模糊: 正方形封面按 fill 放进 2:1 的
-                // medium 时会把 ZStack 撑成 宽×宽 的正方形, 前景随之下坠、被裁掉。
-                WidgetArtworkBackdrop(
-                    coverImageName: featured.coverImageName,
-                    size: size,
-                    blurRadius: 30,
-                    shadeOpacity: 0.42
-                )
-
-                HStack(spacing: 14) {
-                    RecentAlbumCoverView(entry: featured, cornerRadius: 12, placeholderIndex: 0)
-                        .frame(width: coverSide, height: coverSide)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(PMString("ext.widget.recent.eyebrow"))
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.55))
-                            .textCase(.uppercase)
-                            .tracking(0.6)
-                        Text(featured.title)
-                            .font(.system(size: 17, weight: .bold))
-                            .foregroundStyle(.white)
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.86)
-                        Text(featured.artistName)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.70))
-                            .lineLimit(1)
-
-                        Spacer(minLength: 4)
-
-                        HStack(spacing: 8) {
-                            ForEach(Array(others.enumerated()), id: \.element.id) { i, album in
-                                RecentAlbumCoverView(entry: album, cornerRadius: 6, placeholderIndex: i + 1)
-                                    .frame(width: 34, height: 34)
-                            }
-                            Spacer(minLength: 0)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding(16)
-                .widgetBounds(size)
-            }
-            .widgetBounds(size)
-        }
-    }
-}
-
-private struct LargeQuickAccessView: View {
-    let albums: [RecentAlbumEntry]
-
-    private var featured: RecentAlbumEntry { albums[0] }
-    private var others: [RecentAlbumEntry] { Array(albums.dropFirst().prefix(4)) }
-
-    var body: some View {
-        GeometryReader { geometry in
-            let size = geometry.size
-            let contentWidth = max(0, size.width - 36)
-            let coverSide = min(contentWidth, max(132, size.height * 0.48))
-            let thumbSide = min(58, max(38, (contentWidth - 30) / 4))
-
-            ZStack {
-                WidgetArtworkBackdrop(
-                    coverImageName: featured.coverImageName,
-                    size: size,
-                    blurRadius: 38,
-                    shadeOpacity: 0.46
-                )
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(PMString("ext.widget.recent.eyebrow"))
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.55))
-                        .textCase(.uppercase)
-                        .tracking(0.6)
-
-                    RecentAlbumCoverView(entry: featured, cornerRadius: 14, placeholderIndex: 0)
-                        .frame(width: coverSide, height: coverSide)
-                        .frame(maxWidth: .infinity, alignment: .center)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(featured.title)
-                            .font(.system(size: 18, weight: .bold))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.86)
-                        Text(featured.artistName)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.70))
-                            .lineLimit(1)
-                    }
-
-                    Spacer(minLength: 0)
-
-                    HStack(spacing: 10) {
-                        ForEach(Array(others.enumerated()), id: \.element.id) { i, album in
-                            RecentAlbumCoverView(entry: album, cornerRadius: 8, placeholderIndex: i + 1)
-                                .frame(width: thumbSide, height: thumbSide)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding(18)
-                .widgetBounds(size)
-            }
-            .widgetBounds(size)
-        }
-    }
-}
-
-// MARK: - 空状态 (极简)
-
-private struct MediumQuickAccessEmptyState: View {
-    var body: some View {
-        WidgetCanvas(padding: 18) {
-            HStack(spacing: 16) {
-                WidgetEmptyStateIcon(systemName: "square.stack.fill", size: 64)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(PMString("ext.widget.recent.empty.title"))
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(WidgetDesign.strongText)
-                    Text(PMString("ext.widget.recent.empty.medium"))
-                        .font(.system(size: 12))
-                        .foregroundStyle(WidgetDesign.secondaryText)
-                        .lineLimit(2)
-                }
-                Spacer()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        }
-    }
-}
-
-private struct LargeQuickAccessEmptyState: View {
-    var body: some View {
-        WidgetCanvas(padding: 22) {
-            VStack(alignment: .leading, spacing: 14) {
-                WidgetEmptyStateIcon(systemName: "square.stack.fill", size: 78)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(PMString("ext.widget.recent.empty.title"))
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundStyle(WidgetDesign.strongText)
-                    Text(PMString("ext.widget.recent.empty.large"))
-                        .font(.system(size: 13))
-                        .foregroundStyle(WidgetDesign.secondaryText)
-                        .lineLimit(3)
-                }
-                Spacer()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        }
-    }
-}
+private typealias MediumQuickAccessEmptyState = SmallQuickAccessEmptyState
+private typealias LargeQuickAccessEmptyState = SmallQuickAccessEmptyState

@@ -948,8 +948,8 @@
 "ext.widget.spokenWordShelf.displayName" = "Weiterhören";
 "ext.widget.spokenWordShelf.description" = "Setze das Hörbuch fort, das du gerade hörst.";
 "ext.widget.spokenWordShelf.eyebrow" = "Weiterhören";
-"ext.widget.spokenWordShelf.empty.title" = "Kein Buch angefangen";
-"ext.widget.spokenWordShelf.empty.subtitle" = "Starte ein Hörbuch in Primuse, um es hier fortzusetzen.";
+"ext.widget.spokenWordShelf.empty.title" = "Hörbuch starten";
+"ext.widget.spokenWordShelf.empty.subtitle" = "Öffne Primuse und starte ein Hörbuch.";
 
 // 扫码直传的设置
 "ext.lanSettings.toggle" = "Einstellungen mitsenden";
@@ -991,3 +991,13 @@
 "error.audiobookshelf.authenticationFailed" = "Anmeldung bei Audiobookshelf fehlgeschlagen. Prüfe Konto, Passwort oder API-Schlüssel.";
 "error.audiobookshelf.http" = "Der Audiobookshelf-Server hat HTTP %@ zurückgegeben.";
 "error.audiobookshelf.invalidResponse" = "Audiobookshelf hat ungültige Daten zurückgegeben: %@";
+
+"ext.widget.podcast.title" = "Podcasts";
+"ext.widget.podcast.description" = "Folgen fortsetzen oder Neues entdecken.";
+"ext.widget.podcast.empty" = "Folge einer Sendung in Primuse.";
+"ext.widget.radio.title" = "Radio";
+"ext.widget.radio.description" = "Deine Sender mit einem Tippen.";
+"ext.widget.radio.empty" = "Füge einen Sender in Primuse hinzu.";
+
+"ext.widget.desk.title" = "Hörzentrale";
+"ext.widget.desk.description" = "Player, Podcasts, Radio und zuletzt gehörte Alben an einem Ort.";

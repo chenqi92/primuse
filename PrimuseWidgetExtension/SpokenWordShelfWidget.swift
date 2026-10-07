@@ -66,7 +66,6 @@ struct SpokenWordShelfWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: SpokenWordShelfProvider()) { entry in
             SpokenWordShelfWidgetView(entry: entry)
-                .containerBackground(for: .widget) { Color.clear }
         }
         .contentMarginsDisabled()
         .configurationDisplayName(PMString("ext.widget.spokenWordShelf.displayName"))
@@ -117,36 +116,30 @@ private struct SmallSpokenWordBook: View {
 
     var body: some View {
         Button(intent: PrimuseResumeSpokenWordBookIntent(bookID: book.id)) {
-            WidgetCanvas(padding: 14) {
-                GeometryReader { geometry in
-                    let coverHeight = min(92, geometry.size.height * 0.64)
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(alignment: .top, spacing: 10) {
-                            WidgetBookCover(
-                                coverImageName: book.coverImageName,
-                                width: SpokenWordCoverLayout.width(forHeight: coverHeight),
-                                cornerRadius: 6
-                            )
-                            VStack(alignment: .leading, spacing: 3) {
-                                SpokenWordShelfEyebrow()
-                                Text(book.title)
-                                    .font(.system(size: 13, weight: .bold))
-                                    .foregroundStyle(WidgetDesign.strongText)
-                                    .lineLimit(3)
-                                    .minimumScaleFactor(0.85)
-                                if let author = book.author {
-                                    Text(author)
-                                        .font(.system(size: 10.5, weight: .medium))
-                                        .foregroundStyle(WidgetDesign.secondaryText)
-                                        .lineLimit(1)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        Spacer(minLength: 0)
-                        SpokenWordBookProgressFooter(book: book, includesProgress: includesProgress, compact: true)
+            WidgetCanvas {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .top) {
+                        WidgetBookCover(coverImageName: book.coverImageName, width: 33)
+                        Spacer()
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(WidgetDesign.brandTint)
+                            .frame(width: 34, height: 34)
+                            .background(WidgetDesign.brandTint.opacity(0.10), in: .circle)
                     }
-                    .widgetBounds(geometry.size)
+                    Spacer(minLength: 0)
+                    Text(book.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(WidgetDesign.strongText)
+                        .lineLimit(2)
+                    if let author = book.author, !author.isEmpty {
+                        Text(author).font(.system(size: 12))
+                            .foregroundStyle(WidgetDesign.secondaryText).lineLimit(1)
+                    }
+                    if includesProgress {
+                        ProgressView(value: min(1, max(0, book.fractionComplete)))
+                            .progressViewStyle(WidgetHairlineBar())
+                    }
                 }
             }
         }
@@ -155,7 +148,6 @@ private struct SmallSpokenWordBook: View {
     }
 }
 
-/// 中号、只有一本在听: 大一点的书封, 右边书名、作者、第几章与进度, 加一个播放键。
 private struct MediumSpokenWordBook: View {
     let book: SpokenWordShelfSnapshot.Book
     let includesProgress: Bool
@@ -217,9 +209,8 @@ private struct MediumSpokenWordShelf: View {
                 let shown = Array(books.prefix(SpokenWordWidgetPolicy.shelfLimit))
                 let spacing: CGFloat = 12
                 let eyebrowHeight: CGFloat = 16
-                // 三本等宽; 书封高度同时受列宽与剩余高度约束, 不会把标题挤出去。
-                let columnWidth = (geometry.size.width - spacing * CGFloat(SpokenWordWidgetPolicy.shelfLimit - 1))
-                    / CGFloat(SpokenWordWidgetPolicy.shelfLimit)
+                let columns = max(1, shown.count)
+                let columnWidth = (geometry.size.width - spacing * CGFloat(columns - 1)) / CGFloat(columns)
                 let textHeight: CGFloat = 30
                 let coverHeight = max(40, min(
                     SpokenWordCoverLayout.height(forWidth: columnWidth * 0.62),
@@ -261,35 +252,9 @@ private struct MediumSpokenWordShelf: View {
 
 private struct SpokenWordShelfEmpty: View {
     let isMedium: Bool
-
     var body: some View {
-        WidgetCanvas(padding: isMedium ? 18 : 14) {
-            let text = VStack(alignment: .leading, spacing: 4) {
-                Text(PMString("ext.widget.spokenWordShelf.empty.title"))
-                    .font(.system(size: isMedium ? 17 : 14, weight: .semibold))
-                    .foregroundStyle(WidgetDesign.strongText)
-                Text(PMString("ext.widget.spokenWordShelf.empty.subtitle"))
-                    .font(.system(size: isMedium ? 12 : 11))
-                    .foregroundStyle(WidgetDesign.secondaryText)
-                    .lineLimit(2)
-            }
-            Group {
-                if isMedium {
-                    HStack(spacing: 16) {
-                        WidgetEmptyStateIcon(systemName: "books.vertical.fill", size: 60)
-                        text
-                        Spacer(minLength: 0)
-                    }
-                } else {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Spacer(minLength: 0)
-                        WidgetEmptyStateIcon(systemName: "books.vertical.fill", size: 42)
-                        text
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        }
+        WidgetEmptyState(symbol: "books.vertical", title: PMString("ext.widget.spokenWordShelf.empty.title"),
+                         subtitle: PMString("ext.widget.spokenWordShelf.empty.subtitle"))
     }
 }
 
@@ -356,7 +321,7 @@ private struct SpokenWordShelfEyebrow: View {
             Image(systemName: "book.fill")
                 .font(.system(size: 9, weight: .bold))
             Text(verbatim: PMString("ext.widget.spokenWordShelf.eyebrow"))
-                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .font(.system(size: 11, weight: .medium))
                 .lineLimit(1)
         }
         .foregroundStyle(WidgetDesign.tertiaryText)
@@ -422,40 +387,25 @@ private struct WidgetHairlineBar: ProgressViewStyle {
     }
 }
 
-/// 书封: 3:4 竖框, 原图按比例完整放进去, 空出来的边用同一张图放大模糊垫底。
-/// 垫底层先钉死尺寸再裁, 不会把小组件布局撑大(见 `WidgetArtworkBackdrop`)。
+/// Preserve the entire book cover inside its portrait frame.
 struct WidgetBookCover: View {
     let coverImageName: String?
     let width: CGFloat
     var cornerRadius: CGFloat = 6
+    @Environment(\.widgetRenderingMode) private var renderingMode
 
     var body: some View {
         let height = SpokenWordCoverLayout.height(forWidth: width)
         ZStack {
             if let image = loadImage() {
+                Color.primary.opacity(0.04)
                 Image(widgetImage: image)
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: width, height: height)
-                    .clipped()
-                    .scaleEffect(1.25)
-                    .blur(radius: 12)
-                    .overlay(Color.black.opacity(0.18))
-                    .frame(width: width, height: height)
-                    .clipped()
-                Image(widgetImage: image)
-                    .resizable()
+                    .widgetAccentedRenderingMode(.fullColor)
                     .aspectRatio(contentMode: .fit)
                     .frame(width: width, height: height)
             } else {
-                LinearGradient(
-                    colors: [WidgetDesign.sea, WidgetDesign.fern.opacity(0.85)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                Image(systemName: "book.closed.fill")
-                    .font(.system(size: max(12, width * 0.3), weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.75))
+                WidgetPlaceholderArtwork(systemName: "book.closed", cornerRadius: cornerRadius)
             }
         }
         .frame(width: width, height: height)
@@ -464,7 +414,6 @@ struct WidgetBookCover: View {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
     }
 
     private func loadImage() -> WidgetImage? {

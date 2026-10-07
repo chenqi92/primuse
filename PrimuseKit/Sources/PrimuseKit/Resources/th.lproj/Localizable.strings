@@ -895,8 +895,8 @@
 "ext.widget.spokenWordShelf.displayName" = "ฟังต่อ";
 "ext.widget.spokenWordShelf.description" = "ฟังหนังสือเสียงที่ค้างไว้ต่อทันที";
 "ext.widget.spokenWordShelf.eyebrow" = "ฟังต่อ";
-"ext.widget.spokenWordShelf.empty.title" = "ยังไม่มีหนังสือที่กำลังฟัง";
-"ext.widget.spokenWordShelf.empty.subtitle" = "เริ่มฟังหนังสือเสียงใน Primuse แล้วฟังต่อได้จากตรงนี้";
+"ext.widget.spokenWordShelf.empty.title" = "เริ่มฟังหนังสือ";
+"ext.widget.spokenWordShelf.empty.subtitle" = "เปิด Primuse แล้วเริ่มฟังหนังสือ";
 
 // 扫码直传的设置
 "ext.lanSettings.toggle" = "ส่งการตั้งค่าไปด้วย";
@@ -938,3 +938,13 @@
 "error.audiobookshelf.authenticationFailed" = "ลงชื่อเข้า Audiobookshelf ไม่สำเร็จ โปรดตรวจสอบบัญชี รหัสผ่าน หรือคีย์ API";
 "error.audiobookshelf.http" = "เซิร์ฟเวอร์ Audiobookshelf ตอบกลับ HTTP %@";
 "error.audiobookshelf.invalidResponse" = "Audiobookshelf ส่งข้อมูลที่ไม่ถูกต้องกลับมา: %@";
+
+"ext.widget.podcast.title" = "พอดแคสต์";
+"ext.widget.podcast.description" = "ฟังตอนเดิมต่อหรือค้นพบตอนใหม่";
+"ext.widget.podcast.empty" = "ติดตามรายการใน Primuse เพื่อเริ่มฟัง";
+"ext.widget.radio.title" = "วิทยุ";
+"ext.widget.radio.description" = "ฟังสถานีโปรดได้ในแตะเดียว";
+"ext.widget.radio.empty" = "เพิ่มสถานีใน Primuse เพื่อเริ่มฟัง";
+
+"ext.widget.desk.title" = "มุมฟังเพลง";
+"ext.widget.desk.description" = "เครื่องเล่น พอดแคสต์ วิทยุ และอัลบั้มล่าสุดของคุณในที่เดียว";

@@ -948,8 +948,8 @@
 "ext.widget.spokenWordShelf.displayName" = "이어 듣기";
 "ext.widget.spokenWordShelf.description" = "듣던 오디오북을 바로 이어서 듣습니다.";
 "ext.widget.spokenWordShelf.eyebrow" = "이어 듣기";
-"ext.widget.spokenWordShelf.empty.title" = "듣고 있는 책이 없습니다";
-"ext.widget.spokenWordShelf.empty.subtitle" = "Primuse에서 오디오북을 듣기 시작하면 여기서 이어 들을 수 있습니다.";
+"ext.widget.spokenWordShelf.empty.title" = "오디오북 듣기";
+"ext.widget.spokenWordShelf.empty.subtitle" = "Primuse에서 오디오북을 시작하세요.";
 
 // 扫码直传的设置
 "ext.lanSettings.toggle" = "설정도 함께 보내기";
@@ -991,3 +991,13 @@
 "error.audiobookshelf.authenticationFailed" = "Audiobookshelf 로그인에 실패했습니다. 계정, 암호 또는 API 키를 확인하세요.";
 "error.audiobookshelf.http" = "Audiobookshelf 서버가 HTTP %@을(를) 반환했습니다.";
 "error.audiobookshelf.invalidResponse" = "Audiobookshelf가 잘못된 데이터를 반환했습니다: %@";
+
+"ext.widget.podcast.title" = "팟캐스트";
+"ext.widget.podcast.description" = "에피소드를 이어 듣거나 새 소식을 만나세요.";
+"ext.widget.podcast.empty" = "Primuse에서 프로그램을 팔로우하세요.";
+"ext.widget.radio.title" = "라디오";
+"ext.widget.radio.description" = "즐겨 듣는 방송국을 한 번에 재생하세요.";
+"ext.widget.radio.empty" = "Primuse에서 방송국을 추가하세요.";
+
+"ext.widget.desk.title" = "감상 데스크";
+"ext.widget.desk.description" = "플레이어, 팟캐스트, 라디오, 최근 앨범을 한곳에서 만나보세요.";

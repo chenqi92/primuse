@@ -126,6 +126,7 @@ public final class PrimuseIntentBridge {
     public var playRadioStation: @MainActor (_ id: String) async -> PrimuseRadioIntentOutcome = {
         _ in .notFound
     }
+    public var playPodcastEpisode: @MainActor (_ id: String) async -> Bool = { _ in false }
     public var playSongRadio: @MainActor () async -> String? = { nil }
     public var shuffleLibrary: @MainActor () async -> Void = {}
     public var setRepeatMode: @MainActor (RepeatMode) -> Void = { _ in }

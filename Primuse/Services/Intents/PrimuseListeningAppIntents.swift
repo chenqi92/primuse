@@ -407,6 +407,12 @@ extension AppServices {
         )
     }
 
+    func podcastPlanForEpisodeIntent(id: String) -> PodcastIntentPlan? {
+        let store = PodcastStore.shared
+        guard let found = store.episode(id: id), store.isSubscribed(found.show.id) else { return nil }
+        return podcastPlan(episode: found.episode, in: store.episodes(forShowID: found.show.id), showTitle: found.show.title)
+    }
+
     private func podcastPlan(
         episode: PodcastEpisode,
         in episodes: [PodcastEpisode],

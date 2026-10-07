@@ -189,6 +189,30 @@ struct PrimuseResumeSpokenWordBookIntent: AudioPlaybackIntent {
     }
 }
 
+struct PrimusePlayListeningWidgetIntent: AudioPlaybackIntent {
+    static let title = LocalizedStringResource("Play", table: "SettingsSearch")
+    static let isDiscoverable = false
+    @Parameter(title: "Name") var itemID: String
+    @Parameter(title: "server_share_target_type") var kind: String
+
+    init() {}
+    init(itemID: String, kind: String) { self.itemID = itemID; self.kind = kind }
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        guard WidgetSettings.clickableInteractionEnabled() else { return .result() }
+        switch ListeningWidgetKind(rawValue: kind) {
+        case .radio:
+            _ = await PrimuseIntentBridge.shared.playRadioStation(SiriMediaIdentifier.namespaced(itemID, as: "radio"))
+        case .podcast:
+            _ = await PrimuseIntentBridge.shared.playPodcastEpisode(itemID)
+        case nil:
+            break
+        }
+        return .result()
+    }
+}
+
 enum PrimuseSkipDirection: String, AppEnum {
     case next, previous
     static let typeDisplayRepresentation = TypeDisplayRepresentation(name: LocalizedStringResource("Direction", table: "SettingsSearch"))

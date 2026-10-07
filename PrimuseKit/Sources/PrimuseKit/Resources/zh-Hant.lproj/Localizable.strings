@@ -945,8 +945,8 @@
 "ext.widget.spokenWordShelf.displayName" = "繼續收聽";
 "ext.widget.spokenWordShelf.description" = "一點就接著聽最近在聽的有聲書。";
 "ext.widget.spokenWordShelf.eyebrow" = "繼續收聽";
-"ext.widget.spokenWordShelf.empty.title" = "沒有在聽的書";
-"ext.widget.spokenWordShelf.empty.subtitle" = "在 Primuse 裡開始聽一本有聲書，就能從這裡接著聽。";
+"ext.widget.spokenWordShelf.empty.title" = "開始聽書";
+"ext.widget.spokenWordShelf.empty.subtitle" = "打開 Primuse，開始聽一本書。";
 
 // 扫码直传的设置
 "ext.lanSettings.toggle" = "同時傳送設定";
@@ -988,3 +988,13 @@
 "error.audiobookshelf.authenticationFailed" = "Audiobookshelf 登入失敗，請檢查帳號、密碼或 API 金鑰。";
 "error.audiobookshelf.http" = "Audiobookshelf 伺服器回傳了 HTTP %@。";
 "error.audiobookshelf.invalidResponse" = "Audiobookshelf 回傳了無效資料：%@";
+
+"ext.widget.podcast.title" = "Podcast";
+"ext.widget.podcast.description" = "繼續收聽未完單集，探索最新內容。";
+"ext.widget.podcast.empty" = "在 Primuse 追蹤節目，開始收聽。";
+"ext.widget.radio.title" = "電台";
+"ext.widget.radio.description" = "點一下即可收聽常聽電台。";
+"ext.widget.radio.empty" = "在 Primuse 加入電台，開始收聽。";
+
+"ext.widget.desk.title" = "聆聽台";
+"ext.widget.desk.description" = "播放控制、Podcast、電台與最近專輯，一處掌握。";

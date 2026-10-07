@@ -954,6 +954,7 @@ final class AppServices {
 
     private var sourceLifecycleObserverTokens: [NSObjectProtocol] = []
     private var siriRadioCatalogSignature: [String]?
+    private var listeningWidgetPublisher: ListeningWidgetPublisher?
     /// Feeds the "continue listening" widget.
     private var spokenWordWidgetPublisher: SpokenWordWidgetPublisher?
     /// Stage 2: 把离线准备结果送进主线程发布的那一步。生产环境不取消它 ——
@@ -1487,6 +1488,11 @@ final class AppServices {
         let spokenWordWidgets = SpokenWordWidgetPublisher(library: musicLibrary)
         spokenWordWidgets.start()
         spokenWordWidgetPublisher = spokenWordWidgets
+        let listeningWidgets = ListeningWidgetPublisher(library: musicLibrary) { [weak self] in
+            self?.siriRadioStations ?? []
+        }
+        listeningWidgets.start()
+        listeningWidgetPublisher = listeningWidgets
         observeLocalPodcastFiles()
         observeSiriRadioCatalog()
         observeSpotlightSynchronization()
@@ -2670,6 +2676,20 @@ final class AppServices {
                 return .unavailable
             }
             return await startRadioForIntent(station)
+        }
+
+        bridge.playPodcastEpisode = { [self] id in
+            if PodcastIdentity.isEpisodeID(id) {
+                _ = await siriPodcastShowsWhenLoaded()
+                guard let plan = podcastPlanForEpisodeIntent(id: id) else { return false }
+                switch await startPodcastForIntent(plan) {
+                case .started, .stillStarting: return true
+                case .needsApp, .failed: return false
+                }
+            }
+            _ = await awaitLibraryForIntent()
+            guard let song = library.localPodcastSongs.first(where: { $0.id == id }) else { return false }
+            return startIntentQueue([song]) != nil
         }
 
         bridge.playSongRadio = { [self] in

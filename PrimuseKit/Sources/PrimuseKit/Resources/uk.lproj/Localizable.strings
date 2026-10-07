@@ -895,8 +895,8 @@
 "ext.widget.spokenWordShelf.displayName" = "Продовжити";
 "ext.widget.spokenWordShelf.description" = "Поверніться до аудіокниги, яку слухали.";
 "ext.widget.spokenWordShelf.eyebrow" = "Продовжити";
-"ext.widget.spokenWordShelf.empty.title" = "Немає розпочатих книг";
-"ext.widget.spokenWordShelf.empty.subtitle" = "Почніть аудіокнигу в Primuse, щоб продовжувати її звідси.";
+"ext.widget.spokenWordShelf.empty.title" = "Слухайте книги";
+"ext.widget.spokenWordShelf.empty.subtitle" = "Відкрийте Primuse й почніть книгу.";
 
 // 扫码直传的设置
 "ext.lanSettings.toggle" = "Надіслати й налаштування";
@@ -938,3 +938,13 @@
 "error.audiobookshelf.authenticationFailed" = "Не вдалося ввійти в Audiobookshelf. Перевірте обліковий запис, пароль або ключ API.";
 "error.audiobookshelf.http" = "Сервер Audiobookshelf повернув HTTP %@.";
 "error.audiobookshelf.invalidResponse" = "Audiobookshelf повернув недійсні дані: %@";
+
+"ext.widget.podcast.title" = "Подкасти";
+"ext.widget.podcast.description" = "Продовжуйте слухати й відкривайте нові випуски.";
+"ext.widget.podcast.empty" = "Підпишіться на подкаст у Primuse.";
+"ext.widget.radio.title" = "Радіо";
+"ext.widget.radio.description" = "Ваші станції одним дотиком.";
+"ext.widget.radio.empty" = "Додайте станцію в Primuse.";
+
+"ext.widget.desk.title" = "Центр прослуховування";
+"ext.widget.desk.description" = "Програвач, подкасти, радіо та нещодавні альбоми в одному місці.";

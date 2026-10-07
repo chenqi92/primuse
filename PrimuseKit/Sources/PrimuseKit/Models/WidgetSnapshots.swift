@@ -45,7 +45,8 @@ enum WidgetSharedStore {
             includingPropertiesForKeys: nil
         ) else { return }
         for url in entries where url.lastPathComponent.hasPrefix("widget_album_")
-            || url.lastPathComponent.hasPrefix(SpokenWordWidgetPolicy.coverFilePrefix) {
+            || url.lastPathComponent.hasPrefix(SpokenWordWidgetPolicy.coverFilePrefix)
+            || url.lastPathComponent.hasPrefix(ListeningWidgetPolicy.coverPrefix) {
             try? fm.removeItem(at: url)
         }
     }

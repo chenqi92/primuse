@@ -895,8 +895,8 @@
 "ext.widget.spokenWordShelf.displayName" = "सुनना जारी रखें";
 "ext.widget.spokenWordShelf.description" = "जिस ऑडियोबुक को सुन रहे थे, उसे फिर से शुरू करें।";
 "ext.widget.spokenWordShelf.eyebrow" = "सुनना जारी रखें";
-"ext.widget.spokenWordShelf.empty.title" = "कोई किताब चालू नहीं";
-"ext.widget.spokenWordShelf.empty.subtitle" = "Primuse में कोई ऑडियोबुक सुनना शुरू करें, फिर यहीं से जारी रखें।";
+"ext.widget.spokenWordShelf.empty.title" = "कोई किताब सुनें";
+"ext.widget.spokenWordShelf.empty.subtitle" = "Primuse खोलें और कोई किताब सुनें।";
 
 // 扫码直传的设置
 "ext.lanSettings.toggle" = "सेटिंग्स भी भेजें";
@@ -938,3 +938,13 @@
 "error.audiobookshelf.authenticationFailed" = "Audiobookshelf में साइन इन नहीं हो सका। खाता, पासवर्ड या API कुंजी जाँचें।";
 "error.audiobookshelf.http" = "Audiobookshelf सर्वर ने HTTP %@ लौटाया।";
 "error.audiobookshelf.invalidResponse" = "Audiobookshelf ने अमान्य डेटा लौटाया: %@";
+
+"ext.widget.podcast.title" = "पॉडकास्ट";
+"ext.widget.podcast.description" = "एपिसोड जारी रखें या कुछ नया सुनें।";
+"ext.widget.podcast.empty" = "Primuse में कोई शो फ़ॉलो करें।";
+"ext.widget.radio.title" = "रेडियो";
+"ext.widget.radio.description" = "एक टैप में अपने स्टेशन सुनें।";
+"ext.widget.radio.empty" = "Primuse में कोई स्टेशन जोड़ें।";
+
+"ext.widget.desk.title" = "सुनने का केंद्र";
+"ext.widget.desk.description" = "आपका प्लेयर, पॉडकास्ट, रेडियो और हाल के एल्बम, एक ही जगह।";

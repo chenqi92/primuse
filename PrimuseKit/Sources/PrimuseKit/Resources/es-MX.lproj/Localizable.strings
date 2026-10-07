@@ -895,8 +895,8 @@
 "ext.widget.spokenWordShelf.displayName" = "Seguir escuchando";
 "ext.widget.spokenWordShelf.description" = "Retoma el audiolibro que estabas escuchando.";
 "ext.widget.spokenWordShelf.eyebrow" = "Seguir escuchando";
-"ext.widget.spokenWordShelf.empty.title" = "Ningún libro en curso";
-"ext.widget.spokenWordShelf.empty.subtitle" = "Empieza un audiolibro en Primuse para retomarlo desde aquí.";
+"ext.widget.spokenWordShelf.empty.title" = "Escucha un libro";
+"ext.widget.spokenWordShelf.empty.subtitle" = "Abre Primuse y empieza un libro.";
 
 // 扫码直传的设置
 "ext.lanSettings.toggle" = "Enviar también los ajustes";
@@ -938,3 +938,13 @@
 "error.audiobookshelf.authenticationFailed" = "No se pudo iniciar sesión en Audiobookshelf. Revisa la cuenta, la contraseña o la clave API.";
 "error.audiobookshelf.http" = "El servidor Audiobookshelf devolvió HTTP %@.";
 "error.audiobookshelf.invalidResponse" = "Audiobookshelf devolvió datos no válidos: %@";
+
+"ext.widget.podcast.title" = "Podcasts";
+"ext.widget.podcast.description" = "Continúa un episodio o descubre novedades.";
+"ext.widget.podcast.empty" = "Sigue un programa en Primuse.";
+"ext.widget.radio.title" = "Radio";
+"ext.widget.radio.description" = "Tus estaciones, a un toque.";
+"ext.widget.radio.empty" = "Agrega una estación en Primuse.";
+
+"ext.widget.desk.title" = "Centro de escucha";
+"ext.widget.desk.description" = "Tu reproductor, podcasts, radio y álbumes recientes en un solo lugar.";

@@ -948,8 +948,8 @@
 "ext.widget.spokenWordShelf.displayName" = "続きを聴く";
 "ext.widget.spokenWordShelf.description" = "聴いている途中のオーディオブックをすぐ再開します。";
 "ext.widget.spokenWordShelf.eyebrow" = "続きを聴く";
-"ext.widget.spokenWordShelf.empty.title" = "聴いている本はありません";
-"ext.widget.spokenWordShelf.empty.subtitle" = "Primuse でオーディオブックを聴き始めると、ここから続きを再生できます。";
+"ext.widget.spokenWordShelf.empty.title" = "本を聴く";
+"ext.widget.spokenWordShelf.empty.subtitle" = "Primuseで本を聴き始めましょう。";
 
 // 扫码直传的设置
 "ext.lanSettings.toggle" = "設定も送信";
@@ -991,3 +991,13 @@
 "error.audiobookshelf.authenticationFailed" = "Audiobookshelf へのサインインに失敗しました。アカウント、パスワード、API キーを確認してください。";
 "error.audiobookshelf.http" = "Audiobookshelf サーバーが HTTP %@ を返しました。";
 "error.audiobookshelf.invalidResponse" = "Audiobookshelf が無効なデータを返しました: %@";
+
+"ext.widget.podcast.title" = "ポッドキャスト";
+"ext.widget.podcast.description" = "エピソードの続きを聴いたり、新着を見つけたり。";
+"ext.widget.podcast.empty" = "Primuseで番組をフォローしましょう。";
+"ext.widget.radio.title" = "ラジオ";
+"ext.widget.radio.description" = "いつものラジオ局をワンタップで。";
+"ext.widget.radio.empty" = "Primuseでラジオ局を追加しましょう。";
+
+"ext.widget.desk.title" = "リスニングデスク";
+"ext.widget.desk.description" = "プレーヤー、ポッドキャスト、ラジオ、最近のアルバムをひとつに。";

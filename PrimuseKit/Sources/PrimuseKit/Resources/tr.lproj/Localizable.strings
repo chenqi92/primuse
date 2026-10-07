@@ -895,8 +895,8 @@
 "ext.widget.spokenWordShelf.displayName" = "Dinlemeye devam et";
 "ext.widget.spokenWordShelf.description" = "Dinlediğin sesli kitaba kaldığın yerden devam et.";
 "ext.widget.spokenWordShelf.eyebrow" = "Dinlemeye devam et";
-"ext.widget.spokenWordShelf.empty.title" = "Devam eden kitap yok";
-"ext.widget.spokenWordShelf.empty.subtitle" = "Buradan devam etmek için Primuse'da bir sesli kitap başlat.";
+"ext.widget.spokenWordShelf.empty.title" = "Bir kitap dinleyin";
+"ext.widget.spokenWordShelf.empty.subtitle" = "Primuse’ı açıp bir kitaba başlayın.";
 
 // 扫码直传的设置
 "ext.lanSettings.toggle" = "Ayarları da gönder";
@@ -938,3 +938,13 @@
 "error.audiobookshelf.authenticationFailed" = "Audiobookshelf oturumu açılamadı. Hesabı, parolayı veya API anahtarını kontrol edin.";
 "error.audiobookshelf.http" = "Audiobookshelf sunucusu HTTP %@ döndürdü.";
 "error.audiobookshelf.invalidResponse" = "Audiobookshelf geçersiz veri döndürdü: %@";
+
+"ext.widget.podcast.title" = "Podcast’ler";
+"ext.widget.podcast.description" = "Bir bölüme devam edin veya yenilikleri keşfedin.";
+"ext.widget.podcast.empty" = "Primuse’ta bir programı takip edin.";
+"ext.widget.radio.title" = "Radyo";
+"ext.widget.radio.description" = "İstasyonlarınız bir dokunuş uzağınızda.";
+"ext.widget.radio.empty" = "Primuse’ta bir istasyon ekleyin.";
+
+"ext.widget.desk.title" = "Dinleme Merkezi";
+"ext.widget.desk.description" = "Oynatıcı, podcast’ler, radyo ve son albümleriniz tek bir yerde.";
