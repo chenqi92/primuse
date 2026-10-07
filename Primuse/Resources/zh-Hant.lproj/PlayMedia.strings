@@ -1,0 +1,89 @@
+/* A request to play music, an audiobook, a podcast or a radio station in Primuse. */
+"LdrEPN" = "在 Primuse 中播放音樂、有聲書、Podcast 或電台。";
+
+/* Play */
+"f3d3kn" = "播放";
+
+/* Play ${mediaContainer} */
+"YYfsKp" = "播放 ${mediaContainer}";
+
+/* ${mediaItems} */
+"vUAqfM" = "${mediaItems}";
+
+/* Resume ${mediaContainer} */
+"o6CuZu" = "繼續播放 ${mediaContainer}";
+
+/* Shuffle ${mediaContainer} */
+"nAv25k" = "隨機播放 ${mediaContainer}";
+
+/* Resume ${mediaContainer} */
+"sLPQxZ" = "繼續播放 ${mediaContainer}";
+
+/* Play ${mediaItems} */
+"KcCcQu" = "播放 ${mediaItems}";
+
+/* ${mediaItems} */
+"ApUiZd" = "${mediaItems}";
+
+/* Play ${mediaContainer} */
+"WEjMGd" = "播放 ${mediaContainer}";
+
+/* Play ${mediaItems} at ${playbackSpeed} */
+"q8QY8B" = "以 ${playbackSpeed} 的速度播放 ${mediaItems}";
+
+/* Resume ${mediaItems} */
+"mIvv3D" = "繼續播放 ${mediaItems}";
+
+/* ${mediaItems} */
+"5oBQUn" = "${mediaItems}";
+
+/* Shuffle ${mediaContainer} */
+"nNozW1" = "隨機播放 ${mediaContainer}";
+
+/* Shuffle ${mediaItems} */
+"MbU5ep" = "隨機播放 ${mediaItems}";
+
+/* Play at ${playbackSpeed} */
+"5yWeuV" = "以 ${playbackSpeed} 的速度播放";
+
+/* Resume */
+"E6Nzn4" = "繼續播放";
+
+/* Items */
+"cfJexL" = "項目";
+
+/* Container */
+"xdnqvn" = "媒體集合";
+
+/* Shuffled */
+"WktFNa" = "隨機播放";
+
+/* not shuffled */
+"mCAocc" = "不隨機播放";
+
+/* shuffled */
+"QqdHiR" = "隨機播放";
+
+/* Repeat Mode */
+"ErAaNp" = "循環模式";
+
+/* Resume */
+"rvNMpm" = "繼續播放";
+
+/* don't resume */
+"Pk1Fkx" = "不繼續播放";
+
+/* resume */
+"No0K9w" = "繼續播放";
+
+/* Queue Location */
+"cV2HLF" = "佇列位置";
+
+/* Playback Speed */
+"RvX3Zd" = "播放速度";
+
+/* Media Search */
+"1uT6VF" = "媒體搜尋";
+
+/* Play Media */
+"G3J6fP" = "播放媒體";

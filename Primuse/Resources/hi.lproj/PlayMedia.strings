@@ -1,0 +1,89 @@
+/* A request to play music, an audiobook, a podcast or a radio station in Primuse. */
+"LdrEPN" = "Primuse में संगीत, ऑडियोबुक, पॉडकास्ट या रेडियो स्टेशन चलाने का अनुरोध।";
+
+/* Play */
+"f3d3kn" = "चलाएँ";
+
+/* Play ${mediaContainer} */
+"YYfsKp" = "${mediaContainer} चलाएँ";
+
+/* ${mediaItems} */
+"vUAqfM" = "${mediaItems}";
+
+/* Resume ${mediaContainer} */
+"o6CuZu" = "${mediaContainer} फिर से शुरू करें";
+
+/* Shuffle ${mediaContainer} */
+"nAv25k" = "${mediaContainer} बेतरतीब क्रम में चलाएँ";
+
+/* Resume ${mediaContainer} */
+"sLPQxZ" = "${mediaContainer} फिर से शुरू करें";
+
+/* Play ${mediaItems} */
+"KcCcQu" = "${mediaItems} चलाएँ";
+
+/* ${mediaItems} */
+"ApUiZd" = "${mediaItems}";
+
+/* Play ${mediaContainer} */
+"WEjMGd" = "${mediaContainer} चलाएँ";
+
+/* Play ${mediaItems} at ${playbackSpeed} */
+"q8QY8B" = "${mediaItems} को ${playbackSpeed} गति से चलाएँ";
+
+/* Resume ${mediaItems} */
+"mIvv3D" = "${mediaItems} फिर से शुरू करें";
+
+/* ${mediaItems} */
+"5oBQUn" = "${mediaItems}";
+
+/* Shuffle ${mediaContainer} */
+"nNozW1" = "${mediaContainer} बेतरतीब क्रम में चलाएँ";
+
+/* Shuffle ${mediaItems} */
+"MbU5ep" = "${mediaItems} बेतरतीब क्रम में चलाएँ";
+
+/* Play at ${playbackSpeed} */
+"5yWeuV" = "${playbackSpeed} गति से चलाएँ";
+
+/* Resume */
+"E6Nzn4" = "फिर से शुरू करें";
+
+/* Items */
+"cfJexL" = "आइटम";
+
+/* Container */
+"xdnqvn" = "संग्रह";
+
+/* Shuffled */
+"WktFNa" = "बेतरतीब क्रम";
+
+/* not shuffled */
+"mCAocc" = "बेतरतीब क्रम के बिना";
+
+/* shuffled */
+"QqdHiR" = "बेतरतीब क्रम में";
+
+/* Repeat Mode */
+"ErAaNp" = "दोहराने का मोड";
+
+/* Resume */
+"rvNMpm" = "फिर से शुरू करें";
+
+/* don't resume */
+"Pk1Fkx" = "फिर से शुरू न करें";
+
+/* resume */
+"No0K9w" = "फिर से शुरू करें";
+
+/* Queue Location */
+"cV2HLF" = "कतार में स्थान";
+
+/* Playback Speed */
+"RvX3Zd" = "प्लेबैक गति";
+
+/* Media Search */
+"1uT6VF" = "मीडिया खोज";
+
+/* Play Media */
+"G3J6fP" = "मीडिया चलाएँ";

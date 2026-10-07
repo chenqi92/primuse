@@ -1,0 +1,89 @@
+/* A request to play music, an audiobook, a podcast or a radio station in Primuse. */
+"LdrEPN" = "Primuse에서 음악, 오디오북, 팟캐스트 또는 라디오 방송을 재생합니다.";
+
+/* Play */
+"f3d3kn" = "재생";
+
+/* Play ${mediaContainer} */
+"YYfsKp" = "${mediaContainer} 재생";
+
+/* ${mediaItems} */
+"vUAqfM" = "${mediaItems}";
+
+/* Resume ${mediaContainer} */
+"o6CuZu" = "${mediaContainer} 이어서 재생";
+
+/* Shuffle ${mediaContainer} */
+"nAv25k" = "${mediaContainer} 임의 재생";
+
+/* Resume ${mediaContainer} */
+"sLPQxZ" = "${mediaContainer} 이어서 재생";
+
+/* Play ${mediaItems} */
+"KcCcQu" = "${mediaItems} 재생";
+
+/* ${mediaItems} */
+"ApUiZd" = "${mediaItems}";
+
+/* Play ${mediaContainer} */
+"WEjMGd" = "${mediaContainer} 재생";
+
+/* Play ${mediaItems} at ${playbackSpeed} */
+"q8QY8B" = "${mediaItems}을(를) ${playbackSpeed} 속도로 재생";
+
+/* Resume ${mediaItems} */
+"mIvv3D" = "${mediaItems} 이어서 재생";
+
+/* ${mediaItems} */
+"5oBQUn" = "${mediaItems}";
+
+/* Shuffle ${mediaContainer} */
+"nNozW1" = "${mediaContainer} 임의 재생";
+
+/* Shuffle ${mediaItems} */
+"MbU5ep" = "${mediaItems} 임의 재생";
+
+/* Play at ${playbackSpeed} */
+"5yWeuV" = "${playbackSpeed} 속도로 재생";
+
+/* Resume */
+"E6Nzn4" = "이어서 재생";
+
+/* Items */
+"cfJexL" = "항목";
+
+/* Container */
+"xdnqvn" = "컬렉션";
+
+/* Shuffled */
+"WktFNa" = "임의 재생";
+
+/* not shuffled */
+"mCAocc" = "임의 재생 안 함";
+
+/* shuffled */
+"QqdHiR" = "임의 재생";
+
+/* Repeat Mode */
+"ErAaNp" = "반복 모드";
+
+/* Resume */
+"rvNMpm" = "이어서 재생";
+
+/* don't resume */
+"Pk1Fkx" = "이어서 재생 안 함";
+
+/* resume */
+"No0K9w" = "이어서 재생";
+
+/* Queue Location */
+"cV2HLF" = "대기열 위치";
+
+/* Playback Speed */
+"RvX3Zd" = "재생 속도";
+
+/* Media Search */
+"1uT6VF" = "미디어 검색";
+
+/* Play Media */
+"G3J6fP" = "미디어 재생";

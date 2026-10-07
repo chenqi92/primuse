@@ -1,0 +1,89 @@
+/* A request to play music, an audiobook, a podcast or a radio station in Primuse. */
+"LdrEPN" = "Запит на відтворення музики, аудіокниги, подкасту або радіостанції в Primuse.";
+
+/* Play */
+"f3d3kn" = "Відтворити";
+
+/* Play ${mediaContainer} */
+"YYfsKp" = "Відтворити ${mediaContainer}";
+
+/* ${mediaItems} */
+"vUAqfM" = "${mediaItems}";
+
+/* Resume ${mediaContainer} */
+"o6CuZu" = "Продовжити ${mediaContainer}";
+
+/* Shuffle ${mediaContainer} */
+"nAv25k" = "Відтворити ${mediaContainer} у випадковому порядку";
+
+/* Resume ${mediaContainer} */
+"sLPQxZ" = "Продовжити ${mediaContainer}";
+
+/* Play ${mediaItems} */
+"KcCcQu" = "Відтворити ${mediaItems}";
+
+/* ${mediaItems} */
+"ApUiZd" = "${mediaItems}";
+
+/* Play ${mediaContainer} */
+"WEjMGd" = "Відтворити ${mediaContainer}";
+
+/* Play ${mediaItems} at ${playbackSpeed} */
+"q8QY8B" = "Відтворити ${mediaItems} зі швидкістю ${playbackSpeed}";
+
+/* Resume ${mediaItems} */
+"mIvv3D" = "Продовжити ${mediaItems}";
+
+/* ${mediaItems} */
+"5oBQUn" = "${mediaItems}";
+
+/* Shuffle ${mediaContainer} */
+"nNozW1" = "Відтворити ${mediaContainer} у випадковому порядку";
+
+/* Shuffle ${mediaItems} */
+"MbU5ep" = "Відтворити ${mediaItems} у випадковому порядку";
+
+/* Play at ${playbackSpeed} */
+"5yWeuV" = "Відтворити зі швидкістю ${playbackSpeed}";
+
+/* Resume */
+"E6Nzn4" = "Продовжити";
+
+/* Items */
+"cfJexL" = "Елементи";
+
+/* Container */
+"xdnqvn" = "Колекція";
+
+/* Shuffled */
+"WktFNa" = "Випадковий порядок";
+
+/* not shuffled */
+"mCAocc" = "за порядком";
+
+/* shuffled */
+"QqdHiR" = "у випадковому порядку";
+
+/* Repeat Mode */
+"ErAaNp" = "Режим повторення";
+
+/* Resume */
+"rvNMpm" = "Продовжити";
+
+/* don't resume */
+"Pk1Fkx" = "не продовжувати";
+
+/* resume */
+"No0K9w" = "продовжити";
+
+/* Queue Location */
+"cV2HLF" = "Позиція в черзі";
+
+/* Playback Speed */
+"RvX3Zd" = "Швидкість відтворення";
+
+/* Media Search */
+"1uT6VF" = "Пошук медіа";
+
+/* Play Media */
+"G3J6fP" = "Відтворити медіа";

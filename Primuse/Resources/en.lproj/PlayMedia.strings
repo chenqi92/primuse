@@ -1,0 +1,89 @@
+/* A request to play music, an audiobook, a podcast or a radio station in Primuse. */
+"LdrEPN" = "A request to play music, an audiobook, a podcast or a radio station in Primuse.";
+
+/* Play */
+"f3d3kn" = "Play";
+
+/* Play ${mediaContainer} */
+"YYfsKp" = "Play ${mediaContainer}";
+
+/* ${mediaItems} */
+"vUAqfM" = "${mediaItems}";
+
+/* Resume ${mediaContainer} */
+"o6CuZu" = "Resume ${mediaContainer}";
+
+/* Shuffle ${mediaContainer} */
+"nAv25k" = "Shuffle ${mediaContainer}";
+
+/* Resume ${mediaContainer} */
+"sLPQxZ" = "Resume ${mediaContainer}";
+
+/* Play ${mediaItems} */
+"KcCcQu" = "Play ${mediaItems}";
+
+/* ${mediaItems} */
+"ApUiZd" = "${mediaItems}";
+
+/* Play ${mediaContainer} */
+"WEjMGd" = "Play ${mediaContainer}";
+
+/* Play ${mediaItems} at ${playbackSpeed} */
+"q8QY8B" = "Play ${mediaItems} at ${playbackSpeed}";
+
+/* Resume ${mediaItems} */
+"mIvv3D" = "Resume ${mediaItems}";
+
+/* ${mediaItems} */
+"5oBQUn" = "${mediaItems}";
+
+/* Shuffle ${mediaContainer} */
+"nNozW1" = "Shuffle ${mediaContainer}";
+
+/* Shuffle ${mediaItems} */
+"MbU5ep" = "Shuffle ${mediaItems}";
+
+/* Play at ${playbackSpeed} */
+"5yWeuV" = "Play at ${playbackSpeed}";
+
+/* Resume */
+"E6Nzn4" = "Resume";
+
+/* Items */
+"cfJexL" = "Items";
+
+/* Container */
+"xdnqvn" = "Container";
+
+/* Shuffled */
+"WktFNa" = "Shuffled";
+
+/* not shuffled */
+"mCAocc" = "not shuffled";
+
+/* shuffled */
+"QqdHiR" = "shuffled";
+
+/* Repeat Mode */
+"ErAaNp" = "Repeat Mode";
+
+/* Resume */
+"rvNMpm" = "Resume";
+
+/* don't resume */
+"Pk1Fkx" = "don't resume";
+
+/* resume */
+"No0K9w" = "resume";
+
+/* Queue Location */
+"cV2HLF" = "Queue Location";
+
+/* Playback Speed */
+"RvX3Zd" = "Playback Speed";
+
+/* Media Search */
+"1uT6VF" = "Media Search";
+
+/* Play Media */
+"G3J6fP" = "Play Media";

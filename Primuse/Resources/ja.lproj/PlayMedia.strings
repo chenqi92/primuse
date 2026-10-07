@@ -1,0 +1,89 @@
+/* A request to play music, an audiobook, a podcast or a radio station in Primuse. */
+"LdrEPN" = "Primuseで音楽、オーディオブック、ポッドキャスト、またはラジオ局を再生するリクエスト。";
+
+/* Play */
+"f3d3kn" = "再生";
+
+/* Play ${mediaContainer} */
+"YYfsKp" = "${mediaContainer}を再生";
+
+/* ${mediaItems} */
+"vUAqfM" = "${mediaItems}";
+
+/* Resume ${mediaContainer} */
+"o6CuZu" = "${mediaContainer}を再開";
+
+/* Shuffle ${mediaContainer} */
+"nAv25k" = "${mediaContainer}をシャッフル再生";
+
+/* Resume ${mediaContainer} */
+"sLPQxZ" = "${mediaContainer}を再開";
+
+/* Play ${mediaItems} */
+"KcCcQu" = "${mediaItems}を再生";
+
+/* ${mediaItems} */
+"ApUiZd" = "${mediaItems}";
+
+/* Play ${mediaContainer} */
+"WEjMGd" = "${mediaContainer}を再生";
+
+/* Play ${mediaItems} at ${playbackSpeed} */
+"q8QY8B" = "${mediaItems}を${playbackSpeed}の速度で再生";
+
+/* Resume ${mediaItems} */
+"mIvv3D" = "${mediaItems}を再開";
+
+/* ${mediaItems} */
+"5oBQUn" = "${mediaItems}";
+
+/* Shuffle ${mediaContainer} */
+"nNozW1" = "${mediaContainer}をシャッフル再生";
+
+/* Shuffle ${mediaItems} */
+"MbU5ep" = "${mediaItems}をシャッフル再生";
+
+/* Play at ${playbackSpeed} */
+"5yWeuV" = "${playbackSpeed}の速度で再生";
+
+/* Resume */
+"E6Nzn4" = "再開";
+
+/* Items */
+"cfJexL" = "項目";
+
+/* Container */
+"xdnqvn" = "コレクション";
+
+/* Shuffled */
+"WktFNa" = "シャッフル";
+
+/* not shuffled */
+"mCAocc" = "シャッフルしない";
+
+/* shuffled */
+"QqdHiR" = "シャッフルする";
+
+/* Repeat Mode */
+"ErAaNp" = "リピートモード";
+
+/* Resume */
+"rvNMpm" = "再開";
+
+/* don't resume */
+"Pk1Fkx" = "再開しない";
+
+/* resume */
+"No0K9w" = "再開する";
+
+/* Queue Location */
+"cV2HLF" = "キュー内の位置";
+
+/* Playback Speed */
+"RvX3Zd" = "再生速度";
+
+/* Media Search */
+"1uT6VF" = "メディア検索";
+
+/* Play Media */
+"G3J6fP" = "メディアを再生";

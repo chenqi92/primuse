@@ -1,0 +1,89 @@
+/* A request to play music, an audiobook, a podcast or a radio station in Primuse. */
+"LdrEPN" = "طلب لتشغيل الموسيقى أو كتاب صوتي أو بودكاست أو محطة راديو في Primuse.";
+
+/* Play */
+"f3d3kn" = "تشغيل";
+
+/* Play ${mediaContainer} */
+"YYfsKp" = "تشغيل ${mediaContainer}";
+
+/* ${mediaItems} */
+"vUAqfM" = "${mediaItems}";
+
+/* Resume ${mediaContainer} */
+"o6CuZu" = "استئناف ${mediaContainer}";
+
+/* Shuffle ${mediaContainer} */
+"nAv25k" = "تشغيل ${mediaContainer} عشوائيًا";
+
+/* Resume ${mediaContainer} */
+"sLPQxZ" = "استئناف ${mediaContainer}";
+
+/* Play ${mediaItems} */
+"KcCcQu" = "تشغيل ${mediaItems}";
+
+/* ${mediaItems} */
+"ApUiZd" = "${mediaItems}";
+
+/* Play ${mediaContainer} */
+"WEjMGd" = "تشغيل ${mediaContainer}";
+
+/* Play ${mediaItems} at ${playbackSpeed} */
+"q8QY8B" = "تشغيل ${mediaItems} بسرعة ${playbackSpeed}";
+
+/* Resume ${mediaItems} */
+"mIvv3D" = "استئناف ${mediaItems}";
+
+/* ${mediaItems} */
+"5oBQUn" = "${mediaItems}";
+
+/* Shuffle ${mediaContainer} */
+"nNozW1" = "تشغيل ${mediaContainer} عشوائيًا";
+
+/* Shuffle ${mediaItems} */
+"MbU5ep" = "تشغيل ${mediaItems} عشوائيًا";
+
+/* Play at ${playbackSpeed} */
+"5yWeuV" = "التشغيل بسرعة ${playbackSpeed}";
+
+/* Resume */
+"E6Nzn4" = "استئناف";
+
+/* Items */
+"cfJexL" = "العناصر";
+
+/* Container */
+"xdnqvn" = "المجموعة";
+
+/* Shuffled */
+"WktFNa" = "تشغيل عشوائي";
+
+/* not shuffled */
+"mCAocc" = "دون ترتيب عشوائي";
+
+/* shuffled */
+"QqdHiR" = "بترتيب عشوائي";
+
+/* Repeat Mode */
+"ErAaNp" = "وضع التكرار";
+
+/* Resume */
+"rvNMpm" = "استئناف";
+
+/* don't resume */
+"Pk1Fkx" = "عدم الاستئناف";
+
+/* resume */
+"No0K9w" = "استئناف";
+
+/* Queue Location */
+"cV2HLF" = "الموضع في قائمة الانتظار";
+
+/* Playback Speed */
+"RvX3Zd" = "سرعة التشغيل";
+
+/* Media Search */
+"1uT6VF" = "البحث عن الوسائط";
+
+/* Play Media */
+"G3J6fP" = "تشغيل الوسائط";

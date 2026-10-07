@@ -14,6 +14,7 @@ REQUIRED_SIRI_INTENTS = %w[
 ].freeze
 REQUIRED_SIRI_EXAMPLE_COUNT = 7
 APP_SHORTCUTS_CATALOG = ROOT / "Primuse/Resources/AppShortcuts.xcstrings"
+PLAY_MEDIA_INTENT_DEFINITION = ROOT / "Primuse/Services/Intents/PlayMedia.intentdefinition"
 APP_SHORTCUT_SOURCE_PATHS = [
   ROOT / "Primuse/App/PlayMediaIntentHandler.swift",
   ROOT / "Primuse/Services/Intents/PrimuseAppIntents.swift"
@@ -76,6 +77,7 @@ RESOURCE_GROUPS = [
   ["Primuse WiFiTransfer.strings", ROOT / "Primuse/Resources", "WiFiTransfer.strings", true],
   ["PrimuseKit Localizable.strings", ROOT / "PrimuseKit/Sources/PrimuseKit/Resources", "Localizable.strings", true],
   ["Primuse InfoPlist.strings", ROOT / "Primuse/Resources", "InfoPlist.strings", true],
+  ["PlayMedia intent strings", ROOT / "Primuse/Resources", "PlayMedia.strings", true],
   ["Widget InfoPlist.strings", ROOT / "PrimuseWidgetExtension/Resources", "InfoPlist.strings", true],
   ["Watch InfoPlist.strings", ROOT / "PrimuseWatch/Resources", "InfoPlist.strings", true],
   ["Watch widget InfoPlist.strings", ROOT / "PrimuseWatchWidgets/Resources", "InfoPlist.strings", true]
@@ -559,6 +561,58 @@ def check_resource_group(name, root, file_name, exact_english_parity, failures)
   end
 end
 
+def intent_localization_entries(node, entries = {})
+  case node
+  when Hash
+    node.each do |key, value|
+      if key.end_with?("ID") && value.is_a?(String)
+        source = node[key.delete_suffix("ID")]
+        entries[value] = source if source.is_a?(String)
+      end
+      intent_localization_entries(value, entries)
+    end
+  when Array
+    node.each { |value| intent_localization_entries(value, entries) }
+  end
+  entries
+end
+
+def check_play_media_intent_localizations(failures)
+  definition = load_strings(PLAY_MEDIA_INTENT_DEFINITION)
+  source_entries = intent_localization_entries(definition)
+  title_id = definition.fetch("INIntents").find { |intent| intent["INIntentName"] == "PlayMedia" }
+    .fetch("INIntentTitleID")
+
+  localization_paths(ROOT / "Primuse/Resources", "PlayMedia.strings").each do |locale, path|
+    next unless path.file?
+
+    dictionary = load_strings(path)
+    missing = source_entries.keys - dictionary.keys
+    stale = dictionary.keys - source_entries.keys
+    failures << "PlayMedia intent #{locale}: missing string IDs: #{missing.sort.join(', ')}" unless missing.empty?
+    failures << "PlayMedia intent #{locale}: stale string IDs: #{stale.sort.join(', ')}" unless stale.empty?
+
+    source_entries.each do |id, source|
+      value = dictionary[id]
+      next unless value
+
+      if locale == "en" && value != source
+        failures << "PlayMedia intent en: #{id.inspect} must match the intent definition"
+      end
+      expected = source.scan(/\$\{[^}]+\}/).sort
+      actual = value.scan(/\$\{[^}]+\}/).sort
+      if expected != actual
+        failures << "PlayMedia intent #{locale}: parameter placeholder mismatch for #{id.inspect}: " \
+                    "expected #{expected.inspect}, got #{actual.inspect}"
+      end
+    end
+
+    if locale != "en" && dictionary[title_id] == source_entries[title_id]
+      failures << "PlayMedia intent #{locale}: untranslated intent title"
+    end
+  end
+end
+
 def check_siri_vocabulary(failures)
   paths = localization_paths(ROOT / "SiriVocabulary", "AppIntentVocabulary.plist")
   missing_files = paths.reject { |_locale, path| path.file? }.keys
@@ -897,6 +951,7 @@ RESOURCE_GROUPS.each do |name, root, file_name, exact_english_parity|
   check_resource_group(name, root, file_name, exact_english_parity, failures)
 end
 check_siri_vocabulary(failures)
+check_play_media_intent_localizations(failures)
 check_app_shortcuts_catalog(failures)
 
 app_localizations = localization_paths(ROOT / "Primuse/Resources", "Localizable.strings")

@@ -1,0 +1,89 @@
+/* A request to play music, an audiobook, a podcast or a radio station in Primuse. */
+"LdrEPN" = "Запрос на воспроизведение музыки, аудиокниги, подкаста или радиостанции в Primuse.";
+
+/* Play */
+"f3d3kn" = "Воспроизвести";
+
+/* Play ${mediaContainer} */
+"YYfsKp" = "Воспроизвести ${mediaContainer}";
+
+/* ${mediaItems} */
+"vUAqfM" = "${mediaItems}";
+
+/* Resume ${mediaContainer} */
+"o6CuZu" = "Продолжить ${mediaContainer}";
+
+/* Shuffle ${mediaContainer} */
+"nAv25k" = "Воспроизвести ${mediaContainer} в случайном порядке";
+
+/* Resume ${mediaContainer} */
+"sLPQxZ" = "Продолжить ${mediaContainer}";
+
+/* Play ${mediaItems} */
+"KcCcQu" = "Воспроизвести ${mediaItems}";
+
+/* ${mediaItems} */
+"ApUiZd" = "${mediaItems}";
+
+/* Play ${mediaContainer} */
+"WEjMGd" = "Воспроизвести ${mediaContainer}";
+
+/* Play ${mediaItems} at ${playbackSpeed} */
+"q8QY8B" = "Воспроизвести ${mediaItems} со скоростью ${playbackSpeed}";
+
+/* Resume ${mediaItems} */
+"mIvv3D" = "Продолжить ${mediaItems}";
+
+/* ${mediaItems} */
+"5oBQUn" = "${mediaItems}";
+
+/* Shuffle ${mediaContainer} */
+"nNozW1" = "Воспроизвести ${mediaContainer} в случайном порядке";
+
+/* Shuffle ${mediaItems} */
+"MbU5ep" = "Воспроизвести ${mediaItems} в случайном порядке";
+
+/* Play at ${playbackSpeed} */
+"5yWeuV" = "Воспроизвести со скоростью ${playbackSpeed}";
+
+/* Resume */
+"E6Nzn4" = "Продолжить";
+
+/* Items */
+"cfJexL" = "Элементы";
+
+/* Container */
+"xdnqvn" = "Коллекция";
+
+/* Shuffled */
+"WktFNa" = "Случайный порядок";
+
+/* not shuffled */
+"mCAocc" = "по порядку";
+
+/* shuffled */
+"QqdHiR" = "в случайном порядке";
+
+/* Repeat Mode */
+"ErAaNp" = "Режим повтора";
+
+/* Resume */
+"rvNMpm" = "Продолжить";
+
+/* don't resume */
+"Pk1Fkx" = "не продолжать";
+
+/* resume */
+"No0K9w" = "продолжить";
+
+/* Queue Location */
+"cV2HLF" = "Позиция в очереди";
+
+/* Playback Speed */
+"RvX3Zd" = "Скорость воспроизведения";
+
+/* Media Search */
+"1uT6VF" = "Поиск медиа";
+
+/* Play Media */
+"G3J6fP" = "Воспроизвести медиа";

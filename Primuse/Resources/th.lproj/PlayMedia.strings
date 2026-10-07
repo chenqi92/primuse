@@ -1,0 +1,89 @@
+/* A request to play music, an audiobook, a podcast or a radio station in Primuse. */
+"LdrEPN" = "คำขอให้เล่นเพลง หนังสือเสียง พ็อดคาสท์ หรือสถานีวิทยุใน Primuse";
+
+/* Play */
+"f3d3kn" = "เล่น";
+
+/* Play ${mediaContainer} */
+"YYfsKp" = "เล่น ${mediaContainer}";
+
+/* ${mediaItems} */
+"vUAqfM" = "${mediaItems}";
+
+/* Resume ${mediaContainer} */
+"o6CuZu" = "เล่น ${mediaContainer} ต่อ";
+
+/* Shuffle ${mediaContainer} */
+"nAv25k" = "เล่น ${mediaContainer} แบบสุ่ม";
+
+/* Resume ${mediaContainer} */
+"sLPQxZ" = "เล่น ${mediaContainer} ต่อ";
+
+/* Play ${mediaItems} */
+"KcCcQu" = "เล่น ${mediaItems}";
+
+/* ${mediaItems} */
+"ApUiZd" = "${mediaItems}";
+
+/* Play ${mediaContainer} */
+"WEjMGd" = "เล่น ${mediaContainer}";
+
+/* Play ${mediaItems} at ${playbackSpeed} */
+"q8QY8B" = "เล่น ${mediaItems} ที่ความเร็ว ${playbackSpeed}";
+
+/* Resume ${mediaItems} */
+"mIvv3D" = "เล่น ${mediaItems} ต่อ";
+
+/* ${mediaItems} */
+"5oBQUn" = "${mediaItems}";
+
+/* Shuffle ${mediaContainer} */
+"nNozW1" = "เล่น ${mediaContainer} แบบสุ่ม";
+
+/* Shuffle ${mediaItems} */
+"MbU5ep" = "เล่น ${mediaItems} แบบสุ่ม";
+
+/* Play at ${playbackSpeed} */
+"5yWeuV" = "เล่นที่ความเร็ว ${playbackSpeed}";
+
+/* Resume */
+"E6Nzn4" = "เล่นต่อ";
+
+/* Items */
+"cfJexL" = "รายการ";
+
+/* Container */
+"xdnqvn" = "คอลเลกชัน";
+
+/* Shuffled */
+"WktFNa" = "การเล่นแบบสุ่ม";
+
+/* not shuffled */
+"mCAocc" = "ไม่สุ่ม";
+
+/* shuffled */
+"QqdHiR" = "แบบสุ่ม";
+
+/* Repeat Mode */
+"ErAaNp" = "โหมดเล่นซ้ำ";
+
+/* Resume */
+"rvNMpm" = "เล่นต่อ";
+
+/* don't resume */
+"Pk1Fkx" = "ไม่เล่นต่อ";
+
+/* resume */
+"No0K9w" = "เล่นต่อ";
+
+/* Queue Location */
+"cV2HLF" = "ตำแหน่งในคิว";
+
+/* Playback Speed */
+"RvX3Zd" = "ความเร็วในการเล่น";
+
+/* Media Search */
+"1uT6VF" = "ค้นหาสื่อ";
+
+/* Play Media */
+"G3J6fP" = "เล่นสื่อ";

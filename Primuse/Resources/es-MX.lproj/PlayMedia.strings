@@ -1,0 +1,89 @@
+/* A request to play music, an audiobook, a podcast or a radio station in Primuse. */
+"LdrEPN" = "Una solicitud para reproducir música, un audiolibro, un podcast o una estación de radio en Primuse.";
+
+/* Play */
+"f3d3kn" = "Reproducir";
+
+/* Play ${mediaContainer} */
+"YYfsKp" = "Reproducir ${mediaContainer}";
+
+/* ${mediaItems} */
+"vUAqfM" = "${mediaItems}";
+
+/* Resume ${mediaContainer} */
+"o6CuZu" = "Continuar ${mediaContainer}";
+
+/* Shuffle ${mediaContainer} */
+"nAv25k" = "Reproducir ${mediaContainer} en orden aleatorio";
+
+/* Resume ${mediaContainer} */
+"sLPQxZ" = "Continuar ${mediaContainer}";
+
+/* Play ${mediaItems} */
+"KcCcQu" = "Reproducir ${mediaItems}";
+
+/* ${mediaItems} */
+"ApUiZd" = "${mediaItems}";
+
+/* Play ${mediaContainer} */
+"WEjMGd" = "Reproducir ${mediaContainer}";
+
+/* Play ${mediaItems} at ${playbackSpeed} */
+"q8QY8B" = "Reproducir ${mediaItems} a velocidad ${playbackSpeed}";
+
+/* Resume ${mediaItems} */
+"mIvv3D" = "Continuar ${mediaItems}";
+
+/* ${mediaItems} */
+"5oBQUn" = "${mediaItems}";
+
+/* Shuffle ${mediaContainer} */
+"nNozW1" = "Reproducir ${mediaContainer} en orden aleatorio";
+
+/* Shuffle ${mediaItems} */
+"MbU5ep" = "Reproducir ${mediaItems} en orden aleatorio";
+
+/* Play at ${playbackSpeed} */
+"5yWeuV" = "Reproducir a velocidad ${playbackSpeed}";
+
+/* Resume */
+"E6Nzn4" = "Continuar";
+
+/* Items */
+"cfJexL" = "Elementos";
+
+/* Container */
+"xdnqvn" = "Colección";
+
+/* Shuffled */
+"WktFNa" = "Reproducción aleatoria";
+
+/* not shuffled */
+"mCAocc" = "sin orden aleatorio";
+
+/* shuffled */
+"QqdHiR" = "en orden aleatorio";
+
+/* Repeat Mode */
+"ErAaNp" = "Modo de repetición";
+
+/* Resume */
+"rvNMpm" = "Continuar";
+
+/* don't resume */
+"Pk1Fkx" = "no continuar";
+
+/* resume */
+"No0K9w" = "continuar";
+
+/* Queue Location */
+"cV2HLF" = "Posición en la cola";
+
+/* Playback Speed */
+"RvX3Zd" = "Velocidad de reproducción";
+
+/* Media Search */
+"1uT6VF" = "Búsqueda de contenido multimedia";
+
+/* Play Media */
+"G3J6fP" = "Reproducir contenido multimedia";

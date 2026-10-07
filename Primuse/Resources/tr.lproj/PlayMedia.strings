@@ -1,0 +1,89 @@
+/* A request to play music, an audiobook, a podcast or a radio station in Primuse. */
+"LdrEPN" = "Primuse’da müzik, sesli kitap, podcast veya radyo istasyonu oynatma isteği.";
+
+/* Play */
+"f3d3kn" = "Oynat";
+
+/* Play ${mediaContainer} */
+"YYfsKp" = "${mediaContainer} oynat";
+
+/* ${mediaItems} */
+"vUAqfM" = "${mediaItems}";
+
+/* Resume ${mediaContainer} */
+"o6CuZu" = "${mediaContainer} oynatmaya devam et";
+
+/* Shuffle ${mediaContainer} */
+"nAv25k" = "${mediaContainer} karışık oynat";
+
+/* Resume ${mediaContainer} */
+"sLPQxZ" = "${mediaContainer} oynatmaya devam et";
+
+/* Play ${mediaItems} */
+"KcCcQu" = "${mediaItems} oynat";
+
+/* ${mediaItems} */
+"ApUiZd" = "${mediaItems}";
+
+/* Play ${mediaContainer} */
+"WEjMGd" = "${mediaContainer} oynat";
+
+/* Play ${mediaItems} at ${playbackSpeed} */
+"q8QY8B" = "${mediaItems} öğelerini ${playbackSpeed} hızında oynat";
+
+/* Resume ${mediaItems} */
+"mIvv3D" = "${mediaItems} oynatmaya devam et";
+
+/* ${mediaItems} */
+"5oBQUn" = "${mediaItems}";
+
+/* Shuffle ${mediaContainer} */
+"nNozW1" = "${mediaContainer} karışık oynat";
+
+/* Shuffle ${mediaItems} */
+"MbU5ep" = "${mediaItems} karışık oynat";
+
+/* Play at ${playbackSpeed} */
+"5yWeuV" = "${playbackSpeed} hızında oynat";
+
+/* Resume */
+"E6Nzn4" = "Devam Et";
+
+/* Items */
+"cfJexL" = "Öğeler";
+
+/* Container */
+"xdnqvn" = "Koleksiyon";
+
+/* Shuffled */
+"WktFNa" = "Karışık Oynatma";
+
+/* not shuffled */
+"mCAocc" = "karışık değil";
+
+/* shuffled */
+"QqdHiR" = "karışık";
+
+/* Repeat Mode */
+"ErAaNp" = "Tekrar Modu";
+
+/* Resume */
+"rvNMpm" = "Devam Et";
+
+/* don't resume */
+"Pk1Fkx" = "devam etme";
+
+/* resume */
+"No0K9w" = "devam et";
+
+/* Queue Location */
+"cV2HLF" = "Kuyruk Konumu";
+
+/* Playback Speed */
+"RvX3Zd" = "Oynatma Hızı";
+
+/* Media Search */
+"1uT6VF" = "Medya Arama";
+
+/* Play Media */
+"G3J6fP" = "Medya Oynat";

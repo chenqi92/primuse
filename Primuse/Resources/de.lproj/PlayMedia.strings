@@ -1,0 +1,89 @@
+/* A request to play music, an audiobook, a podcast or a radio station in Primuse. */
+"LdrEPN" = "Eine Anfrage, Musik, ein Hörbuch, einen Podcast oder einen Radiosender in Primuse wiederzugeben.";
+
+/* Play */
+"f3d3kn" = "Wiedergeben";
+
+/* Play ${mediaContainer} */
+"YYfsKp" = "${mediaContainer} wiedergeben";
+
+/* ${mediaItems} */
+"vUAqfM" = "${mediaItems}";
+
+/* Resume ${mediaContainer} */
+"o6CuZu" = "${mediaContainer} fortsetzen";
+
+/* Shuffle ${mediaContainer} */
+"nAv25k" = "${mediaContainer} zufällig wiedergeben";
+
+/* Resume ${mediaContainer} */
+"sLPQxZ" = "${mediaContainer} fortsetzen";
+
+/* Play ${mediaItems} */
+"KcCcQu" = "${mediaItems} wiedergeben";
+
+/* ${mediaItems} */
+"ApUiZd" = "${mediaItems}";
+
+/* Play ${mediaContainer} */
+"WEjMGd" = "${mediaContainer} wiedergeben";
+
+/* Play ${mediaItems} at ${playbackSpeed} */
+"q8QY8B" = "${mediaItems} mit ${playbackSpeed} wiedergeben";
+
+/* Resume ${mediaItems} */
+"mIvv3D" = "${mediaItems} fortsetzen";
+
+/* ${mediaItems} */
+"5oBQUn" = "${mediaItems}";
+
+/* Shuffle ${mediaContainer} */
+"nNozW1" = "${mediaContainer} zufällig wiedergeben";
+
+/* Shuffle ${mediaItems} */
+"MbU5ep" = "${mediaItems} zufällig wiedergeben";
+
+/* Play at ${playbackSpeed} */
+"5yWeuV" = "Mit ${playbackSpeed} wiedergeben";
+
+/* Resume */
+"E6Nzn4" = "Fortsetzen";
+
+/* Items */
+"cfJexL" = "Objekte";
+
+/* Container */
+"xdnqvn" = "Sammlung";
+
+/* Shuffled */
+"WktFNa" = "Zufallswiedergabe";
+
+/* not shuffled */
+"mCAocc" = "nicht zufällig";
+
+/* shuffled */
+"QqdHiR" = "zufällig";
+
+/* Repeat Mode */
+"ErAaNp" = "Wiederholungsmodus";
+
+/* Resume */
+"rvNMpm" = "Fortsetzen";
+
+/* don't resume */
+"Pk1Fkx" = "nicht fortsetzen";
+
+/* resume */
+"No0K9w" = "fortsetzen";
+
+/* Queue Location */
+"cV2HLF" = "Position in der Warteschlange";
+
+/* Playback Speed */
+"RvX3Zd" = "Wiedergabegeschwindigkeit";
+
+/* Media Search */
+"1uT6VF" = "Mediensuche";
+
+/* Play Media */
+"G3J6fP" = "Medien wiedergeben";
