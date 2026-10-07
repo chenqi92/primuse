@@ -232,6 +232,7 @@ struct HomeHeroCarousel: View {
                 reader.scrollTo(recentered, anchor: .center)
             }
         }
+        .frame(height: metrics.carouselHeight)
         .background { glow() }
     }
 

@@ -1,7 +1,83 @@
 import Foundation
 import PrimuseKit
 import XCTest
+#if os(iOS)
+import SwiftUI
+import UIKit
+#endif
 @testable import Primuse
+
+#if os(iOS)
+@MainActor
+final class HomeHeroCarouselLayoutTests: XCTestCase {
+    func testCarouselKeepsFollowingSectionVisibleAfterResizing() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("HomeHeroCarouselLayoutTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let suite = "HomeHeroCarouselLayoutTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let library = MusicLibrary(storageDirectory: directory, searchIndexDefaults: defaults)
+        let player = AudioPlayerService(
+            library: library,
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")),
+            activateAudioSession: { _ in XCTFail("Layout tests must not start playback") }
+        )
+        let songs = (0..<48).map { index in
+            Song(id: "hero-layout-\(index)", title: "Song \(index)", artistName: "Artist",
+                 fileFormat: .mp3, filePath: "", sourceID: "hero-layout-source")
+        }
+        var heroFrame = CGRect.zero
+        var followingSectionFrame = CGRect.zero
+        let tintProvider = CoverTintProvider()
+
+        func root(_ size: CGSize) -> some View {
+            ScrollView {
+                VStack(spacing: 20) {
+                    Text("Music · Radio · Audiobooks · Podcasts")
+                        .frame(height: 36)
+                    HomeHeroCarousel(songs: songs, isInteractive: false,
+                                     playFromSong: { _ in }, shuffleAll: {}, playAll: {})
+                        .onGeometryChange(for: CGRect.self) { proxy in
+                            proxy.frame(in: .named("home-layout-test"))
+                        } action: { heroFrame = $0 }
+                    Text("Following section")
+                        .frame(height: 44)
+                        .onGeometryChange(for: CGRect.self) { proxy in
+                            proxy.frame(in: .named("home-layout-test"))
+                        } action: { followingSectionFrame = $0 }
+                }
+            }
+            .coordinateSpace(name: "home-layout-test")
+            .frame(width: size.width, height: size.height)
+            .environment(library)
+            .environment(player)
+            .environment(tintProvider)
+            .environment(AppServices.shared.sourceManager)
+        }
+
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let host = UIHostingController(rootView: root(CGSize(width: 390, height: 844)))
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = host
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil }
+
+        for size in [CGSize(width: 390, height: 844), CGSize(width: 430, height: 932),
+                     CGSize(width: 768, height: 1024), CGSize(width: 390, height: 844)] {
+            host.rootView = root(size)
+            host.view.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(800))
+            print("Home hero layout \(size): hero=\(heroFrame), following=\(followingSectionFrame)")
+            XCTAssertGreaterThan(heroFrame.height, 200)
+            XCTAssertLessThan(heroFrame.height, size.height * 0.6, "The carousel must not fill the vertical scroll viewport")
+            XCTAssertLessThan(followingSectionFrame.maxY, size.height * 0.75, "The next section must remain visible below the carousel")
+        }
+    }
+}
+#endif
 
 @MainActor
 final class HomePresentationCacheTests: XCTestCase {
