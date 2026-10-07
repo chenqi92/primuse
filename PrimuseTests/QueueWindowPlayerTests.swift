@@ -47,6 +47,55 @@ final class QueueWindowPlayerTests: XCTestCase {
     }
 
     @MainActor
+    func testRestoringPausedSessionReplacesStalePlayingWidgetSnapshot() async throws {
+        let shared = try XCTUnwrap(UserDefaults(suiteName: PrimuseConstants.appGroupIdentifier))
+        let keys = [PrimuseConstants.widgetSyncEnabledKey, PrimuseConstants.widgetNowPlayingEnabledKey,
+                    PrimuseConstants.widgetLyricsEnabledKey, PrimuseConstants.widgetRecentAlbumsEnabledKey,
+                    PrimuseConstants.widgetSharedDataScopeKey, PrimuseConstants.playbackStateKey,
+                    PrimuseConstants.lyricsSnapshotKey]
+        let savedDefaults = keys.map { ($0, shared.object(forKey: $0)) }
+        let coverURL = try XCTUnwrap(FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: PrimuseConstants.appGroupIdentifier
+        )).appendingPathComponent("widget_cover.png")
+        let savedCover = try? Data(contentsOf: coverURL)
+        defer {
+            for (key, value) in savedDefaults { shared.set(value, forKey: key) }
+            if let savedCover { try? savedCover.write(to: coverURL, options: .atomic) }
+        }
+        shared.set(true, forKey: PrimuseConstants.widgetSyncEnabledKey)
+        shared.set(true, forKey: PrimuseConstants.widgetNowPlayingEnabledKey)
+        shared.set(true, forKey: PrimuseConstants.widgetRecentAlbumsEnabledKey)
+        shared.set(false, forKey: PrimuseConstants.widgetLyricsEnabledKey)
+        shared.set(WidgetSharedDataScope.titleArtistCoverProgress.rawValue,
+                   forKey: PrimuseConstants.widgetSharedDataScopeKey)
+
+        let song = Song(id: "restored-widget-\(UUID().uuidString)", title: "Restored song",
+                        duration: 180, fileFormat: .flac,
+                        filePath: "/music/restored.flac", sourceID: "local-source")
+        let player = try await makePlayer(librarySongs: [song])
+        try player.playbackSessionStore.save(.init(
+            queueSongIDs: [song.id], currentSongID: song.id, currentIndex: 0,
+            currentTime: 47, duration: 180, wasPlaying: true, shuffleEnabled: false,
+            shuffledIndices: [], shufflePosition: 0, repeatMode: .off, isAtTrackEnd: false
+        ))
+        PlaybackState(currentSongID: song.id, isPlaying: true, currentTime: 30, duration: 180,
+                      updatedAt: Date().addingTimeInterval(-60)).save()
+
+        let restoreStartedAt = Date()
+        await player.restorePlaybackSessionIfAvailable()
+
+        XCTAssertFalse(player.isPlaybackActive)
+        XCTAssertEqual(player.currentSong?.id, song.id)
+        XCTAssertEqual(player.currentTime, 47)
+        let widget = try XCTUnwrap(PlaybackState.load())
+        XCTAssertEqual(widget.currentSongID, song.id)
+        XCTAssertFalse(widget.isPlaying, "A cold restore must replace the previous process's playing state")
+        XCTAssertEqual(widget.currentTime, 47)
+        XCTAssertEqual(widget.duration, 180)
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(widget.updatedAt), restoreStartedAt)
+    }
+
+    @MainActor
     func testLargeRequestInstallsAWindowAroundTheSelectedSong() async throws {
         let request = songs(2_500)
         let player = try await makePlayer(librarySongs: [])

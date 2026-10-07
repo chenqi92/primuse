@@ -137,6 +137,9 @@ extension AudioPlayerService {
         localPipelineAdvanceTicket = nil
         updateNowPlayingInfo()
         updateNowPlayingArtworkIfNeeded()
+        // The restored queue is paused even if the last process published a
+        // playing snapshot. Replace that snapshot before widgets render again.
+        updatePlaybackState()
         let restoreFinishedAt = ProcessInfo.processInfo.systemUptime
         plog(String(
             format: "▶️ Restored paused playback session: queue=%d index=%d shuffle=%@ position=%d total=%.0fms load=%.0f plan=%.0f lookup=%.0f apply=%.0f",

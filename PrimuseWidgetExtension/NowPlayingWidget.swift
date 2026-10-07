@@ -679,10 +679,8 @@ private struct SpokenWordBookProgressPanel: View {
                     }
                 }
                 ProgressView(value: min(1, max(0, fraction)))
-                    .progressViewStyle(HairlineProgressStyle(
-                        track: Color.primary.opacity(0.12),
-                        fill: WidgetDesign.brandTint
-                    ))
+                    .progressViewStyle(.linear)
+                    .tint(WidgetDesign.brandTint)
                     .frame(height: 2.5)
             }
             if let part = spokenWordPartText(info) {
@@ -933,17 +931,13 @@ private struct ElapsedTimeText: View {
     }
 }
 
-/// 极细单线进度条 ── 高 2.5pt, 半透明白 track + 实白 fill。比之前的
-/// `WidgetProgressBar` 更克制,贴合 Apple Music widget 的视觉重量。
-///
-/// 播放中走 `ProgressView(timerInterval:)`, 由系统逐帧推进; 暂停 / 无时长时落回
-/// 静态比例渲染。两条路径都套同一个 `HairlineProgressStyle`, 视觉完全一致。
+/// Date-relative progress must retain the system style so WidgetKit can
+/// advance it without running the extension. Custom styles receive no fraction.
 struct ProgressLine: View {
     let progress: PlaybackProgress
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        let track = colorScheme == .dark ? Color.white.opacity(0.22) : Color.black.opacity(0.12)
         let fill = colorScheme == .dark ? Color.white : WidgetDesign.brandTint
         Group {
             if let range = progress.timerRange {
@@ -953,30 +947,9 @@ struct ProgressLine: View {
                 ProgressView(value: progress.staticFraction)
             }
         }
-        .progressViewStyle(HairlineProgressStyle(track: track, fill: fill))
+        .progressViewStyle(.linear)
+        .tint(fill)
         .frame(height: 2.5)
-    }
-}
-
-/// 把 `ProgressView`(无论 value 还是 timerInterval 形态)渲染成 2.5pt 细 capsule,
-/// 复用原 `ProgressLine` 的 track/fill 配色。
-private struct HairlineProgressStyle: ProgressViewStyle {
-    let track: Color
-    let fill: Color
-
-    func makeBody(configuration: Configuration) -> some View {
-        GeometryReader { geo in
-            // timerInterval 形态下 fractionCompleted 由系统逐帧推进; value 形态下
-            // 取传入的静态比例。两者都收敛到 0...1。
-            let fraction = CGFloat(max(0, min(1, configuration.fractionCompleted ?? 0)))
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(track)
-                Capsule()
-                    .fill(fill)
-                    .frame(width: geo.size.width * fraction)
-            }
-        }
-        .frame(height: 2.5)
+        .invalidatableContent()
     }
 }
