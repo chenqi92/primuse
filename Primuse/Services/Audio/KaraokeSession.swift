@@ -156,9 +156,10 @@ final class KaraokeSession {
     private(set) var availability: KaraokeAvailability = .noSong
     private(set) var isEffectivelyMono = false
     private(set) var songID: String?
-    private(set) var stageLines: [LyricLine] = []
-    private(set) var windows: [KaraokeLineWindow] = []
-    private(set) var hasDuetParts = false
+    private(set) var stageLyrics = KaraokeLyricsSnapshot()
+    var stageLines: [LyricLine] { stageLyrics.lines }
+    var windows: [KaraokeLineWindow] { stageLyrics.windows }
+    var hasDuetParts: Bool { stageLyrics.hasDuetParts }
     private(set) var isLoadingLyrics = false
     /// The library's instrumental version of the playing song, when one exists.
     private(set) var instrumentalCompanion: Song?
@@ -217,7 +218,7 @@ final class KaraokeSession {
     /// The stem is aligned with what is playing and being subtracted.
     private(set) var isStemLocked = false
     /// Line-level lyrics are being swept word by word on the sung vocal.
-    private(set) var usesInferredWordTiming = false
+    var usesInferredWordTiming: Bool { stageLyrics.usesInferredWordTiming }
 
     private(set) var microphoneState: MicrophoneState = .off
     private(set) var canMonitor = false
@@ -442,7 +443,6 @@ final class KaraokeSession {
         wordTimingTask?.cancel()
         wordTimingTask = nil
         wordTimingSongID = nil
-        usesInferredWordTiming = false
         isPlayingInstrumental = false
         lyricsBorrowedFromTitle = nil
         companionTask?.cancel()
@@ -452,9 +452,7 @@ final class KaraokeSession {
         songTitle = song?.title ?? ""
         artistName = song?.artistName ?? ""
         lyrics = []
-        stageLines = []
-        windows = []
-        hasDuetParts = false
+        stageLyrics = KaraokeLyricsSnapshot()
         part = .all
         pitchHistory = []
         referenceTrack.removeAll()
@@ -731,10 +729,7 @@ final class KaraokeSession {
 
     private func applyLyrics(_ loaded: [LyricLine]) {
         lyrics = loaded
-        let windows = KaraokeLineWindowPolicy.windows(in: loaded)
-        self.windows = windows
         buildStageLines(onsets: nil)
-        hasDuetParts = KaraokeDuetGatePolicy.hasDuetParts(loaded)
         wordTimingSongID = nil
         rebuildScorer()
     }
@@ -742,17 +737,7 @@ final class KaraokeSession {
     /// Word-timed rows stay as authored; line-level rows are swept evenly,
     /// or on the vocal's syllable onsets when the AI stem is available.
     private func buildStageLines(onsets: [KaraokeOnset]?) {
-        let byIndex = Dictionary(uniqueKeysWithValues: windows.map { ($0.lineIndex, $0) })
-        var inferred = false
-        stageLines = lyrics.enumerated().map { index, line in
-            guard let window = byIndex[index] else { return line }
-            if let onsets, let timed = KaraokeWordTimingPolicy.timedLine(line, window: window, onsets: onsets) {
-                inferred = true
-                return timed
-            }
-            return KaraokeSweepPolicy.sweepLine(line, window: window)
-        }
-        usesInferredWordTiming = inferred
+        stageLyrics = KaraokeLyricsSnapshot(lines: lyrics, onsets: onsets)
     }
 
     /// Once per song, when its AI stem exists and the lyrics are line-level.

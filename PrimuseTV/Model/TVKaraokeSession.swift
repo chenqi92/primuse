@@ -45,7 +45,7 @@ final class TVKaraokeSession {
             runningScore = nil
         }
     }
-    private(set) var hasDuetParts = false
+    var hasDuetParts: Bool { stageLyrics.hasDuetParts }
     /// Key change in semitones for the karaoke track.
     var keyShift = 0 {
         didSet {
@@ -58,8 +58,9 @@ final class TVKaraokeSession {
         }
     }
     private(set) var isActive = false
-    private(set) var windows: [KaraokeLineWindow] = []
-    private(set) var stageLines: [LyricLine] = []
+    private(set) var stageLyrics = KaraokeLyricsSnapshot()
+    var windows: [KaraokeLineWindow] { stageLyrics.windows }
+    var stageLines: [LyricLine] { stageLyrics.lines }
     private(set) var isEffectivelyMono = false
     private(set) var pitchHistory: [PitchPoint] = []
     private(set) var runningScore: Int?
@@ -90,7 +91,7 @@ final class TVKaraokeSession {
     private(set) var instrumentalCompanion: Song?
     private(set) var isPlayingInstrumental = false
     private(set) var lyricsBorrowedFromTitle: String?
-    private(set) var usesInferredWordTiming = false
+    var usesInferredWordTiming: Bool { stageLyrics.usesInferredWordTiming }
     private(set) var isVocalAssisting = false
     private(set) var isVocalAssistSuppressed = false
     var vocalAssistEnabled: Bool {
@@ -304,9 +305,7 @@ final class TVKaraokeSession {
         if carrying || (pairedOriginal != nil && loaded.isEmpty && !lyrics.isEmpty) { return }
         guard songChanged || loaded != lyrics else { return }
         lyrics = loaded
-        windows = KaraokeLineWindowPolicy.windows(in: lyrics)
         buildStageLines()
-        hasDuetParts = KaraokeDuetGatePolicy.hasDuetParts(lyrics)
         if songChanged || !hasDuetParts { part = .all }
         loop = nil
         scorer = KaraokeScorer(lines: lyrics, part: hasDuetParts ? part : .all)
@@ -365,17 +364,7 @@ final class TVKaraokeSession {
     }
 
     private func buildStageLines() {
-        let byIndex = Dictionary(uniqueKeysWithValues: windows.map { ($0.lineIndex, $0) })
-        var inferred = false
-        stageLines = lyrics.enumerated().map { index, line in
-            guard let window = byIndex[index] else { return line }
-            if let vocalOnsets, let timed = KaraokeWordTimingPolicy.timedLine(line, window: window, onsets: vocalOnsets) {
-                inferred = true
-                return timed
-            }
-            return KaraokeSweepPolicy.sweepLine(line, window: window)
-        }
-        usesInferredWordTiming = inferred
+        stageLyrics = KaraokeLyricsSnapshot(lines: lyrics, onsets: vocalOnsets)
     }
 
     private func cancelWordTiming() {

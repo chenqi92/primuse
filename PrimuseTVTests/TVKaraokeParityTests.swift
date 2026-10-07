@@ -127,6 +127,9 @@ final class TVKaraokeParityTests: XCTestCase {
     func testTrackChangeClearsLoopAndOldLyrics() async throws {
         let f = try await Fixture()
         try await f.begin()
+        let capturedStage = TVKaraokeLyrics(snapshot: f.session.stageLyrics, part: f.session.part,
+                                           time: 15, isPlaying: false)
+        let deferredLayout = capturedStage.body
         f.session.toggleLoop()
         f.store.next()
         f.store.next()
@@ -135,6 +138,17 @@ final class TVKaraokeParityTests: XCTestCase {
         XCTAssertNil(f.session.loop)
         XCTAssertTrue(f.session.stageLines.isEmpty)
         XCTAssertNil(f.session.lyricsBorrowedFromTitle)
+        let oldRenderer = ImageRenderer(content: deferredLayout.frame(width: 960, height: 540))
+        oldRenderer.scale = 1
+        XCTAssertNotNil(oldRenderer.uiImage)
+        let emptyStage = TVKaraokeLyrics(snapshot: f.session.stageLyrics, part: f.session.part,
+                                       time: 15, isPlaying: false)
+        let emptyRenderer = ImageRenderer(content: emptyStage.frame(width: 960, height: 540))
+        XCTAssertNotNil(emptyRenderer.uiImage)
+        f.store.lyrics = [TVLyricLine(time: 1, text: "Shorter song", syllables: [], translation: "")]
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(f.session.stageLyrics.row(at: 0)?.line.text, "Shorter song")
+        XCTAssertNil(f.session.stageLyrics.row(at: 1))
         await f.cleanup()
     }
 

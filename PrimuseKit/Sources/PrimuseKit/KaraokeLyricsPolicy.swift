@@ -39,6 +39,52 @@ public struct KaraokeLineWindow: Equatable, Sendable {
     }
 }
 
+/// A value snapshot keeps deferred lyric layouts on the same set of rows and
+/// windows when the live session clears or replaces a song's lyrics.
+public struct KaraokeLyricsSnapshot: Equatable, Sendable {
+    public struct Row: Equatable, Sendable {
+        public let window: KaraokeLineWindow
+        public let line: LyricLine
+    }
+
+    public let lines: [LyricLine]
+    public let windows: [KaraokeLineWindow]
+    public let hasDuetParts: Bool
+    public let usesInferredWordTiming: Bool
+
+    public init(lines: [LyricLine] = [], onsets: [KaraokeOnset]? = nil) {
+        let windows = KaraokeLineWindowPolicy.windows(in: lines)
+        let byIndex = Dictionary(uniqueKeysWithValues: windows.map { ($0.lineIndex, $0) })
+        var inferred = false
+        self.lines = lines.enumerated().map { index, line in
+            guard let window = byIndex[index] else { return line }
+            if let onsets, let timed = KaraokeWordTimingPolicy.timedLine(line, window: window, onsets: onsets) {
+                inferred = true
+                return timed
+            }
+            return KaraokeSweepPolicy.sweepLine(line, window: window)
+        }
+        self.windows = windows
+        hasDuetParts = KaraokeDuetGatePolicy.hasDuetParts(lines)
+        usesInferredWordTiming = inferred
+    }
+
+    public func row(at windowIndex: Int) -> Row? {
+        guard windows.indices.contains(windowIndex) else { return nil }
+        let window = windows[windowIndex]
+        return Row(window: window, line: lines[window.lineIndex])
+    }
+
+    /// Between sung rows the upcoming row takes focus; after the final row it
+    /// stays on stage. An empty snapshot has no focused row.
+    public func focusedWindowIndex(at time: TimeInterval) -> Int? {
+        guard !windows.isEmpty else { return nil }
+        return KaraokeLineWindowPolicy.activeWindowIndex(in: windows, at: time)
+            ?? windows.firstIndex(where: { $0.start > time })
+            ?? (windows.count - 1)
+    }
+}
+
 public enum KaraokeLineWindowPolicy {
     /// A line-level row with no explicit end is never assumed to last longer
     /// than this; a long instrumental gap before the next line is not singing.

@@ -294,6 +294,33 @@ final class PlayerLyricsColorPreferencesTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testKaraokeDeferredLayoutSurvivesLyricsClearingAndReplacement() throws {
+        var snapshot = KaraokeLyricsSnapshot(lines: [
+            LyricLine(id: "old-first", timestamp: 1, text: "First line"),
+            LyricLine(id: "old-last", timestamp: 10, text: "Last line"),
+        ])
+        let stage = KaraokeLyricsStage(snapshot: snapshot, part: .all, time: 11, isPlaying: false)
+        let deferredLayout = stage.body
+        snapshot = KaraokeLyricsSnapshot()
+        snapshot = KaraokeLyricsSnapshot(lines: [LyricLine(id: "new", timestamp: 1, text: "New")])
+
+        let renderer = ImageRenderer(content: deferredLayout.frame(width: 360, height: 240))
+        renderer.scale = 1
+        let image = try XCTUnwrap(renderer.uiImage?.cgImage)
+        XCTAssertGreaterThan(try alphaCoverage(in: image), 100)
+        XCTAssertEqual(snapshot.lines.count, 1)
+    }
+
+    @MainActor
+    func testKaraokeEmptySnapshotRendersAfterStageWasCreated() throws {
+        let stage = KaraokeLyricsStage(snapshot: KaraokeLyricsSnapshot(), part: .all, time: 11, isPlaying: false)
+        let renderer = ImageRenderer(content: stage.frame(width: 360, height: 240))
+        renderer.scale = 1
+        let image = try XCTUnwrap(renderer.uiImage?.cgImage)
+        XCTAssertEqual(try alphaCoverage(in: image), 0)
+    }
+
     private struct ProposalSensitiveGlyph: Layout {
         func sizeThatFits(
             proposal: ProposedViewSize,

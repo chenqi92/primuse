@@ -5,6 +5,79 @@ import Testing
 
 @Suite("Karaoke lyric policies")
 struct KaraokeLyricsPolicyTests {
+    @Test("Empty stage snapshots have no focused row or valid indices")
+    func emptyStageSnapshot() {
+        let snapshot = KaraokeLyricsSnapshot()
+        #expect(snapshot.focusedWindowIndex(at: 0) == nil)
+        #expect(snapshot.focusedWindowIndex(at: 50) == nil)
+        for index in [Int.min, -1, 0, 1, Int.max] {
+            #expect(snapshot.row(at: index) == nil)
+        }
+    }
+
+    @Test("Stage rows keep original indices when blank and unsynchronized lines are skipped")
+    func stageSnapshotRowMapping() throws {
+        let lines = [
+            LyricLine(id: "credit", timestamp: 0, text: "Singer", isSynchronized: false),
+            LyricLine(id: "blank", timestamp: 1, text: "  "),
+            LyricLine(id: "first", timestamp: 5, text: "First voice"),
+            LyricLine(id: "translation", timestamp: 5, text: "Translation", isSynchronized: false),
+            LyricLine(id: "second", timestamp: 20, text: "Second voice", voice: .secondary),
+        ]
+        let snapshot = KaraokeLyricsSnapshot(lines: lines)
+        #expect(snapshot.windows.map(\.lineIndex) == [2, 4])
+        #expect(snapshot.hasDuetParts)
+        #expect(snapshot.focusedWindowIndex(at: 0) == 0)
+        #expect(snapshot.focusedWindowIndex(at: 15) == 1)
+        #expect(snapshot.focusedWindowIndex(at: 50) == 1)
+        for index in snapshot.windows.indices {
+            let row = try #require(snapshot.row(at: index))
+            #expect(row.line.id == row.window.lineID)
+            #expect(row.line.text == lines[row.window.lineIndex].text)
+        }
+        #expect(snapshot.row(at: 2) == nil)
+    }
+
+    @Test("Deferred stage rows remain valid after lyrics clear and a shorter song loads")
+    func deferredStageSnapshot() throws {
+        var live = KaraokeLyricsSnapshot(lines: [
+            LyricLine(id: "old-first", timestamp: 1, text: "First"),
+            LyricLine(id: "old-last", timestamp: 10, text: "Last", voice: .secondary),
+        ])
+        let captured = live
+        let focused = try #require(captured.focusedWindowIndex(at: 11))
+        live = KaraokeLyricsSnapshot()
+        #expect(live.row(at: focused) == nil)
+        #expect(captured.row(at: focused)?.line.id == "old-last")
+        live = KaraokeLyricsSnapshot(lines: [LyricLine(id: "new", timestamp: 1, text: "New")])
+        #expect(live.row(at: focused) == nil)
+        #expect(live.row(at: 0)?.line.id == "new")
+        #expect(captured.row(at: focused)?.window.voice == .secondary)
+        #expect(captured.hasDuetParts)
+        #expect(!live.hasDuetParts)
+    }
+
+    @Test("AI timing replaces line-level stage rows without changing authored windows or words")
+    func stageSnapshotWordTiming() throws {
+        let authored = LyricLine(id: "authored", timestamp: 1, text: "Kept", syllables: [
+            LyricSyllable(text: "Kept", start: 1, end: 2),
+        ])
+        let lines = [authored, LyricLine(id: "inferred", timestamp: 10, text: "你好世界")]
+        let even = KaraokeLyricsSnapshot(lines: lines)
+        let timed = KaraokeLyricsSnapshot(lines: lines, onsets: [
+            KaraokeOnset(time: 10.1, strength: 1),
+            KaraokeOnset(time: 11.5, strength: 1),
+        ])
+        #expect(!even.usesInferredWordTiming)
+        #expect(timed.usesInferredWordTiming)
+        #expect(timed.windows == even.windows)
+        #expect(timed.row(at: 0)?.line == authored)
+        let inferred = try #require(timed.row(at: 1)?.line.syllables)
+        #expect(inferred.map(\.text).joined() == "你好世界")
+        #expect(inferred.allSatisfy { $0.endTiming == .inferred })
+        #expect(even.row(at: 1)?.line.syllables != inferred)
+    }
+
     @Test("Windows use explicit ends, word ends, or the next line with a cap")
     func windows() {
         let lines = [

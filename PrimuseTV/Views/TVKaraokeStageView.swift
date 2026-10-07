@@ -130,7 +130,8 @@ struct TVKaraokeStageContent: View {
                 .multilineTextAlignment(.center)
         } else {
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !store.isPlaying)) { context in
-                TVKaraokeLyrics(session: session, time: store.interpolatedTime(at: context.date))
+                TVKaraokeLyrics(snapshot: session.stageLyrics, part: session.part,
+                                time: store.interpolatedTime(at: context.date), isPlaying: store.isPlaying)
             }
         }
     }
@@ -402,19 +403,23 @@ struct TVKaraokeStageContent: View {
     }
 }
 
-private struct TVKaraokeLyrics: View {
-    let session: TVKaraokeSession
+struct TVKaraokeLyrics: View {
+    let snapshot: KaraokeLyricsSnapshot
+    let part: KaraokePart
     let time: TimeInterval
+    let isPlaying: Bool
 
     var body: some View {
-        let windows = session.windows
-        let active = KaraokeLineWindowPolicy.activeWindowIndex(in: windows, at: time)
-        let focus = active ?? windows.firstIndex(where: { $0.start > time }) ?? (windows.count - 1)
+        let windows = snapshot.windows
+        let focus = snapshot.focusedWindowIndex(at: time)
+        let previous = focus.flatMap { snapshot.row(at: $0 - 1) }
+        let current = focus.flatMap { snapshot.row(at: $0) }
+        let next = focus.flatMap { snapshot.row(at: $0 + 1) }
         let leadIn = KaraokeLeadInPolicy.leadIn(windows: windows, at: time)
 
         VStack(spacing: 30) {
-            if focus > 0 {
-                plainLine(windows[focus - 1], size: 34, opacity: 0.3)
+            if let previous {
+                plainLine(previous, size: 34, opacity: 0.3)
             }
             HStack(spacing: 16) {
                 ForEach(0..<3, id: \.self) { index in
@@ -424,44 +429,47 @@ private struct TVKaraokeLyrics: View {
                 }
             }
             .opacity(leadIn == nil ? 0 : 1)
-            sweptLine(windows[focus])
-            if focus + 1 < windows.count {
-                plainLine(windows[focus + 1], size: 40, opacity: 0.5)
+            if let current {
+                sweptLine(current)
+            }
+            if let next {
+                plainLine(next, size: 40, opacity: 0.5)
             }
         }
         .frame(maxWidth: .infinity)
         .animation(.easeInOut(duration: 0.35), value: focus)
     }
 
-    private func plainLine(_ window: KaraokeLineWindow, size: CGFloat, opacity: Double) -> some View {
-        Text(session.stageLines[window.lineIndex].text)
+    private func plainLine(_ row: KaraokeLyricsSnapshot.Row, size: CGFloat, opacity: Double) -> some View {
+        Text(row.line.text)
             .tvFont(size: size, weight: .semibold, relativeTo: .title2)
             .foregroundStyle(TVColor.text.opacity(opacity))
             .multilineTextAlignment(.center)
             .lineLimit(2)
-            .id(window.lineID)
+            .id(row.window.lineID)
     }
 
     /// Sung syllables in the accent colour, the one being sung fading in,
     /// the rest dim; one Text so long rows wrap naturally.
-    private func sweptLine(_ window: KaraokeLineWindow) -> some View {
-        let line = session.stageLines[window.lineIndex]
+    private func sweptLine(_ row: KaraokeLyricsSnapshot.Row) -> some View {
+        let window = row.window
+        let line = row.line
         let sung = window.voice == .secondary
             ? Color(red: 1.0, green: 0.62, blue: 0.80) : .white
-        let mine = !session.hasDuetParts || session.part == .all
-            || (session.part == .primary) == (window.voice == .primary)
+        let mine = !snapshot.hasDuetParts || part == .all
+            || (part == .primary) == (window.voice == .primary)
         return VStack(spacing: 10) {
-            if session.hasDuetParts, session.part != .all {
+            if snapshot.hasDuetParts, part != .all {
                 Text(String(localized: mine ? "karaoke_you" : "karaoke_partner"))
                     .tvFont(.eyebrow)
                     .foregroundStyle(sung)
             }
             KaraokeLineView(line: line, fontSize: 58, weight: .bold,
                             activeStyle: AnyShapeStyle(sung), inactiveColor: .white.opacity(0.42),
-                            textAlignment: session.hasDuetParts ? (window.voice == .secondary ? .trailing : .leading) : .center,
+                            textAlignment: snapshot.hasDuetParts ? (window.voice == .secondary ? .trailing : .leading) : .center,
                             timeAt: { _ in time }, fixedTime: time,
-                            isPlaybackActive: session.store.isPlaying,
-                            animatesSyllableBounce: session.store.isPlaying)
+                            isPlaybackActive: isPlaying,
+                            animatesSyllableBounce: isPlaying)
                 .opacity(mine ? 1 : 0.7)
         }
         .id(window.lineID)

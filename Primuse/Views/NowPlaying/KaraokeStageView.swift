@@ -96,7 +96,8 @@ private struct KaraokeStageContent: View {
         } else {
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !player.isPlaying)) { context in
                 KaraokeLyricsStage(
-                    session: session,
+                    snapshot: session.stageLyrics,
+                    part: session.part,
                     time: player.interpolatedTime(at: context.date),
                     isPlaying: player.isPlaying
                 )
@@ -198,8 +199,9 @@ private struct KaraokeStageHeader: View {
 
 // MARK: - Lyrics
 
-private struct KaraokeLyricsStage: View {
-    let session: KaraokeSession
+struct KaraokeLyricsStage: View {
+    let snapshot: KaraokeLyricsSnapshot
+    let part: KaraokePart
     let time: TimeInterval
     let isPlaying: Bool
 
@@ -212,23 +214,27 @@ private struct KaraokeLyricsStage: View {
     private static let maxWidth: CGFloat = 900
 
     var body: some View {
-        let windows = session.windows
+        let windows = snapshot.windows
         let activeIndex = KaraokeLineWindowPolicy.activeWindowIndex(in: windows, at: time)
-        // Between rows the upcoming row takes the stage, waiting to be swept.
-        let focusIndex = activeIndex ?? windows.firstIndex(where: { $0.start > time }) ?? (windows.count - 1)
+        let focusIndex = snapshot.focusedWindowIndex(at: time)
+        let previous = focusIndex.flatMap { snapshot.row(at: $0 - 1) }
+        let current = focusIndex.flatMap { snapshot.row(at: $0) }
+        let next = focusIndex.flatMap { snapshot.row(at: $0 + 1) }
         let leadIn = KaraokeLeadInPolicy.leadIn(windows: windows, at: time)
 
         // 行宽决定一句会折成几行；太长的句子缩一两档字号，尽量不超过两行。
         GeometryReader { proxy in
             let rowWidth = min(proxy.size.width, Self.maxWidth)
             VStack(spacing: heightClass.value(18, compact: 10)) {
-                if focusIndex > 0 {
-                    row(windowIndex: focusIndex - 1, role: .previous, rowWidth: rowWidth)
+                if let previous {
+                    row(previous, role: .previous, rowWidth: rowWidth)
                 }
                 KaraokeLeadInDots(leadIn: leadIn)
-                row(windowIndex: focusIndex, role: activeIndex == nil ? .upcoming : .current, rowWidth: rowWidth)
-                if focusIndex + 1 < windows.count {
-                    row(windowIndex: focusIndex + 1, role: .next, rowWidth: rowWidth)
+                if let current {
+                    row(current, role: activeIndex == nil ? .upcoming : .current, rowWidth: rowWidth)
+                }
+                if let next {
+                    row(next, role: .next, rowWidth: rowWidth)
                 }
             }
             .frame(maxWidth: Self.maxWidth)
@@ -256,13 +262,13 @@ private struct KaraokeLyricsStage: View {
     }
 
     @ViewBuilder
-    private func row(windowIndex: Int, role: Role, rowWidth: CGFloat) -> some View {
-        let window = session.windows[windowIndex]
-        let line = session.stageLines[window.lineIndex]
-        let isDuet = session.hasDuetParts
+    private func row(_ row: KaraokeLyricsSnapshot.Row, role: Role, rowWidth: CGFloat) -> some View {
+        let window = row.window
+        let line = row.line
+        let isDuet = snapshot.hasDuetParts
         let voiceColor = window.voice == .secondary ? Self.secondaryColor : Self.primaryColor
-        let isMine = !isDuet || session.part == .all
-            || (session.part == .primary) == (window.voice == .primary)
+        let isMine = !isDuet || part == .all
+            || (part == .primary) == (window.voice == .primary)
         let side = Self.side(isDuet: isDuet, voice: window.voice)
         let baseSize: CGFloat = switch role {
         case .current, .upcoming: heightClass.value(34, compact: 26)
@@ -276,7 +282,7 @@ private struct KaraokeLyricsStage: View {
         ))
 
         VStack(alignment: side.horizontal, spacing: 4) {
-            if isDuet, role == .current || role == .upcoming, session.part != .all {
+            if isDuet, role == .current || role == .upcoming, part != .all {
                 Text(isMine ? LocalizedStringKey("karaoke_you") : LocalizedStringKey("karaoke_partner"))
                     .font(.caption.weight(.bold))
                     .padding(.horizontal, 8)
