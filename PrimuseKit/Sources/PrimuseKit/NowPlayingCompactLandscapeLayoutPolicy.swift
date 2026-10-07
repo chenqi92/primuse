@@ -305,18 +305,16 @@ public enum NowPlayingCompactLandscapeLayoutPolicy {
 
     // MARK: - 歌词模式
     //
-    // 歌词模式沿用同一副骨架：顶部圆钮排不动，右栏的进度条与传输键留在原位，
-    // 只是左边的大封面换成歌词、缩成右栏顶上的一张小封面。换模式时手指要按的
-    // 东西不挪位置，是这套构图的前提 —— 所以内边距、圆钮排、栏间距全部复用
-    // 上面那一组常量，这里只决定两栏怎么分宽、右栏放得下什么。
+    // 歌词模式把小封面、歌名与控件放在左栏，歌词独占右栏。两栏各自计算高度，控件不覆盖歌词。
+    // 内边距、圆钮排与栏间距复用上面的常量，这里只决定两栏怎么分宽、控件栏放得下什么。
 
     /// 歌词栏想占的内容宽度比例。歌词是这一屏的主角，比封面模式里的封面更宽。
     public static let lyricsPaneWidthFraction: Double = 0.56
-    /// 为了摆下随机 / 循环而把右栏加宽时，歌词栏至少还要剩这么大比例。
+    /// 为了摆下随机 / 循环而把控件栏加宽时，歌词栏至少还要剩这么大比例。
     public static let minimumLyricsPaneWidthFraction: Double = 0.52
-    /// 右栏宽度上限：再宽进度条就长得不成比例，多出来的给歌词。
+    /// 控件栏宽度上限：再宽进度条就长得不成比例，多出来的给歌词。
     public static let maximumLyricsDetailWidth: Double = 360
-    /// 右栏顶上那张小封面的边长，以及它与歌名之间的间距。
+    /// 控件栏顶上那张小封面的边长，以及它与歌名之间的间距。
     public static let lyricsThumbnailSize: Double = 60
     public static let lyricsHeaderSpacing: Double = 12
     /// 小封面旁的歌名按两行 `.title3` 粗体留白；限成一行时按一半算。
@@ -326,15 +324,15 @@ public enum NowPlayingCompactLandscapeLayoutPolicy {
     public struct LyricsMetrics: Equatable, Sendable {
         public let contentWidth: Double
         public let availableContentHeight: Double
-        /// 左侧歌词栏宽度。
+        /// 右侧歌词栏宽度。
         public let lyricsPaneWidth: Double
         public let columnSpacing: Double
-        /// 右栏宽度。
+        /// 控件栏宽度。
         public let detailColumnWidth: Double
         public let thumbnailSize: Double
         /// 小封面 + 歌名 / 艺人这一行的保守高度。
         public let headerHeight: Double
-        /// 右栏按当前显示组合实际需要的高度。
+        /// 控件栏按当前显示组合实际需要的高度。
         public let detailStackHeight: Double
         public let titleLineLimit: Int
         public let showsEdgeToggles: Bool
@@ -426,6 +424,26 @@ public enum NowPlayingCompactLandscapeLayoutPolicy {
             showsEdgeToggles: showsEdgeToggles,
             showsVolumeBar: chosen.volume
         )
+    }
+
+    /// 歌词在尾侧，封面和控件在首侧；只避让真正伸进歌词栏顶部的遮挡。
+    public static func lyricsPaneTopClearance(
+        metrics: Metrics,
+        lyricsMetrics: LyricsMetrics,
+        occlusions: [OcclusionAvoidancePolicy.Region],
+        isRightToLeft: Bool
+    ) -> Double {
+        let paneTop = metrics.topInset + metrics.chromeRowHeight + metrics.chromeBottomSpacing
+        let paneMinX = isRightToLeft
+            ? metrics.trailingInset
+            : metrics.leadingInset + lyricsMetrics.detailColumnWidth + metrics.columnSpacing
+        let paneMaxX = paneMinX + lyricsMetrics.lyricsPaneWidth
+        let bottom = occlusions
+            .filter { $0.maxX > paneMinX && $0.minX < paneMaxX && $0.maxY > paneTop && $0.minY < paneTop }
+            .map(\.maxY)
+            .max()
+        guard let bottom else { return 0 }
+        return bottom + metrics.chromeBottomSpacing - paneTop
     }
 
     private static func normalizedTextScale(_ value: Double) -> Double {

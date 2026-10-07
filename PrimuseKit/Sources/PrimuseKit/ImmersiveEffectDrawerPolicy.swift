@@ -208,7 +208,8 @@ public enum ImmersiveEffectDrawerPolicy {
         case .tapped:
             return true
         case .settled:
-            guard appliesOnSettle else { return false }
+            // 普通全屏会切换宿主，必须点选，不能因转轮经过而打断浏览。
+            guard appliesOnSettle, candidateID != "native" else { return false }
             return secondsSinceCenterChange >= settleDelay
         }
     }

@@ -7,6 +7,33 @@ struct NowPlayingCompactLandscapeLayoutPolicyTests {
     private typealias Policy = NowPlayingCompactLandscapeLayoutPolicy
     private typealias Metrics = NowPlayingCompactLandscapeLayoutPolicy.Metrics
 
+    @Test("歌词在右侧时只避让右侧顶部遮挡，RTL 对称处理")
+    func lyricsAvoidOcclusionsOnTheirOwnSide() {
+        let metrics = Policy.metrics(
+            viewportWidth: 852, viewportHeight: 393,
+            safeAreaTop: 0, safeAreaBottom: 21,
+            safeAreaLeading: 0, safeAreaTrailing: 0,
+            prefersVolumeBar: true
+        )
+        let lyrics = Policy.lyricsMetrics(
+            viewportWidth: 852, viewportHeight: 393,
+            safeAreaTop: 0, safeAreaBottom: 21,
+            safeAreaLeading: 0, safeAreaTrailing: 0,
+            prefersVolumeBar: true
+        )
+        let leading = OcclusionAvoidancePolicy.Region(x: 0, y: 0, width: 84, height: 150)
+        let trailing = OcclusionAvoidancePolicy.Region(x: 768, y: 0, width: 84, height: 150)
+        let bottom = OcclusionAvoidancePolicy.Region(x: 768, y: 311, width: 84, height: 82)
+        #expect(Policy.lyricsPaneTopClearance(metrics: metrics, lyricsMetrics: lyrics,
+            occlusions: [leading, bottom], isRightToLeft: false) == 0)
+        #expect(Policy.lyricsPaneTopClearance(metrics: metrics, lyricsMetrics: lyrics,
+            occlusions: [trailing], isRightToLeft: false) == 98)
+        #expect(Policy.lyricsPaneTopClearance(metrics: metrics, lyricsMetrics: lyrics,
+            occlusions: [trailing], isRightToLeft: true) == 0)
+        #expect(Policy.lyricsPaneTopClearance(metrics: metrics, lyricsMetrics: lyrics,
+            occlusions: [leading], isRightToLeft: true) == 98)
+    }
+
     /// iPhone SE 3 横屏：Home 键机型，四边都没有安全区。
     private var iPhoneSE: Metrics {
         Policy.metrics(

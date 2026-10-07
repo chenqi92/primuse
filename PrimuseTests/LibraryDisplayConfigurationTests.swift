@@ -544,6 +544,14 @@ final class PlayerAppearancePreferencesTests: XCTestCase {
         XCTAssertTrue(FullscreenPlayerEffect.immersiveCases.allSatisfy(\.displaysLyrics))
     }
 
+    #if os(iOS)
+    func testPlayerEffectDrawerCanReturnToNativeFullscreen() {
+        XCTAssertEqual(ImmersiveEffectDrawer.fullscreenCases.first, .native)
+        XCTAssertEqual(Set(ImmersiveEffectDrawer.fullscreenCases.map(\.id)),
+                       Set(FullscreenPlayerEffect.allCases.map(\.id)))
+    }
+    #endif
+
     func testRetiredFullscreenEffectsMigrateToTheClosestSurvivingOne() {
         let expectations: [String: FullscreenPlayerEffect] = [
             "coverFlow": .coverGallery,

@@ -199,6 +199,22 @@ struct ImmersiveEffectDrawerPolicyTests {
 
     // MARK: - 是否应用
 
+    @Test("普通全屏必须点选，滚停不能切换宿主")
+    func nativeFullscreenRequiresAnExplicitTap() {
+        for appliesOnSettle in [false, true] {
+            #expect(!ImmersiveEffectDrawerPolicy.shouldApply(
+                currentEffectID: "flowingLines", candidateID: "native",
+                trigger: .settled, appliesOnSettle: appliesOnSettle,
+                secondsSinceCenterChange: 5
+            ))
+            #expect(ImmersiveEffectDrawerPolicy.shouldApply(
+                currentEffectID: "flowingLines", candidateID: "native",
+                trigger: .tapped, appliesOnSettle: appliesOnSettle,
+                secondsSinceCenterChange: 0
+            ))
+        }
+    }
+
     @Test("滚停够久才应用，路过不算")
     func settlingAppliesOnlyAfterTheDelay() {
         let tooSoon = ImmersiveEffectDrawerPolicy.shouldApply(

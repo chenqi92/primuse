@@ -88,8 +88,7 @@ private struct NowPlayingAppearance {
 
 /// 播放页浮动圆钮的玻璃底样式。
 private enum NowPlayingChromeGlass: Equatable {
-    /// 固定深色玻璃。沉浸歌词与全屏画面背后永远是深色画面，`ImmersiveGlassActionLabel`
-    /// 就是照这个前提做的。
+    /// 固定深色玻璃，用于背景固定为深色的效果画面。
     case immersive
     /// 跟随明暗外观。普通模式的背景是取色渐变，浅色外观下底也得是浅的 ——
     /// 深色圆底会把同样是深色的图标吃掉。
@@ -766,7 +765,7 @@ struct NowPlayingView: View {
     @State private var immersiveControlsState = ImmersiveControlsState.inactive
     @State private var immersiveControlsAutoHideTask: Task<Void, Never>?
     @State private var showsImmersiveEffectPicker = false
-    /// 手机横屏普通模式自己的「锁」。沉浸歌词那套 `immersiveControlsState` 带自动
+    /// 手机横屏自己的「锁」。竖屏沉浸歌词那套 `immersiveControlsState` 带自动
     /// 隐藏计时，语义不同，不能共用。离开这个布局时会自动解锁，免得用户在别的
     /// 布局里找不到解锁入口。
     @State private var isCompactLandscapeLocked = false
@@ -1222,6 +1221,7 @@ struct NowPlayingView: View {
             withAnimation(.easeInOut(duration: 0.24)) {
                 isFullscreenPlayerPresented = false
                 showLyrics = true
+                isLyricsChromeCollapsed = false
                 isLyricsImmersive = true
                 immersiveControlsState = immersiveControlsState.applying(.present)
             }
@@ -2248,7 +2248,7 @@ struct NowPlayingView: View {
                 prefersWideColumns: shouldUseWideLayout(geo: geo)
             )
             // 手机横屏的封面模式、歌词模式与全屏歌词共用一副骨架：放在同一个分支里，切歌词时
-            // 顶部圆钮排、进度条、传输键都保持同一个视图身份、留在原位，只有左栏换内容。
+            // 顶部圆钮排保持同一个视图身份；歌词模式下封面与控件在左、歌词在右。
             // 分到 switch 的几个 case 里，整页会被当成几棵树换掉。
             let usesCompactLandscapeSkeleton = NowPlayingPlayerLayoutPolicy.usesLandscapeSkeleton(
                 layoutMode: playerLayoutMode,
@@ -3213,24 +3213,12 @@ struct NowPlayingView: View {
                     .pmLayoutSwitchFade()
                     .padding(.leading, chromeLeading)
                     .padding(.trailing, chromeTrailing)
-                    .opacity(compactLandscapeControlsHidden ? 0 : 1)
-                    .allowsHitTesting(!compactLandscapeControlsHidden)
-                    .accessibilityHidden(compactLandscapeControlsHidden)
             }
         }
         .padding(.leading, CGFloat(metrics.leadingInset))
         .padding(.trailing, CGFloat(metrics.trailingInset))
         .padding(.top, CGFloat(metrics.topInset))
         .padding(.bottom, CGFloat(metrics.bottomInset))
-        .overlay {
-            // 全屏歌词里控件淡出之后，点任意处叫回来（与竖屏全屏歌词同一套状态）。
-            if compactLandscapeControlsHidden {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture { handleImmersiveContentTap() }
-                    .accessibilityHidden(true)
-            }
-        }
         .onChange(of: showsEdgeToggles, initial: true) { _, showsToggles in
             compactLandscapeHidesModeToggles = !showsToggles
         }
@@ -3280,16 +3268,12 @@ struct NowPlayingView: View {
         metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics,
         lyricsMetrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics
     ) -> CGFloat {
-        guard !occlusions.isEmpty else { return 0 }
-        let paneTop = metrics.topInset + metrics.chromeRowHeight + metrics.chromeBottomSpacing
-        let paneMinX = metrics.leadingInset
-        let paneMaxX = paneMinX + lyricsMetrics.lyricsPaneWidth
-        let bottom = occlusions
-            .filter { $0.maxX > paneMinX && $0.minX < paneMaxX && $0.maxY > paneTop && $0.minY < paneTop }
-            .map(\.maxY)
-            .max()
-        guard let bottom else { return 0 }
-        return CGFloat(bottom + metrics.chromeBottomSpacing - paneTop)
+        CGFloat(NowPlayingCompactLandscapeLayoutPolicy.lyricsPaneTopClearance(
+            metrics: metrics,
+            lyricsMetrics: lyricsMetrics,
+            occlusions: occlusions,
+            isRightToLeft: layoutDirection == .rightToLeft
+        ))
     }
 
     private func compactLandscapeMetrics(
@@ -3334,12 +3318,6 @@ struct NowPlayingView: View {
         )
     }
 
-    /// 横屏骨架里的全屏歌词：与竖屏全屏歌词一样，控件过几秒淡出，只留歌词和右栏顶上的小封面、歌名；
-    /// 点一下叫回来。控件原地淡出，不挪位置。
-    private var compactLandscapeControlsHidden: Bool {
-        showLyrics && isLyricsImmersive && !isCompactLandscapeLocked && !immersiveControlsState.isVisible
-    }
-
     /// 锁上、或者效果抽屉开着的时候，播放页整体不再接最小化拖拽。
     private var suppressesPlayerMinimizeGesture: Bool {
         isCompactLandscapeLocked || showsImmersiveEffectPicker
@@ -3351,17 +3329,17 @@ struct NowPlayingView: View {
         lyricsPaneTopClearance: CGFloat = 0
     ) -> some View {
         let leftColumnWidth = CGFloat(
-            showLyrics ? lyricsMetrics.lyricsPaneWidth : metrics.artworkColumnWidth
+            showLyrics ? lyricsMetrics.detailColumnWidth : metrics.artworkColumnWidth
+        )
+        let rightColumnWidth = CGFloat(
+            showLyrics ? lyricsMetrics.lyricsPaneWidth : metrics.detailColumnWidth
         )
         return HStack(alignment: .center, spacing: CGFloat(metrics.columnSpacing)) {
-            // 封面和歌词叠在同一个定宽槽位里换场。直接并排放进 HStack 的话，过渡期间
-            // 两个都在，右栏会被挤到只剩几个点再弹回来。
+            // 每栏在自己的定宽槽位里换场，过渡期间旧、新内容同时存在也不会挤压另一栏。
             ZStack {
                 if showLyrics {
-                    compactLandscapeLyricsPane(metrics: lyricsMetrics)
-                        .padding(.top, lyricsPaneTopClearance)
-                        .pmLayoutSwitchFade()
-                        .transition(lyricsPanelTransition)
+                    compactLandscapeDetailColumn(metrics: metrics, lyricsMetrics: lyricsMetrics)
+                        .transition(.opacity)
                 } else {
                     compactLandscapeArtwork(metrics: metrics)
                         .transition(lyricsHandoffArtworkTransition)
@@ -3370,7 +3348,19 @@ struct NowPlayingView: View {
             .frame(width: leftColumnWidth)
             .frame(maxHeight: .infinity)
 
-            compactLandscapeDetailColumn(metrics: metrics, lyricsMetrics: lyricsMetrics)
+            ZStack {
+                if showLyrics {
+                    compactLandscapeLyricsPane(metrics: lyricsMetrics)
+                        .padding(.top, lyricsPaneTopClearance)
+                        .pmLayoutSwitchFade()
+                        .transition(lyricsPanelTransition)
+                } else {
+                    compactLandscapeDetailColumn(metrics: metrics, lyricsMetrics: lyricsMetrics)
+                        .transition(.opacity)
+                }
+            }
+            .frame(width: rightColumnWidth)
+            .frame(maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -3434,26 +3424,21 @@ struct NowPlayingView: View {
             PlaybackProgressBar(fillTint: themedControlAccent) { progressAudioTags(showsSource: true) }
                 .matchedLayoutElement(.progress, in: layoutNamespace)
                 .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.progressTopSpacing))
-                .opacity(compactLandscapeControlsHidden ? 0 : 1)
-                .allowsHitTesting(!compactLandscapeControlsHidden)
-                .accessibilityHidden(compactLandscapeControlsHidden)
 
             compactLandscapeTransportRow(showsEdgeToggles: showsEdgeToggles)
                 .matchedLayoutElement(.transport, in: layoutNamespace)
                 .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.transportTopSpacing))
-                // 锁上时控件留在原位只是不再显示，右栏不会因为少一行而整体上移。
-                .opacity(isCompactLandscapeLocked || compactLandscapeControlsHidden ? 0 : 1)
-                .allowsHitTesting(!compactLandscapeControlsHidden)
-                .accessibilityHidden(isCompactLandscapeLocked || compactLandscapeControlsHidden)
+                // 只有手动锁定才隐藏播放操作；保留占位，封面和歌词不会随之移动。
+                .opacity(isCompactLandscapeLocked ? 0 : 1)
+                .accessibilityHidden(isCompactLandscapeLocked)
                 .pmAnimation(.control, value: isCompactLandscapeLocked)
 
             if showsVolumeBar {
                 playerVolumeRow
                     .pmLayoutSwitchFade()
                     .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.volumeTopSpacing))
-                    .opacity(isCompactLandscapeLocked || compactLandscapeControlsHidden ? 0 : 1)
-                    .allowsHitTesting(!compactLandscapeControlsHidden)
-                    .accessibilityHidden(isCompactLandscapeLocked || compactLandscapeControlsHidden)
+                    .opacity(isCompactLandscapeLocked ? 0 : 1)
+                    .accessibilityHidden(isCompactLandscapeLocked)
                     .pmAnimation(.control, value: isCompactLandscapeLocked)
             }
         }
@@ -3499,7 +3484,7 @@ struct NowPlayingView: View {
         }
     }
 
-    /// 歌词模式右栏的上半截：小封面 + 歌名 / 艺人，整块点一下回封面模式。
+    /// 歌词模式左栏的上半截：小封面 + 歌名 / 艺人，整块点一下回封面模式。
     /// 音乐缩略图只提供位置，常驻封面层负责缩放和位移。
     private func compactLandscapeLyricsHeader(
         metrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics
@@ -3580,16 +3565,16 @@ struct NowPlayingView: View {
 
             Spacer(minLength: 0)
 
-            compactLandscapeSkipButton(
+            playerSkipButton(
                 symbol: transportBackwardSymbol,
                 label: transportBackwardLabel
             ) {
                 transportBackward()
             }
 
-            compactLandscapePlayButton
+            playerPlayButton
 
-            compactLandscapeSkipButton(
+            playerSkipButton(
                 symbol: transportForwardSymbol,
                 label: transportForwardLabel
             ) {
@@ -3684,7 +3669,7 @@ struct NowPlayingView: View {
         }
     }
 
-    private func compactLandscapeSkipButton(
+    private func playerSkipButton(
         symbol: String,
         label: String,
         action: @escaping () -> Void
@@ -3706,7 +3691,7 @@ struct NowPlayingView: View {
         .accessibilityLabel(Text(label))
     }
 
-    private var compactLandscapePlayButton: some View {
+    private var playerPlayButton: some View {
         let diameter = CGFloat(NowPlayingCompactLandscapeLayoutPolicy.primaryTransportDiameter)
         // 实心圆用前景色填充，图标反过来用背景底色，深浅两种外观下都是高对比。
         let glyphTint = appearance.backgroundBase
@@ -3852,7 +3837,7 @@ struct NowPlayingView: View {
         return HStack(spacing: 0) {
             Button {
                 isCompactLandscapeLocked = false
-                // 全屏歌词里解锁：控件先回来，再按原来的节奏淡出。
+                // 同步竖屏全屏歌词的解锁状态；横屏控件不跟随它的自动隐藏计时。
                 if showLyrics && isLyricsImmersive {
                     immersiveControlsState = immersiveControlsState.applying(.unlock)
                     scheduleImmersiveControlsAutoHide()
@@ -4984,9 +4969,10 @@ struct NowPlayingView: View {
         if immersiveControlsState.showsPrimaryControls {
             VStack(spacing: 0) {
                 HStack(spacing: 10) {
-                    ImmersiveGlassActionButton(
+                    NowPlayingGlassActionButton(
                         symbol: "lock",
                         label: "immersive_lock_controls",
+                        appearance: appearance,
                         tint: appearance.primary,
                         diameter: 44
                     ) {
@@ -4996,13 +4982,14 @@ struct NowPlayingView: View {
                     Spacer()
 
                     if !usesSpokenWordTransport {
-                        immersiveEffectButton()
+                        immersiveEffectButton(glass: .adaptive)
                     }
 
                     if offersLikeAction {
-                        ImmersiveGlassActionButton(
+                        NowPlayingGlassActionButton(
                             symbol: isCurrentLiked ? "heart.fill" : "heart",
                             label: isCurrentLiked ? "a11y_unlike" : "a11y_like",
+                            appearance: appearance,
                             tint: isCurrentLiked ? likedHeartTint : appearance.primary,
                             diameter: 44,
                             isSelected: isCurrentLiked
@@ -5014,9 +5001,10 @@ struct NowPlayingView: View {
 
                     immersiveMoreMenu
 
-                    ImmersiveGlassActionButton(
+                    NowPlayingGlassActionButton(
                         symbol: "arrow.down.right.and.arrow.up.left",
                         label: "lyrics_exit_full_screen",
+                        appearance: appearance,
                         tint: appearance.primary,
                         diameter: 44
                     ) {
@@ -5045,7 +5033,11 @@ struct NowPlayingView: View {
                         .foregroundStyle(appearance.primary)
                         .padding(.horizontal, 16)
                         .frame(height: 46)
-                        .background(.ultraThinMaterial, in: Capsule())
+                        .nowPlayingAdaptiveGlass(
+                            Capsule(),
+                            appearance: appearance,
+                            tint: appearance.primary
+                        )
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(Text("immersive_unlock_controls"))
@@ -5062,38 +5054,30 @@ struct NowPlayingView: View {
         VStack(spacing: 8) {
             PlaybackProgressBar(fillTint: themedControlAccent)
 
-            HStack(spacing: 34) {
-                Button { transportBackward() } label: {
-                    Image(systemName: transportBackwardSymbol)
-                        .frame(width: 44, height: 36)
-                        .contentTransition(.symbolEffect(.replace))
+            HStack(spacing: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.transportSpacing)) {
+                Spacer(minLength: 0)
+
+                playerSkipButton(
+                    symbol: transportBackwardSymbol,
+                    label: transportBackwardLabel
+                ) {
+                    transportBackward()
                 }
-                .accessibilityLabel(transportBackwardLabel)
                 .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: false) }
 
-                Button {
-                    guard !player.isLoading else { return }
-                    player.togglePlayPause()
-                } label: {
-                    Image(systemName: player.isPlaying || player.isLoading ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 44))
-                        .contentTransition(.symbolEffect(.replace))
-                }
-                .disabled(player.showsLoadingIndicator)
-                .accessibilityLabel(player.isPlaying || player.isLoading
-                    ? String(localized: "a11y_pause")
-                    : String(localized: "a11y_play"))
+                playerPlayButton
 
-                Button { transportForward() } label: {
-                    Image(systemName: transportForwardSymbol)
-                        .frame(width: 44, height: 36)
-                        .contentTransition(.symbolEffect(.replace))
+                playerSkipButton(
+                    symbol: transportForwardSymbol,
+                    label: transportForwardLabel
+                ) {
+                    transportForward()
                 }
-                .accessibilityLabel(transportForwardLabel)
                 .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: true) }
+
+                Spacer(minLength: 0)
             }
-            .font(.title3)
-            .foregroundStyle(appearance.primary)
+            .frame(height: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.primaryTransportDiameter))
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
@@ -5413,7 +5397,7 @@ struct NowPlayingView: View {
     }
 
     private var immersiveMoreMenu: some View {
-        makeMoreMenu(immersiveChrome: true)
+        makeMoreMenu(immersiveChrome: true, chromeGlass: .adaptive)
     }
 
     /// 全屏效果入口。面板本身是 `body` 里的 `ImmersiveEffectDrawer`，这里只负责
@@ -5491,9 +5475,7 @@ struct NowPlayingView: View {
     /// （它会先退出沉浸歌词再进全屏），这里不重复处理。
     private func enterFullscreenAfterPickingEffect() {
         guard !isFullscreenPlayerPresented, !isLyricsImmersive else { return }
-        withAnimation(.easeInOut(duration: 0.28)) {
-            isFullscreenPlayerPresented = true
-        }
+        presentImmersiveLyrics()
     }
     #endif
 

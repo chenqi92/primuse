@@ -429,12 +429,10 @@ private let immersiveEffectWheelRotationDegrees: Double = -28
 private let immersiveEffectWheelPerspective: CGFloat = 0.55
 
 extension ImmersiveEffectDrawer {
-    /// 全屏内可选的效果：按效果分组的顺序排列，并排除原生播放器 —— 在全屏里选它
-    /// 等于退出全屏，不能因为转轮路过就触发，退出仍走顶部的收起按钮。
+    /// 手机的普通全屏歌词也必须能从效果面板切回。
     static let fullscreenCases: [FullscreenPlayerEffect] = FullscreenEffectCollection
         .allCases
         .flatMap(\.effects)
-        .filter { !$0.isNative }
 
     /// 抽屉从哪一边滑入。宿主的 `if` 上要挂同侧的 `pmSlideTransition`。
     static func transitionEdge(for viewportSize: CGSize) -> Edge {
