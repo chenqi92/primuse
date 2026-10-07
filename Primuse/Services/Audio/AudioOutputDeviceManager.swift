@@ -50,6 +50,7 @@ final class AudioOutputDeviceManager {
     private(set) var devices: [Device] = []
     /// 系统默认输出设备 ID，作为「跟随系统」选项的回退目标。
     private(set) var systemDefaultID: AudioDeviceID?
+    @ObservationIgnored var onDevicesChanged: (() -> Void)?
 
     /// 已注册的监听 (block + address)，deinit 时逐个注销，避免随视图反复创建而泄漏。
     /// 仅在 @MainActor 的 init/installListener 写入、deinit 读取一次，无并发访问。
@@ -83,6 +84,30 @@ final class AudioOutputDeviceManager {
 
     // MARK: - Enumeration
 
+    static func deviceUID(for deviceID: AudioDeviceID) -> String? {
+        readString(id: deviceID, selector: kAudioDevicePropertyDeviceUID)
+    }
+
+    static func deviceID(forUID uid: String) -> AudioDeviceID? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyTranslateUIDToDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var qualifier = uid as CFString
+        var id = AudioDeviceID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = withUnsafePointer(to: &qualifier) { pointer in
+            AudioObjectGetPropertyData(
+                AudioObjectID(kAudioObjectSystemObject), &address,
+                UInt32(MemoryLayout<CFString>.size), pointer, &size, &id
+            )
+        }
+        guard status == noErr, id != kAudioObjectUnknown,
+              isSelectableOutput(deviceID: id) else { return nil }
+        return id
+    }
+
     private func enumerateOutputDevices() -> [Device] {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDevices,
@@ -103,14 +128,13 @@ final class AudioOutputDeviceManager {
         guard status == noErr else { return [] }
 
         return ids.compactMap { id -> Device? in
-            // 只保留有 output stream 的设备(过滤 mic / aggregate input)。
-            guard hasOutputStreams(deviceID: id) else { return nil }
-            let name = readString(id: id, selector: kAudioObjectPropertyName)
+            guard Self.isSelectableOutput(deviceID: id) else { return nil }
+            let name = Self.readString(id: id, selector: kAudioObjectPropertyName)
                 ?? String(
                     format: String(localized: "audio_output_device_fallback %@"),
                     String(id)
                 )
-            let transport = readUInt32(id: id, selector: kAudioDevicePropertyTransportType) ?? 0
+            let transport = Self.readUInt32(id: id, selector: kAudioDevicePropertyTransportType) ?? 0
             let nominalSampleRate = readDouble(id: id, selector: kAudioDevicePropertyNominalSampleRate)
             return Device(
                 id: id,
@@ -124,7 +148,7 @@ final class AudioOutputDeviceManager {
         }
     }
 
-    private func hasOutputStreams(deviceID: AudioDeviceID) -> Bool {
+    private static func hasOutputStreams(deviceID: AudioDeviceID) -> Bool {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyStreams,
             mScope: kAudioDevicePropertyScopeOutput,
@@ -133,6 +157,29 @@ final class AudioOutputDeviceManager {
         var dataSize: UInt32 = 0
         let status = AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &dataSize)
         return status == noErr && dataSize > 0
+    }
+
+    private static func isSelectableOutput(deviceID: AudioDeviceID) -> Bool {
+        guard hasOutputStreams(deviceID: deviceID),
+              (readUInt32(id: deviceID, selector: kAudioDevicePropertyIsHidden) ?? 0) == 0 else { return false }
+        guard readUInt32(id: deviceID, selector: kAudioDevicePropertyTransportType)
+                == kAudioDeviceTransportTypeAggregate else { return true }
+
+        // AVAudioEngine 的默认路由也会出现在本进程的设备列表中，但它的私有
+        // 聚合设备随音频图销毁，不能作为用户的持久输出选择。
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioAggregateDevicePropertyComposition,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var composition: Unmanaged<CFDictionary>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFDictionary>?>.size)
+        let status = withUnsafeMutablePointer(to: &composition) {
+            AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, $0)
+        }
+        guard status == noErr, let result = composition?.takeRetainedValue() else { return false }
+        let values = result as NSDictionary
+        return (values[kAudioAggregateDeviceIsPrivateKey] as? NSNumber)?.boolValue != true
     }
 
     private func readSystemDefaultDeviceID() -> AudioDeviceID? {
@@ -146,12 +193,12 @@ final class AudioOutputDeviceManager {
         let status = AudioObjectGetPropertyData(
             AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &id
         )
-        return status == noErr ? id : nil
+        return status == noErr && id != kAudioObjectUnknown ? id : nil
     }
 
     // MARK: - Property helpers
 
-    private func readString(id: AudioDeviceID, selector: AudioObjectPropertySelector) -> String? {
+    private static func readString(id: AudioDeviceID, selector: AudioObjectPropertySelector) -> String? {
         var address = AudioObjectPropertyAddress(
             mSelector: selector,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -166,7 +213,7 @@ final class AudioOutputDeviceManager {
         return result as String
     }
 
-    private func readUInt32(id: AudioDeviceID, selector: AudioObjectPropertySelector) -> UInt32? {
+    private static func readUInt32(id: AudioDeviceID, selector: AudioObjectPropertySelector) -> UInt32? {
         var address = AudioObjectPropertyAddress(
             mSelector: selector,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -195,7 +242,10 @@ final class AudioOutputDeviceManager {
     /// 设备列表 / 系统默认设备变化时自动 refresh,不用调用方主动轮询。
     private func installListener() {
         let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            Task { @MainActor [weak self] in self?.refresh() }
+            Task { @MainActor [weak self] in
+                self?.refresh()
+                self?.onDevicesChanged?()
+            }
         }
 
         for selector in [kAudioHardwarePropertyDevices,

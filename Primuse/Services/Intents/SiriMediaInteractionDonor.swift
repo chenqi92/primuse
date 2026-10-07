@@ -190,6 +190,12 @@ enum SiriMediaInteractionDonor {
     /// Each call replaces the whole set for a vocabulary type, so podcast
     /// shows and stations, which share `.mediaShowTitle`, go in together.
     static func refreshCatalog(stationNames: [String], bookTitles: [String], podcastTitles: [String]) {
+        #if DEBUG
+        // Hardware tests do not register the host app's catalog with Siri.
+        if ProcessInfo.processInfo.environment["PRIMUSE_TEST_DISABLE_SHORTCUT_REGISTRATION"] == "1" {
+            return
+        }
+        #endif
         #if os(iOS)
         if SiriAuthorizationRuntime.status == .authorized {
             let vocabulary = INVocabulary.shared()

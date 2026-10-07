@@ -209,6 +209,11 @@ final class AudioEngine {
     @ObservationIgnored private var refusedPreferredSampleRates: (routeKey: String, rates: Set<Int>) = ("", [])
     #endif
     #if os(macOS)
+    @ObservationIgnored private let outputDefaults: UserDefaults
+    private(set) var followsSystemOutput: Bool
+    private(set) var selectedOutputDeviceUID: String?
+    @ObservationIgnored private let outputDeviceManager = AudioOutputDeviceManager()
+
     /// 直通图上一次写应用级输出音量是否成功。
     private(set) var directOutputVolumeIsSupported = false
     private let hardwareSampleRateNegotiator = HardwareSampleRateNegotiator()
@@ -274,6 +279,7 @@ final class AudioEngine {
     #if os(macOS)
     /// A pinned route must be applied to AUHAL before graph formats are read.
     private var pendingGraphOutputDeviceID: AudioDeviceID?
+    private var configuredHardwareOutput: (deviceID: AudioDeviceID, format: AVAudioFormat, sampleRate: Double)?
     #endif
     private var headphoneMotionManager: CMHeadphoneMotionManager?
     private var transportFadeTask: Task<Void, Never>?
@@ -312,8 +318,17 @@ final class AudioEngine {
     /// this tracks the cumulative sample offset so currentTime resets to 0.
     var sampleTimeOffset: Int64 = 0
 
-    init(volumeDefaults: UserDefaults = .standard) {
+    init(volumeDefaults: UserDefaults = .standard, outputDefaults: UserDefaults = .standard) {
         self.volumeDefaults = volumeDefaults
+        #if os(macOS)
+        self.outputDefaults = outputDefaults
+        let savedOutputUID = outputDefaults.string(forKey: Self.outputDeviceUIDKey)
+        selectedOutputDeviceUID = savedOutputUID
+        // 旧版本只保存了 false，无法据此恢复一台具体设备。
+        followsSystemOutput = savedOutputUID == nil
+            || (outputDefaults.object(forKey: Self.followsSystemKey) as? Bool ?? true)
+        outputDeviceManager.onDevicesChanged = { [weak self] in self?.refreshOutputRouting() }
+        #endif
         #if !os(iOS)
         let saved = volumeDefaults.object(forKey: Self.volumeKey) as? Float ?? 1
         requestedVolume = saved.isFinite ? min(max(saved, 0), 1) : 1
@@ -382,15 +397,21 @@ final class AudioEngine {
             default: true
             }
         }()
+        #if os(macOS)
+        let outputDeviceChanged = isSetUp && currentOutputDeviceID != hardwareOutputDeviceID
+        #else
+        let outputDeviceChanged = false
+        #endif
         guard self.outputMode != outputMode
                 || formatChanged
+                || outputDeviceChanged
                 || self.usesDSDCarrier != normalizedDSDCarrier
                 || !isSetUp
                 || hardwareConfigurationRecoveryState.requiresGraphRebuild else { return }
 
         #if os(macOS)
         let wasFollowingSystem = followsSystemOutput
-        let previousDevice = wasFollowingSystem ? exclusiveOutputDeviceID : currentOutputDeviceID
+        let previousDevice = wasFollowingSystem ? exclusiveOutputDeviceID : hardwareOutputDeviceID
         #endif
 
         tearDownGraph()
@@ -410,6 +431,19 @@ final class AudioEngine {
     /// The actual teardown happens later in `configure`, never on the engine's
     /// internal notification queue.
     func markHardwareConfigurationChanged() {
+        #if os(macOS)
+        // 绑定非默认设备本身也会异步发通知。格式没变时只需重新调度曲目，
+        // 反复新建并绑定输出单元会再次触发同一通知，使播放恢复陷入循环。
+        if let engine, let configuredHardwareOutput,
+           currentOutputDeviceID == configuredHardwareOutput.deviceID,
+           engine.outputNode.outputFormat(forBus: 0) == configuredHardwareOutput.format,
+           abs(Self.nominalSampleRate(deviceID: configuredHardwareOutput.deviceID)
+               - configuredHardwareOutput.sampleRate) < 1 {
+            refreshObservedOutputSampleRate()
+            applyRequestedVolumeToGraph()
+            return
+        }
+        #endif
         hardwareConfigurationRecoveryState.configurationChanged()
         refreshObservedOutputSampleRate()
         // 换设备 / 换采样率会重建输出单元，应用音量得重新写一遍，
@@ -442,6 +476,7 @@ final class AudioEngine {
         outputFormat = nil
         #if os(macOS)
         directOutputVolumeIsSupported = false
+        configuredHardwareOutput = nil
         scheduleExclusiveOutputIdleRelease()
         #endif
         isSetUp = false
@@ -453,6 +488,15 @@ final class AudioEngine {
     func setUp() throws {
         guard !isSetUp else { return }
 
+        #if os(macOS)
+        defer {
+            if isSetUp, let engine, let deviceID = currentOutputDeviceID {
+                configuredHardwareOutput = (deviceID, engine.outputNode.outputFormat(forBus: 0),
+                                            Self.nominalSampleRate(deviceID: deviceID))
+            }
+        }
+        #endif
+
         nodeRegistry.resetTimeline(for: .primary)
         nodeRegistry.resetTimeline(for: .crossfade)
 
@@ -461,8 +505,9 @@ final class AudioEngine {
         let playerB = AVAudioPlayerNode()
 
         #if os(macOS)
-        if let pendingGraphOutputDeviceID {
-            try Self.applyOutputDevice(pendingGraphOutputDeviceID, to: eng)
+        if let deviceID = pendingGraphOutputDeviceID
+            ?? (followsSystemOutput ? exclusiveOutputDeviceID : hardwareOutputDeviceID) {
+            try Self.applyOutputDevice(deviceID, to: eng)
         }
         #endif
 
@@ -585,11 +630,6 @@ final class AudioEngine {
         self.isSetUp = true
         applySpatialAudioConfiguration()
         restoreVolume()
-        // 注意: 不要在这里把 output unit 钉到任何设备。新建的 AVAudioEngine
-        // 默认就跟随系统默认输出设备(并随系统切换而切换), 这正是「跟随系统」
-        // 想要的行为。之前在此调用 restoreOutputRouting() 把 CurrentDevice 设成
-        // kAudioObjectUnknown(0), 反而让 AUHAL 失去有效设备, engine 启动直接报
-        // -10875, 所有播放(本地/NAS/云盘)全部失败。
     }
 
     // MARK: - Engine Control
@@ -828,9 +868,32 @@ final class AudioEngine {
     }
 
     private var hardwareOutputDeviceID: AudioDeviceID? {
+        if !followsSystemOutput {
+            return selectedOutputDeviceID ?? exclusiveOutputDeviceID ?? Self.systemDefaultOutputDeviceID()
+        }
         if let exclusiveOutputDeviceID { return exclusiveOutputDeviceID }
-        if followsSystemOutput { return Self.systemDefaultOutputDeviceID() }
-        return currentOutputDeviceID ?? Self.systemDefaultOutputDeviceID()
+        return Self.systemDefaultOutputDeviceID()
+    }
+
+    /// 保存稳定 UID，使用时解析当前 HAL ID；设备拔掉时保留偏好以便重新接入。
+    var selectedOutputDeviceID: AudioDeviceID? {
+        guard !followsSystemOutput, let selectedOutputDeviceUID,
+              let id = AudioOutputDeviceManager.deviceID(forUID: selectedOutputDeviceUID),
+              Self.deviceIsAlive(id) else { return nil }
+        return id
+    }
+
+    /// HAL 可能在拔插时临时回退，偏好与正在运行的图必须重新对齐。
+    func refreshOutputRouting() {
+        refreshObservedOutputSampleRate()
+        guard engine != nil, let deviceID = hardwareOutputDeviceID,
+              currentOutputDeviceID != deviceID else { return }
+        do {
+            try replaceOutputGraph(deviceID: deviceID)
+            NotificationCenter.default.post(name: .primuseAudioOutputSelectionDidChange, object: nil)
+        } catch {
+            plog("⚠️ Could not restore output device=\(deviceID): \(error.localizedDescription)")
+        }
     }
 
     /// 正独占的设备；跟随系统输出时还包括这一轮独占认定的设备(暂停后放掉了也算)。
@@ -1044,7 +1107,30 @@ final class AudioEngine {
         _ deviceID: AudioDeviceID,
         to engine: AVAudioEngine
     ) throws {
-        guard let outputUnit = engine.outputNode.audioUnit else { return }
+        guard let outputUnit = engine.outputNode.audioUnit else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(kAudioUnitErr_Uninitialized))
+        }
+        // 唯一输出被独占时，系统默认设备暂时为空，新输出单元会关闭 I/O。
+        // 只设置 CurrentDevice 不会重新开启，播放节点会一直等不到渲染周期。
+        var outputEnabled: UInt32 = 0
+        var outputEnabledSize = UInt32(MemoryLayout<UInt32>.size)
+        let readStatus = AudioUnitGetProperty(
+            outputUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output,
+            0, &outputEnabled, &outputEnabledSize
+        )
+        guard readStatus == noErr else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(readStatus))
+        }
+        if outputEnabled == 0 {
+            outputEnabled = 1
+            let enableStatus = AudioUnitSetProperty(
+                outputUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output,
+                0, &outputEnabled, UInt32(MemoryLayout<UInt32>.size)
+            )
+            guard enableStatus == noErr else {
+                throw NSError(domain: NSOSStatusErrorDomain, code: Int(enableStatus))
+            }
+        }
         var id = deviceID
         let status = AudioUnitSetProperty(
             outputUnit,
@@ -1064,20 +1150,53 @@ final class AudioEngine {
         }
     }
 
+    /// 先停止旧图，再在新输出单元上绑定设备。修改旧单元后立即销毁会与
+    /// HAL 尚未处理完的设备通知竞争，独占切换时可能被拒绝或卡在读硬件格式。
+    private func replaceOutputGraph(deviceID: AudioDeviceID) throws {
+        guard !isSetUp || currentOutputDeviceID != deviceID else { return }
+        let shouldHoldExclusive = exclusiveOutputRequested && outputMode == .highFidelity && isPlaying
+        let previousDevice = hardwareOutputDeviceID
+        tearDownGraph()
+        if exclusiveOutputController.heldDeviceID != deviceID {
+            releaseExclusiveOutput(restoringFormats: true)
+        }
+        if shouldHoldExclusive { claimExclusiveOutput(deviceID: deviceID) }
+        pendingGraphOutputDeviceID = deviceID
+        defer {
+            pendingGraphOutputDeviceID = nil
+            // 暂停时也要使旧调度失效，下次恢复才会重新送入当前曲目。
+            if let engine {
+                NotificationCenter.default.post(name: .AVAudioEngineConfigurationChange, object: engine)
+            }
+        }
+        do {
+            try setUp()
+            hardwareConfigurationRecoveryState.graphRebuiltSuccessfully()
+        } catch {
+            releaseExclusiveOutput(restoringFormats: true)
+            pendingGraphOutputDeviceID = previousDevice
+            try? setUp()
+            throw error
+        }
+    }
+
     /// 把这个 app 的音频输出切到指定的 Core Audio 设备。系统默认输出
     /// 不变 —— 这只影响 Primuse 自己。设备 ID 来自 AudioOutputDeviceManager,
     /// 通常对应内置扬声器、AirPlay 接收器(HomePod / Apple TV)、蓝牙
     /// 耳机等。设备拔掉后会自动回退到系统默认。
     func setOutputDevice(deviceID: AudioDeviceID) throws {
-        try setUp()
-        guard let engine else { return }
-        // 换设备前把旧设备的独占和位深还回去；还在播就去拿新设备。
-        releaseExclusiveOutput(restoringFormats: true)
-        try Self.applyOutputDevice(deviceID, to: engine)
+        guard let uid = AudioOutputDeviceManager.deviceUID(for: deviceID),
+              AudioOutputDeviceManager.deviceID(forUID: uid) == deviceID,
+              Self.deviceIsAlive(deviceID) else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(kAudioHardwareBadDeviceError))
+        }
+        try replaceOutputGraph(deviceID: deviceID)
         // 显式钉到了某设备, 退出跟随系统状态并持久化。
-        UserDefaults.standard.set(false, forKey: Self.followsSystemKey)
-        markHardwareConfigurationChanged()
-        if isActuallyPlaying { claimExclusiveOutputIfRequested() }
+        selectedOutputDeviceUID = uid
+        followsSystemOutput = false
+        outputDefaults.set(uid, forKey: Self.outputDeviceUIDKey)
+        outputDefaults.set(false, forKey: Self.followsSystemKey)
+        refreshObservedOutputSampleRate()
         NotificationCenter.default.post(name: .primuseAudioOutputSelectionDidChange, object: nil)
     }
 
@@ -1088,54 +1207,22 @@ final class AudioEngine {
     /// ⚠️ 不能把 CurrentDevice 设成 kAudioObjectUnknown(0): 那不是「跟随默认」,
     /// 而是让 AUHAL 失去有效设备, engine 启动直接报 -10875、所有播放失败。
     func followSystemOutput() throws {
-        try setUp()
-        UserDefaults.standard.set(true, forKey: Self.followsSystemKey)
-        defer { NotificationCenter.default.post(name: .primuseAudioOutputSelectionDidChange, object: nil) }
-        guard let engine, let outputUnit = engine.outputNode.audioUnit else { return }
-
-        var addr = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var defaultID = AudioDeviceID(kAudioObjectUnknown)
-        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        let getStatus = AudioObjectGetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &defaultID
-        )
-        // 取不到真实默认设备就别动 output unit, 维持 AUHAL 既有(默认)路由。
-        guard getStatus == noErr, defaultID != AudioDeviceID(kAudioObjectUnknown) else { return }
-        releaseExclusiveOutput(restoringFormats: true)
-
-        var id = defaultID
-        let status = AudioUnitSetProperty(
-            outputUnit,
-            kAudioOutputUnitProperty_CurrentDevice,
-            kAudioUnitScope_Global,
-            0,
-            &id,
-            UInt32(MemoryLayout<AudioDeviceID>.size)
-        )
-        if status != noErr {
-            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status), userInfo: [
-                NSLocalizedDescriptionKey: String(
-                    format: String(localized: "audio_output_error_follow_system %d"),
-                    status
-                )
-            ])
+        guard let defaultID = Self.systemDefaultOutputDeviceID() else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(kAudioHardwareBadDeviceError))
         }
-        markHardwareConfigurationChanged()
-        if isActuallyPlaying { claimExclusiveOutputIfRequested() }
-    }
-
-    /// 用户上次是否选了「跟随系统」。默认 true(从未显式钉过设备就是跟随)。
-    var followsSystemOutput: Bool {
-        UserDefaults.standard.object(forKey: Self.followsSystemKey) as? Bool ?? true
+        try replaceOutputGraph(deviceID: defaultID)
+        followsSystemOutput = true
+        selectedOutputDeviceUID = nil
+        outputDefaults.set(true, forKey: Self.followsSystemKey)
+        outputDefaults.removeObject(forKey: Self.outputDeviceUIDKey)
+        refreshObservedOutputSampleRate()
+        NotificationCenter.default.post(name: .primuseAudioOutputSelectionDidChange, object: nil)
     }
 
     private static let followsSystemKey = "primuse_output_follows_system"
+    private static let outputDeviceUIDKey = "primuse_output_device_uid"
 
-    /// 取当前 audio unit 在用的设备 ID,用于在 picker 里高亮当前选中项。
+    /// 只回读实际音频单元；切换过程中的旧值不能覆盖用户选择。
     var currentOutputDeviceID: AudioDeviceID? {
         guard let engine, let outputUnit = engine.outputNode.audioUnit else { return nil }
         var id: AudioDeviceID = 0
@@ -1148,7 +1235,7 @@ final class AudioEngine {
             &id,
             &size
         )
-        return status == noErr ? id : nil
+        return status == noErr && id != kAudioObjectUnknown ? id : nil
     }
 
     // MARK: - Exclusive output (macOS only)
@@ -1163,7 +1250,7 @@ final class AudioEngine {
         // 跟随系统输出时，第一次拿设备要等配图那一步把图钉在设备上之后再拿。
         guard !followsSystemOutput || exclusiveSessionDeviceID != nil,
               let deviceID = hardwareOutputDeviceID else { return }
-        if followsSystemOutput, let engine, currentOutputDeviceID != deviceID {
+        if let engine, currentOutputDeviceID != deviceID {
             // 暂停时用户换了系统输出：先把图挪过去再拿。
             do {
                 try Self.applyOutputDevice(deviceID, to: engine)
@@ -1200,7 +1287,14 @@ final class AudioEngine {
             hardwareConfigurationRecoveryState.configurationChanged()
             observeSystemDefaultOutput()
         }
+        let previouslyHeldDevice = exclusiveOutputController.heldDeviceID
         claimExclusiveOutput(deviceID: deviceID)
+        if previouslyHeldDevice != deviceID,
+           exclusiveOutputController.heldDeviceID == deviceID {
+            // 拿下独占会改变系统默认路由；旧输出单元可能已经被 HAL 挪走，
+            // 必须在独占生效后重新绑定，不能沿用拿独占之前创建的图。
+            hardwareConfigurationRecoveryState.configurationChanged()
+        }
         if !isActuallyPlaying { scheduleExclusiveOutputIdleRelease() }
     }
 
@@ -1494,6 +1588,11 @@ final class AudioEngine {
     func play() -> Bool {
         cancelTransportFade(restoreVolume: true)
         cancelEngineIdleShutdown()
+        #if os(macOS)
+        defer {
+            if !isPlaying { scheduleExclusiveOutputIdleRelease() }
+        }
+        #endif
         if engine == nil || !isSetUp {
             do { try setUp() } catch {
                 plog("Failed to set up engine: \(error)")

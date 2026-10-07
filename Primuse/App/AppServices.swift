@@ -1545,6 +1545,10 @@ final class AppServices {
     func completeDeferredStartup() async {
         guard !didCompleteDeferredStartup else { return }
         didCompleteDeferredStartup = true
+        #if DEBUG && os(macOS)
+        // 原生音频测试使用独立偏好和静音缓冲，不恢复宿主的曲库播放任务。
+        if ProcessInfo.processInfo.environment["PRIMUSE_TEST_ISOLATE_AUDIO"] == "1" { return }
+        #endif
         // Stage 2: 播放恢复、源/歌曲对账、修剪、PhoneRelay、Navidrome 冷刷新
         // 全都读库。等发布完成再开工 —— 等待时间不计入下面的耗时统计, 这样
         // `🚀 deferred startup` 的含义与历史版本保持一致。

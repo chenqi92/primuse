@@ -6241,7 +6241,6 @@ private struct MacSTThemeView: View {
     @State private var preferences = MacUIPreferences.shared
     @Environment(ThemeService.self) private var themeService
     @Environment(AudioPlayerService.self) private var player
-    @State private var autoDetectMaterial = true
     @AppStorage("primuse.home.showRadio") private var showRadioOnHome = true
     @AppStorage("primuse.home.showRecentlyAdded") private var showRecentlyAddedOnHome = true
     @AppStorage(AlbumRecommendationService.homeVisibilityKey) private var showAlbumPickOnHome = true
@@ -6510,7 +6509,7 @@ private struct MacSTThemeView: View {
                     macos: String(localized: "material_macos_26_or_later"),
                     selected: preferences.appearance == .glass
                 ) {
-                    preferences.appearance = .glass
+                    preferences.selectAppearance(.glass)
                 }
                 MacMaterialCard(
                     title: String(localized: "material_classic"),
@@ -6518,7 +6517,7 @@ private struct MacSTThemeView: View {
                     macos: String(localized: "material_macos_14_or_later"),
                     selected: preferences.appearance == .classic
                 ) {
-                    preferences.appearance = .classic
+                    preferences.selectAppearance(.classic)
                 }
             }
 
@@ -6526,7 +6525,7 @@ private struct MacSTThemeView: View {
                 MacSTRow(Lz("Detect macOS version automatically at launch"),
                          hint: String(localized: "material_auto_desc"),
                          divider: false) {
-                    MacSTToggle(isOn: $autoDetectMaterial)
+                    MacSTToggle(isOn: $preferences.autoDetectMaterial)
                 }
                 .settingsAnchor("appearance.autoMaterial")
             }

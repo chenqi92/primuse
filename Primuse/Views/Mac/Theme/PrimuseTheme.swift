@@ -1831,23 +1831,37 @@ extension Notification.Name {
 final class MacUIPreferences {
     static let shared = MacUIPreferences()
 
+    @ObservationIgnored private let defaults: UserDefaults
+    private let automaticAppearance: PMAppearanceMode
+
+    var autoDetectMaterial: Bool {
+        didSet {
+            defaults.set(autoDetectMaterial, forKey: Self.keyAutoDetectMaterial)
+            if autoDetectMaterial {
+                appearance = automaticAppearance
+            } else {
+                defaults.set(appearance.rawValue, forKey: Self.keyAppearance)
+            }
+        }
+    }
+
     var appearance: PMAppearanceMode {
-        didSet { UserDefaults.standard.set(appearance.rawValue, forKey: Self.keyAppearance) }
+        didSet { defaults.set(appearance.rawValue, forKey: Self.keyAppearance) }
     }
     var lyricsFontScale: CGFloat {
-        didSet { UserDefaults.standard.set(Double(lyricsFontScale), forKey: Self.keyLyricsScale) }
+        didSet { defaults.set(Double(lyricsFontScale), forKey: Self.keyLyricsScale) }
     }
     var sidebarWidth: CGFloat {
-        didSet { UserDefaults.standard.set(Double(sidebarWidth), forKey: Self.keySidebarWidth) }
+        didSet { defaults.set(Double(sidebarWidth), forKey: Self.keySidebarWidth) }
     }
     var themeColorMode: AppThemeColorMode {
         didSet {
-            UserDefaults.standard.set(themeColorMode.rawValue, forKey: AppThemePreferences.colorModeKey)
+            defaults.set(themeColorMode.rawValue, forKey: AppThemePreferences.colorModeKey)
         }
     }
     var ambientStrength: Double {
         didSet {
-            UserDefaults.standard.set(
+            defaults.set(
                 AppThemePreferences.normalizedAmbientStrength(ambientStrength),
                 forKey: AppThemePreferences.ambientStrengthKey
             )
@@ -1855,7 +1869,7 @@ final class MacUIPreferences {
     }
     var coverDrivenAmbient: Bool {
         didSet {
-            UserDefaults.standard.set(
+            defaults.set(
                 coverDrivenAmbient,
                 forKey: AppThemePreferences.coverDrivenAmbientKey
             )
@@ -1865,7 +1879,7 @@ final class MacUIPreferences {
     /// 品牌色十六进制 (无 #)。驱动 `PMColor.brand`。
     var brandColorHex: String {
         didSet {
-            UserDefaults.standard.set(
+            defaults.set(
                 AppThemePreferences.normalizedHex(brandColorHex, fallback: Self.defaultBrandHex),
                 forKey: AppThemePreferences.accentHexKey
             )
@@ -1874,7 +1888,7 @@ final class MacUIPreferences {
     /// 明暗模式覆盖。didSet 立即应用到 NSApp.appearance。
     var colorScheme: PMColorSchemeOverride {
         didSet {
-            UserDefaults.standard.set(colorScheme.rawValue, forKey: Self.keyColorScheme)
+            defaults.set(colorScheme.rawValue, forKey: Self.keyColorScheme)
             applyColorScheme()
             applyAppIcon()
         }
@@ -1882,7 +1896,7 @@ final class MacUIPreferences {
     /// 当前 App 图标 id ("" = 默认)。didSet 立即换 dock 图标。
     var appIconID: String {
         didSet {
-            UserDefaults.standard.set(appIconID, forKey: Self.keyAppIcon)
+            defaults.set(appIconID, forKey: Self.keyAppIcon)
             applyAppIcon()
         }
     }
@@ -1901,6 +1915,7 @@ final class MacUIPreferences {
     }
 
     private static let keyAppearance   = "pm.mac.appearance"
+    private static let keyAutoDetectMaterial = "pm.mac.autoDetectMaterial"
     private static let keyLyricsScale  = "pm.mac.lyricsScale"
     private static let keySidebarWidth = "pm.mac.sidebarWidth"
     private static let legacyAmbientKey = "pm.mac.ambientStrength"
@@ -1911,8 +1926,16 @@ final class MacUIPreferences {
 
     static let defaultBrandHex = "C96442"
 
-    private init() {
-        let d = UserDefaults.standard
+    init(defaults: UserDefaults = .standard,
+         operatingSystemMajorVersion: Int = ProcessInfo.processInfo.operatingSystemVersion.majorVersion) {
+        self.defaults = defaults
+        let d = defaults
+        let automatic: PMAppearanceMode = operatingSystemMajorVersion >= 26 ? .glass : .classic
+        automaticAppearance = automatic
+        // 老版本只保存手选材质；升级时保留这个选择。
+        let detectsAutomatically = d.object(forKey: Self.keyAutoDetectMaterial) as? Bool
+            ?? (d.object(forKey: Self.keyAppearance) == nil)
+        autoDetectMaterial = detectsAutomatically
         if d.object(forKey: AppThemePreferences.ambientStrengthKey) == nil {
             d.set(
                 d.object(forKey: Self.legacyAmbientKey) as? Double
@@ -1933,7 +1956,8 @@ final class MacUIPreferences {
                 forKey: AppThemePreferences.accentHexKey
             )
         }
-        appearance = PMAppearanceMode(rawValue: d.string(forKey: Self.keyAppearance) ?? "") ?? .glass
+        appearance = detectsAutomatically ? automatic
+            : PMAppearanceMode(rawValue: d.string(forKey: Self.keyAppearance) ?? "") ?? automatic
         let scale = d.object(forKey: Self.keyLyricsScale) as? Double ?? 1.0
         lyricsFontScale = CGFloat(max(0.7, min(1.8, scale)))
         let width = d.object(forKey: Self.keySidebarWidth) as? Double ?? Double(PMSize.sidebarDefault)
@@ -1961,6 +1985,11 @@ final class MacUIPreferences {
         d.set(themeColorMode.rawValue, forKey: AppThemePreferences.colorModeKey)
         d.set(coverDrivenAmbient, forKey: AppThemePreferences.coverDrivenAmbientKey)
         d.set(brandColorHex, forKey: AppThemePreferences.accentHexKey)
+    }
+
+    func selectAppearance(_ mode: PMAppearanceMode) {
+        autoDetectMaterial = false
+        appearance = mode
     }
 
     /// 启动时把持久化的明暗模式 + App 图标重放一遍 (didSet 在 init 期不触发,

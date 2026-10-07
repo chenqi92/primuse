@@ -1519,6 +1519,8 @@ extension AudioPlayerService {
                     }
                 }
 
+                // 被新恢复请求取消的流也会以 nil 结束，不能把它当成当前曲目播完。
+                guard !Task.isCancelled, playID == id else { return }
                 guard let firstBuffer = firstPlayableBuffer else {
                     isLoading = false
                     isPlaying = false

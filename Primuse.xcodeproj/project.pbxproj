@@ -1318,6 +1318,7 @@
 		B632323F4CD174F65FBDFB41 /* ServerSongIdentityCarryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E3F1B3B62DB4C68515CC8A0 /* ServerSongIdentityCarryPolicy.swift */; };
 		B6335813F1208FBA370C8787 /* StreamingDownloadDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF7F66F30F1802BA29DEB696 /* StreamingDownloadDecoder.swift */; };
 		B6478D5D5A143841A9E7CBA3 /* MusicLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2105927D98B1DF9885EB81 /* MusicLibrary.swift */; };
+		B657A64A7C5FE4309841ECDD /* MacOutputRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B98343D8D4AAF97AB9D565E8 /* MacOutputRoutingTests.swift */; };
 		B65DC3C2BA53616ED86C7C90 /* AlbumArtistBrowsing.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3F5118298859B35A67F4604 /* AlbumArtistBrowsing.swift */; };
 		B6663806896F90F19D002268 /* ServerRatingSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 768DC109DF16CF8B7E056C1F /* ServerRatingSyncTests.swift */; };
 		B678A94A106E8D8FB032DE4F /* CloudDirectoryNameStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6603576133F7798EFB9267D0 /* CloudDirectoryNameStore.swift */; };
@@ -3054,6 +3055,7 @@
 		B8FE29DD8C9B3D2E0893EB09 /* LibrarySnapshotBackupPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySnapshotBackupPolicy.swift; sourceTree = "<group>"; };
 		B903FEF98222B2BA1260F2C2 /* pt-BR */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "pt-BR"; path = "pt-BR.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		B9132BF505724803056C5619 /* ListeningSpacePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningSpacePolicy.swift; sourceTree = "<group>"; };
+		B98343D8D4AAF97AB9D565E8 /* MacOutputRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacOutputRoutingTests.swift; sourceTree = "<group>"; };
 		B988B30AA63E3B533633AD5F /* FormSafeQueryURLBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormSafeQueryURLBuilder.swift; sourceTree = "<group>"; };
 		B98E3B3E433D066686B99DE6 /* KaraokeWordTiming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaraokeWordTiming.swift; sourceTree = "<group>"; };
 		B99ED51F74285E9A16E30BBA /* uk */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = uk; path = uk.lproj/HomeDiscovery.strings; sourceTree = "<group>"; };
@@ -3812,6 +3814,7 @@
 			isa = PBXGroup;
 			children = (
 				F845ACAEAB047249A14588F7 /* AIStreamingIntegrationTests.swift */,
+				B98343D8D4AAF97AB9D565E8 /* MacOutputRoutingTests.swift */,
 				8A329CA93AC88CAE08B84F0A /* MacResourceRegressionTests.swift */,
 				42D2B0104781E7C41DDF6677 /* MacSongTableAndIconTests.swift */,
 				F87C23687A99BD4C594B6B2E /* MacVolumeSliderTests.swift */,
@@ -6430,6 +6433,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				78D190AF5491B9C620755A08 /* AIStreamingIntegrationTests.swift in Sources */,
+				B657A64A7C5FE4309841ECDD /* MacOutputRoutingTests.swift in Sources */,
 				EEF9A313CE3B945DAACA62F0 /* MacResourceRegressionTests.swift in Sources */,
 				0C15AFF7838FC33E24127184 /* MacSongTableAndIconTests.swift in Sources */,
 				4DC0539B60873695B56A4A2E /* MacVolumeSliderTests.swift in Sources */,
