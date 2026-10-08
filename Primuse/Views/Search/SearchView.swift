@@ -1251,6 +1251,8 @@ struct SearchView: View {
             #endif
             iosSearchResults
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // 一滑结果就收起键盘，搜索词留在框里，点搜索框再弹出来。
+                .scrollDismissesKeyboard(.immediately)
         }
         .navigationTitle(usesMinimalNavigation || !isSearchEditing ? Text("") : Text("search_title"))
         .toolbarTitleDisplayMode(usesMinimalNavigation || !isSearchEditing ? .inline : .inlineLarge)
