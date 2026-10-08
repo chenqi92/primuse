@@ -5494,3 +5494,24 @@
 "library_insight_batch_result_failed_format" = "فشل %d";
 "library_insight_batch_result_left_format" = "تبقّى %d";
 "library_insight_batch_setup_own" = "إعداد خدمة الذكاء الاصطناعي الخاصة بك";
+
+/* 播放时间段 */
+"playback_range_title" = "نطاق التشغيل";
+"playback_range_set" = "تعيين نطاق التشغيل…";
+"playback_range_edit" = "تعديل نطاق التشغيل…";
+"playback_range_toggle" = "تشغيل هذا النطاق فقط";
+"playback_range_summary %@ %@" = "%1$@ · المدة %2$@";
+"playback_range_start" = "البداية";
+"playback_range_end" = "النهاية";
+"playback_range_set_to_current" = "استخدام الموضع الحالي";
+"playback_range_preview_start" = "معاينة البداية";
+"playback_range_preview_end" = "معاينة النهاية";
+"playback_range_clear" = "مسح النطاق";
+"playback_range_footer" = "عند تفعيله، تبدأ هذه الأغنية من وقت البداية وتُعدّ منتهية عند وقت النهاية، ثم تُشغَّل الأغنية التالية. يعيد «تكرار أغنية واحدة» تشغيل النطاق. تبقى الكلمات والتقدّم على توقيت الأغنية كاملة.";
+"playback_range_unknown_duration" = "مدة هذه الأغنية غير معروفة بعد. شغّلها مرة واحدة ثم عيّن النطاق.";
+"playback_range_nudge_earlier" = "قبل ثانية واحدة";
+"playback_range_nudge_later" = "بعد ثانية واحدة";
+"playback_range_turn_on %@" = "تفعيل نطاق التشغيل (%@)";
+"playback_range_turn_off %@" = "إيقاف نطاق التشغيل (%@)";
+"playback_range_minus_seconds %lld" = "−%lld ث";
+"playback_range_plus_seconds %lld" = "+%lld ث";

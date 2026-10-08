@@ -28,6 +28,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var showScrapeOptions = false
     @State private var showNoScraperSourceAlert = false
     @State private var showSongInfo = false
+    /// 播放时间段编辑面板的目标(整首);打开时冻结,自然切歌后仍改这一首。
+    @State private var playbackRangeEditorSong: Song?
     @State private var shareSong: Song?
     @State private var showTagEditor = false
     @State private var lyricsEditorTargetSong: Song?
@@ -110,6 +112,9 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             if let song = player.currentSong {
                 SongInfoSheet(song: song)
             }
+        }
+        .sheet(item: $playbackRangeEditorSong) { song in
+            SongPlaybackRangeEditor(song: song)
         }
         .sheet(isPresented: $showChapterList) {
             SpokenWordContentsView()
@@ -292,6 +297,20 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 menuRow(title: isCurrentDisliked ? "song_undislike" : "song_dislike",
                         symbol: isCurrentDisliked ? "hand.thumbsdown.fill" : "hand.thumbsdown") {
                     player.toggleDislikeForCurrentSong()
+                }
+            }
+            if let rangeSong = playbackRangeSong {
+                // 播放时间段:设过时这一行就是开关(行尾写着时间段,开着打勾),
+                // 下面一行编辑;没设过时只有「设置播放时间段…」。
+                if let range = SongPlaybackRangeStore.shared.range(for: rangeSong) {
+                    playbackRangeToggleRow(song: rangeSong, range: range)
+                    menuRow(title: "playback_range_edit", symbol: "slider.horizontal.3") {
+                        playbackRangeEditorSong = rangeSong
+                    }
+                } else {
+                    menuRow(title: "playback_range_set", symbol: "selection.pin.in.out") {
+                        playbackRangeEditorSong = rangeSong
+                    }
                 }
             }
             if isPodcastEpisode {
@@ -599,6 +618,47 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isChecked ? [.isToggle, .isSelected] : .isToggle)
+    }
+
+    /// 能设播放时间段的当前歌曲(整首);有声内容、Apple Music、电台没有这一项。
+    private var playbackRangeSong: Song? {
+        guard !player.isAppleMusicMode, !player.isLiveRadio, !player.currentItemIsSpokenWord,
+              let song = player.currentSong?.withoutAppliedPlaybackRange,
+              SongPlaybackRangeAvailability.supports(song) else { return nil }
+        return song
+    }
+
+    /// 播放时间段的开关行:与 `checkRow` 同一画法,标题后面多写一个时间段。
+    private func playbackRangeToggleRow(song: Song, range: SongPlaybackRange) -> some View {
+        Button {
+            SongPlaybackRangeStore.shared.setEnabled(!range.isEnabled, for: song)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "selection.pin.in.out")
+                    .frame(width: 18)
+                    .foregroundStyle(PMColor.textMuted)
+                Text("playback_range_title")
+                    .font(.callout)
+                    .foregroundStyle(PMColor.text)
+                    .layoutPriority(1)
+                Spacer(minLength: 8)
+                Text(verbatim: SongPlaybackRangePolicy.rangeLabel(range))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+                Image(systemName: "checkmark")
+                    .font(.caption)
+                    .foregroundStyle(PMColor.brand)
+                    .opacity(range.isEnabled ? 1 : 0)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .pmRowBackground(cornerRadius: 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("playback_range_title"))
+        .accessibilityValue(Text(verbatim: SongPlaybackRangePolicy.rangeLabel(range)))
+        .accessibilityAddTraits(range.isEnabled ? [.isToggle, .isSelected] : .isToggle)
     }
 
     private func divider() -> some View {

@@ -355,10 +355,13 @@ extension AudioPlayerService {
         // A medley slice is timed by its own window: the silence profile and
         // the structure analysis cached for the song describe the whole file.
         let isMedleySlice = isMedleyActive && songID.map { medleySongIDs.contains($0) } == true
-        let silenceProfile = isMedleySlice ? nil : songID.flatMap { silenceProfiles[$0] }
+        // A song playing its playback range ends at the range end; what was
+        // measured for the song describes the whole file.
+        let isWindowed = isMedleySlice || currentSong?.appliedPlaybackRange != nil
+        let silenceProfile = isWindowed ? nil : songID.flatMap { silenceProfiles[$0] }
         let analyzedDuration = silenceProfile?.playableDuration
         let nominalDuration = duration > 0 ? duration : (analyzedDuration ?? 0)
-        let smartMixAnalysis = settings.crossfadeMode == .smart && !isMedleySlice
+        let smartMixAnalysis = settings.crossfadeMode == .smart && !isWindowed
             ? songID.flatMap { smartMixAnalyses[$0] }
             : nil
         let requestedOverlap = isMedleyActive
@@ -501,7 +504,7 @@ extension AudioPlayerService {
             failCrossfadeAttempt(attemptID)
             return
         }
-        let nextSong = nextEntry.song
+        let nextSong = songApplyingPlaybackRange(nextEntry.song)
         guard shouldBypassContinuousAudioTransition(for: nextSong) == false else {
             failCrossfadeAttempt(attemptID)
             return
@@ -667,6 +670,8 @@ extension AudioPlayerService {
             lastCommittedCrossfadeAttemptID = attemptID
             let nextPlayID = UUID()
             let activatedSong = songRefreshingLatestDuration(nextSong)
+            // The incoming clock starts at its playback range start, if any.
+            audioEngine.crossfadeTimelineOrigin = activatedSong.appliedPlaybackRange?.start ?? 0
             committedCrossfade = CommittedCrossfade(
                 attemptID: attemptID,
                 playID: nextPlayID,
@@ -692,9 +697,12 @@ extension AudioPlayerService {
                 applyQueueTraversalTarget(target)
             }
             currentSong = activatedSong
-            currentTime = 0
+            currentTime = activatedSong.appliedPlaybackRange?.start ?? 0
             duration = activatedSong.duration.sanitizedDuration
-            applyResolvedDuration(duration, toSongID: activatedSong.id)
+            // A range's end is not the song's length; the queue keeps the whole song.
+            if activatedSong.appliedPlaybackRange == nil {
+                applyResolvedDuration(duration, toSongID: activatedSong.id)
+            }
             library?.recordPlayback(of: activatedSong.id)
             ScrobbleService.shared.handlePlaybackStarted(song: activatedSong)
             PlayHistoryStore.shared.beginSession(song: activatedSong)
@@ -928,6 +936,8 @@ extension AudioPlayerService {
         plog("🔄 completeCrossfade: swap done, currentSong=\(nextSong.title)")
 
         if !nextSong.isCueTrack,
+           nextSong.appliedPlaybackRange == nil,
+           !medleySongIDs.contains(nextSong.id),
            nextDecoderKind != .cloudStream,
            nextDecoderKind != .httpStream,
            nextDecoderKind != .streaming {

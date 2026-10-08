@@ -1197,6 +1197,8 @@ final class AudioPlayerService {
     /// Songs in the queue that carry a medley slice rather than their own
     /// timeline. Their library rows must never learn the slice's length.
     @ObservationIgnored var medleySongIDs: Set<String> = []
+    /// Re-applies the current song's playback range shortly after it was edited.
+    @ObservationIgnored var playbackRangeRefreshTask: Task<Void, Never>?
     @ObservationIgnored var isInstallingMedleyQueue = false
 
     var displayLink: Timer?
@@ -1597,6 +1599,7 @@ final class AudioPlayerService {
                 self?.refreshRadioStationOrder()
             }
         }
+        observePlaybackRangeChanges()
     }
 
     func configurePlaybackMetadataBackfill(
@@ -3099,6 +3102,7 @@ final class AudioPlayerService {
     ) async -> ISOBaseMediaAudioProfile? {
         guard song.cueStartTime == nil,
               song.cueEndTime == nil,
+              song.appliedPlaybackRange == nil,
               [.m4a, .mp4, .alac].contains(song.fileFormat),
               !OfflineCompactArtifact.isCompactURL(url),
               !SourceManager.isTranscodedStreamURL(url),
@@ -3873,6 +3877,8 @@ final class AudioPlayerService {
     }
 
     func play(song: Song, caller: String = #fileID, callerLine: Int = #line) async {
+        // The listener's playback range, if one is on for this song.
+        let song = songApplyingPlaybackRange(song)
         guard isSourceEnabledForPlayback(song.sourceID) else {
             plog("⛔ Playback ignored for disabled source id=\(song.sourceID.prefix(8))… song=\(song.id.prefix(8))…")
             showPlaybackError(String(localized: "playback_error_source_disabled"))
@@ -4026,7 +4032,7 @@ final class AudioPlayerService {
 
         // Show new song in UI immediately (before download)
         currentSong = song
-        currentTime = 0
+        currentTime = song.appliedPlaybackRange?.start ?? 0
         duration = song.duration.sanitizedDuration
         isLoading = true
         isPlaying = false
@@ -4614,6 +4620,7 @@ final class AudioPlayerService {
         bypassSystemMediaPlayback: Bool = false,
         shouldRecordPlaybackStart: Bool = true
     ) async {
+        let song = songApplyingPlaybackRange(song)
         registerPlayIntent()
         let sourceStreamEpoch = CloudPlaybackSource.streamEpochTicket(
             sourceID: song.sourceID
@@ -5250,6 +5257,7 @@ final class AudioPlayerService {
                 republishNowPlayingSurfaces()
                 return
             }
+            audioEngine.timelineOrigin = song.appliedPlaybackRange?.start ?? 0
             let didStartPlayback = audioEngine.play()
             logPlayStage("playing", playID: id)
             plog("▶️ After play(): \(audioEngine.diagnosticInfo())")
@@ -5833,6 +5841,7 @@ final class AudioPlayerService {
                 republishNowPlayingSurfaces()
                 return
             }
+            audioEngine.timelineOrigin = song.appliedPlaybackRange?.start ?? 0
             let didStartPlayback = audioEngine.play()
             logPlayStage("playing (complete-file download)", playID: id)
             plog("🌊 Engine diagnostics after play: \(audioEngine.diagnosticInfo())")
@@ -5978,7 +5987,9 @@ final class AudioPlayerService {
     func makeResolveLengthCallback(for song: Song) -> @Sendable (TimeInterval) -> Void {
         let songID = song.id
         let songTitle = song.title
-        let storedDuration = song.duration
+        // A copy playing a range is as long as its range; the file is as
+        // long as the whole song.
+        let storedDuration = song.withoutAppliedPlaybackRange.duration
         let fileSize = song.fileSize
         let bitRate = song.bitRate
         let fileFormat = song.fileFormat
@@ -6037,8 +6048,9 @@ final class AudioPlayerService {
     /// Merge the newest usable duration immediately before playback ownership
     /// moves to that snapshot.
     func songRefreshingLatestDuration(_ song: Song) -> Song {
-        // A medley slice's duration is the slice, not the library's length.
-        guard !medleySongIDs.contains(song.id) else { return song }
+        // A medley slice's duration is the slice, not the library's length;
+        // a song playing its range ends at the range end.
+        guard !medleySongIDs.contains(song.id), song.appliedPlaybackRange == nil else { return song }
         var refreshed = song
         refreshed.duration = AudioDurationPolicy.playbackHandoffDuration(
             snapshot: song.duration,
@@ -6060,8 +6072,16 @@ final class AudioPlayerService {
 
         let updatedCurrentSong = currentSong?.id == songID
         if updatedCurrentSong {
-            duration = sanitized
-            currentSong?.duration = sanitized
+            if let applied = currentSong?.appliedPlaybackRange {
+                // Playing a range: the song still ends at the range end
+                // unless the file turned out shorter.
+                let end = min(applied.end, sanitized)
+                duration = end
+                currentSong?.duration = end
+            } else {
+                duration = sanitized
+                currentSong?.duration = sanitized
+            }
         }
         for index in queueEntries.indices where queueEntries[index].song.id == songID {
             queueEntries[index].song.duration = sanitized
@@ -6353,9 +6373,13 @@ final class AudioPlayerService {
     }
 
     /// Where the decoder should open `song`: the slice start for a medley
-    /// slice, otherwise the top of the file (CUE tracks keep decoding from
-    /// the image start and trimming, as before).
+    /// slice or the range start for a song playing its playback range,
+    /// otherwise the top of the file (CUE tracks keep decoding from the image
+    /// start and trimming, as before).
     func medleyDecoderStartTime(for song: Song) -> TimeInterval {
+        if song.appliedPlaybackRange != nil {
+            return max(0, song.playbackMediaWindow.start ?? 0)
+        }
         guard let start = song.cueStartTime, start > 0,
               medleySongIDs.contains(song.id) else { return 0 }
         return start
@@ -6366,10 +6390,11 @@ final class AudioPlayerService {
         for song: Song,
         sourceStartTime: TimeInterval = 0
     ) -> AudioBufferStream {
-        AudioSegmentStream.trim(
+        let window = song.playbackMediaWindow
+        return AudioSegmentStream.trim(
             stream,
-            startTime: song.cueStartTime.map { max(0, $0 - sourceStartTime) },
-            endTime: song.cueEndTime.map { max(0, $0 - sourceStartTime) }
+            startTime: window.start.map { max(0, $0 - sourceStartTime) },
+            endTime: window.end.map { max(0, $0 - sourceStartTime) }
         )
     }
 
@@ -6679,6 +6704,7 @@ final class AudioPlayerService {
                 republishNowPlayingSurfaces()
                 return
             }
+            audioEngine.timelineOrigin = song.appliedPlaybackRange?.start ?? 0
             let didStartPlayback = audioEngine.play()
             logPlayStage("playing (fallback decoder)", playID: id)
 

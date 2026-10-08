@@ -5494,3 +5494,24 @@
 "library_insight_batch_result_failed_format" = "%d विफल";
 "library_insight_batch_result_left_format" = "%d बाकी";
 "library_insight_batch_setup_own" = "अपनी AI सेवा सेट करें";
+
+/* 播放时间段 */
+"playback_range_title" = "प्लेबैक रेंज";
+"playback_range_set" = "प्लेबैक रेंज सेट करें…";
+"playback_range_edit" = "प्लेबैक रेंज संपादित करें…";
+"playback_range_toggle" = "सिर्फ़ यही रेंज चलाएँ";
+"playback_range_summary %@ %@" = "%1$@ · अवधि %2$@";
+"playback_range_start" = "शुरुआत";
+"playback_range_end" = "अंत";
+"playback_range_set_to_current" = "मौजूदा जगह इस्तेमाल करें";
+"playback_range_preview_start" = "शुरुआत सुनें";
+"playback_range_preview_end" = "अंत सुनें";
+"playback_range_clear" = "रेंज हटाएँ";
+"playback_range_footer" = "चालू होने पर यह गाना शुरुआत के समय से बजता है और अंत के समय पर पूरा माना जाता है, फिर अगला गाना बजता है। एक गाना दोहराएँ इस रेंज को फिर से बजाता है। बोल और प्रगति अब भी पूरे गाने के समय के हिसाब से चलते हैं।";
+"playback_range_unknown_duration" = "इस गाने की लंबाई अभी पता नहीं है। इसे एक बार चलाएँ, फिर रेंज सेट करें।";
+"playback_range_nudge_earlier" = "1 सेकंड पहले";
+"playback_range_nudge_later" = "1 सेकंड बाद";
+"playback_range_turn_on %@" = "प्लेबैक रेंज चालू करें (%@)";
+"playback_range_turn_off %@" = "प्लेबैक रेंज बंद करें (%@)";
+"playback_range_minus_seconds %lld" = "−%lld से.";
+"playback_range_plus_seconds %lld" = "+%lld से.";

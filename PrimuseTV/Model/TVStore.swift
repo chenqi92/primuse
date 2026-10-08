@@ -644,6 +644,7 @@ final class TVStore {
         observePlaybackHistoryChanges()
         observeRadioStoreChanges()
         observePlaybackChanges()
+        observePlaybackRangeChanges()
         metadataScraper.startObservingArtworkRestores()
         // 目录上的「有声」标签要按各源的路径写法匹配;装载曲库分类之前先交给它,
         // 否则标成有声的目录在电视上仍算音乐,随机播放会抽到有声书。
@@ -951,6 +952,10 @@ final class TVStore {
     /// 之后扫描、同步引起的重建不会让首页退回「加载中」。
     @ObservationIgnored private var hasBuiltLookupSinceLibraryReady = false
     @ObservationIgnored private var spokenWordClassificationObserver: NSObjectProtocol?
+    @ObservationIgnored private var playbackRangeObserver: NSObjectProtocol?
+    @ObservationIgnored private var playbackRangeRefreshTask: Task<Void, Never>?
+    /// The playback range the current selection plays, if any.
+    @ObservationIgnored private(set) var currentPlaybackRange: AppliedSongPlaybackRange?
     @ObservationIgnored private var normalPlaylistCacheRevision = -1
     @ObservationIgnored private var smartPlaylistCacheRevision = -1
     @ObservationIgnored private var smartPlaylistHistoryRevision = -1
@@ -6004,8 +6009,8 @@ final class TVStore {
             switchRadioStation(by: -1)
             return
         }
-        // 播过 3 秒先回到开头,否则切上一首。
-        if restartCurrentIfNeeded, currentTime > 3 { engine.seek(to: 0); return }
+        // 播过 3 秒先回到开头(播放时间段的开头),否则切上一首。
+        if restartCurrentIfNeeded, currentTime - engine.playbackFloor > 3 { engine.seek(to: 0); return }
         guard let previousIndex = QueueTraversalPolicy.previousAvailableIndex(
             before: queueIndex,
             isAvailable: { song(queue[$0]) != nil }
@@ -6117,7 +6122,15 @@ final class TVStore {
         scheduleAutoContinuationIfNeeded()
         // 换条之前先记下上一条有声内容听到哪了,时钟马上就要归零。
         rememberSpokenWordPosition(force: true)
-        let startTime = spokenWordStartTime(for: song, requested: resumeTime, isRecovery: isRecovery)
+        let spokenWordStart = spokenWordStartTime(for: song, requested: resumeTime, isRecovery: isRecovery)
+        // The listener's playback range: the song opens at its start (or
+        // resumes inside it) and ends at its end.
+        let rangedSong = playbackRangeSong(forSongID: song.id)
+        let playbackRange = rangedSong?.appliedPlaybackRange
+        currentPlaybackRange = playbackRange
+        let startTime = playbackRange.map {
+            SongPlaybackRangePolicy.startPosition(requested: spokenWordStart, in: $0)
+        } ?? spokenWordStart
         finishListeningSession()
         playbackRestoreAttempted = true
         if !isRecovery { playbackRecoveryAttempt = 0 }
@@ -6133,9 +6146,10 @@ final class TVStore {
         let requestID = UUID()
         activePlaybackRequestID = requestID
         playbackIssue = nil
-        engine.prepareForSelection(startAt: startTime)
+        engine.prepareForSelection(startAt: startTime, seekFloor: playbackRange?.start ?? 0)
 
         presentSelection(song, startTime: startTime)
+        if let rangedSong { nowPlaying.duration = rangedSong.duration }
         guard autoPlay || prepareWhenPaused else {
             engine.pause()
             return
@@ -6147,7 +6161,8 @@ final class TVStore {
                 requestID: requestID,
                 preferMusicVideo: self.isMusicVideoModeEnabled,
                 startAt: startTime,
-                autoPlay: autoPlay
+                autoPlay: autoPlay,
+                playbackSongOverride: rangedSong
             )
             guard self.isCurrentPlaybackRequest(
                 requestID,
@@ -7390,5 +7405,61 @@ extension TVStore {
             await StreamResolverRegistry.shared.invalidateSession(for: updated)
         }
         afterSourceMutation()
+    }
+}
+// MARK: - Playback range ("播放时间段")
+
+extension TVStore {
+    /// The copy the engine plays when `songID` has its playback range on: it
+    /// keeps the song's timeline and ends at the range end, which the engine
+    /// reads from the cue end like a CUE track's. Nil plays the whole song.
+    func playbackRangeSong(forSongID songID: String) -> Song? {
+        guard let song = library.song(id: songID),
+              supportsPlaybackRange(for: song),
+              !(isMusicVideoModeEnabled && song.mvPath != nil),
+              let applied = SongPlaybackRangeStore.shared.applied(for: song) else { return nil }
+        var copy = song.playing(applied)
+        copy.cueEndTime = copy.playbackMediaWindow.end
+        return copy
+    }
+
+    /// Whether the listener can set a playback range for `song`: songs this
+    /// engine decodes, not Apple Music, music videos or spoken word.
+    func supportsPlaybackRange(for song: Song) -> Bool {
+        song.sourceID != AppleMusicLibraryIdentity.sourceID
+            && !song.isStandaloneMusicVideo
+            && !PodcastPlaybackSong.isEpisode(song)
+            && !library.spokenWordSongIDs.contains(song.id)
+    }
+
+    fileprivate func observePlaybackRangeChanges() {
+        playbackRangeObserver = NotificationCenter.default.addObserver(
+            forName: .primuseSongPlaybackRangesDidChange, object: nil, queue: .main
+        ) { [weak self] notification in
+            let songIDs = notification.userInfo?["songIDs"] as? Set<String>
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                // The editor writes on every nudge; re-open the song once the
+                // listener pauses instead of on each press.
+                self.playbackRangeRefreshTask?.cancel()
+                self.playbackRangeRefreshTask = Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .milliseconds(600))
+                    guard !Task.isCancelled else { return }
+                    self?.refreshCurrentSongPlaybackRange(changedSongIDs: songIDs)
+                }
+            }
+        }
+    }
+
+    /// Re-opens the current song when its range was edited, switched or
+    /// cleared, keeping the position when it is still inside.
+    private func refreshCurrentSongPlaybackRange(changedSongIDs: Set<String>?) {
+        let songID = nowPlaying.songID
+        guard hasNowPlaying, !songID.isEmpty, !isLiveRadio, !isMedleyActive, appleMusicSelection == nil else { return }
+        if let changedSongIDs, !changedSongIDs.contains(songID) { return }
+        let updated = playbackRangeSong(forSongID: songID)?.appliedPlaybackRange
+        guard updated != currentPlaybackRange, let current = song(songID) else { return }
+        plog("✂️ TV playback range for '\(current.title)' → \(updated.map { "\(Int($0.start))-\(Int($0.end))s" } ?? "whole song")")
+        startPlaying(current, resumeTime: currentTime, autoPlay: isPlaying)
     }
 }

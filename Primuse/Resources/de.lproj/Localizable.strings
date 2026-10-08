@@ -5588,3 +5588,24 @@
 "library_insight_batch_result_failed_format" = "%d fehlgeschlagen";
 "library_insight_batch_result_left_format" = "%d übrig";
 "library_insight_batch_setup_own" = "Eigenen KI-Dienst einrichten";
+
+/* 播放时间段 */
+"playback_range_title" = "Wiedergabebereich";
+"playback_range_set" = "Wiedergabebereich festlegen …";
+"playback_range_edit" = "Wiedergabebereich bearbeiten …";
+"playback_range_toggle" = "Nur diesen Bereich abspielen";
+"playback_range_summary %@ %@" = "%1$@ · %2$@ lang";
+"playback_range_start" = "Anfang";
+"playback_range_end" = "Ende";
+"playback_range_set_to_current" = "Aktuelle Position";
+"playback_range_preview_start" = "Anfang anhören";
+"playback_range_preview_end" = "Ende anhören";
+"playback_range_clear" = "Bereich entfernen";
+"playback_range_footer" = "Wenn aktiviert, beginnt dieser Titel bei der Startzeit und gilt bei der Endzeit als beendet; danach folgt der nächste Titel. „Einen Titel wiederholen“ spielt den Bereich erneut. Liedtext und Fortschritt folgen weiterhin der Zeit des ganzen Titels.";
+"playback_range_unknown_duration" = "Die Länge dieses Titels ist noch nicht bekannt. Spiele ihn einmal ab und lege dann einen Bereich fest.";
+"playback_range_nudge_earlier" = "1 Sekunde früher";
+"playback_range_nudge_later" = "1 Sekunde später";
+"playback_range_turn_on %@" = "Wiedergabebereich einschalten (%@)";
+"playback_range_turn_off %@" = "Wiedergabebereich ausschalten (%@)";
+"playback_range_minus_seconds %lld" = "−%lld s";
+"playback_range_plus_seconds %lld" = "+%lld s";

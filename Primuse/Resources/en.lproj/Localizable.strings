@@ -5348,3 +5348,24 @@
 "library_insight_batch_result_failed_format" = "%d failed";
 "library_insight_batch_result_left_format" = "%d left";
 "library_insight_batch_setup_own" = "Set Up Your Own AI Service";
+
+/* 播放时间段 */
+"playback_range_title" = "Play Range";
+"playback_range_set" = "Set Play Range…";
+"playback_range_edit" = "Edit Play Range…";
+"playback_range_toggle" = "Play Only This Range";
+"playback_range_summary %@ %@" = "%1$@ · %2$@ long";
+"playback_range_start" = "Start";
+"playback_range_end" = "End";
+"playback_range_set_to_current" = "Use Current Time";
+"playback_range_preview_start" = "Preview Start";
+"playback_range_preview_end" = "Preview End";
+"playback_range_clear" = "Clear Range";
+"playback_range_footer" = "When on, this song starts at the start time and counts as finished at the end time, then the next song plays. Repeat One plays the range again. Lyrics and progress still follow the whole song's timeline.";
+"playback_range_unknown_duration" = "This song's length isn't known yet. Play it once, then set a range.";
+"playback_range_nudge_earlier" = "1 Second Earlier";
+"playback_range_nudge_later" = "1 Second Later";
+"playback_range_turn_on %@" = "Turn On Play Range (%@)";
+"playback_range_turn_off %@" = "Turn Off Play Range (%@)";
+"playback_range_minus_seconds %lld" = "−%lld s";
+"playback_range_plus_seconds %lld" = "+%lld s";

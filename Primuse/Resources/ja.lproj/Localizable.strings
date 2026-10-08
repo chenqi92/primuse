@@ -5589,3 +5589,24 @@
 "library_insight_batch_result_failed_format" = "%d 件失敗";
 "library_insight_batch_result_left_format" = "%d 件が未補完";
 "library_insight_batch_setup_own" = "自分の AI サービスを設定";
+
+/* 播放时间段 */
+"playback_range_title" = "再生範囲";
+"playback_range_set" = "再生範囲を設定…";
+"playback_range_edit" = "再生範囲を編集…";
+"playback_range_toggle" = "この範囲だけ再生";
+"playback_range_summary %@ %@" = "%1$@ · 長さ %2$@";
+"playback_range_start" = "開始";
+"playback_range_end" = "終了";
+"playback_range_set_to_current" = "現在の位置にする";
+"playback_range_preview_start" = "開始を試聴";
+"playback_range_preview_end" = "終わりを試聴";
+"playback_range_clear" = "範囲を消去";
+"playback_range_footer" = "オンにすると、この曲は開始時刻から再生され、終了時刻で再生済みになって次の曲に進みます。「1 曲をリピート」ではこの範囲を繰り返します。歌詞と進行状況は曲全体の時間のまま表示されます。";
+"playback_range_unknown_duration" = "この曲の長さがまだわかりません。一度再生してから設定してください。";
+"playback_range_nudge_earlier" = "1 秒早く";
+"playback_range_nudge_later" = "1 秒遅く";
+"playback_range_turn_on %@" = "再生範囲をオン（%@）";
+"playback_range_turn_off %@" = "再生範囲をオフ（%@）";
+"playback_range_minus_seconds %lld" = "−%lld 秒";
+"playback_range_plus_seconds %lld" = "+%lld 秒";

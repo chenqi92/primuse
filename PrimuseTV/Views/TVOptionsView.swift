@@ -17,6 +17,7 @@ struct TVOptionsView: View {
     @AppStorage(TVLyricsFontLevel.storageKey)
     private var lyricsFontLevelRawValue = TVLyricsFontLevel.standard.rawValue
     @State private var albumScrapeTarget: TVSongMatchTarget?
+    @State private var playbackRangeTarget: TVSongMatchTarget?
 
     private struct Action: Identifiable {
         let id: String
@@ -87,6 +88,27 @@ struct TVOptionsView: View {
         if !isSpokenWord, !store.isLiveRadio {
             playback.append(.init(id: "medleyLength", icon: "timer", label: String(localized: "medley_segment_length"),
                                   run: { showMedleySettings = true }))
+        }
+        // 播放时间段:设过时一块磁贴就地开关(下面写着时间段),另一块进编辑页;
+        // 没设过时只有「设置播放时间段…」。
+        if let id = store.currentSongID, !isSpokenWord, !store.isLiveRadio, !store.isMedleyActive,
+           let song = store.library.song(id: id), store.supportsPlaybackRange(for: song) {
+            let rangeStore = SongPlaybackRangeStore.shared
+            if let range = rangeStore.range(for: song) {
+                playback.append(.init(
+                    id: "playbackRange", icon: "selection.pin.in.out",
+                    label: String(localized: "playback_range_title") + "\n" + SongPlaybackRangePolicy.rangeLabel(range),
+                    on: range.isEnabled,
+                    run: { rangeStore.setEnabled(!range.isEnabled, for: song) }
+                ))
+                playback.append(.init(id: "playbackRangeEdit", icon: "slider.horizontal.3",
+                                      label: String(localized: "playback_range_edit"),
+                                      run: { playbackRangeTarget = TVSongMatchTarget(id: id) }))
+            } else {
+                playback.append(.init(id: "playbackRangeSet", icon: "selection.pin.in.out",
+                                      label: String(localized: "playback_range_set"),
+                                      run: { playbackRangeTarget = TVSongMatchTarget(id: id) }))
+            }
         }
         playback.append(.init(id: "sleep", icon: "moon.zzz.fill",
                               label: sleepOn ? PMString("ext.tv.options.sleepActive", store.sleepTimerMinutes) : PMString("ext.tv.options.sleepTimer"), on: sleepOn,
@@ -195,6 +217,9 @@ struct TVOptionsView: View {
         .fullScreenCover(item: $albumScrapeTarget) { target in
             TVAlbumScrapeView(albumID: target.id).environment(store)
         }
+        .fullScreenCover(item: $playbackRangeTarget) { target in
+            TVPlaybackRangeEditorView(songID: target.id).environment(store)
+        }
     }
 
     private func actionTile(_ a: Action) -> some View {
@@ -213,6 +238,182 @@ struct TVOptionsView: View {
             .background(focused ? AnyShapeStyle(TVColor.brand) : AnyShapeStyle(TVColor.surfaceStrong))
         }
         .accessibilityAddTraits(a.on ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+/// Apple TV 上的播放时间段编辑页。遥控器拖不了把手:开始、结束各一行,按钮逐秒或
+/// 逐五秒挪,正在播的这首还能「设为当前位置」。开关和时间段在最上面一行;挪动时间段
+/// 会顺手打开开关,关掉只是暂时整首播放。每一步立刻存下,和 iPhone 一样随即生效。
+struct TVPlaybackRangeEditorView: View {
+    @Environment(TVStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    let songID: String
+    @State private var draft = SongPlaybackRange(start: 0, end: 0, isEnabled: false)
+    @State private var hasStoredRange = false
+
+    private var song: Song? { store.library.song(id: songID) }
+    private var songDuration: Double { max(0, song?.duration ?? 0) }
+    private var isCurrentSong: Bool { store.nowPlaying.songID == songID }
+
+    var body: some View {
+        ZStack {
+            TVColor.bg.opacity(0.92).ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 28) {
+                VStack(alignment: .leading, spacing: 8) {
+                    TVEyebrow(text: String(localized: "playback_range_title"))
+                    Text(song?.title ?? store.nowPlaying.title)
+                        .tvFont(.sectionTitle, weight: .bold)
+                        .foregroundStyle(TVColor.text)
+                        .lineLimit(1)
+                }
+                if songDuration > 0 {
+                    TVSwitchRow(
+                        icon: "selection.pin.in.out",
+                        title: String(localized: "playback_range_toggle") + " · " + summary,
+                        isOn: Binding(
+                            get: { draft.isEnabled },
+                            set: { draft.isEnabled = $0; commit(enabling: false) }
+                        ),
+                        maxWidth: 1200
+                    )
+                    .focusSection()
+                    timeline
+                    edgeRow(.start)
+                    edgeRow(.end)
+                    HStack(spacing: 22) {
+                        if isCurrentSong {
+                            TVPillButton(title: String(localized: "playback_range_preview_start"), systemImage: "play.fill") {
+                                store.engine.seek(to: draft.start)
+                            }
+                            TVPillButton(title: String(localized: "playback_range_preview_end"), systemImage: "forward.end.fill") {
+                                store.engine.seek(to: max(draft.start, draft.end - 5))
+                            }
+                        }
+                        if hasStoredRange {
+                            TVPillButton(title: String(localized: "playback_range_clear"), systemImage: "arrow.uturn.backward") {
+                                clear()
+                            }
+                        }
+                        TVPillButton(title: String(localized: "done"), systemImage: "checkmark", style: .solid) {
+                            dismiss()
+                        }
+                    }
+                    .focusSection()
+                    Text("playback_range_footer")
+                        .tvFont(.caption)
+                        .foregroundStyle(TVColor.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("playback_range_unknown_duration")
+                        .tvFont(.body)
+                        .foregroundStyle(TVColor.textMuted)
+                    TVPillButton(title: String(localized: "done"), systemImage: "checkmark", style: .solid) {
+                        dismiss()
+                    }
+                }
+            }
+            .padding(56)
+            .frame(maxWidth: 1300, alignment: .leading)
+            .tvPanel(radius: 28)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        }
+        .onAppear(perform: load)
+        .onExitCommand { dismiss() }
+    }
+
+    private var summary: String {
+        String(
+            format: String(localized: "playback_range_summary %@ %@"),
+            SongPlaybackRangePolicy.rangeLabel(draft, showsTenths: true),
+            SongPlaybackRangePolicy.timeLabel(draft.length, showsTenths: true)
+        )
+    }
+
+    /// 整首歌的时间轴:选中的一段着色,正在播这首时画出播放头。只看不按。
+    private var timeline: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let scale = songDuration > 0 ? width / CGFloat(songDuration) : 0
+            ZStack(alignment: .leading) {
+                Capsule().fill(TVColor.surfaceStrong).frame(height: 10)
+                Capsule()
+                    .fill(draft.isEnabled ? TVColor.brand : TVColor.textFaint)
+                    .frame(width: max(0, CGFloat(draft.end - draft.start) * scale), height: 10)
+                    .offset(x: CGFloat(draft.start) * scale)
+                if isCurrentSong {
+                    Capsule()
+                        .fill(TVColor.text)
+                        .frame(width: 4, height: 28)
+                        .offset(x: CGFloat(min(max(0, store.currentTime), songDuration)) * scale - 2)
+                }
+            }
+            .frame(height: 28)
+        }
+        .frame(maxWidth: 1200)
+        .frame(height: 28)
+        .accessibilityHidden(true)
+    }
+
+    /// 一行写值,一行放按钮:同一行塞下五颗胶囊会顶出面板。
+    private func edgeRow(_ edge: SongPlaybackRangePolicy.Edge) -> some View {
+        let value = edge == .start ? draft.start : draft.end
+        let title = edge == .start
+            ? String(localized: "playback_range_start")
+            : String(localized: "playback_range_end")
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 18) {
+                Text(verbatim: title)
+                    .tvFont(.rowTitle, weight: .semibold)
+                    .foregroundStyle(TVColor.textMuted)
+                Text(verbatim: SongPlaybackRangePolicy.timeLabel(value, showsTenths: true))
+                    .tvFont(.sectionTitle, weight: .bold)
+                    .monospacedDigit()
+                    .foregroundStyle(TVColor.text)
+            }
+            .accessibilityElement(children: .combine)
+            HStack(spacing: 18) {
+                TVPillButton(title: String(format: String(localized: "playback_range_minus_seconds %lld"), 5),
+                             systemImage: "gobackward.5") { move(edge, to: value - 5) }
+                TVPillButton(title: String(format: String(localized: "playback_range_minus_seconds %lld"), 1),
+                             systemImage: "minus") { move(edge, to: value - 1) }
+                TVPillButton(title: String(format: String(localized: "playback_range_plus_seconds %lld"), 1),
+                             systemImage: "plus") { move(edge, to: value + 1) }
+                TVPillButton(title: String(format: String(localized: "playback_range_plus_seconds %lld"), 5),
+                             systemImage: "goforward.5") { move(edge, to: value + 5) }
+                if isCurrentSong {
+                    TVPillButton(title: String(localized: "playback_range_set_to_current"), systemImage: "scope") {
+                        move(edge, to: (store.currentTime * 10).rounded() / 10)
+                    }
+                }
+            }
+            .focusSection()
+        }
+    }
+
+    private func load() {
+        guard let song else { return }
+        let stored = SongPlaybackRangeStore.shared.range(for: song)
+        draft = stored ?? SongPlaybackRangePolicy.initialRange(songDuration: songDuration)
+        hasStoredRange = stored != nil
+    }
+
+    private func move(_ edge: SongPlaybackRangePolicy.Edge, to value: Double) {
+        draft = SongPlaybackRangePolicy.moving(edge, of: draft, to: value, songDuration: songDuration)
+        commit()
+    }
+
+    private func commit(enabling: Bool = true) {
+        guard let song else { return }
+        if enabling { draft.isEnabled = true }
+        SongPlaybackRangeStore.shared.setRange(draft, for: song)
+        hasStoredRange = true
+    }
+
+    private func clear() {
+        guard let song else { return }
+        SongPlaybackRangeStore.shared.clearRange(for: song)
+        draft = SongPlaybackRangePolicy.initialRange(songDuration: songDuration)
+        hasStoredRange = false
     }
 }
 

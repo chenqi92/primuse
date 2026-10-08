@@ -5494,3 +5494,24 @@
 "library_insight_batch_result_failed_format" = "ไม่สำเร็จ %d";
 "library_insight_batch_result_left_format" = "เหลืออีก %d";
 "library_insight_batch_setup_own" = "ตั้งค่าบริการ AI ของคุณเอง";
+
+/* 播放时间段 */
+"playback_range_title" = "ช่วงที่เล่น";
+"playback_range_set" = "ตั้งช่วงที่เล่น…";
+"playback_range_edit" = "แก้ไขช่วงที่เล่น…";
+"playback_range_toggle" = "เล่นเฉพาะช่วงนี้";
+"playback_range_summary %@ %@" = "%1$@ · ยาว %2$@";
+"playback_range_start" = "เริ่ม";
+"playback_range_end" = "จบ";
+"playback_range_set_to_current" = "ใช้ตำแหน่งปัจจุบัน";
+"playback_range_preview_start" = "ฟังช่วงเริ่ม";
+"playback_range_preview_end" = "ฟังช่วงจบ";
+"playback_range_clear" = "ล้างช่วง";
+"playback_range_footer" = "เมื่อเปิด เพลงนี้จะเริ่มเล่นจากเวลาเริ่มและถือว่าเล่นจบเมื่อถึงเวลาจบ แล้วเล่นเพลงถัดไป เล่นซ้ำเพลงเดียวจะเล่นช่วงนี้ซ้ำ เนื้อเพลงและความคืบหน้ายังคงอิงเวลาของทั้งเพลง";
+"playback_range_unknown_duration" = "ยังไม่ทราบความยาวของเพลงนี้ เล่นหนึ่งครั้งแล้วค่อยตั้งช่วง";
+"playback_range_nudge_earlier" = "เร็วขึ้น 1 วินาที";
+"playback_range_nudge_later" = "ช้าลง 1 วินาที";
+"playback_range_turn_on %@" = "เปิดช่วงที่เล่น (%@)";
+"playback_range_turn_off %@" = "ปิดช่วงที่เล่น (%@)";
+"playback_range_minus_seconds %lld" = "−%lld วิ";
+"playback_range_plus_seconds %lld" = "+%lld วิ";

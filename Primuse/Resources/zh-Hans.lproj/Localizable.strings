@@ -5681,3 +5681,24 @@
 "library_insight_batch_result_failed_format" = "%d 个没成功";
 "library_insight_batch_result_left_format" = "%d 个还没补";
 "library_insight_batch_setup_own" = "设置自己的 AI 服务";
+
+/* 播放时间段 */
+"playback_range_title" = "播放时间段";
+"playback_range_set" = "设置播放时间段…";
+"playback_range_edit" = "编辑播放时间段…";
+"playback_range_toggle" = "只播放这个时间段";
+"playback_range_summary %@ %@" = "%1$@ · 共 %2$@";
+"playback_range_start" = "开始";
+"playback_range_end" = "结束";
+"playback_range_set_to_current" = "设为当前位置";
+"playback_range_preview_start" = "从开头试听";
+"playback_range_preview_end" = "试听结尾";
+"playback_range_clear" = "清除时间段";
+"playback_range_footer" = "打开后，这首歌从开始时间播起，播到结束时间就算播完，接着播下一首；单曲循环会反复播放这一段。歌词和进度仍按整首歌的时间显示。";
+"playback_range_unknown_duration" = "还不知道这首歌有多长。播放一次后再来设置。";
+"playback_range_nudge_earlier" = "提前 1 秒";
+"playback_range_nudge_later" = "推后 1 秒";
+"playback_range_turn_on %@" = "打开播放时间段（%@）";
+"playback_range_turn_off %@" = "关闭播放时间段（%@）";
+"playback_range_minus_seconds %lld" = "−%lld 秒";
+"playback_range_plus_seconds %lld" = "+%lld 秒";

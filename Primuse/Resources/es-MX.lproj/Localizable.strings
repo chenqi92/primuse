@@ -5494,3 +5494,24 @@
 "library_insight_batch_result_failed_format" = "%d fallidas";
 "library_insight_batch_result_left_format" = "%d pendientes";
 "library_insight_batch_setup_own" = "Configurar tu propio servicio de IA";
+
+/* 播放时间段 */
+"playback_range_title" = "Intervalo de reproducción";
+"playback_range_set" = "Definir intervalo de reproducción…";
+"playback_range_edit" = "Editar intervalo de reproducción…";
+"playback_range_toggle" = "Reproducir solo este intervalo";
+"playback_range_summary %@ %@" = "%1$@ · dura %2$@";
+"playback_range_start" = "Inicio";
+"playback_range_end" = "Fin";
+"playback_range_set_to_current" = "Usar posición actual";
+"playback_range_preview_start" = "Escuchar el inicio";
+"playback_range_preview_end" = "Escuchar el final";
+"playback_range_clear" = "Quitar intervalo";
+"playback_range_footer" = "Al activarlo, esta canción empieza en el inicio del intervalo y se da por terminada en el fin; luego suena la siguiente. Repetir uno vuelve a reproducir el intervalo. La letra y el progreso siguen el tiempo de la canción completa.";
+"playback_range_unknown_duration" = "Todavía no se conoce la duración de esta canción. Reprodúcela una vez y luego define el intervalo.";
+"playback_range_nudge_earlier" = "1 segundo antes";
+"playback_range_nudge_later" = "1 segundo después";
+"playback_range_turn_on %@" = "Activar intervalo de reproducción (%@)";
+"playback_range_turn_off %@" = "Desactivar intervalo de reproducción (%@)";
+"playback_range_minus_seconds %lld" = "−%lld s";
+"playback_range_plus_seconds %lld" = "+%lld s";

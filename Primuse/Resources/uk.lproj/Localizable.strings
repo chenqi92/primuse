@@ -5494,3 +5494,24 @@
 "library_insight_batch_result_failed_format" = "Не вдалося: %d";
 "library_insight_batch_result_left_format" = "Залишилось: %d";
 "library_insight_batch_setup_own" = "Налаштувати власний ШІ-сервіс";
+
+/* 播放时间段 */
+"playback_range_title" = "Фрагмент відтворення";
+"playback_range_set" = "Задати фрагмент відтворення…";
+"playback_range_edit" = "Змінити фрагмент відтворення…";
+"playback_range_toggle" = "Відтворювати лише цей фрагмент";
+"playback_range_summary %@ %@" = "%1$@ · тривалість %2$@";
+"playback_range_start" = "Початок";
+"playback_range_end" = "Кінець";
+"playback_range_set_to_current" = "Поточна позиція";
+"playback_range_preview_start" = "Прослухати початок";
+"playback_range_preview_end" = "Прослухати кінець";
+"playback_range_clear" = "Видалити фрагмент";
+"playback_range_footer" = "Якщо ввімкнено, пісня починається з часу початку й вважається прослуханою на часі кінця, після чого грає наступна. «Повтор однієї пісні» повторює фрагмент. Текст і прогрес і далі йдуть за часом усієї пісні.";
+"playback_range_unknown_duration" = "Тривалість цієї пісні ще невідома. Відтворіть її один раз, потім задайте фрагмент.";
+"playback_range_nudge_earlier" = "На 1 секунду раніше";
+"playback_range_nudge_later" = "На 1 секунду пізніше";
+"playback_range_turn_on %@" = "Увімкнути фрагмент відтворення (%@)";
+"playback_range_turn_off %@" = "Вимкнути фрагмент відтворення (%@)";
+"playback_range_minus_seconds %lld" = "−%lld с";
+"playback_range_plus_seconds %lld" = "+%lld с";

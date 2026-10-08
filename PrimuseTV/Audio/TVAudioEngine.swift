@@ -81,6 +81,9 @@ final class TVAudioEngine {
     /// 有了这个锚点就能按墙上时钟把中间的时间补出来,与 iPhone / Mac 同一套做法。
     @ObservationIgnored private(set) var currentTimeAnchor = Date()
     private(set) var duration: Double = 0
+    /// Earliest point a seek may reach: the start of the song's playback
+    /// range while one applies, otherwise 0. Set per selection.
+    @ObservationIgnored private(set) var playbackFloor: Double = 0
     private(set) var isVideoMode = false
     private(set) var isLiveStream = false
     /// 32 个真实频段，供环形声谱与实时波形直接观察。没有采样时始终为零。
@@ -524,7 +527,8 @@ final class TVAudioEngine {
     /// Synchronously detaches the previous track before an asynchronous resolver
     /// starts. Keeping the audio session active avoids an avoidable route handoff
     /// between adjacent queue items, while all track-specific state is cleared.
-    func prepareForSelection(startAt seconds: Double) {
+    func prepareForSelection(startAt seconds: Double, seekFloor: Double = 0) {
+        playbackFloor = seekFloor.isFinite ? max(0, seekFloor) : 0
         downloadProgress = nil
         clearLiveState()
         resetSFBIfNeeded()
@@ -1256,6 +1260,8 @@ final class TVAudioEngine {
     }
 
     func seek(to seconds: Double) {
+        // A song playing its playback range is only heard from the range start.
+        let seconds = max(playbackFloor, seconds.isFinite ? seconds : 0)
         if let externalTransport {
             let target = max(0, duration > 0 ? min(seconds, duration) : seconds)
             externalTransport.seek(target)

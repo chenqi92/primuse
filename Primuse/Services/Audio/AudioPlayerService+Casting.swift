@@ -943,7 +943,8 @@ extension AudioPlayerService {
             }
         }
         guard !queueEntries.isEmpty else { return false }
-        if currentTime > 3 {
+        // A song playing its range restarts at the range start.
+        if currentTime - currentPlaybackRangeStart > 3 {
             seek(to: 0)
             return true
         }
@@ -1017,7 +1018,10 @@ extension AudioPlayerService {
         stopTimeUpdater()
         let requestedTime = TimeInterval.sanitized(time)
         let safeDuration = duration.sanitizedDuration
-        let targetTime = safeDuration > 0 ? min(requestedTime, safeDuration) : requestedTime
+        // A song playing its playback range is only heard inside it.
+        let targetTime = playbackRangeClampedSeekTarget(
+            safeDuration > 0 ? min(requestedTime, safeDuration) : requestedTime
+        )
         if isSystemMediaPlaybackActive {
             let carriedSeekActivity = hasMusicVideoSeekActivityEvidence
             let pendingSystemAudioStart = isSystemAudioPlaybackActive
@@ -1452,6 +1456,7 @@ extension AudioPlayerService {
 
                 // Set sample time offset so currentTime calculation accounts for seek position
                 audioEngine.sampleTimeOffset = -progressSeekSamples
+                audioEngine.timelineOrigin = 0
 
                 // Skip buffers until seek position, then schedule first playable buffer before play()
                 var iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
@@ -2491,8 +2496,10 @@ extension AudioPlayerService {
     }
 
     func syncSongMetadata(_ incomingSong: Song) {
-        // A medley slice keeps its window when the library row changes.
-        var updatedSong = incomingSong
+        // A medley slice keeps its window when the library row changes. The
+        // queue holds whole songs, even when a caller hands back the playing
+        // copy of a song in its playback range.
+        var updatedSong = incomingSong.withoutAppliedPlaybackRange
         if medleySongIDs.contains(incomingSong.id),
            let slice = queueEntries.first(where: { $0.song.id == incomingSong.id })?.song {
             updatedSong.cueStartTime = slice.cueStartTime
@@ -2500,8 +2507,14 @@ extension AudioPlayerService {
             updatedSong.duration = slice.duration
         }
         if currentSong?.id == updatedSong.id {
-            currentSong = updatedSong
-            let updatedDuration = updatedSong.duration.sanitizedDuration
+            // So does the playing copy of a song in its playback range: the
+            // decoder is cut to it. The queue keeps the whole song.
+            if let applied = currentSong?.appliedPlaybackRange {
+                currentSong = updatedSong.playing(applied)
+            } else {
+                currentSong = updatedSong
+            }
+            let updatedDuration = (currentSong?.duration ?? updatedSong.duration).sanitizedDuration
             if updatedDuration > 0 {
                 duration = updatedDuration
             }

@@ -1196,8 +1196,10 @@ final class TVPlaybackCoordinator {
             playbackMetadataFailureCounts.removeAll(keepingCapacity: true)
         }
         let failureCount = playbackMetadataFailureCounts[identity] ?? 0
+        // A playback range's window would be reset by the tag read's catalog
+        // refresh, as a CUE track's would.
         guard TVPlaybackMetadataPolicy.supports(source.type),
-              !song.isCueTrack, !song.isStreamDescriptor,
+              !song.isCueTrack, song.appliedPlaybackRange == nil, !song.isStreamDescriptor,
               playbackMetadataTaskIdentity != identity,
               failureCount < 3 else { return }
 

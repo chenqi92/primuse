@@ -317,6 +317,14 @@ final class AudioEngine {
     /// When gapless transitions happen without stopping the playerNode,
     /// this tracks the cumulative sample offset so currentTime resets to 0.
     var sampleTimeOffset: Int64 = 0
+    /// Song time at the primary node's zero point. A song playing a playback
+    /// range opens at the range start but keeps its own timeline, so its
+    /// clock starts there instead of at 0. A seek encodes its target in
+    /// `sampleTimeOffset` and sets this back to 0.
+    var timelineOrigin: TimeInterval = 0
+    /// The same for the crossfade node's incoming song; becomes the primary
+    /// origin when the nodes swap.
+    var crossfadeTimelineOrigin: TimeInterval = 0
 
     init(volumeDefaults: UserDefaults = .standard, outputDefaults: UserDefaults = .standard) {
         self.volumeDefaults = volumeDefaults
@@ -483,6 +491,8 @@ final class AudioEngine {
         isPlaying = false
         playbackClockReadsSuspended = true
         sampleTimeOffset = 0
+        timelineOrigin = 0
+        crossfadeTimelineOrigin = 0
     }
 
     func setUp() throws {
@@ -653,6 +663,8 @@ final class AudioEngine {
         nodeRegistry.resetTimeline(for: .primary)
         nodeRegistry.resetTimeline(for: .crossfade)
         sampleTimeOffset = 0
+        timelineOrigin = 0
+        crossfadeTimelineOrigin = 0
         playerNode?.stop()
         crossfadePlayerNode?.stop()
         engine?.stop()
@@ -1773,6 +1785,7 @@ final class AudioEngine {
         playbackClockReadsSuspended = true
         nodeRegistry.resetTimeline(for: .primary)
         sampleTimeOffset = 0
+        timelineOrigin = 0
         playerNode?.stop()
         playerNode?.reset()
         isPlaying = false
@@ -1951,6 +1964,8 @@ final class AudioEngine {
         crossfadePlayerNode = temp
         nodeRegistry.swapRoles()
         sampleTimeOffset = 0
+        timelineOrigin = crossfadeTimelineOrigin
+        crossfadeTimelineOrigin = 0
 
         // Reset the now-inactive crossfade node
         nodeRegistry.resetTimeline(for: .crossfade)
@@ -2062,13 +2077,13 @@ final class AudioEngine {
     // MARK: - Time Tracking
 
     var currentTime: TimeInterval? {
-        playbackTime(for: playerNode, sampleTimeOffset: sampleTimeOffset)
+        playbackTime(for: playerNode, sampleTimeOffset: sampleTimeOffset).map { $0 + timelineOrigin }
     }
 
     /// The incoming node owns the visible song as soon as a crossfade commits,
     /// even though it does not become the primary node until the ramp ends.
     var crossfadeCurrentTime: TimeInterval? {
-        playbackTime(for: crossfadePlayerNode, sampleTimeOffset: 0)
+        playbackTime(for: crossfadePlayerNode, sampleTimeOffset: 0).map { $0 + crossfadeTimelineOrigin }
     }
 
     private func playbackTime(

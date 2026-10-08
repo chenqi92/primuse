@@ -5494,3 +5494,24 @@
 "library_insight_batch_result_failed_format" = "Nieudane: %d";
 "library_insight_batch_result_left_format" = "Pozostało: %d";
 "library_insight_batch_setup_own" = "Skonfiguruj własną usługę AI";
+
+/* 播放时间段 */
+"playback_range_title" = "Zakres odtwarzania";
+"playback_range_set" = "Ustaw zakres odtwarzania…";
+"playback_range_edit" = "Edytuj zakres odtwarzania…";
+"playback_range_toggle" = "Odtwarzaj tylko ten zakres";
+"playback_range_summary %@ %@" = "%1$@ · długość %2$@";
+"playback_range_start" = "Początek";
+"playback_range_end" = "Koniec";
+"playback_range_set_to_current" = "Bieżąca pozycja";
+"playback_range_preview_start" = "Odsłuchaj początek";
+"playback_range_preview_end" = "Odsłuchaj koniec";
+"playback_range_clear" = "Usuń zakres";
+"playback_range_footer" = "Po włączeniu ten utwór zaczyna się od czasu początku, a po dojściu do czasu końca uznaje się go za odtworzony i włącza się następny. Powtórz jeden odtwarza zakres ponownie. Tekst i postęp nadal odnoszą się do całego utworu.";
+"playback_range_unknown_duration" = "Długość tego utworu nie jest jeszcze znana. Odtwórz go raz, a potem ustaw zakres.";
+"playback_range_nudge_earlier" = "1 sekundę wcześniej";
+"playback_range_nudge_later" = "1 sekundę później";
+"playback_range_turn_on %@" = "Włącz zakres odtwarzania (%@)";
+"playback_range_turn_off %@" = "Wyłącz zakres odtwarzania (%@)";
+"playback_range_minus_seconds %lld" = "−%lld s";
+"playback_range_plus_seconds %lld" = "+%lld s";

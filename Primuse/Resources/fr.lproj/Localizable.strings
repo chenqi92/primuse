@@ -5588,3 +5588,24 @@
 "library_insight_batch_result_failed_format" = "%d en échec";
 "library_insight_batch_result_left_format" = "%d restantes";
 "library_insight_batch_setup_own" = "Configurer votre propre service d’IA";
+
+/* 播放时间段 */
+"playback_range_title" = "Plage de lecture";
+"playback_range_set" = "Définir la plage de lecture…";
+"playback_range_edit" = "Modifier la plage de lecture…";
+"playback_range_toggle" = "Lire uniquement cette plage";
+"playback_range_summary %@ %@" = "%1$@ · durée %2$@";
+"playback_range_start" = "Début";
+"playback_range_end" = "Fin";
+"playback_range_set_to_current" = "Position actuelle";
+"playback_range_preview_start" = "Écouter le début";
+"playback_range_preview_end" = "Écouter la fin";
+"playback_range_clear" = "Supprimer la plage";
+"playback_range_footer" = "Une fois activée, ce morceau commence au début de la plage et est considéré comme terminé à sa fin, puis le morceau suivant est lu. « Répéter un titre » rejoue la plage. Les paroles et la progression suivent toujours la durée du morceau entier.";
+"playback_range_unknown_duration" = "La durée de ce morceau n’est pas encore connue. Lisez-le une fois, puis définissez une plage.";
+"playback_range_nudge_earlier" = "1 seconde plus tôt";
+"playback_range_nudge_later" = "1 seconde plus tard";
+"playback_range_turn_on %@" = "Activer la plage de lecture (%@)";
+"playback_range_turn_off %@" = "Désactiver la plage de lecture (%@)";
+"playback_range_minus_seconds %lld" = "−%lld s";
+"playback_range_plus_seconds %lld" = "+%lld s";

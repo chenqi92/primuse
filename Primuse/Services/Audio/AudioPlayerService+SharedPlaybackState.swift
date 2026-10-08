@@ -119,12 +119,15 @@ extension AudioPlayerService {
             }
         }
 
-        let song = prepared.entries[plan.currentIndex].song
+        let song = songApplyingPlaybackRange(prepared.entries[plan.currentIndex].song)
         currentSong = song
         duration = song.duration.isFinite && song.duration > 0
             ? song.duration
             : plan.duration
         currentTime = duration > 0 ? min(plan.currentTime, duration) : plan.currentTime
+        if let applied = song.appliedPlaybackRange {
+            currentTime = SongPlaybackRangePolicy.startPosition(requested: currentTime, in: applied)
+        }
         isPlaying = plan.shouldStartPlayback
         isLoading = false
         isAtTrackEnd = plan.isAtTrackEnd
@@ -159,6 +162,7 @@ extension AudioPlayerService {
     /// caller has already stopped the previous transport and restored queue
     /// context; a later explicit Play rebuilds at this saved position.
     func stagePausedHandoff(song: Song, at time: TimeInterval) {
+        let song = songApplyingPlaybackRange(song)
         registerPauseOrStopIntent()
         playbackKind = .track
         playID = UUID()
@@ -167,6 +171,9 @@ extension AudioPlayerService {
         currentSong = song
         duration = song.duration.sanitizedDuration
         currentTime = duration > 0 ? min(max(0, time), duration) : max(0, time)
+        if let applied = song.appliedPlaybackRange {
+            currentTime = SongPlaybackRangePolicy.startPosition(requested: currentTime, in: applied)
+        }
         isPlaying = false
         isLoading = false
         isAtTrackEnd = false

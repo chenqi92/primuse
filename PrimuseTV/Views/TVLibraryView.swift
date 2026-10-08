@@ -1830,6 +1830,19 @@ struct TVSongLikeMenuItem: View {
                 store.toggleDisliked(songID)
             }
         }
+        // 设过播放时间段的歌,长按就能开关它;时间段本身在播放页「更多」里编辑。
+        if let song = store.library.song(id: songID), store.supportsPlaybackRange(for: song),
+           let range = SongPlaybackRangeStore.shared.range(for: song) {
+            let format = range.isEnabled
+                ? String(localized: "playback_range_turn_off %@")
+                : String(localized: "playback_range_turn_on %@")
+            Button(
+                String(format: format, SongPlaybackRangePolicy.rangeLabel(range)),
+                systemImage: "selection.pin.in.out"
+            ) {
+                SongPlaybackRangeStore.shared.setEnabled(!range.isEnabled, for: song)
+            }
+        }
     }
 }
 

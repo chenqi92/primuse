@@ -166,6 +166,8 @@ extension AudioPlayerService {
             completedTransition.boundary
         )
         let activatedSong = adoptSuccessorAsCurrentSong(prepared)
+        // The successor's clock starts at its playback range start, if any.
+        audioEngine.timelineOrigin = activatedSong.appliedPlaybackRange?.start ?? 0
 
         guard boundaryWasCommitted else {
             plog("⚠️ gapless boundary token was stale; rebuilding the activated track")
@@ -283,6 +285,7 @@ extension AudioPlayerService {
         hasPreparedLocalPlayback = true
         // The preparation loop carries on decoding behind the held audio.
         handoff.activate()
+        audioEngine.timelineOrigin = activatedSong.appliedPlaybackRange?.start ?? 0
         isPlaying = audioEngine.play()
         plog("🎧 Sample-rate handoff to \(handoff.format.sampleRate) Hz for '\(activatedSong.title)' took \(startedAt.duration(to: .now))")
 
@@ -342,8 +345,11 @@ extension AudioPlayerService {
         advanceToNextIndex()
         currentSong = activatedSong
         duration = activatedSong.duration.sanitizedDuration
-        applyResolvedDuration(duration, toSongID: activatedSong.id)
-        currentTime = 0
+        // A range's end is not the song's length; the queue keeps the whole song.
+        if activatedSong.appliedPlaybackRange == nil {
+            applyResolvedDuration(duration, toSongID: activatedSong.id)
+        }
+        currentTime = activatedSong.appliedPlaybackRange?.start ?? 0
         isLoading = false
         isPlaying = true
         isAtTrackEnd = false
@@ -495,7 +501,7 @@ extension AudioPlayerService {
               !transition.shouldCancelPreparation,
               shouldAttemptGapless(settings: playbackSettings.snapshot()),
               let nextEntry = nextQueueEntryInQueue() else { return }
-        let nextSong = nextEntry.song
+        let nextSong = songApplyingPlaybackRange(nextEntry.song)
         guard nextSong.id != currentSong?.id else { return }
         // 播客单集换集时要先探音频文件的真实大小,走正常起播,不提前接续。
         guard !PodcastPlaybackSong.isEpisode(nextSong) else { return }

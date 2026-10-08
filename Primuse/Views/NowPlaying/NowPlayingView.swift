@@ -806,6 +806,8 @@ struct NowPlayingView: View {
     @State private var presentsLyricPosterAfterShare = false
     @State private var showCastPicker = false
     @State private var showSongInfo = false
+    /// 「更多」› 播放时间段 打开的编辑面板；打开时冻结目标，自然切歌后仍改这一首。
+    @State private var playbackRangeEditorSong: Song?
     @State private var showSleepTimer = false
     /// 「更多」› 均衡器 › 调整均衡器… 打开的完整均衡器页。
     @State private var showEqualizer = false
@@ -861,6 +863,7 @@ struct NowPlayingView: View {
             || showAddToPlaylist
             || shareSong != nil
             || showSongInfo
+            || playbackRangeEditorSong != nil
             || showTagEditor
             || lyricsEditorTargetSong != nil
             || lyricPosterComposer != nil
@@ -2714,6 +2717,9 @@ struct NowPlayingView: View {
                 SongInfoSheet(song: song)
                     .songInfoPresentationStyle()
             }
+        }
+        .sheet(item: $playbackRangeEditorSong) { song in
+            SongPlaybackRangeEditor(song: song)
         }
         .sheet(isPresented: $showTagEditor) {
             if let song = player.currentSong {
@@ -5607,7 +5613,10 @@ struct NowPlayingView: View {
             columnOverflow: columnOverflow,
             isCurrentLiked: isCurrentLiked,
             canDislike: player.canDislikeCurrentSong,
-            isCurrentDisliked: isCurrentDisliked
+            isCurrentDisliked: isCurrentDisliked,
+            playbackRangeSong: isSpokenWord || player.isAppleMusicMode || player.isLiveRadio
+                ? nil
+                : player.currentSong?.withoutAppliedPlaybackRange
         )
 
         return NowPlayingMoreMenu(
@@ -5668,6 +5677,9 @@ struct NowPlayingView: View {
             onShowCastPicker: { showCastPicker = true },
             onToggleLike: { toggleLikedCurrent() },
             onToggleDislike: { player.toggleDislikeForCurrentSong() },
+            onEditPlaybackRange: {
+                playbackRangeEditorSong = player.currentSong?.withoutAppliedPlaybackRange
+            },
             onShowEffectPicker: {
                 immersiveControlsAutoHideTask?.cancel()
                 showsImmersiveEffectPicker = true
@@ -8462,6 +8474,8 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     /// 曲库里的音乐才能标「不喜欢」(#193)。
     let canDislike: Bool
     let isCurrentDisliked: Bool
+    /// 能设播放时间段的当前歌曲(整首);有声内容、Apple Music、电台为 nil。
+    let playbackRangeSong: Song?
 }
 
 /// iPhone Duo 竖栏那一列按钮放不下时收进「更多」的几颗(按收走的先后:锁、全屏效果、喜欢)。
@@ -8507,6 +8521,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onShowCastPicker: () -> Void
     let onToggleLike: () -> Void
     let onToggleDislike: () -> Void
+    let onEditPlaybackRange: () -> Void
     let onShowEffectPicker: () -> Void
     let onLockControls: () -> Void
     let onToggleLyricsTranslation: () -> Void
@@ -8732,6 +8747,11 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                             Label(String(localized: "song_dislike"), systemImage: "hand.thumbsdown")
                         }
                     }
+                }
+
+                // 播放时间段:设过时是开关加「编辑」,没设过时是「设置播放时间段…」。
+                if let rangeSong = snapshot.playbackRangeSong {
+                    SongPlaybackRangeMenuItems(song: rangeSong, onEdit: onEditPlaybackRange)
                 }
 
                 if !snapshot.isAppleMusicMode, !snapshot.isPodcastEpisode {
@@ -10922,6 +10942,9 @@ fileprivate struct PlaybackProgressBar<CenterAccessory: View>: View {
                         // 有声内容在进度条上标出本条目的书签。
                         if isSpokenWord {
                             SpokenWordBookmarkTicks(color: appearance.primary.opacity(0.8))
+                        } else {
+                            // 开着播放时间段时标出它从哪里开始。
+                            SongPlaybackRangeStartTick(color: appearance.primary.opacity(0.8))
                         }
                     }
                     HStack {

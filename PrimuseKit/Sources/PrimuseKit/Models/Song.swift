@@ -156,6 +156,15 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         get { rare.values.audioVariants }
         set { updateRare { $0.audioVariants = newValue } }
     }
+    /// The listener's playback range applied to this playing copy (see
+    /// `SongPlaybackRangePolicy`). Only the players set it, on the copy they
+    /// play; library rows never carry it. Not encoded — `encode(to:)` writes
+    /// the whole song's length back — so a copy that reaches a snapshot is
+    /// stored as the whole song.
+    public var appliedPlaybackRange: AppliedSongPlaybackRange? {
+        get { rare.values.appliedPlaybackRange }
+        set { updateRare { $0.appliedPlaybackRange = newValue } }
+    }
     /// 服务端资料库的 id（Jellyfin/Emby 的库、Plex 的分区、Audiobookshelf 的 library）。
     /// 只有按库组织的服务器源才填；按库声明「音乐 / 有声」的规则靠它认出一首歌属于哪个库，
     /// 条目路径里没有这一层。按库组织的源每首都有，所以直接存在行内而不放进罕见字段盒。
@@ -327,7 +336,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         try container.encodeIfPresent(albumArtistName, forKey: .albumArtistName)
         try container.encodeIfPresent(trackNumber, forKey: .trackNumber)
         try container.encodeIfPresent(discNumber, forKey: .discNumber)
-        try container.encode(duration, forKey: .duration)
+        try container.encode(appliedPlaybackRange?.songDuration ?? duration, forKey: .duration)
         try container.encode(fileFormat, forKey: .fileFormat)
         try container.encode(filePath, forKey: .filePath)
         try container.encode(sourceID, forKey: .sourceID)
@@ -440,6 +449,8 @@ private final class SongRareFields: Hashable, Sendable {
         var userMetadataEditedAt: Date?
         var audioVariants: [AudioVariant]?
         var overflowNumbers: [UInt8: Int] = [:]
+        /// Transient: see `Song.appliedPlaybackRange`.
+        var appliedPlaybackRange: AppliedSongPlaybackRange?
     }
 
     static let empty = SongRareFields(Values())
@@ -1116,6 +1127,35 @@ public extension Song {
     var cueSegmentDuration: TimeInterval? {
         guard let start = cueStartTime, let end = cueEndTime, end > start else { return nil }
         return end - start
+    }
+
+    /// This song playing only `applied`: the copy keeps the song's timeline
+    /// and ends at the range end, which becomes its length. Nil gives the
+    /// whole song back.
+    func playing(_ applied: AppliedSongPlaybackRange?) -> Song {
+        var copy = withoutAppliedPlaybackRange
+        guard let applied else { return copy }
+        copy.appliedPlaybackRange = applied
+        copy.duration = applied.end
+        return copy
+    }
+
+    /// The whole song this copy was made from.
+    var withoutAppliedPlaybackRange: Song {
+        guard let applied = appliedPlaybackRange else { return self }
+        var copy = self
+        copy.appliedPlaybackRange = nil
+        copy.duration = applied.songDuration
+        return copy
+    }
+
+    /// Where in the media file playback starts and stops: the CUE window,
+    /// narrowed to the applied playback range when there is one.
+    var playbackMediaWindow: (start: TimeInterval?, end: TimeInterval?) {
+        guard let applied = appliedPlaybackRange else { return (cueStartTime, cueEndTime) }
+        let base = cueStartTime ?? 0
+        let end = base + applied.end
+        return (base + applied.start, cueEndTime.map { min($0, end) } ?? end)
     }
 
     /// True when the song can be handed to the player. A non-empty `filePath`

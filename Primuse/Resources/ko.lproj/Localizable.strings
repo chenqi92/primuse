@@ -5588,3 +5588,24 @@
 "library_insight_batch_result_failed_format" = "%d개 실패";
 "library_insight_batch_result_left_format" = "%d개 남음";
 "library_insight_batch_setup_own" = "내 AI 서비스 설정";
+
+/* 播放时间段 */
+"playback_range_title" = "재생 구간";
+"playback_range_set" = "재생 구간 설정…";
+"playback_range_edit" = "재생 구간 편집…";
+"playback_range_toggle" = "이 구간만 재생";
+"playback_range_summary %@ %@" = "%1$@ · 길이 %2$@";
+"playback_range_start" = "시작";
+"playback_range_end" = "끝";
+"playback_range_set_to_current" = "현재 위치로";
+"playback_range_preview_start" = "시작 부분 듣기";
+"playback_range_preview_end" = "끝부분 듣기";
+"playback_range_clear" = "구간 지우기";
+"playback_range_footer" = "켜면 이 노래는 시작 시간부터 재생되고 끝 시간에 다 들은 것으로 처리되어 다음 노래로 넘어갑니다. 한 곡 반복은 이 구간을 다시 재생합니다. 가사와 진행 상황은 노래 전체 시간 기준으로 표시됩니다.";
+"playback_range_unknown_duration" = "이 노래의 길이를 아직 모릅니다. 한 번 재생한 뒤 설정하세요.";
+"playback_range_nudge_earlier" = "1초 앞당기기";
+"playback_range_nudge_later" = "1초 늦추기";
+"playback_range_turn_on %@" = "재생 구간 켜기(%@)";
+"playback_range_turn_off %@" = "재생 구간 끄기(%@)";
+"playback_range_minus_seconds %lld" = "−%lld초";
+"playback_range_plus_seconds %lld" = "+%lld초";

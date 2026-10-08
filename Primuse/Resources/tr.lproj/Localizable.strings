@@ -5494,3 +5494,24 @@
 "library_insight_batch_result_failed_format" = "%d başarısız";
 "library_insight_batch_result_left_format" = "%d kaldı";
 "library_insight_batch_setup_own" = "Kendi Yapay Zekâ Hizmetini Kur";
+
+/* 播放时间段 */
+"playback_range_title" = "Çalma Aralığı";
+"playback_range_set" = "Çalma Aralığını Ayarla…";
+"playback_range_edit" = "Çalma Aralığını Düzenle…";
+"playback_range_toggle" = "Yalnızca Bu Aralığı Çal";
+"playback_range_summary %@ %@" = "%1$@ · %2$@ uzunluğunda";
+"playback_range_start" = "Başlangıç";
+"playback_range_end" = "Bitiş";
+"playback_range_set_to_current" = "Geçerli Konumu Kullan";
+"playback_range_preview_start" = "Başlangıcı Dinle";
+"playback_range_preview_end" = "Sonu Dinle";
+"playback_range_clear" = "Aralığı Kaldır";
+"playback_range_footer" = "Açıkken bu şarkı başlangıç zamanından çalmaya başlar, bitiş zamanında bitmiş sayılır ve sıradaki şarkı çalar. Birini tekrarla bu aralığı yeniden çalar. Şarkı sözleri ve ilerleme yine şarkının tamamının süresini izler.";
+"playback_range_unknown_duration" = "Bu şarkının uzunluğu henüz bilinmiyor. Bir kez çalın, sonra aralığı ayarlayın.";
+"playback_range_nudge_earlier" = "1 Saniye Önce";
+"playback_range_nudge_later" = "1 Saniye Sonra";
+"playback_range_turn_on %@" = "Çalma Aralığını Aç (%@)";
+"playback_range_turn_off %@" = "Çalma Aralığını Kapat (%@)";
+"playback_range_minus_seconds %lld" = "−%lld sn";
+"playback_range_plus_seconds %lld" = "+%lld sn";

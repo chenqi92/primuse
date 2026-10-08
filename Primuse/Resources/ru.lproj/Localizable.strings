@@ -5494,3 +5494,24 @@
 "library_insight_batch_result_failed_format" = "Не удалось: %d";
 "library_insight_batch_result_left_format" = "Осталось: %d";
 "library_insight_batch_setup_own" = "Настроить свой ИИ-сервис";
+
+/* 播放时间段 */
+"playback_range_title" = "Фрагмент воспроизведения";
+"playback_range_set" = "Задать фрагмент воспроизведения…";
+"playback_range_edit" = "Изменить фрагмент воспроизведения…";
+"playback_range_toggle" = "Воспроизводить только этот фрагмент";
+"playback_range_summary %@ %@" = "%1$@ · длительность %2$@";
+"playback_range_start" = "Начало";
+"playback_range_end" = "Конец";
+"playback_range_set_to_current" = "Текущая позиция";
+"playback_range_preview_start" = "Прослушать начало";
+"playback_range_preview_end" = "Прослушать конец";
+"playback_range_clear" = "Удалить фрагмент";
+"playback_range_footer" = "Если включено, песня начинается с времени начала и считается прослушанной на времени конца, после чего играет следующая. «Повтор одной песни» повторяет фрагмент. Текст и прогресс по-прежнему идут по времени всей песни.";
+"playback_range_unknown_duration" = "Длительность этой песни пока неизвестна. Воспроизведите её один раз, затем задайте фрагмент.";
+"playback_range_nudge_earlier" = "На 1 секунду раньше";
+"playback_range_nudge_later" = "На 1 секунду позже";
+"playback_range_turn_on %@" = "Включить фрагмент воспроизведения (%@)";
+"playback_range_turn_off %@" = "Выключить фрагмент воспроизведения (%@)";
+"playback_range_minus_seconds %lld" = "−%lld с";
+"playback_range_plus_seconds %lld" = "+%lld с";

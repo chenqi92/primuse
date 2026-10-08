@@ -60,6 +60,7 @@ struct SongRowView: View {
     @State private var showNoScraperSourceAlert = false
     @State private var showAddToPlaylist = false
     @State private var showSongInfo = false
+    @State private var showPlaybackRangeEditor = false
     @State private var showDeleteConfirm = false
     @State private var showBareAlert = false
     @State private var showTagEditor = false
@@ -178,7 +179,7 @@ struct SongRowView: View {
 
     private var hasPresentationRequest: Bool {
         showScrapeOptions || showNoScraperSourceAlert || showAddToPlaylist
-            || showSongInfo || showDeleteConfirm || showBareAlert || showTagEditor
+            || showSongInfo || showPlaybackRangeEditor || showDeleteConfirm || showBareAlert || showTagEditor
             || showLyricsEditor || showSimilarSongs || deleteErrorMessage != nil
             || showLocalRemovalConfirm || localRemovalErrorMessage != nil
             || sourceCheckMessage != nil || tagReadMessage != nil || presentedShareSong != nil
@@ -245,6 +246,9 @@ struct SongRowView: View {
         .sheet(isPresented: $showSongInfo) {
             SongInfoSheet(song: song)
                 .songInfoPresentationStyle()
+        }
+        .sheet(isPresented: $showPlaybackRangeEditor) {
+            SongPlaybackRangeEditor(song: library.song(id: song.id) ?? song)
         }
         .alert(String(localized: "delete_song"), isPresented: $showDeleteConfirm) {
             Button(String(localized: "cancel"), role: .cancel) {}
@@ -737,6 +741,10 @@ struct SongRowView: View {
                 showSimilarSongs = true
             } label: {
                 Label(String(localized: "similar_songs"), systemImage: "sparkles")
+            }
+
+            SongPlaybackRangeMenuItems(song: song) {
+                showPlaybackRangeEditor = true
             }
 
             if supportsOfflineAudioCache {
