@@ -148,7 +148,6 @@ struct PrimuseSkipBackwardIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Skip Back"
     static let description = IntentDescription("Go back a few seconds in the book playing in Primuse.")
     /// 只给小组件按键用, 不出现在快捷指令里。
-    static let isDiscoverable = false
 
     @MainActor
     func perform() async throws -> some IntentResult {
@@ -160,7 +159,6 @@ struct PrimuseSkipBackwardIntent: AudioPlaybackIntent {
 struct PrimuseSkipForwardIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Skip Forward"
     static let description = IntentDescription("Go forward a few seconds in the book playing in Primuse.")
-    static let isDiscoverable = false
 
     @MainActor
     func perform() async throws -> some IntentResult {
