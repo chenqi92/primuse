@@ -132,6 +132,9 @@ enum SpokenWordCollection: Hashable, Sendable {
 
 struct SpokenWordLibraryContent<Content: View>: View {
     var collection: SpokenWordCollection = .books
+    /// 书架、播客页在惰性栈里,分好组之前先占一块转圈;首页「全部」那一面整页都包在这里,
+    /// 不能等书分完组才出音乐内容,传 false 直接按未就绪的快照画。
+    var showsPlaceholderUntilPrepared = true
     @ViewBuilder var content: (SpokenWordLibrarySnapshot) -> Content
 
     @Environment(MusicLibrary.self) private var library
@@ -146,7 +149,7 @@ struct SpokenWordLibraryContent<Content: View>: View {
     var body: some View {
         // A zero-height initial shelf can be skipped by its parent's lazy stack.
         ZStack {
-            if books.snapshot.isPrepared {
+            if books.snapshot.isPrepared || !showsPlaceholderUntilPrepared {
                 content(books.snapshot)
             } else {
                 ProgressView()

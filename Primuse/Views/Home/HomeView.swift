@@ -1128,7 +1128,7 @@ struct HomeView: View {
     private var contentView: some View {
         // Section contents are bounded. Stable vertical sizes avoid lazy
         // placement loops when a ranking card changes height near the viewport.
-        SpokenWordLibraryContent { snapshot in
+        SpokenWordLibraryContent(showsPlaceholderUntilPrepared: false) { snapshot in
             VStack(alignment: .leading, spacing: editorMode ? 12 : 24) {
                 if editorMode {
                     Text("home_editor_hint")
