@@ -586,6 +586,8 @@
 "ext.tv.scan.complete" = "Tamamlandı";
 "ext.tv.settings.tapToPull" = "En son arşivi almak için dokunun";
 "ext.widget.nowPlaying.displayName" = "Şu an çalıyor";
+"ext.widget.coverPlayer.displayName" = "Kapak Oynatıcı";
+"ext.widget.coverPlayer.description" = "Bulanık kapak arka planında büyük albüm kapağı; yalnızca şarkı, sanatçı ve çalma düğmeleri.";
 "ext.control.shuffle" = "Karıştır";
 "ext.widget.unlike" = "Beğenilen Şarkılardan Kaldır";
 "ext.tv.sources.remove" = "Kaldır";

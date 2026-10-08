@@ -488,6 +488,8 @@
 "ext.widget.lyricsPreview.empty3" = "और वे यहां चलेंगे";
 "ext.widget.nowPlaying.description" = "वर्तमान गीत और प्लेबैक की प्रगति एक नज़र में देखें।";
 "ext.widget.nowPlaying.displayName" = "अभी चल रहा है";
+"ext.widget.coverPlayer.displayName" = "कवर प्लेयर";
+"ext.widget.coverPlayer.description" = "धुंधले कवर बैकग्राउंड पर बड़ा एल्बम कवर, सिर्फ़ गीत, कलाकार और प्लेबैक बटन के साथ।";
 "ext.widget.nowPlaying.empty.inline" = "Primuse - कुछ भी नहीं चल रहा है";
 "ext.widget.nowPlaying.empty.openLarge" = "एक संगीत स्रोत कनेक्ट करें और आपका वर्तमान गीत और प्रगति यहां दिखाई देगी।";
 "ext.widget.nowPlaying.empty.openMedium" = "जहां आपने छोड़ा था वहां से शुरू करने के लिए Primuse खोलें";

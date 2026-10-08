@@ -145,7 +145,7 @@ struct NowPlayingProvider: TimelineProvider {
 
     /// 画廊预览 / placeholder 用的假数据 —— 让 widget 在用户挑选时就能
     /// 看到"长大后是啥样",而不是空 state。
-    private static let demoState = PlaybackState(
+    fileprivate static let demoState = PlaybackState(
         currentSongID: "demo",
         songTitle: "Beautiful Boy",
         artistName: "John Lennon",
@@ -911,6 +911,343 @@ private struct AccessoryInlineEmptyState: View {
 }
 
 #endif
+
+// MARK: - 封面播放(#143)
+//
+// 大封面、模糊封面铺底, 只留歌名、歌手和上一首 / 播放 / 下一首。和「正在播放」并列成
+// 另一款让用户在小组件库里挑: 那款信息全(进度、格式、喜欢、歌词), 这款只求好看好按。
+// 数据、封面文件、按钮意图都和「正在播放」同一套; 写入侧 reloadAllTimelines 一并刷新。
+
+struct CoverPlayerWidget: Widget {
+    let kind = "CoverPlayerWidget"
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: CoverPlayerProvider()) { entry in
+            CoverPlayerWidgetView(entry: entry)
+        }
+        .contentMarginsDisabled()
+        .configurationDisplayName(PMString("ext.widget.coverPlayer.displayName"))
+        .description(PMString("ext.widget.coverPlayer.description"))
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
+    }
+}
+
+/// 不带歌词: 时间线只有一条, 播放中只在这首自然播完时翻一次, 其余等写入侧刷新。
+struct CoverPlayerProvider: TimelineProvider {
+    func placeholder(in context: Context) -> NowPlayingEntry {
+        Self.entry(state: NowPlayingProvider.demoState, at: Date(), sampledAt: nil)
+    }
+
+    func getSnapshot(in context: Context, completion: @escaping (NowPlayingEntry) -> Void) {
+        let now = Date()
+        completion(context.isPreview
+            ? Self.entry(state: NowPlayingProvider.demoState, at: now, sampledAt: nil)
+            : Self.currentEntry(at: now))
+    }
+
+    func getTimeline(in context: Context, completion: @escaping (Timeline<NowPlayingEntry>) -> Void) {
+        let now = Date()
+        let entry = Self.currentEntry(at: now)
+        var policy = TimelineReloadPolicy.never
+        if let state = entry.state, state.isPlaying, state.duration > 0 {
+            let position = entry.playbackElapsed + max(0, now.timeIntervalSince(entry.playbackReferenceDate))
+            if position < state.duration {
+                policy = .after(now.addingTimeInterval(state.duration - max(0, position) + 1))
+            }
+        }
+        completion(Timeline(entries: [entry], policy: policy))
+    }
+
+    private static func currentEntry(at now: Date) -> NowPlayingEntry {
+        let state = PlaybackState.load()
+        return entry(state: state, at: now, sampledAt: state?.updatedAt)
+    }
+
+    private static func entry(state: PlaybackState?, at now: Date, sampledAt: Date?) -> NowPlayingEntry {
+        NowPlayingEntry(
+            date: now,
+            playbackElapsed: state?.currentTime ?? 0,
+            playbackReferenceDate: sampledAt ?? now,
+            state: state,
+            lyricsSnapshot: nil
+        )
+    }
+}
+
+struct CoverPlayerWidgetView: View {
+    let entry: NowPlayingEntry
+
+    @Environment(\.widgetFamily) private var family
+
+    var body: some View {
+        if let state = entry.state, state.currentSongID != nil {
+            let progress = PlaybackProgress(
+                state: state,
+                elapsed: entry.playbackElapsed,
+                referenceDate: entry.playbackReferenceDate
+            )
+            switch family {
+            case .systemMedium: CoverPlayerMediumView(state: state)
+            case .systemLarge: CoverPlayerLargeView(state: state, progress: progress)
+            default: CoverPlayerSmallView(state: state)
+            }
+        } else {
+            SmallEmptyStateView()
+        }
+    }
+}
+
+/// 封面铺底一律是深色: 全彩外观下字和按钮按深色画, 浅色模式下也是白字。色调、透明外观下
+/// 系统会换掉整块底, 那时照系统的来。
+private struct CoverPlayerCanvas<Content: View>: View {
+    let state: PlaybackState
+    var padding: CGFloat = 14
+    var sharpCover = false
+    let content: Content
+    @Environment(\.widgetRenderingMode) private var renderingMode
+    @Environment(\.colorScheme) private var colorScheme
+
+    init(state: PlaybackState, padding: CGFloat = 14, sharpCover: Bool = false,
+         @ViewBuilder content: () -> Content) {
+        self.state = state
+        self.padding = padding
+        self.sharpCover = sharpCover
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .padding(padding)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .environment(\.colorScheme, renderingMode == .fullColor ? .dark : colorScheme)
+            .containerBackground(for: .widget) {
+                CoverPlayerBackdrop(coverImageName: state.coverImageName, sharp: sharpCover)
+            }
+    }
+}
+
+private struct CoverPlayerBackdrop: View {
+    let coverImageName: String?
+    var sharp = false
+    @Environment(\.widgetRenderingMode) private var renderingMode
+
+    var body: some View {
+        if renderingMode == .fullColor {
+            GeometryReader { geometry in
+                ZStack {
+                    WidgetDesign.canvasBase
+                    if let coverImageName, !coverImageName.isEmpty {
+                        if sharp {
+                            WidgetCoverImageView(coverImageName: coverImageName, cornerRadius: 0)
+                                .frame(width: geometry.size.width, height: geometry.size.height)
+                            // 小号整块就是封面: 下半截压暗, 字和按钮压在上面。
+                            LinearGradient(
+                                stops: [
+                                    .init(color: .black.opacity(0), location: 0.30),
+                                    .init(color: .black.opacity(0.72), location: 1),
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        } else {
+                            WidgetCoverImageView(coverImageName: coverImageName, cornerRadius: 0)
+                                .frame(width: geometry.size.width, height: geometry.size.height)
+                                .scaleEffect(1.35)
+                                .blur(radius: 30)
+                                .saturation(1.25)
+                            // 浅色封面上白字也要读得清。
+                            LinearGradient(
+                                colors: [.black.opacity(0.22), .black.opacity(0.48)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        }
+                    } else {
+                        LinearGradient(
+                            colors: [WidgetDesign.brandTint.opacity(0.55), WidgetDesign.canvasBase],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    }
+                }
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .clipped()
+            }
+            .accessibilityHidden(true)
+        } else {
+            Color.clear
+        }
+    }
+}
+
+private struct CoverPlayerArtwork: View {
+    let state: PlaybackState
+    var cornerRadius: CGFloat = 14
+
+    var body: some View {
+        // 封面按填满缩放, 不是方的会比框大: 先占住方框再把它叠上去裁掉, 别让它撑开布局。
+        Color.clear
+            .overlay {
+                WidgetCoverImageView(coverImageName: state.coverImageName, cornerRadius: cornerRadius)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .shadow(color: .black.opacity(0.30), radius: 10, x: 0, y: 5)
+            .accessibilityHidden(true)
+    }
+}
+
+private struct CoverPlayerTitle: View {
+    let state: PlaybackState
+    var titleSize: CGFloat
+    var subtitleSize: CGFloat
+    var alignment: HorizontalAlignment = .center
+
+    var body: some View {
+        VStack(alignment: alignment, spacing: 3) {
+            Text(state.songTitle ?? PMString("ext.widget.unknownSong"))
+                .font(.system(size: titleSize, weight: .bold))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+            Text(nowPlayingSubtitle(state))
+                .font(.system(size: subtitleSize, weight: .medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .multilineTextAlignment(alignment == .center ? .center : .leading)
+        .frame(maxWidth: .infinity, alignment: alignment == .center ? .center : .leading)
+    }
+}
+
+/// 上一首 / 播放 / 下一首(听书时是后退 / 播放 / 前进, 电台只有播放), 平分整行。
+private struct CoverPlayerControls: View {
+    let state: PlaybackState
+    var symbolSize: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: 0) {
+            if let info = state.spokenWord, state.isSpokenWord {
+                control(PrimuseSkipBackwardIntent(), symbol: info.skipBackwardSymbol,
+                        label: PMString("ext.widget.spokenWord.skipBackFormat", info.skipBackwardSeconds))
+                playPause
+                control(PrimuseSkipForwardIntent(), symbol: info.skipForwardSymbol,
+                        label: PMString("ext.widget.spokenWord.skipForwardFormat", info.skipForwardSeconds))
+            } else if state.isLiveStream {
+                playPause
+            } else {
+                control(PrimusePreviousIntent(), symbol: "backward.fill", label: PMString("ext.control.previous"))
+                playPause
+                control(PrimuseNextIntent(), symbol: "forward.fill", label: PMString("ext.control.next"))
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // The icon shows the last snapshot; ask for the state it shows, so a stale
+    // snapshot can never turn "play" into a pause.
+    private var playPause: some View {
+        Button(intent: PrimuseSetPlayingIntent(value: !state.isPlaying)) {
+            Image(systemName: state.isPlaying ? (state.isLiveStream ? "stop.fill" : "pause.fill") : "play.fill")
+                .font(.system(size: symbolSize * 1.3, weight: .semibold))
+                .foregroundStyle(.primary)
+                .widgetAccentable()
+                .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
+                .frame(maxWidth: .infinity, minHeight: symbolSize * 2)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .invalidatableContent()
+        .accessibilityLabel(PMString(state.isPlaying ? "ext.control.pause" : "ext.control.play"))
+    }
+
+    private func control<Intent: AppIntent>(_ intent: Intent, symbol: String, label: String) -> some View {
+        Button(intent: intent) {
+            Image(systemName: symbol)
+                .font(.system(size: symbolSize, weight: .semibold))
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, minHeight: symbolSize * 2)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+}
+
+/// 小号: 整块就是封面, 下半截压暗后放歌名、歌手和三个按钮。色调、透明外观下没有封面底,
+/// 改在左上角摆一张小封面。
+private struct CoverPlayerSmallView: View {
+    let state: PlaybackState
+    @Environment(\.widgetRenderingMode) private var renderingMode
+
+    var body: some View {
+        CoverPlayerCanvas(state: state, padding: 12, sharpCover: true) {
+            VStack(alignment: .leading, spacing: 4) {
+                if renderingMode != .fullColor {
+                    CoverPlayerArtwork(state: state, cornerRadius: 8)
+                        .frame(width: 46, height: 46)
+                }
+                Spacer(minLength: 0)
+                CoverPlayerTitle(state: state, titleSize: 14, subtitleSize: 11.5, alignment: .leading)
+                    .shadow(color: .black.opacity(renderingMode == .fullColor ? 0.35 : 0), radius: 3, x: 0, y: 1)
+                CoverPlayerControls(state: state, symbolSize: 15)
+            }
+        }
+    }
+}
+
+/// 中号: 左边整高的封面, 右边歌名、歌手, 下面三个大按钮。
+private struct CoverPlayerMediumView: View {
+    let state: PlaybackState
+
+    var body: some View {
+        CoverPlayerCanvas(state: state) {
+            GeometryReader { geometry in
+                HStack(spacing: 14) {
+                    CoverPlayerArtwork(state: state)
+                        .frame(width: geometry.size.height, height: geometry.size.height)
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        CoverPlayerTitle(state: state, titleSize: 18, subtitleSize: 13.5)
+                        Spacer(minLength: 6)
+                        CoverPlayerControls(state: state, symbolSize: 20)
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .widgetBounds(geometry.size, alignment: .leading)
+            }
+        }
+    }
+}
+
+/// 大号: 上面一张大封面, 下面歌名、歌手、进度和三个按钮, 都居中。
+private struct CoverPlayerLargeView: View {
+    let state: PlaybackState
+    let progress: PlaybackProgress
+
+    var body: some View {
+        CoverPlayerCanvas(state: state, padding: 18) {
+            GeometryReader { geometry in
+                // 封面下面: 歌名两行约 43、进度条、按钮 44, 加上四段间距共约 130。
+                let side = max(80, min(geometry.size.width, geometry.size.height - 134))
+                VStack(spacing: 10) {
+                    CoverPlayerArtwork(state: state, cornerRadius: 16)
+                        .frame(width: side, height: side)
+                    Spacer(minLength: 0)
+                    CoverPlayerTitle(state: state, titleSize: 19, subtitleSize: 14)
+                    if state.isLiveStream {
+                        LiveIndicatorLine()
+                    } else {
+                        ProgressLine(progress: progress)
+                    }
+                    CoverPlayerControls(state: state, symbolSize: 22)
+                }
+                .widgetBounds(geometry.size, alignment: .top)
+            }
+        }
+    }
+}
 
 // MARK: - 共享原件
 

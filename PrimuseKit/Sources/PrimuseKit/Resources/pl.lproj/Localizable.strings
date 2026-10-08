@@ -488,6 +488,8 @@
 "ext.widget.lyricsPreview.empty3" = ", a oni pójdą tutaj";
 "ext.widget.nowPlaying.description" = "Szybki podgląd bieżącego utworu i postępu odtwarzania.";
 "ext.widget.nowPlaying.displayName" = "Teraz odtwarzane";
+"ext.widget.coverPlayer.displayName" = "Odtwarzacz z okładką";
+"ext.widget.coverPlayer.description" = "Duża okładka na rozmytym tle okładki – tylko tytuł, wykonawca i przyciski sterowania.";
 "ext.widget.nowPlaying.empty.inline" = "Primuse — Nic nie jest odtwarzane";
 "ext.widget.nowPlaying.empty.openLarge" = "Podłącz źródło muzyki, a tutaj pojawi się Twój aktualny utwór i postęp.";
 "ext.widget.nowPlaying.empty.openMedium" = "Otwórz Primuse, aby kontynuować od miejsca, w którym przerwałeś";

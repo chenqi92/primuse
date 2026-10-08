@@ -488,6 +488,8 @@
 "ext.widget.lyricsPreview.empty3" = "e eles acompanharão aqui";
 "ext.widget.nowPlaying.description" = "Veja rapidamente a música atual e o progresso da reprodução.";
 "ext.widget.nowPlaying.displayName" = "Reproduzindo";
+"ext.widget.coverPlayer.displayName" = "Player de capa";
+"ext.widget.coverPlayer.description" = "Capa grande sobre um fundo de capa desfocado, só com a música, o artista e os controles.";
 "ext.widget.nowPlaying.empty.inline" = "Primuse — Nada tocando";
 "ext.widget.nowPlaying.empty.openLarge" = "Conecte uma fonte de música e sua música atual e seu progresso serão exibidos aqui.";
 "ext.widget.nowPlaying.empty.openMedium" = "Abra o Primuse para continuar de onde parou";

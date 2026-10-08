@@ -33,6 +33,8 @@
 "ext.widget.demo.track"                    = "데모 트랙";
 
 "ext.widget.nowPlaying.displayName"        = "재생 중";
+"ext.widget.coverPlayer.displayName"       = "커버 플레이어";
+"ext.widget.coverPlayer.description"       = "흐린 커버 배경 위에 큰 앨범 아트와 곡명, 아티스트, 재생 버튼만 보여 줍니다.";
 "ext.widget.nowPlaying.description"        = "현재 곡과 재생 진행 상황을 한눈에 확인하세요.";
 "ext.widget.nowPlaying.eyebrowFormat"      = "재생 중 · %@";
 "ext.widget.nowPlaying.pausedEyebrowFormat" = "일시 정지됨 · %@";

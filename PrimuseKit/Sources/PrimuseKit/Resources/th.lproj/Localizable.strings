@@ -488,6 +488,8 @@
 "ext.widget.lyricsPreview.empty3" = "และพวกเขาจะตามมาที่นี่";
 "ext.widget.nowPlaying.description" = "ดูเพลงปัจจุบันและความคืบหน้าในการเล่นได้อย่างรวดเร็ว";
 "ext.widget.nowPlaying.displayName" = "กำลังเล่น";
+"ext.widget.coverPlayer.displayName" = "เครื่องเล่นแบบปก";
+"ext.widget.coverPlayer.description" = "ปกอัลบั้มขนาดใหญ่บนพื้นหลังปกแบบเบลอ แสดงเฉพาะชื่อเพลง ศิลปิน และปุ่มควบคุม";
 "ext.widget.nowPlaying.empty.inline" = "Primuse — ไม่มีอะไรเล่น";
 "ext.widget.nowPlaying.empty.openLarge" = "เชื่อมต่อแหล่งเพลงแล้วเพลงปัจจุบันและความคืบหน้าของคุณจะแสดงที่นี่";
 "ext.widget.nowPlaying.empty.openMedium" = "เปิด Primuse เพื่อทำต่อจากจุดที่คุณค้างไว้";

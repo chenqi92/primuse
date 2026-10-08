@@ -30,6 +30,8 @@
 "ext.widget.demo.track"                    = "示範曲目";
 
 "ext.widget.nowPlaying.displayName"        = "正在播放";
+"ext.widget.coverPlayer.displayName"       = "封面播放";
+"ext.widget.coverPlayer.description"       = "大封面配模糊封面背景，只留歌名、歌手和切歌按鈕";
 "ext.widget.nowPlaying.description"        = "快速查看目前歌曲與播放進度";
 "ext.widget.nowPlaying.eyebrowFormat"      = "正在播放 · %@";
 "ext.widget.nowPlaying.pausedEyebrowFormat" = "已暫停 · %@";

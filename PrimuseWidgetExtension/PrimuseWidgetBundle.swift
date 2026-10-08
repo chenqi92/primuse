@@ -5,6 +5,10 @@ import SwiftUI
 struct PrimuseWidgetBundle: WidgetBundle {
     var body: some Widget {
         NowPlayingWidget()
+        // 大封面版的正在播放(#143)。macOS 的小组件包已经 10 个, 到了构建器上限, 先只上 iPhone / iPad。
+        #if os(iOS)
+        CoverPlayerWidget()
+        #endif
         QuickAccessWidget()
         SpokenWordShelfWidget()
         PodcastWidget()

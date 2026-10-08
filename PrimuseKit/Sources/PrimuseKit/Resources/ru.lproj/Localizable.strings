@@ -586,6 +586,8 @@
 "ext.tv.scan.complete" = "Завершено";
 "ext.tv.settings.tapToPull" = "Нажмите, чтобы загрузить последнюю версию медиатеки.";
 "ext.widget.nowPlaying.displayName" = "Сейчас играет";
+"ext.widget.coverPlayer.displayName" = "Плеер с обложкой";
+"ext.widget.coverPlayer.description" = "Крупная обложка на размытом фоне обложки — только название, исполнитель и кнопки управления.";
 "ext.control.shuffle" = "Перемешать";
 "ext.widget.unlike" = "Удалить из понравившихся песен";
 "ext.tv.sources.remove" = "Убрать";

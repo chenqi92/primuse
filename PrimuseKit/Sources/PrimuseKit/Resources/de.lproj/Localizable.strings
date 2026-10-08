@@ -33,6 +33,8 @@
 "ext.widget.demo.track"                    = "Demo-Titel";
 
 "ext.widget.nowPlaying.displayName"        = "Aktuelle Wiedergabe";
+"ext.widget.coverPlayer.displayName"       = "Cover-Player";
+"ext.widget.coverPlayer.description"       = "Großes Albumcover auf unscharfem Cover-Hintergrund – nur Titel, Künstler und Wiedergabetasten.";
 "ext.widget.nowPlaying.description"        = "Aktuellen Titel und Wiedergabefortschritt auf einen Blick sehen.";
 "ext.widget.nowPlaying.eyebrowFormat"      = "Läuft gerade · %@";
 "ext.widget.nowPlaying.pausedEyebrowFormat" = "Pausiert · %@";

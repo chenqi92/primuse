@@ -488,6 +488,8 @@
 "ext.widget.lyricsPreview.empty3" = "ويتابعون هنا";
 "ext.widget.nowPlaying.description" = "شاهد الأغنية الحالية وتقدم التشغيل في لمحة.";
 "ext.widget.nowPlaying.displayName" = "قيد التشغيل الآن";
+"ext.widget.coverPlayer.displayName" = "مشغل الغلاف";
+"ext.widget.coverPlayer.description" = "غلاف كبير على خلفية غلاف ضبابية، مع اسم الأغنية والفنان وأزرار التشغيل فقط.";
 "ext.widget.nowPlaying.empty.inline" = "Primuse — لا شيء يشغّل";
 "ext.widget.nowPlaying.empty.openLarge" = "قم بتوصيل مصدر الموسيقى وستظهر هنا أغنيتك الحالية وتقدمك.";
 "ext.widget.nowPlaying.empty.openMedium" = "افتح Primuse لتكمل من حيث توقفت";

@@ -586,6 +586,8 @@
 "ext.tv.scan.complete" = "Завершено";
 "ext.tv.settings.tapToPull" = "Торкніться, щоб отримати найновішу медіатеку";
 "ext.widget.nowPlaying.displayName" = "Зараз грає";
+"ext.widget.coverPlayer.displayName" = "Плеєр з обкладинкою";
+"ext.widget.coverPlayer.description" = "Велика обкладинка на розмитому тлі обкладинки — лише назва, виконавець і кнопки керування.";
 "ext.control.shuffle" = "Перемішати";
 "ext.widget.unlike" = "Видалити з пісень, які сподобалися";
 "ext.tv.sources.remove" = "Прибрати";

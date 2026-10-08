@@ -33,6 +33,8 @@
 "ext.widget.demo.track"                    = "デモトラック";
 
 "ext.widget.nowPlaying.displayName"        = "再生中";
+"ext.widget.coverPlayer.displayName"       = "カバー再生";
+"ext.widget.coverPlayer.description"       = "ぼかしたジャケットを背景に大きなジャケットを表示し、曲名・アーティスト・再生ボタンだけを残します。";
 "ext.widget.nowPlaying.description"        = "再生中の曲と進行状況をひと目で確認できます。";
 "ext.widget.nowPlaying.eyebrowFormat"      = "再生中 · %@";
 "ext.widget.nowPlaying.pausedEyebrowFormat" = "一時停止中 · %@";

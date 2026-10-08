@@ -31,6 +31,8 @@
 "ext.widget.demo.track"                    = "Demo Track";
 
 "ext.widget.nowPlaying.displayName"        = "Now Playing";
+"ext.widget.coverPlayer.displayName"       = "Cover Player";
+"ext.widget.coverPlayer.description"       = "Large album art on a blurred cover backdrop, with just the song, artist and playback controls.";
 "ext.widget.nowPlaying.description"        = "See the current song and playback progress at a glance.";
 "ext.widget.nowPlaying.eyebrowFormat"      = "Now Playing · %@";
 "ext.widget.nowPlaying.pausedEyebrowFormat" = "Paused · %@";

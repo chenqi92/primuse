@@ -33,6 +33,8 @@
 "ext.widget.demo.track"                    = "Titre de démo";
 
 "ext.widget.nowPlaying.displayName"        = "En cours de lecture";
+"ext.widget.coverPlayer.displayName"       = "Lecteur pochette";
+"ext.widget.coverPlayer.description"       = "Grande pochette sur un fond de pochette flouté, avec seulement le titre, l'artiste et les commandes.";
 "ext.widget.nowPlaying.description"        = "Voyez le titre en cours et la progression d'un coup d'œil.";
 "ext.widget.nowPlaying.eyebrowFormat"      = "En cours · %@";
 "ext.widget.nowPlaying.pausedEyebrowFormat" = "En pause · %@";
