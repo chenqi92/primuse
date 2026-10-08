@@ -547,7 +547,8 @@ final class ListeningIntentService {
             return ListeningIntentShelfPolicy.sample(ids, limit: intent.playback.songLimit, seed: seed)
         case .builtIn, .scene, .personal:
             guard intent.rule != nil else { return [] }
-            let songs = library.musicSongs
+            // 按规则替人挑歌,不挑不喜欢的歌(#193)。
+            let songs = library.musicSongsExcludingDisliked
             let entries = PlayHistoryStore.shared.musicEntries
             let now = Date()
             return await Task.detached(priority: .userInitiated) {

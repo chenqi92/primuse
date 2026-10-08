@@ -317,7 +317,8 @@ final class TVPlayMediaIntentHandler: NSObject,
             } else if identifierGroups.isEmpty {
                 songResult = SiriMediaSearchResolver.resolvePreferringMusic(
                     query: query,
-                    musicSongs: store.library.musicSongs,
+                    // 什么都没点名的「播放音乐」是替人挑歌,不挑不喜欢的歌(#193)。
+                    musicSongs: query.hasSearchTerm ? store.library.musicSongs : store.library.musicSongsExcludingDisliked,
                     spokenWordSongs: store.library.spokenWordSongs
                 )
             } else {
@@ -678,7 +679,8 @@ final class TVPlayMediaIntentHandler: NSObject,
         if identifierGroups.isEmpty {
             found = SiriMediaSearchResolver.resolvePreferringMusic(
                 query: query,
-                musicSongs: store.library.musicSongs,
+                // 什么都没点名的「播放音乐」是替人挑歌,不挑不喜欢的歌(#193)。
+                musicSongs: query.hasSearchTerm ? store.library.musicSongs : store.library.musicSongsExcludingDisliked,
                 spokenWordSongs: store.library.spokenWordSongs
             )
         } else {

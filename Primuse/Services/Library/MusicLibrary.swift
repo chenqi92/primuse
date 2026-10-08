@@ -3553,7 +3553,8 @@ final class MusicLibrary {
     /// Deleted" recovery panel.
     var recentlyDeletedPlaylists: [Playlist] {
         allPlaylists
-            .filter { $0.isDeleted && !$0.isPurged }
+            // 「不喜欢」是系统记录,旧版本把它当普通歌单删掉了也不在这里列出、不让彻底删除。
+            .filter { $0.isDeleted && !$0.isPurged && $0.id != Self.dislikedSongsPlaylistID }
             .sorted { ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
     }
     var hiddenMirrorPlaylists: [MirrorPlaylistSuppression] {
@@ -8370,8 +8371,10 @@ final class MusicLibrary {
         }) { return }
         // 清除后墓碑会留下(`isPurged`), 它的 deletedAt 永远早于阈值; 不排除它们,
         // 每次启动都会把同一批墓碑重清一遍、整库落盘再推给所有设备。
+        // 「不喜欢」清除后成员全丢、墓碑也恢复不了,之后的标记一条都落不下:不随回收站清理。
         let toPrune = allPlaylists.filter {
             $0.isDeleted && !$0.isPurged && ($0.deletedAt ?? .distantFuture) < threshold
+                && $0.id != Self.dislikedSongsPlaylistID
         }
         guard !toPrune.isEmpty else { return }
         for playlist in toPrune {
@@ -8640,9 +8643,10 @@ final class MusicLibrary {
         for song in changedSongs {
             likedStateMutationHandler?(song, false, true)
         }
-        if playlistID == Self.likedSongsPlaylistID {
-            // 喜欢与不喜欢互斥(#193): 不管从哪条路喜欢上的(心形、批量加入、导入),
-            // 都不再算不喜欢。
+        if playlistID == Self.likedSongsPlaylistID, propagatesLikedMutation {
+            // 喜欢与不喜欢互斥(#193): 用户自己喜欢上的(心形、批量加入、导入)不再算不喜欢。
+            // 服务端写回失败时的回滚、对账也走这里(不外传),那不是用户改了主意 ——
+            // 点了不喜欢、取消星标没写成功,回滚把喜欢放回来时不能顺手把不喜欢抹掉。
             remove(
                 songIDs: addedIDs,
                 fromPlaylist: Self.dislikedSongsPlaylistID,
@@ -8767,6 +8771,15 @@ final class MusicLibrary {
         )
     }
 
+    /// 旧版本把「不喜欢」当成普通歌单,在那边删掉后启动时恢复回来;成员还在,只是撤掉删除。
+    func restoreDislikedPlaylistIfDeleted() {
+        if deferringUntilReady({ [weak self] in self?.restoreDislikedPlaylistIfDeleted() }) { return }
+        guard allPlaylists.contains(where: {
+            $0.id == Self.dislikedSongsPlaylistID && $0.isDeleted && !$0.isPurged
+        }) else { return }
+        restorePlaylist(id: Self.dislikedSongsPlaylistID)
+    }
+
     /// 不喜欢的歌。两台设备离线时一边喜欢、一边不喜欢, 合并后两份歌单里都有它 ——
     /// 这时按喜欢算: 宁可多挑一首, 也不悄悄藏起用户喜欢的歌。
     var dislikedSongIDs: Set<String> {
@@ -8797,6 +8810,13 @@ final class MusicLibrary {
 
     /// 整库随机、整库播放这类由 App 替人挑歌的入口用: 音乐曲目去掉不喜欢的歌。
     /// 专辑、歌单这类点名要听的列表不经过这里。
+    /// 同上, 给要整首 `Song` 的挑歌入口(Siri「播放音乐」、开始听)。
+    var musicSongsExcludingDisliked: [Song] {
+        let disliked = dislikedSongIDs
+        guard !disliked.isEmpty else { return musicSongs }
+        return musicSongs.filter { !disliked.contains($0.id) }
+    }
+
     var musicSongIDsExcludingDisliked: [String] {
         let disliked = dislikedSongIDs
         guard !disliked.isEmpty else { return musicSongs.map(\.id) }

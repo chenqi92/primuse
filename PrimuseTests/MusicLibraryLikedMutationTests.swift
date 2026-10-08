@@ -275,6 +275,61 @@ final class MusicLibraryDislikedSongsTests: XCTestCase {
         }
     }
 
+    func testServerRollbackOfTheLikeKeepsTheDislike() async throws {
+        let storageDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseDislikedRollbackTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: storageDirectory) }
+
+        let library = MusicLibrary(storageDirectory: storageDirectory)
+        library.addSongs([makeSong(id: "song-1", path: "/songs/remote-1.mp3")], affectedSourceIDs: ["source-1"])
+        for _ in 0..<200 where library.musicSongs.count != 1 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        library.setLiked(songID: "song-1", isLiked: true, propagatesServerMutation: true)
+        library.setDisliked(songID: "song-1", isDisliked: true)
+        // 取消星标没写成功, 服务端同步把喜欢原样放回(不外传)。
+        library.setLiked(songID: "song-1", isLiked: true, propagatesServerMutation: false)
+
+        XCTAssertTrue(library.isLiked(songID: "song-1"))
+        XCTAssertEqual(
+            library.songIDs(forPlaylist: MusicLibrary.dislikedSongsPlaylistID), ["song-1"],
+            "A rollback is not the listener changing their mind"
+        )
+        library.toggleLiked(songID: "song-1")
+        XCTAssertTrue(library.isDisliked(songID: "song-1"))
+        library.toggleLiked(songID: "song-1")
+        XCTAssertTrue(
+            library.songIDs(forPlaylist: MusicLibrary.dislikedSongsPlaylistID).isEmpty,
+            "Liking it themselves still clears the dislike"
+        )
+    }
+
+    func testDislikedRecordDeletedByAnOlderVersionIsRestoredAndNeverPurged() async throws {
+        let storageDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseDislikedDeletionTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: storageDirectory) }
+
+        let library = MusicLibrary(storageDirectory: storageDirectory)
+        library.addSongs([makeSong(id: "song-1", path: "/songs/remote-1.mp3")], affectedSourceIDs: ["source-1"])
+        for _ in 0..<200 where library.musicSongs.count != 1 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        library.setDisliked(songID: "song-1", isDisliked: true)
+        // 旧版本只把它当一个普通歌单。
+        library.deletePlaylist(id: MusicLibrary.dislikedSongsPlaylistID)
+        XCTAssertEqual(library.playlist(id: MusicLibrary.dislikedSongsPlaylistID)?.isDeleted, true)
+        XCTAssertFalse(library.recentlyDeletedPlaylists.contains { $0.id == MusicLibrary.dislikedSongsPlaylistID })
+
+        library.prunePlaylists(deletedBefore: .distantFuture)
+        XCTAssertEqual(library.playlist(id: MusicLibrary.dislikedSongsPlaylistID)?.isPurged, false)
+
+        library.restoreDislikedPlaylistIfDeleted()
+        XCTAssertEqual(library.playlist(id: MusicLibrary.dislikedSongsPlaylistID)?.isDeleted, false)
+        XCTAssertTrue(library.isDisliked(songID: "song-1"))
+    }
+
     private func makeSong(id: String, path: String) -> Song {
         Song(
             id: id,
