@@ -108,11 +108,18 @@ struct MacBottomBar: View {
 
             Spacer(minLength: 4)
 
-            // 有声书的每个文件也能加进「我喜欢」;播客单集不在曲库里, 没有这颗。
-            if let song = player.currentSong, !player.isLiveRadio, !PodcastPlaybackSong.isEpisode(song) {
-                let liked = library.isLiked(songID: song.id)
+            // 有声书的每个文件也能加进「我喜欢」;播客单集记在播客自己的喜欢里。
+            if let song = player.currentSong, !player.isLiveRadio {
+                let isEpisode = PodcastPlaybackSong.isEpisode(song)
+                let liked = isEpisode
+                    ? PodcastStore.shared.isLiked(episodeID: song.id)
+                    : library.isLiked(songID: song.id)
                 Button {
-                    library.toggleLiked(songID: song.id)
+                    if isEpisode {
+                        player.toggleLikeForCurrentPodcastEpisode()
+                    } else {
+                        library.toggleLiked(songID: song.id)
+                    }
                 } label: {
                     Image(systemName: liked ? "heart.fill" : "heart")
                         .font(.system(size: 13))

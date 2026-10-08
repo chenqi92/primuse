@@ -5137,6 +5137,7 @@
 "podcast_kind_bonus" = "إضافية";
 "podcast_kind_trailer" = "إعلان تشويقي";
 "podcast_latest_episodes" = "أحدث الحلقات";
+"podcast_liked_episodes" = "الحلقات المفضلة";
 "podcast_load_failed" = "تعذّر تحميل البرنامج";
 "podcast_mark_all_played" = "تمييز الكل كمستمع إليه";
 "podcast_mark_older_played" = "تمييز الحلقات السابقة كمستمع إليها";

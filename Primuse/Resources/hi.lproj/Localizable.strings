@@ -5137,6 +5137,7 @@
 "podcast_kind_bonus" = "बोनस";
 "podcast_kind_trailer" = "ट्रेलर";
 "podcast_latest_episodes" = "नवीनतम एपिसोड";
+"podcast_liked_episodes" = "पसंद किए गए एपिसोड";
 "podcast_load_failed" = "शो लोड नहीं हो सका";
 "podcast_mark_all_played" = "सबको सुना हुआ चिह्नित करें";
 "podcast_mark_older_played" = "पिछले एपिसोड सुने हुए चिह्नित करें";

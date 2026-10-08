@@ -229,10 +229,16 @@ extension AudioPlayerService {
         _ projection: NowPlayingPlaybackProjection
     ) {
         #if os(iOS)
+        // 播客单集不在曲库里,喜欢记在播客自己那份。
+        let isPodcastEpisode = PodcastPlaybackSong.isEpisode(currentSong)
         let canLikeCurrentSong = !isLiveRadio
-            && currentSong.flatMap { library?.song(id: $0.id) } != nil
+            && (isPodcastEpisode || currentSong.flatMap { library?.song(id: $0.id) } != nil)
         let likeIsActive = canLikeCurrentSong
-            && (currentSong.map { library?.isLiked(songID: $0.id) ?? false } ?? false)
+            && (currentSong.map {
+                isPodcastEpisode
+                    ? PodcastStore.shared.isLiked(episodeID: $0.id)
+                    : library?.isLiked(songID: $0.id) ?? false
+            } ?? false)
         #else
         let canLikeCurrentSong = false
         let likeIsActive = false

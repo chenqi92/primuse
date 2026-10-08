@@ -97,9 +97,20 @@ extension AudioPlayerService {
     ) -> MPRemoteCommandHandlerStatus {
         guard let feedbackEvent = event as? MPFeedbackCommandEvent,
               !isLiveRadio,
-              let songID = currentSong?.id,
-              let library,
-              library.song(id: songID) != nil else {
+              let songID = currentSong?.id else {
+            return .noActionableNowPlayingItem
+        }
+        if PodcastPlaybackSong.isEpisode(currentSong) {
+            let store = PodcastStore.shared
+            guard let episode = store.episode(id: songID)?.episode
+                ?? store.likedEpisodes().first(where: { $0.episode.id == songID })?.episode else {
+                return .noActionableNowPlayingItem
+            }
+            store.setLiked(!feedbackEvent.isNegative, episode: episode)
+            republishNowPlayingSurfaces()
+            return .success
+        }
+        guard let library, library.song(id: songID) != nil else {
             return .noActionableNowPlayingItem
         }
 

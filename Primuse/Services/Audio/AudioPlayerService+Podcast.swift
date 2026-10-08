@@ -16,6 +16,15 @@ extension AudioPlayerService {
         isDLNACast(song) || PodcastPlaybackSong.isEpisode(song)
     }
 
+    // MARK: - Liking
+
+    /// 喜欢或取消正在放的这一集(播客自己的喜欢,不进「我喜欢」歌单)。锁屏上的心跟着变。
+    func toggleLikeForCurrentPodcastEpisode() {
+        guard let song = currentSong, PodcastPlaybackSong.isEpisode(song) else { return }
+        PodcastStore.shared.toggleLiked(episodeID: song.id)
+        republishNowPlayingSurfaces()
+    }
+
     // MARK: - Starting
 
     /// 播一集。`continuing` 是播完接着放的单集(已按收听顺序排好,不含这一集);

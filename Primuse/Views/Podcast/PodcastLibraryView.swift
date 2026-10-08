@@ -45,6 +45,7 @@ final class PodcastNavigationModel {
     var pushedShowID: String?
     var pushedEpisodeID: String?
     var pushedAllEpisodes = false
+    var pushedLikedEpisodes = false
     /// 本机下载的播客文件按节目分组后的那一档(`SpokenWordBook.id`)。
     var pushedLocalShowID: String?
     /// 从热门榜点进去、还没订的节目。
@@ -75,6 +76,9 @@ private struct PodcastNavigationDestinations: ViewModifier {
             }
             .navigationDestination(isPresented: $navigation.pushedAllEpisodes) {
                 PodcastEpisodeFeedView()
+            }
+            .navigationDestination(isPresented: $navigation.pushedLikedEpisodes) {
+                PodcastLikedEpisodesView(navigation: navigation)
             }
             .navigationDestination(item: $navigation.pushedLocalShowID) { showID in
                 SpokenWordBookDetailView(bookID: showID, collection: .localPodcasts)
@@ -226,6 +230,7 @@ struct PodcastLibraryContent: View {
                     PodcastShowsGrid(navigation: navigation)
                     PodcastContinueListeningRow(navigation: navigation)
                     PodcastLatestEpisodesSection(navigation: navigation)
+                    PodcastLikedEpisodesSection(navigation: navigation)
                     PodcastLocalShowsSection(navigation: navigation)
                     PodcastRegionHiddenNote()
                 }
@@ -435,6 +440,83 @@ private struct PodcastLatestEpisodesSection: View {
             }
         }
         .padding(.horizontal, 16)
+    }
+}
+
+// MARK: - Liked episodes
+
+private struct PodcastLikedEpisodesSection: View {
+    let navigation: PodcastNavigationModel
+
+    private var store: PodcastStore { PodcastStore.shared }
+    private static let previewCount = 3
+
+    var body: some View {
+        let items = store.likedEpisodes()
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                PodcastSectionHeader(titleKey: "podcast_liked_episodes") {
+                    if items.count > Self.previewCount {
+                        Button {
+                            navigation.pushedLikedEpisodes = true
+                        } label: {
+                            HStack(spacing: 2) {
+                                Text("podcast_see_all")
+                                Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                            }
+                            .font(.subheadline)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+                .pmClearOfVerticalBar()
+                PodcastLikedEpisodeRows(
+                    items: items,
+                    limit: Self.previewCount,
+                    onOpen: { navigation.open(episodeID: $0) },
+                    openShow: navigation.open(showID:)
+                )
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+}
+
+/// 喜欢的单集整页。
+struct PodcastLikedEpisodesView: View {
+    let navigation: PodcastNavigationModel
+
+    private var store: PodcastStore { PodcastStore.shared }
+
+    var body: some View {
+        let items = store.likedEpisodes()
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                #if os(macOS)
+                PodcastInlineBackButton()
+                #endif
+                if items.isEmpty {
+                    Text("podcast_no_matching_episodes")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 30)
+                } else {
+                    PodcastLikedEpisodeRows(
+                        items: items,
+                        onOpen: { navigation.open(episodeID: $0) },
+                        openShow: navigation.open(showID:)
+                    )
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+        .navigationTitle("podcast_liked_episodes")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 }
 

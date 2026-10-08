@@ -5208,6 +5208,7 @@
 "podcast_kind_bonus" = "番外";
 "podcast_kind_trailer" = "預告";
 "podcast_latest_episodes" = "最新單集";
+"podcast_liked_episodes" = "喜歡的單集";
 "podcast_load_failed" = "這個節目沒有載入";
 "podcast_mark_all_played" = "全部標為已播放";
 "podcast_mark_older_played" = "之前的都標為已播放";

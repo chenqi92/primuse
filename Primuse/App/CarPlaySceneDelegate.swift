@@ -2255,10 +2255,11 @@ extension CarPlaySceneDelegate {
         } else {
             buttons = [shuffleButton, repeatButton]
         }
-        // 播客单集不在曲库里, 点了也加不进「我喜欢」。
-        if let songID = player.currentSong?.id, !layout.minimalNowPlaying,
-           !PodcastPlaybackSong.isEpisode(player.currentSong) {
-            let liked = AppServices.shared.musicLibrary.isLiked(songID: songID)
+        // 播客单集不在曲库里, 喜欢的记在播客自己那份。
+        if let songID = player.currentSong?.id, !layout.minimalNowPlaying {
+            let liked = PodcastPlaybackSong.isEpisode(player.currentSong)
+                ? PodcastStore.shared.isLiked(episodeID: songID)
+                : AppServices.shared.musicLibrary.isLiked(songID: songID)
             let likeButton = CPNowPlayingImageButton(
                 image: Self.symbolImage(liked ? "heart.fill" : "heart")
             ) { [weak self] _ in
@@ -2296,8 +2297,12 @@ extension CarPlaySceneDelegate {
     private func toggleLiked() {
         let player = AppServices.shared.playerService
         guard let songID = player.currentSong?.id else { return }
-        AppServices.shared.musicLibrary.toggleLiked(songID: songID)
-        player.republishNowPlayingSurfaces()
+        if PodcastPlaybackSong.isEpisode(player.currentSong) {
+            player.toggleLikeForCurrentPodcastEpisode()
+        } else {
+            AppServices.shared.musicLibrary.toggleLiked(songID: songID)
+            player.republishNowPlayingSurfaces()
+        }
         refreshNowPlayingButtons()
     }
 

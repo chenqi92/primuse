@@ -684,6 +684,11 @@ struct PlaylistDetailView: View {
         } else {
             playlistRows(entries)
         }
+
+        // 喜欢的播客单集不在曲库里,不进歌单本身,列在「我喜欢」最下面。
+        if playlist.id == MusicLibrary.likedSongsPlaylistID, !isFinding {
+            PodcastLikedEpisodesFooter()
+        }
     }
 
     private func playlistRows(_ entries: [MusicLibrary.PlaylistEntry]) -> some View {
@@ -1185,6 +1190,10 @@ struct PlaylistDetailView: View {
                                 viewportWidth: max(0, geometry.size.width - PMSpace.xxxl * 2),
                                 viewportHeight: geometry.size.height
                             )
+                        }
+
+                        if playlist.id == MusicLibrary.likedSongsPlaylistID, findQuery == nil {
+                            PodcastLikedEpisodesFooter(opensEpisodes: false)
                         }
                     }
                     .padding(.horizontal, PMSpace.xxxl)

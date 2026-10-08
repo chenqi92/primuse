@@ -10,11 +10,21 @@ enum PodcastPlaybackSettings {
 extension CloudKVSKey {
     /// 播客订阅的定义(订了哪些、每档设置、已播水位线)。只有用户改了才推。
     static let podcastSubscriptions = "primuse_podcast_subscriptions_v1"
+    /// 喜欢的单集(只有单集 id 与时间,`PodcastLikeDocument`)。只有用户改了才推。
+    static let podcastLikedEpisodes = "primuse_podcast_liked_episodes_v1"
 }
 
 extension Notification.Name {
     /// 订阅、单集列表或某档节目的设置变了。
     static let primusePodcastsDidChange = Notification.Name("primuse.podcastsDidChange")
+}
+
+/// 喜欢的一集,连同它的节目(退订了就是 nil)和节目名。
+struct PodcastLikedEpisodeItem: Identifiable {
+    let episode: PodcastEpisode
+    let show: PodcastShow?
+    let showTitle: String
+    var id: String { episode.id }
 }
 
 /// 订阅的播客节目和它们的单集。
@@ -25,6 +35,8 @@ extension Notification.Name {
 ///   刷新得来的东西(单集、ETag)每台设备自己取。
 /// - 听到哪、听没听完记在有声内容那份账(`SpokenWordStore`,也同步);
 ///   「全部标为已播」用每档一条水位线(`PodcastShow.playedThrough`),不逐集写。
+/// - 喜欢的单集单独一份账(`PodcastLikeDocument`,经 iCloud 同步),本机另存单集快照
+///   (`liked.json`):feed 不再列、节目退订了,喜欢过的照样在。不进「我喜欢」歌单,也不推音乐服务端。
 @MainActor
 @Observable
 final class PodcastStore {
@@ -41,6 +53,8 @@ final class PodcastStore {
     private(set) var refreshFailures: [String: String] = [:]
     /// 预览(还没订阅的节目)。订阅时直接转正,不用再取一次 feed。
     private(set) var previews: [String: (show: PodcastShow, episodes: [PodcastEpisode])] = [:]
+    /// 喜欢的单集 id。心形键与列表读它,改了界面跟着变。
+    private(set) var likedEpisodeIDs: Set<String> = []
 
     /// 单集 id → (节目 id, 在该节目单集数组里的位置)。按 id 找一集是 O(1),
     /// 首页和「接着听」每次重算都要按 id 查几十上百集。
@@ -55,6 +69,9 @@ final class PodcastStore {
     @ObservationIgnored private var refreshAllTask: Task<Void, Never>?
     @ObservationIgnored private var isRegisteredWithCloud = false
     @ObservationIgnored private var regionCheckTask: Task<Void, Never>?
+    @ObservationIgnored private var likeDocument = PodcastLikeDocument()
+    /// 单集 id → 喜欢时留的快照。
+    @ObservationIgnored private var likedSnapshots: [String: PodcastLikedEpisode] = [:]
     /// 正在放的那一集。删已播下载时要跳过它;各端启动时接上自己的播放器。
     @ObservationIgnored var nowPlayingEpisodeID: @MainActor () -> String? = { nil }
 
@@ -62,6 +79,7 @@ final class PodcastStore {
     private let directory: URL
     private var episodesDirectory: URL { directory.appendingPathComponent("Episodes", isDirectory: true) }
     private var showsURL: URL { directory.appendingPathComponent("shows.json") }
+    private var likedURL: URL { directory.appendingPathComponent("liked.json") }
 
     init(defaults: UserDefaults = .standard, directory: URL? = nil) {
         self.defaults = defaults
@@ -84,6 +102,12 @@ final class PodcastStore {
         var removed: [String: Date]?
     }
 
+    /// `liked.json`:喜欢的账(和推到 iCloud 的同一份)加单集快照。
+    private struct LikedLibrary: Codable {
+        var document: PodcastLikeDocument
+        var snapshots: [PodcastLikedEpisode]
+    }
+
     /// 读盘在后台做;订阅很多时单集文件加起来有几 MB。读完才接上 iCloud,
     /// 否则云端那份会和一个空的本机合并,把所有节目当成新订阅。
     func loadIfNeeded() {
@@ -91,7 +115,7 @@ final class PodcastStore {
         let directory = directory
         let episodesDirectory = episodesDirectory
         loadTask = Task { @MainActor [weak self] in
-            let loaded = await Task.detached(priority: .userInitiated) { () -> (LocalLibrary, [String: [PodcastEpisode]]) in
+            let loaded = await Task.detached(priority: .userInitiated) { () -> (LocalLibrary, [String: [PodcastEpisode]], LikedLibrary?) in
                 let decoder = Self.makeDecoder()
                 let library = (try? Data(contentsOf: directory.appendingPathComponent("shows.json")))
                     .flatMap { try? decoder.decode(LocalLibrary.self, from: $0) } ?? LocalLibrary(shows: [], removed: [:])
@@ -103,13 +127,23 @@ final class PodcastStore {
                         episodes[show.id] = decoded
                     }
                 }
-                return (library, episodes)
+                let liked = (try? Data(contentsOf: directory.appendingPathComponent("liked.json")))
+                    .flatMap { try? decoder.decode(LikedLibrary.self, from: $0) }
+                return (library, episodes, liked)
             }.value
             guard let self else { return }
             self.subscribedShows = loaded.0.shows
             self.regionChecks = self.loadRegionChecks()
             self.removed = loaded.0.removed ?? [:]
             self.episodesByShow = loaded.1
+            if let liked = loaded.2 {
+                self.likeDocument = liked.document
+                self.likedSnapshots = Dictionary(
+                    liked.snapshots.map { ($0.episode.id, $0) },
+                    uniquingKeysWith: { first, _ in first }
+                )
+                self.likedEpisodeIDs = Set(liked.document.liked.keys)
+            }
             self.rebuildIndex()
             self.isLoaded = true
             self.loadTask = nil
@@ -126,6 +160,9 @@ final class PodcastStore {
         isRegisteredWithCloud = true
         CloudKVSSync.shared.register(key: CloudKVSKey.podcastSubscriptions) { [weak self] in
             Task { @MainActor [weak self] in self?.mergeCloudCopy() }
+        }
+        CloudKVSSync.shared.register(key: CloudKVSKey.podcastLikedEpisodes) { [weak self] in
+            Task { @MainActor [weak self] in self?.mergeCloudLikes() }
         }
     }
 
@@ -488,12 +525,14 @@ final class PodcastStore {
         }
     }
 
-    /// 本机下载过、听过一半或听完的单集:feed 只留最近几十集时也别把它们冲掉。
+    /// 本机下载过、听过一半、听完或喜欢的单集:feed 只留最近几十集时也别把它们冲掉。
     private func retainedEpisodeIDs(_ episodes: [PodcastEpisode]) -> Set<String> {
         let spokenWord = SpokenWordStore.shared
         let downloads = PodcastDownloadStore.shared
+        let liked = likedEpisodeIDs
         return Set(episodes.lazy.map(\.id).filter {
             downloads.isDownloaded($0) || spokenWord.position(forSongID: $0) != nil || spokenWord.isFinished(songID: $0)
+                || liked.contains($0)
         })
     }
 
@@ -699,6 +738,117 @@ final class PodcastStore {
         return checks
     }
 
+    // MARK: - Liked episodes
+
+    func isLiked(episodeID: String) -> Bool {
+        likedEpisodeIDs.contains(episodeID)
+    }
+
+    /// 喜欢或取消一集。算用户的决定:推 iCloud。
+    func setLiked(_ liked: Bool, episode: PodcastEpisode) {
+        guard isLoaded, likeDocument.set(liked, episodeID: episode.id, at: Date()) else { return }
+        if liked {
+            likedSnapshots[episode.id] = likedSnapshot(of: episode, likedAt: Date())
+        } else {
+            likedSnapshots.removeValue(forKey: episode.id)
+        }
+        likedEpisodeIDs = Set(likeDocument.liked.keys)
+        saveLikes()
+        pushLikes()
+        postChange()
+        plog("🎙️ \(liked ? "Liked" : "Unliked") episode '\(episode.title)'")
+    }
+
+    /// 正在放的、菜单里点的那一集:按 id 找,feed 里没有了就用快照。
+    func toggleLiked(episodeID: String) {
+        guard let episode = episode(id: episodeID)?.episode ?? likedSnapshots[episodeID]?.episode else { return }
+        setLiked(!isLiked(episodeID: episodeID), episode: episode)
+    }
+
+    /// 喜欢的单集,最近喜欢的在前。feed 里还有就用 feed 里的内容,没有了用快照;
+    /// 别的设备喜欢、本机还没见过的那几集先不列。
+    func likedEpisodes() -> [PodcastLikedEpisodeItem] {
+        // 账本本身不被观察;读一下这个,喜欢或取消后列表跟着刷新。
+        _ = likedEpisodeIDs
+        let ordered = likeDocument.liked.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
+        var items: [PodcastLikedEpisodeItem] = []
+        items.reserveCapacity(ordered.count)
+        for entry in ordered {
+            if let found = episode(id: entry.key) {
+                items.append(PodcastLikedEpisodeItem(episode: found.episode, show: found.show, showTitle: found.show.title))
+            } else if let snapshot = likedSnapshots[entry.key] {
+                items.append(PodcastLikedEpisodeItem(
+                    episode: snapshot.episode,
+                    show: show(id: snapshot.episode.showID),
+                    showTitle: snapshot.showTitle
+                ))
+            }
+        }
+        return items
+    }
+
+    /// 喜欢的单集的封面地址,节目退订后也还有。
+    func likedShowArtworkURL(episodeID: String) -> URL? {
+        likedSnapshots[episodeID]?.showArtworkURL
+    }
+
+    private func likedSnapshot(of episode: PodcastEpisode, likedAt: Date) -> PodcastLikedEpisode {
+        let show = show(id: episode.showID)
+        return PodcastLikedEpisode(
+            episode: episode,
+            showTitle: show?.title ?? "",
+            showArtworkURL: show?.artworkURL,
+            likedAt: likedAt
+        )
+    }
+
+    /// 别的设备喜欢的、本机刚刷新出来的单集补上快照。
+    private func captureLikedSnapshots() {
+        var captured = false
+        for (id, likedAt) in likeDocument.liked where likedSnapshots[id] == nil {
+            guard let found = episode(id: id) else { continue }
+            likedSnapshots[id] = likedSnapshot(of: found.episode, likedAt: likedAt)
+            captured = true
+        }
+        if captured { saveLikes() }
+    }
+
+    private func pushLikes() {
+        guard defaults === UserDefaults.standard else { return }
+        defaults.set(likeDocument.encoded(), forKey: CloudKVSKey.podcastLikedEpisodes)
+        CloudKVSSync.shared.markChanged(key: CloudKVSKey.podcastLikedEpisodes)
+    }
+
+    private func mergeCloudLikes() {
+        guard isLoaded,
+              let remote = PodcastLikeDocument.decode(defaults.string(forKey: CloudKVSKey.podcastLikedEpisodes)) else { return }
+        let outcome = PodcastLikeSync.merge(local: likeDocument, remote: remote, now: Date())
+        if outcome.document != likeDocument {
+            likeDocument = outcome.document
+            likedSnapshots = likedSnapshots.filter { likeDocument.liked[$0.key] != nil }
+            likedEpisodeIDs = Set(likeDocument.liked.keys)
+            captureLikedSnapshots()
+            saveLikes()
+            postChange()
+        }
+        if outcome.needsPush { pushLikes() }
+    }
+
+    private func saveLikes() {
+        guard isLoaded else { return }
+        let library = LikedLibrary(
+            document: likeDocument,
+            snapshots: likedSnapshots.values.sorted { $0.likedAt > $1.likedAt }
+        )
+        let directory = directory
+        let url = likedURL
+        Task.detached(priority: .utility) {
+            guard let data = try? Self.makeEncoder().encode(library) else { return }
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
     // MARK: - Persistence
 
     private func rebuildIndex() {
@@ -707,6 +857,7 @@ final class PodcastStore {
             for (position, episode) in episodes.enumerated() { index[episode.id] = (showID, position) }
         }
         episodeShowIndex = index
+        if isLoaded { captureLikedSnapshots() }
     }
 
     private func markDirty(showID: String?, showsChanged: Bool) {

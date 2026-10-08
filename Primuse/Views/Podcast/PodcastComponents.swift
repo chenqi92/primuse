@@ -444,6 +444,13 @@ struct PodcastEpisodeMenu: View {
             Label("add_to_queue", systemImage: "text.line.last.and.arrowtriangle.forward")
         }
         Divider()
+        // 喜欢的单集列在「我喜欢」页底下和播客页里,不进歌单本身。
+        let isLiked = store.isLiked(episodeID: episode.id)
+        Button {
+            store.setLiked(!isLiked, episode: episode)
+        } label: {
+            Label(isLiked ? "a11y_unlike" : "a11y_like", systemImage: isLiked ? "heart.slash" : "heart")
+        }
         Button {
             store.setPlayed(!state.isFinished, episode: episode)
         } label: {
@@ -512,6 +519,67 @@ private struct PodcastEpisodeContextMenu: ViewModifier {
             .podcastInsecureHTTPAlert(host: $pendingInsecureHost) {
                 PodcastPlaybackLauncher.play(episode, continuing: continuing, player: player) { _ in }
             }
+    }
+}
+
+/// 喜欢的单集,最近喜欢的在前。播客页一段、整页列表、「我喜欢」页底下都用它。
+/// 放完一集接着放列表里的下一集;feed 里已经没有的那几集点了不进单集页,播放键照样能放。
+struct PodcastLikedEpisodeRows: View {
+    let items: [PodcastLikedEpisodeItem]
+    var limit: Int?
+    var onOpen: ((String) -> Void)?
+    var openShow: ((String) -> Void)?
+
+    private var store: PodcastStore { PodcastStore.shared }
+
+    var body: some View {
+        let episodes = items.map(\.episode)
+        let shown = Array(items.prefix(limit ?? items.count))
+        ForEach(Array(shown.enumerated()), id: \.element.id) { index, item in
+            let continuing = Array(episodes.dropFirst(index + 1).prefix(30))
+            let canOpen = onOpen != nil && store.episode(id: item.episode.id) != nil
+            PodcastEpisodeRow(
+                episode: item.episode,
+                show: item.show,
+                showsArtwork: true,
+                showsSummary: false,
+                continuing: continuing,
+                onOpen: canOpen ? { onOpen?(item.episode.id) } : nil
+            )
+            .podcastEpisodeContextMenu(item.episode, continuing: continuing, openShow: openShow)
+            if index < shown.count - 1 {
+                Divider().padding(.leading, 72)
+            }
+        }
+    }
+}
+
+/// 「我喜欢」页底下那一段:喜欢的播客单集不进歌单本身,在这里列出来。
+/// Mac 的详情区不是导航栈,点一行不进单集页(行里的播放键照样能放)。
+struct PodcastLikedEpisodesFooter: View {
+    var opensEpisodes = true
+
+    @State private var pushedEpisodeID: String?
+
+    private var store: PodcastStore { PodcastStore.shared }
+
+    var body: some View {
+        let items = store.likedEpisodes()
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                PodcastSectionHeader(titleKey: "podcast_liked_episodes")
+                if opensEpisodes {
+                    PodcastLikedEpisodeRows(items: items, onOpen: { pushedEpisodeID = $0 })
+                } else {
+                    PodcastLikedEpisodeRows(items: items)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .navigationDestination(item: $pushedEpisodeID) { episodeID in
+                PodcastEpisodeDetailView(episodeID: episodeID)
+            }
+        }
     }
 }
 

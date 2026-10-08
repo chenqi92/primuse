@@ -5232,6 +5232,7 @@
 "podcast_kind_bonus" = "番外編";
 "podcast_kind_trailer" = "予告編";
 "podcast_latest_episodes" = "最新エピソード";
+"podcast_liked_episodes" = "お気に入りのエピソード";
 "podcast_load_failed" = "番組を読み込めませんでした";
 "podcast_mark_all_played" = "すべて再生済みにする";
 "podcast_mark_older_played" = "これより前を再生済みにする";

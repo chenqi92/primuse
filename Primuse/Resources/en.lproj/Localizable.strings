@@ -4994,6 +4994,7 @@
 "podcast_kind_bonus" = "Bonus";
 "podcast_kind_trailer" = "Trailer";
 "podcast_latest_episodes" = "Latest Episodes";
+"podcast_liked_episodes" = "Liked Episodes";
 "podcast_load_failed" = "Couldn't Load This Show";
 "podcast_mark_all_played" = "Mark All as Played";
 "podcast_mark_older_played" = "Mark Earlier Episodes as Played";

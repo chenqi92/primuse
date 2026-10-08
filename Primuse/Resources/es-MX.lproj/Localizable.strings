@@ -5137,6 +5137,7 @@
 "podcast_kind_bonus" = "Extra";
 "podcast_kind_trailer" = "Avance";
 "podcast_latest_episodes" = "Últimos episodios";
+"podcast_liked_episodes" = "Episodios que te gustan";
 "podcast_load_failed" = "No se pudo cargar el programa";
 "podcast_mark_all_played" = "Marcar todo como reproducido";
 "podcast_mark_older_played" = "Marcar los anteriores como reproducidos";

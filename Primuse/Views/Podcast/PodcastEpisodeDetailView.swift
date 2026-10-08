@@ -267,6 +267,18 @@ private struct PodcastEpisodeActions: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(Text(state.isFinished ? "podcast_mark_unplayed" : "podcast_mark_played"))
 
+                let isLiked = store.isLiked(episodeID: episode.id)
+                Button {
+                    store.setLiked(!isLiked, episode: episode)
+                } label: {
+                    PodcastCircleKey(
+                        systemName: isLiked ? "heart.fill" : "heart",
+                        foreground: isLiked ? .red : nil
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(isLiked ? "a11y_unlike" : "a11y_like"))
+
                 Menu {
                     PodcastEpisodeMenu(
                         episode: episode,

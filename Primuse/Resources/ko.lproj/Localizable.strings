@@ -5231,6 +5231,7 @@
 "podcast_kind_bonus" = "보너스";
 "podcast_kind_trailer" = "예고편";
 "podcast_latest_episodes" = "최신 에피소드";
+"podcast_liked_episodes" = "좋아하는 에피소드";
 "podcast_load_failed" = "프로그램을 불러오지 못했습니다";
 "podcast_mark_all_played" = "모두 재생한 것으로 표시";
 "podcast_mark_older_played" = "이전 에피소드를 재생한 것으로 표시";

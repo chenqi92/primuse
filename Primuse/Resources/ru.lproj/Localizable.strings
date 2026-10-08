@@ -5137,6 +5137,7 @@
 "podcast_kind_bonus" = "Бонус";
 "podcast_kind_trailer" = "Трейлер";
 "podcast_latest_episodes" = "Свежие выпуски";
+"podcast_liked_episodes" = "Понравившиеся выпуски";
 "podcast_load_failed" = "Не удалось загрузить подкаст";
 "podcast_mark_all_played" = "Отметить все как прослушанные";
 "podcast_mark_older_played" = "Отметить предыдущие как прослушанные";

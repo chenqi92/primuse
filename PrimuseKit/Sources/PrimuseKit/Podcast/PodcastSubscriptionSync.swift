@@ -204,3 +204,119 @@ public enum PodcastSubscriptionSync {
         return Outcome(shows: result, removed: removed, addedShowIDs: added, removedShowIDs: removedIDs, needsPush: needsPush)
     }
 }
+
+// MARK: - Liked episodes
+
+/// 喜欢的单集。和「我喜欢」歌单分开记:单集不在曲库里,也不该推到音乐服务端的收藏。
+/// 本机留一份单集与节目的快照,feed 不再列这一集、退订了这档节目,喜欢过的照样找得到、放得了。
+public struct PodcastLikedEpisode: Codable, Hashable, Sendable {
+    public var episode: PodcastEpisode
+    public var showTitle: String
+    public var showArtworkURL: URL?
+    public var likedAt: Date
+
+    public init(episode: PodcastEpisode, showTitle: String, showArtworkURL: URL?, likedAt: Date) {
+        self.episode = episode
+        self.showTitle = showTitle
+        self.showArtworkURL = showArtworkURL
+        self.likedAt = likedAt
+    }
+}
+
+/// 经 iCloud 键值存储同步的那一份:只有单集 id 与时间。单集 id 由节目和 guid 算出来,
+/// 每台设备都一样;单集内容各自从 feed 取。
+public struct PodcastLikeDocument: Codable, Hashable, Sendable {
+    /// 单集 id → 喜欢的时间。
+    public var liked: [String: Date]
+    /// 单集 id → 取消喜欢的时间。另一台设备还没收到取消时,靠它判断谁更新。
+    public var unliked: [String: Date]
+
+    public init(liked: [String: Date] = [:], unliked: [String: Date] = [:]) {
+        self.liked = liked
+        self.unliked = unliked
+    }
+
+    private enum CodingKeys: String, CodingKey { case liked, unliked }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        liked = try c.decodeIfPresent([String: Date].self, forKey: .liked) ?? [:]
+        unliked = try c.decodeIfPresent([String: Date].self, forKey: .unliked) ?? [:]
+    }
+
+    public func isLiked(_ episodeID: String) -> Bool {
+        liked[episodeID] != nil
+    }
+
+    /// 喜欢或取消。时间不比已记的新就不动(两台设备的时钟各走各的,以后到的为准)。
+    @discardableResult
+    public mutating func set(_ isLiked: Bool, episodeID: String, at date: Date) -> Bool {
+        let latest = max(liked[episodeID] ?? .distantPast, unliked[episodeID] ?? .distantPast)
+        guard date >= latest, isLiked != self.isLiked(episodeID) else { return false }
+        if isLiked {
+            liked[episodeID] = date
+            unliked.removeValue(forKey: episodeID)
+        } else {
+            unliked[episodeID] = date
+            liked.removeValue(forKey: episodeID)
+        }
+        return true
+    }
+
+    public static func decode(_ raw: String?) -> PodcastLikeDocument? {
+        guard let raw, !raw.isEmpty, let data = raw.data(using: .utf8) else { return nil }
+        return try? Self.decoder.decode(PodcastLikeDocument.self, from: data)
+    }
+
+    public func encoded() -> String {
+        guard let data = try? Self.encoder.encode(self) else { return "" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private static let encoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        encoder.outputFormatting = [.sortedKeys]
+        return encoder
+    }()
+
+    private static let decoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        return decoder
+    }()
+}
+
+public enum PodcastLikeSync {
+    /// 取消喜欢的记录留多久。过了这么久还没同步到的设备,只当那一集没被取消过。
+    public static let tombstoneLifetime: TimeInterval = 180 * 24 * 3600
+    /// 喜欢的单集最多记这么多;键值存储整份上限 1 MB,一条约 70 字节。
+    public static let maximumLiked = 5000
+
+    public struct Outcome: Equatable, Sendable {
+        public var document: PodcastLikeDocument
+        /// 合出来的和云端那份不一样:本机有云端没有的改动,要推回去。
+        public var needsPush: Bool
+    }
+
+    /// 逐集按时间合:同一集两边都有记录时,时间新的那一边说了算;取消的记录过期就丢。
+    public static func merge(local: PodcastLikeDocument, remote: PodcastLikeDocument, now: Date) -> Outcome {
+        var merged = PodcastLikeDocument()
+        let ids = Set(local.liked.keys).union(local.unliked.keys).union(remote.liked.keys).union(remote.unliked.keys)
+        for id in ids {
+            let likedAt = max(local.liked[id] ?? .distantPast, remote.liked[id] ?? .distantPast)
+            let unlikedAt = max(local.unliked[id] ?? .distantPast, remote.unliked[id] ?? .distantPast)
+            if likedAt > unlikedAt {
+                merged.liked[id] = likedAt
+            } else if unlikedAt > .distantPast, now.timeIntervalSince(unlikedAt) < tombstoneLifetime {
+                merged.unliked[id] = unlikedAt
+            }
+        }
+        if merged.liked.count > maximumLiked {
+            let kept = merged.liked.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
+                .prefix(maximumLiked)
+            merged.liked = Dictionary(uniqueKeysWithValues: kept.map { ($0.key, $0.value) })
+        }
+        return Outcome(document: merged, needsPush: merged != remote)
+    }
+}

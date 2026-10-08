@@ -122,8 +122,9 @@ struct MacNowPlayingView: View {
     }
 
     private var isCurrentLiked: Bool {
-        guard let songID = player.currentSong?.id else { return false }
-        return library.isLiked(songID: songID)
+        guard let song = player.currentSong else { return false }
+        if PodcastPlaybackSong.isEpisode(song) { return PodcastStore.shared.isLiked(episodeID: song.id) }
+        return library.isLiked(songID: song.id)
     }
 
     private var isSpokenWord: Bool {
@@ -1389,8 +1390,8 @@ struct MacNowPlayingView: View {
 
     private var floatingControls: some View {
         HStack(spacing: 8) {
-            // Heart —— 有声书的每个文件也能加进「我喜欢」;播客单集不在曲库里, 没有这颗。
-            if !(isSpokenWord && PodcastPlaybackSong.isEpisode(player.currentSong)) {
+            // Heart —— 有声书的每个文件也能加进「我喜欢」;播客单集记在播客自己的喜欢里。
+            if player.currentSong != nil {
                 Button { toggleLikedCurrent() } label: {
                     circleIcon(isCurrentLiked ? "heart.fill" : "heart",
                                tint: isCurrentLiked ? theme.onAccent : nil,
@@ -1542,8 +1543,12 @@ struct MacNowPlayingView: View {
     }
 
     private func toggleLikedCurrent() {
-        guard let songID = player.currentSong?.id else { return }
-        library.toggleLiked(songID: songID)
+        guard let song = player.currentSong else { return }
+        if PodcastPlaybackSong.isEpisode(song) {
+            player.toggleLikeForCurrentPodcastEpisode()
+            return
+        }
+        library.toggleLiked(songID: song.id)
     }
 
     private func selectFullscreenEffect(_ value: FullscreenPlayerEffect) {

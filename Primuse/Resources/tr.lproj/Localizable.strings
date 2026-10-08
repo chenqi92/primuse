@@ -5137,6 +5137,7 @@
 "podcast_kind_bonus" = "Bonus";
 "podcast_kind_trailer" = "Fragman";
 "podcast_latest_episodes" = "En yeni bölümler";
+"podcast_liked_episodes" = "Beğenilen Bölümler";
 "podcast_load_failed" = "Program yüklenemedi";
 "podcast_mark_all_played" = "Tümünü dinlendi olarak işaretle";
 "podcast_mark_older_played" = "Öncekileri dinlendi olarak işaretle";

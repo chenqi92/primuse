@@ -5137,6 +5137,7 @@
 "podcast_kind_bonus" = "พิเศษ";
 "podcast_kind_trailer" = "ตัวอย่าง";
 "podcast_latest_episodes" = "ตอนล่าสุด";
+"podcast_liked_episodes" = "ตอนที่ชอบ";
 "podcast_load_failed" = "โหลดรายการไม่สำเร็จ";
 "podcast_mark_all_played" = "ทำเครื่องหมายว่าฟังแล้วทั้งหมด";
 "podcast_mark_older_played" = "ทำเครื่องหมายตอนก่อนหน้าว่าฟังแล้ว";

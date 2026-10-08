@@ -810,3 +810,56 @@ struct PodcastRegionGateTests {
         #expect(PodcastRegionGate.needsCheck(directory, policy: china, check: old, now: now))
     }
 }
+
+@Suite("Podcast liked episodes")
+struct PodcastLikeSyncTests {
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    @Test("Liking and unliking keep the newer decision")
+    func setKeepsNewest() {
+        var document = PodcastLikeDocument()
+        let liked = document.set(true, episodeID: "podcast:a", at: now)
+        #expect(liked)
+        #expect(document.isLiked("podcast:a"))
+        let likedAgain = document.set(true, episodeID: "podcast:a", at: now.addingTimeInterval(5))
+        #expect(!likedAgain)
+        // An older decision from a slow clock does not undo a newer one.
+        let staleUnlike = document.set(false, episodeID: "podcast:a", at: now.addingTimeInterval(-60))
+        #expect(!staleUnlike)
+        #expect(document.isLiked("podcast:a"))
+        let unliked = document.set(false, episodeID: "podcast:a", at: now.addingTimeInterval(60))
+        #expect(unliked)
+        #expect(!document.isLiked("podcast:a"))
+        #expect(document.unliked["podcast:a"] == now.addingTimeInterval(60))
+    }
+
+    @Test("Merging takes each episode's newer decision and pushes what the cloud lacks")
+    func mergeByEpisode() {
+        let local = PodcastLikeDocument(
+            liked: ["a": now, "b": now.addingTimeInterval(-100)],
+            unliked: ["c": now]
+        )
+        let remote = PodcastLikeDocument(
+            liked: ["c": now.addingTimeInterval(-50), "d": now],
+            unliked: ["b": now.addingTimeInterval(-10)]
+        )
+        let outcome = PodcastLikeSync.merge(local: local, remote: remote, now: now)
+        #expect(Set(outcome.document.liked.keys) == ["a", "d"])
+        #expect(Set(outcome.document.unliked.keys) == ["b", "c"])
+        #expect(outcome.needsPush)
+
+        let again = PodcastLikeSync.merge(local: outcome.document, remote: outcome.document, now: now)
+        #expect(again.document == outcome.document)
+        #expect(!again.needsPush)
+    }
+
+    @Test("Old unlike records expire and the document round-trips")
+    func tombstonesExpireAndEncode() {
+        let stale = now.addingTimeInterval(-PodcastLikeSync.tombstoneLifetime - 1)
+        let local = PodcastLikeDocument(liked: ["a": now], unliked: ["old": stale])
+        let outcome = PodcastLikeSync.merge(local: local, remote: PodcastLikeDocument(), now: now)
+        #expect(outcome.document.unliked.isEmpty)
+        #expect(PodcastLikeDocument.decode(outcome.document.encoded()) == outcome.document)
+        #expect(PodcastLikeDocument.decode("") == nil)
+    }
+}

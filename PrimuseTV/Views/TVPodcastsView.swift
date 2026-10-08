@@ -62,6 +62,7 @@ struct TVPodcastsView: View {
                         showsSection(cell: cell)
                         continueListening
                         latestEpisodes
+                        likedEpisodes
                         localShowsSection(cell: cell)
                         regionHiddenNote
                     }
@@ -205,6 +206,24 @@ struct TVPodcastsView: View {
         }
     }
 
+    /// 喜欢的单集(和手机同一份,经 iCloud 同步),最近喜欢的在前。
+    @ViewBuilder
+    private var likedEpisodes: some View {
+        let liked = podcasts.likedEpisodes()
+        if !liked.isEmpty {
+            let episodes = liked.map(\.episode)
+            TVRow(label: String(localized: "podcast_liked_episodes"), loadsLazily: true) {
+                ForEach(Array(liked.enumerated()), id: \.element.id) { index, item in
+                    let continuing = Array(episodes.dropFirst(index + 1))
+                    TVPodcastEpisodeCard(episode: item.episode, show: item.show) {
+                        play(item.episode, continuing: continuing)
+                    }
+                    .contextMenu { episodeMenu(item.episode, continuing: continuing) }
+                }
+            }
+        }
+    }
+
     /// 资料库里自己下载的播客文件,按节目(专辑)分组。和书架用同一套卡片与章节页。
     @ViewBuilder
     private func localShowsSection(cell: CGFloat) -> some View {
@@ -257,6 +276,13 @@ struct TVPodcastsView: View {
     private func episodeMenu(_ episode: PodcastEpisode, continuing: [PodcastEpisode]) -> some View {
         Button { play(episode, continuing: continuing) } label: {
             Label(String(localized: "podcast_play"), systemImage: "play.fill")
+        }
+        let isLiked = podcasts.isLiked(episodeID: episode.id)
+        Button { podcasts.setLiked(!isLiked, episode: episode) } label: {
+            Label(
+                String(localized: isLiked ? "a11y_unlike" : "a11y_like"),
+                systemImage: isLiked ? "heart.slash" : "heart"
+            )
         }
         let finished = podcasts.state(for: episode).isFinished
         Button { podcasts.setPlayed(!finished, episode: episode) } label: {

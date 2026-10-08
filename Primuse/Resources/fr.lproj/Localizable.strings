@@ -5231,6 +5231,7 @@
 "podcast_kind_bonus" = "Bonus";
 "podcast_kind_trailer" = "Bande-annonce";
 "podcast_latest_episodes" = "Derniers épisodes";
+"podcast_liked_episodes" = "Épisodes aimés";
 "podcast_load_failed" = "Impossible de charger l'émission";
 "podcast_mark_all_played" = "Tout marquer comme écouté";
 "podcast_mark_older_played" = "Marquer les épisodes précédents comme écoutés";

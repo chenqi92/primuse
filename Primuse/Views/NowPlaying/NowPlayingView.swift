@@ -985,10 +985,11 @@ struct NowPlayingView: View {
 
     /// 当前歌是否已经被加进「我喜欢」── heart 按钮渲染态 & toggle 目标。
     /// 跟 isInAnyPlaylist 是两回事: "加任意歌单"是 moreMenu 里的 add_to_playlist,
-    /// "喜欢"是 heart 按钮 toggle 这个固定 system 歌单。
+    /// "喜欢"是 heart 按钮 toggle 这个固定 system 歌单。播客单集记在播客自己的喜欢里。
     private var isCurrentLiked: Bool {
-        guard let songID = player.currentSong?.id else { return false }
-        return library.isLiked(songID: songID)
+        guard let song = player.currentSong else { return false }
+        if PodcastPlaybackSong.isEpisode(song) { return PodcastStore.shared.isLiked(episodeID: song.id) }
+        return library.isLiked(songID: song.id)
     }
 
     /// 当前歌是否被标了「不喜欢」(#193) ── 只在「更多」菜单里出现, 不占播放器上的按钮位。
@@ -998,10 +999,8 @@ struct NowPlayingView: View {
     }
 
     /// 心形键给不给。有声书的每个文件也是曲库里的一首,和锁屏上的「喜欢」一样能加进「我喜欢」;
-    /// 播客单集不在曲库里,加不进去。
-    private var offersLikeAction: Bool {
-        !usesSpokenWordTransport || !PodcastPlaybackSong.isEpisode(player.currentSong)
-    }
+    /// 播客单集不在曲库里,喜欢的记在播客自己那份(「我喜欢」页底下和播客页列出来)。
+    private var offersLikeAction: Bool { true }
 
     /// 已喜欢时心形的颜色:有声书那两套设计用它自己的强调色,其余是红色。
     private var likedHeartTint: Color {
@@ -1211,8 +1210,12 @@ struct NowPlayingView: View {
     }
 
     private func toggleLikedCurrent() {
-        guard let songID = player.currentSong?.id else { return }
-        library.toggleLiked(songID: songID)
+        guard let song = player.currentSong else { return }
+        if PodcastPlaybackSong.isEpisode(song) {
+            player.toggleLikeForCurrentPodcastEpisode()
+            return
+        }
+        library.toggleLiked(songID: song.id)
     }
 
     private func presentImmersiveLyrics() {

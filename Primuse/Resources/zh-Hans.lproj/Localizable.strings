@@ -5324,6 +5324,7 @@
 "podcast_kind_bonus" = "番外";
 "podcast_kind_trailer" = "预告";
 "podcast_latest_episodes" = "最新单集";
+"podcast_liked_episodes" = "喜欢的单集";
 "podcast_load_failed" = "这档节目没有加载出来";
 "podcast_mark_all_played" = "全部标为已播放";
 "podcast_mark_older_played" = "之前的都标为已播放";

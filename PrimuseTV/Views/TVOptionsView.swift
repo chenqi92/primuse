@@ -36,17 +36,23 @@ struct TVOptionsView: View {
     // 仅保留已真实接通的动作(其余如「加入歌单/相似歌曲/AirPlay 输出」需额外基建,
     // 暂不放占位假按钮)。
     private var sections: [OptionSection] {
-        let liked = store.currentSongID.map(store.isLiked) ?? false
         let sleepOn = store.sleepTimerMinutes > 0
         // 有声内容不给卡拉OK、歌词字号与串烧这些音乐的玩法。有声书的每个文件也能加进「我喜欢」,
-        // 播客单集不在曲库里,加不进去。
+        // 播客单集不在曲库里,喜欢的记在播客自己那份(和手机同一份,经 iCloud 同步)。
         let isSpokenWord = store.currentItemIsSpokenWord
+        let podcastEpisodeID = isSpokenWord ? store.currentPodcastEpisodeID : nil
+        let liked = podcastEpisodeID.map { PodcastStore.shared.isLiked(episodeID: $0) }
+            ?? (store.currentSongID.map(store.isLiked) ?? false)
         var song: [Action] = []
-        if !(isSpokenWord && store.currentPodcastEpisodeID != nil) {
-            song.append(.init(id: "love", icon: liked ? "heart.fill" : "heart",
-                              label: liked ? PMString("ext.tv.options.loved") : PMString("ext.tv.options.love"), on: liked,
-                              run: { if let id = store.currentSongID { store.toggleLiked(id) } }))
-        }
+        song.append(.init(id: "love", icon: liked ? "heart.fill" : "heart",
+                          label: liked ? PMString("ext.tv.options.loved") : PMString("ext.tv.options.love"), on: liked,
+                          run: {
+                              if let podcastEpisodeID {
+                                  PodcastStore.shared.toggleLiked(episodeID: podcastEpisodeID)
+                              } else if let id = store.currentSongID {
+                                  store.toggleLiked(id)
+                              }
+                          }))
         // 不喜欢(#193):记下来并切到下一首;已经不喜欢时再点只撤销。
         if let id = store.currentSongID, !isSpokenWord, !store.isLiveRadio, store.canDislike(id) {
             let disliked = store.isDisliked(id)
