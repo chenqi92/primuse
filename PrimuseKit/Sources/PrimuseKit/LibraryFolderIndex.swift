@@ -928,7 +928,7 @@ public final class LibraryFolderIndex: Sendable {
 /// current folder and folder actions include every descendant.
 public enum LibraryFolderBrowsePolicy {
     public static func sortedSongs(_ songs: [Song]) -> [Song] {
-        AlbumTrackOrder.sorted(songs)
+        LibraryFolderTrackOrder.sorted(songs)
     }
 
     /// The same songs in the order the user picked for the 「目录」 pages.
@@ -1258,7 +1258,7 @@ public enum LibraryFolderIndexBuilder {
                 if isBuildCancelled {
                     return emptyPartition(source: source, sourceNodeID: sourceNodeID)
                 }
-                accumulator.directSongIDs = AlbumTrackOrder.sortedIDs(
+                accumulator.directSongIDs = LibraryFolderTrackOrder.sortedIDs(
                     at: accumulator.directSongOffsets,
                     in: songs
                 )

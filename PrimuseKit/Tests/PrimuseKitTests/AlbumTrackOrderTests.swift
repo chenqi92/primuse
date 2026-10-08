@@ -100,6 +100,33 @@ struct AlbumTrackOrderTests {
              sourceID: "source")
     }
 
+    @Test("A folder holding files renamed from another release goes by file name")
+    func folderWithRenamedFilesFollowsNames() {
+        let folder = "/有声书/仙界篇-关彦之/1-500/"
+        let songs = [
+            song("201", disc: nil, track: 201, title: "第201集 线索（1）", path: folder + "关彦之 - 第201集 线索（1）_HQ.mp3"),
+            song("202", disc: nil, track: 202, title: "第202集 线索（2）", path: folder + "关彦之 - 第202集 线索（2）_HQ.mp3"),
+            // Copied from the omnibus edition and renamed; its tags still count that edition.
+            song("1", disc: nil, track: 4969, title: "第4969集 狐女1 (凡人仙界篇)", path: folder + "关彦之 - 第1集 狐女（1）_HQ.mp3"),
+            song("2", disc: nil, track: 4970, title: "第4970集 狐女2 (凡人仙界篇)", path: folder + "关彦之 - 第2集 狐女（2）_HQ.mp3"),
+            song("203", disc: nil, track: 203, title: "第203集 天选", path: folder + "关彦之 - 第203集 天选_HQ.mp3"),
+        ]
+        #expect(LibraryFolderTrackOrder.sorted(songs).map(\.id) == ["1", "2", "201", "202", "203"])
+        #expect(LibraryFolderTrackOrder.sortedIDs(at: [4, 0, 3, 2, 1], in: songs) == ["1", "2", "201", "202", "203"])
+        #expect(LibraryFolderBrowsePolicy.sortedSongs(songs).map(\.id) == ["1", "2", "201", "202", "203"])
+
+        // Names and tags that agree throughout, or a folder renumbered
+        // throughout, keep track order.
+        let agreeing = Array(songs.filter { $0.id.count == 3 }.reversed())
+        #expect(LibraryFolderTrackOrder.sorted(agreeing).map(\.id) == AlbumTrackOrder.sorted(agreeing).map(\.id))
+        let renumbered = [
+            song("b", disc: nil, track: 2, title: "第2集", path: "/书/第101集.mp3"),
+            song("a", disc: nil, track: 1, title: "第1集", path: "/书/第102集.mp3"),
+        ]
+        #expect(LibraryFolderTrackOrder.sorted(renumbered).map(\.id) == ["a", "b"])
+        #expect(LibraryFolderTrackOrder.sortedIDs(at: [0, 1], in: renumbered) == ["a", "b"])
+    }
+
     @Test("Ordering a folder by offsets gives the same IDs as ordering its songs")
     func sortedIDsMatchSortedSongs() {
         let titles = ["b", "A", "a", "c", "10 x", "2 x"]

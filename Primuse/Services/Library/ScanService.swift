@@ -889,7 +889,7 @@ final class ScanService {
     }
 
     /// 网盘目录上的「有声」标签按同一份索引匹配歌曲。文件那一半直接用专辑艺术家推断已经
-    /// 取出的那份(同一个字典,不另占内存),这里只补目录的上下级。
+    /// 取出的那份(同一个字典,不另占内存),这里补目录的上下级,以及分书要看的目录名与文件名。
     func spokenWordFolderTopologies(
         for sourceIDs: Set<String>,
         fileParents: AlbumArtistFolderIndex
@@ -900,7 +900,8 @@ final class ScanService {
                   let files = fileParents.parentsBySource[sourceID] else { continue }
             result[sourceID] = SpokenWordFolderTopology(
                 fileParents: files,
-                directoryParents: SpokenWordFolderTopology.directoryParents(fromSyncIndex: index)
+                directoryParents: SpokenWordFolderTopology.directoryParents(fromSyncIndex: index),
+                names: SpokenWordFolderTopology.names(fromSyncIndex: index)
             )
         }
         return result

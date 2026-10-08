@@ -103,20 +103,44 @@ public struct SpokenWordFolderTopology: Equatable, Sendable {
     public let fileParents: [String: String]
     /// 目录 → 上级目录。
     public let directoryParents: [String: String]
+    /// 文件或目录 → 显示名。分书要按目录和文件名认书、排章节(`SpokenWordBookItemFolders`)。
+    public let names: [String: String]
 
-    public init(fileParents: [String: String], directoryParents: [String: String]) {
+    public init(
+        fileParents: [String: String],
+        directoryParents: [String: String],
+        names: [String: String] = [:]
+    ) {
         self.fileParents = fileParents
         self.directoryParents = directoryParents
+        self.names = names
     }
 
     public init(syncIndex: [String: SourceSyncIndexedItem]) {
         self.init(
             fileParents: AlbumArtistFolderIndex.parents(fromSyncIndex: syncIndex),
-            directoryParents: Self.directoryParents(fromSyncIndex: syncIndex)
+            directoryParents: Self.directoryParents(fromSyncIndex: syncIndex),
+            names: Self.names(fromSyncIndex: syncIndex)
         )
     }
 
     public var isEmpty: Bool { fileParents.isEmpty }
+
+    /// 分书用的那一份:同样的上下级,加上名字。
+    public var bookItemFolders: SpokenWordBookItemFolders {
+        SpokenWordBookItemFolders(fileParents: fileParents, directoryParents: directoryParents, names: names)
+    }
+
+    /// 条目 → 显示名。同一条目被两行列出时取较小的那个名字,启动之间结论不变。
+    public static func names(fromSyncIndex index: [String: SourceSyncIndexedItem]) -> [String: String] {
+        var result: [String: String] = [:]
+        for item in index.values {
+            guard let name = item.displayName, !name.isEmpty else { continue }
+            if let existing = result[item.path], existing <= name { continue }
+            result[item.path] = name
+        }
+        return result
+    }
 
     /// 目录 → 上级目录。同一目录被两行列出时取较小的那个,启动之间结论不变。
     public static func directoryParents(
@@ -304,17 +328,22 @@ public struct SpokenWordClassificationInputs: Equatable, Sendable {
     /// (`SpokenWordBookSourcePaths`). Classification does not read it; it is
     /// here so a change regroups the books along with everything else.
     public var catalogPathSourceIDs: Set<String>
+    /// `SpokenWordBookSourcePaths.itemFoldersRevision`: the folders of item-id
+    /// cloud drives the books are grouped by. Not read either, for the same reason.
+    public var itemFoldersRevision: Int
 
     public init(
         overrides: [String: ListeningContentKind] = [:],
         folderRules: SpokenWordFolderRules = .empty,
         collectionOnlySongIDs: Set<String> = [],
-        catalogPathSourceIDs: Set<String> = []
+        catalogPathSourceIDs: Set<String> = [],
+        itemFoldersRevision: Int = 0
     ) {
         self.overrides = overrides
         self.folderRules = folderRules
         self.collectionOnlySongIDs = collectionOnlySongIDs
         self.catalogPathSourceIDs = catalogPathSourceIDs
+        self.itemFoldersRevision = itemFoldersRevision
     }
 
     public static let empty = SpokenWordClassificationInputs()

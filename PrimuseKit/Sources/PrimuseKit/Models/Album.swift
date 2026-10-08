@@ -126,6 +126,57 @@ public enum AlbumTrackOrder {
     }
 }
 
+/// A folder's songs in the order they are meant to be heard: track order,
+/// unless the folder holds files renamed after tagging next to files whose
+/// names and tags agree on their chapter (rule 6 of the spoken-word book
+/// grouping, `SpokenWordBookGroupingRules`). Their track tags then count two
+/// releases, and the file names are the one numbering the folder shares.
+public enum LibraryFolderTrackOrder {
+    public static func sorted(_ songs: [Song]) -> [Song] {
+        guard let paths = pathsIfRenamed(songs) else { return AlbumTrackOrder.sorted(songs) }
+        return songs.indices.sorted { lhs, rhs in
+            isOrderedByPath(songs[lhs], paths[lhs], before: songs[rhs], paths[rhs])
+        }.map { songs[$0] }
+    }
+
+    /// `sorted(_:)` of `songs[offsets]`, as song IDs, without copying the songs out.
+    public static func sortedIDs(at offsets: [Int], in songs: [Song]) -> [String] {
+        guard let paths = pathsIfRenamed(offsets.lazy.map { songs[$0] }) else {
+            return AlbumTrackOrder.sortedIDs(at: offsets, in: songs)
+        }
+        return offsets.indices.sorted { lhs, rhs in
+            isOrderedByPath(songs[offsets[lhs]], paths[lhs], before: songs[offsets[rhs]], paths[rhs])
+        }.map { songs[offsets[$0]].id }
+    }
+
+    /// Each song's path (an item-id drive's spelled out of its scanned
+    /// folders), when the folder mixes renamed files with agreeing ones.
+    static func pathsIfRenamed<Songs: Collection>(_ songs: Songs) -> [String]? where Songs.Element == Song {
+        // Only a title numbering its chapter (第…集) can disagree with a name.
+        guard songs.count > 1, songs.contains(where: { $0.title.contains("\u{7B2C}") }) else { return nil }
+        var paths: [String] = []
+        paths.reserveCapacity(songs.count)
+        var agrees = false
+        var renamed = false
+        for song in songs {
+            let path = SpokenWordBookSourcePaths.groupingPath(sourceID: song.sourceID, filePath: song.filePath)
+            let reading = SpokenWordBookGroupingRules.chapterReading(title: song.title, path: path)
+            if reading.agrees { agrees = true }
+            if reading.renamed != nil { renamed = true }
+            paths.append(path)
+        }
+        return agrees && renamed ? paths : nil
+    }
+
+    private static func isOrderedByPath(_ lhs: Song, _ lhsPath: String, before rhs: Song, _ rhsPath: String) -> Bool {
+        let byPath = lhsPath.localizedStandardCompare(rhsPath)
+        if byPath != .orderedSame { return byPath == .orderedAscending }
+        let byTitle = lhs.title.localizedStandardCompare(rhs.title)
+        if byTitle != .orderedSame { return byTitle == .orderedAscending }
+        return lhs.id < rhs.id
+    }
+}
+
 public enum RecentlyAddedAlbumPolicy {
     public static func sorted(
         albums: [Album], songs: [Song], limit: Int? = nil

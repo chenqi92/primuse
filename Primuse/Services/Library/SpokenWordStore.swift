@@ -167,7 +167,8 @@ final class SpokenWordStore {
             overrides: overrides,
             folderRules: folderRules,
             collectionOnlySongIDs: CollectionOnlySongStore.shared.songIDs,
-            catalogPathSourceIDs: reportedCatalogPathSourceIDs ?? []
+            catalogPathSourceIDs: reportedCatalogPathSourceIDs ?? [],
+            itemFoldersRevision: SpokenWordBookSourcePaths.itemFoldersRevision
         )
     }
 
@@ -219,6 +220,9 @@ final class SpokenWordStore {
     @ObservationIgnored private var reportedCatalogPathSourceIDs: Set<String>?
     /// 这些网盘的目录上下级,由宿主从扫描索引交来(手机 ScanService、电视 TVStore)。
     @ObservationIgnored private var folderTopologies: [String: SpokenWordFolderTopology] = [:]
+    /// 报给分书规则的网盘目录(`SpokenWordBookSourcePaths`)。暂时没交来目录的源沿用上次的,
+    /// 不让书在启动中、同步状态刚作废时先塌回不分目录。
+    @ObservationIgnored private var reportedBookItemFolders: [String: SpokenWordBookItemFolders] = [:]
     /// 标签目录里的文件。落在本机文件里(不同步):启动时扫描索引往往还没装载,曲库先按
     /// 上次的结论分,等目录交来算出一样的结果就不必整库重分一次。
     @ObservationIgnored private var taggedFolderFileCache: [String: TaggedFolderFiles] = [:]
@@ -278,8 +282,18 @@ final class SpokenWordStore {
             freshTaggedFolderSources.remove(sourceID)
             if taggedFolderFileCache[sourceID] != nil || hasFolderTags(sourceID: sourceID) { affectsTags = true }
         }
-        guard affectsTags else { return }
-        cachedFolderRules = nil
+        // 分书按真实目录和文件名认书、排章节;歌曲路径只是文件 ID。
+        var bookFolders = reportedBookItemFolders
+        for (sourceID, topology) in topologies where !topology.isEmpty {
+            bookFolders[sourceID] = topology.bookItemFolders
+        }
+        if !opaqueFolderSourceIDs.isEmpty {
+            bookFolders = bookFolders.filter { opaqueFolderSourceIDs.contains($0.key) }
+        }
+        reportedBookItemFolders = bookFolders
+        let regroupsBooks = SpokenWordBookSourcePaths.update(itemFolders: bookFolders)
+        guard affectsTags || regroupsBooks else { return }
+        if affectsTags { cachedFolderRules = nil }
         scheduleFolderTagReclassification()
     }
 
@@ -445,6 +459,10 @@ final class SpokenWordStore {
         )
         let opaqueChanged = opaque != opaqueFolderSourceIDs
         opaqueFolderSourceIDs = opaque
+        if opaqueChanged, reportedBookItemFolders.keys.contains(where: { !opaque.contains($0) }) {
+            reportedBookItemFolders = reportedBookItemFolders.filter { opaque.contains($0.key) }
+            SpokenWordBookSourcePaths.update(itemFolders: reportedBookItemFolders)
+        }
         // 曲库型服务器按条目 id 合成路径, 分书时不能拿它当文件夹。曲库第一次分书之前就要报上去;
         // 之后源有增减, 书要按新的认法重新分。
         let catalogPaths = Set(

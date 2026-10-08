@@ -3,7 +3,9 @@ import Foundation
 extension SpokenWordBookItem {
     /// The grouping's view of a library song. Every surface that groups
     /// books builds its items here, so the fields the rules read (path and
-    /// source included) cannot drift apart between them.
+    /// source included) cannot drift apart between them. On an item-id cloud
+    /// drive the path is spelled out of the scanned folders, since the song's
+    /// own path is a file id.
     public init(
         song: Song,
         knownDuration: TimeInterval? = nil,
@@ -20,7 +22,7 @@ extension SpokenWordBookItem {
             discNumber: song.discNumber,
             trackNumber: song.trackNumber,
             duration: song.duration > 0 ? song.duration : (knownDuration ?? 0),
-            fileName: song.filePath,
+            fileName: SpokenWordBookSourcePaths.groupingPath(sourceID: song.sourceID, filePath: song.filePath),
             sourceID: song.sourceID,
             position: position,
             positionUpdatedAt: positionUpdatedAt,

@@ -16,7 +16,8 @@ import Foundation
 /// 3. The folder settles what tags cannot. In one folder, units sharing an
 ///    album title are one book, and when the folder holds a single album,
 ///    its untagged items join it. A folder holding no album is one book
-///    named after the folder. "CD 2"-style folders count as their parent.
+///    named after the folder. "CD 2"-style and "1-500"-style folders count
+///    as their parent, ordered by their number.
 /// 4. Only items at a source's root, or with no path at all, stand alone.
 ///    A server catalogue's paths are made up from item ids (`/songs/<id>`)
 ///    and name no folder, so its items count as having none.
@@ -25,6 +26,13 @@ import Foundation
 ///    a copy kept elsewhere), each folder is a book of its own, its title
 ///    told apart by the folder's name. A place is the disc and track, or for
 ///    an untracked item a title that is more than a bare number.
+/// 6. A file renamed after it was tagged keeps the tags of the release it
+///    came from: its name says 第1集 where its tagged title says 第4969集.
+///    In a folder whose other files' names agree with their tags, such a
+///    file belongs to the folder's book (its largest album) whatever its
+///    album tag says, and that book goes by file name, the one numbering
+///    its files share. A folder renamed throughout is renumbered on purpose
+///    and keeps its tags.
 enum SpokenWordBookGroupingRules {
     struct Assignment {
         /// Item id → book id.
@@ -33,6 +41,12 @@ enum SpokenWordBookGroupingRules {
         var titles: [String: String] = [:]
         /// Item id → the disc a "CD 2" folder gives it.
         var derivedDiscs: [String: Int] = [:]
+        /// Item id → where its "1-500" folder starts, which orders before the
+        /// disc. Not a place: two recordings may split their ranges apart.
+        var derivedRanges: [String: Int] = [:]
+        /// Books holding files renamed after tagging (rule 6): their chapters
+        /// go by path, since the track tags count two different releases.
+        var pathOrderedBookIDs: Set<String> = []
     }
 
     private struct Album {
@@ -46,14 +60,31 @@ enum SpokenWordBookGroupingRules {
         var key: String
         var name: String
         var disc: Int?
+        var rangeStart: Int?
     }
 
     static func assign(
         _ items: [SpokenWordBookItem],
         catalogSourceIDs: Set<String> = SpokenWordBookSourcePaths.catalogSourceIDs
     ) -> Assignment {
-        let albums = items.map(album(of:))
+        var albums = items.map(album(of:))
         let folders = items.map { folder(of: $0, catalogSourceIDs: catalogSourceIDs) }
+
+        // Rule 6: files renamed after tagging, in a folder whose other files'
+        // names and tags agree on their chapter, lose their album and track
+        // to the folder.
+        let readings = items.map(chapterReading(of:))
+        let renamedChapters = readings.map(\.renamed)
+        var agreeingFolders: Set<String> = []
+        for index in items.indices where readings[index].agrees && albums[index] != nil {
+            if let folder = folders[index] { agreeingFolders.insert(folder.key) }
+        }
+        var adopted = [Bool](repeating: false, count: items.count)
+        for index in items.indices where renamedChapters[index] != nil {
+            guard let folder = folders[index], agreeingFolders.contains(folder.key) else { continue }
+            adopted[index] = true
+            albums[index] = nil
+        }
 
         // Album artists per album title, to settle rule 2.
         var authorsByAlbum: [String: Set<String>] = [:]
@@ -72,6 +103,8 @@ enum SpokenWordBookGroupingRules {
                     author = only.first ?? ""
                 }
                 unitOfItem.append(albumUnitKey(album: album.key, author: author))
+            } else if adopted[index], let folder = folders[index] {
+                unitOfItem.append(adoptedUnitKey(folder.key))
             } else if let folder = folders[index] {
                 unitOfItem.append(folderUnitKey(folder.key))
             } else {
@@ -82,16 +115,29 @@ enum SpokenWordBookGroupingRules {
         // Rule 3, folder by folder.
         var sets = UnionFind()
         var albumUnitsByFolder: [String: [String: Set<String>]] = [:] // folder → album key → units
+        var agreeingUnitCountsByFolder: [String: [String: Int]] = [:] // folder → unit → agreeing items
         var folderHasLooseItems: Set<String> = []
+        var foldersWithAdoptedItems: Set<String> = []
         for index in items.indices {
             let unit = unitOfItem[index]
             sets.add(unit)
             guard let folder = folders[index] else { continue }
             if let album = albums[index] {
                 albumUnitsByFolder[folder.key, default: [:]][album.key, default: []].insert(unit)
+                if readings[index].agrees { agreeingUnitCountsByFolder[folder.key, default: [:]][unit, default: 0] += 1 }
+            } else if adopted[index] {
+                foldersWithAdoptedItems.insert(folder.key)
             } else {
                 folderHasLooseItems.insert(folder.key)
             }
+        }
+        // Rule 6: renamed files join the album most of their folder's
+        // confirmed chapters carry.
+        for folderKey in foldersWithAdoptedItems {
+            guard let counts = agreeingUnitCountsByFolder[folderKey],
+                  let largest = counts.max(by: { $0.value != $1.value ? $0.value < $1.value : $0.key > $1.key })
+            else { continue }
+            sets.union(largest.key, adoptedUnitKey(folderKey))
         }
         for (folderKey, albumsHere) in albumUnitsByFolder {
             for units in albumsHere.values {
@@ -128,20 +174,25 @@ enum SpokenWordBookGroupingRules {
 
             // Rule 5. The part with the largest folder keeps the id the whole
             // book had, so whatever was remembered under it stays with most of it.
-            let parts = partsHoldingEachPlaceOnce(indices, items: items, folders: folders)
+            let parts = partsHoldingEachPlaceOnce(
+                indices, items: items, folders: folders, renamedChapters: renamedChapters, adopted: adopted
+            )
             guard parts.count > 1 else {
                 for index in indices { assignment.bookIDs[items[index].id] = bookID }
                 if let title { assignment.titles[bookID] = title }
+                if indices.contains(where: { adopted[$0] }) { assignment.pathOrderedBookIDs.insert(bookID) }
                 continue
             }
             for (number, part) in parts.enumerated() {
                 let partID = number == 0 ? bookID : bookID + "\u{1F}" + part.folderKey
                 for index in part.indices { assignment.bookIDs[items[index].id] = partID }
                 assignment.titles[partID] = partTitle(title, folderName: part.folderName)
+                if part.indices.contains(where: { adopted[$0] }) { assignment.pathOrderedBookIDs.insert(partID) }
             }
         }
         for (index, item) in items.enumerated() {
             if let disc = folders[index]?.disc { assignment.derivedDiscs[item.id] = disc }
+            if let start = folders[index]?.rangeStart { assignment.derivedRanges[item.id] = start }
         }
         return assignment
     }
@@ -173,7 +224,9 @@ enum SpokenWordBookGroupingRules {
     private static func partsHoldingEachPlaceOnce(
         _ indices: [Int],
         items: [SpokenWordBookItem],
-        folders: [Folder?]
+        folders: [Folder?],
+        renamedChapters: [Int?],
+        adopted: [Bool]
     ) -> [Part] {
         var byFolder: [String: Part] = [:]
         var unplaced: [Int] = []
@@ -185,9 +238,11 @@ enum SpokenWordBookGroupingRules {
             var part = byFolder[folder.key]
                 ?? Part(folderKey: folder.key, folderName: folder.name, indices: [], places: [])
             part.indices.append(index)
-            if let place = place(of: items[index], folderDisc: folder.disc) {
-                part.places.insert(place)
-            }
+            // A renamed file sits where its name says, not where its tags do.
+            let place = adopted[index]
+                ? renamedChapters[index].map { "t\(folder.disc ?? 1)/\($0)" }
+                : place(of: items[index], folderDisc: folder.disc)
+            if let place { part.places.insert(place) }
             byFolder[folder.key] = part
         }
         guard byFolder.count > 1 else { return [] }
@@ -261,6 +316,10 @@ enum SpokenWordBookGroupingRules {
 
     private static func folderUnitKey(_ folder: String) -> String {
         "folder:" + folder
+    }
+
+    private static func adoptedUnitKey(_ folder: String) -> String {
+        "renamed:" + folder
     }
 
     private static func rank(of unit: String) -> Int {
@@ -339,7 +398,79 @@ enum SpokenWordBookGroupingRules {
         return chapterLike.firstMatch(in: title, range: NSRange(title.startIndex..., in: title)) != nil
     }
 
+    // MARK: - Rule 6
+
+    /// "第12集", "第 3 回": a chapter counter and its number.
+    private static let countedChapter = try! NSRegularExpression(
+        pattern: "\u{7B2C}\\s*([0-9\u{FF10}-\u{FF19}]+)\\s*(" + chapterCounter + ")"
+    )
+
+    /// What a file's name and its tagged title say about its chapter, when
+    /// both number it with one counter ("第201集"): they agree, or the file
+    /// was renamed after it was tagged ("第1集" against "第4969集") and
+    /// `renamed` is the chapter its name gives. Neither, for every other file.
+    struct ChapterReading {
+        var agrees = false
+        var renamed: Int?
+    }
+
+    static func chapterReading(of item: SpokenWordBookItem) -> ChapterReading {
+        chapterReading(title: item.title, path: item.fileName)
+    }
+
+    static func chapterReading(title: String, path: String) -> ChapterReading {
+        guard title.contains("\u{7B2C}") else { return ChapterReading() }
+        let name = fileStem(path)
+        guard name.contains("\u{7B2C}") else { return ChapterReading() }
+        let named = countedChapters(in: name)
+        guard !named.isEmpty else { return ChapterReading() }
+        var tagged: [String: Set<Int>] = [:]
+        for (counter, number) in countedChapters(in: title) { tagged[counter, default: []].insert(number) }
+        var chapter: Int?
+        for (counter, number) in named {
+            guard let numbers = tagged[counter] else { continue }
+            if numbers.contains(number) { return ChapterReading(agrees: true) }
+            if chapter == nil { chapter = number }
+        }
+        return ChapterReading(renamed: chapter)
+    }
+
+    static func renamedChapter(of item: SpokenWordBookItem) -> Int? {
+        chapterReading(of: item).renamed
+    }
+
+    private static func countedChapters(in text: String) -> [(counter: String, number: Int)] {
+        let range = NSRange(text.startIndex..., in: text)
+        return countedChapter.matches(in: text, range: range).compactMap { match in
+            guard let digits = Range(match.range(at: 1), in: text),
+                  let counter = Range(match.range(at: 2), in: text),
+                  let number = Int(asciiDigits(text[digits])) else { return nil }
+            return (String(text[counter]), number)
+        }
+    }
+
+    /// Full-width digits ("１２") as ASCII, so they read as a number.
+    private static func asciiDigits(_ text: Substring) -> String {
+        String(String.UnicodeScalarView(text.unicodeScalars.map { scalar in
+            (0xFF10...0xFF19).contains(scalar.value)
+                ? Unicode.Scalar(scalar.value - 0xFF10 + 0x30) ?? scalar
+                : scalar
+        }))
+    }
+
+    private static func fileStem(_ path: String) -> String {
+        let name = path.split(separator: "/").last.map(String.init) ?? path
+        guard let dot = name.lastIndex(of: "."), dot != name.startIndex else { return name }
+        return String(name[..<dot])
+    }
+
     // MARK: - Folder
+
+    /// "1-500", "001～100", "第1-50集": a long book split for its file count.
+    private static let rangeFolder = try! NSRegularExpression(
+        pattern: "^(?:\u{7B2C}\\s*)?([0-9]{1,6})\\s*[-~\u{FF5E}\u{2014}\u{2013}_\u{81F3}\u{5230}]\\s*(?:\u{7B2C}\\s*)?([0-9]{1,6})\\s*"
+            + chapterCounter + "?$"
+    )
 
     /// "CD 2", "Disc2", "disk-3", "第2张" / "第2碟" / "第2盘".
     private static let discFolder = try! NSRegularExpression(
@@ -356,6 +487,7 @@ enum SpokenWordBookGroupingRules {
         components.removeLast()
 
         var disc: Int?
+        var rangeOrder: Int?
         if let last = components.last, mayHoldNumber(last) {
             let range = NSRange(last.startIndex..., in: last)
             if let match = discFolder.firstMatch(in: last, range: range) {
@@ -365,11 +497,26 @@ enum SpokenWordBookGroupingRules {
                     }
                 }
                 components.removeLast()
+            } else if components.count >= 2, let start = rangeStart(of: last) {
+                // A range folder at the top of a source is all the folder its items have.
+                rangeOrder = start
+                components.removeLast()
             }
         }
         guard let name = components.last else { return nil }
         let key = normalized(item.sourceID) + "\u{1F}" + components.joined(separator: "/")
-        return Folder(key: key, name: name, disc: disc)
+        return Folder(key: key, name: name, disc: disc, rangeStart: rangeOrder)
+    }
+
+    private static func rangeStart(of name: String) -> Int? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let range = NSRange(trimmed.startIndex..., in: trimmed)
+        guard let match = rangeFolder.firstMatch(in: trimmed, range: range),
+              let first = Range(match.range(at: 1), in: trimmed),
+              let last = Range(match.range(at: 2), in: trimmed),
+              let start = Int(trimmed[first]), let end = Int(trimmed[last]),
+              start <= end else { return nil }
+        return start
     }
 }
 
@@ -400,19 +547,118 @@ private struct UnionFind {
     }
 }
 
+/// The folders of one item-id cloud drive (Google Drive, 123, Aliyun, 115,
+/// Guangya…), from its scan index. Such a drive's item paths are file ids and
+/// name no folder; the rules need the folder and the file name, which only
+/// the scan saw.
+public struct SpokenWordBookItemFolders: Equatable, Sendable {
+    /// File id → the folder holding it.
+    public var fileParents: [String: String]
+    /// Folder → its parent folder.
+    public var directoryParents: [String: String]
+    /// File or folder → its name.
+    public var names: [String: String]
+
+    public init(fileParents: [String: String], directoryParents: [String: String], names: [String: String]) {
+        self.fileParents = fileParents
+        self.directoryParents = directoryParents
+        self.names = names
+    }
+
+    /// The file spelled as a path of names ("有声书/三体/1-50/第1集.mp3"), or
+    /// nil when the scan never placed it. `directoryPaths` memoises folders.
+    func path(ofFile fileID: String, directoryPaths: inout [String: String]) -> String? {
+        guard let parent = fileParents[fileID] else { return nil }
+        let folder = directoryPath(parent, cache: &directoryPaths)
+        let name = Self.component(names[fileID]) ?? fileID
+        return folder.isEmpty ? name : folder + "/" + name
+    }
+
+    private func directoryPath(_ id: String, cache: inout [String: String]) -> String {
+        if let known = cache[id] { return known }
+        var chain: [String] = []
+        var seen = Set<String>()
+        var path = ""
+        var current: String? = id
+        // Bounded, and guarded against a provider listing a folder as its own ancestor.
+        while let folder = current, chain.count < 256, seen.insert(folder).inserted {
+            if let known = cache[folder] {
+                path = known
+                break
+            }
+            chain.append(folder)
+            current = directoryParents[folder]
+        }
+        for folder in chain.reversed() {
+            // The scan root has no row of its own and adds nothing; an
+            // unnamed folder below it keeps its id, so it stays told apart.
+            let name = Self.component(names[folder])
+                ?? (directoryParents[folder] == nil ? nil : folder)
+            if let name { path = path.isEmpty ? name : path + "/" + name }
+            cache[folder] = path
+        }
+        return path
+    }
+
+    /// A name as one path component: some drives allow "/" in names.
+    private static func component(_ name: String?) -> String? {
+        guard let name = name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else { return nil }
+        return name.replacingOccurrences(of: "/", with: "\u{2215}")
+    }
+}
+
 /// Sources whose item paths name no folder. A server catalogue (Subsonic,
 /// Jellyfin and the like) makes its paths up from item ids, so every item of
 /// the source sits under one made-up folder; taken as a folder, it would join
 /// books that only share a title. The app reports these sources whenever its
 /// source list changes (`SpokenWordStore.updateFolderTagSources`), before the
 /// library is first grouped.
+///
+/// Item-id cloud drives name no folder either, but their scan saw the
+/// folders: the app reports those (`SpokenWordStore.updateFolderTopologies`)
+/// and `groupingPath` spells each item's path out of them.
 public enum SpokenWordBookSourcePaths {
     private final class Storage: @unchecked Sendable {
         let lock = NSLock()
         var ids: Set<String> = []
+        var itemFolders: [String: SpokenWordBookItemFolders] = [:]
+        var directoryPaths: [String: [String: String]] = [:]
+        var itemFoldersRevision = 0
     }
 
     private static let storage = Storage()
+
+    /// The path the rules read for an item: its own path, or on an item-id
+    /// drive the folders and name the scan recorded for that file id.
+    public static func groupingPath(sourceID: String, filePath: String) -> String {
+        storage.lock.lock()
+        defer { storage.lock.unlock() }
+        guard let folders = storage.itemFolders[sourceID] else { return filePath }
+        return folders.path(
+            ofFile: filePath,
+            directoryPaths: &storage.directoryPaths[sourceID, default: [:]]
+        ) ?? filePath
+    }
+
+    /// Changes whenever the reported item-id drive folders do, so a library
+    /// comparing its inputs knows the books need grouping again.
+    public static var itemFoldersRevision: Int {
+        storage.lock.lock()
+        defer { storage.lock.unlock() }
+        return storage.itemFoldersRevision
+    }
+
+    /// Replaces the item-id drive folders. True when that changed them.
+    @discardableResult
+    public static func update(itemFolders: [String: SpokenWordBookItemFolders]) -> Bool {
+        storage.lock.lock()
+        defer { storage.lock.unlock() }
+        guard storage.itemFolders != itemFolders else { return false }
+        storage.itemFolders = itemFolders
+        storage.directoryPaths = [:]
+        storage.itemFoldersRevision &+= 1
+        return true
+    }
 
     /// The ids of sources whose paths name no folder.
     public static var catalogSourceIDs: Set<String> {

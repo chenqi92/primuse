@@ -258,6 +258,27 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertEqual(store.kind(for: episode), .music)
     }
 
+    func testCloudDriveFoldersReachTheBookGrouping() {
+        let store = SpokenWordStore(storeURL: makeDirectory().appendingPathComponent("kinds.json"))
+        let source = MusicSource(id: "book-folders-\(UUID().uuidString)", name: "Drive", type: .guangya)
+        store.updateFolderTagSources([source])
+        let chapter = Song(
+            id: "chapter", title: "第4969集", fileFormat: .mp3, filePath: "file-id", sourceID: source.id
+        )
+        XCTAssertEqual(SpokenWordBookItem(song: chapter).fileName, "file-id")
+        let before = store.classificationSnapshot.itemFoldersRevision
+        store.updateFolderTopologies([source.id: SpokenWordFolderTopology(
+            fileParents: ["file-id": "range"],
+            directoryParents: ["range": "book", "book": "root"],
+            names: ["range": "1-500", "book": "仙界篇", "file-id": "第1集.mp3"]
+        )])
+        XCTAssertEqual(SpokenWordBookItem(song: chapter).fileName, "仙界篇/1-500/第1集.mp3")
+        XCTAssertNotEqual(store.classificationSnapshot.itemFoldersRevision, before)
+        // A scan index not loaded yet keeps the folders last reported.
+        store.updateFolderTopologies([:])
+        XCTAssertEqual(SpokenWordBookItem(song: chapter).fileName, "仙界篇/1-500/第1集.mp3")
+    }
+
     func testCloudPodcastFolderCacheSurvivesRestartWithoutScanIndex() async throws {
         let directory = makeDirectory()
         let url = directory.appendingPathComponent("kinds.json")

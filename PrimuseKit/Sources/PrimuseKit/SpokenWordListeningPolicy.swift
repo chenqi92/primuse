@@ -265,7 +265,9 @@ public enum SpokenWordBookGrouping {
     /// Within a book the order is disc, track, then path — the order the
     /// files were numbered in — and never the position, so a rewind does not
     /// reorder chapters. A server catalogue's paths are item ids, so its
-    /// chapters go by title after the track instead. Books come back with the
+    /// chapters go by title after the track instead. A book holding files
+    /// renamed after tagging goes by path alone: its track tags count two
+    /// releases (rule 6 of `SpokenWordBookGroupingRules`). Books come back with the
     /// ones being listened to first, most recent first, then the rest by title.
     public static func books(
         from items: [SpokenWordBookItem],
@@ -281,8 +283,14 @@ public enum SpokenWordBookGrouping {
         }
 
         let books = order.map { key -> SpokenWordBook in
+            let byPath = assignment.pathOrderedBookIDs.contains(key)
             let members = (groups[key] ?? []).sorted {
-                chapterOrder($0, $1, discs: assignment.derivedDiscs, catalogSourceIDs: catalogSourceIDs)
+                byPath
+                    ? pathOrder($0, $1)
+                    : chapterOrder(
+                        $0, $1, discs: assignment.derivedDiscs, ranges: assignment.derivedRanges,
+                        catalogSourceIDs: catalogSourceIDs
+                    )
             }
             return makeBook(id: key, items: members, title: assignment.titles[key])
         }
@@ -307,8 +315,13 @@ public enum SpokenWordBookGrouping {
         _ lhs: SpokenWordBookItem,
         _ rhs: SpokenWordBookItem,
         discs: [String: Int],
+        ranges: [String: Int],
         catalogSourceIDs: Set<String>
     ) -> Bool {
+        // A "1-500" folder before a "501-1000" one, whatever the tags count.
+        let leftRange = ranges[lhs.id] ?? 0
+        let rightRange = ranges[rhs.id] ?? 0
+        if leftRange != rightRange { return leftRange < rightRange }
         // A disc read from a "CD 2" folder counts when the tag is missing,
         // so two folders each numbered from track 1 do not interleave.
         let leftDisc = lhs.discNumber ?? discs[lhs.id] ?? 1
@@ -330,6 +343,16 @@ public enum SpokenWordBookGrouping {
             let byFile = lhs.fileName.localizedStandardCompare(rhs.fileName)
             if byFile != .orderedSame { return byFile == .orderedAscending }
         }
+        let byTitle = lhs.title.localizedStandardCompare(rhs.title)
+        if byTitle != .orderedSame { return byTitle == .orderedAscending }
+        return lhs.id < rhs.id
+    }
+
+    /// Path, then title: the files' own numbering, folders ("1-500",
+    /// "501-1000") and names ("第2集", "第10集") compared as numbers.
+    private static func pathOrder(_ lhs: SpokenWordBookItem, _ rhs: SpokenWordBookItem) -> Bool {
+        let byFile = lhs.fileName.localizedStandardCompare(rhs.fileName)
+        if byFile != .orderedSame { return byFile == .orderedAscending }
         let byTitle = lhs.title.localizedStandardCompare(rhs.title)
         if byTitle != .orderedSame { return byTitle == .orderedAscending }
         return lhs.id < rhs.id

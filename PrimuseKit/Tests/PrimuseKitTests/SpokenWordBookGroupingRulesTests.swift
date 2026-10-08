@@ -359,6 +359,164 @@ struct SpokenWordBookGroupingRulesTests {
         #expect(MusicSourceType.smb.itemPathsNameFolders)
     }
 
+    // MARK: Files renamed after tagging
+
+    @Test("A file renamed after tagging is told by its name and its numbered title disagreeing")
+    func renamedFileDetection() {
+        func chapter(_ title: String, _ path: String) -> Int? {
+            SpokenWordBookGroupingRules.renamedChapter(of: item("x", title: title, path: path))
+        }
+        #expect(chapter("第4969集 狐女1 (凡人仙界篇)", "书/关彦之 - 第1集 狐女（1）_HQ.mp3") == 1)
+        #expect(chapter("第４９６９集", "书/第１集.mp3") == 1)
+        #expect(chapter("第201集 线索（1）", "书/关彦之 - 第201集 线索（1）_HQ.mp3") == nil)
+        #expect(chapter("第3集", "书/第003集.mp3") == nil)
+        // Different counters, or a number on one side only, say nothing.
+        #expect(chapter("第1章 开端", "书/第12集.mp3") == nil)
+        #expect(chapter("狐女", "书/第1集 狐女.mp3") == nil)
+        #expect(chapter("第1集", "书/01.mp3") == nil)
+    }
+
+    @Test("Files renamed from another release join their folder's book, in file order")
+    func renamedFilesJoinTheirFolder() {
+        let single = "凡人修仙传之仙界篇|关彦之", omnibus = "凡人修仙传|精编版|关彦之"
+        var items: [SpokenWordBookItem] = []
+        for number in 1...6 {
+            // The single edition; chapters 1, 2, 5 and 6 are files copied from
+            // the omnibus and renamed, their tags left as they were.
+            let renamed = number != 3 && number != 4
+            let folder = number <= 4 ? "1-4" : "5-8"
+            items.append(item(
+                "s\(number)",
+                title: renamed ? "第\(4968 + number)集 (凡人仙界篇)" : "第\(number)集",
+                album: renamed ? omnibus : single, artist: "关彦之",
+                track: renamed ? 4968 + number : number,
+                path: "有声书/仙界篇-关彦之/\(folder)/关彦之 - 第\(number)集_HQ.mp3"
+            ))
+        }
+        for number in 4969...4974 {
+            items.append(item(
+                "o\(number)", title: "第\(number)集 (凡人仙界篇)", album: omnibus, artist: "关彦之", track: number,
+                path: "有声书/凡人修仙传-关彦之/4501-5000/第\(number)集 (凡人仙界篇).mp3"
+            ))
+        }
+        // A theme song beside the range folders is an album of its own and
+        // draws none of the renamed chapters.
+        items.append(item("theme", title: "主题曲《归仙》", album: "归仙", path: "有声书/仙界篇-关彦之/主题曲.mp3"))
+        let books = SpokenWordBookGrouping.books(from: items)
+        #expect(books.count == 3)
+        #expect(books.first { $0.items.contains { $0.id == "theme" } }?.items.count == 1)
+        let singleBook = books.first { $0.items.contains { $0.id == "s3" } }
+        #expect(singleBook?.items.map(\.id) == ["s1", "s2", "s3", "s4", "s5", "s6"])
+        #expect(singleBook?.title == "凡人修仙传之仙界篇|关彦之")
+        let omnibusBook = books.first { $0.items.contains { $0.id == "o4969" } }
+        #expect(omnibusBook?.items.map(\.id) == ["o4969", "o4970", "o4971", "o4972", "o4973", "o4974"])
+        #expect(omnibusBook?.title == omnibus)
+        #expect(SpokenWordBookGrouping.bookIDs(for: items)["s1"] == singleBook?.id)
+    }
+
+    @Test("Renamed files follow only an album whose chapters their folder confirms")
+    func renamedFilesNeedConfirmedChapters() {
+        let books = SpokenWordBookGrouping.books(from: [
+            item("theme", title: "主题曲", album: "归仙", path: "书/主题曲.mp3"),
+            item("1", title: "第4969集", album: "合集", track: 4969, path: "书/第1集.mp3"),
+            item("2", title: "第4970集", album: "合集", track: 4970, path: "书/第2集.mp3"),
+        ])
+        #expect(books.count == 2)
+        #expect(books.first { $0.items.contains { $0.id == "1" } }?.items.map(\.id) == ["1", "2"])
+    }
+
+    @Test("A folder renamed throughout is renumbered on purpose and keeps its tags")
+    func renumberedFolderKeepsTags() {
+        let books = SpokenWordBookGrouping.books(from: [
+            item("1", title: "第1集", album: "三体", track: 1, path: "三体/第101集.mp3"),
+            item("2", title: "第2集", album: "三体", track: 2, path: "三体/第102集.mp3"),
+            item("3", title: "第3集", album: "三体", track: 3, path: "三体/第103集.mp3"),
+        ])
+        #expect(books.map(\.id) == ["book:三体\u{1F}"])
+        #expect(books.first?.items.map(\.id) == ["1", "2", "3"])
+    }
+
+    @Test("Range folders count as their parent and keep their order when tracks restart")
+    func rangeFoldersOrderByRange() {
+        let books = SpokenWordBookGrouping.books(from: [
+            item("b1", album: "鬼吹灯", track: 1, path: "鬼吹灯/101-200/101.mp3"),
+            item("b2", album: "鬼吹灯", track: 2, path: "鬼吹灯/101-200/102.mp3"),
+            item("a1", album: "鬼吹灯", track: 1, path: "鬼吹灯/1-100/001.mp3"),
+            item("a2", album: "鬼吹灯", track: 2, path: "鬼吹灯/1-100/002.mp3"),
+        ])
+        #expect(books.count == 1)
+        #expect(books.first?.items.map(\.id) == ["a1", "a2", "b1", "b2"])
+        #expect(books.first?.title == "鬼吹灯")
+    }
+
+    // MARK: - Item-id cloud drives
+
+    /// 有声书/仙界篇/1-500/{f1,f2}, 有声书/合集/4501-5000/{c1,c2}; the root has no row.
+    private let driveFolders = SpokenWordBookItemFolders(
+        fileParents: ["f1": "d-range", "f2": "d-range", "c1": "d-all-range", "c2": "d-all-range"],
+        directoryParents: [
+            "d-books": "root", "d-xianjie": "d-books", "d-range": "d-xianjie",
+            "d-all": "d-books", "d-all-range": "d-all",
+        ],
+        names: [
+            "d-books": "有声书", "d-xianjie": "仙界篇-关彦之", "d-range": "1-500",
+            "d-all": "合集", "d-all-range": "4501-5000",
+            "f1": "关彦之 - 第1集 狐女（1）.mp3", "f2": "关彦之 - 第2集 狐女（2）.mp3",
+            "c1": "第4969集 狐女1.mp3", "c2": "第4970集 狐女2.mp3",
+        ]
+    )
+
+    @Test("An item-id drive's file is read as the path of names its scan saw")
+    func itemIDDrivePath() {
+        var cache: [String: String] = [:]
+        #expect(driveFolders.path(ofFile: "f2", directoryPaths: &cache) == "有声书/仙界篇-关彦之/1-500/关彦之 - 第2集 狐女（2）.mp3")
+        #expect(driveFolders.path(ofFile: "c1", directoryPaths: &cache) == "有声书/合集/4501-5000/第4969集 狐女1.mp3")
+        #expect(cache["d-range"] == "有声书/仙界篇-关彦之/1-500")
+        #expect(driveFolders.path(ofFile: "unscanned", directoryPaths: &cache) == nil)
+
+        // A nameless folder below the root keeps its id; a "/" in a name stays one component.
+        let odd = SpokenWordBookItemFolders(
+            fileParents: ["f": "d2"],
+            directoryParents: ["d1": "root", "d2": "d1"],
+            names: ["d1": "AC/DC 有声", "f": "01.mp3"]
+        )
+        var oddCache: [String: String] = [:]
+        #expect(odd.path(ofFile: "f", directoryPaths: &oddCache) == "AC\u{2215}DC 有声/d2/01.mp3")
+
+        // A provider listing a folder as its own ancestor still ends.
+        let loop = SpokenWordBookItemFolders(
+            fileParents: ["f": "a"], directoryParents: ["a": "b", "b": "a"], names: ["a": "A", "b": "B", "f": "f.mp3"]
+        )
+        var loopCache: [String: String] = [:]
+        #expect(loop.path(ofFile: "f", directoryPaths: &loopCache)?.hasSuffix("A/f.mp3") == true)
+    }
+
+    @Test("Two recordings on an item-id drive split by folder as on a NAS")
+    func itemIDDriveVersionsSplit() {
+        var cache: [String: String] = [:]
+        func driveItem(_ id: String, title: String, track: Int) -> SpokenWordBookItem {
+            item(id, title: title, album: "凡人修仙传", artist: "关彦之", track: track,
+                 path: driveFolders.path(ofFile: id, directoryPaths: &cache) ?? id, source: "drive")
+        }
+        let items = [
+            driveItem("f1", title: "第1集", track: 1), driveItem("f2", title: "第2集", track: 2),
+            driveItem("c1", title: "第1集", track: 1), driveItem("c2", title: "第2集", track: 2),
+        ]
+        let books = SpokenWordBookGrouping.books(from: items)
+        #expect(books.count == 2)
+        #expect(Set(books.map { $0.items.map(\.id) }) == [["f1", "f2"], ["c1", "c2"]])
+        // "1-500" counts as the folder above it, which names the part.
+        #expect(Set(books.map(\.title)) == ["凡人修仙传 · 仙界篇-关彦之", "凡人修仙传 · 合集"])
+
+        // Without the scanned folders the file ids name none, and the two interleave.
+        let unplaced = items.map { item -> SpokenWordBookItem in
+            var copy = item
+            copy.fileName = item.id
+            return copy
+        }
+        #expect(SpokenWordBookGrouping.books(from: unplaced).count == 1)
+    }
+
     @Test("A book tagged the plain way keeps the id it had before")
     func stableIDs() {
         let items = [

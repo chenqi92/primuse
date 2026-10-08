@@ -4390,7 +4390,15 @@ final class MusicLibrary {
             preparingContentClassificationRefresh = true
             return
         }
-        guard visibleContentClassification != SpokenWordStore.shared.classificationSnapshot else { return }
+        let next = SpokenWordStore.shared.classificationSnapshot
+        guard visibleContentClassification != next else { return }
+        // 网盘目录一变(每次扫描收尾)只影响分书;一本书都没有时不必整库重建可见集。
+        var sameButFolders = next
+        sameButFolders.itemFoldersRevision = visibleContentClassification.itemFoldersRevision
+        if sameButFolders == visibleContentClassification, spokenWordSongs.isEmpty, localPodcastSongs.isEmpty {
+            visibleContentClassification = next
+            return
+        }
         rebuildVisibleCache()
     }
 
