@@ -1231,6 +1231,10 @@ extension AudioPlayerService {
                 guard !Task.isCancelled, playID == id else { return }
                 applySpatialAudioSettings()
                 applyPlaybackRate()
+                // 换输出设备、恢复时音频图是重建的,新图的均衡器增益清零、压缩与混响旁路,
+                // 和开播、无缝衔接一样把设置回填,否则要到下一首才恢复。
+                audioEffectsService.applySettings()
+                equalizerService.applySettings()
                 guard let outputFormat = audioEngine.outputFormat else {
                     isLoading = false
                     isPlaying = false
