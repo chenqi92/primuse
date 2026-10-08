@@ -679,3 +679,325 @@ struct SpokenWordPartButton: View {
         .accessibilityLabel(Text(SpokenWordPlayerText.partButtonLabelKey(player, forward: forward)))
     }
 }
+
+// MARK: - Full-screen transcript
+
+/// 全屏读文稿的排版偏好(本机记住)。
+enum SpokenWordTranscriptReaderPreferences {
+    static let fontKey = "primuse.transcriptReader.font"
+    static let fontSizeKey = "primuse.transcriptReader.fontSize"
+    static let lineSpacingKey = "primuse.transcriptReader.lineSpacing"
+    static let paragraphSpacingKey = "primuse.transcriptReader.paragraphSpacing"
+    static let fontSizeRange: ClosedRange<Double> = 14...36
+    static let defaultFontSize = 20.0
+}
+
+/// 文稿的字体:系统自带的几种。中文都落到苹方(iOS 没有内置宋体)。
+enum SpokenWordTranscriptFont: String, CaseIterable, Identifiable {
+    case system, serif, rounded, georgia, palatino, charter, iowan
+
+    var id: String { rawValue }
+
+    func font(size: CGFloat) -> Font {
+        switch self {
+        case .system: .system(size: size)
+        case .serif: .system(size: size, design: .serif)
+        case .rounded: .system(size: size, design: .rounded)
+        case .georgia: .custom("Georgia", size: size)
+        case .palatino: .custom("Palatino", size: size)
+        case .charter: .custom("Charter", size: size)
+        case .iowan: .custom("Iowan Old Style", size: size)
+        }
+    }
+
+    /// 系统那三种按语言叫,其余是字体本身的名字。
+    var title: Text {
+        switch self {
+        case .system: Text("transcript_font_system")
+        case .serif: Text("transcript_font_serif")
+        case .rounded: Text("transcript_font_rounded")
+        case .georgia: Text(verbatim: "Georgia")
+        case .palatino: Text(verbatim: "Palatino")
+        case .charter: Text(verbatim: "Charter")
+        case .iowan: Text(verbatim: "Iowan")
+        }
+    }
+}
+
+/// 行距与段距的三档,按字号成比例。
+enum SpokenWordTranscriptSpacing: String, CaseIterable, Identifiable {
+    case compact, standard, relaxed
+
+    var id: String { rawValue }
+
+    var titleKey: LocalizedStringKey {
+        switch self {
+        case .compact: "transcript_spacing_compact"
+        case .standard: "transcript_spacing_standard"
+        case .relaxed: "transcript_spacing_relaxed"
+        }
+    }
+
+    func lineSpacing(fontSize: CGFloat) -> CGFloat {
+        switch self {
+        case .compact: fontSize * 0.2
+        case .standard: fontSize * 0.45
+        case .relaxed: fontSize * 0.75
+        }
+    }
+
+    func paragraphSpacing(fontSize: CGFloat) -> CGFloat {
+        switch self {
+        case .compact: fontSize * 0.6
+        case .standard: fontSize * 1.1
+        case .relaxed: fontSize * 1.8
+        }
+    }
+}
+
+/// 有声书、播客的文稿全屏读:字幕一样的短行并成段落,字体、字号、行距、段距可调。
+/// 跟着播放走到正在念的那一段;自己滑开了就不再拉回,点「跟随播放」再接上。点一段跳到那里。
+struct SpokenWordTranscriptReader: View {
+    let lines: [LyricLine]
+    let title: String
+    let player: AudioPlayerService
+
+    @Environment(\.dismiss) private var dismiss
+    @AppStorage(SpokenWordTranscriptReaderPreferences.fontKey)
+    private var fontRawValue = SpokenWordTranscriptFont.system.rawValue
+    @AppStorage(SpokenWordTranscriptReaderPreferences.fontSizeKey)
+    private var fontSize = SpokenWordTranscriptReaderPreferences.defaultFontSize
+    @AppStorage(SpokenWordTranscriptReaderPreferences.lineSpacingKey)
+    private var lineSpacingRawValue = SpokenWordTranscriptSpacing.standard.rawValue
+    @AppStorage(SpokenWordTranscriptReaderPreferences.paragraphSpacingKey)
+    private var paragraphSpacingRawValue = SpokenWordTranscriptSpacing.standard.rawValue
+    @State private var paragraphs: [SpokenWordTranscriptReadingPolicy.Paragraph] = []
+    @State private var currentIndex: Int?
+    @State private var followsPlayback = true
+    @State private var showsTypography = false
+
+    private var font: SpokenWordTranscriptFont { SpokenWordTranscriptFont(rawValue: fontRawValue) ?? .system }
+    private var lineSpacing: SpokenWordTranscriptSpacing {
+        SpokenWordTranscriptSpacing(rawValue: lineSpacingRawValue) ?? .standard
+    }
+    private var paragraphSpacing: SpokenWordTranscriptSpacing {
+        SpokenWordTranscriptSpacing(rawValue: paragraphSpacingRawValue) ?? .standard
+    }
+    private var size: CGFloat {
+        CGFloat(min(max(fontSize, SpokenWordTranscriptReaderPreferences.fontSizeRange.lowerBound),
+                    SpokenWordTranscriptReaderPreferences.fontSizeRange.upperBound))
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: paragraphSpacing.paragraphSpacing(fontSize: size)) {
+                        ForEach(Array(paragraphs.enumerated()), id: \.element.id) { index, paragraph in
+                            paragraphView(paragraph, isCurrent: index == currentIndex)
+                                .id(paragraph.id)
+                        }
+                    }
+                    .frame(maxWidth: 720, alignment: .leading)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 28)
+                }
+                .onScrollPhaseChange { _, phase in
+                    if phase == .interacting { followsPlayback = false }
+                }
+                .onChange(of: currentIndex) { _, _ in
+                    scrollToCurrent(proxy, animated: true)
+                }
+                .onChange(of: paragraphs.count) { _, _ in
+                    scrollToCurrent(proxy, animated: false)
+                }
+                .overlay(alignment: .bottom) {
+                    if !followsPlayback, currentIndex != nil {
+                        Button {
+                            followsPlayback = true
+                            scrollToCurrent(proxy, animated: true)
+                        } label: {
+                            Label("transcript_follow_playback", systemImage: "text.line.first.and.arrowtriangle.forward")
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                                .background(.regularMaterial, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.bottom, 20)
+                        .transition(.opacity)
+                    }
+                }
+            }
+            .navigationTitle(title)
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("close") { dismiss() }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showsTypography = true
+                    } label: {
+                        Image(systemName: "textformat.size")
+                    }
+                    .accessibilityLabel(Text("transcript_typography"))
+                }
+            }
+            .sheet(isPresented: $showsTypography) {
+                SpokenWordTranscriptTypographyPanel(
+                    fontRawValue: $fontRawValue,
+                    fontSize: $fontSize,
+                    lineSpacingRawValue: $lineSpacingRawValue,
+                    paragraphSpacingRawValue: $paragraphSpacingRawValue
+                )
+                #if os(iOS)
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+                #else
+                .frame(minWidth: 420, minHeight: 420)
+                #endif
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: 560, minHeight: 640)
+        #endif
+        .task(id: "\(lines.count)|\(lines.first?.id ?? "")|\(lines.last?.id ?? "")") {
+            let cues = Self.cues(from: lines)
+            paragraphs = await Task.detached(priority: .userInitiated) {
+                SpokenWordTranscriptReadingPolicy.paragraphs(from: cues)
+            }.value
+        }
+        .task {
+            while !Task.isCancelled {
+                let index = SpokenWordTranscriptReadingPolicy.paragraphIndex(at: player.currentTime, in: paragraphs)
+                if index != currentIndex { currentIndex = index }
+                try? await Task.sleep(for: .milliseconds(400))
+            }
+        }
+    }
+
+    private func paragraphView(_ paragraph: SpokenWordTranscriptReadingPolicy.Paragraph, isCurrent: Bool) -> some View {
+        Text(paragraph.text)
+            .font(font.font(size: size))
+            .lineSpacing(lineSpacing.lineSpacing(fontSize: size))
+            .foregroundStyle(isCurrent || currentIndex == nil ? Color.primary : Color.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard let start = paragraph.start else { return }
+                followsPlayback = true
+                player.seek(to: start)
+            }
+            .animation(.easeInOut(duration: 0.25), value: isCurrent)
+    }
+
+    private func scrollToCurrent(_ proxy: ScrollViewProxy, animated: Bool) {
+        guard followsPlayback, let index = currentIndex, paragraphs.indices.contains(index) else { return }
+        let target = paragraphs[index].id
+        if animated {
+            withAnimation(.easeInOut(duration: 0.35)) {
+                proxy.scrollTo(target, anchor: UnitPoint(x: 0.5, y: 0.25))
+            }
+        } else {
+            proxy.scrollTo(target, anchor: UnitPoint(x: 0.5, y: 0.25))
+        }
+    }
+
+    static func cues(from lines: [LyricLine]) -> [SpokenWordTranscriptReadingPolicy.Cue] {
+        lines.map { line in
+            SpokenWordTranscriptReadingPolicy.Cue(
+                text: line.text,
+                start: line.isSynchronized ? line.timestamp : nil,
+                end: line.isSynchronized ? line.endTimestamp : nil,
+                speaker: line.voice.rawValue
+            )
+        }
+    }
+}
+
+/// 「字体与排版」:字体、字号、行距、段距。改了文稿那边立刻跟着变。
+struct SpokenWordTranscriptTypographyPanel: View {
+    @Binding var fontRawValue: String
+    @Binding var fontSize: Double
+    @Binding var lineSpacingRawValue: String
+    @Binding var paragraphSpacingRawValue: String
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("transcript_font") {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(SpokenWordTranscriptFont.allCases) { font in
+                                fontChip(font)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+                Section("transcript_font_size") {
+                    HStack(spacing: 12) {
+                        Image(systemName: "textformat.size.smaller")
+                            .foregroundStyle(.secondary)
+                        Slider(value: $fontSize, in: SpokenWordTranscriptReaderPreferences.fontSizeRange, step: 1)
+                        Image(systemName: "textformat.size.larger")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Section("transcript_line_spacing") {
+                    spacingPicker("transcript_line_spacing", selection: $lineSpacingRawValue)
+                }
+                Section("transcript_paragraph_spacing") {
+                    spacingPicker("transcript_paragraph_spacing", selection: $paragraphSpacingRawValue)
+                }
+            }
+            .navigationTitle("transcript_typography")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+        }
+    }
+
+    private func fontChip(_ font: SpokenWordTranscriptFont) -> some View {
+        let isSelected = font.rawValue == fontRawValue
+        return Button {
+            fontRawValue = font.rawValue
+        } label: {
+            VStack(spacing: 4) {
+                Text(verbatim: "Aa")
+                    .font(font.font(size: 22))
+                font.title
+                    .font(.caption)
+                    .lineLimit(1)
+            }
+            .frame(minWidth: 64)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(isSelected ? Color.accentColor.opacity(0.16) : Color.secondary.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func spacingPicker(_ titleKey: LocalizedStringKey, selection: Binding<String>) -> some View {
+        Picker(titleKey, selection: selection) {
+            ForEach(SpokenWordTranscriptSpacing.allCases) { spacing in
+                Text(spacing.titleKey).tag(spacing.rawValue)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+    }
+}

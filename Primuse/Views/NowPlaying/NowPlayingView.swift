@@ -745,6 +745,8 @@ struct NowPlayingView: View {
     @State private var presentedPodcastSheet: PodcastPlayerSheetTarget?
     #endif
     @State private var showLyrics = false
+    /// 有声内容的文稿全屏读(`SpokenWordTranscriptReader`)。
+    @State private var showsTranscriptReader = false
     @State private var activeMinimizeDragAxis: NowPlayingDismissGesturePolicy.Axis?
     @State private var activeMinimizeDragStartLocation: CGPoint?
     @State private var isLyricsImmersive = false
@@ -2666,6 +2668,15 @@ struct NowPlayingView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+        #if os(iOS)
+        .fullScreenCover(isPresented: $showsTranscriptReader) {
+            SpokenWordTranscriptReader(lines: lyrics, title: player.currentSong?.title ?? "", player: player)
+        }
+        #else
+        .sheet(isPresented: $showsTranscriptReader) {
+            SpokenWordTranscriptReader(lines: lyrics, title: player.currentSong?.title ?? "", player: player)
+        }
+        #endif
         #if os(iOS)
         .sheet(
             item: $presentedAlbum,
@@ -5860,6 +5871,28 @@ struct NowPlayingView: View {
             translationActivity: lyricsTranslationActivity,
             onUserScroll: collapsesChromeOnScroll ? { collapseLyricsChrome() } : nil
         )
+        .overlay(alignment: .topTrailing) { transcriptReaderButton }
+    }
+
+    /// 有声书、播客的文稿:右上角一颗键,全屏读、调字体与间距。
+    @ViewBuilder
+    private var transcriptReaderButton: some View {
+        if usesSpokenWordTransport, !lyrics.isEmpty {
+            Button {
+                showsTranscriptReader = true
+            } label: {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(appearance.secondary)
+                    .frame(width: 34, height: 34)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 8)
+            .padding(.trailing, 12)
+            .accessibilityLabel(Text("transcript_read_fullscreen"))
+        }
     }
 
     @ViewBuilder

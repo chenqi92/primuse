@@ -177,3 +177,56 @@ struct SpokenWordSkipPolicyTests {
         #expect(SpokenWordSkipPolicy.forwardInterval == 30)
     }
 }
+
+@Suite("Transcript reading paragraphs")
+struct SpokenWordTranscriptReadingPolicyTests {
+    private typealias Policy = SpokenWordTranscriptReadingPolicy
+
+    @Test("Subtitle cues join into paragraphs that break at pauses and speaker changes")
+    func joinsCues() {
+        let cues = [
+            Policy.Cue(text: "Welcome back", start: 0, end: 1.5, speaker: "A"),
+            Policy.Cue(text: "to the show.", start: 1.6, end: 3, speaker: "A"),
+            Policy.Cue(text: "Thanks for having me.", start: 3.2, end: 5, speaker: "B"),
+            Policy.Cue(text: "So, where were we?", start: 9, end: 11, speaker: "B"),
+        ]
+        let paragraphs = Policy.paragraphs(from: cues)
+        #expect(paragraphs.map(\.text) == ["Welcome back to the show.", "Thanks for having me.", "So, where were we?"])
+        #expect(paragraphs.map(\.firstCue) == [0, 2, 3])
+        #expect(paragraphs.map(\.start) == [0, 3.2, 9])
+        #expect(Policy.paragraphIndex(at: 4, in: paragraphs) == 1)
+        #expect(Policy.paragraphIndex(at: 0, in: paragraphs) == 0)
+        #expect(Policy.paragraphIndex(at: 100, in: paragraphs) == 2)
+    }
+
+    @Test("Chinese joins without spaces and LRC lines break only at long gaps")
+    func chineseAndLRC() {
+        let cues = [
+            Policy.Cue(text: "第一章 山河", start: 0),
+            Policy.Cue(text: "天色渐暗，", start: 4),
+            Policy.Cue(text: "他推门而出。", start: 7),
+            Policy.Cue(text: "第二天清晨", start: 30),
+        ]
+        let paragraphs = Policy.paragraphs(from: cues)
+        #expect(paragraphs.map(\.text) == ["第一章 山河天色渐暗，他推门而出。", "第二天清晨"])
+    }
+
+    @Test("Plain text keeps the author's blank lines as paragraph breaks and is never timed")
+    func plainText() {
+        let cues = ["First line", "continues here.", "", "Second paragraph."].map { Policy.Cue(text: $0, start: nil) }
+        let paragraphs = Policy.paragraphs(from: cues)
+        #expect(paragraphs.map(\.text) == ["First line continues here.", "Second paragraph."])
+        #expect(paragraphs.allSatisfy { $0.start == nil })
+        #expect(Policy.paragraphIndex(at: 10, in: paragraphs) == nil)
+    }
+
+    @Test("A long paragraph breaks at the next sentence end")
+    func longParagraphs() {
+        let sentence = String(repeating: "字", count: 100) + "。"
+        let cues = (0..<5).map { Policy.Cue(text: sentence, start: Double($0), end: Double($0) + 0.9) }
+        let paragraphs = Policy.paragraphs(from: cues)
+        #expect(paragraphs.count == 2)
+        #expect(paragraphs[0].lastCue == 2)
+        #expect(paragraphs.allSatisfy { $0.text.count <= Policy.hardLength })
+    }
+}

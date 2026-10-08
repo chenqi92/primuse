@@ -66,6 +66,8 @@ struct MacNowPlayingView: View {
     @State private var podcastSheet: PodcastPlayerSheetTarget?
     /// 右栏目录面板该翻到哪一页(播客的「接下来」块)。
     @State private var contentsRequestedTab: SpokenWordContentsView.Tab?
+    /// 有声内容的文稿全屏读(`SpokenWordTranscriptReader`)。
+    @State private var showsTranscriptReader = false
     @State private var preferences = MacUIPreferences.shared
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
@@ -222,10 +224,19 @@ struct MacNowPlayingView: View {
                                 // 有声内容的右栏是这本书的目录与书签;有文字稿时多一页文字。
                                 SpokenWordContentsView(
                                     presentation: .embedded(spokenWordPalette),
-                                    textTab: lyrics.isEmpty ? nil : AnyView(lyricsPane),
+                                    textTab: lyrics.isEmpty ? nil : AnyView(
+                                        lyricsPane.overlay(alignment: .topTrailing) { transcriptReaderButton }
+                                    ),
                                     requestedTab: $contentsRequestedTab
                                 )
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .sheet(isPresented: $showsTranscriptReader) {
+                                    SpokenWordTranscriptReader(
+                                        lines: lyrics,
+                                        title: player.currentSong?.title ?? "",
+                                        player: player
+                                    )
+                                }
                             } else {
                                 lyricsPane
                                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1540,6 +1551,22 @@ struct MacNowPlayingView: View {
         }
         .frame(width: 36, height: 36)
         .contentShape(Circle())
+    }
+
+    /// 文字稿页右上角:全屏读、调字体与间距。
+    private var transcriptReaderButton: some View {
+        Button {
+            showsTranscriptReader = true
+        } label: {
+            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 30, height: 30)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .pmGlassControl(Circle())
+        .help(Text("transcript_read_fullscreen"))
+        .padding(8)
     }
 
     private func toggleLikedCurrent() {

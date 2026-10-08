@@ -192,3 +192,126 @@ public enum SpokenWordSkipPolicy {
         return min(max(0, target), duration)
     }
 }
+
+/// 全屏读文稿时,把字幕式的一行行并成段落。
+///
+/// 文稿多半是字幕(VTT/SRT)或按句断的 LRC:一行几个字到一两句,直接一行一段读起来很碎。
+/// 并段的规矩:说话人换了、停顿够长、空行处另起一段;一段太长时在句末断开。不带时间的
+/// 纯文本只在空行处分段,作者自己断的行接起来。
+public enum SpokenWordTranscriptReadingPolicy {
+    public struct Cue: Sendable, Equatable {
+        public var text: String
+        /// nil:不带时间(纯文本文稿)。
+        public var start: TimeInterval?
+        public var end: TimeInterval?
+        public var speaker: String?
+
+        public init(text: String, start: TimeInterval?, end: TimeInterval? = nil, speaker: String? = nil) {
+            self.text = text
+            self.start = start
+            self.end = end
+            self.speaker = speaker
+        }
+    }
+
+    public struct Paragraph: Sendable, Equatable, Identifiable {
+        /// 第一行与最后一行在原文稿里的位置。
+        public var firstCue: Int
+        public var lastCue: Int
+        public var text: String
+        /// 第一行开始的时间;不带时间的段落是 nil,点了不跳。
+        public var start: TimeInterval?
+
+        public var id: Int { firstCue }
+    }
+
+    /// 前一行有结束时间时,隔这么久就算换了一段话。
+    public static let pauseBreak: TimeInterval = 2.5
+    /// 只有开始时间(LRC)时两行开头相隔这么久才算停顿:一行本身就要念几秒。
+    public static let startGapBreak: TimeInterval = 10
+    /// 一段到这么长,遇到句末就断开。
+    public static let softLength = 240
+    /// 再长也断(没有标点的长文稿)。
+    public static let hardLength = 600
+
+    public static func paragraphs(from cues: [Cue]) -> [Paragraph] {
+        var result: [Paragraph] = []
+        var current: Paragraph?
+        var previous: Cue?
+
+        func close() {
+            if let paragraph = current { result.append(paragraph) }
+            current = nil
+        }
+
+        for (index, cue) in cues.enumerated() {
+            let text = cue.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else {
+                // 空行:作者断的段。
+                close()
+                previous = nil
+                continue
+            }
+            if var paragraph = current, let previous,
+               !startsNewParagraph(cue, after: previous, currentLength: paragraph.text.count) {
+                paragraph.text = joining(paragraph.text, text)
+                paragraph.lastCue = index
+                current = paragraph
+            } else {
+                close()
+                current = Paragraph(firstCue: index, lastCue: index, text: text, start: cue.start)
+            }
+            previous = cue
+        }
+        close()
+        return result
+    }
+
+    /// 正在念的那一段:开始时间不晚于 `time` 的最后一段。
+    public static func paragraphIndex(at time: TimeInterval, in paragraphs: [Paragraph]) -> Int? {
+        var found: Int?
+        for (index, paragraph) in paragraphs.enumerated() {
+            guard let start = paragraph.start else { continue }
+            if start <= time + 0.05 { found = index } else { break }
+        }
+        return found
+    }
+
+    private static func startsNewParagraph(_ cue: Cue, after previous: Cue, currentLength: Int) -> Bool {
+        if (cue.speaker ?? "") != (previous.speaker ?? "") { return true }
+        if let start = cue.start, let previousStart = previous.start {
+            if let previousEnd = previous.end {
+                if start - previousEnd >= pauseBreak { return true }
+            } else if start - previousStart >= startGapBreak {
+                return true
+            }
+        }
+        if currentLength >= hardLength { return true }
+        if currentLength >= softLength, endsSentence(previous.text) { return true }
+        return false
+    }
+
+    private static let sentenceEnds: Set<Character> = [
+        "。", "！", "？", "…", ".", "!", "?", "」", "』", "”", "\"",
+    ]
+
+    private static func endsSentence(_ text: String) -> Bool {
+        guard let last = text.trimmingCharacters(in: .whitespacesAndNewlines).last else { return false }
+        return sentenceEnds.contains(last)
+    }
+
+    /// 中日韩文字之间不加空格,拉丁文字之间加一个。
+    static func joining(_ head: String, _ tail: String) -> String {
+        guard let last = head.unicodeScalars.last, let first = tail.unicodeScalars.first else { return head + tail }
+        return isCJK(last) || isCJK(first) ? head + tail : head + " " + tail
+    }
+
+    private static func isCJK(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x2E80...0x9FFF, 0xAC00...0xD7AF, 0xF900...0xFAFF, 0xFE30...0xFE4F, 0xFF00...0xFFEF, 0x20000...0x2FA1F:
+            return true
+        default:
+            return false
+        }
+    }
+}
