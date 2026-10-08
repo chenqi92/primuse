@@ -2519,6 +2519,12 @@
 "playlist_import_use_first_result" = "Usar primeiro resultado";
 "playlist_kind_server_mirror" = "Lista de reprodução do servidor";
 "playlist_liked_name" = "Músicas curtidas";
+"song_dislike" = "Não curti";
+"song_undislike" = "Remover “Não curti”";
+"playlist_disliked_name" = "Músicas que não curti";
+"disliked_songs_footer" = "As músicas que você não curtiu continuam na biblioteca e tocam quando você as escolhe, mas a reprodução aleatória, a reprodução automática, a rádio da música, as músicas parecidas e as recomendações as pulam. Curtir a música de novo a tira desta lista.";
+"disliked_songs_empty" = "Nenhuma música marcada como não curti";
+"disliked_songs_manage" = "Gerenciar…";
 "playlist_name" = "Nome da lista de reprodução";
 "playlist_name_example" = "Passeio noturno";
 "playlist_picker_empty_hint" = "Ainda não há playlists regulares. Crie um abaixo.";

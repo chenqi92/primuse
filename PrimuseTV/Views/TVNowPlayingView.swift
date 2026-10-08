@@ -1627,6 +1627,16 @@ private struct TVNowPlayingArtworkButton: View, @MainActor Equatable {
             ) {
                 store.toggleLiked(songID)
             }
+            // 不喜欢(#193):记下来并切到下一首。有声内容与电台不给这一项。
+            if !store.currentItemIsSpokenWord, !store.isLiveRadio, store.canDislike(songID) {
+                let disliked = store.isDisliked(songID)
+                Button(
+                    disliked ? String(localized: "song_undislike") : String(localized: "song_dislike"),
+                    systemImage: disliked ? "hand.thumbsdown.fill" : "hand.thumbsdown"
+                ) {
+                    store.toggleDisliked(songID)
+                }
+            }
         }
         Menu {
             ForEach(TVPlayerShelfTab.goToDestinations.filter { $0 != .upNext || !store.queueUpNextIDs.isEmpty }) { tab in

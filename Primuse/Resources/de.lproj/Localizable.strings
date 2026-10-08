@@ -1476,6 +1476,12 @@
 "settings_apple_music_denied" = "Zugriff auf Apple Music verweigert. Aktiviere ihn unter „Einstellungen“ → „Primuse“.";
 "apple_music_library_playlist_name" = "Apple Music Mediathek";
 "playlist_liked_name" = "Gefällt mir";
+"song_dislike" = "Gefällt mir nicht";
+"song_undislike" = "„Gefällt mir nicht“ entfernen";
+"playlist_disliked_name" = "Abgelehnte Titel";
+"disliked_songs_footer" = "Abgelehnte Titel bleiben in deiner Mediathek und laufen, wenn du sie selbst auswählst – Zufallswiedergabe, Autoplay, Titelradio, ähnliche Titel und Empfehlungen überspringen sie aber. Gefällt dir ein Titel wieder, verschwindet er von dieser Liste.";
+"disliked_songs_empty" = "Keine abgelehnten Titel";
+"disliked_songs_manage" = "Verwalten …";
 "settings_dlna_section" = "DLNA-Empfänger";
 "settings_dlna_enable" = "Streams aus diesem Netzwerk annehmen";
 "settings_dlna_footer" = "Andere Geräte im selben Wi-Fi (VLC, Synology Audio Station, Plex, Hi-Fi Cast usw.) erkennen Primuse als Medien-Renderer und können Audio zur Wiedergabe senden.";

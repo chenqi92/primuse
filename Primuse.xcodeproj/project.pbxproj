@@ -243,6 +243,7 @@
 		1FCDA0A721D4974C059E97C6 /* CloudPlaybackSourceConcurrencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08B67A4A4DBE2C02BA72027B /* CloudPlaybackSourceConcurrencyTests.swift */; };
 		1FE2BC706AA7F2A36C401F13 /* LibraryStartupPreparationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6501ADF2A78A679B038D1826 /* LibraryStartupPreparationTests.swift */; };
 		204C9943B244C93DF6DA48A6 /* SourceErrors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45C22436A1CD2EB078E9F97A /* SourceErrors.swift */; };
+		2082CB01431CF36DA6B8742D /* DislikedSongsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CF131CFBDB12790B098B70B /* DislikedSongsView.swift */; };
 		208DC352DD78767FB1067B7D /* AppleMusicLocalFileReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C82A71C603F4383D65481F69 /* AppleMusicLocalFileReader.swift */; };
 		2093A08C33C89E2107806638 /* PodcastComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 431799442571F9F1AAF9218B /* PodcastComponents.swift */; };
 		20B4B08466EF6C5A0DFAE4F2 /* SongSelectable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8817585FD03BC82372556BB9 /* SongSelectable.swift */; };
@@ -856,6 +857,7 @@
 		74E89B78303995C74AB17177 /* DesktopLyricsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54D5EDD9A322FF83F0612BEF /* DesktopLyricsView.swift */; };
 		7514AE9FA845FCDE3CE8AE6E /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56FB421EEBD96C4651F28FD5 /* HomeView.swift */; };
 		7556EAFB8DAAC196BE324DA8 /* TVQueueView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01A3E8F6656778B940F633F3 /* TVQueueView.swift */; };
+		75AF7ECEDFB1427F6C9B5059 /* DislikedSongsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CF131CFBDB12790B098B70B /* DislikedSongsView.swift */; };
 		75B17A9CFC163869AD0DEA84 /* MacHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB092854D451A9F1235A2B2A /* MacHomeView.swift */; };
 		75B8FDAEDD57548B9A9EBA8F /* PMHeightClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56EFA2B79F3B52F97EEC1E85 /* PMHeightClass.swift */; };
 		75C7906D1E80A3C56C6A361D /* AudiobookshelfSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC7328A5A7A53657CC638132 /* AudiobookshelfSource.swift */; };
@@ -2492,6 +2494,7 @@
 		4C7B1ABACEE5C60AE38F1ED6 /* MusicVideoCompatibilityConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicVideoCompatibilityConverter.swift; sourceTree = "<group>"; };
 		4CC2DE503F1A852AEF610314 /* TVStreamResourceLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVStreamResourceLoader.swift; sourceTree = "<group>"; };
 		4CC8835E64B7801131883F2D /* RadioLiveMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioLiveMetadata.swift; sourceTree = "<group>"; };
+		4CF131CFBDB12790B098B70B /* DislikedSongsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DislikedSongsView.swift; sourceTree = "<group>"; };
 		4CFE0AB34758413DB8B02463 /* Primuse-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Primuse-Bridging-Header.h"; sourceTree = "<group>"; };
 		4D4035F3A28FBCEAF15A8E0F /* RadioSubscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioSubscriptionService.swift; sourceTree = "<group>"; };
 		4D5D8BD40FCC0AA7011B551B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -5242,6 +5245,7 @@
 				68E2C0BA24E3916DD0DA409D /* CarPlaySettingsView.swift */,
 				466AF990FCB1B871B4D60DE5 /* CloudSyncSettingsView.swift */,
 				B15B6CFA8E91CA7408F262EA /* DiagnosticReportsView.swift */,
+				4CF131CFBDB12790B098B70B /* DislikedSongsView.swift */,
 				41195313270BFC6D837603AE /* DLNARendererSettingsView.swift */,
 				A41D663BB9CFFF6AF3D062D6 /* DuplicateSongsView.swift */,
 				181EE28124D9CD151E0338E1 /* EqualizerView.swift */,
@@ -6562,6 +6566,7 @@
 				C5017C7E189A5C943BF203B0 /* DesktopLyricsWindowController.swift in Sources */,
 				E0E9ED4D1BFEB7CFD9E4B8FF /* DiagnosticReportMailer.swift in Sources */,
 				2DA70339408A4A2E8669B492 /* DiagnosticReportsView.swift in Sources */,
+				75AF7ECEDFB1427F6C9B5059 /* DislikedSongsView.swift in Sources */,
 				946B1D1623CF76235A29F946 /* DrimeSource.swift in Sources */,
 				0D872E56924B184F3C3F15B6 /* DropboxSource.swift in Sources */,
 				78616119FFF315EF497B0127 /* DuplicateCleanupService.swift in Sources */,
@@ -7260,6 +7265,7 @@
 				BCF4B55BA0E5976EF2EDA3EB /* DesktopLyricsWindowController.swift in Sources */,
 				B626B9E4502ED756ACC80F7E /* DiagnosticReportMailer.swift in Sources */,
 				AAFF7692A7D7CD5704F7DC64 /* DiagnosticReportsView.swift in Sources */,
+				2082CB01431CF36DA6B8742D /* DislikedSongsView.swift in Sources */,
 				86178EAC0659374D1EE56817 /* DrimeSource.swift in Sources */,
 				41E2CB041331ED42FF45E5CD /* DropboxSource.swift in Sources */,
 				934398001C4D2407DF0F2BD7 /* DuplicateCleanupService.swift in Sources */,

@@ -2519,6 +2519,12 @@
 "playlist_import_use_first_result" = "प्रथम परिणाम का उपयोग करें";
 "playlist_kind_server_mirror" = "सर्वर प्लेलिस्ट";
 "playlist_liked_name" = "पसंदीदा गाने";
+"song_dislike" = "नापसंद";
+"song_undislike" = "नापसंद हटाएँ";
+"playlist_disliked_name" = "नापसंद गाने";
+"disliked_songs_footer" = "नापसंद गाने आपकी लाइब्रेरी में बने रहते हैं और खुद चुनने पर चलते हैं, लेकिन शफ़ल, ऑटोप्ले, गाना रेडियो, मिलते-जुलते गाने और सुझाव उन्हें छोड़ देते हैं। किसी गाने को फिर से पसंद करने पर वह इस सूची से हट जाता है।";
+"disliked_songs_empty" = "कोई नापसंद गाना नहीं";
+"disliked_songs_manage" = "प्रबंधित करें…";
 "playlist_name" = "प्लेलिस्ट का नाम";
 "playlist_name_example" = "देर रात ड्राइव";
 "playlist_picker_empty_hint" = "अभी तक कोई नियमित प्लेलिस्ट नहीं। नीचे एक बनाएं.";

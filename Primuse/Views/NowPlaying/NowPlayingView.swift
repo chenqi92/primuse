@@ -982,6 +982,12 @@ struct NowPlayingView: View {
         return library.isLiked(songID: songID)
     }
 
+    /// 当前歌是否被标了「不喜欢」(#193) ── 只在「更多」菜单里出现, 不占播放器上的按钮位。
+    private var isCurrentDisliked: Bool {
+        guard let songID = player.currentSong?.id else { return false }
+        return library.isDisliked(songID: songID)
+    }
+
     /// 心形键给不给。有声书的每个文件也是曲库里的一首,和锁屏上的「喜欢」一样能加进「我喜欢」;
     /// 播客单集不在曲库里,加不进去。
     private var offersLikeAction: Bool {
@@ -5545,7 +5551,9 @@ struct NowPlayingView: View {
             colorScheme: colorScheme,
             colorSchemeContrast: colorSchemeContrast,
             columnOverflow: columnOverflow,
-            isCurrentLiked: isCurrentLiked
+            isCurrentLiked: isCurrentLiked,
+            canDislike: player.canDislikeCurrentSong,
+            isCurrentDisliked: isCurrentDisliked
         )
 
         return NowPlayingMoreMenu(
@@ -5605,6 +5613,7 @@ struct NowPlayingView: View {
             onShare: { shareSong = player.currentSong },
             onShowCastPicker: { showCastPicker = true },
             onToggleLike: { toggleLikedCurrent() },
+            onToggleDislike: { player.toggleDislikeForCurrentSong() },
             onShowEffectPicker: {
                 immersiveControlsAutoHideTask?.cancel()
                 showsImmersiveEffectPicker = true
@@ -8396,6 +8405,9 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     /// iPhone Duo 竖栏那一列放不下时收进这里的按钮。
     let columnOverflow: NowPlayingBarColumnOverflow
     let isCurrentLiked: Bool
+    /// 曲库里的音乐才能标「不喜欢」(#193)。
+    let canDislike: Bool
+    let isCurrentDisliked: Bool
 }
 
 /// iPhone Duo 竖栏那一列按钮放不下时收进「更多」的几颗(按收走的先后:锁、全屏效果、喜欢)。
@@ -8440,6 +8452,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onShare: () -> Void
     let onShowCastPicker: () -> Void
     let onToggleLike: () -> Void
+    let onToggleDislike: () -> Void
     let onShowEffectPicker: () -> Void
     let onLockControls: () -> Void
     let onToggleLyricsTranslation: () -> Void
@@ -8653,6 +8666,18 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                         Label(String(localized: "similar_songs"), systemImage: "sparkles")
                     }
                     .disabled(!snapshot.hasSong)
+                }
+
+                if snapshot.canDislike {
+                    // 不喜欢(#193): 记下来并切到下一首; 已经不喜欢时再点只撤销。
+                    // 心形保持「喜欢 / 取消喜欢」两态, 不叠第三态。
+                    Button(action: onToggleDislike) {
+                        if snapshot.isCurrentDisliked {
+                            Label(String(localized: "song_undislike"), systemImage: "hand.thumbsdown.fill")
+                        } else {
+                            Label(String(localized: "song_dislike"), systemImage: "hand.thumbsdown")
+                        }
+                    }
                 }
 
                 if !snapshot.isAppleMusicMode, !snapshot.isPodcastEpisode {

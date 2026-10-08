@@ -1477,6 +1477,12 @@
 "settings_apple_music_denied" = "Apple Music へのアクセスが拒否されました。「設定」→「Primuse」で有効にしてください。";
 "apple_music_library_playlist_name" = "Apple Music ライブラリ";
 "playlist_liked_name" = "好きな曲";
+"song_dislike" = "好みではない";
+"song_undislike" = "「好みではない」を取り消す";
+"playlist_disliked_name" = "好みではない曲";
+"disliked_songs_footer" = "好みではない曲はライブラリに残り、自分で選べばそのまま再生できますが、シャッフル、自動再生、ソングラジオ、似た曲、おすすめでは選ばれなくなります。もう一度「好き」にすると、このリストから外れます。";
+"disliked_songs_empty" = "好みではない曲はありません";
+"disliked_songs_manage" = "管理…";
 "settings_dlna_section" = "DLNA レシーバー";
 "settings_dlna_enable" = "このネットワークからのキャストを受け入れる";
 "settings_dlna_footer" = "同じ Wi-Fi 上のほかのデバイス（VLC、Synology Audio Station、Plex、Hi-Fi Cast など）が Primuse をメディアレンダラーとして認識し、再生用にオーディオを送信できるようになります。";

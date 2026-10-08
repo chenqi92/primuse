@@ -1476,6 +1476,12 @@
 "settings_apple_music_denied" = "Accès à Apple Music refusé. Activez-le dans Réglages → Primuse.";
 "apple_music_library_playlist_name" = "Bibliothèque Apple Music";
 "playlist_liked_name" = "Morceaux aimés";
+"song_dislike" = "Je n’aime pas";
+"song_undislike" = "Annuler « Je n’aime pas »";
+"playlist_disliked_name" = "Morceaux écartés";
+"disliked_songs_footer" = "Les morceaux écartés restent dans votre bibliothèque et se lisent quand vous les choisissez, mais la lecture aléatoire, la lecture automatique, la radio du morceau, les morceaux similaires et les recommandations les ignorent. Aimer de nouveau un morceau le retire de cette liste.";
+"disliked_songs_empty" = "Aucun morceau écarté";
+"disliked_songs_manage" = "Gérer…";
 "settings_dlna_section" = "Récepteur DLNA";
 "settings_dlna_enable" = "Accepter les diffusions de ce réseau";
 "settings_dlna_footer" = "Les autres appareils du même Wi-Fi (VLC, Synology Audio Station, Plex, Hi-Fi Cast, etc.) verront Primuse comme un lecteur multimédia et pourront y envoyer de l'audio à lire.";

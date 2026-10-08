@@ -2519,6 +2519,12 @@
 "playlist_import_use_first_result" = "ใช้ผลลัพธ์แรก";
 "playlist_kind_server_mirror" = "เพลย์ลิสต์ของเซิร์ฟเวอร์";
 "playlist_liked_name" = "เพลงที่ชอบ";
+"song_dislike" = "ไม่ชอบ";
+"song_undislike" = "เลิกไม่ชอบ";
+"playlist_disliked_name" = "เพลงที่ไม่ชอบ";
+"disliked_songs_footer" = "เพลงที่ไม่ชอบยังอยู่ในคลังและเล่นได้เมื่อคุณเลือกเอง แต่การสุ่มเล่น การเล่นอัตโนมัติ วิทยุจากเพลง เพลงที่คล้ายกัน และคำแนะนำจะข้ามเพลงเหล่านี้ไป หากกลับมากดชอบเพลงนั้น เพลงจะหายไปจากรายการนี้";
+"disliked_songs_empty" = "ยังไม่มีเพลงที่ไม่ชอบ";
+"disliked_songs_manage" = "จัดการ…";
 "playlist_name" = "ชื่อเพลย์ลิสต์";
 "playlist_name_example" = "ขับรถตอนดึก";
 "playlist_picker_empty_hint" = "ยังไม่มีเพลย์ลิสต์ปกติ สร้างหนึ่งรายการด้านล่าง";
