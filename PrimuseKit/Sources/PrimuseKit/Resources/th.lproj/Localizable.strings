@@ -573,6 +573,9 @@
 "fullscreen_effect_particle_bloom" = "ละอองดาวเบ่งบาน";
 "fullscreen_effect_particle_bloom_subtitle" = "ละอองดาวแผ่ออกจากปกอัลบั้มและสว่างขึ้นตามจังหวะ";
 "fullscreen_effect_particle_bloom_motion" = "ขับเคลื่อนด้วยสเปกตรัมแบบเรียลไทม์ · อนุภาคเบ่งบานตามเสียงเบส";
+"fullscreen_effect_cover_flow" = "Cover Flow";
+"fullscreen_effect_cover_flow_subtitle" = "อัลบั้มที่กำลังเล่นหันหน้าเข้าหาคุณ ส่วนอัลบั้มข้างเคียงในคลังตั้งเอียงอยู่สองข้างบนพื้นกระจก";
+"fullscreen_effect_cover_flow_motion" = "ปกด้านข้างเอียงเข้าหาอัลบั้มที่กำลังเล่น · พื้นกระจกสะท้อนสีของอัลบั้ม";
 "fullscreen_effect_native" = "ต้นฉบับ";
 "fullscreen_effect_native_motion" = "การเปลี่ยนผ่านแบบเนทีฟ · ค่าเริ่มต้น";
 "fullscreen_effect_native_subtitle" = "รูปแบบและการควบคุมของผู้เล่นที่คุ้นเคย";

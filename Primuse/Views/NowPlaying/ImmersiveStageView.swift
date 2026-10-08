@@ -102,7 +102,7 @@ extension ImmersiveStageBackgroundLyric {
     }
 }
 
-/// iOS、macOS 与 tvOS 共用的七类动态播放舞台。封面、封面墙与实时频谱由平台容器注入。
+/// iOS、macOS 与 tvOS 共用的八类动态播放舞台。封面、封面墙、封面流与实时频谱由平台容器注入。
 struct ImmersiveStageView<Artwork: View>: View {
     var style: FullscreenPlayerEffect
     var platform: ImmersiveStagePlatform = .iOS
@@ -121,6 +121,11 @@ struct ImmersiveStageView<Artwork: View>: View {
     var levelsProvider: (@MainActor () -> [CGFloat])?
     var galleryArtworkCount = 0
     var galleryArtwork: (Int, CGFloat) -> AnyView = { _, _ in AnyView(Color.clear) }
+    /// 封面流(#191)两侧的专辑封面：偏移量 -1…-`flowBeforeCount` 在左、1…`flowAfterCount` 在右；
+    /// 0 是正在播的这张的静态封面，给倒影用。由平台容器按资料库专辑顺序给。
+    var flowBeforeCount = 0
+    var flowAfterCount = 0
+    var flowArtwork: (Int, CGFloat) -> AnyView = { _, _ in AnyView(Color.clear) }
     var isRenderingActive = true
     var reduceMotion = false
     var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
@@ -205,6 +210,8 @@ struct ImmersiveStageView<Artwork: View>: View {
             ImmersiveStageDeferredScene { spectrumHorizonScene }
         case .particleBloom:
             ImmersiveStageDeferredScene { particleBloomScene }
+        case .albumFlow:
+            ImmersiveStageDeferredScene { albumFlowScene }
         }
     }
 
@@ -309,6 +316,132 @@ struct ImmersiveStageView<Artwork: View>: View {
                 .padding(.bottom, bottomInset)
             }
         }
+    }
+
+    // MARK: - 8. 封面流(#191)
+
+    /// 正在播的专辑居中、正对着人，资料库里前后的专辑斜着排在两边，都立在一面映着专辑色的
+    /// 玻璃台面上；背景铺专辑色，歌名在上面。几何与 iOS 全屏页的点按判定共用
+    /// `ImmersiveAlbumFlowGeometry`。
+    private var albumFlowScene: some View {
+        let layout = ImmersiveAlbumFlowGeometry.layout(
+            metrics: metrics,
+            platform: platform,
+            controlsInset: controlsInset
+        )
+        let centerSide = CGFloat(layout.centerSide)
+        let neighborSide = CGFloat(layout.neighborSide)
+        let baseline = CGFloat(layout.centerOriginY) + centerSide
+        let radius = metrics.f(platform == .tvOS ? 10 : 6)
+        let reflection = CGFloat(layout.reflectionFraction)
+        let before = min(flowBeforeCount, layout.neighborsPerSide)
+        let after = min(flowAfterCount, layout.neighborsPerSide)
+        // 外侧的先画，越靠中间的越压在上面。
+        let offsets = Array(-before ..< 0) + Array(stride(from: 1, through: after, by: 1))
+        let drawOrder = offsets.sorted { abs($0) > abs($1) }
+
+        return ZStack(alignment: .topLeading) {
+            LinearGradient(
+                colors: [palette.primary.opacity(0.92), palette.secondary],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            RadialGradient(
+                colors: [palette.primary.opacity(0.55), .clear],
+                center: UnitPoint(
+                    x: 0.5,
+                    y: Double(layout.centerMidY) / Double(max(metrics.size.height, 1))
+                ),
+                startRadius: 0,
+                endRadius: centerSide * 1.5
+            )
+            ImmersiveAlbumFlowFloor(tint: palette.primary)
+                .frame(width: metrics.size.width, height: max(metrics.size.height - baseline, 0))
+                .offset(y: baseline)
+            ImmersiveVignette(color: .black, clearStop: 0.18, strength: 0.42)
+
+            ForEach(drawOrder, id: \.self) { offset in
+                ImmersiveAlbumFlowCover(
+                    side: neighborSide,
+                    cornerRadius: radius,
+                    tiltDegrees: offset < 0 ? layout.tiltDegrees : -layout.tiltDegrees,
+                    reflectionFraction: reflection,
+                    tint: palette.primary,
+                    framesCover: true,
+                    cover: flowArtwork(offset, neighborSide),
+                    reflectionCover: flowArtwork(offset, neighborSide)
+                )
+                .opacity(1 - Double(abs(offset) - 1) * 0.08)
+                .position(
+                    x: CGFloat(layout.neighborMidX(offset: offset)),
+                    // 两侧和中间立在同一条底线上。
+                    y: baseline - neighborSide + ImmersiveAlbumFlowCover.height(side: neighborSide, reflectionFraction: reflection) / 2
+                )
+            }
+
+            ImmersiveAlbumFlowCover(
+                side: centerSide,
+                cornerRadius: radius,
+                tiltDegrees: 0,
+                reflectionFraction: reflection,
+                tint: palette.primary,
+                // 中间这张用舞台通用的封面卡片：自带玻璃描边、斜向高光与专辑色投影。
+                framesCover: false,
+                cover: AnyView(artworkPlate(side: centerSide, radius: radius)),
+                reflectionCover: flowArtwork(0, centerSide)
+            )
+            .position(
+                x: CGFloat(layout.centerMidX),
+                y: CGFloat(layout.centerOriginY)
+                    + ImmersiveAlbumFlowCover.height(side: centerSide, reflectionFraction: reflection) / 2
+            )
+
+            albumFlowTitle(width: metrics.size.width - leadingInset - trailingInset)
+                .frame(
+                    width: metrics.size.width - leadingInset - trailingInset,
+                    height: CGFloat(layout.titleHeight),
+                    alignment: .bottom
+                )
+                .position(
+                    x: metrics.size.width / 2,
+                    y: CGFloat(layout.titleOriginY) + CGFloat(layout.titleHeight) / 2
+                )
+
+            // 手机竖屏下面还有空：放当前这行歌词。横屏与大画布留给封面。
+            if metrics.isPortrait {
+                singleLyric(
+                    fontSize: metrics.s(16),
+                    availableWidth: metrics.size.width - leadingInset - trailingInset,
+                    alignment: .center
+                )
+                    .frame(width: metrics.size.width - leadingInset - trailingInset)
+                    .position(
+                        x: metrics.size.width / 2,
+                        y: baseline + centerSide * reflection + metrics.s(36)
+                    )
+            }
+        }
+        .frame(width: metrics.size.width, height: metrics.size.height, alignment: .topLeading)
+        .environment(\.layoutDirection, .leftToRight)
+    }
+
+    private func albumFlowTitle(width: CGFloat) -> some View {
+        let titleSize = ImmersiveAlbumFlowGeometry.titleSize(metrics: metrics, platform: platform)
+        return VStack(spacing: metrics.s(4)) {
+            Text(track.title)
+                .font(.system(size: titleSize, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Text(track.subtitle)
+                .font(.system(size: ImmersiveAlbumFlowGeometry.subtitleSize(metrics: metrics, platform: platform)))
+                .foregroundStyle(ImmersiveStagePalette.text.opacity(0.68))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: width)
+        .environment(\.layoutDirection, inheritedLayoutDirection)
+        .immersiveRestingText(isResting)
     }
 
     private var galleryTrackBlock: some View {
@@ -1300,6 +1433,129 @@ private enum ImmersivePlaybackClock {
         guard seconds.isFinite else { return "0:00" }
         let value = max(0, Int(seconds.rounded(.down)))
         return String(format: "%d:%02d", value / 60, value % 60)
+    }
+}
+
+// MARK: - 封面流(#191)
+
+/// 封面流的几何：舞台画面与 iOS 全屏页的点按判定（点中间那张 = 播放 / 暂停）共用这一份，
+/// 算法本身在 `AlbumFlowLayoutPolicy`。左右边距与舞台其他场景同一套取值。
+enum ImmersiveAlbumFlowGeometry {
+    static func titleSize(metrics: ImmersiveStageMetrics, platform: ImmersiveStagePlatform) -> CGFloat {
+        metrics.s(platform == .tvOS ? 44 : (metrics.isPortrait ? 26 : 21))
+    }
+
+    static func subtitleSize(metrics: ImmersiveStageMetrics, platform: ImmersiveStagePlatform) -> CGFloat {
+        max(titleSize(metrics: metrics, platform: platform) * 0.6, metrics.s(12))
+    }
+
+    static func layout(
+        metrics: ImmersiveStageMetrics,
+        platform: ImmersiveStagePlatform,
+        controlsInset: CGFloat
+    ) -> AlbumFlowLayoutPolicy.Layout {
+        let baseHorizontalInset: CGFloat = switch metrics.layout {
+        case .phonePortrait: metrics.s(24)
+        case .phoneLandscape: metrics.s(36)
+        case .wide: metrics.s(platform == .tvOS ? 118 : 76)
+        }
+        let horizontalInset = max(metrics.safeArea.leading, metrics.safeArea.trailing, baseHorizontalInset)
+        let title = titleSize(metrics: metrics, platform: platform)
+        let subtitle = subtitleSize(metrics: metrics, platform: platform)
+        let titleHeight = title * 1.25 + subtitle * 1.3 + metrics.s(4)
+        return AlbumFlowLayoutPolicy.layout(
+            canvasWidth: Double(metrics.size.width),
+            canvasHeight: Double(metrics.size.height),
+            topInset: Double(metrics.stageContentTopInset(isTV: platform == .tvOS)),
+            bottomInset: Double(max(metrics.safeArea.bottom, metrics.s(14)) + controlsInset),
+            horizontalInset: Double(horizontalInset),
+            titleHeight: Double(titleHeight),
+            titleSpacing: Double(metrics.s(platform == .tvOS ? 26 : 12))
+        )
+    }
+}
+
+/// 封面流里的一张：封面正下方接一截倒影（同一张封面上下翻转，越往下越淡，再叠一层专辑色），
+/// 两者一起绕竖轴转，倒影跟着封面斜。
+private struct ImmersiveAlbumFlowCover: View {
+    let side: CGFloat
+    let cornerRadius: CGFloat
+    let tiltDegrees: Double
+    let reflectionFraction: CGFloat
+    let tint: Color
+    /// 两侧的封面在这里裁圆角、描一道玻璃边；中间那张传进来的已经是成品卡片。
+    let framesCover: Bool
+    let cover: AnyView
+    let reflectionCover: AnyView
+
+    static func gap(side: CGFloat) -> CGFloat { max(side * 0.012, 1) }
+
+    static func height(side: CGFloat, reflectionFraction: CGFloat) -> CGFloat {
+        side + gap(side: side) + side * reflectionFraction
+    }
+
+    var body: some View {
+        VStack(spacing: Self.gap(side: side)) {
+            if framesCover {
+                cover
+                    .frame(width: side, height: side)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .strokeBorder(.white.opacity(0.14), lineWidth: 1)
+                    }
+            } else {
+                cover
+                    .frame(width: side, height: side)
+            }
+            reflectionCover
+                .frame(width: side, height: side)
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay { tint.opacity(0.22) }
+                .scaleEffect(x: 1, y: -1)
+                .frame(width: side, height: side * reflectionFraction, alignment: .top)
+                .clipped()
+                .mask {
+                    LinearGradient(
+                        stops: [
+                            .init(color: .black.opacity(0.46), location: 0),
+                            .init(color: .black.opacity(0.12), location: 0.55),
+                            .init(color: .clear, location: 1),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+                .allowsHitTesting(false)
+        }
+        .rotation3DEffect(
+            .degrees(tiltDegrees),
+            axis: (x: 0, y: 1, z: 0),
+            perspective: 0.55
+        )
+        .accessibilityHidden(tiltDegrees != 0)
+    }
+}
+
+/// 封面立着的那面玻璃台面：上沿一道细高光，往下是渐淡的专辑色。
+private struct ImmersiveAlbumFlowFloor: View {
+    let tint: Color
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            LinearGradient(
+                colors: [tint.opacity(0.34), tint.opacity(0.10), .clear],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            LinearGradient(
+                colors: [.white.opacity(0), .white.opacity(0.22), .white.opacity(0)],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(height: 1)
+        }
+        .allowsHitTesting(false)
     }
 }
 

@@ -1412,6 +1412,9 @@
 "fullscreen_effect_particle_bloom" = "تفتّح الجسيمات";
 "fullscreen_effect_particle_bloom_subtitle" = "غبار النجوم ينتشر من الغلاف ويسطع مع الإيقاع";
 "fullscreen_effect_particle_bloom_motion" = "مدفوع بالطيف اللحظي · تتفتّح الجسيمات مع الجهير";
+"fullscreen_effect_cover_flow" = "Cover Flow";
+"fullscreen_effect_cover_flow_subtitle" = "يواجهك الألبوم قيد التشغيل بينما تقف الألبومات المجاورة له في مكتبتك مائلة على أرضية زجاجية";
+"fullscreen_effect_cover_flow_motion" = "تميل الأغلفة الجانبية نحو الألبوم قيد التشغيل · تعكس الأرضية الزجاجية لونه";
 "fullscreen_effect_lyric_stage" = "المرحلة الغنائية";
 "fullscreen_effect_lyric_stage_subtitle" = "كلمات تؤدي برأس مسار مقيد";
 "fullscreen_effect_lyrics" = "كلمات الأغاني";
@@ -1627,6 +1630,8 @@
 "immersive_demo_title" = "Primuse";
 "immersive_lock_controls" = "قفل الضوابط الغامرة";
 "immersive_lyrics_motion_subtitle" = "يتحكم في انحراف جدار العنوان وشريط التحديد الغنائي الأفقي؛ قم بإيقاف التشغيل للحفاظ على الكتابة ثابتة.";
+"player_landscape_fullscreen_title" = "ملء الشاشة في الوضع الأفقي";
+"player_landscape_fullscreen_subtitle" = "تدوير iPhone أفقيًا في شاشة التشغيل يفتح تأثير ملء الشاشة المحدد، وإعادته عموديًا يغلقه.";
 "immersive_frame_rate_title" = "معدل الإطارات";
 "immersive_frame_rate_subtitle" = "«مطابقة الشاشة» يرسم مع كل تحديث للشاشة (المزامنة الرأسية): الأكثر سلاسة، لكنه الأكثر استهلاكًا للطاقة.";
 "immersive_frame_rate_balanced" = "توفير الطاقة";

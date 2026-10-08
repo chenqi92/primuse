@@ -953,6 +953,12 @@ struct NowPlayingView: View {
     @AppStorage(LyricPosterPreferences.signatureKey) private var lyricPosterSignature = ""
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
+    @AppStorage(PlayerAppearancePreferences.entersFullscreenInLandscapeKey)
+    private var entersFullscreenInLandscape = PlayerAppearancePreferences.entersFullscreenInLandscapeByDefault
+    /// 这次全屏是转横屏带进去的：转回竖屏时只退出这一种，自己点进去的全屏不动。
+    @State private var enteredFullscreenForLandscape = false
+    /// 转横屏进全屏前歌词页开没开着；原生全屏歌词退出后照原样恢复。
+    @State private var lyricsVisibleBeforeLandscapeFullscreen = false
 
     private var fullscreenPlayerEffect: FullscreenPlayerEffect {
         FullscreenPlayerEffect(rawValue: fullscreenPlayerEffectRawValue) ?? .defaultValue
@@ -1238,6 +1244,34 @@ struct NowPlayingView: View {
                 isLyricsImmersive = false
                 immersiveControlsState = immersiveControlsState.applying(.dismiss)
                 isFullscreenPlayerPresented = true
+            }
+        }
+    }
+
+    /// 手机转横屏时进入全屏、转回竖屏时退出(#191)。只认竖 → 横这一次旋转本身：横屏里退出
+    /// 全屏后普通播放页会重新装上，若在它出现时判断，就会又被拉回全屏。
+    private func handleLandscapeFullscreenRotation(
+        from oldMode: NowPlayingPlayerLayoutMode,
+        to newMode: NowPlayingPlayerLayoutMode
+    ) {
+        guard isPhoneCanvas else { return }
+        if oldMode == .portrait, newMode == .compactLandscape {
+            guard entersFullscreenInLandscape,
+                  !isFullscreenPlayerPresented, !isLyricsImmersive,
+                  player.currentSong != nil,
+                  !player.isMusicVideoPlaybackActive, !player.isLiveRadio, !usesSpokenWordTransport,
+                  isPresentationSettled, isPresentationActive, !hasBlockingNowPlayingPresentation
+            else { return }
+            lyricsVisibleBeforeLandscapeFullscreen = showLyrics
+            presentImmersiveLyrics()
+            enteredFullscreenForLandscape = true
+        } else if newMode == .portrait, enteredFullscreenForLandscape {
+            enteredFullscreenForLandscape = false
+            if isFullscreenPlayerPresented {
+                dismissFullscreenPlayer()
+            } else if isLyricsImmersive {
+                dismissImmersiveLyrics()
+                if !lyricsVisibleBeforeLandscapeFullscreen { setStandardLyricsVisible(false) }
             }
         }
     }
@@ -2297,6 +2331,22 @@ struct NowPlayingView: View {
                     isVisible: isPresentationSettled && isPresentationActive,
                     sceneIsActive: isVisualSceneActive
                 )
+
+                // 转横屏自动进全屏(#191，默认关)。挂在常驻的零尺寸视图上：进了全屏普通播放页会被
+                // 卸载，转回竖屏这件事也得有人接着看。
+                Color.clear
+                    .frame(width: 0, height: 0)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                    .onChange(of: playerLayoutMode) { oldMode, newMode in
+                        handleLandscapeFullscreenRotation(from: oldMode, to: newMode)
+                    }
+                    .onChange(of: isFullscreenPlayerPresented) { _, isPresented in
+                        if !isPresented, !isLyricsImmersive { enteredFullscreenForLandscape = false }
+                    }
+                    .onChange(of: isLyricsImmersive) { _, isImmersive in
+                        if !isImmersive, !isFullscreenPlayerPresented { enteredFullscreenForLandscape = false }
+                    }
                 #endif
 
                 // 歌词翻译由这层常驻的零尺寸视图负责，歌词面板与全屏舞台只读结果。
@@ -2472,7 +2522,11 @@ struct NowPlayingView: View {
                         onDismiss: dismissFullscreenPlayer,
                         onMinimize: minimizeFullscreenPlayer,
                         onShowQueue: { showQueue = true },
-                        occlusions: occlusions
+                        occlusions: occlusions,
+                        onShowAlbum: {
+                            guard let album = currentAlbum else { return }
+                            presentAlbum(album, prefersMatchedArtworkSource: false)
+                        }
                     )
                     .zIndex(100)
                 }

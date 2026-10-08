@@ -1412,6 +1412,9 @@
 "fullscreen_effect_particle_bloom" = "Floración de partículas";
 "fullscreen_effect_particle_bloom_subtitle" = "Polvo de estrellas irradia desde la portada y se ilumina con el ritmo";
 "fullscreen_effect_particle_bloom_motion" = "Espectro en tiempo real · Las partículas florecen con los graves";
+"fullscreen_effect_cover_flow" = "Cover Flow";
+"fullscreen_effect_cover_flow_subtitle" = "El álbum en reproducción queda de frente y los álbumes vecinos de tu biblioteca se inclinan a los lados sobre un piso de vidrio";
+"fullscreen_effect_cover_flow_motion" = "Las portadas laterales se inclinan hacia el álbum en reproducción · El piso de vidrio refleja su color";
 "fullscreen_effect_lyric_stage" = "Etapa Lírica";
 "fullscreen_effect_lyric_stage_subtitle" = "La letra comienza con un encabezado de pista restringido";
 "fullscreen_effect_lyrics" = "Letras";
@@ -1627,6 +1630,8 @@
 "immersive_demo_title" = "Primuse";
 "immersive_lock_controls" = "Bloquear controles inmersivos";
 "immersive_lyrics_motion_subtitle" = "Controla el movimiento del mural de títulos y el desplazamiento horizontal de letras; desactívalo para mantener el texto estático.";
+"player_landscape_fullscreen_title" = "Pantalla completa en horizontal";
+"player_landscape_fullscreen_subtitle" = "Al girar el iPhone en horizontal en la pantalla de reproducción se abre el efecto de pantalla completa elegido; al volver a vertical se cierra.";
 "immersive_frame_rate_title" = "Velocidad de fotogramas";
 "immersive_frame_rate_subtitle" = "«Igual que la pantalla» dibuja en cada actualización de la pantalla (V-Sync): lo más fluido, pero con el mayor consumo de energía.";
 "immersive_frame_rate_balanced" = "Ahorro de energía";

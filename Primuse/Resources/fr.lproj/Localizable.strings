@@ -1769,6 +1769,9 @@
 "fullscreen_effect_particle_bloom" = "Floraison de particules";
 "fullscreen_effect_particle_bloom_subtitle" = "De la poussière d'étoiles rayonne depuis la pochette et s'illumine au rythme";
 "fullscreen_effect_particle_bloom_motion" = "Spectre en temps réel · Les particules s'ouvrent sur les basses";
+"fullscreen_effect_cover_flow" = "Cover Flow";
+"fullscreen_effect_cover_flow_subtitle" = "L’album en cours vous fait face, les albums voisins de votre bibliothèque se dressent de biais sur un sol de verre";
+"fullscreen_effect_cover_flow_motion" = "Les pochettes latérales s’inclinent vers l’album en cours · Le sol de verre reflète sa couleur";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";
@@ -1778,6 +1781,8 @@
 "immersive_unlock_controls" = "Déverrouiller les commandes";
 "immersive_lyrics_motion_title" = "Mouvement typographique immersif";
 "immersive_lyrics_motion_subtitle" = "Contrôle la dérive du mur de titres et le bandeau horizontal de paroles ; désactivez pour figer le texte.";
+"player_landscape_fullscreen_title" = "Plein écran en paysage";
+"player_landscape_fullscreen_subtitle" = "Tourner l’iPhone en paysage sur l’écran de lecture ouvre l’effet plein écran choisi ; le remettre à la verticale le ferme.";
 "immersive_frame_rate_title" = "Fréquence d’images";
 "immersive_frame_rate_subtitle" = "« Selon l’écran » dessine à chaque rafraîchissement de l’écran (V-Sync) : le plus fluide, mais aussi le plus énergivore.";
 "immersive_frame_rate_balanced" = "Économie d’énergie";

@@ -12,6 +12,8 @@ struct FullscreenPlayerEffectSettingsView: View {
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     @AppStorage(ImmersiveFrameRateMode.storageKey)
     private var frameRateRawValue = ImmersiveFrameRateMode.defaultValue.rawValue
+    @AppStorage(PlayerAppearancePreferences.entersFullscreenInLandscapeKey)
+    private var entersFullscreenInLandscape = PlayerAppearancePreferences.entersFullscreenInLandscapeByDefault
 
     private var selectedEffect: FullscreenPlayerEffect {
         FullscreenPlayerEffect(rawValue: selectedRawValue) ?? .defaultValue
@@ -30,6 +32,7 @@ struct FullscreenPlayerEffectSettingsView: View {
             LazyVStack(alignment: .leading, spacing: 22) {
                 lyricsMotionCard
                 frameRateCard
+                landscapeFullscreenCard
 
                 ForEach(FullscreenEffectCollection.allCases) { collection in
                     if !collection.effects.isEmpty {
@@ -77,6 +80,30 @@ struct FullscreenPlayerEffectSettingsView: View {
             Color(uiColor: .secondarySystemGroupedBackground),
             in: RoundedRectangle(cornerRadius: 18, style: .continuous)
         )
+    }
+
+    /// 手机转横屏直接进全屏(#191)。iPad 没有手机那副横屏播放页，不给这一项。
+    @ViewBuilder
+    private var landscapeFullscreenCard: some View {
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            Toggle(isOn: $entersFullscreenInLandscape) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("player_landscape_fullscreen_title")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text("player_landscape_fullscreen_subtitle")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .settingsAnchor("appearance.landscapeFullscreen")
+            .tint(previewPalette.primary)
+            .padding(16)
+            .background(
+                Color(uiColor: .secondarySystemGroupedBackground),
+                in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+            )
+        }
     }
 
     private var frameRateSelection: Binding<String> {
