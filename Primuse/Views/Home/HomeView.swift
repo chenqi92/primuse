@@ -200,9 +200,47 @@ private struct HomeDeferredSection<Content: View>: View {
     }
 }
 
+/// 首页区块的单栏排布:从上往下排、贴前沿,和两栏排布同一条规则——没内容(量出来零高度)的区块
+/// 不占位置,也不占区块间距。有的区块没内容时还留着一个看不见的零高度视图(挂着
+/// `navigationDestination(item:)` 的空分支就是;情景推荐专辑没挑出专辑时正是这样),
+/// `VStackLayout` 照样给它留一份间距,上一块下面就平白多空出一截。
+private struct HomeSingleColumnSectionsLayout: Layout {
+    var spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil }
+        let sizes = subviews
+            .map { $0.sizeThatFits(ProposedViewSize(width: width, height: nil)) }
+            .filter { $0.height > 0 }
+        let height = sizes.reduce(0) { $0 + $1.height } + spacing * CGFloat(max(sizes.count - 1, 0))
+        return CGSize(width: width ?? sizes.map(\.width).max() ?? 0, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        var placedAny = false
+        for subview in subviews {
+            let size = subview.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
+            guard size.height > 0 else {
+                // 没内容的区块放在左上角、按零尺寸摆,和两栏排布一样。
+                subview.place(at: CGPoint(x: bounds.minX, y: bounds.minY), anchor: .topLeading, proposal: .zero)
+                continue
+            }
+            if placedAny { y += spacing }
+            subview.place(
+                at: CGPoint(x: bounds.minX, y: y),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: bounds.width, height: size.height)
+            )
+            y += size.height
+            placedAny = true
+        }
+    }
+}
+
 /// 首页区块的两栏排布(iPhone Duo 内屏横握):有内容的区块按顺序交替放进左右两栏
 /// (`WideCanvasColumnsPolicy.homeColumns`),两栏各占一半宽度、各自从上往下排,区块贴各栏的前沿。
-/// 单栏时首页用的是同间距的 `VStackLayout`,两者经 `AnyLayout` 互换,区块的视图身份不变。
+/// 单栏时首页用的是同间距的 `HomeSingleColumnSectionsLayout`,两者经 `AnyLayout` 互换,区块的视图身份不变。
 private struct HomeTwoColumnSectionsLayout: Layout {
     var spacing: CGFloat
 
@@ -1153,7 +1191,7 @@ struct HomeView: View {
         let twoColumns = usesTwoColumnHome
         let layout = twoColumns
             ? AnyLayout(HomeTwoColumnSectionsLayout(spacing: 24))
-            : AnyLayout(VStackLayout(alignment: .leading, spacing: editorMode ? 12 : 24))
+            : AnyLayout(HomeSingleColumnSectionsLayout(spacing: editorMode ? 12 : 24))
         return layout {
             ForEach(editorMode ? editableHomeSections : homeSectionOrder) { section in
                 homeSectionRow(section, books: books)
@@ -2985,7 +3023,7 @@ struct HomeView: View {
                 // 横排档去掉整块底卡:一行图标本来就不高,再包一层圆角面板
                 // 会让它看着比内容重。
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHGrid(rows: carouselRows(.quickAccess, height: 96, spacing: 16), spacing: 16) {
+                    LazyHGrid(rows: carouselRows(.quickAccess, height: 96, spacing: 16, itemCount: items.count), spacing: 16) {
                         ForEach(items) { item in
                             homeQuickDockItem(item)
                                 .frame(width: 76)
@@ -3113,9 +3151,10 @@ struct HomeView: View {
 
             switch style {
             case .carousel:
+                let shownTiles = tiles.prefix(sectionItemCount(.playlists, usesPadMetrics ? 16 : 12))
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHGrid(rows: carouselRows(.playlists, height: homeAlbumCardHeight), spacing: 14) {
-                        ForEach(tiles.prefix(sectionItemCount(.playlists, usesPadMetrics ? 16 : 12))) { tile in
+                    LazyHGrid(rows: carouselRows(.playlists, height: homeAlbumCardHeight, itemCount: shownTiles.count), spacing: 14) {
+                        ForEach(shownTiles) { tile in
                             NavigationLink(value: tile.playlist) {
                                 playlistCard(tile)
                             }
@@ -3262,9 +3301,10 @@ struct HomeView: View {
             // 继续听不提供网格：`resolved` 会把它夹回支持的方案，这里并到横排
             // 只是不让任何意外取值渲染成一片空白。
             case .carousel, .grid:
+                let shownSongs = songs.prefix(sectionItemCount(.continueListening, 12))
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHGrid(rows: carouselRows(.continueListening, height: 60, spacing: 10), spacing: 10) {
-                        ForEach(songs.prefix(sectionItemCount(.continueListening, 12)), id: \.id) { song in
+                    LazyHGrid(rows: carouselRows(.continueListening, height: 60, spacing: 10, itemCount: shownSongs.count), spacing: 10) {
+                        ForEach(shownSongs, id: \.id) { song in
                             Button { playSong(song) } label: {
                                 continueListeningRow(song)
                             }
@@ -3363,17 +3403,21 @@ struct HomeView: View {
 
     /// 横排的行数由用户配置,1 行时等价于原来的 LazyHStack。
     /// 手机横屏只渲染一行 —— 存档里的行数不动,设置页仍显示用户选的值。
+    /// 条目比行数少时只排条目那么多行:横排按列从上往下填,多出来的行是空的,
+    /// 「继续听」只有一首时下面会白空一整行。
     private func carouselRows(
         _ section: HomeSectionKind,
         height: CGFloat,
-        spacing: CGFloat = 14
+        spacing: CGFloat = 14,
+        itemCount: Int
     ) -> [GridItem] {
-        Array(
+        let rows = HomeSectionLayoutPolicy.renderedRowCount(
+            configured: homeLayout.rowCount(for: section),
+            isCompactHeight: heightClass.isCompact
+        )
+        return Array(
             repeating: GridItem(.fixed(height), spacing: spacing, alignment: .top),
-            count: HomeSectionLayoutPolicy.renderedRowCount(
-                configured: homeLayout.rowCount(for: section),
-                isCompactHeight: heightClass.isCompact
-            )
+            count: min(rows, max(itemCount, 1))
         )
     }
 
@@ -3403,9 +3447,10 @@ struct HomeView: View {
             case .carousel:
                 // 横排一次只占一张卡的高度,这正是 issue #106 想要的:同样的内容
                 // 不再吃掉整屏,后面的「继续听」还留在首屏里。
+                let shownAlbums = albums.prefix(sectionItemCount(.recentlyAdded, usesPadMetrics ? 16 : 12))
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHGrid(rows: carouselRows(.recentlyAdded, height: homeAlbumCardHeight), spacing: 14) {
-                        ForEach(albums.prefix(sectionItemCount(.recentlyAdded, usesPadMetrics ? 16 : 12))) { tile in
+                    LazyHGrid(rows: carouselRows(.recentlyAdded, height: homeAlbumCardHeight, itemCount: shownAlbums.count), spacing: 14) {
+                        ForEach(shownAlbums) { tile in
                             NavigationLink(value: tile.album) {
                                 AlbumCardView(album: tile.album, showsSongCount: true)
                                     .frame(width: homeAlbumCardWidth)
@@ -3527,9 +3572,10 @@ struct HomeView: View {
                 }
                 .padding(.horizontal, 20)
             } else {
+                let shownArtists = displayed.prefix(sectionItemCount(.topArtists, usesPadMetrics ? 16 : 8))
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHGrid(rows: carouselRows(.topArtists, height: 104), spacing: 14) {
-                        ForEach(displayed.prefix(sectionItemCount(.topArtists, usesPadMetrics ? 16 : 8))) { artist in
+                    LazyHGrid(rows: carouselRows(.topArtists, height: 104, itemCount: shownArtists.count), spacing: 14) {
+                        ForEach(shownArtists) { artist in
                             NavigationLink(value: artist) { artistBubble(artist) }
                                 .buttonStyle(.pmPressable)
                                 .mediaZoomSource(.artist, id: artist.id)
