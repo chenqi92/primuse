@@ -338,4 +338,21 @@ struct SourceDirectorySelectionPolicyTests {
         let source = MusicSource(name: "MinIO", type: .s3, extraConfig: encoded)
         #expect(source.s3Region == "us-east-1")
     }
+
+    @Test("S3 folders saved with Backblaze indentation are repaired")
+    func repairsIndentedS3DirectoryPrefixes() {
+        let encoded = MusicSource.encodeScannedDirectories(
+            ["2 live Crew/\n    ", "TEST/\n    ", "TEST/", "Live /", "", "Odd name "],
+            into: MusicSource.encodeS3Region("eu-central-003", into: nil),
+            type: .s3
+        )
+
+        #expect(MusicSource.decodeScannedDirectories(encoded, type: .s3) == [
+            "2 live Crew/", "TEST/", "Live /", "", "Odd name ",
+        ])
+        #expect(MusicSource.decodeScannedDirectories(
+            MusicSource.encodeScannedDirectories(["/Music/\n "], into: nil, type: .webdav),
+            type: .webdav
+        ) == ["/Music/\n "])
+    }
 }

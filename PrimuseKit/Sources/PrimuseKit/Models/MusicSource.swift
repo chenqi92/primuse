@@ -2137,7 +2137,7 @@ public extension MusicSource {
 
     static func decodeScannedDirectories(_ config: String?, type: MusicSourceType) -> [String] {
         if type == .s3 {
-            return decodeS3Config(config).dirs ?? []
+            return repairedS3DirectoryPrefixes(decodeS3Config(config).dirs ?? [])
         }
         guard let config, let data = config.data(using: .utf8),
               let dirs = try? JSONDecoder().decode([String].self, from: data) else { return [] }
@@ -2159,6 +2159,21 @@ public extension MusicSource {
         var cfg = decodeS3Config(config)
         cfg.region = region
         return cfg.encoded()
+    }
+
+    /// The S3 list parser of 1.10.1–1.11.1 appended the indentation of
+    /// Backblaze B2's XML to every CommonPrefix, so folders picked then were
+    /// saved as `"Music/\n    "`. A real S3 directory prefix always ends with
+    /// the `/` delimiter, so whitespace after that final `/` can only be that
+    /// artifact and is dropped; anything else is returned untouched.
+    static func repairedS3DirectoryPrefixes(_ dirs: [String]) -> [String] {
+        var seen: Set<String> = []
+        return dirs.compactMap { dir in
+            var repaired = dir
+            while let last = repaired.last, last.isWhitespace { repaired.removeLast() }
+            if !repaired.hasSuffix("/") { repaired = dir }
+            return seen.insert(repaired).inserted ? repaired : nil
+        }
     }
 }
 

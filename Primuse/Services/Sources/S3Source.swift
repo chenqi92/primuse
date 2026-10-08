@@ -794,7 +794,13 @@ actor S3Source: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
 
 // MARK: - S3 XML Response Parser
 
-private class S3ListParser: NSObject, XMLParserDelegate {
+/// Text is collected per element and read when that element closes. Backblaze
+/// B2 indents its ListBucketResult, and the whitespace between `</Key>` and the
+/// next tag must never become part of the key: `"song.mp3\n        "` has no
+/// audio extension and `"Music/\n    "` lists nothing, so a scan finds 0 songs.
+/// Keys themselves are kept byte-exact (no trimming), since S3 keys may
+/// legitimately start or end with spaces.
+final class S3ListParser: NSObject, XMLParserDelegate {
     let prefix: String
     var items: [RemoteFileItem] = []
     var isTruncated = false
@@ -803,13 +809,12 @@ private class S3ListParser: NSObject, XMLParserDelegate {
     var sawValidIsTruncatedMarker = false
     var isStructurallyValid = true
 
-    private var currentElement = ""
     private var currentKey = ""
     private var currentSize: Int64 = 0
     private var currentETag = ""
     private var currentLastModified = ""
     private var currentPrefix = ""
-    private var currentScalar = ""
+    private var currentText = ""
     private var inContents = false
     private var inCommonPrefix = false
     private var depth = 0
@@ -823,8 +828,7 @@ private class S3ListParser: NSObject, XMLParserDelegate {
             sawListBucketResult = true
         }
         depth += 1
-        currentElement = element
-        currentScalar = ""
+        currentText = ""
         if element == "Contents" {
             if inContents { isStructurallyValid = false }
             inContents = true
@@ -841,29 +845,29 @@ private class S3ListParser: NSObject, XMLParserDelegate {
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
-        if inContents {
-            if currentElement == "Key" { currentKey += string }
-            if currentElement == "Size" { currentScalar += string }
-            if currentElement == "ETag" { currentETag += string }
-            if currentElement == "LastModified" { currentLastModified += string }
-        }
-        if inCommonPrefix && currentElement == "Prefix" {
-            currentPrefix += string
-        }
-        // Top-level pagination markers (children of ListBucketResult, not inside
-        // Contents/CommonPrefixes) — drive continuation-token paging.
-        if !inContents && !inCommonPrefix {
-            if currentElement == "IsTruncated" || currentElement == "NextContinuationToken" {
-                currentScalar += string
-            }
-        }
+        currentText += string
     }
 
     func parser(_ parser: XMLParser, didEndElement element: String, namespaceURI: String?, qualifiedName: String?) {
-        defer { depth = max(0, depth - 1) }
-        let scalar = currentScalar.trimmingCharacters(in: .whitespacesAndNewlines)
-        if element == "Size" { currentSize = Int64(scalar) ?? 0 }
-        if element == "IsTruncated" {
+        defer {
+            depth = max(0, depth - 1)
+            currentText = ""
+        }
+        let text = currentText
+        let scalar = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if inContents {
+            switch element {
+            case "Key": currentKey = text
+            case "Size": currentSize = Int64(scalar) ?? 0
+            case "ETag": currentETag = text
+            case "LastModified": currentLastModified = text
+            default: break
+            }
+        }
+        if inCommonPrefix, element == "Prefix" { currentPrefix = text }
+        // Top-level pagination markers (children of ListBucketResult, not inside
+        // Contents/CommonPrefixes) — drive continuation-token paging.
+        if !inContents, !inCommonPrefix, element == "IsTruncated" {
             switch scalar.lowercased() {
             case "true":
                 isTruncated = true
@@ -875,7 +879,9 @@ private class S3ListParser: NSObject, XMLParserDelegate {
                 isStructurallyValid = false
             }
         }
-        if element == "NextContinuationToken" { nextContinuationToken = scalar.isEmpty ? nil : scalar }
+        if !inContents, !inCommonPrefix, element == "NextContinuationToken" {
+            nextContinuationToken = scalar.isEmpty ? nil : scalar
+        }
         if element == "Contents" {
             if currentKey.isEmpty {
                 isStructurallyValid = false
