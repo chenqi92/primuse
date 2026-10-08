@@ -1476,6 +1476,12 @@
 "settings_apple_music_denied" = "Zugriff auf Apple Music verweigert. Aktiviere ihn unter „Einstellungen“ → „Primuse“.";
 "apple_music_library_playlist_name" = "Apple Music Mediathek";
 "playlist_liked_name" = "Gefällt mir";
+"song_dislike" = "Gefällt mir nicht";
+"song_undislike" = "„Gefällt mir nicht“ entfernen";
+"playlist_disliked_name" = "Abgelehnte Titel";
+"disliked_songs_footer" = "Abgelehnte Titel bleiben in deiner Mediathek und laufen, wenn du sie selbst auswählst – Zufallswiedergabe, Autoplay, Titelradio, ähnliche Titel und Empfehlungen überspringen sie aber. Gefällt dir ein Titel wieder, verschwindet er von dieser Liste.";
+"disliked_songs_empty" = "Keine abgelehnten Titel";
+"disliked_songs_manage" = "Verwalten …";
 "settings_dlna_section" = "DLNA-Empfänger";
 "settings_dlna_enable" = "Streams aus diesem Netzwerk annehmen";
 "settings_dlna_footer" = "Andere Geräte im selben Wi-Fi (VLC, Synology Audio Station, Plex, Hi-Fi Cast usw.) erkennen Primuse als Medien-Renderer und können Audio zur Wiedergabe senden.";
@@ -1763,6 +1769,9 @@
 "fullscreen_effect_particle_bloom" = "Partikelblüte";
 "fullscreen_effect_particle_bloom_subtitle" = "Sternenstaub strömt vom Cover nach außen und leuchtet im Takt auf";
 "fullscreen_effect_particle_bloom_motion" = "Echtzeit-Spektrum · Partikel blühen bei Bass";
+"fullscreen_effect_cover_flow" = "Cover Flow";
+"fullscreen_effect_cover_flow_subtitle" = "Das laufende Album blickt dich an, die benachbarten Alben deiner Mediathek stehen schräg daneben auf einem gläsernen Boden";
+"fullscreen_effect_cover_flow_motion" = "Seitliche Cover neigen sich zum laufenden Album · Der Glasboden spiegelt seine Farbe";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";
@@ -1772,6 +1781,8 @@
 "immersive_unlock_controls" = "Bedienelemente entsperren";
 "immersive_lyrics_motion_title" = "Immersive Textbewegung";
 "immersive_lyrics_motion_subtitle" = "Steuert die Bewegung der Titelwand und den horizontalen Liedtextlauf; ausgeschaltet bleibt der Text statisch.";
+"player_landscape_fullscreen_title" = "Im Querformat Vollbild";
+"player_landscape_fullscreen_subtitle" = "Drehst du das iPhone im Wiedergabebildschirm quer, öffnet sich der gewählte Vollbildeffekt; drehst du es wieder hochkant, schließt er sich.";
 "immersive_frame_rate_title" = "Bildrate";
 "immersive_frame_rate_subtitle" = "„An Display anpassen“ zeichnet bei jeder Bildschirmaktualisierung (V-Sync): am flüssigsten, verbraucht aber am meisten Energie.";
 "immersive_frame_rate_balanced" = "Energiesparen";

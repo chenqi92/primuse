@@ -1484,6 +1484,12 @@
 "source_cache_size_known_plus_unknown_format" = "%@ + %d song(s) with unknown size";
 "apple_music_library_playlist_name" = "Apple Music Library";
 "playlist_liked_name" = "Liked Songs";
+"song_dislike" = "Dislike";
+"song_undislike" = "Remove Dislike";
+"playlist_disliked_name" = "Disliked Songs";
+"disliked_songs_footer" = "Disliked songs stay in your library and still play when you pick them, but shuffle, autoplay, song radio, similar songs and recommendations skip them. Liking a song takes it off this list.";
+"disliked_songs_empty" = "No Disliked Songs";
+"disliked_songs_manage" = "Manage…";
 "settings_dlna_section" = "DLNA Receiver";
 "settings_dlna_enable" = "Accept casts from this network";
 "settings_dlna_footer" = "Other devices on the same Wi-Fi (VLC, Synology Audio Station, Plex, Hi-Fi Cast, etc.) will see Primuse as a media renderer and can push audio for playback.";
@@ -1800,6 +1806,9 @@
 "fullscreen_effect_particle_bloom" = "Particle Bloom";
 "fullscreen_effect_particle_bloom_subtitle" = "Stardust radiates from the artwork and brightens with the beat";
 "fullscreen_effect_particle_bloom_motion" = "Live spectrum driven · Particles bloom on bass";
+"fullscreen_effect_cover_flow" = "Cover Flow";
+"fullscreen_effect_cover_flow_subtitle" = "The playing album faces you while the albums beside it in your library stand angled on a glass floor";
+"fullscreen_effect_cover_flow_motion" = "Side covers tilt toward the playing album · The glass floor reflects its color";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";
@@ -1809,6 +1818,8 @@
 "immersive_unlock_controls" = "Unlock immersive controls";
 "immersive_lyrics_motion_title" = "Immersive type motion";
 "immersive_lyrics_motion_subtitle" = "Controls the title wall drift and horizontal lyric marquee; turn off to keep type still.";
+"player_landscape_fullscreen_title" = "Full screen in landscape";
+"player_landscape_fullscreen_subtitle" = "Turning the phone sideways on the Now Playing screen opens the selected full-screen effect; turning it upright again closes it.";
 "immersive_frame_rate_title" = "Frame Rate";
 "immersive_frame_rate_subtitle" = "Match Display draws on every screen refresh (V-Sync): the smoothest option, and the one that uses the most power.";
 "immersive_frame_rate_balanced" = "Power Saving";

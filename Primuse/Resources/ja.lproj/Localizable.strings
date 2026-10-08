@@ -1477,6 +1477,12 @@
 "settings_apple_music_denied" = "Apple Music へのアクセスが拒否されました。「設定」→「Primuse」で有効にしてください。";
 "apple_music_library_playlist_name" = "Apple Music ライブラリ";
 "playlist_liked_name" = "好きな曲";
+"song_dislike" = "好みではない";
+"song_undislike" = "「好みではない」を取り消す";
+"playlist_disliked_name" = "好みではない曲";
+"disliked_songs_footer" = "好みではない曲はライブラリに残り、自分で選べばそのまま再生できますが、シャッフル、自動再生、ソングラジオ、似た曲、おすすめでは選ばれなくなります。もう一度「好き」にすると、このリストから外れます。";
+"disliked_songs_empty" = "好みではない曲はありません";
+"disliked_songs_manage" = "管理…";
 "settings_dlna_section" = "DLNA レシーバー";
 "settings_dlna_enable" = "このネットワークからのキャストを受け入れる";
 "settings_dlna_footer" = "同じ Wi-Fi 上のほかのデバイス（VLC、Synology Audio Station、Plex、Hi-Fi Cast など）が Primuse をメディアレンダラーとして認識し、再生用にオーディオを送信できるようになります。";
@@ -1764,6 +1770,9 @@
 "fullscreen_effect_particle_bloom" = "パーティクルブルーム";
 "fullscreen_effect_particle_bloom_subtitle" = "アートワークから星屑が広がり、ビートに合わせて輝く";
 "fullscreen_effect_particle_bloom_motion" = "リアルタイムスペクトラム駆動 · 低音で粒子が開く";
+"fullscreen_effect_cover_flow" = "カバーフロー";
+"fullscreen_effect_cover_flow_subtitle" = "再生中のアルバムが正面に、ライブラリで前後に並ぶアルバムが両脇に斜めに立ち、ガラスの床に映り込みます";
+"fullscreen_effect_cover_flow_motion" = "両脇のカバーは再生中のアルバムへ傾く · ガラスの床にアルバムの色が映る";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";
@@ -1773,6 +1782,8 @@
 "immersive_unlock_controls" = "没入モードの操作をロック解除";
 "immersive_lyrics_motion_title" = "イマーシブ文字モーション";
 "immersive_lyrics_motion_subtitle" = "曲名ウォールの緩やかな移動と横方向の歌詞マーキーを制御し、オフにすると文字が静止します。";
+"player_landscape_fullscreen_title" = "横向きで全画面にする";
+"player_landscape_fullscreen_subtitle" = "再生画面で iPhone を横向きにすると、選んだ全画面エフェクトに切り替わります。縦向きに戻すと終了します。";
 "immersive_frame_rate_title" = "フレームレート";
 "immersive_frame_rate_subtitle" = "「ディスプレイに合わせる」は画面のリフレッシュごとに描画します（垂直同期）。最も滑らかですが、電力消費も最大です。";
 "immersive_frame_rate_balanced" = "省電力";

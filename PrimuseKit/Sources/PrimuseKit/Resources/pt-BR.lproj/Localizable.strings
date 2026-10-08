@@ -573,6 +573,9 @@
 "fullscreen_effect_particle_bloom" = "Florescer de partículas";
 "fullscreen_effect_particle_bloom_subtitle" = "Poeira estelar irradia da capa e brilha no ritmo";
 "fullscreen_effect_particle_bloom_motion" = "Espectro em tempo real · Partículas florescem nos graves";
+"fullscreen_effect_cover_flow" = "Cover Flow";
+"fullscreen_effect_cover_flow_subtitle" = "O álbum tocando fica de frente e os álbuns vizinhos da sua biblioteca ficam inclinados dos lados sobre um piso de vidro";
+"fullscreen_effect_cover_flow_motion" = "As capas laterais se inclinam para o álbum tocando · O piso de vidro reflete sua cor";
 "fullscreen_effect_native" = "Originais";
 "fullscreen_effect_native_motion" = "Transição nativa · Padrão";
 "fullscreen_effect_native_subtitle" = "O layout e os controles familiares do player";

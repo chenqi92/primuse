@@ -2,6 +2,8 @@
 "cloud_authorizing_listening_format" = "Прослуховування на схемі URL · %@";
 "greeting_morning" = "Доброго ранку";
 "immersive_lyrics_motion_subtitle" = "Керує дрейфом стіни заголовка та горизонтальною рамкою тексту; вимкніть, щоб текст був нерухомим.";
+"player_landscape_fullscreen_title" = "Повний екран в альбомній орієнтації";
+"player_landscape_fullscreen_subtitle" = "Якщо повернути iPhone горизонтально на екрані відтворення, відкриється вибраний повноекранний ефект; якщо повернути вертикально — закриється.";
 "immersive_frame_rate_title" = "Частота кадрів";
 "immersive_frame_rate_subtitle" = "«Як в екрана» малює на кожному оновленні екрана (V-Sync): найплавніше, але з найбільшою витратою енергії.";
 "immersive_frame_rate_balanced" = "Енергозбереження";
@@ -1396,6 +1398,9 @@
 "fullscreen_effect_particle_bloom" = "Цвітіння частинок";
 "fullscreen_effect_particle_bloom_subtitle" = "Зоряний пил розходиться від обкладинки й спалахує в такт";
 "fullscreen_effect_particle_bloom_motion" = "Спектр у реальному часі · Частинки розквітають на басах";
+"fullscreen_effect_cover_flow" = "Cover Flow";
+"fullscreen_effect_cover_flow_subtitle" = "Поточний альбом дивиться на вас, а сусідні альбоми медіатеки стоять під кутом обабіч на скляній підлозі";
+"fullscreen_effect_cover_flow_motion" = "Бічні обкладинки повернуті до поточного альбому · Скляна підлога відбиває його колір";
 "unknown_title" = "Невідомий заголовок";
 "metadata" = "Метадані";
 "synology_auth_error_406" = "Для цього облікового запису застосовується двоетапна перевірка.";
@@ -2631,6 +2636,12 @@
 "fullscreen_effect_deep_field" = "Глибоке поле";
 "Apple AirPods · Head Tracking" = "Apple AirPods · Відстеження голови";
 "playlist_liked_name" = "Сподобалися пісні";
+"song_dislike" = "Не подобається";
+"song_undislike" = "Прибрати «Не подобається»";
+"playlist_disliked_name" = "Треки, що не подобаються";
+"disliked_songs_footer" = "Треки, що не подобаються, лишаються в медіатеці й відтворюються, якщо вибрати їх самому, але перемішування, автовідтворення, радіо за треком, схожі треки та рекомендації їх пропускають. Якщо знову вподобати трек, він зникне з цього списку.";
+"disliked_songs_empty" = "Немає треків, що не подобаються";
+"disliked_songs_manage" = "Керувати…";
 "two_factor_auth" = "Двофакторна авторизація";
 "artwork_edit" = "Змінити ілюстрацію";
 "no_sources_desc" = "Додайте NAS, WebDAV або локальну папку, щоб розпочати сканування музики";

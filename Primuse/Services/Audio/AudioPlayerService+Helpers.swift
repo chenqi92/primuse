@@ -203,8 +203,12 @@ extension AudioPlayerService {
               let library,
               queueEntries.indices.contains(currentIndex) else { return false }
 
+        // 续进来的是整库随机抽的歌, 不喜欢的(#193)不在其中。
+        let dislikedIDs = library.dislikedSongIDs
         var playableIDs: [String] = []
-        for song in library.musicSongs where song.isPlayable { playableIDs.append(song.id) }
+        for song in library.musicSongs where song.isPlayable && !dislikedIDs.contains(song.id) {
+            playableIDs.append(song.id)
+        }
         let candidateIDs = ShuffleContinuationPolicy.candidateIDs(
             queueIDs: queueEntries.map(\.song.id),
             libraryIDs: playableIDs,

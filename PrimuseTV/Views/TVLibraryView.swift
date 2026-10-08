@@ -1807,7 +1807,7 @@ struct TVSongRow: View {
     }
 }
 
-/// 歌曲行长按菜单里的喜欢 / 取消喜欢,与播放页封面菜单同一种写法。
+/// 歌曲行长按菜单里的喜欢 / 取消喜欢与不喜欢(#193),与播放页封面菜单同一种写法。
 /// 按值传入 store:菜单内容可能挪到独立宿主里求值,不读 `@Environment`。
 struct TVSongLikeMenuItem: View {
     let store: TVStore
@@ -1820,6 +1820,15 @@ struct TVSongLikeMenuItem: View {
             systemImage: liked ? "heart.fill" : "heart"
         ) {
             store.toggleLiked(songID)
+        }
+        if store.canDislike(songID) {
+            let disliked = store.isDisliked(songID)
+            Button(
+                disliked ? String(localized: "song_undislike") : String(localized: "song_dislike"),
+                systemImage: disliked ? "hand.thumbsdown.fill" : "hand.thumbsdown"
+            ) {
+                store.toggleDisliked(songID)
+            }
         }
     }
 }

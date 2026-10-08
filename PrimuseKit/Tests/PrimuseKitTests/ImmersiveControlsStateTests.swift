@@ -191,6 +191,7 @@ struct ImmersivePresentationFallbackPolicyTests {
         for selected in [
             "coverGallery", "flowingLines", "radialPulse",
             "vinylDeck", "auroraVeil", "spectrumHorizon", "particleBloom",
+            "albumFlow",
         ] {
             #expect(ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
                 selectedRawValue: selected,
@@ -198,6 +199,21 @@ struct ImmersivePresentationFallbackPolicyTests {
                 hasArtwork: true
             ) == selected)
         }
+    }
+
+    /// 封面流(#191)有自己的存储值；旧版封面墙留下的 "coverFlow" 仍归封面墙。
+    @Test("Cover Flow keeps its own value apart from the legacy coverFlow alias")
+    func coverFlowIsNotTheLegacyAlias() {
+        #expect(ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
+            selectedRawValue: "albumFlow",
+            hasSynchronizedLyrics: false,
+            hasArtwork: false
+        ) == "albumFlow")
+        #expect(ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
+            selectedRawValue: "coverFlow",
+            hasSynchronizedLyrics: true,
+            hasArtwork: true
+        ) == "coverGallery")
     }
 
     @Test("Retired effects move to the closest surviving one")

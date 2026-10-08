@@ -480,6 +480,18 @@ enum ImmersiveDemoStage {
                     .frame(width: side, height: side)
                 )
             },
+            // 封面流的预览两边各摆几张示意封面；0 是中间那张的倒影。
+            flowBeforeCount: 4,
+            flowAfterCount: 4,
+            flowArtwork: { offset, side in
+                AnyView(
+                    ImmersivePreviewArtwork(
+                        variant: offset == 0 ? 0 : (offset < 0 ? -offset : offset + 4),
+                        palette: palette
+                    )
+                    .frame(width: side, height: side)
+                )
+            },
             reduceMotion: !animates,
             lyricsMotionEnabled: animates,
             lyricInterlude: false,

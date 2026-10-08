@@ -582,6 +582,32 @@ final class PlayerAppearancePreferencesTests: XCTestCase {
         XCTAssertEqual(FullscreenPlayerEffect.auroraVeil.rawValue, "auroraVeil")
     }
 
+    /// 封面流(#191)：追加在末尾(Mac 数字快捷键不错位)，存储值不占旧别名 "coverFlow"，
+    /// 归在随封面变化的那一组，并有自己的舞台。
+    func testCoverFlowIsAppendedWithItsOwnStoredValue() {
+        XCTAssertEqual(FullscreenPlayerEffect.allCases.last, .albumFlow)
+        XCTAssertEqual(FullscreenPlayerEffect.albumFlow.rawValue, "albumFlow")
+        XCTAssertEqual(FullscreenPlayerEffect(rawValue: "albumFlow"), .albumFlow)
+        XCTAssertEqual(FullscreenPlayerEffect(rawValue: "coverFlow"), .coverGallery)
+        XCTAssertEqual(FullscreenPlayerEffect.albumFlow.collection, .coverReactive)
+        XCTAssertEqual(FullscreenPlayerEffect.albumFlow.scene, .albumFlow)
+        XCTAssertFalse(FullscreenPlayerEffect.albumFlow.usesRealtimeSpectrum)
+    }
+
+    func testCoverFlowNeighboursMapOffsetsOntoBothSides() {
+        func song(_ id: String) -> Song {
+            Song(id: id, title: id, fileFormat: .flac, filePath: "/\(id).flac", sourceID: "flow")
+        }
+        let neighbors = AlbumFlowNeighbors(before: [song("b1"), song("b2")], after: [song("a1")])
+        XCTAssertEqual(neighbors.song(at: -1)?.id, "b1")
+        XCTAssertEqual(neighbors.song(at: -2)?.id, "b2")
+        XCTAssertNil(neighbors.song(at: -3))
+        XCTAssertEqual(neighbors.song(at: 1)?.id, "a1")
+        XCTAssertNil(neighbors.song(at: 2))
+        XCTAssertNil(neighbors.song(at: 0), "The playing album is not a neighbour")
+        XCTAssertFalse(PlayerAppearancePreferences.entersFullscreenInLandscapeByDefault)
+    }
+
     func testLyricsInteractionPreferencesUseSafeDefaultsAndHonorOverrides() {
         let suiteName = "PlayerAppearancePreferencesTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

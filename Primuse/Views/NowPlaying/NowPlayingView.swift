@@ -953,6 +953,12 @@ struct NowPlayingView: View {
     @AppStorage(LyricPosterPreferences.signatureKey) private var lyricPosterSignature = ""
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
+    @AppStorage(PlayerAppearancePreferences.entersFullscreenInLandscapeKey)
+    private var entersFullscreenInLandscape = PlayerAppearancePreferences.entersFullscreenInLandscapeByDefault
+    /// 这次全屏是转横屏带进去的：转回竖屏时只退出这一种，自己点进去的全屏不动。
+    @State private var enteredFullscreenForLandscape = false
+    /// 转横屏进全屏前歌词页开没开着；原生全屏歌词退出后照原样恢复。
+    @State private var lyricsVisibleBeforeLandscapeFullscreen = false
 
     private var fullscreenPlayerEffect: FullscreenPlayerEffect {
         FullscreenPlayerEffect(rawValue: fullscreenPlayerEffectRawValue) ?? .defaultValue
@@ -980,6 +986,12 @@ struct NowPlayingView: View {
     private var isCurrentLiked: Bool {
         guard let songID = player.currentSong?.id else { return false }
         return library.isLiked(songID: songID)
+    }
+
+    /// 当前歌是否被标了「不喜欢」(#193) ── 只在「更多」菜单里出现, 不占播放器上的按钮位。
+    private var isCurrentDisliked: Bool {
+        guard let songID = player.currentSong?.id else { return false }
+        return library.isDisliked(songID: songID)
     }
 
     /// 心形键给不给。有声书的每个文件也是曲库里的一首,和锁屏上的「喜欢」一样能加进「我喜欢」;
@@ -1232,6 +1244,34 @@ struct NowPlayingView: View {
                 isLyricsImmersive = false
                 immersiveControlsState = immersiveControlsState.applying(.dismiss)
                 isFullscreenPlayerPresented = true
+            }
+        }
+    }
+
+    /// 手机转横屏时进入全屏、转回竖屏时退出(#191)。只认竖 → 横这一次旋转本身：横屏里退出
+    /// 全屏后普通播放页会重新装上，若在它出现时判断，就会又被拉回全屏。
+    private func handleLandscapeFullscreenRotation(
+        from oldMode: NowPlayingPlayerLayoutMode,
+        to newMode: NowPlayingPlayerLayoutMode
+    ) {
+        guard isPhoneCanvas else { return }
+        if oldMode == .portrait, newMode == .compactLandscape {
+            guard entersFullscreenInLandscape,
+                  !isFullscreenPlayerPresented, !isLyricsImmersive,
+                  player.currentSong != nil,
+                  !player.isMusicVideoPlaybackActive, !player.isLiveRadio, !usesSpokenWordTransport,
+                  isPresentationSettled, isPresentationActive, !hasBlockingNowPlayingPresentation
+            else { return }
+            lyricsVisibleBeforeLandscapeFullscreen = showLyrics
+            presentImmersiveLyrics()
+            enteredFullscreenForLandscape = true
+        } else if newMode == .portrait, enteredFullscreenForLandscape {
+            enteredFullscreenForLandscape = false
+            if isFullscreenPlayerPresented {
+                dismissFullscreenPlayer()
+            } else if isLyricsImmersive {
+                dismissImmersiveLyrics()
+                if !lyricsVisibleBeforeLandscapeFullscreen { setStandardLyricsVisible(false) }
             }
         }
     }
@@ -2291,6 +2331,22 @@ struct NowPlayingView: View {
                     isVisible: isPresentationSettled && isPresentationActive,
                     sceneIsActive: isVisualSceneActive
                 )
+
+                // 转横屏自动进全屏(#191，默认关)。挂在常驻的零尺寸视图上：进了全屏普通播放页会被
+                // 卸载，转回竖屏这件事也得有人接着看。
+                Color.clear
+                    .frame(width: 0, height: 0)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                    .onChange(of: playerLayoutMode) { oldMode, newMode in
+                        handleLandscapeFullscreenRotation(from: oldMode, to: newMode)
+                    }
+                    .onChange(of: isFullscreenPlayerPresented) { _, isPresented in
+                        if !isPresented, !isLyricsImmersive { enteredFullscreenForLandscape = false }
+                    }
+                    .onChange(of: isLyricsImmersive) { _, isImmersive in
+                        if !isImmersive, !isFullscreenPlayerPresented { enteredFullscreenForLandscape = false }
+                    }
                 #endif
 
                 // 歌词翻译由这层常驻的零尺寸视图负责，歌词面板与全屏舞台只读结果。
@@ -2466,7 +2522,11 @@ struct NowPlayingView: View {
                         onDismiss: dismissFullscreenPlayer,
                         onMinimize: minimizeFullscreenPlayer,
                         onShowQueue: { showQueue = true },
-                        occlusions: occlusions
+                        occlusions: occlusions,
+                        onShowAlbum: {
+                            guard let album = currentAlbum else { return }
+                            presentAlbum(album, prefersMatchedArtworkSource: false)
+                        }
                     )
                     .zIndex(100)
                 }
@@ -5545,7 +5605,9 @@ struct NowPlayingView: View {
             colorScheme: colorScheme,
             colorSchemeContrast: colorSchemeContrast,
             columnOverflow: columnOverflow,
-            isCurrentLiked: isCurrentLiked
+            isCurrentLiked: isCurrentLiked,
+            canDislike: player.canDislikeCurrentSong,
+            isCurrentDisliked: isCurrentDisliked
         )
 
         return NowPlayingMoreMenu(
@@ -5605,6 +5667,7 @@ struct NowPlayingView: View {
             onShare: { shareSong = player.currentSong },
             onShowCastPicker: { showCastPicker = true },
             onToggleLike: { toggleLikedCurrent() },
+            onToggleDislike: { player.toggleDislikeForCurrentSong() },
             onShowEffectPicker: {
                 immersiveControlsAutoHideTask?.cancel()
                 showsImmersiveEffectPicker = true
@@ -8396,6 +8459,9 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     /// iPhone Duo 竖栏那一列放不下时收进这里的按钮。
     let columnOverflow: NowPlayingBarColumnOverflow
     let isCurrentLiked: Bool
+    /// 曲库里的音乐才能标「不喜欢」(#193)。
+    let canDislike: Bool
+    let isCurrentDisliked: Bool
 }
 
 /// iPhone Duo 竖栏那一列按钮放不下时收进「更多」的几颗(按收走的先后:锁、全屏效果、喜欢)。
@@ -8440,6 +8506,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onShare: () -> Void
     let onShowCastPicker: () -> Void
     let onToggleLike: () -> Void
+    let onToggleDislike: () -> Void
     let onShowEffectPicker: () -> Void
     let onLockControls: () -> Void
     let onToggleLyricsTranslation: () -> Void
@@ -8653,6 +8720,18 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                         Label(String(localized: "similar_songs"), systemImage: "sparkles")
                     }
                     .disabled(!snapshot.hasSong)
+                }
+
+                if snapshot.canDislike {
+                    // 不喜欢(#193): 记下来并切到下一首; 已经不喜欢时再点只撤销。
+                    // 心形保持「喜欢 / 取消喜欢」两态, 不叠第三态。
+                    Button(action: onToggleDislike) {
+                        if snapshot.isCurrentDisliked {
+                            Label(String(localized: "song_undislike"), systemImage: "hand.thumbsdown.fill")
+                        } else {
+                            Label(String(localized: "song_dislike"), systemImage: "hand.thumbsdown")
+                        }
+                    }
                 }
 
                 if !snapshot.isAppleMusicMode, !snapshot.isPodcastEpisode {

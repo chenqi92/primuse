@@ -751,6 +751,10 @@ struct SongRowView: View {
         }
 
         Section {
+            SongFeedbackMenuButtons(songID: song.id)
+        }
+
+        Section {
             removeFromPlaylistMenuButton
             if canDeleteSourceFile {
                 Button(role: .destructive) {
@@ -2010,6 +2014,40 @@ struct ListeningKindMoveButtons: View {
                     Label(String(localized: "mark_as_spoken_word"), systemImage: "books.vertical")
                 case .podcast:
                     Label(String(localized: "mark_as_podcast"), systemImage: ListeningSpace.podcast.systemImage)
+                }
+            }
+        }
+    }
+}
+
+/// 单曲菜单里的「喜欢 / 不喜欢」(#193),歌曲菜单与 Mac 右键菜单共用。两者互斥,点了一个
+/// 就撤掉另一个。单独成一个视图:喜欢状态只在这里读,别处喜欢一首歌时只重画这两项,
+/// 不让整张列表的每一行都跟着重建 (#156)。
+struct SongFeedbackMenuButtons: View {
+    @Environment(MusicLibrary.self) private var library
+    let songID: String
+
+    var body: some View {
+        let isLiked = library.isLiked(songID: songID)
+        let isDisliked = library.isDisliked(songID: songID)
+        Button {
+            library.toggleLiked(songID: songID)
+        } label: {
+            if isLiked {
+                Label(String(localized: "a11y_unlike"), systemImage: "heart.fill")
+            } else {
+                Label(String(localized: "a11y_like"), systemImage: "heart")
+            }
+        }
+        // 有声书的章节本来就不会被随机或推荐挑中,「不喜欢」对它没有意义。
+        if !library.spokenWordSongIDs.contains(songID) {
+            Button {
+                library.toggleDisliked(songID: songID)
+            } label: {
+                if isDisliked {
+                    Label(String(localized: "song_undislike"), systemImage: "hand.thumbsdown.fill")
+                } else {
+                    Label(String(localized: "song_dislike"), systemImage: "hand.thumbsdown")
                 }
             }
         }

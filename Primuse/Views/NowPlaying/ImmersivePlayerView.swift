@@ -24,6 +24,8 @@ struct ImmersivePlayerView: View {
     /// 全屏播放是沉浸式、不滚动的界面,按整屏居中,只让开这一块:顶部控件排在遮挡那一侧让开,
     /// 舞台内容只有上沿落进遮挡区那段高度时才在那一侧让。没有竖栏的设备为空,排版不变。
     var occlusions: [OcclusionAvoidancePolicy.Region] = []
+    /// 封面流(#191)里长按：打开正在播的这张专辑的全部歌曲。播放页给，nil 时长按不做事。
+    var onShowAlbum: (() -> Void)? = nil
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(AudioVisualizerService.self) private var visualizer
@@ -47,6 +49,7 @@ struct ImmersivePlayerView: View {
     @State private var hasResolvedArtwork = true
     @State private var hasEntered = false
     @State private var gallerySongs: [Song] = []
+    @State private var flowNeighbors = AlbumFlowNeighbors()
     @State private var showsEffectPicker = false
     @State private var activeLyricIndex: Int?
     @State private var lyricInterlude = false
@@ -112,11 +115,18 @@ struct ImmersivePlayerView: View {
                 Color.clear
                     .contentShape(Rectangle())
                     .gesture(
-                        SpatialTapGesture()
-                            .onEnded { value in
-                                guard !isControlZone(value.location, in: geometry.size) else { return }
-                                handleSurfaceTap()
-                            }
+                        // 长按只在封面流里生效(打开这张专辑)；别的效果里它永远等不到时长，
+                        // 手指一抬就让给点按，点按的手感不变。
+                        LongPressGesture(minimumDuration: albumFlowLongPressDuration)
+                            .onEnded { _ in handleAlbumFlowLongPress() }
+                            .exclusively(
+                                before: SpatialTapGesture()
+                                    .onEnded { value in
+                                        guard !isControlZone(value.location, in: geometry.size) else { return }
+                                        if handleAlbumFlowTap(at: value.location, metrics: metrics) { return }
+                                        handleSurfaceTap()
+                                    }
+                            )
                     )
                     .simultaneousGesture(surfaceDrag(in: geometry.size))
                     .simultaneousGesture(modeMagnification)
@@ -293,6 +303,30 @@ struct ImmersivePlayerView: View {
                         fileFormat: song.fileFormat,
                         showsPlaceholder: false
                     )
+                    .frame(width: side, height: side)
+                )
+            },
+            flowBeforeCount: flowNeighbors.before.count,
+            flowAfterCount: flowNeighbors.after.count,
+            flowArtwork: { offset, side in
+                // 0 是正在播的这张(给倒影用的静态那份)，其余是两侧的专辑。
+                guard let song = offset == 0 ? player.currentSong : flowNeighbors.song(at: offset) else {
+                    return AnyView(ImmersiveArtworkFallback(palette: artworkPalette))
+                }
+                return AnyView(
+                    ZStack {
+                        ImmersiveArtworkFallback(palette: artworkPalette)
+                        CachedArtworkView(
+                            coverRef: song.coverArtFileName,
+                            songID: song.id,
+                            size: side,
+                            cornerRadius: 0,
+                            sourceID: song.sourceID,
+                            filePath: song.filePath,
+                            fileFormat: song.fileFormat,
+                            showsPlaceholder: false
+                        )
+                    }
                     .frame(width: side, height: side)
                 )
             },
@@ -570,7 +604,8 @@ struct ImmersivePlayerView: View {
         case .coverGallery, .flowingLines,
              .radialPulse, .auroraVeil, .spectrumHorizon:
             return .trailing
-        case .native:
+        case .native, .albumFlow:
+            // 封面流的画面左右对称, 控件也居中。
             return .center
         }
     }
@@ -808,6 +843,10 @@ struct ImmersivePlayerView: View {
 
     /// 每次切歌只取一次稳定样本，避免实时频谱刷新时反复扫描整个资料库。
     private func refreshGallerySongs() {
+        flowNeighbors = library.albumFlowNeighbors(
+            for: player.currentSong,
+            perSide: AlbumFlowLayoutPolicy.maximumNeighborsPerSide
+        )
         let currentID = player.currentSong?.id
         // Stride through the library and test each stop, instead of filtering
         // the whole library first: that copied and trimmed every song on the
@@ -1128,6 +1167,34 @@ struct ImmersivePlayerView: View {
         guard let index = activeLyricIndex, lyrics.indices.contains(index) else { return nil }
         let value = lyrics[index].text.trimmingCharacters(in: .whitespacesAndNewlines)
         return value.isEmpty ? nil : value
+    }
+
+    /// 封面流以外的效果里长按永远等不到，点按照旧。
+    private var albumFlowLongPressDuration: Double {
+        presentationEffect == .albumFlow && onShowAlbum != nil ? 0.5 : 86_400
+    }
+
+    /// 封面流(#191)：点中间那张封面 = 播放 / 暂停。点到别处照旧切换控件显隐。
+    private func handleAlbumFlowTap(at location: CGPoint, metrics: ImmersiveStageMetrics) -> Bool {
+        guard presentationEffect == .albumFlow, !showsEffectPicker, !isAmbientRest else { return false }
+        let layout = ImmersiveAlbumFlowGeometry.layout(
+            metrics: metrics,
+            platform: .iOS,
+            controlsInset: controlsInset(metrics)
+        )
+        guard layout.centerContains(x: Double(location.x), y: Double(location.y), tolerance: 8) else {
+            return false
+        }
+        player.togglePlayPause()
+        registerInteraction(revealControls: false)
+        return true
+    }
+
+    /// 封面流(#191)：长按打开这张专辑的全部歌曲。
+    private func handleAlbumFlowLongPress() {
+        guard presentationEffect == .albumFlow, !showsEffectPicker, let onShowAlbum else { return }
+        exitAmbientRest()
+        onShowAlbum()
     }
 
     private func handleSurfaceTap() {

@@ -1412,6 +1412,9 @@
 "fullscreen_effect_particle_bloom" = "Rozkwit cząstek";
 "fullscreen_effect_particle_bloom_subtitle" = "Gwiezdny pył rozchodzi się od okładki i rozbłyska w rytm";
 "fullscreen_effect_particle_bloom_motion" = "Widmo w czasie rzeczywistym · Cząstki rozkwitają na basie";
+"fullscreen_effect_cover_flow" = "Cover Flow";
+"fullscreen_effect_cover_flow_subtitle" = "Odtwarzany album patrzy na ciebie, a sąsiednie albumy z biblioteki stoją ukośnie po bokach na szklanej podłodze";
+"fullscreen_effect_cover_flow_motion" = "Boczne okładki zwracają się ku odtwarzanemu albumowi · Szklana podłoga odbija jego kolor";
 "fullscreen_effect_lyric_stage" = "Scena liryczna";
 "fullscreen_effect_lyric_stage_subtitle" = "Początek tekstu z powściągliwym nagłówkiem utworu";
 "fullscreen_effect_lyrics" = "Tekst utworu";
@@ -1627,6 +1630,8 @@
 "immersive_demo_title" = "Primuse";
 "immersive_lock_controls" = "Zablokuj immersyjne sterowanie";
 "immersive_lyrics_motion_subtitle" = "Steruje ruchem ściany tytułów i poziomym przewijaniem tekstu; wyłącz, aby tekst pozostał nieruchomy.";
+"player_landscape_fullscreen_title" = "Pełny ekran w poziomie";
+"player_landscape_fullscreen_subtitle" = "Obrócenie iPhone’a poziomo na ekranie odtwarzania otwiera wybrany efekt pełnoekranowy, a powrót do pionu go zamyka.";
 "immersive_frame_rate_title" = "Liczba klatek";
 "immersive_frame_rate_subtitle" = "„Jak ekran” rysuje przy każdym odświeżeniu ekranu (V-Sync): najpłynniej, ale zużywa najwięcej energii.";
 "immersive_frame_rate_balanced" = "Oszczędzanie energii";
@@ -2519,6 +2524,12 @@
 "playlist_import_use_first_result" = "Użyj pierwszego wyniku";
 "playlist_kind_server_mirror" = "Lista odtwarzania serwera";
 "playlist_liked_name" = "Polubione utwory";
+"song_dislike" = "Nie podoba mi się";
+"song_undislike" = "Usuń „Nie podoba mi się”";
+"playlist_disliked_name" = "Odrzucone utwory";
+"disliked_songs_footer" = "Odrzucone utwory zostają w bibliotece i grają, gdy sam je wybierzesz, ale odtwarzanie losowe, autoodtwarzanie, radio utworu, podobne utwory i rekomendacje je pomijają. Ponowne polubienie utworu usuwa go z tej listy.";
+"disliked_songs_empty" = "Brak odrzuconych utworów";
+"disliked_songs_manage" = "Zarządzaj…";
 "playlist_name" = "Nazwa listy odtwarzania";
 "playlist_name_example" = "Nocna przejażdżka";
 "playlist_picker_empty_hint" = "Brak jeszcze regularnych list odtwarzania. Utwórz jeden poniżej.";

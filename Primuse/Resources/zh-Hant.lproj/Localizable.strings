@@ -1419,6 +1419,12 @@
 "source_cache_size_known_plus_unknown_format" = "%@ + %d 首大小未知";
 "apple_music_library_playlist_name" = "Apple Music 資料庫";
 "playlist_liked_name" = "我的最愛";
+"song_dislike" = "不喜歡";
+"song_undislike" = "取消不喜歡";
+"playlist_disliked_name" = "不喜歡的歌曲";
+"disliked_songs_footer" = "不喜歡的歌曲仍留在資料庫裡，指定播放照樣能聽；整庫隨機、自動續播、單曲電台、相似歌曲和推薦都不會再挑選它。重新喜歡一首歌，它就會從這裡移除。";
+"disliked_songs_empty" = "還沒有不喜歡的歌曲";
+"disliked_songs_manage" = "管理…";
 "settings_dlna_section" = "DLNA 接收";
 "settings_dlna_enable" = "接受同一 Wi-Fi 的投送";
 "settings_dlna_footer" = "同一 Wi-Fi 下的其他裝置(VLC、群暉音訊中心、Plex、Hi-Fi Cast 等)可以發現 Primuse 並把音訊推過來播放。";
@@ -1711,6 +1717,9 @@
 "fullscreen_effect_particle_bloom" = "星塵律動";
 "fullscreen_effect_particle_bloom_subtitle" = "星塵從封面向外擴散，隨節拍明暗起伏";
 "fullscreen_effect_particle_bloom_motion" = "即時頻譜驅動 · 低頻推動粒子";
+"fullscreen_effect_cover_flow" = "封面流";
+"fullscreen_effect_cover_flow_subtitle" = "正在播放的專輯居中，資料庫裡前後的專輯斜立兩側，立在映著專輯色的玻璃台面上";
+"fullscreen_effect_cover_flow_motion" = "兩側封面朝向正在播放的專輯 · 玻璃台面映出專輯色";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "图言吐语";
 "immersive_demo_album" = "soundisle";
@@ -1720,6 +1729,8 @@
 "immersive_unlock_controls" = "解鎖沉浸式控制";
 "immersive_lyrics_motion_title" = "沉浸文字動效";
 "immersive_lyrics_motion_subtitle" = "控制曲名牆的緩慢漂移和歌詞橫向巡遊；關閉後文字保持靜態。";
+"player_landscape_fullscreen_title" = "橫向時進入全螢幕";
+"player_landscape_fullscreen_subtitle" = "在播放頁把手機轉成橫向，直接進入所選的全螢幕效果；轉回直向時退出。";
 "immersive_frame_rate_title" = "畫面影格率";
 "immersive_frame_rate_subtitle" = "「跟隨螢幕」按螢幕更新頻率逐格繪製（垂直同步），最流暢，也最耗電。";
 "immersive_frame_rate_balanced" = "省電";

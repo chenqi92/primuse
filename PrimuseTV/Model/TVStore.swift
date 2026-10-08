@@ -1551,6 +1551,23 @@ final class TVStore {
         rebuildLookupCaches()
     }
 
+    /// 「不喜欢」(#193):和手机共用曲库里那份记录,经 iCloud 同步。有声内容不给这一项。
+    func canDislike(_ id: String) -> Bool {
+        !library.spokenWordSongIDs.contains(id) && library.song(id: id) != nil
+    }
+    func isDisliked(_ id: String) -> Bool { library.isDisliked(songID: id) }
+    /// 和手机一样:正在放的这首被标上「不喜欢」就切到下一首;再点一次只撤销记录。
+    func toggleDisliked(_ id: String) {
+        guard canMutateLibrary else {
+            playbackIssue = .failed(PMString("ext.tv.persistence.failed"))
+            return
+        }
+        let dislikes = !library.isDisliked(songID: id)
+        library.setDisliked(songID: id, isDisliked: dislikes)
+        rebuildLookupCaches()
+        if dislikes, id == currentSongID { next() }
+    }
+
     // MARK: 真实模型 → TV view-model 映射
     //
     // 真实封面可由快照同步缓存或源端引用载入；按 id 派生的渐变只作为加载中/
@@ -5588,7 +5605,10 @@ final class TVStore {
     /// 全部播放 / 随机播放整个可见曲库(库多为散曲、没有真正专辑,所以播放范围用整库)。
     @discardableResult
     func playAll(shuffle: Bool) -> Bool {
-        playResolvedQueue(songIDs: songIDs, shuffled: shuffle)
+        // 整库播放是替人挑歌, 不含不喜欢的歌(#193)。
+        let disliked = library.dislikedSongIDs
+        let ids = disliked.isEmpty ? songIDs : songIDs.filter { !disliked.contains($0) }
+        return playResolvedQueue(songIDs: ids, shuffled: shuffle)
     }
 
     func next() {
@@ -5687,7 +5707,10 @@ final class TVStore {
         let seeds = QueueContinuationPolicy.seedIDs(queueIDs: queue, currentIndex: queueIndex)
             .compactMap { library.visibleSong(id: $0) }
         guard !seeds.isEmpty else { return }
-        let excluded = Set(queue).union(library.recentPlaybackSongIDsForSync)
+        // 不喜欢的歌(#193)不会被续播挑中, 和手机一样。
+        let excluded = Set(queue)
+            .union(library.recentPlaybackSongIDsForSync)
+            .union(library.dislikedSongIDs)
         let recentIDs = Set(PlayHistoryStore.shared.entries(in: .month).map(\.songID))
         let songs = library.musicSongs
         let revision = library.musicSongsRevision

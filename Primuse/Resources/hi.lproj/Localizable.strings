@@ -1412,6 +1412,9 @@
 "fullscreen_effect_particle_bloom" = "कण प्रस्फुटन";
 "fullscreen_effect_particle_bloom_subtitle" = "कवर से तारों की धूल फैलती है और ताल के साथ चमकती है";
 "fullscreen_effect_particle_bloom_motion" = "रीयल-टाइम स्पेक्ट्रम संचालित · बास पर कण खिलते हैं";
+"fullscreen_effect_cover_flow" = "Cover Flow";
+"fullscreen_effect_cover_flow_subtitle" = "चल रहा एल्बम सामने रहता है और लाइब्रेरी में उसके आस-पास के एल्बम दोनों ओर कांच के फ़र्श पर तिरछे खड़े रहते हैं";
+"fullscreen_effect_cover_flow_motion" = "बगल के कवर चल रहे एल्बम की ओर झुकते हैं · कांच का फ़र्श उसका रंग दिखाता है";
 "fullscreen_effect_lyric_stage" = "गीत के बोल मंच";
 "fullscreen_effect_lyric_stage_subtitle" = "गीत के बोल एक संयमित ट्रैक हेडर के साथ आगे बढ़ते हैं";
 "fullscreen_effect_lyrics" = "गीत के बोल";
@@ -1627,6 +1630,8 @@
 "immersive_demo_title" = "Primuse";
 "immersive_lock_controls" = "इमर्सिव नियंत्रणों को लॉक करें";
 "immersive_lyrics_motion_subtitle" = "शीर्षक दीवार बहाव और क्षैतिज गीत के बोल मार्की को नियंत्रित करता है; टाइप को स्थिर रखने के लिए बंद करें।";
+"player_landscape_fullscreen_title" = "लैंडस्केप में फ़ुल स्क्रीन";
+"player_landscape_fullscreen_subtitle" = "प्लेबैक स्क्रीन पर iPhone को आड़ा करने पर चुना गया फ़ुल-स्क्रीन इफ़ेक्ट खुलता है; फिर सीधा करने पर बंद हो जाता है।";
 "immersive_frame_rate_title" = "फ़्रेम दर";
 "immersive_frame_rate_subtitle" = "“डिस्प्ले के अनुसार” हर स्क्रीन रीफ़्रेश पर चित्र बनाता है (V-Sync): सबसे सहज, पर सबसे ज़्यादा बिजली खर्च करता है।";
 "immersive_frame_rate_balanced" = "बिजली बचत";
@@ -2519,6 +2524,12 @@
 "playlist_import_use_first_result" = "प्रथम परिणाम का उपयोग करें";
 "playlist_kind_server_mirror" = "सर्वर प्लेलिस्ट";
 "playlist_liked_name" = "पसंदीदा गाने";
+"song_dislike" = "नापसंद";
+"song_undislike" = "नापसंद हटाएँ";
+"playlist_disliked_name" = "नापसंद गाने";
+"disliked_songs_footer" = "नापसंद गाने आपकी लाइब्रेरी में बने रहते हैं और खुद चुनने पर चलते हैं, लेकिन शफ़ल, ऑटोप्ले, गाना रेडियो, मिलते-जुलते गाने और सुझाव उन्हें छोड़ देते हैं। किसी गाने को फिर से पसंद करने पर वह इस सूची से हट जाता है।";
+"disliked_songs_empty" = "कोई नापसंद गाना नहीं";
+"disliked_songs_manage" = "प्रबंधित करें…";
 "playlist_name" = "प्लेलिस्ट का नाम";
 "playlist_name_example" = "देर रात ड्राइव";
 "playlist_picker_empty_hint" = "अभी तक कोई नियमित प्लेलिस्ट नहीं। नीचे एक बनाएं.";
