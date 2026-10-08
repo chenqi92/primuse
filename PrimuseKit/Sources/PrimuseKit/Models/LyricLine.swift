@@ -585,6 +585,29 @@ public enum LyricFlowHorizontalAlignment: Sendable {
 /// sequence. Leading/trailing alignment mirrors for RTL, while timestamps keep
 /// addressing the same original item indexes.
 public enum LyricFlowPlacementPolicy {
+    /// 一个字超出容器不到这么多时仍留在本行。逐字歌词按整行自身的宽度报尺寸，
+    /// 扫光层再按这个宽度排一次，每一行都正好卡在边界上；而这个宽度经过像素对齐
+    /// 或加减外扩边距后，可能比各字宽度之和少零点几个点。严格比较会把最后一个字
+    /// 挤到下一行，扫光层整体被居中挪开，和底下的字错位。
+    public static let wrapTolerance: Double = 1
+
+    /// 与 `placements` 同一套换行规则算出的内容尺寸，宽度不超过容器。
+    public static func contentSize(
+        itemSizes: [LyricFlowItemSize],
+        containerWidth: Double,
+        spacing: Double = 0
+    ) -> LyricFlowItemSize {
+        let availableWidth = max(0, containerWidth)
+        let itemSpacing = max(0, spacing)
+        var widestRow = 0.0
+        var height = 0.0
+        for row in rows(itemSizes: itemSizes, availableWidth: availableWidth, spacing: itemSpacing) {
+            widestRow = max(widestRow, width(of: row, itemSizes: itemSizes, spacing: itemSpacing))
+            height += row.reduce(0.0) { max($0, max(0, itemSizes[$1].height)) }
+        }
+        return LyricFlowItemSize(width: min(widestRow, availableWidth), height: height)
+    }
+
     public static func placements(
         itemSizes: [LyricFlowItemSize],
         containerWidth: Double,
@@ -596,37 +619,12 @@ public enum LyricFlowPlacementPolicy {
 
         let availableWidth = max(0, containerWidth)
         let itemSpacing = max(0, spacing)
-        var rows: [[Int]] = []
-        var currentRow: [Int] = []
-        var currentRowWidth = 0.0
-
-        for (index, itemSize) in itemSizes.enumerated() {
-            let width = max(0, itemSize.width)
-            let proposedWidth = currentRowWidth
-                + (currentRow.isEmpty ? 0 : itemSpacing)
-                + width
-            if proposedWidth > availableWidth, !currentRow.isEmpty {
-                rows.append(currentRow)
-                currentRow = []
-                currentRowWidth = 0
-            }
-
-            currentRowWidth += (currentRow.isEmpty ? 0 : itemSpacing) + width
-            currentRow.append(index)
-        }
-        if !currentRow.isEmpty {
-            rows.append(currentRow)
-        }
-
         var y = 0.0
         var result: [LyricFlowItemPlacement] = []
         result.reserveCapacity(itemSizes.count)
 
-        for row in rows {
-            let rowWidth = row.enumerated().reduce(0.0) { partial, pair in
-                let itemWidth = max(0, itemSizes[pair.element].width)
-                return partial + (pair.offset == 0 ? 0 : itemSpacing) + itemWidth
-            }
+        for row in rows(itemSizes: itemSizes, availableWidth: availableWidth, spacing: itemSpacing) {
+            let rowWidth = width(of: row, itemSizes: itemSizes, spacing: itemSpacing)
             let remainingWidth = max(0, availableWidth - rowWidth)
             let originX: Double
             switch alignment {
@@ -653,6 +651,45 @@ public enum LyricFlowPlacementPolicy {
             y += rowHeight
         }
         return result
+    }
+
+    private static func rows(
+        itemSizes: [LyricFlowItemSize],
+        availableWidth: Double,
+        spacing: Double
+    ) -> [[Int]] {
+        var rows: [[Int]] = []
+        var currentRow: [Int] = []
+        var currentRowWidth = 0.0
+
+        for (index, itemSize) in itemSizes.enumerated() {
+            let width = max(0, itemSize.width)
+            let proposedWidth = currentRowWidth
+                + (currentRow.isEmpty ? 0 : spacing)
+                + width
+            if proposedWidth > availableWidth + wrapTolerance, !currentRow.isEmpty {
+                rows.append(currentRow)
+                currentRow = []
+                currentRowWidth = 0
+            }
+
+            currentRowWidth += (currentRow.isEmpty ? 0 : spacing) + width
+            currentRow.append(index)
+        }
+        if !currentRow.isEmpty {
+            rows.append(currentRow)
+        }
+        return rows
+    }
+
+    private static func width(
+        of row: [Int],
+        itemSizes: [LyricFlowItemSize],
+        spacing: Double
+    ) -> Double {
+        row.enumerated().reduce(0.0) { partial, pair in
+            partial + (pair.offset == 0 ? 0 : spacing) + max(0, itemSizes[pair.element].width)
+        }
     }
 }
 

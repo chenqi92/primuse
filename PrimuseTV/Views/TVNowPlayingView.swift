@@ -1342,25 +1342,12 @@ private struct TVSyllableFlowLayout: Layout {
         let availableWidth = max(0, proposal.width ?? idealWidth)
         guard availableWidth > 0 else { return .zero }
 
-        var rowWidth: CGFloat = 0
-        var rowHeight: CGFloat = 0
-        var totalHeight: CGFloat = 0
-        var widestRow: CGFloat = 0
-
-        for size in cache.sizes {
-            if rowWidth > 0, rowWidth + size.width > availableWidth {
-                widestRow = max(widestRow, rowWidth)
-                totalHeight += rowHeight
-                rowWidth = 0
-                rowHeight = 0
-            }
-            rowWidth += size.width
-            rowHeight = max(rowHeight, size.height)
-        }
-
-        widestRow = max(widestRow, rowWidth)
-        totalHeight += rowHeight
-        return CGSize(width: min(availableWidth, widestRow), height: totalHeight)
+        // 与 placeSubviews 同一套换行规则，放字时拿到的行框略窄也不会多换一行。
+        let size = LyricFlowPlacementPolicy.contentSize(
+            itemSizes: flowItemSizes(cache.sizes),
+            containerWidth: Double(availableWidth)
+        )
+        return CGSize(width: size.width, height: size.height)
     }
 
     func placeSubviews(
@@ -1371,9 +1358,7 @@ private struct TVSyllableFlowLayout: Layout {
     ) {
         ensureMeasurements(in: &cache, subviews: subviews)
         let placements = LyricFlowPlacementPolicy.placements(
-            itemSizes: cache.sizes.map {
-                LyricFlowItemSize(width: Double($0.width), height: Double($0.height))
-            },
+            itemSizes: flowItemSizes(cache.sizes),
             containerWidth: Double(bounds.width),
             isRightToLeft: layoutDirection == .rightToLeft,
             alignment: alignment
@@ -1400,6 +1385,10 @@ private struct TVSyllableFlowLayout: Layout {
 
     private func measure(_ subviews: Subviews) -> [CGSize] {
         subviews.map { $0.sizeThatFits(.unspecified) }
+    }
+
+    private func flowItemSizes(_ sizes: [CGSize]) -> [LyricFlowItemSize] {
+        sizes.map { LyricFlowItemSize(width: Double($0.width), height: Double($0.height)) }
     }
 }
 

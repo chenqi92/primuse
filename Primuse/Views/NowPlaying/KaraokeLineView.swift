@@ -724,24 +724,14 @@ struct LyricsFlowLayout: Layout {
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
         ensureMeasurements(in: &cache, subviews: subviews)
-        let maxWidth = proposal.width ?? .greatestFiniteMagnitude
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var lineHeight: CGFloat = 0
-        var maxLineEnd: CGFloat = 0
-
-        for size in cache.sizes {
-            if x + size.width > maxWidth, x > 0 {
-                y += lineHeight
-                lineHeight = 0
-                x = 0
-            }
-            x += size.width + spacing
-            lineHeight = max(lineHeight, size.height)
-            maxLineEnd = max(maxLineEnd, x - spacing)
-        }
-        y += lineHeight
-        return CGSize(width: min(maxLineEnd, maxWidth), height: y)
+        // 和 placeSubviews 用同一套换行规则：扫光层按这里报出的整行宽度再排一次，
+        // 两边算出的行数不一致时扫光会整体错开。
+        let size = LyricFlowPlacementPolicy.contentSize(
+            itemSizes: flowItemSizes(cache.sizes),
+            containerWidth: Double(proposal.width ?? .greatestFiniteMagnitude),
+            spacing: Double(spacing)
+        )
+        return CGSize(width: size.width, height: size.height)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
@@ -755,9 +745,7 @@ struct LyricsFlowLayout: Layout {
         )
         if cache.placementKey != placementKey {
             cache.placements = LyricFlowPlacementPolicy.placements(
-                itemSizes: cache.sizes.map {
-                    LyricFlowItemSize(width: Double($0.width), height: Double($0.height))
-                },
+                itemSizes: flowItemSizes(cache.sizes),
                 containerWidth: Double(bounds.width),
                 spacing: Double(spacing),
                 isRightToLeft: layoutDirection == .rightToLeft,
@@ -793,6 +781,10 @@ struct LyricsFlowLayout: Layout {
 
     private func measure(_ subviews: Subviews) -> [CGSize] {
         subviews.map { $0.sizeThatFits(.unspecified) }
+    }
+
+    private func flowItemSizes(_ sizes: [CGSize]) -> [LyricFlowItemSize] {
+        sizes.map { LyricFlowItemSize(width: Double($0.width), height: Double($0.height)) }
     }
 
     private var flowAlignment: LyricFlowHorizontalAlignment {

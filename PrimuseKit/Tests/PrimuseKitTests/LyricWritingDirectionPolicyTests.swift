@@ -351,4 +351,63 @@ struct LyricFlowPlacementPolicyTests {
         #expect(placements[2].x > placements[3].x)
         #expect(placements[4].x == 36)
     }
+
+    @Test("A row laid out again at its own slightly snapped width stays on one row")
+    func snappedOwnWidthKeepsSingleRow() {
+        // "'Cause I just knew" at 30pt on a 3x screen: the highlight layer is
+        // laid out again at the width the base layer reported, after pixel
+        // snapping shaved a fraction of a point off it.
+        let sizes = [
+            LyricFlowItemSize(width: 88.33333333333333, height: 35.666666666666664),
+            LyricFlowItemSize(width: 16.666666666666668, height: 35.666666666666664),
+            LyricFlowItemSize(width: 57.333333333333336, height: 35.666666666666664),
+            LyricFlowItemSize(width: 69.66666666666667, height: 35.666666666666664),
+        ]
+        let own = LyricFlowPlacementPolicy.contentSize(itemSizes: sizes, containerWidth: 361)
+        let snapped = own.width - 1.0 / 6.0
+
+        let placements = LyricFlowPlacementPolicy.placements(
+            itemSizes: sizes,
+            containerWidth: snapped,
+            isRightToLeft: false
+        )
+        let relaid = LyricFlowPlacementPolicy.contentSize(itemSizes: sizes, containerWidth: snapped)
+
+        #expect(placements.map(\.y) == [0, 0, 0, 0])
+        #expect(placements.map(\.x).first == 0)
+        #expect(relaid.height == own.height)
+        #expect(relaid.width == snapped)
+    }
+
+    @Test("A real overflow still wraps and the reported size matches the placements")
+    func realOverflowWrapsConsistently() {
+        let sizes = [
+            LyricFlowItemSize(width: 30, height: 10),
+            LyricFlowItemSize(width: 40, height: 12),
+            LyricFlowItemSize(width: 50, height: 8),
+        ]
+
+        let placements = LyricFlowPlacementPolicy.placements(
+            itemSizes: sizes,
+            containerWidth: 80,
+            spacing: 10,
+            isRightToLeft: false
+        )
+        let size = LyricFlowPlacementPolicy.contentSize(
+            itemSizes: sizes,
+            containerWidth: 80,
+            spacing: 10
+        )
+        let tight = LyricFlowPlacementPolicy.contentSize(
+            itemSizes: sizes,
+            containerWidth: 130 - LyricFlowPlacementPolicy.wrapTolerance - 0.5,
+            spacing: 10
+        )
+
+        #expect(placements.map(\.y) == [0, 0, 12])
+        #expect(size == LyricFlowItemSize(width: 80, height: 20))
+        #expect(tight.height == 20)
+        #expect(LyricFlowPlacementPolicy.contentSize(itemSizes: [], containerWidth: 80)
+            == LyricFlowItemSize(width: 0, height: 0))
+    }
 }
