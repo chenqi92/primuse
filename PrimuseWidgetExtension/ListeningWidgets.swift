@@ -60,6 +60,7 @@ struct ListeningWidgetView: View {
     let entry: ListeningWidgetEntry
     @Environment(\.widgetFamily) private var family
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.widgetRenderingMode) private var renderingMode
     private var title: String { PMString("ext.widget.\(entry.kind.rawValue).title") }
     private var symbol: String { entry.kind == .podcast ? "mic" : "dot.radiowaves.left.and.right" }
     private var tint: Color {
@@ -197,7 +198,7 @@ struct ListeningWidgetView: View {
                     artwork(item, side: side)
                 }
                 playIcon
-                    .background(.background, in: .circle)
+                    .background(playIconBackdrop, in: .circle)
                     .overlay { Circle().strokeBorder(tint.opacity(0.12), lineWidth: 1) }
                     .offset(x: 5, y: 5)
             }
@@ -265,7 +266,7 @@ struct ListeningWidgetView: View {
                 }
                 artwork(item, side: 82).clipShape(.circle)
                 playIcon
-                    .background(.background, in: .circle)
+                    .background(playIconBackdrop, in: .circle)
                     .offset(x: 38, y: 38)
             }
             .frame(width: 118, height: 118)
@@ -310,6 +311,11 @@ struct ListeningWidgetView: View {
         }
         .frame(width: side, height: side)
         .accessibilityHidden(true)
+    }
+
+    /// 封面角上播放键垫的那圈底色。色调、透明外观下它会被渲染成一块实心白片(#190),只在全彩时画。
+    private var playIconBackdrop: AnyShapeStyle {
+        renderingMode == .fullColor ? AnyShapeStyle(.background) : AnyShapeStyle(Color.clear)
     }
 
     private var playIcon: some View {

@@ -44,6 +44,7 @@ final class ListeningWidgetPublisher {
 
     private func observeLibrary() {
         withObservationTracking {
+            _ = library.isReady
             _ = library.localPodcastSongs
             _ = radioStations()
         } onChange: { [weak self] in
@@ -75,6 +76,10 @@ final class ListeningWidgetPublisher {
             return
         }
         let store = PodcastStore.shared
+        // 冷启动、只被车机 / Siri / 小组件叫起时,订阅还没读盘、曲库也没装好;这时按「没有播客」
+        // 发布会把小组件刷成空的。留着上次的快照,读完订阅(发 primusePodcastsDidChange)、
+        // 曲库就绪(observeLibrary 盯着 isReady)时会再排一次。
+        guard store.isLoaded, library.isReady else { return }
         let positions = SpokenWordStore.shared
         var candidates: [ListeningWidgetPolicy.Candidate] = []
         var artworkIDs: [String: String] = [:]
@@ -82,8 +87,10 @@ final class ListeningWidgetPublisher {
         for show in store.shows {
             for episode in store.episodes(forShowID: show.id) {
                 let state = store.state(for: episode)
-                let fraction = state.position.flatMap { position in
-                    episode.duration.flatMap { $0 > 0 ? floor(position / $0 * 100) / 100 : nil }
+                let fraction = state.position.flatMap { position -> Double? in
+                    // 节目源没给时长的单集,用本机记位置时存下的时长。
+                    let duration = episode.duration ?? positions.position(forSongID: episode.id)?.duration
+                    return duration.flatMap { $0 > 0 ? floor(position / $0 * 100) / 100 : nil }
                 }
                 candidates.append(.init(
                     item: .init(id: episode.id, title: episode.title, subtitle: show.title, fractionComplete: fraction),

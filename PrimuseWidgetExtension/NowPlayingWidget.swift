@@ -941,8 +941,13 @@ struct ProgressLine: View {
         let fill = colorScheme == .dark ? Color.white : WidgetDesign.brandTint
         Group {
             if let range = progress.timerRange {
-                ProgressView(timerInterval: range, countsDown: false)
-                    .labelsHidden()
+                // 默认会在进度条下面带一行走动的时间,两个标签都显式给空。
+                ProgressView(timerInterval: range, countsDown: false) {
+                    EmptyView()
+                } currentValueLabel: {
+                    EmptyView()
+                }
+                .labelsHidden()
             } else {
                 ProgressView(value: progress.staticFraction)
             }
