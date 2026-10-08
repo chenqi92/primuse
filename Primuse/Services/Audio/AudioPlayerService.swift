@@ -4032,7 +4032,7 @@ final class AudioPlayerService {
 
         // Show new song in UI immediately (before download)
         currentSong = song
-        currentTime = song.appliedPlaybackRange?.start ?? 0
+        currentTime = song.appliedPlaybackRange?.start ?? spokenWordOpeningPosition(for: song) ?? 0
         duration = song.duration.sanitizedDuration
         isLoading = true
         isPlaying = false
@@ -4843,7 +4843,9 @@ final class AudioPlayerService {
             // A medley slice starts mid-file. Let the decoder seek there, as a
             // seek does, instead of decoding and discarding everything before
             // the slice — over a Range stream that is tens of MiB fetched first.
-            let medleySliceStart = medleyDecoderStartTime(for: song)
+            // 有声书、播客续播:解码器直接从记忆的位置开始,不先念出开头再跳过去。
+            let spokenWordOpening = spokenWordOpeningPosition(for: song)
+            let medleySliceStart = spokenWordOpening ?? medleyDecoderStartTime(for: song)
             if isRemoteURL {
                 if FileFormatRouter.requiresCompleteLocalFile(song.fileFormat)
                     || remoteWAVRequiresCompleteFile
@@ -5257,7 +5259,8 @@ final class AudioPlayerService {
                 republishNowPlayingSurfaces()
                 return
             }
-            audioEngine.timelineOrigin = song.appliedPlaybackRange?.start ?? 0
+            // 有声内容从记忆位置直接起播时,时钟也从那里读。
+            audioEngine.timelineOrigin = song.appliedPlaybackRange?.start ?? spokenWordOpening ?? 0
             let didStartPlayback = audioEngine.play()
             logPlayStage("playing", playID: id)
             plog("▶️ After play(): \(audioEngine.diagnosticInfo())")

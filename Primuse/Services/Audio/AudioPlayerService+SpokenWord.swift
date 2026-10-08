@@ -157,19 +157,46 @@ extension AudioPlayerService {
         }
     }
 
+    /// Where the decoder opens the item that just became current: its
+    /// remembered position (or the requested one), so the opening of the file
+    /// is never heard before the jump. Nil leaves it at the top, as for a
+    /// plain file played from the start, a CUE track, a medley slice or a
+    /// playback range, which open where their own window says.
+    func spokenWordOpeningPosition(for song: Song) -> TimeInterval? {
+        guard pendingSpokenWordResumeSongID == song.id,
+              song.cueStartTime == nil, song.cueEndTime == nil,
+              song.appliedPlaybackRange == nil,
+              !medleySongIDs.contains(song.id) else { return nil }
+        let override = pendingSpokenWordSeekOverride.flatMap { $0.songID == song.id ? $0.position : nil }
+        guard let target = override ?? SpokenWordStore.shared.resumePosition(for: song),
+              target.isFinite, target >= Self.spokenWordOpeningMinimum else { return nil }
+        if song.duration > 0, target >= song.duration - 1 { return nil }
+        return target
+    }
+
+    /// Below this a resume starts from the top and jumps on the first tick:
+    /// the opening is too short to be heard as a glitch.
+    static let spokenWordOpeningMinimum: TimeInterval = 2
+
     /// Seeks to the remembered position once audio is actually running.
     ///
-    /// The decoder is built at zero by every playback path, and only a seek
-    /// rebuilds it elsewhere, so the jump happens on the first clock tick
-    /// rather than before playback starts. The guard on `currentTime` keeps a
-    /// later tick — or the listener scrubbing away immediately — from pulling
-    /// the play head back.
+    /// The main playback path opens the decoder right at the position
+    /// (`spokenWordOpeningPosition`), so the first tick already reads it and
+    /// only clears the flag. The other paths (whole-file download, the
+    /// fallback decoder, a gapless or crossfade hand-over) still build the
+    /// decoder at zero, so the jump happens on the first clock tick. The guard
+    /// on `currentTime` keeps a later tick — or the listener scrubbing away
+    /// immediately — from pulling the play head back.
     func applyPendingSpokenWordResumeIfNeeded() {
         guard let songID = pendingSpokenWordResumeSongID,
               let song = currentSong,
               song.id == songID else { return }
         guard isPlaying, currentTime < 2 else {
-            if currentTime >= 2 { pendingSpokenWordResumeSongID = nil }
+            if currentTime >= 2 {
+                pendingSpokenWordResumeSongID = nil
+                // Opened at the requested position already; do not reuse it next time.
+                if pendingSpokenWordSeekOverride?.songID == songID { pendingSpokenWordSeekOverride = nil }
+            }
             return
         }
         let override = pendingSpokenWordSeekOverride.flatMap { $0.songID == song.id ? $0.position : nil }
