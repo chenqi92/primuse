@@ -64,7 +64,6 @@
 "send_to_tv_error_credential_read" = "“%@” %@ Anahtar Zincirinden okunamadı (OSStatus %@).";
 "ext.widget.nowPlaying.empty.openShort" = "Devam etmek için Primuse'yi açın";
 "ext.widget.nowPlaying.empty.tapToPlay" = "Oynatmaya başlamak için dokunun";
-"ext.tv.immersive.style.typography" = "Tipografi";
 "error.baidu.missingPaths" = "Baidu dosya yöneticisi, %@ istenen yolu/yolları atladı.";
 "theme_color_rose" = "Gül";
 "error.catalog.pageTotalMismatch" = "Parça sayfası beyan edilen toplamla eşleşmiyor.";
@@ -93,7 +92,6 @@
 "auth_method" = "Kimlik Doğrulama Yöntemi";
 "ext.control.pause" = "Duraklat";
 "ext.tv.settings.intelligence.setup" = "Bir sağlayıcı yapılandırın";
-"ext.tv.immersive.style.visualizer" = "Görüntüleyici";
 "ai_recommendation_intent_genreExploration" = "Tür Keşfi";
 "ext.tv.sources.testConnection" = "Bağlantıyı test et";
 "send_to_tv_error_source_data" = "Müzik kaynağı yapılandırması okunamadı: %@";
@@ -233,7 +231,6 @@
 "source_connection_local" = "LAN";
 "ext.tv.scan.fullLibrary" = "%@ · Tam Arşiv";
 "ext.tv.settings.tip.touch.body" = "Yukarı / aşağı / sola / sağa kaydırın · seçmek için basın";
-"ext.tv.immersive.style.lightField" = "Işık alanı";
 "ext.widget.wrapped.headline" = "%@\n cihazınız %d saat boyunca dinlendi";
 "ext.tv.demo.lyric3" = "Eski yoldan eve doğru yürüyoruz";
 "radio.streamFormat.automatic" = "Otomatik";
@@ -275,7 +272,6 @@
 "ext.tv.settings.synced" = "Senkronize edildi · %@ şarkı";
 "ext.tv.test.unsupported" = "“%@” doğrudan Apple TV üzerinde oynatılamaz";
 "source_connection_public_address" = "Genel Adres veya Ters Proxy URL";
-"ext.tv.immersive.style.lyricStage" = "Şarkı Sözü Sahnesi";
 "library_recommendations_title" = "Öneriler";
 "artist_name_settings_title" = "Sanatçı adları";
 "ext.tv.sources.hint.smb" = "NAS · TrueNAS · Paylaşılan klasörler";
@@ -319,7 +315,6 @@
 "error.baidu.failedItems" = "Baidu dosya yöneticisi %@ öğelerinde başarısız oldu";
 "ext.widget.nowPlaying.eyebrowFormat" = "Şimdi Çalınıyor · %@";
 "ext.widget.nowPlaying.pausedEyebrowFormat" = "Duraklatıldı · %@";
-"ext.tv.immersive.style.cover" = "Kapak";
 "error.catalog.unrecognizedItem" = "Parça listesi tanınmayan bir öğe içeriyor.";
 "ext.tv.home.recentlyPlayed" = "Son çalınanlar";
 "ai_recommendation_intent_prompt_label" = "Yapay Zeka İstemi";
@@ -337,7 +332,6 @@
 "ext.tv.settings.autoSync" = "Başlatma sırasında otomatik senkronizasyon";
 "ext.widget.nowPlaying.playing" = "Şu an çalıyor";
 "ext.tv.search.songs" = "Şarkılar";
-"ext.tv.immersive.style.deepField" = "Derin Alan";
 "ext.tv.playback.relayUnavailable" = "Bu kaynağın iPhone rölesine ihtiyacı var — Primuse'yi telefonunuzda, Apple TV ile aynı Wi-Fi üzerinde açık tutun";
 "ext.tv.settings.intelligence.ready" = "Anlamsal arama hazır";
 "ext.widget.wrapped.displayName" = "Yıl İncelemesi";
@@ -390,12 +384,10 @@
 "serverShare.error.unsupported" = "Bu sunucu genel medya bağlantılarını desteklemiyor veya paylaşım devre dışı.";
 "error.catalog.invalidTrackReference" = "Parça referansı geçersiz.";
 "ext.widget.stats.last30Days" = "Son 30 gün";
-"ext.tv.immersive.style.spectrum" = "Spektrum";
 "ext.tv.sources.editConnection" = "Bağlantıyı Düzenle";
 "fnmusic_access_code" = "FN Connect Erişim Kodu (Opsiyonel)";
 "ext.tv.nav.library" = "Arşiv";
 "eq.preset.treble" = "Tiz Artışı";
-"ext.tv.immersive.style.lyrics" = "Şarkı sözleri";
 "ext.tv.error.oversizedChunk" = "Uzak dosya, %@ bayt isteği için %@ bayt döndürdü.";
 "ext.synology.quickconnect.error.unreachable" = "QuickConnect bağlantı kuramadı.";
 "ext.tv.certificate.message" = "%1$@ için HTTPS sertifikası doğrulanamadı. Yalnızca bu sizin sunucunuzsa devam edin. Sertifikanın değişmesi durumunda size tekrar sorulacaktır.";
@@ -421,14 +413,13 @@
 "ext.watch.demo.artist" = "Sanatçı";
 "ext.tv.home.shuffle" = "Karıştır";
 "ext.widget.demo.songTitle" = "Su Melodisine Giriş";
-"ext.tv.immersive.style.ambientBloom" = "Ortam parıltısı";
 "ext.watch.appName" = "Primuse";
 "ext.widget.wrapped.description" = "Dinlediğiniz yılın özeti.";
 "error.fnConnect.unreachable" = "Doğrudan veya aktarmalı FN Connect yolu mevcut değil.";
 "ext.widget.lyricsPreview.empty3" = "ve burayı takip edecekler";
 "ext.tv.sources.cancel" = "İptal";
 "fullscreen_effect_flowing_lines_subtitle" = "Gelişen konturlar, üç şarkı sözü çizgisiyle sanat eserinin yörüngesinde dönüyor";
-"immersive_lyrics_motion_subtitle" = "Başlık duvarı kaymasını ve yatay şarkı sözü çerçevesini kontrol eder; Yazıyı sabit tutmak için kapatın.";
+"immersive_lyrics_motion_subtitle" = "Tam ekran efektlerinde şarkı sözü satırları arasındaki geçişleri denetler. Kapatıldığında sözler çalmayla eşzamanlı kalır.";
 "send_to_tv_error_cloud_upload" = "CloudKit arşiv yüklemesi başarısız oldu: %@";
 "ext.widget.recent.empty.large" = "Yakın zamanda oynattığınız albümler Ana Ekranınızla otomatik olarak senkronize edilir";
 "error.baidu.firstFailedItem" = ": %@ (hata yok %@)";
@@ -501,7 +492,6 @@
 "artist_name_settings_tv_summary" = "%1$d ayırıcı · %2$d korumalı";
 "ext.tv.options.sleepActive" = "Uyku %d dk.";
 "ext.tv.search.topResult" = "En İyi Sonuç";
-"ext.tv.immersive.style.vinyl" = "Vinil";
 "ext.tv.scan.formats" = "FLAC · MP3 · AAC · DSD…";
 "ext.tv.settings.library" = "Arşiv";
 "ext.tv.settings.themeColor" = "Tema Rengi";
@@ -582,7 +572,6 @@
 "ext.tv.playlists.eyebrow" = "Çalma listeleri";
 "ext.tv.search.aiLoading" = "İlgili kavramları bulma…";
 "ext.tv.radio.live" = "CANLI";
-"ext.tv.immersive.style.native" = "Orijinal";
 "ext.tv.settings.tip.touch.title" = "Dokunmatik yüzey";
 "ext.tv.playlists.title" = "Çalma Listeleriniz · %d";
 "ext.tv.test.resolved" = "çözüldü";

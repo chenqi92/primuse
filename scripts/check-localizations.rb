@@ -126,10 +126,6 @@ IDENTICAL_VALUE_KEYS = %w[
   ssh_key
   spatial_audio
   stats_hours_minutes_format
-  ext.tv.immersive.style.lightField
-  ext.tv.immersive.style.deepField
-  ext.tv.immersive.style.ambientBloom
-  ext.tv.immersive.style.lyricStage
   ext.tv.sources.form.host
   ext.tv.radio.play
   ext.tv.radio.stop
@@ -149,7 +145,6 @@ IDENTICAL_VALUE_GLOBAL_ALLOWLIST = %w[
   fullscreen_effect_cover_flow
   fullscreen_effect_collection_native
   fullscreen_effect_native
-  fullscreen_effect_vinyl
   immersive_demo_album
   immersive_demo_title
   local_import_failure_item_format
@@ -216,7 +211,6 @@ FORBIDDEN_VISIBLE_LITERALS = [
 JAPANESE_TRANSLATION_REQUIRED_PREFIXES = %w[
   ai_
   search_ai_
-  ext.tv.immersive.style.
 ].freeze
 
 IDENTICAL_VALUE_ALLOWLIST = {

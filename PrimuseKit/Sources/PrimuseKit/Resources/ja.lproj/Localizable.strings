@@ -176,17 +176,6 @@
 // tvOS — 没入フルスクリーン再生
 "ext.tv.settings.immersive"                = "没入スタイル";
 "ext.tv.immersive.exitHint"                = "メニューボタンで戻る";
-"ext.tv.immersive.style.native"            = "オリジナル";
-"ext.tv.immersive.style.lyrics"            = "歌詞";
-"ext.tv.immersive.style.cover"             = "ジャケット";
-"ext.tv.immersive.style.visualizer"        = "ビジュアライザー";
-"ext.tv.immersive.style.lightField"        = "光のフィールド";
-"ext.tv.immersive.style.typography"        = "タイポグラフィ";
-"ext.tv.immersive.style.deepField"         = "深層フィールド";
-"ext.tv.immersive.style.ambientBloom"      = "アンビエントブルーム";
-"ext.tv.immersive.style.lyricStage"        = "歌詞ステージ";
-"ext.tv.immersive.style.spectrum"          = "スペクトラム";
-"ext.tv.immersive.style.vinyl"             = "レコード";
 "ext.tv.immersive.timelineDisclosure"      = "タイムライン連動 · ライブ音量ではありません";
 "ext.tv.immersive.lyricsHint"              = "上にスワイプして歌詞を表示";
 "ext.tv.immersive.holdForQueue"            = "長押しでキューを表示";
@@ -692,7 +681,7 @@
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";
 "immersive_lyrics_motion_title" = "イマーシブ文字モーション";
-"immersive_lyrics_motion_subtitle" = "曲名ウォールの緩やかな移動と横方向の歌詞マーキーを制御し、オフにすると文字が静止します。";
+"immersive_lyrics_motion_subtitle" = "全画面エフェクトで歌詞の行が切り替わる際のアニメーションを設定します。オフにしても歌詞は再生に合わせて更新されます。";
 "local_import_insufficient_space" = "空き容量が不足しています（必要：%lld バイト、利用可能：%lld バイト）。";
 "ext.tv.settings.intelligence" = "インテリジェンス機能";
 "ext.tv.settings.intelligence.ready" = "セマンティック検索の準備完了";

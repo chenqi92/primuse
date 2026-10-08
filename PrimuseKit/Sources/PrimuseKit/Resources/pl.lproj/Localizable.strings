@@ -165,17 +165,6 @@
 "ext.tv.immersive.exitHint" = "Naciśnij Menu, aby wyjść";
 "ext.tv.immersive.holdForQueue" = "Czekaj na kolejkę";
 "ext.tv.immersive.lyricsHint" = "Przesuń w górę, aby zobaczyć tekst";
-"ext.tv.immersive.style.ambientBloom" = "Rozkwit otoczenia";
-"ext.tv.immersive.style.cover" = "Okładka";
-"ext.tv.immersive.style.deepField" = "Głębokie Pole";
-"ext.tv.immersive.style.lightField" = "Pole świetlne";
-"ext.tv.immersive.style.lyricStage" = "Scena liryczna";
-"ext.tv.immersive.style.lyrics" = "Tekst utworu";
-"ext.tv.immersive.style.native" = "Oryginał";
-"ext.tv.immersive.style.spectrum" = "Widmo";
-"ext.tv.immersive.style.typography" = "Typografia";
-"ext.tv.immersive.style.vinyl" = "Winyl";
-"ext.tv.immersive.style.visualizer" = "Wizualizator";
 "ext.tv.immersive.timelineDisclosure" = "Oparta na osi czasu · nie na poziomach na żywo";
 "ext.tv.library.eyebrow" = "Biblioteka";
 "ext.tv.library.indexHint" = "Przejdź w prawo do paska liter, aby skakać według pierwszej litery";
@@ -587,7 +576,7 @@
 "immersive_demo_album" = "wyspa dźwiękowa";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_title" = "Primuse";
-"immersive_lyrics_motion_subtitle" = "Steruje ruchem ściany tytułów i poziomym przewijaniem tekstu; wyłącz, aby tekst pozostał nieruchomy.";
+"immersive_lyrics_motion_subtitle" = "Steruje animacją przejść między wersami tekstu w efektach pełnoekranowych. Po wyłączeniu tekst nadal jest zsynchronizowany z odtwarzaniem.";
 "immersive_lyrics_motion_title" = "Ruch typu immersyjnego";
 "library_recommendations_title" = "Polecane";
 "local_import_insufficient_space" = "Za mało wolnego miejsca (wymagane bajty %lld, dostępne bajty %lld).";

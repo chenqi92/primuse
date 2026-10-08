@@ -176,17 +176,6 @@
 // tvOS — 몰입형 전체 화면 재생
 "ext.tv.settings.immersive"                = "몰입 스타일";
 "ext.tv.immersive.exitHint"                = "메뉴 버튼으로 나가기";
-"ext.tv.immersive.style.native"            = "기본";
-"ext.tv.immersive.style.lyrics"            = "가사";
-"ext.tv.immersive.style.cover"             = "앨범 아트";
-"ext.tv.immersive.style.visualizer"        = "시각화";
-"ext.tv.immersive.style.lightField"        = "빛의 장";
-"ext.tv.immersive.style.typography"        = "타이포그래피";
-"ext.tv.immersive.style.deepField"         = "딥 필드";
-"ext.tv.immersive.style.ambientBloom"      = "앰비언트 블룸";
-"ext.tv.immersive.style.lyricStage"        = "가사 무대";
-"ext.tv.immersive.style.spectrum"          = "스펙트럼";
-"ext.tv.immersive.style.vinyl"             = "바이닐";
 "ext.tv.immersive.timelineDisclosure"      = "타임라인 기반 · 실시간 레벨 아님";
 "ext.tv.immersive.lyricsHint"              = "위로 쓸어 가사 보기";
 "ext.tv.immersive.holdForQueue"            = "길게 눌러 대기열 열기";
@@ -692,7 +681,7 @@
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";
 "immersive_lyrics_motion_title" = "몰입형 문자 모션";
-"immersive_lyrics_motion_subtitle" = "곡명 벽의 느린 이동과 가로 가사 흐름을 제어하며 끄면 문자가 정지합니다.";
+"immersive_lyrics_motion_subtitle" = "전체 화면 효과에서 가사 줄이 바뀔 때의 전환 애니메이션을 설정합니다. 꺼도 가사는 재생에 맞춰 계속 표시됩니다.";
 "local_import_insufficient_space" = "사용 가능한 공간이 부족합니다(필요: %lld바이트, 사용 가능: %lld바이트).";
 "ext.tv.settings.intelligence" = "지능형 기능";
 "ext.tv.settings.intelligence.ready" = "의미 검색 준비됨";

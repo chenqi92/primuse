@@ -165,17 +165,6 @@
 "ext.tv.immersive.exitHint" = "اضغط على القائمة للخروج";
 "ext.tv.immersive.holdForQueue" = "الانتظار لقائمة الانتظار";
 "ext.tv.immersive.lyricsHint" = "اسحب لأعلى للحصول على كلمات الأغاني";
-"ext.tv.immersive.style.ambientBloom" = "بلوم المحيط";
-"ext.tv.immersive.style.cover" = "عمل فني";
-"ext.tv.immersive.style.deepField" = "المجال العميق";
-"ext.tv.immersive.style.lightField" = "المجال الضوئي";
-"ext.tv.immersive.style.lyricStage" = "المرحلة الغنائية";
-"ext.tv.immersive.style.lyrics" = "كلمات الأغاني";
-"ext.tv.immersive.style.native" = "الأصل";
-"ext.tv.immersive.style.spectrum" = "الطيف";
-"ext.tv.immersive.style.typography" = "الطباعة";
-"ext.tv.immersive.style.vinyl" = "الفينيل";
-"ext.tv.immersive.style.visualizer" = "المتخيل";
 "ext.tv.immersive.timelineDisclosure" = "يعتمد على الجدول الزمني · ليس المستويات المباشرة";
 "ext.tv.library.eyebrow" = "المكتبة";
 "ext.tv.library.indexHint" = "انتقل يمينًا إلى شريط الحروف للقفز حسب الحرف الأول";
@@ -587,7 +576,7 @@
 "immersive_demo_album" = "soundisle";
 "immersive_demo_artist" = "تشينكي92";
 "immersive_demo_title" = "Primuse";
-"immersive_lyrics_motion_subtitle" = "يتحكم في انحراف جدار العنوان وشريط التحديد الغنائي الأفقي؛ قم بإيقاف التشغيل للحفاظ على الكتابة ثابتة.";
+"immersive_lyrics_motion_subtitle" = "يتحكم في انتقالات أسطر كلمات الأغنية ضمن تأثيرات ملء الشاشة. تظل الكلمات متزامنة مع التشغيل عند إيقافه.";
 "immersive_lyrics_motion_title" = "حركة من النوع الغامر";
 "library_recommendations_title" = "التوصيات";
 "local_import_insufficient_space" = "المساحة الحرة غير كافية (مطلوب %lld بايت، متاح %lld بايت).";

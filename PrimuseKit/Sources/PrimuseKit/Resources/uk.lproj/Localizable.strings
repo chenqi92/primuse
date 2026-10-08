@@ -64,7 +64,6 @@
 "send_to_tv_error_credential_read" = "“%@” %@ не вдалося прочитати з Keychain (OSStatus %@).";
 "ext.widget.nowPlaying.empty.openShort" = "Відкрийте Primuse, щоб продовжити";
 "ext.widget.nowPlaying.empty.tapToPlay" = "Натисніть, щоб почати гру";
-"ext.tv.immersive.style.typography" = "Типографіка";
 "error.baidu.missingPaths" = "Файловий менеджер Baidu пропустив шлях(и) %@.";
 "theme_color_rose" = "Роза";
 "error.catalog.pageTotalMismatch" = "Сторінка треку не відповідає заявленій сумі.";
@@ -93,7 +92,6 @@
 "auth_method" = "Метод автентифікації";
 "ext.control.pause" = "Пауза";
 "ext.tv.settings.intelligence.setup" = "Налаштувати постачальника";
-"ext.tv.immersive.style.visualizer" = "Візуалізатор";
 "ai_recommendation_intent_genreExploration" = "Дослідження жанру";
 "ext.tv.sources.testConnection" = "Перевірити підключення";
 "send_to_tv_error_source_data" = "Не вдалося прочитати конфігурацію музичного джерела: %@";
@@ -233,7 +231,6 @@
 "source_connection_local" = "LAN";
 "ext.tv.scan.fullLibrary" = "%@ · Повна медіатека";
 "ext.tv.settings.tip.touch.body" = "Проведіть вгору / вниз / вліво / вправо · натисніть, щоб вибрати";
-"ext.tv.immersive.style.lightField" = "Світлове поле";
 "ext.widget.wrapped.headline" = "Ваш %@\n прослуховував %d годин";
 "ext.tv.demo.lyric3" = "Ми бредемо додому старим провулком";
 "radio.streamFormat.automatic" = "Автоматично";
@@ -275,7 +272,6 @@
 "ext.tv.settings.synced" = "Синхронізовані · пісні %@";
 "ext.tv.test.unsupported" = "“%@” не можна відтворити безпосередньо на Apple TV";
 "source_connection_public_address" = "Публічна адреса або зворотний проксі URL";
-"ext.tv.immersive.style.lyricStage" = "Лірична сцена";
 "library_recommendations_title" = "Рекомендації";
 "artist_name_settings_title" = "Імена виконавців";
 "ext.tv.sources.hint.smb" = "NAS · TrueNAS · Спільні папки";
@@ -319,7 +315,6 @@
 "error.baidu.failedItems" = "Baidu диспетчер файлів не працює %@ елемент(и)";
 "ext.widget.nowPlaying.eyebrowFormat" = "Зараз грає · %@";
 "ext.widget.nowPlaying.pausedEyebrowFormat" = "Призупинено · %@";
-"ext.tv.immersive.style.cover" = "Обкладинка";
 "error.catalog.unrecognizedItem" = "Список треків містить нерозпізнаний елемент.";
 "ext.tv.home.recentlyPlayed" = "Нещодавно прослухані";
 "ai_recommendation_intent_prompt_label" = "Підказка AI";
@@ -337,7 +332,6 @@
 "ext.tv.settings.autoSync" = "Автоматична синхронізація під час запуску";
 "ext.widget.nowPlaying.playing" = "Зараз грає";
 "ext.tv.search.songs" = "Пісні";
-"ext.tv.immersive.style.deepField" = "Глибоке поле";
 "ext.tv.playback.relayUnavailable" = "Для цього джерела потрібне реле iPhone — тримайте Primuse відкритим на своєму телефоні на тому ж Wi-Fi, що й Apple TV";
 "ext.tv.settings.intelligence.ready" = "Семантичний пошук готовий";
 "ext.widget.wrapped.displayName" = "Огляд року";
@@ -390,12 +384,10 @@
 "serverShare.error.unsupported" = "Цей сервер не підтримує загальнодоступні медіапосилання, або спільний доступ вимкнено.";
 "error.catalog.invalidTrackReference" = "Посилання на трек недійсне.";
 "ext.widget.stats.last30Days" = "Останні 30 днів";
-"ext.tv.immersive.style.spectrum" = "Спектр";
 "ext.tv.sources.editConnection" = "Редагувати підключення";
 "fnmusic_access_code" = "Код доступу FN Connect (необов’язково)";
 "ext.tv.nav.library" = "Медіатека";
 "eq.preset.treble" = "Високі +";
-"ext.tv.immersive.style.lyrics" = "Текст пісні";
 "ext.tv.error.oversizedChunk" = "Віддалений файл повернув %@ байт для запиту %@ байт.";
 "ext.synology.quickconnect.error.unreachable" = "QuickConnect не вдалося встановити з’єднання.";
 "ext.tv.certificate.message" = "Не вдалося перевірити сертифікат HTTPS для %1$@. Продовжуйте, лише якщо це ваш сервер. Вас знову запитають, якщо сертифікат зміниться.";
@@ -421,14 +413,13 @@
 "ext.watch.demo.artist" = "Виконавець";
 "ext.tv.home.shuffle" = "Перемішати";
 "ext.widget.demo.songTitle" = "Прелюдія до мелодії води";
-"ext.tv.immersive.style.ambientBloom" = "М'яке сяйво";
 "ext.watch.appName" = "Primuse";
 "ext.widget.wrapped.description" = "Підсумки року прослуховування.";
 "error.fnConnect.unreachable" = "Ні прямий, ні ретрансляційний маршрут FN Connect недоступні.";
 "ext.widget.lyricsPreview.empty3" = ", і вони підуть тут";
 "ext.tv.sources.cancel" = "Скасувати";
 "fullscreen_effect_flowing_lines_subtitle" = "Контури, що розвиваються, охоплюють твір мистецтва трьома ліричними лініями";
-"immersive_lyrics_motion_subtitle" = "Керує дрейфом стіни заголовка та горизонтальною рамкою тексту; вимкніть, щоб текст був нерухомим.";
+"immersive_lyrics_motion_subtitle" = "Керує анімацією переходів між рядками тексту в повноекранних ефектах. Після вимкнення текст залишається синхронізованим із відтворенням.";
 "send_to_tv_error_cloud_upload" = "Помилка завантаження медіатеки CloudKit: %@";
 "ext.widget.recent.empty.large" = "Альбоми, які ви нещодавно відтворювали, автоматично синхронізуються з головним екраном";
 "error.baidu.firstFailedItem" = ": %@ (помилка %@)";
@@ -501,7 +492,6 @@
 "artist_name_settings_tv_summary" = "Роздільники %1$d · Захищено %2$d";
 "ext.tv.options.sleepActive" = "Сон %d мін";
 "ext.tv.search.topResult" = "Кращий результат";
-"ext.tv.immersive.style.vinyl" = "Вініл";
 "ext.tv.scan.formats" = "FLAC · MP3 · AAC · DSD…";
 "ext.tv.settings.library" = "Медіатека";
 "ext.tv.settings.themeColor" = "Колір теми";
@@ -582,7 +572,6 @@
 "ext.tv.playlists.eyebrow" = "Плейлісти";
 "ext.tv.search.aiLoading" = "Пошук пов’язаних понять…";
 "ext.tv.radio.live" = "НАЖИВО";
-"ext.tv.immersive.style.native" = "Оригінал";
 "ext.tv.settings.tip.touch.title" = "Сенсорна поверхня";
 "ext.tv.playlists.title" = "Ваші списки відтворення · %d";
 "ext.tv.test.resolved" = "вирішено";

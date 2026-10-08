@@ -165,17 +165,6 @@
 "ext.tv.immersive.exitHint" = "बाहर निकलने के लिए मेनू दबाएँ";
 "ext.tv.immersive.holdForQueue" = "कतार के लिए रुकें";
 "ext.tv.immersive.lyricsHint" = "गीत के बोल के लिए ऊपर की ओर स्वाइप करें";
-"ext.tv.immersive.style.ambientBloom" = "एम्बिएंट ब्लूम";
-"ext.tv.immersive.style.cover" = "कलाकृति";
-"ext.tv.immersive.style.deepField" = "गहरा क्षेत्र";
-"ext.tv.immersive.style.lightField" = "प्रकाश क्षेत्र";
-"ext.tv.immersive.style.lyricStage" = "गीत के बोल मंच";
-"ext.tv.immersive.style.lyrics" = "गीत के बोल";
-"ext.tv.immersive.style.native" = "मूल";
-"ext.tv.immersive.style.spectrum" = "स्पेक्ट्रम";
-"ext.tv.immersive.style.typography" = "टाइपोग्राफी";
-"ext.tv.immersive.style.vinyl" = "विनाइल";
-"ext.tv.immersive.style.visualizer" = "विज़ुअलाइज़र";
 "ext.tv.immersive.timelineDisclosure" = "टाइमलाइन-चालित · लाइव स्तर नहीं";
 "ext.tv.library.eyebrow" = "लाइब्रेरी";
 "ext.tv.library.indexHint" = "पहले अक्षर से जाने के लिए दाईं ओर अक्षर पट्टी पर जाएँ";
@@ -587,7 +576,7 @@
 "immersive_demo_album" = "soundisle";
 "immersive_demo_artist" = "चेनकी92";
 "immersive_demo_title" = "Primuse";
-"immersive_lyrics_motion_subtitle" = "शीर्षक दीवार बहाव और क्षैतिज गीत के बोल मार्की को नियंत्रित करता है; टाइप को स्थिर रखने के लिए बंद करें।";
+"immersive_lyrics_motion_subtitle" = "फ़ुलस्क्रीन प्रभावों में गीत की पंक्तियाँ बदलने का ऐनिमेशन नियंत्रित करता है। बंद करने पर भी गीत के बोल प्लेबैक के साथ बदलते रहते हैं।";
 "immersive_lyrics_motion_title" = "इमर्सिव प्रकार की गति";
 "library_recommendations_title" = "सिफ़ारिशें";
 "local_import_insufficient_space" = "पर्याप्त खाली स्थान नहीं (आवश्यक %lld बाइट्स, उपलब्ध %lld बाइट्स)।";

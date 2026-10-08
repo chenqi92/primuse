@@ -176,17 +176,6 @@
 // tvOS — Lecture plein écran immersive
 "ext.tv.settings.immersive"                = "Style immersif";
 "ext.tv.immersive.exitHint"                = "Appuyez sur Menu pour quitter";
-"ext.tv.immersive.style.native"            = "D’origine";
-"ext.tv.immersive.style.lyrics"            = "Paroles";
-"ext.tv.immersive.style.cover"             = "Pochette";
-"ext.tv.immersive.style.visualizer"        = "Visualiseur";
-"ext.tv.immersive.style.lightField"        = "Champ lumineux";
-"ext.tv.immersive.style.typography"        = "Typographie";
-"ext.tv.immersive.style.deepField"         = "Champ profond";
-"ext.tv.immersive.style.ambientBloom"      = "Halo ambiant";
-"ext.tv.immersive.style.lyricStage"        = "Scène paroles";
-"ext.tv.immersive.style.spectrum"          = "Spectre";
-"ext.tv.immersive.style.vinyl"             = "Vinyle";
 "ext.tv.immersive.timelineDisclosure"      = "Piloté par la chronologie · niveaux non temps réel";
 "ext.tv.immersive.lyricsHint"              = "Balayer vers le haut pour les paroles";
 "ext.tv.immersive.holdForQueue"            = "Maintenir pour la file";
@@ -692,7 +681,7 @@
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";
 "immersive_lyrics_motion_title" = "Mouvement typographique immersif";
-"immersive_lyrics_motion_subtitle" = "Contrôle la dérive du mur de titres et le bandeau horizontal de paroles ; désactivez pour figer le texte.";
+"immersive_lyrics_motion_subtitle" = "Contrôle les transitions entre les lignes des paroles dans les effets plein écran. Les paroles restent synchronisées lorsque cette option est désactivée.";
 "local_import_insufficient_space" = "Espace libre insuffisant (%lld octets requis, %lld octets disponibles).";
 "ext.tv.settings.intelligence" = "Fonctions intelligentes";
 "ext.tv.settings.intelligence.ready" = "La recherche sémantique est prête";

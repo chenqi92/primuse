@@ -176,17 +176,6 @@
 // tvOS — Immersive Vollbildwiedergabe
 "ext.tv.settings.immersive"                = "Immersiver Stil";
 "ext.tv.immersive.exitHint"                = "Menü drücken zum Beenden";
-"ext.tv.immersive.style.native"            = "Original";
-"ext.tv.immersive.style.lyrics"            = "Songtext";
-"ext.tv.immersive.style.cover"             = "Cover";
-"ext.tv.immersive.style.visualizer"        = "Visualisierung";
-"ext.tv.immersive.style.lightField"        = "Lichtfeld";
-"ext.tv.immersive.style.typography"        = "Typografie";
-"ext.tv.immersive.style.deepField"         = "Tiefenfeld";
-"ext.tv.immersive.style.ambientBloom"      = "Atmosphärisches Leuchten";
-"ext.tv.immersive.style.lyricStage"        = "Liedtextbühne";
-"ext.tv.immersive.style.spectrum"          = "Spektrum";
-"ext.tv.immersive.style.vinyl"             = "Vinyl";
 "ext.tv.immersive.timelineDisclosure"      = "Zeitachsenbasiert · keine Live-Pegel";
 "ext.tv.immersive.lyricsHint"              = "Für Songtext nach oben wischen";
 "ext.tv.immersive.holdForQueue"            = "Für Warteschlange halten";
@@ -692,7 +681,7 @@
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";
 "immersive_lyrics_motion_title" = "Immersive Textbewegung";
-"immersive_lyrics_motion_subtitle" = "Steuert die Bewegung der Titelwand und den horizontalen Liedtextlauf; ausgeschaltet bleibt der Text statisch.";
+"immersive_lyrics_motion_subtitle" = "Steuert die Übergänge zwischen Liedtextzeilen in Vollbildeffekten. Auch ausgeschaltet bleibt der Liedtext synchron.";
 "local_import_insufficient_space" = "Nicht genügend freier Speicherplatz (%lld Byte benötigt, %lld Byte verfügbar).";
 "ext.tv.settings.intelligence" = "Intelligente Funktionen";
 "ext.tv.settings.intelligence.ready" = "Semantische Suche ist bereit";

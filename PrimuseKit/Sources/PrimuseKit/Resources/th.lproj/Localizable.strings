@@ -165,17 +165,6 @@
 "ext.tv.immersive.exitHint" = "กด Menu เพื่อออก";
 "ext.tv.immersive.holdForQueue" = "รอคิว";
 "ext.tv.immersive.lyricsHint" = "ปัดขึ้นเพื่อดูเนื้อเพลง";
-"ext.tv.immersive.style.ambientBloom" = "แอมเบียนท์ บลูม";
-"ext.tv.immersive.style.cover" = "งานศิลปะ";
-"ext.tv.immersive.style.deepField" = "ทุ่งลึก";
-"ext.tv.immersive.style.lightField" = "สนามแสง";
-"ext.tv.immersive.style.lyricStage" = "เวทีเนื้อเพลง";
-"ext.tv.immersive.style.lyrics" = "เนื้อเพลง";
-"ext.tv.immersive.style.native" = "ต้นฉบับ";
-"ext.tv.immersive.style.spectrum" = "สเปกตรัม";
-"ext.tv.immersive.style.typography" = "การพิมพ์";
-"ext.tv.immersive.style.vinyl" = "ไวนิล";
-"ext.tv.immersive.style.visualizer" = "วิชวลไลเซอร์";
 "ext.tv.immersive.timelineDisclosure" = "ขับเคลื่อนด้วยไทม์ไลน์ · ไม่ใช่ระดับสด";
 "ext.tv.library.eyebrow" = "คลังเพลง";
 "ext.tv.library.indexHint" = "เลื่อนไปทางขวาที่แถบตัวอักษรเพื่อข้ามตามอักษรตัวแรก";
@@ -587,7 +576,7 @@
 "immersive_demo_album" = "soundisle";
 "immersive_demo_artist" = "เฉินฉี92";
 "immersive_demo_title" = "Primuse";
-"immersive_lyrics_motion_subtitle" = "ควบคุมการเลื่อนของผนังชื่อเรื่องและเนื้อเพลงแนวนอน ปิดเพื่อให้พิมพ์นิ่ง";
+"immersive_lyrics_motion_subtitle" = "ควบคุมแอนิเมชันการเปลี่ยนบรรทัดเนื้อเพลงในเอฟเฟ็กต์เต็มหน้าจอ เมื่อปิด เนื้อเพลงยังคงเปลี่ยนตามการเล่นเพลง";
 "immersive_lyrics_motion_title" = "การเคลื่อนไหวแบบดื่มด่ำ";
 "library_recommendations_title" = "คำแนะนำ";
 "local_import_insufficient_space" = "พื้นที่ว่างไม่เพียงพอ (ต้องการ %lld ไบต์ มี %lld ไบต์)";

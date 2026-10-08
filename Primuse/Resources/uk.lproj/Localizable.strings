@@ -1,7 +1,7 @@
 "onboarding_mac_field_server" = "Сервер";
 "cloud_authorizing_listening_format" = "Прослуховування на схемі URL · %@";
 "greeting_morning" = "Доброго ранку";
-"immersive_lyrics_motion_subtitle" = "Керує дрейфом стіни заголовка та горизонтальною рамкою тексту; вимкніть, щоб текст був нерухомим.";
+"immersive_lyrics_motion_subtitle" = "Керує анімацією переходів між рядками тексту в повноекранних ефектах. Після вимкнення текст залишається синхронізованим із відтворенням.";
 "player_landscape_fullscreen_title" = "Повний екран в альбомній орієнтації";
 "player_landscape_fullscreen_subtitle" = "Якщо повернути iPhone горизонтально на екрані відтворення, відкриється вибраний повноекранний ефект; якщо повернути вертикально — закриється.";
 "immersive_frame_rate_title" = "Частота кадрів";
@@ -168,7 +168,6 @@
 "song_sort_progress_format" = "Сортування за %@…";
 "apple_music_library_section" = "Медіатека Apple Music";
 "password" = "Пароль";
-"fullscreen_effect_vinyl_subtitle" = "Платівка, тонарм і зменшена дека керування";
 "smart_field_bitRate" = "Бітрейт";
 "radio_batch_add_none" = "Спочатку виберіть станції";
 "smart_limit" = "Ліміт";
@@ -594,7 +593,6 @@
 "max" = "Макс";
 "ext.tv.search.aiFailed" = "Помилка інтелектуального пошуку; регулярні результати залишаються доступними";
 "player_blur_inactive_lyrics" = "Розмивати неактивні рядки";
-"fullscreen_effect_deep_field_subtitle" = "Тихий сценічний малюнок із точним керуванням лінії волосся";
 "Optional, narrows the match if multiple songs share a title." = "Необов’язково, звужує відповідність, якщо кілька пісень мають спільну назву.";
 "Audio decoding engine" = "Механізм декодування звуку";
 "ai_primuse_relay_test_connection" = "Тестування вбудованої служби";
@@ -763,7 +761,6 @@
 "synology_connection_address" = "Адреса сервера";
 "ssl_trust_title" = "Помилка сертифіката SSL";
 "immersive_lock_controls" = "Блокування ефектів занурення";
-"fullscreen_effect_visualizer" = "Візуалізатор";
 "ssl_trust_changed_title" = "Сертифікат сервера змінено";
 "metadata_status_retry_failed" = "Повторіть проблемні пісні";
 "ssl_trust_changed_message" = "Сертифікат сервера відрізняється від того, який ви підтвердили раніше. Перевірте деталі перед оновленням довіри.";
@@ -824,7 +821,6 @@
 "carplay_tab_albums" = "Альбоми";
 "ai_provider_preset_together" = "Together AI";
 "dup_clean_all_done_format" = "Видалено зайві копії %d";
-"fullscreen_effect_spectrum_subtitle" = "Специфікації спектра та аудіо панелі приладів";
 "onboarding_mac_done" = "Готово";
 "Fill missing metadata, artwork, and lyrics for the current Primuse song." = "Заповніть відсутні метадані, обкладинку та текст для поточної пісні Primuse.";
 "lyrics_editor_title" = "Текст пісні";
@@ -1201,7 +1197,6 @@
 "lyrics_editor_word_level_hint" = "Цей рядок має часові мітки для окремих слів";
 "smart_rule_group_excluded" = "Виключена група";
 "scrobble_mac_waiting_authorization" = "Очікування авторизації";
-"fullscreen_effect_light_field_subtitle" = "Повільне плетене світло та рух призми";
 "tag_editor_lyrics_writeback_unavailable" = "Джерело музики наразі неможливе для запису: %@";
 "tag_editor_lyrics_writeback_retry" = "Цього разу не вдалося зв'язатися з джерелом музики (%@). Зміни збережено в Primuse — повторіть запис трохи згодом.";
 "carplay_empty_library_subtitle" = "Щоб почати, додайте джерело музики на свій iPhone";
@@ -1410,7 +1405,6 @@
 "retry" = "Повторіть спробу";
 "home_pipeline_metadata" = "Метадані";
 "cancel_timer" = "Скасувати таймер";
-"fullscreen_effect_vinyl" = "Вініл";
 "scraper_musicbrainz_desc" = "Відкрита музична база даних, метадані та обкладинки";
 "settings_dlna_devices_empty" = "Ще немає підключених пристроїв. Виберіть Primuse у програмі контрольної точки на тому ж Wi-Fi.";
 "playlist_import_intro_desc" = "Файли плейлистів (m3u, json або csv / txt / xml / pls / xspf / wpl, експортовані з Apple Music, інструментів експорту Spotify, foobar2000, VLC чи Windows Media Player) зіставляються з медіатекою за назвою файлу та назвою/виконавцем.";
@@ -1509,7 +1503,6 @@
 "lyrics_editor_partial_progress" = "Синхронізовано рядків: %1$d із %2$d";
 "smart_value_format_none" = "Будь-який формат";
 "scrape_candidates_empty_hint" = "Спробуйте інший термін у полі пошуку або переконайтеся, що постачальники метаданих увімкнено в налаштуваннях.";
-"fullscreen_effect_spectrum" = "Спектр";
 "This Month's Listening" = "Прослуховування цього місяця";
 "synology_error_invalid_url" = "Недійсна адреса";
 "apple_music_notice_notDetermined" = "Apple Music ще не підключено. Перейдіть до Налаштування → Apple Music, щоб увімкнути пошук по каталогу.";
@@ -1524,7 +1517,6 @@
 "keyboard_shortcuts_not_set" = "Не встановлено";
 "local_import_copy_title" = "Копіювати до Primuse";
 "ai_listening_context_consent" = "Дозволити надсилання мінімальних відомостей про музичні вподобання та пісні-кандидати";
-"fullscreen_effect_lyrics" = "Текст пісні";
 "smart_mac_match" = "Збіг";
 "tag_editor_mac_field_changed" = "Змінено";
 "synology_error_http_format" = "HTTP помилка %d";
@@ -1598,7 +1590,6 @@
 "Remaining" = "Залишилося";
 "ai_playlist_streaming_results" = "Додавання пісень по мірі надходження…";
 "Small 155" = "Малий 155";
-"fullscreen_effect_lyrics_subtitle" = "Ліричний колодязь у портреті, кінематографічний розкол у пейзажі";
 "library_cleanup_trash_count_format" = "%d елементи";
 "send_to_tv_lan_message" = "Надішліть свою медіатеку, джерела та облікові дані безпосередньо на цей Apple TV через локальну мережу. iCloud не використовується.";
 "Open-Source Licenses…" = "Ліцензії з відкритим кодом…";
@@ -1752,7 +1743,6 @@
 "ai_authentication_style_bearer" = "Токен на пред'явника";
 "Effects Chain" = "Ланцюжок ефектів";
 "Playback History" = "Історія відтворення";
-"fullscreen_effect_cover" = "Обкладинка";
 "lyrics_editor_clear_stamp" = "Видалити часову мітку";
 "Apple Music · Restricted" = "Apple Music · Обмежено";
 "Sync Now" = "Синхронізувати зараз";
@@ -1992,7 +1982,6 @@
 "yearly_report_title" = "Рік у музиці";
 "lyrics_color" = "Колір тексту";
 "error_cloudkit_record_upload %@" = "Збій завантаження запису CloudKit: %@";
-"fullscreen_effect_cover_subtitle" = "Обкладинка сцени в портретній орієнтації, вінілова колода в альбомній орієнтації";
 "lyrics_editor_menu" = "Редагувати текст пісні";
 "Station" = "Станція";
 "synced_items" = "Синхронізовані елементи";
@@ -2019,7 +2008,6 @@
 "relay_import_status" = "Статус";
 "no_recorded_playback" = "Немає записаного відтворення";
 "local_import_partial_title" = "Частково імпортовано";
-"fullscreen_effect_visualizer_subtitle" = "Туманність частинок і спектральний горизонт";
 "Enabled Sources" = "Увімкнені джерела";
 "error_credential_read_failed %@" = "Не вдалося прочитати збережені облікові дані (%@).";
 "home_section_quick_access" = "Обране";
@@ -2097,7 +2085,6 @@
 "relay_import_error_too_large" = "Файл перевищує 20 ГБ, тому його не можна імпортувати.";
 "dsd_mode_pcm" = "Перетворити на PCM";
 "scrobble_mac_disabled_title" = "Scrobble вимкнено";
-"fullscreen_effect_light_field" = "Світлове поле";
 "tag_editor_field_duration" = "Тривалість";
 "weekday_wednesday_short" = "Ср";
 "icloud_container_setup_hint" = "Увімкніть контейнер iCloud iCloud.com.welape.yuanyin в Apple Developer і перевірте його в Xcode → Підпис і можливості";
@@ -2275,7 +2262,6 @@
 "tag_editor_mac_changed_format" = "● Зміни %d";
 "ai_capability_section" = "Інтелект";
 "metadata_writeback_error_stage_format" = "%@: %@ помилка: %@";
-"fullscreen_effect_ambient_bloom_subtitle" = "Колір ілюстрації розширюється до м’якого повноекранного світіння";
 "error_scrobble_invalid_credentials" = "Облікові дані скроблінгу недійсні. Увійдіть знову.";
 "scrobble_lastfm_default_footer" = "Connect відкриває Last.fm в Primuse. Увійдіть, торкніть «Дозволити», потім торкніть «Готово», щоб повернутися; Primuse автоматично завершить підключення.";
 "home_radio_wall_badge" = "НАЖИВО";
@@ -2633,7 +2619,6 @@
 "queue_all_songs" = "Додати все до черги";
 "ai_enable_audio_transcription" = "Транскрибувати пісню";
 "source_diag_auth_missing_username_suggestion" = "Відредагуйте джерело та введіть назву облікового запису.";
-"fullscreen_effect_deep_field" = "Глибоке поле";
 "Apple AirPods · Head Tracking" = "Apple AirPods · Відстеження голови";
 "playlist_liked_name" = "Сподобалися пісні";
 "song_dislike" = "Не подобається";
@@ -3165,7 +3150,6 @@
 "auto_connect" = "Автоматичне підключення";
 "new_songs_added" = "%d нові пісні";
 "tv_remote_tv" = "телевізор";
-"fullscreen_effect_ambient_bloom" = "М'яке сяйво";
 "ext.tv.search.aiNoMatchFallback" = "Немає збігів після повернення до %@";
 "lyrics_translation_ai_success_format" = "Переклад %@ активний";
 "radio_home_visibility" = "Показуйте радіо на дому";
@@ -3280,7 +3264,6 @@
 "relay_share_access_code" = "Код доступу";
 "select_all" = "Вибрати все";
 "ai_recommendation_status_minute_limit_local" = "Забагато запитів. Спробуйте пізніше; існуючі рекомендації збережено";
-"fullscreen_effect_lyric_stage_subtitle" = "Лірика ведеться зі стриманим заголовком треку";
 "artist_name_settings_protected_empty" = "Немає захищених імен виконавців";
 "no_playlists" = "Немає списків відтворення";
 "custom_credentials_advanced" = "Використовувати спеціальні облікові дані (розширений)";
@@ -3368,7 +3351,6 @@
 "smart_sort_field_lastPlayedAt" = "Остання гра";
 "scrobble_lastfm_pending_hint" = "Триває авторизація Last.fm. Увійдіть, торкніть «Дозволити», потім торкніть «Готово», щоб повернутися до Primuse.";
 "reverb" = "Реверберація";
-"fullscreen_effect_typography" = "Типографіка";
 "done_count_format" = "Готово (%d)";
 "cache_orphaned" = "Видалені вихідні залишки";
 "metadata_status_list_count_format" = "%d постраждали пісні";
@@ -3419,7 +3401,6 @@
 "sources_attention_banner_title" = "%d потребують уваги";
 "filter_downloaded_loading" = "Завантаження завантажених пісень…";
 "yearly_card_growth_same" = "Прослуховування приблизно таке ж, як минулого року";
-"fullscreen_effect_lyric_stage" = "Лірична сцена";
 "year_label" = "Рік";
 "artist_name_settings_reset_confirm" = "Скинути всі правила імен виконавців до стандартних?";
 "radio_remove_logo" = "Видалити логотип";
@@ -3764,7 +3745,6 @@
 "filter_albums_placeholder" = "Фільтрувати альбоми…";
 "ai_primuse_relay_test_running" = "Перевірка вбудованої служби…";
 "scraper_warn_includes_cookie" = "Ця конфігурація містить дані Cookie. Імпортуйте конфігурації лише від тих, кому довіряєте.";
-"fullscreen_effect_typography_subtitle" = "Композиція, створена з метаданих треку";
 "Not checked yet" = "Ще не перевірено";
 "playlist_reorder" = "Змінити замовлення";
 "cache_prewarm_seed" = "Попередньо тепле насіння (голова+хвіст)";

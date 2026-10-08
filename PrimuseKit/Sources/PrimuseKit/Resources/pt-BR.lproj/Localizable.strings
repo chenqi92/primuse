@@ -165,17 +165,6 @@
 "ext.tv.immersive.exitHint" = "Pressione Menu para sair";
 "ext.tv.immersive.holdForQueue" = "Espera para fila";
 "ext.tv.immersive.lyricsHint" = "Deslize para cima para ver a letra";
-"ext.tv.immersive.style.ambientBloom" = "Floração Ambiental";
-"ext.tv.immersive.style.cover" = "Capa";
-"ext.tv.immersive.style.deepField" = "Campo Profundo";
-"ext.tv.immersive.style.lightField" = "Campo de luz";
-"ext.tv.immersive.style.lyricStage" = "Palco Lírico";
-"ext.tv.immersive.style.lyrics" = "Letras";
-"ext.tv.immersive.style.native" = "Originais";
-"ext.tv.immersive.style.spectrum" = "Espectro";
-"ext.tv.immersive.style.typography" = "Tipografia";
-"ext.tv.immersive.style.vinyl" = "Vinil";
-"ext.tv.immersive.style.visualizer" = "Visualizador";
 "ext.tv.immersive.timelineDisclosure" = "Orientado pela linha do tempo · níveis não ao vivo";
 "ext.tv.library.eyebrow" = "Biblioteca";
 "ext.tv.library.indexHint" = "Vá para a direita até a barra de letras para pular pela inicial";
@@ -587,7 +576,7 @@
 "immersive_demo_album" = "ilha sonora";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_title" = "Primuse";
-"immersive_lyrics_motion_subtitle" = "Controla o movimento do mural de títulos e a rolagem horizontal das letras; desative para manter o texto parado.";
+"immersive_lyrics_motion_subtitle" = "Controla as transições entre as linhas da letra nos efeitos de tela cheia. Ao desativar, a letra continua sincronizada com a reprodução.";
 "immersive_lyrics_motion_title" = "Movimento tipo imersivo";
 "library_recommendations_title" = "Recomendações";
 "local_import_insufficient_space" = "Espaço livre insuficiente (bytes %lld necessários, bytes %lld disponíveis).";
