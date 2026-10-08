@@ -188,6 +188,11 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         PodcastPlaybackSong.isEpisode(player.currentSong)
     }
 
+    private var isCurrentDisliked: Bool {
+        guard let songID = player.currentSong?.id else { return false }
+        return library.isDisliked(songID: songID)
+    }
+
     /// 播客这一集:标为已播放(有下一集就接着放)、下载或取消下载。
     /// 已经下好的不给删:正在播的就是这个文件。
     @ViewBuilder
@@ -279,6 +284,14 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                         }
                         .focusEffectDisabled()
                     }
+                }
+            }
+            if player.canDislikeCurrentSong {
+                // 不喜欢(#193): 记下来并切到下一首; 已经不喜欢时再点只撤销。
+                // 心形保持「喜欢 / 取消喜欢」两态, 不叠第三态。
+                menuRow(title: isCurrentDisliked ? "song_undislike" : "song_dislike",
+                        symbol: isCurrentDisliked ? "hand.thumbsdown.fill" : "hand.thumbsdown") {
+                    player.toggleDislikeForCurrentSong()
                 }
             }
             if isPodcastEpisode {

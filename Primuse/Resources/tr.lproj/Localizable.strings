@@ -2631,6 +2631,12 @@
 "fullscreen_effect_deep_field" = "Derin Alan";
 "Apple AirPods · Head Tracking" = "Apple AirPods · Kafa Takibi";
 "playlist_liked_name" = "Beğenilen Şarkılar";
+"song_dislike" = "Beğenmedim";
+"song_undislike" = "Beğenmemeyi Kaldır";
+"playlist_disliked_name" = "Beğenilmeyen Şarkılar";
+"disliked_songs_footer" = "Beğenmediğin şarkılar kitaplığında kalır ve kendin seçtiğinde çalar; ancak karışık çalma, otomatik oynatma, şarkı radyosu, benzer şarkılar ve öneriler onları atlar. Bir şarkıyı yeniden beğenirsen bu listeden çıkar.";
+"disliked_songs_empty" = "Beğenilmeyen şarkı yok";
+"disliked_songs_manage" = "Yönet…";
 "two_factor_auth" = "İki Faktörlü Kimlik Doğrulama";
 "artwork_edit" = "Resmi Değiştir";
 "no_sources_desc" = "Müzik taramaya başlamak için bir NAS, WebDAV veya yerel klasör ekleyin";

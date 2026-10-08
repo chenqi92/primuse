@@ -184,6 +184,108 @@ final class MusicLibraryLikedMutationTests: XCTestCase {
     }
 }
 
+/// 「不喜欢」(#193): 和喜欢互斥, 只是一份记录(不进歌单列表), 替人挑歌时跳过。
+@MainActor
+final class MusicLibraryDislikedSongsTests: XCTestCase {
+    func testDislikeTakesBackTheLikeStaysOutOfPlaylistsAndSurvivesRelaunch() async throws {
+        let storageDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseDislikedTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: storageDirectory) }
+
+        let library = MusicLibrary(storageDirectory: storageDirectory)
+        library.addSongs([
+            makeSong(id: "song-1", path: "/songs/remote-1.mp3"),
+            makeSong(id: "song-2", path: "/songs/remote-2.mp3"),
+        ], affectedSourceIDs: ["source-1"])
+        for _ in 0..<200 where library.musicSongs.count != 2 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(library.musicSongs.count, 2)
+
+        var serverWrites: [(songID: String, desired: Bool)] = []
+        library.likedStateMutationHandler = { song, _, desired in
+            serverWrites.append((song.id, desired))
+        }
+
+        library.setLiked(songID: "song-1", isLiked: true, propagatesServerMutation: true)
+        library.setDisliked(songID: "song-1", isDisliked: true)
+        XCTAssertTrue(library.isDisliked(songID: "song-1"))
+        XCTAssertFalse(library.isLiked(songID: "song-1"), "Disliking takes the like back")
+        XCTAssertEqual(serverWrites.map(\.desired), [true, false], "The server favorite is withdrawn too")
+
+        XCTAssertNotNil(library.playlist(id: MusicLibrary.dislikedSongsPlaylistID))
+        XCTAssertFalse(
+            library.playlists.contains { $0.id == MusicLibrary.dislikedSongsPlaylistID },
+            "Dislikes are a record, not a playlist in the list"
+        )
+        XCTAssertEqual(library.dislikedSongs.map(\.id), ["song-1"])
+        XCTAssertEqual(library.musicSongIDsExcludingDisliked, ["song-2"])
+        XCTAssertEqual(MusicDiscoveryEngine.recommendationInput(in: library).excludedSongIDs, ["song-1"])
+
+        library.toggleLiked(songID: "song-1")
+        XCTAssertTrue(library.isLiked(songID: "song-1"))
+        XCTAssertFalse(library.isDisliked(songID: "song-1"), "Liking again clears the dislike")
+        XCTAssertTrue(library.dislikedSongs.isEmpty)
+        XCTAssertEqual(Set(library.musicSongIDsExcludingDisliked), ["song-1", "song-2"])
+
+        library.toggleDisliked(songID: "song-2")
+        XCTAssertTrue(library.isDisliked(songID: "song-2"))
+        library.toggleDisliked(songID: "song-2")
+        XCTAssertFalse(library.isDisliked(songID: "song-2"), "A second tap only takes the dislike back")
+        XCTAssertEqual(serverWrites.count, 3, "Disliking a song that was never liked writes nothing to the server")
+
+        library.setDisliked(songID: "song-2", isDisliked: true)
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("The isolated library did not finish persistence")
+        }
+
+        let restored = MusicLibrary(storageDirectory: storageDirectory)
+        for _ in 0..<200 where restored.songIDs(forPlaylist: MusicLibrary.dislikedSongsPlaylistID).isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(restored.songIDs(forPlaylist: MusicLibrary.dislikedSongsPlaylistID), ["song-2"])
+        XCTAssertTrue(restored.isDisliked(songID: "song-2"))
+        XCTAssertFalse(restored.isDisliked(songID: "song-1"))
+    }
+
+    func testLikeWinsWhenTwoSyncedListsDisagree() async throws {
+        let storageDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseDislikedConflictTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: storageDirectory) }
+
+        let library = MusicLibrary(storageDirectory: storageDirectory)
+        library.addSongs([makeSong(id: "song-1", path: "/songs/remote-1.mp3")], affectedSourceIDs: ["source-1"])
+        for _ in 0..<200 where library.musicSongs.count != 1 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        library.setDisliked(songID: "song-1", isDisliked: true)
+        // A server snapshot (like another device's liked list) brings the like
+        // back without touching the dislike record.
+        library.replaceLikedSongs(fromSourceID: "source-1", with: ["song-1"])
+
+        XCTAssertEqual(library.songIDs(forPlaylist: MusicLibrary.dislikedSongsPlaylistID), ["song-1"])
+        XCTAssertTrue(library.isLiked(songID: "song-1"))
+        XCTAssertFalse(library.isDisliked(songID: "song-1"), "A liked song is never hidden from automatic picks")
+        XCTAssertTrue(library.dislikedSongs.isEmpty)
+        XCTAssertEqual(library.musicSongIDsExcludingDisliked, ["song-1"])
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("The isolated library did not finish persistence")
+        }
+    }
+
+    private func makeSong(id: String, path: String) -> Song {
+        Song(
+            id: id,
+            title: id,
+            fileFormat: .mp3,
+            filePath: path,
+            sourceID: "source-1"
+        )
+    }
+}
+
 @MainActor
 final class MusicLibraryMetadataReplacementTests: XCTestCase {
     func testSourceListsKeepUnrelatedCachesAndTrackAssetsMigrationAndVisibility() async throws {

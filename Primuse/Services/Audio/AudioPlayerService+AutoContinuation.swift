@@ -49,7 +49,10 @@ extension AudioPlayerService {
             queueEntries[...currentIndex].last(where: { $0.song.id == id })?.song
         }
         guard !seeds.isEmpty else { return }
-        let excluded = Set(queueIDs).union(library.recentPlaybackSongIDsForSync)
+        // 不喜欢的歌(#193)不会被续播挑中。
+        let excluded = Set(queueIDs)
+            .union(library.recentPlaybackSongIDsForSync)
+            .union(library.dislikedSongIDs)
         let recentIDs = Set(PlayHistoryStore.shared.entries(in: .month).map(\.songID))
         // Copy-on-write: the worker reads the library's own array.
         let songs = library.musicSongs

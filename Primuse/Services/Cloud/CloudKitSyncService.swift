@@ -129,9 +129,9 @@ final class CloudKitSyncService {
         guard Self.familySharingEnabled, recordTypeIsShareable(recordType) else {
             return Self.zoneID
         }
-        // Playlist 类型按 id 例外: 「我喜欢」及它的封面规则每人独立。
+        // Playlist 类型按 id 例外: 「我喜欢」及它的封面规则、「不喜欢」每人独立。
         if recordType == RecordType.playlist {
-            if id == MusicLibrary.likedSongsPlaylistID {
+            if id == MusicLibrary.likedSongsPlaylistID || id == MusicLibrary.dislikedSongsPlaylistID {
                 return Self.zoneID
             }
             if let owner = LibraryArtworkOwner.fromCloudRecordID(id),

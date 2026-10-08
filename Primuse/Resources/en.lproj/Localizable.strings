@@ -1484,6 +1484,12 @@
 "source_cache_size_known_plus_unknown_format" = "%@ + %d song(s) with unknown size";
 "apple_music_library_playlist_name" = "Apple Music Library";
 "playlist_liked_name" = "Liked Songs";
+"song_dislike" = "Dislike";
+"song_undislike" = "Remove Dislike";
+"playlist_disliked_name" = "Disliked Songs";
+"disliked_songs_footer" = "Disliked songs stay in your library and still play when you pick them, but shuffle, autoplay, song radio, similar songs and recommendations skip them. Liking a song takes it off this list.";
+"disliked_songs_empty" = "No Disliked Songs";
+"disliked_songs_manage" = "Manage…";
 "settings_dlna_section" = "DLNA Receiver";
 "settings_dlna_enable" = "Accept casts from this network";
 "settings_dlna_footer" = "Other devices on the same Wi-Fi (VLC, Synology Audio Station, Plex, Hi-Fi Cast, etc.) will see Primuse as a media renderer and can push audio for playback.";
