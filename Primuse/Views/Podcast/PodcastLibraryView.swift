@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 /// 播客这一类的主页:资料库里的「播客」、首页筛到播客、Mac 侧栏都进这里。
 ///
-/// 从上到下按「接下来听什么」排:听到一半的(继续收听)→ 订阅里新出的(最新单集)→ 全部节目。
+/// 从上到下:订阅的节目(我的节目,随时点进去)→ 听到一半的(继续收听)→ 订阅里新出的(最新单集)。
 /// 一档都没订时整页换成发现:搜索入口和热门榜,点一下就能订。
 /// Mac 另有一套页面(`MacPodcastLibraryView`):搜索和热门榜直接在页里,不弹发现页。
 struct PodcastLibraryView: View {
@@ -223,10 +223,10 @@ struct PodcastLibraryContent: View {
                 }
             } else {
                 LazyVStack(alignment: .leading, spacing: 28) {
+                    PodcastShowsGrid(navigation: navigation)
                     PodcastContinueListeningRow(navigation: navigation)
                     PodcastLatestEpisodesSection(navigation: navigation)
                     PodcastLocalShowsSection(navigation: navigation)
-                    PodcastShowsGrid(navigation: navigation)
                     PodcastRegionHiddenNote()
                 }
             }

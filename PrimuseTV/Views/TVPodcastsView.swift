@@ -30,7 +30,7 @@ enum TVPodcastPresentation: Identifiable, Hashable {
 }
 
 /// tvOS「播客」一级页。和手机同一套订阅(iCloud 同步过来)与收听进度:
-/// 「继续收听」大卡 →「最新单集」一排 →「我的节目」封面网格。一档都没订时整页换成发现:
+/// 「我的节目」封面网格 →「继续收听」大卡 →「最新单集」一排。一档都没订时整页换成发现:
 /// 搜索入口和热门榜。电视上只在线听,不下载。
 struct TVPodcastsView: View {
     @Environment(TVStore.self) private var store
@@ -59,10 +59,10 @@ struct TVPodcastsView: View {
                         welcome(cell: cell)
                         regionHiddenNote
                     } else {
+                        showsSection(cell: cell)
                         continueListening
                         latestEpisodes
                         localShowsSection(cell: cell)
-                        showsSection(cell: cell)
                         regionHiddenNote
                     }
                 }
