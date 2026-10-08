@@ -605,6 +605,15 @@ final class PlayerAppearancePreferencesTests: XCTestCase {
         XCTAssertEqual(neighbors.song(at: 1)?.id, "a1")
         XCTAssertNil(neighbors.song(at: 2))
         XCTAssertNil(neighbors.song(at: 0), "The playing album is not a neighbour")
+        // 没有专辑信息的歌按歌本身区分；中间这张的身份由刷新时带进来。
+        XCTAssertEqual(neighbors.itemID(at: -1), "b1")
+        XCTAssertNil(neighbors.itemID(at: 0))
+        XCTAssertNil(neighbors.itemID(at: 3))
+        var withAlbum = song("a2")
+        withAlbum.albumID = "album-a2"
+        let centered = AlbumFlowNeighbors(centerID: "album-now", before: [], after: [withAlbum])
+        XCTAssertEqual(centered.itemID(at: 0), "album-now")
+        XCTAssertEqual(centered.itemID(at: 1), "album-a2")
         XCTAssertFalse(PlayerAppearancePreferences.entersFullscreenInLandscapeByDefault)
     }
 

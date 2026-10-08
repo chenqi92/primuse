@@ -99,4 +99,76 @@ struct AlbumFlowLayoutPolicyTests {
         #expect(AlbumFlowLayoutPolicy.neighborIndices(count: 10, currentIndex: 4, perSide: 0) == ([], []))
         #expect(AlbumFlowLayoutPolicy.neighborIndices(count: 10, currentIndex: 12, perSide: 3) == ([], []))
     }
+
+    /// 没封面的歌常和一片没封面的专辑挨着：两侧跳过它们，接着往外取有封面的。
+    @Test func neighboursSkipAlbumsWithoutArtwork() {
+        // 3–7 没封面（同一个没刮削的文件夹），正在播第 5 张。
+        let covered: Set<Int> = [0, 1, 2, 8, 9, 10, 11]
+        let picks = AlbumFlowLayoutPolicy.neighborIndices(
+            count: 12,
+            currentIndex: 5,
+            perSide: 2,
+            hasArtwork: { covered.contains($0) }
+        )
+        #expect(picks.before == [2, 1])
+        #expect(picks.after == [8, 9])
+    }
+
+    @Test func oneSideWithoutArtworkStaysEmptyInsteadOfShowingPlaceholders() {
+        let picks = AlbumFlowLayoutPolicy.neighborIndices(
+            count: 10,
+            currentIndex: 4,
+            perSide: 3,
+            hasArtwork: { $0 > 4 }
+        )
+        #expect(picks.before.isEmpty)
+        #expect(picks.after == [5, 6, 7])
+    }
+
+    @Test func libraryWithoutAnyArtworkFallsBackToShelfOrder() {
+        let picks = AlbumFlowLayoutPolicy.neighborIndices(
+            count: 10,
+            currentIndex: 4,
+            perSide: 2,
+            hasArtwork: { _ in false }
+        )
+        #expect(picks.before == [3, 2])
+        #expect(picks.after == [5, 6])
+    }
+
+    @Test func scanStopsAfterTheLimitInHugeUncoveredStretches() {
+        var asked = 0
+        let picks = AlbumFlowLayoutPolicy.neighborIndices(
+            count: 100_000,
+            currentIndex: 50_000,
+            perSide: 6,
+            hasArtwork: { index in
+                asked += 1
+                return index == 99_000
+            }
+        )
+        #expect(asked <= 2 * AlbumFlowLayoutPolicy.maximumScanPerSide)
+        #expect(picks.before.count == 6)
+        #expect(picks.after.count == 6)
+    }
+
+    /// 没有专辑信息的歌：从按歌定下的位置劈开，两边照样有封面。
+    @Test func songWithoutAnAlbumSplitsTheShelfAtItsAnchor() {
+        let picks = AlbumFlowLayoutPolicy.neighborIndices(count: 10, currentIndex: nil, anchor: 4, perSide: 2)
+        #expect(picks.before == [3, 2])
+        #expect(picks.after == [4, 5])
+
+        let pastEnd = AlbumFlowLayoutPolicy.neighborIndices(count: 3, currentIndex: nil, anchor: 7, perSide: 2)
+        #expect(pastEnd.before == [1, 0])
+        #expect(pastEnd.after == [2])
+    }
+
+    @Test func anchorIsStablePerSongAndInRange() {
+        let first = AlbumFlowLayoutPolicy.anchor(seed: "song-a", count: 37)
+        #expect(first == AlbumFlowLayoutPolicy.anchor(seed: "song-a", count: 37))
+        #expect((0..<37).contains(first))
+        #expect(AlbumFlowLayoutPolicy.anchor(seed: "x", count: 0) == 0)
+        let spread = Set((0..<40).map { AlbumFlowLayoutPolicy.anchor(seed: "song-\($0)", count: 20) })
+        #expect(spread.count > 8)
+    }
 }

@@ -2135,6 +2135,9 @@ struct MusicDiscoveryResult: Identifiable, Equatable, Sendable {
 
 /// 「封面流」两侧专辑的封面歌，按离当前专辑由近到远排（见 `MusicLibrary.albumFlowNeighbors`）。
 struct AlbumFlowNeighbors: Equatable {
+    /// 中间这张的身份：正在播的歌所属专辑，没有专辑时是歌本身。和两侧一起换，
+    /// 舞台靠它判断「换了一张专辑」，把整排滑过去。
+    var centerID: String?
     var before: [Song] = []
     var after: [Song] = []
 
@@ -2145,8 +2148,16 @@ struct AlbumFlowNeighbors: Equatable {
         return nil
     }
 
+    /// 偏移量上那张的身份（专辑 ID）。同一张专辑换了位置还是同一个身份，舞台才能把它从旧位置滑到新位置。
+    func itemID(at offset: Int) -> String? {
+        if offset == 0 { return centerID }
+        return song(at: offset).map { $0.albumID ?? $0.id }
+    }
+
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.before.map(\.id) == rhs.before.map(\.id) && lhs.after.map(\.id) == rhs.after.map(\.id)
+        lhs.centerID == rhs.centerID
+            && lhs.before.map(\.id) == rhs.before.map(\.id)
+            && lhs.after.map(\.id) == rhs.after.map(\.id)
     }
 }
 
@@ -7143,18 +7154,30 @@ final class MusicLibrary {
         return lookupVisibleSong(songID)
     }
 
-    /// 全屏「封面流」(#191)两侧的专辑：资料库专辑列表里排在这首歌所属专辑前后的几张，
-    /// 每张取它的封面歌。没有专辑、或资料库里只有这一张时两边都空。
+    /// 全屏「封面流」(#191)两侧的专辑：资料库专辑列表里排在这首歌所属专辑前后、有封面的几张，
+    /// 每张取它的封面歌。没封面的专辑跳过——没封面的歌常和一片没封面的专辑挨着，照排位取两边就全是占位。
+    /// 这首歌没有专辑（或专辑不在列表里）时按歌定一个位置往两边取。
     func albumFlowNeighbors(for song: Song?, perSide: Int) -> AlbumFlowNeighbors {
-        guard let albumID = song?.albumID else { return AlbumFlowNeighbors() }
+        guard let song else { return AlbumFlowNeighbors() }
+        let centerID = song.albumID ?? song.id
         let albums = visibleAlbums
+        guard !albums.isEmpty else { return AlbumFlowNeighbors(centerID: centerID) }
+        var covers: [Int: Song?] = [:]
+        func cover(_ index: Int) -> Song? {
+            if let known = covers[index] { return known }
+            let found = preferredArtworkSong(forAlbumID: albums[index].id)
+            covers[index] = found
+            return found
+        }
         let picks = AlbumFlowLayoutPolicy.neighborIndices(
             count: albums.count,
-            currentIndex: albums.firstIndex { $0.id == albumID },
-            perSide: perSide
+            currentIndex: song.albumID.flatMap { albumID in albums.firstIndex { $0.id == albumID } },
+            anchor: AlbumFlowLayoutPolicy.anchor(seed: song.id, count: albums.count),
+            perSide: perSide,
+            hasArtwork: { cover($0)?.coverArtFileName?.isEmpty == false }
         )
-        func cover(_ index: Int) -> Song? { preferredArtworkSong(forAlbumID: albums[index].id) }
         return AlbumFlowNeighbors(
+            centerID: centerID,
             before: picks.before.compactMap(cover),
             after: picks.after.compactMap(cover)
         )

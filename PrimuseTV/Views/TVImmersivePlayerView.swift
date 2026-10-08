@@ -439,6 +439,7 @@ struct TVImmersivePlayerView: View {
                     .frame(width: side, height: side)
                 )
             },
+            flowItemID: { flowNeighbors.itemID(at: $0) },
             isRenderingActive: presentationActivity.isRenderingActive,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,

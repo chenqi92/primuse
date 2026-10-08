@@ -110,19 +110,75 @@ public enum AlbumFlowLayoutPolicy {
         )
     }
 
+    /// 一边最多往外看多少张专辑：几万张专辑的库里有大段没封面的，也不在主线程把整库走一遍。
+    public static let maximumScanPerSide = 400
+
     /// 两侧取哪几张。`count` 张专辑里正在播的是第 `currentIndex` 张，前后各取最多 `perSide` 张，
     /// 按离当前由近到远排。和 iPod 的封面流一样不首尾相接：排在最前的专辑左边就是空的。
+    ///
+    /// 没封面的专辑（`hasArtwork` 为假）跳过，接着往外找有封面的：没封面的歌往往和一大片同样没封面的
+    /// 专辑排在一起（同一个没刮削过的文件夹），照排位取，两边就是一整排占位。两边都找不到有封面的
+    /// （整库没封面）才照排位取，画面不至于只剩中间一张。
+    /// 正在播的歌不在专辑列表里（没有专辑信息）时 `currentIndex` 为 nil，从 `anchor` 劈开往两边取：
+    /// 左边从它前一张起，右边从它本身起；`anchor` 也没有就不取。
     public static func neighborIndices(
         count: Int,
         currentIndex: Int?,
-        perSide: Int
+        anchor: Int? = nil,
+        perSide: Int,
+        hasArtwork: (Int) -> Bool = { _ in true }
     ) -> (before: [Int], after: [Int]) {
-        guard let currentIndex, count > 1, perSide > 0,
-              currentIndex >= 0, currentIndex < count else { return ([], []) }
-        let beforeCount = min(perSide, currentIndex)
-        let afterCount = min(perSide, count - 1 - currentIndex)
-        let before = beforeCount > 0 ? (1...beforeCount).map { currentIndex - $0 } : []
-        let after = afterCount > 0 ? (1...afterCount).map { currentIndex + $0 } : []
-        return (before, after)
+        guard count > 0, perSide > 0 else { return ([], []) }
+        let beforeStart: Int
+        let afterStart: Int
+        if let currentIndex {
+            guard currentIndex >= 0, currentIndex < count else { return ([], []) }
+            beforeStart = currentIndex - 1
+            afterStart = currentIndex + 1
+        } else if let anchor {
+            let split = min(max(anchor, 0), count - 1)
+            beforeStart = split - 1
+            afterStart = split
+        } else {
+            return ([], [])
+        }
+        let before = walk(from: beforeStart, step: -1, count: count, perSide: perSide, hasArtwork: hasArtwork)
+        let after = walk(from: afterStart, step: 1, count: count, perSide: perSide, hasArtwork: hasArtwork)
+        if before.covered.isEmpty, after.covered.isEmpty {
+            return (before.adjacent, after.adjacent)
+        }
+        return (before.covered, after.covered)
+    }
+
+    /// 正在播的歌没有专辑时从哪儿劈开：按歌的 ID 定一个位置，同一首歌每次都落在同一处，
+    /// 不同的歌散开（不用 `hashValue`，它每次启动都变）。
+    public static func anchor(seed: String, count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for scalar in seed.unicodeScalars {
+            hash = (hash ^ UInt64(scalar.value)) &* 0x0000_0100_0000_01b3
+        }
+        return Int(hash % UInt64(count))
+    }
+
+    /// 从 `start` 起往一个方向走：`covered` 是有封面的前 `perSide` 张，`adjacent` 是照排位的前 `perSide` 张。
+    private static func walk(
+        from start: Int,
+        step: Int,
+        count: Int,
+        perSide: Int,
+        hasArtwork: (Int) -> Bool
+    ) -> (covered: [Int], adjacent: [Int]) {
+        var covered: [Int] = []
+        var adjacent: [Int] = []
+        var index = start
+        var scanned = 0
+        while index >= 0, index < count, covered.count < perSide, scanned < maximumScanPerSide {
+            if adjacent.count < perSide { adjacent.append(index) }
+            if hasArtwork(index) { covered.append(index) }
+            index += step
+            scanned += 1
+        }
+        return (covered, adjacent)
     }
 }

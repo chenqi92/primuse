@@ -126,6 +126,9 @@ struct ImmersiveStageView<Artwork: View>: View {
     var flowBeforeCount = 0
     var flowAfterCount = 0
     var flowArtwork: (Int, CGFloat) -> AnyView = { _, _ in AnyView(Color.clear) }
+    /// 偏移量上那张专辑的身份（0 是中间这张）。换专辑时同一张专辑沿用同一个身份，
+    /// 整排从旧位置滑到新位置；没给时按偏移量，换专辑就原地换图。
+    var flowItemID: (Int) -> String? = { _ in nil }
     var isRenderingActive = true
     var reduceMotion = false
     var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
@@ -336,9 +339,12 @@ struct ImmersiveStageView<Artwork: View>: View {
         let reflection = CGFloat(layout.reflectionFraction)
         let before = min(flowBeforeCount, layout.neighborsPerSide)
         let after = min(flowAfterCount, layout.neighborsPerSide)
-        // 外侧的先画，越靠中间的越压在上面。
-        let offsets = Array(-before ..< 0) + Array(stride(from: 1, through: after, by: 1))
-        let drawOrder = offsets.sorted { abs($0) > abs($1) }
+        let slots = albumFlowSlots(before: before, after: after)
+        let centerY = CGFloat(layout.centerOriginY)
+            + ImmersiveAlbumFlowCover.height(side: centerSide, reflectionFraction: reflection) / 2
+        // 两侧和中间立在同一条底线上。
+        let neighborY = baseline - neighborSide
+            + ImmersiveAlbumFlowCover.height(side: neighborSide, reflectionFraction: reflection) / 2
 
         return ZStack(alignment: .topLeading) {
             LinearGradient(
@@ -346,55 +352,50 @@ struct ImmersiveStageView<Artwork: View>: View {
                 startPoint: .top,
                 endPoint: .bottom
             )
-            RadialGradient(
-                colors: [palette.primary.opacity(0.55), .clear],
-                center: UnitPoint(
+            ImmersiveAlbumFlowAmbience(
+                tint: palette.primary,
+                glowCenter: UnitPoint(
                     x: 0.5,
                     y: Double(layout.centerMidY) / Double(max(metrics.size.height, 1))
                 ),
-                startRadius: 0,
-                endRadius: centerSide * 1.5
+                glowRadius: centerSide * 1.5,
+                baseline: baseline,
+                isAnimating: sceneIsAnimating
             )
-            ImmersiveAlbumFlowFloor(tint: palette.primary)
-                .frame(width: metrics.size.width, height: max(metrics.size.height - baseline, 0))
-                .offset(y: baseline)
             ImmersiveVignette(color: .black, clearStop: 0.18, strength: 0.42)
 
-            ForEach(drawOrder, id: \.self) { offset in
-                ImmersiveAlbumFlowCover(
-                    side: neighborSide,
-                    cornerRadius: radius,
-                    tiltDegrees: offset < 0 ? layout.tiltDegrees : -layout.tiltDegrees,
-                    reflectionFraction: reflection,
-                    tint: palette.primary,
-                    framesCover: true,
-                    cover: flowArtwork(offset, neighborSide),
-                    reflectionCover: flowArtwork(offset, neighborSide)
-                )
-                .opacity(1 - Double(abs(offset) - 1) * 0.08)
-                .position(
-                    x: CGFloat(layout.neighborMidX(offset: offset)),
-                    // 两侧和中间立在同一条底线上。
-                    y: baseline - neighborSide + ImmersiveAlbumFlowCover.height(side: neighborSide, reflectionFraction: reflection) / 2
-                )
+            // 每张按专辑身份画：换到前后的专辑时，同一张专辑从旧位置滑到新位置、转过角度，
+            // 中间那张正过来，像 iPod 的封面流翻过去；离得远的跳转就淡入淡出。
+            ZStack(alignment: .topLeading) {
+                ForEach(slots) { slot in
+                    let offset = slot.offset
+                    let isCenter = offset == 0
+                    let side = isCenter ? centerSide : neighborSide
+                    ImmersiveAlbumFlowCover(
+                        side: side,
+                        cornerRadius: radius,
+                        tiltDegrees: offset < 0 ? layout.tiltDegrees : (offset > 0 ? -layout.tiltDegrees : 0),
+                        reflectionFraction: reflection,
+                        tint: palette.primary,
+                        // 中间这张用舞台通用的封面卡片：自带玻璃描边、斜向高光与专辑色投影。
+                        framesCover: !isCenter,
+                        cover: isCenter
+                            ? AnyView(artworkPlate(side: centerSide, radius: radius))
+                            : flowArtwork(offset, neighborSide),
+                        reflectionCover: flowArtwork(offset, side)
+                    )
+                    .opacity(isCenter ? 1 : 1 - Double(abs(offset) - 1) * 0.08)
+                    .position(
+                        x: CGFloat(layout.neighborMidX(offset: offset)),
+                        y: isCenter ? centerY : neighborY
+                    )
+                    // 外侧的压在下面，越靠中间的越在上面。
+                    .zIndex(-Double(abs(offset)))
+                    .transition(.opacity)
+                }
             }
-
-            ImmersiveAlbumFlowCover(
-                side: centerSide,
-                cornerRadius: radius,
-                tiltDegrees: 0,
-                reflectionFraction: reflection,
-                tint: palette.primary,
-                // 中间这张用舞台通用的封面卡片：自带玻璃描边、斜向高光与专辑色投影。
-                framesCover: false,
-                cover: AnyView(artworkPlate(side: centerSide, radius: radius)),
-                reflectionCover: flowArtwork(0, centerSide)
-            )
-            .position(
-                x: CGFloat(layout.centerMidX),
-                y: CGFloat(layout.centerOriginY)
-                    + ImmersiveAlbumFlowCover.height(side: centerSide, reflectionFraction: reflection) / 2
-            )
+            .frame(width: metrics.size.width, height: metrics.size.height, alignment: .topLeading)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.55), value: flowItemID(0))
 
             albumFlowTitle(width: metrics.size.width - leadingInset - trailingInset)
                 .frame(
@@ -423,6 +424,22 @@ struct ImmersiveStageView<Artwork: View>: View {
         }
         .frame(width: metrics.size.width, height: metrics.size.height, alignment: .topLeading)
         .environment(\.layoutDirection, .leftToRight)
+    }
+
+    private struct AlbumFlowSlot: Identifiable {
+        let id: String
+        let offset: Int
+    }
+
+    /// 中间加两侧要画的几张。身份重复（容器没给、或同一张专辑出现两次）时退回按偏移量区分。
+    private func albumFlowSlots(before: Int, after: Int) -> [AlbumFlowSlot] {
+        var seen = Set<String>()
+        return (-before ... after).map { offset in
+            let candidate = flowItemID(offset) ?? "offset:\(offset)"
+            let id = seen.insert(candidate).inserted ? candidate : "\(candidate)#\(offset)"
+            seen.insert(id)
+            return AlbumFlowSlot(id: id, offset: offset)
+        }
     }
 
     private func albumFlowTitle(width: CGFloat) -> some View {
@@ -1537,23 +1554,94 @@ private struct ImmersiveAlbumFlowCover: View {
     }
 }
 
+/// 封面流的光与台面：中间那张后面一团专辑色的光慢慢呼吸，台面上沿有一点高光从左往右缓缓扫过，
+/// 像灯光掠过玻璃。和封面墙、唱片一组，只按时间走、不读频谱；暂停或减少动态效果时停成静止的样子。
+private struct ImmersiveAlbumFlowAmbience: View {
+    @Environment(\.immersiveFrameRate) private var frameRate
+    let tint: Color
+    let glowCenter: UnitPoint
+    let glowRadius: CGFloat
+    /// 台面上沿（封面底边）在画布里的纵坐标。
+    let baseline: CGFloat
+    let isAnimating: Bool
+
+    /// 呼吸一次、高光扫过一趟各要几秒。
+    private static let breathPeriod = 9.0
+    private static let sweepPeriod = 14.0
+
+    var body: some View {
+        TimelineView(.animation(
+            minimumInterval: frameRate.minimumInterval(base: 1.0 / 20),
+            paused: !isAnimating
+        )) { context in
+            let time = context.date.timeIntervalSinceReferenceDate
+            let breath = isAnimating ? sin(time / Self.breathPeriod * 2 * .pi) : 0
+            let sweep = (time / Self.sweepPeriod).truncatingRemainder(dividingBy: 1)
+            GeometryReader { geometry in
+                ZStack(alignment: .topLeading) {
+                    RadialGradient(
+                        colors: [tint.opacity(0.55 + 0.12 * breath), .clear],
+                        center: glowCenter,
+                        startRadius: 0,
+                        endRadius: glowRadius * (1 + 0.06 * breath)
+                    )
+                    ImmersiveAlbumFlowFloor(tint: tint, glint: isAnimating ? sweep : nil)
+                        .frame(
+                            width: geometry.size.width,
+                            height: max(geometry.size.height - baseline, 0)
+                        )
+                        .offset(y: baseline)
+                }
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
 /// 封面立着的那面玻璃台面：上沿一道细高光，往下是渐淡的专辑色。
 private struct ImmersiveAlbumFlowFloor: View {
     let tint: Color
+    /// 扫过上沿的那点高光走到哪儿：0 在左边外面，1 在右边外面；nil 不画。
+    var glint: Double? = nil
 
     var body: some View {
-        ZStack(alignment: .top) {
-            LinearGradient(
-                colors: [tint.opacity(0.34), tint.opacity(0.10), .clear],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            LinearGradient(
-                colors: [.white.opacity(0), .white.opacity(0.22), .white.opacity(0)],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-            .frame(height: 1)
+        GeometryReader { geometry in
+            ZStack(alignment: .top) {
+                LinearGradient(
+                    colors: [tint.opacity(0.34), tint.opacity(0.10), .clear],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                LinearGradient(
+                    colors: [.white.opacity(0), .white.opacity(0.22), .white.opacity(0)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(height: 1)
+                if let glint {
+                    let width = geometry.size.width * 0.32
+                    // 从左边外面进来、右边外面出去，回到起点那一下看不见。
+                    let x = (glint * 1.4 - 0.2) * geometry.size.width
+                    Ellipse()
+                        .fill(
+                            RadialGradient(
+                                colors: [.white.opacity(0.14), .clear],
+                                center: .center,
+                                startRadius: 0,
+                                endRadius: width / 2
+                            )
+                        )
+                        .frame(width: width, height: width * 0.16)
+                        .position(x: x, y: 0)
+                    LinearGradient(
+                        colors: [.white.opacity(0), .white.opacity(0.5), .white.opacity(0)],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .frame(width: width, height: 1)
+                    .position(x: x, y: 0.5)
+                }
+            }
         }
         .allowsHitTesting(false)
     }

@@ -330,6 +330,7 @@ struct ImmersivePlayerView: View {
                     .frame(width: side, height: side)
                 )
             },
+            flowItemID: { flowNeighbors.itemID(at: $0) },
             isRenderingActive: isSceneActive,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
