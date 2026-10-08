@@ -3,11 +3,11 @@ import PrimuseKit
 
 /// 资料库与首页的「收藏」。
 ///
-/// 收藏区是一份没有上限、可以拖动排序的列表，装专辑、艺人、歌单（含「我喜欢」）和目录。
+/// 收藏区是一份没有上限、可以拖动排序的列表，装专辑、艺人、歌单（含「我喜欢」）、目录和有声书。
 /// 这里存的只是它们的顺序；收没收藏各有各的账：
 /// - 专辑与艺人看 `LibraryFavoritesStore`（详情页那颗心，经 iCloud 与服务端同步）；
 /// - 目录看首页目录的置顶列表（`HomeFolderPinStorage`，首页「目录」区块显示的也是它）；
-/// - 歌单就看这里存的这一份。
+/// - 歌单与有声书就看这里存的这一份。
 /// 显示顺序由 `FavoriteCollectionOrderPolicy` 合出来：新收藏的排在最前（开头是「我喜欢」时排它后面）。
 @MainActor
 final class FavoriteCollectionStore {
@@ -127,7 +127,7 @@ final class FavoriteCollectionStore {
 
     func isCollected(_ pin: QuickAccessPinReference, library: MusicLibrary) -> Bool {
         switch pin.kind {
-        case .playlist:
+        case .playlist, .book:
             return storedPins.contains(pin)
         case .folder:
             return pin.folderNodeID.map { collectedFolderIDs.contains($0) } ?? false
@@ -140,7 +140,7 @@ final class FavoriteCollectionStore {
         switch pin.kind {
         case .album: membership.albumIDs.contains(pin.itemID)
         case .artist: membership.artistIDs.contains(pin.itemID)
-        case .playlist: true
+        case .playlist, .book: true
         case .folder: pin.folderNodeID.map { membership.folderIDs.contains($0) } ?? false
         }
     }
@@ -190,14 +190,14 @@ final class FavoriteCollectionStore {
 
     // MARK: - Editing
 
-    /// 收藏。专辑与艺人记进喜欢的账本（顺序由账本的改动通知来排），歌单与目录直接排到最前。
+    /// 收藏。专辑与艺人记进喜欢的账本（顺序由账本的改动通知来排），歌单、目录与有声书直接排到最前。
     func collect(_ pin: QuickAccessPinReference, library: MusicLibrary) {
         switch pin.kind {
         case .album:
             if let album = library.visibleAlbum(id: pin.itemID) { favorites.setLiked(true, album: album) }
         case .artist:
             if let artist = library.favoriteArtist(id: pin.itemID) { favorites.setLiked(true, artistNamed: artist.name) }
-        case .playlist:
+        case .playlist, .book:
             moveToFront([pin], library: library)
         case .folder:
             guard let id = pin.folderNodeID else { return }
@@ -215,7 +215,7 @@ final class FavoriteCollectionStore {
             if let album = library.visibleAlbum(id: pin.itemID) { favorites.setLiked(false, album: album) }
         case .artist:
             if let artist = library.favoriteArtist(id: pin.itemID) { favorites.setLiked(false, artistNamed: artist.name) }
-        case .playlist:
+        case .playlist, .book:
             break
         case .folder:
             guard let id = pin.folderNodeID else { return }
@@ -316,7 +316,7 @@ final class FavoriteCollectionStore {
         switch pin.kind {
         case .album: library.visibleAlbum(id: pin.itemID).map(favorites.favoriteID(for:))
         case .artist: library.favoriteArtist(id: pin.itemID).map(favorites.favoriteID(for:))
-        case .playlist, .folder: nil
+        case .playlist, .folder, .book: nil
         }
     }
 
@@ -344,7 +344,7 @@ final class FavoriteCollectionStore {
                       !favorites.isLiked(artistNamed: artist.name) else { continue }
                 favorites.setLiked(true, artistNamed: artist.name)
                 migrated += 1
-            case .playlist, .folder:
+            case .playlist, .folder, .book:
                 continue
             }
         }

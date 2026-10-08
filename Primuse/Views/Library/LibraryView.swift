@@ -981,6 +981,21 @@ struct LibraryView: View {
                 .buttonStyle(.plain)
                 .contextMenu { favoriteMenu(.folder(node)) }
             }
+        case .book:
+            if let favorite = FavoriteCollectionResolver.book(id: pin.itemID, library: library) {
+                NavigationLink {
+                    SpokenWordBookDetailView(bookID: favorite.book.id)
+                } label: {
+                    quickAccessLabel(
+                        title: favorite.book.title,
+                        subtitle: SpokenWordBookSupport.subtitle(favorite.book)
+                    ) { size in
+                        FavoriteCollectionArtwork(entry: .book(favorite), size: size)
+                    }
+                }
+                .buttonStyle(.plain)
+                .contextMenu { favoriteMenu(.book(favorite)) }
+            }
         }
     }
 
@@ -1645,6 +1660,8 @@ struct LibraryView: View {
             return regularPlaylists.contains { $0.id == pin.itemID }
         case .folder:
             return pin.folderNodeID.flatMap { favoriteFolderModel.index?.node(withID: $0) } != nil
+        case .book:
+            return library.spokenWordBookIDs.values.contains(pin.itemID)
         }
     }
 

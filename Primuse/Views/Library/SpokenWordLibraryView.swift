@@ -309,6 +309,8 @@ struct SpokenWordShelfContent: View {
     @AppStorage("spokenWord.shelf.layout") private var layout = SpokenWordShelfLayout.bookshelf
     @AppStorage("spokenWord.shelf.order") private var savedOrder = ""
     @AppStorage(HomeSpotlightSelection.booksStorageKey) private var homeSpotlightRawValue = ""
+    /// 收藏的顺序;书收没收藏就看它(菜单里「收藏」「取消收藏」跟着变)。
+    @AppStorage(LibraryPinStorage.defaultsKey) private var favoritePinsRawValue = ""
     /// 要整本加进歌单的那本书。
     @State private var playlistTarget: SpokenWordLibrarySnapshot.Entry?
 
@@ -605,6 +607,19 @@ struct SpokenWordShelfContent: View {
             } else {
                 Label(String(localized: "spoken_word_mark_finished"), systemImage: "checkmark.circle")
             }
+        }
+        // 一下放进「收藏」,不必先建歌单。
+        let favoritePin = QuickAccessPinReference(kind: .book, itemID: book.id)
+        let isFavorite = favoritePinsRawValue.isEmpty
+            ? false
+            : FavoriteCollectionStore.shared.isCollected(favoritePin, library: library)
+        Button {
+            FavoriteCollectionStore.shared.setCollected(!isFavorite, favoritePin, library: library)
+        } label: {
+            Label(
+                isFavorite ? "library_favorite_unlike" : "library_favorite_like",
+                systemImage: isFavorite ? "heart.slash" : "heart"
+            )
         }
         Button {
             playlistTarget = SpokenWordLibrarySnapshot.Entry(book: book, songs: songs)

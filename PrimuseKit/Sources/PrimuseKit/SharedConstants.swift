@@ -3025,7 +3025,9 @@ public enum AppleMusicPlaybackEndPolicy {
 /// complete ordered selection, including Liked Songs. Decoding a legacy array
 /// prepends the supplied default pin once, preserving the old visible result.
 public enum QuickAccessPinKind: String, Codable, Sendable {
-    case album, artist, playlist, folder
+    /// `book`: an audiobook on the shelf, by its book id. Older builds skip
+    /// the kind when they decode the list (`QuickAccessPinStorageCodec`).
+    case album, artist, playlist, folder, book
 }
 
 public struct QuickAccessPinReference: Codable, Hashable, Identifiable, Sendable {

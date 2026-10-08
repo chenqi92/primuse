@@ -8,6 +8,7 @@ enum FavoriteCollectionEntry: Identifiable {
     /// 普通歌单和「我喜欢」。
     case playlist(Playlist)
     case folder(LibraryFolderNode)
+    case book(FavoriteBook)
 
     var pin: QuickAccessPinReference {
         switch self {
@@ -15,6 +16,7 @@ enum FavoriteCollectionEntry: Identifiable {
         case .artist(let artist): QuickAccessPinReference(kind: .artist, itemID: artist.id)
         case .playlist(let playlist): QuickAccessPinReference(kind: .playlist, itemID: playlist.id)
         case .folder(let node): .folder(node.id)
+        case .book(let favorite): QuickAccessPinReference(kind: .book, itemID: favorite.book.id)
         }
     }
 
@@ -24,6 +26,12 @@ enum FavoriteCollectionEntry: Identifiable {
         if case .playlist(let playlist) = self { return playlist.id == MusicLibrary.likedSongsPlaylistID }
         return false
     }
+}
+
+/// 收藏的一本有声书：书架上的那本书，章节按书里的顺序。
+struct FavoriteBook {
+    let book: SpokenWordBook
+    let songs: [Song]
 }
 
 @MainActor
@@ -63,7 +71,23 @@ enum FavoriteCollectionResolver {
         case .folder:
             guard let id = pin.folderNodeID, let node = folderIndex?.node(withID: id) else { return nil }
             return .folder(node)
+        case .book:
+            return book(id: pin.itemID, library: library).map(FavoriteCollectionEntry.book)
         }
+    }
+
+    /// 书架上 id 为 `id` 的那本书。只拿这本书的条目来排章节，不整架重分；分书改了 id
+    /// （标签或目录变了）就对不上，和归档、首页挑的书一样。
+    static func book(id: String, library: MusicLibrary) -> FavoriteBook? {
+        let songs = library.spokenWordSongs.filter { library.spokenWordBookIDs[$0.id] == id }
+        guard !songs.isEmpty else { return nil }
+        let store = SpokenWordStore.shared
+        let books = SpokenWordBookGrouping.books(
+            from: songs.map { SpokenWordBookSupport.item(for: $0, store: store) }
+        )
+        guard let book = books.first(where: { $0.id == id }) ?? books.first else { return nil }
+        let songsByID = Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return FavoriteBook(book: book, songs: book.items.compactMap { songsByID[$0.id] })
     }
 
     static func title(_ entry: FavoriteCollectionEntry) -> String {
@@ -75,6 +99,7 @@ enum FavoriteCollectionResolver {
                 ? String(localized: "sidebar_liked_songs")
                 : playlist.name
         case .folder(let node): HomeDiscoveryText.folderTitle(node)
+        case .book(let favorite): favorite.book.title
         }
     }
 
@@ -88,6 +113,8 @@ enum FavoriteCollectionResolver {
             "\(library.songCount(forPlaylist: playlist.id).formatted()) \(String(localized: "songs_count"))"
         case .folder(let node):
             "\(node.descendantSongCount.formatted()) \(String(localized: "songs_count"))"
+        case .book(let favorite):
+            SpokenWordBookSupport.subtitle(favorite.book)
         }
     }
 
@@ -109,6 +136,8 @@ enum FavoriteCollectionResolver {
             let songs = folderIndex.songIDs(in: node.id, scope: .descendants)
                 .compactMap { library.unobservedVisibleSong(id: $0) }
             return LibraryFolderBrowsePolicy.sortedSongs(songs, order: HomeFolderSongOrderPreference.load())
+        case .book(let favorite):
+            return favorite.songs
         }
     }
 
@@ -116,7 +145,7 @@ enum FavoriteCollectionResolver {
         switch entry {
         case .album(let album): .album(id: album.id)
         case .playlist(let playlist): .playlist(id: playlist.id)
-        case .artist, .folder: nil
+        case .artist, .folder, .book: nil
         }
     }
 }
@@ -149,7 +178,31 @@ struct FavoriteCollectionArtwork: View {
             }
         case .folder(let node):
             HomeFolderArtwork(node: node, size: size, cornerRadius: style == .circle ? size / 2 : cornerRadius)
+        case .book(let favorite):
+            FavoriteBookArtwork(song: favorite.songs.first, size: size, cornerRadius: cornerRadius)
         }
+    }
+}
+
+/// 有声书的封面是竖的：书立在方形卡片正中，底下垫一层浅底。
+struct FavoriteBookArtwork: View {
+    let song: Song?
+    let size: CGFloat
+    var cornerRadius: CGFloat = 16
+
+    var body: some View {
+        let coverHeight = (size * 0.86).rounded()
+        ZStack {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(ListeningSpace.spokenWord.tint.opacity(0.12))
+            SpokenWordBookCover(
+                song: song,
+                width: SpokenWordCoverLayout.width(forHeight: coverHeight),
+                cornerRadius: max(4, cornerRadius * 0.4)
+            )
+            .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
+        }
+        .frame(width: size, height: size)
     }
 }
 
@@ -184,13 +237,31 @@ struct FavoriteCollectionMenuItems: View {
     let folderIndex: LibraryFolderIndex?
 
     var body: some View {
-        LibraryCollectionMenuItems(
-            isLiked: true,
-            toggleLike: { FavoriteCollectionStore.shared.uncollect(entry.pin, library: library) },
-            songs: { FavoriteCollectionResolver.songs(entry, library: library, folderIndex: folderIndex) },
-            player: player,
-            donation: FavoriteCollectionResolver.siriDonation(entry)
-        )
+        if case .book(let favorite) = entry {
+            // 书从上次听到的地方接着放，不从第一章重来。
+            Button {
+                FavoriteCollectionStore.shared.uncollect(entry.pin, library: library)
+            } label: {
+                Label("library_favorite_unlike", systemImage: "heart.slash")
+            }
+            Divider()
+            Button {
+                SpokenWordBookSupport.play(favorite.book, songs: favorite.songs, from: nil, player: player)
+            } label: {
+                Label(
+                    String(localized: favorite.book.canContinue ? "spoken_word_continue" : "spoken_word_start"),
+                    systemImage: "play.fill"
+                )
+            }
+        } else {
+            LibraryCollectionMenuItems(
+                isLiked: true,
+                toggleLike: { FavoriteCollectionStore.shared.uncollect(entry.pin, library: library) },
+                songs: { FavoriteCollectionResolver.songs(entry, library: library, folderIndex: folderIndex) },
+                player: player,
+                donation: FavoriteCollectionResolver.siriDonation(entry)
+            )
+        }
     }
 }
 
@@ -210,7 +281,7 @@ struct FavoriteCollectionView: View {
     @State private var findText = ""
 
     /// 筛选胶囊的顺序。
-    private static let kindOrder: [QuickAccessPinKind] = [.playlist, .album, .artist, .folder]
+    private static let kindOrder: [QuickAccessPinKind] = [.playlist, .album, .artist, .folder, .book]
 
     private var references: [QuickAccessPinReference] {
         _ = pinsRawValue
@@ -348,6 +419,7 @@ struct FavoriteCollectionView: View {
         case .album: String(localized: "tab_albums")
         case .artist: String(localized: "tab_artists")
         case .folder: HomeDiscoveryText.string("folders")
+        case .book: String(localized: "tab_spoken_word")
         }
     }
 
@@ -357,6 +429,7 @@ struct FavoriteCollectionView: View {
         case .album: "square.stack"
         case .artist: "music.mic"
         case .folder: "folder"
+        case .book: "books.vertical"
         }
     }
 
@@ -395,6 +468,14 @@ struct FavoriteCollectionView: View {
             NavigationLink {
                 HomeFolderBrowser(nodeID: node.id)
                     .environment(folderModel)
+            } label: {
+                cardLabel(entry)
+            }
+            .buttonStyle(.pmPressable)
+            .contextMenu { menu(entry) }
+        case .book(let favorite):
+            NavigationLink {
+                SpokenWordBookDetailView(bookID: favorite.book.id)
             } label: {
                 cardLabel(entry)
             }
@@ -733,6 +814,8 @@ struct FavoriteCollectionEditor: View {
                     editorPlaylistArtwork(playlist)
                 case .folder(let node):
                     HomeFolderArtwork(node: node, size: 42, cornerRadius: 7)
+                case .book(let favorite):
+                    FavoriteBookArtwork(song: favorite.songs.first, size: 42, cornerRadius: 7)
                 }
             } title: {
                 Text(FavoriteCollectionResolver.title(entry))

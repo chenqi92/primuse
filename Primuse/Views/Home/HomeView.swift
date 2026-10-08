@@ -2479,7 +2479,7 @@ struct HomeView: View {
         )
     }
 
-    /// 首页收藏区：收藏的顺序，目录除外（首页有自己的「目录」区块，收藏的目录就摆在那里）。
+    /// 首页收藏区：收藏的顺序，目录与有声书除外（首页有自己的「目录」与「有声书」区块）。
     private func makeHomeQuickItems(
         allPlaylists: [Playlist]
     ) -> [HomeQuickItem] {
@@ -2506,7 +2506,7 @@ struct HomeView: View {
                 return playlistsByID[pin.itemID]
                     .map(makeHomePlaylistTile)
                     .map(HomeQuickItem.playlist)
-            case .folder:
+            case .folder, .book:
                 return nil
             }
         }
