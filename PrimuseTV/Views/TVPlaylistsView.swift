@@ -30,7 +30,11 @@ struct TVPlaylistsView: View {
                             TVSelectionButton(title: PMString("ext.tv.library.filter.all"), selected: filter == 0) { filter = 0 }
                             TVSelectionButton(title: String(localized: "tab_playlists"), selected: filter == 1) { filter = 1 }
                             TVSelectionButton(title: PMString("ext.tv.library.filter.smart"), selected: filter == 2) { filter = 2 }
-                        }.focusSection()
+                        }
+                        // 焦点区撑满整行:顶栏「歌单」在页面中部,只有胶囊宽度时往下的搜索
+                        // 落不到这一行和下面的歌单,会越过去落在 Apple Music 那一排。
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .focusSection()
                         if playlists.isEmpty {
                             TVEmptyState(
                                 icon: "music.note.list",
@@ -44,6 +48,8 @@ struct TVPlaylistsView: View {
                                     TVPlaylistCard(playlist: p, width: cell, action: openPlayer)
                                 }
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .focusSection()
                         }
                         appleMusicSection(cell: cell)
                     }
@@ -96,6 +102,8 @@ struct TVPlaylistsView: View {
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .focusSection()
             .padding(.top, 12)
         }
     }
