@@ -1419,6 +1419,12 @@
 "source_cache_size_known_plus_unknown_format" = "%@ + %d 首大小未知";
 "apple_music_library_playlist_name" = "Apple Music 資料庫";
 "playlist_liked_name" = "我的最愛";
+"song_dislike" = "不喜歡";
+"song_undislike" = "取消不喜歡";
+"playlist_disliked_name" = "不喜歡的歌曲";
+"disliked_songs_footer" = "不喜歡的歌曲仍留在資料庫裡，指定播放照樣能聽；整庫隨機、自動續播、單曲電台、相似歌曲和推薦都不會再挑選它。重新喜歡一首歌，它就會從這裡移除。";
+"disliked_songs_empty" = "還沒有不喜歡的歌曲";
+"disliked_songs_manage" = "管理…";
 "settings_dlna_section" = "DLNA 接收";
 "settings_dlna_enable" = "接受同一 Wi-Fi 的投送";
 "settings_dlna_footer" = "同一 Wi-Fi 下的其他裝置(VLC、群暉音訊中心、Plex、Hi-Fi Cast 等)可以發現 Primuse 並把音訊推過來播放。";

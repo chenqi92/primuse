@@ -2243,6 +2243,8 @@ private struct MacSTPlaybackView: View {
 
         MacSmartNudgeSettings()
 
+        MacDislikedSongsSettings()
+
         MacSTSection(Lz("Transitions & Gapless")) {
             MacSTGroup {
                 MacSTRow(
@@ -9071,6 +9073,38 @@ private struct MacSmartNudgeSettings: View {
                     }
                 }
             }
+        }
+    }
+}
+
+/// 不喜欢的歌曲(#193):几首、点「管理」弹出清单撤销。和 iPhone「设置 › 播放」里那一项对应。
+private struct MacDislikedSongsSettings: View {
+    @Environment(MusicLibrary.self) private var library
+    @State private var showsList = false
+
+    var body: some View {
+        MacSTSection {
+            MacSTGroup {
+                MacSTRow(
+                    String(localized: "playlist_disliked_name"),
+                    hint: String(localized: "disliked_songs_footer"),
+                    hintLineLimit: 3,
+                    divider: false
+                ) {
+                    Text(verbatim: "\(library.dislikedSongs.count)")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                    MacSTButton(title: String(localized: "disliked_songs_manage")) {
+                        showsList = true
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showsList) {
+            NavigationStack {
+                DislikedSongsView(showsDoneButton: true)
+            }
+            .frame(minWidth: 520, minHeight: 480)
         }
     }
 }

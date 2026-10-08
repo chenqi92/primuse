@@ -3664,7 +3664,8 @@ struct HomeView: View {
     /// 先放这一首,其余音乐随机接在后面(顶部封面轮播)。同 `playLibrary`,只把 id 交出去,
     /// 过滤与打乱在后台做;这一首在整库里还会再出现一次,排队时只留开头那次。
     private func playLibraryShuffled(startingWith song: Song) {
-        let ids = library.musicSongs.map(\.id)
+        // 点的这一首照放; 后面整库接上的不含不喜欢的歌(#193)。
+        let ids = library.musicSongIDsExcludingDisliked
         guard !ids.isEmpty else { return }
         player.shuffleEnabled = false
         SiriMediaInteractionDonor.donate(song: song)
@@ -3677,7 +3678,8 @@ struct HomeView: View {
         // blank progress bar. Once backfill catches up they become eligible.
         // Only IDs leave the main actor's hands here: the whole library is
         // filtered and shuffled off it, and only the first window is resolved.
-        let ids = library.musicSongs.map(\.id)
+        // Disliked songs (#193) are left out of a whole-library play.
+        let ids = library.musicSongIDsExcludingDisliked
         guard !ids.isEmpty else { return }
         player.shuffleEnabled = false
         Task { await player.play(queueIDs: ids, order: shuffled ? .shuffled : .asGiven) }

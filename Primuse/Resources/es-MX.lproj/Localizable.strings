@@ -2519,6 +2519,12 @@
 "playlist_import_use_first_result" = "Usar primer resultado";
 "playlist_kind_server_mirror" = "Lista de reproducción del servidor";
 "playlist_liked_name" = "Canciones que me gustan";
+"song_dislike" = "No me gusta";
+"song_undislike" = "Quitar “No me gusta”";
+"playlist_disliked_name" = "Canciones que no me gustan";
+"disliked_songs_footer" = "Las canciones que no te gustan siguen en tu biblioteca y se reproducen cuando tú las eliges, pero el modo aleatorio, la reproducción automática, la radio de la canción, las canciones similares y las recomendaciones las omiten. Si vuelve a gustarte una canción, sale de esta lista.";
+"disliked_songs_empty" = "No hay canciones que no te gusten";
+"disliked_songs_manage" = "Administrar…";
 "playlist_name" = "Nombre de la lista de reproducción";
 "playlist_name_example" = "Conducción nocturna";
 "playlist_picker_empty_hint" = "Aún no hay listas de reproducción regulares. Crea uno a continuación.";

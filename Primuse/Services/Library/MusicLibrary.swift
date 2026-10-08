@@ -2142,6 +2142,8 @@ enum MusicDiscoveryEngine {
         /// `MusicLibrary.musicSongsRevision` when `songs` came from the library;
         /// lets the feature index be reused until the song list changes.
         var libraryRevision: UInt64? = nil
+        /// Songs the listener disliked (#193): never recommended, never a seed.
+        var excludedSongIDs: Set<String> = []
 
         func makeInput() -> RecommendationInput {
             func entries(in range: PlayHistoryStore.Range) -> [PlayHistoryStore.Entry] {
@@ -2156,7 +2158,8 @@ enum MusicDiscoveryEngine {
             let candidateSeedIDs = topSongs.map(\.id) + recentSongs.map(\.id)
             let wanted = Set(candidateSeedIDs)
             var playableSeedIDs = Set<String>()
-            for song in songs where wanted.contains(song.id) && song.isPlayable {
+            for song in songs where wanted.contains(song.id) && song.isPlayable
+                && !excludedSongIDs.contains(song.id) {
                 playableSeedIDs.insert(song.id)
                 if playableSeedIDs.count == wanted.count { break }
             }
@@ -2171,7 +2174,8 @@ enum MusicDiscoveryEngine {
                 topArtists: Set(topArtists.map { normalized($0.title) }),
                 seedIDs: seedIDs,
                 now: now,
-                libraryRevision: libraryRevision
+                libraryRevision: libraryRevision,
+                excludedSongIDs: excludedSongIDs
             )
         }
     }
@@ -2186,6 +2190,9 @@ enum MusicDiscoveryEngine {
         let seedIDs: [String]
         let now: Date
         var libraryRevision: UInt64? = nil
+        /// Never recommended (#193). The feature index stays shared with the
+        /// rest of the library, so these are skipped while scoring instead.
+        var excludedSongIDs: Set<String> = []
     }
 
     @MainActor
@@ -2199,7 +2206,14 @@ enum MusicDiscoveryEngine {
         // Music only: spoken word is never suggested as "similar".
         let songs = library.musicSongs
         let index = featureIndex(for: songs, revision: library.musicSongsRevision)
-        return similarSongs(to: seed, songs: songs, index: index, recentIDs: recentIDs, limit: limit)
+        return similarSongs(
+            to: seed,
+            songs: songs,
+            index: index,
+            recentIDs: recentIDs,
+            excluding: library.dislikedSongIDs,
+            limit: limit
+        )
     }
 
     static func similarSongs(
@@ -2222,13 +2236,14 @@ enum MusicDiscoveryEngine {
         songs: [Song],
         index: FeatureIndex?,
         recentIDs: Set<String>,
+        excluding excluded: Set<String> = [],
         limit: Int
     ) -> [MusicDiscoveryResult] {
         guard let index else { return [] }
         let seedFeature = index.feature(for: seed)
         var results: [Candidate] = []
         for position in index.ids.indices where index.playable[position] {
-            guard index.ids[position] != seed.id else { continue }
+            guard index.ids[position] != seed.id, !excluded.contains(index.ids[position]) else { continue }
             var match = similarity(between: seedFeature, and: position, in: index)
             guard match.score > 0 else { continue }
             if !recentIDs.contains(index.ids[position]) {
@@ -2346,7 +2361,8 @@ enum MusicDiscoveryEngine {
             recentSongs: library.recentlyPlayedSongs(limit: 12),
             historyEntries: history.musicEntries,
             now: now,
-            libraryRevision: library.musicSongsRevision
+            libraryRevision: library.musicSongsRevision,
+            excludedSongIDs: library.dislikedSongIDs
         )
     }
 
@@ -2386,7 +2402,7 @@ enum MusicDiscoveryEngine {
         guard !seeds.isEmpty else {
             return coldStartCandidates(
                 in: index,
-                excluding: [],
+                excluding: input.excludedSongIDs,
                 limit: limit,
                 now: input.now,
                 isCancelled: isCancelled
@@ -2398,7 +2414,7 @@ enum MusicDiscoveryEngine {
         for position in index.ids.indices where index.playable[position] {
             if position.isMultiple(of: 128), isCancelled() { return [] }
             let id = index.ids[position]
-            guard !input.recentWeekIDs.contains(id) else { continue }
+            guard !input.recentWeekIDs.contains(id), !input.excludedSongIDs.contains(id) else { continue }
 
             var best = Match(score: 0, reasons: [])
             for seed in seeds where seed.id != id {
@@ -2452,7 +2468,9 @@ enum MusicDiscoveryEngine {
         let targetArtistCount = min(artistCountCap, availableArtists.count)
         let rankedArtistCount = Set(ranked.map { index.artistIdentity[$0.position] }).count
         if ranked.count < limit || rankedArtistCount < targetArtistCount {
-            let excluded = Set(ranked.map { index.ids[$0.position] }).union(input.recentWeekIDs)
+            let excluded = Set(ranked.map { index.ids[$0.position] })
+                .union(input.recentWeekIDs)
+                .union(input.excludedSongIDs)
             ranked.append(contentsOf: coldStartCandidates(
                 in: index,
                 excluding: excluded,
@@ -2520,6 +2538,7 @@ enum MusicDiscoveryEngine {
             index: index,
             recentMonthIDs: recentMonthIDs,
             fallbacks: fallbacks,
+            excluding: library.dislikedSongIDs,
             limit: limit,
             now: now
         )
@@ -2555,6 +2574,7 @@ enum MusicDiscoveryEngine {
         index: FeatureIndex?,
         recentMonthIDs: Set<String>,
         fallbacks: [MusicDiscoveryResult],
+        excluding excluded: Set<String> = [],
         limit: Int,
         now: Date
     ) -> [MusicDiscoveryResult] {
@@ -2562,7 +2582,8 @@ enum MusicDiscoveryEngine {
             MusicDiscoveryResult(song: seed, score: .greatestFiniteMagnitude, reasons: [.libraryPick])
         ]
         guard let index else { return output }
-        var usedIDs: Set<String> = [seed.id]
+        // 不喜欢的歌(#193)当作已经放过, 电台一路都不会走到它; 种子本身是点名的, 照放。
+        var usedIDs = excluded.union([seed.id])
         var cursor = index.feature(for: seed)
         var dailyNoise: [Double] = []
 
@@ -3460,12 +3481,14 @@ final class MusicLibrary {
     )?
 
     /// 自动隐藏只影响显示；保留歌单和完整成员，重新启用源时即可恢复。
+    /// 「不喜欢」歌单只是一份记录，不进歌单列表（见 `dislikedSongsPlaylistID`）。
     var playlists: [Playlist] {
         let hidesAppleMusicMirrors = !appleMusicLibrarySyncEnabled
             || !appleMusicSourceInstalled
         let hiddenBySource = playlistIDsHiddenByDisabledSources()
         return allPlaylists.filter { playlist in
             guard !playlist.isDeleted else { return false }
+            guard playlist.id != Self.dislikedSongsPlaylistID else { return false }
             guard !isMirrorPlaylistSuppressed(playlist.id) else { return false }
             guard !hiddenBySource.contains(playlist.id) else { return false }
             return !hidesAppleMusicMirrors
@@ -3541,6 +3564,7 @@ final class MusicLibrary {
     /// 喜欢没喜欢,按数组 `contains` 走是 O(喜欢数) 的线性扫描 (#156)。
     @ObservationIgnored private var playlistMembershipRevision: UInt64 = 0
     @ObservationIgnored private var likedSongIDLookup: (revision: UInt64, ids: Set<String>)?
+    @ObservationIgnored private var dislikedSongIDLookup: (revision: UInt64, ids: Set<String>)?
     /// 每个歌单上一次与云端一致时的曲目表(远端套用后、合并后、本机保存成功后都会
     /// 更新)。冲突合并拿它当三方合并的基线: 基线里有、一边没有的, 就是那一边删掉的。
     private var playlistSyncBaseSongIDs: [String: [String]] = [:]
@@ -8557,13 +8581,13 @@ final class MusicLibrary {
 
         var entries = playlistSongIDs[playlistID] ?? []
         var seen = Set(entries)
-        var changed = false
+        var addedIDs: [String] = []
         var changedSongs: [Song] = []
         entries.reserveCapacity(entries.count + songIDs.count)
         for songID in songIDs where songIndexByID[songID] != nil {
             if seen.insert(songID).inserted {
                 entries.append(songID)
-                changed = true
+                addedIDs.append(songID)
                 if playlistID == Self.likedSongsPlaylistID,
                    propagatesLikedMutation,
                    let songIndex = songIndexByID[songID] {
@@ -8571,7 +8595,7 @@ final class MusicLibrary {
                 }
             }
         }
-        guard changed else { return }
+        guard !addedIDs.isEmpty else { return }
         playlistSongIDs[playlistID] = entries
 
         allPlaylists[existingIndex] = stampedPlaylist(allPlaylists[existingIndex])
@@ -8581,6 +8605,15 @@ final class MusicLibrary {
         notifyPlaylistsChanged([playlistID])
         for song in changedSongs {
             likedStateMutationHandler?(song, false, true)
+        }
+        if playlistID == Self.likedSongsPlaylistID {
+            // 喜欢与不喜欢互斥(#193): 不管从哪条路喜欢上的(心形、批量加入、导入),
+            // 都不再算不喜欢。
+            remove(
+                songIDs: addedIDs,
+                fromPlaylist: Self.dislikedSongsPlaylistID,
+                propagatesLikedMutation: false
+            )
         }
     }
 
@@ -8672,6 +8705,100 @@ final class MusicLibrary {
                 songIDs: [songID],
                 fromPlaylist: Self.likedSongsPlaylistID,
                 propagatesLikedMutation: propagatesServerMutation
+            )
+        }
+    }
+
+    // MARK: - Disliked songs (#193)
+
+    /// 「不喜欢」的固定 ID。和「我喜欢」一样是按固定 ID 走 ensurePlaylist / add / remove 的
+    /// 系统歌单, 借歌单那一套 iCloud 同步与跨设备对歌(各设备的 `Song.id` 不同), 但只是
+    /// 一份记录: 不进歌单列表(`playlists`)、不推到服务端。
+    ///
+    /// 不喜欢的歌照样在曲库、专辑、歌单里, 点名播放照样能听; 只是 App 替人挑歌时
+    /// (整库随机、随机续播、自动续播相似歌曲、单曲电台、相似歌曲、推荐)不再挑它。
+    /// 喜欢与不喜欢互斥: 点了一个就撤掉另一个。
+    nonisolated static let dislikedSongsPlaylistID = "primuse.system.disliked"
+
+    @discardableResult
+    private func ensureDislikedPlaylist() -> Playlist {
+        // 旧版本把它当普通歌单列出来; 在那边删掉了的话先恢复,
+        // 否则 `ensurePlaylist` 交回墓碑, 之后的标记一条也落不下。
+        if allPlaylists.contains(where: { $0.id == Self.dislikedSongsPlaylistID && $0.isDeleted }) {
+            restorePlaylist(id: Self.dislikedSongsPlaylistID)
+        }
+        return ensurePlaylist(
+            id: Self.dislikedSongsPlaylistID,
+            name: String(localized: "playlist_disliked_name")
+        )
+    }
+
+    /// 不喜欢的歌。两台设备离线时一边喜欢、一边不喜欢, 合并后两份歌单里都有它 ——
+    /// 这时按喜欢算: 宁可多挑一首, 也不悄悄藏起用户喜欢的歌。
+    var dislikedSongIDs: Set<String> {
+        // 读一次存储属性把 Observation 依赖登记上, 判定走按修订号缓存的 Set。
+        let membership = playlistSongIDs
+        if let cached = dislikedSongIDLookup, cached.revision == playlistMembershipRevision {
+            return cached.ids
+        }
+        var ids = Set(membership[Self.dislikedSongsPlaylistID] ?? [])
+        if !ids.isEmpty {
+            ids.subtract(membership[Self.likedSongsPlaylistID] ?? [])
+        }
+        dislikedSongIDLookup = (playlistMembershipRevision, ids)
+        return ids
+    }
+
+    func isDisliked(songID: String) -> Bool {
+        dislikedSongIDs.contains(songID)
+    }
+
+    /// 不喜欢的歌, 最近标记的在前; 设置里那张清单用它。
+    var dislikedSongs: [Song] {
+        let disliked = dislikedSongIDs
+        return songs(forPlaylist: Self.dislikedSongsPlaylistID)
+            .reversed()
+            .filter { disliked.contains($0.id) }
+    }
+
+    /// 整库随机、整库播放这类由 App 替人挑歌的入口用: 音乐曲目去掉不喜欢的歌。
+    /// 专辑、歌单这类点名要听的列表不经过这里。
+    var musicSongIDsExcludingDisliked: [String] {
+        let disliked = dislikedSongIDs
+        guard !disliked.isEmpty else { return musicSongs.map(\.id) }
+        return musicSongs.compactMap { disliked.contains($0.id) ? nil : $0.id }
+    }
+
+    func toggleDisliked(songID: String) {
+        // 和 `toggleLiked` 一样, 当前状态要在发布之后再读。
+        if deferringUntilReady({ [weak self] in self?.toggleDisliked(songID: songID) }) { return }
+        setDisliked(songID: songID, isDisliked: !isDisliked(songID: songID))
+    }
+
+    func setDisliked(songID: String, isDisliked desired: Bool) {
+        // S2: 目标歌曲与「不喜欢」歌单都要等发布之后才在库里。
+        if deferringUntilReady({ [weak self] in
+            self?.setDisliked(songID: songID, isDisliked: desired)
+        }) { return }
+        guard song(id: songID) != nil else { return }
+        if desired {
+            // 不喜欢了就不再留在「我喜欢」里, 服务端的收藏也照常一并取消。
+            setLiked(songID: songID, isLiked: false, propagatesServerMutation: true)
+        }
+        let isRecorded = (playlistSongIDs[Self.dislikedSongsPlaylistID] ?? []).contains(songID)
+        guard isRecorded != desired else { return }
+        if desired {
+            ensureDislikedPlaylist()
+            add(
+                songIDs: [songID],
+                toPlaylist: Self.dislikedSongsPlaylistID,
+                propagatesLikedMutation: false
+            )
+        } else {
+            remove(
+                songIDs: [songID],
+                fromPlaylist: Self.dislikedSongsPlaylistID,
+                propagatesLikedMutation: false
             )
         }
     }

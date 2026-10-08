@@ -46,6 +46,14 @@ struct TVOptionsView: View {
                               label: liked ? PMString("ext.tv.options.loved") : PMString("ext.tv.options.love"), on: liked,
                               run: { if let id = store.currentSongID { store.toggleLiked(id) } }))
         }
+        // 不喜欢(#193):记下来并切到下一首;已经不喜欢时再点只撤销。
+        if let id = store.currentSongID, !isSpokenWord, !store.isLiveRadio, store.canDislike(id) {
+            let disliked = store.isDisliked(id)
+            song.append(.init(id: "dislike", icon: disliked ? "hand.thumbsdown.fill" : "hand.thumbsdown",
+                              label: disliked ? String(localized: "song_undislike") : String(localized: "song_dislike"),
+                              on: disliked,
+                              run: { store.toggleDisliked(id) }))
+        }
         // 用刮削源手动匹配这首歌的标签、封面和歌词(只改这台 Apple TV 上的曲库)。
         if store.canMatchMetadata(songID: store.currentSongID) {
             song.append(.init(id: "match", icon: "wand.and.stars", label: String(localized: "tv_scrape_match_title"), run: {

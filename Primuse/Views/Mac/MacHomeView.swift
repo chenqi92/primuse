@@ -1691,7 +1691,8 @@ struct MacHomeView: View {
     }
 
     private func playLibrary(shuffled: Bool) {
-        let ids = library.musicSongs.map(\.id)
+        // 整库播放不含不喜欢的歌(#193)。
+        let ids = library.musicSongIDsExcludingDisliked
         guard !ids.isEmpty else { return }
         player.shuffleEnabled = false
         Task { await player.play(queueIDs: ids, order: shuffled ? .shuffled : .asGiven) }

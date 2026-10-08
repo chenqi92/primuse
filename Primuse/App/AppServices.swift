@@ -2716,7 +2716,8 @@ final class AppServices {
 
         bridge.shuffleLibrary = { [self] in
             await awaitLibraryForIntent()
-            let ids = library.musicSongs.map(\.id)
+            // 整库随机是替人挑歌, 不挑不喜欢的歌(#193)。
+            let ids = library.musicSongIDsExcludingDisliked
             guard !ids.isEmpty else { return }
             playerService.shuffleEnabled = true
             Task { @MainActor [playerService] in
