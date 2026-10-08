@@ -2146,6 +2146,8 @@ struct PlaybackSettingsView: View {
 
             SmartNudgeSettingsSection()
 
+            DislikedSongsSettingsSection()
+
             #if os(iOS)
             Section {
                 Toggle(isOn: $settings.lockScreenLyricsEnabled) {

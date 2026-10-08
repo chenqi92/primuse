@@ -2519,6 +2519,12 @@
 "playlist_import_use_first_result" = "استخدم النتيجة الأولى";
 "playlist_kind_server_mirror" = "قائمة تشغيل الخادم";
 "playlist_liked_name" = "الأغاني التي أعجبتني";
+"song_dislike" = "لا يعجبني";
+"song_undislike" = "إلغاء «لا يعجبني»";
+"playlist_disliked_name" = "الأغاني التي لا تعجبني";
+"disliked_songs_footer" = "تبقى الأغاني التي لا تعجبك في مكتبتك وتُشغَّل عندما تختارها بنفسك، لكن التشغيل العشوائي والتشغيل التلقائي وراديو الأغنية والأغاني المشابهة والتوصيات تتخطاها. إذا أعجبتك الأغنية من جديد فستُزال من هذه القائمة.";
+"disliked_songs_empty" = "لا توجد أغانٍ لا تعجبك";
+"disliked_songs_manage" = "إدارة…";
 "playlist_name" = "اسم قائمة التشغيل";
 "playlist_name_example" = "القيادة في وقت متأخر من الليل";
 "playlist_picker_empty_hint" = "لا توجد قوائم تشغيل منتظمة حتى الآن. قم بإنشاء واحد أدناه.";

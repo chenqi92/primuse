@@ -2619,12 +2619,7 @@ struct SongListView: View {
         }
 
         Section {
-            Button {
-                library.toggleLiked(songID: song.id)
-            } label: {
-                Label(library.isLiked(songID: song.id) ? String(localized: "a11y_unlike") : String(localized: "a11y_like"),
-                      systemImage: library.isLiked(songID: song.id) ? "heart.fill" : "heart")
-            }
+            SongFeedbackMenuButtons(songID: song.id)
 
             Button {
                 contextShareSong = latestSong(song)

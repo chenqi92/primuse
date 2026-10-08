@@ -2519,6 +2519,12 @@
 "playlist_import_use_first_result" = "Użyj pierwszego wyniku";
 "playlist_kind_server_mirror" = "Lista odtwarzania serwera";
 "playlist_liked_name" = "Polubione utwory";
+"song_dislike" = "Nie podoba mi się";
+"song_undislike" = "Usuń „Nie podoba mi się”";
+"playlist_disliked_name" = "Odrzucone utwory";
+"disliked_songs_footer" = "Odrzucone utwory zostają w bibliotece i grają, gdy sam je wybierzesz, ale odtwarzanie losowe, autoodtwarzanie, radio utworu, podobne utwory i rekomendacje je pomijają. Ponowne polubienie utworu usuwa go z tej listy.";
+"disliked_songs_empty" = "Brak odrzuconych utworów";
+"disliked_songs_manage" = "Zarządzaj…";
 "playlist_name" = "Nazwa listy odtwarzania";
 "playlist_name_example" = "Nocna przejażdżka";
 "playlist_picker_empty_hint" = "Brak jeszcze regularnych list odtwarzania. Utwórz jeden poniżej.";

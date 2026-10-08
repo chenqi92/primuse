@@ -113,6 +113,25 @@ extension AudioPlayerService {
     }
     #endif
 
+    /// 正在放的这首能不能标「不喜欢」(#193): 得是曲库里的音乐。电台、播客单集不在曲库里,
+    /// 有声书的章节本来就不会被随机或推荐挑中。
+    var canDislikeCurrentSong: Bool {
+        guard !isLiveRadio, !currentItemIsSpokenWord,
+              let songID = currentSong?.id,
+              let library else { return false }
+        return library.song(id: songID) != nil
+    }
+
+    /// 「不喜欢」正在放的这首: 记下来, 并像按下一首一样切走。已经不喜欢时再点只撤销记录,
+    /// 不切歌。
+    func toggleDislikeForCurrentSong() {
+        guard canDislikeCurrentSong, let songID = currentSong?.id, let library else { return }
+        let dislikes = !library.isDisliked(songID: songID)
+        library.setDisliked(songID: songID, isDisliked: dislikes)
+        guard dislikes else { return }
+        Task { [weak self] in await self?.next() }
+    }
+
     /// MediaRemote may finish dispatching the originating command after the
     /// first synchronous Now Playing assignment. Re-publish the latest complete
     /// snapshot on the next main-actor turn, while a generation and item ID
