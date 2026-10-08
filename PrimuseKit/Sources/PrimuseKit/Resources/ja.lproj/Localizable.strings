@@ -685,6 +685,9 @@
 "fullscreen_effect_particle_bloom" = "パーティクルブルーム";
 "fullscreen_effect_particle_bloom_subtitle" = "アートワークから星屑が広がり、ビートに合わせて輝く";
 "fullscreen_effect_particle_bloom_motion" = "リアルタイムスペクトラム駆動 · 低音で粒子が開く";
+"fullscreen_effect_cover_flow" = "カバーフロー";
+"fullscreen_effect_cover_flow_subtitle" = "再生中のアルバムが正面に、ライブラリで前後に並ぶアルバムが両脇に斜めに立ち、ガラスの床に映り込みます";
+"fullscreen_effect_cover_flow_motion" = "両脇のカバーは再生中のアルバムへ傾く · ガラスの床にアルバムの色が映る";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";

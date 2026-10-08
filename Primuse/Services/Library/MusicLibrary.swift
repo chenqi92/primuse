@@ -2133,6 +2133,23 @@ struct MusicDiscoveryResult: Identifiable, Equatable, Sendable {
     var primaryReason: MusicDiscoveryReason { reasons.first ?? .libraryPick }
 }
 
+/// 「封面流」两侧专辑的封面歌，按离当前专辑由近到远排（见 `MusicLibrary.albumFlowNeighbors`）。
+struct AlbumFlowNeighbors: Equatable {
+    var before: [Song] = []
+    var after: [Song] = []
+
+    /// 舞台按偏移量取封面：-1、-2… 在左，1、2… 在右。
+    func song(at offset: Int) -> Song? {
+        if offset < 0, before.indices.contains(-offset - 1) { return before[-offset - 1] }
+        if offset > 0, after.indices.contains(offset - 1) { return after[offset - 1] }
+        return nil
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.before.map(\.id) == rhs.before.map(\.id) && lhs.after.map(\.id) == rhs.after.map(\.id)
+    }
+}
+
 enum MusicDiscoveryEngine {
     struct RecommendationSnapshot: Sendable {
         let songs: [Song]
@@ -7091,6 +7108,23 @@ final class MusicLibrary {
         _ = songReplacementToken
         guard let songID = preferredArtworkSongIDByAlbumID[albumID] else { return nil }
         return lookupVisibleSong(songID)
+    }
+
+    /// 全屏「封面流」(#191)两侧的专辑：资料库专辑列表里排在这首歌所属专辑前后的几张，
+    /// 每张取它的封面歌。没有专辑、或资料库里只有这一张时两边都空。
+    func albumFlowNeighbors(for song: Song?, perSide: Int) -> AlbumFlowNeighbors {
+        guard let albumID = song?.albumID else { return AlbumFlowNeighbors() }
+        let albums = visibleAlbums
+        let picks = AlbumFlowLayoutPolicy.neighborIndices(
+            count: albums.count,
+            currentIndex: albums.firstIndex { $0.id == albumID },
+            perSide: perSide
+        )
+        func cover(_ index: Int) -> Song? { preferredArtworkSong(forAlbumID: albums[index].id) }
+        return AlbumFlowNeighbors(
+            before: picks.before.compactMap(cover),
+            after: picks.after.compactMap(cover)
+        )
     }
 
     func preferredArtworkSong(forArtistID artistID: String) -> Song? {

@@ -683,6 +683,9 @@
 "fullscreen_effect_particle_bloom" = "Particle Bloom";
 "fullscreen_effect_particle_bloom_subtitle" = "Stardust radiates from the artwork and brightens with the beat";
 "fullscreen_effect_particle_bloom_motion" = "Live spectrum driven · Particles bloom on bass";
+"fullscreen_effect_cover_flow" = "Cover Flow";
+"fullscreen_effect_cover_flow_subtitle" = "The playing album faces you while the albums beside it in your library stand angled on a glass floor";
+"fullscreen_effect_cover_flow_motion" = "Side covers tilt toward the playing album · The glass floor reflects its color";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";

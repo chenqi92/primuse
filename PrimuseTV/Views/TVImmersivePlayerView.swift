@@ -180,6 +180,8 @@ struct TVImmersivePlayerView: View {
     @State private var showsQueue = false
     @State private var hasResolvedArtwork = true
     @State private var gallerySongs: [TVSong] = []
+    /// 封面流(#191)两侧的专辑，和手机同一份取法；画的时候再转成界面值。
+    @State private var flowNeighbors = AlbumFlowNeighbors()
     @State private var activeLyricIndex: Int?
     @State private var lyricInterlude = false
     @Namespace private var chromeFocus
@@ -408,6 +410,35 @@ struct TVImmersivePlayerView: View {
                     .frame(width: side, height: side)
                 )
             },
+            flowBeforeCount: flowNeighbors.before.count,
+            flowAfterCount: flowNeighbors.after.count,
+            flowArtwork: { offset, side in
+                // 0 是正在播的这张(给倒影用的静态那份)，其余是封面流两侧的专辑。
+                let source = offset == 0
+                    ? store.library.song(id: np.songID)
+                    : flowNeighbors.song(at: offset)
+                guard let source else {
+                    return AnyView(ImmersiveArtworkFallback(palette: artworkPalette))
+                }
+                let song = store.songs.mapper.map(source)
+                let album = store.album(song.albumID)
+                let colors = store.artworkColors(forSongID: song.id)
+                return AnyView(
+                    TVArtworkView(
+                        coverKey: song.albumID,
+                        artist: song.artist,
+                        album: album?.title ?? "",
+                        songID: song.id,
+                        coverRef: song.coverRef,
+                        tint: colors?.primary ?? album?.tint ?? np.tint,
+                        tint2: colors?.secondary ?? album?.tint2 ?? np.tint2,
+                        glyph: album?.glyph ?? "music.note",
+                        size: side,
+                        radius: 0
+                    )
+                    .frame(width: side, height: side)
+                )
+            },
             isRenderingActive: presentationActivity.isRenderingActive,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
@@ -512,7 +543,7 @@ struct TVImmersivePlayerView: View {
         case .coverGallery, .flowingLines,
              .auroraVeil, .spectrumHorizon:
             .trailing
-        case .native:
+        case .native, .albumFlow:
             .center
         }
     }
@@ -687,6 +718,10 @@ struct TVImmersivePlayerView: View {
     }
 
     private func refreshGallerySongs() {
+        flowNeighbors = store.library.albumFlowNeighbors(
+            for: store.library.song(id: store.nowPlaying.songID),
+            perSide: AlbumFlowLayoutPolicy.maximumNeighborsPerSide
+        )
         let currentID = store.nowPlaying.songID
         // 在曲库原始数组上筛,只把最后选中的十几首转成界面值,不为整库逐首转换。
         let library = store.songs

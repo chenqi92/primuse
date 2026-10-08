@@ -1412,6 +1412,9 @@
 "fullscreen_effect_particle_bloom" = "ละอองดาวเบ่งบาน";
 "fullscreen_effect_particle_bloom_subtitle" = "ละอองดาวแผ่ออกจากปกอัลบั้มและสว่างขึ้นตามจังหวะ";
 "fullscreen_effect_particle_bloom_motion" = "ขับเคลื่อนด้วยสเปกตรัมแบบเรียลไทม์ · อนุภาคเบ่งบานตามเสียงเบส";
+"fullscreen_effect_cover_flow" = "Cover Flow";
+"fullscreen_effect_cover_flow_subtitle" = "อัลบั้มที่กำลังเล่นหันหน้าเข้าหาคุณ ส่วนอัลบั้มข้างเคียงในคลังตั้งเอียงอยู่สองข้างบนพื้นกระจก";
+"fullscreen_effect_cover_flow_motion" = "ปกด้านข้างเอียงเข้าหาอัลบั้มที่กำลังเล่น · พื้นกระจกสะท้อนสีของอัลบั้ม";
 "fullscreen_effect_lyric_stage" = "เวทีเนื้อเพลง";
 "fullscreen_effect_lyric_stage_subtitle" = "เนื้อเพลงนำโดยมีส่วนหัวของแทร็กที่จำกัด";
 "fullscreen_effect_lyrics" = "เนื้อเพลง";
@@ -1627,6 +1630,8 @@
 "immersive_demo_title" = "Primuse";
 "immersive_lock_controls" = "ล็อคการควบคุมที่สมจริง";
 "immersive_lyrics_motion_subtitle" = "ควบคุมการเลื่อนของผนังชื่อเรื่องและเนื้อเพลงแนวนอน ปิดเพื่อให้พิมพ์นิ่ง";
+"player_landscape_fullscreen_title" = "เต็มจอเมื่อหมุนแนวนอน";
+"player_landscape_fullscreen_subtitle" = "หมุน iPhone เป็นแนวนอนในหน้าเล่นเพลงเพื่อเปิดเอฟเฟกต์เต็มจอที่เลือกไว้ หมุนกลับเป็นแนวตั้งเพื่อปิด";
 "immersive_frame_rate_title" = "อัตราเฟรม";
 "immersive_frame_rate_subtitle" = "“ตามหน้าจอ” วาดทุกครั้งที่หน้าจอรีเฟรช (V-Sync) ลื่นไหลที่สุด แต่ใช้พลังงานมากที่สุด";
 "immersive_frame_rate_balanced" = "ประหยัดพลังงาน";

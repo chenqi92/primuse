@@ -8,6 +8,10 @@ import AppKit
 #endif
 
 enum PlayerAppearancePreferences {
+    /// 手机播放页转成横屏时直接进入所选的全屏效果，转回竖屏时退出(#191)。默认关：
+    /// 横屏另有自己的双栏播放页(封面与控件在左、歌词在右)。
+    static let entersFullscreenInLandscapeKey = "primuse.player.entersFullscreenInLandscape"
+    static let entersFullscreenInLandscapeByDefault = false
     static let animatedArtworkEnabledKey = "primuse.player.animatedArtworkEnabled"
     static let animatedArtworkEnabledByDefault = true
     static let animatedArtworkUnmeteredOnlyKey = "primuse.player.animatedArtworkUnmeteredOnly"
@@ -280,7 +284,7 @@ enum AmbientLightOverlayPolicy {
     }
 }
 
-/// 用户可选择的七类沉浸画面。名称描述效果机制，不再暴露设计稿编号。
+/// 用户可选择的八类沉浸画面。名称描述效果机制，不再暴露设计稿编号。
 enum ImmersiveEffectScene: Sendable {
     case coverGallery
     case vinylDeck
@@ -289,6 +293,7 @@ enum ImmersiveEffectScene: Sendable {
     case radialPulse
     case spectrumHorizon
     case particleBloom
+    case albumFlow
 }
 
 /// 保留控制层语义，便于三端共用同一套容器。
@@ -332,7 +337,7 @@ enum FullscreenEffectCollection: Int, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// 三端共享的全屏效果目录。原生播放器保持默认，其余七项对应七种实际渲染机制。
+/// 三端共享的全屏效果目录。原生播放器保持默认，其余八项对应八种实际渲染机制。
 /// 新增效果追加在末尾，保证 macOS 数字快捷键与既有顺序一致。
 enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     case native
@@ -343,6 +348,9 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     case auroraVeil
     case spectrumHorizon
     case particleBloom
+    /// 封面流(#191): 当前专辑居中, 资料库里前后的专辑斜着排在两边, 下面是倒影。
+    /// 存储值不用 "coverFlow" —— 那是旧版封面墙留下的别名, 升级用户存的就是它。
+    case albumFlow
 
     static let storageKey = "primuse.fullscreenPlayerEffect"
     static let defaultValue = FullscreenPlayerEffect.native
@@ -361,6 +369,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .auroraVeil: "auroraVeil"
         case .spectrumHorizon: "spectrumHorizon"
         case .particleBloom: "particleBloom"
+        case .albumFlow: "albumFlow"
         }
     }
 
@@ -390,6 +399,8 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
             self = .spectrumHorizon
         case "particleBloom":
             self = .particleBloom
+        case "albumFlow":
+            self = .albumFlow
         default:
             return nil
         }
@@ -398,7 +409,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     var collection: FullscreenEffectCollection {
         switch self {
         case .native: .native
-        case .coverGallery, .vinylDeck: .coverReactive
+        case .coverGallery, .vinylDeck, .albumFlow: .coverReactive
         case .flowingLines, .auroraVeil: .sceneMotion
         case .radialPulse, .spectrumHorizon, .particleBloom: .audioReactive
         }
@@ -413,6 +424,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .auroraVeil: .auroraVeil
         case .spectrumHorizon: .spectrumHorizon
         case .particleBloom: .particleBloom
+        case .albumFlow: .albumFlow
         }
     }
 
@@ -447,6 +459,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .auroraVeil: "aurora_veil"
         case .spectrumHorizon: "spectrum_horizon"
         case .particleBloom: "particle_bloom"
+        case .albumFlow: "cover_flow"
         }
     }
 
@@ -476,6 +489,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .auroraVeil: "moon.stars.fill"
         case .spectrumHorizon: "chart.bar.xaxis"
         case .particleBloom: "aqi.medium"
+        case .albumFlow: "rectangle.stack.fill"
         }
     }
 }

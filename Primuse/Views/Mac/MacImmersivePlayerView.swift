@@ -46,6 +46,7 @@ struct MacImmersivePlayerView: View {
     @State private var chromeTask: Task<Void, Never>?
     @State private var hasResolvedArtwork = true
     @State private var gallerySongs: [Song] = []
+    @State private var flowNeighbors = AlbumFlowNeighbors()
     @State private var showsEffectPicker = false
     @State private var scrubPreview: TimeInterval?
     @State private var activeLyricIndex: Int?
@@ -259,6 +260,31 @@ struct MacImmersivePlayerView: View {
                         showsPlaceholder: false,
                         fillsProposedSize: true
                     )
+                    .frame(width: side, height: side)
+                )
+            },
+            flowBeforeCount: flowNeighbors.before.count,
+            flowAfterCount: flowNeighbors.after.count,
+            flowArtwork: { offset, side in
+                // 0 是正在播的这张(给倒影用的静态那份)，其余是封面流两侧的专辑。
+                guard let song = offset == 0 ? player.currentSong : flowNeighbors.song(at: offset) else {
+                    return AnyView(ImmersiveArtworkFallback(palette: artworkPalette))
+                }
+                return AnyView(
+                    ZStack {
+                        ImmersiveArtworkFallback(palette: artworkPalette)
+                        CachedArtworkView(
+                            coverRef: song.coverArtFileName,
+                            songID: song.id,
+                            size: min(side, 480),
+                            cornerRadius: 0,
+                            sourceID: song.sourceID,
+                            filePath: song.filePath,
+                            fileFormat: song.fileFormat,
+                            showsPlaceholder: false,
+                            fillsProposedSize: true
+                        )
+                    }
                     .frame(width: side, height: side)
                 )
             },
@@ -544,7 +570,7 @@ struct MacImmersivePlayerView: View {
         case .coverGallery, .flowingLines,
              .auroraVeil, .spectrumHorizon:
             .trailing
-        case .native:
+        case .native, .albumFlow:
             .center
         }
     }
@@ -806,6 +832,10 @@ struct MacImmersivePlayerView: View {
     }
 
     private func refreshGallerySongs() {
+        flowNeighbors = library.albumFlowNeighbors(
+            for: player.currentSong,
+            perSide: AlbumFlowLayoutPolicy.maximumNeighborsPerSide
+        )
         let currentID = player.currentSong?.id
         // Stride through the library and test each stop, instead of filtering
         // the whole library first: that copied and trimmed every song on the
