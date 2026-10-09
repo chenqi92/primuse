@@ -5704,8 +5704,8 @@
 
 /* 播放时间段 */
 "playback_range_title" = "播放时间段";
-"playback_range_set" = "设置时段…";
-"playback_range_edit" = "编辑时段…";
+"playback_range_set" = "设置时段";
+"playback_range_edit" = "编辑时段";
 "playback_range_toggle" = "只播放这个时间段";
 "playback_range_summary %@ %@" = "%1$@ · 共 %2$@";
 "playback_range_start" = "开始";

@@ -5611,8 +5611,8 @@
 
 /* 播放时间段 */
 "playback_range_title" = "재생 구간";
-"playback_range_set" = "구간 설정…";
-"playback_range_edit" = "구간 편집…";
+"playback_range_set" = "구간 설정";
+"playback_range_edit" = "구간 편집";
 "playback_range_toggle" = "이 구간만 재생";
 "playback_range_summary %@ %@" = "%1$@ · 길이 %2$@";
 "playback_range_start" = "시작";

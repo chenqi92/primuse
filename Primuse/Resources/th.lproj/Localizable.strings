@@ -5517,8 +5517,8 @@
 
 /* 播放时间段 */
 "playback_range_title" = "ช่วงที่เล่น";
-"playback_range_set" = "ตั้งช่วง…";
-"playback_range_edit" = "แก้ไขช่วง…";
+"playback_range_set" = "ตั้งช่วง";
+"playback_range_edit" = "แก้ไขช่วง";
 "playback_range_toggle" = "เล่นเฉพาะช่วงนี้";
 "playback_range_summary %@ %@" = "%1$@ · ยาว %2$@";
 "playback_range_start" = "เริ่ม";

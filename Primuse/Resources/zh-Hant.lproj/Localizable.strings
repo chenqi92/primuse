@@ -5588,8 +5588,8 @@
 
 /* 播放时间段 */
 "playback_range_title" = "播放時間段";
-"playback_range_set" = "設定時段…";
-"playback_range_edit" = "編輯時段…";
+"playback_range_set" = "設定時段";
+"playback_range_edit" = "編輯時段";
 "playback_range_toggle" = "只播放這個時間段";
 "playback_range_summary %@ %@" = "%1$@ · 共 %2$@";
 "playback_range_start" = "開始";

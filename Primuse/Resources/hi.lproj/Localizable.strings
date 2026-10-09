@@ -5517,8 +5517,8 @@
 
 /* 播放时间段 */
 "playback_range_title" = "प्लेबैक रेंज";
-"playback_range_set" = "रेंज सेट करें…";
-"playback_range_edit" = "रेंज संपादित करें…";
+"playback_range_set" = "रेंज सेट करें";
+"playback_range_edit" = "रेंज संपादित करें";
 "playback_range_toggle" = "सिर्फ़ यही रेंज चलाएँ";
 "playback_range_summary %@ %@" = "%1$@ · अवधि %2$@";
 "playback_range_start" = "शुरुआत";

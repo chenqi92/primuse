@@ -5611,8 +5611,8 @@
 
 /* 播放时间段 */
 "playback_range_title" = "Plage de lecture";
-"playback_range_set" = "Définir la plage…";
-"playback_range_edit" = "Modifier la plage…";
+"playback_range_set" = "Définir la plage";
+"playback_range_edit" = "Modifier la plage";
 "playback_range_toggle" = "Lire uniquement cette plage";
 "playback_range_summary %@ %@" = "%1$@ · durée %2$@";
 "playback_range_start" = "Début";

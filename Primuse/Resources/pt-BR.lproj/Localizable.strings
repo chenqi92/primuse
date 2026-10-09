@@ -5517,8 +5517,8 @@
 
 /* 播放时间段 */
 "playback_range_title" = "Intervalo de reprodução";
-"playback_range_set" = "Definir intervalo…";
-"playback_range_edit" = "Editar intervalo…";
+"playback_range_set" = "Definir intervalo";
+"playback_range_edit" = "Editar intervalo";
 "playback_range_toggle" = "Tocar só este intervalo";
 "playback_range_summary %@ %@" = "%1$@ · duração %2$@";
 "playback_range_start" = "Início";
