@@ -101,12 +101,13 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
 
     private func observeLyricsNotifications() {
         let center = NotificationCenter.default
+        // 不挂主队列: 写 UserDefaults 的线程会同步等主队列上的回调跑完 (#200)。
         notificationTokens.append(center.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: nil,
-            queue: .main
+            queue: nil
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 guard let self else { return }
                 let enabled = UserDefaults.standard.bool(forKey: Self.lyricsEnabledKey)
                 if enabled != self.lyricsEnabled {

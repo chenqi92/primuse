@@ -706,10 +706,12 @@ final class InterfaceLayoutSync {
             cloud.register(key: key) { [weak self] in self?.remember(key) }
         }
         // 每次 UserDefaults 有写入都会到这里, 合批后只比这几十个键。
+        // 不挂主队列: 那样任何线程写 UserDefaults 都要同步等主线程跑完回调, 写的线程
+        // 若正持有主线程也要的锁就会互相等死 (#200)。这里只投递到主线程, 不等。
         observer = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification, object: defaults, queue: .main
+            forName: UserDefaults.didChangeNotification, object: defaults, queue: nil
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.scheduleCheck() }
+            Task { @MainActor in self?.scheduleCheck() }
         }
     }
 

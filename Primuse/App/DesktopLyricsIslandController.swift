@@ -264,10 +264,11 @@ final class DesktopLyricsIslandController {
 
     private func observePreferenceChanges() {
         guard preferenceObserver == nil else { return }
+        // 不挂主队列: 写 UserDefaults 的线程会同步等主队列上的回调跑完 (#200)。
         preferenceObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification, object: nil, queue: .main
+            forName: UserDefaults.didChangeNotification, object: nil, queue: nil
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 guard let self else { return }
                 let enabled = UserDefaults.standard.bool(forKey: Self.alwaysOnTopKey)
                 guard enabled != self.state.alwaysOnTop else { return }

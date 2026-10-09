@@ -133,9 +133,10 @@ final class DesktopLyricsWindowController {
         lastKnownLocked = locked
         // 监听 lock 变化（来自菜单栏 popover 或桌面歌词的悬浮 toolbar）
         // 同步给 NSPanel,因为 ignoresMouseEvents 是 NSWindow 级别状态。
+        // 不挂主队列: 写 UserDefaults 的线程会同步等主队列上的回调跑完 (#200)。
         lockObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
-            object: nil, queue: .main
+            object: nil, queue: nil
         ) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.locked != self.lastKnownLocked else { return }

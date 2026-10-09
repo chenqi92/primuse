@@ -28,8 +28,10 @@ final class ListeningWidgetPublisher {
                 MainActor.assumeIsolated { self?.schedule() }
             })
         }
-        observers.append(NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
+        // UserDefaults 在写入的线程上同步发通知; 挂主队列会让每次写都等主线程跑完回调,
+        // 写的线程持锁时就会和主线程互相等死 (#200)。
+        observers.append(NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: nil) { [weak self] _ in
+            Task { @MainActor in
                 guard let self, self.settingsSignature != self.currentSettingsSignature else { return }
                 self.settingsSignature = self.currentSettingsSignature
                 self.schedule()

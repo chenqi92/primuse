@@ -18,7 +18,54 @@ enum LocalImportService {
     private static let maximumFailureSamples = 20
     private static let pendingScanKey = "local_import_pending_scan_v1"
     private static let pendingScanRevisionKey = "local_import_pending_scan_revision_v1"
-    private static let pendingScanLock = NSLock()
+    private static let pendingScan = PendingScanMarker()
+
+    /// 「有新文件待扫描」标记。锁只护内存里的这份, 写 UserDefaults 放到串行队列上按修改顺序做:
+    /// UserDefaults 写入会在当前线程同步发 didChangeNotification, 挂在主队列上的观察者
+    /// 会让写入线程等主线程跑完回调。设备传输在网络队列上打标记、主线程开扫时又要读标记,
+    /// 持锁写盘就会和主线程互相等死 (#200)。
+    private final class PendingScanMarker: @unchecked Sendable {
+        struct State {
+            var pending: Bool
+            var revision: String?
+        }
+
+        private let lock = NSLock()
+        private var state: State?
+        private let persistence = DispatchQueue(label: "com.welape.primuse.local-import.pending-scan", qos: .utility)
+
+        func read<T>(_ body: (State) -> T) -> T {
+            lock.withLock { body(loaded()) }
+        }
+
+        func update(_ body: (inout State) -> Bool) {
+            lock.withLock {
+                var next = loaded()
+                guard body(&next) else { return }
+                state = next
+                // 在锁里入队, 落盘顺序就和内存里的修改顺序一致。
+                persistence.async { [next] in
+                    let defaults = UserDefaults.standard
+                    if next.pending {
+                        defaults.set(next.revision, forKey: LocalImportService.pendingScanRevisionKey)
+                        defaults.set(true, forKey: LocalImportService.pendingScanKey)
+                    } else {
+                        defaults.removeObject(forKey: LocalImportService.pendingScanKey)
+                        defaults.removeObject(forKey: LocalImportService.pendingScanRevisionKey)
+                    }
+                }
+            }
+        }
+
+        private func loaded() -> State {
+            if let state { return state }
+            let defaults = UserDefaults.standard
+            let stored = State(pending: defaults.bool(forKey: LocalImportService.pendingScanKey),
+                               revision: defaults.string(forKey: LocalImportService.pendingScanRevisionKey))
+            state = stored
+            return stored
+        }
+    }
 
     /// 本设备的「本地音乐」源 ID。每台设备独立(UUID 存 UserDefaults):
     /// 同一设备多次导入复用同一个源往里追加; 不同设备各自独立。设备本地源
@@ -57,25 +104,25 @@ enum LocalImportService {
     }
 
     static var hasPendingScan: Bool {
-        pendingScanLock.withLock { UserDefaults.standard.bool(forKey: pendingScanKey) }
+        pendingScan.read(\.pending)
     }
 
     static var pendingScanRevision: String? {
-        pendingScanLock.withLock { UserDefaults.standard.string(forKey: pendingScanRevisionKey) }
+        pendingScan.read(\.revision)
     }
 
     static func clearPendingScan(ifRevisionMatches revision: String?) {
-        pendingScanLock.withLock {
-            guard UserDefaults.standard.string(forKey: pendingScanRevisionKey) == revision else { return }
-            UserDefaults.standard.removeObject(forKey: pendingScanKey)
-            UserDefaults.standard.removeObject(forKey: pendingScanRevisionKey)
+        pendingScan.update { state in
+            guard state.revision == revision else { return false }
+            state = .init(pending: false, revision: nil)
+            return true
         }
     }
 
     static func markPendingScan() {
-        pendingScanLock.withLock {
-            UserDefaults.standard.set(UUID().uuidString, forKey: pendingScanRevisionKey)
-            UserDefaults.standard.set(true, forKey: pendingScanKey)
+        pendingScan.update { state in
+            state = .init(pending: true, revision: UUID().uuidString)
+            return true
         }
     }
 
