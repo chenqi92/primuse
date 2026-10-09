@@ -151,6 +151,8 @@
 "theme_color_amber" = "琥珀";
 "theme_color_slate" = "石板灰";
 "theme_color_white" = "白色";
+"theme_color_player_monochrome_hint" = "只想让播放页控件变成白色、其他地方保留彩色？";
+"theme_color_player_monochrome_link" = "到「播放器 › 控件颜色」里选单色";
 "theme_color_custom" = "自定义颜色";
 "theme_color_custom_footer" = "拖动滑杆调出任意颜色。";
 "theme_color_hue" = "色相";
@@ -5816,3 +5818,4 @@
 "home_filter_bar_footer" = "拖动调整顺序。有声书要资料库里有有声内容才会出现；只打开一个时整排不显示。";
 "home_filter_bar_footer_following" = "现在每个按钮跟着首页里对应区块的开关显示。在这里改过之后，区块收起时按钮也会留在首页顶上。拖动调整顺序。";
 "home_filter_bar_follow_sections" = "改回跟随首页区块";
+"player_control_tint_white_theme_note" = "主题色是「白色」时，播放页控件也是单色。";

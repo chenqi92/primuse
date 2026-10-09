@@ -3674,6 +3674,8 @@
 "theme_color_saturation" = "Saturación";
 "theme_color_slate" = "Pizarra";
 "theme_color_white" = "Blanco";
+"theme_color_player_monochrome_hint" = "¿Quieres solo los controles del reproductor en blanco y color en todo lo demás?";
+"theme_color_player_monochrome_link" = "Elige Monocromo en Reproductor › Color de los controles";
 "theme_color_teal" = "Verde Azulado";
 "theme_color_terracotta" = "Terracota";
 "theme_color_title" = "Color del tema";
@@ -5629,3 +5631,4 @@
 "home_filter_bar_footer" = "Arrastra para reordenar. Audiolibros aparece solo cuando tu biblioteca tiene contenido hablado. Si solo hay uno activado, la fila se oculta.";
 "home_filter_bar_footer_following" = "Por ahora, cada filtro sigue si su sección se muestra en Inicio. Después de cambiarlos aquí, se quedan arriba aunque la sección esté oculta. Arrastra para reordenar.";
 "home_filter_bar_follow_sections" = "Volver a seguir las secciones de Inicio";
+"player_control_tint_white_theme_note" = "Con el color de tema Blanco, los controles del reproductor siempre son monocromos.";

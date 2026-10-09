@@ -6871,11 +6871,20 @@ struct NowPlayingView: View {
             : String(localized: "a11y_value_off"))
     }
 
+    private var usesWhiteTheme: Bool {
+        #if os(iOS)
+        ThemeColorSettings.shared.isWhiteTheme
+        #else
+        false
+        #endif
+    }
+
     private var themedControlAccent: Color {
         // 有声书两套设计的强调色是定的,横屏、iPad 双栏也用它,不随封面取色。
         if usesAudiobookPlayerDesign { return audiobookPlayerStyle.accent }
-        // 设置里选了单色:深色外观下白、浅色外观下黑,和文字同色。
-        if PlayerAppearancePreferences.controlTint(rawValue: controlTintRawValue) == .monochrome {
+        // 设置里选了单色:深色外观下白、浅色外观下黑,和文字同色。主题色选了「白色」也一样,不跟封面取色。
+        if PlayerAppearancePreferences.controlTint(rawValue: controlTintRawValue) == .monochrome
+            || usesWhiteTheme {
             return appearance.primary
         }
         guard theme.colorID != "default" else { return appearance.primary }

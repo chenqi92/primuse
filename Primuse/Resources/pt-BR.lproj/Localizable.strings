@@ -3674,6 +3674,8 @@
 "theme_color_saturation" = "Saturação";
 "theme_color_slate" = "Ardósia";
 "theme_color_white" = "Branco";
+"theme_color_player_monochrome_hint" = "Quer só os controles do player em branco e cor no restante?";
+"theme_color_player_monochrome_link" = "Escolha Monocromático em Player › Cor dos controles";
 "theme_color_teal" = "Azul-petróleo";
 "theme_color_terracotta" = "Terracota";
 "theme_color_title" = "Cor do tema";
@@ -5629,3 +5631,4 @@
 "home_filter_bar_footer" = "Arraste para reordenar. Audiolivros aparece só quando sua biblioteca tem conteúdo falado. Com apenas um ativado, a fileira fica oculta.";
 "home_filter_bar_footer_following" = "Por enquanto, cada filtro segue se a seção correspondente aparece no Início. Depois de alterá-los aqui, eles ficam no topo mesmo com a seção oculta. Arraste para reordenar.";
 "home_filter_bar_follow_sections" = "Voltar a seguir as seções do Início";
+"player_control_tint_white_theme_note" = "Com a cor de tema Branco, os controles do player são sempre monocromáticos.";

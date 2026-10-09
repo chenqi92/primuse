@@ -2992,6 +2992,8 @@
 "source_diagnostics" = "Kaynak Teşhisi";
 "theme_color_slate" = "Arduvaz";
 "theme_color_white" = "Beyaz";
+"theme_color_player_monochrome_hint" = "Yalnızca çalar denetimlerini beyaz yapıp diğer her yeri renkli mi bırakmak istiyorsunuz?";
+"theme_color_player_monochrome_link" = "Çalar › Denetim Rengi bölümünden Tek Renk seçin";
 "source_type" = "Kaynak Türü";
 "radio_edit" = "İstasyonu Düzenle";
 "status_icloud_unavailable_in_build" = "Bu yapı iCloud erişimini içermiyor";
@@ -5629,3 +5631,4 @@
 "home_filter_bar_footer" = "Sıralamak için sürükleyin. Sesli kitaplar yalnızca arşivinizde sesli içerik olduğunda görünür. Yalnızca biri açıksa satır gizlenir.";
 "home_filter_bar_footer_following" = "Şu anda her filtre, bölümünün ana sayfada gösterilip gösterilmediğine göre görünür. Burada değiştirdikten sonra bölüm gizlense de filtreler üstte kalır. Sıralamak için sürükleyin.";
 "home_filter_bar_follow_sections" = "Yeniden ana sayfa bölümlerini izle";
+"player_control_tint_white_theme_note" = "Tema rengi Beyaz olduğunda çalar denetimleri her zaman tek renklidir.";

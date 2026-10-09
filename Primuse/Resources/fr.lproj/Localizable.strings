@@ -381,6 +381,8 @@
 "theme_color_amber" = "Ambre";
 "theme_color_slate" = "Ardoise";
 "theme_color_white" = "Blanc";
+"theme_color_player_monochrome_hint" = "Vous voulez seulement les commandes du lecteur en blanc, et de la couleur partout ailleurs ?";
+"theme_color_player_monochrome_link" = "Choisissez Monochrome dans Lecteur › Couleur des commandes";
 "theme_color_custom" = "Couleur personnalisée";
 "theme_color_custom_footer" = "Faites glisser pour composer la couleur de votre choix.";
 "theme_color_hue" = "Teinte";
@@ -5723,3 +5725,4 @@
 "home_filter_bar_footer" = "Faites glisser pour réorganiser. Livres audio n’apparaît que si votre bibliothèque contient des contenus parlés. Avec un seul filtre activé, la rangée est masquée.";
 "home_filter_bar_footer_following" = "Pour l’instant, chaque filtre suit l’affichage de sa section sur l’accueil. Une fois modifiés ici, ils restent en haut même si la section est masquée. Faites glisser pour réorganiser.";
 "home_filter_bar_follow_sections" = "Suivre à nouveau les sections de l’accueil";
+"player_control_tint_white_theme_note" = "Avec la couleur de thème Blanc, les commandes du lecteur sont toujours monochromes.";

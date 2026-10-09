@@ -382,6 +382,8 @@
 "theme_color_amber" = "アンバー";
 "theme_color_slate" = "スレート";
 "theme_color_white" = "ホワイト";
+"theme_color_player_monochrome_hint" = "再生画面のコントロールだけを白にして、ほかはカラーのままにしたい場合は";
+"theme_color_player_monochrome_link" = "「プレーヤー › コントロールの色」でモノクロを選択";
 "theme_color_custom" = "カスタムカラー";
 "theme_color_custom_footer" = "ドラッグして好きな色を作れます。";
 "theme_color_hue" = "色相";
@@ -5724,3 +5726,4 @@
 "home_filter_bar_footer" = "ドラッグで並べ替えます。オーディオブックはライブラリに音声コンテンツがあるときだけ表示されます。1つだけオンのときは列ごと表示されません。";
 "home_filter_bar_footer_following" = "現在、各ボタンはホームの対応するセクションの表示に合わせています。ここで変更すると、セクションを非表示にしてもボタンはホーム上部に残ります。ドラッグで並べ替えます。";
 "home_filter_bar_follow_sections" = "ホームのセクションに合わせる";
+"player_control_tint_white_theme_note" = "テーマカラーが「ホワイト」のときは、再生画面のコントロールも常にモノクロになります。";

@@ -381,6 +381,8 @@
 "theme_color_amber" = "앰버";
 "theme_color_slate" = "슬레이트";
 "theme_color_white" = "화이트";
+"theme_color_player_monochrome_hint" = "재생 화면 컨트롤만 흰색으로 하고 나머지는 컬러로 두고 싶나요?";
+"theme_color_player_monochrome_link" = "플레이어 › 컨트롤 색상에서 모노크롬 선택";
 "theme_color_custom" = "사용자 색상";
 "theme_color_custom_footer" = "드래그해서 원하는 색을 만들 수 있습니다.";
 "theme_color_hue" = "색상";
@@ -5723,3 +5725,4 @@
 "home_filter_bar_footer" = "드래그하여 순서를 바꿉니다. 오디오북은 보관함에 오디오 콘텐츠가 있을 때만 나타납니다. 하나만 켜면 줄 전체가 숨겨집니다.";
 "home_filter_bar_footer_following" = "지금은 각 버튼이 홈의 해당 섹션 표시 여부를 따릅니다. 여기서 변경하면 섹션을 숨겨도 버튼이 홈 상단에 남습니다. 드래그하여 순서를 바꿉니다.";
 "home_filter_bar_follow_sections" = "홈 섹션을 다시 따르기";
+"player_control_tint_white_theme_note" = "테마 색상이 화이트이면 재생 화면 컨트롤도 항상 모노크롬입니다.";

@@ -87,7 +87,7 @@ struct AppearanceSettingsView: View {
                     Label("minimal_mode_title", systemImage: "rectangle.topthird.inset.filled")
                 }
                 // 下面选了「白色」时开关圆钮要换色,外观代理只作用于新建的开关。
-                .id(ThemeColorSettings.shared.usesMonochromeSwitchThumb)
+                .id(ThemeColorSettings.shared.isWhiteTheme)
             } header: {
                 SettingsInfoHeader("navigation_mode_title") {
                     Text("minimal_mode_description")
@@ -159,6 +159,21 @@ struct ThemeColorSections: View {
                 .padding(.vertical, 8)
             } header: {
                 Text("theme_color_palette")
+            } footer: {
+                // 只想让播放页控件变白的人,不必为此把整个 App 换成白色。
+                Button {
+                    SettingsNavigation.shared.open("appearance.playerControlTint")
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("theme_color_player_monochrome_hint")
+                            .foregroundStyle(.secondary)
+                        Text("theme_color_player_monochrome_link")
+                            .foregroundStyle(.tint)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
             .settingsAnchor("appearance.palette")
 
@@ -234,7 +249,7 @@ struct ThemeColorSections: View {
                     }
                 }
                 // 上面选了「白色」时开关圆钮要换色,外观代理只作用于新建的开关。
-                .id(settings.usesMonochromeSwitchThumb)
+                .id(settings.isWhiteTheme)
 
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {

@@ -3674,6 +3674,8 @@
 "theme_color_saturation" = "Nasycenie";
 "theme_color_slate" = "Łupek";
 "theme_color_white" = "Biały";
+"theme_color_player_monochrome_hint" = "Chcesz, aby tylko elementy sterujące odtwarzacza były białe, a reszta kolorowa?";
+"theme_color_player_monochrome_link" = "Wybierz „Monochromatyczny” w Odtwarzacz › Kolor elementów sterujących";
 "theme_color_teal" = "Turkusowy";
 "theme_color_terracotta" = "Terakota";
 "theme_color_title" = "Kolor motywu";
@@ -5629,3 +5631,4 @@
 "home_filter_bar_footer" = "Przeciągnij, aby zmienić kolejność. Audiobooki pojawiają się tylko wtedy, gdy biblioteka zawiera treści mówione. Gdy włączony jest tylko jeden filtr, rząd jest ukryty.";
 "home_filter_bar_footer_following" = "Na razie każdy filtr zależy od tego, czy jego sekcja jest widoczna na ekranie głównym. Po zmianie tutaj filtry zostają u góry, nawet gdy sekcja jest ukryta. Przeciągnij, aby zmienić kolejność.";
 "home_filter_bar_follow_sections" = "Znów zależnie od sekcji ekranu głównego";
+"player_control_tint_white_theme_note" = "Przy kolorze motywu „Biały” elementy sterujące odtwarzacza są zawsze monochromatyczne.";

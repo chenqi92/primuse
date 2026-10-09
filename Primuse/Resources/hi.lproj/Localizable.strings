@@ -3674,6 +3674,8 @@
 "theme_color_saturation" = "संतृप्ति";
 "theme_color_slate" = "स्लेटी";
 "theme_color_white" = "सफ़ेद";
+"theme_color_player_monochrome_hint" = "सिर्फ़ प्लेयर के कंट्रोल सफ़ेद और बाक़ी जगह रंगीन चाहिए?";
+"theme_color_player_monochrome_link" = "प्लेयर › कंट्रोल का रंग में एकरंगा चुनें";
 "theme_color_teal" = "टील";
 "theme_color_terracotta" = "टेराकोटा";
 "theme_color_title" = "थीम रंग";
@@ -5629,3 +5631,4 @@
 "home_filter_bar_footer" = "क्रम बदलने के लिए खींचें। ऑडियोबुक तभी दिखता है जब आपकी लाइब्रेरी में बोली गई सामग्री हो। केवल एक चालू होने पर पूरी पंक्ति छिप जाती है।";
 "home_filter_bar_footer_following" = "अभी हर फ़िल्टर इस पर निर्भर है कि उसका सेक्शन होम पर दिख रहा है या नहीं। यहाँ बदलने के बाद, सेक्शन छिपा होने पर भी फ़िल्टर ऊपर बने रहते हैं। क्रम बदलने के लिए खींचें।";
 "home_filter_bar_follow_sections" = "फिर से होम सेक्शन के अनुसार दिखाएँ";
+"player_control_tint_white_theme_note" = "थीम रंग सफ़ेद होने पर प्लेयर के कंट्रोल हमेशा एकरंगे रहते हैं।";

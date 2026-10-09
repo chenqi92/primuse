@@ -109,13 +109,14 @@ final class ThemeColorSettings {
     /// 走 UIKit 外观代理而不是 SwiftUI 的开关样式:样式进不了弹出页,外观代理对所有开关都有效。
     /// 只影响之后才出现的开关,已经在屏幕上的要换个身份重建(主题色设置页就是这么做的)。
     private func applySwitchThumbAppearance() {
-        UISwitch.appearance().thumbTintColor = usesMonochromeSwitchThumb
+        UISwitch.appearance().thumbTintColor = isWhiteTheme
             ? UIColor { @Sendable traits in traits.userInterfaceStyle == .dark ? .systemGray : .white }
             : nil
     }
 
-    /// 开关圆钮当前是不是「白色」主题那一套;设置页拿它当开关的身份,切换时重建开关。
-    var usesMonochromeSwitchThumb: Bool {
+    /// 主题色选的是不是「白色」。开关圆钮跟着换色(设置页拿它当开关的身份,切换时重建开关),
+    /// 播放页控件也按单色画。
+    var isWhiteTheme: Bool {
         mode == .fixed && AppThemePreferences.isMonochrome(fixedColorHex)
     }
 

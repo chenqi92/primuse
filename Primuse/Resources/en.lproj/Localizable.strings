@@ -150,6 +150,8 @@
 "theme_color_amber" = "Amber";
 "theme_color_slate" = "Slate";
 "theme_color_white" = "White";
+"theme_color_player_monochrome_hint" = "Want only the player controls in white, with color everywhere else?";
+"theme_color_player_monochrome_link" = "Choose Monochrome in Player › Control Color";
 "theme_color_custom" = "Custom Color";
 "theme_color_custom_footer" = "Drag to mix any color you like.";
 "theme_color_hue" = "Hue";
@@ -5483,3 +5485,4 @@
 "home_filter_bar_footer" = "Drag to reorder. Audiobooks appears only when your library has spoken-word content. With only one turned on, the row is hidden.";
 "home_filter_bar_footer_following" = "Each filter currently follows whether its section is shown on Home. After you change them here, they stay at the top even when the section is hidden. Drag to reorder.";
 "home_filter_bar_follow_sections" = "Follow Home Sections Again";
+"player_control_tint_white_theme_note" = "With the White theme color, player controls are always monochrome.";

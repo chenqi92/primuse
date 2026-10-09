@@ -381,6 +381,8 @@
 "theme_color_amber" = "Bernstein";
 "theme_color_slate" = "Schiefer";
 "theme_color_white" = "Weiß";
+"theme_color_player_monochrome_hint" = "Nur die Player-Bedienelemente weiß, alles andere farbig?";
+"theme_color_player_monochrome_link" = "In Player › Farbe der Bedienelemente „Monochrom“ wählen";
 "theme_color_custom" = "Eigene Farbe";
 "theme_color_custom_footer" = "Zieh die Regler, um eine beliebige Farbe zu mischen.";
 "theme_color_hue" = "Farbton";
@@ -5723,3 +5725,4 @@
 "home_filter_bar_footer" = "Zum Umsortieren ziehen. Hörbücher erscheint nur, wenn deine Mediathek Hörinhalte enthält. Ist nur ein Filter aktiv, wird die Leiste ausgeblendet.";
 "home_filter_bar_footer_following" = "Jeder Filter richtet sich derzeit danach, ob sein Bereich auf der Startseite angezeigt wird. Sobald du sie hier änderst, bleiben sie oben, auch wenn der Bereich ausgeblendet ist. Zum Umsortieren ziehen.";
 "home_filter_bar_follow_sections" = "Wieder den Bereichen folgen";
+"player_control_tint_white_theme_note" = "Mit der Designfarbe „Weiß“ sind die Player-Bedienelemente immer monochrom.";

@@ -142,6 +142,8 @@
 "theme_color_amber" = "琥珀";
 "theme_color_slate" = "石板灰";
 "theme_color_white" = "白色";
+"theme_color_player_monochrome_hint" = "只想讓播放頁控制項變成白色、其他地方保留彩色？";
+"theme_color_player_monochrome_link" = "到「播放器 › 控制項顏色」裡選單色";
 "theme_color_custom" = "自訂顏色";
 "theme_color_custom_footer" = "拖動滑桿調出任意顏色。";
 "theme_color_hue" = "色相";
@@ -5700,3 +5702,4 @@
 "home_filter_bar_footer" = "拖動調整順序。有聲書要資料庫裡有有聲內容才會出現；只開啟一個時整排不顯示。";
 "home_filter_bar_footer_following" = "目前每個按鈕跟著首頁裡對應區塊的開關顯示。在這裡改過之後，區塊收起時按鈕也會留在首頁頂端。拖動調整順序。";
 "home_filter_bar_follow_sections" = "改回跟隨首頁區塊";
+"player_control_tint_white_theme_note" = "主題色是「白色」時，播放頁控制項也是單色。";

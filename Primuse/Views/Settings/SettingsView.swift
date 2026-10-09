@@ -613,6 +613,11 @@ private struct PlayerAppearanceSettingsView: View {
                     }
                 }
                 .settingsAnchor("appearance.playerControlTint")
+            } footer: {
+                // 主题色选了「白色」时两个选项画出来一样,说一声免得以为没生效。
+                if ThemeColorSettings.shared.isWhiteTheme {
+                    Text("player_control_tint_white_theme_note")
+                }
             }
 
             Section {
