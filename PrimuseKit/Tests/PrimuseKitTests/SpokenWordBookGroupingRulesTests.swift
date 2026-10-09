@@ -425,6 +425,77 @@ struct SpokenWordBookGroupingRulesTests {
         #expect(books.first { $0.items.contains { $0.id == "1" } }?.items.map(\.id) == ["1", "2"])
     }
 
+    @Test("A shorter album tag and untagged files still join the folder's book")
+    func decoratedTitlesAndUntaggedFilesJoin() {
+        let longAlbum = "凡人修仙传之仙界篇|关彦之领衔|再塑经典|精品有声剧"
+        let omnibus = "凡人修仙传|精编版|关彦之"
+        let root = "有声书/凡人修仙传之仙界篇-关彦之"
+        var items: [SpokenWordBookItem] = []
+        for number in 1...12 {
+            let path = "\(root)/1-500/关彦之 - 第\(number)集 标题\(number)_HQ.mp3"
+            switch number {
+            case 3:
+                // Same book, its album tag without the decoration.
+                items.append(item("s3", title: "第3集 相依", album: "凡人修仙传之仙界篇", artist: "关彦之", path: path))
+            case 1, 2:
+                items.append(item("s\(number)", title: "第\(4968 + number)集 (凡人仙界篇)", album: omnibus,
+                                  artist: "关彦之", track: 4968 + number, path: path))
+            case 4...8:
+                items.append(item("s\(number)", title: "第\(number)集 标题\(number)", album: longAlbum,
+                                  artist: "关彦之", track: number, path: path))
+            default:
+                // No usable album tag.
+                items.append(item("s\(number)", title: "第\(number)集 标题\(number)", artist: "qb2", path: path))
+            }
+        }
+        for number in 4969...4972 {
+            items.append(item("o\(number)", title: "第\(number)集", album: omnibus, artist: "关彦之", track: number,
+                              path: "有声书/凡人修仙传-关彦之/4501-5000/第\(number)集.mp3"))
+        }
+        let books = SpokenWordBookGrouping.books(from: items)
+        #expect(books.count == 2)
+        let single = books.first { $0.items.contains { $0.id == "s9" } }
+        #expect(single?.items.map(\.id) == (1...12).map { "s\($0)" })
+        #expect(single?.title == longAlbum)
+        // Renamed files are listed by the chapter their file name gives them.
+        #expect(single?.items.first?.title == "第1集 标题1")
+        #expect(books.first { $0.items.contains { $0.id == "o4969" } }?.items.count == 4)
+    }
+
+    @Test("Untagged files join a book nearly every tagged file shares, not one of two")
+    func untaggedFilesJoinOnlyADominantBook() {
+        var items = (1...20).map { (number: Int) in item("a\(number)", album: "三体", track: number, path: "书/a\(number).mp3") }
+        items.append(item("theme", title: "主题曲", album: "主题曲合集", path: "书/主题曲.mp3"))
+        items.append(item("loose", title: "番外", path: "书/番外.mp3"))
+        let books = SpokenWordBookGrouping.books(from: items)
+        #expect(books.first { $0.items.contains { $0.id == "a1" } }?.items.contains { $0.id == "loose" } == true)
+        #expect(books.first { $0.items.contains { $0.id == "theme" } }?.items.count == 1)
+
+        let mixed = [
+            item("x1", album: "三体", track: 1, path: "下载/x1.mp3"),
+            item("x2", album: "三体", track: 2, path: "下载/x2.mp3"),
+            item("y1", album: "球状闪电", track: 1, path: "下载/y1.mp3"),
+            item("y2", album: "球状闪电", track: 2, path: "下载/y2.mp3"),
+            item("z", title: "访谈", path: "下载/z.mp3"),
+        ]
+        let apart = SpokenWordBookGrouping.books(from: mixed)
+        #expect(apart.count == 3)
+        #expect(apart.first { $0.items.contains { $0.id == "z" } }?.items.count == 1)
+    }
+
+    @Test("Decoration after a separator is the same book; a volume is not")
+    func decoratedTitleDetection() {
+        #expect(SpokenWordBookGroupingRules.isDecoratedTitle("凡人修仙传之仙界篇|关彦之领衔", of: "凡人修仙传之仙界篇"))
+        #expect(SpokenWordBookGroupingRules.isDecoratedTitle("dune - read by scott brick", of: "dune"))
+        #expect(!SpokenWordBookGroupingRules.isDecoratedTitle("三体 - 第二部", of: "三体"))
+        #expect(!SpokenWordBookGroupingRules.isDecoratedTitle("dune (2)", of: "dune"))
+        #expect(!SpokenWordBookGroupingRules.isDecoratedTitle("三体2", of: "三体"))
+        #expect(!SpokenWordBookGroupingRules.isDecoratedTitle("三体全集", of: "三体"))
+        #expect(SpokenWordBookGroupingRules.fileChapterTitle("书/关彦之 - 第1集 狐女（1）_HQ.mp3") == "第1集 狐女（1）")
+        #expect(SpokenWordBookGroupingRules.fileChapterTitle("书/第12回 [MQ].m4a") == "第12回")
+        #expect(SpokenWordBookGroupingRules.fileChapterTitle("书/01 Intro.mp3") == nil)
+    }
+
     @Test("A folder renamed throughout is renumbered on purpose and keeps its tags")
     func renumberedFolderKeepsTags() {
         let books = SpokenWordBookGrouping.books(from: [

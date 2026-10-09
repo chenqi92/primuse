@@ -14,10 +14,13 @@ import Foundation
 ///    artist never does (it is the narrator, and varies per episode). Items
 ///    missing an album artist take the only one their album has.
 /// 3. The folder settles what tags cannot. In one folder, units sharing an
-///    album title are one book, and when the folder holds a single album,
-///    its untagged items join it. A folder holding no album is one book
-///    named after the folder. "CD 2"-style and "1-500"-style folders count
-///    as their parent, ordered by their number.
+///    album title are one book, and so are titles where one only adds
+///    decoration to the other ("书名" and "书名|演播|宣传语"). The folder's
+///    untagged items join its book: the one album it holds, or the one
+///    nearly all its tagged files carry (a stray theme song does not split
+///    it). A folder holding no album is one book named after the folder.
+///    "CD 2"-style and "1-500"-style folders count as their parent, ordered
+///    by their number.
 /// 4. Only items at a source's root, or with no path at all, stand alone.
 ///    A server catalogue's paths are made up from item ids (`/songs/<id>`)
 ///    and name no folder, so its items count as having none.
@@ -31,8 +34,8 @@ import Foundation
 ///    In a folder whose other files' names agree with their tags, such a
 ///    file belongs to the folder's book (its largest album) whatever its
 ///    album tag says, and that book goes by file name, the one numbering
-///    its files share. A folder renamed throughout is renumbered on purpose
-///    and keeps its tags.
+///    its files share; the book lists such a file by its file name too. A
+///    folder renamed throughout is renumbered on purpose and keeps its tags.
 enum SpokenWordBookGroupingRules {
     struct Assignment {
         /// Item id → book id.
@@ -47,6 +50,9 @@ enum SpokenWordBookGroupingRules {
         /// Books holding files renamed after tagging (rule 6): their chapters
         /// go by path, since the track tags count two different releases.
         var pathOrderedBookIDs: Set<String> = []
+        /// Item id → the title its file name gives a file renamed after
+        /// tagging (rule 6), which the book lists it by.
+        var displayTitles: [String: String] = [:]
     }
 
     private struct Album {
@@ -116,6 +122,7 @@ enum SpokenWordBookGroupingRules {
         var sets = UnionFind()
         var albumUnitsByFolder: [String: [String: Set<String>]] = [:] // folder → album key → units
         var agreeingUnitCountsByFolder: [String: [String: Int]] = [:] // folder → unit → agreeing items
+        var albumItemCountsByFolder: [String: [String: Int]] = [:] // folder → unit → tagged items
         var folderHasLooseItems: Set<String> = []
         var foldersWithAdoptedItems: Set<String> = []
         for index in items.indices {
@@ -124,6 +131,7 @@ enum SpokenWordBookGroupingRules {
             guard let folder = folders[index] else { continue }
             if let album = albums[index] {
                 albumUnitsByFolder[folder.key, default: [:]][album.key, default: []].insert(unit)
+                albumItemCountsByFolder[folder.key, default: [:]][unit, default: 0] += 1
                 if readings[index].agrees { agreeingUnitCountsByFolder[folder.key, default: [:]][unit, default: 0] += 1 }
             } else if adopted[index] {
                 foldersWithAdoptedItems.insert(folder.key)
@@ -131,24 +139,32 @@ enum SpokenWordBookGroupingRules {
                 folderHasLooseItems.insert(folder.key)
             }
         }
-        // Rule 6: renamed files join the album most of their folder's
-        // confirmed chapters carry.
-        for folderKey in foldersWithAdoptedItems {
-            guard let counts = agreeingUnitCountsByFolder[folderKey],
-                  let largest = counts.max(by: { $0.value != $1.value ? $0.value < $1.value : $0.key > $1.key })
-            else { continue }
-            sets.union(largest.key, adoptedUnitKey(folderKey))
-        }
-        for (folderKey, albumsHere) in albumUnitsByFolder {
+        for albumsHere in albumUnitsByFolder.values {
             for units in albumsHere.values {
                 let sorted = units.sorted()
                 for unit in sorted.dropFirst() { sets.union(sorted[0], unit) }
             }
-            if albumsHere.count == 1,
-               folderHasLooseItems.contains(folderKey),
-               let unit = albumsHere.values.first?.min() {
-                sets.union(unit, folderUnitKey(folderKey))
+            // "书名" next to "书名|演播|宣传语": one book dressed two ways.
+            let keys = albumsHere.keys.sorted { $0.count != $1.count ? $0.count < $1.count : $0 < $1 }
+            for (offset, short) in keys.enumerated() {
+                guard let shortUnit = albumsHere[short]?.min() else { continue }
+                for long in keys[(offset + 1)...] where isDecoratedTitle(long, of: short) {
+                    if let longUnit = albumsHere[long]?.min() { sets.union(shortUnit, longUnit) }
+                }
             }
+        }
+        // Rule 6: renamed files join the book most of their folder's
+        // confirmed chapters belong to.
+        for folderKey in foldersWithAdoptedItems {
+            guard let root = dominantBook(agreeingUnitCountsByFolder[folderKey], in: &sets, share: 0) else { continue }
+            sets.union(root, adoptedUnitKey(folderKey))
+        }
+        // Untagged items join their folder's book: the only one, or the one
+        // nearly every tagged file there belongs to.
+        for folderKey in folderHasLooseItems {
+            guard let root = dominantBook(albumItemCountsByFolder[folderKey], in: &sets, share: looseJoinShare)
+            else { continue }
+            sets.union(root, folderUnitKey(folderKey))
         }
 
         // Name each set after its largest album unit, else its folder.
@@ -193,8 +209,71 @@ enum SpokenWordBookGroupingRules {
         for (index, item) in items.enumerated() {
             if let disc = folders[index]?.disc { assignment.derivedDiscs[item.id] = disc }
             if let start = folders[index]?.rangeStart { assignment.derivedRanges[item.id] = start }
+            if adopted[index], let title = fileChapterTitle(item.fileName) { assignment.displayTitles[item.id] = title }
         }
         return assignment
+    }
+
+    /// Share of a folder's tagged files one book must hold for its untagged
+    /// files to join it while other albums sit there too.
+    static let looseJoinShare = 0.95
+
+    /// The book (set root) holding the most of `counts`' items, when it is
+    /// the only one or holds at least `share` of them.
+    private static func dominantBook(_ counts: [String: Int]?, in sets: inout UnionFind, share: Double) -> String? {
+        guard let counts, !counts.isEmpty else { return nil }
+        var byRoot: [String: Int] = [:]
+        for (unit, count) in counts { byRoot[sets.find(unit), default: 0] += count }
+        guard let top = byRoot.max(by: { $0.value != $1.value ? $0.value < $1.value : $0.key > $1.key })
+        else { return nil }
+        let total = byRoot.values.reduce(0, +)
+        guard byRoot.count == 1 || Double(top.value) >= Double(total) * share else { return nil }
+        return top.key
+    }
+
+    private static let titleDecorationSeparators: Set<Character> = [
+        "|", "-", "\u{2014}", "\u{2013}", "\u{00B7}", "\u{2022}", "(", "[", "\u{3010}", "/",
+    ]
+
+    /// "第二部", "2", "Vol. 2", "下", "续": what follows the title names a
+    /// volume, which is a book of its own.
+    private static let volumeStart = try! NSRegularExpression(
+        pattern: "^(?:\u{7B2C}|[0-9\u{FF10}-\u{FF19}]|vol|book|part|\u{4E0A}|\u{4E2D}|\u{4E0B}|\u{7EED})",
+        options: [.caseInsensitive]
+    )
+
+    /// `long` is `short` with decoration after a separator ("书名|演播|宣传语",
+    /// "书名 - 某某演播"), not another volume. Both are normalised album keys.
+    static func isDecoratedTitle(_ long: String, of short: String) -> Bool {
+        guard short.count >= 2, long.count > short.count, long.hasPrefix(short) else { return false }
+        let rest = long.dropFirst(short.count)
+        guard let first = rest.first(where: { !$0.isWhitespace }), titleDecorationSeparators.contains(first)
+        else { return false }
+        let tail = String(rest.drop { $0.isWhitespace || titleDecorationSeparators.contains($0) })
+        return volumeStart.firstMatch(in: tail, range: NSRange(tail.startIndex..., in: tail)) == nil
+    }
+
+    /// Download-quality marks on a file name: "_HQ", "-320k", "[MQ]".
+    private static let qualitySuffix = try! NSRegularExpression(
+        pattern: "[\\s_\\-]*[\\[(\u{FF08}]?(?:HQ|MQ|SQ|LQ|HD|SD|HiRes|[0-9]{2,3}k(?:bps)?)[\\])\u{FF09}]?$",
+        options: [.caseInsensitive]
+    )
+
+    /// The title a renamed file's name gives it: from its chapter number on,
+    /// without download-quality marks ("关彦之 - 第1集 狐女（1）_HQ" →
+    /// "第1集 狐女（1）").
+    static func fileChapterTitle(_ path: String) -> String? {
+        let stem = fileStem(path)
+        let range = NSRange(stem.startIndex..., in: stem)
+        guard let match = countedChapter.firstMatch(in: stem, range: range),
+              let start = Range(match.range, in: stem)?.lowerBound else { return nil }
+        let fromChapter = String(stem[start...])
+        let trimmed = qualitySuffix.stringByReplacingMatches(
+            in: fromChapter,
+            range: NSRange(fromChapter.startIndex..., in: fromChapter),
+            withTemplate: ""
+        ).trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     /// The key an item gets from its own tags and path alone.

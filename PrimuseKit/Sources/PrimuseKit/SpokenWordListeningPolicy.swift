@@ -279,7 +279,14 @@ public enum SpokenWordBookGrouping {
         for item in items {
             guard let key = assignment.bookIDs[item.id] else { continue }
             if groups[key] == nil { order.append(key) }
-            groups[key, default: []].append(item)
+            // A file renamed after tagging is listed by its file name (rule 6).
+            if let title = assignment.displayTitles[item.id] {
+                var renamed = item
+                renamed.title = title
+                groups[key, default: []].append(renamed)
+            } else {
+                groups[key, default: []].append(item)
+            }
         }
 
         let books = order.map { key -> SpokenWordBook in
