@@ -217,7 +217,9 @@ enum WiFiTransferLibraryPreparation {
         default:
             guard let resolver = connector as? any LyricsSidecarTargetResolving else { return nil }
             // ID-backed providers resolve the real parent; slicing an opaque song ID cannot do so.
-            let target = try await resolver.lyricsSidecarTarget(for: song)
+            // A listing request: only the folder is needed, and a song with
+            // both an `.lrc` and a `.ttml` must not fail the cover lookup.
+            let target = try await resolver.lyricsSidecarTarget(for: song, request: .catalog(for: song))
             container = target.containerPath
             basename = (target.fileName as NSString).deletingPathExtension
         }

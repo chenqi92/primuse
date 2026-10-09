@@ -371,7 +371,10 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
         )
     }
 
-    func lyricsSidecarTarget(for song: Song) async throws -> LyricsSidecarTarget {
+    func lyricsSidecarTarget(
+        for song: Song,
+        request: LyricsDocumentRequest
+    ) async throws -> LyricsSidecarTarget {
         try await connect()
         guard let driveId else { throw CloudDriveError.notAuthenticated }
         let token = try await getToken()
@@ -392,7 +395,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
         let siblings = try await listFiles(at: context.parentID)
         let existing = try LyricsSidecarTargetPolicy.uniqueExistingItem(
             baseName: context.baseName,
-            in: siblings
+            in: siblings,
+            request: request
         )
         let companion = LyricsSidecarTargetPolicy.translationTrackItem(
             forPrimary: existing,
@@ -411,7 +415,8 @@ actor AliyunDriveSource: MusicSourceConnector, OAuthCloudSource,
             songBaseName: context.baseName,
             translationPath: companion?.path,
             translationFileName: companion?.name,
-            translationSize: companion?.size
+            translationSize: companion?.size,
+            documents: LyricsSidecarTargetPolicy.documents(baseName: context.baseName, in: siblings)
         )
     }
 

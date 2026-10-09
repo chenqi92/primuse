@@ -33,6 +33,11 @@ struct LyricsEditorSheet: View {
     @State private var completionMessage: String?
     /// 待确认删除的内容。非 nil 表示用户清空了歌词、正在等二次确认。
     @State private var pendingRemoval = false
+    @State private var showLyricsSources = false
+    @State private var editorHadUnsavedChanges = false
+    /// 来源页里换了来源、或改写了正在用的文件：关掉来源页后按新内容重新载入编辑器。
+    @State private var reloadsAfterSources = false
+    @State private var editorGeneration = 0
 
     var body: some View {
         Group {
@@ -45,16 +50,32 @@ struct LyricsEditorSheet: View {
                     initialLines: initialLines,
                     autoStartsAudioTranscription: autoStartsAudioTranscription,
                     allowsStructuredOnlyTranslationEditing: LyricsWriteback
-                        .allowsStructuredOnlyTranslationEditing(for: initialLines, mode: mode)
-                ) { committed, lines in
-                    handleCommit(committed, structuredLines: lines)
-                }
+                        .allowsStructuredOnlyTranslationEditing(for: initialLines, mode: mode),
+                    onCommit: { committed, lines in
+                        handleCommit(committed, structuredLines: lines)
+                    },
+                    onShowLyricsSources: { hasUnsavedChanges in
+                        editorHadUnsavedChanges = hasUnsavedChanges
+                        showLyricsSources = true
+                    }
+                )
+                .id(editorGeneration)
                 .overlay {
                     if isSaving { savingOverlay }
                 }
             }
         }
         .task(id: song.id) { await load() }
+        .sheet(isPresented: $showLyricsSources, onDismiss: reloadAfterSourcesIfNeeded) {
+            LyricsSourcesView(
+                song: library.song(id: song.id) ?? song,
+                editorHasUnsavedChanges: editorHadUnsavedChanges
+            ) { updated in
+                reloadsAfterSources = true
+                // 播放页跟着换：和保存走同一个回调。
+                onSave?(updated)
+            }
+        }
         .onDisappear { cancelWritebackProbe() }
         .alert(
             String(localized: "tag_editor_lyrics_error_title"),
@@ -174,6 +195,14 @@ struct LyricsEditorSheet: View {
         let resolved = await probe.value
         guard !Task.isCancelled else { return }
         mode = resolved.protectingSourceConflict(loaded.hasSourceConflict)
+    }
+
+    /// 编辑器手里的还是换来源之前的那份：整个重新读一遍，换成现在用的文件。
+    private func reloadAfterSourcesIfNeeded() {
+        guard reloadsAfterSources else { return }
+        reloadsAfterSources = false
+        editorGeneration += 1
+        Task { await load() }
     }
 
     private func startWritebackProbe() -> Task<LyricsWriteback.Mode, Never> {

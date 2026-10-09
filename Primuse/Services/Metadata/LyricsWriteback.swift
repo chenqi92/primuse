@@ -218,10 +218,11 @@ enum LyricsWriteback {
                     sourceSnapshot: sourceSnapshot
                 )
             }
-            // 字幕文档和 TTML 一样不能直接进编辑器：源码是 cue 标记，
-            // 必须先经共享模型转成 LRC/ELRC 文本。
+            // 字幕文档、毫秒逐字文档（.lys/.yrc/.qrc）和 TTML 一样不能直接进编辑器：
+            // 源码是 cue 或逐字标记，必须先经共享模型转成 LRC/ELRC 文本。
             if LyricsContentParser.isTTML(normalizedSource)
-                || LyricsContentParser.isSubtitleDocument(normalizedSource) {
+                || LyricsContentParser.isSubtitleDocument(normalizedSource)
+                || WordTimedLyricsParser.detect(normalizedSource) != nil {
                 let sourceLines = LyricsContentParser.parse(normalizedSource)
                 guard !sourceLines.isEmpty else {
                     if let cached {
@@ -341,6 +342,11 @@ enum LyricsWriteback {
                     for: song
                 )
                 return .sidecar(preflight)
+            } catch let collision as LyricsSidecarReplacementCollision {
+                // The picked file cannot be serialized and its replacement
+                // name is another of the song's sources: keep the edit here
+                // rather than overwrite that file.
+                return .localOnly(reason: collision.localizedDescription)
             } catch {
                 return SourceWriteProbeFailure.isTransient(error)
                     ? .temporarilyUnavailable(SourceErrorPresentation.userFacingDescription(error))
@@ -616,6 +622,9 @@ enum LyricsWriteback {
             savedCacheSnapshot = nil
             updated.lyricsFileName = nil
             updated.lyricsText = nil
+            if case .sidecar(let target) = mode, !removesEmbeddedLyrics {
+                LyricsDocumentPinStore.shared.forgetFile(named: target.fileName, forSongID: song.id)
+            }
             if !removesEmbeddedLyrics, embeddingMode != .off {
                 // 歌词文件删掉了，嵌入的那份也要删，否则下次扫描会把它读回来。
                 embeddedCopy = await writeEmbeddedCopy(
@@ -776,6 +785,11 @@ enum LyricsWriteback {
                     expectedFingerprint: cacheSnapshot
                 )
             }
+            if !staysLocal, !skipsLyricsFile, case .sidecar(let target) = mode {
+                // A picked `.yrc` is saved as the `.ttml` beside it; from now on
+                // the song reads what was just saved.
+                LyricsDocumentPinStore.shared.followSave(toFileName: target.fileName, forSongID: song.id)
+            }
             if cacheStored {
                 savedCacheSnapshot = LyricsDocumentFingerprint(lines: writebackLines)
             } else {
@@ -929,6 +943,105 @@ enum LyricsWriteback {
             lineLevel.syllables = nil
             return lineLevel
         })
+    }
+
+    // MARK: - 歌词来源页：按原文改写一个文件
+
+    struct DocumentSaveOutcome {
+        var errorMessage: String?
+        /// The file changed after the editor opened it; reopen before editing.
+        var changedElsewhere = false
+        /// The file was saved but the audio file's embedded copy was not.
+        var embeddedCopyError: String?
+        /// The library row after the save, for the caller's `onSave`.
+        var updatedSong: Song?
+
+        var succeeded: Bool { errorMessage == nil }
+    }
+
+    /// Writes the raw editor's text over one of the song's lyric files, in
+    /// that file's own format and encoding. Nothing else beside the song is
+    /// touched. When it is the file the song reads, the song shows the new
+    /// text at once, and the audio file's embedded copy follows if the
+    /// listener embeds lyrics.
+    static func saveDocument(
+        _ entry: LyricsDocumentCatalog.Entry,
+        text: String,
+        original: LyricsDocumentCatalog.Content,
+        for song: Song,
+        sourceManager: SourceManager,
+        library: MusicLibrary
+    ) async -> DocumentSaveOutcome {
+        let validation = LyricsRawDocumentPolicy.validate(text, fileName: entry.name)
+        if let message = LyricsDocumentCatalog.message(for: validation.outcome, fileName: entry.name) {
+            return DocumentSaveOutcome(errorMessage: message)
+        }
+        let key = song.sourceID + "\u{0}document\u{0}" + song.id + "\u{0}" + entry.name.lowercased()
+        await mutationGate.acquire(key)
+        let outcome = await performDocumentSave(
+            entry,
+            lines: validation.lines,
+            data: original.encoding.data(for: text),
+            original: original,
+            for: song,
+            sourceManager: sourceManager,
+            library: library
+        )
+        await mutationGate.release(key)
+        return outcome
+    }
+
+    private static func performDocumentSave(
+        _ entry: LyricsDocumentCatalog.Entry,
+        lines: [LyricLine],
+        data: Data,
+        original: LyricsDocumentCatalog.Content,
+        for song: Song,
+        sourceManager: SourceManager,
+        library: MusicLibrary
+    ) async -> DocumentSaveOutcome {
+        do {
+            _ = try await MusicScraperService.replaceLyricsDocumentWithTimeout(
+                seconds: 30,
+                sourceManager: sourceManager,
+                for: song,
+                named: entry.name,
+                data: data,
+                expecting: original.data
+            )
+        } catch let error as SidecarWriteService.LyricsDocumentWriteError {
+            var outcome = DocumentSaveOutcome(errorMessage: error.localizedDescription)
+            if case .changedElsewhere = error { outcome.changedElsewhere = true }
+            return outcome
+        } catch {
+            return DocumentSaveOutcome(errorMessage: String(
+                format: String(localized: "tag_editor_lyrics_write_failed"),
+                SourceErrorPresentation.userFacingDescription(error)
+            ))
+        }
+
+        var outcome = DocumentSaveOutcome()
+        if entry.isActive {
+            do {
+                try await LyricsDocumentCatalog.show(lines, from: entry, for: song, sourceManager: sourceManager)
+            } catch {
+                // The file is saved; the song only shows it after its next read.
+                plog("⚠️ Lyrics document saved but not cached for songID=\(song.id): \(error.localizedDescription)")
+            }
+            if await sourceManager.lyricsEmbeddingMode(for: song) != .off {
+                let embedded = await writeEmbeddedCopy(
+                    .set(embeddedCopyContent(lines)),
+                    for: song,
+                    sourceManager: sourceManager,
+                    library: library
+                )
+                recordReplacedAudioFile(embedded, songID: song.id, library: library)
+                outcome.embeddedCopyError = embedded.failureReason
+            }
+        }
+        library.flushPendingAssetReferencePatches()
+        outcome.updatedSong = library.song(id: song.id) ?? song
+        return outcome
     }
 
     // MARK: - 写 / 删
@@ -1099,7 +1212,11 @@ enum LyricsWriteback {
                 guard result.lyricsRemoved else {
                     return result.errors.joined(separator: "\n")
                 }
-                guard await verifySidecarRemoval(song: song, sourceManager: sourceManager) else {
+                guard await verifySidecarRemoval(
+                    song: song,
+                    removedFileName: target.fileName,
+                    sourceManager: sourceManager
+                ) else {
                     return String(localized: "tag_editor_lyrics_verify_failed")
                 }
                 return nil
@@ -1138,6 +1255,7 @@ enum LyricsWriteback {
 
     private static func verifySidecarRemoval(
         song: Song,
+        removedFileName: String,
         sourceManager: SourceManager
     ) async -> Bool {
         // ID-backed cloud providers can acknowledge deletion before their
@@ -1156,6 +1274,17 @@ enum LyricsWriteback {
                 sourceManager: sourceManager,
                 for: song
             ), !preflight.replacesExistingFile {
+                return true
+            }
+            // A song with several lyric files keeps the others: the next one
+            // becomes current, so "nothing to replace" never comes. The file
+            // that was deleted being gone is the proof then.
+            if let exists = try? await MusicScraperService.lyricsDocumentExistsWithTimeout(
+                seconds: 5,
+                sourceManager: sourceManager,
+                for: song,
+                named: removedFileName
+            ), !exists {
                 return true
             }
         }

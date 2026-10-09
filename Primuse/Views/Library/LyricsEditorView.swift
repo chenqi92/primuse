@@ -23,6 +23,9 @@ struct LyricsEditorView: View {
     /// 只有仅本地结构化缓存的模式能无损保存纯文本/字级行译文。
     /// 外部 sidecar/媒体服务器需限制为可往返的普通双语 LRC。
     let allowsStructuredOnlyTranslationEditing: Bool
+    /// 非 nil 时编辑器多一个「歌词来源」入口，参数是编辑器里有没有没存的修改。
+    /// 来源页由外层呈现：切换来源、改写文件之后编辑器要整个重新载入。
+    let onShowLyricsSources: ((Bool) -> Void)?
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
@@ -37,6 +40,8 @@ struct LyricsEditorView: View {
     @State private var sourceText: String
     @State private var sourceBaselineText = ""
     @State private var showSourceEditor = false
+    /// 点了「LRC 源码」但这份歌词装不进 LRC：说明原因，给出去歌词来源改原文的路。
+    @State private var showSourceTextUnavailable = false
     @State private var playbackTime: TimeInterval = 0
     @State private var timingSession: LyricsTimingSession
     /// 文本模式中展开微调的逐字单元。用行 UUID 而不是下标，拖动排序后仍指向
@@ -103,12 +108,14 @@ struct LyricsEditorView: View {
         initialLines: [LyricLine]? = nil,
         autoStartsAudioTranscription: Bool = false,
         allowsStructuredOnlyTranslationEditing: Bool = false,
-        onCommit: ((String, [LyricLine]) -> Void)? = nil
+        onCommit: ((String, [LyricLine]) -> Void)? = nil,
+        onShowLyricsSources: ((Bool) -> Void)? = nil
     ) {
         self.song = song
         self._text = text
         self.autoStartsAudioTranscription = autoStartsAudioTranscription
         self.allowsStructuredOnlyTranslationEditing = allowsStructuredOnlyTranslationEditing
+        self.onShowLyricsSources = onShowLyricsSources
         self.onCommit = onCommit
         let parsed = if let initialLines, !initialLines.isEmpty {
             LyricsEditorDocument(lyricLines: initialLines)
@@ -163,6 +170,19 @@ struct LyricsEditorView: View {
                 Button(String(localized: "done"), role: .cancel) {}
             } message: {
                 Text(transcriptionMessage ?? "")
+            }
+            .alert(
+                String(localized: "lyrics_editor_source_text_unavailable_title"),
+                isPresented: $showSourceTextUnavailable
+            ) {
+                if onShowLyricsSources != nil {
+                    Button(String(localized: "lyrics_sources_title")) { showLyricsSources() }
+                }
+                Button(String(localized: "done"), role: .cancel) {}
+            } message: {
+                Text(String(localized: onShowLyricsSources == nil
+                            ? "lyrics_editor_source_text_unavailable_message"
+                            : "lyrics_editor_source_text_unavailable_sources_message"))
             }
     }
 
@@ -300,21 +320,36 @@ struct LyricsEditorView: View {
                 .buttonStyle(.plain)
                 .disabled(isTranscribingAudio)
             }
+            if onShowLyricsSources != nil {
+                Button {
+                    showLyricsSources()
+                } label: {
+                    Label(
+                        String(localized: "lyrics_sources_title"),
+                        systemImage: "doc.on.doc"
+                    )
+                    .font(PMFont.bodyM)
+                    .foregroundStyle(PMColor.textMuted)
+                    .padding(.horizontal, 10)
+                    .frame(height: 26)
+                    .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
+                }
+                .buttonStyle(.plain)
+            }
             Button {
                 openSourceEditor()
             } label: {
                 Label(
-                    String(localized: "lyrics_editor_mode_source"),
+                    String(localized: "lyrics_editor_mode_lrc_text"),
                     systemImage: "chevron.left.forwardslash.chevron.right"
                 )
                 .font(PMFont.bodyM)
-                .foregroundStyle(PMColor.textMuted)
+                .foregroundStyle(document.permitsSourceTextEditing ? PMColor.textMuted : PMColor.textFaint)
                 .padding(.horizontal, 10)
                 .frame(height: 26)
                 .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
             }
             .buttonStyle(.plain)
-            .disabled(!document.permitsSourceTextEditing)
         }
         .padding(.horizontal, PMSpace.m16)
         .padding(.vertical, PMSpace.s10)
@@ -1350,15 +1385,23 @@ struct LyricsEditorView: View {
                 .disabled(isTranscribingAudio)
                 Divider()
             }
+            if onShowLyricsSources != nil {
+                Button {
+                    showLyricsSources()
+                } label: {
+                    Label(String(localized: "lyrics_sources_title"), systemImage: "doc.on.doc")
+                }
+            }
             Button {
                 openSourceEditor()
             } label: {
-                Label(
-                    String(localized: "lyrics_editor_mode_source"),
-                    systemImage: "chevron.left.forwardslash.chevron.right"
-                )
+                // 系统菜单里灰掉的项点不动：不置灰，用副标题说明，点了再讲清楚。
+                Text(String(localized: "lyrics_editor_mode_lrc_text"))
+                if !document.permitsSourceTextEditing {
+                    Text(String(localized: "lyrics_editor_source_text_unavailable_hint"))
+                }
+                Image(systemName: "chevron.left.forwardslash.chevron.right")
             }
-            .disabled(!document.permitsSourceTextEditing)
             Button {
                 insertLine(after: document.lines.count - 1)
             } label: {
@@ -2588,8 +2631,17 @@ struct LyricsEditorView: View {
 
     // MARK: - LRC / ELRC 源码
 
+    private func showLyricsSources() {
+        onShowLyricsSources?(!document.hasSameContent(as: originalDocument))
+    }
+
     private func openSourceEditor() {
-        guard document.permitsSourceTextEditing else { return }
+        guard document.permitsSourceTextEditing else {
+            // 逐字、译文、和声和 TTML 结构没法在 LRC 文本里保住：说清楚，
+            // 而不是让入口灰着不能点。
+            showSourceTextUnavailable = true
+            return
+        }
         // 译文是独立结构字段，不在这里平铺成普通歌词行再猜。
         // 这也让同文字体系的多语译文在修改原文源码后仍原样保留。
         let serialized = document.originalOnlySerialized()
@@ -2603,7 +2655,7 @@ struct LyricsEditorView: View {
         TextEditor(text: $sourceText)
             .font(.system(size: 12, design: .monospaced))
             .padding(.horizontal, 8)
-            .navigationTitle(String(localized: "lyrics_editor_mode_source"))
+            .navigationTitle(String(localized: "lyrics_editor_mode_lrc_text"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.visible, for: .navigationBar)
             .toolbar {
@@ -2616,7 +2668,7 @@ struct LyricsEditorView: View {
     private var sourceEditorSheet: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Text(String(localized: "lyrics_editor_mode_source"))
+                Text(String(localized: "lyrics_editor_mode_lrc_text"))
                     .font(.system(size: 13.5, weight: .semibold))
                 Spacer()
                 Button(String(localized: "cancel")) { showSourceEditor = false }

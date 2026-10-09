@@ -557,7 +557,10 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
         return json["name"] as? String
     }
 
-    func lyricsSidecarTarget(for song: Song) async throws -> LyricsSidecarTarget {
+    func lyricsSidecarTarget(
+        for song: Song,
+        request: LyricsDocumentRequest
+    ) async throws -> LyricsSidecarTarget {
         let token = try await getToken()
         let context: (name: String, parentID: String) = try await helper.withTokenRetry(
             initialToken: token,
@@ -582,7 +585,8 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
         let siblings = try await listFiles(at: context.parentID)
         let existing = try LyricsSidecarTargetPolicy.uniqueExistingItem(
             baseName: baseName,
-            in: siblings
+            in: siblings,
+            request: request
         )
         let companion = LyricsSidecarTargetPolicy.translationTrackItem(
             forPrimary: existing,
@@ -601,7 +605,8 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
             songBaseName: baseName,
             translationPath: companion?.path,
             translationFileName: companion?.name,
-            translationSize: companion?.size
+            translationSize: companion?.size,
+            documents: LyricsSidecarTargetPolicy.documents(baseName: baseName, in: siblings)
         )
     }
 

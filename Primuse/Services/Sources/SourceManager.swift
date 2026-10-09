@@ -2112,12 +2112,19 @@ private struct RoutedMusicSourceConnector: RoutedConnectorProxy, OpenListSTRMRes
     let routedSupportsSidecarWriting: Bool
     let routedPreferredDeleteBatchSize: Int
 
-    func lyricsSidecarTarget(for song: Song) async throws -> LyricsSidecarTarget {
+    func lyricsSidecarTarget(
+        for song: Song,
+        request: LyricsDocumentRequest
+    ) async throws -> LyricsSidecarTarget {
         try await routing.withRead { connector in
             if let resolver = connector as? any LyricsSidecarTargetResolving {
-                return try await resolver.lyricsSidecarTarget(for: song)
+                return try await resolver.lyricsSidecarTarget(for: song, request: request)
             }
-            return try await LyricsSidecarTargetPolicy.resolve(for: song, using: connector)
+            return try await LyricsSidecarTargetPolicy.resolve(
+                for: song,
+                using: connector,
+                request: request
+            )
         }
     }
 

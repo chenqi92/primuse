@@ -6948,8 +6948,10 @@ struct NowPlayingView: View {
                     currentCache: cached,
                     loadRevision: loadRevision
                 )
-            } else if (song.lyricsFileName ?? "").contains("/") {
-                // NAS sidecars retain their existing source-of-truth refresh.
+            } else if (song.lyricsFileName ?? "").contains("/")
+                        || LyricsLoader.readsPinnedDocument(song) {
+                // NAS sidecars retain their existing source-of-truth refresh,
+                // and so does a lyric file picked on the lyric sources page.
                 runLyricsTier3Fetch(
                     song: song,
                     currentCache: cached,
@@ -6967,9 +6969,13 @@ struct NowPlayingView: View {
         }
 
         let lyricsRefIsRemote = (song.lyricsFileName ?? "").contains("/")
+        // A picked lyric file is read from the source; the shortcuts below
+        // only know the scanner's choice.
+        let readsPinnedDocument = LyricsLoader.readsPinnedDocument(song)
 
         // Tier 1b: legacy named ref (only for non-NAS path)
         if !lyricsRefIsRemote,
+           !readsPinnedDocument,
            let cached = await MetadataAssetStore.shared.lyrics(named: song.lyricsFileName) {
             guard isCurrentLyricsLoad(loadRevision, songID: song.id) else { return }
             await MetadataAssetStore.shared.cacheLyrics(cached, forSongID: song.id)
@@ -6978,7 +6984,8 @@ struct NowPlayingView: View {
         }
 
         // Tier 2: Check local audio cache for a lyrics sidecar (filesystem only, zero network)
-        if LyricsLoader.usesAudioCacheSidecar(for: song),
+        if !readsPinnedDocument,
+           LyricsLoader.usesAudioCacheSidecar(for: song),
            let cachedAudioURL = sourceManager.cachedURL(for: song),
            let lrcURL = SidecarMetadataLoader.findLyrics(for: cachedAudioURL),
            let parsed = try? LyricsParser.parse(from: lrcURL), !parsed.isEmpty {
@@ -6989,7 +6996,8 @@ struct NowPlayingView: View {
         }
 
         // 刚确认过源里没有同名歌词 / 文字稿：不再每次展开播放页都去源里问一遍。
-        if await LyricsSidecarMissLedger.shared.isRecentMiss(Self.lyricsSidecarMissKey(for: song)) {
+        if !readsPinnedDocument,
+           await LyricsSidecarMissLedger.shared.isRecentMiss(Self.lyricsSidecarMissKey(for: song)) {
             plog(String(format: "📜 loadLyrics '%@' sidecar known missing, skip Tier3", song.title))
             setLyricsIfCurrent([], for: song, loadRevision: loadRevision)
             return
@@ -7182,7 +7190,12 @@ struct NowPlayingView: View {
                 let songDir = (song.filePath as NSString).deletingLastPathComponent
                 let baseName = ((song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
                 let lyricsPath: String
-                if let ref = song.lyricsFileName, ref.contains("/") {
+                if let pinned = try await LyricsLoader.pinnedDocumentFile(
+                    for: song,
+                    connector: connector
+                ) {
+                    lyricsPath = pinned.path
+                } else if let ref = song.lyricsFileName, ref.contains("/") {
                     lyricsPath = ref
                 } else if let ref = song.lyricsFileName,
                           PrimuseConstants.readableLyricsExtensions.contains(

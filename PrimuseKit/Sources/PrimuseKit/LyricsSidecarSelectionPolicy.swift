@@ -1,5 +1,19 @@
 import Foundation
 
+/// Which of a song's lyric documents a resolver hands back.
+public enum LyricsDocumentRequest: Sendable, Equatable {
+    /// The document the song reads: the one the listener picked on the lyric
+    /// sources page while that file is still there, the default ranking
+    /// otherwise. Saves go here.
+    case current(pinned: String?)
+    /// One document by its file name, for opening or saving that file itself.
+    case named(String)
+    /// The current document for listing the song's files. Two writable
+    /// documents are not a conflict here, because nothing is written through
+    /// this answer.
+    case catalog(pinned: String?)
+}
+
 /// Chooses which same-name lyric sidecar a song reads from, and which file a
 /// save may replace. The two questions have different answers: Primuse reads
 /// several formats but only ever serializes LRC or TTML, so a `.vtt`, `.srt`
@@ -217,6 +231,94 @@ public enum LyricsSidecarSelectionPolicy {
             )
         }
         return .item(best)
+    }
+
+    /// The document a request names among the song's siblings. A pin that no
+    /// longer matches a file (renamed, deleted) falls back to the default
+    /// ranking instead of leaving the song without lyrics.
+    public static func select(
+        _ request: LyricsDocumentRequest,
+        baseName: String,
+        names: [String],
+        preferredLanguages: [String] = Locale.preferredLanguages
+    ) -> Selection {
+        let documents = documents(baseName: baseName, names: names)
+        switch request {
+        case .named(let name):
+            return document(named: name, among: documents, names: names).map(Selection.item) ?? .none
+        case .current(let pinned):
+            if let pinned, let index = document(named: pinned, among: documents, names: names) {
+                return .item(index)
+            }
+            return currentDocument(
+                baseName: baseName,
+                names: names,
+                preferredLanguages: preferredLanguages
+            )
+        case .catalog(let pinned):
+            if let pinned, let index = document(named: pinned, among: documents, names: names) {
+                return .item(index)
+            }
+            let current = currentDocument(
+                baseName: baseName,
+                names: names,
+                preferredLanguages: preferredLanguages
+            )
+            guard current == .conflict else { return current }
+            return documents.first { isWritableDocument(fileName: names[$0]) }
+                .map(Selection.item) ?? .none
+        }
+    }
+
+    /// Every lyric document that belongs to the song — the exact-name file of
+    /// each readable format and the language-tagged subtitles — as indices
+    /// into `names`. The order is the one the sources page numbers them in:
+    /// by format as `currentDocument` ranks formats, an exact name before a
+    /// tagged one, then by name. It does not depend on which document is
+    /// current, so a row keeps its number when the listener switches.
+    public static func documents(baseName: String, names: [String]) -> [Int] {
+        var audioStems: Set<String> = []
+        for name in names {
+            let fileExtension = fileExtension(of: name)
+            if PrimuseConstants.supportedAudioExtensions.contains(fileExtension)
+                || PrimuseConstants.supportedStreamDescriptorExtensions.contains(fileExtension) {
+                audioStems.insert((name as NSString).deletingPathExtension.lowercased())
+            }
+        }
+        var found: [(index: Int, rank: Int, isTagged: Bool, name: String)] = []
+        for (index, name) in names.enumerated() {
+            guard PrimuseConstants.readableLyricsExtensions.contains(fileExtension(of: name)) else {
+                continue
+            }
+            let stem = (name as NSString).deletingPathExtension
+            let isTagged: Bool
+            if stem.caseInsensitiveCompare(baseName) == .orderedSame {
+                isTagged = false
+            } else if let components = languageTaggedComponents(ofSidecarNamed: name),
+                      components.baseName.caseInsensitiveCompare(baseName) == .orderedSame,
+                      // `Track.it.vtt` beside `Track.it.flac` is that song's own file.
+                      !audioStems.contains(stem.lowercased()) {
+                isTagged = true
+            } else {
+                continue
+            }
+            found.append((index, readPriority(of: name), isTagged, name))
+        }
+        return found.sorted { left, right in
+            if left.rank != right.rank { return left.rank < right.rank }
+            if left.isTagged != right.isTagged { return !left.isTagged }
+            let order = left.name.compare(right.name, options: [.caseInsensitive, .numeric])
+            if order != .orderedSame { return order == .orderedAscending }
+            return left.name < right.name
+        }.map(\.index)
+    }
+
+    /// A name typed the way it is listed wins; otherwise the first document
+    /// that differs only in case, because pins and file systems disagree on
+    /// whether case matters.
+    private static func document(named name: String, among documents: [Int], names: [String]) -> Int? {
+        documents.first { names[$0] == name }
+            ?? documents.first { names[$0].caseInsensitiveCompare(name) == .orderedSame }
     }
 
     /// The writable document that replaces a read-only one. A save creates

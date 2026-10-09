@@ -423,7 +423,10 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
         )
     }
 
-    func lyricsSidecarTarget(for song: Song) async throws -> LyricsSidecarTarget {
+    func lyricsSidecarTarget(
+        for song: Song,
+        request: LyricsDocumentRequest
+    ) async throws -> LyricsSidecarTarget {
         let token = try await accessToken()
         let context = try await sidecarContext(for: song.filePath, token: token)
         let baseName = (context.sourceName as NSString).deletingPathExtension
@@ -432,7 +435,8 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
         }
         let existing = try LyricsSidecarTargetPolicy.uniqueExistingItem(
             baseName: baseName,
-            in: siblings
+            in: siblings,
+            request: request
         )
         let companion = LyricsSidecarTargetPolicy.translationTrackItem(
             forPrimary: existing,
@@ -451,7 +455,8 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
             songBaseName: baseName,
             translationPath: companion?.path,
             translationFileName: companion?.name,
-            translationSize: companion?.size
+            translationSize: companion?.size,
+            documents: LyricsSidecarTargetPolicy.documents(baseName: baseName, in: siblings)
         )
     }
 

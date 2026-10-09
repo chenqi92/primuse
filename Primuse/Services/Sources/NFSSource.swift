@@ -296,7 +296,10 @@ actor NFSSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter,
         }
     }
 
-    func lyricsSidecarTarget(for song: Song) async throws -> LyricsSidecarTarget {
+    func lyricsSidecarTarget(
+        for song: Song,
+        request: LyricsDocumentRequest
+    ) async throws -> LyricsSidecarTarget {
         let source = try await resolveSelectionPath(for: song.filePath)
         let directory = (source.relativePath as NSString).deletingLastPathComponent
         let baseName = ((source.relativePath as NSString).lastPathComponent as NSString)
@@ -308,7 +311,8 @@ actor NFSSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter,
 
         let existing = try LyricsSidecarTargetPolicy.uniqueExistingItem(
             baseName: baseName,
-            in: existingItems
+            in: existingItems,
+            request: request
         )
         let companion = LyricsSidecarTargetPolicy.translationTrackItem(
             forPrimary: existing,
@@ -355,7 +359,8 @@ actor NFSSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter,
             songBaseName: baseName,
             translationPath: companion?.path,
             translationFileName: companion?.name,
-            translationSize: companion?.size
+            translationSize: companion?.size,
+            documents: LyricsSidecarTargetPolicy.documents(baseName: baseName, in: existingItems)
         )
     }
 

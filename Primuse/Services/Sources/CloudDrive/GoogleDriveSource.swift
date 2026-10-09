@@ -256,7 +256,10 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         }?.path
     }
 
-    func lyricsSidecarTarget(for song: Song) async throws -> LyricsSidecarTarget {
+    func lyricsSidecarTarget(
+        for song: Song,
+        request: LyricsDocumentRequest
+    ) async throws -> LyricsSidecarTarget {
         let lrcReference = GoogleDriveSidecarReference(
             sourceFileID: song.filePath,
             suffix: ".lrc"
@@ -266,7 +269,8 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         let baseName = (lrcContext.name as NSString).deletingPathExtension
         let existing = try LyricsSidecarTargetPolicy.uniqueExistingItem(
             baseName: baseName,
-            in: siblings
+            in: siblings,
+            request: request
         )
         let companion = LyricsSidecarTargetPolicy.translationTrackItem(
             forPrimary: existing,
@@ -286,7 +290,8 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
             songBaseName: baseName,
             translationPath: companion?.path,
             translationFileName: companion?.name,
-            translationSize: companion?.size
+            translationSize: companion?.size,
+            documents: LyricsSidecarTargetPolicy.documents(baseName: baseName, in: siblings)
         )
     }
 

@@ -330,13 +330,121 @@ actor SidecarWriteService {
         for song: Song,
         using connector: any MusicSourceConnector
     ) async throws -> (document: LyricsSidecarTarget, write: LyricsSidecarTarget) {
-        let document: LyricsSidecarTarget
-        if let resolver = connector as? any LyricsSidecarTargetResolving {
-            document = try await resolver.lyricsSidecarTarget(for: song)
-        } else {
-            document = try await LyricsSidecarTargetPolicy.resolve(for: song, using: connector)
+        let document = try await Self.resolveTarget(
+            for: song,
+            using: connector,
+            request: .current(for: song)
+        )
+        let write = try LyricsSidecarTargetPolicy.writeTarget(for: document)
+        // A picked read-only document is saved as a new file beside it — but
+        // that name can already be taken by another of the song's sources,
+        // which the default ranking would have picked instead. Never write
+        // over it; the save stays in Primuse.
+        if document.separateWritePath == nil,
+           write.fileName.caseInsensitiveCompare(document.fileName) != .orderedSame,
+           document.documents.contains(where: {
+               $0.name.caseInsensitiveCompare(write.fileName) == .orderedSame
+           }) {
+            throw LyricsSidecarReplacementCollision(
+                documentName: document.fileName,
+                replacementName: write.fileName
+            )
         }
-        return (document, try LyricsSidecarTargetPolicy.writeTarget(for: document))
+        return (document, write)
+    }
+
+    private static func resolveTarget(
+        for song: Song,
+        using connector: any MusicSourceConnector,
+        request: LyricsDocumentRequest
+    ) async throws -> LyricsSidecarTarget {
+        if let resolver = connector as? any LyricsSidecarTargetResolving {
+            return try await resolver.lyricsSidecarTarget(for: song, request: request)
+        }
+        return try await LyricsSidecarTargetPolicy.resolve(
+            for: song,
+            using: connector,
+            request: request
+        )
+    }
+
+    enum LyricsDocumentWriteError: LocalizedError, Equatable {
+        /// The file is not in the song's folder any more, or the name now
+        /// resolves to a different file.
+        case documentMissing(String)
+        /// Someone changed the file after the editor opened it.
+        case changedElsewhere(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .documentMissing(let name):
+                return String(format: String(localized: "lyrics_sources_document_missing %@"), name)
+            case .changedElsewhere(let name):
+                return String(format: String(localized: "lyrics_sources_document_changed %@"), name)
+            }
+        }
+    }
+
+    /// The address of one named lyric file of the song, for the raw editor's
+    /// save. Throws when the name no longer resolves to an existing file.
+    func lyricsDocumentTarget(
+        named fileName: String,
+        for song: Song,
+        using connector: any MusicSourceConnector
+    ) async throws -> LyricsSidecarTarget {
+        guard connector.supportsSidecarWriting else {
+            throw SourceError.connectionFailed("Source does not support sidecar writing")
+        }
+        let target = try await Self.resolveTarget(for: song, using: connector, request: .named(fileName))
+        guard target.exists,
+              target.separateWritePath == nil,
+              target.fileName.caseInsensitiveCompare(fileName) == .orderedSame,
+              target.existingPath != nil else {
+            throw LyricsDocumentWriteError.documentMissing(fileName)
+        }
+        return target
+    }
+
+    /// Writes the raw editor's bytes over one lyric file, whatever its
+    /// format: the listener typed the document, so nothing is serialized and
+    /// a `.yrc` stays a `.yrc`. The file must still hold the bytes the editor
+    /// opened; the write is read back byte for byte.
+    func writeLyricsDocument(
+        _ data: Data,
+        to target: LyricsSidecarTarget,
+        expecting originalData: Data,
+        using connector: any MusicSourceConnector
+    ) async throws -> LyricsSidecarWriteReceipt {
+        guard !data.isEmpty, data.count <= LyricsSidecarTargetPolicy.maximumContentByteCount,
+              let existingPath = target.existingPath else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
+        // A listing that knows the size answers most edits elsewhere for free.
+        let listedSize = target.existingSize ?? 0
+        if listedSize > 0, listedSize != Int64(originalData.count) {
+            throw LyricsDocumentWriteError.changedElsewhere(target.fileName)
+        }
+        let current = try await connector.fetchRange(
+            path: existingPath,
+            offset: 0,
+            length: Int64(originalData.count) + (listedSize > 0 ? 0 : 1),
+            priority: .background
+        )
+        guard current == originalData else {
+            throw LyricsDocumentWriteError.changedElsewhere(target.fileName)
+        }
+        let receipt = try await connector.writeLyricsSidecar(
+            data: data,
+            target: target,
+            priority: .background
+        )
+        guard receipt.requestedTargetPath == target.targetPath,
+              receipt.fileName.caseInsensitiveCompare(target.fileName) == .orderedSame,
+              receipt.readback == data else {
+            throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+        }
+        plog("📁 Sidecar: \(target.fileName) rewritten from the raw editor")
+        return receipt
     }
 
     private func verifyLyricsSidecarWrite(

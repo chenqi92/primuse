@@ -2460,6 +2460,69 @@ final class MusicScraperService {
         }
     }
 
+    /// Whether a lyric file of this name is still beside the song, as the
+    /// write connector lists it right now.
+    nonisolated static func lyricsDocumentExistsWithTimeout(
+        seconds: TimeInterval,
+        sourceManager: SourceManager,
+        for song: Song,
+        named fileName: String
+    ) async throws -> Bool {
+        try await AsyncOperationTimeout.run(seconds: seconds) {
+            let connector = try await sourceManager.sidecarWriteConnector(for: song)
+            do {
+                _ = try await SidecarWriteService.shared.lyricsDocumentTarget(
+                    named: fileName,
+                    for: song,
+                    using: connector
+                )
+                return true
+            } catch SidecarWriteService.LyricsDocumentWriteError.documentMissing {
+                return false
+            }
+        }
+    }
+
+    /// The raw editor's save of one lyric file, on the write connector like
+    /// every other sidecar write. The read connector forgets the paths it
+    /// touched even when the readback fails, because the upload may already
+    /// have landed.
+    nonisolated static func replaceLyricsDocumentWithTimeout(
+        seconds: TimeInterval,
+        sourceManager: SourceManager,
+        for song: Song,
+        named fileName: String,
+        data: Data,
+        expecting originalData: Data
+    ) async throws -> LyricsSidecarTarget {
+        try await AsyncOperationTimeout.run(seconds: seconds) {
+            let connector = try await sourceManager.sidecarWriteConnector(for: song)
+            let target = try await SidecarWriteService.shared.lyricsDocumentTarget(
+                named: fileName,
+                for: song,
+                using: connector
+            )
+            let touched = [target.targetPath, target.existingPath].compactMap { $0 }
+            do {
+                let receipt = try await SidecarWriteService.shared.writeLyricsDocument(
+                    data,
+                    to: target,
+                    expecting: originalData,
+                    using: connector
+                )
+                await sourceManager.invalidateReadCachesAfterSidecarWrite(
+                    for: song,
+                    paths: touched + [receipt.writtenPath]
+                )
+                await sourceManager.invalidateDownloadCacheAfterSidecarWrite(for: song)
+                return target
+            } catch {
+                await sourceManager.invalidateReadCachesAfterSidecarWrite(for: song, paths: touched)
+                throw error
+            }
+        }
+    }
+
     private nonisolated static func isSourceUnavailableSidecarError(_ error: Error) -> Bool {
         guard let sourceError = error as? SourceError else { return false }
         if case .authenticationFailed = sourceError {

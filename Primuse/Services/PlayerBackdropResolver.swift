@@ -271,7 +271,12 @@ final class PlayerBackdropResolver {
             let directories: [String]
             if source.type.usesOpaqueDirectoryIdentifiers {
                 guard let resolver = connector as? any LyricsSidecarTargetResolving else { return [] }
-                directories = [try await resolver.lyricsSidecarTarget(for: song).containerPath]
+                // Only the folder is needed here; a listing request never fails
+                // on a song that has both an `.lrc` and a `.ttml`.
+                directories = [try await resolver.lyricsSidecarTarget(
+                    for: song,
+                    request: .catalog(for: song)
+                ).containerPath]
             } else {
                 directories = AlbumBackArtworkPolicy.searchDirectories(
                     forSongDirectory: (song.filePath as NSString).deletingLastPathComponent

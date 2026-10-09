@@ -124,7 +124,8 @@ enum LyricsLoader {
         if let sourceText = await loadSourceText(for: song, sourceManager: sourceManager) {
             let normalized = normalizedEditableText(sourceText)
             if LyricsContentParser.isTTML(normalized)
-                || LyricsContentParser.isSubtitleDocument(normalized) {
+                || LyricsContentParser.isSubtitleDocument(normalized)
+                || WordTimedLyricsParser.detect(normalized) != nil {
                 // The editor is intentionally LRC/ELRC-oriented. Converting
                 // TTML and subtitle documents to the shared model keeps their
                 // markup out of lyric rows; LyricsWriteback serializes it back
@@ -228,7 +229,9 @@ enum LyricsLoader {
             )
             return cached
         }
-        if let cached = await MetadataAssetStore.shared.lyrics(named: song.lyricsFileName) {
+        let isPinned = readsPinnedDocument(song)
+        if !isPinned,
+           let cached = await MetadataAssetStore.shared.lyrics(named: song.lyricsFileName) {
             guard !Task.isCancelled else { return [] }
             let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
                 cached,
@@ -276,7 +279,8 @@ enum LyricsLoader {
             guard !Task.isCancelled else { return [] }
         }
 
-        if usesAudioCacheSidecar(for: song),
+        if !isPinned,
+           usesAudioCacheSidecar(for: song),
            let cachedAudioURL = sourceManager.cachedURL(for: song),
            let lrcURL = SidecarMetadataLoader.findLyrics(for: cachedAudioURL),
            let parsed = try? LyricsParser.parse(from: lrcURL), !parsed.isEmpty {
@@ -488,7 +492,8 @@ enum LyricsLoader {
         for song: Song,
         sourceManager: SourceManager
     ) -> String? {
-        guard usesAudioCacheSidecar(for: song),
+        guard !readsPinnedDocument(song),
+              usesAudioCacheSidecar(for: song),
               let cachedAudioURL = sourceManager.cachedURL(for: song),
               let lrcURL = SidecarMetadataLoader.findLyrics(for: cachedAudioURL),
               let data = try? Data(contentsOf: lrcURL),
@@ -547,14 +552,45 @@ enum LyricsLoader {
         )
     }
 
-    private static func lyricsSidecarTarget(
+    static func lyricsSidecarTarget(
+        for song: Song,
+        connector: any MusicSourceConnector,
+        request: LyricsDocumentRequest? = nil
+    ) async throws -> LyricsSidecarTarget {
+        let request = request ?? .current(for: song)
+        if let resolver = connector as? any LyricsSidecarTargetResolving {
+            return try await resolver.lyricsSidecarTarget(for: song, request: request)
+        }
+        return try await LyricsSidecarTargetPolicy.resolve(
+            for: song,
+            using: connector,
+            request: request
+        )
+    }
+
+    /// The file the listener picked on the lyric sources page, for a caller
+    /// that otherwise fetches the scanner's remembered `lyricsFileName`. Nil
+    /// for a song without a pin, or when the pinned file is gone and the
+    /// default ranking took over — the caller's own path is right then.
+    static func pinnedDocumentFile(
         for song: Song,
         connector: any MusicSourceConnector
-    ) async throws -> LyricsSidecarTarget {
-        if let resolver = connector as? any LyricsSidecarTargetResolving {
-            return try await resolver.lyricsSidecarTarget(for: song)
-        }
-        return try await LyricsSidecarTargetPolicy.resolve(for: song, using: connector)
+    ) async throws -> (path: String, fileName: String)? {
+        guard let pinned = LyricsDocumentPinStore.shared.pinnedFileName(forSongID: song.id),
+              !song.isCueTrack else { return nil }
+        let target = try await lyricsSidecarTarget(for: song, connector: connector)
+        guard target.exists,
+              let path = target.existingPath,
+              target.fileName.caseInsensitiveCompare(pinned) == .orderedSame else { return nil }
+        return (path, target.fileName)
+    }
+
+    /// A song with a picked lyric file reads it from the source. The
+    /// shortcuts that read a remembered cache file or the first same-name
+    /// file next to a cached copy know nothing of the pick.
+    nonisolated static func readsPinnedDocument(_ song: Song) -> Bool {
+        !song.isCueTrack
+            && LyricsDocumentPinStore.shared.pinnedFileName(forSongID: song.id) != nil
     }
 
     private static func translationTrack(in target: LyricsSidecarTarget) -> TranslationTrack? {

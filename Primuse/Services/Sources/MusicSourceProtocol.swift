@@ -965,6 +965,15 @@ enum RemoteDirectoryTransportErrorPolicy {
     }
 }
 
+/// One of a song's lyric files as the directory listing shows it.
+struct LyricsSidecarDocument: Sendable, Equatable {
+    let name: String
+    /// Address `fetchRange` reads it at.
+    let path: String
+    let size: Int64
+    let modifiedDate: Date?
+}
+
 struct LyricsSidecarTarget: Sendable, Equatable {
     /// Stable address accepted by the provider's upload operation. ID-backed
     /// sources commonly encode the source item plus a suffix here.
@@ -1003,6 +1012,10 @@ struct LyricsSidecarTarget: Sendable, Equatable {
     /// lyrics of every other track.
     let separateWritePath: String?
     let separateWriteFileName: String?
+    /// Every lyric file of the song in the listing this target was resolved
+    /// from, in the order the lyric sources page numbers them. Empty where a
+    /// resolver cannot tell (a CUE virtual track reads one assigned file).
+    let documents: [LyricsSidecarDocument]
 
     init(
         targetPath: String,
@@ -1017,7 +1030,8 @@ struct LyricsSidecarTarget: Sendable, Equatable {
         translationFileName: String? = nil,
         translationSize: Int64? = nil,
         separateWritePath: String? = nil,
-        separateWriteFileName: String? = nil
+        separateWriteFileName: String? = nil,
+        documents: [LyricsSidecarDocument] = []
     ) {
         self.targetPath = targetPath
         self.fileName = fileName
@@ -1035,6 +1049,7 @@ struct LyricsSidecarTarget: Sendable, Equatable {
         self.translationSize = translationSize
         self.separateWritePath = separateWritePath
         self.separateWriteFileName = separateWriteFileName
+        self.documents = documents
     }
 }
 
@@ -1052,7 +1067,8 @@ enum LyricsSidecarTargetPolicy {
 
     static func resolve(
         for song: Song,
-        using connector: any MusicSourceConnector
+        using connector: any MusicSourceConnector,
+        request: LyricsDocumentRequest
     ) async throws -> LyricsSidecarTarget {
         let preferredTargetPath = preferredTargetPath(for: song)
         let directory = (preferredTargetPath as NSString).deletingLastPathComponent
@@ -1070,7 +1086,7 @@ enum LyricsSidecarTargetPolicy {
            ) {
             return cueTarget
         }
-        let existing = try uniqueExistingItem(baseName: songBase, in: items)
+        let existing = try uniqueExistingItem(baseName: songBase, in: items, request: request)
         let companion = translationTrackItem(forPrimary: existing, baseName: songBase, in: items)
         let fileName = existing?.name ?? (preferredTargetPath as NSString).lastPathComponent
         return LyricsSidecarTarget(
@@ -1083,26 +1099,23 @@ enum LyricsSidecarTargetPolicy {
             songBaseName: songBase,
             translationPath: companion?.path,
             translationFileName: companion?.name,
-            translationSize: companion?.size
+            translationSize: companion?.size,
+            documents: documents(baseName: songBase, in: items)
         )
     }
 
-    /// The song's current lyric document. This is the read view: a read-only
-    /// format such as `.vtt` is returned here so the editor and the loader see
-    /// what the user actually has, and `writeTarget(for:)` keeps it out of the
-    /// write path.
+    /// The song's current lyric document — or the one `request` names. This
+    /// is the read view: a read-only format such as `.vtt` is returned here so
+    /// the editor and the loader see what the user actually has, and
+    /// `writeTarget(for:)` keeps it out of the write path.
     static func uniqueExistingItem(
         baseName: String,
-        in items: [RemoteFileItem]
+        in items: [RemoteFileItem],
+        request: LyricsDocumentRequest
     ) throws -> RemoteFileItem? {
-        var uniqueByPath: [String: RemoteFileItem] = [:]
-        for item in items where !item.isDirectory {
-            uniqueByPath[item.path] = item
-        }
-        // A provider may list the same object twice; sorting keeps the choice
-        // reproducible when two candidates are otherwise equal.
-        let candidates = uniqueByPath.values.sorted { $0.path < $1.path }
-        switch LyricsSidecarSelectionPolicy.currentDocument(
+        let candidates = uniqueFiles(in: items)
+        switch LyricsSidecarSelectionPolicy.select(
+            request,
             baseName: baseName,
             names: candidates.map(\.name)
         ) {
@@ -1113,6 +1126,34 @@ enum LyricsSidecarTargetPolicy {
         case .conflict:
             throw EmbeddedMetadataWritebackSourceError.conflict
         }
+    }
+
+    /// Every lyric file of the song in the listing, numbered the way the
+    /// lyric sources page shows them.
+    static func documents(baseName: String, in items: [RemoteFileItem]) -> [LyricsSidecarDocument] {
+        let candidates = uniqueFiles(in: items)
+        return LyricsSidecarSelectionPolicy.documents(
+            baseName: baseName,
+            names: candidates.map(\.name)
+        ).map { index in
+            let item = candidates[index]
+            return LyricsSidecarDocument(
+                name: item.name,
+                path: item.path,
+                size: item.size,
+                modifiedDate: item.modifiedDate
+            )
+        }
+    }
+
+    /// A provider may list the same object twice; sorting keeps the choice
+    /// reproducible when two candidates are otherwise equal.
+    private static func uniqueFiles(in items: [RemoteFileItem]) -> [RemoteFileItem] {
+        var uniqueByPath: [String: RemoteFileItem] = [:]
+        for item in items where !item.isDirectory {
+            uniqueByPath[item.path] = item
+        }
+        return uniqueByPath.values.sorted { $0.path < $1.path }
     }
 
     /// The track that translates the document `uniqueExistingItem` just
@@ -1289,7 +1330,11 @@ enum LyricsSidecarTargetPolicy {
             throw EmbeddedMetadataWritebackSourceError.conflict
         }
         let newPath = (containerPath as NSString).appendingPathComponent(newFileName)
-        if let album = try uniqueExistingItem(baseName: songBase, in: items) {
+        if let album = try uniqueExistingItem(
+            baseName: songBase,
+            in: items,
+            request: .current(pinned: nil)
+        ) {
             let companion = translationTrackItem(forPrimary: album, baseName: songBase, in: items)
             return LyricsSidecarTarget(
                 targetPath: album.path,
@@ -1376,7 +1421,50 @@ enum LyricsSidecarTargetPolicy {
 }
 
 protocol LyricsSidecarTargetResolving: MusicSourceConnector {
-    func lyricsSidecarTarget(for song: Song) async throws -> LyricsSidecarTarget
+    func lyricsSidecarTarget(
+        for song: Song,
+        request: LyricsDocumentRequest
+    ) async throws -> LyricsSidecarTarget
+}
+
+extension LyricsSidecarTargetResolving {
+    /// The song's current document, honouring the file the listener picked.
+    func lyricsSidecarTarget(for song: Song) async throws -> LyricsSidecarTarget {
+        try await lyricsSidecarTarget(for: song, request: .current(for: song))
+    }
+}
+
+extension LyricsDocumentRequest {
+    /// The song's current document, with the file the listener picked on the
+    /// lyric sources page. A CUE virtual track reads the file assigned to
+    /// it, so it has no choice to honour.
+    static func current(for song: Song) -> Self {
+        .current(pinned: song.isCueTrack
+            ? nil
+            : LyricsDocumentPinStore.shared.pinnedFileName(forSongID: song.id))
+    }
+
+    static func catalog(for song: Song) -> Self {
+        .catalog(pinned: song.isCueTrack
+            ? nil
+            : LyricsDocumentPinStore.shared.pinnedFileName(forSongID: song.id))
+    }
+}
+
+/// A read-only document the listener picked would be saved as a new
+/// `.ttml`/`.lrc` beside it, but a file of that name is already there and
+/// belongs to the song as another source. Writing would overwrite it.
+struct LyricsSidecarReplacementCollision: LocalizedError, Equatable {
+    let documentName: String
+    let replacementName: String
+
+    var errorDescription: String? {
+        String(
+            format: String(localized: "lyrics_sources_readonly_collision %@ %@"),
+            documentName,
+            replacementName
+        )
+    }
 }
 
 extension MusicSourceConnector {
