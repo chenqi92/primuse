@@ -450,7 +450,7 @@ final class ThemeService {
 
     /// Selects whichever of black/white has the higher WCAG contrast ratio
     /// against the accent. The crossover luminance is approximately 0.179.
-    private static func contrastingForeground(for color: Color) -> Color {
+    private nonisolated static func contrastingForeground(for color: Color) -> Color {
         var red: CGFloat = 0
         var green: CGFloat = 0
         var blue: CGFloat = 0
@@ -463,7 +463,8 @@ final class ThemeService {
         if light != dark {
             let onLight = UIColor(contrastingForeground(for: Color(uiColor: light)))
             let onDark = UIColor(contrastingForeground(for: Color(uiColor: dark)))
-            return Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? onDark : onLight })
+            // 动态颜色会在 SwiftUI 的后台渲染线程上解析,闭包不能带主线程隔离。
+            return Color(uiColor: UIColor { @Sendable traits in traits.userInterfaceStyle == .dark ? onDark : onLight })
         }
         guard dynamic.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
             return .white
@@ -484,7 +485,7 @@ final class ThemeService {
         return luminance > 0.179 ? .black : .white
     }
 
-    private static func darken(_ color: Color, factor: CGFloat) -> Color {
+    private nonisolated static func darken(_ color: Color, factor: CGFloat) -> Color {
         var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         #if os(iOS)
         // 随深浅外观变的主题色(「白色」)两档分别压暗,结果也随外观变。
@@ -494,7 +495,9 @@ final class ThemeService {
         if light != dark {
             let darkenedLight = UIColor(darken(Color(uiColor: light), factor: factor))
             let darkenedDark = UIColor(darken(Color(uiColor: dark), factor: factor))
-            return Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? darkenedDark : darkenedLight })
+            return Color(uiColor: UIColor { @Sendable traits in
+                traits.userInterfaceStyle == .dark ? darkenedDark : darkenedLight
+            })
         }
         dynamic.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
         #else

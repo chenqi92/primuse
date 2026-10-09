@@ -110,7 +110,7 @@ final class ThemeColorSettings {
     /// 只影响之后才出现的开关,已经在屏幕上的要换个身份重建(主题色设置页就是这么做的)。
     private func applySwitchThumbAppearance() {
         UISwitch.appearance().thumbTintColor = usesMonochromeSwitchThumb
-            ? UIColor { $0.userInterfaceStyle == .dark ? .systemGray : .white }
+            ? UIColor { @Sendable traits in traits.userInterfaceStyle == .dark ? .systemGray : .white }
             : nil
     }
 
