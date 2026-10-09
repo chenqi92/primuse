@@ -5714,3 +5714,7 @@
 "lyrics_sources_error_undecodable %@" = "%@ は読み取れるテキストファイルではありません。";
 "lyrics_sources_error_no_lyrics %@" = "%@ から歌詞を読み取れなかったため、切り替えていません。";
 "lyrics_sources_readonly_collision %@ %@" = "使用中の %1$@ は読み取り専用のため、変更は %2$@ として保存する必要がありますが、そのファイルはすでにこの曲の別のソースです。上書きを避けるため、今回の変更は Primuse 内にのみ保存されます。ファイルを変更するには、「歌詞ソース」で元のテキストを直接編集してください。";
+"player_control_tint_title" = "コントロールの色";
+"player_control_tint_theme" = "テーマカラー";
+"player_control_tint_monochrome" = "モノクロ";
+"player_control_tint_footer" = "進行バーやオンになったシャッフル・リピートなど、再生画面のコントロールの色です。モノクロはダークモードで白、ライトモードで黒になり、リキッドカラーのような背景でも色がぶつかりません。オーディオブックのレイアウトは独自の配色のままです。";

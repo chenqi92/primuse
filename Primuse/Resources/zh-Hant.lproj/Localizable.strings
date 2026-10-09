@@ -5690,3 +5690,7 @@
 "lyrics_sources_error_undecodable %@" = "%@ 不是可讀取的文字檔。";
 "lyrics_sources_error_no_lyrics %@" = "無法從 %@ 讀出歌詞，因此沒有切換。";
 "lyrics_sources_readonly_collision %@ %@" = "正在使用的 %1$@ 為唯讀，修改需另存為 %2$@，但它已是這首歌的另一個來源。為了避免覆蓋它，這次修改只會儲存在 Primuse；若要修改檔案，請到「歌詞來源」直接編輯原文。";
+"player_control_tint_title" = "控制項顏色";
+"player_control_tint_theme" = "跟隨主題色";
+"player_control_tint_monochrome" = "單色";
+"player_control_tint_footer" = "進度列、開著的隨機與循環等播放頁控制項的顏色。選單色時深色外觀下是白色、淺色外觀下是黑色，搭配流動色彩之類的背景不搶色；有聲書版面保留自己的配色。";

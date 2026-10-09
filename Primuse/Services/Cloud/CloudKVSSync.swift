@@ -664,6 +664,7 @@ final class InterfaceLayoutSync {
         NowPlayingControlLayout.musicStorageKey,
         SpokenWordControlLayout.storageKey(for: .audiobook),
         SpokenWordControlLayout.storageKey(for: .podcast),
+        PlayerAppearancePreferences.controlTintKey,
     ]
 
     private let keys: [String]

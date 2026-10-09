@@ -5619,3 +5619,7 @@
 "lyrics_sources_error_undecodable %@" = "Plik %@ nie jest czytelnym plikiem tekstowym.";
 "lyrics_sources_error_no_lyrics %@" = "Nie udało się odczytać tekstu z pliku %@, więc nic nie zostało przełączone.";
 "lyrics_sources_readonly_collision %@ %@" = "Używany plik %1$@ jest tylko do odczytu, więc zmiany trzeba by zapisać jako %2$@, ale ten plik jest już innym źródłem tego utworu. Aby go nie nadpisać, ta zmiana zostaje zapisana tylko w Primuse. Aby zmienić plik, edytuj jego oryginalny tekst na stronie „Źródła tekstu”.";
+"player_control_tint_title" = "Kolor elementów sterujących";
+"player_control_tint_theme" = "Kolor motywu";
+"player_control_tint_monochrome" = "Monochromatyczny";
+"player_control_tint_footer" = "Kolor paska postępu, włączonego odtwarzania losowego i powtarzania oraz innych elementów odtwarzacza. Monochromatyczny jest biały w trybie ciemnym i czarny w jasnym, więc nie gryzie się z tłami takimi jak Płynne kolory. Układy audiobooków zachowują własne kolory.";

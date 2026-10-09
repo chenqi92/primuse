@@ -5619,3 +5619,7 @@
 "lyrics_sources_error_undecodable %@" = "%@ okunabilir bir metin dosyası değil.";
 "lyrics_sources_error_no_lyrics %@" = "%@ dosyasından şarkı sözü okunamadı, bu yüzden değiştirilmedi.";
 "lyrics_sources_readonly_collision %@ %@" = "Kullanılan %1$@ dosyası salt okunur olduğundan değişikliklerin %2$@ olarak kaydedilmesi gerekir, ancak o dosya zaten bu şarkının başka bir kaynağı. Üzerine yazılmaması için bu düzenleme yalnızca Primuse'da saklanır. Dosyayı değiştirmek için özgün metnini “Şarkı Sözü Kaynakları” bölümünde düzenleyin.";
+"player_control_tint_title" = "Denetim Rengi";
+"player_control_tint_theme" = "Tema Rengi";
+"player_control_tint_monochrome" = "Tek Renk";
+"player_control_tint_footer" = "İlerleme çubuğu, açık karıştırma ve yineleme gibi çalar denetimlerinin rengi. Tek renk, koyu modda beyaz, açık modda siyahtır; Akışkan Renkler gibi arka planlarla çatışmaz. Sesli kitap düzenleri kendi renklerini korur.";

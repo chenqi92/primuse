@@ -5619,3 +5619,7 @@
 "lyrics_sources_error_undecodable %@" = "%@ não é um arquivo de texto legível.";
 "lyrics_sources_error_no_lyrics %@" = "Não foi possível ler nenhuma letra de %@, então nada foi trocado.";
 "lyrics_sources_readonly_collision %@ %@" = "%1$@, o arquivo em uso, é somente leitura, então as alterações teriam de ser salvas como %2$@, mas esse arquivo já é outra origem desta música. Para não sobrescrevê-lo, esta edição fica salva só no Primuse. Para alterar o arquivo, edite o texto original dele em “Origens das letras”.";
+"player_control_tint_title" = "Cor dos controles";
+"player_control_tint_theme" = "Cor do tema";
+"player_control_tint_monochrome" = "Monocromático";
+"player_control_tint_footer" = "Cor da barra de progresso, da reprodução aleatória e da repetição ativadas e de outros controles do player. Monocromático é branco no modo escuro e preto no modo claro, discreto sobre fundos como Cores fluidas. Os layouts de audiolivros mantêm as próprias cores.";

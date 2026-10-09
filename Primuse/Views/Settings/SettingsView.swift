@@ -549,6 +549,8 @@ private struct PlayerAppearanceSettingsView: View {
     private var showsVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
     private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
+    @AppStorage(PlayerAppearancePreferences.controlTintKey)
+    private var controlTintRawValue = NowPlayingControlTint.theme.rawValue
     @AppStorage(PlayerAppearancePreferences.keepsScreenAwakeInPlayerKey)
     private var keepsScreenAwake = PlayerAppearancePreferences.keepsScreenAwakeInPlayerByDefault
     @AppStorage(PlayerAppearancePreferences.playerScreenWakeRequiresChargingKey)
@@ -597,6 +599,20 @@ private struct PlayerAppearanceSettingsView: View {
                     Label("player_controls_title", systemImage: "rectangle.bottomthird.inset.filled")
                 }
                 .settingsAnchor("appearance.playerControls")
+
+                Picker(selection: Binding(
+                    get: { PlayerAppearancePreferences.controlTint(rawValue: controlTintRawValue) },
+                    set: { controlTintRawValue = $0.rawValue }
+                )) {
+                    ForEach(NowPlayingControlTint.allCases, id: \.self) { tint in
+                        Text(LocalizedStringKey(tint.titleKey)).tag(tint)
+                    }
+                } label: {
+                    SettingsInfoLabel("player_control_tint_title") {
+                        Text("player_control_tint_footer")
+                    }
+                }
+                .settingsAnchor("appearance.playerControlTint")
             }
 
             Section {

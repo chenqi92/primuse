@@ -5806,3 +5806,7 @@
 "lyrics_sources_error_undecodable %@" = "%@ 不是能读的文本文件。";
 "lyrics_sources_error_no_lyrics %@" = "%@ 里读不出歌词，没有换过去。";
 "lyrics_sources_readonly_collision %@ %@" = "正在用的 %1$@ 只能读，修改要另存为 %2$@，但它已经是这首歌的另一个来源。为了不覆盖它，这次修改只保存在 Primuse 里；要改文件，请到「歌词来源」里直接编辑原文。";
+"player_control_tint_title" = "控件颜色";
+"player_control_tint_theme" = "跟随主题色";
+"player_control_tint_monochrome" = "单色";
+"player_control_tint_footer" = "进度条、开着的随机与循环等播放页控件的颜色。选单色时深色外观下是白色、浅色外观下是黑色，配流动色彩之类的背景不抢色；有声书版面保留自己的配色。";

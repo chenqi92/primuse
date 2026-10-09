@@ -54,6 +54,13 @@ enum PlayerAppearancePreferences {
     static let showsLyricsBrowseTimelineKey = "primuse.player.showsLyricsBrowseTimeline"
     static let showsLyricsBrowseTimelineByDefault = false
 
+    /// 播放页控件(进度条、开着的随机与循环、功能块里的强调色)跟主题色,还是单色(#189)。
+    static let controlTintKey = "primuse.player.controlTint"
+
+    static func controlTint(rawValue: String) -> NowPlayingControlTint {
+        NowPlayingControlTint(rawValue: rawValue) ?? .theme
+    }
+
     static let defaultCustomLyricsColorHex = "0A84FF"
     static let defaultGradientLyricsStartColorHex = "FF375F"
     static let defaultGradientLyricsEndColorHex = "AF52DE"
@@ -153,6 +160,20 @@ enum PlayerLyricsAlignment: String, CaseIterable, Identifiable {
             return .center
         case .trailing:
             return UnitPoint(x: isRightToLeft ? 0 : 1, y: 0.5)
+        }
+    }
+}
+
+/// 播放页控件的颜色。单色时深色外观下是白色、浅色外观下是黑色,配「流动色彩」这类花背景不抢色;
+/// 只管 iPhone / iPad 播放页,有声书那两套版面保留自己的配色,全局的主题色不受影响。
+enum NowPlayingControlTint: String, CaseIterable, Sendable {
+    case theme
+    case monochrome
+
+    var titleKey: String {
+        switch self {
+        case .theme: "player_control_tint_theme"
+        case .monochrome: "player_control_tint_monochrome"
         }
     }
 }

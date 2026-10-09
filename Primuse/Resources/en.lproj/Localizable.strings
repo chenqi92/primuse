@@ -5473,3 +5473,7 @@
 "lyrics_sources_error_undecodable %@" = "%@ isn't a readable text file.";
 "lyrics_sources_error_no_lyrics %@" = "No lyrics could be read from %@, so nothing was switched.";
 "lyrics_sources_readonly_collision %@ %@" = "%1$@, the file in use, is read-only, so changes would be saved as %2$@ — but that file is already another source of this song. To avoid overwriting it, this edit is kept only in Primuse. To change the file, edit its original text in Lyrics Sources.";
+"player_control_tint_title" = "Control Color";
+"player_control_tint_theme" = "Theme Color";
+"player_control_tint_monochrome" = "Monochrome";
+"player_control_tint_footer" = "The color of the progress bar, active shuffle and repeat, and other player controls. Monochrome is white in Dark Mode and black in Light Mode, so it stays calm over backgrounds like Liquid Colors. The audiobook layouts keep their own colors.";

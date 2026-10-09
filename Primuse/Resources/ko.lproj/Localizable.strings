@@ -5713,3 +5713,7 @@
 "lyrics_sources_error_undecodable %@" = "%@ 파일은 읽을 수 있는 텍스트 파일이 아닙니다.";
 "lyrics_sources_error_no_lyrics %@" = "%@ 파일에서 가사를 읽지 못해 바꾸지 않았습니다.";
 "lyrics_sources_readonly_collision %@ %@" = "사용 중인 %1$@ 파일은 읽기 전용이라 변경 사항을 %2$@ 파일로 저장해야 하지만, 그 파일은 이미 이 곡의 다른 소스입니다. 덮어쓰지 않도록 이번 변경 사항은 Primuse에만 저장됩니다. 파일을 바꾸려면 ‘가사 소스’에서 원본을 직접 편집하세요.";
+"player_control_tint_title" = "컨트롤 색상";
+"player_control_tint_theme" = "테마 색상";
+"player_control_tint_monochrome" = "모노크롬";
+"player_control_tint_footer" = "진행 막대, 켜진 셔플과 반복 등 재생 화면 컨트롤의 색상입니다. 모노크롬은 다크 모드에서 흰색, 라이트 모드에서 검은색이라 리퀴드 컬러 같은 배경과도 어울립니다. 오디오북 레이아웃은 고유한 색상을 유지합니다.";

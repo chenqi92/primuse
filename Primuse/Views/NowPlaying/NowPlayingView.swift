@@ -776,6 +776,9 @@ struct NowPlayingView: View {
     @State private var compactLandscapeHidesModeToggles = false
     /// 音乐播放页上几个位置放哪些按钮、底部状态行显示哪几项(设置 › 播放器 › 播放页按钮)。
     @AppStorage(NowPlayingControlLayout.musicStorageKey) private var controlLayoutStorage = ""
+    /// 播放页控件跟主题色还是单色(设置 › 播放器 › 控件颜色)。
+    @AppStorage(PlayerAppearancePreferences.controlTintKey)
+    private var controlTintRawValue = NowPlayingControlTint.theme.rawValue
     /// 有声书与播客播放页各自的那排功能块、喜欢 / 文字稿键与章节键。
     @AppStorage(SpokenWordControlLayout.storageKey(for: .audiobook)) private var audiobookControlStorage = ""
     @AppStorage(SpokenWordControlLayout.storageKey(for: .podcast)) private var podcastControlStorage = ""
@@ -6871,6 +6874,10 @@ struct NowPlayingView: View {
     private var themedControlAccent: Color {
         // 有声书两套设计的强调色是定的,横屏、iPad 双栏也用它,不随封面取色。
         if usesAudiobookPlayerDesign { return audiobookPlayerStyle.accent }
+        // 设置里选了单色:深色外观下白、浅色外观下黑,和文字同色。
+        if PlayerAppearancePreferences.controlTint(rawValue: controlTintRawValue) == .monochrome {
+            return appearance.primary
+        }
         guard theme.colorID != "default" else { return appearance.primary }
         return appearance.isLight ? theme.darkAccent : theme.accentColor
     }

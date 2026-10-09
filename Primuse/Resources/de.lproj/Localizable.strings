@@ -5713,3 +5713,7 @@
 "lyrics_sources_error_undecodable %@" = "%@ ist keine lesbare Textdatei.";
 "lyrics_sources_error_no_lyrics %@" = "Aus %@ ließ sich kein Songtext lesen, daher wurde nicht gewechselt.";
 "lyrics_sources_readonly_collision %@ %@" = "Die verwendete Datei %1$@ ist schreibgeschützt, daher müssten Änderungen als %2$@ gespeichert werden – diese Datei ist aber bereits eine andere Quelle dieses Songs. Damit sie nicht überschrieben wird, bleibt diese Bearbeitung nur in Primuse. Um die Datei zu ändern, bearbeite ihren Originaltext unter „Songtextquellen“.";
+"player_control_tint_title" = "Farbe der Bedienelemente";
+"player_control_tint_theme" = "Designfarbe";
+"player_control_tint_monochrome" = "Monochrom";
+"player_control_tint_footer" = "Farbe des Fortschrittsbalkens, aktiver Zufalls- und Wiederholungswiedergabe und anderer Player-Bedienelemente. Monochrom ist im dunklen Modus weiß und im hellen Modus schwarz und passt so zu Hintergründen wie „Fließende Farben“. Die Hörbuch-Layouts behalten ihre eigenen Farben.";
