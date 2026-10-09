@@ -133,7 +133,7 @@ enum SpokenWordCollection: Hashable, Sendable {
 struct SpokenWordLibraryContent<Content: View>: View {
     var collection: SpokenWordCollection = .books
     /// 书架、播客页在惰性栈里,分好组之前先占一块转圈;首页「全部」那一面整页都包在这里,
-    /// 不能等书分完组才出音乐内容,传 false 直接按未就绪的快照画。
+    /// 不能等书分完组才出音乐内容,传 false 直接按未就绪的快照画,外面也不再套一层 `ZStack`。
     var showsPlaceholderUntilPrepared = true
     @ViewBuilder var content: (SpokenWordLibrarySnapshot) -> Content
 
@@ -147,15 +147,7 @@ struct SpokenWordLibraryContent<Content: View>: View {
     }
 
     var body: some View {
-        // A zero-height initial shelf can be skipped by its parent's lazy stack.
-        ZStack {
-            if books.snapshot.isPrepared || !showsPlaceholderUntilPrepared {
-                content(books.snapshot)
-            } else {
-                ProgressView()
-                    .frame(maxWidth: .infinity, minHeight: 120)
-            }
-        }
+        shelf
             .task(id: RefreshIdentity(libraryRevision: collection.revision(in: library), progressRevision: progressRevision)) {
                 let store = SpokenWordStore.shared
                 await books.refresh(
@@ -168,6 +160,25 @@ struct SpokenWordLibraryContent<Content: View>: View {
             .onReceive(NotificationCenter.default.publisher(for: .primuseSpokenWordDidChange)) { _ in
                 progressRevision &+= 1
             }
+    }
+
+    @ViewBuilder
+    private var shelf: some View {
+        if showsPlaceholderUntilPrepared {
+            // A zero-height initial shelf can be skipped by its parent's lazy stack.
+            ZStack {
+                if books.snapshot.isPrepared {
+                    content(books.snapshot)
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, minHeight: 120)
+                }
+            }
+        } else {
+            // 首页整页:套上 ZStack 后 iPhone 上首页各区块拿不到自己的高度,横滑的一排
+            // 被拉高或压扁(封面轮播上下空出一大截、「为你推荐」的卡片被裁掉上下)。
+            content(books.snapshot)
+        }
     }
 }
 
