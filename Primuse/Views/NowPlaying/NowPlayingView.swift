@@ -11021,7 +11021,7 @@ extension PlaybackProgressBar where CenterAccessory == EmptyView {
 
 /// 播放页最底下那一行:不止一个音乐源时写这首歌来自哪个源;声音没从手机扬声器出(耳机、蓝牙、
 /// 隔空播放、车载、投放到 DLNA 设备)时写设备名,开着睡眠定时时写还剩多久。
-/// 只有来源时来源居中;来源和设备名/定时都有时来源靠左、另外两项靠右,两端对齐上面进度条的时间。
+/// 几项排成一组整体居中,中间用「·」隔开,不往两端分。
 /// 什么都没有就空着。落在 Home 指示条那一带,只是文字、不可点。自己读播放器状态,
 /// 倒计时每秒只重画这一行。
 fileprivate struct NowPlayingStatusLine: View {
@@ -11047,8 +11047,7 @@ fileprivate struct NowPlayingStatusLine: View {
     var body: some View {
         let output = self.output
         let showsSleep = showsSleepTimer && player.isSleepTimerActive
-        let hasStatus = output != nil || showsSleep
-        HStack(spacing: 12) {
+        HStack(spacing: 6) {
             if let source {
                 HStack(spacing: 3) {
                     Image(systemName: source.iconName)
@@ -11056,15 +11055,31 @@ fileprivate struct NowPlayingStatusLine: View {
                     Text(verbatim: source.name)
                         .contentTransition(.opacity)
                 }
-                // 独自一项时撑满整行居中;旁边有设备名或定时时贴左。
-                .frame(maxWidth: .infinity, alignment: hasStatus ? .leading : .center)
                 .transition(.opacity)
             }
-            if hasStatus {
-                statusItems(output: output, showsSleep: showsSleep)
+            if source != nil, output != nil || showsSleep {
+                separator
+            }
+            if let output {
+                HStack(spacing: 3) {
+                    Image(systemName: output.symbol)
+                        .imageScale(.small)
+                    Text(verbatim: output.name)
+                }
+                .transition(.opacity)
+            }
+            if output != nil, showsSleep {
+                separator
+            }
+            if showsSleep {
+                // 放不下时先截来源和设备名,倒计时总是完整的。
+                sleepLabel
+                    .fixedSize()
+                    .layoutPriority(1)
                     .transition(.opacity)
             }
         }
+        .frame(maxWidth: .infinity)
         .font(.caption2.monospacedDigit())
         .foregroundStyle(tint)
         .lineLimit(1)
@@ -11080,27 +11095,10 @@ fileprivate struct NowPlayingStatusLine: View {
         #endif
     }
 
-    private func statusItems(output: Output?, showsSleep: Bool) -> some View {
-        HStack(spacing: 6) {
-            if let output {
-                HStack(spacing: 3) {
-                    Image(systemName: output.symbol)
-                        .imageScale(.small)
-                    Text(verbatim: output.name)
-                }
-                .transition(.opacity)
-            }
-            if output != nil, showsSleep {
-                Text(verbatim: "·")
-                    .accessibilityHidden(true)
-            }
-            if showsSleep {
-                sleepLabel
-                    .fixedSize()
-                    .layoutPriority(1)
-                    .transition(.opacity)
-            }
-        }
+    private var separator: some View {
+        Text(verbatim: "·")
+            .accessibilityHidden(true)
+            .transition(.opacity)
     }
 
     private var sleepLabel: some View {
