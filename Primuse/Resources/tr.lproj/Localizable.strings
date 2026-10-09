@@ -5645,3 +5645,15 @@
 "home_filter_bar_footer_following" = "Şu anda her filtre, bölümünün ana sayfada gösterilip gösterilmediğine göre görünür. Burada değiştirdikten sonra bölüm gizlense de filtreler üstte kalır. Sıralamak için sürükleyin.";
 "home_filter_bar_follow_sections" = "Yeniden ana sayfa bölümlerini izle";
 "player_control_tint_white_theme_note" = "Tema rengi Beyaz olduğunda çalar denetimleri her zaman tek renklidir.";
+
+/* 听歌统计样式：年度报告 / 数据图表 */
+"rank_by" = "Sıralama ölçütü";
+"stats_top_header" = "En çok dinlenenler";
+"stats_previous_week" = "geçen hafta";
+"stats_previous_month" = "geçen ay";
+"stats_previous_year" = "geçen yıl";
+"stats_comparison_format" = "%1$@ vs %2$@";
+"stats_style_title" = "İstatistik Görünümü";
+"stats_style_report" = "Müzikte Yıl";
+"stats_style_charts" = "Grafikler";
+"stats_style_footer" = "Müzikte Yıl, yılınızı tek sayfada anlatır. Grafikler; haftalık, aylık veya yıllık çalmaları, takvimi ve sıralamaları müzik sunucularıyla birlikte gösterir.";

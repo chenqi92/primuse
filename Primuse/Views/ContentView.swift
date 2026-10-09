@@ -1117,7 +1117,7 @@ struct ContentView: View {
         case .libraryFolders:
             librarySubpane(title: "library_browse_folder") { HomeFolderManagementView() }
         case .libraryStatistics:
-            librarySubpane(title: "stats_title") { ListeningStatsView() }
+            librarySubpane(title: "stats_title") { ListeningStatsScreen() }
         case .librarySongs:
             librarySubpane(title: "tab_songs") { SongListView() }
         case .librarySpokenWord:

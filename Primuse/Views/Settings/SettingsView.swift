@@ -304,7 +304,6 @@ private struct SettingsPageContent: View {
         // 等开关)走 MacSettingsView, 不经过这里。
         case .appleMusic: EmptyView()
         case .scrobble: ScrobbleSettingsView()
-        case .statistics: ListeningStatsView()
         case .domains: TrustedDomainsView()
         case .diagnostics: DiagnosticReportsView(service: AppServices.shared.crashDiagnostics)
         case .licenses: LicensesView()
@@ -735,6 +734,7 @@ private struct LibraryDisplaySettingsView: View {
     @AppStorage(LibraryReviewPreferences.enabledKey)
     private var ratingsAndCommentsEnabled = false
     @AppStorage(QuickAccessCoverStyle.storageKey) private var quickAccessCoverStyle = QuickAccessCoverStyle.automatic
+    @AppStorage(ListeningStatsStyle.storageKey) private var listeningStatsStyle = ListeningStatsStyle.report
     @AppStorage(LibrarySongBrowseModePreference.storageKey)
     private var libraryBrowseModeRawValue = LibrarySongBrowseMode.folder.rawValue
     @AppStorage(LibraryDisplayConfiguration.sectionOrderKey)
@@ -828,6 +828,20 @@ private struct LibraryDisplaySettingsView: View {
                     )
                 }
                 .settingsAnchor("library.restoreOrder")
+            }
+
+            Section {
+                Picker(selection: $listeningStatsStyle) {
+                    ForEach(ListeningStatsStyle.allCases) { style in
+                        Text(verbatim: style.title).tag(style)
+                    }
+                } label: {
+                    SettingsInfoLabel("stats_style_title") {
+                        Text("stats_style_footer")
+                    }
+                }
+                .pickerStyle(.menu)
+                .settingsAnchor("library.statisticsStyle")
             }
 
             Section {

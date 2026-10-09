@@ -68,7 +68,7 @@ private struct MacServerSyncErrorAlerts: ViewModifier {
 /// `PMTitleBar` 绘制,窗口控制保留 AppKit 原生实现。
 struct MacContentView: View {
     @State private var homeModel = MacHomeView.Model()
-    @State private var listeningStatsModel = ListeningStatsView.Model()
+    @State private var listeningStatsModel = ListeningStatsScreen.Model()
     @State private var selection: MacRoute = .home
     @State private var detailNavigationID = UUID()
     @State private var sidebarCollapsed: Bool = false

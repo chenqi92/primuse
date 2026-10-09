@@ -8,7 +8,7 @@ import PrimuseKit
 struct MacDetailContainer: View {
     let route: MacRoute
     let homeModel: MacHomeView.Model
-    let listeningStatsModel: ListeningStatsView.Model
+    let listeningStatsModel: ListeningStatsScreen.Model
     @Binding var searchText: String
     @Binding var songLocationRequest: SongLibraryLocationRequest?
     @Binding var spokenWordBookRequest: String?
@@ -111,7 +111,7 @@ struct MacDetailContainer: View {
         case .home:
             MacHomeView(model: homeModel, openLibrarySongs: onOpenLibrarySongs)
         case .stats:
-            ListeningStatsView(model: listeningStatsModel)
+            ListeningStatsScreen(model: listeningStatsModel)
         case .sources:
             MacSourcesView()
                 .navigationTitle("sources_title")
@@ -125,7 +125,7 @@ struct MacDetailContainer: View {
             case .folders:
                 HomeFolderManagementView()
             case .statistics:
-                ListeningStatsView(model: listeningStatsModel)
+                ListeningStatsScreen(model: listeningStatsModel)
             case .releaseDate:
                 ReleaseDateLibraryView()
                     .navigationTitle(section.title)

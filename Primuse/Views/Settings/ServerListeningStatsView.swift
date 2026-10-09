@@ -1,80 +1,49 @@
 import PrimuseKit
+import Charts
 import SwiftUI
 
-/// 一个服务器源（Navidrome、Emby……）自己记下的播放，和听歌统计同一种版式：
-/// 几个数字和一份榜单，不画图。服务器记的是所有客户端的播放，所以不和本机记录相加。
 struct ServerListeningStatsView: View {
     let source: MusicSource
+    var sourceSelection: AnyView? = nil
 
     @Environment(ServerListeningStatsService.self) private var statsService
     @State private var range: ServerListeningStatsRange = .month
     @State private var rankTab: RankTab = .tracks
-    @State private var isRankingExpanded = false
     @State private var manualRefreshTask: Task<Void, Never>?
+    #if os(macOS)
+    @State private var expandedRanks: Set<RankTab> = []
+    #endif
 
-    private static let collapsedRankCount = 10
+    private struct HeatmapDay {
+        let date: Date
+        let playCount: Int
+    }
 
     private enum RankTab: String, CaseIterable {
         case tracks
         case artists
         case albums
 
-        var label: String {
+        var localizationKey: LocalizedStringKey {
             switch self {
-            case .tracks: String(localized: "stats_rank_songs")
-            case .artists: String(localized: "stats_rank_artists")
-            case .albums: String(localized: "stats_rank_albums")
+            case .tracks: "stats_rank_songs"
+            case .artists: "stats_rank_artists"
+            case .albums: "stats_rank_albums"
             }
         }
     }
 
     var body: some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: RecapStyle.sectionSpacing) {
-                header
-
-                if let presentation {
-                    figuresSection(presentation)
-                    rankingSection(presentation)
-                } else if statsService.isRefreshing {
-                    HStack(spacing: 12) {
-                        ProgressView()
-                        Text("stats_server_loading")
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 60)
-                } else {
-                    ContentUnavailableView(
-                        "stats_server_unavailable_title",
-                        systemImage: "server.rack",
-                        description: Text("stats_server_unavailable_desc")
-                    )
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 40)
-                }
-            }
-            .padding(.horizontal, RecapStyle.horizontalPadding)
-            .padding(.top, 12)
-            .padding(.bottom, 56)
-            .frame(maxWidth: RecapStyle.maximumContentWidth, alignment: .leading)
-            .frame(maxWidth: .infinity)
+        Group {
+            #if os(macOS)
+            macBody
+            #else
+            mobileBody
+            #endif
         }
-        #if os(macOS)
-        .scrollIndicators(.hidden)
-        #endif
-        // iPhone Duo 竖栏：滚动内容铺到屏幕边缘，系统的玻璃胶囊浮在上面。
-        .pmExtendsUnderVerticalBar()
-        .background { RecapBackdrop(tint: nil) }
-        .navigationTitle(Text(verbatim: source.name))
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
         .task(id: activationID) {
             await statsService.activate(source: source)
         }
-        .onChange(of: rankTab) { _, _ in isRankingExpanded = false }
-        .onChange(of: range) { _, _ in isRankingExpanded = false }
         .onDisappear {
             manualRefreshTask?.cancel()
             statsService.cancel()
@@ -94,55 +63,666 @@ struct ServerListeningStatsView: View {
         statsService.snapshot?.payload.temporalDetail == .events
     }
 
-    // MARK: - 头部
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 12) {
-                Image(systemName: source.type.iconName)
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(.tint)
-                    .frame(width: 44, height: 44)
-                    .background(.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(verbatim: source.name)
-                        .font(.title3.weight(.bold))
-                        .lineLimit(1)
-                    Text(verbatim: updatedLine)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
+    #if !os(macOS)
+    private var mobileBody: some View {
+        Form {
+            if let sourceSelection {
+                Section {
+                    sourceSelection
+                        // 铺到 iPhone Duo 竖栏底下时，静止时就在最上面的来源选择照旧让开竖栏。
+                        .pmClearOfVerticalBar()
                 }
-                Spacer(minLength: 8)
-                refreshButton
             }
-            // 铺到 iPhone Duo 竖栏底下时，最上面带按钮的这一行照旧让开竖栏。
-            .pmClearOfVerticalBar()
-
-            if statsService.isStale || statsService.errorMessage != nil {
-                statusNote
-            }
+            serverStatusSection
 
             if isEventHistory {
-                RecapPillPicker(options: ServerListeningStatsRange.allCases, selection: $range, scrolls: true) { item in
-                    // 键先拼成普通字符串：插值字面量会被当成「stats_range_%@」去查。
-                    let key = "stats_range_\(item.rawValue)"
-                    return Text(LocalizedStringKey(key))
+                Section {
+                    rangePicker
+                }
+            }
+
+            if let presentation {
+                summarySection(presentation)
+                capabilityBoundarySection(presentation)
+                if presentation.temporalDetail == .events {
+                    heatmapSection(presentation)
+                    Section {
+                        hourlyChart(presentation)
+                    } header: {
+                        Text("stats_server_hourly_title")
+                    } footer: {
+                        Text("stats_server_hourly_footer")
+                    }
+                }
+                rankingSection(presentation)
+            } else if statsService.isRefreshing {
+                Section {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                        Text("stats_server_loading")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                Section {
+                    ContentUnavailableView(
+                        "stats_server_unavailable_title",
+                        systemImage: "chart.bar.xaxis",
+                        description: Text("stats_server_unavailable_desc")
+                    )
+                }
+            }
+
+            Section {
+                refreshButton
+            }
+        }
+        // iPhone Duo 竖栏：分组卡片铺到屏幕右缘，系统的玻璃胶囊浮在上面。
+        .pmExtendsUnderVerticalBar()
+        .navigationTitle("stats_title")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+    }
+
+    private var serverStatusSection: some View {
+        Section {
+            LabeledContent("stats_server_source", value: source.name)
+            if let fetchedAt = statsService.snapshot?.fetchedAt {
+                LabeledContent("stats_server_last_updated") {
+                    Text(fetchedAt, format: .dateTime.year().month().day().hour().minute())
+                }
+            }
+            if statsService.isStale {
+                Label(staleDescription, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+            }
+            if let error = statsService.errorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+        } header: {
+            Text("stats_server_authoritative")
+        }
+    }
+
+    private func summarySection(
+        _ presentation: ServerListeningStatsPresentation
+    ) -> some View {
+        Section("stats_server_summary") {
+            LazyVGrid(
+                columns: [GridItem(.flexible()), GridItem(.flexible())],
+                spacing: 10
+            ) {
+                summaryCell(
+                    value: presentation.totalPlays.formatted(),
+                    label: playsLabel(presentation),
+                    icon: "play.fill",
+                    color: .blue
+                )
+                if let allTimePlayCount = presentation.allTimePlayCount {
+                    summaryCell(
+                        value: allTimePlayCount.formatted(),
+                        label: String(localized: "stats_server_all_time_plays"),
+                        icon: "sum",
+                        color: .indigo
+                    )
+                }
+                summaryCell(
+                    value: presentation.uniqueTracks.formatted(),
+                    label: String(localized: "stats_unique_songs"),
+                    icon: "music.note",
+                    color: .purple
+                )
+                if let activeDays = presentation.activeDays {
+                    summaryCell(
+                        value: activeDays.formatted(),
+                        label: String(localized: "stats_active_days"),
+                        icon: "calendar",
+                        color: .green
+                    )
+                }
+                if let duration = presentation.totalListenedSeconds {
+                    summaryCell(
+                        value: formatDuration(duration),
+                        label: String(localized: "stats_total_duration"),
+                        icon: "timer",
+                        color: .teal
+                    )
+                }
+            }
+            .padding(.vertical, 4)
+            summaryCell(
+                value: lastPlayedText(presentation.lastPlayedAt),
+                label: String(localized: "stats_server_last_played"),
+                icon: "clock",
+                color: .orange,
+                isDate: true
+            )
+        }
+    }
+
+    private func summaryCell(
+        value: String,
+        label: String,
+        icon: String,
+        color: Color,
+        isDate: Bool = false
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Label(label, systemImage: icon)
+                .font(.caption)
+                .foregroundStyle(color)
+            Text(value)
+                .font(.title3.weight(.semibold))
+                .monospacedDigit()
+                .lineLimit(isDate ? nil : 1)
+                .minimumScaleFactor(isDate ? 1 : 0.7)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(color.opacity(0.08), in: .rect(cornerRadius: 10))
+        .accessibilityElement(children: .combine)
+    }
+
+    private func capabilityBoundarySection(
+        _ presentation: ServerListeningStatsPresentation
+    ) -> some View {
+        Section {
+            Label(
+                boundaryKey(presentation),
+                systemImage: "info.circle"
+            )
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    private func heatmapSection(
+        _ presentation: ServerListeningStatsPresentation
+    ) -> some View {
+        Section {
+            MobileListeningActivityView(
+                counts: presentation.dailyCounts.map { (date: $0.date, count: $0.playCount) },
+                range: presentation.appliedRange
+            )
+                .id(source.id)
+                .padding(.vertical, 4)
+        } header: {
+            Text("stats_heatmap_title")
+        } footer: {
+            Text("stats_server_heatmap_footer")
+        }
+    }
+
+    private func rankingSection(
+        _ presentation: ServerListeningStatsPresentation
+    ) -> some View {
+        Section {
+            rankPicker
+            rankedRows(presentation)
+        } header: {
+            Text("stats_top_header")
+        }
+    }
+    #endif
+
+    #if os(macOS)
+    private var macBody: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 20) {
+                macHeader
+                if statsService.isStale || statsService.errorMessage != nil {
+                    macStatusBanner
+                }
+
+                if let presentation {
+                    macSummaryGrid(presentation)
+                    macBoundaryCard(presentation)
+                    if presentation.temporalDetail == .events {
+                        macHeatmapCard(presentation)
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("stats_server_hourly_title")
+                                .font(.headline)
+                            hourlyChart(presentation)
+                            Text("stats_server_hourly_footer")
+                                .font(.caption)
+                                .foregroundStyle(PMColor.textMuted)
+                        }
+                        .padding(18)
+                        .macStatsCard()
+                    }
+                    macRankingCard(presentation)
+                } else if statsService.isRefreshing {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                        Text("stats_server_loading")
+                            .foregroundStyle(PMColor.textMuted)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 80)
+                    .macStatsCard()
+                } else {
+                    ContentUnavailableView(
+                        "stats_server_unavailable_title",
+                        systemImage: "chart.bar.xaxis",
+                        description: Text("stats_server_unavailable_desc")
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 60)
+                    .macStatsCard()
+                }
+            }
+            .padding(.horizontal, 36)
+            .padding(.top, 28)
+            .padding(.bottom, 100)
+        }
+        .background(PMColor.bg.ignoresSafeArea())
+        .navigationTitle("stats_title")
+    }
+
+    private var macHeader: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 14) {
+                Image(systemName: "server.rack")
+                    .font(.system(size: 24, weight: .medium))
+                    .foregroundStyle(PMColor.brand)
+                    .frame(width: 54, height: 54)
+                    .background(PMColor.brand.opacity(0.10), in: .rect(cornerRadius: 14))
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("stats_title")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(PMColor.textMuted)
+                    Text(source.name)
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundStyle(PMColor.text)
+                }
+                Spacer()
+                if statsService.isRefreshing {
+                    ProgressView().controlSize(.small)
+                }
+                refreshButton
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+            }
+            HStack(spacing: 10) {
+                Text("stats_server_authoritative")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(PMColor.brand)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(PMColor.brand.opacity(0.08), in: .capsule)
+                if let fetchedAt = statsService.snapshot?.fetchedAt {
+                    Label {
+                        Text(fetchedAt, format: .dateTime.month().day().hour().minute())
+                    } icon: {
+                        Image(systemName: "clock.arrow.circlepath")
+                    }
+                    .font(.system(size: 11))
+                    .foregroundStyle(PMColor.textMuted)
+                    .help(String(localized: "stats_server_last_updated") + ": "
+                          + fetchedAt.formatted(.dateTime.year().month().day().hour().minute()))
+                }
+                Spacer()
+                if isEventHistory {
+                    rangePicker.frame(maxWidth: 420)
                 }
             }
         }
     }
 
-    private var updatedLine: String {
-        var parts = [String(localized: "stats_server_authoritative")]
-        if let fetchedAt = statsService.snapshot?.fetchedAt {
-            parts.append(
-                String(localized: "stats_server_last_updated") + " "
-                    + fetchedAt.formatted(.dateTime.month().day().hour().minute())
-            )
+    private var macStatusBanner: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(PMColor.warn)
+            VStack(alignment: .leading, spacing: 4) {
+                if statsService.isStale {
+                    Text(staleDescription)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(PMColor.text)
+                }
+                if let error = statsService.errorMessage {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(PMColor.textMuted)
+                        .textSelection(.enabled)
+                }
+            }
         }
-        return parts.joined(separator: " · ")
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(PMColor.warn.opacity(0.10), in: .rect(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(PMColor.warn.opacity(0.28), lineWidth: 0.5)
+        }
+    }
+
+    private func macSummaryGrid(
+        _ presentation: ServerListeningStatsPresentation
+    ) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 14) {
+                macSummaryCells(presentation)
+                    .frame(minWidth: 180)
+            }
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
+                macSummaryCells(presentation)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func macSummaryCells(_ presentation: ServerListeningStatsPresentation) -> some View {
+        macSummaryCell(
+            presentation.totalPlays.formatted(),
+            label: presentation.allTimePlayCount == nil ? "stats_total_plays" : "stats_server_recorded_plays", icon: "play.fill",
+            detail: presentation.temporalDetail == .aggregate ? String(localized: "stats_all_time_total") : nil
+        )
+        if let allTimePlayCount = presentation.allTimePlayCount {
+            macSummaryCell(allTimePlayCount.formatted(), label: "stats_server_all_time_plays", icon: "sum")
+        }
+        macSummaryCell(
+            presentation.uniqueTracks.formatted(),
+            label: "stats_unique_songs", icon: "music.note"
+        )
+        if let activeDays = presentation.activeDays {
+            macSummaryCell(activeDays.formatted(), label: "stats_active_days", icon: "calendar")
+        }
+        macSummaryCell(
+            presentation.lastPlayedAt?.formatted(.dateTime.year().month().day())
+                ?? String(localized: "stats_server_never_played"),
+            label: "stats_server_last_played", icon: "clock",
+            detail: presentation.lastPlayedAt?.formatted(date: .omitted, time: .shortened),
+            isDate: true
+        )
+        if let duration = presentation.totalListenedSeconds {
+            macSummaryCell(formatDuration(duration), label: "stats_total_duration", icon: "timer")
+        }
+    }
+
+    private func macSummaryCell(
+        _ value: String, label: LocalizedStringKey, icon: String, detail: String? = nil, isDate: Bool = false
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(label)
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.textMuted)
+                Spacer()
+                Image(systemName: icon)
+                    .font(.system(size: 13))
+                    .foregroundStyle(PMColor.brand.opacity(0.8))
+            }
+            Text(verbatim: value)
+                .font(.system(size: isDate ? 22 : 32, weight: .bold, design: isDate ? .default : .monospaced))
+                .foregroundStyle(PMColor.text)
+                .lineLimit(isDate ? 2 : 1)
+                .minimumScaleFactor(0.8)
+                .frame(minHeight: 39, alignment: .leading)
+            Text(verbatim: detail ?? " ")
+                .font(.system(size: 11))
+                .foregroundStyle(PMColor.textMuted)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .macStatsCard()
+        .accessibilityElement(children: .combine)
+    }
+
+    private func macBoundaryCard(
+        _ presentation: ServerListeningStatsPresentation
+    ) -> some View {
+        Label(
+            boundaryKey(presentation),
+            systemImage: "info.circle"
+        )
+        .font(.system(size: 11))
+        .foregroundStyle(PMColor.textMuted)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 2)
+    }
+
+    private func macHeatmapCard(
+        _ presentation: ServerListeningStatsPresentation
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("stats_heatmap_title")
+                .font(.headline)
+                .foregroundStyle(PMColor.text)
+            serverHeatmap(presentation: presentation, cellSize: 16)
+            Text("stats_server_heatmap_footer")
+                .font(.caption)
+                .foregroundStyle(PMColor.textMuted)
+        }
+        .padding(18)
+        .macStatsCard()
+    }
+
+    private func macRankingCard(
+        _ presentation: ServerListeningStatsPresentation
+    ) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 14) {
+                macRankColumn(title: "stats_top_songs", tab: .tracks, items: presentation.topTracks)
+                    .frame(minWidth: 260)
+                macRankColumn(title: "stats_top_artists", tab: .artists, items: presentation.topArtists)
+                    .frame(minWidth: 260)
+                macRankColumn(title: "stats_top_albums", tab: .albums, items: presentation.topAlbums)
+                    .frame(minWidth: 260)
+            }
+            VStack(spacing: 14) {
+                macRankColumn(title: "stats_top_songs", tab: .tracks, items: presentation.topTracks)
+                macRankColumn(title: "stats_top_artists", tab: .artists, items: presentation.topArtists)
+                macRankColumn(title: "stats_top_albums", tab: .albums, items: presentation.topAlbums)
+            }
+        }
+    }
+
+    private func macRankColumn(
+        title: LocalizedStringKey, tab: RankTab, items: [ServerListeningStatsRankedItem]
+    ) -> some View {
+        let expanded = expandedRanks.contains(tab)
+        let visibleItems = expanded ? items : Array(items.prefix(6))
+        let maximum = max(items.map(\.playCount).max() ?? 0, 1)
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                Spacer()
+                Text("stats_total_plays")
+                    .font(.system(size: 10))
+                    .foregroundStyle(PMColor.textFaint)
+            }
+            .padding(.bottom, 12)
+
+            if items.isEmpty {
+                Text("stats_rank_empty")
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.textMuted)
+                    .frame(maxWidth: .infinity, minHeight: 100)
+            } else {
+                ForEach(Array(visibleItems.enumerated()), id: \.element.id) { index, item in
+                    macRankRow(item, rank: index + 1, maximum: maximum)
+                }
+            }
+            if items.count > 6 {
+                Button {
+                    if expanded { expandedRanks.remove(tab) } else { expandedRanks.insert(tab) }
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(expanded ? "update_show_less" : "see_all")
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    }
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(PMColor.brand)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 9)
+                    .background(PMColor.brand.opacity(0.07), in: .rect(cornerRadius: 7))
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 10)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .padding(18)
+        .macStatsCard()
+        .accessibilityElement(children: .contain)
+    }
+
+    private func macRankRow(_ item: ServerListeningStatsRankedItem, rank: Int, maximum: Int) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text(String(format: "%02d", rank))
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(rank <= 3 ? PMColor.brand : PMColor.textFaint)
+                .frame(width: 20, alignment: .leading)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(item.title)
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundStyle(PMColor.text)
+                            .lineLimit(1)
+                        if let subtitle = item.subtitle, !subtitle.isEmpty {
+                            Text(subtitle)
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(PMColor.textMuted)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    Text(item.playCount.formatted())
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(PMColor.text)
+                        .fixedSize()
+                }
+                GeometryReader { geometry in
+                    Capsule().fill(PMColor.brand.opacity(0.08))
+                        .overlay(alignment: .leading) {
+                            Capsule().fill(PMColor.brand.opacity(rank <= 3 ? 0.70 : 0.40))
+                                .frame(width: geometry.size.width * CGFloat(item.playCount) / CGFloat(maximum))
+                        }
+                }
+                .frame(height: 3)
+                .accessibilityHidden(true)
+            }
+        }
+        .padding(.vertical, 9)
+        .help([item.title, item.subtitle].compactMap { $0 }.joined(separator: " · "))
+        .accessibilityElement(children: .combine)
+    }
+    #endif
+
+    private func playsLabel(_ presentation: ServerListeningStatsPresentation) -> String {
+        presentation.allTimePlayCount == nil
+            ? String(localized: "stats_total_plays")
+            : String(localized: "stats_server_recorded_plays")
+    }
+
+    private func boundaryKey(_ presentation: ServerListeningStatsPresentation) -> LocalizedStringKey {
+        if presentation.temporalDetail == .aggregate { return "stats_server_aggregate_boundary" }
+        return presentation.allTimePlayCount == nil
+            ? "stats_server_event_boundary"
+            : "stats_server_navidrome_history_boundary"
+    }
+
+    private func hourlyChart(_ presentation: ServerListeningStatsPresentation) -> some View {
+        Chart(presentation.hourlyCounts) { item in
+            BarMark(
+                x: .value("Hour", item.hour),
+                y: .value(String(localized: "stats_total_plays"), item.playCount)
+            )
+            .foregroundStyle(Color.accentColor.gradient)
+        }
+        .chartXScale(domain: -0.5...23.5)
+        .chartXAxis {
+            AxisMarks(values: [0, 6, 12, 18, 23]) { value in
+                AxisGridLine()
+                AxisTick()
+                AxisValueLabel {
+                    if let hour = value.as(Int.self) {
+                        Text(String(format: "%02d:00", hour))
+                    }
+                }
+            }
+        }
+        .chartYAxis { AxisMarks(position: .leading) }
+        .frame(height: 190)
+    }
+
+    private var rangePicker: some View {
+        Picker("stats_range", selection: $range) {
+            Text("stats_range_week").tag(ServerListeningStatsRange.week)
+            Text("stats_range_month").tag(ServerListeningStatsRange.month)
+            Text("stats_range_year").tag(ServerListeningStatsRange.year)
+            Text("stats_range_all").tag(ServerListeningStatsRange.all)
+        }
+        .pickerStyle(.segmented)
+    }
+
+    private var rankPicker: some View {
+        Picker("stats_top_header", selection: $rankTab) {
+            ForEach(RankTab.allCases, id: \.self) { tab in
+                Text(tab.localizationKey).tag(tab)
+            }
+        }
+        .pickerStyle(.segmented)
+    }
+
+    @ViewBuilder
+    private func rankedRows(
+        _ presentation: ServerListeningStatsPresentation
+    ) -> some View {
+        let items = rankedItems(presentation)
+        if items.isEmpty {
+            Text("stats_rank_empty")
+                .foregroundStyle(.secondary)
+        } else {
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                HStack(spacing: 12) {
+                    Text("\(index + 1)")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(index < 3 ? Color.accentColor : .secondary)
+                        .frame(width: 24, alignment: .leading)
+                        .monospacedDigit()
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.title)
+                            .font(.subheadline)
+                            .lineLimit(1)
+                        if let subtitle = item.subtitle, !subtitle.isEmpty {
+                            Text(subtitle)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer()
+                    Text(String(
+                        format: String(localized: "stats_play_count_format"),
+                        item.playCount
+                    ))
+                    .font(.caption.weight(.medium))
+                    .monospacedDigit()
+                }
+                .padding(.vertical, 3)
+            }
+        }
+    }
+
+    private func rankedItems(
+        _ presentation: ServerListeningStatsPresentation
+    ) -> [ServerListeningStatsRankedItem] {
+        switch rankTab {
+        case .tracks: presentation.topTracks
+        case .artists: presentation.topArtists
+        case .albums: presentation.topAlbums
+        }
     }
 
     private var refreshButton: some View {
@@ -153,43 +733,9 @@ struct ServerListeningStatsView: View {
                 await statsService.refresh(source: selectedSource)
             }
         } label: {
-            Group {
-                if statsService.isRefreshing {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 15, weight: .semibold))
-                }
-            }
-            .frame(width: 36, height: 36)
-            .background(.primary.opacity(0.07), in: Circle())
-            .contentShape(Circle())
+            Label("stats_server_refresh", systemImage: "arrow.clockwise")
         }
-        .buttonStyle(.plain)
         .disabled(statsService.isRefreshing)
-        .accessibilityLabel(Text("stats_server_refresh"))
-        .help(Text("stats_server_refresh"))
-        .settingsAnchor("stats.serverRefresh")
-    }
-
-    private var statusNote: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-            VStack(alignment: .leading, spacing: 4) {
-                if statsService.isStale {
-                    Text(verbatim: staleDescription)
-                        .font(.subheadline.weight(.semibold))
-                }
-                if let error = statsService.errorMessage {
-                    Text(verbatim: error)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-            }
-        }
-        .recapPanel(cornerRadius: 16, padding: 14)
     }
 
     private var staleDescription: String {
@@ -206,152 +752,143 @@ struct ServerListeningStatsView: View {
         }.joined(separator: " · ")
     }
 
-    // MARK: - 数字
-
-    private func figuresSection(_ presentation: ServerListeningStatsPresentation) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: playsLabel(presentation))
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-                Text(verbatim: presentation.totalPlays.formatted())
-                    .font(.system(size: 58, weight: .bold, design: .rounded).monospacedDigit())
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.5)
-                Text(verbatim: lastPlayedLine(presentation.lastPlayedAt))
-                    .font(.footnote)
-                    .foregroundStyle(.tertiary)
-            }
-            .accessibilityElement(children: .combine)
-
-            RecapFigureRow(figures: figures(presentation))
-
-            Label {
-                Text(boundaryKey(presentation))
-            } icon: {
-                Image(systemName: "info.circle")
-            }
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-        }
+    private func lastPlayedText(_ date: Date?) -> String {
+        guard let date else { return String(localized: "stats_server_never_played") }
+        return date.formatted(date: .abbreviated, time: .shortened)
     }
 
-    private func figures(_ presentation: ServerListeningStatsPresentation) -> [RecapFigureRow.Figure] {
-        var figures: [RecapFigureRow.Figure] = [
-            .init(id: "tracks", value: presentation.uniqueTracks.formatted(), label: String(localized: "stats_unique_songs")),
-        ]
-        if let activeDays = presentation.activeDays {
-            figures.append(.init(id: "days", value: activeDays.formatted(), label: String(localized: "stats_active_days")))
-        }
-        if let duration = presentation.totalListenedSeconds {
-            figures.append(.init(id: "duration", value: RecapHeroDuration.format(duration), label: String(localized: "stats_total_duration")))
-        }
-        if let allTime = presentation.allTimePlayCount {
-            figures.append(.init(id: "allTime", value: allTime.formatted(), label: String(localized: "stats_server_all_time_plays")))
-        }
-        return figures
+    private func formatDuration(_ seconds: TimeInterval) -> String {
+        let totalMinutes = max(0, Int(seconds / 60))
+        return String(
+            format: String(localized: "stats_hours_minutes_format"),
+            totalMinutes / 60,
+            totalMinutes % 60
+        )
     }
 
-    private func playsLabel(_ presentation: ServerListeningStatsPresentation) -> String {
-        if presentation.temporalDetail == .aggregate {
-            return String(localized: "stats_all_time_total")
-        }
-        return presentation.allTimePlayCount == nil
-            ? String(localized: "stats_total_plays")
-            : String(localized: "stats_server_recorded_plays")
-    }
+    @ViewBuilder
+    private func serverHeatmap(
+        presentation: ServerListeningStatsPresentation,
+        cellSize: CGFloat
+    ) -> some View {
+        let days = completeDailyCounts(presentation)
+        let weeks = groupByWeek(days)
+        let maximum = days.map(\.playCount).max() ?? 0
 
-    private func lastPlayedLine(_ date: Date?) -> String {
-        let value = date?.formatted(date: .abbreviated, time: .shortened)
-            ?? String(localized: "stats_server_never_played")
-        return String(localized: "stats_server_last_played") + " · " + value
-    }
-
-    private func boundaryKey(_ presentation: ServerListeningStatsPresentation) -> LocalizedStringKey {
-        if presentation.temporalDetail == .aggregate { return "stats_server_aggregate_boundary" }
-        return presentation.allTimePlayCount == nil
-            ? "stats_server_event_boundary"
-            : "stats_server_navidrome_history_boundary"
-    }
-
-    // MARK: - 榜单
-
-    private func rankingSection(_ presentation: ServerListeningStatsPresentation) -> some View {
-        let items: [ServerListeningStatsRankedItem] = switch rankTab {
-        case .tracks: presentation.topTracks
-        case .artists: presentation.topArtists
-        case .albums: presentation.topAlbums
-        }
-        let visible = isRankingExpanded ? items : Array(items.prefix(Self.collapsedRankCount))
-        return VStack(alignment: .leading, spacing: 14) {
-            RecapSectionHeader(title: "stats_recap_top_title") {
-                RecapPillPicker(options: RankTab.allCases, selection: $rankTab, compact: true) { tab in
-                    Text(verbatim: tab.label)
-                }
-                .settingsAnchor("stats.serverRank")
-            }
-
-            if items.isEmpty {
-                Text("stats_rank_empty")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(visible.enumerated()), id: \.element.id) { index, item in
-                        if index > 0 {
-                            Rectangle()
-                                .fill(.primary.opacity(0.07))
-                                .frame(height: 0.5)
-                                .padding(.leading, 40)
+        if days.isEmpty {
+            Text("stats_rank_empty")
+                .foregroundStyle(.secondary)
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 3) {
+                    ForEach(weeks.indices, id: \.self) { index in
+                        VStack(spacing: 3) {
+                            ForEach(0..<7, id: \.self) { weekday in
+                                if let day = weeks[index][weekday] {
+                                    heatmapCell(day, maximum: maximum, size: cellSize)
+                                } else {
+                                    Color.clear.frame(width: cellSize, height: cellSize)
+                                }
+                            }
                         }
-                        rankRow(item, position: index)
                     }
                 }
-                if items.count > Self.collapsedRankCount {
-                    Button {
-                        pmWithAnimation(.list) { isRankingExpanded.toggle() }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text(isRankingExpanded ? LocalizedStringKey("update_show_less") : LocalizedStringKey("see_all"))
-                            Image(systemName: isRankingExpanded ? "chevron.up" : "chevron.down")
-                                .font(.caption2.weight(.bold))
-                        }
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.vertical, 8)
-                        .frame(maxWidth: .infinity)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
+                .padding(.vertical, 2)
             }
+            .pmStopsAtVerticalBar()
         }
     }
 
-    private func rankRow(_ item: ServerListeningStatsRankedItem, position: Int) -> some View {
-        HStack(spacing: 10) {
-            Text(verbatim: "\(position + 1)")
-                .font(.system(size: position == 0 ? 22 : 18, weight: .bold, design: .rounded).monospacedDigit())
-                .foregroundStyle(position == 0 ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-                .frame(width: 30, alignment: .leading)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: item.title)
-                    .font(position == 0 ? .headline : .subheadline.weight(.semibold))
-                    .lineLimit(1)
-                if let subtitle = item.subtitle, !subtitle.isEmpty {
-                    Text(verbatim: subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
+    private func heatmapCell(
+        _ day: HeatmapDay,
+        maximum: Int,
+        size: CGFloat
+    ) -> some View {
+        let intensity: Double = {
+            guard maximum > 0, day.playCount > 0 else { return 0 }
+            return max(
+                0.15,
+                log(Double(day.playCount) + 1) / log(Double(maximum) + 1)
+            )
+        }()
+        return RoundedRectangle(cornerRadius: 3)
+            .fill(
+                day.playCount == 0
+                    ? Color.secondary.opacity(0.10)
+                    : Color.accentColor.opacity(intensity)
+            )
+            .frame(width: size, height: size)
+            .accessibilityLabel(day.date.formatted(date: .long, time: .omitted))
+            .accessibilityValue(String(
+                format: String(localized: "stats_play_count_format"),
+                day.playCount
+            ))
+    }
+
+    private func completeDailyCounts(
+        _ presentation: ServerListeningStatsPresentation
+    ) -> [HeatmapDay] {
+        guard presentation.temporalDetail == .events else { return [] }
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let counts = Dictionary(
+            uniqueKeysWithValues: presentation.dailyCounts.map {
+                (calendar.startOfDay(for: $0.date), $0.playCount)
             }
-            Spacer(minLength: 8)
-            Text(ListeningRankText.playCount(item.playCount))
-                .font(.subheadline.weight(.semibold).monospacedDigit())
-                .fixedSize()
+        )
+        guard let start = presentation.appliedRange.startDate(relativeTo: today, calendar: calendar)
+                ?? counts.keys.min() else { return [] }
+
+        var result: [HeatmapDay] = []
+        var day = calendar.startOfDay(for: start)
+        while day <= today {
+            result.append(HeatmapDay(
+                date: day,
+                playCount: counts[day] ?? 0
+            ))
+            guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { break }
+            day = next
         }
-        .padding(.vertical, position == 0 ? 12 : 9)
-        .accessibilityElement(children: .combine)
+        return result
+    }
+
+    private func groupByWeek(
+        _ days: [HeatmapDay]
+    ) -> [[Int: HeatmapDay]] {
+        let calendar = Calendar.current
+        var weeks: [[Int: HeatmapDay]] = []
+        var current: [Int: HeatmapDay] = [:]
+        var previousKey: Int?
+
+        for day in days {
+            let parts = calendar.dateComponents(
+                [.weekday, .weekOfYear, .yearForWeekOfYear],
+                from: day.date
+            )
+            let key = (parts.yearForWeekOfYear ?? 0) * 100
+                + (parts.weekOfYear ?? 0)
+            if let previousKey, previousKey != key {
+                weeks.append(current)
+                current = [:]
+            }
+            current[(parts.weekday ?? 1) - 1] = day
+            previousKey = key
+        }
+        if !current.isEmpty {
+            weeks.append(current)
+        }
+        return weeks
     }
 }
+
+#if os(macOS)
+private extension View {
+    func macStatsCard() -> some View {
+        background(PMColor.card.opacity(0.78), in: .rect(cornerRadius: 12))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+            }
+    }
+}
+#endif

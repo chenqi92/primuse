@@ -5832,3 +5832,15 @@
 "home_filter_bar_footer_following" = "现在每个按钮跟着首页里对应区块的开关显示。在这里改过之后，区块收起时按钮也会留在首页顶上。拖动调整顺序。";
 "home_filter_bar_follow_sections" = "改回跟随首页区块";
 "player_control_tint_white_theme_note" = "主题色是「白色」时，播放页控件也是单色。";
+
+/* 听歌统计样式：年度报告 / 数据图表 */
+"rank_by" = "排序方式";
+"stats_top_header" = "Top 排行";
+"stats_previous_week" = "上周";
+"stats_previous_month" = "上月";
+"stats_previous_year" = "去年";
+"stats_comparison_format" = "%1$@ 对比%2$@";
+"stats_style_title" = "听歌统计样式";
+"stats_style_report" = "年度报告";
+"stats_style_charts" = "数据图表";
+"stats_style_footer" = "年度报告把一年的听歌写成一页；数据图表按周、月、年看播放次数、日历和排行，也能看音乐服务器上的记录。";

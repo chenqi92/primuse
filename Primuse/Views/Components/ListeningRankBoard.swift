@@ -159,6 +159,11 @@ struct ListeningRankPodiumMetrics {
         championArtwork: 72, runnerUpArtwork: 58, championStep: 44
     )
 
+    /// 统计页的表单行里不需要首页那么大的排场。
+    static let form = ListeningRankPodiumMetrics(
+        championArtwork: 84, runnerUpArtwork: 66, championStep: 52
+    )
+
     func artwork(place: Int) -> CGFloat {
         place == 0 ? championArtwork : runnerUpArtwork
     }
@@ -316,6 +321,8 @@ struct ListeningRankRowLabel<Artwork: View>: View {
     let trend: HomeListeningRankTrend?
     /// 相对榜首的播放占比，0...1。
     let share: Double
+    /// 自绘的卡片里内边距在行里面、整行都能点；表单行的内边距归系统管，统计页的名次行只留上下一点。
+    var insets = EdgeInsets(top: 9, leading: 12, bottom: 9, trailing: 12)
     @ViewBuilder let artwork: () -> Artwork
 
     var body: some View {
@@ -358,8 +365,7 @@ struct ListeningRankRowLabel<Artwork: View>: View {
             }
             .fixedSize(horizontal: true, vertical: false)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
+        .padding(insets)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
@@ -473,5 +479,65 @@ struct ListeningRankShelfCard<Artwork: View>: View {
             startPoint: .top,
             endPoint: .bottom
         )
+    }
+}
+
+private extension EdgeInsets {
+    /// 表单行里的名次行：左右贴着系统的行内边距，上下只留一点。
+    static var formRow: EdgeInsets { EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0) }
+}
+
+// MARK: - 统计页
+
+/// 数据图表样式的统计页「排行榜」一节的内容：前三名合成一行领奖台，第四名起逐行。
+///
+/// body 直接产出多行，由外层的 Form 分节去排。这里不能套 LazyVGrid 之类自适应
+/// 高度的惰性容器 —— 表单行里的惰性网格会和 cell 的自适应高度形成布局反馈环，
+/// 统计页的日历就因此崩过。
+struct ListeningStatsRankList: View {
+    let items: [PlayHistoryStore.RankedItem]
+    let isArtistRanking: Bool
+    /// 换榜（歌曲 / 艺人 / 专辑、时间范围）时变化，领奖台据此重新入场。
+    let identity: String
+    @Environment(MusicLibrary.self) private var library: MusicLibrary?
+
+    var body: some View {
+        let podiumCount = min(items.count, HomeListeningRankBoardPolicy.podiumSize)
+        let leaderPlayCount = items.first?.playCount ?? 0
+
+        ListeningRankPodium(count: podiumCount) { place in
+            let item = items[place]
+            ListeningRankPodiumColumn(place: place, tintSong: song(for: item), metrics: .form) {
+                ListeningRankPodiumHeadline(
+                    place: place, title: item.title, subtitle: item.subtitle,
+                    playCount: item.playCount, trend: nil, metrics: .form
+                ) { size in
+                    ListeningRankArtwork(
+                        song: song(for: item), size: size,
+                        isArtist: isArtistRanking, cornerRadius: place == 0 ? 12 : 10
+                    )
+                }
+            }
+        }
+        .id(identity)
+        .padding(.top, 6)
+        .listRowSeparator(.hidden, edges: .bottom)
+
+        ForEach(Array(items.enumerated().dropFirst(HomeListeningRankBoardPolicy.podiumSize)), id: \.element.id) { position, item in
+            ListeningRankRowLabel(
+                position: position, title: item.title, subtitle: item.subtitle,
+                playCount: item.playCount, listenedSeconds: item.totalSec, trend: nil,
+                share: HomeListeningRankBoardPolicy.share(
+                    playCount: item.playCount, leaderPlayCount: leaderPlayCount
+                ),
+                insets: .formRow
+            ) {
+                ListeningRankArtwork(song: song(for: item), size: 40, isArtist: isArtistRanking, cornerRadius: 7)
+            }
+        }
+    }
+
+    private func song(for item: PlayHistoryStore.RankedItem) -> Song? {
+        item.artworkSongID.flatMap { library?.unobservedVisibleSong(id: $0) }
     }
 }

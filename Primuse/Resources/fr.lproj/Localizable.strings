@@ -5739,3 +5739,15 @@
 "home_filter_bar_footer_following" = "Pour l’instant, chaque filtre suit l’affichage de sa section sur l’accueil. Une fois modifiés ici, ils restent en haut même si la section est masquée. Faites glisser pour réorganiser.";
 "home_filter_bar_follow_sections" = "Suivre à nouveau les sections de l’accueil";
 "player_control_tint_white_theme_note" = "Avec la couleur de thème Blanc, les commandes du lecteur sont toujours monochromes.";
+
+/* 听歌统计样式：年度报告 / 数据图表 */
+"rank_by" = "Classer par";
+"stats_top_header" = "Top";
+"stats_previous_week" = "la semaine dernière";
+"stats_previous_month" = "le mois dernier";
+"stats_previous_year" = "l’année dernière";
+"stats_comparison_format" = "%1$@ par rapport à %2$@";
+"stats_style_title" = "Style des statistiques";
+"stats_style_report" = "Bilan musical de l'année";
+"stats_style_charts" = "Graphiques";
+"stats_style_footer" = "Le bilan raconte votre année sur une page. Les graphiques montrent écoutes, calendrier et classements par semaine, mois ou année, serveurs musicaux compris.";

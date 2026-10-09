@@ -661,6 +661,7 @@ final class InterfaceLayoutSync {
         LibrarySectionLayoutPolicy.orderKey,
         LibrarySectionLayoutPolicy.hiddenKey,
         QuickAccessCoverStyle.storageKey,
+        ListeningStatsStyle.storageKey,
         // iPhone / iPad 播放页的按钮与底部状态行(只在「播放页按钮」编辑页里写)
         NowPlayingControlLayout.musicStorageKey,
         SpokenWordControlLayout.storageKey(for: .audiobook),

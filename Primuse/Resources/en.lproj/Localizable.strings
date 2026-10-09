@@ -5499,3 +5499,15 @@
 "home_filter_bar_footer_following" = "Each filter currently follows whether its section is shown on Home. After you change them here, they stay at the top even when the section is hidden. Drag to reorder.";
 "home_filter_bar_follow_sections" = "Follow Home Sections Again";
 "player_control_tint_white_theme_note" = "With the White theme color, player controls are always monochrome.";
+
+/* 听歌统计样式：年度报告 / 数据图表 */
+"rank_by" = "Rank by";
+"stats_top_header" = "Top";
+"stats_previous_week" = "last week";
+"stats_previous_month" = "last month";
+"stats_previous_year" = "last year";
+"stats_comparison_format" = "%1$@ vs %2$@";
+"stats_style_title" = "Listening Stats Style";
+"stats_style_report" = "Year in Music";
+"stats_style_charts" = "Charts";
+"stats_style_footer" = "Year in Music tells your year on one page. Charts shows plays, a calendar and rankings by week, month or year, including plays on your music servers.";

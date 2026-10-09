@@ -5739,3 +5739,15 @@
 "home_filter_bar_footer_following" = "Jeder Filter richtet sich derzeit danach, ob sein Bereich auf der Startseite angezeigt wird. Sobald du sie hier änderst, bleiben sie oben, auch wenn der Bereich ausgeblendet ist. Zum Umsortieren ziehen.";
 "home_filter_bar_follow_sections" = "Wieder den Bereichen folgen";
 "player_control_tint_white_theme_note" = "Mit der Designfarbe „Weiß“ sind die Player-Bedienelemente immer monochrom.";
+
+/* 听歌统计样式：年度报告 / 数据图表 */
+"rank_by" = "Sortieren nach";
+"stats_top_header" = "Top";
+"stats_previous_week" = "letzter Woche";
+"stats_previous_month" = "letztem Monat";
+"stats_previous_year" = "letztem Jahr";
+"stats_comparison_format" = "%1$@ gegenüber %2$@";
+"stats_style_title" = "Stil der Hörstatistik";
+"stats_style_report" = "Dein Musikjahr";
+"stats_style_charts" = "Diagramme";
+"stats_style_footer" = "„Dein Musikjahr“ zeigt dein Jahr auf einer Seite. Diagramme zeigen Wiedergaben, Kalender und Ranglisten nach Woche, Monat oder Jahr – auch von Musikservern.";

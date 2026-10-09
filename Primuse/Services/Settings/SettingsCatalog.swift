@@ -42,7 +42,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
     case themeColor, fullscreen, appIcon
     case sources, scraping, artists, duplicates, deleted, storage
     case cacheSync, cloud, family, appleTV, relay, dlna
-    case intelligence, appleMusic, scrobble, statistics, siri, carplay
+    case intelligence, appleMusic, scrobble, siri, carplay
     case domains, about, diagnostics, licenses, keyboard, widgets
 
     var id: String { "page." + rawValue }
@@ -52,8 +52,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         // 在根菜单里拆成并列的几项，反而要来回找。
         case .playback, .equalizer, .effects, .lyrics, .transcription,
              .keyboard, .siri, .carplay: .playback
-        case .sources, .scraping, .artists, .duplicates, .deleted, .storage, .cacheSync,
-             .statistics: .library
+        case .sources, .scraping, .artists, .duplicates, .deleted, .storage, .cacheSync: .library
         case .appearance, .themeColor, .player, .fullscreen, .appIcon, .home, .libraryDisplay,
              .widgets: .appearance
         case .cloud, .family: .sync
@@ -92,7 +91,6 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .intelligence: "ai_settings_title"
         case .appleMusic: "settings_apple_music_section"
         case .scrobble: "scrobble_title"
-        case .statistics: "stats_title"
         case .siri: "Siri & Shortcuts"
         case .carplay: "CarPlay"
         case .domains: "trusted_domains"
@@ -135,7 +133,6 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .intelligence: "sparkles"
         case .appleMusic: "applelogo"
         case .scrobble: "music.note.list"
-        case .statistics: "chart.bar.xaxis"
         case .siri: "waveform"
         case .carplay: "car"
         case .domains: "lock.shield"

@@ -5740,3 +5740,15 @@
 "home_filter_bar_footer_following" = "現在、各ボタンはホームの対応するセクションの表示に合わせています。ここで変更すると、セクションを非表示にしてもボタンはホーム上部に残ります。ドラッグで並べ替えます。";
 "home_filter_bar_follow_sections" = "ホームのセクションに合わせる";
 "player_control_tint_white_theme_note" = "テーマカラーが「ホワイト」のときは、再生画面のコントロールも常にモノクロになります。";
+
+/* 听歌统计样式：年度报告 / 数据图表 */
+"rank_by" = "並べ替え";
+"stats_top_header" = "トップ";
+"stats_previous_week" = "先週";
+"stats_previous_month" = "先月";
+"stats_previous_year" = "昨年";
+"stats_comparison_format" = "%2$@比 %1$@";
+"stats_style_title" = "再生統計の表示";
+"stats_style_report" = "ミュージックの1年";
+"stats_style_charts" = "グラフ";
+"stats_style_footer" = "「ミュージックの1年」は1年を1ページにまとめます。「グラフ」は週・月・年ごとの再生回数、カレンダー、ランキングを表示し、音楽サーバーの記録も見られます。";

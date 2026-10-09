@@ -1,12 +1,86 @@
 import SwiftUI
 import PrimuseKit
 
-/// 听歌统计 —— 就是年度音乐报告，一章接一章从上往下铺开（见 `YearlyReportPages`）。
+/// 听歌统计的两种样子，在「设置 › 资料库」里选。年度报告是默认的；喜欢看数字和图表的人
+/// 可以换回按周、月、年看的数据图表。
+enum ListeningStatsStyle: String, CaseIterable, Identifiable, Sendable {
+    case report
+    case charts
+
+    static let storageKey = "primuse.stats.style.v1"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .report: String(localized: "stats_style_report")
+        case .charts: String(localized: "stats_style_charts")
+        }
+    }
+}
+
+/// 听歌统计的入口（资料库、首页、侧栏）：按设置显示年度报告或数据图表。
+struct ListeningStatsScreen: View {
+    @AppStorage(ListeningStatsStyle.storageKey) private var style = ListeningStatsStyle.report
+    @State private var model: Model
+    private let initialRange: PlayHistoryStore.Range?
+    private let initiallyShowsLocalHistory: Bool
+    private let usesInlineSourcePicker: Bool
+
+    /// 后三个参数只给数据图表用。
+    init(
+        model: Model = Model(),
+        initialRange: PlayHistoryStore.Range? = nil,
+        initiallyShowsLocalHistory: Bool = false,
+        usesInlineSourcePicker: Bool = false
+    ) {
+        _model = State(initialValue: model)
+        self.initialRange = initialRange
+        self.initiallyShowsLocalHistory = initiallyShowsLocalHistory
+        self.usesInlineSourcePicker = usesInlineSourcePicker
+    }
+
+    var body: some View {
+        switch style {
+        case .report:
+            ListeningStatsView(model: model.report)
+        case .charts:
+            #if os(macOS)
+            ListeningStatsChartsView(
+                initialRange: initialRange,
+                initiallyShowsLocalHistory: initiallyShowsLocalHistory,
+                usesInlineSourcePicker: usesInlineSourcePicker,
+                model: model.charts
+            )
+            #else
+            ListeningStatsChartsView(
+                initialRange: initialRange,
+                initiallyShowsLocalHistory: initiallyShowsLocalHistory,
+                usesInlineSourcePicker: usesInlineSourcePicker
+            )
+            #endif
+        }
+    }
+
+    /// 两种样式各自算好的结果。Mac 把它放在页面外面，切走再回来不用重算。
+    @MainActor
+    final class Model {
+        let report = ListeningStatsView.Model()
+        #if os(macOS)
+        let charts = ListeningStatsChartsView.Model()
+        #endif
+
+        init() {}
+    }
+}
+
+/// 年度报告样式的听歌统计，一章接一章从上往下铺开（见 `YearlyReportPages`）。
 /// 顶上换年份：今年是一月一日到现在，往年是整年；只露出听够了的年份。今年的报告在
 /// 音乐人格后面接「最近的状态」（最近 30 天，可由 AI 解读，很少才更新一次）。
 ///
 /// 数字来自本机播放记录加上按年归档的部分（本机只留最近 5000 条）。Navidrome、Emby
 /// 等服务器自己记的播放不放在这里：本机放的歌多半也报给了服务器，加在一起就重复了。
+/// 要看服务器上的记录，换到数据图表样式（`ListeningStatsChartsView`）。
 struct ListeningStatsView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MusicLibrary.self) private var library: MusicLibrary?
@@ -149,7 +223,6 @@ struct ListeningStatsView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .settingsAnchor("stats.year")
     }
 
     /// 今年还没听够、报告停在往年时，说一句还差多少。
@@ -209,7 +282,6 @@ struct ListeningStatsView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.red)
-            .settingsAnchor("stats.clear")
             Text("stats_recap_privacy_footer")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
@@ -219,10 +291,17 @@ struct ListeningStatsView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func clearHistory() {
-        store.clearAll()
+    /// 两种样式的「清除所有听歌记录」都走这里：本机记录、按年归档的部分和最近的状态一起清掉，
+    /// 不然换到另一种样式还能看到归档里的数字。
+    @MainActor
+    static func clearAllHistory() {
+        PlayHistoryStore.shared.clearAll()
         PlayHistoryArchiver.removeAll()
         ListeningMoodStore.shared.clear()
+    }
+
+    private func clearHistory() {
+        Self.clearAllHistory()
         model.archived = nil
         model.corpus = nil
         model.snapshot = nil

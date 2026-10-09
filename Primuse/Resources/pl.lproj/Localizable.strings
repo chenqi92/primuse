@@ -5645,3 +5645,15 @@
 "home_filter_bar_footer_following" = "Na razie każdy filtr zależy od tego, czy jego sekcja jest widoczna na ekranie głównym. Po zmianie tutaj filtry zostają u góry, nawet gdy sekcja jest ukryta. Przeciągnij, aby zmienić kolejność.";
 "home_filter_bar_follow_sections" = "Znów zależnie od sekcji ekranu głównego";
 "player_control_tint_white_theme_note" = "Przy kolorze motywu „Biały” elementy sterujące odtwarzacza są zawsze monochromatyczne.";
+
+/* 听歌统计样式：年度报告 / 数据图表 */
+"rank_by" = "Ranking według";
+"stats_top_header" = "Najczęściej słuchane";
+"stats_previous_week" = "w zeszłym tygodniu";
+"stats_previous_month" = "w zeszłym miesiącu";
+"stats_previous_year" = "w zeszłym roku";
+"stats_comparison_format" = "%1$@ kontra %2$@";
+"stats_style_title" = "Styl statystyk";
+"stats_style_report" = "Rok w muzyce";
+"stats_style_charts" = "Wykresy";
+"stats_style_footer" = "„Rok w muzyce” to cały rok na jednej stronie. Wykresy: odtworzenia, kalendarz i rankingi z tygodnia, miesiąca lub roku, także z serwerów muzycznych.";

@@ -5739,3 +5739,15 @@
 "home_filter_bar_footer_following" = "지금은 각 버튼이 홈의 해당 섹션 표시 여부를 따릅니다. 여기서 변경하면 섹션을 숨겨도 버튼이 홈 상단에 남습니다. 드래그하여 순서를 바꿉니다.";
 "home_filter_bar_follow_sections" = "홈 섹션을 다시 따르기";
 "player_control_tint_white_theme_note" = "테마 색상이 화이트이면 재생 화면 컨트롤도 항상 모노크롬입니다.";
+
+/* 听歌统计样式：年度报告 / 数据图表 */
+"rank_by" = "정렬 기준";
+"stats_top_header" = "순위";
+"stats_previous_week" = "지난주";
+"stats_previous_month" = "지난달";
+"stats_previous_year" = "작년";
+"stats_comparison_format" = "%2$@ 대비 %1$@";
+"stats_style_title" = "청취 통계 스타일";
+"stats_style_report" = "올해의 음악";
+"stats_style_charts" = "차트";
+"stats_style_footer" = "올해의 음악은 한 해를 한 페이지로 보여 줍니다. 차트는 주·월·연 단위 재생 횟수, 달력, 순위를 보여 주며 음악 서버 기록도 볼 수 있습니다.";

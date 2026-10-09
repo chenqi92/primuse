@@ -1,22 +1,11 @@
 import SwiftUI
 import PrimuseKit
-#if os(iOS)
-import UIKit
-#endif
 
-/// 听歌统计（年度报告）和服务器统计页共用的版式零件。
+/// 年度报告样式的听歌统计用的版式零件。
 ///
 /// 内容直接排在底色上，靠字号和留白分层，成块的内容垫一层很淡的衬底。不画图表 ——
 /// 听了多少，几个数字和几句话就说清楚了。
 enum RecapStyle {
-    static var pageBase: Color {
-        #if os(macOS)
-        PMColor.bg
-        #else
-        Color(uiColor: .systemBackground)
-        #endif
-    }
-
     static var horizontalPadding: CGFloat {
         #if os(macOS)
         36
@@ -26,71 +15,6 @@ enum RecapStyle {
     }
 
     static let maximumContentWidth: CGFloat = 720
-    static let sectionSpacing: CGFloat = 40
-}
-
-/// 页面底色：顶上一团封面色的光，往下淡进系统底色。取不到颜色时就是系统底色。
-struct RecapBackdrop: View {
-    let tint: Color?
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        let strength = colorScheme == .dark ? 0.5 : 0.26
-        ZStack {
-            RecapStyle.pageBase
-            if let tint {
-                RadialGradient(
-                    colors: [tint.opacity(strength), tint.opacity(0)],
-                    center: UnitPoint(x: 0.12, y: 0),
-                    startRadius: 0,
-                    endRadius: 560
-                )
-                RadialGradient(
-                    colors: [tint.opacity(strength * 0.45), tint.opacity(0)],
-                    center: UnitPoint(x: 1, y: 0.32),
-                    startRadius: 0,
-                    endRadius: 420
-                )
-            }
-        }
-        .ignoresSafeArea()
-        .pmAnimation(.ambient, value: tint)
-        .accessibilityHidden(true)
-    }
-}
-
-/// 一节的标题，右边可以挂一个小控件（切换榜单、时间说明）。
-struct RecapSectionHeader<Trailing: View>: View {
-    let title: LocalizedStringKey
-    @ViewBuilder var trailing: () -> Trailing
-
-    var body: some View {
-        // 长语言下标题和右边的控件挤不下一行时，控件换到标题下面。
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .center, spacing: 8) {
-                titleText
-                Spacer(minLength: 8)
-                trailing()
-            }
-            VStack(alignment: .leading, spacing: 10) {
-                titleText
-                trailing()
-            }
-        }
-    }
-
-    private var titleText: some View {
-        Text(title)
-            .font(.title3.weight(.bold))
-            .foregroundStyle(.primary)
-            .accessibilityAddTraits(.isHeader)
-    }
-}
-
-extension RecapSectionHeader where Trailing == EmptyView {
-    init(_ title: LocalizedStringKey) {
-        self.init(title: title) { EmptyView() }
-    }
 }
 
 /// 一排文字胶囊的单选：选中的那个垫一层淡底、字变深。
@@ -524,42 +448,5 @@ extension ListeningDaypart {
         case .evening: String(localized: "yearly_time_evening")
         case .lateNight: String(localized: "yearly_time_late_night")
         }
-    }
-}
-
-// MARK: - 服务器上的记录
-
-/// 服务器源的一行：名字、上次读到的累计播放与最常听的艺人。
-struct ServerListeningRow: View {
-    let source: MusicSource
-    let summary: String?
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: source.type.iconName)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(.tint)
-                .frame(width: 38, height: 38)
-                .background(.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: source.name)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                Text(verbatim: summary ?? String(localized: "stats_recap_server_open"))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-            Spacer(minLength: 8)
-            Image(systemName: "chevron.right")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.tertiary)
-                .accessibilityHidden(true)
-        }
-        .padding(.vertical, 8)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
     }
 }
