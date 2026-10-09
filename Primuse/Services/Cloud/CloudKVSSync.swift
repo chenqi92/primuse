@@ -664,8 +664,14 @@ final class InterfaceLayoutSync {
         ListeningStatsStyle.storageKey,
         // iPhone / iPad 播放页的按钮与底部状态行(只在「播放页按钮」编辑页里写)
         NowPlayingControlLayout.musicStorageKey,
+        NowPlayingLyricsPageControls.storageKey,
+        NowPlayingImmersiveLyricsControls.storageKey,
+        NowPlayingEffectPlayerControls.storageKey,
+        NowPlayingRadioControlLayout.storageKey,
         SpokenWordControlLayout.storageKey(for: .audiobook),
         SpokenWordControlLayout.storageKey(for: .podcast),
+        NowPlayingTextScrollPreference.collapsesKey(for: .audiobook),
+        NowPlayingTextScrollPreference.collapsesKey(for: .podcast),
         PlayerAppearancePreferences.controlTintKey,
     ]
 

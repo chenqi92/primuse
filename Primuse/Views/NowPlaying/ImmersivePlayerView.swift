@@ -26,6 +26,10 @@ struct ImmersivePlayerView: View {
     var occlusions: [OcclusionAvoidancePolicy.Region] = []
     /// 封面流(#191)里长按：打开正在播的这张专辑的全部歌曲。播放页给，nil 时长按不做事。
     var onShowAlbum: (() -> Void)? = nil
+    /// 右上角与底部播放胶囊两侧放什么(设置 › 播放器 › 播放页按钮 › 全屏效果)。
+    var chromeControls: NowPlayingEffectPlayerControls = .default
+    /// 队列以外的按钮由播放页画、走播放页同一套动作(弹出的面板也挂在播放页上)。nil 时那几格空着。
+    var chromeControl: ((NowPlayingControlAction, ImmersiveChromeControlPlacement, Color) -> AnyView)? = nil
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(AudioVisualizerService.self) private var visualizer
@@ -431,7 +435,7 @@ struct ImmersivePlayerView: View {
             dismissChromeButton
             Spacer()
             effectChromeMenu(metrics: metrics)
-            queueChromeButton
+            topTrailingChromeControl
         }
     }
 
@@ -542,6 +546,45 @@ struct ImmersivePlayerView: View {
         .accessibilityLabel(Text("fullscreen_effect_settings_title"))
     }
 
+    /// 右上角那一格,默认是队列。
+    @ViewBuilder
+    private var topTrailingChromeControl: some View {
+        if let action = chromeControls.action(in: .topTrailing) {
+            if action == .queue {
+                queueChromeButton
+            } else {
+                configuredChromeControl(action, placement: .top)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func configuredChromeControl(
+        _ action: NowPlayingControlAction,
+        placement: ImmersiveChromeControlPlacement
+    ) -> some View {
+        if let chromeControl {
+            chromeControl(action, placement, chromeInk)
+                // 点了按钮控件不自动藏起来,和效果页自己的按钮一样。
+                .simultaneousGesture(TapGesture().onEnded { revealChrome() })
+        }
+    }
+
+    /// 播放胶囊里播放键一侧那一格;只摆了一侧时另一侧留同样大的空位,播放键仍在正中。
+    @ViewBuilder
+    private func pillEdgeControl(_ slot: NowPlayingEffectPlayerSlot) -> some View {
+        let actions = chromeControls.actions
+        if actions[.pillLeading] != nil || actions[.pillTrailing] != nil {
+            if let action = actions[slot], chromeControl != nil {
+                configuredChromeControl(action, placement: .pill)
+            } else {
+                Color.clear
+                    .frame(width: 38, height: 38)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+
     private var queueChromeButton: some View {
         ImmersiveGlassActionButton(
             symbol: "list.bullet",
@@ -579,6 +622,7 @@ struct ImmersivePlayerView: View {
         outlinedPlay: Bool
     ) -> some View {
         HStack(spacing: metrics.s(18)) {
+            pillEdgeControl(.pillLeading)
             transportButton("backward.fill", size: 17, diameter: 38, label: "a11y_previous_track") {
                 Task { await player.previous() }
             }
@@ -586,6 +630,7 @@ struct ImmersivePlayerView: View {
             transportButton("forward.fill", size: 17, diameter: 38, label: "a11y_next_track") {
                 Task { await player.next() }
             }
+            pillEdgeControl(.pillTrailing)
         }
     }
 
@@ -1399,4 +1444,10 @@ private struct ImmersiveLibraryCountObserver: View {
             .onChange(of: library.songs.count) { _, _ in onCountChange() }
     }
 }
+/// 全屏效果页上由播放页画的按钮在哪一处:右上角那颗玻璃圆钮,还是底部播放胶囊里。
+enum ImmersiveChromeControlPlacement {
+    case top
+    case pill
+}
+
 #endif

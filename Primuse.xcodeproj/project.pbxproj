@@ -1602,6 +1602,7 @@
 		DB9E5F2628D4E445C822E8D3 /* LyricsTranslationCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8CBD34CDDF944EDE45F0D28 /* LyricsTranslationCache.swift */; };
 		DBE6CC8937ACBC0CCF6D6A23 /* SongRowColumnsPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F99AA6FC13E79A7AE9255BE /* SongRowColumnsPolicy.swift */; };
 		DBEB1006A1C6D8EE8BC47135 /* FileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F569D02D3E6102A0C0E1CF /* FileLogger.swift */; };
+		DC8328E250CD9B35D3E3FA5D /* NowPlayingSurfaceControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = B66B02A94DA6A391F8440441 /* NowPlayingSurfaceControls.swift */; };
 		DCB677DC234750D404F0D6BA /* PlaybackScheduleSettlement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23B1A6965440571278822185 /* PlaybackScheduleSettlement.swift */; };
 		DCDA96AC3B149B7D18AAD1E5 /* LibraryStartupHarnessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37F2A8C498BD95803C47AA04 /* LibraryStartupHarnessTests.swift */; };
 		DD17FF53687683EBD64909AE /* LibraryInsightWriteback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FE1B094BABD7D22C70C7A0A /* LibraryInsightWriteback.swift */; };
@@ -2523,6 +2524,7 @@
 		AC0126C15EC9F88C59A39B32 /* ar */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ar; path = ar.lproj/WidgetConfiguration.strings; sourceTree = "<group>"; };
 		AC34227AF814275A9A2786E0 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/WidgetConfiguration.strings; sourceTree = "<group>"; };
 		B5BF3E0ED890E611AEA56580 /* LyricsDocumentSources.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricsDocumentSources.swift; sourceTree = "<group>"; };
+		B66B02A94DA6A391F8440441 /* NowPlayingSurfaceControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingSurfaceControls.swift; sourceTree = "<group>"; };
 		C613B0D198AD74225E08072E /* es-MX */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "es-MX"; path = "es-MX.lproj/WidgetConfiguration.strings"; sourceTree = "<group>"; };
 		D56E1A9184BF1285DFAF48AF /* uk */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = uk; path = uk.lproj/WidgetConfiguration.strings; sourceTree = "<group>"; };
 		D7D47DEE971458C97474E330 /* MarqueeText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarqueeText.swift; sourceTree = "<group>"; };
@@ -3911,6 +3913,7 @@
 				AFC591E3A4BEE6456BA66E38 /* Metadata */,
 				6B4555C595F754161FB68F73 /* Models */,
 				2AA9AC0DEF8E6DD69FB2D9D2 /* NowPlayingControlLayout.swift */,
+				B66B02A94DA6A391F8440441 /* NowPlayingSurfaceControls.swift */,
 				F102477EA2B1BAD4063986D1 /* Podcast */,
 				AE8026A8E49A84C9F273845F /* Radio */,
 				D7B9A30E7467B10B25922382 /* Resources */,
@@ -6291,6 +6294,7 @@
 				91A91048C81EFDD2DC5181BA /* MediaServerStreamResolver.swift in Sources */,
 				65B29FD42C91CE3247364384 /* MedleySegmentPolicy.swift in Sources */,
 				7B95FDA6FF0C3392239798C0 /* NowPlayingControlLayout.swift in Sources */,
+				DC8328E250CD9B35D3E3FA5D /* NowPlayingSurfaceControls.swift in Sources */,
 				7C3CC7040A477069D9616806 /* SongPlaybackRange.swift in Sources */,
 				25C51C70C5D8C4773A454DC0 /* MetadataBackfillDrainWaitPolicy.swift in Sources */,
 				E62B2F6904E847DA7283445A /* MetadataBackfillPresentation.swift in Sources */,

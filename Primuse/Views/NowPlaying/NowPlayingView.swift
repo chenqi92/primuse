@@ -782,6 +782,14 @@ struct NowPlayingView: View {
     /// 有声书与播客播放页各自的那排功能块、喜欢 / 文字稿键与章节键。
     @AppStorage(SpokenWordControlLayout.storageKey(for: .audiobook)) private var audiobookControlStorage = ""
     @AppStorage(SpokenWordControlLayout.storageKey(for: .podcast)) private var podcastControlStorage = ""
+    @AppStorage(NowPlayingLyricsPageControls.storageKey) private var lyricsPageControlStorage = ""
+    @AppStorage(NowPlayingImmersiveLyricsControls.storageKey) private var immersiveLyricsControlStorage = ""
+    @AppStorage(NowPlayingEffectPlayerControls.storageKey) private var effectPlayerControlStorage = ""
+    @AppStorage(NowPlayingRadioControlLayout.storageKey) private var radioControlStorage = ""
+    @AppStorage(NowPlayingTextScrollPreference.collapsesKey(for: .audiobook))
+    private var audiobookTextCollapses = NowPlayingTextScrollPreference.collapsesByDefault
+    @AppStorage(NowPlayingTextScrollPreference.collapsesKey(for: .podcast))
+    private var podcastTextCollapses = NowPlayingTextScrollPreference.collapsesByDefault
     /// 页面上那颗按钮此刻用不了时点出来的说明。
     @State private var controlNotice: NowPlayingControlNotice?
     @State private var showQueue = false
@@ -1386,7 +1394,7 @@ struct NowPlayingView: View {
         guard showLyrics,
               !isLyricsImmersive,
               !isLyricsChromeCollapsed,
-              !usesSpokenWordTransport,
+              textCollapsesOnScroll,
               !voiceOverEnabled,
               !lyrics.isEmpty else { return }
         withAnimation(lyricsChromeAnimation) {
@@ -2537,6 +2545,13 @@ struct NowPlayingView: View {
                         onShowAlbum: {
                             guard let album = currentAlbum else { return }
                             presentAlbum(album, prefersMatchedArtworkSource: false)
+                        },
+                        chromeControls: NowPlayingControlLayoutCache.effectPlayerControls(for: effectPlayerControlStorage),
+                        chromeControl: { action, placement, ink in
+                            AnyView(controlButton(
+                                action,
+                                style: placement == .top ? .effectGlass(ink: ink) : .effectPill(ink: ink)
+                            ))
                         }
                     )
                     .zIndex(100)
@@ -3106,37 +3121,18 @@ struct NowPlayingView: View {
             .foregroundStyle(appearance.primary)
             .padding(.top, 24)
 
-            if showsPlayerVolumeBar {
+            if showsPlayerVolumeBar, radioControlLayout.showsVolumeBar {
                 playerVolumeRow
                     .frame(maxWidth: 460)
                     .padding(.horizontal, 36)
                     .padding(.top, 18)
             }
 
+            // 最下面那一排按「播放页按钮 › 电台」的顺序与显隐摆。
             HStack(spacing: 10) {
-                AirPlayButton()
-                    .frame(width: 36, height: 36)
-                Text(radioTechnicalSummary)
-                    .font(.caption2)
-                    .foregroundStyle(appearance.faint)
-                if let url = player.currentRadioStation?.url {
-                    ShareLink(item: url) {
-                        Image(systemName: "square.and.arrow.up")
-                            .frame(width: 36, height: 36)
-                    }
-                    .accessibilityLabel(Text("share"))
+                ForEach(radioControlLayout.visibleItems) { item in
+                    radioControlItem(item)
                 }
-                if let stationID = player.currentRadioStation?.id {
-                    Button {
-                        radioDetailStationID = stationID
-                    } label: {
-                        Image(systemName: "clock.arrow.circlepath")
-                            .frame(width: 36, height: 36)
-                    }
-                    .foregroundStyle(appearance.secondary)
-                    .accessibilityLabel(Text("radio_detail_heard_title"))
-                }
-                radioSleepTimerButton
             }
             .padding(.top, 10)
             .padding(.bottom, max(bottomSafeArea, 16))
@@ -3146,6 +3142,40 @@ struct NowPlayingView: View {
         .padding(.leading, centersOnFullScreen ? 0 : safeInsets.leading)
         .padding(.trailing, centersOnFullScreen ? 0 : safeInsets.trailing)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private func radioControlItem(_ item: NowPlayingRadioControlItem) -> some View {
+        switch item {
+        case .airPlay:
+            AirPlayButton()
+                .frame(width: 36, height: 36)
+        case .info:
+            Text(radioTechnicalSummary)
+                .font(.caption2)
+                .foregroundStyle(appearance.faint)
+        case .share:
+            if let url = player.currentRadioStation?.url {
+                ShareLink(item: url) {
+                    Image(systemName: "square.and.arrow.up")
+                        .frame(width: 36, height: 36)
+                }
+                .accessibilityLabel(Text("share"))
+            }
+        case .history:
+            if let stationID = player.currentRadioStation?.id {
+                Button {
+                    radioDetailStationID = stationID
+                } label: {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .frame(width: 36, height: 36)
+                }
+                .foregroundStyle(appearance.secondary)
+                .accessibilityLabel(Text("radio_detail_heard_title"))
+            }
+        case .sleepTimer:
+            radioSleepTimerButton
+        }
     }
 
     private var sleepTimerOptions: [SleepTimerOption] {
@@ -4203,14 +4233,15 @@ struct NowPlayingView: View {
 
                     Spacer()
 
-                    if offersLyricsKaraokeAction, musicControlLayout.immersiveLyricsAction() != .karaoke {
-                        lyricsKaraokeButton
+                    let topActions = immersiveLyricsTopActions
+                    if let extra = lyricsHeaderExtraAction(onSurface: .configuredImmersiveLyrics(visible: Set(topActions))) {
+                        lyricsHeaderExtraButton(extra)
                             .buttonStyle(.plain)
                     }
 
-                    // 心形那一格:音乐跟「播放页按钮」里歌名旁那一格走,有声内容跟「喜欢」开关走。
+                    // 心形那一格:音乐按「全屏歌词」那份配置(默认跟歌名旁那一格),有声内容跟「喜欢」开关走。
                     if !usesSpokenWordTransport {
-                        if let action = musicControlLayout.immersiveLyricsAction() {
+                        ForEach(topActions) { action in
                             controlButton(action, style: .header)
                         }
                     } else if offersLikeAction, spokenWordControlLayout.showsLike {
@@ -4432,24 +4463,30 @@ struct NowPlayingView: View {
                             musicVideoToggleButton(font: .title3, trailing: 4)
                                 .lyricsHeaderReveal()
 
-                            // 页面上已经摆着卡拉OK键时不再多放一颗。
-                            if offersLyricsKaraokeAction,
-                               !musicControlLayout.visibleActions(
-                                   on: usesToolColumn ? .toolColumn(showsTransportEdges: true, headerOverflows: false) : .portrait
-                               ).contains(.karaoke) {
-                                lyricsKaraokeButton
+                            // 歌词页顶上多出来那一格(默认卡拉OK);页面上已经摆着同一颗键时不再多放。
+                            let headerExtra = lyricsHeaderExtraAction(
+                                onSurface: usesToolColumn
+                                    ? .toolColumn(showsTransportEdges: true, headerOverflows: false)
+                                    : .portrait
+                            )
+                            if let headerExtra {
+                                lyricsHeaderExtraButton(headerExtra)
                                     .lyricsHeaderReveal()
                             }
 
                             // 竖栏里排着那一列按钮时(iPhone Duo),喜欢与更多在那一列里。
                             if !usesToolColumn {
-                                if let action = musicControlLayout.action(in: .header) {
+                                // 播客文字稿也走这个标题栏:心形跟播客页的「喜欢」开关,不用音乐歌名旁那一格。
+                                if usesSpokenWordTransport {
+                                    spokenWordLikeButton
+                                        .lyricsHeaderReveal()
+                                } else if let action = musicControlLayout.action(in: .header) {
                                     controlButton(action, style: .header)
                                         .lyricsHeaderReveal()
                                 }
 
                                 // More menu
-                                makeMoreMenu(controlSurface: .portrait)
+                                makeMoreMenu(controlSurface: .portraitLyrics(headerExtra: headerExtra))
                                     .lyricsHeaderReveal()
                             }
                             }
@@ -4645,10 +4682,12 @@ struct NowPlayingView: View {
                         .padding(.top, 8)
                         .transition(lyricsHeaderHandoffTransition)
                         .zIndex(1)
-                    lyricsFullView
+                    // 上滑文字稿时收起下面的播放控件(播放页按钮里可关),点文字稿空白叫回来。
+                    collapsibleLyricsView
                         .padding(.horizontal, -margin)
                         .frame(maxHeight: .infinity)
                         .transition(lyricsPanelTransition)
+                        .onDisappear { isLyricsChromeCollapsed = false }
                 } else if style.isNocturne {
                     Spacer(minLength: isShort ? 8 : 16)
                     AudiobookTitleBlock(style: style) { presentCurrentBook() }
@@ -4693,57 +4732,59 @@ struct NowPlayingView: View {
                     Spacer(minLength: isShort ? 12 : 22)
                 }
 
-                AudiobookCurrentPartRow(style: style) { openContentsPanel() }
-                    .padding(.top, showsText ? 8 : 0)
-                    .pmLayoutSwitchFade()
+                if !showsText || !isLyricsChromeCollapsed {
+                    AudiobookCurrentPartRow(style: style) { openContentsPanel() }
+                        .padding(.top, showsText ? 8 : 0)
+                        .pmLayoutSwitchFade()
 
-                AudiobookProgressBar(style: style)
-                    .matchedLayoutElement(.progress, in: layoutNamespace)
+                    AudiobookProgressBar(style: style)
+                        .matchedLayoutElement(.progress, in: layoutNamespace)
 
-                audiobookTransportRow(style: style, isShort: isShort)
-                    .matchedLayoutElement(.transport, in: layoutNamespace)
-                    .padding(.top, isShort ? 4 : 10)
+                    audiobookTransportRow(style: style, isShort: isShort)
+                        .matchedLayoutElement(.transport, in: layoutNamespace)
+                        .padding(.top, isShort ? 4 : 10)
 
-                Group {
-                    if style.isNocturne {
-                        if showsPlayerVolumeBar {
-                            playerVolumeRow
-                                .padding(.horizontal, 12)
-                                .padding(.top, isShort ? 10 : 16)
-                        }
-                        // 竖栏里排着那一列按钮时(iPhone Duo),这几样都在那一列里。
-                        if !usesToolColumn {
-                            audiobookActionRow(style: style, layout: .stacked)
-                                .padding(.top, isShort ? 4 : 10)
-                        }
-                    } else {
-                        Rectangle()
-                            .fill(style.hairline)
-                            .frame(height: 0.5)
-                            .padding(.top, isShort ? 10 : 18)
-                        if !usesToolColumn {
-                            audiobookActionRow(style: style, layout: .inline)
-                                .padding(.top, 6)
-                        }
-                        if showsPlayerVolumeBar {
-                            playerVolumeRow
-                                .padding(.horizontal, 12)
-                                .padding(.top, 4)
+                    Group {
+                        if style.isNocturne {
+                            if showsPlayerVolumeBar {
+                                playerVolumeRow
+                                    .padding(.horizontal, 12)
+                                    .padding(.top, isShort ? 10 : 16)
+                            }
+                            // 竖栏里排着那一列按钮时(iPhone Duo),这几样都在那一列里。
+                            if !usesToolColumn {
+                                audiobookActionRow(style: style, layout: .stacked)
+                                    .padding(.top, isShort ? 4 : 10)
+                            }
+                        } else {
+                            Rectangle()
+                                .fill(style.hairline)
+                                .frame(height: 0.5)
+                                .padding(.top, isShort ? 10 : 18)
+                            if !usesToolColumn {
+                                audiobookActionRow(style: style, layout: .inline)
+                                    .padding(.top, 6)
+                            }
+                            if showsPlayerVolumeBar {
+                                playerVolumeRow
+                                    .padding(.horizontal, 12)
+                                    .padding(.top, 4)
+                            }
                         }
                     }
-                }
-                .pmLayoutSwitchFade()
-
-                if let song = player.currentSong {
-                    nowPlayingFooterInfo(
-                        for: song,
-                        infoColor: style.faint,
-                        sourceColor: style.faint,
-                        noticeColor: style.secondary
-                    )
-                    .tracking(0.6)
-                    .padding(.top, isShort ? 4 : 8)
                     .pmLayoutSwitchFade()
+
+                    if let song = player.currentSong {
+                        nowPlayingFooterInfo(
+                            for: song,
+                            infoColor: style.faint,
+                            sourceColor: style.faint,
+                            noticeColor: style.secondary
+                        )
+                        .tracking(0.6)
+                        .padding(.top, isShort ? 4 : 8)
+                        .pmLayoutSwitchFade()
+                    }
                 }
             }
             .padding(.horizontal, margin)
@@ -5111,9 +5152,9 @@ struct NowPlayingView: View {
                         immersiveEffectButton(glass: .adaptive)
                     }
 
-                    // 原来心形的位置:音乐跟「播放页按钮」里歌名旁那一格走,有声内容跟「喜欢」开关走。
+                    // 原来心形的位置:音乐按「全屏歌词」那份配置(默认跟歌名旁那一格),有声内容跟「喜欢」开关走。
                     if !usesSpokenWordTransport {
-                        if let action = musicControlLayout.immersiveLyricsAction() {
+                        ForEach(immersiveLyricsTopActions) { action in
                             controlButton(action, style: .glass)
                         }
                     } else if offersLikeAction, spokenWordControlLayout.showsLike {
@@ -5186,6 +5227,13 @@ struct NowPlayingView: View {
             PlaybackProgressBar(fillTint: themedControlAccent)
 
             HStack(spacing: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.transportSpacing)) {
+                // 播放键两侧按「全屏歌词」那份配置;只摆了一侧时另一侧留同样大的空位,播放键仍在正中。
+                let dockActions = immersiveLyricsActions
+                let showsDockEdges = dockActions[.dockLeading] != nil || dockActions[.dockTrailing] != nil
+                if showsDockEdges {
+                    dockEdgeControl(dockActions[.dockLeading])
+                }
+
                 Spacer(minLength: 0)
 
                 playerSkipButton(
@@ -5207,6 +5255,10 @@ struct NowPlayingView: View {
                 .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: true) }
 
                 Spacer(minLength: 0)
+
+                if showsDockEdges {
+                    dockEdgeControl(dockActions[.dockTrailing])
+                }
             }
             .frame(height: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.primaryTransportDiameter))
         }
@@ -5216,6 +5268,17 @@ struct NowPlayingView: View {
         .overlay {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .strokeBorder(appearance.primary.opacity(0.10), lineWidth: 0.5)
+        }
+    }
+
+    @ViewBuilder
+    private func dockEdgeControl(_ action: NowPlayingControlAction?) -> some View {
+        if let action {
+            controlButton(action, style: .edge)
+        } else {
+            Color.clear
+                .frame(width: 44, height: 44)
+                .accessibilityHidden(true)
         }
     }
 
@@ -5528,7 +5591,11 @@ struct NowPlayingView: View {
     }
 
     private var immersiveMoreMenu: some View {
-        makeMoreMenu(immersiveChrome: true, chromeGlass: .adaptive, controlSurface: .immersiveLyrics)
+        makeMoreMenu(
+            immersiveChrome: true,
+            chromeGlass: .adaptive,
+            controlSurface: .configuredImmersiveLyrics(visible: Set(immersiveLyricsActions.values))
+        )
     }
 
     /// 全屏效果入口。面板本身是 `body` 里的 `ImmersiveEffectDrawer`，这里只负责
@@ -5950,7 +6017,7 @@ struct NowPlayingView: View {
 
     /// 竖屏播放页里替换封面的那份歌词：拖动歌词时收起底部控件。
     private var collapsibleLyricsView: some View {
-        lyricsScrollView(collapsesChromeOnScroll: true)
+        lyricsScrollView(collapsesChromeOnScroll: textCollapsesOnScroll)
     }
 
     private func lyricsScrollView(collapsesChromeOnScroll: Bool) -> some View {
@@ -6448,8 +6515,58 @@ struct NowPlayingView: View {
     // MARK: - 可换按钮(播放页按钮)
 
     /// 音乐播放页的按钮摆法。有声内容(书、播客)读默认那份,它们有自己的 `spokenWordControlLayout`。
+    /// 看歌词时(歌词顶替封面,或横屏、分栏里歌词那一栏开着)用「歌词界面」那组,没单独摆就是同一组。
     private var musicControlLayout: NowPlayingControlLayout {
-        usesSpokenWordTransport ? .default : NowPlayingControlLayoutCache.layout(for: controlLayoutStorage)
+        guard !usesSpokenWordTransport else { return .default }
+        return NowPlayingControlLayoutCache.layout(
+            for: controlLayoutStorage,
+            lyricsPageStorage: showLyrics ? lyricsPageControlStorage : nil
+        )
+    }
+
+    private var lyricsPageControls: NowPlayingLyricsPageControls {
+        NowPlayingControlLayoutCache.lyricsPageControls(for: lyricsPageControlStorage)
+    }
+
+    /// 全屏歌词(及 iPad 横屏看歌词)按「全屏歌词」那份配置摆的几格。「跟歌名旁」跟的是看歌词时歌名旁那一格。
+    private var immersiveLyricsActions: [NowPlayingImmersiveLyricsSlot: NowPlayingControlAction] {
+        guard !usesSpokenWordTransport else { return [:] }
+        return NowPlayingControlLayoutCache.immersiveLyricsControls(for: immersiveLyricsControlStorage)
+            .actions(header: musicControlLayout.action(in: .header))
+    }
+
+    /// 全屏歌词顶上一排「更多」左边那几颗。
+    private var immersiveLyricsTopActions: [NowPlayingControlAction] {
+        let actions = immersiveLyricsActions
+        return [NowPlayingImmersiveLyricsSlot.topPrimary, .topSecondary].compactMap { actions[$0] }
+    }
+
+    /// 歌词页顶上多出来那一格此刻放什么:按「歌词界面」的配置;页面上已经摆着同一颗键、
+    /// 或者这首歌用不了(卡拉OK要有歌词、不是 Apple Music)时不放。
+    private func lyricsHeaderExtraAction(onSurface surface: NowPlayingControlSurface) -> NowPlayingControlAction? {
+        guard !usesSpokenWordTransport, let extra = lyricsPageControls.headerExtra else { return nil }
+        if extra == .karaoke, !offersLyricsKaraokeAction { return nil }
+        guard !musicControlLayout.visibleActions(on: surface).contains(extra) else { return nil }
+        return extra
+    }
+
+    @ViewBuilder
+    private func lyricsHeaderExtraButton(_ action: NowPlayingControlAction) -> some View {
+        if action == .karaoke {
+            lyricsKaraokeButton
+        } else {
+            controlButton(action, style: .header)
+        }
+    }
+
+    /// 上滑歌词(有声内容是文字稿)时收起播放控件:音乐看「歌词界面」的开关,书和播客各看自己的。
+    private var textCollapsesOnScroll: Bool {
+        guard usesSpokenWordTransport else { return lyricsPageControls.collapsesControlsOnScroll }
+        return currentItemIsPodcast ? podcastTextCollapses : audiobookTextCollapses
+    }
+
+    private var radioControlLayout: NowPlayingRadioControlLayout {
+        NowPlayingControlLayoutCache.radioLayout(for: radioControlStorage)
     }
 
     /// 有声书或播客播放页的那排功能块与几个开关。
@@ -6546,6 +6663,19 @@ struct NowPlayingView: View {
             AirPlayButton()
                 .frame(width: 36, height: 36)
                 .frame(width: 44, height: 44)
+        case .effectGlass:
+            AirPlayButton()
+                .frame(width: 26, height: 26)
+                .frame(width: 44, height: 44)
+                .background {
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                        .environment(\.colorScheme, .dark)
+                }
+        case .effectPill:
+            AirPlayButton()
+                .frame(width: 26, height: 26)
+                .frame(width: 38, height: 38)
         }
     }
 
@@ -6578,7 +6708,7 @@ struct NowPlayingView: View {
                 .disabled(face.requiresSong && player.currentSong == nil)
                 .accessibilityLabel(Text(face.label))
                 .accessibilityValue(controlAccessibilityValue(face, notice: notice))
-        case .glass, .column:
+        case .glass, .column, .effectGlass, .effectPill:
             button
                 .buttonStyle(.plain)
                 .disabled(face.requiresSong && player.currentSong == nil)
@@ -6648,6 +6778,20 @@ struct NowPlayingView: View {
                 tint: activeTint,
                 isSelected: face.isActive
             )
+        case .effectGlass(let ink):
+            ImmersiveGlassActionLabel(
+                symbol: face.symbol,
+                tint: face.isActive ? (face.activeTint ?? ink) : ink,
+                diameter: 44,
+                isSelected: face.isActive
+            )
+        case .effectPill(let ink):
+            Image(systemName: face.symbol)
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(face.isActive ? (face.activeTint ?? ink) : ink.opacity(0.88))
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: 38, height: 38)
+                .contentShape(Circle())
         }
     }
 
@@ -6819,8 +6963,8 @@ struct NowPlayingView: View {
         case .like: toggleLikedCurrent()
         case .dislike: player.toggleDislikeForCurrentSong()
         case .lyrics: toggleLyricsForLayout()
-        // iPad 横屏左栏原来就是直接弹出队列。
-        case .queue: if style == .wideBar { showQueue = true } else { openQueue() }
+        // iPad 横屏左栏原来就是直接弹出队列;全屏效果页盖在整页上,也直接弹出。
+        case .queue: if style.opensQueueSheet { showQueue = true } else { openQueue() }
         case .shuffle: player.shuffleEnabled.toggle()
         case .repeatMode: cycleRepeatMode()
         case .sleepTimer: showSleepTimer = true
@@ -9113,12 +9257,25 @@ private enum NowPlayingControlStyle: Equatable {
     case glass
     /// iPhone Duo 竖栏那一列,按钮边长随那一列缩放。
     case column(CGFloat)
+    /// 全屏效果页右上角:和效果页自己的玻璃圆钮同一种画法,颜色跟那一页的墨色。
+    case effectGlass(ink: Color)
+    /// 全屏效果页底部播放胶囊里播放键两侧:和上一首、下一首同一种画法。
+    case effectPill(ink: Color)
+
+    /// 点队列键直接弹出半屏的「接下来播放」,不走分栏右栏。
+    var opensQueueSheet: Bool {
+        switch self {
+        case .wideBar, .effectGlass, .effectPill: true
+        default: false
+        }
+    }
 
     /// 按钮自己的点按区;玻璃圆钮与竖栏那一列由图标自己定大小。
     var fixedFrame: CGFloat? {
         switch self {
         case .bar, .wideBar, .edge, .header: 44
-        case .glass, .column: nil
+        case .effectPill: 38
+        case .glass, .column, .effectGlass: nil
         }
     }
 }
@@ -9154,6 +9311,56 @@ private enum NowPlayingControlLayoutCache {
             Self.storage = storage
             layout = NowPlayingControlLayout.decode(storage)
         }
+        return layout
+    }
+
+    private static var lyricsLayoutKey: (cover: String, lyrics: String)?
+    private static var lyricsLayout = NowPlayingControlLayout.default
+
+    /// `lyricsPageStorage` 不为 nil 时是看歌词那一页:单独摆了按钮就换上那一组。
+    static func layout(for storage: String, lyricsPageStorage: String?) -> NowPlayingControlLayout {
+        let cover = layout(for: storage)
+        guard let lyricsPageStorage else { return cover }
+        if lyricsLayoutKey?.cover != storage || lyricsLayoutKey?.lyrics != lyricsPageStorage {
+            lyricsLayoutKey = (storage, lyricsPageStorage)
+            lyricsLayout = lyricsPageControls(for: lyricsPageStorage).resolvedLayout(cover: cover)
+        }
+        return lyricsLayout
+    }
+
+    private static var lyricsPage: (storage: String, controls: NowPlayingLyricsPageControls)?
+
+    static func lyricsPageControls(for storage: String) -> NowPlayingLyricsPageControls {
+        if let lyricsPage, lyricsPage.storage == storage { return lyricsPage.controls }
+        let controls = NowPlayingLyricsPageControls.decode(storage)
+        lyricsPage = (storage, controls)
+        return controls
+    }
+
+    private static var immersiveLyrics: (storage: String, controls: NowPlayingImmersiveLyricsControls)?
+
+    static func immersiveLyricsControls(for storage: String) -> NowPlayingImmersiveLyricsControls {
+        if let immersiveLyrics, immersiveLyrics.storage == storage { return immersiveLyrics.controls }
+        let controls = NowPlayingImmersiveLyricsControls.decode(storage)
+        immersiveLyrics = (storage, controls)
+        return controls
+    }
+
+    private static var effectPlayer: (storage: String, controls: NowPlayingEffectPlayerControls)?
+
+    static func effectPlayerControls(for storage: String) -> NowPlayingEffectPlayerControls {
+        if let effectPlayer, effectPlayer.storage == storage { return effectPlayer.controls }
+        let controls = NowPlayingEffectPlayerControls.decode(storage)
+        effectPlayer = (storage, controls)
+        return controls
+    }
+
+    private static var radio: (storage: String, layout: NowPlayingRadioControlLayout)?
+
+    static func radioLayout(for storage: String) -> NowPlayingRadioControlLayout {
+        if let radio, radio.storage == storage { return radio.layout }
+        let layout = NowPlayingRadioControlLayout.decode(storage)
+        radio = (storage, layout)
         return layout
     }
 

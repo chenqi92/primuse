@@ -122,24 +122,29 @@ public enum NowPlayingControlSurface: Equatable, Sendable {
     /// 全屏歌词:顶上那排只有歌名旁那一格跟配置走(原来的心形位置),底座只有播放键。
     /// 别的按钮这里本来就不出现,不往「更多」里补。
     case immersiveLyrics
+    /// 竖屏看歌词:六个位置之外,歌词页顶上歌名旁多一格(没有时为 nil)。
+    case portraitLyrics(headerExtra: NowPlayingControlAction?)
+    /// 按「全屏歌词」那份配置摆出来的全屏歌词,`visible` 是那几格此刻实际摆的按钮。
+    case configuredImmersiveLyrics(visible: Set<NowPlayingControlAction>)
 
     var showsTransportEdges: Bool {
         switch self {
-        case .portrait, .wideLandscape: true
+        case .portrait, .wideLandscape, .portraitLyrics: true
         case .compactLandscape(let shows): shows
         case .toolColumn(let shows, _): shows
-        case .immersiveLyrics: false
+        case .immersiveLyrics, .configuredImmersiveLyrics: false
         }
     }
 
     /// 这种版面上不靠配置也一直点得到的(或者这里本来就不提供、不用补的)。
     var alwaysReachable: Set<NowPlayingControlAction> {
         switch self {
-        case .portrait: []
+        case .portrait, .portraitLyrics: []
         case .compactLandscape: [.lyrics, .fullScreen]
         case .wideLandscape: [.lyrics]
         case .toolColumn: [.airPlay, .fullScreen]
-        case .immersiveLyrics: [.lyrics, .queue, .shuffle, .repeatMode, .airPlay, .fullScreen]
+        case .immersiveLyrics, .configuredImmersiveLyrics:
+            [.lyrics, .queue, .shuffle, .repeatMode, .airPlay, .fullScreen]
         }
     }
 }
@@ -289,6 +294,16 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
         return copy
     }
 
+    /// 换上另一份配置的按钮摆法,状态行与「更多」的开关不变(歌词界面单独摆按钮时用)。
+    public func replacingActions(with other: NowPlayingControlLayout) -> NowPlayingControlLayout {
+        NowPlayingControlLayout(stored: other.stored, hiddenStatus: hiddenStatus, hiddenMenu: hiddenMenu)
+    }
+
+    /// 只留按钮摆法,状态行与「更多」的开关回到默认。
+    public var actionsOnly: NowPlayingControlLayout {
+        NowPlayingControlLayout(stored: stored, hiddenStatus: [], hiddenMenu: [])
+    }
+
     /// 只恢复按钮,状态行的显隐不动。
     public func resettingActions() -> NowPlayingControlLayout {
         var copy = self
@@ -387,6 +402,12 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
             if let header = groups.header, !headerOverflows { visible.insert(header) }
         case .immersiveLyrics:
             if let action = immersiveLyricsAction() { visible.insert(action) }
+        case .portraitLyrics(let headerExtra):
+            visible.formUnion(NowPlayingControlSlot.bar.compactMap { actions[$0] })
+            if let header = actions[.header] { visible.insert(header) }
+            if let headerExtra { visible.insert(headerExtra) }
+        case .configuredImmersiveLyrics(let configured):
+            visible.formUnion(configured)
         }
         return visible
     }
