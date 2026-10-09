@@ -5625,6 +5625,17 @@
 "player_control_tint_theme" = "Color del tema";
 "player_control_tint_monochrome" = "Monocromo";
 "player_control_tint_footer" = "Color de la barra de progreso, del aleatorio y la repetición activados y de otros controles del reproductor. Monocromo es blanco en modo oscuro y negro en modo claro, así no compite con fondos como Colores fluidos. Los diseños de audiolibros conservan sus propios colores.";
+"player_menu_items_title" = "Menú Más";
+"player_menu_items_hidden_count %lld" = "%lld ocultos";
+"player_menu_items_footer" = "Los elementos que desactives ya no aparecerán en el menú Más del reproductor. Solo afecta a la música; los menús de audiolibros y podcasts no cambian. Los botones que ya están en la página nunca se repiten en el menú, y Me gusta, Letra, Cola, Aleatorio y Repetir siguen pasando al menú si los quitas de la página.";
+"player_menu_items_show_all" = "Mostrar todo";
+"player_menu_group_quick" = "Fila superior";
+"player_menu_group_modes" = "Modos";
+"player_menu_group_song" = "Esta canción";
+"player_menu_group_go" = "Ir a";
+"player_menu_group_playback" = "Reproducción y letra";
+"player_menu_item_medley" = "Popurrí";
+"player_menu_item_lyrics_display" = "Tamaño y traducción de la letra";
 "player_lyrics_interlude_dots" = "Puntos de interludio";
 "player_lyrics_interlude_dots_description" = "Durante un interludio largo aparecen tres puntos bajo la línea anterior, se iluminan uno tras otro según avanza el interludio y se alinean como la letra.";
 "home_filter_bar_title" = "Filtros superiores";

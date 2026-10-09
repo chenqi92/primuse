@@ -5625,6 +5625,17 @@
 "player_control_tint_theme" = "थीम का रंग";
 "player_control_tint_monochrome" = "एकरंगा";
 "player_control_tint_footer" = "प्रोग्रेस बार, चालू शफ़ल और रिपीट जैसे प्लेयर कंट्रोल का रंग। एकरंगा डार्क मोड में सफ़ेद और लाइट मोड में काला होता है, इसलिए बहते रंग जैसे बैकग्राउंड से टकराता नहीं। ऑडियोबुक लेआउट अपने रंग रखते हैं।";
+"player_menu_items_title" = "\"और\" मेनू";
+"player_menu_items_hidden_count %lld" = "%lld छिपे";
+"player_menu_items_footer" = "बंद किए गए आइटम प्लेयर के \"और\" मेनू में अब नहीं दिखते। यह सिर्फ़ संगीत पर लागू होता है; ऑडियोबुक और पॉडकास्ट के मेनू नहीं बदलते। पेज पर रखे बटन मेनू में दोबारा नहीं आते, और पसंद, बोल, कतार, शफ़ल और रिपीट पेज से हटाने पर भी मेनू में आ जाते हैं।";
+"player_menu_items_show_all" = "सब दिखाएँ";
+"player_menu_group_quick" = "सबसे ऊपर की पंक्ति";
+"player_menu_group_modes" = "मोड";
+"player_menu_group_song" = "यह गाना";
+"player_menu_group_go" = "यहाँ जाएँ";
+"player_menu_group_playback" = "प्लेबैक और बोल";
+"player_menu_item_medley" = "मेडली";
+"player_menu_item_lyrics_display" = "बोल का आकार और अनुवाद";
 "player_lyrics_interlude_dots" = "इंटरल्यूड बिंदु";
 "player_lyrics_interlude_dots_description" = "लंबे इंस्ट्रुमेंटल अंतराल में पिछली पंक्ति के नीचे तीन बिंदु दिखते हैं, जो अंतराल बढ़ने के साथ बारी-बारी से जलते हैं और बोल की तरह ही संरेखित रहते हैं।";
 "home_filter_bar_title" = "ऊपर के फ़िल्टर";

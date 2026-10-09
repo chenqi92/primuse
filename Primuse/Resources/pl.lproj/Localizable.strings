@@ -5625,6 +5625,17 @@
 "player_control_tint_theme" = "Kolor motywu";
 "player_control_tint_monochrome" = "Monochromatyczny";
 "player_control_tint_footer" = "Kolor paska postępu, włączonego odtwarzania losowego i powtarzania oraz innych elementów odtwarzacza. Monochromatyczny jest biały w trybie ciemnym i czarny w jasnym, więc nie gryzie się z tłami takimi jak Płynne kolory. Układy audiobooków zachowują własne kolory.";
+"player_menu_items_title" = "Menu Więcej";
+"player_menu_items_hidden_count %lld" = "Ukryto: %lld";
+"player_menu_items_footer" = "Wyłączone pozycje nie pojawiają się już w menu Więcej odtwarzacza. Dotyczy to tylko muzyki; menu audiobooków i podcastów się nie zmienia. Przyciski umieszczone na stronie i tak nie powtarzają się w menu, a Lubię to, Tekst, Kolejka, Losowo i Powtarzaj nadal trafiają do menu, gdy usuniesz je ze strony.";
+"player_menu_items_show_all" = "Pokaż wszystko";
+"player_menu_group_quick" = "Górny rząd";
+"player_menu_group_modes" = "Tryby";
+"player_menu_group_song" = "Ten utwór";
+"player_menu_group_go" = "Przejdź do";
+"player_menu_group_playback" = "Odtwarzanie i tekst";
+"player_menu_item_medley" = "Składanka";
+"player_menu_item_lyrics_display" = "Rozmiar i tłumaczenie tekstu";
 "player_lyrics_interlude_dots" = "Kropki przerwy";
 "player_lyrics_interlude_dots_description" = "Podczas długiej przerwy instrumentalnej pod poprzednią linijką pojawiają się trzy kropki, które zapalają się po kolei w miarę trwania przerwy i są wyrównane tak jak tekst.";
 "home_filter_bar_title" = "Filtry u góry";

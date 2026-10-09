@@ -5625,6 +5625,17 @@
 "player_control_tint_theme" = "สีธีม";
 "player_control_tint_monochrome" = "สีเดียว";
 "player_control_tint_footer" = "สีของแถบความคืบหน้า สุ่มและเล่นซ้ำที่เปิดอยู่ และตัวควบคุมอื่นในหน้าเล่น สีเดียวจะเป็นสีขาวในโหมดมืดและสีดำในโหมดสว่าง จึงไม่แย่งสีกับพื้นหลังอย่างสีไหลลื่น เลย์เอาต์หนังสือเสียงยังใช้สีของตัวเอง";
+"player_menu_items_title" = "เมนูเพิ่มเติม";
+"player_menu_items_hidden_count %lld" = "ซ่อน %lld รายการ";
+"player_menu_items_footer" = "รายการที่ปิดไว้จะไม่แสดงในเมนูเพิ่มเติมของหน้าเล่นอีก มีผลเฉพาะเพลง เมนูหนังสือเสียงและพอดคาสต์ไม่เปลี่ยน ปุ่มที่วางไว้บนหน้าจะไม่ซ้ำในเมนูอยู่แล้ว และชอบ เนื้อเพลง คิว สุ่ม และเล่นซ้ำจะยังย้ายเข้าเมนูเมื่อเอาออกจากหน้า";
+"player_menu_items_show_all" = "แสดงทั้งหมด";
+"player_menu_group_quick" = "แถวบนสุด";
+"player_menu_group_modes" = "โหมด";
+"player_menu_group_song" = "เพลงนี้";
+"player_menu_group_go" = "ไปที่";
+"player_menu_group_playback" = "การเล่นและเนื้อเพลง";
+"player_menu_item_medley" = "เมดเลย์";
+"player_menu_item_lyrics_display" = "ขนาดและคำแปลเนื้อเพลง";
 "player_lyrics_interlude_dots" = "จุดช่วงดนตรี";
 "player_lyrics_interlude_dots_description" = "เมื่อมีช่วงดนตรีคั่นยาว จะมีจุดสามจุดใต้บรรทัดก่อนหน้า ค่อย ๆ สว่างทีละจุดตามความยาวของช่วงนั้น และจัดแนวเดียวกับเนื้อเพลง";
 "home_filter_bar_title" = "ตัวกรองด้านบน";

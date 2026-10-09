@@ -5719,6 +5719,17 @@
 "player_control_tint_theme" = "Couleur du thème";
 "player_control_tint_monochrome" = "Monochrome";
 "player_control_tint_footer" = "Couleur de la barre de progression, de la lecture aléatoire et de la répétition activées, et des autres commandes du lecteur. Monochrome est blanc en mode sombre et noir en mode clair, discret sur des fonds comme Couleurs fluides. Les mises en page des livres audio gardent leurs propres couleurs.";
+"player_menu_items_title" = "Menu Plus";
+"player_menu_items_hidden_count %lld" = "%lld masqués";
+"player_menu_items_footer" = "Les éléments désactivés n’apparaissent plus dans le menu Plus du lecteur. Cela ne concerne que la musique ; les menus des livres audio et des podcasts ne changent pas. Les boutons déjà sur la page ne sont jamais répétés dans le menu, et J’aime, Paroles, File d’attente, Aléatoire et Répétition passent toujours dans le menu si vous les retirez de la page.";
+"player_menu_items_show_all" = "Tout afficher";
+"player_menu_group_quick" = "Rangée du haut";
+"player_menu_group_modes" = "Modes";
+"player_menu_group_song" = "Ce morceau";
+"player_menu_group_go" = "Aller à";
+"player_menu_group_playback" = "Lecture et paroles";
+"player_menu_item_medley" = "Medley";
+"player_menu_item_lyrics_display" = "Taille et traduction des paroles";
 "player_lyrics_interlude_dots" = "Points d’interlude";
 "player_lyrics_interlude_dots_description" = "Pendant un long interlude, trois points apparaissent sous la ligne précédente, s’allument l’un après l’autre au fil de l’interlude et s’alignent comme les paroles.";
 "home_filter_bar_title" = "Filtres en haut";

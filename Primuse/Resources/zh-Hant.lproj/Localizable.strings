@@ -5696,6 +5696,17 @@
 "player_control_tint_theme" = "跟隨主題色";
 "player_control_tint_monochrome" = "單色";
 "player_control_tint_footer" = "進度列、開著的隨機與循環等播放頁控制項的顏色。選單色時深色外觀下是白色、淺色外觀下是黑色，搭配流動色彩之類的背景不搶色；有聲書版面保留自己的配色。";
+"player_menu_items_title" = "「更多」選單";
+"player_menu_items_hidden_count %lld" = "已隱藏 %lld 項";
+"player_menu_items_footer" = "關掉的項目不再出現在播放頁的「更多」裡，只影響音樂；有聲書和 Podcast 的選單不變。已經擺在頁面上的按鈕本來就不會在選單裡重複，頁面上拿掉的喜歡、歌詞、佇列、隨機和循環仍會補進選單。";
+"player_menu_items_show_all" = "全部顯示";
+"player_menu_group_quick" = "最上面一排";
+"player_menu_group_modes" = "玩法";
+"player_menu_group_song" = "這首歌";
+"player_menu_group_go" = "前往";
+"player_menu_group_playback" = "播放與歌詞";
+"player_menu_item_medley" = "串燒播放";
+"player_menu_item_lyrics_display" = "歌詞字級與翻譯";
 "player_lyrics_interlude_dots" = "間奏提示點";
 "player_lyrics_interlude_dots_description" = "兩句歌詞之間有較長的間奏時，在上一句下面顯示三個點，跟著間奏的時間依序亮起，並和歌詞同一側對齊。";
 "home_filter_bar_title" = "頂部切換";

@@ -5720,6 +5720,17 @@
 "player_control_tint_theme" = "テーマカラー";
 "player_control_tint_monochrome" = "モノクロ";
 "player_control_tint_footer" = "進行バーやオンになったシャッフル・リピートなど、再生画面のコントロールの色です。モノクロはダークモードで白、ライトモードで黒になり、リキッドカラーのような背景でも色がぶつかりません。オーディオブックのレイアウトは独自の配色のままです。";
+"player_menu_items_title" = "「その他」メニュー";
+"player_menu_items_hidden_count %lld" = "%lld 項目を非表示";
+"player_menu_items_footer" = "オフにした項目は再生画面の「その他」に表示されなくなります。音楽のみが対象で、オーディオブックとポッドキャストのメニューは変わりません。画面に置いたボタンはもともとメニューに重複せず、画面から外した「好き」「歌詞」「キュー」「シャッフル」「リピート」は引き続きメニューに入ります。";
+"player_menu_items_show_all" = "すべて表示";
+"player_menu_group_quick" = "上段";
+"player_menu_group_modes" = "モード";
+"player_menu_group_song" = "この曲";
+"player_menu_group_go" = "移動";
+"player_menu_group_playback" = "再生と歌詞";
+"player_menu_item_medley" = "メドレー再生";
+"player_menu_item_lyrics_display" = "歌詞のサイズと翻訳";
 "player_lyrics_interlude_dots" = "間奏のドット";
 "player_lyrics_interlude_dots_description" = "歌詞の間に長い間奏があると、前の行の下に 3 つのドットが表示され、間奏の進み具合に合わせて順に点灯し、歌詞と同じ側にそろいます。";
 "home_filter_bar_title" = "上部の切り替え";

@@ -5812,6 +5812,17 @@
 "player_control_tint_theme" = "跟随主题色";
 "player_control_tint_monochrome" = "单色";
 "player_control_tint_footer" = "进度条、开着的随机与循环等播放页控件的颜色。选单色时深色外观下是白色、浅色外观下是黑色，配流动色彩之类的背景不抢色；有声书版面保留自己的配色。";
+"player_menu_items_title" = "「更多」菜单";
+"player_menu_items_hidden_count %lld" = "已隐藏 %lld 项";
+"player_menu_items_footer" = "关掉的项不再出现在播放页的「更多」里，只影响音乐；有声书和播客的菜单不变。已经摆在页面上的按钮本来就不会在菜单里重复，页面上拿掉的喜欢、歌词、队列、随机和循环仍会补进菜单。";
+"player_menu_items_show_all" = "全部显示";
+"player_menu_group_quick" = "最上面一排";
+"player_menu_group_modes" = "玩法";
+"player_menu_group_song" = "这首歌";
+"player_menu_group_go" = "前往";
+"player_menu_group_playback" = "播放与歌词";
+"player_menu_item_medley" = "串烧播放";
+"player_menu_item_lyrics_display" = "歌词字号与翻译";
 "player_lyrics_interlude_dots" = "间奏提示点";
 "player_lyrics_interlude_dots_description" = "两句歌词之间有较长的间奏时，在上一句下面显示三个点，跟着间奏的时间依次点亮，并和歌词同一侧对齐。";
 "home_filter_bar_title" = "顶部切换";

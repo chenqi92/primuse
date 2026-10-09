@@ -180,4 +180,25 @@ import Testing
         #expect(layout.menuFallback(on: column) == [.like, .queue])
         #expect(layout.menuSuppressed(on: column) == [.sleepTimer, .karaoke])
     }
+
+    @Test func menuItemsCanBeHiddenAndRoundTrip() {
+        #expect(Layout.default.hiddenMenuItems.isEmpty)
+        let layout = Layout.default
+            .settingMenuItem(.medley, visible: false)
+            .settingMenuItem(.karaoke, visible: false)
+        #expect(!layout.showsMenuItem(.medley))
+        #expect(!layout.showsMenuItem(.karaoke))
+        #expect(layout.showsMenuItem(.share))
+        #expect(layout.hiddenMenuItems == [.medley, .karaoke])
+        #expect(!layout.isDefault)
+        let decoded = Layout.decode(layout.encoded())
+        #expect(decoded == layout)
+        // 换按钮不影响菜单的显隐,全部显示回来就是默认。
+        #expect(decoded.placing(.sleepTimer, in: .header).hiddenMenuItems == [.medley, .karaoke])
+        #expect(layout.showingAllMenuItems().isDefault)
+        // 别的版本写进来的菜单项名字原样保留。
+        let future = Layout.decode(#"{"hiddenMenu":["futureItem","medley"]}"#)
+        #expect(future.hiddenMenuItems == [.medley])
+        #expect(future.settingMenuItem(.share, visible: false).encoded().contains("futureItem"))
+    }
 }

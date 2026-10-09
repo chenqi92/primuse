@@ -5625,6 +5625,17 @@
 "player_control_tint_theme" = "Tema Rengi";
 "player_control_tint_monochrome" = "Tek Renk";
 "player_control_tint_footer" = "İlerleme çubuğu, açık karıştırma ve yineleme gibi çalar denetimlerinin rengi. Tek renk, koyu modda beyaz, açık modda siyahtır; Akışkan Renkler gibi arka planlarla çatışmaz. Sesli kitap düzenleri kendi renklerini korur.";
+"player_menu_items_title" = "Diğer Menüsü";
+"player_menu_items_hidden_count %lld" = "%lld gizli";
+"player_menu_items_footer" = "Kapattığınız öğeler çaların Diğer menüsünde artık görünmez. Yalnızca müziği etkiler; sesli kitap ve podcast menüleri değişmez. Sayfadaki düğmeler menüde zaten tekrarlanmaz; Beğen, Sözler, Sıra, Karıştır ve Yinele sayfadan kaldırıldığında yine menüye geçer.";
+"player_menu_items_show_all" = "Tümünü Göster";
+"player_menu_group_quick" = "Üst Sıra";
+"player_menu_group_modes" = "Modlar";
+"player_menu_group_song" = "Bu Şarkı";
+"player_menu_group_go" = "Git";
+"player_menu_group_playback" = "Çalma ve Sözler";
+"player_menu_item_medley" = "Potpuri";
+"player_menu_item_lyrics_display" = "Söz Boyutu ve Çevirisi";
 "player_lyrics_interlude_dots" = "Ara Bölüm Noktaları";
 "player_lyrics_interlude_dots_description" = "Uzun bir enstrümantal arada önceki satırın altında üç nokta belirir, ara ilerledikçe sırayla yanar ve sözlerle aynı tarafa hizalanır.";
 "home_filter_bar_title" = "Üst filtreler";

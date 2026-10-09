@@ -5479,6 +5479,17 @@
 "player_control_tint_theme" = "Theme Color";
 "player_control_tint_monochrome" = "Monochrome";
 "player_control_tint_footer" = "The color of the progress bar, active shuffle and repeat, and other player controls. Monochrome is white in Dark Mode and black in Light Mode, so it stays calm over backgrounds like Liquid Colors. The audiobook layouts keep their own colors.";
+"player_menu_items_title" = "More Menu";
+"player_menu_items_hidden_count %lld" = "%lld hidden";
+"player_menu_items_footer" = "Items you turn off no longer appear in the player’s More menu. This only affects music; the audiobook and podcast menus stay the same. Buttons already on the page are never repeated in the menu, and Like, Lyrics, Queue, Shuffle, and Repeat still move to the menu when you take them off the page.";
+"player_menu_items_show_all" = "Show All";
+"player_menu_group_quick" = "Top Row";
+"player_menu_group_modes" = "Modes";
+"player_menu_group_song" = "This Song";
+"player_menu_group_go" = "Go To";
+"player_menu_group_playback" = "Playback & Lyrics";
+"player_menu_item_medley" = "Medley";
+"player_menu_item_lyrics_display" = "Lyrics Size & Translation";
 "player_lyrics_interlude_dots" = "Interlude Dots";
 "player_lyrics_interlude_dots_description" = "During a long instrumental break, three dots appear under the previous line, light up in turn as the break plays, and line up with your lyrics alignment.";
 "home_filter_bar_title" = "Top Filters";

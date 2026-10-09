@@ -5625,6 +5625,17 @@
 "player_control_tint_theme" = "لون السمة";
 "player_control_tint_monochrome" = "أحادي اللون";
 "player_control_tint_footer" = "لون شريط التقدم والتشغيل العشوائي والتكرار المفعّلين وعناصر التحكم الأخرى في المشغّل. الأحادي أبيض في الوضع الداكن وأسود في الوضع الفاتح، فلا يزاحم خلفيات مثل الألوان المتدفقة. تحتفظ تخطيطات الكتب الصوتية بألوانها.";
+"player_menu_items_title" = "قائمة «المزيد»";
+"player_menu_items_hidden_count %lld" = "%lld مخفية";
+"player_menu_items_footer" = "العناصر التي توقفها لا تظهر في قائمة «المزيد» في المشغّل. يقتصر ذلك على الموسيقى، ولا تتغير قوائم الكتب الصوتية والبودكاست. الأزرار الموجودة في الصفحة لا تتكرر في القائمة أصلًا، أما «إعجاب» و«كلمات الأغنية» و«قائمة الانتظار» و«العشوائي» و«التكرار» فتنتقل إلى القائمة إذا أزلتها من الصفحة.";
+"player_menu_items_show_all" = "إظهار الكل";
+"player_menu_group_quick" = "الصف العلوي";
+"player_menu_group_modes" = "الأوضاع";
+"player_menu_group_song" = "هذه الأغنية";
+"player_menu_group_go" = "انتقال إلى";
+"player_menu_group_playback" = "التشغيل وكلمات الأغنية";
+"player_menu_item_medley" = "ميدلي";
+"player_menu_item_lyrics_display" = "حجم الكلمات وترجمتها";
 "player_lyrics_interlude_dots" = "نقاط الفاصل";
 "player_lyrics_interlude_dots_description" = "أثناء فاصل موسيقي طويل تظهر ثلاث نقاط تحت السطر السابق، تضيء تباعًا مع تقدم الفاصل وتصطف في جهة الكلمات نفسها.";
 "home_filter_bar_title" = "عوامل التصفية في الأعلى";

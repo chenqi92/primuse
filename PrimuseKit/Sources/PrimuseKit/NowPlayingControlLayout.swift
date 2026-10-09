@@ -70,6 +70,37 @@ public enum NowPlayingControlSlot: String, CaseIterable, Codable, Hashable, Iden
     public var isTransportEdge: Bool { Self.transportEdges.contains(self) }
 }
 
+/// 音乐播放页「更多」菜单里能关掉的项(#198:串烧、卡拉OK 这类用得少的可以不出现)。
+/// rawValue 会写进配置并经 iCloud 同步,发布后不能改名。页面按钮缺了时补进菜单的那几项(喜欢、歌词、队列、
+/// 随机、循环)不在这里——那是兜底入口,不能关。
+public enum NowPlayingMenuItem: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
+    case fullScreen
+    case share
+    case addToPlaylist
+    case delete
+    case karaoke
+    case medley
+    case scrape
+    case reloadLyrics
+    case similarSongs
+    case dislike
+    case playbackRange
+    case editTags
+    case editLyrics
+    case songInfo
+    case goToAlbum
+    case goToArtist
+    case openInAppleMusic
+    case cast
+    case lyricsDisplay
+    case lyricsMotion
+    case sleepTimer
+    case equalizer
+    case playbackSpeed
+
+    public var id: String { rawValue }
+}
+
 /// 播放页最底下那行状态里的三项。
 public enum NowPlayingStatusItem: String, CaseIterable, Codable, Hashable, Sendable {
     case source
@@ -128,18 +159,22 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
         .barTrailing: .queue,
     ]
 
-    public static let `default` = NowPlayingControlLayout(stored: [:], hiddenStatus: [])
+    public static let `default` = NowPlayingControlLayout(stored: [:], hiddenStatus: [], hiddenMenu: [])
 
     /// 位置 → 存下来的值:动作名,或空串表示这一格故意空着。认不出的名字原样保留,
     /// 别的版本写进来的新按钮在这台设备上空着,但改别的格时不会被抹掉。
     private var stored: [String: String]
     private var hiddenStatus: [String]
+    /// 「更多」里关掉的项,认不出的名字原样保留。
+    private var hiddenMenu: [String]
     /// 归一之后每一格实际放的按钮。
     public private(set) var actions: [NowPlayingControlSlot: NowPlayingControlAction]
 
-    private init(stored: [String: String], hiddenStatus: [String]) {
+    private init(stored: [String: String], hiddenStatus: [String], hiddenMenu: [String]) {
         self.stored = stored
-        self.hiddenStatus = hiddenStatus
+        // 排好序、去重:同一份配置不管先关哪项,比较和编码出来都一样。
+        self.hiddenStatus = Array(Set(hiddenStatus)).sorted()
+        self.hiddenMenu = Array(Set(hiddenMenu)).sorted()
         self.actions = Self.resolve(stored)
     }
 
@@ -148,6 +183,7 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
     private struct Stored: Codable {
         var slots: [String: String]?
         var hiddenStatus: [String]?
+        var hiddenMenu: [String]?
     }
 
     public static func decode(_ rawValue: String) -> NowPlayingControlLayout {
@@ -156,7 +192,11 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
               let decoded = try? JSONDecoder().decode(Stored.self, from: data) else {
             return .default
         }
-        return NowPlayingControlLayout(stored: decoded.slots ?? [:], hiddenStatus: decoded.hiddenStatus ?? [])
+        return NowPlayingControlLayout(
+            stored: decoded.slots ?? [:],
+            hiddenStatus: decoded.hiddenStatus ?? [],
+            hiddenMenu: decoded.hiddenMenu ?? []
+        )
     }
 
     /// 默认配置编成空串。键按字母排,同样的配置每次编出同一个字符串,同步那边不会误以为变了。
@@ -164,7 +204,8 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
         guard !isDefault else { return "" }
         let stored = Stored(
             slots: stored.isEmpty ? nil : stored,
-            hiddenStatus: hiddenStatus.isEmpty ? nil : hiddenStatus.sorted()
+            hiddenStatus: hiddenStatus.isEmpty ? nil : hiddenStatus,
+            hiddenMenu: hiddenMenu.isEmpty ? nil : hiddenMenu
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -173,7 +214,7 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
     }
 
     public var isDefault: Bool {
-        actions == Self.defaultActions && hiddenStatus.isEmpty
+        actions == Self.defaultActions && hiddenStatus.isEmpty && hiddenMenu.isEmpty
     }
 
     // MARK: 读
@@ -192,6 +233,15 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
 
     public func showsStatusItem(_ item: NowPlayingStatusItem) -> Bool {
         !hiddenStatus.contains(item.rawValue)
+    }
+
+    public func showsMenuItem(_ item: NowPlayingMenuItem) -> Bool {
+        !hiddenMenu.contains(item.rawValue)
+    }
+
+    /// 「更多」里关掉的项,按目录顺序。
+    public var hiddenMenuItems: Set<NowPlayingMenuItem> {
+        Set(NowPlayingMenuItem.allCases.filter { !showsMenuItem($0) })
     }
 
     // MARK: 改
@@ -221,9 +271,21 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
     }
 
     public func settingStatusItem(_ item: NowPlayingStatusItem, visible: Bool) -> NowPlayingControlLayout {
+        var hidden = hiddenStatus.filter { $0 != item.rawValue }
+        if !visible { hidden.append(item.rawValue) }
+        return NowPlayingControlLayout(stored: stored, hiddenStatus: hidden, hiddenMenu: hiddenMenu)
+    }
+
+    public func settingMenuItem(_ item: NowPlayingMenuItem, visible: Bool) -> NowPlayingControlLayout {
+        var hidden = hiddenMenu.filter { $0 != item.rawValue }
+        if !visible { hidden.append(item.rawValue) }
+        return NowPlayingControlLayout(stored: stored, hiddenStatus: hiddenStatus, hiddenMenu: hidden)
+    }
+
+    /// 「更多」里的项全部显示回来。
+    public func showingAllMenuItems() -> NowPlayingControlLayout {
         var copy = self
-        copy.hiddenStatus.removeAll { $0 == item.rawValue }
-        if !visible { copy.hiddenStatus.append(item.rawValue) }
+        copy.hiddenMenu = []
         return copy
     }
 
@@ -245,7 +307,7 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
                 stored[slot.rawValue] = value?.rawValue ?? ""
             }
         }
-        return NowPlayingControlLayout(stored: stored, hiddenStatus: hiddenStatus)
+        return NowPlayingControlLayout(stored: stored, hiddenStatus: hiddenStatus, hiddenMenu: hiddenMenu)
     }
 
     /// 没存的格取默认;同一个按钮出现两次只留前面那格;隔空播放不在页面上(别处改坏、

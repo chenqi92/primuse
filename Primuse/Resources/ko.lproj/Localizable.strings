@@ -5719,6 +5719,17 @@
 "player_control_tint_theme" = "테마 색상";
 "player_control_tint_monochrome" = "모노크롬";
 "player_control_tint_footer" = "진행 막대, 켜진 셔플과 반복 등 재생 화면 컨트롤의 색상입니다. 모노크롬은 다크 모드에서 흰색, 라이트 모드에서 검은색이라 리퀴드 컬러 같은 배경과도 어울립니다. 오디오북 레이아웃은 고유한 색상을 유지합니다.";
+"player_menu_items_title" = "'더 보기' 메뉴";
+"player_menu_items_hidden_count %lld" = "%lld개 숨김";
+"player_menu_items_footer" = "끈 항목은 재생 화면의 '더 보기'에 더 이상 나타나지 않습니다. 음악에만 적용되며 오디오북과 팟캐스트 메뉴는 그대로입니다. 화면에 둔 버튼은 원래 메뉴에서 반복되지 않고, 화면에서 뺀 좋아요·가사·대기열·셔플·반복은 계속 메뉴로 들어갑니다.";
+"player_menu_items_show_all" = "모두 표시";
+"player_menu_group_quick" = "맨 위 줄";
+"player_menu_group_modes" = "모드";
+"player_menu_group_song" = "이 곡";
+"player_menu_group_go" = "이동";
+"player_menu_group_playback" = "재생 및 가사";
+"player_menu_item_medley" = "메들리 재생";
+"player_menu_item_lyrics_display" = "가사 크기 및 번역";
 "player_lyrics_interlude_dots" = "간주 점";
 "player_lyrics_interlude_dots_description" = "가사 사이에 긴 간주가 있으면 앞 줄 아래에 점 세 개가 나타나 간주 진행에 따라 차례로 켜지고, 가사와 같은 쪽으로 정렬됩니다.";
 "home_filter_bar_title" = "상단 전환";

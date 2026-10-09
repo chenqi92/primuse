@@ -5625,6 +5625,17 @@
 "player_control_tint_theme" = "Cor do tema";
 "player_control_tint_monochrome" = "Monocromático";
 "player_control_tint_footer" = "Cor da barra de progresso, da reprodução aleatória e da repetição ativadas e de outros controles do player. Monocromático é branco no modo escuro e preto no modo claro, discreto sobre fundos como Cores fluidas. Os layouts de audiolivros mantêm as próprias cores.";
+"player_menu_items_title" = "Menu Mais";
+"player_menu_items_hidden_count %lld" = "%lld ocultos";
+"player_menu_items_footer" = "Os itens desativados deixam de aparecer no menu Mais do player. Só afeta música; os menus de audiolivros e podcasts não mudam. Botões que já estão na página nunca se repetem no menu, e Curtir, Letra, Fila, Aleatório e Repetir continuam indo para o menu quando você os tira da página.";
+"player_menu_items_show_all" = "Mostrar tudo";
+"player_menu_group_quick" = "Linha superior";
+"player_menu_group_modes" = "Modos";
+"player_menu_group_song" = "Esta música";
+"player_menu_group_go" = "Ir para";
+"player_menu_group_playback" = "Reprodução e letra";
+"player_menu_item_medley" = "Medley";
+"player_menu_item_lyrics_display" = "Tamanho e tradução da letra";
 "player_lyrics_interlude_dots" = "Pontos de interlúdio";
 "player_lyrics_interlude_dots_description" = "Durante um interlúdio longo, três pontos aparecem sob a linha anterior, acendem um após o outro conforme o interlúdio avança e seguem o alinhamento da letra.";
 "home_filter_bar_title" = "Filtros no topo";

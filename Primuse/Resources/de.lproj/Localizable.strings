@@ -5719,6 +5719,17 @@
 "player_control_tint_theme" = "Designfarbe";
 "player_control_tint_monochrome" = "Monochrom";
 "player_control_tint_footer" = "Farbe des Fortschrittsbalkens, aktiver Zufalls- und Wiederholungswiedergabe und anderer Player-Bedienelemente. Monochrom ist im dunklen Modus weiß und im hellen Modus schwarz und passt so zu Hintergründen wie „Fließende Farben“. Die Hörbuch-Layouts behalten ihre eigenen Farben.";
+"player_menu_items_title" = "Menü „Mehr“";
+"player_menu_items_hidden_count %lld" = "%lld ausgeblendet";
+"player_menu_items_footer" = "Ausgeschaltete Einträge erscheinen nicht mehr im Menü „Mehr“ des Players. Das betrifft nur Musik; die Menüs für Hörbücher und Podcasts bleiben gleich. Tasten auf der Seite werden im Menü ohnehin nicht wiederholt, und „Gefällt mir“, Liedtext, Warteliste, Zufall und Wiederholen landen weiterhin im Menü, wenn du sie von der Seite nimmst.";
+"player_menu_items_show_all" = "Alle anzeigen";
+"player_menu_group_quick" = "Obere Reihe";
+"player_menu_group_modes" = "Modi";
+"player_menu_group_song" = "Dieser Titel";
+"player_menu_group_go" = "Gehe zu";
+"player_menu_group_playback" = "Wiedergabe & Liedtext";
+"player_menu_item_medley" = "Medley";
+"player_menu_item_lyrics_display" = "Textgröße & Übersetzung";
 "player_lyrics_interlude_dots" = "Zwischenspiel-Punkte";
 "player_lyrics_interlude_dots_description" = "Bei einem langen Zwischenspiel erscheinen unter der vorigen Zeile drei Punkte, die im Verlauf nacheinander aufleuchten und sich an der Ausrichtung des Liedtexts orientieren.";
 "home_filter_bar_title" = "Filter oben";

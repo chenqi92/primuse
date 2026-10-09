@@ -87,6 +87,21 @@ struct NowPlayingControlsEditorView: View {
             }
 
             Section {
+                NavigationLink {
+                    NowPlayingMenuItemsEditor(storage: $storage)
+                } label: {
+                    LabeledContent {
+                        let hidden = layout.hiddenMenuItems.count
+                        if hidden > 0 {
+                            Text("player_menu_items_hidden_count \(hidden)")
+                        }
+                    } label: {
+                        Label("player_menu_items_title", systemImage: "ellipsis.circle")
+                    }
+                }
+            }
+
+            Section {
                 Toggle("player_controls_status_source", isOn: statusBinding(.source))
                 Toggle("player_controls_status_output", isOn: statusBinding(.output))
                 Toggle("player_controls_status_sleep", isOn: statusBinding(.sleepTimer))
@@ -172,6 +187,117 @@ private struct SpokenWordControlsSections: View {
                 storage = ""
             }
             .disabled(layout.isDefault)
+        }
+    }
+}
+
+// MARK: - 「更多」菜单
+
+/// 音乐播放页「更多」菜单里哪些项出现(#198)。按菜单里的分组排,关掉的项不再出现;
+/// 页面按钮缺了时补进菜单的喜欢、歌词、队列、随机、循环不在这里,那是兜底入口。
+private struct NowPlayingMenuItemsEditor: View {
+    @Binding var storage: String
+
+    private var layout: NowPlayingControlLayout { .decode(storage) }
+
+    private static let groups: [(LocalizedStringKey, [NowPlayingMenuItem])] = [
+        ("player_menu_group_quick", [.fullScreen, .share, .addToPlaylist, .delete]),
+        ("player_menu_group_modes", [.karaoke, .medley]),
+        ("player_menu_group_song", [.scrape, .reloadLyrics, .similarSongs, .dislike, .playbackRange, .editTags, .editLyrics]),
+        ("player_menu_group_go", [.songInfo, .goToAlbum, .goToArtist, .openInAppleMusic]),
+        ("player_menu_group_playback", [.cast, .lyricsDisplay, .lyricsMotion, .sleepTimer, .equalizer, .playbackSpeed]),
+    ]
+
+    var body: some View {
+        Form {
+            ForEach(Array(Self.groups.enumerated()), id: \.offset) { _, group in
+                Section {
+                    ForEach(group.1) { item in
+                        Toggle(isOn: Binding(
+                            get: { layout.showsMenuItem(item) },
+                            set: { storage = layout.settingMenuItem(item, visible: $0).encoded() }
+                        )) {
+                            Label {
+                                Text(item.editorTitleKey)
+                            } icon: {
+                                Image(systemName: item.editorSymbol)
+                            }
+                        }
+                    }
+                } header: {
+                    Text(group.0)
+                }
+            }
+
+            Section {
+                Button("player_menu_items_show_all") {
+                    storage = layout.showingAllMenuItems().encoded()
+                }
+                .disabled(layout.hiddenMenuItems.isEmpty)
+            } footer: {
+                Text("player_menu_items_footer")
+            }
+        }
+        .navigationTitle("player_menu_items_title")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+extension NowPlayingMenuItem {
+    /// 和「更多」菜单里那一项同一个图标。
+    var editorSymbol: String {
+        switch self {
+        case .fullScreen: "viewfinder.rectangular"
+        case .share: "square.and.arrow.up"
+        case .addToPlaylist: "text.badge.plus"
+        case .delete: "trash"
+        case .karaoke: "music.mic.circle"
+        case .medley: "rectangle.stack.badge.play"
+        case .scrape: "wand.and.stars"
+        case .reloadLyrics: "arrow.clockwise.circle"
+        case .similarSongs: "sparkles"
+        case .dislike: "hand.thumbsdown"
+        case .playbackRange: "selection.pin.in.out"
+        case .editTags: "tag"
+        case .editLyrics: "quote.bubble"
+        case .songInfo: "info.circle"
+        case .goToAlbum: "square.stack"
+        case .goToArtist: "music.mic"
+        case .openInAppleMusic: "arrow.up.right.square"
+        case .cast: "airplayaudio"
+        case .lyricsDisplay: "textformat.size"
+        case .lyricsMotion: "text.line.first.and.arrowtriangle.forward"
+        case .sleepTimer: "moon.zzz"
+        case .equalizer: "slider.vertical.3"
+        case .playbackSpeed: "speedometer"
+        }
+    }
+
+    var editorTitleKey: LocalizedStringKey {
+        switch self {
+        case .fullScreen: "full_screen_player"
+        case .share: "share"
+        case .addToPlaylist: "add_to_playlist"
+        case .delete: "delete"
+        case .karaoke: "karaoke_title"
+        case .medley: "player_menu_item_medley"
+        case .scrape: "scrape_song"
+        case .reloadLyrics: "lyrics_reload_from_source"
+        case .similarSongs: "similar_songs"
+        case .dislike: "song_dislike"
+        case .playbackRange: "playback_range_title"
+        case .editTags: "tag_editor_menu"
+        case .editLyrics: "lyrics_editor_menu"
+        case .songInfo: "song_info"
+        case .goToAlbum: "go_to_album"
+        case .goToArtist: "go_to_artist"
+        case .openInAppleMusic: "apple_music_open_in_app"
+        case .cast: "cast_to_device"
+        case .lyricsDisplay: "player_menu_item_lyrics_display"
+        case .lyricsMotion: "immersive_lyrics_motion_title"
+        case .sleepTimer: "sleep_timer"
+        case .equalizer: "equalizer"
+        case .playbackSpeed: "playback_rate"
         }
     }
 }

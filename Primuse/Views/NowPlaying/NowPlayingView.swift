@@ -5650,6 +5650,9 @@ struct NowPlayingView: View {
         } else {
             spokenFallback = []
         }
+        // 「播放页按钮 › 『更多』菜单」里关掉的项(#198),只管音乐的菜单。
+        let menuHidden: Set<NowPlayingMenuItem> = isSpokenWord ? [] : musicControlLayout.hiddenMenuItems
+        let shows: (NowPlayingMenuItem) -> Bool = { !menuHidden.contains($0) }
         let snapshot = NowPlayingMoreMenuSnapshot(
             songID: player.currentSong?.id,
             isSpokenWord: isSpokenWord,
@@ -5661,36 +5664,36 @@ struct NowPlayingView: View {
             hasChapterList: player.hasChapters || isSpokenWord,
             hasSong: player.currentSong != nil,
             isScrapingCurrentSong: isScrapeActionUnavailable,
-            canReloadLyricsFromSource: canReloadLyricsFromSource,
+            canReloadLyricsFromSource: canReloadLyricsFromSource && shows(.reloadLyrics),
             isReloadingLyricsFromSource: isReloadingLyricsFromSource,
             isAppleMusicMode: player.isAppleMusicMode,
-            canDeleteSourceFile: player.currentSong.map {
+            canDeleteSourceFile: shows(.delete) && (player.currentSong.map {
                 SourceFileDeletionPolicy.shouldShowDeleteAction(
                     for: sourcesStore.source(id: $0.sourceID)?.type
                 )
-            } ?? false,
-            appleMusicCatalogURL: appleMusicCatalogURL,
+            } ?? false),
+            appleMusicCatalogURL: shows(.openInAppleMusic) ? appleMusicCatalogURL : nil,
             // 有声内容没有文字时歌词页是空的, 字号与翻译无从调起。
-            showsLyricsPreferences: showLyrics && (!isSpokenWord || !lyrics.isEmpty),
+            showsLyricsPreferences: showLyrics && (!isSpokenWord || !lyrics.isEmpty) && shows(.lyricsDisplay),
             showsFullScreenAction: !isSpokenWord && !isLyricsImmersive && !isFullscreenPlayerPresented
-                && !menuSuppressed.contains(.fullScreen),
+                && !menuSuppressed.contains(.fullScreen) && shows(.fullScreen),
             albumID: currentAlbum?.id,
             artistID: currentArtist?.id,
-            canOpenAlbum: canOpenCurrentAlbum,
-            canOpenArtist: currentArtist != nil && onOpenArtist != nil,
+            canOpenAlbum: canOpenCurrentAlbum && shows(.goToAlbum),
+            canOpenArtist: currentArtist != nil && onOpenArtist != nil && shows(.goToArtist),
             canShare: (isPodcastEpisode ? podcastShareURL != nil : player.currentSong != nil)
-                && !menuSuppressed.contains(.share),
-            showsAddToPlaylist: !menuSuppressed.contains(.addToPlaylist),
-            showsCastAction: !menuSuppressed.contains(.cast),
-            showsSleepTimer: !menuSuppressed.contains(.sleepTimer),
-            showsPlaybackRate: !menuSuppressed.contains(.playbackSpeed),
+                && !menuSuppressed.contains(.share) && shows(.share),
+            showsAddToPlaylist: !menuSuppressed.contains(.addToPlaylist) && shows(.addToPlaylist),
+            showsCastAction: !menuSuppressed.contains(.cast) && shows(.cast),
+            showsSleepTimer: !menuSuppressed.contains(.sleepTimer) && shows(.sleepTimer),
+            showsPlaybackRate: !menuSuppressed.contains(.playbackSpeed) && shows(.playbackSpeed),
             castingRendererName: player.castingRenderer?.friendlyName,
             isSleepTimerActive: player.isSleepTimerActive,
             lyricsFontScale: lyricsFontScale,
             canChangePlaybackRate: canChangeCurrentPlaybackRate,
             // Apple Music 由系统播放器出声,投放时由对方设备出声,都不经过本机均衡器。
             showsEqualizer: !player.isAppleMusicMode && player.castingRenderer == nil
-                && !menuSuppressed.contains(.equalizer),
+                && !menuSuppressed.contains(.equalizer) && shows(.equalizer),
             isEqualizerBypassed: player.outputMode(for: player.currentSong) == .highFidelity,
             playbackRate: !canChangeCurrentPlaybackRate
                 ? 1
@@ -5705,19 +5708,25 @@ struct NowPlayingView: View {
             repeatMode: player.repeatMode,
             isMedleyActive: player.isMedleyActive,
             canStartMedley: !isSpokenWord && !player.isAppleMusicMode && !player.isLiveRadio
-                && player.canPlayMedleyFromQueue,
+                && player.canPlayMedleyFromQueue && shows(.medley),
             canStartKaraoke: !isSpokenWord && player.currentSong != nil && !player.isAppleMusicMode
-                && !player.isLiveRadio && !menuSuppressed.contains(.karaoke),
+                && !player.isLiveRadio && !menuSuppressed.contains(.karaoke) && shows(.karaoke),
             medleySegmentSeconds: playbackSettings.medleySegmentSeconds,
             colorScheme: colorScheme,
             colorSchemeContrast: colorSchemeContrast,
             columnOverflow: columnOverflow,
             isCurrentLiked: isCurrentLiked,
-            canDislike: player.canDislikeCurrentSong && !menuSuppressed.contains(.dislike),
+            canDislike: player.canDislikeCurrentSong && !menuSuppressed.contains(.dislike) && shows(.dislike),
             isCurrentDisliked: isCurrentDisliked,
-            playbackRangeSong: isSpokenWord || player.isAppleMusicMode || player.isLiveRadio
+            playbackRangeSong: isSpokenWord || player.isAppleMusicMode || player.isLiveRadio || !shows(.playbackRange)
                 ? nil
-                : player.currentSong?.withoutAppliedPlaybackRange
+                : player.currentSong?.withoutAppliedPlaybackRange,
+            showsScrape: shows(.scrape),
+            showsSimilarSongs: shows(.similarSongs),
+            showsTagEditor: shows(.editTags),
+            showsLyricsEditor: shows(.editLyrics),
+            showsSongInfo: shows(.songInfo),
+            showsLyricsMotion: shows(.lyricsMotion)
         )
 
         return NowPlayingMoreMenu(
@@ -9081,6 +9090,13 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let isCurrentDisliked: Bool
     /// 能设播放时间段的当前歌曲(整首);有声内容、Apple Music、电台为 nil。
     let playbackRangeSong: Song?
+    /// 下面几项在「播放页按钮 › 『更多』菜单」里可以关掉(#198)。
+    let showsScrape: Bool
+    let showsSimilarSongs: Bool
+    let showsTagEditor: Bool
+    let showsLyricsEditor: Bool
+    let showsSongInfo: Bool
+    let showsLyricsMotion: Bool
 }
 
 /// 「播放页按钮」里一颗按钮放在哪种地方:各处原来的画法不同,照各自原样画。
@@ -9451,7 +9467,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     addToPlaylistButton(inQuickRow: false)
                 }
 
-                if !snapshot.isSpokenWord {
+                if !snapshot.isSpokenWord, snapshot.showsScrape {
                     Button(action: onScrape) {
                         Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
                     }
@@ -9468,7 +9484,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     .disabled(snapshot.isReloadingLyricsFromSource)
                 }
 
-                if !snapshot.isSpokenWord {
+                if !snapshot.isSpokenWord, snapshot.showsSimilarSongs {
                     Button(action: onShowSimilarSongs) {
                         Label(String(localized: "similar_songs"), systemImage: "sparkles")
                     }
@@ -9493,15 +9509,19 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                 }
 
                 if !snapshot.isAppleMusicMode, !snapshot.isPodcastEpisode {
-                    Button(action: onEditTags) {
-                        Label(String(localized: "tag_editor_menu"), systemImage: "tag")
+                    if snapshot.showsTagEditor {
+                        Button(action: onEditTags) {
+                            Label(String(localized: "tag_editor_menu"), systemImage: "tag")
+                        }
+                        .disabled(!snapshot.hasSong)
                     }
-                    .disabled(!snapshot.hasSong)
 
-                    Button(action: onEditLyrics) {
-                        Label(String(localized: "lyrics_editor_menu"), systemImage: "quote.bubble")
+                    if snapshot.showsLyricsEditor {
+                        Button(action: onEditLyrics) {
+                            Label(String(localized: "lyrics_editor_menu"), systemImage: "quote.bubble")
+                        }
+                        .disabled(!snapshot.hasSong)
                     }
-                    .disabled(!snapshot.hasSong)
                 }
             }
 
@@ -9517,7 +9537,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                             Label(String(localized: "podcast_go_to_show"), systemImage: "rectangle.stack")
                         }
                     }
-                } else {
+                } else if snapshot.showsSongInfo {
                     Button(action: onShowSongInfo) {
                         Label(String(localized: "song_info"), systemImage: "info.circle")
                     }
@@ -9606,7 +9626,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
             }
 
             Section {
-                if !snapshot.isSpokenWord {
+                if !snapshot.isSpokenWord, snapshot.showsLyricsMotion {
                     Toggle(isOn: $lyricsMotionEnabled) {
                         Label(
                             String(localized: "immersive_lyrics_motion_title"),
