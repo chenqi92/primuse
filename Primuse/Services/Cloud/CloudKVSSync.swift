@@ -615,7 +615,8 @@ enum CloudKVSKey {
 #if os(iOS) || os(macOS)
 // MARK: - Home and library layout
 
-/// 首页与资料库的界面布局跟着 iCloud 走: 区块顺序、显示哪些、每块的样式与条数。
+/// 首页与资料库的界面布局跟着 iCloud 走: 区块顺序、显示哪些、每块的样式与条数;
+/// 音乐播放页上几个位置放哪些按钮也在这里。
 ///
 /// 这些设置散在各个界面里用 `@AppStorage` 直接读写, 没有哪个 store 管着它们, 所以这里统一
 /// 登记、盯着 UserDefaults 的变化, 清单里的值真的变了才 `markChanged`。从云端拉下来的值先
@@ -659,6 +660,8 @@ final class InterfaceLayoutSync {
         LibrarySectionLayoutPolicy.orderKey,
         LibrarySectionLayoutPolicy.hiddenKey,
         QuickAccessCoverStyle.storageKey,
+        // iPhone / iPad 音乐播放页的按钮与底部状态行(只在「播放页按钮」编辑页里写)
+        NowPlayingControlLayout.musicStorageKey,
     ]
 
     private let keys: [String]

@@ -5529,3 +5529,33 @@
 "playback_range_turn_off %@" = "ปิดช่วงที่เล่น (%@)";
 "playback_range_minus_seconds %lld" = "−%lld วิ";
 "playback_range_plus_seconds %lld" = "+%lld วิ";
+
+/* 播放页按钮 */
+"player_controls_title" = "ปุ่มบนหน้าเล่น";
+"player_controls_footer" = "แตะกรอบเส้นประเพื่อเปลี่ยนปุ่ม หรือปล่อยว่างไว้ก็ได้ ปุ่มที่ไม่ได้อยู่บนหน้าจะอยู่ในเมนูเพิ่มเติม ส่วน iPhone แนวนอนและ iPad จะจัดปุ่มชุดเดียวกันตามเลย์เอาต์ของตัวเอง ซิงค์ผ่าน iCloud และไม่มีผลกับหน้าเล่นหนังสือเสียงและพอดคาสต์";
+"player_controls_status_header" = "แถวล่างสุด";
+"player_controls_status_source" = "แหล่งเพลง";
+"player_controls_status_output" = "อุปกรณ์เอาต์พุต";
+"player_controls_status_sleep" = "เวลาที่เหลือของตัวตั้งเวลาปิด";
+"player_controls_status_footer" = "รายการที่เปิดไว้จะแสดงเฉพาะเมื่อมีข้อมูล เช่น มีแหล่งเพลงมากกว่าหนึ่งแห่ง เสียงไม่ได้ออกจากลำโพง iPhone หรือมีตัวตั้งเวลาปิดทำงานอยู่";
+"player_controls_reset" = "คืนค่าปุ่มเริ่มต้น";
+"player_controls_empty" = "ว่าง";
+"player_controls_slot_hint" = "เลือกปุ่มสำหรับตำแหน่งนี้";
+"player_controls_picker_footer" = "ถ้าเลือกปุ่มที่อยู่ตำแหน่งอื่นแล้ว สองตำแหน่งจะสลับกัน";
+"player_controls_airplay_required" = "ย้าย AirPlay ได้แต่เอาออกไม่ได้ เลือกปุ่มอื่นบนหน้า แล้วปุ่มนั้นจะสลับที่กับ AirPlay";
+"player_controls_airplay_edge" = "วาง AirPlay ข้างปุ่มเล่นไม่ได้ เพราะเมื่อ iPhone แนวนอนแคบ ตำแหน่งเหล่านั้นจะถูกตัดออกและ AirPlay จะหายไป";
+"player_controls_slot_header" = "ข้างชื่อเพลง";
+"player_controls_slot_leading_edge" = "ซ้ายของปุ่มเล่น";
+"player_controls_slot_trailing_edge" = "ขวาของปุ่มเล่น";
+"player_controls_slot_bar_leading" = "ล่างซ้าย";
+"player_controls_slot_bar_center" = "ล่างกลาง";
+"player_controls_slot_bar_trailing" = "ล่างขวา";
+"player_controls_action_like" = "ชอบ";
+"player_controls_action_lyrics" = "เนื้อเพลง";
+"player_controls_action_airplay" = "AirPlay";
+"player_controls_unavailable_dislike" = "ทำเครื่องหมายไม่ชอบได้เฉพาะเพลงในคลังของคุณ";
+"player_controls_unavailable_eq_apple_music" = "เพลงจาก Apple Music เล่นผ่านเครื่องเล่นของระบบ จึงไม่ผ่านอีควอไลเซอร์";
+"player_controls_unavailable_eq_casting" = "ขณะส่งเสียงไปอุปกรณ์อื่น อุปกรณ์นั้นเป็นผู้เล่นเสียง จึงไม่ได้ใช้อีควอไลเซอร์ของอุปกรณ์นี้";
+"player_controls_unavailable_speed_apple_music" = "เปลี่ยนความเร็วเพลงจาก Apple Music ไม่ได้";
+"player_controls_unavailable_speed_high_fidelity" = "โหมดความเที่ยงตรงสูงโดยตรงส่งเสียงไปยังอุปกรณ์เอาต์พุตตามต้นฉบับ จึงเปลี่ยนความเร็วไม่ได้ เปลี่ยนเป็นเอาต์พุตแบบมีเอฟเฟกต์เพื่อปรับความเร็ว";
+"player_controls_unavailable_cast_apple_music" = "ส่งเพลงจาก Apple Music ไปยังอุปกรณ์ในเครือข่ายไม่ได้";

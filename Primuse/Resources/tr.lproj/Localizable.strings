@@ -5529,3 +5529,33 @@
 "playback_range_turn_off %@" = "Çalma Aralığını Kapat (%@)";
 "playback_range_minus_seconds %lld" = "−%lld sn";
 "playback_range_plus_seconds %lld" = "+%lld sn";
+
+/* 播放页按钮 */
+"player_controls_title" = "Çalar Düğmeleri";
+"player_controls_footer" = "Düğmeyi değiştirmek için kesikli bir kutuya dokunun ya da boş bırakın. Sayfada olmayan düğmeler Diğer menüsündedir; yatay iPhone ve iPad aynı düğmeleri kendi düzenlerine göre yerleştirir. iCloud ile eşzamanlanır. Sesli kitap ve podcast çalarları değişmez.";
+"player_controls_status_header" = "En Alt Satır";
+"player_controls_status_source" = "Müzik Kaynağı";
+"player_controls_status_output" = "Çıkış Aygıtı";
+"player_controls_status_sleep" = "Uyku Zamanlayıcısında Kalan Süre";
+"player_controls_status_footer" = "Açık olan öğeler de yalnızca gösterilecek bir şey olduğunda görünür: birden fazla müzik kaynağı, sesin iPhone hoparlöründen gelmemesi ya da çalışan bir uyku zamanlayıcısı.";
+"player_controls_reset" = "Varsayılan Düğmeleri Geri Yükle";
+"player_controls_empty" = "Boş";
+"player_controls_slot_hint" = "Bu yer için düğme seçin";
+"player_controls_picker_footer" = "Başka bir yerde olan bir düğmeyi seçerseniz iki yer yer değiştirir.";
+"player_controls_airplay_required" = "AirPlay taşınabilir ama kaldırılamaz. Sayfadaki başka bir düğmeyi seçin, AirPlay ile yer değiştirir.";
+"player_controls_airplay_edge" = "AirPlay oynatma düğmelerinin yanına konamaz: yatay iPhone dar olduğunda bu yerler kaldırılır ve AirPlay kaybolur.";
+"player_controls_slot_header" = "Başlığın Yanında";
+"player_controls_slot_leading_edge" = "Oynatmanın Solunda";
+"player_controls_slot_trailing_edge" = "Oynatmanın Sağında";
+"player_controls_slot_bar_leading" = "Alt Sol";
+"player_controls_slot_bar_center" = "Alt Orta";
+"player_controls_slot_bar_trailing" = "Alt Sağ";
+"player_controls_action_like" = "Beğen";
+"player_controls_action_lyrics" = "Sözler";
+"player_controls_action_airplay" = "AirPlay";
+"player_controls_unavailable_dislike" = "Yalnızca arşivinizdeki şarkılar Beğenmedim olarak işaretlenebilir.";
+"player_controls_unavailable_eq_apple_music" = "Apple Music şarkılarını sistem oynatıcısı çalar ve ekolayzırdan geçmez.";
+"player_controls_unavailable_eq_casting" = "Yayın sırasında sesi diğer aygıt çalar, bu yüzden bu aygıtın ekolayzırı kullanılmaz.";
+"player_controls_unavailable_speed_apple_music" = "Apple Music şarkılarında çalma hızı değiştirilemez.";
+"player_controls_unavailable_speed_high_fidelity" = "Yüksek doğruluklu doğrudan oynatma sesi olduğu gibi çıkış aygıtına gönderir, bu yüzden hız değiştirilemez. Hızı ayarlamak için efektli çıkışa geçin.";
+"player_controls_unavailable_cast_apple_music" = "Apple Music şarkıları ağınızdaki aygıtlara yayınlanamaz.";

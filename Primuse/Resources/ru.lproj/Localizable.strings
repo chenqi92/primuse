@@ -5529,3 +5529,33 @@
 "playback_range_turn_off %@" = "Выключить фрагмент воспроизведения (%@)";
 "playback_range_minus_seconds %lld" = "−%lld с";
 "playback_range_plus_seconds %lld" = "+%lld с";
+
+/* 播放页按钮 */
+"player_controls_title" = "Кнопки плеера";
+"player_controls_footer" = "Коснитесь пунктирной рамки, чтобы сменить кнопку, или оставьте её пустой. Кнопки, которых нет на странице, находятся в меню «Ещё»; iPhone в горизонтальной ориентации и iPad расставляют те же кнопки по своему макету. Синхронизируется через iCloud. Плееры аудиокниг и подкастов не меняются.";
+"player_controls_status_header" = "Нижняя строка";
+"player_controls_status_source" = "Источник музыки";
+"player_controls_status_output" = "Устройство вывода";
+"player_controls_status_sleep" = "Оставшееся время таймера сна";
+"player_controls_status_footer" = "Даже включённые пункты появляются, только когда есть что показать: больше одного источника музыки, звук идёт не из динамика iPhone или запущен таймер сна.";
+"player_controls_reset" = "Восстановить кнопки по умолчанию";
+"player_controls_empty" = "Пусто";
+"player_controls_slot_hint" = "Выберите кнопку для этого места";
+"player_controls_picker_footer" = "Если выбрать кнопку, которая уже стоит в другом месте, они поменяются местами.";
+"player_controls_airplay_required" = "AirPlay можно переместить, но нельзя убрать. Выберите другую кнопку на странице — она поменяется местами с AirPlay.";
+"player_controls_airplay_edge" = "AirPlay нельзя ставить рядом с кнопками воспроизведения: когда iPhone в горизонтальной ориентации слишком узкий, эти места убираются, и AirPlay пропал бы.";
+"player_controls_slot_header" = "Рядом с названием";
+"player_controls_slot_leading_edge" = "Слева от воспроизведения";
+"player_controls_slot_trailing_edge" = "Справа от воспроизведения";
+"player_controls_slot_bar_leading" = "Внизу слева";
+"player_controls_slot_bar_center" = "Внизу по центру";
+"player_controls_slot_bar_trailing" = "Внизу справа";
+"player_controls_action_like" = "Нравится";
+"player_controls_action_lyrics" = "Текст";
+"player_controls_action_airplay" = "AirPlay";
+"player_controls_unavailable_dislike" = "Отметить «Не нравится» можно только песни из медиатеки.";
+"player_controls_unavailable_eq_apple_music" = "Песни Apple Music воспроизводит системный плеер, и они не проходят через эквалайзер.";
+"player_controls_unavailable_eq_casting" = "При трансляции звук воспроизводит другое устройство, поэтому эквалайзер этого устройства не используется.";
+"player_controls_unavailable_speed_apple_music" = "Для песен Apple Music нельзя изменить скорость воспроизведения.";
+"player_controls_unavailable_speed_high_fidelity" = "Прямое воспроизведение высокой точности передаёт звук на устройство вывода без изменений, поэтому скорость изменить нельзя. Переключитесь на вывод с эффектами, чтобы настроить скорость.";
+"player_controls_unavailable_cast_apple_music" = "Песни Apple Music нельзя транслировать на устройства в сети.";

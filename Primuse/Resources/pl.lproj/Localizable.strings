@@ -5529,3 +5529,33 @@
 "playback_range_turn_off %@" = "Wyłącz zakres odtwarzania (%@)";
 "playback_range_minus_seconds %lld" = "−%lld s";
 "playback_range_plus_seconds %lld" = "+%lld s";
+
+/* 播放页按钮 */
+"player_controls_title" = "Przyciski odtwarzacza";
+"player_controls_footer" = "Stuknij przerywaną ramkę, aby zmienić przycisk, albo zostaw ją pustą. Przyciski, których nie ma na stronie, są w menu Więcej; iPhone w poziomie i iPad układają te same przyciski według własnego układu. Synchronizowane przez iCloud. Odtwarzacze audiobooków i podcastów się nie zmieniają.";
+"player_controls_status_header" = "Dolny wiersz";
+"player_controls_status_source" = "Źródło muzyki";
+"player_controls_status_output" = "Urządzenie wyjściowe";
+"player_controls_status_sleep" = "Pozostały czas wyłącznika";
+"player_controls_status_footer" = "Nawet włączone elementy pojawiają się tylko wtedy, gdy jest co pokazać: więcej niż jedno źródło muzyki, dźwięk spoza głośnika iPhone’a lub działający wyłącznik czasowy.";
+"player_controls_reset" = "Przywróć domyślne przyciski";
+"player_controls_empty" = "Puste";
+"player_controls_slot_hint" = "Wybierz przycisk dla tego miejsca";
+"player_controls_picker_footer" = "Wybranie przycisku, który jest już gdzie indziej, zamienia oba miejsca.";
+"player_controls_airplay_required" = "AirPlay można przenieść, ale nie usunąć. Wybierz inny przycisk ze strony, a zamieni się miejscem z AirPlay.";
+"player_controls_airplay_edge" = "AirPlay nie może stać obok przycisków odtwarzania: gdy iPhone w poziomie jest za wąski, te miejsca znikają, a z nimi AirPlay.";
+"player_controls_slot_header" = "Obok tytułu";
+"player_controls_slot_leading_edge" = "Na lewo od odtwarzania";
+"player_controls_slot_trailing_edge" = "Na prawo od odtwarzania";
+"player_controls_slot_bar_leading" = "Na dole po lewej";
+"player_controls_slot_bar_center" = "Na dole pośrodku";
+"player_controls_slot_bar_trailing" = "Na dole po prawej";
+"player_controls_action_like" = "Lubię to";
+"player_controls_action_lyrics" = "Tekst";
+"player_controls_action_airplay" = "AirPlay";
+"player_controls_unavailable_dislike" = "Jako „Nie podoba mi się” można oznaczyć tylko utwory z biblioteki.";
+"player_controls_unavailable_eq_apple_music" = "Utwory z Apple Music odtwarza systemowy odtwarzacz, więc nie przechodzą przez korektor.";
+"player_controls_unavailable_eq_casting" = "Podczas przesyłania dźwięk odtwarza drugie urządzenie, więc korektor tego urządzenia nie jest używany.";
+"player_controls_unavailable_speed_apple_music" = "W utworach z Apple Music nie można zmienić prędkości odtwarzania.";
+"player_controls_unavailable_speed_high_fidelity" = "Bezpośrednie odtwarzanie Hi-Fi przesyła dźwięk do urządzenia wyjściowego bez zmian, więc prędkości nie można zmienić. Aby ją regulować, przełącz na wyjście z efektami.";
+"player_controls_unavailable_cast_apple_music" = "Utworów z Apple Music nie można przesyłać do urządzeń w sieci.";

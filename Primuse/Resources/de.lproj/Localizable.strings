@@ -5623,3 +5623,33 @@
 "playback_range_turn_off %@" = "Wiedergabebereich ausschalten (%@)";
 "playback_range_minus_seconds %lld" = "−%lld s";
 "playback_range_plus_seconds %lld" = "+%lld s";
+
+/* 播放页按钮 */
+"player_controls_title" = "Player-Tasten";
+"player_controls_footer" = "Tippe auf ein gestricheltes Feld, um die Taste zu ändern, oder lass es leer. Tasten, die nicht auf der Seite sind, findest du unter „Mehr“; iPhone im Querformat und iPad ordnen dieselben Tasten passend zu ihrem Layout an. Wird über iCloud synchronisiert. Hörbuch- und Podcast-Player bleiben unverändert.";
+"player_controls_status_header" = "Unterste Zeile";
+"player_controls_status_source" = "Musikquelle";
+"player_controls_status_output" = "Ausgabegerät";
+"player_controls_status_sleep" = "Verbleibende Schlaftimer-Zeit";
+"player_controls_status_footer" = "Auch eingeschaltete Einträge erscheinen nur, wenn es etwas anzuzeigen gibt: mehr als eine Musikquelle, Ton nicht über den iPhone-Lautsprecher oder ein laufender Schlaftimer.";
+"player_controls_reset" = "Standardtasten wiederherstellen";
+"player_controls_empty" = "Leer";
+"player_controls_slot_hint" = "Taste für diese Position wählen";
+"player_controls_picker_footer" = "Wählst du eine Taste, die schon woanders liegt, tauschen die beiden Positionen.";
+"player_controls_airplay_required" = "AirPlay kann verschoben, aber nicht entfernt werden. Wähle eine andere Taste auf der Seite, dann tauscht sie den Platz mit AirPlay.";
+"player_controls_airplay_edge" = "AirPlay kann nicht neben die Wiedergabetasten: Wenn das iPhone im Querformat zu schmal ist, fallen diese Plätze weg und AirPlay wäre nicht mehr zu finden.";
+"player_controls_slot_header" = "Neben dem Titel";
+"player_controls_slot_leading_edge" = "Links der Wiedergabe";
+"player_controls_slot_trailing_edge" = "Rechts der Wiedergabe";
+"player_controls_slot_bar_leading" = "Unten links";
+"player_controls_slot_bar_center" = "Unten Mitte";
+"player_controls_slot_bar_trailing" = "Unten rechts";
+"player_controls_action_like" = "Gefällt mir";
+"player_controls_action_lyrics" = "Liedtext";
+"player_controls_action_airplay" = "AirPlay";
+"player_controls_unavailable_dislike" = "Nur Titel aus deiner Mediathek können mit „Gefällt mir nicht“ markiert werden.";
+"player_controls_unavailable_eq_apple_music" = "Apple Music-Titel werden vom System-Player wiedergegeben und laufen nicht über den Equalizer.";
+"player_controls_unavailable_eq_casting" = "Beim Übertragen gibt das andere Gerät den Ton aus, daher wird der Equalizer dieses Geräts nicht verwendet.";
+"player_controls_unavailable_speed_apple_music" = "Bei Apple Music-Titeln lässt sich die Wiedergabegeschwindigkeit nicht ändern.";
+"player_controls_unavailable_speed_high_fidelity" = "Die Hi-Fi-Direktausgabe leitet den Ton unverändert an das Ausgabegerät, daher lässt sich die Geschwindigkeit nicht ändern. Wechsle zur Effektausgabe, um die Geschwindigkeit anzupassen.";
+"player_controls_unavailable_cast_apple_music" = "Apple Music-Titel können nicht an Geräte in deinem Netzwerk übertragen werden.";

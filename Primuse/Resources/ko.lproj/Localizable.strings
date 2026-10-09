@@ -5623,3 +5623,33 @@
 "playback_range_turn_off %@" = "재생 구간 끄기(%@)";
 "playback_range_minus_seconds %lld" = "−%lld초";
 "playback_range_plus_seconds %lld" = "+%lld초";
+
+/* 播放页按钮 */
+"player_controls_title" = "재생 화면 버튼";
+"player_controls_footer" = "점선 상자를 탭하면 버튼을 바꿀 수 있고, 비워 둘 수도 있습니다. 화면에 없는 버튼은 '더 보기' 메뉴에 있습니다. 가로 방향 iPhone과 iPad는 같은 버튼을 각자의 레이아웃에 맞게 배치합니다. iCloud로 동기화되며, 오디오북과 팟캐스트 재생 화면은 바뀌지 않습니다.";
+"player_controls_status_header" = "맨 아래 줄";
+"player_controls_status_source" = "음악 소스";
+"player_controls_status_output" = "출력 기기";
+"player_controls_status_sleep" = "잠자기 타이머 남은 시간";
+"player_controls_status_footer" = "켜 둔 항목도 보여 줄 내용이 있을 때만 나타납니다: 음악 소스가 두 개 이상이거나, 소리가 iPhone 스피커가 아닌 곳에서 나오거나, 잠자기 타이머가 동작 중일 때.";
+"player_controls_reset" = "기본 버튼으로 복원";
+"player_controls_empty" = "비워 두기";
+"player_controls_slot_hint" = "이 자리에 둘 버튼 선택";
+"player_controls_picker_footer" = "이미 다른 자리에 있는 버튼을 고르면 두 자리가 서로 바뀝니다.";
+"player_controls_airplay_required" = "AirPlay는 옮길 수는 있지만 뺄 수는 없습니다. 화면의 다른 버튼을 고르면 AirPlay와 자리를 바꿉니다.";
+"player_controls_airplay_edge" = "AirPlay는 재생 버튼 양옆에 둘 수 없습니다. 가로 방향 iPhone이 좁으면 그 자리가 빠져서 AirPlay를 찾을 수 없게 됩니다.";
+"player_controls_slot_header" = "제목 옆";
+"player_controls_slot_leading_edge" = "재생 버튼 왼쪽";
+"player_controls_slot_trailing_edge" = "재생 버튼 오른쪽";
+"player_controls_slot_bar_leading" = "아래 왼쪽";
+"player_controls_slot_bar_center" = "아래 가운데";
+"player_controls_slot_bar_trailing" = "아래 오른쪽";
+"player_controls_action_like" = "좋아요";
+"player_controls_action_lyrics" = "가사";
+"player_controls_action_airplay" = "AirPlay";
+"player_controls_unavailable_dislike" = "보관함에 있는 곡만 '싫어요'로 표시할 수 있습니다.";
+"player_controls_unavailable_eq_apple_music" = "Apple Music 곡은 시스템 플레이어가 재생하므로 이퀄라이저를 거치지 않습니다.";
+"player_controls_unavailable_eq_casting" = "캐스트하는 동안에는 상대 기기가 소리를 내므로 이 기기의 이퀄라이저를 쓰지 않습니다.";
+"player_controls_unavailable_speed_apple_music" = "Apple Music 곡은 재생 속도를 바꿀 수 없습니다.";
+"player_controls_unavailable_speed_high_fidelity" = "고음질 다이렉트는 오디오를 그대로 출력 기기로 보내므로 속도를 바꿀 수 없습니다. 속도를 조절하려면 효과 출력으로 전환하세요.";
+"player_controls_unavailable_cast_apple_music" = "Apple Music 곡은 네트워크의 기기로 캐스트할 수 없습니다.";

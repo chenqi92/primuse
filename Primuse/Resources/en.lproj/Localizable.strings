@@ -5383,3 +5383,33 @@
 "playback_range_turn_off %@" = "Turn Off Play Range (%@)";
 "playback_range_minus_seconds %lld" = "−%lld s";
 "playback_range_plus_seconds %lld" = "+%lld s";
+
+/* 播放页按钮 */
+"player_controls_title" = "Player Buttons";
+"player_controls_footer" = "Tap a dashed box to change its button, or leave it empty. Buttons that aren’t on the page are in the More menu; landscape iPhone and iPad arrange the same buttons for their own layouts. Syncs with iCloud. Audiobook and podcast players aren’t affected.";
+"player_controls_status_header" = "Bottom Line";
+"player_controls_status_source" = "Music Source";
+"player_controls_status_output" = "Output Device";
+"player_controls_status_sleep" = "Sleep Timer Remaining";
+"player_controls_status_footer" = "Items that are on still appear only when there’s something to show: more than one music source, sound not coming from the iPhone speaker, or a sleep timer running.";
+"player_controls_reset" = "Restore Default Buttons";
+"player_controls_empty" = "Empty";
+"player_controls_slot_hint" = "Choose the button for this spot";
+"player_controls_picker_footer" = "Choosing a button that’s already elsewhere swaps the two spots.";
+"player_controls_airplay_required" = "AirPlay can be moved but not removed. Choose another button on the page and it swaps places with AirPlay.";
+"player_controls_airplay_edge" = "AirPlay can’t go beside the playback buttons: when landscape iPhone is narrow, those spots are dropped and AirPlay would disappear.";
+"player_controls_slot_header" = "Next to Title";
+"player_controls_slot_leading_edge" = "Left of Playback";
+"player_controls_slot_trailing_edge" = "Right of Playback";
+"player_controls_slot_bar_leading" = "Bottom Left";
+"player_controls_slot_bar_center" = "Bottom Center";
+"player_controls_slot_bar_trailing" = "Bottom Right";
+"player_controls_action_like" = "Like";
+"player_controls_action_lyrics" = "Lyrics";
+"player_controls_action_airplay" = "AirPlay";
+"player_controls_unavailable_dislike" = "Only songs in your library can be marked as disliked.";
+"player_controls_unavailable_eq_apple_music" = "Apple Music songs are played by the system player and don’t go through the equalizer.";
+"player_controls_unavailable_eq_casting" = "While casting, the other device plays the sound, so this device’s equalizer isn’t used.";
+"player_controls_unavailable_speed_apple_music" = "Playback speed can’t be changed for Apple Music songs.";
+"player_controls_unavailable_speed_high_fidelity" = "High Fidelity Direct sends audio to the output device untouched, so the speed can’t change. Switch to effects output to adjust the speed.";
+"player_controls_unavailable_cast_apple_music" = "Apple Music songs can’t be cast to devices on your network.";

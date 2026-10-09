@@ -774,6 +774,10 @@ struct NowPlayingView: View {
     /// 手机横屏右栏窄到放不下两端的随机 / 循环时置真，让「更多」菜单补上入口。
     /// 由布局函数在 `onChange` 里写入，`body` 里不做这类赋值。
     @State private var compactLandscapeHidesModeToggles = false
+    /// 音乐播放页上几个位置放哪些按钮、底部状态行显示哪几项(设置 › 播放器 › 播放页按钮)。
+    @AppStorage(NowPlayingControlLayout.musicStorageKey) private var controlLayoutStorage = ""
+    /// 页面上那颗按钮此刻用不了时点出来的说明。
+    @State private var controlNotice: NowPlayingControlNotice?
     @State private var showQueue = false
     @State private var lyrics: [LyricLine] = []
     /// 当前歌词各行的译文（文件自带的优先，其次是翻译任务给出的）。翻译任务挂在
@@ -876,6 +880,7 @@ struct NowPlayingView: View {
             || showSleepTimer
             || showEqualizer
             || showEqualizerBypassNotice
+            || controlNotice != nil
             || showDeleteConfirm
             || scrapeAlertMessage != nil
             || sourceLyricsReloadAlertMessage != nil
@@ -2036,7 +2041,8 @@ struct NowPlayingView: View {
                     makeMoreMenu(
                         immersiveChrome: true,
                         chromeGlass: .barColumn(itemSize: itemSize),
-                        columnOverflow: overflow
+                        columnOverflow: overflow,
+                        controlSurface: .toolColumn(showsTransportEdges: !compactLandscapeHidesModeToggles)
                     )
                 }
             }
@@ -2867,6 +2873,25 @@ struct NowPlayingView: View {
         }
         .medleyDataUsageConfirmation(pendingSongs: $pendingMedleySongs) { songs in
             Task { await player.playMedley(songs) }
+        }
+        .alert(
+            controlNotice?.title ?? "",
+            isPresented: Binding(
+                get: { controlNotice != nil },
+                set: { if !$0 { controlNotice = nil } }
+            ),
+            presenting: controlNotice
+        ) { notice in
+            if notice.offersEffectsOutput {
+                Button(String(localized: "eq_use_effects_output")) {
+                    playbackSettings.outputMode = .effects
+                }
+                Button(String(localized: "cancel"), role: .cancel) {}
+            } else {
+                Button(String(localized: "done"), role: .cancel) {}
+            }
+        } message: { notice in
+            Text(notice.message)
         }
         .alert(String(localized: "scrape_song"),
                isPresented: Binding(
@@ -3820,8 +3845,11 @@ struct NowPlayingView: View {
 
     /// 这一排圆钮走自适应玻璃：普通模式的背景跟着明暗外观走，不能用沉浸那套
     /// 钉死深色的底（浅色外观下深底会把深色图标吃掉）。
+    /// 音乐时左边一组是「播放页按钮」里底栏的那几颗(歌词在右栏、全屏有自己那颗键,不放),
+    /// 右边心形那一格跟着歌名旁那一格走。
     private var compactLandscapeChromeRow: some View {
         let diameter = CGFloat(NowPlayingCompactLandscapeLayoutPolicy.chromeButtonDiameter)
+        let chrome = musicControlLayout.compactLandscapeChrome()
         return HStack(spacing: 10) {
             NowPlayingGlassActionButton(
                 symbol: "lock",
@@ -3834,17 +3862,23 @@ struct NowPlayingView: View {
                 isCompactLandscapeLocked = true
             }
 
-            NowPlayingGlassActionButton(
-                symbol: "list.bullet",
-                label: "a11y_queue",
-                appearance: appearance,
-                tint: appearance.primary,
-                diameter: diameter
-            ) {
-                openQueue()
-            }
+            if usesSpokenWordTransport {
+                NowPlayingGlassActionButton(
+                    symbol: "list.bullet",
+                    label: "a11y_queue",
+                    appearance: appearance,
+                    tint: appearance.primary,
+                    diameter: diameter
+                ) {
+                    openQueue()
+                }
 
-            compactLandscapeAirPlayButton
+                compactLandscapeAirPlayButton
+            } else {
+                ForEach(chrome.leading, id: \.self) { action in
+                    controlButton(action, style: .glass)
+                }
+            }
 
             Spacer(minLength: 0)
 
@@ -3863,21 +3897,29 @@ struct NowPlayingView: View {
                 immersiveEffectButton(glass: .adaptive)
             }
 
-            if offersLikeAction {
-                NowPlayingGlassActionButton(
-                    symbol: isCurrentLiked ? "heart.fill" : "heart",
-                    label: isCurrentLiked ? "a11y_unlike" : "a11y_like",
-                    appearance: appearance,
-                    tint: isCurrentLiked ? likedHeartTint : appearance.primary,
-                    diameter: diameter,
-                    isSelected: isCurrentLiked
-                ) {
-                    toggleLikedCurrent()
+            if usesSpokenWordTransport {
+                if offersLikeAction {
+                    NowPlayingGlassActionButton(
+                        symbol: isCurrentLiked ? "heart.fill" : "heart",
+                        label: isCurrentLiked ? "a11y_unlike" : "a11y_like",
+                        appearance: appearance,
+                        tint: isCurrentLiked ? likedHeartTint : appearance.primary,
+                        diameter: diameter,
+                        isSelected: isCurrentLiked
+                    ) {
+                        toggleLikedCurrent()
+                    }
+                    .disabled(player.currentSong == nil)
                 }
-                .disabled(player.currentSong == nil)
+            } else if let action = chrome.trailing {
+                controlButton(action, style: .glass)
             }
 
-            makeMoreMenu(immersiveChrome: true, chromeGlass: .adaptive)
+            makeMoreMenu(
+                immersiveChrome: true,
+                chromeGlass: .adaptive,
+                controlSurface: .compactLandscape(showsTransportEdges: !compactLandscapeHidesModeToggles)
+            )
 
             // 全屏歌词时这一颗退出全屏（回到普通歌词），其它时候收起播放页；图标两者相同。
             NowPlayingGlassActionButton(
@@ -4018,7 +4060,7 @@ struct NowPlayingView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
-            nowPlayingSongHeader(titleFont: .title2, metadataFont: .title3)
+            nowPlayingSongHeader(titleFont: .title2, metadataFont: .title3, controlSurface: .wideLandscape)
                 .padding(.horizontal, 36)
                 .padding(.top, 18)
 
@@ -4081,8 +4123,8 @@ struct NowPlayingView: View {
                     .padding(.horizontal, 36).padding(.top, 12)
             }
 
-            // 底部 bar —— 没有歌词切换按钮(歌词永远在右栏可见),保留 AirPlay
-            // 和队列入口。有声内容的目录常驻右栏,这里换成语速 / 定时 / 书签三块。
+            // 底部 bar —— 按「播放页按钮」底栏的配置,但不放歌词键(歌词永远在右栏可见)。
+            // 有声内容的目录常驻右栏,这里换成语速 / 定时 / 书签三块。
             if usesSpokenWordTransport {
                 SpokenWordActionTiles(
                     palette: spokenWordPalette,
@@ -4095,19 +4137,8 @@ struct NowPlayingView: View {
                 )
                 .padding(.horizontal, 36).padding(.top, 16)
             } else {
-                HStack {
-                    Spacer()
-                    AirPlayButton()
-                        .frame(width: 36, height: 36)
-                        .frame(width: 44, height: 44)
-                    Spacer()
-                    Button { showQueue = true } label: {
-                        Image(systemName: "list.bullet").foregroundStyle(appearance.secondary)
-                    }
-                    .frame(width: 44, height: 44)
-                    .accessibilityLabel("a11y_queue")
-                }
-                .font(.body).padding(.horizontal, 80).padding(.top, 14)
+                wideLandscapeControlBar
+                    .font(.body).padding(.horizontal, 80).padding(.top, 14)
             }
 
             // 底排停在原来那行音质小字还在时的高度。
@@ -4395,29 +4426,24 @@ struct NowPlayingView: View {
                             musicVideoToggleButton(font: .title3, trailing: 4)
                                 .lyricsHeaderReveal()
 
-                            if offersLyricsKaraokeAction {
+                            // 页面上已经摆着卡拉OK键时不再多放一颗。
+                            if offersLyricsKaraokeAction,
+                               !musicControlLayout.visibleActions(
+                                   on: usesToolColumn ? .toolColumn(showsTransportEdges: true) : .portrait
+                               ).contains(.karaoke) {
                                 lyricsKaraokeButton
                                     .lyricsHeaderReveal()
                             }
 
                             // 竖栏里排着那一列按钮时(iPhone Duo),喜欢与更多在那一列里。
                             if !usesToolColumn {
-                                if offersLikeAction {
-                                    Button { toggleLikedCurrent() } label: {
-                                        nowPlayingActionIcon(
-                                            symbol: isCurrentLiked ? "heart.fill" : "heart",
-                                            tint: isCurrentLiked ? likedHeartTint : appearance.secondary,
-                                            isSelected: isCurrentLiked
-                                        )
-                                    }
-                                    .frame(width: 44, height: 44)
-                                    .disabled(player.currentSong == nil)
-                                    .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
-                                    .lyricsHeaderReveal()
+                                if let action = musicControlLayout.action(in: .header) {
+                                    controlButton(action, style: .header)
+                                        .lyricsHeaderReveal()
                                 }
 
                                 // More menu
-                                moreMenu
+                                makeMoreMenu(controlSurface: .portrait)
                                     .lyricsHeaderReveal()
                             }
                             }
@@ -4942,14 +4968,14 @@ struct NowPlayingView: View {
         }
     }
 
-    /// 传输键两端:音乐是随机与循环,有声内容换成上一章 / 下一章(有章节标记先按标记走,
-    /// 到头再换到书里相邻的那个文件)。一本书不会随机播,也不会单曲循环。
+    /// 传输键两端:音乐按「播放页按钮」的配置(默认随机与循环),有声内容换成上一章 / 下一章
+    /// (有章节标记先按标记走,到头再换到书里相邻的那个文件)。一本书不会随机播,也不会单曲循环。
     @ViewBuilder
     private var transportLeadingEdgeControl: some View {
         if usesSpokenWordTransport {
             SpokenWordPartButton(forward: false, color: appearance.secondary)
         } else {
-            ctrlBtn("shuffle", active: player.shuffleEnabled) { player.shuffleEnabled.toggle() }
+            controlSlot(.leadingEdge, style: .edge)
         }
     }
 
@@ -4958,14 +4984,12 @@ struct NowPlayingView: View {
         if usesSpokenWordTransport {
             SpokenWordPartButton(forward: true, color: appearance.secondary)
         } else {
-            ctrlBtn(player.repeatMode == .one ? "repeat.1" : "repeat", active: player.repeatMode != .off) {
-                cycleRepeatMode()
-            }
+            controlSlot(.trailingEdge, style: .edge)
         }
     }
 
-    /// 竖版最下面那一排(歌词 · 投放 · 队列)。三个槽位都是 44×44, HStack 的两个 Spacer 才
-    /// 会把 AirPlay 分到正中, 左右图标到 padding 边的距离也才相等。
+    /// 竖版最下面那一排(默认歌词 · 投放 · 队列)。三个槽位都是 44×44(空着的格也占位),
+    /// HStack 的两个 Spacer 才会把中间那颗分到正中, 左右图标到 padding 边的距离也才相等。
     @ViewBuilder
     private var portraitBottomBar: some View {
         if usesSpokenWordTransport {
@@ -4986,22 +5010,11 @@ struct NowPlayingView: View {
 
     private var musicBottomBar: some View {
         HStack {
-        Button { toggleLyricsForLayout() } label: {
-            Image(systemName: showLyrics ? "photo" : "quote.bubble")
-                .foregroundStyle(showLyrics ? appearance.primary : appearance.tertiary)
-        }
-        .frame(width: 44, height: 44)
-        .accessibilityLabel(Text(showLyrics ? "a11y_close_lyrics" : "a11y_open_lyrics"))
-        Spacer()
-        AirPlayButton()
-            .frame(width: 36, height: 36)
-            .frame(width: 44, height: 44)
-        Spacer()
-        Button { openQueue() } label: {
-            Image(systemName: "list.bullet").foregroundStyle(appearance.tertiary)
-        }
-        .frame(width: 44, height: 44)
-        .accessibilityLabel("a11y_queue")
+            controlSlot(.barLeading, style: .bar)
+            Spacer()
+            controlSlot(.barCenter, style: .bar)
+            Spacer()
+            controlSlot(.barTrailing, style: .bar)
         }
         .font(.body).padding(.horizontal, 46).padding(.top, 12)
     }
@@ -5559,10 +5572,13 @@ struct NowPlayingView: View {
     }
     #endif
 
+    /// - Parameter controlSurface: 这份菜单所在的版面是按「播放页按钮」摆的哪一种;nil 是不按配置摆的
+    ///   版面(沉浸歌词、iPad 横屏歌词),菜单照旧。
     private func makeMoreMenu(
         immersiveChrome: Bool = false,
         chromeGlass: NowPlayingChromeGlass = .immersive,
-        columnOverflow: NowPlayingBarColumnOverflow = NowPlayingBarColumnOverflow()
+        columnOverflow: NowPlayingBarColumnOverflow = NowPlayingBarColumnOverflow(),
+        controlSurface: NowPlayingControlSurface? = nil
     ) -> some View {
         // 有声内容只留听书用得上的项: 相似歌曲、串烧、卡拉OK、全屏效果、随机、
         // 在线刮削(查的是音乐库)与歌词动效都是音乐的玩法, 「转到专辑」换成
@@ -5572,6 +5588,17 @@ struct NowPlayingView: View {
         let isSpokenWord = usesSpokenWordTransport
         let isPodcastEpisode = PodcastPlaybackSong.isEpisode(player.currentSong)
         let podcastShareURL = isPodcastEpisode ? currentPodcastShareURL : nil
+        // 「播放页按钮」:页面上没摆出来、本来只能靠那颗键点到的补进菜单,已经摆在页面上的不再重复。
+        // 有声内容和不按配置摆的版面照旧,只有手机横屏让出两端时补上随机与循环。
+        let menuFallback: [NowPlayingControlAction]
+        let menuSuppressed: Set<NowPlayingControlAction>
+        if let controlSurface, !isSpokenWord {
+            menuFallback = musicControlLayout.menuFallback(on: controlSurface)
+            menuSuppressed = musicControlLayout.menuSuppressed(on: controlSurface)
+        } else {
+            menuFallback = compactLandscapeHidesModeToggles && !isSpokenWord ? [.shuffle, .repeatMode] : []
+            menuSuppressed = []
+        }
         let snapshot = NowPlayingMoreMenuSnapshot(
             songID: player.currentSong?.id,
             isSpokenWord: isSpokenWord,
@@ -5594,18 +5621,25 @@ struct NowPlayingView: View {
             appleMusicCatalogURL: appleMusicCatalogURL,
             // 有声内容没有文字时歌词页是空的, 字号与翻译无从调起。
             showsLyricsPreferences: showLyrics && (!isSpokenWord || !lyrics.isEmpty),
-            showsFullScreenAction: !isSpokenWord && !isLyricsImmersive && !isFullscreenPlayerPresented,
+            showsFullScreenAction: !isSpokenWord && !isLyricsImmersive && !isFullscreenPlayerPresented
+                && !menuSuppressed.contains(.fullScreen),
             albumID: currentAlbum?.id,
             artistID: currentArtist?.id,
             canOpenAlbum: canOpenCurrentAlbum,
             canOpenArtist: currentArtist != nil && onOpenArtist != nil,
-            canShare: isPodcastEpisode ? podcastShareURL != nil : player.currentSong != nil,
+            canShare: (isPodcastEpisode ? podcastShareURL != nil : player.currentSong != nil)
+                && !menuSuppressed.contains(.share),
+            showsAddToPlaylist: !menuSuppressed.contains(.addToPlaylist),
+            showsCastAction: !menuSuppressed.contains(.cast),
+            showsSleepTimer: !menuSuppressed.contains(.sleepTimer),
+            showsPlaybackRate: !menuSuppressed.contains(.playbackSpeed),
             castingRendererName: player.castingRenderer?.friendlyName,
             isSleepTimerActive: player.isSleepTimerActive,
             lyricsFontScale: lyricsFontScale,
             canChangePlaybackRate: canChangeCurrentPlaybackRate,
             // Apple Music 由系统播放器出声,投放时由对方设备出声,都不经过本机均衡器。
-            showsEqualizer: !player.isAppleMusicMode && player.castingRenderer == nil,
+            showsEqualizer: !player.isAppleMusicMode && player.castingRenderer == nil
+                && !menuSuppressed.contains(.equalizer),
             isEqualizerBypassed: player.outputMode(for: player.currentSong) == .highFidelity,
             playbackRate: !canChangeCurrentPlaybackRate
                 ? 1
@@ -5613,20 +5647,21 @@ struct NowPlayingView: View {
                     ? player.currentSpokenWordRate
                     : playbackSettings.playbackRate),
             isLyricsTranslationEnabled: LyricsTranslationSettingsStore.shared.isEnabled,
-            showsPlaybackModeActions: compactLandscapeHidesModeToggles && !isSpokenWord,
+            fallbackActions: menuFallback,
+            isShowingLyrics: showLyrics,
             isShuffleEnabled: player.shuffleEnabled,
             repeatMode: player.repeatMode,
             isMedleyActive: player.isMedleyActive,
             canStartMedley: !isSpokenWord && !player.isAppleMusicMode && !player.isLiveRadio
                 && player.canPlayMedleyFromQueue,
             canStartKaraoke: !isSpokenWord && player.currentSong != nil && !player.isAppleMusicMode
-                && !player.isLiveRadio,
+                && !player.isLiveRadio && !menuSuppressed.contains(.karaoke),
             medleySegmentSeconds: playbackSettings.medleySegmentSeconds,
             colorScheme: colorScheme,
             colorSchemeContrast: colorSchemeContrast,
             columnOverflow: columnOverflow,
             isCurrentLiked: isCurrentLiked,
-            canDislike: player.canDislikeCurrentSong,
+            canDislike: player.canDislikeCurrentSong && !menuSuppressed.contains(.dislike),
             isCurrentDisliked: isCurrentDisliked,
             playbackRangeSong: isSpokenWord || player.isAppleMusicMode || player.isLiveRadio
                 ? nil
@@ -5636,24 +5671,7 @@ struct NowPlayingView: View {
         return NowPlayingMoreMenu(
             snapshot: snapshot,
             lyricsFontScale: $lyricsFontScale,
-            playbackRate: Binding(
-                get: {
-                    guard canChangeCurrentPlaybackRate else { return 1 }
-                    return player.currentItemIsSpokenWord
-                        ? player.currentSpokenWordRate
-                        : playbackSettings.playbackRate
-                },
-                set: {
-                    guard canChangeCurrentPlaybackRate else { return }
-                    // 有声内容与音乐各记一档速度, 菜单改的是正在播的这一类;
-                    // 有声按书记,每本书可以有自己的速度。
-                    if player.currentItemIsSpokenWord {
-                        player.setSpokenWordRateForCurrentBook($0)
-                    } else {
-                        playbackSettings.playbackRate = $0
-                    }
-                }
-            ),
+            playbackRate: currentPlaybackRateBinding,
             immersiveChrome: immersiveChrome,
             chromeGlass: chromeGlass,
             equalizer: player.equalizerService,
@@ -5690,6 +5708,8 @@ struct NowPlayingView: View {
             onShare: { shareSong = player.currentSong },
             onShowCastPicker: { showCastPicker = true },
             onToggleLike: { toggleLikedCurrent() },
+            onToggleLyrics: { toggleLyricsForLayout() },
+            onOpenQueue: { openQueue() },
             onToggleDislike: { player.toggleDislikeForCurrentSong() },
             onEditPlaybackRange: {
                 playbackRangeEditorSong = player.currentSong?.withoutAppliedPlaybackRange
@@ -5725,6 +5745,27 @@ struct NowPlayingView: View {
             onDelete: { showDeleteConfirm = true }
         )
         .equatable()
+    }
+
+    /// 「更多」里和页面上那颗速度键共用:有声内容与音乐各记一档速度, 改的是正在播的这一类;
+    /// 有声按书记,每本书可以有自己的速度。
+    private var currentPlaybackRateBinding: Binding<Float> {
+        Binding(
+            get: {
+                guard canChangeCurrentPlaybackRate else { return 1 }
+                return player.currentItemIsSpokenWord
+                    ? player.currentSpokenWordRate
+                    : playbackSettings.playbackRate
+            },
+            set: {
+                guard canChangeCurrentPlaybackRate else { return }
+                if player.currentItemIsSpokenWord {
+                    player.setSpokenWordRateForCurrentBook($0)
+                } else {
+                    playbackSettings.playbackRate = $0
+                }
+            }
+        )
     }
 
     private func openEqualizer() {
@@ -5899,7 +5940,8 @@ struct NowPlayingView: View {
     private func nowPlayingSongHeader(
         titleFont: Font,
         metadataFont: Font,
-        inlineActions: Bool = true
+        inlineActions: Bool = true,
+        controlSurface: NowPlayingControlSurface = .portrait
     ) -> some View {
         if usesSpokenWordTransport {
             spokenWordHeading(titleFont: titleFont, partFont: metadataFont, inlineActions: inlineActions)
@@ -5907,7 +5949,8 @@ struct NowPlayingView: View {
             musicSongHeader(
                 titleFont: titleFont,
                 metadataFont: metadataFont,
-                inlineActions: inlineActions
+                inlineActions: inlineActions,
+                controlSurface: controlSurface
             )
         }
     }
@@ -5985,7 +6028,8 @@ struct NowPlayingView: View {
     private func musicSongHeader(
         titleFont: Font,
         metadataFont: Font,
-        inlineActions: Bool = true
+        inlineActions: Bool = true,
+        controlSurface: NowPlayingControlSurface = .portrait
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
@@ -6001,22 +6045,12 @@ struct NowPlayingView: View {
 
                 HStack(spacing: 4) {
                     musicVideoToggleButton(font: .title3, trailing: 0)
-                    // 竖栏那一列里已经有的就不在这里重复。
-                    if inlineActions, offersLikeAction {
-                        Button { toggleLikedCurrent() } label: {
-                            nowPlayingActionIcon(
-                                symbol: isCurrentLiked ? "heart.fill" : "heart",
-                                tint: isCurrentLiked ? .red : appearance.secondary,
-                                isSelected: isCurrentLiked
-                            )
-                        }
-                        .frame(width: 44, height: 44)
-                        .buttonStyle(.plain)
-                        .disabled(player.currentSong == nil)
-                        .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
+                    // 竖栏那一列里已经有的就不在这里重复。歌名旁那一格默认是心形。
+                    if inlineActions, let action = musicControlLayout.action(in: .header) {
+                        controlButton(action, style: .header)
                     }
                     if inlineActions {
-                        moreMenu
+                        makeMoreMenu(controlSurface: controlSurface)
                     }
                 }
                 .fixedSize()
@@ -6041,8 +6075,11 @@ struct NowPlayingView: View {
             .frame(height: height)
             .overlay(alignment: .top) {
                 NowPlayingStatusLine(
-                    showsSleepTimer: !usesSpokenWordTransport,
-                    source: usesSpokenWordTransport ? nil : player.currentSong.flatMap(nowPlayingSourceLabel(for:)),
+                    showsSleepTimer: !usesSpokenWordTransport && musicControlLayout.showsStatusItem(.sleepTimer),
+                    showsOutput: musicControlLayout.showsStatusItem(.output),
+                    source: usesSpokenWordTransport || !musicControlLayout.showsStatusItem(.source)
+                        ? nil
+                        : player.currentSong.flatMap(nowPlayingSourceLabel(for:)),
                     tint: appearance.tertiary
                 )
                 .padding(.horizontal, horizontalPadding)
@@ -6080,7 +6117,8 @@ struct NowPlayingView: View {
                 showsAudio: !isSpokenWord && audioInfoMode.showsSummary(for: song.audioQuality),
                 isDownloadingFromICloud: player.iCloudDownloadingSongID == song.id,
                 source: isSpokenWord ? nil : nowPlayingSourceLabel(for: song),
-                showsSourceTag: showsSource,
+                // 「播放页按钮」里关掉了状态行的来源时,手机横屏这枚来源标签也不挂。
+                showsSourceTag: showsSource && musicControlLayout.showsStatusItem(.source),
                 outputSampleRate: player.audioEngine.observedOutputSampleRate,
                 allowsOutputDetail: !player.isAppleMusicMode,
                 tint: appearance.tertiary
@@ -6314,6 +6352,362 @@ struct NowPlayingView: View {
             .buttonStyle(.plain)
         } else {
             label
+        }
+    }
+
+    // MARK: - 可换按钮(播放页按钮)
+
+    /// 音乐播放页的按钮摆法。有声内容(书、播客)还是原来的样子,读默认那份。
+    private var musicControlLayout: NowPlayingControlLayout {
+        usesSpokenWordTransport ? .default : NowPlayingControlLayoutCache.layout(for: controlLayoutStorage)
+    }
+
+    /// 一个位置上的按钮;空着的格照样占 44×44,别的按钮不挪位置。
+    @ViewBuilder
+    private func controlSlot(_ slot: NowPlayingControlSlot, style: NowPlayingControlStyle) -> some View {
+        if let action = musicControlLayout.action(in: slot) {
+            controlButton(action, style: style)
+        } else {
+            Color.clear
+                .frame(width: 44, height: 44)
+                .accessibilityHidden(true)
+        }
+    }
+
+    @ViewBuilder
+    private func controlButton(_ action: NowPlayingControlAction, style: NowPlayingControlStyle) -> some View {
+        if action == .airPlay {
+            airPlayControl(style: style)
+        } else if style == .edge, action == .shuffle {
+            ctrlBtn("shuffle", active: player.shuffleEnabled) { player.shuffleEnabled.toggle() }
+        } else if style == .edge, action == .repeatMode {
+            ctrlBtn(player.repeatMode == .one ? "repeat.1" : "repeat", active: player.repeatMode != .off) {
+                cycleRepeatMode()
+            }
+        } else if action == .playbackSpeed, unavailableNotice(for: .playbackSpeed) == nil {
+            playbackSpeedControl(style: style)
+        } else {
+            standardControl(action, style: style)
+        }
+    }
+
+    @ViewBuilder
+    private func airPlayControl(style: NowPlayingControlStyle) -> some View {
+        switch style {
+        case .glass:
+            compactLandscapeAirPlayButton
+        case .header:
+            AirPlayButton()
+                .frame(width: 30, height: 30)
+                .frame(width: 44, height: 44)
+        case .bar, .wideBar, .edge:
+            AirPlayButton()
+                .frame(width: 36, height: 36)
+                .frame(width: 44, height: 44)
+        }
+    }
+
+    /// 用不了时照样画、照样能点,只是淡一些;点了说明为什么(能一键解决的给按钮)。
+    @ViewBuilder
+    private func standardControl(_ action: NowPlayingControlAction, style: NowPlayingControlStyle) -> some View {
+        let face = controlFace(action)
+        let notice = unavailableNotice(for: action)
+        let button = Button {
+            if let notice {
+                controlNotice = notice
+            } else {
+                performControl(action, style: style)
+            }
+        } label: {
+            controlLabel(face, style: style)
+                .opacity(notice == nil ? 1 : 0.4)
+        }
+        switch style {
+        case .bar, .wideBar, .edge:
+            button
+                .frame(width: 44, height: 44)
+                .disabled(face.requiresSong && player.currentSong == nil)
+                .accessibilityLabel(Text(face.label))
+                .accessibilityValue(controlAccessibilityValue(face, notice: notice))
+        case .header:
+            button
+                .frame(width: 44, height: 44)
+                .buttonStyle(.plain)
+                .disabled(face.requiresSong && player.currentSong == nil)
+                .accessibilityLabel(Text(face.label))
+                .accessibilityValue(controlAccessibilityValue(face, notice: notice))
+        case .glass:
+            button
+                .buttonStyle(.plain)
+                .disabled(face.requiresSong && player.currentSong == nil)
+                .accessibilityLabel(Text(face.label))
+                .accessibilityValue(controlAccessibilityValue(face, notice: notice))
+        }
+    }
+
+    /// 速度键直接弹出档位,和「更多」里那一项是同一个开关。
+    private func playbackSpeedControl(style: NowPlayingControlStyle) -> some View {
+        let face = controlFace(.playbackSpeed)
+        return Menu {
+            Picker(selection: currentPlaybackRateBinding) {
+                Text("0.5×").tag(Float(0.5))
+                Text("0.75×").tag(Float(0.75))
+                Text(String(localized: "playback_rate_normal")).tag(Float(1.0))
+                Text("1.25×").tag(Float(1.25))
+                Text("1.5×").tag(Float(1.5))
+                Text("1.75×").tag(Float(1.75))
+                Text("2.0×").tag(Float(2.0))
+            } label: {
+                Text(face.label)
+            }
+        } label: {
+            controlLabel(face, style: style)
+        }
+        .frame(width: style == .glass ? nil : 44, height: style == .glass ? nil : 44)
+        .disabled(player.currentSong == nil)
+        .accessibilityLabel(Text(face.label))
+        .accessibilityValue(Text(verbatim: String(format: "%.2f×", Double(currentPlaybackRateBinding.wrappedValue))))
+    }
+
+    @ViewBuilder
+    private func controlLabel(_ face: NowPlayingControlFace, style: NowPlayingControlStyle) -> some View {
+        let activeTint = face.activeTint ?? themedControlAccent
+        switch style {
+        case .bar, .wideBar:
+            Image(systemName: face.symbol)
+                .foregroundStyle(face.isActive
+                    ? activeTint
+                    : (style == .wideBar ? appearance.secondary : appearance.tertiary))
+                .contentTransition(.symbolEffect(.replace))
+        case .edge:
+            Image(systemName: face.symbol).font(.body)
+                .foregroundStyle(face.isActive ? activeTint : appearance.tertiary)
+                .contentTransition(.symbolEffect(.replace))
+                .playbackToggleHighlight(isActive: face.isActive, tint: activeTint, diameter: 32)
+        case .header:
+            nowPlayingActionIcon(
+                symbol: face.symbol,
+                tint: face.isActive ? activeTint : appearance.secondary,
+                isSelected: face.isActive
+            )
+        case .glass:
+            NowPlayingGlassActionLabel(
+                symbol: face.symbol,
+                appearance: appearance,
+                tint: face.isActive ? (face.activeTint ?? appearance.primary) : appearance.primary,
+                diameter: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.chromeButtonDiameter),
+                isSelected: face.isActive
+            )
+        }
+    }
+
+    private func controlAccessibilityValue(_ face: NowPlayingControlFace, notice: NowPlayingControlNotice?) -> Text {
+        if let notice { return Text(notice.message) }
+        guard face.isToggle else { return Text(verbatim: "") }
+        return Text(face.isActive ? "a11y_value_on" : "a11y_value_off")
+    }
+
+    private func controlFace(_ action: NowPlayingControlAction) -> NowPlayingControlFace {
+        switch action {
+        case .like:
+            return NowPlayingControlFace(
+                symbol: isCurrentLiked ? "heart.fill" : "heart",
+                label: isCurrentLiked ? String(localized: "a11y_unlike") : String(localized: "a11y_like"),
+                isActive: isCurrentLiked,
+                activeTint: likedHeartTint,
+                requiresSong: true
+            )
+        case .dislike:
+            return NowPlayingControlFace(
+                symbol: isCurrentDisliked ? "hand.thumbsdown.fill" : "hand.thumbsdown",
+                label: isCurrentDisliked ? String(localized: "song_undislike") : String(localized: "song_dislike"),
+                isActive: isCurrentDisliked,
+                requiresSong: true
+            )
+        case .lyrics:
+            // 底栏原来的写法:看歌词时换成「回到封面」,图标用一级色。
+            return NowPlayingControlFace(
+                symbol: showLyrics ? "photo" : "quote.bubble",
+                label: showLyrics ? String(localized: "a11y_close_lyrics") : String(localized: "a11y_open_lyrics"),
+                isActive: showLyrics,
+                activeTint: appearance.primary
+            )
+        case .airPlay:
+            return NowPlayingControlFace(symbol: "airplayaudio", label: String(localized: "player_controls_action_airplay"))
+        case .queue:
+            return NowPlayingControlFace(symbol: "list.bullet", label: String(localized: "a11y_queue"))
+        case .shuffle:
+            return NowPlayingControlFace(
+                symbol: "shuffle",
+                label: String(localized: "a11y_shuffle"),
+                isActive: player.shuffleEnabled,
+                isToggle: true
+            )
+        case .repeatMode:
+            return NowPlayingControlFace(
+                symbol: player.repeatMode == .one ? "repeat.1" : "repeat",
+                label: String(localized: "a11y_repeat"),
+                isActive: player.repeatMode != .off,
+                isToggle: true
+            )
+        case .sleepTimer:
+            return NowPlayingControlFace(
+                symbol: player.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz",
+                label: player.isSleepTimerActive
+                    ? String(localized: "sleep_timer_active")
+                    : String(localized: "sleep_timer"),
+                isActive: player.isSleepTimerActive
+            )
+        case .equalizer:
+            return NowPlayingControlFace(
+                symbol: "slider.vertical.3",
+                label: String(localized: "equalizer"),
+                isActive: player.equalizerService.isEnabled && unavailableNotice(for: .equalizer) == nil,
+                isToggle: true
+            )
+        case .playbackSpeed:
+            let rate = currentPlaybackRateBinding.wrappedValue
+            return NowPlayingControlFace(
+                symbol: "speedometer",
+                label: String(localized: "playback_rate"),
+                isActive: abs(rate - 1) > 0.001,
+                requiresSong: true
+            )
+        case .karaoke:
+            return NowPlayingControlFace(symbol: "music.mic", label: String(localized: "karaoke_title"), requiresSong: true)
+        case .fullScreen:
+            return NowPlayingControlFace(
+                symbol: "viewfinder.rectangular",
+                label: String(localized: "full_screen_player"),
+                requiresSong: true
+            )
+        case .addToPlaylist:
+            return NowPlayingControlFace(
+                symbol: "text.badge.plus",
+                label: String(localized: "add_to_playlist"),
+                requiresSong: true
+            )
+        case .share:
+            return NowPlayingControlFace(
+                symbol: "square.and.arrow.up",
+                label: String(localized: "share"),
+                requiresSong: true
+            )
+        case .cast:
+            return NowPlayingControlFace(
+                symbol: "hifispeaker",
+                label: player.castingRenderer.map {
+                    String(format: String(localized: "cast_casting_to_format"), $0.friendlyName)
+                } ?? String(localized: "cast_to_device"),
+                isActive: player.castingRenderer != nil,
+                requiresSong: true
+            )
+        }
+    }
+
+    /// 因模式暂时用不了的说明。没有歌这种「根本没有」的情况走置灰,不在这里。
+    private func unavailableNotice(for action: NowPlayingControlAction) -> NowPlayingControlNotice? {
+        guard player.currentSong != nil else { return nil }
+        switch action {
+        case .dislike:
+            guard !player.canDislikeCurrentSong else { return nil }
+            return NowPlayingControlNotice(
+                title: String(localized: "song_dislike"),
+                message: String(localized: "player_controls_unavailable_dislike")
+            )
+        case .equalizer:
+            if player.isAppleMusicMode {
+                return NowPlayingControlNotice(
+                    title: String(localized: "equalizer"),
+                    message: String(localized: "player_controls_unavailable_eq_apple_music")
+                )
+            }
+            if player.castingRenderer != nil {
+                return NowPlayingControlNotice(
+                    title: String(localized: "equalizer"),
+                    message: String(localized: "player_controls_unavailable_eq_casting")
+                )
+            }
+            guard player.outputMode(for: player.currentSong) == .highFidelity else { return nil }
+            return NowPlayingControlNotice(
+                title: String(localized: "eq_high_fidelity_alert_title"),
+                message: String(localized: "eq_high_fidelity_alert_message"),
+                offersEffectsOutput: true
+            )
+        case .playbackSpeed:
+            if player.isAppleMusicMode {
+                return NowPlayingControlNotice(
+                    title: String(localized: "playback_rate"),
+                    message: String(localized: "player_controls_unavailable_speed_apple_music")
+                )
+            }
+            guard !canChangeCurrentPlaybackRate else { return nil }
+            return NowPlayingControlNotice(
+                title: String(localized: "playback_rate"),
+                message: String(localized: "player_controls_unavailable_speed_high_fidelity"),
+                offersEffectsOutput: true
+            )
+        case .karaoke:
+            guard player.isAppleMusicMode else { return nil }
+            return NowPlayingControlNotice(
+                title: String(localized: "karaoke_title"),
+                message: String(localized: "karaoke_unavailable_apple_music")
+            )
+        case .cast:
+            guard player.isAppleMusicMode else { return nil }
+            return NowPlayingControlNotice(
+                title: String(localized: "cast_to_device"),
+                message: String(localized: "player_controls_unavailable_cast_apple_music")
+            )
+        default:
+            return nil
+        }
+    }
+
+    private func performControl(_ action: NowPlayingControlAction, style: NowPlayingControlStyle) {
+        switch action {
+        case .like: toggleLikedCurrent()
+        case .dislike: player.toggleDislikeForCurrentSong()
+        case .lyrics: toggleLyricsForLayout()
+        // iPad 横屏左栏原来就是直接弹出队列。
+        case .queue: if style == .wideBar { showQueue = true } else { openQueue() }
+        case .shuffle: player.shuffleEnabled.toggle()
+        case .repeatMode: cycleRepeatMode()
+        case .sleepTimer: showSleepTimer = true
+        case .equalizer: openEqualizer()
+        case .karaoke: showKaraoke = true
+        case .fullScreen: presentImmersiveLyrics()
+        case .addToPlaylist: showAddToPlaylist = true
+        case .share: shareSong = player.currentSong
+        case .cast: showCastPicker = true
+        case .airPlay, .playbackSpeed: break
+        }
+    }
+
+    /// iPad 横屏左栏最下面那排:歌词常驻右栏,不放歌词键。两颗时和原来一样,一颗在中间、一颗靠右。
+    @ViewBuilder
+    private var wideLandscapeControlBar: some View {
+        let actions = musicControlLayout.wideLandscapeBar()
+        HStack {
+            switch actions.count {
+            case 0:
+                Color.clear.frame(height: 44)
+            case 1:
+                Spacer()
+                controlButton(actions[0], style: .wideBar)
+                Spacer()
+            case 2:
+                Spacer()
+                controlButton(actions[0], style: .wideBar)
+                Spacer()
+                controlButton(actions[1], style: .wideBar)
+            default:
+                controlButton(actions[0], style: .wideBar)
+                Spacer()
+                controlButton(actions[1], style: .wideBar)
+                Spacer()
+                controlButton(actions[2], style: .wideBar)
+            }
         }
     }
 
@@ -8484,6 +8878,11 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let canOpenAlbum: Bool
     let canOpenArtist: Bool
     let canShare: Bool
+    /// 下面四项摆在页面上(「播放页按钮」)、此刻也看得见时为假,菜单里不再重复。
+    let showsAddToPlaylist: Bool
+    let showsCastAction: Bool
+    let showsSleepTimer: Bool
+    let showsPlaybackRate: Bool
     let castingRendererName: String?
     let isSleepTimerActive: Bool
     let lyricsFontScale: Double
@@ -8493,9 +8892,10 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let isEqualizerBypassed: Bool
     let playbackRate: Float
     let isLyricsTranslationEnabled: Bool
-    /// 手机横屏右栏窄到摆不下两端的随机 / 循环时为真, 菜单里补上这两个入口,
-    /// 别的布局仍然只在传输键那一行提供它们。
-    let showsPlaybackModeActions: Bool
+    /// 页面上点不到、要在菜单里补上的(「播放页按钮」里没摆出来的心形、歌词、队列、随机、循环,
+    /// 以及手机横屏右栏窄到让出来的两端)。
+    let fallbackActions: [NowPlayingControlAction]
+    let isShowingLyrics: Bool
     let isShuffleEnabled: Bool
     let repeatMode: RepeatMode
     let isMedleyActive: Bool
@@ -8512,6 +8912,55 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let isCurrentDisliked: Bool
     /// 能设播放时间段的当前歌曲(整首);有声内容、Apple Music、电台为 nil。
     let playbackRangeSong: Song?
+}
+
+/// 「播放页按钮」里一颗按钮放在哪种地方:各处原来的画法不同,照各自原样画。
+private enum NowPlayingControlStyle {
+    /// 竖屏最下面那排:只有图标,三级灰。
+    case bar
+    /// iPad 横屏左栏最下面那排:只有图标,二级灰。
+    case wideBar
+    /// 传输键两端:和随机、循环同一种写法,开着时垫强调色的圆。
+    case edge
+    /// 歌名旁:和心形同一种写法。
+    case header
+    /// 手机横屏顶上那排玻璃圆钮。
+    case glass
+}
+
+/// 一颗可换按钮此刻的样子。
+private struct NowPlayingControlFace {
+    var symbol: String
+    var label: String
+    var isActive = false
+    /// 开着时的颜色;nil 用强调色。
+    var activeTint: Color?
+    /// 读屏要读「开 / 关」的开关类按钮。
+    var isToggle = false
+    /// 没有正在放的歌时置灰。
+    var requiresSong = false
+}
+
+/// 页面上那颗按钮因模式暂时用不了时点出来的说明;能一键解决的(切到音效输出)给按钮。
+private struct NowPlayingControlNotice: Equatable {
+    var title: String
+    var message: String
+    var offersEffectsOutput = false
+}
+
+/// 同一份存储串只解一次:播放页每次重画都要读好几遍配置。
+@MainActor
+private enum NowPlayingControlLayoutCache {
+    private static var storage = ""
+    private static var layout = NowPlayingControlLayout.default
+
+    static func layout(for storage: String) -> NowPlayingControlLayout {
+        if storage != Self.storage {
+            Self.storage = storage
+            layout = NowPlayingControlLayout.decode(storage)
+        }
+        return layout
+    }
 }
 
 /// iPhone Duo 竖栏那一列按钮放不下时收进「更多」的几颗(按收走的先后:锁、全屏效果、喜欢)。
@@ -8556,6 +9005,8 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onShare: () -> Void
     let onShowCastPicker: () -> Void
     let onToggleLike: () -> Void
+    let onToggleLyrics: () -> Void
+    let onOpenQueue: () -> Void
     let onToggleDislike: () -> Void
     let onEditPlaybackRange: () -> Void
     let onShowEffectPicker: () -> Void
@@ -8623,6 +9074,49 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
         }
     }
 
+    @ViewBuilder
+    private func fallbackItem(_ action: NowPlayingControlAction) -> some View {
+        switch action {
+        case .like:
+            Button(action: onToggleLike) {
+                if snapshot.isCurrentLiked {
+                    Label(String(localized: "a11y_unlike"), systemImage: "heart.fill")
+                } else {
+                    Label(String(localized: "a11y_like"), systemImage: "heart")
+                }
+            }
+            .disabled(!snapshot.hasSong)
+        case .lyrics:
+            Button(action: onToggleLyrics) {
+                if snapshot.isShowingLyrics {
+                    Label(String(localized: "a11y_close_lyrics"), systemImage: "photo")
+                } else {
+                    Label(String(localized: "a11y_open_lyrics"), systemImage: "quote.bubble")
+                }
+            }
+        case .queue:
+            Button(action: onOpenQueue) {
+                Label(String(localized: "a11y_queue"), systemImage: "list.bullet")
+            }
+        case .shuffle:
+            Button(action: onToggleShuffle) {
+                Label(
+                    String(localized: "shuffle"),
+                    systemImage: snapshot.isShuffleEnabled ? "shuffle.circle.fill" : "shuffle"
+                )
+            }
+        case .repeatMode:
+            Button(action: onCycleRepeatMode) {
+                Label(
+                    String(localized: "repeat"),
+                    systemImage: Self.repeatSymbol(for: snapshot.repeatMode)
+                )
+            }
+        default:
+            EmptyView()
+        }
+    }
+
     var body: some View {
         Menu {
             // 最常用的几个操作排成一行，不用往下翻就够得着。文字取短的那一版，
@@ -8651,7 +9145,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     }
                 }
 
-                if promotesAddToPlaylist, !snapshot.isPodcastEpisode {
+                if snapshot.showsAddToPlaylist, promotesAddToPlaylist, !snapshot.isPodcastEpisode {
                     addToPlaylistButton(inQuickRow: true)
                 }
 
@@ -8726,26 +9220,16 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                 }
             }
 
-            if snapshot.showsPlaybackModeActions {
+            if !snapshot.fallbackActions.isEmpty {
                 Section {
-                    Button(action: onToggleShuffle) {
-                        Label(
-                            String(localized: "shuffle"),
-                            systemImage: snapshot.isShuffleEnabled ? "shuffle.circle.fill" : "shuffle"
-                        )
-                    }
-
-                    Button(action: onCycleRepeatMode) {
-                        Label(
-                            String(localized: "repeat"),
-                            systemImage: Self.repeatSymbol(for: snapshot.repeatMode)
-                        )
+                    ForEach(snapshot.fallbackActions, id: \.self) { action in
+                        fallbackItem(action)
                     }
                 }
             }
 
             Section {
-                if !promotesAddToPlaylist, !snapshot.isPodcastEpisode {
+                if snapshot.showsAddToPlaylist, !promotesAddToPlaylist, !snapshot.isPodcastEpisode {
                     addToPlaylistButton(inQuickRow: false)
                 }
 
@@ -8859,21 +9343,23 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
 
             }
 
-            Section {
-                Button(action: onShowCastPicker) {
-                    if let rendererName = snapshot.castingRendererName {
-                        Label(
-                            String(
-                                format: String(localized: "cast_casting_to_format"),
-                                rendererName
-                            ),
-                            systemImage: "airplayaudio"
-                        )
-                    } else {
-                        Label(String(localized: "cast_to_device"), systemImage: "airplayaudio")
+            if snapshot.showsCastAction {
+                Section {
+                    Button(action: onShowCastPicker) {
+                        if let rendererName = snapshot.castingRendererName {
+                            Label(
+                                String(
+                                    format: String(localized: "cast_casting_to_format"),
+                                    rendererName
+                                ),
+                                systemImage: "airplayaudio"
+                            )
+                        } else {
+                            Label(String(localized: "cast_to_device"), systemImage: "airplayaudio")
+                        }
                     }
+                    .disabled(!snapshot.hasSong || snapshot.isAppleMusicMode)
                 }
-                .disabled(!snapshot.hasSong || snapshot.isAppleMusicMode)
             }
 
             if snapshot.showsLyricsPreferences {
@@ -8911,13 +9397,15 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     }
                 }
 
-                Button(action: onShowSleepTimer) {
-                    Label(
-                        snapshot.isSleepTimerActive
-                            ? String(localized: "sleep_timer_active")
-                            : String(localized: "sleep_timer"),
-                        systemImage: snapshot.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz"
-                    )
+                if snapshot.showsSleepTimer {
+                    Button(action: onShowSleepTimer) {
+                        Label(
+                            snapshot.isSleepTimerActive
+                                ? String(localized: "sleep_timer_active")
+                                : String(localized: "sleep_timer"),
+                            systemImage: snapshot.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz"
+                        )
+                    }
                 }
 
                 if snapshot.showsEqualizer {
@@ -8929,7 +9417,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     )
                 }
 
-                if !snapshot.isAppleMusicMode {
+                if !snapshot.isAppleMusicMode, snapshot.showsPlaybackRate {
                     Picker(selection: $playbackRate) {
                         Text("0.5×").tag(Float(0.5))
                         Text("0.75×").tag(Float(0.75))
@@ -11025,8 +11513,9 @@ extension PlaybackProgressBar where CenterAccessory == EmptyView {
 /// 什么都没有就空着。落在 Home 指示条那一带,只是文字、不可点。自己读播放器状态,
 /// 倒计时每秒只重画这一行。
 fileprivate struct NowPlayingStatusLine: View {
-    /// 有声内容的定时写在下面的「定时」块里,这里不重复。
+    /// 有声内容的定时写在下面的「定时」块里,这里不重复;「播放页按钮」里也能关掉。
     let showsSleepTimer: Bool
+    let showsOutput: Bool
     let source: NowPlayingSourceLabel?
     let tint: Color
     @Environment(AudioPlayerService.self) private var player
@@ -11045,7 +11534,7 @@ fileprivate struct NowPlayingStatusLine: View {
     }
 
     var body: some View {
-        let output = self.output
+        let output = showsOutput ? self.output : nil
         let showsSleep = showsSleepTimer && player.isSleepTimerActive
         HStack(spacing: 6) {
             if let source {

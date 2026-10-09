@@ -5529,3 +5529,33 @@
 "playback_range_turn_off %@" = "Desactivar intervalo de reproducción (%@)";
 "playback_range_minus_seconds %lld" = "−%lld s";
 "playback_range_plus_seconds %lld" = "+%lld s";
+
+/* 播放页按钮 */
+"player_controls_title" = "Botones del reproductor";
+"player_controls_footer" = "Toca un recuadro punteado para cambiar su botón o déjalo vacío. Los botones que no están en la página aparecen en Más; el iPhone en horizontal y el iPad acomodan los mismos botones según su diseño. Se sincroniza con iCloud. Los reproductores de audiolibros y podcasts no cambian.";
+"player_controls_status_header" = "Línea inferior";
+"player_controls_status_source" = "Fuente de música";
+"player_controls_status_output" = "Dispositivo de salida";
+"player_controls_status_sleep" = "Tiempo restante del temporizador";
+"player_controls_status_footer" = "Aunque estén activados, solo aparecen cuando hay algo que mostrar: más de una fuente de música, sonido fuera de la bocina del iPhone o un temporizador en curso.";
+"player_controls_reset" = "Restaurar botones predeterminados";
+"player_controls_empty" = "Vacío";
+"player_controls_slot_hint" = "Elige el botón para este lugar";
+"player_controls_picker_footer" = "Si eliges un botón que ya está en otro lugar, los dos lugares se intercambian.";
+"player_controls_airplay_required" = "AirPlay se puede mover, pero no quitar. Elige otro botón de la página y cambiará de lugar con AirPlay.";
+"player_controls_airplay_edge" = "AirPlay no puede ir junto a los botones de reproducción: cuando el iPhone en horizontal es angosto, esos lugares se quitan y AirPlay desaparecería.";
+"player_controls_slot_header" = "Junto al título";
+"player_controls_slot_leading_edge" = "A la izquierda de reproducción";
+"player_controls_slot_trailing_edge" = "A la derecha de reproducción";
+"player_controls_slot_bar_leading" = "Abajo a la izquierda";
+"player_controls_slot_bar_center" = "Abajo al centro";
+"player_controls_slot_bar_trailing" = "Abajo a la derecha";
+"player_controls_action_like" = "Me gusta";
+"player_controls_action_lyrics" = "Letra";
+"player_controls_action_airplay" = "AirPlay";
+"player_controls_unavailable_dislike" = "Solo las canciones de tu biblioteca se pueden marcar como No me gusta.";
+"player_controls_unavailable_eq_apple_music" = "Las canciones de Apple Music las reproduce el reproductor del sistema y no pasan por el ecualizador.";
+"player_controls_unavailable_eq_casting" = "Al transmitir, el otro dispositivo reproduce el sonido, así que no se usa el ecualizador de este dispositivo.";
+"player_controls_unavailable_speed_apple_music" = "No se puede cambiar la velocidad de las canciones de Apple Music.";
+"player_controls_unavailable_speed_high_fidelity" = "Alta fidelidad directa envía el audio sin cambios al dispositivo de salida, así que la velocidad no puede cambiar. Cambia a la salida con efectos para ajustar la velocidad.";
+"player_controls_unavailable_cast_apple_music" = "Las canciones de Apple Music no se pueden transmitir a dispositivos de tu red.";

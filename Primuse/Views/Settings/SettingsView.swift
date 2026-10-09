@@ -588,6 +588,15 @@ private struct PlayerAppearanceSettingsView: View {
             }
 
             Section {
+                NavigationLink {
+                    NowPlayingControlsEditorView()
+                } label: {
+                    Label("player_controls_title", systemImage: "rectangle.bottomthird.inset.filled")
+                }
+                .settingsAnchor("appearance.playerControls")
+            }
+
+            Section {
                 Toggle("player_volume_bar", isOn: $showsVolumeBar)
                 .settingsAnchor("appearance.volumeBar")
                     .accessibilityHint(Text("player_volume_bar_description"))

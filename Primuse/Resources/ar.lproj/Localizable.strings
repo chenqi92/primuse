@@ -5529,3 +5529,33 @@
 "playback_range_turn_off %@" = "إيقاف نطاق التشغيل (%@)";
 "playback_range_minus_seconds %lld" = "−%lld ث";
 "playback_range_plus_seconds %lld" = "+%lld ث";
+
+/* 播放页按钮 */
+"player_controls_title" = "أزرار المشغّل";
+"player_controls_footer" = "اضغط على إطار منقّط لتغيير زرّه أو اتركه فارغًا. الأزرار غير الموجودة في الصفحة تجدها في قائمة «المزيد»، ويرتّب iPhone في الوضع الأفقي وiPad الأزرار نفسها حسب تخطيط كلٍّ منهما. تتم المزامنة عبر iCloud، ولا يتأثر مشغّلا الكتب الصوتية والبودكاست.";
+"player_controls_status_header" = "السطر الأخير";
+"player_controls_status_source" = "مصدر الموسيقى";
+"player_controls_status_output" = "جهاز الإخراج";
+"player_controls_status_sleep" = "الوقت المتبقي لمؤقت النوم";
+"player_controls_status_footer" = "حتى العناصر المفعّلة لا تظهر إلا عند وجود ما يُعرض: أكثر من مصدر موسيقى، أو صوت لا يخرج من سماعة iPhone، أو مؤقت نوم قيد التشغيل.";
+"player_controls_reset" = "استعادة الأزرار الافتراضية";
+"player_controls_empty" = "فارغ";
+"player_controls_slot_hint" = "اختر الزر لهذا المكان";
+"player_controls_picker_footer" = "اختيار زر موجود في مكان آخر يبدّل المكانين.";
+"player_controls_airplay_required" = "يمكن نقل AirPlay لكن لا يمكن إزالته. اختر زرًا آخر في الصفحة وسيتبادل مكانه مع AirPlay.";
+"player_controls_airplay_edge" = "لا يمكن وضع AirPlay بجانب أزرار التشغيل: عندما يضيق iPhone في الوضع الأفقي تُزال تلك الأماكن فيختفي AirPlay.";
+"player_controls_slot_header" = "بجانب العنوان";
+"player_controls_slot_leading_edge" = "يسار التشغيل";
+"player_controls_slot_trailing_edge" = "يمين التشغيل";
+"player_controls_slot_bar_leading" = "أسفل اليسار";
+"player_controls_slot_bar_center" = "أسفل الوسط";
+"player_controls_slot_bar_trailing" = "أسفل اليمين";
+"player_controls_action_like" = "إعجاب";
+"player_controls_action_lyrics" = "كلمات الأغنية";
+"player_controls_action_airplay" = "AirPlay";
+"player_controls_unavailable_dislike" = "يمكن وضع علامة «لا يعجبني» على أغاني مكتبتك فقط.";
+"player_controls_unavailable_eq_apple_music" = "يشغّل مشغّل النظام أغاني Apple Music، فلا تمر عبر المعادل.";
+"player_controls_unavailable_eq_casting" = "أثناء البث يشغّل الجهاز الآخر الصوت، لذا لا يُستخدم معادل هذا الجهاز.";
+"player_controls_unavailable_speed_apple_music" = "لا يمكن تغيير سرعة تشغيل أغاني Apple Music.";
+"player_controls_unavailable_speed_high_fidelity" = "يرسل وضع الدقة العالية المباشرة الصوت إلى جهاز الإخراج كما هو، لذا لا يمكن تغيير السرعة. بدّل إلى الإخراج مع المؤثرات لضبط السرعة.";
+"player_controls_unavailable_cast_apple_music" = "لا يمكن بث أغاني Apple Music إلى أجهزة شبكتك.";

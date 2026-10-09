@@ -5623,3 +5623,33 @@
 "playback_range_turn_off %@" = "Désactiver la plage de lecture (%@)";
 "playback_range_minus_seconds %lld" = "−%lld s";
 "playback_range_plus_seconds %lld" = "+%lld s";
+
+/* 播放页按钮 */
+"player_controls_title" = "Boutons du lecteur";
+"player_controls_footer" = "Touchez un cadre en pointillés pour changer son bouton, ou laissez-le vide. Les boutons absents de la page se trouvent dans « Plus » ; l’iPhone en paysage et l’iPad disposent les mêmes boutons selon leur mise en page. Synchronisé avec iCloud. Les lecteurs de livres audio et de podcasts ne changent pas.";
+"player_controls_status_header" = "Ligne du bas";
+"player_controls_status_source" = "Source musicale";
+"player_controls_status_output" = "Appareil de sortie";
+"player_controls_status_sleep" = "Temps restant de la minuterie";
+"player_controls_status_footer" = "Même activés, ces éléments n’apparaissent que s’il y a quelque chose à afficher : plusieurs sources musicales, un son qui ne sort pas du haut-parleur de l’iPhone ou une minuterie en cours.";
+"player_controls_reset" = "Rétablir les boutons par défaut";
+"player_controls_empty" = "Vide";
+"player_controls_slot_hint" = "Choisissez le bouton pour cet emplacement";
+"player_controls_picker_footer" = "Choisir un bouton déjà placé ailleurs échange les deux emplacements.";
+"player_controls_airplay_required" = "AirPlay peut être déplacé mais pas retiré. Choisissez un autre bouton de la page : il échangera sa place avec AirPlay.";
+"player_controls_airplay_edge" = "AirPlay ne peut pas aller à côté des boutons de lecture : quand l’iPhone en paysage est étroit, ces emplacements disparaissent et AirPlay serait introuvable.";
+"player_controls_slot_header" = "À côté du titre";
+"player_controls_slot_leading_edge" = "À gauche de la lecture";
+"player_controls_slot_trailing_edge" = "À droite de la lecture";
+"player_controls_slot_bar_leading" = "En bas à gauche";
+"player_controls_slot_bar_center" = "En bas au centre";
+"player_controls_slot_bar_trailing" = "En bas à droite";
+"player_controls_action_like" = "J’aime";
+"player_controls_action_lyrics" = "Paroles";
+"player_controls_action_airplay" = "AirPlay";
+"player_controls_unavailable_dislike" = "Seuls les morceaux de votre bibliothèque peuvent être marqués « Je n’aime pas ».";
+"player_controls_unavailable_eq_apple_music" = "Les morceaux Apple Music sont lus par le lecteur du système et ne passent pas par l’égaliseur.";
+"player_controls_unavailable_eq_casting" = "Pendant la diffusion, c’est l’autre appareil qui produit le son : l’égaliseur de cet appareil n’est pas utilisé.";
+"player_controls_unavailable_speed_apple_music" = "Impossible de modifier la vitesse de lecture des morceaux Apple Music.";
+"player_controls_unavailable_speed_high_fidelity" = "La Haute fidélité directe envoie l’audio tel quel à l’appareil de sortie, la vitesse ne peut donc pas changer. Passez à la sortie avec effets pour régler la vitesse.";
+"player_controls_unavailable_cast_apple_music" = "Les morceaux Apple Music ne peuvent pas être diffusés vers les appareils de votre réseau.";

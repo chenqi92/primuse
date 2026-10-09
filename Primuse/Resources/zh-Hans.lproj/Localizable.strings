@@ -5716,3 +5716,33 @@
 "playback_range_turn_off %@" = "关闭播放时间段（%@）";
 "playback_range_minus_seconds %lld" = "−%lld 秒";
 "playback_range_plus_seconds %lld" = "+%lld 秒";
+
+/* 播放页按钮 */
+"player_controls_title" = "播放页按钮";
+"player_controls_footer" = "点虚线框换按钮，也可以留空。没放在页面上的按钮都在「更多」里；手机横屏和 iPad 按各自的版面摆放同一组按钮。设置经 iCloud 同步，有声书和播客的播放页不受影响。";
+"player_controls_status_header" = "最底下一行";
+"player_controls_status_source" = "音乐来源";
+"player_controls_status_output" = "输出设备";
+"player_controls_status_sleep" = "睡眠定时剩余时间";
+"player_controls_status_footer" = "打开的项也只在有内容时出现：不止一个音乐源、声音没从手机扬声器出来、开着睡眠定时。";
+"player_controls_reset" = "恢复默认按钮";
+"player_controls_empty" = "空着";
+"player_controls_slot_hint" = "选择放在这里的按钮";
+"player_controls_picker_footer" = "选已经在别处的按钮，两格会对调。";
+"player_controls_airplay_required" = "AirPlay 只能挪位置、不能拿掉：选页面上另一颗按钮，它会和 AirPlay 对调。";
+"player_controls_airplay_edge" = "AirPlay 不能放在播放键两侧：手机横屏窄的时候两侧会让出来，它就找不到了。";
+"player_controls_slot_header" = "歌名旁";
+"player_controls_slot_leading_edge" = "播放键左侧";
+"player_controls_slot_trailing_edge" = "播放键右侧";
+"player_controls_slot_bar_leading" = "底栏左";
+"player_controls_slot_bar_center" = "底栏中";
+"player_controls_slot_bar_trailing" = "底栏右";
+"player_controls_action_like" = "喜欢";
+"player_controls_action_lyrics" = "歌词";
+"player_controls_action_airplay" = "AirPlay";
+"player_controls_unavailable_dislike" = "只有资料库里的歌曲可以标为不喜欢。";
+"player_controls_unavailable_eq_apple_music" = "Apple Music 的歌曲由系统播放器出声，不经过均衡器。";
+"player_controls_unavailable_eq_casting" = "投放到其他设备时由对方设备出声，不经过这台设备的均衡器。";
+"player_controls_unavailable_speed_apple_music" = "Apple Music 的歌曲不能调播放速度。";
+"player_controls_unavailable_speed_high_fidelity" = "高保真直通把音频原样送到输出设备，不能变速。切换到音效输出后就能调速。";
+"player_controls_unavailable_cast_apple_music" = "Apple Music 的歌曲不能投放到局域网设备。";

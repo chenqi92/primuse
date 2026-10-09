@@ -5529,3 +5529,33 @@
 "playback_range_turn_off %@" = "प्लेबैक रेंज बंद करें (%@)";
 "playback_range_minus_seconds %lld" = "−%lld से.";
 "playback_range_plus_seconds %lld" = "+%lld से.";
+
+/* 播放页按钮 */
+"player_controls_title" = "प्लेयर बटन";
+"player_controls_footer" = "बटन बदलने के लिए किसी डैश वाले बॉक्स पर टैप करें, या उसे खाली छोड़ दें। जो बटन पेज पर नहीं हैं वे \"और\" मेनू में मिलेंगे; लैंडस्केप iPhone और iPad अपने-अपने लेआउट के हिसाब से वही बटन रखते हैं। iCloud से सिंक होता है। ऑडियोबुक और पॉडकास्ट प्लेयर नहीं बदलते।";
+"player_controls_status_header" = "सबसे नीचे की पंक्ति";
+"player_controls_status_source" = "संगीत स्रोत";
+"player_controls_status_output" = "आउटपुट डिवाइस";
+"player_controls_status_sleep" = "स्लीप टाइमर का बचा समय";
+"player_controls_status_footer" = "चालू आइटम भी तभी दिखते हैं जब दिखाने को कुछ हो: एक से ज़्यादा संगीत स्रोत, आवाज़ iPhone स्पीकर से न आ रही हो, या स्लीप टाइमर चल रहा हो।";
+"player_controls_reset" = "डिफ़ॉल्ट बटन बहाल करें";
+"player_controls_empty" = "खाली";
+"player_controls_slot_hint" = "इस जगह के लिए बटन चुनें";
+"player_controls_picker_footer" = "जो बटन पहले से कहीं और है उसे चुनने पर दोनों जगहें आपस में बदल जाती हैं।";
+"player_controls_airplay_required" = "AirPlay को हटाया नहीं जा सकता, सिर्फ़ खिसकाया जा सकता है। पेज पर कोई दूसरा बटन चुनें, वह AirPlay से जगह बदल लेगा।";
+"player_controls_airplay_edge" = "AirPlay को प्लेबैक बटनों के बगल में नहीं रखा जा सकता: लैंडस्केप iPhone संकरा होने पर वे जगहें हट जाती हैं और AirPlay गायब हो जाता।";
+"player_controls_slot_header" = "शीर्षक के पास";
+"player_controls_slot_leading_edge" = "प्लेबैक के बाएँ";
+"player_controls_slot_trailing_edge" = "प्लेबैक के दाएँ";
+"player_controls_slot_bar_leading" = "नीचे बाएँ";
+"player_controls_slot_bar_center" = "नीचे बीच में";
+"player_controls_slot_bar_trailing" = "नीचे दाएँ";
+"player_controls_action_like" = "पसंद";
+"player_controls_action_lyrics" = "बोल";
+"player_controls_action_airplay" = "AirPlay";
+"player_controls_unavailable_dislike" = "सिर्फ़ आपकी लाइब्रेरी के गानों को नापसंद किया जा सकता है।";
+"player_controls_unavailable_eq_apple_music" = "Apple Music के गाने सिस्टम प्लेयर चलाता है, इसलिए वे इक्वलाइज़र से नहीं गुज़रते।";
+"player_controls_unavailable_eq_casting" = "कास्ट करते समय आवाज़ दूसरा डिवाइस चलाता है, इसलिए इस डिवाइस का इक्वलाइज़र इस्तेमाल नहीं होता।";
+"player_controls_unavailable_speed_apple_music" = "Apple Music के गानों की प्लेबैक स्पीड नहीं बदली जा सकती।";
+"player_controls_unavailable_speed_high_fidelity" = "हाई फिडेलिटी डायरेक्ट ऑडियो को बिना बदले आउटपुट डिवाइस तक भेजता है, इसलिए स्पीड नहीं बदल सकती। स्पीड बदलने के लिए इफ़ेक्ट्स आउटपुट पर स्विच करें।";
+"player_controls_unavailable_cast_apple_music" = "Apple Music के गाने आपके नेटवर्क के डिवाइस पर कास्ट नहीं किए जा सकते।";
