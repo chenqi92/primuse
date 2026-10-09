@@ -206,4 +206,52 @@ final class QueueWindowPlayerTests: XCTestCase {
         player.clearQueue()
         XCTAssertNil(player.queueContinuation)
     }
+
+    /// 封面流(#191)两侧与连按上一首 / 下一首走同一条路：顺序播放按队列，随机按本轮顺序；往回走到队首就停。
+    @MainActor
+    func testAlbumFlowNeighboursFollowTheTraversalOrder() async throws {
+        let request = songs(8)
+        let player = try await makePlayer(librarySongs: request)
+        player.setQueue(request, startAt: 3)
+        player.shuffleEnabled = false
+        player.repeatMode = .off
+
+        let ordered = player.albumFlowNeighbors(perSide: 3)
+        XCTAssertEqual(ordered.before.map(\.song.id), ["s2", "s1", "s0"])
+        XCTAssertEqual(ordered.after.map(\.song.id), ["s4", "s5", "s6"])
+        XCTAssertEqual(ordered.centerID, player.queueEntries[3].id.uuidString)
+        XCTAssertEqual(ordered.itemID(at: 1), player.queueEntries[4].id.uuidString)
+
+        player.currentIndex = 0
+        XCTAssertTrue(player.albumFlowNeighbors(perSide: 3).before.isEmpty, "the left side does not wrap to the end")
+        player.repeatMode = .all
+        player.currentIndex = 7
+        XCTAssertTrue(player.albumFlowNeighbors(perSide: 3).after.isEmpty, "the right side stays within this round")
+        player.repeatMode = .off
+
+        player.currentIndex = 0
+        player.shuffleEnabled = true
+        let upcoming = player.upcomingQueueTraversalTargets(
+            maximumCount: 3,
+            respectsRepeatOne: false,
+            wrapsAtEnd: false
+        )
+        player.applyQueueTraversalTarget(try XCTUnwrap(upcoming.last))
+        let round = player.shuffledIndices
+        let position = try XCTUnwrap(player.shuffleAnchorPosition)
+        let shuffled = player.albumFlowNeighbors(perSide: 3)
+        XCTAssertEqual(
+            shuffled.before.map(\.song.id),
+            (0..<position).reversed().prefix(3).map { request[round[$0]].id }
+        )
+        XCTAssertEqual(
+            shuffled.after.map(\.song.id),
+            round.dropFirst(position + 1).prefix(3).map { request[$0].id }
+        )
+        XCTAssertEqual(
+            player.previousQueueTraversalTargets(maximumCount: 1).first?.queueIndex,
+            player.previousQueueTraversalTarget()?.queueIndex,
+            "the first card on the left is where previous goes"
+        )
+    }
 }

@@ -1,7 +1,7 @@
 import Testing
 @testable import PrimuseKit
 
-/// 全屏「封面流」(#191)的几何与两侧专辑取法。
+/// 全屏「封面流」(#191)的几何、拖动与点按判定。
 struct AlbumFlowLayoutPolicyTests {
     private func phoneLandscape() -> AlbumFlowLayoutPolicy.Layout {
         AlbumFlowLayoutPolicy.layout(
@@ -75,100 +75,112 @@ struct AlbumFlowLayoutPolicyTests {
         #expect(!layout.centerContains(x: layout.neighborMidX(offset: 2), y: layout.centerMidY))
     }
 
-    @Test func neighboursComeFromBothSidesWithoutWrappingAround() {
-        let middle = AlbumFlowLayoutPolicy.neighborIndices(count: 10, currentIndex: 5, perSide: 3)
-        #expect(middle.before == [4, 3, 2])
-        #expect(middle.after == [6, 7, 8])
-
-        let first = AlbumFlowLayoutPolicy.neighborIndices(count: 10, currentIndex: 0, perSide: 3)
-        #expect(first.before.isEmpty)
-        #expect(first.after == [1, 2, 3])
-
-        let last = AlbumFlowLayoutPolicy.neighborIndices(count: 10, currentIndex: 9, perSide: 3)
-        #expect(last.before == [8, 7, 6])
-        #expect(last.after.isEmpty)
-
-        let short = AlbumFlowLayoutPolicy.neighborIndices(count: 3, currentIndex: 1, perSide: 4)
-        #expect(short.before == [0])
-        #expect(short.after == [2])
-    }
-
-    @Test func noNeighboursWithoutACurrentAlbumOrALibraryToBrowse() {
-        #expect(AlbumFlowLayoutPolicy.neighborIndices(count: 10, currentIndex: nil, perSide: 3) == ([], []))
-        #expect(AlbumFlowLayoutPolicy.neighborIndices(count: 1, currentIndex: 0, perSide: 3) == ([], []))
-        #expect(AlbumFlowLayoutPolicy.neighborIndices(count: 10, currentIndex: 4, perSide: 0) == ([], []))
-        #expect(AlbumFlowLayoutPolicy.neighborIndices(count: 10, currentIndex: 12, perSide: 3) == ([], []))
-    }
-
-    /// 没封面的歌常和一片没封面的专辑挨着：两侧跳过它们，接着往外取有封面的。
-    @Test func neighboursSkipAlbumsWithoutArtwork() {
-        // 3–7 没封面（同一个没刮削的文件夹），正在播第 5 张。
-        let covered: Set<Int> = [0, 1, 2, 8, 9, 10, 11]
-        let picks = AlbumFlowLayoutPolicy.neighborIndices(
-            count: 12,
-            currentIndex: 5,
-            perSide: 2,
-            hasArtwork: { covered.contains($0) }
+    /// 倒影下面给歌词留的一块：在露出的倒影之下、底部控件之上；留了位置封面就相应缩小。
+    @Test func lyricBandSitsBelowTheReflectionAndAboveTheControls() {
+        let plain = phoneLandscape()
+        let withLyrics = AlbumFlowLayoutPolicy.layout(
+            canvasWidth: 852,
+            canvasHeight: 393,
+            topInset: 20,
+            bottomInset: 112,
+            horizontalInset: 59,
+            titleHeight: 44,
+            titleSpacing: 10,
+            lyricHeight: 20,
+            lyricSpacing: 8
         )
-        #expect(picks.before == [2, 1])
-        #expect(picks.after == [8, 9])
+        #expect(plain.lyricHeight == 0)
+        #expect(withLyrics.lyricHeight == 20)
+        #expect(withLyrics.centerSide < plain.centerSide)
+        let visibleReflection = withLyrics.centerSide * withLyrics.reflectionFraction
+            * AlbumFlowLayoutPolicy.visibleReflectionShare
+        #expect(abs(withLyrics.lyricOriginY - (withLyrics.baseline + visibleReflection + 8)) < 0.001)
+        #expect(withLyrics.lyricOriginY + withLyrics.lyricHeight <= 393 - 112 + 0.001)
+        #expect(withLyrics.titleOriginY + withLyrics.titleHeight <= withLyrics.centerOriginY)
     }
 
-    @Test func oneSideWithoutArtworkStaysEmptyInsteadOfShowingPlaceholders() {
-        let picks = AlbumFlowLayoutPolicy.neighborIndices(
-            count: 10,
-            currentIndex: 4,
-            perSide: 3,
-            hasArtwork: { $0 > 4 }
-        )
-        #expect(picks.before.isEmpty)
-        #expect(picks.after == [5, 6, 7])
+    /// 宽画布按宽度封顶，歌词塞得下时封面不必缩。
+    @Test func wideCanvasKeepsTheCoverSizeWhenTheLyricsFit() {
+        func layout(lyrics: Double) -> AlbumFlowLayoutPolicy.Layout {
+            AlbumFlowLayoutPolicy.layout(
+                canvasWidth: 1440,
+                canvasHeight: 900,
+                topInset: 36,
+                bottomInset: 95,
+                horizontalInset: 57,
+                titleHeight: 39,
+                titleSpacing: 9,
+                lyricHeight: lyrics,
+                lyricSpacing: lyrics > 0 ? 8 : 0
+            )
+        }
+        #expect(abs(layout(lyrics: 81).centerSide - layout(lyrics: 0).centerSide) < 0.001)
     }
 
-    @Test func libraryWithoutAnyArtworkFallsBackToShelfOrder() {
-        let picks = AlbumFlowLayoutPolicy.neighborIndices(
-            count: 10,
-            currentIndex: 4,
-            perSide: 2,
-            hasArtwork: { _ in false }
-        )
-        #expect(picks.before == [3, 2])
-        #expect(picks.after == [5, 6])
+    /// 拖动途中的位置是连续的：整数格与原来的摆法一致，中间一路缩小、转过去。
+    @Test func placementMorphsFromTheCenterToTheSides() {
+        let layout = phoneLandscape()
+        let center = layout.placement(at: 0)
+        #expect(center.midX == layout.centerMidX)
+        #expect(center.side == layout.centerSide)
+        #expect(center.tiltDegrees == 0)
+        #expect(center.opacity == 1)
+
+        let right = layout.placement(at: 1)
+        #expect(abs(right.midX - (layout.centerMidX + layout.firstNeighborOffset)) < 0.001)
+        #expect(abs(right.side - layout.neighborSide) < 0.001)
+        #expect(right.tiltDegrees == -layout.tiltDegrees)
+        #expect(layout.placement(at: -1).tiltDegrees == layout.tiltDegrees)
+
+        let halfway = layout.placement(at: 0.5)
+        #expect(halfway.midX > center.midX && halfway.midX < right.midX)
+        #expect(halfway.side < center.side && halfway.side > right.side)
+        #expect(halfway.tiltDegrees < 0 && halfway.tiltDegrees > right.tiltDegrees)
+
+        // 再往外只挪位置、逐张变淡。
+        let third = layout.placement(at: 3)
+        #expect(abs(third.midX - (layout.centerMidX + layout.firstNeighborOffset + 2 * layout.neighborSpacing)) < 0.001)
+        #expect(third.side == right.side)
+        #expect(abs(third.opacity - 0.84) < 0.001)
+        #expect(abs(layout.placement(at: 1.5).midX - (layout.centerMidX + layout.firstNeighborOffset + 0.5 * layout.neighborSpacing)) < 0.001)
     }
 
-    @Test func scanStopsAfterTheLimitInHugeUncoveredStretches() {
-        var asked = 0
-        let picks = AlbumFlowLayoutPolicy.neighborIndices(
-            count: 100_000,
-            currentIndex: 50_000,
-            perSide: 6,
-            hasArtwork: { index in
-                asked += 1
-                return index == 99_000
-            }
-        )
-        #expect(asked <= 2 * AlbumFlowLayoutPolicy.maximumScanPerSide)
-        #expect(picks.before.count == 6)
-        #expect(picks.after.count == 6)
+    @Test func tappingASideCoverPicksTheInnermostCardUnderTheFinger() {
+        let layout = phoneLandscape()
+        let coverY = layout.baseline - layout.neighborSide / 2
+        #expect(layout.offset(atX: layout.centerMidX, y: layout.centerMidY, before: 3, after: 3) == 0)
+        #expect(layout.offset(atX: layout.neighborMidX(offset: 1), y: coverY, before: 3, after: 3) == 1)
+        #expect(layout.offset(atX: layout.neighborMidX(offset: -2), y: coverY, before: 3, after: 3) == -2)
+        // 外面那张露出来的一条也认得出。
+        let outerStrip = layout.neighborMidX(offset: 3) + layout.neighborSide * 0.2
+        #expect(layout.offset(atX: outerStrip, y: coverY, before: 3, after: 3) == 3)
+        // 那一边没画封面、点在倒影上、点在两侧之外，都不算。
+        #expect(layout.offset(atX: layout.neighborMidX(offset: 1), y: coverY, before: 3, after: 0) == nil)
+        #expect(layout.offset(atX: layout.neighborMidX(offset: 1), y: layout.baseline + 20, before: 3, after: 3) == nil)
+        #expect(layout.offset(atX: layout.neighborMidX(offset: 2) + layout.neighborSide, y: coverY, before: 3, after: 2) == nil)
     }
 
-    /// 没有专辑信息的歌：从按歌定下的位置劈开，两边照样有封面。
-    @Test func songWithoutAnAlbumSplitsTheShelfAtItsAnchor() {
-        let picks = AlbumFlowLayoutPolicy.neighborIndices(count: 10, currentIndex: nil, anchor: 4, perSide: 2)
-        #expect(picks.before == [3, 2])
-        #expect(picks.after == [4, 5])
-
-        let pastEnd = AlbumFlowLayoutPolicy.neighborIndices(count: 3, currentIndex: nil, anchor: 7, perSide: 2)
-        #expect(pastEnd.before == [1, 0])
-        #expect(pastEnd.after == [2])
+    @Test func draggingAFullStepBringsTheNextCoverToTheCenter() {
+        let layout = phoneLandscape()
+        let step = layout.firstNeighborOffset
+        #expect(abs(layout.dragShift(translation: -step, hasBefore: true, hasAfter: true) - 1) < 0.001)
+        #expect(abs(layout.dragShift(translation: step / 2, hasBefore: true, hasAfter: true) + 0.5) < 0.001)
+        // 过了一格越拖越沉。
+        let over = layout.dragShift(translation: -step * 3, hasBefore: true, hasAfter: true)
+        #expect(over > 1 && over < 1 + 0.25)
+        // 那一边没有封面：只能拉出一点。
+        let empty = layout.dragShift(translation: -step * 3, hasBefore: true, hasAfter: false)
+        #expect(empty > 0 && empty < 0.3)
+        #expect(layout.dragShift(translation: 0, hasBefore: false, hasAfter: false) == 0)
     }
 
-    @Test func anchorIsStablePerSongAndInRange() {
-        let first = AlbumFlowLayoutPolicy.anchor(seed: "song-a", count: 37)
-        #expect(first == AlbumFlowLayoutPolicy.anchor(seed: "song-a", count: 37))
-        #expect((0..<37).contains(first))
-        #expect(AlbumFlowLayoutPolicy.anchor(seed: "x", count: 0) == 0)
-        let spread = Set((0..<40).map { AlbumFlowLayoutPolicy.anchor(seed: "song-\($0)", count: 20) })
-        #expect(spread.count > 8)
+    @Test func releasingCommitsPastAThirdOfAStepOrOnAFling() {
+        #expect(AlbumFlowLayoutPolicy.releaseStep(shift: 0.45, predictedShift: 0.5) == 1)
+        #expect(AlbumFlowLayoutPolicy.releaseStep(shift: -0.31, predictedShift: -0.2) == -1)
+        #expect(AlbumFlowLayoutPolicy.releaseStep(shift: 0.1, predictedShift: 0.2) == 0)
+        // 拖得不多但甩得快。
+        #expect(AlbumFlowLayoutPolicy.releaseStep(shift: 0.12, predictedShift: 0.9) == 1)
+        // 甩回反方向不算。
+        #expect(AlbumFlowLayoutPolicy.releaseStep(shift: 0.2, predictedShift: -0.9) == 0)
     }
 }

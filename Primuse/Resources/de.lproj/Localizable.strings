@@ -1756,8 +1756,8 @@
 "fullscreen_effect_particle_bloom_subtitle" = "Sternenstaub strömt vom Cover nach außen und leuchtet im Takt auf";
 "fullscreen_effect_particle_bloom_motion" = "Echtzeit-Spektrum · Partikel blühen bei Bass";
 "fullscreen_effect_cover_flow" = "Cover Flow";
-"fullscreen_effect_cover_flow_subtitle" = "Das laufende Album blickt dich an, die benachbarten Alben deiner Mediathek stehen schräg daneben auf einem gläsernen Boden";
-"fullscreen_effect_cover_flow_motion" = "Seitliche Cover neigen sich zum laufenden Album · Der Glasboden spiegelt seine Farbe";
+"fullscreen_effect_cover_flow_subtitle" = "Der laufende Titel blickt dich an, zuletzt gespielte und kommende Titel stehen schräg daneben auf einem gläsernen Boden, der Liedtext unter der Spiegelung";
+"fullscreen_effect_cover_flow_motion" = "Bei jedem Titelwechsel gleitet die Reihe weiter · Der Glasboden spiegelt die Albumfarbe";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";

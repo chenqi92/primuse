@@ -1113,6 +1113,20 @@ final class TVImmersiveScreenWakePolicyTests: XCTestCase {
         ))
     }
 
+    /// 省电档里又暂停着：把屏保与休眠交还给系统。
+    func testPausedLowPowerHandsTheDisplayBackToTheSystem() {
+        XCTAssertFalse(TVImmersiveScreenWakePolicy.shouldHoldLease(
+            isMounted: true,
+            sceneIsActive: true,
+            systemIdleAllowed: !ImmersiveIdlePowerPolicy.holdsScreenAwake(stage: .lowPower, isPlaying: false)
+        ))
+        XCTAssertTrue(TVImmersiveScreenWakePolicy.shouldHoldLease(
+            isMounted: true,
+            sceneIsActive: true,
+            systemIdleAllowed: !ImmersiveIdlePowerPolicy.holdsScreenAwake(stage: .lowPower, isPlaying: true)
+        ))
+    }
+
     func testQueueCoverKeepsImmersiveDisplayWakeLease() {
         var activity = TVImmersivePresentationActivity()
         activity.handle(.appeared)

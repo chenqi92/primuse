@@ -5940,6 +5940,24 @@ final class TVStore {
         return true
     }
 
+    /// 全屏「封面流」(#191)两侧：队列里刚放过的几首在左、接下来的在右，按离当前由近到远。
+    /// 身份带上队列位置，同一首歌在队列里出现两次也是两张；换歌时每张沿用自己的身份，整排滑过去。
+    func albumFlowNeighbors(perSide: Int) -> AlbumFlowNeighbors {
+        guard !isLiveRadio, perSide > 0, queue.indices.contains(queueIndex) else {
+            return AlbumFlowNeighbors(centerID: nowPlaying.songID.isEmpty ? nil : nowPlaying.songID)
+        }
+        func item(_ index: Int) -> AlbumFlowNeighbors.Item? {
+            library.song(id: queue[index]).map { AlbumFlowNeighbors.Item(id: "\(index):\(queue[index])", song: $0) }
+        }
+        let before = (max(0, queueIndex - perSide)..<queueIndex).reversed().compactMap(item)
+        let after = (queueIndex + 1 ..< min(queue.count, queueIndex + 1 + perSide)).compactMap(item)
+        return AlbumFlowNeighbors(
+            centerID: "\(queueIndex):\(queue[queueIndex])",
+            before: before,
+            after: after
+        )
+    }
+
     private func refreshUpNext() {
         defer { rescheduleUpcomingPrefetchIfPlaying() }
         guard queue.indices.contains(queueIndex),

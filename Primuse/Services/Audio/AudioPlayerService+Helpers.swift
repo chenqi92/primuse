@@ -658,6 +658,75 @@ extension AudioPlayerService {
         )
     }
 
+    /// 往回数的 `maximumCount` 首，按离当前由近到远：第一首就是（不先回到开头时）「上一首」会去的那首。
+    /// 和 `previousQueueTraversalTarget` 不同，走到队首就停，不绕到队尾。
+    func previousQueueTraversalTargets(maximumCount: Int) -> [QueueTraversalTarget] {
+        guard !queueEntries.isEmpty, maximumCount > 0 else { return [] }
+        let isAvailable: (Int) -> Bool = { [self] index in
+            queueEntries.indices.contains(index)
+                && isSongAvailableForNewPlayback(queueEntries[index].song)
+        }
+        var result: [QueueTraversalTarget] = []
+        result.reserveCapacity(maximumCount)
+
+        if shuffleEnabled {
+            var cursor = shuffleAnchorPosition ?? 0
+            while result.count < maximumCount,
+                  let position = QueueTraversalPolicy.previousAvailableTraversalPosition(
+                    in: shuffledIndices,
+                    queueCount: queueEntries.count,
+                    before: cursor,
+                    isAvailable: isAvailable
+                  ) {
+                result.append(QueueTraversalTarget(
+                    queueIndex: shuffledIndices[position],
+                    shufflePosition: position,
+                    pendingShuffleRound: nil
+                ))
+                cursor = position
+            }
+            return result
+        }
+
+        var cursor = currentIndex
+        while result.count < maximumCount,
+              let index = QueueTraversalPolicy.previousAvailableIndex(
+                before: cursor,
+                isAvailable: isAvailable
+              ) {
+            result.append(QueueTraversalTarget(
+                queueIndex: index,
+                shufflePosition: nil,
+                pendingShuffleRound: nil
+            ))
+            cursor = index
+        }
+        return result
+    }
+
+    /// 全屏「封面流」(#191)两侧：刚放过的与接下来的各最多 `perSide` 首，和连按上一首 / 下一首走的是同一条路
+    /// （随机时按本轮顺序，跳过此刻放不了的）。下一首只看本轮、不绕回队首；电台与 Apple Music 自管的队列没有两侧。
+    func albumFlowNeighbors(perSide: Int) -> AlbumFlowNeighbors {
+        guard !isLiveRadio,
+              !(isAppleMusicMode && !isPrimuseManagingAppleMusicQueue),
+              queueEntries.indices.contains(currentIndex) else {
+            return AlbumFlowNeighbors(centerID: currentSong?.id)
+        }
+        let item: (QueueTraversalTarget) -> AlbumFlowNeighbors.Item = { [self] target in
+            let entry = queueEntries[target.queueIndex]
+            return AlbumFlowNeighbors.Item(id: entry.id.uuidString, song: entry.song)
+        }
+        return AlbumFlowNeighbors(
+            centerID: queueEntries[currentIndex].id.uuidString,
+            before: previousQueueTraversalTargets(maximumCount: perSide).map(item),
+            after: upcomingQueueTraversalTargets(
+                maximumCount: perSide,
+                respectsRepeatOne: false,
+                wrapsAtEnd: false
+            ).map(item)
+        )
+    }
+
     func applyQueueTraversalTarget(_ target: QueueTraversalTarget) {
         guard queueEntries.indices.contains(target.queueIndex) else { return }
         if let pending = target.pendingShuffleRound,

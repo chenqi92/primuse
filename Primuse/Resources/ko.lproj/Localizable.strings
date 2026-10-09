@@ -1756,8 +1756,8 @@
 "fullscreen_effect_particle_bloom_subtitle" = "아트워크에서 별가루가 퍼져 나가며 비트에 맞춰 밝아집니다";
 "fullscreen_effect_particle_bloom_motion" = "실시간 스펙트럼 구동 · 저음에 입자 확산";
 "fullscreen_effect_cover_flow" = "커버 플로우";
-"fullscreen_effect_cover_flow_subtitle" = "재생 중인 앨범이 정면에, 보관함에서 앞뒤에 있는 앨범이 양옆에 비스듬히 서서 유리 바닥에 비칩니다";
-"fullscreen_effect_cover_flow_motion" = "양옆 커버가 재생 중인 앨범을 향해 기울어짐 · 유리 바닥에 앨범 색이 비침";
+"fullscreen_effect_cover_flow_subtitle" = "재생 중인 곡이 정면에, 방금 재생한 곡과 다음 곡이 양옆에 비스듬히 서서 유리 바닥에 비치고, 가사는 반사 아래에 표시됩니다";
+"fullscreen_effect_cover_flow_motion" = "곡이 바뀔 때마다 줄이 한 칸씩 흐름 · 유리 바닥에 앨범 색이 비침";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";

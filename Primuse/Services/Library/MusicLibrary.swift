@@ -2133,31 +2133,42 @@ struct MusicDiscoveryResult: Identifiable, Equatable, Sendable {
     var primaryReason: MusicDiscoveryReason { reasons.first ?? .libraryPick }
 }
 
-/// 「封面流」两侧专辑的封面歌，按离当前专辑由近到远排（见 `MusicLibrary.albumFlowNeighbors`）。
+/// 「封面流」(#191)两侧：播放队列里刚放过的几首在左、接下来要放的在右，都按离当前由近到远排。
+/// 和连按「上一首」「下一首」走过的路一样（随机时按本轮的实际顺序），点第几张、滑几格都落在同一首上。
+/// 手机与 Mac 由 `AudioPlayerService.albumFlowNeighbors(perSide:)` 给，电视由 `TVStore` 给。
 struct AlbumFlowNeighbors: Equatable {
-    /// 中间这张的身份：正在播的歌所属专辑，没有专辑时是歌本身。和两侧一起换，
-    /// 舞台靠它判断「换了一张专辑」，把整排滑过去。
+    struct Item: Equatable {
+        /// 队列条目的身份：同一首歌在队列里出现两次也是两张。换歌时每张沿用自己的身份，
+        /// 舞台据此把整排滑过去，而不是原地换图。
+        let id: String
+        let song: Song
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.id == rhs.id
+                && lhs.song.id == rhs.song.id
+                && lhs.song.coverArtFileName == rhs.song.coverArtFileName
+        }
+    }
+
+    /// 中间这张（正在播的这一条）的身份，和两侧同一次刷新换上。
     var centerID: String?
-    var before: [Song] = []
-    var after: [Song] = []
+    var before: [Item] = []
+    var after: [Item] = []
 
     /// 舞台按偏移量取封面：-1、-2… 在左，1、2… 在右。
     func song(at offset: Int) -> Song? {
+        item(at: offset)?.song
+    }
+
+    /// 偏移量上那一张的身份；0 是中间这张。
+    func itemID(at offset: Int) -> String? {
+        offset == 0 ? centerID : item(at: offset)?.id
+    }
+
+    private func item(at offset: Int) -> Item? {
         if offset < 0, before.indices.contains(-offset - 1) { return before[-offset - 1] }
         if offset > 0, after.indices.contains(offset - 1) { return after[offset - 1] }
         return nil
-    }
-
-    /// 偏移量上那张的身份（专辑 ID）。同一张专辑换了位置还是同一个身份，舞台才能把它从旧位置滑到新位置。
-    func itemID(at offset: Int) -> String? {
-        if offset == 0 { return centerID }
-        return song(at: offset).map { $0.albumID ?? $0.id }
-    }
-
-    static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.centerID == rhs.centerID
-            && lhs.before.map(\.id) == rhs.before.map(\.id)
-            && lhs.after.map(\.id) == rhs.after.map(\.id)
     }
 }
 
@@ -7152,35 +7163,6 @@ final class MusicLibrary {
         _ = songReplacementToken
         guard let songID = preferredArtworkSongIDByAlbumID[albumID] else { return nil }
         return lookupVisibleSong(songID)
-    }
-
-    /// 全屏「封面流」(#191)两侧的专辑：资料库专辑列表里排在这首歌所属专辑前后、有封面的几张，
-    /// 每张取它的封面歌。没封面的专辑跳过——没封面的歌常和一片没封面的专辑挨着，照排位取两边就全是占位。
-    /// 这首歌没有专辑（或专辑不在列表里）时按歌定一个位置往两边取。
-    func albumFlowNeighbors(for song: Song?, perSide: Int) -> AlbumFlowNeighbors {
-        guard let song else { return AlbumFlowNeighbors() }
-        let centerID = song.albumID ?? song.id
-        let albums = visibleAlbums
-        guard !albums.isEmpty else { return AlbumFlowNeighbors(centerID: centerID) }
-        var covers: [Int: Song?] = [:]
-        func cover(_ index: Int) -> Song? {
-            if let known = covers[index] { return known }
-            let found = preferredArtworkSong(forAlbumID: albums[index].id)
-            covers[index] = found
-            return found
-        }
-        let picks = AlbumFlowLayoutPolicy.neighborIndices(
-            count: albums.count,
-            currentIndex: song.albumID.flatMap { albumID in albums.firstIndex { $0.id == albumID } },
-            anchor: AlbumFlowLayoutPolicy.anchor(seed: song.id, count: albums.count),
-            perSide: perSide,
-            hasArtwork: { cover($0)?.coverArtFileName?.isEmpty == false }
-        )
-        return AlbumFlowNeighbors(
-            centerID: centerID,
-            before: picks.before.compactMap(cover),
-            after: picks.after.compactMap(cover)
-        )
     }
 
     func preferredArtworkSong(forArtistID artistID: String) -> Song? {

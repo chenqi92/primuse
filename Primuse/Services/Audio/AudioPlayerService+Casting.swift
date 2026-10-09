@@ -922,8 +922,10 @@ extension AudioPlayerService {
         )
     }
 
+    /// - Parameter restartsCurrentFirst: 放过 3 秒时先回到这首开头（按钮、耳机线控的习惯）。
+    ///   封面流里往回拖、点左边那张时为 false：用户要的就是左边那一首。
     @discardableResult
-    func previous() async -> Bool {
+    func previous(restartsCurrentFirst: Bool = true) async -> Bool {
         if isLiveRadio {
             guard let station = currentRadioStation,
                   radioStationOrder.count > 1,
@@ -934,7 +936,7 @@ extension AudioPlayerService {
         }
         if isAppleMusicMode && !isPrimuseManagingAppleMusicQueue {
             // 跟本地行为一致 ── 播放进度过 3s 时倒回开头, 否则跳上一首。
-            if currentTime > 3 {
+            if restartsCurrentFirst, currentTime > 3 {
                 AppServices.shared.appleMusic.seekAppleMusic(to: 0)
                 return true
             } else {
@@ -944,7 +946,7 @@ extension AudioPlayerService {
         }
         guard !queueEntries.isEmpty else { return false }
         // A song playing its range restarts at the range start.
-        if currentTime - currentPlaybackRangeStart > 3 {
+        if restartsCurrentFirst, currentTime - currentPlaybackRangeStart > 3 {
             seek(to: 0)
             return true
         }
@@ -961,6 +963,38 @@ extension AudioPlayerService {
             break
         }
         applyQueueTraversalTarget(predecessor)
+        await play(song: queueEntries[currentIndex].song)
+        return true
+    }
+
+    /// 全屏「封面流」(#191)：沿播放顺序跳 `steps` 首（负数往回），落在连按 |steps| 次下一首 / 上一首
+    /// 会到的那首，中间那几首不播。一步时就是下一首 / 上一首（照样走淡入淡出），往回不先回到开头。
+    @discardableResult
+    func skipAlongQueue(by steps: Int) async -> Bool {
+        switch steps {
+        case 0: return false
+        case 1: return await next()
+        case -1: return await previous(restartsCurrentFirst: false)
+        default: break
+        }
+        guard !isLiveRadio,
+              !(isAppleMusicMode && !isPrimuseManagingAppleMusicQueue),
+              !queueEntries.isEmpty else { return false }
+        // 正在为上一次「下一首」准备淡入淡出：作废它，从眼前这首数起，和画面上的位置对得上。
+        _ = takePendingManualSkipCrossfade()
+        let targets = steps > 0
+            ? upcomingQueueTraversalTargets(maximumCount: steps, respectsRepeatOne: false, wrapsAtEnd: false)
+            : previousQueueTraversalTargets(maximumCount: -steps)
+        guard targets.count == abs(steps), let target = targets.last else { return false }
+        if steps > 0 {
+            SmartNudgeCenter.shared.noteManualSkip(
+                of: currentSong,
+                listened: currentTime,
+                duration: duration
+            )
+        }
+        applyQueueTraversalTarget(target)
+        persistPlaybackSession()
         await play(song: queueEntries[currentIndex].song)
         return true
     }

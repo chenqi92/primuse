@@ -681,25 +681,26 @@ final class PlayerAppearancePreferencesTests: XCTestCase {
     }
 
     func testCoverFlowNeighboursMapOffsetsOntoBothSides() {
-        func song(_ id: String) -> Song {
-            Song(id: id, title: id, fileFormat: .flac, filePath: "/\(id).flac", sourceID: "flow")
+        func item(_ id: String) -> AlbumFlowNeighbors.Item {
+            AlbumFlowNeighbors.Item(
+                id: "entry-\(id)",
+                song: Song(id: id, title: id, fileFormat: .flac, filePath: "/\(id).flac", sourceID: "flow")
+            )
         }
-        let neighbors = AlbumFlowNeighbors(before: [song("b1"), song("b2")], after: [song("a1")])
+        let neighbors = AlbumFlowNeighbors(before: [item("b1"), item("b2")], after: [item("a1")])
         XCTAssertEqual(neighbors.song(at: -1)?.id, "b1")
         XCTAssertEqual(neighbors.song(at: -2)?.id, "b2")
         XCTAssertNil(neighbors.song(at: -3))
         XCTAssertEqual(neighbors.song(at: 1)?.id, "a1")
         XCTAssertNil(neighbors.song(at: 2))
-        XCTAssertNil(neighbors.song(at: 0), "The playing album is not a neighbour")
-        // 没有专辑信息的歌按歌本身区分；中间这张的身份由刷新时带进来。
-        XCTAssertEqual(neighbors.itemID(at: -1), "b1")
+        XCTAssertNil(neighbors.song(at: 0), "The playing entry is not a neighbour")
+        // 每张按队列条目区分；中间这张的身份由刷新时带进来。
+        XCTAssertEqual(neighbors.itemID(at: -1), "entry-b1")
         XCTAssertNil(neighbors.itemID(at: 0))
         XCTAssertNil(neighbors.itemID(at: 3))
-        var withAlbum = song("a2")
-        withAlbum.albumID = "album-a2"
-        let centered = AlbumFlowNeighbors(centerID: "album-now", before: [], after: [withAlbum])
-        XCTAssertEqual(centered.itemID(at: 0), "album-now")
-        XCTAssertEqual(centered.itemID(at: 1), "album-a2")
+        let centered = AlbumFlowNeighbors(centerID: "entry-now", before: [], after: [item("a2")])
+        XCTAssertEqual(centered.itemID(at: 0), "entry-now")
+        XCTAssertEqual(centered.itemID(at: 1), "entry-a2")
         XCTAssertFalse(PlayerAppearancePreferences.entersFullscreenInLandscapeByDefault)
     }
 

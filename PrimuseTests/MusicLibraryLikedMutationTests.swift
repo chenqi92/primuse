@@ -1016,47 +1016,6 @@ final class MusicLibraryDerivedIndexRecoveryTests: XCTestCase {
         }
     }
 
-    /// 封面流(#191)：正在播的专辑没封面、前后又挨着一片没封面的专辑时，两侧取有封面的专辑，
-    /// 不照排位排上一整排占位；中间这张的身份是正在播的专辑，舞台靠它判断换没换专辑。
-    func testAlbumFlowNeighboursSkipAlbumsWithoutArtwork() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("PrimuseAlbumFlow-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let library = MusicLibrary(
-            storageDirectory: directory,
-            deferredMaintenanceAllowed: { true }
-        )
-        let covered: Set<Int> = [0, 1, 6, 7]
-        let catalogue: [Song] = (0..<8).map { index in
-            var song = makeSong(id: "flow-\(index)", path: "/music/flow-\(index).mp3")
-            song.albumTitle = "Flow Album \(index)"
-            song.artistName = "Flow Artist"
-            if covered.contains(index) { song.coverArtFileName = "flow-\(index).jpg" }
-            return song
-        }
-        library.addSongs(catalogue, affectedSourceIDs: ["source-1"])
-        await library.waitForPendingIndex()
-
-        let playing = try XCTUnwrap(library.song(id: "flow-3"))
-        let neighbors = library.albumFlowNeighbors(for: playing, perSide: 6)
-        XCTAssertEqual(neighbors.centerID, playing.albumID)
-        XCTAssertEqual(neighbors.itemID(at: 0), playing.albumID)
-        XCTAssertEqual(
-            Set((neighbors.before + neighbors.after).map(\.id)),
-            Set(covered.map { "flow-\($0)" }),
-            "Both sides show every covered album and none of the uncovered ones"
-        )
-        for offset in [-1, 1] {
-            if let song = neighbors.song(at: offset) {
-                XCTAssertEqual(neighbors.itemID(at: offset), song.albumID)
-            }
-        }
-
-        guard case .success = await library.persistNowAndWait() else {
-            return XCTFail("The album-flow fixture did not finish persistence")
-        }
-    }
-
     /// A1: 扫描的中间 flush 走短上限的延后维护 —— 扫描结果照旧立刻提交,
     /// 但派生集合与 Spotlight 脏位合并到窗口末尾。
     func testIncrementalScanFlushDefersDerivedMaintenance() async throws {

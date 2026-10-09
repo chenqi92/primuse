@@ -565,8 +565,8 @@
 "fullscreen_effect_particle_bloom_subtitle" = "Polvo de estrellas irradia desde la portada y se ilumina con el ritmo";
 "fullscreen_effect_particle_bloom_motion" = "Espectro en tiempo real · Las partículas florecen con los graves";
 "fullscreen_effect_cover_flow" = "Cover Flow";
-"fullscreen_effect_cover_flow_subtitle" = "El álbum en reproducción queda de frente y los álbumes vecinos de tu biblioteca se inclinan a los lados sobre un piso de vidrio";
-"fullscreen_effect_cover_flow_motion" = "Las portadas laterales se inclinan hacia el álbum en reproducción · El piso de vidrio refleja su color";
+"fullscreen_effect_cover_flow_subtitle" = "La canción en reproducción queda de frente; las que ya sonaron y las que siguen se inclinan a los lados sobre un piso de vidrio, con la letra bajo el reflejo";
+"fullscreen_effect_cover_flow_motion" = "La fila se desliza con cada cambio de canción · El piso de vidrio refleja el color del álbum";
 "fullscreen_effect_native" = "Originales";
 "fullscreen_effect_native_motion" = "Transición nativa · Predeterminado";
 "fullscreen_effect_native_subtitle" = "El diseño y los controles familiares del reproductor";

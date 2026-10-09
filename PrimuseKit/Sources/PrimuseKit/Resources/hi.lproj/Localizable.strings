@@ -565,8 +565,8 @@
 "fullscreen_effect_particle_bloom_subtitle" = "कवर से तारों की धूल फैलती है और ताल के साथ चमकती है";
 "fullscreen_effect_particle_bloom_motion" = "रीयल-टाइम स्पेक्ट्रम संचालित · बास पर कण खिलते हैं";
 "fullscreen_effect_cover_flow" = "Cover Flow";
-"fullscreen_effect_cover_flow_subtitle" = "चल रहा एल्बम सामने रहता है और लाइब्रेरी में उसके आस-पास के एल्बम दोनों ओर कांच के फ़र्श पर तिरछे खड़े रहते हैं";
-"fullscreen_effect_cover_flow_motion" = "बगल के कवर चल रहे एल्बम की ओर झुकते हैं · कांच का फ़र्श उसका रंग दिखाता है";
+"fullscreen_effect_cover_flow_subtitle" = "चल रहा गाना सामने रहता है, अभी बजे और आगे आने वाले गाने दोनों ओर कांच के फ़र्श पर तिरछे खड़े रहते हैं, और बोल प्रतिबिंब के नीचे दिखते हैं";
+"fullscreen_effect_cover_flow_motion" = "हर गाना बदलने पर पंक्ति एक कदम खिसकती है · कांच का फ़र्श एल्बम का रंग दिखाता है";
 "fullscreen_effect_native" = "मूल";
 "fullscreen_effect_native_motion" = "मूल संक्रमण · डिफ़ॉल्ट";
 "fullscreen_effect_native_subtitle" = "परिचित प्लेयर लेआउट और नियंत्रण";

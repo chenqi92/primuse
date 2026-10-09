@@ -675,8 +675,8 @@
 "fullscreen_effect_particle_bloom_subtitle" = "星尘从封面向外扩散，随节拍明暗起伏";
 "fullscreen_effect_particle_bloom_motion" = "实时频谱驱动 · 低频推动粒子";
 "fullscreen_effect_cover_flow" = "封面流";
-"fullscreen_effect_cover_flow_subtitle" = "正在播放的专辑居中，资料库里前后的专辑斜立两侧，立在映着专辑色的玻璃台面上";
-"fullscreen_effect_cover_flow_motion" = "两侧封面朝向正在播放的专辑 · 玻璃台面映出专辑色";
+"fullscreen_effect_cover_flow_subtitle" = "正在播放的这首居中，刚放过的与接下来的斜立两侧，立在映着专辑色的玻璃台面上，歌词在倒影下方";
+"fullscreen_effect_cover_flow_motion" = "换歌时整排滑过一格 · 玻璃台面映出专辑色";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "图言吐语";
 "immersive_demo_album" = "soundisle";

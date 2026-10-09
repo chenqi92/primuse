@@ -4,6 +4,7 @@ import PrimuseKit
 
 /// macOS 沉浸播放：鼠标静置 3 秒淡出，0 返回原生、1–5 切换 A–E，
 /// 方向键定位，Option+方向键切歌，Esc 直接退出窗口全屏。
+/// 15 分钟没动鼠标、没按键就进省电档：压暗、停下装饰动画与频谱，叠上时钟和当前歌词。
 struct MacImmersivePlayerView: View {
     /// 已经由常规播放页加载好的带时间戳歌词，沉浸态继续沿用同一份数据。
     let lyrics: [LyricLine]
@@ -47,6 +48,14 @@ struct MacImmersivePlayerView: View {
     @State private var hasResolvedArtwork = true
     @State private var gallerySongs: [Song] = []
     @State private var flowNeighbors = AlbumFlowNeighbors()
+    /// 封面流(#191)整排挪了几格：点两侧某张时先滑过去，换歌落地后归零。
+    @State private var flowShift: Double = 0
+    /// 省电档（`ImmersiveIdlePowerPolicy`）。
+    @State private var isLowPower = false
+    @State private var idleTask: Task<Void, Never>?
+    /// 省电时防烧屏的漂移走到第几步。
+    @State private var restDriftStep = 0
+    @State private var restDriftTask: Task<Void, Never>?
     @State private var showsEffectPicker = false
     @State private var scrubPreview: TimeInterval?
     @State private var activeLyricIndex: Int?
@@ -100,8 +109,25 @@ struct MacImmersivePlayerView: View {
             ZStack {
                 if isStageReady && isRenderingActive {
                     stage(metrics: metrics)
+                        .scaleEffect(isLowPower ? 1.018 : 1)
+                        .offset(restDriftOffset(metrics))
+                        .overlay {
+                            if isLowPower {
+                                Color.black.opacity(ImmersiveIdlePowerPolicy.dimOpacity(for: .lowPower))
+                            }
+                        }
                 } else {
                     entrySurface(metrics: metrics)
+                }
+
+                if isLowPower && isStageReady && isRenderingActive {
+                    ImmersiveAmbientRestOverlay(
+                        metrics: metrics,
+                        lyric: restLyric,
+                        title: stageTrack.title,
+                        subtitle: stageTrack.subtitle
+                    )
+                    .transition(.opacity)
                 }
 
                 if showsChrome && isRenderingActive {
@@ -137,8 +163,9 @@ struct MacImmersivePlayerView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.3), value: showsChrome)
+            .animation(.easeInOut(duration: 1.2), value: isLowPower)
             .contentShape(Rectangle())
-            .onTapGesture { revealChrome() }
+            .onTapGesture { location in handleSurfaceClick(at: location, metrics: metrics) }
             .onContinuousHover { phase in
                 if case .active = phase { revealChrome() }
             }
@@ -168,7 +195,13 @@ struct MacImmersivePlayerView: View {
         .onRenderingVisibilityChange { visible in
             isWindowVisible = visible
             updateVisualizer(for: presentationEffect)
-            if visible { scheduleChromeHide() } else { chromeTask?.cancel() }
+            if visible {
+                scheduleChromeHide()
+                scheduleLowPower()
+            } else {
+                chromeTask?.cancel()
+                idleTask?.cancel()
+            }
         }
         .task(id: isRenderingActive) { @MainActor in
             guard isRenderingActive else { return }
@@ -184,12 +217,14 @@ struct MacImmersivePlayerView: View {
             withTransaction(transaction) { isStageReady = true }
             updateVisualizer(for: presentationEffect)
             scheduleChromeHide()
+            scheduleLowPower()
         }
         .task(id: lyricObservationIdentity) {
             await observeLyricPlayback()
         }
         .onChange(of: presentationEffect) { _, value in
             if isStageReady { updateVisualizer(for: value) }
+            refreshFlowNeighbors()
         }
         .onChange(of: frameRateRawValue) { _, _ in
             if isStageReady { updateVisualizer(for: presentationEffect) }
@@ -201,6 +236,11 @@ struct MacImmersivePlayerView: View {
         .background {
             MacImmersiveLibraryCountObserver {
                 refreshGallerySongs()
+            }
+        }
+        .background {
+            MacImmersiveQueueObserver {
+                refreshFlowNeighbors()
             }
         }
         .onChange(of: player.isPlaying) { _, playing in
@@ -289,6 +329,7 @@ struct MacImmersivePlayerView: View {
                 )
             },
             flowItemID: { flowNeighbors.itemID(at: $0) },
+            flowShift: flowShift,
             isRenderingActive: isRenderingActive,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
@@ -296,6 +337,8 @@ struct MacImmersivePlayerView: View {
             lyricInterlude: lyricInterlude,
             lyricsPlaceholder: String(localized: "no_lyrics"),
             controlsInset: controlsInset(metrics),
+            isResting: isLowPower,
+            isLowPower: isLowPower,
             showsPlaybackProgress: showsChrome,
             chromeBlurRadius: 52
         ) { side in
@@ -313,7 +356,7 @@ struct MacImmersivePlayerView: View {
                         presentationRole: .animatedHero,
                         animationRequiresPlayback: true,
                         isPlaying: player.isPlaying && isRenderingActive,
-                        isAnimationVisible: isRenderingActive && !showsEffectPicker,
+                        isAnimationVisible: isRenderingActive && !showsEffectPicker && !isLowPower,
                         onResolutionChange: { hasResolvedArtwork = $0 }
                     )
                     .frame(width: side, height: side)
@@ -832,11 +875,23 @@ struct MacImmersivePlayerView: View {
         refreshGallerySongs()
     }
 
+    /// 封面流两侧随播放队列走：换歌、加歌、调序、开关随机都重取一次。别的效果用不上，不取。
+    private func refreshFlowNeighbors() {
+        #if DEBUG
+        if usesDemoEvidenceContent { return }
+        #endif
+        let updated = presentationEffect == .albumFlow
+            // 比放得下的多取一张，换歌滑动时最外那张从画布边外进来。
+            ? player.albumFlowNeighbors(perSide: AlbumFlowLayoutPolicy.maximumNeighborsPerSide + 1)
+            : AlbumFlowNeighbors()
+        guard updated != flowNeighbors else { return }
+        flowNeighbors = updated
+        // 换歌落地：整排已按新位置排好，点按时挪出去的那几格清零，画面不跳。
+        flowShift = 0
+    }
+
     private func refreshGallerySongs() {
-        flowNeighbors = library.albumFlowNeighbors(
-            for: player.currentSong,
-            perSide: AlbumFlowLayoutPolicy.maximumNeighborsPerSide
-        )
+        refreshFlowNeighbors()
         let currentID = player.currentSong?.id
         // Stride through the library and test each stop, instead of filtering
         // the whole library first: that copied and trimmed every song on the
@@ -1095,7 +1150,11 @@ struct MacImmersivePlayerView: View {
 
         if press.key == .leftArrow {
             if press.modifiers.contains(.option) {
-                Task { await player.previous() }
+                if presentationEffect == .albumFlow {
+                    moveAlbumFlow(by: -1)
+                } else {
+                    Task { await player.previous() }
+                }
             } else {
                 seek(by: -10)
             }
@@ -1104,7 +1163,11 @@ struct MacImmersivePlayerView: View {
 
         if press.key == .rightArrow {
             if press.modifiers.contains(.option) {
-                Task { await player.next() }
+                if presentationEffect == .albumFlow {
+                    moveAlbumFlow(by: 1)
+                } else {
+                    Task { await player.next() }
+                }
             } else {
                 seek(by: 10)
             }
@@ -1142,6 +1205,7 @@ struct MacImmersivePlayerView: View {
 
     private func updateVisualizer(for value: FullscreenPlayerEffect) {
         guard isRenderingActive,
+              !isLowPower,
               player.isPlaying,
               value.usesRealtimeSpectrum,
               let audioEngine = player.audioEngine.engineForVisualizer,
@@ -1170,6 +1234,8 @@ struct MacImmersivePlayerView: View {
 
     private func deactivatePresentation() {
         chromeTask?.cancel()
+        idleTask?.cancel()
+        restDriftTask?.cancel()
         visualizer.release(owner: visualizerOwnerID)
         var transaction = Transaction()
         transaction.disablesAnimations = true
@@ -1183,10 +1249,135 @@ struct MacImmersivePlayerView: View {
     }
 
     private func revealChrome() {
+        exitLowPower()
         if !showsChrome {
             withAnimation(.easeInOut(duration: 0.22)) { showsChrome = true }
         }
         scheduleChromeHide()
+        scheduleLowPower()
+    }
+
+    // MARK: - 省电
+
+    /// 15 分钟没动鼠标、没按键：压暗、停下装饰动画与频谱，叠上时钟和当前歌词。动一下鼠标就回来。
+    private func scheduleLowPower() {
+        idleTask?.cancel()
+        guard isRenderingActive,
+              !voiceOverEnabled,
+              let delay = ImmersiveIdlePowerPolicy.delayToNextStage(from: .awake, restsEarly: false) else { return }
+        idleTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled,
+                  isRenderingActive,
+                  isStageReady,
+                  !voiceOverEnabled,
+                  scrubPreview == nil,
+                  !showsEffectPicker else { return }
+            enterLowPower()
+        }
+    }
+
+    private func enterLowPower() {
+        chromeTask?.cancel()
+        withAnimation(.easeInOut(duration: 1.2)) {
+            showsChrome = false
+            isLowPower = true
+        }
+        updateVisualizer(for: presentationEffect)
+        restDriftTask?.cancel()
+        restDriftStep = 0
+        guard !reduceMotion else { return }
+        // 防烧屏：隔一阵挪一小步，挪的那几秒缓缓过去，其余时间不重画。
+        restDriftTask = Task { @MainActor in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(ImmersiveIdlePowerPolicy.driftStepInterval))
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled, isLowPower else { return }
+                withAnimation(.easeInOut(duration: ImmersiveIdlePowerPolicy.driftStepDuration)) {
+                    restDriftStep += 1
+                }
+            }
+        }
+    }
+
+    private func exitLowPower() {
+        guard isLowPower else { return }
+        restDriftTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.35)) {
+            isLowPower = false
+            restDriftStep = 0
+        }
+        updateVisualizer(for: presentationEffect)
+    }
+
+    private func restDriftOffset(_ metrics: ImmersiveStageMetrics) -> CGSize {
+        guard isLowPower else { return .zero }
+        let step = ImmersiveIdlePowerPolicy.driftOffset(step: restDriftStep)
+        return CGSize(width: metrics.s(8) * CGFloat(step.x), height: metrics.s(6) * CGFloat(step.y))
+    }
+
+    /// 省电层上的歌词行：只认正在唱的那一句，还没唱到第一句时让歌名顶上。
+    private var restLyric: String? {
+        guard let index = activeLyricIndex, lyrics.indices.contains(index) else { return nil }
+        let value = lyrics[index].text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
+    // MARK: - 封面流(#191)的点按
+
+    /// 点中间那张 = 播放 / 暂停，点两侧某张 = 沿播放顺序跳到那首；点别处照旧只把控件叫出来。
+    /// 省电时第一下只是叫醒。
+    private func handleSurfaceClick(at location: CGPoint, metrics: ImmersiveStageMetrics) {
+        let wasLowPower = isLowPower
+        revealChrome()
+        guard !wasLowPower,
+              presentationEffect == .albumFlow,
+              isStageReady,
+              !showsEffectPicker else { return }
+        let layout = ImmersiveAlbumFlowGeometry.layout(
+            metrics: metrics,
+            platform: .macOS,
+            controlsInset: controlsInset(metrics)
+        )
+        guard let offset = layout.offset(
+            atX: Double(location.x),
+            y: Double(location.y),
+            before: min(flowNeighbors.before.count, layout.neighborsPerSide),
+            after: min(flowNeighbors.after.count, layout.neighborsPerSide),
+            tolerance: 4
+        ) else { return }
+        if offset == 0 {
+            player.togglePlayPause()
+        } else {
+            moveAlbumFlow(by: offset)
+        }
+    }
+
+    /// 整排挪 `steps` 格并换到那首。那一边有那张就先把它滑到中间，换歌落地时整排正好接上；
+    /// 没有（队首、队尾）就弹回原处，照旧交给上一首 / 下一首决定去哪。
+    private func moveAlbumFlow(by steps: Int) {
+        guard steps != 0 else { return }
+        let available = steps > 0 ? flowNeighbors.after.count : flowNeighbors.before.count
+        let startCenter = flowNeighbors.centerID
+        withAnimation(.smooth(duration: 0.42)) {
+            flowShift = abs(steps) <= available ? Double(steps) : 0
+        }
+        Task { @MainActor in
+            let moved = await player.skipAlongQueue(by: steps)
+            // 换歌那一刻已经把整排接好；没换过去（音乐源连不上、队列到头）就弹回来。
+            guard flowNeighbors.centerID == startCenter else { return }
+            if moved { refreshFlowNeighbors() }
+            if flowShift != 0 {
+                withAnimation(.smooth(duration: 0.35)) { flowShift = 0 }
+            }
+        }
     }
 
     private func scheduleChromeHide() {
@@ -1262,6 +1453,29 @@ private struct MacImmersiveScrubber: View {
 
 /// Scopes the large library array observation to an inert zero-size child.
 /// Metadata-only publications no longer invalidate the full immersive root.
+/// 封面流两侧跟着播放队列走。只在这一层读队列的几个修订号，队列变了才叫一次刷新，
+/// 沉浸页本身不因为队列里的每次改动重算。
+private struct MacImmersiveQueueObserver: View {
+    @Environment(AudioPlayerService.self) private var player
+    let onChange: () -> Void
+
+    private var revision: [Int] {
+        [
+            player.queueGeneration,
+            player.queueEntries.count,
+            player.currentIndex,
+            player.shuffleEnabled ? 1 : 0,
+            player.shufflePosition,
+        ]
+    }
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onChange(of: revision) { _, _ in onChange() }
+    }
+}
+
 private struct MacImmersiveLibraryCountObserver: View {
     @Environment(MusicLibrary.self) private var library
     let onCountChange: () -> Void

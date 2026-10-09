@@ -6,7 +6,7 @@ import PrimuseKit
 /// iOS 全屏沉浸播放。
 ///
 /// iOS 使用点按、上下/左右滑动与捏合；控件按 3.5 秒静默时序淡出，
-/// 连续 5 分钟无操作后进入低亮度 Ambient Rest。
+/// 连续 5 分钟无操作后进入低亮度 Ambient Rest，15 分钟起再降到省电档（见 `ImmersiveIdlePowerPolicy`）。
 struct ImmersivePlayerView: View {
     @Binding var effect: FullscreenPlayerEffect
     let lyrics: [LyricLine]
@@ -47,13 +47,23 @@ struct ImmersivePlayerView: View {
     @State private var chromeTask: Task<Void, Never>?
     @State private var ambientTask: Task<Void, Never>?
     @State private var isAmbientRest = false
-    @State private var ambientDrift = false
+    /// 休憩之后又过了一阵没人碰：再暗一档，装饰动画、频谱与动态封面停下。
+    @State private var isLowPower = false
+    /// 休憩时防烧屏的漂移走到第几步（隔一阵挪一步，见 `ImmersiveIdlePowerPolicy.driftOffset`）。
+    @State private var ambientDriftStep = 0
+    @State private var ambientDriftTask: Task<Void, Never>?
     @State private var isSeeking = false
     @State private var seekPreviewTime: TimeInterval?
     @State private var hasResolvedArtwork = true
     @State private var hasEntered = false
     @State private var gallerySongs: [Song] = []
     @State private var flowNeighbors = AlbumFlowNeighbors()
+    /// 封面流(#191)整排挪了几格：横向拖动时跟着手走，松手后归位或挪满一格再换歌。
+    @State private var flowShift: Double = 0
+    /// 这一次拖动是不是在拖封面流（横向起手）；nil 是还没定方向。
+    @State private var isDraggingFlow: Bool?
+    /// 认定是拖封面流那一刻的横向位移：从这里起算，整排不会一上来先跳一截。
+    @State private var flowDragOrigin: CGFloat = 0
     @State private var showsEffectPicker = false
     @State private var activeLyricIndex: Int?
     @State private var lyricInterlude = false
@@ -81,7 +91,8 @@ struct ImmersivePlayerView: View {
 
     private var visualActivityPolicy: NowPlayingVisualActivityPolicy {
         NowPlayingVisualActivityPolicy(
-            isSceneActive: isSceneActive,
+            // 省电档里频谱停下，舞台上的频谱层停在最后一帧。
+            isSceneActive: isSceneActive && !isLowPower,
             isPlaying: player.isPlaying,
             usesRealtimeSpectrum: presentationEffect.usesRealtimeSpectrum,
             reduceMotion: reduceMotion
@@ -108,12 +119,11 @@ struct ImmersivePlayerView: View {
                     // 开合、转屏让舞台换构图(竖版 / 横版)时新构图淡入。
                     .pmLayoutChangeFade(metrics.layout)
                     .scaleEffect(isAmbientRest ? 1.018 : 1)
-                    .offset(
-                        x: isAmbientRest ? (ambientDrift ? metrics.s(8) : -metrics.s(8)) : 0,
-                        y: isAmbientRest ? (ambientDrift ? -metrics.s(6) : metrics.s(6)) : 0
-                    )
+                    .offset(ambientDriftOffset(metrics))
                     .overlay {
-                        if isAmbientRest { Color.black.opacity(0.60) }
+                        if isAmbientRest {
+                            Color.black.opacity(ImmersiveIdlePowerPolicy.dimOpacity(for: isLowPower ? .lowPower : .resting))
+                        }
                     }
 
                 Color.clear
@@ -132,7 +142,7 @@ struct ImmersivePlayerView: View {
                                     }
                             )
                     )
-                    .simultaneousGesture(surfaceDrag(in: geometry.size))
+                    .simultaneousGesture(surfaceDrag(in: geometry.size, metrics: metrics))
                     .simultaneousGesture(modeMagnification)
 
                 if isAmbientRest {
@@ -179,6 +189,7 @@ struct ImmersivePlayerView: View {
             }
             .animation(.easeInOut(duration: 0.26), value: showsChrome)
             .animation(.easeInOut(duration: 0.35), value: isAmbientRest)
+            .animation(.easeInOut(duration: 1.2), value: isLowPower)
         }
         .ignoresSafeArea()
         .environment(\.colorScheme, presentationEffect.prefersLightContent ? .light : .dark)
@@ -218,8 +229,14 @@ struct ImmersivePlayerView: View {
                 if isSceneActive { refreshGallerySongs() }
             }
         }
+        .background {
+            ImmersiveQueueObserver {
+                if isSceneActive { refreshFlowNeighbors() }
+            }
+        }
         .onChange(of: presentationEffect) { _, _ in
             synchronizeVisualizer()
+            if isSceneActive { refreshFlowNeighbors() }
         }
         .onChange(of: frameRateRawValue) { _, _ in
             synchronizeVisualizer()
@@ -270,6 +287,7 @@ struct ImmersivePlayerView: View {
         .onDisappear {
             chromeTask?.cancel()
             ambientTask?.cancel()
+            ambientDriftTask?.cancel()
             visualizerRetryTask?.cancel()
             visualizer.release(owner: visualizerOwnerID)
         }
@@ -335,6 +353,7 @@ struct ImmersivePlayerView: View {
                 )
             },
             flowItemID: { flowNeighbors.itemID(at: $0) },
+            flowShift: flowShift,
             isRenderingActive: isSceneActive,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
@@ -345,6 +364,7 @@ struct ImmersivePlayerView: View {
                 : String(localized: "no_lyrics"),
             controlsInset: controlsInset(metrics),
             isResting: isAmbientRest,
+            isLowPower: isLowPower,
             showsPlaybackProgress: showsChrome && !isAmbientRest
         ) { side in
             ZStack {
@@ -361,7 +381,7 @@ struct ImmersivePlayerView: View {
                         presentationRole: .animatedHero,
                         animationRequiresPlayback: true,
                         isPlaying: player.isPlaying,
-                        isAnimationVisible: isSceneActive,
+                        isAnimationVisible: isSceneActive && !isLowPower,
                         revisionToken: player.coverRevision,
                         onResolutionChange: { hasResolvedArtwork = $0 }
                     )
@@ -887,12 +907,21 @@ struct ImmersivePlayerView: View {
         refreshGallerySongs()
     }
 
+    /// 封面流两侧随播放队列走：换歌、加歌、调序、开关随机都重取一次。别的效果用不上，不取。
+    private func refreshFlowNeighbors() {
+        let updated = presentationEffect == .albumFlow
+            // 比放得下的多取一张：拖动时最外那张从画布边外滑进来。
+            ? player.albumFlowNeighbors(perSide: AlbumFlowLayoutPolicy.maximumNeighborsPerSide + 1)
+            : AlbumFlowNeighbors()
+        guard updated != flowNeighbors else { return }
+        flowNeighbors = updated
+        // 换歌落地：整排已按新位置排好，拖动、点按时挪出去的那几格清零，画面不跳。
+        flowShift = 0
+    }
+
     /// 每次切歌只取一次稳定样本，避免实时频谱刷新时反复扫描整个资料库。
     private func refreshGallerySongs() {
-        flowNeighbors = library.albumFlowNeighbors(
-            for: player.currentSong,
-            perSide: AlbumFlowLayoutPolicy.maximumNeighborsPerSide
-        )
+        refreshFlowNeighbors()
         let currentID = player.currentSong?.id
         // Stride through the library and test each stop, instead of filtering
         // the whole library first: that copied and trimmed every song on the
@@ -1168,9 +1197,17 @@ struct ImmersivePlayerView: View {
         presentationEffect.chromeFamily == .lyrics ? 34 : 112
     }
 
-    private func surfaceDrag(in size: CGSize) -> some Gesture {
+    private func surfaceDrag(in size: CGSize, metrics: ImmersiveStageMetrics) -> some Gesture {
         DragGesture(minimumDistance: 24)
+            .onChanged { value in
+                updateAlbumFlowDrag(value, in: size, metrics: metrics)
+            }
             .onEnded { value in
+                if isDraggingFlow == true {
+                    finishAlbumFlowDrag(value, metrics: metrics)
+                    return
+                }
+                isDraggingFlow = nil
                 // 抽屉开着时舞台只负责"点一下收起",不再响应切歌与退出。
                 guard !showsEffectPicker else { return }
                 guard !isControlZone(value.startLocation, in: size) else { return }
@@ -1194,6 +1231,77 @@ struct ImmersivePlayerView: View {
                     onMinimize()
                 }
             }
+    }
+
+    // MARK: - 封面流(#191)的拖动与点按
+
+    private func albumFlowLayout(_ metrics: ImmersiveStageMetrics) -> AlbumFlowLayoutPolicy.Layout {
+        ImmersiveAlbumFlowGeometry.layout(
+            metrics: metrics,
+            platform: .iOS,
+            controlsInset: controlsInset(metrics)
+        )
+    }
+
+    /// 横向起手就是在拖封面流：整排跟着手走。竖着起手照旧交给上下滑（收起 / 缩小）。
+    private func updateAlbumFlowDrag(
+        _ value: DragGesture.Value,
+        in size: CGSize,
+        metrics: ImmersiveStageMetrics
+    ) {
+        if isDraggingFlow == nil {
+            guard presentationEffect == .albumFlow,
+                  !showsEffectPicker,
+                  !isControlZone(value.startLocation, in: size) else { return }
+            let isHorizontal = abs(value.translation.width) > abs(value.translation.height)
+            isDraggingFlow = isHorizontal
+            guard isHorizontal else { return }
+            flowDragOrigin = value.translation.width
+            exitAmbientRest()
+        }
+        guard isDraggingFlow == true else { return }
+        flowShift = albumFlowLayout(metrics).dragShift(
+            translation: Double(value.translation.width - flowDragOrigin),
+            hasBefore: !flowNeighbors.before.isEmpty,
+            hasAfter: !flowNeighbors.after.isEmpty
+        )
+    }
+
+    /// 松手：拖过三分之一格或甩得够快就换到那一边，否则弹回。
+    private func finishAlbumFlowDrag(_ value: DragGesture.Value, metrics: ImmersiveStageMetrics) {
+        isDraggingFlow = nil
+        registerInteraction(revealControls: false)
+        let predicted = albumFlowLayout(metrics).dragShift(
+            translation: Double(value.predictedEndTranslation.width - flowDragOrigin),
+            hasBefore: true,
+            hasAfter: true
+        )
+        let step = AlbumFlowLayoutPolicy.releaseStep(shift: flowShift, predictedShift: predicted)
+        guard step != 0 else {
+            withAnimation(.smooth(duration: 0.35)) { flowShift = 0 }
+            return
+        }
+        moveAlbumFlow(by: step)
+    }
+
+    /// 整排挪 `steps` 格并换到那首。那一边有那张就先把它滑到中间，换歌落地时整排正好接上；
+    /// 没有（队首、队尾）就弹回原处，照旧交给上一首 / 下一首决定去哪（例如全部循环时回到队首）。
+    private func moveAlbumFlow(by steps: Int) {
+        guard steps != 0 else { return }
+        let available = steps > 0 ? flowNeighbors.after.count : flowNeighbors.before.count
+        let startCenter = flowNeighbors.centerID
+        withAnimation(.smooth(duration: 0.42)) {
+            flowShift = abs(steps) <= available ? Double(steps) : 0
+        }
+        Task { @MainActor in
+            let moved = await player.skipAlongQueue(by: steps)
+            // 换歌那一刻已经把整排接好；没换过去（音乐源连不上、队列到头）就弹回来。
+            guard flowNeighbors.centerID == startCenter else { return }
+            if moved { refreshFlowNeighbors() }
+            if flowShift != 0 {
+                withAnimation(.smooth(duration: 0.35)) { flowShift = 0 }
+            }
+        }
     }
 
     private var modeMagnification: some Gesture {
@@ -1220,18 +1328,22 @@ struct ImmersivePlayerView: View {
         presentationEffect == .albumFlow && onShowAlbum != nil ? 0.5 : 86_400
     }
 
-    /// 封面流(#191)：点中间那张封面 = 播放 / 暂停。点到别处照旧切换控件显隐。
+    /// 封面流(#191)：点中间那张 = 播放 / 暂停，点两侧某一张 = 沿播放顺序跳到那首。点到别处照旧切换控件显隐。
     private func handleAlbumFlowTap(at location: CGPoint, metrics: ImmersiveStageMetrics) -> Bool {
         guard presentationEffect == .albumFlow, !showsEffectPicker, !isAmbientRest else { return false }
-        let layout = ImmersiveAlbumFlowGeometry.layout(
-            metrics: metrics,
-            platform: .iOS,
-            controlsInset: controlsInset(metrics)
-        )
-        guard layout.centerContains(x: Double(location.x), y: Double(location.y), tolerance: 8) else {
-            return false
+        let layout = albumFlowLayout(metrics)
+        guard let offset = layout.offset(
+            atX: Double(location.x),
+            y: Double(location.y),
+            before: min(flowNeighbors.before.count, layout.neighborsPerSide),
+            after: min(flowNeighbors.after.count, layout.neighborsPerSide),
+            tolerance: 8
+        ) else { return false }
+        if offset == 0 {
+            player.togglePlayPause()
+        } else {
+            moveAlbumFlow(by: offset)
         }
-        player.togglePlayPause()
         registerInteraction(revealControls: false)
         return true
     }
@@ -1291,19 +1403,64 @@ struct ImmersivePlayerView: View {
             showsChrome = false
             isAmbientRest = true
         }
-        guard !reduceMotion else { return }
-        ambientDrift = false
-        withAnimation(.linear(duration: 90).repeatForever(autoreverses: true)) {
-            ambientDrift = true
+        startAmbientDrift()
+        scheduleLowPower()
+    }
+
+    /// 休憩之后再过一阵还没人碰，就降到省电档。
+    private func scheduleLowPower() {
+        ambientTask?.cancel()
+        guard let delay = ImmersiveIdlePowerPolicy.delayToNextStage(from: .resting, restsEarly: true) else { return }
+        ambientTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, isAmbientRest, isSceneActive else { return }
+            withAnimation(.easeInOut(duration: 1.2)) { isLowPower = true }
+            synchronizeVisualizer()
         }
+    }
+
+    /// 防烧屏：休憩时整幅画面隔一阵挪一小步，挪的那几秒缓缓过去，其余时间不重画。
+    private func startAmbientDrift() {
+        ambientDriftTask?.cancel()
+        ambientDriftStep = 0
+        guard !reduceMotion else { return }
+        ambientDriftTask = Task { @MainActor in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(ImmersiveIdlePowerPolicy.driftStepInterval))
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled, isAmbientRest else { return }
+                withAnimation(.easeInOut(duration: ImmersiveIdlePowerPolicy.driftStepDuration)) {
+                    ambientDriftStep += 1
+                }
+            }
+        }
+    }
+
+    private func ambientDriftOffset(_ metrics: ImmersiveStageMetrics) -> CGSize {
+        guard isAmbientRest else { return .zero }
+        let step = ImmersiveIdlePowerPolicy.driftOffset(step: ambientDriftStep)
+        return CGSize(width: metrics.s(8) * CGFloat(step.x), height: metrics.s(6) * CGFloat(step.y))
     }
 
     private func exitAmbientRest() {
         guard isAmbientRest else { return }
+        ambientDriftTask?.cancel()
+        let wasLowPower = isLowPower
         withAnimation(.easeInOut(duration: 0.35)) {
             isAmbientRest = false
-            ambientDrift = false
+            isLowPower = false
+            ambientDriftStep = 0
         }
+        if wasLowPower { synchronizeVisualizer() }
+        // 从休憩里叫醒之后重新计时，下一次没人碰时照样会再休憩。
+        scheduleAmbientRest()
     }
 
     // MARK: - 频谱与控件淡出
@@ -1364,13 +1521,16 @@ struct ImmersivePlayerView: View {
         visualizerRetryTask?.cancel()
         visualizerRetryTask = nil
 
+        ambientDriftTask?.cancel()
+
         guard isActive else {
             visualizer.release(owner: visualizerOwnerID)
             var transaction = Transaction()
             transaction.disablesAnimations = true
             withTransaction(transaction) {
                 isAmbientRest = false
-                ambientDrift = false
+                isLowPower = false
+                ambientDriftStep = 0
             }
             return
         }
@@ -1380,7 +1540,8 @@ struct ImmersivePlayerView: View {
         withTransaction(transaction) {
             showsChrome = true
             isAmbientRest = false
-            ambientDrift = false
+            isLowPower = false
+            ambientDriftStep = 0
         }
         refreshArtworkInputs()
         synchronizeVisualizer()
@@ -1430,6 +1591,29 @@ struct ImmersivePlayerView: View {
                   !showsEffectPicker else { return }
             withAnimation(.easeInOut(duration: 0.26)) { showsChrome = false }
         }
+    }
+}
+
+/// 封面流两侧跟着播放队列走。只在这一层读队列的几个修订号，队列变了才叫一次刷新，
+/// 全屏页本身不因为队列里的每次改动重算。
+private struct ImmersiveQueueObserver: View {
+    @Environment(AudioPlayerService.self) private var player
+    let onChange: () -> Void
+
+    private var revision: [Int] {
+        [
+            player.queueGeneration,
+            player.queueEntries.count,
+            player.currentIndex,
+            player.shuffleEnabled ? 1 : 0,
+            player.shufflePosition,
+        ]
+    }
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onChange(of: revision) { _, _ in onChange() }
     }
 }
 

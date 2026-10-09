@@ -1405,8 +1405,8 @@
 "fullscreen_effect_particle_bloom_subtitle" = "Gwiezdny pył rozchodzi się od okładki i rozbłyska w rytm";
 "fullscreen_effect_particle_bloom_motion" = "Widmo w czasie rzeczywistym · Cząstki rozkwitają na basie";
 "fullscreen_effect_cover_flow" = "Cover Flow";
-"fullscreen_effect_cover_flow_subtitle" = "Odtwarzany album patrzy na ciebie, a sąsiednie albumy z biblioteki stoją ukośnie po bokach na szklanej podłodze";
-"fullscreen_effect_cover_flow_motion" = "Boczne okładki zwracają się ku odtwarzanemu albumowi · Szklana podłoga odbija jego kolor";
+"fullscreen_effect_cover_flow_subtitle" = "Odtwarzany utwór patrzy na ciebie, odtworzone i następne stoją ukośnie po bokach na szklanej podłodze, a tekst pod odbiciem";
+"fullscreen_effect_cover_flow_motion" = "Przy każdej zmianie utworu rząd przesuwa się o jedną okładkę · Szklana podłoga odbija kolor albumu";
 "fullscreen_effect_native" = "Oryginał";
 "fullscreen_effect_native_motion" = "Przejście natywne · Domyślne";
 "fullscreen_effect_native_subtitle" = "Znajomy układ odtwarzacza i sterowanie";

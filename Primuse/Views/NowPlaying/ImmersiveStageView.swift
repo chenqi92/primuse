@@ -121,14 +121,16 @@ struct ImmersiveStageView<Artwork: View>: View {
     var levelsProvider: (@MainActor () -> [CGFloat])?
     var galleryArtworkCount = 0
     var galleryArtwork: (Int, CGFloat) -> AnyView = { _, _ in AnyView(Color.clear) }
-    /// 封面流(#191)两侧的专辑封面：偏移量 -1…-`flowBeforeCount` 在左、1…`flowAfterCount` 在右；
-    /// 0 是正在播的这张的静态封面，给倒影用。由平台容器按资料库专辑顺序给。
+    /// 封面流(#191)两侧的封面：偏移量 -1…-`flowBeforeCount` 在左（刚放过的）、1…`flowAfterCount` 在右
+    /// （接下来的）；0 是正在播的这首的静态封面，垫在中间那张底下、也给倒影用。由平台容器按播放队列给。
     var flowBeforeCount = 0
     var flowAfterCount = 0
     var flowArtwork: (Int, CGFloat) -> AnyView = { _, _ in AnyView(Color.clear) }
-    /// 偏移量上那张专辑的身份（0 是中间这张）。换专辑时同一张专辑沿用同一个身份，
-    /// 整排从旧位置滑到新位置；没给时按偏移量，换专辑就原地换图。
+    /// 偏移量上那一张的身份（0 是中间这张）。换歌时每张沿用自己的身份，整排从旧位置滑到新位置；
+    /// 没给时按偏移量，换歌就原地换图。
     var flowItemID: (Int) -> String? = { _ in nil }
+    /// 整排挪了几格：手指拖动时跟着手走，向左拖为正。松手后由容器带动画归位或挪满一格再换歌。
+    var flowShift: Double = 0
     var isRenderingActive = true
     var reduceMotion = false
     var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
@@ -141,6 +143,8 @@ struct ImmersiveStageView<Artwork: View>: View {
     var showsClock = false
     /// 休憩时舞台把可读文字淡出，只留画面；时钟与歌词由容器的休憩层负责。
     var isResting = false
+    /// 省电档（`ImmersiveIdlePowerPolicy`）：装饰动画、频谱、唱片转动都停下。
+    var isLowPower = false
     /// 底部细进度条跟随容器的浮动控件一起出现、一起隐去。
     var showsPlaybackProgress = true
     var chromeBlurRadius: CGFloat = 52
@@ -257,8 +261,13 @@ struct ImmersiveStageView<Artwork: View>: View {
         isRenderingActive && track.isPlaying
     }
 
+    /// 装饰性的动态（背景动画、频谱、唱片转动）。省电档里停下，歌词照常跟着播放走。
+    private var decorativeClockIsActive: Bool {
+        playbackClockIsActive && !isLowPower
+    }
+
     private var sceneIsAnimating: Bool {
-        !reduceMotion && playbackClockIsActive
+        !reduceMotion && decorativeClockIsActive
     }
 
     // MARK: - 1. 流动封面墙
@@ -323,8 +332,8 @@ struct ImmersiveStageView<Artwork: View>: View {
 
     // MARK: - 8. 封面流(#191)
 
-    /// 正在播的专辑居中、正对着人，资料库里前后的专辑斜着排在两边，都立在一面映着专辑色的
-    /// 玻璃台面上；背景铺专辑色，歌名在上面。几何与 iOS 全屏页的点按判定共用
+    /// 正在播的这首居中、正对着人，播放队列里刚放过的斜着排在左边、接下来的排在右边，都立在一面映着
+    /// 专辑色的玻璃台面上；背景铺专辑色，歌名在上面，歌词在倒影下面。几何与全屏页的拖动、点按判定共用
     /// `ImmersiveAlbumFlowGeometry`。
     private var albumFlowScene: some View {
         let layout = ImmersiveAlbumFlowGeometry.layout(
@@ -332,19 +341,16 @@ struct ImmersiveStageView<Artwork: View>: View {
             platform: platform,
             controlsInset: controlsInset
         )
+        let lyricFonts = ImmersiveAlbumFlowGeometry.lyricFonts(metrics: metrics, platform: platform)
         let centerSide = CGFloat(layout.centerSide)
-        let neighborSide = CGFloat(layout.neighborSide)
-        let baseline = CGFloat(layout.centerOriginY) + centerSide
+        let baseline = CGFloat(layout.baseline)
         let radius = metrics.f(platform == .tvOS ? 10 : 6)
         let reflection = CGFloat(layout.reflectionFraction)
-        let before = min(flowBeforeCount, layout.neighborsPerSide)
-        let after = min(flowAfterCount, layout.neighborsPerSide)
+        // 每边比放得下的多画一张：拖动时最外那张从画布边外滑进来，边上不会突然空出一块。
+        let before = min(flowBeforeCount, layout.neighborsPerSide + 1)
+        let after = min(flowAfterCount, layout.neighborsPerSide + 1)
         let slots = albumFlowSlots(before: before, after: after)
-        let centerY = CGFloat(layout.centerOriginY)
-            + ImmersiveAlbumFlowCover.height(side: centerSide, reflectionFraction: reflection) / 2
-        // 两侧和中间立在同一条底线上。
-        let neighborY = baseline - neighborSide
-            + ImmersiveAlbumFlowCover.height(side: neighborSide, reflectionFraction: reflection) / 2
+        let textWidth = metrics.size.width - leadingInset - trailingInset
 
         return ZStack(alignment: .topLeading) {
             LinearGradient(
@@ -364,42 +370,43 @@ struct ImmersiveStageView<Artwork: View>: View {
             )
             ImmersiveVignette(color: .black, clearStop: 0.18, strength: 0.42)
 
-            // 每张按专辑身份画：换到前后的专辑时，同一张专辑从旧位置滑到新位置、转过角度，
-            // 中间那张正过来，像 iPod 的封面流翻过去；离得远的跳转就淡入淡出。
+            // 每张按队列条目的身份画：换歌时整排滑过一格，上一首转到左边、下一首转正到中间，
+            // 像 iPod 的封面流翻过去；离得远的跳转就淡入淡出。拖动时按 `flowShift` 跟着手走。
             ZStack(alignment: .topLeading) {
                 ForEach(slots) { slot in
-                    let offset = slot.offset
-                    let isCenter = offset == 0
-                    let side = isCenter ? centerSide : neighborSide
+                    let position = Double(slot.offset) - flowShift
+                    let placement = layout.placement(at: position)
+                    let side = CGFloat(placement.side)
                     ImmersiveAlbumFlowCover(
                         side: side,
+                        artworkSide: centerSide,
                         cornerRadius: radius,
-                        tiltDegrees: offset < 0 ? layout.tiltDegrees : (offset > 0 ? -layout.tiltDegrees : 0),
+                        tiltDegrees: placement.tiltDegrees,
                         reflectionFraction: reflection,
                         tint: palette.primary,
-                        // 中间这张用舞台通用的封面卡片：自带玻璃描边、斜向高光与专辑色投影。
-                        framesCover: !isCenter,
-                        cover: isCenter
-                            ? AnyView(artworkPlate(side: centerSide, radius: radius))
-                            : flowArtwork(offset, neighborSide),
-                        reflectionCover: flowArtwork(offset, side)
+                        // 统一按中间那张的尺寸取图再整张缩放：滑到中间时还是同一张图，不重新取、不闪。
+                        cover: flowArtwork(slot.offset, centerSide),
+                        // 中间这张再叠上舞台通用的封面卡片：动态封面、玻璃描边、斜向高光与专辑色投影。
+                        hero: slot.offset == 0 ? AnyView(artworkPlate(side: centerSide, radius: radius)) : nil
                     )
-                    .opacity(isCenter ? 1 : 1 - Double(abs(offset) - 1) * 0.08)
+                    .opacity(placement.opacity)
                     .position(
-                        x: CGFloat(layout.neighborMidX(offset: offset)),
-                        y: isCenter ? centerY : neighborY
+                        x: CGFloat(placement.midX),
+                        // 大小不一的封面立在同一条底线上。
+                        y: baseline - side
+                            + ImmersiveAlbumFlowCover.height(side: side, reflectionFraction: reflection) / 2
                     )
                     // 外侧的压在下面，越靠中间的越在上面。
-                    .zIndex(-Double(abs(offset)))
+                    .zIndex(-abs(position))
                     .transition(.opacity)
                 }
             }
             .frame(width: metrics.size.width, height: metrics.size.height, alignment: .topLeading)
-            .animation(reduceMotion ? nil : .smooth(duration: 0.55), value: flowItemID(0))
+            .animation(reduceMotion ? nil : .smooth(duration: 0.55), value: slots.map(\.id))
 
-            albumFlowTitle(width: metrics.size.width - leadingInset - trailingInset)
+            albumFlowTitle(width: textWidth)
                 .frame(
-                    width: metrics.size.width - leadingInset - trailingInset,
+                    width: textWidth,
                     height: CGFloat(layout.titleHeight),
                     alignment: .bottom
                 )
@@ -408,19 +415,12 @@ struct ImmersiveStageView<Artwork: View>: View {
                     y: CGFloat(layout.titleOriginY) + CGFloat(layout.titleHeight) / 2
                 )
 
-            // 手机竖屏下面还有空：放当前这行歌词。横屏与大画布留给封面。
-            if metrics.isPortrait {
-                singleLyric(
-                    fontSize: metrics.s(16),
-                    availableWidth: metrics.size.width - leadingInset - trailingInset,
-                    alignment: .center
+            albumFlowLyrics(fonts: lyricFonts, width: textWidth)
+                .frame(width: textWidth, height: CGFloat(layout.lyricHeight), alignment: .top)
+                .position(
+                    x: metrics.size.width / 2,
+                    y: CGFloat(layout.lyricOriginY) + CGFloat(layout.lyricHeight) / 2
                 )
-                    .frame(width: metrics.size.width - leadingInset - trailingInset)
-                    .position(
-                        x: metrics.size.width / 2,
-                        y: baseline + centerSide * reflection + metrics.s(36)
-                    )
-            }
         }
         .frame(width: metrics.size.width, height: metrics.size.height, alignment: .topLeading)
         .environment(\.layoutDirection, .leftToRight)
@@ -431,7 +431,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         let offset: Int
     }
 
-    /// 中间加两侧要画的几张。身份重复（容器没给、或同一张专辑出现两次）时退回按偏移量区分。
+    /// 中间加两侧要画的几张。身份重复（容器没给、或同一条目出现两次）时退回按偏移量区分。
     private func albumFlowSlots(before: Int, after: Int) -> [AlbumFlowSlot] {
         var seen = Set<String>()
         return (-before ... after).map { offset in
@@ -440,6 +440,36 @@ struct ImmersiveStageView<Artwork: View>: View {
             seen.insert(id)
             return AlbumFlowSlot(id: id, offset: offset)
         }
+    }
+
+    /// 封面流的歌词：当前这句（逐字歌词照样扫光），下面再带一句淡一些的下一句；当前这句带译文时
+    /// 让译文占那一行。手机横屏只放当前这句。没歌词时是「暂无歌词」。
+    private func albumFlowLyrics(fonts: ImmersiveAlbumFlowGeometry.LyricFonts, width: CGFloat) -> some View {
+        let current = resolvedCurrentStageLyric
+        let next = fonts.showsNextLine && current?.companions.isEmpty != false
+            ? resolvedFocusLyrics.first { !$0.isActive && $0.offset > 0 }
+            : nil
+        return VStack(spacing: fonts.spacing) {
+            if let current {
+                lyricLine(
+                    current,
+                    fontSize: fonts.current,
+                    lineLimit: fonts.currentLineLimit,
+                    textAlignment: .center
+                )
+                .frame(maxWidth: .infinity)
+            }
+            if let next {
+                lyricLine(next, fontSize: fonts.next, lineLimit: 1, textAlignment: .center)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .frame(width: width)
+        .animation(
+            .easeOut(duration: lyricsMotionEnabled && !reduceMotion ? 0.28 : 0.01),
+            value: resolvedCurrentLyric
+        )
+        .immersiveRestingText(isResting)
     }
 
     private func albumFlowTitle(width: CGFloat) -> some View {
@@ -644,7 +674,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 barWidth: barWidth,
                 isAnimating: sceneIsAnimating,
                 tint: palette.primary,
-                isPlaying: playbackClockIsActive
+                isPlaying: decorativeClockIsActive
             )
             .frame(width: span, height: span)
             .blur(radius: max(4, metrics.f(12)))
@@ -655,7 +685,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 barWidth: barWidth,
                 isAnimating: sceneIsAnimating,
                 tint: palette.primary,
-                isPlaying: playbackClockIsActive
+                isPlaying: decorativeClockIsActive
             )
             .frame(width: span, height: span)
 
@@ -725,7 +755,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         return ZStack(alignment: .topLeading) {
             ImmersiveVinylRecord(
                 palette: palette,
-                isSpinning: playbackClockIsActive,
+                isSpinning: decorativeClockIsActive,
                 reduceMotion: reduceMotion,
                 diameter: diameter
             ) { side in
@@ -1160,7 +1190,8 @@ struct ImmersiveStageView<Artwork: View>: View {
             if isLineActive, line.syllables != nil || hasLineTiming(stageLyric) {
                 TimelineView(.animation(
                     minimumInterval: reduceMotion ? 0.10 : frameRate.minimumInterval(base: 1 / 30),
-                    paused: !playbackClockIsActive
+                    // 休憩时舞台文字已经淡出，逐字扫光不必再按帧画。
+                    paused: !playbackClockIsActive || isResting
                 )) { _ in
                     activeLyricText(
                         stageLyric,
@@ -1202,7 +1233,8 @@ struct ImmersiveStageView<Artwork: View>: View {
             if line.isActive, line.syllables != nil || hasLineTiming(line) {
                 TimelineView(.animation(
                     minimumInterval: reduceMotion ? 0.10 : frameRate.minimumInterval(base: 1 / 30),
-                    paused: !playbackClockIsActive
+                    // 休憩时舞台文字已经淡出，逐字扫光不必再按帧画。
+                    paused: !playbackClockIsActive || isResting
                 )) { _ in
                     activeLyricText(
                         line,
@@ -1455,9 +1487,37 @@ private enum ImmersivePlaybackClock {
 
 // MARK: - 封面流(#191)
 
-/// 封面流的几何：舞台画面与 iOS 全屏页的点按判定（点中间那张 = 播放 / 暂停）共用这一份，
-/// 算法本身在 `AlbumFlowLayoutPolicy`。左右边距与舞台其他场景同一套取值。
+/// 封面流的几何：舞台画面与全屏页的拖动、点按判定（点中间那张 = 播放 / 暂停，点两侧 = 跳到那首）
+/// 共用这一份，算法本身在 `AlbumFlowLayoutPolicy`。左右边距与舞台其他场景同一套取值。
 enum ImmersiveAlbumFlowGeometry {
+    /// 倒影下面那块歌词的字号与行数。歌词区的高度按它固定下来，换句时封面不跟着上下跳。
+    struct LyricFonts {
+        let current: CGFloat
+        let next: CGFloat
+        let currentLineLimit: Int
+        /// 手机横屏高度紧，只放当前这句。
+        let showsNextLine: Bool
+        let spacing: CGFloat
+
+        var height: CGFloat {
+            let currentBlock = current * 1.25 * CGFloat(currentLineLimit)
+            return showsNextLine ? currentBlock + spacing + next * 1.25 : currentBlock
+        }
+    }
+
+    static func lyricFonts(metrics: ImmersiveStageMetrics, platform: ImmersiveStagePlatform) -> LyricFonts {
+        switch metrics.layout {
+        case .phonePortrait:
+            LyricFonts(current: metrics.s(17), next: metrics.s(13), currentLineLimit: 2, showsNextLine: true, spacing: metrics.s(6))
+        case .phoneLandscape:
+            LyricFonts(current: metrics.s(15), next: metrics.s(11), currentLineLimit: 1, showsNextLine: false, spacing: 0)
+        case .wide:
+            platform == .tvOS
+                ? LyricFonts(current: metrics.s(40), next: metrics.s(27), currentLineLimit: 2, showsNextLine: true, spacing: metrics.s(12))
+                : LyricFonts(current: metrics.s(30), next: metrics.s(20), currentLineLimit: 2, showsNextLine: true, spacing: metrics.s(8))
+        }
+    }
+
     static func titleSize(metrics: ImmersiveStageMetrics, platform: ImmersiveStagePlatform) -> CGFloat {
         metrics.s(platform == .tvOS ? 44 : (metrics.isPortrait ? 26 : 21))
     }
@@ -1487,7 +1547,9 @@ enum ImmersiveAlbumFlowGeometry {
             bottomInset: Double(max(metrics.safeArea.bottom, metrics.s(14)) + controlsInset),
             horizontalInset: Double(horizontalInset),
             titleHeight: Double(titleHeight),
-            titleSpacing: Double(metrics.s(platform == .tvOS ? 26 : 12))
+            titleSpacing: Double(metrics.s(platform == .tvOS ? 26 : 12)),
+            lyricHeight: Double(lyricFonts(metrics: metrics, platform: platform).height),
+            lyricSpacing: Double(metrics.s(platform == .tvOS ? 14 : 8))
         )
     }
 }
@@ -1495,15 +1557,19 @@ enum ImmersiveAlbumFlowGeometry {
 /// 封面流里的一张：封面正下方接一截倒影（同一张封面上下翻转，越往下越淡，再叠一层专辑色），
 /// 两者一起绕竖轴转，倒影跟着封面斜。
 private struct ImmersiveAlbumFlowCover: View {
+    /// 画出来多大。
     let side: CGFloat
+    /// 按多大排版、取图：整张卡（封面、倒影、描边）按这个尺寸画好再缩放到 `side`，
+    /// 拖动、滑动途中图片不按新尺寸重新取。
+    let artworkSide: CGFloat
     let cornerRadius: CGFloat
     let tiltDegrees: Double
     let reflectionFraction: CGFloat
     let tint: Color
-    /// 两侧的封面在这里裁圆角、描一道玻璃边；中间那张传进来的已经是成品卡片。
-    let framesCover: Bool
+    /// 这一张的静态封面，封面和倒影都用它。滑到中间、滑出中间都是同一张图，不必重新取。
     let cover: AnyView
-    let reflectionCover: AnyView
+    /// 中间那张叠在上面的成品卡片（动态封面、玻璃描边、投影）；两侧为 nil。
+    let hero: AnyView?
 
     static func gap(side: CGFloat) -> CGFloat { max(side * 0.012, 1) }
 
@@ -1512,25 +1578,28 @@ private struct ImmersiveAlbumFlowCover: View {
     }
 
     var body: some View {
-        VStack(spacing: Self.gap(side: side)) {
-            if framesCover {
-                cover
-                    .frame(width: side, height: side)
-                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .strokeBorder(.white.opacity(0.14), lineWidth: 1)
+        let base = max(artworkSide, 1)
+        VStack(spacing: Self.gap(side: base)) {
+            cover
+                .frame(width: base, height: base)
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(.white.opacity(0.14), lineWidth: 1)
+                }
+                .overlay {
+                    if let hero {
+                        hero
+                            .frame(width: base, height: base)
+                            .transition(.opacity)
                     }
-            } else {
-                cover
-                    .frame(width: side, height: side)
-            }
-            reflectionCover
-                .frame(width: side, height: side)
+                }
+            cover
+                .frame(width: base, height: base)
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 .overlay { tint.opacity(0.22) }
                 .scaleEffect(x: 1, y: -1)
-                .frame(width: side, height: side * reflectionFraction, alignment: .top)
+                .frame(width: base, height: base * reflectionFraction, alignment: .top)
                 .clipped()
                 .mask {
                     LinearGradient(
@@ -1544,13 +1613,17 @@ private struct ImmersiveAlbumFlowCover: View {
                     )
                 }
                 .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
+        .frame(width: base, height: Self.height(side: base, reflectionFraction: reflectionFraction))
+        .scaleEffect(side / base)
+        .frame(width: side, height: Self.height(side: side, reflectionFraction: reflectionFraction))
         .rotation3DEffect(
             .degrees(tiltDegrees),
             axis: (x: 0, y: 1, z: 0),
             perspective: 0.55
         )
-        .accessibilityHidden(tiltDegrees != 0)
+        .accessibilityHidden(hero == nil)
     }
 }
 

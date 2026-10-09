@@ -93,8 +93,10 @@ enum TVImmersiveChromeMotionPolicy {
 }
 
 enum TVImmersiveScreenWakePolicy {
-    static func shouldHoldLease(isMounted: Bool, sceneIsActive: Bool) -> Bool {
-        isMounted && sceneIsActive
+    /// - Parameter systemIdleAllowed: 省电档里又暂停着（`ImmersiveIdlePowerPolicy.holdsScreenAwake`），
+    ///   把屏保与休眠交还给系统。
+    static func shouldHoldLease(isMounted: Bool, sceneIsActive: Bool, systemIdleAllowed: Bool = false) -> Bool {
+        isMounted && sceneIsActive && !systemIdleAllowed
     }
 }
 
@@ -116,6 +118,7 @@ private enum TVImmersiveScreenWakeCoordinator {
 
 private struct TVImmersiveScreenWakeLeaseModifier: ViewModifier {
     let isMounted: Bool
+    var systemIdleAllowed = false
 
     @Environment(\.scenePhase) private var scenePhase
     @State private var ownerID = UUID()
@@ -123,7 +126,8 @@ private struct TVImmersiveScreenWakeLeaseModifier: ViewModifier {
     private var shouldHoldLease: Bool {
         TVImmersiveScreenWakePolicy.shouldHoldLease(
             isMounted: isMounted,
-            sceneIsActive: scenePhase == .active
+            sceneIsActive: scenePhase == .active,
+            systemIdleAllowed: systemIdleAllowed
         )
     }
 
@@ -149,6 +153,7 @@ private struct TVImmersiveScreenWakeLeaseModifier: ViewModifier {
 
 /// tvOS 沉浸播放：56pt 安全区、按需显示的次级控制栏与 8 秒静默淡出；
 /// 长按选择键展开效果选择，控件隐藏时左右单次切歌，Menu 退出。
+/// 15 分钟没碰遥控器就进省电档：压暗、停下装饰动画与频谱，叠上时钟和当前歌词；暂停着就把屏保交还给系统。
 struct TVImmersivePlayerView: View {
     var presentsModePickerOnAppear = false
 
@@ -180,8 +185,14 @@ struct TVImmersivePlayerView: View {
     @State private var showsQueue = false
     @State private var hasResolvedArtwork = true
     @State private var gallerySongs: [TVSong] = []
-    /// 封面流(#191)两侧的专辑，和手机同一份取法；画的时候再转成界面值。
+    /// 封面流(#191)两侧：队列里刚放过的与接下来的几首；画的时候再转成界面值。
     @State private var flowNeighbors = AlbumFlowNeighbors()
+    /// 省电档（`ImmersiveIdlePowerPolicy`）。
+    @State private var isLowPower = false
+    @State private var idleTask: Task<Void, Never>?
+    /// 省电时防烧屏的漂移走到第几步。
+    @State private var restDriftStep = 0
+    @State private var restDriftTask: Task<Void, Never>?
     @State private var activeLyricIndex: Int?
     @State private var lyricInterlude = false
     @Namespace private var chromeFocus
@@ -232,7 +243,24 @@ struct TVImmersivePlayerView: View {
 
             ZStack {
                 stage(metrics: metrics)
+                    .scaleEffect(isLowPower ? 1.018 : 1)
+                    .offset(restDriftOffset(metrics))
+                    .overlay {
+                        if isLowPower {
+                            Color.black.opacity(ImmersiveIdlePowerPolicy.dimOpacity(for: .lowPower))
+                        }
+                    }
                     .accessibilityHidden(showsModePicker)
+
+                if isLowPower {
+                    ImmersiveAmbientRestOverlay(
+                        metrics: metrics,
+                        lyric: restLyric,
+                        title: stageTrack.title,
+                        subtitle: stageTrack.subtitle
+                    )
+                    .transition(.opacity)
+                }
 
                 // 常驻的透明唤醒层避免焦点树在淡出时被重建；显示控件时禁用，
                 // 隐藏控件时承接选择键且关闭系统焦点特效。
@@ -262,6 +290,7 @@ struct TVImmersivePlayerView: View {
             }
             .animation(.easeInOut(duration: reduceMotion ? 0.01 : 0.30), value: showsChrome)
             .animation(.easeInOut(duration: reduceMotion ? 0.01 : 0.26), value: showsModePicker)
+            .animation(.easeInOut(duration: reduceMotion ? 0.01 : 1.2), value: isLowPower)
             .simultaneousGesture(
                 LongPressGesture(minimumDuration: 0.65)
                     .onEnded { _ in presentModePicker() }
@@ -269,10 +298,18 @@ struct TVImmersivePlayerView: View {
         }
         .ignoresSafeArea()
         .modifier(TVImmersiveScreenWakeLeaseModifier(
-            isMounted: presentationActivity.isMounted
+            isMounted: presentationActivity.isMounted,
+            systemIdleAllowed: !ImmersiveIdlePowerPolicy.holdsScreenAwake(
+                stage: isLowPower ? .lowPower : .awake,
+                isPlaying: store.isPlaying
+            )
         ))
         .onExitCommand {
-            if showsModePicker {
+            // 省电时和屏保一样：第一下只是叫醒，不直接退出全屏页。
+            if isLowPower {
+                exitLowPower()
+                scheduleLowPower()
+            } else if showsModePicker {
                 if effect == .native {
                     dismissImmersivePlayer()
                 } else {
@@ -334,7 +371,10 @@ struct TVImmersivePlayerView: View {
         }
         .onChange(of: focusedControl) { _, _ in
             // 遥控在传输键之间移动焦点即视为有操作,重置淡出计时。
-            if showsChrome { scheduleChromeHide() }
+            if showsChrome {
+                scheduleChromeHide()
+                scheduleLowPower()
+            }
         }
         .onChange(of: scrubberFocused) { _, _ in
             scheduleChromeHide()
@@ -346,6 +386,7 @@ struct TVImmersivePlayerView: View {
         }
         .onChange(of: presentationEffect) { _, newValue in
             updateSpectrumAnalysis(for: newValue)
+            refreshFlowNeighbors()
         }
         .onChange(of: frameRateRawValue) { _, _ in
             updateSpectrumAnalysis(for: presentationEffect)
@@ -366,6 +407,11 @@ struct TVImmersivePlayerView: View {
         .background {
             TVImmersiveLibraryCountObserver {
                 refreshGallerySongs()
+            }
+        }
+        .background {
+            TVImmersiveQueueObserver {
+                refreshFlowNeighbors()
             }
         }
         .environment(\.colorScheme, .dark)
@@ -448,6 +494,8 @@ struct TVImmersivePlayerView: View {
             lyricsPlaceholder: PMString("ext.tv.nowPlaying.noLyrics"),
             visualizerDisclosure: PMString("ext.tv.immersive.timelineDisclosure"),
             controlsInset: metrics.s(150),
+            isResting: isLowPower,
+            isLowPower: isLowPower,
             showsPlaybackProgress: showsChrome,
             chromeBlurRadius: 60
         ) { side in
@@ -474,7 +522,7 @@ struct TVImmersivePlayerView: View {
                         presentationRole: .animatedHero,
                         animationRequiresPlayback: true,
                         isPlaying: store.isPlaying,
-                        isAnimationVisible: !showsModePicker && !showsQueue,
+                        isAnimationVisible: !showsModePicker && !showsQueue && !isLowPower,
                         onResolutionChange: { hasResolvedArtwork = $0 }
                     )
                     .opacity(hasResolvedArtwork ? 1 : 0)
@@ -718,11 +766,17 @@ struct TVImmersivePlayerView: View {
         )
     }
 
+    /// 封面流两侧随播放队列走。别的效果用不上，不取。
+    private func refreshFlowNeighbors() {
+        let updated = presentationEffect == .albumFlow
+            // 比放得下的多取一张，换歌滑动时最外那张从画布边外进来。
+            ? store.albumFlowNeighbors(perSide: AlbumFlowLayoutPolicy.maximumNeighborsPerSide + 1)
+            : AlbumFlowNeighbors()
+        if updated != flowNeighbors { flowNeighbors = updated }
+    }
+
     private func refreshGallerySongs() {
-        flowNeighbors = store.library.albumFlowNeighbors(
-            for: store.library.song(id: store.nowPlaying.songID),
-            perSide: AlbumFlowLayoutPolicy.maximumNeighborsPerSide
-        )
+        refreshFlowNeighbors()
         let currentID = store.nowPlaying.songID
         // 在曲库原始数组上筛,只把最后选中的十几首转成界面值,不为整库逐首转换。
         let library = store.songs
@@ -939,6 +993,7 @@ struct TVImmersivePlayerView: View {
         )
         store.engine.setSpectrumAnalysisEnabled(
             presentationActivity.isRenderingActive
+                && !isLowPower
                 && effect != .native
                 && presentation.usesRealtimeSpectrum
         )
@@ -961,6 +1016,7 @@ struct TVImmersivePlayerView: View {
         } else {
             scheduleChromeHide()
         }
+        scheduleLowPower()
     }
 
     private func suspendPresentation(for event: TVImmersivePresentationActivity.Event) {
@@ -969,6 +1025,18 @@ struct TVImmersivePlayerView: View {
         lyricObservationTask = nil
         chromeTask?.cancel()
         chromeTask = nil
+        idleTask?.cancel()
+        idleTask = nil
+        restDriftTask?.cancel()
+        restDriftTask = nil
+        if isLowPower {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                isLowPower = false
+                restDriftStep = 0
+            }
+        }
         store.engine.setSpectrumAnalysisEnabled(false)
     }
 
@@ -1005,6 +1073,13 @@ struct TVImmersivePlayerView: View {
     }
 
     private func handleMoveCommand(_ direction: MoveCommandDirection) {
+        // 省电时第一下只是叫醒，不在黑着的屏幕上切歌。
+        if isLowPower {
+            exitLowPower()
+            scheduleLowPower()
+            return
+        }
+        scheduleLowPower()
         let input: TVImmersiveDirectionalInput
         switch direction {
         case .left: input = .left
@@ -1022,7 +1097,8 @@ struct TVImmersivePlayerView: View {
         )
         switch action {
         case .previousTrack:
-            store.transportBackward()
+            // 封面流里左边那张就是上一首：直接回到它，不先回到这首开头。
+            store.transportBackward(restartCurrentIfNeeded: presentationEffect != .albumFlow)
         case .nextTrack:
             store.transportForward()
         case .revealControls:
@@ -1036,6 +1112,8 @@ struct TVImmersivePlayerView: View {
 
     private func revealChrome(preferScrubber: Bool = false) {
         guard presentationActivity.isRenderingActive else { return }
+        exitLowPower()
+        scheduleLowPower()
         wakesChrome = false
         withAnimation(.easeInOut(duration: TVImmersiveChromeMotionPolicy.duration(
             0.24,
@@ -1101,6 +1179,102 @@ struct TVImmersivePlayerView: View {
             guard presentationActivity.isRenderingActive else { return }
             wakesChrome = true
         }
+    }
+}
+
+extension TVImmersivePlayerView {
+    // MARK: - 省电
+
+    /// 15 分钟没碰遥控器：压暗、停下装饰动画与频谱，叠上时钟和当前歌词。按任意键就回来。
+    fileprivate func scheduleLowPower() {
+        idleTask?.cancel()
+        idleTask = nil
+        guard presentationActivity.isRenderingActive,
+              !assistiveNavigationEnabled,
+              let delay = ImmersiveIdlePowerPolicy.delayToNextStage(from: .awake, restsEarly: false) else { return }
+        idleTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled,
+                  presentationActivity.isRenderingActive,
+                  !showsModePicker,
+                  !scrubberFocused,
+                  !assistiveNavigationEnabled else { return }
+            enterLowPower()
+        }
+    }
+
+    private func enterLowPower() {
+        chromeTask?.cancel()
+        chromeTask = nil
+        focusedControl = nil
+        withAnimation(.easeInOut(duration: TVImmersiveChromeMotionPolicy.duration(1.2, reduceMotion: reduceMotion))) {
+            showsChrome = false
+            showsSeekControls = false
+            isLowPower = true
+        }
+        updateSpectrumAnalysis(for: presentationEffect)
+        Task { @MainActor in
+            await Task.yield()
+            guard presentationActivity.isRenderingActive else { return }
+            wakesChrome = true
+        }
+        restDriftTask?.cancel()
+        restDriftStep = 0
+        guard !reduceMotion else { return }
+        // 防烧屏：隔一阵挪一小步，挪的那几秒缓缓过去，其余时间不重画。
+        restDriftTask = Task { @MainActor in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(ImmersiveIdlePowerPolicy.driftStepInterval))
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled, isLowPower else { return }
+                withAnimation(.easeInOut(duration: ImmersiveIdlePowerPolicy.driftStepDuration)) {
+                    restDriftStep += 1
+                }
+            }
+        }
+    }
+
+    fileprivate func exitLowPower() {
+        guard isLowPower else { return }
+        restDriftTask?.cancel()
+        restDriftTask = nil
+        withAnimation(.easeInOut(duration: TVImmersiveChromeMotionPolicy.duration(0.35, reduceMotion: reduceMotion))) {
+            isLowPower = false
+            restDriftStep = 0
+        }
+        updateSpectrumAnalysis(for: presentationEffect)
+    }
+
+    fileprivate func restDriftOffset(_ metrics: ImmersiveStageMetrics) -> CGSize {
+        guard isLowPower else { return .zero }
+        let step = ImmersiveIdlePowerPolicy.driftOffset(step: restDriftStep)
+        return CGSize(width: metrics.s(8) * CGFloat(step.x), height: metrics.s(6) * CGFloat(step.y))
+    }
+
+    /// 省电层上的歌词行：只认正在唱的那一句，没有时让歌名顶上。
+    fileprivate var restLyric: String? {
+        guard let index = activeLyricIndex, store.lyrics.indices.contains(index) else { return nil }
+        let value = store.lyrics[index].text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+}
+
+/// 封面流两侧跟着播放队列走：接下来的那串一变（换歌、加歌、开关随机）就刷新一次。
+private struct TVImmersiveQueueObserver: View {
+    @Environment(TVStore.self) private var store
+    let onChange: () -> Void
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onChange(of: store.queueUpNextIDs) { _, _ in onChange() }
     }
 }
 

@@ -238,3 +238,75 @@ public enum SpectrumTemporalSmoothing {
         return 1 - powf(1 - base, exponent)
     }
 }
+
+/// 全屏效果页长时间没人碰之后怎么省电。
+///
+/// 两档：「休憩」压暗画面、藏起控件、叠上时钟与当前歌词；「省电」再暗一档，装饰动画、实时频谱与动态封面
+/// 都停下，只剩歌词与时钟跟着走。iPhone / iPad 5 分钟先进休憩、15 分钟进省电；Mac 与电视 15 分钟直接进省电。
+/// 碰一下屏幕、按任意键就回到正常画面。亮色的画面（封面流的专辑色台面、白色主题色）在 OLED 屏上
+/// 每个像素都在发光，压暗与停帧是这里省得最多的两处。
+public enum ImmersiveIdlePowerPolicy {
+    public enum Stage: Int, Comparable, Sendable {
+        case awake
+        case resting
+        case lowPower
+
+        public static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
+    }
+
+    /// iPhone / iPad 先进休憩的时间（原有的「休憩模式」）。
+    public static let handheldRestDelay: TimeInterval = 5 * 60
+    /// 进省电档的时间，从最后一次操作算起。
+    public static let lowPowerDelay: TimeInterval = 15 * 60
+
+    /// `stage` 之后的下一档；已是最后一档时为 nil。`restsEarly`：iPhone / iPad 先进休憩。
+    public static func nextStage(after stage: Stage, restsEarly: Bool) -> Stage? {
+        switch stage {
+        case .awake: restsEarly ? .resting : .lowPower
+        case .resting: .lowPower
+        case .lowPower: nil
+        }
+    }
+
+    /// 进入 `stage` 之后再等多久进下一档；已是最后一档时为 nil。
+    public static func delayToNextStage(from stage: Stage, restsEarly: Bool) -> TimeInterval? {
+        switch stage {
+        case .awake: restsEarly ? handheldRestDelay : lowPowerDelay
+        case .resting: restsEarly ? lowPowerDelay - handheldRestDelay : lowPowerDelay
+        case .lowPower: nil
+        }
+    }
+
+    /// 盖在舞台上的黑色不透明度：休憩压掉六成亮度，省电压掉八成。
+    public static func dimOpacity(for stage: Stage) -> Double {
+        switch stage {
+        case .awake: 0
+        case .resting: 0.60
+        case .lowPower: 0.80
+        }
+    }
+
+    /// 装饰动画、实时频谱与动态封面在这一档还跑不跑。
+    public static func runsDecorativeMotion(in stage: Stage) -> Bool {
+        stage != .lowPower
+    }
+
+    /// 休憩与省电时整幅画面隔一阵挪一小步（防烧屏），挪的那几秒缓缓过去，其余时间不重画。
+    public static let driftStepInterval: TimeInterval = 60
+    public static let driftStepDuration: TimeInterval = 8
+
+    /// 第 `step` 步落在哪：四个角轮流走（±1，由容器乘上幅度），不会连着两步停在同一处。
+    public static func driftOffset(step: Int) -> (x: Double, y: Double) {
+        switch ((step % 4) + 4) % 4 {
+        case 0: (-1, 1)
+        case 1: (1, -1)
+        case 2: (1, 1)
+        default: (-1, -1)
+        }
+    }
+
+    /// 电视：全屏效果开着时系统屏保是被挡住的；省电档里又暂停着，就把屏保交还给系统。
+    public static func holdsScreenAwake(stage: Stage, isPlaying: Bool) -> Bool {
+        stage != .lowPower || isPlaying
+    }
+}
