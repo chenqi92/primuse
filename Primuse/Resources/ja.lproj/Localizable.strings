@@ -5627,7 +5627,7 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "再生画面のボタン";
-"player_controls_footer" = "点線の枠をタップするとボタンを変えられます。空けておくこともできます。画面にないボタンは「その他」メニューにあります。横向きの iPhone と iPad は同じボタンをそれぞれのレイアウトに並べます。iCloud で同期されます。オーディオブックとポッドキャストの再生画面は変わりません。";
+"player_controls_footer" = "点線の枠をタップするとボタンを変えられます。空けておくこともできます。画面にないボタンは「その他」メニューにあります。横向きの iPhone、iPad、折りたたみ端末のサイド列は同じボタンをそれぞれのレイアウトに並べます。iCloud で同期されます。";
 "player_controls_status_header" = "最下行";
 "player_controls_status_source" = "ミュージックソース";
 "player_controls_status_output" = "出力デバイス";
@@ -5654,3 +5654,9 @@
 "player_controls_unavailable_speed_apple_music" = "Apple Music の曲は再生速度を変えられません。";
 "player_controls_unavailable_speed_high_fidelity" = "高音質ダイレクトでは音声をそのまま出力デバイスに送るため、速度を変えられません。速度を調整するにはエフェクト出力に切り替えてください。";
 "player_controls_unavailable_cast_apple_music" = "Apple Music の曲はネットワーク上のデバイスにキャストできません。";
+"player_controls_tiles_header" = "機能タイル";
+"player_controls_tiles_footer" = "長押ししてドラッグすると順番を変えられます。オフにしたタイルも「その他」メニューにあります。";
+"player_controls_spoken_buttons_header" = "そのほかのボタン";
+"player_controls_spoken_transcript" = "文字起こしボタン";
+"player_controls_spoken_chapters" = "前の章 / 次の章";
+"player_controls_spoken_buttons_footer" = "オフにした「好き」と文字起こしボタンは「その他」メニューに移ります。カバーをタップしても文字起こしを開けます。章は目次から、またはスキップボタンの長押しで移動できます。";

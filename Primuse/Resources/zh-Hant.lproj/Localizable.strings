@@ -5603,7 +5603,7 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "播放頁按鈕";
-"player_controls_footer" = "點虛線框換按鈕，也可以留空。沒放在頁面上的按鈕都在「更多」裡；手機橫向和 iPad 依各自的版面擺放同一組按鈕。設定經 iCloud 同步，有聲書和 Podcast 的播放頁不受影響。";
+"player_controls_footer" = "點虛線框換按鈕，也可以留空。沒放在頁面上的按鈕都在「更多」裡；手機橫向、iPad 和摺疊螢幕側欄依各自的版面擺放同一組按鈕。設定經 iCloud 同步。";
 "player_controls_status_header" = "最下面一行";
 "player_controls_status_source" = "音樂來源";
 "player_controls_status_output" = "輸出裝置";
@@ -5630,3 +5630,9 @@
 "player_controls_unavailable_speed_apple_music" = "Apple Music 的歌曲不能調整播放速度。";
 "player_controls_unavailable_speed_high_fidelity" = "高傳真直通會把音訊原樣送到輸出裝置，不能變速。切換到音效輸出後就能調速。";
 "player_controls_unavailable_cast_apple_music" = "Apple Music 的歌曲不能投放到區域網路裝置。";
+"player_controls_tiles_header" = "功能塊";
+"player_controls_tiles_footer" = "按住拖移可以換順序。關掉的功能塊在「更多」裡仍然找得到。";
+"player_controls_spoken_buttons_header" = "其他按鈕";
+"player_controls_spoken_transcript" = "文字稿鍵";
+"player_controls_spoken_chapters" = "上一章 / 下一章";
+"player_controls_spoken_buttons_footer" = "關掉的喜歡和文字稿鍵會出現在「更多」裡，點封面也能打開文字稿；章節可以從目錄跳轉，長按倒轉、快轉鍵也能跳章。";

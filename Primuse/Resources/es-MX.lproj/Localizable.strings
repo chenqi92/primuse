@@ -5532,7 +5532,7 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "Botones del reproductor";
-"player_controls_footer" = "Toca un recuadro punteado para cambiar su botón o déjalo vacío. Los botones que no están en la página aparecen en Más; el iPhone en horizontal y el iPad acomodan los mismos botones según su diseño. Se sincroniza con iCloud. Los reproductores de audiolibros y podcasts no cambian.";
+"player_controls_footer" = "Toca un recuadro punteado para cambiar su botón o déjalo vacío. Los botones que no están en la página aparecen en Más; el iPhone en horizontal, el iPad y la columna lateral del plegable acomodan los mismos botones según su diseño. Se sincroniza con iCloud.";
 "player_controls_status_header" = "Línea inferior";
 "player_controls_status_source" = "Fuente de música";
 "player_controls_status_output" = "Dispositivo de salida";
@@ -5559,3 +5559,9 @@
 "player_controls_unavailable_speed_apple_music" = "No se puede cambiar la velocidad de las canciones de Apple Music.";
 "player_controls_unavailable_speed_high_fidelity" = "Alta fidelidad directa envía el audio sin cambios al dispositivo de salida, así que la velocidad no puede cambiar. Cambia a la salida con efectos para ajustar la velocidad.";
 "player_controls_unavailable_cast_apple_music" = "Las canciones de Apple Music no se pueden transmitir a dispositivos de tu red.";
+"player_controls_tiles_header" = "Mosaicos de funciones";
+"player_controls_tiles_footer" = "Mantén presionado y arrastra para cambiar el orden. Los mosaicos que desactives siguen en Más.";
+"player_controls_spoken_buttons_header" = "Otros botones";
+"player_controls_spoken_transcript" = "Botón de transcripción";
+"player_controls_spoken_chapters" = "Capítulo anterior / siguiente";
+"player_controls_spoken_buttons_footer" = "Al desactivarlos, Me gusta y el botón de transcripción pasan a Más; también puedes tocar la portada para abrir la transcripción. Cambia de capítulo desde el contenido o manteniendo presionados los botones de salto.";

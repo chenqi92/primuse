@@ -342,6 +342,8 @@ struct SpokenWordActionTiles: View {
     var layout: Layout = .tiles
     var showsContents = true
     var tileHeight: CGFloat = 56
+    /// 按「播放页按钮」的配置摆哪几块、什么顺序。nil 是原来的固定摆法(Mac 用)。
+    var tiles: [SpokenWordControlTile]? = nil
     let onSleep: () -> Void
     let onContents: () -> Void
     /// 播客的「接下来」。给了才有这一块(书没有队列可看)。
@@ -354,12 +356,30 @@ struct SpokenWordActionTiles: View {
 
     var body: some View {
         HStack(spacing: layout == .tiles ? 8 : 0) {
-            rateTile
-            sleepTile
-            // 播客把「书签」让给「接下来」:书签仍在说明面板里,也能从那里加。
-            // 目录常驻在旁边一栏时(iPad、Mac)位置够,书签留着。
-            if !isPodcast || !showsContents || onUpNext == nil { bookmarkTile }
-            if showsContents { contentsTile }
+            if let tiles {
+                ForEach(tiles) { tile in
+                    tileView(tile)
+                }
+            } else {
+                rateTile
+                sleepTile
+                // 播客把「书签」让给「接下来」:书签仍在说明面板里,也能从那里加。
+                // 目录常驻在旁边一栏时(iPad、Mac)位置够,书签留着。
+                if !isPodcast || !showsContents || onUpNext == nil { bookmarkTile }
+                if showsContents { contentsTile }
+                if isPodcast, let onUpNext { upNextTile(onUpNext) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func tileView(_ tile: SpokenWordControlTile) -> some View {
+        switch tile {
+        case .speed: rateTile
+        case .sleepTimer: sleepTile
+        case .bookmark: bookmarkTile
+        case .contents: contentsTile
+        case .upNext:
             if isPodcast, let onUpNext { upNextTile(onUpNext) }
         }
     }

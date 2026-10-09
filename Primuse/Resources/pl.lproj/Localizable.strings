@@ -5532,7 +5532,7 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "Przyciski odtwarzacza";
-"player_controls_footer" = "Stuknij przerywaną ramkę, aby zmienić przycisk, albo zostaw ją pustą. Przyciski, których nie ma na stronie, są w menu Więcej; iPhone w poziomie i iPad układają te same przyciski według własnego układu. Synchronizowane przez iCloud. Odtwarzacze audiobooków i podcastów się nie zmieniają.";
+"player_controls_footer" = "Stuknij przerywaną ramkę, aby zmienić przycisk, albo zostaw ją pustą. Przyciski, których nie ma na stronie, są w menu Więcej; iPhone w poziomie, iPad i boczna kolumna składanego urządzenia układają te same przyciski według własnego układu. Synchronizowane przez iCloud.";
 "player_controls_status_header" = "Dolny wiersz";
 "player_controls_status_source" = "Źródło muzyki";
 "player_controls_status_output" = "Urządzenie wyjściowe";
@@ -5559,3 +5559,9 @@
 "player_controls_unavailable_speed_apple_music" = "W utworach z Apple Music nie można zmienić prędkości odtwarzania.";
 "player_controls_unavailable_speed_high_fidelity" = "Bezpośrednie odtwarzanie Hi-Fi przesyła dźwięk do urządzenia wyjściowego bez zmian, więc prędkości nie można zmienić. Aby ją regulować, przełącz na wyjście z efektami.";
 "player_controls_unavailable_cast_apple_music" = "Utworów z Apple Music nie można przesyłać do urządzeń w sieci.";
+"player_controls_tiles_header" = "Kafelki funkcji";
+"player_controls_tiles_footer" = "Przytrzymaj i przeciągnij, aby zmienić kolejność. Wyłączone kafelki nadal są w menu Więcej.";
+"player_controls_spoken_buttons_header" = "Inne przyciski";
+"player_controls_spoken_transcript" = "Przycisk transkrypcji";
+"player_controls_spoken_chapters" = "Poprzedni / następny rozdział";
+"player_controls_spoken_buttons_footer" = "Po wyłączeniu „Lubię to” i przycisk transkrypcji trafiają do menu Więcej; stuknięcie okładki też otwiera transkrypcję. Rozdziały zmienisz w spisie treści albo przytrzymując przyciski przewijania.";

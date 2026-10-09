@@ -5626,7 +5626,7 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "Boutons du lecteur";
-"player_controls_footer" = "Touchez un cadre en pointillés pour changer son bouton, ou laissez-le vide. Les boutons absents de la page se trouvent dans « Plus » ; l’iPhone en paysage et l’iPad disposent les mêmes boutons selon leur mise en page. Synchronisé avec iCloud. Les lecteurs de livres audio et de podcasts ne changent pas.";
+"player_controls_footer" = "Touchez un cadre en pointillés pour changer son bouton, ou laissez-le vide. Les boutons absents de la page se trouvent dans « Plus » ; l’iPhone en paysage, l’iPad et la colonne latérale du pliable disposent les mêmes boutons selon leur mise en page. Synchronisé avec iCloud.";
 "player_controls_status_header" = "Ligne du bas";
 "player_controls_status_source" = "Source musicale";
 "player_controls_status_output" = "Appareil de sortie";
@@ -5653,3 +5653,9 @@
 "player_controls_unavailable_speed_apple_music" = "Impossible de modifier la vitesse de lecture des morceaux Apple Music.";
 "player_controls_unavailable_speed_high_fidelity" = "La Haute fidélité directe envoie l’audio tel quel à l’appareil de sortie, la vitesse ne peut donc pas changer. Passez à la sortie avec effets pour régler la vitesse.";
 "player_controls_unavailable_cast_apple_music" = "Les morceaux Apple Music ne peuvent pas être diffusés vers les appareils de votre réseau.";
+"player_controls_tiles_header" = "Tuiles de fonctions";
+"player_controls_tiles_footer" = "Maintenez le doigt puis faites glisser pour changer l’ordre. Les tuiles désactivées restent dans « Plus ».";
+"player_controls_spoken_buttons_header" = "Autres boutons";
+"player_controls_spoken_transcript" = "Bouton de transcription";
+"player_controls_spoken_chapters" = "Chapitre précédent / suivant";
+"player_controls_spoken_buttons_footer" = "Une fois désactivés, J’aime et le bouton de transcription passent dans « Plus » ; toucher la pochette ouvre aussi la transcription. Changez de chapitre depuis la table des matières ou en maintenant les boutons de saut.";

@@ -117,7 +117,12 @@ import Testing
         #expect(layout.menuFallback(on: .compactLandscape(showsTransportEdges: true)).isEmpty)
         // 横屏右栏窄到摆不下两端时,随机与循环照旧补进「更多」。
         #expect(layout.menuFallback(on: .compactLandscape(showsTransportEdges: false)) == [.shuffle, .repeatMode])
-        #expect(layout.menuFallback(on: .toolColumn(showsTransportEdges: false)) == [.shuffle, .repeatMode])
+        #expect(layout.menuFallback(on: .toolColumn(showsTransportEdges: false, headerOverflows: false)) == [.shuffle, .repeatMode])
+        #expect(layout.menuFallback(on: .toolColumn(showsTransportEdges: true, headerOverflows: false)).isEmpty)
+        // 竖栏放不下时心形收进「更多」(原来由竖栏自己补,现在走同一套兜底)。
+        #expect(layout.menuFallback(on: .toolColumn(showsTransportEdges: true, headerOverflows: true)) == [.like])
+        #expect(layout.menuFallback(on: .immersiveLyrics).isEmpty)
+        #expect(layout.menuSuppressed(on: .immersiveLyrics).isEmpty)
         #expect(layout.menuSuppressed(on: .compactLandscape(showsTransportEdges: true)).isEmpty)
     }
 
@@ -158,5 +163,21 @@ import Testing
         #expect(chrome.leading == [.sleepTimer, .queue, .airPlay])
         #expect(chrome.trailing == nil)
         #expect(layout.menuFallback(on: .compactLandscape(showsTransportEdges: true)) == [.like])
+    }
+
+    @Test func toolColumnAndImmersiveFollowTheLayout() {
+        #expect(Layout.default.toolColumnGroups().middle == [.lyrics, .queue])
+        #expect(Layout.default.toolColumnGroups().header == .like)
+        #expect(Layout.default.immersiveLyricsAction() == .like)
+        let layout = Layout.default
+            .placing(.sleepTimer, in: .header)
+            .placing(.karaoke, in: .barTrailing)
+        #expect(layout.toolColumnGroups().middle == [.lyrics, .karaoke])
+        #expect(layout.immersiveLyricsAction() == .sleepTimer)
+        #expect(layout.menuFallback(on: .immersiveLyrics) == [.like])
+        #expect(layout.menuSuppressed(on: .immersiveLyrics) == [.sleepTimer])
+        let column = NowPlayingControlSurface.toolColumn(showsTransportEdges: true, headerOverflows: false)
+        #expect(layout.menuFallback(on: column) == [.like, .queue])
+        #expect(layout.menuSuppressed(on: column) == [.sleepTimer, .karaoke])
     }
 }

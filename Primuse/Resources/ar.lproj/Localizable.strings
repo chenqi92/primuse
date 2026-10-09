@@ -5532,7 +5532,7 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "أزرار المشغّل";
-"player_controls_footer" = "اضغط على إطار منقّط لتغيير زرّه أو اتركه فارغًا. الأزرار غير الموجودة في الصفحة تجدها في قائمة «المزيد»، ويرتّب iPhone في الوضع الأفقي وiPad الأزرار نفسها حسب تخطيط كلٍّ منهما. تتم المزامنة عبر iCloud، ولا يتأثر مشغّلا الكتب الصوتية والبودكاست.";
+"player_controls_footer" = "اضغط على إطار منقّط لتغيير زرّه أو اتركه فارغًا. الأزرار غير الموجودة في الصفحة تجدها في قائمة «المزيد»، ويرتّب iPhone في الوضع الأفقي وiPad والعمود الجانبي للجهاز القابل للطي الأزرار نفسها حسب تخطيط كلٍّ منها. تتم المزامنة عبر iCloud.";
 "player_controls_status_header" = "السطر الأخير";
 "player_controls_status_source" = "مصدر الموسيقى";
 "player_controls_status_output" = "جهاز الإخراج";
@@ -5559,3 +5559,9 @@
 "player_controls_unavailable_speed_apple_music" = "لا يمكن تغيير سرعة تشغيل أغاني Apple Music.";
 "player_controls_unavailable_speed_high_fidelity" = "يرسل وضع الدقة العالية المباشرة الصوت إلى جهاز الإخراج كما هو، لذا لا يمكن تغيير السرعة. بدّل إلى الإخراج مع المؤثرات لضبط السرعة.";
 "player_controls_unavailable_cast_apple_music" = "لا يمكن بث أغاني Apple Music إلى أجهزة شبكتك.";
+"player_controls_tiles_header" = "مربعات الوظائف";
+"player_controls_tiles_footer" = "المس مطولًا واسحب لتغيير الترتيب. المربعات التي توقفها تبقى في قائمة «المزيد».";
+"player_controls_spoken_buttons_header" = "أزرار أخرى";
+"player_controls_spoken_transcript" = "زر النص المكتوب";
+"player_controls_spoken_chapters" = "الفصل السابق / التالي";
+"player_controls_spoken_buttons_footer" = "عند إيقافهما ينتقل «إعجاب» وزر النص المكتوب إلى قائمة «المزيد»، ويمكن أيضًا فتح النص بالضغط على الغلاف. تنقّل بين الفصول من الفهرس أو بالضغط مطولًا على أزرار التخطي.";

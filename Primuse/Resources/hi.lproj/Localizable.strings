@@ -5532,7 +5532,7 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "प्लेयर बटन";
-"player_controls_footer" = "बटन बदलने के लिए किसी डैश वाले बॉक्स पर टैप करें, या उसे खाली छोड़ दें। जो बटन पेज पर नहीं हैं वे \"और\" मेनू में मिलेंगे; लैंडस्केप iPhone और iPad अपने-अपने लेआउट के हिसाब से वही बटन रखते हैं। iCloud से सिंक होता है। ऑडियोबुक और पॉडकास्ट प्लेयर नहीं बदलते।";
+"player_controls_footer" = "बटन बदलने के लिए किसी डैश वाले बॉक्स पर टैप करें, या उसे खाली छोड़ दें। जो बटन पेज पर नहीं हैं वे \"और\" मेनू में मिलेंगे; लैंडस्केप iPhone, iPad और फ़ोल्डेबल का साइड कॉलम अपने-अपने लेआउट के हिसाब से वही बटन रखते हैं। iCloud से सिंक होता है।";
 "player_controls_status_header" = "सबसे नीचे की पंक्ति";
 "player_controls_status_source" = "संगीत स्रोत";
 "player_controls_status_output" = "आउटपुट डिवाइस";
@@ -5559,3 +5559,9 @@
 "player_controls_unavailable_speed_apple_music" = "Apple Music के गानों की प्लेबैक स्पीड नहीं बदली जा सकती।";
 "player_controls_unavailable_speed_high_fidelity" = "हाई फिडेलिटी डायरेक्ट ऑडियो को बिना बदले आउटपुट डिवाइस तक भेजता है, इसलिए स्पीड नहीं बदल सकती। स्पीड बदलने के लिए इफ़ेक्ट्स आउटपुट पर स्विच करें।";
 "player_controls_unavailable_cast_apple_music" = "Apple Music के गाने आपके नेटवर्क के डिवाइस पर कास्ट नहीं किए जा सकते।";
+"player_controls_tiles_header" = "फ़ंक्शन टाइल";
+"player_controls_tiles_footer" = "क्रम बदलने के लिए दबाकर रखें और खींचें। बंद की गई टाइलें \"और\" मेनू में फिर भी मिलेंगी।";
+"player_controls_spoken_buttons_header" = "दूसरे बटन";
+"player_controls_spoken_transcript" = "ट्रांसक्रिप्ट बटन";
+"player_controls_spoken_chapters" = "पिछला / अगला अध्याय";
+"player_controls_spoken_buttons_footer" = "बंद करने पर पसंद और ट्रांसक्रिप्ट बटन \"और\" मेनू में चले जाते हैं; कवर पर टैप करके भी ट्रांसक्रिप्ट खुलती है। अध्याय सूची से या स्किप बटन दबाकर रखने से अध्याय बदलें।";

@@ -585,6 +585,7 @@
 		4EF17212194CB2CE8625AB30 /* AudioPlayerService+Medley.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48124FFE9AF0A69A832B1DBD /* AudioPlayerService+Medley.swift */; };
 		7B95FDA6FF0C3392239798C0 /* NowPlayingControlLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AA9AC0DEF8E6DD69FB2D9D2 /* NowPlayingControlLayout.swift */; };
 		8EBF0E309E653F93321878BB /* NowPlayingControlsEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B7270BC997968A27538439B /* NowPlayingControlsEditorView.swift */; };
+		B985D616CDF1AE45EDD80CA9 /* SpokenWordControlLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29A162EF25EEB86A9284A771 /* SpokenWordControlLayout.swift */; };
 		D752C5CE4B9977619DA64B0E /* AudioPlayerService+PlaybackRange.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCD24037F9878F56C5A901E2 /* AudioPlayerService+PlaybackRange.swift */; };
 		4F143173989D3435C5DB1644 /* ActiveConnectionRouteOwnershipPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8608BBF8D0FDFD02E528AC7 /* ActiveConnectionRouteOwnershipPolicy.swift */; };
 		4F341C805E5AB60EBD9B7F64 /* LibraryInsightStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C89D1C8746C6AC4E67D9D0FB /* LibraryInsightStore.swift */; };
@@ -2322,6 +2323,7 @@
 		291FDF1C384E333B90E3337E /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/SettingsSearch.strings; sourceTree = "<group>"; };
 		29281CC03025CD5519BC481C /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = de.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		299BA8CA4513E33F5CF2BC7C /* PhoneRelayServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneRelayServer.swift; sourceTree = "<group>"; };
+		29A162EF25EEB86A9284A771 /* SpokenWordControlLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenWordControlLayout.swift; sourceTree = "<group>"; };
 		29D19414C60A995E2BAE6B3F /* MacContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacContentView.swift; sourceTree = "<group>"; };
 		29F9F8326377915ECDB78628 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist; name = ja; path = ja.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
 		2A0B5BE8B577AB5EBCBCFB9A /* FTPSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FTPSource.swift; sourceTree = "<group>"; };
@@ -3873,6 +3875,7 @@
 				AE8026A8E49A84C9F273845F /* Radio */,
 				D7B9A30E7467B10B25922382 /* Resources */,
 				1FA61E5EA3526337A1F7518F /* Sharing */,
+				29A162EF25EEB86A9284A771 /* SpokenWordControlLayout.swift */,
 				982CFDD034CB574AA740A619 /* Storage */,
 				F49A5BE606706F898B5DEAC8 /* Streaming */,
 				653663F81F12EC2A31ED433E /* TopShelf */,
@@ -6327,6 +6330,7 @@
 				1AE4A1DAB32915B65BA487B1 /* ReplayGainPolicy.swift in Sources */,
 				29450CDECCC58A4F4C8D4FE9 /* RunningAppEnvironment.swift in Sources */,
 				055E8F5093B42BCBDF08DA4F /* S3StreamResolver.swift in Sources */,
+				B985D616CDF1AE45EDD80CA9 /* SpokenWordControlLayout.swift in Sources */,
 				12C7978BCBFE0B91090B8657 /* SSDPNetworkInterfaces.swift in Sources */,
 				4D3A4ACF3185CCECCC8DF8B7 /* STRMDescriptor.swift in Sources */,
 				E63CCC13B3209DDE9ED60C8F /* SVGImageSupport.swift in Sources */,

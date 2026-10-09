@@ -2,17 +2,82 @@
 import PrimuseKit
 import SwiftUI
 
-/// 设置 › 播放器 › 播放页按钮:音乐播放页上六个位置各放哪颗按钮,以及最底下那行状态显示哪几项。
-/// 上面是一张缩小的播放页,虚线框就是能换的位置,点一下挑按钮;没放上去的都在「更多」里。
-/// 配置经 iCloud 同步(`InterfaceLayoutSync`),有声书与播客的播放页不受影响。
+/// 设置 › 播放器 › 播放页按钮。分音乐、有声书、播客三页:
+/// - 音乐:一张缩小的播放页,虚线框就是能换的六个位置,点一下挑按钮;没放上去的都在「更多」里。
+///   最底下那行状态显示哪几项也在这里。
+/// - 有声书、播客:那一排功能块的显隐与顺序,以及喜欢、文字稿键与上一章 / 下一章。
+/// 配置经 iCloud 同步(`InterfaceLayoutSync`)。
 struct NowPlayingControlsEditorView: View {
+    private enum Page: String, CaseIterable, Identifiable {
+        case music
+        case audiobook
+        case podcast
+
+        var id: String { rawValue }
+
+        var titleKey: LocalizedStringKey {
+            switch self {
+            case .music: "listening_space_music"
+            case .audiobook: "listening_space_spoken_word"
+            case .podcast: "listening_space_podcast"
+            }
+        }
+    }
+
     @AppStorage(NowPlayingControlLayout.musicStorageKey) private var storage = ""
+    @AppStorage(SpokenWordControlLayout.storageKey(for: .audiobook)) private var audiobookStorage = ""
+    @AppStorage(SpokenWordControlLayout.storageKey(for: .podcast)) private var podcastStorage = ""
+    @State private var page: Page = Self.initialPage
     @State private var editingSlot: NowPlayingControlSlot?
+
+    #if DEBUG
+    /// 取证用:`PRIMUSE_DEBUG_PLAYER_CONTROLS=music|audiobook|podcast` 时从设置 › 播放器直接推进这一页并停在那一栏。
+    static let debugPage = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_PLAYER_CONTROLS"]
+    private static var initialPage: Page { debugPage.flatMap(Page.init(rawValue:)) ?? .music }
+    #else
+    private static var initialPage: Page { .music }
+    #endif
 
     private var layout: NowPlayingControlLayout { .decode(storage) }
 
     var body: some View {
         Form {
+            Section {
+                Picker(selection: $page) {
+                    ForEach(Page.allCases) { page in
+                        Text(page.titleKey).tag(page)
+                    }
+                } label: {
+                    Text("player_controls_title")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets())
+
+            switch page {
+            case .music:
+                musicSections
+            case .audiobook:
+                SpokenWordControlsSections(kind: .audiobook, storage: $audiobookStorage)
+            case .podcast:
+                SpokenWordControlsSections(kind: .podcast, storage: $podcastStorage)
+            }
+        }
+        .navigationTitle("player_controls_title")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $editingSlot) { slot in
+            NowPlayingControlPicker(slot: slot, layout: layout) { action in
+                storage = layout.placing(action, in: slot).encoded()
+                editingSlot = nil
+            }
+            .presentationDetents([.medium, .large])
+        }
+    }
+
+    @ViewBuilder
+    private var musicSections: some View {
             Section {
                 NowPlayingControlsPreview(layout: layout, selectedSlot: editingSlot) { editingSlot = $0 }
                     .frame(maxWidth: .infinity)
@@ -37,16 +102,6 @@ struct NowPlayingControlsEditorView: View {
                 }
                 .disabled(layout.actions == NowPlayingControlLayout.defaultActions)
             }
-        }
-        .navigationTitle("player_controls_title")
-        .navigationBarTitleDisplayMode(.inline)
-        .sheet(item: $editingSlot) { slot in
-            NowPlayingControlPicker(slot: slot, layout: layout) { action in
-                storage = layout.placing(action, in: slot).encoded()
-                editingSlot = nil
-            }
-            .presentationDetents([.medium, .large])
-        }
     }
 
     private func statusBinding(_ item: NowPlayingStatusItem) -> Binding<Bool> {
@@ -54,6 +109,70 @@ struct NowPlayingControlsEditorView: View {
             get: { layout.showsStatusItem(item) },
             set: { storage = layout.settingStatusItem(item, visible: $0).encoded() }
         )
+    }
+}
+
+// MARK: - 有声书、播客
+
+/// 有声书或播客播放页:那一排功能块(按住拖动排序、开关显隐),以及几个单独的按钮开关。
+private struct SpokenWordControlsSections: View {
+    let kind: SpokenWordPlayerKind
+    @Binding var storage: String
+
+    private var layout: SpokenWordControlLayout { .decode(storage, kind: kind) }
+
+    var body: some View {
+        Section {
+            ForEach(layout.order) { tile in
+                Toggle(isOn: Binding(
+                    get: { layout.isShown(tile) },
+                    set: { storage = layout.settingTile(tile, shown: $0).encoded() }
+                )) {
+                    Label {
+                        Text(tile.editorTitleKey(for: kind))
+                    } icon: {
+                        Image(systemName: tile.editorSymbol(for: kind))
+                    }
+                }
+            }
+            .onMove { storage = layout.movingTiles(fromOffsets: $0, toOffset: $1).encoded() }
+        } header: {
+            Text("player_controls_tiles_header")
+        } footer: {
+            Text("player_controls_tiles_footer")
+        }
+
+        Section {
+            Toggle(isOn: Binding(
+                get: { layout.showsLike },
+                set: { storage = layout.settingShowsLike($0).encoded() }
+            )) {
+                Label("player_controls_action_like", systemImage: "heart")
+            }
+            Toggle(isOn: Binding(
+                get: { layout.showsTranscriptToggle },
+                set: { storage = layout.settingShowsTranscriptToggle($0).encoded() }
+            )) {
+                Label("player_controls_spoken_transcript", systemImage: "text.bubble")
+            }
+            Toggle(isOn: Binding(
+                get: { layout.showsChapterButtons },
+                set: { storage = layout.settingShowsChapterButtons($0).encoded() }
+            )) {
+                Label("player_controls_spoken_chapters", systemImage: "arrow.left.and.right")
+            }
+        } header: {
+            Text("player_controls_spoken_buttons_header")
+        } footer: {
+            Text("player_controls_spoken_buttons_footer")
+        }
+
+        Section {
+            Button("player_controls_reset") {
+                storage = ""
+            }
+            .disabled(layout.isDefault)
+        }
     }
 }
 
@@ -343,6 +462,28 @@ extension NowPlayingControlAction {
         case .addToPlaylist: "add_to_playlist"
         case .share: "share"
         case .cast: "cast_to_device"
+        }
+    }
+}
+
+extension SpokenWordControlTile {
+    func editorSymbol(for kind: SpokenWordPlayerKind) -> String {
+        switch self {
+        case .speed: "gauge.with.dots.needle.50percent"
+        case .sleepTimer: "moon.zzz"
+        case .bookmark: "bookmark"
+        case .contents: kind == .podcast ? "text.alignleft" : "list.bullet"
+        case .upNext: "list.bullet"
+        }
+    }
+
+    func editorTitleKey(for kind: SpokenWordPlayerKind) -> LocalizedStringKey {
+        switch self {
+        case .speed: "spoken_word_speed_short"
+        case .sleepTimer: "sleep_timer"
+        case .bookmark: "spoken_word_bookmarks_title"
+        case .contents: kind == .podcast ? "podcast_show_notes" : "spoken_word_contents_title"
+        case .upNext: "up_next"
         }
     }
 }

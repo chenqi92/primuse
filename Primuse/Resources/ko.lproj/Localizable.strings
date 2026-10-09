@@ -5626,7 +5626,7 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "재생 화면 버튼";
-"player_controls_footer" = "점선 상자를 탭하면 버튼을 바꿀 수 있고, 비워 둘 수도 있습니다. 화면에 없는 버튼은 '더 보기' 메뉴에 있습니다. 가로 방향 iPhone과 iPad는 같은 버튼을 각자의 레이아웃에 맞게 배치합니다. iCloud로 동기화되며, 오디오북과 팟캐스트 재생 화면은 바뀌지 않습니다.";
+"player_controls_footer" = "점선 상자를 탭하면 버튼을 바꿀 수 있고, 비워 둘 수도 있습니다. 화면에 없는 버튼은 '더 보기' 메뉴에 있습니다. 가로 방향 iPhone, iPad, 폴더블 기기의 측면 열은 같은 버튼을 각자의 레이아웃에 맞게 배치합니다. iCloud로 동기화됩니다.";
 "player_controls_status_header" = "맨 아래 줄";
 "player_controls_status_source" = "음악 소스";
 "player_controls_status_output" = "출력 기기";
@@ -5653,3 +5653,9 @@
 "player_controls_unavailable_speed_apple_music" = "Apple Music 곡은 재생 속도를 바꿀 수 없습니다.";
 "player_controls_unavailable_speed_high_fidelity" = "고음질 다이렉트는 오디오를 그대로 출력 기기로 보내므로 속도를 바꿀 수 없습니다. 속도를 조절하려면 효과 출력으로 전환하세요.";
 "player_controls_unavailable_cast_apple_music" = "Apple Music 곡은 네트워크의 기기로 캐스트할 수 없습니다.";
+"player_controls_tiles_header" = "기능 타일";
+"player_controls_tiles_footer" = "길게 누른 채 드래그하면 순서를 바꿀 수 있습니다. 끈 타일도 '더 보기' 메뉴에 있습니다.";
+"player_controls_spoken_buttons_header" = "기타 버튼";
+"player_controls_spoken_transcript" = "스크립트 버튼";
+"player_controls_spoken_chapters" = "이전 / 다음 챕터";
+"player_controls_spoken_buttons_footer" = "끄면 좋아요와 스크립트 버튼이 '더 보기' 메뉴로 옮겨지며, 표지를 탭해도 스크립트가 열립니다. 챕터는 목차에서 이동하거나 건너뛰기 버튼을 길게 눌러 이동할 수 있습니다.";

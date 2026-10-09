@@ -85,23 +85,30 @@ public enum NowPlayingControlSurface: Equatable, Sendable {
     case compactLandscape(showsTransportEdges: Bool)
     /// iPad 横屏左栏:歌词常驻右栏,底栏不放歌词键。
     case wideLandscape
-    /// iPhone Duo 竖栏那一列:那一列的按钮是固定的,只有传输键两端用这份配置。
-    case toolColumn(showsTransportEdges: Bool)
+    /// iPhone Duo 竖栏那一列:中间一组放底栏除 AirPlay 外的按钮,下面一组是歌名旁那一格、
+    /// AirPlay、全屏效果、锁和更多。高度不够时歌名旁那一格会收进「更多」。
+    case toolColumn(showsTransportEdges: Bool, headerOverflows: Bool)
+    /// 全屏歌词:顶上那排只有歌名旁那一格跟配置走(原来的心形位置),底座只有播放键。
+    /// 别的按钮这里本来就不出现,不往「更多」里补。
+    case immersiveLyrics
 
     var showsTransportEdges: Bool {
         switch self {
         case .portrait, .wideLandscape: true
-        case .compactLandscape(let shows), .toolColumn(let shows): shows
+        case .compactLandscape(let shows): shows
+        case .toolColumn(let shows, _): shows
+        case .immersiveLyrics: false
         }
     }
 
-    /// 这种版面上不靠配置也一直点得到的。
+    /// 这种版面上不靠配置也一直点得到的(或者这里本来就不提供、不用补的)。
     var alwaysReachable: Set<NowPlayingControlAction> {
         switch self {
         case .portrait: []
         case .compactLandscape: [.lyrics, .fullScreen]
         case .wideLandscape: [.lyrics]
-        case .toolColumn: [.lyrics, .queue, .like, .airPlay, .fullScreen]
+        case .toolColumn: [.airPlay, .fullScreen]
+        case .immersiveLyrics: [.lyrics, .queue, .shuffle, .repeatMode, .airPlay, .fullScreen]
         }
     }
 }
@@ -283,6 +290,18 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
         NowPlayingControlSlot.bar.compactMap { actions[$0] }.filter { $0 != .lyrics }
     }
 
+    /// iPhone Duo 竖栏那一列:中间一组(底栏里除 AirPlay 外的按钮)和下面一组里歌名旁那一格。
+    public func toolColumnGroups() -> (middle: [NowPlayingControlAction], header: NowPlayingControlAction?) {
+        let middle = NowPlayingControlSlot.bar.compactMap { actions[$0] }.filter { $0 != .airPlay }
+        let header = actions[.header].flatMap { $0 == .airPlay || $0 == .fullScreen ? nil : $0 }
+        return (middle, header)
+    }
+
+    /// 全屏歌词顶上那排原来心形的位置。
+    public func immersiveLyricsAction() -> NowPlayingControlAction? {
+        actions[.header].flatMap { [.lyrics, .fullScreen, .airPlay].contains($0) ? nil : $0 }
+    }
+
     /// 这种版面上按配置真的摆出来、看得见的按钮。
     public func visibleActions(on surface: NowPlayingControlSurface) -> Set<NowPlayingControlAction> {
         var visible = Set<NowPlayingControlAction>()
@@ -300,8 +319,12 @@ public struct NowPlayingControlLayout: Equatable, Sendable {
         case .wideLandscape:
             visible.formUnion(wideLandscapeBar())
             if let header = actions[.header] { visible.insert(header) }
-        case .toolColumn:
-            break
+        case .toolColumn(_, let headerOverflows):
+            let groups = toolColumnGroups()
+            visible.formUnion(groups.middle)
+            if let header = groups.header, !headerOverflows { visible.insert(header) }
+        case .immersiveLyrics:
+            if let action = immersiveLyricsAction() { visible.insert(action) }
         }
         return visible
     }

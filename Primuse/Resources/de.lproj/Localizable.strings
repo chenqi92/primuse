@@ -5626,7 +5626,7 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "Player-Tasten";
-"player_controls_footer" = "Tippe auf ein gestricheltes Feld, um die Taste zu ändern, oder lass es leer. Tasten, die nicht auf der Seite sind, findest du unter „Mehr“; iPhone im Querformat und iPad ordnen dieselben Tasten passend zu ihrem Layout an. Wird über iCloud synchronisiert. Hörbuch- und Podcast-Player bleiben unverändert.";
+"player_controls_footer" = "Tippe auf ein gestricheltes Feld, um die Taste zu ändern, oder lass es leer. Tasten, die nicht auf der Seite sind, findest du unter „Mehr“; iPhone im Querformat, iPad und die Seitenleiste des Faltgeräts ordnen dieselben Tasten passend zu ihrem Layout an. Wird über iCloud synchronisiert.";
 "player_controls_status_header" = "Unterste Zeile";
 "player_controls_status_source" = "Musikquelle";
 "player_controls_status_output" = "Ausgabegerät";
@@ -5653,3 +5653,9 @@
 "player_controls_unavailable_speed_apple_music" = "Bei Apple Music-Titeln lässt sich die Wiedergabegeschwindigkeit nicht ändern.";
 "player_controls_unavailable_speed_high_fidelity" = "Die Hi-Fi-Direktausgabe leitet den Ton unverändert an das Ausgabegerät, daher lässt sich die Geschwindigkeit nicht ändern. Wechsle zur Effektausgabe, um die Geschwindigkeit anzupassen.";
 "player_controls_unavailable_cast_apple_music" = "Apple Music-Titel können nicht an Geräte in deinem Netzwerk übertragen werden.";
+"player_controls_tiles_header" = "Funktionskacheln";
+"player_controls_tiles_footer" = "Halte gedrückt und ziehe, um die Reihenfolge zu ändern. Ausgeschaltete Kacheln findest du weiterhin unter „Mehr“.";
+"player_controls_spoken_buttons_header" = "Weitere Tasten";
+"player_controls_spoken_transcript" = "Transkripttaste";
+"player_controls_spoken_chapters" = "Vorheriges / nächstes Kapitel";
+"player_controls_spoken_buttons_footer" = "Ausgeschaltet landen „Gefällt mir“ und die Transkripttaste unter „Mehr“; ein Tippen auf das Cover öffnet das Transkript ebenfalls. Kapitel wechselst du über das Inhaltsverzeichnis oder durch langes Drücken der Sprungtasten.";

@@ -776,6 +776,9 @@ struct NowPlayingView: View {
     @State private var compactLandscapeHidesModeToggles = false
     /// 音乐播放页上几个位置放哪些按钮、底部状态行显示哪几项(设置 › 播放器 › 播放页按钮)。
     @AppStorage(NowPlayingControlLayout.musicStorageKey) private var controlLayoutStorage = ""
+    /// 有声书与播客播放页各自的那排功能块、喜欢 / 文字稿键与章节键。
+    @AppStorage(SpokenWordControlLayout.storageKey(for: .audiobook)) private var audiobookControlStorage = ""
+    @AppStorage(SpokenWordControlLayout.storageKey(for: .podcast)) private var podcastControlStorage = ""
     /// 页面上那颗按钮此刻用不了时点出来的说明。
     @State private var controlNotice: NowPlayingControlNotice?
     @State private var showQueue = false
@@ -1919,20 +1922,24 @@ struct NowPlayingView: View {
             margin: 12
         )
         let music = !usesSpokenWordTransport
-        let likes = offersLikeAction
-        // 有声内容没有文字稿时不给文字键,这一组只剩目录。
-        let showsTextToggle = music || !lyrics.isEmpty
-        // 放不下时依次收进「更多」的:锁、全屏效果、喜欢。
-        let droppable = (offersLock ? 1 : 0) + (music ? 1 : 0) + (likes ? 1 : 0)
+        // 有声内容没有文字稿(或在「播放页按钮」里关了文字稿键)时不给文字键,这一组只剩目录。
+        let showsTextToggle = !lyrics.isEmpty && spokenWordControlLayout.showsTranscriptToggle
+        // 中间一组:音乐按「播放页按钮」底栏的配置(去掉 AirPlay,默认歌词与队列);有声内容是文字稿与目录。
+        let columnGroups = musicControlLayout.toolColumnGroups()
+        let middleCount = music ? columnGroups.middle.count : (showsTextToggle ? 2 : 1)
+        // 下面一组里歌名旁那一格:音乐按配置(默认心形),有声内容跟「喜欢」开关。
+        let headerAction: NowPlayingControlAction? = music
+            ? columnGroups.header
+            : (offersLikeAction && spokenWordControlLayout.showsLike ? .like : nil)
+        // 放不下时依次收进「更多」的:锁、全屏效果、歌名旁那一格。
+        let droppable = (offersLock ? 1 : 0) + (music ? 1 : 0) + (headerAction != nil ? 1 : 0)
         let spacing = 12.0
         let capsulePadding = 4.0
         let fit = OcclusionAvoidancePolicy.columnFit(
             length: segment.length,
-            groups: [
-                1,
-                showsTextToggle ? 2 : 1,
-                (music ? 1 : 0) + (likes ? 1 : 0) + 2 + (offersLock ? 1 : 0),
-            ],
+            groups: [1]
+                + (middleCount > 0 ? [middleCount] : [])
+                + [(music ? 1 : 0) + (headerAction != nil ? 1 : 0) + 2 + (offersLock ? 1 : 0)],
             droppable: droppable,
             spacing: spacing,
             capsulePadding: capsulePadding
@@ -1940,12 +1947,12 @@ struct NowPlayingView: View {
         let itemSize = CGFloat(fit.itemSize)
         var overflow = NowPlayingBarColumnOverflow()
         var remaining = fit.overflowCount
+        var headerOverflows = false
         if offersLock, remaining > 0 { overflow.lock = true; remaining -= 1 }
         if music, remaining > 0 { overflow.effect = true; remaining -= 1 }
-        if likes, remaining > 0 { overflow.like = true; remaining -= 1 }
-        let lyricsSelected = isPlayerSplit ? (!sidePaneHidden && showLyrics) : showLyrics
-        let queueSelected = isPlayerSplit && !sidePaneHidden && !showLyrics
-
+        if headerAction != nil, remaining > 0 { headerOverflows = true; remaining -= 1 }
+        // 有声内容的心形收进「更多」走原来那一项;音乐的由「播放页按钮」的兜底补上。
+        overflow.like = headerOverflows && !music
         return VStack(spacing: CGFloat(spacing)) {
             if isCompactLandscapeLocked {
                 // 横屏锁上之后这一列只剩解锁键,控件照旧留在原位不挪。
@@ -1969,54 +1976,26 @@ struct NowPlayingView: View {
                     .accessibilityLabel(Text("mini_player"))
                 }
 
-                barColumnGroup {
-                    if showsTextToggle {
-                    Button {
-                        toggleLyricsForLayout()
-                    } label: {
-                        NowPlayingBarColumnIcon(
-                            symbol: music ? "quote.bubble" : "text.bubble",
-                            appearance: appearance,
-                            size: itemSize,
-                            tint: themedControlAccent,
-                            isSelected: lyricsSelected
-                        )
+                if music {
+                    if !columnGroups.middle.isEmpty {
+                        barColumnGroup {
+                            ForEach(columnGroups.middle, id: \.self) { action in
+                                controlButton(action, style: .column(itemSize))
+                            }
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(Text(lyricsSelected ? "a11y_close_lyrics" : "a11y_open_lyrics"))
+                } else {
+                    barColumnGroup {
+                        if showsTextToggle {
+                            barColumnLyricsButton(symbol: "text.bubble", itemSize: itemSize)
+                        }
+                        barColumnQueueButton(itemSize: itemSize)
                     }
-
-                    Button {
-                        openQueue()
-                    } label: {
-                        NowPlayingBarColumnIcon(
-                            symbol: "list.bullet",
-                            appearance: appearance,
-                            size: itemSize,
-                            tint: themedControlAccent,
-                            isSelected: queueSelected
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(Text("a11y_queue"))
                 }
 
                 barColumnGroup {
-                    if likes, !overflow.like {
-                        Button {
-                            toggleLikedCurrent()
-                        } label: {
-                            NowPlayingBarColumnIcon(
-                                symbol: isCurrentLiked ? "heart.fill" : "heart",
-                                appearance: appearance,
-                                size: itemSize,
-                                tint: likedHeartTint,
-                                isSelected: isCurrentLiked
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(player.currentSong == nil)
-                        .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
+                    if let headerAction, !headerOverflows {
+                        controlButton(headerAction, style: .column(itemSize))
                     }
 
                     AirPlayButton()
@@ -2042,7 +2021,10 @@ struct NowPlayingView: View {
                         immersiveChrome: true,
                         chromeGlass: .barColumn(itemSize: itemSize),
                         columnOverflow: overflow,
-                        controlSurface: .toolColumn(showsTransportEdges: !compactLandscapeHidesModeToggles)
+                        controlSurface: .toolColumn(
+                            showsTransportEdges: !compactLandscapeHidesModeToggles,
+                            headerOverflows: headerOverflows
+                        )
                     )
                 }
             }
@@ -3898,7 +3880,7 @@ struct NowPlayingView: View {
             }
 
             if usesSpokenWordTransport {
-                if offersLikeAction {
+                if offersLikeAction, spokenWordControlLayout.showsLike {
                     NowPlayingGlassActionButton(
                         symbol: isCurrentLiked ? "heart.fill" : "heart",
                         label: isCurrentLiked ? "a11y_unlike" : "a11y_like",
@@ -4130,6 +4112,7 @@ struct NowPlayingView: View {
                     palette: spokenWordPalette,
                     showsContents: false,
                     tileHeight: 52,
+                    tiles: spokenWordControlLayout.visibleTiles(contentsResident: true),
                     onSleep: { showSleepTimer = true },
                     onContents: {},
                     // 右栏常驻:「接下来」只是把它翻到那一页。
@@ -4205,12 +4188,17 @@ struct NowPlayingView: View {
 
                     Spacer()
 
-                    if offersLyricsKaraokeAction {
+                    if offersLyricsKaraokeAction, musicControlLayout.immersiveLyricsAction() != .karaoke {
                         lyricsKaraokeButton
                             .buttonStyle(.plain)
                     }
 
-                    if offersLikeAction {
+                    // 心形那一格:音乐跟「播放页按钮」里歌名旁那一格走,有声内容跟「喜欢」开关走。
+                    if !usesSpokenWordTransport {
+                        if let action = musicControlLayout.immersiveLyricsAction() {
+                            controlButton(action, style: .header)
+                        }
+                    } else if offersLikeAction, spokenWordControlLayout.showsLike {
                         Button { toggleLikedCurrent() } label: {
                             nowPlayingActionIcon(
                                 symbol: isCurrentLiked ? "heart.fill" : "heart",
@@ -4429,7 +4417,7 @@ struct NowPlayingView: View {
                             // 页面上已经摆着卡拉OK键时不再多放一颗。
                             if offersLyricsKaraokeAction,
                                !musicControlLayout.visibleActions(
-                                   on: usesToolColumn ? .toolColumn(showsTransportEdges: true) : .portrait
+                                   on: usesToolColumn ? .toolColumn(showsTransportEdges: true, headerOverflows: false) : .portrait
                                ).contains(.karaoke) {
                                 lyricsKaraokeButton
                                     .lyricsHeaderReveal()
@@ -4760,7 +4748,7 @@ struct NowPlayingView: View {
                         .frame(width: 30, height: 30)
                         .frame(width: 40, height: 44)
                     spokenWordLikeButton
-                    moreMenu
+                    makeMoreMenu(controlSurface: .portrait)
                 }
                 .fixedSize()
             }
@@ -4907,6 +4895,7 @@ struct NowPlayingView: View {
             palette: style.palette,
             layout: layout,
             tileHeight: layout == .stacked ? 54 : 40,
+            tiles: spokenWordControlLayout.visibleTiles(),
             onSleep: { showSleepTimer = true },
             onContents: { openContentsPanel() }
         )
@@ -4973,7 +4962,7 @@ struct NowPlayingView: View {
     @ViewBuilder
     private var transportLeadingEdgeControl: some View {
         if usesSpokenWordTransport {
-            SpokenWordPartButton(forward: false, color: appearance.secondary)
+            spokenWordPartControl(forward: false)
         } else {
             controlSlot(.leadingEdge, style: .edge)
         }
@@ -4982,9 +4971,21 @@ struct NowPlayingView: View {
     @ViewBuilder
     private var transportTrailingEdgeControl: some View {
         if usesSpokenWordTransport {
-            SpokenWordPartButton(forward: true, color: appearance.secondary)
+            spokenWordPartControl(forward: true)
         } else {
             controlSlot(.trailingEdge, style: .edge)
+        }
+    }
+
+    /// 上一章 / 下一章。「播放页按钮」里关掉时留出同样大的空位,传输键不挪。
+    @ViewBuilder
+    private func spokenWordPartControl(forward: Bool) -> some View {
+        if spokenWordControlLayout.showsChapterButtons {
+            SpokenWordPartButton(forward: forward, color: appearance.secondary)
+        } else {
+            Color.clear
+                .frame(width: 44, height: 44)
+                .accessibilityHidden(true)
         }
     }
 
@@ -4997,6 +4998,7 @@ struct NowPlayingView: View {
             // 投放在标题右侧,歌词换成有文字稿时才出现的文字键。
             SpokenWordActionTiles(
                 palette: spokenWordPalette,
+                tiles: spokenWordControlLayout.visibleTiles(),
                 onSleep: { showSleepTimer = true },
                 onContents: { openContentsPanel() },
                 onUpNext: { openContentsPanel(tab: .upNext) }
@@ -5078,7 +5080,12 @@ struct NowPlayingView: View {
                         immersiveEffectButton(glass: .adaptive)
                     }
 
-                    if offersLikeAction {
+                    // 原来心形的位置:音乐跟「播放页按钮」里歌名旁那一格走,有声内容跟「喜欢」开关走。
+                    if !usesSpokenWordTransport {
+                        if let action = musicControlLayout.immersiveLyricsAction() {
+                            controlButton(action, style: .glass)
+                        }
+                    } else if offersLikeAction, spokenWordControlLayout.showsLike {
                         NowPlayingGlassActionButton(
                             symbol: isCurrentLiked ? "heart.fill" : "heart",
                             label: isCurrentLiked ? "a11y_unlike" : "a11y_like",
@@ -5490,7 +5497,7 @@ struct NowPlayingView: View {
     }
 
     private var immersiveMoreMenu: some View {
-        makeMoreMenu(immersiveChrome: true, chromeGlass: .adaptive)
+        makeMoreMenu(immersiveChrome: true, chromeGlass: .adaptive, controlSurface: .immersiveLyrics)
     }
 
     /// 全屏效果入口。面板本身是 `body` 里的 `ImmersiveEffectDrawer`，这里只负责
@@ -5599,6 +5606,19 @@ struct NowPlayingView: View {
             menuFallback = compactLandscapeHidesModeToggles && !isSpokenWord ? [.shuffle, .repeatMode] : []
             menuSuppressed = []
         }
+        // 有声书、播客页上藏起来的入口(喜欢、文字稿、书签、播客的「接下来」)补进菜单。功能块只在竖屏
+        // 与 iPad 横屏左栏出现,别的版面只看喜欢。
+        let spokenFallback: [SpokenWordMenuFallback]
+        if isSpokenWord, let controlSurface {
+            let layout = spokenWordControlLayout
+            switch controlSurface {
+            case .portrait: spokenFallback = layout.menuFallback()
+            case .wideLandscape: spokenFallback = layout.menuFallback(contentsResident: true)
+            default: spokenFallback = layout.showsLike ? [] : [.like]
+            }
+        } else {
+            spokenFallback = []
+        }
         let snapshot = NowPlayingMoreMenuSnapshot(
             songID: player.currentSong?.id,
             isSpokenWord: isSpokenWord,
@@ -5648,6 +5668,7 @@ struct NowPlayingView: View {
                     : playbackSettings.playbackRate),
             isLyricsTranslationEnabled: LyricsTranslationSettingsStore.shared.isEnabled,
             fallbackActions: menuFallback,
+            spokenFallbackActions: spokenFallback.filter { $0 != .transcript || !lyrics.isEmpty },
             isShowingLyrics: showLyrics,
             isShuffleEnabled: player.shuffleEnabled,
             repeatMode: player.repeatMode,
@@ -5710,6 +5731,8 @@ struct NowPlayingView: View {
             onToggleLike: { toggleLikedCurrent() },
             onToggleLyrics: { toggleLyricsForLayout() },
             onOpenQueue: { openQueue() },
+            onAddBookmark: { _ = player.addSpokenWordBookmark() },
+            onOpenUpNext: { openContentsPanel(tab: .upNext) },
             onToggleDislike: { player.toggleDislikeForCurrentSong() },
             onEditPlaybackRange: {
                 playbackRangeEditorSong = player.currentSong?.withoutAppliedPlaybackRange
@@ -5944,7 +5967,12 @@ struct NowPlayingView: View {
         controlSurface: NowPlayingControlSurface = .portrait
     ) -> some View {
         if usesSpokenWordTransport {
-            spokenWordHeading(titleFont: titleFont, partFont: metadataFont, inlineActions: inlineActions)
+            spokenWordHeading(
+                titleFont: titleFont,
+                partFont: metadataFont,
+                inlineActions: inlineActions,
+                controlSurface: controlSurface
+            )
         } else {
             musicSongHeader(
                 titleFont: titleFont,
@@ -5957,7 +5985,12 @@ struct NowPlayingView: View {
 
     /// 有声内容的标题块:书名作主标题,下面是正在听的章与演播者,「第 12 / 120 章 ›」打开目录。
     /// 右侧是投放、喜欢与更多(竖栏那一列里已经有的不重复),有文字稿时多一颗文字键。
-    private func spokenWordHeading(titleFont: Font, partFont: Font, inlineActions: Bool) -> some View {
+    private func spokenWordHeading(
+        titleFont: Font,
+        partFont: Font,
+        inlineActions: Bool,
+        controlSurface: NowPlayingControlSurface
+    ) -> some View {
         SpokenWordPlayerHeading(
             palette: spokenWordPalette,
             titleFont: titleFont,
@@ -5973,7 +6006,7 @@ struct NowPlayingView: View {
                         .frame(width: 30, height: 30)
                         .frame(width: 40, height: 44)
                     spokenWordLikeButton
-                    moreMenu
+                    makeMoreMenu(controlSurface: controlSurface)
                 }
             }
             .fixedSize()
@@ -5983,7 +6016,7 @@ struct NowPlayingView: View {
     /// 把正在听的这一个文件加进「我喜欢」,和锁屏上的「喜欢」是同一件事。播客单集没有这颗键。
     @ViewBuilder
     private var spokenWordLikeButton: some View {
-        if offersLikeAction {
+        if offersLikeAction, spokenWordControlLayout.showsLike {
             Button { toggleLikedCurrent() } label: {
                 nowPlayingActionIcon(
                     symbol: isCurrentLiked ? "heart.fill" : "heart",
@@ -6001,7 +6034,7 @@ struct NowPlayingView: View {
     /// 有声内容只在这一条目真有带时间的文字(字幕、转写稿按歌词读进来)时才给文字键。
     @ViewBuilder
     private var spokenWordTextToggle: some View {
-        if !lyrics.isEmpty {
+        if !lyrics.isEmpty, spokenWordControlLayout.showsTranscriptToggle {
             Button { toggleLyricsForLayout() } label: {
                 nowPlayingActionIcon(
                     symbol: showLyrics ? "text.bubble.fill" : "text.bubble",
@@ -6357,9 +6390,53 @@ struct NowPlayingView: View {
 
     // MARK: - 可换按钮(播放页按钮)
 
-    /// 音乐播放页的按钮摆法。有声内容(书、播客)还是原来的样子,读默认那份。
+    /// 音乐播放页的按钮摆法。有声内容(书、播客)读默认那份,它们有自己的 `spokenWordControlLayout`。
     private var musicControlLayout: NowPlayingControlLayout {
         usesSpokenWordTransport ? .default : NowPlayingControlLayoutCache.layout(for: controlLayoutStorage)
+    }
+
+    /// 有声书或播客播放页的那排功能块与几个开关。
+    private var spokenWordControlLayout: SpokenWordControlLayout {
+        let kind: SpokenWordPlayerKind = currentItemIsPodcast ? .podcast : .audiobook
+        return NowPlayingControlLayoutCache.spokenWordLayout(
+            for: kind == .podcast ? podcastControlStorage : audiobookControlStorage,
+            kind: kind
+        )
+    }
+
+    /// 竖栏那一列里的歌词(有声内容是文字稿)键:分栏时选中的是右栏的歌词页。
+    private func barColumnLyricsButton(symbol: String, itemSize: CGFloat) -> some View {
+        let isSelected = isPlayerSplit ? (!sidePaneHidden && showLyrics) : showLyrics
+        return Button {
+            toggleLyricsForLayout()
+        } label: {
+            NowPlayingBarColumnIcon(
+                symbol: symbol,
+                appearance: appearance,
+                size: itemSize,
+                tint: themedControlAccent,
+                isSelected: isSelected
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(isSelected ? "a11y_close_lyrics" : "a11y_open_lyrics"))
+    }
+
+    /// 竖栏那一列里的队列键:分栏时选中的是右栏的「接下来播放」。
+    private func barColumnQueueButton(itemSize: CGFloat) -> some View {
+        Button {
+            openQueue()
+        } label: {
+            NowPlayingBarColumnIcon(
+                symbol: "list.bullet",
+                appearance: appearance,
+                size: itemSize,
+                tint: themedControlAccent,
+                isSelected: isPlayerSplit && !sidePaneHidden && !showLyrics
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("a11y_queue"))
     }
 
     /// 一个位置上的按钮;空着的格照样占 44×44,别的按钮不挪位置。
@@ -6378,6 +6455,10 @@ struct NowPlayingView: View {
     private func controlButton(_ action: NowPlayingControlAction, style: NowPlayingControlStyle) -> some View {
         if action == .airPlay {
             airPlayControl(style: style)
+        } else if case .column(let itemSize) = style, action == .lyrics {
+            barColumnLyricsButton(symbol: "quote.bubble", itemSize: itemSize)
+        } else if case .column(let itemSize) = style, action == .queue {
+            barColumnQueueButton(itemSize: itemSize)
         } else if style == .edge, action == .shuffle {
             ctrlBtn("shuffle", active: player.shuffleEnabled) { player.shuffleEnabled.toggle() }
         } else if style == .edge, action == .repeatMode {
@@ -6396,6 +6477,10 @@ struct NowPlayingView: View {
         switch style {
         case .glass:
             compactLandscapeAirPlayButton
+        case .column(let itemSize):
+            AirPlayButton()
+                .frame(width: itemSize * 0.62, height: itemSize * 0.62)
+                .frame(width: itemSize, height: itemSize)
         case .header:
             AirPlayButton()
                 .frame(width: 30, height: 30)
@@ -6436,7 +6521,7 @@ struct NowPlayingView: View {
                 .disabled(face.requiresSong && player.currentSong == nil)
                 .accessibilityLabel(Text(face.label))
                 .accessibilityValue(controlAccessibilityValue(face, notice: notice))
-        case .glass:
+        case .glass, .column:
             button
                 .buttonStyle(.plain)
                 .disabled(face.requiresSong && player.currentSong == nil)
@@ -6463,7 +6548,7 @@ struct NowPlayingView: View {
         } label: {
             controlLabel(face, style: style)
         }
-        .frame(width: style == .glass ? nil : 44, height: style == .glass ? nil : 44)
+        .frame(width: style.fixedFrame, height: style.fixedFrame)
         .disabled(player.currentSong == nil)
         .accessibilityLabel(Text(face.label))
         .accessibilityValue(Text(verbatim: String(format: "%.2f×", Double(currentPlaybackRateBinding.wrappedValue))))
@@ -6496,6 +6581,14 @@ struct NowPlayingView: View {
                 appearance: appearance,
                 tint: face.isActive ? (face.activeTint ?? appearance.primary) : appearance.primary,
                 diameter: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.chromeButtonDiameter),
+                isSelected: face.isActive
+            )
+        case .column(let itemSize):
+            NowPlayingBarColumnIcon(
+                symbol: face.symbol,
+                appearance: appearance,
+                size: itemSize,
+                tint: activeTint,
                 isSelected: face.isActive
             )
         }
@@ -8895,6 +8988,8 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     /// 页面上点不到、要在菜单里补上的(「播放页按钮」里没摆出来的心形、歌词、队列、随机、循环,
     /// 以及手机横屏右栏窄到让出来的两端)。
     let fallbackActions: [NowPlayingControlAction]
+    /// 有声书、播客页上藏起来的入口。
+    let spokenFallbackActions: [SpokenWordMenuFallback]
     let isShowingLyrics: Bool
     let isShuffleEnabled: Bool
     let repeatMode: RepeatMode
@@ -8915,7 +9010,7 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
 }
 
 /// 「播放页按钮」里一颗按钮放在哪种地方:各处原来的画法不同,照各自原样画。
-private enum NowPlayingControlStyle {
+private enum NowPlayingControlStyle: Equatable {
     /// 竖屏最下面那排:只有图标,三级灰。
     case bar
     /// iPad 横屏左栏最下面那排:只有图标,二级灰。
@@ -8926,6 +9021,16 @@ private enum NowPlayingControlStyle {
     case header
     /// 手机横屏顶上那排玻璃圆钮。
     case glass
+    /// iPhone Duo 竖栏那一列,按钮边长随那一列缩放。
+    case column(CGFloat)
+
+    /// 按钮自己的点按区;玻璃圆钮与竖栏那一列由图标自己定大小。
+    var fixedFrame: CGFloat? {
+        switch self {
+        case .bar, .wideBar, .edge, .header: 44
+        case .glass, .column: nil
+        }
+    }
 }
 
 /// 一颗可换按钮此刻的样子。
@@ -8959,6 +9064,15 @@ private enum NowPlayingControlLayoutCache {
             Self.storage = storage
             layout = NowPlayingControlLayout.decode(storage)
         }
+        return layout
+    }
+
+    private static var spokenWord: [SpokenWordPlayerKind: (storage: String, layout: SpokenWordControlLayout)] = [:]
+
+    static func spokenWordLayout(for storage: String, kind: SpokenWordPlayerKind) -> SpokenWordControlLayout {
+        if let cached = spokenWord[kind], cached.storage == storage { return cached.layout }
+        let layout = SpokenWordControlLayout.decode(storage, kind: kind)
+        spokenWord[kind] = (storage, layout)
         return layout
     }
 }
@@ -9007,6 +9121,8 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onToggleLike: () -> Void
     let onToggleLyrics: () -> Void
     let onOpenQueue: () -> Void
+    let onAddBookmark: () -> Void
+    let onOpenUpNext: () -> Void
     let onToggleDislike: () -> Void
     let onEditPlaybackRange: () -> Void
     let onShowEffectPicker: () -> Void
@@ -9117,6 +9233,31 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
         }
     }
 
+    @ViewBuilder
+    private func spokenFallbackItem(_ item: SpokenWordMenuFallback) -> some View {
+        switch item {
+        case .like:
+            fallbackItem(.like)
+        case .transcript:
+            Button(action: onToggleLyrics) {
+                if snapshot.isShowingLyrics {
+                    Label(String(localized: "a11y_close_lyrics"), systemImage: "text.bubble.fill")
+                } else {
+                    Label(String(localized: "spoken_word_text_tab"), systemImage: "text.bubble")
+                }
+            }
+        case .bookmark:
+            Button(action: onAddBookmark) {
+                Label(String(localized: "spoken_word_add_bookmark"), systemImage: "bookmark")
+            }
+            .disabled(!snapshot.hasSong)
+        case .upNext:
+            Button(action: onOpenUpNext) {
+                Label(String(localized: "up_next"), systemImage: "list.bullet")
+            }
+        }
+    }
+
     var body: some View {
         Menu {
             // 最常用的几个操作排成一行，不用往下翻就够得着。文字取短的那一版，
@@ -9220,10 +9361,13 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                 }
             }
 
-            if !snapshot.fallbackActions.isEmpty {
+            if !snapshot.fallbackActions.isEmpty || !snapshot.spokenFallbackActions.isEmpty {
                 Section {
                     ForEach(snapshot.fallbackActions, id: \.self) { action in
                         fallbackItem(action)
+                    }
+                    ForEach(snapshot.spokenFallbackActions, id: \.self) { item in
+                        spokenFallbackItem(item)
                     }
                 }
             }

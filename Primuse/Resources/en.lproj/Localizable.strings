@@ -5386,7 +5386,7 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "Player Buttons";
-"player_controls_footer" = "Tap a dashed box to change its button, or leave it empty. Buttons that aren’t on the page are in the More menu; landscape iPhone and iPad arrange the same buttons for their own layouts. Syncs with iCloud. Audiobook and podcast players aren’t affected.";
+"player_controls_footer" = "Tap a dashed box to change its button, or leave it empty. Buttons that aren’t on the page are in the More menu; landscape iPhone, iPad, and the foldable side column arrange the same buttons for their own layouts. Syncs with iCloud.";
 "player_controls_status_header" = "Bottom Line";
 "player_controls_status_source" = "Music Source";
 "player_controls_status_output" = "Output Device";
@@ -5413,3 +5413,9 @@
 "player_controls_unavailable_speed_apple_music" = "Playback speed can’t be changed for Apple Music songs.";
 "player_controls_unavailable_speed_high_fidelity" = "High Fidelity Direct sends audio to the output device untouched, so the speed can’t change. Switch to effects output to adjust the speed.";
 "player_controls_unavailable_cast_apple_music" = "Apple Music songs can’t be cast to devices on your network.";
+"player_controls_tiles_header" = "Action Tiles";
+"player_controls_tiles_footer" = "Touch and hold to drag them into a new order. Tiles you turn off are still in the More menu.";
+"player_controls_spoken_buttons_header" = "Other Buttons";
+"player_controls_spoken_transcript" = "Transcript Button";
+"player_controls_spoken_chapters" = "Previous / Next Chapter";
+"player_controls_spoken_buttons_footer" = "Like and the transcript button move to the More menu when turned off; tapping the cover also opens the transcript. Jump between chapters from the contents, or touch and hold the skip buttons.";

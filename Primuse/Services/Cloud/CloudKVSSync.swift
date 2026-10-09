@@ -660,8 +660,10 @@ final class InterfaceLayoutSync {
         LibrarySectionLayoutPolicy.orderKey,
         LibrarySectionLayoutPolicy.hiddenKey,
         QuickAccessCoverStyle.storageKey,
-        // iPhone / iPad 音乐播放页的按钮与底部状态行(只在「播放页按钮」编辑页里写)
+        // iPhone / iPad 播放页的按钮与底部状态行(只在「播放页按钮」编辑页里写)
         NowPlayingControlLayout.musicStorageKey,
+        SpokenWordControlLayout.storageKey(for: .audiobook),
+        SpokenWordControlLayout.storageKey(for: .podcast),
     ]
 
     private let keys: [String]

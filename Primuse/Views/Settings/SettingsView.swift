@@ -553,6 +553,9 @@ private struct PlayerAppearanceSettingsView: View {
     private var keepsScreenAwake = PlayerAppearancePreferences.keepsScreenAwakeInPlayerByDefault
     @AppStorage(PlayerAppearancePreferences.playerScreenWakeRequiresChargingKey)
     private var screenWakeRequiresCharging = PlayerAppearancePreferences.playerScreenWakeRequiresChargingByDefault
+    #if DEBUG
+    @State private var debugShowsControlsEditor = NowPlayingControlsEditorView.debugPage != nil
+    #endif
 
     var body: some View {
         Form {
@@ -645,6 +648,12 @@ private struct PlayerAppearanceSettingsView: View {
         }
         .navigationTitle("interface_editor_player")
         .navigationBarTitleDisplayMode(.inline)
+        #if DEBUG
+        // 列表是惰性容器,目的地挂在整页上。
+        .navigationDestination(isPresented: $debugShowsControlsEditor) {
+            NowPlayingControlsEditorView()
+        }
+        #endif
     }
 
     private var audioInfoModeBinding: Binding<NowPlayingAudioInfoMode> {

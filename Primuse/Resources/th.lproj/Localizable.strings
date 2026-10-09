@@ -5532,7 +5532,7 @@
 
 /* 播放页按钮 */
 "player_controls_title" = "ปุ่มบนหน้าเล่น";
-"player_controls_footer" = "แตะกรอบเส้นประเพื่อเปลี่ยนปุ่ม หรือปล่อยว่างไว้ก็ได้ ปุ่มที่ไม่ได้อยู่บนหน้าจะอยู่ในเมนูเพิ่มเติม ส่วน iPhone แนวนอนและ iPad จะจัดปุ่มชุดเดียวกันตามเลย์เอาต์ของตัวเอง ซิงค์ผ่าน iCloud และไม่มีผลกับหน้าเล่นหนังสือเสียงและพอดคาสต์";
+"player_controls_footer" = "แตะกรอบเส้นประเพื่อเปลี่ยนปุ่ม หรือปล่อยว่างไว้ก็ได้ ปุ่มที่ไม่ได้อยู่บนหน้าจะอยู่ในเมนูเพิ่มเติม ส่วน iPhone แนวนอน iPad และคอลัมน์ข้างของอุปกรณ์พับได้จะจัดปุ่มชุดเดียวกันตามเลย์เอาต์ของตัวเอง ซิงค์ผ่าน iCloud";
 "player_controls_status_header" = "แถวล่างสุด";
 "player_controls_status_source" = "แหล่งเพลง";
 "player_controls_status_output" = "อุปกรณ์เอาต์พุต";
@@ -5559,3 +5559,9 @@
 "player_controls_unavailable_speed_apple_music" = "เปลี่ยนความเร็วเพลงจาก Apple Music ไม่ได้";
 "player_controls_unavailable_speed_high_fidelity" = "โหมดความเที่ยงตรงสูงโดยตรงส่งเสียงไปยังอุปกรณ์เอาต์พุตตามต้นฉบับ จึงเปลี่ยนความเร็วไม่ได้ เปลี่ยนเป็นเอาต์พุตแบบมีเอฟเฟกต์เพื่อปรับความเร็ว";
 "player_controls_unavailable_cast_apple_music" = "ส่งเพลงจาก Apple Music ไปยังอุปกรณ์ในเครือข่ายไม่ได้";
+"player_controls_tiles_header" = "ช่องฟังก์ชัน";
+"player_controls_tiles_footer" = "แตะค้างแล้วลากเพื่อเปลี่ยนลำดับ ช่องที่ปิดไว้ยังหาได้ในเมนูเพิ่มเติม";
+"player_controls_spoken_buttons_header" = "ปุ่มอื่น";
+"player_controls_spoken_transcript" = "ปุ่มบทถอดความ";
+"player_controls_spoken_chapters" = "บทก่อนหน้า / บทถัดไป";
+"player_controls_spoken_buttons_footer" = "เมื่อปิด ปุ่มชอบและปุ่มบทถอดความจะไปอยู่ในเมนูเพิ่มเติม แตะหน้าปกก็เปิดบทถอดความได้ เปลี่ยนบทได้จากสารบัญ หรือแตะปุ่มข้ามค้างไว้";
