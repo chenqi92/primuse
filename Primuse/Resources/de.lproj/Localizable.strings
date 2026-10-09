@@ -5717,3 +5717,9 @@
 "player_control_tint_theme" = "Designfarbe";
 "player_control_tint_monochrome" = "Monochrom";
 "player_control_tint_footer" = "Farbe des Fortschrittsbalkens, aktiver Zufalls- und Wiederholungswiedergabe und anderer Player-Bedienelemente. Monochrom ist im dunklen Modus weiß und im hellen Modus schwarz und passt so zu Hintergründen wie „Fließende Farben“. Die Hörbuch-Layouts behalten ihre eigenen Farben.";
+"home_filter_bar_title" = "Filter oben";
+"home_filter_bar_edit" = "Filter oben bearbeiten";
+"home_filter_bar_none" = "Keine Filter oben auf der Startseite";
+"home_filter_bar_footer" = "Zum Umsortieren ziehen. Hörbücher erscheint nur, wenn deine Mediathek Hörinhalte enthält. Ist nur ein Filter aktiv, wird die Leiste ausgeblendet.";
+"home_filter_bar_footer_following" = "Jeder Filter richtet sich derzeit danach, ob sein Bereich auf der Startseite angezeigt wird. Sobald du sie hier änderst, bleiben sie oben, auch wenn der Bereich ausgeblendet ist. Zum Umsortieren ziehen.";
+"home_filter_bar_follow_sections" = "Wieder den Bereichen folgen";

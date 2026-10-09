@@ -5694,3 +5694,9 @@
 "player_control_tint_theme" = "跟隨主題色";
 "player_control_tint_monochrome" = "單色";
 "player_control_tint_footer" = "進度列、開著的隨機與循環等播放頁控制項的顏色。選單色時深色外觀下是白色、淺色外觀下是黑色，搭配流動色彩之類的背景不搶色；有聲書版面保留自己的配色。";
+"home_filter_bar_title" = "頂部切換";
+"home_filter_bar_edit" = "調整頂部切換";
+"home_filter_bar_none" = "首頁頂端不顯示切換按鈕";
+"home_filter_bar_footer" = "拖動調整順序。有聲書要資料庫裡有有聲內容才會出現；只開啟一個時整排不顯示。";
+"home_filter_bar_footer_following" = "目前每個按鈕跟著首頁裡對應區塊的開關顯示。在這裡改過之後，區塊收起時按鈕也會留在首頁頂端。拖動調整順序。";
+"home_filter_bar_follow_sections" = "改回跟隨首頁區塊";

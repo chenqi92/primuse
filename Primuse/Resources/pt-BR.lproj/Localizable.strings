@@ -5623,3 +5623,9 @@
 "player_control_tint_theme" = "Cor do tema";
 "player_control_tint_monochrome" = "Monocromático";
 "player_control_tint_footer" = "Cor da barra de progresso, da reprodução aleatória e da repetição ativadas e de outros controles do player. Monocromático é branco no modo escuro e preto no modo claro, discreto sobre fundos como Cores fluidas. Os layouts de audiolivros mantêm as próprias cores.";
+"home_filter_bar_title" = "Filtros no topo";
+"home_filter_bar_edit" = "Editar filtros no topo";
+"home_filter_bar_none" = "Nenhum filtro no topo do Início";
+"home_filter_bar_footer" = "Arraste para reordenar. Audiolivros aparece só quando sua biblioteca tem conteúdo falado. Com apenas um ativado, a fileira fica oculta.";
+"home_filter_bar_footer_following" = "Por enquanto, cada filtro segue se a seção correspondente aparece no Início. Depois de alterá-los aqui, eles ficam no topo mesmo com a seção oculta. Arraste para reordenar.";
+"home_filter_bar_follow_sections" = "Voltar a seguir as seções do Início";

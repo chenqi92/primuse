@@ -5717,3 +5717,9 @@
 "player_control_tint_theme" = "Couleur du thème";
 "player_control_tint_monochrome" = "Monochrome";
 "player_control_tint_footer" = "Couleur de la barre de progression, de la lecture aléatoire et de la répétition activées, et des autres commandes du lecteur. Monochrome est blanc en mode sombre et noir en mode clair, discret sur des fonds comme Couleurs fluides. Les mises en page des livres audio gardent leurs propres couleurs.";
+"home_filter_bar_title" = "Filtres en haut";
+"home_filter_bar_edit" = "Modifier les filtres en haut";
+"home_filter_bar_none" = "Aucun filtre en haut de l’accueil";
+"home_filter_bar_footer" = "Faites glisser pour réorganiser. Livres audio n’apparaît que si votre bibliothèque contient des contenus parlés. Avec un seul filtre activé, la rangée est masquée.";
+"home_filter_bar_footer_following" = "Pour l’instant, chaque filtre suit l’affichage de sa section sur l’accueil. Une fois modifiés ici, ils restent en haut même si la section est masquée. Faites glisser pour réorganiser.";
+"home_filter_bar_follow_sections" = "Suivre à nouveau les sections de l’accueil";

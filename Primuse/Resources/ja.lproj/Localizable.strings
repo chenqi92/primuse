@@ -5718,3 +5718,9 @@
 "player_control_tint_theme" = "テーマカラー";
 "player_control_tint_monochrome" = "モノクロ";
 "player_control_tint_footer" = "進行バーやオンになったシャッフル・リピートなど、再生画面のコントロールの色です。モノクロはダークモードで白、ライトモードで黒になり、リキッドカラーのような背景でも色がぶつかりません。オーディオブックのレイアウトは独自の配色のままです。";
+"home_filter_bar_title" = "上部の切り替え";
+"home_filter_bar_edit" = "上部の切り替えを編集";
+"home_filter_bar_none" = "ホーム上部に切り替えボタンはありません";
+"home_filter_bar_footer" = "ドラッグで並べ替えます。オーディオブックはライブラリに音声コンテンツがあるときだけ表示されます。1つだけオンのときは列ごと表示されません。";
+"home_filter_bar_footer_following" = "現在、各ボタンはホームの対応するセクションの表示に合わせています。ここで変更すると、セクションを非表示にしてもボタンはホーム上部に残ります。ドラッグで並べ替えます。";
+"home_filter_bar_follow_sections" = "ホームのセクションに合わせる";

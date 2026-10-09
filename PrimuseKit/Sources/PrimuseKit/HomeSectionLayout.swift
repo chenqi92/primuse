@@ -372,3 +372,131 @@ public struct HomeSectionLayoutConfiguration: Codable, Equatable, Sendable {
         return String(decoding: data, as: UTF8.self)
     }
 }
+
+/// 首页顶上筛选胶囊(音乐、电台、有声、播客)的顺序与显隐。
+///
+/// 没调过时(存空串)每颗胶囊跟着首页编辑里对应区块的开关走:关掉「电台」那块,电台胶囊也收起,
+/// 和改版前一样。在「顶部切换」里调过一次之后,顺序与显隐就只认这里,区块收起了胶囊照样常驻。
+/// 整份存成一个 JSON 字符串,按 rawValue 存盘,所以 `ListeningSpace` 的 case 名不能改:
+/// 读回来认不出的名字只丢那一项。
+public struct HomeFilterBarConfiguration: Equatable, Sendable {
+    public static let storageKey = "primuse.home.filterBar.v1"
+
+    public static let defaultOrder: [ListeningSpace] = [.music, .radio, .spokenWord, .podcast]
+
+    /// 没调过:默认顺序,显隐跟着区块开关。
+    public static let followingSections = HomeFilterBarConfiguration(
+        order: defaultOrder,
+        hidden: [],
+        followsSections: true
+    )
+
+    /// 全部胶囊,按用户排的顺序(含收起的)。
+    public private(set) var order: [ListeningSpace]
+    /// 调过之后收起的胶囊;跟着区块开关走时不用。
+    public private(set) var hidden: Set<ListeningSpace>
+    /// 还没调过:显隐跟着首页区块的开关。
+    public private(set) var followsSections: Bool
+
+    public init(order: [ListeningSpace], hidden: Set<ListeningSpace>, followsSections: Bool = false) {
+        self.order = Self.completedOrder(order)
+        self.hidden = followsSections ? [] : hidden
+        self.followsSections = followsSections
+    }
+
+    // MARK: 存取
+
+    public static func decode(_ rawValue: String) -> HomeFilterBarConfiguration {
+        guard !rawValue.isEmpty,
+              let data = rawValue.data(using: .utf8),
+              let stored = try? JSONDecoder().decode(Stored.self, from: data) else {
+            return .followingSections
+        }
+        return HomeFilterBarConfiguration(
+            order: stored.order.compactMap(ListeningSpace.init(rawValue:)),
+            hidden: Set(stored.hidden.compactMap(ListeningSpace.init(rawValue:)))
+        )
+    }
+
+    /// 跟着区块开关走时编成空串:「恢复」之后又回到跟着区块走。
+    public func encoded() -> String {
+        guard !followsSections else { return "" }
+        let stored = Stored(
+            order: order.map(\.rawValue),
+            hidden: order.filter { hidden.contains($0) }.map(\.rawValue)
+        )
+        guard let data = try? JSONEncoder().encode(stored) else { return "" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private struct Stored: Codable {
+        var order: [String]
+        var hidden: [String]
+    }
+
+    // MARK: 查询
+
+    /// 这颗胶囊打没打开。`sectionShown` 是首页对应区块的开关(音乐恒为开),只在没调过时用。
+    public func isShown(_ space: ListeningSpace, sectionShown: (ListeningSpace) -> Bool) -> Bool {
+        followsSections ? sectionShown(space) : !hidden.contains(space)
+    }
+
+    /// 顶上真正出现的胶囊:打开的、且这一类当下能筛出东西来的(有声要真有有声内容)。
+    /// 只剩一颗时整排不出现:一颗胶囊筛不出别的。
+    public func visibleSpaces(
+        sectionShown: (ListeningSpace) -> Bool,
+        isAvailable: (ListeningSpace) -> Bool
+    ) -> [ListeningSpace] {
+        let spaces = order.filter { isShown($0, sectionShown: sectionShown) && isAvailable($0) }
+        return spaces.count > 1 ? spaces : []
+    }
+
+    // MARK: 修改
+
+    /// 第一次调整时把跟着区块开关算出来的显隐落成自己的一份,往后与区块无关。
+    public func customized(sectionShown: (ListeningSpace) -> Bool) -> HomeFilterBarConfiguration {
+        guard followsSections else { return self }
+        return HomeFilterBarConfiguration(
+            order: order,
+            hidden: Set(order.filter { !sectionShown($0) })
+        )
+    }
+
+    /// 调用方先 `customized(sectionShown:)`:跟着区块走的那份没有自己的显隐可改。
+    public mutating func setShown(_ shown: Bool, for space: ListeningSpace) {
+        assert(!followsSections, "call customized(sectionShown:) first")
+        followsSections = false
+        if shown {
+            hidden.remove(space)
+        } else {
+            hidden.insert(space)
+        }
+    }
+
+    /// 列表拖动排序(`onMove`)的偏移。
+    public mutating func move(fromOffsets source: IndexSet, toOffset destination: Int) {
+        assert(!followsSections, "call customized(sectionShown:) first")
+        followsSections = false
+        let moving = source.sorted().compactMap { order.indices.contains($0) ? order[$0] : nil }
+        guard !moving.isEmpty else { return }
+        let before = order[..<min(max(destination, 0), order.count)].filter { !moving.contains($0) }.count
+        var remaining = order.filter { !moving.contains($0) }
+        remaining.insert(contentsOf: moving, at: before)
+        order = remaining
+    }
+
+    // MARK: 归一
+
+    /// 去重,再把存盘里没有的胶囊(新版本加的)插回默认顺序里它前一个邻居的后面。
+    private static func completedOrder(_ stored: [ListeningSpace]) -> [ListeningSpace] {
+        var seen = Set<ListeningSpace>()
+        var order = stored.filter { seen.insert($0).inserted }
+        for (defaultIndex, space) in defaultOrder.enumerated() where !seen.contains(space) {
+            let anchor = defaultOrder[..<defaultIndex].reversed().first { seen.contains($0) }
+            let insertAt = anchor.flatMap { order.firstIndex(of: $0) }.map { $0 + 1 } ?? 0
+            order.insert(space, at: insertAt)
+            seen.insert(space)
+        }
+        return order
+    }
+}

@@ -5623,3 +5623,9 @@
 "player_control_tint_theme" = "Tema Rengi";
 "player_control_tint_monochrome" = "Tek Renk";
 "player_control_tint_footer" = "İlerleme çubuğu, açık karıştırma ve yineleme gibi çalar denetimlerinin rengi. Tek renk, koyu modda beyaz, açık modda siyahtır; Akışkan Renkler gibi arka planlarla çatışmaz. Sesli kitap düzenleri kendi renklerini korur.";
+"home_filter_bar_title" = "Üst filtreler";
+"home_filter_bar_edit" = "Üst filtreleri düzenle";
+"home_filter_bar_none" = "Ana sayfanın üstünde filtre yok";
+"home_filter_bar_footer" = "Sıralamak için sürükleyin. Sesli kitaplar yalnızca arşivinizde sesli içerik olduğunda görünür. Yalnızca biri açıksa satır gizlenir.";
+"home_filter_bar_footer_following" = "Şu anda her filtre, bölümünün ana sayfada gösterilip gösterilmediğine göre görünür. Burada değiştirdikten sonra bölüm gizlense de filtreler üstte kalır. Sıralamak için sürükleyin.";
+"home_filter_bar_follow_sections" = "Yeniden ana sayfa bölümlerini izle";

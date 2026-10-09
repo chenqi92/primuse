@@ -374,6 +374,82 @@ private struct HomeQuickAccessCarousel<Item: Identifiable, Cell: View>: View {
     }
 }
 
+#if os(iOS)
+/// 首页编辑的「顶部切换」:筛选胶囊的顺序与开关。第一次改动时把跟着区块开关算出来的显隐落成自己的一份,
+/// 往后与区块无关;「跟随首页区块」改回去。
+private struct HomeFilterBarEditor: View {
+    let sectionShown: (ListeningSpace) -> Bool
+
+    @AppStorage(HomeFilterBarConfiguration.storageKey) private var rawValue = ""
+    @Environment(\.dismiss) private var dismiss
+
+    private var configuration: HomeFilterBarConfiguration {
+        .decode(rawValue)
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(configuration.order, id: \.self) { space in
+                        Toggle(isOn: shownBinding(for: space)) {
+                            Label {
+                                Text(space.titleKey)
+                            } icon: {
+                                Image(systemName: space.systemImage)
+                                    .foregroundStyle(space.tint)
+                            }
+                        }
+                        .accessibilityIdentifier("home.filterBar.toggle.\(space.rawValue)")
+                    }
+                    .onMove(perform: move)
+                } footer: {
+                    Text(
+                        configuration.followsSections
+                            ? LocalizedStringKey("home_filter_bar_footer_following")
+                            : LocalizedStringKey("home_filter_bar_footer")
+                    )
+                }
+
+                if !configuration.followsSections {
+                    Section {
+                        Button("home_filter_bar_follow_sections") {
+                            rawValue = ""
+                        }
+                        .accessibilityIdentifier("home.filterBar.followSections")
+                    }
+                }
+            }
+            .environment(\.editMode, .constant(.active))
+            .navigationTitle("home_filter_bar_title")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func shownBinding(for space: ListeningSpace) -> Binding<Bool> {
+        Binding {
+            configuration.isShown(space, sectionShown: sectionShown)
+        } set: { shown in
+            var updated = configuration.customized(sectionShown: sectionShown)
+            updated.setShown(shown, for: space)
+            rawValue = updated.encoded()
+        }
+    }
+
+    private func move(_ source: IndexSet, _ destination: Int) {
+        var updated = configuration.customized(sectionShown: sectionShown)
+        updated.move(fromOffsets: source, toOffset: destination)
+        rawValue = updated.encoded()
+    }
+}
+#endif
+
 private struct HomeSpaceFilterBar: View {
     let spaces: [ListeningSpace]
     let selection: ListeningSpace?
@@ -748,20 +824,33 @@ struct HomeView: View {
     /// 没有对应胶囊时,卡片上的「全部」「书架」推进来的那一页。
     @State private var pushedSpacePage: ListeningSpace?
 
-    /// 筛选胶囊有哪几颗。电台、有声分别跟着首页编辑里「电台」「有声书」两块的开关走
-    /// (没有电台时筛出来的是添加电台的入口;有声还要真有有声内容);两块都关着时首页只剩音乐,
-    /// 整排不出现。极简导航的顶栏自带电台、有声分类,不摆这一排。
+    /// 筛选胶囊的顺序与显隐,在首页编辑的「顶部切换」里调。
+    @AppStorage(HomeFilterBarConfiguration.storageKey) private var homeFilterBarRawValue = ""
+    @State private var showsFilterBarEditor = false
+
+    /// 筛选胶囊有哪几颗、什么顺序(`HomeFilterBarConfiguration`)。没调过「顶部切换」时,
+    /// 电台、有声、播客分别跟着首页编辑里「电台」「有声书」「播客更新」几块的开关走;调过之后只认那里,
+    /// 区块收起了胶囊照样常驻。有声还要真有有声内容(没有电台时筛出来的是添加电台的入口,
+    /// 没订阅播客时是发现入口);只剩一颗时整排不出现。极简导航的顶栏自带电台、有声分类,不摆这一排。
     private var homeFilterSpaces: [ListeningSpace] {
         guard !editorMode else { return [] }
         #if os(iOS)
         guard appNavigationMode != .minimal else { return [] }
         #endif
-        var spaces: [ListeningSpace] = [.music]
-        if showRadioOnHome { spaces.append(.radio) }
-        if showAudiobooks, !library.spokenWordSongs.isEmpty { spaces.append(.spokenWord) }
-        // 播客跟「播客更新」那块的开关走;没订阅时筛出来的是发现入口。
-        if showPodcasts { spaces.append(.podcast) }
-        return spaces.count > 1 ? spaces : []
+        return HomeFilterBarConfiguration.decode(homeFilterBarRawValue).visibleSpaces(
+            sectionShown: isFilterSectionShown,
+            isAvailable: { $0 != .spokenWord || !library.spokenWordSongs.isEmpty }
+        )
+    }
+
+    /// 没调过「顶部切换」时,每颗胶囊跟着首页里哪一块的开关走。
+    private func isFilterSectionShown(_ space: ListeningSpace) -> Bool {
+        switch space {
+        case .music: true
+        case .radio: showRadioOnHome
+        case .spokenWord: showAudiobooks
+        case .podcast: showPodcasts
+        }
     }
 
     /// 实际生效的筛选。选中的那一类没了(关掉了首页电台、书都移走了)就回到全部。
@@ -1217,6 +1306,7 @@ struct HomeView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 20)
+                    filterBarEditorRow
                     heroEditorRow
                 } else if model.snapshot.hasContent, showHero {
                     libraryHeroSection
@@ -1483,6 +1573,55 @@ struct HomeView: View {
             }
             .opacity(visible ? 1 : 0.55)
             .padding(.horizontal, 12)
+    }
+
+    /// 顶上的筛选胶囊钉在最上面,编辑态里一行预览,点按钮排顺序、开关每一颗。
+    @ViewBuilder
+    private var filterBarEditorRow: some View {
+        #if os(iOS)
+        if appNavigationMode != .minimal {
+            let configuration = HomeFilterBarConfiguration.decode(homeFilterBarRawValue)
+            let shown = configuration.order.filter { configuration.isShown($0, sectionShown: isFilterSectionShown) }
+            editorBlockFrame(visible: shown.count > 1) {
+                HStack(spacing: 10) {
+                    Image(systemName: "pin.fill")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+
+                    Text("home_filter_bar_title")
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+
+                    Spacer(minLength: 8)
+
+                    Button { showsFilterBarEditor = true } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.footnote.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.small)
+                    .accessibilityLabel(Text("home_filter_bar_edit"))
+                    .accessibilityIdentifier("home.edit.filterBar")
+                }
+                .padding(.horizontal, 20)
+
+                if shown.count > 1 {
+                    HomeSpaceFilterBar(spaces: shown, selection: nil) { _ in }
+                        .allowsHitTesting(false)
+                } else {
+                    Text("home_filter_bar_none")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 20)
+                }
+            }
+            .sheet(isPresented: $showsFilterBarEditor) {
+                HomeFilterBarEditor(sectionShown: isFilterSectionShown)
+            }
+        }
+        #endif
     }
 
     /// 顶部欢迎卡片钉在所有区块之上,不参与排序,编辑态只给显隐。

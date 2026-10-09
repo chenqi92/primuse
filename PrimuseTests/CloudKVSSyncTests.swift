@@ -83,6 +83,7 @@ final class CloudKVSSyncTests: XCTestCase {
         let keys = InterfaceLayoutSync.keys
         XCTAssertEqual(Set(keys).count, keys.count)
         XCTAssertTrue(keys.contains(HomeSectionConfiguration.orderKey))
+        XCTAssertTrue(keys.contains(HomeFilterBarConfiguration.storageKey))
         XCTAssertTrue(keys.contains(LibrarySectionLayoutPolicy.hiddenKey))
         XCTAssertTrue(keys.contains("primuse.home.showHero"))
         for rewritten in [

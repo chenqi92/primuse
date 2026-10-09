@@ -5477,3 +5477,9 @@
 "player_control_tint_theme" = "Theme Color";
 "player_control_tint_monochrome" = "Monochrome";
 "player_control_tint_footer" = "The color of the progress bar, active shuffle and repeat, and other player controls. Monochrome is white in Dark Mode and black in Light Mode, so it stays calm over backgrounds like Liquid Colors. The audiobook layouts keep their own colors.";
+"home_filter_bar_title" = "Top Filters";
+"home_filter_bar_edit" = "Edit Top Filters";
+"home_filter_bar_none" = "No filters at the top of Home";
+"home_filter_bar_footer" = "Drag to reorder. Audiobooks appears only when your library has spoken-word content. With only one turned on, the row is hidden.";
+"home_filter_bar_footer_following" = "Each filter currently follows whether its section is shown on Home. After you change them here, they stay at the top even when the section is hidden. Drag to reorder.";
+"home_filter_bar_follow_sections" = "Follow Home Sections Again";

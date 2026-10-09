@@ -5810,3 +5810,9 @@
 "player_control_tint_theme" = "跟随主题色";
 "player_control_tint_monochrome" = "单色";
 "player_control_tint_footer" = "进度条、开着的随机与循环等播放页控件的颜色。选单色时深色外观下是白色、浅色外观下是黑色，配流动色彩之类的背景不抢色；有声书版面保留自己的配色。";
+"home_filter_bar_title" = "顶部切换";
+"home_filter_bar_edit" = "调整顶部切换";
+"home_filter_bar_none" = "首页顶上不显示切换按钮";
+"home_filter_bar_footer" = "拖动调整顺序。有声书要资料库里有有声内容才会出现；只打开一个时整排不显示。";
+"home_filter_bar_footer_following" = "现在每个按钮跟着首页里对应区块的开关显示。在这里改过之后，区块收起时按钮也会留在首页顶上。拖动调整顺序。";
+"home_filter_bar_follow_sections" = "改回跟随首页区块";

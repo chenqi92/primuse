@@ -5717,3 +5717,9 @@
 "player_control_tint_theme" = "테마 색상";
 "player_control_tint_monochrome" = "모노크롬";
 "player_control_tint_footer" = "진행 막대, 켜진 셔플과 반복 등 재생 화면 컨트롤의 색상입니다. 모노크롬은 다크 모드에서 흰색, 라이트 모드에서 검은색이라 리퀴드 컬러 같은 배경과도 어울립니다. 오디오북 레이아웃은 고유한 색상을 유지합니다.";
+"home_filter_bar_title" = "상단 전환";
+"home_filter_bar_edit" = "상단 전환 편집";
+"home_filter_bar_none" = "홈 상단에 전환 버튼 없음";
+"home_filter_bar_footer" = "드래그하여 순서를 바꿉니다. 오디오북은 보관함에 오디오 콘텐츠가 있을 때만 나타납니다. 하나만 켜면 줄 전체가 숨겨집니다.";
+"home_filter_bar_footer_following" = "지금은 각 버튼이 홈의 해당 섹션 표시 여부를 따릅니다. 여기서 변경하면 섹션을 숨겨도 버튼이 홈 상단에 남습니다. 드래그하여 순서를 바꿉니다.";
+"home_filter_bar_follow_sections" = "홈 섹션을 다시 따르기";

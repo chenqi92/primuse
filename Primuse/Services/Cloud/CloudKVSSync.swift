@@ -633,6 +633,7 @@ final class InterfaceLayoutSync {
         // iPhone / iPad 首页
         HomeSectionConfiguration.orderKey,
         HomeSectionLayoutConfiguration.storageKey,
+        HomeFilterBarConfiguration.storageKey,
         "primuse.home.showHero",
         "primuse.home.showContinueSpaces",
         AlbumRecommendationService.homeVisibilityKey,
