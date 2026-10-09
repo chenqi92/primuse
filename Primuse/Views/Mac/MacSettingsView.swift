@@ -6300,7 +6300,7 @@ private struct MacSTThemeView: View {
                 hex: "#\(swatch.id.lowercased())",
                 name: PMString(swatch.localizationKey),
                 sub: "",
-                color: Color(hex: swatch.id)
+                color: AppThemePreferences.themeColor(hex: swatch.id)
             )
         }
     }

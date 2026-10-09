@@ -2070,6 +2070,7 @@
 "stats_server_summary" = "Краткое описание";
 "radio_stop" = "Стоп";
 "theme_color_rose" = "Роза";
+"theme_color_magenta" = "Пурпурный";
 "relay_import_error_response" = "Срок действия билета на импорт истек, или служба вернула неверный ответ.";
 "ai_audio_transcription_title" = "Расшифровать песню";
 "lyrics_editor_empty_title" = "Текста песни пока нет";

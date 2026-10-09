@@ -2070,6 +2070,7 @@
 "stats_server_summary" = "Özet";
 "radio_stop" = "Durdur";
 "theme_color_rose" = "Gül";
+"theme_color_magenta" = "Macenta";
 "relay_import_error_response" = "İçe aktarma biletinin süresi doldu veya hizmet geçersiz bir yanıt verdi.";
 "ai_audio_transcription_title" = "Şarkıyı Metne Yaz";
 "lyrics_editor_empty_title" = "Henüz şarkı sözü yok";

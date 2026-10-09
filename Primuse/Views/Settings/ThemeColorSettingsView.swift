@@ -347,13 +347,17 @@ struct ThemeColorSections: View {
         let isSelected = settings.mode == .fixed && settings.fixedColorHex == swatch.id
         // 白色色块在白底上要一圈看得见的边,勾是黑的,选中的外圈用文字色。
         let isMonochrome = AppThemePreferences.isMonochrome(swatch.id)
+        // 「品红」按当前外观显示那一档;「白色」色块始终画成白的。
+        let swatchColor = isMonochrome
+            ? Color(hex: swatch.id)
+            : AppThemePreferences.themeColor(hex: swatch.id)
 
         return Button {
             select(swatch)
         } label: {
             VStack(spacing: 6) {
                 Circle()
-                    .fill(Color(hex: swatch.id))
+                    .fill(swatchColor)
                     .frame(width: 44, height: 44)
                     .overlay {
                         if isSelected {
@@ -368,7 +372,7 @@ struct ThemeColorSections: View {
                         Circle()
                             .strokeBorder(
                                 isSelected
-                                    ? (isMonochrome ? Color.primary.opacity(0.7) : Color(hex: swatch.id))
+                                    ? (isMonochrome ? Color.primary.opacity(0.7) : swatchColor)
                                     : Color.primary.opacity(isMonochrome ? 0.28 : 0.12),
                                 lineWidth: isSelected ? 3 : (isMonochrome ? 1 : 0.5)
                             )
@@ -488,7 +492,8 @@ struct ThemeColorSections: View {
         settings.fixedColorHex = swatch.id
         custom = ThemeColorSettings.hsb(fromHex: swatch.id)
         activateFixedMode(animated: true)
-        applyBaseAccent(Color(hex: swatch.id), animated: true)
+        // 跟启动时一样取 `fixedColor`:「白色」「品红」是随外观变的,不能当成一个十六进制色。
+        applyBaseAccent(settings.fixedColor, animated: true)
     }
 
     private func apply(_ mode: AppThemeColorMode) {

@@ -1903,6 +1903,7 @@ final class MacUIPreferences {
                 AppThemePreferences.normalizedHex(brandColorHex, fallback: Self.defaultBrandHex),
                 forKey: AppThemePreferences.accentHexKey
             )
+            legibleFixedBrandColor = ThemeService.legibleAccent(fixedBrandColor)
         }
     }
     /// 明暗模式覆盖。didSet 立即应用到 NSApp.appearance。
@@ -1923,9 +1924,14 @@ final class MacUIPreferences {
     private(set) var artworkBrandColor: Color? = nil
 
     /// 固定回退色与当前生效色分开，自动模式下全套 Mac 自绘控件会随封面更新。
-    var fixedBrandColor: Color { Color(hex: brandColorHex) }
+    var fixedBrandColor: Color { AppThemePreferences.themeColor(hex: brandColorHex) }
+    /// 固定色用在控件和文字上的版本(浅色外观压暗、深色外观提亮到 4.5:1)。`brandColor`
+    /// 每个视图都读，换色时算一次存着。
+    private(set) var legibleFixedBrandColor: Color = .accentColor
     var brandColor: Color {
-        themeColorMode == .automatic ? artworkBrandColor ?? fixedBrandColor : fixedBrandColor
+        themeColorMode == .automatic
+            ? artworkBrandColor ?? legibleFixedBrandColor
+            : legibleFixedBrandColor
     }
 
     func updateArtworkBrandColor(_ color: Color?) {
@@ -1942,7 +1948,7 @@ final class MacUIPreferences {
     private static let keyColorScheme  = "pm.mac.colorScheme"
     private static let keyAppIcon      = "pm.mac.appIcon"
 
-    static let defaultBrandHex = "C96442"
+    static let defaultBrandHex = AppThemePreferences.defaultAccentHex
 
     init(defaults: UserDefaults = .standard,
          operatingSystemMajorVersion: Int = ProcessInfo.processInfo.operatingSystemVersion.majorVersion) {
@@ -2003,6 +2009,7 @@ final class MacUIPreferences {
         d.set(themeColorMode.rawValue, forKey: AppThemePreferences.colorModeKey)
         d.set(coverDrivenAmbient, forKey: AppThemePreferences.coverDrivenAmbientKey)
         d.set(brandColorHex, forKey: AppThemePreferences.accentHexKey)
+        legibleFixedBrandColor = ThemeService.legibleAccent(fixedBrandColor)
     }
 
     func selectAppearance(_ mode: PMAppearanceMode) {

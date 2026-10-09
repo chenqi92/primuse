@@ -437,7 +437,9 @@ final class WatchSessionBridge: NSObject {
     /// 拿当前 ThemeService 的 accent 拆成 RGB Double。读不到时退回默认深海青。
     private func currentAccentRGB() -> (Double, Double, Double) {
         let color = theme?.accentColor ?? ThemeService.defaultAccent
-        let ui = UIColor(color)
+        // 手表只有深色界面:随外观变的主题色(「白色」「品红」)取深色那一档,
+        // 不然手机在浅色外观时「白色」会按近黑推过去,黑底上看不见。
+        let ui = UIColor(color).resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark))
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         ui.getRed(&r, green: &g, blue: &b, alpha: &a)
         return (Double(r), Double(g), Double(b))

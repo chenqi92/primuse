@@ -33,20 +33,31 @@ enum WidgetDesign {
     /// been published yet (fresh install before the main app first launches).
     static var brandTint: Color {
         let rgb = BrandTintStore.load()
-        let red = rgb?.red ?? 0.078
-        let green = rgb?.green ?? 0.490
-        let blue = rgb?.blue ?? 0.541
+        let source = ThemeAccentContrastPolicy.RGB(
+            red: rgb?.red ?? 0.078,
+            green: rgb?.green ?? 0.490,
+            blue: rgb?.blue ?? 0.541
+        )
+        // 浅色画布照主 App 的规则压到 4.5:1;深色画布照旧往白里提 32%,再保个 4.5:1 的底。
+        let lift = 0.32
+        let light = ThemeAccentContrastPolicy.legible(source, for: .light)
+        let dark = ThemeAccentContrastPolicy.legible(
+            ThemeAccentContrastPolicy.RGB(
+                red: source.red + (1 - source.red) * lift,
+                green: source.green + (1 - source.green) * lift,
+                blue: source.blue + (1 - source.blue) * lift
+            ),
+            for: .dark
+        )
         #if canImport(UIKit)
         return Color(uiColor: UIColor { traits in
-            let lift = traits.userInterfaceStyle == .dark ? 0.32 : 0.0
-            return UIColor(red: red + (1 - red) * lift, green: green + (1 - green) * lift,
-                           blue: blue + (1 - blue) * lift, alpha: 1)
+            let tint = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: tint.red, green: tint.green, blue: tint.blue, alpha: 1)
         })
         #else
         return Color(nsColor: NSColor(name: nil) { appearance in
-            let lift = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? 0.32 : 0.0
-            return NSColor(srgbRed: red + (1 - red) * lift, green: green + (1 - green) * lift,
-                           blue: blue + (1 - blue) * lift, alpha: 1)
+            let tint = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+            return NSColor(srgbRed: tint.red, green: tint.green, blue: tint.blue, alpha: 1)
         })
         #endif
     }

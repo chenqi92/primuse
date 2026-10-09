@@ -15,6 +15,9 @@ import AppKit
 final class ThemeService {
     /// 最近一次从当前封面提取的颜色。主题色来源与播放背景分别决定是否消费它。
     private(set) var artworkAccentColor: Color = ThemeService.defaultAccent
+    /// 同一个封面色用在控件和文字上的版本:浅色外观压暗、深色外观提亮到 4.5:1,色相不变。
+    /// 播放页氛围还用上面的原色。没有封面时等于 `baseLegibleAccent`。
+    private(set) var artworkLegibleAccent: Color = ThemeService.defaultAccent
     private(set) var artworkSecondaryAccent: Color = ThemeService.defaultDarkAccent
     private(set) var artworkSecondaryDarkAccent: Color = ThemeService.defaultDarkAccent
     private(set) var artworkDarkAccent: Color = ThemeService.defaultDarkAccent
@@ -43,6 +46,8 @@ final class ThemeService {
     /// replaces the static brand color as the fallback whenever a song's
     /// cover art isn't actively driving the theme.
     private(set) var baseAccent: Color = ThemeService.defaultAccent
+    /// 用户选的固定色用在控件和文字上的版本,规则同 `artworkLegibleAccent`。
+    private(set) var baseLegibleAccent: Color = ThemeService.defaultAccent
     private(set) var baseDarkAccent: Color = ThemeService.defaultDarkAccent
 
     /// 播放页的氛围色与全局控件主题色分别计算。这样固定主题仍可保留封面背景，
@@ -64,7 +69,7 @@ final class ThemeService {
         return colors
     }
     var onAccent: Color { Self.contrastingForeground(for: accentColor) }
-    var uiAccentColor: Color { colorMode == .automatic ? artworkAccentColor : baseAccent }
+    var uiAccentColor: Color { colorMode == .automatic ? artworkLegibleAccent : baseLegibleAccent }
     var uiDarkAccent: Color { colorMode == .automatic ? artworkDarkAccent : baseDarkAccent }
     var uiOnAccent: Color { Self.contrastingForeground(for: uiAccentColor) }
 
@@ -319,6 +324,7 @@ final class ThemeService {
     private func applyFallbackTheme(animated: Bool = true) {
         applyThemeChange(animated: animated) {
             artworkAccentColor = baseAccent
+            artworkLegibleAccent = baseLegibleAccent
             artworkSecondaryAccent = baseDarkAccent
             artworkSecondaryDarkAccent = baseDarkAccent
             artworkDarkAccent = baseDarkAccent
@@ -337,9 +343,11 @@ final class ThemeService {
         liquidPalette: [LiquidBackdropColor] = [],
         identity: String
     ) {
+        let legibleAccent = Self.legibleAccent(result.accent)
         withAnimation(.easeInOut(duration: 0.6)) {
             artworkLiquidPalette = liquidPalette
             artworkAccentColor = result.accent
+            artworkLegibleAccent = legibleAccent
             artworkSecondaryAccent = result.secondary
             artworkSecondaryDarkAccent = result.secondaryDark
             artworkDarkAccent = result.dark
@@ -348,7 +356,7 @@ final class ThemeService {
             colorID = identity
         }
         #if os(macOS)
-        MacUIPreferences.shared.updateArtworkBrandColor(result.accent)
+        MacUIPreferences.shared.updateArtworkBrandColor(legibleAccent)
         #endif
     }
 
@@ -415,16 +423,41 @@ final class ThemeService {
     /// kicks in next time `resetToDefault` runs.
     func setBaseAccent(_ tint: Color, animated: Bool = true) {
         let dark = Self.darken(tint, factor: 0.55)
+        let legible = Self.legibleAccent(tint)
         baseAccent = tint
+        baseLegibleAccent = legible
         baseDarkAccent = dark
         if colorID == "default" {
             applyThemeChange(animated: animated) {
                 artworkAccentColor = tint
+                artworkLegibleAccent = legible
                 artworkSecondaryAccent = dark
                 artworkSecondaryDarkAccent = dark
                 artworkDarkAccent = dark
             }
         }
+    }
+
+    /// 主题色用在控件和文字上的版本,规则见 `ThemeAccentContrastPolicy`。随外观变的颜色
+    /// (「白色」「品红」)两档各按各的外观算。
+    nonisolated static func legibleAccent(_ color: Color) -> Color {
+        func components(_ scheme: ColorScheme) -> ThemeAccentContrastPolicy.RGB {
+            var environment = EnvironmentValues()
+            environment.colorScheme = scheme
+            let resolved = color.resolve(in: environment)
+            return ThemeAccentContrastPolicy.RGB(
+                red: Double(resolved.red),
+                green: Double(resolved.green),
+                blue: Double(resolved.blue)
+            )
+        }
+        func swiftUIColor(_ rgb: ThemeAccentContrastPolicy.RGB) -> Color {
+            Color(.sRGB, red: rgb.red, green: rgb.green, blue: rgb.blue)
+        }
+        return AppThemePreferences.adaptiveColor(
+            light: swiftUIColor(ThemeAccentContrastPolicy.legible(components(.light), for: .light)),
+            dark: swiftUIColor(ThemeAccentContrastPolicy.legible(components(.dark), for: .dark))
+        )
     }
 
     /// 白字压在这个颜色上还看不看得清。相对亮度过半,白字的对比度就不到 2 了:色板里最亮的

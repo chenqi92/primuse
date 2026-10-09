@@ -201,12 +201,18 @@ enum AppThemePreferences {
     static let ambientStrengthKey = "primuse.theme.ambientStrength"
     static let iOSAppearanceKey = "primuse.appearance"
 
-    static let defaultAccentHex = "C96442"
+    /// 「品红」:Primuse 图标的颜色,也是新装默认色。浅色外观用压深一档的 D6176F(白底上
+    /// 5:1),深色外观用图标上的 EF1A7F(黑底上 5.1:1,压白字也还有 4.1:1)。存储值是浅色那档。
+    static let brandHex = "D6176F"
+    static let brandDarkHex = "EF1A7F"
+
+    static let defaultAccentHex = brandHex
     static let defaultColorMode = AppThemeColorMode.automatic
     static let defaultCoverDrivenAmbient = true
     static let defaultAmbientStrength = 0.70
 
     static let swatches: [Swatch] = [
+        Swatch(id: brandHex, localizationKey: "theme_color_magenta"),
         Swatch(id: "147D8A", localizationKey: "theme_color_teal"),
         Swatch(id: "2AAA8A", localizationKey: "theme_color_turquoise"),
         Swatch(id: "1F8A5B", localizationKey: "theme_color_forest"),
@@ -236,9 +242,13 @@ enum AppThemePreferences {
         swatches.filter { !isMonochrome($0.id) }
     }
 
-    /// 存下来的固定主题色变成颜色;「白色」随深浅外观换。
+    /// 存下来的固定主题色变成颜色;「白色」与「品红」随深浅外观换。
     static func themeColor(hex: String) -> Color {
-        guard isMonochrome(hex) else { return Color(hex: normalizedHex(hex)) }
+        let normalized = normalizedHex(hex)
+        if normalized == brandHex {
+            return adaptiveColor(light: Color(hex: brandHex), dark: Color(hex: brandDarkHex))
+        }
+        guard isMonochrome(normalized) else { return Color(hex: normalized) }
         #if canImport(UIKit)
         return Color(uiColor: UIColor { traits in
             traits.userInterfaceStyle == .dark ? .white : UIColor(white: 0.11, alpha: 1)
@@ -248,6 +258,23 @@ enum AppThemePreferences {
             appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
                 ? .white
                 : NSColor(white: 0.11, alpha: 1)
+        })
+        #endif
+    }
+
+    /// 浅色、深色外观各用一档的颜色。闭包在 SwiftUI 的后台渲染线程上解析,不能带主线程隔离。
+    static func adaptiveColor(light: Color, dark: Color) -> Color {
+        #if canImport(UIKit)
+        let lightColor = UIColor(light)
+        let darkColor = UIColor(dark)
+        return Color(uiColor: UIColor { @Sendable traits in
+            traits.userInterfaceStyle == .dark ? darkColor : lightColor
+        })
+        #else
+        let lightColor = NSColor(light)
+        let darkColor = NSColor(dark)
+        return Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? darkColor : lightColor
         })
         #endif
     }

@@ -2070,6 +2070,7 @@
 "stats_server_summary" = "Підсумок";
 "radio_stop" = "Стоп";
 "theme_color_rose" = "Роза";
+"theme_color_magenta" = "Пурпуровий";
 "relay_import_error_response" = "Термін дії квитка на імпорт закінчився або служба повернула недійсну відповідь.";
 "ai_audio_transcription_title" = "Транскрибувати пісню";
 "lyrics_editor_empty_title" = "Тексту пісні ще немає";
