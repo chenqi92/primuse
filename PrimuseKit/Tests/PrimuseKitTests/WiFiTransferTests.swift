@@ -273,6 +273,55 @@ struct WiFiTransferTests {
         #expect(try await send("PUT", path: "Folder/song.mp3", body: bytes, code: server.accessCode).1 == 201)
     }
 
+    @Test(.timeLimit(.minutes(1))) func parallelUploadsAreReceivedSideBySide() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let recorder = EventRecorder()
+        let server = WiFiTransferServer(root: root, page: "<p>browser</p>", testingHost: "127.0.0.1") {
+            recorder.append($0)
+        }
+        server.start()
+        defer { server.stop() }
+        let address = try await waitForReady(recorder)
+        let code = server.accessCode
+        let destination = try await WiFiTransferClient(address: address, code: code).destination()
+        #expect(destination.uploadConcurrency == WiFiTransferServer.maximumConcurrentUploads)
+        #expect(destination.acceptedUploadConcurrency == WiFiTransferServer.maximumConcurrentUploads)
+
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let payloads = (0..<WiFiTransferServer.maximumConcurrentUploads).map {
+            Data(repeating: UInt8($0 + 1), count: 2 * 1024 * 1024)
+        }
+        let statuses = try await withThrowingTaskGroup(of: Int.self) { group in
+            for (index, payload) in payloads.enumerated() {
+                group.addTask {
+                    var components = URLComponents(string: address + "/api/files")!
+                    components.queryItems = [URLQueryItem(name: "path", value: "parallel/\(index).mp3")]
+                    var request = URLRequest(url: components.url!)
+                    request.httpMethod = "PUT"
+                    request.setValue(code, forHTTPHeaderField: "X-Primuse-Code")
+                    let (_, response) = try await session.upload(for: request, from: payload)
+                    return (response as! HTTPURLResponse).statusCode
+                }
+            }
+            return try await group.reduce(into: [Int]()) { $0.append($1) }
+        }
+        #expect(statuses == Array(repeating: 201, count: payloads.count))
+        for (index, payload) in payloads.enumerated() {
+            #expect(try Data(contentsOf: root.appendingPathComponent("parallel/\(index).mp3")) == payload)
+        }
+    }
+
+    @Test func olderReceiversGetOneUploadAtATime() throws {
+        let older = try JSONDecoder().decode(WiFiTransferDestination.self, from: Data(#"{"availableBytes":10}"#.utf8))
+        #expect(older.uploadConcurrency == nil)
+        #expect(older.acceptedUploadConcurrency == 1)
+        let newer = try JSONDecoder().decode(WiFiTransferDestination.self,
+                                             from: Data(#"{"availableBytes":10,"uploadConcurrency":8}"#.utf8))
+        #expect(newer.acceptedUploadConcurrency == WiFiTransferServer.maximumConcurrentUploads)
+    }
+
     @Test(.timeLimit(.minutes(1))) func nativeTransferRequiresApprovalAndCompletesWithinBudget() async throws {
         let root = try temporaryRoot()
         let source = try temporaryRoot()

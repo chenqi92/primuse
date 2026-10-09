@@ -1097,7 +1097,8 @@ final class ScanService {
         library: MusicLibrary,
         sourceStore: SourcesStore,
         scraperService: MusicScraperService? = nil,
-        folderRescan: SourceFolderRescanRequest? = nil
+        folderRescan: SourceFolderRescanRequest? = nil,
+        requestsContinuedProcessing: Bool = true
     ) -> Bool {
         let source = sourceStore.source(id: source.id) ?? source
         guard activeTasks[source.id] == nil else { return false }
@@ -1395,6 +1396,7 @@ final class ScanService {
         requestContinuedProcessing(
             for: source,
             context: snapshotExecutionContext,
+            allowsSystemTask: requestsContinuedProcessing,
             scannedCount: resumeCount,
             totalCount: resumeTotal
         )
@@ -1405,13 +1407,18 @@ final class ScanService {
     /// 时间。iOS 26 起这是让一次用户发起的长任务在离开 app 之后继续跑的正规
     /// 途径; 在此之前扫描只有 ~30 秒的 UIKit 断言, 加一次由系统决定时机的
     /// BGProcessing 唤醒, 所以离开 app 基本等于扫描停住 (#99)。
+    /// - Parameter allowsSystemTask: 设备传输每收完一个文件就扫一次, 每次都申请会让系统
+    ///   任务卡片一首一弹、一首一响 (#201); 这类扫描传 false, 只走普通的前台生命周期。
     private func requestContinuedProcessing(
         for source: MusicSource,
         context: BaiduSnapshotExecutionContext,
+        allowsSystemTask: Bool = true,
         scannedCount: Int,
         totalCount: Int
     ) {
         #if os(iOS)
+        // 不申请系统任务的扫描也不记意图, 免得回到前台续扫时补申请一次。
+        guard allowsSystemTask else { return }
         if context == .userInitiatedForeground,
            !Self.isForegroundOnlyScanSource(source.type) {
             userInitiatedScanIntents.insert(source.id)

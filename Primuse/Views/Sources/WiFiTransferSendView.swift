@@ -165,12 +165,16 @@ final class WiFiTransferSender {
                 let retryIDs = Set(retryFiles.map(\.id))
                 files = combined?.files.filter { !retry || retryIDs.contains($0.id) } ?? []
                 guard !files.isEmpty else { status = ""; return }
-                try WiFiTransferFilePreparation.checkSpace(at: FileManager.default.temporaryDirectory,
-                                                          additionalBytes: files.map(\.size).max() ?? 0)
                 let connection = try WiFiTransferClient(address: address, code: code)
                 client = connection
                 let destination = try await connection.destination()
                 if let expectedPeerID, destination.identity?.id != expectedPeerID { throw WiFiTransferError.unauthorized }
+                // 并行发送时每一路各暂存一个文件。
+                let parallelUploads = min(destination.acceptedUploadConcurrency, files.count)
+                try WiFiTransferFilePreparation.checkSpace(
+                    at: FileManager.default.temporaryDirectory,
+                    additionalBytes: files.map(\.size).sorted(by: >).prefix(parallelUploads).reduce(0, +)
+                )
                 destinationName = destination.identity?.name ?? address
                 let total = files.reduce(Int64(0)) { $0 + $1.size }
                 guard destination.availableBytes > total + 64 * 1024 * 1024 else { throw WiFiTransferError.notEnoughSpace }
@@ -182,44 +186,24 @@ final class WiFiTransferSender {
                 status = "waitingApproval"
                 try await connection.waitForAcceptance(invitation.id)
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                var sent: Int64 = 0
-                for (index, file) in files.enumerated() {
-                    try Task.checkCancellation()
-                    currentFile = file.path
-                    status = "preparing"
-                    do {
-                        if let songID = songByFileID[file.id] {
-                            guard let song = library.visibleSong(id: songID),
-                                  let source = sources.source(id: song.sourceID),
-                                  let version = preparedVersions[songID],
-                                  WiFiTransferLibraryPreparation.Version(song: song, source: source) == version else {
-                                throw WiFiTransferLibraryPreparation.PreparationError.sourceChanged
+                let batch = TransferSendBatch(files: files, total: total)
+                let ticketID = invitation.id
+                status = "sending"
+                do {
+                    try await withThrowingTaskGroup(of: Void.self) { group in
+                        for _ in 0..<parallelUploads {
+                            group.addTask {
+                                try await self.sendFiles(from: batch, connection: connection, ticket: ticketID,
+                                                         directory: directory, generation: generation,
+                                                         library: library, sources: sources)
                             }
                         }
-                        let staged = try await WiFiTransferSelection.stage(file, in: directory)
-                        defer { try? FileManager.default.removeItem(at: staged) }
-                        try Task.checkCancellation()
-                        status = "sending"
-                        let preceding = sent
-                        try await connection.upload(file: staged, path: file.path, size: file.size, ticket: invitation.id) { [weak self] bytes in
-                            Task { @MainActor in
-                                guard let self, self.generation == generation, self.busy else { return }
-                                self.progress = Double(preceding + bytes) / Double(max(total, 1))
-                            }
-                        }
-                        completed += 1
-                    } catch {
-                        if Task.isCancelled { throw CancellationError() }
-                        failed.append(file)
-                        failures.append(file.path + ": " + WiFiTransferText.error(error))
-                        if !(error is WiFiTransferError) || (error as? WiFiTransferError) == .unauthorized
-                            || (error as? WiFiTransferError) == .notEnoughSpace {
-                            failed.append(contentsOf: files.dropFirst(index + 1))
-                            throw error
-                        }
+                        try await group.waitForAll()
                     }
-                    sent += file.size
-                    progress = Double(sent) / Double(max(total, 1))
+                } catch {
+                    // 中途停下: 没发成功的都留给「重试」, 顺序与原列表一致。
+                    if !Task.isCancelled { failed = files.filter { !batch.succeeded.contains($0.id) } }
+                    throw error
                 }
                 status = "finished"
             } catch {
@@ -230,7 +214,98 @@ final class WiFiTransferSender {
         }
     }
 
+    /// 一路发送: 依次取下一个文件, 直到取完或整批停下。
+    private func sendFiles(from batch: TransferSendBatch, connection: WiFiTransferClient, ticket: String,
+                           directory: URL, generation: UUID,
+                           library: MusicLibrary, sources: SourcesStore) async throws {
+        while let file = batch.next() {
+            try await sendFile(file, batch: batch, connection: connection, ticket: ticket,
+                               directory: directory, generation: generation, library: library, sources: sources)
+        }
+    }
+
+    /// 发一个文件。只有这个文件本身的问题才记下继续; 连接断了、没授权、空间不够就抛出, 停掉整批。
+    private func sendFile(_ file: WiFiTransferOutgoingFile, batch: TransferSendBatch, connection: WiFiTransferClient,
+                          ticket: String, directory: URL, generation: UUID,
+                          library: MusicLibrary, sources: SourcesStore) async throws {
+        try Task.checkCancellation()
+        currentFile = file.path
+        do {
+            if let songID = songByFileID[file.id] {
+                guard let song = library.visibleSong(id: songID),
+                      let source = sources.source(id: song.sourceID),
+                      let version = preparedVersions[songID],
+                      WiFiTransferLibraryPreparation.Version(song: song, source: source) == version else {
+                    throw WiFiTransferLibraryPreparation.PreparationError.sourceChanged
+                }
+            }
+            let staged = try await WiFiTransferSelection.stage(file, in: directory)
+            defer { try? FileManager.default.removeItem(at: staged) }
+            try Task.checkCancellation()
+            try await connection.upload(file: staged, path: file.path, size: file.size, ticket: ticket) { [weak self] bytes in
+                Task { @MainActor in
+                    guard let self, self.generation == generation, self.busy else { return }
+                    batch.update(file.id, sent: bytes)
+                    self.progress = batch.fraction
+                }
+            }
+            batch.succeed(file.id)
+            completed += 1
+        } catch {
+            if Task.isCancelled { throw CancellationError() }
+            failed.append(file)
+            failures.append(file.path + ": " + WiFiTransferText.error(error))
+            if !(error is WiFiTransferError) || (error as? WiFiTransferError) == .unauthorized
+                || (error as? WiFiTransferError) == .notEnoughSpace {
+                throw error
+            }
+        }
+        batch.finish(file.id, size: file.size)
+        progress = batch.fraction
+    }
+
     func cancel() { task?.cancel() }
+}
+
+/// 并行发送时按顺序取下一个文件, 进度按已发完的加上各路在途的字节合计。
+@MainActor
+private final class TransferSendBatch {
+    private let files: [WiFiTransferOutgoingFile]
+    private let total: Int64
+    private var nextIndex = 0
+    private var finishedBytes: Int64 = 0
+    private var inFlight: [String: Int64] = [:]
+    private(set) var succeeded: Set<String> = []
+
+    init(files: [WiFiTransferOutgoingFile], total: Int64) {
+        self.files = files
+        self.total = total
+    }
+
+    var fraction: Double {
+        Double(finishedBytes + inFlight.values.reduce(0, +)) / Double(max(total, 1))
+    }
+
+    func next() -> WiFiTransferOutgoingFile? {
+        guard nextIndex < files.count else { return nil }
+        let file = files[nextIndex]
+        nextIndex += 1
+        inFlight[file.id] = 0
+        return file
+    }
+
+    /// 文件收尾之后才到的进度回调不再计入, 免得重复算。
+    func update(_ id: String, sent: Int64) {
+        guard inFlight[id] != nil else { return }
+        inFlight[id] = sent
+    }
+
+    func succeed(_ id: String) { succeeded.insert(id) }
+
+    func finish(_ id: String, size: Int64) {
+        guard inFlight.removeValue(forKey: id) != nil else { return }
+        finishedBytes += size
+    }
 }
 
 struct WiFiTransferSendView: View {

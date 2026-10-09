@@ -131,14 +131,15 @@ final class WiFiTransferFiles {
         try fm.createDirectory(at: url, withIntermediateDirectories: true)
     }
 
-    func beginUpload(path: String, size: Int64) throws -> Upload {
+    /// - Parameter reservedBytes: Bytes other in-flight uploads have yet to write.
+    func beginUpload(path: String, size: Int64, reservedBytes: Int64 = 0) throws -> Upload {
         let url = try resolve(path)
         guard Self.extensions.contains(url.pathExtension.lowercased()) else { throw WiFiTransferError.unsupportedFile }
         guard size > 0 else { throw WiFiTransferError.invalidRequest }
         guard size <= Self.maximumFileSize else { throw WiFiTransferError.tooLarge }
         guard !fm.fileExists(atPath: url.path) else { throw WiFiTransferError.conflict }
         let available = try root.resourceValues(forKeys: [.volumeAvailableCapacityKey]).volumeAvailableCapacity
-        if let available, Int64(available) < size + 64 * 1024 * 1024 {
+        if let available, Int64(available) < size + max(0, reservedBytes) + 64 * 1024 * 1024 {
             throw WiFiTransferError.notEnoughSpace
         }
         return try Upload(path: path, expectedSize: size,

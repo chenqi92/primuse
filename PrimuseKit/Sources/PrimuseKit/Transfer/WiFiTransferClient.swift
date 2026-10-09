@@ -15,7 +15,8 @@ public final class WiFiTransferClient: @unchecked Sendable {
         config.allowsCellularAccess = false
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 24 * 60 * 60
-        config.httpMaximumConnectionsPerHost = 2
+        // One connection beyond the parallel uploads stays free for ticket requests.
+        config.httpMaximumConnectionsPerHost = WiFiTransferServer.maximumConcurrentUploads + 1
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         session = URLSession(configuration: config)
     }

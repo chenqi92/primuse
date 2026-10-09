@@ -482,8 +482,10 @@ struct WiFiTransferView: View {
                     do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
                 }
                 needsScan = false
+                // 每收完一个文件就扫一次, 不申请系统的持续处理任务, 免得任务卡片一首一弹 (#201)。
                 let started = scanService.scanSource(source, sourceManager: sourceManager, library: library,
-                                                     sourceStore: sourceStore, scraperService: scraperService)
+                                                     sourceStore: sourceStore, scraperService: scraperService,
+                                                     requestsContinuedProcessing: false)
                 guard started else { setupError = WiFiTransferText.string("unavailable"); return }
                 while scanService.scanStates[source.id]?.isScanning == true {
                     do { try await Task.sleep(for: .milliseconds(500)) } catch { return }

@@ -53,6 +53,13 @@ public struct WiFiTransferInvitation: Identifiable, Equatable, Sendable {
 public struct WiFiTransferDestination: Codable, Sendable {
     public let identity: WiFiTransferIdentity?
     public let availableBytes: Int64
+    /// Parallel uploads the receiver accepts; absent from receivers that take one at a time.
+    public let uploadConcurrency: Int?
+
+    /// Uploads a sender runs at once: neither side's limit is exceeded.
+    public var acceptedUploadConcurrency: Int {
+        max(1, min(uploadConcurrency ?? 1, WiFiTransferServer.maximumConcurrentUploads))
+    }
 }
 
 public struct WiFiTransferTicket: Codable, Sendable {

@@ -16,6 +16,12 @@ public final class WiFiTransferServer: @unchecked Sendable {
         case stopped(error: String?)
     }
 
+    /// Files received at the same time. Senders read it from `/api/info`; older
+    /// receivers omit it and accept one upload at a time.
+    public static let maximumConcurrentUploads = 3
+    /// Leaves room for listing, folder and ticket requests beside the uploads.
+    private static let maximumConnections = maximumConcurrentUploads + 4
+
     public let accessCode: String
     private let root: URL
     private let page: Data
@@ -153,7 +159,7 @@ public final class WiFiTransferServer: @unchecked Sendable {
     }
 
     private func accept(_ connection: NWConnection) {
-        guard connections.count < 4 else { connection.cancel(); return }
+        guard connections.count < Self.maximumConnections else { connection.cancel(); return }
         let client = Client(connection)
         connections[client.id] = client
         let id = client.id
@@ -222,6 +228,9 @@ public final class WiFiTransferServer: @unchecked Sendable {
                 }
             } catch {
                 let failure = error as? WiFiTransferError ?? .unavailable
+                // Release the slot before answering: the sender's next upload can
+                // arrive before this connection finishes closing.
+                client.upload = nil
                 self.endUpload(client, error: failure.rawValue)
                 self.respond(client, status: failure.status, json: ["error": failure.rawValue])
             }
@@ -243,7 +252,9 @@ public final class WiFiTransferServer: @unchecked Sendable {
         try authorization.validate(request.headers["x-primuse-code"])
         if request.route == "/api/info", request.method == "GET", request.contentLength == 0 {
             let free = (try? FileManager.default.attributesOfFileSystem(forPath: root.path)[.systemFreeSize] as? NSNumber)?.int64Value ?? 0
-            respond(client, status: 200, body: try JSONEncoder().encode(WiFiTransferDestination(identity: identity, availableBytes: free)))
+            respond(client, status: 200, body: try JSONEncoder().encode(WiFiTransferDestination(
+                identity: identity, availableBytes: free, uploadConcurrency: Self.maximumConcurrentUploads
+            )))
             return
         }
         if request.route == "/api/transfer", request.contentLength == 0 {
@@ -253,12 +264,16 @@ public final class WiFiTransferServer: @unchecked Sendable {
         guard request.route == "/api/files" || request.route == "/api/folders" else {
             throw WiFiTransferError.notFound
         }
+        let activeUploads = connections.values.filter { $0.upload != nil }
         if let ticket = request.headers["x-primuse-transfer"] {
             guard request.method == "PUT", request.route == "/api/files",
                   let transfer = nativeTransfer, transfer.invitation.id == ticket,
                   transfer.state == "accepted" else { throw WiFiTransferError.unauthorized }
-            guard transfer.completed < transfer.invitation.fileCount,
-                  request.contentLength <= transfer.invitation.byteCount - transfer.received else {
+            // Uploads still in flight count against the invitation's file and byte budget.
+            let inFlight = activeUploads.filter { $0.request?.headers["x-primuse-transfer"] == ticket }
+            let inFlightBytes = inFlight.reduce(Int64(0)) { $0 + ($1.upload?.expectedSize ?? 0) }
+            guard transfer.completed + inFlight.count < transfer.invitation.fileCount,
+                  request.contentLength <= transfer.invitation.byteCount - transfer.received - inFlightBytes else {
                 throw WiFiTransferError.invalidRequest
             }
             nativeTransfer?.lastActivity = Date()
@@ -268,14 +283,23 @@ public final class WiFiTransferServer: @unchecked Sendable {
             client.uploadAnnounced = true
             event(.uploadStarted(id: client.id, path: request.path, total: request.contentLength,
                                  transferID: request.headers["x-primuse-transfer"]))
-            // Serial uploads bound disk reservations and preserve audio/sidecar ordering.
-            guard !connections.values.contains(where: { $0.upload != nil }) else { throw WiFiTransferError.conflict }
-            client.upload = try files.beginUpload(path: request.path, size: request.contentLength)
+            // A bounded number of parallel uploads keeps disk reservations predictable;
+            // two writers never target the same path.
+            let target = request.path.precomposedStringWithCanonicalMapping.lowercased()
+            guard activeUploads.count < Self.maximumConcurrentUploads,
+                  !activeUploads.contains(where: {
+                      $0.upload?.path.precomposedStringWithCanonicalMapping.lowercased() == target
+                  }) else { throw WiFiTransferError.conflict }
+            let reserved = activeUploads.reduce(Int64(0)) { total, active in
+                total + (active.upload.map { $0.expectedSize - $0.receivedSize } ?? 0)
+            }
+            client.upload = try files.beginUpload(path: request.path, size: request.contentLength,
+                                                  reservedBytes: reserved)
         case ("GET", "/api/files") where request.contentLength == 0:
             let body = try JSONEncoder().encode(files.list(request.path))
             respond(client, status: 200, body: body)
         case ("DELETE", "/api/files") where request.contentLength == 0:
-            guard !connections.values.contains(where: { $0.upload != nil }) else { throw WiFiTransferError.conflict }
+            guard activeUploads.isEmpty else { throw WiFiTransferError.conflict }
             willChange()
             try files.delete(request.path)
             event(.changed(path: request.path, deleted: true))
