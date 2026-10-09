@@ -113,8 +113,8 @@ private struct PMPinnedRowClip: ViewModifier {
     }
 }
 
-/// 只在左右两侧裁、上下放开的裁切形状：胶囊按下时的放大、选中的光晕不被这一排的上下沿切掉。
-private struct PMHorizontalClipShape: Shape {
+/// 只在左右两侧裁、上下放开的裁切形状：胶囊按下时的放大、选中的光晕、卡片的阴影不被这一排的上下沿切掉。
+struct PMHorizontalClipShape: Shape {
     func path(in rect: CGRect) -> Path {
         Path(rect.insetBy(dx: 0, dy: -10_000))
     }

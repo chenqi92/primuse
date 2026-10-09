@@ -231,6 +231,10 @@ struct HomeHeroCarousel: View {
                 centeredSlot = recentered
                 reader.scrollTo(recentered, anchor: .center)
             }
+            // 卡片阴影往下伸得比上下留的空间远,裁在滚动区里底下会切出一条平边;改成只裁左右,
+            // 两边转开的卡片照旧不画出这一排。
+            .scrollClipDisabled()
+            .clipShape(PMHorizontalClipShape())
         }
         .frame(height: metrics.carouselHeight)
         .background { glow() }
