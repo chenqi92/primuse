@@ -5515,8 +5515,8 @@
 
 /* 播放时间段 */
 "playback_range_title" = "نطاق التشغيل";
-"playback_range_set" = "تعيين نطاق التشغيل…";
-"playback_range_edit" = "تعديل نطاق التشغيل…";
+"playback_range_set" = "تعيين النطاق…";
+"playback_range_edit" = "تعديل النطاق…";
 "playback_range_toggle" = "تشغيل هذا النطاق فقط";
 "playback_range_summary %@ %@" = "%1$@ · المدة %2$@";
 "playback_range_start" = "البداية";

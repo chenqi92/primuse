@@ -5369,8 +5369,8 @@
 
 /* 播放时间段 */
 "playback_range_title" = "Play Range";
-"playback_range_set" = "Set Play Range…";
-"playback_range_edit" = "Edit Play Range…";
+"playback_range_set" = "Set Range…";
+"playback_range_edit" = "Edit Range…";
 "playback_range_toggle" = "Play Only This Range";
 "playback_range_summary %@ %@" = "%1$@ · %2$@ long";
 "playback_range_start" = "Start";

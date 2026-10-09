@@ -5515,8 +5515,8 @@
 
 /* 播放时间段 */
 "playback_range_title" = "Фрагмент відтворення";
-"playback_range_set" = "Задати фрагмент відтворення…";
-"playback_range_edit" = "Змінити фрагмент відтворення…";
+"playback_range_set" = "Задати фрагмент…";
+"playback_range_edit" = "Змінити фрагмент…";
 "playback_range_toggle" = "Відтворювати лише цей фрагмент";
 "playback_range_summary %@ %@" = "%1$@ · тривалість %2$@";
 "playback_range_start" = "Початок";

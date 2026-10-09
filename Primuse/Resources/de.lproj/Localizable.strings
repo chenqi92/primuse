@@ -5609,8 +5609,8 @@
 
 /* 播放时间段 */
 "playback_range_title" = "Wiedergabebereich";
-"playback_range_set" = "Wiedergabebereich festlegen …";
-"playback_range_edit" = "Wiedergabebereich bearbeiten …";
+"playback_range_set" = "Bereich festlegen …";
+"playback_range_edit" = "Bereich bearbeiten …";
 "playback_range_toggle" = "Nur diesen Bereich abspielen";
 "playback_range_summary %@ %@" = "%1$@ · %2$@ lang";
 "playback_range_start" = "Anfang";

@@ -5515,8 +5515,8 @@
 
 /* 播放时间段 */
 "playback_range_title" = "Фрагмент воспроизведения";
-"playback_range_set" = "Задать фрагмент воспроизведения…";
-"playback_range_edit" = "Изменить фрагмент воспроизведения…";
+"playback_range_set" = "Задать фрагмент…";
+"playback_range_edit" = "Изменить фрагмент…";
 "playback_range_toggle" = "Воспроизводить только этот фрагмент";
 "playback_range_summary %@ %@" = "%1$@ · длительность %2$@";
 "playback_range_start" = "Начало";

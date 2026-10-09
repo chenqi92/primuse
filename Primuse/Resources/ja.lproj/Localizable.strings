@@ -5610,8 +5610,8 @@
 
 /* 播放时间段 */
 "playback_range_title" = "再生範囲";
-"playback_range_set" = "再生範囲を設定…";
-"playback_range_edit" = "再生範囲を編集…";
+"playback_range_set" = "範囲を設定…";
+"playback_range_edit" = "範囲を編集…";
 "playback_range_toggle" = "この範囲だけ再生";
 "playback_range_summary %@ %@" = "%1$@ · 長さ %2$@";
 "playback_range_start" = "開始";

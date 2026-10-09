@@ -5515,8 +5515,8 @@
 
 /* 播放时间段 */
 "playback_range_title" = "Çalma Aralığı";
-"playback_range_set" = "Çalma Aralığını Ayarla…";
-"playback_range_edit" = "Çalma Aralığını Düzenle…";
+"playback_range_set" = "Aralığı Ayarla…";
+"playback_range_edit" = "Aralığı Düzenle…";
 "playback_range_toggle" = "Yalnızca Bu Aralığı Çal";
 "playback_range_summary %@ %@" = "%1$@ · %2$@ uzunluğunda";
 "playback_range_start" = "Başlangıç";

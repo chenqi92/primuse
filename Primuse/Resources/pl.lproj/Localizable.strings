@@ -5515,8 +5515,8 @@
 
 /* 播放时间段 */
 "playback_range_title" = "Zakres odtwarzania";
-"playback_range_set" = "Ustaw zakres odtwarzania…";
-"playback_range_edit" = "Edytuj zakres odtwarzania…";
+"playback_range_set" = "Ustaw zakres…";
+"playback_range_edit" = "Edytuj zakres…";
 "playback_range_toggle" = "Odtwarzaj tylko ten zakres";
 "playback_range_summary %@ %@" = "%1$@ · długość %2$@";
 "playback_range_start" = "Początek";
