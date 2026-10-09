@@ -5719,6 +5719,8 @@
 "player_control_tint_theme" = "Couleur du thème";
 "player_control_tint_monochrome" = "Monochrome";
 "player_control_tint_footer" = "Couleur de la barre de progression, de la lecture aléatoire et de la répétition activées, et des autres commandes du lecteur. Monochrome est blanc en mode sombre et noir en mode clair, discret sur des fonds comme Couleurs fluides. Les mises en page des livres audio gardent leurs propres couleurs.";
+"player_lyrics_interlude_dots" = "Points d’interlude";
+"player_lyrics_interlude_dots_description" = "Pendant un long interlude, trois points apparaissent sous la ligne précédente, s’allument l’un après l’autre au fil de l’interlude et s’alignent comme les paroles.";
 "home_filter_bar_title" = "Filtres en haut";
 "home_filter_bar_edit" = "Modifier les filtres en haut";
 "home_filter_bar_none" = "Aucun filtre en haut de l’accueil";

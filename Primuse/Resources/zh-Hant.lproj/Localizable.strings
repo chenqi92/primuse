@@ -5696,6 +5696,8 @@
 "player_control_tint_theme" = "跟隨主題色";
 "player_control_tint_monochrome" = "單色";
 "player_control_tint_footer" = "進度列、開著的隨機與循環等播放頁控制項的顏色。選單色時深色外觀下是白色、淺色外觀下是黑色，搭配流動色彩之類的背景不搶色；有聲書版面保留自己的配色。";
+"player_lyrics_interlude_dots" = "間奏提示點";
+"player_lyrics_interlude_dots_description" = "兩句歌詞之間有較長的間奏時，在上一句下面顯示三個點，跟著間奏的時間依序亮起，並和歌詞同一側對齊。";
 "home_filter_bar_title" = "頂部切換";
 "home_filter_bar_edit" = "調整頂部切換";
 "home_filter_bar_none" = "首頁頂端不顯示切換按鈕";

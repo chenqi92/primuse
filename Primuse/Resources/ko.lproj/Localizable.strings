@@ -5719,6 +5719,8 @@
 "player_control_tint_theme" = "테마 색상";
 "player_control_tint_monochrome" = "모노크롬";
 "player_control_tint_footer" = "진행 막대, 켜진 셔플과 반복 등 재생 화면 컨트롤의 색상입니다. 모노크롬은 다크 모드에서 흰색, 라이트 모드에서 검은색이라 리퀴드 컬러 같은 배경과도 어울립니다. 오디오북 레이아웃은 고유한 색상을 유지합니다.";
+"player_lyrics_interlude_dots" = "간주 점";
+"player_lyrics_interlude_dots_description" = "가사 사이에 긴 간주가 있으면 앞 줄 아래에 점 세 개가 나타나 간주 진행에 따라 차례로 켜지고, 가사와 같은 쪽으로 정렬됩니다.";
 "home_filter_bar_title" = "상단 전환";
 "home_filter_bar_edit" = "상단 전환 편집";
 "home_filter_bar_none" = "홈 상단에 전환 버튼 없음";

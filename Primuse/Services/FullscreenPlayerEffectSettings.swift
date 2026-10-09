@@ -50,6 +50,9 @@ enum PlayerAppearancePreferences {
     static let playerScreenWakeRequiresChargingByDefault = false
     static let tapLyricsToSeekKey = "primuse.player.tapLyricsToSeek"
     static let tapLyricsToSeekByDefault = true
+    /// 两句歌词之间有长间奏时,在上一句下面显示三个随间奏进度点亮的点(#198 可以关掉)。
+    static let showsLyricsInterludeKey = "primuse.player.showsLyricsInterlude"
+    static let showsLyricsInterludeByDefault = true
     /// 拖动歌词时显示定位标尺（时间与从该句播放）。
     static let showsLyricsBrowseTimelineKey = "primuse.player.showsLyricsBrowseTimeline"
     static let showsLyricsBrowseTimelineByDefault = false

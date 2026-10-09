@@ -5719,6 +5719,8 @@
 "player_control_tint_theme" = "Designfarbe";
 "player_control_tint_monochrome" = "Monochrom";
 "player_control_tint_footer" = "Farbe des Fortschrittsbalkens, aktiver Zufalls- und Wiederholungswiedergabe und anderer Player-Bedienelemente. Monochrom ist im dunklen Modus weiß und im hellen Modus schwarz und passt so zu Hintergründen wie „Fließende Farben“. Die Hörbuch-Layouts behalten ihre eigenen Farben.";
+"player_lyrics_interlude_dots" = "Zwischenspiel-Punkte";
+"player_lyrics_interlude_dots_description" = "Bei einem langen Zwischenspiel erscheinen unter der vorigen Zeile drei Punkte, die im Verlauf nacheinander aufleuchten und sich an der Ausrichtung des Liedtexts orientieren.";
 "home_filter_bar_title" = "Filter oben";
 "home_filter_bar_edit" = "Filter oben bearbeiten";
 "home_filter_bar_none" = "Keine Filter oben auf der Startseite";

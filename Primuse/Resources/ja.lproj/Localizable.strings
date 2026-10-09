@@ -5720,6 +5720,8 @@
 "player_control_tint_theme" = "テーマカラー";
 "player_control_tint_monochrome" = "モノクロ";
 "player_control_tint_footer" = "進行バーやオンになったシャッフル・リピートなど、再生画面のコントロールの色です。モノクロはダークモードで白、ライトモードで黒になり、リキッドカラーのような背景でも色がぶつかりません。オーディオブックのレイアウトは独自の配色のままです。";
+"player_lyrics_interlude_dots" = "間奏のドット";
+"player_lyrics_interlude_dots_description" = "歌詞の間に長い間奏があると、前の行の下に 3 つのドットが表示され、間奏の進み具合に合わせて順に点灯し、歌詞と同じ側にそろいます。";
 "home_filter_bar_title" = "上部の切り替え";
 "home_filter_bar_edit" = "上部の切り替えを編集";
 "home_filter_bar_none" = "ホーム上部に切り替えボタンはありません";

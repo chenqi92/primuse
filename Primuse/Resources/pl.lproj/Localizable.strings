@@ -5625,6 +5625,8 @@
 "player_control_tint_theme" = "Kolor motywu";
 "player_control_tint_monochrome" = "Monochromatyczny";
 "player_control_tint_footer" = "Kolor paska postępu, włączonego odtwarzania losowego i powtarzania oraz innych elementów odtwarzacza. Monochromatyczny jest biały w trybie ciemnym i czarny w jasnym, więc nie gryzie się z tłami takimi jak Płynne kolory. Układy audiobooków zachowują własne kolory.";
+"player_lyrics_interlude_dots" = "Kropki przerwy";
+"player_lyrics_interlude_dots_description" = "Podczas długiej przerwy instrumentalnej pod poprzednią linijką pojawiają się trzy kropki, które zapalają się po kolei w miarę trwania przerwy i są wyrównane tak jak tekst.";
 "home_filter_bar_title" = "Filtry u góry";
 "home_filter_bar_edit" = "Edytuj filtry u góry";
 "home_filter_bar_none" = "Brak filtrów u góry ekranu głównego";

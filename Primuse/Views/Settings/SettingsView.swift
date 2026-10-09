@@ -348,6 +348,8 @@ struct LyricsAppearanceSections: View {
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsBrowseTimelineKey)
     private var showsLyricsBrowseTimeline = PlayerAppearancePreferences.showsLyricsBrowseTimelineByDefault
+    @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
+    private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
 
     private var lyricsAlignment: Binding<PlayerLyricsAlignment> {
         Binding(
@@ -497,6 +499,13 @@ struct LyricsAppearanceSections: View {
             .settingsAnchor("lyrics.browseTimeline")
                 .accessibilityHint(Text("player_lyrics_browse_timeline_description"))
                 .accessibilityIdentifier("playerLyricsBrowseTimelineToggle")
+
+            Toggle(isOn: $showsLyricsInterlude) {
+                SettingsInfoLabel("player_lyrics_interlude_dots") {
+                    Text("player_lyrics_interlude_dots_description")
+                }
+            }
+            .settingsAnchor("lyrics.interludeDots")
         } header: {
             Text("player_lyrics_section")
         }

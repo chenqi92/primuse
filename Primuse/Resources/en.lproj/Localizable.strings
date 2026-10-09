@@ -5479,6 +5479,8 @@
 "player_control_tint_theme" = "Theme Color";
 "player_control_tint_monochrome" = "Monochrome";
 "player_control_tint_footer" = "The color of the progress bar, active shuffle and repeat, and other player controls. Monochrome is white in Dark Mode and black in Light Mode, so it stays calm over backgrounds like Liquid Colors. The audiobook layouts keep their own colors.";
+"player_lyrics_interlude_dots" = "Interlude Dots";
+"player_lyrics_interlude_dots_description" = "During a long instrumental break, three dots appear under the previous line, light up in turn as the break plays, and line up with your lyrics alignment.";
 "home_filter_bar_title" = "Top Filters";
 "home_filter_bar_edit" = "Edit Top Filters";
 "home_filter_bar_none" = "No filters at the top of Home";

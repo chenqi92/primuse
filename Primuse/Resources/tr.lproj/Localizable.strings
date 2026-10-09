@@ -5625,6 +5625,8 @@
 "player_control_tint_theme" = "Tema Rengi";
 "player_control_tint_monochrome" = "Tek Renk";
 "player_control_tint_footer" = "İlerleme çubuğu, açık karıştırma ve yineleme gibi çalar denetimlerinin rengi. Tek renk, koyu modda beyaz, açık modda siyahtır; Akışkan Renkler gibi arka planlarla çatışmaz. Sesli kitap düzenleri kendi renklerini korur.";
+"player_lyrics_interlude_dots" = "Ara Bölüm Noktaları";
+"player_lyrics_interlude_dots_description" = "Uzun bir enstrümantal arada önceki satırın altında üç nokta belirir, ara ilerledikçe sırayla yanar ve sözlerle aynı tarafa hizalanır.";
 "home_filter_bar_title" = "Üst filtreler";
 "home_filter_bar_edit" = "Üst filtreleri düzenle";
 "home_filter_bar_none" = "Ana sayfanın üstünde filtre yok";

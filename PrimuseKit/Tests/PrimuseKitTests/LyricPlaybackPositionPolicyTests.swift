@@ -473,4 +473,27 @@ struct LyricPlaybackPositionPolicyTests {
             isLiveStream: true
         ) == nil)
     }
+
+    @Test func interludeProgressFollowsTheTimeline() {
+        // 第一句 10 秒开始(估计 3.5 秒唱完),下一句 40 秒:间奏点 19.5 秒出现,40 秒走满。
+        let lyrics = [
+            LyricLine(timestamp: 10, text: "Before"),
+            LyricLine(timestamp: 40, text: "After"),
+        ]
+        #expect(LyricPlaybackPositionPolicy.interludeProgress(afterLine: 1, in: lyrics, at: 30) == nil)
+        #expect(LyricPlaybackPositionPolicy.interludeProgress(afterLine: 0, in: lyrics, at: 15) == 0)
+        let middle = LyricPlaybackPositionPolicy.interludeProgress(afterLine: 0, in: lyrics, at: 29.75)
+        #expect(middle.map { abs($0 - 0.5) < 0.001 } == true)
+        #expect(LyricPlaybackPositionPolicy.interludeProgress(afterLine: 0, in: lyrics, at: 45) == 1)
+        // 和滚动用的是同一个时间窗。
+        #expect(LyricPlaybackPositionPolicy.scrollTarget(in: lyrics, at: 19.4) == .line(0))
+        #expect(LyricPlaybackPositionPolicy.scrollTarget(in: lyrics, at: 19.6) == .interlude(afterLine: 0))
+    }
+
+    @Test func interludeDotsLightUpInTurn() {
+        #expect(LyricPlaybackPositionPolicy.interludeDotLevels(progress: 0) == [0, 0, 0])
+        #expect(LyricPlaybackPositionPolicy.interludeDotLevels(progress: 0.5) == [1, 0.5, 0])
+        #expect(LyricPlaybackPositionPolicy.interludeDotLevels(progress: 1) == [1, 1, 1])
+        #expect(LyricPlaybackPositionPolicy.interludeDotLevels(progress: .nan) == [0, 0, 0])
+    }
 }

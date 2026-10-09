@@ -10176,6 +10176,8 @@ struct LyricsScrollView: View {
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
     @AppStorage(PlayerAppearancePreferences.showsLyricsBrowseTimelineKey)
     private var showsLyricsBrowseTimeline = PlayerAppearancePreferences.showsLyricsBrowseTimelineByDefault
+    @AppStorage(PlayerAppearancePreferences.showsLyricsInterludeKey)
+    private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
     @State private var lyricsPinchScale: CGFloat = 1.0
     @State private var isPinchingLyrics = false
     @State private var currentLineIndex = -1
@@ -10537,11 +10539,11 @@ struct LyricsScrollView: View {
                                     rowAnchorYs.values[index] = y
                                 }
 
-                            if LyricPlaybackPositionPolicy.hasLongInterlude(
+                            if showsLyricsInterlude, LyricPlaybackPositionPolicy.hasLongInterlude(
                                 afterLine: index,
                                 in: lyrics
                             ) {
-                                interludeMarker(afterLine: index)
+                                interludeMarker(afterLine: index, alignment: alignment)
                                     .id(LyricsScrollTarget.interlude(afterLineID: line.id))
                             }
                         }
@@ -10686,11 +10688,11 @@ struct LyricsScrollView: View {
                                 rowAnchorYs.values[index] = y
                             }
 
-                            if LyricPlaybackPositionPolicy.hasLongInterlude(
+                            if showsLyricsInterlude, LyricPlaybackPositionPolicy.hasLongInterlude(
                                 afterLine: index,
                                 in: lyrics
                             ) {
-                                interludeMarker(afterLine: index)
+                                interludeMarker(afterLine: index, alignment: alignment)
                                     .id(LyricsScrollTarget.interlude(afterLineID: line.id))
                             }
                         }
@@ -10949,20 +10951,24 @@ struct LyricsScrollView: View {
         }
     }
 
-    private func interludeMarker(afterLine index: Int) -> some View {
+    /// 长间奏时上一句下面那三个点:和那一句同一侧对齐,跟着间奏的时间依次点亮(#198)。
+    private func interludeMarker(afterLine index: Int, alignment: PlayerLyricsAlignment) -> some View {
         let isActive = activeInterludeAfterLineIndex == index
-        return Image(systemName: "ellipsis")
-            .font(.title3.weight(.semibold))
-            .foregroundStyle(appearance.secondary)
-            .symbolEffect(
-                .variableColor.iterative,
-                isActive: isActive && !reduceMotion
-            )
-            .frame(maxWidth: .infinity)
-            .frame(height: 24)
-            .opacity(isActive ? 0.9 : appearance.futureLyricOpacity * 0.65)
-            .animation(.smooth(duration: 0.3, extraBounce: 0), value: isActive)
-            .accessibilityHidden(true)
+        return LyricInterludeDots(
+            isActive: isActive,
+            progress: {
+                LyricPlaybackPositionPolicy.interludeProgress(
+                    afterLine: index,
+                    in: lyrics,
+                    at: player.interpolatedTime()
+                ) ?? 0
+            },
+            tint: appearance.primary,
+            restingOpacity: appearance.futureLyricOpacity * 0.5
+        )
+        .frame(maxWidth: .infinity, alignment: alignment.frameAlignment)
+        .frame(height: 24)
+        .animation(.smooth(duration: 0.3, extraBounce: 0), value: isActive)
     }
 
     private var wordLevelBadge: some View {
@@ -11404,8 +11410,14 @@ struct LyricsScrollView: View {
         case .interlude(let index):
             guard lyrics.indices.contains(index) else { return nil }
             activeIndex = index
-            interludeAfterLineIndex = index
-            scrollTarget = .interlude(afterLineID: lyrics[index].id)
+            // 关掉了间奏提示点就没有那一行可停,照旧停在上一句。
+            if showsLyricsInterlude {
+                interludeAfterLineIndex = index
+                scrollTarget = .interlude(afterLineID: lyrics[index].id)
+            } else {
+                interludeAfterLineIndex = nil
+                scrollTarget = .line(id: lyrics[index].id)
+            }
         }
 
         let update = {
@@ -11720,6 +11732,40 @@ fileprivate struct PlaybackProgressBar<CenterAccessory: View>: View {
 extension PlaybackProgressBar where CenterAccessory == EmptyView {
     init(fillTint: Color? = nil) {
         self.init(fillTint: fillTint) { EmptyView() }
+    }
+}
+
+// MARK: - 间奏提示点
+
+/// 两句歌词之间的长间奏:三个点跟着间奏的时间依次点亮,下一句开始时正好全亮。原来是系统省略号
+/// 循环闪动、整行居中,和时间对不上,歌词靠左时也不跟着靠左(#198)。只有正在走的那一段刷新
+/// (每秒约 20 次),别的静止画淡;减弱动态效果时只按进度换亮度,不呼吸。
+fileprivate struct LyricInterludeDots: View {
+    let isActive: Bool
+    let progress: () -> Double
+    let tint: Color
+    let restingOpacity: Double
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: reduceMotion ? 0.5 : 1.0 / 20, paused: !isActive)) { context in
+            let levels = isActive
+                ? LyricPlaybackPositionPolicy.interludeDotLevels(progress: progress())
+                : [0, 0, 0]
+            let breath = isActive && !reduceMotion
+                ? 1 + 0.06 * sin(context.date.timeIntervalSinceReferenceDate * 2.2)
+                : 1
+            HStack(spacing: 7) {
+                ForEach(0..<3, id: \.self) { index in
+                    Circle()
+                        .fill(tint)
+                        .frame(width: 8, height: 8)
+                        .opacity(isActive ? 0.28 + 0.72 * levels[index] : restingOpacity)
+                        .scaleEffect(isActive ? (0.82 + 0.18 * levels[index]) * breath : 0.82)
+                }
+            }
+        }
+        .accessibilityHidden(true)
     }
 }
 

@@ -5625,6 +5625,8 @@
 "player_control_tint_theme" = "Cor do tema";
 "player_control_tint_monochrome" = "Monocromático";
 "player_control_tint_footer" = "Cor da barra de progresso, da reprodução aleatória e da repetição ativadas e de outros controles do player. Monocromático é branco no modo escuro e preto no modo claro, discreto sobre fundos como Cores fluidas. Os layouts de audiolivros mantêm as próprias cores.";
+"player_lyrics_interlude_dots" = "Pontos de interlúdio";
+"player_lyrics_interlude_dots_description" = "Durante um interlúdio longo, três pontos aparecem sob a linha anterior, acendem um após o outro conforme o interlúdio avança e seguem o alinhamento da letra.";
 "home_filter_bar_title" = "Filtros no topo";
 "home_filter_bar_edit" = "Editar filtros no topo";
 "home_filter_bar_none" = "Nenhum filtro no topo do Início";

@@ -191,6 +191,34 @@ public enum LyricPlaybackPositionPolicy {
         ) != nil
     }
 
+    /// 间奏提示点从出现到下一句开始走了多少(0…1)。时间窗和 `scrollTarget` 一致:上一句唱完后再过
+    /// `interludeActivationDelay` 秒出现,下一句开始时走满;之前为 0、之后为 1。这一句后面没有长间奏时为 nil。
+    public static func interludeProgress(
+        afterLine index: Int,
+        in lyrics: [LyricLine],
+        at playbackTime: TimeInterval,
+        lineLevelEstimatedDuration: TimeInterval = 3.5,
+        interludeActivationDelay: TimeInterval = 6,
+        minimumInterludeDuration: TimeInterval = 12
+    ) -> Double? {
+        guard let window = interludeWindow(
+            afterLine: index,
+            in: lyrics,
+            lineLevelEstimatedDuration: lineLevelEstimatedDuration,
+            interludeActivationDelay: interludeActivationDelay,
+            minimumInterludeDuration: minimumInterludeDuration
+        ) else { return nil }
+        let span = window.nextLineStart - window.activation
+        guard span > 0, playbackTime.isFinite else { return playbackTime >= window.nextLineStart ? 1 : 0 }
+        return min(max((playbackTime - window.activation) / span, 0), 1)
+    }
+
+    /// 间奏三个点各亮到多少(0…1):按进度依次点亮,第一个在前三分之一里亮满,依此类推。
+    public static func interludeDotLevels(progress: Double, count: Int = 3) -> [Double] {
+        let p = min(max(progress.isFinite ? progress : 0, 0), 1) * Double(count)
+        return (0..<count).map { min(max(p - Double($0), 0), 1) }
+    }
+
     private static func interludeWindow(
         afterLine index: Int,
         in lyrics: [LyricLine],

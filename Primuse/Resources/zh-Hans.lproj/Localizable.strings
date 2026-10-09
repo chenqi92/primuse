@@ -5812,6 +5812,8 @@
 "player_control_tint_theme" = "跟随主题色";
 "player_control_tint_monochrome" = "单色";
 "player_control_tint_footer" = "进度条、开着的随机与循环等播放页控件的颜色。选单色时深色外观下是白色、浅色外观下是黑色，配流动色彩之类的背景不抢色；有声书版面保留自己的配色。";
+"player_lyrics_interlude_dots" = "间奏提示点";
+"player_lyrics_interlude_dots_description" = "两句歌词之间有较长的间奏时，在上一句下面显示三个点，跟着间奏的时间依次点亮，并和歌词同一侧对齐。";
 "home_filter_bar_title" = "顶部切换";
 "home_filter_bar_edit" = "调整顶部切换";
 "home_filter_bar_none" = "首页顶上不显示切换按钮";
