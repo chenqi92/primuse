@@ -2145,6 +2145,7 @@
 "metadata_status_pending_reason" = "A música já está na biblioteca, mas alguns campos incorporados suportados ainda não foram inspecionados.";
 "metadata_status_reason_album_artist" = "artista do álbum";
 "metadata_status_reason_artist" = "artista";
+"metadata_status_reason_audio_codec" = "codec de áudio";
 "metadata_status_reason_artwork" = "arte";
 "metadata_status_reason_duration" = "duração";
 "metadata_status_reason_separator" = ",";

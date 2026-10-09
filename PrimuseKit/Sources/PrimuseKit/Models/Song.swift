@@ -28,6 +28,10 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     public var albumArtistName: String?
     public var duration: TimeInterval
     public var fileFormat: AudioFormat
+    /// 容器里实际的编码。只对装得下多种编码的容器有意义：同一个 `.m4a` 可能是
+    /// AAC，也可能是 ALAC，扩展名说明不了音质。读过音轨或服务端报过才有值，
+    /// nil 是不知道。紧跟 `fileFormat` 声明，用的是它后面的对齐空位，不增加体积。
+    public var audioCodec: AudioFormat?
     public var filePath: String // relative within source
     public var sourceID: String
     public var fileSize: Int64
@@ -212,7 +216,8 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         lyricsText: String? = nil,
         userMetadataEditedAt: Date? = nil,
         audioVariants: [AudioVariant]? = nil,
-        serverLibraryID: String? = nil
+        serverLibraryID: String? = nil,
+        audioCodec: AudioFormat? = nil
     ) {
         self.id = id
         self.title = title
@@ -224,6 +229,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.albumArtistName = albumArtistName
         self.duration = duration
         self.fileFormat = fileFormat
+        self.audioCodec = audioCodec
         self.filePath = filePath
         self.sourceID = sourceID
         self.fileSize = fileSize
@@ -273,7 +279,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         case coverArtFileName, artistArtworkFileName, lyricsFileName, mvPath
         case replayGainTrackGain, replayGainTrackPeak, replayGainAlbumGain, replayGainAlbumPeak
         case cueSheetPath, cueStartTime, cueEndTime, revision, titlePinyin, artistPinyin, albumPinyin
-        case lyricsText, userMetadataEditedAt, audioVariants, serverLibraryID
+        case lyricsText, userMetadataEditedAt, audioVariants, serverLibraryID, audioCodec
     }
 
     public init(from decoder: Decoder) throws {
@@ -320,7 +326,9 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
             lyricsText: try container.decodeIfPresent(String.self, forKey: .lyricsText),
             userMetadataEditedAt: try container.decodeIfPresent(Date.self, forKey: .userMetadataEditedAt),
             audioVariants: try container.decodeIfPresent([AudioVariant].self, forKey: .audioVariants),
-            serverLibraryID: try container.decodeIfPresent(String.self, forKey: .serverLibraryID)
+            serverLibraryID: try container.decodeIfPresent(String.self, forKey: .serverLibraryID),
+            // 不认识的值（更新版本加的编码）当作不知道，别让整首歌解不出来。
+            audioCodec: try? container.decodeIfPresent(AudioFormat.self, forKey: .audioCodec)
         )
     }
 
@@ -368,6 +376,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         try container.encodeIfPresent(userMetadataEditedAt, forKey: .userMetadataEditedAt)
         try container.encodeIfPresent(audioVariants, forKey: .audioVariants)
         try container.encodeIfPresent(serverLibraryID, forKey: .serverLibraryID)
+        try container.encodeIfPresent(audioCodec, forKey: .audioCodec)
     }
 
     // MARK: - Packed storage

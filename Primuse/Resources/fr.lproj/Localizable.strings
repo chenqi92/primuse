@@ -3574,6 +3574,7 @@
 "metadata_status_reason_title" = "titre/album";
 "metadata_status_reason_album_artist" = "artiste de l’album";
 "metadata_status_reason_artist" = "artiste";
+"metadata_status_reason_audio_codec" = "codec audio";
 "metadata_status_reason_separator" = ", ";
 "metadata_status_pending_reason" = "Le morceau est déjà dans la bibliothèque, mais certains champs intégrés pris en charge n’ont pas encore été inspectés.";
 "metadata_status_retry_reason" = "La dernière lecture a rencontré une erreur temporaire et reste disponible pour un nouvel essai manuel ou ultérieur.";

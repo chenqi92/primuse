@@ -783,7 +783,7 @@ struct AlbumDetailView: View {
                     .lineLimit(1)
                     .frame(width: 180, alignment: .leading)
 
-                PMFormatPill.forFormat(song.fileFormat.displayName)
+                PMFormatPill.forFormat(song.codecFormat.displayName)
                     .frame(width: 70, alignment: .leading)
 
                 Text(song.duration.formattedDuration)

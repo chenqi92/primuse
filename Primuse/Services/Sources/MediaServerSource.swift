@@ -3859,7 +3859,10 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             serverPlayCount: item.userData?.playCount,
             coverArtFileName: coverArtFileName,
             artistArtworkFileName: artistArtworkFileName,
-            serverLibraryID: library.id
+            serverLibraryID: library.id,
+            audioCodec: ContainerAudioCodecPolicy.storedCodec(
+                ContainerAudioCodecPolicy.codec(named: audioStream?.codec), container: format
+            )
         )
     }
 
@@ -3902,12 +3905,17 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             fileSize: Int64(part?.size ?? 0),
             bitRate: item.media?.first?.bitrate,
             sampleRate: audioStream?.samplingRate,
+            bitDepth: audioStream?.bitDepth,
             genre: genres?.isEmpty == false ? genres?.joined(separator: ", ") : nil,
             year: item.year,
             serverPlayCount: item.viewCount,
             coverArtFileName: coverArtURL(for: item)?.absoluteString,
             artistArtworkFileName: artistArtworkReference(for: item, artistName: artist),
-            serverLibraryID: library.id
+            serverLibraryID: library.id,
+            audioCodec: ContainerAudioCodecPolicy.storedCodec(
+                ContainerAudioCodecPolicy.codec(named: audioStream?.codec ?? item.media?.first?.audioCodec),
+                container: format
+            )
         )
     }
 
@@ -5144,12 +5152,23 @@ private struct PlexGenre: Decodable {
 private struct PlexMedia: Decodable {
     let bitrate: Int?
     let container: String?
+    let audioCodec: String?
     let parts: [PlexPart]?
 
     enum CodingKeys: String, CodingKey {
         case bitrate
         case container
+        case audioCodec
         case parts = "Part"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        bitrate = try container.decodeIfPresent(Int.self, forKey: .bitrate)
+        self.container = try container.decodeIfPresent(String.self, forKey: .container)
+        // 只用来分有损无损;类型不对时当作没给,别拖垮整页曲目。
+        audioCodec = try? container.decodeIfPresent(String.self, forKey: .audioCodec)
+        parts = try container.decodeIfPresent([PlexPart].self, forKey: .parts)
     }
 }
 
@@ -5172,10 +5191,23 @@ private struct PlexStream: Decodable {
     // 整页 PlexTrackResponse 解码失败 → 该源永远扫不出歌。streamType == 2 是音频。
     let streamType: Int?
     let samplingRate: Int?
+    let codec: String?
+    let bitDepth: Int?
 
     enum CodingKeys: String, CodingKey {
         case streamType
         case samplingRate
+        case codec
+        case bitDepth
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        streamType = try container.decodeIfPresent(Int.self, forKey: .streamType)
+        samplingRate = try container.decodeIfPresent(Int.self, forKey: .samplingRate)
+        // 编码与位深只用于标音质;类型不对时当作没给,别拖垮整页曲目。
+        codec = try? container.decodeIfPresent(String.self, forKey: .codec)
+        bitDepth = try? container.decodeIfPresent(Int.self, forKey: .bitDepth)
     }
 }
 

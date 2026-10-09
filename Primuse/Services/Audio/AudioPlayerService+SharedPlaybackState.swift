@@ -442,7 +442,7 @@ extension AudioPlayerService {
             songTitle: currentSong?.title,
             artistName: displayedArtistName(for: currentSong),
             albumTitle: currentSong?.albumTitle,
-            fileFormat: currentSong.map { $0.fileFormat.displayName },
+            fileFormat: currentSong.map { $0.codecFormat.displayName },
             coverImageName: coverName,
             isPlaying: isPlaybackActuallyActive,
             // Progress gated by scope: omit currentTime/duration when the user

@@ -200,7 +200,7 @@ struct NowPlayingAudioTagRow: View {
 
     private var tagDetail: String? {
         NowPlayingAudioInfoTextPolicy.tagDetail(
-            formatName: song.fileFormat.displayName,
+            formatName: song.codecFormat.displayName,
             sampleRate: song.sampleRate,
             bitDepth: song.bitDepth,
             bitRate: song.bitRate,
@@ -211,7 +211,7 @@ struct NowPlayingAudioTagRow: View {
 
     private var specText: String {
         var parts = NowPlayingAudioInfoTextPolicy.specParts(
-            formatName: song.fileFormat.displayName,
+            formatName: song.codecFormat.displayName,
             sampleRate: song.sampleRate,
             bitDepth: song.bitDepth,
             bitRate: song.bitRate,
@@ -347,7 +347,7 @@ struct NowPlayingFooterInfoRow: View {
     /// 格式,再加采样率(输出被重采样时写成「44.1 → 48 kHz」)。
     private var briefText: String? {
         var parts: [String] = []
-        let format = song.fileFormat.displayName
+        let format = song.codecFormat.displayName
         if !format.isEmpty, format != "—" { parts.append(format) }
         if let rate = OutputSampleRateTextPolicy.text(
             sourceSampleRate: song.sampleRate,

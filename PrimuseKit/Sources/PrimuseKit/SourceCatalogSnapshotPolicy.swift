@@ -256,6 +256,7 @@ public enum ServerSongCatalogMergePolicy {
         if refreshed.bitRate == nil { refreshed.bitRate = incoming.bitRate }
         if refreshed.sampleRate == nil { refreshed.sampleRate = incoming.sampleRate }
         if refreshed.bitDepth == nil { refreshed.bitDepth = incoming.bitDepth }
+        if refreshed.audioCodec == nil { refreshed.audioCodec = incoming.audioCodec }
         if refreshed.revision == nil { refreshed.revision = incoming.revision }
         if refreshed.lastModified == nil { refreshed.lastModified = incoming.lastModified }
         // Account-scoped server statistics can change while the media object

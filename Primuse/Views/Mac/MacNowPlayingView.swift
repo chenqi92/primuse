@@ -1320,7 +1320,7 @@ struct MacNowPlayingView: View {
             .showsSummary(for: song.audioQuality) else {
             return parts.joined(separator: " · ")
         }
-        parts.append(song.fileFormat.displayName)
+        parts.append(song.codecFormat.displayName)
         if let bitRate = song.formattedBitRate {
             parts.append(bitRate)
         }

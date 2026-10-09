@@ -64,6 +64,8 @@ public struct FnMusicCatalogTrack: Sendable {
     public let bitRate: Int?
     public let sampleRate: Int?
     public let bitDepth: Int?
+    /// 服务端报的音轨编码(`aac`、`alac`…),M4A 靠它分无损与有损。
+    public let codecName: String?
     public let cueStartTime: TimeInterval?
     public let cueEndTime: TimeInterval?
     public let cueTrackIndex: Int?
@@ -185,6 +187,7 @@ public struct FnMusicCatalogTrack: Sendable {
         self.bitRate = fnMusicInt(audio?["bitrate"]) ?? fnMusicInt(json["bitrate"])
         self.sampleRate = fnMusicInt(audio?["sampleRate"]) ?? fnMusicInt(json["sampleRate"])
         self.bitDepth = fnMusicInt(audio?["bitDepth"]) ?? fnMusicInt(json["bitDepth"])
+        self.codecName = fnMusicNonemptyString(audio?["codec"]) ?? fnMusicNonemptyString(json["codec"])
     }
 
     /// Builds the same stable Primuse song record on every platform. The
@@ -235,7 +238,10 @@ public struct FnMusicCatalogTrack: Sendable {
             cueSheetPath: hasValidCueRange ? "/fnmusic/cue/\(guid).cue" : nil,
             cueStartTime: hasValidCueRange ? cueStartTime : nil,
             cueEndTime: hasValidCueRange ? cueEndTime : nil,
-            revision: "fnmusic:\(updatedAt ?? 0):\(fileSize)"
+            revision: "fnmusic:\(updatedAt ?? 0):\(fileSize)",
+            audioCodec: ContainerAudioCodecPolicy.storedCodec(
+                ContainerAudioCodecPolicy.codec(named: codecName), container: format
+            )
         )
     }
 

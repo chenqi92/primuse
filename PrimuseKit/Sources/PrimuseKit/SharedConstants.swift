@@ -3368,6 +3368,8 @@ public struct MetadataBackfillWorkReasons: OptionSet, Sendable, Equatable {
     public static let title = Self(rawValue: 1 << 2)
     public static let albumArtist = Self(rawValue: 1 << 3)
     public static let artist = Self(rawValue: 1 << 4)
+    /// M4A 还不知道装的是 AAC 还是 ALAC。
+    public static let audioCodec = Self(rawValue: 1 << 5)
 }
 
 /// Shared predicate for the background metadata pipeline. Each inspection leg
@@ -3407,14 +3409,22 @@ public enum MetadataBackfillEligibilityPolicy {
         albumArtistChecked: Bool = true,
         albumArtistUnconfirmed: Bool = false,
         hasArtist: Bool = true,
-        artistChecked: Bool = true
+        artistChecked: Bool = true,
+        audioCodecUnread: Bool = false
     ) -> MetadataBackfillWorkReasons {
         if restrictToBareRows, duration > 0 || durationInspectionComplete {
             // 裸行源读完一遍就收手 —— 唯独整库判定说这一行的专辑艺术家定不了
             // 案时例外。那一笔带自己的一次性登记, 不会把裸行源拖回每轮重读。
-            return hasAlbumTitle && albumArtistUnconfirmed ? [.albumArtist] : []
+            // 编码同理: 读过一次就记在歌上(`ContainerAudioCodecPolicy.inspectedCodec`)。
+            var reasons: MetadataBackfillWorkReasons = hasAlbumTitle && albumArtistUnconfirmed
+                ? [.albumArtist] : []
+            if audioCodecUnread { reasons.insert(.audioCodec) }
+            return reasons
         }
         var reasons: MetadataBackfillWorkReasons = []
+        if audioCodecUnread {
+            reasons.insert(.audioCodec)
+        }
         if duration <= 0 && !durationInspectionComplete {
             reasons.insert(.duration)
         }
@@ -3452,7 +3462,8 @@ public enum MetadataBackfillEligibilityPolicy {
         albumArtistChecked: Bool = true,
         albumArtistUnconfirmed: Bool = false,
         hasArtist: Bool = true,
-        artistChecked: Bool = true
+        artistChecked: Bool = true,
+        audioCodecUnread: Bool = false
     ) -> Bool {
         !reasons(
             duration: duration,
@@ -3467,7 +3478,8 @@ public enum MetadataBackfillEligibilityPolicy {
             albumArtistChecked: albumArtistChecked,
             albumArtistUnconfirmed: albumArtistUnconfirmed,
             hasArtist: hasArtist,
-            artistChecked: artistChecked
+            artistChecked: artistChecked,
+            audioCodecUnread: audioCodecUnread
         ).isEmpty
     }
 }

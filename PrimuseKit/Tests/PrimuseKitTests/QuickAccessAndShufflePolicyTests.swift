@@ -280,6 +280,40 @@ struct MetadataBackfillEligibilityPolicyTests {
         #expect(reasons == [.duration, .artwork, .title, .albumArtist, .artist])
     }
 
+    @Test("An M4A whose codec is unknown is read once, bare-row sources included")
+    func unreadContainerCodecIsInspected() {
+        #expect(MetadataBackfillEligibilityPolicy.reasons(
+            duration: 180,
+            format: .m4a,
+            hasCoverArt: true,
+            artworkGivenUp: false,
+            titleChecked: true,
+            audioCodecUnread: true
+        ) == [.audioCodec])
+
+        // 本机与群晖读完一遍就收手, 但老库里的 M4A 要补读这一次才分得出无损。
+        #expect(MetadataBackfillEligibilityPolicy.reasons(
+            duration: 180,
+            format: .m4a,
+            hasCoverArt: true,
+            artworkGivenUp: false,
+            titleChecked: true,
+            restrictToBareRows: true,
+            audioCodecUnread: true
+        ) == [.audioCodec])
+
+        // 读过就记在歌上, 不再排队。
+        #expect(!MetadataBackfillEligibilityPolicy.needsBackfill(
+            duration: 180,
+            format: .m4a,
+            hasCoverArt: true,
+            artworkGivenUp: false,
+            titleChecked: true,
+            restrictToBareRows: true,
+            audioCodecUnread: false
+        ))
+    }
+
     @Test("A legitimately absent album artist completes after inspection")
     func absentAlbumArtistDoesNotLoop() {
         #expect(MetadataBackfillEligibilityPolicy.reasons(

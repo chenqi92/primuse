@@ -2145,6 +2145,7 @@
 "metadata_status_pending_reason" = "เพลงมีอยู่ในคลังเพลงแล้ว แต่ช่องฝังตัวที่รองรับบางช่องยังไม่ได้รับการตรวจสอบ";
 "metadata_status_reason_album_artist" = "ศิลปินอัลบั้ม";
 "metadata_status_reason_artist" = "ศิลปิน";
+"metadata_status_reason_audio_codec" = "ตัวแปลงสัญญาณเสียง";
 "metadata_status_reason_artwork" = "งานศิลปะ";
 "metadata_status_reason_duration" = "ระยะเวลา";
 "metadata_status_reason_separator" = ", ";

@@ -1321,7 +1321,7 @@ final class TVPlaybackCoordinator {
         store.nowPlaying.album = song.albumTitle ?? ""
         store.nowPlaying.albumID = song.albumID ?? ""
         store.nowPlaying.duration = song.duration
-        store.nowPlaying.format = song.fileFormat.displayName
+        store.nowPlaying.format = song.codecFormat.displayName
         store.nowPlaying.bitrate = song.bitRate ?? 0
         store.nowPlaying.sampleRate = Double(song.sampleRate ?? 0) / 1_000
         engine.updateCatalogMetadata(

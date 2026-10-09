@@ -19,6 +19,8 @@ enum FileMetadataReader {
         var sampleRate: Int?
         var bitRate: Int?
         var bitDepth: Int?
+        /// 音轨的编码（Core Audio 报的 ALAC / AAC…），M4A 靠它分无损与有损。
+        var audioCodec: AudioFormat?
         var replayGainTrackGain: Double?
         var replayGainTrackPeak: Double?
         var replayGainAlbumGain: Double?
@@ -95,6 +97,7 @@ enum FileMetadataReader {
             if (sampleRate ?? 0) <= 0 { sampleRate = fallback.sampleRate }
             if (bitRate ?? 0) <= 0 { bitRate = fallback.bitRate }
             if (bitDepth ?? 0) <= 0 { bitDepth = fallback.bitDepth }
+            audioCodec = audioCodec ?? fallback.audioCodec
             replayGainTrackGain = replayGainTrackGain ?? fallback.replayGainTrackGain
             replayGainTrackPeak = replayGainTrackPeak ?? fallback.replayGainTrackPeak
             replayGainAlbumGain = replayGainAlbumGain ?? fallback.replayGainAlbumGain
@@ -734,6 +737,20 @@ enum FileMetadataReader {
                             if let basic = basicDescription?.pointee {
                                 metadata.applyAudioProperties(sampleRate: basic.mSampleRate)
                                 metadata.bitDepth = Int(basic.mBitsPerChannel)
+                                if let codec = ContainerAudioCodecPolicy.codec(
+                                    coreAudioFormatID: basic.mFormatID
+                                ) {
+                                    metadata.audioCodec = codec
+                                }
+                                // ALAC 的每声道位数报 0，源位深写在格式标志里。
+                                if basic.mFormatID == kAudioFormatAppleLossless,
+                                   let depth = AppleMusicLocalFileDetailsPolicy.bitDepth(
+                                       codecID: basic.mFormatID,
+                                       bitsPerChannel: basic.mBitsPerChannel,
+                                       formatFlags: basic.mFormatFlags
+                                   ) {
+                                    metadata.bitDepth = depth
+                                }
                             }
                         }
                     }

@@ -808,7 +808,10 @@ extension SynologyAudioStationSong {
             replayGainTrackPeak: replayGainTrackPeak,
             replayGainAlbumGain: replayGainAlbumGain,
             replayGainAlbumPeak: replayGainAlbumPeak,
-            revision: "audiostation:\(fileSize ?? 0):\(Int((duration ?? 0).rounded())):\(container ?? "")"
+            revision: "audiostation:\(fileSize ?? 0):\(Int((duration ?? 0).rounded())):\(container ?? "")",
+            audioCodec: isVirtualTrack ? nil : ContainerAudioCodecPolicy.storedCodec(
+                ContainerAudioCodecPolicy.codec(named: codec), container: format
+            )
         )
     }
 

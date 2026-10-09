@@ -1676,6 +1676,7 @@ final class TVSourceScanner {
                 song.bitRate = song.bitRate ?? existing.bitRate
                 song.sampleRate = song.sampleRate ?? existing.sampleRate
                 song.bitDepth = song.bitDepth ?? existing.bitDepth
+                song.audioCodec = song.audioCodec ?? existing.audioCodec
                 song.replayGainTrackGain = song.replayGainTrackGain ?? existing.replayGainTrackGain
                 song.replayGainTrackPeak = song.replayGainTrackPeak ?? existing.replayGainTrackPeak
                 song.replayGainAlbumGain = song.replayGainAlbumGain ?? existing.replayGainAlbumGain

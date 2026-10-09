@@ -3171,6 +3171,7 @@
 "lyrics_converter_decode_failed" = "Primuse bu şarkı sözü dosyasının kodunu metin olarak çözemedi.";
 "ai_provider_preset_deepseek_openai" = "DeepSeek · OpenAI formatı";
 "metadata_status_reason_artist" = "sanatçı";
+"metadata_status_reason_audio_codec" = "ses kodeği";
 "Next Track" = "Sonraki Parça";
 "ai_recommendation_scene_focus" = "Odaklanma";
 "Endpoint Scripts" = "Uç Nokta Komut Dosyaları";

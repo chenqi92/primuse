@@ -244,6 +244,85 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
     }
 }
 
+public extension AudioFormat {
+    /// 扩展名说明不了编码的容器：`.m4a`/`.mp4` 里可能是 AAC，也可能是 ALAC、
+    /// FLAC 或杜比。这类歌的音质要看 `Song.audioCodec`。
+    var holdsVariousCodecs: Bool {
+        self == .m4a || self == .mp4
+    }
+}
+
+/// 把各处报来的编码归到 `AudioFormat`：Core Audio 的 `mFormatID`、MP4 音轨的
+/// sample entry、媒体服务器的 codec 字符串。认不出的一律 nil，宁可不说也不猜。
+public enum ContainerAudioCodecPolicy {
+    /// MP4 `stsd` 里 sample entry 的四字码。`mp4a` 理论上也能装 MP3，但 `.m4a`
+    /// 里几乎只有 AAC，两者都是有损，按 AAC 记。
+    public static func codec(sampleEntry fourCC: String) -> AudioFormat? {
+        switch fourCC {
+        case "mp4a": .aac
+        case "alac": .alac
+        case "fLaC": .flac
+        case "Opus": .opus
+        case ".mp3": .mp3
+        case "ac-3": .ac3
+        case "ec-3": .eac3
+        default: nil
+        }
+    }
+
+    /// `AudioStreamBasicDescription.mFormatID`。
+    public static func codec(coreAudioFormatID formatID: UInt32) -> AudioFormat? {
+        switch formatID {
+        case fourCC("aac "), fourCC("aach"), fourCC("aacp"), fourCC("aacl"), fourCC("aace"),
+             fourCC("aacf"), fourCC("aacg"):
+            .aac
+        case fourCC("alac"): .alac
+        case fourCC(".mp3"): .mp3
+        case fourCC(".mp2"): .mp2
+        case fourCC("flac"): .flac
+        case fourCC("opus"): .opus
+        case fourCC("ac-3"): .ac3
+        case fourCC("ec-3"): .eac3
+        default: nil
+        }
+    }
+
+    /// 媒体服务器给的编码名（Jellyfin/Emby 的 `Codec`、Plex 的 `audioCodec`）。
+    public static func codec(named name: String?) -> AudioFormat? {
+        switch name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "aac", "he-aac", "aac_latm": .aac
+        case "alac": .alac
+        case "flac": .flac
+        case "opus": .opus
+        case "mp3": .mp3
+        case "ac3": .ac3
+        case "eac3": .eac3
+        default: nil
+        }
+    }
+
+    /// 存进 `Song.audioCodec` 的值：只给装得下多种编码的容器记。
+    public static func storedCodec(_ codec: AudioFormat?, container: AudioFormat) -> AudioFormat? {
+        container.holdsVariousCodecs ? codec : nil
+    }
+
+    /// 读过文件之后存的值：认出编码就存编码；认不出时存容器本身，表示「读过、
+    /// 不知道」—— 显示与音质照旧按容器，回填也不会为它再读一遍。
+    public static func inspectedCodec(_ codec: AudioFormat?, container: AudioFormat) -> AudioFormat? {
+        guard container.holdsVariousCodecs else { return nil }
+        return codec ?? container
+    }
+
+    /// 还没读过音轨编码的 M4A/MP4。
+    public static func isUnread(format: AudioFormat, audioCodec: AudioFormat?) -> Bool {
+        format.holdsVariousCodecs && audioCodec == nil
+    }
+
+    static func fourCC(_ code: String) -> UInt32 {
+        code.utf8.prefix(4).reduce(0) { ($0 << 8) | UInt32($1) }
+    }
+}
+
 /// Describes what the tag editor can persist for a source/format pair.
 /// Sidecar-only sources can store artwork or lyrics next to the audio, but
 /// that is intentionally distinct from changing the audio file's embedded

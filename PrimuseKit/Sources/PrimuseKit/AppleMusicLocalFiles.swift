@@ -56,27 +56,13 @@ public enum AppleMusicLocalFileDetailsPolicy {
     /// Maps a Core Audio format ID (`AudioStreamBasicDescription.mFormatID`)
     /// to the format shown in Primuse. PCM keeps the container's name.
     public static func format(codecID: UInt32, fileExtension: String) -> AudioFormat? {
-        switch codecID {
-        case fourCC("aac "), fourCC("aach"), fourCC("aacp"), fourCC("aacl"), fourCC("aace"),
-             fourCC("aacf"), fourCC("aacg"):
-            return .aac
-        case fourCC("alac"):
-            return .alac
-        case fourCC(".mp3"):
-            return .mp3
-        case fourCC(".mp2"):
-            return .mp2
-        case fourCC("flac"):
-            return .flac
-        case fourCC("ac-3"):
-            return .ac3
-        case fourCC("ec-3"):
-            return .eac3
-        case fourCC("lpcm"):
-            return AudioFormat.from(fileExtension: fileExtension)
-        default:
-            return seedFormat(fileExtension: fileExtension)
+        if let codec = ContainerAudioCodecPolicy.codec(coreAudioFormatID: codecID) {
+            return codec
         }
+        if codecID == fourCC("lpcm") {
+            return AudioFormat.from(fileExtension: fileExtension)
+        }
+        return seedFormat(fileExtension: fileExtension)
     }
 
     /// Bit depth a codec actually carries. Lossy codecs report zero bits per

@@ -409,7 +409,7 @@ actor MacWidgetPlaybackPublisher {
             songTitle: request.currentSong?.title,
             artistName: request.artistDisplayName,
             albumTitle: request.currentSong?.albumTitle,
-            fileFormat: request.currentSong.map { $0.fileFormat.displayName },
+            fileFormat: request.currentSong.map { $0.codecFormat.displayName },
             coverImageName: coverName,
             isPlaying: request.isPlaying,
             currentTime: scope.includesProgress ? request.currentTime : 0,

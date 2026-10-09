@@ -947,6 +947,7 @@ actor SynologyScanner {
         var sampleRate: Int?
         var bitRate: Int?
         var bitDepth: Int?
+        var audioCodec: AudioFormat?
         var coverArtFileName: String?
         var lyricsFileName: String?
         var embeddedCoverData: Data?
@@ -1037,6 +1038,7 @@ actor SynologyScanner {
             sampleRate = embedded.sampleRate
             bitRate = embedded.bitRate
             bitDepth = embedded.bitDepth
+            audioCodec = embedded.audioCodec
             embeddedCoverData = embedded.coverArtData
             embeddedLyricsText = embedded.lyricsText
             replayGainTrackGain = embedded.replayGainTrackGain
@@ -1127,7 +1129,8 @@ actor SynologyScanner {
                         replayGainTrackGain: replayGainTrackGain,
                         replayGainTrackPeak: replayGainTrackPeak,
                         replayGainAlbumGain: replayGainAlbumGain,
-                        replayGainAlbumPeak: replayGainAlbumPeak)
+                        replayGainAlbumPeak: replayGainAlbumPeak,
+                        audioCodec: audioCodec)
     }
 
     private func makeSong(
@@ -1140,7 +1143,8 @@ actor SynologyScanner {
         replayGainTrackGain: Double? = nil,
         replayGainTrackPeak: Double? = nil,
         replayGainAlbumGain: Double? = nil,
-        replayGainAlbumPeak: Double? = nil
+        replayGainAlbumPeak: Double? = nil,
+        audioCodec: AudioFormat? = nil
     ) -> Song {
         let artistID = artist.map { generateID(sourceID: "", path: $0.lowercased()) }
         let resolvedAlbumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
@@ -1166,7 +1170,8 @@ actor SynologyScanner {
             replayGainTrackGain: replayGainTrackGain,
             replayGainTrackPeak: replayGainTrackPeak,
             replayGainAlbumGain: replayGainAlbumGain,
-            replayGainAlbumPeak: replayGainAlbumPeak
+            replayGainAlbumPeak: replayGainAlbumPeak,
+            audioCodec: ContainerAudioCodecPolicy.storedCodec(audioCodec, container: format)
         )
     }
 

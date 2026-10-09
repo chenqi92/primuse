@@ -155,6 +155,23 @@ struct TVScanPipelineTests {
         ))
     }
 
+    @Test func unreadM4ACodecIsInspectedOnce() {
+        var existing = song(id: "same", path: "/Music/Track.m4a", duration: 120, revision: "r1")
+        existing.fileFormat = .m4a
+        var candidate = song(id: "same", path: "/Music/Track.m4a", revision: "r1")
+        candidate.fileFormat = .m4a
+
+        #expect(!TVScanPipelinePolicy.canReuseMetadata(existing: existing, candidate: candidate))
+
+        existing.audioCodec = .alac
+        #expect(TVScanPipelinePolicy.canReuseMetadata(existing: existing, candidate: candidate))
+
+        // 读过但认不出编码: 记成容器本身, 同样不再重读。
+        existing.audioCodec = ContainerAudioCodecPolicy.inspectedCodec(nil, container: .m4a)
+        #expect(existing.audioCodec == .m4a)
+        #expect(TVScanPipelinePolicy.canReuseMetadata(existing: existing, candidate: candidate))
+    }
+
     @Test func unchangedSkeletonKeepsInspectedAssetReferences() {
         var existing = song(id: "same", duration: 120, revision: "r1")
         existing.coverArtFileName = "cached-cover.jpg"

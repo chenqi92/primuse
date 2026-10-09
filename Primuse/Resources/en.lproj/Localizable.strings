@@ -3343,6 +3343,7 @@
 "metadata_status_reason_title" = "title/album";
 "metadata_status_reason_album_artist" = "album artist";
 "metadata_status_reason_artist" = "artist";
+"metadata_status_reason_audio_codec" = "audio codec";
 "metadata_status_reason_separator" = ", ";
 "metadata_status_pending_reason" = "The song is already in the library, but some supported embedded fields have not been inspected yet.";
 "metadata_status_retry_reason" = "The latest read hit a transient error and was retained for a manual or later retry.";

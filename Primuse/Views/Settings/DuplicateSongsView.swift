@@ -729,7 +729,7 @@ struct DuplicateSongsView: View {
     }
 
     private func macFormatLabel(_ song: Song) -> some View {
-        let format = song.fileFormat.displayName.uppercased()
+        let format = song.codecFormat.displayName.uppercased()
         let text = format.isEmpty ? "—" : format
         let isLossless = ["FLAC", "ALAC", "APE", "WAV", "AIFF"].contains(format)
         let foreground = isLossless ? PMColor.flac : PMColor.textMuted
@@ -852,7 +852,7 @@ struct DuplicateSongsView: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Text(song.fileFormat.displayName)
+                    Text(song.codecFormat.displayName)
                         .font(.caption.weight(.semibold))
                         .padding(.horizontal, 6).padding(.vertical, 1)
                         .background(Capsule().fill(formatBadgeColor(song).opacity(0.18)))

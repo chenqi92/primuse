@@ -6019,6 +6019,7 @@ final class MusicLibrary {
             || old.discNumber != new.discNumber
             || old.duration != new.duration
             || old.fileFormat != new.fileFormat
+            || old.audioCodec != new.audioCodec
             || old.filePath != new.filePath
             || old.sourceID != new.sourceID
             || old.fileSize != new.fileSize

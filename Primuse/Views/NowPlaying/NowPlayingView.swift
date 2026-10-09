@@ -8536,7 +8536,7 @@ struct SongInfoSheet: View {
                 }
 
                 Section(String(localized: "technical_info")) {
-                    infoRow(String(localized: "format_label"), song.fileFormat.displayName)
+                    infoRow(String(localized: "format_label"), song.detailedFormatName)
                     if let sampleRate = song.formattedSampleRate {
                         infoRow(String(localized: "sample_rate_label"), sampleRate)
                     }
@@ -8718,7 +8718,7 @@ struct SongInfoSheet: View {
         if let lastModified = song.lastModified {
             rows.append((String(localized: "last_modified_label"), lastModified.formatted(date: .abbreviated, time: .shortened), false))
         }
-        rows.append((String(localized: "format_label"), song.fileFormat.displayName, false))
+        rows.append((String(localized: "format_label"), song.detailedFormatName, false))
         if let sampleRate = song.formattedSampleRate {
             rows.append((String(localized: "sample_rate_label"), sampleRate, false))
         }

@@ -29,16 +29,31 @@ public enum AudioQuality: String, Sendable, CaseIterable {
 }
 
 extension Song {
+    /// 判音质、显示编码时用的格式：M4A 这类容器读出了编码就按编码（ALAC / AAC），
+    /// 否则按扩展名。
+    public var codecFormat: AudioFormat {
+        guard fileFormat.holdsVariousCodecs, let audioCodec else { return fileFormat }
+        return audioCodec
+    }
+
+    /// 详情里「格式」那一栏：读出了容器里的编码时写成「ALAC (M4A)」，编码和容器都交代。
+    public var detailedFormatName: String {
+        let codec = codecFormat
+        guard codec != fileFormat else { return fileFormat.displayName }
+        return "\(codec.displayName) (\(fileFormat.displayName))"
+    }
+
     /// 音质等级。判定规则:
     /// - DSF / DFF 文件 → .dsd
     /// - lossless format + (sampleRate >= 88.2k 或 bitDepth >= 24) → .hiRes
     /// - 其他 lossless → .lossless
     /// - 有损 (MP3/AAC/Opus 等) → .standard
+    /// M4A 按 `codecFormat` 判：装的是 ALAC 才算无损。
     public var audioQuality: AudioQuality {
         if fileFormat == .dsf || fileFormat == .dff {
             return .dsd
         }
-        guard fileFormat.isLossless else {
+        guard codecFormat.isLossless else {
             return .standard
         }
         let highSR = (sampleRate ?? 0) >= 88_200

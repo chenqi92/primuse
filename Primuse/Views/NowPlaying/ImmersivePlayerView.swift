@@ -1178,7 +1178,7 @@ struct ImmersivePlayerView: View {
     private var audioMetadata: String {
         guard let song = player.currentSong else { return ImmersiveDemoContent.format }
         return ImmersiveAudioSpec.line(
-            format: song.fileFormat.displayName,
+            format: song.codecFormat.displayName,
             sampleRate: song.sampleRate,
             bitDepth: song.bitDepth,
             audioVariants: song.audioVariants

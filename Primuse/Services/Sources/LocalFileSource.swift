@@ -1051,7 +1051,10 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                 cueSheetPath: descriptor.cuePath,
                 cueStartTime: start,
                 cueEndTime: end,
-                revision: combinedRevision
+                revision: combinedRevision,
+                audioCodec: ContainerAudioCodecPolicy.storedCodec(
+                    metadata.audioCodec, container: descriptor.format
+                )
             )
             return ConnectorScannedSong(
                 song: song,

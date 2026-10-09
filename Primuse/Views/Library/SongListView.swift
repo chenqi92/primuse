@@ -2307,7 +2307,7 @@ struct SongListView: View {
                     .truncationMode(.tail)
             case .format:
                 HStack(spacing: 6) {
-                    PMFormatPill.forFormat(song.fileFormat.displayName)
+                    PMFormatPill.forFormat(song.codecFormat.displayName)
                     if let sampleRate = song.formattedSampleRate {
                         Text(verbatim: sampleRate)
                             .font(.system(size: 10.5, design: .monospaced))
@@ -2440,7 +2440,7 @@ struct SongListView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 HStack(spacing: 4) {
-                    PMFormatPill.forFormat(song.fileFormat.displayName)
+                    PMFormatPill.forFormat(song.codecFormat.displayName)
                     if let sampleRate = song.formattedSampleRate {
                         Text(verbatim: sampleRate)
                             .font(.system(size: 10, design: .monospaced))

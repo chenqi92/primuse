@@ -2145,6 +2145,7 @@
 "metadata_status_pending_reason" = "गाना पहले से ही लाइब्रेरी में है, लेकिन कुछ समर्थित एम्बेडेड फ़ील्ड का अभी तक निरीक्षण नहीं किया गया है।";
 "metadata_status_reason_album_artist" = "एल्बम कलाकार";
 "metadata_status_reason_artist" = "कलाकार";
+"metadata_status_reason_audio_codec" = "ऑडियो कोडेक";
 "metadata_status_reason_artwork" = "कलाकृति";
 "metadata_status_reason_duration" = "अवधि";
 "metadata_status_reason_separator" = ", ";

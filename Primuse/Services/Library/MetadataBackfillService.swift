@@ -2877,7 +2877,8 @@ final class MetadataBackfillService {
                 albumArtistChecked: input.albumArtistCheckedIDs.contains(song.id),
                 albumArtistUnconfirmed: input.albumArtistUnconfirmedIDs.contains(song.id),
                 hasArtist: Self.hasVisibleContent(song.artistName),
-                artistChecked: input.artistCheckedIDs.contains(song.id)
+                artistChecked: input.artistCheckedIDs.contains(song.id),
+                audioCodecUnread: Self.audioCodecUnread(song)
             )
             let stillNeedsDetails = !workReasons.isEmpty
             let hasTerminalOrSourceFailure = input.failedSongIDs.contains(song.id)
@@ -5454,7 +5455,11 @@ final class MetadataBackfillService {
             lyricsText: bare.lyricsText,
             userMetadataEditedAt: bare.userMetadataEditedAt,
             audioVariants: bare.audioVariants,
-            serverLibraryID: bare.serverLibraryID
+            serverLibraryID: bare.serverLibraryID,
+            // 读过这一遍就记下, 认不出编码也记 (存容器本身), 回填不会为它再读。
+            audioCodec: ContainerAudioCodecPolicy.storedCodec(metadata.audioCodec, container: mergedFormat)
+                ?? bare.audioCodec
+                ?? ContainerAudioCodecPolicy.inspectedCodec(nil, container: mergedFormat)
         )
         let preserved = SongUserMetadataPolicy.preservingUserEdits(from: bare, in: merged)
         if bare.userMetadataEditedAt != nil,
@@ -5578,7 +5583,7 @@ final class MetadataBackfillService {
                 artistCheckedIDs: input.artistCheckedIDs
             )
             guard !reasons.isEmpty else { continue }
-            guard reasons != [.albumArtist] else {
+            guard !reasons.isSubset(of: [.albumArtist, .audioCodec]) else {
                 // 攒够一整批就不用再记了: 上层一次最多取 `limit` 行。
                 if recheckOnly.count < limit { recheckOnly.append(song) }
                 continue
@@ -5712,7 +5717,8 @@ final class MetadataBackfillService {
             albumArtistChecked: albumArtistCheckedIDs.contains(song.id),
             albumArtistUnconfirmed: albumArtistUnconfirmedIDs.contains(song.id),
             hasArtist: !(song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
-            artistChecked: artistCheckedIDs.contains(song.id)
+            artistChecked: artistCheckedIDs.contains(song.id),
+            audioCodecUnread: Self.audioCodecUnread(song)
         )
     }
 
@@ -5761,7 +5767,8 @@ final class MetadataBackfillService {
             albumArtistChecked: albumArtistCheckedIDs.contains(song.id),
             albumArtistUnconfirmed: albumArtistUnconfirmedIDs.contains(song.id),
             hasArtist: !(song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
-            artistChecked: artistCheckedIDs.contains(song.id)
+            artistChecked: artistCheckedIDs.contains(song.id),
+            audioCodecUnread: Self.audioCodecUnread(song)
         )
     }
 
@@ -5778,7 +5785,8 @@ final class MetadataBackfillService {
         albumArtistChecked: Bool,
         albumArtistUnconfirmed: Bool,
         hasArtist: Bool,
-        artistChecked: Bool
+        artistChecked: Bool,
+        audioCodecUnread: Bool
     ) -> MetadataBackfillWorkReasons {
         return MetadataBackfillEligibilityPolicy.reasons(
             duration: duration,
@@ -5793,8 +5801,16 @@ final class MetadataBackfillService {
             albumArtistChecked: albumArtistChecked,
             albumArtistUnconfirmed: albumArtistUnconfirmed,
             hasArtist: hasArtist,
-            artistChecked: artistChecked
+            artistChecked: artistChecked,
+            audioCodecUnread: audioCodecUnread
         )
+    }
+
+    /// M4A 还不知道装的是 AAC 还是 ALAC。STRM 读的是外部流、独立 MV 是视频, 都不为这个去读。
+    private nonisolated static func audioCodecUnread(_ song: Song) -> Bool {
+        !song.isStreamDescriptor
+            && !song.isStandaloneMusicVideo
+            && ContainerAudioCodecPolicy.isUnread(format: song.fileFormat, audioCodec: song.audioCodec)
     }
 
     private static func needsEmbeddedArtworkBackfill(_ song: Song) -> Bool {

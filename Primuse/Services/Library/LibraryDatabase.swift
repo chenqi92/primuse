@@ -312,6 +312,14 @@ actor LibraryDatabase {
             }
         }
 
+        // M4A/MP4 容器里实际的编码（"alac"、"aac"…），按它分无损与有损。
+        // nil 表示还没读过音轨。
+        migrator.registerMigration("v19_song_audio_codec") { db in
+            try db.alter(table: "songs") { t in
+                t.add(column: "audioCodec", .text)
+            }
+        }
+
         // Run every registered migration, not just v1 — pinning to
         // `upTo: "v1_initial"` would silently skip later versions on
         // upgrade and reintroduce schema drift.

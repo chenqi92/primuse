@@ -11,7 +11,7 @@ struct SongCompactStorageTests {
         "coverArtFileName", "artistArtworkFileName", "lyricsFileName", "mvPath",
         "replayGainTrackGain", "replayGainTrackPeak", "replayGainAlbumGain", "replayGainAlbumPeak",
         "cueSheetPath", "cueStartTime", "cueEndTime", "revision", "titlePinyin", "artistPinyin", "albumPinyin",
-        "lyricsText", "userMetadataEditedAt", "audioVariants", "serverLibraryID",
+        "lyricsText", "userMetadataEditedAt", "audioVariants", "serverLibraryID", "audioCodec",
     ]
 
     private func full() -> Song {
@@ -25,7 +25,7 @@ struct SongCompactStorageTests {
             mvPath: "b.mp4", replayGainTrackGain: -6.5, replayGainTrackPeak: 0.98, replayGainAlbumGain: -7, replayGainAlbumPeak: 1,
             cueSheetPath: "a.cue", cueStartTime: 12, cueEndTime: 99, revision: "etag", titlePinyin: "biao ti",
             artistPinyin: "ge shou", albumPinyin: "zhuan ji", lyricsText: "歌词", userMetadataEditedAt: Date(timeIntervalSince1970: 1_700_000_200),
-            audioVariants: [.lossless], serverLibraryID: "library-1"
+            audioVariants: [.lossless], serverLibraryID: "library-1", audioCodec: .alac
         )
     }
 

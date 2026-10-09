@@ -59,7 +59,7 @@ enum DuplicateDetector {
     /// 5. fileSize 作为最后 tiebreaker (MB)
     static func qualityScore(of song: Song) -> Int {
         var score = 0
-        if isLossless(song.fileFormat) { score += 10000 }
+        if isLossless(song.codecFormat) { score += 10000 }
         if let bd = song.bitDepth { score += bd * 500 }
         if let sr = song.sampleRate { score += sr / 1000 }
         if let br = song.bitRate { score += br }

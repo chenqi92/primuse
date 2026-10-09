@@ -4857,7 +4857,7 @@ final class SourceManager {
             cellularPreference: settings.cellularStreamQuality,
             isExpensive: monitor.isExpensive,
             isConstrained: monitor.isConstrained,
-            formatIsLossless: song.fileFormat.isLossless,
+            formatIsLossless: song.codecFormat.isLossless,
             formatRequiresCompleteLocalFile: FileFormatRouter.requiresCompleteLocalFile(song.fileFormat),
             isCueTrack: song.isCueTrack,
             sourceBitRateKbps: song.bitRate,
@@ -8408,7 +8408,7 @@ final class SourceManager {
         let preference = PlaybackSettings.load().offlineDownloadQuality
         guard case .compact(let bitRateKbps) = OfflineDownloadQualityPolicy.plan(
             preference: preference,
-            format: song.fileFormat,
+            format: song.codecFormat,
             isStreamDescriptor: song.isStreamDescriptor,
             isStandaloneMusicVideo: song.isStandaloneMusicVideo,
             isCueTrack: song.isCueTrack,
@@ -8637,7 +8637,7 @@ final class SourceManager {
         for song in songs {
             guard case .compact = OfflineDownloadQualityPolicy.plan(
                 preference: preference,
-                format: song.fileFormat,
+                format: song.codecFormat,
                 isStreamDescriptor: song.isStreamDescriptor,
                 isStandaloneMusicVideo: song.isStandaloneMusicVideo,
                 isCueTrack: song.isCueTrack,

@@ -207,6 +207,12 @@ public enum TVScanPipelinePolicy {
             )
         }
         guard existing.duration > 0 else { return false }
+        // 还不知道 M4A 里装的是 AAC 还是 ALAC 的行再读一次; 读过会记在歌上
+        // (认不出也记), 下一次扫描照常复用。
+        guard existing.isStandaloneMusicVideo || !ContainerAudioCodecPolicy.isUnread(
+            format: existing.fileFormat,
+            audioCodec: existing.audioCodec
+        ) else { return false }
         let hasStableRevision = existing.revision?.isEmpty == false
             && candidate.revision?.isEmpty == false
         let hasStableModifiedDate = existing.lastModified != nil

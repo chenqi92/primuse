@@ -1503,6 +1503,7 @@ actor ConnectorScanner {
             if refreshed.bitRate == nil { refreshed.bitRate = incoming.bitRate }
             if refreshed.sampleRate == nil { refreshed.sampleRate = incoming.sampleRate }
             if refreshed.bitDepth == nil { refreshed.bitDepth = incoming.bitDepth }
+            if refreshed.audioCodec == nil { refreshed.audioCodec = existing.audioCodec }
             return refreshed
         }
 
@@ -1555,6 +1556,7 @@ actor ConnectorScanner {
         if refreshed.bitRate == nil { refreshed.bitRate = incoming.bitRate }
         if refreshed.sampleRate == nil { refreshed.sampleRate = incoming.sampleRate }
         if refreshed.bitDepth == nil { refreshed.bitDepth = incoming.bitDepth }
+        if refreshed.audioCodec == nil { refreshed.audioCodec = incoming.audioCodec }
         if refreshed.coverArtFileName == nil { refreshed.coverArtFileName = incoming.coverArtFileName }
 
         return refreshed
@@ -1816,7 +1818,8 @@ actor ConnectorScanner {
             replayGainTrackPeak: metadata.replayGainTrackPeak,
             replayGainAlbumGain: metadata.replayGainAlbumGain,
             replayGainAlbumPeak: metadata.replayGainAlbumPeak,
-            revision: item.revision
+            revision: item.revision,
+            audioCodec: ContainerAudioCodecPolicy.storedCodec(metadata.audioCodec, container: format)
         )
     }
 

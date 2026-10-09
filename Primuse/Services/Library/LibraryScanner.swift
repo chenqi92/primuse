@@ -119,7 +119,10 @@ actor LibraryScanner {
                             replayGainTrackGain: metadata.replayGainTrackGain,
                             replayGainTrackPeak: metadata.replayGainTrackPeak,
                             replayGainAlbumGain: metadata.replayGainAlbumGain,
-                            replayGainAlbumPeak: metadata.replayGainAlbumPeak
+                            replayGainAlbumPeak: metadata.replayGainAlbumPeak,
+                            audioCodec: ContainerAudioCodecPolicy.storedCodec(
+                                metadata.audioCodec, container: format
+                            )
                         )
 
                         try await database.saveSong(song)

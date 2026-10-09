@@ -1479,6 +1479,7 @@ struct SourceMetadataStatusView: View {
         if reasons.contains(.title) { values.append(String(localized: "metadata_status_reason_title")) }
         if reasons.contains(.albumArtist) { values.append(String(localized: "metadata_status_reason_album_artist")) }
         if reasons.contains(.artist) { values.append(String(localized: "metadata_status_reason_artist")) }
+        if reasons.contains(.audioCodec) { values.append(String(localized: "metadata_status_reason_audio_codec")) }
         return values
     }
 

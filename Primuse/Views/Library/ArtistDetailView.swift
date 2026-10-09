@@ -814,7 +814,7 @@ struct ArtistDetailView: View {
                     .lineLimit(1)
 
                 Spacer(minLength: 12)
-                PMFormatPill.forFormat(song.fileFormat.displayName)
+                PMFormatPill.forFormat(song.codecFormat.displayName)
                     .frame(width: 70, alignment: .leading)
 
                 Text(verbatim: String(

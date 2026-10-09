@@ -934,7 +934,7 @@ struct TagEditorView: View {
                     macField(String(localized: "tag_editor_artist"), text: $artist, original: song.artistName ?? "")
                     macField(String(localized: "tag_editor_album"), text: $album, original: song.albumTitle ?? "")
                     macEncodingFixRow
-                    macReadOnlyField(String(localized: "tag_editor_field_format"), value: song.fileFormat.displayName)
+                    macReadOnlyField(String(localized: "tag_editor_field_format"), value: song.detailedFormatName)
                     macReadOnlyField(String(localized: "tag_editor_field_audio_spec"), value: macAudioSpec)
                     macField(String(localized: "tag_editor_genre"), text: $genre, original: song.genre ?? "")
                     macField(String(localized: "tag_editor_year"), text: $yearText, original: song.year.map(String.init) ?? "")

@@ -3171,6 +3171,7 @@
 "lyrics_converter_decode_failed" = "Primuse не удалось декодировать этот файл с текстом как текст.";
 "ai_provider_preset_deepseek_openai" = "DeepSeek · Формат OpenAI";
 "metadata_status_reason_artist" = "исполнитель";
+"metadata_status_reason_audio_codec" = "аудиокодек";
 "Next Track" = "Следующий трек";
 "ai_recommendation_scene_focus" = "Фокус";
 "Endpoint Scripts" = "Скрипты конечных точек";
