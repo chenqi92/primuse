@@ -891,6 +891,12 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         )
     }
 
+    func testRelayKeepsTheSystemUserAgentOutsideTheMac() {
+        #if !os(macOS)
+        XCTAssertNil(PrimuseAIRelayClient.platformUserAgent)
+        #endif
+    }
+
     func testAppAttestEnrollmentCarriesTheSignedAppTransactionWhenReady() async throws {
         let host = "primuse-relay-attest-store-proof.invalid"
         PrimuseRelayURLProtocol.configure(host: host)

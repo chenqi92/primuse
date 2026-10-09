@@ -311,6 +311,25 @@ actor PrimuseAIRelayClient {
     nonisolated static var currentBuild: String? {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
     }
+
+    /// iPhone 和 Mac 的 App 同名,系统默认的 User-Agent 分不出平台。Mac 上照系统的格式
+    /// 把名字换成 PrimuseMac,中转据此把它算作 Mac;其他平台用系统默认值(返回 nil)。
+    nonisolated static var platformUserAgent: String? {
+        #if os(macOS)
+        guard let build = currentBuild,
+              let cfNetwork = Bundle(identifier: "com.apple.CFNetwork")?
+                .object(forInfoDictionaryKey: "CFBundleVersion") as? String else { return nil }
+        var system = utsname()
+        guard uname(&system) == 0 else { return nil }
+        let darwin = withUnsafeBytes(of: system.release) { raw in
+            String(decoding: raw.prefix { $0 != 0 }, as: UTF8.self)
+        }
+        guard !darwin.isEmpty else { return nil }
+        return "PrimuseMac/\(build) CFNetwork/\(cfNetwork) Darwin/\(darwin)"
+        #else
+        return nil
+        #endif
+    }
     private static let maximumResponseBytes = 1_048_576
     private static let requestIdleTimeout: TimeInterval = 60
 
@@ -769,6 +788,9 @@ actor PrimuseAIRelayClient {
             timeoutInterval: 15
         )
         request.httpMethod = "GET"
+        if let userAgent = Self.platformUserAgent {
+            request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        }
         guard let (data, response) = try? await session.data(for: request),
               let http = response as? HTTPURLResponse,
               (200..<300).contains(http.statusCode),
@@ -1504,6 +1526,9 @@ actor PrimuseAIRelayClient {
         request.httpBody = body
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+        if let userAgent = Self.platformUserAgent {
+            request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        }
         let preferredLanguages = Locale.preferredLanguages.prefix(10).joined(separator: ", ")
         if !preferredLanguages.isEmpty {
             request.setValue(preferredLanguages, forHTTPHeaderField: "Accept-Language")
