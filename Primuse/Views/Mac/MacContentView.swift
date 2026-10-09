@@ -115,7 +115,6 @@ struct MacContentView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicIntelligenceService.self) private var intelligence
     @Environment(ThemeService.self) private var theme
-    @Environment(\.colorScheme) private var colorScheme
     @AppStorage("primuse.hasSeenOnboarding") private var hasSeenOnboarding = false
     @AppStorage("primuse.navigation.macRoute.v1") private var persistedRouteID = "home"
     @AppStorage(FullscreenPlayerEffect.storageKey)
@@ -390,11 +389,6 @@ struct MacContentView: View {
                 hasSeenOnboarding = true
                 showInitialOnboarding = true
             }
-        }
-        .onChange(of: colorScheme, initial: true) { _, _ in
-            // `.system` 下 AppKit 不会重新调用偏好 setter；由根视图监听实际
-            // effective appearance，重绘带明暗资源变体的 Dock 图标。
-            preferences.applyAppIcon()
         }
         .onChange(of: selection) { _, route in
             persistedRouteID = persistenceID(for: route)

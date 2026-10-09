@@ -1788,9 +1788,29 @@ struct MacAppIcon: Identifiable, Equatable, Sendable {
         all.first { $0.id == id } ?? all[0]
     }
 
-    /// 把满幅方形预览图渲染成标准 macOS 图标外形 (连续圆角 squircle + 四周留白),
-    /// 再交给 `applicationIconImage`。预览 PNG 是不带 alpha 的满幅方图, 直接当 dock
-    /// 图标会又大又方, 跟系统其它图标 (含本 app 默认图标) 的圆角 + 留白对不上。
+    /// 包里的 Mac 图标集 (`ASSETCATALOG_COMPILER_APPICON_NAME`)。App 没运行、刚启动还没轮到
+    /// 我们的代码时, Dock 显示的就是它, 而且只有浅色一张。
+    static let bundleIconName = "AppIcon-Mac"
+
+    /// 交给 `applicationIconImage` 的 Dock 图标。**一律是浅色版, 不跟 App 的明暗模式走。**
+    ///
+    /// Dock 在启动前和退出后显示的是包里那张 (只有浅色); macOS 26 起图标要不要变深
+    /// 由系统「图标与小组件样式」单独决定, 默认样式在深色模式下也是浅色图标。运行时如果按
+    /// App 明暗换成深色版, 深色模式下每次启动都会从浅色跳成深色、退出再跳回来。
+    ///
+    /// 默认图标直接取包里那套 (从资源目录读, 不经系统图标缓存), 和启动前 Dock 上那张
+    /// 逐像素一致; 备选图标从预览资源渲染, 启动和退出时与默认图标互换这一下是系统限制。
+    @MainActor
+    static func dockIconImage(for icon: MacAppIcon) -> NSImage? {
+        if icon.id.isEmpty, let bundled = Bundle.main.image(forResource: bundleIconName) {
+            return bundled
+        }
+        return dockIconImage(previewAsset: icon.previewAsset, appearance: NSAppearance(named: .aqua))
+    }
+
+    /// 把满幅方形预览图渲染成标准 macOS 图标外形 (连续圆角 squircle + 四周留白)。
+    /// 预览 PNG 是不带 alpha 的满幅方图, 直接当 dock 图标会又大又方, 跟系统其它图标
+    /// (含本 app 默认图标) 的圆角 + 留白对不上。
     @MainActor
     static func dockIconImage(previewAsset asset: String, appearance: NSAppearance? = nil) -> NSImage? {
         guard NSImage(named: asset) != nil else { return nil }
@@ -1890,7 +1910,6 @@ final class MacUIPreferences {
         didSet {
             defaults.set(colorScheme.rawValue, forKey: Self.keyColorScheme)
             applyColorScheme()
-            applyAppIcon()
         }
     }
     /// 当前 App 图标 id ("" = 默认)。didSet 立即换 dock 图标。
@@ -1902,7 +1921,6 @@ final class MacUIPreferences {
     }
 
     private(set) var artworkBrandColor: Color? = nil
-    @ObservationIgnored private var appearanceObservation: NSKeyValueObservation?
 
     /// 固定回退色与当前生效色分开，自动模式下全套 Mac 自绘控件会随封面更新。
     var fixedBrandColor: Color { Color(hex: brandColorHex) }
@@ -1993,16 +2011,9 @@ final class MacUIPreferences {
     }
 
     /// 启动时把持久化的明暗模式 + App 图标重放一遍 (didSet 在 init 期不触发,
-    /// 所以必须显式调一次)。在 AppDelegate.applicationDidFinishLaunching 里调。
+    /// 所以必须显式调一次)。在 AppDelegate.applicationWillFinishLaunching 里调。
     func applyOnLaunch() {
         applyColorScheme()
-        if appearanceObservation == nil {
-            appearanceObservation = NSApp.observe(\.effectiveAppearance) { [weak self] _, _ in
-                Task { @MainActor [weak self] in
-                    self?.applyAppIcon()
-                }
-            }
-        }
         applyAppIcon()
     }
 
@@ -2015,22 +2026,15 @@ final class MacUIPreferences {
         }
     }
 
-    /// 换运行时 Dock 图标。**包括默认图标在内，一律用预览资源渲染后覆盖。**
+    /// 换运行时 Dock 图标。**包括默认图标在内，一律显式覆盖。**
     ///
-    /// 试过「选默认图标时就不覆盖、让 Dock 用 App 包自带的那张」，实测 Dock 会显示一张
-    /// 过期的图标：包里那张要经系统的图标缓存和 macOS 26 起的图标遮罩再走一道，
-    /// 结果跟运行时渲染的不是一回事，而且开发构建上缓存经常不刷新。覆盖这条路没有这个问题，
-    /// 图标是什么就画什么。启动瞬间的那一下由 `applicationWillFinishLaunching` 里提早调用来压缩。
+    /// 试过「选默认图标时就不覆盖（置 nil）」，实测 Dock 会显示一张过期的图标：nil 让 Dock
+    /// 回到系统图标缓存里的那张，开发构建和换过默认图标的版本上缓存经常不刷新。默认图标
+    /// 改为从资源目录直接取包里那套，绕开缓存，又和启动前 Dock 上那张一致。
     ///
-    /// 渲染而不是直接取 bundle 图标还有一个原因:预览资源带 luminosity 变体，
-    /// 切换系统明暗时不会退回静态的浅色版。
+    /// 不跟明暗模式重画，原因见 `MacAppIcon.dockIconImage(for:)`。
     func applyAppIcon() {
-        let asset = MacAppIcon.option(for: appIconID).previewAsset
-        if let shaped = MacAppIcon.dockIconImage(previewAsset: asset) {
-            NSApp.applicationIconImage = shaped
-        } else {
-            NSApp.applicationIconImage = nil
-        }
+        NSApp.applicationIconImage = MacAppIcon.dockIconImage(for: MacAppIcon.option(for: appIconID))
         NotificationCenter.default.post(name: .primuseAppIconChanged, object: nil)
     }
 }

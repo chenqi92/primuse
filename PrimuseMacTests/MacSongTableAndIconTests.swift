@@ -76,7 +76,9 @@ final class MacSongTableAndIconTests: XCTestCase {
         }
     }
 
-    func testApplicationAppearanceChangeRefreshesDockIconWithoutViewCallbacks() async throws {
+    /// Dock 在启动前和退出后显示的是包里只有浅色的那张；运行时跟着 App 明暗换成深色版，
+    /// 深色模式下每次启动、退出都会跳一下。
+    func testDockIconStaysOnLightVariantWhenAppAppearanceChanges() async throws {
         let preferences = MacUIPreferences.shared
         let previousAppearance = NSApp.appearance
         let previousIcon = preferences.appIconID
@@ -90,8 +92,17 @@ final class MacSongTableAndIconTests: XCTestCase {
         let light = try XCTUnwrap(NSApp.applicationIconImage.tiffRepresentation)
         NSApp.appearance = NSAppearance(named: .darkAqua)
         try await Task.sleep(for: .milliseconds(250))
-        let dark = try XCTUnwrap(NSApp.applicationIconImage.tiffRepresentation)
-        XCTAssertNotEqual(light, dark)
+        XCTAssertEqual(NSApp.applicationIconImage.tiffRepresentation, light)
+        preferences.applyAppIcon()
+        XCTAssertEqual(NSApp.applicationIconImage.tiffRepresentation, light)
+    }
+
+    /// 默认图标要和启动前 Dock 上那张是同一套：直接用包里的图标集，而不是从预览图放大重画。
+    func testDefaultDockIconIsTheBundledIconSet() throws {
+        let bundled = try XCTUnwrap(Bundle.main.image(forResource: MacAppIcon.bundleIconName))
+        let dock = try XCTUnwrap(MacAppIcon.dockIconImage(for: MacAppIcon.option(for: "")))
+        XCTAssertEqual(dock.tiffRepresentation, bundled.tiffRepresentation)
+        XCTAssertTrue(dock.representations.contains { $0.pixelsWide >= 1024 })
     }
 
     func testMenuBarTextStaysVisibleWithIslandByDefault() throws {
