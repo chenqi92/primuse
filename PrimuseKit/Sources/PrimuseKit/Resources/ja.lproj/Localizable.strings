@@ -996,3 +996,5 @@
 
 "ext.widget.desk.title" = "リスニングデスク";
 "ext.widget.desk.description" = "プレーヤー、ポッドキャスト、ラジオ、最近のアルバムをひとつに。";
+"ext.widget.desk.music" = "ミュージック";
+"ext.widget.desk.audiobook" = "オーディオブック";

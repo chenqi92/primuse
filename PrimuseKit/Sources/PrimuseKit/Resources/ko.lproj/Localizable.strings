@@ -996,3 +996,5 @@
 
 "ext.widget.desk.title" = "감상 데스크";
 "ext.widget.desk.description" = "플레이어, 팟캐스트, 라디오, 최근 앨범을 한곳에서 만나보세요.";
+"ext.widget.desk.music" = "음악";
+"ext.widget.desk.audiobook" = "오디오북";

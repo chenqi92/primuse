@@ -6,12 +6,29 @@ public struct RecentAlbumEntry: Codable, Sendable {
     public let title: String
     public let artistName: String
     public let coverImageName: String?
+    /// What a widget tap plays: the library album and the song last heard in
+    /// it. Nil in entries written before taps existed.
+    public let albumID: String?
+    public let songID: String?
+    /// Books and podcast shows are recorded too; the listening desk's music
+    /// tile skips them. Nil when not known (older entries).
+    public let listeningSpace: ListeningSpace?
 
-    public init(id: String, title: String, artistName: String, coverImageName: String?) {
+    public init(id: String, title: String, artistName: String, coverImageName: String?,
+                albumID: String? = nil, songID: String? = nil, listeningSpace: ListeningSpace? = nil) {
         self.id = id
         self.title = title
         self.artistName = artistName
         self.coverImageName = coverImageName
+        self.albumID = albumID
+        self.songID = songID
+        self.listeningSpace = listeningSpace
+    }
+
+    /// The same entry with its cover withheld (privacy scope below covers).
+    public func withoutCover() -> RecentAlbumEntry {
+        RecentAlbumEntry(id: id, title: title, artistName: artistName, coverImageName: nil,
+                         albumID: albumID, songID: songID, listeningSpace: listeningSpace)
     }
 }
 

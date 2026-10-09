@@ -943,3 +943,5 @@
 
 "ext.widget.desk.title" = "มุมฟังเพลง";
 "ext.widget.desk.description" = "เครื่องเล่น พอดแคสต์ วิทยุ และอัลบั้มล่าสุดของคุณในที่เดียว";
+"ext.widget.desk.music" = "เพลง";
+"ext.widget.desk.audiobook" = "หนังสือเสียง";

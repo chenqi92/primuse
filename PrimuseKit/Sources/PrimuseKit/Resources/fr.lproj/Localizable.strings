@@ -996,3 +996,5 @@
 
 "ext.widget.desk.title" = "Espace d’écoute";
 "ext.widget.desk.description" = "Votre lecteur, vos podcasts, la radio et vos albums récents au même endroit.";
+"ext.widget.desk.music" = "Musique";
+"ext.widget.desk.audiobook" = "Livres audio";

@@ -943,3 +943,5 @@
 
 "ext.widget.desk.title" = "Центр прослуховування";
 "ext.widget.desk.description" = "Програвач, подкасти, радіо та нещодавні альбоми в одному місці.";
+"ext.widget.desk.music" = "Музика";
+"ext.widget.desk.audiobook" = "Аудіокниги";

@@ -1,0 +1,10 @@
+/* Listening desk widget configuration (App Intent strings, read from this extension's bundle). */
+"Listening Desk" = "Dinleme Merkezi";
+"Choose what each tile plays." = "Her kutucuğun ne çalacağını seçin.";
+"Leading Tile" = "Sol kutucuk";
+"Trailing Tile" = "Sağ kutucuk";
+"Tile Content" = "Kutucuk içeriği";
+"Podcasts" = "Podcast’ler";
+"Radio" = "Radyo";
+"Music" = "Müzik";
+"Audiobooks" = "Sesli kitaplar";

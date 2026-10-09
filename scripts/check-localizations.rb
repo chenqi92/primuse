@@ -79,6 +79,7 @@ RESOURCE_GROUPS = [
   ["Primuse InfoPlist.strings", ROOT / "Primuse/Resources", "InfoPlist.strings", true],
   ["PlayMedia intent strings", ROOT / "Primuse/Resources", "PlayMedia.strings", true],
   ["Widget InfoPlist.strings", ROOT / "PrimuseWidgetExtension/Resources", "InfoPlist.strings", true],
+  ["Widget WidgetConfiguration.strings", ROOT / "PrimuseWidgetExtension/Resources", "WidgetConfiguration.strings", true],
   ["Watch InfoPlist.strings", ROOT / "PrimuseWatch/Resources", "InfoPlist.strings", true],
   ["Watch widget InfoPlist.strings", ROOT / "PrimuseWatchWidgets/Resources", "InfoPlist.strings", true]
 ].freeze

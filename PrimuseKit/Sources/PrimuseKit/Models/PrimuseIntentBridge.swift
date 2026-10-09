@@ -116,6 +116,10 @@ public final class PrimuseIntentBridge {
     /// 未注入时是 `.unavailable` —— 不能把这些都说成"库里没有这首歌"。
     public var playSong: @MainActor (_ title: String, _ artist: String?) async -> PrimuseSongIntentOutcome = { _, _ in .unavailable }
     public var playAlbum: @MainActor (_ title: String, _ artist: String?) async -> String? = { _, _ in nil }
+    /// Plays what a widget's recently played album stands for, by its
+    /// `RecentAlbumEntry.id`: the album in track order, a book from where it
+    /// was left, a podcast episode. False when it no longer resolves.
+    public var playRecentAlbum: @MainActor (_ albumKey: String) async -> Bool = { _ in false }
     public var playArtist: @MainActor (_ name: String) async -> String? = { _ in nil }
     public var playGenre: @MainActor (_ name: String) async -> String? = { _ in nil }
     /// 返回播单名(用于回话),没找到 / 空播单返回 nil。

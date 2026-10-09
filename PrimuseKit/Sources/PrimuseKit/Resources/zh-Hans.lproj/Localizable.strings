@@ -993,3 +993,5 @@
 
 "ext.widget.desk.title" = "收听台";
 "ext.widget.desk.description" = "播放控制、播客、电台和最近专辑，一处掌握。";
+"ext.widget.desk.music" = "音乐";
+"ext.widget.desk.audiobook" = "有声书";

@@ -348,7 +348,8 @@ extension AudioPlayerService {
             radioStationID: currentRadioStation?.id,
             repeatMode: repeatMode,
             isLiked: currentSong.map { library?.isLiked(songID: $0.id) ?? false },
-            spokenWord: widgetSpokenWordInfo()
+            spokenWord: widgetSpokenWordInfo(),
+            listeningSpace: currentSong.map { listeningSpace(of: $0) }
         )
         Task {
             await MacWidgetPlaybackPublisher.shared.enqueue(request)
@@ -648,11 +649,15 @@ extension AudioPlayerService {
         let albumKey = stableWidgetAlbumKey(for: song, albumTitle: rawAlbumTitle, artistName: artistName)
         let coverImageName = "widget_album_\(albumKey).jpg"
 
+        let space = listeningSpace(of: song)
         return RecentAlbumEntry(
             id: albumKey,
             title: rawAlbumTitle,
             artistName: artistName,
-            coverImageName: coverImageName
+            coverImageName: coverImageName,
+            albumID: song.albumID,
+            songID: song.id,
+            listeningSpace: space == .radio ? nil : space
         )
     }
 

@@ -996,3 +996,5 @@
 
 "ext.widget.desk.title" = "Hörzentrale";
 "ext.widget.desk.description" = "Player, Podcasts, Radio und zuletzt gehörte Alben an einem Ort.";
+"ext.widget.desk.music" = "Musik";
+"ext.widget.desk.audiobook" = "Hörbücher";

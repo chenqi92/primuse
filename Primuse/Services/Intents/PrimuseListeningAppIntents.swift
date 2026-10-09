@@ -325,6 +325,40 @@ extension AppServices {
         return (book, start.itemID)
     }
 
+    /// The songs a widget's recently played album stands for, in track order:
+    /// its library album, else the album of the song last heard in it, else —
+    /// for entries written before those were kept — an exact title (and
+    /// artist) match. Never a fuzzy match: a tap must not start another album.
+    func recentAlbumSongs(for entry: RecentAlbumEntry) -> [Song] {
+        let library = musicLibrary
+        if let albumID = entry.albumID {
+            let songs = library.songs(forAlbum: albumID)
+            if !songs.isEmpty { return songs }
+        }
+        if let songID = entry.songID, let song = library.song(id: songID) {
+            if let albumID = song.albumID {
+                let songs = library.songs(forAlbum: albumID)
+                if !songs.isEmpty { return songs }
+            }
+            return [song]
+        }
+        func same(_ value: String?, _ expected: String) -> Bool {
+            value?.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare(expected) == .orderedSame
+        }
+        let title = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let artist = entry.artistName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return [] }
+        let matches = library.visibleSongs.filter { song in
+            same(song.albumTitle, title)
+                && (artist.isEmpty || same(song.albumArtistName, artist) || same(song.artistName, artist))
+        }
+        guard let first = matches.first else { return [] }
+        return AlbumTrackOrder.sorted(matches.filter {
+            $0.albumID == first.albumID && $0.sourceID == first.sourceID
+        })
+    }
+
     /// "继续播放《三体》。" — what Siri says when a lookup landed in a book.
     static func intentBookPlayingMessage(_ book: SpokenWordBook) -> String {
         String(format: String(localized: "intent_book_playing_format"), book.title)

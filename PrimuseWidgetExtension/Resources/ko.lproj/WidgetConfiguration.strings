@@ -1,0 +1,10 @@
+/* Listening desk widget configuration (App Intent strings, read from this extension's bundle). */
+"Listening Desk" = "감상 데스크";
+"Choose what each tile plays." = "각 타일에서 재생할 항목을 선택하세요.";
+"Leading Tile" = "왼쪽 타일";
+"Trailing Tile" = "오른쪽 타일";
+"Tile Content" = "타일 내용";
+"Podcasts" = "팟캐스트";
+"Radio" = "라디오";
+"Music" = "음악";
+"Audiobooks" = "오디오북";

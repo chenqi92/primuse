@@ -943,3 +943,5 @@
 
 "ext.widget.desk.title" = "ركن الاستماع";
 "ext.widget.desk.description" = "المشغّل والبودكاست والراديو والألبومات الأخيرة في مكان واحد.";
+"ext.widget.desk.music" = "الموسيقى";
+"ext.widget.desk.audiobook" = "الكتب الصوتية";

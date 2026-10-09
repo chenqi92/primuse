@@ -1,0 +1,10 @@
+/* Listening desk widget configuration (App Intent strings, read from this extension's bundle). */
+"Listening Desk" = "ركن الاستماع";
+"Choose what each tile plays." = "اختر ما تشغّله كل خانة.";
+"Leading Tile" = "الخانة اليمنى";
+"Trailing Tile" = "الخانة اليسرى";
+"Tile Content" = "محتوى الخانة";
+"Podcasts" = "البودكاست";
+"Radio" = "الراديو";
+"Music" = "الموسيقى";
+"Audiobooks" = "الكتب الصوتية";

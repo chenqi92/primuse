@@ -13,6 +13,30 @@ struct RecentAlbumsStoreTests {
             #expect(album.title == "旧专辑")
             #expect(album.artistName == "Artist")
             #expect(album.coverImageName == nil)
+            #expect(album.albumID == nil)
+            #expect(album.songID == nil)
+            #expect(album.listeningSpace == nil)
+        }
+    }
+
+    @Test("What a widget tap plays survives a round trip, with or without the cover")
+    func playbackIdentity() throws {
+        try withDefaults { defaults, _ in
+            RecentAlbumsStore.record(
+                RecentAlbumEntry(id: "key", title: "Album", artistName: "Artist", coverImageName: "c.jpg",
+                                 albumID: "album-1", songID: "song-9", listeningSpace: .spokenWord),
+                in: defaults
+            )
+            let album = try #require(RecentAlbumsStore.load(from: defaults).first)
+            #expect(album.albumID == "album-1")
+            #expect(album.songID == "song-9")
+            #expect(album.listeningSpace == .spokenWord)
+            let withheld = album.withoutCover()
+            #expect(withheld.coverImageName == nil)
+            #expect(withheld.id == "key")
+            #expect(withheld.albumID == "album-1")
+            #expect(withheld.songID == "song-9")
+            #expect(withheld.listeningSpace == .spokenWord)
         }
     }
 

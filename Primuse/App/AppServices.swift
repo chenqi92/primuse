@@ -2558,6 +2558,21 @@ final class AppServices {
             )
         }
 
+        bridge.playRecentAlbum = { [self] albumKey in
+            guard let entry = RecentAlbumsStore.load().first(where: { $0.id == albumKey }) else { return false }
+            // 播客单集不在资料库里,按单集播;节目名去资料库里按专辑找只会找错。
+            if entry.listeningSpace == .podcast, let episodeID = entry.songID {
+                return await bridge.playPodcastEpisode(episodeID)
+            }
+            await awaitLibraryForIntent()
+            let songs = recentAlbumSongs(for: entry)
+            guard !songs.isEmpty else { return false }
+            if let book = siriSpokenWordStart(forFound: songs, namesItem: false) {
+                return startSpokenWordBookForIntent(book.book)
+            }
+            return startIntentQueue(songs) != nil
+        }
+
         bridge.playArtist = { [self] name in
             await awaitLibraryForIntent()
             guard let result = SiriMediaSearchResolver.resolvePreferringMusic(

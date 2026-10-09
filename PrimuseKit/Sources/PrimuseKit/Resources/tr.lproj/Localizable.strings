@@ -943,3 +943,5 @@
 
 "ext.widget.desk.title" = "Dinleme Merkezi";
 "ext.widget.desk.description" = "Oynatıcı, podcast’ler, radyo ve son albümleriniz tek bir yerde.";
+"ext.widget.desk.music" = "Müzik";
+"ext.widget.desk.audiobook" = "Sesli kitaplar";

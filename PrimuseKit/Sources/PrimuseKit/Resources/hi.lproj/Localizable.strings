@@ -943,3 +943,5 @@
 
 "ext.widget.desk.title" = "सुनने का केंद्र";
 "ext.widget.desk.description" = "आपका प्लेयर, पॉडकास्ट, रेडियो और हाल के एल्बम, एक ही जगह।";
+"ext.widget.desk.music" = "संगीत";
+"ext.widget.desk.audiobook" = "ऑडियोबुक";

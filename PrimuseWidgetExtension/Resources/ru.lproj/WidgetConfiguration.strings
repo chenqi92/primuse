@@ -1,0 +1,10 @@
+/* Listening desk widget configuration (App Intent strings, read from this extension's bundle). */
+"Listening Desk" = "Центр прослушивания";
+"Choose what each tile plays." = "Выберите, что воспроизводит каждая плитка.";
+"Leading Tile" = "Левая плитка";
+"Trailing Tile" = "Правая плитка";
+"Tile Content" = "Содержимое плитки";
+"Podcasts" = "Подкасты";
+"Radio" = "Радио";
+"Music" = "Музыка";
+"Audiobooks" = "Аудиокниги";

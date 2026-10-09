@@ -994,3 +994,5 @@
 
 "ext.widget.desk.title" = "Listening Desk";
 "ext.widget.desk.description" = "Your player, podcasts, radio, and recent albums in one place.";
+"ext.widget.desk.music" = "Music";
+"ext.widget.desk.audiobook" = "Audiobooks";

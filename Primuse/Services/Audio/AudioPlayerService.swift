@@ -287,6 +287,7 @@ struct MacWidgetPlaybackPublishRequest: Sendable {
     let repeatMode: RepeatMode
     let isLiked: Bool?
     let spokenWord: SpokenWordPlaybackInfo?
+    let listeningSpace: ListeningSpace?
 }
 
 /// Serial, latest-wins widget publisher for macOS.
@@ -381,7 +382,8 @@ actor MacWidgetPlaybackPublisher {
                 if recentAlbumsEnabled,
                    let albumEntry = makeRecentAlbumEntry(
                     for: song,
-                    artistName: request.artistDisplayName
+                    artistName: request.artistDisplayName,
+                    listeningSpace: request.listeningSpace
                    ) {
                     if let albumCoverName = albumEntry.coverImageName,
                        !sharedCoverExists(named: albumCoverName) {
@@ -571,7 +573,8 @@ actor MacWidgetPlaybackPublisher {
 
     private nonisolated static func makeRecentAlbumEntry(
         for song: Song,
-        artistName: String?
+        artistName: String?,
+        listeningSpace: ListeningSpace?
     ) -> RecentAlbumEntry? {
         guard let title = song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
               !title.isEmpty else { return nil }
@@ -583,7 +586,10 @@ actor MacWidgetPlaybackPublisher {
             id: key,
             title: title,
             artistName: artist,
-            coverImageName: "widget_album_\(key).jpg"
+            coverImageName: "widget_album_\(key).jpg",
+            albumID: song.albumID,
+            songID: song.id,
+            listeningSpace: listeningSpace == .radio ? nil : listeningSpace
         )
     }
 

@@ -584,6 +584,7 @@
 		4E9B1239B522245AD24305D4 /* PrimuseListeningAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62D6E69627D9C8F06B3BC8AC /* PrimuseListeningAppIntents.swift */; };
 		4EA42F6CFAD3ADBAEC5DB7A3 /* LyricsDocumentSourcesResolutionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 756144529DFAD9E6FDECA038 /* LyricsDocumentSourcesResolutionTests.swift */; };
 		4EA5CB29CD12443886AD1FDE /* AudioPlayerService+Podcast.swift in Sources */ = {isa = PBXBuildFile; fileRef = B679C10F25FF3CB1993CBEDA /* AudioPlayerService+Podcast.swift */; };
+		4EDD1E5F19CBBD377530CDBE /* WidgetConfiguration.strings in Resources */ = {isa = PBXBuildFile; fileRef = BDC59FCB24C0EBE9C67FC64A /* WidgetConfiguration.strings */; };
 		4EF17212194CB2CE8625AB30 /* AudioPlayerService+Medley.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48124FFE9AF0A69A832B1DBD /* AudioPlayerService+Medley.swift */; };
 		5CAD851E9AB3258F2A7F78BE /* LiquidArtworkBackdrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1897C6A56D3F89FC2E6A5DE7 /* LiquidArtworkBackdrop.swift */; };
 		73F511E078A91850D78986C5 /* LyricsDocumentCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C9C10DACA08C04A07331A69 /* LyricsDocumentCatalog.swift */; };
@@ -2114,6 +2115,7 @@
 		0178243499743E59140E4898 /* LibraryInsightBatchViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryInsightBatchViews.swift; sourceTree = "<group>"; };
 		0187D5AA8EC6AB3F8B14ECA6 /* LocalBookmarkStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalBookmarkStore.swift; sourceTree = "<group>"; };
 		01A3E8F6656778B940F633F3 /* TVQueueView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVQueueView.swift; sourceTree = "<group>"; };
+		01A4B73B0206CA75A227EDAB /* hi */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = hi; path = hi.lproj/WidgetConfiguration.strings; sourceTree = "<group>"; };
 		01ACB48074C4FBB9A9A9561B /* MacSongTableLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSongTableLayout.swift; sourceTree = "<group>"; };
 		01BC4CFCF25A1014937BDF84 /* SubtitleLyricsParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubtitleLyricsParser.swift; sourceTree = "<group>"; };
 		0219F4AD4BD373BFC27719ED /* PodcastHomeSections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastHomeSections.swift; sourceTree = "<group>"; };
@@ -2227,6 +2229,7 @@
 		142C5FA8521F68AC38200D7F /* TVLyricsTranslationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVLyricsTranslationController.swift; sourceTree = "<group>"; };
 		14A06F63118CCCC80BB1B7B5 /* KaraokeSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaraokeSession.swift; sourceTree = "<group>"; };
 		14B0B8A327D0C4E40CEE9787 /* RecentlyDeletedBatchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentlyDeletedBatchTests.swift; sourceTree = "<group>"; };
+		15461A9C861821AB6600B6B3 /* pl */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = pl; path = pl.lproj/WidgetConfiguration.strings; sourceTree = "<group>"; };
 		1576FEA02472EAE01D3B8952 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = de.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		15C4A3FB0E0A7BB759142DE6 /* PlayerBackdrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerBackdrop.swift; sourceTree = "<group>"; };
 		1604A05D29B43EA0C4926D6E /* pl */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = pl; path = pl.lproj/WiFiTransfer.strings; sourceTree = "<group>"; };
@@ -2284,6 +2287,7 @@
 		20D0FA18DA5BB0A37757A83B /* TabletopQueueStripPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabletopQueueStripPolicy.swift; sourceTree = "<group>"; };
 		21027666DF946697326B985E /* EmbeddedMetadataWritebackCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedMetadataWritebackCoordinator.swift; sourceTree = "<group>"; };
 		2117016184001B6F46168B00 /* DuplicateDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicateDetector.swift; sourceTree = "<group>"; };
+		21278B1CC0B26AA013C97620 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = de.lproj/WidgetConfiguration.strings; sourceTree = "<group>"; };
 		21727E0AB276B85CA9B19BE9 /* CloudDriveConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDriveConnectionView.swift; sourceTree = "<group>"; };
 		218776D10155B60BF6875575 /* PlaylistPendingEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistPendingEntry.swift; sourceTree = "<group>"; };
 		21957BB2BE1463BE4D9884FB /* NowPlayingWatchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingWatchView.swift; sourceTree = "<group>"; };
@@ -2432,6 +2436,7 @@
 		3B8720399A6FC02B83945A2E /* LibraryInsight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryInsight.swift; sourceTree = "<group>"; };
 		3C221E974A2E6E831F7EAF27 /* SynologyStreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyStreamResolver.swift; sourceTree = "<group>"; };
 		3C3121FC0DB2F2843B4D7718 /* RadioPlaylistText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioPlaylistText.swift; sourceTree = "<group>"; };
+		3C4A6EFF5EBDAD3257E086EB /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/WidgetConfiguration.strings"; sourceTree = "<group>"; };
 		3C85D6EDF29DAED03773957A /* OAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OAuthService.swift; sourceTree = "<group>"; };
 		3CA7AF28913084D20FAD195E /* uk */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = uk; path = uk.lproj/MetadataReading.strings; sourceTree = "<group>"; };
 		3D0D57D9A1CD075F444CA425 /* SourceEndpointProbeSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceEndpointProbeSession.swift; sourceTree = "<group>"; };
@@ -2502,13 +2507,25 @@
 		47748DA5FBA423FEABD1BDA1 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		47E59B77B48BB80E013B77B3 /* th */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = th; path = th.lproj/WiFiTransfer.strings; sourceTree = "<group>"; };
 		48124FFE9AF0A69A832B1DBD /* AudioPlayerService+Medley.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AudioPlayerService+Medley.swift"; sourceTree = "<group>"; };
+		4A33451756A3B671A012E514 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/WidgetConfiguration.strings"; sourceTree = "<group>"; };
+		4DFBF8CAC287B5861D7DAC46 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = ru.lproj/WidgetConfiguration.strings; sourceTree = "<group>"; };
+		4E46E7D49710BAD61B3CC875 /* th */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = th; path = th.lproj/WidgetConfiguration.strings; sourceTree = "<group>"; };
 		555567AD8063535EDB35D315 /* LiquidBackdropPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiquidBackdropPolicy.swift; sourceTree = "<group>"; };
+		55A78070329956580D942A29 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/WidgetConfiguration.strings; sourceTree = "<group>"; };
 		680128FAA23C0C69BCD30977 /* LyricsSourcesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricsSourcesView.swift; sourceTree = "<group>"; };
 		756144529DFAD9E6FDECA038 /* LyricsDocumentSourcesResolutionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricsDocumentSourcesResolutionTests.swift; sourceTree = "<group>"; };
 		8B7270BC997968A27538439B /* NowPlayingControlsEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingControlsEditorView.swift; sourceTree = "<group>"; };
 		8C9C10DACA08C04A07331A69 /* LyricsDocumentCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricsDocumentCatalog.swift; sourceTree = "<group>"; };
+		A6ABC06D1C9D2A80FFD8F54F /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = fr; path = fr.lproj/WidgetConfiguration.strings; sourceTree = "<group>"; };
+		AC0126C15EC9F88C59A39B32 /* ar */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ar; path = ar.lproj/WidgetConfiguration.strings; sourceTree = "<group>"; };
+		AC34227AF814275A9A2786E0 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/WidgetConfiguration.strings; sourceTree = "<group>"; };
 		B5BF3E0ED890E611AEA56580 /* LyricsDocumentSources.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricsDocumentSources.swift; sourceTree = "<group>"; };
+		C613B0D198AD74225E08072E /* es-MX */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "es-MX"; path = "es-MX.lproj/WidgetConfiguration.strings"; sourceTree = "<group>"; };
+		D56E1A9184BF1285DFAF48AF /* uk */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = uk; path = uk.lproj/WidgetConfiguration.strings; sourceTree = "<group>"; };
 		D7D47DEE971458C97474E330 /* MarqueeText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarqueeText.swift; sourceTree = "<group>"; };
+		DC5D1805A04014A36439228A /* pt-BR */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "pt-BR"; path = "pt-BR.lproj/WidgetConfiguration.strings"; sourceTree = "<group>"; };
+		E43C3C027414748F368129BD /* tr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = tr; path = tr.lproj/WidgetConfiguration.strings; sourceTree = "<group>"; };
+		FAFF6EB1E4B278A4D2B598E8 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/WidgetConfiguration.strings; sourceTree = "<group>"; };
 		FCD24037F9878F56C5A901E2 /* AudioPlayerService+PlaybackRange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AudioPlayerService+PlaybackRange.swift"; sourceTree = "<group>"; };
 		4824F430EB139F30159A6457 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		48470EC1F67DE11E5508AB64 /* LyricPosterLayoutPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricPosterLayoutPolicy.swift; sourceTree = "<group>"; };
@@ -4550,6 +4567,7 @@
 			isa = PBXGroup;
 			children = (
 				662E967AD627932BAF1C8C9A /* InfoPlist.strings */,
+				BDC59FCB24C0EBE9C67FC64A /* WidgetConfiguration.strings */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -5925,6 +5943,7 @@
 			files = (
 				6F3310131507F1C58C3C317E /* Assets.xcassets in Resources */,
 				444B2678F19AAD57FD393DC9 /* InfoPlist.strings in Resources */,
+				4EDD1E5F19CBBD377530CDBE /* WidgetConfiguration.strings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -8091,6 +8110,29 @@
 				77780C8A77A5D13BA6054ADC /* zh-Hant */,
 			);
 			name = WiFiTransfer.strings;
+			sourceTree = "<group>";
+		};
+		BDC59FCB24C0EBE9C67FC64A /* WidgetConfiguration.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				AC0126C15EC9F88C59A39B32 /* ar */,
+				21278B1CC0B26AA013C97620 /* de */,
+				AC34227AF814275A9A2786E0 /* en */,
+				C613B0D198AD74225E08072E /* es-MX */,
+				A6ABC06D1C9D2A80FFD8F54F /* fr */,
+				01A4B73B0206CA75A227EDAB /* hi */,
+				55A78070329956580D942A29 /* ja */,
+				FAFF6EB1E4B278A4D2B598E8 /* ko */,
+				15461A9C861821AB6600B6B3 /* pl */,
+				DC5D1805A04014A36439228A /* pt-BR */,
+				4DFBF8CAC287B5861D7DAC46 /* ru */,
+				4E46E7D49710BAD61B3CC875 /* th */,
+				E43C3C027414748F368129BD /* tr */,
+				D56E1A9184BF1285DFAF48AF /* uk */,
+				3C4A6EFF5EBDAD3257E086EB /* zh-Hans */,
+				4A33451756A3B671A012E514 /* zh-Hant */,
+			);
+			name = WidgetConfiguration.strings;
 			sourceTree = "<group>";
 		};
 		FC407F4D27FB07B48B5C8A85 /* SettingsSearch.strings */ = {

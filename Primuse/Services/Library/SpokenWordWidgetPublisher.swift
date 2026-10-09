@@ -15,6 +15,8 @@ import WidgetKit
 @MainActor
 final class SpokenWordWidgetPublisher {
     static let widgetKind = "SpokenWordShelfWidget"
+    /// The listening desk can show a book in either of its tiles.
+    private static let deskWidgetKind = "ListeningDeskWidget"
     private static let debounce: Duration = .seconds(2)
     /// Book covers are drawn at most this big in the widget.
     private nonisolated static let coverPixelSize = 360
@@ -72,6 +74,7 @@ final class SpokenWordWidgetPublisher {
                 SpokenWordShelfSnapshot.clear()
                 lastSignature = nil
                 WidgetCenter.shared.reloadTimelines(ofKind: Self.widgetKind)
+                WidgetCenter.shared.reloadTimelines(ofKind: Self.deskWidgetKind)
             }
             return
         }
@@ -114,6 +117,7 @@ final class SpokenWordWidgetPublisher {
         lastSignature = signature
         SpokenWordShelfSnapshot(books: finalEntries).save()
         WidgetCenter.shared.reloadTimelines(ofKind: Self.widgetKind)
+        WidgetCenter.shared.reloadTimelines(ofKind: Self.deskWidgetKind)
     }
 
     /// The widget's books, as the shelf groups them, and the covers still to

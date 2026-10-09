@@ -211,6 +211,65 @@ struct PrimusePlayListeningWidgetIntent: AudioPlaybackIntent {
     }
 }
 
+/// 收听台「最近播放」里点一张专辑封面, 或「音乐」格: 照着小组件上那一项播。
+/// 只传 `RecentAlbumEntry.id`, 专辑、最后听的那首和它属于哪种收听都由主 app
+/// 从同一份 App Group 快照里查 —— 书从上次停下的地方接着听, 播客播那一集。
+struct PrimusePlayRecentAlbumIntent: AudioPlaybackIntent {
+    static let title = LocalizedStringResource("Play", table: "SettingsSearch")
+    static let isDiscoverable = false
+    @Parameter(title: "Album") var albumKey: String
+
+    init() {}
+    init(albumKey: String) { self.albumKey = albumKey }
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        guard WidgetSettings.clickableInteractionEnabled() else { return .result() }
+        _ = await PrimuseIntentBridge.shared.playRecentAlbum(albumKey)
+        return .result()
+    }
+}
+
+#if PRIMUSE_WIDGET_EXTENSION
+/// What one of the listening desk's two tiles shows. Only the widget
+/// configuration uses it, so it lives in the extension alone, as does its
+/// strings table (`WidgetConfiguration.strings` in the extension's resources).
+enum PrimuseListeningDeskTileContent: String, AppEnum {
+    case podcast, radio, music, audiobook
+
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(
+        name: LocalizedStringResource("Tile Content", table: "WidgetConfiguration")
+    )
+    static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
+        .podcast: DisplayRepresentation(title: LocalizedStringResource("Podcasts", table: "WidgetConfiguration")),
+        .radio: DisplayRepresentation(title: LocalizedStringResource("Radio", table: "WidgetConfiguration")),
+        .music: DisplayRepresentation(title: LocalizedStringResource("Music", table: "WidgetConfiguration")),
+        .audiobook: DisplayRepresentation(title: LocalizedStringResource("Audiobooks", table: "WidgetConfiguration")),
+    ]
+}
+
+/// 收听台的两格各放什么。默认左播客右电台, 跟改成可配置以前一样, 已经放在桌面上的不变样。
+struct PrimuseListeningDeskConfigurationIntent: WidgetConfigurationIntent {
+    static let title = LocalizedStringResource("Listening Desk", table: "WidgetConfiguration")
+    static let description = IntentDescription(
+        LocalizedStringResource("Choose what each tile plays.", table: "WidgetConfiguration")
+    )
+    static let isDiscoverable = false
+
+    @Parameter(title: LocalizedStringResource("Leading Tile", table: "WidgetConfiguration"), default: .podcast)
+    var leading: PrimuseListeningDeskTileContent
+
+    @Parameter(title: LocalizedStringResource("Trailing Tile", table: "WidgetConfiguration"), default: .radio)
+    var trailing: PrimuseListeningDeskTileContent
+
+    init() {}
+    init(leading: PrimuseListeningDeskTileContent, trailing: PrimuseListeningDeskTileContent) {
+        self.leading = leading
+        self.trailing = trailing
+    }
+}
+#endif
+
 enum PrimuseSkipDirection: String, AppEnum {
     case next, previous
     static let typeDisplayRepresentation = TypeDisplayRepresentation(name: LocalizedStringResource("Direction", table: "SettingsSearch"))
