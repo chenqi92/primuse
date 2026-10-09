@@ -197,18 +197,26 @@ struct AlbumGridView: View {
     /// 而是左上角专辑标题 + 右上排序, 下面五列封面网格。
     @ViewBuilder
     private var macGrid: some View {
-        if let selectedAlbum {
-            AlbumDetailView(
-                album: selectedAlbum,
-                onMacInlineBack: closeAlbum
-            )
-            // 淡入挂在 .id 里面: 换一张专辑时身份跟着重建, 修饰符的状态才会跟着重置。
-            .pmAppearFade()
-            .id(selectedAlbum.id)
-            .pmFadeTransition()
-        } else {
+        ZStack {
+            // Keep the overview mounted: replacing its branch destroys the
+            // scroll view and returns both grid and list modes to the top.
             macAlbumOverview
+                .opacity(selectedAlbum == nil ? 1 : 0)
+                .disabled(selectedAlbum != nil)
+                .allowsHitTesting(selectedAlbum == nil)
+                .accessibilityHidden(selectedAlbum != nil)
+
+            if let selectedAlbum {
+                AlbumDetailView(
+                    album: selectedAlbum,
+                    onMacInlineBack: closeAlbum
+                )
+                // 淡入挂在 .id 里面: 换一张专辑时身份跟着重建, 修饰符的状态才会跟着重置。
+                .pmAppearFade()
+                .id(selectedAlbum.id)
                 .pmFadeTransition()
+                .zIndex(1)
+            }
         }
     }
 
