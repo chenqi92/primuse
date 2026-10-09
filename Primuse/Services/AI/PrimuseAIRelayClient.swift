@@ -140,6 +140,10 @@ struct PrimuseAIRelayCredential: Codable, Equatable, Sendable {
     var keyID: String
     var installationID: String?
     var accessToken: String? = nil
+    /// 中转最近一次收到哪个构建的 App Store 签名交易;它据此识别构建号和 App Store/TestFlight。
+    var storeProofBuild: String? = nil
+    /// 上次补发签名交易失败的时间,一天内不再重试。
+    var storeProofAttemptedAt: Date? = nil
 }
 
 struct PrimuseStoreKitEnrollmentMaterial: Equatable, Sendable {
@@ -303,6 +307,10 @@ actor PrimuseAIRelayClient {
     }
 
     private static let appID = "primuse"
+    /// 当前运行的构建号(CFBundleVersion)。
+    nonisolated static var currentBuild: String? {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+    }
     private static let maximumResponseBytes = 1_048_576
     private static let requestIdleTimeout: TimeInterval = 60
 
@@ -1340,6 +1348,8 @@ actor PrimuseAIRelayClient {
             ))
         }
 
+        // 先取签名交易再领挑战,App Store 查得慢也不会让挑战过期。
+        let storeProof = await optionalStoreProof()
         let challenge = try await issueChallenge(purpose: "enroll")
         let clientDataHash = Data(SHA256.hash(data: Data(challenge.utf8)))
         let attestationObject: Data
@@ -1358,15 +1368,19 @@ actor PrimuseAIRelayClient {
             appID: Self.appID,
             keyID: keyID,
             challenge: challenge,
-            attestationObject: attestationObject.base64URLEncodedString()
+            attestationObject: attestationObject.base64URLEncodedString(),
+            appTransactionJWS: storeProof?.appTransactionJWS,
+            deviceVerificationID: storeProof?.deviceVerificationID
         ))
         let response = try await send(
             EnrollmentOutput.self,
             request: try makeRequest(path: "/v1/auth/installations", body: body)
         )
+        // 签名交易被拒(比如 Xcode 装的包)也记下这一版,不在每次启动时重发。
         let credential = PrimuseAIRelayCredential(
             keyID: keyID,
-            installationID: response.installationID
+            installationID: response.installationID,
+            storeProofBuild: storeProof == nil ? nil : Self.currentBuild
         )
         try await credentialStore.save(credential)
         return credential
@@ -1398,10 +1412,56 @@ actor PrimuseAIRelayClient {
         let credential = PrimuseAIRelayCredential(
             keyID: "storekit",
             installationID: response.installationID,
-            accessToken: accessToken
+            accessToken: accessToken,
+            storeProofBuild: Self.currentBuild
         )
         try await credentialStore.save(credential)
         return credential
+    }
+
+    /// 这台设备现成的 App Store 签名交易:中转据此在任何系统上都能识别构建号和
+    /// App Store/TestFlight(App Attest 要 iOS 27 起才带),并关联 Apple 账号。
+    /// 不弹登录,取不到就照旧注册。
+    private func optionalStoreProof() async -> PrimuseStoreKitEnrollmentMaterial? {
+        guard await storeKitEnrollmentProvider.isSupported else { return nil }
+        return try? await storeKitEnrollmentProvider.enrollmentMaterial(allowsRefresh: false)
+    }
+
+    /// 更新后给已有的安装补发一次这一版的 App Store 签名交易,让中转看到当前构建号和
+    /// App Store/TestFlight。还没注册的不发(注册时会带上);不弹登录;失败一天后再试。
+    func sendStoreProofIfNeeded(now: Date = Date()) async {
+        guard let build = Self.currentBuild,
+              await storeKitEnrollmentProvider.isSupported,
+              let credential = try? await credentialStore.load(),
+              let installationID = credential.installationID,
+              credential.storeProofBuild != build else { return }
+        if let attemptedAt = credential.storeProofAttemptedAt,
+           now.timeIntervalSince(attemptedAt) < 24 * 60 * 60 {
+            return
+        }
+        do {
+            let material = try await storeKitEnrollmentProvider.enrollmentMaterial(allowsRefresh: false)
+            let _: AccountLinkOutput = try await performFeature(
+                path: "/v1/account/link",
+                purpose: "account",
+                input: AccountLinkInput(
+                    appTransactionJWS: material.appTransactionJWS,
+                    deviceVerificationID: material.deviceVerificationID
+                )
+            )
+            await recordStoreProof(installationID: installationID, build: build, attemptedAt: nil)
+        } catch {
+            await recordStoreProof(installationID: installationID, build: nil, attemptedAt: now)
+        }
+    }
+
+    /// 只改还是同一个安装的凭据;期间重新注册过就不动(新注册已带上签名交易)。
+    private func recordStoreProof(installationID: String, build: String?, attemptedAt: Date?) async {
+        guard var credential = try? await credentialStore.load(),
+              credential.installationID == installationID else { return }
+        if let build { credential.storeProofBuild = build }
+        credential.storeProofAttemptedAt = attemptedAt
+        try? await credentialStore.save(credential)
     }
 
     private func assertion(
@@ -1603,14 +1663,32 @@ actor PrimuseAIRelayClient {
         var keyID: String
         var challenge: String
         var attestationObject: String
+        /// 有现成的签名交易时才带;为 nil 时不编码。
+        var appTransactionJWS: String?
+        var deviceVerificationID: String?
 
         private enum CodingKeys: String, CodingKey {
             case appID = "app_id"
             case keyID = "key_id"
             case challenge
             case attestationObject = "attestation_object"
+            case appTransactionJWS = "app_transaction_jws"
+            case deviceVerificationID = "device_verification_id"
         }
     }
+
+    private struct AccountLinkInput: Encodable, Sendable {
+        var appTransactionJWS: String
+        var deviceVerificationID: String
+
+        private enum CodingKeys: String, CodingKey {
+            case appTransactionJWS = "app_transaction_jws"
+            case deviceVerificationID = "device_verification_id"
+        }
+    }
+
+    /// 关联结果里的账号摘要用不到,只确认成功。
+    private struct AccountLinkOutput: Decodable, Sendable {}
 
     private struct EnrollmentOutput: Decodable, Sendable {
         var installationID: String

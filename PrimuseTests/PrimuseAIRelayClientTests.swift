@@ -885,9 +885,150 @@ final class PrimuseAIRelayClientTests: XCTestCase {
             PrimuseAIRelayCredential(
                 keyID: "storekit",
                 installationID: "test-installation",
-                accessToken: "test-installation-token"
+                accessToken: "test-installation-token",
+                storeProofBuild: PrimuseAIRelayClient.currentBuild
             )
         )
+    }
+
+    func testAppAttestEnrollmentCarriesTheSignedAppTransactionWhenReady() async throws {
+        let host = "primuse-relay-attest-store-proof.invalid"
+        PrimuseRelayURLProtocol.configure(host: host)
+        let storeKitProvider = TestPrimuseStoreKitEnrollmentProvider(
+            material: PrimuseStoreKitEnrollmentMaterial(
+                appTransactionJWS: "signed-app-transaction",
+                deviceVerificationID: "7f1043e4-79dc-4d73-a5b9-08ae0dc04c7f"
+            )
+        )
+        let credentials = TestPrimuseRelayCredentialStore()
+        let (client, session, _, _) = makeClient(
+            host: host,
+            storeKitProvider: storeKitProvider,
+            credentials: credentials
+        )
+        defer { session.invalidateAndCancel() }
+
+        _ = try await client.interpretSearch(AISemanticSearchRequest(query: "night rain"))
+        let refreshRequests = await storeKitProvider.refreshRequests()
+
+        // 不弹登录:只取现成的签名交易。
+        XCTAssertEqual(refreshRequests, [false])
+        let enrollment = try XCTUnwrap(PrimuseRelayURLProtocol.requests(host: host).first {
+            $0.url?.path == "/v1/auth/installations"
+        })
+        let body = try jsonObject(enrollment)
+        XCTAssertEqual(body["key_id"] as? String, "test-app-attest-key")
+        XCTAssertEqual(body["attestation_object"] as? String, "AQI")
+        XCTAssertEqual(body["app_transaction_jws"] as? String, "signed-app-transaction")
+        XCTAssertEqual(body["device_verification_id"] as? String, "7f1043e4-79dc-4d73-a5b9-08ae0dc04c7f")
+        let saved = await credentials.current()
+        XCTAssertEqual(saved?.accessToken, nil)
+        XCTAssertEqual(saved?.storeProofBuild, PrimuseAIRelayClient.currentBuild)
+    }
+
+    func testAppAttestEnrollmentWithoutASignedTransactionSendsNoStoreFields() async throws {
+        let host = "primuse-relay-attest-no-store-proof.invalid"
+        PrimuseRelayURLProtocol.configure(host: host)
+        let credentials = TestPrimuseRelayCredentialStore()
+        let (client, session, _, _) = makeClient(host: host, credentials: credentials)
+        defer { session.invalidateAndCancel() }
+
+        _ = try await client.interpretSearch(AISemanticSearchRequest(query: "night rain"))
+        let enrollment = try XCTUnwrap(PrimuseRelayURLProtocol.requests(host: host).first {
+            $0.url?.path == "/v1/auth/installations"
+        })
+        let body = try jsonObject(enrollment)
+        XCTAssertNil(body["app_transaction_jws"])
+        XCTAssertNil(body["device_verification_id"])
+        let saved = await credentials.current()
+        XCTAssertNil(saved?.storeProofBuild)
+    }
+
+    func testStoreProofIsSentOnceForANewBuildOfAnExistingInstallation() async throws {
+        try XCTSkipIf(PrimuseAIRelayClient.currentBuild == nil, "测试宿主没有构建号")
+        let host = "primuse-relay-store-proof-update.invalid"
+        PrimuseRelayURLProtocol.configure(host: host)
+        let storeKitProvider = TestPrimuseStoreKitEnrollmentProvider(
+            material: PrimuseStoreKitEnrollmentMaterial(
+                appTransactionJWS: "signed-app-transaction",
+                deviceVerificationID: "7f1043e4-79dc-4d73-a5b9-08ae0dc04c7f"
+            )
+        )
+        let credentials = TestPrimuseRelayCredentialStore(
+            credential: PrimuseAIRelayCredential(
+                keyID: "test-app-attest-key",
+                installationID: "test-installation",
+                storeProofBuild: "1"
+            )
+        )
+        let (client, session, attestor, _) = makeClient(
+            host: host,
+            storeKitProvider: storeKitProvider,
+            credentials: credentials
+        )
+        defer { session.invalidateAndCancel() }
+
+        await client.sendStoreProofIfNeeded()
+        await client.sendStoreProofIfNeeded()
+
+        let requests = PrimuseRelayURLProtocol.requests(host: host)
+        XCTAssertEqual(requests.compactMap(\.url?.path), ["/v1/auth/challenge", "/v1/account/link"])
+        let link = try XCTUnwrap(requests.last)
+        XCTAssertEqual(link.value(forHTTPHeaderField: "X-Primuse-Challenge"), "account-challenge")
+        XCTAssertNotNil(link.value(forHTTPHeaderField: "X-Primuse-Assertion"))
+        let body = try jsonObject(link)
+        XCTAssertEqual(body["app_transaction_jws"] as? String, "signed-app-transaction")
+        XCTAssertEqual(body["device_verification_id"] as? String, "7f1043e4-79dc-4d73-a5b9-08ae0dc04c7f")
+        let snapshot = await attestor.snapshot()
+        XCTAssertEqual(snapshot.generateKeyCount, 0)
+        let saved = await credentials.current()
+        XCTAssertEqual(saved?.storeProofBuild, PrimuseAIRelayClient.currentBuild)
+        XCTAssertNil(saved?.storeProofAttemptedAt)
+    }
+
+    func testStoreProofIsNotSentBeforeEnrollmentAndWaitsADayAfterAFailure() async throws {
+        try XCTSkipIf(PrimuseAIRelayClient.currentBuild == nil, "测试宿主没有构建号")
+        let host = "primuse-relay-store-proof-failure.invalid"
+        PrimuseRelayURLProtocol.configure(
+            host: host,
+            featureStatusCode: 403,
+            featureBody: #"{"error":{"code":"invalid_app_transaction","message":"private"}}"#
+        )
+        let storeKitProvider = TestPrimuseStoreKitEnrollmentProvider(
+            material: PrimuseStoreKitEnrollmentMaterial(
+                appTransactionJWS: "signed-app-transaction",
+                deviceVerificationID: "7f1043e4-79dc-4d73-a5b9-08ae0dc04c7f"
+            )
+        )
+        let credentials = TestPrimuseRelayCredentialStore()
+        let (client, session, _, _) = makeClient(
+            host: host,
+            storeKitProvider: storeKitProvider,
+            credentials: credentials
+        )
+        defer { session.invalidateAndCancel() }
+
+        // 还没有安装:不为补发去注册。
+        await client.sendStoreProofIfNeeded()
+        XCTAssertTrue(PrimuseRelayURLProtocol.requests(host: host).isEmpty)
+
+        try await credentials.save(PrimuseAIRelayCredential(
+            keyID: "test-app-attest-key",
+            installationID: "test-installation"
+        ))
+        let now = Date()
+        await client.sendStoreProofIfNeeded(now: now)
+        let firstAttempt = PrimuseRelayURLProtocol.requests(host: host).filter { $0.url?.path == "/v1/account/link" }.count
+        XCTAssertGreaterThanOrEqual(firstAttempt, 1)
+        let failed = await credentials.current()
+        XCTAssertNil(failed?.storeProofBuild)
+        XCTAssertEqual(failed?.storeProofAttemptedAt, now)
+
+        await client.sendStoreProofIfNeeded(now: now.addingTimeInterval(60 * 60))
+        XCTAssertEqual(PrimuseRelayURLProtocol.requests(host: host).filter { $0.url?.path == "/v1/account/link" }.count, firstAttempt)
+
+        await client.sendStoreProofIfNeeded(now: now.addingTimeInterval(25 * 60 * 60))
+        XCTAssertGreaterThan(PrimuseRelayURLProtocol.requests(host: host).filter { $0.url?.path == "/v1/account/link" }.count, firstAttempt)
     }
 
     func testAppAttestEnrollmentFailureFallsBackToStoreKitDuringExplicitTest() async throws {
@@ -914,7 +1055,8 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         let clearCount = await credentials.clearCount()
 
         XCTAssertEqual(authenticationMethod, .storeKitFallback)
-        XCTAssertEqual(refreshRequests, [true])
+        // App Attest 注册先不刷新地取一次签名交易,失败后兜底注册才允许刷新。
+        XCTAssertEqual(refreshRequests, [false, true])
         XCTAssertEqual(clearCount, 1)
         XCTAssertEqual(
             PrimuseRelayURLProtocol.requests(host: host).compactMap(\.url?.path),
@@ -1672,7 +1814,8 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return false
         }
-        return object["app_transaction_jws"] is String
+        // App Attest 注册也可能带签名交易;只有不带证明对象的才是 StoreKit 兜底注册。
+        return object["app_transaction_jws"] is String && object["attestation_object"] == nil
     }
 
     private static func readBody(from stream: InputStream) -> Data {

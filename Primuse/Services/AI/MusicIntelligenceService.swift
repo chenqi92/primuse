@@ -422,7 +422,16 @@ final class MusicIntelligenceService {
         Task { @MainActor [weak self] in
             await self?.prepareLyricsTranscriptionCredentialMigration()
             await self?.refreshBuiltInTranscriptionOffer()
+            await self?.sendPrimuseRelayStoreProofIfNeeded()
         }
+    }
+
+    /// 更新后把这一版的 App Store 签名交易发给内置 AI 一次,后台据此看到构建号和
+    /// App Store/TestFlight;内置 AI 关着时不发。
+    private func sendPrimuseRelayStoreProofIfNeeded() async {
+        guard settingsStore.primuseRelayEnabled,
+              PrimuseAIRelayClient.isSupportedOnCurrentDevice else { return }
+        await primuseRelayClient.sendStoreProofIfNeeded()
     }
 
     /// 问一次内置 AI 有没有开放听歌识词;半小时内问过就不再问(`force` 除外)。
