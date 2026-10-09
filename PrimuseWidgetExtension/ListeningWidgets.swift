@@ -23,11 +23,17 @@ struct ListeningWidgetProvider: TimelineProvider {
         .init(date: Date(), kind: kind, snapshot: kind.load() ?? .init(items: []))
     }
     private var preview: ListeningWidgetEntry {
-        let titles = kind == .podcast ? ["The Art of Listening", "A Little Curiosity", "Slow Mornings"] : ["Jazz Radio", "Classical", "Late Night"]
+        let titles = kind.playsEpisodes ? ["The Art of Listening", "A Little Curiosity", "Slow Mornings"] : ["Jazz Radio", "Classical", "Late Night"]
+        // 最近播放里也有听完的单集,进度条是满的。
+        let fractions: [Double?] = switch kind {
+        case .podcast: [0.38, nil, nil]
+        case .recentPodcast: [0.38, 1, nil]
+        case .radio: [nil, nil, nil]
+        }
         return .init(date: Date(), kind: kind, snapshot: .init(items: titles.enumerated().map {
             .init(id: "preview-\($0.offset)", title: $0.element,
-                  subtitle: kind == .podcast ? "Primuse Podcasts" : "Live Radio",
-                  fractionComplete: kind == .podcast && $0.offset == 0 ? 0.38 : nil)
+                  subtitle: kind.playsEpisodes ? "Primuse Podcasts" : "Live Radio",
+                  fractionComplete: fractions[$0.offset])
         }))
     }
 }
@@ -39,6 +45,20 @@ struct PodcastWidget: Widget {
         }
         .configurationDisplayName(PMString("ext.widget.podcast.title"))
         .description(PMString("ext.widget.podcast.description"))
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
+        .contentMarginsDisabled()
+    }
+}
+
+/// 最近听过的播客单集(听完的也在),按最后一次听的时间排。
+struct RecentPodcastWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: ListeningWidgetKind.recentPodcast.widgetKind,
+                            provider: ListeningWidgetProvider(kind: .recentPodcast)) {
+            ListeningWidgetView(entry: $0)
+        }
+        .configurationDisplayName(PMString("ext.widget.recentPodcast.title"))
+        .description(PMString("ext.widget.recentPodcast.description"))
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
         .contentMarginsDisabled()
     }
@@ -62,12 +82,18 @@ struct ListeningWidgetView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.widgetRenderingMode) private var renderingMode
     private var title: String { PMString("ext.widget.\(entry.kind.rawValue).title") }
-    private var symbol: String { entry.kind == .podcast ? "mic" : "dot.radiowaves.left.and.right" }
+    private var symbol: String {
+        switch entry.kind {
+        case .podcast: "mic"
+        case .recentPodcast: "clock.arrow.circlepath"
+        case .radio: "dot.radiowaves.left.and.right"
+        }
+    }
     private var tint: Color {
         if colorScheme == .dark {
-            return entry.kind == .podcast ? Color(red: 0.75, green: 0.60, blue: 0.95) : Color(red: 1, green: 0.65, blue: 0.36)
+            return entry.kind.playsEpisodes ? Color(red: 0.75, green: 0.60, blue: 0.95) : Color(red: 1, green: 0.65, blue: 0.36)
         }
-        return entry.kind == .podcast ? Color(red: 0.49, green: 0.32, blue: 0.68) : Color(red: 0.74, green: 0.34, blue: 0.16)
+        return entry.kind.playsEpisodes ? Color(red: 0.49, green: 0.32, blue: 0.68) : Color(red: 0.74, green: 0.34, blue: 0.16)
     }
 
     var body: some View {
@@ -77,7 +103,7 @@ struct ListeningWidgetView: View {
                          tint: family == .systemLarge ? tint : nil) {
                 if family == .systemMedium {
                     action(first) {
-                        if entry.kind == .podcast { podcastFeature(first) }
+                        if entry.kind.playsEpisodes { podcastFeature(first) }
                         else { radioFeature(first) }
                     }
                 } else if family == .systemSmall {
@@ -113,7 +139,7 @@ struct ListeningWidgetView: View {
                 let shelfHeight = min(140, geometry.size.height * 0.44)
                 VStack(alignment: .leading, spacing: 18) {
                     action(first) {
-                        if entry.kind == .podcast { podcastHero(first) }
+                        if entry.kind.playsEpisodes { podcastHero(first) }
                         else { radioFeature(first) }
                     }
                     .frame(height: geometry.size.height - shelfHeight - 18)
@@ -219,7 +245,7 @@ struct ListeningWidgetView: View {
                 Text(item.subtitle.isEmpty ? title : item.subtitle)
                     .font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
                 Spacer(minLength: 0)
-                Image(systemName: "mic").foregroundStyle(tint).widgetAccentable()
+                Image(systemName: symbol).foregroundStyle(tint).widgetAccentable()
             }
             Text(item.title)
                 .font(.system(size: 20, weight: .bold)).foregroundStyle(.primary)

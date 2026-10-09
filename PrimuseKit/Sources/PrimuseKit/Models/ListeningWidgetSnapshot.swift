@@ -1,9 +1,22 @@
 import Foundation
 
 public enum ListeningWidgetKind: String, Codable, Sendable {
-    case podcast, radio
+    /// Episodes to continue, then the newest ones.
+    case podcast
+    case radio
+    /// Episodes in the order they were last heard, finished ones included.
+    case recentPodcast
 
-    public var widgetKind: String { self == .podcast ? "PodcastWidget" : "RadioWidget" }
+    public var widgetKind: String {
+        switch self {
+        case .podcast: "PodcastWidget"
+        case .radio: "RadioWidget"
+        case .recentPodcast: "RecentPodcastWidget"
+        }
+    }
+
+    /// Plays podcast episodes (rather than stations).
+    public var playsEpisodes: Bool { self != .radio }
     private var key: String { "widget.listening.\(rawValue)" }
 
     public func load() -> ListeningWidgetSnapshot? {
@@ -74,6 +87,45 @@ public enum ListeningWidgetPolicy {
             self.publishedAt = publishedAt
             self.isFinished = isFinished
         }
+    }
+
+    /// When an episode was last heard, from what the app keeps about it.
+    public struct ListeningRecord: Sendable {
+        /// Last time playback saved a position in it (every few seconds while
+        /// it plays; gone once it is finished).
+        public var positionSavedAt: Date?
+        /// Start of its latest listen in the play history (heard long enough
+        /// to count).
+        public var lastListenedAt: Date?
+        /// When it was finished — heard through, or marked played by hand.
+        public var finishedAt: Date?
+
+        public init(positionSavedAt: Date? = nil, lastListenedAt: Date? = nil, finishedAt: Date? = nil) {
+            self.positionSavedAt = positionSavedAt
+            self.lastListenedAt = lastListenedAt
+            self.finishedAt = finishedAt
+        }
+
+        /// Nil for an episode never actually heard: a finish mark alone is a
+        /// backlog marked played, not listening.
+        public var lastPlayedAt: Date? {
+            guard let heard = [positionSavedAt, lastListenedAt].compactMap({ $0 }).max() else { return nil }
+            return max(heard, finishedAt ?? heard)
+        }
+    }
+
+    /// Episodes most recently heard first, finished ones included; never
+    /// heard ones are left out.
+    public static func recentlyPlayed(
+        _ candidates: [(item: ListeningWidgetSnapshot.Item, record: ListeningRecord)]
+    ) -> [ListeningWidgetSnapshot.Item] {
+        var seen: Set<String> = []
+        let heard = candidates.compactMap { candidate -> (item: ListeningWidgetSnapshot.Item, playedAt: Date)? in
+            candidate.record.lastPlayedAt.map { (item: candidate.item, playedAt: $0) }
+        }
+        return Array(heard.sorted {
+            $0.playedAt != $1.playedAt ? $0.playedAt > $1.playedAt : $0.item.id < $1.item.id
+        }.filter { seen.insert($0.item.id).inserted }.prefix(4).map { $0.item })
     }
 
     /// Continue unfinished episodes first, then show the newest additions without duplicates.

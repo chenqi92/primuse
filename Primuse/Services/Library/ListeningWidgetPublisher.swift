@@ -21,8 +21,9 @@ final class ListeningWidgetPublisher {
 
     func start() {
         settingsSignature = currentSettingsSignature
+        // 听完一集记进播放历史时「最近播放的播客」要跟着变。
         for name in [Notification.Name.primusePodcastsDidChange, .primuseRadioStationsDidChange,
-                     .primuseSpokenWordDidChange, .primuseArtworkDidCache] {
+                     .primuseSpokenWordDidChange, .primuseArtworkDidCache, .primuseListeningStatsDidChange] {
             observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.schedule() }
             })
@@ -67,7 +68,7 @@ final class ListeningWidgetPublisher {
     private func publish() async {
         let scope = WidgetSettings.sharedDataScope()
         guard WidgetSettings.syncEnabled() else {
-            for kind in [ListeningWidgetKind.podcast, .radio] {
+            for kind in [ListeningWidgetKind.podcast, .radio, .recentPodcast] {
                 kind.clear()
                 WidgetCenter.shared.reloadTimelines(ofKind: kind.widgetKind)
             }
@@ -82,7 +83,18 @@ final class ListeningWidgetPublisher {
         guard store.isLoaded, library.isReady else { return }
         let positions = SpokenWordStore.shared
         var candidates: [ListeningWidgetPolicy.Candidate] = []
+        var recentCandidates: [(item: ListeningWidgetSnapshot.Item, record: ListeningWidgetPolicy.ListeningRecord)] = []
         var artworkIDs: [String: String] = [:]
+        // 每一集最近一次听够时长的开始时间。听完的单集进度已清掉,只剩这条记录和听完时间。
+        var lastListened: [String: Date] = [:]
+        for entry in PlayHistoryStore.shared.entries where entry.playedAt > (lastListened[entry.songID] ?? .distantPast) {
+            lastListened[entry.songID] = entry.playedAt
+        }
+        func listeningRecord(_ id: String) -> ListeningWidgetPolicy.ListeningRecord {
+            .init(positionSavedAt: positions.position(forSongID: id)?.updatedAt,
+                  lastListenedAt: lastListened[id],
+                  finishedAt: positions.finishedDate(forSongID: id))
+        }
         // The store's visible shows already enforce storefront availability.
         for show in store.shows {
             for episode in store.episodes(forShowID: show.id) {
@@ -92,25 +104,37 @@ final class ListeningWidgetPublisher {
                     let duration = episode.duration ?? positions.position(forSongID: episode.id)?.duration
                     return duration.flatMap { $0 > 0 ? floor(position / $0 * 100) / 100 : nil }
                 }
+                let item = ListeningWidgetSnapshot.Item(id: episode.id, title: episode.title, subtitle: show.title,
+                                                        fractionComplete: fraction)
                 candidates.append(.init(
-                    item: .init(id: episode.id, title: episode.title, subtitle: show.title, fractionComplete: fraction),
+                    item: item,
                     lastPlayedAt: state.isInProgress ? positions.position(forSongID: episode.id)?.updatedAt : nil,
                     publishedAt: episode.publishedAt ?? episode.firstSeenAt, isFinished: state.isFinished
                 ))
+                var recentItem = item
+                if state.isFinished { recentItem.fractionComplete = 1 }
+                recentCandidates.append((recentItem, listeningRecord(episode.id)))
                 artworkIDs[episode.id] = episode.artworkURL == nil ? show.id : episode.id
             }
         }
         for song in library.localPodcastSongs {
             let position = positions.position(forSongID: song.id)
+            let isFinished = positions.isFinished(songID: song.id)
+            let item = ListeningWidgetSnapshot.Item(id: song.id, title: song.title,
+                                                    subtitle: song.albumTitle ?? song.artistName ?? "",
+                                                    fractionComplete: position.map { floor($0.fractionComplete * 100) / 100 })
             candidates.append(.init(
-                item: .init(id: song.id, title: song.title, subtitle: song.albumTitle ?? song.artistName ?? "",
-                            fractionComplete: position.map { floor($0.fractionComplete * 100) / 100 }),
+                item: item,
                 lastPlayedAt: position?.updatedAt, publishedAt: song.dateAdded,
-                isFinished: positions.isFinished(songID: song.id)
+                isFinished: isFinished
             ))
+            var recentItem = item
+            if isFinished { recentItem.fractionComplete = 1 }
+            recentCandidates.append((recentItem, listeningRecord(song.id)))
             artworkIDs[song.id] = song.id
         }
         var podcasts = ListeningWidgetPolicy.select(candidates)
+        var recentPodcasts = ListeningWidgetPolicy.recentlyPlayed(recentCandidates)
         let stations = Array(radioStations().sorted {
             if $0.lastPlayedAt != $1.lastPlayedAt {
                 return ($0.lastPlayedAt ?? .distantPast) > ($1.lastPlayedAt ?? .distantPast)
@@ -123,6 +147,15 @@ final class ListeningWidgetPublisher {
                 let key = artworkIDs[podcasts[index].id] ?? podcasts[index].id
                 let data = await MetadataAssetStore.shared.cachedCoverData(forSongID: key)
                 podcasts[index].coverImageName = await Self.writeCover(data, id: podcasts[index].id)
+            }
+            for index in recentPodcasts.indices {
+                let id = recentPodcasts[index].id
+                if let written = podcasts.first(where: { $0.id == id })?.coverImageName {
+                    recentPodcasts[index].coverImageName = written
+                    continue
+                }
+                let data = await MetadataAssetStore.shared.cachedCoverData(forSongID: artworkIDs[id] ?? id)
+                recentPodcasts[index].coverImageName = await Self.writeCover(data, id: id)
             }
             for index in radios.indices {
                 let plan = RadioStationArtworkResolutionPolicy.makePlan(for: stations[index])
@@ -154,15 +187,19 @@ final class ListeningWidgetPublisher {
         }
         let podcastSnapshot = ListeningWidgetSnapshot(items: podcasts).limited(to: scope)
         let radioSnapshot = ListeningWidgetSnapshot(items: radios).limited(to: scope)
-        var changed = false
-        for (kind, snapshot) in [(ListeningWidgetKind.podcast, podcastSnapshot), (.radio, radioSnapshot)] {
+        let recentSnapshot = ListeningWidgetSnapshot(items: recentPodcasts).limited(to: scope)
+        var deskChanged = false
+        for (kind, snapshot) in [(ListeningWidgetKind.podcast, podcastSnapshot), (.radio, radioSnapshot),
+                                 (.recentPodcast, recentSnapshot)] {
             if kind.save(snapshot) {
-                changed = true
+                // 收听台只用「接着听」那份播客和电台。
+                if kind != .recentPodcast { deskChanged = true }
                 WidgetCenter.shared.reloadTimelines(ofKind: kind.widgetKind)
             }
         }
-        if changed { WidgetCenter.shared.reloadTimelines(ofKind: "ListeningDeskWidget") }
-        Self.pruneCovers(keeping: Set((podcastSnapshot.items + radioSnapshot.items).compactMap(\.coverImageName)))
+        if deskChanged { WidgetCenter.shared.reloadTimelines(ofKind: "ListeningDeskWidget") }
+        Self.pruneCovers(keeping: Set((podcastSnapshot.items + radioSnapshot.items + recentSnapshot.items)
+            .compactMap(\.coverImageName)))
     }
 
     private nonisolated static func writeCover(_ data: Data?, id: String) async -> String? {

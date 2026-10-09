@@ -945,3 +945,7 @@
 "ext.widget.desk.description" = "المشغّل والبودكاست والراديو والألبومات الأخيرة في مكان واحد.";
 "ext.widget.desk.music" = "الموسيقى";
 "ext.widget.desk.audiobook" = "الكتب الصوتية";
+
+"ext.widget.recentPodcast.title" = "الحلقات الأخيرة";
+"ext.widget.recentPodcast.description" = "حلقات البودكاست التي استمعت إليها مؤخرًا، بما فيها المكتملة. اضغط على حلقة لتشغيلها.";
+"ext.widget.recentPodcast.empty" = "تظهر هنا الحلقات التي تستمع إليها في Primuse.";

@@ -995,3 +995,7 @@
 "ext.widget.desk.description" = "播放控制、Podcast、電台與最近專輯，一處掌握。";
 "ext.widget.desk.music" = "音樂";
 "ext.widget.desk.audiobook" = "有聲書";
+
+"ext.widget.recentPodcast.title" = "最近播放的 Podcast";
+"ext.widget.recentPodcast.description" = "依時間列出最近聽過的 Podcast 單集，已聽完的也在，輕點即可播放。";
+"ext.widget.recentPodcast.empty" = "在 Primuse 聽過的 Podcast 單集會出現在這裡。";

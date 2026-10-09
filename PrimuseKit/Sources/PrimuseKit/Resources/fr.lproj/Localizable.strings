@@ -998,3 +998,7 @@
 "ext.widget.desk.description" = "Votre lecteur, vos podcasts, la radio et vos albums récents au même endroit.";
 "ext.widget.desk.music" = "Musique";
 "ext.widget.desk.audiobook" = "Livres audio";
+
+"ext.widget.recentPodcast.title" = "Épisodes récents";
+"ext.widget.recentPodcast.description" = "Les épisodes de podcast écoutés récemment, y compris ceux terminés. Touchez-en un pour le lire.";
+"ext.widget.recentPodcast.empty" = "Les épisodes écoutés dans Primuse s’affichent ici.";

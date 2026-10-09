@@ -998,3 +998,7 @@
 "ext.widget.desk.description" = "Player, Podcasts, Radio und zuletzt gehörte Alben an einem Ort.";
 "ext.widget.desk.music" = "Musik";
 "ext.widget.desk.audiobook" = "Hörbücher";
+
+"ext.widget.recentPodcast.title" = "Zuletzt gehörte Folgen";
+"ext.widget.recentPodcast.description" = "Zuletzt gehörte Podcast-Folgen, auch beendete. Zum Abspielen tippen.";
+"ext.widget.recentPodcast.empty" = "In Primuse gehörte Folgen erscheinen hier.";

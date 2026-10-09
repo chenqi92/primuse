@@ -945,3 +945,7 @@
 "ext.widget.desk.description" = "Odtwarzacz, podcasty, radio i ostatnie albumy w jednym miejscu.";
 "ext.widget.desk.music" = "Muzyka";
 "ext.widget.desk.audiobook" = "Audiobooki";
+
+"ext.widget.recentPodcast.title" = "Ostatnie odcinki";
+"ext.widget.recentPodcast.description" = "Ostatnio słuchane odcinki podcastów, także ukończone. Stuknij, aby odtworzyć.";
+"ext.widget.recentPodcast.empty" = "Tu pojawią się odcinki odsłuchane w Primuse.";

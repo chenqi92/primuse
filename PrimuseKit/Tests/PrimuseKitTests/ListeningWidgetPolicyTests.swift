@@ -18,6 +18,40 @@ final class ListeningWidgetPolicyTests: XCTestCase {
         XCTAssertEqual(selected.map(\.id), ["recent", "older", "new", "old"])
     }
 
+    private func heard(_ id: String, position: Double? = nil, listened: Double? = nil,
+                       finished: Double? = nil) -> (item: ListeningWidgetSnapshot.Item, record: ListeningWidgetPolicy.ListeningRecord) {
+        (.init(id: id, title: id, subtitle: "Show"),
+         .init(positionSavedAt: position.map { Date(timeIntervalSince1970: $0) },
+               lastListenedAt: listened.map { Date(timeIntervalSince1970: $0) },
+               finishedAt: finished.map { Date(timeIntervalSince1970: $0) }))
+    }
+
+    func testRecentlyPlayedListsHeardEpisodesNewestFirstIncludingFinished() {
+        let recent = ListeningWidgetPolicy.recentlyPlayed([
+            heard("in-progress", position: 100),
+            heard("finished", listened: 50, finished: 120),
+            heard("marked-played", finished: 200),
+            heard("never"),
+            heard("resumed", position: 90, listened: 80),
+            heard("in-progress", listened: 10)
+        ])
+        XCTAssertEqual(recent.map(\.id), ["finished", "in-progress", "resumed"])
+        XCTAssertEqual(ListeningWidgetPolicy.recentlyPlayed((0..<6).map { heard("e\($0)", listened: Double($0)) }).map(\.id),
+                       ["e5", "e4", "e3", "e2"])
+        XCTAssertEqual(ListeningWidgetPolicy.recentlyPlayed([heard("b", position: 5), heard("a", listened: 5)]).map(\.id),
+                       ["a", "b"])
+    }
+
+    func testRecentPodcastsAddAWidgetWithoutMovingTheExistingOnes() {
+        XCTAssertEqual(ListeningWidgetKind(rawValue: "podcast"), .podcast)
+        XCTAssertEqual(ListeningWidgetKind(rawValue: "radio"), .radio)
+        XCTAssertEqual(ListeningWidgetKind.podcast.widgetKind, "PodcastWidget")
+        XCTAssertEqual(ListeningWidgetKind.radio.widgetKind, "RadioWidget")
+        XCTAssertEqual(ListeningWidgetKind.recentPodcast.widgetKind, "RecentPodcastWidget")
+        XCTAssertTrue(ListeningWidgetKind.recentPodcast.playsEpisodes)
+        XCTAssertFalse(ListeningWidgetKind.radio.playsEpisodes)
+    }
+
     func testStableOrderAndRemovedItemsNeverRetained() {
         XCTAssertEqual(ListeningWidgetPolicy.select([candidate("b"), candidate("a")]).map(\.id), ["a", "b"])
         XCTAssertTrue(ListeningWidgetPolicy.select([]).isEmpty)

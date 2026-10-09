@@ -996,3 +996,7 @@
 "ext.widget.desk.description" = "Your player, podcasts, radio, and recent albums in one place.";
 "ext.widget.desk.music" = "Music";
 "ext.widget.desk.audiobook" = "Audiobooks";
+
+"ext.widget.recentPodcast.title" = "Recent Episodes";
+"ext.widget.recentPodcast.description" = "Podcast episodes you played recently, finished ones included. Tap one to play it.";
+"ext.widget.recentPodcast.empty" = "Episodes you play in Primuse appear here.";

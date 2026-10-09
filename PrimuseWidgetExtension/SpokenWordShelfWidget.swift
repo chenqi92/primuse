@@ -199,50 +199,66 @@ private struct MediumSpokenWordBook: View {
 }
 
 /// 中号、在听的不止一本: 最多三本并排, 每本单独一个点按区。
+///
+/// 书封由高度定宽(3:4), 比平分出来的一列窄得多; 以前每本靠列的左边放, 最后一本右边空出
+/// 一大块。现在从小组件的边缘量起, 书封之间、书封和两边留一样宽的空, 进度条和书封一样宽、
+/// 对齐在书封下面, 书名在下面居中, 可以比书封宽(占到两本之间的空), 最多两行。
 private struct MediumSpokenWordShelf: View {
     let books: [SpokenWordShelfSnapshot.Book]
     let includesProgress: Bool
+    /// The canvas padding; the even gaps are measured from the widget's edges.
+    private let inset: CGFloat = 14
 
     var body: some View {
-        WidgetCanvas(padding: 14) {
+        WidgetCanvas(padding: inset) {
             GeometryReader { geometry in
                 let shown = Array(books.prefix(SpokenWordWidgetPolicy.shelfLimit))
-                let spacing: CGFloat = 12
+                let columns = CGFloat(max(1, shown.count))
                 let eyebrowHeight: CGFloat = 16
-                let columns = max(1, shown.count)
-                let columnWidth = (geometry.size.width - spacing * CGFloat(columns - 1)) / CGFloat(columns)
-                let textHeight: CGFloat = 30
-                let coverHeight = max(40, min(
-                    SpokenWordCoverLayout.height(forWidth: columnWidth * 0.62),
-                    geometry.size.height - eyebrowHeight - textHeight - 8
+                // Progress bar, two lines of title (CJK fonts run taller) and the spacing between them.
+                let textHeight: CGFloat = 42
+                let evenColumnWidth: CGFloat = (geometry.size.width - 12 * (columns - 1)) / columns
+                let heightLeft: CGFloat = geometry.size.height - eyebrowHeight - textHeight - 4
+                let coverHeight: CGFloat = max(40, min(
+                    SpokenWordCoverLayout.height(forWidth: evenColumnWidth * 0.62), heightLeft
                 ))
+                let coverWidth: CGFloat = SpokenWordCoverLayout.width(forHeight: coverHeight)
+                // The same gap before, between and after the covers, counted from the widget's edges.
+                let widgetWidth: CGFloat = geometry.size.width + inset * 2
+                let gap: CGFloat = max(8, (widgetWidth - coverWidth * columns) / (columns + 1))
+                // A title may spread into the gaps beside its cover, short of touching the next title.
+                let titleExtra: CGFloat = max(0, min(gap - 8, 2 * (gap - inset)))
                 VStack(alignment: .leading, spacing: 4) {
                     SpokenWordShelfEyebrow()
                         .frame(height: eyebrowHeight)
-                    HStack(alignment: .top, spacing: spacing) {
+                    HStack(alignment: .top, spacing: gap - titleExtra) {
                         ForEach(shown) { book in
                             Button(intent: PrimuseResumeSpokenWordBookIntent(bookID: book.id)) {
-                                VStack(alignment: .leading, spacing: 4) {
+                                VStack(spacing: 4) {
                                     WidgetBookCover(
                                         coverImageName: book.coverImageName,
-                                        width: SpokenWordCoverLayout.width(forHeight: coverHeight),
+                                        width: coverWidth,
                                         cornerRadius: 6
                                     )
-                                    Text(book.title)
-                                        .font(.system(size: 11, weight: .semibold))
-                                        .foregroundStyle(WidgetDesign.strongText)
-                                        .lineLimit(1)
                                     if includesProgress {
                                         ProgressView(value: min(1, max(0, book.fractionComplete)))
                                             .progressViewStyle(WidgetHairlineBar())
+                                            .frame(width: coverWidth)
                                     }
+                                    Text(book.title)
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(WidgetDesign.strongText)
+                                        .multilineTextAlignment(.center)
+                                        .lineLimit(2)
+                                        .frame(width: coverWidth + titleExtra)
                                 }
-                                .frame(width: columnWidth, alignment: .leading)
+                                .frame(width: coverWidth + titleExtra)
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel(SpokenWordShelfText.accessibilityLabel(book))
                         }
                     }
+                    .frame(maxWidth: .infinity)
                 }
                 .widgetBounds(geometry.size)
             }

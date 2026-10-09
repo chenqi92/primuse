@@ -945,3 +945,7 @@
 "ext.widget.desk.description" = "Oynatıcı, podcast’ler, radyo ve son albümleriniz tek bir yerde.";
 "ext.widget.desk.music" = "Müzik";
 "ext.widget.desk.audiobook" = "Sesli kitaplar";
+
+"ext.widget.recentPodcast.title" = "Son dinlenen bölümler";
+"ext.widget.recentPodcast.description" = "Son dinlediğiniz podcast bölümleri, bitirdikleriniz dahil. Oynatmak için dokunun.";
+"ext.widget.recentPodcast.empty" = "Primuse’da dinlediğiniz bölümler burada görünür.";

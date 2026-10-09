@@ -945,3 +945,7 @@
 "ext.widget.desk.description" = "เครื่องเล่น พอดแคสต์ วิทยุ และอัลบั้มล่าสุดของคุณในที่เดียว";
 "ext.widget.desk.music" = "เพลง";
 "ext.widget.desk.audiobook" = "หนังสือเสียง";
+
+"ext.widget.recentPodcast.title" = "ตอนที่ฟังล่าสุด";
+"ext.widget.recentPodcast.description" = "ตอนพอดแคสต์ที่ฟังล่าสุด รวมถึงตอนที่ฟังจบแล้ว แตะเพื่อเล่น";
+"ext.widget.recentPodcast.empty" = "ตอนที่ฟังใน Primuse จะแสดงที่นี่";

@@ -998,3 +998,7 @@
 "ext.widget.desk.description" = "プレーヤー、ポッドキャスト、ラジオ、最近のアルバムをひとつに。";
 "ext.widget.desk.music" = "ミュージック";
 "ext.widget.desk.audiobook" = "オーディオブック";
+
+"ext.widget.recentPodcast.title" = "最近再生したエピソード";
+"ext.widget.recentPodcast.description" = "最近聴いたポッドキャストのエピソードを、聴き終えたものも含めて表示します。タップで再生。";
+"ext.widget.recentPodcast.empty" = "Primuseで聴いたエピソードがここに表示されます。";

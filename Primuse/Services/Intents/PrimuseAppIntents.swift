@@ -202,7 +202,7 @@ struct PrimusePlayListeningWidgetIntent: AudioPlaybackIntent {
         switch ListeningWidgetKind(rawValue: kind) {
         case .radio:
             _ = await PrimuseIntentBridge.shared.playRadioStation(SiriMediaIdentifier.namespaced(itemID, as: "radio"))
-        case .podcast:
+        case .podcast, .recentPodcast:
             _ = await PrimuseIntentBridge.shared.playPodcastEpisode(itemID)
         case nil:
             break

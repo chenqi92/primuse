@@ -998,3 +998,7 @@
 "ext.widget.desk.description" = "플레이어, 팟캐스트, 라디오, 최근 앨범을 한곳에서 만나보세요.";
 "ext.widget.desk.music" = "음악";
 "ext.widget.desk.audiobook" = "오디오북";
+
+"ext.widget.recentPodcast.title" = "최근 재생한 에피소드";
+"ext.widget.recentPodcast.description" = "최근 들은 팟캐스트 에피소드를 다 들은 것까지 보여 줍니다. 탭하면 재생됩니다.";
+"ext.widget.recentPodcast.empty" = "Primuse에서 들은 에피소드가 여기에 표시됩니다.";

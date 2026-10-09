@@ -945,3 +945,7 @@
 "ext.widget.desk.description" = "Плеер, подкасты, радио и недавние альбомы в одном месте.";
 "ext.widget.desk.music" = "Музыка";
 "ext.widget.desk.audiobook" = "Аудиокниги";
+
+"ext.widget.recentPodcast.title" = "Недавние выпуски";
+"ext.widget.recentPodcast.description" = "Недавно прослушанные выпуски подкастов, включая завершённые. Коснитесь, чтобы воспроизвести.";
+"ext.widget.recentPodcast.empty" = "Здесь появятся выпуски, прослушанные в Primuse.";

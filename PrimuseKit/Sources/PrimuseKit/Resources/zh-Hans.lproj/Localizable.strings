@@ -995,3 +995,7 @@
 "ext.widget.desk.description" = "播放控制、播客、电台和最近专辑，一处掌握。";
 "ext.widget.desk.music" = "音乐";
 "ext.widget.desk.audiobook" = "有声书";
+
+"ext.widget.recentPodcast.title" = "最近播放的播客";
+"ext.widget.recentPodcast.description" = "按时间列出最近听过的播客单集，已听完的也在，轻点即可播放。";
+"ext.widget.recentPodcast.empty" = "在 Primuse 听过的播客单集会出现在这里。";
