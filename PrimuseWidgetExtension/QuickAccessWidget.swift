@@ -159,7 +159,12 @@ private struct AlbumGrid: View {
                     let width = max(1, (geometry.size.width - CGFloat(columns - 1) * gap) / CGFloat(columns))
                     let rowHeight = max(1, (geometry.size.height - CGFloat(rowCount - 1) * gap) / CGFloat(rowCount))
                     let side = max(1, min(width, rowHeight - (showsTitles ? 35 : 0)))
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: gap, alignment: .leading), count: columns), alignment: .leading, spacing: gap) {
+                    // 封面由行高定边长时比平分的列窄:列就按封面宽,余下的宽度全放在列与列之间,
+                    // 第一张贴左边、最后一张贴右边,两边留白一样;说明文字与封面同宽、左对齐。
+                    let columnGap = columns > 1
+                        ? max(gap, (geometry.size.width - side * CGFloat(columns)) / CGFloat(columns - 1))
+                        : 0
+                    LazyVGrid(columns: Array(repeating: GridItem(.fixed(side), spacing: columnGap, alignment: .leading), count: columns), alignment: .leading, spacing: gap) {
                         ForEach(Array(albums.prefix(columns * rowCount).enumerated()), id: \.element.id) { index, album in
                             VStack(alignment: .leading, spacing: 5) {
                                 RecentAlbumCoverView(entry: album, cornerRadius: 8, placeholderIndex: index)
@@ -174,7 +179,7 @@ private struct AlbumGrid: View {
                                     .lineLimit(1)
                                 }
                             }
-                            .frame(width: width, alignment: .leading)
+                            .frame(width: side, alignment: .leading)
                             .accessibilityElement(children: .combine)
                             .accessibilityLabel(album.title + ", " + album.artistName)
                         }
