@@ -330,6 +330,50 @@ private struct HomeSectionDragPreview: View {
 
 /// 首页顶上的「音乐 · 电台 · 有声」筛选胶囊(照 Spotify、YouTube Music 首页的做法)。
 /// 都不选是「全部」;选中的那颗是这种听法自己的颜色、带一个 ✕,和播放条、首页卡片上的颜色一致。
+/// 首页「收藏」横排。
+///
+/// 列宽按视口均分(`HomeQuickAccessCarouselMetrics`):第一列图标离左边与最后一列图标离右边一样远,
+/// 往后滑一屏一屏地停。行高贴着条目本身(图标 52 + 间距 7 + 一行说明),一行时下面不再多空一截。
+private struct HomeQuickAccessCarousel<Item: Identifiable, Cell: View>: View {
+    let items: [Item]
+    let rowCount: Int
+    @ViewBuilder let cell: (Item) -> Cell
+
+    @State private var viewportWidth: CGFloat = 0
+    @ScaledMetric(relativeTo: .caption) private var captionLineHeight: CGFloat = 16
+
+    private var rowHeight: CGFloat {
+        max(76, 52 + 7 + captionLineHeight)
+    }
+
+    var body: some View {
+        let metrics = HomeQuickAccessCarouselMetrics(viewportWidth: Double(viewportWidth))
+        ScrollView(.horizontal, showsIndicators: false) {
+            LazyHGrid(
+                rows: Array(
+                    repeating: GridItem(.fixed(rowHeight), spacing: 16, alignment: .top),
+                    count: max(rowCount, 1)
+                ),
+                spacing: CGFloat(HomeQuickAccessCarouselMetrics.spacing)
+            ) {
+                ForEach(items) { item in
+                    cell(item)
+                        .frame(width: CGFloat(metrics.itemWidth))
+                }
+            }
+            .scrollTargetLayout()
+        }
+        .contentMargins(.horizontal, CGFloat(HomeQuickAccessCarouselMetrics.inset), for: .scrollContent)
+        .scrollTargetBehavior(.viewAligned)
+        .pmStopsAtVerticalBar()
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
+            viewportWidth = width
+        }
+    }
+}
+
 private struct HomeSpaceFilterBar: View {
     let spaces: [ListeningSpace]
     let selection: ListeningSpace?
@@ -3025,16 +3069,12 @@ struct HomeView: View {
             if style == .carousel {
                 // 横排档去掉整块底卡:一行图标本来就不高,再包一层圆角面板
                 // 会让它看着比内容重。
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHGrid(rows: carouselRows(.quickAccess, height: 96, spacing: 16, itemCount: items.count), spacing: 16) {
-                        ForEach(items) { item in
-                            homeQuickDockItem(item)
-                                .frame(width: 76)
-                        }
-                    }
-                    .padding(.horizontal, 20)
+                HomeQuickAccessCarousel(
+                    items: items,
+                    rowCount: carouselRowCount(.quickAccess, itemCount: items.count)
+                ) { item in
+                    homeQuickDockItem(item)
                 }
-                .pmStopsAtVerticalBar()
             } else {
                 LazyVGrid(
                     columns: Array(
@@ -3414,14 +3454,18 @@ struct HomeView: View {
         spacing: CGFloat = 14,
         itemCount: Int
     ) -> [GridItem] {
+        Array(
+            repeating: GridItem(.fixed(height), spacing: spacing, alignment: .top),
+            count: carouselRowCount(section, itemCount: itemCount)
+        )
+    }
+
+    private func carouselRowCount(_ section: HomeSectionKind, itemCount: Int) -> Int {
         let rows = HomeSectionLayoutPolicy.renderedRowCount(
             configured: homeLayout.rowCount(for: section),
             isCompactHeight: heightClass.isCompact
         )
-        return Array(
-            repeating: GridItem(.fixed(height), spacing: spacing, alignment: .top),
-            count: min(rows, max(itemCount, 1))
-        )
+        return min(rows, max(itemCount, 1))
     }
 
     @ViewBuilder

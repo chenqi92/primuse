@@ -220,6 +220,39 @@ public enum HomeSectionLayoutPolicy {
     }
 }
 
+/// 首页「收藏」横排的列宽。
+///
+/// 条目很窄(图标 52 点),一屏放得下四五列;按固定宽度从左排,列数一少右边就空出一大截,
+/// 和左边的留白对不上。这里按视口宽度排下整数列,把余下的宽度分给每一列:
+/// 第一列图标离左边与最后一列图标离右边一样远,往后滑也是一整屏一整屏地停。
+/// 列间距与左右留白一样宽,屏幕外的下一列正好从右边缘开始,不会露出一条说明文字的残边。
+public struct HomeQuickAccessCarouselMetrics: Equatable, Sendable {
+    /// 左右留白,与首页其它区块一致。
+    public static let inset: Double = 20
+    public static let spacing: Double = inset
+    /// 一列至少这么宽:放得下 52 点图标和四五个字的说明;375 点宽的手机也排得下四列。
+    public static let minimumItemWidth: Double = 66
+    /// 还没量到视口时的列宽,即改动前的固定宽度。
+    public static let unmeasuredItemWidth: Double = 76
+
+    /// 一屏排几列。
+    public let columnsPerScreen: Int
+    public let itemWidth: Double
+
+    /// 还没量到视口(宽度为 0)时按改动前的固定宽度排。
+    public init(viewportWidth: Double) {
+        let usable = viewportWidth - Self.inset * 2
+        guard usable >= Self.minimumItemWidth else {
+            columnsPerScreen = 1
+            itemWidth = Self.unmeasuredItemWidth
+            return
+        }
+        let columns = max(1, Int(((usable + Self.spacing) / (Self.minimumItemWidth + Self.spacing)).rounded(.down)))
+        columnsPerScreen = columns
+        itemWidth = (usable - Self.spacing * Double(columns - 1)) / Double(columns)
+    }
+}
+
 /// 每块区域选定的方案。整体作为一个 JSON 字符串存进 AppStorage。
 public struct HomeSectionLayoutConfiguration: Codable, Equatable, Sendable {
     public static let storageKey = "primuse.home.sectionLayout.v1"

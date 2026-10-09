@@ -83,3 +83,42 @@ struct HomeSectionLayoutTests {
         #expect(configuration.itemCount(for: .albumPick) == 1)
     }
 }
+
+@Suite("Home quick access carousel")
+struct HomeQuickAccessCarouselMetricsTests {
+    @Test("整数列铺满一屏,左右留白相等")
+    func columnsFillTheViewportEvenly() {
+        for width in [375.0, 393, 402, 430, 440, 820, 1024] {
+            let metrics = HomeQuickAccessCarouselMetrics(viewportWidth: width)
+            let columns = Double(metrics.columnsPerScreen)
+            let rowWidth = metrics.itemWidth * columns + HomeQuickAccessCarouselMetrics.spacing * (columns - 1)
+            #expect(abs(rowWidth + HomeQuickAccessCarouselMetrics.inset * 2 - width) < 0.001)
+            #expect(metrics.itemWidth >= HomeQuickAccessCarouselMetrics.minimumItemWidth)
+        }
+    }
+
+    @Test("常见手机竖屏一屏四列")
+    func phonesShowFourColumns() {
+        #expect(HomeQuickAccessCarouselMetrics(viewportWidth: 393).columnsPerScreen == 4)
+        #expect(HomeQuickAccessCarouselMetrics(viewportWidth: 440).columnsPerScreen == 4)
+        #expect(HomeQuickAccessCarouselMetrics(viewportWidth: 375).columnsPerScreen == 4)
+    }
+
+    @Test("下一列从屏幕右边缘之外开始")
+    func nextColumnStartsOffScreen() {
+        for width in [375.0, 393, 402, 440] {
+            let metrics = HomeQuickAccessCarouselMetrics(viewportWidth: width)
+            let columns = Double(metrics.columnsPerScreen)
+            let nextColumnStart = HomeQuickAccessCarouselMetrics.inset
+                + (metrics.itemWidth + HomeQuickAccessCarouselMetrics.spacing) * columns
+            #expect(nextColumnStart >= width - 0.001)
+        }
+    }
+
+    @Test("还没量到宽度时按原来的固定列宽排")
+    func unmeasuredViewportKeepsTheFormerWidth() {
+        let metrics = HomeQuickAccessCarouselMetrics(viewportWidth: 0)
+        #expect(metrics.itemWidth == HomeQuickAccessCarouselMetrics.unmeasuredItemWidth)
+        #expect(metrics.columnsPerScreen == 1)
+    }
+}
