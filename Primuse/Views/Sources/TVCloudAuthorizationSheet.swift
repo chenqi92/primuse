@@ -122,6 +122,7 @@ struct TVCloudAuthorizationSheet: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
+                    .prominentLabelOnAccent()
                     .controlSize(.large)
                     Button(action: signIn) { signInLabel }
                         .buttonStyle(.bordered)
@@ -129,6 +130,7 @@ struct TVCloudAuthorizationSheet: View {
                 } else {
                     Button(action: signIn) { signInLabel }
                         .buttonStyle(.borderedProminent)
+                        .prominentLabelOnAccent()
                         .controlSize(.large)
                 }
             }

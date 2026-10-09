@@ -1604,6 +1604,7 @@ struct LibraryView: View {
             VStack(spacing: 12) {
                 manageSourcesButton
                     .buttonStyle(.borderedProminent)
+                    .prominentLabelOnAccent()
 
                 NavigationLink(value: LibrarySection.radio) {
                     Label("radio_manage", systemImage: "radio")

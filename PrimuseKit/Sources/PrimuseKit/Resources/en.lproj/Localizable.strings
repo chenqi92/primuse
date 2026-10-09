@@ -223,6 +223,7 @@
 "theme_color_orange"                        = "Orange";
 "theme_color_amber"                         = "Amber";
 "theme_color_slate"                         = "Slate";
+"theme_color_white"                         = "White";
 "ext.tv.settings.library"                  = "Library";
 "ext.tv.settings.playlists"                = "Playlists";
 "ext.tv.settings.sources"                  = "Sources";

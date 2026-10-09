@@ -2991,6 +2991,7 @@
 "ai_primuse_relay_failure_upstream_title" = "Yukarı akış hizmeti başarısız oldu";
 "source_diagnostics" = "Kaynak Teşhisi";
 "theme_color_slate" = "Arduvaz";
+"theme_color_white" = "Beyaz";
 "source_type" = "Kaynak Türü";
 "radio_edit" = "İstasyonu Düzenle";
 "status_icloud_unavailable_in_build" = "Bu yapı iCloud erişimini içermiyor";

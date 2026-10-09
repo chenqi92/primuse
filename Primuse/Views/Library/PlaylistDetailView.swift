@@ -805,6 +805,7 @@ struct PlaylistDetailView: View {
                 }
             }
             .buttonStyle(.borderedProminent)
+            .prominentLabelOnAccent()
             .controlSize(.large)
 
             Button {

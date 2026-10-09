@@ -601,11 +601,13 @@ struct LibraryDetailActionButton: View {
 
     /// 染了色的详情页上主按钮是白底、字用本页底色；次按钮是一层半透明白。
     /// 主题色在这里不能用 —— 它跟着正在播放的歌走，跟本页底色撞色的概率不低。
-    private var labelColor: Color {
+    private var labelColor: AnyShapeStyle {
         #if os(iOS)
-        if let tint { return emphasized ? tint.bottom : .white }
+        if let tint { return AnyShapeStyle(emphasized ? tint.bottom : .white) }
         #endif
-        return emphasized || onArtwork ? .white : .accentColor
+        // 主按钮压在主题色实底上，主题色太浅（「白色」主题在深色外观下）时字换成黑色。
+        if emphasized { return AnyShapeStyle(.textOnAccent) }
+        return AnyShapeStyle(onArtwork ? Color.white : Color.accentColor)
     }
 
     private var fillColor: Color {

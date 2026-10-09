@@ -149,6 +149,7 @@
 "theme_color_orange" = "Orange";
 "theme_color_amber" = "Amber";
 "theme_color_slate" = "Slate";
+"theme_color_white" = "White";
 "theme_color_custom" = "Custom Color";
 "theme_color_custom_footer" = "Drag to mix any color you like.";
 "theme_color_hue" = "Hue";

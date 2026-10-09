@@ -90,7 +90,7 @@ struct HomeContinueSpacesRow: View {
                         Label(card.space.title, systemImage: card.space.systemImage)
                             .font(.caption2.weight(.semibold))
                             .labelStyle(.titleAndIcon)
-                            .foregroundStyle(.white)
+                            .foregroundStyle(.text(on: card.space.tint))
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)
                             .background(card.space.tint, in: Capsule())

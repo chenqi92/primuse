@@ -243,6 +243,7 @@ struct AISongDiscoveryView: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
+                .prominentLabelOnAccent()
                 .controlSize(.small)
             case .notConfigured, .builtInNotOffered:
                 if intelligence.shouldExposeRemoteConfiguration {

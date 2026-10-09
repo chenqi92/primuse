@@ -744,6 +744,7 @@ struct LyricPosterShareSheet: View {
                 .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
+            .prominentLabelOnAccent()
             .buttonBorderShape(.capsule)
             .disabled(!canAdvanceWizard)
         }
@@ -850,6 +851,7 @@ struct LyricPosterShareSheet: View {
                     actionLabel(String(localized: "share"), symbol: "square.and.arrow.up")
                 }
                 .buttonStyle(.borderedProminent)
+                .prominentLabelOnAccent()
                 .buttonBorderShape(.capsule)
                 // 挂在「分享」上，不挂整排按钮，弹框从这颗按钮长出来。
                 .confirmationDialog(

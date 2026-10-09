@@ -141,6 +141,7 @@
 "theme_color_orange" = "橙色";
 "theme_color_amber" = "琥珀";
 "theme_color_slate" = "石板灰";
+"theme_color_white" = "白色";
 "theme_color_custom" = "自訂顏色";
 "theme_color_custom_footer" = "拖動滑桿調出任意顏色。";
 "theme_color_hue" = "色相";

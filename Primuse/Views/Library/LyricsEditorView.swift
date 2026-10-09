@@ -877,6 +877,7 @@ struct LyricsEditorView: View {
                         .padding(.vertical, 10)
                 }
                 .buttonStyle(.borderedProminent)
+                .prominentLabelOnAccent()
                 .clipShape(Capsule())
                 .disabled(draft.lines.isEmpty)
             }
@@ -2372,7 +2373,7 @@ struct LyricsEditorView: View {
                                 .fontWeight(.medium)
                                 .opacity(0.85)
                         }
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.textOnAccent)
                         .frame(maxWidth: 270)
                         .frame(height: 90)
                         .background(Color.accentColor, in: .rect(cornerRadius: 18))
@@ -2770,6 +2771,7 @@ struct LyricsEditorView: View {
                     finishShiftAdjustment()
                 }
                 .buttonStyle(.borderedProminent)
+                .prominentLabelOnAccent()
             }
         }
         .padding(24)
@@ -3117,6 +3119,7 @@ struct LyricsEditorView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
+            .prominentLabelOnAccent()
             .padding()
         }
         #if os(macOS)

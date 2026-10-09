@@ -365,6 +365,7 @@ struct HomeHeroCarousel: View {
                 Self.buttonLabel("shuffle", systemImage: "shuffle")
             }
             .buttonStyle(.borderedProminent)
+            .prominentLabelOnAccent()
             .clipShape(Capsule())
 
             Button(action: playAll) {

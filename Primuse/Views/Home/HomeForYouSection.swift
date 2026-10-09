@@ -759,6 +759,7 @@ struct HomeIntelligenceHintCard: View {
                             .lineLimit(1)
                     }
                     .buttonStyle(.borderedProminent)
+                    .prominentLabelOnAccent()
                     .buttonBorderShape(.capsule)
                     .controlSize(.small)
                     .accessibilityIdentifier("home.aiHint.enable")

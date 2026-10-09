@@ -181,7 +181,7 @@ struct UpdateBannerSheet: View {
                     Image(systemName: "arrow.up.forward.app.fill")
                         .font(.body.weight(.semibold))
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(.textOnAccent)
                 .padding(.horizontal, 20)
                 .frame(maxWidth: .infinity, minHeight: 52)
                 .background(Color.accentColor, in: Capsule())

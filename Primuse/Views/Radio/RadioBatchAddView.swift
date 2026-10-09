@@ -813,6 +813,7 @@ struct RadioBatchAddView: View {
                 .padding(.vertical, 13)
             }
             .buttonStyle(.borderedProminent)
+            .prominentLabelOnAccent()
             .clipShape(Capsule())
             .disabled((selection.isEmpty && !isSubscribing) || isAdding)
 

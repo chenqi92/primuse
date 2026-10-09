@@ -196,6 +196,7 @@ struct HomeAlbumPickSection: View {
                 .lineLimit(1)
         }
         .buttonStyle(.borderedProminent)
+        .prominentLabelOnAccent()
         .buttonBorderShape(.capsule)
         .controlSize(.small)
         .accessibilityIdentifier("home.albumPick.play")

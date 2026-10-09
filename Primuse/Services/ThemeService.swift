@@ -427,6 +427,27 @@ final class ThemeService {
         }
     }
 
+    /// 白字压在这个颜色上还看不看得清。相对亮度过半,白字的对比度就不到 2 了:色板里最亮的
+    /// 琥珀、橙色在 0.4 上下不受影响,越线的是「白色」主题在深色外观下,和很浅的封面取色。
+    nonisolated static func isTooLightForWhiteText(
+        _ color: Color,
+        in environment: EnvironmentValues
+    ) -> Bool {
+        guard let sRGB = CGColorSpace(name: CGColorSpace.sRGB),
+              let components = color.resolve(in: environment).cgColor
+                  .converted(to: sRGB, intent: .defaultIntent, options: nil)?.components,
+              components.count >= 3 else { return false }
+        return relativeLuminance(red: components[0], green: components[1], blue: components[2]) > 0.5
+    }
+
+    /// 压白字的实底:颜色太浅时换成石墨灰。
+    nonisolated static func legibleFillBehindWhiteText(
+        _ color: Color,
+        in environment: EnvironmentValues
+    ) -> Color {
+        isTooLightForWhiteText(color, in: environment) ? Color(white: 0.34) : color
+    }
+
     /// Selects whichever of black/white has the higher WCAG contrast ratio
     /// against the accent. The crossover luminance is approximately 0.179.
     private static func contrastingForeground(for color: Color) -> Color {
@@ -435,7 +456,16 @@ final class ThemeService {
         var blue: CGFloat = 0
         var alpha: CGFloat = 0
         #if os(iOS)
-        guard UIColor(color).getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+        // 随深浅外观变的主题色(「白色」)两档分别算,压在上面的字也跟着换。
+        let dynamic = UIColor(color)
+        let light = dynamic.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
+        let dark = dynamic.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark))
+        if light != dark {
+            let onLight = UIColor(contrastingForeground(for: Color(uiColor: light)))
+            let onDark = UIColor(contrastingForeground(for: Color(uiColor: dark)))
+            return Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? onDark : onLight })
+        }
+        guard dynamic.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
             return .white
         }
         #else
@@ -457,7 +487,16 @@ final class ThemeService {
     private static func darken(_ color: Color, factor: CGFloat) -> Color {
         var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         #if os(iOS)
-        UIColor(color).getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        // 随深浅外观变的主题色(「白色」)两档分别压暗,结果也随外观变。
+        let dynamic = UIColor(color)
+        let light = dynamic.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
+        let dark = dynamic.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark))
+        if light != dark {
+            let darkenedLight = UIColor(darken(Color(uiColor: light), factor: factor))
+            let darkenedDark = UIColor(darken(Color(uiColor: dark), factor: factor))
+            return Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? darkenedDark : darkenedLight })
+        }
+        dynamic.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
         #else
         // NSColor 的 getHue 跟 UIColor 同语义,但要先转到 RGB colorspace
         // 才能保证 HSB 通道有效。
@@ -766,5 +805,44 @@ final class ThemeService {
         return 0.2126 * linearized(red)
             + 0.7152 * linearized(green)
             + 0.0722 * linearized(blue)
+    }
+}
+
+// MARK: - 主题色实底上的字
+
+/// 压在实底上的字与图标:平时是白色;底色浅到压不住白字时(「白色」主题在深色外观下的主题色)换成黑色。
+struct TextOnFillShapeStyle: ShapeStyle {
+    var fill: Color = .accentColor
+
+    func resolve(in environment: EnvironmentValues) -> Color {
+        ThemeService.isTooLightForWhiteText(fill, in: environment) ? .black : .white
+    }
+}
+
+extension ShapeStyle where Self == TextOnFillShapeStyle {
+    /// 压在主题色实底上的字。
+    static var textOnAccent: TextOnFillShapeStyle { TextOnFillShapeStyle() }
+    /// 压在 `fill` 实底上的字。
+    static func text(on fill: Color) -> TextOnFillShapeStyle { TextOnFillShapeStyle(fill: fill) }
+}
+
+/// `.borderedProminent` 按钮系统固定画白字,主题色太浅时换黑字。只在需要时才设前景色,
+/// 平时整个交给系统(停用时变灰也照旧)。
+private struct ProminentLabelOnAccent: ViewModifier {
+    @Environment(\.self) private var environment
+
+    func body(content: Content) -> some View {
+        if ThemeService.isTooLightForWhiteText(.accentColor, in: environment) {
+            content.foregroundStyle(.black)
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    /// 跟在 `.buttonStyle(.borderedProminent)` 后面,主题色太浅时把按钮字换成黑色。
+    func prominentLabelOnAccent() -> some View {
+        modifier(ProminentLabelOnAccent())
     }
 }

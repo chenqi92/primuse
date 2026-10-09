@@ -215,6 +215,7 @@ struct CloudDriveConnectionView: View {
                     .frame(maxWidth: 240)
             }
             .buttonStyle(.borderedProminent)
+            .prominentLabelOnAccent()
             .controlSize(.large)
             .disabled(directAccessToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
@@ -283,7 +284,7 @@ struct CloudDriveConnectionView: View {
             #else
             Text("\(number)")
                 .font(.caption).fontWeight(.bold)
-                .foregroundStyle(.white)
+                .foregroundStyle(.textOnAccent)
                 .frame(width: 22, height: 22)
                 .background(Color.accentColor.gradient)
                 .clipShape(Circle())
@@ -386,6 +387,7 @@ struct CloudDriveConnectionView: View {
                         .frame(maxWidth: maxWidth)
                 }
                 .buttonStyle(.borderedProminent)
+                .prominentLabelOnAccent()
                 .controlSize(.large)
                 .disabled(isAuthorizing)
 
@@ -415,6 +417,7 @@ struct CloudDriveConnectionView: View {
                     .frame(maxWidth: maxWidth)
             }
             .buttonStyle(.borderedProminent)
+            .prominentLabelOnAccent()
             .controlSize(.large)
             .keyboardShortcut(.defaultAction)
             .disabled(isAuthorizing)
@@ -604,6 +607,7 @@ struct CloudDriveConnectionView: View {
                         .fontWeight(.medium)
                 }
                 .buttonStyle(.borderedProminent)
+                .prominentLabelOnAccent()
 
                 Button { checkStatus() } label: {
                     Label(String(localized: "cloud_recheck"), systemImage: "arrow.triangle.2.circlepath")

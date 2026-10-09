@@ -2991,6 +2991,7 @@
 "ai_primuse_relay_failure_upstream_title" = "Помилка служби висхідного потоку";
 "source_diagnostics" = "Діагностика джерела";
 "theme_color_slate" = "Шифер";
+"theme_color_white" = "Білий";
 "source_type" = "Тип джерела";
 "radio_edit" = "Редагувати станцію";
 "status_icloud_unavailable_in_build" = "Ця збірка не включає доступ до iCloud";

@@ -6294,7 +6294,7 @@ private struct MacSTThemeView: View {
     @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEndpointKey)
     private var motionArtworkServiceEndpoint = PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
     private var swatches: [(hex: String, name: String, sub: String, color: Color)] {
-        AppThemePreferences.swatches.map { swatch in
+        AppThemePreferences.swatchesWithoutMonochrome.map { swatch in
             (
                 hex: "#\(swatch.id.lowercased())",
                 name: PMString(swatch.localizationKey),

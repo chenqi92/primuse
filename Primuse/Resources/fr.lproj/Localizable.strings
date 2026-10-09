@@ -380,6 +380,7 @@
 "theme_color_orange" = "Orange";
 "theme_color_amber" = "Ambre";
 "theme_color_slate" = "Ardoise";
+"theme_color_white" = "Blanc";
 "theme_color_custom" = "Couleur personnalisée";
 "theme_color_custom_footer" = "Faites glisser pour composer la couleur de votre choix.";
 "theme_color_hue" = "Teinte";

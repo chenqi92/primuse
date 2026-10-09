@@ -89,6 +89,7 @@ struct EmptyStateView: View {
                         .padding(.horizontal, 22).padding(.vertical, 10)
                 }
                 .buttonStyle(.borderedProminent)
+                .prominentLabelOnAccent()
                 .clipShape(Capsule())
                 .padding(.top, 4)
             }

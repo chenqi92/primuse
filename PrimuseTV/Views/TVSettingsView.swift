@@ -849,7 +849,7 @@ private struct TVThemeColorPicker: View {
                     spacing: 18
                 ) {
                     automaticButton
-                    ForEach(AppThemePreferences.swatches) { swatch in
+                    ForEach(AppThemePreferences.swatchesWithoutMonochrome) { swatch in
                         swatchButton(swatch)
                     }
                 }

@@ -755,6 +755,7 @@ struct SourcesContentView: View {
                     .frame(maxWidth: 240).padding(.vertical, 4)
             }
             .buttonStyle(.borderedProminent)
+            .prominentLabelOnAccent()
         }
     }
 

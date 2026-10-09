@@ -4028,7 +4028,7 @@ private struct IOSSongAlphabetIndex: View {
     private func focusBubble(label: String) -> some View {
         Text(verbatim: label)
             .font(.system(size: 23, weight: .bold, design: .rounded))
-            .foregroundStyle(.white)
+            .foregroundStyle(.textOnAccent)
             .frame(width: 50, height: 50)
             .background {
                 Circle()
@@ -4522,7 +4522,7 @@ private struct MacLibraryFolderInlineContent: View {
             Button(action: playAllSongsInFolder) {
                 Label("play_all", systemImage: "play.fill")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.textOnAccent)
                     .padding(.horizontal, 12)
                     .frame(height: 28)
                     .background(theme.uiAccentColor, in: Capsule())

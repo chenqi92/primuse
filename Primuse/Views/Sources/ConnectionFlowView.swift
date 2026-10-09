@@ -507,6 +507,7 @@ struct ConnectionFlowView: View {
                     Text("connect").fontWeight(.semibold).frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                .prominentLabelOnAccent()
                 .controlSize(.large)
                 .disabled(passwordInput.isEmpty)
             }
@@ -553,6 +554,7 @@ struct ConnectionFlowView: View {
                     Label("retry", systemImage: "arrow.clockwise").fontWeight(.medium)
                 }
                 .buttonStyle(.borderedProminent)
+                .prominentLabelOnAccent()
 
                 // 地址填错了光重试没用。给一条回编辑表单的路,省得关掉整个流程
                 // 再去列表里找这个源。

@@ -225,6 +225,7 @@
 "theme_color_orange"                        = "オレンジ";
 "theme_color_amber"                         = "アンバー";
 "theme_color_slate"                         = "スレート";
+"theme_color_white"                         = "ホワイト";
 "ext.tv.settings.library"                  = "ライブラリ";
 "ext.tv.settings.playlists"                = "プレイリスト";
 "ext.tv.settings.sources"                  = "ソース";

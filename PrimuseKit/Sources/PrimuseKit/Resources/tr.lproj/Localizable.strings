@@ -482,6 +482,7 @@
 "src.subtitle.aliyunDrive" = "Aliyun Drive PDS";
 "ext.tv.test.resultBody" = "“%1$@”\n%2$@";
 "theme_color_slate" = "Arduvaz";
+"theme_color_white" = "Beyaz";
 "ext.control.next" = "İleri";
 "source_connection_remote_method" = "Uzaktan Yöntem";
 "fullscreen_effect_flowing_lines" = "Akan Çizgiler";

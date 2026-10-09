@@ -195,7 +195,38 @@ enum AppThemePreferences {
         Swatch(id: "FF9500", localizationKey: "theme_color_orange"),
         Swatch(id: "D4A017", localizationKey: "theme_color_amber"),
         Swatch(id: "5E6B87", localizationKey: "theme_color_slate"),
+        Swatch(id: monochromeHex, localizationKey: "theme_color_white"),
     ]
+
+    /// 「白色」(#189):深色外观下是纯白,浅色外观下换成近黑,不然按钮、勾选在白底上看不见。
+    /// 目前只在 iPhone / iPad 的色板里出现:Mac 与 Apple TV 的品牌色另有一套推导(电视会把
+    /// 饱和度抬到 0.28 以上,白色会变成偏红),没验证之前不放。主题色不跨设备同步。
+    static let monochromeHex = "FFFFFF"
+
+    static func isMonochrome(_ hex: String) -> Bool {
+        normalizedHex(hex) == monochromeHex
+    }
+
+    /// Mac 与 Apple TV 色板里列哪些。
+    static var swatchesWithoutMonochrome: [Swatch] {
+        swatches.filter { !isMonochrome($0.id) }
+    }
+
+    /// 存下来的固定主题色变成颜色;「白色」随深浅外观换。
+    static func themeColor(hex: String) -> Color {
+        guard isMonochrome(hex) else { return Color(hex: normalizedHex(hex)) }
+        #if canImport(UIKit)
+        return Color(uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark ? .white : UIColor(white: 0.11, alpha: 1)
+        })
+        #else
+        return Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? .white
+                : NSColor(white: 0.11, alpha: 1)
+        })
+        #endif
+    }
 
     static func normalizedHex(_ value: String, fallback: String = defaultAccentHex) -> String {
         let normalized = value

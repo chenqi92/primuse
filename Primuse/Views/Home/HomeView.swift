@@ -368,7 +368,7 @@ private struct HomeSpaceFilterBar: View {
             }
             .labelStyle(HomeSpaceChipLabelStyle())
             .font(.subheadline.weight(isSelected ? .semibold : .medium))
-            .foregroundStyle(isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+            .foregroundStyle(isSelected ? AnyShapeStyle(.text(on: space.tint)) : AnyShapeStyle(.primary))
             .padding(.horizontal, 14)
             .frame(minHeight: 36)
             .background {
@@ -1880,6 +1880,7 @@ struct HomeView: View {
                     .padding(.vertical, 10)
             }
             .buttonStyle(.borderedProminent)
+            .prominentLabelOnAccent()
             .clipShape(Capsule())
             .padding(.top, 4)
 
@@ -2739,6 +2740,7 @@ struct HomeView: View {
                         .padding(.vertical, 11)
                 }
                 .buttonStyle(.borderedProminent)
+                .prominentLabelOnAccent()
                 .clipShape(Capsule())
 
                 Button {
@@ -2809,6 +2811,7 @@ struct HomeView: View {
                         .padding(.vertical, 11)
                 }
                 .buttonStyle(.borderedProminent)
+                .prominentLabelOnAccent()
                 .clipShape(Capsule())
 
                 Button {

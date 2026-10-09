@@ -114,7 +114,7 @@ struct OnboardingSourcesGuidePage: View {
                     .padding(.horizontal, 22)
                 Label(String(localized: "add_source"), systemImage: "plus.circle.fill")
                     .font(.system(size: 10.5, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.textOnAccent)
                     .lineLimit(1)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)

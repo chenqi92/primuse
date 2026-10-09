@@ -557,6 +557,9 @@ struct ListeningIntentCard: View {
     let symbolName: String
     let detail: String?
     let tint: Color
+    @Environment(\.self) private var environment
+    /// 「接着上次」「随便听听」用的是主题色,太浅(「白色」主题在深色外观下)时换成石墨灰,白字才看得清。
+    private var cardTint: Color { ThemeService.legibleFillBehindWhiteText(tint, in: environment) }
     var badgeSymbol: String? = nil
     var isWorking = false
     var isDimmed = false
@@ -602,7 +605,7 @@ struct ListeningIntentCard: View {
         .frame(maxWidth: fillsWidth ? .infinity : nil, alignment: .topLeading)
         .background {
             ZStack(alignment: .bottomTrailing) {
-                Self.surface(tint: tint, cornerRadius: Self.cornerRadius)
+                Self.surface(tint: cardTint, cornerRadius: Self.cornerRadius)
                 ListeningIntentWatermark(symbolName: symbolName, decade: decade, size: 56)
             }
         }
@@ -685,6 +688,9 @@ struct ListeningIntentTile: View {
     let symbolName: String
     let detail: String?
     let tint: Color
+    @Environment(\.self) private var environment
+    /// 「接着上次」「随便听听」用的是主题色,太浅(「白色」主题在深色外观下)时换成石墨灰,白字才看得清。
+    private var cardTint: Color { ThemeService.legibleFillBehindWhiteText(tint, in: environment) }
     var badgeSymbol: String? = nil
     var isWorking = false
     /// 年代意图用大号的「80s」代替符号。
@@ -723,7 +729,7 @@ struct ListeningIntentTile: View {
         .frame(maxWidth: .infinity, minHeight: Self.minHeight, alignment: .leading)
         .background {
             ZStack(alignment: .bottomTrailing) {
-                ListeningIntentCard.surface(tint: tint, cornerRadius: Self.cornerRadius)
+                ListeningIntentCard.surface(tint: cardTint, cornerRadius: Self.cornerRadius)
                 ListeningIntentWatermark(symbolName: symbolName, decade: decade, size: 50)
             }
         }
@@ -772,6 +778,9 @@ struct ListeningIntentHeroTile: View {
     let title: String
     let detail: String?
     let tint: Color
+    @Environment(\.self) private var environment
+    /// 「接着上次」「随便听听」用的是主题色,太浅(「白色」主题在深色外观下)时换成石墨灰,白字才看得清。
+    private var cardTint: Color { ThemeService.legibleFillBehindWhiteText(tint, in: environment) }
     let symbolName: String
     var covers: [Song] = []
     var isWorking = false
@@ -801,11 +810,11 @@ struct ListeningIntentHeroTile: View {
                 if isWorking {
                     ProgressView()
                         .controlSize(.small)
-                        .tint(tint)
+                        .tint(cardTint)
                 } else {
                     Image(systemName: "play.fill")
                         .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(tint)
+                        .foregroundStyle(cardTint)
                         .offset(x: 1)
                 }
             }
@@ -817,7 +826,7 @@ struct ListeningIntentHeroTile: View {
         .padding(12)
         .frame(maxWidth: .infinity, minHeight: Self.minHeight, alignment: .leading)
         .background {
-            ListeningIntentCard.surface(tint: tint, cornerRadius: Self.cornerRadius)
+            ListeningIntentCard.surface(tint: cardTint, cornerRadius: Self.cornerRadius)
         }
         .clipShape(shape)
         .contentShape(shape)

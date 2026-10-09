@@ -381,6 +381,7 @@
 "theme_color_orange" = "オレンジ";
 "theme_color_amber" = "アンバー";
 "theme_color_slate" = "スレート";
+"theme_color_white" = "ホワイト";
 "theme_color_custom" = "カスタムカラー";
 "theme_color_custom_footer" = "ドラッグして好きな色を作れます。";
 "theme_color_hue" = "色相";

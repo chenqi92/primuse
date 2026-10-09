@@ -225,6 +225,7 @@
 "theme_color_orange"                        = "오렌지";
 "theme_color_amber"                         = "앰버";
 "theme_color_slate"                         = "슬레이트";
+"theme_color_white"                         = "화이트";
 "ext.tv.settings.library"                  = "보관함";
 "ext.tv.settings.playlists"                = "재생목록";
 "ext.tv.settings.sources"                  = "소스";

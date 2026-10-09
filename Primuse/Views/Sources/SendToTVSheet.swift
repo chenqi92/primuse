@@ -208,6 +208,7 @@ struct SendToTVSheet: View {
                     .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                .prominentLabelOnAccent()
                 .controlSize(.large)
                 .disabled(sending || blocked)
 

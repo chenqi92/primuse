@@ -1152,7 +1152,7 @@ private struct SongRowSwipeModifier: ViewModifier {
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(.text(on: actionTint(action)))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(actionTint(action), in: .rect(cornerRadius: 10))
             .padding(.vertical, 4)

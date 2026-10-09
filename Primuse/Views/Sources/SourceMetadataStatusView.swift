@@ -730,6 +730,7 @@ struct SourceMetadataStatusView: View {
                 .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
+            .prominentLabelOnAccent()
             .controlSize(.large)
             .accessibilityIdentifier("metadata-status-primary-action")
         } else {
@@ -741,6 +742,7 @@ struct SourceMetadataStatusView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
+            .prominentLabelOnAccent()
             .controlSize(.large)
             .disabled(!source.isEnabled || summary.activeQueueCount == 0)
             .accessibilityIdentifier("metadata-status-primary-action")

@@ -356,6 +356,7 @@ struct SmartPlaylistDetailView: View {
                 }
             }
             .buttonStyle(.borderedProminent)
+            .prominentLabelOnAccent()
             .disabled(matched.isEmpty)
 
             Button {
@@ -387,6 +388,7 @@ struct SmartPlaylistDetailView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
+            .prominentLabelOnAccent()
             .disabled(matched.isEmpty)
 
             Button {

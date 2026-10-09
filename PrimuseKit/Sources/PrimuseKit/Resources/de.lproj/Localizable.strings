@@ -225,6 +225,7 @@
 "theme_color_orange"                        = "Orange";
 "theme_color_amber"                         = "Bernstein";
 "theme_color_slate"                         = "Schiefer";
+"theme_color_white"                         = "Weiß";
 "ext.tv.settings.library"                  = "Mediathek";
 "ext.tv.settings.playlists"                = "Playlists";
 "ext.tv.settings.sources"                  = "Quellen";

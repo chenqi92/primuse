@@ -222,6 +222,7 @@
 "theme_color_orange"                        = "橙色";
 "theme_color_amber"                         = "琥珀色";
 "theme_color_slate"                         = "石板灰";
+"theme_color_white"                         = "白色";
 "ext.tv.settings.library"                  = "曲庫";
 "ext.tv.settings.playlists"                = "播放清單";
 "ext.tv.settings.sources"                  = "音樂來源";

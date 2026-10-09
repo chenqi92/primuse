@@ -86,6 +86,8 @@ struct AppearanceSettingsView: View {
                 Toggle(isOn: minimalModeEnabled) {
                     Label("minimal_mode_title", systemImage: "rectangle.topthird.inset.filled")
                 }
+                // 下面选了「白色」时开关圆钮要换色,外观代理只作用于新建的开关。
+                .id(ThemeColorSettings.shared.usesMonochromeSwitchThumb)
             } header: {
                 SettingsInfoHeader("navigation_mode_title") {
                     Text("minimal_mode_description")
@@ -231,6 +233,8 @@ struct ThemeColorSections: View {
                         Image(systemName: "photo.on.rectangle.angled")
                     }
                 }
+                // 上面选了「白色」时开关圆钮要换色,外观代理只作用于新建的开关。
+                .id(settings.usesMonochromeSwitchThumb)
 
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
@@ -326,6 +330,8 @@ struct ThemeColorSections: View {
 
     private func swatchCell(_ swatch: ThemeColorSettings.Swatch) -> some View {
         let isSelected = settings.mode == .fixed && settings.fixedColorHex == swatch.id
+        // 白色色块在白底上要一圈看得见的边,勾是黑的,选中的外圈用文字色。
+        let isMonochrome = AppThemePreferences.isMonochrome(swatch.id)
 
         return Button {
             select(swatch)
@@ -338,16 +344,18 @@ struct ThemeColorSections: View {
                         if isSelected {
                             Image(systemName: "checkmark")
                                 .font(.subheadline.weight(.bold))
-                                .foregroundStyle(.white)
-                                .shadow(color: .black.opacity(0.35), radius: 1.5)
+                                .foregroundStyle(isMonochrome ? .black : .white)
+                                .shadow(color: .black.opacity(isMonochrome ? 0 : 0.35), radius: 1.5)
                                 .pmFadeTransition()
                         }
                     }
                     .overlay {
                         Circle()
                             .strokeBorder(
-                                isSelected ? Color(hex: swatch.id) : Color.primary.opacity(0.12),
-                                lineWidth: isSelected ? 3 : 0.5
+                                isSelected
+                                    ? (isMonochrome ? Color.primary.opacity(0.7) : Color(hex: swatch.id))
+                                    : Color.primary.opacity(isMonochrome ? 0.28 : 0.12),
+                                lineWidth: isSelected ? 3 : (isMonochrome ? 1 : 0.5)
                             )
                             .padding(isSelected ? -4 : 0)
                     }

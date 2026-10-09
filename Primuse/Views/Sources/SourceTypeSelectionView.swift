@@ -854,7 +854,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "laptopcomputer.and.iphone")
-                        .font(.title3).foregroundStyle(.white)
+                        .font(.title3).foregroundStyle(.textOnAccent)
                         .frame(width: 36, height: 36)
                         .background(Color.accentColor)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -921,7 +921,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
         HStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.title3)
-                .foregroundStyle(.white)
+                .foregroundStyle(.textOnAccent)
                 .frame(width: 36, height: 36)
                 .background(Color.accentColor)
                 .clipShape(RoundedRectangle(cornerRadius: 8))

@@ -267,6 +267,7 @@ struct RadioSubscriptionsView: View {
         } actions: {
             Button("radio_subscriptions_add") { path.append(.add) }
                 .buttonStyle(.borderedProminent)
+                .prominentLabelOnAccent()
         }
     }
 

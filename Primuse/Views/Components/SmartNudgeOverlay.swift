@@ -93,6 +93,7 @@ private struct SmartNudgeBanner: View {
                         .font(.subheadline.weight(.semibold))
                 }
                 .buttonStyle(.borderedProminent)
+                .prominentLabelOnAccent()
                 .buttonBorderShape(.capsule)
                 .controlSize(.small)
                 .fixedSize()
@@ -103,6 +104,7 @@ private struct SmartNudgeBanner: View {
                         .lineLimit(1)
                 }
                 .buttonStyle(.borderedProminent)
+                .prominentLabelOnAccent()
                 .buttonBorderShape(.capsule)
                 .controlSize(.small)
                 .fixedSize()

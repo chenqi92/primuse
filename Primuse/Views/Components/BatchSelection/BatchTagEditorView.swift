@@ -664,6 +664,7 @@ struct TagChangeReviewView: View {
                         .padding(.vertical, 4)
                 }
                 .buttonStyle(.borderedProminent)
+                .prominentLabelOnAccent()
                 .disabled(selectedCount == 0)
             }
         }

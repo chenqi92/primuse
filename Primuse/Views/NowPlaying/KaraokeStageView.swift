@@ -1453,6 +1453,7 @@ private struct KaraokeResultView: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
+                    .prominentLabelOnAccent()
                     Button(role: .destructive) {
                         session.deleteRecording(at: url)
                     } label: {

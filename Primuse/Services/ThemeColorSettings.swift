@@ -24,6 +24,7 @@ final class ThemeColorSettings {
     var mode: AppThemeColorMode {
         didSet {
             UserDefaults.standard.set(mode.rawValue, forKey: AppThemePreferences.colorModeKey)
+            applySwitchThumbAppearance()
         }
     }
 
@@ -33,6 +34,7 @@ final class ThemeColorSettings {
                 AppThemePreferences.normalizedHex(fixedColorHex),
                 forKey: AppThemePreferences.accentHexKey
             )
+            applySwitchThumbAppearance()
         }
     }
 
@@ -54,7 +56,7 @@ final class ThemeColorSettings {
         }
     }
 
-    var fixedColor: Color { Color(hex: fixedColorHex) }
+    var fixedColor: Color { AppThemePreferences.themeColor(hex: fixedColorHex) }
     var baseAccent: Color { fixedColor }
 
     private init() {
@@ -100,6 +102,21 @@ final class ThemeColorSettings {
         defaults.set(fixedColorHex, forKey: AppThemePreferences.accentHexKey)
         defaults.set(coverDrivenAmbient, forKey: AppThemePreferences.coverDrivenAmbientKey)
         defaults.set(ambientStrength, forKey: AppThemePreferences.ambientStrengthKey)
+        applySwitchThumbAppearance()
+    }
+
+    /// 「白色」主题在深色外观下开关打开时轨道是白的,白圆钮压在上面看不出开没开,圆钮换成灰色。
+    /// 走 UIKit 外观代理而不是 SwiftUI 的开关样式:样式进不了弹出页,外观代理对所有开关都有效。
+    /// 只影响之后才出现的开关,已经在屏幕上的要换个身份重建(主题色设置页就是这么做的)。
+    private func applySwitchThumbAppearance() {
+        UISwitch.appearance().thumbTintColor = usesMonochromeSwitchThumb
+            ? UIColor { $0.userInterfaceStyle == .dark ? .systemGray : .white }
+            : nil
+    }
+
+    /// 开关圆钮当前是不是「白色」主题那一套;设置页拿它当开关的身份,切换时重建开关。
+    var usesMonochromeSwitchThumb: Bool {
+        mode == .fixed && AppThemePreferences.isMonochrome(fixedColorHex)
     }
 
     private static func legacyIconAccentHex(_ iconID: String) -> String {
@@ -151,7 +168,9 @@ final class ThemeColorSettings {
         var green: CGFloat = 0
         var blue: CGFloat = 0
         var alpha: CGFloat = 0
-        guard UIColor(color).getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+        // 小组件按浅色取值,深色时它自己往亮处提;随外观变的主题色(「白色」)在这里取浅色那一档。
+        let resolved = UIColor(color).resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
+        guard resolved.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
             return
         }
         BrandTintStore.save(

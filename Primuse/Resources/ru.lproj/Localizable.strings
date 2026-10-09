@@ -2991,6 +2991,7 @@
 "ai_primuse_relay_failure_upstream_title" = "Ошибка восходящей службы.";
 "source_diagnostics" = "Диагностика источника";
 "theme_color_slate" = "Сланец";
+"theme_color_white" = "Белый";
 "source_type" = "Тип источника";
 "radio_edit" = "Редактировать станцию";
 "status_icloud_unavailable_in_build" = "Эта сборка не включает доступ к iCloud.";

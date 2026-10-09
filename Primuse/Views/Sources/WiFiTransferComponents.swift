@@ -58,6 +58,7 @@ struct TransferButtonStyle: PrimitiveButtonStyle {
             if prominent {
                 Button(action: configuration.trigger) { label(configuration) }
                     .buttonStyle(.borderedProminent)
+                    .prominentLabelOnAccent()
             } else {
                 Button(action: configuration.trigger) { label(configuration) }
                     .buttonStyle(.bordered)
