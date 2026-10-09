@@ -1356,7 +1356,8 @@ actor PrimuseAIRelayClient {
     }
 
     private func ensureAppAttestEnrollment(
-        canReplaceInvalidKey: Bool
+        canReplaceInvalidKey: Bool,
+        canRetryFreshChallenge: Bool = true
     ) async throws -> PrimuseAIRelayCredential {
         let existing = try await credentialStore.load()
         let keyID: String
@@ -1383,7 +1384,10 @@ actor PrimuseAIRelayClient {
         } catch {
             guard canReplaceInvalidKey, Self.isInvalidAppAttestKey(error) else { throw error }
             try await credentialStore.clear()
-            return try await ensureAppAttestEnrollment(canReplaceInvalidKey: false)
+            return try await ensureAppAttestEnrollment(
+                canReplaceInvalidKey: false,
+                canRetryFreshChallenge: canRetryFreshChallenge
+            )
         }
 
         let body = try encoder.encode(EnrollmentInput(
@@ -1394,10 +1398,20 @@ actor PrimuseAIRelayClient {
             appTransactionJWS: storeProof?.appTransactionJWS,
             deviceVerificationID: storeProof?.deviceVerificationID
         ))
-        let response = try await send(
-            EnrollmentOutput.self,
-            request: try makeRequest(path: "/v1/auth/installations", body: body)
-        )
+        let response: EnrollmentOutput
+        do {
+            response = try await send(
+                EnrollmentOutput.self,
+                request: try makeRequest(path: "/v1/auth/installations", body: body)
+            )
+        } catch {
+            // 网络慢、证明拖得久时挑战会过期:换新挑战再证明一次(同一把钥匙被拒就换钥匙)。
+            guard canRetryFreshChallenge, Self.shouldRetryWithFreshProof(after: error) else { throw error }
+            return try await ensureAppAttestEnrollment(
+                canReplaceInvalidKey: canReplaceInvalidKey,
+                canRetryFreshChallenge: false
+            )
+        }
         // 签名交易被拒(比如 Xcode 装的包)也记下这一版,不在每次启动时重发。
         let credential = PrimuseAIRelayCredential(
             keyID: keyID,
@@ -1409,7 +1423,8 @@ actor PrimuseAIRelayClient {
     }
 
     private func ensureStoreKitEnrollment(
-        allowsRefresh: Bool
+        allowsRefresh: Bool,
+        canRetryFreshChallenge: Bool = true
     ) async throws -> PrimuseAIRelayCredential {
         guard await storeKitEnrollmentProvider.isSupported else {
             throw PrimuseAIRelayError.unsupportedDevice
@@ -1424,10 +1439,17 @@ actor PrimuseAIRelayClient {
             appTransactionJWS: material.appTransactionJWS,
             deviceVerificationID: material.deviceVerificationID
         ))
-        let response = try await send(
-            EnrollmentOutput.self,
-            request: try makeRequest(path: "/v1/auth/installations", body: body)
-        )
+        let response: EnrollmentOutput
+        do {
+            response = try await send(
+                EnrollmentOutput.self,
+                request: try makeRequest(path: "/v1/auth/installations", body: body)
+            )
+        } catch {
+            // 挑战过期就换新挑战重来一次;签名交易不用重新取,也不弹登录。
+            guard canRetryFreshChallenge, Self.shouldRetryWithFreshProof(after: error) else { throw error }
+            return try await ensureStoreKitEnrollment(allowsRefresh: false, canRetryFreshChallenge: false)
+        }
         guard let accessToken = response.accessToken, !accessToken.isEmpty else {
             throw PrimuseAIRelayError.invalidResponse
         }

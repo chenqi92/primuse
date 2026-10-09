@@ -897,6 +897,72 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         #endif
     }
 
+    func testExpiredEnrollmentChallengeIsRetriedOnceWithAFreshOne() async throws {
+        let host = "primuse-relay-expired-enrollment.invalid"
+        PrimuseRelayURLProtocol.configure(host: host, expiredEnrollments: 1)
+        let (client, session, attestor, credentials) = makeClient(host: host)
+        defer { session.invalidateAndCancel() }
+
+        let plan = try await client.interpretSearch(AISemanticSearchRequest(query: "night rain"))
+
+        XCTAssertEqual(plan.expandedTerms, ["rainy night"])
+        XCTAssertEqual(PrimuseRelayURLProtocol.requests(host: host).compactMap(\.url?.path), [
+            "/v1/auth/challenge",
+            "/v1/auth/installations",
+            "/v1/auth/challenge",
+            "/v1/auth/installations",
+            "/v1/auth/challenge",
+            "/v1/semantic-search",
+        ])
+        let snapshot = await attestor.snapshot()
+        XCTAssertEqual(snapshot.generateKeyCount, 1)
+        XCTAssertEqual(snapshot.attestationHashes.count, 2)
+        let saved = await credentials.current()
+        XCTAssertEqual(saved?.installationID, "test-installation")
+    }
+
+    func testRepeatedlyExpiredEnrollmentStopsAfterOneRetry() async throws {
+        let host = "primuse-relay-expired-enrollment-twice.invalid"
+        PrimuseRelayURLProtocol.configure(host: host, expiredEnrollments: 2)
+        let (client, session, _, _) = makeClient(host: host)
+        defer { session.invalidateAndCancel() }
+
+        do {
+            _ = try await client.interpretSearch(AISemanticSearchRequest(query: "night rain"))
+            XCTFail("挑战连续过期时只重试一次")
+        } catch {}
+        XCTAssertEqual(
+            PrimuseRelayURLProtocol.requests(host: host).filter { $0.url?.path == "/v1/auth/installations" }.count,
+            2
+        )
+    }
+
+    func testExpiredStoreKitEnrollmentChallengeIsRetriedWithoutInteractiveRefresh() async throws {
+        let host = "primuse-relay-expired-storekit-enrollment.invalid"
+        PrimuseRelayURLProtocol.configure(host: host, expiredEnrollments: 1)
+        let attestor = TestPrimuseAppAttestor(isSupported: false)
+        let storeKitProvider = TestPrimuseStoreKitEnrollmentProvider(
+            material: PrimuseStoreKitEnrollmentMaterial(
+                appTransactionJWS: "signed-app-transaction",
+                deviceVerificationID: "7f1043e4-79dc-4d73-a5b9-08ae0dc04c7f"
+            )
+        )
+        let (client, session, _, _) = makeClient(host: host, attestor: attestor, storeKitProvider: storeKitProvider)
+        defer { session.invalidateAndCancel() }
+
+        _ = try await client.interpretSearch(AISemanticSearchRequest(query: "night rain"))
+        let refreshRequests = await storeKitProvider.refreshRequests()
+
+        XCTAssertEqual(refreshRequests, [false, false])
+        XCTAssertEqual(PrimuseRelayURLProtocol.requests(host: host).compactMap(\.url?.path), [
+            "/v1/auth/challenge",
+            "/v1/auth/installations",
+            "/v1/auth/challenge",
+            "/v1/auth/installations",
+            "/v1/semantic-search",
+        ])
+    }
+
     func testAppAttestEnrollmentCarriesTheSignedAppTransactionWhenReady() async throws {
         let host = "primuse-relay-attest-store-proof.invalid"
         PrimuseRelayURLProtocol.configure(host: host)
@@ -1700,6 +1766,7 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
         var transientFeatureFailuresRemaining: Int?
         var recoveredFeatureBody: String?
         var featureDelay: TimeInterval = 0
+        var enrollmentFailuresRemaining = 0
     }
 
     private static let lock = NSLock()
@@ -1712,7 +1779,8 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
         featureContentType: String = "application/json",
         transientFeatureFailures: Int? = nil,
         recoveredFeatureBody: String? = nil,
-        featureDelay: TimeInterval = 0
+        featureDelay: TimeInterval = 0,
+        expiredEnrollments: Int = 0
     ) {
         lock.lock()
         states[host] = State(
@@ -1721,7 +1789,8 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
             featureContentType: featureContentType,
             transientFeatureFailuresRemaining: transientFeatureFailures,
             recoveredFeatureBody: recoveredFeatureBody,
-            featureDelay: featureDelay
+            featureDelay: featureDelay,
+            enrollmentFailuresRemaining: expiredEnrollments
         )
         lock.unlock()
     }
@@ -1759,6 +1828,11 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
             let purpose = Self.purpose(from: captured.httpBody) ?? "unknown"
             statusCode = 200
             responseBody = #"{"challenge":"\#(purpose)-challenge","request_id":"test-request"}"#
+            responseDelay = 0
+        case "/v1/auth/installations" where state.enrollmentFailuresRemaining > 0:
+            state.enrollmentFailuresRemaining -= 1
+            statusCode = 401
+            responseBody = #"{"error":{"code":"expired_challenge","message":"private"},"request_id":"test-request"}"#
             responseDelay = 0
         case "/v1/auth/installations":
             statusCode = 201
