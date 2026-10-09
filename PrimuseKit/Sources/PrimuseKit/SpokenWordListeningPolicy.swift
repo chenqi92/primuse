@@ -265,10 +265,14 @@ public enum SpokenWordBookGrouping {
     /// Within a book the order is disc, track, then path — the order the
     /// files were numbered in — and never the position, so a rewind does not
     /// reorder chapters. A server catalogue's paths are item ids, so its
-    /// chapters go by title after the track instead. A book holding files
-    /// renamed after tagging goes by path alone: its track tags count two
-    /// releases (rule 6 of `SpokenWordBookGroupingRules`). Books come back with the
-    /// ones being listened to first, most recent first, then the rest by title.
+    /// chapters go by title after the track instead. When the track tags do
+    /// not give every chapter a place of its own (one is missing, two share
+    /// one) and every chapter's name carries a number, the names alone decide:
+    /// "0-1" goes before "1-5" even when its track tag was 0, read as none.
+    /// A book holding files renamed after tagging goes by path alone: its
+    /// track tags count two releases (rule 6 of `SpokenWordBookGroupingRules`).
+    /// Books come back with the ones being listened to first, most recent
+    /// first, then the rest by title.
     public static func books(
         from items: [SpokenWordBookItem],
         catalogSourceIDs: Set<String> = SpokenWordBookSourcePaths.catalogSourceIDs
@@ -290,14 +294,24 @@ public enum SpokenWordBookGrouping {
         }
 
         let books = order.map { key -> SpokenWordBook in
-            let byPath = assignment.pathOrderedBookIDs.contains(key)
-            let members = (groups[key] ?? []).sorted {
-                byPath
-                    ? pathOrder($0, $1)
-                    : chapterOrder(
+            let group = groups[key] ?? []
+            let members: [SpokenWordBookItem]
+            if assignment.pathOrderedBookIDs.contains(key) {
+                members = group.sorted(by: pathOrder)
+            } else if goesByName(group, assignment: assignment, catalogSourceIDs: catalogSourceIDs) {
+                members = group.sorted {
+                    folderThenNameOrder(
                         $0, $1, discs: assignment.derivedDiscs, ranges: assignment.derivedRanges,
                         catalogSourceIDs: catalogSourceIDs
                     )
+                }
+            } else {
+                members = group.sorted {
+                    chapterOrder(
+                        $0, $1, discs: assignment.derivedDiscs, ranges: assignment.derivedRanges,
+                        catalogSourceIDs: catalogSourceIDs
+                    )
+                }
             }
             return makeBook(id: key, items: members, title: assignment.titles[key])
         }
@@ -344,8 +358,17 @@ public enum SpokenWordBookGrouping {
         default:
             break
         }
-        // `/songs/<id>` from a server catalogue says nothing about order; the
-        // title still carries the "01", "02" the files were named with.
+        return nameOrder(lhs, rhs, catalogSourceIDs: catalogSourceIDs)
+    }
+
+    /// Path, then title, numbers compared as numbers. `/songs/<id>` from a
+    /// server catalogue says nothing about order; the title still carries the
+    /// "01", "02" the files were named with.
+    private static func nameOrder(
+        _ lhs: SpokenWordBookItem,
+        _ rhs: SpokenWordBookItem,
+        catalogSourceIDs: Set<String>
+    ) -> Bool {
         if !catalogSourceIDs.contains(lhs.sourceID), !catalogSourceIDs.contains(rhs.sourceID) {
             let byFile = lhs.fileName.localizedStandardCompare(rhs.fileName)
             if byFile != .orderedSame { return byFile == .orderedAscending }
@@ -353,6 +376,70 @@ public enum SpokenWordBookGrouping {
         let byTitle = lhs.title.localizedStandardCompare(rhs.title)
         if byTitle != .orderedSame { return byTitle == .orderedAscending }
         return lhs.id < rhs.id
+    }
+
+    /// A "1-500" folder before a "501-1000" one and "CD 1" before "CD 2",
+    /// then the names: the order the folders and files were numbered in,
+    /// leaving the tags out.
+    private static func folderThenNameOrder(
+        _ lhs: SpokenWordBookItem,
+        _ rhs: SpokenWordBookItem,
+        discs: [String: Int],
+        ranges: [String: Int],
+        catalogSourceIDs: Set<String>
+    ) -> Bool {
+        let leftRange = ranges[lhs.id] ?? 0
+        let rightRange = ranges[rhs.id] ?? 0
+        if leftRange != rightRange { return leftRange < rightRange }
+        let leftDisc = discs[lhs.id] ?? 1
+        let rightDisc = discs[rhs.id] ?? 1
+        if leftDisc != rightDisc { return leftDisc < rightDisc }
+        return nameOrder(lhs, rhs, catalogSourceIDs: catalogSourceIDs)
+    }
+
+    /// Whether a book's chapters go by their names rather than their tags:
+    /// the tags leave a chapter without a place of its own — no track (a
+    /// server reports track 0 as none), or a place another chapter holds —
+    /// while every chapter's name carries a number. Names without numbers
+    /// ("序章", "The Boy Who Lived") say nothing about order, so tags that
+    /// cover most chapters still order those books.
+    private static func goesByName(
+        _ items: [SpokenWordBookItem],
+        assignment: SpokenWordBookGroupingRules.Assignment,
+        catalogSourceIDs: Set<String>
+    ) -> Bool {
+        guard items.count > 1 else { return false }
+        var places = Set<[Int]>()
+        var tagsPlaceEveryChapter = true
+        for item in items {
+            guard let track = item.trackNumber else {
+                tagsPlaceEveryChapter = false
+                break
+            }
+            let place = [
+                assignment.derivedRanges[item.id] ?? 0,
+                item.discNumber ?? assignment.derivedDiscs[item.id] ?? 1,
+                track,
+            ]
+            if !places.insert(place).inserted {
+                tagsPlaceEveryChapter = false
+                break
+            }
+        }
+        guard !tagsPlaceEveryChapter else { return false }
+        return items.allSatisfy { item in
+            let name = catalogSourceIDs.contains(item.sourceID) ? item.title : fileStem(item.fileName)
+            return name.unicodeScalars.contains { scalar in
+                (0x30...0x39).contains(scalar.value) || (0xFF10...0xFF19).contains(scalar.value)
+            }
+        }
+    }
+
+    /// A file's own name, without its folders and extension.
+    private static func fileStem(_ path: String) -> String {
+        let name = path.split(separator: "/").last.map(String.init) ?? path
+        guard let dot = name.lastIndex(of: "."), dot != name.startIndex else { return name }
+        return String(name[..<dot])
     }
 
     /// Path, then title: the files' own numbering, folders ("1-500",

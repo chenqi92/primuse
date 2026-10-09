@@ -339,6 +339,30 @@ struct SpokenWordBookGroupingRulesTests {
         #expect(byPath.first?.items.map(\.id) == ["a", "b"])
     }
 
+    @Test("A server catalogue's untracked chapter sorts by its numbered title, not last")
+    func catalogueUntrackedChapterFollowsTitles() {
+        let items = [
+            item("15", title: "1-5", album: "长夜", track: 1, path: "/songs/77.mp3", source: "navidrome"),
+            item("36", title: "3-6", album: "长夜", track: 3, path: "/songs/12.mp3", source: "navidrome"),
+            item("01", title: "0-1", album: "长夜", path: "/songs/9a.mp3", source: "navidrome"),
+            item("21", title: "2-1", album: "长夜", track: 2, path: "/songs/c4.mp3", source: "navidrome"),
+        ]
+        let books = SpokenWordBookGrouping.books(from: items, catalogSourceIDs: ["navidrome"])
+        #expect(books.count == 1)
+        #expect(books.first?.items.map(\.id) == ["01", "15", "21", "36"])
+    }
+
+    @Test("Range and disc folders still order a book that goes by its names")
+    func foldersOrderBeforeNames() {
+        let books = SpokenWordBookGrouping.books(from: [
+            item("b1", album: "鬼吹灯", path: "鬼吹灯/Disc 2/第1集.mp3"),
+            item("a2", album: "鬼吹灯", track: 2, path: "鬼吹灯/CD 1/第2集.mp3"),
+            item("a1", album: "鬼吹灯", path: "鬼吹灯/CD 1/第1集.mp3"),
+        ])
+        #expect(books.count == 1)
+        #expect(books.first?.items.map(\.id) == ["a1", "a2", "b1"])
+    }
+
     @Test("Only catalogue sources lose their folders")
     func catalogueSetIsPerSource() {
         let items = [

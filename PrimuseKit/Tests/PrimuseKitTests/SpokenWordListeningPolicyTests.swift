@@ -195,14 +195,56 @@ struct SpokenWordBookGroupingTests {
 
     @Test("Discs order before tracks, and file names break ties")
     func discThenTrackThenFile() {
+        // Names without numbers leave the order to the tags.
         let books = SpokenWordBookGrouping.books(from: [
-            chapter("d2t1", disc: 2, track: 1),
-            chapter("d1t2", disc: 1, track: 2),
-            chapter("d1t1", disc: 1, track: 1),
+            chapter("d2t1", disc: 2, track: 1, file: "Muad'Dib.m4b"),
+            chapter("d1t2", disc: 1, track: 2, file: "Arrakis.m4b"),
+            chapter("d1t1", disc: 1, track: 1, file: "Atreides.m4b"),
             chapter("f10", track: nil, file: "Part 10.mp3"),
             chapter("f2", track: nil, file: "Part 2.mp3"),
         ])
         #expect(books[0].items.map(\.id) == ["d1t1", "d1t2", "f2", "f10", "d2t1"])
+    }
+
+    @Test("A chapter missing its track goes by the names when every name is numbered")
+    func numberedNamesOrderWhenATrackIsMissing() {
+        // A server reports track 0 as none: "0-1" would sink below the rest.
+        let books = SpokenWordBookGrouping.books(from: [
+            chapter("b", track: 1, file: "1-5.mp3"),
+            chapter("c", track: 3, file: "3-6.mp3"),
+            chapter("a", track: nil, file: "0-1.mp3"),
+            chapter("d", track: 1, file: "1-12.mp3"),
+        ])
+        #expect(books[0].items.map(\.id) == ["a", "b", "d", "c"])
+    }
+
+    @Test("Tracks two chapters share give way to the numbered names")
+    func numberedNamesOrderWhenTracksRepeat() {
+        let books = SpokenWordBookGrouping.books(from: [
+            chapter("143", track: 1, file: "第143集.mp3"),
+            chapter("001", track: 1, file: "第001集.mp3"),
+            chapter("016", track: 2, file: "第016集.mp3"),
+        ])
+        #expect(books[0].items.map(\.id) == ["001", "016", "143"])
+    }
+
+    @Test("Tracks that place every chapter keep deciding")
+    func completeTracksStillDecide() {
+        let books = SpokenWordBookGrouping.books(from: [
+            chapter("b", track: 1, file: "Part 2.mp3"),
+            chapter("a", track: 2, file: "Part 1.mp3"),
+        ])
+        #expect(books[0].items.map(\.id) == ["b", "a"])
+    }
+
+    @Test("Names without a number for every chapter leave the tags in charge")
+    func unnumberedNamesKeepTagOrder() {
+        let books = SpokenWordBookGrouping.books(from: [
+            chapter("intro", track: nil, file: "Introduction.mp3"),
+            chapter("two", track: 2, file: "02.mp3"),
+            chapter("one", track: 1, file: "01.mp3"),
+        ])
+        #expect(books[0].items.map(\.id) == ["one", "two", "intro"])
     }
 
     @Test("Continue picks the most recently heard unfinished chapter")
