@@ -2,7 +2,7 @@
 
 The production catalog contains one primary icon and seven alternates:
 
-- `00-primuse.png` — primary icon, named Primuse: a folded magenta ribbon that forms a P, with an eighth note set into its bowl. Light puts it on warm white, Dark on deep navy with a soft pink glow, and Tinted renders it as a white ribbon on grey.
+- `00-primuse.png` — primary icon, named Primuse: a folded magenta ribbon that forms a P, with an eighth note cut out of its bowl. Light puts it on warm white, Dark on deep navy with a soft pink glow, and Tinted renders it as a white ribbon on charcoal; in all three the note is negative space showing the plate's own ground.
 - `20-soft-note.png` — the previous primary icon, retained as an alternate: a cream dimensional eighth note with a soft cast shadow, on a mint-to-aqua gradient. It was primary twice (before and after Chris’s Muse) and briefly alternate 18; number 18 is retired.
 - `19-chris-muse.png` — an earlier primary icon, retained as an alternate: Chris’s Muse, designed by Chris, with a white dimensional note on red in Light and a pink-red note on charcoal in Dark.
 - `16-nonoend.png` — NonoEnd: a pink-violet bass clef. Light sets it on a neutral grey gradient with a top-left rim light and a cast shadow; Dark sets the same clef on a deep indigo-to-plum plate.
@@ -15,7 +15,7 @@ Private Library, Lossless Audio, Record Collection, Speaker Play, Muse Spark, Co
 
 ## Appearance system
 
-Primuse, the soft note, the folded note, and Pikaqiu preserve their Light, Dark, and Tinted PNGs without palette normalization; Primuse's three supplied plates share one composition and are only resized to 1024×1024. The soft note's Tinted plate is the one exception to the catalog's usual polarity: it carries a dark glyph on a light field rather than a light glyph on a near-black one.
+Primuse, the soft note, the folded note, and Pikaqiu preserve their Light, Dark, and Tinted PNGs without palette normalization; Primuse's three supplied plates share one composition and are only resized to 1024×1024, except for the note: the supplied Dark and Tinted plates drew it as a filled light shape while Light shows it as a cut-out, so the note was cut out of those two to match. The hole follows the Dark plate's own note outline (crisp everywhere, whereas Light's note head fades into the hole through a highlight) and is refilled with each plate's ground: on Dark a polynomial fit of the navy plus the ribbon glow, refitted from the outer edges as a mix of blurred glyph coverages (residual rms 0.9) so the hole glows exactly like the field around the P; on Tinted the flat ground, lowered from 52 to 28 grey so the cut-out note still separates from the shaded ribbon. The filled-note plates as supplied are in history at 844e2921. The soft note's Tinted plate is the one exception to the catalog's usual polarity: it carries a dark glyph on a light field rather than a light glyph on a near-black one.
 
 The splash and Letter P share one material: a white glyph with its own shading and a soft cast shadow over a single solid colour. Their Dark variants keep the identical composition with a colour-tinted glyph on charcoal, and their Tinted variants use a silver glyph on near-black.
 
@@ -27,7 +27,7 @@ All iOS masters are 1024×1024 full-bleed RGB PNGs with no baked platform corner
 
 ## tvOS
 
-tvOS uses the Dark Primuse plate, since a white plate glares on a television, in independently composed landscape/parallax assets: the ribbon P and its pink glow form the transparent `Front` layer, the navy field is the `Back` layer. Compositing `Front` over `Back` reproduces the square plate (rms 0.8). The ground is a polynomial fit sampled 150 px clear of the glyph so the glow is excluded; the glyph is opaque wherever it differs from the ground by more than 60 levels, and the glow fades out with that difference, keeping its hue. `BrandMark` is the Dark square plate at 256×256. The square-icon generator does not produce any of these; the P stands 56% of canvas height in `Front` and 44% on the Top Shelf, keeping the square plate's centring.
+tvOS uses the Dark Primuse plate, since a white plate glares on a television, in independently composed landscape/parallax assets: the ribbon P and its pink glow form the transparent `Front` layer, the navy field is the `Back` layer, and it shows through the note cut out of `Front`. Compositing `Front` over `Back` reproduces the square plate (rms 0.8). The ground is a polynomial fit sampled 150 px clear of the glyph so the glow is excluded; the glyph is opaque wherever it differs from the ground by more than 60 levels, and the glow fades out with that difference, keeping its hue. `BrandMark` is the Dark square plate at 256×256. The square-icon generator does not produce any of these; the P stands 56% of canvas height in `Front` and 44% on the Top Shelf, keeping the square plate's centring.
 
 The asset structure remains:
 
