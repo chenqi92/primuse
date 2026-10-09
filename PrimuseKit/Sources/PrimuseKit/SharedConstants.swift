@@ -3370,6 +3370,8 @@ public struct MetadataBackfillWorkReasons: OptionSet, Sendable, Equatable {
     public static let artist = Self(rawValue: 1 << 4)
     /// M4A 还不知道装的是 AAC 还是 ALAC。
     public static let audioCodec = Self(rawValue: 1 << 5)
+    /// 24 bit 的 FLAC 还没查是不是 16 bit 补零。
+    public static let effectiveBitDepth = Self(rawValue: 1 << 6)
 }
 
 /// Shared predicate for the background metadata pipeline. Each inspection leg
@@ -3410,7 +3412,8 @@ public enum MetadataBackfillEligibilityPolicy {
         albumArtistUnconfirmed: Bool = false,
         hasArtist: Bool = true,
         artistChecked: Bool = true,
-        audioCodecUnread: Bool = false
+        audioCodecUnread: Bool = false,
+        effectiveBitDepthUnread: Bool = false
     ) -> MetadataBackfillWorkReasons {
         if restrictToBareRows, duration > 0 || durationInspectionComplete {
             // 裸行源读完一遍就收手 —— 唯独整库判定说这一行的专辑艺术家定不了
@@ -3419,11 +3422,15 @@ public enum MetadataBackfillEligibilityPolicy {
             var reasons: MetadataBackfillWorkReasons = hasAlbumTitle && albumArtistUnconfirmed
                 ? [.albumArtist] : []
             if audioCodecUnread { reasons.insert(.audioCodec) }
+            if effectiveBitDepthUnread { reasons.insert(.effectiveBitDepth) }
             return reasons
         }
         var reasons: MetadataBackfillWorkReasons = []
         if audioCodecUnread {
             reasons.insert(.audioCodec)
+        }
+        if effectiveBitDepthUnread {
+            reasons.insert(.effectiveBitDepth)
         }
         if duration <= 0 && !durationInspectionComplete {
             reasons.insert(.duration)
@@ -3463,7 +3470,8 @@ public enum MetadataBackfillEligibilityPolicy {
         albumArtistUnconfirmed: Bool = false,
         hasArtist: Bool = true,
         artistChecked: Bool = true,
-        audioCodecUnread: Bool = false
+        audioCodecUnread: Bool = false,
+        effectiveBitDepthUnread: Bool = false
     ) -> Bool {
         !reasons(
             duration: duration,
@@ -3479,7 +3487,8 @@ public enum MetadataBackfillEligibilityPolicy {
             albumArtistUnconfirmed: albumArtistUnconfirmed,
             hasArtist: hasArtist,
             artistChecked: artistChecked,
-            audioCodecUnread: audioCodecUnread
+            audioCodecUnread: audioCodecUnread,
+            effectiveBitDepthUnread: effectiveBitDepthUnread
         ).isEmpty
     }
 }
@@ -5349,6 +5358,7 @@ public enum ScrapeApplyPolicy {
             result.bitRate = original.bitRate
             result.sampleRate = original.sampleRate
             result.bitDepth = original.bitDepth
+            result.effectiveBitDepth = original.effectiveBitDepth
             result.mvPath = original.mvPath
         }
         if !parts.contains(.cover) {

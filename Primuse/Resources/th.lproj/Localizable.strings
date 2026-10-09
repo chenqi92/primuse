@@ -2146,6 +2146,7 @@
 "metadata_status_reason_album_artist" = "ศิลปินอัลบั้ม";
 "metadata_status_reason_artist" = "ศิลปิน";
 "metadata_status_reason_audio_codec" = "ตัวแปลงสัญญาณเสียง";
+"metadata_status_reason_effective_bit_depth" = "ความลึกบิตจริง";
 "metadata_status_reason_artwork" = "งานศิลปะ";
 "metadata_status_reason_duration" = "ระยะเวลา";
 "metadata_status_reason_separator" = ", ";

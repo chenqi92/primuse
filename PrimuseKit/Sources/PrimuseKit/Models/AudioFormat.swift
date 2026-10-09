@@ -65,6 +65,20 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
     case okt
     case composer669 = "669"
 
+    // 只当编码用、不是文件格式:存在 `Song.audioCodec` 里,说明容器里装的是什么。
+    // 原始值故意不像扩展名,`from(fileExtension:)` 也不会给出它们。
+    case pcm
+    case wmaLossless = "wma-lossless"
+    case wavpackHybrid = "wavpack-hybrid"
+
+    /// 只当编码用的值,不会是 `Song.fileFormat`。
+    public var isCodecOnly: Bool {
+        switch self {
+        case .pcm, .wmaLossless, .wavpackHybrid: true
+        default: false
+        }
+    }
+
     public var isTrackerModule: Bool {
         switch self {
         case .mod, .xm, .it, .s3m, .stm, .mtm, .ptm, .okt, .composer669: true
@@ -76,12 +90,13 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
         // Kept as the historical API name. In practice this means the format
         // needs the SFBAudioEngine/FFmpeg custom decode pipeline.
         switch self {
-        case .mp3, .aac, .m4a, .mp4, .m4v, .mov, .alac, .flac, .wav, .aiff, .aif, .au, .caf:
+        case .mp3, .aac, .m4a, .mp4, .m4v, .mov, .alac, .flac, .wav, .aiff, .aif, .au, .caf, .pcm:
             return false
         case .ape, .dsf, .dff, .ogg, .opus, .wma, .wv, .dts,
              .ac3, .eac3, .mlp, .truehd, .amr, .atrac, .tak, .tta,
              .mpc, .shn, .speex, .qoa, .mka, .webm, .mp2, .w64, .rf64, .ra,
-             .mod, .xm, .it, .s3m, .stm, .mtm, .ptm, .okt, .composer669:
+             .mod, .xm, .it, .s3m, .stm, .mtm, .ptm, .okt, .composer669,
+             .wmaLossless, .wavpackHybrid:
             return true
         }
     }
@@ -97,11 +112,12 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
     public var prefersFFmpegDecoder: Bool {
         switch self {
         case .aac, .dts, .ac3, .eac3, .mlp, .truehd, .amr, .atrac, .tak, .wma, .qoa, .tta,
-             .mka, .webm, .mp2, .w64, .rf64, .ra:
+             .mka, .webm, .mp2, .w64, .rf64, .ra, .wmaLossless:
             return true
         case .mp3, .m4a, .mp4, .m4v, .mov, .alac, .flac, .wav, .aiff, .aif, .au, .caf,
              .ape, .dsf, .dff, .ogg, .opus, .wv, .mpc, .shn, .speex,
-             .mod, .xm, .it, .s3m, .stm, .mtm, .ptm, .okt, .composer669:
+             .mod, .xm, .it, .s3m, .stm, .mtm, .ptm, .okt, .composer669,
+             .pcm, .wavpackHybrid:
             return false
         }
     }
@@ -155,19 +171,22 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
         case .ptm: return "PTM"
         case .okt: return "Oktalyzer"
         case .composer669: return "669"
+        case .pcm: return "PCM"
+        case .wmaLossless: return "WMA Lossless"
+        case .wavpackHybrid: return "WavPack Hybrid"
         }
     }
 
     public var isLossless: Bool {
         switch self {
         case .flac, .alac, .wav, .aiff, .aif, .au, .caf, .ape, .dsf, .dff,
-             .wv, .mlp, .truehd, .tak, .tta, .shn, .w64, .rf64:
+             .wv, .mlp, .truehd, .tak, .tta, .shn, .w64, .rf64, .pcm, .wmaLossless:
             return true
         // Matroska is a container: FLAC inside `.mka` is lossless, Opus is
         // not. Without the codec on the song, claim nothing.
         case .mp3, .aac, .m4a, .mp4, .m4v, .mov, .ogg, .opus, .wma, .dts,
              .ac3, .eac3, .amr, .atrac, .mpc, .speex, .qoa, .mka, .webm, .mp2, .ra,
-             .mod, .xm, .it, .s3m, .stm, .mtm, .ptm, .okt, .composer669:
+             .mod, .xm, .it, .s3m, .stm, .mtm, .ptm, .okt, .composer669, .wavpackHybrid:
             return false
         }
     }
@@ -199,7 +218,7 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
         case "mpp": return .mpc
         case "spx": return .speex
         case "snd": return .au
-        default: return AudioFormat(rawValue: ext.lowercased())
+        default: return AudioFormat(rawValue: ext.lowercased()).flatMap { $0.isCodecOnly ? nil : $0 }
         }
     }
 
@@ -239,16 +258,21 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
         case .ape, .dsf, .dff, .ogg, .opus, .wma, .wv, .dts,
              .ac3, .eac3, .mlp, .truehd, .amr, .atrac, .tak, .tta,
              .mpc, .shn, .speex, .qoa, .mka, .webm, .mp2, .w64, .rf64, .ra,
-             .mod, .xm, .it, .s3m, .stm, .mtm, .ptm, .okt, .composer669: return nil
+             .mod, .xm, .it, .s3m, .stm, .mtm, .ptm, .okt, .composer669,
+             .pcm, .wmaLossless, .wavpackHybrid: return nil
         }
     }
 }
 
 public extension AudioFormat {
     /// 扩展名说明不了编码的容器：`.m4a`/`.mp4` 里可能是 AAC，也可能是 ALAC、
-    /// FLAC 或杜比。这类歌的音质要看 `Song.audioCodec`。
+    /// FLAC 或杜比；WMA 可能是 WMA Lossless；WavPack 可能是混合(有损)模式；
+    /// CAF、Matroska/WebM 什么都能装。这类歌的音质要看 `Song.audioCodec`。
     var holdsVariousCodecs: Bool {
-        self == .m4a || self == .mp4
+        switch self {
+        case .m4a, .mp4, .wma, .wv, .caf, .mka, .webm: true
+        default: false
+        }
     }
 }
 
@@ -259,6 +283,7 @@ public enum ContainerAudioCodecPolicy {
     /// 里几乎只有 AAC，两者都是有损，按 AAC 记。
     public static func codec(sampleEntry fourCC: String) -> AudioFormat? {
         switch fourCC {
+        case "lpcm", "sowt", "twos", "in24", "in32", "fl32", "fl64", "raw ": .pcm
         case "mp4a": .aac
         case "alac": .alac
         case "fLaC": .flac
@@ -277,6 +302,7 @@ public enum ContainerAudioCodecPolicy {
              fourCC("aacf"), fourCC("aacg"):
             .aac
         case fourCC("alac"): .alac
+        case fourCC("lpcm"): .pcm
         case fourCC(".mp3"): .mp3
         case fourCC(".mp2"): .mp2
         case fourCC("flac"): .flac
@@ -289,15 +315,24 @@ public enum ContainerAudioCodecPolicy {
 
     /// 媒体服务器给的编码名（Jellyfin/Emby 的 `Codec`、Plex 的 `audioCodec`）。
     public static func codec(named name: String?) -> AudioFormat? {
-        switch name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "aac", "he-aac", "aac_latm": .aac
-        case "alac": .alac
-        case "flac": .flac
-        case "opus": .opus
-        case "mp3": .mp3
-        case "ac3": .ac3
-        case "eac3": .eac3
-        default: nil
+        guard let name = name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !name.isEmpty else { return nil }
+        if name.hasPrefix("pcm_") || name == "pcm" || name == "lpcm" { return .pcm }
+        switch name {
+        case "aac", "he-aac", "aac_latm": return .aac
+        case "alac": return .alac
+        case "flac": return .flac
+        case "opus": return .opus
+        case "vorbis": return .ogg
+        case "mp3": return .mp3
+        case "mp2": return .mp2
+        case "ac3": return .ac3
+        case "eac3": return .eac3
+        case "dts", "dca": return .dts
+        case "truehd": return .truehd
+        case "wmalossless": return .wmaLossless
+        case "wmav1", "wmav2", "wmapro", "wmavoice": return .wma
+        default: return nil
         }
     }
 

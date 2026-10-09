@@ -1186,7 +1186,7 @@ struct DuplicateSongsView: View {
     }
 
     private func qualityDescription(_ song: Song) -> String {
-        var parts = [song.formattedBitRate, song.formattedSampleRate, song.formattedBitDepth]
+        var parts = [song.formattedBitRate, song.formattedSampleRate, song.formattedBitDepthDetail]
             .compactMap { $0 }
         if song.fileSize > 0 {
             parts.append(ByteCountFormatter.string(fromByteCount: song.fileSize, countStyle: .file))

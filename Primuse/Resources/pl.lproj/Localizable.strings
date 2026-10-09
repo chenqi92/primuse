@@ -2146,6 +2146,7 @@
 "metadata_status_reason_album_artist" = "Artysta albumu";
 "metadata_status_reason_artist" = "artysta";
 "metadata_status_reason_audio_codec" = "kodek audio";
+"metadata_status_reason_effective_bit_depth" = "rzeczywista głębia bitowa";
 "metadata_status_reason_artwork" = "grafika";
 "metadata_status_reason_duration" = "czas trwania";
 "metadata_status_reason_separator" = ",";

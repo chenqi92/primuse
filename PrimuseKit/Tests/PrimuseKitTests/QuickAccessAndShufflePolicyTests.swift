@@ -314,6 +314,27 @@ struct MetadataBackfillEligibilityPolicyTests {
         ))
     }
 
+    @Test("A 24-bit FLAC is checked for zero padding once")
+    func unreadEffectiveBitDepthIsInspected() {
+        #expect(MetadataBackfillEligibilityPolicy.reasons(
+            duration: 180,
+            format: .flac,
+            hasCoverArt: true,
+            artworkGivenUp: false,
+            titleChecked: true,
+            restrictToBareRows: true,
+            effectiveBitDepthUnread: true
+        ) == [.effectiveBitDepth])
+        #expect(!MetadataBackfillEligibilityPolicy.needsBackfill(
+            duration: 180,
+            format: .flac,
+            hasCoverArt: true,
+            artworkGivenUp: false,
+            titleChecked: true,
+            effectiveBitDepthUnread: false
+        ))
+    }
+
     @Test("A legitimately absent album artist completes after inspection")
     func absentAlbumArtistDoesNotLoop() {
         #expect(MetadataBackfillEligibilityPolicy.reasons(

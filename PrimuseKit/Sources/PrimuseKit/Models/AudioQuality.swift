@@ -36,11 +36,22 @@ extension Song {
         return audioCodec
     }
 
-    /// 详情里「格式」那一栏：读出了容器里的编码时写成「ALAC (M4A)」，编码和容器都交代。
+    /// 详情里「格式」那一栏：读出了容器里的编码时写成「ALAC (M4A)」，编码和容器都交代；
+    /// 编码名里已经带着容器名(WMA Lossless、WavPack Hybrid)就只写编码。
     public var detailedFormatName: String {
         let codec = codecFormat
-        guard codec != fileFormat else { return fileFormat.displayName }
-        return "\(codec.displayName) (\(fileFormat.displayName))"
+        let container = fileFormat.displayName
+        guard codec != fileFormat else { return container }
+        let name = codec.displayName
+        if name.range(of: container, options: .caseInsensitive) != nil { return name }
+        return "\(name) (\(container))"
+    }
+
+    /// 判音质用的位深:查出是补零的(24 bit 里只用了 16 位)按实际位数算。
+    public var qualityBitDepth: Int? {
+        guard let effectiveBitDepth, let bitDepth, effectiveBitDepth > 0,
+              effectiveBitDepth < bitDepth else { return bitDepth }
+        return effectiveBitDepth
     }
 
     /// 音质等级。判定规则:
@@ -48,7 +59,7 @@ extension Song {
     /// - lossless format + (sampleRate >= 88.2k 或 bitDepth >= 24) → .hiRes
     /// - 其他 lossless → .lossless
     /// - 有损 (MP3/AAC/Opus 等) → .standard
-    /// M4A 按 `codecFormat` 判：装的是 ALAC 才算无损。
+    /// M4A 按 `codecFormat` 判：装的是 ALAC 才算无损。位深按 `qualityBitDepth`。
     public var audioQuality: AudioQuality {
         if fileFormat == .dsf || fileFormat == .dff {
             return .dsd
@@ -57,7 +68,7 @@ extension Song {
             return .standard
         }
         let highSR = (sampleRate ?? 0) >= 88_200
-        let highBD = (bitDepth ?? 0) >= 24
+        let highBD = (qualityBitDepth ?? 0) >= 24
         if highSR || highBD {
             return .hiRes
         }
@@ -74,10 +85,17 @@ extension Song {
         return "\(sampleRate) Hz"
     }
 
-    /// 位深的用户可读形式，例如 `24 bit`。
+    /// 位深的用户可读形式，例如 `24 bit`。补零出来的写实际位数。
     public var formattedBitDepth: String? {
-        guard let bitDepth, bitDepth > 0 else { return nil }
+        guard let bitDepth = qualityBitDepth, bitDepth > 0 else { return nil }
         return "\(bitDepth) bit"
+    }
+
+    /// 详情里的位深:补零出来的写成「24 bit（实际 16 bit）」。
+    public var formattedBitDepthDetail: String? {
+        guard let declared = bitDepth, declared > 0 else { return nil }
+        guard let actual = qualityBitDepth, actual < declared else { return "\(declared) bit" }
+        return PMString("audio.bit_depth.padded", "\(declared) bit", "\(actual) bit")
     }
 
     /// Song.bitRate 的单位是 kbps，不要再次除以 1000。

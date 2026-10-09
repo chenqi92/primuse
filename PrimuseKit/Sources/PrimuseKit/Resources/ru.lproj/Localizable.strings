@@ -308,6 +308,7 @@
 "fnmusic_fnconnect_hint" = "Введите идентификатор FN. Primuse предпочитает прямой маршрут и возвращается к реле FN Connect. Для входа по-прежнему используется локальная учетная запись NAS.";
 "error.catalog.invalidRangeResponse" = "Неверный ответ в диапазоне байтов.";
 "audio.quality.standard" = "Стандартный";
+"audio.bit_depth.padded" = "%1$@ (фактически %2$@)";
 "ext.tv.sources.removeTitle" = "Удалить источник?";
 "ext.tv.scan.continueBackground" = "Продолжить в фоновом режиме";
 "serverShare.error.malformedResponse" = "Сервер не вернул действительную ссылку на общедоступный медиафайл.";

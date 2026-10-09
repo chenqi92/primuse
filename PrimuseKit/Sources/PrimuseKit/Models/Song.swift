@@ -87,6 +87,16 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         get { unpackNumber(numbers.bitDepth, .bitDepth) }
         set { numbers.bitDepth = packNumber(newValue, replacing: numbers.bitDepth, .bitDepth) }
     }
+    /// 读音频帧查出的实际位深:24 bit 的 FLAC 是 16 bit 补零出来的就记 16。
+    /// 等于 `bitDepth` 表示查过、没补零(或查不出);nil 是还没查。
+    public var effectiveBitDepth: Int? {
+        get { unpackNumber(numbers.effectiveBitDepth, .effectiveBitDepth) }
+        set {
+            numbers.effectiveBitDepth = packNumber(
+                newValue, replacing: numbers.effectiveBitDepth, .effectiveBitDepth
+            )
+        }
+    }
     public var year: Int? {
         get { unpackNumber(numbers.year, .year) }
         set { numbers.year = packNumber(newValue, replacing: numbers.year, .year) }
@@ -217,7 +227,8 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         userMetadataEditedAt: Date? = nil,
         audioVariants: [AudioVariant]? = nil,
         serverLibraryID: String? = nil,
-        audioCodec: AudioFormat? = nil
+        audioCodec: AudioFormat? = nil,
+        effectiveBitDepth: Int? = nil
     ) {
         self.id = id
         self.title = title
@@ -248,6 +259,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.bitRate = bitRate
         self.sampleRate = sampleRate
         self.bitDepth = bitDepth
+        self.effectiveBitDepth = effectiveBitDepth
         self.year = year
         self.serverPlayCount = serverPlayCount
         self.lastModified = lastModified
@@ -280,6 +292,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         case replayGainTrackGain, replayGainTrackPeak, replayGainAlbumGain, replayGainAlbumPeak
         case cueSheetPath, cueStartTime, cueEndTime, revision, titlePinyin, artistPinyin, albumPinyin
         case lyricsText, userMetadataEditedAt, audioVariants, serverLibraryID, audioCodec
+        case effectiveBitDepth
     }
 
     public init(from decoder: Decoder) throws {
@@ -328,7 +341,8 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
             audioVariants: try container.decodeIfPresent([AudioVariant].self, forKey: .audioVariants),
             serverLibraryID: try container.decodeIfPresent(String.self, forKey: .serverLibraryID),
             // 不认识的值（更新版本加的编码）当作不知道，别让整首歌解不出来。
-            audioCodec: try? container.decodeIfPresent(AudioFormat.self, forKey: .audioCodec)
+            audioCodec: try? container.decodeIfPresent(AudioFormat.self, forKey: .audioCodec),
+            effectiveBitDepth: try container.decodeIfPresent(Int.self, forKey: .effectiveBitDepth)
         )
     }
 
@@ -377,6 +391,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         try container.encodeIfPresent(audioVariants, forKey: .audioVariants)
         try container.encodeIfPresent(serverLibraryID, forKey: .serverLibraryID)
         try container.encodeIfPresent(audioCodec, forKey: .audioCodec)
+        try container.encodeIfPresent(effectiveBitDepth, forKey: .effectiveBitDepth)
     }
 
     // MARK: - Packed storage
@@ -420,6 +435,7 @@ private struct SongNumberFields: Hashable, Sendable {
 
     enum Slot: UInt8 {
         case trackNumber, discNumber, bitRate, sampleRate, bitDepth, year, serverPlayCount
+        case effectiveBitDepth
     }
 
     var trackNumber = absent
@@ -429,6 +445,7 @@ private struct SongNumberFields: Hashable, Sendable {
     var bitDepth = absent
     var year = absent
     var serverPlayCount = absent
+    var effectiveBitDepth = absent
 }
 
 /// `Double?` as its bit pattern, so a missing value costs 8 bytes instead of

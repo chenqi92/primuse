@@ -70,14 +70,16 @@ struct ContainerAudioCodecPolicyTests {
         #expect(ContainerAudioCodecPolicy.codec(coreAudioFormatID: fourCC("alac")) == .alac)
         #expect(ContainerAudioCodecPolicy.codec(coreAudioFormatID: fourCC("aac ")) == .aac)
         #expect(ContainerAudioCodecPolicy.codec(coreAudioFormatID: fourCC("aach")) == .aac)
-        #expect(ContainerAudioCodecPolicy.codec(coreAudioFormatID: fourCC("lpcm")) == nil)
+        #expect(ContainerAudioCodecPolicy.codec(coreAudioFormatID: fourCC("lpcm")) == .pcm)
+        #expect(ContainerAudioCodecPolicy.codec(coreAudioFormatID: fourCC("ima4")) == nil)
     }
 
     @Test("Maps media server codec names")
     func serverNames() {
         #expect(ContainerAudioCodecPolicy.codec(named: "ALAC") == .alac)
         #expect(ContainerAudioCodecPolicy.codec(named: " aac ") == .aac)
-        #expect(ContainerAudioCodecPolicy.codec(named: "pcm_s16le") == nil)
+        #expect(ContainerAudioCodecPolicy.codec(named: "pcm_s16le") == .pcm)
+        #expect(ContainerAudioCodecPolicy.codec(named: "mjpeg") == nil)
         #expect(ContainerAudioCodecPolicy.codec(named: nil) == nil)
     }
 

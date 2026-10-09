@@ -22,6 +22,7 @@
 "artist_name_settings_tv_summary" = "%1$d فواصل · %2$d محمي";
 "audio.quality.lossless" = "دون فقدان الجودة";
 "audio.quality.standard" = "المعيار";
+"audio.bit_depth.padded" = "%1$@ (فعليًا %2$@)";
 "auth_method" = "طريقة المصادقة";
 "cue_track_title_format" = "المسار %02d";
 "done" = "تم";

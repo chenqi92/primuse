@@ -2146,6 +2146,7 @@
 "metadata_status_reason_album_artist" = "فنان الالبوم";
 "metadata_status_reason_artist" = "فنان";
 "metadata_status_reason_audio_codec" = "ترميز الصوت";
+"metadata_status_reason_effective_bit_depth" = "عمق البت الفعلي";
 "metadata_status_reason_artwork" = "عمل فني";
 "metadata_status_reason_duration" = "المدة";
 "metadata_status_reason_separator" = ", ";

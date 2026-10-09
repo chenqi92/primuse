@@ -735,6 +735,7 @@
 "ext.widget.wrapped.brand" = "PRIMUSE WRAPPED";
 "audio.quality.lossless" = "무손실";
 "audio.quality.standard" = "표준";
+"audio.bit_depth.padded" = "%1$@ (실제 %2$@)";
 "ftp.encryption.none" = "없음";
 "ftp.encryption.implicitTLS" = "암시적 TLS(FTPS)";
 "ftp.encryption.explicitTLS" = "명시적 TLS(FTPES)";

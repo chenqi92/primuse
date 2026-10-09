@@ -3575,6 +3575,7 @@
 "metadata_status_reason_album_artist" = "앨범 아티스트";
 "metadata_status_reason_artist" = "아티스트";
 "metadata_status_reason_audio_codec" = "오디오 코덱";
+"metadata_status_reason_effective_bit_depth" = "실제 비트 심도";
 "metadata_status_reason_separator" = ", ";
 "metadata_status_pending_reason" = "곡은 이미 보관함에 있지만 지원되는 일부 내장 필드를 아직 검사하지 않았습니다.";
 "metadata_status_retry_reason" = "최근 읽기에서 일시적인 오류가 발생해 직접 또는 나중에 다시 시도할 수 있도록 보관했습니다.";

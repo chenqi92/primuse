@@ -732,6 +732,7 @@
 "ext.widget.wrapped.brand" = "PRIMUSE 年度回顾";
 "audio.quality.lossless" = "无损";
 "audio.quality.standard" = "标准";
+"audio.bit_depth.padded" = "%1$@（实际 %2$@）";
 "ftp.encryption.none" = "无";
 "ftp.encryption.implicitTLS" = "隐式 TLS（FTPS）";
 "ftp.encryption.explicitTLS" = "显式 TLS（FTPES）";

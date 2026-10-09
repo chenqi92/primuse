@@ -3576,6 +3576,7 @@
 "metadata_status_reason_album_artist" = "アルバムアーティスト";
 "metadata_status_reason_artist" = "アーティスト";
 "metadata_status_reason_audio_codec" = "オーディオコーデック";
+"metadata_status_reason_effective_bit_depth" = "実際のビット深度";
 "metadata_status_reason_separator" = "、";
 "metadata_status_pending_reason" = "曲はすでにライブラリにありますが、対応している埋め込みフィールドの一部がまだ検査されていません。";
 "metadata_status_retry_reason" = "直前の読み取りで一時的なエラーが発生したため、手動または後で再試行できるよう保持されています。";

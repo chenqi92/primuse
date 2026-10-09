@@ -1480,6 +1480,9 @@ struct SourceMetadataStatusView: View {
         if reasons.contains(.albumArtist) { values.append(String(localized: "metadata_status_reason_album_artist")) }
         if reasons.contains(.artist) { values.append(String(localized: "metadata_status_reason_artist")) }
         if reasons.contains(.audioCodec) { values.append(String(localized: "metadata_status_reason_audio_codec")) }
+        if reasons.contains(.effectiveBitDepth) {
+            values.append(String(localized: "metadata_status_reason_effective_bit_depth"))
+        }
         return values
     }
 

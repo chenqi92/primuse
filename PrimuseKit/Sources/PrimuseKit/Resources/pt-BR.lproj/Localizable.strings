@@ -22,6 +22,7 @@
 "artist_name_settings_tv_summary" = "Separadores %1$d · Protegido %2$d";
 "audio.quality.lossless" = "Sem perdas";
 "audio.quality.standard" = "Padrão";
+"audio.bit_depth.padded" = "%1$@ (na verdade %2$@)";
 "auth_method" = "Método de autenticação";
 "cue_track_title_format" = "Rastrear %02d";
 "done" = "Concluído";

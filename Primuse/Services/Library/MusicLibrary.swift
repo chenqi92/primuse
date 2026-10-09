@@ -6026,6 +6026,7 @@ final class MusicLibrary {
             || old.bitRate != new.bitRate
             || old.sampleRate != new.sampleRate
             || old.bitDepth != new.bitDepth
+            || old.effectiveBitDepth != new.effectiveBitDepth
             || old.genre != new.genre
             || old.year != new.year
             || old.dateAdded != new.dateAdded

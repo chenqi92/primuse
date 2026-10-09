@@ -21,6 +21,8 @@ enum FileMetadataReader {
         var bitDepth: Int?
         /// 音轨的编码（Core Audio 报的 ALAC / AAC…），M4A 靠它分无损与有损。
         var audioCodec: AudioFormat?
+        /// FLAC 音频帧里查出的实际位深(16 bit 补零成 24 bit 的记 16)。
+        var effectiveBitDepth: Int?
         var replayGainTrackGain: Double?
         var replayGainTrackPeak: Double?
         var replayGainAlbumGain: Double?
@@ -98,6 +100,7 @@ enum FileMetadataReader {
             if (bitRate ?? 0) <= 0 { bitRate = fallback.bitRate }
             if (bitDepth ?? 0) <= 0 { bitDepth = fallback.bitDepth }
             audioCodec = audioCodec ?? fallback.audioCodec
+            effectiveBitDepth = effectiveBitDepth ?? fallback.effectiveBitDepth
             replayGainTrackGain = replayGainTrackGain ?? fallback.replayGainTrackGain
             replayGainTrackPeak = replayGainTrackPeak ?? fallback.replayGainTrackPeak
             replayGainAlbumGain = replayGainAlbumGain ?? fallback.replayGainAlbumGain
@@ -297,6 +300,17 @@ enum FileMetadataReader {
             )
         }
         applySFBAudioFallback(to: &metadata, url: url)
+        if let container = AudioFormat.from(fileExtension: fileExtension),
+           streamHeaderContainers.contains(container) {
+            applyStreamHeaderFallback(
+                to: &metadata,
+                data: readPrefix(from: url, byteCount: streamHeaderReadLimit),
+                fileExtension: fileExtension
+            )
+        }
+        if fileExtension.lowercased() == "flac", let declared = metadata.bitDepth, declared > 16 {
+            metadata.effectiveBitDepth = readFLACEffectiveBitDepth(from: url, declaredBitDepth: declared)
+        }
         applyTrackerModuleDuration(to: &metadata, url: url)
         await applyFFmpegContainerFallback(
             to: &metadata,
@@ -475,8 +489,66 @@ enum FileMetadataReader {
         applyMPEGFrameFallback(to: &metadata, data: data, fileExtension: fileExtension)
         applyContainerTagFallback(to: &metadata, headData: data, tailData: id3TailData,
                                   fileExtension: fileExtension)
+        applyStreamHeaderFallback(to: &metadata, data: data, fileExtension: fileExtension)
+        applyFLACEffectiveBitDepth(to: &metadata, data: data, fileExtension: fileExtension)
         metadata.repairAlbumTitle()
         return metadata
+    }
+
+    /// 编码写在文件头里、AVFoundation 又打不开的容器(CAF 它能打开,这里再核对一遍)。
+    private static let streamHeaderContainers: Set<AudioFormat> = [.wma, .wv, .caf, .mka, .webm]
+    private static let streamHeaderReadLimit = 1024 * 1024
+    /// 查实际位深时读多少音频帧。24 bit 立体声一帧 4096 样本补零后大约十几 KB,够看几十帧。
+    static let flacFrameInspectionByteCount = 1024 * 1024
+
+    /// WMA 的 WMA Lossless、WavPack 的混合模式、CAF / Matroska 里的编码。只补缺的值。
+    private static func applyStreamHeaderFallback(
+        to metadata: inout Metadata,
+        data: Data,
+        fileExtension: String
+    ) {
+        guard let container = AudioFormat.from(fileExtension: fileExtension),
+              streamHeaderContainers.contains(container),
+              let info = AudioStreamHeaderParser.parse(data, container: container) else { return }
+        if metadata.audioCodec == nil { metadata.audioCodec = info.codec }
+        if (metadata.sampleRate ?? 0) <= 0, let rate = info.sampleRate { metadata.sampleRate = rate }
+        if (metadata.bitDepth ?? 0) <= 0, let depth = info.bitDepth { metadata.bitDepth = depth }
+    }
+
+    /// 手里的字节已经越过元数据块、带着音频帧时,顺手查实际位深。
+    private static func applyFLACEffectiveBitDepth(
+        to metadata: inout Metadata,
+        data: Data,
+        fileExtension: String
+    ) {
+        guard fileExtension.lowercased() == "flac", metadata.effectiveBitDepth == nil,
+              let declared = metadata.bitDepth, declared > 16,
+              case .offset(let start) = FLACEffectiveBitDepthParser.audioOffset(in: data),
+              start < data.count else { return }
+        let end = min(data.count, start + flacFrameInspectionByteCount)
+        metadata.effectiveBitDepth = FLACEffectiveBitDepthParser.effectiveBitDepth(
+            frames: data.subdata(in: (data.startIndex + start)..<(data.startIndex + end)),
+            declaredBitDepth: declared
+        )?.effectiveBitDepth
+    }
+
+    /// 本地文件:按块头跳过元数据(大封面不用读进来),读一段音频帧。
+    static func readFLACEffectiveBitDepth(from url: URL, declaredBitDepth: Int) -> Int? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        let offset = FLACEffectiveBitDepthParser.audioOffset { position in
+            guard (try? handle.seek(toOffset: UInt64(position))) != nil,
+                  let bytes = try? handle.read(upToCount: 4), bytes.count == 4 else { return nil }
+            return [UInt8](bytes)
+        }
+        guard case .offset(let start) = offset,
+              (try? handle.seek(toOffset: UInt64(start))) != nil,
+              let frames = try? handle.read(upToCount: flacFrameInspectionByteCount),
+              !frames.isEmpty else { return nil }
+        return FLACEffectiveBitDepthParser.effectiveBitDepth(
+            frames: frames,
+            declaredBitDepth: declaredBitDepth
+        )?.effectiveBitDepth
     }
 
     /// Parses a complete fast-start or trailing `moov` without pretending

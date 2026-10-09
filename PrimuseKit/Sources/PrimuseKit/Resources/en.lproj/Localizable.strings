@@ -733,6 +733,7 @@
 "ext.widget.wrapped.brand" = "PRIMUSE WRAPPED";
 "audio.quality.lossless" = "Lossless";
 "audio.quality.standard" = "Standard";
+"audio.bit_depth.padded" = "%1$@ (actually %2$@)";
 "ftp.encryption.none" = "None";
 "ftp.encryption.implicitTLS" = "Implicit TLS (FTPS)";
 "ftp.encryption.explicitTLS" = "Explicit TLS (FTPES)";

@@ -56,11 +56,12 @@ public enum AppleMusicLocalFileDetailsPolicy {
     /// Maps a Core Audio format ID (`AudioStreamBasicDescription.mFormatID`)
     /// to the format shown in Primuse. PCM keeps the container's name.
     public static func format(codecID: UInt32, fileExtension: String) -> AudioFormat? {
-        if let codec = ContainerAudioCodecPolicy.codec(coreAudioFormatID: codecID) {
-            return codec
-        }
+        // PCM 按容器写(WAV / AIFF),不写成编码层的 PCM。
         if codecID == fourCC("lpcm") {
             return AudioFormat.from(fileExtension: fileExtension)
+        }
+        if let codec = ContainerAudioCodecPolicy.codec(coreAudioFormatID: codecID) {
+            return codec
         }
         return seedFormat(fileExtension: fileExtension)
     }

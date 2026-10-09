@@ -22,6 +22,7 @@
 "artist_name_settings_tv_summary" = "%1$d विभाजक · %2$d संरक्षित";
 "audio.quality.lossless" = "लॉसलेस";
 "audio.quality.standard" = "मानक";
+"audio.bit_depth.padded" = "%1$@ (वास्तव में %2$@)";
 "auth_method" = "प्रामाणिक विधि";
 "cue_track_title_format" = "ट्रैक %02d";
 "done" = "हो गया";

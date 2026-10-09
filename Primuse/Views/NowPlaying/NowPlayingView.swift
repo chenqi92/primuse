@@ -8539,7 +8539,7 @@ struct SongInfoSheet: View {
                     if let sampleRate = song.formattedSampleRate {
                         infoRow(String(localized: "sample_rate_label"), sampleRate)
                     }
-                    if let bitDepth = song.formattedBitDepth {
+                    if let bitDepth = song.formattedBitDepthDetail {
                         infoRow(String(localized: "bit_depth_label"), bitDepth)
                     }
                     if let bitRate = song.formattedBitRate {
@@ -8721,7 +8721,7 @@ struct SongInfoSheet: View {
         if let sampleRate = song.formattedSampleRate {
             rows.append((String(localized: "sample_rate_label"), sampleRate, false))
         }
-        if let bitDepth = song.formattedBitDepth {
+        if let bitDepth = song.formattedBitDepthDetail {
             rows.append((String(localized: "bit_depth_label"), bitDepth, false))
         }
         if let bitRate = song.formattedBitRate {

@@ -2878,7 +2878,8 @@ final class MetadataBackfillService {
                 albumArtistUnconfirmed: input.albumArtistUnconfirmedIDs.contains(song.id),
                 hasArtist: Self.hasVisibleContent(song.artistName),
                 artistChecked: input.artistCheckedIDs.contains(song.id),
-                audioCodecUnread: Self.audioCodecUnread(song)
+                audioCodecUnread: Self.audioCodecUnread(song),
+                effectiveBitDepthUnread: Self.effectiveBitDepthUnread(song)
             )
             let stillNeedsDetails = !workReasons.isEmpty
             let hasTerminalOrSourceFailure = input.failedSongIDs.contains(song.id)
@@ -5129,6 +5130,15 @@ final class MetadataBackfillService {
                 .rounded()
                 .finiteInt()
         }
+        if ext == "flac", metadata.effectiveBitDepth == nil,
+           let declared = metadata.bitDepth ?? song.bitDepth, declared > 16 {
+            metadata.effectiveBitDepth = try await Self.remoteFLACEffectiveBitDepth(
+                head: metadataInputData,
+                declaredBitDepth: declared,
+                fileSize: song.fileSize,
+                fetch: fetchRange
+            )
+        }
         let merged = mergeSong(bare: song, metadata: metadata)
         let artworkStillMissing = Self.needsEmbeddedArtworkBackfill(song)
             && (merged.coverArtFileName?.isEmpty ?? true)
@@ -5459,7 +5469,12 @@ final class MetadataBackfillService {
             // 读过这一遍就记下, 认不出编码也记 (存容器本身), 回填不会为它再读。
             audioCodec: ContainerAudioCodecPolicy.storedCodec(metadata.audioCodec, container: mergedFormat)
                 ?? bare.audioCodec
-                ?? ContainerAudioCodecPolicy.inspectedCodec(nil, container: mergedFormat)
+                ?? ContainerAudioCodecPolicy.inspectedCodec(nil, container: mergedFormat),
+            // 查不出也记成标称位深, 回填不会为它再读。
+            effectiveBitDepth: metadata.effectiveBitDepth ?? bare.effectiveBitDepth
+                ?? (mergedFormat == .flac
+                    ? FLACEffectiveBitDepthParser.inspectedBitDepth(nil, declared: metadata.bitDepth ?? bare.bitDepth)
+                    : nil)
         )
         let preserved = SongUserMetadataPolicy.preservingUserEdits(from: bare, in: merged)
         if bare.userMetadataEditedAt != nil,
@@ -5583,7 +5598,7 @@ final class MetadataBackfillService {
                 artistCheckedIDs: input.artistCheckedIDs
             )
             guard !reasons.isEmpty else { continue }
-            guard !reasons.isSubset(of: [.albumArtist, .audioCodec]) else {
+            guard !reasons.isSubset(of: [.albumArtist, .audioCodec, .effectiveBitDepth]) else {
                 // 攒够一整批就不用再记了: 上层一次最多取 `limit` 行。
                 if recheckOnly.count < limit { recheckOnly.append(song) }
                 continue
@@ -5718,7 +5733,8 @@ final class MetadataBackfillService {
             albumArtistUnconfirmed: albumArtistUnconfirmedIDs.contains(song.id),
             hasArtist: !(song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
             artistChecked: artistCheckedIDs.contains(song.id),
-            audioCodecUnread: Self.audioCodecUnread(song)
+            audioCodecUnread: Self.audioCodecUnread(song),
+            effectiveBitDepthUnread: Self.effectiveBitDepthUnread(song)
         )
     }
 
@@ -5768,7 +5784,8 @@ final class MetadataBackfillService {
             albumArtistUnconfirmed: albumArtistUnconfirmedIDs.contains(song.id),
             hasArtist: !(song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
             artistChecked: artistCheckedIDs.contains(song.id),
-            audioCodecUnread: Self.audioCodecUnread(song)
+            audioCodecUnread: Self.audioCodecUnread(song),
+            effectiveBitDepthUnread: Self.effectiveBitDepthUnread(song)
         )
     }
 
@@ -5786,7 +5803,8 @@ final class MetadataBackfillService {
         albumArtistUnconfirmed: Bool,
         hasArtist: Bool,
         artistChecked: Bool,
-        audioCodecUnread: Bool
+        audioCodecUnread: Bool,
+        effectiveBitDepthUnread: Bool
     ) -> MetadataBackfillWorkReasons {
         return MetadataBackfillEligibilityPolicy.reasons(
             duration: duration,
@@ -5802,7 +5820,8 @@ final class MetadataBackfillService {
             albumArtistUnconfirmed: albumArtistUnconfirmed,
             hasArtist: hasArtist,
             artistChecked: artistChecked,
-            audioCodecUnread: audioCodecUnread
+            audioCodecUnread: audioCodecUnread,
+            effectiveBitDepthUnread: effectiveBitDepthUnread
         )
     }
 
@@ -5812,6 +5831,70 @@ final class MetadataBackfillService {
             && !song.isStandaloneMusicVideo
             && ContainerAudioCodecPolicy.isUnread(format: song.fileFormat, audioCodec: song.audioCodec)
     }
+
+    /// 标着 24 bit 的 FLAC 还没查是不是 16 bit 补零。
+    private nonisolated static func effectiveBitDepthUnread(_ song: Song) -> Bool {
+        !song.isStreamDescriptor
+            && FLACEffectiveBitDepthParser.needsInspection(
+                format: song.fileFormat,
+                bitDepth: song.bitDepth,
+                effectiveBitDepth: song.effectiveBitDepth
+            )
+    }
+
+    /// 远端 FLAC 的实际位深。手里的字节没走到元数据块链末尾时,缺哪个块头补读那 4 个字节
+    /// (大封面不用整张下载),再读一段音频帧。读不到不算这首歌失败,当作查不出。
+    private static func remoteFLACEffectiveBitDepth(
+        head: Data,
+        declaredBitDepth: Int,
+        fileSize: Int64,
+        fetch: (Int64, Int64) async throws -> Data
+    ) async throws -> Int? {
+        let bytes = [UInt8](head)
+        var fetchedHeaders: [Int: [UInt8]] = [:]
+        var audioStart: Int?
+        do {
+            for _ in 0..<8 where audioStart == nil {
+                let located = FLACEffectiveBitDepthParser.audioOffset { offset in
+                    if offset >= 0, offset + 4 <= bytes.count { return Array(bytes[offset..<(offset + 4)]) }
+                    return fetchedHeaders[offset]
+                }
+                switch located {
+                case .offset(let start):
+                    audioStart = start
+                case .needsHeader(let position):
+                    guard fileSize <= 0 || Int64(position) + 4 <= fileSize else { return nil }
+                    let header = try await fetch(Int64(position), 4)
+                    guard header.count >= 4 else { return nil }
+                    fetchedHeaders[position] = [UInt8](header.prefix(4))
+                case .invalid:
+                    return nil
+                }
+            }
+            guard let audioStart else { return nil }
+            var length = Int64(remoteFLACFrameInspectionByteCount)
+            if fileSize > 0 { length = min(length, fileSize - Int64(audioStart)) }
+            guard length > 0 else { return nil }
+            let frames: Data
+            if audioStart + Int(length) <= bytes.count {
+                frames = head.subdata(in: (head.startIndex + audioStart)..<(head.startIndex + audioStart + Int(length)))
+            } else {
+                frames = try await fetch(Int64(audioStart), length)
+            }
+            return FLACEffectiveBitDepthParser.effectiveBitDepth(
+                frames: frames,
+                declaredBitDepth: declaredBitDepth
+            )?.effectiveBitDepth
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            plog("📥 Backfill: FLAC bit-depth probe skipped: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// 远端只补读这么多音频帧:补零的 24 bit 立体声一帧十来 KB,够看二三十帧。
+    private static let remoteFLACFrameInspectionByteCount = 384 * 1024
 
     private static func needsEmbeddedArtworkBackfill(_ song: Song) -> Bool {
         MetadataBackfillEligibilityPolicy.embeddedArtworkFormats.contains(song.fileFormat)

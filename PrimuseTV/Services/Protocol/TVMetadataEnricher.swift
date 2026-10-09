@@ -627,6 +627,7 @@ enum TVMetadataEnricher {
         output.bitRate = metadata.bitRate ?? output.bitRate
         output.sampleRate = metadata.sampleRate ?? output.sampleRate
         output.bitDepth = metadata.bitDepth ?? output.bitDepth
+        output.effectiveBitDepth = metadata.effectiveBitDepth ?? output.effectiveBitDepth
         // 读过这一遍就记下, 认不出编码也记 (存容器本身), 扫描不会为它再读。
         output.audioCodec = ContainerAudioCodecPolicy.storedCodec(
             metadata.audioCodec, container: output.fileFormat

@@ -22,6 +22,7 @@
 "artist_name_settings_tv_summary" = "%1$d ตัวคั่น · %2$d ได้รับการป้องกัน";
 "audio.quality.lossless" = "ลอสเลส";
 "audio.quality.standard" = "มาตรฐาน";
+"audio.bit_depth.padded" = "%1$@ (จริง ๆ %2$@)";
 "auth_method" = "วิธีการรับรองความถูกต้อง";
 "cue_track_title_format" = "แทร็ก %02d";
 "done" = "เสร็จสิ้น";

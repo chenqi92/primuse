@@ -1180,7 +1180,7 @@ struct ImmersivePlayerView: View {
         return ImmersiveAudioSpec.line(
             format: song.codecFormat.displayName,
             sampleRate: song.sampleRate,
-            bitDepth: song.bitDepth,
+            bitDepth: song.qualityBitDepth,
             audioVariants: song.audioVariants
         )
     }

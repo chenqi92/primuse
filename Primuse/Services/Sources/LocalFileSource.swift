@@ -1054,7 +1054,8 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                 revision: combinedRevision,
                 audioCodec: ContainerAudioCodecPolicy.storedCodec(
                     metadata.audioCodec, container: descriptor.format
-                )
+                ),
+                effectiveBitDepth: metadata.effectiveBitDepth
             )
             return ConnectorScannedSong(
                 song: song,

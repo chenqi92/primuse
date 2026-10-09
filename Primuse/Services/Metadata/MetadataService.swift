@@ -25,6 +25,8 @@ actor MetadataService {
         var bitDepth: Int? = nil
         /// 音轨编码（ALAC / AAC…），只有读到音轨格式时才有。
         var audioCodec: AudioFormat? = nil
+        /// FLAC 查出的实际位深,只有读到音频帧时才有。
+        var effectiveBitDepth: Int? = nil
         var coverArtData: Data? = nil
         var coverArtFileName: String? = nil
         var lyricsFileName: String? = nil
@@ -138,6 +140,7 @@ actor MetadataService {
             bitRate: embedded.bitRate,
             bitDepth: embedded.bitDepth,
             audioCodec: embedded.audioCodec,
+            effectiveBitDepth: embedded.effectiveBitDepth,
             coverArtData: embedded.coverArtData,
             replayGainTrackGain: embedded.replayGainTrackGain,
             replayGainTrackPeak: embedded.replayGainTrackPeak,
@@ -295,6 +298,7 @@ actor MetadataService {
             bitRate: embedded.bitRate,
             bitDepth: embedded.bitDepth,
             audioCodec: embedded.audioCodec,
+            effectiveBitDepth: embedded.effectiveBitDepth,
             coverArtData: embedded.coverArtData,
             replayGainTrackGain: embedded.replayGainTrackGain,
             replayGainTrackPeak: embedded.replayGainTrackPeak,

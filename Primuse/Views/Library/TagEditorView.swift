@@ -1246,7 +1246,7 @@ struct TagEditorView: View {
     }
 
     private var macAudioSpec: String {
-        let parts = [song.formattedSampleRate, song.formattedBitDepth, song.formattedBitRate]
+        let parts = [song.formattedSampleRate, song.formattedBitDepthDetail, song.formattedBitRate]
             .compactMap { $0 }
         return parts.isEmpty ? "—" : parts.joined(separator: " · ")
     }

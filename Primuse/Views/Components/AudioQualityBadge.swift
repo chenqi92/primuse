@@ -202,7 +202,7 @@ struct NowPlayingAudioTagRow: View {
         NowPlayingAudioInfoTextPolicy.tagDetail(
             formatName: song.codecFormat.displayName,
             sampleRate: song.sampleRate,
-            bitDepth: song.bitDepth,
+            bitDepth: song.qualityBitDepth,
             bitRate: song.bitRate,
             isDSD: song.audioQuality == .dsd,
             isLossless: song.audioQuality != .standard
@@ -213,7 +213,7 @@ struct NowPlayingAudioTagRow: View {
         var parts = NowPlayingAudioInfoTextPolicy.specParts(
             formatName: song.codecFormat.displayName,
             sampleRate: song.sampleRate,
-            bitDepth: song.bitDepth,
+            bitDepth: song.qualityBitDepth,
             bitRate: song.bitRate,
             isDSD: song.audioQuality == .dsd
         )

@@ -3172,6 +3172,7 @@
 "ai_provider_preset_deepseek_openai" = "DeepSeek · OpenAI formatı";
 "metadata_status_reason_artist" = "sanatçı";
 "metadata_status_reason_audio_codec" = "ses kodeği";
+"metadata_status_reason_effective_bit_depth" = "gerçek bit derinliği";
 "Next Track" = "Sonraki Parça";
 "ai_recommendation_scene_focus" = "Odaklanma";
 "Endpoint Scripts" = "Uç Nokta Komut Dosyaları";

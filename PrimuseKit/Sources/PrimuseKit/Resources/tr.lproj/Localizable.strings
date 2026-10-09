@@ -308,6 +308,7 @@
 "fnmusic_fnconnect_hint" = "FN kimliğini girin. Primuse doğrudan bir rotayı tercih eder ve FN Connect rölesine geri döner. Oturum açma işlemi hâlâ yerel NAS hesabını kullanıyor.";
 "error.catalog.invalidRangeResponse" = "Bayt aralığı yanıtı geçersiz.";
 "audio.quality.standard" = "Standart";
+"audio.bit_depth.padded" = "%1$@ (aslında %2$@)";
 "ext.tv.sources.removeTitle" = "Kaynak Kaldırılsın mı?";
 "ext.tv.scan.continueBackground" = "Arka Planda Devam Et";
 "serverShare.error.malformedResponse" = "Sunucu geçerli bir genel medya bağlantısı döndürmedi.";

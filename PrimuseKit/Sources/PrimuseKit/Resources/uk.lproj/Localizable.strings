@@ -308,6 +308,7 @@
 "fnmusic_fnconnect_hint" = "Введіть FN ID. Primuse віддає перевагу прямому маршруту та повертається до реле FN Connect. Для входу досі використовується локальний обліковий запис NAS.";
 "error.catalog.invalidRangeResponse" = "Відповідь діапазону байтів недійсна.";
 "audio.quality.standard" = "Стандарт";
+"audio.bit_depth.padded" = "%1$@ (фактично %2$@)";
 "ext.tv.sources.removeTitle" = "Видалити джерело?";
 "ext.tv.scan.continueBackground" = "Продовжити у фоновому режимі";
 "serverShare.error.malformedResponse" = "Сервер не повернув дійсне загальнодоступне посилання.";

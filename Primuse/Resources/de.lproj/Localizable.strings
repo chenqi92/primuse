@@ -3575,6 +3575,7 @@
 "metadata_status_reason_album_artist" = "Albuminterpret";
 "metadata_status_reason_artist" = "Interpret";
 "metadata_status_reason_audio_codec" = "Audiocodec";
+"metadata_status_reason_effective_bit_depth" = "tatsächliche Bittiefe";
 "metadata_status_reason_separator" = ", ";
 "metadata_status_pending_reason" = "Der Titel ist bereits in der Mediathek, aber einige unterstützte eingebettete Felder wurden noch nicht geprüft.";
 "metadata_status_retry_reason" = "Beim letzten Lesen trat ein vorübergehender Fehler auf; der Titel bleibt für einen manuellen oder späteren Versuch erhalten.";

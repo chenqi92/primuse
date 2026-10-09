@@ -948,6 +948,7 @@ actor SynologyScanner {
         var bitRate: Int?
         var bitDepth: Int?
         var audioCodec: AudioFormat?
+        var effectiveBitDepth: Int?
         var coverArtFileName: String?
         var lyricsFileName: String?
         var embeddedCoverData: Data?
@@ -1039,6 +1040,7 @@ actor SynologyScanner {
             bitRate = embedded.bitRate
             bitDepth = embedded.bitDepth
             audioCodec = embedded.audioCodec
+            effectiveBitDepth = embedded.effectiveBitDepth
             embeddedCoverData = embedded.coverArtData
             embeddedLyricsText = embedded.lyricsText
             replayGainTrackGain = embedded.replayGainTrackGain
@@ -1130,7 +1132,8 @@ actor SynologyScanner {
                         replayGainTrackPeak: replayGainTrackPeak,
                         replayGainAlbumGain: replayGainAlbumGain,
                         replayGainAlbumPeak: replayGainAlbumPeak,
-                        audioCodec: audioCodec)
+                        audioCodec: audioCodec,
+                        effectiveBitDepth: effectiveBitDepth)
     }
 
     private func makeSong(
@@ -1144,7 +1147,8 @@ actor SynologyScanner {
         replayGainTrackPeak: Double? = nil,
         replayGainAlbumGain: Double? = nil,
         replayGainAlbumPeak: Double? = nil,
-        audioCodec: AudioFormat? = nil
+        audioCodec: AudioFormat? = nil,
+        effectiveBitDepth: Int? = nil
     ) -> Song {
         let artistID = artist.map { generateID(sourceID: "", path: $0.lowercased()) }
         let resolvedAlbumArtist = AlbumGroupingPolicy.resolvedAlbumArtistName(
@@ -1171,7 +1175,8 @@ actor SynologyScanner {
             replayGainTrackPeak: replayGainTrackPeak,
             replayGainAlbumGain: replayGainAlbumGain,
             replayGainAlbumPeak: replayGainAlbumPeak,
-            audioCodec: ContainerAudioCodecPolicy.storedCodec(audioCodec, container: format)
+            audioCodec: ContainerAudioCodecPolicy.storedCodec(audioCodec, container: format),
+            effectiveBitDepth: effectiveBitDepth
         )
     }
 

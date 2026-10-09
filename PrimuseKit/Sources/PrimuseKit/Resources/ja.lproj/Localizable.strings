@@ -735,6 +735,7 @@
 "ext.widget.wrapped.brand" = "PRIMUSE WRAPPED";
 "audio.quality.lossless" = "ロスレス";
 "audio.quality.standard" = "標準";
+"audio.bit_depth.padded" = "%1$@（実際は %2$@）";
 "ftp.encryption.none" = "なし";
 "ftp.encryption.implicitTLS" = "暗黙的 TLS（FTPS）";
 "ftp.encryption.explicitTLS" = "明示的 TLS（FTPES）";
