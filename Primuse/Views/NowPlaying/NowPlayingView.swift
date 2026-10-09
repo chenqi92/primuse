@@ -6819,12 +6819,11 @@ struct NowPlayingView: View {
                 requiresSong: true
             )
         case .lyrics:
-            // 底栏原来的写法:看歌词时换成「回到封面」,图标用一级色。
+            // 看歌词时换成「回到封面」。图标已经说明了去向,亮度跟旁边的按钮一样,
+            // 不再当成选中提亮——否则切到歌词页这一个键比 AirPlay、队列亮一截。
             return NowPlayingControlFace(
                 symbol: showLyrics ? "photo" : "quote.bubble",
-                label: showLyrics ? String(localized: "a11y_close_lyrics") : String(localized: "a11y_open_lyrics"),
-                isActive: showLyrics,
-                activeTint: appearance.primary
+                label: showLyrics ? String(localized: "a11y_close_lyrics") : String(localized: "a11y_open_lyrics")
             )
         case .airPlay:
             return NowPlayingControlFace(symbol: "airplayaudio", label: String(localized: "player_controls_action_airplay"))
