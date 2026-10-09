@@ -401,12 +401,13 @@ struct CachedArtworkView: View {
         }
     }
 
-    /// 占位与封面在淡入期间会同时存在，必须有一个明确的同框容器 —— 宿主多半是
-    /// 歌曲行里的 HStack，靠外面的 frame / aspectRatio 兜不住并存的两个分支。
-    /// 单子视图时 ZStack 的尺寸与位置就等于那个子视图，稳态布局与原来一致。
+    /// 先由调用方的尺寸确定裁剪边界，再把封面叠进去。aspect-fill 的非方形图会
+    /// 超出提议尺寸，直接放进 ZStack 会把容器和圆角裁剪一起撑大，越界到相邻栏。
+    /// 淡入期间并存的占位与封面也必须共用这个固定尺寸与中心。
     private var coverContent: some View {
-        ZStack {
+        GeometryReader { geometry in
             coverLayer
+                .frame(width: geometry.size.width, height: geometry.size.height)
         }
     }
 
