@@ -1537,6 +1537,18 @@ struct NowPlayingView: View {
         #endif
     }
 
+    /// 竖屏封面的边长:两边各留 22,高度不超过整屏的 42%(#192:封面大一些,和下面几行一起往上提)。
+    /// 矮屏上放不下时由版面再压缩。
+    static func portraitArtworkSize(in size: CGSize) -> CGFloat {
+        max(0, min(size.width - 44, size.height * 0.42))
+    }
+
+    /// 竖屏播放键、音量与底排之间多拉开的距离:屏幕越高拉得越开,矮屏(700 以下)照旧。
+    /// 封面与歌词两种模式用同一个值,切换时这几行不挪位置。
+    static func portraitControlGap(forHeight height: CGFloat) -> CGFloat {
+        min(max(0, height - 700) * 0.12, 30)
+    }
+
     /// 竖屏布局左右各让多少。不居中时就是安全区(按侧取值);整屏居中时:
     /// 封面宽度不超过「两边都不碰遮挡区」的上限,封面下面几行只在灵动岛长到它们那段高度时才两边一起让,
     /// 歌词模式的歌词与顶栏是会滚动 / 贴边的内容,在遮挡那一侧让开。
@@ -1552,7 +1564,7 @@ struct NowPlayingView: View {
             return NowPlayingPortraitInsets(
                 containerLeading: safeInsets.leading,
                 containerTrailing: safeInsets.trailing,
-                artworkSize: min(geo.size.width - 60, geo.size.height * 0.38),
+                artworkSize: Self.portraitArtworkSize(in: geo.size),
                 mediaWidthLimit: .infinity,
                 rows: 0,
                 lyricsLeading: 0,
@@ -1563,7 +1575,7 @@ struct NowPlayingView: View {
         let height = Double(geo.size.height)
         // 把手那一段:上安全区 + 6 + 5 + 10。
         let artworkTop = Double(topSafeArea) + 21
-        let preferred = min(geo.size.width - 60, geo.size.height * 0.38)
+        let preferred = Self.portraitArtworkSize(in: geo.size)
         let limit = CGFloat(OcclusionAvoidancePolicy.centeredWidthLimit(
             regions: occlusions,
             bandMinY: artworkTop,
@@ -4347,6 +4359,9 @@ struct NowPlayingView: View {
         let mediaWidth = player.isMusicVideoPlaybackActive
             ? min(max(0, geo.size.width - 20), 720, insets.mediaWidthLimit)
             : artSize
+        // 封面那一块只要封面加上下各 12 的高度,封面、歌名一起靠上;多出来的高度放在歌名与进度条之间。
+        let artworkRegionHeight = (player.isMusicVideoPlaybackActive ? mediaWidth * 9 / 16 : mediaWidth) + 24
+        let controlGap = Self.portraitControlGap(forHeight: geo.size.height)
 
         if usesAudiobookPlayerDesign, !isLyricsImmersive {
             // 包一层壳子,别在这个分支里现场构造整套版面(见 `NowPlayingDeferredContent`)。
@@ -4464,6 +4479,9 @@ struct NowPlayingView: View {
                                 .onDisappear { isLyricsChromeCollapsed = false }
                         }
                     } else {
+                        // 把手与封面之间:高屏多空一点,矮屏先压这里。
+                        Spacer(minLength: 0)
+                            .frame(maxHeight: 16)
                         GeometryReader { artworkGeometry in
                             // Text and controls retain their height; artwork uses the remaining space.
                             let ratio: CGFloat = player.isMusicVideoPlaybackActive ? 16.0 / 9.0 : 1
@@ -4483,6 +4501,9 @@ struct NowPlayingView: View {
                                 }
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
+                        // 封面先拿高度(不超过它自己那一块),上下的空白只分剩下的;矮屏照旧按剩下的高度缩封面。
+                        .frame(maxHeight: artworkRegionHeight)
+                        .layoutPriority(1)
                         // 进出场的是这一层 GeometryReader, 转场要挂在它身上才生效 (挂在里面的封面上时
                         // 这一层按默认淡入, 回封面页时大封面仍是半透明的)。移动的封面始终压在淡入淡出的歌词上面。
                         .transition(lyricsHandoffArtworkTransition)
@@ -4491,6 +4512,9 @@ struct NowPlayingView: View {
 
                     // Song info (player mode only — in lyrics mode it's in the top bar)
                     if !showLyrics {
+                        Spacer(minLength: 0)
+                            .frame(maxHeight: 16)
+
                         nowPlayingSongHeader(titleFont: .title3, metadataFont: .body, inlineActions: !usesToolColumn)
                             .matchedLayoutElement(.songHeading, in: layoutNamespace)
                             .padding(.horizontal, 26)
@@ -4501,6 +4525,9 @@ struct NowPlayingView: View {
                             .padding(.horizontal, 26)
                             .padding(.horizontal, insets.rows)
                             .pmLayoutSwitchFade()
+
+                        // 歌名紧跟封面,剩下的高度都在这里:进度条以下几行贴着底部,和歌词模式同一位置。
+                        Spacer(minLength: 0)
                     }
 
                     // Progress — 抽成独立子 view 隔离 player.currentTime 的高频
@@ -4516,12 +4543,12 @@ struct NowPlayingView: View {
                         // Controls
                         portraitTransportRow
                         .matchedLayoutElement(.transport, in: layoutNamespace)
-                        .padding(.top, 12)
+                        .padding(.top, 12 + controlGap)
                         .padding(.horizontal, insets.rows)
 
                         if showsPlayerVolumeBar {
                             playerVolumeRow
-                                .padding(.horizontal, 26).padding(.top, 10)
+                                .padding(.horizontal, 26).padding(.top, 10 + controlGap)
                                 .padding(.horizontal, insets.rows)
                                 .pmLayoutSwitchFade()
                         }
@@ -4531,6 +4558,7 @@ struct NowPlayingView: View {
                         // 竖栏里排着那一列按钮时(iPhone Duo)这一排的键都在那一列里,这里不再重复。
                         if !usesToolColumn {
                             portraitBottomBar
+                            .padding(.top, controlGap / 2)
                             .padding(.horizontal, insets.rows)
                             .pmLayoutSwitchFade()
                         }
@@ -6066,11 +6094,9 @@ struct NowPlayingView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                Text(player.currentSong?.title ?? "")
-                    .font(titleFont.weight(.bold))
+                // 歌名与下面的艺人都只占一行,放不下时慢慢滚动(#192)。
+                MarqueeText(text: player.currentSong?.title ?? "", font: titleFont.weight(.bold))
                     .foregroundStyle(appearance.primary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
                     .contentTransition(.opacity)
                     .pmAnimation(.trackChange, value: player.currentSong?.id)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -6088,7 +6114,7 @@ struct NowPlayingView: View {
                 }
                 .fixedSize()
             }
-            nowPlayingMetadataLinks(font: metadataFont)
+            nowPlayingMetadataLinks(font: metadataFont, scrolls: true)
             nowPlayingChapterLink
             nowPlayingMedleyBadge
         }
@@ -6335,16 +6361,23 @@ struct NowPlayingView: View {
     /// - Parameter lineLimit: 手机横屏的右栏按固定高度排版，多出来的一行会顶开
     ///   下面的进度条与传输键，所以那边传 1。
     @ViewBuilder
-    private func nowPlayingMetadataLinks(font: Font, lineLimit: Int = 2) -> some View {
+    /// - Parameter scrolls: 只占一行、放不下时慢慢滚动(竖屏歌名下面那一行);否则最多 `lineLimit` 行。
+    private func nowPlayingMetadataLinks(font: Font, lineLimit: Int = 2, scrolls: Bool = false) -> some View {
         let artistName = currentArtistDisplayName
         let albumTitle = player.currentSong?.albumTitle ?? ""
         let metadata = [artistName, albumTitle].filter { !$0.isEmpty }.joined(separator: " · ")
-        let label = Text(verbatim: metadata)
-            .font(font)
+        let label = Group {
+            if scrolls {
+                MarqueeText(text: metadata, font: font)
+            } else {
+                Text(verbatim: metadata)
+                    .font(font)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(lineLimit)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
             .foregroundStyle(appearance.secondary)
-            .multilineTextAlignment(.leading)
-            .lineLimit(lineLimit)
-            .fixedSize(horizontal: false, vertical: true)
             .contentTransition(.opacity)
             .pmAnimation(.trackChange, value: player.currentSong?.id)
             .frame(maxWidth: .infinity, alignment: .leading)
