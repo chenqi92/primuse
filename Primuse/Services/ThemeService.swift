@@ -1,5 +1,6 @@
 import Foundation
 import MusicKit
+import PrimuseKit
 import SwiftUI
 #if os(iOS)
 import UIKit
@@ -19,6 +20,9 @@ final class ThemeService {
     private(set) var artworkDarkAccent: Color = ThemeService.defaultDarkAccent
     private(set) var artworkVibrancy: Double = 0
     private(set) var artworkLuminance: Double = 0.18
+    /// 「流动色彩」背景用的几个代表色,从当前封面的小图里挑(和上面几个颜色同一次读图)。
+    /// 没有封面、或封面只有一种颜色时为空,播放页改用下面几个主题色。
+    private(set) var artworkLiquidPalette: [LiquidBackdropColor] = []
 
     private(set) var colorMode = AppThemePreferences.defaultColorMode
     private(set) var coverDrivenAmbient = AppThemePreferences.defaultCoverDrivenAmbient
@@ -50,6 +54,15 @@ final class ThemeService {
     }
     var darkAccent: Color { coverDrivenAmbient ? artworkDarkAccent : baseDarkAccent }
     var hasArtworkAmbient: Bool { coverDrivenAmbient && colorID != "default" }
+    /// 「流动色彩」实际用的颜色:封面挑出来的那几个;没有(或关了封面氛围)时用主题色凑一组。
+    var liquidPalette: [LiquidBackdropColor] {
+        if coverDrivenAmbient, !artworkLiquidPalette.isEmpty { return artworkLiquidPalette }
+        var colors: [LiquidBackdropColor] = []
+        for color in [accentColor, secondaryAccent, secondaryDarkAccent, darkAccent] {
+            if let rgb = Self.liquidColor(from: color), !colors.contains(rgb) { colors.append(rgb) }
+        }
+        return colors
+    }
     var onAccent: Color { Self.contrastingForeground(for: accentColor) }
     var uiAccentColor: Color { colorMode == .automatic ? artworkAccentColor : baseAccent }
     var uiDarkAccent: Color { colorMode == .automatic ? artworkDarkAccent : baseDarkAccent }
@@ -138,6 +151,7 @@ final class ThemeService {
             guard !Task.isCancelled else { return }
 
             var pixelResult: ColorResult?
+            var liquidPalette: [LiquidBackdropColor] = []
             if let data, let image = PlatformImage(data: data) {
                 // A valid image is useful to artwork views even when it is
                 // intentionally grayscale and therefore has no theme color.
@@ -146,6 +160,7 @@ final class ThemeService {
                 }
                 guard !Task.isCancelled else { return }
                 pixelResult = Self.extractDominantColor(from: image)
+                liquidPalette = Self.extractLiquidPalette(from: image)
             }
             guard !Task.isCancelled else { return }
             var musicKitResult: ColorResult?
@@ -161,10 +176,13 @@ final class ThemeService {
                 guard self.updateGeneration == generation else { return }
                 guard let result else {
                     self.applyFallbackTheme()
+                    // 黑白封面没有主题色,流动色彩照样用它自己的灰阶。
+                    self.artworkLiquidPalette = liquidPalette
                     return
                 }
                 self.applyArtworkTheme(
                     result,
+                    liquidPalette: liquidPalette,
                     identity: capturedSongID ?? capturedFileName ?? "default"
                 )
             }
@@ -306,6 +324,7 @@ final class ThemeService {
             artworkDarkAccent = baseDarkAccent
             artworkVibrancy = 0
             artworkLuminance = 0.18
+            artworkLiquidPalette = []
             colorID = "default"
         }
         #if os(macOS)
@@ -313,8 +332,13 @@ final class ThemeService {
         #endif
     }
 
-    private func applyArtworkTheme(_ result: ColorResult, identity: String) {
+    private func applyArtworkTheme(
+        _ result: ColorResult,
+        liquidPalette: [LiquidBackdropColor] = [],
+        identity: String
+    ) {
         withAnimation(.easeInOut(duration: 0.6)) {
+            artworkLiquidPalette = liquidPalette
             artworkAccentColor = result.accent
             artworkSecondaryAccent = result.secondary
             artworkSecondaryDarkAccent = result.secondaryDark
@@ -444,6 +468,49 @@ final class ThemeService {
     }
 
     // MARK: - Color Extraction Algorithm
+
+    /// 「流动色彩」的调色板:把封面画到 48×48 上,交给 `LiquidBackdropPalettePolicy` 挑 2…7 个代表色。
+    /// 换歌时算一次,动画只用算好的颜色。
+    nonisolated static func extractLiquidPalette(from image: PlatformImage) -> [LiquidBackdropColor] {
+        let side = 48
+        guard let cgImage = image.platformCGImage,
+              let context = CGContext(
+                  data: nil,
+                  width: side,
+                  height: side,
+                  bitsPerComponent: 8,
+                  bytesPerRow: side * 4,
+                  space: CGColorSpaceCreateDeviceRGB(),
+                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else { return [] }
+        context.interpolationQuality = .medium
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: side, height: side))
+        guard let data = context.data else { return [] }
+        let bytes = data.bindMemory(to: UInt8.self, capacity: side * side * 4)
+        var pixels: [(UInt8, UInt8, UInt8)] = []
+        pixels.reserveCapacity(side * side)
+        for index in 0..<(side * side) {
+            let offset = index * 4
+            // 透明的像素(带透明通道的 PNG 封面)不算颜色。
+            guard bytes[offset + 3] > 200 else { continue }
+            pixels.append((bytes[offset], bytes[offset + 1], bytes[offset + 2]))
+        }
+        return LiquidBackdropPalettePolicy.palette(fromRGB: pixels)
+    }
+
+    nonisolated static func liquidColor(from color: Color) -> LiquidBackdropColor? {
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        #if os(iOS)
+        guard UIColor(color).getRed(&red, green: &green, blue: &blue, alpha: &alpha) else { return nil }
+        #else
+        guard let ns = NSColor(color).usingColorSpace(.sRGB) else { return nil }
+        ns.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        #endif
+        return LiquidBackdropColor(red: Double(red), green: Double(green), blue: Double(blue))
+    }
 
     /// Exposed for `CoverTintProvider`, which needs per-song tints
     /// without mutating the global accent. Stays nonisolated so it's

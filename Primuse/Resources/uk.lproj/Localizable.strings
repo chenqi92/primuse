@@ -1079,6 +1079,9 @@
 "player_backdrop_title" = "Тло плеєра";
 "player_backdrop_cover_ambient" = "Кольори обкладинки";
 "player_backdrop_cover_ambient_hint" = "Плавне кольорове поле за кольорами обкладинки";
+"player_backdrop_liquid" = "Плинні кольори";
+"player_backdrop_liquid_hint" = "Кілька кольорів обкладинки пливуть м’яким світлом під час відтворення";
+"player_backdrop_liquid_tv_hint" = "На Apple TV натомість показуються кольори обкладинки.";
 "player_backdrop_cover_blur" = "Розмита обкладинка";
 "player_backdrop_cover_blur_hint" = "Поточна обкладинка, збільшена й м’яко розмита";
 "player_backdrop_album_back" = "Задня обкладинка альбому";

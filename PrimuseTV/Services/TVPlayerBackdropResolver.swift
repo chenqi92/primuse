@@ -59,7 +59,8 @@ final class TVPlayerBackdropResolver {
     func update(_ request: Request, store: TVStore) {
         if let frame, frame.source != request.source { self.frame = nil }
         switch request.source {
-        case .coverAmbient:
+        // 电视没有「流动色彩」的画法,和封面取色一样只留色场。
+        case .coverAmbient, .liquid:
             cancelLoading()
             frame = nil
         case .customImages:

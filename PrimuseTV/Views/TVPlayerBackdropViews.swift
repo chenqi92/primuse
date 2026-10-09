@@ -138,6 +138,7 @@ struct TVPlayerBackdropSettingsView: View {
     static func title(_ source: PlayerBackdropSource) -> String {
         switch source {
         case .coverAmbient: String(localized: "player_backdrop_cover_ambient")
+        case .liquid: String(localized: "player_backdrop_liquid")
         case .coverBlur: String(localized: "player_backdrop_cover_blur")
         case .albumBack: String(localized: "player_backdrop_album_back")
         case .customImages: String(localized: "player_backdrop_custom_images")
@@ -155,6 +156,7 @@ struct TVPlayerBackdropSettingsView: View {
     private func hint(for source: PlayerBackdropSource) -> String {
         switch source {
         case .coverAmbient: String(localized: "player_backdrop_cover_ambient_hint")
+        case .liquid: String(localized: "player_backdrop_liquid_tv_hint")
         case .coverBlur: String(localized: "player_backdrop_cover_blur_hint")
         case .albumBack: String(localized: "player_backdrop_album_back_hint")
         case .customImages:

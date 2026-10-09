@@ -13,6 +13,7 @@ enum PlayerBackdropSettingsText {
     static func title(_ source: PlayerBackdropSource) -> String {
         switch source {
         case .coverAmbient: String(localized: "player_backdrop_cover_ambient")
+        case .liquid: String(localized: "player_backdrop_liquid")
         case .coverBlur: String(localized: "player_backdrop_cover_blur")
         case .albumBack: String(localized: "player_backdrop_album_back")
         case .customImages: String(localized: "player_backdrop_custom_images")
@@ -22,6 +23,7 @@ enum PlayerBackdropSettingsText {
     static func hint(_ source: PlayerBackdropSource) -> String {
         switch source {
         case .coverAmbient: String(localized: "player_backdrop_cover_ambient_hint")
+        case .liquid: String(localized: "player_backdrop_liquid_hint")
         case .coverBlur: String(localized: "player_backdrop_cover_blur_hint")
         case .albumBack: String(localized: "player_backdrop_album_back_hint")
         case .customImages: String(localized: "player_backdrop_custom_images_hint")
@@ -31,6 +33,7 @@ enum PlayerBackdropSettingsText {
     static func symbol(_ source: PlayerBackdropSource) -> String {
         switch source {
         case .coverAmbient: "sun.haze.fill"
+        case .liquid: "drop.halffull"
         case .coverBlur: "drop.circle.fill"
         case .albumBack: "rectangle.on.rectangle.angled"
         case .customImages: "photo.on.rectangle"

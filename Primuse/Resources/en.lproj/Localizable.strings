@@ -158,6 +158,9 @@
 "player_backdrop_title" = "Player Background";
 "player_backdrop_cover_ambient" = "Cover Colors";
 "player_backdrop_cover_ambient_hint" = "A flowing color field taken from the artwork";
+"player_backdrop_liquid" = "Liquid Colors";
+"player_backdrop_liquid_hint" = "Several colors from the artwork drift as soft light while music plays";
+"player_backdrop_liquid_tv_hint" = "Apple TV shows Cover Colors instead.";
 "player_backdrop_cover_blur" = "Blurred Cover";
 "player_backdrop_cover_blur_hint" = "The current artwork, enlarged and softly blurred";
 "player_backdrop_album_back" = "Album Back Cover";

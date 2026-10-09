@@ -389,6 +389,9 @@
 "player_backdrop_title" = "Arrière-plan du lecteur";
 "player_backdrop_cover_ambient" = "Couleurs de la pochette";
 "player_backdrop_cover_ambient_hint" = "Un champ de couleurs fluide tiré de la pochette";
+"player_backdrop_liquid" = "Couleurs fluides";
+"player_backdrop_liquid_hint" = "Plusieurs couleurs de la pochette dérivent en lumières douces pendant la lecture";
+"player_backdrop_liquid_tv_hint" = "L’Apple TV affiche plutôt les couleurs de la pochette.";
 "player_backdrop_cover_blur" = "Pochette floutée";
 "player_backdrop_cover_blur_hint" = "La pochette actuelle, agrandie et adoucie";
 "player_backdrop_album_back" = "Verso de l’album";

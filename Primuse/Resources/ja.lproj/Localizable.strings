@@ -390,6 +390,9 @@
 "player_backdrop_title" = "再生画面の背景";
 "player_backdrop_cover_ambient" = "ジャケットの色";
 "player_backdrop_cover_ambient_hint" = "ジャケットの色が流れるカラーフィールド";
+"player_backdrop_liquid" = "リキッドカラー";
+"player_backdrop_liquid_hint" = "ジャケットのいくつかの色がやわらかな光になり、再生中ゆっくり流れます";
+"player_backdrop_liquid_tv_hint" = "Apple TV ではジャケットの色で表示されます。";
 "player_backdrop_cover_blur" = "ぼかしジャケット";
 "player_backdrop_cover_blur_hint" = "再生中のジャケットを拡大してぼかします";
 "player_backdrop_album_back" = "アルバムの裏ジャケット";

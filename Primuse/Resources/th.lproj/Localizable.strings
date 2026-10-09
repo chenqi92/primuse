@@ -3637,6 +3637,9 @@
 "player_backdrop_title" = "พื้นหลังหน้าเล่นเพลง";
 "player_backdrop_cover_ambient" = "สีจากปก";
 "player_backdrop_cover_ambient_hint" = "พื้นสีที่ไหลตามสีของปก";
+"player_backdrop_liquid" = "สีไหลลื่น";
+"player_backdrop_liquid_hint" = "สีหลายสีจากหน้าปกกลายเป็นแสงนุ่ม ๆ ที่ค่อย ๆ ไหลระหว่างเล่นเพลง";
+"player_backdrop_liquid_tv_hint" = "Apple TV จะแสดงเป็นสีจากหน้าปกแทน";
 "player_backdrop_cover_blur" = "ปกแบบเบลอ";
 "player_backdrop_cover_blur_hint" = "ปกปัจจุบันขยายเต็มจอและเบลออย่างนุ่มนวล";
 "player_backdrop_album_back" = "ปกหลังอัลบั้ม";

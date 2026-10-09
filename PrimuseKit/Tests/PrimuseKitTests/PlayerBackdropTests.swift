@@ -23,6 +23,11 @@ struct PlayerBackdropTests {
         #expect(PlayerBackdropSettings.decode(Data("not json".utf8)) == .default)
         #expect(PlayerBackdropSettings.decode(Data(#"{"source":"coverBlur"}"#.utf8))
             == PlayerBackdropSettings(source: .coverBlur))
+        // 「流动色彩」只换色场的画法,不铺图片、不轮播。
+        #expect(PlayerBackdropSettings.decode(Data(#"{"source":"liquid"}"#.utf8)).source == .liquid)
+        #expect(!PlayerBackdropSource.liquid.showsImage)
+        #expect(!PlayerBackdropSource.liquid.supportsRotation)
+        #expect(PlayerBackdropSettings(source: .liquid).effectiveSource(hasCustomImages: false) == .liquid)
     }
 
     @Test("Intervals snap to the nearest offered choice")

@@ -611,22 +611,34 @@ struct MacNowPlayingView: View {
         )
 
         return ZStack {
-            AdaptiveNowPlayingBackdrop(
-                baseColor: usesLightPlayerAppearance ? PMColor.bg : PMColor.ambientDarkBase,
-                primaryAccent: theme.accentColor,
-                secondaryAccent: theme.secondaryAccent,
-                darkAccent: theme.darkAccent,
-                primaryOpacity: primaryOpacity,
-                secondaryOpacity: secondaryOpacity,
-                hasArtworkPalette: hasArtworkTheme,
-                // 背景图铺满时色场被盖住，停掉它的动画时钟。
-                isVisible: !isImmersiveStageActive && controlActiveState != .inactive
-                    && !PlayerBackdropResolver.shared.isShowingImage,
-                isSceneActive: scenePhase == .active,
-                isPlaying: player.isPlaying,
-                paletteVibrancy: theme.artworkVibrancy,
-                paletteLuminance: theme.artworkLuminance
-            )
+            if PlayerBackdropSettingsStore.shared.effectiveSource == .liquid {
+                // 设置里选了「流动色彩」:换成几团跟着封面颜色缓缓流动的光(#189)。
+                LiquidArtworkBackdrop(
+                    palette: theme.liquidPalette,
+                    isLight: usesLightPlayerAppearance,
+                    strength: strength,
+                    isVisible: !isImmersiveStageActive && controlActiveState != .inactive,
+                    isSceneActive: scenePhase == .active,
+                    isPlaying: player.isPlaying
+                )
+            } else {
+                AdaptiveNowPlayingBackdrop(
+                    baseColor: usesLightPlayerAppearance ? PMColor.bg : PMColor.ambientDarkBase,
+                    primaryAccent: theme.accentColor,
+                    secondaryAccent: theme.secondaryAccent,
+                    darkAccent: theme.darkAccent,
+                    primaryOpacity: primaryOpacity,
+                    secondaryOpacity: secondaryOpacity,
+                    hasArtworkPalette: hasArtworkTheme,
+                    // 背景图铺满时色场被盖住，停掉它的动画时钟。
+                    isVisible: !isImmersiveStageActive && controlActiveState != .inactive
+                        && !PlayerBackdropResolver.shared.isShowingImage,
+                    isSceneActive: scenePhase == .active,
+                    isPlaying: player.isPlaying,
+                    paletteVibrancy: theme.artworkVibrancy,
+                    paletteLuminance: theme.artworkLuminance
+                )
+            }
 
             if usesLightPlayerAppearance {
                 LinearGradient(

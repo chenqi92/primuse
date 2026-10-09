@@ -3637,6 +3637,9 @@
 "player_backdrop_title" = "Fondo del reproductor";
 "player_backdrop_cover_ambient" = "Colores de la portada";
 "player_backdrop_cover_ambient_hint" = "Un campo de color fluido tomado de la portada";
+"player_backdrop_liquid" = "Colores fluidos";
+"player_backdrop_liquid_hint" = "Varios colores de la portada se mueven como luces suaves mientras suena la música";
+"player_backdrop_liquid_tv_hint" = "El Apple TV muestra los colores de la portada en su lugar.";
 "player_backdrop_cover_blur" = "Portada difuminada";
 "player_backdrop_cover_blur_hint" = "La portada actual, ampliada y suavemente difuminada";
 "player_backdrop_album_back" = "Contraportada del álbum";

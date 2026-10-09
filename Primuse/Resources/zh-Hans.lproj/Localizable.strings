@@ -159,6 +159,9 @@
 "player_backdrop_title" = "播放页背景";
 "player_backdrop_cover_ambient" = "封面取色";
 "player_backdrop_cover_ambient_hint" = "跟着封面颜色流动的色场";
+"player_backdrop_liquid" = "流动色彩";
+"player_backdrop_liquid_hint" = "封面里的几种颜色化成柔和的光团，随播放缓缓流动";
+"player_backdrop_liquid_tv_hint" = "Apple TV 上显示为封面取色。";
 "player_backdrop_cover_blur" = "模糊封面";
 "player_backdrop_cover_blur_hint" = "把当前封面放大虚化铺满";
 "player_backdrop_album_back" = "专辑封底";

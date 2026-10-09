@@ -4,6 +4,9 @@ import Foundation
 public enum PlayerBackdropSource: String, CaseIterable, Codable, Sendable {
     /// 封面取色的色场（一直以来的样子，默认）。
     case coverAmbient
+    /// 封面里挑出来的几个颜色化成几团柔和的光，随播放缓缓流动（#189）。只换色场的画法，不铺图片。
+    /// 不认识这一档的旧版本按解码规则退回封面取色。
+    case liquid
     /// 当前封面做一次模糊铺满。
     case coverBlur
     /// 专辑文件夹里 back / rear / inside 开头的图片。
@@ -14,13 +17,18 @@ public enum PlayerBackdropSource: String, CaseIterable, Codable, Sendable {
     public static let defaultValue = PlayerBackdropSource.coverAmbient
 
     /// 这一档会在色场上面再铺一张图。
-    public var showsImage: Bool { self != .coverAmbient }
+    public var showsImage: Bool {
+        switch self {
+        case .coverAmbient, .liquid: return false
+        case .coverBlur, .albumBack, .customImages: return true
+        }
+    }
 
     /// 轮播只对可能有多张图的来源有意义。
     public var supportsRotation: Bool {
         switch self {
         case .albumBack, .customImages: return true
-        case .coverAmbient, .coverBlur: return false
+        case .coverAmbient, .liquid, .coverBlur: return false
         }
     }
 }

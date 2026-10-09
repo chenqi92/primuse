@@ -3637,6 +3637,9 @@
 "player_backdrop_title" = "प्लेयर पृष्ठभूमि";
 "player_backdrop_cover_ambient" = "कवर के रंग";
 "player_backdrop_cover_ambient_hint" = "कवर से लिया गया बहता रंग-क्षेत्र";
+"player_backdrop_liquid" = "बहते रंग";
+"player_backdrop_liquid_hint" = "कवर के कई रंग मुलायम रोशनी बनकर संगीत चलते समय धीरे-धीरे बहते हैं";
+"player_backdrop_liquid_tv_hint" = "Apple TV पर इसकी जगह कवर के रंग दिखते हैं।";
 "player_backdrop_cover_blur" = "धुंधला कवर";
 "player_backdrop_cover_blur_hint" = "मौजूदा कवर, बड़ा करके हल्का धुंधला";
 "player_backdrop_album_back" = "एल्बम का पिछला कवर";

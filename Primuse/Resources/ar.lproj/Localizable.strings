@@ -3637,6 +3637,9 @@
 "player_backdrop_title" = "خلفية المشغّل";
 "player_backdrop_cover_ambient" = "ألوان الغلاف";
 "player_backdrop_cover_ambient_hint" = "حقل ألوان متدفق مأخوذ من الغلاف";
+"player_backdrop_liquid" = "ألوان متدفقة";
+"player_backdrop_liquid_hint" = "تتحول عدة ألوان من الغلاف إلى أضواء ناعمة تنساب أثناء التشغيل";
+"player_backdrop_liquid_tv_hint" = "يعرض Apple TV ألوان الغلاف بدلًا من ذلك.";
 "player_backdrop_cover_blur" = "غلاف مموّه";
 "player_backdrop_cover_blur_hint" = "الغلاف الحالي مكبّرًا ومموّهًا بلطف";
 "player_backdrop_album_back" = "الغلاف الخلفي للألبوم";

@@ -3637,6 +3637,9 @@
 "player_backdrop_title" = "Tło odtwarzacza";
 "player_backdrop_cover_ambient" = "Kolory okładki";
 "player_backdrop_cover_ambient_hint" = "Płynne pole kolorów z okładki";
+"player_backdrop_liquid" = "Płynne kolory";
+"player_backdrop_liquid_hint" = "Kilka kolorów z okładki dryfuje jako miękkie światło podczas odtwarzania";
+"player_backdrop_liquid_tv_hint" = "Apple TV pokazuje zamiast tego kolory okładki.";
 "player_backdrop_cover_blur" = "Rozmyta okładka";
 "player_backdrop_cover_blur_hint" = "Bieżąca okładka, powiększona i łagodnie rozmyta";
 "player_backdrop_album_back" = "Tylna okładka albumu";

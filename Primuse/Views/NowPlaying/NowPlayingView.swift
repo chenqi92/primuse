@@ -5851,21 +5851,33 @@ struct NowPlayingView: View {
         )
 
         return ZStack {
-            AdaptiveNowPlayingBackdrop(
-                baseColor: appearance.backgroundBase,
-                primaryAccent: theme.accentColor,
-                secondaryAccent: theme.secondaryAccent,
-                darkAccent: theme.darkAccent,
-                primaryOpacity: accentOpacity,
-                secondaryOpacity: lowerAccentOpacity,
-                hasArtworkPalette: hasArtworkTheme,
-                // 背景图铺满时色场被盖住，停掉它的动画时钟。
-                isVisible: isNowPlayingSurfaceExposed && !PlayerBackdropResolver.shared.isShowingImage,
-                isSceneActive: isVisualSceneActive,
-                isPlaying: player.isPlaying,
-                paletteVibrancy: theme.artworkVibrancy,
-                paletteLuminance: theme.artworkLuminance
-            )
+            if PlayerBackdropSettingsStore.shared.effectiveSource == .liquid {
+                // 设置里选了「流动色彩」:换成几团跟着封面颜色缓缓流动的光(#189)。上面两层遮罩照旧。
+                LiquidArtworkBackdrop(
+                    palette: theme.liquidPalette,
+                    isLight: appearance.isLight,
+                    strength: strength,
+                    isVisible: isNowPlayingSurfaceExposed,
+                    isSceneActive: isVisualSceneActive,
+                    isPlaying: player.isPlaying
+                )
+            } else {
+                AdaptiveNowPlayingBackdrop(
+                    baseColor: appearance.backgroundBase,
+                    primaryAccent: theme.accentColor,
+                    secondaryAccent: theme.secondaryAccent,
+                    darkAccent: theme.darkAccent,
+                    primaryOpacity: accentOpacity,
+                    secondaryOpacity: lowerAccentOpacity,
+                    hasArtworkPalette: hasArtworkTheme,
+                    // 背景图铺满时色场被盖住，停掉它的动画时钟。
+                    isVisible: isNowPlayingSurfaceExposed && !PlayerBackdropResolver.shared.isShowingImage,
+                    isSceneActive: isVisualSceneActive,
+                    isPlaying: player.isPlaying,
+                    paletteVibrancy: theme.artworkVibrancy,
+                    paletteLuminance: theme.artworkLuminance
+                )
+            }
 
             if appearance.isLight {
                 // Keep a stable light surface for dark controls without
