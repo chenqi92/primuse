@@ -127,6 +127,60 @@ struct AlbumTrackOrderTests {
         #expect(LibraryFolderTrackOrder.sortedIDs(at: [0, 1], in: renumbered) == ["a", "b"])
     }
 
+    @Test("A folder whose tags leave a chapter without a place goes by the numbered names, as the shelf does")
+    func folderWithIncompleteTagsFollowsNumberedNames() {
+        let book = "/有声书/长夜/"
+        // A missing track and a track two chapters share: track order put
+        // "0-1" (read from its name as track 1) between the "x-5" chapters.
+        let missing = [
+            song("b", disc: nil, track: 1, title: "风起", path: book + "1-5 风起.mp3"),
+            song("c", disc: nil, track: 3, title: "夜行", path: book + "3-6 夜行.mp3"),
+            song("a", disc: nil, track: nil, title: "序幕", path: book + "0-1 序幕.mp3"),
+            song("d", disc: nil, track: 1, title: "归途", path: book + "1-12 归途.mp3"),
+        ]
+        let repeated = [
+            song("143", disc: nil, track: 1, title: "鬼吹灯 143", path: "/有声书/鬼吹灯/第143集.mp3"),
+            song("001", disc: nil, track: 1, title: "鬼吹灯 1", path: "/有声书/鬼吹灯/第001集.mp3"),
+            song("016", disc: nil, track: 2, title: "鬼吹灯 16", path: "/有声书/鬼吹灯/第016集.mp3"),
+        ]
+        for (songs, expected) in [(missing, ["a", "b", "d", "c"]), (repeated, ["001", "016", "143"])] {
+            #expect(LibraryFolderTrackOrder.sorted(songs, catalogSourceIDs: []).map(\.id) == expected)
+            #expect(LibraryFolderTrackOrder.sortedIDs(
+                at: Array(songs.indices.reversed()), in: songs, catalogSourceIDs: []
+            ) == expected)
+            let shelf = SpokenWordBookGrouping.books(
+                from: songs.map { SpokenWordBookItem(song: $0) }, catalogSourceIDs: []
+            )
+            #expect(shelf.count == 1)
+            #expect(shelf.first?.items.map(\.id) == expected)
+        }
+
+        // A server catalogue names no file: its titles carry the numbers.
+        let catalogue = [
+            song("15", disc: nil, track: 1, title: "1-5", path: "/songs/77.mp3"),
+            song("01", disc: nil, track: nil, title: "0-1", path: "/songs/9a.mp3"),
+            song("36", disc: nil, track: 3, title: "3-6", path: "/songs/12.mp3"),
+        ]
+        #expect(LibraryFolderTrackOrder.sorted(catalogue, catalogSourceIDs: ["source"]).map(\.id) == ["01", "15", "36"])
+    }
+
+    @Test("Tags that place every song, or names without a number each, keep the folder in track order")
+    func folderWithCompleteTagsOrUnnumberedNamesKeepsTrackOrder() {
+        let complete = [
+            song("b", disc: nil, track: 1, title: "B", path: "/Album/Part 2.mp3"),
+            song("a", disc: nil, track: 2, title: "A", path: "/Album/Part 1.mp3"),
+        ]
+        #expect(LibraryFolderTrackOrder.sorted(complete, catalogSourceIDs: []).map(\.id) == ["b", "a"])
+        let unnumbered = [
+            song("intro", disc: nil, track: nil, title: "Introduction", path: "/Album/Introduction.mp3"),
+            song("two", disc: nil, track: 2, title: "Two", path: "/Album/02.mp3"),
+            song("one", disc: nil, track: 1, title: "One", path: "/Album/01.mp3"),
+        ]
+        #expect(LibraryFolderTrackOrder.sorted(unnumbered, catalogSourceIDs: []).map(\.id) == ["one", "two", "intro"])
+        #expect(LibraryFolderTrackOrder.sorted(unnumbered, catalogSourceIDs: []).map(\.id)
+            == AlbumTrackOrder.sorted(unnumbered).map(\.id))
+    }
+
     @Test("Ordering a folder by offsets gives the same IDs as ordering its songs")
     func sortedIDsMatchSortedSongs() {
         let titles = ["b", "A", "a", "c", "10 x", "2 x"]

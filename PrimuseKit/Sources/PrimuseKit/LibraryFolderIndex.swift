@@ -1254,13 +1254,15 @@ public enum LibraryFolderIndexBuilder {
             }
             // A directory is usually one album: keep its songs in track order
             // so browsing and playing it reads 1, 2, 3 rather than scan order.
+            let catalogSourceIDs = SpokenWordBookSourcePaths.catalogSourceIDs
             for accumulator in accumulators.values where accumulator.directSongOffsets.count > 1 {
                 if isBuildCancelled {
                     return emptyPartition(source: source, sourceNodeID: sourceNodeID)
                 }
                 accumulator.directSongIDs = LibraryFolderTrackOrder.sortedIDs(
                     at: accumulator.directSongOffsets,
-                    in: songs
+                    in: songs,
+                    catalogSourceIDs: catalogSourceIDs
                 )
             }
         } else {

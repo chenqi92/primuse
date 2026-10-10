@@ -127,26 +127,60 @@ public enum AlbumTrackOrder {
 }
 
 /// A folder's songs in the order they are meant to be heard: track order,
-/// unless the folder holds files renamed after tagging next to files whose
+/// unless the files' own numbering is the one the folder agrees on. That is
+/// when the folder holds files renamed after tagging next to files whose
 /// names and tags agree on their chapter (rule 6 of the spoken-word book
-/// grouping, `SpokenWordBookGroupingRules`). Their track tags then count two
-/// releases, and the file names are the one numbering the folder shares.
+/// grouping, `SpokenWordBookGroupingRules`), whose track tags then count two
+/// releases; or when the tags leave a song without a place of its own while
+/// every name is numbered, the rule the audiobook shelf orders a book's
+/// chapters by (`SpokenWordBookGrouping.chaptersGoByName`). The file names
+/// decide then, so a book reads in one order in its folder and on the shelf.
 public enum LibraryFolderTrackOrder {
-    public static func sorted(_ songs: [Song]) -> [Song] {
-        guard let paths = pathsIfRenamed(songs) else { return AlbumTrackOrder.sorted(songs) }
+    public static func sorted(
+        _ songs: [Song],
+        catalogSourceIDs: Set<String> = SpokenWordBookSourcePaths.catalogSourceIDs
+    ) -> [Song] {
+        guard let paths = pathsIfNamed(songs, catalogSourceIDs: catalogSourceIDs) else {
+            return AlbumTrackOrder.sorted(songs)
+        }
         return songs.indices.sorted { lhs, rhs in
             isOrderedByPath(songs[lhs], paths[lhs], before: songs[rhs], paths[rhs])
         }.map { songs[$0] }
     }
 
     /// `sorted(_:)` of `songs[offsets]`, as song IDs, without copying the songs out.
-    public static func sortedIDs(at offsets: [Int], in songs: [Song]) -> [String] {
-        guard let paths = pathsIfRenamed(offsets.lazy.map { songs[$0] }) else {
+    public static func sortedIDs(
+        at offsets: [Int],
+        in songs: [Song],
+        catalogSourceIDs: Set<String> = SpokenWordBookSourcePaths.catalogSourceIDs
+    ) -> [String] {
+        guard let paths = pathsIfNamed(offsets.lazy.map { songs[$0] }, catalogSourceIDs: catalogSourceIDs) else {
             return AlbumTrackOrder.sortedIDs(at: offsets, in: songs)
         }
         return offsets.indices.sorted { lhs, rhs in
             isOrderedByPath(songs[offsets[lhs]], paths[lhs], before: songs[offsets[rhs]], paths[rhs])
         }.map { songs[offsets[$0]].id }
+    }
+
+    /// Each song's path when the names order the folder rather than the
+    /// tags. A server catalogue's path (`/songs/<id>`) says nothing about
+    /// order, so its songs get none and go by title, as on the shelf.
+    static func pathsIfNamed<Songs: Collection>(
+        _ songs: Songs,
+        catalogSourceIDs: Set<String>
+    ) -> [String?]? where Songs.Element == Song {
+        guard songs.count > 1 else { return nil }
+        if let paths = pathsIfRenamed(songs) { return paths.map(Optional.some) }
+        func path(of song: Song) -> String? {
+            guard !catalogSourceIDs.contains(song.sourceID) else { return nil }
+            return SpokenWordBookSourcePaths.groupingPath(sourceID: song.sourceID, filePath: song.filePath)
+        }
+        let numbered = SpokenWordBookGrouping.chaptersGoByName(
+            songs,
+            place: { song in song.trackNumber.map { TrackPlace(disc: song.discNumber ?? 1, track: $0) } },
+            name: { song in path(of: song).map(SpokenWordBookGrouping.fileStem) ?? song.title }
+        )
+        return numbered ? songs.map(path(of:)) : nil
     }
 
     /// Each song's path (an item-id drive's spelled out of its scanned
@@ -168,9 +202,16 @@ public enum LibraryFolderTrackOrder {
         return agrees && renamed ? paths : nil
     }
 
-    private static func isOrderedByPath(_ lhs: Song, _ lhsPath: String, before rhs: Song, _ rhsPath: String) -> Bool {
-        let byPath = lhsPath.localizedStandardCompare(rhsPath)
-        if byPath != .orderedSame { return byPath == .orderedAscending }
+    private struct TrackPlace: Hashable {
+        let disc: Int
+        let track: Int
+    }
+
+    private static func isOrderedByPath(_ lhs: Song, _ lhsPath: String?, before rhs: Song, _ rhsPath: String?) -> Bool {
+        if let lhsPath, let rhsPath {
+            let byPath = lhsPath.localizedStandardCompare(rhsPath)
+            if byPath != .orderedSame { return byPath == .orderedAscending }
+        }
         let byTitle = lhs.title.localizedStandardCompare(rhs.title)
         if byTitle != .orderedSame { return byTitle == .orderedAscending }
         return lhs.id < rhs.id

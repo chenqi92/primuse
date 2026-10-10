@@ -397,46 +397,62 @@ public enum SpokenWordBookGrouping {
         return nameOrder(lhs, rhs, catalogSourceIDs: catalogSourceIDs)
     }
 
-    /// Whether a book's chapters go by their names rather than their tags:
-    /// the tags leave a chapter without a place of its own — no track (a
-    /// server reports track 0 as none), or a place another chapter holds —
-    /// while every chapter's name carries a number. Names without numbers
-    /// ("序章", "The Boy Who Lived") say nothing about order, so tags that
-    /// cover most chapters still order those books.
+    /// Whether a book's chapters go by their names rather than their tags
+    /// (`chaptersGoByName`), each placed by range folder, disc and track.
     private static func goesByName(
         _ items: [SpokenWordBookItem],
         assignment: SpokenWordBookGroupingRules.Assignment,
         catalogSourceIDs: Set<String>
     ) -> Bool {
-        guard items.count > 1 else { return false }
-        var places = Set<[Int]>()
-        var tagsPlaceEveryChapter = true
-        for item in items {
-            guard let track = item.trackNumber else {
-                tagsPlaceEveryChapter = false
-                break
+        chaptersGoByName(
+            items,
+            place: { item in
+                item.trackNumber.map { track in
+                    [
+                        assignment.derivedRanges[item.id] ?? 0,
+                        item.discNumber ?? assignment.derivedDiscs[item.id] ?? 1,
+                        track,
+                    ]
+                }
+            },
+            name: { item in
+                catalogSourceIDs.contains(item.sourceID) ? item.title : fileStem(item.fileName)
             }
-            let place = [
-                assignment.derivedRanges[item.id] ?? 0,
-                item.discNumber ?? assignment.derivedDiscs[item.id] ?? 1,
-                track,
-            ]
-            if !places.insert(place).inserted {
+        )
+    }
+
+    /// Whether chapters go by their names rather than their tags: the tags
+    /// leave a chapter without a place of its own — no track (a server
+    /// reports track 0 as none), or a place another chapter holds — while
+    /// every chapter's name carries a number. Names without numbers ("序章",
+    /// "The Boy Who Lived") say nothing about order, so tags that cover most
+    /// chapters still order those books. A folder page asks the same of the
+    /// songs in a folder (`LibraryFolderTrackOrder`), so a book's chapters
+    /// read in one order on the shelf and in their folder.
+    static func chaptersGoByName<Chapters: Collection, Place: Hashable>(
+        _ chapters: Chapters,
+        place: (Chapters.Element) -> Place?,
+        name: (Chapters.Element) -> String
+    ) -> Bool {
+        guard chapters.count > 1 else { return false }
+        var places = Set<Place>()
+        var tagsPlaceEveryChapter = true
+        for chapter in chapters {
+            guard let place = place(chapter), places.insert(place).inserted else {
                 tagsPlaceEveryChapter = false
                 break
             }
         }
         guard !tagsPlaceEveryChapter else { return false }
-        return items.allSatisfy { item in
-            let name = catalogSourceIDs.contains(item.sourceID) ? item.title : fileStem(item.fileName)
-            return name.unicodeScalars.contains { scalar in
+        return chapters.allSatisfy { chapter in
+            name(chapter).unicodeScalars.contains { scalar in
                 (0x30...0x39).contains(scalar.value) || (0xFF10...0xFF19).contains(scalar.value)
             }
         }
     }
 
     /// A file's own name, without its folders and extension.
-    private static func fileStem(_ path: String) -> String {
+    static func fileStem(_ path: String) -> String {
         let name = path.split(separator: "/").last.map(String.init) ?? path
         guard let dot = name.lastIndex(of: "."), dot != name.startIndex else { return name }
         return String(name[..<dot])
