@@ -5566,3 +5566,4 @@
 "catalog_prune_mode_confirm" = "Remove After Confirming";
 "catalog_prune_mode_immediate" = "Remove Immediately";
 "catalog_prune_mode_description" = "Remove After Confirming: songs missing from a scan are kept and removed only if later full scans still don’t find them, so a server that briefly returns fewer songs or a temporarily unmounted library costs you nothing. Remove Immediately: songs missing from one full scan are removed, even if the library on the server is only temporarily unmounted. A scan that didn’t finish, or during which the server’s content changed, never removes songs.";
+"icloud_sync_settings_channel_footer" = "Player and layout preferences, plus favorites (playlists, audiobooks, folders and their order), sync with settings; folders and books on this device’s local sources stay here. Favorite albums and artists sync with playlists.";

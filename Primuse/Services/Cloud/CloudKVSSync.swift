@@ -149,6 +149,9 @@ private actor CloudKeyValueStoreIO {
 ///   fresh install cannot replace the user's settings with defaults.
 /// - On `didChangeExternallyNotification` the change reason is honoured: the initial
 ///   download and an account change take the cloud copy outright.
+/// - `registerMerging(key:reload:)` is for documents the store merges itself (favorites):
+///   a cloud copy that differs is always pulled and handed to `reload`, whichever
+///   revision is newer, and the store pushes the merge back if it adds anything.
 ///
 /// Limits to keep in mind: 1MB total, 1024 keys, 1MB per value. Don't put large blobs
 /// here — those go through CloudKit.
@@ -177,6 +180,8 @@ final class CloudKVSSync {
     private let kvs: (any CloudKeyValueStore)?
     private let defaults: UserDefaults
     private var registrations: [String: () -> Void] = [:]
+    /// 由登记方自己合并的键（见 `registerMerging`）。
+    private var mergingKeys: Set<String> = []
     private var systemIO: CloudKeyValueStoreIO?
     private var initialReadTask: Task<Void, Never>?
     private var pendingWriteTasks: [UUID: Task<Void, Never>] = [:]
@@ -270,6 +275,16 @@ final class CloudKVSSync {
         registrations[key] = reload
         _ = reconcile(key: key)
         reload()
+    }
+
+    /// 登记一个由登记方自己合并的键: 整份是几台设备合出来的(比如收藏), 本机 UserDefaults 里这个键
+    /// 只是「最近一次见到或推出的云端那份」, 真正的本机状态登记方自己存着。云端那份和它不一样时
+    /// 总是先拉下来交给 `reload` 合并, 合出云端没有的东西再由登记方 `markChanged` 推上去。只比修订号
+    /// 的话, 本机修订号较新时(同步关着时改过、两台设备同时改)会直接推上去, 把云端那份里这台设备
+    /// 还没见过的条目盖掉。
+    func registerMerging(key: String, reload: @escaping () -> Void) {
+        mergingKeys.insert(key)
+        register(key: key, reload: reload)
     }
 
     /// Mirror a local change up to KVS. Call after writing the new value to
@@ -426,12 +441,15 @@ final class CloudKVSSync {
         guard let kvs, isEnabled else { return .keep }
         let local = localVersion(for: key)
         let remote = remoteVersion(for: key)
-        let action = Policy.catchUpAction(
+        var action = Policy.catchUpAction(
             local: local,
             hasLocalValue: defaults.object(forKey: key) != nil,
             remote: remote,
             transferredRevision: transferredRevision(for: key)
         )
+        if action != .pull, mergingKeys.contains(key), remote.revision > 0, !valuesMatch(key: key, in: kvs) {
+            action = .pull
+        }
         switch action {
         case .pull:
             applyRemoteValue(forKey: key, remoteVersion: remote, from: kvs)
@@ -574,7 +592,10 @@ final class CloudKVSSync {
                 // 云端根本没有这个键的, 本机的照旧。
                 guard remote.revision > 0 || kvs.object(forKey: key) != nil else { continue }
             } else {
-                guard remote.revision > 0, Policy.isNewer(remote, than: localVersion(for: key)) else { continue }
+                guard remote.revision > 0 else { continue }
+                // 自己合并的键: 云端那份不一样就拉下来合, 不管修订号谁新(见 `registerMerging`)。
+                guard Policy.isNewer(remote, than: localVersion(for: key))
+                    || (mergingKeys.contains(key) && !valuesMatch(key: key, in: kvs)) else { continue }
             }
             applyRemoteValue(forKey: key, remoteVersion: remote, from: kvs)
             keysToReload.append(key)
@@ -607,6 +628,9 @@ enum CloudKVSKey {
     /// 电台清单订阅的定义(不含刷新状态)。订阅每次变化时自己推送; 打开开关时的
     /// 补推按修订号比对, 一台没有订阅的设备不会再把别的设备的订阅清空。
     static let radioSubscriptions = "primuse_radio_subscriptions_v1"
+    /// 收藏区（歌单、有声书、目录收没收藏，收藏区与首页目录的顺序）。`FavoriteCollectionStore` 合并后
+    /// 推送（`FavoriteCollectionSyncPolicy`），不按整份新旧覆盖：第一次同步取并集，取消靠墓碑传开。
+    static let favoriteCollection = "primuse_favorite_collection_sync_v1"
     // Certificate trust and public cleartext-HTTP permissions are intentionally
     // NOT synced: both are per-device security decisions. SSLTrustStore keeps
     // them in local UserDefaults only.
@@ -624,8 +648,9 @@ enum CloudKVSKey {
 /// 记作已知, 不会被当成本机编辑推回去。
 ///
 /// 只收用户在编辑页、首页编辑状态里改的键。会被程序自己改写的不收: 首页挑选的书和电台
-/// (管理页按本机有的清一遍)、收藏顺序(新喜欢到达时自动改写)、艺人页只看专辑艺术家
-/// (Mac 跳转时自动切换) —— 收了它们, 一台还没装齐内容的设备就会把别的设备的设置改掉。
+/// (管理页按本机有的清一遍)、收藏顺序(新喜欢到达时自动改写, 由 `FavoriteCollectionStore`
+/// 自己合并着同步)、艺人页只看专辑艺术家(Mac 跳转时自动切换) —— 收了它们, 一台还没装齐
+/// 内容的设备就会把别的设备的设置改掉。
 @MainActor
 final class InterfaceLayoutSync {
     static let shared = InterfaceLayoutSync()

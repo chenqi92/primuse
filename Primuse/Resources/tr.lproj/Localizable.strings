@@ -5712,3 +5712,4 @@
 "catalog_prune_mode_confirm" = "Doğrulandıktan sonra kaldır";
 "catalog_prune_mode_immediate" = "Hemen kaldır";
 "catalog_prune_mode_description" = "Doğrulandıktan sonra kaldır: Bir taramada bulunamayan parçalar korunur ve yalnızca sonraki tam taramalar da onları bulamazsa kaldırılır; böylece sunucu kısa süreliğine daha az parça döndürürse ya da bir kitaplık geçici olarak bağlı değilse hiçbir şey kaybolmaz. Hemen kaldır: Tek bir tam taramada bulunamayan parçalar, sunucudaki kitaplık yalnızca geçici olarak bağlı olmasa bile kaldırılır. Tamamlanmamış bir tarama ya da sırasında sunucu içeriği değişen bir tarama hiçbir şeyi kaldırmaz.";
+"icloud_sync_settings_channel_footer" = "Oynatıcı ve düzen tercihleri ile favoriler (çalma listeleri, sesli kitaplar, klasörler ve sıraları) ayarlarla birlikte senkronize edilir; bu cihazın yerel kaynaklarındaki klasörler ve kitaplar burada kalır. Favori albümler ve sanatçılar çalma listeleriyle birlikte senkronize edilir.";

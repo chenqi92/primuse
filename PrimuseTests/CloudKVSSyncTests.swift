@@ -555,6 +555,211 @@ final class CloudKVSSyncTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: key), "new-account")
         XCTAssertEqual(defaults.double(forKey: revisionKey), 10)
     }
+
+    // MARK: Favorites
+
+    private struct FavoritesDevice {
+        let defaults: UserDefaults
+        let cloud: CloudKVSSync
+        let library: MusicLibrary
+        let favorites: FavoriteCollectionStore
+    }
+
+    private var favoritesKey: String { CloudKVSKey.favoriteCollection }
+
+    /// 一台设备：自己的设置、共用同一份「iCloud」(`store`)。
+    private func makeFavoritesDevice(
+        defaults deviceDefaults: UserDefaults? = nil,
+        pins: [QuickAccessPinReference],
+        folders: [LibraryFolderNodeID]? = nil,
+        sources: [MusicSource] = []
+    ) throws -> FavoritesDevice {
+        let deviceDefaults = try deviceDefaults ?? makeDeviceDefaults()
+        deviceDefaults.set(LibraryPinStorage.encode(pins), forKey: LibraryPinStorage.defaultsKey)
+        if let folders {
+            deviceDefaults.set(HomeFolderPinStorage.encode(folders), forKey: HomeFolderPinStorage.key)
+        }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CloudKVSSyncTests-favorites-\(UUID().uuidString)")
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let cloud = deviceDefaults === defaults ? sync! : CloudKVSSync(store: store, defaults: deviceDefaults, observing: nil)
+        let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"))
+        let favorites = FavoriteCollectionStore(
+            defaults: deviceDefaults,
+            favorites: LibraryFavoritesStore(fileURL: directory.appendingPathComponent("favorites.json")),
+            cloud: cloud
+        )
+        favorites.start(library: library, sources: { sources })
+        return FavoritesDevice(defaults: deviceDefaults, cloud: cloud, library: library, favorites: favorites)
+    }
+
+    private func makeDeviceDefaults() throws -> UserDefaults {
+        let suite = "CloudKVSSyncTests-favorites-\(UUID().uuidString)"
+        let created = try XCTUnwrap(UserDefaults(suiteName: suite))
+        addTeardownBlock { created.removePersistentDomain(forName: suite) }
+        return created
+    }
+
+    private func pins(on device: FavoritesDevice) -> [QuickAccessPinReference] {
+        LibraryPinStorage.decode(device.defaults.string(forKey: LibraryPinStorage.defaultsKey) ?? "")
+    }
+
+    private func cloudFavorites() -> FavoriteCollectionSyncState? {
+        FavoriteCollectionSyncPolicy.decode(store.object(forKey: favoritesKey) as? Data)
+    }
+
+    /// 接上 iCloud 后的那次推送在一个任务里，等它落进「iCloud」。
+    private func waitForCloudFavorites(
+        _ condition: @escaping (FavoriteCollectionSyncState) -> Bool
+    ) async throws {
+        for _ in 0..<100 {
+            if let state = cloudFavorites(), condition(state) { return }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTFail("the favorites never reached the cloud copy")
+    }
+
+    func testFavoritesFirstSyncTakesTheUnionAndRemovalsPropagate() async throws {
+        let liked = LibraryPinStorage.likedSongsPin
+        let roadTrip = QuickAccessPinReference(kind: .playlist, itemID: "road-trip")
+        let jazz = QuickAccessPinReference(kind: .playlist, itemID: "jazz")
+
+        let phone = try makeFavoritesDevice(defaults: defaults, pins: [liked, roadTrip])
+        try await waitForCloudFavorites { $0.members[roadTrip.id]?.isCollected == true }
+
+        // Mac 上原本收藏着另一张歌单：接上时拉到手机那份，两边的都在，谁也没被冲掉。
+        let mac = try makeFavoritesDevice(pins: [liked, jazz])
+        XCTAssertEqual(pins(on: mac), [liked, roadTrip, jazz])
+        try await waitForCloudFavorites { $0.members[jazz.id]?.isCollected == true }
+        XCTAssertEqual(sync.catchUp().pulled, 1)
+        XCTAssertEqual(pins(on: phone), [liked, roadTrip, jazz])
+
+        // 手机上取消：Mac 跟着拿掉，Mac 手上的旧列表也不会把它推回来。
+        phone.favorites.uncollect(jazz, library: phone.library)
+        phone.favorites.pushToCloudNow()
+        XCTAssertEqual(cloudFavorites()?.members[jazz.id]?.isCollected, false)
+        XCTAssertEqual(mac.cloud.catchUp().pulled, 1)
+        XCTAssertEqual(pins(on: mac), [liked, roadTrip])
+        let revision = store.double(forKey: "\(favoritesKey)__updatedAt")
+        mac.favorites.pushToCloudNow()
+        XCTAssertEqual(store.double(forKey: "\(favoritesKey)__updatedAt"), revision, "nothing new: no echo")
+        XCTAssertEqual(cloudFavorites()?.members[jazz.id]?.isCollected, false)
+
+        // 排序也传过去。
+        phone.favorites.setOrder([roadTrip, liked])
+        phone.favorites.pushToCloudNow()
+        XCTAssertEqual(mac.cloud.catchUp().pulled, 1)
+        XCTAssertEqual(pins(on: mac), [roadTrip, liked])
+    }
+
+    func testFavoritesStayLocalWhileICloudSyncIsOff() async throws {
+        let liked = LibraryPinStorage.likedSongsPin
+        let jazz = QuickAccessPinReference(kind: .playlist, itemID: "jazz")
+        let phone = try makeFavoritesDevice(defaults: defaults, pins: [liked])
+        try await waitForCloudFavorites { $0.members[liked.id]?.isCollected == true }
+        let mac = try makeFavoritesDevice(pins: [liked])
+        try await Task.sleep(for: .milliseconds(50))
+
+        mac.defaults.set(false, forKey: CloudSyncChannel.masterDefaultsKey)
+        phone.favorites.collect(jazz, library: phone.library)
+        phone.favorites.pushToCloudNow()
+        XCTAssertEqual(cloudFavorites()?.members[jazz.id]?.isCollected, true)
+        XCTAssertEqual(mac.cloud.catchUp().pulled, 0)
+        XCTAssertEqual(pins(on: mac), [liked], "nothing is read while sync is off")
+
+        let cloudBefore = store.object(forKey: favoritesKey) as? Data
+        mac.favorites.uncollect(liked, library: mac.library)
+        mac.favorites.pushToCloudNow()
+        XCTAssertEqual(store.object(forKey: favoritesKey) as? Data, cloudBefore, "nothing is written while sync is off")
+
+        // 打开之后两边补齐：Mac 关着时改过、修订号更新，也先把云端那份拉下来合，不直接盖掉
+        // 手机刚收藏的 jazz；手机再收到 Mac 关着时拿掉的「我喜欢」。
+        mac.defaults.set(true, forKey: CloudSyncChannel.masterDefaultsKey)
+        XCTAssertEqual(mac.cloud.catchUp().pulled, 1)
+        XCTAssertEqual(pins(on: mac), [jazz])
+        XCTAssertEqual(cloudFavorites()?.members[jazz.id]?.isCollected, true)
+        XCTAssertEqual(cloudFavorites()?.members[liked.id]?.isCollected, false)
+        XCTAssertEqual(sync.catchUp().pulled, 1)
+        XCTAssertEqual(pins(on: phone), [jazz])
+    }
+
+    func testFavoriteFoldersOnThisDevicesLocalSourcesStayLocal() async throws {
+        let nas = MusicSource(id: "nas", name: "NAS", type: .webdav)
+        let files = MusicSource(id: "phone-files", name: "Files", type: .local)
+        let nasFolder = LibraryFolderNodeID(sourceID: nas.id, kind: .folder, normalizedRelativePath: "music/live")
+        let localFolder = LibraryFolderNodeID(sourceID: files.id, kind: .folder, normalizedRelativePath: "inbox")
+        let liked = LibraryPinStorage.likedSongsPin
+
+        let phone = try makeFavoritesDevice(
+            defaults: defaults,
+            pins: [liked, .folder(localFolder), .folder(nasFolder)],
+            folders: [localFolder, nasFolder],
+            sources: [nas, files]
+        )
+        try await waitForCloudFavorites { $0.members[QuickAccessPinReference.folder(nasFolder).id] != nil }
+        XCTAssertNil(cloudFavorites()?.members[QuickAccessPinReference.folder(localFolder).id])
+
+        let mac = try makeFavoritesDevice(pins: [liked], sources: [nas])
+        XCTAssertEqual(pins(on: mac), [liked, .folder(nasFolder)])
+        XCTAssertEqual(HomeFolderPinStorage.decode(mac.defaults.string(forKey: HomeFolderPinStorage.key) ?? ""), [nasFolder])
+
+        // 手机自己的目录留在原处，不会因为同步里没有它就被当成取消。
+        try await Task.sleep(for: .milliseconds(50))
+        sync.catchUp()
+        XCTAssertEqual(pins(on: phone), [liked, .folder(localFolder), .folder(nasFolder)])
+        XCTAssertEqual(
+            HomeFolderPinStorage.decode(phone.defaults.string(forKey: HomeFolderPinStorage.key) ?? ""),
+            [localFolder, nasFolder]
+        )
+    }
+
+    func testFavoriteBookFromICloudTriggersServerReconciliation() async throws {
+        let liked = LibraryPinStorage.likedSongsPin
+        let book = QuickAccessPinReference(kind: .book, itemID: "book:三体\u{1F}刘慈欣")
+        let phone = try makeFavoritesDevice(defaults: defaults, pins: [liked])
+        try await waitForCloudFavorites { $0.members[liked.id] != nil }
+        let mac = try makeFavoritesDevice(pins: [liked])
+        try await Task.sleep(for: .milliseconds(50))
+
+        phone.favorites.collect(book, library: phone.library)
+        phone.favorites.pushToCloudNow()
+        let changed = expectation(forNotification: FavoriteCollectionStore.collectedBooksDidChange, object: nil)
+        XCTAssertEqual(mac.cloud.catchUp().pulled, 1)
+        await fulfillment(of: [changed], timeout: 1)
+        XCTAssertEqual(mac.favorites.collectedBookIDs, [book.itemID])
+    }
+
+    func testMergingKeyPullsADifferentCloudCopyEvenWhenTheLocalRevisionIsNewer() {
+        var reloads = 0
+        sync.registerMerging(key: key) { reloads += 1 }
+        defaults.set(false, forKey: CloudSyncChannel.settings.defaultsKey)
+        defaults.set("merged-offline", forKey: key)
+        sync.markChanged(key: key)
+
+        store.set("from-mac", forKey: key)
+        store.set(10.0, forKey: revisionKey)
+        store.set("mac", forKey: writerKey)
+        defaults.set(true, forKey: CloudSyncChannel.settings.defaultsKey)
+        let result = sync.catchUp()
+        XCTAssertEqual(result.pulled, 1, "handed to the store to merge instead of pushed over")
+        XCTAssertEqual(result.pushed, 0)
+        XCTAssertEqual(defaults.string(forKey: key), "from-mac")
+        XCTAssertEqual(store.object(forKey: key) as? String, "from-mac")
+        XCTAssertEqual(reloads, 2)
+
+        // 一样的就不再拉。
+        XCTAssertEqual(sync.catchUp().pulled, 0)
+        // 普通的键照旧按修订号走。
+        sync.register(key: "plain_setting") { }
+        defaults.set(false, forKey: CloudSyncChannel.settings.defaultsKey)
+        defaults.set("offline-edit", forKey: "plain_setting")
+        sync.markChanged(key: "plain_setting")
+        store.set("older-cloud", forKey: "plain_setting")
+        store.set(10.0, forKey: "plain_setting__updatedAt")
+        defaults.set(true, forKey: CloudSyncChannel.settings.defaultsKey)
+        XCTAssertEqual(sync.catchUp().pushed, 1)
+        XCTAssertEqual(store.object(forKey: "plain_setting") as? String, "offline-edit")
+    }
 }
 
 private final class InMemoryCloudKeyValueStore: CloudKeyValueStore, @unchecked Sendable {

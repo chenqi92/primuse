@@ -5712,3 +5712,4 @@
 "catalog_prune_mode_confirm" = "Usuń po potwierdzeniu";
 "catalog_prune_mode_immediate" = "Usuń od razu";
 "catalog_prune_mode_description" = "Usuń po potwierdzeniu: utwory, których zabrakło w skanowaniu, są zachowywane i usuwane dopiero wtedy, gdy kolejne pełne skanowania też ich nie znajdą — nic nie przepada, gdy serwer na chwilę zwróci mniej utworów albo biblioteka zostanie tymczasowo odmontowana. Usuń od razu: utwory, których zabrakło w jednym pełnym skanowaniu, są usuwane, nawet gdy biblioteka na serwerze jest odmontowana tylko tymczasowo. Skanowanie, które się nie skończyło lub podczas którego zmieniła się zawartość serwera, nigdy niczego nie usuwa.";
+"icloud_sync_settings_channel_footer" = "Preferencje odtwarzacza i układu oraz ulubione (playlisty, audiobooki, foldery i ich kolejność) synchronizują się z ustawieniami; foldery i książki ze źródeł lokalnych tego urządzenia zostają tutaj. Ulubione albumy i wykonawcy synchronizują się z playlistami.";
