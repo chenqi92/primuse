@@ -4156,7 +4156,6 @@
 "local_removal_reason_unsupported" = "來源不支援刪除檔案";
 "local_removal_reason_denied" = "來源拒絕了刪除";
 "local_removal_reason_user_choice" = "保留了來源端檔案";
-"server_catalog_mass_disappearance_format" = "伺服器目錄裡少了之前列出的 %d 首歌。在下一次掃描再次確認之前會先保留。";
 
 /* Server catalogue automatic refresh (whole Subsonic family) */
 "server_auto_refresh" = "自動重新整理";
@@ -5778,3 +5777,9 @@
 "home_filter_bar_label_icon_only" = "僅圖示";
 "home_filter_bar_label_title_only" = "僅文字";
 "home_filter_bar_label_style_footer" = "自動：放得下時每一項都顯示圖示和文字；放不下時選中的那一項保持完整，其餘只留文字或圖示。仍然放不下時可以左右滑動這一排。";
+/* Server catalogue: songs deleted on the server (#155) */
+"catalog_prune_held_format" = "伺服器目錄裡少了之前列出的 %1$d 首歌。為防誤刪先保留，再完整掃描 %2$d 次仍然不在才會移除；不需要保留的話，可以把「伺服器刪掉的歌」改成「立即移除」。";
+"catalog_prune_mode_title" = "伺服器刪掉的歌";
+"catalog_prune_mode_confirm" = "確認後移除";
+"catalog_prune_mode_immediate" = "立即移除";
+"catalog_prune_mode_description" = "確認後移除：掃描時發現伺服器上少了的歌先保留，之後的完整掃描裡仍然不在才移除，伺服器偶爾少回傳或資料庫暫時沒掛載時不會誤刪。立即移除：一次完整掃描裡不在就移除，伺服器上的資料庫暫時沒掛載時也會移除；掃描途中內容有變動或沒掃完時仍然不刪。";

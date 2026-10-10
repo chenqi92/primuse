@@ -4180,7 +4180,6 @@
 "local_removal_reason_unsupported" = "ソースがファイルを削除できません";
 "local_removal_reason_denied" = "ソースが削除を拒否しました";
 "local_removal_reason_user_choice" = "ソース側のファイルを残しました";
-"server_catalog_mass_disappearance_format" = "サーバーのカタログから、以前あった %d 曲が見つかりません。次のスキャンで同じ結果が確認されるまで保持します。";
 
 /* Server catalogue automatic refresh (whole Subsonic family) */
 "server_auto_refresh" = "自動更新";
@@ -5802,3 +5801,9 @@
 "home_filter_bar_label_icon_only" = "アイコンのみ";
 "home_filter_bar_label_title_only" = "文字のみ";
 "home_filter_bar_label_style_footer" = "自動では、収まるときはすべての項目にアイコンと文字を表示します。収まらないときは選択中の項目だけ完全に表示し、ほかは文字かアイコンだけにします。それでも収まらないときは列を横にスワイプできます。";
+/* Server catalogue: songs deleted on the server (#155) */
+"catalog_prune_held_format" = "サーバーのカタログから、以前あった %1$d 曲が見つかりません。誤って消さないようにいったん保持し、さらに %2$d 回の完全スキャンでも見つからなければライブラリから削除します。保持しない場合は「サーバーで削除された曲」を「すぐに削除」に変更してください。";
+"catalog_prune_mode_title" = "サーバーで削除された曲";
+"catalog_prune_mode_confirm" = "確認後に削除";
+"catalog_prune_mode_immediate" = "すぐに削除";
+"catalog_prune_mode_description" = "確認後に削除：スキャンで見つからなかった曲はいったん保持し、その後の完全スキャンでも見つからない場合にライブラリから削除します。サーバーが一時的に少なく返したり、ライブラリが一時的にマウントされていなかったりしても失われません。すぐに削除：1 回の完全スキャンで見つからなかった曲を削除します。サーバー上のライブラリが一時的にマウントされていないだけでも削除されます。途中で終わったスキャンや、スキャン中にサーバーの内容が変わった場合は何も削除しません。";

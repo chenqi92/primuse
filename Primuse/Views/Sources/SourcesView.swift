@@ -1382,9 +1382,41 @@ struct SourcesContentView: View {
                 .accessibilityLabel(Text("server_scan_on_launch"))
                 .accessibilityHint(Text("server_scan_on_launch_description"))
             }
+
+            if AppServices.shared.serverCatalogAutoRefresh.supportsCatalogRemovalModeChoice(source) {
+                Divider()
+
+                // 卡片里不是 Form，菜单样式的 Picker 不显示自己的 label，标题单独摆。
+                HStack(spacing: 8) {
+                    SettingsInfoLabel("catalog_prune_mode_title") {
+                        Text("catalog_prune_mode_description")
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    Spacer(minLength: 8)
+                    Picker("catalog_prune_mode_title", selection: catalogRemovalModeBinding(for: source.id)) {
+                        Text("catalog_prune_mode_confirm").tag(ServerCatalogRemovalMode.confirmFirst)
+                        Text("catalog_prune_mode_immediate").tag(ServerCatalogRemovalMode.immediate)
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .accessibilityLabel(Text("catalog_prune_mode_title"))
+                    .accessibilityHint(Text("catalog_prune_mode_description"))
+                }
+            }
         }
         .padding(10)
         .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func catalogRemovalModeBinding(for sourceID: String) -> Binding<ServerCatalogRemovalMode> {
+        Binding(
+            get: {
+                AppServices.shared.serverCatalogAutoRefresh.catalogRemovalMode(for: sourceID)
+            },
+            set: { mode in
+                AppServices.shared.serverCatalogAutoRefresh.setCatalogRemovalMode(mode, for: sourceID)
+            }
+        )
     }
 
     private func serverCatalogAutoRefreshBinding(for sourceID: String) -> Binding<Bool> {

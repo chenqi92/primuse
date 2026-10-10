@@ -424,6 +424,9 @@ final class ScanService {
     /// AppServices supplies live playback/network/power pressure for automatic
     /// paged server catalogues. Explicit user scans keep their existing policy.
     @ObservationIgnored var automaticServerCatalogWorkAllowedHandler: (() -> Bool)?
+    /// 用户给这个源选的「服务端删掉的歌」移除方式（来源卡片上的选项，AppServices 接到
+    /// `ServerCatalogAutoRefreshCoordinator`）。没接上时按默认的「确认后移除」。
+    @ObservationIgnored var serverCatalogRemovalModeHandler: ((String) -> ServerCatalogRemovalMode)?
     struct ScanState: Equatable {
         var isScanning: Bool = false
         var currentFile: String = ""
@@ -3555,7 +3558,8 @@ final class ScanService {
                 previousMissingCounts: previousState.missingCatalogSongIDs,
                 previousEvidenceRevision: previousState.deletionEvidenceRevision,
                 currentRevision: nil,
-                authority: source.type.catalogDeletionAuthority
+                authority: source.type.catalogDeletionAuthority,
+                removalMode: serverCatalogRemovalModeHandler?(source.id) ?? .confirmFirst
             )
             let prunableSongIDs = ServerCatalogDeletionConfirmationPolicy
                 .retainedAuthoritativeSongIDs(
@@ -4210,7 +4214,8 @@ final class ScanService {
                     previousMissingCounts: previousState?.missingCatalogSongIDs ?? [:],
                     previousEvidenceRevision: previousState?.deletionEvidenceRevision,
                     currentRevision: deletionEvidenceRevision,
-                    authority: source.type.catalogDeletionAuthority
+                    authority: source.type.catalogDeletionAuthority,
+                    removalMode: serverCatalogRemovalModeHandler?(source.id) ?? .confirmFirst
                 )
                 let prunableSongIDs = ServerCatalogDeletionConfirmationPolicy
                     .retainedAuthoritativeSongIDs(
@@ -4746,9 +4751,7 @@ final class ScanService {
             guard isCurrentScan(source.id, generation: generation) else {
                 throw CancellationError()
             }
-            scanStates[source.id] = Self.completedScanState(
-                reconciliation: candidateState.reconciliation
-            )
+            scanStates[source.id] = Self.completedScanState(syncState: candidateState)
             publishSuccessfulScanLifecycle(
                 sourceID: source.id,
                 completion: .committedNoChanges
@@ -5054,9 +5057,7 @@ final class ScanService {
             expectedScopeDirectories: expectedScopeDirectories,
             sourceStore: sourceStore
         )
-        scanStates[sourceID] = Self.completedScanState(
-            reconciliation: syncState?.reconciliation
-        )
+        scanStates[sourceID] = Self.completedScanState(syncState: syncState)
         if let pending = localImportScanRevisions[sourceID], pending.generation == generation {
             LocalImportService.clearPendingScan(ifRevisionMatches: pending.revision)
         }
@@ -5291,23 +5292,26 @@ final class ScanService {
         syncStates = decoded
         for (sourceID, state) in decoded
         where state.reconciliation != nil && scanStates[sourceID] == nil {
-            scanStates[sourceID] = Self.completedScanState(
-                reconciliation: state.reconciliation
-            )
+            scanStates[sourceID] = Self.completedScanState(syncState: state)
         }
     }
 
     private static func completedScanState(
-        reconciliation: SourceSyncReconciliation?
+        syncState: SourceSyncState?
     ) -> ScanState? {
-        guard let reconciliation else { return nil }
+        guard let syncState, let reconciliation = syncState.reconciliation else { return nil }
         let message = switch reconciliation.kind {
         case .baiduIdentityAndDeletionConfirmation:
             String(localized: "baidu_snapshot_reconciliation_required")
         case .serverCatalogMassDisappearance:
+            // 说清还要再完整扫描几次、在哪里改成不保留（#155）。
             String(
-                format: String(localized: "server_catalog_mass_disappearance_format"),
-                reconciliation.unresolvedStableKeys.count
+                format: String(localized: "catalog_prune_held_format"),
+                reconciliation.unresolvedStableKeys.count,
+                ServerCatalogDeletionConfirmationPolicy.remainingMassDisappearanceWitnesses(
+                    unresolvedSongIDs: reconciliation.unresolvedStableKeys,
+                    missingCounts: syncState.missingCatalogSongIDs
+                )
             )
         }
         return ScanState(isScanning: false, reconciliationMessage: message)

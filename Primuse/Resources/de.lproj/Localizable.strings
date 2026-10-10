@@ -4179,7 +4179,6 @@
 "local_removal_reason_unsupported" = "Quelle kann keine Dateien löschen";
 "local_removal_reason_denied" = "Quelle hat das Löschen abgelehnt";
 "local_removal_reason_user_choice" = "Quelldatei behalten";
-"server_catalog_mass_disappearance_format" = "Im Serverkatalog fehlen %d Titel, die zuvor gelistet waren. Sie bleiben erhalten, bis ein weiterer Scan dasselbe Fehlen bestätigt.";
 
 /* Server catalogue automatic refresh (whole Subsonic family) */
 "server_auto_refresh" = "Automatisch aktualisieren";
@@ -5801,3 +5800,9 @@
 "home_filter_bar_label_icon_only" = "Nur Symbol";
 "home_filter_bar_label_title_only" = "Nur Text";
 "home_filter_bar_label_style_footer" = "Automatisch zeigt bei jedem Filter Symbol und Text, wenn der Platz reicht. Sonst bleibt der ausgewählte Filter vollständig und die anderen zeigen nur Text oder Symbol. Ist die Leiste dann noch zu breit, lässt sie sich seitlich wischen.";
+/* Server catalogue: songs deleted on the server (#155) */
+"catalog_prune_held_format" = "Im Serverkatalog fehlen %1$d Titel, die zuvor gelistet waren. Sie bleiben vorsichtshalber erhalten und werden entfernt, wenn %2$d weitere vollständige Scans sie ebenfalls nicht finden. Wenn du sie nicht behalten möchtest, stelle „Auf dem Server gelöschte Titel“ auf „Sofort entfernen“.";
+"catalog_prune_mode_title" = "Auf dem Server gelöschte Titel";
+"catalog_prune_mode_confirm" = "Nach Bestätigung entfernen";
+"catalog_prune_mode_immediate" = "Sofort entfernen";
+"catalog_prune_mode_description" = "Nach Bestätigung entfernen: Titel, die bei einem Scan fehlen, bleiben erhalten und werden erst entfernt, wenn auch spätere vollständige Scans sie nicht finden – liefert der Server kurz weniger Titel oder ist eine Bibliothek vorübergehend nicht eingebunden, geht nichts verloren. Sofort entfernen: Titel, die bei einem vollständigen Scan fehlen, werden entfernt, auch wenn eine Bibliothek auf dem Server nur vorübergehend nicht eingebunden ist. Ein Scan, der nicht abgeschlossen wurde oder während dem sich der Serverinhalt geändert hat, entfernt nie etwas.";

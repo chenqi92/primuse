@@ -4085,7 +4085,6 @@
 "local_removal_reason_unsupported" = "A fonte não consegue excluir arquivos";
 "local_removal_reason_denied" = "A fonte recusou a exclusão";
 "local_removal_reason_user_choice" = "Arquivo da fonte mantido";
-"server_catalog_mass_disappearance_format" = "O catálogo do servidor não lista mais %d músicas que tinha antes. Elas são mantidas até outra varredura confirmar a mesma ausência.";
 
 /* Server catalogue automatic refresh (whole Subsonic family) */
 "server_auto_refresh" = "Atualizar automaticamente";
@@ -5707,3 +5706,9 @@
 "home_filter_bar_label_icon_only" = "Só ícone";
 "home_filter_bar_label_title_only" = "Só texto";
 "home_filter_bar_label_style_footer" = "No automático, cada filtro mostra ícone e texto quando cabem. Se não couberem, o filtro selecionado fica completo e os outros mostram só o texto ou só o ícone. Se a fileira ainda não couber, deslize-a para o lado.";
+/* Server catalogue: songs deleted on the server (#155) */
+"catalog_prune_held_format" = "O catálogo do servidor não lista mais %1$d músicas que tinha antes. Elas são mantidas por precaução e serão removidas se mais %2$d varreduras completas também não as encontrarem. Para não mantê-las, mude “Músicas apagadas no servidor” para “Remover imediatamente”.";
+"catalog_prune_mode_title" = "Músicas apagadas no servidor";
+"catalog_prune_mode_confirm" = "Remover após confirmar";
+"catalog_prune_mode_immediate" = "Remover imediatamente";
+"catalog_prune_mode_description" = "Remover após confirmar: músicas que faltam em uma varredura são mantidas e só removidas se as próximas varreduras completas também não as encontrarem, então nada se perde se o servidor devolver menos músicas por um momento ou uma biblioteca ficar desmontada temporariamente. Remover imediatamente: músicas que faltam em uma única varredura completa são removidas, mesmo que a biblioteca no servidor esteja desmontada só temporariamente. Uma varredura que não terminou, ou durante a qual o conteúdo do servidor mudou, nunca remove nada.";

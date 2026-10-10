@@ -295,7 +295,8 @@ struct ServerCatalogDeletionWalkEvidenceTests {
         authoritative: Set<String>,
         after previous: ServerCatalogDeletionConfirmationPolicy.Plan? = nil,
         serverRevision: String? = "2026-10-01T08:00:00Z|1200",
-        authority: CatalogDeletionAuthority = .confirmationRequired
+        authority: CatalogDeletionAuthority = .confirmationRequired,
+        removalMode: ServerCatalogRemovalMode = .confirmFirst
     ) -> ServerCatalogDeletionConfirmationPolicy.Plan {
         Policy.plan(
             existingSongIDs: existing,
@@ -306,7 +307,8 @@ struct ServerCatalogDeletionWalkEvidenceTests {
                 catalogRevision: serverRevision,
                 stageSessionID: session
             ),
-            authority: authority
+            authority: authority,
+            removalMode: removalMode
         )
     }
 
@@ -340,16 +342,72 @@ struct ServerCatalogDeletionWalkEvidenceTests {
 
         let first = walk("s1", existing: existing, authoritative: survivors)
         #expect(first.holdsMassDisappearance)
+        #expect(Policy.remainingMassDisappearanceWitnesses(
+            unresolvedSongIDs: Array(first.pendingSongIDs),
+            missingCounts: first.missingCounts
+        ) == 2)
 
         let second = walk("s2", existing: existing, authoritative: survivors, after: first)
         #expect(second.confirmedDeletionSongIDs.isEmpty)
         #expect(second.holdsMassDisappearance)
+        #expect(Policy.remainingMassDisappearanceWitnesses(
+            unresolvedSongIDs: Array(second.pendingSongIDs),
+            missingCounts: second.missingCounts
+        ) == 1)
 
         let third = walk("s3", existing: existing, authoritative: survivors, after: second)
         #expect(third.confirmedDeletionSongIDs.count == 100)
         // 这一轮把它们都删了，卡片上不能再挂「少了 0 首」。
         #expect(third.isMassDisappearance)
         #expect(!third.holdsMassDisappearance)
+    }
+
+    @Test func immediateRemovalDeletesOnTheFirstCompleteWalkEvenForAMassLoss() {
+        let existing = Set((0..<200).map { "song-\($0)" })
+        let survivors = Set((0..<100).map { "song-\($0)" })
+        for authority in [CatalogDeletionAuthority.confirmationRequired, .authoritative] {
+            let result = walk(
+                "s1", existing: existing, authoritative: survivors,
+                authority: authority, removalMode: .immediate
+            )
+            #expect(result.isMassDisappearance)
+            #expect(result.confirmedDeletionSongIDs.count == 100)
+            #expect(result.pendingSongIDs.isEmpty)
+            #expect(!result.holdsMassDisappearance)
+        }
+    }
+
+    @Test func immediateRemovalNeverTurnsACompatibilityListingIntoDeletions() {
+        let result = walk(
+            "s1", existing: ["a", "b"], authoritative: ["a"],
+            authority: .never, removalMode: .immediate
+        )
+        #expect(result.confirmedDeletionSongIDs.isEmpty)
+        #expect(result.pendingSongIDs == ["b"])
+    }
+
+    @Test func witnessBarForImmediateRemoval() {
+        for isMass in [false, true] {
+            #expect(Policy.requiredWitnesses(
+                for: .confirmationRequired, isMassDisappearance: isMass, removalMode: .immediate
+            ) == 1)
+            #expect(Policy.requiredWitnesses(
+                for: .authoritative, isMassDisappearance: isMass, removalMode: .immediate
+            ) == 1)
+            #expect(Policy.requiredWitnesses(
+                for: .never, isMassDisappearance: isMass, removalMode: .immediate
+            ) == nil)
+        }
+    }
+
+    @Test func remainingWitnessesNeverReadsZeroOrNegative() {
+        #expect(Policy.remainingMassDisappearanceWitnesses(unresolvedSongIDs: [], missingCounts: [:]) == 2)
+        #expect(Policy.remainingMassDisappearanceWitnesses(
+            unresolvedSongIDs: ["a", "b"], missingCounts: ["a": 1, "b": 2]
+        ) == 1)
+        #expect(Policy.remainingMassDisappearanceWitnesses(
+            unresolvedSongIDs: ["a"], missingCounts: ["a": 7]
+        ) == 1)
     }
 
     @Test func walkObservationsDifferPerSessionNotPerServerRevision() {

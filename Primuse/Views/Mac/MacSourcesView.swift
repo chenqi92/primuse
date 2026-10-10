@@ -432,9 +432,41 @@ struct MacSourcesView: View {
                 )
                 .disabled(!AppServices.shared.serverCatalogAutoRefresh.isEnabled(for: source.id))
             }
+            if AppServices.shared.serverCatalogAutoRefresh.supportsCatalogRemovalModeChoice(source) {
+                Rectangle().fill(PMColor.divider).frame(height: 0.5)
+                HStack(alignment: .center, spacing: 12) {
+                    Text("catalog_prune_mode_title")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                    Spacer(minLength: 10)
+                    Picker("catalog_prune_mode_title", selection: catalogRemovalModeBinding(for: source.id)) {
+                        Text("catalog_prune_mode_confirm").tag(ServerCatalogRemovalMode.confirmFirst)
+                        Text("catalog_prune_mode_immediate").tag(ServerCatalogRemovalMode.immediate)
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .fixedSize()
+                    .accessibilityLabel(Text("catalog_prune_mode_title"))
+                    .accessibilityHint(Text("catalog_prune_mode_description"))
+                }
+                // 两种做法的取舍放在悬停提示里，和这一块其它开关一样不占卡片的行。
+                .help(Text("catalog_prune_mode_description"))
+            }
         }
         .padding(10)
         .background(PMColor.bgDeep.opacity(0.5), in: .rect(cornerRadius: 9))
+    }
+
+    private func catalogRemovalModeBinding(for sourceID: String) -> Binding<ServerCatalogRemovalMode> {
+        Binding(
+            get: {
+                AppServices.shared.serverCatalogAutoRefresh.catalogRemovalMode(for: sourceID)
+            },
+            set: { mode in
+                AppServices.shared.serverCatalogAutoRefresh.setCatalogRemovalMode(mode, for: sourceID)
+            }
+        )
     }
 
     private func serverCatalogOptionRow(

@@ -4085,7 +4085,6 @@
 "local_removal_reason_unsupported" = "Źródło nie potrafi usuwać plików";
 "local_removal_reason_denied" = "Źródło odmówiło usunięcia";
 "local_removal_reason_user_choice" = "Zachowano plik źródłowy";
-"server_catalog_mass_disappearance_format" = "Katalog serwera nie zawiera już %d utworów, które wcześniej w nim były. Pozostają zachowane, dopóki kolejne skanowanie nie potwierdzi tego samego braku.";
 
 /* Server catalogue automatic refresh (whole Subsonic family) */
 "server_auto_refresh" = "Odświeżaj automatycznie";
@@ -5707,3 +5706,9 @@
 "home_filter_bar_label_icon_only" = "Tylko ikona";
 "home_filter_bar_label_title_only" = "Tylko tekst";
 "home_filter_bar_label_style_footer" = "W trybie automatycznym każdy filtr ma ikonę i tekst, gdy starcza miejsca. Jeśli nie, wybrany filtr zostaje pełny, a pozostałe pokazują tylko tekst lub ikonę. Gdy rząd nadal się nie mieści, można go przewinąć w bok.";
+/* Server catalogue: songs deleted on the server (#155) */
+"catalog_prune_held_format" = "Katalog serwera nie zawiera już utworów, które wcześniej w nim były: %1$d. Na wszelki wypadek pozostają zachowane; pozostałe pełne skanowania przed usunięciem: %2$d. Jeśli nie chcesz ich zachowywać, ustaw „Utwory usunięte na serwerze” na „Usuń od razu”.";
+"catalog_prune_mode_title" = "Utwory usunięte na serwerze";
+"catalog_prune_mode_confirm" = "Usuń po potwierdzeniu";
+"catalog_prune_mode_immediate" = "Usuń od razu";
+"catalog_prune_mode_description" = "Usuń po potwierdzeniu: utwory, których zabrakło w skanowaniu, są zachowywane i usuwane dopiero wtedy, gdy kolejne pełne skanowania też ich nie znajdą — nic nie przepada, gdy serwer na chwilę zwróci mniej utworów albo biblioteka zostanie tymczasowo odmontowana. Usuń od razu: utwory, których zabrakło w jednym pełnym skanowaniu, są usuwane, nawet gdy biblioteka na serwerze jest odmontowana tylko tymczasowo. Skanowanie, które się nie skończyło lub podczas którego zmieniła się zawartość serwera, nigdy niczego nie usuwa.";

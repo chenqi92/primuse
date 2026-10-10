@@ -3942,7 +3942,6 @@
 "local_removal_reason_unsupported" = "Source cannot delete files";
 "local_removal_reason_denied" = "Source refused the deletion";
 "local_removal_reason_user_choice" = "Source file kept";
-"server_catalog_mass_disappearance_format" = "The server catalogue no longer lists %d songs it had before. They are kept until another scan confirms the same absence.";
 
 /* Server catalogue automatic refresh (whole Subsonic family) */
 "server_auto_refresh" = "Refresh Automatically";
@@ -5561,3 +5560,9 @@
 "home_filter_bar_label_icon_only" = "Icon Only";
 "home_filter_bar_label_title_only" = "Text Only";
 "home_filter_bar_label_style_footer" = "Automatic shows icon and text on every filter when they fit. When they don’t, the selected filter stays complete and the others keep only their text or icon. If the row is still too wide, swipe it sideways.";
+/* Server catalogue: songs deleted on the server (#155) */
+"catalog_prune_held_format" = "The server catalogue no longer lists %1$d songs it had before. They are kept in case this is a temporary glitch, and removed if %2$d more full scans still don’t find them. To stop keeping them, set “Songs Deleted on the Server” to “Remove Immediately”.";
+"catalog_prune_mode_title" = "Songs Deleted on the Server";
+"catalog_prune_mode_confirm" = "Remove After Confirming";
+"catalog_prune_mode_immediate" = "Remove Immediately";
+"catalog_prune_mode_description" = "Remove After Confirming: songs missing from a scan are kept and removed only if later full scans still don’t find them, so a server that briefly returns fewer songs or a temporarily unmounted library costs you nothing. Remove Immediately: songs missing from one full scan are removed, even if the library on the server is only temporarily unmounted. A scan that didn’t finish, or during which the server’s content changed, never removes songs.";

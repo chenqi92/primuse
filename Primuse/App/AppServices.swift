@@ -121,6 +121,8 @@ final class ServerCatalogAutoRefreshCoordinator {
         var disabledSourceIDs: Set<String> = []
         var serverScanOnLaunchSourceIDs: Set<String>?
         var markers: [String: SourceMarker] = [:]
+        /// 「服务端删掉的歌」选了「立即移除」的源。可选：旧版本存下的没有这个键。
+        var immediateCatalogRemovalSourceIDs: Set<String>?
     }
 
     private struct PendingMarker: Sendable {
@@ -196,6 +198,9 @@ final class ServerCatalogAutoRefreshCoordinator {
     @ObservationIgnored private var applicationIsActive = false
     private var disabledSourceIDs: Set<String>
     private var serverScanOnLaunchSourceIDs: Set<String>
+    /// 和上面两个开关一样按源、只存在本机：它们在来源卡片的同一块里，删源时一起清掉。
+    /// 删除证词（`SourceSyncState`）本来就是每台设备各记各的。
+    private var immediateCatalogRemovalSourceIDs: Set<String>
     /// Shown by `serverCatalogRefreshFeedback()` at the app root.
     private(set) var feedback: Feedback?
 
@@ -218,6 +223,7 @@ final class ServerCatalogAutoRefreshCoordinator {
         let state = Self.loadState(from: defaults)
         disabledSourceIDs = state.disabledSourceIDs
         serverScanOnLaunchSourceIDs = state.serverScanOnLaunchSourceIDs ?? []
+        immediateCatalogRemovalSourceIDs = state.immediateCatalogRemovalSourceIDs ?? []
         markers = state.markers
     }
 
@@ -270,6 +276,37 @@ final class ServerCatalogAutoRefreshCoordinator {
             serverScanOnLaunchSourceIDs.remove(sourceID)
         }
         persistState()
+    }
+
+    /// 来源卡片上要不要给「服务端删掉的歌」这个选项：只有删歌走证词模型的源才会先留着。
+    nonisolated func supportsCatalogRemovalModeChoice(_ source: MusicSource) -> Bool {
+        source.type.holdsServerDeletionsForConfirmation
+    }
+
+    func catalogRemovalMode(for sourceID: String) -> ServerCatalogRemovalMode {
+        immediateCatalogRemovalSourceIDs.contains(sourceID) ? .immediate : .confirmFirst
+    }
+
+    /// 改成「立即移除」时，如果卡片上正挂着「先保留」的说明，马上扫一次把那些歌清掉，
+    /// 不用等用户再手动扫描（#155：用户找不到「确认」的地方）。
+    func setCatalogRemovalMode(_ mode: ServerCatalogRemovalMode, for sourceID: String) {
+        switch mode {
+        case .immediate: immediateCatalogRemovalSourceIDs.insert(sourceID)
+        case .confirmFirst: immediateCatalogRemovalSourceIDs.remove(sourceID)
+        }
+        persistState()
+        guard mode == .immediate,
+              scanService.scanStates[sourceID]?.reconciliationMessage != nil,
+              let source = sourcesStore.source(id: sourceID) else { return }
+        _ = scanService.scanSource(
+            source,
+            mode: .automatic,
+            snapshotExecutionContext: .userInitiatedForeground,
+            sourceManager: sourceManager,
+            library: library,
+            sourceStore: sourcesStore,
+            scraperService: scraperService
+        )
     }
 
     func setApplicationActive(_ active: Bool) {
@@ -384,6 +421,7 @@ final class ServerCatalogAutoRefreshCoordinator {
     func sourceWasDeleted(_ sourceID: String) {
         disabledSourceIDs.remove(sourceID)
         serverScanOnLaunchSourceIDs.remove(sourceID)
+        immediateCatalogRemovalSourceIDs.remove(sourceID)
         serverScanRequestFingerprints.removeValue(forKey: sourceID)
         serverScanRequestInFlightSourceIDs.remove(sourceID)
         markers.removeValue(forKey: sourceID)
@@ -839,7 +877,8 @@ final class ServerCatalogAutoRefreshCoordinator {
         let state = PersistedState(
             disabledSourceIDs: disabledSourceIDs,
             serverScanOnLaunchSourceIDs: serverScanOnLaunchSourceIDs,
-            markers: markers
+            markers: markers,
+            immediateCatalogRemovalSourceIDs: immediateCatalogRemovalSourceIDs
         )
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -1229,6 +1268,10 @@ final class AppServices {
         scanService.automaticServerCatalogWorkAllowedHandler = {
             [weak serverCatalogAutoRefresh] in
             serverCatalogAutoRefresh?.automaticWorkIsAllowed() ?? false
+        }
+        scanService.serverCatalogRemovalModeHandler = {
+            [weak serverCatalogAutoRefresh] sourceID in
+            serverCatalogAutoRefresh?.catalogRemovalMode(for: sourceID) ?? .confirmFirst
         }
         manager.automaticOfflineDownloadRemovedHandler = { [weak alwaysDownload] songID in
             alwaysDownload?.downloadedFileWasRemoved(songID: songID)

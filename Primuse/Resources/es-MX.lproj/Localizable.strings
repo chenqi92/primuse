@@ -4085,7 +4085,6 @@
 "local_removal_reason_unsupported" = "La fuente no puede eliminar archivos";
 "local_removal_reason_denied" = "La fuente rechazó la eliminación";
 "local_removal_reason_user_choice" = "Se conservó el archivo de la fuente";
-"server_catalog_mass_disappearance_format" = "El catálogo del servidor ya no incluye %d canciones que antes tenía. Se conservan hasta que otro análisis confirme la misma ausencia.";
 
 /* Server catalogue automatic refresh (whole Subsonic family) */
 "server_auto_refresh" = "Actualizar automáticamente";
@@ -5707,3 +5706,9 @@
 "home_filter_bar_label_icon_only" = "Solo ícono";
 "home_filter_bar_label_title_only" = "Solo texto";
 "home_filter_bar_label_style_footer" = "En automático, cada filtro muestra su ícono y su texto cuando caben. Si no, el filtro seleccionado se mantiene completo y los demás dejan solo el texto o el ícono. Si la fila sigue sin caber, puedes deslizarla de lado.";
+/* Server catalogue: songs deleted on the server (#155) */
+"catalog_prune_held_format" = "El catálogo del servidor ya no incluye %1$d canciones que antes tenía. Se conservan por precaución y se quitarán si %2$d análisis completos más tampoco las encuentran. Si no quieres conservarlas, cambia “Canciones borradas en el servidor” a “Quitar de inmediato”.";
+"catalog_prune_mode_title" = "Canciones borradas en el servidor";
+"catalog_prune_mode_confirm" = "Quitar tras confirmar";
+"catalog_prune_mode_immediate" = "Quitar de inmediato";
+"catalog_prune_mode_description" = "Quitar tras confirmar: las canciones que faltan en un análisis se conservan y solo se quitan si los análisis completos siguientes tampoco las encuentran, así no pierdes nada si el servidor devuelve menos canciones por un momento o una biblioteca se desmonta temporalmente. Quitar de inmediato: se quitan las canciones que faltan en un solo análisis completo, aunque la biblioteca del servidor solo esté desmontada temporalmente. Un análisis que no terminó, o durante el cual cambió el contenido del servidor, nunca quita nada.";

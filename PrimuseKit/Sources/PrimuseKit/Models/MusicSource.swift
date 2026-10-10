@@ -246,6 +246,13 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         return .authoritative
     }
 
+    /// 扫描删歌走 `ServerCatalogDeletionConfirmationPolicy` 证词模型的源：完整走查里少了的歌
+    /// 可能先留着等后面的走查确认，所以来源卡片上让用户选「确认后移除 / 立即移除」。
+    /// 别的服务器源一次完整走查就删，没有可选的。
+    public var holdsServerDeletionsForConfirmation: Bool {
+        usesPagedCatalogStaging
+    }
+
     /// 服务端整库源：没有"用户选目录"这一步，靠 "/" 哨兵触发 connector
     /// 的全库 `scanSongs(from:)`。媒体服务器(Jellyfin/Emby/Plex)、Subsonic
     /// 系(Navidrome/Airsonic/Gonic)以及飞牛音乐。Apple Music Library 虽也

@@ -4179,7 +4179,6 @@
 "local_removal_reason_unsupported" = "La source ne peut pas supprimer de fichiers";
 "local_removal_reason_denied" = "La source a refusé la suppression";
 "local_removal_reason_user_choice" = "Fichier source conservé";
-"server_catalog_mass_disappearance_format" = "Le catalogue du serveur ne liste plus %d morceaux qu’il contenait auparavant. Ils sont conservés jusqu’à ce qu’une autre analyse confirme la même absence.";
 
 /* Server catalogue automatic refresh (whole Subsonic family) */
 "server_auto_refresh" = "Actualiser automatiquement";
@@ -5801,3 +5800,9 @@
 "home_filter_bar_label_icon_only" = "Icône seule";
 "home_filter_bar_label_title_only" = "Texte seul";
 "home_filter_bar_label_style_footer" = "En automatique, chaque filtre affiche son icône et son texte s’il y a la place. Sinon, le filtre sélectionné reste complet et les autres ne gardent que leur texte ou leur icône. Si la rangée est encore trop large, faites-la défiler latéralement.";
+/* Server catalogue: songs deleted on the server (#155) */
+"catalog_prune_held_format" = "Le catalogue du serveur ne liste plus %1$d morceaux qu’il contenait auparavant. Ils sont conservés par précaution et seront retirés si %2$d analyses complètes de plus ne les trouvent toujours pas. Pour ne plus les conserver, réglez « Morceaux supprimés sur le serveur » sur « Retirer immédiatement ».";
+"catalog_prune_mode_title" = "Morceaux supprimés sur le serveur";
+"catalog_prune_mode_confirm" = "Retirer après confirmation";
+"catalog_prune_mode_immediate" = "Retirer immédiatement";
+"catalog_prune_mode_description" = "Retirer après confirmation : les morceaux absents d’une analyse sont conservés et retirés seulement si les analyses complètes suivantes ne les trouvent toujours pas ; un serveur qui renvoie brièvement moins de morceaux ou une bibliothèque temporairement démontée ne vous fait rien perdre. Retirer immédiatement : les morceaux absents d’une analyse complète sont retirés, même si la bibliothèque du serveur n’est démontée que temporairement. Une analyse inachevée, ou pendant laquelle le contenu du serveur a changé, ne retire jamais rien.";

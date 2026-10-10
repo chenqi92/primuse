@@ -4272,7 +4272,6 @@
 "local_removal_reason_unsupported" = "来源不支持删除文件";
 "local_removal_reason_denied" = "来源拒绝了删除";
 "local_removal_reason_user_choice" = "保留了源端文件";
-"server_catalog_mass_disappearance_format" = "服务端目录里少了之前列出的 %d 首歌。在下一次扫描再次确认之前会先保留。";
 
 /* Server catalogue automatic refresh (whole Subsonic family) */
 "server_auto_refresh" = "自动刷新";
@@ -5894,3 +5893,9 @@
 "home_filter_bar_label_icon_only" = "仅图标";
 "home_filter_bar_label_title_only" = "仅文字";
 "home_filter_bar_label_style_footer" = "自动：放得下时每一项都显示图标和文字；放不下时选中的那一项保持完整，其余只留文字或图标。仍然放不下时可以左右滑动这一排。";
+/* Server catalogue: songs deleted on the server (#155) */
+"catalog_prune_held_format" = "服务端目录里少了之前列出的 %1$d 首歌。为防误删先保留，再完整扫描 %2$d 次仍然不在才会移除；不需要保留的话，可以把「服务端删掉的歌」改成「立即移除」。";
+"catalog_prune_mode_title" = "服务端删掉的歌";
+"catalog_prune_mode_confirm" = "确认后移除";
+"catalog_prune_mode_immediate" = "立即移除";
+"catalog_prune_mode_description" = "确认后移除：扫描时发现服务器上少了的歌先保留，之后的完整扫描里仍然不在才移除，服务器偶尔少返回或资料库暂时没挂载时不会误删。立即移除：一次完整扫描里不在就移除，服务器上的资料库暂时没挂载时也会移除；扫描途中内容有变动或没扫完时仍然不删。";

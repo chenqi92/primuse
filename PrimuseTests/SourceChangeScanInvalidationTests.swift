@@ -272,6 +272,17 @@ final class ServerCatalogDeletionScanTests: XCTestCase {
         XCTAssertNil(fixture.scan.scanStates[fixture.source.id]?.reconciliationMessage)
     }
 
+    func testImmediateRemovalDeletesOnTheFirstCompleteWalk() async throws {
+        let fixture = try makeFixture(songCount: 100)
+        fixture.scan.serverCatalogRemovalModeHandler = { _ in .immediate }
+        try await fixture.scanOnce()
+        await fixture.connector.remove(Set((40..<100).map(Self.songID)))
+
+        try await fixture.scanOnce()
+        XCTAssertEqual(fixture.songIDs().count, 40)
+        XCTAssertNil(fixture.scan.scanStates[fixture.source.id]?.reconciliationMessage)
+    }
+
     private static func songID(_ index: Int) -> String {
         String(format: "song-%03d", index)
     }

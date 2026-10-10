@@ -16,6 +16,14 @@ public enum CatalogDeletionAuthority: String, Sendable, Equatable, Codable {
     case never
 }
 
+/// 服务端删掉的歌什么时候从资料库移除。用户按音乐源选（#155）。
+public enum ServerCatalogRemovalMode: String, Sendable, Equatable, Codable, CaseIterable {
+    /// 默认：一次完整走查只是一票证词，凑够 `requiredWitnesses` 才移除，大批消失还要多等一票。
+    case confirmFirst
+    /// 一次没漂移的完整走查里不在就移除，大批消失也一样。走查漂移、没走完、只是兼容列表时照旧不删。
+    case immediate
+}
+
 /// Turns repeated "this song was not in the complete catalogue" observations
 /// into an actual deletion decision.
 ///
@@ -49,16 +57,21 @@ public enum ServerCatalogDeletionConfirmationPolicy {
     /// suspicious share of the source still has to be repeated — an unmounted
     /// library reads exactly like a bulk deletion, and that is the one case
     /// where being wrong costs the user their playlists.
+    ///
+    /// 用户选了「立即移除」时一票就够，大批消失也不再多等；兼容列表仍然不删。
     public static func requiredWitnesses(
         for authority: CatalogDeletionAuthority,
-        isMassDisappearance: Bool
+        isMassDisappearance: Bool,
+        removalMode: ServerCatalogRemovalMode = .confirmFirst
     ) -> Int? {
-        switch authority {
-        case .never:
+        switch (authority, removalMode) {
+        case (.never, _):
             return nil
-        case .authoritative:
+        case (_, .immediate):
+            return 1
+        case (.authoritative, .confirmFirst):
             return isMassDisappearance ? massDisappearanceWitnessCount : 1
-        case .confirmationRequired:
+        case (.confirmationRequired, .confirmFirst):
             return isMassDisappearance ? massDisappearanceWitnessCount : requiredWitnessCount
         }
     }
@@ -110,6 +123,16 @@ public enum ServerCatalogDeletionConfirmationPolicy {
         "\(catalogRevision ?? "-")@\(stageSessionID)"
     }
 
+    /// 大批消失时来源卡片上的「再完整扫描几次」：还在等的歌里票数最多的那首还差几票。
+    /// 只用于默认的「确认后移除」；「立即移除」不会留下待确认的歌。
+    public static func remainingMassDisappearanceWitnesses(
+        unresolvedSongIDs: [String],
+        missingCounts: [String: Int]
+    ) -> Int {
+        let witnessed = unresolvedSongIDs.compactMap { missingCounts[$0] }.max() ?? 1
+        return max(1, massDisappearanceWitnessCount - witnessed)
+    }
+
     /// - Parameters:
     ///   - existingSongIDs: library rows currently attributed to this source.
     ///   - authoritativeSongIDs: every song id in the verified complete snapshot.
@@ -119,13 +142,15 @@ public enum ServerCatalogDeletionConfirmationPolicy {
     ///     `nil` 表示每次都算新的一票（增量对账每一轮各自列一遍 id）。
     ///   - authority: how much this listing may conclude about rows it did not
     ///     see. Defaults to the conservative bar.
+    ///   - removalMode: 用户为这个源选的移除方式。
     public static func plan(
         existingSongIDs: Set<String>,
         authoritativeSongIDs: Set<String>,
         previousMissingCounts: [String: Int],
         previousEvidenceRevision: String?,
         currentRevision: String?,
-        authority: CatalogDeletionAuthority = .confirmationRequired
+        authority: CatalogDeletionAuthority = .confirmationRequired,
+        removalMode: ServerCatalogRemovalMode = .confirmFirst
     ) -> Plan {
         let missing = existingSongIDs.subtracting(authoritativeSongIDs)
         guard !missing.isEmpty else {
@@ -143,7 +168,8 @@ public enum ServerCatalogDeletionConfirmationPolicy {
             && Double(missing.count) >= Double(existingSongIDs.count) * massDisappearanceRatio
         let witnessBar = requiredWitnesses(
             for: authority,
-            isMassDisappearance: isMassDisappearance
+            isMassDisappearance: isMassDisappearance,
+            removalMode: removalMode
         )
 
         var counts: [String: Int] = [:]
