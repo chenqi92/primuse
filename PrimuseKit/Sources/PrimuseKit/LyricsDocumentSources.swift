@@ -198,6 +198,9 @@ public final class LyricsDocumentPinStore: @unchecked Sendable {
     private let lock = NSLock()
     private let fileURL: URL?
     private var pins: [String: Pin]
+    /// 按时间轴精度自动挑的文件,只在本次运行里有效、不落盘。键在、值为 nil 表示
+    /// 这首已经比过,原来的规则挑的就是最好的。
+    private var automaticPicks: [String: String?] = [:]
 
     /// `fileURL` nil keeps the pins in memory only (tests).
     public init(fileURL: URL?) {
@@ -218,6 +221,27 @@ public final class LyricsDocumentPinStore: @unchecked Sendable {
         return pins[songID]?.fileName
     }
 
+    /// 解析器实际按哪份读:用户选的优先,没选就用按时间轴精度自动挑的。
+    public func effectiveFileName(forSongID songID: String) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return pins[songID]?.fileName ?? automaticPicks[songID] ?? nil
+    }
+
+    /// 这次运行里是否已经为这首比过各份歌词文件的时间轴。
+    public func hasEvaluatedAutomaticPick(forSongID songID: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return automaticPicks.keys.contains(songID)
+    }
+
+    /// 记下比较结果;nil 表示原来的规则挑的就是最好的。
+    public func setAutomaticPick(_ fileName: String?, forSongID songID: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        automaticPicks[songID] = .some(fileName)
+    }
+
     public func pin(_ fileName: String, forSongID songID: String, now: Date = Date()) {
         mutate { pins in
             guard pins[songID]?.fileName != fileName else { return false }
@@ -236,6 +260,13 @@ public final class LyricsDocumentPinStore: @unchecked Sendable {
     /// already prefers the file a save writes.
     public func followSave(toFileName fileName: String, forSongID songID: String, now: Date = Date()) {
         mutate { pins in
+            // 自动挑出来的那份被编辑保存过, 就当成用户选的: 之后重新比时间轴
+            // 也不会把刚保存的这份换掉。
+            if pins[songID] == nil, (automaticPicks[songID] ?? nil) != nil {
+                automaticPicks[songID] = nil
+                pins[songID] = Pin(fileName: fileName, updatedAt: now)
+                return true
+            }
             guard let current = pins[songID], current.fileName != fileName else { return false }
             pins[songID] = Pin(fileName: fileName, updatedAt: now)
             return true
@@ -245,6 +276,10 @@ public final class LyricsDocumentPinStore: @unchecked Sendable {
     /// The pinned file was deleted through Primuse.
     public func forgetFile(named fileName: String, forSongID songID: String) {
         mutate { pins in
+            if let automatic = automaticPicks[songID] ?? nil,
+               automatic.caseInsensitiveCompare(fileName) == .orderedSame {
+                automaticPicks[songID] = nil
+            }
             guard let current = pins[songID],
                   current.fileName.caseInsensitiveCompare(fileName) == .orderedSame else { return false }
             pins[songID] = nil

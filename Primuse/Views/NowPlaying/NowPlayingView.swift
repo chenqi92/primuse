@@ -7254,7 +7254,7 @@ struct NowPlayingView: View {
                     currentCache: cached,
                     loadRevision: loadRevision
                 )
-            } else if EmbeddedLyricsPrecedencePolicy.shouldRecheckSourceDocument(cached: cached) {
+            } else {
                 runSourceDocumentRecheck(song: song, currentCache: cached, loadRevision: loadRevision)
             }
             return
@@ -7311,8 +7311,7 @@ struct NowPlayingView: View {
         runLyricsTier3Fetch(song: song, currentCache: nil, loadRevision: loadRevision)
     }
 
-    /// 缓存里是没有时间轴的歌词(多半是早先存下的内嵌歌词): 去源里核对一次同名歌词文件,
-    /// 文件带时间轴就换上。
+    /// 每次启动核对一次源里的歌词文件(见 `LyricsLoader.recheckSourceDocument`), 换了就显示新的。
     private func runSourceDocumentRecheck(
         song: Song,
         currentCache: [LyricLine],
@@ -7605,6 +7604,18 @@ struct NowPlayingView: View {
                 if isCurrentLyricsLoad(loadRevision, songID: songID) {
                     setLyrics(parsed)
                 }
+                if !isRefresh {
+                    // 先显示, 再在后台看歌旁边有没有时间轴更细的另一份歌词文件。
+                    let displayed = parsed
+                    Task {
+                        guard let upgraded = await LyricsLoader.upgradeToTimingPreferredDocument(
+                            for: song,
+                            connector: connector,
+                            displayed: displayed
+                        ), isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
+                        setLyrics(upgraded)
+                    }
+                }
             } catch {
                 // 播放页这时可能已经收起，但「源里没有这个文件」这件事照样成立，先记下。
                 if resolvedPlainSource, !isRefresh, Self.isMissingLyricsSidecarError(error) {
@@ -7649,6 +7660,12 @@ struct NowPlayingView: View {
     ) async {
         let songID = song.id
         guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
+        // 源里读不到歌词文件: 先用读标签时留着的内嵌歌词, 没有再去在线找。
+        if let embedded = await LyricsLoader.embeddedFallbackLyrics(for: song) {
+            guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
+            setLyrics(embedded)
+            return
+        }
         let start = Date()
         guard let online = await LyricsLoader.automaticOnlineLyrics(
             for: song,

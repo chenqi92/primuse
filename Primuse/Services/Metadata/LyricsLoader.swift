@@ -183,7 +183,8 @@ enum LyricsLoader {
 
             guard let lyricsFile = try await authoritativeLyricsFile(
                 for: song,
-                connector: connector
+                connector: connector,
+                evaluatesTimingFirst: true
             ) else { return .absent }
             let data = try await connector.fetchRange(
                 path: lyricsFile.path,
@@ -227,8 +228,7 @@ enum LyricsLoader {
                 sourceManager: sourceManager,
                 cachedDocument: cached
             )
-            if !LyricsAuthoritativeSourcePolicy.supportsServerDocument(sourceType),
-               EmbeddedLyricsPrecedencePolicy.shouldRecheckSourceDocument(cached: cached) {
+            if !LyricsAuthoritativeSourcePolicy.supportsServerDocument(sourceType) {
                 Task { @MainActor in
                     _ = await recheckSourceDocument(
                         for: song,
@@ -439,6 +439,17 @@ enum LyricsLoader {
                     ) ?? []
                 }
                 logLoaded(parsed, song: song, tier: "Tier3")
+                let displayed = parsed
+                Task { @MainActor in
+                    _ = await upgradeToTimingPreferredDocument(
+                        for: song,
+                        connector: connector,
+                        displayed: displayed,
+                        displayedFileName: lyricsFile.fileName,
+                        documents: lyricsFile.documents,
+                        baseName: lyricsFile.songBaseName
+                    )
+                }
                 return parsed
             }
         } catch {
@@ -454,6 +465,9 @@ enum LyricsLoader {
 
     /// 普通源确实没有歌词时的最后一站：Tier4 在线兜底，拿不到就按原样返回空。
     private static func automaticOnlineFallback(for song: Song) async -> [LyricLine] {
+        if let embedded = await embeddedFallbackLyrics(for: song) {
+            return embedded
+        }
         if let online = await automaticOnlineLyrics(for: song, expectedFingerprint: nil) {
             guard !Task.isCancelled else { return [] }
             logLoaded(online, song: song, tier: "Tier4-online")
@@ -481,11 +495,14 @@ enum LyricsLoader {
         }
     }
 
-    /// 已经核对过源里歌词文件的歌。每首歌每次启动只列一次目录。
+    /// 已经核对过源里歌词文件的歌。每首歌每次启动只核对一次。
     private static var sourceDocumentRecheckKeys: Set<String> = []
 
-    /// 缓存里是一行时间轴都没有的歌词(多半是早先读标签时存下的内嵌歌词), 而这首歌旁边
-    /// 有歌词文件: 读那个文件, 文件带时间轴就换掉缓存并通知各处歌词视图。
+    /// 缓存命中后每首歌每次启动核对一次源里的歌词文件:
+    /// - 缓存还不是逐字的(没时间轴的多半是早先存下的内嵌歌词): 读歌旁边当前那份歌词文件
+    ///   (几份并存时按时间轴精度自动挑), 时间轴更细就换掉缓存;
+    /// - 歌旁边一份歌词文件都没有了, 而读标签时留着这首的内嵌歌词: 换回内嵌歌词。
+    /// 换了就通知各处歌词视图, 并把新歌词返回给调用方。
     static func recheckSourceDocument(
         for song: Song,
         sourceManager: SourceManager,
@@ -495,57 +512,238 @@ enum LyricsLoader {
               !song.isStreamDescriptor,
               !PodcastPlaybackSong.isEpisode(song),
               song.sourceID != AppleMusicLibraryIdentity.sourceID,
-              EmbeddedLyricsPrecedencePolicy.shouldRecheckSourceDocument(cached: cachedDocument) else {
+              !cachedDocument.isEmpty,
+              cachedDocument.first?.documentIsLocalOverride != true else {
             return nil
         }
-        guard sourceDocumentRecheckKeys.insert("\(song.sourceID)\u{1F}\(song.id)").inserted else {
-            return nil
-        }
+        let recheckKey = "\(song.sourceID)\u{1F}\(song.id)"
+        guard !sourceDocumentRecheckKeys.contains(recheckKey) else { return nil }
+        let embedded = await MetadataAssetStore.shared.embeddedFallbackLyrics(forSongID: song.id)
+        // 没时间轴的缓存按歌上的歌词引用只核对一次; 留着内嵌备用的歌(旁边有过歌词文件)
+        // 每次启动都看一眼那份文件还在不在。
+        let reference = song.lyricsFileName ?? ""
+        let checkedReference = await MetadataAssetStore.shared.sourceRecheckReference(forSongID: song.id)
+        let rechecksPlainCache = EmbeddedLyricsPrecedencePolicy.shouldRecheckSourceDocument(cached: cachedDocument)
+            && checkedReference != reference
+        guard rechecksPlainCache || embedded != nil,
+              sourceDocumentRecheckKeys.insert(recheckKey).inserted else { return nil }
         do {
             let connector = try await sourceManager.auxiliaryConnector(for: song)
-            guard !(connector is ServerLyricsConnector),
-                  let lyricsFile = try await authoritativeLyricsFile(for: song, connector: connector) else {
-                return nil
-            }
-            let data = try await connector.fetchRange(
-                path: lyricsFile.path,
-                offset: 0,
-                length: lyricsFile.size,
-                priority: .background
+            guard !(connector is ServerLyricsConnector) else { return nil }
+            let replacement: [LyricLine]
+            let forced: Bool
+            let lyricsFile = try await authoritativeLyricsFile(
+                for: song,
+                connector: connector,
+                evaluatesTimingFirst: true
             )
-            guard !Task.isCancelled,
-                  data.count == Int(lyricsFile.size),
-                  let text = LyricsParser.decodeText(
-                    data,
-                    label: (lyricsFile.path as NSString).lastPathComponent
-                  ) else { return nil }
-            var parsed = LyricsParser.parse(text)
-            guard EmbeddedLyricsPrecedencePolicy.sourceDocumentReplaces(
-                cached: cachedDocument,
-                with: parsed
-            ) else { return nil }
-            if let translation = lyricsFile.translation {
-                parsed = await mergingTranslationTrack(
-                    into: parsed,
-                    track: translation,
-                    connector: connector
+            if lyricsFile == nil {
+                // 列过目录, 确实一份歌词文件都没有。
+                await MetadataAssetStore.shared.recordSourceRecheck(reference: reference, forSongID: song.id)
+            }
+            if let lyricsFile {
+                let data = try await connector.fetchRange(
+                    path: lyricsFile.path,
+                    offset: 0,
+                    length: lyricsFile.size,
+                    priority: .background
                 )
+                guard !Task.isCancelled,
+                      data.count == Int(lyricsFile.size),
+                      let text = LyricsParser.decodeText(
+                        data,
+                        label: (lyricsFile.path as NSString).lastPathComponent
+                      ) else { return nil }
+                await MetadataAssetStore.shared.recordSourceRecheck(reference: reference, forSongID: song.id)
+                var parsed = LyricsParser.parse(text)
+                guard EmbeddedLyricsPrecedencePolicy.sourceDocumentReplaces(
+                    cached: cachedDocument,
+                    with: parsed
+                ) else { return nil }
+                if let translation = lyricsFile.translation {
+                    parsed = await mergingTranslationTrack(
+                        into: parsed,
+                        track: translation,
+                        connector: connector
+                    )
+                }
+                replacement = parsed
+                forced = false
+            } else if let embedded,
+                      LyricsDocumentFingerprint(lines: embedded)
+                        != LyricsDocumentFingerprint(lines: cachedDocument) {
+                // 歌词文件被删了: 缓存里是那份文件留下的, 不分时间轴粗细都换回内嵌歌词。
+                replacement = embedded
+                forced = true
+            } else {
+                return nil
             }
             guard !Task.isCancelled else { return nil }
             let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
-                parsed,
+                replacement,
                 forSongID: song.id,
                 expectedFingerprint: LyricsDocumentFingerprint(lines: cachedDocument),
-                force: false
+                force: forced
             )
             guard wrote else { return nil }
-            logLoaded(parsed, song: song, tier: "Tier3-recheck")
+            logLoaded(replacement, song: song, tier: forced ? "embedded-after-sidecar-removed" : "Tier3-recheck")
             NotificationCenter.default.post(name: .primuseLyricsDidChange, object: song.id)
-            return parsed
+            return replacement
         } catch {
             plog("📜 LyricsLoader '\(song.title)' sidecar recheck skipped: \(error.localizedDescription)")
             return nil
         }
+    }
+
+    /// 读标签时因为歌旁边有歌词文件而没进缓存的内嵌歌词。源里读不到歌词文件时先用它,
+    /// 再去在线找; 用上了就写进缓存, 下次直接命中。
+    static func embeddedFallbackLyrics(for song: Song) async -> [LyricLine]? {
+        guard let embedded = await MetadataAssetStore.shared.embeddedFallbackLyrics(forSongID: song.id),
+              !Task.isCancelled else { return nil }
+        let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
+            embedded,
+            forSongID: song.id,
+            expectedFingerprint: nil,
+            force: false
+        )
+        guard !Task.isCancelled else { return nil }
+        let resolved = wrote
+            ? embedded
+            : await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) ?? embedded
+        logLoaded(resolved, song: song, tier: "embedded-fallback")
+        return resolved
+    }
+
+    /// 同一首歌旁边有几份歌词文件、又没有人选定时, 每次启动比一次各份的时间轴精度,
+    /// 把最细的那份记成自动选定(`LyricsDocumentPinStore.effectiveFileName`), 播放、
+    /// 歌词来源页、编辑器与保存都按它读。这里自己列一次目录, 给不赶时间的调用方用。
+    static func refreshAutomaticDocumentPick(
+        for song: Song,
+        connector: any MusicSourceConnector
+    ) async {
+        guard needsAutomaticDocumentPick(for: song, connector: connector),
+              let target = try? await lyricsSidecarTarget(
+                for: song,
+                connector: connector,
+                request: .catalog(pinned: nil)
+              ) else { return }
+        _ = await evaluateAutomaticDocumentPick(
+            for: song,
+            documents: target.documents,
+            baseName: target.songBaseName,
+            connector: connector
+        )
+    }
+
+    /// 歌词已经按当前那份显示出来以后在后台比: 有时间轴更细的另一份就换上它,
+    /// 写进缓存并通知各处歌词视图。已经是逐字的不比。`documents` 为 nil 时自己列目录。
+    static func upgradeToTimingPreferredDocument(
+        for song: Song,
+        connector: any MusicSourceConnector,
+        displayed: [LyricLine],
+        displayedFileName: String? = nil,
+        documents: [LyricsSidecarDocument]? = nil,
+        baseName: String? = nil
+    ) async -> [LyricLine]? {
+        guard LyricsTimingLevel(lines: displayed) < .word,
+              needsAutomaticDocumentPick(for: song, connector: connector) else { return nil }
+        let listedDocuments: [LyricsSidecarDocument]
+        let listedBaseName: String?
+        if let documents {
+            listedDocuments = documents
+            listedBaseName = baseName
+        } else {
+            guard let target = try? await lyricsSidecarTarget(
+                for: song,
+                connector: connector,
+                request: .catalog(pinned: nil)
+            ) else { return nil }
+            listedDocuments = target.documents
+            listedBaseName = target.songBaseName
+        }
+        guard let pick = await evaluateAutomaticDocumentPick(
+            for: song,
+            documents: listedDocuments,
+            baseName: listedBaseName,
+            connector: connector
+        ),
+              displayedFileName.map({ pick.name.caseInsensitiveCompare($0) != .orderedSame }) ?? true,
+              EmbeddedLyricsPrecedencePolicy.sourceDocumentReplaces(cached: displayed, with: pick.lines),
+              !Task.isCancelled else { return nil }
+        let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
+            pick.lines,
+            forSongID: song.id,
+            expectedFingerprint: LyricsDocumentFingerprint(lines: displayed),
+            force: false
+        )
+        guard wrote else { return nil }
+        logLoaded(pick.lines, song: song, tier: "Tier3-timing-upgrade")
+        NotificationCenter.default.post(name: .primuseLyricsDidChange, object: song.id)
+        return pick.lines
+    }
+
+    private static func needsAutomaticDocumentPick(
+        for song: Song,
+        connector: any MusicSourceConnector
+    ) -> Bool {
+        let store = LyricsDocumentPinStore.shared
+        return !song.isCueTrack
+            && store.pinnedFileName(forSongID: song.id) == nil
+            && !store.hasEvaluatedAutomaticPick(forSongID: song.id)
+            && !(connector is ServerLyricsConnector)
+    }
+
+    /// 只有一份时不读任何文件就下结论; 几份并存才逐份读来比。选了别的就把那份的歌词
+    /// 一起返回, 调用方不用再读一遍。
+    private static func evaluateAutomaticDocumentPick(
+        for song: Song,
+        documents: [LyricsSidecarDocument],
+        baseName: String?,
+        connector: any MusicSourceConnector
+    ) async -> (name: String, lines: [LyricLine])? {
+        let store = LyricsDocumentPinStore.shared
+        guard documents.count > 1 else {
+            store.setAutomaticPick(nil, forSongID: song.id)
+            return nil
+        }
+        var parsedDocuments: [[LyricLine]?] = []
+        for (index, document) in documents.enumerated() {
+            parsedDocuments.append(index < maximumComparedDocumentCount
+                ? await readDocument(document, connector: connector)
+                : nil)
+        }
+        let levels = parsedDocuments.map { $0.map(LyricsTimingLevel.init(lines:)) }
+        // 一份都没读到(多半是网络), 这次不下结论, 下次再比。
+        guard !Task.isCancelled, levels.contains(where: { $0 != nil }) else { return nil }
+        let preferred = LyricsSidecarSelectionPolicy.timingPreferredDocument(
+            baseName: baseName
+                ?? ((song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension,
+            names: documents.map(\.name),
+            levels: levels
+        )
+        store.setAutomaticPick(preferred.map { documents[$0].name }, forSongID: song.id)
+        guard let preferred, let lines = parsedDocuments[preferred] else { return nil }
+        plog("📜 LyricsLoader '\(song.title)' prefers \(documents[preferred].name) by timing")
+        return (documents[preferred].name, lines)
+    }
+
+    private static let maximumComparedDocumentCount = 6
+
+    private static func readDocument(
+        _ document: LyricsSidecarDocument,
+        connector: any MusicSourceConnector
+    ) async -> [LyricLine]? {
+        guard document.size > 0,
+              document.size <= Int64(LyricsSidecarTargetPolicy.maximumContentByteCount),
+              let data = try? await connector.fetchRange(
+                path: document.path,
+                offset: 0,
+                length: document.size,
+                priority: .background
+              ),
+              let text = LyricsParser.decodeText(data, label: document.name) else { return nil }
+        let lines = LyricsParser.parse(text)
+        return lines.isEmpty ? nil : lines
     }
 
     private static func logLoaded(_ lines: [LyricLine], song: Song, tier: String) {
@@ -594,13 +792,33 @@ enum LyricsLoader {
         let path: String
         let size: Int64
         let translation: TranslationTrack?
+        let fileName: String
+        /// 这次列目录看到的这首歌的全部歌词文件; 后台比时间轴时直接用, 不再列一次。
+        let documents: [LyricsSidecarDocument]
+        let songBaseName: String?
     }
 
+    /// - Parameter evaluatesTimingFirst: 编辑器、后台核对这类不赶时间的读取先比完各份
+    ///   歌词文件的时间轴再读; 播放不等, 先读当前那份, 比较放到后台。
     private static func authoritativeLyricsFile(
         for song: Song,
-        connector: any MusicSourceConnector
+        connector: any MusicSourceConnector,
+        evaluatesTimingFirst: Bool = false
     ) async throws -> AuthoritativeLyricsFile? {
-        let target = try await lyricsSidecarTarget(for: song, connector: connector)
+        if evaluatesTimingFirst {
+            await refreshAutomaticDocumentPick(for: song, connector: connector)
+        }
+        let target: LyricsSidecarTarget
+        do {
+            target = try await lyricsSidecarTarget(for: song, connector: connector)
+        } catch EmbeddedMetadataWritebackSourceError.conflict {
+            // 两份可写文件、还没比过时间轴: 先读歌词来源页标「使用中」的那份, 不让播放空等。
+            target = try await lyricsSidecarTarget(
+                for: song,
+                connector: connector,
+                request: .catalog(for: song)
+            )
+        }
         guard target.exists, let existingPath = target.existingPath else { return nil }
         let translation = translationTrack(in: target)
         let maximumSize = Int64(LyricsSidecarTargetPolicy.maximumContentByteCount)
@@ -608,7 +826,10 @@ enum LyricsLoader {
             return AuthoritativeLyricsFile(
                 path: existingPath,
                 size: size,
-                translation: translation
+                translation: translation,
+                fileName: target.fileName,
+                documents: target.documents,
+                songBaseName: target.songBaseName
             )
         }
         let matches = try await connector.listFiles(at: target.containerPath).filter {
@@ -625,7 +846,10 @@ enum LyricsLoader {
         return AuthoritativeLyricsFile(
             path: item.path,
             size: item.size,
-            translation: translation
+            translation: translation,
+            fileName: target.fileName,
+            documents: target.documents,
+            songBaseName: target.songBaseName
         )
     }
 
@@ -653,7 +877,7 @@ enum LyricsLoader {
         for song: Song,
         connector: any MusicSourceConnector
     ) async throws -> (path: String, fileName: String)? {
-        guard let pinned = LyricsDocumentPinStore.shared.pinnedFileName(forSongID: song.id),
+        guard let pinned = LyricsDocumentPinStore.shared.effectiveFileName(forSongID: song.id),
               !song.isCueTrack else { return nil }
         let target = try await lyricsSidecarTarget(for: song, connector: connector)
         guard target.exists,
@@ -667,7 +891,7 @@ enum LyricsLoader {
     /// file next to a cached copy know nothing of the pick.
     nonisolated static func readsPinnedDocument(_ song: Song) -> Bool {
         !song.isCueTrack
-            && LyricsDocumentPinStore.shared.pinnedFileName(forSongID: song.id) != nil
+            && LyricsDocumentPinStore.shared.effectiveFileName(forSongID: song.id) != nil
     }
 
     private static func translationTrack(in target: LyricsSidecarTarget) -> TranslationTrack? {

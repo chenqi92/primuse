@@ -657,6 +657,70 @@ public enum LyricsTranslationTrackPolicy {
     }
 }
 
+/// 一份歌词的时间轴精度:逐字 > 逐行 > 没有时间轴。
+public enum LyricsTimingLevel: Int, Comparable, Sendable {
+    case plain = 0
+    case line = 1
+    case word = 2
+
+    public init(lines: [LyricLine]) {
+        if lines.contains(where: \.containsWordLevelContent) {
+            self = .word
+        } else if lines.contains(where: \.isSynchronized) {
+            self = .line
+        } else {
+            self = .plain
+        }
+    }
+
+    public static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
+}
+
+extension LyricsSidecarSelectionPolicy {
+    /// 同一首歌旁边有几份歌词文件、又没有人选定时,按内容的时间轴精度自动挑一份:
+    /// 逐字 > 逐行 > 没有时间轴。精度一样的仍按原来的规则(可写优先、格式、文件名),
+    /// 原来会判成冲突的两份可写文件取排在前面的那份。`levels` 与 `names` 一一对应,
+    /// 读不出内容的给 nil,不参与比较。返回 nil 表示原来的规则已经挑中了最好的那份。
+    public static func timingPreferredDocument(
+        baseName: String,
+        names: [String],
+        levels: [LyricsTimingLevel?],
+        preferredLanguages: [String] = Locale.preferredLanguages
+    ) -> Int? {
+        guard levels.count == names.count else { return nil }
+        let documents = documents(baseName: baseName, names: names)
+        guard documents.count > 1 else { return nil }
+        let readable = documents.filter { levels[$0] != nil }
+        guard let best = readable.compactMap({ levels[$0] }).max() else { return nil }
+        let finalists = readable.filter { levels[$0] == best }
+
+        let chosen: Int
+        switch currentDocument(
+            baseName: baseName,
+            names: finalists.map { names[$0] },
+            preferredLanguages: preferredLanguages
+        ) {
+        case .item(let index):
+            chosen = finalists[index]
+        case .conflict:
+            guard let writable = finalists.first(where: { isWritableDocument(fileName: names[$0]) }) else {
+                return nil
+            }
+            chosen = writable
+        case .none:
+            chosen = finalists[0]
+        }
+        if case .item(let current) = currentDocument(
+            baseName: baseName,
+            names: names,
+            preferredLanguages: preferredLanguages
+        ), current == chosen {
+            return nil
+        }
+        return chosen
+    }
+}
+
 /// 歌旁边的歌词文件优先于音频文件里内嵌的歌词:内嵌歌词只在没有歌词文件时才用。
 public enum EmbeddedLyricsPrecedencePolicy {
     /// 歌上记的歌词引用指向源里的歌词文件(路径、文件名或网盘文件 id),
@@ -668,16 +732,18 @@ public enum EmbeddedLyricsPrecedencePolicy {
         return (reference as NSString).pathExtension.lowercased() != "json"
     }
 
-    /// 缓存里的歌词一行时间轴都没有(多半是早先读标签时存下的内嵌歌词),值得去源里
-    /// 看一眼有没有带时间轴的歌词文件。用户自己改过的不动。
+    /// 缓存里的歌词一行时间轴都没有(多半是早先读标签时存下的内嵌歌词),值得在缓存命中后
+    /// 去源里看一眼歌词文件。有时间轴的缓存不再回源核对:几份文件并存时比时间轴的事在
+    /// 第一次从源里读歌词时就在后台做完了。用户自己改过的不动。
     public static func shouldRecheckSourceDocument(cached: [LyricLine]) -> Bool {
         !cached.isEmpty
             && cached.first?.documentIsLocalOverride != true
-            && !cached.contains(where: \.isSynchronized)
+            && LyricsTimingLevel(lines: cached) == .plain
     }
 
-    /// 源里的歌词文件读出来以后换不换掉缓存:文件里有时间轴才换。
+    /// 源里读出来的歌词换不换掉缓存或正在显示的那份:时间轴更细才换,用户改过的不换。
     public static func sourceDocumentReplaces(cached: [LyricLine], with source: [LyricLine]) -> Bool {
-        shouldRecheckSourceDocument(cached: cached) && source.contains(where: \.isSynchronized)
+        cached.first?.documentIsLocalOverride != true
+            && LyricsTimingLevel(lines: source) > LyricsTimingLevel(lines: cached)
     }
 }

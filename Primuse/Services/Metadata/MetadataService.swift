@@ -164,9 +164,11 @@ actor MetadataService {
         }
 
         // 歌旁边的歌词文件优先于内嵌歌词; 文件读不出内容时才退回内嵌的那份。
+        var sidecarSupersedesEmbeddedLyrics = false
         if discoverSidecars,
            let lyricsURL = SidecarMetadataLoader.findLyrics(for: url) {
             let parsed = try? LyricsParser.parse(from: lyricsURL)
+            sidecarSupersedesEmbeddedLyrics = embedded.lyricsText != nil && parsed?.isEmpty == false
             if embedded.lyricsText == nil || parsed?.isEmpty == false {
                 result.lyricsFileName = lyricsURL.lastPathComponent
                 result.lyrics = parsed
@@ -218,6 +220,11 @@ actor MetadataService {
                     // 先知道最终 ref,实际写入由 ScraperService 在应用结果时完成。
                     result.coverArtFileName = assetStore.expectedCoverFileName(for: cacheKey)
                 }
+            }
+            if storesLyrics, trustedSource, sidecarSupersedesEmbeddedLyrics,
+               let embeddedLyrics = FileMetadataReader.parsedEmbeddedLyrics(from: embedded) {
+                // 歌词文件不在了再用。
+                await assetStore.storeEmbeddedFallbackLyrics(embeddedLyrics, forSongID: cacheKey)
             }
             if storesLyrics, let lyrics = result.lyrics {
                 if trustedSource {

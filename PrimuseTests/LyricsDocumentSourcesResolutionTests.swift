@@ -65,6 +65,31 @@ final class LyricsDocumentSourcesResolutionTests: XCTestCase {
         XCTAssertFalse(missing.exists)
     }
 
+    func testSeveralFilesWithoutAPickReadTheFinerTimedOne() async throws {
+        let song = song()
+        let fixture = connector(["Night Changes.lrc": lrc, "Night Changes.yrc": yrc])
+
+        // 没人选过: 逐字的 .yrc 胜过逐行的 .lrc, 播放、来源页与保存都按它。
+        await LyricsLoader.refreshAutomaticDocumentPick(for: song, connector: fixture)
+        XCTAssertEqual(
+            LyricsDocumentPinStore.shared.effectiveFileName(forSongID: song.id),
+            "Night Changes.yrc"
+        )
+        XCTAssertNil(LyricsDocumentPinStore.shared.pinnedFileName(forSongID: song.id))
+        let current = try await LyricsSidecarTargetPolicy.resolve(
+            for: song, using: fixture, request: .current(for: song)
+        )
+        XCTAssertEqual(current.fileName, "Night Changes.yrc")
+
+        // 用户在来源页选了别的, 以用户的为准。
+        LyricsDocumentPinStore.shared.pin("Night Changes.lrc", forSongID: song.id)
+        defer { LyricsDocumentPinStore.shared.clearPin(forSongID: song.id) }
+        let picked = try await LyricsSidecarTargetPolicy.resolve(
+            for: song, using: fixture, request: .current(for: song)
+        )
+        XCTAssertEqual(picked.fileName, "Night Changes.lrc")
+    }
+
     func testPickedReadOnlyFileNeverOverwritesAnotherSource() async throws {
         let song = song()
         let fixture = connector(["Night Changes.ttml": ttml, "Night Changes.yrc": yrc])

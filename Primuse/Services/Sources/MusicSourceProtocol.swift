@@ -1453,13 +1453,13 @@ extension LyricsDocumentRequest {
     static func current(for song: Song) -> Self {
         .current(pinned: song.isCueTrack
             ? nil
-            : LyricsDocumentPinStore.shared.pinnedFileName(forSongID: song.id))
+            : LyricsDocumentPinStore.shared.effectiveFileName(forSongID: song.id))
     }
 
     static func catalog(for song: Song) -> Self {
         .catalog(pinned: song.isCueTrack
             ? nil
-            : LyricsDocumentPinStore.shared.pinnedFileName(forSongID: song.id))
+            : LyricsDocumentPinStore.shared.effectiveFileName(forSongID: song.id))
     }
 }
 

@@ -102,6 +102,8 @@ enum LyricsDocumentCatalog {
                !server.serverLyricsCapabilities.supportsSiblingSidecarLookup {
                 return .notFileBased
             }
+            // 几份歌词文件并存又没选过时, 「使用中」是按时间轴精度自动挑的那份。
+            await LyricsLoader.refreshAutomaticDocumentPick(for: song, connector: connector)
             let target = try await LyricsLoader.lyricsSidecarTarget(
                 for: song,
                 connector: connector,

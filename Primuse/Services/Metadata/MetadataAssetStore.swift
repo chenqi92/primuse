@@ -495,6 +495,42 @@ actor MetadataAssetStore {
         NotificationCenter.default.post(name: .primuseLyricsDidCache, object: nil, userInfo: userInfo)
     }
 
+    /// 音频文件里内嵌的歌词。歌旁边有歌词文件时它不进歌词缓存(播放先读缓存, 进去就会
+    /// 盖住那份文件), 单独放在这里; 歌词文件不在了才拿出来用。
+    func storeEmbeddedFallbackLyrics(_ lines: [LyricLine], forSongID songID: String) {
+        guard !lines.isEmpty, let data = try? encoder.encode(lines) else { return }
+        let fileURL = lyricsDirectory.appendingPathComponent(
+            hashedFileName(for: songID, pathExtension: "embedded.json")
+        )
+        try? data.write(to: fileURL, options: .atomic)
+    }
+
+    func embeddedFallbackLyrics(forSongID songID: String) -> [LyricLine]? {
+        let fileURL = lyricsDirectory.appendingPathComponent(
+            hashedFileName(for: songID, pathExtension: "embedded.json")
+        )
+        guard let data = try? Data(contentsOf: fileURL),
+              let lines = try? decoder.decode([LyricLine].self, from: data),
+              !lines.isEmpty else { return nil }
+        return Self.normalizedCachedLyrics(lines)
+    }
+
+    /// 缓存命中后回源核对过歌词文件时, 歌上记的歌词引用是什么。引用没变(扫描没发现
+    /// 歌旁边的歌词文件有变化)就不必再列一次目录。
+    func sourceRecheckReference(forSongID songID: String) -> String? {
+        let fileURL = lyricsDirectory.appendingPathComponent(
+            hashedFileName(for: songID, pathExtension: "recheck")
+        )
+        return (try? Data(contentsOf: fileURL)).map { String(decoding: $0, as: UTF8.self) }
+    }
+
+    func recordSourceRecheck(reference: String, forSongID songID: String) {
+        let fileURL = lyricsDirectory.appendingPathComponent(
+            hashedFileName(for: songID, pathExtension: "recheck")
+        )
+        try? Data(reference.utf8).write(to: fileURL, options: .atomic)
+    }
+
     /// Read cached lyrics by song ID.
     func cachedLyrics(forSongID songID: String) -> [LyricLine]? {
         let fileName = hashedFileName(for: songID, pathExtension: "json")
@@ -646,6 +682,10 @@ actor MetadataAssetStore {
                 let lyrics = hashedFileName(for: songID, pathExtension: "json")
                 try? FileManager.default.removeItem(at: lyricsDirectory.appendingPathComponent(lyrics))
             }
+            let embedded = hashedFileName(for: songID, pathExtension: "embedded.json")
+            try? FileManager.default.removeItem(at: lyricsDirectory.appendingPathComponent(embedded))
+            let recheck = hashedFileName(for: songID, pathExtension: "recheck")
+            try? FileManager.default.removeItem(at: lyricsDirectory.appendingPathComponent(recheck))
         }
     }
 

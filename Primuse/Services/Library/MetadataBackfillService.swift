@@ -5047,6 +5047,7 @@ final class MetadataBackfillService {
             cacheKey: song.id,
             storesLyrics: Self.cachesEmbeddedLyrics(for: song)
         )
+        await storeEmbeddedFallbackLyrics(from: metadata, for: song)
 
         // Duration can fail independently from the ID3 text frames. Preserve
         // any title/artist/album/cover we did recover, then mark the row failed
@@ -5248,6 +5249,7 @@ final class MetadataBackfillService {
             fallbackTitle: fallbackTitle,
             storesLyrics: Self.cachesEmbeddedLyrics(for: song)
         )
+        await storeEmbeddedFallbackLyrics(from: metadata, for: song)
         if song.fileFormat.requiresFFmpeg || metadata.duration <= 0,
            let info = try? await FFmpegAudioDecoder().fileInfo(for: url) {
             if metadata.duration <= 0 { metadata.duration = info.duration }
@@ -5403,6 +5405,18 @@ final class MetadataBackfillService {
     private nonisolated static func cachesEmbeddedLyrics(for song: Song) -> Bool {
         cachesImageLyrics(for: song)
             && !EmbeddedLyricsPrecedencePolicy.referencesSourceDocument(song.lyricsFileName)
+    }
+
+    /// 内嵌歌词因为歌旁边有歌词文件而没进缓存时单独留着, 那份文件不在了再用。
+    private func storeEmbeddedFallbackLyrics(
+        from metadata: MetadataService.SongMetadata,
+        for song: Song
+    ) async {
+        guard Self.cachesImageLyrics(for: song),
+              !Self.cachesEmbeddedLyrics(for: song),
+              let lyrics = metadata.lyrics,
+              !lyrics.isEmpty else { return }
+        await MetadataAssetStore.shared.storeEmbeddedFallbackLyrics(lyrics, forSongID: song.id)
     }
 
     private func mergeSong(bare: Song, metadata: MetadataService.SongMetadata) -> Song {
