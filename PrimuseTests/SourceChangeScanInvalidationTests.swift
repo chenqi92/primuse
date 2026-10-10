@@ -234,6 +234,143 @@ private actor PausableScanConnector: MusicSourceConnector {
     }
 }
 
+/// #155：Navidrome 上删了文件、服务端扫过一次之后 `getScanStatus.lastScan` 就停住了。以前
+/// 删除证词按它去重，之后每次完整走查都算同一份证词，提示「下一次扫描再次确认」却永远确认不了。
+@MainActor
+final class ServerCatalogDeletionScanTests: XCTestCase {
+    func testLaterCompleteWalkUnderTheSameScanMarkerRemovesTheDeletedSong() async throws {
+        let fixture = try makeFixture(songCount: 3)
+        try await fixture.scanOnce()
+        XCTAssertEqual(fixture.songIDs(), ["song-000", "song-001", "song-002"])
+
+        await fixture.connector.remove(["song-002"])
+        try await fixture.scanOnce()
+        // 一次走查只是一票证词。
+        XCTAssertEqual(fixture.songIDs(), ["song-000", "song-001", "song-002"])
+
+        // 服务端标记没变，但这是新的一次完整走查。
+        try await fixture.scanOnce()
+        XCTAssertEqual(fixture.songIDs(), ["song-000", "song-001"])
+    }
+
+    func testMassDisappearanceIsHeldThenRemovedByLaterCompleteWalks() async throws {
+        let fixture = try makeFixture(songCount: 100)
+        try await fixture.scanOnce()
+        await fixture.connector.remove(Set((40..<100).map(Self.songID)))
+
+        try await fixture.scanOnce()
+        XCTAssertEqual(fixture.songIDs().count, 100)
+        XCTAssertNotNil(fixture.scan.scanStates[fixture.source.id]?.reconciliationMessage)
+
+        try await fixture.scanOnce()
+        XCTAssertEqual(fixture.songIDs().count, 100)
+        XCTAssertNotNil(fixture.scan.scanStates[fixture.source.id]?.reconciliationMessage)
+
+        try await fixture.scanOnce()
+        XCTAssertEqual(fixture.songIDs().count, 40)
+        // 删完了，卡片上不能再挂「少了 0 首」。
+        XCTAssertNil(fixture.scan.scanStates[fixture.source.id]?.reconciliationMessage)
+    }
+
+    private static func songID(_ index: Int) -> String {
+        String(format: "song-%03d", index)
+    }
+
+    private struct Fixture {
+        let source: MusicSource
+        let connector: StillScanMarkerCatalogConnector
+        let scan: ScanService
+        let library: MusicLibrary
+        let store: SourcesStore
+        let manager: SourceManager
+
+        @MainActor func scanOnce() async throws {
+            XCTAssertTrue(scan.scanSource(source, sourceManager: manager, library: library, sourceStore: store))
+            await scan.waitForActiveScansToComplete()
+            await library.waitForPendingIndex()
+            XCTAssertNil(scan.scanStates[source.id]?.failureMessage)
+        }
+
+        @MainActor func songIDs() -> [String] {
+            library.songs.filter { $0.sourceID == source.id }.map(\.id).sorted()
+        }
+    }
+
+    private func makeFixture(songCount: Int) throws -> Fixture {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ServerCatalogDeletion-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        let source = MusicSource(id: "navidrome", name: "Navidrome", type: .navidrome, host: "192.168.0.60")
+        let connector = StillScanMarkerCatalogConnector(
+            sourceID: source.id,
+            songIDs: (0..<songCount).map(Self.songID)
+        )
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        let store = SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources"))
+        store.add(source)
+        let scan = ScanService(
+            fileManager: ScanFixtureFileManager(root: root),
+            connectorProvider: { _ in connector },
+            diagnosticProvider: { source, _ in
+                SourceDiagnosticReport(source: source, startedAt: Date(), checks: [])
+            }
+        )
+        // 收尾的歌单/收藏同步也走这个假连接器：它没有歌单能力，不会去连真的地址。
+        return Fixture(
+            source: source, connector: connector, scan: scan, library: library, store: store,
+            manager: SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        )
+    }
+}
+
+/// Navidrome 式的 `search3` 分页目录。扫描标记照 `lastScan|count` 拼：删歌之后服务端扫过
+/// 一次，数目变了一回，此后一直不动。
+private actor StillScanMarkerCatalogConnector: ResumablePagedSongCatalogConnector {
+    let sourceID: String
+    private var songIDs: [String]
+
+    init(sourceID: String, songIDs: [String]) {
+        self.sourceID = sourceID
+        self.songIDs = songIDs
+    }
+
+    func remove(_ removed: Set<String>) { songIDs.removeAll { removed.contains($0) } }
+    func connect() async throws { }
+    func disconnect() async { }
+    func listFiles(at path: String) async throws -> [RemoteFileItem] { [] }
+    func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
+        .init { $0.finish() }
+    }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
+        .init { $0.finish() }
+    }
+
+    func stableSongCatalogRevision() async throws -> String? {
+        "2026-10-01T08:00:00Z|\(songIDs.count)"
+    }
+
+    func expectedSongCatalogCount() async throws -> Int? { songIDs.count }
+
+    func songCatalogPage(from path: String, offset: Int) async throws -> PagedSongCatalogPage {
+        guard offset < songIDs.count else {
+            return PagedSongCatalogPage(songs: [], itemIDs: [], nextOffset: nil)
+        }
+        let window = Array(songIDs[offset..<min(offset + SubsonicCatalogPagingPolicy.pageSize, songIDs.count)])
+        let songs = window.map { id -> ConnectorScannedSong in
+            let song = Song(id: id, title: "Song \(id)", fileFormat: .flac,
+                            filePath: "/fixture/\(id).flac", sourceID: sourceID)
+            return ConnectorScannedSong(song: song, displayName: song.title, titleMetadataInspected: true)
+        }
+        return PagedSongCatalogPage(
+            songs: songs,
+            itemIDs: window,
+            nextOffset: SubsonicCatalogPagingPolicy.nextOffset(currentOffset: offset, receivedCount: window.count)
+        )
+    }
+}
+
 private final class ScanFixtureFileManager: FileManager, @unchecked Sendable {
     let root: URL
     init(root: URL) { self.root = root; super.init() }

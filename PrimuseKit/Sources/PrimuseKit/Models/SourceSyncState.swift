@@ -48,9 +48,9 @@ public struct SourceSyncState: Codable, Sendable, Equatable {
     /// is evidence rather than authority, keyed by `Song.id`. Driven by
     /// `ServerCatalogDeletionConfirmationPolicy`.
     public var missingCatalogSongIDs: [String: Int]
-    /// Catalogue revision that produced the newest entry in
-    /// `missingCatalogSongIDs`. Re-reading the same revision is the same
-    /// observation, not a second witness.
+    /// 产生 `missingCatalogSongIDs` 最新一票的那次观察（完整走查记
+    /// `ServerCatalogDeletionConfirmationPolicy.walkObservationRevision`）。同一次走查重读
+    /// 不算第二票。旧版本记的是服务端扫描标记，升级后的第一次走查自然算新的一票。
     public var deletionEvidenceRevision: String?
     /// What a catalogue source needs to ask its server "what changed" next
     /// time. Written only by a pass that committed a complete, verified view of

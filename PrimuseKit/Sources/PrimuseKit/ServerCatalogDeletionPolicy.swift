@@ -8,7 +8,7 @@ public enum CatalogDeletionAuthority: String, Sendable, Equatable, Codable {
     /// identity belong here.
     case authoritative
     /// A complete snapshot is evidence, not authority. Absence has to be
-    /// witnessed by several distinct catalogue revisions before a row may be
+    /// witnessed by several separate complete walks before a row may be
     /// removed.
     case confirmationRequired
     /// A degraded, partial or compatibility listing. It may merge rows but
@@ -23,10 +23,13 @@ public enum CatalogDeletionAuthority: String, Sendable, Equatable, Codable {
 /// account may see: `getScanStatus.lastScan|count` describes the server-wide
 /// scanner, so a permission change, a library remount or a mid-flight re-index
 /// can shift every `search3` page without changing that marker. A single
-/// complete walk is therefore not allowed to delete. Two walks that observed
-/// the same absence under *different* catalogue revisions are, because the
-/// server state provably moved on between them and the row still did not come
-/// back.
+/// complete walk is therefore not allowed to delete.
+///
+/// 证词按「一次完整走查」计，不按服务端的扫描标记计。以前要求两票来自不同的
+/// `lastScan`，可这个标记只在服务端重新扫描资料库时才动：用户删完文件、服务端扫过
+/// 那一次之后它就停住，此后 App 再扫多少遍都被当成同一份证词的重读，缺席永远停在
+/// 一票，歌一直删不掉（#155）。现在每次重新开始的完整走查各算一票，身份见
+/// `walkObservationRevision`；断点续扫、提交重放沿用同一个暂存会话，仍是同一份证词。
 public enum ServerCatalogDeletionConfirmationPolicy {
     /// Witnesses required before an absent row is removed.
     public static let requiredWitnessCount = 2
@@ -65,8 +68,8 @@ public enum ServerCatalogDeletionConfirmationPolicy {
         public var confirmedDeletionSongIDs: Set<String>
         /// Updated per-song witness counts, to be persisted on the sync state.
         public var missingCounts: [String: Int]
-        /// Revision that produced this observation, persisted so the next pass
-        /// can tell a new server state from a re-read of the same one.
+        /// 这次观察的身份（见 `walkObservationRevision`），存下来让下一轮分得清
+        /// 「新的一次走查」和「同一次走查的重读」。
         public var evidenceRevision: String?
         /// Rows observed as absent that are still short of their witness bar.
         public var pendingSongIDs: Set<String>
@@ -88,6 +91,23 @@ public enum ServerCatalogDeletionConfirmationPolicy {
         }
 
         public var hasPendingConfirmations: Bool { !pendingSongIDs.isEmpty }
+
+        /// 这一轮少了一大批、而且还有歌在等证词：来源卡片要说明为什么还留着。
+        /// 凑够票数、这一轮全删掉的那次不算 —— 否则卡片上会写「少了 0 首」。
+        public var holdsMassDisappearance: Bool {
+            isMassDisappearance && hasPendingConfirmations
+        }
+    }
+
+    /// 一次完整走查在证词里的身份，存进 `SourceSyncState.deletionEvidenceRevision`。
+    ///
+    /// 暂存会话每次从头走查都换新的，断点续扫与提交重放沿用原来的，所以「同一个会话」
+    /// 恰好就是「同一份证词」。服务端修订只是附带记下，方便看诊断。
+    public static func walkObservationRevision(
+        catalogRevision: String?,
+        stageSessionID: String
+    ) -> String {
+        "\(catalogRevision ?? "-")@\(stageSessionID)"
     }
 
     /// - Parameters:
@@ -95,9 +115,8 @@ public enum ServerCatalogDeletionConfirmationPolicy {
     ///   - authoritativeSongIDs: every song id in the verified complete snapshot.
     ///   - previousMissingCounts: witness counts carried on the sync state.
     ///   - previousEvidenceRevision: revision that produced the newest counts.
-    ///   - currentRevision: revision of this snapshot. `nil` for servers that
-    ///     expose no scan marker; each complete walk then counts on its own,
-    ///     which is still two full catalogue transfers apart.
+    ///   - currentRevision: 这次观察的身份。完整走查传 `walkObservationRevision`；
+    ///     `nil` 表示每次都算新的一票（增量对账每一轮各自列一遍 id）。
     ///   - authority: how much this listing may conclude about rows it did not
     ///     see. Defaults to the conservative bar.
     public static func plan(
@@ -115,8 +134,8 @@ public enum ServerCatalogDeletionConfirmationPolicy {
             return Plan(evidenceRevision: currentRevision)
         }
 
-        // The same revision re-read is the same observation. Counting it twice
-        // would let one retry loop delete rows on its own.
+        // 同一份证词再读一遍（同一次走查的提交重放）不算第二票，否则一次走查
+        // 自己就能凑够票数。
         let isRepeatedObservation = currentRevision != nil
             && currentRevision == previousEvidenceRevision
 

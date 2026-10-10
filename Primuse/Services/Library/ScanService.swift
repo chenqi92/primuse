@@ -2594,7 +2594,11 @@ final class ScanService {
                marker: marker,
                lastFullScanAt: previousState.lastFullScanAt,
                requiresDeepScan: previousState.requiresDeepScan
-           ) == nil {
+           ) == nil,
+           // 还有歌在等完整走查确认删除时不走增量：目录没动时这一轮不列 id，会把缺席
+           // 读成「都还在」、把攒下的证词清零，Jellyfin/Emby 少了一大批就永远确认不了
+           // （#155）。新提交会顺带置 `requiresDeepScan`，这里兜住旧版本写下的状态。
+           previousState.reconciliation?.kind != .serverCatalogMassDisappearance {
             let handled = await performCatalogIncrementalSync(
                 source: source,
                 generation: generation,
@@ -3543,14 +3547,14 @@ final class ScanService {
             let knownSongIDs = Set(existingByID.keys)
                 .union(library.locallyRemovedSongIDs(forSourceID: source.id))
             let authoritativeSongIDs = changes.authoritativeSongIDs ?? knownSongIDs
+            // 每一轮列全 id 的增量对账各算一票：内容派生的修订在目录稳定后就不再变，
+            // 拿它当证词身份会让缺席永远停在一票。
             let deletionPlan = ServerCatalogDeletionConfirmationPolicy.plan(
                 existingSongIDs: knownSongIDs,
                 authoritativeSongIDs: authoritativeSongIDs,
                 previousMissingCounts: previousState.missingCatalogSongIDs,
                 previousEvidenceRevision: previousState.deletionEvidenceRevision,
-                currentRevision: source.type.catalogRevisionTracksServerScans
-                    ? changes.marker.catalogRevision
-                    : nil,
+                currentRevision: nil,
                 authority: source.type.catalogDeletionAuthority
             )
             let prunableSongIDs = ServerCatalogDeletionConfirmationPolicy
@@ -3589,7 +3593,7 @@ final class ScanService {
                 lastSuccessfulSyncAt: committedAt,
                 identityAliases: previousState.identityAliases,
                 rootIdentities: previousState.rootIdentities,
-                reconciliation: deletionPlan.isMassDisappearance
+                reconciliation: deletionPlan.holdsMassDisappearance
                     ? SourceSyncReconciliation(
                         kind: .serverCatalogMassDisappearance,
                         unresolvedStableKeys: Array(deletionPlan.pendingSongIDs),
@@ -4190,13 +4194,16 @@ final class ScanService {
                 // is not permission to forget them.
                 let knownSongIDs = Set(finalExistingByID.keys)
                     .union(library.locallyRemovedSongIDs(forSourceID: source.id))
-                // A content-derived marker stops moving once the catalogue
-                // settles, so reusing it as evidence would freeze every absence
-                // at one witness and nothing would ever be removed. Those
-                // sources pass nil and let each complete walk count on its own.
-                let deletionEvidenceRevision = source.type.catalogRevisionTracksServerScans
-                    ? initialRevision
-                    : nil
+                // 证词按这一次完整走查记，不按服务端修订记。Navidrome 的 `lastScan`
+                // 只在服务端重新扫描资料库时才动，删完文件、服务端扫过一次后就停住，
+                // 按它去重会让缺席永远停在一票、再扫多少次都删不掉（#155）；媒体服务器
+                // 的修订由内容派生，目录稳定后也不再变。同一个暂存会话（断点续扫、
+                // 提交重放）仍是同一份证词。
+                let deletionEvidenceRevision = ServerCatalogDeletionConfirmationPolicy
+                    .walkObservationRevision(
+                        catalogRevision: initialRevision,
+                        stageSessionID: stageSnapshot.stageSessionID
+                    )
                 let deletionPlan = ServerCatalogDeletionConfirmationPolicy.plan(
                     existingSongIDs: knownSongIDs,
                     authoritativeSongIDs: stagedCommit.0.authoritativeSongIDs,
@@ -4219,8 +4226,13 @@ final class ScanService {
                 // pass lists every id and fetches whatever this one missed.
                 if catalogDriftObserved {
                     plog("↻ \(source.name): catalogue moved during the walk; committing \(stageSnapshot.stagedItemCount) of \(expectedCatalogCount) row(s) without removals")
-                } else if !deletionPlan.confirmedDeletionSongIDs.isEmpty {
-                    plog("🗑️ \(source.name): removing \(deletionPlan.confirmedDeletionSongIDs.count) song(s) confirmed gone from the server catalogue")
+                } else {
+                    if !deletionPlan.confirmedDeletionSongIDs.isEmpty {
+                        plog("🗑️ \(source.name): removing \(deletionPlan.confirmedDeletionSongIDs.count) song(s) confirmed gone from the server catalogue")
+                    }
+                    if deletionPlan.hasPendingConfirmations {
+                        plog("⏸ \(source.name): keeping \(deletionPlan.pendingSongIDs.count) song(s) missing from the catalogue until another complete walk confirms (mass=\(deletionPlan.isMassDisappearance))")
+                    }
                 }
                 let candidateState = SourceSyncState(
                     sourceID: source.id,
@@ -4228,17 +4240,26 @@ final class ScanService {
                     identityScopeFingerprint: identityScopeFingerprint,
                     index: stagedCommit.1,
                     scanEpoch: (previousState?.scanEpoch ?? 0) + 1,
+                    // 少了一大批还在等确认时，下一轮必须是完整走查：增量对账在目录
+                    // 没动时不列 id，确认不了也会把证词清零。漂移的走查沿用上一份证词，
+                    // 这个要求也一起沿用。
+                    requiresDeepScan: catalogDriftObserved
+                        ? previousState?.requiresDeepScan ?? false
+                        : deletionPlan.holdsMassDisappearance,
                     lastFullScanAt: committedAt,
                     lastSuccessfulSyncAt: committedAt,
                     identityAliases: previousState?.identityAliases ?? [:],
                     rootIdentities: previousState?.rootIdentities ?? [],
-                    reconciliation: deletionPlan.isMassDisappearance && !catalogDriftObserved
-                        ? SourceSyncReconciliation(
-                            kind: .serverCatalogMassDisappearance,
-                            unresolvedStableKeys: Array(deletionPlan.pendingSongIDs),
-                            detectedAt: committedAt
-                        )
-                        : nil,
+                    // 漂移的走查不动证词，卡片上的说明也照旧留着。
+                    reconciliation: catalogDriftObserved
+                        ? previousState?.reconciliation
+                        : deletionPlan.holdsMassDisappearance
+                            ? SourceSyncReconciliation(
+                                kind: .serverCatalogMassDisappearance,
+                                unresolvedStableKeys: Array(deletionPlan.pendingSongIDs),
+                                detectedAt: committedAt
+                            )
+                            : nil,
                     missingCatalogSongIDs: catalogDriftObserved
                         ? previousState?.missingCatalogSongIDs ?? [:]
                         : deletionPlan.missingCounts,
