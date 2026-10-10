@@ -228,6 +228,41 @@ struct SpokenWordBookGroupingTests {
         #expect(books[0].items.map(\.id) == ["001", "016", "143"])
     }
 
+    @Test("Compound numbers in names order part by part, as numbers")
+    func compoundNumberedNamesOrderNaturally() {
+        let books = SpokenWordBookGrouping.books(from: [
+            chapter("10-1", track: nil, file: "10-1.mp3"),
+            chapter("2-1", track: nil, file: "2-1.mp3"),
+            chapter("1-10", track: nil, file: "1-10.mp3"),
+            chapter("1-2", track: nil, file: "1-2.mp3"),
+            chapter("1-1", track: nil, file: "1-1.mp3"),
+        ])
+        #expect(books[0].items.map(\.id) == ["1-1", "1-2", "1-10", "2-1", "10-1"])
+    }
+
+    @Test("Dotted compound numbers order the same way")
+    func dottedNumberedNamesOrderNaturally() {
+        let books = SpokenWordBookGrouping.books(from: [
+            chapter("10.1", track: nil, file: "10.1 尾声.mp3"),
+            chapter("1.10", track: nil, file: "1.10 夜航.mp3"),
+            chapter("2.1", track: nil, file: "2.1 归途.mp3"),
+            chapter("1.2", track: nil, file: "1.2 风起.mp3"),
+            chapter("1.1", track: nil, file: "1.1 序章.mp3"),
+        ])
+        #expect(books[0].items.map(\.id) == ["1.1", "1.2", "1.10", "2.1", "10.1"])
+    }
+
+    @Test("Tracks restarting in every part give way to the compound names")
+    func compoundNamesOrderWhenTracksRestart() {
+        let books = SpokenWordBookGrouping.books(from: [
+            chapter("10-1", track: 1, file: "10-1.mp3"),
+            chapter("2-1", track: 1, file: "2-1.mp3"),
+            chapter("1-2", track: 2, file: "1-2.mp3"),
+            chapter("1-1", track: 1, file: "1-1.mp3"),
+        ])
+        #expect(books[0].items.map(\.id) == ["1-1", "1-2", "2-1", "10-1"])
+    }
+
     @Test("Tracks that place every chapter keep deciding")
     func completeTracksStillDecide() {
         let books = SpokenWordBookGrouping.books(from: [
