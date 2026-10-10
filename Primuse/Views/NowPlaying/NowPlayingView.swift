@@ -7125,6 +7125,8 @@ struct NowPlayingView: View {
                     currentCache: cached,
                     loadRevision: loadRevision
                 )
+            } else if EmbeddedLyricsPrecedencePolicy.shouldRecheckSourceDocument(cached: cached) {
+                runSourceDocumentRecheck(song: song, currentCache: cached, loadRevision: loadRevision)
             }
             return
         }
@@ -7178,6 +7180,24 @@ struct NowPlayingView: View {
         beginLyricsResolution(loadRevision)
         plog(String(format: "📜 loadLyrics '%@' miss Tier1+2, falling to Tier3 (NAS fetch)", song.title))
         runLyricsTier3Fetch(song: song, currentCache: nil, loadRevision: loadRevision)
+    }
+
+    /// 缓存里是没有时间轴的歌词(多半是早先存下的内嵌歌词): 去源里核对一次同名歌词文件,
+    /// 文件带时间轴就换上。
+    private func runSourceDocumentRecheck(
+        song: Song,
+        currentCache: [LyricLine],
+        loadRevision: UInt
+    ) {
+        let capturedSourceManager = sourceManager
+        Task {
+            guard let lines = await LyricsLoader.recheckSourceDocument(
+                for: song,
+                sourceManager: capturedSourceManager,
+                cachedDocument: currentCache
+            ), isCurrentLyricsLoad(loadRevision, songID: song.id) else { return }
+            setLyrics(lines)
+        }
     }
 
     private func runServerLyricsRevalidation(

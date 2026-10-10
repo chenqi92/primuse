@@ -227,6 +227,16 @@ enum LyricsLoader {
                 sourceManager: sourceManager,
                 cachedDocument: cached
             )
+            if !LyricsAuthoritativeSourcePolicy.supportsServerDocument(sourceType),
+               EmbeddedLyricsPrecedencePolicy.shouldRecheckSourceDocument(cached: cached) {
+                Task { @MainActor in
+                    _ = await recheckSourceDocument(
+                        for: song,
+                        sourceManager: sourceManager,
+                        cachedDocument: cached
+                    )
+                }
+            }
             return cached
         }
         let isPinned = readsPinnedDocument(song)
@@ -468,6 +478,73 @@ enum LyricsLoader {
                 cachedDocument: cachedDocument,
                 trigger: .automatic
             )
+        }
+    }
+
+    /// 已经核对过源里歌词文件的歌。每首歌每次启动只列一次目录。
+    private static var sourceDocumentRecheckKeys: Set<String> = []
+
+    /// 缓存里是一行时间轴都没有的歌词(多半是早先读标签时存下的内嵌歌词), 而这首歌旁边
+    /// 有歌词文件: 读那个文件, 文件带时间轴就换掉缓存并通知各处歌词视图。
+    static func recheckSourceDocument(
+        for song: Song,
+        sourceManager: SourceManager,
+        cachedDocument: [LyricLine]
+    ) async -> [LyricLine]? {
+        guard !song.isCueTrack,
+              !song.isStreamDescriptor,
+              !PodcastPlaybackSong.isEpisode(song),
+              song.sourceID != AppleMusicLibraryIdentity.sourceID,
+              EmbeddedLyricsPrecedencePolicy.shouldRecheckSourceDocument(cached: cachedDocument) else {
+            return nil
+        }
+        guard sourceDocumentRecheckKeys.insert("\(song.sourceID)\u{1F}\(song.id)").inserted else {
+            return nil
+        }
+        do {
+            let connector = try await sourceManager.auxiliaryConnector(for: song)
+            guard !(connector is ServerLyricsConnector),
+                  let lyricsFile = try await authoritativeLyricsFile(for: song, connector: connector) else {
+                return nil
+            }
+            let data = try await connector.fetchRange(
+                path: lyricsFile.path,
+                offset: 0,
+                length: lyricsFile.size,
+                priority: .background
+            )
+            guard !Task.isCancelled,
+                  data.count == Int(lyricsFile.size),
+                  let text = LyricsParser.decodeText(
+                    data,
+                    label: (lyricsFile.path as NSString).lastPathComponent
+                  ) else { return nil }
+            var parsed = LyricsParser.parse(text)
+            guard EmbeddedLyricsPrecedencePolicy.sourceDocumentReplaces(
+                cached: cachedDocument,
+                with: parsed
+            ) else { return nil }
+            if let translation = lyricsFile.translation {
+                parsed = await mergingTranslationTrack(
+                    into: parsed,
+                    track: translation,
+                    connector: connector
+                )
+            }
+            guard !Task.isCancelled else { return nil }
+            let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
+                parsed,
+                forSongID: song.id,
+                expectedFingerprint: LyricsDocumentFingerprint(lines: cachedDocument),
+                force: false
+            )
+            guard wrote else { return nil }
+            logLoaded(parsed, song: song, tier: "Tier3-recheck")
+            NotificationCenter.default.post(name: .primuseLyricsDidChange, object: song.id)
+            return parsed
+        } catch {
+            plog("📜 LyricsLoader '\(song.title)' sidecar recheck skipped: \(error.localizedDescription)")
+            return nil
         }
     }
 

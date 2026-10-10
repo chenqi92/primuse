@@ -163,13 +163,16 @@ actor MetadataService {
             }
         }
 
+        // 歌旁边的歌词文件优先于内嵌歌词; 文件读不出内容时才退回内嵌的那份。
         if discoverSidecars,
-           embedded.lyricsText == nil,
            let lyricsURL = SidecarMetadataLoader.findLyrics(for: url) {
-            result.lyricsFileName = lyricsURL.lastPathComponent
-            result.lyrics = try? LyricsParser.parse(from: lyricsURL)
-            if result.lyrics?.isEmpty == false {
-                result.hasVerifiedSidecarMetadata = true
+            let parsed = try? LyricsParser.parse(from: lyricsURL)
+            if embedded.lyricsText == nil || parsed?.isEmpty == false {
+                result.lyricsFileName = lyricsURL.lastPathComponent
+                result.lyrics = parsed
+                if parsed?.isEmpty == false {
+                    result.hasVerifiedSidecarMetadata = true
+                }
             }
         }
 

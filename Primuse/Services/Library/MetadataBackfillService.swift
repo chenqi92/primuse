@@ -5045,7 +5045,7 @@ final class MetadataBackfillService {
         metadata = await metadataService.storingEmbeddedAssets(
             in: metadata,
             cacheKey: song.id,
-            storesLyrics: Self.cachesImageLyrics(for: song)
+            storesLyrics: Self.cachesEmbeddedLyrics(for: song)
         )
 
         // Duration can fail independently from the ID3 text frames. Preserve
@@ -5246,7 +5246,7 @@ final class MetadataBackfillService {
             cacheKey: song.id,
             allowOnlineFetch: false,
             fallbackTitle: fallbackTitle,
-            storesLyrics: Self.cachesImageLyrics(for: song)
+            storesLyrics: Self.cachesEmbeddedLyrics(for: song)
         )
         if song.fileFormat.requiresFFmpeg || metadata.duration <= 0,
            let info = try? await FFmpegAudioDecoder().fileInfo(for: url) {
@@ -5396,6 +5396,13 @@ final class MetadataBackfillService {
                 song.lyricsFileName,
                 audioPath: song.filePath
             ))
+    }
+
+    /// 扫描时已在歌旁边找到歌词文件, 就不把文件里内嵌的歌词写进缓存: 播放先读缓存,
+    /// 写进去就会一直盖住那个歌词文件。
+    private nonisolated static func cachesEmbeddedLyrics(for song: Song) -> Bool {
+        cachesImageLyrics(for: song)
+            && !EmbeddedLyricsPrecedencePolicy.referencesSourceDocument(song.lyricsFileName)
     }
 
     private func mergeSong(bare: Song, metadata: MetadataService.SongMetadata) -> Song {

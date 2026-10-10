@@ -656,3 +656,28 @@ public enum LyricsTranslationTrackPolicy {
         return result
     }
 }
+
+/// 歌旁边的歌词文件优先于音频文件里内嵌的歌词:内嵌歌词只在没有歌词文件时才用。
+public enum EmbeddedLyricsPrecedencePolicy {
+    /// 歌上记的歌词引用指向源里的歌词文件(路径、文件名或网盘文件 id),
+    /// 而不是 App 自己缓存的歌词 JSON。
+    public static func referencesSourceDocument(_ reference: String?) -> Bool {
+        guard let reference = reference?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !reference.isEmpty else { return false }
+        if reference.contains("/") { return true }
+        return (reference as NSString).pathExtension.lowercased() != "json"
+    }
+
+    /// 缓存里的歌词一行时间轴都没有(多半是早先读标签时存下的内嵌歌词),值得去源里
+    /// 看一眼有没有带时间轴的歌词文件。用户自己改过的不动。
+    public static func shouldRecheckSourceDocument(cached: [LyricLine]) -> Bool {
+        !cached.isEmpty
+            && cached.first?.documentIsLocalOverride != true
+            && !cached.contains(where: \.isSynchronized)
+    }
+
+    /// 源里的歌词文件读出来以后换不换掉缓存:文件里有时间轴才换。
+    public static func sourceDocumentReplaces(cached: [LyricLine], with source: [LyricLine]) -> Bool {
+        shouldRecheckSourceDocument(cached: cached) && source.contains(where: \.isSynchronized)
+    }
+}
