@@ -32,7 +32,7 @@ public enum LogRedactionPolicy {
     /// 1. URL / 查询串里的 key=value。key 后紧跟 = 语义明确, 即便是 code/state/k
     ///    这类短名, 出现在 query 串里也几乎一定是凭证, 故保留全集。
     private static let queryParameterRule = makeRule(
-        #"(?i)([?&](?:access_token|refresh_token|api_key|x-plex-token|token|code|state|k|client_secret|password|pwd|pass|sid|_sid|authorization|cookie|u|t|s|p)=)[^&#\s"')\]]+"#,
+        #"(?i)([?&](?:access_token|refresh_token|api_key|apikey|x-plex-token|token|code|state|k|client_secret|password|pwd|pass|sid|_sid|authorization|cookie|u|t|s|p)=)[^&#\s"')\]]+"#,
         "$1<redacted>"
     )
     /// 2. HTTP 头 Authorization / Cookie
@@ -55,7 +55,7 @@ public enum LogRedactionPolicy {
     ///    "state: playing"、"scan code: 42"), 会误删正常内容。URL 与 JSON
     ///    形态分别由规则 1、4 兜底。
     private static let bareCredentialRule = makeRule(
-        #"(?i)\b(access_token|refresh_token|client_secret|api_key|password|passwd|pwd|passphrase|secret|otp|otp_code|otpcode)\b\s*[:=]\s*[^,\]\s"')}]+"#,
+        #"(?i)\b(access_token|refresh_token|client_secret|api_key|apikey|password|passwd|pwd|passphrase|secret|otp|otp_code|otpcode)\b\s*[:=]\s*[^,\]\s"')}]+"#,
         "$1=<redacted>"
     )
 

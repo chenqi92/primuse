@@ -175,18 +175,18 @@ struct MediaServerSharedLoginTests {
 
         let first = try await playback.streamURL(for: song, source: source, credential: credential)
         let adopted = try await other.streamURL(for: song, source: source, credential: credential)
-        #expect(first.absoluteString.contains("api_key=token-1"))
-        #expect(adopted.absoluteString.contains("api_key=token-1"))
+        #expect(first.absoluteString.contains("ApiKey=token-1"))
+        #expect(adopted.absoluteString.contains("ApiKey=token-1"))
         #expect(MediaLoginURLProtocol.logins(host: host).count == 1)
 
         // 播放地址被拒：播放端作废会话，重新登录一次。
         await playback.invalidateSession(sourceID: source.id)
         let renewed = try await playback.streamURL(for: song, source: source, credential: credential)
-        #expect(renewed.absoluteString.contains("api_key=token-2"))
+        #expect(renewed.absoluteString.contains("ApiKey=token-2"))
         // 另一方随后也被拒：作废的是旧 token，直接接手新的，不再登录。
         await other.invalidateSession(sourceID: source.id)
         let followed = try await other.streamURL(for: song, source: source, credential: credential)
-        #expect(followed.absoluteString.contains("api_key=token-2"))
+        #expect(followed.absoluteString.contains("ApiKey=token-2"))
 
         let logins = MediaLoginURLProtocol.logins(host: host)
         #expect(logins.count == 2)

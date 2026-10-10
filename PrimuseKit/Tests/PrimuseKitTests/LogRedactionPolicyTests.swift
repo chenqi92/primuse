@@ -67,6 +67,8 @@ struct LogRedactionPolicyTests {
         #expect(LogRedactionPolicy.redact("access_token=AAA") == "access_token=<redacted>")
         #expect(LogRedactionPolicy.redact("client_secret: shhh") == "client_secret=<redacted>")
         #expect(LogRedactionPolicy.redact("api_key = K123") == "api_key=<redacted>")
+        // Jellyfin 12 取流地址里的令牌参数是 ApiKey。
+        #expect(!LogRedactionPolicy.redact("https://jf.example/Audio/a/stream?Static=true&ApiKey=SECRET123").contains("SECRET123"))
         // 普通日志里的 state / code 不能被裸规则误伤。
         #expect(LogRedactionPolicy.redact("state: playing") == "state: playing")
         #expect(LogRedactionPolicy.redact("scan code: 42") == "scan code: 42")

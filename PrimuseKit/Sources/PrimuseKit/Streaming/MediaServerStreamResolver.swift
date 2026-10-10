@@ -4,7 +4,7 @@ import Foundation
 ///
 /// - Jellyfin/Emby:用户名+密码登录(/Users/AuthenticateByName)拿 AccessToken,
 ///   或直接使用 API key；音频流地址为
-///   `/Audio/{itemId}/stream?Static=true&api_key={token}`。
+///   `/Audio/{itemId}/stream?Static=true&ApiKey={token}`(Emby 是 `api_key`)。
 /// - Plex:token 即 secret(无需登录),需先取 /library/metadata/{ratingKey} 拿到
 ///   partKey,再拼 `{partKey}?X-Plex-Token={token}`。
 ///
@@ -78,8 +78,8 @@ public actor MediaServerStreamResolver: StreamResolver {
                     throw StreamResolveError.missingCredential
                 }
                 let url = isLiveRadio
-                    ? Self.jellyfinLiveRadioStreamURL(base: base, itemID: itemID, token: token)
-                    : Self.jellyfinStreamURL(base: base, itemID: itemID, token: token)
+                    ? Self.jellyfinLiveRadioStreamURL(base: base, itemID: itemID, token: token, emby: source.type == .emby)
+                    : Self.jellyfinStreamURL(base: base, itemID: itemID, token: token, emby: source.type == .emby)
                 guard let url else {
                     throw StreamResolveError.cannotBuildURL
                 }
@@ -97,8 +97,8 @@ public actor MediaServerStreamResolver: StreamResolver {
             let token = try await currentToken(source: source, base: base, username: username,
                                                password: password, emby: source.type == .emby)
             let url = isLiveRadio
-                ? Self.jellyfinLiveRadioStreamURL(base: base, itemID: itemID, token: token)
-                : Self.jellyfinStreamURL(base: base, itemID: itemID, token: token)
+                ? Self.jellyfinLiveRadioStreamURL(base: base, itemID: itemID, token: token, emby: source.type == .emby)
+                : Self.jellyfinStreamURL(base: base, itemID: itemID, token: token, emby: source.type == .emby)
             guard let url else {
                 throw StreamResolveError.cannotBuildURL
             }
@@ -208,17 +208,23 @@ public actor MediaServerStreamResolver: StreamResolver {
         return id.isEmpty ? nil : id
     }
 
-    static func jellyfinStreamURL(base: URL, itemID: String, token: String) -> URL? {
+    /// 取流、封面地址里放令牌的查询参数名。Jellyfin 12 起默认关掉旧式认证,`api_key` 会被忽略,
+    /// 只认 `ApiKey`(10.8 起就支持);Emby 只认 `api_key`。
+    public static func tokenQueryName(emby: Bool) -> String {
+        emby ? "api_key" : "ApiKey"
+    }
+
+    static func jellyfinStreamURL(base: URL, itemID: String, token: String, emby: Bool) -> URL? {
         guard var comp = URLComponents(
             url: ProxyPrefixedBasePathPolicy.appending("Audio/\(itemID)/stream", to: base),
             resolvingAgainstBaseURL: false
         ) else { return nil }
         comp.queryItems = [URLQueryItem(name: "Static", value: "true"),
-                           URLQueryItem(name: "api_key", value: token)]
+                           URLQueryItem(name: tokenQueryName(emby: emby), value: token)]
         return FormSafeQueryURLBuilder.url(from: comp)
     }
 
-    static func jellyfinLiveRadioStreamURL(base: URL, itemID: String, token: String) -> URL? {
+    static func jellyfinLiveRadioStreamURL(base: URL, itemID: String, token: String, emby: Bool) -> URL? {
         guard var comp = URLComponents(
             url: ProxyPrefixedBasePathPolicy.appending("Audio/\(itemID)/stream.mp3", to: base),
             resolvingAgainstBaseURL: false
@@ -227,7 +233,7 @@ public actor MediaServerStreamResolver: StreamResolver {
             URLQueryItem(name: "Static", value: "false"),
             URLQueryItem(name: "AudioCodec", value: "mp3"),
             URLQueryItem(name: "Container", value: "mp3"),
-            URLQueryItem(name: "api_key", value: token)
+            URLQueryItem(name: tokenQueryName(emby: emby), value: token)
         ]
         return FormSafeQueryURLBuilder.url(from: comp)
     }

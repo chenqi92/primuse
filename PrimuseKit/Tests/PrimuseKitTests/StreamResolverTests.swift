@@ -216,17 +216,21 @@ import Testing
 
 @Test func mediaServerStreamURLs() {
     let base = URL(string: "https://jelly.example.com:8096")!
-    let jf = MediaServerStreamResolver.jellyfinStreamURL(base: base, itemID: "abc123", token: "TK")
-    #expect(jf?.absoluteString == "https://jelly.example.com:8096/Audio/abc123/stream?Static=true&api_key=TK")
+    let jf = MediaServerStreamResolver.jellyfinStreamURL(base: base, itemID: "abc123", token: "TK", emby: false)
+    #expect(jf?.absoluteString == "https://jelly.example.com:8096/Audio/abc123/stream?Static=true&ApiKey=TK")
+    // Emby 只认 api_key。
+    let emby = MediaServerStreamResolver.jellyfinStreamURL(base: base, itemID: "abc123", token: "TK", emby: true)
+    #expect(emby?.absoluteString == "https://jelly.example.com:8096/Audio/abc123/stream?Static=true&api_key=TK")
 
     let radio = MediaServerStreamResolver.jellyfinLiveRadioStreamURL(
         base: base,
         itemID: "radio123",
-        token: "TK"
+        token: "TK",
+        emby: false
     )
     #expect(
         radio?.absoluteString
-            == "https://jelly.example.com:8096/Audio/radio123/stream.mp3?Static=false&AudioCodec=mp3&Container=mp3&api_key=TK"
+            == "https://jelly.example.com:8096/Audio/radio123/stream.mp3?Static=false&AudioCodec=mp3&Container=mp3&ApiKey=TK"
     )
 
     let plexBase = URL(string: "http://plex.local:32400")!
@@ -329,7 +333,7 @@ import Testing
         source: source,
         credential: SourceCredential(password: "API-KEY")
     )
-    #expect(url.absoluteString == "https://jelly.example.com:8920/Audio/song/stream?Static=true&api_key=API-KEY")
+    #expect(url.absoluteString == "https://jelly.example.com:8920/Audio/song/stream?Static=true&ApiKey=API-KEY")
 }
 
 private final class PasswordlessLoginURLProtocol: URLProtocol, @unchecked Sendable {
