@@ -219,6 +219,8 @@ struct ImmersiveStageView<Artwork: View>: View {
             ImmersiveStageDeferredScene { particleBloomScene }
         case .albumFlow:
             ImmersiveStageDeferredScene { albumFlowScene }
+        case .chladniPlate:
+            ImmersiveStageDeferredScene { chladniPlateScene }
         }
     }
 
@@ -489,6 +491,90 @@ struct ImmersiveStageView<Artwork: View>: View {
         .frame(maxWidth: width)
         .environment(\.layoutDirection, inheritedLayoutDirection)
         .immersiveRestingText(isResting)
+    }
+
+    // MARK: - 9. 克拉尼沙画
+
+    /// 竖屏：板在上、文字在下。其余视口：板贴前缘、在内容区里竖直居中，文字列从板的右边再留出间距；
+    /// 控件在文字这一侧。
+    private var chladniPlateScene: some View {
+        let isPhoneLandscape = metrics.layout == .phoneLandscape
+        let innerWidth = metrics.size.width - leadingInset - trailingInset
+        let contentBottom = metrics.size.height - max(metrics.safeArea.bottom, metrics.s(14))
+        let plateSide = metrics.isPortrait
+            ? min(innerWidth, metrics.size.height * 0.44)
+            : min(
+                contentBottom - topInset - metrics.s(isPhoneLandscape ? 6 : 28),
+                innerWidth * (isPhoneLandscape ? 0.46 : 0.44)
+            )
+        let plateCenterY = topInset + (contentBottom - topInset) / 2
+        let textLeading = leadingInset + plateSide
+            + metrics.s(isPhoneLandscape ? 30 : (platform == .tvOS ? 96 : 64))
+        let textWidth = max(metrics.s(160), metrics.size.width - trailingInset - textLeading)
+        let plateCenter = metrics.isPortrait
+            ? UnitPoint(x: 0.5, y: (topInset + metrics.s(14) + plateSide / 2) / max(metrics.size.height, 1))
+            : UnitPoint(
+                x: (leadingInset + plateSide / 2) / max(metrics.size.width, 1),
+                y: plateCenterY / max(metrics.size.height, 1)
+            )
+
+        return ZStack {
+            LinearGradient(
+                colors: [palette.secondary.opacity(0.88), ImmersiveStagePalette.obsidian],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            ImmersiveEnergyGlow(
+                levelsProvider: spectrumProvider,
+                palette: palette,
+                center: plateCenter,
+                radius: plateSide * 0.95,
+                baseOpacity: 0.12,
+                reactiveOpacity: 0.22
+            )
+            ImmersiveVignette(color: ImmersiveStagePalette.obsidian, clearStop: 0.30, strength: 0.46)
+
+            if metrics.isPortrait {
+                VStack(alignment: .leading, spacing: metrics.s(24)) {
+                    chladniPlate(side: plateSide)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                    titleBlock(size: metrics.s(40), weight: .semibold)
+                    formatAndLyric(fontSize: metrics.s(12), availableWidth: innerWidth)
+                    Spacer(minLength: 0)
+                }
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
+                .padding(.top, topInset + metrics.s(14))
+                .padding(.bottom, bottomInset)
+            } else {
+                chladniPlate(side: plateSide)
+                    .position(x: leadingInset + plateSide / 2, y: plateCenterY)
+
+                VStack(alignment: .leading, spacing: metrics.s(18)) {
+                    titleBlock(
+                        size: metrics.s(isPhoneLandscape ? 44 : (platform == .tvOS ? 90 : 58)),
+                        weight: .semibold
+                    )
+                    formatAndLyric(
+                        fontSize: metrics.s(platform == .tvOS ? 23 : 14),
+                        availableWidth: textWidth
+                    )
+                }
+                .frame(width: textWidth, alignment: .leading)
+                .position(x: textLeading + textWidth / 2, y: plateCenterY)
+            }
+        }
+    }
+
+    private func chladniPlate(side: CGFloat) -> some View {
+        ImmersiveChladniPlate(
+            levelsProvider: spectrumProvider,
+            palette: palette,
+            isAnimating: sceneIsAnimating,
+            songKey: "\(track.title)\u{1F}\(track.artist)\u{1F}\(track.album)",
+            side: side,
+            labelSize: metrics.s(platform == .tvOS ? 17 : 10)
+        )
     }
 
     private var galleryTrackBlock: some View {

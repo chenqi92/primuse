@@ -671,13 +671,31 @@ final class PlayerAppearancePreferencesTests: XCTestCase {
     /// 封面流(#191)：追加在末尾(Mac 数字快捷键不错位)，存储值不占旧别名 "coverFlow"，
     /// 归在随封面变化的那一组，并有自己的舞台。
     func testCoverFlowIsAppendedWithItsOwnStoredValue() {
-        XCTAssertEqual(FullscreenPlayerEffect.allCases.last, .albumFlow)
+        XCTAssertEqual(FullscreenPlayerEffect.allCases.firstIndex(of: .albumFlow), 8)
         XCTAssertEqual(FullscreenPlayerEffect.albumFlow.rawValue, "albumFlow")
         XCTAssertEqual(FullscreenPlayerEffect(rawValue: "albumFlow"), .albumFlow)
         XCTAssertEqual(FullscreenPlayerEffect(rawValue: "coverFlow"), .coverGallery)
         XCTAssertEqual(FullscreenPlayerEffect.albumFlow.collection, .coverReactive)
         XCTAssertEqual(FullscreenPlayerEffect.albumFlow.scene, .albumFlow)
         XCTAssertFalse(FullscreenPlayerEffect.albumFlow.usesRealtimeSpectrum)
+    }
+
+    /// 克拉尼沙画追加在封面流之后，归在声音响应那一组，要开实时频谱。
+    func testChladniPlateIsAppendedAfterCoverFlow() {
+        XCTAssertEqual(FullscreenPlayerEffect.allCases.firstIndex(of: .chladniPlate), 9)
+        XCTAssertEqual(FullscreenPlayerEffect.chladniPlate.rawValue, "chladniPlate")
+        XCTAssertEqual(FullscreenPlayerEffect(rawValue: "chladniPlate"), .chladniPlate)
+        XCTAssertEqual(FullscreenPlayerEffect.chladniPlate.collection, .audioReactive)
+        XCTAssertEqual(FullscreenPlayerEffect.chladniPlate.scene, .chladniPlate)
+        XCTAssertTrue(FullscreenPlayerEffect.chladniPlate.usesRealtimeSpectrum)
+        XCTAssertEqual(
+            ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
+                selectedRawValue: "chladniPlate",
+                hasSynchronizedLyrics: false,
+                hasArtwork: false
+            ),
+            "chladniPlate"
+        )
     }
 
     func testCoverFlowNeighboursMapOffsetsOntoBothSides() {

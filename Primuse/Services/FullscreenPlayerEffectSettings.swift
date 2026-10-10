@@ -366,7 +366,7 @@ enum AmbientLightOverlayPolicy {
     }
 }
 
-/// 用户可选择的八类沉浸画面。名称描述效果机制，不再暴露设计稿编号。
+/// 用户可选择的沉浸画面。名称描述效果机制，不再暴露设计稿编号。
 enum ImmersiveEffectScene: Sendable {
     case coverGallery
     case vinylDeck
@@ -376,6 +376,7 @@ enum ImmersiveEffectScene: Sendable {
     case spectrumHorizon
     case particleBloom
     case albumFlow
+    case chladniPlate
 }
 
 /// 保留控制层语义，便于三端共用同一套容器。
@@ -419,7 +420,7 @@ enum FullscreenEffectCollection: Int, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// 三端共享的全屏效果目录。原生播放器保持默认，其余八项对应八种实际渲染机制。
+/// 三端共享的全屏效果目录。原生播放器保持默认，其余每项对应一种实际渲染机制。
 /// 新增效果追加在末尾，保证 macOS 数字快捷键与既有顺序一致。
 enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     case native
@@ -433,6 +434,8 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     /// 封面流(#191): 当前专辑居中, 资料库里前后的专辑斜着排在两边, 下面是倒影。
     /// 存储值不用 "coverFlow" —— 那是旧版封面墙留下的别名, 升级用户存的就是它。
     case albumFlow
+    /// 克拉尼沙画：振动金属板上的细沙随频谱重心与响度排出不同的节线花纹。
+    case chladniPlate
 
     static let storageKey = "primuse.fullscreenPlayerEffect"
     static let defaultValue = FullscreenPlayerEffect.native
@@ -452,6 +455,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .spectrumHorizon: "spectrumHorizon"
         case .particleBloom: "particleBloom"
         case .albumFlow: "albumFlow"
+        case .chladniPlate: "chladniPlate"
         }
     }
 
@@ -483,6 +487,8 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
             self = .particleBloom
         case "albumFlow":
             self = .albumFlow
+        case "chladniPlate":
+            self = .chladniPlate
         default:
             return nil
         }
@@ -493,7 +499,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .native: .native
         case .coverGallery, .vinylDeck, .albumFlow: .coverReactive
         case .flowingLines, .auroraVeil: .sceneMotion
-        case .radialPulse, .spectrumHorizon, .particleBloom: .audioReactive
+        case .radialPulse, .spectrumHorizon, .particleBloom, .chladniPlate: .audioReactive
         }
     }
 
@@ -507,6 +513,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .spectrumHorizon: .spectrumHorizon
         case .particleBloom: .particleBloom
         case .albumFlow: .albumFlow
+        case .chladniPlate: .chladniPlate
         }
     }
 
@@ -517,7 +524,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     var prefersLightContent: Bool { false }
     var usesRealtimeSpectrum: Bool {
         switch self {
-        case .radialPulse, .spectrumHorizon, .particleBloom: true
+        case .radialPulse, .spectrumHorizon, .particleBloom, .chladniPlate: true
         default: false
         }
     }
@@ -542,6 +549,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .spectrumHorizon: "spectrum_horizon"
         case .particleBloom: "particle_bloom"
         case .albumFlow: "cover_flow"
+        case .chladniPlate: "chladni_plate"
         }
     }
 
@@ -572,6 +580,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .spectrumHorizon: "chart.bar.xaxis"
         case .particleBloom: "aqi.medium"
         case .albumFlow: "rectangle.stack.fill"
+        case .chladniPlate: "squareshape.split.3x3"
         }
     }
 }

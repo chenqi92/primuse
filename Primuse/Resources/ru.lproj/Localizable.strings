@@ -1399,6 +1399,9 @@
 "fullscreen_effect_cover_flow" = "Cover Flow";
 "fullscreen_effect_cover_flow_subtitle" = "Текущий трек смотрит на вас, прослушанные и следующие стоят под углом по бокам на стеклянном полу, текст песни — под отражением";
 "fullscreen_effect_cover_flow_motion" = "При смене трека ряд сдвигается на одну обложку · Стеклянный пол отражает цвет альбома";
+"fullscreen_effect_chladni_plate" = "Песок Хладни";
+"fullscreen_effect_chladni_plate_subtitle" = "Песок на вибрирующей металлической пластине складывается под музыку в симметричные узоры и подпрыгивает в такт";
+"fullscreen_effect_chladni_plate_motion" = "Спектр в реальном времени · Чем ярче звук, тем сложнее узор";
 "unknown_title" = "Неизвестное название";
 "metadata" = "Метаданные";
 "synology_auth_error_406" = "Для этой учетной записи включена двухэтапная проверка.";

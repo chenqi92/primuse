@@ -1759,6 +1759,9 @@
 "fullscreen_effect_cover_flow" = "Cover Flow";
 "fullscreen_effect_cover_flow_subtitle" = "Le morceau en cours vous fait face, ceux déjà joués et à venir se dressent de biais sur un sol de verre, les paroles sous le reflet";
 "fullscreen_effect_cover_flow_motion" = "La rangée glisse à chaque changement de morceau · Le sol de verre reflète la couleur de l’album";
+"fullscreen_effect_chladni_plate" = "Sable de Chladni";
+"fullscreen_effect_chladni_plate_subtitle" = "Sur une plaque de métal qui vibre, le sable dessine des motifs symétriques au fil de la musique et saute sur le rythme";
+"fullscreen_effect_chladni_plate_motion" = "Spectre en temps réel · Son plus brillant, motif plus fin";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";

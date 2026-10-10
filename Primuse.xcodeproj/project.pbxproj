@@ -113,6 +113,7 @@
 		0ED0E6C71016D5F9C496645D /* TVLibraryStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17051B067440EDEAE09FA4D9 /* TVLibraryStateTests.swift */; };
 		0EE3124EAC797E38F84BD6C2 /* LyricPosterComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 868407B43F81178115DE6DCA /* LyricPosterComposer.swift */; };
 		0EF9A2707BC3958302910C83 /* Crypto in Frameworks */ = {isa = PBXBuildFile; productRef = 732C3E4918F41BB73857AAE7 /* Crypto */; };
+		0F0414E3CB10628E6DE25AF7 /* ImmersiveSimulationRenderers.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4FE4BD3257B269C41AF23F9 /* ImmersiveSimulationRenderers.swift */; };
 		0F12F08E0F30CA5AAF12C19A /* ReleaseDateBrowseLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32EE4BC7DA2293641898FC84 /* ReleaseDateBrowseLayout.swift */; };
 		0F22679AF396EB6AB2690522 /* SongSelectionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142BA8BC3930817CCEC07646 /* SongSelectionModel.swift */; };
 		0F4FB86FA16FEF99A50DF566 /* AppleMusicLibraryAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7FB6E8E617D8E1857173D1F /* AppleMusicLibraryAPI.swift */; };
@@ -471,11 +472,15 @@
 		6AD377F652C05C73879CAEC2 /* TingReaderSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 656E0BFCACE046D38A1A1738 /* TingReaderSource.swift */; };
 		7D2328E731EA15C05F447E49 /* TingReaderAPIProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A04BC9A9E1ED420EC21D43E3 /* TingReaderAPIProtocol.swift */; };
 		8B710E3071388FDD8434034B /* ServerBookFavoriteSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71030B609E6B406615DDB4F /* ServerBookFavoriteSyncService.swift */; };
+		91432E4B680587827128E1C0 /* ImmersiveSimulationRenderers.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4FE4BD3257B269C41AF23F9 /* ImmersiveSimulationRenderers.swift */; };
+		94E57AD8B1F34601C685BDD3 /* ChladniPlateSimulation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A854D7BB4C9874B9691F36C2 /* ChladniPlateSimulation.swift */; };
 		9E55FF68358B787BD6214D0C /* AudioPlayerNodeClockReader.m in Sources */ = {isa = PBXBuildFile; fileRef = A70B0C9499688D7F88F09DFA /* AudioPlayerNodeClockReader.m */; };
 		B51157CAAD473AB1B870829D /* TingReaderSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 656E0BFCACE046D38A1A1738 /* TingReaderSource.swift */; };
 		B53EEE559CBCD42168951481 /* TingReaderServiceClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2129A566F4B5BDA731416B1 /* TingReaderServiceClient.swift */; };
 		C44AE0F45CDFF6C7DA8C7B34 /* TingReaderStreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5400797E01BDAA73A61EE612 /* TingReaderStreamResolver.swift */; };
+		CDB95C832EBEA9799029DFAD /* ImmersiveSimulationRenderers.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4FE4BD3257B269C41AF23F9 /* ImmersiveSimulationRenderers.swift */; };
 		CE80B3E9C04A337BDDA05A99 /* ServerBookFavoriteSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71030B609E6B406615DDB4F /* ServerBookFavoriteSyncService.swift */; };
+		D1B4001B29E4A01657ED25BA /* ImmersiveBeatTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9A8DF3B551183B85883E4A7 /* ImmersiveBeatTracker.swift */; };
 		EBA60B33D30CAC4EC3835C71 /* TingReaderFavoriteReconciliation.swift in Sources */ = {isa = PBXBuildFile; fileRef = E95C18AFF99A705EF45EE054 /* TingReaderFavoriteReconciliation.swift */; };
 		EF77117AFEAEFA49BE4FC1E1 /* AudioStreamHeaderParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFAD67B703AE06367E4A03E /* AudioStreamHeaderParser.swift */; };
 		3FA29387B872BEEFC094AA3C /* TVAppleMusicCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1347C26A3613D074A7DEF71 /* TVAppleMusicCatalog.swift */; };
@@ -2198,9 +2203,12 @@
 		5400797E01BDAA73A61EE612 /* TingReaderStreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TingReaderStreamResolver.swift; sourceTree = "<group>"; };
 		656E0BFCACE046D38A1A1738 /* TingReaderSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TingReaderSource.swift; sourceTree = "<group>"; };
 		A04BC9A9E1ED420EC21D43E3 /* TingReaderAPIProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TingReaderAPIProtocol.swift; sourceTree = "<group>"; };
+		A854D7BB4C9874B9691F36C2 /* ChladniPlateSimulation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChladniPlateSimulation.swift; sourceTree = "<group>"; };
 		C71030B609E6B406615DDB4F /* ServerBookFavoriteSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerBookFavoriteSyncService.swift; sourceTree = "<group>"; };
 		D2129A566F4B5BDA731416B1 /* TingReaderServiceClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TingReaderServiceClient.swift; sourceTree = "<group>"; };
 		E95C18AFF99A705EF45EE054 /* TingReaderFavoriteReconciliation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TingReaderFavoriteReconciliation.swift; sourceTree = "<group>"; };
+		F4FE4BD3257B269C41AF23F9 /* ImmersiveSimulationRenderers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveSimulationRenderers.swift; sourceTree = "<group>"; };
+		F9A8DF3B551183B85883E4A7 /* ImmersiveBeatTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveBeatTracker.swift; sourceTree = "<group>"; };
 		FDFAD67B703AE06367E4A03E /* AudioStreamHeaderParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioStreamHeaderParser.swift; sourceTree = "<group>"; };
 		0CF62AF729BC2E51A4C424EA /* es-MX */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "es-MX"; path = "es-MX.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		0D041D8BEB3E75D3D4A605E4 /* AppDistributionChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDistributionChannel.swift; sourceTree = "<group>"; };
@@ -3927,6 +3935,8 @@
 			isa = PBXGroup;
 			children = (
 				B8201B4D10F3B60D364411E9 /* AI */,
+				A854D7BB4C9874B9691F36C2 /* ChladniPlateSimulation.swift */,
+				F9A8DF3B551183B85883E4A7 /* ImmersiveBeatTracker.swift */,
 				C161382065B391D1C54B9209 /* Import */,
 				38CBDB962B370140AC75A17D /* Internal */,
 				CC568C1F987228DD17220D96 /* Library */,
@@ -4343,6 +4353,7 @@
 				6FC3E2189D425CE5CEEFED7D /* ChapterListView.swift */,
 				3E2D4C63C61A4242A2B2D15E /* ImmersiveEffectDrawer.swift */,
 				694F8F3DCD98021DF67ED95D /* ImmersivePlayerView.swift */,
+				F4FE4BD3257B269C41AF23F9 /* ImmersiveSimulationRenderers.swift */,
 				183552F57FE08FA9E466F722 /* ImmersiveStageRenderers.swift */,
 				471FBD82B7B84A3591677C6D /* ImmersiveStageScenery.swift */,
 				4BD6D04DA8CE429DC75434F6 /* ImmersiveStageView.swift */,
@@ -6177,6 +6188,7 @@
 				0ADD6ADCDD5C664E159B9F76 /* CarPlayLayoutConfiguration.swift in Sources */,
 				28D4C7BF14BB7E1284B0346D /* CarPlayListRefreshPolicy.swift in Sources */,
 				D3D9819C16C16F87AD27E3D6 /* CatalogWalkDriftTracker.swift in Sources */,
+				94E57AD8B1F34601C685BDD3 /* ChladniPlateSimulation.swift in Sources */,
 				DE0561DB9A15B686C84CEE8C /* CloudAccount.swift in Sources */,
 				2D9E7BBC555FE66DD20DCD76 /* CloudDeviceAuthFlow.swift in Sources */,
 				AD1C6CF075A71F4A51ECF842 /* CloudDeviceAuthService.swift in Sources */,
@@ -6230,6 +6242,7 @@
 				35B6342BED0D222E166D96FD /* ID3LyricsFramePreservation.swift in Sources */,
 				7CC510CFB7AE45C4AF720D0E /* ID3SynchronizedLyricsParser.swift in Sources */,
 				4D8C3FF9D79817779D622D03 /* ID3TextMetadataParser.swift in Sources */,
+				D1B4001B29E4A01657ED25BA /* ImmersiveBeatTracker.swift in Sources */,
 				3F874CF4B1939FAE36328711 /* ISOBaseMediaChapterParser.swift in Sources */,
 				EF77117AFEAEFA49BE4FC1E1 /* AudioStreamHeaderParser.swift in Sources */,
 				E68BF5805987B4DAE9417173 /* ISOBaseMediaLyricsParser.swift in Sources */,
@@ -6742,6 +6755,7 @@
 				47739E0B4A1BF80DBFEAEACB /* HomeSectionsSettingsView.swift in Sources */,
 				B62364C685F911FBDFB2B603 /* HomeStartListeningSection.swift in Sources */,
 				7514AE9FA845FCDE3CE8AE6E /* HomeView.swift in Sources */,
+				0F0414E3CB10628E6DE25AF7 /* ImmersiveSimulationRenderers.swift in Sources */,
 				9DDF813005BEC7D6D53E4BB7 /* ITunesScraper.swift in Sources */,
 				B3C5916D2A8452DC747DA1FF /* ImageCache.swift in Sources */,
 				76B15ED04C6D439ADF7DCBD3 /* ImmersiveEffectDrawer.swift in Sources */,
@@ -7127,6 +7141,7 @@
 				8CA202637C8D880DFFC96462 /* GoogleDriveAccessChangeNotice.swift in Sources */,
 				953506057FBB8C8638906545 /* GoogleDriveSource.swift in Sources */,
 				81468FC4945D9158A4D4C740 /* GuangYaSource.swift in Sources */,
+				91432E4B680587827128E1C0 /* ImmersiveSimulationRenderers.swift in Sources */,
 				6FD343D31FDCA5EB52F81D2C /* ITunesScraper.swift in Sources */,
 				DD8A9952CD2D01AC1AF8EE1E /* ImmersiveStageRenderers.swift in Sources */,
 				5013F5DB3AEFE10C17DCC8F1 /* ImmersiveStageScenery.swift in Sources */,
@@ -7454,6 +7469,7 @@
 				632CD8EEB3DB977BBEF96472 /* HomeSectionsSettingsView.swift in Sources */,
 				43EAB92367D069296EBEB44E /* HomeStartListeningSection.swift in Sources */,
 				BE77E1812F27C8479B2F9EC9 /* HomeView.swift in Sources */,
+				CDB95C832EBEA9799029DFAD /* ImmersiveSimulationRenderers.swift in Sources */,
 				ED5197E708CC23A311F0D6B6 /* ITunesScraper.swift in Sources */,
 				3DB35BA7BA5DF8173F45CA98 /* ImageCache.swift in Sources */,
 				247CCD18F184ABFABF6B4F2F /* ImmersiveEffectDrawer.swift in Sources */,

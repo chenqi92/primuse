@@ -670,6 +670,9 @@ struct ImmersivePlayerView: View {
         case .coverGallery, .flowingLines,
              .radialPulse, .auroraVeil, .spectrumHorizon:
             return .trailing
+        case .chladniPlate:
+            // 板贴前缘、几乎占满整高，控件放到文字那一侧。
+            return .trailing
         case .native, .albumFlow:
             // 封面流的画面左右对称, 控件也居中。
             return .center

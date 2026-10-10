@@ -191,7 +191,7 @@ struct ImmersivePresentationFallbackPolicyTests {
         for selected in [
             "coverGallery", "flowingLines", "radialPulse",
             "vinylDeck", "auroraVeil", "spectrumHorizon", "particleBloom",
-            "albumFlow",
+            "albumFlow", "chladniPlate",
         ] {
             #expect(ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
                 selectedRawValue: selected,

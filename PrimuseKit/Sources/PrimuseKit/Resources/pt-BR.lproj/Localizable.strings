@@ -568,6 +568,9 @@
 "fullscreen_effect_cover_flow" = "Cover Flow";
 "fullscreen_effect_cover_flow_subtitle" = "A música tocando fica de frente; as que já tocaram e as próximas ficam inclinadas dos lados sobre um piso de vidro, com a letra abaixo do reflexo";
 "fullscreen_effect_cover_flow_motion" = "A fileira desliza a cada troca de música · O piso de vidro reflete a cor do álbum";
+"fullscreen_effect_chladni_plate" = "Areia de Chladni";
+"fullscreen_effect_chladni_plate_subtitle" = "A areia sobre uma placa de metal vibrando forma desenhos simétricos com a música e pula na batida";
+"fullscreen_effect_chladni_plate_motion" = "Espectro em tempo real · Som mais brilhante, desenho mais detalhado";
 "fullscreen_effect_native" = "Originais";
 "fullscreen_effect_native_motion" = "Transição nativa · Padrão";
 "fullscreen_effect_native_subtitle" = "O layout e os controles familiares do player";

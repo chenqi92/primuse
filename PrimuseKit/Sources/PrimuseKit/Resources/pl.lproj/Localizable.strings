@@ -568,6 +568,9 @@
 "fullscreen_effect_cover_flow" = "Cover Flow";
 "fullscreen_effect_cover_flow_subtitle" = "Odtwarzany utwór patrzy na ciebie, odtworzone i następne stoją ukośnie po bokach na szklanej podłodze, a tekst pod odbiciem";
 "fullscreen_effect_cover_flow_motion" = "Przy każdej zmianie utworu rząd przesuwa się o jedną okładkę · Szklana podłoga odbija kolor albumu";
+"fullscreen_effect_chladni_plate" = "Piasek Chladniego";
+"fullscreen_effect_chladni_plate_subtitle" = "Piasek na drgającej metalowej płycie układa się w rytm muzyki w symetryczne wzory i podskakuje na uderzeniach";
+"fullscreen_effect_chladni_plate_motion" = "Widmo w czasie rzeczywistym · Jaśniejszy dźwięk, gęstszy wzór";
 "fullscreen_effect_native" = "Oryginał";
 "fullscreen_effect_native_motion" = "Przejście natywne · Domyślne";
 "fullscreen_effect_native_subtitle" = "Znajomy układ odtwarzacza i sterowanie";

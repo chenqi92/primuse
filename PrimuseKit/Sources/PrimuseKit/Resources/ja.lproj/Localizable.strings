@@ -680,6 +680,9 @@
 "fullscreen_effect_cover_flow" = "カバーフロー";
 "fullscreen_effect_cover_flow_subtitle" = "再生中の曲が正面に、再生済みの曲と次の曲が両脇に斜めに立ってガラスの床に映り込み、歌詞は映り込みの下に表示されます";
 "fullscreen_effect_cover_flow_motion" = "曲が変わるたびに列がひとつ流れる · ガラスの床にアルバムの色が映る";
+"fullscreen_effect_chladni_plate" = "クラドニ図形";
+"fullscreen_effect_chladni_plate_subtitle" = "振動する金属板の砂が曲に合わせて対称な模様を描き、ビートで跳ねる";
+"fullscreen_effect_chladni_plate_motion" = "リアルタイムスペクトラム駆動 · 明るい音ほど細かな模様";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";

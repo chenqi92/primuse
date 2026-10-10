@@ -677,6 +677,9 @@
 "fullscreen_effect_cover_flow" = "封面流";
 "fullscreen_effect_cover_flow_subtitle" = "正在播放的这首居中，刚放过的与接下来的斜立两侧，立在映着专辑色的玻璃台面上，歌词在倒影下方";
 "fullscreen_effect_cover_flow_motion" = "换歌时整排滑过一格 · 玻璃台面映出专辑色";
+"fullscreen_effect_chladni_plate" = "克拉尼沙画";
+"fullscreen_effect_chladni_plate_subtitle" = "振动金属板上的细沙随歌曲排出对称花纹，鼓点让沙粒跳起来";
+"fullscreen_effect_chladni_plate_motion" = "实时频谱驱动 · 声音越亮花纹越繁";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "图言吐语";
 "immersive_demo_album" = "soundisle";

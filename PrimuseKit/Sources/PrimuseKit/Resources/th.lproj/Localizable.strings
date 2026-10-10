@@ -568,6 +568,9 @@
 "fullscreen_effect_cover_flow" = "Cover Flow";
 "fullscreen_effect_cover_flow_subtitle" = "เพลงที่กำลังเล่นหันหน้าเข้าหาคุณ เพลงที่เพิ่งเล่นและเพลงถัดไปตั้งเอียงอยู่สองข้างบนพื้นกระจก โดยมีเนื้อเพลงอยู่ใต้เงาสะท้อน";
 "fullscreen_effect_cover_flow_motion" = "ทุกครั้งที่เปลี่ยนเพลง แถวจะเลื่อนไปหนึ่งช่อง · พื้นกระจกสะท้อนสีของอัลบั้ม";
+"fullscreen_effect_chladni_plate" = "ทรายคลัดนี";
+"fullscreen_effect_chladni_plate_subtitle" = "ทรายบนแผ่นโลหะที่สั่นจัดตัวเป็นลวดลายสมมาตรตามเพลง และกระโดดตามจังหวะ";
+"fullscreen_effect_chladni_plate_motion" = "ขับเคลื่อนด้วยสเปกตรัมแบบเรียลไทม์ · เสียงยิ่งใส ลวดลายยิ่งละเอียด";
 "fullscreen_effect_native" = "ต้นฉบับ";
 "fullscreen_effect_native_motion" = "การเปลี่ยนผ่านแบบเนทีฟ · ค่าเริ่มต้น";
 "fullscreen_effect_native_subtitle" = "รูปแบบและการควบคุมของผู้เล่นที่คุ้นเคย";

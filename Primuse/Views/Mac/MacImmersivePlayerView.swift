@@ -614,6 +614,9 @@ struct MacImmersivePlayerView: View {
         case .coverGallery, .flowingLines,
              .auroraVeil, .spectrumHorizon:
             .trailing
+        case .chladniPlate:
+            // 板贴前缘、几乎占满整高，控件放到文字那一侧。
+            .trailing
         case .native, .albumFlow:
             .center
         }
