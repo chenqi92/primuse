@@ -314,6 +314,39 @@ struct MetadataBackfillEligibilityPolicyTests {
         ))
     }
 
+    @Test("Server catalogues are read only for an unknown container codec")
+    func serverCatalogueReadsOnlyContainerCodec() {
+        // Navidrome 给的歌缺封面、缺艺术家也不读文件: 那些以服务端为准。
+        #expect(MetadataBackfillEligibilityPolicy.reasons(
+            duration: 0,
+            format: .m4a,
+            hasCoverArt: false,
+            artworkGivenUp: false,
+            titleChecked: false,
+            hasAlbumTitle: true,
+            hasAlbumArtist: false,
+            albumArtistChecked: false,
+            hasArtist: false,
+            artistChecked: false,
+            audioCodecUnread: true,
+            effectiveBitDepthUnread: true,
+            containerCodecOnly: true
+        ) == [.audioCodec])
+
+        #expect(!MetadataBackfillEligibilityPolicy.needsBackfill(
+            duration: 0,
+            format: .flac,
+            hasCoverArt: false,
+            artworkGivenUp: false,
+            titleChecked: false,
+            effectiveBitDepthUnread: true,
+            containerCodecOnly: true
+        ))
+        #expect(MusicSourceType.navidrome.readsContainerCodecFromFileHeader)
+        #expect(!MusicSourceType.jellyfin.readsContainerCodecFromFileHeader)
+        #expect(!MusicSourceType.webdav.readsContainerCodecFromFileHeader)
+    }
+
     @Test("A 24-bit FLAC is checked for zero padding once")
     func unreadEffectiveBitDepthIsInspected() {
         #expect(MetadataBackfillEligibilityPolicy.reasons(

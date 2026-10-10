@@ -3413,8 +3413,13 @@ public enum MetadataBackfillEligibilityPolicy {
         hasArtist: Bool = true,
         artistChecked: Bool = true,
         audioCodecUnread: Bool = false,
-        effectiveBitDepthUnread: Bool = false
+        effectiveBitDepthUnread: Bool = false,
+        containerCodecOnly: Bool = false
     ) -> MetadataBackfillWorkReasons {
+        // 服务端曲库源: 目录信息以服务端为准, 只为认编码读一次文件头。
+        if containerCodecOnly {
+            return audioCodecUnread ? [.audioCodec] : []
+        }
         if restrictToBareRows, duration > 0 || durationInspectionComplete {
             // 裸行源读完一遍就收手 —— 唯独整库判定说这一行的专辑艺术家定不了
             // 案时例外。那一笔带自己的一次性登记, 不会把裸行源拖回每轮重读。
@@ -3471,7 +3476,8 @@ public enum MetadataBackfillEligibilityPolicy {
         hasArtist: Bool = true,
         artistChecked: Bool = true,
         audioCodecUnread: Bool = false,
-        effectiveBitDepthUnread: Bool = false
+        effectiveBitDepthUnread: Bool = false,
+        containerCodecOnly: Bool = false
     ) -> Bool {
         !reasons(
             duration: duration,
@@ -3488,7 +3494,8 @@ public enum MetadataBackfillEligibilityPolicy {
             hasArtist: hasArtist,
             artistChecked: artistChecked,
             audioCodecUnread: audioCodecUnread,
-            effectiveBitDepthUnread: effectiveBitDepthUnread
+            effectiveBitDepthUnread: effectiveBitDepthUnread,
+            containerCodecOnly: containerCodecOnly
         ).isEmpty
     }
 }

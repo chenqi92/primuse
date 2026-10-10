@@ -587,6 +587,13 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         supportsRangeStreaming && !isServerLibrary
     }
 
+    /// 曲库接口不给编码、Range 读到的又是原文件字节的服务端源(Subsonic 一族用
+    /// `format=raw`)。回填只为 M4A 这类容器读一次文件头认编码,目录里的其他信息
+    /// 仍以服务端为准。
+    public var readsContainerCodecFromFileHeader: Bool {
+        isSubsonicFamily
+    }
+
     /// 标签读取跑在 URLSession 的每主机连接池上: 同一台服务器可以真并发发多个
     /// Range 请求, 多开读取位只是多占几条 keep-alive 连接。
     ///

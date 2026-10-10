@@ -345,6 +345,242 @@ public enum AudioStreamHeaderParser {
     }
 }
 
+// MARK: - 只为认编码读远端文件头
+
+/// Subsonic 一族的接口不给编码,M4A 是 ALAC 还是 AAC 只能看文件本身。这里只取找到音轨描述
+/// 所需的那几段:MP4 顺着顶层盒子的长度跳过 `mdat`(moov 在文件尾也只多一次往返),进了
+/// `moov` 读到 `stsd` 就停,不下载封面和音频数据。调用方按 `step` 一段段取字节喂回来。
+public struct ContainerCodecProbe: Sendable {
+    public enum Step: Equatable, Sendable {
+        case read(offset: Int64, length: Int64)
+        /// 认出编码就是它;nil 表示读过了、认不出。
+        case finished(AudioFormat?)
+    }
+
+    public private(set) var step: Step
+
+    private enum Phase: Sendable {
+        case topLevel(offset: Int64, requested: Int64)
+        case movie(offset: Int64)
+        case header(attempt: Int)
+        case done
+    }
+
+    private let container: AudioFormat
+    private let fileSize: Int64
+    private var phase: Phase
+    private var hops = 0
+
+    /// 每次往返取这么多。`stsd` 在 `moov` 开头几 KB 内,和前面的小盒子一起带回来。
+    static let windowByteCount: Int64 = 64 * 1024
+    /// `stsd` 前面的轨道(视频轨的采样表)比窗口还长时,最多补读这么多 `moov`。
+    static let maximumMovieByteCount: Int64 = 1024 * 1024
+    /// 顶层盒子最多跳这么多次:正常文件两三次就到 `moov`。
+    static let maximumTopLevelHops = 8
+    /// WMA/WavPack/CAF/MKA 的编码描述都在文件开头。
+    static let headerByteCounts: [Int64] = [256 * 1024, 1024 * 1024]
+
+    public init(container: AudioFormat, fileSize: Int64) {
+        self.container = container
+        self.fileSize = fileSize
+        switch container {
+        case .m4a, .mp4:
+            let length = Self.bounded(Self.windowByteCount, from: 0, fileSize: fileSize)
+            phase = .topLevel(offset: 0, requested: length)
+            step = .read(offset: 0, length: length)
+        case .wma, .wv, .caf, .mka, .webm:
+            let length = Self.bounded(Self.headerByteCounts[0], from: 0, fileSize: fileSize)
+            phase = .header(attempt: 0)
+            step = .read(offset: 0, length: length)
+        default:
+            phase = .done
+            step = .finished(nil)
+        }
+    }
+
+    /// 喂回 `step` 要的那段字节(可以比要的短:说明到文件尾了)。
+    public mutating func consume(_ data: Data) {
+        let bytes = [UInt8](data)
+        switch phase {
+        case .topLevel(let offset, let requested):
+            consumeTopLevel(bytes, at: offset, requested: requested)
+        case .movie:
+            let scan = Self.scanMovie(bytes, box: 0..<bytes.count)
+            finish(scan.fourCC.flatMap { ContainerAudioCodecPolicy.codec(sampleEntry: $0) })
+        case .header(let attempt):
+            if let codec = AudioStreamHeaderParser.parse(data, container: container)?.codec {
+                finish(codec)
+                return
+            }
+            let next = attempt + 1
+            guard next < Self.headerByteCounts.count,
+                  Int64(bytes.count) >= Self.headerByteCounts[attempt],
+                  fileSize <= 0 || Self.headerByteCounts[attempt] < fileSize else {
+                finish(nil)
+                return
+            }
+            phase = .header(attempt: next)
+            step = .read(offset: 0, length: Self.bounded(Self.headerByteCounts[next], from: 0, fileSize: fileSize))
+        case .done:
+            break
+        }
+    }
+
+    private mutating func finish(_ codec: AudioFormat?) {
+        phase = .done
+        step = .finished(codec)
+    }
+
+    private mutating func consumeTopLevel(_ bytes: [UInt8], at offset: Int64, requested: Int64) {
+        var cursor = 0
+        while true {
+            guard let header = Self.boxHeader(bytes, at: cursor) else {
+                // 盒子头被窗口截断:到文件尾就收手,否则从这个盒子开头再取一窗。
+                if Int64(bytes.count) < requested || cursor == 0 {
+                    finish(nil)
+                } else {
+                    hop(to: offset + Int64(cursor))
+                }
+                return
+            }
+            guard Self.isBoxType(header.type) else {
+                finish(nil)
+                return
+            }
+            if header.type == "moov" {
+                let declaredEnd = header.size.map { Int64(cursor) + $0 } ?? Int64.max
+                let scan = Self.scanMovie(bytes, box: cursor..<Int(min(declaredEnd, Int64(bytes.count))))
+                if let fourCC = scan.fourCC {
+                    finish(ContainerAudioCodecPolicy.codec(sampleEntry: fourCC))
+                } else if scan.truncated, declaredEnd > Int64(bytes.count) {
+                    let start = offset + Int64(cursor)
+                    let wanted = min(declaredEnd - Int64(cursor), Self.maximumMovieByteCount)
+                    phase = .movie(offset: start)
+                    step = .read(offset: start, length: Self.bounded(wanted, from: start, fileSize: fileSize))
+                } else {
+                    finish(nil)
+                }
+                return
+            }
+            // 长度为 0 表示一直到文件尾,后面不会再有 moov。
+            guard let size = header.size, size >= Int64(header.length) else {
+                finish(nil)
+                return
+            }
+            let next = Int64(cursor) + size
+            if next + 8 > Int64(bytes.count) {
+                hop(to: offset + next)
+                return
+            }
+            cursor = Int(next)
+        }
+    }
+
+    private mutating func hop(to fileOffset: Int64) {
+        hops += 1
+        guard hops <= Self.maximumTopLevelHops,
+              fileSize <= 0 || fileOffset + 8 <= fileSize else {
+            finish(nil)
+            return
+        }
+        let length = Self.bounded(Self.windowByteCount, from: fileOffset, fileSize: fileSize)
+        phase = .topLevel(offset: fileOffset, requested: length)
+        step = .read(offset: fileOffset, length: length)
+    }
+
+    private static func bounded(_ length: Int64, from offset: Int64, fileSize: Int64) -> Int64 {
+        fileSize > 0 ? max(0, min(length, fileSize - offset)) : length
+    }
+
+    private struct BoxHeader {
+        let type: String
+        /// nil:一直延伸到文件尾。
+        let size: Int64?
+        let length: Int
+    }
+
+    private static func boxHeader(_ b: [UInt8], at offset: Int) -> BoxHeader? {
+        guard let size32 = AudioStreamHeaderParser.readUInt32BE(b, offset), offset + 8 <= b.count else { return nil }
+        let type = String(decoding: b[(offset + 4)..<(offset + 8)], as: UTF8.self)
+        switch size32 {
+        case 0:
+            return BoxHeader(type: type, size: nil, length: 8)
+        case 1:
+            // 1 TB 以上的盒子只会是坏数据;卡在这里,后面的偏移相加才不会溢出。
+            guard let size64 = AudioStreamHeaderParser.readUInt64BE(b, offset + 8),
+                  size64 <= 1 << 40 else { return nil }
+            return BoxHeader(type: type, size: Int64(size64), length: 16)
+        default:
+            return BoxHeader(type: type, size: Int64(size32), length: 8)
+        }
+    }
+
+    private static func isBoxType(_ type: String) -> Bool {
+        type.utf8.count == 4 && type.utf8.allSatisfy { $0 >= 0x20 && $0 <= 0x7E }
+    }
+
+    private struct MovieScan {
+        var fourCC: String?
+        var truncated = false
+    }
+
+    /// `box` 是 `moov` 整个盒子在手里的那一段(可能被截断)。找第一条声音轨的 sample entry。
+    private static func scanMovie(_ b: [UInt8], box: Range<Int>) -> MovieScan {
+        var scan = MovieScan()
+        guard let header = boxHeader(b, at: box.lowerBound), header.type == "moov" else { return scan }
+        let payload = (box.lowerBound + header.length)..<box.upperBound
+        for trak in children(b, in: payload, truncated: &scan.truncated) where trak.type == "trak" {
+            guard let mdia = children(b, in: trak.payload, truncated: &scan.truncated)
+                .first(where: { $0.type == "mdia" }) else { continue }
+            let mediaChildren = children(b, in: mdia.payload, truncated: &scan.truncated)
+            guard let handler = mediaChildren.first(where: { $0.type == "hdlr" }),
+                  handler.payload.lowerBound + 12 <= handler.payload.upperBound,
+                  String(decoding: b[(handler.payload.lowerBound + 8)..<(handler.payload.lowerBound + 12)], as: UTF8.self) == "soun",
+                  let minf = mediaChildren.first(where: { $0.type == "minf" }),
+                  let stbl = children(b, in: minf.payload, truncated: &scan.truncated)
+                    .first(where: { $0.type == "stbl" }),
+                  let stsd = children(b, in: stbl.payload, truncated: &scan.truncated)
+                    .first(where: { $0.type == "stsd" }) else { continue }
+            // stsd 是 FullBox:版本与标志 4 字节、条目数 4 字节,之后第一条 sample entry 的盒子头。
+            let entry = stsd.payload.lowerBound + 8
+            guard entry + 8 <= stsd.payload.upperBound else {
+                scan.truncated = true
+                continue
+            }
+            let fourCC = String(decoding: b[(entry + 4)..<(entry + 8)], as: UTF8.self)
+            guard isBoxType(fourCC) else { continue }
+            scan.fourCC = fourCC
+            return scan
+        }
+        return scan
+    }
+
+    private struct Child {
+        let type: String
+        let payload: Range<Int>
+    }
+
+    /// `range` 里的子盒子。声明的长度超出手里字节的,只截到手里这段并记下截断。
+    private static func children(_ b: [UInt8], in range: Range<Int>, truncated: inout Bool) -> [Child] {
+        var result: [Child] = []
+        var cursor = range.lowerBound
+        while cursor < range.upperBound {
+            guard cursor + 8 <= range.upperBound, let header = boxHeader(b, at: cursor) else {
+                truncated = true
+                break
+            }
+            guard isBoxType(header.type), let size = header.size, size >= Int64(header.length) else { break }
+            let declaredEnd = Int64(cursor) + size
+            let end = Int(min(declaredEnd, Int64(range.upperBound)))
+            if declaredEnd > Int64(range.upperBound) { truncated = true }
+            guard cursor + header.length <= end else { break }
+            result.append(Child(type: header.type, payload: (cursor + header.length)..<end))
+            cursor = end
+        }
+        return result
+    }
+}
+
 // MARK: - FLAC 实际位深
 
 /// 24 bit 的 FLAC 有不少是 16 bit 补零出来的。FLAC 编码器会把每个子帧里样本共同的

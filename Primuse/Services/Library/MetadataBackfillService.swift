@@ -388,6 +388,9 @@ final class MetadataBackfillService {
     /// be swept again merely because their optional artwork/title inspection
     /// markers predate the shared backfill pipeline.
     private let bareOnlySourceIDs: () -> Set<String>
+    /// 服务端曲库源(Subsonic 一族): 目录信息以服务端为准, 回填只为认编码读一次
+    /// 文件头, 见 `MusicSourceType.readsContainerCodecFromFileHeader`。
+    private let containerCodecOnlySourceIDs: () -> Set<String>
     /// Sources whose bytes live in the app sandbox and remain readable while
     /// Wi-Fi-only blocks connector and File Provider traffic.
     private let offlineReadableSourceIDs: () -> Set<String>
@@ -890,6 +893,7 @@ final class MetadataBackfillService {
         sourceManager: SourceManager,
         backfillableSourceIDs: @escaping () -> Set<String> = { [] },
         bareOnlySourceIDs: @escaping () -> Set<String> = { [] },
+        containerCodecOnlySourceIDs: @escaping () -> Set<String> = { [] },
         offlineReadableSourceIDs: @escaping () -> Set<String> = { [] },
         localFileSourceIDs: @escaping () -> Set<String> = { [] },
         directFileSourceIDs: @escaping () -> Set<String> = { [] },
@@ -903,6 +907,7 @@ final class MetadataBackfillService {
         self.sourceManager = sourceManager
         self.backfillableSourceIDs = backfillableSourceIDs
         self.bareOnlySourceIDs = bareOnlySourceIDs
+        self.containerCodecOnlySourceIDs = containerCodecOnlySourceIDs
         self.offlineReadableSourceIDs = offlineReadableSourceIDs
         self.localFileSourceIDs = localFileSourceIDs
         self.directFileSourceIDs = directFileSourceIDs
@@ -2671,6 +2676,7 @@ final class MetadataBackfillService {
     private struct RemainingCountsInput: Sendable {
         let sourceIDs: Set<String>
         let bareOnlySourceIDs: Set<String>
+        let containerCodecOnlySourceIDs: Set<String>
         let songs: [Song]
         let disabledSourceIDs: Set<String>
         let failedSongIDs: Set<String>
@@ -2710,6 +2716,7 @@ final class MetadataBackfillService {
         RemainingCountsInput(
             sourceIDs: backfillableSourceIDs(),
             bareOnlySourceIDs: bareOnlySourceIDs(),
+            containerCodecOnlySourceIDs: containerCodecOnlySourceIDs(),
             songs: library.songs,
             disabledSourceIDs: library.disabledSourceIDs,
             failedSongIDs: failedSongIDs,
@@ -2803,6 +2810,7 @@ final class MetadataBackfillService {
             queueGenerationChanged: queueMutationGeneration != queueGeneration,
             semanticInputsChanged: backfillableSourceIDs() != input.sourceIDs
                 || bareOnlySourceIDs() != input.bareOnlySourceIDs
+                || containerCodecOnlySourceIDs() != input.containerCodecOnlySourceIDs
                 || library.disabledSourceIDs != input.disabledSourceIDs
                 || isWaitingForWiFi != input.isWaitingForWiFi
         )
@@ -2879,7 +2887,8 @@ final class MetadataBackfillService {
                 hasArtist: Self.hasVisibleContent(song.artistName),
                 artistChecked: input.artistCheckedIDs.contains(song.id),
                 audioCodecUnread: Self.audioCodecUnread(song),
-                effectiveBitDepthUnread: Self.effectiveBitDepthUnread(song)
+                effectiveBitDepthUnread: Self.effectiveBitDepthUnread(song),
+                containerCodecOnly: input.containerCodecOnlySourceIDs.contains(song.sourceID)
             )
             let stillNeedsDetails = !workReasons.isEmpty
             let hasTerminalOrSourceFailure = input.failedSongIDs.contains(song.id)
@@ -4625,6 +4634,9 @@ final class MetadataBackfillService {
             }
             return data
         }
+        if containerCodecOnlySourceIDs().contains(song.sourceID) {
+            return try await probeContainerCodec(for: song, fetch: fetchRange)
+        }
         let fetchStarted = Date()
         // 不用顺带取封面的歌只读一小段: 标签本身几 KB 就够, 整段读会白拉两百多
         // KB。需要封面时仍然整段读 —— 封面多半就在里面, 一次取回比小段加补读
@@ -5166,6 +5178,29 @@ final class MetadataBackfillService {
         )
     }
 
+    /// 服务端曲库源只认编码: 按 `ContainerCodecProbe` 要的范围一段段读, 结果只改
+    /// `audioCodec`。认不出也记成读过, 之后不再为它读。
+    private func probeContainerCodec(
+        for song: Song,
+        fetch: (Int64, Int64) async throws -> Data
+    ) async throws -> BackfillOutcome {
+        var probe = ContainerCodecProbe(container: song.fileFormat, fileSize: song.fileSize)
+        while case .read(let offset, let length) = probe.step {
+            guard length > 0 else {
+                probe.consume(Data())
+                continue
+            }
+            probe.consume(try await fetch(offset, length))
+        }
+        guard case .finished(let codec) = probe.step else {
+            return BackfillOutcome(song: nil, markFailed: false)
+        }
+        var updated = library.song(id: song.id) ?? song
+        updated.audioCodec = ContainerAudioCodecPolicy.inspectedCodec(codec, container: updated.fileFormat)
+        plog("📥 Backfill: '\(song.title)' container codec \(codec?.rawValue ?? "unknown")")
+        return BackfillOutcome(song: updated, markFailed: false)
+    }
+
     private static func processCPUTime() -> TimeInterval? {
         var usage = rusage()
         guard getrusage(RUSAGE_SELF, &usage) == 0 else { return nil }
@@ -5495,6 +5530,7 @@ final class MetadataBackfillService {
         let allowedSourceIDs: Set<String>?
         let sourceIDs: Set<String>
         let bareOnlySourceIDs: Set<String>
+        var containerCodecOnlySourceIDs: Set<String> = []
         let disabledSourceIDs: Set<String>
         let manuallyReadingSongIDs: Set<String>
         let pendingFlushSongIDs: Set<String>
@@ -5533,6 +5569,7 @@ final class MetadataBackfillService {
             allowedSourceIDs: allowedSourceIDs,
             sourceIDs: backfillableSourceIDs(),
             bareOnlySourceIDs: bareOnlySourceIDs(),
+            containerCodecOnlySourceIDs: containerCodecOnlySourceIDs(),
             disabledSourceIDs: library.disabledSourceIDs,
             manuallyReadingSongIDs: manuallyReadingSongIDs,
             pendingFlushSongIDs: pendingFlushSongIDs,
@@ -5595,7 +5632,8 @@ final class MetadataBackfillService {
                 incompleteSongIDs: input.incompleteSongIDs,
                 albumArtistCheckedIDs: input.albumArtistCheckedIDs,
                 albumArtistUnconfirmedIDs: input.albumArtistUnconfirmedIDs,
-                artistCheckedIDs: input.artistCheckedIDs
+                artistCheckedIDs: input.artistCheckedIDs,
+                containerCodecOnly: input.containerCodecOnlySourceIDs.contains(song.sourceID)
             )
             guard !reasons.isEmpty else { continue }
             guard !reasons.isSubset(of: [.albumArtist, .audioCodec, .effectiveBitDepth]) else {
@@ -5643,6 +5681,7 @@ final class MetadataBackfillService {
               queueMutationGeneration == queueGeneration,
               backfillableSourceIDs() == input.sourceIDs,
               bareOnlySourceIDs() == input.bareOnlySourceIDs,
+              containerCodecOnlySourceIDs() == input.containerCodecOnlySourceIDs,
               library.disabledSourceIDs == input.disabledSourceIDs else {
             return pickNextBatch(limit: limit, allowedSourceIDs: allowedSourceIDs)
         }
@@ -5714,7 +5753,8 @@ final class MetadataBackfillService {
             incompleteSongIDs: incompleteSongIDs,
             albumArtistCheckedIDs: albumArtistCheckedIDs,
             albumArtistUnconfirmedIDs: albumArtistUnconfirmedIDs,
-            artistCheckedIDs: artistCheckedIDs
+            artistCheckedIDs: artistCheckedIDs,
+            containerCodecOnly: containerCodecOnlySourceIDs().contains(song.sourceID)
         )
     }
 
@@ -5734,7 +5774,8 @@ final class MetadataBackfillService {
             hasArtist: !(song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
             artistChecked: artistCheckedIDs.contains(song.id),
             audioCodecUnread: Self.audioCodecUnread(song),
-            effectiveBitDepthUnread: Self.effectiveBitDepthUnread(song)
+            effectiveBitDepthUnread: Self.effectiveBitDepthUnread(song),
+            containerCodecOnly: containerCodecOnlySourceIDs().contains(song.sourceID)
         )
     }
 
@@ -5746,7 +5787,8 @@ final class MetadataBackfillService {
         incompleteSongIDs: Set<String>,
         albumArtistCheckedIDs: Set<String>,
         albumArtistUnconfirmedIDs: Set<String>,
-        artistCheckedIDs: Set<String>
+        artistCheckedIDs: Set<String>,
+        containerCodecOnly: Bool
     ) -> Bool {
         !workReasons(
             song,
@@ -5756,7 +5798,8 @@ final class MetadataBackfillService {
             incompleteSongIDs: incompleteSongIDs,
             albumArtistCheckedIDs: albumArtistCheckedIDs,
             albumArtistUnconfirmedIDs: albumArtistUnconfirmedIDs,
-            artistCheckedIDs: artistCheckedIDs
+            artistCheckedIDs: artistCheckedIDs,
+            containerCodecOnly: containerCodecOnly
         ).isEmpty
     }
 
@@ -5768,7 +5811,8 @@ final class MetadataBackfillService {
         incompleteSongIDs: Set<String>,
         albumArtistCheckedIDs: Set<String>,
         albumArtistUnconfirmedIDs: Set<String>,
-        artistCheckedIDs: Set<String>
+        artistCheckedIDs: Set<String>,
+        containerCodecOnly: Bool
     ) -> MetadataBackfillWorkReasons {
         workReasons(
             restrictToBareRows: restrictToBareRows,
@@ -5785,7 +5829,8 @@ final class MetadataBackfillService {
             hasArtist: !(song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
             artistChecked: artistCheckedIDs.contains(song.id),
             audioCodecUnread: Self.audioCodecUnread(song),
-            effectiveBitDepthUnread: Self.effectiveBitDepthUnread(song)
+            effectiveBitDepthUnread: Self.effectiveBitDepthUnread(song),
+            containerCodecOnly: containerCodecOnly
         )
     }
 
@@ -5804,7 +5849,8 @@ final class MetadataBackfillService {
         hasArtist: Bool,
         artistChecked: Bool,
         audioCodecUnread: Bool,
-        effectiveBitDepthUnread: Bool
+        effectiveBitDepthUnread: Bool,
+        containerCodecOnly: Bool
     ) -> MetadataBackfillWorkReasons {
         return MetadataBackfillEligibilityPolicy.reasons(
             duration: duration,
@@ -5821,7 +5867,8 @@ final class MetadataBackfillService {
             hasArtist: hasArtist,
             artistChecked: artistChecked,
             audioCodecUnread: audioCodecUnread,
-            effectiveBitDepthUnread: effectiveBitDepthUnread
+            effectiveBitDepthUnread: effectiveBitDepthUnread,
+            containerCodecOnly: containerCodecOnly
         )
     }
 

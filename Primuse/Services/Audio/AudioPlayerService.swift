@@ -3128,6 +3128,7 @@ final class AudioPlayerService {
                     fileSize: song.fileSize
                 )
             }.value
+            if let profile { recordInspectedContainerCodec(sampleEntry: profile.codecFourCC, for: song) }
         } else if sourceManager != nil || isExternalURLItem(song) {
             do {
                 var head = Data()
@@ -3165,6 +3166,9 @@ final class AudioPlayerService {
                     }
                     if let resolved = profiles.first(where: \.prefersSystemMediaPlayback)
                         ?? profiles.first {
+                        if let audio = profiles.first {
+                            recordInspectedContainerCodec(sampleEntry: audio.codecFourCC, for: song)
+                        }
                         return resolved.prefersSystemMediaPlayback ? resolved : nil
                     }
                 }
@@ -3177,6 +3181,30 @@ final class AudioPlayerService {
             profile = nil
         }
         return profile?.prefersSystemMediaPlayback == true ? profile : nil
+    }
+
+    /// 开播前读到了音轨描述, 而这首歌的编码还没读过(Navidrome 这类接口不给编码的源):
+    /// 顺手记到歌上, 播放页与列表的音质标签不用等后台回填。
+    private func recordInspectedContainerCodec(sampleEntry fourCC: String, for song: Song) {
+        guard !song.isStreamDescriptor,
+              let codec = ContainerAudioCodecPolicy.codec(sampleEntry: fourCC),
+              ContainerAudioCodecPolicy.isUnread(format: song.fileFormat, audioCodec: song.audioCodec),
+              let stored = ContainerAudioCodecPolicy.inspectedCodec(codec, container: song.fileFormat) else {
+            return
+        }
+        if currentSong?.id == song.id {
+            currentSong?.audioCodec = stored
+        }
+        if let queueIndex = queueEntries.firstIndex(where: { $0.song.id == song.id }) {
+            queueEntries[queueIndex].song.audioCodec = stored
+        }
+        if let library, var storedSong = library.song(id: song.id),
+           ContainerAudioCodecPolicy.isUnread(format: storedSong.fileFormat, audioCodec: storedSong.audioCodec) {
+            storedSong.audioCodec = stored
+            library.replaceSong(storedSong)
+        }
+        updatePlaybackState()
+        plog("🎵 Container codec for '\(song.title)' read at playback: \(codec.rawValue)")
     }
 
     private func fetchSystemAudioMetadataRange(

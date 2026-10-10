@@ -1148,12 +1148,19 @@ final class AppServices {
             backfillableSourceIDs: {
                 Set(store.sources.filter {
                     $0.isEnabled
-                        && ($0.type.supportsEmbeddedMetadataBackfill || $0.type == .local)
+                        && ($0.type.supportsEmbeddedMetadataBackfill
+                            || $0.type.readsContainerCodecFromFileHeader
+                            || $0.type == .local)
                 }.map(\.id))
             },
             bareOnlySourceIDs: {
                 Set(store.sources.filter {
                     $0.isEnabled && ($0.type == .local || $0.type == .synology)
+                }.map(\.id))
+            },
+            containerCodecOnlySourceIDs: {
+                Set(store.sources.filter {
+                    $0.isEnabled && $0.type.readsContainerCodecFromFileHeader
                 }.map(\.id))
             },
             offlineReadableSourceIDs: {
