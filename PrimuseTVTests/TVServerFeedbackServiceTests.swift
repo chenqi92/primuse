@@ -193,12 +193,16 @@ final class TVServerFeedbackServiceTests: XCTestCase {
         XCTAssertTrue(TVServerFeedbackPolicy.supportsNowPlaying(.airsonic))
         XCTAssertTrue(TVServerFeedbackPolicy.supportsNowPlaying(.gonic))
         XCTAssertFalse(TVServerFeedbackPolicy.supportsNowPlaying(.fnMusic))
+        XCTAssertTrue(TVServerFeedbackPolicy.supportsNowPlaying(.songloft))
+        XCTAssertFalse(TVServerFeedbackPolicy.supportsNowPlaying(.daoliyu))
 
         XCTAssertTrue(TVServerFeedbackPolicy.supportsScrobble(.subsonic))
         XCTAssertTrue(TVServerFeedbackPolicy.supportsScrobble(.navidrome))
         XCTAssertTrue(TVServerFeedbackPolicy.supportsScrobble(.airsonic))
         XCTAssertTrue(TVServerFeedbackPolicy.supportsScrobble(.gonic))
         XCTAssertTrue(TVServerFeedbackPolicy.supportsScrobble(.fnMusic))
+        XCTAssertTrue(TVServerFeedbackPolicy.supportsScrobble(.songloft))
+        XCTAssertTrue(TVServerFeedbackPolicy.supportsScrobble(.daoliyu))
         XCTAssertFalse(TVServerFeedbackPolicy.supportsScrobble(.emby))
     }
 

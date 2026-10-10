@@ -203,6 +203,120 @@ import Testing
     #expect(!requests.data.contains(where: { $0.hasSuffix("/stream") }))
 }
 
+@Test func daoLiYuClientReportsPlaybackLikeTheWebClientAndRetriesOnExpiredToken() async throws {
+    let recorder = DaoLiYuPlaybackReportRecorder()
+    let transport = DaoLiYuRequestTransport(
+        data: { request in
+            let url = try #require(request.url)
+            switch url.path {
+            case "/api/auth/login":
+                let token = await recorder.nextToken()
+                return (
+                    Data(#"{"token":"\#(token)"}"#.utf8),
+                    try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+                )
+            case "/api/library/playback-history":
+                let status = await recorder.recordReport(
+                    method: request.httpMethod,
+                    authorization: request.value(forHTTPHeaderField: "Authorization"),
+                    contentType: request.value(forHTTPHeaderField: "Content-Type"),
+                    body: request.httpBody
+                )
+                return (
+                    Data(),
+                    try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil))
+                )
+            default:
+                throw URLError(.badServerResponse)
+            }
+        },
+        download: { _ in throw URLError(.unsupportedURL) }
+    )
+    let client = DaoLiYuServiceClient(
+        sourceID: "source-1",
+        host: "music.example.com",
+        port: nil,
+        useSSL: true,
+        basePath: nil,
+        username: "qa@example.com",
+        password: "password",
+        transport: transport
+    )
+    let trackPath = DaoLiYuAPIProtocol.trackPath(id: "trk_123", fileExtension: "flac")
+
+    try await client.reportPlayback(
+        trackPath: trackPath,
+        playedAt: Date(timeIntervalSince1970: 1_760_000_000.5)
+    )
+    let reports = await recorder.reports
+
+    // 第一次带过期令牌被拒,重新登录后再报一次。
+    #expect(reports.map(\.authorization) == ["Bearer TOKEN-1", "Bearer TOKEN-2"])
+    let report = try #require(reports.last)
+    #expect(report.method == "POST")
+    #expect(report.contentType == "application/json")
+    let body = try #require(report.body)
+    let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: String])
+    #expect(json == ["trackId": "trk_123", "playedAt": "2025-10-09T08:53:20.500Z"])
+}
+
+@Test func daoLiYuPlaybackReportSurfacesMissingEndpointOnOlderServers() async throws {
+    let transport = DaoLiYuRequestTransport(
+        data: { request in
+            let url = try #require(request.url)
+            let isLogin = url.path == "/api/auth/login"
+            return (
+                Data(isLogin ? #"{"token":"TOKEN"}"#.utf8 : #"404 page not found"#.utf8),
+                try #require(HTTPURLResponse(
+                    url: url,
+                    statusCode: isLogin ? 200 : 404,
+                    httpVersion: nil,
+                    headerFields: nil
+                ))
+            )
+        },
+        download: { _ in throw URLError(.unsupportedURL) }
+    )
+    let client = DaoLiYuServiceClient(
+        sourceID: "source-1",
+        host: "music.example.com",
+        port: nil,
+        useSSL: true,
+        basePath: nil,
+        username: "qa@example.com",
+        password: "password",
+        transport: transport
+    )
+    let trackPath = DaoLiYuAPIProtocol.trackPath(id: "trk_123", fileExtension: "flac")
+
+    await #expect(throws: DaoLiYuServiceError.badServerResponse(404)) {
+        try await client.reportPlayback(trackPath: trackPath)
+    }
+}
+
+private actor DaoLiYuPlaybackReportRecorder {
+    struct Report: Sendable {
+        let method: String?
+        let authorization: String?
+        let contentType: String?
+        let body: Data?
+    }
+
+    private var logins = 0
+    private(set) var reports: [Report] = []
+
+    func nextToken() -> String {
+        logins += 1
+        return "TOKEN-\(logins)"
+    }
+
+    /// 第一次上报回 401,模拟令牌过期。
+    func recordReport(method: String?, authorization: String?, contentType: String?, body: Data?) -> Int {
+        reports.append(Report(method: method, authorization: authorization, contentType: contentType, body: body))
+        return reports.count == 1 ? 401 : 204
+    }
+}
+
 private actor DaoLiYuRequestRecorder {
     private var dataPaths: [String] = []
     private var downloadPaths: [String] = []

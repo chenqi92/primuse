@@ -8,11 +8,11 @@ enum TVServerFeedbackPolicy {
     }
 
     static func supportsNowPlaying(_ type: MusicSourceType) -> Bool {
-        type.isSubsonicFamily
+        type.isSubsonicFamily || type == .songloft
     }
 
     static func supportsScrobble(_ type: MusicSourceType) -> Bool {
-        type.isSubsonicFamily || type == .fnMusic
+        type.isSubsonicFamily || type == .fnMusic || type == .songloft || type == .daoliyu
     }
 }
 
@@ -664,6 +664,51 @@ actor TVServerFeedbackHTTPClient: TVServerFeedbackClient {
         if source.type == .fnMusic, feedback.kind == .scrobble {
             try await reportFnMusic(feedback, source: source, credential: credential)
         }
+        if source.type == .songloft {
+            // 和手机一样:开始放记一次 play,听满记一次 finish。
+            try await withRoutedSource(source) { routed in
+                do {
+                    try await SongloftServiceClient(source: routed, credential: credential)
+                        .reportPlayback(trackPath: feedback.song.filePath, submission: feedback.kind == .scrobble)
+                } catch SongloftServiceError.authenticationFailed {
+                    throw TVServerFeedbackError.authenticationFailed
+                } catch SongloftServiceError.badServerResponse(let status) {
+                    throw TVServerFeedbackError.httpStatus(status)
+                }
+            }
+        }
+        if source.type == .daoliyu, feedback.kind == .scrobble {
+            try await withRoutedSource(source) { routed in
+                do {
+                    try await DaoLiYuServiceClient(source: routed, credential: credential)
+                        .reportPlayback(trackPath: feedback.song.filePath, playedAt: feedback.occurredAt)
+                } catch DaoLiYuServiceError.authenticationFailed {
+                    throw TVServerFeedbackError.authenticationFailed
+                } catch DaoLiYuServiceError.badServerResponse(let status) {
+                    // 1.0.4 以前的道理鱼没有播放记录接口,回 404,不再重试。
+                    throw TVServerFeedbackError.httpStatus(status)
+                }
+            }
+        }
+    }
+
+    /// 按连接候选(内网、外网……)依次试,只有连不上才换下一条;服务器给了回应的错误直接抛出。
+    private func withRoutedSource<T: Sendable>(
+        _ source: MusicSource,
+        operation: (MusicSource) async throws -> T
+    ) async throws -> T {
+        guard source.connectionConfiguration != nil else { return try await operation(source) }
+        let candidates = await SourceConnectionRuntime.shared.orderedCandidates(for: source)
+        guard let last = candidates.last else { return try await operation(source) }
+        for candidate in candidates.dropLast() {
+            do {
+                return try await operation(source.applyingConnectionCandidate(candidate))
+            } catch where SourceNetworkFailurePolicy.isNetworkFailure(error) {
+                try Task.checkCancellation()
+                continue
+            }
+        }
+        return try await operation(source.applyingConnectionCandidate(last))
     }
 
     func invalidate(source: MusicSource) async {

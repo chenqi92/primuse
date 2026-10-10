@@ -2517,7 +2517,8 @@ private struct RoutedFnMusicConnector: RoutedConnectorProxy, RefreshingMetadataS
 }
 
 private struct RoutedDaoLiYuConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
-    ServerLyricsConnector, ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector {
+    ServerLyricsConnector, ServerScrobblingConnector, ServerCatalogChangeDetectingConnector,
+    CatalogDriftReportingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -2549,6 +2550,12 @@ private struct RoutedDaoLiYuConnector: RoutedConnectorProxy, RefreshingMetadataS
         }) ?? .unavailable
     }
 
+    func scrobble(songPath: String, submission: Bool) async {
+        _ = try? await routing.withMutation { connector in
+            guard let reporter = connector as? any ServerScrobblingConnector else { return }
+            await reporter.scrobble(songPath: songPath, submission: submission)
+        }
+    }
 }
 
 private struct RoutedAudiobookshelfConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,

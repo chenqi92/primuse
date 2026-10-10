@@ -461,6 +461,45 @@ public actor DaoLiYuServiceClient {
         return ResolvedStream(url: url, headers: ["Authorization": "Bearer \(token)"])
     }
 
+    /// 把一次播放记进服务器的播放记录,请求体和道理鱼网页端一致。这个接口 1.0.4 起才有,
+    /// 旧服务器回 404,调用方按上报失败忽略即可。
+    public func reportPlayback(trackPath: String, playedAt: Date = Date()) async throws {
+        guard let id = DaoLiYuAPIProtocol.trackID(from: trackPath) else {
+            throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.invalidTrackReference"))
+        }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let body = try JSONSerialization.data(
+            withJSONObject: ["trackId": id, "playedAt": formatter.string(from: playedAt)],
+            options: [.sortedKeys]
+        )
+        for attempt in 0...1 {
+            var request = try await authenticatedRequest(
+                path: "/library/playback-history",
+                headers: ["Content-Type": "application/json"]
+            )
+            request.httpMethod = "POST"
+            request.httpBody = body
+            let (_, response) = try await transport.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.missingHTTPResponse"))
+            }
+            if Self.isAuthenticationFailure(http.statusCode), attempt == 0 {
+                token = nil
+                continue
+            }
+            if Self.isAuthenticationFailure(http.statusCode) {
+                token = nil
+                throw DaoLiYuServiceError.authenticationFailed
+            }
+            guard (200...299).contains(http.statusCode) else {
+                throw DaoLiYuServiceError.badServerResponse(http.statusCode)
+            }
+            return
+        }
+        throw DaoLiYuServiceError.authenticationFailed
+    }
+
     private func authorizedJSON(
         path: String,
         queryItems: [URLQueryItem] = []

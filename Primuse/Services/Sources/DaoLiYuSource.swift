@@ -344,6 +344,14 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector {
     }
 }
 
+extension DaoLiYuSource: ServerScrobblingConnector {
+    /// 听满(50% 或 4 分钟)才记进服务器的播放记录;旧服务器没有这个接口,失败直接忽略。
+    func scrobble(songPath: String, submission: Bool) async {
+        guard submission, (try? await connect()) != nil else { return }
+        _ = try? await client.reportPlayback(trackPath: songPath)
+    }
+}
+
 extension DaoLiYuSource: ServerCatalogChangeDetectingConnector {
     /// The catalogue total from a one-row page. It sees rows arriving or
     /// leaving; an edited tag waits for the next scan.
