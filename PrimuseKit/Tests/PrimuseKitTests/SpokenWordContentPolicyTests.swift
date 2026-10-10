@@ -208,7 +208,87 @@ struct SpokenWordTranscriptReadingPolicyTests {
             Policy.Cue(text: "第二天清晨", start: 30),
         ]
         let paragraphs = Policy.paragraphs(from: cues)
-        #expect(paragraphs.map(\.text) == ["第一章 山河天色渐暗，他推门而出。", "第二天清晨"])
+        #expect(paragraphs.map(\.text) == ["第一章 山河", "天色渐暗，他推门而出。", "第二天清晨"])
+        #expect(paragraphs.map(\.isHeading) == [true, false, false])
+    }
+
+    @Test("A chapter title stays its own paragraph between timed lines and in plain text")
+    func headingsStandAlone() {
+        let timed = [
+            Policy.Cue(text: "他终于睡着了。", start: 0, end: 2),
+            Policy.Cue(text: "第三章 风起云涌", start: 2.2, end: 4),
+            Policy.Cue(text: "第二天一早，", start: 4.1, end: 6),
+            Policy.Cue(text: "雨停了。", start: 6.1, end: 7),
+        ]
+        let paragraphs = Policy.paragraphs(from: timed)
+        #expect(paragraphs.map(\.text) == ["他终于睡着了。", "第三章 风起云涌", "第二天一早，雨停了。"])
+        #expect(paragraphs.map(\.isHeading) == [false, true, false])
+        #expect(paragraphs[1].start == 2.2)
+        #expect(Policy.paragraphIndex(at: 3, in: paragraphs) == 1)
+
+        let plain = ["Chapter 3", "The rain had stopped", "by morning."].map { Policy.Cue(text: $0, start: nil) }
+        #expect(Policy.paragraphs(from: plain).map(\.text) == ["Chapter 3", "The rain had stopped by morning."])
+    }
+
+    @Test("Chapter titles are recognised, ordinary short lines are not", arguments: [
+        ("第三章 风起云涌", true),
+        ("第12回", true),
+        ("第一百二十章：决战", true),
+        ("第三章。", true),
+        ("第五集 归来", true),
+        ("序章", true),
+        ("楔子", true),
+        ("番外一 重逢", true),
+        ("卷三 江湖", true),
+        ("제3장 시작", true),
+        ("Chapter 3", true),
+        ("CHAPTER XII", true),
+        ("Chapter One: The Hunt", true),
+        ("Chapter 3.", true),
+        ("Part Two", true),
+        ("Part 2: Return", true),
+        ("Prologue", true),
+        ("Epilogue - Home", true),
+        ("第二回合他赢了", false),
+        ("第一集团军", false),
+        ("第三章讲的是什么呢。", false),
+        ("第二天清晨", false),
+        ("序列号", false),
+        ("天色渐暗，", false),
+        ("Part of me wanted to stay", false),
+        ("Introduction of the new rules was slow", false),
+        ("Welcome back", false),
+        ("第三章" + String(repeating: "很长的正文", count: 10), false),
+    ])
+    func headingDetection(text: String, isHeading: Bool) {
+        #expect(Policy.isHeading(text) == isHeading)
+    }
+
+    @Test("Each cue keeps its place in the paragraph text for sentence highlighting")
+    func segments() {
+        let cues = [
+            Policy.Cue(text: "Welcome back", start: 0, end: 1.5),
+            Policy.Cue(text: "to the show.", start: 1.6, end: 3),
+            Policy.Cue(text: "  It's good.", start: 3.1, end: 4),
+        ]
+        let paragraph = Policy.paragraphs(from: cues)[0]
+        #expect(paragraph.text == "Welcome back to the show. It's good.")
+        #expect(paragraph.segments.map(\.cue) == [0, 1, 2])
+        let text = Array(paragraph.text)
+        #expect(paragraph.segments.map { String(text[$0.range]) } == ["Welcome back", "to the show.", "It's good."])
+        #expect(Policy.segmentIndex(at: 0.5, in: paragraph) == 0)
+        #expect(Policy.segmentIndex(at: 2, in: paragraph) == 1)
+        #expect(Policy.segmentIndex(at: 99, in: paragraph) == 2)
+
+        let chinese = Policy.paragraphs(from: [
+            Policy.Cue(text: "天色渐暗，", start: 0, end: 1),
+            Policy.Cue(text: "他推门而出。", start: 1.2, end: 2),
+        ])[0]
+        let chineseText = Array(chinese.text)
+        #expect(chinese.segments.map { String(chineseText[$0.range]) } == ["天色渐暗，", "他推门而出。"])
+
+        let untimed = Policy.paragraphs(from: [Policy.Cue(text: "Plain", start: nil)])[0]
+        #expect(Policy.segmentIndex(at: 10, in: untimed) == nil)
     }
 
     @Test("Plain text keeps the author's blank lines as paragraph breaks and is never timed")
@@ -228,5 +308,54 @@ struct SpokenWordTranscriptReadingPolicyTests {
         #expect(paragraphs.count == 2)
         #expect(paragraphs[0].lastCue == 2)
         #expect(paragraphs.allSatisfy { $0.text.count <= Policy.hardLength })
+    }
+}
+
+@Suite("Transcript search")
+struct SpokenWordTranscriptSearchTests {
+    private typealias Policy = SpokenWordTranscriptReadingPolicy
+
+    private var paragraphs: [Policy.Paragraph] {
+        Policy.paragraphs(from: [
+            Policy.Cue(text: "The Storm came early.", start: 0, end: 2),
+            Policy.Cue(text: "Nobody saw the storm coming.", start: 2.1, end: 4),
+            Policy.Cue(text: "第二章 风暴", start: 10, end: 11),
+            Policy.Cue(text: "风暴过后，", start: 11.1, end: 12),
+            Policy.Cue(text: "村子里一片寂静。", start: 12.1, end: 13),
+        ])
+    }
+
+    @Test("Matches ignore case and width, and point at the cue they start in")
+    func matches() {
+        let paragraphs = paragraphs
+        let storms = Policy.searchMatches(for: " STORM ", in: paragraphs)
+        #expect(storms.map(\.paragraph) == [0, 0])
+        #expect(storms.map(\.range) == [4..<9, 37..<42])
+        #expect(storms.map(\.start) == [0, 2.1])
+
+        let chinese = Policy.searchMatches(for: "风暴", in: paragraphs)
+        #expect(chinese.map(\.paragraph) == [1, 2])
+        #expect(chinese.map(\.range) == [4..<6, 0..<2])
+        #expect(chinese.map(\.start) == [10, 11.1])
+
+        #expect(Policy.searchMatches(for: "ＳＴＯＲＭ", in: paragraphs).count == 2)
+        #expect(Policy.searchMatches(for: "   ", in: paragraphs).isEmpty)
+        #expect(Policy.searchMatches(for: "hurricane", in: paragraphs).isEmpty)
+    }
+
+    @Test("Searching starts at the paragraph being read and steps around the ends")
+    func stepping() {
+        let matches = Policy.searchMatches(for: "风暴", in: paragraphs)
+            + Policy.searchMatches(for: "storm", in: paragraphs)
+        let ordered = matches.sorted { ($0.paragraph, $0.range.lowerBound) < ($1.paragraph, $1.range.lowerBound) }
+        #expect(Policy.initialMatchIndex(ordered, currentParagraph: nil) == 0)
+        #expect(Policy.initialMatchIndex(ordered, currentParagraph: 1) == 2)
+        #expect(Policy.initialMatchIndex(ordered, currentParagraph: 5) == 0)
+        #expect(Policy.initialMatchIndex([], currentParagraph: 1) == nil)
+
+        #expect(Policy.steppedMatchIndex(3, count: 4, forward: true) == 0)
+        #expect(Policy.steppedMatchIndex(0, count: 4, forward: false) == 3)
+        #expect(Policy.steppedMatchIndex(nil, count: 4, forward: false) == 3)
+        #expect(Policy.steppedMatchIndex(1, count: 0, forward: true) == nil)
     }
 }

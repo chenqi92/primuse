@@ -2632,6 +2632,10 @@ struct NowPlayingView: View {
                 // 全屏播放(当前选的全屏效果;原生效果时是全屏歌词)。
                 try? await Task.sleep(for: .seconds(1))
                 presentImmersiveLyrics()
+            case "transcriptReader":
+                // 有声内容的全屏文稿(等文稿读进来);里面的菜单、设置、目录、搜索见 `PRIMUSE_DEBUG_TRANSCRIPT_READER`。
+                try? await Task.sleep(for: .seconds(2))
+                if !lyrics.isEmpty { showsTranscriptReader = true }
             default:
                 break
             }
