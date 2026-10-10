@@ -118,20 +118,11 @@ actor S3Source: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         var continuationToken: String? = nil
         var seenContinuationTokens: Set<String> = []
         repeat {
-            guard var components = URLComponents(url: try bucketURL(), resolvingAgainstBaseURL: false) else {
-                throw SourceError.connectionFailed("Invalid S3 URL")
-            }
-            var queryItems = [
-                URLQueryItem(name: "list-type", value: "2"),
-                URLQueryItem(name: "prefix", value: prefix),
-                URLQueryItem(name: "delimiter", value: "/"),
-                URLQueryItem(name: "max-keys", value: "1000"),
-            ]
-            if let token = continuationToken {
-                queryItems.append(URLQueryItem(name: "continuation-token", value: token))
-            }
-            components.queryItems = queryItems
-            guard let url = components.url else { throw SourceError.connectionFailed("Invalid URL") }
+            guard let url = Self.listObjectsURL(
+                bucketURL: try bucketURL(),
+                prefix: prefix,
+                continuationToken: continuationToken
+            ) else { throw SourceError.connectionFailed("Invalid S3 URL") }
 
             let page = try await loadListPage(url: url, prefix: prefix)
             items.append(contentsOf: page.items)
@@ -148,6 +139,30 @@ actor S3Source: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         } while continuationToken != nil
 
         return items
+    }
+
+    /// ListObjectsV2 地址。URLComponents 不转义查询里的 `+`，S3 / B2 却按表单规则把它读成空格：
+    /// 签名按 `%2B` 算、服务端按空格算，`A + B/` 这样的文件夹就回 403 SignatureDoesNotMatch。
+    /// AWS 给的 continuation-token 是 base64，也常带 `+`。
+    nonisolated static func listObjectsURL(
+        bucketURL: URL,
+        prefix: String,
+        continuationToken: String?
+    ) -> URL? {
+        guard var components = URLComponents(url: bucketURL, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        var queryItems = [
+            URLQueryItem(name: "list-type", value: "2"),
+            URLQueryItem(name: "prefix", value: prefix),
+            URLQueryItem(name: "delimiter", value: "/"),
+            URLQueryItem(name: "max-keys", value: "1000"),
+        ]
+        if let continuationToken {
+            queryItems.append(URLQueryItem(name: "continuation-token", value: continuationToken))
+        }
+        components.queryItems = queryItems
+        return FormSafeQueryURLBuilder.url(from: components)
     }
 
     private func loadListPage(url: URL, prefix: String) async throws -> S3ListPage {
@@ -626,7 +641,7 @@ actor S3Source: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         // Canonical request — must follow SigV4 byte-for-byte, otherwise the
         // server recomputes a different signature → SignatureDoesNotMatch (403).
         let path = canonicalURI(for: url)
-        let query = canonicalQueryString(for: url)
+        let query = Self.canonicalQueryString(for: url)
         var canonicalHeaderValues = [
             "host": hostHeader,
             "x-amz-content-sha256": payloadHash,
@@ -712,7 +727,7 @@ actor S3Source: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
 
     /// SigV4 canonical query string: sort params by name (byte order),
     /// AWS-encode both name and value (so `/` → %2F), join `name=value` with `&`.
-    private func canonicalQueryString(for url: URL) -> String {
+    nonisolated static func canonicalQueryString(for url: URL) -> String {
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         let encoded = items.map { item -> (String, String) in
             (Self.awsURIEncode(item.name), Self.awsURIEncode(item.value ?? ""))

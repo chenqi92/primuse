@@ -53,6 +53,36 @@ final class S3ListParserTests: XCTestCase {
         XCTAssertEqual(parser.nextContinuationToken, "1ueGcxLPRx1Tr")
     }
 
+    /// B2 上 `... -The Truth + Kamasutra/` 每次都 403：线上发的是原样 `+`，服务端读成空格，
+    /// 和按 `%2B` 算的签名对不上。签名用的查询串必须和服务端按表单规则解出来的一致。
+    func testListRequestSignsTheSameQueryTheServerDecodes() throws {
+        let prefix = "Prince/1. Studio/1998 - Crystal Ball -The Truth + Kamasutra/"
+        let token = "1ueGcxLPRx1Tr+Ab/Cd=="
+        let url = try XCTUnwrap(S3Source.listObjectsURL(
+            bucketURL: try XCTUnwrap(URL(string: "https://s3.us-west-004.backblazeb2.com/music")),
+            prefix: prefix,
+            continuationToken: token
+        ))
+        let wireQuery = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .percentEncodedQuery)
+        XCTAssertFalse(wireQuery.contains("+"))
+
+        var serverDecoded: [String: String] = [:]
+        for pair in wireQuery.split(separator: "&") {
+            let parts = pair.split(separator: "=", maxSplits: 1).map {
+                $0.replacingOccurrences(of: "+", with: " ").removingPercentEncoding ?? ""
+            }
+            serverDecoded[parts[0]] = parts.count > 1 ? parts[1] : ""
+        }
+        XCTAssertEqual(serverDecoded["prefix"], prefix)
+        XCTAssertEqual(serverDecoded["continuation-token"], token)
+        XCTAssertEqual(serverDecoded["delimiter"], "/")
+
+        let canonical = S3Source.canonicalQueryString(for: url)
+        XCTAssertTrue(canonical.contains("prefix=Prince%2F1.%20Studio%2F1998%20-%20Crystal%20Ball%20-The%20Truth%20%2B%20Kamasutra%2F"))
+        XCTAssertTrue(canonical.contains("continuation-token=1ueGcxLPRx1Tr%2BAb%2FCd%3D%3D"))
+    }
+
     private func parse(_ xml: String, prefix: String = "") throws -> S3ListParser {
         let parser = S3ListParser(prefix: prefix)
         let xmlParser = XMLParser(data: Data(xml.utf8))
