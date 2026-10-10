@@ -2177,7 +2177,12 @@ private struct GenreDetailView: View {
     /// hero 压到 170pt 以内, 专辑架和第一首歌才露得出来。结构不变。
     private func hero(insets: ImmersiveLibraryDetailInsets) -> some View {
         let compact = usesCompactHero
+        #if os(macOS)
+        // Mac 的头图上面没有状态栏和导航栏要让, 照 iPhone 留 100 点就是标题上方一大块空白。
+        let heroTopPadding: CGFloat = 36
+        #else
         let heroTopPadding: CGFloat = compact ? 28 : 100
+        #endif
         let heroBottomPadding: CGFloat = compact ? 14 : 28
         let blockSpacing: CGFloat = compact ? 10 : 16
         let titleLineLimit = compact ? 1 : 2

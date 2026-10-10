@@ -48,7 +48,8 @@ struct MacDetailContainer: View {
                         .pmAppearFade()
                 }
                 .navigationDestination(for: MacSpokenWordBookDestination.self) { destination in
-                    SpokenWordBookDetailView(bookID: destination.bookID)
+                    SpokenWordBookDetailView(bookID: destination.bookID, onMacInlineBack: popDetail)
+                        .navigationBarBackButtonHidden(true)
                         .pmAppearFade()
                 }
                 .navigationDestination(for: SmartPlaylist.self) { smart in
@@ -121,7 +122,10 @@ struct MacDetailContainer: View {
         case .section(let section):
             switch section {
             case .favorites:
-                LibraryView(rootSection: .favorites)
+                // 直接放在这一栏的栈里: 套一层 LibraryView 就多一个嵌套的导航栈, 从收藏点进去的
+                // 专辑、艺人、歌单落在里层栈, 拿不到下面登记的、带返回键的详情页。
+                FavoriteCollectionView()
+                    .navigationTitle(section.title)
             case .folders:
                 HomeFolderManagementView()
             case .statistics:

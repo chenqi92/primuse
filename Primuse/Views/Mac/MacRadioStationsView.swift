@@ -263,9 +263,12 @@ struct MacRadioStationsView: View {
             }
 
             HStack(spacing: PMSpace.m) {
-                Text(summaryText)
-                    .font(.system(size: 13))
-                    .foregroundStyle(PMColor.textMuted)
+                // 一个台都没有时下面的空状态已经写着同一句话, 页头不再重复。
+                if !stations.isEmpty {
+                    Text(summaryText)
+                        .font(.system(size: 13))
+                        .foregroundStyle(PMColor.textMuted)
+                }
                 // 有订阅时露一行紧凑状态，点进订阅管理。
                 RadioSubscriptionStatusRow {
                     subscriptionsStartAdding = false
@@ -342,9 +345,6 @@ struct MacRadioStationsView: View {
     }
 
     private var summaryText: String {
-        guard !stations.isEmpty else {
-            return String(localized: "radio_empty_description")
-        }
         var parts = [String(format: String(localized: "radio_mac_count %lld"), stations.count)]
         if let current = player.currentRadioStation,
            player.isPlaying || player.isLoading {

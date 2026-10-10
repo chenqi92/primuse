@@ -1,6 +1,7 @@
 #if DEBUG && os(macOS)
 import AppKit
 import ApplicationServices
+import PrimuseKit
 
 /// 在进程内按脚本执行辅助功能动作，给编译机上无人值守地复测界面用。
 ///
@@ -18,7 +19,11 @@ import ApplicationServices
 /// - `window:<宽>x<高>`：把主窗口改成这个尺寸（点）。
 /// - `scroll:<y>`：把主窗口里最大的那个竖向滚动视图滚到 y。
 /// - `route:<页面>`：主窗口换到这一页，写法同 `primuse.navigation.macRoute.v1`（home、section:albums…）。
+/// - `open:album:<片段>` / `open:artist:<片段>` / `open:book:<片段>`：把名字含这一段（不分大小写）的第一张专辑、
+///   第一位艺人、第一本有声书压进当前页的详情栈，和在页面里点进去走同一条通知。
 /// - `snapshot:<png 路径>`：把主窗口内容离屏画成 PNG —— 锁屏时 screencapture 只拍得到壁纸。
+/// - `layers`：按类名统计主窗口的图层树，系统私有类（背板、传送门、远端图层）逐个记下位置 ——
+///   离屏截图某块画不出来时拿它找原因。
 /// - `quit`：退出 App。
 /// 每一步都写 🧪 日志。
 enum DebugAccessibilityScript {
@@ -58,8 +63,12 @@ enum DebugAccessibilityScript {
         case "route":
             NotificationCenter.default.post(name: .primuseDebugSelectRoute, object: argument)
             plog("🧪 AX script: route -> \(argument)")
+        case "open":
+            openDetail(argument)
         case "snapshot":
             snapshotMainWindow(to: argument)
+        case "layers":
+            reportLayers()
         case "quit":
             NSApp.terminate(nil)
         default:
@@ -78,6 +87,40 @@ enum DebugAccessibilityScript {
             ?? library.createPlaylist(name: name, songIDs: songIDs)
         UserDefaults.standard.set("playlist:\(playlist.id)", forKey: "primuse.navigation.macRoute.v1")
         plog("🧪 AX script: playlist '\(name)' id=\(playlist.id) songs=\(library.songs(forPlaylist: playlist.id).count)")
+    }
+
+    @MainActor
+    private static func openDetail(_ argument: String) {
+        let parts = argument.split(separator: ":", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else {
+            plog("🧪 AX script: open \(argument) skipped")
+            return
+        }
+        let needle = parts[1].lowercased()
+        let library = AppServices.shared.musicLibrary
+        switch parts[0] {
+        case "album":
+            guard let album = library.visibleAlbums.first(where: { $0.title.lowercased().contains(needle) }) else { break }
+            NotificationCenter.default.post(name: .primuseDetailOpenAlbum, object: album)
+            plog("🧪 AX script: open album '\(album.title)'")
+            return
+        case "artist":
+            guard let artist = library.visibleArtists.first(where: { $0.name.lowercased().contains(needle) }) else { break }
+            NotificationCenter.default.post(name: .primuseDetailOpenArtist, object: artist)
+            plog("🧪 AX script: open artist '\(artist.name)'")
+            return
+        case "book":
+            let store = SpokenWordStore.shared
+            let items = library.spokenWordSongs.map { SpokenWordBookSupport.item(for: $0, store: store) }
+            guard let book = SpokenWordBookGrouping.books(from: items)
+                .first(where: { $0.title.lowercased().contains(needle) }) else { break }
+            NotificationCenter.default.post(name: .primuseDetailOpenSpokenWordBook, object: book.id)
+            plog("🧪 AX script: open book '\(book.title)'")
+            return
+        default:
+            break
+        }
+        plog("🧪 AX script: open \(argument) found nothing")
     }
 
     @MainActor
@@ -214,6 +257,32 @@ enum DebugAccessibilityScript {
         } catch {
             plog("🧪 AX script: snapshot failed \(error.localizedDescription)")
         }
+    }
+
+    @MainActor
+    private static func reportLayers() {
+        guard let root = mainWindow?.contentView?.layer else {
+            plog("🧪 AX script: layers found no layer-backed window")
+            return
+        }
+        var counts: [String: Int] = [:]
+        var notable: [String] = []
+        func walk(_ layer: CALayer, depth: Int) {
+            let name = String(describing: type(of: layer))
+            counts[name, default: 0] += 1
+            // 背板、传送门、SDF(玻璃)、RenderBox 表面、远端图层这几类 renderInContext 画不出来。
+            let offscreenOpaque = ["Backdrop", "Portal", "SDF", "RB", "Host", "Chameleon"]
+                .contains { name.contains($0) }
+            if offscreenOpaque, notable.count < 40 {
+                let frame = layer.convert(layer.bounds, to: root)
+                notable.append("\(name) depth=\(depth) frame=\(frame.integral) hidden=\(layer.isHidden) opacity=\(layer.opacity) filters=\(layer.filters?.count ?? 0)")
+            }
+            guard depth < 80 else { return }
+            for sublayer in layer.sublayers ?? [] { walk(sublayer, depth: depth + 1) }
+        }
+        walk(root, depth: 0)
+        plog("🧪 AX script: layers \(counts.sorted { $0.value > $1.value }.map { "\($0.key)×\($0.value)" }.joined(separator: " "))")
+        for line in notable { plog("🧪 AX script: layer \(line)") }
     }
 
     @MainActor

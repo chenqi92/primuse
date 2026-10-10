@@ -1389,6 +1389,12 @@ struct SearchView: View {
     private var macSearchHeader: some View {
         HStack(spacing: 8) {
             if searchText.isEmpty {
+                // 没有搜索词时这一行原本只剩右端一颗按钮; 补上页面标题, 和资料库其他页的页头对齐。
+                Text("search_title")
+                    .font(.system(size: 32, weight: .bold))
+                    .tracking(-0.5)
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
                 Spacer(minLength: 0)
             } else {
                 macFilterChips
@@ -1396,7 +1402,7 @@ struct SearchView: View {
             macResultLayoutButton
         }
         .padding(.horizontal, PMSpace.xxxl)
-        .padding(.top, PMSpace.l)
+        .padding(.top, searchText.isEmpty ? PMSpace.xl : PMSpace.l)
         .padding(.bottom, PMSpace.m)
     }
 
@@ -1476,17 +1482,16 @@ struct SearchView: View {
     private var macRecentSearchView: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 10) {
-                    macSectionLabel("recent_searches")
-                    if recentSearches.isEmpty {
-                        Text("search_prompt")
-                            .font(.system(size: 12.5))
-                            .foregroundStyle(PMColor.textFaint)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .pmCard(cornerRadius: 10)
-                    } else {
+                if recentSearches.isEmpty {
+                    // 没搜过时只留一行说明, 像其他页标题下的副标题。原来套着卡片摆在「最近搜索」
+                    // 下面, 看着像一个打不了字的输入框。
+                    Text("search_prompt")
+                        .font(.system(size: 13))
+                        .foregroundStyle(PMColor.textMuted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        macSectionLabel("recent_searches")
                         HStack(alignment: .top) {
                             MacSearchFlowLayout(spacing: 8, rowSpacing: 8) {
                                 ForEach(recentSearches, id: \.self) { query in
@@ -2963,6 +2968,8 @@ struct SearchView: View {
             Image(systemName: icon)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(PMColor.brand)
+                // 三个图标高矮不一, 固定一格高, 三张卡上下对齐。
+                .frame(height: 18, alignment: .leading)
             Text(verbatim: value)
                 .font(.system(size: 28, weight: .bold, design: .rounded))
                 .monospacedDigit()

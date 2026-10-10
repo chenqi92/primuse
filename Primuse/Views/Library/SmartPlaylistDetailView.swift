@@ -584,7 +584,8 @@ struct SmartPlaylistDetailView: View {
         // 只留"歌曲"小标题。下载 / 编辑入口都在上方: 编辑在"智能规则"卡片的
         // "编辑规则"按钮, 下载/编辑/删除在 header 右上角"更多"菜单, 不再重复。
         HStack(spacing: 8) {
-            Text("songs_count")
+            // 「songs_count」是跟在数字后面的量词(中文「首歌曲」), 单独当分区标题读不通; 与歌单页同用「歌曲」。
+            Text("tab_songs")
                 .font(.system(size: 11, weight: .semibold))
                 .textCase(.uppercase)
                 .foregroundStyle(PMColor.textFaint)

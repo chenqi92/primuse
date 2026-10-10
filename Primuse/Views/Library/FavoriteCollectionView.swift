@@ -293,6 +293,15 @@ struct FavoriteCollectionView: View {
         !FavoriteCollectionStore.collectedFolderIDs(in: folderPinsRawValue).isEmpty
     }
 
+    /// 左右留白。Mac 与资料库其他页对齐到 36。
+    private var horizontalInset: CGFloat {
+        #if os(macOS)
+        PMSpace.xxxl
+        #else
+        16
+        #endif
+    }
+
     private var gridMinimum: CGFloat {
         #if os(macOS)
         150
@@ -345,11 +354,18 @@ struct FavoriteCollectionView: View {
                             card(entry)
                         }
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, horizontalInset)
                 }
             }
+            #if os(macOS)
+            .padding(.bottom, 32)
+            #else
             .padding(.vertical, 16)
+            #endif
         }
+        #if os(macOS)
+        .background(PMColor.bg.ignoresSafeArea())
+        #endif
         .pmExtendsUnderVerticalBar()
         #if os(iOS)
         .libraryPageFind(text: $findText, prompt: "filter_favorites_placeholder")
@@ -377,16 +393,38 @@ struct FavoriteCollectionView: View {
     }
 
     #if os(macOS)
+    /// 和专辑、电台页同一种页头: 32pt 大标题, 查找与「编辑」靠右, 左右留白 36。
     private var macHeader: some View {
-        HStack {
+        HStack(alignment: .center, spacing: PMSpace.m) {
             Text("library_quick_access")
-                .font(.title3.weight(.bold))
-            Spacer()
+                .font(.system(size: 32, weight: .bold))
+                .tracking(-0.5)
+                .foregroundStyle(PMColor.text)
+                .lineLimit(1)
+                .layoutPriority(1)
+            Spacer(minLength: PMSpace.m)
             MacLibraryFindField(text: $findText, prompt: "filter_favorites_placeholder")
-            Button("edit") { showsEditor = true }
-                .font(.subheadline.weight(.medium))
+            Button {
+                showsEditor = true
+            } label: {
+                Text("edit")
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(PMColor.text)
+                    .padding(.horizontal, 14)
+                    .frame(height: 32)
+                    .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.m))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous)
+                            .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                    }
+                    .fixedSize()
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("favorites.edit")
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, PMSpace.xxxl)
+        .padding(.top, 28)
+        .padding(.bottom, 2)
     }
     #endif
 
@@ -408,7 +446,7 @@ struct FavoriteCollectionView: View {
                     ) { kindFilter = kindFilter == kind ? nil : kind }
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, horizontalInset)
         }
         .pmStopsAtVerticalBar()
     }
@@ -474,9 +512,7 @@ struct FavoriteCollectionView: View {
             .buttonStyle(.pmPressable)
             .contextMenu { menu(entry) }
         case .book(let favorite):
-            NavigationLink {
-                SpokenWordBookDetailView(bookID: favorite.book.id)
-            } label: {
+            SpokenWordBookLink(bookID: favorite.book.id) {
                 cardLabel(entry)
             }
             .buttonStyle(.pmPressable)

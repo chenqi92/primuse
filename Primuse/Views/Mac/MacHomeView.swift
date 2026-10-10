@@ -2478,7 +2478,7 @@ private struct MacHomeBooksStrip: View {
                     RoundedRectangle(cornerRadius: PMRadius.m10, style: .continuous)
                         .strokeBorder(isPlaying ? tint : .clear, lineWidth: 1.5)
                 }
-                MacHomeBookProgressBar(fraction: book.fractionComplete, tint: tint)
+                MacBookProgressBar(fraction: book.fractionComplete, tint: tint)
                 Text(verbatim: book.title)
                     .font(.system(size: 12.5, weight: .medium))
                     .foregroundStyle(PMColor.text)
@@ -2497,7 +2497,8 @@ private struct MacHomeBooksStrip: View {
     }
 }
 
-private struct MacHomeBookProgressBar: View {
+/// 书的听书进度细条。首页「在听的书」与有声书页共用。
+struct MacBookProgressBar: View {
     let fraction: Double
     let tint: Color
 

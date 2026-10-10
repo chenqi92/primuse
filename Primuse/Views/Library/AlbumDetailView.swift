@@ -663,7 +663,8 @@ struct AlbumDetailView: View {
 
     private var macToolbar: some View {
         HStack(spacing: 8) {
-            Text("songs_count")
+            // 「songs_count」是跟在数字后面的量词(中文「首歌曲」), 单独当分区标题读不通; 与歌单页同用「歌曲」。
+            Text("tab_songs")
                 .font(.system(size: 11, weight: .semibold))
                 .textCase(.uppercase)
                 .foregroundStyle(PMColor.textFaint)

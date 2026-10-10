@@ -599,6 +599,17 @@ struct MacContentView: View {
     /// 直接压栈, 交给新容器出现时取走。
     private func openSpokenWordBook(_ bookID: String?) {
         guard let bookID else { return }
+        if case .section(.spokenWord) = selection {
+            // 已经在「有声」这一栏: 不重建容器, 由它自己把栈换成这本书。重建的话请求会被
+            // 将要拆掉的旧容器先取走, 新容器里什么也没有, 停在书架上。
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                nowPlayingPresented = false
+            }
+            spokenWordBookRequest = bookID
+            return
+        }
         spokenWordBookRequest = bookID
         selectRoute(.section(.spokenWord))
     }

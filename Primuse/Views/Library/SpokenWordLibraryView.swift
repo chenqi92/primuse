@@ -242,19 +242,22 @@ struct SpokenWordLibraryView: View {
     var body: some View {
         ScrollView {
             #if os(macOS)
-            if !library.spokenWordSongs.isEmpty {
-                HStack {
-                    Spacer()
-                    MacLibraryFindField(text: $findText, prompt: "filter_spoken_word_placeholder")
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-            }
-            #endif
+            // 和电台、播客页同一种页头: 大标题一行, 查找与「首页显示哪些书」靠右。
+            // 窗口工具栏在 Mac 上是藏起来的, 放在工具栏里的按钮根本露不出来。
+            macHeader
+            SpokenWordShelf(findText: findText)
+                .padding(.horizontal, PMSpace.xxxl)
+                .padding(.top, 4)
+                .padding(.bottom, 32)
+            #else
             SpokenWordShelf(findText: findText)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
+            #endif
         }
+        #if os(macOS)
+        .background(PMColor.bg.ignoresSafeArea())
+        #endif
         // iPhone Duo 竖栏：书架铺到屏幕边缘，系统的玻璃胶囊浮在上面。
         .pmExtendsUnderVerticalBar()
         #if os(iOS)
@@ -263,7 +266,6 @@ struct SpokenWordLibraryView: View {
         .navigationTitle("tab_spoken_word")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
-        #endif
         .toolbar {
             if !library.spokenWordSongs.isEmpty {
                 ToolbarItem(placement: .primaryAction) {
@@ -276,6 +278,7 @@ struct SpokenWordLibraryView: View {
                 }
             }
         }
+        #endif
         .sheet(isPresented: $showsHomeSpotlight) {
             NavigationStack { HomeSpotlightManagementView(section: .audiobooks) }
             #if os(macOS)
@@ -292,6 +295,46 @@ struct SpokenWordLibraryView: View {
             }
         }
     }
+
+    #if os(macOS)
+    private var macHeader: some View {
+        HStack(alignment: .center, spacing: PMSpace.m) {
+            Text("tab_spoken_word")
+                .font(.system(size: 32, weight: .bold))
+                .tracking(-0.5)
+                .foregroundStyle(PMColor.text)
+                .lineLimit(1)
+                .layoutPriority(1)
+
+            Spacer(minLength: PMSpace.m)
+
+            if !library.spokenWordSongs.isEmpty {
+                MacLibraryFindField(text: $findText, prompt: "filter_spoken_word_placeholder")
+                Button {
+                    showsHomeSpotlight = true
+                } label: {
+                    Image(systemName: "house")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                        .frame(width: 32, height: 32)
+                        .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.m))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous)
+                                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                        }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(Text("home_spotlight_manage_books"))
+                .accessibilityLabel(Text("home_spotlight_manage_books"))
+                .accessibilityIdentifier("spokenWord.homeSpotlight")
+            }
+        }
+        .padding(.horizontal, PMSpace.xxxl)
+        .padding(.top, 28)
+        .padding(.bottom, 16)
+    }
+    #endif
 }
 
 /// 书架本身:在听的那本大卡、书架网格、折叠的已听完与已归档。有声页与首页的「有声」一面共用,
@@ -386,14 +429,18 @@ struct SpokenWordShelfContent: View {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
                         Text("spoken_word_shelf_section")
-                            .font(.title3.weight(.semibold))
+                            .font(sectionTitleFont)
                             .accessibilityAddTraits(.isHeader)
                             .accessibilityIdentifier("spokenWord.shelf.heading")
                         Spacer(minLength: 12)
+                        #if os(macOS)
+                        macLayoutToggle
+                        #else
                         HStack(spacing: 0) {
                             layoutButton(.bookshelf, icon: "square.grid.2x2", title: "spoken_word_shelf_section")
                             layoutButton(.list, icon: "list.bullet", title: "songs_view_list")
                         }
+                        #endif
                     }
                     // 行尾的两颗版式键不钻到 iPhone Duo 竖栏的按钮底下。
                     .pmClearOfVerticalBar()
@@ -408,7 +455,7 @@ struct SpokenWordShelfContent: View {
                     } label: {
                         HStack(spacing: 8) {
                             Text("spoken_word_finished")
-                                .font(.title3.weight(.semibold))
+                                .font(sectionTitleFont)
                             Text(verbatim: "\(finished.count)")
                                 .font(.subheadline.monospacedDigit())
                                 .foregroundStyle(.secondary)
@@ -440,7 +487,7 @@ struct SpokenWordShelfContent: View {
                     } label: {
                         HStack(spacing: 8) {
                             Text("spoken_word_archived_section")
-                                .font(.title3.weight(.semibold))
+                                .font(sectionTitleFont)
                             Text(verbatim: "\(archived.count)")
                                 .font(.subheadline.monospacedDigit())
                                 .foregroundStyle(.secondary)
@@ -467,6 +514,52 @@ struct SpokenWordShelfContent: View {
             }
         }
     }
+
+    private var sectionTitleFont: Font {
+        #if os(macOS)
+        .system(size: 17, weight: .semibold)
+        #else
+        .title3.weight(.semibold)
+        #endif
+    }
+
+    #if os(macOS)
+    /// 和电台页的版式开关同一个样子; 44pt 见方的触控尺寸在 Mac 上把这一行撑得太高。
+    private var macLayoutToggle: some View {
+        HStack(spacing: 2) {
+            macLayoutButton(.bookshelf, icon: "square.grid.2x2", title: "spoken_word_shelf_section")
+            macLayoutButton(.list, icon: "list.bullet", title: "songs_view_list")
+        }
+        .padding(2)
+        .frame(height: 32)
+        .background(PMColor.bgElev, in: .rect(cornerRadius: PMRadius.m))
+        .overlay {
+            RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous)
+                .strokeBorder(PMColor.dividerStrong, lineWidth: 0.5)
+        }
+    }
+
+    private func macLayoutButton(_ mode: SpokenWordShelfLayout, icon: String, title: LocalizedStringKey) -> some View {
+        Button {
+            layout = mode
+        } label: {
+            Image(systemName: icon)
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(layout == mode ? PMColor.text : PMColor.textMuted)
+                .frame(width: 30, height: 26)
+                .background(
+                    layout == mode ? PMColor.glassBtn : .clear,
+                    in: .rect(cornerRadius: PMRadius.xs)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(Text(title))
+        .accessibilityLabel(Text(title))
+        .accessibilityAddTraits(layout == mode ? .isSelected : [])
+        .accessibilityIdentifier("spokenWord.shelf.layout.\(mode.rawValue)")
+    }
+    #endif
 
     private func layoutButton(_ mode: SpokenWordShelfLayout, icon: String, title: LocalizedStringKey) -> some View {
         Button {
@@ -531,18 +624,12 @@ struct SpokenWordShelfContent: View {
             bookCell(entry)
                 .padding(.trailing, layout == .list ? 36 : 0)
         }
-        .overlay(alignment: layout == .bookshelf ? .topTrailing : .trailing) {
-            Menu {
-                bookMenu(entry.book, songs: entry.songs, entries: entries)
-            } label: {
-                SpokenWordBookMenuBadge()
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(Text("more"))
-            .accessibilityIdentifier("spokenWord.bookMenu." + entry.id)
-        }
+        .modifier(SpokenWordBookMenuOverlay(
+            alignment: layout == .bookshelf ? .topTrailing : .trailing,
+            bookID: entry.id
+        ) {
+            bookMenu(entry.book, songs: entry.songs, entries: entries)
+        })
         .accessibilityAction(named: Text("home_edit_move_up")) { moveBook(entry.id, by: -1, entries: entries) }
         .accessibilityAction(named: Text("home_edit_move_down")) { moveBook(entry.id, by: 1, entries: entries) }
     }
@@ -568,9 +655,7 @@ struct SpokenWordShelfContent: View {
             }
         }
         if book.items.count > 1 {
-            NavigationLink {
-                SpokenWordBookDetailView(bookID: book.id)
-            } label: {
+            SpokenWordBookLink(bookID: book.id) {
                 cell
             }
             .buttonStyle(.pmPressable)
@@ -724,6 +809,40 @@ private struct SpokenWordNowListeningCard: View {
     var body: some View {
         let isThisBook = player.currentBookID == book.id
         let isPlayingThisBook = isThisBook && player.isPlaying
+        #if os(macOS)
+        // 整行宽的大按钮在 Mac 的书架页上和窗口一样宽, 卡片比下面的书架还抢眼;
+        // 改成一条横卡: 封面与进度在左, 「继续」靠右。
+        HStack(alignment: .center, spacing: PMSpace.l24) {
+            details
+            Button {
+                if isThisBook {
+                    player.togglePlayPause()
+                } else {
+                    SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
+                }
+            } label: {
+                Label(
+                    isPlayingThisBook ? String(localized: "pause") : String(localized: "spoken_word_continue"),
+                    systemImage: isPlayingThisBook ? "pause.fill" : "play.fill"
+                )
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 18)
+                .frame(height: 32)
+                .background(tint, in: .rect(cornerRadius: PMRadius.m))
+                .fixedSize()
+            }
+            .buttonStyle(.pmPressable)
+            .pmHoverLift()
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: PMRadius.l14, style: .continuous)
+                .fill(tint.opacity(0.10))
+        )
+        .contentShape(RoundedRectangle(cornerRadius: PMRadius.l14, style: .continuous))
+        #else
         VStack(alignment: .leading, spacing: 14) {
             Text("spoken_word_now_listening_section")
                 .font(.title3.weight(.semibold))
@@ -759,15 +878,31 @@ private struct SpokenWordNowListeningCard: View {
                 .fill(tint.opacity(0.10))
         )
         .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        #endif
+    }
+
+    private var coverWidth: CGFloat {
+        #if os(macOS)
+        64
+        #else
+        90
+        #endif
     }
 
     @ViewBuilder
     private var details: some View {
         let content = HStack(alignment: .top, spacing: 14) {
-            SpokenWordBookCover(song: songs.first, width: 90, cornerRadius: 10)
+            SpokenWordBookCover(song: songs.first, width: coverWidth, cornerRadius: 10)
                 .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
 
             VStack(alignment: .leading, spacing: 5) {
+                #if os(macOS)
+                // 「在听」从卡片外的大标题收成卡里的一行小字, 卡片矮一截。
+                Text("spoken_word_now_listening_section")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .accessibilityAddTraits(.isHeader)
+                #endif
                 Text(book.title)
                     .font(.headline)
                     .foregroundStyle(.primary)
@@ -793,19 +928,18 @@ private struct SpokenWordNowListeningCard: View {
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                 }
-                ProgressView(value: book.fractionComplete)
-                    .progressViewStyle(.linear)
-                    .tint(tint)
+                SpokenWordProgressBar(value: book.fractionComplete, tint: tint)
                     .padding(.top, 2)
+                    #if os(macOS)
+                    .frame(maxWidth: 320)
+                    #endif
             }
             Spacer(minLength: 0)
         }
         .contentShape(Rectangle())
 
         if book.items.count > 1 {
-            NavigationLink {
-                SpokenWordBookDetailView(bookID: book.id)
-            } label: {
+            SpokenWordBookLink(bookID: book.id) {
                 content
             }
             .buttonStyle(.plain)
@@ -818,15 +952,56 @@ private struct SpokenWordNowListeningCard: View {
     }
 }
 
+/// 书与章节的听书进度条。Mac 上画成和首页「在听的书」一样的细条: 系统进度条在 Mac 上是一个个
+/// AppKit 控件, 几百章的书一章一个, 还不跟书架的颜色。
+struct SpokenWordProgressBar: View {
+    let value: Double
+    let tint: Color
+
+    var body: some View {
+        #if os(macOS)
+        MacBookProgressBar(fraction: value, tint: tint)
+        #else
+        ProgressView(value: value)
+            .progressViewStyle(.linear)
+            .tint(tint)
+        #endif
+    }
+}
+
+/// 点进一本书。Mac 的详情栈只认 path 里的值: 走值导航才带返回键, 侧栏与「转到这本书」也退得掉;
+/// iPhone、iPad 的各个栈没都登记这个目的地, 照旧直接给目的页。
+struct SpokenWordBookLink<Label: View>: View {
+    let bookID: String
+    @ViewBuilder var label: () -> Label
+
+    var body: some View {
+        #if os(macOS)
+        NavigationLink(value: MacSpokenWordBookDestination(bookID: bookID), label: label)
+        #else
+        NavigationLink {
+            SpokenWordBookDetailView(bookID: bookID)
+        } label: {
+            label()
+        }
+        #endif
+    }
+}
+
 /// One book's chapters (its files, in reading order) with where the listener
 /// is in each.
 struct SpokenWordBookDetailView: View {
     let bookID: String
     /// 本机下载的播客节目也用这一页:一集是一章。
     var collection: SpokenWordCollection = .books
+    /// Mac 详情栈给的返回; 没给时(播客页、收藏页里点进来)退回上一页。
+    var onMacInlineBack: (() -> Void)? = nil
 
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
+    #if os(macOS)
+    @Environment(\.dismiss) private var dismiss
+    #endif
 
     private var store: SpokenWordStore { SpokenWordStore.shared }
 
@@ -837,8 +1012,23 @@ struct SpokenWordBookDetailView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .minimalNavigationDetail()
+        #else
+        .background(PMColor.bg.ignoresSafeArea())
         #endif
     }
+
+    #if os(macOS)
+    /// Mac 的窗口工具栏是藏起来的, 没有系统返回键: 不放这一颗只能点侧栏离开。
+    private var macBackButton: some View {
+        MacNavigationBackButton(accessibilityIdentifier: "spokenWord.book.back") {
+            if let onMacInlineBack {
+                onMacInlineBack()
+            } else {
+                dismiss()
+            }
+        }
+    }
+    #endif
 
     private func detailContent(_ snapshot: SpokenWordLibrarySnapshot) -> some View {
         Group {
@@ -901,14 +1091,96 @@ struct SpokenWordBookDetailView: View {
                 ProgressView()
             } else if collection == .books, library.localPodcastBookIDs.values.contains(bookID) {
                 // 「转到这本书」从播放页、Mac 主窗口进来时只带着 id:本机下载的播客节目不在书架上。
-                SpokenWordBookDetailView(bookID: bookID, collection: .localPodcasts)
+                SpokenWordBookDetailView(bookID: bookID, collection: .localPodcasts, onMacInlineBack: onMacInlineBack)
             } else {
                 ContentUnavailableView("tab_spoken_word", systemImage: "books.vertical")
+                    #if os(macOS)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .overlay(alignment: .topTrailing) {
+                        macBackButton
+                            .padding(.top, 28)
+                            .padding(.trailing, PMSpace.xxxl)
+                    }
+                    #endif
             }
         }
     }
 
+    @ViewBuilder
     private func header(_ book: SpokenWordBook, songs: [Song]) -> some View {
+        #if os(macOS)
+        macHeader(book, songs: songs)
+        #else
+        phoneHeader(book, songs: songs)
+        #endif
+    }
+
+    #if os(macOS)
+    /// 和专辑、歌单详情页同一个排法: 封面在左, 标题、作者、进度与操作贴底排在右边, 返回在右上。
+    private func macHeader(_ book: SpokenWordBook, songs: [Song]) -> some View {
+        let tint = ListeningSpace.spokenWord.tint
+        return HStack(alignment: .bottom, spacing: PMSpace.l24) {
+            SpokenWordBookCover(song: songs.first, width: 132, cornerRadius: PMRadius.m10)
+                .shadow(color: .black.opacity(0.18), radius: 12, y: 6)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("tab_spoken_word")
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(0.8)
+                    .textCase(.uppercase)
+                    .foregroundStyle(PMColor.textMuted)
+                Text(book.title)
+                    .font(.system(size: 28, weight: .bold))
+                    .tracking(-0.4)
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(2)
+                if let author = book.author {
+                    Text(author)
+                        .font(.system(size: 13))
+                        .foregroundStyle(PMColor.textMuted)
+                        .lineLimit(1)
+                }
+                Text(SpokenWordBookSupport.summary(book))
+                    .font(.system(size: 12).monospacedDigit())
+                    .foregroundStyle(PMColor.textFaint)
+                if book.lastListenedAt != nil {
+                    SpokenWordProgressBar(value: book.fractionComplete, tint: tint)
+                        .frame(maxWidth: 320)
+                }
+                HStack(spacing: 8) {
+                    Button {
+                        SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
+                    } label: {
+                        Label(
+                            book.canContinue
+                                ? String(localized: "spoken_word_continue")
+                                : String(localized: "spoken_word_start"),
+                            systemImage: "play.fill"
+                        )
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18)
+                        .frame(height: 32)
+                        .background(tint, in: .rect(cornerRadius: PMRadius.m))
+                        .fixedSize()
+                    }
+                    .buttonStyle(.pmPressable)
+                    .pmHoverLift()
+
+                    SpokenWordBookSpeedMenu(bookID: book.id)
+                }
+                .padding(.top, 6)
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .topTrailing) { macBackButton }
+        .padding(.top, 12)
+        .padding(.bottom, 8)
+    }
+    #endif
+
+    private func phoneHeader(_ book: SpokenWordBook, songs: [Song]) -> some View {
         HStack(alignment: .top, spacing: 16) {
             SpokenWordBookCover(song: songs.first, width: 96, cornerRadius: 10)
             VStack(alignment: .leading, spacing: 6) {
@@ -982,8 +1254,7 @@ private struct SpokenWordBookListRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 if book.isInProgress {
-                    ProgressView(value: book.fractionComplete)
-                        .tint(tint)
+                    SpokenWordProgressBar(value: book.fractionComplete, tint: tint)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1005,6 +1276,44 @@ private struct SpokenWordBookListRow: View {
         .padding(.vertical, 10)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// 书右上角(列表里是行尾)的「⋯」菜单。iPhone、iPad 上常驻; Mac 上和专辑网格一样不在每张封面上
+/// 常驻一颗按钮, 指针停在这本书上才出现, 同一份菜单也挂成右键菜单。
+private struct SpokenWordBookMenuOverlay<MenuItems: View>: ViewModifier {
+    let alignment: Alignment
+    let bookID: String
+    @ViewBuilder var menuItems: () -> MenuItems
+    #if os(macOS)
+    @State private var isHovered = false
+    #endif
+
+    func body(content: Content) -> some View {
+        #if os(macOS)
+        content
+            .overlay(alignment: alignment) {
+                if isHovered { badge }
+            }
+            .onHover { isHovered = $0 }
+            .contextMenu { menuItems() }
+        #else
+        content
+            .overlay(alignment: alignment) { badge }
+        #endif
+    }
+
+    private var badge: some View {
+        Menu {
+            menuItems()
+        } label: {
+            SpokenWordBookMenuBadge()
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("more"))
+        .accessibilityIdentifier("spokenWord.bookMenu." + bookID)
     }
 }
 
@@ -1084,9 +1393,7 @@ private struct SpokenWordBookCoverCell: View {
 
             // Always laid out so covers line up whether a book is started or
             // not; only drawn once there is progress to show.
-            ProgressView(value: book.fractionComplete)
-                .progressViewStyle(.linear)
-                .tint(tint)
+            SpokenWordProgressBar(value: book.fractionComplete, tint: tint)
                 .opacity(book.lastListenedAt != nil && !book.isFinished ? 1 : 0)
                 .accessibilityHidden(book.lastListenedAt == nil || book.isFinished)
 
@@ -1182,23 +1489,33 @@ struct SpokenWordChapterList<Header: View, Row: View>: View {
     @State private var position = ScrollPosition(idType: String.self)
     @State private var scroll = SpokenWordChapterScrollState()
 
+    /// 左右留白。Mac 与资料库其他页对齐到 36。
+    private var inset: CGFloat {
+        #if os(macOS)
+        PMSpace.xxxl
+        #else
+        16
+        #endif
+    }
+
     var body: some View {
         let showsScrubber = SpokenWordChapterScrubber.isShown(chapterCount: items.count)
         ScrollView {
             LazyVStack(spacing: 0) {
                 header()
-                    .padding(16)
+                    .padding(.horizontal, inset)
+                    .padding(.vertical, 16)
                     .padding(.trailing, showsScrubber ? 28 : 0)
                     // 铺到 iPhone Duo 竖栏底下时，带着「继续」与语速的头部照旧让开竖栏。
                     .pmClearOfVerticalBar()
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                     row(index, item)
                         .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                        .padding(.leading, 16)
-                        .padding(.trailing, showsScrubber ? SpokenWordChapterScrubber.reservedWidth : 16)
+                        .padding(.leading, inset)
+                        .padding(.trailing, showsScrubber ? SpokenWordChapterScrubber.reservedWidth : inset)
                         .overlay(alignment: .bottom) {
-                            Divider().padding(.leading, 56)
-                                .padding(.trailing, showsScrubber ? SpokenWordChapterScrubber.reservedWidth : 16)
+                            Divider().padding(.leading, inset + 40)
+                                .padding(.trailing, showsScrubber ? SpokenWordChapterScrubber.reservedWidth : inset)
                         }
                         // 有快速拖动条时它停在竖栏左侧，行尾连竖栏那一条一起让开。
                         .pmClearOfVerticalBar(showsScrubber)
@@ -1455,9 +1772,7 @@ struct SpokenWordChapterItemRow: View {
                         .foregroundStyle(ListeningSpace.spokenWord.tint)
                 }
                 if item.isInProgress {
-                    ProgressView(value: item.fractionComplete)
-                        .progressViewStyle(.linear)
-                        .tint(ListeningSpace.spokenWord.tint)
+                    SpokenWordProgressBar(value: item.fractionComplete, tint: ListeningSpace.spokenWord.tint)
                         .frame(maxWidth: 200)
                 }
             }
@@ -1520,10 +1835,31 @@ private struct SpokenWordBookSpeedMenu: View {
                 }
             }
         } label: {
+            #if os(macOS)
+            Label(SpokenWordPlaybackRatePolicy.label(for: rate), systemImage: "gauge.with.dots.needle.67percent")
+                .font(.system(size: 12.5, weight: .semibold).monospacedDigit())
+                .foregroundStyle(PMColor.text)
+                .padding(.horizontal, 12)
+                .frame(height: 32)
+                .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.m))
+                .overlay {
+                    RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous)
+                        .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                }
+            #else
             Label(SpokenWordPlaybackRatePolicy.label(for: rate), systemImage: "gauge.with.dots.needle.67percent")
                 .font(.subheadline.weight(.semibold).monospacedDigit())
+            #endif
         }
+        #if os(macOS)
+        // 与旁边「继续」同高的一颗按钮, 不是系统的弹出菜单外观。
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        #else
         .buttonStyle(.bordered)
+        #endif
         .accessibilityLabel(Text("spoken_word_book_speed"))
         .accessibilityValue(Text(verbatim: SpokenWordPlaybackRatePolicy.label(for: rate)))
     }

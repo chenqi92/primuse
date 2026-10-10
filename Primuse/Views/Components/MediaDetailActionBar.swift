@@ -609,16 +609,27 @@ struct LibraryDetailActionButton: View {
         #if os(iOS)
         if let tint { return AnyShapeStyle(emphasized ? tint.bottom : .white) }
         #endif
+        #if os(macOS)
+        // Mac 上 `Color.accentColor` 是系统强调色(多半是蓝色), 不跟应用的主色走;
+        // 和 Mac 页头里的「播放」一样用品牌色实底、白字。
+        if emphasized { return AnyShapeStyle(Color.white) }
+        return AnyShapeStyle(onArtwork ? Color.white : PMColor.brand)
+        #else
         // 主按钮压在主题色实底上，主题色太浅（「白色」主题在深色外观下）时字换成黑色。
         if emphasized { return AnyShapeStyle(.textOnAccent) }
         return AnyShapeStyle(onArtwork ? Color.white : Color.accentColor)
+        #endif
     }
 
     private var fillColor: Color {
         #if os(iOS)
         if tint != nil { return emphasized ? .white : .white.opacity(0.16) }
         #endif
+        #if os(macOS)
+        return emphasized ? PMColor.brand : (onArtwork ? .white.opacity(0.18) : PMColor.brand.opacity(0.12))
+        #else
         return emphasized ? .accentColor : (onArtwork ? .white.opacity(0.18) : .accentColor.opacity(0.12))
+        #endif
     }
 
     var body: some View {
