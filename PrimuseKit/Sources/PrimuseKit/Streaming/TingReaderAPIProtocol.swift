@@ -104,6 +104,12 @@ public enum TingReaderAPIProtocol {
         return TrackReference(bookID: bookID, chapterID: chapterID, fileExtension: fileExtension)
     }
 
+    /// 一章在歌曲路径末段里的样子(`ServerPlaylistIdentity.serverItemID(fromFilePath:)` 读出来的就是它),
+    /// 书单镜像按它把章节对回本机的歌。
+    public static func serverItemID(chapterID: String) -> String {
+        encodedPathComponent(chapterID)
+    }
+
     /// 服务器上一章的路径(本地路径、WebDAV 路径或 RSS 里的音频地址)对应的音频后缀。
     /// `.strm` 只是一张指向别处的便条,真正的格式要播放时才知道;Primuse 自己也认 `.strm`,
     /// 留着它会被当成便条去解析,所以和认不出的后缀一样记成 `bin`。

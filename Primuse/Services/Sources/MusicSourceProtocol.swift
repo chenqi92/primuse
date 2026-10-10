@@ -1980,8 +1980,8 @@ struct ServerListeningProgress: Sendable, Equatable {
     let updatedAt: Date
 }
 
-/// 服务端自己记着每本书 / 每一集收听进度的源(Audiobookshelf)。进度在服务端是整本书的时间轴,
-/// 连接器负责和本机按文件记的位置互相换算。
+/// 服务端自己记着每本书 / 每一集收听进度的源(Audiobookshelf、Ting Reader)。Audiobookshelf 的进度是整本书的
+/// 时间轴,连接器负责和本机按文件记的位置互相换算;Ting Reader 按章记,一一对应。
 protocol ServerListeningProgressConnector: MusicSourceConnector {
     /// 服务端记的进度,只回 `songPaths` 里有的条目。
     func fetchServerListeningProgress(for songPaths: [String]) async throws -> [ServerListeningProgress]
@@ -2419,6 +2419,14 @@ protocol ServerCollectionFavoriteConnector: MusicSourceConnector {
     func fetchServerCollectionFavorites() async throws -> [ServerCollectionFavorite]
     func serverCollectionMembership(songItemID: String) async throws -> ServerCollectionMembership
     func setServerCollectionFavorite(kind: LibraryFavoriteKind, itemID: String, isFavorite: Bool) async throws
+}
+
+/// 服务端按书收藏的有声书源(Ting Reader)。和书架上的收藏双向对账,见 `ServerBookFavoriteSyncService`。
+protocol ServerBookFavoriteConnector: MusicSourceConnector {
+    /// 服务端收藏着的书(服务端书 id)。
+    func fetchServerBookFavorites() async throws -> Set<String>
+    /// 两个方向都要幂等:已经是这个状态时照样算成功。
+    func setServerBookFavorite(bookID: String, isFavorite: Bool) async throws
 }
 
 /// Nil represents a cleared rating; missing songs and malformed responses throw.

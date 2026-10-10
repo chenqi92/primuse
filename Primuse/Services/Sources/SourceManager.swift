@@ -2610,11 +2610,46 @@ private struct RoutedAudiobookshelfConnector: RoutedConnectorProxy, RefreshingMe
 }
 
 private struct RoutedTingReaderConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
-    ServerLibraryListingConnector, ServerCatalogChangeDetectingConnector, ServerListeningProgressConnector {
+    ServerLibraryListingConnector, ServerCatalogChangeDetectingConnector, ServerListeningProgressConnector,
+    ServerPlaylistConnector, ServerBookFavoriteConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
     let routedPreferredDeleteBatchSize: Int
+
+    func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
+        try await fetchServerPlaylists(progress: { _ in })
+    }
+
+    /// 换线路重读时同一个书单会再交出一次, 镜像按内容覆盖, 重复无害。
+    func fetchServerPlaylists(
+        progress: @escaping ServerPlaylistProgress
+    ) async throws -> ServerPlaylistSnapshot {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerPlaylistConnector else {
+                throw SourceError.connectionFailed("Server playlist connector unavailable")
+            }
+            return try await provider.fetchServerPlaylists(progress: progress)
+        }
+    }
+
+    func fetchServerBookFavorites() async throws -> Set<String> {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerBookFavoriteConnector else {
+                throw SourceError.connectionFailed("Server book favorites unavailable")
+            }
+            return try await provider.fetchServerBookFavorites()
+        }
+    }
+
+    func setServerBookFavorite(bookID: String, isFavorite: Bool) async throws {
+        try await routing.withMutation { connector in
+            guard let provider = connector as? any ServerBookFavoriteConnector else {
+                throw SourceError.connectionFailed("Server book favorites unavailable")
+            }
+            try await provider.setServerBookFavorite(bookID: bookID, isFavorite: isFavorite)
+        }
+    }
 
     func fetchServerListeningProgress(for songPaths: [String]) async throws -> [ServerListeningProgress] {
         try await routing.withRead { connector in
@@ -13678,6 +13713,11 @@ final class SourceManager {
         throw SourceError.connectionFailed(
             String(localized: "stats_server_error_connector_unavailable")
         )
+    }
+
+    /// 按书收藏的连接器(Ting Reader)；源不支持时为 nil。
+    func serverBookFavoriteConnector(for source: MusicSource) -> (any ServerBookFavoriteConnector)? {
+        connector(for: source) as? any ServerBookFavoriteConnector
     }
 
     /// 专辑 / 艺人收藏的连接器；源不支持时为 nil。

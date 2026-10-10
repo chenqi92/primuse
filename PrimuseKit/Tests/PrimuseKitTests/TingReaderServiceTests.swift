@@ -198,6 +198,27 @@ struct TingReaderServiceTests {
         #expect(statsRequest.value(forHTTPHeaderField: "Authorization") == nil)
     }
 
+    @Test("Booklists and favorites read and write the account's own lists")
+    func clientPlaylistsAndFavorites() async throws {
+        let fixture = TingReaderFixture()
+        let client = fixture.client()
+        let playlists = try await client.playlists()
+        #expect(playlists == [
+            TingReaderPlaylist(id: "pl-1", title: "通勤", bookIDs: ["book-1", "book-2"]),
+            TingReaderPlaylist(id: "pl-2", title: "", bookIDs: ["book-3"]),
+        ])
+        #expect(try await client.favoriteBookIDs() == ["book-1"])
+        try await client.setFavorite(bookID: "book-1", isFavorite: false)
+        try await client.setFavorite(bookID: "book 2", isFavorite: true)
+        let writes = await fixture.requests.filter { $0.url?.path.hasPrefix("/ting/api/favorites/") == true }
+        #expect(writes.map { $0.httpMethod ?? "" } == ["DELETE", "POST"])
+        #expect(writes.last?.url?.absoluteString == "http://nas.example.com:3000/ting/api/favorites/book%202")
+
+        // 书单镜像按章节 id 对回本机的歌:和歌曲路径末段读出来的一致。
+        let path = TingReaderAPIProtocol.trackPath(bookID: "book-1", chapterID: "ch 1", fileExtension: "mp3")
+        #expect(ServerPlaylistIdentity.serverItemID(fromFilePath: path) == TingReaderAPIProtocol.serverItemID(chapterID: "ch 1"))
+    }
+
     @Test("Missing or rejected credentials surface as sign-in errors")
     func credentialErrors() async {
         let missing = TingReaderServiceClient(
@@ -302,6 +323,16 @@ private actor TingReaderFixture {
             return (Data([0xFF, 0xD8]), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [
                 "Content-Type": "image/jpeg",
             ])!)
+        case "/api/playlists":
+            return response(url, json: #"""
+            [{"id":"pl-1","title":"通勤","book_ids":["book-1","book-2","book-1"],"books":[],"items":[]},
+             {"id":"pl-2","title":null,"books":[{"id":"book-3"}],"items":[]},
+             {"title":"broken"}]
+            """#)
+        case "/api/favorites":
+            return response(url, json: "[\(TingReaderServiceTests.bookJSON)]")
+        case "/api/favorites/book-1", "/api/favorites/book 2":
+            return response(url, status: request.httpMethod == "POST" ? 201 : 200, json: #"{"message":"ok"}"#)
         case "/api/progress":
             return response(url, json: #"{"id":"p1","book_id":"book-1","chapter_id":"ch-1","position":42.5}"#)
         default:

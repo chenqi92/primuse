@@ -415,3 +415,70 @@ extension TingReaderSource: ServerListeningProgressConnector {
         )
     }
 }
+
+extension TingReaderSource: ServerPlaylistConnector {
+    func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
+        try await fetchServerPlaylists(progress: { _ in })
+    }
+
+    /// 书单展开成里面每本书的全部章节,按书单顺序、书内按章节顺序。镜像是只读的,以服务端为准。
+    /// 某本书的章节取不到时这份书单算没读全,保留已有镜像。
+    func fetchServerPlaylists(progress: @escaping ServerPlaylistProgress) async throws -> ServerPlaylistSnapshot {
+        try await connect()
+        let playlists = try await client.playlists()
+        let now = Date()
+        var chaptersByBook: [String: [TingReaderChapter]] = [:]
+        for (bookID, snapshot) in chapterSnapshots
+        where now.timeIntervalSince(snapshot.fetchedAt) < Self.chapterSnapshotLifetime {
+            chaptersByBook[bookID] = snapshot.chapters
+        }
+        var mirrors: [ServerPlaylist] = []
+        var failed: Set<String> = []
+        for playlist in playlists {
+            try Task.checkCancellation()
+            do {
+                var trackIDs: [String] = []
+                for bookID in playlist.bookIDs {
+                    let chapters: [TingReaderChapter]
+                    if let cached = chaptersByBook[bookID] {
+                        chapters = cached
+                    } else {
+                        do {
+                            chapters = try await client.chapters(bookID: bookID)
+                        } catch TingReaderServiceError.badServerResponse(404) {
+                            chapters = []
+                        }
+                        chaptersByBook[bookID] = chapters
+                    }
+                    trackIDs += chapters.map { TingReaderAPIProtocol.serverItemID(chapterID: $0.id) }
+                }
+                let mirror = ServerPlaylist(
+                    id: playlist.id,
+                    name: playlist.title,
+                    trackIDs: trackIDs,
+                    reportedTrackCount: trackIDs.count
+                )
+                mirrors.append(mirror)
+                await progress(mirror)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                plog("📚 tingreader: booklist \(LogRedactionPolicy.digest(playlist.id)) skipped: \(error.localizedDescription)")
+                failed.insert(playlist.id)
+            }
+        }
+        return ServerPlaylistSnapshot(playlists: mirrors, failedPlaylistIDs: failed)
+    }
+}
+
+extension TingReaderSource: ServerBookFavoriteConnector {
+    func fetchServerBookFavorites() async throws -> Set<String> {
+        try await connect()
+        return Set(try await client.favoriteBookIDs())
+    }
+
+    func setServerBookFavorite(bookID: String, isFavorite: Bool) async throws {
+        try await connect()
+        try await client.setFavorite(bookID: bookID, isFavorite: isFavorite)
+    }
+}

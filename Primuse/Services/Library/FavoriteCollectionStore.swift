@@ -16,6 +16,9 @@ final class FavoriteCollectionStore {
     /// 改成「收藏」那一版的一次性迁移（见 `migrateIfNeeded`）。
     static let migrationKey = "primuse.library.favoriteCollection.migrated.v1"
 
+    /// 收藏的有声书变了（收藏、取消、在编辑页删掉）。服务端对账自己带进来的改动不发。
+    static let collectedBooksDidChange = Notification.Name("primuse.favoriteCollection.collectedBooksDidChange")
+
     /// 专辑、艺人、目录的成员资格，按资料库与两本账的版本记住。合一次要把整库专辑过一遍，
     /// 而资料库页、首页、收藏页在一次刷新里都会来要。
     private struct Membership {
@@ -88,7 +91,32 @@ final class FavoriteCollectionStore {
     private func store(_ pins: [QuickAccessPinReference]) {
         let encoded = LibraryPinStorage.encode(pins)
         guard encoded != storedRawValue else { return }
+        let previousBooks = collectedBookIDs
         defaults.set(encoded, forKey: LibraryPinStorage.defaultsKey)
+        if !isApplyingServerBookChanges, collectedBookIDs != previousBooks {
+            NotificationCenter.default.post(name: Self.collectedBooksDidChange, object: nil)
+        }
+    }
+
+    private var isApplyingServerBookChanges = false
+
+    /// 收藏着的有声书（书架上的书 id）。
+    var collectedBookIDs: Set<String> {
+        Set(storedPins.lazy.filter { $0.kind == .book }.map(\.itemID))
+    }
+
+    /// 服务端收藏对账带回来的改动：照常排进收藏，但不再发改动通知（免得又推回服务端）。
+    func applyServerBookChanges(collect: [String], uncollect: [String], library: MusicLibrary) {
+        guard !collect.isEmpty || !uncollect.isEmpty else { return }
+        isApplyingServerBookChanges = true
+        defer { isApplyingServerBookChanges = false }
+        if !collect.isEmpty {
+            moveToFront(collect.map { QuickAccessPinReference(kind: .book, itemID: $0) }, library: library)
+        }
+        if !uncollect.isEmpty {
+            let removed = Set(uncollect)
+            store(storedPins.filter { $0.kind != .book || !removed.contains($0.itemID) })
+        }
     }
 
     private var folderRawValue: String {

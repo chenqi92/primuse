@@ -267,6 +267,30 @@ public struct TingReaderCatalogBook: Sendable, Equatable {
     }
 }
 
+/// 一份书单。服务端已经按书单顺序把书展开好了(系列会展开成系列里的书)。
+public struct TingReaderPlaylist: Sendable, Equatable {
+    public let id: String
+    public let title: String
+    public let bookIDs: [String]
+
+    public init(id: String, title: String, bookIDs: [String]) {
+        self.id = id
+        self.title = title
+        self.bookIDs = bookIDs
+    }
+
+    public init?(json: [String: Any]) {
+        guard let id = trString(json["id"]) else { return nil }
+        self.id = id
+        self.title = trString(json["title"]) ?? ""
+        var seen = Set<String>()
+        let ids = (json["book_ids"] as? [Any])?.compactMap { trString($0) }
+            ?? (json["books"] as? [[String: Any]])?.compactMap { trString($0["id"]) }
+            ?? []
+        self.bookIDs = ids.filter { seen.insert($0).inserted }
+    }
+}
+
 /// 公开的 `/api/stats`:全服务器的书数、章节数、总时长与最近一次扫描时间。
 /// 不分账号,只拿来判断服务器上的内容有没有变。
 public struct TingReaderCatalogStats: Sendable, Equatable {
@@ -465,6 +489,29 @@ public actor TingReaderServiceClient {
             throw TingReaderServiceError.invalidResponse(PMString("error.catalog.responseNotJSON"))
         }
         return stats
+    }
+
+    // MARK: Playlists and favorites
+
+    /// 当前账号的书单。
+    public func playlists() async throws -> [TingReaderPlaylist] {
+        try Self.list(try await authorizedJSON(path: "/api/playlists"), key: "playlists")
+            .compactMap(TingReaderPlaylist.init(json:))
+    }
+
+    /// 当前账号收藏的书。服务端只回还在的书。
+    public func favoriteBookIDs() async throws -> [String] {
+        try Self.list(try await authorizedJSON(path: "/api/favorites"), key: "books")
+            .compactMap { trString($0["id"]) }
+    }
+
+    /// 收藏或取消收藏一本书。两个方向在服务端都是幂等的:已经收藏再收藏回 200,取消没收藏的也不报错。
+    public func setFavorite(bookID: String, isFavorite: Bool) async throws {
+        _ = try await authorizedJSON(
+            path: "/api/favorites/\(TingReaderAPIProtocol.encodedPathComponent(bookID))",
+            method: isFavorite ? "POST" : "DELETE",
+            allowsEmptyBody: true
+        )
     }
 
     // MARK: Media

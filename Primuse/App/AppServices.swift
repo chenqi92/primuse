@@ -948,6 +948,7 @@ final class AppServices {
     let serverFavoriteSync: ServerFavoriteSyncService
     /// 专辑 / 艺人的「喜欢」与服务端收藏对账。
     let serverCollectionFavoriteSync: ServerCollectionFavoriteSyncService
+    let serverBookFavoriteSync: ServerBookFavoriteSyncService
     let serverRatingSync: ServerRatingSyncService
     let serverListeningStats: ServerListeningStatsService
     let musicIntelligence: MusicIntelligenceService
@@ -1101,6 +1102,11 @@ final class AppServices {
                 )
             }
         )
+        let bookFavoriteSync = ServerBookFavoriteSyncService(
+            sourcesProvider: { [weak store] in store?.sources ?? [] },
+            connectorProvider: { [weak manager] source in manager?.serverBookFavoriteConnector(for: source) },
+            library: library
+        )
         let sync = CloudKitSyncService(
             library: library,
             sourcesStore: store,
@@ -1121,6 +1127,7 @@ final class AppServices {
         self.cloudSync = sync
         self.serverFavoriteSync = favoriteSync
         self.serverCollectionFavoriteSync = collectionFavoriteSync
+        self.serverBookFavoriteSync = bookFavoriteSync
         self.serverRatingSync = ratingSync
         self.serverListeningStats = ServerListeningStatsService(sourceManager: manager)
         let theme = ThemeService()
@@ -1245,10 +1252,12 @@ final class AppServices {
                 applyFence: applyFence
             )
         }
-        scanService.serverFavoriteSyncHandler = { [weak favoriteSync, weak ratingSync, weak manager, weak collectionFavoriteSync, weak library] source, applyFence in
+        scanService.serverFavoriteSyncHandler = { [weak favoriteSync, weak ratingSync, weak manager, weak collectionFavoriteSync, weak bookFavoriteSync, weak library] source, applyFence in
             await favoriteSync?.refresh(source: source, applyFence: applyFence)
             guard applyFence() else { return }
             await collectionFavoriteSync?.refresh(source: source, applyFence: applyFence)
+            guard applyFence() else { return }
+            await bookFavoriteSync?.refresh(source: source, applyFence: applyFence)
             guard applyFence() else { return }
             // 走查顺带读到的服务端评分:别的客户端改过的写回本机(#172)。
             if let ratings = await manager?.takeObservedServerRatings(for: source), applyFence() {
@@ -1330,7 +1339,8 @@ final class AppServices {
             library: library,
             scanService: scanService,
             refreshMirrors: {
-                [weak manager, weak library, weak favoriteSync, weak ratingSync, weak radioStore, weak collectionFavoriteSync]
+                [weak manager, weak library, weak favoriteSync, weak ratingSync, weak radioStore, weak collectionFavoriteSync,
+                 weak bookFavoriteSync]
                 source,
                 applyFence in
                 guard let manager, let library else { return }
@@ -1344,6 +1354,8 @@ final class AppServices {
                 await favoriteSync?.refresh(source: source, applyFence: applyFence)
                 guard applyFence() else { return }
                 await collectionFavoriteSync?.refresh(source: source, applyFence: applyFence)
+                guard applyFence() else { return }
+                await bookFavoriteSync?.refresh(source: source, applyFence: applyFence)
                 guard applyFence() else { return }
                 ratingSync?.resume(sourceID: source.id)
                 guard let radioStore, applyFence() else { return }

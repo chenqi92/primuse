@@ -470,10 +470,13 @@
 		3F874CF4B1939FAE36328711 /* ISOBaseMediaChapterParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CCA8EE372D7ED88D64B8C3D /* ISOBaseMediaChapterParser.swift */; };
 		6AD377F652C05C73879CAEC2 /* TingReaderSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 656E0BFCACE046D38A1A1738 /* TingReaderSource.swift */; };
 		7D2328E731EA15C05F447E49 /* TingReaderAPIProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A04BC9A9E1ED420EC21D43E3 /* TingReaderAPIProtocol.swift */; };
+		8B710E3071388FDD8434034B /* ServerBookFavoriteSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71030B609E6B406615DDB4F /* ServerBookFavoriteSyncService.swift */; };
 		9E55FF68358B787BD6214D0C /* AudioPlayerNodeClockReader.m in Sources */ = {isa = PBXBuildFile; fileRef = A70B0C9499688D7F88F09DFA /* AudioPlayerNodeClockReader.m */; };
 		B51157CAAD473AB1B870829D /* TingReaderSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 656E0BFCACE046D38A1A1738 /* TingReaderSource.swift */; };
 		B53EEE559CBCD42168951481 /* TingReaderServiceClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2129A566F4B5BDA731416B1 /* TingReaderServiceClient.swift */; };
 		C44AE0F45CDFF6C7DA8C7B34 /* TingReaderStreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5400797E01BDAA73A61EE612 /* TingReaderStreamResolver.swift */; };
+		CE80B3E9C04A337BDDA05A99 /* ServerBookFavoriteSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71030B609E6B406615DDB4F /* ServerBookFavoriteSyncService.swift */; };
+		EBA60B33D30CAC4EC3835C71 /* TingReaderFavoriteReconciliation.swift in Sources */ = {isa = PBXBuildFile; fileRef = E95C18AFF99A705EF45EE054 /* TingReaderFavoriteReconciliation.swift */; };
 		EF77117AFEAEFA49BE4FC1E1 /* AudioStreamHeaderParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFAD67B703AE06367E4A03E /* AudioStreamHeaderParser.swift */; };
 		3FA29387B872BEEFC094AA3C /* TVAppleMusicCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1347C26A3613D074A7DEF71 /* TVAppleMusicCatalog.swift */; };
 		3FD470459B0416DB4CD1D75E /* RevealableSecureField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23CA6DF05BAC0E0F38218C88 /* RevealableSecureField.swift */; };
@@ -2195,7 +2198,9 @@
 		5400797E01BDAA73A61EE612 /* TingReaderStreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TingReaderStreamResolver.swift; sourceTree = "<group>"; };
 		656E0BFCACE046D38A1A1738 /* TingReaderSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TingReaderSource.swift; sourceTree = "<group>"; };
 		A04BC9A9E1ED420EC21D43E3 /* TingReaderAPIProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TingReaderAPIProtocol.swift; sourceTree = "<group>"; };
+		C71030B609E6B406615DDB4F /* ServerBookFavoriteSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerBookFavoriteSyncService.swift; sourceTree = "<group>"; };
 		D2129A566F4B5BDA731416B1 /* TingReaderServiceClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TingReaderServiceClient.swift; sourceTree = "<group>"; };
+		E95C18AFF99A705EF45EE054 /* TingReaderFavoriteReconciliation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TingReaderFavoriteReconciliation.swift; sourceTree = "<group>"; };
 		FDFAD67B703AE06367E4A03E /* AudioStreamHeaderParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioStreamHeaderParser.swift; sourceTree = "<group>"; };
 		0CF62AF729BC2E51A4C424EA /* es-MX */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "es-MX"; path = "es-MX.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		0D041D8BEB3E75D3D4A605E4 /* AppDistributionChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDistributionChannel.swift; sourceTree = "<group>"; };
@@ -4406,6 +4411,7 @@
 				745C7ABC724D3B77BB846B33 /* PlaylistEntryMatcher.swift */,
 				285C1472009479A6CC7B2177 /* PlaylistExporter.swift */,
 				6E7EDECE3E00B23E95AC7D4B /* PlaylistImporter.swift */,
+				C71030B609E6B406615DDB4F /* ServerBookFavoriteSyncService.swift */,
 				535157A3C8E0F7D23DAD2B3D /* ServerCollectionFavoriteSyncService.swift */,
 				DFB1AA3E13884E8F217902DD /* ServerPlaylistSyncService.swift */,
 				1BF3FCADF9ED4848533CF280 /* ServerRatingSyncService.swift */,
@@ -5444,6 +5450,7 @@
 				3C221E974A2E6E831F7EAF27 /* SynologyStreamResolver.swift */,
 				E1F7BC83F45C23C5FEECE7C3 /* TianyiCloudAPIProtocol.swift */,
 				A04BC9A9E1ED420EC21D43E3 /* TingReaderAPIProtocol.swift */,
+				E95C18AFF99A705EF45EE054 /* TingReaderFavoriteReconciliation.swift */,
 				D2129A566F4B5BDA731416B1 /* TingReaderServiceClient.swift */,
 				5400797E01BDAA73A61EE612 /* TingReaderStreamResolver.swift */,
 				7C7AA7CCA81AD3F717DE3423 /* TVSnapshotRowSelection.swift */,
@@ -6494,6 +6501,7 @@
 				D4BA7D2927A0037D9895C527 /* SynologyQuickConnectResolver.swift in Sources */,
 				548B2F51A1FD55FC79DE5C9B /* SynologyStreamResolver.swift in Sources */,
 				7D2328E731EA15C05F447E49 /* TingReaderAPIProtocol.swift in Sources */,
+				EBA60B33D30CAC4EC3835C71 /* TingReaderFavoriteReconciliation.swift in Sources */,
 				B53EEE559CBCD42168951481 /* TingReaderServiceClient.swift in Sources */,
 				C44AE0F45CDFF6C7DA8C7B34 /* TingReaderStreamResolver.swift in Sources */,
 				A9A22A7CE17A2FBAD9AB445C /* TVHomeSectionConfiguration.swift in Sources */,
@@ -6878,6 +6886,7 @@
 				7A3273F295FFDDCC05C65206 /* PMHeightClass.swift in Sources */,
 				C29C30F584C1E5C9F4158F4C /* PMLayoutChangeFade.swift in Sources */,
 				DAA94A7E4E994B6DF5DE2460 /* PMMenuLayout.swift in Sources */,
+				8B710E3071388FDD8434034B /* ServerBookFavoriteSyncService.swift in Sources */,
 				8225862C45E8C3B5CB109CDB /* SongPlaybackRangeEditor.swift in Sources */,
 				469B765AB0F7DD2B9A045EC2 /* PMMotion.swift in Sources */,
 				3043FF24779407E29FC86609 /* PMPlaybackVolumeControl.swift in Sources */,
@@ -7589,6 +7598,7 @@
 				75B8FDAEDD57548B9A9EBA8F /* PMHeightClass.swift in Sources */,
 				FAF140A3DF3A94839742166A /* PMLayoutChangeFade.swift in Sources */,
 				85596F93306BD339283AB936 /* PMMenuLayout.swift in Sources */,
+				CE80B3E9C04A337BDDA05A99 /* ServerBookFavoriteSyncService.swift in Sources */,
 				792D6C36B5C9390ECB9A43F6 /* SongPlaybackRangeEditor.swift in Sources */,
 				3D3465A697969C95DA2DA42B /* PMMotion.swift in Sources */,
 				E69C14A8F61B6822F6426908 /* PMPlaybackVolumeControl.swift in Sources */,
