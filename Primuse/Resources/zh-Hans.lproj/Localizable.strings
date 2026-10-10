@@ -1821,6 +1821,9 @@
 "fullscreen_effect_firefly_sync" = "萤火同步";
 "fullscreen_effect_firefly_sync_subtitle" = "夜里草地上的萤火虫随节拍慢慢对齐，最后整片一齐闪亮";
 "fullscreen_effect_firefly_sync_motion" = "实时频谱驱动 · 节拍越稳越同步";
+"fullscreen_effect_fly_brain" = "果蝇听歌";
+"fullscreen_effect_fly_brain_subtitle" = "真实果蝇大脑的听觉通路化作缓缓转动的全息投影，声音沿真实接线一级级点亮";
+"fullscreen_effect_fly_brain_motion" = "实时频谱驱动 · 真实神经接线，活动为模拟";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "图言吐语";
 "immersive_demo_album" = "soundisle";
@@ -2233,6 +2236,7 @@
 "Data structures" = "数据结构";
 "Credential storage" = "凭据存储";
 "Logging" = "日志";
+"Fruit fly hearing circuit in the Fly Brain effect" = "「果蝇听歌」效果里的果蝇听觉通路";
 "Diagnostics" = "诊断";
 "MetricKit + crash logs" = "MetricKit + 崩溃日志";
 "Export Logs" = "导出日志";

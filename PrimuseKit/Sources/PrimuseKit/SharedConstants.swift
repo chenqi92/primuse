@@ -8575,7 +8575,7 @@ public enum ImmersivePresentationFallbackPolicy {
         let supported = [
             "native", "coverGallery", "flowingLines", "radialPulse",
             "vinylDeck", "auroraVeil", "spectrumHorizon", "particleBloom",
-            "albumFlow", "chladniPlate", "fireflySync",
+            "albumFlow", "chladniPlate", "fireflySync", "flyBrain",
         ]
         if supported.contains(selectedRawValue) {
             return selectedRawValue

@@ -620,6 +620,9 @@ struct MacImmersivePlayerView: View {
         case .fireflySync:
             // 文字在左上，右下角是一片空着的草地。
             .trailing
+        case .flyBrain:
+            // 文字列在前缘、底下是数据来源，控件放到大脑那一侧的下方。
+            .trailing
         case .native, .albumFlow:
             .center
         }

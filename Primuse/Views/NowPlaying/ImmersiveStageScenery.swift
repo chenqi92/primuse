@@ -445,11 +445,35 @@ enum ImmersiveDemoStage {
         }
     }
 
+    /// 取证页「播放中」用的合成频谱：每分钟 120 拍的底鼓、反拍上的镲和缓慢起伏的旋律，
+    /// 会找鼓点的效果（克拉尼沙画、萤火同步、果蝇听歌）在静止的演示频谱下看不出反应。
+    static func beatLevels(at time: TimeInterval) -> [CGFloat] {
+        let phase: Double = time.truncatingRemainder(dividingBy: 0.5)
+        let kick: Double = phase < 0.05 ? 1 : max(0, 1 - phase / 0.22)
+        let offbeat: Double = abs(phase - 0.25) < 0.04 ? 1 : 0
+        let melody: Double = 0.5 + 0.25 * sin(time * 1.3)
+        let last = Double(max(baseLevels.count - 1, 1))
+        return baseLevels.enumerated().map { index, base in
+            let position: Double = Double(index) / last
+            var value: Double = Double(base) * 0.55
+            if position < 0.18 {
+                value += 0.5 * kick
+            } else if position < 0.6 {
+                let weight: Double = 1 - abs(position - 0.35) * 2
+                value += 0.3 * melody * weight
+            } else {
+                value += 0.35 * offbeat
+            }
+            return CGFloat(min(max(value, 0), 1))
+        }
+    }
+
     static func make(
         effect: FullscreenPlayerEffect,
         metrics: ImmersiveStageMetrics,
         palette: ImmersiveArtworkPalette,
         levels: [CGFloat],
+        levelsProvider: (@MainActor () -> [CGFloat])? = nil,
         elapsed: TimeInterval,
         animates: Bool,
         controlsInset: CGFloat = 0,
@@ -470,6 +494,7 @@ enum ImmersiveDemoStage {
             currentLyric: ImmersiveDemoContent.lyrics[1],
             nextLyric: ImmersiveDemoContent.lyrics[2],
             levels: levels,
+            levelsProvider: levelsProvider,
             galleryArtworkCount: 8,
             galleryArtwork: { index, side in
                 AnyView(
@@ -512,7 +537,7 @@ enum ImmersiveDemoStage {
 /// `PRIMUSE_EVIDENCE_LAYOUTS`（phoneLandscape / phonePortrait / wide，默认这三种；另有 iPhone Duo 内屏的
 /// innerLandscape 951×669 / innerLandscapeSmall 890×626 / innerPortrait 669×951）指定视口；
 /// `PRIMUSE_EVIDENCE_RESTING`（lyric / title）按休憩态渲染：舞台文字淡出、压暗，叠上带歌词或只有歌名的休憩层；
-/// `PRIMUSE_EVIDENCE_ANIMATE=1` 让各帧按播放中运行动画（流星这类间歇出现的元素要连拍才截得到）。
+/// `PRIMUSE_EVIDENCE_ANIMATE=1` 让各帧按播放中运行动画，并喂每分钟 120 拍的合成频谱（流星这类间歇出现的元素要连拍才截得到）。
 /// 每个视口按真实尺寸、安全区与控件占位渲染一帧静态舞台，缩放到屏宽后纵向排开，
 /// 直接用模拟器截图就能看到三种排版。手机上的各帧另外按全屏播放的真实位置叠上顶部圆钮与底部控件胶囊
 /// （半透明占位），看舞台文字会不会被它们压住。
@@ -598,6 +623,12 @@ struct ImmersiveStageEvidenceHost: View {
         self.frames = frames
     }
 
+    /// 播放中的取证帧喂带鼓点的合成频谱；静止帧沿用固定的演示频谱。
+    private var evidenceLevelsProvider: (@MainActor () -> [CGFloat])? {
+        guard animates else { return nil }
+        return { ImmersiveDemoStage.beatLevels(at: Date().timeIntervalSinceReferenceDate) }
+    }
+
     var body: some View {
         GeometryReader { geometry in
             ScrollView {
@@ -623,6 +654,7 @@ struct ImmersiveStageEvidenceHost: View {
                                 metrics: metrics,
                                 palette: .fallback,
                                 levels: ImmersiveDemoStage.baseLevels,
+                                levelsProvider: evidenceLevelsProvider,
                                 elapsed: 108,
                                 animates: animates,
                                 controlsInset: controlsInset,

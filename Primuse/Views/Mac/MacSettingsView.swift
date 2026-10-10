@@ -8525,6 +8525,11 @@ private struct MacLicenseComponent: Identifiable, Hashable {
         .init(name: "Swift Collections", license: "Apache 2.0", use: Lz("Data structures")),
         .init(name: "KeychainAccess", license: "MIT", use: Lz("Credential storage")),
         .init(name: "swift-log", license: "Apache 2.0", use: Lz("Logging")),
+        .init(
+            name: "Male CNS v1.0 (Janelia FlyEM / Google)",
+            license: "CC BY 4.0",
+            use: Lz("Fruit fly hearing circuit in the Fly Brain effect")
+        ),
     ]
 
     var fullText: String {

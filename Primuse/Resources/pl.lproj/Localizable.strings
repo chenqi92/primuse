@@ -185,6 +185,7 @@
 "Live Lyrics Follow" = "Śledź tekst podczas odtwarzania";
 "Live Radio" = "Radio na żywo";
 "Logging" = "Rejestrowanie";
+"Fruit fly hearing circuit in the Fly Brain effect" = "Obwód słuchowy muszki w efekcie Mózg muszki";
 "Lyrics" = "Tekst utworu";
 "Lyrics / Stats / Music Sources" = "Teksty / Statystyki / Źródła muzyki";
 "Lyrics Font Scale" = "Rozmiar tekstu";
@@ -1416,6 +1417,9 @@
 "fullscreen_effect_firefly_sync" = "Świetliki w rytmie";
 "fullscreen_effect_firefly_sync_subtitle" = "Świetliki nad nocną łąką stopniowo łapią rytm, aż cała łąka rozbłyska jednocześnie";
 "fullscreen_effect_firefly_sync_motion" = "Widmo w czasie rzeczywistym · Równiejszy rytm, lepsza synchronizacja";
+"fullscreen_effect_fly_brain" = "Mózg muszki";
+"fullscreen_effect_fly_brain_subtitle" = "Obwód słuchowy prawdziwej muszki owocowej obraca się powoli jako hologram i w rytm muzyki rozświetla się etapami wzdłuż swoich prawdziwych połączeń";
+"fullscreen_effect_fly_brain_motion" = "Widmo w czasie rzeczywistym · Prawdziwe połączenia, symulowana aktywność";
 "fullscreen_effect_native" = "Oryginał";
 "fullscreen_effect_native_motion" = "Przejście natywne · Domyślne";
 "fullscreen_effect_native_subtitle" = "Znajomy układ odtwarzacza i sterowanie";

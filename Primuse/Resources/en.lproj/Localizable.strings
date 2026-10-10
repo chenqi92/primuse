@@ -1805,6 +1805,9 @@
 "fullscreen_effect_firefly_sync" = "Firefly Sync";
 "fullscreen_effect_firefly_sync_subtitle" = "Fireflies over a night meadow drift into step with the beat until the whole field flashes as one";
 "fullscreen_effect_firefly_sync_motion" = "Live spectrum driven · Steadier beat, tighter sync";
+"fullscreen_effect_fly_brain" = "Fly Brain";
+"fullscreen_effect_fly_brain_subtitle" = "A real fruit fly’s hearing circuit turns slowly as a hologram and lights up stage by stage along its actual wiring as the music plays";
+"fullscreen_effect_fly_brain_motion" = "Live spectrum driven · Real wiring, simulated activity";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";
@@ -1962,6 +1965,7 @@
 "Data structures" = "Data structures";
 "Credential storage" = "Credential storage";
 "Logging" = "Logging";
+"Fruit fly hearing circuit in the Fly Brain effect" = "Fruit fly hearing circuit in the Fly Brain effect";
 "Diagnostics" = "Diagnostics";
 "MetricKit + crash logs" = "MetricKit + crash logs";
 "Export Logs" = "Export Logs";

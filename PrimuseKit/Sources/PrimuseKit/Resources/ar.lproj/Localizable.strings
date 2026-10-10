@@ -577,6 +577,9 @@
 "fullscreen_effect_firefly_sync" = "تزامن اليراعات";
 "fullscreen_effect_firefly_sync_subtitle" = "تتوافق اليراعات فوق مرج ليلي مع الإيقاع شيئًا فشيئًا حتى يومض المرج كله معًا";
 "fullscreen_effect_firefly_sync_motion" = "مدفوع بالطيف اللحظي · كلما ثبت الإيقاع زاد التزامن";
+"fullscreen_effect_fly_brain" = "دماغ الذبابة";
+"fullscreen_effect_fly_brain_subtitle" = "تتحول دائرة السمع لذبابة فاكهة حقيقية إلى صورة ثلاثية الأبعاد تدور ببطء، وتضيء مرحلةً بعد مرحلة على امتداد توصيلاتها الحقيقية مع الموسيقى";
+"fullscreen_effect_fly_brain_motion" = "مدفوع بالطيف اللحظي · توصيلات حقيقية ونشاط محاكى";
 "fullscreen_effect_native" = "الأصل";
 "fullscreen_effect_native_motion" = "الانتقال الأصلي · الافتراضي";
 "fullscreen_effect_native_subtitle" = "تخطيط اللاعب وعناصر التحكم المألوفة";

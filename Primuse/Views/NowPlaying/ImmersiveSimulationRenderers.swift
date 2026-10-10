@@ -391,3 +391,322 @@ struct ImmersiveFireflyMeadow: View {
         }
     }
 }
+
+// MARK: - 果蝇听歌
+
+/// 果蝇听歌的模拟宿主：频谱 → 听觉通路的神经活动 → 这一帧的投影。接线数据只读一次，各舞台共用。
+@MainActor
+final class ImmersiveFlyBrainModel {
+    struct Pulse {
+        var neuron: Int
+        /// 光跑到纤维的哪儿（0…1 的路程比例）。
+        var front: Float
+    }
+
+    struct Flash {
+        var synapse: Int
+        var glow: Float
+    }
+
+    struct Frame {
+        var outline: [SIMD2<Float>] = []
+        var neurons: [SIMD2<Float>] = []
+        var activation: [Float] = []
+        var pulses: [Pulse] = []
+        var flashes: [Flash] = []
+        var synapses: [SIMD2<Float>] = []
+        var platform: [SIMD2<Float>] = []
+        var labels: [(name: String, point: SIMD2<Float>, isAuditory: Bool)] = []
+        /// 听觉入口整体有多活跃，听觉脑区的轮廓跟着亮。
+        var inputGlow: Float = 0
+    }
+
+    /// 解一次就够：28 万字节，Debug 下也只要几十毫秒。
+    nonisolated static let circuit: FlyAuditoryCircuit? = FlyAuditoryCircuit.bundled()
+    private static let synapsePoints: [SIMD3<Float>] = circuit?.synapses.map(\.point) ?? []
+
+    /// 投影台：大脑下方一圈水平的圆。
+    private static let platformRing: [SIMD3<Float>] = (0...72).map { step in
+        let angle = Float(step) / 72 * 2 * .pi
+        return SIMD3(cos(angle) * 0.9, 0.6, sin(angle) * 0.55 + 0.05)
+    }
+
+    private static let auditoryLabels: Set<String> = ["AMMC", "WED", "SAD", "AVLP"]
+    /// 只标这几处：听觉通路经过的四个脑区，加上嗅叶、侧角与两块视叶作参照。
+    private static let shownLabels: Set<String> = auditoryLabels.union(["AL", "LH", "ME", "LO"])
+
+    private var simulation: FlyAuditorySimulation?
+    private var tracker = ImmersiveBeatTracker()
+    private var lastTime: TimeInterval?
+    private var orbitClock: TimeInterval = 8
+    private var synapseRanges: [Range<Int>] = []
+
+    func frame(time: TimeInterval, levels: [CGFloat], advances: Bool) -> Frame {
+        guard let circuit = Self.circuit else { return Frame() }
+        let samples = levels.map { Double($0) }
+        let features = tracker.update(levels: samples, at: time)
+        if simulation == nil {
+            simulation = Self.preRolled(circuit)
+            synapseRanges = Self.ranges(of: circuit)
+        }
+        guard var current = simulation else { return Frame() }
+        simulation = nil
+        if advances {
+            let dt = lastTime.map { time - $0 } ?? 0
+            current.step(dt: dt, levels: samples, beat: features.beat)
+            orbitClock += min(max(dt, 0), 0.25)
+            lastTime = time
+        } else {
+            lastTime = nil
+        }
+        simulation = current
+
+        let camera = advances ? FlyBrainCamera.orbit(at: orbitClock) : FlyBrainCamera.resting
+        var frame = Frame()
+        camera.project(circuit.outlinePoints, into: &frame.outline)
+        camera.project(circuit.neuronPoints, into: &frame.neurons)
+        camera.project(Self.synapsePoints, into: &frame.synapses)
+        camera.project(Self.platformRing, into: &frame.platform)
+        frame.activation = current.activation
+
+        var inputTotal: Float = 0
+        var inputCount: Float = 0
+        for (index, neuron) in circuit.neurons.enumerated() where neuron.layer == 0 {
+            inputTotal += current.activation[index]
+            inputCount += 1
+        }
+        frame.inputGlow = inputCount > 0 ? inputTotal / inputCount : 0
+
+        for spike in current.spikes {
+            let front = Float(current.front(of: spike))
+            if front <= 1.12 {
+                frame.pulses.append(Pulse(neuron: spike.neuron, front: front))
+            }
+            // 光跑到末梢附近时，这个神经元发出的突触亮一下。
+            let glow = 1 - abs(front - 0.95) / 0.45
+            if glow > 0, synapseRanges.indices.contains(spike.neuron) {
+                for synapse in synapseRanges[spike.neuron] {
+                    frame.flashes.append(Flash(synapse: synapse, glow: glow))
+                }
+            }
+        }
+
+        var seen = Set<String>()
+        for label in circuit.labels {
+            let name = label.name.components(separatedBy: "(").first ?? label.name
+            guard Self.shownLabels.contains(name), seen.insert(name).inserted else { continue }
+            let projected = camera.project(label.point)
+            frame.labels.append((name, SIMD2(projected.x, projected.y), Self.auditoryLabels.contains(name)))
+        }
+        return frame
+    }
+
+    /// 开场先让一段假想的声音跑不到一秒：静止的缩略图里也能看到几条亮着的通路。
+    private static func preRolled(_ circuit: FlyAuditoryCircuit) -> FlyAuditorySimulation {
+        var simulation = FlyAuditorySimulation(circuit: circuit)
+        let quiet = Array(repeating: 0.2, count: 32)
+        let burst = (0..<32).map { $0 < 18 ? 0.9 : 0.3 }
+        for step in 0..<24 {
+            simulation.step(dt: 1.0 / 30, levels: step < 3 || (step >= 12 && step < 14) ? burst : quiet, beat: step == 0 ? 1 : 0)
+        }
+        return simulation
+    }
+
+    private static func ranges(of circuit: FlyAuditoryCircuit) -> [Range<Int>] {
+        var result = Array(repeating: 0..<0, count: circuit.neurons.count)
+        var start = 0
+        while start < circuit.synapses.count {
+            let pre = circuit.synapses[start].pre
+            var end = start
+            while end < circuit.synapses.count, circuit.synapses[end].pre == pre { end += 1 }
+            result[pre] = start..<end
+            start = end
+        }
+        return result
+    }
+}
+
+/// 全息投影台上一颗慢慢转动的果蝇大脑：蓝色虚线是一层层脑区切片的轮廓，里面是听觉通路的真实神经纤维。
+/// 声音进来时触角那一侧的入口先亮，信号沿纤维一级级往里传（一道光跑过纤维），跑到末梢时突触闪一下。
+struct ImmersiveFlyBrain: View {
+    @Environment(\.immersiveFrameRate) private var frameRate
+    var levelsProvider: @MainActor () -> [CGFloat]
+    var palette: ImmersiveArtworkPalette
+    var isAnimating: Bool
+    /// 大脑中心在画布里的位置。
+    var center: UnitPoint
+    /// 大脑左右半宽（点）。
+    var halfWidth: CGFloat
+    var labelSize: CGFloat
+
+    @State private var model = ImmersiveFlyBrainModel()
+
+    private static let shell = Color(red: 0.36, green: 0.64, blue: 1.0)
+    private static let auditory = Color(red: 0.42, green: 0.90, blue: 1.0)
+    private static let fiber = Color(red: 0.30, green: 0.55, blue: 1.0)
+    private static let spark = Color(red: 0.86, green: 0.97, blue: 1.0)
+
+    var body: some View {
+        TimelineView(.animation(
+            minimumInterval: frameRate.minimumInterval(base: 1.0 / 24),
+            paused: !isAnimating
+        )) { context in
+            let frame = model.frame(
+                time: context.date.timeIntervalSinceReferenceDate,
+                levels: levelsProvider(),
+                advances: isAnimating
+            )
+            Canvas(rendersAsynchronously: true) { canvas, size in
+                draw(frame, in: &canvas, size: size)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func draw(_ frame: ImmersiveFlyBrainModel.Frame, in canvas: inout GraphicsContext, size: CGSize) {
+        guard let circuit = ImmersiveFlyBrainModel.circuit else { return }
+        let originX: CGFloat = size.width * center.x
+        let originY: CGFloat = size.height * center.y
+        let scale: CGFloat = halfWidth
+        let unit: CGFloat = max(halfWidth / 320, 0.6)
+        func point(_ value: SIMD2<Float>) -> CGPoint {
+            CGPoint(x: originX + CGFloat(value.x) * scale, y: originY + CGFloat(value.y) * scale)
+        }
+
+        // 投影台：大脑下方一圈虚线椭圆。
+        var platform = Path()
+        for (index, value) in frame.platform.enumerated() {
+            if index == 0 { platform.move(to: point(value)) } else { platform.addLine(to: point(value)) }
+        }
+        canvas.stroke(
+            platform,
+            with: .color(Self.shell.opacity(0.24)),
+            style: StrokeStyle(lineWidth: unit, dash: [unit * 2, unit * 5])
+        )
+
+        func addLine(through points: [SIMD2<Float>], _ range: Range<Int>, to path: inout Path) {
+            guard range.count >= 2 else { return }
+            path.move(to: point(points[range.lowerBound]))
+            for index in (range.lowerBound + 1)..<range.upperBound {
+                path.addLine(to: point(points[index]))
+            }
+        }
+
+        // 脑区切片轮廓：外壳虚线，听觉脑区实线并随入口的活跃度亮起来。
+        var shell = Path()
+        var hearing = Path()
+        for outline in circuit.outlines {
+            if outline.isAuditory {
+                addLine(through: frame.outline, outline.points, to: &hearing)
+            } else {
+                addLine(through: frame.outline, outline.points, to: &shell)
+            }
+        }
+        canvas.stroke(
+            shell,
+            with: .color(Self.shell.opacity(0.44)),
+            style: StrokeStyle(lineWidth: unit, dash: [unit * 3, unit * 4])
+        )
+        let hearingOpacity: Double = 0.42 + 0.45 * Double(min(frame.inputGlow * 1.6, 1))
+        canvas.stroke(hearing, with: .color(Self.auditory.opacity(hearingOpacity)), lineWidth: unit)
+
+        // 神经纤维：平时很淡，按活跃度分三档加亮。
+        var resting = Path()
+        var warm = Path()
+        var bright = Path()
+        var hot = Path()
+        for (line, range) in circuit.polylines.enumerated() {
+            let activation = frame.activation[circuit.polylineNeuron[line]]
+            if activation > 0.6 {
+                addLine(through: frame.neurons, range, to: &hot)
+            } else if activation > 0.35 {
+                addLine(through: frame.neurons, range, to: &bright)
+            } else if activation > 0.12 {
+                addLine(through: frame.neurons, range, to: &warm)
+            } else {
+                addLine(through: frame.neurons, range, to: &resting)
+            }
+        }
+        canvas.stroke(resting, with: .color(Self.fiber.opacity(0.24)), lineWidth: unit * 0.7)
+        canvas.stroke(warm, with: .color(Self.auditory.opacity(0.36)), lineWidth: unit * 0.85)
+        canvas.stroke(bright, with: .color(Self.auditory.opacity(0.55)), lineWidth: unit)
+        // 光晕用两层更宽、更淡的描边叠出来，不做整幅模糊（电视的填充率扛不住每帧整屏模糊）。
+        canvas.stroke(hot, with: .color(Self.auditory.opacity(0.12)), lineWidth: unit * 5)
+        canvas.stroke(hot, with: .color(Self.auditory.opacity(0.28)), lineWidth: unit * 2.4)
+        canvas.stroke(hot, with: .color(Self.spark.opacity(0.85)), lineWidth: unit * 1.1)
+
+        // 放电：一小段光沿纤维从起点往外跑。
+        var pulses = Path()
+        for pulse in frame.pulses {
+            let tail: Float = pulse.front - 0.12
+            for line in circuit.neurons[pulse.neuron].polylines {
+                let range = circuit.polylines[line]
+                var drawing = false
+                for index in range {
+                    let distance = circuit.neuronPointDistance[index]
+                    let inside = distance >= tail && distance <= pulse.front
+                    if inside {
+                        let value = point(frame.neurons[index])
+                        if drawing {
+                            pulses.addLine(to: value)
+                        } else {
+                            pulses.move(to: value)
+                            drawing = true
+                        }
+                    } else {
+                        drawing = false
+                    }
+                }
+            }
+        }
+        canvas.stroke(pulses, with: .color(Self.auditory.opacity(0.16)), lineWidth: unit * 6)
+        canvas.stroke(pulses, with: .color(Self.auditory.opacity(0.42)), lineWidth: unit * 3)
+        canvas.stroke(pulses, with: .color(Self.spark), lineWidth: unit * 1.4)
+
+        // 突触：平时是极淡的点，被放电点亮时闪一下。
+        var dots = Path()
+        let dot: CGFloat = unit * 0.9
+        for (index, value) in frame.synapses.enumerated() where index % 2 == 0 {
+            let center = point(value)
+            dots.addRect(CGRect(x: center.x - dot / 2, y: center.y - dot / 2, width: dot, height: dot))
+        }
+        canvas.fill(dots, with: .color(Self.auditory.opacity(0.32)))
+        canvas.drawLayer { layer in
+            layer.blendMode = .plusLighter
+            for flash in frame.flashes {
+                let center = point(frame.synapses[flash.synapse])
+                let radius: CGFloat = unit * (0.8 + 1.5 * CGFloat(flash.glow))
+                layer.fill(
+                    Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)),
+                    with: .color(Self.auditory.opacity(Double(flash.glow) * 0.7))
+                )
+            }
+        }
+
+        // 脑区标签：一条细引线加缩写，听觉脑区亮一点。
+        for label in frame.labels {
+            let anchor = point(label.point)
+            let toRight = label.point.x >= 0
+            let elbow = CGPoint(x: anchor.x + (toRight ? 1 : -1) * unit * 16, y: anchor.y - unit * 14)
+            let end = CGPoint(x: elbow.x + (toRight ? 1 : -1) * unit * 12, y: elbow.y)
+            var leader = Path()
+            leader.move(to: anchor)
+            leader.addLine(to: elbow)
+            leader.addLine(to: end)
+            let opacity: Double = label.isAuditory ? 0.75 : 0.38
+            canvas.stroke(leader, with: .color(Self.auditory.opacity(opacity * 0.6)), lineWidth: max(0.5, unit * 0.6))
+            canvas.fill(
+                Path(ellipseIn: CGRect(x: anchor.x - unit * 1.4, y: anchor.y - unit * 1.4, width: unit * 2.8, height: unit * 2.8)),
+                with: .color(Self.auditory.opacity(opacity))
+            )
+            let text = Text(verbatim: label.name)
+                .font(.system(size: labelSize, weight: .medium, design: .monospaced))
+                .foregroundStyle(Self.auditory.opacity(opacity))
+            canvas.draw(
+                text,
+                at: CGPoint(x: end.x + (toRight ? 1 : -1) * unit * 3, y: end.y),
+                anchor: toRight ? .leading : .trailing
+            )
+        }
+    }
+}

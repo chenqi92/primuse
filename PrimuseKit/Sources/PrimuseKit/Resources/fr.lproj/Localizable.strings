@@ -686,6 +686,9 @@
 "fullscreen_effect_firefly_sync" = "Lucioles synchrones";
 "fullscreen_effect_firefly_sync_subtitle" = "Les lucioles d’une prairie nocturne se calent peu à peu sur le rythme jusqu’à briller toutes ensemble";
 "fullscreen_effect_firefly_sync_motion" = "Spectre en temps réel · Rythme plus régulier, lucioles plus synchrones";
+"fullscreen_effect_fly_brain" = "Cerveau de mouche";
+"fullscreen_effect_fly_brain_subtitle" = "Le circuit auditif d’une vraie drosophile tourne lentement en hologramme et s’illumine étape par étape le long de son câblage réel au fil de la musique";
+"fullscreen_effect_fly_brain_motion" = "Spectre en temps réel · Câblage réel, activité simulée";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";

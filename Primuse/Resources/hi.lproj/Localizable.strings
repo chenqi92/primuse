@@ -185,6 +185,7 @@
 "Live Lyrics Follow" = "प्लेबैक के साथ बोल दिखाएँ";
 "Live Radio" = "लाइव रेडियो";
 "Logging" = "लॉगिंग";
+"Fruit fly hearing circuit in the Fly Brain effect" = "मक्खी का दिमाग़ इफ़ेक्ट में फल-मक्खी का श्रवण परिपथ";
 "Lyrics" = "गीत के बोल";
 "Lyrics / Stats / Music Sources" = "गीत के बोल / आँकड़े / संगीत स्रोत";
 "Lyrics Font Scale" = "गीत के बोल का फ़ॉन्ट आकार";
@@ -1416,6 +1417,9 @@
 "fullscreen_effect_firefly_sync" = "जुगनुओं की लय";
 "fullscreen_effect_firefly_sync_subtitle" = "रात के घास के मैदान में जुगनू धीरे-धीरे बीट के साथ तालमेल बिठाते हैं और आख़िर में सब एक साथ चमकते हैं";
 "fullscreen_effect_firefly_sync_motion" = "रीयल-टाइम स्पेक्ट्रम संचालित · बीट जितनी स्थिर, तालमेल उतना गहरा";
+"fullscreen_effect_fly_brain" = "मक्खी का दिमाग़";
+"fullscreen_effect_fly_brain_subtitle" = "असली फल-मक्खी का सुनने वाला परिपथ धीरे-धीरे घूमते होलोग्राम में बदल जाता है और संगीत के साथ अपनी असली वायरिंग पर चरण-दर-चरण जगमगाता है";
+"fullscreen_effect_fly_brain_motion" = "रीयल-टाइम स्पेक्ट्रम संचालित · असली वायरिंग, सिम्युलेटेड गतिविधि";
 "fullscreen_effect_native" = "मूल";
 "fullscreen_effect_native_motion" = "मूल संक्रमण · डिफ़ॉल्ट";
 "fullscreen_effect_native_subtitle" = "परिचित प्लेयर लेआउट और नियंत्रण";

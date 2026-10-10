@@ -577,6 +577,9 @@
 "fullscreen_effect_firefly_sync" = "หิ่งห้อยกะพริบพร้อมกัน";
 "fullscreen_effect_firefly_sync_subtitle" = "หิ่งห้อยบนทุ่งหญ้ายามค่ำค่อย ๆ กะพริบตามจังหวะ จนทั้งทุ่งสว่างขึ้นพร้อมกัน";
 "fullscreen_effect_firefly_sync_motion" = "ขับเคลื่อนด้วยสเปกตรัมแบบเรียลไทม์ · จังหวะยิ่งนิ่ง ยิ่งพร้อมเพรียง";
+"fullscreen_effect_fly_brain" = "สมองแมลงวัน";
+"fullscreen_effect_fly_brain_subtitle" = "วงจรการได้ยินของแมลงวันผลไม้จริงกลายเป็นโฮโลแกรมที่หมุนช้า ๆ และสว่างขึ้นทีละขั้นตามการเชื่อมต่อจริงไปพร้อมเพลง";
+"fullscreen_effect_fly_brain_motion" = "ขับเคลื่อนด้วยสเปกตรัมแบบเรียลไทม์ · การเชื่อมต่อจริง กิจกรรมจำลอง";
 "fullscreen_effect_native" = "ต้นฉบับ";
 "fullscreen_effect_native_motion" = "การเปลี่ยนผ่านแบบเนทีฟ · ค่าเริ่มต้น";
 "fullscreen_effect_native_subtitle" = "รูปแบบและการควบคุมของผู้เล่นที่คุ้นเคย";

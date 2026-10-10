@@ -223,6 +223,8 @@ struct ImmersiveStageView<Artwork: View>: View {
             ImmersiveStageDeferredScene { chladniPlateScene }
         case .fireflySync:
             ImmersiveStageDeferredScene { fireflySyncScene }
+        case .flyBrain:
+            ImmersiveStageDeferredScene { flyBrainScene }
         }
     }
 
@@ -617,6 +619,108 @@ struct ImmersiveStageView<Artwork: View>: View {
             .padding(.top, topInset + metrics.s(metrics.isPortrait ? 8 : 0))
             .padding(.bottom, bottomInset)
         }
+    }
+
+    // MARK: - 11. 果蝇听歌
+
+    /// 竖屏：文字在上、大脑居中、歌词在下。其余视口：文字列靠前缘，大脑占后面那一大块；
+    /// 角落一行小字写数据来源（CC BY 4.0 要求署名）。
+    private var flyBrainScene: some View {
+        let isPhoneLandscape = metrics.layout == .phoneLandscape
+        let innerWidth = metrics.size.width - leadingInset - trailingInset
+        let availableTop = topInset
+        let availableHeight = max(metrics.size.height - bottomInset - availableTop, 1)
+        let textWidth = metrics.isPortrait ? innerWidth : innerWidth * (isPhoneLandscape ? 0.36 : 0.32)
+        let brainLeading = metrics.isPortrait
+            ? leadingInset
+            : leadingInset + textWidth + metrics.s(isPhoneLandscape ? 12 : 32)
+        let brainWidth = metrics.isPortrait ? innerWidth : metrics.size.width - trailingInset - brainLeading
+        let halfWidth = metrics.isPortrait
+            ? min(innerWidth * 0.48, metrics.size.height * 0.23)
+            : min(brainWidth * 0.45, availableHeight * 0.64)
+        let brainCenterX = brainLeading + brainWidth / 2
+        let brainCenterY = metrics.isPortrait
+            ? metrics.size.height * 0.50
+            : availableTop + availableHeight * 0.47
+        let center = UnitPoint(
+            x: brainCenterX / max(metrics.size.width, 1),
+            y: brainCenterY / max(metrics.size.height, 1)
+        )
+
+        return ZStack {
+            LinearGradient(
+                colors: [Color(red: 0.020, green: 0.040, blue: 0.090), Color(red: 0.008, green: 0.016, blue: 0.040)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            RadialGradient(
+                colors: [palette.primary.opacity(0.14), .clear],
+                center: center,
+                startRadius: 0,
+                endRadius: halfWidth * 1.5
+            )
+            // 全息投影的冷光：中心一团很淡的蓝。
+            RadialGradient(
+                colors: [Color(red: 0.30, green: 0.62, blue: 1.0).opacity(0.12), .clear],
+                center: center,
+                startRadius: 0,
+                endRadius: halfWidth * 0.9
+            )
+            ImmersiveFlyBrain(
+                levelsProvider: spectrumProvider,
+                palette: palette,
+                isAnimating: sceneIsAnimating,
+                center: center,
+                halfWidth: halfWidth,
+                labelSize: metrics.s(platform == .tvOS ? 15 : 9)
+            )
+            ImmersiveVignette(color: .black, clearStop: 0.40, strength: 0.40)
+
+            if metrics.isPortrait {
+                VStack(alignment: .leading, spacing: metrics.s(12)) {
+                    compactHeader(artSide: metrics.s(56))
+                    titleBlock(size: metrics.s(34), weight: .semibold)
+                    Spacer(minLength: 0)
+                    singleLyric(fontSize: metrics.s(17), availableWidth: innerWidth)
+                    flyBrainCredit
+                }
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
+                .padding(.top, topInset + metrics.s(8))
+                .padding(.bottom, bottomInset)
+            } else {
+                VStack(alignment: .leading, spacing: metrics.s(isPhoneLandscape ? 12 : 16)) {
+                    compactHeader(artSide: metrics.s(platform == .tvOS ? 96 : 58))
+                    titleBlock(
+                        size: metrics.s(isPhoneLandscape ? 34 : (platform == .tvOS ? 80 : 50)),
+                        weight: .semibold,
+                        maxWidth: textWidth
+                    )
+                    singleLyric(
+                        fontSize: metrics.s(platform == .tvOS ? 28 : 17),
+                        availableWidth: textWidth
+                    )
+                    .frame(maxWidth: textWidth, alignment: .leading)
+                    Spacer(minLength: 0)
+                    flyBrainCredit
+                }
+                .frame(width: textWidth, alignment: .leading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(.leading, leadingInset)
+                .padding(.top, topInset)
+                .padding(.bottom, bottomInset)
+            }
+        }
+    }
+
+    /// 数据来源：Male CNS 连接组（CC BY 4.0）。专有名词，不翻译。
+    private var flyBrainCredit: some View {
+        Text(verbatim: "Male CNS v1.0 · Janelia FlyEM / Google · CC BY 4.0")
+            .font(.system(size: metrics.s(platform == .tvOS ? 13 : 8), weight: .regular, design: .monospaced))
+            .foregroundStyle(ImmersiveStagePalette.text.opacity(0.36))
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
+            .immersiveRestingText(isResting)
     }
 
     private var galleryTrackBlock: some View {

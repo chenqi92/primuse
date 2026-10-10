@@ -306,6 +306,9 @@
 "fullscreen_effect_firefly_sync" = "Синхронные светлячки";
 "fullscreen_effect_firefly_sync_subtitle" = "Светлячки над ночным лугом постепенно подстраиваются под ритм, пока весь луг не вспыхнет разом";
 "fullscreen_effect_firefly_sync_motion" = "Спектр в реальном времени · Чем ровнее ритм, тем дружнее вспышки";
+"fullscreen_effect_fly_brain" = "Мозг мухи";
+"fullscreen_effect_fly_brain_subtitle" = "Слуховая цепь настоящей плодовой мушки медленно вращается голограммой и под музыку загорается шаг за шагом вдоль своих реальных связей";
+"fullscreen_effect_fly_brain_motion" = "Спектр в реальном времени · Реальные связи, смоделированная активность";
 "ext.tv.otp.authFailed" = "Не удалось войти в систему. Проверьте учетную запись и пароль.";
 "ext.tv.search.eyebrow" = "Поиск";
 "ext.tv.sources.hint.daoliyu" = "Уроженец Даолию API";

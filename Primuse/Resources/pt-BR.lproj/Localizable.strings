@@ -185,6 +185,7 @@
 "Live Lyrics Follow" = "Acompanhar a letra durante a reprodução";
 "Live Radio" = "Rádio ao vivo";
 "Logging" = "Registro";
+"Fruit fly hearing circuit in the Fly Brain effect" = "Circuito auditivo da mosca no efeito Cérebro de mosca";
 "Lyrics" = "Letras";
 "Lyrics / Stats / Music Sources" = "Letras / Estatísticas / Fontes musicais";
 "Lyrics Font Scale" = "Tamanho das letras";
@@ -1416,6 +1417,9 @@
 "fullscreen_effect_firefly_sync" = "Vaga-lumes em sincronia";
 "fullscreen_effect_firefly_sync_subtitle" = "Os vaga-lumes de um campo à noite entram aos poucos no ritmo até piscarem todos juntos";
 "fullscreen_effect_firefly_sync_motion" = "Espectro em tempo real · Batida mais estável, mais sincronia";
+"fullscreen_effect_fly_brain" = "Cérebro de mosca";
+"fullscreen_effect_fly_brain_subtitle" = "O circuito auditivo de uma mosca-das-frutas real gira devagar como holograma e acende etapa por etapa pela fiação real conforme a música toca";
+"fullscreen_effect_fly_brain_motion" = "Espectro em tempo real · Fiação real, atividade simulada";
 "fullscreen_effect_native" = "Originais";
 "fullscreen_effect_native_motion" = "Transição nativa · Padrão";
 "fullscreen_effect_native_subtitle" = "O layout e os controles familiares do player";

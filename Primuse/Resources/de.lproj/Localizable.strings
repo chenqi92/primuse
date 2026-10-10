@@ -1768,6 +1768,9 @@
 "fullscreen_effect_firefly_sync" = "Glühwürmchen im Takt";
 "fullscreen_effect_firefly_sync_subtitle" = "Glühwürmchen über einer nächtlichen Wiese finden nach und nach in den Takt, bis die ganze Wiese gleichzeitig aufleuchtet";
 "fullscreen_effect_firefly_sync_motion" = "Echtzeit-Spektrum · Je gleichmäßiger der Beat, desto synchroner";
+"fullscreen_effect_fly_brain" = "Fliegenhirn";
+"fullscreen_effect_fly_brain_subtitle" = "Der Hörschaltkreis einer echten Fruchtfliege dreht sich langsam als Hologramm und leuchtet zur Musik Stufe für Stufe entlang seiner echten Verschaltung auf";
+"fullscreen_effect_fly_brain_motion" = "Echtzeit-Spektrum · Echte Verschaltung, simulierte Aktivität";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";
@@ -1881,6 +1884,7 @@
 "Data structures" = "Datenstrukturen";
 "Credential storage" = "Anmeldedatenspeicher";
 "Logging" = "Protokollierung";
+"Fruit fly hearing circuit in the Fly Brain effect" = "Hörschaltkreis der Fruchtfliege im Effekt „Fliegenhirn“";
 "Diagnostics" = "Diagnose";
 "MetricKit + crash logs" = "MetricKit + Absturzprotokolle";
 "Export Logs" = "Protokolle exportieren";

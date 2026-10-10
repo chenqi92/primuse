@@ -306,6 +306,9 @@
 "fullscreen_effect_firefly_sync" = "Синхронні світлячки";
 "fullscreen_effect_firefly_sync_subtitle" = "Світлячки над нічним лугом поступово підлаштовуються під ритм, доки весь луг не спалахне разом";
 "fullscreen_effect_firefly_sync_motion" = "Спектр у реальному часі · Що рівніший ритм, то злагодженіші спалахи";
+"fullscreen_effect_fly_brain" = "Мозок мухи";
+"fullscreen_effect_fly_brain_subtitle" = "Слуховий ланцюг справжньої плодової мушки повільно обертається голограмою і під музику спалахує крок за кроком уздовж своїх реальних зв’язків";
+"fullscreen_effect_fly_brain_motion" = "Спектр у реальному часі · Реальні зв’язки, змодельована активність";
 "ext.tv.otp.authFailed" = "Помилка входу. Перевірте обліковий запис і пароль.";
 "ext.tv.search.eyebrow" = "Пошук";
 "ext.tv.sources.hint.daoliyu" = "Рідний Даолію API";

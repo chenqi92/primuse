@@ -3066,6 +3066,7 @@ struct LicensesView: View {
                 licenseRow("WavPack", "BSD License")
                 licenseRow("Monkey's Audio", "BSD License")
                 licenseRow("True Audio (libtta)", "LGPL 2.1")
+                licenseRow("Male CNS v1.0 (Janelia FlyEM / Google)", "CC BY 4.0")
             }
         }
         .navigationTitle("licenses")

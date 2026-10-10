@@ -306,6 +306,9 @@
 "fullscreen_effect_firefly_sync" = "Ateşböceği Uyumu";
 "fullscreen_effect_firefly_sync_subtitle" = "Gece çayırındaki ateşböcekleri ritme yavaş yavaş uyar ve sonunda hepsi birlikte yanıp söner";
 "fullscreen_effect_firefly_sync_motion" = "Gerçek zamanlı spektrum · Ritim düzenlendikçe uyum artar";
+"fullscreen_effect_fly_brain" = "Sinek Beyni";
+"fullscreen_effect_fly_brain_subtitle" = "Gerçek bir meyve sineğinin işitme devresi yavaşça dönen bir holograma dönüşür ve müzikle birlikte gerçek bağlantıları boyunca adım adım yanar";
+"fullscreen_effect_fly_brain_motion" = "Gerçek zamanlı spektrum · Gerçek bağlantılar, benzetilmiş etkinlik";
 "ext.tv.otp.authFailed" = "Oturum açma başarısız oldu. Hesabı ve şifreyi kontrol edin.";
 "ext.tv.search.eyebrow" = "Ara";
 "ext.tv.sources.hint.daoliyu" = "Daoliyu yerlisi API";

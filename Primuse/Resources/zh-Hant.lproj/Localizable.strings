@@ -1716,6 +1716,9 @@
 "fullscreen_effect_firefly_sync" = "螢火同步";
 "fullscreen_effect_firefly_sync_subtitle" = "夜裡草地上的螢火蟲隨節拍慢慢對齊，最後整片一齊閃亮";
 "fullscreen_effect_firefly_sync_motion" = "即時頻譜驅動 · 節拍越穩越同步";
+"fullscreen_effect_fly_brain" = "果蠅聽歌";
+"fullscreen_effect_fly_brain_subtitle" = "真實果蠅大腦的聽覺通路化作緩緩轉動的全像投影，聲音沿真實接線一級級點亮";
+"fullscreen_effect_fly_brain_motion" = "即時頻譜驅動 · 真實神經接線，活動為模擬";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "图言吐语";
 "immersive_demo_album" = "soundisle";
@@ -2117,6 +2120,7 @@
 "Data structures" = "資料結構";
 "Credential storage" = "憑證儲存";
 "Logging" = "紀錄";
+"Fruit fly hearing circuit in the Fly Brain effect" = "「果蠅聽歌」效果中的果蠅聽覺通路";
 "Diagnostics" = "診斷";
 "MetricKit + crash logs" = "MetricKit + 當機紀錄";
 "Export Logs" = "匯出紀錄";

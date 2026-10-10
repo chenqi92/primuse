@@ -16,6 +16,9 @@ let package = Package(
             name: "PrimuseKit",
             dependencies: [
                 .product(name: "GRDB", package: "GRDB.swift"),
+            ],
+            resources: [
+                .copy("Resources/FlyAuditoryCircuit.bin"),
             ]
         ),
         .testTarget(

@@ -716,6 +716,25 @@ final class PlayerAppearancePreferencesTests: XCTestCase {
         )
     }
 
+    /// 果蝇听歌追加在萤火同步之后，归在声音响应那一组，要开实时频谱。
+    func testFlyBrainIsAppendedAfterFireflySync() {
+        XCTAssertEqual(FullscreenPlayerEffect.allCases.last, .flyBrain)
+        XCTAssertEqual(FullscreenPlayerEffect.allCases.firstIndex(of: .flyBrain), 11)
+        XCTAssertEqual(FullscreenPlayerEffect.flyBrain.rawValue, "flyBrain")
+        XCTAssertEqual(FullscreenPlayerEffect(rawValue: "flyBrain"), .flyBrain)
+        XCTAssertEqual(FullscreenPlayerEffect.flyBrain.collection, .audioReactive)
+        XCTAssertEqual(FullscreenPlayerEffect.flyBrain.scene, .flyBrain)
+        XCTAssertTrue(FullscreenPlayerEffect.flyBrain.usesRealtimeSpectrum)
+        XCTAssertEqual(
+            ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
+                selectedRawValue: "flyBrain",
+                hasSynchronizedLyrics: false,
+                hasArtwork: false
+            ),
+            "flyBrain"
+        )
+    }
+
     func testCoverFlowNeighboursMapOffsetsOntoBothSides() {
         func item(_ id: String) -> AlbumFlowNeighbors.Item {
             AlbumFlowNeighbors.Item(
