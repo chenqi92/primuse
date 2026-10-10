@@ -21,6 +21,18 @@ import PrimuseKit
 
 // MARK: - Play / Pause / Skip
 
+/// 小组件、控制中心的切歌与快进快退键可能在 Primuse 没在运行时按下: 系统在后台拉起
+/// App 来跑 `perform()`, 这时上次的队列还没恢复。先恢复再执行; 是这次点击把 App 拉起来
+/// 的, 执行完还没在放就接着放 —— 这时按切歌键就是想听。
+@MainActor
+private func performRestoringPlaybackSession(_ command: @MainActor () async -> Void) async {
+    let bridge = PrimuseIntentBridge.shared
+    let wasIdle = !bridge.hasLoadedPlayback()
+    _ = await bridge.restorePlaybackSession()
+    await command()
+    if wasIdle { bridge.playIfStopped() }
+}
+
 struct PrimusePlayPauseIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Play / Pause"
     static let description = IntentDescription("Toggle Primuse playback.")
@@ -51,8 +63,11 @@ struct PrimuseSetPlayingIntent: AudioPlaybackIntent, SetValueIntent {
     @MainActor
     func perform() async throws -> some IntentResult {
         let bridge = PrimuseIntentBridge.shared
-        if value { _ = await bridge.restorePlaybackSession() }
-        bridge.setPlaying(value)
+        let wasIdle = !bridge.hasLoadedPlayback()
+        _ = await bridge.restorePlaybackSession()
+        // 这次点击才把 App 拉起来: 小组件上的「暂停」是 App 上次被系统结束前留下的,
+        // 点下去的时候什么都没在放, 按「播放」处理。
+        bridge.setPlaying(value || wasIdle)
         return .result()
     }
 }
@@ -113,9 +128,9 @@ struct PrimusePlaybackControlIntent: AudioPlaybackIntent {
             _ = await bridge.restorePlaybackSession()
             bridge.togglePlayPause()
         case .next:
-            await bridge.next()
+            await performRestoringPlaybackSession { await bridge.next() }
         case .previous:
-            await bridge.previous()
+            await performRestoringPlaybackSession { await bridge.previous() }
         }
         return .result()
     }
@@ -127,7 +142,7 @@ struct PrimuseNextIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        await PrimuseIntentBridge.shared.next()
+        await performRestoringPlaybackSession { await PrimuseIntentBridge.shared.next() }
         return .result()
     }
 }
@@ -138,7 +153,7 @@ struct PrimusePreviousIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        await PrimuseIntentBridge.shared.previous()
+        await performRestoringPlaybackSession { await PrimuseIntentBridge.shared.previous() }
         return .result()
     }
 }
@@ -151,7 +166,7 @@ struct PrimuseSkipBackwardIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        PrimuseIntentBridge.shared.skipBackward()
+        await performRestoringPlaybackSession { PrimuseIntentBridge.shared.skipBackward() }
         return .result()
     }
 }
@@ -162,7 +177,7 @@ struct PrimuseSkipForwardIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        PrimuseIntentBridge.shared.skipForward()
+        await performRestoringPlaybackSession { PrimuseIntentBridge.shared.skipForward() }
         return .result()
     }
 }
@@ -287,8 +302,8 @@ struct PrimuseSkipTrackIntent: AudioPlaybackIntent {
     @MainActor
     func perform() async throws -> some IntentResult {
         switch direction {
-        case .next: await PrimuseIntentBridge.shared.next()
-        case .previous: await PrimuseIntentBridge.shared.previous()
+        case .next: await performRestoringPlaybackSession { await PrimuseIntentBridge.shared.next() }
+        case .previous: await performRestoringPlaybackSession { await PrimuseIntentBridge.shared.previous() }
         }
         return .result()
     }

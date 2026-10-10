@@ -97,6 +97,11 @@ public final class PrimuseIntentBridge {
     /// queue is not restored yet: this restores it first. Returns at once when
     /// something is already loaded.
     public var restorePlaybackSession: @MainActor () async -> Bool = { false }
+    /// 有歌或电台装在播放器里(在放或暂停都算)。为 false 时说明这次唤起之前 App
+    /// 没在运行, 小组件上显示的播放状态是上次留下的。
+    public var hasLoadedPlayback: @MainActor () -> Bool = { false }
+    /// 装着歌但既没在放也没在加载时开始放; 已经在放或正在加载就不动。
+    public var playIfStopped: @MainActor () -> Void = {}
     /// Control Widget 的 toggle 走这个: 系统把"用户想要的下一帧状态"直接
     /// 给我们 (true = 想播放, false = 想暂停), 我们对齐到实际播放器即可。
     public var setPlaying: @MainActor (Bool) -> Void = { _ in }

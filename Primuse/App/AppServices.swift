@@ -2499,6 +2499,11 @@ final class AppServices {
         bridge.restorePlaybackSession = { [self] in
             await awaitPlaybackSessionRestore()
         }
+        bridge.hasLoadedPlayback = { player.currentSong != nil }
+        bridge.playIfStopped = {
+            guard player.currentSong != nil, !player.isPlaying, !player.isLoading else { return }
+            player.resume()
+        }
         bridge.resumePlayback = { [self] in
             guard await awaitPlaybackSessionRestore() else { return false }
             player.resume()
