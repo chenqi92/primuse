@@ -966,3 +966,6 @@
 "ext.widget.recentPodcast.title" = "Ostatnie odcinki";
 "ext.widget.recentPodcast.description" = "Ostatnio słuchane odcinki podcastów, także ukończone. Stuknij, aby odtworzyć.";
 "ext.widget.recentPodcast.empty" = "Tu pojawią się odcinki odsłuchane w Primuse.";
+
+"widget_desk_previous_station" = "Poprzednia stacja";
+"widget_desk_next_station" = "Następna stacja";

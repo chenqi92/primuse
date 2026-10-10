@@ -1016,3 +1016,6 @@
 "ext.widget.recentPodcast.title" = "最近播放的播客";
 "ext.widget.recentPodcast.description" = "按时间列出最近听过的播客单集，已听完的也在，轻点即可播放。";
 "ext.widget.recentPodcast.empty" = "在 Primuse 听过的播客单集会出现在这里。";
+
+"widget_desk_previous_station" = "上一个电台";
+"widget_desk_next_station" = "下一个电台";

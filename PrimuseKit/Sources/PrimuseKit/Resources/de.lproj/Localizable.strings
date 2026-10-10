@@ -1019,3 +1019,6 @@
 "ext.widget.recentPodcast.title" = "Zuletzt gehörte Folgen";
 "ext.widget.recentPodcast.description" = "Zuletzt gehörte Podcast-Folgen, auch beendete. Zum Abspielen tippen.";
 "ext.widget.recentPodcast.empty" = "In Primuse gehörte Folgen erscheinen hier.";
+
+"widget_desk_previous_station" = "Vorheriger Sender";
+"widget_desk_next_station" = "Nächster Sender";

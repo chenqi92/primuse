@@ -966,3 +966,6 @@
 "ext.widget.recentPodcast.title" = "Нещодавні випуски";
 "ext.widget.recentPodcast.description" = "Нещодавно прослухані випуски подкастів, зокрема завершені. Торкніться, щоб відтворити.";
 "ext.widget.recentPodcast.empty" = "Тут з’являться випуски, прослухані в Primuse.";
+
+"widget_desk_previous_station" = "Попередня станція";
+"widget_desk_next_station" = "Наступна станція";

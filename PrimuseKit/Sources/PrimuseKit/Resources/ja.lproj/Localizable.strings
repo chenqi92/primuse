@@ -1019,3 +1019,6 @@
 "ext.widget.recentPodcast.title" = "最近再生したエピソード";
 "ext.widget.recentPodcast.description" = "最近聴いたポッドキャストのエピソードを、聴き終えたものも含めて表示します。タップで再生。";
 "ext.widget.recentPodcast.empty" = "Primuseで聴いたエピソードがここに表示されます。";
+
+"widget_desk_previous_station" = "前のラジオ局";
+"widget_desk_next_station" = "次のラジオ局";

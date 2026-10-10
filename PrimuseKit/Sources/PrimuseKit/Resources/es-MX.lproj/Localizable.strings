@@ -966,3 +966,6 @@
 "ext.widget.recentPodcast.title" = "Episodios recientes";
 "ext.widget.recentPodcast.description" = "Los episodios de podcast que escuchaste hace poco, incluso los terminados. Toca uno para reproducirlo.";
 "ext.widget.recentPodcast.empty" = "Aquí aparecerán los episodios que escuches en Primuse.";
+
+"widget_desk_previous_station" = "Estación anterior";
+"widget_desk_next_station" = "Siguiente estación";

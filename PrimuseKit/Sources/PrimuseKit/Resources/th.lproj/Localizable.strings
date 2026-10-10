@@ -966,3 +966,6 @@
 "ext.widget.recentPodcast.title" = "ตอนที่ฟังล่าสุด";
 "ext.widget.recentPodcast.description" = "ตอนพอดแคสต์ที่ฟังล่าสุด รวมถึงตอนที่ฟังจบแล้ว แตะเพื่อเล่น";
 "ext.widget.recentPodcast.empty" = "ตอนที่ฟังใน Primuse จะแสดงที่นี่";
+
+"widget_desk_previous_station" = "สถานีก่อนหน้า";
+"widget_desk_next_station" = "สถานีต่อไป";

@@ -1017,3 +1017,6 @@
 "ext.widget.recentPodcast.title" = "Recent Episodes";
 "ext.widget.recentPodcast.description" = "Podcast episodes you played recently, finished ones included. Tap one to play it.";
 "ext.widget.recentPodcast.empty" = "Episodes you play in Primuse appear here.";
+
+"widget_desk_previous_station" = "Previous Station";
+"widget_desk_next_station" = "Next Station";

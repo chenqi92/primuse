@@ -966,3 +966,6 @@
 "ext.widget.recentPodcast.title" = "الحلقات الأخيرة";
 "ext.widget.recentPodcast.description" = "حلقات البودكاست التي استمعت إليها مؤخرًا، بما فيها المكتملة. اضغط على حلقة لتشغيلها.";
 "ext.widget.recentPodcast.empty" = "تظهر هنا الحلقات التي تستمع إليها في Primuse.";
+
+"widget_desk_previous_station" = "المحطة السابقة";
+"widget_desk_next_station" = "المحطة التالية";

@@ -1,5 +1,6 @@
 import SwiftUI
 import WidgetKit
+import AppIntents
 import PrimuseKit
 
 /// One of the desk's two tiles: what it shows and what a tap plays.
@@ -22,6 +23,8 @@ struct ListeningDeskEntry: TimelineEntry {
     let albums: [RecentAlbumEntry]
     let leading: ListeningDeskTile
     let trailing: ListeningDeskTile
+    /// 电台的上一首 / 下一首是切台, 跟 App 一样只有一个台时不出这两个键。
+    var canSwitchStation = false
 }
 
 struct ListeningDeskProvider: AppIntentTimelineProvider {
@@ -54,7 +57,8 @@ struct ListeningDeskProvider: AppIntentTimelineProvider {
             .map { scope.includesCover ? $0 : $0.withoutCover() }
         return .init(date: Date(), state: state, albums: albums,
                      leading: tile(leading, index: 0, albums: albums, scope: scope),
-                     trailing: tile(trailing, index: leading == trailing ? 1 : 0, albums: albums, scope: scope))
+                     trailing: tile(trailing, index: leading == trailing ? 1 : 0, albums: albums, scope: scope),
+                     canSwitchStation: (ListeningWidgetKind.radio.load()?.items.count ?? 0) > 1)
     }
 
     /// The `index`-th item of a kind. Both tiles set to the same kind show its
@@ -96,7 +100,8 @@ struct ListeningDeskProvider: AppIntentTimelineProvider {
                      albums: [.init(id: "1", title: "Kind of Blue", artistName: "Miles Davis", coverImageName: nil),
                               .init(id: "2", title: "Rumours", artistName: "Fleetwood Mac", coverImageName: nil)],
                      leading: previewTile(leading, index: 0),
-                     trailing: previewTile(trailing, index: leading == trailing ? 1 : 0))
+                     trailing: previewTile(trailing, index: leading == trailing ? 1 : 0),
+                     canSwitchStation: true)
     }
 
     private static func previewTile(_ content: PrimuseListeningDeskTileContent, index: Int) -> ListeningDeskTile {
@@ -205,17 +210,7 @@ struct ListeningDeskView: View {
                         .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: state.currentSongID)
                     Text(state.spokenWord?.bookTitle ?? state.artistName ?? PMString("ext.widget.unknownArtist"))
                         .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
-                    if large {
-                        HStack(spacing: 12) {
-                            WidgetPlaybackButton(state: state, size: 36)
-                            if !state.isLiveStream {
-                                Button(intent: PrimuseNextIntent()) {
-                                    Image(systemName: "forward.fill").font(.system(size: 14)).frame(width: 32, height: 36)
-                                }.buttonStyle(.plain).accessibilityLabel(PMString("ext.control.next"))
-                            }
-                            Spacer(minLength: 0)
-                        }
-                    }
+                    if large { transport(state) }
                 } else {
                     Text(PMString("ext.widget.nowPlaying.empty.title"))
                         .font(.system(size: large ? 20 : 16, weight: .bold)).lineLimit(2)
@@ -234,6 +229,43 @@ struct ListeningDeskView: View {
                     .offset(y: 7)
             }
         }
+    }
+
+    /// 上一首、播放 / 暂停、下一首。有声书和播客换成按设置秒数的后退 / 前进, 电台是切台。
+    private func transport(_ state: PlaybackState) -> some View {
+        HStack(spacing: 12) {
+            if let info = state.spokenWord, state.isSpokenWord {
+                transportButton(PrimuseSkipBackwardIntent(), symbol: info.skipBackwardSymbol,
+                                label: PMString("ext.widget.spokenWord.skipBackFormat", info.skipBackwardSeconds))
+                WidgetPlaybackButton(state: state, size: 36)
+                transportButton(PrimuseSkipForwardIntent(), symbol: info.skipForwardSymbol,
+                                label: PMString("ext.widget.spokenWord.skipForwardFormat", info.skipForwardSeconds))
+            } else if state.isLiveStream {
+                if entry.canSwitchStation {
+                    transportButton(PrimusePreviousIntent(), symbol: "backward.fill",
+                                    label: PMString("widget_desk_previous_station"))
+                }
+                WidgetPlaybackButton(state: state, size: 36)
+                if entry.canSwitchStation {
+                    transportButton(PrimuseNextIntent(), symbol: "forward.fill",
+                                    label: PMString("widget_desk_next_station"))
+                }
+            } else {
+                transportButton(PrimusePreviousIntent(), symbol: "backward.fill", label: PMString("ext.control.previous"))
+                WidgetPlaybackButton(state: state, size: 36)
+                transportButton(PrimuseNextIntent(), symbol: "forward.fill", label: PMString("ext.control.next"))
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func transportButton<Intent: AppIntent>(_ intent: Intent, symbol: String, label: String) -> some View {
+        Button(intent: intent) {
+            Image(systemName: symbol).font(.system(size: 14)).frame(width: 32, height: 36)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     @ViewBuilder private func destination(_ tile: ListeningDeskTile) -> some View {
