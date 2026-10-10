@@ -535,11 +535,7 @@ struct SpokenWordShelfContent: View {
             Menu {
                 bookMenu(entry.book, songs: entry.songs, entries: entries)
             } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 26, height: 26)
-                    .background(.regularMaterial, in: Circle())
+                SpokenWordBookMenuBadge()
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
@@ -1009,6 +1005,47 @@ private struct SpokenWordBookListRow: View {
         .padding(.vertical, 10)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// 书右上角那颗「⋯」。浅色的玻璃圆底、深色的点:iOS 26 起是 Liquid Glass,更早的系统是浅色毛玻璃
+/// 加一道亮边。底始终按浅色外观画,深色模式、深色书封上也不会变成一团深灰;浅色书封上靠亮边与
+/// 淡淡的投影和封面分开。降低透明度时换成不透明的浅底。
+private struct SpokenWordBookMenuBadge: View {
+    var body: some View {
+        Image(systemName: "ellipsis")
+            .font(.system(size: 13, weight: .bold))
+            .foregroundStyle(Color.black.opacity(0.72))
+            .frame(width: 28, height: 28)
+            .modifier(SpokenWordBookMenuGlass())
+            .environment(\.colorScheme, .light)
+    }
+}
+
+private struct SpokenWordBookMenuGlass: ViewModifier {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    func body(content: Content) -> some View {
+        if reduceTransparency {
+            content
+                .background(Color(white: 0.94), in: Circle())
+                .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
+        } else {
+            if #available(iOS 26.0, macOS 26.0, *) {
+                content
+                    .glassEffect(.regular.tint(Color.white.opacity(0.32)).interactive(), in: Circle())
+            } else {
+                content
+                    .background {
+                        ZStack {
+                            Circle().fill(.ultraThinMaterial)
+                            Circle().fill(Color.white.opacity(0.38))
+                        }
+                    }
+                    .overlay { Circle().strokeBorder(Color.white.opacity(0.7), lineWidth: 0.5) }
+                    .shadow(color: .black.opacity(0.16), radius: 3, y: 1)
+            }
+        }
     }
 }
 
