@@ -1077,6 +1077,10 @@ struct SpokenWordTranscriptReader: View {
 
     private enum MenuAction { case contents, search, settings }
     private enum BookmarkNotice: Equatable { case added, exists }
+    private struct SearchInput: Equatable {
+        let paragraphs: [Policy.Paragraph]
+        let query: String?
+    }
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var systemColorScheme
@@ -1233,11 +1237,13 @@ struct SpokenWordTranscriptReader: View {
         #if os(macOS)
         .frame(minWidth: 560, minHeight: 640)
         #endif
-        .task(id: "\(lines.count)|\(lines.first?.id ?? "")|\(lines.last?.id ?? "")") {
+        .task(id: lines) {
             let cues = Self.cues(from: lines)
-            paragraphs = await Task.detached(priority: .userInitiated) {
+            let updated = await Task.detached(priority: .userInitiated) {
                 SpokenWordTranscriptReadingPolicy.paragraphs(from: cues)
             }.value
+            guard !Task.isCancelled else { return }
+            paragraphs = updated
         }
         .task {
             while !Task.isCancelled {
@@ -1251,7 +1257,7 @@ struct SpokenWordTranscriptReader: View {
             guard !Task.isCancelled else { return }
             withAnimation(.easeInOut(duration: 0.3)) { chromeVisible = false }
         }
-        .task(id: isSearching ? "\(searchText)\u{1}\(paragraphs.count)" : "") {
+        .task(id: SearchInput(paragraphs: paragraphs, query: isSearching ? searchText : nil)) {
             await runSearch()
         }
         .task(id: font) {

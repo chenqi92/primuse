@@ -4,6 +4,7 @@ import XCTest
 #if os(iOS)
 import SwiftUI
 import UIKit
+import Vision
 #endif
 @testable import Primuse
 
@@ -864,3 +865,56 @@ final class LibraryPreviewSessionTests: XCTestCase {
         }
     }
 }
+
+#if os(iOS)
+@MainActor
+final class SpokenWordTranscriptReaderRefreshTests: XCTestCase {
+    func testEditedTextAppearsWithoutChangingCueIdentity() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("TranscriptRefresh-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let suite = "TranscriptRefresh-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let library = MusicLibrary(storageDirectory: directory)
+        let player = AudioPlayerService(library: library,
+            playbackSettings: PlaybackSettingsStore(defaults: defaults),
+            playbackSessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")),
+            activateAudioSession: { _ in XCTFail("Reading text must not start playback") })
+        let size = CGSize(width: 375, height: 812)
+        func reader(_ text: String) -> some View {
+            SpokenWordTranscriptReader(lines: [LyricLine(id: "same-cue", timestamp: 0, text: text)],
+                                       title: "Transcript", player: player)
+                .defaultAppStorage(defaults)
+                .environment(AppServices.shared.themeService)
+                .frame(width: size.width, height: size.height)
+        }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let host = UIHostingController(rootView: reader("Original passage."))
+        host.safeAreaRegions = []
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(origin: .zero, size: size)
+        window.rootViewController = host
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil }
+
+        func visibleText() throws -> String {
+            host.view.layoutIfNeeded()
+            let image = UIGraphicsImageRenderer(size: size).image { _ in
+                host.view.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: true)
+            }
+            let request = VNRecognizeTextRequest()
+            request.recognitionLanguages = ["en-US"]
+            request.usesLanguageCorrection = false
+            try VNImageRequestHandler(cgImage: XCTUnwrap(image.cgImage)).perform([request])
+            return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
+        }
+        try await Task.sleep(for: .milliseconds(700))
+        XCTAssertTrue(try visibleText().contains("Original passage"))
+        host.rootView = reader("Updated passage.")
+        try await Task.sleep(for: .milliseconds(700))
+        let updated = try visibleText()
+        XCTAssertTrue(updated.contains("Updated passage"), updated)
+        XCTAssertFalse(updated.contains("Original passage"), updated)
+    }
+}
+#endif

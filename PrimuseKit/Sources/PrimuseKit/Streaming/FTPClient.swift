@@ -201,6 +201,7 @@ final class FTPStreamConnection: NSObject, StreamDelegate, @unchecked Sendable {
     private var openWaiter: CheckedContinuation<Void, Error>?
     private var readWaiter: CheckedContinuation<Data, Error>?
     private var writeWaiter: (data: Data, offset: Int, continuation: CheckedContinuation<Void, Error>)?
+    private var tlsCloseWaiter: CheckedContinuation<Void, Error>?
 
     private init(input: InputStream, output: OutputStream) {
         self.input = input
@@ -371,6 +372,34 @@ final class FTPStreamConnection: NSObject, StreamDelegate, @unchecked Sendable {
         }
     }
 
+    /// STOR 的数据通道必须先送出 TLS close_notify，严格校验关闭握手的服务器才会确认上传。
+    func finishTLSWriting(timeout: TimeInterval) async throws {
+        try await waitWithTimeout(timeout, stage: "TLS data shutdown") { continuation, _ in
+            self.tlsCloseWaiter = continuation
+            self.continueTLSClosing()
+        }
+    }
+
+    private func continueTLSClosing() {
+        guard let waiter = tlsCloseWaiter else { return }
+        guard let context = sslContext else {
+            shutDown(with: .connectionFailed("missing TLS context during data shutdown"))
+            return
+        }
+        let status = SSLClose(context)
+        if status == errSSLWouldBlock {
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.01) {
+                self.thread.perform { self.continueTLSClosing() }
+            }
+        } else if status == errSecSuccess || status == errSSLClosedGraceful {
+            tlsCloseWaiter = nil
+            waiterToken += 1
+            waiter.resume()
+        } else {
+            shutDown(with: .connectionFailed("TLS data shutdown failed (\(status))"))
+        }
+    }
+
     // MARK: Waiting
 
     private func waitWithTimeout<T: Sendable>(
@@ -402,7 +431,7 @@ final class FTPStreamConnection: NSObject, StreamDelegate, @unchecked Sendable {
     }
 
     private func timeOut(stage: String) {
-        guard openWaiter != nil || readWaiter != nil || writeWaiter != nil else { return }
+        guard openWaiter != nil || readWaiter != nil || writeWaiter != nil || tlsCloseWaiter != nil else { return }
         shutDown(with: .timedOut(stage))
     }
 
@@ -420,6 +449,10 @@ final class FTPStreamConnection: NSObject, StreamDelegate, @unchecked Sendable {
         if let writeWaiter {
             self.writeWaiter = nil
             writeWaiter.continuation.resume(throwing: reason)
+        }
+        if let tlsCloseWaiter {
+            self.tlsCloseWaiter = nil
+            tlsCloseWaiter.resume(throwing: reason)
         }
         guard !isClosed else { return }
         isClosed = true
@@ -932,6 +965,9 @@ public actor FTPSession {
             guard let connection = dataConnection else { throw FTPClientError.dataConnectionFailed("no data connection") }
             if usesTLS { await connection.startTLS(dataTLSOptions) }
             let reachedEnd = try await body(connection)
+            if usesTLS, verb == "STOR", reachedEnd {
+                try await connection.finishTLSWriting(timeout: configuration.dataTimeout)
+            }
             connection.close()
             dataConnection = nil
             if !reachedEnd, abortsEarly {
