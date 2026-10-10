@@ -541,7 +541,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 onto: baseURL,
                 pathMarkers: ["/Items/"],
                 removingQueryItemsNamed: ["api_key", "ApiKey", "X-Emby-Token"],
-                addingQueryItems: [URLQueryItem(name: tokenQueryName, value: accessToken)]
+                addingQueryItems: tokenQueryItems
             )
         case .plex:
             return SourceConnectionURLRewriter.rebasedURL(
@@ -763,9 +763,10 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         plog("🗑️ Media server item deleted: \(itemID)")
     }
 
-    /// 取流、转码与封面地址里放令牌的参数名:Jellyfin 12 起只认 `ApiKey`,Emby 只认 `api_key`。
-    private var tokenQueryName: String {
-        MediaServerStreamResolver.tokenQueryName(emby: kind == .emby)
+    /// 取流、转码与封面地址里带的令牌:Jellyfin 新旧版本认的参数名不同,两个都带;Emby 只带 `api_key`。
+    private var tokenQueryItems: [URLQueryItem] {
+        MediaServerStreamResolver.tokenQueryNames(emby: kind == .emby)
+            .map { URLQueryItem(name: $0, value: accessToken) }
     }
 
     private func playbackURL(for itemID: String) async throws -> URL {
@@ -780,8 +781,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 path: "/Audio/\(itemID)/stream",
                 queryItems: [
                     URLQueryItem(name: "Static", value: "true"),
-                    URLQueryItem(name: tokenQueryName, value: accessToken)
-                ]
+                ] + tokenQueryItems
             )
         }
     }
@@ -807,7 +807,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 URLQueryItem(name: "AudioCodec", value: "mp3"),
                 URLQueryItem(name: "Container", value: "mp3"),
                 URLQueryItem(name: "AudioBitrate", value: String(bitRateKbps * 1000)),
-                URLQueryItem(name: tokenQueryName, value: accessToken),
+            ] + tokenQueryItems + [
                 URLQueryItem(name: SourceStreamQuery.transcoded, value: "1"),
                 URLQueryItem(name: SourceStreamQuery.adaptive, value: "1")
             ]
@@ -824,8 +824,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 URLQueryItem(name: "Static", value: "false"),
                 URLQueryItem(name: "AudioCodec", value: "mp3"),
                 URLQueryItem(name: "Container", value: "mp3"),
-                URLQueryItem(name: tokenQueryName, value: accessToken)
-            ]
+            ] + tokenQueryItems
         )
     }
 
@@ -4066,8 +4065,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                     URLQueryItem(name: "maxWidth", value: "480"),
                     URLQueryItem(name: "format", value: "png"),
                     URLQueryItem(name: "tag", value: albumPrimaryImageTag),
-                    URLQueryItem(name: tokenQueryName, value: accessToken)
-                ]
+                ] + tokenQueryItems
             )
         }
 
@@ -4077,8 +4075,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 queryItems: [
                     URLQueryItem(name: "maxWidth", value: "480"),
                     URLQueryItem(name: "format", value: "png"),
-                    URLQueryItem(name: tokenQueryName, value: accessToken)
-                ]
+                ] + tokenQueryItems
             )
         }
 

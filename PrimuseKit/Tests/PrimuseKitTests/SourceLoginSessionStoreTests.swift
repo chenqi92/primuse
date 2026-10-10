@@ -175,7 +175,7 @@ struct MediaServerSharedLoginTests {
 
         let first = try await playback.streamURL(for: song, source: source, credential: credential)
         let adopted = try await other.streamURL(for: song, source: source, credential: credential)
-        #expect(first.absoluteString.contains("ApiKey=token-1"))
+        #expect(first.absoluteString.contains("ApiKey=token-1&api_key=token-1"))
         #expect(adopted.absoluteString.contains("ApiKey=token-1"))
         #expect(MediaLoginURLProtocol.logins(host: host).count == 1)
 

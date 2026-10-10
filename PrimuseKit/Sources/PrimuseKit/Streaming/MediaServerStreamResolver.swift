@@ -4,7 +4,7 @@ import Foundation
 ///
 /// - Jellyfin/Emby:用户名+密码登录(/Users/AuthenticateByName)拿 AccessToken,
 ///   或直接使用 API key；音频流地址为
-///   `/Audio/{itemId}/stream?Static=true&ApiKey={token}`(Emby 是 `api_key`)。
+///   `/Audio/{itemId}/stream?Static=true&ApiKey={token}&api_key={token}`(Emby 只带 `api_key`)。
 /// - Plex:token 即 secret(无需登录),需先取 /library/metadata/{ratingKey} 拿到
 ///   partKey,再拼 `{partKey}?X-Plex-Token={token}`。
 ///
@@ -208,10 +208,11 @@ public actor MediaServerStreamResolver: StreamResolver {
         return id.isEmpty ? nil : id
     }
 
-    /// 取流、封面地址里放令牌的查询参数名。Jellyfin 12 起默认关掉旧式认证,`api_key` 会被忽略,
-    /// 只认 `ApiKey`(10.8 起就支持);Emby 只认 `api_key`。
-    public static func tokenQueryName(emby: Bool) -> String {
-        emby ? "api_key" : "ApiKey"
+    /// 取流、封面地址里放令牌的查询参数名。Jellyfin 12 起默认关掉旧式认证,只认 `ApiKey`,
+    /// 同时带着的 `api_key` 只是被忽略、不会被拒;更早的版本认 `api_key`。两个都带,新旧服务器都能用。
+    /// Emby 只认 `api_key`。
+    public static func tokenQueryNames(emby: Bool) -> [String] {
+        emby ? ["api_key"] : ["ApiKey", "api_key"]
     }
 
     static func jellyfinStreamURL(base: URL, itemID: String, token: String, emby: Bool) -> URL? {
@@ -219,8 +220,8 @@ public actor MediaServerStreamResolver: StreamResolver {
             url: ProxyPrefixedBasePathPolicy.appending("Audio/\(itemID)/stream", to: base),
             resolvingAgainstBaseURL: false
         ) else { return nil }
-        comp.queryItems = [URLQueryItem(name: "Static", value: "true"),
-                           URLQueryItem(name: tokenQueryName(emby: emby), value: token)]
+        comp.queryItems = [URLQueryItem(name: "Static", value: "true")]
+            + tokenQueryNames(emby: emby).map { URLQueryItem(name: $0, value: token) }
         return FormSafeQueryURLBuilder.url(from: comp)
     }
 
@@ -233,8 +234,7 @@ public actor MediaServerStreamResolver: StreamResolver {
             URLQueryItem(name: "Static", value: "false"),
             URLQueryItem(name: "AudioCodec", value: "mp3"),
             URLQueryItem(name: "Container", value: "mp3"),
-            URLQueryItem(name: tokenQueryName(emby: emby), value: token)
-        ]
+        ] + tokenQueryNames(emby: emby).map { URLQueryItem(name: $0, value: token) }
         return FormSafeQueryURLBuilder.url(from: comp)
     }
 
