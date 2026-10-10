@@ -227,6 +227,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         }
 
         var completedRetryAttempts = 0
+        var completedRateLimitWaits = 0
         while true {
             do {
                 return try await listFilesUsingTrustedTransport(at: path)
@@ -234,6 +235,19 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
                 if OperationCancellationPolicy.isCancellation(error) {
                     resetDirectorySession()
                     throw CancellationError()
+                }
+
+                // 限流不是连接坏了: 不断开重连, 按服务端的节奏等一等再列同一个目录。
+                // 等完还被限流就原样抛出, ConnectorScanner 据此停下这一轮扫描。
+                if let status = error as? RemoteDirectoryHTTPStatusError, status.isRateLimited {
+                    guard let delay = RemoteDirectoryRateLimitPolicy.delay(
+                        completedWaits: completedRateLimitWaits,
+                        retryAfter: status.retryAfter
+                    ) else { throw status }
+                    completedRateLimitWaits += 1
+                    plog("⏳ WebDAV directory listing rate limited (HTTP \(status.statusCode)); retrying \(path) in \(Int(delay))s")
+                    try await Task.sleep(for: .seconds(delay))
+                    continue
                 }
 
                 let outcome: RemoteDirectoryListingOutcome = RemoteDirectoryTransportErrorPolicy
@@ -1523,7 +1537,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         guard http.statusCode == 207 || (200...299).contains(http.statusCode) else {
             throw RemoteDirectoryHTTPStatusError(
                 service: "WebDAV",
-                statusCode: http.statusCode
+                statusCode: http.statusCode,
+                retryAfter: RemoteMediaHTTPError.retryDelay(from: http)
             )
         }
 

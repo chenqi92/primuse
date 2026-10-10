@@ -429,6 +429,40 @@ final class FolderPlaylistTests: XCTestCase {
         )
     }
 
+    /// Yandex Disk 一阵 PROPFIND 之后对列目录回 429: 连接器等过 Retry-After 仍被限流时,
+    /// 扫描要停下并把没列的目录全部留给续扫, 而不是逐个撞成失败。503 仍按单个目录失败处理。
+    func testRateLimitedListingStopsTheWalkAndKeepsRemainingDirectoriesForResume() async throws {
+        let children = ["A", "B", "C", "D"].map {
+            RemoteFileItem(name: $0, path: "/Music/\($0)", isDirectory: true, size: 0, modifiedDate: nil)
+        }
+        for statusCode in [429, 503] {
+            let connector = RateLimitedListingTestConnector(
+                listings: ["/Music": children],
+                failingPath: "/Music/B",
+                statusCode: statusCode
+            )
+            let scanner = ConnectorScanner(connector: connector, sourceID: "source")
+            var final: ConnectorScanner.ScanUpdate?
+            do {
+                for try await update in await scanner.scan(directories: ["/Music"]) {
+                    final = update
+                }
+                XCTFail("A failed directory must surface as a scan failure")
+            } catch let error as RemoteDirectoryHTTPStatusError {
+                XCTAssertEqual(error.statusCode, statusCode)
+            }
+            let listed = await connector.listedPaths
+            let pending = Set(try XCTUnwrap(final?.resumeState?.pendingDirectories))
+            if statusCode == 429 {
+                XCTAssertEqual(listed, ["/Music", "/Music/A", "/Music/B"])
+                XCTAssertEqual(pending, ["/Music/B", "/Music/C", "/Music/D"])
+            } else {
+                XCTAssertEqual(listed, ["/Music", "/Music/A", "/Music/B", "/Music/C", "/Music/D"])
+                XCTAssertEqual(pending, ["/Music/B"])
+            }
+        }
+    }
+
     private struct DirectoryScanFixture {
         let source: MusicSource
         let connector: FolderPlaylistTestConnector
@@ -522,6 +556,34 @@ private actor FolderRescanTestConnector: MusicSourceConnector {
         listedPaths.append(path)
         guard let items = listings[path] else { throw SourceError.pathNotFound(path) }
         return items
+    }
+    func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
+        .init { $0.finish() }
+    }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
+        .init { $0.finish() }
+    }
+}
+
+private actor RateLimitedListingTestConnector: MusicSourceConnector {
+    let sourceID = "source"
+    let listings: [String: [RemoteFileItem]]
+    let failingPath: String
+    let statusCode: Int
+    private(set) var listedPaths: [String] = []
+
+    init(listings: [String: [RemoteFileItem]], failingPath: String, statusCode: Int) {
+        self.listings = listings; self.failingPath = failingPath; self.statusCode = statusCode
+    }
+    func connect() async throws { }
+    func disconnect() async { }
+    func listFiles(at path: String) async throws -> [RemoteFileItem] {
+        listedPaths.append(path)
+        if path == failingPath {
+            throw RemoteDirectoryHTTPStatusError(service: "WebDAV", statusCode: statusCode)
+        }
+        return listings[path] ?? []
     }
     func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {

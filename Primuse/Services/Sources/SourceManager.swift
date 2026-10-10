@@ -4575,6 +4575,10 @@ final class SourceManager {
             }
         }
 
+        if let status = error as? RemoteDirectoryHTTPStatusError, status.isRateLimited {
+            return Self.advice(for: CloudDriveError.rateLimited, source: source)
+        }
+
         if let sourceError = error as? SourceError {
             switch sourceError {
             case .authenticationFailed:

@@ -167,6 +167,7 @@ actor S3Source: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
 
     private func loadListPage(url: URL, prefix: String) async throws -> S3ListPage {
         var completedRetryAttempts = 0
+        var completedRateLimitWaits = 0
 
         while true {
             do {
@@ -186,13 +187,26 @@ actor S3Source: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
                 default:
                     throw RemoteDirectoryHTTPStatusError(
                         service: "S3",
-                        statusCode: http.statusCode
+                        statusCode: http.statusCode,
+                        retryAfter: RemoteMediaHTTPError.retryDelay(from: http)
                     )
                 }
             } catch {
                 if OperationCancellationPolicy.isCancellation(error) {
                     resetDirectorySession()
                     throw CancellationError()
+                }
+
+                // 和 WebDAV 一样: 限流时不断开重连, 等一等再列这一页(每次都重新签名)。
+                if let status = error as? RemoteDirectoryHTTPStatusError, status.isRateLimited {
+                    guard let delay = RemoteDirectoryRateLimitPolicy.delay(
+                        completedWaits: completedRateLimitWaits,
+                        retryAfter: status.retryAfter
+                    ) else { throw status }
+                    completedRateLimitWaits += 1
+                    plog("⏳ S3 directory listing rate limited (HTTP \(status.statusCode)); retrying in \(Int(delay))s")
+                    try await Task.sleep(for: .seconds(delay))
+                    continue
                 }
 
                 let outcome: RemoteDirectoryListingOutcome = RemoteDirectoryTransportErrorPolicy

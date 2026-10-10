@@ -701,6 +701,8 @@ actor ConnectorScanner {
                     }
                     var visitedDirectories: Set<String> = []
                     var failedDirectories: [String] = []
+                    // 等过 Retry-After 仍被限流时停下这一轮: 再往下列只会把剩下的目录全撞成失败。
+                    var rateLimitStopError: Error?
 
                     continuation.yield(
                         ScanUpdate(
@@ -719,7 +721,7 @@ actor ConnectorScanner {
                         )
                     )
 
-                    while let directory = pendingDirectories.popLast() {
+                    directoryWalk: while let directory = pendingDirectories.popLast() {
                         pendingSet.remove(directory)
                         guard visitedDirectories.insert(directory).inserted else { continue }
                         try Task.checkCancellation()
@@ -1189,11 +1191,16 @@ actor ConnectorScanner {
                                     )
                                 )
                             )
+                            if let status = error as? RemoteDirectoryHTTPStatusError, status.isRateLimited {
+                                rateLimitStopError = status
+                                plog("⏸ \(status.service) keeps rate limiting directory listings; stopping with \(pendingDirectories.count + failedDirectories.count) directories left for Continue Scan")
+                                break directoryWalk
+                            }
                         }
                     }
 
-                    if successfulDirectoryCount == 0, let firstDirectoryError {
-                        throw firstDirectoryError
+                    if successfulDirectoryCount == 0, let stopError = rateLimitStopError ?? firstDirectoryError {
+                        throw stopError
                     }
 
                     if connector is any StableProviderSongIdentityConnector {
@@ -1238,14 +1245,14 @@ actor ConnectorScanner {
                             currentFile: "",
                             songs: allSongs,
                             resumeState: SourceScanResumeState(
-                                pendingDirectories: failedDirectories,
+                                pendingDirectories: pendingDirectories + failedDirectories,
                                 encounteredSongIDs: encounteredSongIDs,
                                 index: syncIndex
                             )
                         )
                     )
-                    if let firstDirectoryError {
-                        continuation.finish(throwing: firstDirectoryError)
+                    if let stopError = rateLimitStopError ?? firstDirectoryError {
+                        continuation.finish(throwing: stopError)
                     } else {
                         continuation.finish()
                     }

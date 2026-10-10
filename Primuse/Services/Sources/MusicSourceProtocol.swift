@@ -895,6 +895,18 @@ protocol DestructiveDirectoryListingConfirmingConnector: MusicSourceConnector {
 struct RemoteDirectoryHTTPStatusError: Error, LocalizedError, Sendable {
     let service: String
     let statusCode: Int
+    /// 服务端 Retry-After 要求等的秒数。
+    let retryAfter: TimeInterval?
+
+    init(service: String, statusCode: Int, retryAfter: TimeInterval? = nil) {
+        self.service = service
+        self.statusCode = statusCode
+        self.retryAfter = retryAfter
+    }
+
+    var isRateLimited: Bool {
+        RemoteDirectoryRateLimitPolicy.isRateLimited(statusCode: statusCode)
+    }
 
     var errorDescription: String? {
         PMString("error.remoteDirectory.http", service, String(statusCode))
