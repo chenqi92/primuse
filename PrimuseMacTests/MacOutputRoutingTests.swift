@@ -135,10 +135,10 @@ final class MacOutputRoutingTests: XCTestCase {
         let observer = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange, object: nil, queue: nil
         ) { [weak engine] notification in
-            let source = ConfigurationNotificationSource(engine: notification.object as? AVAudioEngine)
+            let graph = AudioEngineGraphRegistry.shared.token(forNotificationObject: notification.object)
             Task { @MainActor in
                 guard let engine, recovery.isActive,
-                      engine.ownsConfigurationChange(from: source.engine.map(ObjectIdentifier.init)) else { return }
+                      engine.ownsConfigurationChange(from: graph) else { return }
                 recovery.count += 1
                 guard recovery.count <= 4 else { return }
                 engine.stopPlayback()
@@ -177,10 +177,6 @@ final class MacOutputRoutingTests: XCTestCase {
                 print("Configuration recovery settled: \(device.name), mode=\(mode), notifications=\(recovery.count)")
             }
         }
-    }
-
-    private struct ConfigurationNotificationSource: @unchecked Sendable {
-        let engine: AVAudioEngine?
     }
 
     @MainActor

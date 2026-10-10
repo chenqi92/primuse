@@ -2303,10 +2303,10 @@ final class AudioPlayerService {
             self.resumeAfterAuthorizedInterruption(source: "system-ended")
         }
 
-        manager.onConfigurationChange = { [weak self] configurationChangeTime, engineID in
+        manager.onConfigurationChange = { [weak self] configurationChangeTime, engineGraph in
             guard let self, self.currentSong != nil else { return }
             #if os(macOS)
-            guard self.audioEngine.ownsConfigurationChange(from: engineID) else { return }
+            guard self.audioEngine.ownsConfigurationChange(from: engineGraph) else { return }
             if let configuration = self.outputPipelineConfiguration,
                configuration.playID == self.playID {
                 // The in-flight configuration will rebuild using the settled

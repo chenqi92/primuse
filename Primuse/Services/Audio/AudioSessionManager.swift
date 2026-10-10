@@ -2,14 +2,6 @@ import AVFoundation
 import Foundation
 import PrimuseKit
 
-/// Retain the sender until the queued callback has been handled. An identifier
-/// alone can be reused after the old graph is deallocated. The engine is never
-/// read or mutated across actors here; only its identity is inspected.
-private struct AudioEngineNotificationSource: @unchecked Sendable {
-    let engine: AVAudioEngine?
-    var identifier: ObjectIdentifier? { engine.map(ObjectIdentifier.init) }
-}
-
 @MainActor
 final class AudioSessionManager {
     static let shared = AudioSessionManager()
@@ -21,7 +13,8 @@ final class AudioSessionManager {
     /// cleared instead of being revived by a later lifecycle callback.
     var onInterruptionEnded: ((Bool) -> Void)?
     /// Called when the audio engine's hardware configuration changes (route change, etc.)
-    var onConfigurationChange: ((Date, ObjectIdentifier?) -> Void)?
+    /// 第二个参数是发出通知的那张输出图的编号；别的引擎或已经换掉的图发的为 nil。
+    var onConfigurationChange: ((Date, AudioEngineGraphToken?) -> Void)?
 
     private var isConfigured = false
     /// 卡拉OK麦克风开着时会话要能录音; 其余时候一律回到长音频播放。
@@ -283,10 +276,11 @@ final class AudioSessionManager {
         // 调本方法; @MainActor 方法入口的 executor 断言会 trap(iOS 26 默认 fatal)。
         // 标 nonisolated 让入口任意线程, 内部 Task 再 hop 回主线程访问 @MainActor 状态。
         let eventTime = Date()
-        let source = AudioEngineNotificationSource(engine: notification.object as? AVAudioEngine)
+        // 发出时引擎可能正在释放，只能在这里当场换成编号，不能把引擎带进 Task。
+        let graph = AudioEngineGraphRegistry.shared.token(forNotificationObject: notification.object)
         Task { @MainActor [weak self] in
             plog("🔧 Audio engine configuration changed")
-            self?.onConfigurationChange?(eventTime, source.identifier)
+            self?.onConfigurationChange?(eventTime, graph)
         }
     }
 
@@ -311,10 +305,11 @@ final class AudioSessionManager {
 
     @objc private nonisolated func handleConfigurationChange(_ notification: Notification) {
         let eventTime = Date()
-        let source = AudioEngineNotificationSource(engine: notification.object as? AVAudioEngine)
+        // 发出时引擎可能正在释放，只能在这里当场换成编号，不能把引擎带进 Task。
+        let graph = AudioEngineGraphRegistry.shared.token(forNotificationObject: notification.object)
         Task { @MainActor [weak self] in
             plog("🔧 Audio engine configuration changed")
-            self?.onConfigurationChange?(eventTime, source.identifier)
+            self?.onConfigurationChange?(eventTime, graph)
         }
     }
 

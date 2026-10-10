@@ -194,6 +194,48 @@ final class PlayerNodeRegistry: @unchecked Sendable {
     }
 }
 
+/// 输出图引擎的编号，配置变化通知靠它认出是哪张图发的。编号只增不复用：
+/// 旧图释放后新图分到同一个地址，也不会被当成旧图。
+struct AudioEngineGraphToken: Equatable, Sendable {
+    fileprivate let generation: UInt64
+}
+
+/// `AVAudioEngineConfigurationChange` 在 Core Audio 自己的线程上发出。换输出设备、
+/// 改采样率时，旧引擎可能正释放到一半，这时取到的强引用并不能让它多活；回调要是把
+/// 引擎带进 Task、过后再释放，释放的就是已经销毁的对象（1.11.3(99) Mac 闪退）。
+/// 所以回调只在发出线程上当场把引擎换成编号，之后只传编号。
+final class AudioEngineGraphRegistry: @unchecked Sendable {
+    static let shared = AudioEngineGraphRegistry()
+
+    private let lock = NSLock()
+    private var nextGeneration: UInt64 = 1
+    private var liveGraphs: [ObjectIdentifier: UInt64] = [:]
+
+    func register(_ engine: AVAudioEngine) -> AudioEngineGraphToken {
+        lock.lock()
+        defer { lock.unlock() }
+        let generation = nextGeneration
+        nextGeneration += 1
+        liveGraphs[ObjectIdentifier(engine)] = generation
+        return AudioEngineGraphToken(generation: generation)
+    }
+
+    func unregister(_ engine: AVAudioEngine) {
+        lock.lock()
+        defer { lock.unlock() }
+        liveGraphs.removeValue(forKey: ObjectIdentifier(engine))
+    }
+
+    /// 只在通知回调里同步调用：不留 `object` 的引用，也不把它交给别的线程。
+    func token(forNotificationObject object: Any?) -> AudioEngineGraphToken? {
+        guard let object else { return nil }
+        let identifier = ObjectIdentifier(object as AnyObject)
+        lock.lock()
+        defer { lock.unlock() }
+        return liveGraphs[identifier].map(AudioEngineGraphToken.init(generation:))
+    }
+}
+
 @MainActor
 @Observable
 final class AudioEngine {
@@ -235,7 +277,15 @@ final class AudioEngine {
     /// 暂停、停下或换歌后多久放掉独占：换歌通常在这之内就重新出声，不必来回拿放。
     private static let exclusiveOutputIdleReleaseDelay: Duration = .seconds(2)
     #endif
-    private var engine: AVAudioEngine?
+    private var engine: AVAudioEngine? {
+        didSet {
+            guard engine !== oldValue else { return }
+            if let oldValue { AudioEngineGraphRegistry.shared.unregister(oldValue) }
+            engineGraphToken = engine.map { AudioEngineGraphRegistry.shared.register($0) }
+        }
+    }
+    /// 当前图在 `AudioEngineGraphRegistry` 里的编号。
+    @ObservationIgnored private var engineGraphToken: AudioEngineGraphToken?
     private var playerNode: AVAudioPlayerNode?
     private var crossfadePlayerNode: AVAudioPlayerNode?
     private var playerMixer: AVAudioMixerNode?  // Mixes the spatial output before EQ
@@ -874,9 +924,9 @@ final class AudioEngine {
     #if os(macOS)
     /// Notifications queued by a graph that has already been replaced must
     /// not stop its successor or seek the newly selected song.
-    func ownsConfigurationChange(from engineID: ObjectIdentifier?) -> Bool {
-        guard let engine, let engineID else { return false }
-        return ObjectIdentifier(engine) == engineID
+    func ownsConfigurationChange(from graph: AudioEngineGraphToken?) -> Bool {
+        guard engine != nil, let graph else { return false }
+        return graph == engineGraphToken
     }
 
     private var hardwareOutputDeviceID: AudioDeviceID? {
