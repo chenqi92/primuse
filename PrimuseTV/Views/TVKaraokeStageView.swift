@@ -37,11 +37,19 @@ struct TVKaraokeStageContent: View {
     @Bindable var session: TVKaraokeSession
     @Environment(\.dismiss) private var dismiss
     @State private var showsMicrophone = false
+    /// 进页落在播放键上;−/+ 调到头变成不可用时由这里把焦点交给同一行另一颗。
+    @Namespace private var stageFocus
+    @FocusState private var focusedControl: String?
     private var store: TVStore { session.store }
+
+    private static let playPauseFocusID = "playPause"
 
     var body: some View {
         VStack(spacing: 28) {
+            // 关闭键在左上角、控件在右栏, 上下左右都不在一条线上;
+            // 两块各自是焦点区, 遥控器才能在两者之间来回。
             header
+                .focusSection()
             HStack(spacing: 64) {
                 VStack(spacing: 28) {
                     Spacer(minLength: 0)
@@ -60,7 +68,10 @@ struct TVKaraokeStageContent: View {
                 .frame(width: 520)
                 .focusSection()
             }
+            .focusSection()
         }
+        // 结算卡片盖在上面时焦点只留给卡片上的「完成」。
+        .disabled(session.completedSummary != nil)
         .padding(.horizontal, 80)
         .padding(.vertical, 54)
         .background(.black.opacity(0.35))
@@ -79,6 +90,7 @@ struct TVKaraokeStageContent: View {
                 TVKaraokeResultCard(summary: summary) { session.completedSummary = nil }
             }
         }
+        .focusScope(stageFocus)
     }
 
     private var header: some View {
@@ -154,22 +166,24 @@ struct TVKaraokeStageContent: View {
             HStack(spacing: 26) {
                 stepButton(systemImage: "backward.end.fill", label: "a11y_previous_track", enabled: true) { store.previous() }
                 stepButton(systemImage: store.isPlaying ? "pause.fill" : "play.fill",
-                           label: store.isPlaying ? "pause" : "play", enabled: true) { store.togglePlayPause() }
+                           label: store.isPlaying ? "pause" : "play", enabled: true,
+                           focusID: Self.playPauseFocusID) { store.togglePlayPause() }
+                    .prefersDefaultFocus(true, in: stageFocus)
                 stepButton(systemImage: "forward.end.fill", label: "a11y_next_track", enabled: true) { store.next() }
             }
             .frame(maxWidth: .infinity)
             VStack(spacing: 22) {
-                adjustment("karaoke_vocals", value: session.vocalLevel.formatted(.percent.precision(.fractionLength(0))),
+                adjustment("karaoke_vocals", id: "vocals", value: session.vocalLevel.formatted(.percent.precision(.fractionLength(0))),
                            downLabel: "karaoke_vocals", upLabel: "karaoke_vocals",
                            canDown: session.isVocalReductionAvailable && !session.isPlayingInstrumental && session.vocalLevel > 0,
                            canUp: session.isVocalReductionAvailable && !session.isPlayingInstrumental && session.vocalLevel < 1,
                            down: { session.vocalLevel -= 0.1 }, up: { session.vocalLevel += 0.1 })
-                adjustment("karaoke_key", value: session.keyShift == 0 ? String(localized: "karaoke_key_original") : String(format: "%+d", session.keyShift),
+                adjustment("karaoke_key", id: "key", value: session.keyShift == 0 ? String(localized: "karaoke_key_original") : String(format: "%+d", session.keyShift),
                            downLabel: "karaoke_key_down", upLabel: "karaoke_key_up",
                            canDown: session.isVocalReductionAvailable && session.keyShift > KaraokeKeyShiftPolicy.range.lowerBound,
                            canUp: session.isVocalReductionAvailable && session.keyShift < KaraokeKeyShiftPolicy.range.upperBound,
                            down: { session.keyShift -= 1 }, up: { session.keyShift += 1 })
-                adjustment("karaoke_speed", value: session.practiceRate == 1 ? String(localized: "karaoke_speed_normal") : String(format: "%.1f×", session.practiceRate),
+                adjustment("karaoke_speed", id: "speed", value: session.practiceRate == 1 ? String(localized: "karaoke_speed_normal") : String(format: "%.1f×", session.practiceRate),
                            downLabel: "karaoke_speed_down", upLabel: "karaoke_speed_up",
                            canDown: session.canPractice && session.practiceRate > 0.5,
                            canUp: session.canPractice && session.practiceRate < 1,
@@ -212,18 +226,28 @@ struct TVKaraokeStageContent: View {
         }
     }
 
-    private func adjustment(_ title: String.LocalizationValue, value: String,
+    /// 调到头的那颗会变成不可用, 系统会把焦点送去别处; 先交给同一行另一颗,
+    /// 两颗都不可用时回到播放键。所以 canDown / canUp 要在调完之后再读一次。
+    private func adjustment(_ title: String.LocalizationValue, id: String, value: String,
                             downLabel: String.LocalizationValue, upLabel: String.LocalizationValue,
-                            canDown: Bool, canUp: Bool,
+                            canDown: @autoclosure @escaping () -> Bool, canUp: @autoclosure @escaping () -> Bool,
                             down: @escaping () -> Void, up: @escaping () -> Void) -> some View {
-        HStack(spacing: 18) {
-            stepButton(systemImage: "minus", label: downLabel, enabled: canDown, action: down)
+        let downID = "\(id).down"
+        let upID = "\(id).up"
+        return HStack(spacing: 18) {
+            stepButton(systemImage: "minus", label: downLabel, enabled: canDown(), focusID: downID) {
+                down()
+                if !canDown() { focusedControl = canUp() ? upID : Self.playPauseFocusID }
+            }
             VStack(spacing: 4) {
                 Text(String(localized: title)).tvFont(.caption).foregroundStyle(.white.opacity(0.55))
                 Text(value).tvFont(.cardTitle).monospacedDigit()
             }
             .frame(maxWidth: .infinity)
-            stepButton(systemImage: "plus", label: upLabel, enabled: canUp, action: up)
+            stepButton(systemImage: "plus", label: upLabel, enabled: canUp(), focusID: upID) {
+                up()
+                if !canUp() { focusedControl = canDown() ? downID : Self.playPauseFocusID }
+            }
         }
     }
 
@@ -356,8 +380,10 @@ struct TVKaraokeStageContent: View {
         return nil
     }
 
-    private func stepButton(systemImage: String, label: String.LocalizationValue, enabled: Bool, action: @escaping () -> Void) -> some View {
-        TVFocusButton(radius: 36, scale: 1.08, lift: 4, action: action) { _ in
+    private func stepButton(systemImage: String, label: String.LocalizationValue, enabled: Bool,
+                            focusID: String? = nil, action: @escaping () -> Void) -> some View {
+        TVFocusButton(radius: 36, scale: 1.08, lift: 4, action: action,
+                      focusBinding: $focusedControl, focusID: focusID) { _ in
             Image(systemName: systemImage)
                 .font(.system(size: 30, weight: .bold))
                 .frame(width: 72, height: 72)
