@@ -2421,6 +2421,13 @@ protocol ServerCollectionFavoriteConnector: MusicSourceConnector {
     func setServerCollectionFavorite(kind: LibraryFavoriteKind, itemID: String, isFavorite: Bool) async throws
 }
 
+/// 目录里不带文件大小的源(Ting Reader)按路径问一次大小。离线下载要先知道大小才能按 Range
+/// 分段下、算得出要留多少空间;不知道大小的自动传输会被拒绝。
+protocol RemoteFileSizeProvidingConnector: MusicSourceConnector {
+    /// 字节数;服务端不报时为 nil。
+    func remoteFileSize(forPath path: String) async throws -> Int64?
+}
+
 /// 服务端按书收藏的有声书源(Ting Reader)。和书架上的收藏双向对账,见 `ServerBookFavoriteSyncService`。
 protocol ServerBookFavoriteConnector: MusicSourceConnector {
     /// 服务端收藏着的书(服务端书 id)。

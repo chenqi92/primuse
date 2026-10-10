@@ -573,6 +573,34 @@ public actor TingReaderServiceClient {
         throw TingReaderServiceError.authenticationFailed
     }
 
+    /// 一章音频的字节数。目录里没有,离线下载前用 HEAD 问一次;服务端不报长度时为 nil。
+    public func contentLength(trackPath: String) async throws -> Int64? {
+        guard let reference = TingReaderAPIProtocol.trackReference(from: trackPath) else { return nil }
+        let path = TingReaderAPIProtocol.streamPath(chapterID: reference.chapterID)
+        for attempt in 0...1 {
+            var request = try await authenticatedRequest(
+                path: path,
+                headers: ["Accept-Encoding": "identity", "Accept": "*/*"]
+            )
+            request.httpMethod = "HEAD"
+            let (_, response) = try await transport.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw TingReaderServiceError.invalidResponse(PMString("error.catalog.missingHTTPResponse"))
+            }
+            if http.statusCode == 401 {
+                if attempt == 0, try await recoverSession(after: request) { continue }
+                throw TingReaderServiceError.authenticationFailed
+            }
+            guard (200...299).contains(http.statusCode) else {
+                throw TingReaderServiceError.badServerResponse(http.statusCode)
+            }
+            return http.value(forHTTPHeaderField: "Content-Length")
+                .flatMap { Int64($0.trimmingCharacters(in: .whitespaces)) }
+                .flatMap { $0 > 0 ? $0 : nil }
+        }
+        throw TingReaderServiceError.authenticationFailed
+    }
+
     public func downloadTrack(trackPath: String) async throws -> URL {
         guard let reference = TingReaderAPIProtocol.trackReference(from: trackPath) else {
             throw TingReaderServiceError.invalidResponse(PMString("error.catalog.invalidTrackReference"))

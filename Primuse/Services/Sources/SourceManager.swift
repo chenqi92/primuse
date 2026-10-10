@@ -2611,11 +2611,18 @@ private struct RoutedAudiobookshelfConnector: RoutedConnectorProxy, RefreshingMe
 
 private struct RoutedTingReaderConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     ServerLibraryListingConnector, ServerCatalogChangeDetectingConnector, ServerListeningProgressConnector,
-    ServerPlaylistConnector, ServerBookFavoriteConnector {
+    ServerPlaylistConnector, ServerBookFavoriteConnector, RemoteFileSizeProvidingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
     let routedPreferredDeleteBatchSize: Int
+
+    func remoteFileSize(forPath path: String) async throws -> Int64? {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any RemoteFileSizeProvidingConnector else { return nil }
+            return try await provider.remoteFileSize(forPath: path)
+        }
+    }
 
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
         try await fetchServerPlaylists(progress: { _ in })
@@ -8950,6 +8957,13 @@ final class SourceManager {
             try await connector.connect()
             try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
 
+            // 目录里不带大小的源:先问一次,问得到就和带大小的源一样按 Range 分段下。
+            if !song.isStreamDescriptor, expectedTransferSize <= 0,
+               let sizer = connector as? any RemoteFileSizeProvidingConnector,
+               let probed = try? await sizer.remoteFileSize(forPath: song.filePath), probed > 0 {
+                expectedTransferSize = probed
+            }
+
             if song.isStreamDescriptor {
                 switch try await resolveSTRMTarget(for: song, connector: connector) {
                 case .remote(let url):
@@ -9063,7 +9077,7 @@ final class SourceManager {
                     )
                 }
             } else if (source.supportsRangeStreaming || source.type == .upnp),
-                      song.fileSize > 0 {
+                      expectedTransferSize > 0 {
                 maximumTransferBytes = try await prepareOfflineTransferCapacity(
                     expectedSize: expectedTransferSize,
                     lease: lease,
@@ -9073,7 +9087,8 @@ final class SourceManager {
                     song: song,
                     connector: connector,
                     target: target,
-                    maximumBytes: maximumTransferBytes
+                    maximumBytes: maximumTransferBytes,
+                    expectedSize: expectedTransferSize
                 )
             } else if source.type != .local,
                       source.type != .appleMusicLibrary {

@@ -482,3 +482,11 @@ extension TingReaderSource: ServerBookFavoriteConnector {
         try await client.setFavorite(bookID: bookID, isFavorite: isFavorite)
     }
 }
+
+extension TingReaderSource: RemoteFileSizeProvidingConnector {
+    func remoteFileSize(forPath path: String) async throws -> Int64? {
+        guard TingReaderAPIProtocol.trackReference(from: path) != nil else { return nil }
+        try await connect()
+        return try await client.contentLength(trackPath: path)
+    }
+}

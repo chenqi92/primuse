@@ -189,6 +189,8 @@ struct TingReaderServiceTests {
         let stats = try await client.catalogStats()
         #expect(stats.totalChapters == 3)
 
+        #expect(try await client.contentLength(trackPath: path) == 1000)
+
         let stream = try await client.resolvedStream(trackPath: path)
         #expect(stream.url.path == "/ting/api/stream/ch-1")
         #expect(stream.headers["Authorization"] == "Bearer token-1")
@@ -324,6 +326,10 @@ private actor TingReaderFixture {
             return response(url, json: TingReaderServiceTests.chaptersJSON)
         case "/api/books/gone/chapters":
             return response(url, status: 404, json: #"{"error":"NotFound"}"#)
+        case "/api/stream/ch-1" where request.httpMethod == "HEAD":
+            return (Data(), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [
+                "Content-Type": "audio/mpeg", "Content-Length": "1000",
+            ])!)
         case "/api/stream/ch-1":
             return (Data([0x49, 0x44]), HTTPURLResponse(url: url, statusCode: 206, httpVersion: nil, headerFields: [
                 "Content-Type": "audio/mpeg", "Content-Length": "2", "Content-Range": "bytes 0-1/1000",
