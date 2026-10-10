@@ -4840,7 +4840,7 @@ final class TVStore {
         rereadAllTagsProgress = nil
     }
 
-    /// 整库型来源(飞牛 / 刀里鱼 / Songloft / 媒体服务器 / Subsonic 系)的扫描:
+    /// 整库型来源(飞牛 / 道理鱼 / Songloft / 媒体服务器 / Subsonic 系)的扫描:
     /// 没有目录可选,dirs 传空,由扫描器整体拉取服务端曲库。
     func runServerCatalogScan(source: MusicSource, rereadMetadata: Bool = false) async -> Bool {
         guard TVScanAdmissionPolicy.canStart(
@@ -7185,7 +7185,7 @@ extension TVNowPlaying {
 
 // MARK: - 服务器曲库变化检查
 
-/// 电视自己扫过的整库型服务器源(媒体服务器、Subsonic 系、飞牛、刀里鱼、Songloft、
+/// 电视自己扫过的整库型服务器源(媒体服务器、Subsonic 系、飞牛、道理鱼、Songloft、
 /// 群晖 Audio Station)有没有变:和手机同一套一两个小请求,变了才整源重扫。
 /// 手机同步来的源不在此列 —— 它们的曲库跟着手机的快照走。
 private struct TVServerCatalogMarker: Codable, Sendable {
