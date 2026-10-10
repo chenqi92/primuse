@@ -81,6 +81,12 @@ public struct PlaybackState: Codable, Sendable {
 
     public var isSpokenWord: Bool { spokenWord != nil && !isLiveStream }
 
+    /// The station actually playing — not one selected but stopped, nor one
+    /// still connecting. Widgets mark it the way the app's radio page does.
+    public var playingRadioStationID: String? {
+        isLiveStream && isPlaying ? radioStationID : nil
+    }
+
     public static func load() -> PlaybackState? {
         guard let defaults = UserDefaults(suiteName: PrimuseConstants.appGroupIdentifier),
               let data = defaults.data(forKey: PrimuseConstants.playbackStateKey) else {

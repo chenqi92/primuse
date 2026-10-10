@@ -6,6 +6,8 @@ struct ListeningWidgetEntry: TimelineEntry {
     let date: Date
     let kind: ListeningWidgetKind
     let snapshot: ListeningWidgetSnapshot
+    /// 电台小组件里正在播的那个台, 跟 App 电台页一样标出来。
+    var playingStationID: String? = nil
 }
 
 struct ListeningWidgetProvider: TimelineProvider {
@@ -20,7 +22,16 @@ struct ListeningWidgetProvider: TimelineProvider {
         completion(Timeline(entries: [current], policy: next))
     }
     private var current: ListeningWidgetEntry {
-        .init(date: Date(), kind: kind, snapshot: kind.load() ?? .init(items: []))
+        .init(date: Date(), kind: kind, snapshot: kind.load() ?? .init(items: []),
+              playingStationID: kind == .radio ? Self.playingStationID() : nil)
+    }
+
+    /// 电台起播、停下、切台时播放器把台的 id 连同播放状态写进 App Group 并刷新全部小组件,
+    /// 这里照着读。关掉「正在播放」的数据同步时播放状态不外传, 也就不标。
+    private static func playingStationID() -> String? {
+        guard WidgetSettings.syncEnabled(),
+              WidgetSettings.widgetEnabled(PrimuseConstants.widgetNowPlayingEnabledKey) else { return nil }
+        return PlaybackState.load()?.playingRadioStationID
     }
     private var preview: ListeningWidgetEntry {
         let titles = kind.playsEpisodes ? ["The Art of Listening", "A Little Curiosity", "Slow Mornings"] : ["Jazz Radio", "Classical", "Late Night"]
@@ -112,10 +123,11 @@ struct ListeningWidgetView: View {
                             HStack(alignment: .top) {
                                 artwork(first, side: 48)
                                 Spacer(minLength: 0)
-                                playIcon
+                                playIcon(first)
                             }
                             Spacer(minLength: 0)
                             metadata(first, titleSize: 15, lines: 2)
+                            if isPlaying(first) { liveLine(first) }
                             progress(first)
                         }
                     }
@@ -165,7 +177,7 @@ struct ListeningWidgetView: View {
                 Label(title, systemImage: symbol)
                     .font(.system(size: 11, weight: .semibold)).foregroundStyle(tint).widgetAccentable()
                 Spacer(minLength: 0)
-                playIcon
+                playIcon(item)
             }
             Group {
                 if entry.kind == .radio {
@@ -179,6 +191,7 @@ struct ListeningWidgetView: View {
             .frame(maxWidth: .infinity)
             Spacer(minLength: 0)
             metadata(item, titleSize: 20, lines: 2)
+            if isPlaying(item) { liveLine(item) }
             progress(item)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -207,7 +220,7 @@ struct ListeningWidgetView: View {
                 HStack(spacing: 12) {
                     progress(item)
                     Spacer(minLength: 0)
-                    playIcon
+                    playIcon(item)
                 }
             }
             .widgetBounds(geometry.size)
@@ -223,14 +236,16 @@ struct ListeningWidgetView: View {
                 } else {
                     artwork(item, side: side)
                 }
-                playIcon
+                playIcon(item)
                     .background(playIconBackdrop, in: .circle)
                     .overlay { Circle().strokeBorder(tint.opacity(0.12), lineWidth: 1) }
                     .offset(x: 5, y: 5)
             }
             Text(item.title).font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.primary).lineLimit(2)
-            if !item.subtitle.isEmpty {
+            if isPlaying(item) {
+                liveLine(item)
+            } else if !item.subtitle.isEmpty {
                 Text(item.subtitle).font(.system(size: 10))
                     .foregroundStyle(.secondary).lineLimit(1)
             }
@@ -261,7 +276,7 @@ struct ListeningWidgetView: View {
                     Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
                     Spacer(minLength: 0)
                 }
-                playIcon
+                playIcon(item)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -279,10 +294,7 @@ struct ListeningWidgetView: View {
                 if !item.subtitle.isEmpty {
                     Text(item.subtitle).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
                 }
-                HStack(spacing: 5) {
-                    Circle().fill(tint).frame(width: 5, height: 5).widgetAccentable()
-                    Text(PMString("ext.widget.live")).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
-                }
+                liveLine(item)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             ZStack {
@@ -291,7 +303,7 @@ struct ListeningWidgetView: View {
                         .padding(CGFloat(ring) * 8)
                 }
                 artwork(item, side: 82).clipShape(.circle)
-                playIcon
+                playIcon(item)
                     .background(playIconBackdrop, in: .circle)
                     .offset(x: 38, y: 38)
             }
@@ -302,9 +314,10 @@ struct ListeningWidgetView: View {
 
     @ViewBuilder private func action<Content: View>(_ item: ListeningWidgetSnapshot.Item, @ViewBuilder content: () -> Content) -> some View {
         if WidgetSettings.clickableInteractionEnabled() {
+            // 正在播的台点了是停, 由 intent 在 App 里看播放器定。
             Button(intent: PrimusePlayListeningWidgetIntent(itemID: item.id, kind: entry.kind.rawValue)) { content() }
                 .buttonStyle(.plain)
-                .accessibilityLabel(PMString("ext.control.play") + ", " + item.title)
+                .accessibilityLabel(PMString(isPlaying(item) ? "widget_desk_stop" : "ext.control.play") + ", " + item.title)
         } else {
             content()
         }
@@ -344,12 +357,28 @@ struct ListeningWidgetView: View {
         renderingMode == .fullColor ? AnyShapeStyle(.background) : AnyShapeStyle(Color.clear)
     }
 
-    private var playIcon: some View {
-        Image(systemName: "play.fill")
+    private func isPlaying(_ item: ListeningWidgetSnapshot.Item) -> Bool {
+        entry.playingStationID == item.id
+    }
+
+    /// 正在播的台换成红色停止键, 跟 App 电台页一样。
+    private func playIcon(_ item: ListeningWidgetSnapshot.Item) -> some View {
+        let playing = isPlaying(item)
+        return Image(systemName: playing ? "stop.fill" : "play.fill")
             .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(tint).widgetAccentable()
+            .foregroundStyle(playing ? Color.red : tint).widgetAccentable()
             .frame(width: 32, height: 32)
-            .background(tint.opacity(0.10), in: .circle)
+            .background((playing ? Color.red : tint).opacity(0.10), in: .circle)
+    }
+
+    /// 「直播」那一行; 正在播的台是红点加「正在播放」。
+    private func liveLine(_ item: ListeningWidgetSnapshot.Item) -> some View {
+        let playing = isPlaying(item)
+        return HStack(spacing: 5) {
+            Circle().fill(playing ? Color.red : tint).frame(width: 5, height: 5).widgetAccentable()
+            Text(PMString(playing ? "ext.widget.nowPlaying.playing" : "ext.widget.live"))
+                .font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
+        }
     }
 
     private func metadata(_ item: ListeningWidgetSnapshot.Item, titleSize: CGFloat, lines: Int) -> some View {

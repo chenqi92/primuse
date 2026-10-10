@@ -216,7 +216,11 @@ struct PrimusePlayListeningWidgetIntent: AudioPlaybackIntent {
         guard WidgetSettings.clickableInteractionEnabled() else { return .result() }
         switch ListeningWidgetKind(rawValue: kind) {
         case .radio:
-            _ = await PrimuseIntentBridge.shared.playRadioStation(SiriMediaIdentifier.namespaced(itemID, as: "radio"))
+            // 正在播的台再点一下是停, 跟 App 电台页一样; 停不停看播放器此刻的状态, 不看小组件上的快照。
+            let bridge = PrimuseIntentBridge.shared
+            if !bridge.stopRadioStationIfPlaying(itemID) {
+                _ = await bridge.playRadioStation(SiriMediaIdentifier.namespaced(itemID, as: "radio"))
+            }
         case .podcast, .recentPodcast:
             _ = await PrimuseIntentBridge.shared.playPodcastEpisode(itemID)
         case nil:

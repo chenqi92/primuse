@@ -1022,3 +1022,4 @@
 
 "widget_desk_previous_station" = "前のラジオ局";
 "widget_desk_next_station" = "次のラジオ局";
+"widget_desk_stop" = "停止";

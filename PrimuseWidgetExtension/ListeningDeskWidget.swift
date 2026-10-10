@@ -15,6 +15,8 @@ struct ListeningDeskTile {
     var title: String?
     var coverImageName: String?
     var action: Action?
+    /// 电台格放的正是在播的那个台: 跟电台小组件一样标出来, 点了是停。
+    var isPlaying = false
 }
 
 struct ListeningDeskEntry: TimelineEntry {
@@ -56,22 +58,24 @@ struct ListeningDeskProvider: AppIntentTimelineProvider {
         let albums = (WidgetSettings.widgetEnabled(PrimuseConstants.widgetRecentAlbumsEnabledKey) ? RecentAlbumsStore.load() : [])
             .map { scope.includesCover ? $0 : $0.withoutCover() }
         return .init(date: Date(), state: state, albums: albums,
-                     leading: tile(leading, index: 0, albums: albums, scope: scope),
-                     trailing: tile(trailing, index: leading == trailing ? 1 : 0, albums: albums, scope: scope),
+                     leading: tile(leading, index: 0, albums: albums, scope: scope, state: state),
+                     trailing: tile(trailing, index: leading == trailing ? 1 : 0, albums: albums, scope: scope, state: state),
                      canSwitchStation: (ListeningWidgetKind.radio.load()?.items.count ?? 0) > 1)
     }
 
     /// The `index`-th item of a kind. Both tiles set to the same kind show its
     /// first two items rather than the same one twice.
     private static func tile(_ content: PrimuseListeningDeskTileContent, index: Int,
-                             albums: [RecentAlbumEntry], scope: WidgetSharedDataScope) -> ListeningDeskTile {
+                             albums: [RecentAlbumEntry], scope: WidgetSharedDataScope,
+                             state: PlaybackState?) -> ListeningDeskTile {
         switch content {
         case .podcast, .radio:
             let kind: ListeningWidgetKind = content == .podcast ? .podcast : .radio
             guard let items = kind.load()?.items, items.indices.contains(index) else { return .init(content: content) }
             let item = items[index]
             return .init(content: content, title: item.title, coverImageName: item.coverImageName,
-                         action: .listening(id: item.id, kind: kind))
+                         action: .listening(id: item.id, kind: kind),
+                         isPlaying: kind == .radio && state?.playingRadioStationID == item.id)
         case .music:
             // Books and podcast shows are recorded as albums too; this tile is music.
             let music = albums.filter { $0.listeningSpace == .music }
@@ -281,7 +285,8 @@ struct ListeningDeskView: View {
                 }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(PMString("ext.control.play") + ", " + (tile.title ?? tile.content.label))
+            .accessibilityLabel(PMString(tile.isPlaying ? "widget_desk_stop" : "ext.control.play")
+                                + ", " + (tile.title ?? tile.content.label))
         } else {
             destinationLabel(tile)
         }
@@ -298,8 +303,13 @@ struct ListeningDeskView: View {
                     .font(.system(size: 15, weight: .medium)).foregroundStyle(tint).widgetAccentable()
             }
             VStack(alignment: .leading, spacing: 4) {
-                Text(tile.content.label)
-                    .font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+                HStack(spacing: 4) {
+                    if tile.isPlaying {
+                        Circle().fill(Color.red).frame(width: 5, height: 5).widgetAccentable()
+                    }
+                    Text(tile.content.label)
+                        .font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+                }
                 if large {
                     Text(tile.title ?? PMString("ext.widget.nowPlaying.empty.openShort"))
                         .font(.system(size: 12, weight: .semibold)).lineLimit(2)
@@ -307,7 +317,8 @@ struct ListeningDeskView: View {
             }
             Spacer(minLength: 0)
             if tile.title != nil, !large {
-                Image(systemName: "play.fill").font(.system(size: 9)).foregroundStyle(tint).widgetAccentable()
+                Image(systemName: tile.isPlaying ? "stop.fill" : "play.fill").font(.system(size: 9))
+                    .foregroundStyle(tile.isPlaying ? Color.red : tint).widgetAccentable()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

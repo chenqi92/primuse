@@ -1019,3 +1019,4 @@
 
 "widget_desk_previous_station" = "上一個電台";
 "widget_desk_next_station" = "下一個電台";
+"widget_desk_stop" = "停止";

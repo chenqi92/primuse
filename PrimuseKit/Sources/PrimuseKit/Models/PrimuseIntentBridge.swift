@@ -135,6 +135,11 @@ public final class PrimuseIntentBridge {
     public var playRadioStation: @MainActor (_ id: String) async -> PrimuseRadioIntentOutcome = {
         _ in .notFound
     }
+    /// A widget tap on the station that is playing stops it, as on the app's
+    /// radio page. Decided against the player, not the widget's snapshot, so
+    /// a stale snapshot cannot turn the tap into nothing: true only when that
+    /// station was playing and is now stopped.
+    public var stopRadioStationIfPlaying: @MainActor (_ id: String) -> Bool = { _ in false }
     public var playPodcastEpisode: @MainActor (_ id: String) async -> Bool = { _ in false }
     public var playSongRadio: @MainActor () async -> String? = { nil }
     public var shuffleLibrary: @MainActor () async -> Void = {}

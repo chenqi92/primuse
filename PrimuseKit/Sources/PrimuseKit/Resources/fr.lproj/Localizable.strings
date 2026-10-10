@@ -1022,3 +1022,4 @@
 
 "widget_desk_previous_station" = "Station précédente";
 "widget_desk_next_station" = "Station suivante";
+"widget_desk_stop" = "Arrêter";

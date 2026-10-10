@@ -1022,3 +1022,4 @@
 
 "widget_desk_previous_station" = "Vorheriger Sender";
 "widget_desk_next_station" = "Nächster Sender";
+"widget_desk_stop" = "Stopp";

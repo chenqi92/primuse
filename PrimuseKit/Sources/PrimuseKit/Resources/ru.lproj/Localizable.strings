@@ -969,3 +969,4 @@
 
 "widget_desk_previous_station" = "Предыдущая станция";
 "widget_desk_next_station" = "Следующая станция";
+"widget_desk_stop" = "Стоп";

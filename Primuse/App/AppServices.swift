@@ -2722,6 +2722,15 @@ final class AppServices {
             return await startRadioForIntent(station)
         }
 
+        // 小组件上标成「正在播放」的就是这个条件(快照里的 isPlaying 即 isPlaybackActive),
+        // 还在连接的台照常重新起播, 不会被一下点停。
+        bridge.stopRadioStationIfPlaying = { id in
+            guard player.isLiveRadio, player.currentRadioStation?.id == id,
+                  player.isPlaybackActive else { return false }
+            player.pause()
+            return true
+        }
+
         bridge.playPodcastEpisode = { [self] id in
             if PodcastIdentity.isEpisodeID(id) {
                 _ = await siriPodcastShowsWhenLoaded()

@@ -969,3 +969,4 @@
 
 "widget_desk_previous_station" = "Estación anterior";
 "widget_desk_next_station" = "Siguiente estación";
+"widget_desk_stop" = "Detener";

@@ -1022,3 +1022,4 @@
 
 "widget_desk_previous_station" = "이전 방송국";
 "widget_desk_next_station" = "다음 방송국";
+"widget_desk_stop" = "정지";

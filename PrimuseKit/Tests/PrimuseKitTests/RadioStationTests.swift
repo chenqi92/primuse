@@ -179,6 +179,20 @@ struct RadioStationTests {
         #expect(state.updatedAt == nil)
         #expect(!state.isLiveStream)
     }
+
+    @Test("小组件只把真正在播的台标成正在播放")
+    func playingRadioStationIDNeedsLivePlayback() {
+        let playing = PlaybackState(isPlaying: true, playbackKind: .liveRadio, radioStationID: "jazz")
+        #expect(playing.playingRadioStationID == "jazz")
+
+        // 停下、还在连接(快照里都是 isPlaying = false)的台不算。
+        let stopped = PlaybackState(isPlaying: false, playbackKind: .liveRadio, radioStationID: "jazz")
+        #expect(stopped.playingRadioStationID == nil)
+
+        // 切回歌曲后残留的台 id 不算。
+        let track = PlaybackState(isPlaying: true, playbackKind: .track, radioStationID: "jazz")
+        #expect(track.playingRadioStationID == nil)
+    }
 }
 
 @Suite("电台稀疏排序")
