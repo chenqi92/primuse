@@ -2139,7 +2139,7 @@ struct NowPlayingView: View {
                     .matchedLayoutElement(.progress, in: layoutNamespace)
                     .padding(.horizontal, 36)
                     .padding(.top, 10)
-                portraitTransportRow
+                portraitTransportRow(showsTextKeys: spokenWordTextKeysInTransport)
                     .matchedLayoutElement(.transport, in: layoutNamespace)
                     .padding(.top, 10)
                     .padding(.horizontal, 24)
@@ -3334,7 +3334,8 @@ struct NowPlayingView: View {
                 compactLandscapeColumns(
                     metrics: metrics,
                     lyricsMetrics: lyricsMetrics,
-                    lyricsPaneTopClearance: lyricsPaneTop
+                    lyricsPaneTopClearance: lyricsPaneTop,
+                    usesToolColumn: usesToolColumn
                 )
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -3458,7 +3459,8 @@ struct NowPlayingView: View {
     private func compactLandscapeColumns(
         metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics,
         lyricsMetrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics,
-        lyricsPaneTopClearance: CGFloat = 0
+        lyricsPaneTopClearance: CGFloat = 0,
+        usesToolColumn: Bool = false
     ) -> some View {
         let leftColumnWidth = CGFloat(
             showLyrics ? lyricsMetrics.detailColumnWidth : metrics.artworkColumnWidth
@@ -3470,7 +3472,11 @@ struct NowPlayingView: View {
             // 每栏在自己的定宽槽位里换场，过渡期间旧、新内容同时存在也不会挤压另一栏。
             ZStack {
                 if showLyrics {
-                    compactLandscapeDetailColumn(metrics: metrics, lyricsMetrics: lyricsMetrics)
+                    compactLandscapeDetailColumn(
+                        metrics: metrics,
+                        lyricsMetrics: lyricsMetrics,
+                        usesToolColumn: usesToolColumn
+                    )
                         .transition(.opacity)
                 } else {
                     compactLandscapeArtwork(metrics: metrics)
@@ -3487,7 +3493,11 @@ struct NowPlayingView: View {
                         .pmLayoutSwitchFade()
                         .transition(lyricsPanelTransition)
                 } else {
-                    compactLandscapeDetailColumn(metrics: metrics, lyricsMetrics: lyricsMetrics)
+                    compactLandscapeDetailColumn(
+                        metrics: metrics,
+                        lyricsMetrics: lyricsMetrics,
+                        usesToolColumn: usesToolColumn
+                    )
                         .transition(.opacity)
                 }
             }
@@ -3529,7 +3539,8 @@ struct NowPlayingView: View {
     @ViewBuilder
     private func compactLandscapeDetailColumn(
         metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics,
-        lyricsMetrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics
+        lyricsMetrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics,
+        usesToolColumn: Bool
     ) -> some View {
         let showsEdgeToggles = showLyrics
             ? lyricsMetrics.showsEdgeToggles
@@ -3557,7 +3568,11 @@ struct NowPlayingView: View {
                 .matchedLayoutElement(.progress, in: layoutNamespace)
                 .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.progressTopSpacing))
 
-            compactLandscapeTransportRow(showsEdgeToggles: showsEdgeToggles)
+            compactLandscapeTransportRow(
+                showsEdgeToggles: showsEdgeToggles,
+                // 竖栏那一列里排着文字稿与目录时(iPhone Duo)不再放进这一行。
+                showsTextKeys: spokenWordTextKeysInTransport && !usesToolColumn
+            )
                 .matchedLayoutElement(.transport, in: layoutNamespace)
                 .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.transportTopSpacing))
                 // 只有手动锁定才隐藏播放操作；保留占位，封面和歌词不会随之移动。
@@ -3688,11 +3703,19 @@ struct NowPlayingView: View {
         )
     }
 
+    /// 两端放得下时:音乐是随机 / 循环,有声内容是上一章 / 下一章;这一条有文字稿时两端换成文字稿与目录
+    /// (右栏放不下四颗),上一章 / 下一章仍在快退、快进的长按菜单里,和竖屏一样。
     @ViewBuilder
-    private func compactLandscapeTransportRow(showsEdgeToggles: Bool) -> some View {
+    private func compactLandscapeTransportRow(showsEdgeToggles: Bool, showsTextKeys: Bool) -> some View {
+        let sideKeyFont = Font.system(size: 17, weight: .semibold)
         HStack(spacing: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.transportSpacing)) {
             if showsEdgeToggles {
-                transportLeadingEdgeControl
+                if showsTextKeys {
+                    transportTextKey(font: sideKeyFont, tint: appearance.secondary, selectedTint: themedControlAccent)
+                        .pmFadeTransition(motion: .control)
+                } else {
+                    transportLeadingEdgeControl
+                }
             }
 
             Spacer(minLength: 0)
@@ -3703,6 +3726,7 @@ struct NowPlayingView: View {
             ) {
                 transportBackward()
             }
+            .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: false) }
 
             playerPlayButton
 
@@ -3712,14 +3736,21 @@ struct NowPlayingView: View {
             ) {
                 transportForward()
             }
+            .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: true) }
 
             Spacer(minLength: 0)
 
             if showsEdgeToggles {
-                transportTrailingEdgeControl
+                if showsTextKeys {
+                    transportContentsKey(font: sideKeyFont, tint: appearance.secondary)
+                        .pmFadeTransition(motion: .control)
+                } else {
+                    transportTrailingEdgeControl
+                }
             }
         }
         .frame(height: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.primaryTransportDiameter))
+        .pmAnimation(.control, value: showsTextKeys)
     }
 
     // MARK: - Transport: music vs spoken word
@@ -3890,14 +3921,20 @@ struct NowPlayingView: View {
             }
 
             if usesSpokenWordTransport {
-                NowPlayingGlassActionButton(
-                    symbol: "list.bullet",
-                    label: "a11y_queue",
-                    appearance: appearance,
-                    tint: appearance.primary,
-                    diameter: diameter
-                ) {
-                    openQueue()
+                // 书的这一颗就是目录:传输键那一行两端换成文字稿与目录时不再重复。播客这一颗是「接下来」,照旧。
+                let contentsInTransport = spokenWordTextKeysInTransport
+                    && !compactLandscapeHidesModeToggles
+                    && !SpokenWordPlayerText.isPodcastEpisode(player)
+                if !contentsInTransport {
+                    NowPlayingGlassActionButton(
+                        symbol: "list.bullet",
+                        label: "a11y_queue",
+                        appearance: appearance,
+                        tint: appearance.primary,
+                        diameter: diameter
+                    ) {
+                        openQueue()
+                    }
                 }
 
                 compactLandscapeAirPlayButton
@@ -4097,7 +4134,14 @@ struct NowPlayingView: View {
             PlaybackProgressBar(fillTint: themedControlAccent) { progressAudioTags(showsSource: false) }
                 .padding(.horizontal, 36).padding(.top, 10)
 
+            // 有文字稿时两头再各一颗:最左边文字稿(和竖屏同一件事,切到整幅的文字稿),
+            // 最右边目录 —— 目录常驻右栏,这一颗把右栏翻回目录那一页。
             HStack(spacing: 0) {
+                if spokenWordTextKeysInTransport {
+                    Spacer()
+                    transportTextKey(font: .body, tint: appearance.secondary, selectedTint: themedControlAccent)
+                        .pmFadeTransition(motion: .control)
+                }
                 Spacer()
                 transportLeadingEdgeControl
                 Spacer()
@@ -4142,7 +4186,17 @@ struct NowPlayingView: View {
                 Spacer()
                 transportTrailingEdgeControl
                 Spacer()
+                if spokenWordTextKeysInTransport {
+                    transportContentsKey(font: .body, tint: appearance.secondary) {
+                        contentsRequestedTab = SpokenWordPlayerText.isPodcastEpisode(player) && !player.hasChapters
+                            ? .notes
+                            : .contents
+                    }
+                    .pmFadeTransition(motion: .control)
+                    Spacer()
+                }
             }
+            .pmAnimation(.control, value: spokenWordTextKeysInTransport)
             .padding(.top, 14)
 
             if showsPlayerVolumeBar {
@@ -4581,7 +4635,7 @@ struct NowPlayingView: View {
                             .padding(.horizontal, insets.rows)
 
                         // Controls
-                        portraitTransportRow
+                        portraitTransportRow(showsTextKeys: spokenWordTextKeysInTransport && !usesToolColumn)
                         .matchedLayoutElement(.transport, in: layoutNamespace)
                         .padding(.top, 12 + controlGap)
                         .padding(.horizontal, insets.rows)
@@ -4740,7 +4794,11 @@ struct NowPlayingView: View {
                     AudiobookProgressBar(style: style)
                         .matchedLayoutElement(.progress, in: layoutNamespace)
 
-                    audiobookTransportRow(style: style, isShort: isShort)
+                    audiobookTransportRow(
+                        style: style,
+                        isShort: isShort,
+                        showsTextKeys: spokenWordTextKeysInTransport && !usesToolColumn
+                    )
                         .matchedLayoutElement(.transport, in: layoutNamespace)
                         .padding(.top, isShort ? 4 : 10)
 
@@ -4797,7 +4855,8 @@ struct NowPlayingView: View {
         .padding(.trailing, insets.containerTrailing)
     }
 
-    /// 收起键 · 文字稿 / 投放 / 喜欢 / 更多。正中留空,书名就在下面,不再重复什么。
+    /// 收起键 · 投放 / 喜欢 / 更多。正中留空,书名就在下面,不再重复什么。
+    /// 文字稿键在传输键那一行最左边(见 `spokenWordTextKeysInTransport`)。
     private func audiobookTopBar(style: AudiobookPlayerStyle, usesToolColumn: Bool) -> some View {
         HStack(spacing: 0) {
             if let onMinimize {
@@ -4815,7 +4874,6 @@ struct NowPlayingView: View {
             // 竖栏里排着那一列按钮时(iPhone Duo),投放、喜欢与更多在那一列里。
             if !usesToolColumn {
                 HStack(spacing: 0) {
-                    spokenWordTextToggle
                     AirPlayButton()
                         .frame(width: 30, height: 30)
                         .frame(width: 40, height: 44)
@@ -4899,10 +4957,20 @@ struct NowPlayingView: View {
     }
 
     /// 快退 · 播放 · 快进。播放键是实心圆:墨黑橙红、暖白近黑,三角取底色。
-    private func audiobookTransportRow(style: AudiobookPlayerStyle, isShort: Bool) -> some View {
+    /// 这一条有文字稿时两头再各一颗:最左边文字稿、最右边目录,同样大小。
+    private func audiobookTransportRow(
+        style: AudiobookPlayerStyle,
+        isShort: Bool,
+        showsTextKeys: Bool
+    ) -> some View {
         let diameter: CGFloat = isShort ? 64 : 72
         let showsPause = player.isPlaying || player.isLoading
+        let sideKeyFont = Font.system(size: 22, weight: .light)
         return HStack(spacing: 0) {
+            if showsTextKeys {
+                transportTextKey(font: sideKeyFont, tint: style.secondary, selectedTint: style.accent, height: 56)
+                    .pmFadeTransition(motion: .control)
+            }
             Spacer(minLength: 0)
             audiobookSkipButton(forward: false, style: style)
             Spacer(minLength: 0)
@@ -4938,7 +5006,12 @@ struct NowPlayingView: View {
             Spacer(minLength: 0)
             audiobookSkipButton(forward: true, style: style)
             Spacer(minLength: 0)
+            if showsTextKeys {
+                transportContentsKey(font: sideKeyFont, tint: style.secondary, height: 56)
+                    .pmFadeTransition(motion: .control)
+            }
         }
+        .pmAnimation(.control, value: showsTextKeys)
     }
 
     /// 快退 15 / 快进 30 秒(秒数随设置);长按跳章、跳集。
@@ -4967,18 +5040,28 @@ struct NowPlayingView: View {
             palette: style.palette,
             layout: layout,
             tileHeight: layout == .stacked ? 54 : 40,
-            tiles: spokenWordControlLayout.visibleTiles(),
+            // 目录键摆在传输键一行时,功能块里不再重复一块目录。
+            tiles: spokenWordControlLayout.visibleTiles(contentsResident: spokenWordTextKeysInTransport),
             onSleep: { showSleepTimer = true },
             onContents: { openContentsPanel() }
         )
     }
 
     /// 竖版的传输键一行(随机 · 上一首 · 播放 · 下一首 · 循环)。桌面半折的下半屏也用这一行。
-    private var portraitTransportRow: some View {
-        HStack(spacing: 0) {
-        Spacer()
+    /// 有声内容这一条有文字稿时,最左边再加文字稿、最右边加目录(`showsTextKeys`)。
+    private func portraitTransportRow(showsTextKeys: Bool) -> some View {
+        // 七颗键在 375 宽的手机上要挤一挤:间隙最小可以是 0(键本身的 44/56 宽已经留出了图标间距)。
+        // 两头外侧也各留一道间隙,宽屏上文字稿与目录不贴着屏幕边。
+        let gap: CGFloat? = showsTextKeys ? 0 : nil
+        return HStack(spacing: 0) {
+        if showsTextKeys {
+            Spacer(minLength: 0)
+            transportTextKey(font: .body, tint: appearance.secondary, selectedTint: themedControlAccent)
+                .pmFadeTransition(motion: .control)
+        }
+        Spacer(minLength: gap)
         transportLeadingEdgeControl
-        Spacer()
+        Spacer(minLength: gap)
         Button { transportBackward() } label: {
             Image(systemName: transportBackwardSymbol)
                 .font(.title).foregroundStyle(appearance.primary)
@@ -4987,7 +5070,7 @@ struct NowPlayingView: View {
         .frame(width: 56, height: 56)
         .accessibilityLabel(transportBackwardLabel)
         .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: false) }
-        Spacer()
+        Spacer(minLength: gap)
         Button {
             guard !player.isLoading else { return }
             player.togglePlayPause()
@@ -5014,7 +5097,7 @@ struct NowPlayingView: View {
         .accessibilityLabel(player.isPlaying || player.isLoading
             ? String(localized: "a11y_pause")
             : String(localized: "a11y_play"))
-        Spacer()
+        Spacer(minLength: gap)
         Button { transportForward() } label: {
             Image(systemName: transportForwardSymbol)
                 .font(.title).foregroundStyle(appearance.primary)
@@ -5023,10 +5106,16 @@ struct NowPlayingView: View {
         .frame(width: 56, height: 56)
         .accessibilityLabel(transportForwardLabel)
         .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: true) }
-        Spacer()
+        Spacer(minLength: gap)
         transportTrailingEdgeControl
-        Spacer()
+        Spacer(minLength: gap)
+        if showsTextKeys {
+            transportContentsKey(font: .body, tint: appearance.secondary)
+                .pmFadeTransition(motion: .control)
+            Spacer(minLength: 0)
         }
+        }
+        .pmAnimation(.control, value: showsTextKeys)
     }
 
     /// 传输键两端:音乐按「播放页按钮」的配置(默认随机与循环),有声内容换成上一章 / 下一章
@@ -5067,10 +5156,11 @@ struct NowPlayingView: View {
     private var portraitBottomBar: some View {
         if usesSpokenWordTransport {
             // 有声内容把语速、睡眠定时、书签、目录摆在页面上:听书就是靠这几样,不该藏在菜单里。
-            // 投放在标题右侧,歌词换成有文字稿时才出现的文字键。
+            // 投放在标题右侧;有文字稿时文字键在传输键那一行最左边。
             SpokenWordActionTiles(
                 palette: spokenWordPalette,
-                tiles: spokenWordControlLayout.visibleTiles(),
+                // 目录键摆在传输键一行时,这里不再重复一块目录。
+                tiles: spokenWordControlLayout.visibleTiles(contentsResident: spokenWordTextKeysInTransport),
                 onSleep: { showSleepTimer = true },
                 onContents: { openContentsPanel() },
                 onUpNext: { openContentsPanel(tab: .upNext) }
@@ -5710,7 +5800,7 @@ struct NowPlayingView: View {
         if isSpokenWord, let controlSurface {
             let layout = spokenWordControlLayout
             switch controlSurface {
-            case .portrait: spokenFallback = layout.menuFallback()
+            case .portrait: spokenFallback = layout.menuFallback(contentsResident: spokenWordTextKeysInTransport)
             case .wideLandscape: spokenFallback = layout.menuFallback(contentsResident: true)
             default: spokenFallback = layout.showsLike ? [] : [.like]
             }
@@ -6103,7 +6193,7 @@ struct NowPlayingView: View {
     }
 
     /// 有声内容的标题块:书名作主标题,下面是正在听的章与演播者,「第 12 / 120 章 ›」打开目录。
-    /// 右侧是投放、喜欢与更多(竖栏那一列里已经有的不重复),有文字稿时多一颗文字键。
+    /// 右侧是投放、喜欢与更多(竖栏那一列里已经有的不重复)。文字稿键在传输键那一行最左边。
     private func spokenWordHeading(
         titleFont: Font,
         partFont: Font,
@@ -6120,7 +6210,6 @@ struct NowPlayingView: View {
         ) {
             HStack(spacing: 4) {
                 if inlineActions {
-                    spokenWordTextToggle
                     AirPlayButton()
                         .frame(width: 30, height: 30)
                         .frame(width: 40, height: 44)
@@ -6150,21 +6239,57 @@ struct NowPlayingView: View {
         }
     }
 
-    /// 有声内容只在这一条目真有带时间的文字(字幕、转写稿按歌词读进来)时才给文字键。
-    @ViewBuilder
-    private var spokenWordTextToggle: some View {
-        if !lyrics.isEmpty, spokenWordControlLayout.showsTranscriptToggle {
-            Button { toggleLyricsForLayout() } label: {
-                nowPlayingActionIcon(
-                    symbol: showLyrics ? "text.bubble.fill" : "text.bubble",
-                    tint: showLyrics ? themedControlAccent : appearance.secondary,
-                    isSelected: showLyrics
-                )
-            }
-            .frame(width: 40, height: 44)
-            .buttonStyle(.plain)
-            .accessibilityLabel(Text("spoken_word_text_tab"))
+    /// 有声内容只在这一条目真有带时间的文字(字幕、转写稿按歌词读进来)时才给文字键,而且放在传输键
+    /// 那一行最左边,拇指够得着(#155);右边对称放一颗同样大的目录键,功能块里就不再重复一块目录。
+    /// 顶栏、标题旁不再有文字键。没有文字稿(或在「播放页按钮」里关了文字稿键)时那一行照旧。
+    /// iPhone Duo 竖栏那一列里本来就排着文字稿与目录,那时不挪,调用处另判 `usesToolColumn`。
+    private var spokenWordTextKeysInTransport: Bool {
+        usesSpokenWordTransport && !lyrics.isEmpty && spokenWordControlLayout.showsTranscriptToggle
+    }
+
+    /// 传输键一行最左边的文字稿键:分栏时打开右栏,其它时候在封面与文字稿之间切换。
+    private func transportTextKey(
+        font: Font,
+        tint: Color,
+        selectedTint: Color,
+        height: CGFloat = 44
+    ) -> some View {
+        Button { toggleLyricsForLayout() } label: {
+            Image(systemName: showLyrics ? "text.bubble.fill" : "text.bubble")
+                .font(font)
+                .foregroundStyle(showLyrics ? selectedTint : tint)
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: 44, height: height)
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("spoken_word_text_tab"))
+        .accessibilityAddTraits(showLyrics ? .isSelected : [])
+    }
+
+    /// 传输键一行最右边的目录键(播客是节目说明),和左边的文字稿键一样大。`action` 不给时打开目录面板。
+    private func transportContentsKey(
+        font: Font,
+        tint: Color,
+        height: CGFloat = 44,
+        action: (() -> Void)? = nil
+    ) -> some View {
+        let isPodcast = SpokenWordPlayerText.isPodcastEpisode(player)
+        return Button {
+            if let action {
+                action()
+            } else {
+                openContentsPanel()
+            }
+        } label: {
+            Image(systemName: isPodcast ? "text.alignleft" : "list.bullet")
+                .font(font)
+                .foregroundStyle(tint)
+                .frame(width: 44, height: height)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(isPodcast ? "podcast_show_notes" : "spoken_word_contents_title"))
     }
 
     private var spokenWordPalette: SpokenWordPlayerPalette {
