@@ -5699,3 +5699,11 @@
 "stats_style_report" = "Müzikte Yıl";
 "stats_style_charts" = "Grafikler";
 "stats_style_footer" = "Müzikte Yıl, yılınızı tek sayfada anlatır. Grafikler; haftalık, aylık veya yıllık çalmaları, takvimi ve sıralamaları müzik sunucularıyla birlikte gösterir.";
+
+/* 首页顶部切换：显示方式 */
+"home_filter_bar_label_style" = "Görünüm";
+"home_filter_bar_label_automatic" = "Otomatik";
+"home_filter_bar_label_icon_and_title" = "Simge ve metin";
+"home_filter_bar_label_icon_only" = "Yalnızca simge";
+"home_filter_bar_label_title_only" = "Yalnızca metin";
+"home_filter_bar_label_style_footer" = "Otomatik seçenekte yer yettiğinde her filtre simgesini ve metnini gösterir. Yetmezse seçili filtre tam kalır, diğerlerinde yalnızca metin ya da simge kalır. Satır yine sığmazsa yana kaydırabilirsiniz.";

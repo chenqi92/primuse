@@ -5699,3 +5699,11 @@
 "stats_style_report" = "संगीत में वर्ष";
 "stats_style_charts" = "चार्ट";
 "stats_style_footer" = "संगीत में वर्ष पूरे साल को एक पेज पर दिखाता है। चार्ट सप्ताह, महीने या वर्ष के हिसाब से प्ले, कैलेंडर और रैंकिंग दिखाते हैं, संगीत सर्वर समेत।";
+
+/* 首页顶部切换：显示方式 */
+"home_filter_bar_label_style" = "दिखाने का तरीका";
+"home_filter_bar_label_automatic" = "स्वचालित";
+"home_filter_bar_label_icon_and_title" = "आइकन और टेक्स्ट";
+"home_filter_bar_label_icon_only" = "केवल आइकन";
+"home_filter_bar_label_title_only" = "केवल टेक्स्ट";
+"home_filter_bar_label_style_footer" = "स्वचालित में जगह होने पर हर फ़िल्टर आइकन और टेक्स्ट दोनों दिखाता है। जगह कम हो तो चुना गया फ़िल्टर पूरा रहता है और बाकी केवल टेक्स्ट या आइकन दिखाते हैं। फिर भी पंक्ति न समाए तो उसे बगल में स्वाइप करें।";

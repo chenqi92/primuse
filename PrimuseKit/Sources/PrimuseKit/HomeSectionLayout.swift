@@ -373,12 +373,15 @@ public struct HomeSectionLayoutConfiguration: Codable, Equatable, Sendable {
     }
 }
 
-/// 首页顶上筛选胶囊(音乐、电台、有声、播客)的顺序与显隐。
+/// 首页顶上筛选胶囊(音乐、电台、有声、播客)的顺序、显隐与显示方式。
 ///
 /// 没调过时(存空串)每颗胶囊跟着首页编辑里对应区块的开关走:关掉「电台」那块,电台胶囊也收起,
 /// 和改版前一样。在「顶部切换」里调过一次之后,顺序与显隐就只认这里,区块收起了胶囊照样常驻。
 /// 整份存成一个 JSON 字符串,按 rawValue 存盘,所以 `ListeningSpace` 的 case 名不能改:
 /// 读回来认不出的名字只丢那一项。
+///
+/// 显示方式(`labelStyle`)和显隐互不牵连:只改了显示方式、显隐仍跟着区块走时,存的 JSON 里
+/// 只有 `labelStyle`、没有 `order`,不认识这个字段的老版本解不出来,照旧当成跟着区块走。
 public struct HomeFilterBarConfiguration: Equatable, Sendable {
     public static let storageKey = "primuse.home.filterBar.v1"
 
@@ -397,11 +400,19 @@ public struct HomeFilterBarConfiguration: Equatable, Sendable {
     public private(set) var hidden: Set<ListeningSpace>
     /// 还没调过:显隐跟着首页区块的开关。
     public private(set) var followsSections: Bool
+    /// 胶囊怎么写:自动(按宽度退让)或固定一种写法。和显隐、顺序无关。
+    public var labelStyle: HomeFilterBarLabelStyle
 
-    public init(order: [ListeningSpace], hidden: Set<ListeningSpace>, followsSections: Bool = false) {
+    public init(
+        order: [ListeningSpace],
+        hidden: Set<ListeningSpace>,
+        followsSections: Bool = false,
+        labelStyle: HomeFilterBarLabelStyle = .automatic
+    ) {
         self.order = Self.completedOrder(order)
         self.hidden = followsSections ? [] : hidden
         self.followsSections = followsSections
+        self.labelStyle = labelStyle
     }
 
     // MARK: 存取
@@ -412,26 +423,48 @@ public struct HomeFilterBarConfiguration: Equatable, Sendable {
               let stored = try? JSONDecoder().decode(Stored.self, from: data) else {
             return .followingSections
         }
+        // 认不出的显示方式(新版本加的)按自动算,不连累顺序与显隐。
+        let labelStyle = stored.labelStyle.flatMap(HomeFilterBarLabelStyle.init(rawValue:)) ?? .automatic
+        // 没有 order:只改过显示方式,显隐仍跟着区块走。
+        guard let storedOrder = stored.order else {
+            return HomeFilterBarConfiguration(
+                order: defaultOrder,
+                hidden: [],
+                followsSections: true,
+                labelStyle: labelStyle
+            )
+        }
         return HomeFilterBarConfiguration(
-            order: stored.order.compactMap(ListeningSpace.init(rawValue:)),
-            hidden: Set(stored.hidden.compactMap(ListeningSpace.init(rawValue:)))
+            order: storedOrder.compactMap(ListeningSpace.init(rawValue:)),
+            hidden: Set((stored.hidden ?? []).compactMap(ListeningSpace.init(rawValue:))),
+            labelStyle: labelStyle
         )
     }
 
-    /// 跟着区块开关走时编成空串:「恢复」之后又回到跟着区块走。
+    /// 跟着区块开关走、显示方式也是自动时编成空串:「恢复」之后又回到跟着区块走。
+    /// 显示方式是自动时不写这个字段,调过顺序的老数据存回去不多出东西。
     public func encoded() -> String {
-        guard !followsSections else { return "" }
-        let stored = Stored(
-            order: order.map(\.rawValue),
-            hidden: order.filter { hidden.contains($0) }.map(\.rawValue)
-        )
+        let storedLabelStyle = labelStyle == .automatic ? nil : labelStyle.rawValue
+        let stored: Stored
+        if followsSections {
+            guard let storedLabelStyle else { return "" }
+            stored = Stored(order: nil, hidden: nil, labelStyle: storedLabelStyle)
+        } else {
+            stored = Stored(
+                order: order.map(\.rawValue),
+                hidden: order.filter { hidden.contains($0) }.map(\.rawValue),
+                labelStyle: storedLabelStyle
+            )
+        }
         guard let data = try? JSONEncoder().encode(stored) else { return "" }
         return String(decoding: data, as: UTF8.self)
     }
 
+    /// 老版本只认 `order` 与 `hidden` 两个必有字段;`labelStyle` 是后加的,缺省为自动。
     private struct Stored: Codable {
-        var order: [String]
-        var hidden: [String]
+        var order: [String]?
+        var hidden: [String]?
+        var labelStyle: String?
     }
 
     // MARK: 查询
@@ -458,7 +491,18 @@ public struct HomeFilterBarConfiguration: Equatable, Sendable {
         guard followsSections else { return self }
         return HomeFilterBarConfiguration(
             order: order,
-            hidden: Set(order.filter { !sectionShown($0) })
+            hidden: Set(order.filter { !sectionShown($0) }),
+            labelStyle: labelStyle
+        )
+    }
+
+    /// 「跟随首页区块」:顺序与显隐交回区块开关,显示方式留着。
+    public func followingSectionsAgain() -> HomeFilterBarConfiguration {
+        HomeFilterBarConfiguration(
+            order: Self.defaultOrder,
+            hidden: [],
+            followsSections: true,
+            labelStyle: labelStyle
         )
     }
 
@@ -498,5 +542,80 @@ public struct HomeFilterBarConfiguration: Equatable, Sendable {
             seen.insert(space)
         }
         return order
+    }
+}
+
+/// 顶部切换的胶囊怎么写。存的是 rawValue,case 名不能改。
+public enum HomeFilterBarLabelStyle: String, CaseIterable, Sendable {
+    /// 放得下就图标加文字;放不下时选中那颗仍完整,其余先只留文字、再只留图标。
+    case automatic
+    case iconAndTitle
+    case iconOnly
+    case titleOnly
+}
+
+/// 一颗胶囊此刻画成什么样。
+public enum HomeFilterBarChipContent: String, CaseIterable, Sendable {
+    case iconAndTitle
+    case titleOnly
+    case iconOnly
+
+    public var showsIcon: Bool { self != .titleOnly }
+    public var showsTitle: Bool { self != .iconOnly }
+}
+
+/// 顶部切换按这一排实际有多宽,给每颗胶囊挑写法。
+///
+/// 胶囊一律按自己不折行、不截字时的宽度摆,挤不下的部分横向滚动,所以这里只决定写法:
+/// 自动时依次试「全部图标加文字」「选中的图标加文字、其余只留文字」「选中的图标加文字、其余只留图标」,
+/// 取第一种整排放得下的;都放不下(特大字号)时用最后一种,剩下的交给横向滚动。
+/// 选中的那颗在自动时永远是图标加文字。挑写法看的是各写法的固有宽度,与眼下摆出来的样子无关,
+/// 不会因为换了写法又量出另一个结果来回跳。固定写法时所有胶囊都照那一种写。
+public enum HomeFilterBarFitPolicy {
+    /// 自动时依次尝试的排法:选中那颗之外的胶囊用哪种写法。
+    static let automaticSteps: [HomeFilterBarChipContent] = [.iconAndTitle, .titleOnly, .iconOnly]
+
+    /// - Parameters:
+    ///   - availableWidth: 这一排能用的宽度(已扣掉两侧留白);还没量到时传 nil。
+    ///   - spacing: 胶囊之间的间距。
+    ///   - chipWidth: 某颗胶囊用某种写法、选中或未选中时不折行的宽度;还没量到时返回 nil。
+    /// - Returns: 每颗胶囊的写法。还没量全时按改版前的样子,全部图标加文字。
+    public static func contents(
+        spaces: [ListeningSpace],
+        selection: ListeningSpace?,
+        labelStyle: HomeFilterBarLabelStyle,
+        availableWidth: Double?,
+        spacing: Double,
+        chipWidth: (ListeningSpace, HomeFilterBarChipContent, Bool) -> Double?
+    ) -> [ListeningSpace: HomeFilterBarChipContent] {
+        func uniform(_ content: HomeFilterBarChipContent) -> [ListeningSpace: HomeFilterBarChipContent] {
+            Dictionary(uniqueKeysWithValues: spaces.map { ($0, content) })
+        }
+
+        switch labelStyle {
+        case .iconAndTitle: return uniform(.iconAndTitle)
+        case .iconOnly: return uniform(.iconOnly)
+        case .titleOnly: return uniform(.titleOnly)
+        case .automatic: break
+        }
+
+        guard let availableWidth, availableWidth > 0 else { return uniform(.iconAndTitle) }
+        let gaps = spacing * Double(max(spaces.count - 1, 0))
+        var lastStep: [ListeningSpace: HomeFilterBarChipContent] = uniform(.iconAndTitle)
+        for others in automaticSteps {
+            var step: [ListeningSpace: HomeFilterBarChipContent] = [:]
+            var total = gaps
+            for space in spaces {
+                let isSelected = space == selection
+                let content: HomeFilterBarChipContent = isSelected ? .iconAndTitle : others
+                guard let width = chipWidth(space, content, isSelected) else { return uniform(.iconAndTitle) }
+                step[space] = content
+                total += width
+            }
+            // 半个点的余量:量出来的理想宽度与实际摆放的宽度会差一点浮点零头。
+            if total <= availableWidth + 0.5 { return step }
+            lastStep = step
+        }
+        return lastStep
     }
 }

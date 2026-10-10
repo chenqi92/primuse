@@ -411,10 +411,22 @@ private struct HomeFilterBarEditor: View {
                     )
                 }
 
+                Section {
+                    Picker("home_filter_bar_label_style", selection: labelStyleBinding) {
+                        ForEach(HomeFilterBarLabelStyle.allCases, id: \.self) { style in
+                            Text(style.titleKey).tag(style)
+                        }
+                    }
+                    .accessibilityIdentifier("home.filterBar.labelStyle")
+                } footer: {
+                    Text("home_filter_bar_label_style_footer")
+                }
+
                 if !configuration.followsSections {
                     Section {
                         Button("home_filter_bar_follow_sections") {
-                            rawValue = ""
+                            // 顺序与显隐交回区块开关,显示方式留着。
+                            rawValue = configuration.followingSectionsAgain().encoded()
                         }
                         .accessibilityIdentifier("home.filterBar.followSections")
                     }
@@ -447,71 +459,181 @@ private struct HomeFilterBarEditor: View {
         updated.move(fromOffsets: source, toOffset: destination)
         rawValue = updated.encoded()
     }
+
+    /// 显示方式和显隐互不牵连:没调过顺序时改它,显隐照旧跟着区块走。
+    private var labelStyleBinding: Binding<HomeFilterBarLabelStyle> {
+        Binding {
+            configuration.labelStyle
+        } set: { style in
+            var updated = configuration
+            updated.labelStyle = style
+            rawValue = updated.encoded()
+        }
+    }
+}
+
+private extension HomeFilterBarLabelStyle {
+    var titleKey: LocalizedStringKey {
+        switch self {
+        case .automatic: "home_filter_bar_label_automatic"
+        case .iconAndTitle: "home_filter_bar_label_icon_and_title"
+        case .iconOnly: "home_filter_bar_label_icon_only"
+        case .titleOnly: "home_filter_bar_label_title_only"
+        }
+    }
 }
 #endif
 
+/// 首页顶上的筛选胶囊。
+///
+/// 每颗胶囊按自己不折行、不截字时的宽度摆,一排挤不下时横向滚动,文字永远不出省略号。
+/// 显示方式是自动时先在一层不显示的背景里量出每颗胶囊各种写法的宽度,再按这一排实际有多宽
+/// 挑写法(`HomeFilterBarFitPolicy`):放得下就全部图标加文字;放不下时选中的那颗仍图标加文字,
+/// 其余先只留文字、再只留图标。写法只随选中与宽度变,切换时跟着筛选的弹簧动画一起过渡。
 private struct HomeSpaceFilterBar: View {
     let spaces: [ListeningSpace]
     let selection: ListeningSpace?
+    var labelStyle: HomeFilterBarLabelStyle = .automatic
     let onSelect: (ListeningSpace) -> Void
 
-    var body: some View {
-        HStack(spacing: 8) {
-            ForEach(spaces, id: \.self) { space in
-                chip(space)
-            }
-            Spacer(minLength: 0)
+    /// 两侧留白与胶囊间距。
+    private static let inset: CGFloat = 16
+    private static let spacing: CGFloat = 8
+
+    /// 这一排能用的宽度(已扣掉两侧留白)。
+    @State private var availableWidth: CGFloat?
+    /// 每颗胶囊各写法、选中与否时不折行的宽度。
+    @State private var chipWidths: [ChipMeasureKey: CGFloat] = [:]
+
+    private struct ChipMeasureKey: Hashable {
+        let space: ListeningSpace
+        let content: HomeFilterBarChipContent
+        let isSelected: Bool
+    }
+
+    private var contents: [ListeningSpace: HomeFilterBarChipContent] {
+        let widths = chipWidths
+        return HomeFilterBarFitPolicy.contents(
+            spaces: spaces,
+            selection: selection,
+            labelStyle: labelStyle,
+            availableWidth: availableWidth.map { Double($0) },
+            spacing: Double(Self.spacing)
+        ) { space, content, isSelected in
+            widths[ChipMeasureKey(space: space, content: content, isSelected: isSelected)].map { Double($0) }
         }
-        .padding(.horizontal, 16)
+    }
+
+    var body: some View {
+        let contents = contents
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal) {
+                HStack(spacing: Self.spacing) {
+                    ForEach(spaces, id: \.self) { space in
+                        chip(space, content: contents[space] ?? .iconAndTitle)
+                            .id(space)
+                    }
+                }
+            }
+            .contentMargins(.horizontal, Self.inset, for: .scrollContent)
+            .scrollIndicators(.hidden)
+            // 放得下时不让这一排被拖得来回弹。
+            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+            .onGeometryChange(for: CGFloat.self) { geometry in
+                geometry.size.width
+            } action: { width in
+                availableWidth = max(width - Self.inset * 2, 0)
+            }
+            .onChange(of: selection) { _, selection in
+                // 一排挤不下在滚动时,选中后变宽的那颗整个露出来(✕ 不落在屏幕外)。
+                guard let selection else { return }
+                pmWithAnimation(.selection) {
+                    proxy.scrollTo(selection)
+                }
+            }
+        }
         .padding(.top, 2)
+        .background {
+            if labelStyle == .automatic {
+                measurements
+            }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("home.spaceFilter")
     }
 
-    private func chip(_ space: ListeningSpace) -> some View {
+    /// 不显示的一层:每颗胶囊各写法、选中与否时不折行的宽度。
+    private var measurements: some View {
+        ZStack {
+            ForEach(spaces, id: \.self) { space in
+                ForEach(HomeFilterBarChipContent.allCases, id: \.self) { content in
+                    ForEach([false, true], id: \.self) { isSelected in
+                        chipFace(space, content: content, isSelected: isSelected)
+                            .fixedSize()
+                            .onGeometryChange(for: CGFloat.self) { geometry in
+                                geometry.size.width
+                            } action: { width in
+                                chipWidths[ChipMeasureKey(space: space, content: content, isSelected: isSelected)] = width
+                            }
+                    }
+                }
+            }
+        }
+        .hidden()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func chip(_ space: ListeningSpace, content: HomeFilterBarChipContent) -> some View {
         let isSelected = space == selection
         return Button {
             onSelect(space)
         } label: {
-            Label {
-                HStack(spacing: 5) {
-                    Text(space.titleKey)
-                    if isSelected {
-                        Image(systemName: "xmark")
-                            .font(.caption2.weight(.bold))
-                            .transition(.scale.combined(with: .opacity))
-                    }
-                }
-            } icon: {
-                Image(systemName: space.systemImage)
-                    .symbolVariant(isSelected ? .fill : .none)
-            }
-            .labelStyle(HomeSpaceChipLabelStyle())
-            .font(.subheadline.weight(isSelected ? .semibold : .medium))
-            .foregroundStyle(isSelected ? AnyShapeStyle(.text(on: space.tint)) : AnyShapeStyle(.primary))
-            .padding(.horizontal, 14)
-            .frame(minHeight: 36)
-            .background {
-                Capsule()
-                    .fill(isSelected ? AnyShapeStyle(space.tint.gradient) : AnyShapeStyle(.quaternary.opacity(0.7)))
-            }
-            .contentShape(Capsule())
+            chipFace(space, content: content, isSelected: isSelected)
         }
         .buttonStyle(HomeSpaceChipButtonStyle())
+        // 只留图标时旁白照样念出名字。
+        .accessibilityLabel(Text(space.titleKey))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityHint(isSelected ? String(localized: "home_filter_clear_hint") : "")
         .accessibilityIdentifier("home.spaceFilter.\(space.rawValue)")
     }
-}
 
-private struct HomeSpaceChipLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 6) {
-            configuration.icon
-                .font(.footnote.weight(.semibold))
-            configuration.title
-                .lineLimit(1)
+    private func chipFace(
+        _ space: ListeningSpace,
+        content: HomeFilterBarChipContent,
+        isSelected: Bool
+    ) -> some View {
+        HStack(spacing: 0) {
+            if content.showsIcon {
+                Image(systemName: space.systemImage)
+                    .symbolVariant(isSelected ? .fill : .none)
+                    .font(.footnote.weight(.semibold))
+                    .transition(.scale.combined(with: .opacity))
+            }
+            if content.showsTitle {
+                Text(space.titleKey)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .padding(.leading, content.showsIcon ? 6 : 0)
+                    .transition(.opacity)
+            }
+            if isSelected {
+                Image(systemName: "xmark")
+                    .font(.caption2.weight(.bold))
+                    .padding(.leading, 5)
+                    .transition(.scale.combined(with: .opacity))
+            }
         }
+        .font(.subheadline.weight(isSelected ? .semibold : .medium))
+        .foregroundStyle(isSelected ? AnyShapeStyle(.text(on: space.tint)) : AnyShapeStyle(.primary))
+        .padding(.horizontal, 14)
+        .frame(minHeight: 36)
+        .background {
+            Capsule()
+                .fill(isSelected ? AnyShapeStyle(space.tint.gradient) : AnyShapeStyle(.quaternary.opacity(0.7)))
+        }
+        .contentShape(Capsule())
     }
 }
 
@@ -914,7 +1036,11 @@ struct HomeView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     let spaces = homeFilterSpaces
                     if !spaces.isEmpty {
-                        HomeSpaceFilterBar(spaces: spaces, selection: activeHomeFilter) { space in
+                        HomeSpaceFilterBar(
+                            spaces: spaces,
+                            selection: activeHomeFilter,
+                            labelStyle: HomeFilterBarConfiguration.decode(homeFilterBarRawValue).labelStyle
+                        ) { space in
                             // 再点一次选中的那颗(或它上面的 ✕)回到全部。
                             setHomeFilter(activeHomeFilter == space ? nil : space)
                         }
@@ -1612,7 +1738,7 @@ struct HomeView: View {
                 .padding(.horizontal, 20)
 
                 if shown.count > 1 {
-                    HomeSpaceFilterBar(spaces: shown, selection: nil) { _ in }
+                    HomeSpaceFilterBar(spaces: shown, selection: nil, labelStyle: configuration.labelStyle) { _ in }
                         .allowsHitTesting(false)
                 } else {
                     Text("home_filter_bar_none")

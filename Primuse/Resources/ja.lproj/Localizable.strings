@@ -5794,3 +5794,11 @@
 "stats_style_report" = "ミュージックの1年";
 "stats_style_charts" = "グラフ";
 "stats_style_footer" = "「ミュージックの1年」は1年を1ページにまとめます。「グラフ」は週・月・年ごとの再生回数、カレンダー、ランキングを表示し、音楽サーバーの記録も見られます。";
+
+/* 首页顶部切换：显示方式 */
+"home_filter_bar_label_style" = "表示方法";
+"home_filter_bar_label_automatic" = "自動";
+"home_filter_bar_label_icon_and_title" = "アイコンと文字";
+"home_filter_bar_label_icon_only" = "アイコンのみ";
+"home_filter_bar_label_title_only" = "文字のみ";
+"home_filter_bar_label_style_footer" = "自動では、収まるときはすべての項目にアイコンと文字を表示します。収まらないときは選択中の項目だけ完全に表示し、ほかは文字かアイコンだけにします。それでも収まらないときは列を横にスワイプできます。";

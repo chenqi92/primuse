@@ -5699,3 +5699,11 @@
 "stats_style_report" = "Rok w muzyce";
 "stats_style_charts" = "Wykresy";
 "stats_style_footer" = "„Rok w muzyce” to cały rok na jednej stronie. Wykresy: odtworzenia, kalendarz i rankingi z tygodnia, miesiąca lub roku, także z serwerów muzycznych.";
+
+/* 首页顶部切换：显示方式 */
+"home_filter_bar_label_style" = "Wygląd";
+"home_filter_bar_label_automatic" = "Automatycznie";
+"home_filter_bar_label_icon_and_title" = "Ikona i tekst";
+"home_filter_bar_label_icon_only" = "Tylko ikona";
+"home_filter_bar_label_title_only" = "Tylko tekst";
+"home_filter_bar_label_style_footer" = "W trybie automatycznym każdy filtr ma ikonę i tekst, gdy starcza miejsca. Jeśli nie, wybrany filtr zostaje pełny, a pozostałe pokazują tylko tekst lub ikonę. Gdy rząd nadal się nie mieści, można go przewinąć w bok.";

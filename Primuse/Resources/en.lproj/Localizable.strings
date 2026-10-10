@@ -5553,3 +5553,11 @@
 "stats_style_report" = "Year in Music";
 "stats_style_charts" = "Charts";
 "stats_style_footer" = "Year in Music tells your year on one page. Charts shows plays, a calendar and rankings by week, month or year, including plays on your music servers.";
+
+/* 首页顶部切换：显示方式 */
+"home_filter_bar_label_style" = "Display";
+"home_filter_bar_label_automatic" = "Automatic";
+"home_filter_bar_label_icon_and_title" = "Icon and Text";
+"home_filter_bar_label_icon_only" = "Icon Only";
+"home_filter_bar_label_title_only" = "Text Only";
+"home_filter_bar_label_style_footer" = "Automatic shows icon and text on every filter when they fit. When they don’t, the selected filter stays complete and the others keep only their text or icon. If the row is still too wide, swipe it sideways.";

@@ -5699,3 +5699,11 @@
 "stats_style_report" = "سنة في الموسيقى";
 "stats_style_charts" = "الرسوم البيانية";
 "stats_style_footer" = "تعرض «سنة في الموسيقى» عامك في صفحة واحدة. وتعرض الرسوم البيانية مرات التشغيل والتقويم والترتيب أسبوعيًا أو شهريًا أو سنويًا، مع خوادم الموسيقى.";
+
+/* 首页顶部切换：显示方式 */
+"home_filter_bar_label_style" = "طريقة العرض";
+"home_filter_bar_label_automatic" = "تلقائي";
+"home_filter_bar_label_icon_and_title" = "أيقونة ونص";
+"home_filter_bar_label_icon_only" = "أيقونة فقط";
+"home_filter_bar_label_title_only" = "نص فقط";
+"home_filter_bar_label_style_footer" = "في الوضع التلقائي يعرض كل عامل تصفية أيقونته ونصه عندما تتسع المساحة. وإلا يبقى العامل المحدد كاملًا ويُكتفى في البقية بالنص أو الأيقونة. وإذا ظل الصف أعرض من الشاشة يمكنك تمريره جانبيًا.";

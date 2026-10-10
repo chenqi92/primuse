@@ -5793,3 +5793,11 @@
 "stats_style_report" = "Bilan musical de l'année";
 "stats_style_charts" = "Graphiques";
 "stats_style_footer" = "Le bilan raconte votre année sur une page. Les graphiques montrent écoutes, calendrier et classements par semaine, mois ou année, serveurs musicaux compris.";
+
+/* 首页顶部切换：显示方式 */
+"home_filter_bar_label_style" = "Affichage";
+"home_filter_bar_label_automatic" = "Automatique";
+"home_filter_bar_label_icon_and_title" = "Icône et texte";
+"home_filter_bar_label_icon_only" = "Icône seule";
+"home_filter_bar_label_title_only" = "Texte seul";
+"home_filter_bar_label_style_footer" = "En automatique, chaque filtre affiche son icône et son texte s’il y a la place. Sinon, le filtre sélectionné reste complet et les autres ne gardent que leur texte ou leur icône. Si la rangée est encore trop large, faites-la défiler latéralement.";

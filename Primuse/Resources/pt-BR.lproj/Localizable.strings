@@ -5699,3 +5699,11 @@
 "stats_style_report" = "Ano na Música";
 "stats_style_charts" = "Gráficos";
 "stats_style_footer" = "Ano na Música conta seu ano em uma página. Gráficos mostra reproduções, calendário e rankings por semana, mês ou ano, incluindo seus servidores.";
+
+/* 首页顶部切换：显示方式 */
+"home_filter_bar_label_style" = "Exibição";
+"home_filter_bar_label_automatic" = "Automático";
+"home_filter_bar_label_icon_and_title" = "Ícone e texto";
+"home_filter_bar_label_icon_only" = "Só ícone";
+"home_filter_bar_label_title_only" = "Só texto";
+"home_filter_bar_label_style_footer" = "No automático, cada filtro mostra ícone e texto quando cabem. Se não couberem, o filtro selecionado fica completo e os outros mostram só o texto ou só o ícone. Se a fileira ainda não couber, deslize-a para o lado.";

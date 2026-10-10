@@ -5793,3 +5793,11 @@
 "stats_style_report" = "Dein Musikjahr";
 "stats_style_charts" = "Diagramme";
 "stats_style_footer" = "„Dein Musikjahr“ zeigt dein Jahr auf einer Seite. Diagramme zeigen Wiedergaben, Kalender und Ranglisten nach Woche, Monat oder Jahr – auch von Musikservern.";
+
+/* 首页顶部切换：显示方式 */
+"home_filter_bar_label_style" = "Darstellung";
+"home_filter_bar_label_automatic" = "Automatisch";
+"home_filter_bar_label_icon_and_title" = "Symbol und Text";
+"home_filter_bar_label_icon_only" = "Nur Symbol";
+"home_filter_bar_label_title_only" = "Nur Text";
+"home_filter_bar_label_style_footer" = "Automatisch zeigt bei jedem Filter Symbol und Text, wenn der Platz reicht. Sonst bleibt der ausgewählte Filter vollständig und die anderen zeigen nur Text oder Symbol. Ist die Leiste dann noch zu breit, lässt sie sich seitlich wischen.";

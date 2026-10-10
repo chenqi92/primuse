@@ -5886,3 +5886,11 @@
 "stats_style_report" = "年度报告";
 "stats_style_charts" = "数据图表";
 "stats_style_footer" = "年度报告把一年的听歌写成一页；数据图表按周、月、年看播放次数、日历和排行，也能看音乐服务器上的记录。";
+
+/* 首页顶部切换：显示方式 */
+"home_filter_bar_label_style" = "显示方式";
+"home_filter_bar_label_automatic" = "自动";
+"home_filter_bar_label_icon_and_title" = "图标和文字";
+"home_filter_bar_label_icon_only" = "仅图标";
+"home_filter_bar_label_title_only" = "仅文字";
+"home_filter_bar_label_style_footer" = "自动：放得下时每一项都显示图标和文字；放不下时选中的那一项保持完整，其余只留文字或图标。仍然放不下时可以左右滑动这一排。";
