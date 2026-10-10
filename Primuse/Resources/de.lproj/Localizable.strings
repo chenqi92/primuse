@@ -1765,6 +1765,9 @@
 "fullscreen_effect_chladni_plate" = "Chladni-Sand";
 "fullscreen_effect_chladni_plate_subtitle" = "Feiner Sand auf einer schwingenden Metallplatte ordnet sich zur Musik in symmetrische Muster und hüpft im Takt";
 "fullscreen_effect_chladni_plate_motion" = "Echtzeit-Spektrum · Hellerer Klang, feineres Muster";
+"fullscreen_effect_firefly_sync" = "Glühwürmchen im Takt";
+"fullscreen_effect_firefly_sync_subtitle" = "Glühwürmchen über einer nächtlichen Wiese finden nach und nach in den Takt, bis die ganze Wiese gleichzeitig aufleuchtet";
+"fullscreen_effect_firefly_sync_motion" = "Echtzeit-Spektrum · Je gleichmäßiger der Beat, desto synchroner";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";

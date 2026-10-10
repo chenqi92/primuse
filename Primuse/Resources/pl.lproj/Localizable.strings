@@ -1413,6 +1413,9 @@
 "fullscreen_effect_chladni_plate" = "Piasek Chladniego";
 "fullscreen_effect_chladni_plate_subtitle" = "Piasek na drgającej metalowej płycie układa się w rytm muzyki w symetryczne wzory i podskakuje na uderzeniach";
 "fullscreen_effect_chladni_plate_motion" = "Widmo w czasie rzeczywistym · Jaśniejszy dźwięk, gęstszy wzór";
+"fullscreen_effect_firefly_sync" = "Świetliki w rytmie";
+"fullscreen_effect_firefly_sync_subtitle" = "Świetliki nad nocną łąką stopniowo łapią rytm, aż cała łąka rozbłyska jednocześnie";
+"fullscreen_effect_firefly_sync_motion" = "Widmo w czasie rzeczywistym · Równiejszy rytm, lepsza synchronizacja";
 "fullscreen_effect_native" = "Oryginał";
 "fullscreen_effect_native_motion" = "Przejście natywne · Domyślne";
 "fullscreen_effect_native_subtitle" = "Znajomy układ odtwarzacza i sterowanie";

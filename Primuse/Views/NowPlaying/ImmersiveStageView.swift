@@ -221,6 +221,8 @@ struct ImmersiveStageView<Artwork: View>: View {
             ImmersiveStageDeferredScene { albumFlowScene }
         case .chladniPlate:
             ImmersiveStageDeferredScene { chladniPlateScene }
+        case .fireflySync:
+            ImmersiveStageDeferredScene { fireflySyncScene }
         }
     }
 
@@ -575,6 +577,46 @@ struct ImmersiveStageView<Artwork: View>: View {
             side: side,
             labelSize: metrics.s(platform == .tvOS ? 17 : 10)
         )
+    }
+
+    // MARK: - 10. 萤火同步
+
+    /// 萤火与草地铺满整幅，文字靠上：专辑小卡、歌名、当前这句歌词。萤火虫偏下，文字压在夜空那一段。
+    private var fireflySyncScene: some View {
+        let isPhoneLandscape = metrics.layout == .phoneLandscape
+        let textWidth = metrics.isPortrait
+            ? metrics.size.width - leadingInset - trailingInset
+            : metrics.size.width * (isPhoneLandscape ? 0.52 : 0.46)
+
+        return ZStack {
+            ImmersiveFireflyMeadow(
+                levelsProvider: spectrumProvider,
+                palette: palette,
+                isAnimating: sceneIsAnimating,
+                count: metrics.layout == .wide ? 360 : 220
+            )
+            ImmersiveVignette(color: ImmersiveStagePalette.obsidian, clearStop: 0.42, strength: 0.38)
+
+            VStack(alignment: .leading, spacing: metrics.s(metrics.isPortrait ? 14 : 16)) {
+                compactHeader(artSide: metrics.s(platform == .tvOS ? 96 : (metrics.isPortrait ? 60 : 62)))
+                titleBlock(
+                    size: metrics.s(metrics.isPortrait ? 38 : (isPhoneLandscape ? 40 : (platform == .tvOS ? 84 : 54))),
+                    weight: .semibold,
+                    maxWidth: textWidth
+                )
+                singleLyric(
+                    fontSize: metrics.s(metrics.isPortrait ? 18 : (platform == .tvOS ? 30 : 19)),
+                    availableWidth: textWidth
+                )
+                .frame(maxWidth: textWidth, alignment: .leading)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, leadingInset)
+            .padding(.trailing, trailingInset)
+            .padding(.top, topInset + metrics.s(metrics.isPortrait ? 8 : 0))
+            .padding(.bottom, bottomInset)
+        }
     }
 
     private var galleryTrackBlock: some View {

@@ -698,6 +698,24 @@ final class PlayerAppearancePreferencesTests: XCTestCase {
         )
     }
 
+    /// 萤火同步追加在克拉尼沙画之后，归在声音响应那一组，要开实时频谱。
+    func testFireflySyncIsAppendedAfterChladniPlate() {
+        XCTAssertEqual(FullscreenPlayerEffect.allCases.firstIndex(of: .fireflySync), 10)
+        XCTAssertEqual(FullscreenPlayerEffect.fireflySync.rawValue, "fireflySync")
+        XCTAssertEqual(FullscreenPlayerEffect(rawValue: "fireflySync"), .fireflySync)
+        XCTAssertEqual(FullscreenPlayerEffect.fireflySync.collection, .audioReactive)
+        XCTAssertEqual(FullscreenPlayerEffect.fireflySync.scene, .fireflySync)
+        XCTAssertTrue(FullscreenPlayerEffect.fireflySync.usesRealtimeSpectrum)
+        XCTAssertEqual(
+            ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
+                selectedRawValue: "fireflySync",
+                hasSynchronizedLyrics: false,
+                hasArtwork: false
+            ),
+            "fireflySync"
+        )
+    }
+
     func testCoverFlowNeighboursMapOffsetsOntoBothSides() {
         func item(_ id: String) -> AlbumFlowNeighbors.Item {
             AlbumFlowNeighbors.Item(

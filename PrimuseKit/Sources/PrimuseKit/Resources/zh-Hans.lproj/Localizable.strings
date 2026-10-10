@@ -680,6 +680,9 @@
 "fullscreen_effect_chladni_plate" = "克拉尼沙画";
 "fullscreen_effect_chladni_plate_subtitle" = "振动金属板上的细沙随歌曲排出对称花纹，鼓点让沙粒跳起来";
 "fullscreen_effect_chladni_plate_motion" = "实时频谱驱动 · 声音越亮花纹越繁";
+"fullscreen_effect_firefly_sync" = "萤火同步";
+"fullscreen_effect_firefly_sync_subtitle" = "夜里草地上的萤火虫随节拍慢慢对齐，最后整片一齐闪亮";
+"fullscreen_effect_firefly_sync_motion" = "实时频谱驱动 · 节拍越稳越同步";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "图言吐语";
 "immersive_demo_album" = "soundisle";

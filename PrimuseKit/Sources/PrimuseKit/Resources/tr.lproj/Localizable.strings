@@ -303,6 +303,9 @@
 "fullscreen_effect_chladni_plate" = "Chladni Kumu";
 "fullscreen_effect_chladni_plate_subtitle" = "Titreşen metal levhadaki kum müzikle simetrik desenler oluşturur ve ritimle zıplar";
 "fullscreen_effect_chladni_plate_motion" = "Gerçek zamanlı spektrum · Ses parladıkça desen sıklaşır";
+"fullscreen_effect_firefly_sync" = "Ateşböceği Uyumu";
+"fullscreen_effect_firefly_sync_subtitle" = "Gece çayırındaki ateşböcekleri ritme yavaş yavaş uyar ve sonunda hepsi birlikte yanıp söner";
+"fullscreen_effect_firefly_sync_motion" = "Gerçek zamanlı spektrum · Ritim düzenlendikçe uyum artar";
 "ext.tv.otp.authFailed" = "Oturum açma başarısız oldu. Hesabı ve şifreyi kontrol edin.";
 "ext.tv.search.eyebrow" = "Ara";
 "ext.tv.sources.hint.daoliyu" = "Daoliyu yerlisi API";

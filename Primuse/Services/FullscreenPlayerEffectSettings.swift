@@ -377,6 +377,7 @@ enum ImmersiveEffectScene: Sendable {
     case particleBloom
     case albumFlow
     case chladniPlate
+    case fireflySync
 }
 
 /// 保留控制层语义，便于三端共用同一套容器。
@@ -436,6 +437,8 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     case albumFlow
     /// 克拉尼沙画：振动金属板上的细沙随频谱重心与响度排出不同的节线花纹。
     case chladniPlate
+    /// 萤火同步：草地上的萤火虫各闪各的，节拍越稳越会慢慢对上，最后整片一齐闪。
+    case fireflySync
 
     static let storageKey = "primuse.fullscreenPlayerEffect"
     static let defaultValue = FullscreenPlayerEffect.native
@@ -456,6 +459,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .particleBloom: "particleBloom"
         case .albumFlow: "albumFlow"
         case .chladniPlate: "chladniPlate"
+        case .fireflySync: "fireflySync"
         }
     }
 
@@ -489,6 +493,8 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
             self = .albumFlow
         case "chladniPlate":
             self = .chladniPlate
+        case "fireflySync":
+            self = .fireflySync
         default:
             return nil
         }
@@ -499,7 +505,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .native: .native
         case .coverGallery, .vinylDeck, .albumFlow: .coverReactive
         case .flowingLines, .auroraVeil: .sceneMotion
-        case .radialPulse, .spectrumHorizon, .particleBloom, .chladniPlate: .audioReactive
+        case .radialPulse, .spectrumHorizon, .particleBloom, .chladniPlate, .fireflySync: .audioReactive
         }
     }
 
@@ -514,6 +520,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .particleBloom: .particleBloom
         case .albumFlow: .albumFlow
         case .chladniPlate: .chladniPlate
+        case .fireflySync: .fireflySync
         }
     }
 
@@ -524,7 +531,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     var prefersLightContent: Bool { false }
     var usesRealtimeSpectrum: Bool {
         switch self {
-        case .radialPulse, .spectrumHorizon, .particleBloom, .chladniPlate: true
+        case .radialPulse, .spectrumHorizon, .particleBloom, .chladniPlate, .fireflySync: true
         default: false
         }
     }
@@ -550,6 +557,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .particleBloom: "particle_bloom"
         case .albumFlow: "cover_flow"
         case .chladniPlate: "chladni_plate"
+        case .fireflySync: "firefly_sync"
         }
     }
 
@@ -581,6 +589,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .particleBloom: "aqi.medium"
         case .albumFlow: "rectangle.stack.fill"
         case .chladniPlate: "squareshape.split.3x3"
+        case .fireflySync: "sparkles"
         }
     }
 }

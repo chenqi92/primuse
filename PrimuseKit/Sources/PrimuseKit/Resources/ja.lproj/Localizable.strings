@@ -683,6 +683,9 @@
 "fullscreen_effect_chladni_plate" = "クラドニ図形";
 "fullscreen_effect_chladni_plate_subtitle" = "振動する金属板の砂が曲に合わせて対称な模様を描き、ビートで跳ねる";
 "fullscreen_effect_chladni_plate_motion" = "リアルタイムスペクトラム駆動 · 明るい音ほど細かな模様";
+"fullscreen_effect_firefly_sync" = "ホタルの同期";
+"fullscreen_effect_firefly_sync_subtitle" = "夜の草むらのホタルがビートに合わせて少しずつそろい、やがて一斉に光る";
+"fullscreen_effect_firefly_sync_motion" = "リアルタイムスペクトラム駆動 · ビートが安定するほど同期";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";

@@ -683,6 +683,9 @@
 "fullscreen_effect_chladni_plate" = "Sable de Chladni";
 "fullscreen_effect_chladni_plate_subtitle" = "Sur une plaque de métal qui vibre, le sable dessine des motifs symétriques au fil de la musique et saute sur le rythme";
 "fullscreen_effect_chladni_plate_motion" = "Spectre en temps réel · Son plus brillant, motif plus fin";
+"fullscreen_effect_firefly_sync" = "Lucioles synchrones";
+"fullscreen_effect_firefly_sync_subtitle" = "Les lucioles d’une prairie nocturne se calent peu à peu sur le rythme jusqu’à briller toutes ensemble";
+"fullscreen_effect_firefly_sync_motion" = "Spectre en temps réel · Rythme plus régulier, lucioles plus synchrones";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";

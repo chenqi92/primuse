@@ -574,6 +574,9 @@
 "fullscreen_effect_chladni_plate" = "Areia de Chladni";
 "fullscreen_effect_chladni_plate_subtitle" = "A areia sobre uma placa de metal vibrando forma desenhos simétricos com a música e pula na batida";
 "fullscreen_effect_chladni_plate_motion" = "Espectro em tempo real · Som mais brilhante, desenho mais detalhado";
+"fullscreen_effect_firefly_sync" = "Vaga-lumes em sincronia";
+"fullscreen_effect_firefly_sync_subtitle" = "Os vaga-lumes de um campo à noite entram aos poucos no ritmo até piscarem todos juntos";
+"fullscreen_effect_firefly_sync_motion" = "Espectro em tempo real · Batida mais estável, mais sincronia";
 "fullscreen_effect_native" = "Originais";
 "fullscreen_effect_native_motion" = "Transição nativa · Padrão";
 "fullscreen_effect_native_subtitle" = "O layout e os controles familiares do player";

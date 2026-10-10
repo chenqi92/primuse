@@ -681,6 +681,9 @@
 "fullscreen_effect_chladni_plate" = "Chladni Sand";
 "fullscreen_effect_chladni_plate_subtitle" = "Fine sand on a vibrating metal plate settles into symmetric patterns with the music and hops on the beat";
 "fullscreen_effect_chladni_plate_motion" = "Live spectrum driven · Brighter sound, busier pattern";
+"fullscreen_effect_firefly_sync" = "Firefly Sync";
+"fullscreen_effect_firefly_sync_subtitle" = "Fireflies over a night meadow drift into step with the beat until the whole field flashes as one";
+"fullscreen_effect_firefly_sync_motion" = "Live spectrum driven · Steadier beat, tighter sync";
 "immersive_demo_title" = "Primuse";
 "immersive_demo_artist" = "chenqi92";
 "immersive_demo_album" = "soundisle";

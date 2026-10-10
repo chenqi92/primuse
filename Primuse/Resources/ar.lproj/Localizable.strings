@@ -1413,6 +1413,9 @@
 "fullscreen_effect_chladni_plate" = "رمال كلادني";
 "fullscreen_effect_chladni_plate_subtitle" = "تتجمع الرمال على صفيحة معدنية مهتزة في أنماط متناظرة مع الموسيقى وتقفز مع الإيقاع";
 "fullscreen_effect_chladni_plate_motion" = "مدفوع بالطيف اللحظي · كلما سطع الصوت ازداد النمط تعقيدًا";
+"fullscreen_effect_firefly_sync" = "تزامن اليراعات";
+"fullscreen_effect_firefly_sync_subtitle" = "تتوافق اليراعات فوق مرج ليلي مع الإيقاع شيئًا فشيئًا حتى يومض المرج كله معًا";
+"fullscreen_effect_firefly_sync_motion" = "مدفوع بالطيف اللحظي · كلما ثبت الإيقاع زاد التزامن";
 "fullscreen_effect_native" = "الأصل";
 "fullscreen_effect_native_motion" = "الانتقال الأصلي · الافتراضي";
 "fullscreen_effect_native_subtitle" = "تخطيط اللاعب وعناصر التحكم المألوفة";

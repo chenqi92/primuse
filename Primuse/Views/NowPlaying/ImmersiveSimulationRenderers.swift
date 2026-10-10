@@ -165,3 +165,229 @@ struct ImmersiveChladniPlate: View {
         }
     }
 }
+
+// MARK: - 萤火同步
+
+/// 萤火同步的模拟宿主：频谱 → 鼓点与拍速 → 萤火虫群走一步。暂停时整片停在当下那一刻。
+@MainActor
+final class ImmersiveFireflyModel {
+    struct Light {
+        var x: Double
+        var y: Double
+        var depth: Double
+        var brightness: Double
+    }
+
+    struct Frame {
+        var lights: [Light] = []
+        /// 模拟时钟，草叶摆动跟它走，暂停时一起停。
+        var time: TimeInterval = 0
+        /// 这一刻整片有多亮（平均亮度），草地被照亮的程度。
+        var glow: Double = 0
+    }
+
+    private var swarm: FireflySwarmSimulation?
+    private var tracker = ImmersiveBeatTracker()
+    private var lastTime: TimeInterval?
+
+    func frame(time: TimeInterval, levels: [CGFloat], count: Int, advances: Bool) -> Frame {
+        let features = tracker.update(levels: levels.map { Double($0) }, at: time)
+        if swarm?.fireflies.count != count {
+            swarm = FireflySwarmSimulation(count: count, seed: 0xF1_5EF1)
+            lastTime = nil
+        }
+        guard var current = swarm else { return Frame() }
+        swarm = nil
+        if advances {
+            current.step(dt: lastTime.map { time - $0 } ?? 0, features: features)
+            lastTime = time
+        } else {
+            lastTime = nil
+        }
+        var lights: [Light] = []
+        lights.reserveCapacity(current.fireflies.count)
+        var total = 0.0
+        for index in current.fireflies.indices {
+            let position = current.position(of: index)
+            let brightness = current.brightness(of: index)
+            total += brightness
+            lights.append(Light(
+                x: position.x,
+                y: position.y,
+                depth: current.fireflies[index].depth,
+                brightness: brightness
+            ))
+        }
+        swarm = current
+        return Frame(
+            lights: lights,
+            time: current.time,
+            glow: lights.isEmpty ? 0 : total / Double(lights.count)
+        )
+    }
+}
+
+/// 夜里的一片草地，几百只萤火虫各闪各的；歌的节拍越稳，它们越会慢慢对上，最后整片一齐闪，
+/// 把草尖都照亮。光晕画成同一张预先栅格化的小图，按亮度缩放、叠加。
+struct ImmersiveFireflyMeadow: View {
+    @Environment(\.immersiveFrameRate) private var frameRate
+    var levelsProvider: @MainActor () -> [CGFloat]
+    var palette: ImmersiveArtworkPalette
+    var isAnimating: Bool
+    var count: Int
+
+    @State private var model = ImmersiveFireflyModel()
+
+    private static let lime = Color(red: 0.80, green: 0.98, blue: 0.42)
+    private static let core = Color(red: 1.0, green: 1.0, blue: 0.84)
+    private static let glowSymbolID = 0
+
+    var body: some View {
+        TimelineView(.animation(
+            minimumInterval: frameRate.minimumInterval(base: 1.0 / 30),
+            paused: !isAnimating
+        )) { context in
+            let frame = model.frame(
+                time: context.date.timeIntervalSinceReferenceDate,
+                levels: levelsProvider(),
+                count: count,
+                advances: isAnimating
+            )
+            Canvas(rendersAsynchronously: true) { canvas, size in
+                drawSky(in: &canvas, size: size)
+                drawFireflies(frame, in: &canvas, size: size)
+                drawGrass(frame, in: &canvas, size: size)
+            } symbols: {
+                Circle()
+                    .fill(RadialGradient(
+                        colors: [Self.lime.opacity(0.95), Self.lime.opacity(0.32), Self.lime.opacity(0)],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: 32
+                    ))
+                    .frame(width: 64, height: 64)
+                    .tag(Self.glowSymbolID)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func drawSky(in canvas: inout GraphicsContext, size: CGSize) {
+        canvas.fill(
+            Path(CGRect(origin: .zero, size: size)),
+            with: .linearGradient(
+                Gradient(colors: [
+                    ImmersiveStagePalette.obsidian,
+                    palette.secondary.opacity(0.55),
+                    Color(red: 0.03, green: 0.06, blue: 0.05),
+                ]),
+                startPoint: .zero,
+                endPoint: CGPoint(x: 0, y: size.height)
+            )
+        )
+        // 天上几颗很暗的星，位置固定。
+        var stars = Path()
+        let starCount = Int(size.width / 14)
+        for index in 0..<starCount {
+            let x: CGFloat = CGFloat(ImmersiveSeed.unit(index, salt: 71)) * size.width
+            let height: CGFloat = CGFloat(pow(ImmersiveSeed.unit(index, salt: 72), 1.6))
+            let y: CGFloat = height * size.height * 0.42
+            let radius: CGFloat = 0.5 + CGFloat(ImmersiveSeed.unit(index, salt: 73)) * 0.8
+            stars.addEllipse(in: CGRect(x: x - radius, y: y - radius, width: radius * 2, height: radius * 2))
+        }
+        canvas.fill(stars, with: .color(ImmersiveStagePalette.ink.opacity(0.32)))
+    }
+
+    private func drawFireflies(_ frame: ImmersiveFireflyModel.Frame, in canvas: inout GraphicsContext, size: CGSize) {
+        guard let glow = canvas.resolveSymbol(id: Self.glowSymbolID) else { return }
+        let unit: CGFloat = min(size.width, size.height) / 400
+        var embers = Path()
+        var cores = Path()
+        canvas.drawLayer { layer in
+            layer.blendMode = .plusLighter
+            for light in frame.lights {
+                let pointX: CGFloat = CGFloat(light.x) * size.width
+                let pointY: CGFloat = CGFloat(light.y) * size.height
+                let point = CGPoint(x: pointX, y: pointY)
+                let depth: CGFloat = CGFloat(light.depth)
+                let brightness: CGFloat = CGFloat(light.brightness)
+                let near: Double = 0.45 + 0.55 * light.depth
+                let emberRadius: CGFloat = max(0.6, unit * (0.7 + 1.1 * depth))
+                if light.brightness < 0.04 {
+                    // 两次闪之间只剩一点余光。
+                    embers.addEllipse(in: CGRect(
+                        x: point.x - emberRadius,
+                        y: point.y - emberRadius,
+                        width: emberRadius * 2,
+                        height: emberRadius * 2
+                    ))
+                    continue
+                }
+                let reach: CGFloat = unit * (7 + 15 * depth)
+                let radius: CGFloat = reach * (0.65 + 0.35 * brightness)
+                layer.opacity = min(1, light.brightness * near)
+                layer.draw(glow, in: CGRect(
+                    x: point.x - radius,
+                    y: point.y - radius,
+                    width: radius * 2,
+                    height: radius * 2
+                ))
+                let coreRadius: CGFloat = emberRadius * (1 + brightness)
+                cores.addEllipse(in: CGRect(
+                    x: point.x - coreRadius,
+                    y: point.y - coreRadius,
+                    width: coreRadius * 2,
+                    height: coreRadius * 2
+                ))
+            }
+        }
+        canvas.fill(embers, with: .color(Self.lime.opacity(0.16)))
+        canvas.fill(cores, with: .color(Self.core.opacity(0.9)))
+    }
+
+    /// 画面底边一排草，随风轻摆；整片一齐闪时草尖被照亮。
+    private func drawGrass(_ frame: ImmersiveFireflyModel.Frame, in canvas: inout GraphicsContext, size: CGSize) {
+        let groundTop: CGFloat = size.height * 0.90
+        if frame.glow > 0.01 {
+            let radius: CGFloat = max(size.width, size.height) * 0.6
+            let center = CGPoint(x: size.width / 2, y: size.height)
+            canvas.fill(
+                Path(CGRect(x: 0, y: size.height - radius, width: size.width, height: radius)),
+                with: .radialGradient(
+                    Gradient(colors: [Self.lime.opacity(min(frame.glow * 0.5, 0.28)), Self.lime.opacity(0)]),
+                    center: center,
+                    startRadius: 0,
+                    endRadius: radius
+                )
+            )
+        }
+        canvas.fill(
+            Path(CGRect(x: 0, y: groundTop, width: size.width, height: size.height - groundTop)),
+            with: .linearGradient(
+                Gradient(colors: [Color(red: 0.02, green: 0.04, blue: 0.03).opacity(0), Color(red: 0.01, green: 0.02, blue: 0.015)]),
+                startPoint: CGPoint(x: 0, y: groundTop - size.height * 0.04),
+                endPoint: CGPoint(x: 0, y: size.height)
+            )
+        )
+        var blades = Path()
+        let bladeCount = Int(size.width / 5)
+        let unit: CGFloat = min(size.width, size.height) / 400
+        for index in 0..<bladeCount {
+            let slot: Double = (Double(index) + ImmersiveSeed.unit(index, salt: 81)) / Double(max(bladeCount, 1))
+            let baseX: CGFloat = CGFloat(slot) * size.width
+            let height: CGFloat = unit * (14 + 34 * CGFloat(ImmersiveSeed.unit(index, salt: 82)))
+            let restingLean: CGFloat = CGFloat(ImmersiveSeed.unit(index, salt: 83) - 0.5) * height * 0.5
+            let sway: CGFloat = CGFloat(sin(frame.time * 0.7 + Double(baseX) * 0.012)) * height * 0.08
+            let lean: CGFloat = restingLean + sway
+            let base = CGPoint(x: baseX, y: size.height + 2)
+            let tip = CGPoint(x: baseX + lean, y: size.height - height)
+            let control = CGPoint(x: baseX + lean * 0.15, y: size.height - height * 0.55)
+            blades.move(to: base)
+            blades.addQuadCurve(to: tip, control: control)
+        }
+        canvas.stroke(blades, with: .color(Color(red: 0.02, green: 0.05, blue: 0.035)), lineWidth: max(1.2, unit * 1.6))
+        if frame.glow > 0.02 {
+            canvas.stroke(blades, with: .color(Self.lime.opacity(min(frame.glow * 0.35, 0.22))), lineWidth: max(0.6, unit * 0.6))
+        }
+    }
+}
