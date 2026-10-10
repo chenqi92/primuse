@@ -956,7 +956,7 @@ extension CarPlaySceneDelegate {
             if isTabRoot, siriShortcut {
                 actions.append(CPGridButton(titleVariants: ["Siri"], image: Self.symbolImage("mic")) { [weak self] _ in self?.pushAssistantTemplate() })
             }
-            template.headerGridButtons = actions.isEmpty ? nil : Array(actions.prefix(CPListTemplate.maximumHeaderGridButtonCount))
+            template.headerGridButtons = Array(actions.prefix(CPListTemplate.maximumHeaderGridButtonCount))
         }
     }
 

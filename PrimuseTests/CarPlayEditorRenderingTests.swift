@@ -243,7 +243,7 @@ final class CarPlayEditorRenderingTests: XCTestCase {
         var configuration = CarPlayLayoutConfiguration()
         delegate.configureNavigation(on: template, configuration: configuration, isTabRoot: true)
         XCTAssertTrue(template.trailingNavigationBarButtons.isEmpty, "Tab roots do not support custom navigation buttons")
-        if #available(iOS 26.0, *) { XCTAssertNil(template.headerGridButtons, "Search no longer takes a row of its own above tab roots") }
+        if #available(iOS 26.0, *) { XCTAssertEqual(template.headerGridButtons?.count ?? 0, 0, "Search no longer takes a row of its own above tab roots") }
         delegate.configureNavigation(on: template, configuration: configuration)
         XCTAssertNil(template.assistantCellConfiguration)
         XCTAssertEqual(template.trailingNavigationBarButtons.count, 1)
