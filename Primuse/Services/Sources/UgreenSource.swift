@@ -136,9 +136,9 @@ actor UgreenSource: MusicSourceConnector {
                 "Ugreen download failed: HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)"
             )
         }
-        let prefix = (try? FileHandle(forReadingFrom: tempURL)).map { handle -> Data in
-            defer { handle.closeFile() }
-            return handle.readData(ofLength: 64)
+        let prefix = (try? FileHandle(forReadingFrom: tempURL)).flatMap { handle -> Data? in
+            defer { try? handle.close() }
+            return try? handle.read(upToCount: 64)
         } ?? Data()
         if httpMediaResponseLooksLikeErrorBody(http, data: prefix) {
             try? FileManager.default.removeItem(at: tempURL)
@@ -232,8 +232,8 @@ actor UgreenSource: MusicSourceConnector {
         return AsyncThrowingStream { c in
             let task = Task {
                 do {
-                    let h = try FileHandle(forReadingFrom: local); defer { h.closeFile() }
-                    while true { let d = h.readData(ofLength: 65536); if d.isEmpty { break }; c.yield(d) }
+                    let h = try FileHandle(forReadingFrom: local); defer { try? h.close() }
+                    while true { let d = try h.read(upToCount: 65536) ?? Data(); if d.isEmpty { break }; c.yield(d) }
                     c.finish()
                 } catch {
                     c.finish(throwing: error)

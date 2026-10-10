@@ -256,7 +256,10 @@ final class FileLogger: @unchecked Sendable {
             currentBytes = 0
         }
         guard let opened = try? FileHandle(forWritingTo: fileURL) else { return nil }
-        opened.seekToEndOfFile()
+        guard (try? opened.seekToEnd()) != nil else {
+            try? opened.close()
+            return nil
+        }
         handle = opened
         return opened
     }

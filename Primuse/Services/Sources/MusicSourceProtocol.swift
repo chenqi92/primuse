@@ -1740,7 +1740,10 @@ extension MusicSourceConnector {
             actualOffset = UInt64(offset)
         }
         try handle.seek(toOffset: actualOffset)
-        return handle.readData(ofLength: Int(length))
+        // `readData(ofLength:)` raises an Objective-C exception when the read
+        // fails (a Files-provider item that cannot be materialized, a drive
+        // that went away), which Swift cannot catch. This one throws instead.
+        return try handle.read(upToCount: Int(length)) ?? Data()
     }
 
     func fetchRange(

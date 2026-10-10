@@ -1031,7 +1031,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                     let handle = try FileHandle(forReadingFrom: localURL)
                     defer { try? handle.close() }
                     while true {
-                        let chunk = handle.readData(ofLength: 64 * 1024)
+                        let chunk = try handle.read(upToCount: 64 * 1024) ?? Data()
                         if chunk.isEmpty { break }
                         continuation.yield(chunk)
                     }

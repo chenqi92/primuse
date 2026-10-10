@@ -427,11 +427,11 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
             Task.detached {
                 do {
                     let handle = try FileHandle(forReadingFrom: fileURL)
-                    defer { handle.closeFile() }
+                    defer { try? handle.close() }
 
                     let chunkSize = 64 * 1024 // 64 KB
                     while true {
-                        let data = handle.readData(ofLength: chunkSize)
+                        let data = try handle.read(upToCount: chunkSize) ?? Data()
                         if data.isEmpty { break }
                         continuation.yield(data)
                     }

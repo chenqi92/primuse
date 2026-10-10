@@ -281,10 +281,10 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
             Task {
                 do {
                     let handle = try FileHandle(forReadingFrom: localURL)
-                    defer { handle.closeFile() }
+                    defer { try? handle.close() }
                     let chunkSize = 64 * 1024
                     while true {
-                        let data = handle.readData(ofLength: chunkSize)
+                        let data = try handle.read(upToCount: chunkSize) ?? Data()
                         if data.isEmpty { break }
                         continuation.yield(data)
                     }

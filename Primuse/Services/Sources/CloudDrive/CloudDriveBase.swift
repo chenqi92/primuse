@@ -638,9 +638,9 @@ struct CloudDriveHelper: Sendable {
             Task {
                 do {
                     let handle = try FileHandle(forReadingFrom: url)
-                    defer { handle.closeFile() }
+                    defer { try? handle.close() }
                     while true {
-                        let data = handle.readData(ofLength: 64 * 1024)
+                        let data = try handle.read(upToCount: 64 * 1024) ?? Data()
                         if data.isEmpty { break }
                         continuation.yield(data)
                     }

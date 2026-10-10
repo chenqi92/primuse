@@ -149,7 +149,7 @@ actor QnapSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         // 二进制音频。把错误体落进缓存会永久损坏这首歌 (后续命中缓存直接返回坏文件)。
         // 先按 Content-Type / 文件首字节嗅探: 非音频体一律抛错, 绝不落缓存。
         let prefix = (try? FileHandle(forReadingFrom: tempURL))
-            .map { h -> Data in defer { h.closeFile() }; return h.readData(ofLength: 64) } ?? Data()
+            .flatMap { h -> Data? in defer { try? h.close() }; return try? h.read(upToCount: 64) } ?? Data()
         if httpMediaResponseLooksLikeErrorBody(http, data: prefix) {
             try? FileManager.default.removeItem(at: tempURL)
             await api.invalidateSession()
@@ -333,8 +333,8 @@ actor QnapSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         return AsyncThrowingStream { c in
             let task = Task {
                 do {
-                    let h = try FileHandle(forReadingFrom: local); defer { h.closeFile() }
-                    while true { let d = h.readData(ofLength: 65536); if d.isEmpty { break }; c.yield(d) }
+                    let h = try FileHandle(forReadingFrom: local); defer { try? h.close() }
+                    while true { let d = try h.read(upToCount: 65536) ?? Data(); if d.isEmpty { break }; c.yield(d) }
                     c.finish()
                 } catch {
                     c.finish(throwing: error)
