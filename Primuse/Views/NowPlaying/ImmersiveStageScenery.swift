@@ -446,7 +446,7 @@ enum ImmersiveDemoStage {
     }
 
     /// 取证页「播放中」用的合成频谱：每分钟 120 拍的底鼓、反拍上的镲和缓慢起伏的旋律，
-    /// 会找鼓点的效果（克拉尼沙画、萤火同步、果蝇听歌）在静止的演示频谱下看不出反应。
+    /// 会找鼓点的效果（克拉尼沙画、萤火同步、神经共鸣）在静止的演示频谱下看不出反应。
     static func beatLevels(at time: TimeInterval) -> [CGFloat] {
         let phase: Double = time.truncatingRemainder(dividingBy: 0.5)
         let kick: Double = phase < 0.05 ? 1 : max(0, 1 - phase / 0.22)

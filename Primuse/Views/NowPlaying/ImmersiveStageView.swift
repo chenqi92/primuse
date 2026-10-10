@@ -499,8 +499,8 @@ struct ImmersiveStageView<Artwork: View>: View {
 
     // MARK: - 9. 克拉尼沙画
 
-    /// 竖屏：板在上、文字在下。其余视口：板贴前缘、在内容区里竖直居中，文字列从板的右边再留出间距；
-    /// 控件在文字这一侧。
+    /// 竖屏：板在上、文字在下。其余视口：板贴前缘、在内容区里竖直居中，从板的右边再留出间距只放歌词
+    /// （`lyricsOnlyColumn`）；控件在歌词这一侧。
     private var chladniPlateScene: some View {
         let isPhoneLandscape = metrics.layout == .phoneLandscape
         let innerWidth = metrics.size.width - leadingInset - trailingInset
@@ -513,7 +513,7 @@ struct ImmersiveStageView<Artwork: View>: View {
             )
         let plateCenterY = topInset + (contentBottom - topInset) / 2
         let textLeading = leadingInset + plateSide
-            + metrics.s(isPhoneLandscape ? 30 : (platform == .tvOS ? 96 : 64))
+            + metrics.s(isPhoneLandscape ? 40 : (platform == .tvOS ? 110 : 76))
         let textWidth = max(metrics.s(160), metrics.size.width - trailingInset - textLeading)
         let plateCenter = metrics.isPortrait
             ? UnitPoint(x: 0.5, y: (topInset + metrics.s(14) + plateSide / 2) / max(metrics.size.height, 1))
@@ -554,18 +554,12 @@ struct ImmersiveStageView<Artwork: View>: View {
                 chladniPlate(side: plateSide)
                     .position(x: leadingInset + plateSide / 2, y: plateCenterY)
 
-                VStack(alignment: .leading, spacing: metrics.s(18)) {
-                    titleBlock(
-                        size: metrics.s(isPhoneLandscape ? 44 : (platform == .tvOS ? 90 : 58)),
-                        weight: .semibold
-                    )
-                    formatAndLyric(
-                        fontSize: metrics.s(platform == .tvOS ? 23 : 14),
-                        availableWidth: textWidth
-                    )
-                }
-                .frame(width: textWidth, alignment: .leading)
-                .position(x: textLeading + textWidth / 2, y: plateCenterY)
+                lyricsOnlyColumn(
+                    fontSize: metrics.s(isPhoneLandscape ? 25 : (platform == .tvOS ? 58 : 48)),
+                    width: textWidth,
+                    alignment: .leading
+                )
+                .position(x: textLeading + textWidth / 2, y: lyricsOnlyCenterY)
             }
         }
     }
@@ -583,54 +577,61 @@ struct ImmersiveStageView<Artwork: View>: View {
 
     // MARK: - 10. 萤火同步
 
-    /// 萤火与草地铺满整幅，文字靠上：专辑小卡、歌名、当前这句歌词。萤火虫偏下，文字压在夜空那一段。
+    /// 萤火与草地铺满整幅。竖屏文字靠上：专辑小卡、歌名、当前这句歌词，萤火虫偏下。
+    /// 其余视口萤火压到下面六成，上面那截夜空居中只放歌词（`lyricsOnlyColumn`）。
     private var fireflySyncScene: some View {
         let isPhoneLandscape = metrics.layout == .phoneLandscape
-        let textWidth = metrics.isPortrait
-            ? metrics.size.width - leadingInset - trailingInset
-            : metrics.size.width * (isPhoneLandscape ? 0.52 : 0.46)
+        let textWidth = metrics.size.width - leadingInset - trailingInset
+        let fieldTop: CGFloat = metrics.isPortrait ? 0.30 : 0.44
 
         return ZStack {
             ImmersiveFireflyMeadow(
                 levelsProvider: spectrumProvider,
                 palette: palette,
                 isAnimating: sceneIsAnimating,
-                count: metrics.layout == .wide ? 360 : 220
+                count: metrics.layout == .wide ? 360 : 220,
+                fieldTop: fieldTop
             )
             ImmersiveVignette(color: ImmersiveStagePalette.obsidian, clearStop: 0.42, strength: 0.38)
 
-            VStack(alignment: .leading, spacing: metrics.s(metrics.isPortrait ? 14 : 16)) {
-                compactHeader(artSide: metrics.s(platform == .tvOS ? 96 : (metrics.isPortrait ? 60 : 62)))
-                titleBlock(
-                    size: metrics.s(metrics.isPortrait ? 38 : (isPhoneLandscape ? 40 : (platform == .tvOS ? 84 : 54))),
-                    weight: .semibold,
-                    maxWidth: textWidth
+            if metrics.isPortrait {
+                VStack(alignment: .leading, spacing: metrics.s(14)) {
+                    compactHeader(artSide: metrics.s(60))
+                    titleBlock(size: metrics.s(38), weight: .semibold, maxWidth: textWidth)
+                    singleLyric(fontSize: metrics.s(18), availableWidth: textWidth)
+                        .frame(maxWidth: textWidth, alignment: .leading)
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
+                .padding(.top, topInset + metrics.s(8))
+                .padding(.bottom, bottomInset)
+            } else {
+                let skyBottom = metrics.size.height * fieldTop
+                lyricsOnlyColumn(
+                    fontSize: metrics.s(isPhoneLandscape ? 24 : (platform == .tvOS ? 58 : 48)),
+                    width: metrics.size.width * (isPhoneLandscape ? 0.70 : 0.62),
+                    alignment: .center
                 )
-                singleLyric(
-                    fontSize: metrics.s(metrics.isPortrait ? 18 : (platform == .tvOS ? 30 : 19)),
-                    availableWidth: textWidth
+                .position(
+                    x: metrics.size.width / 2,
+                    y: topInset + max(skyBottom - topInset, 0) / 2 + metrics.s(6)
                 )
-                .frame(maxWidth: textWidth, alignment: .leading)
-                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, leadingInset)
-            .padding(.trailing, trailingInset)
-            .padding(.top, topInset + metrics.s(metrics.isPortrait ? 8 : 0))
-            .padding(.bottom, bottomInset)
         }
     }
 
-    // MARK: - 11. 果蝇听歌
+    // MARK: - 11. 神经共鸣
 
-    /// 竖屏：文字在上、大脑居中、歌词在下。其余视口：文字列靠前缘，大脑占后面那一大块；
-    /// 角落一行小字写数据来源（CC BY 4.0 要求署名）。
+    /// 竖屏：文字在上、大脑居中、歌词在下。其余视口：前缘一列只放歌词（`lyricsOnlyColumn`），
+    /// 和大脑的中心齐平，大脑占后面那一大块；角落一行小字写数据来源（CC BY 4.0 要求署名）。
     private var flyBrainScene: some View {
         let isPhoneLandscape = metrics.layout == .phoneLandscape
         let innerWidth = metrics.size.width - leadingInset - trailingInset
         let availableTop = topInset
         let availableHeight = max(metrics.size.height - bottomInset - availableTop, 1)
-        let textWidth = metrics.isPortrait ? innerWidth : innerWidth * (isPhoneLandscape ? 0.36 : 0.32)
+        let textWidth = metrics.isPortrait ? innerWidth : innerWidth * (isPhoneLandscape ? 0.38 : 0.34)
         let brainLeading = metrics.isPortrait
             ? leadingInset
             : leadingInset + textWidth + metrics.s(isPhoneLandscape ? 12 : 32)
@@ -689,26 +690,18 @@ struct ImmersiveStageView<Artwork: View>: View {
                 .padding(.top, topInset + metrics.s(8))
                 .padding(.bottom, bottomInset)
             } else {
-                VStack(alignment: .leading, spacing: metrics.s(isPhoneLandscape ? 12 : 16)) {
-                    compactHeader(artSide: metrics.s(platform == .tvOS ? 96 : 58))
-                    titleBlock(
-                        size: metrics.s(isPhoneLandscape ? 34 : (platform == .tvOS ? 80 : 50)),
-                        weight: .semibold,
-                        maxWidth: textWidth
-                    )
-                    singleLyric(
-                        fontSize: metrics.s(platform == .tvOS ? 28 : 17),
-                        availableWidth: textWidth
-                    )
-                    .frame(maxWidth: textWidth, alignment: .leading)
-                    Spacer(minLength: 0)
-                    flyBrainCredit
-                }
-                .frame(width: textWidth, alignment: .leading)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .padding(.leading, leadingInset)
-                .padding(.top, topInset)
-                .padding(.bottom, bottomInset)
+                lyricsOnlyColumn(
+                    fontSize: metrics.s(isPhoneLandscape ? 22 : (platform == .tvOS ? 50 : 40)),
+                    width: textWidth,
+                    alignment: .leading
+                )
+                .position(x: leadingInset + textWidth / 2, y: brainCenterY)
+
+                flyBrainCredit
+                    .frame(width: textWidth, alignment: .leading)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .padding(.leading, leadingInset)
+                    .padding(.bottom, bottomInset)
             }
         }
     }
@@ -720,6 +713,56 @@ struct ImmersiveStageView<Artwork: View>: View {
             .foregroundStyle(ImmersiveStagePalette.text.opacity(0.36))
             .lineLimit(1)
             .minimumScaleFactor(0.6)
+            .immersiveRestingText(isResting)
+    }
+
+    // MARK: - 只放歌词（沙画、萤火、神经共鸣的非竖屏）
+
+    /// 只放歌词那一列的竖直中心：内容区上沿到控件让出的那一段之间的正中。
+    private var lyricsOnlyCenterY: CGFloat {
+        topInset + max(metrics.size.height - bottomInset - topInset, 0) / 2
+    }
+
+    /// 这首歌有能显示的歌词（间奏里暂时没有当前句也算）；只有「暂无歌词」「正在加载」这类占位时为 false。
+    private var hasStageLyrics: Bool {
+        if lyricInterlude { return true }
+        if lyricWindow.contains(where: { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+            return true
+        }
+        return currentLyric?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+
+    /// 这三个效果在非竖屏里不放封面、歌名与歌手，画面之外只有歌词：前后句压暗、当前句放大。
+    /// 没有歌词时这里改放歌名与歌手；点出控件时歌词上方淡入一行「歌名 · 歌手」，控件藏起来就跟着藏，
+    /// 歌词本身不挪位置。
+    @ViewBuilder
+    private func lyricsOnlyColumn(fontSize: CGFloat, width: CGFloat, alignment: TextAlignment) -> some View {
+        let horizontal: HorizontalAlignment = alignment == .center ? .center : .leading
+        let frameAlignment = Alignment(horizontal: horizontal, vertical: .center)
+        if hasStageLyrics {
+            focusedLyrics(alignment: alignment, proposedCurrentFontSize: fontSize, availableWidth: width)
+                .frame(width: width, alignment: frameAlignment)
+                .overlay(alignment: Alignment(horizontal: horizontal, vertical: .top)) {
+                    lyricsOnlyEyebrow(alignment: alignment)
+                        .frame(width: width, alignment: frameAlignment)
+                        .alignmentGuide(.top) { $0[.bottom] + metrics.s(platform == .tvOS ? 26 : 16) }
+                        .opacity(showsPlaybackProgress ? 1 : 0)
+                        .animation(.easeInOut(duration: 0.3), value: showsPlaybackProgress)
+                }
+        } else {
+            titleBlock(size: fontSize * 1.5, weight: .semibold, maxWidth: width, alignment: horizontal)
+                .frame(width: width, alignment: frameAlignment)
+        }
+    }
+
+    private func lyricsOnlyEyebrow(alignment: TextAlignment) -> some View {
+        let artist = track.artist.trimmingCharacters(in: .whitespacesAndNewlines)
+        return Text(verbatim: artist.isEmpty ? track.title : "\(track.title) · \(artist)")
+            .font(.system(size: metrics.s(platform == .tvOS ? 22 : (metrics.isWide ? 17 : 13)), weight: .semibold))
+            .foregroundStyle(ImmersiveStagePalette.text.opacity(0.62))
+            .multilineTextAlignment(alignment)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
             .immersiveRestingText(isResting)
     }
 

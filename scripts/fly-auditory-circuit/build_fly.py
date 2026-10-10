@@ -1,4 +1,4 @@
-# 生成 PrimuseKit/Sources/PrimuseKit/Resources/FlyAuditoryCircuit.bin（全屏效果「果蝇听歌」）。
+# 生成 PrimuseKit/Sources/PrimuseKit/Resources/FlyAuditoryCircuit.bin（全屏效果「神经共鸣」）。
 #
 # 数据：Male CNS v1.0 连接组，Janelia FlyEM 与 Google，CC BY 4.0（https://male-cns.janelia.org/）。
 # 在一个工作目录里按顺序跑（需要 Python 3 与 numpy、pandas、pyarrow、shapely）：

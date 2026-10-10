@@ -139,3 +139,23 @@ struct FlyAuditoryCircuitTests {
         }
     }
 }
+
+extension FlyAuditoryCircuitTests {
+    @Test func pointCloudProjectsLikeTheCamera() throws {
+        let points: [SIMD3<Float>] = [SIMD3(0.4, -0.2, 0.1), SIMD3(-0.9, 0.5, -0.6), SIMD3(0, 0, 0), SIMD3(0.2, 0.7, 0.9)]
+        let cloud = FlyBrainPointCloud(points)
+        for camera in [FlyBrainCamera.resting, FlyBrainCamera.orbit(at: 13), FlyBrainCamera(yaw: -0.4, pitch: 0.3, distance: 2.5)] {
+            var flat: [Float] = []
+            cloud.project(with: camera, into: &flat)
+            #expect(flat.count == points.count * 2)
+            for (index, point) in points.enumerated() {
+                let expected = camera.project(point)
+                #expect(abs(flat[2 * index] - expected.x) < 1e-5)
+                #expect(abs(flat[2 * index + 1] - expected.y) < 1e-5)
+            }
+        }
+        var empty: [Float] = [1, 2]
+        FlyBrainPointCloud([]).project(with: .resting, into: &empty)
+        #expect(empty.isEmpty)
+    }
+}

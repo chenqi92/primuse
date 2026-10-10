@@ -440,7 +440,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     case chladniPlate
     /// 萤火同步：草地上的萤火虫各闪各的，节拍越稳越会慢慢对上，最后整片一齐闪。
     case fireflySync
-    /// 果蝇听歌：真实果蝇大脑听觉通路的全息投影，声音沿真实接线一级级点亮。
+    /// 神经共鸣：真实果蝇大脑听觉通路的全息投影，声音沿真实接线一级级点亮。
     case flyBrain
 
     static let storageKey = "primuse.fullscreenPlayerEffect"

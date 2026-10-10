@@ -671,13 +671,13 @@ struct ImmersivePlayerView: View {
              .radialPulse, .auroraVeil, .spectrumHorizon:
             return .trailing
         case .chladniPlate:
-            // 板贴前缘、几乎占满整高，控件放到文字那一侧。
+            // 板贴前缘、几乎占满整高，控件放到歌词那一侧。
             return .trailing
         case .fireflySync:
-            // 文字在左上，右下角是一片空着的草地。
+            // 非竖屏歌词居中在上面那截夜空，右下角是一片空着的草地。
             return .trailing
         case .flyBrain:
-            // 文字列在前缘、底下是数据来源，控件放到大脑那一侧的下方。
+            // 歌词列在前缘、底下是数据来源，控件放到大脑那一侧的下方。
             return .trailing
         case .native, .albumFlow:
             // 封面流的画面左右对称, 控件也居中。

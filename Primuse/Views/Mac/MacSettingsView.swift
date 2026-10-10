@@ -8600,7 +8600,7 @@ private struct MacLicenseComponent: Identifiable, Hashable {
         .init(
             name: "Male CNS v1.0 (Janelia FlyEM / Google)",
             license: "CC BY 4.0",
-            use: Lz("Fruit fly hearing circuit in the Fly Brain effect")
+            use: Lz("Fruit fly hearing circuit in the Neural Resonance effect")
         ),
     ]
 
