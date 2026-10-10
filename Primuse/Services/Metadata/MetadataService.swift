@@ -50,7 +50,7 @@ actor MetadataService {
     /// Load metadata with priority: embedded → verified sidecar → online
     ///
     /// `trustedSource`: 是否把结果直接写入 hash cache。
-    /// - true（默认）: LibraryScanner / Backfill 路径,数据来自 embedded/sidecar,可信。
+    /// - true（默认）: 扫描 / Backfill 路径,数据来自 embedded/sidecar,可信。
     /// - false: ScraperService 路径,可能错配,**不写 cache**。
     ///   由 ScraperService 在用户确认/应用刮削结果时写入本地 cache；dry-run
     ///   路径只返回预期文件名,不会提前污染现有缓存。

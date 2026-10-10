@@ -37,7 +37,6 @@ targets:
           - "Info.plist"
       # 复用 iOS app 的「干净」曲库数据核心(直接编进 tvOS app target)
       - path: Primuse/Services/Library/MusicLibrary.swift
-      - path: Primuse/Services/Library/LibraryDatabase.swift
       - path: Primuse/Services/Library/PlayHistoryStore.swift
       - path: Primuse/Services/Sources/SourcesStore.swift
       - path: Primuse/Services/Sources/MusicSourceSecurityRevision.swift

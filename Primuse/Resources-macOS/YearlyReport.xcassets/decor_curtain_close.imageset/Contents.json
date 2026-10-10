@@ -1,0 +1,18 @@
+{
+  "images": [
+    {
+      "idiom": "universal",
+      "filename": "decor_curtain_close.png",
+      "scale": "1x"
+    },
+    {
+      "idiom": "universal",
+      "filename": "decor_curtain_close@2x.png",
+      "scale": "2x"
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
+}

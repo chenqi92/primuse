@@ -1,0 +1,18 @@
+{
+  "images": [
+    {
+      "idiom": "universal",
+      "filename": "personality_EOVM.png",
+      "scale": "1x"
+    },
+    {
+      "idiom": "universal",
+      "filename": "personality_EOVM@2x.png",
+      "scale": "2x"
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
+}

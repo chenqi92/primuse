@@ -148,6 +148,8 @@ targets:
           - "Info.plist"
           - "Info-macOS.plist"
           - "ThirdParty/**"
+          # 年度报告插画按平台分开: 手机用有损压缩的一份, Mac 用无损的一份。
+          - "Resources-macOS/**"
           - "**/AppSecrets.example.swift"
           - "**/AppSecrets.local.swift*"
           - "**/*.intentdefinition"
@@ -159,6 +161,7 @@ targets:
         buildPhase: resources
     resources:
       - path: Primuse/Resources
+      - path: Primuse/Resources-iOS
     dependencies:
       - sdk: DeviceCheck.framework
       - package: GRDB
@@ -166,8 +169,6 @@ targets:
         embed: true
       - package: AMSMB2
         embed: true
-      - package: FilesProvider
-        product: FilesProvider
       - package: Citadel
         product: Citadel
       - package: SwiftCrypto
@@ -547,11 +548,14 @@ targets:
           - "Info.plist"
           - "Info-macOS.plist"
           - "ThirdParty/**"
+          # 年度报告插画按平台分开: 手机用有损压缩的一份, Mac 用无损的一份。
+          - "Resources-iOS/**"
           - "**/AppSecrets.example.swift"
           - "**/AppSecrets.local.swift*"
           - "**/*.intentdefinition"
     resources:
       - path: Primuse/Resources
+      - path: Primuse/Resources-macOS
     dependencies:
       - sdk: DeviceCheck.framework
       - package: GRDB
@@ -559,8 +563,6 @@ targets:
         embed: true
       - package: AMSMB2
         embed: true
-      - package: FilesProvider
-        product: FilesProvider
       - package: Citadel
         product: Citadel
       - package: SwiftCrypto
@@ -687,7 +689,6 @@ targets:
       # 复用 iOS app 的「干净」曲库数据核心(与 tvpreview.yml 一致,直接编进 tvOS app)
       - path: Primuse/Services/Library/MusicLibrary.swift
       - path: Primuse/Services/Library/ServerPlaylistMirror.swift
-      - path: Primuse/Services/Library/LibraryDatabase.swift
       - path: Primuse/Services/Library/LibraryFavoritesStore.swift
       - path: Primuse/Services/Library/PlayHistoryStore.swift
       # 情景推荐专辑:电视首页主视觉与手机、Mac 首页同一份推荐。

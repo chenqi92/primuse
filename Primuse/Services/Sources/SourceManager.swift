@@ -3286,23 +3286,6 @@ final class SourceManager {
     /// 在「替换」期间的引用计数。
     @ObservationIgnored private var offlineSourceCacheRunIDs: [String: Set<UUID>] = [:]
 
-    init(database: LibraryDatabase) {
-        self.connectorFactory = nil
-        let initialCacheScopeState = Self.loadInitialAudioCacheScopeState()
-        self.recordedAudioCacheScopeSignatures = initialCacheScopeState.signatures
-        self.recordedAudioCacheCredentialScopeSignatures =
-            initialCacheScopeState.credentialSignatures
-        self.legacyAudioCacheAdoptionSourceIDs = initialCacheScopeState.legacyAdoptionSourceIDs
-        self.needsLegacyAudioCacheAdoptionDiscovery = initialCacheScopeState.needsLegacyDiscovery
-        self.audioCacheScopeStateAwaitingRead = initialCacheScopeState.awaitingRead
-        self.sourcesProvider = {
-            try await database.allSources()
-        }
-        self.songsProvider = { [] }
-        observeLibraryInvalidations()
-        scheduleInitialAudioCacheScopeValidation()
-    }
-
     init(
         sourcesProvider: @escaping @Sendable () async throws -> [MusicSource],
         songsProvider: @escaping @MainActor () -> [Song] = { [] },

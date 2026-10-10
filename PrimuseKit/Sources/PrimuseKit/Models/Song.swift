@@ -150,8 +150,8 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         set { updateRare { $0.cueEndTime = newValue } }
     }
     /// 整曲歌词的纯文本 dump (去时间戳), 给 FTS5 全文搜索用。nil 表示
-    /// 这首歌没有歌词或还没 backfill 完。LibraryDatabase migration 留空,
-    /// MetadataBackfillService 异步读 .lrc 文件填回。
+    /// 这首歌没有歌词或还没 backfill 完, MetadataBackfillService 异步读
+    /// .lrc 文件填回。
     public var lyricsText: String? {
         get { rare.values.lyricsText }
         set { updateRare { $0.lyricsText = newValue } }
