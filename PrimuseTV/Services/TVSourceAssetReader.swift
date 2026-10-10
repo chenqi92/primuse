@@ -126,6 +126,62 @@ actor TVSourceAssetReader {
         }
     }
 
+    /// 服务端记的这一条的进度(别的客户端听到的位置),换条目时拿来续播;源不记进度、取不到时为 nil。
+    func serverSpokenWordProgress(
+        song: Song,
+        source: MusicSource,
+        credential: SourceCredential?
+    ) async -> TVServerSpokenWordProgress? {
+        do {
+            switch source.type {
+            case .tingReader:
+                guard let reference = TingReaderAPIProtocol.trackReference(from: song.filePath) else { return nil }
+                let chapters = try await tingReaderClient(for: source, credential: credential)
+                    .chapters(bookID: reference.bookID)
+                guard let chapter = chapters.first(where: { $0.id == reference.chapterID }),
+                      let progress = TingReaderProgressPolicy.progress(for: chapter) else { return nil }
+                return TVServerSpokenWordProgress(
+                    position: progress.position,
+                    duration: progress.duration,
+                    isFinished: progress.isFinished,
+                    updatedAt: progress.updatedAt
+                )
+            case .audiobookshelf:
+                guard let reference = AudiobookshelfAPIProtocol.trackReference(from: song.filePath) else { return nil }
+                let client = audiobookshelfClient(for: source, credential: credential)
+                let records = try await client.mediaProgress().filter { $0.libraryItemID == reference.itemID }
+                guard !records.isEmpty else { return nil }
+                let item: AudiobookshelfCatalogItem
+                if let cached = audiobookshelfItems[reference.itemID] {
+                    item = cached
+                } else if let fetched = try await client.item(id: reference.itemID) {
+                    audiobookshelfItems[reference.itemID] = fetched
+                    item = fetched
+                } else {
+                    return nil
+                }
+                // 书是整本一条进度,播客每集一条;换算到这个文件 / 这一集。
+                for record in records {
+                    guard let track = item.trackProgress(from: record).first(where: { $0.kind == reference.kind }) else {
+                        continue
+                    }
+                    return TVServerSpokenWordProgress(
+                        position: track.position,
+                        duration: track.duration,
+                        isFinished: track.isFinished,
+                        updatedAt: record.lastUpdate ?? Date()
+                    )
+                }
+                return nil
+            default:
+                return nil
+            }
+        } catch {
+            plog("🎧 TV server progress read failed '\(song.title)': \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     /// 封面与进度上报共用一份登录会话;配置或凭据变了才重建。
     private func tingReaderClient(for source: MusicSource, credential: SourceCredential?) -> TingReaderServiceClient {
         let identity = Self.cacheIdentity(source: source, credential: credential)
@@ -298,3 +354,11 @@ extension TVStore {
 }
 
 #endif
+
+/// 服务端记的一条有声内容的进度,已经换算到这一条自己(书里的一个文件 / 一章 / 播客的一集)上。
+struct TVServerSpokenWordProgress: Sendable, Equatable {
+    let position: TimeInterval
+    let duration: TimeInterval
+    let isFinished: Bool
+    let updatedAt: Date
+}
