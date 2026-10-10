@@ -647,8 +647,40 @@ actor TVServerFeedbackHTTPClient: TVServerFeedbackClient {
                 credential: credential,
                 desired: desired
             )
+        case .jellyfin, .plex, .songloft:
+            return try await setConnectorFavorite(
+                song: song,
+                source: source,
+                credential: credential,
+                desired: desired
+            )
         default:
             throw TVServerFeedbackError.unsupported
+        }
+    }
+
+    /// 用手机端那份连接器写「喜欢」(电视端取服务端收藏也是它),返回服务器回读的状态。
+    private func setConnectorFavorite(
+        song: Song,
+        source: MusicSource,
+        credential: SourceCredential,
+        desired: Bool
+    ) async throws -> Bool {
+        guard let itemID = ServerFavoriteWritebackPolicy.songID(
+            fromConnectorPath: song.filePath,
+            sourceType: source.type
+        ) else { throw TVServerFeedbackError.invalidSongReference }
+        return try await withRoutedSource(source) { routed in
+            guard let connector = TVServerCatalogConnectorFactory.make(
+                source: routed,
+                credential: credential
+            ) as? any ServerFavoriteConnector else {
+                throw TVServerFeedbackError.unsupported
+            }
+            defer { Task { await connector.disconnect() } }
+            try await connector.connect()
+            return try await connector.setServerFavorite(itemID: itemID, isFavorite: desired)
+                .itemIDs.contains(itemID)
         }
     }
 
