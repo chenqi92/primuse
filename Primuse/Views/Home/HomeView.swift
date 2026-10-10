@@ -1896,71 +1896,108 @@ struct HomeView: View {
             }
 
             if visible, HomeSectionLayoutPolicy.isConfigurable(section) || range != nil {
-                HStack(spacing: 10) {
-                    if HomeSectionLayoutPolicy.isConfigurable(section) {
-                        Button {
-                            pmWithAnimation(.list) { advanceSectionLayout(section) }
-                        } label: {
-                            Label(LocalizedStringKey(style.titleKey), systemImage: style.icon)
-                                .font(.caption.weight(.semibold))
-                        }
-                        .buttonStyle(.bordered)
-                        .buttonBorderShape(.capsule)
-                        .controlSize(.small)
-                        .accessibilityIdentifier("home.edit.layout." + section.rawValue)
-                    }
-
-                    if HomeSectionLayoutPolicy.rowsRange(for: section, style: style) != nil {
-                        Button {
-                            pmWithAnimation(.list) { advanceSectionRows(section) }
-                        } label: {
-                            Text(
-                                String(
-                                    format: String(localized: "home_rows_format"),
-                                    homeLayout.rowCount(for: section)
-                                )
-                            )
-                            .font(.caption.weight(.semibold))
-                        }
-                        .buttonStyle(.bordered)
-                        .buttonBorderShape(.capsule)
-                        .controlSize(.small)
-                        .accessibilityIdentifier("home.edit.rows." + section.rawValue)
-                    }
-
-                    if let range {
-                        Spacer(minLength: 4)
-                        Text("home_count_label")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                        Text(count.formatted())
-                            .font(.caption.weight(.semibold))
-                            .monospacedDigit()
-                        Button {
-                            pmWithAnimation(.list) { adjustSectionCount(section, by: -1) }
-                        } label: {
-                            Image(systemName: "minus").font(.caption2.weight(.bold))
-                        }
-                        .buttonStyle(.bordered)
-                        .buttonBorderShape(.circle)
-                        .controlSize(.mini)
-                        .disabled(count <= range.lowerBound)
-                        .accessibilityIdentifier("home.edit.count.decrement." + section.rawValue)
-                        Button {
-                            pmWithAnimation(.list) { adjustSectionCount(section, by: 1) }
-                        } label: {
-                            Image(systemName: "plus").font(.caption2.weight(.bold))
-                        }
-                        .buttonStyle(.bordered)
-                        .buttonBorderShape(.circle)
-                        .controlSize(.mini)
-                        .disabled(count >= range.upperBound)
-                        .accessibilityIdentifier("home.edit.count.increment." + section.rawValue)
-                    }
+                // 13 mini 这类 375 点宽的手机上一排挤不下时,先省掉「条目数」那几个字,再把方案按钮
+                // 收成只剩图标,按钮里的字不折成两行。放得下的屏幕与原来一致。
+                ViewThatFits(in: .horizontal) {
+                    sectionLayoutControls(section, style: style, range: range, count: count,
+                                          showsLayoutTitle: true, showsCountLabel: true)
+                    sectionLayoutControls(section, style: style, range: range, count: count,
+                                          showsLayoutTitle: true, showsCountLabel: false)
+                    sectionLayoutControls(section, style: style, range: range, count: count,
+                                          showsLayoutTitle: false, showsCountLabel: false)
                 }
             }
         }
         .padding(.horizontal, 20)
+    }
+
+    /// 编辑条第二排:方案、行数、条目数。文字一律单行;放不下时由调用处换更省地方的一种。
+    private func sectionLayoutControls(
+        _ section: HomeSectionKind,
+        style: HomeSectionLayoutStyle,
+        range: ClosedRange<Int>?,
+        count: Int,
+        showsLayoutTitle: Bool,
+        showsCountLabel: Bool
+    ) -> some View {
+        HStack(spacing: 10) {
+            if HomeSectionLayoutPolicy.isConfigurable(section) {
+                Button {
+                    pmWithAnimation(.list) { advanceSectionLayout(section) }
+                } label: {
+                    if showsLayoutTitle {
+                        Label(LocalizedStringKey(style.titleKey), systemImage: style.icon)
+                            .font(.caption.weight(.semibold))
+                            .lineLimit(1)
+                    } else {
+                        Label(LocalizedStringKey(style.titleKey), systemImage: style.icon)
+                            .labelStyle(.iconOnly)
+                            .font(.caption.weight(.semibold))
+                    }
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .controlSize(.small)
+                .accessibilityIdentifier("home.edit.layout." + section.rawValue)
+            }
+
+            if HomeSectionLayoutPolicy.rowsRange(for: section, style: style) != nil {
+                Button {
+                    pmWithAnimation(.list) { advanceSectionRows(section) }
+                } label: {
+                    Text(
+                        String(
+                            format: String(localized: "home_rows_format"),
+                            homeLayout.rowCount(for: section)
+                        )
+                    )
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .controlSize(.small)
+                .accessibilityIdentifier("home.edit.rows." + section.rawValue)
+            }
+
+            if let range {
+                Spacer(minLength: 4)
+                if showsCountLabel {
+                    Text("home_count_label")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .accessibilityHidden(true)
+                }
+                Text(count.formatted())
+                    .font(.caption.weight(.semibold))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    // 「条目数」几个字省掉与否,旁白都把它和数一起念。
+                    .accessibilityLabel(Text("home_count_label"))
+                    .accessibilityValue(Text(count.formatted()))
+                Button {
+                    pmWithAnimation(.list) { adjustSectionCount(section, by: -1) }
+                } label: {
+                    Image(systemName: "minus").font(.caption2.weight(.bold))
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.circle)
+                .controlSize(.mini)
+                .disabled(count <= range.lowerBound)
+                .accessibilityIdentifier("home.edit.count.decrement." + section.rawValue)
+                Button {
+                    pmWithAnimation(.list) { adjustSectionCount(section, by: 1) }
+                } label: {
+                    Image(systemName: "plus").font(.caption2.weight(.bold))
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.circle)
+                .controlSize(.mini)
+                .disabled(count >= range.upperBound)
+                .accessibilityIdentifier("home.edit.count.increment." + section.rawValue)
+            }
+        }
     }
 
     private var selectedHomeRadio: RadioStation? {
@@ -3046,12 +3083,15 @@ struct HomeView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            // 两颗平分一行:窄屏或长文案的语言里字略缩一点,不折成两行把按钮撑高。
             HStack(spacing: 10) {
                 Button {
                     playSong(pick)
                 } label: {
                     Label("play", systemImage: "play.fill")
                         .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 11)
                 }
@@ -3064,6 +3104,8 @@ struct HomeView: View {
                 } label: {
                     Label("shuffle", systemImage: "shuffle")
                         .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 11)
                 }
@@ -3117,12 +3159,15 @@ struct HomeView: View {
                 heroCoverCollage
             }
 
+            // 同上:两颗平分一行,字不折行。
             HStack(spacing: 10) {
                 Button {
                     playLibrary(shuffled: true)
                 } label: {
                     Label("shuffle", systemImage: "shuffle")
                         .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 11)
                 }
@@ -3135,6 +3180,8 @@ struct HomeView: View {
                 } label: {
                     Label("play_all", systemImage: "play.fill")
                         .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 11)
                 }

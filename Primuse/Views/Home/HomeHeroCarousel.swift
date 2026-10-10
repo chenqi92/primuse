@@ -377,9 +377,12 @@ struct HomeHeroCarousel: View {
     }
 
     /// 骨架按同一个标签量高度,换成真按钮时下面的区块不跳。
+    /// 两颗平分一行:窄屏或长文案的语言里字略缩一点,不折成两行把按钮撑高。
     static func buttonLabel(_ titleKey: LocalizedStringKey, systemImage: String) -> some View {
         Label(titleKey, systemImage: systemImage)
             .font(.subheadline.weight(.semibold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 11)
     }

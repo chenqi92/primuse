@@ -594,6 +594,10 @@ struct LibraryDetailActionButton: View {
     @Environment(\.libraryDetailTint) private var tint
     #endif
     @Environment(\.libraryDetailActionMeasuring) private var measuring
+    @Environment(\.libraryDetailActionCompact) private var compact
+
+    /// 胶囊两侧的内边距。整行放不下时先收窄这一圈，文字照样一行（见 `LibraryDetailAdaptiveActionRow`）。
+    private var horizontalPadding: CGFloat { compact ? 12 : 20 }
 
     /// 量折行时不撑高度（圆钮也只留宽度）：两行字也塞得进 48 点，同一行里只要有一颗撑着，
     /// 整行就一样高，量不出折没折行。
@@ -624,7 +628,7 @@ struct LibraryDetailActionButton: View {
                 Label(title, systemImage: systemImage)
                     .font(.headline)
                     .foregroundStyle(labelColor)
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, horizontalPadding)
                     .frame(maxWidth: fillsWidth ? .infinity : nil, minHeight: minimumHeight)
                     .background(fillColor, in: Capsule())
             case .iconCapsule:
@@ -632,7 +636,7 @@ struct LibraryDetailActionButton: View {
                     .labelStyle(.iconOnly)
                     .font(.headline)
                     .foregroundStyle(labelColor)
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, horizontalPadding)
                     .frame(maxWidth: fillsWidth ? .infinity : nil, minHeight: minimumHeight)
                     .background(fillColor, in: Capsule())
             case .circle:
@@ -661,8 +665,9 @@ struct LibraryDetailFavoriteToggle {
 
 /// 专辑、艺术家、流派详情页头部的「播放 / 随机播放」一行。
 ///
-/// 放得下时就是原来那两颗胶囊（`stacksAtLargeType` 时大字号下上下叠）。窄栏里整行文字放不下时
-/// 依次退成「播放通栏 + 圆形随机」「只剩图标」，按钮文字不折成两行。
+/// 放得下时就是原来那两颗胶囊（`stacksAtLargeType` 时大字号下上下叠）。整行文字放不下时（窄栏、
+/// iPhone 13 mini 这类 375 点宽的手机、长文案的语言）先收窄胶囊两侧的内边距，再依次退成
+/// 「播放通栏 + 圆形随机」「只剩图标」，按钮文字不折成两行。
 struct LibraryDetailPlayShuffleRow: View {
     /// 专辑、艺术家的两颗胶囊平分整行；流派的按文字宽。
     var fillsWidth = true
@@ -678,9 +683,10 @@ struct LibraryDetailPlayShuffleRow: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        // 多了一颗心之后, SE 这类窄屏和长文案的语言里三颗平分整行放不下「随机播放」,
-        // 放不下时按宽度退让(随机收成圆钮),放得下的屏幕与原来一致。
-        LibraryDetailAdaptiveActionRow(adaptsAtAnyWidth: favorite != nil) {
+        // 多了一颗心之后, 13 mini、SE 这类窄屏和长文案的语言里三颗平分整行放不下「随机播放」;
+        // 流派页两颗按文字宽的胶囊在长文案的语言里也会挤。放不下时按宽度退让(先收窄内边距,
+        // 再把随机收成圆钮),放得下的屏幕与原来一致。
+        LibraryDetailAdaptiveActionRow(adaptsAtAnyWidth: true) {
             let stacked = stacksAtLargeType && dynamicTypeSize >= .xxLarge
             let layout = stacked
                 ? AnyLayout(VStackLayout(spacing: 10))
@@ -749,9 +755,10 @@ struct LibraryDetailPlayShuffleRow: View {
 }
 
 /// 详情页操作行在窄栏里的退让。整行放得下就是 `full`（原来的排法）；iPhone Duo 两栏的左栏、
-/// 系统竖栏这类新画布上放不下时依次换成 `reduced`、`minimal`，按钮文字永不折行。
+/// 系统竖栏这类新画布上放不下时依次换成「收窄内边距的 `full`」、`reduced`、`minimal`，按钮文字永不折行。
 /// 普通 iPhone 与 iPad 只走 `full`，和原来逐像素一致；`adaptsAtAnyWidth` 的行（整行文字在普通 iPhone
-/// 上本来就放不下的）不论画布都按宽度退让。
+/// 上本来就放不下的）不论画布都按宽度退让。收窄内边距只对 `LibraryDetailActionButton` 起作用，
+/// 别的按钮量出来和 `full` 一样宽，这一档自然跳过。
 ///
 /// 不用 `ViewThatFits`：它按理想宽度摆选中的那一种，撑满整行的按钮会缩成按文字宽。这里先在一层
 /// 不显示的背景里量出各排法不折行时要多宽，再按这一行实际有多宽挑一种正常摆。
@@ -789,6 +796,23 @@ struct LibraryDetailAdaptiveActionRow<Full: View, Reduced: View, Minimal: View>:
                                     widths.fullHeightAtAvailable = $0
                                 }
                         }
+                        // 同一排收窄胶囊内边距之后：要多宽、按实际宽度排时折没折行。
+                        full()
+                            .environment(\.libraryDetailActionCompact, true)
+                            .fixedSize()
+                            .onGeometryChange(for: CGSize.self) { $0.size } action: {
+                                widths.compactFull = $0.width
+                                widths.compactSingleLineHeight = $0.height
+                            }
+                        if let available = widths.available {
+                            full()
+                                .environment(\.libraryDetailActionCompact, true)
+                                .frame(width: available)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
+                                    widths.compactHeightAtAvailable = $0
+                                }
+                        }
                         reduced()
                             .fixedSize(horizontal: true, vertical: false)
                             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { widths.reduced = $0 }
@@ -805,8 +829,12 @@ struct LibraryDetailAdaptiveActionRow<Full: View, Reduced: View, Minimal: View>:
 
     @ViewBuilder
     private var chosenRow: some View {
-        switch widths.step {
-        case .full: full()
+        let step = widths.step
+        switch step {
+        // 两档是同一排，只差内边距：放在一个分支里，换档时按钮原地变窄，不重建。
+        case .full, .compactFull:
+            full()
+                .environment(\.libraryDetailActionCompact, step == .compactFull)
         case .reduced: reduced()
         case .minimal: minimal()
         }
@@ -816,25 +844,48 @@ struct LibraryDetailAdaptiveActionRow<Full: View, Reduced: View, Minimal: View>:
 /// 操作行这一栏有多宽、各排法不折行时要多宽，按此挑排法。还没量出来时先用原来的排法。
 struct LibraryDetailActionRowWidths: Equatable {
     enum Step {
-        case full, reduced, minimal
+        /// 原来的排法。
+        case full
+        /// 同一排，胶囊两侧的内边距收窄。
+        case compactFull
+        case reduced
+        case minimal
     }
 
     var available: CGFloat?
     var full: CGFloat?
+    var compactFull: CGFloat?
     var reduced: CGFloat?
     /// `full` 不折行时的高度，和按这一行实际宽度排出来的高度。后者更高就是有按钮的文字折行了。
     var fullSingleLineHeight: CGFloat?
     var fullHeightAtAvailable: CGFloat?
+    /// 收窄内边距那一档的同样两个高度。
+    var compactSingleLineHeight: CGFloat?
+    var compactHeightAtAvailable: CGFloat?
 
     private var fullWrapsAtAvailable: Bool {
-        guard let fullSingleLineHeight, let fullHeightAtAvailable else { return false }
-        return fullHeightAtAvailable > fullSingleLineHeight + 0.5
+        Self.wraps(singleLine: fullSingleLineHeight, atAvailable: fullHeightAtAvailable)
+    }
+
+    private var compactWrapsAtAvailable: Bool {
+        Self.wraps(singleLine: compactSingleLineHeight, atAvailable: compactHeightAtAvailable)
+    }
+
+    private static func wraps(singleLine: CGFloat?, atAvailable: CGFloat?) -> Bool {
+        guard let singleLine, let atAvailable else { return false }
+        return atAvailable > singleLine + 0.5
     }
 
     var step: Step {
         guard let available else { return .full }
         // 半个点的余量：量出来的理想宽度与实际摆放的宽度会差一点浮点零头。
         if let full, full <= available + 0.5, !fullWrapsAtAvailable { return .full }
+        // 两个高度都量到了才敢用收窄这一档：还没量完时宁可先退到下一档，不让文字折行。
+        if let compactFull, compactFull <= available + 0.5,
+           compactSingleLineHeight != nil, compactHeightAtAvailable != nil,
+           !compactWrapsAtAvailable {
+            return .compactFull
+        }
         if let reduced, reduced <= available + 0.5 { return .reduced }
         return full == nil || reduced == nil ? .full : .minimal
     }
@@ -847,6 +898,9 @@ private struct LibraryDetailActionsAdaptKey: EnvironmentKey {
 extension EnvironmentValues {
     /// 操作行在不显示的背景里量各排法要多宽、折没折行。
     @Entry var libraryDetailActionMeasuring = false
+
+    /// 操作行整行放不下时先收窄胶囊两侧的内边距（`LibraryDetailActionRowWidths.Step.compactFull`）。
+    @Entry var libraryDetailActionCompact = false
 
     /// 详情页头部排在窄栏里（iPhone Duo 两栏的左栏）：操作行放不下整行文字时换更省地方的排法。
     var libraryDetailActionsAdapt: Bool {

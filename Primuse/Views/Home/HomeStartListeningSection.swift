@@ -1158,12 +1158,20 @@ struct PersonalIntentsFooter: View {
                     Button {
                         service.recurate()
                     } label: {
-                        Label("listening_intent_ai_refresh", systemImage: "arrow.clockwise")
-                            .font(.footnote.weight(.semibold))
+                        // 左边开关的说明不缩;这一排挤不下(窄屏、长文案的语言)时按钮只留图标,字不折行。
+                        ViewThatFits(in: .horizontal) {
+                            Label("listening_intent_ai_refresh", systemImage: "arrow.clockwise")
+                                .lineLimit(1)
+                            Label("listening_intent_ai_refresh", systemImage: "arrow.clockwise")
+                                .labelStyle(.iconOnly)
+                        }
+                        .font(.footnote.weight(.semibold))
                     }
                     .buttonStyle(.bordered)
                     .buttonBorderShape(.capsule)
                     .controlSize(.small)
+                    // 先把剩下的宽度都让给这颗按钮去挑写法,不和左边的弹性空白对半分。
+                    .layoutPriority(1)
                     .disabled(service.curationStatus == .working)
                     .accessibilityIdentifier("listeningIntents.recurate")
                 }

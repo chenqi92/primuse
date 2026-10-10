@@ -856,12 +856,15 @@ struct LyricsEditorView: View {
 
             Divider()
 
+            // 两颗平分一行:长文案的语言里字略缩一点,不折成两行。
             HStack(spacing: 10) {
                 Button {
                     pasteDraft = nil
                 } label: {
                     Label(String(localized: "lyrics_editor_paste_redo"), systemImage: "arrow.counterclockwise")
                         .font(.subheadline)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
                 }
@@ -873,6 +876,8 @@ struct LyricsEditorView: View {
                 } label: {
                     Label(String(localized: "lyrics_editor_paste_accept"), systemImage: "checkmark")
                         .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
                 }

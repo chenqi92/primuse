@@ -1447,9 +1447,12 @@ private struct KaraokeResultView: View {
                         .font(.footnote)
                 }
             } else if let url = performance.recordingURL {
+                // 两颗平分一行:375 点宽的手机上英文等较长的文案字略缩一点,不折成两行。
                 HStack(spacing: 12) {
                     ShareLink(item: url) {
                         Label("karaoke_share_recording", systemImage: "square.and.arrow.up")
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
@@ -1458,6 +1461,8 @@ private struct KaraokeResultView: View {
                         session.deleteRecording(at: url)
                     } label: {
                         Label("karaoke_delete_recording", systemImage: "trash")
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)

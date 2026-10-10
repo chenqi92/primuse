@@ -777,9 +777,10 @@ struct PlaylistDetailView: View {
     /// 三按钮等分时中文 label 在 iPhone 上挤换行 / 截断, 这套 Apple Music
     /// 风格的 1+2 布局更稳。
     ///
-    /// 窄栏里（iPhone Duo 两栏的左栏）连「播放全部」都放不下时，主按钮只留图标，文字不折行。
+    /// 窄栏里（iPhone Duo 两栏的左栏）或 375 点宽的手机上长文案的语言里连「播放全部」都放不下时，
+    /// 主按钮只留图标，文字不折行。放得下的屏幕与原来一致。
     private var playlistActionButtons: some View {
-        LibraryDetailAdaptiveActionRow {
+        LibraryDetailAdaptiveActionRow(adaptsAtAnyWidth: true) {
             playlistActionButtonRow(showsPlayTitle: true)
         } reduced: {
             playlistActionButtonRow(showsPlayTitle: false)
