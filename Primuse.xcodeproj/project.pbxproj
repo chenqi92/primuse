@@ -624,6 +624,7 @@
 		4FABD6C4480CDBD874EC8F79 /* SettingsDiscoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 366DFF0895E102E8E4A21111 /* SettingsDiscoveryTests.swift */; };
 		4FB14E7A46B6F5209325B94F /* ScrobbleSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA12C906FD443EE450488F7 /* ScrobbleSettings.swift */; };
 		4FD2D4DB2A4489CA8EA1959B /* AIServiceSetupGuidance.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1DC6FE087BD6DCAA08986CC /* AIServiceSetupGuidance.swift */; };
+		CEF1428ED702B5B3803629D3 /* BuiltInAIQuota.swift in Sources */ = {isa = PBXBuildFile; fileRef = B93EB82A7C5DC3561C55E0CF /* BuiltInAIQuota.swift */; };
 		5013F5DB3AEFE10C17DCC8F1 /* ImmersiveStageScenery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 471FBD82B7B84A3591677C6D /* ImmersiveStageScenery.swift */; };
 		50144B56101B234A57AC9838 /* PlaylistImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E7EDECE3E00B23E95AC7D4B /* PlaylistImporter.swift */; };
 		502EFCB9A2F34C686EDA533C /* LastFmAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9428B24AB2EAE7BA15C6C5CA /* LastFmAuthService.swift */; };
@@ -3367,6 +3368,7 @@
 		E1C899A774E84E601D74500D /* TVPlaybackPipelinePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVPlaybackPipelinePolicy.swift; sourceTree = "<group>"; };
 		E1D4C8C80BE96CC395B40B4A /* LibraryDetailEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryDetailEvidence.swift; sourceTree = "<group>"; };
 		E1DC6FE087BD6DCAA08986CC /* AIServiceSetupGuidance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIServiceSetupGuidance.swift; sourceTree = "<group>"; };
+		B93EB82A7C5DC3561C55E0CF /* BuiltInAIQuota.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltInAIQuota.swift; sourceTree = "<group>"; };
 		E1F7BC83F45C23C5FEECE7C3 /* TianyiCloudAPIProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TianyiCloudAPIProtocol.swift; sourceTree = "<group>"; };
 		E20F7B4C2CC5E6302579FD2E /* AudioEngineVolumeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEngineVolumeTests.swift; sourceTree = "<group>"; };
 		E29626A0E82F1C22DE16A59A /* SongLocalRemovalPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongLocalRemovalPolicy.swift; sourceTree = "<group>"; };
@@ -4873,6 +4875,7 @@
 				6ED64B4E032D394DBD1BFC44 /* AISemanticAlbumGroupPolicy.swift */,
 				E1DC6FE087BD6DCAA08986CC /* AIServiceSetupGuidance.swift */,
 				9AB9689481CAC6ADFF0A0E9D /* AIStreamingResponsePolicy.swift */,
+				B93EB82A7C5DC3561C55E0CF /* BuiltInAIQuota.swift */,
 			);
 			path = AI;
 			sourceTree = "<group>";
@@ -6156,6 +6159,7 @@
 				7E3FBA7C13902D9125348C3B /* AISemanticAlbumGroupPolicy.swift in Sources */,
 				4FD2D4DB2A4489CA8EA1959B /* AIServiceSetupGuidance.swift in Sources */,
 				6DB7A4FAB4B02D7A4E54E58A /* AIStreamingResponsePolicy.swift in Sources */,
+				CEF1428ED702B5B3803629D3 /* BuiltInAIQuota.swift in Sources */,
 				4F143173989D3435C5DB1644 /* ActiveConnectionRouteOwnershipPolicy.swift in Sources */,
 				8B79263572E878595E3E44B3 /* AdaptiveStreamQualityPolicy.swift in Sources */,
 				0CC08354B4BA4E14C426FD2D /* AddSourceDraft.swift in Sources */,

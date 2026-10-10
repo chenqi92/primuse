@@ -1077,6 +1077,7 @@ private struct MacSTIntelligenceView: View {
                 switch resolvedServiceSelection {
                 case .builtIn:
                     builtInServiceSection
+                    builtInQuotaSection
                 case .provider:
                     providerEditorSections
                 }
@@ -1523,6 +1524,77 @@ private struct MacSTIntelligenceView: View {
                     }
                 }
             }
+        }
+    }
+
+    /// 内置 AI 的额度,和 iPhone 的「额度」区块一致:打开时读一次,之后每次调用随回复更新。
+    @ViewBuilder
+    private var builtInQuotaSection: some View {
+        if intelligence.showsBuiltInQuota {
+            let quota = intelligence.builtInQuota
+            MacSTSection(
+                String(localized: "ai_quota_section"),
+                hint: BuiltInAIQuotaText.footer(quota.overview)
+            ) {
+                MacSTGroup {
+                    MacSTRow(
+                        quotaHeaderTitle(quota),
+                        hint: quota.overview.flatMap(BuiltInAIQuotaText.bonusBanner),
+                        divider: false
+                    ) {
+                        HStack(spacing: 8) {
+                            if quota.isLoading {
+                                ProgressView().controlSize(.small)
+                            }
+                            MacSTButton(title: String(localized: "ai_quota_refresh"), systemImage: "arrow.clockwise") {
+                                Task { await intelligence.refreshBuiltInQuota(force: true) }
+                            }
+                            .disabled(quota.isLoading)
+                        }
+                    }
+                    if let overview = quota.overview {
+                        ForEach(overview.orderedFeatures(preferredOrder: BuiltInAIQuotaText.featureOrder)) { feature in
+                            MacSTRow(
+                                BuiltInAIQuotaText.title(for: feature),
+                                hint: BuiltInAIQuotaText.detail(for: feature)
+                            ) {
+                                quotaValue(feature.today)
+                            }
+                        }
+                        if let today = overview.today {
+                            MacSTRow(
+                                String(localized: "ai_quota_total_today"),
+                                hint: overview.month.map {
+                                    String(localized: "ai_quota_month_remaining \($0.remaining) \($0.limit)")
+                                }
+                            ) {
+                                quotaValue(today)
+                            }
+                        }
+                    }
+                }
+            }
+            .task { await intelligence.refreshBuiltInQuota() }
+        }
+    }
+
+    /// 第一行:套餐和来源;还没读到时说正在读或读不到。
+    private func quotaHeaderTitle(_ quota: BuiltInAIQuotaModel) -> String {
+        guard let overview = quota.overview else {
+            return quota.isLoading ? String(localized: "ai_quota_loading") : String(localized: "ai_quota_unavailable")
+        }
+        let plan = BuiltInAIQuotaText.plan(overview)
+        return plan.isEmpty ? String(localized: "ai_quota_plan") : plan
+    }
+
+    private func quotaValue(_ counter: BuiltInAIQuotaCounter) -> some View {
+        HStack(spacing: 10) {
+            ProgressView(value: counter.fractionUsed)
+                .frame(width: 80)
+                .tint(counter.isExhausted ? PMColor.bad : PMColor.brand)
+            Text(verbatim: BuiltInAIQuotaText.remaining(counter))
+                .font(.system(size: 12).monospacedDigit())
+                .foregroundStyle(counter.isExhausted ? PMColor.bad : PMColor.textMuted)
         }
     }
 

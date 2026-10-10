@@ -1259,6 +1259,7 @@ struct AISettingsView: View {
                     switch resolvedServiceSelection {
                     case .builtIn:
                         builtInServiceSection
+                        builtInQuotaSection
                         primuseRelayConnectionSection
                     case .provider:
                         providerHeaderSection
@@ -1746,6 +1747,95 @@ struct AISettingsView: View {
         } footer: {
             Text("ai_builtin_service_footer")
         }
+    }
+
+    /// 内置 AI 的额度:套餐和来源、活动或内测加量、各功能今天(和本月)还剩多少。
+    /// 打开时读一次,之后每次调用的回复都会把对应那一行换成最新的。
+    @ViewBuilder
+    private var builtInQuotaSection: some View {
+        if intelligence.showsBuiltInQuota {
+            let quota = intelligence.builtInQuota
+            Section {
+                if let overview = quota.overview {
+                    let plan = BuiltInAIQuotaText.plan(overview)
+                    if !plan.isEmpty {
+                        LabeledContent("ai_quota_plan") {
+                            Text(verbatim: plan)
+                        }
+                    }
+                    if let banner = BuiltInAIQuotaText.bonusBanner(overview) {
+                        Label {
+                            Text(verbatim: banner)
+                        } icon: {
+                            Image(systemName: "gift")
+                        }
+                        .font(.subheadline)
+                        .foregroundStyle(Color.accentColor)
+                    }
+                    ForEach(overview.orderedFeatures(preferredOrder: BuiltInAIQuotaText.featureOrder)) { feature in
+                        quotaRow(
+                            title: BuiltInAIQuotaText.title(for: feature),
+                            counter: feature.today,
+                            detail: BuiltInAIQuotaText.detail(for: feature)
+                        )
+                    }
+                    if let today = overview.today {
+                        quotaRow(
+                            title: String(localized: "ai_quota_total_today"),
+                            counter: today,
+                            detail: overview.month.map {
+                                String(localized: "ai_quota_month_remaining \($0.remaining) \($0.limit)")
+                            }
+                        )
+                    }
+                } else if quota.isLoading {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("ai_quota_loading")
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text("ai_quota_unavailable")
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                HStack {
+                    Text("ai_quota_section")
+                    Spacer()
+                    Button {
+                        Task { await intelligence.refreshBuiltInQuota(force: true) }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .accessibilityLabel(Text("ai_quota_refresh"))
+                    .disabled(quota.isLoading)
+                }
+            } footer: {
+                Text(verbatim: BuiltInAIQuotaText.footer(quota.overview))
+            }
+            .task { await intelligence.refreshBuiltInQuota() }
+        }
+    }
+
+    private func quotaRow(title: String, counter: BuiltInAIQuotaCounter, detail: String?) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(verbatim: title)
+                Spacer(minLength: 12)
+                Text(verbatim: BuiltInAIQuotaText.remaining(counter))
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(counter.isExhausted ? Color.red : Color.secondary)
+            }
+            ProgressView(value: counter.fractionUsed)
+                .tint(counter.isExhausted ? Color.red : Color.accentColor)
+            if let detail {
+                Text(verbatim: detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
     }
 
     /// 内置 AI 的连接测试与结果。

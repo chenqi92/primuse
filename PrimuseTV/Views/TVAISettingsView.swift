@@ -48,6 +48,7 @@ struct TVAISettingsView: View {
                         HStack(alignment: .top, spacing: 40) {
                             VStack(alignment: .leading, spacing: 0) {
                                 relaySection
+                                quotaSection
                                 capabilitySection
                                 providerSection
                                 privacySection
@@ -141,6 +142,56 @@ struct TVAISettingsView: View {
                 )
             }
         }
+    }
+
+    /// 内置 AI 的额度,和手机、Mac 的「额度」区块一致:打开时读一次,之后每次调用随回复更新。
+    @ViewBuilder
+    private var quotaSection: some View {
+        if intelligence.showsBuiltInQuota {
+            let quota = intelligence.builtInQuota
+            TVAISection(title: String(localized: "ai_quota_section")) {
+                TVAIActionRow(
+                    icon: quota.isLoading ? "arrow.triangle.2.circlepath" : "arrow.clockwise",
+                    title: String(localized: "ai_quota_refresh"),
+                    subtitle: quota.overview.flatMap(BuiltInAIQuotaText.bonusBanner),
+                    value: quotaPlanValue(quota),
+                    trailing: "chevron.right",
+                    isEnabled: !quota.isLoading
+                ) {
+                    Task { await intelligence.refreshBuiltInQuota(force: true) }
+                }
+                if let overview = quota.overview {
+                    ForEach(overview.orderedFeatures(preferredOrder: BuiltInAIQuotaText.featureOrder)) { feature in
+                        TVAIDivider()
+                        TVAIQuotaRow(
+                            title: BuiltInAIQuotaText.title(for: feature),
+                            counter: feature.today,
+                            detail: BuiltInAIQuotaText.detail(for: feature)
+                        )
+                    }
+                    if let today = overview.today {
+                        TVAIDivider()
+                        TVAIQuotaRow(
+                            title: String(localized: "ai_quota_total_today"),
+                            counter: today,
+                            detail: overview.month.map {
+                                String(localized: "ai_quota_month_remaining \($0.remaining) \($0.limit)")
+                            }
+                        )
+                    }
+                }
+                TVAIDivider()
+                TVAINoteRow(icon: "info.circle", tint: TVColor.textMuted, text: BuiltInAIQuotaText.footer(quota.overview))
+            }
+            .task { await intelligence.refreshBuiltInQuota() }
+        }
+    }
+
+    private func quotaPlanValue(_ quota: BuiltInAIQuotaModel) -> String {
+        guard let overview = quota.overview else {
+            return quota.isLoading ? String(localized: "ai_quota_loading") : String(localized: "ai_quota_unavailable")
+        }
+        return BuiltInAIQuotaText.plan(overview)
     }
 
     /// 开关下方的引导:关掉内置 AI 又没有配好的服务时,直接带去填密钥;
@@ -996,6 +1047,41 @@ struct TVAINoteRow: View {
         .padding(.horizontal, inset ? 22 : 0)
         .padding(.vertical, inset ? 16 : 0)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// 额度的一行(只读):功能名、还剩几次、用量条,第二行是本月次数和加量。
+private struct TVAIQuotaRow: View {
+    let title: String
+    let counter: BuiltInAIQuotaCounter
+    let detail: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 18) {
+                Text(verbatim: title).tvFont(.cardTitle, weight: .medium)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 12)
+                Text(verbatim: BuiltInAIQuotaText.remaining(counter))
+                    .tvFont(.eyebrow, weight: .regular)
+                    .monospacedDigit()
+                    .foregroundStyle(counter.isExhausted ? TVColor.bad : TVColor.textMuted)
+            }
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(TVColor.surface)
+                    Capsule().fill(counter.isExhausted ? AnyShapeStyle(TVColor.bad) : AnyShapeStyle(TVColor.brand))
+                        .frame(width: proxy.size.width * counter.fractionUsed)
+                }
+            }
+            .frame(height: 6)
+            if let detail {
+                Text(verbatim: detail).tvFont(.meta).foregroundStyle(TVColor.textFaint)
+            }
+        }
+        .padding(.horizontal, 22).padding(.vertical, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 }
 

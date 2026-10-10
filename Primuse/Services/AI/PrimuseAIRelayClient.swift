@@ -341,6 +341,8 @@ actor PrimuseAIRelayClient {
     private let transientRetryDelay: Duration
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    /// 回复里带回来的「这个功能还剩多少」交给它,设置页的额度区块随之更新。
+    private let onQuota: (@Sendable (BuiltInAIFeatureQuota) -> Void)?
     /// App Attest 注册被拒、StoreKit 兜底也没成时,兜底那次的诊断码。对外仍报 App Attest 的错误,
     /// 连接测试把这一段一起显示,兜底为什么没成就不会被盖住。
     private(set) var lastEnrollmentFallbackCode: String?
@@ -351,7 +353,8 @@ actor PrimuseAIRelayClient {
         attestor: any PrimuseAppAttesting = SystemPrimuseAppAttestor(),
         storeKitEnrollmentProvider: any PrimuseStoreKitEnrollmentProviding = SystemPrimuseStoreKitEnrollmentProvider(),
         credentialStore: any PrimuseAIRelayCredentialStoring = KeychainPrimuseAIRelayCredentialStore(),
-        transientRetryDelay: Duration = .seconds(1)
+        transientRetryDelay: Duration = .seconds(1),
+        onQuota: (@Sendable (BuiltInAIFeatureQuota) -> Void)? = nil
     ) {
         precondition(baseURL.scheme?.lowercased() == "https")
         self.baseURL = baseURL
@@ -360,6 +363,7 @@ actor PrimuseAIRelayClient {
         self.storeKitEnrollmentProvider = storeKitEnrollmentProvider
         self.credentialStore = credentialStore
         self.transientRetryDelay = transientRetryDelay
+        self.onQuota = onQuota
         encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         decoder = JSONDecoder()
@@ -840,6 +844,17 @@ actor PrimuseAIRelayClient {
         )
     }
 
+    /// 套餐、各功能今天和本月的已用与剩余、活动或内测加量:设置页的额度区块。
+    /// 用量接口不占次数;读不到返回 nil。
+    func quotaOverview() async -> BuiltInAIQuotaOverview? {
+        guard let report: BuiltInAIUsageReport = try? await performFeature(
+            path: "/v1/account/usage",
+            purpose: "usage",
+            input: UsageQueryInput(limit: 1)
+        ) else { return nil }
+        return report.overview(at: Date())
+    }
+
     nonisolated static func assertionClientDataHash(
         challenge: String,
         method: String,
@@ -1092,6 +1107,7 @@ actor PrimuseAIRelayClient {
                 }
                 data.append(byte)
             }
+            reportQuota(inEnvelope: data, key: "error")
             let envelope = try? decoder.decode(ErrorEnvelope.self, from: data)
             throw PrimuseAIRelayError.requestFailed(
                 statusCode: response.statusCode,
@@ -1116,6 +1132,7 @@ actor PrimuseAIRelayClient {
             guard let envelope = try? decoder.decode(SuccessEnvelope<Output>.self, from: data) else {
                 throw PrimuseAIRelayError.invalidResponse
             }
+            reportQuota(inEnvelope: data, key: "usage")
             emit(.completed(envelope.data))
             return
         }
@@ -1183,9 +1200,11 @@ actor PrimuseAIRelayClient {
                     output,
                     from: JSONSerialization.data(withJSONObject: value)
                   ) else { throw PrimuseAIRelayError.invalidResponse }
+            reportQuota(in: object["usage"])
             return .completed(decoded)
         case "error":
             let error = object["error"] as? [String: Any]
+            reportQuota(in: error)
             let status = error?["status"] as? Int ?? 502
             throw PrimuseAIRelayError.requestFailed(
                 statusCode: status,
@@ -1569,7 +1588,9 @@ actor PrimuseAIRelayClient {
         guard let response = rawResponse as? HTTPURLResponse else {
             throw PrimuseAIRelayError.invalidResponse
         }
-        guard (200..<300).contains(response.statusCode) else {
+        let succeeded = (200..<300).contains(response.statusCode)
+        reportQuota(inEnvelope: data, key: succeeded ? "usage" : "error")
+        guard succeeded else {
             let envelope = try? decoder.decode(ErrorEnvelope.self, from: data)
             throw PrimuseAIRelayError.requestFailed(
                 statusCode: response.statusCode,
@@ -1584,6 +1605,24 @@ actor PrimuseAIRelayClient {
             throw PrimuseAIRelayError.invalidResponse
         }
         return decoded
+    }
+
+    /// 回复带着这个功能还剩多少(成功是 `usage.quota`,额度不足是 `error.quota`)时交出去;
+    /// 认不出就当没有,回复本身照常处理。
+    private func reportQuota(inEnvelope data: Data, key: String) {
+        guard onQuota != nil,
+              data.range(of: Data(#""quota""#.utf8)) != nil,
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+        reportQuota(in: object[key])
+    }
+
+    private func reportQuota(in container: Any?) {
+        guard let onQuota,
+              let value = (container as? [String: Any])?["quota"] as? [String: Any],
+              JSONSerialization.isValidJSONObject(value),
+              let data = try? JSONSerialization.data(withJSONObject: value),
+              let quota = BuiltInAIFeatureQuota.decode(data) else { return }
+        onQuota(quota)
     }
 
     private nonisolated static func isInvalidAppAttestKey(_ error: Error) -> Bool {

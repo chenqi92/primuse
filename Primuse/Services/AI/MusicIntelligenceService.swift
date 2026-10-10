@@ -318,6 +318,8 @@ final class MusicIntelligenceService {
     /// 后台开放了听歌识词,但当前套餐没有(免费档不给,或转写线路只留给更高的套餐)。
     private(set) var builtInTranscriptionNotInPlan = false
     @ObservationIgnored private var builtInTranscriptionCheckedAt: Date?
+    /// 内置 AI 的额度,设置页的「额度」区块读它;每次调用的回复都会顺带更新。
+    let builtInQuota: BuiltInAIQuotaModel
 
     private let credentialStore: any AICredentialStoring
     private let engine: MusicIntelligenceEngine
@@ -398,7 +400,11 @@ final class MusicIntelligenceService {
         self.regionAvailability = regionAvailability
         self.credentialStore = credentialStore
         engine = MusicIntelligenceEngine(credentialStore: credentialStore)
-        let primuseRelayClient = PrimuseAIRelayClient()
+        let builtInQuota = BuiltInAIQuotaModel()
+        self.builtInQuota = builtInQuota
+        let primuseRelayClient = PrimuseAIRelayClient(onQuota: { quota in
+            Task { @MainActor in builtInQuota.record(quota) }
+        })
         self.primuseRelayClient = primuseRelayClient
         primuseRelayRecommendationCoordinator = PrimuseRelayRecommendationCoordinator(
             client: primuseRelayClient
@@ -453,6 +459,18 @@ final class MusicIntelligenceService {
         builtInTranscriptionCheckedAt = Date()
         builtInTranscriptionOffered = offered && inPlan
         builtInTranscriptionNotInPlan = offered && !inPlan
+    }
+
+    /// 设置页要不要显示内置 AI 的额度:开着内置 AI、这台设备能用时才问。
+    var showsBuiltInQuota: Bool {
+        settingsStore.primuseRelayEnabled && PrimuseAIRelayClient.isSupportedOnCurrentDevice
+    }
+
+    /// 打开设置页时读一次额度;刚读过、还没到每日重置就不再问(`force` 除外)。
+    func refreshBuiltInQuota(force: Bool = false) async {
+        guard showsBuiltInQuota else { return }
+        let client = primuseRelayClient
+        await builtInQuota.refresh(force: force) { await client.quotaOverview() }
     }
 
     /// 内置 AI 这条路现在能不能用(不看用户选没选它)。
@@ -3527,5 +3545,131 @@ private actor MusicIntelligenceEngine {
             group.cancelAll()
             return result
         }
+    }
+}
+
+/// 内置 AI 的额度:用量接口读一次铺满,之后每次功能调用的回复把那一行换成最新的。
+@MainActor
+@Observable
+final class BuiltInAIQuotaModel {
+    private(set) var overview: BuiltInAIQuotaOverview?
+    private(set) var isLoading = false
+    /// 一次都没读到;读到过之后再失败,照旧显示上次的数字。
+    private(set) var loadFailed = false
+    /// 上次从用量接口读全的时间;只有调用回复带来的零星数字时为 nil。
+    @ObservationIgnored private var loadedAt: Date?
+
+    func refresh(force: Bool, load: () async -> BuiltInAIQuotaOverview?) async {
+        let now = Date()
+        if !force, let loadedAt, let overview, !overview.isStale(now: now),
+           now.timeIntervalSince(loadedAt) < 5 * 60 {
+            return
+        }
+        guard !isLoading else { return }
+        isLoading = true
+        defer { isLoading = false }
+        if let loaded = await load() {
+            overview = loaded
+            loadedAt = Date()
+            loadFailed = false
+        } else {
+            loadFailed = overview == nil
+        }
+    }
+
+    func record(_ quota: BuiltInAIFeatureQuota) {
+        let now = Date()
+        overview = overview.map { $0.applying(quota, at: now) } ?? BuiltInAIQuotaOverview(quota: quota, at: now)
+        loadFailed = false
+    }
+}
+
+/// 额度区块里的文字,三端共用。
+enum BuiltInAIQuotaText {
+    /// 中转的功能标识按 App 里的顺序排;后台建的接口排在后面。
+    static let featureOrder = [
+        "recommendations", "semantic_search", "lyrics_translation", "listening_intents",
+        "listening_mood", "library_insight", "song_discovery", "tag_cleanup", "audio_transcription",
+    ]
+
+    static func title(for feature: BuiltInAIQuotaOverview.Feature) -> String {
+        switch feature.id {
+        case "recommendations": String(localized: "ai_enable_recommendations")
+        case "semantic_search": String(localized: "ai_enable_semantic_search")
+        case "lyrics_translation": String(localized: "lyrics_translation_title")
+        case "listening_intents": String(localized: "ai_feature_listening_intents")
+        case "tag_cleanup": String(localized: "ai_feature_tag_cleanup")
+        case "song_discovery": String(localized: "ai_song_discovery_title")
+        case "library_insight": String(localized: "ai_feature_library_insight")
+        case "listening_mood": String(localized: "ai_feature_listening_mood")
+        case "audio_transcription": String(localized: "ai_audio_transcription_title")
+        default: feature.name ?? feature.id
+        }
+    }
+
+    static func source(_ source: BuiltInAIPlanSource) -> String? {
+        switch source {
+        case .free: String(localized: "ai_quota_source_free")
+        case .testflight: String(localized: "ai_quota_source_testflight")
+        case .subscription: String(localized: "ai_quota_source_subscription")
+        case .grant: String(localized: "ai_quota_source_grant")
+        case .unknown: nil
+        }
+    }
+
+    /// 套餐名和来源,例如「Plus · 订阅 · 2026年11月10日到期」。
+    static func plan(_ overview: BuiltInAIQuotaOverview) -> String {
+        let expires = overview.planExpiresAt.map { date in
+            String(localized: "ai_quota_plan_expires \(date.formatted(date: .abbreviated, time: .omitted))")
+        }
+        return [overview.planName, source(overview.source), expires]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+    }
+
+    static func remaining(_ counter: BuiltInAIQuotaCounter) -> String {
+        counter.isExhausted
+            ? String(localized: "ai_quota_used_up")
+            : String(localized: "ai_quota_remaining \(counter.remaining) \(counter.limit)")
+    }
+
+    /// 本月次数和加量,放在每一行的第二行。
+    static func detail(for feature: BuiltInAIQuotaOverview.Feature) -> String? {
+        var parts: [String] = []
+        if let month = feature.month {
+            parts.append(String(localized: "ai_quota_month_remaining \(month.remaining) \(month.limit)"))
+        }
+        if let bonus = bonus(feature.today.bonus, kinds: feature.bonuses) {
+            parts.append(bonus)
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    static func bonus(_ amount: Int, kinds: [BuiltInAIQuotaBonus]) -> String? {
+        guard amount > 0 else { return nil }
+        return kinds.contains { $0.kind == .boost }
+            ? String(localized: "ai_quota_bonus_boost \(amount)")
+            : String(localized: "ai_quota_bonus_testflight \(amount)")
+    }
+
+    /// 正在进行的活动加量,或内测套餐。
+    static func bonusBanner(_ overview: BuiltInAIQuotaOverview) -> String? {
+        if let boost = overview.bonuses.first(where: { $0.kind == .boost }) {
+            let ends = boost.endsAt?.formatted(date: .abbreviated, time: .shortened) ?? ""
+            return String(localized: "ai_quota_boost_running \(boost.displayName) \(ends)")
+        }
+        if let testflight = overview.bonuses.first(where: { $0.kind == .testflight }) {
+            return String(localized: "ai_quota_testflight_plan \(testflight.displayName)")
+        }
+        return nil
+    }
+
+    /// 额度说明,带上本地时间的每日重置时刻。
+    static func footer(_ overview: BuiltInAIQuotaOverview?) -> String {
+        let footer = String(localized: "ai_quota_footer")
+        guard let resets = overview?.today?.resetsAt
+            ?? overview?.features.compactMap(\.today.resetsAt).min() else { return footer }
+        let time = resets.formatted(date: .omitted, time: .shortened)
+        return String(localized: "ai_quota_resets_daily \(time)") + "\n" + footer
     }
 }

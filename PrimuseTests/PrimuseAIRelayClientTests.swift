@@ -264,6 +264,48 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         }
     }
 
+    func testAnswerAndQuotaRefusalHandOverWhatIsLeft() async throws {
+        let credentials = TestPrimuseRelayCredentialStore(
+            credential: PrimuseAIRelayCredential(
+                keyID: "test-app-attest-key",
+                installationID: "test-installation"
+            )
+        )
+        let recorder = QuotaRecorder()
+
+        let answered = "primuse-relay-quota-answer.invalid"
+        PrimuseRelayURLProtocol.configure(
+            host: answered,
+            featureBody: #"{"data":{"normalized_query":"night rain","expansion_terms":["night rain"]},"usage":{"plan_id":"plus","credits":40,"quota":{"feature":"semantic_search","source":"testflight","today":{"requests":3,"limit":120,"remaining":117,"resets_at":1791676800,"base_limit":60},"bonuses":[{"kind":"testflight","display_name":"Plus"}]}},"request_id":"r1"}"#
+        )
+        let (client, session, _, _) = makeClient(host: answered, credentials: credentials, onQuota: { recorder.record($0) })
+        defer { session.invalidateAndCancel() }
+        _ = try await client.interpretSearch(AISemanticSearchRequest(query: "quiet night"))
+        let answer = try XCTUnwrap(recorder.values.last)
+        XCTAssertEqual(answer.feature, "semantic_search")
+        XCTAssertEqual(answer.source, .testflight)
+        XCTAssertEqual(answer.today?.remaining, 117)
+        XCTAssertEqual(answer.today?.bonus, 60)
+
+        let refused = "primuse-relay-quota-refused.invalid"
+        PrimuseRelayURLProtocol.configure(
+            host: refused,
+            featureStatusCode: 429,
+            featureBody: #"{"error":{"code":"feature_quota_exhausted","message":"x","quota":{"feature":"semantic_search","today":{"requests":120,"limit":120,"remaining":0,"resets_at":1791676800}}}}"#
+        )
+        let (refusingClient, refusingSession, _, _) = makeClient(host: refused, credentials: credentials, onQuota: { recorder.record($0) })
+        defer { refusingSession.invalidateAndCancel() }
+        do {
+            _ = try await refusingClient.interpretSearch(AISemanticSearchRequest(query: "quiet night"))
+            XCTFail("Expected the relay quota error")
+        } catch {
+            XCTAssertEqual(error as? PrimuseAIRelayError, .requestFailed(statusCode: 429, code: "feature_quota_exhausted"))
+        }
+        let refusal = try XCTUnwrap(recorder.values.last)
+        XCTAssertEqual(refusal.today?.remaining, 0)
+        XCTAssertEqual(refusal.today?.isExhausted, true)
+    }
+
     func testRelayReplacesUnsafeServerErrorCodeWithHTTPStatus() async throws {
         let host = "primuse-relay-unsafe-code.invalid"
         PrimuseRelayURLProtocol.configure(
@@ -1565,7 +1607,8 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         attestor: TestPrimuseAppAttestor = TestPrimuseAppAttestor(),
         storeKitProvider: TestPrimuseStoreKitEnrollmentProvider = TestPrimuseStoreKitEnrollmentProvider(),
         credentials: TestPrimuseRelayCredentialStore = TestPrimuseRelayCredentialStore(),
-        transientRetryDelay: Duration = .seconds(1)
+        transientRetryDelay: Duration = .seconds(1),
+        onQuota: (@Sendable (BuiltInAIFeatureQuota) -> Void)? = nil
     ) -> (
         PrimuseAIRelayClient,
         URLSession,
@@ -1581,7 +1624,8 @@ final class PrimuseAIRelayClientTests: XCTestCase {
             attestor: attestor,
             storeKitEnrollmentProvider: storeKitProvider,
             credentialStore: credentials,
-            transientRetryDelay: transientRetryDelay
+            transientRetryDelay: transientRetryDelay,
+            onQuota: onQuota
         )
         return (client, session, attestor, credentials)
     }
@@ -1921,3 +1965,21 @@ private extension Data {
     }
 }
 #endif
+
+/// Collects the quota figures a client hands over.
+private final class QuotaRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [BuiltInAIFeatureQuota] = []
+
+    var values: [BuiltInAIFeatureQuota] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
+    }
+
+    func record(_ quota: BuiltInAIFeatureQuota) {
+        lock.lock()
+        recorded.append(quota)
+        lock.unlock()
+    }
+}
