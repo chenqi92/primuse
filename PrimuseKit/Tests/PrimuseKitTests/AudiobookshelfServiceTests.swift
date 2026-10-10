@@ -19,6 +19,9 @@ struct AudiobookshelfServiceTests {
         #expect(login.path == "/abs/login")
         #expect(AudiobookshelfAPIProtocol.fileURL(serverBaseURL: base, itemID: "li_1", ino: "42")?.path
             == "/abs/api/items/li_1/file/42")
+        // 转义过的 id 段不再被转第二遍(`%20` 曾经变成 `%2520`)。
+        #expect(AudiobookshelfAPIProtocol.fileURL(serverBaseURL: base, itemID: "li 1", ino: "42")?.absoluteString
+            == "http://books.example.com:13378/abs/api/items/li%201/file/42")
 
         let filePath = AudiobookshelfAPIProtocol.trackPath(itemID: "li_1", kind: .file(ino: "42"), fileExtension: "M4B")
         #expect(filePath == "/audiobookshelf/items/li_1/files/42.m4b")

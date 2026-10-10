@@ -27,6 +27,9 @@ import Testing
     #expect(DaoLiYuAPIProtocol.trackID(from: trackPath) == "trk_123")
     #expect(DaoLiYuAPIProtocol.streamURL(serverBaseURL: base, trackID: "trk_123")?.path
         == "/music/api/tracks/trk_123/download")
+    // 转义过的 id 段不再被转第二遍(`%20` 曾经变成 `%2520`)。
+    #expect(DaoLiYuAPIProtocol.streamURL(serverBaseURL: base, trackID: "trk 1/2")?.absoluteString
+        == "https://music.example.com:8443/music/api/tracks/trk%201%2F2/download")
 }
 
 @Test func daoLiYuTrackBuildsStableSongFromVNextPayload() throws {

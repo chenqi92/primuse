@@ -49,10 +49,11 @@ public enum DaoLiYuAPIProtocol {
         guard var components = URLComponents(url: serverBaseURL, resolvingAgainstBaseURL: false) else {
             return nil
         }
-        var prefix = normalizedPrefix(components.path)
+        // 路径里的 id 段已经转义过,按已转义的拼;交给 `path` 会把 `%` 再转一遍。
+        var prefix = normalizedPrefix(components.percentEncodedPath)
         if !prefix.hasSuffix(apiPath) { prefix += apiPath }
         let endpoint = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        components.path = endpoint.isEmpty ? prefix : "\(prefix)/\(endpoint)"
+        components.percentEncodedPath = endpoint.isEmpty ? prefix : "\(prefix)/\(endpoint)"
         components.queryItems = queryItems.isEmpty ? nil : queryItems
         components.fragment = nil
         return FormSafeQueryURLBuilder.url(from: components)
