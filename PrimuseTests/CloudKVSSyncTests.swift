@@ -97,6 +97,38 @@ final class CloudKVSSyncTests: XCTestCase {
         }
     }
 
+    /// 播放器的显示偏好跟着走; 跟这台设备的网络、摆法、屏幕走的留在本机。
+    func testPlayerDisplaySettingsSyncButDeviceBoundOnesStayLocal() {
+        let keys = Set(InterfaceLayoutSync.keys)
+        for synced in [
+            PlayerAppearancePreferences.showsVolumeBarKey,
+            PlayerAppearancePreferences.audioInfoModeKey,
+            PlayerAppearancePreferences.animatedArtworkEnabledKey,
+            PlayerAppearancePreferences.motionArtworkServiceEnabledKey,
+            PlayerAppearancePreferences.motionArtworkServiceEndpointKey,
+            PlayerAppearancePreferences.controlTintKey,
+            PlayerAppearancePreferences.lyricsColorModeKey,
+            PlayerAppearancePreferences.lyricsAlignmentKey,
+            PlayerAppearancePreferences.tapLyricsToSeekKey,
+            PlayerAppearancePreferences.showsLyricsInterludeKey,
+        ] {
+            XCTAssertTrue(keys.contains(synced), synced)
+        }
+        for local in [
+            PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyKey,
+            PlayerAppearancePreferences.keepsScreenAwakeInPlayerKey,
+            PlayerAppearancePreferences.playerScreenWakeRequiresChargingKey,
+            PlayerAppearancePreferences.entersFullscreenInLandscapeKey,
+            ImmersiveLyricsMotionSettings.storageKey,
+            ImmersiveFrameRateMode.storageKey,
+            // 字号与所选全屏效果各有自己的登记, 不在这张表里重复。
+            CloudKVSKey.lyricsFontScale,
+            FullscreenPlayerEffect.storageKey,
+        ] {
+            XCTAssertFalse(keys.contains(local), local)
+        }
+    }
+
     func testFreshInstallPullsCloudCopyAndNeverPushesDefaults() {
         defaults.set("local-default", forKey: key)
         var reloads = 0

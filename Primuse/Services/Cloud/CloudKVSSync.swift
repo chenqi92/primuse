@@ -616,7 +616,8 @@ enum CloudKVSKey {
 // MARK: - Home and library layout
 
 /// 首页与资料库的界面布局跟着 iCloud 走: 区块顺序、显示哪些、每块的样式与条数;
-/// 音乐播放页上几个位置放哪些按钮也在这里。
+/// 音乐播放页上几个位置放哪些按钮、「设置 › 播放器」与歌词外观里的显示偏好也在这里
+/// (在 iPhone 上关掉音量条, Mac 和 iPad 上也跟着关)。
 ///
 /// 这些设置散在各个界面里用 `@AppStorage` 直接读写, 没有哪个 store 管着它们, 所以这里统一
 /// 登记、盯着 UserDefaults 的变化, 清单里的值真的变了才 `markChanged`。从云端拉下来的值先
@@ -673,6 +674,27 @@ final class InterfaceLayoutSync {
         NowPlayingTextScrollPreference.collapsesKey(for: .audiobook),
         NowPlayingTextScrollPreference.collapsesKey(for: .podcast),
         PlayerAppearancePreferences.controlTintKey,
+        // 「设置 › 播放器」: 音量条、音频信息、动态封面与自建的动态封面服务。
+        // 只在不计流量的网络下载动态封面不收: 它跟着这台设备的网络走(Mac 没有蜂窝),
+        // 和播放设置里按网络分的音质一样留在本机。屏幕常亮(及只在充电时)是这台设备的
+        // 摆法与电量的事, 手机转横屏进全屏只对手机的横屏版面有效, 全屏效果的动画强度与
+        // 帧率看屏幕与电量, 都不收。
+        PlayerAppearancePreferences.showsVolumeBarKey,
+        PlayerAppearancePreferences.audioInfoModeKey,
+        PlayerAppearancePreferences.animatedArtworkEnabledKey,
+        PlayerAppearancePreferences.motionArtworkServiceEnabledKey,
+        PlayerAppearancePreferences.motionArtworkServiceEndpointKey,
+        // 歌词外观(字号 `lyricsFontScale` 早已单独同步): 当前行颜色、对齐、模糊、
+        // 轻点跳转、定位标尺、间奏三个点。
+        PlayerAppearancePreferences.lyricsColorModeKey,
+        PlayerAppearancePreferences.customLyricsColorHexKey,
+        PlayerAppearancePreferences.gradientLyricsStartColorHexKey,
+        PlayerAppearancePreferences.gradientLyricsEndColorHexKey,
+        PlayerAppearancePreferences.lyricsAlignmentKey,
+        PlayerAppearancePreferences.blursInactiveLyricsKey,
+        PlayerAppearancePreferences.tapLyricsToSeekKey,
+        PlayerAppearancePreferences.showsLyricsBrowseTimelineKey,
+        PlayerAppearancePreferences.showsLyricsInterludeKey,
     ]
 
     private let keys: [String]
