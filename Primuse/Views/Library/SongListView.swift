@@ -2923,6 +2923,7 @@ struct SongListView: View {
                     sortOrder: sortOrderBinding,
                     filter: $songFilter,
                     manageHomeFolders: showsFolderBrowser ? { showsHomeFolders = true } : nil,
+                    folderFollowsListSort: showsFolderBrowser ? $folderFollowsListSort : nil,
                     asOverflowItems: true
                 )
                 if selection.isActive {
@@ -2957,7 +2958,8 @@ struct SongListView: View {
                 selection: selection,
                 sortOrder: sortOrderBinding,
                 filter: $songFilter,
-                manageHomeFolders: showsFolderBrowser ? { showsHomeFolders = true } : nil
+                manageHomeFolders: showsFolderBrowser ? { showsHomeFolders = true } : nil,
+                folderFollowsListSort: showsFolderBrowser ? $folderFollowsListSort : nil
             )
         }
         ToolbarItem(placement: .topBarTrailing) {
@@ -5636,6 +5638,9 @@ private struct SongListNormalToolbarMenu: View {
     let sortOrder: Binding<SongListView.SongSortOrder>
     @Binding var filter: SongListView.SongFilter
     var manageHomeFolders: (() -> Void)?
+    /// 文件夹根目录传入: 文件夹里的歌默认按曲目顺序, 排序菜单要能看出这一点,
+    /// 选别的维度时也要让文件夹跟随, 否则在根目录选排序没有任何效果。
+    var folderFollowsListSort: Binding<Bool>? = nil
     /// 只给出菜单项,由系统的溢出菜单(`ToolbarOverflowMenu`,系统竖栏里)收进去,自己不再套一层「⋯」。
     var asOverflowItems = false
 
@@ -5658,7 +5663,7 @@ private struct SongListNormalToolbarMenu: View {
     @ViewBuilder
     private var items: some View {
         Section {
-            SongSortSubmenu(sortOrder: sortOrder)
+            SongSortSubmenu(sortOrder: sortOrder, followsListSort: folderFollowsListSort)
 
             // 筛选只有「全部 / 已下载」两种, 两行单选不如一个开关直观。
             Toggle(isOn: downloadedBinding) {
