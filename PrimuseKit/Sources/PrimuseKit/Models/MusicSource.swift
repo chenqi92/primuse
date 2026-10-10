@@ -820,22 +820,24 @@ public enum FTPEncryption: String, Codable, Sendable, CaseIterable {
     }
 }
 
-/// FTP 的数据连接怎么建立。没有主动模式(PORT):它要服务器反过来连接这台设备,
-/// 蜂窝网络和大多数路由器后面都收不到这种连接。
+/// FTP 的数据连接怎么建立。
 public enum FTPDataConnectionMode: String, Codable, Sendable, CaseIterable {
-    /// 普通 FTP 用 PASV,FTPS 用 EPSV。
+    /// 先试 EPSV,服务器不支持再用 PASV;PASV 报出的是内网地址时改连用户填的服务器地址。
     case automatic
-    /// PASV:连服务器在回复里报出的地址。
+    /// PASV:连服务器在回复里报出的地址(报的是内网地址而用户填的不是时,改连用户填的地址)。
     case passive
-    /// EPSV:回复里只有端口,连的是用户填的服务器地址。服务器在路由器后面、
-    /// PASV 报出的是内网地址时,从外面只有这样连得上。
+    /// EPSV:回复里只有端口,连的是用户填的服务器地址。
     case extendedPassive
+    /// PORT / EPRT:本机开端口,服务器连进来。只在与服务器同一网络时连得上,蜂窝网络和
+    /// 大多数路由器后面收不到服务器发起的连接。
+    case active
 
     public var displayName: String {
         switch self {
         case .automatic: return PMString("ftp.data_connection.automatic")
         case .passive: return PMString("ftp.data_connection.passive")
         case .extendedPassive: return PMString("ftp.data_connection.extendedPassive")
+        case .active: return PMString("ftp.data_connection.active")
         }
     }
 }

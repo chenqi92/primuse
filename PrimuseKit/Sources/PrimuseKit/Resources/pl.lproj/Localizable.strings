@@ -544,6 +544,7 @@
 "ftp.data_connection.automatic" = "Automatycznie";
 "ftp.data_connection.passive" = "Pasywny (PASV)";
 "ftp.data_connection.extendedPassive" = "Rozszerzony pasywny (EPSV)";
+"ftp.data_connection.active" = "Aktywny (PORT)";
 "ftp.encryption.implicitTLS" = "Niejawne TLS (FTPS)";
 "ftp.encryption.none" = "Brak";
 "fullscreen_effect_collection_audio_reactive" = "Reaktywność dźwięku";

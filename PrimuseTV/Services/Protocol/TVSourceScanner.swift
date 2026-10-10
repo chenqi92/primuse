@@ -905,7 +905,6 @@ actor TVFilesProviderLister: TVDirectoryLister {
         let scheme: String
         switch source.type {
         case .webdav: scheme = source.useSsl ? "https" : "http"
-        case .ftp: scheme = source.useSsl ? "ftps" : "ftp"
         default: return nil
         }
         var components = URLComponents()
@@ -934,15 +933,6 @@ actor TVFilesProviderLister: TVDirectoryLister {
                 return nil
             }
             self.provider = dav
-        case .ftp:
-            guard let ftp = FTPFileProvider(
-                baseURL: baseURL,
-                mode: (source.ftpDataConnectionMode ?? .automatic).filesProviderMode,
-                credential: urlCredential
-            ) else {
-                return nil
-            }
-            self.provider = ftp
         default:
             return nil
         }
@@ -1380,8 +1370,10 @@ final class TVSourceScanner {
             return TVSynologyLister(source: source, credential: credential)
         case .qnap:
             return TVQnapLister(source: source, credential: credential)
-        case .webdav, .ftp:
+        case .webdav:
             return TVFilesProviderLister(source: source, credential: credential)
+        case .ftp:
+            return TVFTPLister(source: source, credential: credential)
         case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic:
             return TVServerCatalogLister(source: source, credential: credential)
         case .nfs:

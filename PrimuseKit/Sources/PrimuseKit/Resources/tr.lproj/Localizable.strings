@@ -256,6 +256,7 @@
 "ftp.data_connection.automatic" = "Otomatik";
 "ftp.data_connection.passive" = "Pasif (PASV)";
 "ftp.data_connection.extendedPassive" = "Genişletilmiş Pasif (EPSV)";
+"ftp.data_connection.active" = "Aktif (PORT)";
 "ext.tv.otp.enterCode" = "Doğrulama Kodunu Girin";
 "send_to_tv_credential_password" = "şifre";
 "ext.widget.demo.lyric3" = "Bulutların ötesinde hangi saray var?";

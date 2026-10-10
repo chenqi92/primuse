@@ -404,8 +404,8 @@
 "carplay_artists_title" = "Sanatçılar";
 "encryption" = "Şifreleme";
 "ftp_data_connection" = "Veri Bağlantısı";
-"ftp_data_connection_info" = "“Otomatik”, normal FTP için PASV, FTPS için EPSV kullanır. Sunucunun ağı dışındayken klasörler hiç yüklenmiyorsa EPSV’yi seçin: sunucunun bildirdiği adres yerine girdiğiniz adrese bağlanır; yönlendiricinin arkasındaki sunucular genellikle yerel bir adres bildirir. Aktif mod sunulmaz, çünkü sunucunun bu cihaza bağlanması gerekir ve hücresel ağlar ile çoğu yönlendirici bunu engeller.";
-"ftp_data_connection_timeout" = "FTP sunucusu zamanında yanıt vermedi. Sunucunun ağı dışındaysanız bu kaynağın ayarlarında “Veri Bağlantısı”nı “Genişletilmiş Pasif (EPSV)” yapıp yeniden deneyin.";
+"ftp_data_connection_info" = "“Otomatik” önce EPSV’yi dener, olmazsa PASV kullanır; sunucu yerel bir adres bildirirse girdiğiniz adrese bağlanır. “Pasif (PASV)” veya “Genişletilmiş Pasif (EPSV)” seçeneğini yalnızca sunucunuz tam olarak o komutu istiyorsa seçin. “Aktif (PORT)” yalnızca aktif moda izin veren sunucular içindir: sunucu bu cihaza bağlanır, bu yüzden yalnızca sunucuyla aynı ağda çalışır, hücresel veriyle çalışmaz.";
+"ftp_data_connection_timeout" = "FTP veri bağlantısı açılamadı. Bu kaynağın ayarlarında başka bir “Veri Bağlantısı” seçeneği deneyin: sunucunun ağı dışındayken “Otomatik” veya “Genişletilmiş Pasif (EPSV)”, “Aktif (PORT)” ise yalnızca sunucuyla aynı ağda.";
 "error_audio_converter_creation" = "Ses dönüştürücü oluşturulamadı.";
 "Paste JSON or an HTTPS URL" = "JSON veya HTTPS URL'yi yapıştırın";
 "scrape_song" = "Üst verileri bul";

@@ -256,6 +256,7 @@
 "ftp.data_connection.automatic" = "Автоматично";
 "ftp.data_connection.passive" = "Пасивний (PASV)";
 "ftp.data_connection.extendedPassive" = "Розширений пасивний (EPSV)";
+"ftp.data_connection.active" = "Активний (PORT)";
 "ext.tv.otp.enterCode" = "Введіть код підтвердження";
 "send_to_tv_credential_password" = "пароль";
 "ext.widget.demo.lyric3" = "Який палац лежить за хмарами?";

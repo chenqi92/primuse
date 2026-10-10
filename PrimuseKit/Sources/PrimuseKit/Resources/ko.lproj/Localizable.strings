@@ -751,6 +751,7 @@
 "ftp.data_connection.automatic" = "자동";
 "ftp.data_connection.passive" = "패시브(PASV)";
 "ftp.data_connection.extendedPassive" = "확장 패시브(EPSV)";
+"ftp.data_connection.active" = "액티브(PORT)";
 "nfs.version.auto" = "자동";
 "radio.streamFormat.automatic" = "자동";
 "src.subtitle.sftp" = "SSH · 키 인증";

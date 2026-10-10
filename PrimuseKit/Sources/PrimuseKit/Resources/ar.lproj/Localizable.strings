@@ -544,6 +544,7 @@
 "ftp.data_connection.automatic" = "تلقائي";
 "ftp.data_connection.passive" = "سلبي (PASV)";
 "ftp.data_connection.extendedPassive" = "سلبي موسّع (EPSV)";
+"ftp.data_connection.active" = "نشط (PORT)";
 "ftp.encryption.implicitTLS" = "TLS الضمني (FTPS)";
 "ftp.encryption.none" = "لا يوجد";
 "fullscreen_effect_collection_audio_reactive" = "رد الفعل الصوتي";

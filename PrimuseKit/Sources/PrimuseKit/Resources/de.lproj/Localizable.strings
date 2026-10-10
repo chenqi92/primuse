@@ -751,6 +751,7 @@
 "ftp.data_connection.automatic" = "Automatisch";
 "ftp.data_connection.passive" = "Passiv (PASV)";
 "ftp.data_connection.extendedPassive" = "Erweitert passiv (EPSV)";
+"ftp.data_connection.active" = "Aktiv (PORT)";
 "nfs.version.auto" = "Automatisch";
 "radio.streamFormat.automatic" = "Automatisch";
 "src.subtitle.sftp" = "SSH · Schlüsselanmeldung";

@@ -498,8 +498,8 @@
 "nfs_config" = "Réglages NFS";
 "encryption" = "Chiffrement";
 "ftp_data_connection" = "Connexion de données";
-"ftp_data_connection_info" = "« Automatique » utilise PASV pour le FTP classique et EPSV pour le FTPS. Si les dossiers ne finissent jamais de se charger hors du réseau du serveur, choisissez EPSV : il se connecte à l’adresse saisie plutôt qu’à celle annoncée par le serveur, souvent une adresse locale derrière un routeur. Le mode actif n’est pas proposé, car le serveur devrait se connecter à cet appareil, ce que bloquent les réseaux cellulaires et la plupart des routeurs.";
-"ftp_data_connection_timeout" = "Le serveur FTP n’a pas répondu à temps. Si vous êtes hors du réseau du serveur, réglez « Connexion de données » sur « Passif étendu (EPSV) » dans les réglages de cette source, puis réessayez.";
+"ftp_data_connection_info" = "« Automatique » essaie d’abord EPSV puis se replie sur PASV ; si le serveur annonce une adresse locale, la connexion se fait à l’adresse saisie. Choisissez « Passif (PASV) » ou « Passif étendu (EPSV) » uniquement si votre serveur exige cette commande précise. « Actif (PORT) » sert aux serveurs qui n’autorisent que le mode actif : le serveur se connecte à cet appareil, cela ne fonctionne donc que sur le même réseau que le serveur, pas en données cellulaires.";
+"ftp_data_connection_timeout" = "Impossible d’ouvrir la connexion de données FTP. Essayez une autre option de « Connexion de données » dans les réglages de cette source : « Automatique » ou « Passif étendu (EPSV) » hors du réseau du serveur, « Actif (PORT) » uniquement sur le même réseau que le serveur.";
 "nfs_version" = "Version NFS";
 "cat_nas" = "NAS";
 "cat_protocol" = "Protocole";

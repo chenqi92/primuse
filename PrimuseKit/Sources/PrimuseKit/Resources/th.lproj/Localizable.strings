@@ -544,6 +544,7 @@
 "ftp.data_connection.automatic" = "อัตโนมัติ";
 "ftp.data_connection.passive" = "พาสซีฟ (PASV)";
 "ftp.data_connection.extendedPassive" = "พาสซีฟแบบขยาย (EPSV)";
+"ftp.data_connection.active" = "แอคทีฟ (PORT)";
 "ftp.encryption.implicitTLS" = "TLS โดยนัย (FTPS)";
 "ftp.encryption.none" = "ไม่มี";
 "fullscreen_effect_collection_audio_reactive" = "ปฏิกิริยาเสียง";

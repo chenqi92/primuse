@@ -748,6 +748,7 @@
 "ftp.data_connection.automatic" = "自動";
 "ftp.data_connection.passive" = "被動（PASV）";
 "ftp.data_connection.extendedPassive" = "擴充被動（EPSV）";
+"ftp.data_connection.active" = "主動（PORT）";
 "nfs.version.auto" = "自動";
 "radio.streamFormat.automatic" = "自動";
 "src.subtitle.sftp" = "SSH · 金鑰驗證";

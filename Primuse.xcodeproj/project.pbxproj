@@ -548,6 +548,8 @@
 		46BB1679D243A8FF9558598E /* CloudKitRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C804B707FEBA12189DA49BB3 /* CloudKitRuntime.swift */; };
 		46C16D2AEE302ABA4521D6C8 /* WiFiTransferPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A3BC752AD6BA07686801ABC /* WiFiTransferPage.swift */; };
 		46E9A5E67F111135C2F1CB84 /* SynologyAudioStationClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F34AEAFFB552F199DE3C520 /* SynologyAudioStationClient.swift */; };
+		1355D5A3C75E5EC85333B796 /* FTPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D580097F07FE63FAFAFE0CC /* FTPClient.swift */; };
+		7A282DB5355E57E7CE26E492 /* FTPProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD4D132A6D050B96C4884CF2 /* FTPProtocol.swift */; };
 		46ECE921B62C7BD398BEAA1A /* SMBSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEF1C4D090D0F65114B8F0D5 /* SMBSource.swift */; };
 		476ABB1A64AC9D81950EA6CD /* OpenAICompatibleProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 182840B263E637C233CBB7DE /* OpenAICompatibleProvider.swift */; };
 		47739E0B4A1BF80DBFEAEACB /* HomeSectionsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F9BAE1D915901E05BF85719 /* HomeSectionsSettingsView.swift */; };
@@ -3029,6 +3031,8 @@
 		9F2A919B3A879B52A8507FA9 /* MusicPersonality.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicPersonality.swift; sourceTree = "<group>"; };
 		9F314E4BCB579265763EC364 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/WiFiTransfer.strings"; sourceTree = "<group>"; };
 		9F34AEAFFB552F199DE3C520 /* SynologyAudioStationClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyAudioStationClient.swift; sourceTree = "<group>"; };
+		6D580097F07FE63FAFAFE0CC /* FTPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FTPClient.swift; sourceTree = "<group>"; };
+		FD4D132A6D050B96C4884CF2 /* FTPProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FTPProtocol.swift; sourceTree = "<group>"; };
 		9F51A224D14A4F69D32B3654 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/WiFiTransfer.strings; sourceTree = "<group>"; };
 		9F7380ABF7CFF416B08F01F2 /* TagEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagEditorView.swift; sourceTree = "<group>"; };
 		9F771319484D0522D64838A8 /* TVCloudAuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVCloudAuthView.swift; sourceTree = "<group>"; };
@@ -5465,6 +5469,8 @@
 				00315BE49B8ED4049B2713AB /* SyncedCredentialAvailability.swift */,
 				A3E13C0073521BFDA0B5A67F /* SynologyAudioStationAPI.swift */,
 				9F34AEAFFB552F199DE3C520 /* SynologyAudioStationClient.swift */,
+				6D580097F07FE63FAFAFE0CC /* FTPClient.swift */,
+				FD4D132A6D050B96C4884CF2 /* FTPProtocol.swift */,
 				418DF069725BBCFDBEABA12A /* SynologyAudioStationStreamResolver.swift */,
 				09CE2F3FC6DBC83E5C139F8D /* SynologyQuickConnectResolver.swift */,
 				3C221E974A2E6E831F7EAF27 /* SynologyStreamResolver.swift */,
@@ -6522,6 +6528,8 @@
 				B88D64F74EB70F4438DCCCBC /* SyncedCredentialAvailability.swift in Sources */,
 				2C9E932BBF84413437355812 /* SynologyAudioStationAPI.swift in Sources */,
 				46E9A5E67F111135C2F1CB84 /* SynologyAudioStationClient.swift in Sources */,
+				1355D5A3C75E5EC85333B796 /* FTPClient.swift in Sources */,
+				7A282DB5355E57E7CE26E492 /* FTPProtocol.swift in Sources */,
 				1145534C778D8681097C1BE3 /* SynologyAudioStationStreamResolver.swift in Sources */,
 				D4BA7D2927A0037D9895C527 /* SynologyQuickConnectResolver.swift in Sources */,
 				548B2F51A1FD55FC79DE5C9B /* SynologyStreamResolver.swift in Sources */,

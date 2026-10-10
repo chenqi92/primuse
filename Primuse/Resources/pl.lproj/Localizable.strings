@@ -1259,8 +1259,8 @@
 "encoding_fix_title" = "Kodowanie tekstu";
 "encryption" = "Szyfrowanie";
 "ftp_data_connection" = "Połączenie danych";
-"ftp_data_connection_info" = "„Automatycznie” używa PASV dla zwykłego FTP i EPSV dla FTPS. Jeśli poza siecią serwera foldery nigdy się nie wczytują, wybierz EPSV: łączy się z wpisanym przez Ciebie adresem zamiast z adresem podanym przez serwer, który za routerem jest często adresem lokalnym. Trybu aktywnego nie ma, bo wymaga on, by serwer połączył się z tym urządzeniem, co blokują sieci komórkowe i większość routerów.";
-"ftp_data_connection_timeout" = "Serwer FTP nie odpowiedział na czas. Jeśli jesteś poza siecią serwera, ustaw w ustawieniach tego źródła „Połączenie danych” na „Rozszerzony pasywny (EPSV)” i spróbuj ponownie.";
+"ftp_data_connection_info" = "„Automatycznie” najpierw próbuje EPSV, a jeśli się nie da — PASV; gdy serwer podaje adres lokalny, łączy się z wpisanym przez Ciebie adresem. Wybierz „Pasywny (PASV)” lub „Rozszerzony pasywny (EPSV)” tylko wtedy, gdy serwer wymaga dokładnie tego polecenia. „Aktywny (PORT)” jest dla serwerów, które pozwalają tylko na tryb aktywny: serwer łączy się z tym urządzeniem, więc działa to tylko w tej samej sieci co serwer, a nie przez dane komórkowe.";
+"ftp_data_connection_timeout" = "Nie udało się otworzyć połączenia danych FTP. Wybierz inną opcję „Połączenie danych” w ustawieniach tego źródła: poza siecią serwera „Automatycznie” lub „Rozszerzony pasywny (EPSV)”, a „Aktywny (PORT)” tylko w tej samej sieci co serwer.";
 "enter_otp" = "Wprowadź kod jednorazowy";
 "eq_enabled" = "Korektor";
 "eq_preset" = "Wstępne ustawienie korektora";
