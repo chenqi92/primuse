@@ -534,6 +534,11 @@ struct AlbumArtworkView: View {
     @State private var uploadedImage: PlatformImage?
     @State private var resolvedFallbackArtworkIdentity: String?
     @State private var reloadRevision = 0
+    @State private var missingCachedAlbumIdentity: String?
+
+    private var staticAlbumIdentity: String {
+        "\(album.id)#\(library.artworkOverrideRevision)#\(reloadRevision)"
+    }
 
     private var owner: LibraryArtworkOwner {
         LibraryArtworkOwner(kind: .album, id: album.id)
@@ -568,18 +573,38 @@ struct AlbumArtworkView: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .onAppear {
+            // A parked lazy card may outlive a background scrape. Recheck on
+            // return; CachedArtworkView still suppresses recent disk misses.
+            missingCachedAlbumIdentity = nil
+        }
         .task(id: "\(uploadedContentID ?? "")#\(library.artworkOverrideRevision)#\(reloadRevision)") {
             await UploadedArtworkLoader.load(contentID: uploadedContentID) {
                 uploadedImage = $0
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidCache)) { note in
+            if presentationRole == .staticFirstFrame, albumCacheChanged(note) {
+                reloadRevision &+= 1
+                return
+            }
             guard let contentID = uploadedContentID else { return }
             let objectMatches = note.object as? String == contentID
             let tokensMatch = (note.userInfo?["tokens"] as? [String])?.contains(contentID) == true
             guard objectMatches || tokensMatch else { return }
             reloadRevision &+= 1
         }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidInvalidate)) { note in
+            guard presentationRole == .staticFirstFrame, albumCacheChanged(note) else { return }
+            reloadRevision &+= 1
+        }
+    }
+
+    private func albumCacheChanged(_ note: Notification) -> Bool {
+        note.userInfo?["all"] as? Bool == true
+            || note.object as? String == album.id
+            || note.userInfo?["albumID"] as? String == album.id
+            || (note.userInfo?["tokens"] as? [String])?.contains(album.id) == true
     }
 
     @ViewBuilder
@@ -594,6 +619,41 @@ struct AlbumArtworkView: View {
             resolvedFallbackArtworkIdentity == fallbackArtworkIdentity(for: song)
         } ?? false
 
+        Group {
+            if presentationRole == .staticFirstFrame,
+               uploadedContentID == nil, selectedSong == nil {
+                // A static card has one visible source. Only start the song
+                // fallback after proving the higher-priority album cache empty.
+                // Animated heroes retain their separate source/animation policy.
+                let identity = staticAlbumIdentity
+                if missingCachedAlbumIdentity == identity, fallbackSong != nil {
+                    sourceFallbackArtwork(side: side, isAnimationVisible: false,
+                                          showsPlaceholder: showsPlaceholder)
+                } else {
+                    cachedAlbumArtwork(
+                        side: side, isAnimationVisible: false,
+                        showsPlaceholder: showsPlaceholder,
+                        onResolutionChange: { resolved in
+                            if !resolved { missingCachedAlbumIdentity = identity }
+                        }
+                    )
+                    .id(identity)
+                }
+            } else {
+                legacyArtworkLayers(side: side, selectedSong: selectedSong,
+                                    uploadedContentID: uploadedContentID,
+                                    automaticAnimationVisible: automaticAnimationVisible,
+                                    fallbackOwnsAutomaticLayer: fallbackOwnsAutomaticLayer)
+            }
+        }
+        .frame(width: side, height: side)
+        .clipped()
+    }
+
+    private func legacyArtworkLayers(
+        side: CGFloat, selectedSong: PrimuseKit.Song?, uploadedContentID: String?,
+        automaticAnimationVisible: Bool, fallbackOwnsAutomaticLayer: Bool
+    ) -> some View {
         ZStack {
             if showsPlaceholder {
                 CachedArtworkView(
@@ -652,7 +712,8 @@ struct AlbumArtworkView: View {
     @ViewBuilder
     private func sourceFallbackArtwork(
         side: CGFloat,
-        isAnimationVisible: Bool
+        isAnimationVisible: Bool,
+        showsPlaceholder: Bool = false
     ) -> some View {
         if let song = fallbackSong {
             let identity = fallbackArtworkIdentity(for: song)
@@ -664,7 +725,7 @@ struct AlbumArtworkView: View {
                 sourceID: song.sourceID,
                 filePath: song.filePath,
                 fileFormat: song.fileFormat,
-                showsPlaceholder: false,
+                showsPlaceholder: showsPlaceholder,
                 presentationRole: presentationRole,
                 animationRequiresPlayback: animationRequiresPlayback,
                 isPlaying: isPlaying,
@@ -694,7 +755,9 @@ struct AlbumArtworkView: View {
 
     private func cachedAlbumArtwork(
         side: CGFloat,
-        isAnimationVisible: Bool
+        isAnimationVisible: Bool,
+        showsPlaceholder: Bool = false,
+        onResolutionChange: @escaping (Bool) -> Void = { _ in }
     ) -> some View {
         CachedArtworkView(
             albumID: album.id,
@@ -704,11 +767,13 @@ struct AlbumArtworkView: View {
             trackCount: album.songCount,
             size: side,
             cornerRadius: cornerRadius,
-            showsPlaceholder: false,
+            showsPlaceholder: showsPlaceholder,
             presentationRole: presentationRole,
             animationRequiresPlayback: animationRequiresPlayback,
             isPlaying: isPlaying,
-            isAnimationVisible: isAnimationVisible
+            isAnimationVisible: isAnimationVisible,
+            revisionToken: reloadRevision,
+            onResolutionChange: onResolutionChange
         )
     }
 }
