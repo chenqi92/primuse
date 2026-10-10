@@ -299,6 +299,28 @@ extension AudioPlayerService {
         rememberSpokenWordPosition(force: true)
     }
 
+    /// 点了歌词或文字稿里的一行(全屏文稿里的一段、搜到的一处同样走这里)。
+    ///
+    /// 有声内容暂停着时从这一句开始播:点字幕就是想从这儿听,只跳过去不出声还得再去按播放。
+    /// 音乐歌词照旧,只跳不改播放状态。
+    func seekToTappedLine(at time: TimeInterval) {
+        guard currentItemIsSpokenWord, !isLiveRadio, !isPlaying else {
+            seek(to: time)
+            if currentItemIsSpokenWord { rememberSpokenWordPosition(force: true) }
+            return
+        }
+        if isCastingMode || isAppleMusicMode {
+            // 这两条路的 seek 不管起播,跳完再走一次「继续播放」。
+            seek(to: time)
+            resume()
+        } else {
+            // 和「继续播放」一样先记下用户要播:暂停时的意图是停,不登记的话重建好的管线不会开声。
+            registerPlayIntent()
+            seek(to: time, startPlaying: true)
+        }
+        rememberSpokenWordPosition(force: true)
+    }
+
     func skipSpokenWordForward() {
         skipSpokenWord(by: TimeInterval(spokenWordSkipForwardSeconds))
     }

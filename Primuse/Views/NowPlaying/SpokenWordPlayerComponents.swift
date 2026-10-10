@@ -910,7 +910,7 @@ struct SpokenWordTranscriptReader: View {
             .onTapGesture {
                 guard let start = paragraph.start else { return }
                 followsPlayback = true
-                player.seek(to: start)
+                player.seekToTappedLine(at: start)
             }
             .animation(.easeInOut(duration: 0.25), value: isCurrent)
     }

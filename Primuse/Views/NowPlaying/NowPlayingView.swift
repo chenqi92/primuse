@@ -11238,7 +11238,7 @@ struct LyricsScrollView: View {
                 placesControlsOnLeft: lyricsScaleAnchor.x > 0.5
             ) {
                 lastLyricRowTapAt = Date()
-                player.seek(to: line.timestamp)
+                player.seekToTappedLine(at: line.timestamp)
                 // 跳过去之后立刻回到跟随，定位线随之收起。
                 lineAutoFollowResumeTask?.cancel()
                 lastUserScrollTime = .distantPast
@@ -11516,7 +11516,7 @@ struct LyricsScrollView: View {
     private func seekToLyricLine(_ line: LyricLine) {
         lastLyricRowTapAt = Date()
         guard canSeekToLyricLine(line) else { return }
-        player.seek(to: line.timestamp)
+        player.seekToTappedLine(at: line.timestamp)
     }
 
     private func canSeekToLyricLine(_ line: LyricLine) -> Bool {
