@@ -174,6 +174,13 @@ import Testing
     #expect(MusicSourceType.audiobookshelf.declaredListeningContentKind == .spokenWord)
     #expect(MusicSourceType.audiobookshelf.organizesCatalogByServerLibrary)
     #expect(!MusicSourceType.audiobookshelf.supportsWholeSourceSpokenWordTag)
+    #expect(MusicSourceType.tingReader.defaultPort == 3000)
+    #expect(MusicSourceType.tingReader.defaultSSL == false)
+    #expect(MusicSource(name: "Ting Reader", type: .tingReader).port == 3000)
+    #expect(MusicSourceType.tingReader.category == .mediaServer)
+    #expect(MusicSourceType.tingReader.declaredListeningContentKind == .spokenWord)
+    #expect(MusicSourceType.tingReader.organizesCatalogByServerLibrary)
+    #expect(!MusicSourceType.tingReader.supportsWholeSourceSpokenWordTag)
     #expect(MusicSourceType.navidrome.supportsWholeSourceSpokenWordTag)
     #expect(!MusicSourceType.googleDrive.supportsWholeSourceSpokenWordTag)
     #expect(!MusicSourceType.jellyfin.supportsWholeSourceSpokenWordTag)
@@ -269,7 +276,7 @@ import Testing
 @Test func fileDeletionCapabilityExcludesReadOnlyCatalogues() {
     let readOnly: Set<MusicSourceType> = [
         .upnp, .subsonic, .navidrome, .airsonic, .gonic, .fnos, .fnMusic, .daoliyu, .songloft,
-        .audiobookshelf, .synologyAudioStation,
+        .audiobookshelf, .synologyAudioStation, .tingReader,
         // 光鸭开放平台未提供删除已落盘文件的接口。
         .guangya, .appleMusic, .appleMusicLibrary,
     ]
@@ -525,7 +532,7 @@ import Testing
         .local, .appleMusicLibrary,
         .jellyfin, .emby, .plex,
         .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu, .songloft,
-        .audiobookshelf, .synologyAudioStation,
+        .audiobookshelf, .synologyAudioStation, .tingReader,
     ]
 
     for sourceType in MusicSourceType.allCases {

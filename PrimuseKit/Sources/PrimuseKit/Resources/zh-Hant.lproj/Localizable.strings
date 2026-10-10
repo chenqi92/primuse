@@ -984,6 +984,13 @@
 "error.audiobookshelf.authenticationFailed" = "Audiobookshelf 登入失敗，請檢查帳號、密碼或 API 金鑰。";
 "error.audiobookshelf.http" = "Audiobookshelf 伺服器回傳了 HTTP %@。";
 "error.audiobookshelf.invalidResponse" = "Audiobookshelf 回傳了無效資料：%@";
+"src.subtitle.tingReader" = "自架有聲書伺服器 · 原生介面";
+"ext.tv.sources.hint.tingReader" = "Ting Reader 原生介面";
+"error.tingReader.missingCredential" = "Ting Reader 需要帳號和密碼。";
+"error.tingReader.invalidURL" = "Ting Reader 伺服器位址無效。";
+"error.tingReader.authenticationFailed" = "Ting Reader 登入失敗，請檢查帳號和密碼。";
+"error.tingReader.http" = "Ting Reader 伺服器回傳了 HTTP %@。";
+"error.tingReader.invalidResponse" = "Ting Reader 回傳了無效資料：%@";
 
 "ext.widget.podcast.title" = "Podcast";
 "ext.widget.podcast.description" = "繼續收聽未完單集，探索最新內容。";

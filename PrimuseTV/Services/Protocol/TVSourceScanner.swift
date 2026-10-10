@@ -178,6 +178,21 @@ actor TVAudiobookshelfLister: TVDirectoryLister {
     }
 }
 
+/// Ting Reader 同样是整库源;根目录浏览只做真实登录和存储库列举。
+actor TVTingReaderLister: TVDirectoryLister {
+    private let client: TingReaderServiceClient
+
+    init(client: TingReaderServiceClient) {
+        self.client = client
+    }
+
+    func list(_ path: String) async throws -> [TVDirEntry] {
+        guard path == "/" else { return [] }
+        _ = try await client.validateConnection()
+        return []
+    }
+}
+
 actor TVSongloftLister: TVDirectoryLister {
     private let client: SongloftServiceClient
 
@@ -1260,7 +1275,7 @@ final class TVSourceScanner {
     private static let maximumScanDepth = 64
     /// 整库型来源:没有目录树,扫描 = 把服务端曲库整体拉下来。
     static let serverCatalogTypes: Set<MusicSourceType> = [
-        .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation,
+        .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation, .tingReader,
         .jellyfin, .emby, .plex,
         .subsonic, .navidrome, .airsonic, .gonic,
     ]
@@ -1377,6 +1392,8 @@ final class TVSourceScanner {
             return TVDaoLiYuLister(client: DaoLiYuServiceClient(source: source, credential: credential))
         case .audiobookshelf:
             return TVAudiobookshelfLister(client: AudiobookshelfServiceClient(source: source, credential: credential))
+        case .tingReader:
+            return TVTingReaderLister(client: TingReaderServiceClient(source: source, credential: credential))
         case .songloft:
             return TVSongloftLister(client: SongloftServiceClient(source: source, credential: credential))
         case .synologyAudioStation:
@@ -1553,6 +1570,10 @@ final class TVSourceScanner {
             } else if source.type == .audiobookshelf {
                 _ = try await withRoutedSource(source) { routedSource in
                     try await self.scanAudiobookshelf(source: routedSource, credential: credential, onSong: accept)
+                }
+            } else if source.type == .tingReader {
+                _ = try await withRoutedSource(source) { routedSource in
+                    try await self.scanTingReader(source: routedSource, credential: credential, onSong: accept)
                 }
             } else if source.type == .synologyAudioStation {
                 _ = try await withRoutedSource(source) { routedSource in
@@ -2372,6 +2393,19 @@ final class TVSourceScanner {
         }
     }
 
+    func validateTingReaderConnection(
+        source: MusicSource,
+        credential: SourceCredential?
+    ) async throws -> Int {
+        guard source.type == .tingReader else { throw TVScanError.unsupported }
+        return try await withRoutedSource(source) { routedSource in
+            try await TingReaderServiceClient(
+                source: routedSource,
+                credential: credential
+            ).validateConnection().count
+        }
+    }
+
     func validateSongloftConnection(
         source: MusicSource,
         credential: SourceCredential?
@@ -2758,6 +2792,53 @@ final class TVSourceScanner {
             return count
         }
         if adopted > 0 { plog("🎧 TV adopted \(adopted) Audiobookshelf listening position(s)") }
+    }
+
+    /// Ting Reader:书目一次取全,再逐本取章节;一章是一首歌。章节列表里带着当前账号每章的位置,
+    /// 顺手带回本机。
+    private func scanTingReader(
+        source: MusicSource,
+        credential: SourceCredential?,
+        onSong: (Song) async throws -> Void
+    ) async throws -> [Song] {
+        let client = TingReaderServiceClient(source: source, credential: credential)
+        let excluded = Set(source.excludedServerLibraryIDs)
+        let libraryIDs = Set(try await client.libraries().map(\.id).filter { !excluded.contains($0) })
+        let books = try await client.books().filter { libraryIDs.contains($0.libraryID) }
+        var songs: [Song] = []
+        var progress: [(songID: String, progress: TingReaderChapterProgress)] = []
+        try await TingReaderCatalogWalk.forEachBook(books, client: client) { catalogBook in
+            try Task.checkCancellation()
+            let bookSongs = catalogBook.makeSongs(sourceID: source.id)
+            for (chapter, song) in zip(catalogBook.chapters, bookSongs) {
+                songs.append(song)
+                if let chapterProgress = TingReaderProgressPolicy.progress(for: chapter) {
+                    progress.append((song.id, chapterProgress))
+                }
+                try await onSong(song)
+                indexed = songs.count
+                currentFile = song.title
+            }
+        }
+        await adoptTingReaderProgress(progress)
+        return songs
+    }
+
+    /// 服务端记的进度(别的客户端听到的位置)带回本机;按最后写入者获胜,本机更新的不动。
+    private func adoptTingReaderProgress(_ entries: [(songID: String, progress: TingReaderChapterProgress)]) async {
+        guard !entries.isEmpty else { return }
+        let adopted = await MainActor.run {
+            var count = 0
+            for entry in entries where SpokenWordStore.shared.adoptServerProgress(
+                songID: entry.songID,
+                position: entry.progress.position,
+                duration: entry.progress.duration,
+                isFinished: entry.progress.isFinished,
+                updatedAt: entry.progress.updatedAt
+            ) { count += 1 }
+            return count
+        }
+        if adopted > 0 { plog("🎧 TV adopted \(adopted) Ting Reader listening position(s)") }
     }
 
     /// 返回与连接测试和扫描共用的客户端；配置未变化时复用登录会话。

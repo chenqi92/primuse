@@ -163,7 +163,7 @@ import Testing
                                       .aliyunDrive, .oneDrive, .dropbox, .pan123,
                                       .jellyfin, .emby, .plex, .qnap, .fnMusic, .daoliyu, .audiobookshelf, .ugreen,
                                       .googleDrive, .pan115, .baiduPan, .drime, .guangya,
-                                      .synologyAudioStation]))
+                                      .synologyAudioStation, .tingReader]))
     #expect(StreamResolverRegistry.tvSupportedTypes.contains(.synologyAudioStation))
     // Phase 3:原生库源经中继也注册了
     #expect(supported.isSuperset(of: [.smb, .sftp, .nfs, .webdav, .local]))

@@ -934,6 +934,13 @@
 "error.audiobookshelf.authenticationFailed" = "فشل تسجيل الدخول إلى Audiobookshelf. تحقق من الحساب أو كلمة المرور أو مفتاح API.";
 "error.audiobookshelf.http" = "أعاد خادم Audiobookshelf الرمز HTTP %@.";
 "error.audiobookshelf.invalidResponse" = "أعاد Audiobookshelf بيانات غير صالحة: %@";
+"src.subtitle.tingReader" = "خادم كتب صوتية مستضاف ذاتيًا · واجهة أصلية";
+"ext.tv.sources.hint.tingReader" = "واجهة Ting Reader الأصلية";
+"error.tingReader.missingCredential" = "يحتاج Ting Reader إلى حساب وكلمة مرور.";
+"error.tingReader.invalidURL" = "عنوان خادم Ting Reader غير صالح.";
+"error.tingReader.authenticationFailed" = "فشل تسجيل الدخول إلى Ting Reader. تحقق من الحساب وكلمة المرور.";
+"error.tingReader.http" = "أعاد خادم Ting Reader الرمز HTTP %@.";
+"error.tingReader.invalidResponse" = "أعاد Ting Reader بيانات غير صالحة: %@";
 
 "ext.widget.podcast.title" = "البودكاست";
 "ext.widget.podcast.description" = "تابع حلقة أو اكتشف الجديد.";

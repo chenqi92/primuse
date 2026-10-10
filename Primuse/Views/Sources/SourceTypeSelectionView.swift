@@ -1473,6 +1473,7 @@ extension MusicSourceType {
         case .audiobookshelf: sourceBrandColor(0x9E3D22)
         // 与群晖直连同一色相、更深一档:两者会在「我的音乐源」里并排出现。
         case .synologyAudioStation: sourceBrandColor(0x1A4F7A)
+        case .tingReader: sourceBrandColor(0x2D6A4F)
 
         // 网盘
         case .baiduPan: sourceBrandColor(0x2932E1)

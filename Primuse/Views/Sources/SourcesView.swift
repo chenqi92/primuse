@@ -2025,7 +2025,7 @@ struct SourcesContentView: View {
             case .qnap, .ugreen, .fnos, .webdav, .s3,
                  .jellyfin, .emby, .plex,
                  .subsonic, .navidrome, .airsonic, .gonic,
-                 .daoliyu, .audiobookshelf:
+                 .daoliyu, .audiobookshelf, .tingReader:
                 usesHTTP = true
             case .fnMusic:
                 usesHTTP = routedSource.effectiveFnMusicConnectionMode == .address

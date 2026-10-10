@@ -191,7 +191,7 @@ extension MusicSourceType {
         case .upnp,
              .jellyfin, .emby, .plex,
              .subsonic, .navidrome, .airsonic, .gonic,
-             .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation,
+             .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation, .tingReader,
              .aliyunDrive, .googleDrive, .oneDrive,
              .drime, .pan115, .pan123, .guangya,
              .appleMusic, .appleMusicLibrary:

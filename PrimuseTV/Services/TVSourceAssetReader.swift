@@ -36,7 +36,8 @@ actor TVSourceAssetReader {
 
     nonisolated static func supports(_ type: MusicSourceType) -> Bool {
         type.isSubsonicFamily
-            || [.jellyfin, .emby, .plex, .songloft, .synology, .synologyAudioStation, .audiobookshelf].contains(type)
+            || [.jellyfin, .emby, .plex, .songloft, .synology, .synologyAudioStation, .audiobookshelf, .tingReader]
+                .contains(type)
     }
 
     private struct CachedAudiobookshelfClient {
@@ -93,6 +94,50 @@ actor TVSourceAssetReader {
         return client
     }
 
+    private struct CachedTingReaderClient {
+        let identity: String
+        let client: TingReaderServiceClient
+    }
+    private var tingReaderClients: [String: CachedTingReaderClient] = [:]
+
+    /// 把本机这一章的位置报到 Ting Reader。服务端按章记,不用换算时间轴。
+    func reportTingReaderProgress(
+        song: Song,
+        source: MusicSource,
+        credential: SourceCredential?,
+        position: TimeInterval,
+        isFinished: Bool
+    ) async {
+        guard source.type == .tingReader,
+              let reference = TingReaderAPIProtocol.trackReference(from: song.filePath) else { return }
+        do {
+            try await tingReaderClient(for: source, credential: credential).updateProgress(
+                bookID: reference.bookID,
+                chapterID: reference.chapterID,
+                position: TingReaderProgressPolicy.reportedPosition(
+                    position: position,
+                    duration: song.duration,
+                    isFinished: isFinished
+                ),
+                duration: song.duration
+            )
+        } catch {
+            plog("🎧 TV Ting Reader progress push failed '\(song.title)': \(error.localizedDescription)")
+        }
+    }
+
+    /// 封面与进度上报共用一份登录会话;配置或凭据变了才重建。
+    private func tingReaderClient(for source: MusicSource, credential: SourceCredential?) -> TingReaderServiceClient {
+        let identity = Self.cacheIdentity(source: source, credential: credential)
+        if let cached = tingReaderClients[source.id], cached.identity == identity { return cached.client }
+        if let stale = tingReaderClients.removeValue(forKey: source.id) {
+            Task { await stale.client.invalidateSession() }
+        }
+        let client = TingReaderServiceClient(source: source, credential: credential)
+        tingReaderClients[source.id] = CachedTingReaderClient(identity: identity, client: client)
+        return client
+    }
+
     func artworkData(reference: String, source: MusicSource, credential: SourceCredential?, maximumBytes: Int) async -> Data? {
         if source.type == .synology {
             // 文件源保存的是 NAS 上的图片路径,须和音频一样通过 File Station 鉴权读取。
@@ -126,6 +171,10 @@ actor TVSourceAssetReader {
                 } else if routed.type == .audiobookshelf {
                     guard AudiobookshelfAPIProtocol.coverItemID(fromReference: reference) != nil else { return nil }
                     data = try await audiobookshelfClient(for: routed, credential: credential)
+                        .coverData(reference: reference, maximumBytes: maximumBytes)
+                } else if routed.type == .tingReader {
+                    guard TingReaderAPIProtocol.coverReference(from: reference) != nil else { return nil }
+                    data = try await tingReaderClient(for: routed, credential: credential)
                         .coverData(reference: reference, maximumBytes: maximumBytes)
                 } else {
                     guard let connector = connector(for: routed, credential: credential) else { return nil }

@@ -934,6 +934,13 @@
 "error.audiobookshelf.authenticationFailed" = "Audiobookshelf oturumu açılamadı. Hesabı, parolayı veya API anahtarını kontrol edin.";
 "error.audiobookshelf.http" = "Audiobookshelf sunucusu HTTP %@ döndürdü.";
 "error.audiobookshelf.invalidResponse" = "Audiobookshelf geçersiz veri döndürdü: %@";
+"src.subtitle.tingReader" = "Kendi barındırdığınız sesli kitap sunucusu · Yerel API";
+"ext.tv.sources.hint.tingReader" = "Ting Reader yerel API’si";
+"error.tingReader.missingCredential" = "Ting Reader için hesap ve parola gerekir.";
+"error.tingReader.invalidURL" = "Ting Reader sunucu adresi geçersiz.";
+"error.tingReader.authenticationFailed" = "Ting Reader oturumu açılamadı. Hesabı ve parolayı kontrol edin.";
+"error.tingReader.http" = "Ting Reader sunucusu HTTP %@ döndürdü.";
+"error.tingReader.invalidResponse" = "Ting Reader geçersiz veri döndürdü: %@";
 
 "ext.widget.podcast.title" = "Podcast’ler";
 "ext.widget.podcast.description" = "Bir bölüme devam edin veya yenilikleri keşfedin.";

@@ -934,6 +934,13 @@
 "error.audiobookshelf.authenticationFailed" = "ลงชื่อเข้า Audiobookshelf ไม่สำเร็จ โปรดตรวจสอบบัญชี รหัสผ่าน หรือคีย์ API";
 "error.audiobookshelf.http" = "เซิร์ฟเวอร์ Audiobookshelf ตอบกลับ HTTP %@";
 "error.audiobookshelf.invalidResponse" = "Audiobookshelf ส่งข้อมูลที่ไม่ถูกต้องกลับมา: %@";
+"src.subtitle.tingReader" = "เซิร์ฟเวอร์หนังสือเสียงที่โฮสต์เอง · API ดั้งเดิม";
+"ext.tv.sources.hint.tingReader" = "API ดั้งเดิมของ Ting Reader";
+"error.tingReader.missingCredential" = "Ting Reader ต้องใช้บัญชีกับรหัสผ่าน";
+"error.tingReader.invalidURL" = "ที่อยู่เซิร์ฟเวอร์ Ting Reader ไม่ถูกต้อง";
+"error.tingReader.authenticationFailed" = "ลงชื่อเข้า Ting Reader ไม่สำเร็จ โปรดตรวจสอบบัญชีและรหัสผ่าน";
+"error.tingReader.http" = "เซิร์ฟเวอร์ Ting Reader ตอบกลับ HTTP %@";
+"error.tingReader.invalidResponse" = "Ting Reader ส่งข้อมูลที่ไม่ถูกต้องกลับมา: %@";
 
 "ext.widget.podcast.title" = "พอดแคสต์";
 "ext.widget.podcast.description" = "ฟังตอนเดิมต่อหรือค้นพบตอนใหม่";

@@ -987,6 +987,13 @@
 "error.audiobookshelf.authenticationFailed" = "Audiobookshelf 로그인에 실패했습니다. 계정, 암호 또는 API 키를 확인하세요.";
 "error.audiobookshelf.http" = "Audiobookshelf 서버가 HTTP %@을(를) 반환했습니다.";
 "error.audiobookshelf.invalidResponse" = "Audiobookshelf가 잘못된 데이터를 반환했습니다: %@";
+"src.subtitle.tingReader" = "자체 호스팅 오디오북 서버 · 네이티브 API";
+"ext.tv.sources.hint.tingReader" = "Ting Reader 네이티브 API";
+"error.tingReader.missingCredential" = "Ting Reader에는 계정과 암호가 필요합니다.";
+"error.tingReader.invalidURL" = "Ting Reader 서버 주소가 올바르지 않습니다.";
+"error.tingReader.authenticationFailed" = "Ting Reader 로그인에 실패했습니다. 계정과 암호를 확인하세요.";
+"error.tingReader.http" = "Ting Reader 서버가 HTTP %@을(를) 반환했습니다.";
+"error.tingReader.invalidResponse" = "Ting Reader가 잘못된 데이터를 반환했습니다: %@";
 
 "ext.widget.podcast.title" = "팟캐스트";
 "ext.widget.podcast.description" = "에피소드를 이어 듣거나 새 소식을 만나세요.";

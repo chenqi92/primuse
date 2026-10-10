@@ -283,10 +283,11 @@ final class TVMetadataParityTests: XCTestCase {
             XCTAssertTrue(TVPlaybackMetadataPolicy.supports(type), type.rawValue)
         }
         for type in [MusicSourceType.subsonic, .navidrome, .jellyfin, .emby, .plex, .fnMusic, .daoliyu, .songloft,
-                     .audiobookshelf, .synologyAudioStation] {
+                     .audiobookshelf, .synologyAudioStation, .tingReader] {
             XCTAssertFalse(TVPlaybackMetadataPolicy.supports(type), type.rawValue)
         }
         XCTAssertTrue(TVSourceAssetReader.supports(.audiobookshelf))
+        XCTAssertTrue(TVSourceAssetReader.supports(.tingReader))
         XCTAssertEqual(TVLyricsLoadingPolicy.strategy(for: .daoliyu), .daoLiYuService)
         XCTAssertEqual(TVLyricsLoadingPolicy.strategy(for: .songloft), .songloftService)
         XCTAssertTrue(TVSourceAssetReader.supports(.songloft))

@@ -149,6 +149,10 @@ public enum SourceServiceFingerprint {
         case .audiobookshelf:
             // 免登录的状态接口:{"isInit":true,"language":"en-us",…}。
             return ProbeRequest(path: "/status")
+        case .tingReader:
+            // 免登录的统计接口:{"total_books":…,"total_chapters":…,"total_duration":…,"last_scan_time":…}。
+            // `/api/health` 只回 status/version,任何服务都可能长那样。
+            return ProbeRequest(path: "/api/stats")
         default:
             // 其余 HTTP 类型没有公开的免登录握手,只能判"有没有人应答"。
             return ProbeRequest(path: "/")
@@ -161,7 +165,7 @@ public enum SourceServiceFingerprint {
         guard probeRequest(for: sourceType) != nil else { return false }
         switch sourceType {
         case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic,
-             .synology, .synologyAudioStation, .webdav, .audiobookshelf:
+             .synology, .synologyAudioStation, .webdav, .audiobookshelf, .tingReader:
             return true
         default:
             return false
@@ -205,6 +209,12 @@ public enum SourceServiceFingerprint {
             if response.headerValue("DAV") != nil { return .confirmed }
         case .audiobookshelf:
             if response.statusCode == 200, body.contains("\"isInit\"") { return .confirmed }
+        case .tingReader:
+            if response.statusCode == 200,
+               body.contains("\"total_chapters\""),
+               body.contains("\"total_books\"") {
+                return .confirmed
+            }
         default:
             break
         }

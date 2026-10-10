@@ -379,6 +379,7 @@ struct SpokenWordBookGroupingRulesTests {
         #expect(!MusicSourceType.jellyfin.itemPathsNameFolders)
         #expect(!MusicSourceType.synologyAudioStation.itemPathsNameFolders)
         #expect(MusicSourceType.audiobookshelf.itemPathsNameFolders)
+        #expect(MusicSourceType.tingReader.itemPathsNameFolders)
         #expect(MusicSourceType.webdav.itemPathsNameFolders)
         #expect(MusicSourceType.smb.itemPathsNameFolders)
     }

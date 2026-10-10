@@ -934,6 +934,13 @@
 "error.audiobookshelf.authenticationFailed" = "Falha ao entrar no Audiobookshelf. Verifique a conta, a senha ou a chave de API.";
 "error.audiobookshelf.http" = "O servidor Audiobookshelf retornou HTTP %@.";
 "error.audiobookshelf.invalidResponse" = "O Audiobookshelf retornou dados inválidos: %@";
+"src.subtitle.tingReader" = "Servidor de audiolivros auto-hospedado · API nativa";
+"ext.tv.sources.hint.tingReader" = "API nativa do Ting Reader";
+"error.tingReader.missingCredential" = "O Ting Reader precisa de conta e senha.";
+"error.tingReader.invalidURL" = "O endereço do servidor Ting Reader é inválido.";
+"error.tingReader.authenticationFailed" = "Falha ao entrar no Ting Reader. Verifique a conta e a senha.";
+"error.tingReader.http" = "O servidor Ting Reader retornou HTTP %@.";
+"error.tingReader.invalidResponse" = "O Ting Reader retornou dados inválidos: %@";
 
 "ext.widget.podcast.title" = "Podcasts";
 "ext.widget.podcast.description" = "Continue um episódio ou descubra novidades.";

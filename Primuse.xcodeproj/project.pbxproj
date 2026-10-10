@@ -468,6 +468,11 @@
 		3F5B02704DF01DF4192B038C /* PlaylistImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B203F3A47D1C2D90996E818D /* PlaylistImportView.swift */; };
 		3F8513D64E7EAB2667895EEC /* OneDriveSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E648713A25DB3912120693A /* OneDriveSource.swift */; };
 		3F874CF4B1939FAE36328711 /* ISOBaseMediaChapterParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CCA8EE372D7ED88D64B8C3D /* ISOBaseMediaChapterParser.swift */; };
+		6AD377F652C05C73879CAEC2 /* TingReaderSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 656E0BFCACE046D38A1A1738 /* TingReaderSource.swift */; };
+		7D2328E731EA15C05F447E49 /* TingReaderAPIProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A04BC9A9E1ED420EC21D43E3 /* TingReaderAPIProtocol.swift */; };
+		B51157CAAD473AB1B870829D /* TingReaderSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 656E0BFCACE046D38A1A1738 /* TingReaderSource.swift */; };
+		B53EEE559CBCD42168951481 /* TingReaderServiceClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2129A566F4B5BDA731416B1 /* TingReaderServiceClient.swift */; };
+		C44AE0F45CDFF6C7DA8C7B34 /* TingReaderStreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5400797E01BDAA73A61EE612 /* TingReaderStreamResolver.swift */; };
 		EF77117AFEAEFA49BE4FC1E1 /* AudioStreamHeaderParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFAD67B703AE06367E4A03E /* AudioStreamHeaderParser.swift */; };
 		3FA29387B872BEEFC094AA3C /* TVAppleMusicCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1347C26A3613D074A7DEF71 /* TVAppleMusicCatalog.swift */; };
 		3FD470459B0416DB4CD1D75E /* RevealableSecureField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23CA6DF05BAC0E0F38218C88 /* RevealableSecureField.swift */; };
@@ -2186,6 +2191,10 @@
 		0C7964E39EEC2700BAB113F8 /* PrimuseWatchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PrimuseWatchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0C999AE17AF8E49236B326C3 /* WiFiTransferFilePreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiTransferFilePreparation.swift; sourceTree = "<group>"; };
 		0CCA8EE372D7ED88D64B8C3D /* ISOBaseMediaChapterParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISOBaseMediaChapterParser.swift; sourceTree = "<group>"; };
+		5400797E01BDAA73A61EE612 /* TingReaderStreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TingReaderStreamResolver.swift; sourceTree = "<group>"; };
+		656E0BFCACE046D38A1A1738 /* TingReaderSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TingReaderSource.swift; sourceTree = "<group>"; };
+		A04BC9A9E1ED420EC21D43E3 /* TingReaderAPIProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TingReaderAPIProtocol.swift; sourceTree = "<group>"; };
+		D2129A566F4B5BDA731416B1 /* TingReaderServiceClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TingReaderServiceClient.swift; sourceTree = "<group>"; };
 		FDFAD67B703AE06367E4A03E /* AudioStreamHeaderParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioStreamHeaderParser.swift; sourceTree = "<group>"; };
 		0CF62AF729BC2E51A4C424EA /* es-MX */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "es-MX"; path = "es-MX.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		0D041D8BEB3E75D3D4A605E4 /* AppDistributionChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDistributionChannel.swift; sourceTree = "<group>"; };
@@ -3815,6 +3824,7 @@
 				54676B57B5334C97A45A4886 /* SynologyAudioStationSource.swift */,
 				7A221B7D8D5901440E56C3F6 /* SynologyScanner.swift */,
 				0E60AA3C090087F657145292 /* SynologySource.swift */,
+				656E0BFCACE046D38A1A1738 /* TingReaderSource.swift */,
 				ABB95B932C07091233475361 /* TrustedHTTPTransport.swift */,
 				CACF669ECDE8745A546EE459 /* UgreenAPI.swift */,
 				404526370F939D7D68BB9F6E /* UgreenSource.swift */,
@@ -5432,6 +5442,9 @@
 				09CE2F3FC6DBC83E5C139F8D /* SynologyQuickConnectResolver.swift */,
 				3C221E974A2E6E831F7EAF27 /* SynologyStreamResolver.swift */,
 				E1F7BC83F45C23C5FEECE7C3 /* TianyiCloudAPIProtocol.swift */,
+				A04BC9A9E1ED420EC21D43E3 /* TingReaderAPIProtocol.swift */,
+				D2129A566F4B5BDA731416B1 /* TingReaderServiceClient.swift */,
+				5400797E01BDAA73A61EE612 /* TingReaderStreamResolver.swift */,
 				7C7AA7CCA81AD3F717DE3423 /* TVSnapshotRowSelection.swift */,
 				D7FD80E79A00801D898E32CA /* UgreenStreamResolver.swift */,
 			);
@@ -6479,6 +6492,9 @@
 				1145534C778D8681097C1BE3 /* SynologyAudioStationStreamResolver.swift in Sources */,
 				D4BA7D2927A0037D9895C527 /* SynologyQuickConnectResolver.swift in Sources */,
 				548B2F51A1FD55FC79DE5C9B /* SynologyStreamResolver.swift in Sources */,
+				7D2328E731EA15C05F447E49 /* TingReaderAPIProtocol.swift in Sources */,
+				B53EEE559CBCD42168951481 /* TingReaderServiceClient.swift in Sources */,
+				C44AE0F45CDFF6C7DA8C7B34 /* TingReaderStreamResolver.swift in Sources */,
 				A9A22A7CE17A2FBAD9AB445C /* TVHomeSectionConfiguration.swift in Sources */,
 				32B3C850F794DB8026667021 /* TVLibraryFilterConfiguration.swift in Sources */,
 				856C70EA0F1E8E9D577A8A5F /* TVPlaybackPipelinePolicy.swift in Sources */,
@@ -7021,6 +7037,7 @@
 				A46EDBA046E094FC1E93056F /* SynologyScanner.swift in Sources */,
 				2258673CDC1F146D06F403A0 /* SynologySource.swift in Sources */,
 				9979267D96DDD94E79B457EA /* TCPRangeFetcher.swift in Sources */,
+				B51157CAAD473AB1B870829D /* TingReaderSource.swift in Sources */,
 				E45399E15A25AC0C8457ED60 /* TVCloudAuthorizationSheet.swift in Sources */,
 				AFBE25FDCEA37A97308030B4 /* TabletopQueueStrip.swift in Sources */,
 				81373227466DA7A6E21BCEFC /* TagEditorView.swift in Sources */,
@@ -7731,6 +7748,7 @@
 				BF1658CCB669A554E8DF831D /* SynologyScanner.swift in Sources */,
 				996C1B4150BF531114D218FD /* SynologySource.swift in Sources */,
 				CD4B2426744C5766BA0882BC /* TCPRangeFetcher.swift in Sources */,
+				6AD377F652C05C73879CAEC2 /* TingReaderSource.swift in Sources */,
 				DB47AF073B3D2A24557D72ED /* TVCloudAuthorizationSheet.swift in Sources */,
 				12DA7907BAAB31946A66C278 /* TabletopQueueStrip.swift in Sources */,
 				C704ABB3376C76160612D0D6 /* TagEditorView.swift in Sources */,

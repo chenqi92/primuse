@@ -272,6 +272,14 @@ enum AutomaticOfflineFailureClassifier {
             default: return .sourceUnavailable
             }
         }
+        if let error = error as? TingReaderServiceError {
+            switch error {
+            case .missingCredential, .authenticationFailed: return .authentication
+            case .badServerResponse(403): return .sourceAccessDenied
+            case .badServerResponse(429): return .rateLimited
+            default: return .sourceUnavailable
+            }
+        }
         if let error = error as? SynologyAudioStationError {
             switch error {
             case .missingCredential, .invalidCredentials, .twoFactorRequired, .invalidOneTimePassword,
@@ -2601,6 +2609,56 @@ private struct RoutedAudiobookshelfConnector: RoutedConnectorProxy, RefreshingMe
     }
 }
 
+private struct RoutedTingReaderConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
+    ServerLibraryListingConnector, ServerCatalogChangeDetectingConnector, ServerListeningProgressConnector {
+    let sourceID: String
+    let routing: SourceConnectionRouter
+    let routedSupportsSidecarWriting: Bool
+    let routedPreferredDeleteBatchSize: Int
+
+    func fetchServerListeningProgress(for songPaths: [String]) async throws -> [ServerListeningProgress] {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerListeningProgressConnector else {
+                throw SourceError.connectionFailed("Server listening progress unavailable")
+            }
+            return try await provider.fetchServerListeningProgress(for: songPaths)
+        }
+    }
+
+    func reportListeningProgress(songPath: String, position: TimeInterval, duration: TimeInterval, isFinished: Bool) async throws {
+        try await routing.withMutation { connector in
+            guard let provider = connector as? any ServerListeningProgressConnector else {
+                throw SourceError.connectionFailed("Server listening progress unavailable")
+            }
+            try await provider.reportListeningProgress(
+                songPath: songPath,
+                position: position,
+                duration: duration,
+                isFinished: isFinished
+            )
+        }
+    }
+
+    func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
+        let routed = try await routing.withReadAndRoute { connector in
+            guard let scanner = connector as? any SongScanningConnector else {
+                throw SourceError.connectionFailed("Song scanner unavailable")
+            }
+            return try await scanner.scanSongs(from: path)
+        }
+        return observingDeferredReadErrors(in: routed.value, routeIndex: routed.routeIndex)
+    }
+
+    func fetchServerLibraries() async throws -> [ServerLibraryDescriptor] {
+        try await routing.withRead { connector in
+            guard let lister = connector as? any ServerLibraryListingConnector else {
+                throw SourceError.connectionFailed("Server library listing unavailable")
+            }
+            return try await lister.fetchServerLibraries()
+        }
+    }
+}
+
 private struct RoutedSongloftConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     ServerLyricsConnector, ServerPlaylistConnector, ServerFavoriteConnector,
     ServerScrobblingConnector, ServerRadioConnector, ServerRadioStreamResolvingConnector,
@@ -3559,6 +3617,13 @@ final class SourceManager {
                 routedSupportsSidecarWriting: supportsSidecarWriting,
                 routedPreferredDeleteBatchSize: preferredDeleteBatchSize
             )
+        case .tingReader:
+            connector = RoutedTingReaderConnector(
+                sourceID: source.id,
+                routing: routing,
+                routedSupportsSidecarWriting: supportsSidecarWriting,
+                routedPreferredDeleteBatchSize: preferredDeleteBatchSize
+            )
         case .songloft:
             connector = RoutedSongloftConnector(
                 sourceID: source.id,
@@ -3775,6 +3840,20 @@ final class SourceManager {
                     username: source.username ?? "",
                     secret: secret,
                     authType: source.authType,
+                    alternateTLSValidationHostname: source.alternateTLSValidationHostname,
+                    excludedLibraryIDs: Set(source.excludedServerLibraryIDs)
+                )
+            }
+        case .tingReader:
+            connector = credentialProtectedConnector(for: source) { password in
+                TingReaderSource(
+                    sourceID: source.id,
+                    host: source.host ?? "",
+                    port: source.port,
+                    useSSL: source.useSsl,
+                    basePath: source.basePath,
+                    username: source.username ?? "",
+                    password: password,
                     alternateTLSValidationHostname: source.alternateTLSValidationHostname,
                     excludedLibraryIDs: Set(source.excludedServerLibraryIDs)
                 )
@@ -13706,7 +13785,7 @@ final class SourceManager {
         return try await lister.fetchServerLibraries()
     }
 
-    // MARK: - Server-kept listening progress and chapters (Audiobookshelf)
+    // MARK: - Server-kept listening progress and chapters (Audiobookshelf, Ting Reader)
 
     func supportsServerListeningProgress(for source: MusicSource) -> Bool {
         connector(for: source) is any ServerListeningProgressConnector

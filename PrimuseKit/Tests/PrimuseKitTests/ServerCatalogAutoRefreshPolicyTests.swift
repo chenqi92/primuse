@@ -28,7 +28,7 @@ struct ServerCatalogAutoRefreshPolicyTests {
         // other catalogue servers with the total of a one-row page.
         for type in [
             MusicSourceType.jellyfin, .emby, .plex, .fnMusic, .daoliyu, .songloft,
-            .audiobookshelf, .synologyAudioStation,
+            .audiobookshelf, .synologyAudioStation, .tingReader,
         ] {
             #expect(ServerCatalogAutoRefreshPolicy.supportsStatusProbe(type))
         }

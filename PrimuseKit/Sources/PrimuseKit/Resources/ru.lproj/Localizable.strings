@@ -934,6 +934,13 @@
 "error.audiobookshelf.authenticationFailed" = "Не удалось войти в Audiobookshelf. Проверьте учётную запись, пароль или ключ API.";
 "error.audiobookshelf.http" = "Сервер Audiobookshelf вернул HTTP %@.";
 "error.audiobookshelf.invalidResponse" = "Audiobookshelf вернул недопустимые данные: %@";
+"src.subtitle.tingReader" = "Собственный сервер аудиокниг · Нативный API";
+"ext.tv.sources.hint.tingReader" = "Нативный API Ting Reader";
+"error.tingReader.missingCredential" = "Для Ting Reader нужны учётная запись и пароль.";
+"error.tingReader.invalidURL" = "Адрес сервера Ting Reader недействителен.";
+"error.tingReader.authenticationFailed" = "Не удалось войти в Ting Reader. Проверьте учётную запись и пароль.";
+"error.tingReader.http" = "Сервер Ting Reader вернул HTTP %@.";
+"error.tingReader.invalidResponse" = "Ting Reader вернул недопустимые данные: %@";
 
 "ext.widget.podcast.title" = "Подкасты";
 "ext.widget.podcast.description" = "Продолжайте слушать и открывайте новые выпуски.";

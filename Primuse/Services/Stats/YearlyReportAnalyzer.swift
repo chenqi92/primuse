@@ -225,7 +225,7 @@ struct YearlyReportData: Sendable, Identifiable {
                 case .local, .appleMusicLibrary:
                     self = .device
                 case .synology, .qnap, .ugreen, .fnos, .fnMusic, .daoliyu, .songloft, .synologyAudioStation,
-                     .audiobookshelf, .smb, .webdav, .ftp, .sftp, .nfs, .upnp,
+                     .audiobookshelf, .tingReader, .smb, .webdav, .ftp, .sftp, .nfs, .upnp,
                      .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic:
                     self = .server
                 case .baiduPan, .aliyunDrive, .oneDrive, .dropbox, .googleDrive, .drime, .pan115, .pan123,

@@ -143,7 +143,7 @@ struct TVSourceTypePicker: View {
         case .synologyAudioStation: return "Audio Station"
         case .qnap: return "QNAP"
         case .fnos: return "fnOS"
-        case .fnMusic, .daoliyu, .songloft, .audiobookshelf, .ugreen: return t.displayName
+        case .fnMusic, .daoliyu, .songloft, .audiobookshelf, .tingReader, .ugreen: return t.displayName
         case .jellyfin: return "Jellyfin"
         case .emby: return "Emby"
         case .plex: return "Plex"
@@ -171,6 +171,7 @@ struct TVSourceTypePicker: View {
         case .daoliyu: return PMString("ext.tv.sources.hint.daoliyu")
         case .songloft: return "Songloft REST API"
         case .audiobookshelf: return PMString("ext.tv.sources.hint.audiobookshelf")
+        case .tingReader: return PMString("ext.tv.sources.hint.tingReader")
         case .synology, .synologyAudioStation, .qnap, .fnos, .ugreen:
             return PMString("ext.tv.sources.hint.nasSuite")
         case .upnp: return PMString("ext.tv.sources.hint.upnp")

@@ -125,7 +125,7 @@ struct TVScanFlowView: View {
                 return
             }
             if source.type != .fnMusic && source.type != .daoliyu && source.type != .songloft
-                && source.type != .audiobookshelf, lister == nil {
+                && source.type != .audiobookshelf && source.type != .tingReader, lister == nil {
                 lister = store.makeLister(for: source)
                 selected = mode == .incremental ? [] : source.scannedDirectories
                 #if DEBUG

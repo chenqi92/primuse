@@ -984,6 +984,13 @@
 "error.audiobookshelf.authenticationFailed" = "Audiobookshelf 登录失败，请检查账号、密码或 API 密钥。";
 "error.audiobookshelf.http" = "Audiobookshelf 服务器返回了 HTTP %@。";
 "error.audiobookshelf.invalidResponse" = "Audiobookshelf 返回了无效数据：%@";
+"src.subtitle.tingReader" = "自托管有声书服务器 · 原生接口";
+"ext.tv.sources.hint.tingReader" = "Ting Reader 原生接口";
+"error.tingReader.missingCredential" = "Ting Reader 需要账号和密码。";
+"error.tingReader.invalidURL" = "Ting Reader 服务器地址无效。";
+"error.tingReader.authenticationFailed" = "Ting Reader 登录失败，请检查账号和密码。";
+"error.tingReader.http" = "Ting Reader 服务器返回了 HTTP %@。";
+"error.tingReader.invalidResponse" = "Ting Reader 返回了无效数据：%@";
 
 "ext.widget.podcast.title" = "播客";
 "ext.widget.podcast.description" = "接着听未完单集，发现最新内容。";

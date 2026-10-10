@@ -934,6 +934,13 @@
 "error.audiobookshelf.authenticationFailed" = "Audiobookshelf में साइन इन नहीं हो सका। खाता, पासवर्ड या API कुंजी जाँचें।";
 "error.audiobookshelf.http" = "Audiobookshelf सर्वर ने HTTP %@ लौटाया।";
 "error.audiobookshelf.invalidResponse" = "Audiobookshelf ने अमान्य डेटा लौटाया: %@";
+"src.subtitle.tingReader" = "सेल्फ़-होस्टेड ऑडियोबुक सर्वर · नेटिव API";
+"ext.tv.sources.hint.tingReader" = "Ting Reader नेटिव API";
+"error.tingReader.missingCredential" = "Ting Reader के लिए खाता और पासवर्ड चाहिए।";
+"error.tingReader.invalidURL" = "Ting Reader सर्वर का पता अमान्य है।";
+"error.tingReader.authenticationFailed" = "Ting Reader में साइन इन नहीं हो सका। खाता और पासवर्ड जाँचें।";
+"error.tingReader.http" = "Ting Reader सर्वर ने HTTP %@ लौटाया।";
+"error.tingReader.invalidResponse" = "Ting Reader ने अमान्य डेटा लौटाया: %@";
 
 "ext.widget.podcast.title" = "पॉडकास्ट";
 "ext.widget.podcast.description" = "एपिसोड जारी रखें या कुछ नया सुनें।";

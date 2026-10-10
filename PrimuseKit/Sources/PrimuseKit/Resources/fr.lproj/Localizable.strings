@@ -987,6 +987,13 @@
 "error.audiobookshelf.authenticationFailed" = "La connexion à Audiobookshelf a échoué. Vérifiez le compte, le mot de passe ou la clé API.";
 "error.audiobookshelf.http" = "Le serveur Audiobookshelf a renvoyé HTTP %@.";
 "error.audiobookshelf.invalidResponse" = "Audiobookshelf a renvoyé des données invalides : %@";
+"src.subtitle.tingReader" = "Serveur de livres audio auto-hébergé · API native";
+"ext.tv.sources.hint.tingReader" = "API native Ting Reader";
+"error.tingReader.missingCredential" = "Ting Reader requiert un compte et un mot de passe.";
+"error.tingReader.invalidURL" = "L’adresse du serveur Ting Reader est invalide.";
+"error.tingReader.authenticationFailed" = "La connexion à Ting Reader a échoué. Vérifiez le compte et le mot de passe.";
+"error.tingReader.http" = "Le serveur Ting Reader a renvoyé HTTP %@.";
+"error.tingReader.invalidResponse" = "Ting Reader a renvoyé des données invalides : %@";
 
 "ext.widget.podcast.title" = "Podcasts";
 "ext.widget.podcast.description" = "Reprenez un épisode ou découvrez les nouveautés.";

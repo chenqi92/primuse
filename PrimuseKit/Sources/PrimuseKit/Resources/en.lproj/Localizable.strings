@@ -985,6 +985,13 @@
 "error.audiobookshelf.authenticationFailed" = "Audiobookshelf sign-in failed. Check the account, password or API key.";
 "error.audiobookshelf.http" = "The Audiobookshelf server returned HTTP %@.";
 "error.audiobookshelf.invalidResponse" = "Audiobookshelf returned invalid data: %@";
+"src.subtitle.tingReader" = "Self-hosted audiobook server · Native API";
+"ext.tv.sources.hint.tingReader" = "Ting Reader native API";
+"error.tingReader.missingCredential" = "Ting Reader needs an account and password.";
+"error.tingReader.invalidURL" = "The Ting Reader server address is invalid.";
+"error.tingReader.authenticationFailed" = "Ting Reader sign-in failed. Check the account and password.";
+"error.tingReader.http" = "The Ting Reader server returned HTTP %@.";
+"error.tingReader.invalidResponse" = "Ting Reader returned invalid data: %@";
 
 "ext.widget.podcast.title" = "Podcasts";
 "ext.widget.podcast.description" = "Continue an episode or discover what’s new.";

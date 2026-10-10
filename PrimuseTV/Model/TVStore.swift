@@ -162,7 +162,7 @@ enum TVSourceLocalLibraryPolicy {
         .smb, .synology, .qnap, .ugreen, .webdav, .ftp, .sftp, .nfs, .s3, .upnp,
         .jellyfin, .emby, .plex,
         .subsonic, .navidrome, .airsonic, .gonic,
-        .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation,
+        .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation, .tingReader,
         .oneDrive, .dropbox, .aliyunDrive, .googleDrive,
         .baiduPan, .pan115, .pan123, .drime, .guangya,
     ]
@@ -1830,7 +1830,7 @@ final class TVStore {
     /// 用「服务端账号 + 密码」登录、且能在 TV 直连的源类型 —— 适合在 TV 上手动输入凭据。
     /// 云盘(OAuth)、relay 类(凭据在 iPhone 侧)、原生库源不在此列。
     private static let manualCredentialTypes: Set<MusicSourceType> = [
-        .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu, .songloft, .audiobookshelf,
+        .subsonic, .navidrome, .airsonic, .gonic, .fnMusic, .daoliyu, .songloft, .audiobookshelf, .tingReader,
         .synology, .synologyAudioStation, .qnap, .ugreen,
         .jellyfin, .emby, .plex,
     ]
@@ -1920,7 +1920,8 @@ final class TVStore {
             }
             return credential.username?.isEmpty == false && credential.password?.isEmpty == false
         }
-        if s.type == .fnMusic || s.type == .daoliyu || s.type == .songloft || s.type == .synologyAudioStation {
+        if s.type == .fnMusic || s.type == .daoliyu || s.type == .songloft || s.type == .synologyAudioStation
+            || s.type == .tingReader {
             let credential = TVCredentialStore.credential(for: s, bundle: credentialBundle)
             return credential.username?.isEmpty == false && credential.password?.isEmpty == false
         }
@@ -2045,6 +2046,24 @@ final class TVStore {
                 return PMString("ext.tv.test.connectedPrefix")
                     + (source.host ?? PMString("ext.tv.test.resolved"))
             } catch let error as AudiobookshelfServiceError {
+                switch error {
+                case .missingCredential:
+                    return PMString("ext.tv.test.missingCredential")
+                case .authenticationFailed:
+                    return PMString("ext.tv.test.authFailed")
+                default:
+                    return PMString("ext.tv.test.failedDetail", error.localizedDescription)
+                }
+            } catch {
+                return PMString("ext.tv.test.failedDetail", error.localizedDescription)
+            }
+        }
+        if source.type == .tingReader {
+            do {
+                _ = try await scanner.validateTingReaderConnection(source: source, credential: cred)
+                return PMString("ext.tv.test.connectedPrefix")
+                    + (source.host ?? PMString("ext.tv.test.resolved"))
+            } catch let error as TingReaderServiceError {
                 switch error {
                 case .missingCredential:
                     return PMString("ext.tv.test.missingCredential")
@@ -3830,7 +3849,7 @@ final class TVStore {
         .webdav, .ftp, .sftp, .nfs, .s3, .upnp,
         .jellyfin, .emby, .plex,
         .subsonic, .navidrome, .airsonic, .gonic,
-        .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation,
+        .fnMusic, .daoliyu, .songloft, .audiobookshelf, .synologyAudioStation, .tingReader,
         .aliyunDrive, .baiduPan, .oneDrive, .dropbox,
         .googleDrive, .pan115, .pan123, .drime, .guangya,
     ]
@@ -4560,7 +4579,8 @@ final class TVStore {
             guard isCurrentScan(source: source, generation: generation) else { throw CancellationError() }
             let count = library.songs.lazy.filter { $0.sourceID == source.id }.count
             if source.type != .fnMusic && source.type != .daoliyu && source.type != .songloft
-                && source.type != .audiobookshelf && source.type != .synologyAudioStation {
+                && source.type != .audiobookshelf && source.type != .synologyAudioStation
+                && source.type != .tingReader {
                 try sourcesStore.updateDurably(source.id) {
                     $0.songCount = count
                     // 只扫了一个文件夹:整源没有走过,选中的目录也没变。
@@ -4578,7 +4598,8 @@ final class TVStore {
             if let pruningRecovery { library.finishScanPruning(pruningRecovery) }
             pruningRecovery = nil
             if source.type != .fnMusic && source.type != .daoliyu && source.type != .songloft
-                && source.type != .audiobookshelf && source.type != .synologyAudioStation {
+                && source.type != .audiobookshelf && source.type != .synologyAudioStation
+                && source.type != .tingReader {
                 library.updateAutomaticArtistArtworkCatalog(
                     SourceArtistArtworkCatalog(sourceID: source.id, index: result.resumeState.index),
                     isCompleteListing: isCompleteListing
@@ -5354,11 +5375,11 @@ final class TVStore {
         pushServerSpokenWordPosition(songID: songID, position: position, force: force)
     }
 
-    /// 服务端自己记进度的源(Audiobookshelf):把位置也报上去,别的客户端接着听。
+    /// 服务端自己记进度的源(Audiobookshelf、Ting Reader):把位置也报上去,别的客户端接着听。
     private func pushServerSpokenWordPosition(songID: String, position: Double, force: Bool) {
         guard let song = library.song(id: songID),
               let source = source(id: song.sourceID),
-              source.type == .audiobookshelf else { return }
+              source.type == .audiobookshelf || source.type == .tingReader else { return }
         if !force, abs(position - lastServerSpokenWordPositionPush) < 30 { return }
         lastServerSpokenWordPositionPush = position
         let isFinished = SpokenWordStore.shared.isFinished(songID: songID)
@@ -5367,6 +5388,16 @@ final class TVStore {
            position < song.duration - SpokenWordProgressPolicy.completionTailThreshold { return }
         let credential = TVCredentialStore.credential(for: source, bundle: credentialBundle)
         Task {
+            if source.type == .tingReader {
+                await TVSourceAssetReader.shared.reportTingReaderProgress(
+                    song: song,
+                    source: source,
+                    credential: credential,
+                    position: position,
+                    isFinished: isFinished
+                )
+                return
+            }
             await TVSourceAssetReader.shared.reportAudiobookshelfProgress(
                 song: song,
                 source: source,
@@ -6758,7 +6789,7 @@ final class TVStore {
             guard canonical != raw.id else { continue }
             let type = sourceTypes[raw.sourceID]
             if type != .fnMusic && type != .daoliyu && type != .songloft && type != .audiobookshelf
-                && type != .synologyAudioStation {
+                && type != .synologyAudioStation && type != .tingReader {
                 let digest = SHA256.hash(data: Data("\(raw.sourceID):\(raw.filePath)".utf8))
                 let encoded = String(decoding: digest.flatMap { [hex[Int($0 >> 4)], hex[Int($0 & 15)]] }, as: UTF8.self)
                 guard raw.id == encoded else { continue }
@@ -7294,6 +7325,15 @@ extension TVStore {
             let excluded = Set(source.excludedServerLibraryIDs)
             let libraries = try await client.libraries().filter { $0.mediaType != .other && !excluded.contains($0.id) }
             return totalOnly(try await client.catalogItemCount(libraryIDs: libraries.map(\.id)))
+        case .tingReader:
+            // 统计不分账号,只拿书数、章节数与总时长当内容指纹;它是公开接口,不用登录。
+            let stats = try await TingReaderServiceClient(source: source, credential: credential).catalogStats()
+            return ServerCatalogScanStatus(
+                isScanning: false,
+                itemCount: nil,
+                lastCompletedScanAt: nil,
+                contentRevision: stats.contentRevision
+            )
         case .songloft:
             let client = SongloftServiceClient(source: source, credential: credential)
             return totalOnly(try await client.trackPage(offset: 0, limit: 1).total)
