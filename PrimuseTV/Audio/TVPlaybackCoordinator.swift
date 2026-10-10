@@ -308,6 +308,14 @@ final class TVPlaybackCoordinator {
     /// 最近一次为 CUE 分轨找歌词列过的目录。一张专辑接着往下放,每一轨都
     /// 复用这一次列目录和整理出的曲目表,不再重复访问源。
     private var cueTrackLyricsDirectory: CueTrackLyricsDirectory?
+    /// 最近一次为挑歌词文件、确认歌词文件还在而列过的目录;同一张专辑接着放时复用。
+    private var lyricsDirectoryListing: LyricsDirectoryListing?
+    /// 这次运行里缓存命中后已经到源里核对过歌词文件的歌,每首只核对一次。
+    private var sourceLyricsRecheckedSongIDs: Set<String> = []
+    /// 比时间轴时最多读这么多份歌词文件。
+    private static let maximumComparedLyricsDocuments = 6
+    /// 歌词文件读取上限:更大的不是正常的歌词文件,不读。
+    private static let maximumLyricsDocumentBytes = 512 * 1_024
     private var karaokeLyricsSource: (song: Song, playingID: String)?
     private var playbackMetadataTask: Task<Void, Never>?
     private var playbackMetadataTaskIdentity: PlaybackMetadataIdentity?
@@ -2115,6 +2123,17 @@ final class TVPlaybackCoordinator {
             if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: songID), !cached.isEmpty {
                 guard self.isCurrent(requestID, store: store) else { return }
                 applyLoadedLyrics(cached, duration: song.duration, forSongID: destinationID, store: store)
+                if TVLyricsLoadingPolicy.strategy(for: source.type) == .sourceFile {
+                    await self.recheckSourceLyricsDocument(
+                        song: song,
+                        source: source,
+                        credential: credential,
+                        cached: cached,
+                        requestID: requestID,
+                        destinationID: destinationID,
+                        store: store
+                    )
+                }
                 return
             }
             guard self.isCurrent(requestID, store: store) else { return }
@@ -2192,19 +2211,12 @@ final class TVPlaybackCoordinator {
 
             // 歌词文件路径:① song.lyricsFileName 指向的源内 .lrc(.json 是本机缓存名,已查过);
             // ② 协议直连源(SMB/NFS/FTP)按音频路径推同名 .lrc —— 即便扫描时没记录歌词,播放时
-            //    也能就地从 NAS 同目录读到。
+            //    也能就地从 NAS 同目录读到。这次运行里按时间轴挑过别的那份时先读挑中的。
             // CUE 分轨另算:旧扫描、手机快照里的分轨行没记下自己的歌词文件(或记的是整轨
             // 同名那份),这时列一次目录按曲目找;列得出目录就不再盲猜 `<整轨>.lrc`。
-            let isDirect = Self.makeDirectReader(source: source, song: song, credential: credential) != nil
-            let storedReference = song.lyricsFileName.flatMap { reference in
-                !reference.isEmpty && !reference.hasSuffix(".json") ? reference : nil
-            }
-            let guessedPath: String? = {
-                guard isDirect else { return nil }
-                let ns = song.filePath as NSString
-                return ns.pathExtension.isEmpty ? nil : ns.deletingPathExtension + ".lrc"
-            }()
-            var lrcPath: String?
+            let storedReference = Self.storedLyricsReference(of: song)
+            let guessedPath = Self.guessedLyricsPath(for: song, source: source, credential: credential)
+            var lrcPaths: [String] = []
             if song.isCueTrack,
                !CueTrackLyricsSidecarPolicy.referencesTrackDocument(
                 storedReference,
@@ -2214,39 +2226,62 @@ final class TVPlaybackCoordinator {
                 guard self.isCurrent(requestID, store: store) else { return }
                 switch lookup {
                 case .found(let path):
-                    lrcPath = path
+                    lrcPaths = [path]
                 case .notFound:
-                    lrcPath = nil
+                    lrcPaths = []
                 case .unavailable:
-                    lrcPath = storedReference ?? guessedPath
+                    lrcPaths = [storedReference ?? guessedPath].compactMap { $0 }
                 }
             } else {
-                lrcPath = storedReference ?? guessedPath
+                let picked = song.isCueTrack ? nil : Self.automaticallyPickedLyricsPath(for: song, source: source)
+                lrcPaths = [picked, storedReference ?? guessedPath].compactMap { $0 }
+                if lrcPaths.count == 2, lrcPaths[0] == lrcPaths[1] { lrcPaths.removeLast() }
             }
-            guard let lrcPath else { return }
-            var lrcSong = song
-            lrcSong.filePath = lrcPath
-            do {
-                guard let text = try await self.fetchLyricText(
-                    song: lrcSong,
-                    source: source,
-                    credential: credential,
-                    requestID: requestID
-                ),
-                      !text.isEmpty else { return }
-                try self.ensureCurrent(requestID, store: store)
-                let lines = LyricsParser.parse(text)
-                guard !lines.isEmpty else { return }
-                _ = await MetadataAssetStore.shared.cacheLyrics(lines, forSongID: songID, force: false)
-                try self.ensureCurrent(requestID, store: store)
-                applyLoadedLyrics(lines, duration: song.duration, forSongID: destinationID, store: store)
-                plog("🎬 TV source-lyrics loaded \(lines.count) lines for '\(song.title)'")
-            } catch is CancellationError {
+            var lines: [LyricLine] = []
+            var linesPath: String?
+            for lrcPath in lrcPaths where lines.isEmpty {
+                var lrcSong = song
+                lrcSong.filePath = lrcPath
+                do {
+                    if let text = try await self.fetchLyricText(
+                        song: lrcSong,
+                        source: source,
+                        credential: credential,
+                        requestID: requestID
+                    ), !text.isEmpty {
+                        lines = LyricsParser.parse(text)
+                    }
+                    try self.ensureCurrent(requestID, store: store)
+                    if !lines.isEmpty { linesPath = lrcPath }
+                } catch is CancellationError {
+                    return
+                } catch {
+                    guard self.isCurrent(requestID, store: store) else { return }
+                    plog("🎬 TV source-lyrics fetch failed '\(song.title)': \(error)")
+                }
+            }
+            // 源里没有歌词文件、或读不出内容:先用扫描时单独存下的内嵌歌词,再交给在线兜底。
+            guard let linesPath, !lines.isEmpty else {
+                await self.applyEmbeddedFallbackLyrics(
+                    song: song, requestID: requestID, destinationID: destinationID, store: store
+                )
                 return
-            } catch {
-                guard self.isCurrent(requestID, store: store) else { return }
-                plog("🎬 TV source-lyrics fetch failed '\(song.title)': \(error)")
             }
+            _ = await MetadataAssetStore.shared.cacheLyrics(lines, forSongID: songID, force: false)
+            guard self.isCurrent(requestID, store: store) else { return }
+            applyLoadedLyrics(lines, duration: song.duration, forSongID: destinationID, store: store)
+            plog("🎬 TV source-lyrics loaded \(lines.count) lines for '\(song.title)'")
+            // 歌词已经上屏;同一首歌旁边还有别的歌词文件时,在后面比一次时间轴。
+            await self.compareSourceLyricsDocuments(
+                song: song,
+                shown: lines,
+                shownPath: linesPath,
+                source: source,
+                credential: credential,
+                requestID: requestID,
+                destinationID: destinationID,
+                store: store
+            )
         }
         // 在线歌词兜底:独立的一步,接在上面缓存 / 服务端 / 源内歌词文件的读取之后,
         // 不改那几条分支。那一段跑完、这首仍在播、屏幕上还没有歌词,才按刮削设置去
@@ -2285,6 +2320,231 @@ final class TVPlaybackCoordinator {
               store.lyrics.isEmpty else { return }
         applyLoadedLyrics(lines, duration: song.duration, forSongID: destinationID, store: store)
         plog("🎬 TV online-lyrics fallback loaded \(lines.count) lines for '\(song.title)'")
+    }
+
+    // MARK: 歌旁边的歌词文件与内嵌歌词(#208)
+
+    /// 歌上记的源内歌词文件引用;`.json` 是本机缓存名,不算。
+    nonisolated private static func storedLyricsReference(of song: Song) -> String? {
+        song.lyricsFileName.flatMap { reference in
+            !reference.isEmpty && !reference.hasSuffix(".json") ? reference : nil
+        }
+    }
+
+    /// 协议直连源按音频路径推的同名 `.lrc`。
+    nonisolated private static func guessedLyricsPath(
+        for song: Song,
+        source: MusicSource,
+        credential: SourceCredential?
+    ) -> String? {
+        guard makeDirectReader(source: source, song: song, credential: credential) != nil else { return nil }
+        let ns = song.filePath as NSString
+        return ns.pathExtension.isEmpty ? nil : ns.deletingPathExtension + ".lrc"
+    }
+
+    /// 这次运行里按时间轴精度挑中的那份歌词文件(`LyricsDocumentPinStore`)在源里的路径。
+    /// 只有路径按「/」分层的源能由文件名拼出路径。
+    nonisolated private static func automaticallyPickedLyricsPath(for song: Song, source: MusicSource) -> String? {
+        guard let name = LyricsDocumentPinStore.shared.effectiveFileName(forSongID: song.id),
+              TVFolderRescanPolicy.supports(source.type),
+              let directory = TVFolderRescanPolicy.directory(containingFilePath: song.filePath, levelsAbove: 0) else {
+            return nil
+        }
+        return directory == "/" ? "/" + name : directory + "/" + name
+    }
+
+    /// 歌所在目录里的文件(给挑歌词文件、确认歌词文件还在用),只在歌词已经上屏之后的
+    /// 后台步骤里列。同一目录五分钟内复用上一次的清单;列不了(源不支持、连不上)为 nil。
+    private func lyricsDirectoryFiles(for song: Song, source: MusicSource, store: TVStore) async -> [TVDirEntry]? {
+        guard TVFolderRescanPolicy.supports(source.type),
+              let directory = TVFolderRescanPolicy.directory(containingFilePath: song.filePath, levelsAbove: 0) else {
+            return nil
+        }
+        let key = source.id + "\u{1F}" + directory
+        if let cached = lyricsDirectoryListing, cached.key == key,
+           Date().timeIntervalSince(cached.listedAt) < 300 {
+            return cached.files
+        }
+        guard let lister = store.makeLister(for: source) else { return nil }
+        do {
+            let files = try await lister.list(directory).filter { !$0.isDir }
+            lyricsDirectoryListing = LyricsDirectoryListing(key: key, files: files, listedAt: Date())
+            return files
+        } catch {
+            plog("🎬 TV lyrics directory listing failed '\(song.title)': \(error)")
+            return nil
+        }
+    }
+
+    /// 缓存命中后在后台到源里核对一次(每首每次启动一次):缓存里是没有时间轴的歌词
+    /// (多半是早先存下的内嵌歌词)时读歌词文件,时间轴更细就换上;这首歌存着内嵌歌词时
+    /// 看歌词文件还在不在,文件已经删掉就换回内嵌歌词。用户自己改过的歌词不动。
+    private func recheckSourceLyricsDocument(
+        song: Song,
+        source: MusicSource,
+        credential: SourceCredential?,
+        cached: [LyricLine],
+        requestID: UUID,
+        destinationID: String,
+        store: TVStore
+    ) async {
+        guard !song.isCueTrack, !song.isStreamDescriptor,
+              cached.first?.documentIsLocalOverride != true else { return }
+        let rechecksTiming = EmbeddedLyricsPrecedencePolicy.shouldRecheckSourceDocument(cached: cached)
+        let embedded = await MetadataAssetStore.shared.embeddedFallbackLyrics(forSongID: song.id)
+        guard rechecksTiming || embedded != nil,
+              sourceLyricsRecheckedSongIDs.insert(song.id).inserted else { return }
+        do {
+            var documentPath: String?
+            if let files = await lyricsDirectoryFiles(for: song, source: source, store: store) {
+                try ensureCurrent(requestID, store: store)
+                let names = files.map(\.name)
+                let baseName = ((song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
+                let documents = LyricsSidecarSelectionPolicy.documents(baseName: baseName, names: names)
+                guard !documents.isEmpty else {
+                    // 目录里已经没有这首的歌词文件:换回内嵌歌词。
+                    guard let embedded,
+                          LyricsDocumentFingerprint(lines: embedded) != LyricsDocumentFingerprint(lines: cached),
+                          await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
+                            embedded,
+                            forSongID: song.id,
+                            expectedFingerprint: LyricsDocumentFingerprint(lines: cached),
+                            force: true
+                          ) else { return }
+                    try ensureCurrent(requestID, store: store)
+                    applyLoadedLyrics(embedded, duration: song.duration, forSongID: destinationID, store: store)
+                    plog("🎬 TV lyrics file gone for '\(song.title)'; back to embedded lyrics")
+                    return
+                }
+                let pinned = LyricsDocumentPinStore.shared.effectiveFileName(forSongID: song.id)
+                switch LyricsSidecarSelectionPolicy.select(.current(pinned: pinned), baseName: baseName, names: names) {
+                case .item(let index): documentPath = files[index].path
+                case .conflict, .none: documentPath = documents.first.map { files[$0].path }
+                }
+            } else {
+                documentPath = Self.automaticallyPickedLyricsPath(for: song, source: source)
+                    ?? Self.storedLyricsReference(of: song)
+                    ?? Self.guessedLyricsPath(for: song, source: source, credential: credential)
+            }
+            guard rechecksTiming, let documentPath else { return }
+            var documentSong = song
+            documentSong.filePath = documentPath
+            guard let text = try await fetchLyricText(
+                song: documentSong, source: source, credential: credential, requestID: requestID
+            ), !text.isEmpty else { return }
+            let lines = LyricsParser.parse(text)
+            guard EmbeddedLyricsPrecedencePolicy.sourceDocumentReplaces(cached: cached, with: lines),
+                  await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
+                    lines,
+                    forSongID: song.id,
+                    expectedFingerprint: LyricsDocumentFingerprint(lines: cached),
+                    force: false
+                  ) else { return }
+            try ensureCurrent(requestID, store: store)
+            applyLoadedLyrics(lines, duration: song.duration, forSongID: destinationID, store: store)
+            plog("🎬 TV source-lyrics recheck replaced cache for '\(song.title)' lines=\(lines.count)")
+            await compareSourceLyricsDocuments(
+                song: song,
+                shown: lines,
+                shownPath: documentPath,
+                source: source,
+                credential: credential,
+                requestID: requestID,
+                destinationID: destinationID,
+                store: store
+            )
+        } catch is CancellationError {
+            // 没核对完就换歌了,下次播放再核对。
+            sourceLyricsRecheckedSongIDs.remove(song.id)
+        } catch {
+            plog("🎬 TV source-lyrics recheck skipped '\(song.title)': \(error)")
+        }
+    }
+
+    /// 刚从源里读出、已经上屏的歌词还不是逐字的,而这首歌旁边不止一份歌词文件:每首每次
+    /// 启动比一次各份的时间轴(逐字 > 逐行 > 没有时间轴),挑中的记进 `LyricsDocumentPinStore`;
+    /// 比屏幕上的细就换掉缓存、换上屏幕。
+    private func compareSourceLyricsDocuments(
+        song: Song,
+        shown: [LyricLine],
+        shownPath: String,
+        source: MusicSource,
+        credential: SourceCredential?,
+        requestID: UUID,
+        destinationID: String,
+        store: TVStore
+    ) async {
+        guard !song.isCueTrack, !song.isStreamDescriptor,
+              LyricsTimingLevel(lines: shown) < .word,
+              !LyricsDocumentPinStore.shared.hasEvaluatedAutomaticPick(forSongID: song.id),
+              let files = await lyricsDirectoryFiles(for: song, source: source, store: store),
+              isCurrent(requestID, store: store) else { return }
+        let names = files.map(\.name)
+        let baseName = ((song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
+        let documents = LyricsSidecarSelectionPolicy.documents(baseName: baseName, names: names)
+        guard documents.count > 1 else {
+            LyricsDocumentPinStore.shared.setAutomaticPick(nil, forSongID: song.id)
+            return
+        }
+        var levels = [LyricsTimingLevel?](repeating: nil, count: names.count)
+        var parsed: [Int: [LyricLine]] = [:]
+        for index in documents.prefix(Self.maximumComparedLyricsDocuments) {
+            guard isCurrent(requestID, store: store) else { return }
+            let file = files[index]
+            if file.path == shownPath {
+                levels[index] = LyricsTimingLevel(lines: shown)
+                parsed[index] = shown
+                continue
+            }
+            guard file.size <= Int64(Self.maximumLyricsDocumentBytes) else { continue }
+            var documentSong = song
+            documentSong.filePath = file.path
+            documentSong.lyricsFileName = file.name
+            guard let text = try? await fetchLyricText(
+                song: documentSong, source: source, credential: credential, requestID: requestID
+            ), !text.isEmpty else { continue }
+            let lines = LyricsParser.parse(text)
+            guard !lines.isEmpty else { continue }
+            levels[index] = LyricsTimingLevel(lines: lines)
+            parsed[index] = lines
+        }
+        guard isCurrent(requestID, store: store) else { return }
+        let preferred = LyricsSidecarSelectionPolicy.timingPreferredDocument(
+            baseName: baseName, names: names, levels: levels
+        )
+        LyricsDocumentPinStore.shared.setAutomaticPick(preferred.map { names[$0] }, forSongID: song.id)
+        guard let preferred, let lines = parsed[preferred],
+              EmbeddedLyricsPrecedencePolicy.sourceDocumentReplaces(cached: shown, with: lines),
+              await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
+                lines,
+                forSongID: song.id,
+                expectedFingerprint: LyricsDocumentFingerprint(lines: shown),
+                force: false
+              ),
+              isCurrent(requestID, store: store) else { return }
+        applyLoadedLyrics(lines, duration: song.duration, forSongID: destinationID, store: store)
+        plog("🎬 TV lyrics '\(song.title)' switched to \(names[preferred]) (finer timing)")
+    }
+
+    /// 源里的歌词文件不在或读不出:用扫描时单独存下的内嵌歌词,在在线兜底之前。
+    private func applyEmbeddedFallbackLyrics(
+        song: Song,
+        requestID: UUID,
+        destinationID: String,
+        store: TVStore
+    ) async {
+        guard let lines = await MetadataAssetStore.shared.embeddedFallbackLyrics(forSongID: song.id),
+              isCurrent(requestID, store: store) else { return }
+        _ = await MetadataAssetStore.shared.cacheLyrics(lines, forSongID: song.id, force: false)
+        guard isCurrent(requestID, store: store) else { return }
+        applyLoadedLyrics(lines, duration: song.duration, forSongID: destinationID, store: store)
+        plog("🎬 TV embedded fallback lyrics loaded \(lines.count) lines for '\(song.title)'")
+    }
+
+    private struct LyricsDirectoryListing {
+        let key: String
+        let files: [TVDirEntry]
+        let listedAt: Date
     }
 
     private struct CueTrackLyricsDirectory {
@@ -2456,7 +2716,7 @@ final class TVPlaybackCoordinator {
             do {
                 let size = try await reader.contentLength()
                 try ensureCurrent(requestID, store: store)
-                guard size > 0, size < 512 * 1024 else {
+                guard size > 0, size < Int64(Self.maximumLyricsDocumentBytes) else {
                     await reader.close()
                     return nil
                 }
@@ -2473,13 +2733,17 @@ final class TVPlaybackCoordinator {
         try ensureCurrent(requestID, store: store)
         var req = URLRequest(url: resolved.url)
         for (k, v) in resolved.headers { req.setValue(v, forHTTPHeaderField: k) }
-        let (data, _) = try await StreamResolverHTTPTransport.data(
+        let (data, response) = try await StreamResolverHTTPTransport.data(
             for: req,
             session: Self.lyricsSession,
-            maximumBytes: 512 * 1_024,
+            maximumBytes: Self.maximumLyricsDocumentBytes,
             redirectMode: source.type == .fnMusic ? .fnMusic : .safe
         )
         try ensureCurrent(requestID, store: store)
+        // 文件已经不在(404 等)时服务器回的是错误页,不能当歌词解析。
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw StreamResolveError.badServerResponse(http.statusCode)
+        }
         return LyricsParser.decodeText(data, label: song.lyricsFileName ?? song.title)
     }
 

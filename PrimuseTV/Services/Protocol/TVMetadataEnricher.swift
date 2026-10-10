@@ -785,9 +785,12 @@ enum TVMetadataEnricher {
             }
             : nil
         var lyricLines: [LyricLine] = []
+        // 读出内容的那份歌词文件。播放时还要按它去源里核对时间轴,歌上记它的路径。
+        var linesDocument: TVDirEntry?
         if let trackLyrics {
             do {
                 lyricLines = try await readLyricsSidecar(trackLyrics, readerPool: readerPool)
+                if !lyricLines.isEmpty { linesDocument = trackLyrics }
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -795,12 +798,31 @@ enum TVMetadataEnricher {
                 lyricLines = []
             }
         }
-        if lyricLines.isEmpty {
-            lyricLines = embeddedLyrics ?? []
+        // 歌旁边的歌词文件优先于音频里内嵌的歌词(#208):有歌词文件时内嵌的不进歌词缓存
+        // (播放先读缓存,进去就会一直盖住那份文件),单独存着,文件读不出时播放再拿出来用。
+        // 有目录清单时,记下的引用必须还在目录里:删掉的歌词文件不再去读。
+        let listedHint = hintedLyrics.flatMap { hint in
+            sidecars.itemCount > 0 ? sidecars.item(atPath: hint.path) : hint
         }
-        if lyricLines.isEmpty,
-           let lyrics = albumLyrics ?? (trackLyrics == nil ? hintedLyrics : nil) {
-            lyricLines = try await readLyricsSidecar(lyrics, readerPool: readerPool)
+        let sourceDocument = albumLyrics ?? (trackLyrics == nil ? listedHint : nil)
+        if lyricLines.isEmpty, let sourceDocument {
+            do {
+                lyricLines = try await readLyricsSidecar(sourceDocument, readerPool: readerPool)
+                if !lyricLines.isEmpty { linesDocument = sourceDocument }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // 记成没读完,下次扫描重读;内嵌歌词留作播放时的兜底。
+                await readerPool.markIncomplete()
+                lyricLines = []
+            }
+        }
+        if trackLyrics != nil || sourceDocument != nil {
+            if let embeddedLyrics, !embeddedLyrics.isEmpty {
+                await MetadataAssetStore.shared.storeEmbeddedFallbackLyrics(embeddedLyrics, forSongID: output.id)
+            }
+        } else if lyricLines.isEmpty {
+            lyricLines = embeddedLyrics ?? []
         }
         try Task.checkCancellation()
         if !lyricLines.isEmpty {
@@ -814,8 +836,8 @@ enum TVMetadataEnricher {
                 }
                 lyricLines = preserved
             }
-            output.lyricsFileName = MetadataAssetStore.shared
-                .expectedLyricsFileName(for: output.id)
+            output.lyricsFileName = (wrote ? linesDocument?.path : nil)
+                ?? MetadataAssetStore.shared.expectedLyricsFileName(for: output.id)
             output.lyricsText = lyricLines.map(\.text)
                 .filter { !$0.isEmpty }
                 .joined(separator: "\n")
