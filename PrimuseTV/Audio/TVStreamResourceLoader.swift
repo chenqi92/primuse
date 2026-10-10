@@ -29,6 +29,12 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
     /// Head/tail bytes prefetched while the previous song played; requests
     /// they cover are answered without touching the network.
     private let seed: TVPlaybackSeed?
+    /// 流所属的源。收到它的音频字节就报给 `StreamResolverRegistry.recordTransfer`:
+    /// 字节能到说明线路是通的,下一首从这个源起播不必再先做连接检查。
+    private let transferSourceID: String?
+    /// 上次报告的时刻(systemUptime)。证据管 45 秒,每隔几秒报一次就够,不必每个请求都报。
+    private var lastTransferReport: TimeInterval?
+    private static let transferReportInterval: TimeInterval = 5
     /// 首次发请求时才建 session;deinit 只收尾已建好的那个。
     /// 不能用 lazy:没发过请求就被释放的 loader 在 deinit 里读 lazy 会现场建 session,
     /// proxy 对正在析构的 self 建弱引用直接闪退(objc_initWeak)。
@@ -99,6 +105,8 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         var expectedByteCount: Int64?
         var terminalErrorReported = false
         var loggedFirstData: Bool = false
+        /// 2xx 响应:它带来的才是音频字节(416 之类只有空正文)。
+        var isSuccessfulResponse = false
 
         init(loadingRequest: AVAssetResourceLoadingRequest,
              offset: Int64,
@@ -167,13 +175,15 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         headers: [String: String],
         fileExtension: String? = nil,
         isLiveStream: Bool = false,
-        seed: TVPlaybackSeed? = nil
+        seed: TVPlaybackSeed? = nil,
+        transferSourceID: String? = nil
     ) {
         self.realURL = realURL
         self.headers = headers
         self.explicitContentType = fileExtension.flatMap { UTType(filenameExtension: $0)?.identifier }
         self.isLiveStream = isLiveStream
         self.seed = isLiveStream ? nil : seed
+        self.transferSourceID = isLiveStream ? nil : transferSourceID
         let fnMusicStreamPath = "\(FnMusicAPIProtocol.apiPath)/track/stream"
         self.enforcesFnMusicRangeResponses = headers[FnMusicAPIProtocol.authxHeaderField] != nil
             && FnMusicAPIProtocol.authxPath(for: realURL) == fnMusicStreamPath
@@ -398,6 +408,7 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
             )
         }
         context.expectedByteCount = validation.expectedBodyLength
+        context.isSuccessfulResponse = (200...299).contains(http.statusCode)
 
         if let info = context.loadingRequest.contentInformationRequest {
             Self.fillContentInfo(info, from: http, explicit: explicitContentType)
@@ -427,6 +438,9 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
             return false
         }
         context.byteCount += incomingCount
+        if context.isSuccessfulResponse, incomingCount > 0 {
+            reportTransferIfDue()
+        }
         if let dataRequest = context.loadingRequest.dataRequest {
             dataRequest.respond(with: data)
             if !context.loggedFirstData {
@@ -435,6 +449,21 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
             }
         }
         return true
+    }
+
+    private func reportTransferIfDue() {
+        guard let transferSourceID else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        lock.lock()
+        if let last = lastTransferReport, now - last < Self.transferReportInterval {
+            lock.unlock()
+            return
+        }
+        lastTransferReport = now
+        lock.unlock()
+        Task {
+            await StreamResolverRegistry.shared.recordTransfer(sourceID: transferSourceID)
+        }
     }
 
     private func complete(context: LoadingContext, error: Error?) {

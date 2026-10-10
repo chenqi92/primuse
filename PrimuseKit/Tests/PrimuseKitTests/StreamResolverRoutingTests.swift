@@ -183,6 +183,102 @@ import Testing
         #expect(result.host == "lan.invalid")
     }
 
+    @Test func recentTransferStandsInForThePreflight() async throws {
+        let runtime = SourceConnectionRuntime()
+        let probe = RoutingProbe()
+        let clock = RoutingClock()
+        let registry = StreamResolverRegistry(runtime: runtime, endpointProbe: { endpoint in
+            await probe.record(endpoint.host)
+        }, uptime: { clock.now })
+        let resolver = RoutingResolver()
+        await registry.register(resolver, for: [.navidrome])
+        let source = makeSource(type: .navidrome)
+        let song = Song(id: "song", title: "T", fileFormat: .flac, filePath: "/s.flac", sourceID: source.id)
+        _ = try await registry.streamURL(for: song, source: source, credential: nil)
+        // A check that just passed vouches for the route as briefly as on iPhone.
+        _ = try await registry.streamURL(for: song, source: source, credential: nil)
+        #expect(await probe.hosts == ["lan.invalid"])
+        clock.advance(by: PlaybackSourceAvailabilityPolicy.reachableVerdictLifetime + 1)
+        _ = try await registry.streamURL(for: song, source: source, credential: nil)
+        #expect(await probe.hosts.count == 2)
+
+        await registry.recordTransfer(sourceID: source.id)
+        clock.advance(by: PlaybackSourceAvailabilityPolicy.transferEvidenceLifetime - 1)
+        _ = try await registry.streamURL(for: song, source: source, credential: nil)
+        #expect(await probe.hosts.count == 2)
+        clock.advance(by: 2)
+        _ = try await registry.streamURL(for: song, source: source, credential: nil)
+        #expect(await probe.hosts == ["lan.invalid", "lan.invalid", "lan.invalid"])
+        #expect(await resolver.hosts.count == 5)
+    }
+
+    @Test func reconnectAndNetworkChangeDiscardTransferEvidence() async throws {
+        let runtime = SourceConnectionRuntime()
+        let probe = RoutingProbe()
+        let clock = RoutingClock()
+        let registry = StreamResolverRegistry(runtime: runtime, endpointProbe: { endpoint in
+            await probe.record(endpoint.host)
+        }, uptime: { clock.now })
+        let resolver = RoutingResolver()
+        await registry.register(resolver, for: [.navidrome])
+        let source = makeSource(type: .navidrome)
+        let song = Song(id: "song", title: "T", fileFormat: .flac, filePath: "/s.flac", sourceID: source.id)
+        // Nothing has been resolved on a route yet, so there is nothing to vouch for.
+        await registry.recordTransfer(sourceID: source.id)
+        _ = try await registry.streamURL(for: song, source: source, credential: nil)
+        #expect(await probe.hosts.count == 1)
+
+        await registry.recordTransfer(sourceID: source.id)
+        await registry.invalidateSession(for: source)
+        _ = try await registry.streamURL(for: song, source: source, credential: nil)
+        #expect(await probe.hosts.count == 2)
+
+        await registry.recordTransfer(sourceID: source.id)
+        await runtime.observeNetworkPath(prefersLocalNetwork: true, pathChanged: true)
+        _ = try await registry.streamURL(for: song, source: source, credential: nil)
+        #expect(await probe.hosts == ["lan.invalid", "lan.invalid", "lan.invalid"])
+    }
+
+    @Test func networkFailureAfterTransferStillProbesIndependently() async throws {
+        let runtime = SourceConnectionRuntime()
+        let probe = RoutingProbe()
+        let registry = StreamResolverRegistry(runtime: runtime, endpointProbe: { endpoint in
+            let attempt = await probe.record(endpoint.host)
+            if endpoint.host == "lan.invalid", attempt > 1 { throw URLError(.cannotConnectToHost) }
+        })
+        let resolver = RoutingResolver()
+        await registry.register(resolver, for: [.navidrome])
+        let source = makeSource(type: .navidrome)
+        let song = Song(id: "song", title: "T", fileFormat: .flac, filePath: "/s.flac", sourceID: source.id)
+        let prepared = try await registry.resolveForPreparation(for: song, source: source, credential: nil)
+        #expect(prepared.stream.url.host == "lan.invalid")
+        #expect(await registry.sessionEpoch(for: source.id) == prepared.sessionEpoch)
+        #expect(await registry.routeGeneration() == prepared.routeGeneration)
+
+        await registry.recordTransfer(sourceID: source.id)
+        await resolver.failNext(URLError(.networkConnectionLost))
+        let result = try await registry.streamURL(for: song, source: source, credential: nil)
+        #expect(result.host == "wan.invalid")
+        #expect(await probe.hosts == ["lan.invalid", "lan.invalid", "wan.invalid"])
+        #expect(await resolver.hosts == ["lan.invalid", "lan.invalid", "wan.invalid"])
+        // The stream prepared on the retired route is no longer current.
+        #expect(await registry.sessionEpoch(for: source.id) != prepared.sessionEpoch)
+    }
+
+    @Test func preparedResolutionStaysCurrentUntilTheSessionIsReset() async throws {
+        let runtime = SourceConnectionRuntime()
+        let registry = StreamResolverRegistry(runtime: runtime, endpointProbe: { _ in })
+        let resolver = RoutingResolver()
+        await registry.register(resolver, for: [.navidrome])
+        let source = makeSource(type: .navidrome)
+        let song = Song(id: "song", title: "T", fileFormat: .flac, filePath: "/s.flac", sourceID: source.id)
+        let prepared = try await registry.resolveForPreparation(for: song, source: source, credential: nil)
+        _ = try await registry.streamURL(for: song, source: source, credential: nil)
+        #expect(await registry.sessionEpoch(for: source.id) == prepared.sessionEpoch)
+        await registry.invalidateSession(for: source)
+        #expect(await registry.sessionEpoch(for: source.id) != prepared.sessionEpoch)
+    }
+
     private func makeSource(type: MusicSourceType = .smb) -> MusicSource {
         MusicSource(id: UUID().uuidString, name: "NAS", type: type,
                     connectionConfiguration: .init(
@@ -197,6 +293,23 @@ private actor RoutingProbe {
     func record(_ host: String) -> Int {
         hosts.append(host)
         return hosts.filter { $0 == host }.count
+    }
+}
+
+private final class RoutingClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: TimeInterval = 1_000
+
+    var now: TimeInterval {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+
+    func advance(by seconds: TimeInterval) {
+        lock.lock()
+        value += seconds
+        lock.unlock()
     }
 }
 

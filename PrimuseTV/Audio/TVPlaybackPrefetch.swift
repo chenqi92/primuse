@@ -48,12 +48,18 @@ struct TVPlaybackSeed: Sendable {
 final class TVPlaybackPrefetchStore: @unchecked Sendable {
     static let shared = TVPlaybackPrefetchStore()
 
-    /// Next song ~8 MB at most, later songs ~1.25 MB each.
-    private let seedByteLimit = 24 * 1024 * 1024
+    /// Next song ~8 MB of audio, later songs ~1.25 MB each; a seed that has to
+    /// reach past large cover art in front of the audio, or keep an MP4 index
+    /// stored after it, holds that on top.
+    private let seedByteLimit: Int
     private let lock = NSLock()
     private var seeds: [String: (seed: TVPlaybackSeed, stamp: UInt64)] = [:]
     private var stamp: UInt64 = 0
     private var completeFile: (key: String, url: URL)?
+
+    init(seedByteLimit: Int = 32 * 1024 * 1024) {
+        self.seedByteLimit = seedByteLimit
+    }
 
     /// Library identity of the bytes: a changed file (size or revision) never
     /// reuses an old seed.
@@ -77,16 +83,24 @@ final class TVPlaybackPrefetchStore: @unchecked Sendable {
         return entry.seed
     }
 
-    func store(_ seed: TVPlaybackSeed, for key: String) {
+    /// Stores `seed`, evicting the least recently used others to stay under the
+    /// limit. `nextSongKey` is the song an automatic advance starts: later
+    /// songs' seeds never push it out, and one that cannot fit beside it is
+    /// not kept.
+    func store(_ seed: TVPlaybackSeed, for key: String, nextSongKey: String? = nil) {
         lock.lock()
         defer { lock.unlock() }
         stamp &+= 1
         seeds[key] = (seed, stamp)
         var total = seeds.values.reduce(0) { $0 + $1.seed.head.count + $1.seed.tail.count }
         while total > seedByteLimit,
-              let oldest = seeds.filter({ $0.key != key }).min(by: { $0.value.stamp < $1.value.stamp }) {
+              let oldest = seeds.filter({ $0.key != key && $0.key != nextSongKey })
+                .min(by: { $0.value.stamp < $1.value.stamp }) {
             total -= oldest.value.seed.head.count + oldest.value.seed.tail.count
             seeds[oldest.key] = nil
+        }
+        if total > seedByteLimit, key != nextSongKey {
+            seeds[key] = nil
         }
     }
 
@@ -235,10 +249,13 @@ enum TVPrefetchHTTPRangeReader {
         return URLSession(configuration: configuration, delegate: TVInsecureTLSDelegate(), delegateQueue: nil)
     }()
 
+    /// `sourceID` names the source the stream was resolved from: bytes it
+    /// delivers spare the next start from it a connection check.
     static func fetch(
         _ resolved: ResolvedStream,
         offset: Int64,
-        length: Int64
+        length: Int64,
+        sourceID: String? = nil
     ) async throws -> Response {
         guard let range = SafeByteRange.httpHeader(offset: offset, length: length) else {
             throw SpeculativeRangeReadError.rangeUnsupported
@@ -278,6 +295,7 @@ enum TVPrefetchHTTPRangeReader {
             ) else {
                 throw URLError(.badServerResponse)
             }
+            await recordTransfer(data, sourceID: sourceID)
             return Response(data: data, totalLength: total, contentTypeIdentifier: contentType)
         case 200:
             // Only a file no longer than the request is acceptable whole;
@@ -285,10 +303,16 @@ enum TVPrefetchHTTPRangeReader {
             guard offset == 0, Int64(data.count) <= length else {
                 throw SpeculativeRangeReadError.rangeUnsupported
             }
+            await recordTransfer(data, sourceID: sourceID)
             return Response(data: data, totalLength: Int64(data.count), contentTypeIdentifier: contentType)
         default:
             throw StreamResolveError.badServerResponse(http.statusCode)
         }
+    }
+
+    private static func recordTransfer(_ data: Data, sourceID: String?) async {
+        guard let sourceID, !data.isEmpty else { return }
+        await StreamResolverRegistry.shared.recordTransfer(sourceID: sourceID)
     }
 }
 #endif

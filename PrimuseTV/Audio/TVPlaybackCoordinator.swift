@@ -322,6 +322,9 @@ final class TVPlaybackCoordinator {
     private var playbackMetadataTaskToken: UUID?
     private var playbackMetadataSelectionIdentity: PlaybackMetadataIdentity?
     private var playbackMetadataFailureCounts: [PlaybackMetadataIdentity: Int] = [:]
+    /// The next song's stream, resolved while the current song plays (see
+    /// `PreparedStream`).
+    private var preparedStream: PreparedStream?
 
     private struct PlaybackMetadataIdentity: Hashable, Sendable {
         let songID: String
@@ -638,13 +641,25 @@ final class TVPlaybackCoordinator {
             return
         }
         do {
-            let resolved = try await resolveStream(
-                song: playbackSong,
-                source: source,
-                credential: credential,
-                requestID: requestID,
-                retried: false
-            )
+            let resolved: ResolvedStream
+            // 下一首在上一首播放时已经解析好(见 `PreparedStream`):直接用,切歌时不再等连接检查、
+            // 网盘换下载链接。CUE、播放时间段、从中间续播照常解析。
+            if !asset.isVideo, startAt <= 0, playbackSongOverride == nil,
+               let prepared = await takePreparedStream(
+                   for: playbackSong,
+                   source: source,
+                   credential: credential
+               ) {
+                resolved = prepared
+            } else {
+                resolved = try await resolveStream(
+                    song: playbackSong,
+                    source: source,
+                    credential: credential,
+                    requestID: requestID,
+                    retried: false
+                )
+            }
             try ensureCurrent(requestID, store: store)
             plog("🎬 TV play: resolved → host=\(resolved.url.host ?? "?") headers=\(resolved.headers.count)")
             guard isCurrent(requestID, store: store) else { return }
@@ -658,7 +673,8 @@ final class TVPlaybackCoordinator {
                         isVideo: asset.isVideo,
                         cueStartTime: song.cueStartTime,
                         cueEndTime: song.cueEndTime,
-                        seed: asset.isVideo ? nil : Self.playbackSeed(for: playbackSong))
+                        seed: asset.isVideo ? nil : Self.playbackSeed(for: playbackSong),
+                        transferSourceID: source.id)
             finishLoadedPlayback(
                 song: song,
                 source: source,
@@ -1830,8 +1846,10 @@ final class TVPlaybackCoordinator {
     /// seconds of head, later songs just enough to open the file; a next
     /// song the TV can only decode from a local copy is downloaded whole.
     /// Every HTTP response is bounded, so a server that ignores `Range`
-    /// costs one chunk and ends the seed.
+    /// costs one chunk and ends the seed. The next song's stream is kept
+    /// resolved (see `PreparedStream`).
     func prefetchUpcoming(_ songs: [Song]) async {
+        let nextSongKey = songs.first.map(TVPlaybackPrefetchStore.key(for:))
         for (rank, song) in songs.enumerated() {
             guard !Task.isCancelled, let store else { return }
             guard let source = store.sourcesStore.source(id: song.sourceID) else { continue }
@@ -1880,21 +1898,33 @@ final class TVPlaybackCoordinator {
                 continue
             }
 
-            if let existing = TVPlaybackPrefetchStore.shared.seed(for: key),
-               Int64(existing.head.count) >= UpcomingPlaybackPrefetchPolicy.headByteCount(
-                   rank: rank,
-                   fileSize: existing.totalLength,
-                   duration: song.duration,
-                   chunkSize: 1 << 20
-               ),
-               !existing.tail.isEmpty || Int64(existing.head.count) >= existing.totalLength {
-                continue
+            let seedIsComplete = TVPlaybackPrefetchStore.shared.seed(for: key).map {
+                Self.seedHoldsTargets($0, rank: rank, duration: song.duration)
+            } ?? false
+            // The next song's stream is resolved even when its seed is already
+            // complete: what starting it saves is the resolve, not the bytes.
+            guard !seedIsComplete || rank == 0 else { continue }
+            let reader = Self.makeDirectReader(source: source, song: song, credential: credential)
+            defer {
+                if let reader { Task { await reader.close() } }
             }
+            var nextSongStream: ResolvedStream?
+            if reader == nil, rank == 0, Self.allowsPreparedStart(song) {
+                nextSongStream = await prepareStream(
+                    for: song,
+                    source: source,
+                    credential: credential,
+                    reuseAge: Self.preparedStreamMaximumAge(for: source.type)
+                )
+                guard !Task.isCancelled else { return }
+                // The failure is logged; a second resolve for the seed would fail the same way.
+                guard nextSongStream != nil else { continue }
+            }
+            guard !seedIsComplete else { continue }
             do {
-                if let reader = Self.makeDirectReader(source: source, song: song, credential: credential) {
-                    defer { Task { await reader.close() } }
+                if let reader {
                     let knownLength = song.fileSize > 0 ? song.fileSize : try await reader.contentLength()
-                    try await seedUpcomingSong(song, rank: rank, key: key) { offset, length in
+                    try await seedUpcomingSong(song, rank: rank, key: key, nextSongKey: nextSongKey) { offset, length in
                         var data = Data()
                         while Int64(data.count) < length {
                             let chunk = try await reader.read(
@@ -1911,9 +1941,20 @@ final class TVPlaybackCoordinator {
                         )
                     }
                 } else {
-                    let resolved = try await registry.resolve(for: song, source: source, credential: credential)
-                    try await seedUpcomingSong(song, rank: rank, key: key) { offset, length in
-                        try await TVPrefetchHTTPRangeReader.fetch(resolved, offset: offset, length: length)
+                    let resolved: ResolvedStream
+                    if let nextSongStream {
+                        resolved = nextSongStream
+                    } else {
+                        resolved = try await registry.resolve(for: song, source: source, credential: credential)
+                    }
+                    let sourceID = source.id
+                    try await seedUpcomingSong(song, rank: rank, key: key, nextSongKey: nextSongKey) { offset, length in
+                        try await TVPrefetchHTTPRangeReader.fetch(
+                            resolved,
+                            offset: offset,
+                            length: length,
+                            sourceID: sourceID
+                        )
                     }
                 }
             } catch {
@@ -1923,14 +1964,232 @@ final class TVPlaybackCoordinator {
         }
     }
 
+    /// The next song's stream, resolved while the current song plays: when
+    /// the prefetch reaches it, and again shortly before the current song
+    /// ends. Starting the next song then waits for neither the connection
+    /// check nor, on a cloud drive, a freshly minted download link. `play`
+    /// takes it once, and only while nothing it was resolved under (the file,
+    /// the source's settings and credentials, the network path, the source's
+    /// session) has changed.
+    private struct PreparedStream {
+        let identity: PreparedPlaybackStartPolicy.Identity
+        let lastModified: Date?
+        let source: MusicSource
+        let credential: SourceCredential?
+        let resolution: StreamResolverRegistry.PreparedResolution
+        let resolvedAt: TimeInterval
+    }
+
+    /// Links that carry a signature or a login session (cloud drives,
+    /// presigned S3, NAS web APIs, the iPhone relay) can lapse within minutes
+    /// of being minted. A prepared one is used only while it is this fresh,
+    /// so the song still has most of the link's life ahead of it; an expired
+    /// one still recovers through the playback failure path.
+    private static let signedLinkPreparedMaximumAge: TimeInterval = 3 * 60
+
+    private static func preparedStreamMaximumAge(for type: MusicSourceType) -> TimeInterval {
+        switch type {
+        case .subsonic, .navidrome, .airsonic, .gonic, .webdav, .upnp, .jellyfin, .emby, .plex:
+            // Built from the saved credentials, and good for as long as they are.
+            return PreparedPlaybackStartPolicy.maximumAge
+        default:
+            return signedLinkPreparedMaximumAge
+        }
+    }
+
+    /// Age past which the refresh near the end of the current song resolves
+    /// the next one again: a signed link is minted afresh for its start, a
+    /// stable URL only once it nears its limit.
+    private static func preparedStreamRefreshAge(for type: MusicSourceType) -> TimeInterval {
+        let maximum = preparedStreamMaximumAge(for: type)
+        return maximum > signedLinkPreparedMaximumAge ? maximum - 60 : 30
+    }
+
+    /// CUE tracks and playback ranges start mid-file; a stream descriptor is
+    /// resolved to another file first.
+    nonisolated private static func allowsPreparedStart(_ song: Song) -> Bool {
+        song.cueStartTime == nil && song.cueEndTime == nil
+            && song.appliedPlaybackRange == nil && !song.isStreamDescriptor
+    }
+
+    private func preparedVerdict(
+        _ prepared: PreparedStream,
+        for song: Song,
+        source: MusicSource,
+        credential: SourceCredential?
+    ) async -> (verdict: PreparedPlaybackStartPolicy.Verdict, age: TimeInterval) {
+        let age = ProcessInfo.processInfo.systemUptime - prepared.resolvedAt
+        guard prepared.source == source,
+              prepared.credential == credential,
+              prepared.lastModified == song.lastModified else {
+            return (.discard("source or file changed"), age)
+        }
+        guard age <= Self.preparedStreamMaximumAge(for: source.type) else {
+            return (.discard("expired"), age)
+        }
+        let routeGeneration = await registry.routeGeneration()
+        let sessionEpoch = await registry.sessionEpoch(for: source.id)
+        let verdict = PreparedPlaybackStartPolicy.verdict(
+            prepared: prepared.identity,
+            requested: PreparedPlaybackStartPolicy.Identity(song),
+            preparedNetworkGeneration: prepared.resolution.routeGeneration,
+            currentNetworkGeneration: routeGeneration,
+            streamEpochIsCurrent: prepared.resolution.sessionEpoch == sessionEpoch,
+            // The TV has no audio cache setting for the stream to depend on.
+            preparedWithAudioCache: false,
+            audioCacheEnabled: false,
+            age: age
+        )
+        return (verdict, age)
+    }
+
+    /// Hands `play` the stream prepared for `song`, once; nil when none was
+    /// prepared for it or something it was resolved under has changed.
+    private func takePreparedStream(
+        for song: Song,
+        source: MusicSource,
+        credential: SourceCredential?
+    ) async -> ResolvedStream? {
+        guard let prepared = preparedStream, prepared.identity.songID == song.id else { return nil }
+        preparedStream = nil
+        guard Self.allowsPreparedStart(song) else { return nil }
+        let (verdict, age) = await preparedVerdict(prepared, for: song, source: source, credential: credential)
+        if case .discard(let reason) = verdict {
+            plog("🎬 TV play: prepared stream for '\(song.title)' not used — \(reason)")
+            return nil
+        }
+        plog("🎬 TV play: using prepared stream for '\(song.title)' (resolved \(Int(age))s ago)")
+        return prepared.resolution.stream
+    }
+
+    /// Resolves `song`'s stream ahead of its start, or keeps the one already
+    /// prepared for it while that is current and younger than `reuseAge`.
+    @discardableResult
+    private func prepareStream(
+        for song: Song,
+        source: MusicSource,
+        credential: SourceCredential?,
+        reuseAge: TimeInterval
+    ) async -> ResolvedStream? {
+        guard Self.allowsPreparedStart(song) else { return nil }
+        if let prepared = preparedStream, prepared.identity.songID == song.id {
+            let (verdict, age) = await preparedVerdict(prepared, for: song, source: source, credential: credential)
+            if verdict == .adopt, age <= reuseAge { return prepared.resolution.stream }
+        }
+        do {
+            let resolution = try await registry.resolveForPreparation(
+                for: song,
+                source: source,
+                credential: credential
+            )
+            // A track change cancels the prefetch; what it resolved belongs
+            // to a queue position that has moved on.
+            try Task.checkCancellation()
+            preparedStream = PreparedStream(
+                identity: PreparedPlaybackStartPolicy.Identity(song),
+                lastModified: song.lastModified,
+                source: source,
+                credential: credential,
+                resolution: resolution,
+                resolvedAt: ProcessInfo.processInfo.systemUptime
+            )
+            return resolution.stream
+        } catch {
+            if !(error is CancellationError), !Task.isCancelled {
+                plog("⚠️ TV prefetch: could not resolve the stream for '\(song.title)': \(error.localizedDescription)")
+            }
+            return nil
+        }
+    }
+
+    /// Shortly before the current song ends: resolves the next song again
+    /// if what was prepared for it has aged (a signed link is minted afresh)
+    /// or no longer holds. Songs the prefetch did not prepare are left alone;
+    /// it already decided they do not start from a resolved stream.
+    func refreshPreparedStream(for song: Song) async {
+        guard let store, let prepared = preparedStream,
+              prepared.identity == PreparedPlaybackStartPolicy.Identity(song),
+              let source = store.sourcesStore.source(id: song.sourceID) else { return }
+        let credential = TVCredentialStore.credential(for: source, bundle: store.credentialBundle)
+        let refreshAge = Self.preparedStreamRefreshAge(for: source.type)
+        let (verdict, age) = await preparedVerdict(prepared, for: song, source: source, credential: credential)
+        guard verdict != .adopt || age > refreshAge else { return }
+        plog("⏩ TV prefetch: resolving '\(song.title)' again before it starts")
+        await prepareStream(for: song, source: source, credential: credential, reuseAge: refreshAge)
+    }
+
+    /// Drops the prepared stream unless it is for `song`, the song that is
+    /// still next after a queue, shuffle or repeat change.
+    func discardPreparedStream(keeping song: Song?) {
+        guard let prepared = preparedStream else { return }
+        if let song, prepared.identity == PreparedPlaybackStartPolicy.Identity(song),
+           prepared.lastModified == song.lastModified {
+            return
+        }
+        preparedStream = nil
+    }
+
+    private nonisolated static let seedChunkBytes: Int64 = 1 << 20
+    private nonisolated static let seedTailBytes: Int64 = 256 * 1024
+
+    struct SeedTargets {
+        var layout: AudioPayloadLayout
+        /// Head sized from the top of the file, before leading metadata.
+        var audioHead: Int64
+        var head: Int64
+        var tail: Int64
+    }
+
+    /// What a seed for the song at `rank` should hold once `head` (its first
+    /// bytes) is known. Tags and cover art in front of the audio do not count
+    /// toward the head, so the decoder still finds its first seconds of audio
+    /// there; an MP4 whose index follows the audio keeps that index in the
+    /// tail, since AVPlayer reads it before the first sample.
+    nonisolated static func seedTargets(
+        head: Data,
+        totalLength: Int64,
+        rank: Int,
+        duration: TimeInterval
+    ) -> SeedTargets {
+        // Metadata past the policy's limit is not reached past anyway, so the
+        // parse never needs more than that much of a long head.
+        let parsed = head.prefix(Int(UpcomingPlaybackPrefetchPolicy.maximumLeadingMetadataBytes + seedChunkBytes))
+        let layout = AudioPayloadLayout.locate(head: parsed, fileSize: totalLength)
+        let audioHead = UpcomingPlaybackPrefetchPolicy.headByteCount(
+            rank: rank,
+            fileSize: totalLength,
+            duration: duration,
+            chunkSize: seedChunkBytes
+        )
+        let headTarget = UpcomingPlaybackPrefetchPolicy.seedHeadByteCount(
+            headByteCount: audioHead,
+            layout: layout,
+            fileSize: totalLength,
+            chunkSize: seedChunkBytes
+        )
+        let tailTarget = UpcomingPlaybackPrefetchPolicy.seedTailByteCount(
+            defaultTail: seedTailBytes,
+            headByteCount: max(headTarget, Int64(head.count)),
+            layout: layout,
+            fileSize: totalLength
+        )
+        return SeedTargets(layout: layout, audioHead: audioHead, head: headTarget, tail: tailTarget)
+    }
+
+    nonisolated static func seedHoldsTargets(_ seed: TVPlaybackSeed, rank: Int, duration: TimeInterval) -> Bool {
+        let targets = seedTargets(head: seed.head, totalLength: seed.totalLength, rank: rank, duration: duration)
+        return Int64(seed.head.count) >= targets.head
+            && (Int64(seed.tail.count) >= targets.tail || Int64(seed.head.count) >= seed.totalLength)
+    }
+
     private func seedUpcomingSong(
         _ song: Song,
         rank: Int,
         key: String,
+        nextSongKey: String?,
         read: (Int64, Int64) async throws -> TVPrefetchHTTPRangeReader.Response
     ) async throws {
-        let chunk: Int64 = 1 << 20
-        let tailBytes: Int64 = 256 * 1024
+        let chunk = Self.seedChunkBytes
         var head: Data
         var tail = Data()
         var total: Int64
@@ -1948,32 +2207,50 @@ final class TVPlaybackCoordinator {
         }
         guard total > 0, !head.isEmpty,
               song.fileSize <= 0 || total == song.fileSize else { return }
-        let target = UpcomingPlaybackPrefetchPolicy.headByteCount(
-            rank: rank,
-            fileSize: total,
-            duration: song.duration,
-            chunkSize: chunk
-        )
-        guard Int64(head.count) < target || tail.isEmpty else { return }
-        let tailSize = min(tailBytes, max(0, total - max(target, Int64(head.count))))
-        if Int64(tail.count) > tailSize {
-            tail = tail.suffix(Int(tailSize))
-        } else if Int64(tail.count) < tailSize {
-            tail = try await read(total - tailSize, tailSize).data
+        var targets = Self.seedTargets(head: head, totalLength: total, rank: rank, duration: song.duration)
+        guard Int64(head.count) < targets.head || Int64(tail.count) < targets.tail else { return }
+        if targets.head > targets.audioHead {
+            plog("⏩ TV prefetch: '\(song.title)' has large tags or cover art before the audio; head grows to \(targets.head / 1024)KB")
         }
+        // Trims a tail the head has grown into, or reads the part of the
+        // tail still missing in front of the bytes already held.
+        func fitTail(to wanted: Int64) async throws {
+            if Int64(tail.count) > wanted {
+                tail = Data(tail.suffix(Int(wanted)))
+            } else if Int64(tail.count) < wanted {
+                let missing = wanted - Int64(tail.count)
+                let front = try await read(total - wanted, missing)
+                guard Int64(front.data.count) == missing, front.totalLength == total else { return }
+                tail = front.data + tail
+            }
+        }
+        try await fitTail(to: targets.tail)
         try Task.checkCancellation()
         func publish() {
             TVPlaybackPrefetchStore.shared.store(
                 TVPlaybackSeed(head: head, tail: tail, totalLength: total, contentTypeIdentifier: contentType),
-                for: key
+                for: key,
+                nextSongKey: nextSongKey
             )
         }
         publish()
-        while Int64(head.count) < target {
+        while Int64(head.count) < targets.head {
             try Task.checkCancellation()
-            let next = try await read(Int64(head.count), min(chunk, target - Int64(head.count)))
+            let next = try await read(Int64(head.count), min(chunk, targets.head - Int64(head.count)))
             guard !next.data.isEmpty, next.totalLength == total else { break }
             head.append(next.data)
+            // The metadata ran past what had been read; now that more of it
+            // is here, the audio may turn out to start later still.
+            if case .beyond = targets.layout.audioStart {
+                let grown = Self.seedTargets(head: head, totalLength: total, rank: rank, duration: song.duration)
+                targets.layout = grown.layout
+                targets.head = max(targets.head, grown.head)
+            }
+        }
+        let finalTail = Self.seedTargets(head: head, totalLength: total, rank: rank, duration: song.duration).tail
+        if finalTail != Int64(tail.count) {
+            try Task.checkCancellation()
+            try await fitTail(to: finalTail)
         }
         publish()
         plog("⏩ TV prefetch: '\(song.title)' head=\(head.count / 1024)KB tail=\(tail.count / 1024)KB")

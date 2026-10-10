@@ -916,6 +916,10 @@ final class TVStore {
     /// 播放中给接下来几首预取开头(见 `TVPlaybackCoordinator.prefetchUpcoming`)。
     @ObservationIgnored private var upcomingPrefetchTask: Task<Void, Never>?
     @ObservationIgnored private var upcomingPrefetchRequestID: UUID?
+    /// 当前这首快放完时把下一首的流地址再解析一次(见 `TVPlaybackCoordinator.refreshPreparedStream`),
+    /// 每首歌只做一次。
+    @ObservationIgnored private var preparedStreamRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var preparedStreamRefreshRequestID: UUID?
     @ObservationIgnored private var libraryRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var radioRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var historyRequestID: UUID?
@@ -5589,7 +5593,10 @@ final class TVStore {
         playbackTask?.cancel()
         upcomingPrefetchTask?.cancel()
         upcomingPrefetchTask = nil
+        preparedStreamRefreshTask?.cancel()
+        preparedStreamRefreshTask = nil
         TVPlaybackPrefetchStore.shared.discardCompleteFile(keeping: nil)
+        coordinator.discardPreparedStream(keeping: nil)
         let requestID = UUID()
         activePlaybackRequestID = requestID
         radioReconnectTask?.cancel()
@@ -6096,12 +6103,19 @@ final class TVStore {
     private func scheduleUpcomingPrefetch() {
         upcomingPrefetchTask?.cancel()
         upcomingPrefetchTask = nil
+        preparedStreamRefreshTask?.cancel()
+        preparedStreamRefreshTask = nil
         guard let requestID = activePlaybackRequestID,
-              !isMedleyActive, !isLiveRadio, appleMusicSelection == nil else { return }
+              !isMedleyActive, !isLiveRadio, appleMusicSelection == nil else {
+            coordinator.discardPreparedStream(keeping: nil)
+            return
+        }
         let songs = upcomingPrefetchSongs(limit: Self.upcomingPrefetchCount)
         TVPlaybackPrefetchStore.shared.discardCompleteFile(
             keeping: songs.first.map(TVPlaybackPrefetchStore.key(for:))
         )
+        // 队列、随机、循环变了以后,预先解析好的流地址只留给仍排在下一首的那首。
+        coordinator.discardPreparedStream(keeping: songs.first)
         upcomingPrefetchRequestID = requestID
         guard !songs.isEmpty else { return }
         upcomingPrefetchTask = Task { @MainActor [weak self] in
@@ -6118,6 +6132,27 @@ final class TVStore {
         guard let requestID = activePlaybackRequestID,
               upcomingPrefetchRequestID == requestID else { return }
         scheduleUpcomingPrefetch()
+    }
+
+    /// 当前这首剩下不到这么多秒时, 把下一首的流地址再解析一次。
+    private static let preparedStreamRefreshLeadSeconds: Double = 15
+
+    /// 播放监视每秒调一次: 快放完时让下一首的连接检查、网盘换下载链接在这首还在放的时候做完,
+    /// 切过去就不用等。签名链接几分钟就会过期, 预取时解析的那份放到这时可能已经太旧。
+    private func refreshPreparedNextStreamIfNeeded(requestID: UUID) {
+        guard preparedStreamRefreshRequestID != requestID,
+              !isMedleyActive, !isLiveRadio, appleMusicSelection == nil,
+              currentPodcastEpisodeID == nil else { return }
+        let total = duration
+        guard total > Self.preparedStreamRefreshLeadSeconds,
+              total - currentTime <= Self.preparedStreamRefreshLeadSeconds else { return }
+        preparedStreamRefreshRequestID = requestID
+        guard let next = upcomingPrefetchSongs(limit: 1).first else { return }
+        preparedStreamRefreshTask?.cancel()
+        preparedStreamRefreshTask = Task { @MainActor [weak self] in
+            guard let self, self.activePlaybackRequestID == requestID else { return }
+            await self.coordinator.refreshPreparedStream(for: next)
+        }
     }
 
     /// 实际播放顺序里接下来的几首(随机已经体现在 `queue` 里, 列表循环会绕回队首)。
@@ -6281,6 +6316,8 @@ final class TVStore {
         playbackTask?.cancel()
         upcomingPrefetchTask?.cancel()
         upcomingPrefetchTask = nil
+        preparedStreamRefreshTask?.cancel()
+        preparedStreamRefreshTask = nil
         let requestID = UUID()
         activePlaybackRequestID = requestID
         playbackIssue = nil
@@ -6798,6 +6835,7 @@ final class TVStore {
                 ScrobbleService.shared.handleProgressTick(playedDelta: delta)
                 self.rememberSpokenWordPosition()
                 self.enforceSpokenWordChapterSleepIfNeeded()
+                self.refreshPreparedNextStreamIfNeeded(requestID: requestID)
                 ticks += 1
                 if ticks % 5 == 0 { self.persistPlaybackSession() }
             }

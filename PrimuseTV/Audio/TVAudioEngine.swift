@@ -344,6 +344,10 @@ final class TVAudioEngine {
     private var liveMetadataOutput: AVPlayerItemMetadataOutput?
     private var liveMetadataReceiver: TVLiveMetadataReceiver?
     private var liveStartedAt: Date?
+    /// 这一次选歌(`prepareForSelection`)的时刻,出声后记一行用了多久就清掉;
+    /// 真机日志靠它比较切歌之间的空白(#209)。
+    @ObservationIgnored private var selectionRequestedAt: TimeInterval?
+    @ObservationIgnored private var selectionStartRoute = ""
     @ObservationIgnored private let spectrumPipeline = TVRealtimeSpectrumPipeline(
         windowSize: TVSpectrumConfiguration.windowSize
     )
@@ -528,6 +532,8 @@ final class TVAudioEngine {
     /// starts. Keeping the audio session active avoids an avoidable route handoff
     /// between adjacent queue items, while all track-specific state is cleared.
     func prepareForSelection(startAt seconds: Double, seekFloor: Double = 0) {
+        selectionRequestedAt = ProcessInfo.processInfo.systemUptime
+        selectionStartRoute = ""
         playbackFloor = seekFloor.isFinite ? max(0, seekFloor) : 0
         downloadProgress = nil
         clearLiveState()
@@ -594,10 +600,12 @@ final class TVAudioEngine {
         updateNowPlayingInfo()
     }
 
+    /// `transferSourceID`:流解析自哪个源。收到它的字节就说明这个源连得上
+    /// (见 `StreamResolverRegistry.recordTransfer`)。
     func load(url: URL, headers: [String: String] = [:], fileExtension: String? = nil,
               title: String, artist: String, album: String, duration: Double, isVideo: Bool,
               cueStartTime: Double? = nil, cueEndTime: Double? = nil,
-              seed: TVPlaybackSeed? = nil) {
+              seed: TVPlaybackSeed? = nil, transferSourceID: String? = nil) {
         clearLiveState()
         resetSFBIfNeeded()
         isVideoMode = isVideo
@@ -620,7 +628,8 @@ final class TVAudioEngine {
                 realURL: url,
                 headers: headers,
                 fileExtension: fileExtension,
-                seed: seed
+                seed: seed,
+                transferSourceID: transferSourceID
             )
             let asset = AVURLAsset(url: masked)
             asset.resourceLoader.setDelegate(loader, queue: DispatchQueue(label: "tv.resourceloader"))
@@ -632,6 +641,7 @@ final class TVAudioEngine {
             protocolLoader = nil
             item = AVPlayerItem(url: url)
         }
+        selectionStartRoute = seed == nil ? "stream" : "stream, seeded"
         plog("📺 TV engine.load host=\(url.host ?? "?") scheme=\(url.scheme ?? "?") headers=\(headers.count) dur=\(duration)")
         finishLoad(item: item)
     }
@@ -917,6 +927,7 @@ final class TVAudioEngine {
         asset.resourceLoader.setDelegate(loader, queue: DispatchQueue(label: "tv.protoloader"))
         protocolLoader = loader
         resourceLoader = nil
+        selectionStartRoute = reader is TVSeededByteRangeReader ? "protocol, seeded" : "protocol"
         plog("📺 TV engine.load(reader) ext=\(fileExtension ?? "?") dur=\(duration)")
         finishLoad(item: AVPlayerItem(asset: asset))
     }
@@ -964,9 +975,11 @@ final class TVAudioEngine {
             [weak self] player, _ in
             let timeControlStatus = player.timeControlStatus
             Task { @MainActor [weak self] in
-                guard let self,
-                      self.activeItemID == observedItemID,
-                      self.isLiveStream else { return }
+                guard let self, self.activeItemID == observedItemID else { return }
+                guard self.isLiveStream else {
+                    if timeControlStatus == .playing { self.noteAudibleStart() }
+                    return
+                }
                 switch timeControlStatus {
                 case .playing:
                     self.liveStallTask?.cancel()
@@ -1033,6 +1046,7 @@ final class TVAudioEngine {
         status = .loading
         failureReportedForSelection = false
         decodedTemporaryFileURL = fileURL
+        selectionStartRoute = "decoded"
         usingSFB = true
         startSFBPolling()
         do {
@@ -1082,6 +1096,7 @@ final class TVAudioEngine {
                 updateNowPlayingInfo()
                 return false
             }
+            noteAudibleStart()
         } else {
             guard player.currentItem != nil else {
                 isPlaying = false
@@ -1121,6 +1136,7 @@ final class TVAudioEngine {
             if autoPlay { _ = play() } else { pause() }
             return
         }
+        if !autoPlay { selectionRequestedAt = nil }
         let target = playbackSegment.physicalTime(forLogicalTime: logicalTime)
         currentTime = playbackSegment.logicalTime(forPhysicalTime: target)
         pendingStartID = nil
@@ -1211,11 +1227,21 @@ final class TVAudioEngine {
             return
         }
         if usingSFB { sfb.pause() } else { player.pause() }
+        selectionRequestedAt = nil
         isPlaying = false
         resetSpectrumLevels()
         status = .paused
         updateNowPlayingInfo()
         deactivateAudioSession()
+    }
+
+    /// 选歌之后第一次出声:记下离选歌过了多久、走的哪条路(直连流 / 协议直连 / 本机解码,
+    /// 有没有用上预取的开头)。暂停着开始的不算。
+    private func noteAudibleStart() {
+        guard !isLiveStream, let requestedAt = selectionRequestedAt else { return }
+        selectionRequestedAt = nil
+        let milliseconds = Int(((ProcessInfo.processInfo.systemUptime - requestedAt) * 1_000).rounded())
+        plog("📺 TV engine: audible \(milliseconds)ms after the start request (\(selectionStartRoute)) '\(npTitle)'")
     }
 
     func togglePlayPause() {
