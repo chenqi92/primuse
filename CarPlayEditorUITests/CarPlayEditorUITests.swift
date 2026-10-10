@@ -177,7 +177,7 @@ final class CarPlayEditorUITests: XCTestCase {
         field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 2) + "全部音乐")
         alert.buttons["保存"].tap()
         attach(app, "CarPlay-main-menu-device")
-        XCTAssertTrue(app.buttons["carplay.previewSearch"].exists)
+        XCTAssertFalse(app.buttons["carplay.previewSearch"].exists)
         app.buttons["carplay.previewSiri"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["carplay.previewAssistantRow"].firstMatch.waitForExistence(timeout: 3))
         attach(app, "CarPlay-siri-entry-device")
@@ -190,7 +190,7 @@ final class CarPlayEditorUITests: XCTestCase {
         app.buttons["carplay.actions"].tap()
         app.buttons["carplay.style.capsules"].tap()
         XCTAssertTrue(app.buttons["carplay.previewTab.tab.playlists"].isHittable)
-        XCTAssertTrue(app.buttons["carplay.previewSearch"].isHittable)
+        XCTAssertFalse(app.buttons["carplay.previewSearch"].exists)
         XCTAssertTrue(app.buttons["carplay.previewSiri"].isHittable)
         attach(app, "CarPlay-capsules-menu-device")
         let expand = app.buttons["carplay.expand"]

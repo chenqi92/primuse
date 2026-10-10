@@ -948,16 +948,15 @@ extension CarPlaySceneDelegate {
             position: .top, visibility: .always, assistantAction: .playMedia
         ) : nil
         if #available(iOS 26.0, *) {
+            // 分页根页面的顶栏归系统(分页标签 + 正在播放),放不进自己的按钮。搜索不再占
+            // 列表顶上的一整行:8 英寸这类矮屏上那一行孤零零的按钮挤掉一条内容,
+            // 改由主页底部、资料库里的「最近搜索」和子页面右上角的放大镜进入,
+            // 想放到顶栏可以在手机上把「搜索」加成一个分页。
             var actions: [CPGridButton] = []
-            if isTabRoot {
-                if !searchPage {
-                    actions.append(CPGridButton(titleVariants: [String(localized: "search_title")], image: Self.symbolImage("magnifyingglass")) { [weak self] _ in self?.pushSearchTemplate() })
-                }
-                if siriShortcut {
-                    actions.append(CPGridButton(titleVariants: ["Siri"], image: Self.symbolImage("mic")) { [weak self] _ in self?.pushAssistantTemplate() })
-                }
+            if isTabRoot, siriShortcut {
+                actions.append(CPGridButton(titleVariants: ["Siri"], image: Self.symbolImage("mic")) { [weak self] _ in self?.pushAssistantTemplate() })
             }
-            template.headerGridButtons = Array(actions.prefix(CPListTemplate.maximumHeaderGridButtonCount))
+            template.headerGridButtons = actions.isEmpty ? nil : Array(actions.prefix(CPListTemplate.maximumHeaderGridButtonCount))
         }
     }
 
@@ -1070,7 +1069,7 @@ extension CarPlaySceneDelegate {
                                       style: block.configuration.style,
                                       artworkBudget: artworkBudget)
         }
-        var navigation = [
+        let navigation = [
             CollectionEntry(title: String(localized: "library_browse_folder"), symbol: "folder") { [weak self] in
                 self?.pushFolderBrowser()
             },
@@ -1081,11 +1080,11 @@ extension CarPlaySceneDelegate {
             CollectionEntry(title: String(localized: "carplay_layout_title"),
                             symbol: "rectangle.3.group") { [weak self] in
                 self?.pushLayoutPresets()
+            },
+            CollectionEntry(title: String(localized: "carplay_search_title"), symbol: "magnifyingglass") { [weak self] in
+                self?.pushSearchTemplate()
             }
         ]
-        if #unavailable(iOS 26.0) {
-            navigation.append(CollectionEntry(title: String(localized: "carplay_search_title"), symbol: "magnifyingglass") { [weak self] in self?.pushSearchTemplate() })
-        }
         return sections + collectionSections(navigation, style: .list)
     }
 

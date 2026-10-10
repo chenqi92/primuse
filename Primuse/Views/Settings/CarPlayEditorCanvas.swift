@@ -131,17 +131,12 @@ struct CarPlayEditorCanvas: View {
         }
     }
 
+    /// 车机分页根页面顶上只剩 Siri 按钮;搜索在主页底部和资料库里,与车机一致。
     @ViewBuilder private var rootActions: some View {
-        if #available(iOS 26.0, *) {
+        if configuration.showsSiri && compactSiri {
             HStack(spacing: 18) {
-                if activeTab.kind != .search {
-                    Button { searchPage = true } label: { headerAction("search_title", symbol: "magnifyingglass") }
-                        .accessibilityIdentifier("carplay.previewSearch")
-                }
-                if configuration.showsSiri && compactSiri {
-                    Button { assistantPage = true } label: { headerAction("Siri", symbol: "mic") }
-                        .accessibilityIdentifier("carplay.previewSiri")
-                }
+                Button { assistantPage = true } label: { headerAction("Siri", symbol: "mic") }
+                    .accessibilityIdentifier("carplay.previewSiri")
                 Spacer(minLength: 0)
             }.padding(.vertical, 4)
         }
@@ -369,6 +364,8 @@ struct CarPlayEditorCanvas: View {
                     if !editing {
                         Button { browseKind = .folders } label: { menuRow(String(localized: "library_browse_folder"), symbol: "folder") }
                         Button { browseKind = .library } label: { menuRow(String(localized: "library_title"), symbol: "square.stack") }
+                        Button { searchPage = true } label: { menuRow(String(localized: "carplay_search_title"), symbol: "magnifyingglass") }
+                            .accessibilityIdentifier("carplay.previewSearchRow")
                     }
                     if editing {
                         Button { addContent(nil) } label: {
