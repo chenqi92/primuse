@@ -103,6 +103,7 @@ extension AudioPlayerService {
                     // readout current. All three no-op for music.
                     if self.currentItemIsSpokenWord {
                         self.applyPendingSpokenWordResumeIfNeeded()
+                        self.applyPendingServerSpokenWordResumeIfNeeded()
                         self.rememberSpokenWordPosition()
                         self.applyPodcastOutroSkipIfNeeded()
                     }

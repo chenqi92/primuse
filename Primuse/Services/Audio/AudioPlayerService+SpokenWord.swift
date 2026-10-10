@@ -23,6 +23,8 @@ extension AudioPlayerService {
         chapterLoadTask = nil
         serverSpokenWordStateTask?.cancel()
         serverSpokenWordStateTask = nil
+        serverSpokenWordStateSongID = nil
+        pendingServerSpokenWordResume = nil
         spokenWordChapters = []
         currentChapterIndex = nil
         chapterLoadedSongID = nil
@@ -104,12 +106,21 @@ extension AudioPlayerService {
 
     static let serverSpokenWordPushInterval: TimeInterval = 30
 
-    /// 服务端自己记进度的源(Audiobookshelf):换条目时把服务端的位置拿回来 —— 别的客户端听过的,
+    /// 服务端自己记进度的源(Audiobookshelf、Ting Reader):换条目时把服务端的位置拿回来 —— 别的客户端听过的,
     /// 比本机新就按它续播;章节也从服务端拿,流式播放时本机没有文件可解析。
+    ///
+    /// 开播不等这次读取:解码器先从本机记的位置打开,服务端的更新晚到时再跳过去
+    /// (`applyPendingServerSpokenWordResumeIfNeeded`)。用户从目录 / 书签点进来的有自己的起点,不跳。
     func refreshServerSpokenWordState(for song: Song) {
         guard let manager = sourceManager else { return }
         let songID = song.id
+        let followsServer = pendingSpokenWordSeekOverride?.songID != songID
+        let anchor = SpokenWordStore.shared.resumePosition(for: song) ?? 0
+        serverSpokenWordStateSongID = songID
         serverSpokenWordStateTask = Task { [weak self] in
+            defer {
+                if let self, self.serverSpokenWordStateSongID == songID { self.serverSpokenWordStateSongID = nil }
+            }
             guard await manager.supportsServerListeningProgress(for: song) else { return }
             let progress = await manager.fetchServerListeningProgress(for: song)
             guard !Task.isCancelled, let self, self.currentSong?.id == songID else { return }
@@ -121,10 +132,14 @@ extension AudioPlayerService {
                     isFinished: progress.isFinished,
                     updatedAt: progress.updatedAt
                ) {
-                // 服务端更新:时钟还没走起来就重新上膛,首个 tick 跳过去;已经在听了就不拉回。
+                // 服务端更新:时钟还没走起来就重新上膛,首个 tick 跳过去。
                 // 听完的一条也可能带着重听的位置,有位置就跳。
                 if self.currentTime < 2, SpokenWordStore.shared.resumePosition(for: song) != nil {
                     self.pendingSpokenWordResumeSongID = songID
+                }
+                // 已经从本机记的旧位置开播了:还停在那附近就改从服务端的位置续。
+                if followsServer {
+                    self.pendingServerSpokenWordResume = (songID, anchor)
                 }
                 plog("🎧 Spoken word: adopted server position \(Int(progress.position))s for '\(song.title)'")
             }
@@ -138,8 +153,9 @@ extension AudioPlayerService {
     }
 
     /// 把位置报给服务端。本机每 15 秒存一次,服务端 30 秒一次;暂停、切换、退后台那几次立刻报。
+    /// 换条目后服务端那次读取回来之前不报:这时的位置可能还是本机的旧位置。
     func pushServerSpokenWordPosition(song: Song, position: TimeInterval, duration: TimeInterval, force: Bool) {
-        guard let manager = sourceManager else { return }
+        guard let manager = sourceManager, serverSpokenWordStateSongID != song.id else { return }
         let isFinished = SpokenWordStore.shared.isFinished(songID: song.id)
         // 听完后重听:服务端仍记听完,重听到哪里只留在本机和 iCloud;听到结尾那一次照常报。
         if isFinished, duration > 0,
@@ -210,6 +226,26 @@ extension AudioPlayerService {
         seek(to: target, startPlaying: true)
     }
 
+    /// 跳回服务端位置的窗口:开播后还停在起点这么近以内,才算「还没开始听」。
+    static let serverSpokenWordResumeWindow: TimeInterval = 10
+
+    /// 服务端更新的位置晚于开播才到时,在下一拍跳过去。本机的续播还没落地就先等它;
+    /// 用户已经拖到别处、或者已经从起点听了一阵,就不拉回。
+    func applyPendingServerSpokenWordResumeIfNeeded() {
+        guard let pending = pendingServerSpokenWordResume else { return }
+        guard let song = currentSong, song.id == pending.songID else {
+            pendingServerSpokenWordResume = nil
+            return
+        }
+        guard pendingSpokenWordResumeSongID == nil, isPlaying else { return }
+        pendingServerSpokenWordResume = nil
+        guard abs(currentTime - pending.anchor) <= Self.serverSpokenWordResumeWindow,
+              let target = SpokenWordStore.shared.resumePosition(for: song),
+              abs(target - currentTime) > 2 else { return }
+        plog("🎧 Spoken word: moving '\(song.title)' from \(Int(currentTime))s to the server position \(Int(target))s")
+        seek(to: target, startPlaying: true)
+    }
+
     // MARK: - Position
 
     /// Stores where the listener is. `force` is used for the events that must
@@ -224,6 +260,8 @@ extension AudioPlayerService {
         let position = currentTime
         guard position.isFinite else { return }
         if !force {
+            // 服务端那次读取还没回来:自动存一次会让本机的旧位置显得比服务端的新,把它挡在门外。
+            guard serverSpokenWordStateSongID != song.id else { return }
             let elapsed = position - lastSpokenWordPositionSave
             guard abs(elapsed) >= SpokenWordProgressPolicy.autosaveInterval else { return }
         }

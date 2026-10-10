@@ -1181,8 +1181,14 @@ final class AudioPlayerService {
     @ObservationIgnored var lastSpokenWordPositionSave: TimeInterval = 0
     @ObservationIgnored var chapterLoadTask: Task<Void, Never>?
     @ObservationIgnored var chapterLoadedSongID: String?
-    /// 服务端自己记进度的源(Audiobookshelf):换条目时去服务端取位置与章节的那一次。
+    /// 服务端自己记进度的源(Audiobookshelf、Ting Reader):换条目时去服务端取位置与章节的那一次。
     @ObservationIgnored var serverSpokenWordStateTask: Task<Void, Never>?
+    /// 那次读取还没回来的那一条。这期间不往服务端报位置:本机开播用的可能是旧位置,
+    /// 报上去会盖掉别的客户端刚记的更新的位置。
+    @ObservationIgnored var serverSpokenWordStateSongID: String?
+    /// 服务端的位置在开播之后才到、而且比本机新:记着开播时的起点,下一拍还停在起点附近
+    /// (用户没自己拖过、也没听多久)就改从服务端的位置续。
+    @ObservationIgnored var pendingServerSpokenWordResume: (songID: String, anchor: TimeInterval)?
     /// 上一次报给服务端的位置;本机 15 秒存一次,服务端 30 秒报一次。
     @ObservationIgnored var lastServerSpokenWordPositionPush: TimeInterval = 0
     /// Set while a resume seek is in flight so the position writer cannot

@@ -1023,6 +1023,10 @@ final class TVStore {
     @ObservationIgnored private var lastServerSpokenWordPositionPush: Double = 0
     /// 换条目时去服务端取这一条位置的那一次。
     @ObservationIgnored private var serverSpokenWordStateTask: Task<Void, Never>?
+    /// 那次读取还没回来的那一条:这期间不自动存位置、不往服务端报,免得本机的旧位置盖掉别处更新的。
+    @ObservationIgnored private var serverSpokenWordStateSongID: String?
+    /// 服务端更新的位置在开播之后才到:记着开播时的起点,还停在起点附近就改从服务端的位置续。
+    @ObservationIgnored private var pendingServerSpokenWordResume: (songID: String, anchor: Double)?
     @ObservationIgnored private var sleepWorkItem: DispatchWorkItem?
     /// 正在播的这一条所在的书,按(书、存档修订、曲库修订、条目)缓存:播放页每拍都要问。
     @ObservationIgnored private var spokenWordBookCache: (key: String, book: SpokenWordBook?)?
@@ -5070,6 +5074,8 @@ final class TVStore {
         resetPodcastPlayback()
         serverSpokenWordStateTask?.cancel()
         serverSpokenWordStateTask = nil
+        serverSpokenWordStateSongID = nil
+        pendingServerSpokenWordResume = nil
         let isSpokenWord = library.spokenWordSongIDs.contains(song.id)
         currentItemIsSpokenWord = isSpokenWord
         spokenWordPositionArmed = false
@@ -5108,13 +5114,19 @@ final class TVStore {
     }
 
     /// 服务端自己记进度的源(Audiobookshelf、Ting Reader):开播时把服务端的位置拿回来 —— 别的客户端听过的,
-    /// 比本机新就按它续播。还没真正走起来就跳过去,已经在听了就不拉回。
+    /// 比本机新就按它续播。开播不等它:先从本机记的位置开,服务端的更新晚到时,还停在起点附近就跳过去,
+    /// 已经听了一阵或自己拖过就不拉回。
     private func refreshServerSpokenWordPosition(songID: String) {
         guard let raw = library.song(id: songID),
               let source = source(id: raw.sourceID),
               source.type == .audiobookshelf || source.type == .tingReader else { return }
         let credential = TVCredentialStore.credential(for: source, bundle: credentialBundle)
+        let anchor = SpokenWordStore.shared.resumePosition(for: raw) ?? 0
+        serverSpokenWordStateSongID = songID
         serverSpokenWordStateTask = Task { @MainActor [weak self] in
+            defer {
+                if let self, self.serverSpokenWordStateSongID == songID { self.serverSpokenWordStateSongID = nil }
+            }
             guard let progress = await TVSourceAssetReader.shared.serverSpokenWordProgress(
                 song: raw,
                 source: source,
@@ -5128,20 +5140,44 @@ final class TVStore {
                 updatedAt: progress.updatedAt
             ) else { return }
             plog("🎧 TV spoken word: adopted server position \(Int(progress.position))s for '\(raw.title)'")
-            guard self.engine.currentTime < 2,
-                  let resume = SpokenWordStore.shared.resumePosition(for: raw), resume > 2 else { return }
-            if self.spokenWordPositionArmed {
-                self.engine.seek(to: resume)
-            } else {
+            // 引擎还没按起点开播(时钟在开头):开播时补的那次定位直接用服务端的位置。
+            if !self.spokenWordPositionArmed, self.engine.currentTime < 2,
+               let resume = SpokenWordStore.shared.resumePosition(for: raw), resume > 2 {
                 self.pendingSpokenWordResume = (songID, resume)
             }
+            self.pendingServerSpokenWordResume = (songID, anchor)
+            self.applyPendingServerSpokenWordResumeIfNeeded()
         }
+    }
+
+    /// 跳回服务端位置的窗口:开播后还停在起点这么近以内,才算「还没开始听」。
+    private static let serverSpokenWordResumeWindow: Double = 10
+
+    private func applyPendingServerSpokenWordResumeIfNeeded() {
+        guard let pending = pendingServerSpokenWordResume else { return }
+        guard pending.songID == nowPlaying.songID, currentItemIsSpokenWord else {
+            pendingServerSpokenWordResume = nil
+            return
+        }
+        // 还没真正出声:等开播那一下(armSpokenWordPositionIfNeeded)再看。
+        guard spokenWordPositionArmed else { return }
+        pendingServerSpokenWordResume = nil
+        let current = engine.currentTime
+        guard abs(current - pending.anchor) <= Self.serverSpokenWordResumeWindow,
+              let raw = library.song(id: pending.songID),
+              let resume = SpokenWordStore.shared.resumePosition(for: raw),
+              abs(resume - current) > 2 else { return }
+        plog("🎧 TV spoken word: moving '\(raw.title)' from \(Int(current))s to the server position \(Int(resume))s")
+        engine.seek(to: resume)
+        lastSpokenWordPositionSave = resume
     }
 
     /// 离开有声内容去播电台 / 目录歌曲 / 清空队列:先记下位置,再撤掉有声状态。
     private func leaveSpokenWordItem() {
         serverSpokenWordStateTask?.cancel()
         serverSpokenWordStateTask = nil
+        serverSpokenWordStateSongID = nil
+        pendingServerSpokenWordResume = nil
         rememberSpokenWordPosition(force: true)
         currentItemIsSpokenWord = false
         spokenWordPositionArmed = false
@@ -5389,6 +5425,7 @@ final class TVStore {
         }
         spokenWordPositionArmed = true
         lastSpokenWordPositionSave = engine.currentTime
+        applyPendingServerSpokenWordResumeIfNeeded()
     }
 
     /// 记下有声内容听到哪里。`force` 用于暂停、停止、换条、跳过和退到后台;
@@ -5400,6 +5437,8 @@ final class TVStore {
         let position = engine.currentTime
         guard position.isFinite else { return }
         if !force {
+            // 服务端那次读取还没回来:自动存一次会让本机的旧位置显得比服务端的新,把它挡在门外。
+            guard serverSpokenWordStateSongID != songID else { return }
             guard abs(position - lastSpokenWordPositionSave) >= SpokenWordProgressPolicy.autosaveInterval else {
                 return
             }
@@ -5417,6 +5456,8 @@ final class TVStore {
 
     /// 服务端自己记进度的源(Audiobookshelf、Ting Reader):把位置也报上去,别的客户端接着听。
     private func pushServerSpokenWordPosition(songID: String, position: Double, force: Bool) {
+        // 换条目后服务端那次读取回来之前不报:这时的位置可能还是本机的旧位置。
+        guard serverSpokenWordStateSongID != songID else { return }
         guard let song = library.song(id: songID),
               let source = source(id: song.sourceID),
               source.type == .audiobookshelf || source.type == .tingReader else { return }
