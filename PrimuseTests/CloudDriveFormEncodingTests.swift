@@ -38,6 +38,25 @@ final class MusicScraperFallbackTests: XCTestCase {
         XCTAssertEqual(MusicScraperService.scrapeFallbackTitle(for: song), "撕夜")
     }
 
+    @MainActor
+    func testMediaServerItemPathUsesServerTitleForScrapeQuery() async {
+        let source = MusicSource(id: "emby-\(UUID().uuidString)", name: "Emby", type: .emby)
+        let scraper = MusicScraperService(sourceManager: SourceManager(sourcesProvider: { [source] }))
+        let song = Song(
+            id: "song-hash",
+            title: "天真的少年",
+            artistName: "小海",
+            fileFormat: .flac,
+            filePath: "/items/823881.flac",
+            sourceID: source.id
+        )
+
+        let title = await scraper.suggestedScrapeTitle(for: song)
+        let query = await scraper.suggestedSearchQuery(for: song)
+        XCTAssertEqual(title, "天真的少年")
+        XCTAssertEqual(query, "天真的少年 小海")
+    }
+
     func testCompactCloudIdentifierUsesScannedDisplayTitle() {
         let song = Song(
             id: "song-hash",

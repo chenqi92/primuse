@@ -2037,6 +2037,12 @@ final class MusicScraperService {
     }
 
     private func resolvedScrapeFallbackTitle(for song: Song) async -> String {
+        // 服务端曲库源的歌名由服务端给出, 路径只是按条目 id 合成的传输标识
+        // (Emby/Plex 是 `/items/823881.flac`), 拿它的文件名去搜一首也搜不到。
+        let serverTitle = song.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !serverTitle.isEmpty, await sourceManager.isServerLibrarySource(for: song) {
+            return serverTitle
+        }
         let local = Self.scrapeFallbackTitle(for: song)
         if !song.isCueTrack, let fileName = sourceFileName(song) {
             let stem = (fileName as NSString).deletingPathExtension
