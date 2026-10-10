@@ -17,6 +17,8 @@ final class CarPlayEditorUITests: XCTestCase {
         let second = book("书籍 0001")
         let third = book("书籍 0002")
         XCTAssertTrue(third.waitForExistence(timeout: 20))
+        // 平时长按是这本书的菜单, 拖动排序要先点「排序」。
+        app.buttons["spokenWord.shelf.arrange"].tap()
         third.press(forDuration: 0.8, thenDragTo: first)
         let moved = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in third.frame.minX < first.frame.minX }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [moved], timeout: 5), .completed)
@@ -43,6 +45,22 @@ final class CarPlayEditorUITests: XCTestCase {
         XCTAssertFalse(first.isHittable)
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'spokenWord.book.'")).allElementsBoundByIndex.contains(where: \.isHittable))
         attach(app, "bookshelf-large-list-scrolled")
+    }
+
+    func testBookshelfLongPressOpensBookMenu() {
+        continueAfterFailure = false
+        let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")
+        app.launchEnvironment["PRIMUSE_VISUAL_EVIDENCE"] = "spokenWordShelf"
+        app.launchEnvironment["PRIMUSE_SHELF_RESET"] = "1"
+        app.launchEnvironment["PRIMUSE_DIAGNOSTIC_LOGGING"] = "off"
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch()
+        let book = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'spokenWord.book.' AND label CONTAINS %@", "书籍 0001")).firstMatch
+        XCTAssertTrue(book.waitForExistence(timeout: 20))
+        // 平时按住是这本书的菜单; 拖动排序在书架「排序」里(上面那条用例)。
+        book.press(forDuration: 1.2)
+        XCTAssertTrue(app.buttons["上移"].waitForExistence(timeout: 3))
+        attach(app, "bookshelf-long-press-menu")
     }
 
     func testSpokenWordChapterThumbDragsToMiddleEndAndBack() {

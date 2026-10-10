@@ -367,6 +367,8 @@ struct SpokenWordShelfContent: View {
     @AppStorage(LibraryPinStorage.defaultsKey) private var favoritePinsRawValue = ""
     /// 要整本加进歌单的那本书。
     @State private var playlistTarget: SpokenWordLibrarySnapshot.Entry?
+    /// 书架「排序」开着: iPhone、iPad 上只有这时按住一本书是拖动, 平时长按是这本书的菜单。
+    @State private var isArranging = false
 
     private var store: SpokenWordStore { SpokenWordStore.shared }
 
@@ -437,6 +439,9 @@ struct SpokenWordShelfContent: View {
                         macLayoutToggle
                         #else
                         HStack(spacing: 0) {
+                            if shelf.count + finished.count + archived.count > 1 {
+                                arrangeButton
+                            }
                             layoutButton(.bookshelf, icon: "square.grid.2x2", title: "spoken_word_shelf_section")
                             layoutButton(.list, icon: "list.bullet", title: "songs_view_list")
                         }
@@ -561,6 +566,22 @@ struct SpokenWordShelfContent: View {
     }
     #endif
 
+    /// 「排序」⇄「完成」。长按菜单弹在书的下方, 往下拖会划进菜单里选中某一项, 所以拖动排序单独放在这里。
+    private var arrangeButton: some View {
+        Button {
+            pmWithAnimation(.control) { isArranging.toggle() }
+        } label: {
+            Text(LocalizedStringKey(isArranging ? "done" : "reorder"))
+                .font(.subheadline.weight(isArranging ? .semibold : .regular))
+                .foregroundStyle(isArranging ? tint : .secondary)
+                .padding(.horizontal, 8)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("spokenWord.shelf.arrange")
+    }
+
     private func layoutButton(_ mode: SpokenWordShelfLayout, icon: String, title: LocalizedStringKey) -> some View {
         Button {
             layout = mode
@@ -618,15 +639,20 @@ struct SpokenWordShelfContent: View {
 
     private func reorderableBookCell(_ entry: SpokenWordLibrarySnapshot.Entry,
                                      entries: [SpokenWordLibrarySnapshot.Entry]) -> some View {
-        SpokenWordShelfDragCell(bookID: entry.id, title: entry.book.title) { movedID in
+        SpokenWordShelfDragCell(bookID: entry.id, title: entry.book.title, isArranging: isArranging) { movedID in
             moveBook(movedID, onto: entry.id, entries: entries)
         } content: {
             bookCell(entry)
                 .padding(.trailing, layout == .list ? 36 : 0)
+                #if os(iOS)
+                // 长按菜单挂在书本身上, 排序时被拖动层整个盖住, 按住只会拖。
+                .contextMenu { bookMenu(entry.book, songs: entry.songs, entries: entries) }
+                #endif
         }
         .modifier(SpokenWordBookMenuOverlay(
             alignment: layout == .bookshelf ? .topTrailing : .trailing,
-            bookID: entry.id
+            bookID: entry.id,
+            isArranging: isArranging
         ) {
             bookMenu(entry.book, songs: entry.songs, entries: entries)
         })
@@ -765,9 +791,12 @@ struct SpokenWordShelfContent: View {
     }
 }
 
+/// 书架上一本书的拖动排序。Mac 上一直拖得动(菜单在右键); iPhone、iPad 上长按是这本书的菜单,
+/// 只在书架「排序」开着时拖得动。
 private struct SpokenWordShelfDragCell<Content: View>: View {
     let bookID: String
     let title: String
+    let isArranging: Bool
     var move: (String) -> Bool
     @ViewBuilder var content: () -> Content
     @State private var isTargeted = false
@@ -775,25 +804,39 @@ private struct SpokenWordShelfDragCell<Content: View>: View {
     private static var prefix: String { "primuse-spoken-word-book:" }
 
     var body: some View {
-        content()
-            .draggable(Self.prefix + bookID) {
-                // Drag previews have their own host, without the shelf's environment objects.
-                Label(title, systemImage: "book.closed")
-                    .font(.callout.weight(.medium))
-                    .lineLimit(2)
-                    .padding(12)
-                    .frame(maxWidth: 220)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        Group {
+            #if os(macOS)
+            dragSource(content())
+            #else
+            if isArranging {
+                // 排序时整本书只用来拖: 盖一层接住点按与长按, 不进书, 也不弹菜单。
+                dragSource(content().overlay { Color.clear.contentShape(Rectangle()) })
+            } else {
+                content()
             }
-            .dropDestination(for: String.self) { values, _ in
-                guard values.count == 1, let value = values.first, value.hasPrefix(Self.prefix) else { return false }
-                return move(String(value.dropFirst(Self.prefix.count)))
-            } isTargeted: { isTargeted = $0 }
-            .overlay {
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(ListeningSpace.spokenWord.tint.opacity(isTargeted ? 0.7 : 0), lineWidth: 2)
-                    .allowsHitTesting(false)
-            }
+            #endif
+        }
+        .dropDestination(for: String.self) { values, _ in
+            guard values.count == 1, let value = values.first, value.hasPrefix(Self.prefix) else { return false }
+            return move(String(value.dropFirst(Self.prefix.count)))
+        } isTargeted: { isTargeted = $0 }
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(ListeningSpace.spokenWord.tint.opacity(isTargeted ? 0.7 : 0), lineWidth: 2)
+                .allowsHitTesting(false)
+        }
+    }
+
+    private func dragSource(_ view: some View) -> some View {
+        view.draggable(Self.prefix + bookID) {
+            // Drag previews have their own host, without the shelf's environment objects.
+            Label(title, systemImage: "book.closed")
+                .font(.callout.weight(.medium))
+                .lineLimit(2)
+                .padding(12)
+                .frame(maxWidth: 220)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        }
     }
 }
 
@@ -1279,11 +1322,13 @@ private struct SpokenWordBookListRow: View {
     }
 }
 
-/// 书右上角(列表里是行尾)的「⋯」菜单。iPhone、iPad 上常驻; Mac 上和专辑网格一样不在每张封面上
-/// 常驻一颗按钮, 指针停在这本书上才出现, 同一份菜单也挂成右键菜单。
+/// 书右上角(列表里是行尾)的「⋯」菜单。iPhone、iPad 上常驻, 同一份菜单也挂在长按上; 书架「排序」开着时
+/// 换成一个拖动记号, 不能点。Mac 上和专辑网格一样不在每张封面上常驻一颗按钮, 指针停在这本书上才出现,
+/// 同一份菜单也挂成右键菜单。
 private struct SpokenWordBookMenuOverlay<MenuItems: View>: ViewModifier {
     let alignment: Alignment
     let bookID: String
+    var isArranging = false
     @ViewBuilder var menuItems: () -> MenuItems
     #if os(macOS)
     @State private var isHovered = false
@@ -1298,36 +1343,68 @@ private struct SpokenWordBookMenuOverlay<MenuItems: View>: ViewModifier {
             .onHover { isHovered = $0 }
             .contextMenu { menuItems() }
         #else
+        // 长按菜单挂在书本身上(见 `reorderableBookCell`), 托起的预览只有这本书, 不连着这颗键。
         content
-            .overlay(alignment: alignment) { badge }
+            .overlay(alignment: alignment) {
+                if isArranging {
+                    SpokenWordBookMenuBadge(symbol: "line.3.horizontal")
+                        .padding(6)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                } else {
+                    badge
+                }
+            }
         #endif
     }
 
+    /// 圆底贴着封面角(列表里贴着行尾)放, 点按热区仍是 44pt 见方。标签里只放那三个点, 圆底垫在菜单键
+    /// 外面: 玻璃放进 `Menu` 的标签会被撑满整个标签, 画成 44pt 的大圆。
     private var badge: some View {
         Menu {
             menuItems()
         } label: {
-            SpokenWordBookMenuBadge()
-                .frame(width: 44, height: 44)
+            SpokenWordBookMenuBadge.symbolImage("ellipsis")
+                .padding(6)
+                .frame(width: 44, height: 44, alignment: alignment)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .background(alignment: alignment) {
+            SpokenWordBookMenuBadge(symbol: nil)
+                .padding(6)
+        }
         .accessibilityLabel(Text("more"))
         .accessibilityIdentifier("spokenWord.bookMenu." + bookID)
     }
 }
 
-/// 书右上角那颗「⋯」。浅色的玻璃圆底、深色的点:iOS 26 起是 Liquid Glass,更早的系统是浅色毛玻璃
-/// 加一道亮边。底始终按浅色外观画,深色模式、深色书封上也不会变成一团深灰;浅色书封上靠亮边与
-/// 淡淡的投影和封面分开。降低透明度时换成不透明的浅底。
+/// 书右上角那颗「⋯」(排序时是拖动记号)。浅色的玻璃圆底、深色的点:iOS 26 起是 Liquid Glass,更早的系统
+/// 是浅色毛玻璃加一道亮边。底始终按浅色外观画,深色模式、深色书封上也不会变成一团深灰;浅色书封上靠亮边与
+/// 淡淡的投影和封面分开。降低透明度时换成不透明的浅底。手机上一排三本时封面只有一百出头宽,
+/// 圆底收在 22pt, 不压过封面。
 private struct SpokenWordBookMenuBadge: View {
+    /// nil 只画圆底: 「⋯」的点放在 `Menu` 的标签里, 圆底垫在外面。
+    var symbol: String? = "ellipsis"
+
     var body: some View {
-        Image(systemName: "ellipsis")
-            .font(.system(size: 13, weight: .bold))
+        Group {
+            if let symbol {
+                Self.symbolImage(symbol)
+            } else {
+                Color.clear
+            }
+        }
+        .frame(width: 22, height: 22)
+        .modifier(SpokenWordBookMenuGlass())
+        .environment(\.colorScheme, .light)
+    }
+
+    static func symbolImage(_ symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 11, weight: .bold))
             .foregroundStyle(Color.black.opacity(0.72))
-            .frame(width: 28, height: 28)
-            .modifier(SpokenWordBookMenuGlass())
-            .environment(\.colorScheme, .light)
+            .frame(width: 22, height: 22)
     }
 }
 
