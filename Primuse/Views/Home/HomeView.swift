@@ -1253,6 +1253,9 @@ struct HomeView: View {
         case album(Album)
         case artist(Artist)
         case playlist(HomePlaylistTile)
+        /// 收藏的有声书,只记书的 id:书名与封面画的时候从首页已经分好的书架快照里取,
+        /// 这里不在主线程上分书。
+        case book(id: String)
 
         var id: String {
             switch self {
@@ -1260,6 +1263,7 @@ struct HomeView: View {
             case .album(let album): "album:\(album.id)"
             case .artist(let artist): "artist:\(artist.id)"
             case .playlist(let tile): "playlist:\(tile.id)"
+            case .book(let id): "book:\(id)"
             }
         }
     }
@@ -1392,8 +1396,8 @@ struct HomeView: View {
                 HomePodcastsSection(limit: sectionItemCount(.podcasts, 10), openSpace: openSpace)
             }
         case .quickAccess:
-            if showQuickAccess, !model.snapshot.quickItems.isEmpty {
-                HomeDeferredSection { quickAccessSection(style) }
+            if showQuickAccess, !visibleQuickItems(books).isEmpty {
+                HomeDeferredSection { quickAccessSection(style, books: books) }
             }
         case .forYou:
             if showForYou, !model.snapshot.forYouResults.isEmpty {
@@ -2663,7 +2667,8 @@ struct HomeView: View {
         )
     }
 
-    /// 首页收藏区：收藏的顺序，目录与有声书除外（首页有自己的「目录」与「有声书」区块）。
+    /// 首页收藏区：收藏的顺序，目录除外（首页有自己的「目录」区块）。有声书和收藏页里一样摆进来，
+    /// 只是这里先记下书的 id，见 `HomeQuickItem.book`。
     private func makeHomeQuickItems(
         allPlaylists: [Playlist]
     ) -> [HomeQuickItem] {
@@ -2690,7 +2695,9 @@ struct HomeView: View {
                 return playlistsByID[pin.itemID]
                     .map(makeHomePlaylistTile)
                     .map(HomeQuickItem.playlist)
-            case .folder, .book:
+            case .book:
+                return .book(id: pin.itemID)
+            case .folder:
                 return nil
             }
         }
@@ -3177,9 +3184,19 @@ struct HomeView: View {
 
     // MARK: - Quick Access
 
+    /// 收藏区真正摆出来的条目:收藏的书要在首页的书架快照里找得到才摆(书还没分好、
+    /// 书已经不在了都先跳过),摆几个照样按设置的条目数数。筛到音乐时书不摆,和别的跨类区块一样。
+    private func visibleQuickItems(_ books: SpokenWordLibrarySnapshot) -> [HomeQuickItem] {
+        let showsBooks = activeHomeFilter == nil
+        return model.snapshot.quickItems.filter { item in
+            guard case .book(let id) = item else { return true }
+            return showsBooks && books.entriesByID[id] != nil
+        }
+    }
+
     @ViewBuilder
-    private func quickAccessSection(_ style: HomeSectionLayoutStyle) -> some View {
-        let items = Array(model.snapshot.quickItems.prefix(
+    private func quickAccessSection(_ style: HomeSectionLayoutStyle, books: SpokenWordLibrarySnapshot) -> some View {
+        let items = Array(visibleQuickItems(books).prefix(
             sectionItemCount(.quickAccess, HomeSectionLayoutPolicy.defaultItemCount(for: .quickAccess))
         ))
         VStack(alignment: .leading, spacing: 10) {
@@ -3212,7 +3229,7 @@ struct HomeView: View {
                     items: items,
                     rowCount: carouselRowCount(.quickAccess, itemCount: items.count)
                 ) { item in
-                    homeQuickDockItem(item)
+                    homeQuickDockItem(item, books: books)
                 }
             } else {
                 LazyVGrid(
@@ -3223,7 +3240,7 @@ struct HomeView: View {
                     spacing: 14
                 ) {
                     ForEach(items) { item in
-                        homeQuickDockItem(item)
+                        homeQuickDockItem(item, books: books)
                     }
                 }
                 .padding(14)
@@ -3241,7 +3258,7 @@ struct HomeView: View {
     }
 
     @ViewBuilder
-    private func homeQuickDockItem(_ item: HomeQuickItem) -> some View {
+    private func homeQuickDockItem(_ item: HomeQuickItem, books: SpokenWordLibrarySnapshot) -> some View {
         switch item {
         case .liked(let playlist):
             NavigationLink(value: playlist) {
@@ -3283,6 +3300,18 @@ struct HomeView: View {
             }
             .buttonStyle(.pmPressable)
             .mediaZoomSource(.playlist, id: tile.playlist.id)
+        case .book(let id):
+            // 和收藏页一样:点开是这本书,从那里接着听。
+            if let entry = books.entriesByID[id] {
+                NavigationLink {
+                    SpokenWordBookDetailView(bookID: entry.id)
+                } label: {
+                    quickAccessDockLabel(title: entry.book.title) {
+                        FavoriteBookArtwork(song: entry.songs.first, size: 52, cornerRadius: 9)
+                    }
+                }
+                .buttonStyle(.pmPressable)
+            }
         }
     }
 
