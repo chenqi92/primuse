@@ -394,8 +394,12 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
                   totalFrames < 0 || decoder.position < totalFrames {
                 let framesToRead: AVAudioFrameCount
                 if totalFrames >= 0 {
-                    let remainingFrames = AVAudioFrameCount(totalFrames - decoder.position)
-                    framesToRead = min(bufferFrameCount, remainingFrames)
+                    // Narrow only after the min: a single file longer than
+                    // UInt32.max frames (about 27 h at 44.1 kHz — a long
+                    // audiobook) would otherwise trap here.
+                    framesToRead = AVAudioFrameCount(
+                        min(Int64(bufferFrameCount), totalFrames - decoder.position)
+                    )
                 } else {
                     framesToRead = bufferFrameCount
                 }
@@ -456,8 +460,9 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
                   totalFrames < 0 || decoder.position < totalFrames {
                 let framesToRead: AVAudioFrameCount
                 if totalFrames >= 0 {
-                    let remainingFrames = AVAudioFrameCount(totalFrames - decoder.position)
-                    framesToRead = min(bufferFrameCount, remainingFrames)
+                    framesToRead = AVAudioFrameCount(
+                        min(Int64(bufferFrameCount), totalFrames - decoder.position)
+                    )
                 } else {
                     framesToRead = bufferFrameCount
                 }
