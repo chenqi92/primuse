@@ -145,6 +145,17 @@ public struct TingReaderChapter: Sendable, Equatable {
         TingReaderAPIProtocol.audioFileExtension(forServerPath: path)
     }
 
+    /// 服务端把系统附带文件也当成了章节:从 macOS 拷过去的目录里每个音频旁边都有一个
+    /// `._<文件名>`(AppleDouble 资源文件,一两百字节),还有 `.DS_Store`。它们不是音频,不收。
+    public var isSystemSidecar: Bool {
+        var candidate = path
+        if let components = URLComponents(string: path), components.scheme != nil {
+            candidate = components.path
+        }
+        let leaf = (candidate.replacingOccurrences(of: "\\", with: "/") as NSString).lastPathComponent
+        return leaf.hasPrefix("._") || leaf == ".DS_Store"
+    }
+
     /// 文件名(去掉后缀),章节没有标题时用。
     var fileStem: String? {
         var candidate = path
@@ -450,12 +461,14 @@ public actor TingReaderServiceClient {
         }
     }
 
-    /// 一本书的全部章节(不带分页参数时服务端回整个数组),附当前账号每章的位置。
+    /// 一本书的全部章节(不带分页参数时服务端回整个数组),附当前账号每章的位置。系统附带文件不算章节。
     public func chapters(bookID: String) async throws -> [TingReaderChapter] {
         let payload = try await authorizedJSON(
             path: "/api/books/\(TingReaderAPIProtocol.encodedPathComponent(bookID))/chapters"
         )
-        return try Self.list(payload, key: "chapters").compactMap(TingReaderChapter.init(json:))
+        return try Self.list(payload, key: "chapters")
+            .compactMap(TingReaderChapter.init(json:))
+            .filter { !$0.isSystemSidecar }
     }
 
     /// 书和章节一起取;书已经不在了是 nil。

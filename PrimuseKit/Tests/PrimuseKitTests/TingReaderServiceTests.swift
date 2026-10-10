@@ -101,6 +101,19 @@ struct TingReaderServiceTests {
         #expect(TingReaderCatalogBook(book: book, chapters: chapters).makeSongs(sourceID: "other")[0].id != songs[0].id)
     }
 
+    @Test("macOS resource forks and folder files are not chapters")
+    func systemSidecars() {
+        let sidecar = TingReaderChapter(id: "x", bookID: "b", path: "/app/storage/书/._01 第一章.mp3", duration: 0)
+        let store = TingReaderChapter(id: "y", bookID: "b", path: "/dav/book/.DS_Store", duration: 0)
+        let audio = TingReaderChapter(id: "z", bookID: "b", path: "/app/storage/书/01 第一章.mp3", duration: 180)
+        let hidden = TingReaderChapter(id: "w", bookID: "b", path: "/app/storage/书/.intro.mp3", duration: 30)
+        #expect(sidecar.isSystemSidecar)
+        #expect(store.isSystemSidecar)
+        #expect(!audio.isSystemSidecar)
+        #expect(!hidden.isSystemSidecar)
+        #expect(TingReaderChapter(id: "v", bookID: "b", path: "C:\\books\\._02.m4a", duration: 0).isSystemSidecar)
+    }
+
     @Test("A chapter counts as finished only near its end and past half way")
     func progressPolicy() throws {
         #expect(TingReaderProgressPolicy.isFinished(position: 1790, duration: 1800))
