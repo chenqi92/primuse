@@ -19,7 +19,9 @@ FOUNDATION_EXPORT BOOL PrimusePlayerNodeHasRenderTime(AVAudioPlayerNode *node);
 /// is no longer running by the time the node starts — an interruption or route
 /// change that lands between the caller's check and this call is enough. The
 /// exception cannot be caught in Swift, so the start is attempted here and a
-/// failure is reported as `NO` for the caller to recover from.
+/// failure is reported as `NO` for the caller to recover from. On iOS, macOS
+/// and tvOS 27 and later the start goes through `-playAndReturnError:`, which
+/// reports most of those failures as errors instead of raising.
 FOUNDATION_EXPORT BOOL PrimuseStartPlayerNode(AVAudioPlayerNode *node);
 
 NS_ASSUME_NONNULL_END

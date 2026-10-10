@@ -50,4 +50,27 @@
     XCTAssertFalse(PrimusePlayerNodeHasRenderTime(node));
 }
 
+- (void)testStartingNodeOutsideAnEngineIsContained {
+    // Raises on every system, including through -playAndReturnError: on 27.
+    AVAudioPlayerNode *node = [[AVAudioPlayerNode alloc] init];
+
+    XCTAssertFalse(PrimuseStartPlayerNode(node));
+}
+
+- (void)testStartingDisconnectedNodeReportsFailure {
+    AVAudioEngine *engine = [[AVAudioEngine alloc] init];
+    AVAudioPlayerNode *connected = [[AVAudioPlayerNode alloc] init];
+    AVAudioPlayerNode *disconnected = [[AVAudioPlayerNode alloc] init];
+    [engine attachNode:connected];
+    [engine attachNode:disconnected];
+    [engine connect:connected to:engine.mainMixerNode format:nil];
+    NSError *error = nil;
+    XCTSkipUnless([engine startAndReturnError:&error], @"engine could not start: %@", error);
+
+    XCTAssertFalse(PrimuseStartPlayerNode(disconnected));
+    XCTAssertTrue(PrimuseStartPlayerNode(connected));
+
+    [engine stop];
+}
+
 @end

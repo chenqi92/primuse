@@ -837,7 +837,19 @@ final class TVAudioEngine {
                       self.radioLiveStreamSource === source,
                       self.usingLivePCM else { return }
                 self.scheduleLivePCM(firstBuffer, gate: gate)
-                self.livePCMNode.play()
+                // The engine can stop while the gate is awaited (an interruption
+                // or a route change); starting the node then must fail, not crash.
+                guard PrimuseStartPlayerNode(self.livePCMNode) else {
+                    throw NSError(
+                        domain: "com.welape.yuanyin.tv-radio",
+                        code: 3,
+                        userInfo: [
+                            NSLocalizedDescriptionKey: String(
+                                localized: "radio_live_error_output"
+                            )
+                        ]
+                    )
+                }
                 self.decodedRadioURLs.insert(request.url.absoluteString)
                 self.rejectedDecodedRadioURLs.remove(request.url.absoluteString)
                 self.liveDecodedFallbackNeedsValidation = false

@@ -470,6 +470,7 @@
 		3F874CF4B1939FAE36328711 /* ISOBaseMediaChapterParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CCA8EE372D7ED88D64B8C3D /* ISOBaseMediaChapterParser.swift */; };
 		6AD377F652C05C73879CAEC2 /* TingReaderSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 656E0BFCACE046D38A1A1738 /* TingReaderSource.swift */; };
 		7D2328E731EA15C05F447E49 /* TingReaderAPIProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A04BC9A9E1ED420EC21D43E3 /* TingReaderAPIProtocol.swift */; };
+		9E55FF68358B787BD6214D0C /* AudioPlayerNodeClockReader.m in Sources */ = {isa = PBXBuildFile; fileRef = A70B0C9499688D7F88F09DFA /* AudioPlayerNodeClockReader.m */; };
 		B51157CAAD473AB1B870829D /* TingReaderSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 656E0BFCACE046D38A1A1738 /* TingReaderSource.swift */; };
 		B53EEE559CBCD42168951481 /* TingReaderServiceClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2129A566F4B5BDA731416B1 /* TingReaderServiceClient.swift */; };
 		C44AE0F45CDFF6C7DA8C7B34 /* TingReaderStreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5400797E01BDAA73A61EE612 /* TingReaderStreamResolver.swift */; };
@@ -7109,6 +7110,7 @@
 				63B5A50955FF23FF9A9F573C /* EmbeddedMetadataWriter.swift in Sources */,
 				5FB21BB62EA59814EB6DC658 /* FFmpegDecoderBridge.m in Sources */,
 				62B5DBDEFFB92E276B9EA6D0 /* FFmpegMusicVideoConverter.m in Sources */,
+				9E55FF68358B787BD6214D0C /* AudioPlayerNodeClockReader.m in Sources */,
 				9D603241B5052785AD417424 /* FTPByteReader.swift in Sources */,
 				08E777E2F1647E94EBF91766 /* FileLogger.swift in Sources */,
 				2F09AF9820B07E36BBDEDC15 /* FileMetadataReader.swift in Sources */,
