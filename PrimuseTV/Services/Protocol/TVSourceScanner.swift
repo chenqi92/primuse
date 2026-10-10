@@ -935,7 +935,11 @@ actor TVFilesProviderLister: TVDirectoryLister {
             }
             self.provider = dav
         case .ftp:
-            guard let ftp = FTPFileProvider(baseURL: baseURL, credential: urlCredential) else {
+            guard let ftp = FTPFileProvider(
+                baseURL: baseURL,
+                mode: (source.ftpDataConnectionMode ?? .automatic).filesProviderMode,
+                credential: urlCredential
+            ) else {
                 return nil
             }
             self.provider = ftp

@@ -497,6 +497,9 @@
 "sftp_config" = "SFTP-Einstellungen";
 "nfs_config" = "NFS-Einstellungen";
 "encryption" = "Verschlüsselung";
+"ftp_data_connection" = "Datenverbindung";
+"ftp_data_connection_info" = "„Automatisch“ verwendet PASV für normales FTP und EPSV für FTPS. Wenn Ordner außerhalb des Servernetzes nie fertig laden, wähle EPSV: Es verbindet sich mit der eingegebenen Adresse statt mit der, die der Server meldet – hinter einem Router ist das oft eine lokale Adresse. Einen aktiven Modus gibt es nicht, weil der Server sich dafür zu diesem Gerät verbinden müsste, was Mobilfunknetze und die meisten Router blockieren.";
+"ftp_data_connection_timeout" = "Der FTP-Server hat nicht rechtzeitig geantwortet. Wenn du nicht im Netz des Servers bist, stelle in den Einstellungen dieser Quelle „Datenverbindung“ auf „Erweitert passiv (EPSV)“ und versuche es erneut.";
 "nfs_version" = "NFS-Version";
 "cat_nas" = "NAS";
 "cat_protocol" = "Protokoll";

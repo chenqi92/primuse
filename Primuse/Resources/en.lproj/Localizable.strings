@@ -272,6 +272,9 @@
 "sftp_config" = "SFTP Settings";
 "nfs_config" = "NFS Settings";
 "encryption" = "Encryption";
+"ftp_data_connection" = "Data Connection";
+"ftp_data_connection_info" = "Automatic uses PASV for plain FTP and EPSV for FTPS. If folders never finish loading while you're away from the server's network, choose EPSV: it connects to the address you entered rather than the one the server reports, which behind a router is often a local address. Active mode isn't offered, because it needs the server to connect back to this device, which cellular networks and most routers block.";
+"ftp_data_connection_timeout" = "The FTP server didn't answer in time. If you're away from the server's network, set Data Connection to Extended Passive (EPSV) in this source's settings and try again.";
 "nfs_version" = "NFS Version";
 "cat_nas" = "NAS";
 "cat_protocol" = "Protocol";

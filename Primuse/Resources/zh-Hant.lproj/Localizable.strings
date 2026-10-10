@@ -260,6 +260,9 @@
 "sftp_config" = "SFTP 設定";
 "nfs_config" = "NFS 設定";
 "encryption" = "加密方式";
+"ftp_data_connection" = "資料連線";
+"ftp_data_connection_info" = "「自動」在一般 FTP 下用 PASV，在 FTPS 下用 EPSV。不在伺服器所在的網路裡時目錄一直載入不出來，就選 EPSV：它連你填的伺服器位址，而不是伺服器回報的位址——伺服器在路由器後面時，回報的往往是內網位址。沒有主動模式：它要伺服器反過來連線這台裝置，行動網路和大多數路由器都會擋住。";
+"ftp_data_connection_timeout" = "FTP 伺服器遲遲沒有回應。不在伺服器所在的網路裡時，可以在這個音樂來源的設定裡把「資料連線」改成「擴充被動（EPSV）」再試。";
 "nfs_version" = "NFS 版本";
 "cat_nas" = "NAS 裝置";
 "cat_protocol" = "網路通訊協定";

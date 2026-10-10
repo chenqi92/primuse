@@ -272,6 +272,9 @@
 "sftp_config" = "SFTP 设置";
 "nfs_config" = "NFS 设置";
 "encryption" = "加密方式";
+"ftp_data_connection" = "数据连接";
+"ftp_data_connection_info" = "「自动」在普通 FTP 下用 PASV，在 FTPS 下用 EPSV。不在服务器所在的网络里时目录一直加载不出来，就选 EPSV：它连你填的服务器地址，而不是服务器报出的地址——服务器在路由器后面时，报出的往往是内网地址。没有主动模式：它要服务器反过来连接这台设备，蜂窝网络和大多数路由器都会挡住。";
+"ftp_data_connection_timeout" = "FTP 服务器迟迟没有响应。不在服务器所在的网络里时，可以在这个音乐源的设置里把「数据连接」改成「扩展被动（EPSV）」再试。";
 "nfs_version" = "NFS 版本";
 "cat_nas" = "NAS 设备";
 "cat_protocol" = "网络协议";

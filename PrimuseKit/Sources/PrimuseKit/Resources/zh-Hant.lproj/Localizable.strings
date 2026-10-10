@@ -739,6 +739,9 @@
 "ftp.encryption.none" = "無";
 "ftp.encryption.implicitTLS" = "隱式 TLS（FTPS）";
 "ftp.encryption.explicitTLS" = "顯式 TLS（FTPES）";
+"ftp.data_connection.automatic" = "自動";
+"ftp.data_connection.passive" = "被動（PASV）";
+"ftp.data_connection.extendedPassive" = "擴充被動（EPSV）";
 "nfs.version.auto" = "自動";
 "radio.streamFormat.automatic" = "自動";
 "src.subtitle.sftp" = "SSH · 金鑰驗證";

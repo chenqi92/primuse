@@ -3755,7 +3755,8 @@ final class SourceManager {
                     basePath: source.basePath,
                     username: source.username ?? "",
                     password: password,
-                    encryption: source.ftpEncryption ?? .none
+                    encryption: source.ftpEncryption ?? .none,
+                    dataConnectionMode: source.ftpDataConnectionMode ?? .automatic
                 )
             }
         case .sftp:
@@ -6391,7 +6392,7 @@ final class SourceManager {
     /// 刻意不含那些不改命名空间、却在 `directConnector(for:)` 里被写进实例的
     /// 字段。这里的清单是照着 `directConnector` 与 `routedConnector` 逐个
     /// 分支读出来的: host / port / useSsl / basePath / shareName / exportPath /
-    /// username / alternateTLSValidationHostname / authType / ftpEncryption /
+    /// username / alternateTLSValidationHostname / authType / ftpEncryption / ftpDataConnectionMode /
     /// nfsVersion / s3Region / extraConfig / rememberDevice / deviceId /
     /// 群晖与飞牛的有效连接模式。多端点的候选线路来自 connectionConfiguration,
     /// 已经包含在作用域指纹里。宁可多重建一次, 也不能让用户改完加密方式后
@@ -6411,6 +6412,7 @@ final class SourceManager {
             source.alternateTLSValidationHostname ?? "",
             source.authType.rawValue,
             source.ftpEncryption?.rawValue ?? "",
+            source.ftpDataConnectionMode?.rawValue ?? "",
             source.nfsVersion?.rawValue ?? "",
             source.s3Region ?? "",
             source.extraConfig ?? "",

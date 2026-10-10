@@ -497,6 +497,9 @@
 "sftp_config" = "Réglages SFTP";
 "nfs_config" = "Réglages NFS";
 "encryption" = "Chiffrement";
+"ftp_data_connection" = "Connexion de données";
+"ftp_data_connection_info" = "« Automatique » utilise PASV pour le FTP classique et EPSV pour le FTPS. Si les dossiers ne finissent jamais de se charger hors du réseau du serveur, choisissez EPSV : il se connecte à l’adresse saisie plutôt qu’à celle annoncée par le serveur, souvent une adresse locale derrière un routeur. Le mode actif n’est pas proposé, car le serveur devrait se connecter à cet appareil, ce que bloquent les réseaux cellulaires et la plupart des routeurs.";
+"ftp_data_connection_timeout" = "Le serveur FTP n’a pas répondu à temps. Si vous êtes hors du réseau du serveur, réglez « Connexion de données » sur « Passif étendu (EPSV) » dans les réglages de cette source, puis réessayez.";
 "nfs_version" = "Version NFS";
 "cat_nas" = "NAS";
 "cat_protocol" = "Protocole";

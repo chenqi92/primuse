@@ -541,6 +541,9 @@
 "fnmusic_fnconnect_hint" = "एफएन ID दर्ज करें। Primuse सीधा मार्ग पसंद करता है और एफएन कनेक्ट रिले पर वापस आता है। साइन-इन अभी भी स्थानीय NAS खाते का उपयोग करता है।";
 "fnmusic_fnid" = "FN ID";
 "ftp.encryption.explicitTLS" = "स्पष्ट टीएलएस (एफटीपीईएस)";
+"ftp.data_connection.automatic" = "स्वचालित";
+"ftp.data_connection.passive" = "पैसिव (PASV)";
+"ftp.data_connection.extendedPassive" = "विस्तारित पैसिव (EPSV)";
 "ftp.encryption.implicitTLS" = "अंतर्निहित टीएलएस (एफटीपीएस)";
 "ftp.encryption.none" = "कोई नहीं";
 "fullscreen_effect_collection_audio_reactive" = "ऑडियो रिएक्टिव";

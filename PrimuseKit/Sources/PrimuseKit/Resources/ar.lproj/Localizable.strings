@@ -541,6 +541,9 @@
 "fnmusic_fnconnect_hint" = "أدخل FN ID. Primuse يفضل الطريق المباشر ويعود إلى مرحل FN Connect. لا يزال تسجيل الدخول يستخدم حساب NAS المحلي.";
 "fnmusic_fnid" = "FN ID";
 "ftp.encryption.explicitTLS" = "بروتوكول TLS الصريح (FTPES)";
+"ftp.data_connection.automatic" = "تلقائي";
+"ftp.data_connection.passive" = "سلبي (PASV)";
+"ftp.data_connection.extendedPassive" = "سلبي موسّع (EPSV)";
 "ftp.encryption.implicitTLS" = "TLS الضمني (FTPS)";
 "ftp.encryption.none" = "لا يوجد";
 "fullscreen_effect_collection_audio_reactive" = "رد الفعل الصوتي";

@@ -253,6 +253,9 @@
 "ext.tv.scan.failedSource" = "Не вдалося завершити сканування «%@»";
 "ext.tv.sources.chooseType" = "Виберіть тип послуги";
 "ftp.encryption.explicitTLS" = "Явний TLS (FTPES)";
+"ftp.data_connection.automatic" = "Автоматично";
+"ftp.data_connection.passive" = "Пасивний (PASV)";
+"ftp.data_connection.extendedPassive" = "Розширений пасивний (EPSV)";
 "ext.tv.otp.enterCode" = "Введіть код підтвердження";
 "send_to_tv_credential_password" = "пароль";
 "ext.widget.demo.lyric3" = "Який палац лежить за хмарами?";

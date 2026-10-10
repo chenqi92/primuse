@@ -253,6 +253,9 @@
 "ext.tv.scan.failedSource" = "“%@” taraması tamamlanamadı";
 "ext.tv.sources.chooseType" = "Hizmet Türü Seçin";
 "ftp.encryption.explicitTLS" = "Açık TLS (FTPES)";
+"ftp.data_connection.automatic" = "Otomatik";
+"ftp.data_connection.passive" = "Pasif (PASV)";
+"ftp.data_connection.extendedPassive" = "Genişletilmiş Pasif (EPSV)";
 "ext.tv.otp.enterCode" = "Doğrulama Kodunu Girin";
 "send_to_tv_credential_password" = "şifre";
 "ext.widget.demo.lyric3" = "Bulutların ötesinde hangi saray var?";

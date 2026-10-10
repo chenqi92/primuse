@@ -742,6 +742,9 @@
 "ftp.encryption.none" = "Keine";
 "ftp.encryption.implicitTLS" = "Implizites TLS (FTPS)";
 "ftp.encryption.explicitTLS" = "Explizites TLS (FTPES)";
+"ftp.data_connection.automatic" = "Automatisch";
+"ftp.data_connection.passive" = "Passiv (PASV)";
+"ftp.data_connection.extendedPassive" = "Erweitert passiv (EPSV)";
 "nfs.version.auto" = "Automatisch";
 "radio.streamFormat.automatic" = "Automatisch";
 "src.subtitle.sftp" = "SSH · Schlüsselanmeldung";

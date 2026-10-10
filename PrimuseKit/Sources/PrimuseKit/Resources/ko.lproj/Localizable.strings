@@ -742,6 +742,9 @@
 "ftp.encryption.none" = "없음";
 "ftp.encryption.implicitTLS" = "암시적 TLS(FTPS)";
 "ftp.encryption.explicitTLS" = "명시적 TLS(FTPES)";
+"ftp.data_connection.automatic" = "자동";
+"ftp.data_connection.passive" = "패시브(PASV)";
+"ftp.data_connection.extendedPassive" = "확장 패시브(EPSV)";
 "nfs.version.auto" = "자동";
 "radio.streamFormat.automatic" = "자동";
 "src.subtitle.sftp" = "SSH · 키 인증";

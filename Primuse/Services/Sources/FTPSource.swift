@@ -121,6 +121,22 @@ private final class FTPDirectoryRequestBox: @unchecked Sendable {
     }
 }
 
+/// 列目录过了时限还没有结果。多半是数据连接连不上(服务器在 PASV 回复里报了内网地址),
+/// 换数据连接方式才能好, 所以不当成网络抖动自动重试, 直接告诉用户该改哪里。
+private struct FTPDirectoryListingTimeout: LocalizedError {
+    var errorDescription: String? { String(localized: "ftp_data_connection_timeout") }
+}
+
+private extension FTPDataConnectionMode {
+    var filesProviderMode: FTPFileProvider.Mode {
+        switch self {
+        case .automatic: .default
+        case .passive: .passive
+        case .extendedPassive: .extendedPassive
+        }
+    }
+}
+
 private func ftpLocalFileSize(at url: URL) -> Int64? {
     guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
           let size = attributes[.size] as? NSNumber else {
@@ -257,6 +273,7 @@ actor FTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     private let username: String
     private let password: String
     private let encryption: FTPEncryption
+    private let dataConnectionMode: FTPDataConnectionMode
     private var provider: FTPFileProvider?
     private let cacheDirectory: URL
     private let activeRequests = ConnectionScopedOperationRegistry()
@@ -270,7 +287,8 @@ actor FTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         basePath: String? = nil,
         username: String,
         password: String,
-        encryption: FTPEncryption
+        encryption: FTPEncryption,
+        dataConnectionMode: FTPDataConnectionMode = .automatic
     ) {
         self.sourceID = sourceID
         self.host = host
@@ -279,6 +297,7 @@ actor FTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         self.username = username
         self.password = password
         self.encryption = encryption
+        self.dataConnectionMode = dataConnectionMode
 
         let cacheDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("primuse_ftp_cache")
@@ -337,6 +356,7 @@ actor FTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
 
         guard let provider = PrimuseFTPFileProvider(
             baseURL: try serverURL(),
+            mode: dataConnectionMode.filesProviderMode,
             credential: credential
         ) else {
             throw SourceError.connectionFailed("Invalid FTP URL")
@@ -429,6 +449,13 @@ actor FTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         let pathPolicy = self.pathPolicy
         let providerDirectoryPath = pathPolicy.providerPath(forSourcePath: path)
         let request = FTPDirectoryRequestBox(provider: provider)
+        let deadline = Task {
+            try? await Task.sleep(for: Self.directoryListingDeadline)
+            guard !Task.isCancelled,
+                  request.resolve(.failure(FTPDirectoryListingTimeout())) else { return }
+            request.provider.session.invalidateAndCancel()
+        }
+        defer { deadline.cancel() }
 
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -499,7 +526,11 @@ actor FTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         fileSizeCache.removeAll(keepingCapacity: true)
     }
 
+    /// 一层目录正常几秒就列完; 过了这么久还没有结果, 数据连接多半根本没建起来。
+    private static let directoryListingDeadline: Duration = .seconds(45)
+
     private nonisolated static func isPermanentDirectoryError(_ error: Error) -> Bool {
+        if error is FTPDirectoryListingTimeout { return true }
         if let sourceError = error as? SourceError {
             switch sourceError {
             case .authenticationFailed, .credentialUnavailable, .pathNotFound, .fileNotFound:

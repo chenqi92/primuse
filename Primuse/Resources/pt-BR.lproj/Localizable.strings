@@ -1257,6 +1257,9 @@
 "encoding_fix_section_header" = "Escolha a versão que lê corretamente";
 "encoding_fix_title" = "Codificação de texto";
 "encryption" = "Criptografia";
+"ftp_data_connection" = "Conexão de dados";
+"ftp_data_connection_info" = "“Automático” usa PASV no FTP comum e EPSV no FTPS. Se as pastas nunca terminam de carregar fora da rede do servidor, escolha EPSV: ele se conecta ao endereço que você digitou, e não ao informado pelo servidor, que atrás de um roteador costuma ser um endereço local. Não há modo ativo, porque o servidor precisaria se conectar a este dispositivo, o que redes celulares e a maioria dos roteadores bloqueiam.";
+"ftp_data_connection_timeout" = "O servidor FTP não respondeu a tempo. Se você estiver fora da rede do servidor, mude “Conexão de dados” para “Passivo estendido (EPSV)” nos ajustes desta fonte e tente de novo.";
 "enter_otp" = "Insira o código OTP";
 "eq_enabled" = "Equalizador";
 "eq_preset" = "Predefinição de equalização";

@@ -403,6 +403,9 @@
 "scrobble_mac_footer_success_format" = "Son gönderimler · %d başarılı";
 "carplay_artists_title" = "Sanatçılar";
 "encryption" = "Şifreleme";
+"ftp_data_connection" = "Veri Bağlantısı";
+"ftp_data_connection_info" = "“Otomatik”, normal FTP için PASV, FTPS için EPSV kullanır. Sunucunun ağı dışındayken klasörler hiç yüklenmiyorsa EPSV’yi seçin: sunucunun bildirdiği adres yerine girdiğiniz adrese bağlanır; yönlendiricinin arkasındaki sunucular genellikle yerel bir adres bildirir. Aktif mod sunulmaz, çünkü sunucunun bu cihaza bağlanması gerekir ve hücresel ağlar ile çoğu yönlendirici bunu engeller.";
+"ftp_data_connection_timeout" = "FTP sunucusu zamanında yanıt vermedi. Sunucunun ağı dışındaysanız bu kaynağın ayarlarında “Veri Bağlantısı”nı “Genişletilmiş Pasif (EPSV)” yapıp yeniden deneyin.";
 "error_audio_converter_creation" = "Ses dönüştürücü oluşturulamadı.";
 "Paste JSON or an HTTPS URL" = "JSON veya HTTPS URL'yi yapıştırın";
 "scrape_song" = "Üst verileri bul";

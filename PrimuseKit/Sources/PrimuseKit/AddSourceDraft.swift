@@ -53,6 +53,8 @@ public struct AddSourceDraft: Codable, Equatable, Sendable {
     public var exportPath: String
     public var authType: String
     public var ftpEncryption: String
+    /// 旧草稿里没有这一项, 读出来是 nil。
+    public var ftpDataConnectionMode: String?
     public var nfsVersion: String
     public var autoConnect: Bool
     public var rememberDevice: Bool
@@ -79,6 +81,7 @@ public struct AddSourceDraft: Codable, Equatable, Sendable {
         exportPath: String,
         authType: String,
         ftpEncryption: String,
+        ftpDataConnectionMode: String? = nil,
         nfsVersion: String,
         autoConnect: Bool,
         rememberDevice: Bool,
@@ -104,6 +107,7 @@ public struct AddSourceDraft: Codable, Equatable, Sendable {
         self.exportPath = exportPath
         self.authType = authType
         self.ftpEncryption = ftpEncryption
+        self.ftpDataConnectionMode = ftpDataConnectionMode
         self.nfsVersion = nfsVersion
         self.autoConnect = autoConnect
         self.rememberDevice = rememberDevice

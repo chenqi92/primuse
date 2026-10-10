@@ -541,6 +541,9 @@
 "fnmusic_fnconnect_hint" = "Ingrese la ID de FN. Primuse prefiere una ruta directa y recurre al relé FN Connect. El inicio de sesión todavía usa la cuenta NAS local.";
 "fnmusic_fnid" = "FN ID";
 "ftp.encryption.explicitTLS" = "TLS explícito (FTPES)";
+"ftp.data_connection.automatic" = "Automático";
+"ftp.data_connection.passive" = "Pasivo (PASV)";
+"ftp.data_connection.extendedPassive" = "Pasivo extendido (EPSV)";
 "ftp.encryption.implicitTLS" = "TLS implícito (FTPS)";
 "ftp.encryption.none" = "Ninguno";
 "fullscreen_effect_collection_audio_reactive" = "Audio reactivo";

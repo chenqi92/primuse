@@ -18,6 +18,17 @@ private final class TVFTPFileProvider: FTPFileProvider {
     }
 }
 
+extension FTPDataConnectionMode {
+    /// FilesProvider 里对应的数据连接方式。电视端读文件与列目录共用。
+    var filesProviderMode: FTPFileProvider.Mode {
+        switch self {
+        case .automatic: .default
+        case .passive: .passive
+        case .extendedPassive: .extendedPassive
+        }
+    }
+}
+
 private final class TVFTPRequestBox<Value: Sendable>: @unchecked Sendable {
     private let race = CancellableResultRace<Value>()
     private let cancellations = OneShotCancellationRegistry()
@@ -76,7 +87,11 @@ actor FTPByteReader: ByteRangeReader {
         let pass = (rawUser.isEmpty && (cred?.password ?? "").isEmpty) ? "anonymous@primuse" : (cred?.password ?? "")
         let credential = URLCredential(user: user, password: pass, persistence: .forSession)
 
-        guard let p = TVFTPFileProvider(baseURL: baseURL, credential: credential) else { return nil }
+        guard let p = TVFTPFileProvider(
+            baseURL: baseURL,
+            mode: (source.ftpDataConnectionMode ?? .automatic).filesProviderMode,
+            credential: credential
+        ) else { return nil }
         p.dispatch_queue = DispatchQueue(
             label: "com.welape.yuanyin.tv.ftp.callbacks.\(UUID().uuidString)"
         )

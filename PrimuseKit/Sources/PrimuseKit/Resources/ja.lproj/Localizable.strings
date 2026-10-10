@@ -742,6 +742,9 @@
 "ftp.encryption.none" = "なし";
 "ftp.encryption.implicitTLS" = "暗黙的 TLS（FTPS）";
 "ftp.encryption.explicitTLS" = "明示的 TLS（FTPES）";
+"ftp.data_connection.automatic" = "自動";
+"ftp.data_connection.passive" = "パッシブ（PASV）";
+"ftp.data_connection.extendedPassive" = "拡張パッシブ（EPSV）";
 "nfs.version.auto" = "自動";
 "radio.streamFormat.automatic" = "自動";
 "src.subtitle.sftp" = "SSH · 鍵認証";

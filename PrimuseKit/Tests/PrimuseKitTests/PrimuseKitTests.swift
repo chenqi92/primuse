@@ -116,6 +116,22 @@ import Testing
     #expect(NFSVersion.v4.versionAfterFallback(to: .v3, succeeded: true) == .v3)
 }
 
+@Test func ftpDataConnectionModeRoundTripsAndToleratesUnknownValues() throws {
+    let source = MusicSource(name: "FTP", type: .ftp, host: "ftp.example.com", ftpDataConnectionMode: .extendedPassive)
+    let data = try JSONEncoder().encode(source)
+    #expect(try JSONDecoder().decode(MusicSource.self, from: data).ftpDataConnectionMode == .extendedPassive)
+
+    // 以后的版本加了新方式, 这一版读不认识的值时当作没设, 音乐源照样读得出来。
+    var object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    object["ftpDataConnectionMode"] = "somethingNewer"
+    let decoded = try JSONDecoder().decode(
+        MusicSource.self,
+        from: try JSONSerialization.data(withJSONObject: object)
+    )
+    #expect(decoded.ftpDataConnectionMode == nil)
+    #expect(decoded.host == "ftp.example.com")
+}
+
 @Test func testAudioFormatRouting() {
     #expect(AudioFormat.mp3.requiresFFmpeg == false)
     #expect(AudioFormat.flac.requiresFFmpeg == false)

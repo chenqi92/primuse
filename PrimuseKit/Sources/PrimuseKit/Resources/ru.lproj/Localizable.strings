@@ -253,6 +253,9 @@
 "ext.tv.scan.failedSource" = "Не удалось завершить сканирование «%@»";
 "ext.tv.sources.chooseType" = "Выберите тип услуги";
 "ftp.encryption.explicitTLS" = "Явный TLS (FTPES)";
+"ftp.data_connection.automatic" = "Автоматически";
+"ftp.data_connection.passive" = "Пассивный (PASV)";
+"ftp.data_connection.extendedPassive" = "Расширенный пассивный (EPSV)";
 "ext.tv.otp.enterCode" = "Введите код подтверждения.";
 "send_to_tv_credential_password" = "пароль";
 "ext.widget.demo.lyric3" = "Какой дворец находится за облаками?";

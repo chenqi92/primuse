@@ -53,6 +53,7 @@ struct AddSourceView: View {
     @State private var authType: SourceAuthType = .password
     @State private var sshKey = ""
     @State private var ftpEncryption: FTPEncryption = .none
+    @State private var ftpDataConnectionMode: FTPDataConnectionMode = .automatic
     @State private var nfsVersion: NFSVersion = .auto
     @State private var autoConnect = false
     @State private var rememberDevice = false
@@ -686,6 +687,14 @@ struct AddSourceView: View {
                     .labelsHidden()
                     .frame(maxWidth: 220)
                 }
+                macCustomRow("ftp_data_connection") {
+                    Picker("", selection: $ftpDataConnectionMode) {
+                        ForEach(FTPDataConnectionMode.allCases, id: \.self) { Text($0.displayName).tag($0) }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 220)
+                }
+                macInfoRow("ftp_data_connection_info")
                 macTextRow("initial_path", text: $basePath, focus: .basePath)
             }
         case .sftp:
@@ -1407,6 +1416,13 @@ struct AddSourceView: View {
                 Picker("encryption", selection: $ftpEncryption) {
                     ForEach(FTPEncryption.allCases, id: \.self) { Text($0.displayName).tag($0) }
                 }
+                Picker(selection: $ftpDataConnectionMode) {
+                    ForEach(FTPDataConnectionMode.allCases, id: \.self) { Text($0.displayName).tag($0) }
+                } label: {
+                    SettingsInfoLabel("ftp_data_connection") {
+                        Text("ftp_data_connection_info")
+                    }
+                }
                 TextField("initial_path", text: $basePath)
                     .focused($focusedField, equals: .basePath)
                     .autocorrectionDisabled().submitLabel(.next)
@@ -1545,6 +1561,7 @@ struct AddSourceView: View {
                 }
             }
             ftpEncryption = s.ftpEncryption ?? .none; nfsVersion = s.nfsVersion ?? .auto
+            ftpDataConnectionMode = s.ftpDataConnectionMode ?? .automatic
             editingSourceHasStoredSecret = Self.readStoredSecretExists(for: s.id)
         } else if let device = prefillDevice {
             name = device.name
@@ -1627,6 +1644,7 @@ struct AddSourceView: View {
             exportPath: exportPath,
             authType: authType.rawValue,
             ftpEncryption: ftpEncryption.rawValue,
+            ftpDataConnectionMode: ftpDataConnectionMode.rawValue,
             nfsVersion: nfsVersion.rawValue,
             autoConnect: autoConnect,
             rememberDevice: rememberDevice,
@@ -1685,6 +1703,8 @@ struct AddSourceView: View {
         exportPath = draft.exportPath
         authType = SourceAuthType(rawValue: draft.authType) ?? authType
         ftpEncryption = FTPEncryption(rawValue: draft.ftpEncryption) ?? ftpEncryption
+        ftpDataConnectionMode = draft.ftpDataConnectionMode
+            .flatMap(FTPDataConnectionMode.init(rawValue:)) ?? ftpDataConnectionMode
         nfsVersion = NFSVersion(rawValue: draft.nfsVersion) ?? nfsVersion
         autoConnect = draft.autoConnect
         rememberDevice = draft.rememberDevice
@@ -2075,6 +2095,8 @@ struct AddSourceView: View {
             exportPath: exportPath.isEmpty ? nil : exportPath,
             authType: sourceType == .drime ? .apiKey : (sourceType.isCloudDrive ? .oauth : authType),
             ftpEncryption: sourceType == .ftp ? ftpEncryption : nil,
+            ftpDataConnectionMode: sourceType == .ftp && ftpDataConnectionMode != .automatic
+                ? ftpDataConnectionMode : nil,
             nfsVersion: sourceType == .nfs ? nfsVersion : nil,
             autoConnect: autoConnect, rememberDevice: rememberDevice,
             deviceId: editingSource?.deviceId,

@@ -824,6 +824,26 @@ public enum FTPEncryption: String, Codable, Sendable, CaseIterable {
     }
 }
 
+/// FTP 的数据连接怎么建立。没有主动模式(PORT):它要服务器反过来连接这台设备,
+/// 蜂窝网络和大多数路由器后面都收不到这种连接。
+public enum FTPDataConnectionMode: String, Codable, Sendable, CaseIterable {
+    /// 普通 FTP 用 PASV,FTPS 用 EPSV。
+    case automatic
+    /// PASV:连服务器在回复里报出的地址。
+    case passive
+    /// EPSV:回复里只有端口,连的是用户填的服务器地址。服务器在路由器后面、
+    /// PASV 报出的是内网地址时,从外面只有这样连得上。
+    case extendedPassive
+
+    public var displayName: String {
+        switch self {
+        case .automatic: return PMString("ftp.data_connection.automatic")
+        case .passive: return PMString("ftp.data_connection.passive")
+        case .extendedPassive: return PMString("ftp.data_connection.extendedPassive")
+        }
+    }
+}
+
 public enum NFSVersion: String, Codable, Sendable, CaseIterable {
     case auto
     case v3
@@ -1538,6 +1558,8 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
     public var exportPath: String? // NFS export path
     public var authType: SourceAuthType
     public var ftpEncryption: FTPEncryption?
+    /// nil 与 `.automatic` 相同。
+    public var ftpDataConnectionMode: FTPDataConnectionMode?
     public var nfsVersion: NFSVersion?
     public var autoConnect: Bool
     public var rememberDevice: Bool // for 2FA
@@ -1591,6 +1613,7 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         exportPath: String? = nil,
         authType: SourceAuthType = .password,
         ftpEncryption: FTPEncryption? = nil,
+        ftpDataConnectionMode: FTPDataConnectionMode? = nil,
         nfsVersion: NFSVersion? = nil,
         autoConnect: Bool = false,
         rememberDevice: Bool = false,
@@ -1624,6 +1647,7 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         self.exportPath = exportPath
         self.authType = authType
         self.ftpEncryption = ftpEncryption
+        self.ftpDataConnectionMode = ftpDataConnectionMode
         self.nfsVersion = nfsVersion
         self.autoConnect = autoConnect
         self.rememberDevice = rememberDevice
@@ -1672,6 +1696,10 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         self.exportPath = try c.decodeIfPresent(String.self, forKey: .exportPath)
         self.authType = try c.decode(SourceAuthType.self, forKey: .authType)
         self.ftpEncryption = try c.decodeIfPresent(FTPEncryption.self, forKey: .ftpEncryption)
+        // 以后加的方式旧版本不认识, 当作没设, 别让整条音乐源读不出来。
+        self.ftpDataConnectionMode = (try? c.decodeIfPresent(
+            FTPDataConnectionMode.self, forKey: .ftpDataConnectionMode
+        )) ?? nil
         self.nfsVersion = try c.decodeIfPresent(NFSVersion.self, forKey: .nfsVersion)
         self.autoConnect = try c.decode(Bool.self, forKey: .autoConnect)
         self.rememberDevice = try c.decode(Bool.self, forKey: .rememberDevice)
