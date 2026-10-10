@@ -117,7 +117,8 @@ enum CloudPlaybackSource {
         cacheRelativePath: String? = nil,
         prefetchAhead: Int = Self.prefetchAhead,
         allowsTrailingFill: Bool = true,
-        sequentialFetch: SequentialFetch? = nil
+        sequentialFetch: SequentialFetch? = nil,
+        readAheadSuspended: Bool = false
     ) -> InputSource? {
         let path = song.filePath
         let connectorFetch: @Sendable (Int64, Int64, RangeFetchPriority) async throws -> Data = { off, len, priority in
@@ -141,7 +142,8 @@ enum CloudPlaybackSource {
             prefetchAhead: prefetchAhead,
             allowsTrailingFill: allowsTrailingFill,
             connectorFetch: connectorFetch,
-            sequentialFetch: sequentialFetch
+            sequentialFetch: sequentialFetch,
+            readAheadSuspended: readAheadSuspended
         )
     }
 
@@ -157,7 +159,8 @@ enum CloudPlaybackSource {
         streamEpoch: UInt64,
         persistOnComplete: Bool = true,
         cacheRelativePath: String? = nil,
-        prefetchAhead: Int = Self.prefetchAhead
+        prefetchAhead: Int = Self.prefetchAhead,
+        readAheadSuspended: Bool = false
     ) -> InputSource? {
         guard totalLength > 0,
               url.scheme == "http" || url.scheme == "https" else { return nil }
@@ -178,7 +181,8 @@ enum CloudPlaybackSource {
             cacheRelativePath: cacheRelativePath,
             prefetchAhead: prefetchAhead,
             allowsTrailingFill: true,
-            connectorFetch: fetch
+            connectorFetch: fetch,
+            readAheadSuspended: readAheadSuspended
         )
     }
 
@@ -194,7 +198,8 @@ enum CloudPlaybackSource {
         prefetchAhead: Int,
         allowsTrailingFill: Bool,
         connectorFetch: @escaping @Sendable (Int64, Int64, RangeFetchPriority) async throws -> Data,
-        sequentialFetch: SequentialFetch? = nil
+        sequentialFetch: SequentialFetch? = nil,
+        readAheadSuspended: Bool = false
     ) -> InputSource? {
         guard isCurrentStreamEpoch(sourceID: sourceID, epoch: streamEpoch) else {
             return nil
@@ -211,6 +216,7 @@ enum CloudPlaybackSource {
             sourceID: sourceID,
             streamEpoch: streamEpoch,
             partialPath: partialURL.path,
+            refusesLiveOwner: readAheadSuspended,
             makeState: { pathWriterToken, priorState in
                 let inheritedRanges: [Range<Int64>]
                 if let priorState {
@@ -272,7 +278,8 @@ enum CloudPlaybackSource {
                     prefetchAhead: prefetchAhead,
                     allowsTrailingFill: allowsTrailingFill,
                     connectorFetch: connectorFetch,
-                    sequentialFetch: sequentialFetch
+                    sequentialFetch: sequentialFetch,
+                    readAheadSuspended: readAheadSuspended
                 )
             }
         ) else { return nil }
@@ -337,6 +344,17 @@ enum CloudPlaybackSource {
         let task: Task<Void, Never>
     }
     nonisolated(unsafe) private static var finalizingTasks: [UUID: FinalizingTaskRecord] = [:]
+
+    /// Seeds left behind by sessions that ended (`keepFetchedBytesAsSeed`,
+    /// `releaseStandbySession`). A credential or endpoint change retires their
+    /// epoch, and with it the trust in those bytes.
+    private struct RetainedSeed {
+        let token: UUID
+        let sourceID: String
+        let streamEpoch: UInt64
+        let ranges: [[Int64]]
+    }
+    nonisolated(unsafe) private static var retainedSeeds: [String: RetainedSeed] = [:]
 
     private static func reservePathMutation(
         partialPath: String
@@ -411,10 +429,13 @@ enum CloudPlaybackSource {
         return activeStates[key]
     }
 
+    /// - Parameter refusesLiveOwner: a session opened ahead of playback never
+    ///   takes the path from one that is playing the same song.
     private static func replacePathOwnerAndRegisterState(
         sourceID: String,
         streamEpoch: UInt64,
         partialPath: String,
+        refusesLiveOwner: Bool = false,
         makeState: (_ writerToken: UUID, _ priorState: State?) -> State
     ) -> State? {
         let reservation = reservePathMutation(partialPath: partialPath)
@@ -422,6 +443,11 @@ enum CloudPlaybackSource {
         defer {
             reservation.coordinator.lock.unlock()
             releasePathMutation(reservation)
+        }
+        // The path coordinator is held, so no other owner can register
+        // between this look and the replacement below.
+        if refusesLiveOwner, let current = activeState(key: partialPath), !current.isStandby() {
+            return nil
         }
 
         registryLock.lock()
@@ -431,6 +457,8 @@ enum CloudPlaybackSource {
         }
         let token = UUID()
         let priorState = activeStates.removeValue(forKey: partialPath)
+        // The new owner reads (and consumes) whatever seed is there now.
+        retainedSeeds[partialPath] = nil
         let staleFills = finalizingTasks.filter {
             $0.value.partialPath == partialPath
         }
@@ -775,6 +803,109 @@ enum CloudPlaybackSource {
         }
     }
 
+    /// The prepared next song starts playing: from here on its session reads
+    /// ahead like any playing stream.
+    static func resumeReadAhead(partialPath: String) {
+        activeState(key: partialPath)?.resumeReadAhead()
+    }
+
+    /// Ends a session opened ahead of playback that was never played (another
+    /// song was started instead). Its bytes stay where they are and become a
+    /// seed again, as though the session had never claimed them; ending it
+    /// like a played song would leave an untrusted partial file, or complete
+    /// a download nobody asked for.
+    /// Returns whether a waiting session was released; a session playback
+    /// has taken over (or that replaced the waiting one) is left alone.
+    @discardableResult
+    static func releaseStandbySession(partialPath: String) -> Bool {
+        guard let state = activeState(key: partialPath), state.isStandby() else { return false }
+        let reservation = reservePathMutation(partialPath: partialPath)
+        reservation.coordinator.lock.lock()
+        registryLock.lock()
+        let ownsPath = activeStates[partialPath] === state
+            && pathWriterOwnerships[partialPath]?.writerToken == state.pathWriterToken
+            && state.isStandby()
+        if ownsPath {
+            activeStates[partialPath] = nil
+            pathWriterOwnerships[partialPath] = nil
+        }
+        registryLock.unlock()
+        // Holding the path coordinator: a fetch still in flight cannot write
+        // between the marker and the revoked ownership.
+        if ownsPath {
+            state.retireKeepingSeed()
+        }
+        reservation.coordinator.lock.unlock()
+        releasePathMutation(reservation)
+        return ownsPath
+    }
+
+    static func isStandbySession(partialPath: String) -> Bool {
+        activeState(key: partialPath)?.isStandby() == true
+    }
+
+    /// Describes `ranges` of the sparse file at `partialURL` as trusted seed
+    /// bytes, the same marker queue prefetch writes. Called with the path
+    /// coordinator held by the session that fetched them.
+    fileprivate static func writeSeedMarker(
+        ranges: [Range<Int64>],
+        partialURL: URL,
+        sourceID: String,
+        streamEpoch: UInt64
+    ) {
+        let markerURL = URL(fileURLWithPath: partialURL.path + prewarmMarkerSuffix)
+        guard let first = ranges.first, first.lowerBound == 0, first.upperBound > 0 else {
+            try? FileManager.default.removeItem(at: markerURL)
+            return
+        }
+        let marker = PrewarmMarker(
+            v: PrewarmMarker.currentVersion,
+            ranges: ranges.map { [$0.lowerBound, $0.upperBound] }
+        )
+        guard (try? marker.write(to: markerURL)) != nil else { return }
+        registryLock.lock()
+        retainedSeeds[partialURL.path] = RetainedSeed(
+            token: UUID(),
+            sourceID: sourceID,
+            streamEpoch: streamEpoch,
+            ranges: marker.ranges
+        )
+        registryLock.unlock()
+    }
+
+    // MARK: Transfer evidence
+
+    typealias TransferObserver = @Sendable (_ sourceID: String) -> Void
+    private static let transferNoticeLock = NSLock()
+    nonisolated(unsafe) private static var transferObserver: TransferObserver?
+    nonisolated(unsafe) private static var lastTransferNoticeBySourceID: [String: TimeInterval] = [:]
+    /// Streams read many chunks a minute; the observer only needs to hear
+    /// that a source is delivering, not about every request.
+    private static let transferNoticeInterval: TimeInterval = 5
+
+    /// Told, at most every few seconds per source, that a source delivered
+    /// audio bytes. SourceManager takes that as proof the source is reachable.
+    static func setTransferObserver(_ observer: TransferObserver?) {
+        transferNoticeLock.lock()
+        transferObserver = observer
+        lastTransferNoticeBySourceID.removeAll()
+        transferNoticeLock.unlock()
+    }
+
+    fileprivate static func noteTransferSucceeded(sourceID: String) {
+        let now = ProcessInfo.processInfo.systemUptime
+        transferNoticeLock.lock()
+        if let last = lastTransferNoticeBySourceID[sourceID],
+           now - last < transferNoticeInterval {
+            transferNoticeLock.unlock()
+            return
+        }
+        lastTransferNoticeBySourceID[sourceID] = now
+        let observer = transferObserver
+        transferNoticeLock.unlock()
+        observer?(sourceID)
+    }
+
     /// Stops live range streams from being promoted into persistent cache
     /// files when the user turns automatic audio caching off mid-track.
     /// Their sparse files remain available until playback ends.
@@ -813,6 +944,9 @@ enum CloudPlaybackSource {
                     ? path
                     : nil
             })
+        let staleSeeds = retainedSeeds.filter {
+            $0.value.sourceID == sourceID && $0.value.streamEpoch < currentEpoch
+        }
         registryLock.unlock()
 
         matching.values.forEach { _ = $0.closeForRebuild() }
@@ -841,6 +975,24 @@ enum CloudPlaybackSource {
                 pathWriterOwnerships[path] = nil
             }
             registryLock.unlock()
+            reservation.coordinator.lock.unlock()
+            releasePathMutation(reservation)
+        }
+
+        // Bytes an ended session of the old scope kept as a seed are no longer
+        // trusted; without their marker the next session starts the file over.
+        // A seed written since (prefetch, a newer session) is left alone.
+        for (path, seed) in staleSeeds {
+            let reservation = reservePathMutation(partialPath: path)
+            reservation.coordinator.lock.lock()
+            registryLock.lock()
+            let stillRetained = retainedSeeds[path]?.token == seed.token
+            if stillRetained { retainedSeeds[path] = nil }
+            registryLock.unlock()
+            let markerURL = URL(fileURLWithPath: path + prewarmMarkerSuffix)
+            if stillRetained, PrewarmMarker.read(from: markerURL)?.ranges == seed.ranges {
+                try? FileManager.default.removeItem(at: markerURL)
+            }
             reservation.coordinator.lock.unlock()
             releasePathMutation(reservation)
         }
@@ -1087,6 +1239,13 @@ private final class State: @unchecked Sendable {
     /// OneDrive keeps a single serialized TCP Range connection, so it uses 0
     /// to keep that connection reserved for foreground decoder reads.
     private let prefetchAhead: Int
+    /// A session opened ahead of playback (the prepared next song) reads only
+    /// what its decoder asks for, so it does not compete with the song that
+    /// is playing, until playback takes it over.
+    private var readAheadSuspended: Bool
+    /// When this session started serving playback: its creation, or for a
+    /// prepared session the moment playback took it over. nil while it waits.
+    private var playbackStartedAt: TimeInterval?
     /// A zero-prefetch source is explicitly demand-driven. Do not turn its
     /// first foreground chunk into a full-file background transfer through
     /// the generic trailing-gap completion path.
@@ -1173,7 +1332,8 @@ private final class State: @unchecked Sendable {
         prefetchAhead: Int = CloudPlaybackSource.prefetchAhead,
         allowsTrailingFill: Bool = true,
         connectorFetch: @escaping @Sendable (Int64, Int64, RangeFetchPriority) async throws -> Data,
-        sequentialFetch: CloudPlaybackSource.SequentialFetch? = nil
+        sequentialFetch: CloudPlaybackSource.SequentialFetch? = nil,
+        readAheadSuspended: Bool = false
     ) {
         self.label = label
         self.sourceID = sourceID
@@ -1189,6 +1349,8 @@ private final class State: @unchecked Sendable {
         self.allowsTrailingFill = allowsTrailingFill
         self.connectorFetch = connectorFetch
         self.sequentialFetch = sequentialFetch
+        self.readAheadSuspended = readAheadSuspended
+        self.playbackStartedAt = readAheadSuspended ? nil : ProcessInfo.processInfo.systemUptime
         // A seed whose tail starts exactly where its head ends (a file only a
         // little longer than the head) arrives as two adjacent ranges. Merge
         // them like `mergeRange` does for fetched bytes, so a read across the
@@ -1513,6 +1675,7 @@ private final class State: @unchecked Sendable {
             // Successful fetch — re-enable prefetching (may have been
             // disabled by a transient earlier failure).
             lock.lock(); fetchDisabled = false; lock.unlock()
+            CloudPlaybackSource.noteTransferSucceeded(sourceID: sourceID)
             writeToCache(offset: chunkStart, data: data)
 
             // Slice out the part SFB actually asked for. The chunk may
@@ -1555,7 +1718,7 @@ private final class State: @unchecked Sendable {
     /// 否则 mp3 全帧扫描场景下每个 chunk fetch 串行累加变成"整下时间"。
     private func prefetchIfNeeded(startOffset: Int64) {
         let aheadCount = prefetchAhead
-        guard aheadCount > 0 else { return }
+        guard aheadCount > 0, !isReadAheadSuspended() else { return }
         let chunkSize = CloudPlaybackSource.chunkSize
         // Round UP to the next chunk boundary — the chunk *containing*
         // startOffset was just fetched (or hit cache). Prefetch the ones
@@ -1587,6 +1750,7 @@ private final class State: @unchecked Sendable {
                     guard !Task.isCancelled else { return }
                     guard !data.isEmpty else { return }
                     guard !self.isClosed() else { return }
+                    CloudPlaybackSource.noteTransferSucceeded(sourceID: self.sourceID)
                     self.writeToCache(offset: nextChunkStart, data: data)
                 } catch {
                     // Disable the prefetch path until a user-facing serve
@@ -1652,6 +1816,28 @@ private final class State: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return closed
+    }
+
+    private func isReadAheadSuspended() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return readAheadSuspended
+    }
+
+    /// Opened ahead of playback and not taken over yet.
+    fileprivate func isStandby() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return readAheadSuspended && playbackStartedAt == nil && !closed
+    }
+
+    fileprivate func resumeReadAhead() {
+        lock.lock()
+        readAheadSuspended = false
+        if playbackStartedAt == nil {
+            playbackStartedAt = ProcessInfo.processInfo.systemUptime
+        }
+        lock.unlock()
     }
 
     private func registerForegroundFetch(_ task: Task<Void, Never>) -> UUID? {
@@ -1720,7 +1906,9 @@ private final class State: @unchecked Sendable {
         endOffset: Int64,
         errorOut: AutoreleasingUnsafeMutablePointer<NSError?>?
     ) -> SequentialRead? {
-        guard sequentialFetch != nil else { return nil }
+        // A sequential fill runs on to the end of the file; a session waiting
+        // to be played asks for single ranges instead.
+        guard sequentialFetch != nil, !isReadAheadSuspended() else { return nil }
         let isTagProbeZone = offset >= max(0, totalLength - CloudPlaybackSource.chunkSize)
         func fillWillServe() -> Bool {
             isTagProbeZone ? sequentialFillWillReach(offset) : ensureSequentialFill(covering: offset)
@@ -1883,6 +2071,7 @@ private final class State: @unchecked Sendable {
             reachedCached = true
         }
         if !alreadyCovered, !data.isEmpty {
+            CloudPlaybackSource.noteTransferSucceeded(sourceID: sourceID)
             writeToCache(offset: cursor, data: Data(data))
             cursor += Int64(data.count)
             lock.lock()
@@ -2165,6 +2354,9 @@ private final class State: @unchecked Sendable {
             try? FileManager.default.removeItem(at: finalURL)
             do {
                 try FileManager.default.moveItem(at: partialURL, to: finalURL)
+                try? FileManager.default.removeItem(
+                    atPath: partialURL.path + CloudPlaybackSource.prewarmMarkerSuffix
+                )
                 activeURL = finalURL
                 outcome.renamedRelativePath = cacheRelativePath
             } catch {
@@ -2174,6 +2366,7 @@ private final class State: @unchecked Sendable {
                   activeURL == partialURL,
                   allowsTrailingFill,
                   prefetchAhead == 0,
+                  !readAheadSuspended,
                   !trailingFillScheduled,
                   cachedRanges.first?.lowerBound == 0 {
             // Streaming prefetch already owns future chunks. Let those writes
@@ -2302,6 +2495,7 @@ private final class State: @unchecked Sendable {
             writeToCache(offset: 0, data: Data(), allowClosedPromotion: true)
             return nil
         }
+        keepFetchedBytesAsSeed()
         guard allowsTrailingFill else { return nil }
         lock.lock()
         guard persistOnComplete else {
@@ -2328,6 +2522,9 @@ private final class State: @unchecked Sendable {
         var fillRequest: (offset: Int64, length: Int64)?
         var preparedTrailingFill: CloudPlaybackSource.PreparedTrailingFill?
         let firstUpper = cachedRanges[0].upperBound
+        let playedSeconds = playbackStartedAt.map {
+            ProcessInfo.processInfo.systemUptime - $0
+        } ?? 0
         // Only complete songs heard (almost) to the end. A song skipped early
         // would otherwise download most of itself at the very moment the
         // next song starts.
@@ -2335,7 +2532,8 @@ private final class State: @unchecked Sendable {
            firstUpper < totalLength,
            StreamingSessionCompletionFillPolicy.allowsFill(
                missingBytes: totalLength - firstUpper,
-               totalLength: totalLength
+               totalLength: totalLength,
+               playedSeconds: playedSeconds
            ) {
             fillRequest = (firstUpper, totalLength - firstUpper)
             trailingFillScheduled = true
@@ -2343,7 +2541,8 @@ private final class State: @unchecked Sendable {
                   cachedRanges[1].upperBound == totalLength,
                   StreamingSessionCompletionFillPolicy.allowsFill(
                       missingBytes: cachedRanges[1].lowerBound - firstUpper,
-                      totalLength: totalLength
+                      totalLength: totalLength,
+                      playedSeconds: playedSeconds
                   ) {
             fillRequest = (firstUpper, cachedRanges[1].lowerBound - firstUpper)
             trailingFillScheduled = true
@@ -2366,6 +2565,57 @@ private final class State: @unchecked Sendable {
         guard let req = fillRequest else { return task }
         plog("☁️ finalizeSession '\(label)' fill missing range [\(req.offset)..\(req.offset + req.length)) (\(req.length / 1024)KB)")
         return task
+    }
+
+    /// What this session fetched stays trusted after it ends, so coming back
+    /// to the song (Previous, the queue coming round again) starts from those
+    /// bytes instead of downloading them again. Without the marker the next
+    /// session would treat the partial file as untrusted and delete it.
+    private func keepFetchedBytesAsSeed() {
+        lock.lock()
+        let ranges = cachedRanges
+        let ownsPartial = persistOnComplete && detachedURL == nil && activeURL == partialURL
+        lock.unlock()
+        guard ownsPartial else { return }
+        _ = CloudPlaybackSource.withCurrentWriteOwnership(
+            sourceID: sourceID,
+            epoch: streamEpoch,
+            partialPath: partialURL.path,
+            writerToken: pathWriterToken
+        ) {
+            CloudPlaybackSource.writeSeedMarker(
+                ranges: ranges,
+                partialURL: partialURL,
+                sourceID: sourceID,
+                streamEpoch: streamEpoch
+            )
+        }
+    }
+
+    /// Called with the path coordinator held, after the registry no longer
+    /// lists this session: stop every transfer and leave the fetched bytes as
+    /// a seed (or remove a temporary file that cannot be one).
+    fileprivate func retireKeepingSeed() {
+        closeAndCancelForegroundFetches().forEach { $0.cancel() }
+        lock.lock()
+        let ranges = cachedRanges
+        let ownsPartial = persistOnComplete && detachedURL == nil && activeURL == partialURL
+        let isTemporary = !persistOnComplete && detachedURL == nil && activeURL == partialURL
+        let trailingFill = trailingFillTask
+        trailingFillTask = nil
+        lock.unlock()
+        trailingFill?.cancel()
+        discardDetachedFile()
+        if ownsPartial {
+            CloudPlaybackSource.writeSeedMarker(
+                ranges: ranges,
+                partialURL: partialURL,
+                sourceID: sourceID,
+                streamEpoch: streamEpoch
+            )
+        } else if isTemporary {
+            try? FileManager.default.removeItem(at: partialURL)
+        }
     }
 
     /// The canonical file may already have completed before caching was

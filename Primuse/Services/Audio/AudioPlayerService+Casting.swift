@@ -626,6 +626,7 @@ extension AudioPlayerService {
         beginPlaybackErrorScope()
         prefetchTask?.cancel()
         prefetchTask = nil
+        discardPreparedStart(reason: "playback stopped")
         sourceManager?.cancelBackgroundAudioCaching(keeping: [])
         pendingAppleMusicRestoredPosition = nil
         finishCastingHandoffForStop(ownerID: stopOwnerID)
@@ -2200,6 +2201,7 @@ extension AudioPlayerService {
     /// which is no longer accessible since `queue` is now computed.
     func clearQueue() {
         endMedleyIfNeeded()
+        discardPreparedStart(reason: "queue cleared")
         let retainedAppleMusicTransport = isAppleMusicMode && isPrimuseManagingAppleMusicQueue
         appleMusicQueueUpdateTask?.cancel()
         appleMusicQueueUpdateTask = nil

@@ -1258,6 +1258,12 @@ final class AudioPlayerService {
         StreamingDownloadRetirement?
     var decodingTask: Task<Void, Never>?
     var prefetchTask: Task<Void, Never>?
+    /// The song after the current one, opened ahead of time
+    /// (AudioPlayerService+PreparedStart).
+    @ObservationIgnored var preparedStart: PreparedPlaybackStart?
+    @ObservationIgnored var preparedStartTask: Task<Void, Never>?
+    @ObservationIgnored var preparingStartEntryID: UUID?
+    @ObservationIgnored var preparingStartSongID: String?
     var gaplessPreparationTask: Task<Void, Never>?
     var gaplessFollowupTask: Task<Void, Never>?
     /// The boundary transition whose successor `gaplessPreparationTask` is
@@ -1325,6 +1331,17 @@ final class AudioPlayerService {
         guard let timeline = playStartTimeline, timeline.playID == id else { return }
         let elapsed = Int(((ProcessInfo.processInfo.systemUptime - timeline.startedAt) * 1000).rounded())
         plog("⏱️ play \(id.uuidString.prefix(8)) \(stage) +\(elapsed)ms")
+    }
+
+    /// `logPlayStage` for a stage the decoder reaches off the main actor.
+    private func offMainPlayStageLogger(_ stage: String, playID id: UUID) -> (@Sendable () -> Void)? {
+        guard let timeline = playStartTimeline, timeline.playID == id else { return nil }
+        let startedAt = timeline.startedAt
+        let label = String(id.uuidString.prefix(8))
+        return {
+            let elapsed = Int(((ProcessInfo.processInfo.systemUptime - startedAt) * 1000).rounded())
+            plog("⏱️ play \(label) \(stage) +\(elapsed)ms")
+        }
     }
     /// 解码泵不再跑在 MainActor 上, 所以它们无法直接读 playID / crossfade 状态。
     /// 这三个值每次变化都推到 lease 里, 泵按缓冲逐块同步查询归属, 既不用回主
@@ -3108,7 +3125,7 @@ final class AudioPlayerService {
         }
     }
 
-    private func preferredSystemAudioProfile(
+    func preferredSystemAudioProfile(
         for song: Song,
         url: URL
     ) async -> ISOBaseMediaAudioProfile? {
@@ -3924,6 +3941,15 @@ final class AudioPlayerService {
             showPlaybackError(String(localized: "playback_error_source_disabled"))
             return
         }
+        // The song after the previous one may already be open, decoded up to
+        // its first seconds; this start then only hands that audio to the
+        // output. Whatever path leaves without using it releases it.
+        var unusedPreparedStart = takePreparedStart(for: song)
+        defer {
+            if let unused = unusedPreparedStart {
+                releasePreparedStart(unused, reason: "start did not use it")
+            }
+        }
         // Store where the outgoing item was left while its position is still
         // the one on the clock; by the time `currentSong` changes it is not.
         rememberSpokenWordPosition(force: true)
@@ -4090,9 +4116,12 @@ final class AudioPlayerService {
             let song = await preparePodcastEpisodeForPlayback(song)
             // Traversal excludes known outages; directly selecting one of
             // those entries retries its source without rebuilding the queue.
-            if await sourceManager?.playbackSourceIsUnavailable(
-                for: song, retryKnownUnavailable: true
-            ) == true {
+            // A prepared start checked its source while the previous song
+            // played.
+            if unusedPreparedStart == nil,
+               await sourceManager?.playbackSourceIsUnavailable(
+                   for: song, retryKnownUnavailable: true
+               ) == true {
                 throw SourceError.connectionFailed(String(localized: "status_network_unavailable"))
             }
             guard isLocalTransportStartAuthorized(
@@ -4121,7 +4150,12 @@ final class AudioPlayerService {
                 expectedTicket: transportTicket
             ) else { return }
             logPlayStage("cache-settled", playID: id)
-            let url = try await resolvedURL(for: song)
+            let url: URL
+            if let prepared = unusedPreparedStart {
+                url = prepared.url
+            } else {
+                url = try await resolvedURL(for: song)
+            }
             // Check if another play was initiated while downloading
             guard isLocalTransportStartAuthorized(
                 playID: id,
@@ -4140,11 +4174,16 @@ final class AudioPlayerService {
                 ) else { return }
                 logPlayStage("icloud-downloaded", playID: id)
             }
+            let preparedHandoff = unusedPreparedStart
+            unusedPreparedStart = nil
             await playFromURL(
                 song: song,
                 url: url,
                 playID: id,
-                sourceStreamEpoch: sourceStreamEpoch
+                sourceStreamEpoch: sourceStreamEpoch,
+                // The preparation already read this song's container profile.
+                bypassSystemMediaPlayback: preparedHandoff != nil,
+                preparedStart: preparedHandoff
             )
             if case .needsAudioFallback = musicVideoStartResult {
                 markMusicVideoAudioFallbackIfNeeded(playID: id)
@@ -4745,8 +4784,15 @@ final class AudioPlayerService {
         sourceStreamEpoch: UInt64,
         formatRecoveryAttempt: Int = 0,
         bypassSystemMediaPlayback: Bool = false,
-        shouldRecordPlaybackStart: Bool = true
+        shouldRecordPlaybackStart: Bool = true,
+        preparedStart: PreparedPlaybackStart? = nil
     ) async {
+        var pendingPreparedStart = preparedStart
+        defer {
+            if let unused = pendingPreparedStart {
+                releasePreparedStart(unused, reason: "start did not use it")
+            }
+        }
         plog("▶️ playFromURL(song: \(song.title)) playID=\(id.uuidString.prefix(8))")
         plog("▶️   URL: \(redactedURL(url))")
         plog("▶️   scheme=\(url.scheme ?? "nil") isFileURL=\(url.isFileURL) ext=\(url.pathExtension) format=\(song.fileFormat) duration=\(song.duration)")
@@ -4848,6 +4894,14 @@ final class AudioPlayerService {
             // Reset volume immediately; apply ReplayGain asynchronously after playback starts
             audioEngine.resetPlayerVolume()
 
+            if let prepared = pendingPreparedStart, !prepared.outputFormat.isEqual(outputFormat) {
+                pendingPreparedStart = nil
+                releasePreparedStart(
+                    prepared,
+                    reason: "output runs at sr\(outputFormat.sampleRate)/ch\(outputFormat.channelCount), prepared for sr\(prepared.outputFormat.sampleRate)/ch\(prepared.outputFormat.channelCount)"
+                )
+            }
+
             // Cloud streaming: instead of downloading the whole file, build
             // an SFBInputSource whose reads go through HTTP Range +
             // sparse-on-disk cache. SFBAudioEngine reads from it like any
@@ -4886,7 +4940,14 @@ final class AudioPlayerService {
             // 有声书、播客续播:解码器直接从记忆的位置开始,不先念出开头再跳过去。
             let spokenWordOpening = spokenWordOpeningPosition(for: song)
             let medleySliceStart = spokenWordOpening ?? medleyDecoderStartTime(for: song)
-            if isRemoteURL {
+            if let prepared = pendingPreparedStart {
+                pendingPreparedStart = nil
+                plog("▶️ Decoder: prepared start (opened \(Int(prepared.age))s ago, kind=\(prepared.decoderKind)) outputFormat: sr\(outputFormat.sampleRate) ch=\(outputFormat.channelCount)")
+                activeDecoderKind = prepared.decoderKind
+                sourceManager?.resumeStandbyStreamingSession(for: song)
+                logPlayStage("prepared-start", playID: id)
+                stream = prepared.stream
+            } else if isRemoteURL {
                 if FileFormatRouter.requiresCompleteLocalFile(song.fileFormat)
                     || remoteWAVRequiresCompleteFile
                     || isAdaptiveTranscodedStream {
@@ -4938,6 +4999,7 @@ final class AudioPlayerService {
                     url: url,
                     sourceStreamEpoch: sourceStreamEpoch
                 ) {
+                    logPlayStage("input-source-ready", playID: id)
                     plog("▶️ Decoder: HTTPRangePlaybackSource (reason: scheme=\(url.scheme ?? "?"), range-based HTTP streaming) cache=\(playbackSettings.audioCacheEnabled) outputFormat: sr=\(outputFormat.sampleRate) ch=\(outputFormat.channelCount)")
                     activeDecoderKind = .httpStream
                     decoderSourceStartTime = medleySliceStart
@@ -4945,7 +5007,9 @@ final class AudioPlayerService {
                         from: inputSource,
                         outputFormat: outputFormat,
                         startingAt: medleySliceStart > 0 ? medleySliceStart : nil,
-                        onResolveSourceLength: makeResolveLengthCallback(for: song)
+                        onResolveSourceLength: makeResolveLengthCallback(for: song),
+                        onDecoderOpened: offMainPlayStageLogger("decoder-opened", playID: id),
+                        lengthCanWait: song.duration > 0
                     )
                 } else if song.fileSize > 0 {
                     guard playID == id else { return }
@@ -5061,6 +5125,7 @@ final class AudioPlayerService {
                 // 适合云盘 (Baidu / Aliyun / OneDrive / Dropbox) 的 dlink
                 // 流式播放 ── 这些场景下不能像 NAS 那样直接给 SFBAudioEngine
                 // 一个稳定的 HTTPS URL。
+                logPlayStage("input-source-ready", playID: id)
                 plog("▶️ Decoder: CloudPlaybackSource (reason: scheme=primuse-stream, range-based streaming) cache=\(playbackSettings.audioCacheEnabled) outputFormat: sr=\(outputFormat.sampleRate) ch=\(outputFormat.channelCount)")
                 activeDecoderKind = .cloudStream
                 decoderSourceStartTime = medleySliceStart
@@ -5068,7 +5133,9 @@ final class AudioPlayerService {
                     from: inputSource,
                     outputFormat: outputFormat,
                     startingAt: medleySliceStart > 0 ? medleySliceStart : nil,
-                    onResolveSourceLength: makeResolveLengthCallback(for: song)
+                    onResolveSourceLength: makeResolveLengthCallback(for: song),
+                    onDecoderOpened: offMainPlayStageLogger("decoder-opened", playID: id),
+                    lengthCanWait: song.duration > 0
                 )
             } else {
                 let reason = "local file path (file:// scheme)"
@@ -6441,10 +6508,13 @@ final class AudioPlayerService {
         )
     }
 
+    /// - Parameter readAheadSuspended: open the stream ahead of playback (the
+    ///   prepared next song); it reads only what its decoder asks for.
     func makeHTTPStreamingInputSource(
         for song: Song,
         url: URL,
-        sourceStreamEpoch: UInt64
+        sourceStreamEpoch: UInt64,
+        readAheadSuspended: Bool = false
     ) async -> InputSource? {
         // 兜底: 服务端转码流的长度与 song.fileSize 无关, 一旦按它做 Range
         // 就会读越界, 还会把转码字节写进原文件的持久缓存。调用方本来都在
@@ -6456,6 +6526,17 @@ final class AudioPlayerService {
                 sourceID: song.sourceID,
                 ticket: sourceStreamEpoch
               ) else { return nil }
+        // Opening ahead of playback is pointless once playback has the song,
+        // and its cleanup below must never end that session.
+        if readAheadSuspended, sourceManager?.hasLiveStreamingSession(for: song) == true {
+            return nil
+        }
+        func cleanUpFailedSession() {
+            guard !(readAheadSuspended && sourceManager?.hasLiveStreamingSession(for: song) == true) else {
+                return
+            }
+            sourceManager?.finalizeStreamingSession(for: song)
+        }
 
         guard let prepared = await sourceManager?.prepareHTTPStreamingCache(
             for: song,
@@ -6469,7 +6550,7 @@ final class AudioPlayerService {
             sourceID: song.sourceID,
             ticket: sourceStreamEpoch
         ) else {
-            sourceManager?.finalizeStreamingSession(for: song)
+            cleanUpFailedSession()
             return nil
         }
 
@@ -6480,10 +6561,11 @@ final class AudioPlayerService {
             cacheURL: cacheURL,
             streamEpoch: sourceStreamEpoch,
             persistOnComplete: persistentCacheAllowed,
-            cacheRelativePath: cacheRelativePath
+            cacheRelativePath: cacheRelativePath,
+            readAheadSuspended: readAheadSuspended
         )
         if inputSource == nil {
-            sourceManager?.finalizeStreamingSession(for: song)
+            cleanUpFailedSession()
         }
         return inputSource
     }
@@ -6591,6 +6673,7 @@ final class AudioPlayerService {
         synchronizeAppleMusicQueue()
         prefetchTask?.cancel()
         plannedSuccessorEntryID = nextQueueEntryInQueue()?.id
+        discardPreparedStartIfSuccessorChanged()
         // Learn now whether the sources further down the queue can be reached,
         // so traversal steps over them instead of failing on each one.
         sourceManager?.discoverPlaybackSourceAvailability(
@@ -6618,10 +6701,13 @@ final class AudioPlayerService {
         let completeFileIDs = isMedleyActive ? Set(nextSongs.prefix(2).map(\.id)) : []
         // 严格按顺序一首一首来: 下一首的开头(约 20 秒)先到位, 后面的歌只取
         // 能打开文件的那一小段; 每一步都先等当前这首的读取空下来。
+        // 下一首的种子到位之后, 再把它打开、解出开头一两秒放在内存里, 点下一首或
+        // 播完时直接接上。已经打开的那首, 种子在它自己的会话里, 不再重复预取。
         prefetchTask = Task {
             for (rank, song) in nextSongs.enumerated() {
                 if Task.isCancelled { return }
                 if song.id == currentSong?.id { continue }
+                if song.id == preparedStart?.song.id || song.id == preparingStartSongID { continue }
                 if rank == 0 { await requestICloudDownloadForUpcomingLocalSong(song) }
                 if sourceManager?.cachedPlaybackURL(for: song) != nil { continue }
                 plog("⏩ Prefetching queued song #\(rank + 1): \(song.title)")
@@ -6631,6 +6717,7 @@ final class AudioPlayerService {
                     prefersCompleteFile: completeFileIDs.contains(song.id),
                     queueRank: rank
                 )
+                if rank == 0, !Task.isCancelled { schedulePreparedStart() }
             }
         }
     }

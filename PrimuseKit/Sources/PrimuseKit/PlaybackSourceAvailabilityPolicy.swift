@@ -17,8 +17,8 @@ public struct PlaybackSourceAvailabilityPolicy: Sendable {
         }
 
         /// Whether a background probe has something to learn. A reachable
-        /// verdict is not re-asked proactively; the playback path still probes
-        /// before it commits to a song.
+        /// verdict is not re-asked proactively; the playback path probes
+        /// before it commits to a song once the verdict has aged.
         public var wantsProbe: Bool {
             self == .unknown || self == .unreachableAwaitingRecheck
         }
@@ -30,6 +30,11 @@ public struct PlaybackSourceAvailabilityPolicy: Sendable {
     /// stays away costs one handshake every few minutes.
     public static let outageRecheckDelays: [Double] = [20, 60, 120, 300]
     public static let reachableVerdictLifetime: Double = 15
+    /// How long bytes the source just delivered vouch for it. Streaming reads
+    /// ahead every few seconds to half a minute, so while a song plays from a
+    /// source the next start from it needs no probe; a path change still
+    /// discards the verdict at once.
+    public static let transferEvidenceLifetime: Double = 45
 
     private struct Entry: Sendable {
         let isUnreachable: Bool
@@ -101,6 +106,32 @@ public struct PlaybackSourceAvailabilityPolicy: Sendable {
             sourceGeneration: sourceGeneration,
             expiresAt: now + Self.verdictLifetime(consecutiveOutages: consecutiveOutages),
             consecutiveOutages: consecutiveOutages
+        )
+    }
+
+    /// The source just delivered audio on this path. That proves it can be
+    /// reached as well as a handshake does, so it renews a reachable verdict
+    /// (or settles an unknown one) without a probe. An outage verdict is left
+    /// to its own recheck; the next probe clears it.
+    public mutating func recordTransfer(
+        sourceID: String,
+        networkGeneration: UInt64,
+        sourceGeneration: Int,
+        now: Double
+    ) {
+        let previous = currentEntry(
+            sourceID: sourceID,
+            networkGeneration: networkGeneration,
+            sourceGeneration: sourceGeneration
+        )
+        if previous?.isUnreachable == true { return }
+        entries = entries.filter { $0.value.networkGeneration == networkGeneration }
+        entries[sourceID] = Entry(
+            isUnreachable: false,
+            networkGeneration: networkGeneration,
+            sourceGeneration: sourceGeneration,
+            expiresAt: max(previous?.expiresAt ?? now, now + Self.transferEvidenceLifetime),
+            consecutiveOutages: 0
         )
     }
 

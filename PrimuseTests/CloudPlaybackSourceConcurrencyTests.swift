@@ -3172,3 +3172,190 @@ private final class DrimeMetadataURLProtocol: URLProtocol, @unchecked Sendable {
     }
     override func stopLoading() { }
 }
+
+// MARK: - Sessions opened ahead of playback (#209)
+
+extension CloudPlaybackSourceConcurrencyTests {
+    private func makeSeededSession(
+        sourceID: String,
+        cacheURL: URL,
+        payload: Data,
+        seedBytes: Int64,
+        connector: FixtureRangeConnector,
+        prefetchAhead: Int,
+        readAheadSuspended: Bool
+    ) throws -> CloudInputSourceObjC? {
+        let partial = URL(fileURLWithPath: cacheURL.path + ".partial")
+        if !FileManager.default.fileExists(atPath: partial.path) {
+            try payload.prefix(Int(seedBytes)).write(to: partial)
+            try CloudPlaybackSource.PrewarmMarker(
+                v: CloudPlaybackSource.PrewarmMarker.currentVersion,
+                ranges: [[0, seedBytes]]
+            ).write(to: URL(fileURLWithPath: partial.path + CloudPlaybackSource.prewarmMarkerSuffix))
+        }
+        let song = Song(
+            id: UUID().uuidString,
+            title: "Prepared Start Fixture",
+            fileFormat: .flac,
+            filePath: "/fixtures/prepared.flac",
+            sourceID: sourceID
+        )
+        return CloudPlaybackSource.makeInputSource(
+            song: song,
+            totalLength: Int64(payload.count),
+            connector: connector,
+            cacheURL: cacheURL,
+            streamEpoch: CloudPlaybackSource.streamEpochTicket(sourceID: sourceID),
+            persistOnComplete: true,
+            prefetchAhead: prefetchAhead,
+            allowsTrailingFill: false,
+            readAheadSuspended: readAheadSuspended
+        ) as? CloudInputSourceObjC
+    }
+
+    /// The next song is opened while the current one plays. It must read only
+    /// what its decoder asks for, and read ahead once playback takes it over.
+    func testStandbySessionReadsAheadOnlyAfterPlaybackTakesItOver() async throws {
+        let sourceID = "standby-read-ahead-\(UUID().uuidString)"
+        let directory = try makeTemporaryDirectory()
+        let cacheURL = directory.appendingPathComponent("song.flac")
+        let chunk = CloudPlaybackSource.chunkSize
+        let payload = Data((0..<(Int(chunk) * 4)).map { UInt8(truncatingIfNeeded: $0) })
+        let connector = FixtureRangeConnector(sourceID: sourceID, payload: payload)
+        defer {
+            CloudPlaybackSource.cancelSessions(sourceID: sourceID)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let input = try XCTUnwrap(try makeSeededSession(
+            sourceID: sourceID, cacheURL: cacheURL, payload: payload, seedBytes: chunk,
+            connector: connector, prefetchAhead: 2, readAheadSuspended: true
+        ))
+        let partial = cacheURL.path + ".partial"
+        XCTAssertTrue(CloudPlaybackSource.isStandbySession(partialPath: partial))
+        XCTAssertEqual(Self.read(input, byteCount: 4_096).data, payload.prefix(4_096))
+        try await Task.sleep(for: .milliseconds(300))
+        let waitingRequests = await connector.requests()
+        XCTAssertTrue(waitingRequests.isEmpty, "a waiting session fetched \(waitingRequests.map(\.offset))")
+
+        CloudPlaybackSource.resumeReadAhead(partialPath: partial)
+        XCTAssertFalse(CloudPlaybackSource.isStandbySession(partialPath: partial))
+        XCTAssertTrue(Self.read(input, byteCount: 4_096, offset: 8_192).success)
+        let readAhead = await Self.waitUntilAsync(timeout: 2) {
+            await connector.backgroundFetchCount() >= 1
+        }
+        XCTAssertTrue(readAhead, "playback did not read ahead after taking the session over")
+    }
+
+    /// A prepared song that is not played gives its bytes back as a seed, so
+    /// the next attempt to play it (or prefetch it) starts from them.
+    func testReleasedStandbySessionLeavesItsBytesAsASeed() async throws {
+        let sourceID = "standby-release-\(UUID().uuidString)"
+        let directory = try makeTemporaryDirectory()
+        let cacheURL = directory.appendingPathComponent("song.flac")
+        let chunk = CloudPlaybackSource.chunkSize
+        let payload = Data((0..<(Int(chunk) * 3)).map { UInt8(truncatingIfNeeded: $0 &* 7) })
+        let connector = FixtureRangeConnector(sourceID: sourceID, payload: payload)
+        defer {
+            CloudPlaybackSource.cancelSessions(sourceID: sourceID)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let standby = try XCTUnwrap(try makeSeededSession(
+            sourceID: sourceID, cacheURL: cacheURL, payload: payload, seedBytes: chunk,
+            connector: connector, prefetchAhead: 2, readAheadSuspended: true
+        ))
+        let offset = Int(chunk) + 10
+        XCTAssertEqual(
+            Self.read(standby, byteCount: 1_000, offset: offset).data,
+            payload.subdata(in: offset..<(offset + 1_000))
+        )
+        let partial = cacheURL.path + ".partial"
+        XCTAssertTrue(CloudPlaybackSource.releaseStandbySession(partialPath: partial))
+        XCTAssertFalse(CloudPlaybackSource.activeSessionPaths().contains(partial))
+        let marker = try XCTUnwrap(CloudPlaybackSource.PrewarmMarker.read(
+            from: URL(fileURLWithPath: partial + CloudPlaybackSource.prewarmMarkerSuffix)
+        ))
+        XCTAssertEqual(marker.swiftRanges, [0..<(2 * chunk)])
+
+        let fetchesBefore = await connector.requests().count
+        let replay = try XCTUnwrap(try makeSeededSession(
+            sourceID: sourceID, cacheURL: cacheURL, payload: payload, seedBytes: chunk,
+            connector: connector, prefetchAhead: 0, readAheadSuspended: false
+        ))
+        let second = Int(chunk) + 500_000
+        XCTAssertEqual(
+            Self.read(replay, byteCount: 1_000, offset: second).data,
+            payload.subdata(in: second..<(second + 1_000))
+        )
+        let fetchesAfter = await connector.requests().count
+        XCTAssertEqual(fetchesAfter, fetchesBefore, "bytes the waiting session fetched were fetched again")
+    }
+
+    /// Opening the next song ahead of time must never take the sparse file
+    /// from a session that is already playing it, and releasing a waiting
+    /// session never ends a playing one.
+    func testStandbySessionNeverReplacesAPlayingSession() async throws {
+        let sourceID = "standby-live-\(UUID().uuidString)"
+        let directory = try makeTemporaryDirectory()
+        let cacheURL = directory.appendingPathComponent("song.flac")
+        let chunk = CloudPlaybackSource.chunkSize
+        let payload = Data(repeating: 0x5A, count: Int(chunk) * 2)
+        let connector = FixtureRangeConnector(sourceID: sourceID, payload: payload)
+        defer {
+            CloudPlaybackSource.cancelSessions(sourceID: sourceID)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let playing = try XCTUnwrap(try makeSeededSession(
+            sourceID: sourceID, cacheURL: cacheURL, payload: payload, seedBytes: chunk,
+            connector: connector, prefetchAhead: 0, readAheadSuspended: false
+        ))
+        XCTAssertTrue(Self.read(playing, byteCount: 4_096).success)
+        let refused = try makeSeededSession(
+            sourceID: sourceID, cacheURL: cacheURL, payload: payload, seedBytes: chunk,
+            connector: connector, prefetchAhead: 0, readAheadSuspended: true
+        )
+        XCTAssertNil(refused)
+        let partial = cacheURL.path + ".partial"
+        XCTAssertFalse(CloudPlaybackSource.releaseStandbySession(partialPath: partial))
+        XCTAssertTrue(CloudPlaybackSource.activeSessionPaths().contains(partial))
+        XCTAssertTrue(Self.read(playing, byteCount: 4_096, offset: Int(chunk) + 4).success)
+    }
+
+    /// A song left before its end keeps what it fetched: going back to it
+    /// (Previous) reads those bytes instead of downloading them again.
+    func testFinishedSessionKeepsItsBytesForTheNextPlay() async throws {
+        let sourceID = "finished-keeps-\(UUID().uuidString)"
+        let directory = try makeTemporaryDirectory()
+        let cacheURL = directory.appendingPathComponent("song.flac")
+        let chunk = CloudPlaybackSource.chunkSize
+        let payload = Data((0..<(Int(chunk) * 3)).map { UInt8(truncatingIfNeeded: $0 &* 3) })
+        let connector = FixtureRangeConnector(sourceID: sourceID, payload: payload)
+        defer {
+            CloudPlaybackSource.cancelSessions(sourceID: sourceID)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let first = try makeInputSource(
+            sourceID: sourceID, cacheURL: cacheURL, payload: payload,
+            connector: connector, allowsTrailingFill: false
+        )
+        XCTAssertTrue(Self.read(first, byteCount: 4_096, offset: 0).success)
+        XCTAssertTrue(Self.read(first, byteCount: 4_096, offset: Int(chunk) + 100).success)
+        let partial = cacheURL.path + ".partial"
+        _ = CloudPlaybackSource.finalizeSession(partialPath: partial)
+        let marker = try XCTUnwrap(CloudPlaybackSource.PrewarmMarker.read(
+            from: URL(fileURLWithPath: partial + CloudPlaybackSource.prewarmMarkerSuffix)
+        ))
+        XCTAssertEqual(marker.swiftRanges, [0..<(2 * chunk)])
+
+        let fetchesBefore = await connector.requests().count
+        let again = try makeInputSource(
+            sourceID: sourceID, cacheURL: cacheURL, payload: payload,
+            connector: connector, allowsTrailingFill: false
+        )
+        XCTAssertEqual(
+            Self.read(again, byteCount: 4_096, offset: 1_000).data,
+            payload.subdata(in: 1_000..<5_096)
+        )
+        let fetchesAfter = await connector.requests().count
+        XCTAssertEqual(fetchesAfter, fetchesBefore)
+    }
+}

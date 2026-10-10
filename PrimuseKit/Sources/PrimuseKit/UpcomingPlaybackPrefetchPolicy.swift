@@ -120,6 +120,56 @@ public enum UpcomingPlaybackPrefetchPolicy {
         return min(fileSize, chunks * chunkSize)
     }
 
+    /// Tags and cover art a seed reaches past to get to the audio. Beyond this
+    /// the seed stays sized from the top of the file.
+    public static let maximumLeadingMetadataBytes: Int64 = 8 * 1024 * 1024
+    /// Largest trailing MP4 index (`moov` after `mdat`) a seed's tail grows to.
+    public static let maximumTrailingIndexBytes: Int64 = 4 * 1024 * 1024
+
+    /// Grows `headByteCount` past leading tags and cover art. A head sized
+    /// from the top of the file already has room for an ordinary tag; it only
+    /// grows once the metadata would leave less than half of it for audio.
+    public static func seedHeadByteCount(
+        headByteCount: Int64,
+        layout: AudioPayloadLayout,
+        fileSize: Int64,
+        chunkSize: Int64
+    ) -> Int64 {
+        guard fileSize > 0, chunkSize > 0, headByteCount > 0 else { return headByteCount }
+        let metadataEnd: Int64
+        switch layout.audioStart {
+        case .at(let offset), .beyond(let offset):
+            metadataEnd = offset
+        case .unrecognized:
+            metadataEnd = 0
+        }
+        guard metadataEnd * 2 > headByteCount,
+              metadataEnd <= maximumLeadingMetadataBytes else {
+            return min(headByteCount, fileSize)
+        }
+        let wanted = metadataEnd + headByteCount
+        let aligned = ((wanted + chunkSize - 1) / chunkSize) * chunkSize
+        return min(fileSize, aligned)
+    }
+
+    /// The tail a seed keeps: the usual trailing tag window, or the whole
+    /// trailing MP4 index when it fits, never overlapping the head.
+    public static func seedTailByteCount(
+        defaultTail: Int64,
+        headByteCount: Int64,
+        layout: AudioPayloadLayout,
+        fileSize: Int64
+    ) -> Int64 {
+        var tail = defaultTail
+        if let indexStart = layout.trailingIndexStart, indexStart > 0, indexStart < fileSize {
+            let indexBytes = fileSize - indexStart
+            if indexBytes <= maximumTrailingIndexBytes {
+                tail = max(tail, indexBytes)
+            }
+        }
+        return max(0, min(tail, fileSize - headByteCount))
+    }
+
     /// Complete-file transfers stay close to the playhead: the original file
     /// only for the next song, small transcodes and medley slices for the
     /// next two.
@@ -168,9 +218,17 @@ public enum StreamingSessionCompletionFillPolicy {
     public static let smallGapBytes: Int64 = 4 * 1024 * 1024
     /// Gaps up to this fraction of the file are still completed.
     public static let maximumMissingFraction = 0.25
+    /// A song left sooner than this was skipped past, not listened to (a run
+    /// of Next presses); its remainder is not fetched however small it is.
+    public static let minimumPlayedSeconds: Double = 10
 
-    public static func allowsFill(missingBytes: Int64, totalLength: Int64) -> Bool {
-        guard missingBytes > 0, totalLength > 0,
+    public static func allowsFill(
+        missingBytes: Int64,
+        totalLength: Int64,
+        playedSeconds: Double = .infinity
+    ) -> Bool {
+        guard playedSeconds >= minimumPlayedSeconds,
+              missingBytes > 0, totalLength > 0,
               missingBytes < absoluteMaximumBytes else { return false }
         if missingBytes <= smallGapBytes { return true }
         return Double(missingBytes) <= Double(totalLength) * maximumMissingFraction

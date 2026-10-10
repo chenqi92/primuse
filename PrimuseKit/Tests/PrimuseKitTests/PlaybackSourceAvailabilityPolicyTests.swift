@@ -59,6 +59,44 @@ import Testing
                                            sourceGeneration: 4, now: 101) == nil)
     }
 
+    @Test func deliveredAudioVouchesForTheSourceWithoutAProbe() {
+        var policy = PlaybackSourceAvailabilityPolicy()
+        #expect(policy.standing(sourceID: "nas", networkGeneration: 2,
+                                sourceGeneration: 0, now: 10) == .unknown)
+        policy.recordTransfer(sourceID: "nas", networkGeneration: 2,
+                              sourceGeneration: 0, now: 10)
+        #expect(policy.cachedUnavailability(sourceID: "nas", networkGeneration: 2,
+                                           sourceGeneration: 0, now: 50) == false)
+        #expect(policy.cachedUnavailability(sourceID: "nas", networkGeneration: 2,
+                                           sourceGeneration: 0, now: 56) == nil)
+        // A probe's shorter verdict does not cut the evidence short.
+        policy.recordTransfer(sourceID: "nas", networkGeneration: 2,
+                              sourceGeneration: 0, now: 60)
+        policy.record(isUnreachable: false, sourceID: "nas", networkGeneration: 2,
+                      sourceGeneration: 0, now: 61)
+        #expect(policy.cachedUnavailability(sourceID: "nas", networkGeneration: 2,
+                                           sourceGeneration: 0, now: 100) == nil)
+        policy.recordTransfer(sourceID: "nas", networkGeneration: 2,
+                              sourceGeneration: 0, now: 100)
+        #expect(policy.cachedUnavailability(sourceID: "nas", networkGeneration: 2,
+                                           sourceGeneration: 0, now: 140) == false)
+        // Another network path never inherits it.
+        #expect(policy.cachedUnavailability(sourceID: "nas", networkGeneration: 3,
+                                           sourceGeneration: 0, now: 101) == nil)
+        #expect(policy.cachedUnavailability(sourceID: "nas", networkGeneration: 2,
+                                           sourceGeneration: 1, now: 101) == nil)
+    }
+
+    @Test func deliveredAudioLeavesAnOutageToItsRecheck() {
+        var policy = PlaybackSourceAvailabilityPolicy()
+        policy.record(isUnreachable: true, sourceID: "nas", networkGeneration: 1,
+                      sourceGeneration: 0, now: 0)
+        policy.recordTransfer(sourceID: "nas", networkGeneration: 1,
+                              sourceGeneration: 0, now: 5)
+        #expect(policy.standing(sourceID: "nas", networkGeneration: 1,
+                                sourceGeneration: 0, now: 6) == .unreachable)
+    }
+
     @Test func freshVerdictsAgeOutAndAnExplicitReconnectClearsThem() {
         var policy = PlaybackSourceAvailabilityPolicy()
         policy.record(isUnreachable: true, sourceID: "nas", networkGeneration: 1,

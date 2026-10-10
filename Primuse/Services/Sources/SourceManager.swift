@@ -11321,7 +11321,11 @@ final class SourceManager {
         case .cancelAndProceed:
             plog("⏭ Cache: playback starts without waiting for prefetch of '\(song.title)' phase=\(record.phase)")
             record.task.cancel()
-            await BackgroundAudioCacheTaskWaiter.wait(for: record.task, timeout: .milliseconds(1500))
+            // A cancelled seed never publishes over a live session (it checks
+            // again right before), so this only lets its request wind down
+            // instead of sharing the first reads' bandwidth. Rapid Next presses
+            // land here, so it stays short.
+            await BackgroundAudioCacheTaskWaiter.wait(for: record.task, timeout: .milliseconds(250))
         }
     }
 
@@ -11616,6 +11620,34 @@ final class SourceManager {
         }
     }
 
+    /// Whether queue prefetch seeds `song` as the next song. Playback only
+    /// opens a song ahead of time where it would also have been seeded.
+    func queuePrefetchSeedsNextSong(_ song: Song) async -> Bool {
+        guard automaticAudioCachingEnabled,
+              let sources = try? await sourcesProvider(),
+              let source = sources.first(where: { $0.id == song.sourceID }),
+              source.type != .local else { return false }
+        let plan = transcodePlan(for: song, source: source)
+        if case .transcode = plan { return false }
+        guard !usesServerTranscodedStream(source: source, song: song, plan: plan) else { return false }
+        let mode = RangeStreamingPrefetchPolicy.upcomingPrefetchMode(
+            sourceType: source.type,
+            transport: upcomingPlaybackTransport(for: song, source: source, plan: plan),
+            hasKnownFileSize: song.fileSize > 0 || song.isStreamDescriptor,
+            rank: 0,
+            prefersCompleteFile: false,
+            rangeSeedOnly: false
+        )
+        switch mode {
+        case .connectorSeed, .directSeed:
+            return !speculativeRangeUnsupportedKeys.contains(
+                Self.speculativeRangeKey(sourceID: source.id, mode: mode)
+            )
+        case .completeFile, .disabled:
+            return false
+        }
+    }
+
     /// Queue prefetch slots into the gaps of the current song's own reads.
     /// If playback never goes quiet (a link barely keeping up), prefetch
     /// still proceeds after the bound rather than starving forever.
@@ -11744,21 +11776,80 @@ final class SourceManager {
                 tail = fetched.1
                 try Task.checkCancellation()
                 guard !head.isEmpty else { return }
+                notePlaybackTransferSucceeded(sourceID: song.sourceID)
                 await seedPrewarmCache(song: song, head: head, tail: tail, fileSize: fileSize)
             }
 
-            guard Int64(head.count) < targetHead else { return }
-            setBackgroundAudioCachePhase(.extendingSeed, songID: song.id, runID: runID)
-            var offset = Int64(head.count)
-            while offset < targetHead {
+            // Cover art and tags in front of the audio count against the head,
+            // and an MP4 whose index follows the audio is opened from its end.
+            // Grow both ends so the seed still opens the file and holds the
+            // first seconds of audio.
+            var layout = AudioPayloadLayout.locate(head: head, fileSize: fileSize)
+            var headTarget = UpcomingPlaybackPrefetchPolicy.seedHeadByteCount(
+                headByteCount: targetHead,
+                layout: layout,
+                fileSize: fileSize,
+                chunkSize: chunk
+            )
+            let reservedSize = seedSize
+            func reserveGrownSeed() async -> Bool {
+                let tailTarget = UpcomingPlaybackPrefetchPolicy.seedTailByteCount(
+                    defaultTail: Int64(tail.count),
+                    headByteCount: headTarget,
+                    layout: layout,
+                    fileSize: fileSize
+                )
+                guard headTarget + tailTarget > reservedSize else { return true }
+                return (try? await prepareOfflineTransferCapacity(
+                    expectedSize: headTarget + tailTarget,
+                    lease: lease
+                )) != nil
+            }
+            if headTarget > targetHead {
+                plog("⏩ Prewarm: '\(song.title)' has large tags or cover art before the audio; seed head grows to \(headTarget / 1024)KB")
+            }
+            guard await reserveGrownSeed() else { return }
+
+            if Int64(head.count) < headTarget {
+                setBackgroundAudioCachePhase(.extendingSeed, songID: song.id, runID: runID)
+                var offset = Int64(head.count)
+                while offset < headTarget {
+                    await CloudPlaybackSource.waitForPlaybackNetworkQuiet(maximumWait: .seconds(6))
+                    try Task.checkCancellation()
+                    let data = try await boundedFetch(offset, min(chunk, headTarget - offset))
+                    try Task.checkCancellation()
+                    guard !data.isEmpty else { break }
+                    head.append(data)
+                    offset += Int64(data.count)
+                    if case .beyond = layout.audioStart {
+                        layout = AudioPayloadLayout.locate(head: head, fileSize: fileSize)
+                        headTarget = max(headTarget, UpcomingPlaybackPrefetchPolicy.seedHeadByteCount(
+                            headByteCount: targetHead,
+                            layout: layout,
+                            fileSize: fileSize,
+                            chunkSize: chunk
+                        ))
+                        guard await reserveGrownSeed() else { break }
+                    }
+                }
+            }
+            let tailTarget = UpcomingPlaybackPrefetchPolicy.seedTailByteCount(
+                defaultTail: Int64(tail.count),
+                headByteCount: Int64(head.count),
+                layout: layout,
+                fileSize: fileSize
+            )
+            if tailTarget > Int64(tail.count) {
                 await CloudPlaybackSource.waitForPlaybackNetworkQuiet(maximumWait: .seconds(6))
                 try Task.checkCancellation()
-                let data = try await boundedFetch(offset, min(chunk, targetHead - offset))
+                let missing = tailTarget - Int64(tail.count)
+                let front = try await boundedFetch(fileSize - tailTarget, missing)
                 try Task.checkCancellation()
-                guard !data.isEmpty else { break }
-                head.append(data)
-                offset += Int64(data.count)
+                if Int64(front.count) == missing {
+                    tail = front + tail
+                }
             }
+            guard Int64(head.count) > openHead || tail.count > Int(tailSize) else { return }
             await seedPrewarmCache(song: song, head: head, tail: tail, fileSize: fileSize)
         } catch {
             if Self.isRangeIgnoredFailure(error) {
@@ -12652,8 +12743,11 @@ final class SourceManager {
     func makeStreamingInputSource(
         for song: Song,
         cacheEnabled: Bool = true,
-        expectedStreamEpoch streamEpoch: UInt64
+        expectedStreamEpoch streamEpoch: UInt64,
+        readAheadSuspended: Bool = false
     ) async throws -> InputSource? {
+        // Opening ahead of playback is pointless once playback has the song.
+        if readAheadSuspended, hasLiveStreamingSession(for: song) { return nil }
         let scopeValidated = await ensureAudioCacheScopeValidated(for: song.sourceID)
         guard CloudPlaybackSource.isStreamEpochTicketCurrent(
             sourceID: song.sourceID,
@@ -12781,12 +12875,55 @@ final class SourceManager {
             cacheRelativePath: cacheRelativePath,
             prefetchAhead: prefetchAhead,
             allowsTrailingFill: allowsTrailingFill,
-            sequentialFetch: sequentialFetch
+            sequentialFetch: sequentialFetch,
+            readAheadSuspended: readAheadSuspended
         )
-        if inputSource == nil {
+        // A session opened ahead of playback is refused when playback has
+        // meanwhile opened the song itself; the lease is that session's now.
+        if inputSource == nil, !(readAheadSuspended && hasLiveStreamingSession(for: song)) {
             releaseAudioCacheLeaseForPlayback(songID: song.id)
         }
         return inputSource
+    }
+
+    /// Whether a playback session (rather than one waiting to be played)
+    /// may be reading or writing `song`'s sparse file.
+    func hasLiveStreamingSession(for song: Song) -> Bool {
+        let active = CloudPlaybackSource.activeSessionPaths()
+        return streamingSessionPartialPaths(for: song).contains {
+            active.contains($0) && !CloudPlaybackSource.isStandbySession(partialPath: $0)
+        }
+    }
+
+    /// Every sparse path a playback session for `song` can be writing: the
+    /// canonical cache and the temporary files used with caching off.
+    private func streamingSessionPartialPaths(for song: Song) -> [String] {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+        return [cacheURL(for: song).path + ".partial"]
+            + ["primuse-stream", "primuse-http"].map {
+                tempDir.appendingPathComponent("\($0)-\(song.id)").path + ".partial"
+            }
+    }
+
+    /// The prepared next song is now the one playing.
+    func resumeStandbyStreamingSession(for song: Song) {
+        for path in streamingSessionPartialPaths(for: song) {
+            CloudPlaybackSource.resumeReadAhead(partialPath: path)
+        }
+    }
+
+    /// The prepared next song was not played. Its fetched bytes go back to
+    /// being a seed and its playback lease is returned.
+    func releaseStandbyStreamingSession(for song: Song) {
+        for path in streamingSessionPartialPaths(for: song) {
+            CloudPlaybackSource.releaseStandbySession(partialPath: path)
+        }
+        // A session that playback opened for the song meanwhile shares this
+        // lease; it stays with that session. A waiting session already closed
+        // by a source reconnect has nothing to release but the lease.
+        guard !hasLiveStreamingSession(for: song),
+              playbackAudioCacheLeaseFinalizations[song.id] == nil else { return }
+        releaseAudioCacheLeaseForPlayback(songID: song.id)
     }
 
     func isSourceKnownUnavailableForPlayback(_ sourceID: String) -> Bool {
@@ -12886,12 +13023,28 @@ final class SourceManager {
 
     // MARK: Playback source availability monitoring
 
+    /// A source just delivered audio bytes on the current path, which proves
+    /// it can be reached: the next song from it starts without a probe.
+    func notePlaybackTransferSucceeded(sourceID: String) {
+        playbackSourceAvailability.recordTransfer(
+            sourceID: sourceID,
+            networkGeneration: NetworkMonitor.shared.pathGeneration,
+            sourceGeneration: connectorScopeValidationGenerationBySourceID[sourceID] ?? 0,
+            now: ProcessInfo.processInfo.systemUptime
+        )
+    }
+
     /// Learns which sources this network can reach before playback runs into
     /// them, and keeps asking about the ones that cannot be reached. Opt-in so
     /// a manager built for a test never opens connections on its own.
     func startMonitoringPlaybackSourceAvailability() {
         guard !isMonitoringPlaybackSourceAvailability else { return }
         isMonitoringPlaybackSourceAvailability = true
+        CloudPlaybackSource.setTransferObserver { sourceID in
+            Task { @MainActor [weak self] in
+                self?.notePlaybackTransferSucceeded(sourceID: sourceID)
+            }
+        }
         observePlaybackNetworkPath()
         // Before the first path arrives there is nothing to key a verdict to;
         // that first callback starts the pass instead.

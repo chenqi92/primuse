@@ -151,16 +151,31 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
     /// trustworthy duration we'll ever get (backfill saw a truncated
     /// 256KB head and had to guess). The caller writes it back to the
     /// library so the next render shows the real time.
+    /// `onDecoderOpened` fires once the decoder has opened the source, before
+    /// the first buffer is decoded; playback logs it as a start-up stage.
+    /// `lengthCanWait` says the caller already knows roughly how long the
+    /// song is, so an MP3's exact length may arrive when decoding ends.
     func decode(
         from inputSource: InputSource,
         outputFormat: AVAudioFormat,
         startingAt startTime: TimeInterval? = nil,
-        onResolveSourceLength: (@Sendable (TimeInterval) -> Void)? = nil
+        onResolveSourceLength: (@Sendable (TimeInterval) -> Void)? = nil,
+        onDecoderOpened: (@Sendable () -> Void)? = nil,
+        lengthCanWait: Bool = false
     ) -> AudioBufferStream {
         // SFBAudioEngine's InputSource isn't formally Sendable but it's
         // safe to hand off across one Task boundary — the decoder owns
         // it from then on. Box it to silence the strict-concurrency check.
         let inputBox = InputSourceBox(inputSource)
+        // Core Audio counts an MP3's frames by reading every frame of a file
+        // without a Xing/VBRI header. Over a range stream that downloads the
+        // whole song before the first buffer, so a streamed MP3 decoded from
+        // its top learns its length when it reaches the end instead.
+        let defersLength = lengthCanWait
+            && (startTime ?? 0) <= 0
+            && inputSource.url.map {
+                Self.coreAudioPreferredExtensions.contains($0.pathExtension.lowercased())
+            } == true
         // Reads served by a synchronous bridge over an asynchronous fetch
         // must not park a cooperative-pool thread; give them their own lane.
         let lane = AudioDecodeBlockingLanePolicy.requiresDedicatedBlockingLane(
@@ -191,13 +206,15 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
                         decoder = prepared.decoder
                         framesToDiscard = prepared.framesToDiscard
                     }
+                    onDecoderOpened?()
                     try await self.runDecode(
                         decoder: decoder,
                         outputFormat: outputFormat,
                         framesToDiscard: framesToDiscard,
                         continuation: continuation,
                         onResolveSourceLength: onResolveSourceLength,
-                        blockingLane: lane
+                        blockingLane: lane,
+                        defersLength: defersLength
                     )
                 } catch {
                     continuation.finish(throwing: error)
@@ -363,19 +380,25 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
     /// reads block; every other part of the loop stays on the caller's
     /// executor either way. Frame positions are read between two awaited lane
     /// operations, never while one is in flight.
+    /// - Parameter defersLength: decode without asking for the length, which
+    ///   would make Core Audio scan a streamed MP3 end to end first. Reads on
+    ///   such a source block until their bytes arrive or fail, so a read that
+    ///   yields no frames is the end of the file; the frame count reached
+    ///   there is reported as the length.
     private func runDecode(
         decoder: any SFBAudioEngine.PCMDecoding,
         outputFormat: AVAudioFormat,
         framesToDiscard initialFramesToDiscard: AVAudioFramePosition = 0,
         continuation: AudioBufferStream.Continuation,
         onResolveSourceLength: (@Sendable (TimeInterval) -> Void)? = nil,
-        blockingLane: SFBInputSourceDecodeLane? = nil
+        blockingLane: SFBInputSourceDecodeLane? = nil,
+        defersLength: Bool = false
     ) async throws {
         let sourceFormat = decoder.processingFormat
-        let totalFrames = decoder.length
+        let totalFrames = defersLength ? -1 : decoder.length
         var framesToDiscard = max(0, initialFramesToDiscard)
 
-        plog("🎵 SFBDecoder: sourceFormat=sr\(sourceFormat.sampleRate)/ch\(sourceFormat.channelCount) length=\(totalFrames) outputFormat=sr\(outputFormat.sampleRate)/ch\(outputFormat.channelCount)")
+        plog("🎵 SFBDecoder: sourceFormat=sr\(sourceFormat.sampleRate)/ch\(sourceFormat.channelCount) length=\(defersLength ? "at end" : String(totalFrames)) outputFormat=sr\(outputFormat.sampleRate)/ch\(outputFormat.channelCount)")
 
         // Surface the resolved duration so the caller (AudioPlayerService)
         // can write it back to the library, replacing whatever placeholder
@@ -433,6 +456,8 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
                         buffer,
                         to: continuation
                     )
+                } else if defersLength, decoder.position <= positionBefore {
+                    break
                 } else if decoder.position <= positionBefore {
                     // 0 帧且 position 没前进: 要么是 HTTP 流式源在等下一段 Range
                     // 数据(瞬时, 数据到了就恢复), 要么是截断/损坏文件卡死(永不前进)。
@@ -481,6 +506,7 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
                         stallNanos = 0
                         continue
                     }
+                    if defersLength { break }
                     stallNanos += Self.decodeStallBackoffNanos
                     if stallNanos >= Self.maxDecodeStallNanos { break }
                     try await Task.sleep(nanoseconds: Self.decodeStallBackoffNanos)
@@ -537,6 +563,10 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
             )
         }
 
+        if defersLength, !Task.isCancelled, let onResolveSourceLength,
+           sourceFormat.sampleRate > 0, decoder.position > 0 {
+            onResolveSourceLength(Double(decoder.position) / sourceFormat.sampleRate)
+        }
         if let blockingLane {
             await blockingLane.closeDecoder()
         } else {

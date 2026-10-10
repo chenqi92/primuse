@@ -53,6 +53,53 @@ struct UpcomingPlaybackPrefetchPolicyTests {
         ) == 0)
     }
 
+    @Test("A seed grows past cover art that would leave it without audio")
+    func seedSkipsLeadingCover() {
+        let small = AudioPayloadLayout(audioStart: .at(40_000))
+        #expect(UpcomingPlaybackPrefetchPolicy.seedHeadByteCount(
+            headByteCount: chunk, layout: small, fileSize: 9_000_000, chunkSize: chunk
+        ) == chunk)
+        let cover = AudioPayloadLayout(audioStart: .at(2_600_000))
+        #expect(UpcomingPlaybackPrefetchPolicy.seedHeadByteCount(
+            headByteCount: chunk, layout: cover, fileSize: 9_000_000, chunkSize: chunk
+        ) == 4 * chunk)
+        #expect(UpcomingPlaybackPrefetchPolicy.seedHeadByteCount(
+            headByteCount: 3 * chunk, layout: cover, fileSize: 40_000_000, chunkSize: chunk
+        ) == 6 * chunk)
+        let pending = AudioPayloadLayout(audioStart: .beyond(1_500_000))
+        #expect(UpcomingPlaybackPrefetchPolicy.seedHeadByteCount(
+            headByteCount: chunk, layout: pending, fileSize: 9_000_000, chunkSize: chunk
+        ) == 3 * chunk)
+        // Never past the file, and never chasing absurd metadata.
+        #expect(UpcomingPlaybackPrefetchPolicy.seedHeadByteCount(
+            headByteCount: chunk, layout: cover, fileSize: 3_000_000, chunkSize: chunk
+        ) == 3_000_000)
+        let huge = AudioPayloadLayout(audioStart: .at(20_000_000))
+        #expect(UpcomingPlaybackPrefetchPolicy.seedHeadByteCount(
+            headByteCount: chunk, layout: huge, fileSize: 90_000_000, chunkSize: chunk
+        ) == chunk)
+        #expect(UpcomingPlaybackPrefetchPolicy.seedHeadByteCount(
+            headByteCount: chunk, layout: AudioPayloadLayout(audioStart: .unrecognized),
+            fileSize: 9_000_000, chunkSize: chunk
+        ) == chunk)
+    }
+
+    @Test("A seed tail covers a trailing MP4 index that fits")
+    func seedTailCoversTrailingIndex() {
+        let tail: Int64 = 256 * 1024
+        let moovLast = AudioPayloadLayout(audioStart: .at(32), trailingIndexStart: 8_000_000 - 1_200_000)
+        #expect(UpcomingPlaybackPrefetchPolicy.seedTailByteCount(
+            defaultTail: tail, headByteCount: chunk, layout: moovLast, fileSize: 8_000_000
+        ) == 1_200_000)
+        let bigIndex = AudioPayloadLayout(audioStart: .at(32), trailingIndexStart: 2_000_000)
+        #expect(UpcomingPlaybackPrefetchPolicy.seedTailByteCount(
+            defaultTail: tail, headByteCount: chunk, layout: bigIndex, fileSize: 8_000_000
+        ) == tail)
+        #expect(UpcomingPlaybackPrefetchPolicy.seedTailByteCount(
+            defaultTail: tail, headByteCount: chunk, layout: moovLast, fileSize: chunk + 100
+        ) == 100)
+    }
+
     @Test("Complete-file transfers stay close to the playhead")
     func completeFilesAreRankLimited() {
         #expect(UpcomingPlaybackPrefetchPolicy.allowsCompleteFile(rank: 0, kind: .original))
@@ -86,6 +133,9 @@ struct UpcomingPlaybackPrefetchPolicyTests {
         #expect(!Fill.allowsFill(missingBytes: 40_000_000, totalLength: 100_000_000))
         #expect(!Fill.allowsFill(missingBytes: 60_000_000, totalLength: 1_000_000_000))
         #expect(!Fill.allowsFill(missingBytes: 0, totalLength: 9_000_000))
+        // Skipped past within seconds: nothing is completed, however small.
+        #expect(!Fill.allowsFill(missingBytes: 128 * 1024, totalLength: 9_000_000, playedSeconds: 3))
+        #expect(Fill.allowsFill(missingBytes: 128 * 1024, totalLength: 9_000_000, playedSeconds: 200))
     }
 
     @Test("Speculative reads bound every response to the requested window plus slack")
