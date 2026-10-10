@@ -843,6 +843,11 @@ final class TVStore {
     @ObservationIgnored private var serverCatalogSceneIsActive = false
     /// 用 Plex 账号绑定的源上次去 plex.tv 重查地址的时间。见文件末尾的扩展。
     @ObservationIgnored private var plexServerLinkAttemptAt: [String: Date] = [:]
+    /// Subsonic 一族的 M4A 等容器按文件头认编码(#199):后台那一轮、正在读的开播歌、
+    /// 这次运行里读不出的歌。见文件末尾的扩展。
+    @ObservationIgnored private var containerCodecPass: (token: UUID, task: Task<Void, Never>)?
+    @ObservationIgnored private var containerCodecPlaybackReads: Set<String> = []
+    @ObservationIgnored private var containerCodecUnreadableSongIDs: Set<String> = []
     private struct ScanCheckpoint: Codable {
         let connectionIdentity: String
         let roots: [String]
@@ -4224,6 +4229,9 @@ final class TVStore {
             activeScanSourceID = nil
             if !committed, scanner.phase == .scanning { scanner.phase = .idle }
         }
+        if committed, source.type.readsContainerCodecFromFileHeader {
+            scheduleContainerCodecPass()
+        }
         return true
     }
 
@@ -7263,6 +7271,8 @@ extension TVStore {
             defer { self.serverCatalogCheckTask = nil }
             guard !Task.isCancelled else { return }
             await self.checkServerCatalogs()
+            guard !Task.isCancelled, self.serverCatalogSceneIsActive else { return }
+            self.scheduleContainerCodecPass()
         }
     }
 
@@ -7546,6 +7556,146 @@ extension TVStore {
         afterSourceMutation()
     }
 }
+
+// MARK: - M4A 这类容器里的实际编码(#199)
+
+/// Navidrome 等 Subsonic 一族的曲库接口不给编码,M4A 是 ALAC 还是 AAC 只能看文件本身。
+/// 与 iPhone 一样只读文件头那几段(`ContainerCodecProbe`),结果只改 `audioCodec`:
+/// 开播的这首当场读;电视自己扫过的源在后台一首一首补读。
+extension TVStore {
+    /// 后台补读时每首之间歇这么久,同一时间只读一首,不给服务器添压力。
+    private static let containerCodecPassPause: Duration = .milliseconds(500)
+    /// 连着这么多首读不出(服务器不认 Range、连不上)就先停,下次回到前台或扫描完再来。
+    private static let containerCodecPassFailureLimit = 5
+    private static let containerCodecPassFlushCount = 50
+    private static let containerCodecPassFlushInterval: TimeInterval = 20
+
+    private static func needsContainerCodecRead(_ song: Song, sourceType: MusicSourceType) -> Bool {
+        sourceType.readsContainerCodecFromFileHeader
+            && !song.isStreamDescriptor
+            && ContainerAudioCodecPolicy.isUnread(format: song.fileFormat, audioCodec: song.audioCodec)
+    }
+
+    /// 开播的这首是还没读过编码的 M4A 一类容器:顺手读一次文件头,列表、播放页和
+    /// 沉浸页的格式与音质跟着换成 ALAC / AAC。读不出下次播放再试。
+    func readContainerCodecForPlayback(song: Song, source: MusicSource, credential: SourceCredential?) {
+        guard Self.needsContainerCodecRead(song, sourceType: source.type),
+              containerCodecPlaybackReads.insert(song.id).inserted else { return }
+        Task(priority: .utility) { @MainActor [weak self] in
+            let codec = await TVSourceAssetReader.shared.inspectedContainerCodec(
+                for: song, source: source, credential: credential
+            )
+            guard let self else { return }
+            self.containerCodecPlaybackReads.remove(song.id)
+            guard let codec else { return }
+            self.recordInspectedContainerCodecs([song.id: codec], sourceID: source.id)
+            plog("🎵 TV container codec for '\(song.title)' read at playback: \(codec.rawValue)")
+        }
+    }
+
+    /// 读出的编码记到库里那一行上。这期间那一行已经有编码了(扫描、同步带来的)就不动;
+    /// 这个源正在扫描时也不写,扫描提交的行会盖掉它,下次再读。
+    private func recordInspectedContainerCodecs(_ codecs: [String: AudioFormat], sourceID: String) {
+        guard !codecs.isEmpty, canMutateLibrary, activeScanSourceID != sourceID else { return }
+        var updated: [Song] = []
+        for (songID, codec) in codecs {
+            guard var song = library.song(id: songID), song.sourceID == sourceID,
+                  ContainerAudioCodecPolicy.isUnread(format: song.fileFormat, audioCodec: song.audioCodec) else {
+                continue
+            }
+            song.audioCodec = codec
+            updated.append(song)
+        }
+        guard !updated.isEmpty else { return }
+        library.replaceSongs(updated)
+        if let current = updated.first(where: { $0.id == nowPlaying.songID }) {
+            nowPlaying.format = current.codecFormat.displayName
+        }
+    }
+
+    /// 启动、回到前台检查完服务器曲库后,以及这类源扫描完之后调用。已经在读就不另开。
+    private func scheduleContainerCodecPass() {
+        guard containerCodecPass == nil else { return }
+        let token = UUID()
+        let task = Task(priority: .utility) { @MainActor [weak self] in
+            await self?.runContainerCodecPass()
+            guard let self, self.containerCodecPass?.token == token else { return }
+            self.containerCodecPass = nil
+        }
+        containerCodecPass = (token, task)
+    }
+
+    private func isContainerCodecPassSource(_ source: MusicSource) -> Bool {
+        source.type.readsContainerCodecFromFileHeader
+            && source.isEnabled
+            && !source.isDeleted
+            && locallyScannedSourceIDs.contains(source.id)
+            && !locallyRemovedSourceIDs.contains(source.id)
+    }
+
+    private func runContainerCodecPass() async {
+        // 用户在设置里暂停了自动读取,后台这一轮也不跑;开播的那首照常读。
+        let readingMode = MetadataReadingMode.resolve(
+            storedValue: UserDefaults.standard.string(forKey: MetadataBackfillExecutionPolicy.readingModeDefaultsKey),
+            legacyFastEnabled: UserDefaults.standard.bool(
+                forKey: MetadataBackfillExecutionPolicy.highPerformanceAfterScanDefaultsKey
+            )
+        )
+        guard readingMode.readsAutomatically else { return }
+        for source in sourcesStore.sources where isContainerCodecPassSource(source) {
+            guard !Task.isCancelled, serverCatalogSceneIsActive else { return }
+            let songIDs = library.songs.filter {
+                $0.sourceID == source.id
+                    && Self.needsContainerCodecRead($0, sourceType: source.type)
+                    && !containerCodecUnreadableSongIDs.contains($0.id)
+            }.map(\.id)
+            guard !songIDs.isEmpty else { continue }
+            let credential = TVCredentialStore.credential(for: source, bundle: credentialBundle)
+            let identity = Self.connectionIdentity(source)
+            var pending: [String: AudioFormat] = [:]
+            var lastFlush = Date()
+            var read = 0
+            var failed = 0
+            var consecutiveFailures = 0
+            for songID in songIDs {
+                let thermal = ProcessInfo.processInfo.thermalState
+                guard !Task.isCancelled, serverCatalogSceneIsActive,
+                      thermal != .serious, thermal != .critical,
+                      activeScanSourceID != source.id,
+                      let current = sourcesStore.source(id: source.id),
+                      isContainerCodecPassSource(current),
+                      Self.connectionIdentity(current) == identity else { break }
+                guard let song = library.song(id: songID),
+                      Self.needsContainerCodecRead(song, sourceType: source.type) else { continue }
+                if let codec = await TVSourceAssetReader.shared.inspectedContainerCodec(
+                    for: song, source: source, credential: credential
+                ) {
+                    pending[songID] = codec
+                    read += 1
+                    consecutiveFailures = 0
+                } else if !Task.isCancelled {
+                    containerCodecUnreadableSongIDs.insert(songID)
+                    failed += 1
+                    consecutiveFailures += 1
+                    if consecutiveFailures >= Self.containerCodecPassFailureLimit { break }
+                }
+                if pending.count >= Self.containerCodecPassFlushCount
+                    || Date().timeIntervalSince(lastFlush) >= Self.containerCodecPassFlushInterval {
+                    recordInspectedContainerCodecs(pending, sourceID: source.id)
+                    pending = [:]
+                    lastFlush = Date()
+                }
+                try? await Task.sleep(for: Self.containerCodecPassPause)
+            }
+            recordInspectedContainerCodecs(pending, sourceID: source.id)
+            plog(
+                "🎵 TV container codec pass source=\(source.id.prefix(8))… "
+                    + "candidates=\(songIDs.count) read=\(read) failed=\(failed)"
+            )
+        }
+    }
+}
+
 // MARK: - Playback range ("播放时间段")
 
 extension TVStore {

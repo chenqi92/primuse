@@ -1182,6 +1182,7 @@ final class TVPlaybackCoordinator {
             credential: credential,
             requestID: requestID
         )
+        store?.readContainerCodecForPlayback(song: song, source: source, credential: credential)
     }
 
     private func schedulePlaybackMetadataRead(

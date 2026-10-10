@@ -832,18 +832,19 @@ struct TVImmersivePlayerView: View {
             : trimmed
     }
 
+    /// 与 iPhone 沉浸页同一套规格串:格式按读出来的编码(M4A 里的 ALAC / AAC),
+    /// hi-res 按采样率与实际位深判,不再见 FLAC 就写 hi-res。
     private func formatLine(_ np: TVNowPlaying) -> String {
-        var parts: [String] = []
-        if np.sampleRate >= 88.2 || np.format.lowercased() == "flac" {
-            parts.append("hi-res")
+        let playingSampleRate = np.sampleRate > 0 ? Int((np.sampleRate * 1_000).rounded()) : nil
+        guard let song = store.library.song(id: np.songID) else {
+            return ImmersiveAudioSpec.line(format: np.format, sampleRate: playingSampleRate, bitDepth: nil)
         }
-        if np.sampleRate > 0 {
-            let khz = np.sampleRate.truncatingRemainder(dividingBy: 1) == 0
-                ? String(Int(np.sampleRate)) : String(format: "%.1f", np.sampleRate)
-            parts.append("\(khz)kHz")
-        }
-        if !np.format.isEmpty { parts.append(np.format.lowercased()) }
-        return parts.isEmpty ? "—" : parts.joined(separator: " ")
+        return ImmersiveAudioSpec.line(
+            format: song.codecFormat.displayName,
+            sampleRate: song.sampleRate.flatMap { $0 > 0 ? $0 : nil } ?? playingSampleRate,
+            bitDepth: song.qualityBitDepth,
+            audioVariants: song.audioVariants
+        )
     }
 
     private var hasSynchronizedLyrics: Bool {

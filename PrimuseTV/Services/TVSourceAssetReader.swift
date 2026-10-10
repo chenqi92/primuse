@@ -281,6 +281,47 @@ actor TVSourceAssetReader {
         return .unavailable
     }
 
+    /// Subsonic 一族的接口不给编码:按 `ContainerCodecProbe` 要的那几段经原文件流(`format=raw`)
+    /// 读 M4A 这类容器的文件头,认出里面装的是 ALAC 还是 AAC。返回该记进 `Song.audioCodec` 的值
+    /// (认不出时是容器本身,表示读过);连不上或服务端不认 Range 时为 nil,下次再读。
+    func inspectedContainerCodec(
+        for song: Song,
+        source: MusicSource,
+        credential: SourceCredential?
+    ) async -> AudioFormat? {
+        guard source.type.readsContainerCodecFromFileHeader,
+              !song.isStreamDescriptor,
+              song.fileFormat.holdsVariousCodecs else { return nil }
+        let candidates = await SourceConnectionRuntime.shared.orderedCandidates(for: source)
+        let routes = candidates.isEmpty
+            ? [source]
+            : candidates.map { source.applyingConnectionCandidate($0) }
+        for routed in routes {
+            guard !Task.isCancelled,
+                  let connector = connector(for: routed, credential: credential) else { return nil }
+            do {
+                var probe = ContainerCodecProbe(container: song.fileFormat, fileSize: song.fileSize)
+                while case .read(let offset, let length) = probe.step {
+                    guard length > 0 else {
+                        probe.consume(Data())
+                        continue
+                    }
+                    let data = try await connector.fetchRange(path: song.filePath, offset: offset, length: length)
+                    try Task.checkCancellation()
+                    probe.consume(data)
+                }
+                guard case .finished(let codec) = probe.step else { return nil }
+                return ContainerAudioCodecPolicy.inspectedCodec(codec, container: song.fileFormat)
+            } catch is CancellationError {
+                return nil
+            } catch {
+                plog("🎵 TV container codec read failed '\(song.title)': \(error.localizedDescription)")
+                continue
+            }
+        }
+        return nil
+    }
+
     nonisolated static func cacheIdentity(source: MusicSource, credential: SourceCredential?) -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
