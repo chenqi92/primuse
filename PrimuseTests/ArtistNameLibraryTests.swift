@@ -340,6 +340,20 @@ final class FileAlbumArtistLibraryTests: XCTestCase {
             XCTAssertEqual(restored.visibleGenres.first { $0.id == id }?.songCount, 16)
             XCTAssertEqual(restored.visibleGenres.first { $0.id == id }?.albumCount, 1)
         }
+        for value in ["J-Pop", "Vocaloid"] {
+            let cases: [(SmartPlaylistOperator, Int)] = [
+                (.equals, 16), (.notEquals, 0), (.contains, 16), (.notContains, 0),
+            ]
+            for (op, count) in cases {
+                let smart = SmartPlaylist(
+                    name: "Genre rule", rules: [.init(field: .genre, op: op, value: value)]
+                )
+                XCTAssertEqual(
+                    SmartPlaylistEngine.match(smart, in: restored, history: .shared).count,
+                    count, "\(value) \(op.rawValue)"
+                )
+            }
+        }
     }
 
     func testFLACFastSessionPreservesLegacyTailPrecedence() async {
