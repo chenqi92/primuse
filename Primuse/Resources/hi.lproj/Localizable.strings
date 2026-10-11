@@ -5773,3 +5773,7 @@
 "ai_quota_testflight_plan %@" = "बीटा के दौरान “%@” की सीमा लागू";
 "ai_quota_resets_daily %@" = "हर दिन %@ पर रीसेट होती है";
 "ai_quota_plan_expires %@" = "%@ को समाप्त";
+"artwork_apply_to_album_songs" = "एल्बम के गानों के लिए भी इस्तेमाल करें";
+"artwork_apply_to_album_songs_footer" = "चालू होने पर अपलोड की गई या चुनी गई छवि इस एल्बम के हर गाने को भी मिलती है: स्रोत समर्थन करे तो फ़ाइल में लिखी जाती है, और Primuse में हर हाल में दिखती है। स्वचालित चुनने पर गाने नहीं बदलते।";
+"artwork_applying_to_songs_format" = "गानों का आर्टवर्क अपडेट हो रहा है: %1$d/%2$d";
+"artwork_apply_to_songs_failed_format" = "%d गानों को नया आर्टवर्क नहीं मिल सका।";

@@ -5773,3 +5773,7 @@
 "ai_quota_testflight_plan %@" = "ช่วงเบต้าใช้โควตาของ “%@”";
 "ai_quota_resets_daily %@" = "รีเซ็ตทุกวันเวลา %@";
 "ai_quota_plan_expires %@" = "หมดอายุ %@";
+"artwork_apply_to_album_songs" = "ใช้กับเพลงในอัลบั้มด้วย";
+"artwork_apply_to_album_songs_footer" = "เมื่อเปิด ภาพที่อัปโหลดหรือเลือกจะใช้กับทุกเพลงในอัลบั้มนี้ด้วย โดยเขียนลงไฟล์หากแหล่งเพลงรองรับ และแสดงใน Primuse ในทุกกรณี การเลือก อัตโนมัติ จะไม่เปลี่ยนเพลง";
+"artwork_applying_to_songs_format" = "กำลังอัปเดตปกเพลง %1$d/%2$d";
+"artwork_apply_to_songs_failed_format" = "ตั้งปกใหม่ให้ %d เพลงไม่สำเร็จ";

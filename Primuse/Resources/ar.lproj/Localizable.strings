@@ -5773,3 +5773,7 @@
 "ai_quota_testflight_plan %@" = "تُستخدم حصة «%@» خلال الفترة التجريبية";
 "ai_quota_resets_daily %@" = "يُعاد التعيين يوميًا عند %@";
 "ai_quota_plan_expires %@" = "تنتهي في %@";
+"artwork_apply_to_album_songs" = "استخدامها أيضًا لأغاني الألبوم";
+"artwork_apply_to_album_songs_footer" = "عند التشغيل، تُستخدم الصورة التي ترفعها أو تختارها أيضًا لكل أغنية في هذا الألبوم: تُكتب في الملف إذا كان المصدر يدعم ذلك، وتُعرض في Primuse في كل الأحوال. اختيار «آلي» لا يغيّر الأغاني.";
+"artwork_applying_to_songs_format" = "جارٍ تحديث صور الأغاني: %1$d من %2$d";
+"artwork_apply_to_songs_failed_format" = "تعذّر تعيين الصورة الجديدة لعدد %d من الأغاني.";

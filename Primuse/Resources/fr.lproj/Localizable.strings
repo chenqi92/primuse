@@ -5867,3 +5867,7 @@
 "ai_quota_testflight_plan %@" = "Quota « %@ » pendant la bêta";
 "ai_quota_resets_daily %@" = "Réinitialisé chaque jour à %@";
 "ai_quota_plan_expires %@" = "Expire le %@";
+"artwork_apply_to_album_songs" = "Utiliser aussi pour les morceaux de l’album";
+"artwork_apply_to_album_songs_footer" = "Si cette option est activée, l’image importée ou choisie est aussi attribuée à chaque morceau de cet album : elle est écrite dans le fichier si la source le permet et affichée dans Primuse dans tous les cas. Choisir « Automatique » ne modifie pas les morceaux.";
+"artwork_applying_to_songs_format" = "Mise à jour des pochettes : %1$d sur %2$d";
+"artwork_apply_to_songs_failed_format" = "%d morceaux n’ont pas pu recevoir la nouvelle pochette.";

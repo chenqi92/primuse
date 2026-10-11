@@ -5627,3 +5627,7 @@
 "ai_quota_testflight_plan %@" = "Using the “%@” allowance during the beta";
 "ai_quota_resets_daily %@" = "Resets daily at %@";
 "ai_quota_plan_expires %@" = "Expires %@";
+"artwork_apply_to_album_songs" = "Also Use for the Album’s Songs";
+"artwork_apply_to_album_songs_footer" = "When on, the image you upload or pick is also given to every song on this album: written into the file where the source supports it, and shown for those songs in Primuse either way. Choosing Automatic leaves the songs as they are.";
+"artwork_applying_to_songs_format" = "Updating song artwork %1$d of %2$d";
+"artwork_apply_to_songs_failed_format" = "%d songs could not get the new artwork.";

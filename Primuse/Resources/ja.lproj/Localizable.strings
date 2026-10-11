@@ -5868,3 +5868,7 @@
 "ai_quota_testflight_plan %@" = "ベータ期間中は「%@」の利用枠を使用";
 "ai_quota_resets_daily %@" = "毎日 %@ にリセット";
 "ai_quota_plan_expires %@" = "%@ に期限切れ";
+"artwork_apply_to_album_songs" = "アルバム内の曲にも使用";
+"artwork_apply_to_album_songs_footer" = "オンにすると、アップロードまたは選択した画像がこのアルバムのすべての曲にも使われます。ソースが対応していればファイルに書き込まれ、対応していなくても Primuse ではこの画像が表示されます。「自動」を選んだ場合、曲は変更されません。";
+"artwork_applying_to_songs_format" = "曲のアートワークを更新中 %1$d/%2$d";
+"artwork_apply_to_songs_failed_format" = "%d 曲に新しいアートワークを設定できませんでした。";

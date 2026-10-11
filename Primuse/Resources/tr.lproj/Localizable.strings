@@ -5773,3 +5773,7 @@
 "ai_quota_testflight_plan %@" = "Beta süresince “%@” kotası geçerli";
 "ai_quota_resets_daily %@" = "Her gün %@ saatinde sıfırlanır";
 "ai_quota_plan_expires %@" = "%@ tarihinde sona erer";
+"artwork_apply_to_album_songs" = "Albümdeki şarkılar için de kullan";
+"artwork_apply_to_album_songs_footer" = "Açıkken yüklediğiniz veya seçtiğiniz görsel bu albümdeki her şarkıya da verilir: kaynak destekliyorsa dosyaya yazılır, her durumda Primuse'de gösterilir. Otomatik seçilirse şarkılar değişmez.";
+"artwork_applying_to_songs_format" = "Şarkı kapakları güncelleniyor: %1$d/%2$d";
+"artwork_apply_to_songs_failed_format" = "%d şarkıya yeni kapak verilemedi.";

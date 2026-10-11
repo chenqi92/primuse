@@ -5867,3 +5867,7 @@
 "ai_quota_testflight_plan %@" = "Während der Beta gilt das Kontingent „%@“";
 "ai_quota_resets_daily %@" = "Wird täglich um %@ zurückgesetzt";
 "ai_quota_plan_expires %@" = "Läuft am %@ ab";
+"artwork_apply_to_album_songs" = "Auch für die Titel des Albums verwenden";
+"artwork_apply_to_album_songs_footer" = "Wenn aktiviert, erhält auch jeder Titel dieses Albums das hochgeladene oder ausgewählte Bild: Es wird in die Datei geschrieben, sofern die Quelle das unterstützt, und in Primuse in jedem Fall angezeigt. „Automatisch“ lässt die Titel unverändert.";
+"artwork_applying_to_songs_format" = "Titelcover werden aktualisiert: %1$d von %2$d";
+"artwork_apply_to_songs_failed_format" = "%d Titel konnten das neue Cover nicht erhalten.";

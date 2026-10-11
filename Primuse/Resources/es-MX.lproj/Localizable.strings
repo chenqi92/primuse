@@ -5773,3 +5773,7 @@
 "ai_quota_testflight_plan %@" = "Durante la beta se usa la cuota de “%@”";
 "ai_quota_resets_daily %@" = "Se restablece cada día a las %@";
 "ai_quota_plan_expires %@" = "Vence el %@";
+"artwork_apply_to_album_songs" = "Usar también para las canciones del álbum";
+"artwork_apply_to_album_songs_footer" = "Si está activado, la imagen que subas o elijas también se asigna a cada canción de este álbum: se escribe en el archivo si la fuente lo permite y, en cualquier caso, se muestra en Primuse. Elegir Automático no cambia las canciones.";
+"artwork_applying_to_songs_format" = "Actualizando portadas de canciones: %1$d de %2$d";
+"artwork_apply_to_songs_failed_format" = "%d canciones no pudieron recibir la nueva portada.";

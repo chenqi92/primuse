@@ -5960,3 +5960,7 @@
 "ai_quota_testflight_plan %@" = "内测期间使用「%@」的额度";
 "ai_quota_resets_daily %@" = "每天 %@ 重置";
 "ai_quota_plan_expires %@" = "%@ 到期";
+"artwork_apply_to_album_songs" = "同时用作专辑内歌曲的封面";
+"artwork_apply_to_album_songs_footer" = "打开后，上传或选定的封面也会给这张专辑里的每首歌：音乐源支持时写入文件，不支持也会在 Primuse 里显示这张封面。选「自动」不会改动歌曲。";
+"artwork_applying_to_songs_format" = "正在更新歌曲封面 %1$d/%2$d";
+"artwork_apply_to_songs_failed_format" = "%d 首歌没能换上新封面。";

@@ -915,10 +915,17 @@ struct LibraryArtworkEditorSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(MusicLibrary.self) private var library
+    @Environment(SourceManager.self) private var sourceManager
+    @Environment(AudioPlayerService.self) private var player
     @State private var artworkAvailability: [String: Bool] = [:]
     @State private var isProcessing = false
     @State private var errorMessage: String?
     @State private var isFileImporterPresented = false
+    /// 「同时用作专辑内歌曲的封面」(#188)。每次打开都是关着的:写的是每首歌的文件,不该悄悄沿用上次的选择。
+    @State private var appliesCoverToSongs = false
+    @State private var songCoverProgress: (done: Int, total: Int)?
+    /// 写给歌曲时有几首没写成;关掉提示框就收起编辑页(专辑封面本身已经换好)。
+    @State private var songCoverFailure: String?
     #if os(iOS)
     @State private var selectedPhoto: PhotosPickerItem?
     #else
@@ -943,6 +950,14 @@ struct LibraryArtworkEditorSheet: View {
     private var iosEditor: some View {
         NavigationStack {
             List {
+                if offersSongCoverSync {
+                    Section {
+                        Toggle("artwork_apply_to_album_songs", isOn: $appliesCoverToSongs)
+                    } footer: {
+                        Text("artwork_apply_to_album_songs_footer")
+                    }
+                }
+
                 Section {
                     Button {
                         if library.setAutomaticArtwork(for: owner) {
@@ -986,13 +1001,19 @@ struct LibraryArtworkEditorSheet: View {
                 #endif
             }
             .disabled(isProcessing)
+            .interactiveDismissDisabled(isProcessing)
             .overlay {
-                if isProcessing {
+                if let songCoverProgress {
+                    songCoverProgressView(songCoverProgress)
+                        .padding(20)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                } else if isProcessing {
                     ProgressView("artwork_processing")
                         .padding(20)
                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                 }
             }
+            .modifier(songCoverFailureAlert)
             .alert(
                 String(localized: "artwork_upload_failed"),
                 isPresented: Binding(
@@ -1120,6 +1141,18 @@ struct LibraryArtworkEditorSheet: View {
                         }
                         .buttonStyle(.plain)
                     }
+
+                    if offersSongCoverSync {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Toggle("artwork_apply_to_album_songs", isOn: $appliesCoverToSongs)
+                                .toggleStyle(.checkbox)
+                                .font(.system(size: 12))
+                            Text("artwork_apply_to_album_songs_footer")
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(PMColor.textMuted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
                 }
                 .frame(width: 176)
 
@@ -1162,7 +1195,11 @@ struct LibraryArtworkEditorSheet: View {
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
 
             HStack(spacing: 10) {
-                if isProcessing {
+                if let songCoverProgress {
+                    songCoverProgressView(songCoverProgress)
+                        .controlSize(.small)
+                        .frame(width: 220)
+                } else if isProcessing {
                     ProgressView()
                         .controlSize(.small)
                     Text("artwork_processing")
@@ -1176,7 +1213,8 @@ struct LibraryArtworkEditorSheet: View {
                     .buttonStyle(.borderedProminent)
                     .tint(PMColor.brand)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(!macHasChanges || isProcessing)
+                    // 只勾了「同时用作专辑内歌曲的封面」、专辑封面不变时也能保存:把现在这张写给歌曲。
+                    .disabled(!(macHasChanges || (syncsCoverToSongs && macChoice != .automatic)) || isProcessing)
             }
             .controlSize(.regular)
             .padding(.horizontal, 24)
@@ -1202,6 +1240,7 @@ struct LibraryArtworkEditorSheet: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .modifier(songCoverFailureAlert)
         .onAppear {
             macDraftChoice = resolvedMacChoice
             if case .uploaded(let contentID) = resolvedMacChoice,
@@ -1411,10 +1450,12 @@ struct LibraryArtworkEditorSheet: View {
         case .automatic:
             if library.setAutomaticArtwork(for: owner) { dismiss() }
         case .selectedSong(let songID):
-            guard let song = songs.first(where: { $0.id == songID }) else { return }
-            if library.setArtwork(for: owner, to: song) { dismiss() }
+            guard let song = songs.first(where: { $0.id == songID }),
+                  library.setArtwork(for: owner, to: song) else { return }
+            finish(syncingCover: { await coverData(of: song) }, skipping: song.id)
         case .uploaded(let contentID):
-            if library.setUploadedArtwork(contentID: contentID, for: owner) { dismiss() }
+            guard library.setUploadedArtwork(contentID: contentID, for: owner) else { return }
+            finish(syncingCover: { MetadataAssetStore.shared.customArtworkData(contentID: contentID) })
         case .pendingUpload:
             guard let data = macPendingUploadData else { return }
             isProcessing = true
@@ -1426,7 +1467,7 @@ struct LibraryArtworkEditorSheet: View {
                     return
                 }
                 isProcessing = false
-                dismiss()
+                finish(syncingCover: { data })
             }
         }
     }
@@ -1533,9 +1574,8 @@ struct LibraryArtworkEditorSheet: View {
             return songID == song.id
         }()
         return Button {
-            if library.setArtwork(for: owner, to: song) {
-                dismiss()
-            }
+            guard library.setArtwork(for: owner, to: song) else { return }
+            finish(syncingCover: { await coverData(of: song) }, skipping: song.id)
         } label: {
             HStack(spacing: 12) {
                 CachedArtworkView(
@@ -1592,6 +1632,7 @@ struct LibraryArtworkEditorSheet: View {
             macPendingUploadData = processed
             macUploadedPreview = PlatformImage(data: processed)
             macDraftChoice = .pendingUpload
+            isProcessing = false
             #else
             guard let contentID = await MetadataAssetStore.shared.storeCustomArtwork(processed),
                   library.setUploadedArtwork(contentID: contentID, for: owner) else {
@@ -1599,11 +1640,133 @@ struct LibraryArtworkEditorSheet: View {
                 errorMessage = String(localized: "artwork_invalid_image")
                 return
             }
-            #endif
             isProcessing = false
-            #if os(iOS)
-            dismiss()
+            finish(syncingCover: { processed })
             #endif
+        }
+    }
+
+    // MARK: 同时用作专辑内歌曲的封面(#188)
+
+    /// 专辑封面平时只管专辑自己;同专辑的歌各用各的封面。打开这一项,上传或选定的封面也写给专辑里的歌,
+    /// 和多选「批量编辑标签」换封面走同一条路:音乐源支持时写进文件,Primuse 里总会显示这张。
+    /// Apple Music 资料库里的歌不是自己的文件,不写。
+    private var songsForCoverSync: [PrimuseKit.Song] {
+        songs.filter { $0.sourceID != AppleMusicLibraryService.systemSourceID }
+    }
+
+    private var offersSongCoverSync: Bool {
+        owner.kind == .album && !songsForCoverSync.isEmpty
+    }
+
+    private var syncsCoverToSongs: Bool {
+        offersSongCoverSync && appliesCoverToSongs
+    }
+
+    /// 专辑封面已经换好。开着「同时用作专辑内歌曲的封面」时再把同一张图写给专辑里的歌,写完再收起;
+    /// 没开就直接收起。`skippedSongID` 是封面本来就取自的那首,不用再写。
+    private func finish(
+        syncingCover cover: @escaping @MainActor () async -> Data?,
+        skipping skippedSongID: String? = nil
+    ) {
+        guard syncsCoverToSongs else {
+            dismiss()
+            return
+        }
+        isProcessing = true
+        Task {
+            defer { isProcessing = false }
+            guard let data = await cover() else {
+                songCoverFailure = String(localized: "artwork_invalid_image")
+                return
+            }
+            if await writeCoverToSongs(data, skipping: skippedSongID) {
+                dismiss()
+            }
+        }
+    }
+
+    private func writeCoverToSongs(_ data: Data, skipping skippedSongID: String?) async -> Bool {
+        let cover = BatchCoverImage.scaled(data) ?? data
+        let changes = songsForCoverSync.compactMap { song -> (original: PrimuseKit.Song, updated: PrimuseKit.Song)? in
+            guard song.id != skippedSongID else { return nil }
+            let current = library.song(id: song.id) ?? song
+            return (current, current)
+        }
+        guard !changes.isEmpty else { return true }
+        songCoverProgress = (0, changes.count)
+        let outcome = await BatchTagEditService.apply(
+            changes,
+            coverData: cover,
+            sourceManager: sourceManager,
+            library: library,
+            player: player
+        ) { done, total in
+            songCoverProgress = (done, total)
+        }
+        songCoverProgress = nil
+        guard outcome.failures.isEmpty else {
+            let summary = String(
+                format: String(localized: "artwork_apply_to_songs_failed_format"),
+                outcome.failures.count
+            )
+            songCoverFailure = ([summary] + outcome.failures.prefix(3).map { "\($0.title): \($0.message)" })
+                .joined(separator: "\n")
+            return false
+        }
+        return true
+    }
+
+    /// 选的是某首歌的封面:按播放页大封面同样的取法拿到图,再写给其余的歌。
+    private func coverData(of song: PrimuseKit.Song) async -> Data? {
+        let image = await CachedArtworkView.resolveImage(
+            coverRef: song.coverArtFileName,
+            songID: song.id,
+            size: 1024,
+            sourceID: song.sourceID,
+            filePath: song.filePath,
+            fileFormat: song.fileFormat,
+            sourceManager: sourceManager
+        )
+        return image?.platformPNGData()
+    }
+
+    private func songCoverProgressView(_ progress: (done: Int, total: Int)) -> some View {
+        VStack(spacing: 8) {
+            ProgressView(value: Double(progress.done), total: Double(max(1, progress.total)))
+            Text(verbatim: String(
+                format: String(localized: "artwork_applying_to_songs_format"),
+                progress.done,
+                progress.total
+            ))
+            .font(.footnote)
+            .monospacedDigit()
+            .foregroundStyle(.secondary)
+        }
+        .frame(minWidth: 200)
+    }
+
+    private var songCoverFailureAlert: SongCoverFailureAlert {
+        SongCoverFailureAlert(message: $songCoverFailure) { dismiss() }
+    }
+}
+
+/// 写给歌曲时有几首没写成。专辑封面本身已经换好,关掉提示框就收起编辑页。
+private struct SongCoverFailureAlert: ViewModifier {
+    @Binding var message: String?
+    let onDismiss: () -> Void
+
+    func body(content: Content) -> some View {
+        content.alert(
+            String(localized: "artwork_upload_failed"),
+            isPresented: Binding(
+                get: { message != nil },
+                set: { if !$0 { message = nil } }
+            )
+        ) {
+            Button("ok", role: .cancel) { onDismiss() }
+        } message: {
+            Text(verbatim: message ?? "")
         }
     }
 }

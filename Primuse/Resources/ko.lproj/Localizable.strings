@@ -5867,3 +5867,7 @@
 "ai_quota_testflight_plan %@" = "베타 기간 동안 ‘%@’ 사용량 적용";
 "ai_quota_resets_daily %@" = "매일 %@에 초기화";
 "ai_quota_plan_expires %@" = "%@ 만료";
+"artwork_apply_to_album_songs" = "앨범 수록곡에도 사용";
+"artwork_apply_to_album_songs_footer" = "켜면 업로드하거나 선택한 이미지가 이 앨범의 모든 곡에도 적용됩니다. 소스가 지원하면 파일에 기록되고, 지원하지 않아도 Primuse에서는 이 이미지가 표시됩니다. '자동'을 선택하면 곡은 바뀌지 않습니다.";
+"artwork_applying_to_songs_format" = "곡 아트워크 업데이트 중 %1$d/%2$d";
+"artwork_apply_to_songs_failed_format" = "%d곡에 새 아트워크를 적용하지 못했습니다.";

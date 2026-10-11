@@ -5773,3 +5773,7 @@
 "ai_quota_testflight_plan %@" = "W czasie bety obowiązuje limit „%@”";
 "ai_quota_resets_daily %@" = "Resetuje się codziennie o %@";
 "ai_quota_plan_expires %@" = "Wygasa %@";
+"artwork_apply_to_album_songs" = "Użyj też dla utworów z albumu";
+"artwork_apply_to_album_songs_footer" = "Po włączeniu przesłany lub wybrany obraz otrzymuje także każdy utwór z tego albumu: jest zapisywany w pliku, jeśli źródło to obsługuje, a w Primuse wyświetlany w każdym przypadku. Wybór „Automatyczny” nie zmienia utworów.";
+"artwork_applying_to_songs_format" = "Aktualizowanie okładek utworów: %1$d z %2$d";
+"artwork_apply_to_songs_failed_format" = "Nie udało się zmienić okładki utworów: %d.";

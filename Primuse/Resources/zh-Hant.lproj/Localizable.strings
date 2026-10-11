@@ -5844,3 +5844,7 @@
 "ai_quota_testflight_plan %@" = "內測期間使用「%@」的額度";
 "ai_quota_resets_daily %@" = "每天 %@ 重設";
 "ai_quota_plan_expires %@" = "%@ 到期";
+"artwork_apply_to_album_songs" = "同時用作專輯內歌曲的封面";
+"artwork_apply_to_album_songs_footer" = "開啟後，上傳或選定的封面也會套用到這張專輯裡的每首歌：音樂來源支援時寫入檔案，不支援也會在 Primuse 裡顯示這張封面。選「自動」不會更動歌曲。";
+"artwork_applying_to_songs_format" = "正在更新歌曲封面 %1$d/%2$d";
+"artwork_apply_to_songs_failed_format" = "%d 首歌未能換上新封面。";
