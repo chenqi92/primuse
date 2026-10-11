@@ -361,6 +361,12 @@ final class FTPStreamConnection: NSObject, StreamDelegate, @unchecked Sendable {
                 continuation.resume(throwing: failure)
                 return
             }
+            // 对方已经关了连接(服务器回完 421/522 断开、踢掉闲置连接):TLS 流不会再报可写,
+            // 等下去只会白白超时。
+            if self.reachedEOF {
+                continuation.resume(throwing: FTPClientError.connectionClosed)
+                return
+            }
             self.writeWaiter = (data, 0, continuation)
             self.continueWriting()
         }
@@ -488,6 +494,11 @@ final class FTPStreamConnection: NSObject, StreamDelegate, @unchecked Sendable {
             drainInput()
             reachedEOF = true
             deliverRead()
+            if let writeWaiter {
+                self.writeWaiter = nil
+                waiterToken += 1
+                writeWaiter.continuation.resume(throwing: FTPClientError.connectionClosed)
+            }
         }
         if event.contains(.errorOccurred) {
             let detail = stream.streamError?.localizedDescription ?? "stream error"
@@ -720,9 +731,25 @@ public actor FTPSession {
     private var parser = FTPReplyParser()
     private var queuedReplies: [FTPReply] = []
     private var features = FTPFeatures()
+    /// 每条控制连接自己的 TLS 会话标识。CFNetwork 默认按服务器地址加端口给标识,同一台
+    /// 服务器的几条控制连接会共用一个,会话缓存里只留得下最后登录那条的会话;别的控制连接的
+    /// 数据连接拿去复用,服务器不认(vsftpd 每条控制连接一个进程、各有各的会话缓存),
+    /// 回 522 并断开控制连接。
+    private let ownTLSPeerID = Data("primuse-ftp \(UUID().uuidString)".utf8)
+    /// 控制连接实际用上的会话标识,数据连接用它复用同一个会话。
     private var tlsPeerID: Data?
     /// 控制连接出过问题(超时、读到半截回复)就不再复用。
     public private(set) var isReusable = false
+    private var loggedInAt: Date?
+
+    /// 系统只把 TLS 会话缓存 10 分钟(从建立时算起,复用不续期),过期后数据连接复用不上,
+    /// 服务器回 522。加密的会话登录满这么久就不再借出。
+    static let maximumTLSSessionAge: TimeInterval = 5 * 60
+
+    var outlivesTLSSessionCache: Bool {
+        guard usesTLS, let loggedInAt else { return false }
+        return Date().timeIntervalSince(loggedInAt) > Self.maximumTLSSessionAge
+    }
 
     init(configuration: FTPSessionConfiguration, traits: FTPServerTraits) {
         self.configuration = configuration
@@ -738,7 +765,7 @@ public actor FTPSession {
     private func log(_ message: @autoclosure () -> String) {
         configuration.log?("FTP \(configuration.host):\(configuration.port) \(message())")
     }
-    private var tlsOptions: FTPTLSOptions { FTPTLSOptions(peerName: configuration.host, sessionPeerID: nil) }
+    private var tlsOptions: FTPTLSOptions { FTPTLSOptions(peerName: configuration.host, sessionPeerID: ownTLSPeerID) }
     private var dataTLSOptions: FTPTLSOptions { FTPTLSOptions(peerName: configuration.host, sessionPeerID: tlsPeerID) }
 
     // MARK: Login
@@ -773,6 +800,9 @@ public actor FTPSession {
 
             if usesTLS {
                 tlsPeerID = await connection.tlsSessionPeerID()
+                if tlsPeerID != ownTLSPeerID {
+                    log("TLS session id not applied, data connections reuse the system default")
+                }
                 _ = try await command("PBSZ", "0")
                 let prot = try await command("PROT", "P")
                 guard prot.isCompletion else { throw failure("PROT", prot) }
@@ -788,6 +818,7 @@ public actor FTPSession {
             let type = try await command("TYPE", "I")
             guard type.isCompletion else { throw failure("TYPE", type) }
             isReusable = true
+            loggedInAt = Date()
             log("logged in tls=\(configuration.encryption.rawValue) mode=\(configuration.dataConnectionMode.rawValue) features=\(features.names.sorted().joined(separator: ","))")
         } catch {
             log("login failed: \(error)")
@@ -1171,7 +1202,8 @@ public actor FTPSession {
     private static func breaksControlConnection(_ error: Error) -> Bool {
         guard let error = error as? FTPClientError else { return true }
         switch error {
-        case .replyFailure(_, let code, _): return code == 421
+        // 522:数据连接的 TLS 没谈成。vsftpd(require_ssl_reuse)回完 522 就断开控制连接。
+        case .replyFailure(_, let code, _): return code == 421 || code == 522
         case .activeModeUnavailable: return false
         default: return true
         }
@@ -1237,10 +1269,14 @@ public actor FTPSessionPool {
             if isShutDown { throw FTPClientError.cancelled }
             try Task.checkCancellation()
             while let candidate = idle.popLast() {
-                if await candidate.session.isReusable {
-                    activeCount += 1
-                    return (candidate.session, true)
+                let session = candidate.session
+                guard await session.isReusable else { continue }
+                if await session.outlivesTLSSessionCache {
+                    await session.close()
+                    continue
                 }
+                activeCount += 1
+                return (session, true)
             }
             if activeCount < maximumSessions {
                 activeCount += 1
@@ -1313,7 +1349,8 @@ public actor FTPSessionPool {
         guard let error = error as? FTPClientError else { return false }
         switch error {
         case .connectionClosed, .connectionFailed: return true
-        case .replyFailure(_, let code, _): return code == 421
+        // 522:旧会话的 TLS 会话服务器已经不认了,新会话重新谈一个。
+        case .replyFailure(_, let code, _): return code == 421 || code == 522
         case .timedOut(let stage): return stage.hasPrefix("reply")
         default: return false
         }

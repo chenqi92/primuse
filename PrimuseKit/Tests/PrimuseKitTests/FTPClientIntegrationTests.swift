@@ -454,6 +454,36 @@ struct FTPClientIntegrationTests {
         }
     }
 
+    @Test("A 522 on the data connection drops the session the server closed; reads retry on a new one")
+    func dataConnection522ReplacesSession() async throws {
+        try await LoopbackFTP.deadline(30) {
+            let server = try LoopbackFTPServer.start(files: ["/Music/a.mp3": Data(count: 10)])
+            defer { server.stop() }
+            let pool = FTPSessionPool(configuration: server.configuration(mode: .automatic))
+            let warmUp = try await pool.withSession { try await $0.list("/Music") }
+            #expect(warmUp.map(\.name) == ["a.mp3"])
+
+            // vsftpd(require_ssl_reuse)认不出数据连接的 TLS 会话:回 522 后断开控制连接。
+            server.rejectNextTransferWith522()
+            let listed = try await pool.withSession { try await $0.list("/Music") }
+            #expect(listed.map(\.name) == ["a.mp3"])
+            #expect(server.logins == 2)
+
+            // 不重试的调用照样拿到 522,但这条会话不再放回池里,下一次借到的是新会话。
+            server.rejectNextTransferWith522()
+            do {
+                _ = try await pool.withSession(retriesOnStaleConnection: false) { try await $0.list("/Music") }
+                Issue.record("listing succeeded although the server answered 522")
+            } catch let error as FTPClientError {
+                #expect(error.replyCode == 522, "\(error)")
+            }
+            let size = try await pool.withSession(retriesOnStaleConnection: false) { try await $0.size("/Music/a.mp3") }
+            #expect(size == 10)
+            #expect(server.logins == 3)
+            await pool.shutdown()
+        }
+    }
+
     // MARK: Encodings
 
     @Test("GBK names from a server without UTF8 are decoded and sent back in GB18030")
@@ -629,6 +659,7 @@ private final class LoopbackFTPServer: @unchecked Sendable {
     private var controlSockets: Set<Int32> = []
     private var isStopped = false
     private var failsNextCommand = false
+    private var rejectsNextTransfer = false
     private var accepted = 0
     private var rejected = 0
     private var successfulLogins = 0
@@ -701,6 +732,12 @@ private final class LoopbackFTPServer: @unchecked Sendable {
     /// 下一条命令(不论哪条连接、什么命令)回 421 并断开。
     func failNextCommandWithServiceUnavailable() {
         lock.withLock { failsNextCommand = true }
+    }
+
+    /// 下一次传输(列目录、下载、上传)照 vsftpd 数据连接 TLS 会话复用失败的样子:回 150、
+    /// 关掉数据连接、回 522,随即断开控制连接。
+    func rejectNextTransferWith522() {
+        lock.withLock { rejectsNextTransfer = true }
     }
 
     var commands: [String] { lock.withLock { commandLog } }
@@ -789,6 +826,14 @@ private final class LoopbackFTPServer: @unchecked Sendable {
             let fails = failsNextCommand
             failsNextCommand = false
             return fails
+        }
+    }
+
+    func consumeRejectNextTransfer() -> Bool {
+        lock.withLock {
+            let rejects = rejectsNextTransfer
+            rejectsNextTransfer = false
+            return rejects
         }
     }
 
@@ -1117,6 +1162,12 @@ private final class LoopbackFTPControlConnection {
 
         if server.consumeFailNextCommand() {
             reply("421 Service not available, closing control connection.")
+            return false
+        }
+        if isLoggedIn, ["MLSD", "LIST", "RETR", "STOR"].contains(verb), server.consumeRejectNextTransfer() {
+            reply("150 Opening BINARY mode data connection.")
+            if let socket = openDataConnection() { _ = Darwin.close(socket) }
+            reply("522 SSL connection failed: session reuse required")
             return false
         }
 
