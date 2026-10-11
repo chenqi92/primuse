@@ -5834,3 +5834,7 @@
 "ai_consent_privacy_row" = "استخدام الذكاء الاصطناعي المدمج للبيانات";
 "ai_consent_status_agreed" = "تمت الموافقة";
 "ai_consent_status_not_agreed" = "لم تتم الموافقة";
+
+"source_mutation_permission_denied" = "تم رفض الإذن بتعديل ملفات المصدر.";
+"source_mutation_read_only" = "لا يسمح هذا المصدر بتعديل الملفات.";
+"metadata_writeback_local_only_notice" = "رفض المصدر الكتابة. تم حفظ تغييراتك في Primuse فقط؛ ولم يتم تحديث ملف المصدر.";

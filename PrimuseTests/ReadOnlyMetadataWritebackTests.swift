@@ -173,6 +173,23 @@ final class ReadOnlyMetadataWritebackTests: XCTestCase {
         XCTAssertFalse(MetadataWriteFailurePolicy.allowsLocalSave(OneDriveSource.uploadAccessError(status: 403, body: body)))
     }
 
+    func testDropboxUploadPermissionIsDistinctFromOther409Responses() throws {
+        let response = try XCTUnwrap(HTTPURLResponse(url: URL(string: "https://readonly.invalid/upload")!,
+            statusCode: 409, httpVersion: "HTTP/1.1", headerFields: nil))
+        for reason in ["no_write_permission", "conflict", "insufficient_space", "too_many_write_operations"] {
+            for field in ["reason", "path"] {
+                let data = try JSONSerialization.data(withJSONObject: ["error": [".tag": "path", field: [".tag": reason]]])
+                do {
+                    _ = try DropboxSource.confirmedUploadMetadata(data: data, response: response)
+                    XCTFail("Rejected upload must fail")
+                } catch {
+                    XCTAssertEqual(MetadataWriteFailurePolicy.stopsSourceWrites(error), reason == "no_write_permission")
+                    XCTAssertEqual(MetadataWriteFailurePolicy.allowsLocalSave(error), reason == "no_write_permission")
+                }
+            }
+        }
+    }
+
     func testWebDAVPUTDenialStopsFollowingLyricsRequestThroughRealConnector() async throws {
         for status in [403, 405] {
             let configuration = URLSessionConfiguration.ephemeral

@@ -5834,3 +5834,7 @@
 "ai_consent_privacy_row" = "Dane używane przez wbudowaną SI";
 "ai_consent_status_agreed" = "Zgoda wyrażona";
 "ai_consent_status_not_agreed" = "Brak zgody";
+
+"source_mutation_permission_denied" = "Odmówiono uprawnień do modyfikowania plików źródłowych.";
+"source_mutation_read_only" = "To źródło nie zezwala na zmiany plików.";
+"metadata_writeback_local_only_notice" = "Źródło odmówiło zapisu. Zmiany zapisano tylko w Primuse; plik źródłowy nie został zaktualizowany.";

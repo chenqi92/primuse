@@ -5834,3 +5834,7 @@
 "ai_consent_privacy_row" = "Uso de datos de la IA integrada";
 "ai_consent_status_agreed" = "Aceptado";
 "ai_consent_status_not_agreed" = "No aceptado";
+
+"source_mutation_permission_denied" = "Se denegó el permiso para modificar los archivos de origen.";
+"source_mutation_read_only" = "Esta fuente no permite modificar archivos.";
+"metadata_writeback_local_only_notice" = "La fuente rechazó la escritura. Tus cambios se guardaron solo en Primuse; el archivo de origen no se actualizó.";

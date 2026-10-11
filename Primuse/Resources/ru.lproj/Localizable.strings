@@ -5834,3 +5834,7 @@
 "ai_consent_privacy_row" = "Какие данные использует встроенный ИИ";
 "ai_consent_status_agreed" = "Согласие дано";
 "ai_consent_status_not_agreed" = "Согласие не дано";
+
+"source_mutation_permission_denied" = "Нет разрешения на изменение исходных файлов.";
+"source_mutation_read_only" = "Этот источник не разрешает изменять файлы.";
+"metadata_writeback_local_only_notice" = "Источник отклонил запись. Изменения сохранены только в Primuse; исходный файл не обновлён.";

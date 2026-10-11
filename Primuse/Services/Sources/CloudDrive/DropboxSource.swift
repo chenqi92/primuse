@@ -41,6 +41,9 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource, IncrementalMusicSou
                 throw CloudDriveError.invalidResponse
             }
             if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
+            if Self.uploadWriteDenied(status: http.statusCode, data: responseData) {
+                throw SourceFileMutationError.permissionDenied
+            }
             guard (200...299).contains(http.statusCode) else {
                 throw CloudDriveError.apiError(http.statusCode, "Dropbox sidecar upload failed")
             }
@@ -74,6 +77,18 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource, IncrementalMusicSou
             }
         }
         return out
+    }
+
+    private static func uploadWriteDenied(status: Int, data: Data) -> Bool {
+        guard status == 409,
+              let json = try? JSONSerialization.jsonObject(with: data.prefix(16 * 1024)) as? [String: Any],
+              let error = json["error"] as? [String: Any], error[".tag"] as? String == "path" else {
+            return false
+        }
+        // /upload wraps WriteError in UploadWriteFailed.reason; a session
+        // finish carries WriteError directly in path. Other 409s stay failures.
+        let reason = (error["reason"] ?? error["path"]) as? [String: Any]
+        return reason?[".tag"] as? String == "no_write_permission"
     }
 
     private static func uploadMetadataFile(
@@ -168,6 +183,7 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource, IncrementalMusicSou
             throw CloudDriveError.invalidResponse
         }
         if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
+        if uploadWriteDenied(status: http.statusCode, data: data) { throw SourceFileMutationError.permissionDenied }
         if http.statusCode == 409 { throw EmbeddedMetadataWritebackSourceError.conflict }
         if http.statusCode == 429 { throw CloudDriveError.rateLimited }
         guard (200...299).contains(http.statusCode) else {
@@ -183,7 +199,7 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource, IncrementalMusicSou
         return json
     }
 
-    private static func confirmedUploadMetadata(
+    static func confirmedUploadMetadata(
         data: Data,
         response: URLResponse
     ) throws -> [String: Any] {
@@ -191,6 +207,7 @@ actor DropboxSource: MusicSourceConnector, OAuthCloudSource, IncrementalMusicSou
             throw CloudDriveError.invalidResponse
         }
         if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
+        if uploadWriteDenied(status: http.statusCode, data: data) { throw SourceFileMutationError.permissionDenied }
         if http.statusCode == 409 { throw EmbeddedMetadataWritebackSourceError.conflict }
         if http.statusCode == 429 { throw CloudDriveError.rateLimited }
         guard (200...299).contains(http.statusCode),

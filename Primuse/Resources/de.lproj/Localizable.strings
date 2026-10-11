@@ -5928,3 +5928,7 @@
 "ai_consent_privacy_row" = "Datennutzung der integrierten KI";
 "ai_consent_status_agreed" = "Zugestimmt";
 "ai_consent_status_not_agreed" = "Nicht zugestimmt";
+
+"source_mutation_permission_denied" = "Keine Berechtigung zum Ändern der Quelldateien.";
+"source_mutation_read_only" = "Diese Quelle erlaubt keine Dateiänderungen.";
+"metadata_writeback_local_only_notice" = "Die Quelle hat den Schreibzugriff verweigert. Deine Änderungen wurden nur in Primuse gespeichert; die Quelldatei wurde nicht aktualisiert.";

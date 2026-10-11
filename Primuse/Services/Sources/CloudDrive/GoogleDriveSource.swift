@@ -44,7 +44,7 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         )
     }
 
-    nonisolated static func sidecarUploadError(status: Int, body: Data) -> CloudDriveError {
+    nonisolated static func sidecarUploadError(status: Int, body: Data) -> any Error {
         // Drive also uses 403 for quotas. Only explicit permission reasons
         // allow local-only persistence after a rejected upload.
         if status == 403,
@@ -55,9 +55,9 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
                guard let reason = entry["reason"] as? String else { return false }
                return ["insufficientFilePermissions", "insufficientPermissions"].contains(reason)
            }) {
-            return .permissionDenied(.fileWrite)
+            return SourceFileMutationError.permissionDenied
         }
-        return .apiError(status, "Google Drive sidecar upload failed")
+        return CloudDriveError.apiError(status, "Google Drive upload failed")
     }
 
     private struct CompletedSidecarWrite: Sendable {

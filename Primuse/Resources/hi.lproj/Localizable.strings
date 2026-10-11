@@ -5834,3 +5834,7 @@
 "ai_consent_privacy_row" = "अंतर्निहित AI का डेटा उपयोग";
 "ai_consent_status_agreed" = "सहमति दी गई";
 "ai_consent_status_not_agreed" = "सहमति नहीं दी गई";
+
+"source_mutation_permission_denied" = "स्रोत फ़ाइलों को बदलने की अनुमति अस्वीकार कर दी गई।";
+"source_mutation_read_only" = "यह स्रोत फ़ाइलों में बदलाव की अनुमति नहीं देता।";
+"metadata_writeback_local_only_notice" = "स्रोत ने लिखने से मना कर दिया। आपके बदलाव केवल Primuse में सहेजे गए हैं; स्रोत फ़ाइल अपडेट नहीं हुई।";

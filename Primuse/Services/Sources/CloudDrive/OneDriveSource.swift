@@ -211,7 +211,7 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
         }
     }
 
-    nonisolated static func uploadAccessError(status: Int, body: Data) -> CloudDriveError {
+    nonisolated static func uploadAccessError(status: Int, body: Data) -> any Error {
         // 403 can also require a new conditional-access challenge. Preserve
         // that failure instead of treating it as a read-only library.
         if status == 403,
@@ -221,16 +221,16 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
             for _ in 0..<8 {
                 if let code = error["code"] as? String {
                     guard code.lowercased() == "accessdenied" else {
-                        return .apiError(status, "OneDrive upload rejected")
+                        return CloudDriveError.apiError(status, "OneDrive upload rejected")
                     }
                     accessDenied = true
                 }
                 guard let inner = (error["innererror"] ?? error["innerError"]) as? [String: Any] else { break }
                 error = inner
             }
-            if accessDenied { return .permissionDenied(.fileWrite) }
+            if accessDenied { return SourceFileMutationError.permissionDenied }
         }
-        return .apiError(status, "OneDrive upload rejected")
+        return CloudDriveError.apiError(status, "OneDrive upload rejected")
     }
 
     private static func confirmedUploadedItem(
