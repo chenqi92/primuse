@@ -7015,8 +7015,9 @@ public struct ImmersiveEffectInitialPresentation: Equatable, Sendable {
 /// Keeps effect switching discoverable without turning entry into an extra
 /// prompt. A saved immersive effect is honoured immediately — explicit and
 /// automatic entry both continue directly with it, and the picker stays
-/// reachable through the long press or the options screen. Native mode also
-/// remains selected without forcing another choice.
+/// reachable through the long press or the options screen. With native mode
+/// saved there is nothing immersive to show, so an explicit entry opens the
+/// picker instead of doing nothing; automatic entry still leaves native alone.
 public enum ImmersiveEffectEntryPolicy {
     public static func showsMacQuickAccess(
         hasCurrentSong: Bool,
@@ -7034,7 +7035,7 @@ public enum ImmersiveEffectEntryPolicy {
         isUserInitiated: Bool,
         savedEffectIsNative: Bool
     ) -> Bool {
-        false
+        isUserInitiated && savedEffectIsNative
     }
 
     public static func initialPresentation(

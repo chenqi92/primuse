@@ -88,8 +88,9 @@ struct TVNowPlayingView: View {
     }
 
     private func presentImmersivePlayer(isUserInitiated: Bool) {
-        // 原生模式已经显示在当前页面,无需呈现后立即关闭全屏视图。
-        guard fullscreenPlayerEffect != .native else { return }
+        // 原生模式已经显示在当前页面:空闲自动进入时什么也不做。
+        // 主动按「全屏效果」键时打开效果选择器,否则选过一次原生之后这个键就再也没反应。
+        guard isUserInitiated || fullscreenPlayerEffect != .native else { return }
         immersiveStartsWithEffectPicker = ImmersiveEffectEntryPolicy
             .tvLaunchPresentsEffectPicker(
                 isUserInitiated: isUserInitiated,
