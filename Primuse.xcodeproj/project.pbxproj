@@ -1812,6 +1812,7 @@
 		F64E2EB8C928B04D298C60F9 /* RadioPlaylistDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69CD8CB3BFFBE2915C634E3E /* RadioPlaylistDownloader.swift */; };
 		F66BD9569EE438EACD6C68B0 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E29830359FF1F6CBD6D8D05 /* LibraryView.swift */; };
 		F678853AC4F5F5E6CFB67C93 /* WiFiTransferClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3719BA4F5C42F0BA08675B59 /* WiFiTransferClient.swift */; };
+		75B58A97AD343EBECBEB5055 /* WiFiTransferThroughput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A0571F0E4E21E2961D8B447 /* WiFiTransferThroughput.swift */; };
 		F7001D7ED68D7FC3F771FD35 /* LibraryFolderSelectionIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A4B98789824DBE3B31F9D3 /* LibraryFolderSelectionIndex.swift */; };
 		F70EAD0DDB121C4B26DB471D /* ServerRatingSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BF3FCADF9ED4848533CF280 /* ServerRatingSyncService.swift */; };
 		F71064BDCCEB2F5D1F5CC801 /* TVAudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C891ECCBAEB4EF0ED63759C7 /* TVAudioEngine.swift */; };
@@ -2461,6 +2462,7 @@
 		368E7734000B96CD7A810C23 /* SongBatchActionBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongBatchActionBar.swift; sourceTree = "<group>"; };
 		370B74E82BB03F66EA463AD1 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = ru.lproj/PlayMedia.strings; sourceTree = "<group>"; };
 		3719BA4F5C42F0BA08675B59 /* WiFiTransferClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiTransferClient.swift; sourceTree = "<group>"; };
+		6A0571F0E4E21E2961D8B447 /* WiFiTransferThroughput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiTransferThroughput.swift; sourceTree = "<group>"; };
 		371C3A45C5490CF90FD0417D /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/PlayMedia.strings"; sourceTree = "<group>"; };
 		37C1C17D74E6EAC6D172793C /* LibraryFavoritesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryFavoritesStore.swift; sourceTree = "<group>"; };
 		37F2A8C498BD95803C47AA04 /* LibraryStartupHarnessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryStartupHarnessTests.swift; sourceTree = "<group>"; };
@@ -4364,6 +4366,7 @@
 			isa = PBXGroup;
 			children = (
 				3719BA4F5C42F0BA08675B59 /* WiFiTransferClient.swift */,
+				6A0571F0E4E21E2961D8B447 /* WiFiTransferThroughput.swift */,
 				BA370CF93CF263D5B554EA26 /* WiFiTransferDevice.swift */,
 				0C999AE17AF8E49236B326C3 /* WiFiTransferFilePreparation.swift */,
 				41E1E159BB8773813997C2CE /* WiFiTransferFiles.swift */,
@@ -6597,6 +6600,7 @@
 				4C850E68A62AAE480BA5CB82 /* UserNotificationPolicy.swift in Sources */,
 				7FBF24A4EDEEB435D5A3EA1D /* WatchStateTickerPolicy.swift in Sources */,
 				F678853AC4F5F5E6CFB67C93 /* WiFiTransferClient.swift in Sources */,
+				75B58A97AD343EBECBEB5055 /* WiFiTransferThroughput.swift in Sources */,
 				2D289CD7902DECBEFFF91C12 /* WiFiTransferDevice.swift in Sources */,
 				CC831659451547578C1EB96C /* WiFiTransferFilePreparation.swift in Sources */,
 				5386518D1AB3CB7A467E2276 /* WiFiTransferFiles.swift in Sources */,
