@@ -709,6 +709,7 @@ private struct HomeRadioWall: View, @MainActor Equatable {
     let onAdd: () -> Void
 
     @Environment(\.pmHeightClass) private var heightClass
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     /// 电台清单来自电台存储的排序缓存，没变化时是同一块数组存储，这里的比较
     /// 不会逐个比电台。
@@ -716,7 +717,15 @@ private struct HomeRadioWall: View, @MainActor Equatable {
         lhs.stations == rhs.stations && lhs.cardSurface == rhs.cardSurface
     }
 
+    /// iPad 等宽屏:默认列宽,按宽度多排几列。
     private static let regularLayout = RadioStationArtworkGridLayout()
+
+    /// 手机竖屏排三列(375 宽也是),和书架、收藏页一样:两列时每张台标近两百点,
+    /// 大屏手机一屏只看得见四个台(#155)。
+    private static let compactWidthLayout = RadioStationArtworkGridLayout(
+        minimumItemWidth: 100,
+        maximumItemWidth: 170
+    )
 
     /// 手机横屏下同样的列宽会让一排封面吃掉大半个视口。放低最小列宽让一排多放
     /// 两张，再给列宽封顶，一屏就能看全一整排还露出下一排的开头。
@@ -736,7 +745,8 @@ private struct HomeRadioWall: View, @MainActor Equatable {
     }
 
     var body: some View {
-        let layout = heightClass.pick(Self.regularLayout, compact: Self.compactHeightLayout)
+        let wideLayout = sizeClass == .compact ? Self.compactWidthLayout : Self.regularLayout
+        let layout = heightClass.pick(wideLayout, compact: Self.compactHeightLayout)
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("home_radio_wall_title")
@@ -756,7 +766,7 @@ private struct HomeRadioWall: View, @MainActor Equatable {
 
             // 竖屏手机纵向有的是空间，横向反而最窄。原来做成横滑一排，
             // 结果是下面大片留白、电台却挤在一条窄带里还看不全名字。
-            // 改成网格：手机通常排 2 列，宽屏自动扩展更多列并向下自然延伸。
+            // 改成网格：手机排 3 列，宽屏自动扩展更多列并向下自然延伸。
             LazyVGrid(
                 columns: [GridItem(
                     .adaptive(

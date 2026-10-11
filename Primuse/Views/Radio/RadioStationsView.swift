@@ -57,6 +57,7 @@ struct RadioStationsView: View {
 
     /// 列表版一行一个宽卡片；封面版是方格台标墙，一屏能放下三四倍的台。
     /// 列表版在手机横屏下本来就会排成两列、不必再收；封面版的格子跟着高度收一档。
+    /// 封面版最小列宽 100：375 宽的手机也排三列，和首页电台墙、书架一致（#155）。
     private var columns: [GridItem] {
         switch layoutMode {
         case .list:
@@ -64,7 +65,7 @@ struct RadioStationsView: View {
         case .cover:
             return [GridItem(
                 .adaptive(
-                    minimum: heightClass.value(108, compact: 92),
+                    minimum: heightClass.value(100, compact: 92),
                     maximum: heightClass.value(170, compact: 132)
                 ),
                 spacing: 14

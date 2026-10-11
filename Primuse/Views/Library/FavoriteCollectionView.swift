@@ -302,11 +302,13 @@ struct FavoriteCollectionView: View {
         #endif
     }
 
-    private var gridMinimum: CGFloat {
+    /// 网格的列。iOS 和书架(`SpokenWordLibraryView.gridColumns`)用同一套:手机竖屏排三列,
+    /// 375 宽也是三列 —— 两列时每张封面近两百点,大屏手机一屏只看得见四项(#155)。Mac 照旧。
+    private var gridColumns: [GridItem] {
         #if os(macOS)
-        150
+        [GridItem(.adaptive(minimum: 150), spacing: 16, alignment: .top)]
         #else
-        140
+        [GridItem(.adaptive(minimum: 100, maximum: 170), spacing: 14, alignment: .top)]
         #endif
     }
 
@@ -346,7 +348,7 @@ struct FavoriteCollectionView: View {
                         .padding(.top, 40)
                 } else {
                     LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: gridMinimum), spacing: 16, alignment: .top)],
+                        columns: gridColumns,
                         alignment: .leading,
                         spacing: 22
                     ) {
@@ -538,7 +540,7 @@ struct FavoriteCollectionView: View {
             .aspectRatio(1, contentMode: .fit)
 
             Text(FavoriteCollectionResolver.title(entry))
-                .font(.subheadline.weight(.semibold))
+                .font(titleFont)
                 .foregroundStyle(.primary)
                 .lineLimit(2)
 
@@ -549,6 +551,15 @@ struct FavoriteCollectionView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
+    }
+
+    /// 手机三列时一格只有一百来点宽,标题用 footnote 才放得下四五个字一行;Mac 的格子宽,保持原字号。
+    private var titleFont: Font {
+        #if os(macOS)
+        .subheadline.weight(.semibold)
+        #else
+        .footnote.weight(.semibold)
+        #endif
     }
 }
 
