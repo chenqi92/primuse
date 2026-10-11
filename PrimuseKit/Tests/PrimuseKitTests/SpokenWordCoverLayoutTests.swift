@@ -3,11 +3,11 @@ import Testing
 @testable import PrimuseKit
 
 @Suite struct SpokenWordCoverLayoutTests {
-    @Test func coverFrameIsPortrait() {
-        #expect(SpokenWordCoverLayout.aspectRatio < 1)
-        #expect(SpokenWordCoverLayout.height(forWidth: 90) == 120)
-        #expect(SpokenWordCoverLayout.width(forHeight: 56) == 42)
-        #expect(SpokenWordCoverLayout.width(forHeight: 220) == 165)
+    @Test func coverFrameIsSquare() {
+        #expect(SpokenWordCoverLayout.aspectRatio == 1)
+        #expect(SpokenWordCoverLayout.height(forWidth: 90) == 90)
+        #expect(SpokenWordCoverLayout.width(forHeight: 56) == 56)
+        #expect(SpokenWordCoverLayout.height(forWidth: 104.4) == 104)
     }
 
     @Test func degenerateSizesCollapseToZero() {
@@ -21,14 +21,14 @@ import Testing
         #expect(SpokenWordCoverLayout.artworkFillsFrame(imageSize: CGSize(width: 1200, height: 1200), frameAspectRatio: 1))
         #expect(SpokenWordCoverLayout.artworkFillsFrame(imageSize: CGSize(width: 600, height: 590), frameAspectRatio: 1))
         #expect(SpokenWordCoverLayout.artworkFillsFrame(
-            imageSize: CGSize(width: 900, height: 1200),
+            imageSize: CGSize(width: 1400, height: 1400),
             frameAspectRatio: SpokenWordCoverLayout.aspectRatio
         ))
     }
 
     @Test func artOfAnotherShapeIsFittedOverItsBlur() {
         #expect(!SpokenWordCoverLayout.artworkFillsFrame(
-            imageSize: CGSize(width: 1200, height: 1200),
+            imageSize: CGSize(width: 1000, height: 1500),
             frameAspectRatio: SpokenWordCoverLayout.aspectRatio
         ))
         #expect(!SpokenWordCoverLayout.artworkFillsFrame(imageSize: CGSize(width: 800, height: 1200), frameAspectRatio: 1))

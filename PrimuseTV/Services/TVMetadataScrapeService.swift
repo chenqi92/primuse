@@ -229,7 +229,7 @@ final class TVMetadataScrapeService {
             updatedTrackArtistName: artist,
             incomingAlbumArtistName: detail?.albumArtist
         )
-        proposed.genre = genres?.prefix(3).joined(separator: ", ") ?? song.genre
+        proposed.genre = genres.flatMap { GenreTagValues.joined(Array($0.prefix(3))) } ?? song.genre
         proposed.year = Self.firstPositive(detail?.year, item.year, song.year)
         proposed.trackNumber = Self.firstPositive(detail?.trackNumber, item.trackNumber, song.trackNumber)
         proposed.discNumber = Self.firstPositive(detail?.discNumber, song.discNumber)

@@ -2125,7 +2125,7 @@ extension CachedArtworkView {
         return copy
     }
 
-    /// 书籍封面位：外层给定竖长的框（`fillsProposedSize` 一并打开），封面按原比例
+    /// 书籍封面位：外层给定书框（`fillsProposedSize` 一并打开），封面按原比例
     /// 整张显示，不再强制方形，也不填满裁切。动态封面在这里只取静态帧。
     /// - Parameter frameAspectRatio: 框的宽 ÷ 高。给了的话，图本身就是这个比例时直接铺满，
     ///   不垫模糊底。

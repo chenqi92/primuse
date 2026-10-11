@@ -263,30 +263,25 @@ struct ThemeColorSections: View {
                 }
                 // 上面选了「白色」时开关圆钮要换色,外观代理只作用于新建的开关。
                 .id(settings.isWhiteTheme)
-
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Label {
-                            Text(PMString("ext.tv.settings.ambientIntensity"))
-                        } icon: {
-                            Image(systemName: "sun.haze.fill")
-                        }
-                        Spacer()
-                        Text(verbatim: "\(Int(round(settings.ambientStrength * 100)))%")
-                            .font(.subheadline.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                    .settingsAnchor("appearance.ambientStrength")
-                    Slider(value: ambientStrengthBinding, in: 0...1, step: 0.05)
-                        .tint(themeService.uiAccentColor)
-                }
-                .padding(.vertical, 4)
             } header: {
                 Text(PMString("ext.tv.settings.coverColor"))
+            } footer: {
+                // 背景的样式和浓淡挪到了「设置 › 播放器」,和播放页的其它外观放在一起(#69)。
+                Button {
+                    SettingsNavigation.shared.open("appearance.playerBackdrop")
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("theme_color_player_backdrop_moved_hint")
+                            .foregroundStyle(.secondary)
+                        Text("theme_color_player_backdrop_moved_link")
+                            .foregroundStyle(.tint)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
             .settingsAnchor("appearance.coverAmbient")
-
-            PlayerBackdropSettingsSections()
         }
     }
 
@@ -484,13 +479,6 @@ struct ThemeColorSections: View {
                     themeService.resetToDefault()
                 }
             }
-        )
-    }
-
-    private var ambientStrengthBinding: Binding<Double> {
-        Binding(
-            get: { settings.ambientStrength },
-            set: { settings.ambientStrength = AppThemePreferences.normalizedAmbientStrength($0) }
         )
     }
 

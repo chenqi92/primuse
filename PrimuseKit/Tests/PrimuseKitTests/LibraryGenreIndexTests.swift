@@ -52,6 +52,23 @@ struct LibraryGenreIndexTests {
         #expect(GenreTagValues.primary(in: nil) == nil)
     }
 
+    @Test("Server genre arrays decode leniently and join when there are several")
+    func serverGenreListDecodesLeniently() throws {
+        func decode(_ json: String) throws -> ServerGenreList {
+            try JSONDecoder().decode(ServerGenreList.self, from: Data(json.utf8))
+        }
+        #expect(try decode(#"[{"name":"Rock"},{"name":"Pop"},{"name":"rock"}]"#).genre(fallback: "Rock") == "Rock; Pop")
+        #expect(try decode(#"["J-Pop","Vocaloid"]"#).genre(fallback: nil) == "J-Pop; Vocaloid")
+        #expect(try decode(#"[{"name":"Rock"}]"#).genre(fallback: "Rock (Live)") == "Rock (Live)")
+        #expect(try decode(#"[{"name":"Rock"}]"#).genre(fallback: nil) == "Rock")
+        #expect(try decode(#""Rock""#).names.isEmpty)
+        #expect(try decode(#"[{"id":1}]"#).genre(fallback: "Jazz") == "Jazz")
+
+        struct Child: Decodable { let genre: String?; let genres: ServerGenreList? }
+        let child = try JSONDecoder().decode(Child.self, from: Data(#"{"genre":"Rock","genres":{"bad":true}}"#.utf8))
+        #expect(child.genres?.genre(fallback: child.genre) == "Rock")
+    }
+
     @Test("Equivalent labels share a category")
     func normalizesEquivalentLabels() {
         let index = LibraryGenreIndexBuilder.build(from: [

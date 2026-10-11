@@ -5685,7 +5685,7 @@ public enum ScrapedMetadataMergePolicy {
         )
         result.genre = ScrapeMetadataApplicationPolicy.resolvedText(
             original: result.genre,
-            scraped: candidate.genres?.prefix(3).joined(separator: ", "),
+            scraped: candidate.genres.flatMap { GenreTagValues.joined(Array($0.prefix(3))) },
             overwrite: overwrite
         )
         result.trackNumber = ScrapeMetadataApplicationPolicy.resolvedValue(

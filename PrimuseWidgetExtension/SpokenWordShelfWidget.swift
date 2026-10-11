@@ -200,7 +200,7 @@ private struct MediumSpokenWordBook: View {
 
 /// 中号、在听的不止一本: 最多三本并排, 每本单独一个点按区。
 ///
-/// 书封由高度定宽(3:4), 比平分出来的一列窄得多; 以前每本靠列的左边放, 最后一本右边空出
+/// 书封由高度定宽(方形), 比平分出来的一列窄; 以前每本靠列的左边放, 最后一本右边空出
 /// 一大块。现在从小组件的边缘量起, 书封之间、书封和两边留一样宽的空, 进度条和书封一样宽、
 /// 对齐在书封下面, 书名在下面居中, 可以比书封宽(占到两本之间的空), 最多两行。
 private struct MediumSpokenWordShelf: View {
@@ -403,7 +403,7 @@ private struct WidgetHairlineBar: ProgressViewStyle {
     }
 }
 
-/// Preserve the entire book cover inside its portrait frame.
+/// Preserve the entire book cover inside its square frame.
 struct WidgetBookCover: View {
     let coverImageName: String?
     let width: CGFloat

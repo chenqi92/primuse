@@ -94,7 +94,7 @@ struct AudiobookshelfServiceTests {
         #expect(first.serverLibraryID == "lib_books")
         #expect(first.bitRate == 128)
         #expect(first.year == 1979)
-        #expect(first.genre == "Fiction, Thriller")
+        #expect(first.genre == "Fiction; Thriller")
         #expect(first.coverArtFileName.map { AudiobookshelfAPIProtocol.coverItemID(fromReference: $0) } == "li_book")
         #expect(songs[1].title == "02")
         #expect(songs[1].trackNumber == 2)

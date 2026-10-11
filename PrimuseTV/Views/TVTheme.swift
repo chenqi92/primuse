@@ -218,8 +218,8 @@ enum TVSpace {
 ///
 /// 三页共用同一套算法:页面左右各让出 `TVSpace.pageH`,网格两侧再各留 `edgeInset`
 /// 给首尾卡片的焦点描边和放大。列数与间距各页一份,但要按同一把尺子定:
-/// 有声书封面是 3:4 竖长的,一行六本的行高与方形封面一行五张相当;电台台标是方形,
-/// 跟有声书架同一行高、同一间距(一行五张),不再与专辑墙一样一行四张大卡。
+/// 有声书封面和电台台标都是方形,同一行高、同一间距(一行五张),
+/// 不与专辑墙一样一行四张大卡。
 struct TVBrowseGridMetrics {
     let columns: Int
     let gap: CGFloat
@@ -231,8 +231,8 @@ struct TVBrowseGridMetrics {
     static let music = TVBrowseGridMetrics(columns: 4, gap: 28, minimumCell: 140)
     /// 电台:方形台标,一行五张,间距同有声书架。
     static let radio = TVBrowseGridMetrics(columns: 5, gap: 36, minimumCell: 140)
-    /// 有声:竖长书封,一行六本。
-    static let spokenWord = TVBrowseGridMetrics(columns: 6, gap: 36, minimumCell: 160)
+    /// 有声:方形书封,一行五本,同电台。
+    static let spokenWord = TVBrowseGridMetrics(columns: 5, gap: 36, minimumCell: 160)
 
     /// `pageWidth` 是整页宽(GeometryReader 量到的),返回一格的宽度。
     func cellWidth(pageWidth: CGFloat) -> CGFloat {

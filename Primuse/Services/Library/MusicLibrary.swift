@@ -3898,6 +3898,16 @@ final class MusicLibrary {
     @ObservationIgnored private(set) var localPodcastBookIDs: [String: String] = [:]
     /// Spoken-word item id → the id of the book the shelf puts it in.
     @ObservationIgnored private(set) var spokenWordBookIDs: [String: String] = [:]
+    /// Spoken-word item id → the chapter title the shelf shows for a file
+    /// renamed after tagging (its name says 第1集, its tag 第4969集). Lists
+    /// read it through `displayTitle(for:)`, so a folder and the shelf agree.
+    @ObservationIgnored private(set) var spokenWordDisplayTitles: [String: String] = [:]
+
+    /// The title a list shows for `song`: the shelf's chapter title for a
+    /// renamed file, the tagged title for everything else.
+    func displayTitle(for song: Song) -> String {
+        spokenWordDisplayTitles.isEmpty ? song.title : (spokenWordDisplayTitles[song.id] ?? song.title)
+    }
     /// How many books the spoken-word items make.
     private(set) var spokenWordBookCount = 0
     private var visibleAlbumsReference = LibraryArrayReference<Album>()
@@ -4031,6 +4041,8 @@ final class MusicLibrary {
         let podcastBookIDs: [String: String]
         /// Spoken-word item id → book id, as the bookshelf groups them.
         let spokenWordBookIDs: [String: String]
+        /// Spoken-word item id → the shelf's title for a file renamed after tagging.
+        let spokenWordDisplayTitles: [String: String]
         let albums: [Album]
         let artists: [Artist]
         let albumArtistIndex: AlbumArtistIndex
@@ -4530,6 +4542,7 @@ final class MusicLibrary {
             localPodcastSongs = prepared.podcastSongs
         }
         spokenWordBookIDs = prepared.spokenWordBookIDs
+        spokenWordDisplayTitles = prepared.spokenWordDisplayTitles
         spokenWordBookCount = Set(prepared.spokenWordBookIDs.values).count
         visibleAlbums = prepared.albums
         visibleArtists = prepared.artists
@@ -4653,6 +4666,12 @@ final class MusicLibrary {
             ? lookups.countBySourceID
             : makeSongCountsBySourceID(songs)
         let genreIndex = LibraryGenreIndexBuilder.build(from: musicSongs)
+        // Grouping reads other items (a folder's album, an album's only
+        // author), so it is done once per library change, here, rather
+        // than per item wherever a book id or a chapter's title is needed.
+        let spokenWordPlacement = spokenWordSongs.isEmpty
+            ? SpokenWordBookGrouping.BookPlacement()
+            : SpokenWordBookGrouping.bookPlacement(for: spokenWordSongs.map { SpokenWordBookItem(song: $0) })
         return PreparedVisibleCache(
             spokenWordClassification: spokenWordClassification,
             songs: nextVisibleSongs,
@@ -4663,12 +4682,8 @@ final class MusicLibrary {
             podcastBookIDs: podcastSongs.isEmpty
                 ? [:]
                 : SpokenWordBookGrouping.bookIDs(for: podcastSongs.map { SpokenWordBookItem(song: $0) }),
-            // Grouping reads other items (a folder's album, an album's only
-            // author), so it is done once per library change, here, rather
-            // than per item wherever a book id is needed.
-            spokenWordBookIDs: spokenWordSongs.isEmpty
-                ? [:]
-                : SpokenWordBookGrouping.bookIDs(for: spokenWordSongs.map { SpokenWordBookItem(song: $0) }),
+            spokenWordBookIDs: spokenWordPlacement.bookIDs,
+            spokenWordDisplayTitles: spokenWordPlacement.displayTitles,
             albums: nextVisibleAlbums,
             artists: nextVisibleArtists,
             albumArtistIndex: albumArtistIndex,

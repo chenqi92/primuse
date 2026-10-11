@@ -86,7 +86,7 @@ struct ScrapedMetadataMergePolicyTests {
             with: Policy.Candidate(title: "T", genres: ["A", "B", "C", "D"]),
             overwrite: false
         )
-        #expect(merged.genre == "A, B, C")
+        #expect(merged.genre == "A; B; C")
     }
 }
 

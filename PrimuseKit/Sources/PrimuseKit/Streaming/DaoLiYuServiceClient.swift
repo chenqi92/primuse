@@ -118,8 +118,7 @@ public struct DaoLiYuCatalogTrack: Sendable {
             if let string = value as? String { return daoLiYuNonemptyString(string) }
             return daoLiYuNonemptyString((value as? [String: Any])?["name"])
         }
-        self.genre = daoLiYuNonemptyString(json["genre"])
-            ?? (genreNames.isEmpty ? nil : genreNames.joined(separator: ", "))
+        self.genre = ServerGenreList(names: genreNames).genre(fallback: daoLiYuNonemptyString(json["genre"]))
         self.createdAt = Self.parseDate(json["createdAt"])
         self.updatedAt = Self.parseDate(json["updatedAt"])
 

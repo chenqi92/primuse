@@ -1336,7 +1336,7 @@ struct TVArtworkView: View {
         let h = height ?? size
         ZStack {
             if let image, fitsWholeArtwork {
-                // 整张封面等比放进竖长的书框,空出的边用同一张图的模糊放大版垫底。
+                // 整张封面等比放进书框,空出的边用同一张图的模糊放大版垫底。
                 // 背景钉在框内(Color.clear.overlay),不让 aspect-fill 的图撑大容器。
                 Color.clear
                     .overlay { Image(uiImage: image).resizable().scaledToFill() }
@@ -1983,7 +1983,7 @@ struct TVArtworkView: View {
         self.isAnimationVisible = isAnimationVisible
         self.onResolutionChange = onResolutionChange
     }
-    /// 书籍封面:外层给竖长的 size × height,封面按原比例整张显示,不裁成方形。
+    /// 书籍封面:外层给 size × height 的书框,封面按原比例整张显示,不裁不拉伸。
     /// 只取静态帧。
     func bookCoverLayout(_ enabled: Bool = true) -> TVArtworkView {
         var copy = self

@@ -83,6 +83,23 @@ import Testing
         #expect(unknown.artistName == nil)
     }
 
+    @Test func keepsReadableArtistPrefixWhenOnlyTheTailWasLost() {
+        var unnamed = Song(id: "lost-tail", title: "晴天", artistName: "周杰\u{FFFD}",
+                           albumArtistName: "周杰\u{FFFD}", fileFormat: .mp3,
+                           filePath: "/音乐/周杰伦/晴天.mp3", sourceID: "nas")
+        unnamed.sourceArtistNames = ["周杰\u{FFFD}", "\u{FFFD}\u{FFFD}"]
+        #expect(MediaMetadataTextRepair.repairFileBackedMetadata(in: &unnamed))
+        #expect(unnamed.artistName == "周杰\u{FFFD}")
+        #expect(unnamed.albumArtistName == "周杰\u{FFFD}")
+        #expect(unnamed.sourceArtistNames == ["周杰\u{FFFD}"])
+        #expect(!MediaMetadataTextRepair.repairFileBackedMetadata(in: &unnamed))
+
+        var credited = Song(id: "lost-tail-credited", title: "晴天", artistName: "周杰\u{FFFD}",
+                            fileFormat: .mp3, filePath: "/音乐/周杰伦 - 晴天.mp3", sourceID: "nas")
+        #expect(MediaMetadataTextRepair.repairFileBackedMetadata(in: &credited))
+        #expect(credited.artistName == "周杰伦")
+    }
+
     @Test func replacesPromotionalArtistTagsWithIndependentFileCredit() {
         for tag in ["¡¾www.51ctzs.com¡¿", "[吻雪收藏]", "※新手※收藏", "俊境收藏Qq:772622755"] {
             var song = Song(id: "promotion", title: "哭泣的玫瑰", artistName: tag,

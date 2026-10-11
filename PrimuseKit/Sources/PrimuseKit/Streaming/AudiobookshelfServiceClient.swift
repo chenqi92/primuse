@@ -415,7 +415,7 @@ public struct AudiobookshelfCatalogItem: Sendable, Equatable {
 
     private var authorName: String? { authors.isEmpty ? nil : authors.joined(separator: ", ") }
     private var narratorName: String? { narrators.isEmpty ? nil : narrators.joined(separator: ", ") }
-    private var genreValue: String? { genres.isEmpty ? nil : genres.joined(separator: ", ") }
+    private var genreValue: String? { GenreTagValues.joined(genres) }
 
     private func bookSongs(sourceID: String) -> [Song] {
         let files = audioFiles

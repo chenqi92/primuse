@@ -174,6 +174,77 @@ struct NowPlayingVisualActivityPolicyTests {
         #expect(normal.bottomOpacity >= normal.topOpacity)
     }
 
+    @Test("Light ambient strength keeps the default look up to the default value")
+    func lightAmbientKeepsDefaultBelowDefaultStrength() {
+        for strength in [0.0, 0.4, 0.7] {
+            let levels = NowPlayingLightAmbientPolicy.levels(
+                atDefault: Self.lightDefault, vivid: Self.lightVivid, strength: strength, defaultStrength: 0.7,
+                primaryLuma: 0.6, secondaryLuma: 0.6, usesIncreasedContrast: false
+            )
+            #expect(levels == Self.lightDefault)
+        }
+    }
+
+    @Test("Light ambient strength reaches the vivid look for light palettes")
+    func lightAmbientReachesVividForLightPalettes() {
+        // 浅黄、浅青这类封面色:加浓到底最暗处仍然够亮。
+        let levels = NowPlayingLightAmbientPolicy.levels(
+            atDefault: Self.lightDefault, vivid: Self.lightVivid, strength: 1, defaultStrength: 0.7,
+            primaryLuma: 0.82, secondaryLuma: 0.78, usesIncreasedContrast: false
+        )
+        #expect(abs(levels.primaryOpacity - Self.lightVivid.primaryOpacity) < 0.0001)
+        #expect(abs(levels.secondaryOpacity - Self.lightVivid.secondaryOpacity) < 0.0001)
+        #expect(abs(levels.overlayBottomOpacity - Self.lightVivid.overlayBottomOpacity) < 0.0001)
+        let halfway = NowPlayingLightAmbientPolicy.levels(
+            atDefault: Self.lightDefault, vivid: Self.lightVivid, strength: 0.85, defaultStrength: 0.7,
+            primaryLuma: 0.82, secondaryLuma: 0.78, usesIncreasedContrast: false
+        )
+        #expect(abs(halfway.primaryOpacity - 0.581) < 0.001)
+    }
+
+    @Test("Light ambient strength stops before dark artwork colors hide dark text")
+    func lightAmbientProtectsDarkTextOnDeepPalettes() {
+        for shade in [0.07, 0.24, 0.4, 0.55] {
+            for contrast in [false, true] {
+                let levels = NowPlayingLightAmbientPolicy.levels(
+                    atDefault: Self.lightDefault, vivid: Self.lightVivid, strength: 1, defaultStrength: 0.7,
+                    primaryLuma: shade, secondaryLuma: shade, usesIncreasedContrast: contrast
+                )
+                let floor = min(
+                    NowPlayingLightAmbientPolicy.minimumLuma(usesIncreasedContrast: contrast),
+                    NowPlayingLightAmbientPolicy.darkestLuma(Self.lightDefault, primaryLuma: shade, secondaryLuma: shade)
+                )
+                #expect(NowPlayingLightAmbientPolicy.darkestLuma(levels, primaryLuma: shade, secondaryLuma: shade) >= floor - 0.0005)
+                // 只会比默认更浓,不会反过来变淡。
+                #expect(levels.primaryOpacity >= Self.lightDefault.primaryOpacity - 0.0001)
+                #expect(levels.overlayBottomOpacity <= Self.lightDefault.overlayBottomOpacity + 0.0001)
+            }
+        }
+    }
+
+    @Test("A red cover still gets visibly richer, a deep navy one less so")
+    func lightAmbientBoostScalesWithPaletteLightness() {
+        // 红主色(编码亮度约 0.24)配青色副色:能加浓一截,但到不了拉满的样子。
+        let red = NowPlayingLightAmbientPolicy.levels(
+            atDefault: Self.lightDefault, vivid: Self.lightVivid, strength: 1, defaultStrength: 0.7,
+            primaryLuma: 0.24, secondaryLuma: 0.54, usesIncreasedContrast: false
+        )
+        #expect(red.primaryOpacity > Self.lightDefault.primaryOpacity + 0.12)
+        #expect(red.primaryOpacity < Self.lightVivid.primaryOpacity)
+        let navy = NowPlayingLightAmbientPolicy.levels(
+            atDefault: Self.lightDefault, vivid: Self.lightVivid, strength: 1, defaultStrength: 0.7,
+            primaryLuma: 0.07, secondaryLuma: 0.07, usesIncreasedContrast: false
+        )
+        #expect(navy.primaryOpacity < red.primaryOpacity)
+    }
+
+    private static let lightDefault = NowPlayingLightAmbientLevels(
+        primaryOpacity: 0.322, secondaryOpacity: 0.224, overlayTopOpacity: 0.24, overlayBottomOpacity: 0.10
+    )
+    private static let lightVivid = NowPlayingLightAmbientLevels(
+        primaryOpacity: 0.84, secondaryOpacity: 0.62, overlayTopOpacity: 0.06, overlayBottomOpacity: 0
+    )
+
     @Test("Animated artwork requires an active visible hero and system permission")
     func animatedArtworkPolicy() {
         let active = ArtworkAnimationPolicy(

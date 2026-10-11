@@ -830,18 +830,25 @@ extension FnMusicAPI {
             body["album"] = name.isEmpty ? NSNull() as Any : name as Any
         }
         if fields.contains(.genre) {
-            let name = (updated.genre ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            if name.isEmpty { body["genreGUIDs"] = [String]() }
-            else if let genreID = try await metadataGenreID(named: name) { body["genreGUIDs"] = [genreID] }
-            else {
+            // 一首歌可以挂几个流派条目；多个流派按分号存，逐个找，没有的再建。
+            let names = GenreTagValues.names(in: updated.genre)
+            var genreIDs: [String] = []
+            var genres: [[String: Any]] = []
+            if !names.isEmpty { genres = try await metadataGenres() }
+            for name in names {
+                if let genreID = try uniqueEntity(named: name, in: genres) {
+                    genreIDs.append(genreID)
+                    continue
+                }
                 // 网页端填了新流派就 POST /genre/create {name}；和艺术家创建一样不可重放。
                 let created = try await requestJSONOnce(method: "POST", path: "/genre/create", queryItems: [],
                     body: ["name": name], includeCookie: true, cookieToken: nil)
                 guard let entity = created as? [String: Any], let id = stringValue(entity["guid"]), !id.isEmpty else {
                     throw SourceError.connectionFailed(String(localized: "metadata_writeback_error_invalid_state"))
                 }
-                body["genreGUIDs"] = [id]
+                genreIDs.append(id)
             }
+            body["genreGUIDs"] = genreIDs
         }
         if fields.contains(.artist) {
             let name = (updated.artistName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -880,7 +887,7 @@ extension FnMusicAPI {
                 matches = (stringValue(readbackAlbum?["name"]) ?? "") == (body["album"] as? String ?? "")
             case .genre:
                 matches = Set(try entityIDs(readback["genres"])) == Set(body["genreGUIDs"] as? [String] ?? [])
-                    && entityNames(readback["genres"]) == [(updated.genre ?? "").trimmingCharacters(in: .whitespacesAndNewlines)].filter { !$0.isEmpty }
+                    && Set(entityNames(readback["genres"])) == Set(GenreTagValues.names(in: updated.genre))
             case .year: matches = intValue(readback["year"]) == intValue(body["year"])
             case .trackNumber: matches = intValue(readback["trackNo"]) == intValue(body["trackNo"])
             case .discNumber: matches = intValue(readback["discNo"]) == intValue(body["discNo"])
@@ -981,7 +988,7 @@ extension FnMusicAPI {
         return guid
     }
 
-    private func metadataGenreID(named name: String) async throws -> String? {
+    private func metadataGenres() async throws -> [[String: Any]] {
         var genres: [[String: Any]] = []
         for page in 1...100 {
             let payload = try await requestJSON(method: "GET", path: "/genre/list", queryItems: [
@@ -992,7 +999,7 @@ extension FnMusicAPI {
             }
             genres.append(contentsOf: list)
             if list.count < 200 || intValue(data["total"]).map({ genres.count >= $0 }) == true {
-                return try uniqueEntity(named: name, in: genres)
+                return genres
             }
         }
         throw SourceError.connectionFailed(String(localized: "metadata_writeback_error_invalid_state"))
