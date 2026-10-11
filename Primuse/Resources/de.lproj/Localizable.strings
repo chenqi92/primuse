@@ -4550,6 +4550,12 @@
 "diagnostics_feedback_attachments" = "Anhänge (optional)";
 "diagnostics_feedback_message" = "Wünsche oder Vorschläge";
 "diagnostics_feedback_compose" = "Mail öffnen";
+"diagnostics_feedback_images" = "Bilder (optional)";
+"diagnostics_feedback_add_image" = "Bilder hinzufügen";
+"diagnostics_feedback_images_footer %lld" = "Bis zu %lld Bilder, verkleinert und mit der E-Mail gesendet.";
+"diagnostics_feedback_images_loading" = "Bilder werden geladen …";
+"diagnostics_feedback_image_failed" = "Einige Bilder konnten nicht gelesen werden und wurden übersprungen.";
+"diagnostics_feedback_remove_image" = "Bild entfernen";
 "diagnostics_logs_title" = "Protokolle";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */

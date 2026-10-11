@@ -39,16 +39,22 @@ enum DiagnosticReportMailer {
         MFMailComposeViewController.canSendMail()
     }
 
+    /// `images` are JPEG pictures the sender chose, already scaled down.
     static func prepare(
         selection: DiagnosticReportMail.Selection,
         reportURLs: [URL],
-        message: String = ""
+        message: String = "",
+        images: [Data] = []
     ) async throws -> Draft {
+        let screenshots = images.enumerated().map { index, data in
+            Attachment(data: data, mimeType: "image/jpeg",
+                       fileName: DiagnosticReportMail.screenshotName(index: index, of: images.count))
+        }
         if selection == .none {
             return Draft(
                 subject: DiagnosticReportMail.subject(environment: environment(), isFeedback: true),
-                messageBody: message,
-                attachments: [],
+                messageBody: DiagnosticReportMail.feedbackBody(message: message, screenshotCount: screenshots.count),
+                attachments: screenshots,
                 reportCount: 0
             )
         }
@@ -83,9 +89,10 @@ enum DiagnosticReportMailer {
                 reportCount: reportCount,
                 formattedSize: ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file),
                 includesLogs: selection.includesLogs,
-                message: message
+                message: message,
+                screenshotCount: screenshots.count
             ),
-            attachments: attachments,
+            attachments: attachments + screenshots,
             reportCount: reportCount
         )
     }

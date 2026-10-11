@@ -4456,6 +4456,12 @@
 "diagnostics_feedback_attachments" = "अटैचमेंट (वैकल्पिक)";
 "diagnostics_feedback_message" = "अनुरोध या सुझाव";
 "diagnostics_feedback_compose" = "मेल खोलें";
+"diagnostics_feedback_images" = "छवियाँ (वैकल्पिक)";
+"diagnostics_feedback_add_image" = "छवियाँ जोड़ें";
+"diagnostics_feedback_images_footer %lld" = "अधिकतम %lld छवियाँ, छोटी करके ईमेल के साथ भेजी जाएँगी।";
+"diagnostics_feedback_images_loading" = "छवियाँ लोड हो रही हैं…";
+"diagnostics_feedback_image_failed" = "कुछ छवियाँ पढ़ी नहीं जा सकीं और छोड़ दी गईं।";
+"diagnostics_feedback_remove_image" = "छवि हटाएँ";
 "diagnostics_logs_title" = "लॉग";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */

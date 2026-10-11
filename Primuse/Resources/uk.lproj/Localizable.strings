@@ -4456,6 +4456,12 @@
 "diagnostics_feedback_attachments" = "Вкладення (необов’язково)";
 "diagnostics_feedback_message" = "Побажання або пропозиції";
 "diagnostics_feedback_compose" = "Відкрити пошту";
+"diagnostics_feedback_images" = "Зображення (необов’язково)";
+"diagnostics_feedback_add_image" = "Додати зображення";
+"diagnostics_feedback_images_footer %lld" = "До %lld зображень, зменшених і надісланих разом із листом.";
+"diagnostics_feedback_images_loading" = "Завантаження зображень…";
+"diagnostics_feedback_image_failed" = "Деякі зображення не вдалося прочитати, їх пропущено.";
+"diagnostics_feedback_remove_image" = "Вилучити зображення";
 "diagnostics_logs_title" = "Журнали";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */

@@ -4527,6 +4527,12 @@
 "diagnostics_feedback_attachments" = "附件（可選）";
 "diagnostics_feedback_message" = "需求或建議";
 "diagnostics_feedback_compose" = "開啟郵件";
+"diagnostics_feedback_images" = "圖片（可選）";
+"diagnostics_feedback_add_image" = "加入圖片";
+"diagnostics_feedback_images_footer %lld" = "最多 %lld 張，會縮小後隨郵件一起傳送。";
+"diagnostics_feedback_images_loading" = "正在讀取圖片…";
+"diagnostics_feedback_image_failed" = "有的圖片讀不出來，已略過。";
+"diagnostics_feedback_remove_image" = "移除圖片";
 "diagnostics_logs_title" = "日誌";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */

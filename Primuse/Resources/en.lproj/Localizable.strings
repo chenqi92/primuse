@@ -4313,6 +4313,12 @@
 "diagnostics_feedback_attachments" = "Attachments (optional)";
 "diagnostics_feedback_message" = "Requests or suggestions";
 "diagnostics_feedback_compose" = "Open Mail";
+"diagnostics_feedback_images" = "Images (optional)";
+"diagnostics_feedback_add_image" = "Add Images";
+"diagnostics_feedback_images_footer %lld" = "Up to %lld images, scaled down and sent with the email.";
+"diagnostics_feedback_images_loading" = "Loading images…";
+"diagnostics_feedback_image_failed" = "Some images could not be read and were skipped.";
+"diagnostics_feedback_remove_image" = "Remove image";
 "diagnostics_logs_title" = "Logs";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */

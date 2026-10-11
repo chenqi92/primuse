@@ -4456,6 +4456,12 @@
 "diagnostics_feedback_attachments" = "المرفقات (اختياري)";
 "diagnostics_feedback_message" = "طلبات أو اقتراحات";
 "diagnostics_feedback_compose" = "فتح البريد";
+"diagnostics_feedback_images" = "الصور (اختياري)";
+"diagnostics_feedback_add_image" = "إضافة صور";
+"diagnostics_feedback_images_footer %lld" = "حتى %lld صور، يتم تصغيرها وإرسالها مع البريد الإلكتروني.";
+"diagnostics_feedback_images_loading" = "جارٍ تحميل الصور…";
+"diagnostics_feedback_image_failed" = "تعذّر قراءة بعض الصور وتم تخطيها.";
+"diagnostics_feedback_remove_image" = "إزالة الصورة";
 "diagnostics_logs_title" = "السجلات";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */

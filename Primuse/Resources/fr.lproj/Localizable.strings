@@ -4550,6 +4550,12 @@
 "diagnostics_feedback_attachments" = "Pièces jointes (facultatif)";
 "diagnostics_feedback_message" = "Demandes ou suggestions";
 "diagnostics_feedback_compose" = "Ouvrir Mail";
+"diagnostics_feedback_images" = "Images (facultatif)";
+"diagnostics_feedback_add_image" = "Ajouter des images";
+"diagnostics_feedback_images_footer %lld" = "Jusqu’à %lld images, réduites et envoyées avec l’e-mail.";
+"diagnostics_feedback_images_loading" = "Chargement des images…";
+"diagnostics_feedback_image_failed" = "Certaines images n’ont pas pu être lues et ont été ignorées.";
+"diagnostics_feedback_remove_image" = "Supprimer l’image";
 "diagnostics_logs_title" = "Journaux";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */

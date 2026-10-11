@@ -4550,6 +4550,12 @@
 "diagnostics_feedback_attachments" = "첨부 파일(선택 사항)";
 "diagnostics_feedback_message" = "요청 또는 제안";
 "diagnostics_feedback_compose" = "메일 열기";
+"diagnostics_feedback_images" = "이미지(선택 사항)";
+"diagnostics_feedback_add_image" = "이미지 추가";
+"diagnostics_feedback_images_footer %lld" = "최대 %lld장. 크기를 줄여 이메일과 함께 보냅니다.";
+"diagnostics_feedback_images_loading" = "이미지 불러오는 중…";
+"diagnostics_feedback_image_failed" = "읽을 수 없는 이미지가 있어 건너뛰었습니다.";
+"diagnostics_feedback_remove_image" = "이미지 제거";
 "diagnostics_logs_title" = "로그";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */

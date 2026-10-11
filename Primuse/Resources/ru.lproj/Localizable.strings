@@ -4456,6 +4456,12 @@
 "diagnostics_feedback_attachments" = "Вложения (необязательно)";
 "diagnostics_feedback_message" = "Пожелания или предложения";
 "diagnostics_feedback_compose" = "Открыть почту";
+"diagnostics_feedback_images" = "Изображения (необязательно)";
+"diagnostics_feedback_add_image" = "Добавить изображения";
+"diagnostics_feedback_images_footer %lld" = "До %lld изображений, уменьшенных и отправленных вместе с письмом.";
+"diagnostics_feedback_images_loading" = "Загрузка изображений…";
+"diagnostics_feedback_image_failed" = "Некоторые изображения не удалось прочитать, они пропущены.";
+"diagnostics_feedback_remove_image" = "Удалить изображение";
 "diagnostics_logs_title" = "Журналы";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */

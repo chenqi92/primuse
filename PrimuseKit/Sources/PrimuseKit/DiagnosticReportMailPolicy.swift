@@ -100,17 +100,33 @@ public enum DiagnosticReportMail {
     public static func technicalSummary(
         environment: Environment,
         reportCount: Int,
-        formattedSize: String
+        formattedSize: String,
+        screenshotCount: Int = 0
     ) -> String {
         let reports = formattedSize.isEmpty
             ? "Reports: \(reportCount)"
             : "Reports: \(reportCount) (\(formattedSize))"
-        return [
+        var lines = [
             "App: \(environment.appName) \(environment.versionDescription)",
             "Device: \(environment.deviceModel)",
             "System: \(environment.systemDescription)",
             reports,
-        ].joined(separator: "\n")
+        ]
+        if screenshotCount > 0 { lines.append("Screenshots: \(screenshotCount)") }
+        return lines.joined(separator: "\n")
+    }
+
+    /// A plain feedback mail: the message, and how many pictures ride along.
+    public static func feedbackBody(message: String, screenshotCount: Int) -> String {
+        [message, screenshotCount > 0 ? "Screenshots: \(screenshotCount)" : ""]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
+    }
+
+    /// Pictures the sender attached, numbered in the order they chose them.
+    public static func screenshotName(index: Int, of total: Int) -> String {
+        let width = String(total).count
+        return "primuse-screenshot-\(String(format: "%0\(width)d", index + 1)).jpg"
     }
 
     /// Full mail body: the selected content followed by the technical block.
@@ -124,12 +140,14 @@ public enum DiagnosticReportMail {
         reportCount: Int,
         formattedSize: String,
         includesLogs: Bool = false,
-        message: String = ""
+        message: String = "",
+        screenshotCount: Int = 0
     ) -> String {
         let summary = technicalSummary(
             environment: environment,
             reportCount: reportCount,
-            formattedSize: formattedSize
+            formattedSize: formattedSize,
+            screenshotCount: screenshotCount
         )
         return [message, intro, privacyNote, summary + (includesLogs ? "\nLogs: primuse_debug.log" : "")]
             .filter { !$0.isEmpty }

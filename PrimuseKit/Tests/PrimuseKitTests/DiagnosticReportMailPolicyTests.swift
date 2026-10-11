@@ -186,4 +186,24 @@ struct DiagnosticReportMailTests {
         #expect(body.hasPrefix(message + "\n\nReports\n\n"))
         #expect(body.contains("Reports: 1 (4 KB)"))
     }
+
+    @Test("Attached pictures are named in order and counted in the body")
+    func namesAndCountsScreenshots() {
+        #expect(DiagnosticReportMail.screenshotName(index: 0, of: 3) == "primuse-screenshot-1.jpg")
+        #expect(DiagnosticReportMail.screenshotName(index: 9, of: 12) == "primuse-screenshot-10.jpg")
+        #expect(DiagnosticReportMail.feedbackBody(message: "hi", screenshotCount: 0) == "hi")
+        #expect(DiagnosticReportMail.feedbackBody(message: "hi", screenshotCount: 2) == "hi\n\nScreenshots: 2")
+        #expect(DiagnosticReportMail.feedbackBody(message: "", screenshotCount: 1) == "Screenshots: 1")
+        let summary = DiagnosticReportMail.technicalSummary(
+            environment: environment, reportCount: 0, formattedSize: "", screenshotCount: 2
+        )
+        #expect(summary.hasSuffix("Reports: 0\nScreenshots: 2"))
+        #expect(!DiagnosticReportMail.technicalSummary(environment: environment, reportCount: 0, formattedSize: "")
+            .contains("Screenshots"))
+        let body = DiagnosticReportMail.body(
+            intro: "Logs", privacyNote: "", environment: environment,
+            reportCount: 0, formattedSize: "", includesLogs: true, message: "m", screenshotCount: 1
+        )
+        #expect(body.contains("Screenshots: 1\nLogs: primuse_debug.log"))
+    }
 }

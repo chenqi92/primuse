@@ -4551,6 +4551,12 @@
 "diagnostics_feedback_attachments" = "添付ファイル（任意）";
 "diagnostics_feedback_message" = "要望や提案";
 "diagnostics_feedback_compose" = "メールを開く";
+"diagnostics_feedback_images" = "画像（任意）";
+"diagnostics_feedback_add_image" = "画像を追加";
+"diagnostics_feedback_images_footer %lld" = "最大 %lld 枚。縮小してメールに添付します。";
+"diagnostics_feedback_images_loading" = "画像を読み込み中…";
+"diagnostics_feedback_image_failed" = "読み込めない画像があり、スキップしました。";
+"diagnostics_feedback_remove_image" = "画像を削除";
 "diagnostics_logs_title" = "ログ";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */
