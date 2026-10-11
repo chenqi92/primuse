@@ -5840,3 +5840,7 @@
 "ai_consent_privacy_row" = "Які дані використовує вбудований ШІ";
 "ai_consent_status_agreed" = "Згоду надано";
 "ai_consent_status_not_agreed" = "Згоду не надано";
+
+"source_mutation_permission_denied" = "Немає дозволу на змінення вихідних файлів.";
+"source_mutation_read_only" = "Це джерело не дозволяє змінювати файли.";
+"metadata_writeback_local_only_notice" = "Джерело відхилило запис. Зміни збережено лише в Primuse; вихідний файл не оновлено.";

@@ -545,7 +545,7 @@ actor S3Source: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
             case 409, 412:
                 throw EmbeddedMetadataWritebackSourceError.conflict
             case 401, 403:
-                throw SourceError.authenticationFailed
+                throw Self.uploadAccessError(status: http.statusCode, body: data)
             default:
                 let detail = String(data: data.prefix(4_096), encoding: .utf8) ?? ""
                 throw SourceError.connectionFailed(
@@ -554,6 +554,15 @@ actor S3Source: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
             }
         }
         throw SourceError.connectionFailed("S3 clock correction retry failed")
+    }
+
+    nonisolated static func uploadAccessError(status: Int, body: Data) -> any Error {
+        let xml = String(decoding: body.prefix(4096), as: UTF8.self)
+        if status == 403, xml.contains("<Code>AccessDenied</Code>") {
+            return SourceFileMutationError.permissionDenied
+        }
+        // Invalid signatures and expired credentials also use HTTP 403.
+        return SourceError.authenticationFailed
     }
 
     private func resetDirectorySession() {

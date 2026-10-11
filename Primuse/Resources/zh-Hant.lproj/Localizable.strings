@@ -5911,3 +5911,7 @@
 "ai_consent_privacy_row" = "內建 AI 的資料說明";
 "ai_consent_status_agreed" = "已同意";
 "ai_consent_status_not_agreed" = "未同意";
+
+"source_mutation_permission_denied" = "沒有修改來源檔案的權限。";
+"source_mutation_read_only" = "此來源不允許修改檔案。";
+"metadata_writeback_local_only_notice" = "來源拒絕寫入。修改已僅儲存在 Primuse，來源檔案未更新。";

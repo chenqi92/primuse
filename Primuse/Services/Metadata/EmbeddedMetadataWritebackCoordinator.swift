@@ -83,6 +83,7 @@ enum EmbeddedMetadataCoordinatedWritebackError: LocalizedError, Equatable {
     case unsupported
     case conflict
     case invalidRemoteState
+    case accessDenied(source: String, stage: EmbeddedMetadataWritebackStage, reason: SourceFileMutationError)
     case operationFailed(
         source: String,
         stage: EmbeddedMetadataWritebackStage,
@@ -98,6 +99,9 @@ enum EmbeddedMetadataCoordinatedWritebackError: LocalizedError, Equatable {
             return String(localized: "metadata_writeback_error_conflict")
         case .invalidRemoteState:
             return String(localized: "metadata_writeback_error_invalid_state")
+        case .accessDenied(let source, let stage, let reason):
+            return String(format: String(localized: "metadata_writeback_error_stage_format"),
+                          source, stage.localizedName, reason.localizedDescription)
         case .operationFailed(let source, let stage, let detail):
             return String(
                 format: String(localized: "metadata_writeback_error_stage_format"),
@@ -370,6 +374,12 @@ enum EmbeddedMetadataWritebackCoordinator {
         } catch EmbeddedMetadataWritebackSourceError.conflict {
             throw EmbeddedMetadataCoordinatedWritebackError.conflict
         } catch {
+            if let reason = MetadataWriteFailurePolicy.denial(error) {
+                throw EmbeddedMetadataCoordinatedWritebackError.accessDenied(
+                    source: source, stage: stage, reason: reason
+                )
+            }
+            if MetadataWriteFailurePolicy.stopsSourceWrites(error) { throw error }
             throw EmbeddedMetadataCoordinatedWritebackError.operationFailed(
                 source: source,
                 stage: stage,

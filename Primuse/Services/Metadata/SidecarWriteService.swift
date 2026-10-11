@@ -48,14 +48,15 @@ actor SidecarWriteService {
         /// the old `Song` again through an unrelated cache/read route.
         var verifiedLyricsWrite: VerifiedLyricsWrite?
         var coverError: String?
+        var coverWriteDenied = false
         var lyricsError: String?
+        var lyricsWriteDenied = false
         /// Every remote path a write or delete was sent to, verified or not:
         /// an upload can commit before its readback fails. The caller hands
         /// these to the source's read connector, which caches links of its own.
         var touchedRemotePaths: [String] = []
-        /// A credential/permission failure applies to the whole source, not
-        /// only this asset. Batch scraping uses this to stop the remaining
-        /// queued writes while keeping the locally cached metadata.
+        /// Pause remaining writes for this scrape run while retaining local
+        /// assets. This is not a persistent account-wide permission verdict.
         var sourceUnavailable: Bool = false
         var errors: [String] = []
     }
@@ -139,6 +140,7 @@ actor SidecarWriteService {
             let jpegData: Data = recompressJPEG(coverData) ?? coverData
 
             let coverPath = (songDir as NSString).appendingPathComponent(coverFileName)
+            var uploaded = false
             do {
                 result.touchedRemotePaths.append(coverPath)
                 try await connector.writeFile(
@@ -146,11 +148,13 @@ actor SidecarWriteService {
                     to: coverPath,
                     priority: .background
                 )
+                uploaded = true
                 try await connector.verifySidecarWrite(data: jpegData, at: coverPath)
                 result.coverWritten = true
                 plog("📁 Sidecar: \(coverFileName) written to \(songDir)")
             } catch {
                 result.coverError = error.localizedDescription
+                result.coverWriteDenied = !uploaded && MetadataWriteFailurePolicy.allowsLocalSave(error)
                 result.errors.append("Cover: \(SourceErrorPresentation.userFacingDescription(error))")
                 result.sourceUnavailable = Self.isSourceUnavailable(error)
                 // Never pass user-controlled paths or remote error descriptions
@@ -163,6 +167,7 @@ actor SidecarWriteService {
         // 2. Write the lyrics sidecar next to the audio file. New documents
         // default to LRC; an existing writable sidecar keeps its extension.
         if !result.sourceUnavailable, let lyricsLines, !lyricsLines.isEmpty {
+            var writeAttempted = false
             do {
                 let targets = try await lyricsTargets(for: song, using: connector)
                 let target = targets.write
@@ -197,6 +202,7 @@ actor SidecarWriteService {
                     return result
                 }
                 result.touchedRemotePaths.append(target.targetPath)
+                writeAttempted = true
                 let receipt = try await connector.writeLyricsSidecar(
                     data: sidecarData,
                     target: target,
@@ -219,6 +225,7 @@ actor SidecarWriteService {
                 plog("📁 Sidecar: \(target.fileName) written to \(songDir)")
             } catch {
                 result.lyricsError = error.localizedDescription
+                result.lyricsWriteDenied = writeAttempted && MetadataWriteFailurePolicy.allowsLocalSave(error)
                 result.errors.append("Lyrics: \(SourceErrorPresentation.userFacingDescription(error))")
                 result.sourceUnavailable = Self.isSourceUnavailable(error)
                 plog("⚠️ Sidecar: Failed to write lyrics: \(error)")
@@ -472,11 +479,7 @@ actor SidecarWriteService {
     }
 
     private nonisolated static func isSourceUnavailable(_ error: Error) -> Bool {
-        guard let sourceError = error as? SourceError else { return false }
-        if case .authenticationFailed = sourceError {
-            return true
-        }
-        return false
+        MetadataWriteFailurePolicy.stopsSourceWrites(error)
     }
 
     /// The picture that goes into an audio file: a bounded JPEG — the one

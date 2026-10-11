@@ -5935,3 +5935,7 @@
 "ai_consent_privacy_row" = "内蔵 AI のデータの扱い";
 "ai_consent_status_agreed" = "同意済み";
 "ai_consent_status_not_agreed" = "未同意";
+
+"source_mutation_permission_denied" = "ソースファイルを変更する権限がありません。";
+"source_mutation_read_only" = "このソースではファイルを変更できません。";
+"metadata_writeback_local_only_notice" = "ソースへの書き込みが拒否されました。変更は Primuse 内にのみ保存され、ソースファイルは更新されていません。";

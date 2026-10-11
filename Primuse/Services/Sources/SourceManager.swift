@@ -7,6 +7,9 @@ import PrimuseKit
 
 extension SourceFileDeletionFailureReason {
     nonisolated static func classify(_ error: Error, depth: Int = 0) -> Self {
+        if case EmbeddedMetadataCoordinatedWritebackError.accessDenied(_, _, let reason) = error {
+            return classify(reason, depth: depth)
+        }
         switch error {
         case SourceFileMutationError.permissionDenied: return .permissionDenied
         case SourceFileMutationError.readOnly: return .readOnly

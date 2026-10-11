@@ -1614,6 +1614,7 @@ struct TagEditorView: View {
         if tagOrCoverChanged { updated.userMetadataEditedAt = Date() }
 
         var sourceMutationOccurred = false
+        var metadataSavedLocally = false
         var metadataWritebackNotice: String?
         if tagOrCoverChanged {
             do {
@@ -1629,6 +1630,7 @@ struct TagEditorView: View {
                 }
                 updated = report.updatedSong
                 sourceMutationOccurred = report.remoteMutationOccurred
+                metadataSavedLocally = report.localSaveNotice != nil
                 metadataWritebackNotice = report.issueMessage
             } catch {
                 writebackErrorMessage = error.localizedDescription
@@ -1659,8 +1661,9 @@ struct TagEditorView: View {
         var needsLibraryReplace = true
         if lyricsChanged {
             // Lyrics persistence merges into the latest library row. Publish
-            // verified tags first so that merge retains this editor's changes.
-            if sourceMutationOccurred { library.replaceSong(updated) }
+            // accepted tags first so that merge retains this editor's changes,
+            // including a local-only edit after the source refused write access.
+            if sourceMutationOccurred || metadataSavedLocally { library.replaceSong(updated) }
             let mode = await resolveLyricsWritebackMode(for: updated)
             let outcome = await LyricsWriteback.save(
                 text: lyricsText,

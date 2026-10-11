@@ -5840,3 +5840,7 @@
 "ai_consent_privacy_row" = "การใช้ข้อมูลของ AI ในตัว";
 "ai_consent_status_agreed" = "ยินยอมแล้ว";
 "ai_consent_status_not_agreed" = "ยังไม่ยินยอม";
+
+"source_mutation_permission_denied" = "ไม่ได้รับอนุญาตให้แก้ไขไฟล์ต้นฉบับ";
+"source_mutation_read_only" = "แหล่งนี้ไม่อนุญาตให้เปลี่ยนแปลงไฟล์";
+"metadata_writeback_local_only_notice" = "แหล่งข้อมูลปฏิเสธการเขียน บันทึกการเปลี่ยนแปลงไว้เฉพาะใน Primuse เท่านั้น โดยไม่ได้อัปเดตไฟล์ต้นฉบับ";
