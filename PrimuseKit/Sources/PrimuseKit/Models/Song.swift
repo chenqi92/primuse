@@ -35,6 +35,8 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     public var filePath: String // relative within source
     public var sourceID: String
     public var fileSize: Int64
+    /// Multiple embedded genres are joined with "; "; use `GenreTagValues`
+    /// to recover individual labels without splitting punctuation in names.
     public var genre: String?
     public var dateAdded: Date
     public var coverArtFileName: String?

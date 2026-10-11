@@ -4,6 +4,44 @@ import Testing
 
 @Suite("Library genre index")
 struct LibraryGenreIndexTests {
+    @Test("Every repeated embedded genre survives song persistence and indexes the album")
+    func indexesRepeatedGenresAfterSongRoundTrip() throws {
+        let metadata = EmbeddedTagMetadataParser.metadata(fromTagValues: [
+            "GENRE": ["J-Pop", "Vocaloid"],
+        ])
+        let songs = (1...16).map {
+            song("track-\($0)", genre: metadata.genre, albumID: "evils-kingdom")
+        }
+        let restored = try JSONDecoder().decode([Song].self, from: JSONEncoder().encode(songs))
+        let index = LibraryGenreIndexBuilder.build(from: restored)
+
+        #expect(Set(index.genres.map(\.name)) == ["J-Pop", "Vocaloid"])
+        for id in ["j-pop", "vocaloid"] {
+            #expect(index.songIDsByGenreID[id] == songs.map(\.id))
+            #expect(index.albumIDsByGenreID[id] == ["evils-kingdom"])
+            #expect(index.genres.first { $0.id == id }?.songCount == 16)
+            #expect(index.genres.first { $0.id == id }?.albumCount == 1)
+        }
+    }
+
+    @Test("Explicit genre separators do not duplicate membership or counts")
+    func indexesDistinctGenreNames() {
+        let index = LibraryGenreIndexBuilder.build(from: [
+            song("a", genre: " J-Pop ; Vocaloid; VOCALOID\0ＶＯＣＡＬＯＩＤ; ", albumID: "one"),
+            song("b", genre: "Vócaloid; J-Pop", albumID: "one"),
+            song("c", genre: " ; \0 ; ", albumID: "two"),
+            song("d", genre: "Vocaloid", albumID: "two"),
+        ])
+
+        #expect(index.genres.map(\.name) == ["J-Pop", "Vocaloid"])
+        #expect(index.songIDsByGenreID["j-pop"] == ["a", "b"])
+        #expect(index.songIDsByGenreID["vocaloid"] == ["a", "b", "d"])
+        #expect(index.albumIDsByGenreID["vocaloid"] == ["one", "two"])
+        #expect(index.genres.first { $0.id == "vocaloid" }?.songCount == 3)
+        #expect(index.genres.first { $0.id == "vocaloid" }?.albumCount == 2)
+        #expect(index.genres.first { $0.id == "vocaloid" }?.representativeSongIDs == ["a", "d", "b"])
+    }
+
     @Test("Equivalent labels share a category")
     func normalizesEquivalentLabels() {
         let index = LibraryGenreIndexBuilder.build(from: [

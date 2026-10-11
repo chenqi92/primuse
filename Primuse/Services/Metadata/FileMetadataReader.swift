@@ -1097,7 +1097,9 @@ enum FileMetadataReader {
         metadata.trackNumber = metadata.trackNumber ?? parsed.trackNumber
         metadata.discNumber = metadata.discNumber ?? parsed.discNumber
         metadata.year = metadata.year ?? parsed.year
-        metadata.genre = preferredMetadataText(current: metadata.genre, rawID3: parsed.genre)
+        metadata.genre = GenreTagValues.names(in: parsed.genre).count > 1
+            ? parsed.genre
+            : preferredMetadataText(current: metadata.genre, rawID3: parsed.genre)
         if metadata.lyricsText == nil {
             metadata.lyricsText = parsed.lyrics
             metadata.lyricsLanguageCode = parsed.lyricsLanguageCode
@@ -1733,7 +1735,11 @@ enum FileMetadataReader {
         metadata.trackNumber = metadata.trackNumber ?? flac.trackNumber
         metadata.discNumber = metadata.discNumber ?? flac.discNumber
         metadata.year = metadata.year ?? flac.year
-        metadata.genre = metadata.genre ?? flac.genre
+        // AVFoundation can expose only one of the repeated Vorbis comments.
+        // The native reader owns the complete set, just as it does for artists.
+        metadata.genre = GenreTagValues.names(in: flac.genre).count > 1
+            ? flac.genre
+            : (metadata.genre ?? flac.genre)
         if metadata.lyricsText == nil {
             metadata.lyricsText = flac.lyricsText
             metadata.lyricsLanguageCode = flac.lyricsLanguageCode
@@ -2048,7 +2054,7 @@ enum FileMetadataReader {
         result.trackNumber = result.trackNumber ?? leadingInt(first("TRACKNUMBER", "TRACK"))
         result.discNumber = result.discNumber ?? leadingInt(first("DISCNUMBER", "DISC"))
         result.year = result.year ?? parseYear(first("DATE", "YEAR"))
-        result.genre = result.genre ?? first("GENRE")
+        result.genre = result.genre ?? tagMetadata.genre
         if result.lyricsText == nil {
             result.lyricsText = tagMetadata.lyrics
             result.lyricsLanguageCode = tagMetadata.lyricsLanguageCode
