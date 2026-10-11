@@ -63,7 +63,14 @@ actor ConfigurableScraper: MusicScraper {
 
         let sessionManager = resourceSessionManager(for: sourceConfig)
         let (data, response) = try await sessionManager.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
+        guard let http = response as? HTTPURLResponse else { return nil }
+        // 429 / 503 和 5xx 是源暂时出了问题，抛给调用方退避；只有其它 4xx 才算这张图不存在，
+        // 否则一轮限流会把整批歌都记成「没封面」。
+        if http.statusCode == 429 || http.statusCode == 503 {
+            throw ScraperError.rateLimited(retryAfter: retryAfterSeconds(http))
+        }
+        guard (200 ..< 300).contains(http.statusCode) else {
+            if http.statusCode >= 500 { throw ScraperError.networkError("HTTP \(http.statusCode)") }
             return nil
         }
         guard data.count <= maxResourceResponseBytes else {
@@ -71,6 +78,11 @@ actor ConfigurableScraper: MusicScraper {
             return nil
         }
         return data
+    }
+
+    /// Retry-After 既可能是秒数也可能是 HTTP 日期，统一换算成整秒。
+    nonisolated static func retryAfterSeconds(_ http: HTTPURLResponse) -> Int? {
+        RemoteMediaHTTPError.retryDelay(from: http).map { $0.rounded(.up).finiteInt(or: Int.max) }
     }
 
     // MARK: - MusicScraper
@@ -392,7 +404,7 @@ actor ConfigurableScraper: MusicScraper {
             return data
         }
         if http.statusCode == 429 || http.statusCode == 503 {
-            let retryAfter = (http.value(forHTTPHeaderField: "Retry-After")).flatMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+            let retryAfter = Self.retryAfterSeconds(http)
             plog("⛔️ \(config.id) HTTP \(http.statusCode) rate limited, retryAfter=\(retryAfter.map(String.init) ?? "?")")
             throw ScraperError.rateLimited(retryAfter: retryAfter)
         }
