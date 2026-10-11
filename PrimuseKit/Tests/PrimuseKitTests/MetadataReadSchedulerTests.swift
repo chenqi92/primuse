@@ -780,9 +780,8 @@ struct MetadataReadSchedulerTests {
         try await waitUntil { scheduler.inFlightCount == 1 }
         workers = 0
         scheduler.configurationChanged()
-        try await Task.sleep(for: .milliseconds(100))
+        try await waitUntil { scheduler.inFlightCount == 0 }
         #expect(reads.isEmpty)
-        #expect(scheduler.inFlightCount == 0)
         workers = 1
         scheduler.configurationChanged()
         await task.value
