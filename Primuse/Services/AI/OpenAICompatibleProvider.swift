@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import PrimuseKit
 
 enum OpenAICompatibleProviderError: Error, Equatable, Sendable {
@@ -9,7 +10,7 @@ enum OpenAICompatibleProviderError: Error, Equatable, Sendable {
     case transportFailure
     case responseTooLarge
     case invalidResponse
-    case requestFailed(statusCode: Int)
+    case requestFailed(statusCode: Int, retryAfter: TimeInterval? = nil)
 
     /// A streamed request that failed this way before producing anything is
     /// worth one ordinary request: the endpoint may not support streaming or
@@ -19,10 +20,33 @@ enum OpenAICompatibleProviderError: Error, Equatable, Sendable {
         switch self {
         case .invalidResponse:
             return true
-        case .requestFailed(let statusCode):
+        case .requestFailed(let statusCode, let retryAfter):
+            guard retryAfter == nil || retryAfter == 0 else { return false }
             return [400, 404, 405, 406, 415, 422, 501].contains(statusCode)
         default:
             return false
+        }
+    }
+}
+
+/// Model discovery, embeddings and generation spend the same endpoint/credential quota.
+/// The pool never retains raw API keys, and request bodies stay with their provider.
+private final class AIRequestScheduler: @unchecked Sendable {
+    static let shared = AIRequestScheduler()
+    private let lock = NSLock()
+    private var executors: [String: RequestExecutor] = [:]
+
+    func executor(for request: URLRequest) -> RequestExecutor {
+        let endpoint = request.url.flatMap(NetworkEndpointIdentity.init(url:))?.key ?? ""
+        let bearer = request.value(forHTTPHeaderField: "Authorization")?.replacingOccurrences(of: "Bearer ", with: "", options: [.anchored, .caseInsensitive])
+        let credential = bearer ?? request.value(forHTTPHeaderField: "x-api-key") ?? request.value(forHTTPHeaderField: "x-goog-api-key") ?? ""
+        let digest = SHA256.hash(data: Data(credential.utf8)).map { String(format: "%02x", $0) }.joined()
+        let key = endpoint + "|" + digest
+        return lock.withLock {
+            if let existing = executors[key] { return existing }
+            let executor = RequestExecutor(policy: .init(timeout: AIRequestTimeoutPolicy.maximum))
+            executors[key] = executor
+            return executor
         }
     }
 }
@@ -210,6 +234,7 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
     AIRecommendationProviding, AILyricsTranslationProviding {
     nonisolated let descriptor: AIProviderDescriptor
 
+    private var streamObservers: [UUID: (String) -> Void] = [:]
     private let configuration: AIRemoteProviderConfiguration
     private let credentialStore: any AICredentialStoring
     private let apiKeyOverride: String?
@@ -913,7 +938,7 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         input: String,
         maximumTokens: Int,
         streamingArrayKeys: [String]?,
-        onItem: ([String: Any]) -> Void
+        onItem: @escaping ([String: Any]) -> Void
     ) async throws -> String {
         guard let streamingArrayKeys else {
             return try await generateText(
@@ -923,20 +948,20 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
             )
         }
         var extractor = AIStreamingJSONArrayExtractor(keys: streamingArrayKeys)
-        var reportedAnything = false
+        var receivedText = false
         do {
             return try await streamText(
                 instructions: instructions,
                 input: input,
                 maximumTokens: maximumTokens
             ) { delta in
+                if !delta.isEmpty { receivedText = true }
                 for item in extractor.append(delta) {
-                    reportedAnything = true
                     onItem(item)
                 }
             }
         } catch let error as OpenAICompatibleProviderError
-                    where !reportedAnything && error.allowsBufferedRetry {
+                    where !receivedText && error.allowsBufferedRetry {
             return try await generateText(
                 instructions: instructions,
                 input: input,
@@ -949,7 +974,7 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         instructions: String,
         input: String,
         maximumTokens: Int,
-        onDelta: (String) -> Void
+        onDelta: @escaping (String) -> Void
     ) async throws -> String {
         let model = configuration.generationModel.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !model.isEmpty else {
@@ -978,8 +1003,28 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
             apiKey: try await requiredAPIKey(),
             accept: "text/event-stream"
         )
-        guard await requestAuthorization() else { throw CancellationError() }
+        let observer = UUID()
+        streamObservers[observer] = onDelta
+        defer { streamObservers[observer] = nil }
+        do {
+            return try await AIRequestScheduler.shared.executor(for: request).execute(
+                replay: .never, timeout: request.timeoutInterval,
+                operation: { try await self.consumeStream(request, observer: observer) }
+            )
+        } catch let failure as HTTPResponseFailure {
+            throw OpenAICompatibleProviderError.requestFailed(statusCode: failure.statusCode, retryAfter: failure.retryAfter)
+        } catch let error as URLError where error.code == .timedOut {
+            throw MusicIntelligenceError.timedOut
+        } catch let error as URLError {
+            if Task.isCancelled || error.code == .cancelled { throw CancellationError() }
+            throw OpenAICompatibleProviderError.transportFailure
+        } catch is RequestExecutor.AdmissionError {
+            throw OpenAICompatibleProviderError.transportFailure
+        }
+    }
 
+    private func consumeStream(_ request: URLRequest, observer: UUID) async throws -> String {
+        guard await requestAuthorization() else { throw CancellationError() }
         let session = URLSession(configuration: sessionConfiguration)
         defer { session.invalidateAndCancel() }
         let style = configuration.apiStyle
@@ -993,7 +1038,7 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
                 throw OpenAICompatibleProviderError.invalidResponse
             }
             guard (200...299).contains(http.statusCode) else {
-                throw OpenAICompatibleProviderError.requestFailed(statusCode: http.statusCode)
+                throw HTTPResponseFailure(statusCode: http.statusCode, retryAfter: HTTPResponseFailure.retryDelay(from: http))
             }
             let contentType = http.value(forHTTPHeaderField: "Content-Type")?.lowercased() ?? ""
             guard contentType.contains("text/event-stream") else {
@@ -1008,7 +1053,7 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
                 guard let output = Self.extractText(from: data, style: style) else {
                     throw OpenAICompatibleProviderError.invalidResponse
                 }
-                onDelta(output)
+                streamObservers[observer]?(output)
                 return output
             }
 
@@ -1022,7 +1067,7 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
                         throw OpenAICompatibleProviderError.responseTooLarge
                     }
                     text += delta
-                    onDelta(delta)
+                    streamObservers[observer]?(delta)
                 case .done:
                     finished = true
                 case .failed:
@@ -1043,6 +1088,8 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
                 }
             }
             if !finished, let event = parser.finish() { try handle(event) }
+        } catch let failure as HTTPResponseFailure {
+            throw failure
         } catch let error as OpenAICompatibleProviderError {
             throw error
         } catch let error as URLError where error.code == .timedOut {
@@ -1404,6 +1451,25 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
     }
 
     private func perform(_ request: URLRequest) async throws -> Data {
+        do {
+            return try await AIRequestScheduler.shared.executor(for: request).execute(
+                replay: request.httpMethod == "GET" ? .idempotent : .never,
+                timeout: request.timeoutInterval,
+                operation: { try await self.performOnce(request) }
+            )
+        } catch let failure as HTTPResponseFailure {
+            throw OpenAICompatibleProviderError.requestFailed(statusCode: failure.statusCode, retryAfter: failure.retryAfter)
+        } catch let error as URLError where error.code == .timedOut {
+            throw MusicIntelligenceError.timedOut
+        } catch let error as URLError {
+            if Task.isCancelled || error.code == .cancelled { throw CancellationError() }
+            throw OpenAICompatibleProviderError.transportFailure
+        } catch is RequestExecutor.AdmissionError {
+            throw OpenAICompatibleProviderError.transportFailure
+        }
+    }
+
+    private func performOnce(_ request: URLRequest) async throws -> Data {
         guard await requestAuthorization() else { throw CancellationError() }
 
         let data: Data
@@ -1416,8 +1482,8 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
             )
         } catch AIBoundedResponseLoader.LoaderError.responseTooLarge {
             throw OpenAICompatibleProviderError.responseTooLarge
-        } catch let error as URLError where error.code == .timedOut {
-            throw MusicIntelligenceError.timedOut
+        } catch let error as URLError {
+            throw error
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -1427,7 +1493,7 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
             throw OpenAICompatibleProviderError.invalidResponse
         }
         guard (200...299).contains(http.statusCode) else {
-            throw OpenAICompatibleProviderError.requestFailed(statusCode: http.statusCode)
+            throw HTTPResponseFailure(statusCode: http.statusCode, body: data, retryAfter: HTTPResponseFailure.retryDelay(from: http))
         }
         return data
     }
