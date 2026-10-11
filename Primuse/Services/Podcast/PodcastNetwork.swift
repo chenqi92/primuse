@@ -11,7 +11,7 @@ enum PodcastNetwork {
     enum Failure: LocalizedError, Equatable {
         /// 只有明文 http,而用户还没放行这台主机。界面据此弹确认框。
         case insecureHTTP(host: String)
-        case httpStatus(Int)
+        case httpStatus(Int, retryAfter: TimeInterval? = nil)
         case notAFeed
         case emptyResponse
 
@@ -19,7 +19,7 @@ enum PodcastNetwork {
             switch self {
             case .insecureHTTP(let host):
                 return String(format: String(localized: "insecure_http_permission_required %@"), host)
-            case .httpStatus(let code):
+            case .httpStatus(let code, _):
                 return String(format: String(localized: "podcast_error_http %lld"), code)
             case .notAFeed:
                 return String(localized: "podcast_error_not_a_feed")
@@ -58,14 +58,14 @@ enum PodcastNetwork {
         case fetched(Data, finalURL: URL, etag: String?, lastModified: String?)
     }
 
-    static func fetchFeed(_ url: URL, etag: String? = nil, lastModified: String? = nil) async throws -> FeedResult {
-        let target = try await reachableURL(for: url)
+    static func fetchFeed(_ url: URL, etag: String? = nil, lastModified: String? = nil, session suppliedSession: URLSession? = nil) async throws -> FeedResult {
+        let session = suppliedSession ?? Self.session
+        let target = try await reachableURL(for: url, session: session)
         var request = URLRequest(url: target)
         request.setValue("application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.5", forHTTPHeaderField: "Accept")
         if let etag { request.setValue(etag, forHTTPHeaderField: "If-None-Match") }
         if let lastModified { request.setValue(lastModified, forHTTPHeaderField: "If-Modified-Since") }
-        let (data, response) = try await TrustedHTTPTransport.data(for: request, session: session, maxBytes: feedByteLimit)
-        guard let http = response as? HTTPURLResponse else { throw Failure.emptyResponse }
+        let (data, http) = try await read(request, session: session, maxBytes: feedByteLimit, allowedStatuses: [304])
         if http.statusCode == 304 { return .notModified }
         guard (200...299).contains(http.statusCode) else { throw Failure.httpStatus(http.statusCode) }
         guard !data.isEmpty else { throw Failure.emptyResponse }
@@ -78,9 +78,10 @@ enum PodcastNetwork {
     }
 
     /// 明文 http 的公网地址:先试 https,能连上就用它;不行再看用户有没有放行过这台主机。
-    static func reachableURL(for url: URL) async throws -> URL {
+    static func reachableURL(for url: URL, session suppliedSession: URLSession? = nil) async throws -> URL {
+        let session = suppliedSession ?? Self.session
         guard TrustedHTTPTransport.requiresPlainSocket(for: url) else { return url }
-        if let upgraded = httpsVariant(of: url), await respondsOverHTTPS(upgraded) {
+        if let upgraded = httpsVariant(of: url), try await respondsOverHTTPS(upgraded, session: session) {
             return upgraded
         }
         if let target = TrustedHTTPTransport.trustTarget(for: url),
@@ -98,42 +99,78 @@ enum PodcastNetwork {
         return components.url
     }
 
-    private static func respondsOverHTTPS(_ url: URL) async -> Bool {
+    private static func respondsOverHTTPS(_ url: URL, session: URLSession) async throws -> Bool {
         var request = URLRequest(url: url)
         request.httpMethod = "HEAD"
         request.timeoutInterval = 8
-        guard let result = try? await session.data(for: request),
-              let http = result.1 as? HTTPURLResponse else { return false }
-        // 有的服务器不认 HEAD(405),但 https 通着就够了。
-        return http.statusCode < 500
+        do {
+            // HEAD 405 still establishes HTTPS reachability. A quota response
+            // must not trigger another request or a misleading HTTP trust prompt.
+            _ = try await read(request, session: session, maxBytes: 0,
+                allowedStatuses: Set(300..<429).union(430..<500), usesTrustedTransport: false)
+            return true
+        } catch let failure as Failure {
+            if case .httpStatus(let status, let retryAfter) = failure,
+               status == 429 || status == 503 || (retryAfter ?? 0) > 0 { throw failure }
+            return false
+        } catch {
+            try Task.checkCancellation()
+            if (error as? URLError)?.code == .cancelled { throw CancellationError() }
+            return false
+        }
+    }
+
+    private static func read(
+        _ request: URLRequest, session: URLSession, maxBytes: Int,
+        allowedStatuses: Set<Int> = [], usesTrustedTransport: Bool = true
+    ) async throws -> (Data, HTTPURLResponse) {
+        guard let url = request.url else { throw URLError(.badURL) }
+        let executor = PodcastRequestScheduler.shared.executor(for: url)
+        do {
+            return try await executor.execute(replay: .idempotent, timeout: request.timeoutInterval, operation: {
+                let (data, response): (Data, URLResponse)
+                if usesTrustedTransport {
+                    (data, response) = try await TrustedHTTPTransport.data(for: request, session: session, maxBytes: maxBytes)
+                } else {
+                    (data, response) = try await session.data(for: request)
+                }
+                guard let http = response as? HTTPURLResponse else { throw Failure.emptyResponse }
+                guard (200...299).contains(http.statusCode) || allowedStatuses.contains(http.statusCode) else {
+                    throw HTTPResponseFailure(statusCode: http.statusCode, body: data,
+                        retryAfter: HTTPResponseFailure.retryDelay(from: http))
+                }
+                return (data, http)
+            })
+        } catch let failure as HTTPResponseFailure {
+            throw Failure.httpStatus(failure.statusCode, retryAfter: failure.retryAfter)
+        }
     }
 
     // MARK: - Directory and chapters
 
-    static func json(from url: URL, maxBytes: Int = 8 * 1024 * 1024) async throws -> Data {
+    static func json(from url: URL, maxBytes: Int = 8 * 1024 * 1024, session suppliedSession: URLSession? = nil) async throws -> Data {
+        let session = suppliedSession ?? Self.session
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await TrustedHTTPTransport.data(for: request, session: session, maxBytes: maxBytes)
-        guard let http = response as? HTTPURLResponse else { throw Failure.emptyResponse }
-        guard (200...299).contains(http.statusCode) else { throw Failure.httpStatus(http.statusCode) }
+        let (data, _) = try await read(request, session: session, maxBytes: maxBytes)
         return data
     }
 
-    static func chapters(from url: URL) async -> [PodcastChapter] {
-        guard let target = try? await reachableURL(for: url),
-              let data = try? await json(from: target, maxBytes: 2 * 1024 * 1024) else { return [] }
+    static func chapters(from url: URL, session suppliedSession: URLSession? = nil) async -> [PodcastChapter] {
+        let session = suppliedSession ?? Self.session
+        guard let target = try? await reachableURL(for: url, session: session),
+              let data = try? await json(from: target, maxBytes: 2 * 1024 * 1024, session: session) else { return [] }
         return PodcastChaptersJSON.decode(data, baseURL: target)
     }
 
     /// 单集文字稿(`podcast:transcript`)。逐词的 JSON 稿一小时也就几 MB。
     /// 只认带时间轴的 WebVTT / SRT / JSON;取不到或格式不认识返回 nil。
-    static func transcript(from url: URL) async -> String? {
-        guard let target = try? await reachableURL(for: url) else { return nil }
+    static func transcript(from url: URL, session suppliedSession: URLSession? = nil) async -> String? {
+        let session = suppliedSession ?? Self.session
+        guard let target = try? await reachableURL(for: url, session: session) else { return nil }
         var request = URLRequest(url: target)
         request.setValue("text/vtt, application/x-subrip, application/json;q=0.9, */*;q=0.5", forHTTPHeaderField: "Accept")
-        guard let result = try? await TrustedHTTPTransport.data(for: request, session: session, maxBytes: 8 * 1024 * 1024),
-              let http = result.1 as? HTTPURLResponse,
-              (200...299).contains(http.statusCode) else { return nil }
+        guard let result = try? await read(request, session: session, maxBytes: 8 * 1024 * 1024) else { return nil }
         return PodcastTranscriptDocument.subtitleText(from: result.0)
     }
 
@@ -150,16 +187,16 @@ enum PodcastNetwork {
 
     /// 只要两个字节:看服务器认不认 Range、文件到底多大。很多节目的音频地址是动态插播广告的,
     /// feed 里写的长度和真实文件对不上,按它做分段请求会在半路读越界。
-    static func probeEnclosure(_ url: URL) async -> EnclosureProbe? {
-        guard let target = try? await reachableURL(for: url) else { return nil }
+    static func probeEnclosure(_ url: URL, session suppliedSession: URLSession? = nil) async -> EnclosureProbe? {
+        let session = suppliedSession ?? Self.session
+        guard let target = try? await reachableURL(for: url, session: session) else { return nil }
         var request = URLRequest(url: target)
         request.setValue(HTTPRangeProbePolicy.requestHeaderValue, forHTTPHeaderField: "Range")
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         request.timeoutInterval = 8
         do {
             // 服务器不认 Range 时会把整个文件发过来:上限压小,超了就当「不支持分段」。
-            let (data, response) = try await TrustedHTTPTransport.data(for: request, session: session, maxBytes: 64 * 1024)
-            guard let http = response as? HTTPURLResponse else { return nil }
+            let (data, http) = try await read(request, session: session, maxBytes: 64 * 1024)
             let finalURL = http.url ?? target
             switch http.statusCode {
             case 206:
@@ -179,6 +216,23 @@ enum PodcastNetwork {
         } catch {
             plog("🎙️ Enclosure probe failed host=\(target.host ?? "?"): \(error.localizedDescription)")
             return nil
+        }
+    }
+}
+
+/// Feeds, directory entries and episode assets share a host quota even when
+/// callers recreate their URLSession. Paths and conditional headers are per read.
+private final class PodcastRequestScheduler: @unchecked Sendable {
+    static let shared = PodcastRequestScheduler()
+    private let lock = NSLock()
+    private var executors: [String: RequestExecutor] = [:]
+    func executor(for url: URL) -> RequestExecutor {
+        let key = NetworkEndpointIdentity(url: url)?.key ?? url.absoluteString
+        return lock.withLock {
+            if let existing = executors[key] { return existing }
+            let executor = RequestExecutor(policy: .init(timeout: 90))
+            executors[key] = executor
+            return executor
         }
     }
 }
