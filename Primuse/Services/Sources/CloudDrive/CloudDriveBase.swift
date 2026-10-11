@@ -484,7 +484,8 @@ struct CloudDriveHelper: Sendable {
                             }
                             if let children = try await group.next() {
                                 active -= 1
-                                pending.append(contentsOf: children)
+                                // 倒序入栈，popLast 才会按目录原来的顺序进入子文件夹。
+                                pending.append(contentsOf: children.reversed())
                             }
                         }
                     }
