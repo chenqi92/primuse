@@ -158,6 +158,12 @@ final class SourcesStore {
         allSources.first(where: { $0.id == id })
     }
 
+    /// Metadata-only eligibility shared by manual song and collection actions.
+    /// Local originals do not become downloads just because their cache is empty.
+    func downloadableSongs(in songs: [Song]) -> [Song] {
+        OfflineDownloadActionPolicy.downloadableSongs(in: songs, sources: allSources)
+    }
+
     /// tvOS 下载到新 sources.json 后重新从磁盘加载。
     func reloadFromDisk() {
         load()

@@ -1,11 +1,53 @@
 import AppKit
 import AVFoundation
+import SwiftUI
 import XCTest
 import PrimuseKit
 @testable import Primuse
 
 @MainActor
 final class MacResourceRegressionTests: XCTestCase {
+    func testLocalDownloadActionsAreHiddenWithoutMarkingOriginalsAsDownloaded() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = SourcesStore(storageDirectoryURL: root)
+        let local = MusicSource(id: UUID().uuidString, name: "External disk", type: .local,
+                                basePath: "/Volumes/External/Music")
+        let remote = MusicSource(id: UUID().uuidString, name: "Remote", type: .webdav)
+        try store.addDurably(local)
+        try store.addDurably(remote)
+        let localSong = Song(id: UUID().uuidString, title: "Local", fileFormat: .flac,
+                             filePath: "/track.flac", sourceID: local.id)
+        var remoteSong = localSong
+        remoteSong.id = UUID().uuidString
+        remoteSong.sourceID = remote.id
+        let manager = SourceManager(sourcesProvider: { [local, remote] })
+
+        func menuHeight(_ song: Song, snapshot: OfflineAudioCacheSnapshot = .notCached) -> CGFloat {
+            let host = NSHostingView(rootView: SongOfflineActionButtons(song: song, snapshot: snapshot)
+                .environment(store)
+                .environment(manager)
+                .fixedSize())
+            return host.fittingSize.height
+        }
+
+        XCTAssertEqual(menuHeight(localSong), 0, "Uncached local originals must not offer Download")
+        XCTAssertGreaterThan(menuHeight(remoteSong), 0, "Remote files must retain their Download action")
+        var stream = localSong
+        stream.filePath = "/remote.strm"
+        XCTAssertGreaterThan(menuHeight(stream), 0, "A local descriptor can point to remote audio")
+        XCTAssertEqual(store.downloadableSongs(in: [localSong, remoteSong]).map(\.id), [remoteSong.id])
+        XCTAssertTrue(store.downloadableSongs(in: [localSong]).isEmpty)
+        // Existing explicit copies can still be removed; hiding Download must
+        // not relabel or delete local originals or their cache records.
+        let pinned = OfflineAudioCacheSnapshot(state: .pinned, progress: nil, byteCount: 128, errorMessage: nil)
+        XCTAssertGreaterThan(menuHeight(localSong, snapshot: pinned), 0)
+        XCTAssertFalse(manager.offlineAudioSnapshotEntry(for: localSong).snapshot.isDownloaded)
+        store.updateLocal(remote.id) { $0.isEnabled = false }
+        XCTAssertEqual(menuHeight(remoteSong), 0)
+        XCTAssertTrue(store.downloadableSongs(in: [localSong, remoteSong]).isEmpty)
+    }
+
     func testCacheCompletionDoesNotEnumerateLibraryAndUpdatesAllRowsSharingAFile() async throws {
         let source = MusicSource(id: UUID().uuidString, name: "Cache fixture", type: .navidrome)
         let first = Song(id: UUID().uuidString, title: "First", fileFormat: .flac,

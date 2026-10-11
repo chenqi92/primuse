@@ -368,14 +368,16 @@ struct SmartPlaylistDetailView: View {
             .buttonStyle(.bordered)
             .disabled(matched.isEmpty)
 
-            Button {
-                sourceManager.downloadForOffline(songs: matched)
-            } label: {
-                Label("offline_download", systemImage: "arrow.down.circle")
-                    .labelStyle(.iconOnly)
+            let downloads = sourcesStore.downloadableSongs(in: matched)
+            if !downloads.isEmpty {
+                Button {
+                    sourceManager.downloadForOffline(songs: downloads)
+                } label: {
+                    Label("offline_download", systemImage: "arrow.down.circle")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.bordered)
             }
-            .buttonStyle(.bordered)
-            .disabled(matched.filteredPlayable().isEmpty)
         }
     }
 
@@ -400,14 +402,16 @@ struct SmartPlaylistDetailView: View {
             .buttonStyle(.bordered)
             .disabled(matched.isEmpty)
 
-            Button {
-                sourceManager.downloadForOffline(songs: matched)
-            } label: {
-                Label("offline_download", systemImage: "arrow.down.circle")
-                    .frame(maxWidth: .infinity)
+            let downloads = sourcesStore.downloadableSongs(in: matched)
+            if !downloads.isEmpty {
+                Button {
+                    sourceManager.downloadForOffline(songs: downloads)
+                } label: {
+                    Label("offline_download", systemImage: "arrow.down.circle")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
             }
-            .buttonStyle(.bordered)
-            .disabled(matched.filteredPlayable().isEmpty)
         }
     }
 
@@ -491,6 +495,27 @@ struct SmartPlaylistDetailView: View {
         let editTitle = smart.effectiveKind == .ai
             ? String(localized: "ai_playlist_add_songs")
             : String(localized: "smart_edit_rules")
+        var actions: [MacHeaderMoreMenu.Item] = [
+            .init(
+                icon: smart.effectiveKind == .ai ? "sparkles" : "slider.horizontal.3",
+                title: editTitle
+            ) { showEditor = true },
+            .init(icon: "wand.and.stars", title: String(localized: "scrape_missing_metadata"),
+                  trailing: matched.count.formatted(),
+                  enabled: !matched.isEmpty && !scraperService.isScraping) {
+                guard scraperSettings.hasEnabledSource else {
+                    showNoScraperSourceAlert = true
+                    return
+                }
+                scraperService.scrapeMissingMetadata(songs: matched, in: library)
+            },
+        ]
+        let downloads = sourcesStore.downloadableSongs(in: matched)
+        if !downloads.isEmpty {
+            actions.insert(.init(icon: "arrow.down.circle", title: String(localized: "offline_download")) {
+                sourceManager.downloadForOffline(songs: downloads)
+            }, at: 1)
+        }
         return AnyView(MacHeaderMoreMenu(sections: [
             [
                 .init(icon: "play.fill", title: String(localized: "play_all"),
@@ -508,25 +533,7 @@ struct SmartPlaylistDetailView: View {
                     player.insertNextInQueue(playable)
                 },
             ],
-            [
-                .init(
-                    icon: smart.effectiveKind == .ai ? "sparkles" : "slider.horizontal.3",
-                    title: editTitle
-                ) { showEditor = true },
-                .init(icon: "arrow.down.circle", title: String(localized: "offline_download"),
-                      enabled: !playable.isEmpty) {
-                    sourceManager.downloadForOffline(songs: matched)
-                },
-                .init(icon: "wand.and.stars", title: String(localized: "scrape_missing_metadata"),
-                      trailing: matched.count.formatted(),
-                      enabled: !matched.isEmpty && !scraperService.isScraping) {
-                    guard scraperSettings.hasEnabledSource else {
-                        showNoScraperSourceAlert = true
-                        return
-                    }
-                    scraperService.scrapeMissingMetadata(songs: matched, in: library)
-                },
-            ],
+            actions,
             [
                 .init(icon: "trash", title: String(localized: "delete"),
                       isDestructive: true) { deleteSmart(smart) },

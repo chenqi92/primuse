@@ -486,10 +486,13 @@ private struct SongBatchActionsModifier: ViewModifier {
                 Label("insert_next", systemImage: "text.line.first.and.arrowtriangle.forward")
             }
 
-            Button {
-                sourceManager.downloadForOffline(songs: playableSelection())
-            } label: {
-                Label("offline_download", systemImage: "arrow.down.circle")
+            let downloads = sourcesStore.downloadableSongs(in: selectedSongs())
+            if !downloads.isEmpty {
+                Button {
+                    sourceManager.downloadForOffline(songs: downloads)
+                } label: {
+                    Label("offline_download", systemImage: "arrow.down.circle")
+                }
             }
 
             Menu {

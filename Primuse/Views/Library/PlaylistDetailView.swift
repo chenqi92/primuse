@@ -835,17 +835,19 @@ struct PlaylistDetailView: View {
             .accessibilityAddTraits(isFavorite ? .isSelected : [])
             .accessibilityIdentifier("playlistDetail.favorite")
 
-            Button {
-                sourceManager.downloadForOffline(songs: songs)
-            } label: {
-                Image(systemName: "arrow.down.circle")
-                    .font(.headline)
-                    .frame(width: 24, height: 24)
+            let downloads = sourcesStore.downloadableSongs(in: songs)
+            if !downloads.isEmpty {
+                Button {
+                    sourceManager.downloadForOffline(songs: downloads)
+                } label: {
+                    Image(systemName: "arrow.down.circle")
+                        .font(.headline)
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .accessibilityLabel(Text("offline_download"))
             }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .disabled(songs.filteredPlayable().isEmpty)
-            .accessibilityLabel(Text("offline_download"))
         }
     }
 
@@ -1351,10 +1353,12 @@ struct PlaylistDetailView: View {
                 showReorderSheet = true
             })
         }
-        middle.append(.init(icon: "arrow.down.circle", title: String(localized: "offline_download"),
-                            enabled: !playable.isEmpty) {
-            sourceManager.downloadForOffline(songs: songs)
-        })
+        let downloads = sourcesStore.downloadableSongs(in: songs)
+        if !downloads.isEmpty {
+            middle.append(.init(icon: "arrow.down.circle", title: String(localized: "offline_download")) {
+                sourceManager.downloadForOffline(songs: downloads)
+            })
+        }
         if supportsAlwaysDownload {
             middle.append(.init(
                 icon: alwaysDownloadBinding.wrappedValue ? "checkmark.circle.fill" : "arrow.down.circle",
