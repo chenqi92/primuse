@@ -200,7 +200,7 @@ public struct FnMusicCatalogTrack: Sendable {
         guard let format = AudioFormat.from(fileExtension: suffix) else { return nil }
         let path = FnMusicAPIProtocol.trackPath(guid: guid, fileExtension: suffix)
         let artistName = artistNames.isEmpty ? nil : artistNames.joined(separator: ", ")
-        let genreName = genreNames.isEmpty ? nil : genreNames.joined(separator: ", ")
+        let genreName = GenreTagValues.joined(genreNames)
         let revisionTimestamp = updatedAt ?? createdAt
         let coverReference = coverID.map {
             FnMusicAPIProtocol.coverReference(coverID: $0, revision: revisionTimestamp)

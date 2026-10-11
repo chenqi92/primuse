@@ -3224,11 +3224,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         item["IndexNumber"] = song.trackNumber.map { $0 as Any } ?? NSNull()
         item["ParentIndexNumber"] = song.discNumber.map { $0 as Any } ?? NSNull()
         item["ProductionYear"] = song.year.map { $0 as Any } ?? NSNull()
-        item["Genres"] = normalizedMetadataText(song.genre).map {
-            $0.split(separator: ",")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-        } ?? []
+        item["Genres"] = Self.serverGenreNames(song.genre)
 
         let body = try SafeJSONSerialization.data(withJSONObject: item)
         _ = try await performRequest(path: "/Items/\(itemID)", method: "POST", body: body)
@@ -3282,7 +3278,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         case .album:
             return normalizedMetadataText(item.album) == normalizedMetadataText(expected.albumTitle)
         case .genre:
-            return normalizedGenreSet(item.genres?.joined(separator: ","))
+            return normalizedGenreSet(item.genres?.joined(separator: ";"))
                 == normalizedGenreSet(expected.genre)
         case .year:
             return item.productionYear == expected.year
@@ -3481,14 +3477,14 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     }
 
     private func normalizedGenreSet(_ value: String?) -> Set<String> {
-        guard let value else { return [] }
-        return Set(
-            value.split(separator: ",")
-                .map {
-                    $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                }
-                .filter { !$0.isEmpty }
-        )
+        Set(Self.serverGenreNames(value).map { $0.lowercased() })
+    }
+
+    /// 媒体服务器的流派是一个个独立条目。现在按分号拼着存，之前存下的是逗号拼的，写回时两种都拆。
+    private static func serverGenreNames(_ value: String?) -> [String] {
+        (value ?? "").components(separatedBy: CharacterSet(charactersIn: ",;\0"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     private func verifyPlexMetadataReadback(
@@ -3560,7 +3556,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         case .discNumber:
             return item.parentIndex == expected.discNumber
         case .genre:
-            return normalizedGenreSet(item.genres?.joined(separator: ","))
+            return normalizedGenreSet(item.genres?.joined(separator: ";"))
                 == normalizedGenreSet(expected.genre)
         case .cover:
             return true
@@ -3829,7 +3825,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         let artistID = artist == nil ? nil : item.albumArtists?.first?.id
         let fileSize = audioFileSize(for: item)
         let bitRate = audioStream?.bitRate.map { Int($0 / 1000) }
-        let genre = genres?.isEmpty == false ? genres?.joined(separator: ", ") : nil
+        let genre = genres.flatMap { GenreTagValues.joined($0) }
         let dateAdded = item.dateCreated ?? dateAddedFallback
         let coverArtFileName = coverArtURL(for: item)?.absoluteString
         let artistArtworkFileName = artistArtworkReference(
@@ -3910,7 +3906,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             bitRate: item.media?.first?.bitrate,
             sampleRate: audioStream?.samplingRate,
             bitDepth: audioStream?.bitDepth,
-            genre: genres?.isEmpty == false ? genres?.joined(separator: ", ") : nil,
+            genre: genres.flatMap { GenreTagValues.joined($0) },
             year: item.year,
             serverPlayCount: item.viewCount,
             coverArtFileName: coverArtURL(for: item)?.absoluteString,

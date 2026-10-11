@@ -1207,7 +1207,7 @@ private final class FnMusicRateLimitOnceURLProtocol: URLProtocol, @unchecked Sen
     #expect(song.albumTitle == "Cue Album")
     #expect(song.artistID == "cue-artist")
     #expect(song.artistName == "Cue Artist")
-    #expect(song.genre == "Rock, Live")
+    #expect(song.genre == "Rock; Live")
     #expect(song.trackNumber == 3)
     #expect(song.duration == 30.25)
     #expect(song.bitRate == 320)

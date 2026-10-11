@@ -1331,6 +1331,21 @@ final class FnMusicMetadataWritebackTests: XCTestCase {
         XCTAssertTrue(fixture.problems.isEmpty, fixture.problems.description)
     }
 
+    func testSeveralGenresWriteBackAsSeparateGenreEntries() async {
+        let fixture = FnMusicTagHTTPFixture()
+        let source = makeSource(fixture)
+        defer { FnMusicTagHTTPProtocol.remove(host: fixture.host) }
+        let original = song(fixture)
+        var updated = original
+        updated.genre = "Jazz; Uncatalogued genre; Rock"
+        let result = await source.writeScrapedMetadata(original: original, updated: updated, coverData: nil, lyricsLines: nil, lyricsContent: nil)
+        XCTAssertTrue(result.errors.isEmpty, result.errors.description)
+        XCTAssertEqual(fixture.written["genreGUIDs"] as? [String], ["jazz", "new-genre", "rock"])
+        XCTAssertEqual(fixture.genreCreations, 1)
+        XCTAssertEqual(result.fieldResults.first { $0.field == .genre }?.disposition, .written)
+        XCTAssertTrue(fixture.problems.isEmpty, fixture.problems.description)
+    }
+
     func testCoverOnlyChangeAndClearedAlbumRoundTrip() async {
         let fixture = FnMusicTagHTTPFixture()
         let source = makeSource(fixture)
