@@ -1,4 +1,5 @@
 import Foundation
+import PrimuseKit
 
 /// Native scraper backed by Apple's public iTunes Search API.
 /// Documentation: https://developer.apple.com/library/archive/documentation/AudioVideo/Conceptual/iTuneSearchAPI/
@@ -7,10 +8,15 @@ actor ITunesScraper: MusicScraper {
     let type = MusicScraperType.itunes
 
     private let session: URLSession
-    private var lastRequestTime: ContinuousClock.Instant?
-    private let minInterval: Duration = .milliseconds(200)
+    // All factory instances and manual/background callers share this service budget.
+    private static let serviceRequests = RequestExecutor(
+        policy: .init(minimumInterval: 3, maximumConcurrentRequests: 1)
+    )
+    private let requestExecutor: RequestExecutor
 
-    init() {
+    init(session: URLSession? = nil, requestExecutor: RequestExecutor? = nil) {
+        self.requestExecutor = requestExecutor ?? Self.serviceRequests
+        if let session { self.session = session; return }
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 10
         config.httpAdditionalHeaders = [
@@ -105,23 +111,20 @@ actor ITunesScraper: MusicScraper {
     }
 
     private func throttledRequest(url: URL) async throws -> Data {
-        let now = ContinuousClock.now
-        let nextAllowed = lastRequestTime?.advanced(by: minInterval) ?? now
-        let reservedTime = nextAllowed > now ? nextAllowed : now
-        lastRequestTime = reservedTime
-        if reservedTime > now {
-            try await Task.sleep(for: now.duration(to: reservedTime))
+        do {
+            return try await requestExecutor.execute(replay: .idempotent) { [session] in
+                try await session.data(from: url)
+            }.data
+        } catch let failure as HTTPResponseFailure where failure.statusCode == 429 || failure.statusCode == 503 {
+            // Preserve the scheduler's existing deferral signal. The executor
+            // independently enforces long server cooldowns across all callers.
+            let seconds = failure.retryAfter.map { delay in
+                delay >= Double(Int.max) ? Int.max : Int(ceil(delay))
+            }
+            throw ScraperError.rateLimited(retryAfter: seconds)
+        } catch RequestExecutor.AdmissionError.queueFull {
+            throw ScraperError.busy
         }
-        let (data, response) = try await session.data(from: url)
-        // Apple 限流时返回 429(偶发 403/503),读取 Retry-After 抛 rateLimited,
-        // 让 ScraperManager 退避该源、本轮跳过,不再继续撞限流。
-        if let http = response as? HTTPURLResponse,
-           http.statusCode == 429 || http.statusCode == 403 || http.statusCode == 503 {
-            let retryAfter = http.value(forHTTPHeaderField: "Retry-After")
-                .flatMap { Int($0.trimmingCharacters(in: .whitespaces)) }
-            throw ScraperError.rateLimited(retryAfter: retryAfter)
-        }
-        return data
     }
 
     // MARK: - Models
