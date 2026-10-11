@@ -288,6 +288,7 @@ struct CachedArtworkView: View {
          isPlaying: Bool = true,
          isAnimationVisible: Bool = true,
          fillsProposedSize: Bool = false,
+         revisionToken: Int = 0,
          onResolutionChange: @escaping (Bool) -> Void = { _ in }) {
         self.coverRef = nil
         self.albumID = albumID
@@ -304,6 +305,7 @@ struct CachedArtworkView: View {
         self.isPlaying = isPlaying
         self.isAnimationVisible = isAnimationVisible
         self.fillsProposedSize = fillsProposedSize
+        self.revisionToken = revisionToken
         self.onResolutionChange = onResolutionChange
     }
 
