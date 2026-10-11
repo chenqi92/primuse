@@ -185,6 +185,10 @@ struct AlbumGridView: View {
     private enum AlbumViewMode: String, CaseIterable, Hashable {
         case grid, list
 
+        var label: LocalizedStringKey {
+            self == .grid ? "songs_view_grid" : "songs_view_list"
+        }
+
         var icon: String {
             switch self {
             case .grid: return "square.grid.2x2"
@@ -227,62 +231,64 @@ struct AlbumGridView: View {
 
     private var macAlbumOverview: some View {
         let albums = filteredAlbums
-        return ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 18) {
+        return GeometryReader { proxy in
+            let metrics = MacAlbumGridMetrics(viewportWidth: proxy.size.width)
+            VStack(spacing: 18) {
                 albumsHeader(displayedCount: albums.count)
-                LibraryInsightBatchStatusCard(
-                    kind: .album,
-                    outerPadding: EdgeInsets(top: 0, leading: PMSpace.xxxl, bottom: 0, trailing: PMSpace.xxxl)
-                )
+                    .padding(.top, 24)
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        LibraryInsightBatchStatusCard(
+                            kind: .album,
+                            outerPadding: EdgeInsets(top: 0, leading: PMSpace.xxxl, bottom: 0, trailing: PMSpace.xxxl)
+                        )
 
-                if sortedAlbums == nil {
-                    ProgressView()
-                        .controlSize(.small)
-                        .frame(maxWidth: .infinity, minHeight: 280)
-                } else if albums.isEmpty {
-                    ContentUnavailableView.search(text: albumFilter)
-                        .frame(maxWidth: .infinity, minHeight: 280)
-                        .padding(.horizontal, PMSpace.xxxl)
-                } else if albumViewMode == .grid {
-                    LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 150), spacing: 24, alignment: .top)],
-                        alignment: .leading,
-                        spacing: 24
-                    ) {
-                        ForEach(albums) { album in
-                            Button {
-                                openAlbum(album)
-                            } label: {
-                                GeometryReader { proxy in
-                                    macAlbumTile(album, artworkSize: proxy.size.width)
+                        if sortedAlbums == nil {
+                            ProgressView()
+                                .controlSize(.small)
+                                .frame(maxWidth: .infinity, minHeight: 280)
+                        } else if albums.isEmpty {
+                            ContentUnavailableView.search(text: albumFilter)
+                                .frame(maxWidth: .infinity, minHeight: 280)
+                                .padding(.horizontal, PMSpace.xxxl)
+                        } else if albumViewMode == .grid {
+                            LazyVGrid(
+                                columns: metrics.columns,
+                                alignment: .leading,
+                                spacing: 24
+                            ) {
+                                ForEach(albums) { album in
+                                    Button {
+                                        openAlbum(album)
+                                    } label: {
+                                        macAlbumTile(album, artworkSize: metrics.artworkSize)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .contextMenu { albumMenu(album) }
+                                    .pmHoverLift()
                                 }
-                                .aspectRatio(0.74, contentMode: .fit)
                             }
-                            .buttonStyle(.plain)
-                            .contextMenu { albumMenu(album) }
-                            .pmHoverLift()
+                            .padding(.horizontal, PMSpace.xxxl)
+                            .pmAppearFade()
+                        } else {
+                            LazyVStack(spacing: 1) {
+                                ForEach(albums) { album in
+                                    Button {
+                                        openAlbum(album)
+                                    } label: {
+                                        macAlbumListRow(album)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .contextMenu { albumMenu(album) }
+                                }
+                            }
+                            .padding(.horizontal, PMSpace.xxxl)
+                            .pmAppearFade()
                         }
                     }
-                    .padding(.horizontal, PMSpace.xxxl)
-                    .pmAppearFade()
-                } else {
-                    LazyVStack(spacing: 1) {
-                        ForEach(albums) { album in
-                            Button {
-                                openAlbum(album)
-                            } label: {
-                                macAlbumListRow(album)
-                            }
-                            .buttonStyle(.plain)
-                            .contextMenu { albumMenu(album) }
-                        }
-                    }
-                    .padding(.horizontal, PMSpace.xxxl)
-                    .pmAppearFade()
+                    .padding(.bottom, 112)
                 }
             }
-            .padding(.top, 24)
-            .padding(.bottom, 112)
         }
         .background(PMColor.bg.ignoresSafeArea())
     }
@@ -337,6 +343,7 @@ struct AlbumGridView: View {
                 .foregroundStyle(PMColor.textFaint)
             TextField("", text: $albumFilter, prompt: Text("filter_albums_placeholder"))
                 .textFieldStyle(.plain)
+                .accessibilityLabel(Text("filter_albums_placeholder"))
                 .font(.system(size: 12))
                 .foregroundStyle(PMColor.text)
                 .frame(width: 150)
@@ -347,6 +354,8 @@ struct AlbumGridView: View {
                         .foregroundStyle(PMColor.textFaint)
                 }
                 .buttonStyle(.plain)
+                .help(Text("clear"))
+                .accessibilityLabel(Text("clear"))
             }
         }
         .padding(.horizontal, 9)
@@ -372,7 +381,8 @@ struct AlbumGridView: View {
                         .pmAnimation(.hover, value: albumViewMode == mode)
                 }
                 .buttonStyle(.plain)
-                .help(Text(mode == .grid ? "grid_view" : "list_view"))
+                .help(Text(mode.label))
+                .accessibilityLabel(Text(mode.label))
             }
         }
         .padding(2)
@@ -422,7 +432,8 @@ struct AlbumGridView: View {
             Text(album.title)
                 .font(.system(size: 12.5, weight: .semibold))
                 .foregroundStyle(PMColor.text)
-                .lineLimit(1)
+                .lineLimit(2, reservesSpace: true)
+                .help(album.title)
                 .padding(.top, 10)
 
             if let artist = album.artistName, !artist.isEmpty {
@@ -649,6 +660,26 @@ private struct AlbumGridDisplayMenu: View {
             )
         }
         .accessibilityIdentifier("albumGrid.sort")
+    }
+}
+#endif
+
+#if os(macOS)
+/// One measurement per viewport; all cards in a row share an exact square size.
+struct MacAlbumGridMetrics {
+    let artworkSize: CGFloat
+    let columnCount: Int
+    private let spacing: CGFloat = 24
+
+    init(viewportWidth: CGFloat) {
+        let available = max(0, viewportWidth - 2 * PMSpace.xxxl)
+        columnCount = max(1, Int((available + 24) / (150 + 24)))
+        artworkSize = max(0, (available - CGFloat(columnCount - 1) * 24) / CGFloat(columnCount))
+    }
+
+    var columns: [GridItem] {
+        Array(repeating: GridItem(.fixed(artworkSize), spacing: spacing, alignment: .top),
+              count: columnCount)
     }
 }
 #endif
