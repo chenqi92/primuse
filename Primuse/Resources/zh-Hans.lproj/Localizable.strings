@@ -3273,6 +3273,8 @@
 "now_playing_audio_output_matched" = "输出 %@ · 与源一致";
 "now_playing_audio_output_resampled" = "输出 %@ · 已重采样";
 "now_playing_audio_output_plain" = "输出 %@";
+"now_playing_audio_transcoded" = "服务器转码";
+"now_playing_audio_original_file" = "原文件 %@";
 "now_playing_audio_info_hint" = "轻点查看完整规格和实际输出的采样率";
 "player_animated_artwork" = "动态专辑封面";
 "player_animated_artwork_description" = "在专辑详情和播放器主封面中播放来源自带的 GIF、APNG 与动态 WebP。列表始终显示静态首帧，并遵循系统动态效果与电量设置。";

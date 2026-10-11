@@ -2459,6 +2459,8 @@
 "now_playing_audio_output_matched" = "Wyjście %@ · jak źródło";
 "now_playing_audio_output_resampled" = "Wyjście %@ · z przepróbkowaniem";
 "now_playing_audio_output_plain" = "Wyjście %@";
+"now_playing_audio_transcoded" = "Transkodowane przez serwer";
+"now_playing_audio_original_file" = "Oryginał %@";
 "now_playing_audio_info_hint" = "Stuknij, aby zobaczyć pełne informacje o formacie i faktyczną częstotliwość wyjścia";
 "playlist_always_download" = "Zawsze pobieraj";
 "playlist_always_download_description" = "Utrzymuje tę listę odtwarzania na tym urządzeniu przez Wi-Fi. Nowe lub zmienione utwory są pobierane automatycznie, jeśli pozwalają na to warunki urządzenia; wyłączenie tej opcji powoduje zachowanie istniejących plików.";

@@ -3172,6 +3172,8 @@
 "now_playing_audio_output_matched" = "출력 %@ · 원본과 일치";
 "now_playing_audio_output_resampled" = "출력 %@ · 리샘플링됨";
 "now_playing_audio_output_plain" = "출력 %@";
+"now_playing_audio_transcoded" = "서버에서 변환됨";
+"now_playing_audio_original_file" = "원본 %@";
 "now_playing_audio_info_hint" = "탭하여 전체 포맷 정보와 출력의 실제 샘플 레이트 보기";
 "player_animated_artwork" = "움직이는 앨범 아트";
 "player_animated_artwork_description" = "소스에서 제공하는 GIF, APNG 및 애니메이션 WebP 앨범 아트를 앨범 상세 화면과 플레이어의 기본 앨범 아트에서 재생합니다. 목록은 항상 정적인 첫 프레임을 표시하며 시스템 동작 및 전원 설정을 따릅니다.";

@@ -235,6 +235,50 @@ public enum NowPlayingAudioInfoTextPolicy {
         return parts.isEmpty ? nil : parts.joined(separator: " ")
     }
 
+    /// 服务端按网络策略转码后实际送来的那条流。播放页的标签和信息卡按它写,
+    /// 原文件的规格降成一行附注 —— 用户看到的得是耳朵里这条流, 不是服务器上那份文件。
+    public struct TranscodedStream: Equatable, Sendable {
+        /// 「MP3」。
+        public let formatName: String
+        public let bitRateKbps: Int
+        /// 转码后的采样率。MP3 最高 48 kHz, 源更高时服务端会降, 降到多少说不准, 不写。
+        public let sampleRate: Int?
+
+        public init(formatName: String, bitRateKbps: Int, sampleRate: Int?) {
+            self.formatName = formatName
+            self.bitRateKbps = bitRateKbps
+            self.sampleRate = sampleRate
+        }
+
+        /// 标签里的规格简写:「MP3 192k」。
+        public var tagDetail: String? {
+            NowPlayingAudioInfoTextPolicy.tagDetail(
+                formatName: formatName, sampleRate: sampleRate, bitDepth: nil,
+                bitRate: bitRateKbps, isDSD: false, isLossless: false
+            )
+        }
+
+        /// 信息卡里的规格段:「MP3 · 44.1kHz · 192kbps」。
+        public var specParts: [String] {
+            NowPlayingAudioInfoTextPolicy.specParts(
+                formatName: formatName, sampleRate: sampleRate, bitDepth: nil,
+                bitRate: bitRateKbps, isDSD: false
+            )
+        }
+    }
+
+    /// 转码产物(MP3)能保住的最高采样率。
+    public static let transcodedSampleRateCeiling = 48_000
+
+    /// 这次播放走的是服务端转码流时, 给出它的规格; 原样取流返回 nil。
+    public static func transcodedStream(plan: SourceTranscodePlan, sourceSampleRate: Int?) -> TranscodedStream? {
+        guard let bitRateKbps = plan.transcodedBitRateKbps, bitRateKbps > 0 else { return nil }
+        let sampleRate = sourceSampleRate.flatMap { $0 > 0 && $0 <= transcodedSampleRateCeiling ? $0 : nil }
+        return TranscodedStream(
+            formatName: AudioFormat.mp3.displayName, bitRateKbps: bitRateKbps, sampleRate: sampleRate
+        )
+    }
+
     public enum OutputMatch: Equatable, Sendable {
         /// 输出与源采样率一致。
         case matched

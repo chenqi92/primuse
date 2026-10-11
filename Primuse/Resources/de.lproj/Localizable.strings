@@ -3172,6 +3172,8 @@
 "now_playing_audio_output_matched" = "Ausgabe %@ · wie Quelle";
 "now_playing_audio_output_resampled" = "Ausgabe %@ · neu abgetastet";
 "now_playing_audio_output_plain" = "Ausgabe %@";
+"now_playing_audio_transcoded" = "Vom Server transkodiert";
+"now_playing_audio_original_file" = "Original %@";
 "now_playing_audio_info_hint" = "Tippe, um alle Formatdetails und die tatsächliche Abtastrate der Ausgabe zu sehen";
 "player_animated_artwork" = "Dynamisches Cover";
 "player_animated_artwork_description" = "Spielt vom Anbieter bereitgestellte GIF-, APNG- und animierte WebP-Cover in Albumdetails und auf dem Hauptcover des Players ab. Listen zeigen immer das statische erste Bild; System- und Energiespareinstellungen werden berücksichtigt.";

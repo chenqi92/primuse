@@ -2459,6 +2459,8 @@
 "now_playing_audio_output_matched" = "आउटपुट %@ · स्रोत जैसा";
 "now_playing_audio_output_resampled" = "आउटपुट %@ · रीसैंपल किया गया";
 "now_playing_audio_output_plain" = "आउटपुट %@";
+"now_playing_audio_transcoded" = "सर्वर द्वारा ट्रांसकोड किया गया";
+"now_playing_audio_original_file" = "मूल %@";
 "now_playing_audio_info_hint" = "पूरी फ़ॉर्मैट जानकारी और आउटपुट का वास्तविक सैंपल रेट देखने के लिए टैप करें";
 "playlist_always_download" = "हमेशा डाउनलोड करें";
 "playlist_always_download_description" = "इस डिवाइस पर इस प्लेलिस्ट को Wi-Fi से अधिक रखता है। जब डिवाइस की स्थिति अनुमति देती है तो नए या बदले हुए गाने स्वचालित रूप से डाउनलोड होते हैं; इसे बंद करने से मौजूदा फ़ाइलें बनी रहती हैं।";

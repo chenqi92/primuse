@@ -3800,6 +3800,8 @@
 "now_playing_audio_output_matched" = "Çıkış %@ · kaynakla aynı";
 "now_playing_audio_output_resampled" = "Çıkış %@ · yeniden örneklendi";
 "now_playing_audio_output_plain" = "Çıkış %@";
+"now_playing_audio_transcoded" = "Sunucu tarafından dönüştürüldü";
+"now_playing_audio_original_file" = "Orijinal %@";
 "now_playing_audio_info_hint" = "Tüm biçim ayrıntılarını ve çıkışın gerçek örnekleme hızını görmek için dokunun";
 "home_pending_details" = "Beklemede";
 "lyrics_transcription_service_address" = "Hizmet Adresi";

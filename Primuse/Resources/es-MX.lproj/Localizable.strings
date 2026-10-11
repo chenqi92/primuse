@@ -2459,6 +2459,8 @@
 "now_playing_audio_output_matched" = "Salida %@ · igual que el origen";
 "now_playing_audio_output_resampled" = "Salida %@ · remuestreada";
 "now_playing_audio_output_plain" = "Salida %@";
+"now_playing_audio_transcoded" = "Transcodificado por el servidor";
+"now_playing_audio_original_file" = "Original %@";
 "now_playing_audio_info_hint" = "Toca para ver todos los detalles del formato y la frecuencia que usa realmente la salida";
 "playlist_always_download" = "Descargar siempre";
 "playlist_always_download_description" = "Mantiene esta lista de reproducción en este dispositivo a través de Wi-Fi. Las canciones nuevas o modificadas se descargan automáticamente cuando las condiciones del dispositivo lo permiten; Al desactivar esto se mantienen los archivos existentes.";

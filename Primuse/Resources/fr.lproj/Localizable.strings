@@ -3172,6 +3172,8 @@
 "now_playing_audio_output_matched" = "Sortie %@ · identique à la source";
 "now_playing_audio_output_resampled" = "Sortie %@ · rééchantillonnée";
 "now_playing_audio_output_plain" = "Sortie %@";
+"now_playing_audio_transcoded" = "Transcodé par le serveur";
+"now_playing_audio_original_file" = "Original %@";
 "now_playing_audio_info_hint" = "Touchez pour voir tous les détails du format et la fréquence réellement utilisée par la sortie";
 "player_animated_artwork" = "Pochette dynamique";
 "player_animated_artwork_description" = "Lit les pochettes GIF, APNG et WebP animées fournies par la source dans les détails de l’album et sur la pochette principale du lecteur. Les listes affichent toujours la première image statique et respectent les réglages système et d’énergie.";

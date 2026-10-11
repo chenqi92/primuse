@@ -3800,6 +3800,8 @@
 "now_playing_audio_output_matched" = "Вихід %@ · як у джерела";
 "now_playing_audio_output_resampled" = "Вихід %@ · з передискретизацією";
 "now_playing_audio_output_plain" = "Вихід %@";
+"now_playing_audio_transcoded" = "Перекодовано сервером";
+"now_playing_audio_original_file" = "Оригінал %@";
 "now_playing_audio_info_hint" = "Торкніться, щоб побачити всі відомості про формат і фактичну частоту виходу";
 "home_pending_details" = "Очікується";
 "lyrics_transcription_service_address" = "Адреса служби";

@@ -2459,6 +2459,8 @@
 "now_playing_audio_output_matched" = "الإخراج %@ · مطابق للمصدر";
 "now_playing_audio_output_resampled" = "الإخراج %@ · مع إعادة أخذ العينات";
 "now_playing_audio_output_plain" = "الإخراج %@";
+"now_playing_audio_transcoded" = "تم تحويله بواسطة الخادم";
+"now_playing_audio_original_file" = "الأصل %@";
 "now_playing_audio_info_hint" = "اضغط لعرض التفاصيل الكاملة ومعدل العينة الفعلي للإخراج";
 "playlist_always_download" = "التنزيل دائمًا";
 "playlist_always_download_description" = "يبقي قائمة التشغيل هذه على هذا الجهاز أكثر من Wi-Fi. يتم تنزيل الأغاني الجديدة أو المتغيرة تلقائيًا عندما تسمح ظروف الجهاز بذلك؛ يؤدي إيقاف هذا إلى الاحتفاظ بالملفات الموجودة.";

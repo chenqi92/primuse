@@ -2459,6 +2459,8 @@
 "now_playing_audio_output_matched" = "เอาต์พุต %@ · ตรงกับต้นฉบับ";
 "now_playing_audio_output_resampled" = "เอาต์พุต %@ · สุ่มตัวอย่างใหม่";
 "now_playing_audio_output_plain" = "เอาต์พุต %@";
+"now_playing_audio_transcoded" = "แปลงรหัสโดยเซิร์ฟเวอร์";
+"now_playing_audio_original_file" = "ต้นฉบับ %@";
 "now_playing_audio_info_hint" = "แตะเพื่อดูรายละเอียดรูปแบบไฟล์และอัตราสุ่มตัวอย่างจริงของเอาต์พุต";
 "playlist_always_download" = "ดาวน์โหลดเสมอ";
 "playlist_always_download_description" = "เก็บเพลย์ลิสต์นี้ไว้ในอุปกรณ์นี้มากกว่า Wi-Fi เพลงใหม่หรือเพลงที่เปลี่ยนแปลงจะดาวน์โหลดโดยอัตโนมัติเมื่อเงื่อนไขของอุปกรณ์อนุญาต การปิดนี้จะเก็บไฟล์ที่มีอยู่ไว้";

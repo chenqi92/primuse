@@ -80,4 +80,20 @@ struct NowPlayingAudioInfoPolicyTests {
         #expect(NowPlayingAudioInfoTextPolicy.output(sourceSampleRate: 44_100, outputSampleRate: 0) == nil)
         #expect(NowPlayingAudioInfoTextPolicy.output(sourceSampleRate: 44_100, outputSampleRate: nil) == nil)
     }
+
+    @Test("A server-transcoded stream is described as what arrives, not as the source file")
+    func transcodedStream() {
+        #expect(NowPlayingAudioInfoTextPolicy.transcodedStream(plan: .original, sourceSampleRate: 44_100) == nil)
+        #expect(NowPlayingAudioInfoTextPolicy.transcodedStream(plan: .transcode(bitRateKbps: 0), sourceSampleRate: 44_100) == nil)
+        let cd = NowPlayingAudioInfoTextPolicy.transcodedStream(plan: .transcode(bitRateKbps: 192), sourceSampleRate: 44_100)
+        #expect(cd == .init(formatName: "MP3", bitRateKbps: 192, sampleRate: 44_100))
+        #expect(cd?.tagDetail == "MP3 192k")
+        #expect(cd?.specParts == ["MP3", "44.1kHz", "192kbps"])
+        // MP3 cannot carry 96 kHz; the server picks a lower rate we cannot see, so none is claimed.
+        let hiRes = NowPlayingAudioInfoTextPolicy.transcodedStream(plan: .transcode(bitRateKbps: 320), sourceSampleRate: 96_000)
+        #expect(hiRes == .init(formatName: "MP3", bitRateKbps: 320, sampleRate: nil))
+        #expect(hiRes?.specParts == ["MP3", "320kbps"])
+        #expect(NowPlayingAudioInfoTextPolicy.output(sourceSampleRate: hiRes?.sampleRate, outputSampleRate: 48_000)
+                == .init(rateText: "48kHz", match: .sourceUnknown))
+    }
 }

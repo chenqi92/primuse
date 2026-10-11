@@ -6431,6 +6431,7 @@ struct NowPlayingView: View {
                 showsSourceTag: showsSource && musicControlLayout.showsStatusItem(.source),
                 outputSampleRate: player.audioEngine.observedOutputSampleRate,
                 allowsOutputDetail: !player.isAppleMusicMode,
+                transcodePlan: player.activeTranscodePlan,
                 tint: appearance.tertiary
             )
         }
@@ -6450,6 +6451,7 @@ struct NowPlayingView: View {
             isDownloadingFromICloud: player.iCloudDownloadingSongID == song.id,
             source: nowPlayingSourceLabel(for: song),
             outputSampleRate: player.audioEngine.observedOutputSampleRate,
+            transcodePlan: player.activeTranscodePlan,
             infoColor: infoColor,
             sourceColor: sourceColor,
             noticeColor: noticeColor

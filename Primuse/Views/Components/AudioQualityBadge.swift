@@ -66,6 +66,8 @@ struct NowPlayingAudioTagRow: View {
     let outputSampleRate: Double
     /// Apple Music 目录曲由系统播放器出声,输出采样率说不准,卡片里不写。
     let allowsOutputDetail: Bool
+    /// 这次播放的取流计划:服务端转码时标签和信息卡按收到的流写,原文件规格只作附注。
+    var transcodePlan: SourceTranscodePlan = .original
     let tint: Color
 
     @State private var showsDetails = false
@@ -162,11 +164,18 @@ struct NowPlayingAudioTagRow: View {
 
     private var detailsCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(verbatim: qualityLabel ?? song.audioQuality.displayName)
+            Text(verbatim: transcodedStream != nil
+                 ? String(localized: "now_playing_audio_transcoded")
+                 : qualityLabel ?? song.audioQuality.displayName)
                 .font(.headline)
             if !specText.isEmpty {
                 Text(verbatim: specText)
                     .font(.subheadline.monospacedDigit())
+            }
+            if transcodedStream != nil, !originalSpecText.isEmpty {
+                Text(verbatim: String(format: String(localized: "now_playing_audio_original_file"), originalSpecText))
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.secondary)
             }
             if let outputText {
                 Text(verbatim: outputText)
@@ -190,8 +199,13 @@ struct NowPlayingAudioTagRow: View {
         .fixedSize()
     }
 
-    /// Apple Music 曲目标它提供的档位;其余按音质等级,有损的不写等级。
+    private var transcodedStream: NowPlayingAudioInfoTextPolicy.TranscodedStream? {
+        NowPlayingAudioInfoTextPolicy.transcodedStream(plan: transcodePlan, sourceSampleRate: song.sampleRate)
+    }
+
+    /// Apple Music 曲目标它提供的档位;其余按音质等级,有损的不写等级。转码流是有损的,不写。
     private var qualityLabel: String? {
+        if transcodedStream != nil { return nil }
         if let variants = song.audioVariants, !variants.isEmpty {
             return variants.bestLosslessTier.map { PMString($0.localizationKey) }
         }
@@ -199,7 +213,8 @@ struct NowPlayingAudioTagRow: View {
     }
 
     private var tagDetail: String? {
-        NowPlayingAudioInfoTextPolicy.tagDetail(
+        if let transcodedStream { return transcodedStream.tagDetail }
+        return NowPlayingAudioInfoTextPolicy.tagDetail(
             formatName: song.codecFormat.displayName,
             sampleRate: song.sampleRate,
             bitDepth: song.qualityBitDepth,
@@ -210,6 +225,12 @@ struct NowPlayingAudioTagRow: View {
     }
 
     private var specText: String {
+        if let transcodedStream { return transcodedStream.specParts.joined(separator: " · ") }
+        return originalSpecText
+    }
+
+    /// 原文件的规格;转码时写在附注里。
+    private var originalSpecText: String {
         var parts = NowPlayingAudioInfoTextPolicy.specParts(
             formatName: song.codecFormat.displayName,
             sampleRate: song.sampleRate,
@@ -226,7 +247,7 @@ struct NowPlayingAudioTagRow: View {
     private var outputText: String? {
         guard allowsOutputDetail,
               let output = NowPlayingAudioInfoTextPolicy.output(
-                sourceSampleRate: song.sampleRate,
+                sourceSampleRate: transcodedStream.map(\.sampleRate) ?? song.sampleRate,
                 outputSampleRate: outputSampleRate
               ) else { return nil }
         let format: String
@@ -281,6 +302,8 @@ struct NowPlayingFooterInfoRow: View {
     let source: NowPlayingSourceLabel?
     /// 输出设备此刻的采样率(Hz),拿不到为 0。
     let outputSampleRate: Double
+    /// 服务端转码时按收到的流写格式与码率。
+    var transcodePlan: SourceTranscodePlan = .original
     let infoColor: Color
     /// 来源比音频信息再淡一档。
     let sourceColor: Color
@@ -347,10 +370,12 @@ struct NowPlayingFooterInfoRow: View {
     /// 格式,再加采样率(输出被重采样时写成「44.1 → 48 kHz」)。
     private var briefText: String? {
         var parts: [String] = []
-        let format = song.codecFormat.displayName
+        let stream = NowPlayingAudioInfoTextPolicy.transcodedStream(plan: transcodePlan, sourceSampleRate: song.sampleRate)
+        let format = stream?.formatName ?? song.codecFormat.displayName
         if !format.isEmpty, format != "—" { parts.append(format) }
+        if let stream { parts.append("\(stream.bitRateKbps)kbps") }
         if let rate = OutputSampleRateTextPolicy.text(
-            sourceSampleRate: song.sampleRate,
+            sourceSampleRate: stream.map(\.sampleRate) ?? song.sampleRate,
             outputSampleRate: outputSampleRate
         ) {
             parts.append(rate)

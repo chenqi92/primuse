@@ -2941,6 +2941,8 @@
 "now_playing_audio_output_matched" = "Output %@ · Matches source";
 "now_playing_audio_output_resampled" = "Output %@ · Resampled";
 "now_playing_audio_output_plain" = "Output %@";
+"now_playing_audio_transcoded" = "Transcoded by server";
+"now_playing_audio_original_file" = "Original %@";
 "now_playing_audio_info_hint" = "Tap to see the full format details and the sample rate the output is actually using";
 "player_animated_artwork" = "Dynamic Artwork";
 "player_animated_artwork_description" = "Play source-provided GIF, APNG, and animated WebP artwork on album details and primary player artwork. Lists always use a static first frame, and system motion and power settings are respected.";
