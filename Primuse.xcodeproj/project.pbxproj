@@ -1537,6 +1537,7 @@
 		CB2392A6661A46E7045549EF /* RemoteMediaHTTPErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFA3B7E6ABB7F9FBF66FCEF2 /* RemoteMediaHTTPErrorTests.swift */; };
 		929FF68052024265B5C1DBCB /* CloudScanConcurrencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9117D8188332427DA24F1CF3 /* CloudScanConcurrencyTests.swift */; };
 		FD25E170B25047859BD05A57 /* NativeScraperHTTPTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 987813BA26D647B88EF2D5F9 /* NativeScraperHTTPTests.swift */; };
+		DFBD6CDFA9B74A00A97F22A8 /* BaiduWriteReplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23DCD3C94AF4401ADEB4284 /* BaiduWriteReplayTests.swift */; };
 		0F60D48ACA0F465AB327CE87 /* ReadOnlyMetadataWritebackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 193A9FDE80774FCD86C674E5 /* ReadOnlyMetadataWritebackTests.swift */; };
 		E0B092384C0C2A7F07C6DF68 /* LRCLIBHTTPErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65C163A6A5CD5B15DA0A6D1D /* LRCLIBHTTPErrorTests.swift */; };
 		CB4E9F3D6D435EECF77E5C86 /* AudioPlayerService+DecodedBufferHealth.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4324489CFAF380249864F70 /* AudioPlayerService+DecodedBufferHealth.swift */; };
@@ -3308,6 +3309,7 @@
 		CFA3B7E6ABB7F9FBF66FCEF2 /* RemoteMediaHTTPErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteMediaHTTPErrorTests.swift; sourceTree = "<group>"; };
 		9117D8188332427DA24F1CF3 /* CloudScanConcurrencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudScanConcurrencyTests.swift; sourceTree = "<group>"; };
 		987813BA26D647B88EF2D5F9 /* NativeScraperHTTPTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeScraperHTTPTests.swift; sourceTree = "<group>"; };
+		F23DCD3C94AF4401ADEB4284 /* BaiduWriteReplayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduWriteReplayTests.swift; sourceTree = "<group>"; };
 		193A9FDE80774FCD86C674E5 /* ReadOnlyMetadataWritebackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadOnlyMetadataWritebackTests.swift; sourceTree = "<group>"; };
 		65C163A6A5CD5B15DA0A6D1D /* LRCLIBHTTPErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LRCLIBHTTPErrorTests.swift; sourceTree = "<group>"; };
 		D097BC8C61181C5D4A7DF1DE /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/HomeDiscovery.strings"; sourceTree = "<group>"; };
@@ -5352,6 +5354,7 @@
 				CFA3B7E6ABB7F9FBF66FCEF2 /* RemoteMediaHTTPErrorTests.swift */,
 				9117D8188332427DA24F1CF3 /* CloudScanConcurrencyTests.swift */,
 				987813BA26D647B88EF2D5F9 /* NativeScraperHTTPTests.swift */,
+				F23DCD3C94AF4401ADEB4284 /* BaiduWriteReplayTests.swift */,
 				193A9FDE80774FCD86C674E5 /* ReadOnlyMetadataWritebackTests.swift */,
 				65C163A6A5CD5B15DA0A6D1D /* LRCLIBHTTPErrorTests.swift */,
 				DC9A72F47CEAEE9E5E4FBD77 /* S3ListParserTests.swift */,
@@ -6182,6 +6185,7 @@
 				CB2392A6661A46E7045549EF /* RemoteMediaHTTPErrorTests.swift in Sources */,
 				929FF68052024265B5C1DBCB /* CloudScanConcurrencyTests.swift in Sources */,
 				FD25E170B25047859BD05A57 /* NativeScraperHTTPTests.swift in Sources */,
+				DFBD6CDFA9B74A00A97F22A8 /* BaiduWriteReplayTests.swift in Sources */,
 				0F60D48ACA0F465AB327CE87 /* ReadOnlyMetadataWritebackTests.swift in Sources */,
 				E0B092384C0C2A7F07C6DF68 /* LRCLIBHTTPErrorTests.swift in Sources */,
 				DB4010B0AE18307DA6D513CB /* S3ListParserTests.swift in Sources */,
