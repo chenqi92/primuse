@@ -251,6 +251,44 @@ public struct HomeQuickAccessCarouselMetrics: Equatable, Sendable {
         columnsPerScreen = columns
         itemWidth = (usable - Self.spacing * Double(columns - 1)) / Double(columns)
     }
+
+    /// 实际铺几行。`rows` 是用户设的上限;条目不够一屏时行数跟着收:只收藏两本书时它们并排在
+    /// 第一行,而不是一列两行(#155)。
+    public static func renderedRowCount(itemCount: Int, rows: Int, columnsPerScreen: Int) -> Int {
+        let columns = max(columnsPerScreen, 1)
+        let needed = (max(itemCount, 0) + columns - 1) / columns
+        return max(1, min(max(rows, 1), needed))
+    }
+
+    /// `LazyHGrid` 按列填格(第一列从上到下,再第二列),人读的却是先横后竖:8 项两行时第一行
+    /// 会是 1、3、5、7,看起来和收藏里排的顺序对不上。这里把条目下标换成按列填充时每个格子该放
+    /// 第几项:一屏一页、页内先横后竖,翻到下一屏仍从第一行接着读。
+    ///
+    /// 页内空着的格子是 nil,必须占位,否则后面的条目会顶到上一行;末尾连着的 nil 去掉。
+    /// 行数先按 `renderedRowCount(itemCount:rows:columnsPerScreen:)` 收过再排,调用方画网格时用同一个行数。
+    /// 例:5 项、2 行、一屏 4 列 → [0, 4, 1, nil, 2, nil, 3];2 项、2 行、4 列 → 实际一行 → [0, 1]。
+    public static func cellOrder(itemCount: Int, rows: Int, columnsPerScreen: Int) -> [Int?] {
+        let count = max(itemCount, 0)
+        guard count > 0 else { return [] }
+        let columns = max(columnsPerScreen, 1)
+        let rows = renderedRowCount(itemCount: count, rows: rows, columnsPerScreen: columns)
+        let perPage = rows * columns
+        let pages = (count + perPage - 1) / perPage
+        var cells: [Int?] = []
+        cells.reserveCapacity(pages * perPage)
+        for page in 0..<pages {
+            for column in 0..<columns {
+                for row in 0..<rows {
+                    let index = page * perPage + row * columns + column
+                    cells.append(index < count ? index : nil)
+                }
+            }
+        }
+        while let last = cells.last, last == nil {
+            cells.removeLast()
+        }
+        return cells
+    }
 }
 
 /// 每块区域选定的方案。整体作为一个 JSON 字符串存进 AppStorage。

@@ -121,4 +121,40 @@ struct HomeQuickAccessCarouselMetricsTests {
         #expect(metrics.itemWidth == HomeQuickAccessCarouselMetrics.unmeasuredItemWidth)
         #expect(metrics.columnsPerScreen == 1)
     }
+
+    @Test("条目不够一屏时行数跟着收")
+    func rowCountShrinksToTheItems() {
+        typealias Metrics = HomeQuickAccessCarouselMetrics
+        #expect(Metrics.renderedRowCount(itemCount: 2, rows: 2, columnsPerScreen: 4) == 1)
+        #expect(Metrics.renderedRowCount(itemCount: 4, rows: 2, columnsPerScreen: 4) == 1)
+        #expect(Metrics.renderedRowCount(itemCount: 5, rows: 2, columnsPerScreen: 4) == 2)
+        #expect(Metrics.renderedRowCount(itemCount: 30, rows: 2, columnsPerScreen: 4) == 2)
+        #expect(Metrics.renderedRowCount(itemCount: 9, rows: 3, columnsPerScreen: 4) == 3)
+        #expect(Metrics.renderedRowCount(itemCount: 0, rows: 2, columnsPerScreen: 4) == 1)
+        #expect(Metrics.renderedRowCount(itemCount: 3, rows: 0, columnsPerScreen: 0) == 1)
+    }
+
+    @Test("页内先横后竖,空格占位,末尾不留空格")
+    func cellsReadRowFirstWithinEachPage() {
+        typealias Metrics = HomeQuickAccessCarouselMetrics
+        #expect(Metrics.cellOrder(itemCount: 5, rows: 2, columnsPerScreen: 4) == [0, 4, 1, nil, 2, nil, 3])
+        #expect(Metrics.cellOrder(itemCount: 8, rows: 2, columnsPerScreen: 4) == [0, 4, 1, 5, 2, 6, 3, 7])
+        #expect(Metrics.cellOrder(itemCount: 10, rows: 2, columnsPerScreen: 4)
+            == [0, 4, 1, 5, 2, 6, 3, 7, 8, nil, 9])
+        #expect(Metrics.cellOrder(itemCount: 0, rows: 2, columnsPerScreen: 4).isEmpty)
+    }
+
+    @Test("两本书并排在第一行,不是一列两行")
+    func twoItemsShareTheFirstRow() {
+        #expect(HomeQuickAccessCarouselMetrics.cellOrder(itemCount: 2, rows: 2, columnsPerScreen: 4) == [0, 1])
+        #expect(HomeQuickAccessCarouselMetrics.cellOrder(itemCount: 4, rows: 3, columnsPerScreen: 4) == [0, 1, 2, 3])
+    }
+
+    @Test("一行、或还没量到宽度只有一列时顺序不变")
+    func singleRowOrSingleColumnKeepsTheOrder() {
+        let sequential = Array(0..<7).map(Optional.some)
+        #expect(HomeQuickAccessCarouselMetrics.cellOrder(itemCount: 7, rows: 1, columnsPerScreen: 4) == sequential)
+        #expect(HomeQuickAccessCarouselMetrics.cellOrder(itemCount: 7, rows: 2, columnsPerScreen: 1) == sequential)
+        #expect(HomeQuickAccessCarouselMetrics.cellOrder(itemCount: 7, rows: 3, columnsPerScreen: 0) == sequential)
+    }
 }

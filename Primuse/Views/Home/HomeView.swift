@@ -334,13 +334,36 @@ private struct HomeSectionDragPreview: View {
 ///
 /// 列宽按视口均分(`HomeQuickAccessCarouselMetrics`):第一列图标离左边与最后一列图标离右边一样远,
 /// 往后滑一屏一屏地停。行高贴着条目本身(图标 52 + 间距 7 + 一行说明),一行时下面不再多空一截。
+///
+/// 两行时按收藏顺序先横后竖地读:`LazyHGrid` 自己是按列填的,第二项会掉到第二行、第一行变成
+/// 1、3、5、7,和收藏页排的顺序对不上(#155)。所以格子顺序由 `cellOrder` 换算,页内空格用透明块占位;
+/// 条目不够一屏时行数也跟着收,只收藏两本书就并排在第一行。
 private struct HomeQuickAccessCarousel<Item: Identifiable, Cell: View>: View {
     let items: [Item]
+    /// 行数上限(首页编辑里设的)。
     let rowCount: Int
     @ViewBuilder let cell: (Item) -> Cell
 
     @State private var viewportWidth: CGFloat = 0
     @ScaledMetric(relativeTo: .caption) private var captionLineHeight: CGFloat = 16
+
+    /// 网格里的一格:一个条目,或页内空着的位置。
+    private enum GridCell: Identifiable {
+        case item(Item)
+        case placeholder(Int)
+
+        enum ID: Hashable {
+            case item(AnyHashable)
+            case placeholder(Int)
+        }
+
+        var id: ID {
+            switch self {
+            case .item(let item): .item(AnyHashable(item.id))
+            case .placeholder(let position): .placeholder(position)
+            }
+        }
+    }
 
     private var rowHeight: CGFloat {
         max(76, 52 + 7 + captionLineHeight)
@@ -348,17 +371,36 @@ private struct HomeQuickAccessCarousel<Item: Identifiable, Cell: View>: View {
 
     var body: some View {
         let metrics = HomeQuickAccessCarouselMetrics(viewportWidth: Double(viewportWidth))
+        let rows = HomeQuickAccessCarouselMetrics.renderedRowCount(
+            itemCount: items.count,
+            rows: rowCount,
+            columnsPerScreen: metrics.columnsPerScreen
+        )
+        let cells = HomeQuickAccessCarouselMetrics.cellOrder(
+            itemCount: items.count,
+            rows: rowCount,
+            columnsPerScreen: metrics.columnsPerScreen
+        ).enumerated().map { position, index -> GridCell in
+            index.map { GridCell.item(items[$0]) } ?? .placeholder(position)
+        }
         ScrollView(.horizontal, showsIndicators: false) {
             LazyHGrid(
                 rows: Array(
                     repeating: GridItem(.fixed(rowHeight), spacing: 16, alignment: .top),
-                    count: max(rowCount, 1)
+                    count: rows
                 ),
                 spacing: CGFloat(HomeQuickAccessCarouselMetrics.spacing)
             ) {
-                ForEach(items) { item in
-                    cell(item)
-                        .frame(width: CGFloat(metrics.itemWidth))
+                ForEach(cells) { gridCell in
+                    switch gridCell {
+                    case .item(let item):
+                        cell(item)
+                            .frame(width: CGFloat(metrics.itemWidth))
+                    case .placeholder:
+                        Color.clear
+                            .frame(width: CGFloat(metrics.itemWidth), height: rowHeight)
+                            .accessibilityHidden(true)
+                    }
                 }
             }
             .scrollTargetLayout()
