@@ -380,6 +380,10 @@ struct TVSpokenWordListeningCard: View {
 // MARK: - 书的详情(章节列表)
 
 /// 一本书的章节:从哪一章点下去就从哪一章播,整本书仍是队列。
+///
+/// 播客页里的本地节目(自己的文件标成播客)也用这一页,但按播客的样子排:默认日期新的在上,
+/// 可换旧到新、文件顺序,手机上拖过顺序的这台电视不知道(排法记在各自设备上);
+/// 可只看未播放/已播放;点一集从这一集放起,播完按收听先后接着放还没听完的。
 struct TVSpokenWordBookDetailView: View {
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -388,17 +392,29 @@ struct TVSpokenWordBookDetailView: View {
     let fallback: SpokenWordBook
     var openPlayer: () -> Void = {}
 
+    private var isLocalPodcast: Bool {
+        store.library.localPodcastBookIDs.values.contains(bookID)
+    }
+
     private var currentBook: SpokenWordBook {
         // 播客页里本机下载的节目也用这一页。
-        let songs = store.library.localPodcastBookIDs.values.contains(bookID)
+        let songs = isLocalPodcast
             ? store.library.localPodcastSongs
             : store.library.spokenWordSongs
         return TVSpokenWordBooks.books(songs: songs, store: SpokenWordStore.shared)
             .first { $0.id == bookID } ?? fallback
     }
 
+    private var podcastSettings: LocalPodcastShowSettings {
+        LocalPodcastShowSettingsStore.shared.settings(for: bookID)
+    }
+
     var body: some View {
         let book = currentBook
+        let isPodcast = isLocalPodcast
+        let settings = podcastSettings
+        let ordered = isPodcast ? LocalPodcastEpisodeListPolicy.ordered(book.items, settings: settings) : book.items
+        let listed = isPodcast ? ordered.filter { settings.filter.includes($0) } : book.items
         let palette = store.artworkColors(forSongID: book.items.first?.id ?? "")
         ZStack {
             TVAmbientBackdrop(
@@ -431,7 +447,10 @@ struct TVSpokenWordBookDetailView: View {
                         systemImage: "play.fill",
                         style: .solid
                     ) {
-                        play(book, from: book.resumeItemID)
+                        play(book, from: isPodcast ? nil : book.resumeItemID)
+                    }
+                    if isPodcast {
+                        podcastListControls(settings)
                     }
                     Spacer(minLength: 0)
                 }
@@ -439,12 +458,22 @@ struct TVSpokenWordBookDetailView: View {
 
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(alignment: .leading, spacing: 10) {
-                        TVEyebrow(text: String(localized: "tv_spoken_word_chapters"))
+                        TVEyebrow(text: isPodcast
+                            ? String(format: String(localized: "podcast_episode_count %lld"), listed.count)
+                            : String(localized: "tv_spoken_word_chapters"))
                             .padding(.bottom, 6)
+                        if isPodcast, listed.isEmpty {
+                            Text(String(localized: "podcast_no_matching_episodes"))
+                                .tvFont(.body)
+                                .foregroundStyle(TVColor.textMuted)
+                                .padding(.vertical, 30)
+                        }
                         // 一本书可能拆成上千个文件:分页渲染,焦点走到末尾附近再续。
-                        TVPagedList(book.items, id: \.id, alignment: .leading, spacing: 10) { index, item, focusChanged in
+                        TVPagedList(listed, id: \.id, alignment: .leading, spacing: 10) { index, item, focusChanged in
                             chapterRow(
                                 item, index: index, isResume: item.id == book.resumeItemID,
+                                podcastEpisodes: isPodcast ? ordered : nil,
+                                order: settings.order,
                                 onFocusChanged: focusChanged
                             ) {
                                 play(book, from: item.id)
@@ -465,25 +494,46 @@ struct TVSpokenWordBookDetailView: View {
         .accessibilityIdentifier("tv.spokenWord.detail")
     }
 
+    /// `podcastEpisodes`:本地节目时是排好的整份单集(长按「之前的都标为已播放」要用),书是 nil。
+    @ViewBuilder
     private func chapterRow(
         _ item: SpokenWordBookItem,
         index: Int,
         isResume: Bool,
+        podcastEpisodes: [SpokenWordBookItem]?,
+        order: LocalPodcastEpisodeOrder,
         onFocusChanged: @escaping (Bool) -> Void,
         action: @escaping () -> Void
     ) -> some View {
-        TVFocusButton(
+        let isPodcast = podcastEpisodes != nil
+        let row = TVFocusButton(
             radius: 16, scale: 1.02, lift: 0, ring: false,
             action: action, onFocusChanged: onFocusChanged
         ) { focused in
             HStack(spacing: 22) {
-                Text(verbatim: "\(index + 1)")
-                    .tvFont(.caption, design: .monospaced)
-                    .foregroundStyle(TVColor.textFaint)
-                    .frame(width: 56, alignment: .trailing)
+                if isPodcast {
+                    // 播客按日期排,序号没有意义:没听过的一集在这里亮一个点。
+                    Circle()
+                        .fill(TVColor.spokenWordSpace)
+                        .frame(width: 12, height: 12)
+                        .opacity(!item.isFinished && item.position == nil ? 1 : 0)
+                        .frame(width: 56, alignment: .trailing)
+                        .accessibilityHidden(item.isFinished || item.position != nil)
+                        .accessibilityLabel(Text(String(localized: "podcast_filter_unplayed")))
+                } else {
+                    Text(verbatim: "\(index + 1)")
+                        .tvFont(.caption, design: .monospaced)
+                        .foregroundStyle(TVColor.textFaint)
+                        .frame(width: 56, alignment: .trailing)
+                }
                 VStack(alignment: .leading, spacing: 8) {
+                    if isPodcast, let date = PodcastFormat.date(item.addedAt) {
+                        Text(date)
+                            .tvFont(.meta)
+                            .foregroundStyle(TVColor.textFaint)
+                    }
                     Text(item.title).tvFont(.rowTitle)
-                        .foregroundStyle(TVColor.text)
+                        .foregroundStyle(isPodcast && item.isFinished ? TVColor.textMuted : TVColor.text)
                         .lineLimit(1)
                     if item.isInProgress {
                         TVSpokenWordProgressBar(fraction: item.fractionComplete)
@@ -514,10 +564,83 @@ struct TVSpokenWordBookDetailView: View {
                         in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .contentShape(Rectangle())
         }
+        if let podcastEpisodes {
+            row.contextMenu {
+                Button(item.isFinished
+                    ? String(localized: "podcast_mark_unplayed")
+                    : String(localized: "podcast_mark_played")) {
+                    SpokenWordStore.shared.markFinished(!item.isFinished, songIDs: [item.id])
+                }
+                let earlier = LocalPodcastEpisodeListPolicy.earlierUnfinishedIDs(
+                    than: item.id, in: podcastEpisodes, order: order
+                )
+                if !earlier.isEmpty {
+                    Button(String(localized: "podcast_mark_older_played")) {
+                        SpokenWordStore.shared.markFinished(true, songIDs: earlier)
+                    }
+                }
+            }
+        } else {
+            row
+        }
+    }
+
+    /// 本地节目的排法与筛选:按一下换下一种,和手机上记在各自设备上。
+    private func podcastListControls(_ settings: LocalPodcastShowSettings) -> some View {
+        let orders = LocalPodcastEpisodeOrder.allCases.filter {
+            $0 != .custom || settings.order == .custom || !settings.customOrder.isEmpty
+        }
+        let filters = LocalPodcastEpisodeFilter.allCases
+        let orderButton = TVPillButton(title: orderTitle(settings.order), systemImage: "arrow.up.arrow.down") {
+            let next = orders[((orders.firstIndex(of: settings.order) ?? 0) + 1) % orders.count]
+            LocalPodcastShowSettingsStore.shared.update(bookID) { $0.order = next }
+        }
+        let filterButton = TVPillButton(title: filterTitle(settings.filter), systemImage: "line.3.horizontal.decrease") {
+            let next = filters[((filters.firstIndex(of: settings.filter) ?? 0) + 1) % filters.count]
+            LocalPodcastShowSettingsStore.shared.update(bookID) { $0.filter = next }
+        }
+        // 左栏只有 440 宽:两颗并排放不下的语言里上下排。
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 16) { orderButton; filterButton }
+            VStack(alignment: .leading, spacing: 16) { orderButton; filterButton }
+        }
+    }
+
+    private func orderTitle(_ order: LocalPodcastEpisodeOrder) -> String {
+        switch order {
+        case .newestFirst: String(localized: "podcast_order_newest")
+        case .oldestFirst: String(localized: "podcast_order_oldest")
+        case .fileOrder: String(localized: "podcast_order_file")
+        case .custom: String(localized: "podcast_order_custom")
+        }
+    }
+
+    private func filterTitle(_ filter: LocalPodcastEpisodeFilter) -> String {
+        switch filter {
+        case .all: String(localized: "podcast_filter_all")
+        case .unplayed: String(localized: "podcast_filter_unplayed")
+        case .played: String(localized: "podcast_played")
+        }
     }
 
     private func play(_ book: SpokenWordBook, from itemID: String?) {
-        guard store.playSpokenWordBook(songIDs: book.items.map(\.id), startingAt: itemID) else { return }
+        let songIDs: [String]
+        let startID: String?
+        if isLocalPodcast {
+            // 本地节目按它自己的排法:从这一集起,播完接着放还没听完的。
+            let ordered = LocalPodcastEpisodeListPolicy.ordered(book.items, settings: podcastSettings)
+            guard let first = itemID ?? LocalPodcastEpisodeListPolicy.startItemID(
+                in: ordered, resumeItemID: book.resumeItemID, canContinue: book.canContinue
+            ) else { return }
+            songIDs = LocalPodcastEpisodeListPolicy
+                .continuation(from: first, in: ordered, order: podcastSettings.order)
+                .map(\.id)
+            startID = first
+        } else {
+            songIDs = book.items.map(\.id)
+            startID = itemID
+        }
+        guard store.playSpokenWordBook(songIDs: songIDs, startingAt: startID) else { return }
         openPlayer()
         dismiss()
     }

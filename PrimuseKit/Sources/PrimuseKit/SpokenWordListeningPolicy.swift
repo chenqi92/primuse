@@ -163,6 +163,9 @@ public struct SpokenWordBookItem: Hashable, Sendable {
     public var positionUpdatedAt: Date?
     /// When the item was listened to the end, if it was.
     public var finishedAt: Date?
+    /// When the file came into the library, as far as can be told. What a
+    /// local podcast's episodes are dated and sorted by; books ignore it.
+    public var addedAt: Date?
 
     public init(
         id: String,
@@ -177,7 +180,8 @@ public struct SpokenWordBookItem: Hashable, Sendable {
         sourceID: String = "",
         position: TimeInterval? = nil,
         positionUpdatedAt: Date? = nil,
-        finishedAt: Date? = nil
+        finishedAt: Date? = nil,
+        addedAt: Date? = nil
     ) {
         self.id = id
         self.title = title
@@ -192,6 +196,7 @@ public struct SpokenWordBookItem: Hashable, Sendable {
         self.position = position
         self.positionUpdatedAt = positionUpdatedAt
         self.finishedAt = finishedAt
+        self.addedAt = addedAt
     }
 
     public var isFinished: Bool { finishedAt != nil }

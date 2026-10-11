@@ -1740,7 +1740,8 @@ extension CarPlaySceneDelegate {
         _ book: SpokenWordBook,
         songs: [Song],
         isCurrent: Bool,
-        loadsArtwork: Bool
+        loadsArtwork: Bool,
+        isLocalPodcast: Bool = false
     ) -> CPListItem {
         var details: [String] = []
         if book.isInProgress, let remaining = book.remainingDuration, remaining > 0 {
@@ -1768,7 +1769,15 @@ extension CarPlaySceneDelegate {
         if loadsArtwork, let cover = songs.first { loadArtwork(for: cover, into: item) }
         item.handler = { [weak self] _, completion in
             Task { @MainActor in
-                if let index = SpokenWordBookSupport.prepareStart(of: book, songs: songs, from: nil) {
+                if isLocalPodcast {
+                    // 本地节目照手机上为这档节目选的排法:从该听的那集起,接着放没听完的。
+                    let queue = LocalPodcastPlayback.queue(
+                        for: book,
+                        songs: songs,
+                        settings: LocalPodcastShowSettingsStore.shared.settings(for: book.id)
+                    )
+                    if !queue.isEmpty { self?.play(queue: queue, startAt: 0) }
+                } else if let index = SpokenWordBookSupport.prepareStart(of: book, songs: songs, from: nil) {
                     self?.play(queue: songs, startAt: index)
                 }
                 completion()
@@ -1842,7 +1851,8 @@ extension CarPlaySceneDelegate {
                     book,
                     songs: book.items.compactMap { songsByID[$0.id] },
                     isCurrent: book.id == currentBookID,
-                    loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: artworkIndex)
+                    loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: artworkIndex),
+                    isLocalPodcast: true
                 )
             }
             budget -= items.count

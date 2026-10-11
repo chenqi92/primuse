@@ -5192,6 +5192,13 @@
 "podcast_order_auto_serial" = "अपने-आप (पुराने पहले)";
 "podcast_order_newest" = "नए पहले";
 "podcast_order_oldest" = "पुराने पहले";
+"podcast_order_file" = "फ़ाइल क्रम";
+"podcast_order_custom" = "कस्टम क्रम";
+"podcast_reorder_episodes" = "एपिसोड का क्रम बदलें…";
+"podcast_reorder_hint" = "क्रम बदलने के लिए खींचें। नए एपिसोड सबसे ऊपर दिखेंगे।";
+"podcast_mark_all_unplayed" = "सबको बिना सुना चिह्नित करें";
+"podcast_local_unplayed_count %lld" = "%lld बिना सुने";
+"podcast_local_all_played" = "सभी सुने गए";
 "podcast_play" = "चलाएँ";
 "podcast_play_from_start" = "पहले एपिसोड से शुरू करें";
 "podcast_play_latest" = "नवीनतम चलाएँ";

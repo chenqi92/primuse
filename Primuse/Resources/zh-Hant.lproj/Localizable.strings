@@ -5263,6 +5263,13 @@
 "podcast_order_auto_serial" = "自動（從第一集開始）";
 "podcast_order_newest" = "最新在前";
 "podcast_order_oldest" = "最早在前";
+"podcast_order_file" = "按檔案順序";
+"podcast_order_custom" = "自訂順序";
+"podcast_reorder_episodes" = "調整單集順序…";
+"podcast_reorder_hint" = "拖動單集調整順序，新加入的單集排在最上面";
+"podcast_mark_all_unplayed" = "全部標為未播放";
+"podcast_local_unplayed_count %lld" = "%lld 集未播放";
+"podcast_local_all_played" = "已全部播放";
 "podcast_play" = "播放";
 "podcast_play_from_start" = "從第一集開始";
 "podcast_play_latest" = "播放最新一集";

@@ -5192,6 +5192,13 @@
 "podcast_order_auto_serial" = "Автоматично (спершу старі)";
 "podcast_order_newest" = "Спершу нові";
 "podcast_order_oldest" = "Спершу старі";
+"podcast_order_file" = "За порядком файлів";
+"podcast_order_custom" = "Власний порядок";
+"podcast_reorder_episodes" = "Змінити порядок випусків…";
+"podcast_reorder_hint" = "Перетягуйте, щоб змінити порядок. Нові випуски з’являться вгорі.";
+"podcast_mark_all_unplayed" = "Позначити всі як непрослухані";
+"podcast_local_unplayed_count %lld" = "Непрослуханих: %lld";
+"podcast_local_all_played" = "Усі прослухані";
 "podcast_play" = "Слухати";
 "podcast_play_from_start" = "З першого випуску";
 "podcast_play_latest" = "Слухати новий";

@@ -5192,6 +5192,13 @@
 "podcast_order_auto_serial" = "تلقائي (الأقدم أولًا)";
 "podcast_order_newest" = "الأحدث أولًا";
 "podcast_order_oldest" = "الأقدم أولًا";
+"podcast_order_file" = "ترتيب الملفات";
+"podcast_order_custom" = "ترتيب مخصص";
+"podcast_reorder_episodes" = "إعادة ترتيب الحلقات…";
+"podcast_reorder_hint" = "اسحب لإعادة الترتيب. تظهر الحلقات الجديدة في الأعلى.";
+"podcast_mark_all_unplayed" = "تمييز الكل كغير مستمع إليه";
+"podcast_local_unplayed_count %lld" = "%lld غير مستمع إليها";
+"podcast_local_all_played" = "تم الاستماع إلى الكل";
 "podcast_play" = "تشغيل";
 "podcast_play_from_start" = "البدء من الحلقة 1";
 "podcast_play_latest" = "تشغيل الأحدث";

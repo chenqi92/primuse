@@ -5192,6 +5192,13 @@
 "podcast_order_auto_serial" = "อัตโนมัติ (เก่าสุดก่อน)";
 "podcast_order_newest" = "ใหม่สุดก่อน";
 "podcast_order_oldest" = "เก่าสุดก่อน";
+"podcast_order_file" = "ตามลำดับไฟล์";
+"podcast_order_custom" = "ลำดับที่กำหนดเอง";
+"podcast_reorder_episodes" = "จัดลำดับตอนใหม่…";
+"podcast_reorder_hint" = "ลากเพื่อจัดลำดับใหม่ ตอนใหม่จะแสดงที่ด้านบนสุด";
+"podcast_mark_all_unplayed" = "ทำเครื่องหมายว่ายังไม่ได้ฟังทั้งหมด";
+"podcast_local_unplayed_count %lld" = "ยังไม่ได้ฟัง %lld ตอน";
+"podcast_local_all_played" = "ฟังครบแล้ว";
 "podcast_play" = "เล่น";
 "podcast_play_from_start" = "เริ่มจากตอนที่ 1";
 "podcast_play_latest" = "เล่นตอนล่าสุด";

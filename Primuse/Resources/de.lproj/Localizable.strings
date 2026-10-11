@@ -5286,6 +5286,13 @@
 "podcast_order_auto_serial" = "Automatisch (älteste zuerst)";
 "podcast_order_newest" = "Neueste zuerst";
 "podcast_order_oldest" = "Älteste zuerst";
+"podcast_order_file" = "Dateireihenfolge";
+"podcast_order_custom" = "Eigene Reihenfolge";
+"podcast_reorder_episodes" = "Folgen neu anordnen …";
+"podcast_reorder_hint" = "Zum Umsortieren ziehen. Neue Folgen erscheinen oben.";
+"podcast_mark_all_unplayed" = "Alle als ungehört markieren";
+"podcast_local_unplayed_count %lld" = "%lld ungehört";
+"podcast_local_all_played" = "Alle gehört";
 "podcast_play" = "Abspielen";
 "podcast_play_from_start" = "Ab Folge 1 hören";
 "podcast_play_latest" = "Neueste abspielen";

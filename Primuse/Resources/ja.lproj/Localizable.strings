@@ -5287,6 +5287,13 @@
 "podcast_order_auto_serial" = "自動（古い順）";
 "podcast_order_newest" = "新しい順";
 "podcast_order_oldest" = "古い順";
+"podcast_order_file" = "ファイル順";
+"podcast_order_custom" = "カスタム順";
+"podcast_reorder_episodes" = "エピソードを並べ替え…";
+"podcast_reorder_hint" = "ドラッグで並べ替え。新しいエピソードは一番上に表示されます";
+"podcast_mark_all_unplayed" = "すべて未再生にする";
+"podcast_local_unplayed_count %lld" = "未再生 %lld";
+"podcast_local_all_played" = "すべて再生済み";
 "podcast_play" = "再生";
 "podcast_play_from_start" = "第1話から再生";
 "podcast_play_latest" = "最新話を再生";

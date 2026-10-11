@@ -5286,6 +5286,13 @@
 "podcast_order_auto_serial" = "자동(오래된 순)";
 "podcast_order_newest" = "최신순";
 "podcast_order_oldest" = "오래된 순";
+"podcast_order_file" = "파일 순서";
+"podcast_order_custom" = "사용자 지정 순서";
+"podcast_reorder_episodes" = "에피소드 순서 변경…";
+"podcast_reorder_hint" = "드래그해서 순서를 바꾸세요. 새 에피소드는 맨 위에 표시됩니다";
+"podcast_mark_all_unplayed" = "모두 재생 안 한 것으로 표시";
+"podcast_local_unplayed_count %lld" = "재생 안 함 %lld개";
+"podcast_local_all_played" = "모두 재생함";
 "podcast_play" = "재생";
 "podcast_play_from_start" = "1화부터 재생";
 "podcast_play_latest" = "최신화 재생";

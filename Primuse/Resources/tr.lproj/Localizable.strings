@@ -5192,6 +5192,13 @@
 "podcast_order_auto_serial" = "Otomatik (en eski önce)";
 "podcast_order_newest" = "En yeni önce";
 "podcast_order_oldest" = "En eski önce";
+"podcast_order_file" = "Dosya sırası";
+"podcast_order_custom" = "Özel sıra";
+"podcast_reorder_episodes" = "Bölümleri yeniden sırala…";
+"podcast_reorder_hint" = "Sıralamak için sürükleyin. Yeni bölümler en üstte görünür.";
+"podcast_mark_all_unplayed" = "Tümünü dinlenmedi olarak işaretle";
+"podcast_local_unplayed_count %lld" = "%lld dinlenmemiş";
+"podcast_local_all_played" = "Tümü dinlendi";
 "podcast_play" = "Çal";
 "podcast_play_from_start" = "1. bölümden başla";
 "podcast_play_latest" = "En yeniyi çal";

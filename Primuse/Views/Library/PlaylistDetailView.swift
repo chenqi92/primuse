@@ -1963,9 +1963,13 @@ struct PlaylistDetailView: View {
 /// 传出去, parent 调 library.replacePlaylistSongs 写回 + sync。Apple Music 镜像
 /// 歌单不进这里 (PlaylistDetailView 已经 disable 重排入口)。
 struct PlaylistReorderSheet: View {
-    let playlist: Playlist
+    /// 歌单名;本地播客节目调单集顺序时是节目名。
+    let name: String
     let initialSongs: [Song]
     let onDone: ([Song]) -> Void
+    /// Mac 头部名字后面的数量:「12 首」「12 集」。
+    private let countLabel: String
+    private let hintKey: String.LocalizationValue
 
     @Environment(\.dismiss) private var dismiss
     @Environment(MusicLibrary.self) private var library
@@ -1976,7 +1980,25 @@ struct PlaylistReorderSheet: View {
     @State private var localSongs: [Song]
 
     init(playlist: Playlist, songs: [Song], onDone: @escaping ([Song]) -> Void) {
-        self.playlist = playlist
+        self.init(
+            name: playlist.name,
+            countLabel: "\(songs.count) \(String(localized: "songs_count"))",
+            hintKey: "playlist_reorder_hint",
+            songs: songs,
+            onDone: onDone
+        )
+    }
+
+    init(
+        name: String,
+        countLabel: String,
+        hintKey: String.LocalizationValue,
+        songs: [Song],
+        onDone: @escaping ([Song]) -> Void
+    ) {
+        self.name = name
+        self.countLabel = countLabel
+        self.hintKey = hintKey
         self.initialSongs = songs
         self._localSongs = State(initialValue: songs)
         self.onDone = onDone
@@ -2019,7 +2041,7 @@ struct PlaylistReorderSheet: View {
             #if os(iOS)
             .environment(\.editMode, .constant(.active))
             #endif
-            .navigationTitle(playlist.name)
+            .navigationTitle(name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 #if os(iOS)
@@ -2074,7 +2096,7 @@ struct PlaylistReorderSheet: View {
                     Text("playlist_reorder_title")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(PMColor.text)
-                    Text("\(playlist.name) · \(localSongs.count) \(String(localized: "songs_count"))")
+                    Text(verbatim: "\(name) · \(countLabel)")
                         .font(.system(size: 12.5))
                         .foregroundStyle(PMColor.textMuted)
                         .lineLimit(1)
@@ -2120,7 +2142,7 @@ struct PlaylistReorderSheet: View {
             HStack {
                 Text(hasChanges
                     ? String(localized: "playlist_reorder_changed")
-                    : String(localized: "playlist_reorder_hint"))
+                    : String(localized: hintKey))
                     .font(.system(size: 11.5))
                     .foregroundStyle(hasChanges ? PMColor.brand : PMColor.textFaint)
                 Spacer()

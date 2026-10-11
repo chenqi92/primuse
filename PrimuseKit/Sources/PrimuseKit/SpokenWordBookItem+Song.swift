@@ -26,7 +26,19 @@ extension SpokenWordBookItem {
             sourceID: song.sourceID,
             position: position,
             positionUpdatedAt: positionUpdatedAt,
-            finishedAt: finishedAt
+            finishedAt: finishedAt,
+            addedAt: Self.addedDate(dateAdded: song.dateAdded, fileModified: song.lastModified)
         )
+    }
+
+    /// When a file came into the library: the earlier of its own modification
+    /// time and when the library first saw it. A folder scanned in one go
+    /// gets near-identical library dates, and only the files' own dates tell
+    /// its episodes apart; a file whose tags were edited later gets a newer
+    /// modification time, and taking the earlier date keeps it in its place.
+    /// A modification time before 2000 is a server that did not report one.
+    static func addedDate(dateAdded: Date, fileModified: Date?) -> Date {
+        guard let fileModified, fileModified.timeIntervalSince1970 >= 946_684_800 else { return dateAdded }
+        return min(dateAdded, fileModified)
     }
 }

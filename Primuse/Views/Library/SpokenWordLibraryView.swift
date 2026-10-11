@@ -1075,7 +1075,10 @@ struct SpokenWordBookDetailView: View {
 
     private func detailContent(_ snapshot: SpokenWordLibrarySnapshot) -> some View {
         Group {
-            if let entry = snapshot.entriesByID[bookID] {
+            if collection == .localPodcasts, let entry = snapshot.entriesByID[bookID] {
+                // 本地节目按播客的样子排:日期、播放状态、筛选与排序。
+                LocalPodcastShowDetailView(entry: entry, onMacInlineBack: onMacInlineBack)
+            } else if let entry = snapshot.entriesByID[bookID] {
                 let book = entry.book
                 let songs = entry.songs
                 SpokenWordChapterList(items: book.items) {
@@ -1873,8 +1876,8 @@ struct SpokenWordChapterItemRow: View {
 
 /// A book's own speed on its page. "Default" follows the global spoken-word
 /// speed; any other choice is remembered for this book only and applies at
-/// once if it is playing.
-private struct SpokenWordBookSpeedMenu: View {
+/// once if it is playing. The local podcast page uses it per show.
+struct SpokenWordBookSpeedMenu: View {
     let bookID: String
 
     @Environment(AudioPlayerService.self) private var player
