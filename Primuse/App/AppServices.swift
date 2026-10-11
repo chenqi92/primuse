@@ -707,8 +707,9 @@ final class ServerCatalogAutoRefreshCoordinator {
                     : .postponed
             }
         } catch {
-            if let sourceError = error as? SourceError,
-               case .authenticationFailed = sourceError {
+            // 密码错、要验证码、账号被停这类都得用户去重新登录, 每分钟再试只会
+            // 刷一屏同样的错误; 报一次, 一刻钟后再看。
+            if Self.requiresReauthentication(error) {
                 SourceAuthAlert.report(
                     sourceID: source.id,
                     message: error.localizedDescription
@@ -724,6 +725,13 @@ final class ServerCatalogAutoRefreshCoordinator {
             scheduleRetry(sourceID: source.id, retryCount: retryCount)
             return .failed
         }
+    }
+
+    /// 只有用户重新登录才能解决的失败: `SourceError.authenticationFailed`, 以及各家
+    /// 服务端自己的认证类错误(群晖的两步验证、密码过期、账号停用等)。
+    static func requiresReauthentication(_ error: Error) -> Bool {
+        if let sourceError = error as? SourceError, case .authenticationFailed = sourceError { return true }
+        return AutomaticOfflineFailureClassifier.classify(error) == .authentication
     }
 
     func automaticWorkIsAllowed() -> Bool {
