@@ -8,7 +8,11 @@ actor LRCLIBScraper: MusicScraper {
     private var lastRequestTime: ContinuousClock.Instant?
     private let minInterval: Duration = .milliseconds(200)
 
-    init() {
+    init(session: URLSession? = nil) {
+        if let session {
+            self.session = session
+            return
+        }
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 10
         config.httpAdditionalHeaders = ["User-Agent": "Primuse/1.0 (iOS Music Player)"]
