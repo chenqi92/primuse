@@ -268,6 +268,28 @@ struct LibraryFolderIndexTests {
         ) == ["track-1", "track-10", "cd2-1"])
     }
 
+    @Test("A book's range folders sort by their numbers and its chapters read as on the shelf")
+    func bookFoldersSortNaturallyAndChaptersFollowShelf() throws {
+        let source = LibraryFolderSourceDescriptor(sourceID: "nas", displayName: "NAS", scanRoots: ["/"], pathSemantics: .hierarchical, pathEncoding: .native)
+        var late = testSong(id: "late", title: "怒海潜沙", path: "/书/1-50/02 怒海潜沙.mp3", sourceID: "nas")
+        late.trackNumber = 1
+        var early = testSong(id: "early", title: "七星鲁王宫", path: "/书/1-50/01 七星鲁王宫.mp3", sourceID: "nas")
+        early.trackNumber = 1
+        let songs = [
+            late, early,
+            testSong(id: "r101", title: "第101集", path: "/书/101-150/01 第101集.mp3", sourceID: "nas"),
+            testSong(id: "r51", title: "第51集", path: "/书/51-100/01 第51集.mp3", sourceID: "nas"),
+        ]
+        let index = LibraryFolderIndexBuilder.build(sources: [source], songs: songs, spokenWordSongIDs: Set(songs.map(\.id)))
+        let sourceNode = try #require(index.sourceNode(for: "nas"))
+        let root = try #require(LibraryFolderBrowsePolicy.collapsedScanRoot(in: index, for: sourceNode.id))
+        let book = try #require(index.children(of: root.id).first)
+        #expect(index.children(of: book.id).map(\.displayName) == ["1-50", "51-100", "101-150"])
+        let first = try #require(index.children(of: book.id).first)
+        // Two chapters share track 1: the shelf orders them by file name, so the folder does too.
+        #expect(index.directSongIDs(in: first.id) == ["early", "late"])
+    }
+
     @Test("Flattened source pages keep real folders and unresolved songs accessible")
     func projectsSingleRootWithoutChangingMembership() throws {
         let source = LibraryFolderSourceDescriptor(sourceID: "local", displayName: "Music", scanRoots: ["/"], pathSemantics: .hierarchical, pathEncoding: .native)

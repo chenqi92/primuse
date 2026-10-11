@@ -181,6 +181,36 @@ struct AlbumTrackOrderTests {
             == AlbumTrackOrder.sorted(unnumbered).map(\.id))
     }
 
+    @Test("A folder of audiobook chapters reads in the order the shelf gives the book")
+    func spokenWordFolderFollowsShelfOrder() {
+        let book = "/有声书/盗墓笔记/"
+        // A chapter named without a number keeps the folder on its tags, which
+        // leave two chapters sharing track 1 and count "00" as a track: the
+        // shelf breaks the tie by file name and puts track 0 first, where track
+        // order went by title and read "00" as no track at all.
+        let songs = [
+            song("b", disc: nil, track: 1, title: "怒海潜沙", path: book + "02 怒海潜沙.mp3"),
+            song("a", disc: nil, track: 1, title: "七星鲁王宫", path: book + "01 七星鲁王宫.mp3"),
+            song("intro", disc: nil, track: nil, title: "楔子", path: book + "楔子.mp3"),
+            song("c", disc: nil, track: 0, title: "片花", path: book + "00 片花.mp3"),
+        ]
+        let chapters = Set(songs.map(\.id))
+        let shelf = SpokenWordBookGrouping.books(from: songs.map { SpokenWordBookItem(song: $0) }, catalogSourceIDs: [])
+        let expected = shelf.flatMap { $0.items.map(\.id) }
+        #expect(expected.count == songs.count)
+        #expect(expected.first == "c")
+        #expect(LibraryFolderTrackOrder.sorted(songs, catalogSourceIDs: [], spokenWordSongIDs: chapters).map(\.id) == expected)
+        #expect(LibraryFolderTrackOrder.sortedIDs(
+            at: [3, 2, 1, 0], in: songs, catalogSourceIDs: [], spokenWordSongIDs: chapters
+        ) == expected)
+        #expect(LibraryFolderBrowsePolicy.sortedSongs(songs, spokenWordSongIDs: chapters).map(\.id) == expected)
+        // Track order alone disagreed with the shelf: that was the mismatch between the two pages.
+        #expect(LibraryFolderTrackOrder.sorted(songs, catalogSourceIDs: []).map(\.id) != expected)
+        // A folder with a music file among the chapters keeps track order.
+        #expect(LibraryFolderTrackOrder.sorted(songs, catalogSourceIDs: [], spokenWordSongIDs: ["a", "b", "c"]).map(\.id)
+            == LibraryFolderTrackOrder.sorted(songs, catalogSourceIDs: []).map(\.id))
+    }
+
     @Test("Ordering a folder by offsets gives the same IDs as ordering its songs")
     func sortedIDsMatchSortedSongs() {
         let titles = ["b", "A", "a", "c", "10 x", "2 x"]

@@ -886,7 +886,8 @@ public final class LibraryFolderIndex: Sendable {
     public func replacingSource(
         _ source: LibraryFolderSourceDescriptor,
         songs: [Song],
-        virtualCollections: [LibraryFolderVirtualCollectionDescriptor] = []
+        virtualCollections: [LibraryFolderVirtualCollectionDescriptor] = [],
+        spokenWordSongIDs: Set<String> = []
     ) -> LibraryFolderIndex {
         var updatedPartitions = partitions
         var updatedOrder = sourceOrder
@@ -896,7 +897,8 @@ public final class LibraryFolderIndex: Sendable {
                 source: source,
                 songs: songs,
                 songOffsets: songs.indices,
-                virtualCollections: virtualCollections.filter { $0.sourceID == source.sourceID }
+                virtualCollections: virtualCollections.filter { $0.sourceID == source.sourceID },
+                spokenWordSongIDs: spokenWordSongIDs
             )
             if !updatedOrder.contains(source.sourceID) {
                 updatedOrder.append(source.sourceID)
@@ -927,15 +929,18 @@ public final class LibraryFolderIndex: Sendable {
 /// source wrapper, while playback uses only the songs directly visible in the
 /// current folder and folder actions include every descendant.
 public enum LibraryFolderBrowsePolicy {
-    public static func sortedSongs(_ songs: [Song]) -> [Song] {
-        LibraryFolderTrackOrder.sorted(songs)
+    /// `spokenWordSongIDs` lets a folder of audiobook chapters read as on the shelf.
+    public static func sortedSongs(_ songs: [Song], spokenWordSongIDs: Set<String> = []) -> [Song] {
+        LibraryFolderTrackOrder.sorted(songs, spokenWordSongIDs: spokenWordSongIDs)
     }
 
     /// The same songs in the order the user picked for the 「目录」 pages.
-    public static func sortedSongs(_ songs: [Song], order: HomeFolderSongOrder) -> [Song] {
+    public static func sortedSongs(
+        _ songs: [Song], order: HomeFolderSongOrder, spokenWordSongIDs: Set<String> = []
+    ) -> [Song] {
         switch order {
         case .trackOrder:
-            return sortedSongs(songs)
+            return sortedSongs(songs, spokenWordSongIDs: spokenWordSongIDs)
         case .sorted(let listOrder):
             return SongListSnapshot.sortedSongs(songs, order: listOrder)
         }
@@ -1027,10 +1032,13 @@ public enum LibraryFolderBrowsePolicy {
 }
 
 public enum LibraryFolderIndexBuilder {
+    /// `spokenWordSongIDs`: the library's audiobook chapters, whose folders
+    /// then read in the shelf's chapter order rather than album track order.
     public static func build(
         sources: [LibraryFolderSourceDescriptor],
         songs: [Song],
-        virtualCollections: [LibraryFolderVirtualCollectionDescriptor] = []
+        virtualCollections: [LibraryFolderVirtualCollectionDescriptor] = [],
+        spokenWordSongIDs: Set<String> = []
     ) -> LibraryFolderIndex {
         var sourceOrder: [String] = []
         var descriptorByID: [String: LibraryFolderSourceDescriptor] = [:]
@@ -1060,7 +1068,8 @@ public enum LibraryFolderIndexBuilder {
                 source: source,
                 songs: songs,
                 songOffsets: songOffsetsBySource[sourceID] ?? [],
-                virtualCollections: virtualCollectionsBySource[sourceID] ?? []
+                virtualCollections: virtualCollectionsBySource[sourceID] ?? [],
+                spokenWordSongIDs: spokenWordSongIDs
             )
         }
 
@@ -1071,7 +1080,8 @@ public enum LibraryFolderIndexBuilder {
         source: LibraryFolderSourceDescriptor,
         songs: [Song],
         songOffsets: Offsets,
-        virtualCollections: [LibraryFolderVirtualCollectionDescriptor] = []
+        virtualCollections: [LibraryFolderVirtualCollectionDescriptor] = [],
+        spokenWordSongIDs: Set<String> = []
     ) -> LibraryFolderSourcePartition where Offsets.Element == Int {
         let sourceNodeID = LibraryFolderNodeID(
             sourceID: source.sourceID,
@@ -1262,7 +1272,8 @@ public enum LibraryFolderIndexBuilder {
                 accumulator.directSongIDs = LibraryFolderTrackOrder.sortedIDs(
                     at: accumulator.directSongOffsets,
                     in: songs,
-                    catalogSourceIDs: catalogSourceIDs
+                    catalogSourceIDs: catalogSourceIDs,
+                    spokenWordSongIDs: spokenWordSongIDs
                 )
             }
         } else {
@@ -1330,7 +1341,12 @@ public enum LibraryFolderIndexBuilder {
                 let rhsName = accumulators[rhs]?.displayName ?? ""
                 let lhsKey = NormalizedLibraryFolderPath.identityComponent(lhsName)
                 let rhsKey = NormalizedLibraryFolderPath.identityComponent(rhsName)
-                if lhsKey != rhsKey { return lhsKey < rhsKey }
+                if lhsKey != rhsKey {
+                    // "1-50" before "51-100" before "101-150": numbers compare as numbers.
+                    let byNumber = lhsKey.localizedStandardCompare(rhsKey)
+                    if byNumber != .orderedSame { return byNumber == .orderedAscending }
+                    return lhsKey < rhsKey
+                }
                 if lhs.kind != rhs.kind { return lhs.kind.rawValue < rhs.kind.rawValue }
                 return lhs.normalizedRelativePath < rhs.normalizedRelativePath
             }
@@ -1483,7 +1499,8 @@ public actor LibraryFolderIndexStore {
         version: LibraryFolderIndexVersion,
         sources: [LibraryFolderSourceDescriptor],
         songs: [Song],
-        virtualCollections: [LibraryFolderVirtualCollectionDescriptor] = []
+        virtualCollections: [LibraryFolderVirtualCollectionDescriptor] = [],
+        spokenWordSongIDs: Set<String> = []
     ) async -> LibraryFolderIndex {
         if cachedVersion == version, let cachedIndex {
             return cachedIndex
@@ -1498,7 +1515,8 @@ public actor LibraryFolderIndexStore {
             LibraryFolderIndexBuilder.build(
                 sources: sources,
                 songs: songs,
-                virtualCollections: virtualCollections
+                virtualCollections: virtualCollections,
+                spokenWordSongIDs: spokenWordSongIDs
             )
         }
         pending = Pending(version: version, token: token, task: task)

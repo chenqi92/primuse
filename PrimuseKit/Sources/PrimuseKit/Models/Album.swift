@@ -138,8 +138,13 @@ public enum AlbumTrackOrder {
 public enum LibraryFolderTrackOrder {
     public static func sorted(
         _ songs: [Song],
-        catalogSourceIDs: Set<String> = SpokenWordBookSourcePaths.catalogSourceIDs
+        catalogSourceIDs: Set<String> = SpokenWordBookSourcePaths.catalogSourceIDs,
+        spokenWordSongIDs: Set<String> = []
     ) -> [Song] {
+        if let shelf = shelfOrderedIDs(songs, catalogSourceIDs: catalogSourceIDs, spokenWordSongIDs: spokenWordSongIDs) {
+            let byID = Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            return shelf.compactMap { byID[$0] }
+        }
         guard let paths = pathsIfNamed(songs, catalogSourceIDs: catalogSourceIDs) else {
             return AlbumTrackOrder.sorted(songs)
         }
@@ -152,14 +157,41 @@ public enum LibraryFolderTrackOrder {
     public static func sortedIDs(
         at offsets: [Int],
         in songs: [Song],
-        catalogSourceIDs: Set<String> = SpokenWordBookSourcePaths.catalogSourceIDs
+        catalogSourceIDs: Set<String> = SpokenWordBookSourcePaths.catalogSourceIDs,
+        spokenWordSongIDs: Set<String> = []
     ) -> [String] {
+        if let shelf = shelfOrderedIDs(offsets.lazy.map { songs[$0] }, catalogSourceIDs: catalogSourceIDs,
+                                       spokenWordSongIDs: spokenWordSongIDs) {
+            return shelf
+        }
         guard let paths = pathsIfNamed(offsets.lazy.map { songs[$0] }, catalogSourceIDs: catalogSourceIDs) else {
             return AlbumTrackOrder.sortedIDs(at: offsets, in: songs)
         }
         return offsets.indices.sorted { lhs, rhs in
             isOrderedByPath(songs[offsets[lhs]], paths[lhs], before: songs[offsets[rhs]], paths[rhs])
         }.map { songs[offsets[$0]].id }
+    }
+
+    /// A folder of spoken-word items in the order the audiobook shelf gives
+    /// them, so a book reads the same in its folder and on the shelf: the
+    /// grouping's own chapter order, which places by range folder, disc and
+    /// track, counts track 0, and breaks ties by file name rather than title.
+    /// Nil when the folder holds anything else; music keeps the track order.
+    static func shelfOrderedIDs<Songs: Collection>(
+        _ songs: Songs,
+        catalogSourceIDs: Set<String>,
+        spokenWordSongIDs: Set<String>
+    ) -> [String]? where Songs.Element == Song {
+        guard songs.count > 1, !spokenWordSongIDs.isEmpty,
+              songs.allSatisfy({ spokenWordSongIDs.contains($0.id) }) else { return nil }
+        let books = SpokenWordBookGrouping.books(
+            from: songs.map { SpokenWordBookItem(song: $0) }, catalogSourceIDs: catalogSourceIDs
+        )
+        var ordered = books.flatMap { $0.items.map(\.id) }
+        let placed = Set(ordered)
+        // Whatever the grouping left out follows in track order.
+        ordered += AlbumTrackOrder.sorted(songs.filter { !placed.contains($0.id) }).map(\.id)
+        return ordered
     }
 
     /// Each song's path when the names order the folder rather than the

@@ -456,8 +456,9 @@ extension TVStore {
     func makeFolderIndex() async -> LibraryFolderIndex {
         let sources = sourcesStore.allSources.map { LibraryFolderSourceDescriptor(source: $0) }
         let visible = songIDs.compactMap { library.song(id: $0) }
+        let spokenWordSongIDs = library.spokenWordSongIDs
         return await Task.detached(priority: .userInitiated) {
-            LibraryFolderIndexBuilder.build(sources: sources, songs: visible)
+            LibraryFolderIndexBuilder.build(sources: sources, songs: visible, spokenWordSongIDs: spokenWordSongIDs)
         }.value
     }
 }

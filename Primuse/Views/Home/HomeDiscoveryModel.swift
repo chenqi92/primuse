@@ -123,6 +123,8 @@ final class HomeDiscoveryModel {
     }
 
     private(set) var index: LibraryFolderIndex?
+    /// The audiobook chapters the index was built with; their folders read as on the shelf.
+    private(set) var spokenWordSongIDs: Set<String> = []
     /// 首页文件夹卡片要重画：索引换了、封面换了、最近播放时间变了。
     private(set) var revision = 0
     /// 只在播放记录真的变了时加一。排行只关心这个，不该跟着元数据回填一首首重算。
@@ -163,12 +165,14 @@ final class HomeDiscoveryModel {
         covers: [LibraryFolderNodeID: [String]],
         request: Request,
         metadataToken: UUID,
-        directoryNames: [String: [String: String]]
+        directoryNames: [String: [String: String]],
+        spokenWordSongIDs: Set<String> = []
     ) {
         self.songsByID = songs
         self.folderCoverSongIDs = covers
         self.coverSongIDSet = Set(covers.values.joined())
         self.index = index
+        self.spokenWordSongIDs = spokenWordSongIDs
         homePreview = nil
         previewSourceNames = [:]
         previewChildCounts = [:]
@@ -329,7 +333,8 @@ final class HomeDiscoveryModel {
         songForID: (String) -> Song?
     ) -> [Song] {
         LibraryFolderBrowsePolicy.sortedSongs(
-            (index?.songIDs(in: id, scope: scope) ?? []).compactMap(songForID)
+            (index?.songIDs(in: id, scope: scope) ?? []).compactMap(songForID),
+            spokenWordSongIDs: spokenWordSongIDs
         )
     }
 }
@@ -438,6 +443,7 @@ struct HomeDiscoveryObserver: View {
         let metadataToken = library.songReplacementToken
         pendingMetadataIDs.removeAll()
         let songs = library.visibleSongs
+        let spokenWordSongIDs = library.spokenWordSongIDs
         let collections = library.appleMusicFolderCollections(availableSongs: songs)
         var descriptors = request.sources
         var known = Set(descriptors.map(\.sourceID))
@@ -483,7 +489,8 @@ struct HomeDiscoveryObserver: View {
                     }
                 ))
             }
-            let index = LibraryFolderIndexBuilder.build(sources: resolved, songs: songs, virtualCollections: collections)
+            let index = LibraryFolderIndexBuilder.build(sources: resolved, songs: songs, virtualCollections: collections,
+                                                        spokenWordSongIDs: spokenWordSongIDs)
             var coverSongsByID: [String: Song] = [:]
             var covers: [LibraryFolderNodeID: [String]] = [:]
             for song in songs where song.coverArtFileName != nil {
@@ -509,7 +516,8 @@ struct HomeDiscoveryObserver: View {
         let patchedMetadataToken = pendingMetadataIDs.isEmpty ? metadataToken : model.handledMetadataToken
         model.publish(
             index: result.0, songs: result.1, covers: result.2,
-            request: request, metadataToken: metadataToken, directoryNames: directoryNames
+            request: request, metadataToken: metadataToken, directoryNames: directoryNames,
+            spokenWordSongIDs: spokenWordSongIDs
         )
         for id in pendingMetadataIDs {
             if let song = library.unobservedVisibleSong(id: id) { model.updateMetadata(song: song) }
