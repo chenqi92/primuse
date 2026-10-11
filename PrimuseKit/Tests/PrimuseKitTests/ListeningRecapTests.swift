@@ -173,6 +173,24 @@ struct ListeningRecapTests {
         #expect(allTime.discoveries == nil)
     }
 
+    @Test func songsWithSeveralGenresCountTowardEach() {
+        let events = (0..<3).map {
+            Self.event("s\($0)", artist: "Artist", at: Self.date(2026, 10, 2, 22).addingTimeInterval(Double($0) * 600))
+        }
+        let traits: [String: ListeningRecapSongTraits] = [
+            "s0": .init(genre: "J-Pop; Vocaloid", year: nil),
+            "s1": .init(genre: "Vocaloid", year: nil),
+            "s2": .init(genre: "R&B/Soul", year: nil),
+        ]
+        let recap = ListeningRecapBuilder.build(
+            events: events, interval: Self.october(), previousInterval: nil,
+            traits: traits, calendar: Self.calendar, referenceYear: 2026
+        )
+        #expect(recap.genreCount == 3)
+        #expect(recap.topGenres.first?.name == "Vocaloid")
+        #expect(abs((recap.topGenres.first?.share ?? 0) - 2.0 / 4) < 0.0001)
+    }
+
     @Test func genresAndPersonalityUseLibraryTraits() throws {
         var events: [ListeningRecapEvent] = []
         var traits: [String: ListeningRecapSongTraits] = [:]

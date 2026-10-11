@@ -237,6 +237,29 @@ struct SiriMediaSearchResolverTests {
         #expect(result.queue.map(\.id) == ["rock"])
     }
 
+    @Test("Songs with several genres resolve under each one")
+    func multiGenreSongsResolveUnderEachGenre() throws {
+        var both = song(id: "both", title: "Evil Food Eater Conchita")
+        both.genre = "J-Pop; Vocaloid"
+        var jpop = song(id: "jpop", title: "Plain")
+        jpop.genre = "J-Pop"
+        var rock = song(id: "rock", title: "Guitar")
+        rock.genre = "Rock"
+
+        let selected = try #require(SiriMediaSearchResolver.resolve(
+            query: SiriMediaSearchQuery(kind: .genre),
+            resolvedItemIDs: ["genre:J-Pop"],
+            songs: [rock, both, jpop]
+        ))
+        #expect(Set(selected.queue.map(\.id)) == ["both", "jpop"])
+
+        let named = try #require(SiriMediaSearchResolver.resolve(
+            query: SiriMediaSearchQuery(kind: .genre, genreNames: ["vocaloid"]),
+            songs: [rock, both, jpop]
+        ))
+        #expect(named.queue.map(\.id) == ["both"])
+    }
+
     @Test("Named media resolution honors a selected station identifier")
     func selectedNamedMediaIdentifierWins() throws {
         let stations = [

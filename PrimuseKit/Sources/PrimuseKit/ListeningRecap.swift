@@ -291,8 +291,7 @@ public enum ListeningRecapBuilder {
         var years: [Int] = []
         for event in scoped {
             let songTraits = traits[event.songID]
-            if let genre = songTraits?.genre?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !genre.isEmpty {
+            for genre in GenreTagValues.names(in: songTraits?.genre) {
                 let key = genre.lowercased()
                 genreNames[key] = genreNames[key] ?? genre
                 genrePlays[key, default: 0] += 1

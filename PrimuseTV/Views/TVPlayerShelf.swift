@@ -82,7 +82,8 @@ struct TVPlayerShelfContext: Equatable {
         context.albumID = store.nowPlaying.albumID
         if !context.songID.isEmpty, let raw = store.library.song(id: context.songID) {
             context.artistIDs = Set(store.library.artistIDs(for: raw))
-            if let genre = raw.genre?.trimmingCharacters(in: .whitespacesAndNewlines), !genre.isEmpty {
+            if let genre = GenreTagValues.primary(in: raw.genre)?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !genre.isEmpty {
                 context.genreID = LibraryGenreIndexBuilder.normalizedID(for: genre)
             }
         }

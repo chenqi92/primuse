@@ -924,15 +924,16 @@ final class TVPlayMediaIntentHandler: NSObject,
 
     @MainActor
     private func genreItems() -> [SiriNamedMediaItem] {
+        var seenRaw = Set<String>()
         var seen = Set<String>()
-        return store.library.visibleSongs.compactMap { song in
-            guard let genre = song.genre?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !genre.isEmpty,
-                  seen.insert(genre.lowercased()).inserted else {
-                return nil
+        var items: [SiriNamedMediaItem] = []
+        for song in store.library.visibleSongs {
+            guard let raw = song.genre, seenRaw.insert(raw).inserted else { continue }
+            for genre in GenreTagValues.names(in: raw) where seen.insert(genre.lowercased()).inserted {
+                items.append(SiriNamedMediaItem(id: genre, name: genre))
             }
-            return SiriNamedMediaItem(id: genre, name: genre)
-        }.sorted {
+        }
+        return items.sorted {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
     }

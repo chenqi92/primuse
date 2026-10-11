@@ -20,6 +20,14 @@ public enum GenreTagValues {
         let names = names(in: values.joined(separator: "; "))
         return names.isEmpty ? nil : names.joined(separator: "; ")
     }
+
+    /// 只能比一个流派的地方取第一个：多值之前扫描的歌只存了这一个，两边口径一致。
+    /// 单值原样返回（不裁空白），整库逐首调用时不必拆分。
+    public static func primary(in value: String?) -> String? {
+        guard let value else { return nil }
+        guard value.utf8.contains(where: { $0 == UInt8(ascii: ";") || $0 == 0 }) else { return value }
+        return names(in: value).first
+    }
 }
 
 public struct LibraryGenre: Identifiable, Hashable, Sendable {

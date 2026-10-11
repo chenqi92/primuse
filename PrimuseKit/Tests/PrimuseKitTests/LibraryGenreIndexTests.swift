@@ -42,6 +42,16 @@ struct LibraryGenreIndexTests {
         #expect(index.genres.first { $0.id == "vocaloid" }?.representativeSongIDs == ["a", "d", "b"])
     }
 
+    @Test("Single-genre comparisons use the first of several genres")
+    func primaryGenreIsTheFirstLabel() {
+        #expect(GenreTagValues.primary(in: "J-Pop; Vocaloid") == "J-Pop")
+        #expect(GenreTagValues.primary(in: " ; Vocaloid\0J-Pop") == "Vocaloid")
+        #expect(GenreTagValues.primary(in: "R&B/Soul") == "R&B/Soul")
+        #expect(GenreTagValues.primary(in: "Rock, Live") == "Rock, Live")
+        #expect(GenreTagValues.primary(in: " ; ") == nil)
+        #expect(GenreTagValues.primary(in: nil) == nil)
+    }
+
     @Test("Equivalent labels share a category")
     func normalizesEquivalentLabels() {
         let index = LibraryGenreIndexBuilder.build(from: [

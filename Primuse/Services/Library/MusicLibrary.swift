@@ -2824,7 +2824,7 @@ enum MusicDiscoveryEngine {
                 albumTitle.append(albumTitleKey)
                 artistID.append(artistIDKey)
                 artistName.append(artistNameKey)
-                genre.append(intern(song.genre))
+                genre.append(intern(GenreTagValues.primary(in: song.genre)))
                 folder.append(internFolder(of: song.filePath))
                 source.append(internSource(song.sourceID))
                 year.append(song.year)
@@ -2924,7 +2924,7 @@ enum MusicDiscoveryEngine {
                 albumTitle: key(song.albumTitle),
                 artistID: key(song.artistID),
                 artistName: key(song.artistName),
-                genre: key(song.genre),
+                genre: key(GenreTagValues.primary(in: song.genre)),
                 folder: folderText.isEmpty ? Self.noKey : (textKeys[folderText] ?? -2),
                 source: sourceKeys[song.sourceID] ?? -2,
                 year: song.year,

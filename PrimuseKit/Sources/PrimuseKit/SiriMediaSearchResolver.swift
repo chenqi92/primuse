@@ -505,9 +505,15 @@ public enum SiriMediaSearchResolver {
                 expectedNamespace: "genre"
             )
             for value in values {
-                let selected = songs.filter {
-                    guard let genre = $0.genre else { return false }
-                    return normalized(genre) == normalized(value)
+                let target = normalized(value)
+                // 多个流派的歌按其中任一个算；整库的流派写法只有几十种，每种只拆一次。
+                var matchesByGenre: [String: Bool] = [:]
+                let selected = songs.filter { song in
+                    guard let genre = song.genre else { return false }
+                    if let known = matchesByGenre[genre] { return known }
+                    let matches = GenreTagValues.names(in: genre).contains { normalized($0) == target }
+                    matchesByGenre[genre] = matches
+                    return matches
                 }
                 if !selected.isEmpty {
                     let queue = selected.sorted(by: stableSongBefore)
@@ -610,11 +616,18 @@ public enum SiriMediaSearchResolver {
             : query.genreNames
         guard !requestedGenres.isEmpty else { return nil }
 
+        var scoreByGenre: [String: Int] = [:]
         let ranked = songs.compactMap { song -> (song: Song, score: Int)? in
             guard let genre = song.genre else { return nil }
-            let score = requestedGenres
-                .map { matchScore(requested: $0, candidate: genre) }
-                .max() ?? 0
+            let score: Int
+            if let known = scoreByGenre[genre] {
+                score = known
+            } else {
+                score = GenreTagValues.names(in: genre).flatMap { label in
+                    requestedGenres.map { matchScore(requested: $0, candidate: label) }
+                }.max() ?? 0
+                scoreByGenre[genre] = score
+            }
             return score > 0 ? (song, score) : nil
         }.sorted(by: rankedBefore)
 
