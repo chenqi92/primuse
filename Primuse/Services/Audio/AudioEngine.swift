@@ -662,6 +662,24 @@ final class AudioEngine {
             format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 2)!
         }
 
+        #if os(macOS)
+        // A new engine's main mixer reads 44.1 kHz on macOS whatever the device
+        // runs at, and once started it keeps that rate and converts on its way
+        // out. Run the effect chain at the device's rate, as
+        // `predictedGraphFormat` expects, so a song the device was switched to
+        // is not resampled down and back up.
+        let deviceRate = eng.outputNode.outputFormat(forBus: 0).sampleRate
+        if deviceRate >= DirectPCMOutputSampleRatePolicy.minimumSampleRate,
+           deviceRate <= DirectPCMOutputSampleRatePolicy.maximumSampleRate,
+           abs(deviceRate - format.sampleRate) >= 1,
+           let deviceRateFormat = format.channelLayout.map({
+               AVAudioFormat(standardFormatWithSampleRate: deviceRate, channelLayout: $0)
+           }) ?? AVAudioFormat(standardFormatWithSampleRate: deviceRate, channels: format.channelCount) {
+            format = deviceRateFormat
+            eng.connect(mainMixer, to: eng.outputNode, format: format)
+        }
+        #endif
+
         // Signal chain: playerA/B → Spatial Environment → mixer → (Karaoke) → EQ → Compressor → Reverb → TimePitch → mainMixer → output
         // TimePitch 放最后一站, 让 EQ / 压缩 / 混响 都在原速下处理,
         // visualizer 仍挂 mainMixer 拿到变速后的最终输出。
