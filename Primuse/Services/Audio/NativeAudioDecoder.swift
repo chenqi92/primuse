@@ -610,6 +610,7 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         }
 
         do {
+            Self.decodeFirstFrameBeforeFLACSeek(decoder)
             try decoder.seek(to: target)
             return PreparedDecoder(decoder: decoder, framesToDiscard: 0)
         } catch {
@@ -632,6 +633,20 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
                 framesToDiscard: target - currentPosition
             )
         }
+    }
+
+    /// SFB 0.12.1's FLAC decoder checks each decoded frame against the one
+    /// before it, and until the first frame that header is all zeros: a seek
+    /// straight after `open()` reads as a channel-count change and aborts the
+    /// decoder. Decoding one frame first gives the check a real header; the
+    /// seek then replaces what is left of that frame.
+    private static func decodeFirstFrameBeforeFLACSeek(_ decoder: any SFBAudioEngine.PCMDecoding) {
+        guard let flacClass = NSClassFromString("SFBFLACDecoder"),
+              (decoder as? NSObject)?.isKind(of: flacClass) == true,
+              decoder.position == 0,
+              let buffer = AVAudioPCMBuffer(pcmFormat: decoder.processingFormat, frameCapacity: 1) else { return }
+        // If this read fails the seek fails too and takes the usual fallback.
+        try? decoder.decode(into: buffer, length: 1)
     }
 
     private func seekTarget(

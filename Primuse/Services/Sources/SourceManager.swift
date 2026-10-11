@@ -7197,10 +7197,9 @@ final class SourceManager {
     }
 
     /// A sparse range cache is excellent for linear playback, but some
-    /// decoders (notably multi-channel FLAC) cannot seek reliably through a
-    /// custom InputSource. Materialize one complete cache file on explicit
-    /// user seek so the decoder can use true random access without decoding
-    /// and discarding minutes of PCM at 100% CPU.
+    /// decoders cannot seek through a custom InputSource. Materialize one
+    /// complete cache file on explicit user seek so the decoder can use true
+    /// random access without decoding and discarding minutes of PCM at 100% CPU.
     func materializeCachedURLForSeeking(for song: Song) async -> URL? {
         if let cached = cachedURL(for: song) { return cached }
 

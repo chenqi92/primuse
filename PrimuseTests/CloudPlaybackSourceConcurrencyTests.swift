@@ -1009,6 +1009,24 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         XCTAssertEqual(seconds, 45, accuracy: 0.5)
     }
 
+    /// SFB 0.12.1 aborted a FLAC seek made before the decoder had decoded a
+    /// frame, so every seek on the range stream was rejected and the whole
+    /// song was downloaded first. The seek must land on the stream itself.
+    func testFLACSeeksOnTheRangeStream() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let bytes = try Self.makeFLACFixture(in: directory, seconds: 30)
+        let input = CloudInputSourceObjC(
+            url: URL(string: "primuse-cloud://fixture/song.flac"),
+            totalLength: Int64(bytes.count)
+        ) { offset, length, _ in
+            guard offset >= 0, offset < bytes.count else { return Data() }
+            return bytes.subdata(in: Int(offset)..<min(Int(offset + length), bytes.count))
+        }
+        let seconds = try await Self.decodedSeconds(from: input, startingAt: 20)
+        XCTAssertEqual(seconds, 10, accuracy: 0.5)
+    }
+
     /// A prefetched seed of a file only a little longer than the head arrives
     /// as two adjacent ranges; it must play through without touching the
     /// network and become the complete cache file afterwards.
@@ -1217,10 +1235,17 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         }
     }
 
-    private static func decodedSeconds(from input: CloudInputSourceObjC) async throws -> Double {
+    private static func decodedSeconds(
+        from input: CloudInputSourceObjC,
+        startingAt startTime: TimeInterval? = nil
+    ) async throws -> Double {
         let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2))
         var frames = 0
-        for try await buffer in NativeAudioDecoder().decode(from: input, outputFormat: format) {
+        for try await buffer in NativeAudioDecoder().decode(
+            from: input,
+            outputFormat: format,
+            startingAt: startTime
+        ) {
             frames += Int(buffer.frameLength)
         }
         return Double(frames) / 44_100
@@ -1229,17 +1254,34 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
     /// AAC in M4A written by Core Audio: packet data first, `moov` at the end,
     /// a little over one playback chunk long.
     private static func makeAACFixture(in directory: URL, seconds: Double) throws -> Data {
-        let url = directory.appendingPathComponent("fixture-\(UUID().uuidString).m4a")
+        try makeToneFixture(in: directory, seconds: seconds, fileExtension: "m4a", settings: [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVEncoderBitRateKey: 256_000,
+        ])
+    }
+
+    /// FLAC written by Core Audio, which carries no seek table.
+    private static func makeFLACFixture(in directory: URL, seconds: Double) throws -> Data {
+        try makeToneFixture(in: directory, seconds: seconds, fileExtension: "flac", settings: [
+            AVFormatIDKey: kAudioFormatFLAC,
+        ])
+    }
+
+    private static func makeToneFixture(
+        in directory: URL,
+        seconds: Double,
+        fileExtension: String,
+        settings: [String: Any]
+    ) throws -> Data {
+        let url = directory.appendingPathComponent("fixture-\(UUID().uuidString).\(fileExtension)")
         let sampleRate = 44_100.0
         do {
             let file = try AVAudioFile(
                 forWriting: url,
-                settings: [
-                    AVFormatIDKey: kAudioFormatMPEG4AAC,
+                settings: settings.merging([
                     AVSampleRateKey: sampleRate,
                     AVNumberOfChannelsKey: 2,
-                    AVEncoderBitRateKey: 256_000,
-                ],
+                ]) { current, _ in current },
                 commonFormat: .pcmFormatFloat32,
                 interleaved: false
             )
