@@ -348,6 +348,7 @@
 		2F991483D3578D68154318C5 /* ScrobbleSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FC226D745AC023E7E54BF0F /* ScrobbleSettingsView.swift */; };
 		2F99FFD7B7D2D1F6EE1595A0 /* ServerCollectionFavoriteSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 535157A3C8E0F7D23DAD2B3D /* ServerCollectionFavoriteSyncService.swift */; };
 		2FE556608B4EE9CB93532EAD /* LibraryPageFind.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F0CCE40C02CDF0A976BE27 /* LibraryPageFind.swift */; };
+		F1847E4880E2B580F60FD14A /* MinimalShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42511EF288D67F5D3D29E96E /* MinimalShell.swift */; };
 		2FFBF33B610DBA25706D8E8F /* ScraperConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BF1A706ED97024BCCCCD9F8 /* ScraperConfigStore.swift */; };
 		3019EBD9771AABB8DA917F66 /* YearlyReportCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12A2BC6296FF8B06F4EA887E /* YearlyReportCards.swift */; };
 		3043FF24779407E29FC86609 /* PMPlaybackVolumeControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10CFE1EAE8AD179E6A7CF5A0 /* PMPlaybackVolumeControl.swift */; };
@@ -381,6 +382,7 @@
 		33A23E0F39BFFDDC2D2CF20D /* MusicSourceSecurityRevision.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0151590C869EF8F0A71F4937 /* MusicSourceSecurityRevision.swift */; };
 		33BFB78315BD7A0C12AA01A5 /* SubsonicCatalogPagingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE60851F0BAD299352085E5 /* SubsonicCatalogPagingPolicy.swift */; };
 		33FCC95BEA69195D0F315910 /* LibraryPageFind.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F0CCE40C02CDF0A976BE27 /* LibraryPageFind.swift */; };
+		732F5FF3155C4929F072E074 /* MinimalShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42511EF288D67F5D3D29E96E /* MinimalShell.swift */; };
 		343FCF30CA6E76B6324DC099 /* ServerPlaylistMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B60495B4617035491BA0CFA /* ServerPlaylistMirror.swift */; };
 		344615403C90BCACBA22BE87 /* ArtworkFetchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E4DEB871B6A33BFDF98131D /* ArtworkFetchService.swift */; };
 		3497E0E6DB5622420F25F413 /* FTPSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A0B5BE8B577AB5EBCBCFB9A /* FTPSource.swift */; };
@@ -697,7 +699,6 @@
 		574266CAE3D7A5B6DE1E1103 /* PlaybackState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A0BB7D64F2BBD76A56CD9C5 /* PlaybackState.swift */; };
 		57471F7170F7CE62715F932D /* ScraperSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ED64A9CEF96E0A4A91703E4 /* ScraperSettingsStore.swift */; };
 		574E4DCF2EB829BCC4E2D9F8 /* SiriMediaInteractionDonor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BCC0F5CA18E10E082FBC516 /* SiriMediaInteractionDonor.swift */; };
-		576851404B071C4DA692D32E /* MinimalNavigationCollapsePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F70693E488DF6AF172C485E2 /* MinimalNavigationCollapsePolicy.swift */; };
 		5775567CC35C0C5ECD9AA1D1 /* DuplicateDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2117016184001B6F46168B00 /* DuplicateDetector.swift */; };
 		57B10CD1215CEDDD755322AA /* UnsupportedSourceConnector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45D55D0BB606ED1969120F51 /* UnsupportedSourceConnector.swift */; };
 		57C5338AA7873C4449F1331A /* SourceErrors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45C22436A1CD2EB078E9F97A /* SourceErrors.swift */; };
@@ -1529,6 +1530,7 @@
 		CA3110CF3684D19D182462A1 /* SettingsCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FD4E0DFCC3418ECC05E35E3 /* SettingsCatalog.swift */; };
 		CAAE16A5512C4FF7A94BC11C /* AudioPlayerService+SpokenWord.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1EACDF18AD7A0236F9A6613 /* AudioPlayerService+SpokenWord.swift */; };
 		CB2392A6661A46E7045549EF /* RemoteMediaHTTPErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFA3B7E6ABB7F9FBF66FCEF2 /* RemoteMediaHTTPErrorTests.swift */; };
+		0F60D48ACA0F465AB327CE87 /* ReadOnlyMetadataWritebackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 193A9FDE80774FCD86C674E5 /* ReadOnlyMetadataWritebackTests.swift */; };
 		E0B092384C0C2A7F07C6DF68 /* LRCLIBHTTPErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65C163A6A5CD5B15DA0A6D1D /* LRCLIBHTTPErrorTests.swift */; };
 		CB4E9F3D6D435EECF77E5C86 /* AudioPlayerService+DecodedBufferHealth.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4324489CFAF380249864F70 /* AudioPlayerService+DecodedBufferHealth.swift */; };
 		CB648169CAB8C331E9F47A60 /* AudioQualityBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 057DEC08E8DF0DA7DDE5DFDA /* AudioQualityBadge.swift */; };
@@ -1812,6 +1814,7 @@
 		F64E2EB8C928B04D298C60F9 /* RadioPlaylistDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69CD8CB3BFFBE2915C634E3E /* RadioPlaylistDownloader.swift */; };
 		F66BD9569EE438EACD6C68B0 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E29830359FF1F6CBD6D8D05 /* LibraryView.swift */; };
 		F678853AC4F5F5E6CFB67C93 /* WiFiTransferClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3719BA4F5C42F0BA08675B59 /* WiFiTransferClient.swift */; };
+		75B58A97AD343EBECBEB5055 /* WiFiTransferThroughput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A0571F0E4E21E2961D8B447 /* WiFiTransferThroughput.swift */; };
 		F7001D7ED68D7FC3F771FD35 /* LibraryFolderSelectionIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A4B98789824DBE3B31F9D3 /* LibraryFolderSelectionIndex.swift */; };
 		F70EAD0DDB121C4B26DB471D /* ServerRatingSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BF3FCADF9ED4848533CF280 /* ServerRatingSyncService.swift */; };
 		F71064BDCCEB2F5D1F5CC801 /* TVAudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C891ECCBAEB4EF0ED63759C7 /* TVAudioEngine.swift */; };
@@ -2461,6 +2464,7 @@
 		368E7734000B96CD7A810C23 /* SongBatchActionBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongBatchActionBar.swift; sourceTree = "<group>"; };
 		370B74E82BB03F66EA463AD1 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = ru.lproj/PlayMedia.strings; sourceTree = "<group>"; };
 		3719BA4F5C42F0BA08675B59 /* WiFiTransferClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiTransferClient.swift; sourceTree = "<group>"; };
+		6A0571F0E4E21E2961D8B447 /* WiFiTransferThroughput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiTransferThroughput.swift; sourceTree = "<group>"; };
 		371C3A45C5490CF90FD0417D /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/PlayMedia.strings"; sourceTree = "<group>"; };
 		37C1C17D74E6EAC6D172793C /* LibraryFavoritesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryFavoritesStore.swift; sourceTree = "<group>"; };
 		37F2A8C498BD95803C47AA04 /* LibraryStartupHarnessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryStartupHarnessTests.swift; sourceTree = "<group>"; };
@@ -3004,6 +3008,7 @@
 		96CE75F0A073BB8CD03ED6A1 /* PlayerBackdropSettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerBackdropSettingsStore.swift; sourceTree = "<group>"; };
 		96E5C185BF5E5D87D704F884 /* es-MX */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "es-MX"; path = "es-MX.lproj/SettingsSearch.strings"; sourceTree = "<group>"; };
 		973D5A18BC4228928E42C0C1 /* MiniPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniPlayerView.swift; sourceTree = "<group>"; };
+		42511EF288D67F5D3D29E96E /* MinimalShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MinimalShell.swift; sourceTree = "<group>"; };
 		977FCB5862B5FE25B61FA74E /* HomeListeningRanking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeListeningRanking.swift; sourceTree = "<group>"; };
 		9787FCA7533C3F0E35CBC4A4 /* ListeningWidgetPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningWidgetPublisher.swift; sourceTree = "<group>"; };
 		9798FA94624586F57070D369 /* RadioHomepageIconParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioHomepageIconParser.swift; sourceTree = "<group>"; };
@@ -3290,6 +3295,7 @@
 		CF1F59E05FD764211336C02D /* MacRadioStationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRadioStationsView.swift; sourceTree = "<group>"; };
 		CF9D38B5C0E897BC8060AE53 /* PlaybackVolumeControlPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackVolumeControlPolicy.swift; sourceTree = "<group>"; };
 		CFA3B7E6ABB7F9FBF66FCEF2 /* RemoteMediaHTTPErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteMediaHTTPErrorTests.swift; sourceTree = "<group>"; };
+		193A9FDE80774FCD86C674E5 /* ReadOnlyMetadataWritebackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadOnlyMetadataWritebackTests.swift; sourceTree = "<group>"; };
 		65C163A6A5CD5B15DA0A6D1D /* LRCLIBHTTPErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LRCLIBHTTPErrorTests.swift; sourceTree = "<group>"; };
 		D097BC8C61181C5D4A7DF1DE /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/HomeDiscovery.strings"; sourceTree = "<group>"; };
 		D09F74F18E7CED7C6CDC0960 /* MacDetailContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacDetailContainer.swift; sourceTree = "<group>"; };
@@ -3473,7 +3479,6 @@
 		F63834C23F5064EED74FFB86 /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist; name = fr; path = fr.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
 		F652918A8A39CEF7841384ED /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		F6E66686E2D510DC7D6E6DD0 /* PlaylistPendingEntryRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistPendingEntryRow.swift; sourceTree = "<group>"; };
-		F70693E488DF6AF172C485E2 /* MinimalNavigationCollapsePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MinimalNavigationCollapsePolicy.swift; sourceTree = "<group>"; };
 		F754A142263E60B3A764A992 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		F79D31F8D7A9471678BFE366 /* CarPlaySettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlaySettingsStore.swift; sourceTree = "<group>"; };
 		F7B126B91C9B2A5ACEBED8C8 /* ListeningActivityTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningActivityTimeline.swift; sourceTree = "<group>"; };
@@ -4131,7 +4136,6 @@
 				BA82B3C1FF9F3629EC8F5F0F /* MetadataReadCPUSamplePolicy.swift */,
 				C99953CC3004D92E3B3147BC /* MetadataReadScheduler.swift */,
 				9AB286EEA94A980ADF0391BD /* MetadataReadThroughputSampler.swift */,
-				F70693E488DF6AF172C485E2 /* MinimalNavigationCollapsePolicy.swift */,
 				AF561533EC649E1C87772C4A /* MinimalNavigationDetailLedger.swift */,
 				BADE3E47B952DDB0A1371635 /* MotionArtworkProvider.swift */,
 				C5430956811D547F2E2EA473 /* MotionArtworkServiceContract.swift */,
@@ -4366,6 +4370,7 @@
 			isa = PBXGroup;
 			children = (
 				3719BA4F5C42F0BA08675B59 /* WiFiTransferClient.swift */,
+				6A0571F0E4E21E2961D8B447 /* WiFiTransferThroughput.swift */,
 				BA370CF93CF263D5B554EA26 /* WiFiTransferDevice.swift */,
 				0C999AE17AF8E49236B326C3 /* WiFiTransferFilePreparation.swift */,
 				41E1E159BB8773813997C2CE /* WiFiTransferFiles.swift */,
@@ -5111,6 +5116,7 @@
 				C7B6EE3BA7595C043A4CDB60 /* FloatingInputPanelClearance.swift */,
 				E85209503CD504D721015FB8 /* InterfaceOrientationLock.swift */,
 				C1F0CCE40C02CDF0A976BE27 /* LibraryPageFind.swift */,
+				42511EF288D67F5D3D29E96E /* MinimalShell.swift */,
 				A4A7769C52B1ED1589BFDCDB /* ListeningRankBoard.swift */,
 				9F838D6F0318995192A0A2F0 /* ListeningSpaceStyle.swift */,
 				F43F62A95E4EA9A8F53D69C2 /* LocalTranslationModelControls.swift */,
@@ -5319,6 +5325,7 @@
 				E94FDA18A33B351B72A07D1A /* QueueWindowPlayerTests.swift */,
 				14B0B8A327D0C4E40CEE9787 /* RecentlyDeletedBatchTests.swift */,
 				CFA3B7E6ABB7F9FBF66FCEF2 /* RemoteMediaHTTPErrorTests.swift */,
+				193A9FDE80774FCD86C674E5 /* ReadOnlyMetadataWritebackTests.swift */,
 				65C163A6A5CD5B15DA0A6D1D /* LRCLIBHTTPErrorTests.swift */,
 				DC9A72F47CEAEE9E5E4FBD77 /* S3ListParserTests.swift */,
 				5AE30173F72CE7372ADE8A89 /* SceneConfigurationManifestTests.swift */,
@@ -6146,6 +6153,7 @@
 				9CF7EDD75FF1905A518019D2 /* QueueWindowPlayerTests.swift in Sources */,
 				C29F3487C05D7218574FC1B5 /* RecentlyDeletedBatchTests.swift in Sources */,
 				CB2392A6661A46E7045549EF /* RemoteMediaHTTPErrorTests.swift in Sources */,
+				0F60D48ACA0F465AB327CE87 /* ReadOnlyMetadataWritebackTests.swift in Sources */,
 				E0B092384C0C2A7F07C6DF68 /* LRCLIBHTTPErrorTests.swift in Sources */,
 				DB4010B0AE18307DA6D513CB /* S3ListParserTests.swift in Sources */,
 				A68A52AF7A538EACFAA946A1 /* SceneConfigurationManifestTests.swift in Sources */,
@@ -6412,7 +6420,6 @@
 				05406A7F73619CF228F01366 /* MetadataReadScheduler.swift in Sources */,
 				99329A4BD91655CBDF214737 /* MetadataReadThroughputSampler.swift in Sources */,
 				4AD960ADD6500C88A7352856 /* MetadataTitleResolutionPolicy.swift in Sources */,
-				576851404B071C4DA692D32E /* MinimalNavigationCollapsePolicy.swift in Sources */,
 				A6794A4324E4442B4373F440 /* MinimalNavigationDetailLedger.swift in Sources */,
 				AF201CC110B79690BE4F987C /* MotionArtworkProvider.swift in Sources */,
 				BB402A126921F04BE2AB57AA /* MotionArtworkServiceContract.swift in Sources */,
@@ -6601,6 +6608,7 @@
 				4C850E68A62AAE480BA5CB82 /* UserNotificationPolicy.swift in Sources */,
 				7FBF24A4EDEEB435D5A3EA1D /* WatchStateTickerPolicy.swift in Sources */,
 				F678853AC4F5F5E6CFB67C93 /* WiFiTransferClient.swift in Sources */,
+				75B58A97AD343EBECBEB5055 /* WiFiTransferThroughput.swift in Sources */,
 				2D289CD7902DECBEFFF91C12 /* WiFiTransferDevice.swift in Sources */,
 				CC831659451547578C1EB96C /* WiFiTransferFilePreparation.swift in Sources */,
 				5386518D1AB3CB7A467E2276 /* WiFiTransferFiles.swift in Sources */,
@@ -6859,6 +6867,7 @@
 				A97257A55F6552E229E3AF9B /* LibraryInsightStore.swift in Sources */,
 				DD17FF53687683EBD64909AE /* LibraryInsightWriteback.swift in Sources */,
 				33FCC95BEA69195D0F315910 /* LibraryPageFind.swift in Sources */,
+				732F5FF3155C4929F072E074 /* MinimalShell.swift in Sources */,
 				3F2CAD472F0CA866AEDB634E /* LibrarySearchCatalog.swift in Sources */,
 				6F577B2D1BA585A651766505 /* LibrarySnapshotSync.swift in Sources */,
 				F66BD9569EE438EACD6C68B0 /* LibraryView.swift in Sources */,
@@ -7575,6 +7584,7 @@
 				4F341C805E5AB60EBD9B7F64 /* LibraryInsightStore.swift in Sources */,
 				453A9906C20806FED4395D17 /* LibraryInsightWriteback.swift in Sources */,
 				2FE556608B4EE9CB93532EAD /* LibraryPageFind.swift in Sources */,
+				F1847E4880E2B580F60FD14A /* MinimalShell.swift in Sources */,
 				6467D35FC4C29B7DF50D6EED /* LibrarySearchCatalog.swift in Sources */,
 				0A18CCDD67F005E9D83F5B18 /* LibrarySnapshotSync.swift in Sources */,
 				E678C7E2ED9D28A618AF4222 /* LibraryView.swift in Sources */,

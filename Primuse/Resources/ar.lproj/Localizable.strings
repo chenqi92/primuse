@@ -2208,7 +2208,10 @@
 "metadata_writeback_stage_replace" = "استبدال المصدر";
 "min" = "الحد الأدنى";
 "mini_player" = "مشغل صغير";
-"minimal_mode_description" = "يخفي شريط التنقل السفلي وينقل تبديل المكتبة إلى الأعلى ويفتح الإعدادات من الزر الجانبي.";
+"minimal_mode_description" = "يخفي شريط التنقل السفلي: بدّل بين الرئيسية والموسيقى والإذاعة والصوتيات من الأعلى، ويبقى المشغّل مثبتًا في الأسفل.";
+"minimal_show_home" = "إظهار «الرئيسية»";
+"minimal_tab_spoken" = "صوتيات";
+"minimal_radio_on_air" = "مباشر";
 "minimal_mode_title" = "الوضع الأدنى";
 "minutes" = "دقيقة";
 "modify_directories" = "تعديل الدلائل";
@@ -4453,6 +4456,12 @@
 "diagnostics_feedback_attachments" = "المرفقات (اختياري)";
 "diagnostics_feedback_message" = "طلبات أو اقتراحات";
 "diagnostics_feedback_compose" = "فتح البريد";
+"diagnostics_feedback_images" = "الصور (اختياري)";
+"diagnostics_feedback_add_image" = "إضافة صور";
+"diagnostics_feedback_images_footer %lld" = "حتى %lld صور، يتم تصغيرها وإرسالها مع البريد الإلكتروني.";
+"diagnostics_feedback_images_loading" = "جارٍ تحميل الصور…";
+"diagnostics_feedback_image_failed" = "تعذّر قراءة بعض الصور وتم تخطيها.";
+"diagnostics_feedback_remove_image" = "إزالة الصورة";
 "diagnostics_logs_title" = "السجلات";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */
@@ -5831,3 +5840,7 @@
 "ai_consent_privacy_row" = "استخدام الذكاء الاصطناعي المدمج للبيانات";
 "ai_consent_status_agreed" = "تمت الموافقة";
 "ai_consent_status_not_agreed" = "لم تتم الموافقة";
+
+"source_mutation_permission_denied" = "تم رفض الإذن بتعديل ملفات المصدر.";
+"source_mutation_read_only" = "لا يسمح هذا المصدر بتعديل الملفات.";
+"metadata_writeback_local_only_notice" = "رفض المصدر الكتابة. تم حفظ تغييراتك في Primuse فقط؛ ولم يتم تحديث ملف المصدر.";

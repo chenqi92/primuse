@@ -3740,7 +3740,10 @@
 // MARK: - Navigation mode
 "navigation_mode_title" = "탐색";
 "minimal_mode_title" = "미니멀 모드";
-"minimal_mode_description" = "하단 탐색 막대를 숨기고 보관함 탭을 상단으로 옮기며 측면 버튼에서 설정을 엽니다.";
+"minimal_mode_description" = "하단 탐색 막대를 숨기고 상단에서 홈, 음악, 라디오, 오디오를 전환합니다. 재생 막대는 하단에 고정됩니다.";
+"minimal_show_home" = "‘홈’ 표시";
+"minimal_tab_spoken" = "오디오";
+"minimal_radio_on_air" = "생방송 중";
 
 // MARK: - Authoritative lyrics refresh
 "lyrics_reload_from_source" = "음악 소스에서 가사 다시 불러오기";
@@ -4547,6 +4550,12 @@
 "diagnostics_feedback_attachments" = "첨부 파일(선택 사항)";
 "diagnostics_feedback_message" = "요청 또는 제안";
 "diagnostics_feedback_compose" = "메일 열기";
+"diagnostics_feedback_images" = "이미지(선택 사항)";
+"diagnostics_feedback_add_image" = "이미지 추가";
+"diagnostics_feedback_images_footer %lld" = "최대 %lld장. 크기를 줄여 이메일과 함께 보냅니다.";
+"diagnostics_feedback_images_loading" = "이미지 불러오는 중…";
+"diagnostics_feedback_image_failed" = "읽을 수 없는 이미지가 있어 건너뛰었습니다.";
+"diagnostics_feedback_remove_image" = "이미지 제거";
 "diagnostics_logs_title" = "로그";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */
@@ -5925,3 +5934,7 @@
 "ai_consent_privacy_row" = "내장 AI 데이터 사용";
 "ai_consent_status_agreed" = "동의함";
 "ai_consent_status_not_agreed" = "동의 안 함";
+
+"source_mutation_permission_denied" = "원본 파일을 수정할 권한이 거부되었습니다.";
+"source_mutation_read_only" = "이 소스에서는 파일을 변경할 수 없습니다.";
+"metadata_writeback_local_only_notice" = "소스에서 쓰기를 거부했습니다. 변경 사항은 Primuse에만 저장되었으며 원본 파일은 업데이트되지 않았습니다.";

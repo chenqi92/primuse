@@ -2208,7 +2208,10 @@
 "metadata_writeback_stage_replace" = "स्रोत प्रतिस्थापन";
 "min" = "न्यूनतम";
 "mini_player" = "मिनी प्लेयर";
-"minimal_mode_description" = "नीचे नेविगेशन बार को छुपाता है, लाइब्रेरी स्विचिंग को ऊपर ले जाता है, और साइड बटन से सेटिंग्स खोलता है।";
+"minimal_mode_description" = "नीचे का नेविगेशन बार छुपाता है: ऊपर होम, संगीत, रेडियो और ऑडियो के बीच बदलें, प्लेयर नीचे टिका रहता है।";
+"minimal_show_home" = "“होम” दिखाएँ";
+"minimal_tab_spoken" = "ऑडियो";
+"minimal_radio_on_air" = "लाइव";
 "minimal_mode_title" = "न्यूनतम मोड";
 "minutes" = "मि";
 "modify_directories" = "निर्देशिकाएँ संशोधित करें";
@@ -4453,6 +4456,12 @@
 "diagnostics_feedback_attachments" = "अटैचमेंट (वैकल्पिक)";
 "diagnostics_feedback_message" = "अनुरोध या सुझाव";
 "diagnostics_feedback_compose" = "मेल खोलें";
+"diagnostics_feedback_images" = "छवियाँ (वैकल्पिक)";
+"diagnostics_feedback_add_image" = "छवियाँ जोड़ें";
+"diagnostics_feedback_images_footer %lld" = "अधिकतम %lld छवियाँ, छोटी करके ईमेल के साथ भेजी जाएँगी।";
+"diagnostics_feedback_images_loading" = "छवियाँ लोड हो रही हैं…";
+"diagnostics_feedback_image_failed" = "कुछ छवियाँ पढ़ी नहीं जा सकीं और छोड़ दी गईं।";
+"diagnostics_feedback_remove_image" = "छवि हटाएँ";
 "diagnostics_logs_title" = "लॉग";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */
@@ -5831,3 +5840,7 @@
 "ai_consent_privacy_row" = "अंतर्निहित AI का डेटा उपयोग";
 "ai_consent_status_agreed" = "सहमति दी गई";
 "ai_consent_status_not_agreed" = "सहमति नहीं दी गई";
+
+"source_mutation_permission_denied" = "स्रोत फ़ाइलों को बदलने की अनुमति अस्वीकार कर दी गई।";
+"source_mutation_read_only" = "यह स्रोत फ़ाइलों में बदलाव की अनुमति नहीं देता।";
+"metadata_writeback_local_only_notice" = "स्रोत ने लिखने से मना कर दिया। आपके बदलाव केवल Primuse में सहेजे गए हैं; स्रोत फ़ाइल अपडेट नहीं हुई।";

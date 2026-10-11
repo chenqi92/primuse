@@ -156,3 +156,4 @@
 "discoveryConfiguration" = "Dieser App-Version fehlt die Bonjour-Dienstdeklaration. Installiere eine vollständige Version und öffne sie erneut.";
 "receivingDevice" = "Empfangsgerät";
 "chooseReceiver" = "Empfangsgerät auswählen";
+"speedFormat" = "%@/s";

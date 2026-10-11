@@ -3486,7 +3486,10 @@
 "ai_recommendation_unit_footer" = "У змішаному режимі перші дві картки в розділі «Для вас» на головній — цілі альбоми, решта — треки. Альбоми грають у початковому порядку, а розділені за CUE — за номерами доріжок.";
 "smart_playlist_combinator_and" = "Всі умови";
 "lyrics_converter_summary_format" = "%1$d рядків · %2$d синхронізовано · %3$d зі словом";
-"minimal_mode_description" = "Приховує нижню навігаційну панель, переміщує перемикач медіатеки вгору та відкриває налаштування за допомогою бічної кнопки.";
+"minimal_mode_description" = "Приховує нижню панель навігації: угорі перемикайтеся між «Головна», «Музика», «Радіо» та «Аудіо», плеєр закріплено внизу.";
+"minimal_show_home" = "Показувати «Головна»";
+"minimal_tab_spoken" = "Аудіо";
+"minimal_radio_on_air" = "В ефірі";
 "relay_share_password_placeholder" = "Додатковий пароль слухача";
 "a11y_close_lyrics" = "Сховати слова";
 "icloud_sync_enabled" = "Увімкнути синхронізацію iCloud";
@@ -4453,6 +4456,12 @@
 "diagnostics_feedback_attachments" = "Вкладення (необов’язково)";
 "diagnostics_feedback_message" = "Побажання або пропозиції";
 "diagnostics_feedback_compose" = "Відкрити пошту";
+"diagnostics_feedback_images" = "Зображення (необов’язково)";
+"diagnostics_feedback_add_image" = "Додати зображення";
+"diagnostics_feedback_images_footer %lld" = "До %lld зображень, зменшених і надісланих разом із листом.";
+"diagnostics_feedback_images_loading" = "Завантаження зображень…";
+"diagnostics_feedback_image_failed" = "Деякі зображення не вдалося прочитати, їх пропущено.";
+"diagnostics_feedback_remove_image" = "Вилучити зображення";
 "diagnostics_logs_title" = "Журнали";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */
@@ -5831,3 +5840,7 @@
 "ai_consent_privacy_row" = "Які дані використовує вбудований ШІ";
 "ai_consent_status_agreed" = "Згоду надано";
 "ai_consent_status_not_agreed" = "Згоду не надано";
+
+"source_mutation_permission_denied" = "Немає дозволу на змінення вихідних файлів.";
+"source_mutation_read_only" = "Це джерело не дозволяє змінювати файли.";
+"metadata_writeback_local_only_notice" = "Джерело відхилило запис. Зміни збережено лише в Primuse; вихідний файл не оновлено.";

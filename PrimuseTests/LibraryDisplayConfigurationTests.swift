@@ -285,75 +285,132 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         )
     }
 
-    func testMinimalLibraryPagesFollowVisibleSectionOrder() {
+    func testMinimalMusicSectionsLeaveRadioAndSpokenToTheirOwnTabs() {
         XCTAssertEqual(
-            MinimalNavigationPolicy.libraryPages(
-                visibleSections: [.songs, .albums, .radio]
+            MinimalNavigationPolicy.musicSections(
+                visibleSections: [.songs, .radio, .albums, .spokenWord, .podcasts, .playlists]
             ),
-            [
-                .librarySection(.songs),
-                .librarySection(.albums),
-                .librarySection(.radio),
-            ]
+            [.songs, .albums, .playlists]
+        )
+        XCTAssertEqual(MinimalNavigationPolicy.musicSections(visibleSections: []), [])
+    }
+
+    func testMinimalSpokenTabListsBooksAndPodcasts() {
+        XCTAssertEqual(
+            MinimalNavigationPolicy.spokenSections(
+                visibleSections: [.songs, .spokenWord],
+                hasPodcastShows: false
+            ),
+            [.spokenWord]
+        )
+        // 播客在资料库里收着，订了节目照样出现。
+        XCTAssertEqual(
+            MinimalNavigationPolicy.spokenSections(
+                visibleSections: [.songs, .spokenWord],
+                hasPodcastShows: true
+            ),
+            [.spokenWord, .podcasts]
         )
         XCTAssertEqual(
-            MinimalNavigationPolicy.libraryPages(visibleSections: []),
+            MinimalNavigationPolicy.spokenSections(visibleSections: [.songs], hasPodcastShows: false),
             []
-        )
-        XCTAssertEqual(
-            MinimalNavigationPolicy.libraryPages(
-                visibleSections: [.songs, .recommendations, .albums]
-            ),
-            [
-                .librarySection(.songs),
-                .librarySection(.recommendations),
-                .librarySection(.albums),
-            ]
         )
     }
 
-    func testMinimalSelectionUsesTheFirstVisibleCategoryAsItsHomePage() {
-        let sections: [LibrarySection] = [.favorites, .artists, .songs]
+    func testMinimalTopTabsFollowWhatTheLibraryOffers() {
+        XCTAssertEqual(
+            MinimalNavigationPolicy.topTabs(
+                showsHome: true,
+                visibleSections: [.songs, .radio],
+                spokenSections: [.spokenWord]
+            ),
+            [.home, .music, .radio, .spoken]
+        )
+        XCTAssertEqual(
+            MinimalNavigationPolicy.topTabs(
+                showsHome: false,
+                visibleSections: [.songs],
+                spokenSections: []
+            ),
+            [.music]
+        )
+    }
+
+    func testMinimalTabsReturnToTheirRememberedSection() {
+        let music: [LibrarySection] = [.songs, .albums, .artists]
+        XCTAssertEqual(
+            MinimalNavigationPolicy.section(
+                for: .music, remembered: .albums, musicSections: music, spokenSections: []
+            ),
+            .albums
+        )
+        // 记住的分类被藏了：回到排在最前的那一类。
+        XCTAssertEqual(
+            MinimalNavigationPolicy.section(
+                for: .music, remembered: .genres, musicSections: music, spokenSections: []
+            ),
+            .songs
+        )
+        XCTAssertEqual(
+            MinimalNavigationPolicy.section(
+                for: .music, remembered: nil, musicSections: [], spokenSections: []
+            ),
+            .songs
+        )
+        XCTAssertEqual(
+            MinimalNavigationPolicy.section(
+                for: .spoken, remembered: .podcasts, musicSections: music,
+                spokenSections: [.spokenWord, .podcasts]
+            ),
+            .podcasts
+        )
+        XCTAssertEqual(
+            MinimalNavigationPolicy.section(
+                for: .radio, remembered: nil, musicSections: music, spokenSections: []
+            ),
+            .radio
+        )
+        XCTAssertNil(
+            MinimalNavigationPolicy.section(
+                for: .home, remembered: .songs, musicSections: music, spokenSections: []
+            )
+        )
+    }
+
+    func testMinimalSelectedPageMapsTabSlots() {
         XCTAssertEqual(
             MinimalNavigationPolicy.selectedPage(
-                selectedTab: 0,
-                activeLibrarySection: nil,
-                visibleSections: sections
+                selectedTab: 0, activeLibrarySection: .songs, fallbackSection: .songs
             ),
-            .librarySection(.favorites)
+            .home
         )
         XCTAssertEqual(
             MinimalNavigationPolicy.selectedPage(
-                selectedTab: 1,
-                activeLibrarySection: .artists,
-                visibleSections: sections
+                selectedTab: 1, activeLibrarySection: .radio, fallbackSection: .songs
             ),
-            .librarySection(.artists)
+            .librarySection(.radio)
         )
         XCTAssertEqual(
             MinimalNavigationPolicy.selectedPage(
-                selectedTab: 1,
-                activeLibrarySection: nil,
-                visibleSections: sections
+                selectedTab: 1, activeLibrarySection: nil, fallbackSection: .albums
             ),
-            .librarySection(.favorites)
+            .librarySection(.albums)
         )
         XCTAssertEqual(
             MinimalNavigationPolicy.selectedPage(
-                selectedTab: 2,
-                activeLibrarySection: .songs,
-                visibleSections: sections
+                selectedTab: 2, activeLibrarySection: .songs, fallbackSection: .songs
             ),
             .search
         )
         XCTAssertEqual(
             MinimalNavigationPolicy.selectedPage(
-                selectedTab: 99,
-                activeLibrarySection: nil,
-                visibleSections: sections
+                selectedTab: 3, activeLibrarySection: .songs, fallbackSection: .songs
             ),
-            .librarySection(.favorites)
+            .settings
         )
+        XCTAssertEqual(MinimalNavigationPage.librarySection(.podcasts).topTab, .spoken)
+        XCTAssertEqual(MinimalNavigationPage.librarySection(.genres).topTab, .music)
+        XCTAssertNil(MinimalNavigationPage.search.topTab)
     }
 
     func testHiddenCategoriesStayHiddenInMinimalModeAndOldOrdersKeepTheirRelativeOrder() {
@@ -368,18 +425,9 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
             hiddenRawValue: LibraryDisplayConfiguration.encodeHiddenSections(hidden)
         )
         XCTAssertTrue(hidden.isDisjoint(with: visible))
-        XCTAssertEqual(
-            MinimalNavigationPolicy.libraryPages(visibleSections: visible),
-            visible.map(MinimalNavigationPage.librarySection)
-        )
-        XCTAssertEqual(
-            MinimalNavigationPolicy.selectedPage(
-                selectedTab: 1,
-                activeLibrarySection: .favorites,
-                visibleSections: visible
-            ),
-            .librarySection(.radio)
-        )
+        let music = MinimalNavigationPolicy.musicSections(visibleSections: visible)
+        XCTAssertTrue(hidden.isDisjoint(with: music))
+        XCTAssertEqual(music, visible.filter { $0 != .radio && $0 != .podcasts && $0 != .spokenWord })
     }
 
     func testAllCategoriesCanBeHiddenWithoutRestoringRecommendations() {
@@ -388,10 +436,10 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
             hiddenRawValue: LibraryDisplayConfiguration.encodeHiddenSections(Set(LibrarySection.allCases))
         )
         XCTAssertTrue(visible.isEmpty)
-        XCTAssertEqual(MinimalNavigationPolicy.homePage(visibleSections: visible), .search)
+        XCTAssertEqual(MinimalNavigationPolicy.musicSections(visibleSections: visible), [])
         XCTAssertEqual(
-            MinimalNavigationPolicy.selectedPage(selectedTab: 3, activeLibrarySection: .songs, visibleSections: visible),
-            .settings
+            MinimalNavigationPolicy.topTabs(showsHome: true, visibleSections: visible, spokenSections: []),
+            [.home, .music]
         )
     }
 

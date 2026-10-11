@@ -156,3 +156,4 @@
 "discoveryConfiguration" = "This app build is missing the Bonjour service declaration. Install a complete build and reopen it.";
 "receivingDevice" = "Receiving device";
 "chooseReceiver" = "Choose a receiving device";
+"speedFormat" = "%@/s";

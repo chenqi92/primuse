@@ -6,7 +6,8 @@ import Darwin
 public final class WiFiTransferServer: @unchecked Sendable {
     public enum Event: Sendable {
         case ready(url: String)
-        case uploadStarted(id: UUID, path: String, total: Int64, transferID: String?)
+        /// `remote` describes the sender's endpoint and the interface it came in on, for the log.
+        case uploadStarted(id: UUID, path: String, total: Int64, transferID: String?, remote: String? = nil)
         case progress(id: UUID, path: String, received: Int64, total: Int64)
         case changed(path: String, deleted: Bool)
         case uploadEnded(id: UUID, error: String?)
@@ -282,7 +283,8 @@ public final class WiFiTransferServer: @unchecked Sendable {
         case ("PUT", "/api/files"):
             client.uploadAnnounced = true
             event(.uploadStarted(id: client.id, path: request.path, total: request.contentLength,
-                                 transferID: request.headers["x-primuse-transfer"]))
+                                 transferID: request.headers["x-primuse-transfer"],
+                                 remote: Self.describe(client.connection)))
             // A bounded number of parallel uploads keeps disk reservations predictable;
             // two writers never target the same path.
             let target = request.path.precomposedStringWithCanonicalMapping.lowercased()
@@ -388,6 +390,25 @@ public final class WiFiTransferServer: @unchecked Sendable {
         response.append(body)
         let id = client.id
         client.connection.send(content: response, completion: .contentProcessed { [weak self] _ in self?.finish(id) })
+    }
+
+    /// "from 192.168.1.5:51234 via en0 (wifi)": which way a sender reached this listener.
+    private static func describe(_ connection: NWConnection) -> String? {
+        guard let path = connection.currentPath else { return nil }
+        var parts: [String] = []
+        if case let .hostPort(host, port)? = path.remoteEndpoint { parts.append("from \(host):\(port)") }
+        if let interface = path.availableInterfaces.first {
+            let kind: String
+            switch interface.type {
+            case .wifi: kind = "wifi"
+            case .wiredEthernet: kind = "wired"
+            case .cellular: kind = "cellular"
+            case .loopback: kind = "loopback"
+            default: kind = "other"
+            }
+            parts.append("via \(interface.name) (\(kind))")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
     }
 
     private static func localAddress() -> String? {

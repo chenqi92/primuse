@@ -8,7 +8,7 @@ import UIKit
 /// a credential/permission failure. This prevents an eight-song publication
 /// batch from creating eight SMB sessions and repeating the same rejected
 /// write hundreds or thousands of times.
-private actor SidecarWriteCircuitBreaker {
+actor SidecarWriteCircuitBreaker {
     private struct SourceState {
         var isRunning = false
         var isUnavailable = false
@@ -2530,11 +2530,7 @@ final class MusicScraperService {
     }
 
     private nonisolated static func isSourceUnavailableSidecarError(_ error: Error) -> Bool {
-        guard let sourceError = error as? SourceError else { return false }
-        if case .authenticationFailed = sourceError {
-            return true
-        }
-        return false
+        MetadataWriteFailurePolicy.stopsSourceWrites(error)
     }
 
     private func writeBackToMediaServerIfSupported(

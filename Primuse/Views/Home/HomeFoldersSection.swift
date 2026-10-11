@@ -506,8 +506,10 @@ struct HomeFolderBrowser: View {
         let ids = LibraryFolderBrowsePolicy.displayedSongIDs(in: index, of: nodeID)
         let lookup = library.visibleSongLookup()
         let order = songOrder
+        let spokenWordSongIDs = model.spokenWordSongIDs
         let ordered = await Task.detached(priority: .userInitiated) {
-            LibraryFolderBrowsePolicy.sortedSongs(ids.compactMap { lookup.song(id: $0) }, order: order).map(\.id)
+            LibraryFolderBrowsePolicy.sortedSongs(ids.compactMap { lookup.song(id: $0) }, order: order,
+                                                  spokenWordSongIDs: spokenWordSongIDs).map(\.id)
         }.value
         guard !Task.isCancelled else { return }
         directSongs = (nodeID, ordered)
@@ -1842,9 +1844,11 @@ enum HomeDiscoveryPlayback {
         }
         let lookup = library.visibleSongLookup()
         let order = HomeFolderSongOrderPreference.load()
+        let spokenWordSongIDs = model.spokenWordSongIDs
         Task {
             let ordered = await Task.detached(priority: .userInitiated) {
-                LibraryFolderBrowsePolicy.sortedSongs(ids.compactMap { lookup.song(id: $0) }, order: order).map(\.id)
+                LibraryFolderBrowsePolicy.sortedSongs(ids.compactMap { lookup.song(id: $0) }, order: order,
+                                                      spokenWordSongIDs: spokenWordSongIDs).map(\.id)
             }.value
             play(ids: ordered, library: library, player: player)
         }

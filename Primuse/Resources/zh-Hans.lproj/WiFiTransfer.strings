@@ -156,3 +156,4 @@
 "discoveryConfiguration" = "当前安装包缺少 Bonjour 服务声明，请安装完整版本后重新打开。";
 "receivingDevice" = "接收设备";
 "chooseReceiver" = "选择接收设备";
+"speedFormat" = "%@/s";

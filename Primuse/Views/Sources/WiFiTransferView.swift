@@ -13,6 +13,20 @@ enum WiFiTransferText {
                           value: WiFiTransferPage.english[key] ?? key, comment: "")
     }
 
+    /// "1.2 MB/s" in the user's locale.
+    static func rate(_ bytesPerSecond: Double) -> String {
+        String(format: string("speedFormat"),
+               ByteCountFormatter.string(fromByteCount: Int64(max(0, bytesPerSecond)), countStyle: .file))
+    }
+
+    /// "132 KB / 393.6 MB · 1.2 MB/s"; the rate is left out until it has settled.
+    static func bytesLine(sent: Int64, total: Int64, rate: Double?) -> String {
+        var text = ByteCountFormatter.string(fromByteCount: sent, countStyle: .file)
+            + " / " + ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
+        if let rate { text += " · " + self.rate(rate) }
+        return text
+    }
+
     @MainActor static var identity: WiFiTransferIdentity {
         #if os(iOS)
         let platform = UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
@@ -451,7 +465,8 @@ struct WiFiTransferView: View {
             guard source.isEnabled else { setupError = WiFiTransferText.string("enableSource"); return }
             receivingSource = source
             receiver.start(root: LocalImportService.ensureMusicDirectory(), identity: WiFiTransferText.identity,
-                           page: WiFiTransferText.page, willChange: { LocalImportService.markPendingScan() }) { path, deleted in
+                           page: WiFiTransferText.page, willChange: { LocalImportService.markPendingScan() },
+                           log: { plog($0) }) { path, deleted in
                 refreshLibrary(source: source, path: path, deleted: deleted)
             }
             if LocalImportService.hasPendingScan { refreshLibrary(source: source, path: "", deleted: false) }

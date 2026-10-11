@@ -4,6 +4,30 @@ import Testing
 
 @Suite("Embedded container tag parsing")
 struct EmbeddedTagMetadataParserTests {
+    @Test(arguments: ["GENRE", "WM/GENRE", "IGNR"])
+    func preservesAllGenreValues(key: String) {
+        let metadata = EmbeddedTagMetadataParser.metadata(fromTagValues: [
+            key: [" J-Pop ", "Vocaloid", "", "VOCALOID", "Ｒ＆Ｂ/Soul", "Rock, Live"],
+        ])
+
+        #expect(metadata.genre == "J-Pop; Vocaloid; Ｒ＆Ｂ/Soul; Rock, Live")
+    }
+
+    @Test func preservesRepeatedVorbisGenresAndAPEv2GenreValues() {
+        let opus = makeOggPage(
+            packets: [Data("OpusTags".utf8) + makeVorbisComments([
+                "GENRE=J-Pop", "GENRE=Vocaloid",
+            ])],
+            sequence: 0
+        )
+        let ape = makeAPEv2Tag([apeTextItem("Genre", "J-Pop\0Vocaloid")])
+
+        #expect(EmbeddedTagMetadataParser.parse(head: opus, fileExtension: "opus")?.genre
+            == "J-Pop; Vocaloid")
+        #expect(EmbeddedTagMetadataParser.parse(head: Data(), tail: ape, fileExtension: "ape")?.genre
+            == "J-Pop; Vocaloid")
+    }
+
     @Test(arguments: ["ALBUMARTIST", "Album Artist", "album_artist", "WM/AlbumArtist"])
     func resolvesAlbumArtistAliasesIndependentlyFromTrackArtist(key: String) {
         let metadata = EmbeddedTagMetadataParser.metadata(fromTagValues: [

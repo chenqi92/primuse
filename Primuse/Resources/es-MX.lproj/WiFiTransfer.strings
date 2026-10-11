@@ -154,3 +154,4 @@
 "discoveryConfiguration" = "Esta versión no declara el servicio Bonjour. Instala una versión completa y vuelve a abrirla.";
 "receivingDevice" = "Dispositivo receptor";
 "chooseReceiver" = "Elegir dispositivo receptor";
+"speedFormat" = "%@/s";

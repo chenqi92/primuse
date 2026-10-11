@@ -154,3 +154,4 @@
 "discoveryConfiguration" = "W tej wersji brakuje deklaracji usługi Bonjour. Zainstaluj pełną wersję i otwórz ją ponownie.";
 "receivingDevice" = "Urządzenie odbierające";
 "chooseReceiver" = "Wybierz urządzenie odbierające";
+"speedFormat" = "%@/s";

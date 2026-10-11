@@ -70,44 +70,98 @@ enum AppNavigationChromePolicy {
 }
 
 enum MinimalNavigationPage: Hashable, Identifiable, Sendable {
+    case home
     case librarySection(LibrarySection)
     case search
     case settings
 
     var id: String {
         switch self {
+        case .home: return "home"
         case .librarySection(let section): return "library:\(section.rawValue)"
         case .search: return "search"
         case .settings: return "settings"
         }
     }
+
+    /// 顶栏上亮起的那一格。搜索与设置不在分段里。
+    var topTab: MinimalTopTab? {
+        switch self {
+        case .home: return .home
+        case .librarySection(let section): return MinimalTopTab.tab(for: section)
+        case .search, .settings: return nil
+        }
+    }
 }
 
 enum MinimalNavigationPolicy {
-    static func homePage(visibleSections: [LibrarySection]) -> MinimalNavigationPage {
-        visibleSections.first.map(MinimalNavigationPage.librarySection) ?? .search
+    /// 极简模式要不要摆「首页」那一格。
+    static let showsHomeKey = "primuse.minimal.showsHome.v1"
+
+    /// 「音乐」下面的分类：资料库里排好的顺序与显隐，电台、有声书、播客各在自己的格里。
+    static func musicSections(visibleSections: [LibrarySection]) -> [LibrarySection] {
+        visibleSections.filter { MinimalTopTab.tab(for: $0) == .music }
     }
 
-    static func libraryPages(visibleSections: [LibrarySection]) -> [MinimalNavigationPage] {
-        visibleSections.map(MinimalNavigationPage.librarySection)
+    /// 「有声」那一格里的页：有声书要资料库里开着且真有有声内容（`visibleSections` 已经按内容筛过）；
+    /// 播客在资料库里打开了或者已经订了节目就有。
+    static func spokenSections(
+        visibleSections: [LibrarySection],
+        hasPodcastShows: Bool
+    ) -> [LibrarySection] {
+        var sections: [LibrarySection] = []
+        if visibleSections.contains(.spokenWord) { sections.append(.spokenWord) }
+        if visibleSections.contains(.podcasts) || hasPodcastShows { sections.append(.podcasts) }
+        return sections
     }
 
+    static func topTabs(
+        showsHome: Bool,
+        visibleSections: [LibrarySection],
+        spokenSections: [LibrarySection]
+    ) -> [MinimalTopTab] {
+        var tabs: [MinimalTopTab] = []
+        if showsHome { tabs.append(.home) }
+        tabs.append(.music)
+        if visibleSections.contains(.radio) { tabs.append(.radio) }
+        if !spokenSections.isEmpty { tabs.append(.spoken) }
+        return tabs
+    }
+
+    /// 点某一格落在哪一页：上次在这一格停过的页还在就回那一页，否则排在最前的一页。
+    /// 音乐的分类全藏起来时仍落在歌曲页。
+    static func section(
+        for tab: MinimalTopTab,
+        remembered: LibrarySection?,
+        musicSections: [LibrarySection],
+        spokenSections: [LibrarySection]
+    ) -> LibrarySection? {
+        switch tab {
+        case .home:
+            return nil
+        case .radio:
+            return .radio
+        case .music:
+            if let remembered, musicSections.contains(remembered) { return remembered }
+            return musicSections.first ?? .songs
+        case .spoken:
+            if let remembered, spokenSections.contains(remembered) { return remembered }
+            return spokenSections.first
+        }
+    }
+
+    /// 标签槽位 + 资料库停在哪一页 → 顶栏上的哪一页。资料库槽位还没有落定的分类时按 `fallbackSection`。
     static func selectedPage(
         selectedTab: Int,
         activeLibrarySection: LibrarySection?,
-        visibleSections: [LibrarySection]
+        fallbackSection: LibrarySection
     ) -> MinimalNavigationPage {
-        let homePage = homePage(visibleSections: visibleSections)
         switch selectedTab {
-        case 0: return homePage
-        case 1:
-            guard let activeLibrarySection, visibleSections.contains(activeLibrarySection) else {
-                return homePage
-            }
-            return .librarySection(activeLibrarySection)
+        case 0: return .home
+        case 1: return .librarySection(activeLibrarySection ?? fallbackSection)
         case 2: return .search
         case 3: return .settings
-        default: return homePage
+        default: return .home
         }
     }
 
@@ -339,21 +393,10 @@ extension View {
         }
     }
 
-    @ViewBuilder
-    fileprivate func minimalSafeAreaBar<Bar: View>(
-        edge: VerticalEdge,
-        @ViewBuilder content: () -> Bar
-    ) -> some View {
-        if #available(iOS 26.0, *) {
-            safeAreaBar(edge: edge, spacing: 0, content: content)
-                .scrollEdgeEffectStyle(.soft, for: edge == .top ? .top : .bottom)
-        } else {
-            safeAreaInset(edge: edge, spacing: 0, content: content)
-        }
-    }
-
-    func minimalNavigationRoot() -> some View {
-        modifier(MinimalNavigationRootModifier())
+    /// 极简模式的根页：头上是顶栏，底下是停靠条，系统导航栏藏起来。
+    /// `showsTopChrome` 为 false 的根页（设置）保留系统导航栏，只在底下挂停靠条。
+    func minimalNavigationRoot(showsTopChrome: Bool = true) -> some View {
+        modifier(MinimalNavigationRootModifier(showsTopChrome: showsTopChrome))
     }
 
     func minimalNavigationDetail(isDetail: Bool = true) -> some View {
@@ -362,17 +405,26 @@ extension View {
 }
 
 private struct MinimalNavigationRootModifier: ViewModifier {
+    let showsTopChrome: Bool
     @Environment(\.appNavigationMode) private var appNavigationMode
     @Environment(\.minimalNavigationBars) private var bars
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        if appNavigationMode == .minimal {
+        if appNavigationMode == .minimal, showsTopChrome {
             content
+                // 页头挂在页面里面，读这个值决定出不出来。
+                .environment(\.minimalRootPage, true)
+                // 根页上的歌曲列表用大封面（#69）；专辑、艺人这些详情页仍是小封面。
+                .environment(\.songRowStyle, .minimal)
                 // Empty states have an intrinsic height; bars need the full page bounds.
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .toolbar(.hidden, for: .navigationBar)
                 .minimalSafeAreaBar(edge: .top) { bars?.top }
+                .minimalSafeAreaBar(edge: .bottom) { bars?.bottom }
+        } else if appNavigationMode == .minimal {
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .minimalSafeAreaBar(edge: .bottom) { bars?.bottom }
         } else {
             content
@@ -392,6 +444,9 @@ private struct MinimalNavigationDetailModifier: ViewModifier {
     func body(content: Content) -> some View {
         if isDetail, appNavigationMode == .minimal, let detailScope {
             content
+                // 根页推出来的分类页（首页「全部」进来的播客、书架）当详情页用，不摆根页的页头。
+                .environment(\.minimalRootPage, false)
+                .environment(\.songRowStyle, .standard)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .preference(
                     key: MinimalNavigationDetailScopesPreferenceKey.self,
@@ -765,11 +820,15 @@ struct ContentView: View {
     @State private var minimalLibrarySection: LibrarySection?
     @State private var minimalDetailLedger =
         MinimalNavigationDetailLedger<MinimalNavigationDetailScope>()
-    @State private var minimalNavigationCategoriesCollapsed = false
-    /// 手机横屏下的分类行折叠状态,与竖屏那一份分开记。横屏的静止状态是收起,竖屏保留
-    /// 用户自己滚出来的状态;两边各记各的,来回旋转不会把横屏的收起带进竖屏。
-    @State private var minimalNavigationCategoriesCollapsedInCompactHeight =
-        MinimalNavigationChromeMetrics.collapsesCategoriesAtRest(isCompactHeight: true)
+    /// 资料库槽位停在哪个分类。下次启动回到这一页（#69：重开 App 停在上次的页面）。
+    @AppStorage("primuse.minimal.librarySection.v1") private var minimalStoredSectionRaw = ""
+    /// 「音乐」「有声」两格各自上次停的分类，点回这一格时落在那里。
+    @AppStorage("primuse.minimal.musicSection.v1") private var minimalMusicSectionRaw = ""
+    @AppStorage("primuse.minimal.spokenSection.v1") private var minimalSpokenSectionRaw = ""
+    @AppStorage(MinimalNavigationPolicy.showsHomeKey) private var minimalShowsHome = true
+    /// 进搜索、设置之前停的那一页；「取消」与设置的返回键回到这里。
+    @State private var minimalReturnPage: MinimalNavigationPage?
+    @State private var showsMinimalQueue = false
     @State private var scraperSettingsRoute = ScraperSettingsRouteState()
     /// 跨年自动弹年度报告的状态。1/1 之后用户首次进 app + 上一年听满 2 个月
     /// 时由 YearlyReportAutoTrigger 触发。
@@ -782,10 +841,6 @@ struct ContentView: View {
     private var hiddenLibrarySectionsRawValue = ""
     @State private var showInitialOnboarding = false
     private let legacyTabBarClearance: CGFloat = 49
-    /// 极简顶栏折叠时让出的分类行高度,跟着动态字体走。折叠判定要靠它算滞回带宽。
-    @ScaledMetric(relativeTo: .subheadline)
-    private var minimalCategoryRowHeight: CGFloat =
-        MinimalNavigationChromeMetrics.categoryRowHeight
 
     /// 与 mainContent 里 LegacyNowPlayingAccessory 的挂载条件同源。
     private var legacyBottomChromeOverlayActive: Bool {
@@ -828,22 +883,41 @@ struct ContentView: View {
         .filter { $0 != .spokenWord || !library.spokenWordSongs.isEmpty }
     }
 
-    private var minimalCollapsibleChromeHeight: CGFloat {
-        minimalCategoryRowHeight + MinimalNavigationChromeMetrics.categoryRowTopPadding
+    private var minimalMusicSections: [LibrarySection] {
+        MinimalNavigationPolicy.musicSections(visibleSections: visibleLibrarySections)
     }
 
-    /// 分类行的静止状态是不是收起。
-    private var minimalCategoriesCollapseAtRest: Bool {
-        MinimalNavigationChromeMetrics.collapsesCategoriesAtRest(
-            isCompactHeight: heightClass.isCompact
+    private var minimalSpokenSections: [LibrarySection] {
+        MinimalNavigationPolicy.spokenSections(
+            visibleSections: visibleLibrarySections,
+            hasPodcastShows: !PodcastStore.shared.shows.isEmpty
         )
     }
 
-    /// 顶栏与滚动判定共用的折叠状态。按高度等级挑用哪一份,读写都落在同一个 State 上。
-    private var minimalCategoriesCollapsedBinding: Binding<Bool> {
-        heightClass.isCompact
-            ? $minimalNavigationCategoriesCollapsedInCompactHeight
-            : $minimalNavigationCategoriesCollapsed
+    private var minimalTopTabs: [MinimalTopTab] {
+        MinimalNavigationPolicy.topTabs(
+            showsHome: minimalShowsHome,
+            visibleSections: visibleLibrarySections,
+            spokenSections: minimalSpokenSections
+        )
+    }
+
+    /// 资料库槽位还没落定分类时（刚启动、刚换到极简）去的那一页。
+    private var minimalFallbackSection: LibrarySection {
+        MinimalNavigationPolicy.section(
+            for: .music,
+            remembered: LibrarySection(rawValue: minimalMusicSectionRaw),
+            musicSections: minimalMusicSections,
+            spokenSections: minimalSpokenSections
+        ) ?? .songs
+    }
+
+    private var currentMinimalPage: MinimalNavigationPage {
+        MinimalNavigationPolicy.selectedPage(
+            selectedTab: AppTabSelectionPolicy.resolve(selectedTab),
+            activeLibrarySection: minimalLibrarySection,
+            fallbackSection: minimalFallbackSection
+        )
     }
 
     private var minimalTopNavigationHidden: Bool {
@@ -889,6 +963,7 @@ struct ContentView: View {
                     onActiveSectionChange: { section in
                         guard navigationMode == .minimal else { return }
                         minimalLibrarySection = section
+                        if let section { rememberMinimalSection(section) }
                     }
                 )
                 .environment(\.minimalNavigationDetailScope, .library)
@@ -910,6 +985,7 @@ struct ContentView: View {
             Tab(String(localized: "settings_title"), systemImage: "gearshape", value: 3) {
                 SettingsView(scraperSettingsRoute: $scraperSettingsRoute, search: settingsSearch)
                     .environment(\.minimalNavigationDetailScope, .settings)
+                    .environment(\.minimalSettingsReturn, minimalSettingsReturn)
                     .toolbar(systemTabBarVisibility, for: .tabBar)
             }
         }
@@ -934,26 +1010,17 @@ struct ContentView: View {
                     bottom: AnyView(minimalBottomChrome)
                 )
             )
-            .background {
-                MinimalNavigationScrollObserver(
-                    categoriesCollapsed: minimalCategoriesCollapsedBinding,
-                    isEnabled: !minimalTopNavigationHidden,
-                    refreshID: selectedTab,
-                    collapsibleChromeHeight: minimalCollapsibleChromeHeight,
-                    collapsesAtRest: minimalCategoriesCollapseAtRest
-                )
-            }
-            // 每次转进手机横屏都把分类行拨回静止状态。这里只写横屏那一份,竖屏的展开
-            // 与收起是用户自己滚出来的,转回去要原样还给他。
-            .onChange(of: heightClass.isCompact) { _, isCompact in
-                guard isCompact else { return }
-                minimalNavigationCategoriesCollapsedInCompactHeight =
-                    MinimalNavigationChromeMetrics.collapsesCategoriesAtRest(
-                        isCompactHeight: isCompact
-                    )
+            .environment(\.minimalSpokenSections, minimalSpokenSections)
+            .environment(\.minimalSelectSection) { section in
+                selectMinimalPage(.librarySection(section))
             }
             .onPreferenceChange(MinimalNavigationDetailScopesPreferenceKey.self) { scopes in
                 minimalDetailLedger.updateMounted(scopes)
+            }
+            .sheet(isPresented: $showsMinimalQueue) {
+                QueueView(player: player)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
             }
     }
 
@@ -966,7 +1033,10 @@ struct ContentView: View {
                 if sizeClass == .regular && !heightClass.isCompact {
                     PadNowPlayingAccessory(onTap: presentNowPlaying)
                 } else {
-                    MinimalNowPlayingAccessory(onTap: presentNowPlaying)
+                    MinimalNowPlayingAccessory(
+                        onTap: presentNowPlaying,
+                        onShowQueue: { showsMinimalQueue = true }
+                    )
                 }
             }
             // miniPlayerVisible 是派生量, 翻转由播放状态决定, 调用点包不住动画
@@ -976,27 +1046,39 @@ struct ContentView: View {
     }
 
     private var minimalTopChrome: some View {
-        MinimalNavigationChromeLayout(
+        let page = currentMinimalPage
+        return MinimalNavigationChromeLayout(
             visibility: minimalTopNavigationHidden ? 0 : 1
         ) {
-            MinimalTopNavigationBar(
-                searchText: selectedTab == 3 ? $settingsSearch.query : $searchText,
-                settingsSearchPresented: $settingsSearch.isPresented,
-                searchScope: $searchScope,
-                searchContext: searchContext,
-                categoriesCollapsed: minimalCategoriesCollapsedBinding,
-                libraryPages: MinimalNavigationPolicy.libraryPages(
-                    visibleSections: visibleLibrarySections
-                ),
-                selection: MinimalNavigationPolicy.selectedPage(
-                    selectedTab: selectedTab,
-                    activeLibrarySection: minimalLibrarySection,
-                    visibleSections: visibleLibrarySections
-                ),
-                onSelect: selectMinimalPage,
-                onSubmitSearch: submitMinimalSearch,
-                onEditSearchLayout: { searchLayoutEditorRequested = true }
-            )
+            Group {
+                if page == .search {
+                    MinimalSearchBar(
+                        text: $searchText,
+                        scope: $searchScope,
+                        context: searchContext,
+                        activationRequested: $searchFieldActivationRequested,
+                        onSubmit: { SearchHistoryStore.record(searchText) },
+                        onEditLayout: { searchLayoutEditorRequested = true },
+                        onCancel: cancelMinimalSearch
+                    )
+                } else {
+                    MinimalTopTabBar(
+                        tabs: minimalTopTabs,
+                        selectedTab: page.topTab,
+                        musicSections: minimalMusicSections,
+                        selectedSection: {
+                            if case .librarySection(let section) = page { return section }
+                            return nil
+                        }(),
+                        onSelectTab: selectMinimalTopTab,
+                        onSelectSection: { section in
+                            animateMinimalSelection { selectMinimalPage(.librarySection(section)) }
+                        },
+                        onSearch: { selectMinimalPage(.search) },
+                        onSettings: { selectMinimalPage(.settings) }
+                    )
+                }
+            }
             .opacity(
                 minimalTopNavigationHidden
                     ? 0
@@ -1015,6 +1097,16 @@ struct ContentView: View {
             reduceMotion ? nil : .smooth(duration: 0.26, extraBounce: 0),
             value: minimalTopNavigationHidden
         )
+    }
+
+    /// 设置页左上角回到进设置之前那一页。
+    private var minimalSettingsReturn: MinimalReturnAction? {
+        guard navigationMode == .minimal else { return nil }
+        let target = minimalReturnPage ?? .librarySection(minimalFallbackSection)
+        let title = target.topTab?.title ?? MinimalTopTab.music.title
+        return MinimalReturnAction(title: title) {
+            selectMinimalPage(target)
+        }
     }
 
     @ViewBuilder
@@ -1324,10 +1416,15 @@ struct ContentView: View {
                 synchronizeSidebarForCurrentSelection()
             }
         }
-        .onChange(of: visibleLibrarySections) { _, sections in
-            guard navigationMode == .minimal, selectedTab == 1,
-                  minimalLibrarySection.map({ !sections.contains($0) }) ?? true else { return }
-            selectMinimalPage(MinimalNavigationPolicy.homePage(visibleSections: sections))
+        .onChange(of: visibleLibrarySections) { _, _ in
+            // 资料库设置里把正停着的分类藏了，或者有声内容都移走了：回到音乐。
+            guard navigationMode == .minimal, selectedTab == 1 else { return }
+            if let section = minimalLibrarySection, minimalSectionIsAvailable(section) { return }
+            selectMinimalPage(.librarySection(minimalFallbackSection))
+        }
+        .onChange(of: minimalShowsHome) { _, showsHome in
+            guard navigationMode == .minimal, !showsHome, selectedTab == 0 else { return }
+            selectMinimalPage(.librarySection(minimalFallbackSection))
         }
         .fullScreenCover(item: $autoYearlyReport) { item in
             YearlyReportScreen(year: item.year)
@@ -1343,6 +1440,7 @@ struct ContentView: View {
         #if DEBUG
         .task { await runDebugOpenPage() }
         .task { await runDebugRotation() }
+        .task { await runDebugMinimalSteps() }
         #endif
         .alert(
             String(localized: "server_favorite_update_failed_title"),
@@ -1405,13 +1503,88 @@ struct ContentView: View {
         scraperSettingsRoute.requestMetadataScraping()
     }
 
+    /// 进极简模式、启动时落在哪一页：资料库槽位回到上次停的分类；首页那一格关掉了就去音乐。
     private func activateMinimalLandingPageIfNeeded() {
         guard navigationMode == .minimal else { return }
-        guard selectedTab == 0 || (selectedTab == 1 && minimalLibrarySection == nil) else {
+        let tab = AppTabSelectionPolicy.resolve(selectedTab)
+        if tab == 0, minimalShowsHome {
             synchronizeSidebarForCurrentSelection()
             return
         }
-        selectMinimalPage(MinimalNavigationPolicy.homePage(visibleSections: visibleLibrarySections))
+        if tab == 1, let section = minimalLibrarySection, minimalSectionIsAvailable(section) {
+            synchronizeSidebarForCurrentSelection()
+            return
+        }
+        if tab == 2 || tab == 3 {
+            synchronizeSidebarForCurrentSelection()
+            return
+        }
+        let stored = LibrarySection(rawValue: minimalStoredSectionRaw)
+        if tab == 1, let stored, minimalSectionIsAvailable(stored) {
+            selectMinimalPage(.librarySection(stored))
+        } else {
+            selectMinimalPage(.librarySection(minimalFallbackSection))
+        }
+    }
+
+    /// 这个分类在顶栏上还够得着：音乐的分类要在资料库里开着，电台、有声要它们那一格还在。
+    private func minimalSectionIsAvailable(_ section: LibrarySection) -> Bool {
+        switch MinimalTopTab.tab(for: section) {
+        case .music: minimalMusicSections.contains(section) || section == minimalFallbackSection
+        case .radio: minimalTopTabs.contains(.radio)
+        case .spoken: minimalSpokenSections.contains(section)
+        case .home: false
+        }
+    }
+
+    private func rememberMinimalSection(_ section: LibrarySection) {
+        if minimalStoredSectionRaw != section.rawValue {
+            minimalStoredSectionRaw = section.rawValue
+        }
+        switch MinimalTopTab.tab(for: section) {
+        case .music where minimalMusicSectionRaw != section.rawValue:
+            minimalMusicSectionRaw = section.rawValue
+        case .spoken where minimalSpokenSectionRaw != section.rawValue:
+            minimalSpokenSectionRaw = section.rawValue
+        default:
+            break
+        }
+    }
+
+    private func selectMinimalTopTab(_ tab: MinimalTopTab) {
+        let page: MinimalNavigationPage
+        if tab == .home {
+            page = .home
+        } else {
+            let remembered: LibrarySection? = switch tab {
+            case .music: LibrarySection(rawValue: minimalMusicSectionRaw)
+            case .spoken: LibrarySection(rawValue: minimalSpokenSectionRaw)
+            default: nil
+            }
+            guard let section = MinimalNavigationPolicy.section(
+                for: tab,
+                remembered: remembered,
+                musicSections: minimalMusicSections,
+                spokenSections: minimalSpokenSections
+            ) else { return }
+            page = .librarySection(section)
+        }
+        animateMinimalSelection { selectMinimalPage(page) }
+    }
+
+    private func animateMinimalSelection(_ change: () -> Void) {
+        if reduceMotion {
+            change()
+        } else {
+            withAnimation(.easeOut(duration: 0.18), change)
+        }
+    }
+
+    /// 搜索页的「取消」：清掉搜索词，回到进来之前那一页。
+    private func cancelMinimalSearch() {
+        searchText = ""
+        searchScope = nil
+        selectMinimalPage(minimalReturnPage ?? .librarySection(minimalFallbackSection))
     }
 
     private var searchAwareTabSelection: Binding<Int> {
@@ -1440,20 +1613,36 @@ struct ContentView: View {
         selectedTab = tab
     }
 
-    private func submitMinimalSearch() {
-        guard selectedTab != 3 else { return }
-        selectMinimalPage(.search)
-        SearchHistoryStore.record(searchText)
-    }
-
     private func selectMinimalPage(_ page: MinimalNavigationPage) {
         showNowPlaying = false
+        if navigationMode == .minimal {
+            let current = currentMinimalPage
+            switch page {
+            case .search, .settings:
+                // 从搜索进设置时，返回仍回到搜索之前那一页。
+                if current != .search, current != .settings {
+                    minimalReturnPage = current
+                }
+                if page == .search, current != .search {
+                    searchFieldActivationRequested = true
+                }
+            case .home, .librarySection:
+                minimalReturnPage = nil
+            }
+        }
         switch page {
+        case .home:
+            selectedTab = 0
+            sidebarSelection = .home
         case .librarySection(let section):
             selectedTab = 1
             sidebarSelection = SidebarItem.libraryChild(for: section)
-            minimalLibrarySection = section
-            libraryDeepLink = .section(section)
+            // 已经停在这一页时不再发深链：深链会把这一页的导航栈重排一遍。
+            if minimalLibrarySection != section || libraryDeepLink != nil {
+                minimalLibrarySection = section
+                libraryDeepLink = .section(section)
+            }
+            if navigationMode == .minimal { rememberMinimalSection(section) }
         case .search:
             selectTab(2)
             sidebarSelection = .search
@@ -1698,647 +1887,6 @@ private struct MinimalNavigationChromeLayout: Layout {
 
     private var clampedVisibility: CGFloat {
         min(max(visibility, 0), 1)
-    }
-}
-
-/// Watches the active vertical scroller without coupling every existing page
-/// to minimal-mode chrome. This keeps List, ScrollView, and UIKit-backed search
-/// results on their current implementations while the header follows real
-/// content offset changes.
-private struct MinimalNavigationScrollObserver: UIViewRepresentable {
-    @Binding var categoriesCollapsed: Bool
-    let isEnabled: Bool
-    let refreshID: Int
-    /// 折叠时顶栏让出的高度,决定折叠判定的滞回带宽。
-    let collapsibleChromeHeight: CGFloat
-    /// 静止状态是不是收起。手机横屏为 true,滚回顶部不再自动展开。
-    let collapsesAtRest: Bool
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    func makeUIView(context: Context) -> ScopeView {
-        let view = ScopeView()
-        view.coordinator = context.coordinator
-        context.coordinator.scopeView = view
-        return view
-    }
-
-    func updateUIView(_ uiView: ScopeView, context: Context) {
-        let collapsedBinding = $categoriesCollapsed
-        context.coordinator.onCollapsedChange = { collapsed in
-            collapsedBinding.wrappedValue = collapsed
-        }
-        context.coordinator.collapsibleChromeHeight = collapsibleChromeHeight
-        // 静止状态要先定下来,随后的同步与换页复位都按它给出的基准走。
-        context.coordinator.collapsesAtRest = collapsesAtRest
-        // 顶栏上的分类按钮自己也会改这个值,判定要认用户的手动展开。
-        context.coordinator.syncExternalCollapsed(categoriesCollapsed)
-        let observationStateChanged = uiView.observesScrolling != isEnabled
-        uiView.observesScrolling = isEnabled
-        guard isEnabled else {
-            context.coordinator.detachAll()
-            return
-        }
-        let pageChanged = uiView.refreshID != refreshID
-        uiView.refreshID = refreshID
-        if pageChanged { context.coordinator.resetForPageChange() }
-        uiView.scheduleRefresh()
-        if observationStateChanged || pageChanged {
-            uiView.scheduleRefresh(after: 0.25)
-        }
-    }
-
-    static func dismantleUIView(_ uiView: ScopeView, coordinator: Coordinator) {
-        coordinator.detachAll()
-    }
-
-    final class ScopeView: UIView {
-        weak var coordinator: Coordinator?
-        var refreshID = Int.min
-        var observesScrolling = true
-        private var refreshScheduled = false
-
-        override init(frame: CGRect) {
-            super.init(frame: frame)
-            isUserInteractionEnabled = false
-            backgroundColor = .clear
-        }
-
-        @available(*, unavailable)
-        required init?(coder: NSCoder) {
-            fatalError("init(coder:) has not been implemented")
-        }
-
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            scheduleRefresh()
-        }
-
-        override func layoutSubviews() {
-            super.layoutSubviews()
-            scheduleRefresh()
-        }
-
-        func scheduleRefresh() {
-            guard observesScrolling, !refreshScheduled else { return }
-            refreshScheduled = true
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                refreshScheduled = false
-                coordinator?.refresh()
-            }
-        }
-
-        func scheduleRefresh(after delay: TimeInterval) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                guard let self, observesScrolling else { return }
-                coordinator?.refresh()
-            }
-        }
-    }
-
-    @MainActor
-    final class Coordinator {
-        private final class Observation {
-            weak var scrollView: UIScrollView?
-            let token: NSKeyValueObservation
-
-            init(scrollView: UIScrollView, token: NSKeyValueObservation) {
-                self.scrollView = scrollView
-                self.token = token
-            }
-        }
-
-        weak var scopeView: ScopeView?
-        var onCollapsedChange: ((Bool) -> Void)?
-        var collapsibleChromeHeight = MinimalNavigationChromeMetrics.collapsibleHeight
-        /// 静止状态是不是收起。判定归 resolver,这里只做转发。
-        var collapsesAtRest: Bool {
-            get { resolver.collapsesAtRest }
-            set { resolver.collapsesAtRest = newValue }
-        }
-        private var observations: [ObjectIdentifier: Observation] = [:]
-        private var resolver = MinimalNavigationCollapseResolver()
-        private var reportedCollapsed = false
-
-        func refresh() {
-            guard let scopeView,
-                  scopeView.observesScrolling,
-                  let window = scopeView.window,
-                  !scopeView.bounds.isEmpty else {
-                detachAll()
-                return
-            }
-
-            let scopeRect = scopeView.convert(scopeView.bounds, to: window)
-            let candidates = verticalScrollViews(in: window).filter {
-                isVisible($0, inside: scopeRect, window: window)
-            }
-            let candidateIDs = Set(candidates.map(ObjectIdentifier.init))
-
-            for id in Array(observations.keys) where !candidateIDs.contains(id) {
-                observations[id] = nil
-            }
-
-            for scrollView in candidates {
-                let id = ObjectIdentifier(scrollView)
-                guard observations[id] == nil else { continue }
-                let token = scrollView.observe(\.contentOffset, options: [.initial, .new]) {
-                    [weak self] _, _ in
-                    Task { @MainActor [weak self] in
-                        self?.updateCollapsedState()
-                    }
-                }
-                observations[id] = Observation(scrollView: scrollView, token: token)
-            }
-
-            updateCollapsedState()
-        }
-
-        func detachAll() {
-            observations.removeAll()
-        }
-
-        /// 换页后滚动位置完全换了一套,判定回到这一档高度的静止状态重新起算;写回交给
-        /// 随后的刷新,免得在 SwiftUI 的更新过程里改状态。
-        func resetForPageChange() {
-            resolver.reset(isCollapsed: resolver.collapsesAtRest)
-        }
-
-        /// 顶栏自己把状态改回展开时同步判定,免得下一次采样立刻又折回去。
-        func syncExternalCollapsed(_ collapsed: Bool) {
-            guard collapsed != reportedCollapsed else { return }
-            reportedCollapsed = collapsed
-            if collapsed {
-                resolver.reset(isCollapsed: true)
-            } else {
-                let distance = primaryScrollView().map { self.scrolledDistance($0) } ?? 0
-                resolver.markManuallyExpanded(
-                    at: distance,
-                    now: ProcessInfo.processInfo.systemUptime
-                )
-            }
-        }
-
-        private func updateCollapsedState() {
-            guard let scopeView,
-                  scopeView.observesScrolling,
-                  scopeView.window != nil else { return }
-            guard let scrollView = primaryScrollView() else {
-                // 这一页没有能滚的内容,直接回到这一档高度的静止状态。
-                let resting = resolver.collapsesAtRest
-                resolver.reset(isCollapsed: resting)
-                report(resting)
-                return
-            }
-            let collapsed = resolver.update(
-                scrolledDistance: scrolledDistance(scrollView),
-                collapsibleChromeHeight: collapsibleChromeHeight,
-                now: ProcessInfo.processInfo.systemUptime
-            )
-            report(collapsed)
-        }
-
-        /// 只在状态真的翻转时写回。滚动时每一帧都写 Binding 会让整页跟着重绘。
-        private func report(_ collapsed: Bool) {
-            guard collapsed != reportedCollapsed else { return }
-            reportedCollapsed = collapsed
-            onCollapsedChange?(collapsed)
-        }
-
-        /// 已经滚过的内容距离。顶栏收放会改写 adjustedContentInset,这个值跟着跳,
-        /// 判定的滞回带宽就是用来吃下这一跳的。
-        private func scrolledDistance(_ scrollView: UIScrollView) -> CGFloat {
-            scrollView.contentOffset.y + scrollView.adjustedContentInset.top
-        }
-
-        /// 一页里可能同时挂着几个纵向列表(相邻分页、还没拆掉的兄弟页)。取与本页
-        /// 重叠面积最大的那个,免得几个列表各报各的位置互相打架。
-        private func primaryScrollView() -> UIScrollView? {
-            guard let scopeView, let window = scopeView.window else { return nil }
-            let scopeRect = scopeView.convert(scopeView.bounds, to: window)
-            var best: UIScrollView?
-            var bestArea: CGFloat = 0
-            for observation in observations.values {
-                guard let scrollView = observation.scrollView,
-                      isVisible(scrollView, inside: scopeRect, window: window) else { continue }
-                let intersection = scrollView.convert(scrollView.bounds, to: window)
-                    .intersection(scopeRect)
-                guard !intersection.isNull else { continue }
-                let area = intersection.width * intersection.height
-                if area > bestArea {
-                    bestArea = area
-                    best = scrollView
-                }
-            }
-            return best
-        }
-
-        private func verticalScrollViews(in view: UIView) -> [UIScrollView] {
-            var result: [UIScrollView] = []
-            if let scrollView = view as? UIScrollView,
-               scrollView.bounds.height > 80,
-               // 只看内容本身够不够长。把安全区算进来的话,顶栏一折叠这条判断就会
-               // 翻面,整个列表会先退出观察再被重新纳入,状态跟着来回跳。
-               scrollView.contentSize.height > scrollView.bounds.height + 1 {
-                result.append(scrollView)
-            }
-            for subview in view.subviews {
-                result.append(contentsOf: verticalScrollViews(in: subview))
-            }
-            return result
-        }
-
-        private func isVisible(
-            _ scrollView: UIScrollView,
-            inside scopeRect: CGRect,
-            window: UIWindow
-        ) -> Bool {
-            guard scrollView.window === window,
-                  !scrollView.isHidden,
-                  scrollView.alpha > 0.01 else { return false }
-            let visibleRect = scrollView.convert(scrollView.bounds, to: window)
-            let intersection = visibleRect.intersection(scopeRect)
-            return !intersection.isNull
-                && intersection.width > min(80, visibleRect.width * 0.5)
-                && intersection.height > min(80, visibleRect.height * 0.25)
-        }
-    }
-}
-
-private struct MinimalTopNavigationBar: View {
-    @Binding var searchText: String
-    @Binding var settingsSearchPresented: Bool
-    @Binding var searchScope: LibrarySearchScope?
-    let searchContext: LibrarySearchScope?
-    @Binding var categoriesCollapsed: Bool
-    let libraryPages: [MinimalNavigationPage]
-    let selection: MinimalNavigationPage
-    let onSelect: (MinimalNavigationPage) -> Void
-    let onSubmitSearch: () -> Void
-    let onEditSearchLayout: () -> Void
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @FocusState private var searchFieldFocused: Bool
-    @State private var isSearchEditing = true
-    @Namespace private var librarySelectionIndicator
-
-    // 固定高度与字号跟随 Dynamic Type；默认字号下数值与原来一致。
-    @ScaledMetric(relativeTo: .subheadline)
-    private var chipRowHeight: CGFloat = MinimalNavigationChromeMetrics.categoryRowHeight
-    @ScaledMetric(relativeTo: .subheadline) private var chipHeight: CGFloat = 34
-    @ScaledMetric(relativeTo: .subheadline) private var collapsedChipHeight: CGFloat = 44
-    @ScaledMetric(relativeTo: .subheadline) private var searchFieldMinHeight: CGFloat = 44
-    @ScaledMetric(relativeTo: .subheadline) private var chipFontSize: CGFloat = 14.5
-    @ScaledMetric(relativeTo: .subheadline) private var collapsedChipFontSize: CGFloat = 14
-    @ScaledMetric(relativeTo: .subheadline) private var searchFontSize: CGFloat = 15.5
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                libraryHomeButton
-
-                if isSearchEditing || selection == .settings {
-                    searchField
-                } else {
-                    Button {
-                        isSearchEditing = true
-                        searchFieldFocused = true
-                        select(.search)
-                    } label: {
-                        Label(searchText.isEmpty ? searchPrompt : searchText, systemImage: "magnifyingglass")
-                            .font(.system(size: searchFontSize))
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("minimal.search.collapsed")
-                }
-
-                if categoriesCollapsed,
-                   let selectedLibraryPage {
-                    collapsedLibraryButton(selectedLibraryPage)
-                        .transition(.scale(scale: 0.86).combined(with: .opacity))
-                }
-
-                if selection == .search, let searchContext {
-                    SearchScopeSwitchButton(scope: $searchScope, context: searchContext)
-                        .labelStyle(.iconOnly)
-                        .font(.system(size: 17, weight: .semibold))
-                        .buttonStyle(.plain)
-                        .foregroundStyle(Color.accentColor)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .background(Color.accentColor.opacity(0.14), in: Circle())
-                }
-
-                if selection == .search {
-                    searchLayoutButton
-                }
-
-                actionButton(
-                    page: .settings,
-                    systemImage: "gearshape",
-                    title: "settings_title"
-                )
-            }
-            .padding(.horizontal, 12)
-
-            if !categoriesCollapsed && (isSearchEditing || selection != .search) {
-                ScrollViewReader { proxy in
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 7) {
-                            ForEach(libraryPages) { page in
-                                libraryButton(page)
-                                    .id(page.id)
-                            }
-                        }
-                        .padding(.horizontal, 12)
-                    }
-                    // 固定在顶上的分类行:iPhone Duo 竖栏时停在竖栏前,不滑到竖排状态栏与摄像头底下。
-                    .pmPinnedRowStopsAtVerticalBar()
-                    .frame(height: chipRowHeight)
-                    .padding(.top, MinimalNavigationChromeMetrics.categoryRowTopPadding)
-                    .onChange(of: selection.id, initial: true) { _, pageID in
-                        guard libraryPages.contains(where: { $0.id == pageID }) else { return }
-                        if reduceMotion {
-                            proxy.scrollTo(pageID, anchor: .center)
-                        } else {
-                            withAnimation(.easeOut(duration: 0.2)) {
-                                proxy.scrollTo(pageID, anchor: .center)
-                            }
-                        }
-                    }
-                }
-                .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-        .padding(.top, 6)
-        .padding(.bottom, 8)
-        .animation(
-            reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.86),
-            value: categoriesCollapsed
-        )
-        .onChange(of: selection) { _, newSelection in
-            settingsSearchPresented = false
-            if newSelection != .search {
-                searchFieldFocused = false
-                isSearchEditing = true
-            }
-        }
-        .onChange(of: searchFieldFocused) { _, isFocused in
-            // Dismissing the keyboard leaves submitted search results visible.
-            if selection == .settings, isFocused {
-                settingsSearchPresented = true
-            }
-        }
-        .onChange(of: isSearchEditing) { _, isEditing in
-            if isEditing {
-                Task { @MainActor in searchFieldFocused = true }
-            }
-        }
-        .onChange(of: settingsSearchPresented) { _, isPresented in
-            if selection == .settings, !isPresented {
-                searchFieldFocused = false
-            }
-        }
-    }
-
-    private var searchPrompt: String {
-        if selection == .settings {
-            return SettingsStrings.text("Search settings")
-        }
-        if selection == .search, let searchScope {
-            return String(format: String(localized: "search_scope_prompt_format"), searchScope.title)
-        }
-        return String(localized: "search_title")
-    }
-
-    private var searchField: some View {
-        HStack(spacing: 9) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(searchFieldFocused ? Color.accentColor : Color.secondary)
-
-            TextField(searchPrompt, text: $searchText)
-                .font(.system(size: searchFontSize))
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .submitLabel(.search)
-                .focused($searchFieldFocused)
-                .onSubmit {
-                    searchFieldFocused = false
-                    if selection != .settings {
-                        isSearchEditing = false
-                        categoriesCollapsed = true
-                    }
-                    onSubmitSearch()
-                }
-                .accessibilityIdentifier("minimal.search")
-
-            if !searchText.isEmpty {
-                Button {
-                    searchText = ""
-                    searchFieldFocused = true
-                    if selection != .settings { select(.search) }
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.tertiary)
-                        .frame(width: 28, height: 40)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Text("clear"))
-            }
-        }
-        .padding(.leading, 14)
-        .padding(.trailing, searchText.isEmpty ? 14 : 6)
-        .frame(maxWidth: .infinity, minHeight: searchFieldMinHeight)
-        .background(.thinMaterial, in: Capsule())
-        .background(Color.secondary.opacity(0.08), in: Capsule())
-        .overlay {
-            Capsule()
-                .stroke(
-                    searchFieldFocused
-                        ? Color.accentColor.opacity(0.55)
-                        : Color.primary.opacity(0.08),
-                    lineWidth: searchFieldFocused ? 1.5 : 1
-                )
-        }
-        .shadow(color: Color.black.opacity(0.07), radius: 5, y: 2)
-        .contentShape(Capsule())
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                if selection != .settings { select(.search) }
-                searchFieldFocused = true
-            }
-        )
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text(searchPrompt))
-    }
-
-    private var libraryHomeButton: some View {
-        Button {
-            select(libraryPages.first ?? .search)
-        } label: {
-            Image(systemName: "books.vertical")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Color.secondary)
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
-                .background(.thinMaterial, in: Circle())
-                .background(Color.secondary.opacity(0.08), in: Circle())
-                .overlay {
-                    Circle()
-                        .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5)
-                }
-                .shadow(color: Color.black.opacity(0.08), radius: 5, y: 2)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text("library_title"))
-    }
-
-    private func actionButton(
-        page: MinimalNavigationPage,
-        systemImage: String,
-        title: LocalizedStringKey
-    ) -> some View {
-        let isSelected = selection == page
-        return Button {
-            select(page)
-        } label: {
-            actionButtonLabel(systemImage: systemImage, isSelected: isSelected)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text(title))
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-    /// 搜索页的「调整搜索结果」。极简导航没有系统导航栏, 入口放在设置按钮左边。
-    private var searchLayoutButton: some View {
-        Button(action: onEditSearchLayout) {
-            actionButtonLabel(systemImage: "slider.horizontal.3", isSelected: false)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text("search_layout_title"))
-        .accessibilityIdentifier("search.layout.button")
-    }
-
-    private func actionButtonLabel(systemImage: String, isSelected: Bool) -> some View {
-        Image(systemName: systemImage)
-            .font(.system(size: 16, weight: .semibold))
-            .foregroundStyle(Color.accentColor)
-            .frame(width: 44, height: 44)
-            .contentShape(Rectangle())
-            .background {
-                Circle()
-                    .fill(Color.accentColor.opacity(isSelected ? 0.2 : 0.14))
-            }
-            .background(.thinMaterial, in: Circle())
-            .overlay {
-                Circle()
-                    .strokeBorder(Color.accentColor.opacity(0.32), lineWidth: 0.5)
-            }
-            .shadow(color: Color.black.opacity(0.07), radius: 5, y: 2)
-    }
-
-    private func libraryButton(_ page: MinimalNavigationPage) -> some View {
-        let isSelected = selection == page
-        return Button {
-            select(page)
-        } label: {
-            pageTitle(page)
-                .font(.system(size: chipFontSize, weight: isSelected ? .semibold : .regular))
-                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-                .padding(.horizontal, 15)
-                .frame(height: chipHeight)
-                .background {
-                    if isSelected {
-                        Capsule()
-                            .fill(Color.accentColor.opacity(0.16))
-                            .matchedGeometryEffect(
-                                id: "minimal-library-selection",
-                                in: librarySelectionIndicator
-                            )
-                    } else {
-                        Capsule()
-                            .fill(Color.secondary.opacity(0.1))
-                    }
-                }
-                .overlay {
-                    Capsule()
-                        .strokeBorder(
-                            isSelected
-                                ? Color.accentColor.opacity(0.38)
-                                : Color.primary.opacity(0.06),
-                            lineWidth: 0.5
-                        )
-                }
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-    private func collapsedLibraryButton(_ page: MinimalNavigationPage) -> some View {
-        Button {
-            categoriesCollapsed = false
-        } label: {
-            HStack(spacing: 5) {
-                pageTitle(page)
-                    .font(.system(size: collapsedChipFontSize, weight: .semibold))
-                    .lineLimit(1)
-
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 10, weight: .bold))
-            }
-            .foregroundStyle(Color.accentColor)
-            .padding(.horizontal, 12)
-            .frame(height: collapsedChipHeight)
-            .background(Color.accentColor.opacity(0.16), in: Capsule())
-            .overlay {
-                Capsule()
-                    .strokeBorder(Color.accentColor.opacity(0.38), lineWidth: 0.5)
-            }
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .fixedSize(horizontal: true, vertical: false)
-    }
-
-    private var selectedLibraryPage: MinimalNavigationPage? {
-        libraryPages.first(where: { $0 == selection })
-    }
-
-    private func select(_ page: MinimalNavigationPage) {
-        if selection == .settings {
-            settingsSearchPresented = false
-            searchFieldFocused = false
-        }
-        if reduceMotion {
-            onSelect(page)
-        } else {
-            withAnimation(.easeOut(duration: 0.18)) {
-                onSelect(page)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func pageTitle(_ page: MinimalNavigationPage) -> some View {
-        switch page {
-        case .librarySection(let section):
-            Text(section.title)
-        case .search:
-            Text("search_title")
-        case .settings:
-            Text("settings_title")
-        }
     }
 }
 
@@ -2673,28 +2221,49 @@ private extension View {
     }
 }
 
+/// 极简模式底部的停靠播放条：封面、标题与进度、一颗辅助键、实心圆的大播放键。
+/// 圆角板浮在屏幕底边上方，两侧留出一点边。
 struct MinimalNowPlayingAccessory: View {
     var onTap: () -> Void
+    var onShowQueue: () -> Void
     @Environment(\.pmHeightClass) private var heightClass
+    /// 固定条高跟随 Dynamic Type。
+    @ScaledMetric(relativeTo: .body) private var contentHeight: CGFloat = 50
 
     var body: some View {
-        // 手机横屏下胶囊收窄并靠向尾侧:横贯七百多点的一条厚板会把本来就只剩三百多点
+        // 手机横屏下条子收窄并靠向尾侧:横贯七百多点的一条厚板会把本来就只剩三百多点
         // 的版面压得更死,让开之后左侧内容在播放条旁边仍然看得见。
-        let capsuleWidth = heightClass.value(620, compact: 380)
-        let capsuleAlignment = heightClass.pick(Alignment.center, compact: .trailing)
-        return MiniPlayerView(onTap: onTap)
-            .frame(maxWidth: capsuleWidth)
-            .nowPlayingAccessorySurface(
-                Capsule(),
-                legacyMaterial: .ultraThinMaterial,
-                legacyStrokeOpacity: 0.08,
-                legacyShadow: (opacity: 0.16, radius: 12, y: 6)
+        let barWidth = heightClass.value(620, compact: 420)
+        let barAlignment = heightClass.pick(Alignment.center, compact: .trailing)
+        let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
+        return HStack(spacing: 4) {
+            MiniPlayerSwipeContent(
+                onTap: onTap,
+                artworkSize: heightClass.value(48, compact: 40),
+                artworkCornerRadius: 10,
+                artworkTrailingSpacing: 12,
+                titleFont: .callout,
+                showsSubtitle: true,
+                contentHeight: heightClass.value(contentHeight, compact: 42),
+                showsProgress: true
             )
-            .contentShape(Capsule())
-            .frame(maxWidth: .infinity, alignment: capsuleAlignment)
-            .padding(.horizontal, 16)
-            .padding(.top, heightClass.value(6, compact: 4))
-            .padding(.bottom, heightClass.value(10, compact: 6))
+            MinimalDockTransportControls(onShowQueue: onShowQueue)
+        }
+        .padding(.leading, 8)
+        .padding(.trailing, 6)
+        .padding(.vertical, heightClass.value(8, compact: 5))
+        .frame(maxWidth: barWidth)
+        .nowPlayingAccessorySurface(
+            shape,
+            legacyMaterial: .regularMaterial,
+            legacyStrokeOpacity: 0.08,
+            legacyShadow: (opacity: 0.16, radius: 14, y: 6)
+        )
+        .contentShape(shape)
+        .frame(maxWidth: .infinity, alignment: barAlignment)
+        .padding(.horizontal, 12)
+        .padding(.top, heightClass.value(6, compact: 4))
+        .padding(.bottom, heightClass.value(8, compact: 4))
     }
 }
 
@@ -2837,7 +2406,7 @@ extension ContentView {
         ]
         switch page {
         case "home":
-            selectTab(0)
+            selectMinimalPage(.home)
         case "library":
             openLibraryDeepLink(.root)
         case _ where namedSections[page] != nil:
@@ -2919,15 +2488,50 @@ extension ContentView {
             }
             presentNowPlaying()
         case "search":
-            selectTab(2)
+            selectMinimalPage(.search)
             // `search:<搜索词>` 直接搜这个词(看 AI 补充里的专辑组)。
             if parts.count > 1 { searchText = parts[1] }
         case "settings":
-            selectTab(3)
+            selectMinimalPage(.settings)
         case "onboarding":
             showInitialOnboarding = true
         default:
             plog("🧪 DebugLaunchAutomation: unknown page '\(page)'")
+        }
+    }
+
+    /// `PRIMUSE_DEBUG_MINIMAL_STEPS=music,section:albums,radio,spoken,music,search,cancel,settings,back,home`：
+    /// 极简模式下按顺序走一遍点分段、点分类、搜索与取消、设置与返回用的同一套函数，每步隔
+    /// `PRIMUSE_DEBUG_MINIMAL_STEP_SECONDS`（默认 4）秒，日志记下每步落在哪一页，给编译机逐步截图对照。
+    @MainActor
+    private func runDebugMinimalSteps() async {
+        let environment = ProcessInfo.processInfo.environment
+        guard navigationMode == .minimal,
+              let raw = environment["PRIMUSE_DEBUG_MINIMAL_STEPS"], !raw.isEmpty else { return }
+        let interval = environment["PRIMUSE_DEBUG_MINIMAL_STEP_SECONDS"].flatMap(Double.init) ?? 4
+        for _ in 0..<30 where library.visibleSongs.isEmpty {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+        }
+        for step in raw.split(separator: ",").map(String.init) {
+            try? await Task.sleep(for: .seconds(interval))
+            guard !Task.isCancelled else { return }
+            if let tab = MinimalTopTab(rawValue: step) {
+                selectMinimalTopTab(tab)
+            } else if step.hasPrefix("section:"),
+                      let section = LibrarySection(rawValue: String(step.dropFirst("section:".count))) {
+                animateMinimalSelection { selectMinimalPage(.librarySection(section)) }
+            } else if step == "search" {
+                selectMinimalPage(.search)
+            } else if step == "cancel" {
+                cancelMinimalSearch()
+            } else if step == "settings" {
+                selectMinimalPage(.settings)
+            } else if step == "back" {
+                minimalSettingsReturn?.action()
+            }
+            try? await Task.sleep(for: .milliseconds(600))
+            plog("🧪 DebugLaunchAutomation: minimal step \(step) → \(currentMinimalPage.id)")
         }
     }
 

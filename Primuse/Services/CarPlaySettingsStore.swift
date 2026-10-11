@@ -132,6 +132,7 @@ final class CarPlayFolderLibrary {
             let library = AppServices.shared.musicLibrary
             let sources = AppServices.shared.sourcesStore.allSources
             let songs = library.visibleSongs
+            let spokenWordSongIDs = library.spokenWordSongIDs
             let collections = library.appleMusicFolderCollections(availableSongs: songs)
             var descriptors = sources.map(LibraryFolderSourceDescriptor.init(source:))
             var known = Set(descriptors.map(\.sourceID))
@@ -176,7 +177,8 @@ final class CarPlayFolderLibrary {
                         }
                     ))
                 }
-                return LibraryFolderIndexBuilder.build(sources: resolved, songs: songs, virtualCollections: collections)
+                return LibraryFolderIndexBuilder.build(sources: resolved, songs: songs, virtualCollections: collections,
+                                                       spokenWordSongIDs: spokenWordSongIDs)
             }
             let result = await withTaskCancellationHandler {
                 await task.value

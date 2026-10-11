@@ -470,17 +470,17 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         do {
             try await client.uploadItem(at: localURL, toPath: relativePath) { _ in true }
         } catch {
+            if let denial = MetadataWriteFailurePolicy.denial(error) { throw denial }
             let nsError = error as NSError
             guard nsError.domain == NSPOSIXErrorDomain,
                   nsError.code == Int(EEXIST) else {
                 throw error
             }
-            try await client.append(
-                data: data,
-                toPath: relativePath,
-                offset: 0,
-                progress: { _ in true }
-            )
+            do {
+                try await client.append(data: data, toPath: relativePath, offset: 0, progress: { _ in true })
+            } catch {
+                throw MetadataWriteFailurePolicy.denial(error) ?? error
+            }
         }
     }
 

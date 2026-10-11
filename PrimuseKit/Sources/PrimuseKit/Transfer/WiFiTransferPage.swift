@@ -51,6 +51,7 @@ public enum WiFiTransferPage {
         "receiveWaitingFiles": "Waiting for the next file…",
         "browserSender": "Web browser",
         "receiveCount": "%ld / %ld files",
+        "speedFormat": "%@/s",
         "receiveIncomplete": "Some files were not received. Completed files are kept; retry the remaining files on the sender.",
         "receiveInterrupted": "Transfer incomplete",
         "receiveCompleted": "Received successfully",

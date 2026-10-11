@@ -156,3 +156,4 @@
 "discoveryConfiguration" = "현재 앱에 Bonjour 서비스 선언이 없습니다. 완전한 버전을 설치한 후 다시 여세요.";
 "receivingDevice" = "수신 기기";
 "chooseReceiver" = "수신 기기 선택";
+"speedFormat" = "%@/s";

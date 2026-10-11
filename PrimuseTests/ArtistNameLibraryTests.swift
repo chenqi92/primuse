@@ -80,6 +80,10 @@ final class FileAlbumArtistLibraryTests: XCTestCase {
             XCTAssertEqual(cached.albumTitle, "大人的情\u{FFFD}")
             XCTAssertNil(cached.albumPinyin)
             XCTAssertFalse(MusicLibrary.repairLegacyChineseMetadataText(in: &cached))
+            XCTAssertEqual(cached.albumTitle, "大人的情\u{FFFD}")
+            // 装载时修完紧接着补派生 ID，里面会再跑一遍文件名修复。
+            MusicLibrary.fillDerivedIDs(&cached)
+            XCTAssertEqual(cached.albumTitle, "大人的情\u{FFFD}")
         }
     }
 
@@ -288,6 +292,74 @@ final class FileAlbumArtistLibraryTests: XCTestCase {
         XCTAssertEqual(result.translatedLyricsText, reference.translatedLyricsText)
     }
 
+    func testRepeatedFLACGenresSurviveLocalRangeAndLibraryReload() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MultipleGenreTags-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let data = completeFLACFixture(genres: ["J-Pop", "Vocaloid", "VOCALOID"])
+        let url = directory.appendingPathComponent("track.flac")
+        try data.write(to: url)
+        let native = try XCTUnwrap(FileMetadataReader.completeFLACMetadata(from: data, fileExtension: "flac"))
+        let local = await FileMetadataReader.read(from: url)
+        let range = await FileMetadataReader.read(from: data, fileExtension: "flac")
+        let session = await FileMetadataReader.RangeReadSession().read(from: data, fileExtension: "flac")
+        let service = MetadataService()
+        let mappedLocal = await service.loadMetadata(
+            for: url, allowOnlineFetch: false, trustedSource: false, discoverSidecars: false
+        )
+        let mappedRange = await service.loadEmbeddedMetadata(
+            from: data, fileExtension: "flac", fallbackTitle: "Track"
+        )
+        for genre in [native.genre, local.genre, range.genre, session.genre,
+                      mappedLocal.genre, mappedRange.genre] {
+            XCTAssertEqual(genre, "J-Pop; Vocaloid")
+        }
+
+        let storage = directory.appendingPathComponent("library", isDirectory: true)
+        let library = MusicLibrary(storageDirectory: storage, artistNameConfiguration: .defaultValue)
+        let songs = (1...16).map { song(id: "\($0)", metadata: local) }
+        let legacySongs = songs.map { song in
+            var legacy = song
+            legacy.genre = "J-Pop"
+            return legacy
+        }
+        library.addSongs(legacySongs, affectedSourceIDs: ["local-tags"])
+        try await library.persistNowAndWait().get()
+        XCTAssertTrue(library.songs(forGenre: "vocaloid").isEmpty)
+        // Re-reading file tags replaces the old, truncated metadata on the
+        // same song IDs; the derived index must recover the second category.
+        library.replaceSongs(songs)
+        for _ in 0..<200 where library.visibleGenres.count != 2 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try await library.persistNowAndWait().get()
+        let restored = MusicLibrary(storageDirectory: storage, artistNameConfiguration: .defaultValue)
+        for _ in 0..<200 where restored.visibleGenres.count != 2 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        for id in ["j-pop", "vocaloid"] {
+            XCTAssertEqual(Set(restored.songs(forGenre: id).map(\.id)), Set(songs.map(\.id)))
+            XCTAssertEqual(restored.albums(forGenre: id).count, 1)
+            XCTAssertEqual(restored.visibleGenres.first { $0.id == id }?.songCount, 16)
+            XCTAssertEqual(restored.visibleGenres.first { $0.id == id }?.albumCount, 1)
+        }
+        for value in ["J-Pop", "Vocaloid"] {
+            let cases: [(SmartPlaylistOperator, Int)] = [
+                (.equals, 16), (.notEquals, 0), (.contains, 16), (.notContains, 0),
+            ]
+            for (op, count) in cases {
+                let smart = SmartPlaylist(
+                    name: "Genre rule", rules: [.init(field: .genre, op: op, value: value)]
+                )
+                XCTAssertEqual(
+                    SmartPlaylistEngine.match(smart, in: restored, history: .shared).count,
+                    count, "\(value) \(op.rawValue)"
+                )
+            }
+        }
+    }
+
     func testFLACFastSessionPreservesLegacyTailPrecedence() async {
         let head = completeFLACFixture()
         let tail = tagFixture(format: "mp3", key: "TPE2", singer: "Tail Artist")
@@ -418,7 +490,8 @@ final class FileAlbumArtistLibraryTests: XCTestCase {
             albumArtistName: AlbumGroupingPolicy.resolvedAlbumArtistName(
                 albumArtistName: metadata.albumArtist, trackArtistName: metadata.artist
             ),
-            duration: 180, fileFormat: .mp3, filePath: "\(id).mp3", sourceID: "local-tags"
+            duration: 180, fileFormat: .mp3, filePath: "\(id).mp3", sourceID: "local-tags",
+            genre: metadata.genre
         )
     }
 
@@ -426,7 +499,7 @@ final class FileAlbumArtistLibraryTests: XCTestCase {
         Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")!
     }
 
-    private func completeFLACFixture(extraPicture: Bool = false) -> Data {
+    private func completeFLACFixture(extraPicture: Bool = false, genres: [String] = ["Pop"]) -> Data {
         func uint32(_ value: Int, littleEndian: Bool = false) -> Data {
             Data((littleEndian ? [0, 8, 16, 24] : [24, 16, 8, 0]).map { UInt8((value >> $0) & 255) })
         }
@@ -438,10 +511,11 @@ final class FileAlbumArtistLibraryTests: XCTestCase {
         let frames = Data(base64Encoded: "//hZGABrAAAAAAAAEIr/+FkYAWwAAAAAAACH///4WRgCZQAAAAAAAL5l//hZGANiAAAAAAAAKRD/+FkYBHcAAAAAAADNUf/4WRgFcAAAAAAAAFok//hZGAZ5AAAAAAAAY77/+FkYB34AAAAAAAD0y//4WRgIUwAAAAAAACs5//h5GAkKQ3AAAAAAAACYhQ==")!
         let tags = ["TITLE=Track", "ARTIST=Singer One", "ARTIST=Singer Two", "ALBUM=Compilation",
                     "ALBUMARTIST=Various Artists", "TRACKNUMBER=2/10", "DISCNUMBER=1/2",
-                    "DATE=2026-09-06", "GENRE=Pop", "LYRICS=[00:00.00]Original lyrics",
+                    "DATE=2026-09-06", "LYRICS=[00:00.00]Original lyrics",
                     "LYRICS:en=[00:00.00]Original lyrics", "LYRICS:zh-Hans=[00:00.00]译文",
                     "LYRICS_LANGUAGE=en", "REPLAYGAIN_TRACK_GAIN=-7.5 dB", "REPLAYGAIN_TRACK_PEAK=0.95",
                     "REPLAYGAIN_ALBUM_GAIN=-6 dB", "REPLAYGAIN_ALBUM_PEAK=0.98"]
+            + genres.map { "GENRE=\($0)" }
         var comments = uint32(0, littleEndian: true) + uint32(tags.count, littleEndian: true)
         for tag in tags {
             let bytes = Data(tag.utf8)

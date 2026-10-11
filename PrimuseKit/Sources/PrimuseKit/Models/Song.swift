@@ -35,6 +35,8 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     public var filePath: String // relative within source
     public var sourceID: String
     public var fileSize: Int64
+    /// Multiple embedded genres are joined with "; "; use `GenreTagValues`
+    /// to recover individual labels without splitting punctuation in names.
     public var genre: String?
     public var dateAdded: Date
     public var coverArtFileName: String?
@@ -766,7 +768,10 @@ public enum MediaMetadataTextRepair {
         }
         let onlyQuestionMarks = cleaned.filter { $0 == "?" }.count >= 2
             && cleaned.allSatisfy { "?&/;、；".contains($0) || $0.isWhitespace }
+        // 专辑名没有文件名可替，读得出的前缀就是全部线索：截断的标签修出来是
+        // 「大人的情�」（见 `repairedAlbumTitle`），下一次装载不能再把它清掉。
         let lostBytes = TextEncodingRepair.hasUnrecoverableReplacement(in: cleaned)
+            && (allowsFallback || !hasReadableText(cleaned))
         let truncated = TextEncodingRepair.looksCorrupted(cleaned)
             && TextEncodingRepair.hasTruncatedUTF8RewritePrefix(cleaned)
         if hasBinaryData || onlyQuestionMarks || lostBytes || truncated {
@@ -780,6 +785,12 @@ public enum MediaMetadataTextRepair {
             if hasBinaryData || onlyQuestionMarks || lostBytes { return nil }
         }
         return cleaned.isEmpty ? nil : cleaned
+    }
+
+    private static func hasReadableText(_ value: String) -> Bool {
+        value.unicodeScalars.contains {
+            $0.value != 0xFFFD && ($0.properties.isAlphabetic || $0.properties.numericType != nil)
+        }
     }
 
     public struct FileNameIdentity: Sendable, Equatable {

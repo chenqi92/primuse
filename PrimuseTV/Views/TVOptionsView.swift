@@ -435,10 +435,13 @@ struct TVFullscreenEffectPicker: View {
     private var coverDrivenAmbient = AppThemePreferences.defaultCoverDrivenAmbient
     @AppStorage(ImmersiveFrameRateMode.storageKey)
     private var frameRateRawValue = ImmersiveFrameRateMode.defaultValue.rawValue
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @FocusState private var focusedEffect: FullscreenPlayerEffect?
     @FocusState private var lyricsToggleFocused: Bool
     @FocusState private var frameRateFocused: Bool
+    /// 只有焦点停稳的那张卡片播放预览动画。遥控器一路按过去时不逐张启停整套舞台。
+    @State private var animatedEffect: FullscreenPlayerEffect?
 
     private var frameRate: ImmersiveFrameRateMode {
         ImmersiveFrameRateMode(storedValue: frameRateRawValue)
@@ -458,7 +461,6 @@ struct TVFullscreenEffectPicker: View {
 
     var body: some View {
         GeometryReader { _ in
-            let columns = Array(repeating: GridItem(.flexible(), spacing: 18), count: 4)
             ZStack {
                 Color.black.opacity(0.92).ignoresSafeArea()
 
@@ -498,21 +500,23 @@ struct TVFullscreenEffectPicker: View {
                             lyricsMotionEnabled ? [.isButton, .isSelected] : .isButton
                         )
                     }
+                    // 两个开关在右上角,和左边第一列卡片没有上下重叠:不划成焦点区,从网格往上按不过去。
+                    .focusSection()
 
                     ScrollView(.vertical, showsIndicators: false) {
-                        LazyVStack(alignment: .leading, spacing: 24) {
+                        // 不用 Lazy 容器:当前效果排在下面几排时还没建出来,打开时焦点落不到它上面,
+                        // 只能留在被盖住的播放控件上(遥控器只有个别方向能按进网格)。卡片一共十来张。
+                        VStack(alignment: .leading, spacing: 24) {
                             ForEach(FullscreenEffectCollection.allCases) { collection in
                                 VStack(alignment: .leading, spacing: 10) {
                                     Text(collection.title)
                                         .tvFont(.caption, weight: .semibold)
                                         .foregroundStyle(.white.opacity(0.66))
 
-                                    LazyVGrid(columns: columns, spacing: 18) {
-                                        ForEach(collection.effects) { candidate in
-                                            effectChoice(candidate)
-                                        }
-                                    }
+                                    effectRows(collection.effects)
                                 }
+                                // 每组一个焦点区:下一组卡片少、正下方没有卡时,按下也能进到这一组。
+                                .focusSection()
                             }
                         }
                         .padding(.horizontal, 14)
@@ -524,9 +528,39 @@ struct TVFullscreenEffectPicker: View {
             }
         }
         .focusSection()
+        .defaultFocus($focusedEffect, selectedEffect)
         .onAppear { focusedEffect = selectedEffect }
+        .task(id: focusedEffect) {
+            animatedEffect = nil
+            guard let focusedEffect else { return }
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            animatedEffect = focusedEffect
+        }
         .accessibilityAddTraits(.isModal)
         .environment(\.colorScheme, .dark)
+    }
+
+    private static let columnCount = 4
+
+    /// 一组卡片按四列一行排开,最后一行不满时补空位,卡片宽度和上面几行一样。
+    private func effectRows(_ effects: [FullscreenPlayerEffect]) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            ForEach(Array(stride(from: 0, to: effects.count, by: Self.columnCount)), id: \.self) { start in
+                let end = min(start + Self.columnCount, effects.count)
+                HStack(alignment: .top, spacing: 18) {
+                    ForEach(effects[start..<end]) { candidate in
+                        effectChoice(candidate)
+                            .frame(maxWidth: .infinity)
+                    }
+                    ForEach(0..<(Self.columnCount - (end - start)), id: \.self) { _ in
+                        Color.clear
+                            .frame(maxWidth: .infinity, maxHeight: 0)
+                            .accessibilityHidden(true)
+                    }
+                }
+            }
+        }
     }
 
     /// 遥控器上按一下换到下一档，四档循环。
@@ -574,13 +608,12 @@ struct TVFullscreenEffectPicker: View {
             }
         } label: {
             VStack(alignment: .leading, spacing: 11) {
-                ImmersiveEffectPreview(
+                TVEffectPickerThumbnail(
                     effect: candidate,
-                    isActive: focused || selected,
+                    isActive: animatedEffect == candidate,
                     palette: previewPalette
                 )
-                .aspectRatio(16 / 9, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .equatable()
                 .overlay(alignment: .topTrailing) {
                     Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 24, weight: .semibold))
@@ -612,12 +645,41 @@ struct TVFullscreenEffectPicker: View {
                 RoundedRectangle(cornerRadius: 14)
                     .strokeBorder(selected ? previewPalette.primary : .white.opacity(0.20), lineWidth: selected ? 2 : 1)
             }
-            .tvFocusRing(focused, radius: 14, accent: .white, scale: 1.04, lift: 6)
+            // 不用 tvFocusRing:它给每张卡都挂一层阴影,十几张整套舞台缩略图的阴影在焦点缩放时逐帧重算,
+            // 而这里是近黑的底,阴影本来就看不见。
+            .overlay {
+                RoundedRectangle(cornerRadius: 14)
+                    .strokeBorder(.white, lineWidth: focused ? 3 : 0)
+            }
+            .scaleEffect(focused && !reduceMotion ? 1.04 : 1)
+            .offset(y: focused && !reduceMotion ? -4 : 0)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: focused)
         }
         .buttonStyle(TVBareButtonStyle())
         .focused($focusedEffect, equals: candidate)
         .focusEffectDisabled()
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+/// 选择器卡片里的效果预览。每张都是一整套缩小的舞台,输入没变时不重算:
+/// 移动焦点、换歌词都会让选择器整体重新求值,不该带着十几套舞台一起重建。
+private struct TVEffectPickerThumbnail: View, @MainActor Equatable {
+    let effect: FullscreenPlayerEffect
+    let isActive: Bool
+    let palette: ImmersiveArtworkPalette
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.effect == rhs.effect
+            && lhs.isActive == rhs.isActive
+            && lhs.palette.primary == rhs.palette.primary
+            && lhs.palette.secondary == rhs.palette.secondary
+    }
+
+    var body: some View {
+        ImmersiveEffectPreview(effect: effect, isActive: isActive, palette: palette)
+            .aspectRatio(16 / 9, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 #endif

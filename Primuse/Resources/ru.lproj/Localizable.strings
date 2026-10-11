@@ -3486,7 +3486,10 @@
 "ai_recommendation_unit_footer" = "В смешанном режиме первые две карточки в разделе «Для тебя» на главной — целые альбомы, остальные — треки. Альбомы играют в исходном порядке, а разделённые по CUE — по номерам дорожек.";
 "smart_playlist_combinator_and" = "Все условия";
 "lyrics_converter_summary_format" = "Строки %1$d · Синхронизация %2$d · Синхронизация %3$d по словам";
-"minimal_mode_description" = "Скрывает нижнюю панель навигации, перемещает переключение медиатеки вверх и открывает настройки с помощью боковой кнопки.";
+"minimal_mode_description" = "Скрывает нижнюю панель навигации: вверху переключайтесь между «Главная», «Музыка», «Радио» и «Аудио», плеер закреплён внизу.";
+"minimal_show_home" = "Показывать «Главная»";
+"minimal_tab_spoken" = "Аудио";
+"minimal_radio_on_air" = "В эфире";
 "relay_share_password_placeholder" = "Дополнительный пароль прослушивателя.";
 "a11y_close_lyrics" = "Скрыть текст";
 "icloud_sync_enabled" = "Включить синхронизацию iCloud.";
@@ -4453,6 +4456,12 @@
 "diagnostics_feedback_attachments" = "Вложения (необязательно)";
 "diagnostics_feedback_message" = "Пожелания или предложения";
 "diagnostics_feedback_compose" = "Открыть почту";
+"diagnostics_feedback_images" = "Изображения (необязательно)";
+"diagnostics_feedback_add_image" = "Добавить изображения";
+"diagnostics_feedback_images_footer %lld" = "До %lld изображений, уменьшенных и отправленных вместе с письмом.";
+"diagnostics_feedback_images_loading" = "Загрузка изображений…";
+"diagnostics_feedback_image_failed" = "Некоторые изображения не удалось прочитать, они пропущены.";
+"diagnostics_feedback_remove_image" = "Удалить изображение";
 "diagnostics_logs_title" = "Журналы";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */
@@ -5831,3 +5840,7 @@
 "ai_consent_privacy_row" = "Какие данные использует встроенный ИИ";
 "ai_consent_status_agreed" = "Согласие дано";
 "ai_consent_status_not_agreed" = "Согласие не дано";
+
+"source_mutation_permission_denied" = "Нет разрешения на изменение исходных файлов.";
+"source_mutation_read_only" = "Этот источник не разрешает изменять файлы.";
+"metadata_writeback_local_only_notice" = "Источник отклонил запись. Изменения сохранены только в Primuse; исходный файл не обновлён.";

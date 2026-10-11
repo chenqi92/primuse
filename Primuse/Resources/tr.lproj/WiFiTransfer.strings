@@ -154,3 +154,4 @@
 "discoveryConfiguration" = "Bu sürümde Bonjour hizmet bildirimi eksik. Tam bir sürüm yükleyip yeniden açın.";
 "receivingDevice" = "Alıcı cihaz";
 "chooseReceiver" = "Alıcı cihaz seçin";
+"speedFormat" = "%@/s";

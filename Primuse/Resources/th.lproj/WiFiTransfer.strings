@@ -154,3 +154,4 @@
 "discoveryConfiguration" = "แอปเวอร์ชันนี้ขาดการประกาศบริการ Bonjour ติดตั้งเวอร์ชันสมบูรณ์แล้วเปิดใหม่";
 "receivingDevice" = "อุปกรณ์รับ";
 "chooseReceiver" = "เลือกอุปกรณ์รับ";
+"speedFormat" = "%@/s";

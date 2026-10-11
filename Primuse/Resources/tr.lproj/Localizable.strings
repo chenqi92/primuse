@@ -3486,7 +3486,10 @@
 "ai_recommendation_unit_footer" = "Karışık seçildiğinde Ana Sayfa'daki Sizin İçin bölümünün ilk iki kartı tam albüm, gerisi şarkıdır. Albümler özgün parça sırasıyla çalınır; CUE ile bölünmüş albümler parça numaralarını izler.";
 "smart_playlist_combinator_and" = "Tüm koşullar";
 "lyrics_converter_summary_format" = "%1$d satırları · %2$d senkronize edildi · %3$d kelime zamanlı";
-"minimal_mode_description" = "Alttaki gezinme çubuğunu gizler, Arşiv geçişini yukarıya taşır ve yan düğmeden Ayarlar'ı açar.";
+"minimal_mode_description" = "Alttaki gezinme çubuğunu gizler: üstte Ana sayfa, Müzik, Radyo ve Sesli arasında geçiş yaparsınız; oynatıcı altta sabit kalır.";
+"minimal_show_home" = "“Ana sayfa” sekmesini göster";
+"minimal_tab_spoken" = "Sesli";
+"minimal_radio_on_air" = "Canlı";
 "relay_share_password_placeholder" = "İsteğe bağlı dinleyici şifresi";
 "a11y_close_lyrics" = "Şarkı sözlerini gizle";
 "icloud_sync_enabled" = "iCloud Senkronizasyonunu Etkinleştir";
@@ -4453,6 +4456,12 @@
 "diagnostics_feedback_attachments" = "Ekler (isteğe bağlı)";
 "diagnostics_feedback_message" = "İstekler veya öneriler";
 "diagnostics_feedback_compose" = "Postayı aç";
+"diagnostics_feedback_images" = "Görseller (isteğe bağlı)";
+"diagnostics_feedback_add_image" = "Görsel Ekle";
+"diagnostics_feedback_images_footer %lld" = "En fazla %lld görsel; küçültülüp e-postayla birlikte gönderilir.";
+"diagnostics_feedback_images_loading" = "Görseller yükleniyor…";
+"diagnostics_feedback_image_failed" = "Bazı görseller okunamadı ve atlandı.";
+"diagnostics_feedback_remove_image" = "Görseli kaldır";
 "diagnostics_logs_title" = "Günlükler";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */
@@ -5831,3 +5840,7 @@
 "ai_consent_privacy_row" = "Yerleşik yapay zekânın veri kullanımı";
 "ai_consent_status_agreed" = "Onaylandı";
 "ai_consent_status_not_agreed" = "Onaylanmadı";
+
+"source_mutation_permission_denied" = "Kaynak dosyalarını değiştirme izni reddedildi.";
+"source_mutation_read_only" = "Bu kaynak dosya değişikliklerine izin vermiyor.";
+"metadata_writeback_local_only_notice" = "Kaynak yazma erişimini reddetti. Değişiklikleriniz yalnızca Primuse içinde kaydedildi; kaynak dosya güncellenmedi.";

@@ -273,12 +273,15 @@ struct TVImmersivePlayerView: View {
                 .buttonStyle(TVBareButtonStyle())
                 .focused($wakesChrome)
                 .focusEffectDisabled()
-                .disabled(showsChrome)
-                .accessibilityHidden(showsChrome)
+                .disabled(showsChrome || showsModePicker)
+                .accessibilityHidden(showsChrome || showsModePicker)
 
                 if showsChrome {
+                    // 选择器盖在上面时这排键看不见,也不能再拿焦点:否则打开选择器后焦点还停在
+                    // 「沉浸风格」键上,遥控器只有朝网格那一侧按才进得去。
                     controls(metrics: metrics)
                         .transition(.opacity)
+                        .disabled(showsModePicker)
                         .accessibilityHidden(showsModePicker)
                 }
 
@@ -391,6 +394,9 @@ struct TVImmersivePlayerView: View {
         .onChange(of: frameRateRawValue) { _, _ in
             updateSpectrumAnalysis(for: presentationEffect)
         }
+        .onChange(of: showsModePicker) { _, _ in
+            updateSpectrumAnalysis(for: presentationEffect)
+        }
         .onChange(of: store.nowPlaying.songID) { _, _ in
             refreshGallerySongs()
         }
@@ -486,7 +492,8 @@ struct TVImmersivePlayerView: View {
                 )
             },
             flowItemID: { flowNeighbors.itemID(at: $0) },
-            isRenderingActive: presentationActivity.isRenderingActive,
+            // 选择器几乎整屏盖住舞台:停下背后的整套动画,选择器里的预览和焦点动画才不掉帧。
+            isRenderingActive: presentationActivity.isRenderingActive && !showsModePicker,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
             frameRate: ImmersiveFrameRateMode(storedValue: frameRateRawValue),
@@ -1004,6 +1011,7 @@ struct TVImmersivePlayerView: View {
         store.engine.setSpectrumAnalysisEnabled(
             presentationActivity.isRenderingActive
                 && !isLowPower
+                && !showsModePicker
                 && effect != .native
                 && presentation.usesRealtimeSpectrum
         )

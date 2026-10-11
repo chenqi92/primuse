@@ -1,5 +1,8 @@
 import SwiftUI
 import PrimuseKit
+#if os(iOS)
+import PhotosUI
+#endif
 
 /// Settings → 关于 → 诊断报告。显示由 MetricKit 上报的 crash / hang 报告
 /// 列表,点击可以分享 (邮件 / AirDrop / 复制) 给开发者排查。报告全部本地
@@ -241,6 +244,10 @@ private struct DiagnosticFeedbackView: View {
     @State private var isPreparing = false
     @State private var showMailUnavailable = false
     @State private var failureMessage: String?
+    @State private var pickerItems: [PhotosPickerItem] = []
+    @State private var images: [DiagnosticFeedbackImage] = []
+    @State private var isLoadingImages = false
+    @State private var imageNotice: String?
     let reportURLs: [URL]
     let canExportLogs: Bool
     let onPrepared: (DiagnosticReportMailer.Draft) -> Void
@@ -262,6 +269,7 @@ private struct DiagnosticFeedbackView: View {
                         Toggle("diagnostics_logs_title", isOn: $includesLogs)
                     }
                 }
+                imagesSection
                 Section {
                     TextEditor(text: $message)
                         .frame(minHeight: 160)
@@ -271,6 +279,11 @@ private struct DiagnosticFeedbackView: View {
                 } footer: {
                     Text(verbatim: DiagnosticReportMail.recipient)
                 }
+            }
+            .onChange(of: pickerItems) { _, items in
+                guard !items.isEmpty else { return }
+                pickerItems = []
+                importPicked(items)
             }
             .disabled(isPreparing)
             .navigationTitle(String(localized: "diagnostics_send_button"))
@@ -289,7 +302,9 @@ private struct DiagnosticFeedbackView: View {
                         }
                     }
                     .accessibilityLabel(String(localized: "diagnostics_feedback_compose"))
-                    .disabled(isPreparing || (selection == .none && message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+                    .disabled(isPreparing || isLoadingImages
+                              || (selection == .none && images.isEmpty
+                                  && message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
                 }
             }
             .interactiveDismissDisabled(isPreparing)
@@ -322,13 +337,111 @@ private struct DiagnosticFeedbackView: View {
             defer { isPreparing = false }
             do {
                 let draft = try await DiagnosticReportMailer.prepare(
-                    selection: selection, reportURLs: reportURLs, message: message
+                    selection: selection, reportURLs: reportURLs, message: message, images: images.map(\.jpeg)
                 )
                 onPrepared(draft)
             } catch {
                 failureMessage = error.localizedDescription
             }
         }
+    }
+
+    /// Screenshots of what the message is about: a strip of the chosen
+    /// pictures, each removable, and the picker while there is room for more.
+    private var imagesSection: some View {
+        Section {
+            if !images.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(images) { image in
+                            ZStack(alignment: .topTrailing) {
+                                Image(decorative: image.thumbnail, scale: 1)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 88, height: 88)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                Button {
+                                    images.removeAll { $0.id == image.id }
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .symbolRenderingMode(.palette)
+                                        .foregroundStyle(.white, .black.opacity(0.55))
+                                        .font(.system(size: 20))
+                                }
+                                .buttonStyle(.plain)
+                                .padding(4)
+                                .accessibilityLabel(String(localized: "diagnostics_feedback_remove_image"))
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+            }
+            if images.count < DiagnosticFeedbackImage.maximumCount {
+                PhotosPicker(
+                    selection: $pickerItems,
+                    maxSelectionCount: DiagnosticFeedbackImage.maximumCount - images.count,
+                    matching: .images,
+                    preferredItemEncoding: .compatible
+                ) {
+                    if isLoadingImages {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text("diagnostics_feedback_images_loading")
+                        }
+                    } else {
+                        Label("diagnostics_feedback_add_image", systemImage: "photo.badge.plus")
+                    }
+                }
+                .disabled(isLoadingImages)
+            }
+        } header: {
+            Text("diagnostics_feedback_images")
+        } footer: {
+            if let imageNotice {
+                Text(imageNotice).foregroundStyle(.orange)
+            } else {
+                Text(String(format: String(localized: "diagnostics_feedback_images_footer %lld"),
+                            DiagnosticFeedbackImage.maximumCount))
+            }
+        }
+    }
+
+    private func importPicked(_ items: [PhotosPickerItem]) {
+        isLoadingImages = true
+        imageNotice = nil
+        Task {
+            defer { isLoadingImages = false }
+            var added: [DiagnosticFeedbackImage] = []
+            for item in items.prefix(max(0, DiagnosticFeedbackImage.maximumCount - images.count)) {
+                guard let data = try? await item.loadTransferable(type: Data.self),
+                      let image = await DiagnosticFeedbackImage.make(from: data) else { continue }
+                added.append(image)
+            }
+            images.append(contentsOf: added)
+            if added.count < items.count {
+                imageNotice = String(localized: "diagnostics_feedback_image_failed")
+            }
+        }
+    }
+}
+
+/// One picture going into the mail: the scaled JPEG that is attached and a
+/// small decoded copy for the strip. A 12MP photo is never decoded whole.
+struct DiagnosticFeedbackImage: Identifiable, @unchecked Sendable {
+    static let maximumCount = 6
+    static let maximumPixel = 2048
+    let id = UUID()
+    let jpeg: Data
+    let thumbnail: CGImage
+
+    static func make(from data: Data) async -> DiagnosticFeedbackImage? {
+        await Task.detached(priority: .userInitiated) {
+            guard let jpeg = PlayerBackdropImaging.downscaledJPEG(from: data, maxPixel: maximumPixel, quality: 0.8),
+                  let thumbnail = PlayerBackdropImaging.decodedImage(data: jpeg, maxPixel: 240) else { return nil }
+            return DiagnosticFeedbackImage(jpeg: jpeg, thumbnail: thumbnail)
+        }.value
     }
 }
 

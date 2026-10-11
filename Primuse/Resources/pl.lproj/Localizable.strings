@@ -2208,7 +2208,10 @@
 "metadata_writeback_stage_replace" = "wymiana źródła";
 "min" = "Min";
 "mini_player" = "Miniodtwarzacz";
-"minimal_mode_description" = "Ukrywa dolny pasek nawigacyjny, przenosi przełączanie Biblioteki na górę i otwiera Ustawienia z bocznego przycisku.";
+"minimal_mode_description" = "Ukrywa dolny pasek nawigacyjny: u góry przełączasz Główna, Muzyka, Radia i Audio, a odtwarzacz jest przypięty na dole.";
+"minimal_show_home" = "Pokazuj „Główna”";
+"minimal_tab_spoken" = "Audio";
+"minimal_radio_on_air" = "Na żywo";
 "minimal_mode_title" = "Tryb minimalny";
 "minutes" = "min";
 "modify_directories" = "Modyfikuj katalogi";
@@ -4453,6 +4456,12 @@
 "diagnostics_feedback_attachments" = "Załączniki (opcjonalnie)";
 "diagnostics_feedback_message" = "Prośby lub sugestie";
 "diagnostics_feedback_compose" = "Otwórz pocztę";
+"diagnostics_feedback_images" = "Obrazy (opcjonalnie)";
+"diagnostics_feedback_add_image" = "Dodaj obrazy";
+"diagnostics_feedback_images_footer %lld" = "Do %lld obrazów, pomniejszonych i wysłanych razem z wiadomością.";
+"diagnostics_feedback_images_loading" = "Wczytywanie obrazów…";
+"diagnostics_feedback_image_failed" = "Niektórych obrazów nie udało się odczytać i zostały pominięte.";
+"diagnostics_feedback_remove_image" = "Usuń obraz";
 "diagnostics_logs_title" = "Dzienniki";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */
@@ -5831,3 +5840,7 @@
 "ai_consent_privacy_row" = "Dane używane przez wbudowaną SI";
 "ai_consent_status_agreed" = "Zgoda wyrażona";
 "ai_consent_status_not_agreed" = "Brak zgody";
+
+"source_mutation_permission_denied" = "Odmówiono uprawnień do modyfikowania plików źródłowych.";
+"source_mutation_read_only" = "To źródło nie zezwala na zmiany plików.";
+"metadata_writeback_local_only_notice" = "Źródło odmówiło zapisu. Zmiany zapisano tylko w Primuse; plik źródłowy nie został zaktualizowany.";

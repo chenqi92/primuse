@@ -17,8 +17,8 @@ struct SettingsView: View {
     @State private var rootItemID: String?
     @State private var rootFocusRevision = UUID()
     #if os(iOS)
-    @AppStorage(AppNavigationMode.storageKey)
-    private var navigationModeRawValue = AppNavigationMode.standard.rawValue
+    /// 极简模式下设置不在分段里：左上角回到进设置之前那一页。
+    @Environment(\.minimalSettingsReturn) private var minimalReturn
     #endif
 
     init(
@@ -27,14 +27,6 @@ struct SettingsView: View {
     ) {
         _scraperSettingsRoute = scraperSettingsRoute
         _search = State(initialValue: search ?? SettingsSearchState())
-    }
-
-    private var usesMinimalSearch: Bool {
-        #if os(iOS)
-        AppNavigationMode.resolve(navigationModeRawValue) == .minimal
-        #else
-        false
-        #endif
     }
 
     private var searchPlacement: SearchFieldPlacement {
@@ -102,14 +94,10 @@ struct SettingsView: View {
     }
 
     @ViewBuilder private var searchableContent: some View {
-        if usesMinimalSearch {
-            settingsContent
-        } else {
-            // Search belongs to this column; putting it on the stack hides it in iPad split view.
-            settingsContent
-                .searchable(text: $search.query, isPresented: $search.isPresented, placement: searchPlacement,
-                            prompt: Text(SettingsStrings.text("Search settings")))
-        }
+        // Search belongs to this column; putting it on the stack hides it in iPad split view.
+        settingsContent
+            .searchable(text: $search.query, isPresented: $search.isPresented, placement: searchPlacement,
+                        prompt: Text(SettingsStrings.text("Search settings")))
     }
 
     private var searchableNavigation: some View {
@@ -117,10 +105,32 @@ struct SettingsView: View {
             searchableContent
             .autocorrectionDisabled()
             .navigationTitle("settings_title")
+            #if os(iOS)
+            // 带返回键时用大标题：iOS 26 的 inlineLarge 会把左上角的返回键挤到标题右边。
+            .toolbarTitleDisplayMode(minimalReturn == nil ? .inlineLarge : .large)
+            #else
             .toolbarTitleDisplayMode(.inlineLarge)
+            #endif
             .pmVerticalBarTitleEdge()
             #if os(iOS)
-            .minimalNavigationRoot()
+            .toolbar {
+                if let minimalReturn {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button {
+                            minimalReturn.action()
+                        } label: {
+                            Label {
+                                Text(verbatim: minimalReturn.title)
+                            } icon: {
+                                Image(systemName: "chevron.backward")
+                            }
+                            .labelStyle(.titleAndIcon)
+                        }
+                        .accessibilityIdentifier("minimal.settings.back")
+                    }
+                }
+            }
+            .minimalNavigationRoot(showsTopChrome: false)
             #endif
             .navigationDestination(for: SettingsDestination.self) { destination in
                 switch destination {
@@ -171,7 +181,6 @@ struct SettingsView: View {
     private func open(_ item: SettingDefinition) {
         guard let page = item.page else { return }
         SettingsSearchHistory.shared.record(item.id)
-        if usesMinimalSearch { search.isPresented = false }
         if page == .about || page == .appleTV {
             search.isPresented = false
             path = []

@@ -616,9 +616,7 @@ actor SynologyAPI {
             let taskData = json["data"] as? [String: Any] ?? [:]
             if taskData["finished"] as? Bool == true {
                 if let error = taskData["error"] as? [String: Any] {
-                    throw SynologyError.apiError(
-                        "\(operation) failed: \(synologyErrorMessage(code: intValue(error["code"])))"
-                    )
+                    throw fileOperationError(code: intValue(error["code"]), operation: operation)
                 }
                 return
             }
@@ -636,11 +634,13 @@ actor SynologyAPI {
         }
         guard json["success"] as? Bool == true else {
             let error = json["error"] as? [String: Any]
-            throw SynologyError.apiError(
-                "\(operation) failed: \(synologyErrorMessage(code: intValue(error?["code"])))"
-            )
+            throw fileOperationError(code: intValue(error?["code"]), operation: operation)
         }
         return json
+    }
+
+    private func fileOperationError(code: Int, operation: String) -> SynologyError {
+        .fileOperationError(code: code, message: "\(operation) failed (File Station \(code))")
     }
 
     private func startedTaskID(responseData: Data, operation: String) throws -> String {
@@ -811,6 +811,7 @@ actor SynologyAPI {
 
 enum SynologyError: Error, LocalizedError {
     case notLoggedIn, invalidURL, invalidResponse, httpError(Int), apiError(String)
+    case fileOperationError(code: Int, message: String)
 
     var errorDescription: String? {
         switch self {
@@ -820,6 +821,7 @@ enum SynologyError: Error, LocalizedError {
         case .httpError(let code):
             return String(format: String(localized: "synology_error_http_format"), code)
         case .apiError(let m): return m
+        case .fileOperationError(_, let message): return message
         }
     }
 }

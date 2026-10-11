@@ -8,6 +8,17 @@ enum TVTransferText {
         NSLocalizedString(key, tableName: "WiFiTransfer", bundle: .main,
                           value: WiFiTransferPage.english[key] ?? key, comment: "")
     }
+
+    /// "132 KB / 393.6 MB · 1.2 MB/s"; the rate is left out until it has settled.
+    static func bytesLine(sent: Int64, total: Int64, rate: Double?) -> String {
+        var text = ByteCountFormatter.string(fromByteCount: sent, countStyle: .file)
+            + " / " + ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
+        if let rate {
+            text += " · " + String(format: string("speedFormat"),
+                                   ByteCountFormatter.string(fromByteCount: Int64(max(0, rate)), countStyle: .file))
+        }
+        return text
+    }
 }
 
 struct TVTransferReceiveView: View {
@@ -147,6 +158,8 @@ struct TVTransferReceiveView: View {
                 }.tvFont(.meta).foregroundStyle(TVColor.textMuted)
                 if !receipt.finished {
                     ProgressView(value: receipt.progress).tint(TVColor.brand)
+                    Text(TVTransferText.bytesLine(sent: receipt.receivedBytes, total: receipt.byteCount, rate: receipt.bytesPerSecond))
+                        .tvFont(.caption).monospacedDigit().foregroundStyle(TVColor.textMuted)
                     Text(receipt.files.last(where: { !$0.finished })?.path ?? TVTransferText.string("receiveWaitingFiles"))
                         .tvFont(.caption).lineLimit(1).truncationMode(.middle)
                 }
@@ -226,7 +239,8 @@ struct TVTransferReceiveView: View {
             receiver.start(root: TVLocalTransferSource.root,
                            identity: .init(id: WiFiTransferIdentity.localID, name: UIDevice.current.name, platform: "Apple TV"),
                            page: WiFiTransferPage.html(strings: strings, language: Bundle.main.preferredLocalizations.first ?? "en"),
-                           willChange: { TVLocalTransferSource.markPendingScan() }) { path, deleted in
+                           willChange: { TVLocalTransferSource.markPendingScan() },
+                           log: { plog($0) }) { path, deleted in
                 refresh(source: source, path: path, deleted: deleted)
             }
             refresh(source: source, path: "", deleted: false)

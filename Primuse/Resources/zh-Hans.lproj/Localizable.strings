@@ -3841,7 +3841,10 @@
 // MARK: - Navigation mode
 "navigation_mode_title" = "导航";
 "minimal_mode_title" = "极简模式";
-"minimal_mode_description" = "隐藏底部导航栏，在顶部切换资料库，并从侧边按钮打开设置。";
+"minimal_mode_description" = "隐藏底部导航栏：在顶部切换首页、音乐、电台与有声，播放条停靠在底部。";
+"minimal_show_home" = "显示「首页」";
+"minimal_tab_spoken" = "有声";
+"minimal_radio_on_air" = "正在直播";
 
 // MARK: - Authoritative lyrics refresh
 "lyrics_reload_from_source" = "重载歌词";
@@ -4640,6 +4643,12 @@
 "diagnostics_feedback_attachments" = "附件（可选）";
 "diagnostics_feedback_message" = "需求或建议";
 "diagnostics_feedback_compose" = "打开邮件";
+"diagnostics_feedback_images" = "图片（可选）";
+"diagnostics_feedback_add_image" = "添加图片";
+"diagnostics_feedback_images_footer %lld" = "最多 %lld 张，会缩小后随邮件一起发送。";
+"diagnostics_feedback_images_loading" = "正在读取图片…";
+"diagnostics_feedback_image_failed" = "有的图片读不出来，已跳过。";
+"diagnostics_feedback_remove_image" = "移除图片";
 "diagnostics_logs_title" = "日志";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */
@@ -6018,3 +6027,7 @@
 "ai_consent_privacy_row" = "内置 AI 的数据说明";
 "ai_consent_status_agreed" = "已同意";
 "ai_consent_status_not_agreed" = "未同意";
+
+"source_mutation_permission_denied" = "没有修改源文件的权限。";
+"source_mutation_read_only" = "该来源不允许修改文件。";
+"metadata_writeback_local_only_notice" = "来源拒绝写入。修改已仅保存在 Primuse，源文件未更新。";

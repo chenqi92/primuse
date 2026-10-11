@@ -3740,7 +3740,10 @@
 // MARK: - Navigation mode
 "navigation_mode_title" = "Navigation";
 "minimal_mode_title" = "Minimalmodus";
-"minimal_mode_description" = "Blendet die untere Navigation aus, verschiebt die Mediathek-Tabs nach oben und öffnet die Einstellungen über die seitliche Taste.";
+"minimal_mode_description" = "Blendet die untere Navigation aus: Oben wechselst du zwischen Start, Musik, Radio und Audio, der Player sitzt unten.";
+"minimal_show_home" = "„Start“ anzeigen";
+"minimal_tab_spoken" = "Audio";
+"minimal_radio_on_air" = "Live";
 
 // MARK: - Authoritative lyrics refresh
 "lyrics_reload_from_source" = "Liedtext aus Musikquelle neu laden";
@@ -4547,6 +4550,12 @@
 "diagnostics_feedback_attachments" = "Anhänge (optional)";
 "diagnostics_feedback_message" = "Wünsche oder Vorschläge";
 "diagnostics_feedback_compose" = "Mail öffnen";
+"diagnostics_feedback_images" = "Bilder (optional)";
+"diagnostics_feedback_add_image" = "Bilder hinzufügen";
+"diagnostics_feedback_images_footer %lld" = "Bis zu %lld Bilder, verkleinert und mit der E-Mail gesendet.";
+"diagnostics_feedback_images_loading" = "Bilder werden geladen …";
+"diagnostics_feedback_image_failed" = "Einige Bilder konnten nicht gelesen werden und wurden übersprungen.";
+"diagnostics_feedback_remove_image" = "Bild entfernen";
 "diagnostics_logs_title" = "Protokolle";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */
@@ -5925,3 +5934,7 @@
 "ai_consent_privacy_row" = "Datennutzung der integrierten KI";
 "ai_consent_status_agreed" = "Zugestimmt";
 "ai_consent_status_not_agreed" = "Nicht zugestimmt";
+
+"source_mutation_permission_denied" = "Keine Berechtigung zum Ändern der Quelldateien.";
+"source_mutation_read_only" = "Diese Quelle erlaubt keine Dateiänderungen.";
+"metadata_writeback_local_only_notice" = "Die Quelle hat den Schreibzugriff verweigert. Deine Änderungen wurden nur in Primuse gespeichert; die Quelldatei wurde nicht aktualisiert.";

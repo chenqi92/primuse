@@ -143,6 +143,25 @@ struct AlbumGridView: View {
                         )
                     }
                 }
+                // 极简模式根页没有导航栏：专辑数与排序、显示选项排成页头。
+                .minimalPageHeader {
+                    HStack(spacing: 4) {
+                        MinimalHeaderCount(
+                            text: "\(filteredAlbums.count.formatted()) \(String(localized: "albums_count"))"
+                        )
+                        Spacer(minLength: 8)
+                        MinimalHeaderActions {
+                            MinimalPageFindButton()
+                            AlbumGridDisplayMenu(
+                                order: albumOrderBinding,
+                                showsLikedOnly: $showsLikedOnly,
+                                offersLikedFilter: showsLikedFilter,
+                                offersIntroFill: offersIntroFill,
+                                fillIntros: { requestsIntroFill = true }
+                            )
+                        }
+                    }
+                }
                 .task(id: orderRequest) { await prepareOrderedAlbums(orderRequest) }
                 .libraryInsightBatchFill(kind: .album, request: $requestsIntroFill) {
                     filteredAlbums.map(LibraryInsightBatchItem.album)

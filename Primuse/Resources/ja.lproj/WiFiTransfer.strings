@@ -156,3 +156,4 @@
 "discoveryConfiguration" = "このアプリには Bonjour サービス宣言がありません。完全なバージョンをインストールして開き直してください。";
 "receivingDevice" = "受信デバイス";
 "chooseReceiver" = "受信デバイスを選択";
+"speedFormat" = "%@/s";

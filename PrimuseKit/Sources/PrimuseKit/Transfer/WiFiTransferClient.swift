@@ -18,6 +18,9 @@ public final class WiFiTransferClient: @unchecked Sendable {
         // One connection beyond the parallel uploads stays free for ticket requests.
         config.httpMaximumConnectionsPerHost = WiFiTransferServer.maximumConcurrentUploads + 1
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        // The receiver is on the local network; a system-wide HTTP proxy set by a
+        // VPN or proxy app must not sit between the two devices.
+        config.connectionProxyDictionary = [:]
         session = URLSession(configuration: config)
     }
 

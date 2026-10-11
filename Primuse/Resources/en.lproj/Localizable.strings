@@ -3510,7 +3510,10 @@
 // MARK: - Navigation mode
 "navigation_mode_title" = "Navigation";
 "minimal_mode_title" = "Minimal Mode";
-"minimal_mode_description" = "Hides the bottom navigation bar, moves Library switching to the top, and opens Settings from the side button.";
+"minimal_mode_description" = "Hides the bottom navigation bar: switch between Home, Music, Radio and Audio at the top, with the player docked at the bottom.";
+"minimal_show_home" = "Show Home";
+"minimal_tab_spoken" = "Audio";
+"minimal_radio_on_air" = "Live";
 
 // MARK: - Authoritative lyrics refresh
 "lyrics_reload_from_source" = "Reload Lyrics from Music Source";
@@ -4310,6 +4313,12 @@
 "diagnostics_feedback_attachments" = "Attachments (optional)";
 "diagnostics_feedback_message" = "Requests or suggestions";
 "diagnostics_feedback_compose" = "Open Mail";
+"diagnostics_feedback_images" = "Images (optional)";
+"diagnostics_feedback_add_image" = "Add Images";
+"diagnostics_feedback_images_footer %lld" = "Up to %lld images, scaled down and sent with the email.";
+"diagnostics_feedback_images_loading" = "Loading images…";
+"diagnostics_feedback_image_failed" = "Some images could not be read and were skipped.";
+"diagnostics_feedback_remove_image" = "Remove image";
 "diagnostics_logs_title" = "Logs";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */
@@ -5685,3 +5694,7 @@
 "ai_consent_privacy_row" = "Built-in AI data use";
 "ai_consent_status_agreed" = "Agreed";
 "ai_consent_status_not_agreed" = "Not agreed";
+
+"source_mutation_permission_denied" = "Permission to modify source files was denied.";
+"source_mutation_read_only" = "This source does not allow file changes.";
+"metadata_writeback_local_only_notice" = "The source refused write access. Your changes were saved only in Primuse; the source file was not updated.";

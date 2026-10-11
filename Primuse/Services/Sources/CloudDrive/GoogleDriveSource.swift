@@ -44,6 +44,22 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         )
     }
 
+    nonisolated static func sidecarUploadError(status: Int, body: Data) -> any Error {
+        // Drive also uses 403 for quotas. Only explicit permission reasons
+        // allow local-only persistence after a rejected upload.
+        if status == 403,
+           let json = try? JSONSerialization.jsonObject(with: body.prefix(16 * 1024)) as? [String: Any],
+           let error = json["error"] as? [String: Any],
+           let errors = error["errors"] as? [[String: Any]], !errors.isEmpty,
+           errors.allSatisfy({ entry in
+               guard let reason = entry["reason"] as? String else { return false }
+               return ["insufficientFilePermissions", "insufficientPermissions"].contains(reason)
+           }) {
+            return SourceFileMutationError.permissionDenied
+        }
+        return CloudDriveError.apiError(status, "Google Drive upload failed")
+    }
+
     private struct CompletedSidecarWrite: Sendable {
         let path: String
         let fileName: String
@@ -167,7 +183,7 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
             }
             if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
             guard (200...299).contains(http.statusCode) else {
-                throw CloudDriveError.apiError(http.statusCode, "Google Drive sidecar upload failed")
+                throw Self.sidecarUploadError(status: http.statusCode, body: responseData)
             }
             let responseJSON = try JSONSerialization.jsonObject(with: responseData) as? [String: Any] ?? [:]
             guard let uploadedID = responseJSON["id"] as? String,
@@ -408,6 +424,7 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         if http.statusCode == 409 || http.statusCode == 412 {
             throw EmbeddedMetadataWritebackSourceError.conflict
         }
+        if http.statusCode == 403 { throw Self.sidecarUploadError(status: http.statusCode, body: data) }
         guard http.statusCode == 200,
               let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               json["id"] as? String == fileID,

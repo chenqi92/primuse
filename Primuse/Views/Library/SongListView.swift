@@ -1550,6 +1550,32 @@ struct SongListView: View {
             iosToolbar
         }
         .libraryPageFind(text: $searchText, prompt: "filter_songs_placeholder")
+        // 极简模式根页没有导航栏：工具栏里的这些操作排成页头。
+        .minimalPageHeader {
+            SongListMinimalHeader(
+                selection: selection,
+                progress: sortProgress,
+                countText: songCountText,
+                canPlay: !showsFolderBrowser && filteredProjection.playableCount > 0,
+                canShuffle: !showsFolderBrowser && filteredProjection.playableCount > 1,
+                browseMode: $browseMode,
+                sortOrder: sortOrderBinding,
+                filter: $songFilter,
+                manageHomeFolders: showsFolderBrowser ? { showsHomeFolders = true } : nil,
+                folderFollowsListSort: showsFolderBrowser ? $folderFollowsListSort : nil,
+                orderedIDs: { batchOrderedSongIDs },
+                onPlay: playVisibleSongs,
+                onShuffle: shuffleVisibleSongs
+            )
+        }
+        #if DEBUG
+        // 截图用：`PRIMUSE_DEBUG_EDIT=songs` 打开歌曲页就进多选（看多选态的页头与底栏）。
+        .task {
+            guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_EDIT"] == "songs" else { return }
+            try? await Task.sleep(for: .seconds(2))
+            selection.activate()
+        }
+        #endif
         .task(id: searchText) {
             // 清空立刻生效; 输入时等停手再过滤。
             if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -1558,6 +1584,11 @@ struct SongListView: View {
             }
             appliedSearchText = searchText
         }
+    }
+
+    /// 页头上的「8,426 首歌曲」：眼前这份列表有几首（筛选、查找之后的）。
+    private var songCountText: String {
+        "\(filteredProjection.rows.count.formatted()) \(String(localized: "songs_count"))"
     }
 
     /// 只在整个歌曲页、没在筛选、没在多选时出现。
@@ -3770,6 +3801,15 @@ struct SongListView: View {
         player.shuffleEnabled = true
         Task { await player.play(queueIDs: ids, order: .shuffled) }
     }
+
+    /// 极简页头的「全部播放」：按眼前的顺序从第一首放起。
+    private func playVisibleSongs() {
+        let ids = filteredSongIDs
+        guard !ids.isEmpty else { return }
+        plog("🎶 SongList playAll visible=\(ids.count)")
+        player.shuffleEnabled = false
+        Task { await player.play(queueIDs: ids, order: .asGiven) }
+    }
 }
 
 /// A lazy stack avoids asking SwiftUI's `List` bridge to register every stable
@@ -3860,6 +3900,8 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
                 }
                 .frame(width: 112)
                 .padding(.trailing, sectionIndexTrailingInset)
+                // 「开始听」那一行的标题右端有「全部」，索引从它下面开始，两者不叠在一起。
+                .padding(.top, showsListeningIntents ? 48 : 0)
                 .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .trailing)))
             }
         }
@@ -3922,6 +3964,7 @@ private struct IOSSongListPositionSlot: View {
     let onPlay: (Song) -> Void
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @Environment(\.pmVerticalBarOverlap) private var verticalBarOverlap
+    @Environment(\.songRowStyle) private var rowStyle
 
     var body: some View {
         VStack(spacing: 0) {
@@ -3940,7 +3983,7 @@ private struct IOSSongListPositionSlot: View {
             .padding(.vertical, 4)
 
             Divider()
-                .padding(.leading, 66)
+                .padding(.leading, rowStyle.separatorLeadingInset)
                 .opacity(isLast ? 0 : 1)
                 .accessibilityHidden(true)
         }
@@ -4137,6 +4180,7 @@ private struct IOSSongListFilteredContainer: View, @MainActor Equatable {
     let cache: SongListCache
     let selection: SongSelectionModel
     let onPlay: (Song) -> Void
+    @Environment(\.songRowStyle) private var rowStyle
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.projectionRevision == rhs.projectionRevision
@@ -4161,7 +4205,7 @@ private struct IOSSongListFilteredContainer: View, @MainActor Equatable {
 
                     if row.offset < projection.rows.count - 1 {
                         Divider()
-                            .padding(.leading, 66)
+                            .padding(.leading, rowStyle.separatorLeadingInset)
                     }
                 }
             }
@@ -5691,6 +5735,62 @@ private struct SongListNormalToolbarMenu: View {
         )
     }
 }
+
+#if os(iOS)
+/// 极简模式歌曲页的页头：左边「全部播放」带歌数，随机与版式；右边查找、排序与「⋯」。
+/// 多选时换成「已选择几首」与全选、取消。选择态读在这个子视图里，
+/// 进出多选不会让整张列表重算（同工具栏条目的做法）。
+private struct SongListMinimalHeader: View {
+    let selection: SongSelectionModel
+    let progress: SongListSortProgressModel
+    let countText: String
+    let canPlay: Bool
+    let canShuffle: Bool
+    @Binding var browseMode: LibrarySongBrowseMode
+    let sortOrder: Binding<SongListView.SongSortOrder>
+    @Binding var filter: SongListView.SongFilter
+    var manageHomeFolders: (() -> Void)?
+    var folderFollowsListSort: Binding<Bool>?
+    let orderedIDs: () -> [String]
+    let onPlay: () -> Void
+    let onShuffle: () -> Void
+
+    var body: some View {
+        if selection.isActive {
+            HStack(spacing: 8) {
+                SongSelectionToolbarTitle(selection: selection)
+                Spacer(minLength: 8)
+                MinimalHeaderActions {
+                    SongSelectionOptionsMenu(selection: selection, orderedIDs: orderedIDs)
+                    SongSelectionCancelToolbarItem(selection: selection)
+                }
+            }
+        } else {
+            HStack(spacing: 4) {
+                MinimalPlayAllButton(subtitle: countText, action: onPlay)
+                    .disabled(!canPlay)
+                MinimalHeaderActions {
+                    SongListShuffleToolbarButton(selection: selection, isEnabled: canShuffle, action: onShuffle)
+                    SongListBrowseModeToolbarButton(selection: selection, browseMode: $browseMode)
+                }
+                Spacer(minLength: 4)
+                SongListSortProgressIndicator(progress: progress)
+                MinimalHeaderActions {
+                    MinimalPageFindButton()
+                    SongSortSubmenu(sortOrder: sortOrder, followsListSort: folderFollowsListSort)
+                    SongListNormalToolbarMenu(
+                        selection: selection,
+                        sortOrder: sortOrder,
+                        filter: $filter,
+                        manageHomeFolders: manageHomeFolders,
+                        folderFollowsListSort: folderFollowsListSort
+                    )
+                }
+            }
+        }
+    }
+}
+#endif
 
 private struct SongSelectionOptionsToolbarItem: View {
     let selection: SongSelectionModel

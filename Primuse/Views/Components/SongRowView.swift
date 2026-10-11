@@ -28,6 +28,8 @@ struct SongRowView: View {
     /// 容器量出来的对齐列。带默认值的纯值类型，独立宿主里读也不会崩；
     /// 没挂 `songRowColumnsContainer` 的列表拿到的是「一列都不显示」。
     @Environment(\.songRowColumns) private var songRowColumns
+    /// 封面多大、字多大。极简模式的列表行封面更大，副标题前带音质标。
+    @Environment(\.songRowStyle) private var rowStyle
 
     let song: Song
     var actionRequest: SongRowActionRequest? = nil
@@ -107,6 +109,14 @@ struct SongRowView: View {
         // that finished caching while it streamed is known to the disk alone,
         // and playback asks the disk, so the row has to ask it as well.
         return !sourceManager.hasUsableCachedAudioForPlayback(song)
+    }
+
+    /// 高解析与 DSD 才标：无损太常见，标出来只是噪音。
+    private var qualityBadge: String? {
+        switch song.audioQuality {
+        case .dsd, .hiRes: song.audioQuality.displayName
+        case .lossless, .standard: nil
+        }
     }
 
     var body: some View {
@@ -382,13 +392,14 @@ struct SongRowView: View {
         let columns = songRowColumns
         let showsAlbumColumn = columns.showsAlbum && showAlbum
         let showsDurationColumn = columns.showsDuration
-        HStack(spacing: 10) {
+        let style = rowStyle
+        HStack(spacing: style.artworkSpacing) {
             // Cover art with playing overlay
             ZStack {
                 CachedArtworkView(
                     coverRef: song.coverArtFileName,
                     songID: song.id,
-                    size: 44, cornerRadius: 6,
+                    size: style.artworkSize, cornerRadius: style.artworkCornerRadius,
                     sourceID: song.sourceID,
                     filePath: song.filePath,
                     fileFormat: song.fileFormat
@@ -396,8 +407,8 @@ struct SongRowView: View {
 
                 if isPlaying {
                     Color.black.opacity(0.35)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                        .frame(width: 44, height: 44)
+                        .clipShape(RoundedRectangle(cornerRadius: style.artworkCornerRadius))
+                        .frame(width: style.artworkSize, height: style.artworkSize)
                         .pmFadeTransition()
                     // While the player is still loading the active track,
                     // show a spinner instead of the playing-waveform so the
@@ -418,13 +429,13 @@ struct SongRowView: View {
                     }
                 }
             }
-            .frame(width: 44, height: 44)
+            .frame(width: style.artworkSize, height: style.artworkSize)
             .opacity(isReadingDetails ? 0.65 : unreachableDimming)
 
             // Song info — title and subtitle only, no format/duration clutter
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: style.textSpacing) {
                 Text(song.title)
-                    .font(.subheadline)
+                    .font(style.titleFont)
                     .lineLimit(1)
                     .foregroundStyle(isPlaying ? Color.accentColor : Color.primary)
                     .opacity(isReadingDetails ? 0.75 : unreachableDimming)
@@ -464,6 +475,9 @@ struct SongRowView: View {
                             Text(sourceName)
                         }
                     } else {
+                        if style.showsQualityBadge, let qualityBadge {
+                            SongRowQualityBadge(text: qualityBadge)
+                        }
                         if unreachable {
                             if isRetryingUnreachableSource {
                                 ProgressView()
@@ -503,7 +517,7 @@ struct SongRowView: View {
                         }
                     }
                 }
-                .font(.caption)
+                .font(style.subtitleFont)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             }
@@ -1835,6 +1849,72 @@ extension View {
             }
         }
         #endif
+    }
+}
+
+// MARK: - 行的版式
+
+/// 歌曲行的封面与字号。经典是 44pt 小封面；极简模式的列表封面更大，副标题前带音质标（#69）。
+struct SongRowStyle: Equatable, Sendable {
+    var artworkSize: CGFloat
+    var artworkCornerRadius: CGFloat
+    var artworkSpacing: CGFloat
+    var textSpacing: CGFloat
+    var titleFont: Font
+    var subtitleFont: Font
+    var showsQualityBadge: Bool
+
+    static let standard = SongRowStyle(
+        artworkSize: 44,
+        artworkCornerRadius: 6,
+        artworkSpacing: 10,
+        textSpacing: 2,
+        titleFont: .subheadline,
+        subtitleFont: .caption,
+        showsQualityBadge: false
+    )
+
+    static let minimal = SongRowStyle(
+        artworkSize: 56,
+        artworkCornerRadius: 10,
+        artworkSpacing: 14,
+        textSpacing: 4,
+        titleFont: .body,
+        subtitleFont: .footnote,
+        showsQualityBadge: true
+    )
+
+    /// 行下分隔线从哪里开始：和标题左缘对齐（行左边距 16 + 封面 + 间距）。
+    var separatorLeadingInset: CGFloat {
+        16 + artworkSize + artworkSpacing
+    }
+}
+
+private struct SongRowStyleEnvironmentKey: EnvironmentKey {
+    static let defaultValue = SongRowStyle.standard
+}
+
+extension EnvironmentValues {
+    var songRowStyle: SongRowStyle {
+        get { self[SongRowStyleEnvironmentKey.self] }
+        set { self[SongRowStyleEnvironmentKey.self] = newValue }
+    }
+}
+
+/// 副标题前的「Hi-Res」「DSD」小标。
+private struct SongRowQualityBadge: View {
+    let text: String
+
+    private static let tint = Color(red: 0.72, green: 0.52, blue: 0.08)
+
+    var body: some View {
+        Text(verbatim: text)
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(Self.tint)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .background(Self.tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .fixedSize()
     }
 }
 

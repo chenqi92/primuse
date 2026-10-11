@@ -941,7 +941,7 @@ public enum EmbeddedTagMetadataParser {
             trackNumber: track.flatMap(leadingInteger),
             discNumber: disc.flatMap(leadingInteger),
             year: date.flatMap(year),
-            genre: first("GENRE", "WM/GENRE", "IGNR"),
+            genre: GenreTagValues.joined(all("GENRE") ?? all("WM/GENRE") ?? all("IGNR") ?? []),
             lyrics: lyricFields.lyrics,
             lyricsLanguageCode: lyricFields.lyricsLanguageCode,
             translatedLyrics: lyricFields.translatedLyrics,

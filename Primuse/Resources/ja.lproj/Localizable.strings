@@ -3741,7 +3741,10 @@
 // MARK: - Navigation mode
 "navigation_mode_title" = "ナビゲーション";
 "minimal_mode_title" = "ミニマルモード";
-"minimal_mode_description" = "下部のナビゲーションバーを非表示にし、ライブラリの切り替えを上部に移動して、サイドボタンから設定を開きます。";
+"minimal_mode_description" = "下部のナビゲーションバーを隠し、上部でホーム・ミュージック・ラジオ・音声を切り替えます。再生バーは下部に固定されます。";
+"minimal_show_home" = "「ホーム」を表示";
+"minimal_tab_spoken" = "音声";
+"minimal_radio_on_air" = "ライブ配信中";
 
 // MARK: - Authoritative lyrics refresh
 "lyrics_reload_from_source" = "音楽ソースから歌詞を再読み込み";
@@ -4548,6 +4551,12 @@
 "diagnostics_feedback_attachments" = "添付ファイル（任意）";
 "diagnostics_feedback_message" = "要望や提案";
 "diagnostics_feedback_compose" = "メールを開く";
+"diagnostics_feedback_images" = "画像（任意）";
+"diagnostics_feedback_add_image" = "画像を追加";
+"diagnostics_feedback_images_footer %lld" = "最大 %lld 枚。縮小してメールに添付します。";
+"diagnostics_feedback_images_loading" = "画像を読み込み中…";
+"diagnostics_feedback_image_failed" = "読み込めない画像があり、スキップしました。";
+"diagnostics_feedback_remove_image" = "画像を削除";
 "diagnostics_logs_title" = "ログ";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */
@@ -5926,3 +5935,7 @@
 "ai_consent_privacy_row" = "内蔵 AI のデータの扱い";
 "ai_consent_status_agreed" = "同意済み";
 "ai_consent_status_not_agreed" = "未同意";
+
+"source_mutation_permission_denied" = "ソースファイルを変更する権限がありません。";
+"source_mutation_read_only" = "このソースではファイルを変更できません。";
+"metadata_writeback_local_only_notice" = "ソースへの書き込みが拒否されました。変更は Primuse 内にのみ保存され、ソースファイルは更新されていません。";

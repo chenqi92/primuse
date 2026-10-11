@@ -3725,7 +3725,10 @@
 // MARK: - Navigation mode
 "navigation_mode_title" = "導覽";
 "minimal_mode_title" = "極簡模式";
-"minimal_mode_description" = "隱藏底部導覽列，在頂部切換資料庫，並從側邊按鈕開啟設定。";
+"minimal_mode_description" = "隱藏底部導覽列：在頂部切換首頁、音樂、電台與有聲，播放條停靠在底部。";
+"minimal_show_home" = "顯示「首頁」";
+"minimal_tab_spoken" = "有聲";
+"minimal_radio_on_air" = "正在直播";
 
 // MARK: - Authoritative lyrics refresh
 "lyrics_reload_from_source" = "從音樂來源重新載入歌詞";
@@ -4524,6 +4527,12 @@
 "diagnostics_feedback_attachments" = "附件（可選）";
 "diagnostics_feedback_message" = "需求或建議";
 "diagnostics_feedback_compose" = "開啟郵件";
+"diagnostics_feedback_images" = "圖片（可選）";
+"diagnostics_feedback_add_image" = "加入圖片";
+"diagnostics_feedback_images_footer %lld" = "最多 %lld 張，會縮小後隨郵件一起傳送。";
+"diagnostics_feedback_images_loading" = "正在讀取圖片…";
+"diagnostics_feedback_image_failed" = "有的圖片讀不出來，已略過。";
+"diagnostics_feedback_remove_image" = "移除圖片";
 "diagnostics_logs_title" = "日誌";
 
 /* Audiobooks, medley, playback suggestions, batch tag editing */
@@ -5902,3 +5911,7 @@
 "ai_consent_privacy_row" = "內建 AI 的資料說明";
 "ai_consent_status_agreed" = "已同意";
 "ai_consent_status_not_agreed" = "未同意";
+
+"source_mutation_permission_denied" = "沒有修改來源檔案的權限。";
+"source_mutation_read_only" = "此來源不允許修改檔案。";
+"metadata_writeback_local_only_notice" = "來源拒絕寫入。修改已僅儲存在 Primuse，來源檔案未更新。";

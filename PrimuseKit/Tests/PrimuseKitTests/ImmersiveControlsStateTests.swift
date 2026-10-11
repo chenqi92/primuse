@@ -66,9 +66,9 @@ struct ImmersiveEffectEntryPolicyTests {
         ))
     }
 
-    @Test("Explicit TV entry preserves the saved native selection")
-    func tvLaunchKeepsNativeSelection() {
-        #expect(!ImmersiveEffectEntryPolicy.tvLaunchPresentsEffectPicker(
+    @Test("Explicit TV entry with native saved opens the picker instead of doing nothing")
+    func tvLaunchFromNativeOpensPicker() {
+        #expect(ImmersiveEffectEntryPolicy.tvLaunchPresentsEffectPicker(
             isUserInitiated: true,
             savedEffectIsNative: true
         ))
@@ -101,8 +101,8 @@ struct ImmersiveEffectEntryPolicyTests {
         #expect(presentation.startsPresentationWork)
     }
 
-    @Test("Explicit native entry returns to the saved player without a picker")
-    func explicitNativeEntryKeepsPlayer() {
+    @Test("Explicit native entry shows the picker over a paused stage")
+    func explicitNativeEntryShowsPicker() {
         let presentsPicker = ImmersiveEffectEntryPolicy.tvLaunchPresentsEffectPicker(
             isUserInitiated: true,
             savedEffectIsNative: true
@@ -111,8 +111,8 @@ struct ImmersiveEffectEntryPolicyTests {
             isNativeEffect: true,
             presentsEffectPicker: presentsPicker
         )
-        #expect(presentation.dismissesPlayer)
-        #expect(!presentation.showsEffectPicker)
+        #expect(!presentation.dismissesPlayer)
+        #expect(presentation.showsEffectPicker)
         #expect(!presentation.startsPresentationWork)
     }
 
