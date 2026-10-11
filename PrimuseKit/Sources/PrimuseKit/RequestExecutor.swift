@@ -117,26 +117,17 @@ public actor RequestExecutor {
         self.jitter = jitter
     }
 
-    /// Scheduling callers can skip unavailable sources without duplicating or
-    /// shortening this executor's cooldown deadline.
-    public var isCoolingDown: Bool { cooldownUntil > timing.now() }
-
-    /// A configured adapter may reserve its own interval after this request.
-    /// Changing that interval never resets an existing reservation or cooldown.
     public func execute(
-        minimumInterval: TimeInterval? = nil,
         replay: Replay = .never,
         _ send: @escaping @Sendable () async throws -> (Data, URLResponse)
     ) async throws -> (data: Data, response: HTTPURLResponse) {
-        if let minimumInterval { precondition(minimumInterval >= 0 && minimumInterval.isFinite) }
         try Task.checkCancellation()
-        let interval = minimumInterval ?? policy.minimumInterval
         let deadline = timing.now() + policy.timeout
         let timing = self.timing
         // The budget includes admission, rate waits, attempts and retry delays.
         // Transports must cooperate with cancellation (as URLSession does).
         return try await withThrowingTaskGroup(of: (Data, HTTPURLResponse).self) { group in
-            group.addTask { try await self.run(replay: replay, deadline: deadline, minimumInterval: interval, send) }
+            group.addTask { try await self.run(replay: replay, deadline: deadline, send) }
             group.addTask {
                 let remaining = deadline - timing.now()
                 if remaining > 0 { try await timing.sleep(remaining) }
@@ -149,11 +140,11 @@ public actor RequestExecutor {
     }
 
     private func run(
-        replay: Replay, deadline: TimeInterval, minimumInterval: TimeInterval,
+        replay: Replay, deadline: TimeInterval,
         _ send: @Sendable () async throws -> (Data, URLResponse)
     ) async throws -> (Data, HTTPURLResponse) {
         for attempt in 1...policy.maximumAttempts {
-            do { return try await perform(deadline: deadline, minimumInterval: minimumInterval, send) }
+            do { return try await perform(deadline: deadline, send) }
             catch {
                 try Task.checkCancellation()
                 guard replay == .idempotent, attempt < policy.maximumAttempts,
@@ -181,7 +172,7 @@ public actor RequestExecutor {
     }
 
     private func perform(
-        deadline: TimeInterval, minimumInterval: TimeInterval,
+        deadline: TimeInterval,
         _ send: @Sendable () async throws -> (Data, URLResponse)
     ) async throws -> (data: Data, response: HTTPURLResponse) {
         try Task.checkCancellation()
@@ -201,7 +192,7 @@ public actor RequestExecutor {
             throw HTTPResponseFailure(statusCode: cooldownStatus, retryAfter: queuedCooldown)
         }
         guard timing.now() < deadline else { throw URLError(.timedOut) }
-        nextStart = timing.now() + minimumInterval
+        nextStart = timing.now() + policy.minimumInterval
         let (data, response) = try await send()
         try Task.checkCancellation()
         guard timing.now() < deadline else { throw URLError(.timedOut) }

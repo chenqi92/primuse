@@ -62,34 +62,8 @@ struct RequestExecutorTests {
             _ = try await executor.execute { Issue.record("Cooldown was cleared"); return reply(200) }
             Issue.record("Expected shared cooldown")
         } catch let failure as HTTPResponseFailure { #expect(failure.retryAfter == 3599) }
-        #expect(await executor.isCoolingDown)
-        clock.advance(to: 301)
-        #expect(await executor.isCoolingDown)
         clock.advance(to: 3600)
-        #expect(await executor.isCoolingDown == false)
         _ = try await executor.execute { reply(200) }
-    }
-
-    @Test("Changing a caller's configured interval preserves the reserved quota slot")
-    func updatesPacingWithoutResettingReservations() async throws {
-        let clock = ControlledClock()
-        let executor = RequestExecutor(timing: clock.timing)
-        _ = try await executor.execute(minimumInterval: 1) { clock.recordStart(); return reply(200) }
-        let second = Task {
-            try await executor.execute(minimumInterval: 2) { clock.recordStart(); return reply(200) }
-        }
-        defer { second.cancel() }
-        try await clock.waitForSleep(at: 1)
-        clock.advance(to: 1)
-        _ = try await second.value
-        let third = Task {
-            try await executor.execute(minimumInterval: 0) { clock.recordStart(); return reply(200) }
-        }
-        defer { third.cancel() }
-        try await clock.waitForSleep(at: 3)
-        clock.advance(to: 3)
-        _ = try await third.value
-        #expect(clock.starts == [0, 1, 3])
     }
 
     @Test("Writes default to a single attempt after an uncertain outcome")
