@@ -86,10 +86,10 @@ public actor CloudDriveStreamResolver: StreamResolver {
     private var credentialRefreshHandler: CloudCredentialRefreshHandler?
     private let session: URLSession
 
-    public init() {
+    public init(session: URLSession? = nil) {
         let cfg = URLSessionConfiguration.default
         cfg.timeoutIntervalForRequest = 20
-        self.session = URLSession(configuration: cfg)
+        self.session = session ?? URLSession(configuration: cfg)
     }
 
     public func setCredentialRefreshHandler(_ handler: CloudCredentialRefreshHandler?) {
@@ -106,43 +106,24 @@ public actor CloudDriveStreamResolver: StreamResolver {
                           source: MusicSource,
                           credential: SourceCredential?) async throws -> URL {
         let cred = credential ?? SourceCredential()
-        let fileID = song.filePath
-        let token = try await accessToken(for: source, cred: cred, forceRefresh: false)
-        do {
-            return try await mint(
-                type: source.type,
-                fileID: fileID,
-                token: token,
-                cred: refreshedCredentials[source.id] ?? cred
-            )
-        } catch StreamResolveError.authFailed {
-            // token 过期 → 刷新后重试一次
-            let fresh = try await accessToken(for: source, cred: cred, forceRefresh: true)
-            return try await mint(
-                type: source.type,
-                fileID: fileID,
-                token: fresh,
-                cred: refreshedCredentials[source.id] ?? cred
-            )
+        return try await CloudResolverRequests.$account.withValue(.init(source: source, credential: cred)) {
+            let token = try await accessToken(for: source, cred: cred, forceRefresh: false)
+            return try await mint(type: source.type, fileID: song.filePath, token: token,
+                cred: refreshedCredentials[source.id] ?? cred)
         }
     }
 
-    /// Apple TV 目录浏览 / 扫描入口。目前只开放已验证可直接播放的 OneDrive 与 Dropbox。
+    /// Apple TV directory browsing and scanning, including authenticated pagination.
     public func listDirectory(
-        source: MusicSource,
-        credential: SourceCredential?,
-        path: String
+        source: MusicSource, credential: SourceCredential?, path: String
     ) async throws -> [CloudDriveDirectoryEntry] {
         guard source.type == .oneDrive || source.type == .dropbox else {
             throw StreamResolveError.unsupportedSourceType(source.type)
         }
         let cred = credential ?? SourceCredential()
-        let token = try await accessToken(for: source, cred: cred, forceRefresh: false)
-        do {
+        return try await CloudResolverRequests.$account.withValue(.init(source: source, credential: cred)) {
+            let token = try await accessToken(for: source, cred: cred, forceRefresh: false)
             return try await listDirectory(type: source.type, path: path, token: token)
-        } catch StreamResolveError.authFailed {
-            let fresh = try await accessToken(for: source, cred: cred, forceRefresh: true)
-            return try await listDirectory(type: source.type, path: path, token: fresh)
         }
     }
 
@@ -152,34 +133,30 @@ public actor CloudDriveStreamResolver: StreamResolver {
 
     public func resolve(for song: Song, source: MusicSource, credential: SourceCredential?) async throws -> ResolvedStream {
         let cred = credential ?? SourceCredential()
-        switch source.type {
-        case .aliyunDrive, .oneDrive, .dropbox, .pan123, .guangya:
-            return ResolvedStream(url: try await streamURL(for: song, source: source, credential: cred))
-        case .googleDrive:
-            // Google:端点即下载地址,播放需带 Bearer 头(走 resource loader)。
-            let token = try await accessToken(for: source, cred: cred, forceRefresh: false)
-            let id = song.filePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            guard let url = URL(string: "https://www.googleapis.com/drive/v3/files/\(id)?alt=media&acknowledgeAbuse=true") else {
-                throw StreamResolveError.cannotBuildURL
-            }
-            return ResolvedStream(url: url, headers: ["Authorization": "Bearer \(token)"])
-        case .pan115:
-            // 115:downurl 取直链,播放需带固定 UA(走 resource loader)。
-            let token = try await accessToken(for: source, cred: cred, forceRefresh: false)
-            do {
+        return try await CloudResolverRequests.$account.withValue(.init(source: source, credential: cred)) {
+            switch source.type {
+            case .aliyunDrive, .oneDrive, .dropbox, .pan123, .guangya:
+                return ResolvedStream(url: try await streamURL(for: song, source: source, credential: cred))
+            case .googleDrive:
+                // Google:端点即下载地址,播放需带 Bearer 头(走 resource loader)。
+                let token = try await accessToken(for: source, cred: cred, forceRefresh: false)
+                let id = song.filePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                guard let url = URL(string: "https://www.googleapis.com/drive/v3/files/\(id)?alt=media&acknowledgeAbuse=true") else {
+                    throw StreamResolveError.cannotBuildURL
+                }
+                return ResolvedStream(url: url, headers: ["Authorization": "Bearer \(accessTokens[source.id] ?? token)"])
+            case .pan115:
+                // 115:downurl 取直链,播放需带固定 UA(走 resource loader)。
+                let token = try await accessToken(for: source, cred: cred, forceRefresh: false)
                 let url = try await mint115(pickCode: song.filePath, token: token)
                 return ResolvedStream(url: url, headers: ["User-Agent": Self.pan115UA])
-            } catch StreamResolveError.authFailed {
-                let fresh = try await accessToken(for: source, cred: cred, forceRefresh: true)
-                let url = try await mint115(pickCode: song.filePath, token: fresh)
-                return ResolvedStream(url: url, headers: ["User-Agent": Self.pan115UA])
+            case .drime:
+                let token = try await accessToken(for: source, cred: cred, forceRefresh: false)
+                let url = try await mint(type: .drime, fileID: song.filePath, token: token, cred: cred)
+                return ResolvedStream(url: url, headers: ["Authorization": "Bearer \(accessTokens[source.id] ?? token)"])
+            default:
+                throw StreamResolveError.unsupportedSourceType(source.type)
             }
-        case .drime:
-            let token = try await accessToken(for: source, cred: cred, forceRefresh: false)
-            let url = try await mint(type: .drime, fileID: song.filePath, token: token, cred: cred)
-            return ResolvedStream(url: url, headers: ["Authorization": "Bearer \(token)"])
-        default:
-            throw StreamResolveError.unsupportedSourceType(source.type)
         }
     }
 
@@ -189,11 +166,63 @@ public actor CloudDriveStreamResolver: StreamResolver {
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         req.httpBody = "pick_code=\(Self.formEncode(pickCode))".data(using: .utf8)
-        let (data, response) = try await session.data(for: req)
-        try Self.checkAuth(response)
-        try Self.checkBodyAuthenticationFailure(data)
+        let data = try await read(req, bodyAuthCodes: [401, 403])
         guard let url = Self.parse115URL(data) else { throw StreamResolveError.cannotBuildURL }
         return url
+    }
+
+    private func read(_ request: URLRequest, bodyAuthCodes: Set<Int> = []) async throws -> Data {
+        guard let account = CloudResolverRequests.account, let url = request.url else {
+            throw StreamResolveError.cannotBuildURL
+        }
+        let attempt = CloudResolverReadAttempt()
+        return try await CloudResolverRequests.executor(for: url, account: account).execute(
+            replay: .idempotent,
+            recover: { error in
+                let unauthorized = (error as? HTTPResponseFailure)?.statusCode == 401
+                    || error as? StreamResolveError == .authFailed
+                guard unauthorized, await attempt.claimRecovery() else { return false }
+                try await self.renew(account: account, rejectedToken: await attempt.token)
+                return true
+            }, operation: {
+                var request = request
+                let token = try await self.accessToken(for: account.source, cred: account.credential, forceRefresh: false)
+                await attempt.record(token: token)
+                if request.value(forHTTPHeaderField: "Authorization") != nil {
+                    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                }
+                let (data, response) = try await self.session.data(for: request)
+                try Self.validateResponse(data, response: response, type: account.source.type)
+                try Self.checkBodyAuthenticationFailure(data, additionalCodes: bodyAuthCodes)
+                return data
+            })
+    }
+
+    private func renew(account: CloudResolverRequests.Account, rejectedToken: String?) async throws {
+        if let cached = accessTokens[account.source.id], let rejectedToken, cached != rejectedToken { return }
+        _ = try await accessToken(for: account.source, cred: account.credential, forceRefresh: true)
+    }
+
+    private func tokenRequest(_ request: URLRequest) async throws -> Data {
+        guard let account = CloudResolverRequests.account, let url = request.url else {
+            throw StreamResolveError.cannotBuildURL
+        }
+        return try await CloudResolverRequests.executor(for: url, account: account).execute(
+            replay: .never, operation: { [session] in
+                let (data, response) = try await session.data(for: request)
+                try Self.validateResponse(data, response: response, type: account.source.type)
+                return data
+            })
+    }
+
+    private static func validateResponse(_ data: Data, response: URLResponse, type: MusicSourceType) throws {
+        let http = try CloudResolverRequests.validate(data, response: response)
+        if type == .pan123,
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           (json["code"] as? NSNumber)?.intValue == 429 || (json["code"] as? String) == "429" {
+            throw HTTPResponseFailure(statusCode: http.statusCode, body: data,
+                retryAfter: HTTPResponseFailure.retryDelay(from: http), isRateLimited: true)
+        }
     }
 
     // MARK: - access token(同步包优先;过期则按提供方刷新)
@@ -202,7 +231,7 @@ public actor CloudDriveStreamResolver: StreamResolver {
         if !forceRefresh, let cached = accessTokens[source.id] { return cached }
         if forceRefresh { accessTokens[source.id] = nil }
         if let inFlight = accessTokenTasks[source.id], !forceRefresh || inFlight.forceRefresh {
-            return try await inFlight.task.value
+            return try await CloudResolverRequests.wait(for: inFlight.task)
         }
         let taskID = UUID()
         let effectiveCredential = refreshedCredentials[source.id] ?? cred
@@ -226,9 +255,9 @@ public actor CloudDriveStreamResolver: StreamResolver {
         accessTokenTasks[source.id] = (taskID, forceRefresh, task)
         let token: String
         do {
-            token = try await task.value
+            token = try await CloudResolverRequests.wait(for: task)
         } catch {
-            if accessTokenTasks[source.id]?.id == taskID { accessTokenTasks[source.id] = nil }
+            if !Task.isCancelled, accessTokenTasks[source.id]?.id == taskID { accessTokenTasks[source.id] = nil }
             throw error
         }
         if accessTokenTasks[source.id]?.id == taskID {
@@ -294,8 +323,7 @@ public actor CloudDriveStreamResolver: StreamResolver {
             }
             var request = URLRequest(url: nextURL)
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            let (data, response) = try await session.data(for: request)
-            try Self.checkAuth(response)
+            let data = try await read(request)
             guard let page = Self.parseOneDriveDirectoryPage(data) else {
                 throw StreamResolveError.cannotBuildURL
             }
@@ -325,8 +353,7 @@ public actor CloudDriveStreamResolver: StreamResolver {
         var entries: [CloudDriveDirectoryEntry] = []
         var seenCursors: Set<String> = []
         while true {
-            let (data, response) = try await session.data(for: request)
-            try Self.checkAuth(response)
+            let data = try await read(request)
             guard let page = Self.parseDropboxDirectoryPage(data) else {
                 throw StreamResolveError.cannotBuildURL
             }
@@ -415,8 +442,7 @@ public actor CloudDriveStreamResolver: StreamResolver {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("open_platform", forHTTPHeaderField: "Platform")
         req.httpBody = try? SafeJSONSerialization.data(withJSONObject: ["clientID": cid, "clientSecret": secret])
-        let (data, response) = try await session.data(for: req)
-        try Self.checkAuth(response)
+        let data = try await tokenRequest(req)
         guard let token = Self.parse123Token(data) else { throw StreamResolveError.authFailed }
         return token
     }
@@ -431,8 +457,7 @@ public actor CloudDriveStreamResolver: StreamResolver {
             guard let rt = cred.refreshToken, !rt.isEmpty else { throw StreamResolveError.missingCredential }
             let req = Self.formRequest(url: URL(string: "https://passportapi.115.com/open/refreshToken")!,
                                        fields: ["refresh_token": rt])
-            let (data, response) = try await session.data(for: req)
-            try Self.checkAuth(response)
+            let data = try await tokenRequest(req)
             guard let token = Self.parse115AccessToken(data) else { throw StreamResolveError.authFailed }
             return token
         }
@@ -465,8 +490,7 @@ public actor CloudDriveStreamResolver: StreamResolver {
         default:
             throw StreamResolveError.unsupportedSourceType(type)
         }
-        let (data, response) = try await session.data(for: req)
-        try Self.checkAuth(response)
+        let data = try await tokenRequest(req)
         guard let tokenResponse = Self.parseOAuthTokenResponse(data) else {
             throw StreamResolveError.authFailed
         }
@@ -496,9 +520,7 @@ public actor CloudDriveStreamResolver: StreamResolver {
         bodyAuthCodes: Set<Int> = [],
         parse: (Data) -> URL?
     ) async throws -> URL {
-        let (data, response) = try await session.data(for: req)
-        try Self.checkAuth(response)
-        try Self.checkBodyAuthenticationFailure(data, additionalCodes: bodyAuthCodes)
+        let data = try await read(req, bodyAuthCodes: bodyAuthCodes)
         guard let url = parse(data) else { throw StreamResolveError.cannotBuildURL }
         return url
     }
@@ -545,8 +567,8 @@ public actor CloudDriveStreamResolver: StreamResolver {
 
     static func checkAuth(_ response: URLResponse) throws {
         guard let http = response as? HTTPURLResponse else { return }
-        if http.statusCode == 401 || http.statusCode == 403 { throw StreamResolveError.authFailed }
-        guard (200...299).contains(http.statusCode) else { throw StreamResolveError.badServerResponse(http.statusCode) }
+        if http.statusCode == 401 { throw StreamResolveError.authFailed }
+        guard (200...299).contains(http.statusCode) else { throw HTTPResponseFailure(statusCode: http.statusCode, retryAfter: HTTPResponseFailure.retryDelay(from: http)) }
     }
 
     static func checkBodyAuthenticationFailure(

@@ -16,11 +16,11 @@ public actor BaiduPanStreamResolver: StreamResolver {
     private let session: URLSession
     private let noRedirectSession: URLSession
 
-    public init() {
+    public init(session: URLSession? = nil) {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForRequest = 30
-        self.session = URLSession(configuration: cfg)
-        self.noRedirectSession = URLSession(configuration: cfg, delegate: NoRedirectDelegate(), delegateQueue: nil)
+        self.session = session ?? URLSession(configuration: cfg)
+        self.noRedirectSession = URLSession(configuration: session?.configuration ?? cfg, delegate: NoRedirectDelegate(), delegateQueue: nil)
     }
 
     public func invalidateSession(sourceID: String) {
@@ -35,13 +35,9 @@ public actor BaiduPanStreamResolver: StreamResolver {
 
     public func resolve(for song: Song, source: MusicSource, credential: SourceCredential?) async throws -> ResolvedStream {
         let cred = credential ?? SourceCredential()
-        let token = try await accessToken(for: source, cred: cred, forceRefresh: false)
-        do {
+        return try await CloudResolverRequests.$account.withValue(.init(source: source, credential: cred)) {
+            let token = try await accessToken(for: source, cred: cred, forceRefresh: false)
             let cdn = try await resolveCdnURL(path: song.filePath, token: token)
-            return ResolvedStream(url: cdn, headers: ["User-Agent": Self.userAgent, "Referer": Self.referer])
-        } catch StreamResolveError.authFailed {
-            let fresh = try await accessToken(for: source, cred: cred, forceRefresh: true)
-            let cdn = try await resolveCdnURL(path: song.filePath, token: fresh)
             return ResolvedStream(url: cdn, headers: ["User-Agent": Self.userAgent, "Referer": Self.referer])
         }
     }
@@ -49,28 +45,58 @@ public actor BaiduPanStreamResolver: StreamResolver {
     // MARK: 解析链
 
     private func resolveCdnURL(path: String, token: String) async throws -> URL {
+        guard let account = CloudResolverRequests.account else { throw StreamResolveError.missingCredential }
         let dlink = try await getDlink(path: path, token: token)
-        guard let dlinkURL = URL(string: "\(dlink)&access_token=\(token)") else { throw StreamResolveError.cannotBuildURL }
-        var head = URLRequest(url: dlinkURL)
-        head.httpMethod = "HEAD"
-        head.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
-        head.setValue(Self.referer, forHTTPHeaderField: "Referer")
-        let (_, response) = try await noRedirectSession.data(for: head)
-        guard let http = response as? HTTPURLResponse else { throw StreamResolveError.cannotBuildURL }
-        switch http.statusCode {
-        case 301, 302, 303, 307, 308:
-            guard let loc = http.value(forHTTPHeaderField: "Location"),
-                  let url = URL(string: loc, relativeTo: dlinkURL)?.absoluteURL else {
-                throw StreamResolveError.cannotBuildURL
-            }
-            return url
-        case 200:
-            return dlinkURL
-        case 401, 403, 410:
-            throw StreamResolveError.authFailed
-        default:
-            throw StreamResolveError.badServerResponse(http.statusCode)
-        }
+        let link = BaiduLinkAttempt(dlink: dlink)
+        let initialURL = try Self.authenticatedDlink(dlink, token: token)
+        let attempt = CloudResolverReadAttempt()
+        return try await CloudResolverRequests.executor(for: initialURL, account: account).execute(
+            replay: .idempotent, recover: { error in
+                guard let failure = error as? HTTPResponseFailure,
+                      [401, 410].contains(failure.statusCode), await attempt.claimRecovery() else { return false }
+                try await self.renew(account: account, rejectedToken: await attempt.token)
+                let token = try await self.accessToken(for: account.source, cred: account.credential, forceRefresh: false)
+                // Refresh the expired dlink only as authentication recovery. A
+                // quota/transport failure must not restart the directory chain.
+                let fresh = try await self.getDlink(path: path, token: token)
+                await link.replace(with: fresh)
+                return true
+            }, operation: {
+                let token = try await self.accessToken(for: account.source, cred: account.credential, forceRefresh: false)
+                await attempt.record(token: token)
+                let url = try Self.authenticatedDlink(await link.dlink, token: token)
+                var head = URLRequest(url: url)
+                head.httpMethod = "HEAD"
+                head.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+                head.setValue(Self.referer, forHTTPHeaderField: "Referer")
+                let (data, response) = try await self.noRedirectSession.data(for: head)
+                guard let http = response as? HTTPURLResponse else { throw StreamResolveError.cannotBuildURL }
+                switch http.statusCode {
+                case 301, 302, 303, 307, 308:
+                    guard let location = http.value(forHTTPHeaderField: "Location"),
+                          let result = URL(string: location, relativeTo: url)?.absoluteURL else {
+                        throw StreamResolveError.cannotBuildURL
+                    }
+                    return result
+                case 200: return url
+                default:
+                    throw HTTPResponseFailure(statusCode: http.statusCode, body: data,
+                        retryAfter: HTTPResponseFailure.retryDelay(from: http))
+                }
+            })
+    }
+
+    private static func authenticatedDlink(_ value: String, token: String) throws -> URL {
+        guard var components = URLComponents(string: value) else { throw StreamResolveError.cannotBuildURL }
+        let item = "access_token=" + CloudDriveStreamResolver.formEncode(token)
+        components.percentEncodedQuery = components.percentEncodedQuery.map { $0 + "&" + item } ?? item
+        guard let url = components.url else { throw StreamResolveError.cannotBuildURL }
+        return url
+    }
+
+    private func renew(account: CloudResolverRequests.Account, rejectedToken: String?) async throws {
+        if let cached = accessTokens[account.source.id], let rejectedToken, cached != rejectedToken { return }
+        _ = try await accessToken(for: account.source, cred: account.credential, forceRefresh: true)
     }
 
     private func getDlink(path: String, token: String) async throws -> String {
@@ -108,25 +134,45 @@ public actor BaiduPanStreamResolver: StreamResolver {
 
     /// 百度 API 永远 200,错误在 body 的 errno。附加 access_token。
     private func callAPI(base: String, token: String, query: [URLQueryItem]) async throws -> [String: Any] {
-        guard var comp = URLComponents(string: base) else { throw StreamResolveError.cannotBuildURL }
-        comp.queryItems = query + [URLQueryItem(name: "access_token", value: token)]
-        guard let url = FormSafeQueryURLBuilder.url(from: comp) else {
+        guard let account = CloudResolverRequests.account, let endpoint = URL(string: base) else {
             throw StreamResolveError.cannotBuildURL
         }
-        let (data, _) = try await session.data(from: url)
-        let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
-        if let errno = json["errno"] as? Int, errno != 0 {
-            if errno == 111 || errno == -6 { throw StreamResolveError.authFailed }   // token 失效
-            throw StreamResolveError.badServerResponse(errno)
-        }
-        return json
+        let attempt = CloudResolverReadAttempt()
+        let data = try await CloudResolverRequests.executor(for: endpoint, account: account).execute(
+            replay: .idempotent, recover: { error in
+                let unauthorized = (error as? HTTPResponseFailure)?.statusCode == 401
+                    || error as? StreamResolveError == .authFailed
+                guard unauthorized, await attempt.claimRecovery() else { return false }
+                try await self.renew(account: account, rejectedToken: await attempt.token)
+                return true
+            }, operation: {
+                let token = try await self.accessToken(for: account.source, cred: account.credential, forceRefresh: false)
+                await attempt.record(token: token)
+                guard var comp = URLComponents(string: base) else { throw StreamResolveError.cannotBuildURL }
+                comp.queryItems = query + [URLQueryItem(name: "access_token", value: token)]
+                guard let url = FormSafeQueryURLBuilder.url(from: comp) else { throw StreamResolveError.cannotBuildURL }
+                let (data, response) = try await self.session.data(from: url)
+                let http = try CloudResolverRequests.validate(data, response: response)
+                guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    throw StreamResolveError.cannotBuildURL
+                }
+                let errno = (json["errno"] as? NSNumber)?.intValue ?? (json["errno"] as? String).flatMap(Int.init) ?? 0
+                if errno == 31034 {
+                    throw HTTPResponseFailure(statusCode: http.statusCode, body: data,
+                        retryAfter: HTTPResponseFailure.retryDelay(from: http), isRateLimited: true)
+                }
+                if errno == 111 || errno == -6 { throw StreamResolveError.authFailed }
+                if errno != 0 { throw StreamResolveError.badServerResponse(errno) }
+                return data
+            })
+        return (try JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
     }
 
     private func accessToken(for source: MusicSource, cred: SourceCredential, forceRefresh: Bool) async throws -> String {
         if !forceRefresh, let cached = accessTokens[source.id] { return cached }
         if forceRefresh { accessTokens[source.id] = nil }
         if let inFlight = accessTokenTasks[source.id], !forceRefresh || inFlight.forceRefresh {
-            return try await inFlight.task.value
+            return try await CloudResolverRequests.wait(for: inFlight.task)
         }
         let taskID = UUID()
         let task = Task<String, Error> { [self] in
@@ -144,7 +190,12 @@ public actor BaiduPanStreamResolver: StreamResolver {
             guard let url = FormSafeQueryURLBuilder.url(from: comp) else {
                 throw StreamResolveError.cannotBuildURL
             }
-            let (data, _) = try await session.data(from: url)
+            guard let account = CloudResolverRequests.account else { throw StreamResolveError.missingCredential }
+            let data = try await CloudResolverRequests.executor(for: url, account: account).execute(replay: .never, operation: { [session] in
+                let (data, response) = try await session.data(from: url)
+                _ = try CloudResolverRequests.validate(data, response: response)
+                return data
+            })
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let token = json["access_token"] as? String else { throw StreamResolveError.authFailed }
             return token
@@ -152,9 +203,9 @@ public actor BaiduPanStreamResolver: StreamResolver {
         accessTokenTasks[source.id] = (taskID, forceRefresh, task)
         let token: String
         do {
-            token = try await task.value
+            token = try await CloudResolverRequests.wait(for: task)
         } catch {
-            if accessTokenTasks[source.id]?.id == taskID { accessTokenTasks[source.id] = nil }
+            if !Task.isCancelled, accessTokenTasks[source.id]?.id == taskID { accessTokenTasks[source.id] = nil }
             throw error
         }
         if accessTokenTasks[source.id]?.id == taskID {
@@ -177,6 +228,12 @@ public actor BaiduPanStreamResolver: StreamResolver {
         guard let list = filemetas["list"] as? [[String: Any]] else { return nil }
         return list.first?["dlink"] as? String
     }
+}
+
+private actor BaiduLinkAttempt {
+    private(set) var dlink: String
+    init(dlink: String) { self.dlink = dlink }
+    func replace(with dlink: String) { self.dlink = dlink }
 }
 
 /// 不自动跟随重定向,以便读取 302 的 Location(百度 dlink → CDN)。
