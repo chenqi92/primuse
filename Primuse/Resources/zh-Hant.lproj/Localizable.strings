@@ -5917,3 +5917,5 @@
 "source_mutation_permission_denied" = "沒有修改來源檔案的權限。";
 "source_mutation_read_only" = "這個音樂來源不允許修改檔案。";
 "metadata_writeback_local_only_notice" = "音樂來源拒絕寫入，修改只儲存在了 Primuse 裡，來源檔案沒有更新。";
+"library_playlist_cover_wall_title" = "歌單頭圖用封面牆";
+"library_playlist_cover_wall_description" = "歌單和智慧歌單裡有 4 張以上不同的專輯封面時，頭圖鋪成一面傾斜的封面牆，每隔幾秒換一次排法。手機橫向和自己設過封面的歌單仍顯示單張封面。";

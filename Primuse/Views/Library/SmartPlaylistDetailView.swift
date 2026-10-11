@@ -22,6 +22,8 @@ struct SmartPlaylistDetailView: View {
     @Environment(ScraperSettingsStore.self) private var scraperSettings
     #if os(iOS)
     @Environment(\.pmHeightClass) private var heightClass
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @AppStorage(CollectionCoverWall.preferenceKey) private var usesCoverWallHeader = CollectionCoverWall.defaultEnabled
     #elseif os(macOS)
     @Environment(\.locale) private var locale
     #endif
@@ -266,7 +268,49 @@ struct SmartPlaylistDetailView: View {
     ///
     /// 排布由 `AnyLayout` 决定, 视图身份不随旋转变化。竖屏取值全部照抄原常量:
     /// 外层 8 的间距加上摘要之后那 12 的上边距, 还原成原来「摘要 → 操作行」的 20。
+    @ViewBuilder
     private func legacyHeader(_ smart: SmartPlaylist, matched: [Song]) -> some View {
+        #if os(iOS)
+        // 封面够多时头部换成封面墙（#114），墙面自带名称与歌曲数；手机横屏首屏放不下一面墙。
+        if usesCoverWallHeader, !usesCompactHeaderLayout, CollectionCoverWall.isAvailable(for: matched) {
+            coverWallHeader(smart, matched: matched)
+        } else {
+            classicHeader(smart, matched: matched)
+        }
+        #else
+        classicHeader(smart, matched: matched)
+        #endif
+    }
+
+    #if os(iOS)
+    private func coverWallHeader(_ smart: SmartPlaylist, matched: [Song]) -> some View {
+        VStack(spacing: 8) {
+            CollectionCoverWallHeader(
+                title: smart.name,
+                subtitle: "\(matched.count) \(String(localized: "songs_count"))",
+                titleSymbol: smart.effectiveKind == .ai ? "sparkles" : "slider.horizontal.3",
+                songs: matched,
+                nowPlaying: player.currentSong,
+                wallHeight: horizontalSizeClass == .regular ? 340 : 300
+            ) {
+                EmptyView()
+            }
+
+            Text(playlistSummary(smart))
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+                .padding(.horizontal)
+
+            legacyActionButtons(matched)
+                .padding(.horizontal)
+                .padding(.top, 12)
+        }
+    }
+    #endif
+
+    private func classicHeader(_ smart: SmartPlaylist, matched: [Song]) -> some View {
         let compact = usesCompactHeaderLayout
         let coverSide: CGFloat = compact ? 116 : 180
         let glyphSize: CGFloat = compact ? 44 : 60

@@ -6033,3 +6033,5 @@
 "source_mutation_permission_denied" = "没有修改源文件的权限。";
 "source_mutation_read_only" = "这个音乐源不允许修改文件。";
 "metadata_writeback_local_only_notice" = "音乐源拒绝写入，修改只保存在了 Primuse 里，源文件没有更新。";
+"library_playlist_cover_wall_title" = "歌单头图用封面墙";
+"library_playlist_cover_wall_description" = "歌单和智能歌单里有 4 张以上不同的专辑封面时，头图铺成一面倾斜的封面墙，每隔几秒换一次排法。手机横屏和自己设过封面的歌单仍显示单张封面。";

@@ -5700,3 +5700,5 @@
 "source_mutation_permission_denied" = "Permission to modify source files was denied.";
 "source_mutation_read_only" = "This source does not allow file changes.";
 "metadata_writeback_local_only_notice" = "The source refused write access. Your changes were saved only in Primuse; the source file was not updated.";
+"library_playlist_cover_wall_title" = "Cover Wall for Playlist Headers";
+"library_playlist_cover_wall_description" = "When a playlist or smart playlist has at least 4 different album covers, its header becomes a tilted wall of covers that rearranges every few seconds. Phones in landscape and playlists with a custom cover keep the single cover.";

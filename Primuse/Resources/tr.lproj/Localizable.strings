@@ -5846,3 +5846,5 @@
 "source_mutation_permission_denied" = "Kaynak dosyalarını değiştirme izni reddedildi.";
 "source_mutation_read_only" = "Bu kaynak dosya değişikliklerine izin vermiyor.";
 "metadata_writeback_local_only_notice" = "Kaynak yazma erişimini reddetti. Değişiklikleriniz yalnızca Primuse içinde kaydedildi; kaynak dosya güncellenmedi.";
+"library_playlist_cover_wall_title" = "Çalma listesi başlığında kapak duvarı";
+"library_playlist_cover_wall_description" = "Bir çalma listesinde veya akıllı listede en az 4 farklı albüm kapağı varsa başlık, birkaç saniyede bir yeniden dizilen eğik bir kapak duvarına dönüşür. Telefon yatay konumdayken ve özel kapağı olan listelerde tek kapak gösterilmeye devam eder.";

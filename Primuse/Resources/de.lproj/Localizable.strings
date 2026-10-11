@@ -5940,3 +5940,5 @@
 "source_mutation_permission_denied" = "Keine Berechtigung zum Ändern der Quelldateien.";
 "source_mutation_read_only" = "Diese Quelle erlaubt keine Dateiänderungen.";
 "metadata_writeback_local_only_notice" = "Die Quelle hat den Schreibzugriff verweigert. Deine Änderungen wurden nur in Primuse gespeichert; die Quelldatei wurde nicht aktualisiert.";
+"library_playlist_cover_wall_title" = "Cover-Wand im Playlist-Kopf";
+"library_playlist_cover_wall_description" = "Hat eine Playlist oder intelligente Playlist mindestens 4 verschiedene Albumcover, wird der Kopfbereich zu einer schrägen Cover-Wand, die sich alle paar Sekunden neu anordnet. Smartphones im Querformat und Playlists mit eigenem Cover zeigen weiterhin ein einzelnes Cover.";

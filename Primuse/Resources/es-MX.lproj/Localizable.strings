@@ -5846,3 +5846,5 @@
 "source_mutation_permission_denied" = "Se denegó el permiso para modificar los archivos de origen.";
 "source_mutation_read_only" = "Esta fuente no permite modificar archivos.";
 "metadata_writeback_local_only_notice" = "La fuente rechazó la escritura. Tus cambios se guardaron solo en Primuse; el archivo de origen no se actualizó.";
+"library_playlist_cover_wall_title" = "Mural de portadas en el encabezado de listas";
+"library_playlist_cover_wall_description" = "Cuando una lista o lista inteligente tiene al menos 4 portadas de álbum distintas, el encabezado se convierte en un mural inclinado de portadas que se reacomoda cada pocos segundos. En el teléfono en horizontal y en listas con portada propia se sigue viendo una sola portada.";

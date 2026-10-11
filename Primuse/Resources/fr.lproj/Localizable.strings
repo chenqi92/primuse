@@ -5940,3 +5940,5 @@
 "source_mutation_permission_denied" = "L’autorisation de modifier les fichiers source a été refusée.";
 "source_mutation_read_only" = "Cette source n’autorise pas la modification des fichiers.";
 "metadata_writeback_local_only_notice" = "La source a refusé l’écriture. Vos modifications ont été enregistrées uniquement dans Primuse ; le fichier source n’a pas été mis à jour.";
+"library_playlist_cover_wall_title" = "Mur de pochettes en tête des playlists";
+"library_playlist_cover_wall_description" = "Lorsqu’une playlist ou une playlist intelligente compte au moins 4 pochettes d’album différentes, son en-tête devient un mur incliné de pochettes qui se réorganise toutes les quelques secondes. En mode paysage sur téléphone et pour les playlists avec une pochette personnalisée, une seule pochette reste affichée.";

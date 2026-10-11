@@ -743,6 +743,9 @@ private struct LibraryDisplaySettingsView: View {
     @AppStorage(LibraryReviewPreferences.enabledKey)
     private var ratingsAndCommentsEnabled = false
     @AppStorage(QuickAccessCoverStyle.storageKey) private var quickAccessCoverStyle = QuickAccessCoverStyle.automatic
+    #if os(iOS)
+    @AppStorage(CollectionCoverWall.preferenceKey) private var usesPlaylistCoverWall = CollectionCoverWall.defaultEnabled
+    #endif
     @AppStorage(ListeningStatsStyle.storageKey) private var listeningStatsStyle = ListeningStatsStyle.report
     @AppStorage(LibrarySongBrowseModePreference.storageKey)
     private var libraryBrowseModeRawValue = LibrarySongBrowseMode.folder.rawValue
@@ -815,6 +818,18 @@ private struct LibraryDisplaySettingsView: View {
                     Text("library_quick_access_cover_description")
                 }
             }
+
+            #if os(iOS)
+            // 封面墙头图只有 iPhone / iPad 的歌单页有。
+            Section {
+                Toggle(isOn: $usesPlaylistCoverWall) {
+                    SettingsInfoLabel("library_playlist_cover_wall_title") {
+                        Text("library_playlist_cover_wall_description")
+                    }
+                }
+                .settingsAnchor("library.playlistCoverWall")
+            }
+            #endif
 
             Section {
                 ForEach(sectionOrder) { section in

@@ -687,6 +687,8 @@ final class InterfaceLayoutSync {
         LibrarySectionLayoutPolicy.orderKey,
         LibrarySectionLayoutPolicy.hiddenKey,
         QuickAccessCoverStyle.storageKey,
+        // 歌单头图用封面墙(`CollectionCoverWall.preferenceKey`,只有 iPhone / iPad 用,Mac 照样转发)。
+        "primuse.library.playlistCoverWall.v1",
         ListeningStatsStyle.storageKey,
         // iPhone / iPad 播放页的按钮与底部状态行(只在「播放页按钮」编辑页里写)
         NowPlayingControlLayout.musicStorageKey,
