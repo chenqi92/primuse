@@ -156,6 +156,16 @@ import Testing
         #expect(MediaMetadataTextRepair.repairedAlbumTitle(decoded, artist: nil) == decoded)
     }
 
+    @Test func fileBackedRepairKeepsTheReadablePrefixOfATruncatedAlbum() {
+        for album in ["大人的情\u{FFFD}", "大人的情\u{FFFD}\u{FFFD}", "大人的情??"] {
+            var song = Song(id: "truncated", title: "大人的情歌", albumTitle: album,
+                            artistName: "张宇", fileFormat: .mp3,
+                            filePath: "/音乐/张宇/张宇 - 大人的情歌.mp3", sourceID: "nas")
+            #expect(!MediaMetadataTextRepair.repairFileBackedMetadata(in: &song), "\(album)")
+            #expect(song.albumTitle == album)
+        }
+    }
+
     @Test func partiallyRestoresAlbumAfterAParserHasAlreadySplitItsFields() {
         #expect(MediaMetadataTextRepair.repairedAlbumTitle(
             "澶т汉鐨勬儏姝", artist: "张宇"

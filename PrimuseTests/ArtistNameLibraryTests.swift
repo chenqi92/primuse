@@ -80,6 +80,10 @@ final class FileAlbumArtistLibraryTests: XCTestCase {
             XCTAssertEqual(cached.albumTitle, "大人的情\u{FFFD}")
             XCTAssertNil(cached.albumPinyin)
             XCTAssertFalse(MusicLibrary.repairLegacyChineseMetadataText(in: &cached))
+            XCTAssertEqual(cached.albumTitle, "大人的情\u{FFFD}")
+            // 装载时修完紧接着补派生 ID，里面会再跑一遍文件名修复。
+            MusicLibrary.fillDerivedIDs(&cached)
+            XCTAssertEqual(cached.albumTitle, "大人的情\u{FFFD}")
         }
     }
 
