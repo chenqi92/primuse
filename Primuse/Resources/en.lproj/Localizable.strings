@@ -5476,6 +5476,10 @@
 "player_controls_spoken_buttons_header" = "Other Buttons";
 "player_controls_spoken_transcript" = "Transcript Button";
 "player_controls_spoken_chapters" = "Previous / Next Chapter";
+"player_menu_items_spoken_footer" = "Items you turn off no longer appear in the More menu. Like, the transcript button, Bookmark, and Up Next still move to the menu when you take them off the page.";
+"player_menu_group_book" = "This Book";
+"player_menu_group_episode" = "This Episode";
+"player_menu_group_spoken_playback" = "Playback & Transcript";
 "player_controls_spoken_buttons_footer" = "Like and the transcript button move to the More menu when turned off; tapping the cover also opens the transcript. Jump between chapters from the contents, or touch and hold the skip buttons.";
 
 /* 歌词来源 */
@@ -5533,7 +5537,7 @@
 "player_control_tint_footer" = "The color of the progress bar, active shuffle and repeat, and other player controls. Monochrome is white in Dark Mode and black in Light Mode, so it stays calm over backgrounds like Liquid Colors. The audiobook layouts keep their own colors.";
 "player_menu_items_title" = "More Menu";
 "player_menu_items_hidden_count %lld" = "%lld hidden";
-"player_menu_items_footer" = "Items you turn off no longer appear in the player’s More menu. This only affects music; the audiobook and podcast menus stay the same. Buttons already on the page are never repeated in the menu, and Like, Lyrics, Queue, Shuffle, and Repeat still move to the menu when you take them off the page.";
+"player_menu_items_footer" = "Items you turn off no longer appear in the player’s More menu. Buttons already on the page are never repeated in the menu, and Like, Lyrics, Queue, Shuffle, and Repeat still move to the menu when you take them off the page.";
 "player_menu_items_show_all" = "Show All";
 "player_menu_group_quick" = "Top Row";
 "player_menu_group_modes" = "Modes";

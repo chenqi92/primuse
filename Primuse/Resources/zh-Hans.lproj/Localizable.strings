@@ -5809,6 +5809,10 @@
 "player_controls_spoken_buttons_header" = "其他按钮";
 "player_controls_spoken_transcript" = "文字稿键";
 "player_controls_spoken_chapters" = "上一章 / 下一章";
+"player_menu_items_spoken_footer" = "关掉的项不再出现在「更多」里。页面上拿掉的喜欢、文字稿、书签和「接下来」仍会补进菜单。";
+"player_menu_group_book" = "这本书";
+"player_menu_group_episode" = "这一集";
+"player_menu_group_spoken_playback" = "播放与文字稿";
 "player_controls_spoken_buttons_footer" = "关掉的喜欢和文字稿键会出现在「更多」里，点封面也能打开文字稿；章节可以从目录跳转，长按快退、快进键也能跳章。";
 
 /* 歌词来源 */
@@ -5866,7 +5870,7 @@
 "player_control_tint_footer" = "进度条、开着的随机与循环等播放页控件的颜色。选单色时深色外观下是白色、浅色外观下是黑色，配流动色彩之类的背景不抢色；有声书版面保留自己的配色。";
 "player_menu_items_title" = "「更多」菜单";
 "player_menu_items_hidden_count %lld" = "已隐藏 %lld 项";
-"player_menu_items_footer" = "关掉的项不再出现在播放页的「更多」里，只影响音乐；有声书和播客的菜单不变。已经摆在页面上的按钮本来就不会在菜单里重复，页面上拿掉的喜欢、歌词、队列、随机和循环仍会补进菜单。";
+"player_menu_items_footer" = "关掉的项不再出现在播放页的「更多」里。已经摆在页面上的按钮本来就不会在菜单里重复，页面上拿掉的喜欢、歌词、队列、随机和循环仍会补进菜单。";
 "player_menu_items_show_all" = "全部显示";
 "player_menu_group_quick" = "最上面一排";
 "player_menu_group_modes" = "玩法";

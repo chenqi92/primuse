@@ -5717,6 +5717,10 @@
 "player_controls_spoken_buttons_header" = "そのほかのボタン";
 "player_controls_spoken_transcript" = "文字起こしボタン";
 "player_controls_spoken_chapters" = "前の章 / 次の章";
+"player_menu_items_spoken_footer" = "オフにした項目は「その他」に表示されなくなります。画面から外した「好き」、文字起こしボタン、「ブックマーク」「次に再生」は引き続きメニューに入ります。";
+"player_menu_group_book" = "この本";
+"player_menu_group_episode" = "このエピソード";
+"player_menu_group_spoken_playback" = "再生と文字起こし";
 "player_controls_spoken_buttons_footer" = "オフにした「好き」と文字起こしボタンは「その他」メニューに移ります。カバーをタップしても文字起こしを開けます。章は目次から、またはスキップボタンの長押しで移動できます。";
 
 /* 歌词来源 */
@@ -5774,7 +5778,7 @@
 "player_control_tint_footer" = "進行バーやオンになったシャッフル・リピートなど、再生画面のコントロールの色です。モノクロはダークモードで白、ライトモードで黒になり、リキッドカラーのような背景でも色がぶつかりません。オーディオブックのレイアウトは独自の配色のままです。";
 "player_menu_items_title" = "「その他」メニュー";
 "player_menu_items_hidden_count %lld" = "%lld 項目を非表示";
-"player_menu_items_footer" = "オフにした項目は再生画面の「その他」に表示されなくなります。音楽のみが対象で、オーディオブックとポッドキャストのメニューは変わりません。画面に置いたボタンはもともとメニューに重複せず、画面から外した「好き」「歌詞」「キュー」「シャッフル」「リピート」は引き続きメニューに入ります。";
+"player_menu_items_footer" = "オフにした項目は再生画面の「その他」に表示されなくなります。画面に置いたボタンはもともとメニューに重複せず、画面から外した「好き」「歌詞」「キュー」「シャッフル」「リピート」は引き続きメニューに入ります。";
 "player_menu_items_show_all" = "すべて表示";
 "player_menu_group_quick" = "上段";
 "player_menu_group_modes" = "モード";

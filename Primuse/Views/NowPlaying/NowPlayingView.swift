@@ -5807,18 +5807,24 @@ struct NowPlayingView: View {
         } else {
             spokenFallback = []
         }
-        // 「播放页按钮 › 『更多』菜单」里关掉的项(#198),只管音乐的菜单。
-        let menuHidden: Set<NowPlayingMenuItem> = isSpokenWord ? [] : musicControlLayout.hiddenMenuItems
+        // 「播放页按钮 › 『更多』菜单」里关掉的项(#198):音乐、有声书、播客各有一份。
+        let menuHidden: Set<NowPlayingMenuItem> = isSpokenWord
+            ? spokenWordControlLayout.hiddenMenuItems
+            : musicControlLayout.hiddenMenuItems
         let shows: (NowPlayingMenuItem) -> Bool = { !menuHidden.contains($0) }
         let snapshot = NowPlayingMoreMenuSnapshot(
             songID: player.currentSong?.id,
             isSpokenWord: isSpokenWord,
             isPodcastEpisode: isPodcastEpisode,
-            canOpenPodcastEpisode: isPodcastEpisode && currentPodcastEpisodeID != nil,
-            canOpenPodcastShow: isPodcastEpisode && SpokenWordPlayerText.podcastShowID(player) != nil,
+            canOpenPodcastEpisode: isPodcastEpisode && currentPodcastEpisodeID != nil
+                && shows(.podcastEpisodeDetails),
+            canOpenPodcastShow: isPodcastEpisode && SpokenWordPlayerText.podcastShowID(player) != nil
+                && shows(.podcastGoToShow),
+            showsPodcastMarkPlayed: isPodcastEpisode && currentPodcastEpisodeID != nil && shows(.podcastMarkPlayed),
+            showsPodcastDownload: isPodcastEpisode && currentPodcastEpisodeID != nil && shows(.podcastDownload),
             podcastShareURL: podcastShareURL,
-            canOpenBook: isSpokenWord && !isPodcastEpisode && player.currentBookID != nil,
-            hasChapterList: player.hasChapters || isSpokenWord,
+            canOpenBook: isSpokenWord && !isPodcastEpisode && player.currentBookID != nil && shows(.goToBook),
+            hasChapterList: (player.hasChapters || isSpokenWord) && shows(.chaptersAndBookmarks),
             hasSong: player.currentSong != nil,
             isScrapingCurrentSong: isScrapeActionUnavailable,
             canReloadLyricsFromSource: canReloadLyricsFromSource && shows(.reloadLyrics),
@@ -9342,6 +9348,9 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let isPodcastEpisode: Bool
     let canOpenPodcastEpisode: Bool
     let canOpenPodcastShow: Bool
+    /// 播客单集的「标为已播放」与「下载」,「播放页按钮 › 『更多』菜单」里能关。
+    let showsPodcastMarkPlayed: Bool
+    let showsPodcastDownload: Bool
     let podcastShareURL: URL?
     let canOpenBook: Bool
     let hasChapterList: Bool
@@ -9756,13 +9765,17 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                 }
             }
 
-            if snapshot.isPodcastEpisode, snapshot.canOpenPodcastEpisode {
+            if snapshot.isPodcastEpisode, snapshot.showsPodcastMarkPlayed || snapshot.showsPodcastDownload {
                 // 听播客最常做的两件事:这一集算听完(有下一集就接着放),和存下来离线听。
                 Section {
-                    Button(action: onMarkPodcastPlayed) {
-                        Label(String(localized: "podcast_mark_played"), systemImage: "checkmark.circle")
+                    if snapshot.showsPodcastMarkPlayed {
+                        Button(action: onMarkPodcastPlayed) {
+                            Label(String(localized: "podcast_mark_played"), systemImage: "checkmark.circle")
+                        }
                     }
-                    PodcastPlayerDownloadMenuItem()
+                    if snapshot.showsPodcastDownload {
+                        PodcastPlayerDownloadMenuItem()
+                    }
                 }
             }
 

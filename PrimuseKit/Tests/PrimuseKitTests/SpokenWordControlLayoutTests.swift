@@ -76,6 +76,38 @@ import Testing
         #expect(!podcast.isShown(.bookmark))
     }
 
+    @Test func menuItemsCanBeHiddenAndRoundTrip() {
+        for kind in SpokenWordPlayerKind.allCases {
+            #expect(Layout.default(for: kind).hiddenMenuItems.isEmpty)
+        }
+        let layout = Layout.default(for: .audiobook)
+            .settingMenuItem(.goToBook, visible: false)
+            .settingMenuItem(.equalizer, visible: false)
+        #expect(!layout.showsMenuItem(.goToBook))
+        #expect(!layout.showsMenuItem(.equalizer))
+        #expect(layout.showsMenuItem(.share))
+        #expect(layout.hiddenMenuItems == [.goToBook, .equalizer])
+        #expect(!layout.isDefault)
+        // 功能块的摆法没动,菜单项单独存。
+        #expect(layout.tilesAreDefault)
+        let decoded = Layout.decode(layout.encoded(), kind: .audiobook)
+        #expect(decoded == layout)
+        // 先关哪一项,编出来都是同一个字符串。
+        let reversed = Layout.default(for: .audiobook)
+            .settingMenuItem(.equalizer, visible: false)
+            .settingMenuItem(.goToBook, visible: false)
+        #expect(reversed.encoded() == layout.encoded())
+        // 改功能块不影响菜单的显隐,全部显示回来就是默认。
+        #expect(decoded.settingTile(.bookmark, shown: false).hiddenMenuItems == [.goToBook, .equalizer])
+        #expect(layout.settingMenuItem(.goToBook, visible: true).hiddenMenuItems == [.equalizer])
+        #expect(layout.showingAllMenuItems().isDefault)
+        // 别的版本写进来的菜单项名字原样保留。
+        let future = Layout.decode(#"{"hiddenMenu":["futureItem","sleepTimer"]}"#, kind: .podcast)
+        #expect(future.hiddenMenuItems == [.sleepTimer])
+        #expect(future.settingMenuItem(.share, visible: false).encoded().contains("futureItem"))
+        #expect(future.menuFallback().isEmpty)
+    }
+
     @Test func moveMatchesListSemantics() {
         let layout = Layout.default(for: .podcast)
         // 把第一块拖到最后。

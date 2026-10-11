@@ -5622,6 +5622,10 @@
 "player_controls_spoken_buttons_header" = "Inne przyciski";
 "player_controls_spoken_transcript" = "Przycisk transkrypcji";
 "player_controls_spoken_chapters" = "Poprzedni / następny rozdział";
+"player_menu_items_spoken_footer" = "Wyłączone pozycje nie pojawiają się już w menu Więcej. Lubię to, przycisk transkrypcji, Zakładki i Dalej nadal trafiają do menu, gdy usuniesz je ze strony.";
+"player_menu_group_book" = "Ta książka";
+"player_menu_group_episode" = "Ten odcinek";
+"player_menu_group_spoken_playback" = "Odtwarzanie i transkrypcja";
 "player_controls_spoken_buttons_footer" = "Po wyłączeniu „Lubię to” i przycisk transkrypcji trafiają do menu Więcej; stuknięcie okładki też otwiera transkrypcję. Rozdziały zmienisz w spisie treści albo przytrzymując przyciski przewijania.";
 
 /* 歌词来源 */
@@ -5679,7 +5683,7 @@
 "player_control_tint_footer" = "Kolor paska postępu, włączonego odtwarzania losowego i powtarzania oraz innych elementów odtwarzacza. Monochromatyczny jest biały w trybie ciemnym i czarny w jasnym, więc nie gryzie się z tłami takimi jak Płynne kolory. Układy audiobooków zachowują własne kolory.";
 "player_menu_items_title" = "Menu Więcej";
 "player_menu_items_hidden_count %lld" = "Ukryto: %lld";
-"player_menu_items_footer" = "Wyłączone pozycje nie pojawiają się już w menu Więcej odtwarzacza. Dotyczy to tylko muzyki; menu audiobooków i podcastów się nie zmienia. Przyciski umieszczone na stronie i tak nie powtarzają się w menu, a Lubię to, Tekst, Kolejka, Losowo i Powtarzaj nadal trafiają do menu, gdy usuniesz je ze strony.";
+"player_menu_items_footer" = "Wyłączone pozycje nie pojawiają się już w menu Więcej odtwarzacza. Przyciski umieszczone na stronie i tak nie powtarzają się w menu, a Lubię to, Tekst, Kolejka, Losowo i Powtarzaj nadal trafiają do menu, gdy usuniesz je ze strony.";
 "player_menu_items_show_all" = "Pokaż wszystko";
 "player_menu_group_quick" = "Górny rząd";
 "player_menu_group_modes" = "Tryby";

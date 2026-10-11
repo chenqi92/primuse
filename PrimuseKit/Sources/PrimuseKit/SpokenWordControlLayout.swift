@@ -26,7 +26,8 @@ public enum SpokenWordControlTile: String, CaseIterable, Codable, Hashable, Iden
 }
 
 /// 有声书或播客播放页的按钮:功能块的顺序与显隐,以及歌名旁的喜欢、文字稿键和播放键两侧的
-/// 上一章 / 下一章。整份存成一个 JSON 字符串,没改过(或恢复默认)时存空串。
+/// 上一章 / 下一章;「更多」菜单里关掉的项也记在这里。整份存成一个 JSON 字符串,没改过
+/// (或恢复默认)时存空串。
 public struct SpokenWordControlLayout: Equatable, Sendable {
     public let kind: SpokenWordPlayerKind
     /// 这一种播放页能出现的全部功能块,按用户排的顺序(含隐藏的)。
@@ -35,6 +36,9 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
     public private(set) var showsLike: Bool
     public private(set) var showsTranscriptToggle: Bool
     public private(set) var showsChapterButtons: Bool
+    /// 「更多」里关掉的项(`NowPlayingMenuItem.rawValue`),排好序去重;认不出的名字原样保留,
+    /// 别的版本关掉的项在这台设备上改别的开关时不会被抹掉。
+    private var hiddenMenu: [String]
 
     public static func storageKey(for kind: SpokenWordPlayerKind) -> String {
         "primuse.player.controls.\(kind.rawValue).v1"
@@ -57,7 +61,8 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
             hidden: defaultHidden(for: kind),
             showsLike: true,
             showsTranscriptToggle: true,
-            showsChapterButtons: true
+            showsChapterButtons: true,
+            hiddenMenu: []
         )
     }
 
@@ -67,7 +72,8 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
         hidden: Set<SpokenWordControlTile>,
         showsLike: Bool,
         showsTranscriptToggle: Bool,
-        showsChapterButtons: Bool
+        showsChapterButtons: Bool,
+        hiddenMenu: [String]
     ) {
         self.kind = kind
         self.order = Self.completedOrder(order, kind: kind)
@@ -75,6 +81,8 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
         self.showsLike = showsLike
         self.showsTranscriptToggle = showsTranscriptToggle
         self.showsChapterButtons = showsChapterButtons
+        // 排好序、去重:同一份配置不管先关哪项,比较和编码出来都一样。
+        self.hiddenMenu = Array(Set(hiddenMenu)).sorted()
     }
 
     // MARK: 存取
@@ -85,6 +93,7 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
         var showsLike: Bool?
         var showsTranscriptToggle: Bool?
         var showsChapterButtons: Bool?
+        var hiddenMenu: [String]?
     }
 
     public static func decode(_ rawValue: String, kind: SpokenWordPlayerKind) -> SpokenWordControlLayout {
@@ -104,7 +113,8 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
             hidden: hidden,
             showsLike: stored.showsLike ?? true,
             showsTranscriptToggle: stored.showsTranscriptToggle ?? true,
-            showsChapterButtons: stored.showsChapterButtons ?? true
+            showsChapterButtons: stored.showsChapterButtons ?? true,
+            hiddenMenu: stored.hiddenMenu ?? []
         )
     }
 
@@ -115,7 +125,8 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
             hidden: order.filter { hidden.contains($0) }.map(\.rawValue),
             showsLike: showsLike ? nil : false,
             showsTranscriptToggle: showsTranscriptToggle ? nil : false,
-            showsChapterButtons: showsChapterButtons ? nil : false
+            showsChapterButtons: showsChapterButtons ? nil : false,
+            hiddenMenu: hiddenMenu.isEmpty ? nil : hiddenMenu
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -133,6 +144,17 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
 
     public func isShown(_ tile: SpokenWordControlTile) -> Bool {
         tile.isAvailable(for: kind) && !hidden.contains(tile)
+    }
+
+    /// 「更多」里这一项要不要出现。页面上藏起来后补进菜单的喜欢、文字稿、书签、「接下来」
+    /// 不在这里管,那是兜底入口,关不掉。
+    public func showsMenuItem(_ item: NowPlayingMenuItem) -> Bool {
+        !hiddenMenu.contains(item.rawValue)
+    }
+
+    /// 「更多」里关掉的项。
+    public var hiddenMenuItems: Set<NowPlayingMenuItem> {
+        Set(NowPlayingMenuItem.allCases.filter { !showsMenuItem($0) })
     }
 
     /// 页面上那一排按顺序摆哪几块。目录常驻在旁边一栏时(iPad 横屏)不摆目录块;没动过配置时
@@ -197,6 +219,21 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
     public func settingShowsChapterButtons(_ shows: Bool) -> SpokenWordControlLayout {
         var copy = self
         copy.showsChapterButtons = shows
+        return copy
+    }
+
+    public func settingMenuItem(_ item: NowPlayingMenuItem, visible: Bool) -> SpokenWordControlLayout {
+        var copy = self
+        var names = hiddenMenu.filter { $0 != item.rawValue }
+        if !visible { names.append(item.rawValue) }
+        copy.hiddenMenu = names.sorted()
+        return copy
+    }
+
+    /// 「更多」里的项全部显示回来。
+    public func showingAllMenuItems() -> SpokenWordControlLayout {
+        var copy = self
+        copy.hiddenMenu = []
         return copy
     }
 

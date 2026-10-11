@@ -97,6 +97,13 @@ public enum NowPlayingMenuItem: String, CaseIterable, Codable, Hashable, Identif
     case sleepTimer
     case equalizer
     case playbackSpeed
+    // 下面几项只在有声书、播客的菜单里出现(`SpokenWordControlLayout` 管它们的显隐)。
+    case goToBook
+    case chaptersAndBookmarks
+    case podcastEpisodeDetails
+    case podcastGoToShow
+    case podcastMarkPlayed
+    case podcastDownload
 
     public var id: String { rawValue }
 }

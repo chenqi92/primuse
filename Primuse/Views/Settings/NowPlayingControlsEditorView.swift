@@ -473,6 +473,21 @@ private struct SpokenWordControlsSections: View {
         }
 
         Section {
+            NavigationLink {
+                SpokenWordMenuItemsEditor(kind: kind, storage: $storage)
+            } label: {
+                LabeledContent {
+                    let hidden = layout.hiddenMenuItems.count
+                    if hidden > 0 {
+                        Text("player_menu_items_hidden_count \(hidden)")
+                    }
+                } label: {
+                    Label("player_menu_items_title", systemImage: "ellipsis.circle")
+                }
+            }
+        }
+
+        Section {
             Toggle(isOn: $collapsesOnScroll) {
                 Label("player_controls_text_collapse", systemImage: "rectangle.compress.vertical")
             }
@@ -586,13 +601,71 @@ private struct NowPlayingMenuItemsEditor: View {
     ]
 
     var body: some View {
+        NowPlayingMenuItemsForm(
+            groups: Self.groups,
+            footerKey: "player_menu_items_footer",
+            hiddenCount: layout.hiddenMenuItems.count,
+            shows: { layout.showsMenuItem($0) },
+            setShown: { storage = layout.settingMenuItem($0, visible: $1).encoded() },
+            showAll: { storage = layout.showingAllMenuItems().encoded() }
+        )
+    }
+}
+
+/// 有声书或播客播放页「更多」菜单里哪些项出现。只列这一种播放页的菜单里会出现的项;
+/// 页面上关掉后补进菜单的喜欢、文字稿、书签、「接下来」不在这里,那是兜底入口。
+private struct SpokenWordMenuItemsEditor: View {
+    let kind: SpokenWordPlayerKind
+    @Binding var storage: String
+
+    private var layout: SpokenWordControlLayout { .decode(storage, kind: kind) }
+
+    /// 资料库里的播客(自己下载、标成播客的歌)走的也是播客这一份配置,菜单里有加歌单、
+    /// 改标签这些曲库项,所以播客这边把它们也列出来。
+    private static let audiobookGroups: [(LocalizedStringKey, [NowPlayingMenuItem])] = [
+        ("player_menu_group_quick", [.share, .addToPlaylist, .delete]),
+        ("player_menu_group_book", [.chaptersAndBookmarks, .goToBook, .songInfo, .editTags, .editLyrics, .reloadLyrics]),
+        ("player_menu_group_spoken_playback", [.cast, .lyricsDisplay, .sleepTimer, .equalizer, .playbackSpeed]),
+    ]
+
+    private static let podcastGroups: [(LocalizedStringKey, [NowPlayingMenuItem])] = [
+        ("player_menu_group_quick", [.share, .addToPlaylist, .delete]),
+        ("player_menu_group_episode", [
+            .podcastMarkPlayed, .podcastDownload, .podcastEpisodeDetails, .podcastGoToShow,
+            .chaptersAndBookmarks, .goToBook, .songInfo, .editTags, .editLyrics, .reloadLyrics,
+        ]),
+        ("player_menu_group_spoken_playback", [.cast, .lyricsDisplay, .sleepTimer, .equalizer, .playbackSpeed]),
+    ]
+
+    var body: some View {
+        NowPlayingMenuItemsForm(
+            groups: kind == .podcast ? Self.podcastGroups : Self.audiobookGroups,
+            footerKey: "player_menu_items_spoken_footer",
+            hiddenCount: layout.hiddenMenuItems.count,
+            shows: { layout.showsMenuItem($0) },
+            setShown: { storage = layout.settingMenuItem($0, visible: $1).encoded() },
+            showAll: { storage = layout.showingAllMenuItems().encoded() }
+        )
+    }
+}
+
+/// 「更多」菜单项开关的表单,音乐与有声内容共用:按分组列开关,底下一键全部显示。
+private struct NowPlayingMenuItemsForm: View {
+    let groups: [(LocalizedStringKey, [NowPlayingMenuItem])]
+    let footerKey: LocalizedStringKey
+    let hiddenCount: Int
+    let shows: (NowPlayingMenuItem) -> Bool
+    let setShown: (NowPlayingMenuItem, Bool) -> Void
+    let showAll: () -> Void
+
+    var body: some View {
         Form {
-            ForEach(Array(Self.groups.enumerated()), id: \.offset) { _, group in
+            ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
                 Section {
                     ForEach(group.1) { item in
                         Toggle(isOn: Binding(
-                            get: { layout.showsMenuItem(item) },
-                            set: { storage = layout.settingMenuItem(item, visible: $0).encoded() }
+                            get: { shows(item) },
+                            set: { setShown(item, $0) }
                         )) {
                             Label {
                                 Text(item.editorTitleKey)
@@ -607,12 +680,10 @@ private struct NowPlayingMenuItemsEditor: View {
             }
 
             Section {
-                Button("player_menu_items_show_all") {
-                    storage = layout.showingAllMenuItems().encoded()
-                }
-                .disabled(layout.hiddenMenuItems.isEmpty)
+                Button("player_menu_items_show_all", action: showAll)
+                    .disabled(hiddenCount == 0)
             } footer: {
-                Text("player_menu_items_footer")
+                Text(footerKey)
             }
         }
         .navigationTitle("player_menu_items_title")
@@ -647,6 +718,12 @@ extension NowPlayingMenuItem {
         case .sleepTimer: "moon.zzz"
         case .equalizer: "slider.vertical.3"
         case .playbackSpeed: "speedometer"
+        case .goToBook: "books.vertical"
+        case .chaptersAndBookmarks: "list.bullet.indent"
+        case .podcastEpisodeDetails: "info.circle"
+        case .podcastGoToShow: "rectangle.stack"
+        case .podcastMarkPlayed: "checkmark.circle"
+        case .podcastDownload: "arrow.down.circle"
         }
     }
 
@@ -675,6 +752,12 @@ extension NowPlayingMenuItem {
         case .sleepTimer: "sleep_timer"
         case .equalizer: "equalizer"
         case .playbackSpeed: "playback_rate"
+        case .goToBook: "spoken_word_go_to_book"
+        case .chaptersAndBookmarks: "spoken_word_chapters_and_bookmarks"
+        case .podcastEpisodeDetails: "podcast_player_episode_details"
+        case .podcastGoToShow: "podcast_go_to_show"
+        case .podcastMarkPlayed: "podcast_mark_played"
+        case .podcastDownload: "podcast_download"
         }
     }
 }

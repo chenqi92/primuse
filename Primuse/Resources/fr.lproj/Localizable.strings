@@ -5716,6 +5716,10 @@
 "player_controls_spoken_buttons_header" = "Autres boutons";
 "player_controls_spoken_transcript" = "Bouton de transcription";
 "player_controls_spoken_chapters" = "Chapitre précédent / suivant";
+"player_menu_items_spoken_footer" = "Les éléments désactivés n’apparaissent plus dans le menu Plus. J’aime, le bouton de transcription, Signets et À suivre passent toujours dans le menu si vous les retirez de la page.";
+"player_menu_group_book" = "Ce livre";
+"player_menu_group_episode" = "Cet épisode";
+"player_menu_group_spoken_playback" = "Lecture et transcription";
 "player_controls_spoken_buttons_footer" = "Une fois désactivés, J’aime et le bouton de transcription passent dans « Plus » ; toucher la pochette ouvre aussi la transcription. Changez de chapitre depuis la table des matières ou en maintenant les boutons de saut.";
 
 /* 歌词来源 */
@@ -5773,7 +5777,7 @@
 "player_control_tint_footer" = "Couleur de la barre de progression, de la lecture aléatoire et de la répétition activées, et des autres commandes du lecteur. Monochrome est blanc en mode sombre et noir en mode clair, discret sur des fonds comme Couleurs fluides. Les mises en page des livres audio gardent leurs propres couleurs.";
 "player_menu_items_title" = "Menu Plus";
 "player_menu_items_hidden_count %lld" = "%lld masqués";
-"player_menu_items_footer" = "Les éléments désactivés n’apparaissent plus dans le menu Plus du lecteur. Cela ne concerne que la musique ; les menus des livres audio et des podcasts ne changent pas. Les boutons déjà sur la page ne sont jamais répétés dans le menu, et J’aime, Paroles, File d’attente, Aléatoire et Répétition passent toujours dans le menu si vous les retirez de la page.";
+"player_menu_items_footer" = "Les éléments désactivés n’apparaissent plus dans le menu Plus du lecteur. Les boutons déjà sur la page ne sont jamais répétés dans le menu, et J’aime, Paroles, File d’attente, Aléatoire et Répétition passent toujours dans le menu si vous les retirez de la page.";
 "player_menu_items_show_all" = "Tout afficher";
 "player_menu_group_quick" = "Rangée du haut";
 "player_menu_group_modes" = "Modes";

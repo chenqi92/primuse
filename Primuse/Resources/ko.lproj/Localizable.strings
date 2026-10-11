@@ -5716,6 +5716,10 @@
 "player_controls_spoken_buttons_header" = "기타 버튼";
 "player_controls_spoken_transcript" = "스크립트 버튼";
 "player_controls_spoken_chapters" = "이전 / 다음 챕터";
+"player_menu_items_spoken_footer" = "끈 항목은 '더 보기'에 더 이상 나타나지 않습니다. 화면에서 뺀 좋아요·스크립트 버튼·북마크·다음 곡은 계속 메뉴로 들어갑니다.";
+"player_menu_group_book" = "이 책";
+"player_menu_group_episode" = "이 에피소드";
+"player_menu_group_spoken_playback" = "재생 및 스크립트";
 "player_controls_spoken_buttons_footer" = "끄면 좋아요와 스크립트 버튼이 '더 보기' 메뉴로 옮겨지며, 표지를 탭해도 스크립트가 열립니다. 챕터는 목차에서 이동하거나 건너뛰기 버튼을 길게 눌러 이동할 수 있습니다.";
 
 /* 歌词来源 */
@@ -5773,7 +5777,7 @@
 "player_control_tint_footer" = "진행 막대, 켜진 셔플과 반복 등 재생 화면 컨트롤의 색상입니다. 모노크롬은 다크 모드에서 흰색, 라이트 모드에서 검은색이라 리퀴드 컬러 같은 배경과도 어울립니다. 오디오북 레이아웃은 고유한 색상을 유지합니다.";
 "player_menu_items_title" = "'더 보기' 메뉴";
 "player_menu_items_hidden_count %lld" = "%lld개 숨김";
-"player_menu_items_footer" = "끈 항목은 재생 화면의 '더 보기'에 더 이상 나타나지 않습니다. 음악에만 적용되며 오디오북과 팟캐스트 메뉴는 그대로입니다. 화면에 둔 버튼은 원래 메뉴에서 반복되지 않고, 화면에서 뺀 좋아요·가사·대기열·셔플·반복은 계속 메뉴로 들어갑니다.";
+"player_menu_items_footer" = "끈 항목은 재생 화면의 '더 보기'에 더 이상 나타나지 않습니다. 화면에 둔 버튼은 원래 메뉴에서 반복되지 않고, 화면에서 뺀 좋아요·가사·대기열·셔플·반복은 계속 메뉴로 들어갑니다.";
 "player_menu_items_show_all" = "모두 표시";
 "player_menu_group_quick" = "맨 위 줄";
 "player_menu_group_modes" = "모드";
