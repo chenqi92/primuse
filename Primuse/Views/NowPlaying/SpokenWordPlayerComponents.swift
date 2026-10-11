@@ -1311,6 +1311,9 @@ struct SpokenWordTranscriptReader: View {
             }.value
             guard !Task.isCancelled else { return }
             paragraphs = updated
+            // 换章后文稿是新的,正在念的下标还是旧文稿的:立刻按当前时间重算,别让它在新文稿里
+            // 亮错一段再等下一拍纠正。
+            updatePlaybackPosition()
         }
         .task {
             while !Task.isCancelled {
