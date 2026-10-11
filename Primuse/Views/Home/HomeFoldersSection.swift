@@ -1757,28 +1757,10 @@ private struct MacHomeFolderSongMenu: View {
 
     @ViewBuilder
     private var offlineActions: some View {
-        let snapshot = sourceManager.offlineAudioSnapshotEntry(for: song).snapshot
-        switch snapshot.state {
-        case .downloading:
-            Button("offline_downloading", systemImage: "arrow.down.circle") {}
-                .disabled(true)
-        case .pinned:
-            Button("offline_remove_song_cache", systemImage: "trash", role: .destructive) {
-                sourceManager.removeOfflineDownload(song: song)
-            }
-        case .cached:
-            Button("offline_keep_cached", systemImage: "pin") { sourceManager.downloadForOffline(song: song) }
-            Button("offline_remove_cached_file", systemImage: "trash", role: .destructive) {
-                sourceManager.removeOfflineDownload(song: song)
-            }
-        case .failed:
-            Button("offline_retry_download", systemImage: "arrow.clockwise") { sourceManager.downloadForOffline(song: song) }
-            Button("offline_clear_failed_download", systemImage: "trash", role: .destructive) {
-                sourceManager.removeOfflineDownload(song: song)
-            }
-        case .notCached:
-            Button("offline_cache_song", systemImage: "arrow.down.circle") { sourceManager.downloadForOffline(song: song) }
-        }
+        SongOfflineActionButtons(
+            song: song,
+            snapshot: sourceManager.offlineAudioSnapshotEntry(for: song).snapshot
+        )
     }
 }
 #endif

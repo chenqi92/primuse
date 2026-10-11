@@ -39,6 +39,10 @@ struct AlbumDetailView: View {
         library.songs(forAlbum: album.id)
     }
 
+    private var downloadableSongs: [Song] {
+        sourcesStore.downloadableSongs(in: songs)
+    }
+
     /// 这张专辑里有手动编辑或刮削改过、不再跟随文件标签的歌。
     private var hasUserEditedSongs: Bool {
         songs.contains { $0.userMetadataEditedAt != nil }
@@ -244,6 +248,7 @@ struct AlbumDetailView: View {
     @ViewBuilder
     private var albumMoreMenuContent: some View {
         let playable = songs.filteredPlayable()
+        let downloads = downloadableSongs
         PMMenuQuickActions {
             PMMenuQuickActionButton(
                 shortKey: "insert_next_short",
@@ -263,14 +268,15 @@ struct AlbumDetailView: View {
             }
             .disabled(playable.isEmpty)
 
-            PMMenuQuickActionButton(
-                shortKey: "offline_download",
-                fullKey: "offline_download",
-                systemImage: "arrow.down.circle"
-            ) {
-                sourceManager.downloadForOffline(songs: songs)
+            if !downloads.isEmpty {
+                PMMenuQuickActionButton(
+                    shortKey: "offline_download",
+                    fullKey: "offline_download",
+                    systemImage: "arrow.down.circle"
+                ) {
+                    sourceManager.downloadForOffline(songs: downloads)
+                }
             }
-            .disabled(playable.isEmpty)
         }
 
         Section {
@@ -578,9 +584,6 @@ struct AlbumDetailView: View {
             .init(icon: "photo.badge.plus", title: String(localized: "artwork_edit")) {
                 showArtworkEditor = true
             },
-            .init(icon: "arrow.down.circle", title: String(localized: "offline_download"), enabled: !playable.isEmpty) {
-                sourceManager.downloadForOffline(songs: songs)
-            },
             .init(icon: "wand.and.stars", title: String(localized: "scrape_missing_metadata"),
                   trailing: songs.count.formatted(),
                   enabled: !songs.isEmpty && !scraperService.isScraping) {
@@ -599,6 +602,12 @@ struct AlbumDetailView: View {
                 showsRestoreFileTagsConfirmation = true
             },
         ]
+        let downloads = downloadableSongs
+        if !downloads.isEmpty {
+            second.insert(.init(icon: "arrow.down.circle", title: String(localized: "offline_download")) {
+                sourceManager.downloadForOffline(songs: downloads)
+            }, at: 1)
+        }
         if let artist = albumArtist {
             second.append(.init(icon: "music.mic", title: String(localized: "go_to_artist")) {
                 NotificationCenter.default.post(name: .primuseDetailOpenArtist, object: artist)
@@ -662,18 +671,20 @@ struct AlbumDetailView: View {
     }
 
     private var macToolbar: some View {
-        HStack(spacing: 8) {
+        let downloads = downloadableSongs
+        return HStack(spacing: 8) {
             // 「songs_count」是跟在数字后面的量词(中文「首歌曲」), 单独当分区标题读不通; 与歌单页同用「歌曲」。
             Text("tab_songs")
                 .font(.system(size: 11, weight: .semibold))
                 .textCase(.uppercase)
                 .foregroundStyle(PMColor.textFaint)
             Spacer()
-            PMRoundBtn(icon: "arrow.down.circle", size: 26, iconSize: 12, style: .glass,
-                       help: "offline_download") {
-                sourceManager.downloadForOffline(songs: songs)
+            if !downloads.isEmpty {
+                PMRoundBtn(icon: "arrow.down.circle", size: 26, iconSize: 12, style: .glass,
+                           help: "offline_download") {
+                    sourceManager.downloadForOffline(songs: downloads)
+                }
             }
-            .disabled(songs.filteredPlayable().isEmpty)
         }
         .padding(.top, -2)
     }
