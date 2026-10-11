@@ -468,7 +468,26 @@ struct CloudDriveHelper: Sendable {
         AsyncThrowingStream { continuation in
             let producer = Task {
                 do {
-                    try await scanDirectory(path: path, listFiles: listFiles, continuation: continuation)
+                    // One task group owns the entire traversal budget, including nested folders.
+                    try await withThrowingTaskGroup(of: [String].self) { group in
+                        var pending = [path]
+                        var active = 0
+                        while !pending.isEmpty || active > 0 {
+                            try Task.checkCancellation()
+                            while active < Self.scanConcurrency, let next = pending.popLast() {
+                                active += 1
+                                group.addTask {
+                                    try await scanDirectory(
+                                        path: next, listFiles: listFiles, continuation: continuation
+                                    )
+                                }
+                            }
+                            if let children = try await group.next() {
+                                active -= 1
+                                pending.append(contentsOf: children)
+                            }
+                        }
+                    }
                     continuation.finish()
                 } catch {
                     Task.isCancelled ? continuation.finish() : continuation.finish(throwing: error)
@@ -478,16 +497,14 @@ struct CloudDriveHelper: Sendable {
         }
     }
 
-    /// 最多同时递归这么多个子目录。Baidu/Aliyun 的 listFiles 在 actor 里串行，
-    /// 加上 100ms 节流，并发在网络层不会真正提速；但能让 listFiles 结果的 JSON
-    /// 解析、子目录排队、文件 yield 的 CPU 工作叠在 I/O 等待之上。
+    /// Maximum in-flight directory listings across the complete scan.
     private static let scanConcurrency = 4
 
     private func scanDirectory(
         path: String,
         listFiles: @escaping @Sendable (String) async throws -> [RemoteFileItem],
         continuation: AsyncThrowingStream<RemoteFileItem, Error>.Continuation
-    ) async throws {
+    ) async throws -> [String] {
         try Task.checkCancellation()
         let items = try await listFiles(path)
 
@@ -563,27 +580,7 @@ struct CloudDriveHelper: Sendable {
             ))
         }
 
-        let subdirs = items.filter { $0.isDirectory }
-        guard !subdirs.isEmpty else { return }
-
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            var iterator = subdirs.makeIterator()
-            // 启动 N 个并发 worker
-            for _ in 0..<min(Self.scanConcurrency, subdirs.count) {
-                guard let next = iterator.next() else { break }
-                group.addTask { [self] in
-                    try await scanDirectory(path: next.path, listFiles: listFiles, continuation: continuation)
-                }
-            }
-            // 每完成一个就投下一个，保持 N 路并发
-            while try await group.next() != nil {
-                try Task.checkCancellation()
-                guard let next = iterator.next() else { continue }
-                group.addTask { [self] in
-                    try await scanDirectory(path: next.path, listFiles: listFiles, continuation: continuation)
-                }
-            }
-        }
+        return items.filter(\.isDirectory).map(\.path)
     }
 
     // MARK: - Sidecar lookup helpers

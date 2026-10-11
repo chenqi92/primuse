@@ -487,6 +487,37 @@ struct SpokenWordBookGroupingRulesTests {
         #expect(books.first { $0.items.contains { $0.id == "o4969" } }?.items.count == 4)
     }
 
+    @Test("Book placement carries the renamed files' titles for lists outside the shelf")
+    func bookPlacementCarriesRenamedTitles() {
+        let longAlbum = "凡人修仙传之仙界篇|关彦之领衔|再塑经典|精品有声剧"
+        let omnibus = "凡人修仙传|精编版|关彦之"
+        let root = "有声书/凡人修仙传之仙界篇-关彦之"
+        var items: [SpokenWordBookItem] = []
+        for number in 1...12 {
+            let path = "\(root)/1-500/关彦之 - 第\(number)集 标题\(number)_HQ.mp3"
+            switch number {
+            case 1, 2:
+                // Copied from the omnibus edition and renamed; the tags still count that edition.
+                items.append(item("s\(number)", title: "第\(4968 + number)集 (凡人仙界篇)", album: omnibus,
+                                  artist: "关彦之", track: 4968 + number, path: path))
+            default:
+                items.append(item("s\(number)", title: "第\(number)集 标题\(number)", album: longAlbum,
+                                  artist: "关彦之", track: number, path: path))
+            }
+        }
+        for number in 4969...4972 {
+            items.append(item("o\(number)", title: "第\(number)集", album: omnibus, artist: "关彦之", track: number,
+                              path: "有声书/凡人修仙传-关彦之/4501-5000/第\(number)集.mp3"))
+        }
+        let placement = SpokenWordBookGrouping.bookPlacement(for: items)
+        #expect(placement.bookIDs == SpokenWordBookGrouping.bookIDs(for: items))
+        #expect(placement.displayTitles == ["s1": "第1集 标题1", "s2": "第2集 标题2"])
+        // The shelf shows the same titles, so a folder listing can borrow them.
+        let shelf = SpokenWordBookGrouping.books(from: items).flatMap(\.items)
+        #expect(shelf.first { $0.id == "s1" }?.title == "第1集 标题1")
+        #expect(shelf.first { $0.id == "s3" }?.title == "第3集 标题3")
+    }
+
     @Test("Untagged files join a book nearly every tagged file shares, not one of two")
     func untaggedFilesJoinOnlyADominantBook() {
         var items = (1...20).map { (number: Int) in item("a\(number)", album: "三体", track: number, path: "书/a\(number).mp3") }

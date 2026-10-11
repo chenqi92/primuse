@@ -30,6 +30,35 @@ public enum GenreTagValues {
     }
 }
 
+/// 服务器在单独的数组里给全部流派（OpenSubsonic 的 `genres: [{"name": …}]`，也认纯字符串数组）。
+/// 认不出的写法当没有，不能连累整首歌解码失败。
+public struct ServerGenreList: Decodable, Sendable, Equatable {
+    public let names: [String]
+
+    public init(names: [String]) {
+        self.names = names
+    }
+
+    private struct Entry: Decodable {
+        let name: String?
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try? decoder.singleValueContainer()
+        if let entries = try? container?.decode([Entry].self) {
+            names = entries.compactMap(\.name)
+        } else {
+            names = (try? container?.decode([String].self)) ?? []
+        }
+    }
+
+    /// 有不止一个流派时按分号拼起来；只有一个时用服务器自己的 `genre` 字段，和以前一致。
+    public func genre(fallback: String?) -> String? {
+        let joined = GenreTagValues.joined(names)
+        return GenreTagValues.names(in: joined).count > 1 ? joined : fallback ?? joined
+    }
+}
+
 public struct LibraryGenre: Identifiable, Hashable, Sendable {
     public let id: String
     public let name: String

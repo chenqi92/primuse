@@ -356,6 +356,12 @@ final class TVAudioEngine {
         .spectrumPacing(displayMaximumFramesPerSecond: 60)
     @ObservationIgnored private var spectrumTimer: Timer?
     @ObservationIgnored private var processingTap: MTAudioProcessingTap?
+    /// `processingTap` 挂在哪个条目上。关掉频谱分析时节点不拆(见 `setSpectrumAnalysisEnabled`),
+    /// 换歌以后它还指着上一首,用这个区分。
+    @ObservationIgnored private var tappedItemID: ObjectIdentifier?
+    /// 这首歌播放期间开过频谱分析:下一首起播时就把取样节点挂上,之后再进全屏不用中途换 audioMix。
+    /// 一整首都没用过,下一首就不再挂。
+    @ObservationIgnored private var spectrumUsedOnCurrentItem = false
     @ObservationIgnored private weak var tappedMixer: AVAudioMixerNode?
     @ObservationIgnored private var spectrumTask: Task<Void, Never>?
     @ObservationIgnored private var spectrumSetupTask: Task<Void, Never>?
@@ -998,8 +1004,16 @@ final class TVAudioEngine {
         }
         installSegmentBoundaryObserver(expectedItemID: observedItemID)
         installStalledObserver(for: item, expectedItemID: observedItemID)
-        if spectrumAnalysisEnabled || karaokeTapWanted {
-            installAVPlayerSpectrumTap(on: item, expectedItemID: observedItemID)
+        let carriesSpectrumTap = spectrumUsedOnCurrentItem
+        spectrumUsedOnCurrentItem = spectrumAnalysisEnabled
+        if spectrumAnalysisEnabled || karaokeTapWanted || carriesSpectrumTap {
+            installAVPlayerSpectrumTap(
+                on: item,
+                expectedItemID: observedItemID,
+                carriesOver: carriesSpectrumTap
+            )
+        } else {
+            isKaraokeTapInstalled = false
         }
         endObserver = NotificationCenter.default.addObserver(
             forName: AVPlayerItem.didPlayToEndTimeNotification,
@@ -1333,11 +1347,29 @@ final class TVAudioEngine {
         guard spectrumAnalysisEnabled != enabled else { return }
         spectrumAnalysisEnabled = enabled
         if enabled {
+            spectrumUsedOnCurrentItem = true
             installCurrentSpectrumSource()
         } else {
-            clearSpectrumSource()
+            // 只停分析,不拆这首歌上已经挂着的取样节点:AVPlayer 播放中途换 audioMix 会重建音频管线,
+            // 歌会停一下(进出全屏、全屏里开关播放列表和效果选择器都会走到这里)。节点留到换歌,
+            // 再打开时直接接着用。
+            stopSpectrumAnalysis()
             if karaokeTapWanted { installCurrentKaraokeTap() }
         }
+    }
+
+    /// 停掉分析和轮询,频谱归零;取样节点和管线的格式都留着(`reset()` 会清掉格式,节点不会再配置一次)。
+    private func stopSpectrumAnalysis() {
+        spectrumSetupTask?.cancel()
+        spectrumSetupTask = nil
+        spectrumTask?.cancel()
+        spectrumTask = nil
+        resetSpectrumLevels()
+    }
+
+    /// 正在播的这个条目上挂着取样节点。
+    private var currentItemHasTap: Bool {
+        processingTap != nil && activeItemID != nil && tappedItemID == activeItemID
     }
 
     /// Puts the karaoke processor into (or takes it out of) the playing
@@ -1353,7 +1385,7 @@ final class TVAudioEngine {
     }
 
     private func installCurrentKaraokeTap() {
-        guard karaokeTapWanted, !usingSFB, !usingLivePCM, processingTap == nil,
+        guard karaokeTapWanted, !usingSFB, !usingLivePCM, !currentItemHasTap,
               let item = player.currentItem, let activeItemID else { return }
         installAVPlayerSpectrumTap(on: item, expectedItemID: activeItemID)
     }
@@ -1364,6 +1396,9 @@ final class TVAudioEngine {
             installSFBSpectrumTap()
         } else if usingLivePCM {
             installMixerSpectrumTap(on: livePCMEngine.mainMixerNode)
+        } else if currentItemHasTap {
+            plog("📺 TV engine: spectrum resumes on the attached tap")
+            startSpectrumPolling()
         } else if let item = player.currentItem, let activeItemID {
             installAVPlayerSpectrumTap(on: item, expectedItemID: activeItemID)
         }
@@ -1371,11 +1406,13 @@ final class TVAudioEngine {
 
     /// AVPlayer 的解码结果通过 MTAudioProcessingTap 读取。它只旁路复制 PCM，
     /// 不改变声音，也不使用与音乐无关的合成动画。
+    /// - Parameter carriesOver: 上一首开过频谱分析,这一首起播时先挂上节点(此刻还没在出声)。
     private func installAVPlayerSpectrumTap(
         on item: AVPlayerItem,
-        expectedItemID: ObjectIdentifier
+        expectedItemID: ObjectIdentifier,
+        carriesOver: Bool = false
     ) {
-        guard spectrumAnalysisEnabled || karaokeTapWanted else { return }
+        guard spectrumAnalysisEnabled || karaokeTapWanted || carriesOver else { return }
         spectrumSetupTask?.cancel()
         spectrumSetupTask = Task { [weak self, weak item] in
             guard let item else { return }
@@ -1383,7 +1420,7 @@ final class TVAudioEngine {
                 let tracks = try await item.asset.loadTracks(withMediaType: .audio)
                 guard !Task.isCancelled,
                       let self,
-                      self.spectrumAnalysisEnabled || self.karaokeTapWanted,
+                      self.spectrumAnalysisEnabled || self.karaokeTapWanted || carriesOver,
                       self.activeItemID == expectedItemID,
                       let track = tracks.first,
                       let tap = TVAudioProcessingTapFactory.make(context: TVAudioTapContext(
@@ -1399,7 +1436,9 @@ final class TVAudioEngine {
                 mix.inputParameters = [parameters]
                 item.audioMix = mix
                 self.processingTap = tap
+                self.tappedItemID = expectedItemID
                 self.isKaraokeTapInstalled = true
+                plog("📺 TV engine: spectrum tap attached carriesOver=\(carriesOver)")
                 if self.spectrumAnalysisEnabled { self.startSpectrumPolling() }
             } catch {
                 // 部分直播流没有可枚举的 AVAssetTrack；这时保持零频谱，绝不伪造数据。
@@ -1485,8 +1524,12 @@ final class TVAudioEngine {
             tappedMixer.removeTap(onBus: 0)
         }
         tappedMixer = nil
-        player.currentItem?.audioMix = nil
+        if player.currentItem?.audioMix != nil {
+            plog("📺 TV engine: spectrum tap detached")
+            player.currentItem?.audioMix = nil
+        }
         processingTap = nil
+        tappedItemID = nil
         isKaraokeTapInstalled = false
         spectrumPipeline.reset()
         resetSpectrumLevels()

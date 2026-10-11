@@ -252,9 +252,12 @@ struct TVLibraryList<Mapper: TVLibraryMapper>: RandomAccessCollection {
 struct TVSongMapper: TVLibraryMapper {
     let artistNames: ArtistNameConfiguration
     let sourceTypes: [String: MusicSourceType]
+    /// 改过名的有声章节按书架上的章节标题显示(见 `MusicLibrary.displayTitle(for:)`)。
+    var displayTitles: [String: String] = [:]
 
     func map(_ s: Song) -> TVSong {
-        TVSong(id: s.id, albumID: s.albumID ?? "", coverRef: s.coverArtFileName, title: s.title,
+        TVSong(id: s.id, albumID: s.albumID ?? "", coverRef: s.coverArtFileName,
+               title: displayTitles[s.id] ?? s.title,
                artist: s.displayArtistName(configuration: artistNames) ?? PMString("ext.tv.unknownArtist"),
                duration: s.duration,
                format: s.codecFormat.displayName, bitrate: s.bitRate ?? 0,
@@ -1298,7 +1301,8 @@ final class TVStore {
     }
 
     private var songMapper: TVSongMapper {
-        TVSongMapper(artistNames: library.artistNameConfiguration, sourceTypes: sourceTypeByID)
+        TVSongMapper(artistNames: library.artistNameConfiguration, sourceTypes: sourceTypeByID,
+                     displayTitles: library.spokenWordDisplayTitles)
     }
     private var albumMapper: TVAlbumMapper { TVAlbumMapper(palettes: artworkPalettes) }
     var normalPlaylists: [TVPlaylist] {

@@ -1618,7 +1618,7 @@ struct ScrapeOptionsView: View {
                 }
                 updated.trackNumber = candidateTrackNumber
                 updated.discNumber = candidateDiscNumber
-                updated.genre = candidateGenres?.prefix(3).joined(separator: ", ") ?? song.genre
+                updated.genre = candidateGenres.flatMap { GenreTagValues.joined(Array($0.prefix(3))) } ?? song.genre
                 updated.year = candidateYear
             }
 

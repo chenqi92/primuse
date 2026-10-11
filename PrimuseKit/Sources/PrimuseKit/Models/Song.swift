@@ -768,10 +768,7 @@ public enum MediaMetadataTextRepair {
         }
         let onlyQuestionMarks = cleaned.filter { $0 == "?" }.count >= 2
             && cleaned.allSatisfy { "?&/;、；".contains($0) || $0.isWhitespace }
-        // 专辑名没有文件名可替，读得出的前缀就是全部线索：截断的标签修出来是
-        // 「大人的情�」（见 `repairedAlbumTitle`），下一次装载不能再把它清掉。
         let lostBytes = TextEncodingRepair.hasUnrecoverableReplacement(in: cleaned)
-            && (allowsFallback || !hasReadableText(cleaned))
         let truncated = TextEncodingRepair.looksCorrupted(cleaned)
             && TextEncodingRepair.hasTruncatedUTF8RewritePrefix(cleaned)
         if hasBinaryData || onlyQuestionMarks || lostBytes || truncated {
@@ -782,7 +779,9 @@ public enum MediaMetadataTextRepair {
             }
             // A truncated prefix can still be a valid name; only discard tags
             // whose bytes are demonstrably missing or contain binary controls.
-            if hasBinaryData || onlyQuestionMarks || lostBytes { return nil }
+            // 丢了字节但还读得出一段的（「大人的情�」「周杰�」）没有文件名可替时留着：
+            // 那一段就是全部线索，清掉只会变成未知专辑、未知艺人。
+            if hasBinaryData || onlyQuestionMarks || (lostBytes && !hasReadableText(cleaned)) { return nil }
         }
         return cleaned.isEmpty ? nil : cleaned
     }

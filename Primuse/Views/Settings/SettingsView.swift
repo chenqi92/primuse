@@ -568,6 +568,9 @@ private struct PlayerAppearanceSettingsView: View {
     private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
     @AppStorage(PlayerAppearancePreferences.controlTintKey)
     private var controlTintRawValue = NowPlayingControlTint.theme.rawValue
+    @AppStorage(PlayerAppearancePreferences.progressStyleKey)
+    private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
+    @State private var themeSettings = ThemeColorSettings.shared
     @AppStorage(PlayerAppearancePreferences.keepsScreenAwakeInPlayerKey)
     private var keepsScreenAwake = PlayerAppearancePreferences.keepsScreenAwakeInPlayerByDefault
     @AppStorage(PlayerAppearancePreferences.playerScreenWakeRequiresChargingKey)
@@ -637,6 +640,53 @@ private struct PlayerAppearanceSettingsView: View {
                 }
             }
 
+            // 播放页背景:选哪种背景,再调封面色有多浓(#69)。原来在「颜色和图标」里,不好找。
+            PlayerBackdropSettingsSections()
+
+            Section {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Label {
+                            Text(PMString("ext.tv.settings.ambientIntensity"))
+                        } icon: {
+                            Image(systemName: "sun.haze.fill")
+                        }
+                        Spacer()
+                        Text(verbatim: "\(Int(round(themeSettings.ambientStrength * 100)))%")
+                            .font(.subheadline.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    Slider(value: ambientStrengthBinding, in: 0...1, step: 0.05)
+                }
+                .padding(.vertical, 4)
+                .settingsAnchor("appearance.ambientStrength")
+            } footer: {
+                Text("player_backdrop_strength_footer")
+            }
+
+            Section {
+                Picker(selection: progressStyleBinding) {
+                    ForEach(NowPlayingProgressStyle.allCases, id: \.self) { style in
+                        HStack(spacing: 12) {
+                            Text(LocalizedStringKey(style.titleKey))
+                            Spacer(minLength: 12)
+                            NowPlayingProgressStylePreview(style: style)
+                                .frame(width: 96)
+                        }
+                        .tag(style)
+                    }
+                } label: {
+                    Text("player_progress_style_title")
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+                .settingsAnchor("appearance.playerProgressStyle")
+            } header: {
+                Text("player_progress_style_title")
+            } footer: {
+                Text("player_progress_style_footer")
+            }
+
             Section {
                 Toggle("player_volume_bar", isOn: $showsVolumeBar)
                 .settingsAnchor("appearance.volumeBar")
@@ -694,6 +744,20 @@ private struct PlayerAppearanceSettingsView: View {
         #endif
     }
 
+    private var ambientStrengthBinding: Binding<Double> {
+        Binding(
+            get: { themeSettings.ambientStrength },
+            set: { themeSettings.ambientStrength = AppThemePreferences.normalizedAmbientStrength($0) }
+        )
+    }
+
+    private var progressStyleBinding: Binding<NowPlayingProgressStyle> {
+        Binding(
+            get: { PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue) },
+            set: { progressStyleRawValue = $0.rawValue }
+        )
+    }
+
     private var audioInfoModeBinding: Binding<NowPlayingAudioInfoMode> {
         Binding(
             get: { PlayerAppearancePreferences.audioInfoMode(rawValue: audioInfoModeRawValue) },
@@ -743,6 +807,9 @@ private struct LibraryDisplaySettingsView: View {
     @AppStorage(LibraryReviewPreferences.enabledKey)
     private var ratingsAndCommentsEnabled = false
     @AppStorage(QuickAccessCoverStyle.storageKey) private var quickAccessCoverStyle = QuickAccessCoverStyle.automatic
+    #if os(iOS)
+    @AppStorage(CollectionCoverWall.preferenceKey) private var usesPlaylistCoverWall = CollectionCoverWall.defaultEnabled
+    #endif
     @AppStorage(ListeningStatsStyle.storageKey) private var listeningStatsStyle = ListeningStatsStyle.report
     @AppStorage(LibrarySongBrowseModePreference.storageKey)
     private var libraryBrowseModeRawValue = LibrarySongBrowseMode.folder.rawValue
@@ -815,6 +882,18 @@ private struct LibraryDisplaySettingsView: View {
                     Text("library_quick_access_cover_description")
                 }
             }
+
+            #if os(iOS)
+            // 封面墙头图只有 iPhone / iPad 的歌单页有。
+            Section {
+                Toggle(isOn: $usesPlaylistCoverWall) {
+                    SettingsInfoLabel("library_playlist_cover_wall_title") {
+                        Text("library_playlist_cover_wall_description")
+                    }
+                }
+                .settingsAnchor("library.playlistCoverWall")
+            }
+            #endif
 
             Section {
                 ForEach(sectionOrder) { section in

@@ -402,8 +402,8 @@ struct SpokenWordShelfContent: View {
         #if os(macOS)
         [GridItem(.adaptive(minimum: 130, maximum: 180), spacing: 18, alignment: .top)]
         #else
-        // Book covers are taller than they are wide: three to a row on a
-        // phone in portrait instead of two oversized ones.
+        // Three books to a row on a phone in portrait instead of two
+        // oversized ones.
         [GridItem(.adaptive(minimum: 100, maximum: 170), spacing: 14, alignment: .top)]
         #endif
     }
@@ -1518,10 +1518,10 @@ private struct SpokenWordBookCoverCell: View {
     }
 }
 
-/// A book's cover, the first item's artwork, drawn the shape books are:
-/// a portrait frame (`SpokenWordCoverLayout`) with the artwork fitted whole
-/// inside it, never cropped to a square or stretched. Where a square or wide
-/// cover leaves room, a blurred enlargement of the same art fills it.
+/// A book's cover, the first item's artwork, in a square frame
+/// (`SpokenWordCoverLayout`) with the artwork fitted whole inside it, never
+/// cropped or stretched. Where a portrait or wide cover leaves room, a blurred
+/// enlargement of the same art fills it.
 /// Shared by the shelf, the book page and the home cards.
 struct SpokenWordBookCover: View {
     let song: Song?

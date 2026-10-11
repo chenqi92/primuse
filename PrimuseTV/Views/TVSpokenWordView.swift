@@ -69,7 +69,7 @@ struct TVSpokenWordView: View {
     @State private var showsArchived = false
     @State private var opensPlayerAfterDetailDismissal = false
 
-    // 书的封面是竖长的:一行六本,行高才和方形封面时的五本相当(见 `TVBrowseGridMetrics`)。
+    // 书封是方的:一行五本,与电台墙同一把尺子(见 `TVBrowseGridMetrics`)。
     private let gridMetrics = TVBrowseGridMetrics.spokenWord
 
     var body: some View {
@@ -244,7 +244,7 @@ struct TVSpokenWordView: View {
 // MARK: - 卡片
 
 /// 一本书的封面:用第一章的封面(有声书的章节通常共用一张)。按书的形状画成
-/// 竖长框(`SpokenWordCoverLayout`),封面整张放进去,不裁成方形也不拉伸。
+/// 方框(`SpokenWordCoverLayout`),封面整张放进去,竖版的书封不裁也不拉伸。
 struct TVSpokenWordCover: View {
     @Environment(TVStore.self) private var store
     let book: SpokenWordBook

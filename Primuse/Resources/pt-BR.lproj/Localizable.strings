@@ -5846,3 +5846,13 @@
 "source_mutation_permission_denied" = "A permissão para modificar os arquivos de origem foi negada.";
 "source_mutation_read_only" = "Esta fonte não permite alterações nos arquivos.";
 "metadata_writeback_local_only_notice" = "A fonte recusou a gravação. Suas alterações foram salvas apenas no Primuse; o arquivo de origem não foi atualizado.";
+"library_playlist_cover_wall_title" = "Mural de capas no cabeçalho das playlists";
+"library_playlist_cover_wall_description" = "Quando uma playlist ou playlist inteligente tem pelo menos 4 capas de álbum diferentes, o cabeçalho vira um mural inclinado de capas que se reorganiza a cada poucos segundos. No celular na horizontal e em playlists com capa personalizada, continua aparecendo uma só capa.";
+"player_backdrop_strength_footer" = "Quanto mais para a direita, mais o fundo se aproxima das cores da capa. No modo claro, cores muito escuras param onde o texto continua legível. Com uma imagem de fundo como Capa desfocada, isto ajusta a intensidade da camada que a escurece.";
+"player_progress_style_title" = "Barra de progresso";
+"player_progress_style_footer" = "A onda só se move durante a reprodução e vira uma linha reta ao pausar ou arrastar. Vale para o player no iPhone, iPad e Mac.";
+"player_progress_style_standard" = "Padrão";
+"player_progress_style_wave" = "Onda";
+"player_progress_style_dot" = "Linha fina com ponto";
+"theme_color_player_backdrop_moved_hint" = "O estilo e a intensidade das cores do fundo do player agora ficam em Ajustes › Player.";
+"theme_color_player_backdrop_moved_link" = "Abrir ajustes do player";

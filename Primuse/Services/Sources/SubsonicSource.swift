@@ -1689,7 +1689,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             bitRate: child.bitRate,
             sampleRate: child.samplingRate,
             bitDepth: child.bitDepth,
-            genre: child.genre,
+            genre: child.genres?.genre(fallback: child.genre) ?? child.genre,
             year: child.year,
             lastModified: child.created.flatMap(Self.parseDate),
             serverPlayCount: child.playCount,
@@ -2333,6 +2333,8 @@ private struct SubsonicChild: Decodable, Sendable {
     let discNumber: Int?
     let year: Int?
     let genre: String?
+    /// OpenSubsonic：`genre` 只有第一个，全部流派在这里。
+    let genres: ServerGenreList?
     let coverArt: String?
     let size: Int64?
     let suffix: String?

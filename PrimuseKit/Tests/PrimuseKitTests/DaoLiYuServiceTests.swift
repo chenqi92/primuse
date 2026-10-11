@@ -74,6 +74,23 @@ import Testing
     #expect(track.synchronizedLyrics == "[00:00.00]Connector")
 }
 
+@Test func daoLiYuKeepsEveryGenreFromTheGenreList() throws {
+    let base = try #require(URL(string: "https://music.example.com"))
+    func genre(_ extra: [String: Any]) throws -> String? {
+        var json: [String: Any] = [
+            "id": "trk_genres", "title": "Two Genres", "artistName": "Primuse QA",
+            "filePath": "/data/music/two.flac", "fileFormat": "flac", "durationSeconds": 8.0,
+        ]
+        json.merge(extra) { _, new in new }
+        let track = try #require(DaoLiYuCatalogTrack(json: json))
+        return try #require(track.makeSong(sourceID: "source-1", serverBaseURL: base)).genre
+    }
+    #expect(try genre(["genre": "Rock", "genres": [["name": "Rock"], ["name": "Pop"]]]) == "Rock; Pop")
+    #expect(try genre(["genres": ["J-Pop", "Vocaloid"]]) == "J-Pop; Vocaloid")
+    #expect(try genre(["genre": "Rock, Live", "genres": [["name": "Rock, Live"]]]) == "Rock, Live")
+    #expect(try genre(["genre": "Jazz"]) == "Jazz")
+}
+
 @Test func daoLiYuMissingAndPlaceholderTitlesNeedFileHeaderInspection() throws {
     for (index, title) in [nil, "", "Unknown", "未知标题"].enumerated() {
         var json: [String: Any] = ["id": "missing-title-\(index)"]

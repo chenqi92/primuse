@@ -16,6 +16,8 @@ struct PlaylistDetailView: View {
     @Environment(MusicScraperService.self) private var scraperService
     #if os(iOS)
     @Environment(\.pmHeightClass) private var heightClass
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @AppStorage(CollectionCoverWall.preferenceKey) private var usesCoverWallHeader = CollectionCoverWall.defaultEnabled
     #elseif os(macOS)
     @Environment(\.locale) private var locale
     @State private var tableLayout = MacSongTableLayout(scope: .playlist)
@@ -722,7 +724,59 @@ struct PlaylistDetailView: View {
     /// 两种排布共用同一棵子树 —— `AnyLayout` 只换布局不换视图身份, 旋转时行上的
     /// 长按菜单不会被连根替换。竖屏的取值全部照抄原来的常量: 外层 8 的间距加上
     /// 计数行之后那 12 的上边距, 还原成原来「计数 → 操作行」之间的 20。
+    @ViewBuilder
     private var playlistHeader: some View {
+        #if os(iOS)
+        if let wallSongs = coverWallSongs {
+            coverWallPlaylistHeader(wallSongs)
+        } else {
+            classicPlaylistHeader
+        }
+        #else
+        classicPlaylistHeader
+        #endif
+    }
+
+    #if os(iOS)
+    /// 封面墙头图要的歌；返回 nil 时用原来的单封面头部。手机横屏首屏放不下一面墙，
+    /// 自己设过封面（上传或选了某首歌）的歌单仍显示那张封面。
+    private var coverWallSongs: [Song]? {
+        guard usesCoverWallHeader, !usesCompactHeaderLayout else { return nil }
+        let presentation = library.artworkPresentation(
+            for: LibraryArtworkOwner(kind: .playlist, id: playlist.id)
+        )
+        guard presentation.uploadedContentID == nil, presentation.selectedSong == nil else { return nil }
+        let songs = storedSongs
+        return CollectionCoverWall.isAvailable(for: songs) ? songs : nil
+    }
+
+    /// 墙面自带标题与歌曲数；下面接原来的批量刮削进度与操作行。
+    private func coverWallPlaylistHeader(_ wallSongs: [Song]) -> some View {
+        VStack(spacing: 8) {
+            CollectionCoverWallHeader(
+                title: currentPlaylist?.name ?? playlist.name,
+                subtitle: "\(wallSongs.count) \(String(localized: "songs_count"))",
+                songs: wallSongs,
+                nowPlaying: player.currentSong,
+                wallHeight: horizontalSizeClass == .regular ? 340 : 300
+            ) {
+                EmptyView()
+            }
+
+            if isCurrentPlaylistScraping {
+                batchScrapeProgressCard
+                    .padding(.horizontal)
+                    .pmFadeTransition(motion: .list)
+            }
+
+            playlistActionButtons
+                .padding(.horizontal)
+                .padding(.top, 4)
+        }
+    }
+    #endif
+
+    private var classicPlaylistHeader: some View {
         let compact = usesCompactHeaderLayout
         let coverSide: CGFloat = compact ? 116 : 180
         let bandLayout = compact

@@ -330,6 +330,26 @@ public enum SpokenWordBookGrouping {
         SpokenWordBookGroupingRules.assign(items).bookIDs
     }
 
+    /// Item id → book id, plus the chapter title the shelf shows for a file
+    /// renamed after tagging (rule 6 of `SpokenWordBookGroupingRules`): its
+    /// tag still says 第4969集 where its name says 第1集. Every list that shows
+    /// such a chapter outside the shelf reads the same title from here, so a
+    /// folder and the shelf agree.
+    public struct BookPlacement: Sendable, Equatable {
+        public var bookIDs: [String: String]
+        public var displayTitles: [String: String]
+
+        public init(bookIDs: [String: String] = [:], displayTitles: [String: String] = [:]) {
+            self.bookIDs = bookIDs
+            self.displayTitles = displayTitles
+        }
+    }
+
+    public static func bookPlacement(for items: [SpokenWordBookItem]) -> BookPlacement {
+        let assignment = SpokenWordBookGroupingRules.assign(items)
+        return BookPlacement(bookIDs: assignment.bookIDs, displayTitles: assignment.displayTitles)
+    }
+
     /// The book id `item` would get on its own, without the rest of the
     /// library: right whenever its tags decide it, which is the common case.
     /// Only a fallback — the library-wide `bookIDs(for:)` is authoritative.

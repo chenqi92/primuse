@@ -23,6 +23,9 @@ final class ThemeService {
     private(set) var artworkDarkAccent: Color = ThemeService.defaultDarkAccent
     private(set) var artworkVibrancy: Double = 0
     private(set) var artworkLuminance: Double = 0.18
+    /// 主色、副色在 sRGB 编码下的亮度。浅色播放页把背景调浓时,按它们判断还压不压得住深色字。
+    private(set) var artworkAccentLuma: Double = 0.5
+    private(set) var artworkSecondaryLuma: Double = 0.5
     /// 「流动色彩」背景用的几个代表色,从当前封面的小图里挑(和上面几个颜色同一次读图)。
     /// 没有封面、或封面只有一种颜色时为空,播放页改用下面几个主题色。
     private(set) var artworkLiquidPalette: [LiquidBackdropColor] = []
@@ -330,6 +333,8 @@ final class ThemeService {
             artworkDarkAccent = baseDarkAccent
             artworkVibrancy = 0
             artworkLuminance = 0.18
+            artworkAccentLuma = 0.5
+            artworkSecondaryLuma = 0.5
             artworkLiquidPalette = []
             colorID = "default"
         }
@@ -353,6 +358,8 @@ final class ThemeService {
             artworkDarkAccent = result.dark
             artworkVibrancy = result.vibrancy
             artworkLuminance = result.luminance
+            artworkAccentLuma = result.accentLuma
+            artworkSecondaryLuma = result.secondaryLuma
             colorID = identity
         }
         #if os(macOS)
@@ -597,6 +604,8 @@ final class ThemeService {
         let dark: Color
         let vibrancy: Double
         let luminance: Double
+        let accentLuma: Double
+        let secondaryLuma: Double
     }
 
     private struct PaletteSample {
@@ -788,7 +797,13 @@ final class ThemeService {
             secondaryDark: secondaryDark,
             dark: dark,
             vibrancy: Double(min(max(primary.saturation, 0), 1)),
-            luminance: Double(min(max(max(luminance, accentLuminance), secondaryLuminance), 1))
+            luminance: Double(min(max(max(luminance, accentLuminance), secondaryLuminance), 1)),
+            accentLuma: Double(encodedLuma(hue: primary.hue, saturation: accentS, brightness: accentB)),
+            secondaryLuma: Double(encodedLuma(
+                hue: secondaryHue,
+                saturation: secondarySaturation,
+                brightness: secondaryBrightness
+            ))
         )
     }
 
@@ -809,6 +824,26 @@ final class ThemeService {
         saturation: CGFloat,
         brightness: CGFloat
     ) -> CGFloat {
+        let rgb = rgbComponents(hue: hue, saturation: saturation, brightness: brightness)
+        return relativeLuminance(red: rgb.0, green: rgb.1, blue: rgb.2)
+    }
+
+    /// 不还原成线性光、直接在 sRGB 编码值上加权的亮度。播放页背景的几层颜色是按编码值叠的,
+    /// 估算叠出来有多暗时用它。
+    private nonisolated static func encodedLuma(
+        hue: CGFloat,
+        saturation: CGFloat,
+        brightness: CGFloat
+    ) -> CGFloat {
+        let rgb = rgbComponents(hue: hue, saturation: saturation, brightness: brightness)
+        return 0.2126 * rgb.0 + 0.7152 * rgb.1 + 0.0722 * rgb.2
+    }
+
+    private nonisolated static func rgbComponents(
+        hue: CGFloat,
+        saturation: CGFloat,
+        brightness: CGFloat
+    ) -> (CGFloat, CGFloat, CGFloat) {
         let normalizedHue = hue - floor(hue)
         let sectorValue = normalizedHue * 6
         let sector = Int(floor(sectorValue)) % 6
@@ -825,7 +860,7 @@ final class ThemeService {
         case 4: rgb = (t, p, brightness)
         default: rgb = (brightness, p, q)
         }
-        return relativeLuminance(red: rgb.0, green: rgb.1, blue: rgb.2)
+        return rgb
     }
 
     private nonisolated static func relativeLuminance(

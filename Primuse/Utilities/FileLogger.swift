@@ -401,6 +401,14 @@ final class RuntimeDiagnosticsSampler: @unchecked Sendable {
     private var hitchCount = 0
     private var worstHitch: TimeInterval = 0
     private var reportedCounterCheck = false
+    /// 主线程的 Mach 端口, 卡住时从采样队列上抓它的调用栈。
+    private var mainThread: thread_t = 0
+    /// 这一次卡顿已经抓了几份栈; 探针回来时清零。
+    private var stallSamples = 0
+    /// 一次卡顿最多抓这么多份栈, 每次探针间隔抓一份, 看得出它在同一处还是换了地方。
+    private static let maximumStallSamples = 3
+    /// 探针投出去超过这么久还没被执行, 就抓一份主线程栈。
+    private static let stallSampleThreshold: TimeInterval = 0.25
 
     private struct Sample {
         var uptime: TimeInterval
@@ -415,10 +423,11 @@ final class RuntimeDiagnosticsSampler: @unchecked Sendable {
         var footprint: UInt64
     }
 
-    func start(sampleInterval: TimeInterval = 10, probeInterval: TimeInterval = 0.5) {
+    func start(sampleInterval: TimeInterval = 10, probeInterval: TimeInterval = 0.25) {
         queue.async { [self] in
             guard sampleTimer == nil else { return }
             previous = Self.takeSample()
+            mainThread = pthread_mach_thread_np(pthread_main_thread_np())
 
             let sample = DispatchSource.makeTimerSource(queue: queue)
             sample.schedule(deadline: .now() + sampleInterval, repeating: sampleInterval, leeway: .seconds(1))
@@ -450,7 +459,10 @@ final class RuntimeDiagnosticsSampler: @unchecked Sendable {
     /// 往主线程投一个空任务, 看它隔多久才被执行。上一次还没被执行时不再投,
     /// 主线程卡住期间不会越积越多, 等它被执行时一次结算整段卡顿。
     private func probeMainThread() {
-        guard probeSentAt == nil else { return }
+        if let sentAt = probeSentAt {
+            sampleStalledMainThread(pendingFor: ProcessInfo.processInfo.systemUptime - sentAt)
+            return
+        }
         probeSentAt = ProcessInfo.processInfo.systemUptime
         DispatchQueue.main.async { [weak self] in
             let ranAt = ProcessInfo.processInfo.systemUptime
@@ -462,11 +474,24 @@ final class RuntimeDiagnosticsSampler: @unchecked Sendable {
     private func finishProbe(ranAt: TimeInterval) {
         guard let sentAt = probeSentAt else { return }
         probeSentAt = nil
+        stallSamples = 0
         let latency = max(0, ranAt - sentAt)
         maxMainLatency = max(maxMainLatency, latency)
         guard latency >= 1 else { return }
         stallCount += 1
         plog(String(format: "🩺 main thread blocked for %.2fs", latency))
+    }
+
+    /// 探针还没回来、主线程已经停了一阵: 当场抓它的调用栈记一行, 卡顿过后才有
+    /// 归属可查。一次卡顿最多抓 `maximumStallSamples` 份。
+    private func sampleStalledMainThread(pendingFor pending: TimeInterval) {
+        guard pending >= Self.stallSampleThreshold, stallSamples < Self.maximumStallSamples,
+              mainThread != 0 else { return }
+        stallSamples += 1
+        let frames = MainThreadStackSampler.capture(thread: mainThread)
+        guard !frames.isEmpty else { return }
+        let text = frames.map(MainThreadStackSampler.describe).joined(separator: " < ")
+        plog(String(format: "🩺 main thread busy %.0fms, stack: ", pending * 1000) + text)
     }
 
     // MARK: - 周期采样
@@ -642,3 +667,84 @@ final class RuntimeDiagnosticsSampler: @unchecked Sendable {
     }
 }
 #endif
+
+/// 从别的线程抓主线程的调用栈: 挂起它, 读寄存器, 顺着帧指针链把返回地址抄下来,
+/// 再恢复。挂起期间不能分配内存、不能打日志(主线程可能正拿着 malloc 的锁),
+/// 所以缓冲区先开好, 读栈用 `vm_read_overwrite` 而不是直接解引用, 符号化放在恢复之后。
+/// 只支持 arm64(真机与 Apple 芯片的 Mac); 模拟器上返回空。
+enum MainThreadStackSampler {
+    static let maximumFrames = 32
+
+    static func capture(thread: thread_t) -> [UInt] {
+        #if arch(arm64)
+        var frames = [UInt](repeating: 0, count: maximumFrames)
+        var count = 0
+        guard thread_suspend(thread) == KERN_SUCCESS else { return [] }
+        frames.withUnsafeMutableBufferPointer { buffer in
+            var state = arm_thread_state64_t()
+            var stateCount = mach_msg_type_number_t(
+                MemoryLayout<arm_thread_state64_t>.size / MemoryLayout<natural_t>.size
+            )
+            let result = withUnsafeMutablePointer(to: &state) {
+                $0.withMemoryRebound(to: natural_t.self, capacity: Int(stateCount)) {
+                    thread_get_state(thread, thread_state_flavor_t(ARM_THREAD_STATE64), $0, &stateCount)
+                }
+            }
+            guard result == KERN_SUCCESS else { return }
+            buffer[count] = UInt(state.__pc); count += 1
+            if state.__lr != 0 { buffer[count] = UInt(state.__lr); count += 1 }
+            var framePointer = state.__fp
+            while count < buffer.count, framePointer != 0, framePointer % 16 == 0 {
+                var saved: (UInt64, UInt64) = (0, 0)
+                var read: vm_size_t = 0
+                let status = withUnsafeMutablePointer(to: &saved) {
+                    vm_read_overwrite(
+                        mach_task_self_, vm_address_t(framePointer), 16,
+                        vm_address_t(UInt(bitPattern: $0)), &read
+                    )
+                }
+                guard status == KERN_SUCCESS, read == 16, saved.1 != 0 else { break }
+                buffer[count] = UInt(saved.1); count += 1
+                // 栈向低地址生长, 上一帧的帧指针必须更高; 否则链断了。
+                guard saved.0 > framePointer else { break }
+                framePointer = saved.0
+            }
+        }
+        thread_resume(thread)
+        return Array(frames.prefix(count))
+        #else
+        return []
+        #endif
+    }
+
+    private typealias Demangle = @convention(c) (
+        UnsafePointer<CChar>?, Int, UnsafeMutablePointer<CChar>?, UnsafeMutablePointer<Int>?, UInt32
+    ) -> UnsafeMutablePointer<CChar>?
+
+    private static let demangle: Demangle? = {
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "swift_demangle") else { return nil }
+        return unsafeBitCast(symbol, to: Demangle.self)
+    }()
+
+    /// 「符号+偏移」; 没有符号(Release 包)时写「镜像名+偏移」, 拿 dSYM 用
+    /// `atos -l 0x100000000` 加上这个偏移就能还原。
+    static func describe(_ address: UInt) -> String {
+        var info = Dl_info()
+        guard dladdr(UnsafeRawPointer(bitPattern: address), &info) != 0 else {
+            return String(format: "0x%lx", address)
+        }
+        if let symbol = info.dli_sname, let start = info.dli_saddr {
+            var name = String(cString: symbol)
+            if name.hasPrefix("$s") || name.hasPrefix("_$s"),
+               let demangle, let demangled = demangle(symbol, strlen(symbol), nil, nil, 0) {
+                name = String(cString: demangled)
+                free(demangled)
+            }
+            if name.count > 96 { name = String(name.prefix(96)) + "…" }
+            return "\(name)+\(address - UInt(bitPattern: start))"
+        }
+        let image = info.dli_fname.map { URL(fileURLWithPath: String(cString: $0)).lastPathComponent } ?? "?"
+        let base = info.dli_fbase.map { UInt(bitPattern: $0) } ?? 0
+        return String(format: "%@+0x%lx", image, base <= address ? address - base : address)
+    }
+}

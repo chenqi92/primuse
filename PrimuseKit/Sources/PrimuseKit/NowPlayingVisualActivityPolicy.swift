@@ -159,6 +159,122 @@ public enum NowPlayingAmbientLegibilityPolicy {
     }
 }
 
+/// 浅色播放页背景几层的浓淡:两团封面色的不透明度,和压在上面那层白色的上下两端。
+public struct NowPlayingLightAmbientLevels: Equatable, Sendable {
+    public let primaryOpacity: Double
+    public let secondaryOpacity: Double
+    public let overlayTopOpacity: Double
+    public let overlayBottomOpacity: Double
+
+    public init(
+        primaryOpacity: Double,
+        secondaryOpacity: Double,
+        overlayTopOpacity: Double,
+        overlayBottomOpacity: Double
+    ) {
+        self.primaryOpacity = primaryOpacity
+        self.secondaryOpacity = secondaryOpacity
+        self.overlayTopOpacity = overlayTopOpacity
+        self.overlayBottomOpacity = overlayBottomOpacity
+    }
+
+    func interpolated(to end: NowPlayingLightAmbientLevels, progress: Double) -> NowPlayingLightAmbientLevels {
+        let t = min(max(progress, 0), 1)
+        func mix(_ a: Double, _ b: Double) -> Double { a + (b - a) * t }
+        return NowPlayingLightAmbientLevels(
+            primaryOpacity: mix(primaryOpacity, end.primaryOpacity),
+            secondaryOpacity: mix(secondaryOpacity, end.secondaryOpacity),
+            overlayTopOpacity: mix(overlayTopOpacity, end.overlayTopOpacity),
+            overlayBottomOpacity: mix(overlayBottomOpacity, end.overlayBottomOpacity)
+        )
+    }
+}
+
+/// 浅色播放页的「氛围强度」调过默认值以后,背景往封面颜色上靠到多浓(#69)。
+///
+/// 默认值以下照旧;往上走时封面色加浓、白色罩层变薄,拉满时接近封面本身的颜色。
+/// 浅色外观的字是深色的,封面色太深时背景不能跟着变深:估算有字的地方最暗能到多少,
+/// 加浓到那里还压得住深色字为止,而且不会比默认强度时更暗。
+///
+/// 估算按画法里几团颜色的摆位来:主色在左上、副色在右下、暗色在中间,各自从中心往外淡。
+/// 歌名、歌词所在的那一片最多吃到主色的八成、副色的不到一半、暗色的四分之三;
+/// 都按中心叠在一起算的话,偏红偏深的封面一点都加不浓,滑杆往上拉看不出变化。
+public enum NowPlayingLightAmbientPolicy {
+    /// 背景底色(0.94 的浅灰)在 sRGB 编码下的亮度。
+    static let baseLuma = 0.945
+    /// 中间那团暗色是主色压暗到 0.65 的版本,不透明度是第二团的 0.42 倍(和画法一致)。
+    static let darkFieldBrightness = 0.65
+    static let darkFieldOpacityRatio = 0.42
+    /// 有字的那一片最多吃到的比例(主色、副色、暗色)。
+    static let primaryReach = 0.8
+    static let secondaryReach = 0.45
+    static let darkFieldReach = 0.75
+
+    /// - Parameters:
+    ///   - atDefault: 默认强度下这几层的取值。
+    ///   - vivid: 拉满时想要的取值。
+    ///   - strength: 用户设的强度(0…1)。
+    ///   - defaultStrength: 默认强度。
+    ///   - primaryLuma: 主色在 sRGB 编码下的亮度(0…1)。
+    ///   - secondaryLuma: 副色在 sRGB 编码下的亮度(0…1)。
+    ///   - usesIncreasedContrast: 「增强对比度」打开时下限更高。
+    public static func levels(
+        atDefault: NowPlayingLightAmbientLevels,
+        vivid: NowPlayingLightAmbientLevels,
+        strength: Double,
+        defaultStrength: Double,
+        primaryLuma: Double,
+        secondaryLuma: Double,
+        usesIncreasedContrast: Bool
+    ) -> NowPlayingLightAmbientLevels {
+        guard strength > defaultStrength, defaultStrength < 1 else { return atDefault }
+        let progress = min((strength - defaultStrength) / (1 - defaultStrength), 1)
+        let lumas = (primary: min(max(primaryLuma, 0), 1), secondary: min(max(secondaryLuma, 0), 1))
+        let floor = min(
+            minimumLuma(usesIncreasedContrast: usesIncreasedContrast),
+            darkestLuma(atDefault, primaryLuma: lumas.primary, secondaryLuma: lumas.secondary)
+        )
+        let full = atDefault.interpolated(to: vivid, progress: progress)
+        if darkestLuma(full, primaryLuma: lumas.primary, secondaryLuma: lumas.secondary) >= floor { return full }
+
+        // 最暗处随加浓的程度单调变暗,二分找出刚好压得住的那一档。
+        var low = 0.0
+        var high = 1.0
+        for _ in 0..<24 {
+            let middle = (low + high) / 2
+            let candidate = atDefault.interpolated(to: vivid, progress: progress * middle)
+            if darkestLuma(candidate, primaryLuma: lumas.primary, secondaryLuma: lumas.secondary) >= floor {
+                low = middle
+            } else {
+                high = middle
+            }
+        }
+        return atDefault.interpolated(to: vivid, progress: progress * low)
+    }
+
+    /// 最暗处至少要有的亮度:深灰色的次要文字在上面仍有大约 4.5:1。
+    public static func minimumLuma(usesIncreasedContrast: Bool) -> Double {
+        usesIncreasedContrast ? 0.66 : 0.58
+    }
+
+    /// 有字那一片最暗的地方:按各团颜色能伸到那里的比例叠上去,再盖上白色罩层较薄的下端。
+    static func darkestLuma(
+        _ levels: NowPlayingLightAmbientLevels,
+        primaryLuma: Double,
+        secondaryLuma: Double
+    ) -> Double {
+        let primary = min(max(levels.primaryOpacity, 0), 1) * primaryReach
+        let secondaryOpacity = min(max(levels.secondaryOpacity, 0), 1)
+        let secondary = secondaryOpacity * secondaryReach
+        let dark = min(secondaryOpacity * darkFieldOpacityRatio, 1) * darkFieldReach
+        let wash = min(max(levels.overlayBottomOpacity, 0), 1)
+        var luma = baseLuma * (1 - primary) + primaryLuma * primary
+        luma = luma * (1 - secondary) + secondaryLuma * secondary
+        luma = luma * (1 - dark) + primaryLuma * darkFieldBrightness * dark
+        return luma * (1 - wash) + wash
+    }
+}
+
 public enum KaraokeTimelineInvalidationScope: Equatable, Sendable {
     case none
     case progressMask
