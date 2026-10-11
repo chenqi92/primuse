@@ -350,6 +350,9 @@
 		2F991483D3578D68154318C5 /* ScrobbleSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FC226D745AC023E7E54BF0F /* ScrobbleSettingsView.swift */; };
 		2F99FFD7B7D2D1F6EE1595A0 /* ServerCollectionFavoriteSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 535157A3C8E0F7D23DAD2B3D /* ServerCollectionFavoriteSyncService.swift */; };
 		2FE556608B4EE9CB93532EAD /* LibraryPageFind.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F0CCE40C02CDF0A976BE27 /* LibraryPageFind.swift */; };
+		59CAA41E51DEF4B8C798EC01 /* PodcastRequestQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71686A11D40981F530B26BFD /* PodcastRequestQuotaTests.swift */; };
+		B2D8A49F9F94DDB1B3ECAB3B /* PodcastRequestQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71686A11D40981F530B26BFD /* PodcastRequestQuotaTests.swift */; };
+		DFF5B772138DCB2652D4B039 /* PodcastRequestQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71686A11D40981F530B26BFD /* PodcastRequestQuotaTests.swift */; };
 		5F795B4E7C2D1592241DE408 /* AIRequestQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C03BED21D662046E28FA9B2 /* AIRequestQuotaTests.swift */; };
 		871BB52B18E6A69DB42956B4 /* AIRequestQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C03BED21D662046E28FA9B2 /* AIRequestQuotaTests.swift */; };
 		F1847E4880E2B580F60FD14A /* MinimalShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42511EF288D67F5D3D29E96E /* MinimalShell.swift */; };
@@ -2238,6 +2241,7 @@
 		656DE32C9134161A97AD208F /* CollectionCoverWallHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollectionCoverWallHeader.swift; sourceTree = "<group>"; };
 		656E0BFCACE046D38A1A1738 /* TingReaderSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TingReaderSource.swift; sourceTree = "<group>"; };
 		68D6C92F242076748F18B78D /* BuiltInAIConsentSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltInAIConsentSheet.swift; sourceTree = "<group>"; };
+		71686A11D40981F530B26BFD /* PodcastRequestQuotaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastRequestQuotaTests.swift; sourceTree = "<group>"; };
 		7C03BED21D662046E28FA9B2 /* AIRequestQuotaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIRequestQuotaTests.swift; sourceTree = "<group>"; };
 		99C30A24BB200AF2D4BD57C9 /* FlyAuditoryCircuit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlyAuditoryCircuit.swift; sourceTree = "<group>"; };
 		A04BC9A9E1ED420EC21D43E3 /* TingReaderAPIProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TingReaderAPIProtocol.swift; sourceTree = "<group>"; };
@@ -5315,6 +5319,7 @@
 			isa = PBXGroup;
 			children = (
 				3EC5C57A1C23EDA835C82C97 /* AISmartPlaylistEngineTests.swift */,
+				71686A11D40981F530B26BFD /* PodcastRequestQuotaTests.swift */,
 				7C03BED21D662046E28FA9B2 /* AIRequestQuotaTests.swift */,
 				948BBEDC6689BACAA9EB91B3 /* ArtistNameLibraryTests.swift */,
 				DF8E2CAAEF4F1C45017F7770 /* AudioCacheSyncPolicyTests.swift */,
@@ -6127,6 +6132,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B2D8A49F9F94DDB1B3ECAB3B /* PodcastRequestQuotaTests.swift in Sources */,
 				5F795B4E7C2D1592241DE408 /* AIRequestQuotaTests.swift in Sources */,
 				DD5464811A1C8045D7193A97 /* TVColorBackgroundIsolationTests.swift in Sources */,
 				56A17E620C4BD3695FA8129A /* TVKaraokeParityTests.swift in Sources */,
@@ -6155,6 +6161,7 @@
 				CCFBEA9ED1C863907F0814C8 /* AudioEngineVolumeTests.swift in Sources */,
 				2E430470240024D086AA4B67 /* AudioPlayerNodeClockReaderTests.m in Sources */,
 				D5C2DFC09F7264E9F533270D /* AutoContinuationPlayerTests.swift in Sources */,
+				DFF5B772138DCB2652D4B039 /* PodcastRequestQuotaTests.swift in Sources */,
 				EDBAA6D45F7DDCB2D39E1E06 /* CarPlayEditorRenderingTests.swift in Sources */,
 				A7DB21B5C6238757B4DE4895 /* CloudDriveFormEncodingTests.swift in Sources */,
 				4E541563B89E37687AF677E5 /* CloudKVSSyncTests.swift in Sources */,
@@ -6705,6 +6712,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				59CAA41E51DEF4B8C798EC01 /* PodcastRequestQuotaTests.swift in Sources */,
 				78D190AF5491B9C620755A08 /* AIStreamingIntegrationTests.swift in Sources */,
 				871BB52B18E6A69DB42956B4 /* AIRequestQuotaTests.swift in Sources */,
 				B657A64A7C5FE4309841ECDD /* MacOutputRoutingTests.swift in Sources */,

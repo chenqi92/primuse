@@ -359,6 +359,7 @@ targets:
     platform: macOS
     sources:
       - path: PrimuseMacTests
+      - path: PrimuseTests/PodcastRequestQuotaTests.swift
       - path: PrimuseTests/AIRequestQuotaTests.swift
     dependencies:
       - target: PrimuseMac
@@ -978,6 +979,7 @@ targets:
     platform: tvOS
     sources:
       - path: PrimuseTVTests
+      - path: PrimuseTests/PodcastRequestQuotaTests.swift
       - path: PrimuseTests/AIRequestQuotaTests.swift
     dependencies:
       - target: PrimuseTV
