@@ -434,7 +434,7 @@ struct SongRowView: View {
 
             // Song info — title and subtitle only, no format/duration clutter
             VStack(alignment: .leading, spacing: style.textSpacing) {
-                Text(song.title)
+                Text(library.displayTitle(for: song))
                     .font(style.titleFont)
                     .lineLimit(1)
                     .foregroundStyle(isPlaying ? Color.accentColor : Color.primary)
@@ -1760,7 +1760,7 @@ private struct LastFmSimilarRow: View {
                 fileFormat: song.fileFormat
             )
             VStack(alignment: .leading, spacing: 2) {
-                Text(song.title).font(.subheadline).lineLimit(1)
+                Text(library.displayTitle(for: song)).font(.subheadline).lineLimit(1)
                 Text(library.artistDisplayName(for: song) ?? "")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -1797,7 +1797,7 @@ private struct SimilarSongResultRow: View {
             )
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(song.title)
+                Text(library.displayTitle(for: song))
                     .font(.subheadline)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
