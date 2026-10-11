@@ -7,6 +7,8 @@ actor UgreenAPI {
     private let port: Int
     private let useSsl: Bool
     private let alternateTLSValidationHostname: String?
+    private let injectedSession: URLSession?
+    private var requestAccount = ""
     private(set) var token: String?
     private(set) var staticToken: String?
     private(set) var uid: String?
@@ -39,12 +41,14 @@ actor UgreenAPI {
         host: String,
         port: Int,
         useSsl: Bool,
-        alternateTLSValidationHostname: String? = nil
+        alternateTLSValidationHostname: String? = nil,
+        session: URLSession? = nil
     ) {
         self.host = host
         self.port = port
         self.useSsl = useSsl
         self.alternateTLSValidationHostname = alternateTLSValidationHostname
+        self.injectedSession = session
     }
 
     struct LoginResult: Sendable {
@@ -70,6 +74,7 @@ actor UgreenAPI {
     }
 
     func login(account: String, password: String, otpCode: String? = nil) async -> LoginResult {
+        requestAccount = account
         do {
             let publicKeyData = try await fetchLoginPublicKey(for: account)
             let encryptedPassword = try Self.encrypt(password: password, withPublicKeyData: publicKeyData)
@@ -140,7 +145,7 @@ actor UgreenAPI {
         // 解析 / 忽略 path 时, listAllV2 返回 nil, 自动退回 v1 filemgr/list,
         // 保证不低于既有行为。
         if !v2ListDisabled, v2AuthHeaders() != nil {
-            if let v2 = await listAllV2(path: path) {
+            if let v2 = try await listAllV2(path: path) {
                 return v2
             }
             // 有 v2 凭证却列目录不可用(端点缺失 / 结构不符 / 忽略 path) → 本会话
@@ -305,7 +310,7 @@ actor UgreenAPI {
 
     /// 经 v2 getDirFileListV2 列目录。返回 nil 表示"此固件 v2 不可用 / 响应不可信 /
     /// 忽略了 path", 调用方据此退回 v1。认证问题统一交由 v1 路径处理与重登。
-    private func listAllV2(path: String) async -> [FileItem]? {
+    private func listAllV2(path: String) async throws -> [FileItem]? {
         guard let headers = v2AuthHeaders() else { return nil }
         let limit = 2000
         var page = 1
@@ -315,7 +320,7 @@ actor UgreenAPI {
             (path.hasSuffix("/") ? String(path.dropLast()) : path)
 
         while true {
-            guard let dataDict = await listPageV2(path: path, page: page, limit: limit, headers: headers) else {
+            guard let dataDict = try await listPageV2(path: path, page: page, limit: limit, headers: headers) else {
                 return nil
             }
             guard let list = (dataDict["list"] as? [[String: Any]]) ?? (dataDict["files"] as? [[String: Any]]) else {
@@ -348,9 +353,8 @@ actor UgreenAPI {
         return allItems
     }
 
-    /// 请求单页 v2 目录。任何失败(端点不存在/非 200/结构不符)一律返回 nil 让上层
-    /// 退回 v1; 不在此处抛认证错(交由 v1 路径统一识别 1024 并重登)。
-    private func listPageV2(path: String, page: Int, limit: Int, headers: [String: String]) async -> [String: Any]? {
+    /// 仅端点缺失或不兼容的成功响应允许退回 v1; 限流、权限与取消直接交给调用方。
+    private func listPageV2(path: String, page: Int, limit: Int, headers: [String: String]) async throws -> [String: Any]? {
         guard let url = URL(string: "\(baseURLString)/ugreen/v2/filemgr/getDirFileListV2") else { return nil }
         // pewee 默认 body + 额外补 path(逆向未证实字段名, 不符则上层退回 v1)。
         let body: [String: Any] = [
@@ -363,9 +367,13 @@ actor UgreenAPI {
         ]
         var hdrs = headers
         hdrs["referer"] = "\(baseURLString)/filemgr/?_filemgr=primuse"
-        guard let (data, _) = try? await postJSONResponse(url: url, body: body, extraHeaders: hdrs) else {
-            return nil
+        let data: Data
+        do { (data, _) = try await postJSONResponse(url: url, body: body, extraHeaders: hdrs) }
+        catch let failure as HTTPResponseFailure where [404, 405, 501].contains(failure.statusCode) {
+            return nil // This endpoint is unavailable on the current firmware.
         }
+        // Cancellation, permission and transient failures must not disable v2.
+
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
         guard intValue(json["code"]) == 200, let dataDict = json["data"] as? [String: Any] else {
             return nil
@@ -524,6 +532,14 @@ actor UgreenAPI {
         // token, 一并去掉避免误导与潜在干扰。
         req.httpBody = try SafeJSONSerialization.data(withJSONObject: body)
         req.timeoutInterval = 15
+        let isDirectoryRead = ["/ugreen/v1/filemgr/list", "/ugreen/v2/filemgr/getDirFileListV2"].contains(url.path)
+        if isDirectoryRead {
+            let executor = ServerRequestScheduler.shared.executor(baseURL: URL(string: baseURLString)!, account: "ugreen:" + requestAccount)
+            let request = req
+            return try await executor.execute(replay: .idempotent) { [session = session()] in
+                try await TrustedHTTPTransport.data(for: request, session: session)
+            }
+        }
         let (data, response) = try await TrustedHTTPTransport.data(
             for: req,
             session: session()
@@ -541,6 +557,7 @@ actor UgreenAPI {
     /// 强持有 delegate 与连接池, 每次新建且从不 invalidate 会随扫描线性泄漏
     /// 内存与文件描述符, 同时丢失 keep-alive 复用 (每请求重新 TLS 握手)。
     private lazy var sharedSession: URLSession = {
+        if let injectedSession { return injectedSession }
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 15
         return URLSession(

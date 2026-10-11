@@ -359,6 +359,7 @@ targets:
     platform: macOS
     sources:
       - path: PrimuseMacTests
+      - path: PrimuseTests/RemoteMediaHTTPErrorTests.swift
       - path: PrimuseTests/WebDAVDirectoryQuotaTests.swift
       - path: PrimuseTests/LastFmSimilarQuotaTests.swift
       - path: PrimuseTests/PodcastRequestQuotaTests.swift

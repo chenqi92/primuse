@@ -36,6 +36,17 @@ struct FnMusicLibraryTests {
         #expect(fixture.requests.filter { $0.url?.path.hasSuffix("/track/playlist-detail/list") == true }.count == 53)
     }
 
+    @Test func exhaustedHTTPBudgetDoesNotRestartAtThePlaylistLayer() async throws {
+        let fixture = FnMusicLibraryFixture(transientDetailFailures: ["p1": 10])
+        fixture.setPage("/playlist/list", page: 1, list: [["guid": "p1", "name": "List 1"]], total: 1)
+        fixture.setPage("/track/playlist-detail/list", playlist: "p1", page: 1,
+            list: [["guid": "s1"]], total: 1)
+        let (client, _, _) = fixture.clients()
+        let snapshot = try await client.library.playlists()
+        #expect(snapshot.failedPlaylistIDs == ["p1"])
+        #expect(fixture.requests.filter { $0.url?.path.hasSuffix("/track/playlist-detail/list") == true }.count == 3)
+    }
+
     /// 明细翻到一半失败的歌单在同一次同步里补读一次，不再整份漏掉；顺序仍按服务端清单。
     @Test func playlistDetailsThatFailOnceAreReadAgainInTheSameSync() async throws {
         let fixture = FnMusicLibraryFixture(transientDetailFailures: ["p1": 1])
@@ -54,12 +65,13 @@ struct FnMusicLibraryTests {
         let details = fixture.requests.filter { $0.url?.path.hasSuffix("/track/playlist-detail/list") == true }
         #expect(details.count == 4)
         let playlistTag = LogRedactionPolicy.digest("p1")
-        #expect(diagnostics.messages.contains { $0.contains("result=failed playlist=\(playlistTag) attempt=1") && $0.contains("500") })
-        #expect(diagnostics.messages.contains { $0.contains("result=complete playlist=\(playlistTag) attempt=2") && $0.contains("received=1") })
+        // A transient HTTP failure is recovered within the same page request.
+        #expect(!diagnostics.messages.contains { $0.contains("result=failed playlist=\(playlistTag)") })
+        #expect(diagnostics.messages.contains { $0.contains("result=complete playlist=\(playlistTag) attempt=1") && $0.contains("received=1") })
         #expect(diagnostics.messages.last?.contains("listed=3 detailed=3 failed=0") == true)
     }
 
-    /// 每读全一个歌单就先交出去，不等整轮：补读成功的在第二轮交出，始终读不全的不交。
+    /// 完整歌单立即交出；HTTP 短重试在当前请求内完成，始终读不全的歌单不交。
     @Test func playlistsAreHandedOverAsSoonAsEachOneIsRead() async throws {
         let fixture = FnMusicLibraryFixture(transientDetailFailures: ["p1": 1])
         fixture.setPage("/playlist/list", page: 1,
@@ -77,8 +89,8 @@ struct FnMusicLibraryTests {
             diagnosticLogger: { diagnostics.append($0) },
             onPlaylist: { await delivered.append($0) }
         )
-        #expect(await delivered.ids == ["p0", "p3", "p1"])
-        #expect(await delivered.trackIDs == [["s0"], ["s3"], ["s1"]])
+        #expect(await delivered.ids == ["p0", "p1", "p3"])
+        #expect(await delivered.trackIDs == [["s0"], ["s1"], ["s3"]])
         #expect(snapshot.playlists.map(\.id) == ["p0", "p1", "p3"])
         #expect(snapshot.failedPlaylistIDs == ["p2"])
         let failures = diagnostics.messages.filter { $0.contains("result=failed playlist=\(LogRedactionPolicy.digest("p2"))") }
@@ -622,7 +634,9 @@ private final class FnMusicLibraryFixture: @unchecked Sendable {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [FnMusicLibraryURLProtocol.self]
         let session = URLSession(configuration: config)
-        let source = MusicSource(id: host, name: "Feiniu", type: .fnMusic, host: host, port: 5666, useSsl: false, username: "qa")
+        // Use HTTPS for the intercepted fixture: a public HTTP host would open
+        // tvOS's interactive trust prompt before reaching URLProtocol.
+        let source = MusicSource(id: host, name: "Feiniu", type: .fnMusic, host: host, port: 5666, useSsl: true, username: "qa")
         // 和真机一样，曲库客户端与播放解析器共用同一个会话仓库。
         let sessions = SourceLoginSessionStore()
         return (FnMusicServiceClient(source: source, credential: .init(username: "qa", password: "test"),

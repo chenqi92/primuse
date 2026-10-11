@@ -522,6 +522,22 @@ public actor FnMusicServiceClient {
         body: [String: Any]? = nil
     ) async throws -> Any {
         try await ensureLoggedIn()
+        if method == "GET" {
+            let endpoint = try await endpointProvider.endpoint()
+            let executor = ServerRequestScheduler.shared.executor(baseURL: endpoint.baseURL, account: "fnmusic:" + username)
+            let recovery = FnServiceReadRecovery()
+            let data = try await executor.execute(replay: .idempotent, recover: { error in
+                if error as? FnMusicServiceError == .authenticationFailed, await recovery.claimAuth() {
+                    try await self.ensureLoggedIn()
+                    return true
+                }
+                guard await self.usesFNConnect, FnMusicAPIProtocol.isRouteFailure(error),
+                      await recovery.claimRoute() else { return false }
+                await self.endpointProvider.invalidate()
+                return true
+            }, operation: { try await self.readJSONData(path: path, queryItems: queryItems) })
+            return try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+        }
         do {
             return try await requestJSON(
                 method: method,
@@ -538,6 +554,11 @@ public actor FnMusicServiceClient {
                 body: body
             )
         }
+    }
+
+    private func readJSONData(path: String, queryItems: [URLQueryItem]) async throws -> Data {
+        let payload = try await requestJSONOnce(method: "GET", path: path, queryItems: queryItems, body: nil, includeCookie: true)
+        return try SafeJSONSerialization.data(withJSONObject: payload, options: [.fragmentsAllowed])
     }
 
     private func ensureLoggedIn() async throws {
@@ -655,6 +676,11 @@ public actor FnMusicServiceClient {
             session: session,
             redirectMode: .fnMusic
         )
+        if method == "GET", let http = response as? HTTPURLResponse,
+           !(200...299).contains(http.statusCode), http.statusCode != 401 {
+            throw HTTPResponseFailure(statusCode: http.statusCode, body: data,
+                                      retryAfter: HTTPResponseFailure.retryDelay(from: http))
+        }
         _ = try validateHTTP(response, requestToken: requestToken)
         guard let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let code = fnMusicInt(envelope["code"]) else {
@@ -888,4 +914,11 @@ private func fnMusicBool(_ value: Any?) -> Bool? {
         }
     }
     return nil
+}
+
+private actor FnServiceReadRecovery {
+    private var authUsed = false
+    private var routeUsed = false
+    func claimAuth() -> Bool { guard !authUsed else { return false }; authUsed = true; return true }
+    func claimRoute() -> Bool { guard !routeUsed else { return false }; routeUsed = true; return true }
 }

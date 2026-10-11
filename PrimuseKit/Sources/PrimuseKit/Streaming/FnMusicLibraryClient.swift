@@ -72,10 +72,11 @@ public struct FnMusicLibraryClient: Sendable {
             log("stage=index result=\(result) listed=\(index.listedCount) usable=\(summaries.count) invalid=\(index.invalidCount)")
             stage = "detail"
             var trackIDs: [String: PlaylistTracks] = [:]
-            // 明细翻到一半失败（会话被顶掉、网络抖一下、歌单正被改）整份歌单就不会出现。
-            // 一轮读完再把失败的补读一次，这时别的请求多半已经结束；两轮都没读全的才算失败。
+            // Only incomplete/moving snapshots get another reconciliation pass.
+            // HTTP, transport and authentication already exhausted their request budget.
+            var exhaustedRequests = Set<String>()
             for attempt in 1...2 {
-                for summary in summaries where trackIDs[summary.id] == nil {
+                for summary in summaries where trackIDs[summary.id] == nil && !exhaustedRequests.contains(summary.id) {
                     try Task.checkCancellation()
                     let context = "playlist=\(LogRedactionPolicy.digest(summary.id)) attempt=\(attempt) expected=\(summary.trackCount.map(String.init) ?? "unknown")"
                     let tracks: PlaylistTracks
@@ -85,6 +86,9 @@ public struct FnMusicLibraryClient: Sendable {
                         })
                     } catch {
                         if OperationCancellationPolicy.isCancellation(error) { throw CancellationError() }
+                        if error is HTTPResponseFailure || error is URLError || error as? FnMusicServiceError == .authenticationFailed {
+                            exhaustedRequests.insert(summary.id)
+                        }
                         log("stage=detail result=failed \(context) \(LogRedactionPolicy.errorSummary(error))")
                         continue
                     }

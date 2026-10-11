@@ -44,12 +44,25 @@ public enum NavidromeListeningHistory {
         now: Date = Date(),
         pageSize: Int = 500,
         maximumEntries: Int = 1_000_000,
-        requestDataLoader: RequestDataLoader
+        requestDataLoader transport: @escaping RequestDataLoader
     ) async throws -> Snapshot {
         guard pageSize > 0, pageSize <= 500, maximumEntries >= 0 else {
             throw Failure.invalidResponse
         }
         try Task.checkCancellation()
+        let executor = ServerRequestScheduler.shared.executor(baseURL: baseURL, account: "subsonic:" + username)
+        let requestDataLoader: RequestDataLoader = { request in
+            try await executor.execute(replay: request.httpMethod == "POST" ? .never : .idempotent, operation: {
+                let (data, response) = try await transport(request)
+                guard let http = response as? HTTPURLResponse else { throw Failure.invalidResponse }
+                // Capability/authentication statuses keep their existing caller mapping.
+                if !(200...299).contains(http.statusCode), ![401, 403, 404, 405, 501].contains(http.statusCode) {
+                    throw HTTPResponseFailure(statusCode: http.statusCode, body: data,
+                        retryAfter: HTTPResponseFailure.retryDelay(from: http))
+                }
+                return (data, response)
+            })
+        }
         var request = URLRequest(url: baseURL.appendingPathComponent("auth/login"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

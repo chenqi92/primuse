@@ -3130,6 +3130,62 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         retriesIdempotentMutationAfterAuthentication: Bool = false,
         maximumResponseBytes: Int = PlainHTTPClient.defaultMaxBytes
     ) async throws -> Data {
+        // Plex mutations also use GET (/:/rate, /:/scrobble). Only known read
+        // requests excluding that mutation namespace opt into replay.
+        let isRead = method == "GET" && !path.hasPrefix("/:")
+        guard isRead else {
+            return try await performUnscheduledRequest(path: path, method: method, queryItems: queryItems,
+                body: body, contentType: contentType, accept: accept, requiresAuth: requiresAuth,
+                allowPasswordReauthentication: allowPasswordReauthentication,
+                retriesIdempotentMutationAfterAuthentication: retriesIdempotentMutationAfterAuthentication,
+                maximumResponseBytes: maximumResponseBytes)
+        }
+        let executor = ServerRequestScheduler.shared.executor(baseURL: baseURL, account: "media:" + username + ":" + authType.rawValue)
+        let recovery = MediaRequestRecovery()
+        do {
+            return try await executor.execute(replay: .idempotent, recover: { error in
+                guard requiresAuth, allowPasswordReauthentication,
+                      let failure = error as? HTTPResponseFailure, failure.statusCode == 401,
+                      await recovery.claim() else { return false }
+                return try await self.recoverReadAuthentication()
+            }, operation: {
+                try await self.performUnscheduledRequest(path: path, method: method, queryItems: queryItems,
+                    body: body, contentType: contentType, accept: accept, requiresAuth: requiresAuth,
+                    allowPasswordReauthentication: false,
+                    maximumResponseBytes: maximumResponseBytes, preservesHTTPFailure: true)
+            })
+        } catch let failure as HTTPResponseFailure where failure.statusCode == 401 {
+            throw SourceError.authenticationFailed
+        }
+    }
+
+    private func recoverReadAuthentication() async throws -> Bool {
+        guard kind != .plex, authType != .apiKey else { return false }
+        discardRejectedSession()
+        let race = CancellableResultRace<Void>()
+        Task {
+            do { try await self.connect(); race.resolve(.success(())) }
+            catch { race.resolve(.failure(error)) }
+        }
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { race.install($0) }
+        } onCancel: { race.cancel() }
+        return true
+    }
+
+    private func performUnscheduledRequest(
+        path: String,
+        method: String = "GET",
+        queryItems: [URLQueryItem] = [],
+        body: Data? = nil,
+        contentType: String = "application/json",
+        accept: String = "application/json",
+        requiresAuth: Bool = true,
+        allowPasswordReauthentication: Bool = true,
+        retriesIdempotentMutationAfterAuthentication: Bool = false,
+        maximumResponseBytes: Int = PlainHTTPClient.defaultMaxBytes,
+        preservesHTTPFailure: Bool = false
+    ) async throws -> Data {
         let generation = transportGeneration
         let session = try requireSession(session)
         var request = URLRequest(url: buildURL(path: path, queryItems: queryItems))
@@ -3153,6 +3209,10 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             )
         }
         try checkTransportGeneration(generation)
+        if preservesHTTPFailure, let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw HTTPResponseFailure(statusCode: http.statusCode, body: data,
+                                      retryAfter: HTTPResponseFailure.retryDelay(from: http))
+        }
         if requiresAuth,
            (method == "GET" || retriesIdempotentMutationAfterAuthentication),
            allowPasswordReauthentication,
@@ -4253,14 +4313,16 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         }
 
         let (data, response): (Data, URLResponse)
-        if let requestDataLoader {
-            (data, response) = try await requestDataLoader(request)
-        } else {
-            (data, response) = try await TrustedHTTPTransport.data(
-                for: request,
-                session: session,
-                maxBytes: PlainHTTPClient.defaultMaxBytes
-            )
+        let executor = ServerRequestScheduler.shared.executor(baseURL: baseURL, account: "media:" + username + ":" + authType.rawValue)
+        let readRequest = request
+        do {
+            (data, response) = try await executor.execute(replay: .idempotent) { [requestDataLoader] in
+                if let requestDataLoader { return try await requestDataLoader(readRequest) }
+                return try await TrustedHTTPTransport.data(for: readRequest, session: session,
+                    maxBytes: PlainHTTPClient.defaultMaxBytes)
+            }
+        } catch let failure as HTTPResponseFailure where [401, 403, 404, 405, 501].contains(failure.statusCode) {
+            return nil
         }
         try checkTransportGeneration(generation)
         guard let http = response as? HTTPURLResponse else {
@@ -5553,5 +5615,15 @@ extension MediaServerSource: LibraryInsightServerConnector {
               let container = root["MediaContainer"] as? [String: Any],
               let metadata = container["Metadata"] as? [[String: Any]] else { return nil }
         return metadata.first?["summary"] as? String
+    }
+}
+
+/// One read may recover its rejected session once within the executor budget.
+private actor MediaRequestRecovery {
+    private var used = false
+    func claim() -> Bool {
+        guard !used else { return false }
+        used = true
+        return true
     }
 }

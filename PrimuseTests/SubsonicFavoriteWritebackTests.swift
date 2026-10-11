@@ -525,6 +525,19 @@ final class SubsonicServerScanTests: XCTestCase {
         }
     }
 
+    func testUnsupportedDirectCatalogKeepsLegacyFallbackWithoutRetry() async throws {
+        for status in [404, 405, 410, 501] {
+            let host = UUID().uuidString.lowercased() + ".invalid"
+            SubsonicServerScanURLProtocol.configure(host: host, mode: .httpStatus(status))
+            let (source, session) = makeSource(host: host)
+            defer { session.invalidateAndCancel() }
+            do { _ = try await source.songCatalogPage(from: "/", offset: 0); XCTFail("Expected capability fallback") }
+            catch PagedSongCatalogError.unavailable { }
+            catch { XCTFail("Lost compatibility classification: \(error)") }
+            XCTAssertEqual(SubsonicServerScanURLProtocol.requests(host: host).filter { $0.url?.path == "/rest/search3.view" }.count, 1)
+        }
+    }
+
     func testPagedCatalogFetchesBoundedSearchWindows() async throws {
         let host = "server-paged-catalog.invalid"
         SubsonicServerScanURLProtocol.configure(host: host, mode: .pagedCatalog)
@@ -647,6 +660,10 @@ private final class SubsonicServerScanURLProtocol: URLProtocol, @unchecked Senda
             respond(json: #"{"subsonic-response":{"status":"ok","type":"navidrome","openSubsonic":true}}"#)
             return
         }
+        if url.path == "/rest/getMusicFolders.view" {
+            respond(json: #"{"subsonic-response":{"status":"ok","musicFolders":{"musicFolder":[{"id":1,"name":"Music"}]}}}"#)
+            return
+        }
         if url.path == "/rest/getScanStatus.view" {
             switch state.mode {
             case .pagedCatalog:
@@ -658,6 +675,10 @@ private final class SubsonicServerScanURLProtocol: URLProtocol, @unchecked Senda
             default:
                 break
             }
+        }
+        if url.path == "/rest/search3.view", case .httpStatus(let status) = state.mode {
+            respond(statusCode: status, json: "{}")
+            return
         }
         if url.path == "/rest/search3.view", state.mode == .pagedCatalog {
             let offset = URLComponents(url: url, resolvingAgainstBaseURL: false)?

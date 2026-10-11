@@ -7,6 +7,8 @@ actor QnapAPI {
     private let port: Int
     private let useSsl: Bool
     private let alternateTLSValidationHostname: String?
+    private let injectedSession: URLSession?
+    private var requestAccount = ""
     private(set) var sid: String?
 
     var baseURLString: String {
@@ -20,12 +22,14 @@ actor QnapAPI {
         host: String,
         port: Int,
         useSsl: Bool,
-        alternateTLSValidationHostname: String? = nil
+        alternateTLSValidationHostname: String? = nil,
+        session: URLSession? = nil
     ) {
         self.host = host
         self.port = port
         self.useSsl = useSsl
         self.alternateTLSValidationHostname = alternateTLSValidationHostname
+        self.injectedSession = session
     }
 
     // MARK: - Auth
@@ -39,6 +43,7 @@ actor QnapAPI {
     }
 
     func login(account: String, password: String, otpCode: String? = nil) async -> LoginResult {
+        requestAccount = account
         var formFields: [(String, String)] = [
             ("user", account),
             ("pwd", password),
@@ -177,11 +182,13 @@ actor QnapAPI {
         guard let url = FormSafeQueryURLBuilder.url(from: comps) else {
             throw URLError(.badURL)
         }
-        let (data, response) = try await TrustedHTTPTransport.data(
-            from: url,
-            session: session()
-        )
-        if let http = response as? HTTPURLResponse, http.statusCode == 401 || http.statusCode == 403 {
+        let executor = ServerRequestScheduler.shared.executor(baseURL: URL(string: baseURLString)!, account: "qnap:" + requestAccount)
+        let data: Data
+        do {
+            (data, _) = try await executor.execute(replay: .idempotent) { [session = session()] in
+                try await TrustedHTTPTransport.data(from: url, session: session)
+            }
+        } catch let failure as HTTPResponseFailure where failure.statusCode == 401 {
             invalidateSession()
             throw SourceError.authenticationFailed
         }
@@ -437,6 +444,7 @@ actor QnapAPI {
     /// 强持有 delegate 与连接池, 每次新建且从不 invalidate 会随扫描线性泄漏
     /// 内存与文件描述符, 同时丢失 keep-alive 复用 (每请求重新 TLS 握手)。
     private lazy var sharedSession: URLSession = {
+        if let injectedSession { return injectedSession }
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         return URLSession(

@@ -6,6 +6,7 @@ actor FnMusicAPI {
     private static let maximumArtworkBytes = 8 * 1_024 * 1_024
 
     private let sourceID: String
+    private var requestAccount = ""
     private let endpointProvider: FnMusicEndpointProvider
     private let accessCode: String?
     private let usesFNConnect: Bool
@@ -106,6 +107,7 @@ actor FnMusicAPI {
 
     /// 取这个源共用的登录会话：别的实例已经登录过就直接用，同时要登录的只登录一次。
     func login(username: String, password: String) async throws {
+        requestAccount = username
         guard !username.isEmpty, !password.isEmpty else {
             throw SourceError.authenticationFailed
         }
@@ -459,6 +461,20 @@ actor FnMusicAPI {
         includeCookie: Bool = true,
         cookieToken: String? = nil
     ) async throws -> Any {
+        if method == "GET" {
+            let endpoint = try await endpointProvider.endpoint()
+            let executor = ServerRequestScheduler.shared.executor(baseURL: endpoint.baseURL, account: "fnmusic:" + requestAccount)
+            let recovery = FnRequestRecovery()
+            let data = try await executor.execute(replay: .idempotent, recover: { error in
+                guard await self.usesFNConnect, FnMusicAPIProtocol.isRouteFailure(error),
+                      await recovery.claim() else { return false }
+                await self.endpointProvider.invalidate()
+                return true
+            }, operation: {
+                try await self.readJSONData(path: path, queryItems: queryItems, includeCookie: includeCookie, cookieToken: cookieToken)
+            })
+            return try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+        }
         do {
             return try await requestJSONOnce(
                 method: method,
@@ -481,6 +497,12 @@ actor FnMusicAPI {
                 cookieToken: cookieToken
             )
         }
+    }
+
+    private func readJSONData(path: String, queryItems: [URLQueryItem], includeCookie: Bool, cookieToken: String?) async throws -> Data {
+        let payload = try await requestJSONOnce(method: "GET", path: path, queryItems: queryItems,
+            body: nil, includeCookie: includeCookie, cookieToken: cookieToken)
+        return try SafeJSONSerialization.data(withJSONObject: payload, options: [.fragmentsAllowed])
     }
 
     private func requestJSONOnce(
@@ -550,6 +572,10 @@ actor FnMusicAPI {
         plog("\(context) event=response status=\(status) code=\(code) elapsed_ms=\(elapsed)")
         guard let http = response as? HTTPURLResponse else {
             throw SourceError.connectionFailed(PMString("error.catalog.missingHTTPResponse"))
+        }
+        if method == "GET", !(200...299).contains(http.statusCode), http.statusCode != 401 {
+            throw HTTPResponseFailure(statusCode: http.statusCode, body: data,
+                                      retryAfter: HTTPResponseFailure.retryDelay(from: http))
         }
         if http.statusCode == 401 || http.statusCode == 403 {
             invalidateToken(ifMatching: requestToken)
@@ -1004,4 +1030,9 @@ extension FnMusicAPI {
         }
         throw SourceError.connectionFailed(String(localized: "metadata_writeback_error_invalid_state"))
     }
+}
+
+private actor FnRequestRecovery {
+    private var used = false
+    func claim() -> Bool { guard !used else { return false }; used = true; return true }
 }

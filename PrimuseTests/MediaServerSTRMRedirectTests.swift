@@ -200,7 +200,9 @@ final class MediaServerSTRMRedirectTests: XCTestCase {
         do {
             try await source.connect()
             XCTFail("An authentication API redirect must stay on its source endpoint")
-        } catch is SourceError {}
+        } catch let failure as HTTPResponseFailure {
+            XCTAssertEqual(failure.statusCode, 302)
+        }
         XCTAssertTrue(MediaServerRedirectURLProtocol.requests(host: cdn).isEmpty)
         await source.disconnect()
     }

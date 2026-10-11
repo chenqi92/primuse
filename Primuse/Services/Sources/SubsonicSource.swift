@@ -85,7 +85,6 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     /// 本地解不了的格式(WMA)转码 mp3 的目标码率 kbps。
     /// `SourceManager` 要用它给这类歌恒定一个转码计划, 所以不是 private。
     static let transcodeBitRate = 320
-    private static let catalogRequestMaximumAttempts = 3
     private static let catalogSnapshotMaximumAttempts = 2
 
     func fetchServerCatalogScanStatus(changedSince: Date?) async throws -> ServerCatalogScanStatus {
@@ -686,35 +685,24 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     private func search3SongPage(offset: Int, path: String) async throws -> [SubsonicChild] {
         let includedLibraryIDs = libraryScope?.includedLibraryIDs
         if includedLibraryIDs?.isEmpty == true { return [] }
-        var finalError: Error?
-        for attempt in 0..<Self.catalogRequestMaximumAttempts {
-            do {
-                let container: Search3Container = try await requestJSON(
-                    "search3",
-                    query: SubsonicCatalogPagingPolicy.search3QueryItems(
-                        songOffset: offset,
-                        musicFolderID: musicFolderID(from: path),
-                        musicFolderIDs: includedLibraryIDs ?? []
-                    )
+        do {
+            let container: Search3Container = try await requestJSON(
+                "search3",
+                query: SubsonicCatalogPagingPolicy.search3QueryItems(
+                    songOffset: offset,
+                    musicFolderID: musicFolderID(from: path),
+                    musicFolderIDs: includedLibraryIDs ?? []
                 )
-                guard let result = container.searchResult3 else {
-                    throw SubsonicCompatibilityError.directCatalogUnavailable
-                }
-                return result.song ?? []
-            } catch let SourceError.connectionFailed(message)
-                where Self.isDirectCatalogUnavailable(message) {
+            )
+            guard let result = container.searchResult3 else {
                 throw SubsonicCompatibilityError.directCatalogUnavailable
-            } catch {
-                guard attempt + 1 < Self.catalogRequestMaximumAttempts,
-                      RemoteDirectoryTransportErrorPolicy.isRetryable(error) else {
-                    throw error
-                }
-                finalError = error
-                try Task.checkCancellation()
-                try await Task.sleep(for: .milliseconds(250 * (attempt + 1)))
             }
+            return result.song ?? []
+        } catch let failure as HTTPResponseFailure where [404, 405, 410, 501].contains(failure.statusCode) {
+            throw SubsonicCompatibilityError.directCatalogUnavailable
+        } catch let SourceError.connectionFailed(message) where Self.isDirectCatalogUnavailable(message) {
+            throw SubsonicCompatibilityError.directCatalogUnavailable
         }
-        throw finalError ?? SourceError.connectionFailed("Subsonic search3 request failed")
     }
 
     private func fetchLegacyAlbums(_ albums: [AlbumSummary]) async throws -> [LegacyAlbumResult] {
@@ -1888,6 +1876,10 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
 
     // MARK: - HTTP / JSON plumbing
 
+    private static func isReadOnlyRESTMethod(_ method: String) -> Bool {
+        method.hasPrefix("get") || ["ping", "search", "search2", "search3"].contains(method)
+    }
+
     private func responseJSON<C: SubsonicResponseContainer>(
         _ method: String,
         query: [URLQueryItem] = []
@@ -1895,7 +1887,25 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         guard let url = buildRESTURL(method: method, query: query) else {
             throw SourceError.connectionFailed("Invalid URL for \(method)")
         }
-        let (data, response) = try await TrustedHTTPTransport.data(from: url, session: session)
+        let data: Data
+        let response: URLResponse
+        if Self.isReadOnlyRESTMethod(method) {
+            let executor = ServerRequestScheduler.shared.executor(baseURL: baseURL, account: "subsonic:" + username)
+            do {
+                (data, response) = try await executor.execute(replay: .idempotent) { [session] in
+                    try await TrustedHTTPTransport.data(from: url, session: session)
+                }
+            } catch let failure as HTTPResponseFailure {
+                if [401, 403, 404, 405, 410, 501].contains(failure.statusCode) {
+                    throw SubsonicHTTPStatusError(statusCode: failure.statusCode, failure: failure)
+                }
+                throw failure
+            }
+        } else {
+            // Several Subsonic mutations use GET. Never infer replay safety
+            // from the HTTP verb or change their existing confirmation flow.
+            (data, response) = try await TrustedHTTPTransport.data(from: url, session: session)
+        }
         try validateHTTPStatus(response)
         let decoder = JSONDecoder()
         let envelope: Envelope<C>
@@ -1913,9 +1923,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         do {
             container = try await responseJSON(method, query: query)
         } catch let statusError as SubsonicHTTPStatusError {
-            if statusError.statusCode == 401 || statusError.statusCode == 403 {
-                throw SourceError.authenticationFailed
-            }
+            if statusError.statusCode == 401 { throw SourceError.authenticationFailed }
+            if let failure = statusError.failure { throw failure }
             throw SourceError.connectionFailed("HTTP \(statusError.statusCode)")
         }
         // Subsonic 应用层错误常以 HTTP 200 + status:"failed" 返回。统一在此校验
@@ -2162,6 +2171,7 @@ private enum SubsonicCompatibilityError: Error {
 
 private struct SubsonicHTTPStatusError: Error {
     let statusCode: Int
+    var failure: HTTPResponseFailure? = nil
 }
 
 // MARK: - Subsonic JSON models

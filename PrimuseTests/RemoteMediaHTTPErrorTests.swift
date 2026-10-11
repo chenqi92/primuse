@@ -277,3 +277,138 @@ private final class DeletionStatusURLProtocol: URLProtocol, @unchecked Sendable 
     }
     override func stopLoading() { }
 }
+
+final class MediaServerRequestTests: XCTestCase {
+    func testMediaServerInstancesShareCompleteServerCooldown() async throws {
+        let host = UUID().uuidString.lowercased() + ".invalid"
+        MediaQuotaURLProtocol.reset(status: 503)
+        for _ in 0..<2 {
+            let source = MediaServerSource(sourceID: UUID().uuidString, kind: .jellyfin,
+                host: host, port: nil, useSsl: true, basePath: nil,
+                username: "quota-user", secret: "fixture", authType: .apiKey,
+                requestDataLoader: { MediaQuotaURLProtocol.reply(to: $0) })
+            do { try await source.connect(); XCTFail("Expected server cooldown") }
+            catch let error as HTTPResponseFailure {
+                XCTAssertEqual(error.statusCode, 503)
+                XCTAssertGreaterThan(try XCTUnwrap(error.retryAfter), 3590)
+            } catch { XCTFail("Expected complete HTTP failure, got \(error)") }
+        }
+        XCTAssertEqual(MediaQuotaURLProtocol.requests, 1)
+    }
+
+    func testFnMusicCatalogRetainsCooldownAcrossPages() async throws {
+        let session = quotaSession()
+        defer { session.invalidateAndCancel() }
+        MediaQuotaURLProtocol.reset(status: 429)
+        let api = FnMusicAPI(sourceID: UUID().uuidString, host: UUID().uuidString + ".invalid",
+            port: nil, useSSL: true, basePath: nil, connectionMode: .address,
+            accessCode: nil, session: session)
+        for page in 1...2 {
+            await assertQuota { _ = try await api.trackPage(page: page, size: 1) }
+        }
+        XCTAssertEqual(MediaQuotaURLProtocol.requests, 1)
+    }
+
+    func testNASDirectoryQuotasDoNotBecomeEmptyDirectoriesOrReauthentication() async throws {
+        for kind in ["synology", "qnap", "ugreen"] {
+            let session = quotaSession()
+            defer { session.invalidateAndCancel() }
+            MediaQuotaURLProtocol.reset(status: 429)
+            let host = UUID().uuidString + ".invalid"
+            switch kind {
+            case "synology":
+                let api = SynologyAPI(host: host, port: 443, useSsl: true, session: session)
+                let login = await api.login(account: "qa", password: "fixture")
+                XCTAssertTrue(login.success)
+                for _ in 0..<2 { await assertQuota { _ = try await api.listDirectory(path: "/") } }
+                let loggedIn = await api.isLoggedIn
+                XCTAssertTrue(loggedIn)
+            case "qnap":
+                let api = QnapAPI(host: host, port: 443, useSsl: true, session: session)
+                let login = await api.login(account: "qa", password: "fixture")
+                XCTAssertTrue(login.success)
+                for _ in 0..<2 { await assertQuota { _ = try await api.listDirectory(path: "/") } }
+                let loggedIn = await api.isLoggedIn
+                XCTAssertTrue(loggedIn)
+            default:
+                let api = UgreenAPI(host: host, port: 443, useSsl: true, session: session)
+                let login = await api.login(account: "qa", password: "fixture")
+                XCTAssertTrue(login.success)
+                for _ in 0..<2 { await assertQuota { _ = try await api.listDirectory(path: "/") } }
+                let loggedIn = await api.isLoggedIn
+                XCTAssertTrue(loggedIn)
+            }
+            XCTAssertEqual(MediaQuotaURLProtocol.requests, 1, kind)
+        }
+    }
+
+    private func quotaSession() -> URLSession {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MediaQuotaURLProtocol.self]
+        return URLSession(configuration: config)
+    }
+
+    private func assertQuota(_ operation: () async throws -> Void) async {
+        do { try await operation(); XCTFail("Expected HTTP failure") }
+        catch let failure as HTTPResponseFailure {
+            XCTAssertEqual(failure.statusCode, 429)
+            XCTAssertGreaterThan(failure.retryAfter ?? 0, 3590)
+        } catch { XCTFail("HTTP quota was lost: \(error)") }
+    }
+
+    func testSubsonicMountsShareCompleteServerCooldown() async throws {
+        let host = UUID().uuidString.lowercased() + ".invalid"
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MediaQuotaURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        MediaQuotaURLProtocol.reset(status: 429)
+        for _ in 0..<2 {
+            let source = SubsonicSource(sourceID: UUID().uuidString, sourceType: .navidrome,
+                host: host, port: nil, useSsl: true, basePath: nil,
+                username: "quota-user", password: "fixture", session: session)
+            do { try await source.connect(); XCTFail("Expected rate-limit failure") }
+            catch let error as HTTPResponseFailure {
+                XCTAssertEqual(error.statusCode, 429)
+                XCTAssertGreaterThan(try XCTUnwrap(error.retryAfter), 3590)
+            } catch { XCTFail("Expected complete HTTP failure, got \(error)") }
+        }
+        XCTAssertEqual(MediaQuotaURLProtocol.requests, 1, "Another mount must not bypass the account cooldown")
+    }
+}
+
+private final class MediaQuotaURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var status = 429
+    nonisolated(unsafe) private static var count = 0
+    static var requests: Int { lock.withLock { count } }
+    static func reset(status: Int) { lock.withLock { self.status = status; count = 0 } }
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    static func reply(to request: URLRequest) -> (Data, URLResponse) {
+        let path = request.url!.path
+        let loginBody: String?
+        switch path {
+        case "/webapi/auth.cgi": loginBody = #"{"success":true,"data":{"sid":"fixture"}}"#
+        case "/cgi-bin/authLogin.cgi": loginBody = #"{"authPassed":1,"authSid":"fixture"}"#
+        case "/ugreen/v1/verify/login": loginBody = #"{"code":200,"data":{"token":"fixture"}}"#
+        case "/ugreen/v1/verify/check": loginBody = "{}"
+        default: loginBody = nil
+        }
+        if let loginBody {
+            return (Data(loginBody.utf8), HTTPURLResponse(url: request.url!, statusCode: 200,
+                httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!)
+        }
+        let status = lock.withLock { count += 1; return self.status }
+        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1",
+            headerFields: ["Retry-After": "3600", "Content-Type": "application/json"])!
+        return (Data("{\"error\":\"limited\"}".utf8), response)
+    }
+    override func startLoading() {
+        let (data, response) = Self.reply(to: request)
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() { }
+}
