@@ -461,8 +461,15 @@ struct TVRoot: View {
                 await store.loadDemoNowPlaying()
                 showOptions = true
             case "immersivePlayer", "immersivePicker":
-                await waitForDemoContent()
-                await store.loadDemoNowPlaying()
+                // TV_DEBUG_PLAY:真的放第一张专辑,量全屏效果和选择器在播放时的负载;
+                // 不设时只注入演示播放态(不出声、舞台不动)。
+                if ProcessInfo.processInfo.environment["TV_DEBUG_PLAY"] != nil {
+                    await waitForDemoContent(requireAlbum: true)
+                    if let album = store.albums.first { store.play(album: album) }
+                } else {
+                    await waitForDemoContent()
+                    await store.loadDemoNowPlaying()
+                }
                 tab = .nowPlaying
             case "settings", "effectPicker", "themePicker", "playerBackdrop": showSettings = true
             case "albumReturn":
