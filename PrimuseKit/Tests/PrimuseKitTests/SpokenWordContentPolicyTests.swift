@@ -300,6 +300,90 @@ struct SpokenWordTranscriptReadingPolicyTests {
         #expect(Policy.paragraphIndex(at: 10, in: paragraphs) == nil)
     }
 
+    @Test("A line holding several sentences is split, each sentence timed by its share of the line")
+    func sentencesInsideOneCue() {
+        // 18 字、12 秒:三句各 5、6、7 字,后两句从第 5、11 字开始,按字数折成 3.33 秒与 7.33 秒。
+        let chinese = Policy.paragraphs(from: [
+            Policy.Cue(text: "天色渐暗。他推门而出。远处传来钟声。", start: 0, end: 12),
+        ])[0]
+        let chineseText = Array(chinese.text)
+        #expect(chinese.segments.map { String(chineseText[$0.range]) } == ["天色渐暗。", "他推门而出。", "远处传来钟声。"])
+        #expect(chinese.segments.map(\.cue) == [0, 0, 0])
+        let chineseStarts: [TimeInterval] = [0, 12.0 * 5 / 18, 12.0 * 11 / 18]
+        #expect(Self.approximately(chinese.segments.map(\.start), chineseStarts))
+        #expect(Policy.segmentIndex(at: 3, in: chinese) == 0)
+        #expect(Policy.segmentIndex(at: 3.5, in: chinese) == 1)
+        #expect(Policy.segmentIndex(at: 9, in: chinese) == 2)
+
+        // 拉丁文的句点后面要有空格;句间的空格不属于任何一句。
+        let english = Policy.paragraphs(from: [
+            Policy.Cue(text: "It rained. Nobody came. We waited.", start: 10, end: 13),
+        ])[0]
+        let englishText = Array(english.text)
+        #expect(english.segments.map { String(englishText[$0.range]) } == ["It rained.", "Nobody came.", "We waited."])
+        #expect(english.segments.map(\.range) == [0..<10, 11..<23, 24..<34])
+        let englishStarts: [TimeInterval] = [10, 10 + 3.0 * 11 / 34, 10 + 3.0 * 24 / 34]
+        #expect(Self.approximately(english.segments.map(\.start), englishStarts))
+
+        // 两行并成一段时,后一行拆出来的句子位置要加上前面的长度。
+        let joined = Policy.paragraphs(from: [
+            Policy.Cue(text: "你好。再见。", start: 0, end: 2),
+            Policy.Cue(text: "走吧。回家。", start: 2.1, end: 4.1),
+        ])[0]
+        let joinedText = Array(joined.text)
+        #expect(joined.segments.map(\.cue) == [0, 0, 1, 1])
+        #expect(joined.segments.map { String(joinedText[$0.range]) } == ["你好。", "再见。", "走吧。", "回家。"])
+        #expect(Self.approximately(joined.segments.map(\.start), [0, 1, 2.1, 3.1]))
+    }
+
+    private static func approximately(_ actual: [TimeInterval?], _ expected: [TimeInterval]) -> Bool {
+        guard actual.count == expected.count else { return false }
+        return zip(actual, expected).allSatisfy { value, target in
+            guard let value else { return false }
+            return abs(value - target) < 0.001
+        }
+    }
+
+    @Test("Sentence splitting leaves closers with their sentence and keeps decimals and interjections whole")
+    func sentenceBoundaries() {
+        #expect(Policy.sentenceRanges(in: "他说:「走吧。」她点头。") == [0..<8, 8..<12])
+        #expect(Policy.sentenceRanges(in: "Really?! \"Yes.\" Fine then.") == [0..<8, 9..<15, 16..<26])
+        #expect(Policy.sentenceRanges(in: "The value is 3.5 today. Fine then.") == [0..<23, 24..<34])
+        #expect(Policy.sentenceRanges(in: "等等……他回头看了一眼。") == [0..<4, 4..<12])
+        // 只有一句、叹词、没有标点:不拆。
+        #expect(Policy.sentenceRanges(in: "他推门而出。").isEmpty)
+        #expect(Policy.sentenceRanges(in: "嗯。好。").isEmpty)
+        #expect(Policy.sentenceRanges(in: "A. Never again.").isEmpty)
+        #expect(Policy.sentenceRanges(in: "天色渐暗 他推门而出").isEmpty)
+    }
+
+    @Test("Lines without a known duration are not split, and a gap before the next line is capped")
+    func sentenceTiming() {
+        // 不带时间、最后一行没有结束时间:整行一句。
+        let untimed = Policy.paragraphs(from: [Policy.Cue(text: "你好。再见。", start: nil)])[0]
+        #expect(untimed.segments.count == 1)
+        let last = Policy.paragraphs(from: [Policy.Cue(text: "你好。再见。", start: 5)])[0]
+        #expect(last.segments.count == 1)
+        #expect(last.segments[0].start == 5)
+
+        // 只有开始时间时用下一行的开始当结束;隔了一分钟的静音不算进去,一个字最多 0.6 秒。
+        let lrc = Policy.paragraphs(from: [
+            Policy.Cue(text: "你好。再见。", start: 0),
+            Policy.Cue(text: "第二天清晨。", start: 60),
+        ])
+        let first = lrc[0]
+        #expect(first.segments.count == 2)
+        #expect(Self.approximately(first.segments.map(\.start), [0, 1.8]))
+
+        // 结束时间坏了(不晚于开始)也退回到下一行的开始;这两行隔得近,并在同一段里。
+        let broken = Policy.paragraphs(from: [
+            Policy.Cue(text: "你好。再见。", start: 0, end: 0),
+            Policy.Cue(text: "第二天清晨。", start: 2),
+        ])
+        #expect(broken.count == 1)
+        #expect(Self.approximately(broken[0].segments.map(\.start), [0, 1, 2]))
+    }
+
     @Test("A long paragraph breaks at the next sentence end")
     func longParagraphs() {
         let sentence = String(repeating: "字", count: 100) + "。"
@@ -337,6 +421,10 @@ struct SpokenWordTranscriptSearchTests {
         #expect(chinese.map(\.paragraph) == [1, 2])
         #expect(chinese.map(\.range) == [4..<6, 0..<2])
         #expect(chinese.map(\.start) == [10, 11.1])
+
+        // 命中在一行的第二句里:跳到那一句估算的开始时间,不是整行的开始。
+        let split = Policy.paragraphs(from: [Policy.Cue(text: "风暴来了。村子一片寂静。", start: 20, end: 32)])
+        #expect(Policy.searchMatches(for: "寂静", in: split).map(\.start) == [25])
 
         #expect(Policy.searchMatches(for: "ＳＴＯＲＭ", in: paragraphs).count == 2)
         #expect(Policy.searchMatches(for: "   ", in: paragraphs).isEmpty)

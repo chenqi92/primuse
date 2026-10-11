@@ -199,6 +199,9 @@ public enum SpokenWordSkipPolicy {
 /// 并段的规矩:说话人换了、停顿够长、空行处另起一段;一段太长时在句末断开。不带时间的
 /// 纯文本只在空行处分段,作者自己断的行接起来。章节名(「第三章 山河」「Chapter 3」这种
 /// 短行)不并进前后的段落,自己成一段,按标题显示。
+///
+/// 一行字幕里有好几句时(整段一个时间戳的 LRC、按段落切的识别结果),按句末标点再拆成几句,
+/// 每句的开始时间按字数在这一行的时长里线性估算 —— 高亮才能跟着念到哪一句,而不是整段一起亮。
 public enum SpokenWordTranscriptReadingPolicy {
     public struct Cue: Sendable, Equatable {
         public var text: String
@@ -215,10 +218,12 @@ public enum SpokenWordTranscriptReadingPolicy {
         }
     }
 
-    /// 段落里的一行字幕(一句):整句高亮、搜索后跳到命中的那一句都按它算。
+    /// 段落里的一句:整句高亮、搜索后跳到命中的那一句都按它算。多半就是原文稿的一行;一行里有几句时
+    /// 拆成几句,`cue` 相同,`start` 是按字数估算的。
     public struct Segment: Sendable, Equatable {
         /// 在原文稿里的位置。
         public var cue: Int
+        /// 这一句开始的时间。拆出来的句子是估算值(第一句就是这一行的开始时间)。
         public var start: TimeInterval?
         /// 这一句在段落文字里的位置,按字符(Character)数,不含前面补的空格。
         public var range: Range<Int>
@@ -259,12 +264,16 @@ public enum SpokenWordTranscriptReadingPolicy {
     public static let hardLength = 600
     /// 章节名最长这么多字;再长就是正文里恰好以「第三章」开头的一句。
     public static let headingMaxLength = 40
+    /// 一行没有结束时间、只能拿下一行的开始当结束时,一个字最多按这么多秒算:下一行隔了半分钟的
+    /// 静音不该全算进这一行,否则后几句的估算开始时间会落在静音里。
+    public static let estimatedSecondsPerCharacterCeiling: TimeInterval = 0.6
 
     public static func paragraphs(from cues: [Cue]) -> [Paragraph] {
         var result: [Paragraph] = []
         var current: Paragraph?
         var currentLength = 0
         var previous: Cue?
+        let spans = cueSpans(cues)
 
         func close() {
             if let paragraph = current { result.append(paragraph) }
@@ -280,7 +289,7 @@ public enum SpokenWordTranscriptReadingPolicy {
                 text: text,
                 start: cue.start,
                 isHeading: isHeading,
-                segments: [Segment(cue: index, start: cue.start, range: 0..<length)]
+                segments: segments(cue: index, text: text, start: cue.start, span: spans[index], offset: 0)
             )
             currentLength = length
         }
@@ -308,7 +317,9 @@ public enum SpokenWordTranscriptReadingPolicy {
                 let length = text.count
                 paragraph.text += separator + text
                 paragraph.lastCue = index
-                paragraph.segments.append(Segment(cue: index, start: cue.start, range: lower..<(lower + length)))
+                paragraph.segments.append(contentsOf: segments(
+                    cue: index, text: text, start: cue.start, span: spans[index], offset: lower
+                ))
                 currentLength = lower + length
                 current = paragraph
             } else {
@@ -340,6 +351,102 @@ public enum SpokenWordTranscriptReadingPolicy {
         }
         return found
     }
+
+    // MARK: - Sentences
+
+    /// 每一行持续多久:有结束时间用结束时间;没有(LRC)就到下一行有时间的那一行开始,但每个字最多
+    /// 按 `estimatedSecondsPerCharacterCeiling` 算。算不出(最后一行、不带时间)是 nil。
+    private static func cueSpans(_ cues: [Cue]) -> [TimeInterval?] {
+        var spans = [TimeInterval?](repeating: nil, count: cues.count)
+        var nextStart: TimeInterval?
+        for index in cues.indices.reversed() {
+            let cue = cues[index]
+            guard let start = cue.start else { continue }
+            if let end = cue.end, end > start {
+                spans[index] = end - start
+            } else if let nextStart, nextStart > start {
+                let ceiling = Double(cue.text.trimmingCharacters(in: .whitespacesAndNewlines).count)
+                    * estimatedSecondsPerCharacterCeiling
+                spans[index] = min(nextStart - start, ceiling)
+            }
+            nextStart = start
+        }
+        return spans
+    }
+
+    /// 一行字幕在段落里的几句。拆不开(只有一句、没有时间、时长未知)时就是整行一句。
+    private static func segments(
+        cue index: Int,
+        text: String,
+        start: TimeInterval?,
+        span: TimeInterval?,
+        offset: Int
+    ) -> [Segment] {
+        let whole = Segment(cue: index, start: start, range: offset..<(offset + text.count))
+        guard let start, let span, span > 0 else { return [whole] }
+        let ranges = sentenceRanges(in: text)
+        guard ranges.count >= 2 else { return [whole] }
+        let total = Double(text.count)
+        return ranges.enumerated().map { position, range in
+            let estimated = position == 0 ? start : start + span * Double(range.lowerBound) / total
+            return Segment(
+                cue: index,
+                start: estimated,
+                range: (offset + range.lowerBound)..<(offset + range.upperBound)
+            )
+        }
+    }
+
+    /// 一行里每一句的位置(按字符数)。句末是 。！？!?… 以及后面紧跟的引号、括号;拉丁文的句点只在
+    /// 后面是空白或到头时算(「3.5」「e.g.」不断)。句与句之间的空格不属于任何一句。
+    /// 只有一句,或者哪一句去掉标点不足两个字符(「嗯。」「No.」这种叹词),就不拆,返回空数组。
+    static func sentenceRanges(in text: String) -> [Range<Int>] {
+        let characters = Array(text)
+        let count = characters.count
+        var ranges: [Range<Int>] = []
+        var pieceStart = 0
+        var index = 0
+        while index < count {
+            let character = characters[index]
+            var endsSentence = sentenceTerminators.contains(character)
+            if !endsSentence, character == "." {
+                var next = index + 1
+                while next < count, sentenceClosers.contains(characters[next]) { next += 1 }
+                endsSentence = next >= count || characters[next].isWhitespace
+            }
+            guard endsSentence else {
+                index += 1
+                continue
+            }
+            var end = index + 1
+            while end < count,
+                  sentenceTerminators.contains(characters[end]) || characters[end] == "."
+                  || sentenceClosers.contains(characters[end]) {
+                end += 1
+            }
+            ranges.append(pieceStart..<end)
+            while end < count, characters[end].isWhitespace { end += 1 }
+            pieceStart = end
+            index = end
+        }
+        if pieceStart < count { ranges.append(pieceStart..<count) }
+        guard ranges.count >= 2 else { return [] }
+        let wordy = ranges.allSatisfy { range in
+            characters[range].lazy.filter { $0.isLetter || $0.isNumber }.count >= 2
+        }
+        return wordy ? ranges : []
+    }
+
+    /// 。！？ 及半角 ! ?,还有省略号 …。
+    private static let sentenceTerminators: Set<Character> = [
+        "\u{3002}", "\u{FF01}", "\u{FF1F}", "!", "?", "\u{2026}",
+    ]
+
+    /// 句末标点后面可以紧跟的引号括号:」』”’"'）)】〕］]》〉。
+    private static let sentenceClosers: Set<Character> = [
+        "\u{300D}", "\u{300F}", "\u{201D}", "\u{2019}", "\"", "'", "\u{FF09}", ")",
+        "\u{3011}", "\u{3015}", "\u{FF3D}", "]", "\u{300B}", "\u{3009}",
+    ]
 
     // MARK: - Headings
 
