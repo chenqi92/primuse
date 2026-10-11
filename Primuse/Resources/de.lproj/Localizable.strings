@@ -5716,6 +5716,9 @@
 "player_controls_spoken_buttons_header" = "Weitere Tasten";
 "player_controls_spoken_transcript" = "Transkripttaste";
 "player_controls_spoken_chapters" = "Vorheriges / nächstes Kapitel";
+"player_controls_tile_label_style" = "Kachelbeschriftung";
+"player_controls_tile_label_icon_text" = "Symbol und Text";
+"player_controls_tile_label_icon_only" = "Nur Symbol";
 "player_menu_items_spoken_footer" = "Ausgeschaltete Einträge erscheinen nicht mehr im Menü „Mehr“. „Gefällt mir“, die Transkripttaste, Lesezeichen und „Als Nächstes“ landen weiterhin im Menü, wenn du sie von der Seite nimmst.";
 "player_menu_group_book" = "Dieses Buch";
 "player_menu_group_episode" = "Diese Folge";

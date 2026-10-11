@@ -108,6 +108,20 @@ import Testing
         #expect(future.menuFallback().isEmpty)
     }
 
+    @Test func tileLabelStyleRoundTripsAndDefaultsToText() {
+        for kind in SpokenWordPlayerKind.allCases {
+            #expect(Layout.default(for: kind).tileLabelStyle == .iconAndText)
+        }
+        let layout = Layout.default(for: .podcast).settingTileLabelStyle(.iconOnly)
+        #expect(!layout.isDefault)
+        #expect(layout.tilesAreDefault)
+        #expect(layout.encoded().contains("iconOnly"))
+        #expect(Layout.decode(layout.encoded(), kind: .podcast) == layout)
+        #expect(layout.settingTileLabelStyle(.iconAndText).isDefault)
+        // 别的版本新加的写法这台设备认不出,按默认。
+        #expect(Layout.decode(#"{"labelStyle":"hologram"}"#, kind: .podcast).tileLabelStyle == .iconAndText)
+    }
+
     @Test func moveMatchesListSemantics() {
         let layout = Layout.default(for: .podcast)
         // 把第一块拖到最后。

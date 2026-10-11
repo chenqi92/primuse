@@ -5622,6 +5622,9 @@
 "player_controls_spoken_buttons_header" = "Diğer Düğmeler";
 "player_controls_spoken_transcript" = "Döküm Düğmesi";
 "player_controls_spoken_chapters" = "Önceki / Sonraki Bölüm";
+"player_controls_tile_label_style" = "Kutucuk Etiketleri";
+"player_controls_tile_label_icon_text" = "Simge ve Metin";
+"player_controls_tile_label_icon_only" = "Yalnızca Simge";
 "player_menu_items_spoken_footer" = "Kapattığınız öğeler Diğer menüsünde artık görünmez. Beğen, döküm düğmesi, Yer imleri ve Sıradaki sayfadan kaldırıldığında yine menüye geçer.";
 "player_menu_group_book" = "Bu Kitap";
 "player_menu_group_episode" = "Bu Bölüm";

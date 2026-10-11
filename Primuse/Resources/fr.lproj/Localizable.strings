@@ -5716,6 +5716,9 @@
 "player_controls_spoken_buttons_header" = "Autres boutons";
 "player_controls_spoken_transcript" = "Bouton de transcription";
 "player_controls_spoken_chapters" = "Chapitre précédent / suivant";
+"player_controls_tile_label_style" = "Libellés des tuiles";
+"player_controls_tile_label_icon_text" = "Icône et texte";
+"player_controls_tile_label_icon_only" = "Icône seule";
 "player_menu_items_spoken_footer" = "Les éléments désactivés n’apparaissent plus dans le menu Plus. J’aime, le bouton de transcription, Signets et À suivre passent toujours dans le menu si vous les retirez de la page.";
 "player_menu_group_book" = "Ce livre";
 "player_menu_group_episode" = "Cet épisode";

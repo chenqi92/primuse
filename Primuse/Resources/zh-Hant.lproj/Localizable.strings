@@ -5693,6 +5693,9 @@
 "player_controls_spoken_buttons_header" = "其他按鈕";
 "player_controls_spoken_transcript" = "文字稿鍵";
 "player_controls_spoken_chapters" = "上一章 / 下一章";
+"player_controls_tile_label_style" = "功能塊文字";
+"player_controls_tile_label_icon_text" = "圖示和文字";
+"player_controls_tile_label_icon_only" = "僅圖示";
 "player_menu_items_spoken_footer" = "關掉的項目不再出現在「更多」裡。頁面上拿掉的喜歡、文字稿、書籤和「接下來」仍會補進選單。";
 "player_menu_group_book" = "這本書";
 "player_menu_group_episode" = "這一集";

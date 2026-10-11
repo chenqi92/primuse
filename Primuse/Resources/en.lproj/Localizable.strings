@@ -5476,6 +5476,9 @@
 "player_controls_spoken_buttons_header" = "Other Buttons";
 "player_controls_spoken_transcript" = "Transcript Button";
 "player_controls_spoken_chapters" = "Previous / Next Chapter";
+"player_controls_tile_label_style" = "Tile Labels";
+"player_controls_tile_label_icon_text" = "Icon and Text";
+"player_controls_tile_label_icon_only" = "Icon Only";
 "player_menu_items_spoken_footer" = "Items you turn off no longer appear in the More menu. Like, the transcript button, Bookmark, and Up Next still move to the menu when you take them off the page.";
 "player_menu_group_book" = "This Book";
 "player_menu_group_episode" = "This Episode";

@@ -5622,6 +5622,9 @@
 "player_controls_spoken_buttons_header" = "Otros botones";
 "player_controls_spoken_transcript" = "Botón de transcripción";
 "player_controls_spoken_chapters" = "Capítulo anterior / siguiente";
+"player_controls_tile_label_style" = "Etiquetas de mosaicos";
+"player_controls_tile_label_icon_text" = "Ícono y texto";
+"player_controls_tile_label_icon_only" = "Solo ícono";
 "player_menu_items_spoken_footer" = "Los elementos que desactives ya no aparecerán en el menú Más. Me gusta, el botón de transcripción, Marcadores y A continuación siguen pasando al menú si los quitas de la página.";
 "player_menu_group_book" = "Este libro";
 "player_menu_group_episode" = "Este episodio";

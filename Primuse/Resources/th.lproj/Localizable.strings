@@ -5622,6 +5622,9 @@
 "player_controls_spoken_buttons_header" = "ปุ่มอื่น";
 "player_controls_spoken_transcript" = "ปุ่มบทถอดความ";
 "player_controls_spoken_chapters" = "บทก่อนหน้า / บทถัดไป";
+"player_controls_tile_label_style" = "ป้ายช่องฟังก์ชัน";
+"player_controls_tile_label_icon_text" = "ไอคอนและข้อความ";
+"player_controls_tile_label_icon_only" = "ไอคอนเท่านั้น";
 "player_menu_items_spoken_footer" = "รายการที่ปิดไว้จะไม่แสดงในเมนูเพิ่มเติมอีก ชอบ ปุ่มบทถอดความ บุ๊กมาร์ก และถัดไปจะยังย้ายเข้าเมนูเมื่อเอาออกจากหน้า";
 "player_menu_group_book" = "หนังสือเล่มนี้";
 "player_menu_group_episode" = "ตอนนี้";

@@ -5716,6 +5716,9 @@
 "player_controls_spoken_buttons_header" = "기타 버튼";
 "player_controls_spoken_transcript" = "스크립트 버튼";
 "player_controls_spoken_chapters" = "이전 / 다음 챕터";
+"player_controls_tile_label_style" = "타일 표시";
+"player_controls_tile_label_icon_text" = "아이콘과 텍스트";
+"player_controls_tile_label_icon_only" = "아이콘만";
 "player_menu_items_spoken_footer" = "끈 항목은 '더 보기'에 더 이상 나타나지 않습니다. 화면에서 뺀 좋아요·스크립트 버튼·북마크·다음 곡은 계속 메뉴로 들어갑니다.";
 "player_menu_group_book" = "이 책";
 "player_menu_group_episode" = "이 에피소드";

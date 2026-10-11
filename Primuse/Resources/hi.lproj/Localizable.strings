@@ -5622,6 +5622,9 @@
 "player_controls_spoken_buttons_header" = "दूसरे बटन";
 "player_controls_spoken_transcript" = "ट्रांसक्रिप्ट बटन";
 "player_controls_spoken_chapters" = "पिछला / अगला अध्याय";
+"player_controls_tile_label_style" = "टाइल लेबल";
+"player_controls_tile_label_icon_text" = "आइकन और टेक्स्ट";
+"player_controls_tile_label_icon_only" = "केवल आइकन";
 "player_menu_items_spoken_footer" = "बंद किए गए आइटम \"और\" मेनू में अब नहीं दिखते। पसंद, ट्रांसक्रिप्ट बटन, बुकमार्क और अगला पेज से हटाने पर भी मेनू में आ जाते हैं।";
 "player_menu_group_book" = "यह किताब";
 "player_menu_group_episode" = "यह एपिसोड";

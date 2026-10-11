@@ -5717,6 +5717,9 @@
 "player_controls_spoken_buttons_header" = "そのほかのボタン";
 "player_controls_spoken_transcript" = "文字起こしボタン";
 "player_controls_spoken_chapters" = "前の章 / 次の章";
+"player_controls_tile_label_style" = "タイルの表示";
+"player_controls_tile_label_icon_text" = "アイコンと文字";
+"player_controls_tile_label_icon_only" = "アイコンのみ";
 "player_menu_items_spoken_footer" = "オフにした項目は「その他」に表示されなくなります。画面から外した「好き」、文字起こしボタン、「ブックマーク」「次に再生」は引き続きメニューに入ります。";
 "player_menu_group_book" = "この本";
 "player_menu_group_episode" = "このエピソード";

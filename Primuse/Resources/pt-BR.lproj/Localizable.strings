@@ -5622,6 +5622,9 @@
 "player_controls_spoken_buttons_header" = "Outros botões";
 "player_controls_spoken_transcript" = "Botão de transcrição";
 "player_controls_spoken_chapters" = "Capítulo anterior / seguinte";
+"player_controls_tile_label_style" = "Rótulos dos blocos";
+"player_controls_tile_label_icon_text" = "Ícone e texto";
+"player_controls_tile_label_icon_only" = "Somente ícone";
 "player_menu_items_spoken_footer" = "Os itens desativados deixam de aparecer no menu Mais. Curtir, o botão de transcrição, Marcadores e Próximo continuam indo para o menu quando você os tira da página.";
 "player_menu_group_book" = "Este livro";
 "player_menu_group_episode" = "Este episódio";

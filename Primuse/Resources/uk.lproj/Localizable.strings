@@ -5622,6 +5622,9 @@
 "player_controls_spoken_buttons_header" = "Інші кнопки";
 "player_controls_spoken_transcript" = "Кнопка розшифровки";
 "player_controls_spoken_chapters" = "Попередній / наступний розділ";
+"player_controls_tile_label_style" = "Підписи плиток";
+"player_controls_tile_label_icon_text" = "Значок і текст";
+"player_controls_tile_label_icon_only" = "Лише значок";
 "player_menu_items_spoken_footer" = "Вимкнені пункти більше не з’являються в меню «Більше». «Подобається», кнопка розшифровки, закладки й «Далі» і далі переходять у меню, якщо прибрати їх зі сторінки.";
 "player_menu_group_book" = "Ця книга";
 "player_menu_group_episode" = "Цей випуск";

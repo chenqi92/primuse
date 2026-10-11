@@ -441,6 +441,15 @@ private struct SpokenWordControlsSections: View {
                 }
             }
             .onMove { storage = layout.movingTiles(fromOffsets: $0, toOffset: $1).encoded() }
+            Picker(selection: Binding(
+                get: { layout.tileLabelStyle },
+                set: { storage = layout.settingTileLabelStyle($0).encoded() }
+            )) {
+                Text("player_controls_tile_label_icon_text").tag(SpokenWordTileLabelStyle.iconAndText)
+                Text("player_controls_tile_label_icon_only").tag(SpokenWordTileLabelStyle.iconOnly)
+            } label: {
+                Label("player_controls_tile_label_style", systemImage: "textformat.abc")
+            }
         } header: {
             Text("player_controls_tiles_header")
         } footer: {

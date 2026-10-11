@@ -345,6 +345,8 @@ struct SpokenWordActionTiles: View {
     var tileHeight: CGFloat = 56
     /// 按「播放页按钮」的配置摆哪几块、什么顺序。nil 是原来的固定摆法(Mac 用)。
     var tiles: [SpokenWordControlTile]? = nil
+    /// 只放图标时不写说明;睡眠定时开着仍靠实心的强调色图标看出来,不画倒计时。
+    var labelStyle: SpokenWordTileLabelStyle = .iconAndText
     let onSleep: () -> Void
     let onContents: () -> Void
     /// 播客的「接下来」。给了才有这一块(书没有队列可看)。
@@ -499,6 +501,8 @@ struct SpokenWordActionTiles: View {
         .accessibilityLabel(Text(isPodcast ? "podcast_show_notes" : "spoken_word_contents_title"))
     }
 
+    private var showsCaptions: Bool { labelStyle == .iconAndText }
+
     @ViewBuilder
     private func tile<Icon: View, Caption: View>(
         @ViewBuilder icon: () -> Icon,
@@ -508,11 +512,13 @@ struct SpokenWordActionTiles: View {
         case .tiles:
             VStack(spacing: 3) {
                 icon()
-                caption()
-                    .font(.caption2)
-                    .foregroundStyle(palette.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                if showsCaptions {
+                    caption()
+                        .font(.caption2)
+                        .foregroundStyle(palette.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
             }
             .frame(maxWidth: .infinity)
             .frame(height: tileHeight)
@@ -522,11 +528,13 @@ struct SpokenWordActionTiles: View {
             VStack(spacing: 6) {
                 icon()
                     .frame(height: 24)
-                caption()
-                    .font(.caption)
-                    .foregroundStyle(palette.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                if showsCaptions {
+                    caption()
+                        .font(.caption)
+                        .foregroundStyle(palette.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
             }
             .frame(maxWidth: .infinity)
             .frame(height: tileHeight)
@@ -534,11 +542,13 @@ struct SpokenWordActionTiles: View {
         case .inline:
             HStack(spacing: 6) {
                 icon()
-                caption()
-                    .font(.caption)
-                    .foregroundStyle(palette.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                if showsCaptions {
+                    caption()
+                        .font(.caption)
+                        .foregroundStyle(palette.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
             }
             .frame(maxWidth: .infinity)
             .frame(height: tileHeight)

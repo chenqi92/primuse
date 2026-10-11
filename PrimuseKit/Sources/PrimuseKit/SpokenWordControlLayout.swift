@@ -25,6 +25,15 @@ public enum SpokenWordControlTile: String, CaseIterable, Codable, Hashable, Iden
     }
 }
 
+/// 有声书、播客播放页那排功能块怎么写字:图标下面(或旁边)带一行说明,还是只放图标。
+/// rawValue 会写进配置并经 iCloud 同步,发布后不能改名。
+public enum SpokenWordTileLabelStyle: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
+    case iconAndText
+    case iconOnly
+
+    public var id: String { rawValue }
+}
+
 /// 有声书或播客播放页的按钮:功能块的顺序与显隐,以及歌名旁的喜欢、文字稿键和播放键两侧的
 /// 上一章 / 下一章;「更多」菜单里关掉的项也记在这里。整份存成一个 JSON 字符串,没改过
 /// (或恢复默认)时存空串。
@@ -36,6 +45,8 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
     public private(set) var showsLike: Bool
     public private(set) var showsTranscriptToggle: Bool
     public private(set) var showsChapterButtons: Bool
+    /// 功能块只放图标还是带说明文字。
+    public private(set) var tileLabelStyle: SpokenWordTileLabelStyle
     /// 「更多」里关掉的项(`NowPlayingMenuItem.rawValue`),排好序去重;认不出的名字原样保留,
     /// 别的版本关掉的项在这台设备上改别的开关时不会被抹掉。
     private var hiddenMenu: [String]
@@ -62,6 +73,7 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
             showsLike: true,
             showsTranscriptToggle: true,
             showsChapterButtons: true,
+            tileLabelStyle: .iconAndText,
             hiddenMenu: []
         )
     }
@@ -73,6 +85,7 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
         showsLike: Bool,
         showsTranscriptToggle: Bool,
         showsChapterButtons: Bool,
+        tileLabelStyle: SpokenWordTileLabelStyle,
         hiddenMenu: [String]
     ) {
         self.kind = kind
@@ -81,6 +94,7 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
         self.showsLike = showsLike
         self.showsTranscriptToggle = showsTranscriptToggle
         self.showsChapterButtons = showsChapterButtons
+        self.tileLabelStyle = tileLabelStyle
         // 排好序、去重:同一份配置不管先关哪项,比较和编码出来都一样。
         self.hiddenMenu = Array(Set(hiddenMenu)).sorted()
     }
@@ -93,6 +107,8 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
         var showsLike: Bool?
         var showsTranscriptToggle: Bool?
         var showsChapterButtons: Bool?
+        /// `SpokenWordTileLabelStyle.rawValue`;认不出的(别的版本新加的)按默认。
+        var labelStyle: String?
         var hiddenMenu: [String]?
     }
 
@@ -114,6 +130,7 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
             showsLike: stored.showsLike ?? true,
             showsTranscriptToggle: stored.showsTranscriptToggle ?? true,
             showsChapterButtons: stored.showsChapterButtons ?? true,
+            tileLabelStyle: stored.labelStyle.flatMap(SpokenWordTileLabelStyle.init(rawValue:)) ?? .iconAndText,
             hiddenMenu: stored.hiddenMenu ?? []
         )
     }
@@ -126,6 +143,7 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
             showsLike: showsLike ? nil : false,
             showsTranscriptToggle: showsTranscriptToggle ? nil : false,
             showsChapterButtons: showsChapterButtons ? nil : false,
+            labelStyle: tileLabelStyle == .iconAndText ? nil : tileLabelStyle.rawValue,
             hiddenMenu: hiddenMenu.isEmpty ? nil : hiddenMenu
         )
         let encoder = JSONEncoder()
@@ -219,6 +237,12 @@ public struct SpokenWordControlLayout: Equatable, Sendable {
     public func settingShowsChapterButtons(_ shows: Bool) -> SpokenWordControlLayout {
         var copy = self
         copy.showsChapterButtons = shows
+        return copy
+    }
+
+    public func settingTileLabelStyle(_ style: SpokenWordTileLabelStyle) -> SpokenWordControlLayout {
+        var copy = self
+        copy.tileLabelStyle = style
         return copy
     }
 

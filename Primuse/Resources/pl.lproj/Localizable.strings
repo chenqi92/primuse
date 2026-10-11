@@ -5622,6 +5622,9 @@
 "player_controls_spoken_buttons_header" = "Inne przyciski";
 "player_controls_spoken_transcript" = "Przycisk transkrypcji";
 "player_controls_spoken_chapters" = "Poprzedni / następny rozdział";
+"player_controls_tile_label_style" = "Podpisy kafelków";
+"player_controls_tile_label_icon_text" = "Ikona i tekst";
+"player_controls_tile_label_icon_only" = "Tylko ikona";
 "player_menu_items_spoken_footer" = "Wyłączone pozycje nie pojawiają się już w menu Więcej. Lubię to, przycisk transkrypcji, Zakładki i Dalej nadal trafiają do menu, gdy usuniesz je ze strony.";
 "player_menu_group_book" = "Ta książka";
 "player_menu_group_episode" = "Ten odcinek";

@@ -5622,6 +5622,9 @@
 "player_controls_spoken_buttons_header" = "أزرار أخرى";
 "player_controls_spoken_transcript" = "زر النص المكتوب";
 "player_controls_spoken_chapters" = "الفصل السابق / التالي";
+"player_controls_tile_label_style" = "تسميات المربعات";
+"player_controls_tile_label_icon_text" = "الأيقونة والنص";
+"player_controls_tile_label_icon_only" = "الأيقونة فقط";
 "player_menu_items_spoken_footer" = "العناصر التي توقفها لا تظهر في قائمة «المزيد». أما «إعجاب» وزر النص المكتوب و«الإشارات المرجعية» و«التالي» فتنتقل إلى القائمة إذا أزلتها من الصفحة.";
 "player_menu_group_book" = "هذا الكتاب";
 "player_menu_group_episode" = "هذه الحلقة";

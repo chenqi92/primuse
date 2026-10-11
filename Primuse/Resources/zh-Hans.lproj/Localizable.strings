@@ -5809,6 +5809,9 @@
 "player_controls_spoken_buttons_header" = "其他按钮";
 "player_controls_spoken_transcript" = "文字稿键";
 "player_controls_spoken_chapters" = "上一章 / 下一章";
+"player_controls_tile_label_style" = "功能块文字";
+"player_controls_tile_label_icon_text" = "图标和文字";
+"player_controls_tile_label_icon_only" = "仅图标";
 "player_menu_items_spoken_footer" = "关掉的项不再出现在「更多」里。页面上拿掉的喜欢、文字稿、书签和「接下来」仍会补进菜单。";
 "player_menu_group_book" = "这本书";
 "player_menu_group_episode" = "这一集";

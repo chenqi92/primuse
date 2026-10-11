@@ -4205,6 +4205,7 @@ struct NowPlayingView: View {
                     showsContents: false,
                     tileHeight: 52,
                     tiles: spokenWordControlLayout.visibleTiles(contentsResident: true),
+                    labelStyle: spokenWordControlLayout.tileLabelStyle,
                     onSleep: { showSleepTimer = true },
                     onContents: {},
                     // 右栏常驻:「接下来」只是把它翻到那一页。
@@ -5038,6 +5039,7 @@ struct NowPlayingView: View {
             tileHeight: layout == .stacked ? 54 : 40,
             // 目录键摆在传输键一行时,功能块里不再重复一块目录。
             tiles: spokenWordControlLayout.visibleTiles(contentsResident: spokenWordTextKeysInTransport),
+            labelStyle: spokenWordControlLayout.tileLabelStyle,
             onSleep: { showSleepTimer = true },
             onContents: { openContentsPanel() }
         )
@@ -5159,6 +5161,7 @@ struct NowPlayingView: View {
                 palette: spokenWordPalette,
                 // 目录键摆在传输键一行时,这里不再重复一块目录。
                 tiles: spokenWordControlLayout.visibleTiles(contentsResident: spokenWordTextKeysInTransport),
+                labelStyle: spokenWordControlLayout.tileLabelStyle,
                 onSleep: { showSleepTimer = true },
                 onContents: { openContentsPanel() },
                 onUpNext: { openContentsPanel(tab: .upNext) }
