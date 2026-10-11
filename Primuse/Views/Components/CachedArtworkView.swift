@@ -83,7 +83,19 @@ struct CachedArtworkView: View {
     private var motionArtworkServiceEnabled = PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault
     @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEndpointKey)
     private var motionArtworkServiceEndpoint = PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
-    @State private var image: PlatformImage?
+    // Keep the bitmap in a reference holder: closures retained by a lazy
+    // container otherwise capture old View / State values containing it.
+    @State private var decodedArtworkState = DecodedArtworkState()
+    private var image: PlatformImage? {
+        get { decodedArtworkState.image }
+        nonmutating set { decodedArtworkState.image = newValue }
+    }
+
+    @MainActor @Observable
+    fileprivate final class DecodedArtworkState {
+        var image: PlatformImage?
+    }
+    @State private var isArtworkVisible = true
     @State private var animatedArtworkData: Data?
     @State private var animatedArtworkDescriptor: ArtworkDescriptor?
     @State private var animatedArtworkIdentity: String?
@@ -392,7 +404,18 @@ struct CachedArtworkView: View {
         )) { _ in
             animationPolicyRevision &+= 1
         }
+        .onAppear { isArtworkVisible = true }
+        #if os(macOS)
+        .onScrollVisibilityChange(threshold: 0.01) { visible in
+            if visible {
+                isArtworkVisible = true
+            } else {
+                releaseStaticArtwork()
+            }
+        }
+        #endif
         .onDisappear {
+            releaseStaticArtwork()
             clearAnimatedArtworkCache()
         }
     }
@@ -529,7 +552,8 @@ struct CachedArtworkView: View {
 
     /// Read only prepared Artwork values; MusicKit.Song getters can perform IO.
     private var appleMusicArtwork: MusicKit.Artwork? {
-        guard sourceID == AppleMusicLibraryService.systemSourceID,
+        guard isArtworkVisible,
+              sourceID == AppleMusicLibraryService.systemSourceID,
               let amID = filePath else { return nil }
         if resolvedAppleMusicArtworkID == amID, let resolvedAppleMusicArtwork {
             return resolvedAppleMusicArtwork
@@ -555,6 +579,7 @@ struct CachedArtworkView: View {
     /// A new player surface must reuse the mini player's decoded cover on
     /// its first frame, before SwiftUI starts the loading task.
     private var displayedImage: PlatformImage? {
+        guard isArtworkVisible else { return nil }
         if let image, displayedArtworkIdentity == artworkContentIdentity || crossfadesArtwork {
             return image
         }
@@ -665,7 +690,7 @@ struct CachedArtworkView: View {
     }
 
     private var loadTaskIdentity: String {
-        "\(loadIdentity)#highResolution\(loadsHighResolution)"
+        "\(loadIdentity)#highResolution\(loadsHighResolution)#visible\(isArtworkVisible)"
     }
 
     private var animationCacheKey: String {
@@ -1229,6 +1254,21 @@ struct CachedArtworkView: View {
         animatedArtworkGeneration = nil
     }
 
+    /// Lazy containers keep a card's State after it scrolls off screen. The
+    /// shared cache must be the only owner of reusable offscreen bitmaps, so
+    /// memory-pressure eviction can actually release them. Also stop the body
+    /// from immediately retaining another cache hit while the card is hidden.
+    private func releaseStaticArtwork() {
+        isArtworkVisible = false
+        image = nil
+        loadedIdentity = nil
+        displayedArtworkIdentity = nil
+        holdsPreviousArtwork = false
+        placeholderRevealed = false
+        resolvedAppleMusicArtwork = nil
+        resolvedAppleMusicArtworkID = nil
+    }
+
     @MainActor
     private func performAnimationCacheMaintenance(
         keys: [String],
@@ -1338,6 +1378,7 @@ struct CachedArtworkView: View {
     }
 
     private func loadImage(for identity: String, taskIdentity: String) async {
+        guard isArtworkVisible, !Task.isCancelled else { return }
         let key = cacheKey
         let contentIdentity = artworkContentIdentity
         if displayedArtworkIdentity != contentIdentity {
