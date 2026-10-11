@@ -5755,6 +5755,14 @@
 "transcript_reader_highlight" = "Podświetlanie podczas słuchania";
 "transcript_reader_highlight_sentence" = "Zdanie";
 "transcript_reader_highlight_paragraph" = "Akapit";
+"transcript_reader_highlight_off" = "Wył.";
+"transcript_reader_weight" = "Grubość";
+"transcript_reader_weight_regular" = "Zwykła";
+"transcript_reader_weight_light" = "Lekka";
+"transcript_reader_weight_thin" = "Cienka";
+"transcript_reader_reveal_on_scroll" = "Pokazuj sterowanie podczas przewijania";
+"transcript_reader_reveal_on_scroll_footer" = "Gdy wyłączone, podczas przewijania transkrypcji sterowanie pozostaje ukryte. Dotknij ekranu lub wstrzymaj, aby je pokazać; po kilku sekundach znika ponownie.";
+"spoken_word_text_tab_hold_hint" = "Przytrzymaj, aby czytać transkrypcję na pełnym ekranie";
 "transcript_reader_font_pingfang" = "PingFang SC";
 "transcript_reader_font_songti" = "Songti SC";
 "transcript_reader_font_kaiti" = "Kaiti SC";

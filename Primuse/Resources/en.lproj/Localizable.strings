@@ -5609,6 +5609,14 @@
 "transcript_reader_highlight" = "Highlight While Listening";
 "transcript_reader_highlight_sentence" = "Sentence";
 "transcript_reader_highlight_paragraph" = "Paragraph";
+"transcript_reader_highlight_off" = "Off";
+"transcript_reader_weight" = "Weight";
+"transcript_reader_weight_regular" = "Regular";
+"transcript_reader_weight_light" = "Light";
+"transcript_reader_weight_thin" = "Thin";
+"transcript_reader_reveal_on_scroll" = "Show Controls When Scrolling";
+"transcript_reader_reveal_on_scroll_footer" = "When off, scrolling the transcript keeps the controls hidden. Tap the screen or pause to show them; they hide again after a few seconds.";
+"spoken_word_text_tab_hold_hint" = "Hold to read the transcript full screen";
 "transcript_reader_font_pingfang" = "PingFang SC";
 "transcript_reader_font_songti" = "Songti SC";
 "transcript_reader_font_kaiti" = "Kaiti SC";

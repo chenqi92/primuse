@@ -5755,6 +5755,14 @@
 "transcript_reader_highlight" = "Resaltado al escuchar";
 "transcript_reader_highlight_sentence" = "Oración";
 "transcript_reader_highlight_paragraph" = "Párrafo";
+"transcript_reader_highlight_off" = "Desactivado";
+"transcript_reader_weight" = "Grosor";
+"transcript_reader_weight_regular" = "Normal";
+"transcript_reader_weight_light" = "Ligera";
+"transcript_reader_weight_thin" = "Fina";
+"transcript_reader_reveal_on_scroll" = "Mostrar controles al desplazarse";
+"transcript_reader_reveal_on_scroll_footer" = "Si está desactivado, los controles permanecen ocultos mientras te desplazas por la transcripción. Toca la pantalla o pausa para mostrarlos; se ocultan de nuevo tras unos segundos.";
+"spoken_word_text_tab_hold_hint" = "Mantén presionado para leer la transcripción en pantalla completa";
 "transcript_reader_font_pingfang" = "PingFang SC";
 "transcript_reader_font_songti" = "Songti SC";
 "transcript_reader_font_kaiti" = "Kaiti SC";

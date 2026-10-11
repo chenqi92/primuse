@@ -5755,6 +5755,14 @@
 "transcript_reader_highlight" = "Підсвічування під час прослуховування";
 "transcript_reader_highlight_sentence" = "Речення";
 "transcript_reader_highlight_paragraph" = "Абзац";
+"transcript_reader_highlight_off" = "Вимк.";
+"transcript_reader_weight" = "Насиченість";
+"transcript_reader_weight_regular" = "Звичайний";
+"transcript_reader_weight_light" = "Світлий";
+"transcript_reader_weight_thin" = "Тонкий";
+"transcript_reader_reveal_on_scroll" = "Показувати елементи керування під час прокручування";
+"transcript_reader_reveal_on_scroll_footer" = "Якщо вимкнено, під час прокручування тексту елементи керування залишаються прихованими. Торкніться екрана або поставте на паузу, щоб показати їх; за кілька секунд вони знову сховаються.";
+"spoken_word_text_tab_hold_hint" = "Утримуйте, щоб читати текст на весь екран";
 "transcript_reader_font_pingfang" = "PingFang SC";
 "transcript_reader_font_songti" = "Songti SC";
 "transcript_reader_font_kaiti" = "Kaiti SC";

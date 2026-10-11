@@ -5849,6 +5849,14 @@
 "transcript_reader_highlight" = "Surlignage pendant l’écoute";
 "transcript_reader_highlight_sentence" = "Phrase";
 "transcript_reader_highlight_paragraph" = "Paragraphe";
+"transcript_reader_highlight_off" = "Désactivé";
+"transcript_reader_weight" = "Graisse";
+"transcript_reader_weight_regular" = "Normal";
+"transcript_reader_weight_light" = "Léger";
+"transcript_reader_weight_thin" = "Fin";
+"transcript_reader_reveal_on_scroll" = "Afficher les commandes lors du défilement";
+"transcript_reader_reveal_on_scroll_footer" = "Lorsque cette option est désactivée, les commandes restent masquées pendant le défilement de la transcription. Touchez l’écran ou mettez en pause pour les afficher ; elles disparaissent après quelques secondes.";
+"spoken_word_text_tab_hold_hint" = "Maintenir pour lire la transcription en plein écran";
 "transcript_reader_font_pingfang" = "PingFang SC";
 "transcript_reader_font_songti" = "Songti SC";
 "transcript_reader_font_kaiti" = "Kaiti SC";

@@ -5755,6 +5755,14 @@
 "transcript_reader_highlight" = "التمييز أثناء الاستماع";
 "transcript_reader_highlight_sentence" = "جملة";
 "transcript_reader_highlight_paragraph" = "فقرة";
+"transcript_reader_highlight_off" = "إيقاف";
+"transcript_reader_weight" = "سُمك الخط";
+"transcript_reader_weight_regular" = "عادي";
+"transcript_reader_weight_light" = "خفيف";
+"transcript_reader_weight_thin" = "رفيع";
+"transcript_reader_reveal_on_scroll" = "إظهار عناصر التحكم عند التمرير";
+"transcript_reader_reveal_on_scroll_footer" = "عند الإيقاف تبقى عناصر التحكم مخفية أثناء تمرير النص. المس الشاشة أو أوقف التشغيل مؤقتًا لإظهارها، وتختفي مجددًا بعد بضع ثوانٍ.";
+"spoken_word_text_tab_hold_hint" = "اضغط مطولًا لقراءة النص بملء الشاشة";
 "transcript_reader_font_pingfang" = "PingFang SC";
 "transcript_reader_font_songti" = "Songti SC";
 "transcript_reader_font_kaiti" = "Kaiti SC";

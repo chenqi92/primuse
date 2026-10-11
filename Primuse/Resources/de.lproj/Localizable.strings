@@ -5849,6 +5849,14 @@
 "transcript_reader_highlight" = "Hervorhebung beim Hören";
 "transcript_reader_highlight_sentence" = "Satz";
 "transcript_reader_highlight_paragraph" = "Absatz";
+"transcript_reader_highlight_off" = "Aus";
+"transcript_reader_weight" = "Strichstärke";
+"transcript_reader_weight_regular" = "Normal";
+"transcript_reader_weight_light" = "Leicht";
+"transcript_reader_weight_thin" = "Dünn";
+"transcript_reader_reveal_on_scroll" = "Bedienelemente beim Scrollen einblenden";
+"transcript_reader_reveal_on_scroll_footer" = "Wenn aus, bleiben die Bedienelemente beim Scrollen des Transkripts verborgen. Tippe auf den Bildschirm oder pausiere, um sie einzublenden; nach einigen Sekunden werden sie wieder ausgeblendet.";
+"spoken_word_text_tab_hold_hint" = "Gedrückt halten, um das Transkript im Vollbild zu lesen";
 "transcript_reader_font_pingfang" = "PingFang SC";
 "transcript_reader_font_songti" = "Songti SC";
 "transcript_reader_font_kaiti" = "Kaiti SC";

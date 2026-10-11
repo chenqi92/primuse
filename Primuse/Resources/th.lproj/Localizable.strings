@@ -5755,6 +5755,14 @@
 "transcript_reader_highlight" = "ไฮไลต์ขณะฟัง";
 "transcript_reader_highlight_sentence" = "ประโยค";
 "transcript_reader_highlight_paragraph" = "ย่อหน้า";
+"transcript_reader_highlight_off" = "ปิด";
+"transcript_reader_weight" = "ความหนา";
+"transcript_reader_weight_regular" = "ปกติ";
+"transcript_reader_weight_light" = "บาง";
+"transcript_reader_weight_thin" = "บางมาก";
+"transcript_reader_reveal_on_scroll" = "แสดงตัวควบคุมเมื่อเลื่อน";
+"transcript_reader_reveal_on_scroll_footer" = "เมื่อปิด การเลื่อนข้อความจะไม่แสดงตัวควบคุม แตะหน้าจอหรือหยุดชั่วคราวเพื่อแสดง และจะซ่อนอีกครั้งหลังจากไม่กี่วินาที";
+"spoken_word_text_tab_hold_hint" = "กดค้างเพื่ออ่านข้อความแบบเต็มหน้าจอ";
 "transcript_reader_font_pingfang" = "PingFang SC";
 "transcript_reader_font_songti" = "Songti SC";
 "transcript_reader_font_kaiti" = "Kaiti SC";

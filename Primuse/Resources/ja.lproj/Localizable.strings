@@ -5850,6 +5850,14 @@
 "transcript_reader_highlight" = "再生中のハイライト";
 "transcript_reader_highlight_sentence" = "文";
 "transcript_reader_highlight_paragraph" = "段落";
+"transcript_reader_highlight_off" = "オフ";
+"transcript_reader_weight" = "太さ";
+"transcript_reader_weight_regular" = "標準";
+"transcript_reader_weight_light" = "細い";
+"transcript_reader_weight_thin" = "極細";
+"transcript_reader_reveal_on_scroll" = "スクロール時にコントロールを表示";
+"transcript_reader_reveal_on_scroll_footer" = "オフにすると、テキストをスクロールしてもコントロールは表示されません。画面をタップするか一時停止すると表示され、数秒後に自動で隠れます。";
+"spoken_word_text_tab_hold_hint" = "長押しでテキストを全画面で読む";
 "transcript_reader_font_pingfang" = "PingFang SC";
 "transcript_reader_font_songti" = "Songti SC";
 "transcript_reader_font_kaiti" = "Kaiti SC";

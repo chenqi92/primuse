@@ -5755,6 +5755,14 @@
 "transcript_reader_highlight" = "सुनते समय हाइलाइट";
 "transcript_reader_highlight_sentence" = "वाक्य";
 "transcript_reader_highlight_paragraph" = "अनुच्छेद";
+"transcript_reader_highlight_off" = "बंद";
+"transcript_reader_weight" = "मोटाई";
+"transcript_reader_weight_regular" = "सामान्य";
+"transcript_reader_weight_light" = "हल्का";
+"transcript_reader_weight_thin" = "पतला";
+"transcript_reader_reveal_on_scroll" = "स्क्रॉल करते समय नियंत्रण दिखाएँ";
+"transcript_reader_reveal_on_scroll_footer" = "बंद होने पर प्रतिलेख स्क्रॉल करते समय नियंत्रण छिपे रहते हैं। उन्हें दिखाने के लिए स्क्रीन पर टैप करें या रोकें; कुछ सेकंड बाद वे फिर छिप जाते हैं।";
+"spoken_word_text_tab_hold_hint" = "प्रतिलेख को पूर्ण स्क्रीन में पढ़ने के लिए दबाकर रखें";
 "transcript_reader_font_pingfang" = "PingFang SC";
 "transcript_reader_font_songti" = "Songti SC";
 "transcript_reader_font_kaiti" = "Kaiti SC";

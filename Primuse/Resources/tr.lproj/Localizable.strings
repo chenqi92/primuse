@@ -5755,6 +5755,14 @@
 "transcript_reader_highlight" = "Dinlerken vurgula";
 "transcript_reader_highlight_sentence" = "Cümle";
 "transcript_reader_highlight_paragraph" = "Paragraf";
+"transcript_reader_highlight_off" = "Kapalı";
+"transcript_reader_weight" = "Kalınlık";
+"transcript_reader_weight_regular" = "Normal";
+"transcript_reader_weight_light" = "İnce";
+"transcript_reader_weight_thin" = "Çok ince";
+"transcript_reader_reveal_on_scroll" = "Kaydırırken denetimleri göster";
+"transcript_reader_reveal_on_scroll_footer" = "Kapalıyken metni kaydırdığınızda denetimler gizli kalır. Göstermek için ekrana dokunun veya duraklatın; birkaç saniye sonra yeniden gizlenirler.";
+"spoken_word_text_tab_hold_hint" = "Metni tam ekran okumak için basılı tutun";
 "transcript_reader_font_pingfang" = "PingFang SC";
 "transcript_reader_font_songti" = "Songti SC";
 "transcript_reader_font_kaiti" = "Kaiti SC";

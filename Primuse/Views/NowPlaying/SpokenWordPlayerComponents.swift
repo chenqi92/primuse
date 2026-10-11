@@ -716,6 +716,7 @@ struct SpokenWordPartButton: View {
 /// 全屏读文稿的偏好(本机记住)。
 enum SpokenWordTranscriptReaderPreferences {
     static let fontKey = "primuse.transcriptReader.font"
+    static let fontWeightKey = "primuse.transcriptReader.fontWeight"
     static let fontSizeKey = "primuse.transcriptReader.fontSize"
     static let lineSpacingKey = "primuse.transcriptReader.lineSpacing"
     static let paragraphSpacingKey = "primuse.transcriptReader.paragraphSpacing"
@@ -724,11 +725,14 @@ enum SpokenWordTranscriptReaderPreferences {
     static let highlightKey = "primuse.transcriptReader.highlight"
     static let customTextColorKey = "primuse.transcriptReader.customTextColor"
     static let customBackgroundColorKey = "primuse.transcriptReader.customBackgroundColor"
+    /// 滑动文稿时要不要把控件叫出来。默认不叫:读书时手指一滑控件就跳出来又收回去,很扰人;
+    /// 点一下屏幕或暂停时才出来。
+    static let revealsOnScrollKey = "primuse.transcriptReader.revealsOnScroll"
     static let fontSizeRange: ClosedRange<Double> = 14...36
     static let defaultFontSize = 20.0
     static let defaultCustomTextHex = "3B3127"
     static let defaultCustomBackgroundHex = "EFE6D5"
-    /// 播放中这么久没碰,顶上的关闭、菜单与底下的进度收起来。
+    /// 这么久没碰(播放中、暂停着都一样),顶上的关闭与底下的进度、按键收起来。
     static let chromeAutoHideDelay: Duration = .seconds(3)
 }
 
@@ -750,19 +754,27 @@ enum SpokenWordTranscriptFont: String, CaseIterable, Identifiable {
         }
     }
 
-    /// `isAvailable` 为 false(还没下好、下载失败)时用系统字体。
-    func font(size: CGFloat, isAvailable: Bool = true) -> Font {
+    /// `isAvailable` 为 false(还没下好、下载失败)时用系统字体。苹方的三档字重各是一个字体文件,按名字取;
+    /// 其余字体用字重修饰,家族里没有那一档时由系统就近匹配。
+    func font(size: CGFloat, weight: SpokenWordTranscriptWeight = .regular, isAvailable: Bool = true) -> Font {
+        if self == .pingFang {
+            return isAvailable
+                ? .custom(weight.pingFangPostScriptName, size: size)
+                : .system(size: size, weight: weight.fontWeight)
+        }
         if let postScriptName {
-            return isAvailable ? .custom(postScriptName, size: size) : .system(size: size)
+            return isAvailable
+                ? .custom(postScriptName, size: size).weight(weight.fontWeight)
+                : .system(size: size, weight: weight.fontWeight)
         }
         switch self {
-        case .serif: return .system(size: size, design: .serif)
-        case .rounded: return .system(size: size, design: .rounded)
-        case .georgia: return .custom("Georgia", size: size)
-        case .palatino: return .custom("Palatino", size: size)
-        case .charter: return .custom("Charter", size: size)
-        case .iowan: return .custom("Iowan Old Style", size: size)
-        default: return .system(size: size)
+        case .serif: return .system(size: size, weight: weight.fontWeight, design: .serif)
+        case .rounded: return .system(size: size, weight: weight.fontWeight, design: .rounded)
+        case .georgia: return .custom("Georgia", size: size).weight(weight.fontWeight)
+        case .palatino: return .custom("Palatino", size: size).weight(weight.fontWeight)
+        case .charter: return .custom("Charter", size: size).weight(weight.fontWeight)
+        case .iowan: return .custom("Iowan Old Style", size: size).weight(weight.fontWeight)
+        default: return .system(size: size, weight: weight.fontWeight)
         }
     }
 
@@ -785,6 +797,38 @@ enum SpokenWordTranscriptFont: String, CaseIterable, Identifiable {
 
     /// 字体块上的样字:中文字体写一个「字」,其余写 Aa。
     var sample: String { postScriptName == nil ? "Aa" : "\u{5B57}" }
+}
+
+/// 文稿正文的字重。Apple 图书的中文正文是细体,看着更舒展;默认仍是常规。
+enum SpokenWordTranscriptWeight: String, CaseIterable, Identifiable {
+    case regular, light, thin
+
+    var id: String { rawValue }
+
+    var titleKey: LocalizedStringKey {
+        switch self {
+        case .regular: "transcript_reader_weight_regular"
+        case .light: "transcript_reader_weight_light"
+        case .thin: "transcript_reader_weight_thin"
+        }
+    }
+
+    var fontWeight: Font.Weight {
+        switch self {
+        case .regular: .regular
+        case .light: .light
+        case .thin: .thin
+        }
+    }
+
+    /// 苹方每一档字重是单独的字体名,系统都预装。
+    var pingFangPostScriptName: String {
+        switch self {
+        case .regular: "PingFangSC-Regular"
+        case .light: "PingFangSC-Light"
+        case .thin: "PingFangSC-Thin"
+        }
+    }
 }
 
 /// 按需下载的中文字体。宋体、楷体、圆体在 iOS 上不预装,选了才去系统字体库里下;
@@ -922,9 +966,10 @@ enum SpokenWordTranscriptSpacing: String, CaseIterable, Identifiable {
     }
 }
 
-/// 朗读高亮:整句只亮正在念的那一行字幕,整段亮正在念的整个段落。
+/// 朗读高亮:整句只亮正在念的那一句,整段亮正在念的整个段落;关掉则全文都是正文色、不变暗,
+/// 只跟着滚动。
 enum SpokenWordTranscriptHighlight: String, CaseIterable, Identifiable {
-    case sentence, paragraph
+    case sentence, paragraph, off
 
     var id: String { rawValue }
 
@@ -932,6 +977,7 @@ enum SpokenWordTranscriptHighlight: String, CaseIterable, Identifiable {
         switch self {
         case .sentence: "transcript_reader_highlight_sentence"
         case .paragraph: "transcript_reader_highlight_paragraph"
+        case .off: "transcript_reader_highlight_off"
         }
     }
 }
@@ -1074,9 +1120,10 @@ enum SpokenWordTranscriptTheme: String, CaseIterable, Identifiable {
 
 /// 有声书、播客的文稿全屏读:字幕一样的短行并成段落,章节名单独成段。
 ///
-/// 跟着播放走到正在念的那一句(或那一段);自己滑开了就不再拉回,点「跟随播放」再接上。
-/// 点一段从那里播(暂停着也开始播)。顶上的关闭与菜单、底下的进度与播放键,播放中 3 秒不碰就收起,
-/// 点空白处、滑动、拖进度时再出来。菜单里是目录、搜索、书签,以及主题、外观、字体排版与高亮方式。
+/// 跟着播放走到正在念的那一句(或那一段);自己滑开了就不再拉回,点底下的「跟随播放」再接上。
+/// 点一段从那里播(暂停着也开始播)。顶上只有关闭与章节名,底下是进度与一排键:跟随播放 · 快退 · 播放 ·
+/// 快进 · 菜单;3 秒不碰就收起(暂停着也收),点空白处、暂停、拖进度时再出来,滑动默认不叫出来(可在设置里改)。
+/// 顶栏往下拖一段退出全屏。菜单里是目录、搜索、主题与设置、播放速度,以及书签与字号。
 struct SpokenWordTranscriptReader: View {
     let lines: [LyricLine]
     let title: String
@@ -1097,6 +1144,8 @@ struct SpokenWordTranscriptReader: View {
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @AppStorage(SpokenWordTranscriptReaderPreferences.fontKey)
     private var fontRawValue = SpokenWordTranscriptFont.system.rawValue
+    @AppStorage(SpokenWordTranscriptReaderPreferences.fontWeightKey)
+    private var fontWeightRawValue = SpokenWordTranscriptWeight.regular.rawValue
     @AppStorage(SpokenWordTranscriptReaderPreferences.fontSizeKey)
     private var fontSize = SpokenWordTranscriptReaderPreferences.defaultFontSize
     @AppStorage(SpokenWordTranscriptReaderPreferences.lineSpacingKey)
@@ -1113,6 +1162,8 @@ struct SpokenWordTranscriptReader: View {
     private var customTextHex = SpokenWordTranscriptReaderPreferences.defaultCustomTextHex
     @AppStorage(SpokenWordTranscriptReaderPreferences.customBackgroundColorKey)
     private var customBackgroundHex = SpokenWordTranscriptReaderPreferences.defaultCustomBackgroundHex
+    @AppStorage(SpokenWordTranscriptReaderPreferences.revealsOnScrollKey)
+    private var revealsChromeOnScroll = false
     @State private var paragraphs: [Policy.Paragraph] = []
     @State private var currentIndex: Int?
     /// 正在念的那一句在段里的位置;只有「整句」高亮时才跟。
@@ -1143,6 +1194,9 @@ struct SpokenWordTranscriptReader: View {
     @FocusState private var searchFieldFocused: Bool
 
     private var font: SpokenWordTranscriptFont { SpokenWordTranscriptFont(rawValue: fontRawValue) ?? .system }
+    private var fontWeight: SpokenWordTranscriptWeight {
+        SpokenWordTranscriptWeight(rawValue: fontWeightRawValue) ?? .regular
+    }
     private var lineSpacing: SpokenWordTranscriptSpacing {
         SpokenWordTranscriptSpacing(rawValue: lineSpacingRawValue) ?? .standard
     }
@@ -1175,9 +1229,10 @@ struct SpokenWordTranscriptReader: View {
     }
     #endif
 
-    /// 播放中、没开着菜单面板、没在搜索拖动滑动时,控件才会自己收起。旁白开着时一直显示。
+    /// 没开着菜单面板、没在搜索拖动滑动时,控件才会自己收起;暂停着也收,点一下再出来。
+    /// 旁白开着、文稿是空的时候一直显示。
     private var chromeMayHide: Bool {
-        player.isPlaying && !voiceOverEnabled && !isSearching && !showsMenu && !showsSettings
+        !paragraphs.isEmpty && !voiceOverEnabled && !isSearching && !showsMenu && !showsSettings
             && !showsContents && !isScrolling && !isScrubbing && bookmarkNotice == nil
     }
 
@@ -1213,6 +1268,7 @@ struct SpokenWordTranscriptReader: View {
         .sheet(isPresented: $showsSettings) {
             SpokenWordTranscriptTypographyPanel(
                 fontRawValue: $fontRawValue,
+                fontWeightRawValue: $fontWeightRawValue,
                 fontSize: $fontSize,
                 lineSpacingRawValue: $lineSpacingRawValue,
                 paragraphSpacingRawValue: $paragraphSpacingRawValue,
@@ -1221,6 +1277,7 @@ struct SpokenWordTranscriptReader: View {
                 highlightRawValue: $highlightRawValue,
                 customTextHex: $customTextHex,
                 customBackgroundHex: $customBackgroundHex,
+                revealsChromeOnScroll: $revealsChromeOnScroll,
                 colorScheme: appearanceScheme
             )
             #if os(iOS)
@@ -1314,7 +1371,8 @@ struct SpokenWordTranscriptReader: View {
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 24)
             .padding(.top, 72)
-            .padding(.bottom, 150)
+            // 底下的进度、时间与一排键比原来高,最后一段也要能滚到它们上面。
+            .padding(.bottom, 190)
             .background {
                 // 段与段之间、两边的留白:点一下叫出或收起控件。
                 Color.clear
@@ -1326,7 +1384,9 @@ struct SpokenWordTranscriptReader: View {
         .onScrollPhaseChange { _, phase in
             switch phase {
             case .interacting:
+                // 自己滑了就不再拉回。控件默认不跟着滑动出来(读书时很扰人),除非设置里开了。
                 followsPlayback = false
+                guard revealsChromeOnScroll else { break }
                 isScrolling = true
                 revealChrome()
             case .idle:
@@ -1353,7 +1413,8 @@ struct SpokenWordTranscriptReader: View {
         let isAvailable = SpokenWordTranscriptFontLibrary.shared.isAvailable(font)
         let headingSize: CGFloat = size * 1.15
         return Row.Style(
-            font: font.font(size: size, isAvailable: isAvailable),
+            font: font.font(size: size, weight: fontWeight, isAvailable: isAvailable),
+            // 章节名不跟正文的字重走,细体正文配半粗的标题。
             headingFont: font.font(size: headingSize, isAvailable: isAvailable).weight(.semibold),
             lineSpacing: lineSpacing.lineSpacing(fontSize: size),
             palette: palette
@@ -1366,7 +1427,7 @@ struct SpokenWordTranscriptReader: View {
     }
 
     private func emphasis(for paragraph: Policy.Paragraph, currentID: Int?) -> Row.Emphasis {
-        guard let currentID else { return .plain }
+        guard let currentID, highlight != .off else { return .plain }
         guard paragraph.id == currentID else { return .dimmed }
         if highlight == .sentence, let currentSegment { return .segment(currentSegment) }
         return .paragraph
@@ -1442,6 +1503,7 @@ struct SpokenWordTranscriptReader: View {
         }
     }
 
+    /// 顶上只有关闭键与章节名(菜单在底下那一排)。整条往下拖一段就退出全屏,和拉下一张卡片一样。
     @ViewBuilder
     private func topBar(palette: SpokenWordTranscriptPalette) -> some View {
         let showsBar = chromeVisible || isSearching
@@ -1459,8 +1521,21 @@ struct SpokenWordTranscriptReader: View {
                         .foregroundStyle(palette.dimmedText)
                         .lineLimit(1)
                     Spacer(minLength: 8)
-                    menuButton(palette: palette)
+                    // 和左边的关闭键一样宽,章节名才居中。
+                    Color.clear
+                        .frame(width: 38, height: 38)
+                        .accessibilityHidden(true)
                 }
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 12)
+                        .onChanged { _ in revealChrome() }
+                        .onEnded { value in
+                            let translation = value.translation
+                            guard translation.height > 60, abs(translation.width) < translation.height else { return }
+                            dismiss()
+                        }
+                )
             }
         }
         .padding(.horizontal, 16)
@@ -1501,20 +1576,41 @@ struct SpokenWordTranscriptReader: View {
         .buttonStyle(.plain)
     }
 
+    /// 底下那一排最右边的菜单键,菜单从它上方弹出。
     private func menuButton(palette: SpokenWordTranscriptPalette) -> some View {
-        chromeButton(systemImage: "line.3.horizontal", palette: palette) {
+        Button {
             showsMenu = true
             revealChrome()
+        } label: {
+            SpokenWordTranscriptKeyLabel(systemImage: "line.3.horizontal", palette: palette)
         }
+        .buttonStyle(.plain)
         .accessibilityLabel(Text("transcript_reader_menu"))
-        .popover(isPresented: $showsMenu, arrowEdge: .top) {
+        .popover(isPresented: $showsMenu, arrowEdge: .bottom) {
             menuCard
                 .presentationCompactAdaptation(.popover)
                 .onDisappear { performPendingMenuAction() }
         }
     }
 
-    /// 菜单(同 Apple 图书):目录、搜索、主题与设置三行,底下一排书签与字号。
+    /// 底下那一排最左边的「跟随播放」:自己滑开了才亮起来,点了回到正在念的那一句;正在跟着时按灰、不可点。
+    private func followButton(palette: SpokenWordTranscriptPalette, proxy: ScrollViewProxy) -> some View {
+        let isFollowing = followsPlayback || currentIndex == nil
+        return Button {
+            followsPlayback = true
+            scrollToCurrent(proxy, animated: true)
+            revealChrome()
+        } label: {
+            SpokenWordTranscriptKeyLabel(systemImage: "text.line.first.and.arrowtriangle.forward", palette: palette)
+        }
+        .buttonStyle(.plain)
+        .disabled(isFollowing)
+        .opacity(isFollowing ? 0.35 : 1)
+        .animation(.easeInOut(duration: 0.2), value: isFollowing)
+        .accessibilityLabel(Text("transcript_follow_playback"))
+    }
+
+    /// 菜单(同 Apple 图书):目录、搜索、主题与设置、播放速度几行,底下一排书签与字号。
     private var menuCard: some View {
         VStack(spacing: 0) {
             menuRow("spoken_word_contents_title", systemImage: "list.bullet") { chooseMenuAction(.contents) }
@@ -1522,6 +1618,8 @@ struct SpokenWordTranscriptReader: View {
             menuRow("transcript_reader_search", systemImage: "magnifyingglass") { chooseMenuAction(.search) }
             Divider()
             menuRow("transcript_reader_themes_settings", systemImage: "textformat.size") { chooseMenuAction(.settings) }
+            Divider()
+            playbackRateRow
             Divider()
             HStack(spacing: 0) {
                 menuIconButton("bookmark", label: "spoken_word_add_bookmark") {
@@ -1563,6 +1661,41 @@ struct SpokenWordTranscriptReader: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    /// 播放速度:书按书记、播客一档,和播放页上的语速键改的是同一个值。右边写着当前倍速。
+    private var playbackRateRow: some View {
+        let rate = player.currentSpokenWordRate
+        return Menu {
+            Picker(selection: Binding(
+                get: { player.currentSpokenWordRate },
+                set: { player.setSpokenWordRateForCurrentBook($0) }
+            )) {
+                ForEach(SpokenWordPlaybackRatePolicy.presets, id: \.self) { preset in
+                    Text(verbatim: SpokenWordPlaybackRatePolicy.label(for: preset)).tag(preset)
+                }
+            } label: {
+                Text(SpokenWordPlayerText.rateTitleKey(player))
+            }
+        } label: {
+            HStack(spacing: 12) {
+                Text(SpokenWordPlayerText.rateTitleKey(player))
+                Spacer(minLength: 8)
+                Text(verbatim: SpokenWordPlaybackRatePolicy.label(for: rate))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                Image(systemName: "speedometer")
+                    .frame(width: 22)
+            }
+            .font(.body)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 13)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(SpokenWordPlayerText.rateTitleKey(player)))
+        .accessibilityValue(Text(verbatim: SpokenWordPlaybackRatePolicy.label(for: rate)))
     }
 
     private func menuIconButton(
@@ -1624,47 +1757,33 @@ struct SpokenWordTranscriptReader: View {
         }
     }
 
+    /// 底下:进度条、时间,以及一排键 —— 跟随播放 · 快退 · 播放 · 快进 · 菜单。
     private func bottomBar(palette: SpokenWordTranscriptPalette, proxy: ScrollViewProxy) -> some View {
         // 搜索打字时让开键盘上方那块,不跟着键盘浮上来挡字。
         let showsTransport = chromeVisible && !searchFieldFocused
-        return VStack(spacing: 10) {
-            if !followsPlayback, currentIndex != nil {
-                Button {
-                    followsPlayback = true
-                    scrollToCurrent(proxy, animated: true)
-                } label: {
-                    Label("transcript_follow_playback", systemImage: "text.line.first.and.arrowtriangle.forward")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(palette.text)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(.regularMaterial, in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .transition(.opacity)
-            }
-            SpokenWordTranscriptTransportBar(
-                player: player,
-                palette: palette,
-                onScrubbingChange: { scrubbing in
-                    isScrubbing = scrubbing
-                    revealChrome()
-                },
-                onInteraction: { revealChrome() }
+        return SpokenWordTranscriptTransportBar(
+            player: player,
+            palette: palette,
+            onScrubbingChange: { scrubbing in
+                isScrubbing = scrubbing
+                revealChrome()
+            },
+            onInteraction: { revealChrome() },
+            leading: { followButton(palette: palette, proxy: proxy) },
+            trailing: { menuButton(palette: palette) }
+        )
+        .padding(.top, 12)
+        .frame(maxWidth: .infinity)
+        .background {
+            LinearGradient(
+                colors: [palette.background.opacity(0), palette.background.opacity(0.92), palette.background],
+                startPoint: .top,
+                endPoint: .bottom
             )
-            .padding(.top, 12)
-            .frame(maxWidth: .infinity)
-            .background {
-                LinearGradient(
-                    colors: [palette.background.opacity(0), palette.background.opacity(0.92), palette.background],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea(edges: .bottom)
-            }
-            .opacity(showsTransport ? 1 : 0)
-            .allowsHitTesting(showsTransport)
+            .ignoresSafeArea(edges: .bottom)
         }
+        .opacity(showsTransport ? 1 : 0)
+        .allowsHitTesting(showsTransport)
         .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 
@@ -1921,12 +2040,15 @@ private struct SpokenWordTranscriptParagraphRow: View, Equatable {
     }
 }
 
-/// 文稿页底下的进度与播放键。单独成一个视图:播放时钟只让这一块重画。
-private struct SpokenWordTranscriptTransportBar: View {
+/// 文稿页底下的进度、时间与一排键。单独成一个视图:播放时钟只让这一块重画。
+/// 两头的键由文稿页给(左边跟随播放、右边菜单),和中间三颗同一种画法。
+private struct SpokenWordTranscriptTransportBar<Leading: View, Trailing: View>: View {
     let player: AudioPlayerService
     let palette: SpokenWordTranscriptPalette
     let onScrubbingChange: (Bool) -> Void
     let onInteraction: () -> Void
+    @ViewBuilder let leading: () -> Leading
+    @ViewBuilder let trailing: () -> Trailing
 
     @State private var previewTime: TimeInterval?
 
@@ -1955,7 +2077,13 @@ private struct SpokenWordTranscriptTransportBar: View {
             )
             HStack(spacing: 0) {
                 Text(verbatim: displayedTime.formattedDuration)
-                    .frame(minWidth: 64, alignment: .leading)
+                Spacer(minLength: 4)
+                Text(verbatim: "-\(max(0, player.duration - displayedTime).formattedDuration)")
+            }
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(palette.dimmedText)
+            HStack(spacing: 0) {
+                leading()
                 Spacer(minLength: 4)
                 transportButton(player.spokenWordSkipBackwardSymbol, label: "a11y_skip_backward") {
                     player.skipSpokenWordBackward()
@@ -1971,11 +2099,9 @@ private struct SpokenWordTranscriptTransportBar: View {
                     player.skipSpokenWordForward()
                 }
                 Spacer(minLength: 4)
-                Text(verbatim: "-\(max(0, player.duration - displayedTime).formattedDuration)")
-                    .frame(minWidth: 64, alignment: .trailing)
+                trailing()
             }
-            .font(.caption.monospacedDigit())
-            .foregroundStyle(palette.dimmedText)
+            .padding(.top, 2)
         }
         .frame(maxWidth: 720)
         .padding(.horizontal, 24)
@@ -1992,21 +2118,34 @@ private struct SpokenWordTranscriptTransportBar: View {
             action()
             onInteraction()
         } label: {
-            Image(systemName: systemImage)
-                .font(.system(size: isPrimary ? 28 : 21, weight: .semibold))
-                .foregroundStyle(palette.text)
-                .contentTransition(.symbolEffect(.replace))
-                .frame(width: isPrimary ? 60 : 52, height: 48)
-                .contentShape(Rectangle())
+            SpokenWordTranscriptKeyLabel(systemImage: systemImage, palette: palette, isPrimary: isPrimary)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(label))
     }
 }
 
-/// 「主题与设置」:外观、阅读主题、字体、字号、行距、段距、朗读高亮。改了文稿那边立刻跟着变。
+/// 文稿页底下那一排键共用的样子:播放键大一号,其余一样大;两头的跟随播放与菜单键也用它。
+private struct SpokenWordTranscriptKeyLabel: View {
+    let systemImage: String
+    let palette: SpokenWordTranscriptPalette
+    var isPrimary = false
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .font(.system(size: isPrimary ? 28 : 21, weight: .semibold))
+            .foregroundStyle(palette.text)
+            .contentTransition(.symbolEffect(.replace))
+            .frame(width: isPrimary ? 60 : 52, height: 48)
+            .contentShape(Rectangle())
+    }
+}
+
+/// 「主题与设置」:外观、阅读主题、字体、字重、字号、行距、段距、朗读高亮,以及滑动时要不要叫出控件。
+/// 改了文稿那边立刻跟着变。
 struct SpokenWordTranscriptTypographyPanel: View {
     @Binding var fontRawValue: String
+    @Binding var fontWeightRawValue: String
     @Binding var fontSize: Double
     @Binding var lineSpacingRawValue: String
     @Binding var paragraphSpacingRawValue: String
@@ -2015,6 +2154,7 @@ struct SpokenWordTranscriptTypographyPanel: View {
     @Binding var highlightRawValue: String
     @Binding var customTextHex: String
     @Binding var customBackgroundHex: String
+    @Binding var revealsChromeOnScroll: Bool
     /// 主题块按这个明暗画,和文稿那边看到的一样。
     let colorScheme: ColorScheme
 
@@ -2024,6 +2164,10 @@ struct SpokenWordTranscriptTypographyPanel: View {
 
     private var selectedFont: SpokenWordTranscriptFont {
         SpokenWordTranscriptFont(rawValue: fontRawValue) ?? .system
+    }
+
+    private var selectedWeight: SpokenWordTranscriptWeight {
+        SpokenWordTranscriptWeight(rawValue: fontWeightRawValue) ?? .regular
     }
 
     var body: some View {
@@ -2070,6 +2214,15 @@ struct SpokenWordTranscriptTypographyPanel: View {
                         Text("transcript_reader_font_download_failed")
                     }
                 }
+                Section("transcript_reader_weight") {
+                    Picker("transcript_reader_weight", selection: $fontWeightRawValue) {
+                        ForEach(SpokenWordTranscriptWeight.allCases) { weight in
+                            Text(weight.titleKey).tag(weight.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
                 Section("transcript_font_size") {
                     HStack(spacing: 12) {
                         Image(systemName: "textformat.size.smaller")
@@ -2093,6 +2246,11 @@ struct SpokenWordTranscriptTypographyPanel: View {
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
+                }
+                Section {
+                    Toggle("transcript_reader_reveal_on_scroll", isOn: $revealsChromeOnScroll)
+                } footer: {
+                    Text("transcript_reader_reveal_on_scroll_footer")
                 }
             }
             .navigationTitle("transcript_reader_themes_settings")
@@ -2183,7 +2341,7 @@ struct SpokenWordTranscriptTypographyPanel: View {
         } label: {
             VStack(spacing: 4) {
                 Text(verbatim: font.sample)
-                    .font(font.font(size: 22, isAvailable: state == .available))
+                    .font(font.font(size: 22, weight: selectedWeight, isAvailable: state == .available))
                 font.title
                     .font(.caption)
                     .lineLimit(1)

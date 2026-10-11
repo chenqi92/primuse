@@ -5942,6 +5942,14 @@
 "transcript_reader_highlight" = "朗读高亮";
 "transcript_reader_highlight_sentence" = "整句";
 "transcript_reader_highlight_paragraph" = "整段";
+"transcript_reader_highlight_off" = "关";
+"transcript_reader_weight" = "字重";
+"transcript_reader_weight_regular" = "常规";
+"transcript_reader_weight_light" = "细";
+"transcript_reader_weight_thin" = "极细";
+"transcript_reader_reveal_on_scroll" = "滑动时唤出控件";
+"transcript_reader_reveal_on_scroll_footer" = "关闭后滑动文字稿不会弹出控件，点一下屏幕或暂停时才出现，几秒不碰自动收起。";
+"spoken_word_text_tab_hold_hint" = "按住可全屏阅读文字稿";
 "transcript_reader_font_pingfang" = "苹方";
 "transcript_reader_font_songti" = "宋体";
 "transcript_reader_font_kaiti" = "楷体";
