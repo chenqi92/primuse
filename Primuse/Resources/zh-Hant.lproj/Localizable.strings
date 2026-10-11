@@ -3725,7 +3725,10 @@
 // MARK: - Navigation mode
 "navigation_mode_title" = "導覽";
 "minimal_mode_title" = "極簡模式";
-"minimal_mode_description" = "隱藏底部導覽列，在頂部切換資料庫，並從側邊按鈕開啟設定。";
+"minimal_mode_description" = "隱藏底部導覽列：在頂部切換首頁、音樂、電台與有聲，播放條停靠在底部。";
+"minimal_show_home" = "顯示「首頁」";
+"minimal_tab_spoken" = "有聲";
+"minimal_radio_on_air" = "正在直播";
 
 // MARK: - Authoritative lyrics refresh
 "lyrics_reload_from_source" = "從音樂來源重新載入歌詞";

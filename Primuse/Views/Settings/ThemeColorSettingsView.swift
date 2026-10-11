@@ -37,6 +37,9 @@ struct AppearanceSettingsView: View {
     private var appearanceRawValue = IOSAppearancePreference.system.rawValue
     @AppStorage(AppNavigationMode.storageKey)
     private var navigationModeRawValue = AppNavigationMode.standard.rawValue
+    #if os(iOS)
+    @AppStorage(MinimalNavigationPolicy.showsHomeKey) private var minimalShowsHome = true
+    #endif
 
     private var selection: IOSAppearancePreference {
         IOSAppearancePreference(rawValue: appearanceRawValue) ?? .system
@@ -88,6 +91,16 @@ struct AppearanceSettingsView: View {
                 }
                 // 下面选了「白色」时开关圆钮要换色,外观代理只作用于新建的开关。
                 .id(ThemeColorSettings.shared.isWhiteTheme)
+
+                #if os(iOS)
+                // 极简顶栏上要不要摆「首页」那一格(#69:想要的是能藏,不是去掉)。
+                if minimalModeEnabled.wrappedValue {
+                    Toggle(isOn: $minimalShowsHome) {
+                        Label("minimal_show_home", systemImage: "house")
+                    }
+                    .id(ThemeColorSettings.shared.isWhiteTheme)
+                }
+                #endif
             } header: {
                 SettingsInfoHeader("navigation_mode_title") {
                     Text("minimal_mode_description")

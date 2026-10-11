@@ -269,13 +269,26 @@ struct SpokenWordLibraryView: View {
         .toolbar {
             if !library.spokenWordSongs.isEmpty {
                 ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showsHomeSpotlight = true
-                    } label: {
-                        Label("home_spotlight_manage_books", systemImage: "house")
-                    }
-                    .accessibilityIdentifier("spokenWord.homeSpotlight")
+                    homeSpotlightButton
                 }
+            }
+        }
+        // 极简模式根页没有导航栏：大标题与「首页显示哪些书」排成页头，下面是有声书 / 播客切换。
+        .minimalPageHeader {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 4) {
+                    MinimalPageTitle("tab_spoken_word")
+                    Spacer(minLength: 8)
+                    MinimalHeaderActions {
+                        MinimalPageFindButton()
+                        if !library.spokenWordSongs.isEmpty {
+                            homeSpotlightButton
+                        }
+                    }
+                }
+                MinimalSpokenSwitcher(current: .spokenWord)
+                    .padding(.trailing, 8)
+                    .padding(.bottom, 4)
             }
         }
         #endif
@@ -295,6 +308,17 @@ struct SpokenWordLibraryView: View {
             }
         }
     }
+
+    #if os(iOS)
+    private var homeSpotlightButton: some View {
+        Button {
+            showsHomeSpotlight = true
+        } label: {
+            Label("home_spotlight_manage_books", systemImage: "house")
+        }
+        .accessibilityIdentifier("spokenWord.homeSpotlight")
+    }
+    #endif
 
     #if os(macOS)
     private var macHeader: some View {

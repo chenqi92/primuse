@@ -243,58 +243,45 @@ struct PlaylistListView: View {
             } else {
                 // 「+」只管新建与导入；整理已有歌单（调整顺序、多选）放进旁边的「⋯」。
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button {
-                            showNewPlaylist = true
-                        } label: {
-                            Label("new_playlist", systemImage: "music.note.list")
-                        }
-                        Button {
-                            showAIEditor = true
-                        } label: {
-                            Label("new_ai_smart_playlist", systemImage: "sparkles")
-                        }
-                        Button {
-                            showSmartEditor = true
-                        } label: {
-                            Label("new_rule_smart_playlist", systemImage: "slider.horizontal.3")
-                        }
-                        if operationAvailability.supportsImport {
-                            Divider()
-                            Button {
-                                showPlaylistImport = true
-                            } label: {
-                                Label("playlist_import_title", systemImage: "tray.and.arrow.down")
-                            }
-                        }
-                    } label: {
-                        PMToolbarItemLabel("new_playlist", systemImage: "plus", titled: verticalBarEdge != nil)
-                    }
-                    .accessibilityIdentifier("playlists.new")
+                    playlistAddMenu(titled: verticalBarEdge != nil)
                 }
                 if !playlists.isEmpty {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Menu {
-                            if canReorderPlaylists {
-                                Button {
-                                    showPlaylistOrder = true
-                                } label: {
-                                    Label("playlist_order_action", systemImage: "arrow.up.arrow.down")
-                                }
-                            }
-                            Button {
-                                isManagingPlaylists = true
-                            } label: {
-                                Label("batch_select", systemImage: "checkmark.circle")
-                            }
-                        } label: {
-                            PMToolbarItemLabel("a11y_more_actions", systemImage: "ellipsis", titled: verticalBarEdge != nil)
-                        }
-                        .accessibilityIdentifier("playlists.more")
+                        playlistMoreMenu(titled: verticalBarEdge != nil)
                     }
                 }
             }
         }
+        #if os(iOS)
+        // 极简模式根页没有导航栏：歌单数与上面两颗键排成页头。
+        .minimalPageHeader {
+            HStack(spacing: 4) {
+                MinimalHeaderCount(text: playlistCountText)
+                Spacer(minLength: 8)
+                if isManagingPlaylists {
+                    Button {
+                        isManagingPlaylists = false
+                        playlistSelection = []
+                    } label: {
+                        Text("done")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(Color.accentColor)
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    MinimalHeaderActions {
+                        MinimalPageFindButton()
+                        playlistAddMenu(titled: false)
+                        if !playlists.isEmpty {
+                            playlistMoreMenu(titled: false)
+                        }
+                    }
+                }
+            }
+        }
+        #endif
         .alert("new_playlist", isPresented: $showNewPlaylist) {
             TextField("playlist_name", text: $newPlaylistName)
             Button("cancel", role: .cancel) { newPlaylistName = "" }
@@ -357,6 +344,63 @@ struct PlaylistListView: View {
         .padding(.vertical, 10)
         .background(.bar)
         .overlay(alignment: .top) { Divider() }
+    }
+
+    /// 新建歌单、AI 歌单、规则歌单与导入。
+    private func playlistAddMenu(titled: Bool) -> some View {
+        Menu {
+            Button {
+                showNewPlaylist = true
+            } label: {
+                Label("new_playlist", systemImage: "music.note.list")
+            }
+            Button {
+                showAIEditor = true
+            } label: {
+                Label("new_ai_smart_playlist", systemImage: "sparkles")
+            }
+            Button {
+                showSmartEditor = true
+            } label: {
+                Label("new_rule_smart_playlist", systemImage: "slider.horizontal.3")
+            }
+            if operationAvailability.supportsImport {
+                Divider()
+                Button {
+                    showPlaylistImport = true
+                } label: {
+                    Label("playlist_import_title", systemImage: "tray.and.arrow.down")
+                }
+            }
+        } label: {
+            PMToolbarItemLabel("new_playlist", systemImage: "plus", titled: titled)
+        }
+        .accessibilityIdentifier("playlists.new")
+    }
+
+    /// 调整顺序与多选。
+    private func playlistMoreMenu(titled: Bool) -> some View {
+        Menu {
+            if canReorderPlaylists {
+                Button {
+                    showPlaylistOrder = true
+                } label: {
+                    Label("playlist_order_action", systemImage: "arrow.up.arrow.down")
+                }
+            }
+            Button {
+                isManagingPlaylists = true
+            } label: {
+                Label("batch_select", systemImage: "checkmark.circle")
+            }
+        } label: {
+            PMToolbarItemLabel("a11y_more_actions", systemImage: "ellipsis", titled: titled)
+        }
+        .accessibilityIdentifier("playlists.more")
+    }
+
+    private var playlistCountText: String {
+        "\((playlists.count + smartPlaylists.count).formatted()) \(String(localized: "playlists_count"))"
     }
 
     #if os(iOS)

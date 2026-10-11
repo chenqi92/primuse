@@ -41,6 +41,8 @@ struct MiniPlayerSwipeContent: View {
     var titleFont: Font
     var showsSubtitle = false
     var contentHeight: CGFloat = 44
+    /// 极简停靠条：字底下一道进度线，电台这一行写「正在直播」。
+    var showsProgress = false
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
@@ -105,6 +107,8 @@ struct MiniPlayerSwipeContent: View {
                     } else if isSpokenWord {
                         // 有声内容总带这一行:第几章、本章还剩多久。书名已经在上面了。
                         MiniPlayerSpokenWordSubtitle()
+                    } else if showsProgress, player.isLiveRadio {
+                        MiniPlayerLiveRadioSubtitle()
                     } else if showsSubtitle,
                        let song = player.currentSong,
                        let artist = library.artistDisplayName(for: song),
@@ -114,6 +118,11 @@ struct MiniPlayerSwipeContent: View {
                             .lineLimit(1)
                             .foregroundStyle(.secondary)
                             .contentTransition(.opacity)
+                    }
+
+                    if showsProgress, !player.isLiveRadio {
+                        MiniPlayerProgressLine()
+                            .padding(.top, 5)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -383,6 +392,151 @@ private struct MiniPlayerSpokenWordSubtitle: View {
             .lineLimit(1)
             .foregroundStyle(.secondary)
             .contentTransition(.opacity)
+    }
+}
+
+/// 停靠条上电台的第二行:红点「正在直播」,电台推了曲目名就接在后面。
+private struct MiniPlayerLiveRadioSubtitle: View {
+    @Environment(AudioPlayerService.self) private var player
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(Color.red)
+                .frame(width: 6, height: 6)
+                .accessibilityHidden(true)
+            Text("minimal_radio_on_air")
+                .foregroundStyle(Color.accentColor)
+            if let title = player.radioMetadataTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !title.isEmpty {
+                Text(verbatim: "· " + title)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .font(.caption2.weight(.medium))
+        .lineLimit(1)
+        .contentTransition(.opacity)
+    }
+}
+
+/// 停靠条字底下的进度线。单独一个视图:播放时钟每半秒走一次,只重画这一条。
+private struct MiniPlayerProgressLine: View {
+    @Environment(AudioPlayerService.self) private var player
+
+    private var fraction: CGFloat {
+        guard player.duration > 0 else { return 0 }
+        return CGFloat(min(max(player.currentTime / player.duration, 0), 1))
+    }
+
+    var body: some View {
+        Capsule()
+            .fill(Color.primary.opacity(0.12))
+            .frame(height: 3)
+            .overlay(alignment: .leading) {
+                GeometryReader { proxy in
+                    Capsule()
+                        .fill(Color.accentColor)
+                        .frame(width: proxy.size.width * fraction)
+                }
+            }
+            .frame(maxWidth: 220)
+            .accessibilityHidden(true)
+    }
+}
+
+/// 极简停靠条右边:一颗辅助键(音乐是播放队列、电台是下一个台、有声是后退)和实心圆的大播放键。
+struct MinimalDockTransportControls: View {
+    let onShowQueue: () -> Void
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// 大播放键要实色：玻璃底会把层级色（primary）淡成灰，这里按深浅色直接给黑白。
+    private var playFill: Color { colorScheme == .dark ? .white : .black }
+    private var playGlyph: Color { colorScheme == .dark ? .black : .white }
+
+    var body: some View {
+        HStack(spacing: 2) {
+            secondaryButton
+            playButton
+        }
+        .fixedSize()
+    }
+
+    @ViewBuilder
+    private var secondaryButton: some View {
+        if player.currentItemIsSpokenWord, !player.isLiveRadio {
+            Button {
+                player.skipSpokenWordBackward()
+            } label: {
+                icon(player.spokenWordSkipBackwardSymbol)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(String(localized: "a11y_skip_backward"))
+        } else if player.isLiveRadio {
+            if player.canSwitchRadioStation {
+                Button {
+                    Task { await player.next() }
+                } label: {
+                    icon("forward.fill")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(String(localized: "radio_next_station"))
+            }
+        } else {
+            Button(action: onShowQueue) {
+                icon("list.bullet")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(String(localized: "queue_title"))
+            .accessibilityIdentifier("minimal.dock.queue")
+        }
+    }
+
+    private func icon(_ systemName: String) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 19, weight: .medium))
+            .foregroundStyle(.primary)
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+            .contentTransition(.symbolEffect(.replace))
+    }
+
+    private var isActive: Bool {
+        player.isPlaybackActive || player.isLoading
+    }
+
+    private var playButton: some View {
+        Button {
+            guard !(player.isLoading && !player.isLiveRadio) else { return }
+            player.togglePlayPause()
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(playFill)
+                if player.showsLoadingIndicator && !player.isLiveRadio {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(playGlyph)
+                        .pmFadeTransition(motion: .control)
+                } else {
+                    Image(systemName: player.isLiveRadio && isActive
+                        ? "stop.fill"
+                        : (isActive ? "pause.fill" : "play.fill"))
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(playGlyph)
+                        .contentTransition(.symbolEffect(.replace))
+                        .pmFadeTransition(motion: .control)
+                }
+            }
+            .frame(width: 44, height: 44)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(player.showsLoadingIndicator && !player.isLiveRadio)
+        .accessibilityLabel(player.isLiveRadio && isActive
+            ? String(localized: "radio_stop")
+            : (isActive ? String(localized: "a11y_pause") : String(localized: "a11y_play")))
+        .accessibilityIdentifier("minimal.dock.play")
     }
 }
 

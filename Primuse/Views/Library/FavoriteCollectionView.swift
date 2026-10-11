@@ -387,6 +387,27 @@ struct FavoriteCollectionView: View {
                     .accessibilityIdentifier("favorites.edit")
             }
         }
+        // 极简模式根页没有导航栏：查找与「编辑」排成页头。
+        .minimalPageHeader {
+            HStack(spacing: 4) {
+                Spacer(minLength: 8)
+                MinimalHeaderActions {
+                    MinimalPageFindButton()
+                }
+                Button {
+                    showsEditor = true
+                } label: {
+                    Text("edit")
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, 8)
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("favorites.edit")
+            }
+        }
         #endif
         .sheet(isPresented: $showsEditor) {
             FavoriteCollectionEditor()

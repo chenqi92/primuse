@@ -13,16 +13,38 @@ private struct LibraryPageFindModifier: ViewModifier {
     @Binding var text: String
     let prompt: LocalizedStringKey
     @Environment(\.appNavigationMode) private var appNavigationMode
+    /// 极简根页的页头给的：输入框平时收着，点页头的放大镜才出来。不在根页上时为 nil，输入框常驻。
+    @Environment(MinimalPageFindState.self) private var minimalFind: MinimalPageFindState?
+
+    private var showsMinimalField: Bool {
+        guard let minimalFind else { return true }
+        return minimalFind.isActive || !text.isEmpty
+    }
 
     func body(content: Content) -> some View {
         Group {
             if appNavigationMode == .minimal {
-                content.safeAreaInset(edge: .top, spacing: 0) {
-                    LibraryPageFindField(text: $text, prompt: prompt)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 4)
-                        .padding(.bottom, 8)
-                }
+                content
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        if showsMinimalField {
+                            LibraryPageFindField(
+                                text: $text,
+                                prompt: prompt,
+                                focusesOnAppear: minimalFind?.isActive == true && text.isEmpty,
+                                onDismiss: minimalFind.map { find -> () -> Void in
+                                    {
+                                        text = ""
+                                        pmWithAnimation(.control) { find.isActive = false }
+                                    }
+                                }
+                            )
+                            .padding(.horizontal, 16)
+                            .padding(.top, 4)
+                            .padding(.bottom, 8)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                        }
+                    }
+                    .onAppear { minimalFind?.register(prompt: prompt) }
             } else {
                 content.searchable(
                     text: $text,
@@ -47,9 +69,38 @@ private struct LibraryPageFindModifier: ViewModifier {
 private struct LibraryPageFindField: View {
     @Binding var text: String
     let prompt: LocalizedStringKey
+    /// 从页头的放大镜拉出来的：一出现就弹键盘。
+    var focusesOnAppear = false
+    /// 页头收得回去时给「取消」：清掉查找词，输入框收起。
+    var onDismiss: (() -> Void)?
     @FocusState private var isFocused: Bool
 
     var body: some View {
+        HStack(spacing: 10) {
+            field
+            if let onDismiss {
+                Button {
+                    isFocused = false
+                    onDismiss()
+                } label: {
+                    Text("cancel")
+                        .foregroundStyle(Color.accentColor)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .frame(minHeight: 40)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("library.pageFind.cancel")
+            }
+        }
+        .onAppear {
+            guard focusesOnAppear else { return }
+            Task { @MainActor in isFocused = true }
+        }
+    }
+
+    private var field: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 15, weight: .semibold))

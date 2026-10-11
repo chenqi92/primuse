@@ -2208,7 +2208,10 @@
 "metadata_writeback_stage_replace" = "स्रोत प्रतिस्थापन";
 "min" = "न्यूनतम";
 "mini_player" = "मिनी प्लेयर";
-"minimal_mode_description" = "नीचे नेविगेशन बार को छुपाता है, लाइब्रेरी स्विचिंग को ऊपर ले जाता है, और साइड बटन से सेटिंग्स खोलता है।";
+"minimal_mode_description" = "नीचे का नेविगेशन बार छुपाता है: ऊपर होम, संगीत, रेडियो और ऑडियो के बीच बदलें, प्लेयर नीचे टिका रहता है।";
+"minimal_show_home" = "“होम” दिखाएँ";
+"minimal_tab_spoken" = "ऑडियो";
+"minimal_radio_on_air" = "लाइव";
 "minimal_mode_title" = "न्यूनतम मोड";
 "minutes" = "मि";
 "modify_directories" = "निर्देशिकाएँ संशोधित करें";

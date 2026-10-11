@@ -214,6 +214,26 @@ struct ArtistListView: View {
                     )
                 }
             }
+            // 极简模式根页没有导航栏：艺人数与列法、显示选项排成页头。
+            .minimalPageHeader {
+                HStack(spacing: 4) {
+                    MinimalHeaderCount(
+                        text: "\(filteredArtists.count.formatted()) \(String(localized: "artists_count"))"
+                    )
+                    Spacer(minLength: 8)
+                    MinimalHeaderActions {
+                        MinimalPageFindButton()
+                        ArtistDisplayMenu(
+                            modeRaw: $browseModeRaw,
+                            offersBrowseModes: browsesLibrary,
+                            showsLikedOnly: $showsLikedOnly,
+                            offersLikedFilter: showsLikedFilter,
+                            offersIntroFill: offersIntroFill,
+                            fillIntros: { requestsIntroFill = true }
+                        )
+                    }
+                }
+            }
             #endif
         }
     }

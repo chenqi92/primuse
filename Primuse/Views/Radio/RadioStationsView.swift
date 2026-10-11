@@ -130,11 +130,22 @@ struct RadioStationsView: View {
         .searchable(text: $searchText, prompt: Text("radio_search_placeholder"))
         #endif
         .toolbar { toolbarContent }
+        #if os(iOS)
+        .minimalPageHeader { minimalHeader }
+        #endif
         // 进列表时给还没有台标的电台排一次自动发现。重复进入是安全的 ——
         // 已有台标的、正在找的、还在退避期的都会被服务自己挡掉。
         .task {
             RadioLogoDiscoveryService.shared.discoverIfNeeded(for: store.stations)
         }
+        #if DEBUG
+        // 截图用：`PRIMUSE_DEBUG_EDIT=radio` 打开电台页就进整理。
+        .task {
+            guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_EDIT"] == "radio" else { return }
+            try? await Task.sleep(for: .seconds(2))
+            isManaging = true
+        }
+        #endif
         .sheet(isPresented: $showingNewStation) {
             RadioStationEditorView(station: nil)
         }
@@ -421,6 +432,69 @@ struct RadioStationsView: View {
         activeTags = []
         searchText = ""
     }
+
+    #if os(iOS)
+    /// 极简模式根页的页头：大标题「电台」，右边查找、整理、版式与添加；整理时换成完成、已选几项与批量菜单。
+    @ViewBuilder
+    private var minimalHeader: some View {
+        if isManaging {
+            HStack(spacing: 8) {
+                Button {
+                    pmWithAnimation(.list) {
+                        isManaging = false
+                        selection = []
+                    }
+                } label: {
+                    Text("done")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Text(verbatim: navigationTitleText)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity)
+
+                MinimalHeaderActions {
+                    Menu {
+                        radioManageMenuItems
+                    } label: {
+                        Label("radio_manage", systemImage: "ellipsis")
+                    }
+                    .confirmationDialog(
+                        String(localized: "radio_manage_delete_confirm_title"),
+                        isPresented: $showDeleteConfirm,
+                        titleVisibility: .visible
+                    ) {
+                        deleteSelectedActions
+                    } message: {
+                        deleteSelectedMessage
+                    }
+                }
+            }
+        } else {
+            HStack(spacing: 4) {
+                MinimalPageTitle("radio_title")
+                Spacer(minLength: 8)
+                MinimalHeaderActions {
+                    MinimalPageFindButton()
+                    radioAddMenu
+                    // 整理与换版式不常用，收进「⋯」，页头只留查找、添加两颗。
+                    Menu {
+                        radioManageButton
+                        radioLayoutToggle(titled: true)
+                    } label: {
+                        Label("a11y_more_actions", systemImage: "ellipsis")
+                    }
+                    .accessibilityIdentifier("radio.minimal.more")
+                }
+            }
+        }
+    }
+    #endif
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {

@@ -2208,7 +2208,10 @@
 "metadata_writeback_stage_replace" = "substituição de fonte";
 "min" = "Mínimo";
 "mini_player" = "Miniplayer";
-"minimal_mode_description" = "Oculta a barra de navegação inferior, move a alternância da Biblioteca para o topo e abre Configurações no botão lateral.";
+"minimal_mode_description" = "Oculta a barra de navegação inferior: alterne entre Início, Música, Rádio e Áudio no topo; o player fica fixo embaixo.";
+"minimal_show_home" = "Mostrar “Início”";
+"minimal_tab_spoken" = "Áudio";
+"minimal_radio_on_air" = "Ao vivo";
 "minimal_mode_title" = "Modo Mínimo";
 "minutes" = "minutos";
 "modify_directories" = "Modificar diretórios";

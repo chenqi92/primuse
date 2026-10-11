@@ -3740,7 +3740,10 @@
 // MARK: - Navigation mode
 "navigation_mode_title" = "탐색";
 "minimal_mode_title" = "미니멀 모드";
-"minimal_mode_description" = "하단 탐색 막대를 숨기고 보관함 탭을 상단으로 옮기며 측면 버튼에서 설정을 엽니다.";
+"minimal_mode_description" = "하단 탐색 막대를 숨기고 상단에서 홈, 음악, 라디오, 오디오를 전환합니다. 재생 막대는 하단에 고정됩니다.";
+"minimal_show_home" = "‘홈’ 표시";
+"minimal_tab_spoken" = "오디오";
+"minimal_radio_on_air" = "생방송 중";
 
 // MARK: - Authoritative lyrics refresh
 "lyrics_reload_from_source" = "음악 소스에서 가사 다시 불러오기";

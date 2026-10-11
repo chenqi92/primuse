@@ -3740,7 +3740,10 @@
 // MARK: - Navigation mode
 "navigation_mode_title" = "Navigation";
 "minimal_mode_title" = "Minimalmodus";
-"minimal_mode_description" = "Blendet die untere Navigation aus, verschiebt die Mediathek-Tabs nach oben und öffnet die Einstellungen über die seitliche Taste.";
+"minimal_mode_description" = "Blendet die untere Navigation aus: Oben wechselst du zwischen Start, Musik, Radio und Audio, der Player sitzt unten.";
+"minimal_show_home" = "„Start“ anzeigen";
+"minimal_tab_spoken" = "Audio";
+"minimal_radio_on_air" = "Live";
 
 // MARK: - Authoritative lyrics refresh
 "lyrics_reload_from_source" = "Liedtext aus Musikquelle neu laden";

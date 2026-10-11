@@ -2208,7 +2208,10 @@
 "metadata_writeback_stage_replace" = "استبدال المصدر";
 "min" = "الحد الأدنى";
 "mini_player" = "مشغل صغير";
-"minimal_mode_description" = "يخفي شريط التنقل السفلي وينقل تبديل المكتبة إلى الأعلى ويفتح الإعدادات من الزر الجانبي.";
+"minimal_mode_description" = "يخفي شريط التنقل السفلي: بدّل بين الرئيسية والموسيقى والإذاعة والصوتيات من الأعلى، ويبقى المشغّل مثبتًا في الأسفل.";
+"minimal_show_home" = "إظهار «الرئيسية»";
+"minimal_tab_spoken" = "صوتيات";
+"minimal_radio_on_air" = "مباشر";
 "minimal_mode_title" = "الوضع الأدنى";
 "minutes" = "دقيقة";
 "modify_directories" = "تعديل الدلائل";

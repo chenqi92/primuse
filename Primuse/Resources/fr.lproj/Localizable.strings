@@ -3740,7 +3740,10 @@
 // MARK: - Navigation mode
 "navigation_mode_title" = "Navigation";
 "minimal_mode_title" = "Mode minimal";
-"minimal_mode_description" = "Masque la navigation inférieure, place les onglets de la bibliothèque en haut et ouvre les réglages via le bouton latéral.";
+"minimal_mode_description" = "Masque la navigation inférieure : passez d’Accueil à Musique, Radio et Audio en haut, le lecteur reste ancré en bas.";
+"minimal_show_home" = "Afficher « Accueil »";
+"minimal_tab_spoken" = "Audio";
+"minimal_radio_on_air" = "En direct";
 
 // MARK: - Authoritative lyrics refresh
 "lyrics_reload_from_source" = "Recharger les paroles depuis la source musicale";

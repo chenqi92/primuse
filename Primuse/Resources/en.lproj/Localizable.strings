@@ -3510,7 +3510,10 @@
 // MARK: - Navigation mode
 "navigation_mode_title" = "Navigation";
 "minimal_mode_title" = "Minimal Mode";
-"minimal_mode_description" = "Hides the bottom navigation bar, moves Library switching to the top, and opens Settings from the side button.";
+"minimal_mode_description" = "Hides the bottom navigation bar: switch between Home, Music, Radio and Audio at the top, with the player docked at the bottom.";
+"minimal_show_home" = "Show Home";
+"minimal_tab_spoken" = "Audio";
+"minimal_radio_on_air" = "Live";
 
 // MARK: - Authoritative lyrics refresh
 "lyrics_reload_from_source" = "Reload Lyrics from Music Source";

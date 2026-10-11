@@ -534,7 +534,6 @@ struct LibraryView: View {
                     .mediaZoomDestination(.album, id: album.id)
                     .onAppear {
                         persistedPageID = "album:\(album.id)"
-                        onActiveSectionChange(.albums)
                     }
             }
             .navigationDestination(for: Artist.self) { artist in
@@ -542,7 +541,6 @@ struct LibraryView: View {
                     .mediaZoomDestination(.artist, id: artist.id)
                     .onAppear {
                         persistedPageID = "artist:\(artist.id)"
-                        onActiveSectionChange(.artists)
                     }
             }
             .navigationDestination(for: Playlist.self) { playlist in
@@ -550,7 +548,6 @@ struct LibraryView: View {
                     .mediaZoomDestination(.playlist, id: playlist.id)
                     .onAppear {
                         persistedPageID = "playlist:\(playlist.id)"
-                        onActiveSectionChange(.playlists)
                     }
             }
             .onAppear {
@@ -1688,10 +1685,13 @@ struct LibraryView: View {
             path.append(section)
             onActiveSectionChange(section)
         case .album(let album):
+            appendMinimalSectionBeneathDetail(.albums, to: &path)
             path.append(album)
         case .artist(let artist):
+            appendMinimalSectionBeneathDetail(.artists, to: &path)
             path.append(artist)
         case .playlist(let playlist):
+            appendMinimalSectionBeneathDetail(.playlists, to: &path)
             path.append(playlist)
         case .song(let songID):
             songLocationRequest = SongLibraryLocationRequest(songID: songID)
@@ -1700,6 +1700,16 @@ struct LibraryView: View {
         }
         navigationPath = path
         deepLink = nil
+    }
+
+    /// 极简模式的资料库没有总览页：从播放页「转到专辑」这类深链进来时，详情底下垫上对应的分类页，
+    /// 返回落在专辑、艺人、歌单页上，顶栏也跟着停在那一类。
+    private func appendMinimalSectionBeneathDetail(_ section: LibrarySection, to path: inout NavigationPath) {
+        #if os(iOS)
+        guard appNavigationMode == .minimal, rootSection == nil else { return }
+        path.append(section)
+        onActiveSectionChange(section)
+        #endif
     }
 
     private func restorePersistedPageIfNeeded() {
@@ -1848,6 +1858,18 @@ struct GenreLibraryView: View {
             }
             .pmExtendsUnderVerticalBar()
             .libraryPageFind(text: $searchText, prompt: "genre_search_placeholder")
+            // 极简模式根页没有导航栏：风格数与查找排成页头。
+            .minimalPageHeader {
+                HStack(spacing: 4) {
+                    MinimalHeaderCount(
+                        text: "\(filteredGenres.count.formatted()) \(String(localized: "genres_count"))"
+                    )
+                    Spacer(minLength: 8)
+                    MinimalHeaderActions {
+                        MinimalPageFindButton()
+                    }
+                }
+            }
         }
     }
     #endif

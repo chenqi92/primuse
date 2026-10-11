@@ -27,6 +27,23 @@ struct PodcastLibraryView: View {
         .navigationTitle("listening_space_podcast")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { PodcastLibraryToolbar(navigation: navigation) }
+        // 极简模式根页没有导航栏：大标题「播客」与「+」「⋯」排成页头，下面是有声书 / 播客切换。
+        .minimalPageHeader {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 4) {
+                    MinimalPageTitle("listening_space_podcast")
+                    Spacer(minLength: 8)
+                    MinimalHeaderActions {
+                        MinimalPageFindButton()
+                        PodcastAddMenu(navigation: navigation)
+                        PodcastMoreMenu(navigation: navigation, systemImage: "ellipsis")
+                    }
+                }
+                MinimalSpokenSwitcher(current: .podcasts)
+                    .padding(.trailing, 8)
+                    .padding(.bottom, 4)
+            }
+        }
         .refreshable { await PodcastStore.shared.refreshAll() }
         .podcastNavigationDestinations(navigation)
     }
@@ -137,58 +154,78 @@ private struct PodcastNavigationDestinations: ViewModifier {
 struct PodcastLibraryToolbar: ToolbarContent {
     let navigation: PodcastNavigationModel
 
-    private var availability: PodcastAvailabilityService { PodcastAvailabilityService.shared }
-    private var store: PodcastStore { PodcastStore.shared }
-
     var body: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
-            Menu {
-                Button {
-                    navigation.showsDiscover = true
-                } label: {
-                    Label("podcast_discover", systemImage: "magnifyingglass")
-                }
-                if availability.allowsCustomFeeds {
-                    Button {
-                        navigation.showsAddFeed = true
-                    } label: {
-                        Label("podcast_add_by_url", systemImage: "link")
-                    }
-                    Button {
-                        navigation.showsOPMLImporter = true
-                    } label: {
-                        Label("podcast_import_opml", systemImage: "square.and.arrow.down")
-                    }
-                }
-            } label: {
-                Label("podcast_add", systemImage: "plus")
-            }
-            .accessibilityIdentifier("podcast.add")
+            PodcastAddMenu(navigation: navigation)
         }
         ToolbarItem(placement: .primaryAction) {
-            Menu {
-                Button {
-                    Task { await store.refreshAll() }
-                } label: {
-                    Label("podcast_refresh_all", systemImage: "arrow.clockwise")
-                }
-                .disabled(store.shows.isEmpty || store.isRefreshingAll)
-                if !store.shows.isEmpty {
-                    ShareLink(item: PodcastOPMLDocument(), preview: SharePreview(String(localized: "podcast_export_opml"))) {
-                        Label("podcast_export_opml", systemImage: "square.and.arrow.up")
-                    }
-                }
-                Divider()
-                Button {
-                    navigation.showsSettings = true
-                } label: {
-                    Label("podcast_settings", systemImage: "gearshape")
-                }
-            } label: {
-                Label("more", systemImage: "ellipsis.circle")
-            }
-            .accessibilityIdentifier("podcast.more")
+            PodcastMoreMenu(navigation: navigation)
         }
+    }
+}
+
+/// 「+」:发现、按地址添加、导入 OPML。工具栏与极简页头共用。
+struct PodcastAddMenu: View {
+    let navigation: PodcastNavigationModel
+
+    private var availability: PodcastAvailabilityService { PodcastAvailabilityService.shared }
+
+    var body: some View {
+        Menu {
+            Button {
+                navigation.showsDiscover = true
+            } label: {
+                Label("podcast_discover", systemImage: "magnifyingglass")
+            }
+            if availability.allowsCustomFeeds {
+                Button {
+                    navigation.showsAddFeed = true
+                } label: {
+                    Label("podcast_add_by_url", systemImage: "link")
+                }
+                Button {
+                    navigation.showsOPMLImporter = true
+                } label: {
+                    Label("podcast_import_opml", systemImage: "square.and.arrow.down")
+                }
+            }
+        } label: {
+            Label("podcast_add", systemImage: "plus")
+        }
+        .accessibilityIdentifier("podcast.add")
+    }
+}
+
+/// 「…」:刷新、导出、设置。工具栏与极简页头共用。
+struct PodcastMoreMenu: View {
+    let navigation: PodcastNavigationModel
+    var systemImage = "ellipsis.circle"
+
+    private var store: PodcastStore { PodcastStore.shared }
+
+    var body: some View {
+        Menu {
+            Button {
+                Task { await store.refreshAll() }
+            } label: {
+                Label("podcast_refresh_all", systemImage: "arrow.clockwise")
+            }
+            .disabled(store.shows.isEmpty || store.isRefreshingAll)
+            if !store.shows.isEmpty {
+                ShareLink(item: PodcastOPMLDocument(), preview: SharePreview(String(localized: "podcast_export_opml"))) {
+                    Label("podcast_export_opml", systemImage: "square.and.arrow.up")
+                }
+            }
+            Divider()
+            Button {
+                navigation.showsSettings = true
+            } label: {
+                Label("podcast_settings", systemImage: "gearshape")
+            }
+        } label: {
+            Label("more", systemImage: systemImage)
+        }
+        .accessibilityIdentifier("podcast.more")
     }
 }
 

@@ -2208,7 +2208,10 @@
 "metadata_writeback_stage_replace" = "wymiana źródła";
 "min" = "Min";
 "mini_player" = "Miniodtwarzacz";
-"minimal_mode_description" = "Ukrywa dolny pasek nawigacyjny, przenosi przełączanie Biblioteki na górę i otwiera Ustawienia z bocznego przycisku.";
+"minimal_mode_description" = "Ukrywa dolny pasek nawigacyjny: u góry przełączasz Główna, Muzyka, Radia i Audio, a odtwarzacz jest przypięty na dole.";
+"minimal_show_home" = "Pokazuj „Główna”";
+"minimal_tab_spoken" = "Audio";
+"minimal_radio_on_air" = "Na żywo";
 "minimal_mode_title" = "Tryb minimalny";
 "minutes" = "min";
 "modify_directories" = "Modyfikuj katalogi";
