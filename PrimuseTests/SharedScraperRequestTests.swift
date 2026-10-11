@@ -124,6 +124,38 @@ final class SharedScraperRequestTests: XCTestCase {
         XCTAssertEqual(fixture.requests.map(\.url?.path), ["/lyrics", "/encrypted/one", "/encrypted/two"])
     }
 
+    /// 已经解出一份时, 后面的候选出错不把整首歌词丢掉。
+    func testEncryptedLyricsKeepsDecodedCandidateWhenALaterOneFails() async throws {
+        let fixture = ScraperHTTPFixture { request in
+            switch request.url?.path {
+            case "/lyrics":
+                return .init(body: Data(#"{"_fetchEncryptedLyrics":true,"vars":[{"id":"one"},{"id":"two"}]}"#.utf8))
+            case "/encrypted/two": return .init(status: 500)
+            default:
+                return .init(body: Data(#"{"content":"AHmdijc1MTHRABCwNxFbxsHPIjQmJh4BTWkHTw=="}"#.utf8))
+            }
+        }
+        defer { fixture.close() }
+        let scraper = ConfigurableScraper(config: fixture.encryptedConfig(), session: fixture.session)
+        let result = try await scraper.getLyrics(externalId: "song")
+        XCTAssertTrue(result?.lrcContent?.contains("Hello") == true)
+        XCTAssertEqual(fixture.requests.map(\.url?.path), ["/lyrics", "/encrypted/one", "/encrypted/two"])
+    }
+
+    /// 一台歌词服务器明确说没有时, 另一台宕机不算这个源失败, 免得连着几首把能用的那台一起熔断。
+    func testLyricsServerMissOutweighsAnotherServersOutage() async throws {
+        let fixture = ScraperHTTPFixture { request in
+            request.url?.path == "/a" ? .init(status: 500) : .init(status: 404)
+        }
+        defer { fixture.close() }
+        let scraper = LyricsAPIServerScraper(servers: [
+            .init(address: fixture.url("a")), .init(address: fixture.url("b"))
+        ], session: fixture.session)
+        let result = try await scraper.fetchLyrics(title: "Song", artist: nil, album: nil, duration: nil)
+        XCTAssertNil(result)
+        XCTAssertEqual(fixture.requests.map(\.url?.path), ["/a", "/b"])
+    }
+
     func testCustomEndpointParsingHeadersAndHTTPUpgradeArePreserved() async throws {
         let fixture = ScraperHTTPFixture { request in
             switch request.url?.path {

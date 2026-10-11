@@ -55,8 +55,9 @@ actor LyricsAPIServerScraper: MusicScraper {
 
     /// 按列表顺序逐个请求，找到即停。
     /// - 有服务器返回歌词 → 返回该结果；
-    /// - 所有服务器都明确说没有 → nil；
-    /// - 没有找到歌词且有服务器出错 → 保留原始错误和该端点的独立冷却。
+    /// - 有服务器限流 → 抛出限流, 不被别的服务器的「没有」盖住；
+    /// - 有服务器明确说没有 → nil, 别的服务器宕机不算这个源失败(否则连着几首就把能用的那台一起熔断)；
+    /// - 全都出错 → 抛出第一个错误。
     func fetchLyrics(
         title: String,
         artist: String?,
@@ -65,7 +66,9 @@ actor LyricsAPIServerScraper: MusicScraper {
     ) async throws -> ScraperLyricsResult? {
         guard !servers.isEmpty else { return nil }
 
+        var sawNotFound = false
         var firstError: (any Error)?
+        var rateLimit: (any Error)?
 
         for server in servers {
             try Task.checkCancellation()
@@ -76,14 +79,17 @@ actor LyricsAPIServerScraper: MusicScraper {
             case .lyrics(let lrc, let plain):
                 return ScraperLyricsResult(source: .lyricsServer, lrcContent: lrc, plainText: plain)
             case .notFound:
-                continue
+                sawNotFound = true
             case .failed(let error):
                 if Self.isCancellation(error) { throw error }
+                if rateLimit == nil, case .rateLimited? = error as? ScraperError { rateLimit = error }
                 if firstError == nil { firstError = error }
             }
         }
 
         try Task.checkCancellation()
+        if let rateLimit { throw rateLimit }
+        if sawNotFound { return nil }
         if let firstError { throw firstError }
         return nil
     }
@@ -162,6 +168,12 @@ actor LyricsAPIServerScraper: MusicScraper {
             }
         } catch let failure as HTTPResponseFailure where failure.statusCode == 404 {
             return .notFound
+        } catch let failure as HTTPResponseFailure where failure.statusCode != 429 && failure.statusCode != 503 {
+            plog("🎤 [LyricsAPI] \(host): failed with HTTP \(failure.statusCode)")
+            // 设置页「测试」要看得出是凭据错还是服务器坏了, 状态码说明用系统自带的本地化文案。
+            return .failed(ScraperError.networkError(
+                "HTTP \(failure.statusCode) \(HTTPURLResponse.localizedString(forStatusCode: failure.statusCode))"
+            ))
         } catch {
             if !isCancellation(error) {
                 plog("🎤 [LyricsAPI] \(host): request error \(error.localizedDescription)")

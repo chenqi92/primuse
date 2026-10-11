@@ -19,7 +19,8 @@ actor ScraperRequestPool {
 
     func executor(for key: Key) -> RequestExecutor {
         if let existing = executors[key] { return existing }
-        let executor = RequestExecutor(policy: .init(maximumConcurrentRequests: 1), timing: timing)
+        // 节奏靠每次调用的请求间隔, 并发和以前一样允许重叠: 手动刮削页的缩略图不必逐张排队。
+        let executor = RequestExecutor(policy: .init(maximumConcurrentRequests: 4), timing: timing)
         executors[key] = executor
         return executor
     }

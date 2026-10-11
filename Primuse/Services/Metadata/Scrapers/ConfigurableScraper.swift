@@ -242,7 +242,17 @@ actor ConfigurableScraper: MusicScraper {
         var best: ScraperLyricsResult?
         var bestLen = 0
         for vars in varsList.prefix(5) {
-            guard let result = try await fetchEncryptedLyrics(vars: vars) else { continue }
+            let candidate: ScraperLyricsResult?
+            do {
+                candidate = try await fetchEncryptedLyrics(vars: vars)
+            } catch {
+                // 已经解出一份时, 后面的候选出错(超时、5xx、限流)就停在这份上, 不把整首歌词丢掉;
+                // 一份都还没有时照常抛出, 限流和服务器故障要让调用方知道。
+                let cancelled = error is CancellationError || (error as? URLError)?.code == .cancelled
+                guard best != nil, !cancelled else { throw error }
+                break
+            }
+            guard let result = candidate else { continue }
             let len = result.lrcContent?.count ?? 0
             if len > bestLen {
                 bestLen = len
@@ -281,8 +291,10 @@ actor ConfigurableScraper: MusicScraper {
         let data: Data
         do {
             data = try await performRequest(request)
-        } catch let failure as HTTPResponseFailure where failure.statusCode == 404 {
-            return nil // A genuinely missing candidate may fall through to the next one.
+        } catch let failure as HTTPResponseFailure
+                    where (400..<500).contains(failure.statusCode) && failure.statusCode != 429 {
+            // 和下载封面一样, 除限流外的 4xx 只说明这个候选拿不到, 接着试下一个。
+            return nil
         } catch {
             throw ScraperRequestPool.scraperError(error)
         }
