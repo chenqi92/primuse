@@ -5688,3 +5688,7 @@
 "ai_consent_privacy_row" = "Built-in AI data use";
 "ai_consent_status_agreed" = "Agreed";
 "ai_consent_status_not_agreed" = "Not agreed";
+
+"source_mutation_permission_denied" = "Permission to modify source files was denied.";
+"source_mutation_read_only" = "This source does not allow file changes.";
+"metadata_writeback_local_only_notice" = "The source refused write access. Your changes were saved only in Primuse; the source file was not updated.";

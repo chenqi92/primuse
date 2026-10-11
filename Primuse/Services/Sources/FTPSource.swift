@@ -226,9 +226,16 @@ actor FTPSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     }
 
     /// 客户端错误换成音乐源统一的错误。数据连接建不起来的给出带提示的那条。
-    private nonisolated static func sourceError(for error: Error, path: String, isDirectory: Bool) -> Error {
+    nonisolated static func sourceError(for error: Error, path: String, isDirectory: Bool) -> Error {
         guard let ftpError = error as? FTPClientError else { return error }
         if ftpError.isAuthenticationFailure { return SourceError.authenticationFailed }
+        if case .replyFailure(let command, let code, _) = ftpError,
+           ["STOR", "APPE", "RNFR", "RNTO"].contains(command.uppercased()),
+           [550, 553].contains(code) {
+            // RFC 959 leaves the cause ambiguous (missing path or no access).
+            // Stop this batch, but do not claim an account-wide permission fact.
+            return SourceFileMutationError.writeRejected(ftpError.description)
+        }
         if ftpError.isPathFailure {
             return isDirectory ? SourceError.pathNotFound(path) : SourceError.fileNotFound(path)
         }

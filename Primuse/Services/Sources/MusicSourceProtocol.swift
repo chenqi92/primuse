@@ -1671,6 +1671,11 @@ extension MusicSourceConnector {
                 if case .conflict = error { throw error }
                 lastError = error
             } catch {
+                if let denial = MetadataWriteFailurePolicy.denial(error) {
+                    throw EmbeddedMetadataCoordinatedWritebackError.accessDenied(
+                        source: "Lyrics", stage: .readback, reason: denial
+                    )
+                }
                 lastError = error
             }
         }

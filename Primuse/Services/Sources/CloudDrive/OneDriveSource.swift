@@ -138,6 +138,7 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
             throw CloudDriveError.invalidResponse
         }
         if sessionHTTP.statusCode == 401 { throw CloudDriveError.tokenExpired }
+        if sessionHTTP.statusCode == 403 { throw uploadAccessError(status: 403, body: sessionData) }
         if sessionHTTP.statusCode == 409 || sessionHTTP.statusCode == 412 {
             throw EmbeddedMetadataWritebackSourceError.conflict
         }
@@ -210,6 +211,28 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
         }
     }
 
+    nonisolated static func uploadAccessError(status: Int, body: Data) -> CloudDriveError {
+        // 403 can also require a new conditional-access challenge. Preserve
+        // that failure instead of treating it as a read-only library.
+        if status == 403,
+           let json = try? JSONSerialization.jsonObject(with: body.prefix(16 * 1024)) as? [String: Any],
+           var error = json["error"] as? [String: Any] {
+            var accessDenied = false
+            for _ in 0..<8 {
+                if let code = error["code"] as? String {
+                    guard code.lowercased() == "accessdenied" else {
+                        return .apiError(status, "OneDrive upload rejected")
+                    }
+                    accessDenied = true
+                }
+                guard let inner = (error["innererror"] ?? error["innerError"]) as? [String: Any] else { break }
+                error = inner
+            }
+            if accessDenied { return .permissionDenied(.fileWrite) }
+        }
+        return .apiError(status, "OneDrive upload rejected")
+    }
+
     private static func confirmedUploadedItem(
         data: Data,
         response: URLResponse
@@ -218,6 +241,7 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
             throw CloudDriveError.invalidResponse
         }
         if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
+        if http.statusCode == 403 { throw uploadAccessError(status: 403, body: data) }
         if http.statusCode == 409 || http.statusCode == 412 {
             throw EmbeddedMetadataWritebackSourceError.conflict
         }
@@ -754,6 +778,7 @@ actor OneDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayN
             }
             if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
             guard (200...299).contains(http.statusCode) else {
+                if http.statusCode == 403 { throw Self.uploadAccessError(status: 403, body: responseData) }
                 throw CloudDriveError.apiError(http.statusCode, "sidecar upload failed")
             }
             guard let responseJSON = try JSONSerialization.jsonObject(with: responseData) as? [String: Any],

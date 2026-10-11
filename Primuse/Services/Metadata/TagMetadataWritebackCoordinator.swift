@@ -9,6 +9,7 @@ struct TagMetadataWritebackReport: Sendable {
     /// For embedded writes: what the file held before, so an undo can put
     /// back the file's own values.
     var previousFileTags: EmbeddedMetadataVerification? = nil
+    var localSaveNotice: String?
 
     var failedFields: [TagMetadataFieldWritebackResult] {
         fields.filter {
@@ -25,7 +26,7 @@ struct TagMetadataWritebackReport: Sendable {
     }
 
     var hasFailures: Bool { !failedFields.isEmpty }
-    var hasNotices: Bool { hasFailures || !unsupportedFields.isEmpty }
+    var hasNotices: Bool { localSaveNotice != nil || hasFailures || !unsupportedFields.isEmpty }
     var remoteMutationOccurred: Bool {
         fields.contains {
             if case .written = $0.disposition { return true }
@@ -33,8 +34,8 @@ struct TagMetadataWritebackReport: Sendable {
         }
     }
 
-    /// Embedded-file replacement is one guarded transaction. A failed result
-    /// must not be silently converted into a local-only edit. Media-server and
+    /// Embedded-file replacement is one guarded transaction. Only a definite
+    /// write denial permits a disclosed local-only save. Media-server and
     /// sidecar APIs may partially succeed, so their local row must still be
     /// brought in line with the requested values while the per-field report is
     /// shown to the user.
@@ -43,6 +44,7 @@ struct TagMetadataWritebackReport: Sendable {
     }
 
     var issueMessage: String? {
+        if let localSaveNotice { return localSaveNotice }
         if mode == .embedded {
             let failureMessages = failedFields.compactMap { result -> String? in
                 if case .failed(let message) = result.disposition { return message }
@@ -116,7 +118,12 @@ enum TagMetadataWritebackCoordinator {
                 report.replacementAfterFailedVerification = relocated
                 report.setDisposition(.failed(error.localizedDescription), for: changed)
             } catch {
-                report.setDisposition(.failed(error.localizedDescription), for: changed)
+                if MetadataWriteFailurePolicy.allowsLocalSave(error) {
+                    report.setDisposition(.localOnly, for: changed)
+                    report.localSaveNotice = MetadataWriteFailurePolicy.localSaveNotice
+                } else {
+                    report.setDisposition(.failed(error.localizedDescription), for: changed)
+                }
             }
 
         case .serverAPI:
@@ -169,6 +176,9 @@ enum TagMetadataWritebackCoordinator {
             )
             if result.coverWritten {
                 report.setDisposition(.written, for: [.cover])
+            } else if result.coverWriteDenied {
+                report.setDisposition(.localOnly, for: [.cover])
+                report.localSaveNotice = MetadataWriteFailurePolicy.localSaveNotice
             } else {
                 let detail = result.coverError
                     ?? result.errors.first

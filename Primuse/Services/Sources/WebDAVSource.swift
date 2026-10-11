@@ -1614,7 +1614,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         )
         let (data, response) = try await TrustedHTTPTransport.data(
             for: request,
-            session: try requireTransportSession(rangeSession),
+            session: try requireTransportSession(mutationSession ?? rangeSession),
             maxBytes: 1024 * 1024
         )
         guard let http = response as? HTTPURLResponse else {
@@ -1705,6 +1705,11 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
     }
 
     private func send(data: Data, for request: URLRequest) async throws -> URLResponse {
+        if let mutationSession {
+            var request = request
+            request.httpBody = data
+            return try await TrustedHTTPTransport.data(for: request, session: mutationSession).1
+        }
         if let url = request.url, TrustedHTTPTransport.requiresPlainSocket(for: url) {
             var request = request
             request.httpBody = data
@@ -1731,9 +1736,9 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         if http.statusCode == 412 || http.statusCode == 409 || http.statusCode == 423 {
             throw EmbeddedMetadataWritebackSourceError.conflict
         }
-        if http.statusCode == 401 || http.statusCode == 403 {
-            throw SourceError.authenticationFailed
-        }
+        if http.statusCode == 401 { throw SourceError.authenticationFailed }
+        if http.statusCode == 403 { throw SourceFileMutationError.permissionDenied }
+        if http.statusCode == 405 { throw SourceFileMutationError.readOnly }
         guard (200...299).contains(http.statusCode) else {
             throw SourceError.connectionFailed("WebDAV \(operation) failed: HTTP \(http.statusCode)")
         }

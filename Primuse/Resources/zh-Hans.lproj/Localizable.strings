@@ -6021,3 +6021,7 @@
 "ai_consent_privacy_row" = "内置 AI 的数据说明";
 "ai_consent_status_agreed" = "已同意";
 "ai_consent_status_not_agreed" = "未同意";
+
+"source_mutation_permission_denied" = "没有修改源文件的权限。";
+"source_mutation_read_only" = "该来源不允许修改文件。";
+"metadata_writeback_local_only_notice" = "来源拒绝写入。修改已仅保存在 Primuse，源文件未更新。";

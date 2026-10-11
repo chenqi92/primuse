@@ -401,6 +401,9 @@ enum LyricsWriteback {
         /// 这里失败不回滚保存，只交给调用方提示。「只嵌入」时嵌入就是这次保存本身，
         /// 失败走 `errorMessage`。
         var embeddedCopyError: String?
+        /// Only a definite rejected write, before remote verification, can
+        /// enter the existing local-override transaction.
+        var allowsLocalFallback = false
 
         var succeeded: Bool { errorMessage == nil }
 
@@ -435,7 +438,7 @@ enum LyricsWriteback {
         guard !Task.isCancelled else { return cancelledSave(for: song, mode: mode) }
         let mutationKey = mutationKey(for: song, mode: mode)
         await mutationGate.acquire(mutationKey)
-        let outcome = await performSave(
+        var outcome = await performSave(
             text: text,
             for: song,
             mode: mode,
@@ -446,6 +449,15 @@ enum LyricsWriteback {
             sourceManager: sourceManager,
             library: library
         )
+        if outcome.allowsLocalFallback, !normalized(text).isEmpty, !Task.isCancelled {
+            outcome = await performSave(
+                text: text, for: song,
+                mode: .localOnly(reason: MetadataWriteFailurePolicy.localSaveNotice),
+                allowRemoval: false, structuredLines: structuredLines,
+                sourceSnapshot: sourceSnapshot, cacheSnapshot: cacheSnapshot,
+                sourceManager: sourceManager, library: library
+            )
+        }
         await mutationGate.release(mutationKey)
         return outcome
     }
@@ -732,7 +744,7 @@ enum LyricsWriteback {
                 }
                 // Once the source write starts, finish its cache transaction
                 // even if the presenting view has since been dismissed.
-                let writeError: String?
+                let writeError: WriteFailure?
                 if skipsLyricsFile {
                     embeddedCopy = await writeEmbeddedCopy(
                         .set(embeddedCopyContent(writebackLines)),
@@ -740,7 +752,9 @@ enum LyricsWriteback {
                         sourceManager: sourceManager,
                         library: library
                     )
-                    writeError = embeddedCopy.failureReason
+                    writeError = embeddedCopy.failureReason.map {
+                        WriteFailure($0, allowsLocalSave: embeddedCopy.allowsLocalSave)
+                    }
                 } else {
                     writeError = await write(
                         writebackLines,
@@ -761,14 +775,16 @@ enum LyricsWriteback {
                             token: externalMutationToken
                         )
                     }
-                    return SaveOutcome(
+                    var failure = SaveOutcome(
                         updatedSong: song,
                         errorMessage: String(
                             format: String(localized: "tag_editor_lyrics_write_failed"),
-                            error
+                            error.message
                         ),
                         persistence: requestedPersistence
                     )
+                    failure.allowsLocalFallback = error.allowsLocalSave
+                    return failure
                 }
             }
             let cacheStored: Bool
@@ -856,7 +872,7 @@ enum LyricsWriteback {
             persistence: savedPersistence,
             cacheSnapshot: savedCacheSnapshot
         )
-        if case .failed(let reason) = embeddedCopy {
+        if case .failed(let reason, _) = embeddedCopy {
             outcome.embeddedCopyError = reason
         }
         return outcome
@@ -882,11 +898,16 @@ enum LyricsWriteback {
         /// 没开嵌入，或者这首歌的来源 / 格式不参与嵌入。
         case notAttempted
         case written(EmbeddedFileIdentity)
-        case failed(String)
+        case failed(String, allowsLocalSave: Bool = false)
 
         var failureReason: String? {
-            if case .failed(let reason) = self { return reason }
+            if case .failed(let reason, _) = self { return reason }
             return nil
+        }
+
+        var allowsLocalSave: Bool {
+            if case .failed(_, let allowed) = self { return allowed }
+            return false
         }
     }
 
@@ -930,7 +951,8 @@ enum LyricsWriteback {
             ))
         } catch {
             plog("⚠️ Embedded lyrics copy failed for songID=\(song.id): \(error.localizedDescription)")
-            return .failed(error.localizedDescription)
+            return .failed(error.localizedDescription,
+                           allowsLocalSave: MetadataWriteFailurePolicy.allowsLocalSave(error))
         }
     }
 
@@ -1110,26 +1132,35 @@ enum LyricsWriteback {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// 返回 nil 表示成功，否则是给用户看的错误原因。
+    private struct WriteFailure {
+        let message: String
+        let allowsLocalSave: Bool
+        init(_ message: String, allowsLocalSave: Bool = false) {
+            self.message = message
+            self.allowsLocalSave = allowsLocalSave
+        }
+    }
+
+    /// Retain the permission result until the local cache transaction commits.
     private static func write(
         _ lines: [LyricLine],
         content: String,
         for song: Song,
         mode: Mode,
         sourceManager: SourceManager
-    ) async -> String? {
+    ) async -> WriteFailure? {
         switch mode {
         case .localOnly:
             return nil
         case .checking:
-            return String(localized: "tag_editor_lyrics_writeback_checking")
+            return WriteFailure(String(localized: "tag_editor_lyrics_writeback_checking"))
         case .unavailable(let reason):
-            return reason
+            return WriteFailure(reason)
         case .temporarilyUnavailable(let reason):
-            return String(
+            return WriteFailure(String(
                 format: String(localized: "tag_editor_lyrics_writeback_retry"),
                 reason
-            )
+            ))
         case .sidecar(let target):
             do {
                 let result = try await MusicScraperService.writeSidecarWithTimeout(
@@ -1142,10 +1173,11 @@ enum LyricsWriteback {
                     expectedLyricsTarget: target
                 )
                 if result.lyricsTargetChanged {
-                    return String(localized: "tag_editor_lyrics_verify_failed")
+                    return WriteFailure(String(localized: "tag_editor_lyrics_verify_failed"))
                 }
                 guard result.lyricsWritten else {
-                    return result.errors.joined(separator: "\n")
+                    return WriteFailure(result.errors.joined(separator: "\n"),
+                                        allowsLocalSave: result.lyricsWriteDenied)
                 }
                 guard let verified = result.verifiedLyricsWrite,
                       verified.target == target,
@@ -1153,11 +1185,12 @@ enum LyricsWriteback {
                         content,
                         verified.content
                       ) else {
-                    return String(localized: "tag_editor_lyrics_verify_failed")
+                    return WriteFailure(String(localized: "tag_editor_lyrics_verify_failed"))
                 }
                 return nil
             } catch {
-                return SourceErrorPresentation.userFacingDescription(error)
+                return WriteFailure(SourceErrorPresentation.userFacingDescription(error),
+                                    allowsLocalSave: MetadataWriteFailurePolicy.allowsLocalSave(error))
             }
         case .mediaServer:
             let result = await sourceManager.writeScrapedMetadataToMediaServer(
@@ -1168,14 +1201,14 @@ enum LyricsWriteback {
                 lyricsContent: content
             )
             guard result.lyricsWritten else {
-                return (result.errors + result.unsupported).joined(separator: "\n")
+                return WriteFailure((result.errors + result.unsupported).joined(separator: "\n"))
             }
             guard await verifyMediaServerWrite(
                 expectedContent: content,
                 song: song,
                 sourceManager: sourceManager
             ) else {
-                return String(localized: "tag_editor_lyrics_verify_failed")
+                return WriteFailure(String(localized: "tag_editor_lyrics_verify_failed"))
             }
             return nil
         }
