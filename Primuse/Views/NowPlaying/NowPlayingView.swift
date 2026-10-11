@@ -4780,7 +4780,10 @@ struct NowPlayingView: View {
                 }
 
                 if !showsText || !isLyricsChromeCollapsed {
-                    AudiobookCurrentPartRow(style: style) { openContentsPanel() }
+                    AudiobookCurrentPartRow(
+                        style: style,
+                        showsPartButtons: spokenWordControlLayout.showsChapterButtons
+                    ) { openContentsPanel() }
                         .padding(.top, showsText ? 8 : 0)
                         .pmLayoutSwitchFade()
 
