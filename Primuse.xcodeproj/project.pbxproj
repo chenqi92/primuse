@@ -604,6 +604,7 @@
 		4D3A6BFB31C8699E95C3469D /* TVCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FFB43F39C3A62C7EBDB2D72 /* TVCredentialStore.swift */; };
 		4D8C3FF9D79817779D622D03 /* ID3TextMetadataParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBCB026F846B0E1D4C27C84B /* ID3TextMetadataParser.swift */; };
 		4D970484FA45E36B191F0C9D /* ConfigurableScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFBD55481DE18F95FCC74F76 /* ConfigurableScraper.swift */; };
+		647E5BB9FC5A4D4788C57CA1 /* ScraperRequestPool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A6022C099EC423D9D863D72 /* ScraperRequestPool.swift */; };
 		4D9FDCB6AB92B02FFCFD83D4 /* SourceTypeSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C50B958D5A7FEF1F9E8AD24 /* SourceTypeSelectionView.swift */; };
 		4DAD8EC05A5F9510CE5999B3 /* SiriMediaInteractionDonor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BCC0F5CA18E10E082FBC516 /* SiriMediaInteractionDonor.swift */; };
 		4DC0539B60873695B56A4A2E /* MacVolumeSliderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87C23687A99BD4C594B6B2E /* MacVolumeSliderTests.swift */; };
@@ -1301,6 +1302,7 @@
 		AC6DAD24753064DCAD4E341D /* AudioPlayerService+RemoteCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5331651FCE7FBFE2A8CC03EC /* AudioPlayerService+RemoteCommands.swift */; };
 		AC6ED25820841EE5C609C02F /* AudioVariant.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32F778D8EA0EFEED085C66B6 /* AudioVariant.swift */; };
 		AC84041343887F15207D3736 /* ConfigurableScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFBD55481DE18F95FCC74F76 /* ConfigurableScraper.swift */; };
+		F86921E487074FE5B999C30B /* ScraperRequestPool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A6022C099EC423D9D863D72 /* ScraperRequestPool.swift */; };
 		AC890ABEFC36A612F24D411B /* PlaylistPendingEntryRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6E66686E2D510DC7D6E6DD0 /* PlaylistPendingEntryRow.swift */; };
 		AC8C2032CECB70E36A882108 /* SmartNudgeCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D6C666CF15C82AE6B8454A0 /* SmartNudgeCenter.swift */; };
 		ACA5BF36C76363FF308627C8 /* ScraperTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60D668FE9811EE6FEF380039 /* ScraperTypes.swift */; };
@@ -1388,6 +1390,7 @@
 		B6CD07FE56C371DD5F2BE645 /* MusicKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D6E42DE76604B6F68D25E74F /* MusicKit.framework */; };
 		B6D097684F4D0927BB7880C3 /* EqualizerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 181EE28124D9CD151E0338E1 /* EqualizerView.swift */; };
 		B6E7BB06598F59D02E16C726 /* ConfigurableScraper.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFBD55481DE18F95FCC74F76 /* ConfigurableScraper.swift */; };
+		1EFF581108814A13AF68D4E1 /* ScraperRequestPool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A6022C099EC423D9D863D72 /* ScraperRequestPool.swift */; };
 		B71770DEE92F0EB8C0F8D470 /* TrustedHTTPTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABB95B932C07091233475361 /* TrustedHTTPTransport.swift */; };
 		B786B6AEA6CACEA58889EAA6 /* AISettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 767016AFD74B46B9E0E7AE80 /* AISettingsView.swift */; };
 		B7C95AD987F7406BA8D62C7D /* CoverTintProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30B7398D5BCEB0CAED2FB0E0 /* CoverTintProvider.swift */; };
@@ -1540,6 +1543,7 @@
 		DFBD6CDFA9B74A00A97F22A8 /* BaiduWriteReplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23DCD3C94AF4401ADEB4284 /* BaiduWriteReplayTests.swift */; };
 		0F60D48ACA0F465AB327CE87 /* ReadOnlyMetadataWritebackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 193A9FDE80774FCD86C674E5 /* ReadOnlyMetadataWritebackTests.swift */; };
 		E0B092384C0C2A7F07C6DF68 /* LRCLIBHTTPErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65C163A6A5CD5B15DA0A6D1D /* LRCLIBHTTPErrorTests.swift */; };
+		3C5C4975EA0A47B097FC2411 /* SharedScraperRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10F38857338430894508706 /* SharedScraperRequestTests.swift */; };
 		CB4E9F3D6D435EECF77E5C86 /* AudioPlayerService+DecodedBufferHealth.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4324489CFAF380249864F70 /* AudioPlayerService+DecodedBufferHealth.swift */; };
 		CB648169CAB8C331E9F47A60 /* AudioQualityBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 057DEC08E8DF0DA7DDE5DFDA /* AudioQualityBadge.swift */; };
 		CBF80DCFF81D6AD88D25A143 /* NFSBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44B4D0FC334BC388026F33AF /* NFSBrowserView.swift */; };
@@ -3312,6 +3316,7 @@
 		F23DCD3C94AF4401ADEB4284 /* BaiduWriteReplayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduWriteReplayTests.swift; sourceTree = "<group>"; };
 		193A9FDE80774FCD86C674E5 /* ReadOnlyMetadataWritebackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadOnlyMetadataWritebackTests.swift; sourceTree = "<group>"; };
 		65C163A6A5CD5B15DA0A6D1D /* LRCLIBHTTPErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LRCLIBHTTPErrorTests.swift; sourceTree = "<group>"; };
+		A10F38857338430894508706 /* SharedScraperRequestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedScraperRequestTests.swift; sourceTree = "<group>"; };
 		D097BC8C61181C5D4A7DF1DE /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/HomeDiscovery.strings"; sourceTree = "<group>"; };
 		D09F74F18E7CED7C6CDC0960 /* MacDetailContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacDetailContainer.swift; sourceTree = "<group>"; };
 		D0A71AAEE4DA4554D813FB07 /* SourceRoutePathCondition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceRoutePathCondition.swift; sourceTree = "<group>"; };
@@ -3463,6 +3468,7 @@
 		EF05E72BAE806E5D952FD853 /* AudioCachePrewarmSeedRetention.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCachePrewarmSeedRetention.swift; sourceTree = "<group>"; };
 		EFA3B23764DBF5882B2C110B /* WiFiTransferComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiTransferComponents.swift; sourceTree = "<group>"; };
 		EFBD55481DE18F95FCC74F76 /* ConfigurableScraper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigurableScraper.swift; sourceTree = "<group>"; };
+		2A6022C099EC423D9D863D72 /* ScraperRequestPool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperRequestPool.swift; sourceTree = "<group>"; };
 		EFD63F112AA867682EF92E84 /* pt-BR */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "pt-BR"; path = "pt-BR.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		F032004B023B2AE64349E763 /* TVArtistArtworkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVArtistArtworkView.swift; sourceTree = "<group>"; };
 		F10291362C83153950BFA661 /* Artist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Artist.swift; sourceTree = "<group>"; };
@@ -4979,6 +4985,7 @@
 			isa = PBXGroup;
 			children = (
 				EFBD55481DE18F95FCC74F76 /* ConfigurableScraper.swift */,
+				2A6022C099EC423D9D863D72 /* ScraperRequestPool.swift */,
 				A1254C88A6F33F2A3A73C2CA /* ITunesScraper.swift */,
 				1AE8A78DAC80BEED65803A6B /* LRCLIBScraper.swift */,
 				24082B378949CAB023E24737 /* LyricsAPIServerScraper.swift */,
@@ -5357,6 +5364,7 @@
 				F23DCD3C94AF4401ADEB4284 /* BaiduWriteReplayTests.swift */,
 				193A9FDE80774FCD86C674E5 /* ReadOnlyMetadataWritebackTests.swift */,
 				65C163A6A5CD5B15DA0A6D1D /* LRCLIBHTTPErrorTests.swift */,
+				A10F38857338430894508706 /* SharedScraperRequestTests.swift */,
 				DC9A72F47CEAEE9E5E4FBD77 /* S3ListParserTests.swift */,
 				5AE30173F72CE7372ADE8A89 /* SceneConfigurationManifestTests.swift */,
 				04268E35349CDAE4C8DCD94E /* ScrapeOptionsTaskTests.swift */,
@@ -6188,6 +6196,7 @@
 				DFBD6CDFA9B74A00A97F22A8 /* BaiduWriteReplayTests.swift in Sources */,
 				0F60D48ACA0F465AB327CE87 /* ReadOnlyMetadataWritebackTests.swift in Sources */,
 				E0B092384C0C2A7F07C6DF68 /* LRCLIBHTTPErrorTests.swift in Sources */,
+				3C5C4975EA0A47B097FC2411 /* SharedScraperRequestTests.swift in Sources */,
 				DB4010B0AE18307DA6D513CB /* S3ListParserTests.swift in Sources */,
 				A68A52AF7A538EACFAA946A1 /* SceneConfigurationManifestTests.swift in Sources */,
 				E08851B7FF43EDE50DB58AEB /* ScrapeOptionsTaskTests.swift in Sources */,
@@ -6804,6 +6813,7 @@
 				A9DD7317C287D195447D9579 /* CloudTokenManager.swift in Sources */,
 				641FE5B409FA2270148D3110 /* CollectionCoverWallHeader.swift in Sources */,
 				B6E7BB06598F59D02E16C726 /* ConfigurableScraper.swift in Sources */,
+				1EFF581108814A13AF68D4E1 /* ScraperRequestPool.swift in Sources */,
 				8D22835D95FCE463FE58F179 /* ConnectionFlowView.swift in Sources */,
 				C0CCDE0A3022B35ACE45FC5A /* ConnectorDirectoryBrowserView.swift in Sources */,
 				AC59DE9888AE217101D69E03 /* ConnectorScanner.swift in Sources */,
@@ -7241,6 +7251,7 @@
 				48AE372B0E642F6C7473D093 /* CloudSyncChannel.swift in Sources */,
 				EF8C3D1689C554C52CE908A1 /* CloudTokenManager.swift in Sources */,
 				AC84041343887F15207D3736 /* ConfigurableScraper.swift in Sources */,
+				F86921E487074FE5B999C30B /* ScraperRequestPool.swift in Sources */,
 				A748ED551BC50DF0C4E877BF /* DrimeSource.swift in Sources */,
 				F96F6724D08B5EDCD5B75987 /* DropboxSource.swift in Sources */,
 				97032CCE0E754A3C0D12AF90 /* DuplicateDetector.swift in Sources */,
@@ -7522,6 +7533,7 @@
 				B5F0628AAE0C7C40B2803778 /* CloudTokenManager.swift in Sources */,
 				20D5D5BDCD79C1F4FEC6BE59 /* CollectionCoverWallHeader.swift in Sources */,
 				4D970484FA45E36B191F0C9D /* ConfigurableScraper.swift in Sources */,
+				647E5BB9FC5A4D4788C57CA1 /* ScraperRequestPool.swift in Sources */,
 				78E6FE1CE7C312E4E5BA76E8 /* ConnectionFlowView.swift in Sources */,
 				04C1D7D8981AB8896412B20A /* ConnectorDirectoryBrowserView.swift in Sources */,
 				AA508472ADFA435CEA0930A3 /* ConnectorScanner.swift in Sources */,

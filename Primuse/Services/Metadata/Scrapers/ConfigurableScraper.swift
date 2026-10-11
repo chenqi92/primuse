@@ -12,8 +12,7 @@ actor ConfigurableScraper: MusicScraper {
 
     private let sessionManager: ScraperSessionManager
     private let scriptExecutionKey: String
-    private var lastRequestTime: ContinuousClock.Instant?
-    private let minInterval: Duration
+    private let requestPool: ScraperRequestPool
     nonisolated static let maxEndpointResponseBytes = 5 * 1024 * 1024
     nonisolated static let maxResourceResponseBytes = 20 * 1024 * 1024
     nonisolated static let maxScriptCharacters = 200_000
@@ -33,10 +32,13 @@ actor ConfigurableScraper: MusicScraper {
         }
     }
 
-    init(config: ScraperConfig, cookie: String? = nil) {
+    init(
+        config: ScraperConfig, cookie: String? = nil, session: URLSession? = nil,
+        requestPool: ScraperRequestPool = .shared
+    ) {
         self.config = config
         self.type = .custom(config.id)
-        self.minInterval = .milliseconds(config.rateLimit ?? 300)
+        self.requestPool = requestPool
         self.scriptExecutionKey = "\(config.id)#\(config.version)#\(config.modifiedAt?.timeIntervalSince1970 ?? 0)"
 
         var headers = config.headers ?? [:]
@@ -47,31 +49,38 @@ actor ConfigurableScraper: MusicScraper {
         plog("🔧 ConfigurableScraper init: id=\(config.id) sslTrustDomains=\(config.sslTrustDomains ?? [])")
         self.sessionManager = ScraperSessionManager(
             headers: headers,
-            trustDomains: config.sslTrustDomains ?? []
+            trustDomains: config.sslTrustDomains ?? [], session: session
         )
     }
 
     nonisolated static func downloadResource(
         from urlString: String,
         sourceConfig: ScraperSourceConfig? = nil,
-        timeout: TimeInterval = 10
+        timeout: TimeInterval = 10,
+        session: URLSession? = nil,
+        requestPool: ScraperRequestPool = .shared
     ) async throws -> Data? {
         guard !isPlaceholderEndpoint(urlString) else { return nil }
         guard let request = buildResourceRequest(from: urlString, sourceConfig: sourceConfig, timeout: timeout) else {
             return nil
         }
 
-        let sessionManager = resourceSessionManager(for: sourceConfig)
-        let (data, response) = try await sessionManager.data(for: request)
-        guard let http = response as? HTTPURLResponse else { return nil }
-        // 429 / 503 和 5xx 是源暂时出了问题，抛给调用方退避；只有其它 4xx 才算这张图不存在，
-        // 否则一轮限流会把整批歌都记成「没封面」。
-        if http.statusCode == 429 || http.statusCode == 503 {
-            throw ScraperError.rateLimited(retryAfter: retryAfterSeconds(http))
-        }
-        guard (200 ..< 300).contains(http.statusCode) else {
-            if http.statusCode >= 500 { throw ScraperError.networkError("HTTP \(http.statusCode)") }
-            return nil
+        let sessionManager = resourceSessionManager(for: sourceConfig, session: session)
+        let executor = await requestPool.executor(for: ScraperRequestPool.resourceKey(source: sourceConfig, url: request.url))
+        let context = configContext(for: sourceConfig)
+        let interval = context.map { Double(max(0, $0.config.rateLimit ?? 300)) / 1000 }
+        let data: Data
+        do {
+            data = try await executor.execute(minimumInterval: interval) {
+                try await sessionManager.data(for: request)
+            }.data
+        } catch let failure as HTTPResponseFailure {
+            // Optional missing artwork remains a miss. Quota and server errors
+            // must reach the caller instead of marking the whole batch missing.
+            if (400..<500).contains(failure.statusCode), failure.statusCode != 429 { return nil }
+            throw ScraperRequestPool.scraperError(failure)
+        } catch {
+            throw ScraperRequestPool.scraperError(error)
         }
         guard data.count <= maxResourceResponseBytes else {
             plog("⚠️ Scraper resource too large: \(data.count)B")
@@ -80,9 +89,8 @@ actor ConfigurableScraper: MusicScraper {
         return data
     }
 
-    /// Retry-After 既可能是秒数也可能是 HTTP 日期，统一换算成整秒。
-    nonisolated static func retryAfterSeconds(_ http: HTTPURLResponse) -> Int? {
-        RemoteMediaHTTPError.retryDelay(from: http).map { $0.rounded(.up).finiteInt(or: Int.max) }
+    func isCoolingDown() async -> Bool {
+        await requestPool.isCoolingDown(for: .custom(config.id))
     }
 
     // MARK: - MusicScraper
@@ -203,13 +211,13 @@ actor ConfigurableScraper: MusicScraper {
             //   4 行残缺, ugc 投稿版才是全曲"的情况)
             if let varsList = dict["vars"] as? [[String: Any]], !varsList.isEmpty {
                 plog("🔐 \(config.id) getLyrics → _fetchEncryptedLyrics with \(varsList.count) candidates")
-                let result = await fetchBestEncryptedLyrics(varsList: varsList)
+                let result = try await fetchBestEncryptedLyrics(varsList: varsList)
                 plog("🔐 \(config.id) fetchBestEncryptedLyrics result: hasResult=\(result != nil) lrcLen=\(result?.lrcContent?.count ?? 0)")
                 return result
             }
             if let vars = dict["vars"] as? [String: Any] {
                 plog("🔐 \(config.id) getLyrics → _fetchEncryptedLyrics with vars=\(vars)")
-                let result = await fetchEncryptedLyrics(vars: vars)
+                let result = try await fetchEncryptedLyrics(vars: vars)
                 plog("🔐 \(config.id) fetchEncryptedLyrics result: hasResult=\(result != nil) lrcLen=\(result?.lrcContent?.count ?? 0)")
                 return result
             }
@@ -230,11 +238,11 @@ actor ConfigurableScraper: MusicScraper {
     /// 多候选版本:依次 try, 选解密后 plain text 最长的那个 (= 最完整歌词)。
     /// 有些源 candidates 按 score 排但 score 高 ≠ 内容全, 第一个常是 4 行
     /// 残缺版, 第 2-3 个 ugc 投稿才是全曲。最多 try 5 个避免拉太多。
-    private func fetchBestEncryptedLyrics(varsList: [[String: Any]]) async -> ScraperLyricsResult? {
+    private func fetchBestEncryptedLyrics(varsList: [[String: Any]]) async throws -> ScraperLyricsResult? {
         var best: ScraperLyricsResult?
         var bestLen = 0
         for vars in varsList.prefix(5) {
-            guard let result = await fetchEncryptedLyrics(vars: vars) else { continue }
+            guard let result = try await fetchEncryptedLyrics(vars: vars) else { continue }
             let len = result.lrcContent?.count ?? 0
             if len > bestLen {
                 bestLen = len
@@ -250,7 +258,7 @@ actor ConfigurableScraper: MusicScraper {
     /// - `lyricsContentField`: JSON 路径取 base64 内容字段名（如 `"content"`）
     /// - `lyricsMagicHex`: 二进制 magic 前缀的 hex 串
     /// - `lyricsXorKeyHex`: 异或 key 的 hex 串
-    private func fetchEncryptedLyrics(vars: [String: Any]) async -> ScraperLyricsResult? {
+    private func fetchEncryptedLyrics(vars: [String: Any]) async throws -> ScraperLyricsResult? {
         guard let secrets = config.secrets,
               let template = secrets["lyricsFetchUrl"], !template.isEmpty,
               let contentField = secrets["lyricsContentField"], !contentField.isEmpty,
@@ -270,55 +278,41 @@ actor ConfigurableScraper: MusicScraper {
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
 
+        let data: Data
         do {
-            let (data, _) = try await sessionManager.data(for: request)
-            guard data.count <= Self.maxEndpointResponseBytes else {
-                plog("⚠️ Encrypted lyrics: response too large (\(data.count)B)")
-                return nil
-            }
-            plog("🔐 Encrypted lyrics: fetched \(data.count) bytes from \(Self.redactedURLDescription(url))")
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                plog("⚠️ Encrypted lyrics: response not JSON, head=\(String(data: data.prefix(200), encoding: .utf8) ?? "?")")
-                return nil
-            }
-            guard let base64 = json[contentField] as? String, !base64.isEmpty else {
-                plog("⚠️ Encrypted lyrics: missing/empty contentField '\(contentField)' in response keys=\(Array(json.keys))")
-                return nil
-            }
-            guard let binary = Data(base64Encoded: base64) else {
-                plog("⚠️ Encrypted lyrics: base64 decode failed (len=\(base64.count))")
-                return nil
-            }
-            guard let plain = XorZlibLyricsDecoder.decrypt(binary, magicPrefix: magic, xorKey: xorKey) else {
-                plog("⚠️ Encrypted lyrics: xor+zlib decrypt failed (binary len=\(binary.count) magicMatch=\(binary.prefix(magic.count) == magic))")
-                return nil
-            }
-            let (lineLrc, wordLrc) = XorZlibLyricsDecoder.relativeOffsetToA2(plain)
-            let final = wordLrc.isEmpty ? lineLrc : wordLrc
-            plog("🔐 Encrypted lyrics: decoded plain=\(plain.count) chars → wordLrc=\(wordLrc.count) lineLrc=\(lineLrc.count)")
-            guard !final.isEmpty else { return nil }
-            return ScraperLyricsResult(source: type, lrcContent: final)
+            data = try await performRequest(request)
+        } catch let failure as HTTPResponseFailure where failure.statusCode == 404 {
+            return nil // A genuinely missing candidate may fall through to the next one.
         } catch {
-            plog("⚠️ Encrypted lyrics: network failure \(error.localizedDescription)")
+            throw ScraperRequestPool.scraperError(error)
+        }
+        plog("🔐 Encrypted lyrics: fetched \(data.count) bytes from \(Self.redactedURLDescription(url))")
+        guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            plog("⚠️ Encrypted lyrics: response not JSON, head=\(String(data: data.prefix(200), encoding: .utf8) ?? "?")")
             return nil
         }
+        guard let base64 = json[contentField] as? String, !base64.isEmpty else {
+            plog("⚠️ Encrypted lyrics: missing/empty contentField '\(contentField)' in response keys=\(Array(json.keys))")
+            return nil
+        }
+        guard let binary = Data(base64Encoded: base64) else {
+            plog("⚠️ Encrypted lyrics: base64 decode failed (len=\(base64.count))")
+            return nil
+        }
+        guard let plain = XorZlibLyricsDecoder.decrypt(binary, magicPrefix: magic, xorKey: xorKey) else {
+            plog("⚠️ Encrypted lyrics: xor+zlib decrypt failed (binary len=\(binary.count) magicMatch=\(binary.prefix(magic.count) == magic))")
+            return nil
+        }
+        let (lineLrc, wordLrc) = XorZlibLyricsDecoder.relativeOffsetToA2(plain)
+        let final = wordLrc.isEmpty ? lineLrc : wordLrc
+        plog("🔐 Encrypted lyrics: decoded plain=\(plain.count) chars → wordLrc=\(wordLrc.count) lineLrc=\(lineLrc.count)")
+        guard !final.isEmpty else { return nil }
+        return ScraperLyricsResult(source: type, lrcContent: final)
     }
 
     // MARK: - Request Execution
 
     private func executeRequest(endpoint: EndpointConfig, vars: [String: String]) async throws -> Data {
-        // Rate limiting
-        let now = ContinuousClock.now
-        let nextAllowed = lastRequestTime?.advanced(by: minInterval) ?? now
-        let reservedTime = nextAllowed > now ? nextAllowed : now
-        // Reserve the slot before suspending. Otherwise actor reentrancy lets
-        // every concurrent caller observe the same old timestamp and wake at
-        // once, defeating the configured request interval.
-        lastRequestTime = reservedTime
-        if reservedTime > now {
-            try await Task.sleep(for: now.duration(to: reservedTime))
-        }
-
         // Build URL with variable substitution
         var urlString = endpoint.url
         urlString = Self.applyURLTemplate(urlString, vars: vars)
@@ -392,24 +386,21 @@ actor ConfigurableScraper: MusicScraper {
     /// - 429 / 503 读取 Retry-After 抛 `ScraperError.rateLimited`,让 ScraperManager 退避或本轮跳过
     /// - 其它非 2xx 抛 `ScraperError.networkError`,避免把错误页/JSON 错误体当成正常响应喂给 JS 脚本(脚本会静默返回空)
     private func performValidatedRequest(_ request: URLRequest) async throws -> Data {
-        let (data, response) = try await sessionManager.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            // 非 HTTP 响应(理论上不会出现),按原行为返回 body
-            return data
+        do { return try await performRequest(request) }
+        catch { throw ScraperRequestPool.scraperError(error) }
+    }
+
+    private func performRequest(_ request: URLRequest) async throws -> Data {
+        let executor = await requestPool.executor(for: .custom(config.id))
+        let interval = Double(max(0, config.rateLimit ?? 300)) / 1000
+        // Manifests may use POST; replay is deliberately left at .never.
+        let data = try await executor.execute(minimumInterval: interval) { [sessionManager] in
+            try await sessionManager.data(for: request)
+        }.data
+        guard data.count <= Self.maxEndpointResponseBytes else {
+            throw ScraperError.networkError("Response too large: \(data.count)B")
         }
-        if (200 ..< 300).contains(http.statusCode) {
-            guard data.count <= Self.maxEndpointResponseBytes else {
-                throw ScraperError.networkError("Response too large: \(data.count)B")
-            }
-            return data
-        }
-        if http.statusCode == 429 || http.statusCode == 503 {
-            let retryAfter = Self.retryAfterSeconds(http)
-            plog("⛔️ \(config.id) HTTP \(http.statusCode) rate limited, retryAfter=\(retryAfter.map(String.init) ?? "?")")
-            throw ScraperError.rateLimited(retryAfter: retryAfter)
-        }
-        plog("⛔️ \(config.id) HTTP \(http.statusCode) for \(Self.redactedURLDescription(request.url))")
-        throw ScraperError.networkError("HTTP \(http.statusCode)")
+        return data
     }
 
     // MARK: - Template Substitution
@@ -759,10 +750,10 @@ actor ConfigurableScraper: MusicScraper {
         return request
     }
 
-    nonisolated private static func resourceSessionManager(for sourceConfig: ScraperSourceConfig?) -> ScraperSessionManager {
+    nonisolated private static func resourceSessionManager(for sourceConfig: ScraperSourceConfig?, session: URLSession?) -> ScraperSessionManager {
         ScraperSessionManager(
             headers: resourceHeaders(for: sourceConfig),
-            trustDomains: resourceTrustDomains(for: sourceConfig)
+            trustDomains: resourceTrustDomains(for: sourceConfig), session: session
         )
     }
 
@@ -1527,11 +1518,17 @@ final class ScraperSessionManager: NSObject, @unchecked Sendable {
     private let sslDelegate = SmartSSLDelegate()
     private let defaultHeaders: [String: String]
     private let trustDomains: [String]
+    private let ownsSession: Bool
 
-    init(headers: [String: String], trustDomains: [String]) {
+    init(headers: [String: String], trustDomains: [String], session: URLSession? = nil) {
         self.defaultHeaders = headers
         self.trustDomains = trustDomains
+        self.ownsSession = session == nil
         super.init()
+        if let session {
+            _session = session
+            return
+        }
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 15
         config.httpCookieStorage = nil
@@ -1549,7 +1546,7 @@ final class ScraperSessionManager: NSObject, @unchecked Sendable {
         // 带 delegate 的 URLSession 会强引用其 delegate 直到显式失效。downloadResource
         // 每次刮削资源都新建一个本类实例, 不失效就会在整库刮削时累积泄漏 session +
         // SmartSSLDelegate + 底层 socket。finishTasksAndInvalidate 让在途请求跑完再释放。
-        _session?.finishTasksAndInvalidate()
+        if ownsSession { _session?.finishTasksAndInvalidate() }
     }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {

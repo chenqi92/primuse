@@ -10,10 +10,23 @@ actor LyricsAPIServerScraper: MusicScraper {
 
     private let servers: [LyricsAPIServer]
     private let session: URLSession
+    private let requestPool: ScraperRequestPool
 
-    init(servers: [LyricsAPIServer]) {
+    init(
+        servers: [LyricsAPIServer], session: URLSession? = nil,
+        requestPool: ScraperRequestPool = .shared
+    ) {
         self.servers = servers
-        self.session = Self.makeSession()
+        self.requestPool = requestPool
+        self.session = session ?? Self.makeSession()
+    }
+
+    func isCoolingDown() async -> Bool {
+        guard !servers.isEmpty else { return false }
+        for server in servers {
+            if await !requestPool.isCoolingDown(for: ScraperRequestPool.lyricsKey(server.address)) { return false }
+        }
+        return true
     }
 
     // MARK: - MusicScraper
@@ -42,8 +55,8 @@ actor LyricsAPIServerScraper: MusicScraper {
 
     /// 按列表顺序逐个请求，找到即停。
     /// - 有服务器返回歌词 → 返回该结果；
-    /// - 至少一个服务器明确说没有、其余出错 → nil；
-    /// - 全部出错 → 抛错，让 ScraperManager 的熔断与 SSL 信任处理生效。
+    /// - 所有服务器都明确说没有 → nil；
+    /// - 没有找到歌词且有服务器出错 → 保留原始错误和该端点的独立冷却。
     func fetchLyrics(
         title: String,
         artist: String?,
@@ -52,19 +65,18 @@ actor LyricsAPIServerScraper: MusicScraper {
     ) async throws -> ScraperLyricsResult? {
         guard !servers.isEmpty else { return nil }
 
-        var sawNotFound = false
         var firstError: (any Error)?
 
         for server in servers {
             try Task.checkCancellation()
             switch await Self.query(
-                server: server, session: session,
+                server: server, session: session, requestPool: requestPool,
                 title: title, artist: artist, album: album, duration: duration
             ) {
             case .lyrics(let lrc, let plain):
                 return ScraperLyricsResult(source: .lyricsServer, lrcContent: lrc, plainText: plain)
             case .notFound:
-                sawNotFound = true
+                continue
             case .failed(let error):
                 if Self.isCancellation(error) { throw error }
                 if firstError == nil { firstError = error }
@@ -72,10 +84,8 @@ actor LyricsAPIServerScraper: MusicScraper {
         }
 
         try Task.checkCancellation()
-        if sawNotFound || firstError == nil { return nil }
-        // 保留原始 URLError（证书不受信任等），SSLTrustStore 需要从中取出域名。
-        if let urlError = firstError as? URLError { throw urlError }
-        throw ScraperError.networkError(firstError?.localizedDescription ?? "Lyrics API server request failed")
+        if let firstError { throw firstError }
+        return nil
     }
 
     // MARK: - Shared request path
@@ -104,6 +114,7 @@ actor LyricsAPIServerScraper: MusicScraper {
         server: LyricsAPIServer,
         session: URLSession,
         authorizationSource: AuthorizationSource = .keychain,
+        requestPool: ScraperRequestPool = .shared,
         title: String,
         artist: String?,
         album: String?,
@@ -126,10 +137,9 @@ actor LyricsAPIServerScraper: MusicScraper {
         }
 
         do {
-            let (data, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse else {
-                plog("🎤 [LyricsAPI] \(host): non-HTTP response")
-                return .failed(URLError(.badServerResponse))
+            let executor = await requestPool.executor(for: ScraperRequestPool.lyricsKey(server.address))
+            let (data, http) = try await executor.execute { [request] in
+                try await session.data(for: request)
             }
             let classification = LyricsAPIServerPolicy.classifyResponse(
                 statusCode: http.statusCode,
@@ -150,11 +160,13 @@ actor LyricsAPIServerScraper: MusicScraper {
                     "HTTP \(statusCode) \(HTTPURLResponse.localizedString(forStatusCode: statusCode))"
                 ))
             }
+        } catch let failure as HTTPResponseFailure where failure.statusCode == 404 {
+            return .notFound
         } catch {
             if !isCancellation(error) {
                 plog("🎤 [LyricsAPI] \(host): request error \(error.localizedDescription)")
             }
-            return .failed(error)
+            return .failed(ScraperRequestPool.scraperError(error))
         }
     }
 
@@ -206,12 +218,14 @@ extension LyricsAPIServerScraper {
         title: String,
         artist: String?,
         album: String?,
-        duration: TimeInterval?
+        duration: TimeInterval?,
+        session suppliedSession: URLSession? = nil,
+        requestPool: ScraperRequestPool = .shared
     ) async -> LyricsAPIServerProbeResult {
-        let session = makeSession()
-        defer { session.finishTasksAndInvalidate() }
+        let session = suppliedSession ?? makeSession()
+        defer { if suppliedSession == nil { session.finishTasksAndInvalidate() } }
         switch await query(
-            server: server, session: session, authorizationSource: .draft,
+            server: server, session: session, authorizationSource: .draft, requestPool: requestPool,
             title: title, artist: artist, album: album, duration: duration
         ) {
         case .lyrics(let lrc, let plain):

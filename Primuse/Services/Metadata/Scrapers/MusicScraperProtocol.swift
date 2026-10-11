@@ -3,6 +3,8 @@ import Foundation
 protocol MusicScraper: Sendable {
     var type: MusicScraperType { get }
 
+    func isCoolingDown() async -> Bool
+
     func search(query: String, artist: String?, album: String?, limit: Int) async throws -> ScraperSearchResult
 
     func getDetail(externalId: String) async throws -> ScraperDetail?
@@ -10,6 +12,10 @@ protocol MusicScraper: Sendable {
     func getCoverArt(externalId: String) async throws -> [ScraperCoverResult]
 
     func getLyrics(externalId: String) async throws -> ScraperLyricsResult?
+}
+
+extension MusicScraper {
+    func isCoolingDown() async -> Bool { false }
 }
 
 enum ScraperError: Error, LocalizedError {

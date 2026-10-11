@@ -5,10 +5,13 @@ actor LRCLIBScraper: MusicScraper {
     let type = MusicScraperType.lrclib
 
     private let session: URLSession
-    private var lastRequestTime: ContinuousClock.Instant?
-    private let minInterval: Duration = .milliseconds(200)
+    private static let serviceRequests = RequestExecutor(
+        policy: .init(minimumInterval: 0.2, maximumConcurrentRequests: 1)
+    )
+    private let requestExecutor: RequestExecutor
 
-    init(session: URLSession? = nil) {
+    init(session: URLSession? = nil, requestExecutor: RequestExecutor? = nil) {
+        self.requestExecutor = requestExecutor ?? Self.serviceRequests
         if let session {
             self.session = session
             return
@@ -17,6 +20,10 @@ actor LRCLIBScraper: MusicScraper {
         config.timeoutIntervalForRequest = 10
         config.httpAdditionalHeaders = ["User-Agent": "Primuse/1.0 (iOS Music Player)"]
         self.session = URLSession(configuration: config)
+    }
+
+    func isCoolingDown() async -> Bool {
+        await requestExecutor.isCoolingDown
     }
 
     // MARK: - MusicScraper
@@ -141,30 +148,24 @@ actor LRCLIBScraper: MusicScraper {
     // MARK: - Rate Limiting
 
     private func throttledRequest(url: URL) async throws -> Data {
-        let now = ContinuousClock.now
-        let nextAllowed = lastRequestTime?.advanced(by: minInterval) ?? now
-        let reservedTime = nextAllowed > now ? nextAllowed : now
-        lastRequestTime = reservedTime
-        if reservedTime > now {
-            try await Task.sleep(for: now.duration(to: reservedTime))
-        }
-        let (data, response) = try await session.data(from: url)
-        guard let http = response as? HTTPURLResponse else {
+        do {
+            // Keep one attempt per lookup; later songs share the same cooldown.
+            return try await requestExecutor.execute { [session] in
+                try await session.data(from: url)
+            }.data
+        } catch let failure as HTTPResponseFailure {
+            switch failure.statusCode {
+            case 404: throw ScraperError.notFound
+            case 429, 503:
+                throw ScraperError.rateLimited(retryAfter: failure.retryAfter.map {
+                    $0.rounded(.up).finiteInt(or: Int.max)
+                })
+            default: throw ScraperError.networkError("LRCLIB HTTP \(failure.statusCode)")
+            }
+        } catch RequestExecutor.AdmissionError.queueFull {
+            throw ScraperError.busy
+        } catch let error as URLError where error.code == .badServerResponse {
             throw ScraperError.networkError("LRCLIB returned a non-HTTP response")
-        }
-        switch http.statusCode {
-        case 200:
-            return data
-        case 404:
-            throw ScraperError.notFound
-        case 429, 503:
-            // Preserve throttling/unavailability so ScraperManager backs off
-            // across songs instead of treating each response as a lyric miss.
-            let retryAfter = RemoteMediaHTTPError.retryDelay(from: http)
-                .map { $0.rounded(.up).finiteInt(or: Int.max) }
-            throw ScraperError.rateLimited(retryAfter: retryAfter)
-        default:
-            throw ScraperError.networkError("LRCLIB HTTP \(http.statusCode)")
         }
     }
 
