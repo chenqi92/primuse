@@ -2989,7 +2989,9 @@ final class AlwaysDownloadCoordinator {
                       source.isEnabled,
                       !source.isDeleted,
                       AutomaticOfflineSongPolicy.supports(song),
-                      AutomaticOfflineDownloadPolicy.supportsSourceType(source.type) else {
+                      AutomaticOfflineDownloadPolicy.supportsSourceType(source.type),
+                      // 本地源的原始文件手动都不提供下载，始终下载也不用复制一份。
+                      OfflineDownloadActionPolicy.allowsDownload(for: song, source: source) else {
                     continue
                 }
                 if let existing = desiredBySongID[song.id] {

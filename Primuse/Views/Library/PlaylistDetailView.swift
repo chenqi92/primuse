@@ -220,15 +220,16 @@ struct PlaylistDetailView: View {
 
     private var supportsAlwaysDownload: Bool {
         if songs.isEmpty { return true }
-        let sourceTypesByID = Dictionary(
-            sourcesStore.sources.map { ($0.id, $0.type) },
+        let sourcesByID = Dictionary(
+            sourcesStore.sources.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
         return songs.contains { song in
-            guard AutomaticOfflineSongPolicy.supports(song) else { return false }
-            return sourceTypesByID[song.sourceID].map(
-                AutomaticOfflineDownloadPolicy.supportsSourceType
-            ) == true
+            guard AutomaticOfflineSongPolicy.supports(song),
+                  let source = sourcesByID[song.sourceID],
+                  AutomaticOfflineDownloadPolicy.supportsSourceType(source.type) else { return false }
+            // 全是本地原始文件的歌单没有「始终下载」，和单曲菜单里不出现「下载」一致。
+            return OfflineDownloadActionPolicy.allowsDownload(for: song, source: source)
         }
     }
 
