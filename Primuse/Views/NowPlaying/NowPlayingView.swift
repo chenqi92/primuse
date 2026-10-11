@@ -747,6 +747,9 @@ struct NowPlayingView: View {
     @State private var showLyrics = false
     /// 有声内容的文稿全屏读(`SpokenWordTranscriptReader`)。
     @State private var showsTranscriptReader = false
+    /// 按住文字稿键打开了全屏文稿:松手时按钮自己的点按也会到,那一下不再切换文字稿。
+    /// 文稿关掉时清掉,点按没到(触摸被弹出的全屏打断)也不会吃掉下一次正常的点按。
+    @State private var transcriptKeyHeld = false
     @State private var activeMinimizeDragAxis: NowPlayingDismissGesturePolicy.Axis?
     @State private var activeMinimizeDragStartLocation: CGPoint?
     @State private var isLyricsImmersive = false
@@ -6256,14 +6259,21 @@ struct NowPlayingView: View {
         usesSpokenWordTransport && !lyrics.isEmpty && spokenWordControlLayout.showsTranscriptToggle
     }
 
-    /// 传输键一行最左边的文字稿键:分栏时打开右栏,其它时候在封面与文字稿之间切换。
+    /// 传输键一行最左边的文字稿键:分栏时打开右栏,其它时候在封面与文字稿之间切换;按住直接全屏读文稿
+    /// (#155)。按住后松手,按钮的点按也会触发,那一下吃掉。
     private func transportTextKey(
         font: Font,
         tint: Color,
         selectedTint: Color,
         height: CGFloat = 44
     ) -> some View {
-        Button { toggleLyricsForLayout() } label: {
+        Button {
+            if transcriptKeyHeld {
+                transcriptKeyHeld = false
+                return
+            }
+            toggleLyricsForLayout()
+        } label: {
             Image(systemName: showLyrics ? "text.bubble.fill" : "text.bubble")
                 .font(font)
                 .foregroundStyle(showLyrics ? selectedTint : tint)
@@ -6272,8 +6282,24 @@ struct NowPlayingView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.45, maximumDistance: 24)
+                .onEnded { _ in openTranscriptReaderFromHold() }
+        )
         .accessibilityLabel(Text("spoken_word_text_tab"))
+        .accessibilityHint(Text("spoken_word_text_tab_hold_hint"))
+        .accessibilityAction(named: Text("transcript_read_fullscreen")) { openTranscriptReaderFromHold() }
         .accessibilityAddTraits(showLyrics ? .isSelected : [])
+        .onChange(of: showsTranscriptReader) { _, shown in
+            if !shown { transcriptKeyHeld = false }
+        }
+    }
+
+    /// 按住文字稿键(或旁白的自定操作)打开全屏文稿;没有文字时什么也不做。
+    private func openTranscriptReaderFromHold() {
+        guard !lyrics.isEmpty else { return }
+        transcriptKeyHeld = true
+        showsTranscriptReader = true
     }
 
     /// 传输键一行最右边的目录键(播客是节目说明),和左边的文字稿键一样大。`action` 不给时打开目录面板。
