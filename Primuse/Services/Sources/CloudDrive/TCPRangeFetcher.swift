@@ -144,22 +144,32 @@ private actor TCPHostEndpoint {
 
     // 异步互斥锁：保证同一 host 同时只有一个 fetch 在跑。
     private var locked = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var waiters: [(UUID, CheckedContinuation<Void, Error>)] = []
 
     init(host: String, port: NWEndpoint.Port) {
         self.host = host
         self.port = port
     }
 
-    private func acquire() async {
-        if !locked {
-            locked = true
-            return
+    private func acquire() async throws {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            if !locked {
+                locked = true
+                return
+            }
+            try await withCheckedThrowingContinuation { continuation in
+                waiters.append((id, continuation))
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id) }
         }
-        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            waiters.append(cont)
-        }
-        // 被 release 唤醒时锁的所有权已直接移交给我们，locked 始终保持 true。
+    }
+
+    private func cancelWaiter(_ id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.0 == id }) else { return }
+        waiters.remove(at: index).1.resume(throwing: CancellationError())
     }
 
     private func release() {
@@ -167,7 +177,7 @@ private actor TCPHostEndpoint {
             locked = false
         } else {
             let next = waiters.removeFirst()
-            next.resume()
+            next.1.resume()
         }
     }
 
@@ -178,11 +188,12 @@ private actor TCPHostEndpoint {
         userAgent: String?,
         timeoutSeconds: TimeInterval
     ) async throws -> Data {
-        await acquire()
+        try await acquire()
         defer { release() }
+        try Task.checkCancellation()
 
         // 优先复用既有活连接。复用失败(连接级错误，含 keep-alive 空闲被服务端关闭)→
-        // 丢弃后用新连接重试一次，对上层透明。HTTP 状态错误(响应已完整)直接上抛、不重试。
+        // 丢弃后用新连接重试一次，对上层透明。HTTP 状态错误在头部解析后直接上抛、不重试。
         if let existing = conn, !existing.isDead {
             do {
                 return try await runRequest(
@@ -212,7 +223,8 @@ private actor TCPHostEndpoint {
                 userAgent: userAgent, timeoutSeconds: timeoutSeconds
             )
         } catch let e as TCPRangeFetcher.FetchError where e.isHTTPStatus {
-            // 连接是好的(状态码错误)，保留供后续复用。
+            // Error/ignored-Range headers already closed the connection. The
+            // next caller rebuilds it; this response must not be replayed.
             throw e
         } catch {
             drop(fresh)

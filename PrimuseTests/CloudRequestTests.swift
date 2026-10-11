@@ -416,6 +416,46 @@ final class CloudRequestTests: XCTestCase {
         XCTAssertEqual(fixture.requests.count, 1)
     }
 
+    func testCancellingQueuedTCPRangeDoesNotWaitForAnotherTransfer() async throws {
+        // A TCP peer holding the TLS handshake keeps the production per-host
+        // connection occupied without relying on a real CDN or certificate.
+        let server = try LocalCloudServer(response: .init(status: 206), holdConnections: true)
+        let address = try await server.start()
+        var components = URLComponents(url: address, resolvingAgainstBaseURL: false)!
+        components.scheme = "https"
+        let url = try XCTUnwrap(components.url)
+        let helper = CloudDriveHelper(sourceID: UUID().uuidString)
+        let first = Task { try await helper.rangeRequest(url: url, offset: 0, length: 4, forceTCP: true) }
+        defer { first.cancel(); server.stop() }
+        for _ in 0..<10000 {
+            if server.connectionCount > 0 { break }
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        XCTAssertEqual(server.connectionCount, 1)
+        let started = CloudTestCounter()
+        let finished = CloudTestCounter()
+        let queued = Task {
+            started.increment()
+            defer { finished.increment() }
+            return try await helper.rangeRequest(url: url, offset: 4, length: 4, forceTCP: true)
+        }
+        for _ in 0..<10000 {
+            if started.value == 1 { break }
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        queued.cancel()
+        for _ in 0..<2000 {
+            if finished.value == 1 { break }
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        XCTAssertEqual(finished.value, 1, "A cancelled TCP waiter must not wait for the occupied connection")
+        first.cancel()
+        _ = await first.result
+        do { _ = try await queued.value; XCTFail("Expected queued cancellation") }
+        catch { XCTAssertTrue(error is CancellationError) }
+        XCTAssertEqual(server.connectionCount, 1)
+    }
+
 }
 
 private final class CloudHTTPFixture: @unchecked Sendable {
@@ -530,16 +570,17 @@ private final class LocalCloudServer: @unchecked Sendable {
     private var connections: [NWConnection] = []
     private var headers: [String] = []
     var requestCount: Int { lock.withLock { headers.count } }
+    var connectionCount: Int { lock.withLock { connections.count } }
     var requestHeaders: String { lock.withLock { headers.joined(separator: "\n") } }
 
-    init(response: CloudHTTPFixture.Response) throws {
+    init(response: CloudHTTPFixture.Response, holdConnections: Bool = false) throws {
         self.response = response
         listener = try NWListener(using: .tcp, on: .any)
         listener.newConnectionHandler = { [weak self] connection in
             guard let self else { connection.cancel(); return }
             self.lock.withLock { self.connections.append(connection) }
             connection.start(queue: self.queue)
-            self.receive(connection, buffered: Data())
+            if !holdConnections { self.receive(connection, buffered: Data()) }
         }
     }
     func start() async throws -> URL {
