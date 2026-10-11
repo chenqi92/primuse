@@ -829,6 +829,8 @@ struct NowPlayingView: View {
     /// 「更多」› 播放时间段 打开的编辑面板；打开时冻结目标，自然切歌后仍改这一首。
     @State private var playbackRangeEditorSong: Song?
     @State private var showSleepTimer = false
+    /// 音乐的上一首 / 下一首按住不放时快退 / 快进的预览位置。
+    @State private var transportHoldScrub = TransportHoldScrub()
     /// 「更多」› 均衡器 › 调整均衡器… 打开的完整均衡器页。
     @State private var showEqualizer = false
     /// 高保真直通时点了均衡器,说明为什么不生效。
@@ -2544,6 +2546,8 @@ struct NowPlayingView: View {
                 #endif
             }
         }
+        // 进度条从这里读按住快退 / 快进的预览位置；只有进度条观察它，按住期间整页不跟着重画。
+        .environment(transportHoldScrub)
         .onAppear { FullscreenPlayerEffectSync.shared.install() }
         #if DEBUG && os(iOS)
         .task {
@@ -3698,6 +3702,7 @@ struct NowPlayingView: View {
                 transportBackward()
             }
             .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: false) }
+            .modifier(transportHoldScrubGesture(forward: false))
 
             playerPlayButton
 
@@ -3708,6 +3713,7 @@ struct NowPlayingView: View {
                 transportForward()
             }
             .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: true) }
+            .modifier(transportHoldScrubGesture(forward: true))
 
             Spacer(minLength: 0)
 
@@ -3788,6 +3794,8 @@ struct NowPlayingView: View {
     }
 
     private func transportBackward() {
+        // 按住快退松手时，按钮自己的点按也会到这里，这一下不再切歌。
+        guard !transportHoldScrub.consumesTap() else { return }
         if usesSpokenWordTransport {
             player.skipSpokenWordBackward()
         } else {
@@ -3796,11 +3804,23 @@ struct NowPlayingView: View {
     }
 
     private func transportForward() {
+        guard !transportHoldScrub.consumesTap() else { return }
         if usesSpokenWordTransport {
             player.skipSpokenWordForward()
         } else {
             Task { await player.next() }
         }
+    }
+
+    /// 音乐的上一首 / 下一首按住不放是快退 / 快进(系统音乐的习惯);有声内容的这两颗键长按是跳章菜单,
+    /// 电台没有进度可跳。
+    private func transportHoldScrubGesture(forward: Bool) -> TransportHoldScrubGesture {
+        TransportHoldScrubGesture(
+            forward: forward,
+            isEnabled: !usesSpokenWordTransport && !player.isLiveRadio && player.duration > 0,
+            scrub: transportHoldScrub,
+            player: player
+        )
     }
 
     private func playerSkipButton(
@@ -4124,6 +4144,7 @@ struct NowPlayingView: View {
                 .frame(width: 56, height: 56)
                 .accessibilityLabel(transportBackwardLabel)
                 .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: false) }
+                .modifier(transportHoldScrubGesture(forward: false))
                 Spacer()
                 Button {
                     guard !player.isLoading else { return }
@@ -4154,6 +4175,7 @@ struct NowPlayingView: View {
                 .frame(width: 56, height: 56)
                 .accessibilityLabel(transportForwardLabel)
                 .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: true) }
+                .modifier(transportHoldScrubGesture(forward: true))
                 Spacer()
                 transportTrailingEdgeControl
                 Spacer()
@@ -5041,6 +5063,7 @@ struct NowPlayingView: View {
         .frame(width: 56, height: 56)
         .accessibilityLabel(transportBackwardLabel)
         .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: false) }
+        .modifier(transportHoldScrubGesture(forward: false))
         Spacer(minLength: gap)
         Button {
             guard !player.isLoading else { return }
@@ -5077,6 +5100,7 @@ struct NowPlayingView: View {
         .frame(width: 56, height: 56)
         .accessibilityLabel(transportForwardLabel)
         .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: true) }
+        .modifier(transportHoldScrubGesture(forward: true))
         Spacer(minLength: gap)
         transportTrailingEdgeControl
         Spacer(minLength: gap)
@@ -5304,6 +5328,7 @@ struct NowPlayingView: View {
                     transportBackward()
                 }
                 .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: false) }
+                .modifier(transportHoldScrubGesture(forward: false))
 
                 playerPlayButton
 
@@ -5314,6 +5339,7 @@ struct NowPlayingView: View {
                     transportForward()
                 }
                 .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: true) }
+                .modifier(transportHoldScrubGesture(forward: true))
 
                 Spacer(minLength: 0)
 
@@ -12046,12 +12072,112 @@ extension MusicLibrary {
     }
 }
 
+// MARK: - 按住快退 / 快进
+
+/// 音乐的上一首 / 下一首按住不放 = 快退 / 快进。按住时只在进度条上走预览位置，松手才真正跳一次：
+/// 播放器每次跳转都要停下、从新位置重新解码，按住期间连着跳会让播放键一直转圈、声音一顿一顿。
+/// 按得越久走得越快。
+@MainActor @Observable
+fileprivate final class TransportHoldScrub {
+    private(set) var previewTime: TimeInterval?
+    @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var songID: String?
+    @ObservationIgnored private var endedAt = Date.distantPast
+
+    /// 每秒走过多少秒的歌：先慢后快，长歌也不用按太久。
+    nonisolated static func rate(heldFor seconds: TimeInterval) -> TimeInterval {
+        switch seconds {
+        case ..<1.5: 6
+        case ..<3.5: 15
+        default: 30
+        }
+    }
+
+    func begin(forward: Bool, player: AudioPlayerService) {
+        guard task == nil, let song = player.currentSong else { return }
+        let duration = player.duration
+        guard duration > 0 else { return }
+        songID = song.id
+        let start = min(max(0, player.currentTime), duration)
+        previewTime = start
+        #if os(iOS)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        #endif
+        let beganAt = Date()
+        task = Task { [weak self] in
+            var position = start
+            var lastTick = beganAt
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(100))
+                guard !Task.isCancelled, let self else { return }
+                let now = Date()
+                let step = Self.rate(heldFor: now.timeIntervalSince(beganAt)) * now.timeIntervalSince(lastTick)
+                lastTick = now
+                // 快进停在结尾前一秒：真跳到结尾等于直接切歌，不是「快进」。
+                position = min(max(0, position + (forward ? step : -step)), max(0, duration - 1))
+                self.previewTime = position
+            }
+        }
+    }
+
+    func end(player: AudioPlayerService) {
+        guard let task else { return }
+        task.cancel()
+        self.task = nil
+        endedAt = Date()
+        let target = previewTime
+        previewTime = nil
+        // 按住期间自己播完换了歌，预览的是上一首的位置，不跳。
+        guard let target, player.currentSong?.id == songID else { return }
+        player.seek(to: target)
+    }
+
+    /// 按住后松手，按钮自己的点按也会触发；这一下吃掉，不再切歌。
+    func consumesTap() -> Bool {
+        if task != nil { return true }
+        guard Date().timeIntervalSince(endedAt) < 0.6 else { return false }
+        endedAt = .distantPast
+        return true
+    }
+}
+
+/// 挂在上一首 / 下一首键上。和按钮的点按同时识别：短按照常切歌，按满 0.45 秒开始快退 / 快进，
+/// 松手(或手势被打断)时结束。
+fileprivate struct TransportHoldScrubGesture: ViewModifier {
+    let forward: Bool
+    let isEnabled: Bool
+    let scrub: TransportHoldScrub
+    let player: AudioPlayerService
+    @GestureState private var isHolding = false
+
+    func body(content: Content) -> some View {
+        content
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 0.45, maximumDistance: 24)
+                    .sequenced(before: DragGesture(minimumDistance: 0))
+                    .updating($isHolding) { value, state, _ in
+                        if case .second(true, _) = value { state = true }
+                    },
+                including: isEnabled ? .all : .subviews
+            )
+            .onChange(of: isHolding) { _, holding in
+                if holding {
+                    scrub.begin(forward: forward, player: player)
+                } else {
+                    scrub.end(player: player)
+                }
+            }
+    }
+}
+
 fileprivate struct PlaybackProgressBar<CenterAccessory: View>: View {
     var fillTint: Color?
     let centerAccessory: CenterAccessory
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    /// 可选读法:播放页以外单独用到这条进度条时没有注入,也不会崩。
+    @Environment(TransportHoldScrub.self) private var holdScrub: TransportHoldScrub?
     @State private var previewTime: TimeInterval?
 
     /// 两端时间各留这么宽,中间的标签不会压到「-1:02:34」这种长时间上。
@@ -12069,12 +12195,13 @@ fileprivate struct PlaybackProgressBar<CenterAccessory: View>: View {
     /// 时间标签 0.5 秒跳一次, 正好是数字翻页动画还撑得住的频率上限, 所以按整秒
     /// 驱动而不是按浮点进度。拖动时数字是跟手的, 翻页追不上, 这段期间给 nil。
     private var animatedSecond: Int? {
-        guard previewTime == nil else { return nil }
+        guard previewTime == nil, holdScrub?.previewTime == nil else { return nil }
         return player.currentTime.sanitizedDuration.rounded(.down).finiteInt()
     }
 
     var body: some View {
-        let displayedTime = previewTime ?? player.currentTime
+        let holdPreviewTime = holdScrub?.previewTime
+        let displayedTime = previewTime ?? holdPreviewTime ?? player.currentTime
         Group {
             if player.isLiveRadio {
                 HStack(spacing: 7) {
@@ -12092,7 +12219,7 @@ fileprivate struct PlaybackProgressBar<CenterAccessory: View>: View {
                 } ?? false
                 VStack(spacing: 4) {
                     ProgressSlider(
-                        value: player.currentTime,
+                        value: holdPreviewTime ?? player.currentTime,
                         total: player.duration,
                         interactionID: player.currentSong?.id,
                         fillTint: fillTint,
