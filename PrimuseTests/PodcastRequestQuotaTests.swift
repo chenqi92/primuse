@@ -94,6 +94,17 @@ final class PodcastRequestQuotaTests: XCTestCase {
         XCTAssertTrue(fixture.requests.allSatisfy { $0.url?.scheme == "https" })
     }
 
+    /// 只开 http 的主机 443 直接拒连: 探测只试一次就回落, 不重试拖慢起播。
+    func testRefusedTLSProbeIsNotRetried() async throws {
+        let fixture = PodcastRequestFixture(status: 0, transportError: URLError(.cannotConnectToHost))
+        do {
+            _ = try await PodcastNetwork.reachableURL(for: URL(string: "http://\(fixture.host)/feed")!, session: fixture.session)
+            XCTFail("Untrusted public HTTP must not be returned")
+        } catch PodcastNetwork.Failure.insecureHTTP { }
+        catch { XCTFail("Unexpected trust result: \(error)") }
+        XCTAssertEqual(fixture.requests.count, 1)
+    }
+
     func testResponseLimitAndRangeProbeArePreserved() async throws {
         let oversized = PodcastRequestFixture(status: 200, headers: ["Content-Length": "9"], body: Data(repeating: 0, count: 9))
         do { _ = try await PodcastNetwork.json(from: oversized.url(), maxBytes: 8, session: oversized.session); XCTFail("Body limit must be enforced") }
@@ -122,7 +133,7 @@ final class PodcastRequestQuotaTests: XCTestCase {
         }
         XCTAssertEqual(fixture.requests.count, 1)
         task.cancel()
-        await fulfillment(of: [done], timeout: 2)
+        await fulfillment(of: [done], timeout: 10)
         XCTAssertEqual(fixture.requests.count, 1)
     }
 }

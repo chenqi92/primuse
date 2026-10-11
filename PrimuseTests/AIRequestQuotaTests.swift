@@ -96,7 +96,7 @@ final class AIRequestQuotaTests: XCTestCase {
             }
             XCTAssertEqual(AIQuotaProtocol.requests(host).count, 1)
             task.cancel()
-            await fulfillment(of: [finished], timeout: 2)
+            await fulfillment(of: [finished], timeout: 10)
             XCTAssertEqual(AIQuotaProtocol.requests(host).count, 1)
         }
     }

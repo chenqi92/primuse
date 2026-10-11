@@ -107,7 +107,8 @@ enum PodcastNetwork {
             // HEAD 405 still establishes HTTPS reachability. A quota response
             // must not trigger another request or a misleading HTTP trust prompt.
             _ = try await read(request, session: session, maxBytes: 0,
-                allowedStatuses: Set(300..<429).union(430..<500), usesTrustedTransport: false)
+                allowedStatuses: Set(300..<429).union(430..<500), usesTrustedTransport: false,
+                replay: .never, timeout: request.timeoutInterval)
             return true
         } catch let failure as Failure {
             if case .httpStatus(let status, let retryAfter) = failure,
@@ -120,14 +121,18 @@ enum PodcastNetwork {
         }
     }
 
+    /// 不传 `timeout` 时用调度器的 90 秒(和原来会话的资源超时一样), 大的 feed 慢网下也读得完;
+    /// `URLRequest` 没设超时时它的默认值是 60 秒, 不能拿来当上限。
+    /// 探测(HTTPS 升级、Range)只试一次: 只开 http 的主机 443 直接拒连, 重试只会拖慢起播。
     private static func read(
         _ request: URLRequest, session: URLSession, maxBytes: Int,
-        allowedStatuses: Set<Int> = [], usesTrustedTransport: Bool = true
+        allowedStatuses: Set<Int> = [], usesTrustedTransport: Bool = true,
+        replay: RequestExecutor.Replay = .idempotent, timeout: TimeInterval? = nil
     ) async throws -> (Data, HTTPURLResponse) {
         guard let url = request.url else { throw URLError(.badURL) }
         let executor = PodcastRequestScheduler.shared.executor(for: url)
         do {
-            return try await executor.execute(replay: .idempotent, timeout: request.timeoutInterval, operation: {
+            return try await executor.execute(replay: replay, timeout: timeout, operation: {
                 let (data, response): (Data, URLResponse)
                 if usesTrustedTransport {
                     (data, response) = try await TrustedHTTPTransport.data(for: request, session: session, maxBytes: maxBytes)
@@ -196,7 +201,8 @@ enum PodcastNetwork {
         request.timeoutInterval = 8
         do {
             // 服务器不认 Range 时会把整个文件发过来:上限压小,超了就当「不支持分段」。
-            let (data, http) = try await read(request, session: session, maxBytes: 64 * 1024)
+            let (data, http) = try await read(request, session: session, maxBytes: 64 * 1024,
+                                              replay: .never, timeout: request.timeoutInterval)
             let finalURL = http.url ?? target
             switch http.statusCode {
             case 206:
