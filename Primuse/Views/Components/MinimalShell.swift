@@ -318,6 +318,9 @@ struct MinimalSearchBar: View {
     let onCancel: () -> Void
 
     @FocusState private var isFocused: Bool
+    /// 顶栏这一份视图挂在每个标签页的根页上，切到搜索时几份同时换成输入框。
+    /// 只有搜索页上那一份去接「弹键盘」，别让还挂在后台的首页、资料库那一份先把请求拿走。
+    @Environment(\.minimalNavigationDetailScope) private var hostScope
 
     private var prompt: String {
         if let scope {
@@ -373,7 +376,7 @@ struct MinimalSearchBar: View {
         .padding(.bottom, 6)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .onChange(of: activationRequested, initial: true) { _, requested in
-            guard requested else { return }
+            guard requested, hostScope == .search || hostScope == nil else { return }
             activationRequested = false
             Task { @MainActor in isFocused = true }
         }
