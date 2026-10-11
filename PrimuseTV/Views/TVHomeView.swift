@@ -260,6 +260,7 @@ struct TVHomeView: View {
                 TVHomeSceneRow(
                     focusBinding: $focusedCardID,
                     cardID: { cardID("scene", $0.rawValue) },
+                    reflectionTint: heroAmbientTint,
                     onStarted: { playerOpener($0)() }
                 )
             }
