@@ -1,5 +1,27 @@
 import Foundation
 
+/// Multi-value genre tags use a semicolon-separated string in the existing
+/// song field. Slashes and commas remain part of a label (e.g. R&B/Soul).
+public enum GenreTagValues {
+    public static func names(in value: String?) -> [String] {
+        guard let value else { return [] }
+        var seen = Set<String>()
+        return value.components(separatedBy: CharacterSet(charactersIn: ";\0")).compactMap {
+            let name = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty,
+                  seen.insert(LibraryGenreIndexBuilder.normalizedID(for: name)).inserted else {
+                return nil
+            }
+            return name
+        }
+    }
+
+    public static func joined(_ values: [String]) -> String? {
+        let names = names(in: values.joined(separator: "; "))
+        return names.isEmpty ? nil : names.joined(separator: "; ")
+    }
+}
+
 public struct LibraryGenre: Identifiable, Hashable, Sendable {
     public let id: String
     public let name: String
@@ -58,23 +80,22 @@ public enum LibraryGenreIndexBuilder {
     public static func build(from songs: [Song]) -> LibraryGenreIndex {
         var groups: [String: Group] = [:]
         // 整库只有几十种流派写法, 折叠要带区域设置, 按原始字符串各算一次。
-        var resolvedByGenre: [String: (displayName: String, id: String)?] = [:]
+        var resolvedByGenre: [String: [(displayName: String, id: String)]] = [:]
 
         for song in songs {
             guard let genre = song.genre else { continue }
-            let lookup: (displayName: String, id: String)?
+            let lookup: [(displayName: String, id: String)]
             if let memoized = resolvedByGenre[genre] {
                 lookup = memoized
             } else {
-                lookup = displayName(for: genre).map { ($0, normalizedID(for: $0)) }
-                resolvedByGenre[genre] = .some(lookup)
+                lookup = GenreTagValues.names(in: genre).map { ($0, normalizedID(for: $0)) }
+                resolvedByGenre[genre] = lookup
             }
-            guard let resolved = lookup, !resolved.id.isEmpty else { continue }
-            let genreID = resolved.id
-
-            // Keep each group's buffers uniquely owned while appending;
-            // copying it out of the dictionary copies a growing array per song.
-            groups[genreID, default: Group(displayName: resolved.displayName)].append(song)
+            for resolved in lookup where !resolved.id.isEmpty {
+                // Keep each group's buffers uniquely owned while appending;
+                // copying it out of the dictionary copies a growing array per song.
+                groups[resolved.id, default: Group(displayName: resolved.displayName)].append(song)
+            }
         }
 
         let orderedIDs = groups.keys.sorted()
@@ -104,12 +125,6 @@ public enum LibraryGenreIndexBuilder {
                 locale: Locale(identifier: "en_US_POSIX")
             )
             .lowercased()
-    }
-
-    private static func displayName(for value: String?) -> String? {
-        guard let value else { return nil }
-        let name = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty ? nil : name
     }
 
     /// 排名: 有封面在前, 年份新的在前, 再按 id。
