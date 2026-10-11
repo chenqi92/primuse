@@ -5913,5 +5913,5 @@
 "ai_consent_status_not_agreed" = "未同意";
 
 "source_mutation_permission_denied" = "沒有修改來源檔案的權限。";
-"source_mutation_read_only" = "此來源不允許修改檔案。";
-"metadata_writeback_local_only_notice" = "來源拒絕寫入。修改已僅儲存在 Primuse，來源檔案未更新。";
+"source_mutation_read_only" = "這個音樂來源不允許修改檔案。";
+"metadata_writeback_local_only_notice" = "音樂來源拒絕寫入，修改只儲存在了 Primuse 裡，來源檔案沒有更新。";
