@@ -289,6 +289,7 @@ struct TagTidyView: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
 
     @State private var localProposals: [TagCleanupProposal] = []
+    @State private var builtInConsent: BuiltInAIConsentRequest?
     @State private var aiProposals: [TagCleanupProposal] = []
     @State private var aiProgress: (done: Int, total: Int)?
     @State private var aiStatus: String?
@@ -449,6 +450,7 @@ struct TagTidyView: View {
                 isCheckingLocally = false
             }
             .onDisappear { aiTask?.cancel() }
+            .builtInAIConsentSheet($builtInConsent)
         }
         #if os(macOS)
         .frame(minWidth: 460, minHeight: 420)
@@ -456,6 +458,14 @@ struct TagTidyView: View {
     }
 
     private func allowRemoteConsentAndStartAI() {
+        // 要交给内置 AI 而还没同意:先弹同意页,同意页会一并打开发送内容的授权。
+        if intelligence.needsBuiltInConsent(for: .tagCleanup) {
+            builtInConsent = BuiltInAIConsentRequest {
+                guard intelligence.isTagCleanupAvailable else { return }
+                startAI()
+            }
+            return
+        }
         do {
             try intelligence.grantRemoteConsent()
         } catch {

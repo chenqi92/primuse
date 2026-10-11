@@ -710,6 +710,7 @@ struct HomeIntelligenceHintCard: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
     @Environment(MusicLibrary.self) private var library
     @AppStorage(AIHomeHintPolicy.dismissedKey) private var dismissed = false
+    @State private var builtInConsent: BuiltInAIConsentRequest?
 
     private var isVisible: Bool {
         #if DEBUG
@@ -721,7 +722,8 @@ struct HomeIntelligenceHintCard: View {
             dismissed: dismissed,
             exposesRemoteConfiguration: intelligence.shouldExposeRemoteConfiguration,
             relaySupportedOnDevice: PrimuseAIRelayClient.isSupportedOnCurrentDevice,
-            relayEnabled: intelligence.settingsStore.primuseRelayEnabled,
+            // 选了内置 AI 但还没同意的,同样当作没开:卡片上的「开启」会先弹同意页。
+            relayEnabled: intelligence.isBuiltInAIActive,
             recommendationsAvailable: intelligence.isPersonalizedRecommendationsConfigured,
             musicSongCount: library.musicSongs.count
         )
@@ -799,16 +801,33 @@ struct HomeIntelligenceHintCard: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("home.aiHint")
+        .builtInAIConsentSheet($builtInConsent)
     }
 
-    /// 打开内置 AI、语义搜索、场景推荐和它们需要的授权;存不进去就带去设置页。
+    /// 先在同意页说清楚会发送什么,同意后打开内置 AI、语义搜索、场景推荐和它们需要的
+    /// 授权;存不进去就带去设置页。
     private func enable() {
+        guard !intelligence.settingsStore.hasBuiltInAIConsent else {
+            turnOnBuiltInIntelligence()
+            return
+        }
+        builtInConsent = BuiltInAIConsentRequest { [intelligence] in
+            Self.turnOn(intelligence)
+            UserDefaults.standard.set(true, forKey: AIHomeHintPolicy.dismissedKey)
+        }
+    }
+
+    private func turnOnBuiltInIntelligence() {
+        Self.turnOn(intelligence)
+        withAnimation(.snappy(duration: 0.25)) { dismissed = true }
+    }
+
+    private static func turnOn(_ intelligence: MusicIntelligenceService) {
         do {
             try intelligence.enableBuiltInIntelligence()
         } catch {
             SettingsNavigation.shared.open("intelligence.relay")
         }
-        withAnimation(.snappy(duration: 0.25)) { dismissed = true }
     }
 
     private func learnMore() {

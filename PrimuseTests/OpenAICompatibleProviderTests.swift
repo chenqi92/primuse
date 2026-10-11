@@ -1939,7 +1939,7 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         editor.didLoad = true
 
         XCTAssertTrue(editor.canTestPrimuseRelayConnection)
-        XCTAssertTrue(editor.primuseRelayEnabled)
+        XCTAssertFalse(editor.primuseRelayEnabled)
         XCTAssertFalse(editor.consent)
         XCTAssertFalse(editor.listeningContextConsent)
         XCTAssertFalse(editor.hasUsableAPIKey)
@@ -2060,7 +2060,7 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         XCTAssertNil(editor.setupState(for: editor.draftConfiguration))
 
         await editor.load(using: intelligence)
-        XCTAssertTrue(editor.primuseRelayEnabled)
+        XCTAssertFalse(editor.primuseRelayEnabled)
         var provider = editor.draftConfiguration
         provider.isEnabled = true
         XCTAssertEqual(editor.setupState(for: provider), .needsAPIKey)
@@ -2348,7 +2348,7 @@ final class OpenAICompatibleProviderTests: XCTestCase {
     @MainActor
     func testChoosingDefaultServiceAndRemovingAServiceUpdateRoutes() {
         let editor = AISettingsEditorModel()
-        XCTAssertEqual(editor.defaultEngine, .builtIn)
+        XCTAssertFalse(editor.primuseRelayEnabled)
         editor.addProvider()
         let secondID = editor.selectedProviderID
         editor.providerEnabledBinding(secondID).wrappedValue = false
@@ -2368,6 +2368,81 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         editor.chooseDefaultEngine(.builtIn)
         XCTAssertTrue(editor.primuseRelayEnabled)
         XCTAssertEqual(editor.defaultEngine, .builtIn)
+    }
+
+    @MainActor
+    func testBuiltInAISendsNothingUntilConsentAndAgreeingTurnsOnSending() throws {
+        let defaults = try XCTUnwrap(UserDefaults(
+            suiteName: "AISettingsEditorConsentTests.\(UUID().uuidString)"
+        ))
+        let settings = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
+        // Chosen before this version (the old default), never agreed to.
+        try settings.save(
+            providerSet: settings.providerSet,
+            primuseRelayEnabled: true,
+            semanticSearchEnabled: true,
+            recommendationsEnabled: true,
+            hasExplicitRemoteConsent: false,
+            hasExplicitListeningContextConsent: true
+        )
+        let intelligence = MusicIntelligenceService(
+            settingsStore: settings,
+            credentialStore: TestAICredentialStore()
+        )
+
+        XCTAssertFalse(intelligence.isBuiltInAIActive)
+        XCTAssertFalse(intelligence.showsBuiltInQuota)
+        XCTAssertFalse(intelligence.isBuiltInTranscriptionReady)
+        XCTAssertFalse(intelligence.isTagCleanupAvailable)
+        XCTAssertFalse(intelligence.isPersonalizedRecommendationsConfigured)
+
+        try intelligence.acceptBuiltInAIConsent()
+
+        XCTAssertTrue(settings.hasBuiltInAIConsent)
+        XCTAssertTrue(settings.hasExplicitRemoteConsent)
+        XCTAssertTrue(settings.primuseRelayEnabled)
+        XCTAssertTrue(settings.semanticSearchEnabled)
+        XCTAssertTrue(settings.hasExplicitListeningContextConsent)
+        XCTAssertTrue(intelligence.isBuiltInAIActive)
+        XCTAssertFalse(intelligence.needsBuiltInConsent(for: .tagCleanup))
+
+        intelligence.withdrawBuiltInAIConsent()
+        XCTAssertFalse(intelligence.isBuiltInAIActive)
+        XCTAssertFalse(intelligence.showsBuiltInQuota)
+    }
+
+    @MainActor
+    func testChoosingBuiltInAIWaitsForTheConsentSheet() async throws {
+        let defaults = try XCTUnwrap(UserDefaults(
+            suiteName: "AISettingsEditorConsentTests.\(UUID().uuidString)"
+        ))
+        let settings = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
+        let intelligence = MusicIntelligenceService(
+            settingsStore: settings,
+            credentialStore: TestAICredentialStore()
+        )
+        let editor = AISettingsEditorModel()
+        await editor.load(using: intelligence)
+        guard PrimuseAIRelayClient.isSupportedOnCurrentDevice else {
+            editor.chooseDefaultEngine(.builtIn)
+            XCTAssertTrue(editor.primuseRelayEnabled)
+            return
+        }
+
+        editor.chooseDefaultEngine(.builtIn)
+        XCTAssertFalse(editor.primuseRelayEnabled)
+        let request = try XCTUnwrap(editor.pendingBuiltInConsent)
+
+        editor.setRoute(.builtIn, for: .tagCleanup)
+        XCTAssertNil(editor.route(for: .tagCleanup))
+
+        try intelligence.acceptBuiltInAIConsent()
+        request.onAgree()
+        XCTAssertTrue(editor.primuseRelayEnabled)
+        XCTAssertTrue(settings.hasExplicitRemoteConsent)
+
+        editor.setRoute(.builtIn, for: .tagCleanup)
+        XCTAssertEqual(editor.route(for: .tagCleanup), .builtIn)
     }
 
     private func makeProvider(

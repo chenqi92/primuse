@@ -70,6 +70,7 @@ struct TVAISettingsView: View {
         .onChange(of: intelligence.settingsStore.revision) {
             editor.adoptStoredConsent(from: intelligence)
         }
+        .builtInAIConsentSheet($editor.pendingBuiltInConsent)
         .onExitCommand { dismiss() }
         .fullScreenCover(item: $providerTarget) { target in
             TVAIProviderDetailView(editor: editor, providerID: target.id)
@@ -77,6 +78,7 @@ struct TVAISettingsView: View {
         }
         .fullScreenCover(item: $routeTarget) { target in
             TVAIRoutePickerView(editor: editor, feature: target.feature)
+                .environment(intelligence)
         }
         .accessibilityIdentifier("tv.ai.settings")
     }
@@ -117,6 +119,7 @@ struct TVAISettingsView: View {
                 title: String(localized: "ai_primuse_relay_enabled"),
                 isOn: editor.primuseRelayBinding
             )
+            builtInConsentPendingRow
             serviceGuidanceRow
             TVAIDivider()
             TVAIActionRow(
@@ -196,6 +199,27 @@ struct TVAISettingsView: View {
 
     /// 开关下方的引导:关掉内置 AI 又没有配好的服务时,直接带去填密钥;
     /// 自己的服务已配好但内置 AI 仍开着时,说明谁优先并给一键改用。
+    /// 选了内置 AI 却还没同意:它什么都不会发,这一行说明原因并带去同意页。
+    @ViewBuilder
+    private var builtInConsentPendingRow: some View {
+        if editor.didLoad, editor.draftUsesBuiltIn, editor.needsBuiltInConsentBeforeChoosing {
+            TVAIDivider()
+            TVAINoteRow(
+                icon: "hand.raised.fill",
+                tint: TVColor.brand,
+                text: String(localized: "ai_consent_pending_detail")
+            )
+            TVAIActionRow(
+                icon: "hand.raised",
+                title: String(localized: "ai_consent_pending_title"),
+                value: String(localized: "ai_consent_pending_action"),
+                trailing: "chevron.right"
+            ) {
+                editor.pendingBuiltInConsent = BuiltInAIConsentRequest()
+            }
+        }
+    }
+
     @ViewBuilder
     private var serviceGuidanceRow: some View {
         switch editor.serviceSetupGuidance {
@@ -402,6 +426,19 @@ struct TVAISettingsView: View {
                 title: String(localized: "ai_listening_context_consent"),
                 isOn: editor.listeningContextConsentBinding
             )
+            if PrimuseAIRelayClient.isSupportedOnCurrentDevice {
+                TVAIDivider()
+                TVAIActionRow(
+                    icon: "sparkles",
+                    title: String(localized: "ai_consent_privacy_row"),
+                    value: String(localized: intelligence.settingsStore.hasBuiltInAIConsent
+                                  ? "ai_consent_status_agreed"
+                                  : "ai_consent_status_not_agreed"),
+                    trailing: "chevron.right"
+                ) {
+                    editor.pendingBuiltInConsent = BuiltInAIConsentRequest()
+                }
+            }
         }
     }
 
@@ -464,6 +501,8 @@ private struct TVAIRoutePickerView: View {
     let editor: AISettingsEditorModel
     let feature: AIFeature
     @Environment(\.dismiss) private var dismiss
+    /// 这一页盖在设置页上面,改选内置 AI 要先同意时同意页从这里弹出。
+    @State private var builtInConsent: BuiltInAIConsentRequest?
 
     var body: some View {
         ZStack {
@@ -499,7 +538,7 @@ private struct TVAIRoutePickerView: View {
                                 title: String(localized: "ai_settings_engine_builtin"),
                                 isSelected: editor.route(for: feature) == .builtIn
                             ) {
-                                editor.setRoute(.builtIn, for: feature)
+                                chooseBuiltIn()
                             }
                         }
                     }
@@ -533,6 +572,17 @@ private struct TVAIRoutePickerView: View {
         }
         .foregroundStyle(TVColor.text)
         .onExitCommand { dismiss() }
+        .builtInAIConsentSheet($builtInConsent)
+    }
+
+    private func chooseBuiltIn() {
+        guard editor.needsBuiltInConsentBeforeChoosing else {
+            editor.setRoute(.builtIn, for: feature)
+            return
+        }
+        builtInConsent = BuiltInAIConsentRequest { [editor, feature] in
+            editor.setRoute(.builtIn, for: feature)
+        }
     }
 
     private func choiceRow(

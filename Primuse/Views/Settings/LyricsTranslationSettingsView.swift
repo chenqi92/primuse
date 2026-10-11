@@ -277,6 +277,15 @@ struct GoogleLyricsTranscriptionSettingsView: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
     @Environment(\.dismiss) private var dismiss
     @State private var editor = LyricsTranscriptionSettingsEditorModel()
+    @State private var builtInConsent: BuiltInAIConsentRequest?
+
+    /// 识别交给内置 AI、内置 AI 也开着,但同意页还没点过同意。
+    private var builtInAwaitsConsent: Bool {
+        editor.usesBuiltIn
+            && intelligence.settingsStore.primuseRelayEnabled
+            && !intelligence.settingsStore.hasBuiltInAIConsent
+            && PrimuseAIRelayClient.isSupportedOnCurrentDevice
+    }
 
     var body: some View {
         Form {
@@ -303,6 +312,14 @@ struct GoogleLyricsTranscriptionSettingsView: View {
                         Text("lyrics_transcription_service_own_key").tag(false)
                     }
                     .settingsAnchor("lyrics.transcriptionService")
+                    if builtInAwaitsConsent {
+                        BuiltInAIConsentPendingRow {
+                            // 同意之前没问过开没开放,同意后补问一次。
+                            builtInConsent = BuiltInAIConsentRequest {
+                                Task { await intelligence.refreshBuiltInTranscriptionOffer(force: true) }
+                            }
+                        }
+                    }
                 } footer: {
                     // 内置 AI 的次数取决于套餐、音频交给谁识别,这段告知不收进圈问号。
                     if editor.usesBuiltIn {
@@ -311,6 +328,8 @@ struct GoogleLyricsTranscriptionSettingsView: View {
                             if !intelligence.settingsStore.primuseRelayEnabled {
                                 Text("lyrics_transcription_builtin_needs_relay")
                                     .foregroundStyle(.orange)
+                            } else if !intelligence.settingsStore.hasBuiltInAIConsent {
+                                // 还没同意时不知道开没开放,上面那一行会带去同意页。
                             } else if intelligence.builtInTranscriptionNotInPlan {
                                 Text("lyrics_transcription_builtin_not_in_plan")
                                     .foregroundStyle(.orange)
@@ -397,6 +416,16 @@ struct GoogleLyricsTranscriptionSettingsView: View {
 
                 Section {
                     Button {
+                        // 打开识别、交给内置 AI 时,先在同意页说明会上传什么。
+                        if editor.isEnabled, builtInAwaitsConsent {
+                            builtInConsent = BuiltInAIConsentRequest {
+                                Task {
+                                    await editor.save(using: intelligence)
+                                    await intelligence.refreshBuiltInTranscriptionOffer(force: true)
+                                }
+                            }
+                            return
+                        }
                         Task { await editor.save(using: intelligence) }
                     } label: {
                         HStack {
@@ -425,6 +454,7 @@ struct GoogleLyricsTranscriptionSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .task { await editor.load(using: intelligence) }
+        .builtInAIConsentSheet($builtInConsent)
         #if os(macOS)
         .frame(minWidth: 560, minHeight: 600)
         .toolbar {

@@ -1099,6 +1099,7 @@ private struct MacSTIntelligenceView: View {
         .onChange(of: intelligence.settingsStore.revision) {
             editor.adoptStoredConsent(from: intelligence)
         }
+        .builtInAIConsentSheet($editor.pendingBuiltInConsent)
     }
 
     private var tabPicker: some View {
@@ -1165,6 +1166,7 @@ private struct MacSTIntelligenceView: View {
                     }
                 }
                 .settingsAnchor("intelligence.relay")
+                builtInConsentPendingRow
                 serviceGuidanceRow
                 MacSTRow(String(localized: "ai_fallback_enabled")) {
                     MacSTToggle(isOn: editor.fallbackBinding)
@@ -1305,6 +1307,28 @@ private struct MacSTIntelligenceView: View {
         .accessibilityIdentifier("macSettings.ai.route.\(feature.rawValue)")
     }
 
+    /// 选了内置 AI 却还没同意:它什么都不会发,这一行说明原因并带去同意页。
+    @ViewBuilder
+    private var builtInConsentPendingRow: some View {
+        if editor.didLoad, editor.draftUsesBuiltIn, editor.needsBuiltInConsentBeforeChoosing {
+            MacSTRow(
+                String(localized: "ai_consent_pending_title"),
+                hint: String(localized: "ai_consent_pending_detail"),
+                hintLineLimit: 3
+            ) {
+                MacSTButton(
+                    title: String(localized: "ai_consent_pending_action"),
+                    systemImage: "hand.raised",
+                    prominent: true
+                ) {
+                    editor.pendingBuiltInConsent = BuiltInAIConsentRequest()
+                }
+                .accessibilityIdentifier("ai.consent.pending")
+            }
+            .pmSlideTransition(edge: .top, motion: .list)
+        }
+    }
+
     @ViewBuilder
     private var serviceGuidanceRow: some View {
         switch editor.serviceSetupGuidance {
@@ -1360,6 +1384,16 @@ private struct MacSTIntelligenceView: View {
                 .settingsAnchor("intelligence.privacy")
                 MacSTRow(String(localized: "ai_listening_context_consent")) {
                     MacSTToggle(isOn: editor.listeningContextConsentBinding)
+                }
+                if PrimuseAIRelayClient.isSupportedOnCurrentDevice {
+                    MacSTRow(String(localized: "ai_consent_privacy_row")) {
+                        MacSTButton(title: String(localized: intelligence.settingsStore.hasBuiltInAIConsent
+                                                  ? "ai_consent_status_agreed"
+                                                  : "ai_consent_status_not_agreed")) {
+                            editor.pendingBuiltInConsent = BuiltInAIConsentRequest()
+                        }
+                        .accessibilityIdentifier("ai.settings.builtInConsent")
+                    }
                 }
             }
         }
@@ -1506,6 +1540,7 @@ private struct MacSTIntelligenceView: View {
                     }
                 }
                 .settingsAnchor("intelligence.relayTest")
+                builtInConsentPendingRow
                 if editor.primuseRelayConnectionPresentation != .notTested {
                     MacSTRow(
                         editor.primuseRelayConnectionTitle,

@@ -14,6 +14,7 @@ struct TVLibraryInsightBlock: View {
     let details: () -> LibraryInsightSubject
 
     @State private var showsReader = false
+    @State private var builtInConsent: BuiltInAIConsentRequest?
     @State private var summaryOverflows = false
 
     private var store: LibraryInsightStore { .shared }
@@ -53,6 +54,7 @@ struct TVLibraryInsightBlock: View {
                     TVLibraryInsightReader(subject: subject)
                         .environment(tvStore)
                 }
+                .builtInAIConsentSheet($builtInConsent)
                 .contextMenu {
                     if let insight, !store.isGenerating(subject) {
                         // 自己写的简介在电视上不给一键覆盖。
@@ -202,7 +204,7 @@ struct TVLibraryInsightBlock: View {
         }
         guard !store.isGenerating(subject) else { return }
         if let failure = store.failure(for: subject) {
-            if failure == .needsConsent {
+            if failure == .needsConsent, !intelligence.needsBuiltInConsent(for: .libraryInsight) {
                 do {
                     try intelligence.grantRemoteConsent()
                 } catch {
@@ -219,6 +221,11 @@ struct TVLibraryInsightBlock: View {
     }
 
     private func generate() {
+        // 要交给内置 AI 而还没同意:先弹同意页,同意页会一并打开发送内容的授权。
+        if intelligence.needsBuiltInConsent(for: .libraryInsight) {
+            builtInConsent = BuiltInAIConsentRequest { generate() }
+            return
+        }
         let full = details()
         Task { await store.generate(full, library: tvStore.library, intelligence: intelligence) }
     }

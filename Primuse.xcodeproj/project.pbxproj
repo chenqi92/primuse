@@ -472,13 +472,16 @@
 		4D33F0C9B642CD35E3C5BF0D /* FireflySwarmSimulation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40980373B716BCFA76010C17 /* FireflySwarmSimulation.swift */; };
 		6AD377F652C05C73879CAEC2 /* TingReaderSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 656E0BFCACE046D38A1A1738 /* TingReaderSource.swift */; };
 		7D2328E731EA15C05F447E49 /* TingReaderAPIProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A04BC9A9E1ED420EC21D43E3 /* TingReaderAPIProtocol.swift */; };
+		81B5B37C5CB4D23EE92D38BB /* BuiltInAIConsentSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68D6C92F242076748F18B78D /* BuiltInAIConsentSheet.swift */; };
 		8B710E3071388FDD8434034B /* ServerBookFavoriteSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71030B609E6B406615DDB4F /* ServerBookFavoriteSyncService.swift */; };
 		8C9B662CAC7CC0590A6C862D /* FlyAuditoryCircuit.bin in Resources */ = {isa = PBXBuildFile; fileRef = F0758171C80FAED182F55FFA /* FlyAuditoryCircuit.bin */; };
 		91432E4B680587827128E1C0 /* ImmersiveSimulationRenderers.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4FE4BD3257B269C41AF23F9 /* ImmersiveSimulationRenderers.swift */; };
 		94E57AD8B1F34601C685BDD3 /* ChladniPlateSimulation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A854D7BB4C9874B9691F36C2 /* ChladniPlateSimulation.swift */; };
 		9E55FF68358B787BD6214D0C /* AudioPlayerNodeClockReader.m in Sources */ = {isa = PBXBuildFile; fileRef = A70B0C9499688D7F88F09DFA /* AudioPlayerNodeClockReader.m */; };
+		AE037F61A9EE8A0D463B4312 /* BuiltInAIConsentSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68D6C92F242076748F18B78D /* BuiltInAIConsentSheet.swift */; };
 		B51157CAAD473AB1B870829D /* TingReaderSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 656E0BFCACE046D38A1A1738 /* TingReaderSource.swift */; };
 		B53EEE559CBCD42168951481 /* TingReaderServiceClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2129A566F4B5BDA731416B1 /* TingReaderServiceClient.swift */; };
+		BA402795B29428D78BB4A1D3 /* BuiltInAIConsentSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68D6C92F242076748F18B78D /* BuiltInAIConsentSheet.swift */; };
 		C1A5F495222C077A35975328 /* YearlyReport.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FB45F70255F393A8A7284EE0 /* YearlyReport.xcassets */; };
 		C44AE0F45CDFF6C7DA8C7B34 /* TingReaderStreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5400797E01BDAA73A61EE612 /* TingReaderStreamResolver.swift */; };
 		CDB95C832EBEA9799029DFAD /* ImmersiveSimulationRenderers.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4FE4BD3257B269C41AF23F9 /* ImmersiveSimulationRenderers.swift */; };
@@ -2208,6 +2211,7 @@
 		5400797E01BDAA73A61EE612 /* TingReaderStreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TingReaderStreamResolver.swift; sourceTree = "<group>"; };
 		56D75D33DED0016E8FE39B23 /* YearlyReport.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = YearlyReport.xcassets; sourceTree = "<group>"; };
 		656E0BFCACE046D38A1A1738 /* TingReaderSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TingReaderSource.swift; sourceTree = "<group>"; };
+		68D6C92F242076748F18B78D /* BuiltInAIConsentSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltInAIConsentSheet.swift; sourceTree = "<group>"; };
 		99C30A24BB200AF2D4BD57C9 /* FlyAuditoryCircuit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlyAuditoryCircuit.swift; sourceTree = "<group>"; };
 		A04BC9A9E1ED420EC21D43E3 /* TingReaderAPIProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TingReaderAPIProtocol.swift; sourceTree = "<group>"; };
 		A854D7BB4C9874B9691F36C2 /* ChladniPlateSimulation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChladniPlateSimulation.swift; sourceTree = "<group>"; };
@@ -5388,6 +5392,7 @@
 				F52CBE601DF2ED6B33A3FD92 /* AppIconSettingsView.swift */,
 				780AC3E761A5E47669455B60 /* ArtistNameSettingsView.swift */,
 				77F4CE0ADBC65CBECCD665AC /* AudioEffectsView.swift */,
+				68D6C92F242076748F18B78D /* BuiltInAIConsentSheet.swift */,
 				7796B8917487FB64D4FA58B8 /* CarPlayContentPicker.swift */,
 				30FD4CFBBB2810A894E5E226 /* CarPlayEditorCanvas.swift */,
 				DFF7D33EE6AA248113308216 /* CarPlayEditorComponents.swift */,
@@ -6709,6 +6714,7 @@
 				AAC26221AFCFF260E587C6A5 /* BatchTagEditService.swift in Sources */,
 				2521EC9733B202DBF72E4A1D /* BatchTagEditorView.swift in Sources */,
 				2265889CD329AF4A8AC93100 /* BrowserChrome.swift in Sources */,
+				81B5B37C5CB4D23EE92D38BB /* BuiltInAIConsentSheet.swift in Sources */,
 				23EDB9E5B69213CBE9B89677 /* BuiltInCloudCredentials.swift in Sources */,
 				731960A337291B311A1CB746 /* Bundle+AppVersion.swift in Sources */,
 				F2F52D35807F227E5541E92D /* CachedArtworkView.swift in Sources */,
@@ -7158,6 +7164,7 @@
 				548F75D1876CB98C63DA6AA8 /* AutomaticOnlineLyricsLedger.swift in Sources */,
 				0B27BB086E12A8042A20DCAA /* BaiduPanIncrementalSync.swift in Sources */,
 				5A497C52F3AA48F24E183762 /* BaiduPanSource.swift in Sources */,
+				AE037F61A9EE8A0D463B4312 /* BuiltInAIConsentSheet.swift in Sources */,
 				58B0C50E48FFEA1914609B68 /* BuiltInCloudCredentials.swift in Sources */,
 				84D75346B27E33C0021BA2DB /* Bundle+AppVersion.swift in Sources */,
 				18D8E338807049AEFD675052 /* ByteRangeReader.swift in Sources */,
@@ -7420,6 +7427,7 @@
 				17AE03E33C366E7186A71E93 /* BatchTagEditService.swift in Sources */,
 				A72C48902D662E53306D0D50 /* BatchTagEditorView.swift in Sources */,
 				494A17ABDFC4526E896FB706 /* BrowserChrome.swift in Sources */,
+				BA402795B29428D78BB4A1D3 /* BuiltInAIConsentSheet.swift in Sources */,
 				338CFE65AF69397D9FB501E6 /* BuiltInCloudCredentials.swift in Sources */,
 				1B0A3CACE7B4634D20DA6C89 /* Bundle+AppVersion.swift in Sources */,
 				0A176E7239A1CEA25561D8F8 /* CachedArtworkView.swift in Sources */,

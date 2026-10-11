@@ -46,6 +46,8 @@ final class AISettingsEditorModel {
     var isTestingPrimuseRelay = false
     var status: Status = .idle
     var primuseRelayConnectionReport: PrimuseAIRelayConnectionReport?
+    /// 选了内置 AI 但同意页还没点过同意:页面弹出同意页,同意后再把这一下选择做完。
+    var pendingBuiltInConsent: BuiltInAIConsentRequest?
 
     private var draftGeneration: UInt64 = 0
     private var savedProviderSet: AIRemoteProviderSet
@@ -430,10 +432,35 @@ final class AISettingsEditorModel {
         primuseRelayEnabled ? .builtIn : .provider(draftProviderSet.primaryProviderID)
     }
 
+    /// 选内置 AI 之前要不要先弹同意页:页面加载过、还没同意、这台设备用得了内置 AI。
+    var needsBuiltInConsentBeforeChoosing: Bool {
+        guard let intelligence else { return false }
+        return !intelligence.settingsStore.hasBuiltInAIConsent
+            && PrimuseAIRelayClient.isSupportedOnCurrentDevice
+    }
+
+    /// 草稿里有哪里选了内置 AI(默认服务或某个功能的分工)。
+    var draftUsesBuiltIn: Bool {
+        primuseRelayEnabled || draftProviderSet.featureRoutes.values.contains(.builtIn)
+    }
+
+    /// 还没同意时先弹同意页,同意后再做 `action`;已经同意过直接做。
+    func afterBuiltInConsent(_ action: @escaping @MainActor () -> Void) {
+        guard needsBuiltInConsentBeforeChoosing else {
+            action()
+            return
+        }
+        pendingBuiltInConsent = BuiltInAIConsentRequest(onAgree: action)
+    }
+
     /// 选一项服务当默认就是关掉内置 AI、把它设为主服务;没启用的顺手启用。
     func chooseDefaultEngine(_ engine: DefaultEngine) {
         switch engine {
         case .builtIn:
+            guard !needsBuiltInConsentBeforeChoosing else {
+                afterBuiltInConsent { [weak self] in self?.chooseDefaultEngine(.builtIn) }
+                return
+            }
             primuseRelayEnabled = true
         case .provider(let id):
             guard let index = draftProviderSet.providers.firstIndex(where: { $0.id == id }) else {
@@ -480,6 +507,10 @@ final class AISettingsEditorModel {
 
     func setRoute(_ route: AIFeatureRoute?, for feature: AIFeature) {
         guard draftProviderSet.route(for: feature) != route else { return }
+        if route == .builtIn, needsBuiltInConsentBeforeChoosing {
+            afterBuiltInConsent { [weak self] in self?.setRoute(.builtIn, for: feature) }
+            return
+        }
         draftProviderSet.setRoute(route, for: feature)
         draftDidChange()
     }
@@ -695,6 +726,12 @@ final class AISettingsEditorModel {
         Binding(
             get: { self.primuseRelayEnabled },
             set: { value in
+                if value, self.needsBuiltInConsentBeforeChoosing {
+                    self.afterBuiltInConsent { [weak self] in
+                        self?.primuseRelayBinding.wrappedValue = true
+                    }
+                    return
+                }
                 self.primuseRelayEnabled = value
                 self.draftDidChange()
             }
@@ -1027,6 +1064,15 @@ final class AISettingsEditorModel {
 
     func testPrimuseRelayConnection(using intelligence: MusicIntelligenceService) async {
         guard canTestPrimuseRelayConnection else { return }
+        // 测试连接会注册这台设备,算是在用内置 AI:没同意先弹同意页,同意后接着测。
+        if !intelligence.settingsStore.hasBuiltInAIConsent,
+           PrimuseAIRelayClient.isSupportedOnCurrentDevice {
+            pendingBuiltInConsent = BuiltInAIConsentRequest { [weak self, weak intelligence] in
+                guard let self, let intelligence else { return }
+                Task { await self.testPrimuseRelayConnection(using: intelligence) }
+            }
+            return
+        }
         let providerSet = draftProviderSet
         let apiKeyOverrides = apiKeyDrafts
         isWorking = true
@@ -1289,6 +1335,7 @@ struct AISettingsView: View {
             editor.adoptStoredConsent(from: intelligence)
         }
         .task { await editor.load(using: intelligence) }
+        .builtInAIConsentSheet($editor.pendingBuiltInConsent)
         .alert("ai_model_add", isPresented: $showsManualModelEntry) {
             TextField("ai_model_name_prompt", text: $manualModelDraft)
                 .textInputAutocapitalization(.never)
@@ -1346,6 +1393,7 @@ struct AISettingsView: View {
             .settingsAnchor("intelligence.relay")
             .accessibilityIdentifier("ai.settings.defaultEngine")
 
+            builtInConsentPendingRow
             serviceGuidanceRow
 
             Toggle("ai_fallback_enabled", isOn: editor.fallbackBinding)
@@ -1572,6 +1620,16 @@ struct AISettingsView: View {
             .foregroundStyle(.tertiary)
     }
 
+    /// 选了内置 AI 却还没同意:它什么都不会发,这一行说明原因并带去同意页。
+    @ViewBuilder
+    private var builtInConsentPendingRow: some View {
+        if editor.didLoad, editor.draftUsesBuiltIn, editor.needsBuiltInConsentBeforeChoosing {
+            BuiltInAIConsentPendingRow {
+                editor.pendingBuiltInConsent = BuiltInAIConsentRequest()
+            }
+        }
+    }
+
     private var privacySection: some View {
         Section {
             Toggle("ai_remote_consent", isOn: editor.consentBinding)
@@ -1579,6 +1637,27 @@ struct AISettingsView: View {
                 "ai_listening_context_consent",
                 isOn: editor.listeningContextConsentBinding
             )
+            if PrimuseAIRelayClient.isSupportedOnCurrentDevice {
+                Button {
+                    editor.pendingBuiltInConsent = BuiltInAIConsentRequest()
+                } label: {
+                    LabeledContent {
+                        HStack(spacing: 6) {
+                            Text(intelligence.settingsStore.hasBuiltInAIConsent
+                                 ? LocalizedStringKey("ai_consent_status_agreed")
+                                 : LocalizedStringKey("ai_consent_status_not_agreed"))
+                            disclosureChevron
+                        }
+                        .foregroundStyle(.secondary)
+                    } label: {
+                        Text("ai_consent_privacy_row")
+                            .foregroundStyle(.primary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("ai.settings.builtInConsent")
+            }
         } header: {
             SettingsInfoHeader("ai_privacy_section") {
                 Text("ai_privacy_footer")
@@ -1739,6 +1818,7 @@ struct AISettingsView: View {
                 }
                 .disabled(!PrimuseAIRelayClient.isSupportedOnCurrentDevice)
             }
+            builtInConsentPendingRow
             if !PrimuseAIRelayClient.isSupportedOnCurrentDevice {
                 Label("ai_primuse_relay_unsupported", systemImage: "exclamationmark.shield")
                     .font(.caption)

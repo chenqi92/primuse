@@ -52,14 +52,18 @@ final class AISettingsStore {
     }
 
     nonisolated static let storageKey = "ai.settings.v1"
-    /// 从没保存过智能设置的设备默认打开内置 AI,开箱就能体验;已经保存过的
-    /// 选择(包括升级前就配好自己服务的旧版本设置)一律照旧,不替用户改回来。
-    /// 打开它不会发出任何请求:各项功能开关和听歌记录授权仍然默认关闭。
-    nonisolated static let defaultPrimuseRelayEnabled = true
-    /// 「允许向智能服务发送内容」同样只对从没保存过设置的设备默认打开。它本身
-    /// 不触发请求:歌词翻译默认走系统翻译,语义搜索和推荐各有自己的开关,标签
-    /// 整理要用户点了才发。已保存的 false 分不清是主动关的还是没碰过,不翻。
-    nonisolated static let defaultRemoteConsent = true
+    /// 内置 AI 会把内容经 Primuse 的服务器转给第三方模型,新装设备默认不选它,
+    /// 用户在同意页点了同意才打开。已经保存过的选择照旧,但没同意过的照样一个请求都不发
+    /// (见 `hasBuiltInAIConsent`)。
+    nonisolated static let defaultPrimuseRelayEnabled = false
+    /// 「允许向智能服务发送内容」新装默认关:用自己的服务时在隐私分组里打开,
+    /// 用内置 AI 时同意页会一并打开。
+    nonisolated static let defaultRemoteConsent = false
+    /// 内置 AI 同意页记下的版本。和智能设置分开存,智能设置整份保存时不会把它写回旧值;
+    /// 跟着 iCloud 同步,同意页上写明了同一账号的设备一起生效。
+    nonisolated static let builtInConsentKey = "ai.builtIn.consent.v1"
+    /// 同意页说明的内容有实质变化(多发了一类数据、换了处理方式)时加一,所有人重新确认一次。
+    nonisolated static let currentBuiltInConsentVersion = 1
     private let defaults: UserDefaults
     private let syncsThroughICloud: Bool
     @ObservationIgnored var externalReloadHandler: (() -> Void)?
@@ -73,7 +77,14 @@ final class AISettingsStore {
     private(set) var hasExplicitListeningContextConsent: Bool
     private(set) var hasExplicitAudioUploadConsent: Bool
     private(set) var hasPersistedSettings: Bool
+    /// 最近一次在内置 AI 同意页点同意时的版本,没同意过或撤回了是 0。
+    private(set) var builtInConsentVersion: Int
     private(set) var revision: UInt64 = 0
+
+    /// 同意页当前这一版点过同意。没有它,内置 AI 即使选上了也不发任何请求。
+    var hasBuiltInAIConsent: Bool {
+        builtInConsentVersion >= Self.currentBuiltInConsentVersion
+    }
 
     var configuration: AIRemoteProviderConfiguration {
         providerSet.primaryProvider
@@ -96,13 +107,45 @@ final class AISettingsStore {
         hasExplicitListeningContextConsent = loaded.hasExplicitListeningContextConsent
         hasExplicitAudioUploadConsent = loaded.hasExplicitAudioUploadConsent
         hasPersistedSettings = persistedData != nil
+        builtInConsentVersion = defaults.integer(forKey: Self.builtInConsentKey)
         applyDebugOverrides()
 
         if self.syncsThroughICloud {
             CloudKVSSync.shared.register(key: Self.storageKey) { [weak self] in
                 self?.reloadFromDefaults()
             }
+            CloudKVSSync.shared.register(key: Self.builtInConsentKey) { [weak self] in
+                self?.reloadBuiltInConsent()
+            }
         }
+    }
+
+    /// 同意页上点了同意。
+    func recordBuiltInAIConsent() {
+        setBuiltInConsentVersion(Self.currentBuiltInConsentVersion)
+    }
+
+    /// 撤回同意:内置 AI 的选择留着,但在再次同意之前不发任何请求。
+    func withdrawBuiltInAIConsent() {
+        setBuiltInConsentVersion(0)
+    }
+
+    private func setBuiltInConsentVersion(_ version: Int) {
+        guard builtInConsentVersion != version else { return }
+        defaults.set(version, forKey: Self.builtInConsentKey)
+        builtInConsentVersion = version
+        revision &+= 1
+        if syncsThroughICloud {
+            CloudKVSSync.shared.markChanged(key: Self.builtInConsentKey)
+        }
+    }
+
+    private func reloadBuiltInConsent() {
+        let version = defaults.integer(forKey: Self.builtInConsentKey)
+        guard version != builtInConsentVersion else { return }
+        builtInConsentVersion = version
+        revision &+= 1
+        externalReloadHandler?()
     }
 
     /// 截图钩子 `PRIMUSE_DEBUG_AI_RECOMMENDATIONS_ON=1`:不改存着的设置,这次启动把场景推荐和它要的

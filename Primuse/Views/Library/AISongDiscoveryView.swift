@@ -25,6 +25,7 @@ struct AISongDiscoveryView: View {
     @State private var copiedID: String?
     @State private var copiedAll = false
     @State private var requestTask: Task<Void, Never>?
+    @State private var builtInConsent: BuiltInAIConsentRequest?
 
     private static let ignoredArtistNames = [
         "Unknown Artist", "Various Artists", "Various", "VA", "群星", "未知艺术家", "未知歌手",
@@ -76,6 +77,7 @@ struct AISongDiscoveryView: View {
             emptyAfterFiltering = false
             copiedAll = false
         }
+        .builtInAIConsentSheet($builtInConsent)
         // 离开页面不取消:请求做完照样记进历史,下次打开就能看到。
     }
 
@@ -136,9 +138,18 @@ struct AISongDiscoveryView: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
+    /// 要交给内置 AI 而还没同意:先弹同意页,同意后再推荐。
+    private func requestAskingBuiltInConsent() {
+        guard intelligence.needsBuiltInConsent(for: .songDiscovery) else {
+            requestBatch()
+            return
+        }
+        builtInConsent = BuiltInAIConsentRequest { requestBatch() }
+    }
+
     private var actionRow: some View {
         HStack(spacing: 10) {
-            Button(action: requestBatch) {
+            Button(action: requestAskingBuiltInConsent) {
                 HStack(spacing: 7) {
                     if isLoading {
                         ProgressView().controlSize(.small)
@@ -235,6 +246,10 @@ struct AISongDiscoveryView: View {
             switch failure {
             case .needsConsent:
                 Button("ai_song_discovery_allow_and_request") {
+                    if intelligence.needsBuiltInConsent(for: .songDiscovery) {
+                        requestAskingBuiltInConsent()
+                        return
+                    }
                     do {
                         try intelligence.grantRemoteConsent()
                         requestBatch()

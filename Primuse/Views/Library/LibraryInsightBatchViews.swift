@@ -122,6 +122,7 @@ struct LibraryInsightBatchSheet: View {
     @State private var allowance: LibraryInsightBuiltInAllowance?
     @State private var isCheckingAllowance = false
     @State private var consentError = false
+    @State private var builtInConsent: BuiltInAIConsentRequest?
 
     private var title: String {
         plan.kind == .album
@@ -191,6 +192,7 @@ struct LibraryInsightBatchSheet: View {
         .formStyle(.grouped)
         #endif
         .accessibilityIdentifier("libraryInsightBatch.sheet")
+        .builtInAIConsentSheet($builtInConsent)
     }
 
     // MARK: 授权与配置
@@ -199,6 +201,11 @@ struct LibraryInsightBatchSheet: View {
         Section {
             Text("library_insight_needs_consent")
             Button {
+                // 要交给内置 AI 时同意页一并打开发送内容的授权。
+                if intelligence.needsBuiltInConsent(for: .libraryInsight) {
+                    builtInConsent = BuiltInAIConsentRequest()
+                    return
+                }
                 do {
                     try intelligence.grantRemoteConsent()
                 } catch {

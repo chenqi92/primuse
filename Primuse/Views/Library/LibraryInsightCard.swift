@@ -93,6 +93,7 @@ struct LibraryInsightSynopsis: View {
     var compact = false
 
     @State private var isEditing = false
+    @State private var builtInConsent: BuiltInAIConsentRequest?
     @State private var confirmsRegenerate = false
     @State private var isExpanded = false
     @State private var collapsedTextHeight: CGFloat = 0
@@ -172,11 +173,12 @@ struct LibraryInsightSynopsis: View {
                         isPresented: $confirmsRegenerate,
                         titleVisibility: .visible
                     ) {
-                        Button("library_insight_regenerate_confirm_action", role: .destructive) { actions.generate() }
+                        Button("library_insight_regenerate_confirm_action", role: .destructive) { generate() }
                         Button("cancel", role: .cancel) {}
                     } message: {
                         Text("library_insight_regenerate_confirm_message")
                     }
+                    .builtInAIConsentSheet($builtInConsent)
                     .libraryDetailPresentationReset()
             }
             #if DEBUG
@@ -188,6 +190,15 @@ struct LibraryInsightSynopsis: View {
             // 同一个头部换成别的专辑 / 艺人时回到收起的样子。
             .onChange(of: store.recordID(for: subject)) { isExpanded = false }
         }
+    }
+
+    /// 要交给内置 AI 而还没同意时先弹同意页,同意后再生成。
+    private func generate() {
+        guard intelligence.needsBuiltInConsent(for: .libraryInsight) else {
+            actions.generate()
+            return
+        }
+        builtInConsent = BuiltInAIConsentRequest { [actions] in actions.generate() }
     }
 
     // MARK: 有简介
@@ -380,7 +391,7 @@ struct LibraryInsightSynopsis: View {
                 if record.isWorthKeeping {
                     confirmsRegenerate = true
                 } else {
-                    actions.generate()
+                    generate()
                 }
             } label: {
                 Label("library_insight_regenerate", systemImage: "sparkles")
@@ -421,7 +432,7 @@ struct LibraryInsightSynopsis: View {
                 : LocalizedStringKey("library_insight_unknown_artist"))) {
                 // 换了服务或改了提示词之后,原来说不认识的可能认识了。
                 if actions.canAskAI {
-                    chip("library_insight_regenerate", systemImage: "sparkles") { actions.generate() }
+                    chip("library_insight_regenerate", systemImage: "sparkles") { generate() }
                         .disabled(store.retryDate(for: subject) != nil)
                 }
                 chip("library_insight_write_own", systemImage: "pencil") { isEditing = true }
@@ -429,7 +440,7 @@ struct LibraryInsightSynopsis: View {
         } else if actions.canAskAI {
             Menu {
                 Button {
-                    actions.generate()
+                    generate()
                 } label: {
                     Label("library_insight_generate", systemImage: "sparkles")
                 }
@@ -455,7 +466,11 @@ struct LibraryInsightSynopsis: View {
         switch failure {
         case .needsConsent:
             chip("library_insight_allow_and_generate", systemImage: "sparkles") {
-                actions.grantConsentAndGenerate()
+                if intelligence.needsBuiltInConsent(for: .libraryInsight) {
+                    generate()
+                } else {
+                    actions.grantConsentAndGenerate()
+                }
             }
         case .notConfigured, .builtInNotOffered:
             if intelligence.shouldExposeRemoteConfiguration {
@@ -577,6 +592,7 @@ struct LibraryInsightEditorSheet: View {
     @State private var aiDraft: LibraryInsightDraft?
     @State private var aiMessage: String?
     @State private var isFilling = false
+    @State private var builtInConsent: BuiltInAIConsentRequest?
 
     private var store: LibraryInsightStore { .shared }
 
@@ -605,6 +621,7 @@ struct LibraryInsightEditorSheet: View {
                 .padding([.horizontal, .top], 20)
                 .padding(.bottom, 8)
             form
+                .builtInAIConsentSheet($builtInConsent)
             HStack {
                 Spacer()
                 Button("cancel", role: .cancel) { dismiss() }
@@ -619,6 +636,7 @@ struct LibraryInsightEditorSheet: View {
         #else
         NavigationStack {
             form
+                .builtInAIConsentSheet($builtInConsent)
                 .navigationTitle(Text(verbatim: title))
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -699,6 +717,11 @@ struct LibraryInsightEditorSheet: View {
     }
 
     private func fillWithAI() {
+        // 要交给内置 AI 而还没同意:先弹同意页,同意后再填。
+        if intelligence.needsBuiltInConsent(for: .libraryInsight) {
+            builtInConsent = BuiltInAIConsentRequest { fillWithAI() }
+            return
+        }
         aiMessage = nil
         isFilling = true
         let full = details()

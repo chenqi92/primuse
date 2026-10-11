@@ -1526,18 +1526,54 @@ final class PrimuseAIRelayClientTests: XCTestCase {
     }
 
     @MainActor
-    func testFreshSettingsEnableRelayAndSendingButKeepFeaturesDisabled() throws {
+    func testFreshSettingsLeaveBuiltInAIAndSendingOff() throws {
         let defaults = try XCTUnwrap(UserDefaults(
             suiteName: "PrimuseAIRelayClientTests.\(UUID().uuidString)"
         ))
 
         let settings = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
 
-        XCTAssertTrue(settings.primuseRelayEnabled)
+        XCTAssertFalse(settings.primuseRelayEnabled)
         XCTAssertFalse(settings.semanticSearchEnabled)
         XCTAssertFalse(settings.recommendationsEnabled)
-        XCTAssertTrue(settings.hasExplicitRemoteConsent)
+        XCTAssertFalse(settings.hasExplicitRemoteConsent)
         XCTAssertFalse(settings.hasExplicitListeningContextConsent)
+        XCTAssertFalse(settings.hasBuiltInAIConsent)
+    }
+
+    @MainActor
+    func testBuiltInAIConsentIsKeptApartFromSavedSettingsAndCanBeWithdrawn() throws {
+        let defaults = try XCTUnwrap(UserDefaults(
+            suiteName: "PrimuseAIRelayClientTests.\(UUID().uuidString)"
+        ))
+        let settings = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
+        try settings.save(
+            providerSet: settings.providerSet,
+            primuseRelayEnabled: true,
+            semanticSearchEnabled: false,
+            hasExplicitRemoteConsent: true
+        )
+        XCTAssertFalse(settings.hasBuiltInAIConsent)
+
+        let revision = settings.revision
+        settings.recordBuiltInAIConsent()
+        XCTAssertTrue(settings.hasBuiltInAIConsent)
+        XCTAssertGreaterThan(settings.revision, revision)
+
+        // Saving the whole settings blob again does not write the consent back.
+        try settings.save(
+            providerSet: settings.providerSet,
+            primuseRelayEnabled: true,
+            semanticSearchEnabled: true,
+            hasExplicitRemoteConsent: true
+        )
+        let reloaded = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
+        XCTAssertTrue(reloaded.hasBuiltInAIConsent)
+
+        reloaded.withdrawBuiltInAIConsent()
+        XCTAssertFalse(reloaded.hasBuiltInAIConsent)
+        XCTAssertTrue(reloaded.primuseRelayEnabled)
+        XCTAssertFalse(AISettingsStore(defaults: defaults, syncsThroughICloud: false).hasBuiltInAIConsent)
     }
 
     @MainActor

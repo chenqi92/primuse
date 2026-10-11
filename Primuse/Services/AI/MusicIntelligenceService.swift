@@ -433,18 +433,21 @@ final class MusicIntelligenceService {
     }
 
     /// 更新后把这一版的 App Store 签名交易发给内置 AI 一次,后台据此看到构建号和
-    /// App Store/TestFlight;内置 AI 关着时不发。
+    /// App Store/TestFlight;内置 AI 关着或还没同意时不发。
     private func sendPrimuseRelayStoreProofIfNeeded() async {
         guard settingsStore.primuseRelayEnabled,
+              settingsStore.hasBuiltInAIConsent,
               PrimuseAIRelayClient.isSupportedOnCurrentDevice else { return }
         await primuseRelayClient.sendStoreProofIfNeeded()
     }
 
     /// 问一次内置 AI 有没有开放听歌识词;半小时内问过就不再问(`force` 除外)。
-    /// 内置 AI 关着时不问。套餐要签名请求才查得到,只在选了内置 AI 识别或打开
-    /// 设置页(`force`)时查;查不到套餐就只看后台开没开。
+    /// 内置 AI 关着或还没同意时不问。套餐要签名请求才查得到(第一次会注册这台设备),
+    /// 只在打开了听歌识词并选了内置 AI 识别、或打开设置页(`force`)时查;
+    /// 查不到套餐就只看后台开没开。
     func refreshBuiltInTranscriptionOffer(force: Bool = false) async {
         guard settingsStore.primuseRelayEnabled,
+              settingsStore.hasBuiltInAIConsent,
               PrimuseAIRelayClient.isSupportedOnCurrentDevice else { return }
         if !force, let checkedAt = builtInTranscriptionCheckedAt,
            Date().timeIntervalSince(checkedAt) < 30 * 60 {
@@ -452,7 +455,9 @@ final class MusicIntelligenceService {
         }
         guard let offered = await primuseRelayClient.isAudioTranscriptionOffered() else { return }
         var inPlan = true
-        if offered, force || lyricsTranscriptionSettingsStore.usesBuiltIn,
+        if offered,
+           force || (lyricsTranscriptionSettingsStore.usesBuiltIn
+                     && lyricsTranscriptionSettingsStore.isEnabled),
            let planned = await primuseRelayClient.isAudioTranscriptionInPlan() {
             inPlan = planned
         }
@@ -461,9 +466,11 @@ final class MusicIntelligenceService {
         builtInTranscriptionNotInPlan = offered && !inPlan
     }
 
-    /// 设置页要不要显示内置 AI 的额度:开着内置 AI、这台设备能用时才问。
+    /// 设置页要不要显示内置 AI 的额度:开着内置 AI、同意过、这台设备能用时才问。
     var showsBuiltInQuota: Bool {
-        settingsStore.primuseRelayEnabled && PrimuseAIRelayClient.isSupportedOnCurrentDevice
+        settingsStore.primuseRelayEnabled
+            && settingsStore.hasBuiltInAIConsent
+            && PrimuseAIRelayClient.isSupportedOnCurrentDevice
     }
 
     /// 打开设置页时读一次额度;刚读过、还没到每日重置就不再问(`force` 除外)。
@@ -476,6 +483,7 @@ final class MusicIntelligenceService {
     /// 内置 AI 这条路现在能不能用(不看用户选没选它)。
     var isBuiltInTranscriptionReady: Bool {
         settingsStore.primuseRelayEnabled
+            && settingsStore.hasBuiltInAIConsent
             && PrimuseAIRelayClient.isSupportedOnCurrentDevice
             && AIAvailabilityPolicy.decision(
                 for: .bundledRemote,
@@ -514,7 +522,8 @@ final class MusicIntelligenceService {
         )
     }
 
-    private func isPrimuseRelayAvailable(for feature: AIFeature) -> Bool {
+    /// 这个功能选的是内置 AI,而且这台设备、这个地区用得了(不看同意过没有)。
+    private func isPrimuseRelaySelected(for feature: AIFeature) -> Bool {
         let decision = AIAvailabilityPolicy.decision(
             for: .bundledRemote,
             regionContext: regionAvailability.context
@@ -522,6 +531,42 @@ final class MusicIntelligenceService {
         return asksBuiltInFirst(feature)
             && PrimuseAIRelayClient.isSupportedOnCurrentDevice
             && decision.isAllowed
+    }
+
+    /// 这个功能现在可以交给内置 AI:选了它,并且在同意页点过同意。没同意时
+    /// 自动功能当作内置 AI 没开,按需功能由界面先弹同意页(`needsBuiltInConsent`)。
+    private func isPrimuseRelayAvailable(for feature: AIFeature) -> Bool {
+        settingsStore.hasBuiltInAIConsent && isPrimuseRelaySelected(for: feature)
+    }
+
+    /// 这个功能要交给内置 AI,但同意页还没点过同意:按需功能点了之后先弹同意页。
+    func needsBuiltInConsent(for feature: AIFeature) -> Bool {
+        !settingsStore.hasBuiltInAIConsent && isPrimuseRelaySelected(for: feature)
+    }
+
+    /// 内置 AI 选上了并且同意过,真的会被用到。
+    var isBuiltInAIActive: Bool {
+        settingsStore.primuseRelayEnabled && settingsStore.hasBuiltInAIConsent
+    }
+
+    /// 同意页点了同意:记下同意的版本,并打开发送内容的授权(同意页已经说明了会发送
+    /// 什么);听歌偏好、上传音频仍各自单独授权。听歌识词开没开放,等打开歌词编辑或
+    /// 听歌识词设置时再问。
+    func acceptBuiltInAIConsent() throws {
+        if !settingsStore.hasExplicitRemoteConsent {
+            try grantRemoteConsent()
+        }
+        settingsStore.recordBuiltInAIConsent()
+    }
+
+    /// 撤回同意:内置 AI 的选择留着,之后不再发任何请求,直到再次同意。
+    func withdrawBuiltInAIConsent() {
+        settingsStore.withdrawBuiltInAIConsent()
+        primuseRelaySemanticPlanCache.removeAll(keepingCapacity: true)
+        primuseRelayRecommendationCache.removeAll(keepingCapacity: true)
+        builtInTranscriptionOffered = false
+        builtInTranscriptionNotInPlan = false
+        builtInTranscriptionCheckedAt = nil
     }
 
     private var primuseRelayProviderName: String {
@@ -536,6 +581,7 @@ final class MusicIntelligenceService {
     ) -> Bool {
         guard captured == latest,
               hasRequiredConsent,
+              settingsStore.hasBuiltInAIConsent,
               asksBuiltInFirst(feature),
               PrimuseAIRelayClient.isSupportedOnCurrentDevice else { return false }
         return AIAvailabilityPolicy.decision(
@@ -977,10 +1023,16 @@ final class MusicIntelligenceService {
         return canUseOwnProviders(for: feature, regionContext: regionAvailability.snapshot.context)
     }
 
+    /// 有服务可问,只差一项同意:发送内容的授权,或者(只有内置 AI 可问时)内置 AI 的同意页。
     private func libraryContentNeedsRemoteConsent(for feature: AIFeature) -> Bool {
-        !settingsStore.hasExplicitRemoteConsent
-            && (isPrimuseRelayAvailable(for: feature)
-                || canUseOwnProviders(for: feature, regionContext: regionAvailability.snapshot.context))
+        let ownProviders = canUseOwnProviders(
+            for: feature,
+            regionContext: regionAvailability.snapshot.context
+        )
+        if !settingsStore.hasExplicitRemoteConsent {
+            return isPrimuseRelaySelected(for: feature) || ownProviders
+        }
+        return needsBuiltInConsent(for: feature) && !ownProviders
     }
 
     /// Turns on sending content to AI services from a feature's own prompt,
@@ -999,8 +1051,8 @@ final class MusicIntelligenceService {
         )
     }
 
-    /// 首页指引卡上的「开启」:打开内置 AI、语义搜索与场景推荐,连同这两项能力
-    /// 需要的两项授权(卡片上写明了会发送什么);自己的服务和其它设置原样保留。
+    /// 首页指引卡上的「开启」(同意页点了同意之后):打开内置 AI、语义搜索与场景推荐,
+    /// 连同这两项能力需要的两项授权(卡片上写明了会发送什么);自己的服务和其它设置原样保留。
     func enableBuiltInIntelligence() throws {
         try settingsStore.save(
             providerSet: settingsStore.providerSet,
@@ -1224,9 +1276,10 @@ final class MusicIntelligenceService {
         }?.displayName
     }
 
-    /// 内置 AI 今天还剩多少简介额度;问不到返回 nil。
+    /// 内置 AI 今天还剩多少简介额度;问不到(或还没同意)返回 nil。
     func libraryInsightBuiltInAllowance() async -> LibraryInsightBuiltInAllowance? {
-        await primuseRelayClient.libraryInsightAllowance()
+        guard settingsStore.hasBuiltInAIConsent else { return nil }
+        return await primuseRelayClient.libraryInsightAllowance()
     }
 
     private func libraryInsight(
@@ -1331,7 +1384,8 @@ final class MusicIntelligenceService {
         relay: () async throws -> Value,
         custom: (AIRemoteProviderConfiguration, AIRegionSnapshot, Bool) async throws -> Value
     ) async -> LibraryContentRun<Value> {
-        guard settingsStore.hasExplicitRemoteConsent else {
+        guard settingsStore.hasExplicitRemoteConsent,
+              !libraryContentNeedsRemoteConsent(for: feature) else {
             return .failure(
                 libraryContentNeedsRemoteConsent(for: feature) ? .needsConsent : .notConfigured,
                 retryAt: nil
@@ -2456,6 +2510,16 @@ final class MusicIntelligenceService {
         providerSet: AIRemoteProviderSet,
         apiKeyOverrides: [UUID: String]
     ) async -> PrimuseAIRelayConnectionReport {
+        // 测试连接也会注册这台设备,设置页在同意之前会先弹同意页;这里再挡一道。
+        guard settingsStore.hasBuiltInAIConsent else {
+            return PrimuseAIRelayConnectionReport(
+                outcome: .unavailable(PrimuseAIRelayDiagnostic(
+                    category: .serviceAuthentication,
+                    code: "consent_required"
+                )),
+                fallback: .none
+            )
+        }
         let regionSnapshot = regionAvailability.snapshot
         let decision = AIAvailabilityPolicy.decision(
             for: .bundledRemote,
