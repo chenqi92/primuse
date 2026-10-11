@@ -1724,7 +1724,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         return try await requireTransportSession(rangeSession).upload(for: request, fromFile: localURL).1
     }
 
-    private func validateMutationResponse(_ response: URLResponse, operation: String) throws {
+    func validateMutationResponse(_ response: URLResponse, operation: String) throws {
         guard let http = response as? HTTPURLResponse else {
             throw EmbeddedMetadataWritebackSourceError.invalidResponse
         }
