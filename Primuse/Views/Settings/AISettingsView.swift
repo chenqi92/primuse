@@ -1200,7 +1200,7 @@ final class AISettingsEditorModel {
             return String(localized: "ai_error_missing_key")
         case OpenAICompatibleProviderError.missingGenerationModel:
             return String(localized: "ai_error_missing_model")
-        case OpenAICompatibleProviderError.requestFailed(let statusCode):
+        case OpenAICompatibleProviderError.requestFailed(let statusCode, _):
             return String(
                 format: String(localized: "ai_error_http_status_format"),
                 statusCode
