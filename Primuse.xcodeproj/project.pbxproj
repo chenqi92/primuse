@@ -1534,6 +1534,7 @@
 		CA3110CF3684D19D182462A1 /* SettingsCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FD4E0DFCC3418ECC05E35E3 /* SettingsCatalog.swift */; };
 		CAAE16A5512C4FF7A94BC11C /* AudioPlayerService+SpokenWord.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1EACDF18AD7A0236F9A6613 /* AudioPlayerService+SpokenWord.swift */; };
 		CB2392A6661A46E7045549EF /* RemoteMediaHTTPErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFA3B7E6ABB7F9FBF66FCEF2 /* RemoteMediaHTTPErrorTests.swift */; };
+		929FF68052024265B5C1DBCB /* CloudScanConcurrencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9117D8188332427DA24F1CF3 /* CloudScanConcurrencyTests.swift */; };
 		0F60D48ACA0F465AB327CE87 /* ReadOnlyMetadataWritebackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 193A9FDE80774FCD86C674E5 /* ReadOnlyMetadataWritebackTests.swift */; };
 		E0B092384C0C2A7F07C6DF68 /* LRCLIBHTTPErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65C163A6A5CD5B15DA0A6D1D /* LRCLIBHTTPErrorTests.swift */; };
 		CB4E9F3D6D435EECF77E5C86 /* AudioPlayerService+DecodedBufferHealth.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4324489CFAF380249864F70 /* AudioPlayerService+DecodedBufferHealth.swift */; };
@@ -3302,6 +3303,7 @@
 		CF1F59E05FD764211336C02D /* MacRadioStationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRadioStationsView.swift; sourceTree = "<group>"; };
 		CF9D38B5C0E897BC8060AE53 /* PlaybackVolumeControlPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackVolumeControlPolicy.swift; sourceTree = "<group>"; };
 		CFA3B7E6ABB7F9FBF66FCEF2 /* RemoteMediaHTTPErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteMediaHTTPErrorTests.swift; sourceTree = "<group>"; };
+		9117D8188332427DA24F1CF3 /* CloudScanConcurrencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudScanConcurrencyTests.swift; sourceTree = "<group>"; };
 		193A9FDE80774FCD86C674E5 /* ReadOnlyMetadataWritebackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadOnlyMetadataWritebackTests.swift; sourceTree = "<group>"; };
 		65C163A6A5CD5B15DA0A6D1D /* LRCLIBHTTPErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LRCLIBHTTPErrorTests.swift; sourceTree = "<group>"; };
 		D097BC8C61181C5D4A7DF1DE /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/HomeDiscovery.strings"; sourceTree = "<group>"; };
@@ -5343,6 +5345,7 @@
 				E94FDA18A33B351B72A07D1A /* QueueWindowPlayerTests.swift */,
 				14B0B8A327D0C4E40CEE9787 /* RecentlyDeletedBatchTests.swift */,
 				CFA3B7E6ABB7F9FBF66FCEF2 /* RemoteMediaHTTPErrorTests.swift */,
+				9117D8188332427DA24F1CF3 /* CloudScanConcurrencyTests.swift */,
 				193A9FDE80774FCD86C674E5 /* ReadOnlyMetadataWritebackTests.swift */,
 				65C163A6A5CD5B15DA0A6D1D /* LRCLIBHTTPErrorTests.swift */,
 				DC9A72F47CEAEE9E5E4FBD77 /* S3ListParserTests.swift */,
@@ -6171,6 +6174,7 @@
 				9CF7EDD75FF1905A518019D2 /* QueueWindowPlayerTests.swift in Sources */,
 				C29F3487C05D7218574FC1B5 /* RecentlyDeletedBatchTests.swift in Sources */,
 				CB2392A6661A46E7045549EF /* RemoteMediaHTTPErrorTests.swift in Sources */,
+				929FF68052024265B5C1DBCB /* CloudScanConcurrencyTests.swift in Sources */,
 				0F60D48ACA0F465AB327CE87 /* ReadOnlyMetadataWritebackTests.swift in Sources */,
 				E0B092384C0C2A7F07C6DF68 /* LRCLIBHTTPErrorTests.swift in Sources */,
 				DB4010B0AE18307DA6D513CB /* S3ListParserTests.swift in Sources */,
