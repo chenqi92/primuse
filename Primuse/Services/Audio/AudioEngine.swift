@@ -457,12 +457,21 @@ final class AudioEngine {
         }()
         #if os(macOS)
         let outputDeviceChanged = isSetUp && currentOutputDeviceID != hardwareOutputDeviceID
+        // 调用方刚把设备切到别的采样率(音效模式的「匹配输出采样率」不换直通格式):旧图还挂在
+        // 切换前的设备格式上，HAL 确认之后引擎才发配置变更。这里先换新图，旧图的通知随之作废，
+        // 开播的这首(包括下一首热备)不会再被恢复流程停下重来。
+        let hardwareRateChanged = isSetUp && configuredHardwareOutput.map { configured in
+            let rate = Self.nominalSampleRate(deviceID: configured.deviceID)
+            return rate > 0 && abs(rate - configured.sampleRate) >= 1
+        } ?? false
         #else
         let outputDeviceChanged = false
+        let hardwareRateChanged = false
         #endif
         guard self.outputMode != outputMode
                 || formatChanged
                 || outputDeviceChanged
+                || hardwareRateChanged
                 || self.usesDSDCarrier != normalizedDSDCarrier
                 || !isSetUp
                 || hardwareConfigurationRecoveryState.requiresGraphRebuild else { return }
