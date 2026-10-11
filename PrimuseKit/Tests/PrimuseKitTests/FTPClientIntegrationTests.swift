@@ -429,6 +429,43 @@ struct FTPClientIntegrationTests {
         }
     }
 
+    @Test("A request cancelled while queued for a session does not strand the requests behind it")
+    func cancelledQueuedRequestPassesItsTurnOn() async throws {
+        try await LoopbackFTP.deadline(15) {
+            let server = try LoopbackFTPServer.start(files: ["/Music/a.mp3": Data(count: 10)])
+            defer { server.stop() }
+            let pool = FTPSessionPool(configuration: server.configuration(mode: .automatic), maximumSessions: 1)
+            let release = LoopbackFTP.Gate()
+            let holder = Task {
+                try await pool.withSession { session in
+                    _ = try await session.size("/Music/a.mp3")
+                    _ = try await LoopbackFTP.waitUntil(timeout: 10) { release.isOpen }
+                }
+            }
+            func waitForQueue(_ count: Int) async throws {
+                let deadline = Date().addingTimeInterval(5)
+                while await pool.queuedRequestCount < count, Date() < deadline {
+                    try await Task.sleep(nanoseconds: 20_000_000)
+                }
+            }
+            // 第一个排队的请求被取消(读标签超时就是这样),第二个还在等。
+            _ = try await LoopbackFTP.waitUntil { server.logins == 1 }
+            let cancelled = Task { try await pool.withSession { try await $0.size("/Music/a.mp3") } }
+            try await waitForQueue(1)
+            let waiting = Task { try await pool.withSession { try await $0.size("/Music/a.mp3") } }
+            try await waitForQueue(2)
+            cancelled.cancel()
+            release.open()
+
+            try await holder.value
+            #expect(try await waiting.value == 10)
+            await #expect(throws: CancellationError.self) { try await cancelled.value }
+            #expect(await pool.queuedRequestCount == 0)
+            await pool.shutdown()
+            #expect(server.logins == 1)
+        }
+    }
+
     @Test("Idle sessions the server dropped or shut down are replaced transparently for reads")
     func staleIdleSessionsAreReplaced() async throws {
         try await LoopbackFTP.deadline(30) {
@@ -521,6 +558,13 @@ struct FTPClientIntegrationTests {
 // MARK: - Test helpers
 
 private enum LoopbackFTP {
+    final class Gate: @unchecked Sendable {
+        private let lock = NSLock()
+        private var opened = false
+        var isOpen: Bool { lock.withLock { opened } }
+        func open() { lock.withLock { opened = true } }
+    }
+
     struct DeadlineExceeded: Error, CustomStringConvertible {
         let seconds: Double
         var description: String { "operation did not finish within \(seconds) s" }

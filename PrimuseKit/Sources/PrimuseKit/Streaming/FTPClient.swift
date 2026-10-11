@@ -1221,7 +1221,9 @@ public actor FTPSessionPool {
     private let idleTimeout: TimeInterval
     private var idle: [(session: FTPSession, since: Date)] = []
     private var activeCount = 0
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var waiters: [(id: UUID, continuation: CheckedContinuation<Void, Never>)] = []
+    /// 取消后自己出队的排队请求:它们没占到叫醒,不用往下传。
+    private var withdrawnWaiters: Set<UUID> = []
     private var isShutDown = false
     private var reaper: Task<Void, Never>?
 
@@ -1261,7 +1263,7 @@ public actor FTPSessionPool {
         for session in sessions { await session.close() }
         let pending = waiters
         waiters.removeAll()
-        pending.forEach { $0.resume() }
+        pending.forEach { $0.continuation.resume() }
     }
 
     private func acquire() async throws -> (FTPSession, Bool) {
@@ -1291,7 +1293,7 @@ public actor FTPSessionPool {
                     maximumSessions = max(1, activeCount + idle.count)
                     configuration.log?("FTP \(configuration.host) allows \(maximumSessions) connection(s), queueing")
                     if idle.isEmpty {
-                        await withCheckedContinuation { waiters.append($0) }
+                        try await waitForTurn()
                     }
                     continue
                 } catch {
@@ -1301,9 +1303,34 @@ public actor FTPSessionPool {
                 }
                 return (session, false)
             }
-            await withCheckedContinuation { waiters.append($0) }
+            try await waitForTurn()
         }
     }
+
+    /// 排队等别人还回会话。排队时被取消(读标签超时、换歌)就自己出队;轮到时已经取消了,
+    /// 把这次叫醒让给下一个。否则它会白白占掉一次叫醒,后面排着的一直等下去,还回来的会话
+    /// 闲着没人用,直到被闲置回收关掉。
+    private func waitForTurn() async throws {
+        let id = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { waiters.append((id, $0)) }
+        } onCancel: {
+            Task { await self.leaveQueue(id) }
+        }
+        guard !Task.isCancelled else {
+            if withdrawnWaiters.remove(id) == nil { wakeOne() }
+            throw CancellationError()
+        }
+    }
+
+    private func leaveQueue(_ id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
+        withdrawnWaiters.insert(id)
+        waiters.remove(at: index).continuation.resume()
+    }
+
+    /// 排队等会话的请求数(测试用)。
+    var queuedRequestCount: Int { waiters.count }
 
     private func release(_ session: FTPSession) async {
         activeCount -= 1
@@ -1318,7 +1345,7 @@ public actor FTPSessionPool {
 
     private func wakeOne() {
         guard !waiters.isEmpty else { return }
-        waiters.removeFirst().resume()
+        waiters.removeFirst().continuation.resume()
     }
 
     private func scheduleReaper() {
