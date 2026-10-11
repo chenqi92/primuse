@@ -1200,6 +1200,9 @@ final class AudioPlayerService {
     /// The playing item's book, grouped from its own items, with the key it
     /// was built for. See `currentSpokenWordBook`.
     @ObservationIgnored var spokenWordBookCache: (key: String, book: SpokenWordBook?)?
+    /// The current book's items in queue order, with the key they were
+    /// collected for. See `currentBookItemIDs`.
+    @ObservationIgnored var currentBookItemIDsCache: (key: String, ids: [String])?
 
     // MARK: - Medley
 

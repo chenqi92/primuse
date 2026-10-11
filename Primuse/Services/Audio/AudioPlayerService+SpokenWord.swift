@@ -409,14 +409,27 @@ extension AudioPlayerService {
     /// The current book's items as they stand in the queue, in queue order
     /// (which is reading order: the shelf installs the book as the queue).
     /// Empty for music and radio.
+    ///
+    /// Cached per book, queue snapshot, store revision and library content:
+    /// the player's skip keys ask for it on every redraw (their long-press
+    /// menu is built with the view), and collecting it classifies every
+    /// queue entry — a thousand-item queue made each redraw of the
+    /// audiobook player cost tens of milliseconds while it slid in and out.
     var currentBookItemIDs: [String] {
         guard let bookID = currentBookID else { return [] }
-        return queueEntries.compactMap { entry in
+        // Reading the count keeps views that ask for this observing the
+        // queue even when the answer comes from the cache.
+        let key = "\(bookID)|\(queueEntries.count)|\(watchQueueSnapshotRevision)"
+            + "|\(SpokenWordStore.shared.revision)|\(library?.spokenWordContentRevision ?? 0)"
+        if let cache = currentBookItemIDsCache, cache.key == key { return cache.ids }
+        let ids = queueEntries.compactMap { entry -> String? in
             let song = entry.song
             guard spokenWordBookID(for: song) == bookID,
                   SpokenWordStore.shared.isSpokenWord(song) else { return nil }
             return song.id
         }
+        currentBookItemIDsCache = (key, ids)
+        return ids
     }
 
     /// The playing item's book, grouped from that book's own items (so a
