@@ -15,9 +15,8 @@ actor ArtworkFetchService {
     private var inFlightAlbum: [String: Task<Data?, Never>] = [:]
     private var inFlightArtist: [String: Task<Data?, Never>] = [:]
 
-    /// Cached scraper instances keyed by source config id, so per-source rate
-    /// limiting (lastRequestTime/minInterval lives on the scraper instance) is
-    /// shared across requests instead of being reset on every fetch.
+    /// Reuse scraper sessions and parsing configuration across artwork lookups.
+    /// Service quotas are shared by RequestExecutor, including manual requests.
     private var scraperCache: [String: any MusicScraper] = [:]
     private struct SourceFailureState {
         var consecutiveFailures = 0
@@ -108,6 +107,7 @@ actor ArtworkFetchService {
             guard !isBackedOff(config.id) else { continue }
             do {
                 let scraper = scraper(for: config)
+                guard await !scraper.isCoolingDown() else { continue }
                 let searchResult = try await scraper.search(query: query, artist: artistName, album: albumTitle, limit: 5)
                 // 目录按相关度排序，第一条常常是无关的热门专辑：候选必须先对上专辑名
                 // (两边都有歌手时还要对上歌手)，再在对得上的里面挑最可信的一条。
@@ -159,6 +159,7 @@ actor ArtworkFetchService {
             guard !isBackedOff(config.id) else { continue }
             do {
                 let scraper = scraper(for: config)
+                guard await !scraper.isCoolingDown() else { continue }
                 let searchResult = try await scraper.search(query: artistName, artist: artistName, album: nil, limit: 3)
                 guard let best = searchResult.items.first(where: {
                     Self.isConfidentArtistMatch($0, artistName: artistName)
@@ -188,9 +189,7 @@ actor ArtworkFetchService {
 
     // MARK: - Helpers
 
-    /// Return a cached scraper for the source, creating it on first use. Caching
-    /// keeps each scraper's rate limiter alive across the many album/artist
-    /// requests that Phase 2 enrichment issues back-to-back.
+    /// Return a cached scraper for the source, creating it on first use.
     private func scraper(for config: ScraperSourceConfig) -> any MusicScraper {
         if let cached = scraperCache[config.id] {
             return cached
@@ -223,16 +222,12 @@ actor ArtworkFetchService {
     }
 
     private func registerFailure(_ configID: String, error: Error) {
+        // Server cooldown is owned by the shared executor; never cap it here.
+        if case .rateLimited = error as? ScraperError { return }
         var state = sourceFailures[configID] ?? SourceFailureState()
         state.consecutiveFailures += 1
-
-        let delaySeconds: Int
-        if case .rateLimited(let retryAfter) = error as? ScraperError {
-            delaySeconds = max(5, min(300, retryAfter ?? 60))
-        } else {
-            let exponent = min(state.consecutiveFailures - 1, 5)
-            delaySeconds = min(120, 5 * (1 << exponent))
-        }
+        let exponent = min(state.consecutiveFailures - 1, 5)
+        let delaySeconds = min(120, 5 * (1 << exponent))
         state.retryAfter = ContinuousClock.now + .seconds(delaySeconds)
         sourceFailures[configID] = state
     }

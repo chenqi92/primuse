@@ -1209,7 +1209,7 @@ final class OpenAICompatibleProviderTests: XCTestCase {
                 AISemanticSearchRequest(query: "quiet driving")
             )
             XCTFail("Expected the provider to report an HTTP status error")
-        } catch OpenAICompatibleProviderError.requestFailed(let statusCode) {
+        } catch OpenAICompatibleProviderError.requestFailed(let statusCode, _) {
             XCTAssertEqual(statusCode, 429)
         } catch {
             XCTFail("Unexpected error: \(type(of: error))")

@@ -360,6 +360,7 @@ targets:
     sources:
       - path: PrimuseMacTests
       - path: PrimuseTests/PodcastRequestQuotaTests.swift
+      - path: PrimuseTests/AIRequestQuotaTests.swift
     dependencies:
       - target: PrimuseMac
     settings:
@@ -979,6 +980,7 @@ targets:
     sources:
       - path: PrimuseTVTests
       - path: PrimuseTests/PodcastRequestQuotaTests.swift
+      - path: PrimuseTests/AIRequestQuotaTests.swift
     dependencies:
       - target: PrimuseTV
     settings:
