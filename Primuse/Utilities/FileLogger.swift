@@ -424,10 +424,15 @@ final class RuntimeDiagnosticsSampler: @unchecked Sendable {
     }
 
     func start(sampleInterval: TimeInterval = 10, probeInterval: TimeInterval = 0.25) {
+        // 主线程的 Mach 端口由它自己报上来(Swift 里没有 pthread_main_thread_np);
+        // 报上来之前探针照投, 只是还抓不了栈。
+        DispatchQueue.main.async { [weak self] in
+            let port = pthread_mach_thread_np(pthread_self())
+            self?.queue.async { self?.mainThread = port }
+        }
         queue.async { [self] in
             guard sampleTimer == nil else { return }
             previous = Self.takeSample()
-            mainThread = pthread_mach_thread_np(pthread_main_thread_np())
 
             let sample = DispatchSource.makeTimerSource(queue: queue)
             sample.schedule(deadline: .now() + sampleInterval, repeating: sampleInterval, leeway: .seconds(1))
