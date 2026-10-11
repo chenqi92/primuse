@@ -13,17 +13,11 @@ actor ScraperManager {
         self.scraperFactory = scraperFactory
     }
 
-    /// 命中 429/503 的源在此记录退避截止时刻(按 `config.id`)。批量刮削会反复调用
-    /// `scrapeMetadata`,这张表让被限流的源在退避窗口内的后续调用里被直接跳过,
-    /// 不再继续撞限流。无 Retry-After 时用 `defaultBackoff` 兜底。
-    private var rateLimitBackoff: [String: ContinuousClock.Instant] = [:]
     private struct FailureState {
         var consecutiveFailures: Int
         var circuitOpenUntil: ContinuousClock.Instant?
     }
     private var failureStates: [String: FailureState] = [:]
-    private static let defaultBackoff: Duration = .seconds(30)
-    private static let maxBackoff: Duration = .seconds(300)
     private static let circuitFailureThreshold = 3
     private static let circuitCooldown: Duration = .seconds(120)
 
@@ -48,14 +42,9 @@ actor ScraperManager {
         let searchOrder: Int
     }
 
-    /// 该源当前是否处于限流退避窗口内(过期条目顺手清掉)。
-    private func isBackingOff(_ config: ScraperSourceConfig) -> Bool {
-        guard let until = rateLimitBackoff[config.id] else { return false }
-        if ContinuousClock.now >= until {
-            rateLimitBackoff[config.id] = nil
-            return false
-        }
-        return true
+    /// The request executor owns the deadline shared with manual/background callers.
+    private func isBackingOff(_ config: ScraperSourceConfig) async -> Bool {
+        await getScraper(for: config).isCoolingDown()
     }
 
     private func isCircuitOpen(_ config: ScraperSourceConfig) -> Bool {
@@ -103,25 +92,7 @@ actor ScraperManager {
     }
 
     private func handleFailure(_ error: Error, config: ScraperSourceConfig) {
-        if !handleRateLimit(error, config: config) {
-            registerFailure(error, config: config)
-        }
-    }
-
-    /// 命中 `ScraperError.rateLimited` 时登记退避截止时刻。
-    /// retryAfter(秒)优先,缺失则用 `defaultBackoff`,并夹到 `maxBackoff` 上限。
-    private func registerBackoff(_ config: ScraperSourceConfig, retryAfter: Int?) {
-        var delay: Duration = retryAfter.map { .seconds(max($0, 1)) } ?? Self.defaultBackoff
-        if delay > Self.maxBackoff { delay = Self.maxBackoff }
-        rateLimitBackoff[config.id] = ContinuousClock.now + delay
-        plog("⛔️ Scrape rate limited [\(config.type.displayName)], backing off \(delay)")
-    }
-
-    /// 判断 catch 到的 error 是否为限流;是则登记退避并返回 true(调用方据此跳到下一源)。
-    private func handleRateLimit(_ error: Error, config: ScraperSourceConfig) -> Bool {
-        guard case ScraperError.rateLimited(let retryAfter) = error else { return false }
-        registerBackoff(config, retryAfter: retryAfter)
-        return true
+        registerFailure(error, config: config)
     }
 
     func scrapeMetadata(
@@ -157,7 +128,7 @@ actor ScraperManager {
             let metadataSources = enabledSources.enumerated().filter { $0.element.type.supportsMetadata }
 
             metadataSourceLoop: for (sourceOrder, config) in metadataSources {
-                if isBackingOff(config) || isCircuitOpen(config) {
+                if await isBackingOff(config) || isCircuitOpen(config) {
                     plog("🔍 Skipping \(config.type.displayName) metadata — temporarily unavailable")
                     continue
                 }
@@ -241,7 +212,7 @@ actor ScraperManager {
             if !Self.isSufficientMetadata(selectedDetail?.rank) {
                 let fallbackCandidates = additionalCandidates.sorted(by: Self.isPreferred)
                 for candidate in fallbackCandidates.prefix(Self.autoMetadataExtraDetailFetchLimit) {
-                    if isBackingOff(candidate.config) || isCircuitOpen(candidate.config) { continue }
+                    if await isBackingOff(candidate.config) || isCircuitOpen(candidate.config) { continue }
                     do {
                         if let rankedDetail = try await fetchMetadataDetail(
                             candidate,
@@ -267,7 +238,7 @@ actor ScraperManager {
         // Scrape cover from first successful source
         if needs.cover {
             for config in enabledSources where config.type.supportsCover {
-                if isBackingOff(config) || isCircuitOpen(config) { continue }
+                if await isBackingOff(config) || isCircuitOpen(config) { continue }
                 do {
                     let scraper = getScraper(for: config)
 
@@ -307,7 +278,7 @@ actor ScraperManager {
         if needs.lyrics {
             plog("🎤 Lyrics tier: needs.lyrics=true, enabled sources w/ supportsLyrics: \(enabledSources.filter { $0.type.supportsLyrics }.map { $0.type.displayName })")
             for config in enabledSources where config.type.supportsLyrics {
-                if isBackingOff(config) || isCircuitOpen(config) {
+                if await isBackingOff(config) || isCircuitOpen(config) {
                     plog("🎤 Skipping \(config.type.displayName) lyrics — temporarily unavailable")
                     continue
                 }
@@ -385,7 +356,7 @@ actor ScraperManager {
                                 if isCancellation(error) { return result }
                                 plog("🎤 [\(config.type.displayName)] getLyrics failed for '\(candidate.title)': \(error.localizedDescription)")
                                 handleFailure(error, config: config)
-                                if isBackingOff(config) || isCircuitOpen(config) { break }
+                                if await isBackingOff(config) || isCircuitOpen(config) { break }
                             }
                         }
                         if result.lyrics == nil, let fb = lineLevelFallback {
@@ -576,7 +547,7 @@ actor ScraperManager {
         artist: String?,
         durationMs: Int?
     ) async throws -> RankedMetadataDetail? {
-        guard !isBackingOff(candidate.config), !isCircuitOpen(candidate.config) else {
+        guard await !isBackingOff(candidate.config), !isCircuitOpen(candidate.config) else {
             return nil
         }
         let scraper = getScraper(for: candidate.config)

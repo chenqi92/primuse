@@ -1,8 +1,29 @@
 import Foundation
+import PrimuseKit
 import XCTest
 @testable import Primuse
 
 final class LRCLIBHTTPErrorTests: XCTestCase {
+    func testSeparateInstancesShareLongCooldown() async {
+        let fixture = HTTPFixture(status: 429, retryAfter: "3600")
+        defer { fixture.close() }
+        // Fresh service quota keeps this test independent of order and repeated runs.
+        let quota = RequestExecutor(policy: .init(minimumInterval: 0.2, maximumConcurrentRequests: 1))
+        let first = LRCLIBScraper(session: fixture.session, requestExecutor: quota)
+        let other = LRCLIBScraper(session: fixture.session, requestExecutor: quota)
+        for scraper in [first, other] {
+            do {
+                _ = try await scraper.fetchLyrics(title: "Fixture Song", artist: "Fixture Artist")
+                XCTFail("Both callers must observe the server cooldown")
+            } catch ScraperError.rateLimited(let delay) {
+                XCTAssertGreaterThanOrEqual(delay ?? 0, 3599)
+            } catch {
+                XCTFail("Expected shared cooldown, got \(error)")
+            }
+        }
+        XCTAssertEqual(fixture.requests.count, 1, "A new scraper must not request during another caller's cooldown")
+    }
+
     func testSuccessfulLookupAndArtistlessSearchStillReturnLyrics() async throws {
         for artist in ["Fixture Artist", nil] {
             let object: [String: Any] = [
@@ -169,7 +190,7 @@ private final class HTTPFixture: @unchecked Sendable {
         configuration.protocolClasses = [LRCLIBURLProtocol.self]
         configuration.httpAdditionalHeaders = ["X-LRCLIB-Test-ID": id]
         session = URLSession(configuration: configuration)
-        scraper = LRCLIBScraper(session: session)
+        scraper = LRCLIBScraper(session: session, requestExecutor: RequestExecutor())
     }
 
     var requests: [URLRequest] { reply.requests }

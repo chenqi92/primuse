@@ -29,6 +29,11 @@ actor ITunesScraper: MusicScraper {
         self.session = URLSession(configuration: config)
     }
 
+    func isCoolingDown() async -> Bool {
+        if await requestExecutor.isCoolingDown { return true }
+        return await ScraperRequestPool.shared.isCoolingDown(for: .resource(type.rawValue))
+    }
+
     // MARK: - MusicScraper
 
     func search(query: String, artist: String?, album: String?, limit: Int) async throws -> ScraperSearchResult {

@@ -20,6 +20,11 @@ actor MusicBrainzScraper: MusicScraper {
         self.session = URLSession(configuration: config)
     }
 
+    func isCoolingDown() async -> Bool {
+        if await requestExecutor.isCoolingDown { return true }
+        return await ScraperRequestPool.shared.isCoolingDown(for: .resource(type.rawValue))
+    }
+
     // MARK: - MusicScraper
 
     func search(query: String, artist: String?, album: String?, limit: Int) async throws -> ScraperSearchResult {
@@ -116,17 +121,13 @@ actor MusicBrainzScraper: MusicScraper {
         nil // MusicBrainz doesn't provide lyrics
     }
 
-    // Also provide direct cover fetch for ScraperManager
+    /// Direct cover lookups share the resource budget used by artwork downloads.
     func fetchCoverData(releaseID: String) async throws -> Data? {
-        guard let url = URL(string: "https://coverartarchive.org/release/\(releaseID)/front-250") else {
-            return nil
-        }
-
-        let (data, response) = try await session.data(from: url)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            return nil
-        }
-        return data
+        try await ConfigurableScraper.downloadResource(
+            from: "https://coverartarchive.org/release/\(releaseID)/front-250",
+            sourceConfig: .init(id: type.rawValue, type: type, isEnabled: true, priority: 0),
+            session: session
+        )
     }
 
     // MARK: - Rate Limiting
