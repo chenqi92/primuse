@@ -9,9 +9,12 @@ actor ITunesScraper: MusicScraper {
 
     private let session: URLSession
     // All factory instances and manual/background callers share this service budget.
-    private static let serviceRequests = RequestExecutor(
-        policy: .init(minimumInterval: 3, maximumConcurrentRequests: 1)
+    // Apple 超出额度时返回 429，偶尔是 403/503，三种都让全部调用方一起冷却。
+    static let servicePolicy = RequestExecutor.Policy(
+        minimumInterval: 3, maximumConcurrentRequests: 1,
+        rateLimitStatusCodes: [403, 429, 503]
     )
+    private static let serviceRequests = RequestExecutor(policy: servicePolicy)
     private let requestExecutor: RequestExecutor
 
     init(session: URLSession? = nil, requestExecutor: RequestExecutor? = nil) {
@@ -115,7 +118,8 @@ actor ITunesScraper: MusicScraper {
             return try await requestExecutor.execute(replay: .idempotent) { [session] in
                 try await session.data(from: url)
             }.data
-        } catch let failure as HTTPResponseFailure where failure.statusCode == 429 || failure.statusCode == 503 {
+        } catch let failure as HTTPResponseFailure
+                    where Self.servicePolicy.rateLimitStatusCodes.contains(failure.statusCode) {
             // Preserve the scheduler's existing deferral signal. The executor
             // independently enforces long server cooldowns across all callers.
             let seconds = failure.retryAfter.map { delay in

@@ -64,11 +64,14 @@ public actor RequestExecutor {
         public let maximumAttempts: Int
         public let maximumRetryWait: TimeInterval
         public let timeout: TimeInterval
+        /// Statuses that start a shared cooldown even without Retry-After.
+        /// Some services signal their quota with another status (iTunes: 403).
+        public let rateLimitStatusCodes: Set<Int>
         public init(
             minimumInterval: TimeInterval = 0, maximumConcurrentRequests: Int = 4,
             maximumPendingRequests: Int = 128,
             maximumAttempts: Int = 3, maximumRetryWait: TimeInterval = 2,
-            timeout: TimeInterval = 30
+            timeout: TimeInterval = 30, rateLimitStatusCodes: Set<Int> = [429, 503]
         ) {
             precondition(minimumInterval >= 0 && minimumInterval.isFinite)
             precondition(maximumConcurrentRequests > 0 && maximumPendingRequests >= 0)
@@ -81,6 +84,7 @@ public actor RequestExecutor {
             self.maximumRetryWait = maximumRetryWait
             self.minimumInterval = minimumInterval
             self.maximumConcurrentRequests = maximumConcurrentRequests
+            self.rateLimitStatusCodes = rateLimitStatusCodes
         }
     }
 
@@ -195,7 +199,7 @@ public actor RequestExecutor {
         guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
         guard (200...299).contains(http.statusCode) else {
             let retryAfter = HTTPResponseFailure.retryDelay(from: http, now: timing.date())
-            if retryAfter != nil || http.statusCode == 429 || http.statusCode == 503 {
+            if retryAfter != nil || policy.rateLimitStatusCodes.contains(http.statusCode) {
                 let until = timing.now() + (retryAfter ?? 30)
                 if until > cooldownUntil {
                     cooldownUntil = until

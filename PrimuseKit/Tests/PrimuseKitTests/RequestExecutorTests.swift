@@ -6,9 +6,11 @@ import Testing
 struct RequestExecutorTests {
     @Test("An overloaded service bounds pending work")
     func boundsPendingRequests() async throws {
+        // A controlled clock keeps the held request inside its deadline however
+        // slowly a loaded test host schedules the second caller.
         let executor = RequestExecutor(policy: .init(
-            maximumConcurrentRequests: 1, maximumPendingRequests: 0, timeout: 0.1
-        ))
+            maximumConcurrentRequests: 1, maximumPendingRequests: 0
+        ), timing: ControlledClock().timing)
         let gate = HeldResponse()
         let first = Task { try await executor.execute { try await gate.read() } }
         defer { first.cancel() }
@@ -100,10 +102,18 @@ struct RequestExecutorTests {
 
     @Test("The deadline includes waiting for a rate slot")
     func deadlineIncludesRateWait() async throws {
-        let executor = RequestExecutor(policy: .init(minimumInterval: 1, timeout: 0.02))
+        let clock = ControlledClock()
+        let executor = RequestExecutor(policy: .init(minimumInterval: 1, timeout: 0.5), timing: clock.timing)
         _ = try await executor.execute { reply(200) }
+        let waiting = Task {
+            try await executor.execute { Issue.record("Rate wait escaped the deadline"); return reply(200) }
+        }
+        defer { waiting.cancel() }
+        try await clock.waitForSleep(at: 1)
+        try await clock.waitForSleep(at: 0.5)
+        clock.advance(to: 0.5)
         do {
-            _ = try await executor.execute { Issue.record("Rate wait escaped the deadline"); return reply(200) }
+            _ = try await waiting.value
             Issue.record("Expected admission timeout")
         } catch let error as URLError { #expect(error.code == .timedOut) }
     }
@@ -116,15 +126,43 @@ struct RequestExecutorTests {
 
     @Test("The total deadline cancels an in-flight transport")
     func cancelsAtDeadline() async throws {
-        let executor = RequestExecutor(policy: .init(timeout: 0.02))
+        let clock = ControlledClock()
+        let executor = RequestExecutor(policy: .init(timeout: 5), timing: clock.timing)
         let server = CancellationServer()
+        let request = Task { try await executor.execute { try await server.reply() } }
+        defer { request.cancel() }
+        try await server.waitUntilStarted()
+        try await clock.waitForSleep(at: 5)
+        clock.advance(to: 5)
         do {
-            _ = try await executor.execute { try await server.reply() }
+            _ = try await request.value
             Issue.record("Expected the request deadline")
         } catch let error as URLError {
             #expect(error.code == .timedOut)
         }
         #expect(await server.cancelled)
+    }
+
+    @Test("A service-specific quota status starts a shared cooldown")
+    func sharesConfiguredQuotaStatus() async throws {
+        let clock = ControlledClock()
+        let executor = RequestExecutor(
+            policy: .init(rateLimitStatusCodes: [403, 429, 503]), timing: clock.timing
+        )
+        let server = FailingServer(status: 403)
+        for expectedDelay in [nil, 30] as [TimeInterval?] {
+            do {
+                _ = try await executor.execute(replay: .idempotent) { await server.reply() }
+                Issue.record("Expected the quota failure")
+            } catch let failure as HTTPResponseFailure {
+                #expect(failure.statusCode == 403)
+                #expect(failure.retryAfter == expectedDelay)
+            }
+        }
+        #expect(await server.requests == 1)
+        clock.advance(to: 30)
+        _ = try? await executor.execute { await server.reply() }
+        #expect(await server.requests == 2)
     }
 
     @Test("Safe reads have a finite attempt budget")
@@ -307,21 +345,32 @@ private actor ConcurrentServer {
 }
 
 private actor FailingServer {
+    let status: Int
+    init(status: Int = 500) { self.status = status }
     var requests = 0
     func reply() -> (Data, URLResponse) {
         requests += 1
         return (Data(), HTTPURLResponse(url: URL(string: "https://fixture.invalid/read")!,
-                                       statusCode: 500, httpVersion: nil, headerFields: nil)!)
+                                       statusCode: status, httpVersion: nil, headerFields: nil)!)
     }
 }
 
 private actor CancellationServer {
     var cancelled = false
+    private var started = false
     func reply() async throws -> (Data, URLResponse) {
-        do { try await Task.sleep(for: .milliseconds(200)) }
+        started = true
+        do { try await Task.sleep(for: .seconds(60)) }
         catch { cancelled = true; throw error }
         return (Data(), HTTPURLResponse(url: URL(string: "https://fixture.invalid/read")!,
                                        statusCode: 200, httpVersion: nil, headerFields: nil)!)
+    }
+    func waitUntilStarted() async throws {
+        for _ in 0..<2000 {
+            if started { return }
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        throw URLError(.timedOut)
     }
 }
 

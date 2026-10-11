@@ -30,6 +30,24 @@ final class NativeScraperHTTPTests: XCTestCase {
         }
     }
 
+    func testITunesForbiddenQuotaResponseDefersEverySharedCaller() async throws {
+        let id = UUID().uuidString
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ForbiddenITunesProtocol.self]
+        configuration.httpAdditionalHeaders = ["X-Fixture-ID": id]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel(); ForbiddenITunesProtocol.counts.remove(id) }
+        let executor = RequestExecutor(policy: ITunesScraper.servicePolicy)
+        for scraper in [ITunesScraper(session: session, requestExecutor: executor),
+                        ITunesScraper(session: session, requestExecutor: executor)] {
+            do {
+                _ = try await scraper.search(query: "quota", artist: nil, album: nil, limit: 1)
+                XCTFail("Apple's 403 quota response must defer the source")
+            } catch ScraperError.rateLimited(_) {}
+        }
+        XCTAssertEqual(ForbiddenITunesProtocol.counts.count(id), 1)
+    }
+
     func testITunesServerFailureIsNotAnEmptySearchResult() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [FailedMusicBrainzProtocol.self]
@@ -105,6 +123,24 @@ private final class RateLimitedNativeProtocol: URLProtocol, @unchecked Sendable 
         Self.counts.increment(id)
         let response = HTTPURLResponse(url: request.url!, statusCode: 429, httpVersion: nil,
                                        headerFields: ["Retry-After": "3600"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data())
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+private final class ForbiddenITunesProtocol: URLProtocol, @unchecked Sendable {
+    static let counts = NativeRequestCounts()
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let id = request.value(forHTTPHeaderField: "X-Fixture-ID") else {
+            client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL)); return
+        }
+        Self.counts.increment(id)
+        let response = HTTPURLResponse(url: request.url!, statusCode: 403, httpVersion: nil,
+                                       headerFields: nil)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data())
         client?.urlProtocolDidFinishLoading(self)
