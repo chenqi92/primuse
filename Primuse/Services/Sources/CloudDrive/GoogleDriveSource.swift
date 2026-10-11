@@ -8,6 +8,7 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
     let sourceID: String
     nonisolated let supportsSidecarWriting = true   // 刮削歌词/封面写回 Google Drive 同目录
     private let helper: CloudDriveHelper
+    private let tokenProvider: (@Sendable () async throws -> String)?
     private static let apiBase = "https://www.googleapis.com/drive/v3"
     private static let uploadBase = "https://www.googleapis.com/upload/drive/v3"
     // Drive v3 deliberately removed File.etag. Keep normal browsing on v3,
@@ -446,9 +447,13 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
         return 0
     }
 
-    init(sourceID: String) {
+    init(sourceID: String, session: URLSession = .shared,
+         tokenProvider: (@Sendable () async throws -> String)? = nil,
+         requests: CloudRequestScheduler = .shared) {
         self.sourceID = sourceID
-        self.helper = CloudDriveHelper(sourceID: sourceID)
+        self.tokenProvider = tokenProvider
+        self.helper = CloudDriveHelper(sourceID: sourceID, requests: requests, session: session,
+                                       validateResponse: Self.validateQuota)
     }
 
     func connect() async throws { _ = try await getToken() }
@@ -556,26 +561,20 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
     }
 
     private func requestListPage(_ url: URL) async throws -> (Data, HTTPURLResponse) {
-        var rateLimitAttempt = 0
-        var delay: TimeInterval = 0.75
-        while true {
-            let token = try await getToken()
-            let result = try await helper.withTokenRetry(
-                initialToken: token,
-                refresh: refreshToken
-            ) { @Sendable tok in
-                try await self.helper.makeAuthorizedRequest(url: url, accessToken: tok)
-            }
-            let disposition = GoogleDriveHTTPErrorPolicy.disposition(
-                statusCode: result.1.statusCode,
-                reasons: Self.errorReasons(from: result.0)
+        let token = try await getToken()
+        return try await helper.withTokenRetry(initialToken: token, refresh: refreshToken) { @Sendable tok in
+            try await self.helper.makeAuthorizedRequest(url: url, accessToken: tok)
+        }
+    }
+
+    private nonisolated static func validateQuota(_ data: Data, _ http: HTTPURLResponse) throws {
+        if GoogleDriveHTTPErrorPolicy.disposition(
+            statusCode: http.statusCode, reasons: errorReasons(from: data)
+        ) == .retryRateLimit {
+            throw HTTPResponseFailure(
+                statusCode: http.statusCode, body: data,
+                retryAfter: HTTPResponseFailure.retryDelay(from: http), isRateLimited: true
             )
-            guard disposition == .retryRateLimit, rateLimitAttempt < 4 else {
-                return result
-            }
-            rateLimitAttempt += 1
-            try await Task.sleep(for: .seconds(delay))
-            delay = min(delay * 2, 8)
         }
     }
 
@@ -882,9 +881,10 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
     }
 
     private func getToken() async throws -> String {
+        if let tokenProvider { return try await tokenProvider() }
         // proactive 路径: 本地标记过期才刷新, 与 reactive(401)路径共享 CloudTokenManager
         // 里的同一个 in-flight 去重任务, 避免轮换型 refresh_token 被并发刷新作废。
-        try await helper.tokenManager.refreshDeduped(.ifExpired, refresh: refreshToken).accessToken
+        return try await helper.tokenManager.refreshDeduped(.ifExpired, refresh: refreshToken).accessToken
     }
 
     // nonisolated: 只用 helper(Sendable)/静态常量/URLSession, 不碰可变 actor 状态,

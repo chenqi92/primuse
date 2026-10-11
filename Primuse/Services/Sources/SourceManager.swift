@@ -226,6 +226,11 @@ enum AutomaticOfflineFailureKind: String, Sendable {
 
 enum AutomaticOfflineFailureClassifier {
     static func classify(_ error: Error) -> AutomaticOfflineFailureKind {
+        if let failure = error as? HTTPResponseFailure {
+            if failure.isRateLimited { return .rateLimited }
+            return classify(RemoteMediaHTTPError(service: "Cloud", statusCode: failure.statusCode,
+                                                retryAfter: failure.retryAfter))
+        }
         if let httpError = error as? RemoteMediaHTTPError {
             switch httpError.statusCode {
             case 401: return .authentication
@@ -661,6 +666,11 @@ enum OfflineRangeDownloadRetry {
         guard failedAttempts > 0, failedAttempts < maximumAttempts,
               !(error is CancellationError) else { return nil }
         let backoff = TimeInterval(failedAttempts)
+        if let http = error as? HTTPResponseFailure {
+            guard http.isRetryable ?? (http.isRateLimited || CloudHTTPRetryPolicy.shouldRetry(statusCode: http.statusCode)) else { return nil }
+            let delay = max(backoff, http.retryAfter ?? backoff)
+            return delay.isFinite && delay <= maximumRetryDelay ? delay : nil
+        }
         if let http = error as? RemoteMediaHTTPError {
             guard CloudHTTPRetryPolicy.shouldRetry(statusCode: http.statusCode) else { return nil }
             let delay = max(backoff, http.retryAfter ?? backoff)
@@ -3442,6 +3452,7 @@ final class SourceManager {
         cache: Bool,
         diagnosticCandidate: SourceConnectionCandidate? = nil
     ) -> any MusicSourceConnector {
+        CloudRequestScheduler.shared.register(sourceID: source.id, accountID: source.cloudAccountID)
         let scopeFingerprint = Self.audioCacheScopeSignature(for: source)
         guard !credentialChangesInProgress.contains(source.id),
               !MusicSourceSecurityRevision.hasPendingChange(for: source.id) else {

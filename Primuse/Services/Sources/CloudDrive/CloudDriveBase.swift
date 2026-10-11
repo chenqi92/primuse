@@ -116,12 +116,105 @@ enum CloudDriveError: Error, LocalizedError {
     }
 }
 
+/// Quotas outlive connector instances and token rotations. Mounts of a known
+/// cloud account share API/CDN quotas; unknown accounts remain source-scoped.
+/// GuangYa's documented IP quota is shared across accounts, per interface class.
+final class CloudRequestScheduler: @unchecked Sendable {
+    static let shared = CloudRequestScheduler()
+    private let lock = NSLock()
+    private var accounts: [String: String] = [:]
+    private var executors: [String: RequestExecutor] = [:]
+    private let timing: RequestExecutor.Timing
+    private let jitter: @Sendable (TimeInterval) -> TimeInterval
+
+    init(timing: RequestExecutor.Timing = .init(),
+         jitter: @escaping @Sendable (TimeInterval) -> TimeInterval = { .random(in: 0...$0) }) {
+        self.timing = timing
+        self.jitter = jitter
+    }
+
+    func register(sourceID: String, accountID: String?) {
+        lock.withLock { accounts[sourceID] = accountID.map { "account:" + $0 } }
+    }
+
+    func executor(sourceID: String, url: URL) -> RequestExecutor {
+        lock.withLock {
+            let host = (url.host ?? "").lowercased() + ":\(url.port ?? (url.scheme == "https" ? 443 : 80))"
+            var owner = accounts[sourceID] ?? "source:\(sourceID)"
+            var endpoint = "requests"
+            var interval: TimeInterval = 0
+            if url.host == "openapi.guangyapan.com" {
+                owner = "guangya-ip"
+                let isList = url.path.hasSuffix(GuangYaAPIProtocol.fileListPath)
+                endpoint = isList ? "file-list" : "business"
+                interval = isList ? GuangYaAPIProtocol.fileListMinimumInterval : GuangYaAPIProtocol.defaultMinimumInterval
+            } else if url.host == "pan.baidu.com" {
+                interval = 0.1
+            }
+            let key = "\(owner)|\(host)|\(endpoint)"
+            if let executor = executors[key] { return executor }
+            let executor = RequestExecutor(policy: .init(
+                minimumInterval: interval, maximumConcurrentRequests: 6,
+                maximumAttempts: 5, maximumRetryWait: 8,
+                timeout: 3600, rateLimitStatusCodes: [429], defaultCooldown: 2
+            ), timing: timing, jitter: jitter)
+            executors[key] = executor
+            return executor
+        }
+    }
+}
+
+/// Installed by withTokenRetry so HTTP and provider-envelope rejections recover
+/// inside the executor's existing budget, rather than starting another retry loop.
+private actor CloudRequestAuthorization {
+    @TaskLocal static var current: CloudRequestAuthorization?
+    nonisolated let sourceID: String
+    private(set) var token: String
+    private var refreshed = false
+    private let refresh: @Sendable (String) async throws -> String
+
+    init(sourceID: String, token: String, refresh: @escaping @Sendable (String) async throws -> String) {
+        self.sourceID = sourceID
+        self.token = token
+        self.refresh = refresh
+    }
+
+    func recover(_ error: Error) async throws -> Bool {
+        guard case CloudDriveError.tokenExpired = error else { return false }
+        return try await refreshOnce()
+    }
+
+    func exhaustRecovery() { refreshed = true }
+
+    func refreshOnce() async throws -> Bool {
+        try Task.checkCancellation()
+        guard !refreshed else { return false }
+        refreshed = true
+        // A refresh is shared by other requests and must finish/persist even if
+        // this caller is cancelled. Cancel only this wait, not the shared task.
+        let race = CancellableResultRace<String>()
+        let rejected = token
+        let refresh = refresh
+        Task {
+            do { race.resolve(.success(try await refresh(rejected))) }
+            catch { race.resolve(.failure(error)) }
+        }
+        token = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { race.install($0) }
+        } onCancel: { race.cancel() }
+        return true
+    }
+}
+
 /// Shared HTTP + caching utilities for all cloud drive sources.
 /// Each cloud source uses this as a helper instead of inheritance.
 struct CloudDriveHelper: Sendable {
     let sourceID: String
     let tokenManager: CloudTokenManager
     private let cacheNamespace: String
+    private let apiSession: URLSession
+    private let requests: CloudRequestScheduler
+    private let validateResponse: @Sendable (Data, HTTPURLResponse) throws -> Void
 
     var cacheDirectory: URL {
         let cacheDir = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
@@ -131,7 +224,13 @@ struct CloudDriveHelper: Sendable {
         return cacheDir
     }
 
-    init(sourceID: String) {
+    init(
+        sourceID: String, requests: CloudRequestScheduler = .shared, session: URLSession = .shared,
+        validateResponse: @escaping @Sendable (Data, HTTPURLResponse) throws -> Void = { _, _ in }
+    ) {
+        self.apiSession = session
+        self.requests = requests
+        self.validateResponse = validateResponse
         self.sourceID = sourceID
         self.tokenManager = CloudTokenManager(sourceID: sourceID)
         self.cacheNamespace = MusicSourceSecurityRevision.cacheNamespace(for: sourceID)
@@ -225,7 +324,24 @@ struct CloudDriveHelper: Sendable {
         userAgent: String? = nil,
         referer: String? = nil,
         timeoutSeconds: TimeInterval = 60,
-        forceTCP: Bool = false
+        forceTCP: Bool = false, session: URLSession = Self.rangeSession
+    ) async throws -> Data {
+        // Range callers already own chunk/short-read recovery. This executor
+        // admits one transfer and shares its cooldown without nesting retries.
+        let executor = requests.executor(sourceID: sourceID, url: url)
+        return try await executor.execute(timeout: timeoutSeconds, operation: {
+            try await self.performRangeRequest(
+                url: url, offset: offset, length: length, accessToken: accessToken,
+                userAgent: userAgent, referer: referer, timeoutSeconds: timeoutSeconds,
+                forceTCP: forceTCP, session: session
+            )
+        })
+    }
+
+    private func performRangeRequest(
+        url: URL, offset: Int64, length: Int64, accessToken: String?,
+        userAgent: String?, referer: String?, timeoutSeconds: TimeInterval,
+        forceTCP: Bool, session: URLSession
     ) async throws -> Data {
         // forceTCP：用 NWConnection 走 TCP+HTTP/1.1 绕开 HTTP/3(QUIC)。OneDrive CDN
         // 的 QUIC 路径在 iOS 上慢 20~30 倍(实测 ~100KB/s vs macOS h2 ~2MB/s)，而
@@ -240,9 +356,11 @@ struct CloudDriveHelper: Sendable {
                 plog(String(format: "🔌 TCP range host=%@ off=%lld got=%dKB in %.2fs (h1.1, no-QUIC)",
                             url.host ?? "?", offset, data.count / 1024, Date().timeIntervalSince(t0)))
                 return data
-            } catch let TCPRangeFetcher.FetchError.http(code) {
-                // 让上层的 401/403/410→刷新直链 逻辑照常生效。
-                throw CloudDriveError.apiError(code, "Range request failed (TCP)")
+            } catch let TCPRangeFetcher.FetchError.http(failure) {
+                if failure.retryAfter != nil || CloudHTTPRetryPolicy.shouldRetry(statusCode: failure.statusCode) {
+                    throw failure
+                }
+                throw CloudDriveError.apiError(failure.statusCode, "Range request failed (TCP)")
             }
         }
         guard let rangeHeader = SafeByteRange.httpHeader(offset: offset, length: length) else {
@@ -265,8 +383,10 @@ struct CloudDriveHelper: Sendable {
             request.setValue(referer, forHTTPHeaderField: "Referer")
         }
         request.timeoutInterval = timeoutSeconds
-        let (bytes, response) = try await Self.rangeSession.bytes(for: request)
+        let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse else { throw CloudDriveError.invalidResponse }
+        defer { bytes.task.cancel() }
+        try Self.checkHTTPFailure(data: Data(), response: http)
         switch http.statusCode {
         case 206:
             var data = Data()
@@ -324,91 +444,84 @@ struct CloudDriveHelper: Sendable {
         isTokenRejection: (Error) -> Bool = { _ in false },
         operation: (String) async throws -> T
     ) async throws -> T {
-        do {
-            return try await operation(initialToken)
-        } catch {
-            let rejected: Bool
-            if case CloudDriveError.tokenExpired = error {
-                rejected = true
-            } else {
-                rejected = isTokenRejection(error)
+        let authorization = CloudRequestAuthorization(sourceID: sourceID, token: initialToken) { rejected in
+            try await tokenManager.refreshDeduped(.ifMatches(rejected), refresh: refresh).accessToken
+        }
+        return try await CloudRequestAuthorization.$current.withValue(authorization) {
+            do {
+                return try await operation(initialToken)
+            } catch {
+                let rejected: Bool
+                if case CloudDriveError.tokenExpired = error { rejected = true }
+                else { rejected = isTokenRejection(error) }
+                guard rejected, try await authorization.refreshOnce() else { throw error }
+                return try await operation(authorization.token)
             }
-            guard rejected else { throw error }
-            plog("☁️ token rejected by server (\(error)); forcing refresh + retry sourceID=\(sourceID.prefix(8))…")
-            // .ifMatches(被拒 token): 多路并发 401 共享一次刷新; 若 token 已被别的并发
-            // 刷新换过则直接用新的, 不重复刷新(避免轮换型 refresh_token invalid_grant)。
-            let fresh = try await tokenManager.refreshDeduped(.ifMatches(initialToken), refresh: refresh).accessToken
-            return try await operation(fresh)
+        }
+    }
+
+    /// One complete HTTP operation. Build signed headers/tokens at send time;
+    /// validate provider envelopes inside the same retry and recovery budget.
+    func dataRequest(
+        url: URL, replay: RequestExecutor.Replay = .never, session: URLSession? = nil,
+        timeout: TimeInterval = 60,
+        validate: @escaping @Sendable (Data, HTTPURLResponse) async throws -> Void = { _, _ in },
+        request: @escaping @Sendable (String?) async throws -> URLRequest
+    ) async throws -> (Data, HTTPURLResponse) {
+        let session = session ?? apiSession
+        let executor = requests.executor(sourceID: sourceID, url: url)
+        let current = CloudRequestAuthorization.current
+        let authorization = current?.sourceID == sourceID ? current : nil
+        do {
+            return try await executor.execute(replay: replay, timeout: timeout, recover: { error in
+                try await authorization?.recover(error) ?? false
+            }, operation: {
+                let req = try await request(authorization?.token)
+                let (data, response) = try await session.data(for: req)
+                guard let http = response as? HTTPURLResponse else { throw CloudDriveError.invalidResponse }
+                try self.validateResponse(data, http)
+                try Self.checkHTTPFailure(data: data, response: http)
+                try await validate(data, http)
+                if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
+                return (data, http)
+            })
+        } catch CloudDriveError.tokenExpired {
+            // In particular, a 401 on the final allowed attempt must not escape
+            // to withTokenRetry and start a fresh HTTP attempt/deadline budget.
+            await authorization?.exhaustRecovery()
+            throw CloudDriveError.tokenExpired
+        }
+    }
+
+    /// Non-retryable statuses remain available to adapters (404, write conflicts,
+    /// ordinary 403, etc.). Temporary failures retain their status, body and delay.
+    static func checkHTTPFailure(data: Data, response: HTTPURLResponse) throws {
+        guard !(200...299).contains(response.statusCode) else { return }
+        let delay = HTTPResponseFailure.retryDelay(from: response)
+        if delay != nil || CloudHTTPRetryPolicy.shouldRetry(statusCode: response.statusCode) {
+            throw HTTPResponseFailure(
+                statusCode: response.statusCode, body: data, retryAfter: delay,
+                isRetryable: CloudHTTPRetryPolicy.shouldRetry(statusCode: response.statusCode)
+            )
         }
     }
 
     func makeAuthorizedRequest(
         url: URL, method: String = "GET", body: Data? = nil,
         contentType: String? = nil, accessToken: String,
-        isIdempotent: Bool? = nil, session: URLSession = .shared
+        isIdempotent: Bool? = nil, session: URLSession? = nil
     ) async throws -> (Data, HTTPURLResponse) {
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let contentType {
-            request.setValue(contentType, forHTTPHeaderField: "Content-Type")
-        }
-        request.httpBody = body
-        request.timeoutInterval = 60
-
         let mayRetry = isIdempotent ?? ["GET", "HEAD"].contains(method.uppercased())
-        var attempt = 0
-        var delay: TimeInterval = 0.75
-        while true {
-            do {
-                let (data, response) = try await session.data(for: request)
-                guard let http = response as? HTTPURLResponse else {
-                    throw CloudDriveError.invalidResponse
-                }
-                if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
-                if mayRetry,
-                   CloudHTTPRetryPolicy.shouldRetry(statusCode: http.statusCode),
-                   attempt < 4 {
-                    attempt += 1
-                    let retryAfter = Self.retryAfterDelay(from: http)
-                    try await Task.sleep(for: .seconds(retryAfter ?? delay))
-                    delay = min(delay * 2, 8)
-                    continue
-                }
-                if http.statusCode == 429 { throw CloudDriveError.rateLimited }
-                return (data, http)
-            } catch let error as CloudDriveError {
-                throw error
-            } catch {
-                guard mayRetry,
-                      Self.isRetryableTransportError(error),
-                      attempt < 4 else { throw error }
-                attempt += 1
-                try await Task.sleep(for: .seconds(delay))
-                delay = min(delay * 2, 8)
-            }
+        return try await dataRequest(url: url, replay: mayRetry ? .idempotent : .never, session: session) { token in
+            var request = URLRequest(url: url)
+            request.httpMethod = method
+            request.setValue("Bearer \(token ?? accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            if let contentType { request.setValue(contentType, forHTTPHeaderField: "Content-Type") }
+            request.httpBody = body
+            request.timeoutInterval = 60
+            return request
         }
-    }
-
-    private static func retryAfterDelay(from response: HTTPURLResponse) -> TimeInterval? {
-        guard let raw = response.value(forHTTPHeaderField: "Retry-After") else { return nil }
-        if let seconds = TimeInterval(raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
-            return min(max(seconds, 0), 60)
-        }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.dateFormat = "EEE',' dd MMM yyyy HH':'mm':'ss z"
-        guard let date = formatter.date(from: raw) else { return nil }
-        return min(max(date.timeIntervalSinceNow, 0), 60)
-    }
-
-    private static func isRetryableTransportError(_ error: Error) -> Bool {
-        if error is CancellationError { return false }
-        let nsError = error as NSError
-        guard nsError.domain == NSURLErrorDomain else { return false }
-        return CloudHTTPRetryPolicy.shouldRetry(urlErrorCode: nsError.code)
     }
 
     // MARK: - Cache
@@ -435,28 +548,28 @@ struct CloudDriveHelper: Sendable {
 
     /// Streams a complete remote file to URLSession's temporary file and only
     /// publishes the cache entry after a successful HTTP response.
-    func downloadToCache(request: URLRequest, for path: String) async throws -> URL {
+    func downloadToCache(request: URLRequest, for path: String, session: URLSession = Self.downloadSession) async throws -> URL {
         let destination = cachedURL(for: path)
         if FileManager.default.fileExists(atPath: destination.path) { return destination }
 
-        let (temporaryURL, response) = try await Self.downloadSession.download(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            try? FileManager.default.removeItem(at: temporaryURL)
-            throw CloudDriveError.invalidResponse
-        }
-        guard (200...299).contains(http.statusCode) else {
-            try? FileManager.default.removeItem(at: temporaryURL)
-            if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
-            if http.statusCode == 429 { throw CloudDriveError.rateLimited }
-            throw CloudDriveError.apiError(http.statusCode, "Download failed")
-        }
-
-        if FileManager.default.fileExists(atPath: destination.path) {
-            try? FileManager.default.removeItem(at: temporaryURL)
-        } else {
-            try FileManager.default.moveItem(at: temporaryURL, to: destination)
-        }
-        return destination
+        guard let url = request.url else { throw CloudDriveError.invalidResponse }
+        let executor = requests.executor(sourceID: sourceID, url: url)
+        // Keep streaming to a temporary file; never buffer a full download in Data.
+        return try await executor.execute(operation: {
+            let (temporaryURL, response) = try await session.download(for: request)
+            defer { try? FileManager.default.removeItem(at: temporaryURL) }
+            try Task.checkCancellation()
+            guard let http = response as? HTTPURLResponse else { throw CloudDriveError.invalidResponse }
+            try Self.checkHTTPFailure(data: Data(), response: http)
+            guard (200...299).contains(http.statusCode) else {
+                if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
+                throw CloudDriveError.apiError(http.statusCode, "Download failed")
+            }
+            if !FileManager.default.fileExists(atPath: destination.path) {
+                try FileManager.default.moveItem(at: temporaryURL, to: destination)
+            }
+            return destination
+        })
     }
 
     // MARK: - Scan

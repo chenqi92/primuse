@@ -25,6 +25,9 @@ import PrimuseKit
 actor GuangYaSource: MusicSourceConnector, OAuthCloudSource {
     let sourceID: String
     private let helper: CloudDriveHelper
+    private let session: URLSession
+    private let tokenProvider: (@Sendable () async throws -> String)?
+    private let configuration: GuangYaAPIProtocol.AppConfig?
 
     static let redirectURI = "\(CloudOAuthConfig.callbackScheme)://oauth/guangya/callback"
 
@@ -35,14 +38,15 @@ actor GuangYaSource: MusicSourceConnector, OAuthCloudSource {
     /// 直链到期前这么久就当它已经过期,避免正在播的一段 Range 打到刚失效的链接。
     private static let downloadURLSafetyMargin: TimeInterval = 60
 
-    /// 限频闸门。光鸭按 IP 限流:列表 5 次/秒,其余业务接口 2 次/秒。
-    /// 扫描时 CloudDriveHelper 会并发递归 4 个子目录,不自我节流必然撞限频。
-    private var fileListGateEnd = Date.distantPast
-    private var businessGateEnd = Date.distantPast
-
-    init(sourceID: String) {
+    init(sourceID: String, session: URLSession = .shared,
+         tokenProvider: (@Sendable () async throws -> String)? = nil,
+         configuration: GuangYaAPIProtocol.AppConfig? = nil,
+         requests: CloudRequestScheduler = .shared) {
         self.sourceID = sourceID
-        self.helper = CloudDriveHelper(sourceID: sourceID)
+        self.helper = CloudDriveHelper(sourceID: sourceID, requests: requests)
+        self.session = session
+        self.tokenProvider = tokenProvider
+        self.configuration = configuration
     }
 
     func connect() async throws {
@@ -58,7 +62,7 @@ actor GuangYaSource: MusicSourceConnector, OAuthCloudSource {
         guard let url = GuangYaAPIProtocol.userInfoURL else {
             throw CloudDriveError.invalidResponse
         }
-        let data = try await authedGET(url, gate: .business)
+        let data = try await authedGET(url)
         guard let info = GuangYaAPIProtocol.parseUserInfo(data) else {
             throw CloudDriveError.invalidResponse
         }
@@ -78,7 +82,7 @@ actor GuangYaSource: MusicSourceConnector, OAuthCloudSource {
             ) else {
                 throw CloudDriveError.invalidResponse
             }
-            let data = try await authedGET(url, gate: .fileList, notFoundPath: path)
+            let data = try await authedGET(url, notFoundPath: path)
             guard let listPage = GuangYaAPIProtocol.parseFileList(data) else {
                 throw CloudDriveError.invalidResponse
             }
@@ -152,7 +156,7 @@ actor GuangYaSource: MusicSourceConnector, OAuthCloudSource {
         guard let endpoint = GuangYaAPIProtocol.downloadURL(fileID: fileID) else {
             throw CloudDriveError.invalidResponse
         }
-        let data = try await authedGET(endpoint, gate: .business, notFoundPath: fileID)
+        let data = try await authedGET(endpoint, notFoundPath: fileID)
         guard let ticket = GuangYaAPIProtocol.parseDownloadTicket(data) else {
             throw CloudDriveError.fileNotFound(fileID)
         }
@@ -168,57 +172,12 @@ actor GuangYaSource: MusicSourceConnector, OAuthCloudSource {
         downloadURLCache.removeValue(forKey: fileID)
     }
 
-    // MARK: - 限频
-
-    private enum RequestGate {
-        case fileList
-        case business
-    }
-
-    /// 预约一个请求位:先把闸门往后推一格、再等到自己那一格。推格是同步的,
-    /// 所以并发调用会各自排到不同的时间槽,不会一起挤在同一格上。
-    private func reserveSlot(_ gate: RequestGate) -> TimeInterval {
-        let now = Date()
-        let interval: TimeInterval
-        let start: Date
-        switch gate {
-        case .fileList:
-            interval = GuangYaAPIProtocol.fileListMinimumInterval
-            start = max(now, fileListGateEnd)
-            fileListGateEnd = start.addingTimeInterval(interval)
-        case .business:
-            interval = GuangYaAPIProtocol.defaultMinimumInterval
-            start = max(now, businessGateEnd)
-            businessGateEnd = start.addingTimeInterval(interval)
-        }
-        return start.timeIntervalSince(now)
-    }
-
-    private func waitForSlot(_ gate: RequestGate) async throws {
-        let delay = reserveSlot(gate)
-        guard delay > 0 else { return }
-        try await Task.sleep(for: .seconds(delay))
-    }
-
-    /// 撞到限频时把整条闸门往后推。只让当前这个请求退避没有用:同一条闸门上
-    /// 排着的其他请求仍按原间隔发出,服务端看到的流量还是超限的。
-    private func applyRateLimitCooldown(_ gate: RequestGate) {
-        let resumeAt = Date().addingTimeInterval(GuangYaAPIProtocol.rateLimitCooldown)
-        switch gate {
-        case .fileList:
-            fileListGateEnd = max(fileListGateEnd, resumeAt)
-        case .business:
-            businessGateEnd = max(businessGateEnd, resumeAt)
-        }
-    }
-
     // MARK: - 鉴权请求
 
     /// 发一个带签名头的业务 GET,校验 `{code}` 为 0,并把业务错误码翻成
     /// `CloudDriveError`。HTTP 401 或业务码 117 → withTokenRetry 刷新 token 重试一次。
     private func authedGET(
         _ url: URL,
-        gate: RequestGate,
         notFoundPath: String? = nil
     ) async throws -> Data {
         let config = try await appConfig()
@@ -230,7 +189,6 @@ actor GuangYaSource: MusicSourceConnector, OAuthCloudSource {
         ) { @Sendable accessToken in
             try await self.performGET(
                 url,
-                gate: gate,
                 config: config,
                 accessToken: accessToken,
                 notFoundPath: notFoundPath
@@ -240,79 +198,36 @@ actor GuangYaSource: MusicSourceConnector, OAuthCloudSource {
 
     private func performGET(
         _ url: URL,
-        gate: RequestGate,
         config: GuangYaAPIProtocol.AppConfig,
         accessToken: String,
         notFoundPath: String?
     ) async throws -> Data {
-        var transientAttempt = 0
-        var delay: TimeInterval = 0.75
-        while true {
-            try await waitForSlot(gate)
-            // 签名头带 timestamp,每次重试都要重新生成,否则重试必然超出
-            // 服务端允许的 300 秒时钟偏差。
-            var request = URLRequest(url: url)
-            for (field, value) in GuangYaAPIProtocol.businessHeaders(
-                accessToken: accessToken,
-                config: config
-            ) {
-                request.setValue(value, forHTTPHeaderField: field)
-            }
-            request.timeoutInterval = 60
-
-            let data: Data
-            let response: URLResponse
-            do {
-                (data, response) = try await URLSession.shared.data(for: request)
-            } catch {
-                let nsError = error as NSError
-                guard nsError.domain == NSURLErrorDomain,
-                      CloudHTTPRetryPolicy.shouldRetry(urlErrorCode: nsError.code),
-                      transientAttempt < 4 else { throw error }
-                transientAttempt += 1
-                try await Task.sleep(for: .seconds(delay))
-                delay = min(delay * 2, 8)
-                continue
-            }
-            guard let http = response as? HTTPURLResponse else {
-                throw CloudDriveError.invalidResponse
-            }
-            if http.statusCode == 429 { applyRateLimitCooldown(gate) }
-            if CloudHTTPRetryPolicy.shouldRetry(statusCode: http.statusCode), transientAttempt < 4 {
-                transientAttempt += 1
-                try await Task.sleep(for: .seconds(delay))
-                delay = min(delay * 2, 8)
-                continue
-            }
-            if GuangYaAPIProtocol.indicatesInvalidToken(httpStatusCode: http.statusCode) {
-                throw CloudDriveError.tokenExpired
-            }
-            if http.statusCode == 429 { throw CloudDriveError.rateLimited }
-            guard (200...299).contains(http.statusCode) else {
-                throw CloudDriveError.apiError(
-                    http.statusCode,
-                    String(data: data.prefix(512), encoding: .utf8) ?? ""
-                )
-            }
-            guard let envelope = GuangYaAPIProtocol.parseEnvelope(data) else {
-                throw CloudDriveError.invalidResponse
-            }
-            guard envelope.isSuccess else {
-                // 101 是服务端自报的内部错误,厂商文档把它列为「安全请求可以
-                // 有界重试」。业务接口全是 GET,重试没有副作用;不重试的话,
-                // 整库扫描期间任何一次偶发 101 都会让那个目录连同整次扫描
-                // 一起失败。
-                if envelope.code == GuangYaAPIProtocol.ResultCode.internalError,
-                   transientAttempt < 4 {
-                    transientAttempt += 1
-                    try await Task.sleep(for: .seconds(delay))
-                    delay = min(delay * 2, 8)
-                    continue
+        let (data, http) = try await helper.dataRequest(
+            url: url, replay: .idempotent, session: session,
+            validate: { data, http in
+                guard (200...299).contains(http.statusCode) else { return }
+                guard let envelope = GuangYaAPIProtocol.parseEnvelope(data) else { throw CloudDriveError.invalidResponse }
+                guard !envelope.isSuccess else { return }
+                if envelope.code == GuangYaAPIProtocol.ResultCode.internalError {
+                    throw HTTPResponseFailure(statusCode: http.statusCode, body: data,
+                        retryAfter: HTTPResponseFailure.retryDelay(from: http), isRetryable: true)
                 }
                 throw Self.connectorError(for: envelope, notFoundPath: notFoundPath)
+            }, request: { refreshed in
+                // timestamp/sign must be rebuilt after every rate or recovery wait.
+                var request = URLRequest(url: url)
+                for (field, value) in GuangYaAPIProtocol.businessHeaders(accessToken: refreshed ?? accessToken, config: config) {
+                    request.setValue(value, forHTTPHeaderField: field)
+                }
+                request.timeoutInterval = 60
+                return request
             }
-            return data
+        )
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 403 { throw CloudDriveError.permissionDenied(.fileRead) }
+            throw CloudDriveError.apiError(http.statusCode, String(data: data.prefix(512), encoding: .utf8) ?? "")
         }
+        return data
     }
 
     /// 业务错误码 → 连接器错误。签名无效(116)与 clientId 错误(120)是接入配置
@@ -347,6 +262,7 @@ actor GuangYaSource: MusicSourceConnector, OAuthCloudSource {
     /// 平台分配的 client_id / project_id / sign_secret。project_id 与 sign_secret
     /// 只在构建期注入,用户即使自带 client_id 也沿用内置的那两项。
     private func appConfig() async throws -> GuangYaAPIProtocol.AppConfig {
+        if let configuration { return configuration }
         guard let bundled = GuangYaAPIProtocol.bundledAppConfig() else {
             throw CloudDriveError.apiError(
                 GuangYaAPIProtocol.ResultCode.invalidSign,
@@ -364,9 +280,10 @@ actor GuangYaSource: MusicSourceConnector, OAuthCloudSource {
     }
 
     private func getToken() async throws -> String {
+        if let tokenProvider { return try await tokenProvider() }
         // proactive:本地标记过期才刷新,与 reactive(401 / 117)共享 CloudTokenManager
         // 的去重刷新,避免并发把同一个 refresh_token 刷两次。
-        try await helper.tokenManager.refreshDeduped(.ifExpired, refresh: refreshToken).accessToken
+        return try await helper.tokenManager.refreshDeduped(.ifExpired, refresh: refreshToken).accessToken
     }
 
     /// `POST /v1/auth/token`,JSON body,`grant_type=refresh_token`。

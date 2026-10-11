@@ -1573,6 +1573,7 @@
 		CAAE16A5512C4FF7A94BC11C /* AudioPlayerService+SpokenWord.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1EACDF18AD7A0236F9A6613 /* AudioPlayerService+SpokenWord.swift */; };
 		CB2392A6661A46E7045549EF /* RemoteMediaHTTPErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFA3B7E6ABB7F9FBF66FCEF2 /* RemoteMediaHTTPErrorTests.swift */; };
 		929FF68052024265B5C1DBCB /* CloudScanConcurrencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9117D8188332427DA24F1CF3 /* CloudScanConcurrencyTests.swift */; };
+		A0236A000000000000000001 /* CloudRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0236A000000000000000002 /* CloudRequestTests.swift */; };
 		FD25E170B25047859BD05A57 /* NativeScraperHTTPTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 987813BA26D647B88EF2D5F9 /* NativeScraperHTTPTests.swift */; };
 		DFBD6CDFA9B74A00A97F22A8 /* BaiduWriteReplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23DCD3C94AF4401ADEB4284 /* BaiduWriteReplayTests.swift */; };
 		0F60D48ACA0F465AB327CE87 /* ReadOnlyMetadataWritebackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 193A9FDE80774FCD86C674E5 /* ReadOnlyMetadataWritebackTests.swift */; };
@@ -3371,6 +3372,7 @@
 		CF9D38B5C0E897BC8060AE53 /* PlaybackVolumeControlPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackVolumeControlPolicy.swift; sourceTree = "<group>"; };
 		CFA3B7E6ABB7F9FBF66FCEF2 /* RemoteMediaHTTPErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteMediaHTTPErrorTests.swift; sourceTree = "<group>"; };
 		9117D8188332427DA24F1CF3 /* CloudScanConcurrencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudScanConcurrencyTests.swift; sourceTree = "<group>"; };
+		A0236A000000000000000002 /* CloudRequestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRequestTests.swift; sourceTree = "<group>"; };
 		987813BA26D647B88EF2D5F9 /* NativeScraperHTTPTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeScraperHTTPTests.swift; sourceTree = "<group>"; };
 		F23DCD3C94AF4401ADEB4284 /* BaiduWriteReplayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduWriteReplayTests.swift; sourceTree = "<group>"; };
 		193A9FDE80774FCD86C674E5 /* ReadOnlyMetadataWritebackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadOnlyMetadataWritebackTests.swift; sourceTree = "<group>"; };
@@ -5440,6 +5442,7 @@
 				14B0B8A327D0C4E40CEE9787 /* RecentlyDeletedBatchTests.swift */,
 				CFA3B7E6ABB7F9FBF66FCEF2 /* RemoteMediaHTTPErrorTests.swift */,
 				9117D8188332427DA24F1CF3 /* CloudScanConcurrencyTests.swift */,
+				A0236A000000000000000002 /* CloudRequestTests.swift */,
 				987813BA26D647B88EF2D5F9 /* NativeScraperHTTPTests.swift */,
 				F23DCD3C94AF4401ADEB4284 /* BaiduWriteReplayTests.swift */,
 				193A9FDE80774FCD86C674E5 /* ReadOnlyMetadataWritebackTests.swift */,
@@ -6282,6 +6285,7 @@
 				C29F3487C05D7218574FC1B5 /* RecentlyDeletedBatchTests.swift in Sources */,
 				CB2392A6661A46E7045549EF /* RemoteMediaHTTPErrorTests.swift in Sources */,
 				929FF68052024265B5C1DBCB /* CloudScanConcurrencyTests.swift in Sources */,
+				A0236A000000000000000001 /* CloudRequestTests.swift in Sources */,
 				FD25E170B25047859BD05A57 /* NativeScraperHTTPTests.swift in Sources */,
 				DFBD6CDFA9B74A00A97F22A8 /* BaiduWriteReplayTests.swift in Sources */,
 				0F60D48ACA0F465AB327CE87 /* ReadOnlyMetadataWritebackTests.swift in Sources */,
