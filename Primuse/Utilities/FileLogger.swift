@@ -424,10 +424,19 @@ final class RuntimeDiagnosticsSampler: @unchecked Sendable {
     }
 
     func start(sampleInterval: TimeInterval = 10, probeInterval: TimeInterval = 0.25) {
+        // Capture the port on the main thread before starting the sampler.
+        // pthread_main_thread_np is not available in the public Apple SDKs.
+        DispatchQueue.main.async { [self] in
+            start(mainThread: pthread_mach_thread_np(pthread_self()),
+                  sampleInterval: sampleInterval, probeInterval: probeInterval)
+        }
+    }
+
+    private func start(mainThread: thread_t, sampleInterval: TimeInterval, probeInterval: TimeInterval) {
         queue.async { [self] in
             guard sampleTimer == nil else { return }
             previous = Self.takeSample()
-            mainThread = pthread_mach_thread_np(pthread_main_thread_np())
+            self.mainThread = mainThread
 
             let sample = DispatchSource.makeTimerSource(queue: queue)
             sample.schedule(deadline: .now() + sampleInterval, repeating: sampleInterval, leeway: .seconds(1))
