@@ -461,6 +461,7 @@ struct TVFullscreenEffectPicker: View {
 
     var body: some View {
         GeometryReader { _ in
+            let columns = Array(repeating: GridItem(.flexible(), spacing: 18), count: 4)
             ZStack {
                 Color.black.opacity(0.92).ignoresSafeArea()
 
@@ -503,24 +504,39 @@ struct TVFullscreenEffectPicker: View {
                     // 两个开关在右上角,和左边第一列卡片没有上下重叠:不划成焦点区,从网格往上按不过去。
                     .focusSection()
 
-                    ScrollView(.vertical, showsIndicators: false) {
-                        // 不用 Lazy 容器:当前效果排在下面几排时还没建出来,打开时焦点落不到它上面,
-                        // 只能留在被盖住的播放控件上(遥控器只有个别方向能按进网格)。卡片一共十来张。
-                        VStack(alignment: .leading, spacing: 24) {
-                            ForEach(FullscreenEffectCollection.allCases) { collection in
-                                VStack(alignment: .leading, spacing: 10) {
-                                    Text(collection.title)
-                                        .tvFont(.caption, weight: .semibold)
-                                        .foregroundStyle(.white.opacity(0.66))
+                    ScrollViewReader { proxy in
+                        ScrollView(.vertical, showsIndicators: false) {
+                            LazyVStack(alignment: .leading, spacing: 24) {
+                                ForEach(FullscreenEffectCollection.allCases) { collection in
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        Text(collection.title)
+                                            .tvFont(.caption, weight: .semibold)
+                                            .foregroundStyle(.white.opacity(0.66))
 
-                                    effectRows(collection.effects)
+                                        LazyVGrid(columns: columns, spacing: 18) {
+                                            ForEach(collection.effects) { candidate in
+                                                effectChoice(candidate)
+                                            }
+                                        }
+                                    }
+                                    // 每组一个焦点区:下一组卡片少、正下方没有卡时,按下也能进到这一组。
+                                    .focusSection()
+                                    .id(collection)
                                 }
-                                // 每组一个焦点区:下一组卡片少、正下方没有卡时,按下也能进到这一组。
-                                .focusSection()
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 14)
+                        }
+                        .onAppear {
+                            // 当前效果排在下面几排时还没建出来,直接设焦点会落空,焦点只能留在
+                            // 被盖住的播放控件上。先把它那一组滚到中间建好,再把焦点放上去。
+                            // 网格保持懒加载:一次建齐十几套舞台缩略图,屏幕外那几张模拟效果也会跟着重绘。
+                            proxy.scrollTo(selectedEffect.collection, anchor: .center)
+                            Task { @MainActor in
+                                try? await Task.sleep(for: .milliseconds(80))
+                                focusedEffect = selectedEffect
                             }
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 14)
                     }
                 }
                 .padding(.horizontal, 70)
@@ -529,7 +545,6 @@ struct TVFullscreenEffectPicker: View {
         }
         .focusSection()
         .defaultFocus($focusedEffect, selectedEffect)
-        .onAppear { focusedEffect = selectedEffect }
         .task(id: focusedEffect) {
             animatedEffect = nil
             guard let focusedEffect else { return }
@@ -539,28 +554,6 @@ struct TVFullscreenEffectPicker: View {
         }
         .accessibilityAddTraits(.isModal)
         .environment(\.colorScheme, .dark)
-    }
-
-    private static let columnCount = 4
-
-    /// 一组卡片按四列一行排开,最后一行不满时补空位,卡片宽度和上面几行一样。
-    private func effectRows(_ effects: [FullscreenPlayerEffect]) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
-            ForEach(Array(stride(from: 0, to: effects.count, by: Self.columnCount)), id: \.self) { start in
-                let end = min(start + Self.columnCount, effects.count)
-                HStack(alignment: .top, spacing: 18) {
-                    ForEach(effects[start..<end]) { candidate in
-                        effectChoice(candidate)
-                            .frame(maxWidth: .infinity)
-                    }
-                    ForEach(0..<(Self.columnCount - (end - start)), id: \.self) { _ in
-                        Color.clear
-                            .frame(maxWidth: .infinity, maxHeight: 0)
-                            .accessibilityHidden(true)
-                    }
-                }
-            }
-        }
     }
 
     /// 遥控器上按一下换到下一档，四档循环。
