@@ -1,13 +1,13 @@
 import Foundation
 
 /// The shape a book's cover is drawn in on the shelf, the book page and the
-/// home cards. Book covers are portrait (2:3 for print, 3:4 for many
-/// audiobook editions) while plenty of audiobook downloads carry square art;
-/// 3:4 sits between them, so both fit whole with only a narrow margin, and
-/// neither is cropped or stretched.
+/// home cards. Audiobook art is square — the store and Audiobookshelf
+/// editions, and most downloads — so the frame is square too and that art
+/// fills it. A portrait print cover is fitted whole over a blurred enlargement
+/// of itself instead of being cropped or stretched.
 public enum SpokenWordCoverLayout {
     /// Width ÷ height of the cover frame.
-    public static let aspectRatio: CGFloat = 3.0 / 4.0
+    public static let aspectRatio: CGFloat = 1
 
     /// Frame height for a cover `width` wide, rounded to whole points so a
     /// row of covers lines up.

@@ -686,7 +686,7 @@ struct TVNowPlayingView: View {
 
     // MARK: 左列 — 有声内容
 
-    /// 书封(竖版)、书名、正在听的一条、演播者与「第几章」,进度(带书签刻度)、
+    /// 书封、书名、正在听的一条、演播者与「第几章」,进度(带书签刻度)、
     /// 本章还剩多久与全书进度,再下面是听书的传输键和语速 / 定时 / 书签。
     private var spokenWordLeftColumn: some View {
         let np = store.nowPlaying
@@ -701,14 +701,15 @@ struct TVNowPlayingView: View {
                             // 播客单集的封面是方的,不放进书框;按图片地址缓存,和播客页的卡片共用一份。
                             TVPodcastArtwork(url: np.coverRef.flatMap(URL.init(string:)), side: 340, radius: 16)
                         } else if let book = store.currentSpokenWordBook {
-                            TVSpokenWordCover(book: book, size: 300, radius: 16)
+                            // 和播客单集封面同一个尺寸:书封也是方的。
+                            TVSpokenWordCover(book: book, size: 340, radius: 16)
                         } else {
                             TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
                                           songID: np.songID, coverRef: np.coverRef,
                                           tint: np.tint, tint2: np.tint2, glyph: np.glyph,
                                           placeholderKind: .book,
-                                          size: 300,
-                                          height: SpokenWordCoverLayout.height(forWidth: 300),
+                                          size: 340,
+                                          height: SpokenWordCoverLayout.height(forWidth: 340),
                                           radius: 16)
                                 .bookCoverLayout()
                         }

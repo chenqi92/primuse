@@ -733,10 +733,10 @@ struct MacNowPlayingView: View {
                             .strokeBorder(playerPrimaryColor.opacity(0.14), lineWidth: 0.5)
                     }
                 } else if isSpokenWord {
-                    // 书是竖的:3:4 书框,比方形槽位略矮,把高度让给下面的功能块。
+                    // 方形书框,比方形槽位略小一圈,把高度让给下面的功能块。
                     SpokenWordBookCover(
                         song: player.currentSong,
-                        width: (coverSize * 0.72).rounded(),
+                        width: (coverSize * 0.96).rounded(),
                         cornerRadius: coverRadius * 0.6,
                         decodeSize: coverSize
                     )
