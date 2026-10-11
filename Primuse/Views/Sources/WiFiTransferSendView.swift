@@ -12,7 +12,11 @@ final class WiFiTransferSender {
     private(set) var status = ""
     private(set) var currentFile = ""
     private(set) var progress: Double = 0
+    private(set) var sentBytes: Int64 = 0
+    private(set) var totalBytes: Int64 = 0
+    private(set) var bytesPerSecond: Double?
     private(set) var completed = 0
+    @ObservationIgnored private var throughput = WiFiTransferThroughput()
     private(set) var failed: [WiFiTransferOutgoingFile] = []
     private(set) var failures: [String] = []
     private(set) var error: String?
@@ -139,8 +143,12 @@ final class WiFiTransferSender {
         failed = []
         failures = []
         progress = 0
+        sentBytes = 0
+        totalBytes = 0
+        bytesPerSecond = nil
+        throughput = WiFiTransferThroughput()
         task = Task {
-            defer { busy = false; task = nil; currentFile = "" }
+            defer { busy = false; task = nil; currentFile = ""; bytesPerSecond = nil }
             var client: WiFiTransferClient?
             var ticket: String?
             let directory = FileManager.default.temporaryDirectory.appendingPathComponent("primuse-device-send-\(UUID().uuidString)")
@@ -177,6 +185,7 @@ final class WiFiTransferSender {
                 )
                 destinationName = destination.identity?.name ?? address
                 let total = files.reduce(Int64(0)) { $0 + $1.size }
+                totalBytes = total
                 guard destination.availableBytes > total + 64 * 1024 * 1024 else { throw WiFiTransferError.notEnoughSpace }
                 guard preparedMusicIsCurrent(library: library, sources: sources) else {
                     throw WiFiTransferLibraryPreparation.PreparationError.sourceChanged
@@ -242,17 +251,22 @@ final class WiFiTransferSender {
             let staged = try await WiFiTransferSelection.stage(file, in: directory)
             defer { try? FileManager.default.removeItem(at: staged) }
             try Task.checkCancellation()
+            let started = Date()
             try await connection.upload(file: staged, path: file.path, size: file.size, ticket: ticket) { [weak self] bytes in
                 Task { @MainActor in
                     guard let self, self.generation == generation, self.busy else { return }
                     batch.update(file.id, sent: bytes)
                     self.progress = batch.fraction
+                    self.sentBytes = batch.sentBytes
+                    self.bytesPerSecond = self.throughput.record(bytes: batch.sentBytes)
                 }
             }
+            plog("📡 WiFi transfer sent \(file.path) \(WiFiTransferThroughput.summary(bytes: file.size, seconds: Date().timeIntervalSince(started))) to \(destinationName)")
             batch.succeed(file.id)
             completed += 1
         } catch {
             if Task.isCancelled { throw CancellationError() }
+            plog("📡 WiFi transfer send failed \(file.path): \(error)")
             failed.append(file)
             failures.append(file.path + ": " + WiFiTransferText.error(error))
             if !(error is WiFiTransferError) || (error as? WiFiTransferError) == .unauthorized
@@ -262,6 +276,7 @@ final class WiFiTransferSender {
         }
         batch.finish(file.id, size: file.size)
         progress = batch.fraction
+        sentBytes = batch.sentBytes
     }
 
     func cancel() { task?.cancel() }
@@ -282,9 +297,8 @@ private final class TransferSendBatch {
         self.total = total
     }
 
-    var fraction: Double {
-        Double(finishedBytes + inFlight.values.reduce(0, +)) / Double(max(total, 1))
-    }
+    var sentBytes: Int64 { finishedBytes + inFlight.values.reduce(0, +) }
+    var fraction: Double { Double(sentBytes) / Double(max(total, 1)) }
 
     func next() -> WiFiTransferOutgoingFile? {
         guard nextIndex < files.count else { return nil }
@@ -658,6 +672,10 @@ struct WiFiTransferSendView: View {
                     .pmFadeTransition(motion: .contentAppear)
                 ProgressView(value: sender.progress).tint(TransferAppearance.accent)
                     .pmFadeTransition(motion: .contentAppear)
+                if sender.status == "sending" {
+                    Text(WiFiTransferText.bytesLine(sent: sender.sentBytes, total: sender.totalBytes, rate: sender.bytesPerSecond))
+                        .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                }
                 if sender.status == "libraryPreparing" {
                     Text(sender.preparationDetail).font(.caption).foregroundStyle(.secondary).monospacedDigit()
                 }

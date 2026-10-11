@@ -154,3 +154,4 @@
 "discoveryConfiguration" = "У цій збірці немає оголошення служби Bonjour. Установіть повну версію та відкрийте її знову.";
 "receivingDevice" = "Пристрій одержувача";
 "chooseReceiver" = "Вибрати пристрій одержувача";
+"speedFormat" = "%@/s";

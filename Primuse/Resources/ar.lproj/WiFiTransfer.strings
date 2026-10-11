@@ -154,3 +154,4 @@
 "discoveryConfiguration" = "يفتقد هذا الإصدار تصريح خدمة Bonjour. ثبّت إصدارًا كاملًا وأعد فتحه.";
 "receivingDevice" = "جهاز الاستقبال";
 "chooseReceiver" = "اختر جهاز الاستقبال";
+"speedFormat" = "%@/s";

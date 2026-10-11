@@ -164,8 +164,7 @@ struct TransferReceiveReceiptView: View {
                     .accessibilityLabel(WiFiTransferText.string("receiving"))
                     .pmFadeTransition(motion: .contentAppear)
                 HStack {
-                    Text(ByteCountFormatter.string(fromByteCount: receipt.receivedBytes, countStyle: .file)
-                         + " / " + ByteCountFormatter.string(fromByteCount: receipt.byteCount, countStyle: .file))
+                    Text(WiFiTransferText.bytesLine(sent: receipt.receivedBytes, total: receipt.byteCount, rate: receipt.bytesPerSecond))
                     Spacer()
                     Text(receipt.progress, format: .percent.precision(.fractionLength(0))).monospacedDigit()
                 }.font(.system(size: TransferAppearance.captionSize)).foregroundStyle(TransferAppearance.muted)

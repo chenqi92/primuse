@@ -156,3 +156,4 @@
 "discoveryConfiguration" = "Cette version ne déclare pas le service Bonjour. Installez une version complète et rouvrez-la.";
 "receivingDevice" = "Appareil destinataire";
 "chooseReceiver" = "Choisir un appareil destinataire";
+"speedFormat" = "%@/s";

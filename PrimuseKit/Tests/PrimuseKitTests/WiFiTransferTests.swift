@@ -736,4 +736,46 @@ struct WiFiTransferTests {
         }
         #expect(try FileManager.default.contentsOfDirectory(atPath: cancellationDirectory.path).isEmpty)
     }
+
+    @Test("The transfer rate settles over a short window and follows a slowdown")
+    func throughputFollowsRecentWindow() throws {
+        var meter = WiFiTransferThroughput()
+        let start = Date(timeIntervalSince1970: 1_000)
+        let first = meter.record(bytes: 0, at: start)
+        #expect(first == nil)
+        let early = meter.record(bytes: 500_000, at: start.addingTimeInterval(0.2))
+        #expect(early == nil)
+        let settledRate = meter.record(bytes: 1_000_000, at: start.addingTimeInterval(1))
+        let rate = try #require(settledRate)
+        #expect(abs(rate - 1_000_000) < 1)
+        // Only the last few seconds count, so a stall shows up instead of being averaged away.
+        let settled = meter.record(bytes: 1_010_000, at: start.addingTimeInterval(5))
+        let slow = try #require(settled)
+        #expect(slow < 20_000)
+        // A counter that starts over (the next file) does not read as a negative rate.
+        let restarted = meter.record(bytes: 10, at: start.addingTimeInterval(5.1))
+        #expect(restarted == nil)
+        #expect(WiFiTransferThroughput.summary(bytes: 2_000_000, seconds: 2).hasSuffix("/s"))
+    }
+
+    @MainActor
+    @Test("A receipt shows its rate while receiving and drops it when done")
+    func receiptReportsRateUntilFinished() throws {
+        let receiver = WiFiTransferReceiver()
+        let invitation = WiFiTransferInvitation(id: "rate", sender: "Mac", fileCount: 1, byteCount: 4_000_000)
+        let file = UUID()
+        let start = Date(timeIntervalSince1970: 2_000)
+        receiver.handle(.transferStarted(invitation), now: start)
+        receiver.handle(.uploadStarted(id: file, path: "a.flac", total: 4_000_000, transferID: invitation.id), now: start)
+        receiver.handle(.progress(id: file, path: "a.flac", received: 1_000_000, total: 4_000_000), now: start)
+        #expect(receiver.receipts.first?.bytesPerSecond == nil)
+        receiver.handle(.progress(id: file, path: "a.flac", received: 3_000_000, total: 4_000_000),
+                        now: start.addingTimeInterval(1))
+        let rate = try #require(receiver.receipts.first?.bytesPerSecond)
+        #expect(abs(rate - 2_000_000) < 1)
+        receiver.handle(.uploadEnded(id: file, error: nil), now: start.addingTimeInterval(2))
+        receiver.handle(.transferEnded(id: invitation.id, error: nil), now: start.addingTimeInterval(2))
+        #expect(receiver.receipts.first?.finished == true)
+        #expect(receiver.receipts.first?.bytesPerSecond == nil)
+    }
 }

@@ -154,3 +154,4 @@
 "discoveryConfiguration" = "इस संस्करण में Bonjour सेवा की घोषणा नहीं है। पूरा संस्करण इंस्टॉल करके दोबारा खोलें।";
 "receivingDevice" = "प्राप्त करने वाला डिवाइस";
 "chooseReceiver" = "प्राप्त करने वाला डिवाइस चुनें";
+"speedFormat" = "%@/s";

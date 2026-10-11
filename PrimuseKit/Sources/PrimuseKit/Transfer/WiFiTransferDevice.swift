@@ -167,6 +167,8 @@ public struct WiFiTransferReceipt: Identifiable, Equatable, Sendable {
     public internal(set) var files: [WiFiTransferReceivedFile] = []
     public internal(set) var finished = false
     public internal(set) var error: String?
+    /// Current receive rate; nil before it settles and once the receipt finishes.
+    public internal(set) var bytesPerSecond: Double?
     public var completed: Int { files.filter(\.succeeded).count }
     public var receivedBytes: Int64 { files.reduce(0) { $0 + ($1.succeeded ? $1.size : ($1.finished ? 0 : $1.received)) } }
     public var progress: Double { min(1, Double(receivedBytes) / Double(max(1, byteCount))) }
@@ -191,13 +193,18 @@ public final class WiFiTransferReceiver {
     @ObservationIgnored private var server: WiFiTransferServer?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var stopReason: String?
+    @ObservationIgnored private var log: @Sendable (String) -> Void = { _ in }
+    @ObservationIgnored private var meters: [String: WiFiTransferThroughput] = [:]
+    @ObservationIgnored private var fileStarts: [UUID: (time: Date, remote: String?)] = [:]
 
     public init() {}
 
     public func start(root: URL, identity: WiFiTransferIdentity, page: String,
                       willChange: @escaping @Sendable () -> Void = {},
+                      log: @escaping @Sendable (String) -> Void = { _ in },
                       onChange: @escaping @MainActor (String, Bool) -> Void) {
         guard server == nil else { return }
+        self.log = log
         error = nil
         stopReason = nil
         completed = 0
@@ -223,16 +230,20 @@ public final class WiFiTransferReceiver {
         server.start()
     }
 
-    func handle(_ event: WiFiTransferServer.Event, onChange: (String, Bool) -> Void = { _, _ in }) {
+    func handle(_ event: WiFiTransferServer.Event, now: Date = Date(), onChange: (String, Bool) -> Void = { _, _ in }) {
         switch event {
-        case .ready(let url): address = url
+        case .ready(let url):
+            address = url
+            log("📡 WiFi transfer listening at \(url)")
         case .transferStarted(let request):
             sender = request.sender
             receipts.insert(.init(id: request.id, sender: request.sender, fileCount: request.fileCount,
                                   byteCount: request.byteCount), at: 0)
             trimHistory()
-        case let .uploadStarted(id, path, total, transferID):
+            log("📡 WiFi transfer accepted from \(request.sender): \(request.fileCount) files, \(request.byteCount) B")
+        case let .uploadStarted(id, path, total, transferID, remote):
             let receiptID = transferID ?? id.uuidString
+            fileStarts[id] = (now, remote)
             if transferID == nil {
                 receipts.insert(.init(id: receiptID, sender: nil, fileCount: 1, byteCount: total), at: 0)
                 trimHistory()
@@ -243,19 +254,38 @@ public final class WiFiTransferReceiver {
         case let .progress(id, path, received, total):
             currentFile = path
             progress = Double(received) / Double(max(1, total))
-            updateFile(id) { $0.received = min(received, $0.size) }
+            if let index = updateFile(id, update: { $0.received = min(received, $0.size) }) {
+                let receiptID = receipts[index].id
+                var meter = meters[receiptID] ?? WiFiTransferThroughput()
+                receipts[index].bytesPerSecond = meter.record(bytes: receipts[index].receivedBytes, at: now)
+                meters[receiptID] = meter
+            }
         case let .changed(path, deleted):
             if !deleted { completed += 1 }
             onChange(path, deleted)
         case let .uploadEnded(id, failure):
+            let start = fileStarts.removeValue(forKey: id)
+            var ended: WiFiTransferReceivedFile?
             updateFile(id) {
                 $0.finished = true
                 $0.error = failure
                 if failure == nil { $0.received = $0.size }
+                ended = $0
+            }
+            if let file = ended {
+                let seconds = start.map { now.timeIntervalSince($0.time) } ?? 0
+                let route = start?.remote.map { " " + $0 } ?? ""
+                if let failure {
+                    log("📡 WiFi transfer receive failed \(file.path) after \(String(format: "%.1f", seconds)) s: \(failure)\(route)")
+                } else {
+                    log("📡 WiFi transfer received \(file.path) \(WiFiTransferThroughput.summary(bytes: file.size, seconds: seconds))\(route)")
+                }
             }
             if let index = receipts.firstIndex(where: { $0.id == id.uuidString }) {
                 receipts[index].finished = true
                 receipts[index].error = failure
+                receipts[index].bytesPerSecond = nil
+                meters[id.uuidString] = nil
             }
             if !receipts.contains(where: { $0.files.contains { !$0.finished && $0.received > 0 } }) {
                 currentFile = ""
@@ -263,10 +293,15 @@ public final class WiFiTransferReceiver {
         case .invitation(let request): invitation = request
         case let .transferEnded(id, failure):
             if invitation?.id == id { invitation = nil }
+            meters[id] = nil
             if let index = receipts.firstIndex(where: { $0.id == id }) {
                 receipts[index].finished = true
                 receipts[index].error = failure
+                receipts[index].bytesPerSecond = nil
                 sender = nil
+                let receipt = receipts[index]
+                log("📡 WiFi transfer from \(receipt.sender ?? "?") ended: \(receipt.completed)/\(receipt.fileCount) files, "
+                    + "\(receipt.receivedBytes)/\(receipt.byteCount) B" + (failure.map { ", error=\($0)" } ?? ""))
             }
         case .stopped(let failure):
             running = false
@@ -278,20 +313,27 @@ public final class WiFiTransferReceiver {
             sender = nil
             browserEnabled = false
             error = stopReason ?? failure
+            meters = [:]
+            fileStarts = [:]
             for index in receipts.indices where !receipts[index].finished {
                 receipts[index].finished = true
                 receipts[index].error = stopReason ?? failure ?? "cancelled"
+                receipts[index].bytesPerSecond = nil
             }
+            log("📡 WiFi transfer listener stopped" + ((stopReason ?? failure).map { ": \($0)" } ?? ""))
         }
     }
 
-    private func updateFile(_ id: UUID, update: (inout WiFiTransferReceivedFile) -> Void) {
+    /// Returns the index of the receipt holding the file, if any.
+    @discardableResult
+    private func updateFile(_ id: UUID, update: (inout WiFiTransferReceivedFile) -> Void) -> Int? {
         for index in receipts.indices {
             if let fileIndex = receipts[index].files.firstIndex(where: { $0.id == id }) {
                 update(&receipts[index].files[fileIndex])
-                return
+                return index
             }
         }
+        return nil
     }
 
     private func trimHistory() {
