@@ -5,11 +5,19 @@ public struct HTTPResponseFailure: Error, Sendable, LocalizedError {
     public let statusCode: Int
     public let body: Data
     public let retryAfter: TimeInterval?
+    /// Provider adapters may classify a business error without replacing its HTTP status.
+    public let isRateLimited: Bool
+    public let isRetryable: Bool?
 
-    public init(statusCode: Int, body: Data = Data(), retryAfter: TimeInterval? = nil) {
+    public init(
+        statusCode: Int, body: Data = Data(), retryAfter: TimeInterval? = nil,
+        isRateLimited: Bool = false, isRetryable: Bool? = nil
+    ) {
         self.statusCode = statusCode
         self.body = body
         self.retryAfter = retryAfter
+        self.isRateLimited = isRateLimited
+        self.isRetryable = isRetryable
     }
 
     public var errorDescription: String? { "HTTP \(statusCode)" }
@@ -47,7 +55,7 @@ public struct HTTPResponseFailure: Error, Sendable, LocalizedError {
 /// delay instead of holding a task open or shortening the server's limit.
 public actor RequestExecutor {
     private var cooldownUntil: TimeInterval = 0
-    private var cooldownStatus = 429
+    private var cooldownFailure = HTTPResponseFailure(statusCode: 429)
     private var nextStart: TimeInterval = 0
     private var active = 0
     private var waiters: [(UUID, CheckedContinuation<Void, Error>)] = []
@@ -64,6 +72,7 @@ public actor RequestExecutor {
         public let maximumAttempts: Int
         public let maximumRetryWait: TimeInterval
         public let timeout: TimeInterval
+        public let defaultCooldown: TimeInterval
         /// Statuses that start a shared cooldown even without Retry-After.
         /// Some services signal their quota with another status (iTunes: 403).
         public let rateLimitStatusCodes: Set<Int>
@@ -71,7 +80,8 @@ public actor RequestExecutor {
             minimumInterval: TimeInterval = 0, maximumConcurrentRequests: Int = 4,
             maximumPendingRequests: Int = 128,
             maximumAttempts: Int = 3, maximumRetryWait: TimeInterval = 2,
-            timeout: TimeInterval = 30, rateLimitStatusCodes: Set<Int> = [429, 503]
+            timeout: TimeInterval = 30, rateLimitStatusCodes: Set<Int> = [429, 503],
+            defaultCooldown: TimeInterval = 30
         ) {
             precondition(minimumInterval >= 0 && minimumInterval.isFinite)
             precondition(maximumConcurrentRequests > 0 && maximumPendingRequests >= 0)
@@ -79,6 +89,8 @@ public actor RequestExecutor {
             precondition(maximumAttempts > 0 && maximumAttempts <= 10)
             precondition(maximumRetryWait >= 0 && maximumRetryWait.isFinite)
             precondition(timeout > 0 && timeout.isFinite)
+            precondition(defaultCooldown >= 0 && defaultCooldown.isFinite)
+            self.defaultCooldown = defaultCooldown
             self.timeout = timeout
             self.maximumAttempts = maximumAttempts
             self.maximumRetryWait = maximumRetryWait
@@ -117,17 +129,50 @@ public actor RequestExecutor {
         self.jitter = jitter
     }
 
+    /// Schedulers can skip unavailable sources without duplicating or shortening
+    /// this executor's cooldown deadline.
+    public var isCoolingDown: Bool { cooldownUntil > timing.now() }
+
     public func execute(
+        minimumInterval: TimeInterval? = nil,
         replay: Replay = .never,
         _ send: @escaping @Sendable () async throws -> (Data, URLResponse)
     ) async throws -> (data: Data, response: HTTPURLResponse) {
-        try Task.checkCancellation()
-        let deadline = timing.now() + policy.timeout
         let timing = self.timing
-        // The budget includes admission, rate waits, attempts and retry delays.
-        // Transports must cooperate with cancellation (as URLSession does).
-        return try await withThrowingTaskGroup(of: (Data, HTTPURLResponse).self) { group in
-            group.addTask { try await self.run(replay: replay, deadline: deadline, send) }
+        return try await execute(minimumInterval: minimumInterval, replay: replay, operation: {
+            let (data, response) = try await send()
+            guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+            guard (200...299).contains(http.statusCode) else {
+                throw HTTPResponseFailure(
+                    statusCode: http.statusCode, body: data,
+                    retryAfter: HTTPResponseFailure.retryDelay(from: http, now: timing.date())
+                )
+            }
+            return (data, http)
+        })
+    }
+
+    /// Uses the same scheduler for bounded Range reads, streamed file downloads,
+    /// and provider envelopes. The operation owns response validation and throws
+    /// HTTPResponseFailure when appropriate. It must clean up unreturned resources
+    /// and cooperate with cancellation. Recovery (e.g. one token refresh) consumes
+    /// the same attempt/time budget as every other retry, even for a rejected write.
+    public func execute<Value: Sendable>(
+        minimumInterval: TimeInterval? = nil,
+        replay: Replay = .never,
+        timeout: TimeInterval? = nil,
+        recover: (@Sendable (Error) async throws -> Bool)? = nil,
+        operation: @escaping @Sendable () async throws -> Value
+    ) async throws -> Value {
+        try Task.checkCancellation()
+        let interval = minimumInterval ?? policy.minimumInterval
+        precondition(interval >= 0 && interval.isFinite)
+        let timeout = timeout ?? policy.timeout
+        precondition(timeout > 0 && timeout.isFinite)
+        let deadline = timing.now() + min(timeout, policy.timeout)
+        let timing = self.timing
+        return try await withThrowingTaskGroup(of: Value.self) { group in
+            group.addTask { try await self.run(replay: replay, deadline: deadline, minimumInterval: interval, recover: recover, operation) }
             group.addTask {
                 let remaining = deadline - timing.now()
                 if remaining > 0 { try await timing.sleep(remaining) }
@@ -139,21 +184,22 @@ public actor RequestExecutor {
         }
     }
 
-    private func run(
-        replay: Replay, deadline: TimeInterval,
-        _ send: @Sendable () async throws -> (Data, URLResponse)
-    ) async throws -> (Data, HTTPURLResponse) {
+    private func run<Value: Sendable>(
+        replay: Replay, deadline: TimeInterval, minimumInterval: TimeInterval,
+        recover: (@Sendable (Error) async throws -> Bool)?,
+        _ send: @Sendable () async throws -> Value
+    ) async throws -> Value {
         for attempt in 1...policy.maximumAttempts {
-            do { return try await perform(deadline: deadline, send) }
+            do { return try await perform(deadline: deadline, minimumInterval: minimumInterval, send) }
             catch {
                 try Task.checkCancellation()
-                guard replay == .idempotent, attempt < policy.maximumAttempts,
-                      Self.isTransient(error) else { throw error }
+                guard attempt < policy.maximumAttempts else { throw error }
+                if let recover, try await recover(error) { continue }
+                guard replay == .idempotent, Self.isTransient(error) else { throw error }
                 let backoff = min(0.5 * pow(2, Double(attempt - 1)), 8)
                 let serverDelay = (error as? HTTPResponseFailure)?.retryAfter ?? 0
                 let delay = max(backoff + max(0, jitter(backoff * 0.25)),
                                 serverDelay, cooldownUntil - timing.now())
-                // Defer long server cooldowns to the caller; never shorten them.
                 guard delay <= policy.maximumRetryWait,
                       timing.now() + delay < deadline else { throw error }
                 try await timing.sleep(delay)
@@ -164,22 +210,32 @@ public actor RequestExecutor {
 
     private static func isTransient(_ error: Error) -> Bool {
         if let failure = error as? HTTPResponseFailure {
-            return [408, 429, 500, 502, 503, 504].contains(failure.statusCode)
+            return failure.isRetryable ?? (failure.isRateLimited ||
+                [408, 429, 500, 502, 503, 504].contains(failure.statusCode))
         }
         guard let error = error as? URLError else { return false }
         return [.timedOut, .networkConnectionLost, .cannotConnectToHost,
-                .dnsLookupFailed, .notConnectedToInternet].contains(error.code)
+                .cannotFindHost, .dnsLookupFailed, .notConnectedToInternet,
+                .resourceUnavailable].contains(error.code)
     }
 
-    private func perform(
-        deadline: TimeInterval,
-        _ send: @Sendable () async throws -> (Data, URLResponse)
-    ) async throws -> (data: Data, response: HTTPURLResponse) {
-        try Task.checkCancellation()
+    private func checkCooldown() throws {
         let remaining = cooldownUntil - timing.now()
         if remaining > 0 {
-            throw HTTPResponseFailure(statusCode: cooldownStatus, retryAfter: remaining)
+            throw HTTPResponseFailure(
+                statusCode: cooldownFailure.statusCode, body: cooldownFailure.body,
+                retryAfter: remaining, isRateLimited: cooldownFailure.isRateLimited,
+                isRetryable: cooldownFailure.isRetryable
+            )
         }
+    }
+
+    private func perform<Value: Sendable>(
+        deadline: TimeInterval, minimumInterval: TimeInterval,
+        _ send: @Sendable () async throws -> Value
+    ) async throws -> Value {
+        try Task.checkCancellation()
+        try checkCooldown()
         try await acquire()
         defer { release() }
         while nextStart > timing.now() {
@@ -187,31 +243,25 @@ public actor RequestExecutor {
             try Task.checkCancellation()
         }
         try Task.checkCancellation()
-        let queuedCooldown = cooldownUntil - timing.now()
-        if queuedCooldown > 0 {
-            throw HTTPResponseFailure(statusCode: cooldownStatus, retryAfter: queuedCooldown)
-        }
+        try checkCooldown()
         guard timing.now() < deadline else { throw URLError(.timedOut) }
-        nextStart = timing.now() + policy.minimumInterval
-        let (data, response) = try await send()
-        try Task.checkCancellation()
-        guard timing.now() < deadline else { throw URLError(.timedOut) }
-        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
-        guard (200...299).contains(http.statusCode) else {
-            let retryAfter = HTTPResponseFailure.retryDelay(from: http, now: timing.date())
-            if retryAfter != nil || policy.rateLimitStatusCodes.contains(http.statusCode) {
-                let until = timing.now() + (retryAfter ?? 30)
+        nextStart = timing.now() + minimumInterval
+        do {
+            let value = try await send()
+            try Task.checkCancellation()
+            guard timing.now() < deadline else { throw URLError(.timedOut) }
+            return value
+        } catch let failure as HTTPResponseFailure {
+            if failure.retryAfter != nil || failure.isRateLimited ||
+                policy.rateLimitStatusCodes.contains(failure.statusCode) {
+                let until = timing.now() + (failure.retryAfter ?? policy.defaultCooldown)
                 if until > cooldownUntil {
                     cooldownUntil = until
-                    cooldownStatus = http.statusCode
+                    cooldownFailure = failure
                 }
             }
-            throw HTTPResponseFailure(
-                statusCode: http.statusCode, body: data,
-                retryAfter: retryAfter
-            )
+            throw failure
         }
-        return (data, http)
     }
 
     private func acquire() async throws {

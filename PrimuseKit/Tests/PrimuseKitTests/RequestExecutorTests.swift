@@ -4,6 +4,134 @@ import Testing
 
 @Suite("External HTTP requests")
 struct RequestExecutorTests {
+    @Test("Data and streamed results retain caller pacing through authentication recovery")
+    func mixedTransportsRetainPacingDuringRecovery() async throws {
+        let clock = ControlledClock()
+        let executor = RequestExecutor(timing: clock.timing)
+        _ = try await executor.execute(minimumInterval: 2) { clock.recordStart(); return reply(200) }
+        let server = RecoveringServer(statuses: [401, 200])
+        let request = Task {
+            try await executor.execute(minimumInterval: 3, recover: { error in
+                guard error is TokenRejected else { return false }
+                await server.refresh()
+                return true
+            }, operation: {
+                clock.recordStart()
+                _ = try await server.send()
+                return URL(fileURLWithPath: "/fixture/complete.flac")
+            })
+        }
+        defer { request.cancel() }
+        try await clock.waitForSleep(at: 2)
+        clock.advance(to: 2)
+        try await clock.waitForSleep(at: 5)
+        clock.advance(to: 5)
+        #expect(try await request.value.lastPathComponent == "complete.flac")
+        #expect(clock.starts == [0, 2, 5])
+        #expect(await server.refreshes == 1)
+        #expect(await executor.isCoolingDown == false)
+    }
+
+    @Test("A transport that throws an HTTP failure shares its full cooldown")
+    func sharesThrownHTTPFailure() async throws {
+        let clock = ControlledClock()
+        let executor = RequestExecutor(timing: clock.timing)
+        do {
+            _ = try await executor.execute(replay: .idempotent) {
+                throw HTTPResponseFailure(statusCode: 429, retryAfter: 3600)
+            }
+            Issue.record("Expected the transport's HTTP failure")
+        } catch let failure as HTTPResponseFailure {
+            #expect(failure.retryAfter == 3600)
+        }
+        clock.advance(to: 60)
+        do {
+            _ = try await executor.execute {
+                Issue.record("Another request escaped the shared cooldown")
+                return reply(200)
+            }
+            Issue.record("Expected remaining cooldown")
+        } catch let failure as HTTPResponseFailure {
+            #expect(failure.statusCode == 429)
+            #expect(failure.retryAfter == 3540)
+        }
+    }
+
+    @Test("Authentication recovery consumes the existing HTTP attempt budget")
+    func recoverySharesAttemptBudget() async throws {
+        let clock = ControlledClock()
+        let executor = RequestExecutor(policy: .init(rateLimitStatusCodes: [429]), timing: clock.timing, jitter: { _ in 0 })
+        let server = RecoveringServer(statuses: [500, 401, 500, 200])
+        let task = Task {
+            try await executor.execute(replay: .idempotent, recover: { error in
+                guard error is TokenRejected else { return false }
+                await server.refresh()
+                return true
+            }, operation: { try await server.send() })
+        }
+        defer { task.cancel() }
+        try await clock.waitForSleep(at: 0.5)
+        clock.advance(to: 0.5)
+        do { _ = try await task.value; Issue.record("Recovery reset the attempt budget") }
+        catch let failure as HTTPResponseFailure { #expect(failure.statusCode == 500) }
+        #expect(await server.requests == 3)
+        #expect(await server.refreshes == 1)
+    }
+
+    @Test("An authentication recovery does not authorize replaying an uncertain write")
+    func recoveryDoesNotReplayWrite() async throws {
+        let server = RecoveringServer(statuses: [401, 500, 200])
+        do {
+            _ = try await RequestExecutor().execute(recover: { error in
+                guard error is TokenRejected else { return false }
+                await server.refresh()
+                return true
+            }, operation: { try await server.send() })
+            Issue.record("An uncertain write was replayed")
+        } catch let failure as HTTPResponseFailure { #expect(failure.statusCode == 500) }
+        #expect(await server.requests == 2)
+    }
+
+    @Test("The total deadline includes token recovery")
+    func deadlineIncludesRecovery() async throws {
+        let clock = ControlledClock()
+        let executor = RequestExecutor(policy: .init(timeout: 5), timing: clock.timing)
+        let task = Task {
+            try await executor.execute(recover: { _ in
+                try await clock.timing.sleep(100)
+                return true
+            }, operation: { () async throws -> URL in throw TokenRejected() })
+        }
+        defer { task.cancel() }
+        try await clock.waitForSleep(at: 100)
+        try await clock.waitForSleep(at: 5)
+        clock.advance(to: 5)
+        do { _ = try await task.value; Issue.record("Recovery escaped the deadline") }
+        catch let error as URLError { #expect(error.code == .timedOut) }
+    }
+
+    @Test("Business rate limits keep their real status and body across callers", arguments: [200, 403])
+    func preservesBusinessCooldown(status: Int) async throws {
+        let clock = ControlledClock()
+        let executor = RequestExecutor(timing: clock.timing)
+        let body = Data("provider quota rejection".utf8)
+        for _ in 0..<2 {
+            do {
+                _ = try await executor.execute(operation: { () async throws -> URL in
+                    clock.recordStart()
+                    throw HTTPResponseFailure(statusCode: status, body: body, retryAfter: 3600, isRateLimited: true)
+                })
+                Issue.record("Expected quota rejection")
+            } catch let failure as HTTPResponseFailure {
+                #expect(failure.statusCode == status)
+                #expect(failure.body == body)
+                #expect(failure.retryAfter == 3600)
+                #expect(failure.isRateLimited)
+            }
+        }
+        #expect(clock.starts.count == 1)
+    }
+
     @Test("An overloaded service bounds pending work")
     func boundsPendingRequests() async throws {
         // A controlled clock keeps the held request inside its deadline however
@@ -62,8 +190,34 @@ struct RequestExecutorTests {
             _ = try await executor.execute { Issue.record("Cooldown was cleared"); return reply(200) }
             Issue.record("Expected shared cooldown")
         } catch let failure as HTTPResponseFailure { #expect(failure.retryAfter == 3599) }
+        #expect(await executor.isCoolingDown)
+        clock.advance(to: 301)
+        #expect(await executor.isCoolingDown)
         clock.advance(to: 3600)
+        #expect(await executor.isCoolingDown == false)
         _ = try await executor.execute { reply(200) }
+    }
+
+    @Test("Changing a caller's configured interval preserves the reserved quota slot")
+    func updatesPacingWithoutResettingReservations() async throws {
+        let clock = ControlledClock()
+        let executor = RequestExecutor(timing: clock.timing)
+        _ = try await executor.execute(minimumInterval: 1) { clock.recordStart(); return reply(200) }
+        let second = Task {
+            try await executor.execute(minimumInterval: 2) { clock.recordStart(); return reply(200) }
+        }
+        defer { second.cancel() }
+        try await clock.waitForSleep(at: 1)
+        clock.advance(to: 1)
+        _ = try await second.value
+        let third = Task {
+            try await executor.execute(minimumInterval: 0) { clock.recordStart(); return reply(200) }
+        }
+        defer { third.cancel() }
+        try await clock.waitForSleep(at: 3)
+        clock.advance(to: 3)
+        _ = try await third.value
+        #expect(clock.starts == [0, 1, 3])
     }
 
     @Test("Writes default to a single attempt after an uncertain outcome")
@@ -400,5 +554,21 @@ private actor HeldResponse {
     private func cancel() {
         continuation?.resume(throwing: CancellationError())
         continuation = nil
+    }
+}
+
+private struct TokenRejected: Error {}
+private actor RecoveringServer {
+    let statuses: [Int]
+    var requests = 0
+    var refreshes = 0
+    init(statuses: [Int]) { self.statuses = statuses }
+    func refresh() { refreshes += 1 }
+    func send() throws -> URL {
+        let status = statuses[min(requests, statuses.count - 1)]
+        requests += 1
+        if status == 401 { throw TokenRejected() }
+        if status != 200 { throw HTTPResponseFailure(statusCode: status) }
+        return URL(fileURLWithPath: "/fixture/download")
     }
 }
