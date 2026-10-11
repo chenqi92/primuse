@@ -5919,3 +5919,11 @@
 "metadata_writeback_local_only_notice" = "音樂來源拒絕寫入，修改只儲存在了 Primuse 裡，來源檔案沒有更新。";
 "library_playlist_cover_wall_title" = "歌單頭圖用封面牆";
 "library_playlist_cover_wall_description" = "歌單和智慧歌單裡有 4 張以上不同的專輯封面時，頭圖鋪成一面傾斜的封面牆，每隔幾秒換一次排法。手機橫向和自己設過封面的歌單仍顯示單張封面。";
+"player_backdrop_strength_footer" = "越往右，背景越貼近封面的顏色。淺色外觀下封面顏色很深時，會停在文字還看得清的程度；選了模糊封面等背景圖時，調的是圖上那層遮罩的深淺。";
+"player_progress_style_title" = "進度條";
+"player_progress_style_footer" = "波浪只在播放時流動，暫停或拖動時撫平成直線。iPhone、iPad 與 Mac 的播放頁都會跟著換。";
+"player_progress_style_standard" = "預設";
+"player_progress_style_wave" = "波浪";
+"player_progress_style_dot" = "細線圓點";
+"theme_color_player_backdrop_moved_hint" = "播放頁背景的樣式和顏色濃淡，現在在「設定 › 播放器」裡調整。";
+"theme_color_player_backdrop_moved_link" = "前往播放器設定";

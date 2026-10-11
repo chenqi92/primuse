@@ -5702,3 +5702,11 @@
 "metadata_writeback_local_only_notice" = "The source refused write access. Your changes were saved only in Primuse; the source file was not updated.";
 "library_playlist_cover_wall_title" = "Cover Wall for Playlist Headers";
 "library_playlist_cover_wall_description" = "When a playlist or smart playlist has at least 4 different album covers, its header becomes a tilted wall of covers that rearranges every few seconds. Phones in landscape and playlists with a custom cover keep the single cover.";
+"player_backdrop_strength_footer" = "Further right brings the background closer to the cover's colors. In Light Mode, very dark cover colors stop where text stays readable. With a background image such as Blurred Cover, this sets how strong the dimming layer is.";
+"player_progress_style_title" = "Progress Bar";
+"player_progress_style_footer" = "The wave flows only while playing and flattens when paused or while you drag. Applies to the player on iPhone, iPad and Mac.";
+"player_progress_style_standard" = "Default";
+"player_progress_style_wave" = "Wave";
+"player_progress_style_dot" = "Thin Line with Dot";
+"theme_color_player_backdrop_moved_hint" = "The player background style and color intensity are now in Settings › Player.";
+"theme_color_player_backdrop_moved_link" = "Open Player Settings";

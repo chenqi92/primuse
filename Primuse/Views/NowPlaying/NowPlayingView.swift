@@ -73,6 +73,23 @@ private struct NowPlayingAppearance {
         isLight ? (usesIncreasedContrast ? 0.06 : 0.09) : 0.26
     }
 
+    /// 浅色外观「氛围强度」拉满时想要的浓度;实际还要过 `NowPlayingLightAmbientPolicy` 的深色字下限。
+    var vividLightAmbientLevels: NowPlayingLightAmbientLevels {
+        usesIncreasedContrast
+            ? NowPlayingLightAmbientLevels(
+                primaryOpacity: 0.66,
+                secondaryOpacity: 0.48,
+                overlayTopOpacity: 0.20,
+                overlayBottomOpacity: 0.08
+            )
+            : NowPlayingLightAmbientLevels(
+                primaryOpacity: 0.84,
+                secondaryOpacity: 0.62,
+                overlayTopOpacity: 0.06,
+                overlayBottomOpacity: 0
+            )
+    }
+
     var pastLyricOpacity: Double {
         usesIncreasedContrast ? 0.56 : (isLight ? 0.40 : 0.32)
     }
@@ -6081,17 +6098,48 @@ struct NowPlayingView: View {
     private var backgroundGradient: some View {
         let hasArtworkTheme = theme.hasArtworkAmbient
         let strength = AppThemePreferences.normalizedAmbientStrength(ambientStrength)
-        let accentOpacity = (hasArtworkTheme
+        let usesLiquid = PlayerBackdropSettingsStore.shared.effectiveSource == .liquid
+        var accentOpacity = (hasArtworkTheme
             ? appearance.artworkAccentOpacity
             : appearance.fallbackAccentOpacity) * strength
-        let lowerAccentOpacity = (hasArtworkTheme
+        var lowerAccentOpacity = (hasArtworkTheme
             ? appearance.artworkLowerAccentOpacity
             : appearance.fallbackLowerAccentOpacity) * strength
-        let lightOverlay = AmbientLightOverlayPolicy.resolve(
+        var lightOverlay = AmbientLightOverlayPolicy.resolve(
             hasArtworkTheme: hasArtworkTheme,
             usesIncreasedContrast: colorSchemeContrast == .increased,
             strength: strength
         )
+        // 浅色外观把氛围强度调过默认值:背景往封面颜色上靠,封面色太深时停在深色字还看得清的地方(#69)。
+        if appearance.isLight, hasArtworkTheme, !usesLiquid,
+           strength > AppThemePreferences.defaultAmbientStrength {
+            let defaultStrength = AppThemePreferences.defaultAmbientStrength
+            let defaultOverlay = AmbientLightOverlayPolicy.resolve(
+                hasArtworkTheme: true,
+                usesIncreasedContrast: colorSchemeContrast == .increased,
+                strength: defaultStrength
+            )
+            let levels = NowPlayingLightAmbientPolicy.levels(
+                atDefault: NowPlayingLightAmbientLevels(
+                    primaryOpacity: appearance.artworkAccentOpacity * defaultStrength,
+                    secondaryOpacity: appearance.artworkLowerAccentOpacity * defaultStrength,
+                    overlayTopOpacity: defaultOverlay.topOpacity,
+                    overlayBottomOpacity: defaultOverlay.bottomOpacity
+                ),
+                vivid: appearance.vividLightAmbientLevels,
+                strength: strength,
+                defaultStrength: defaultStrength,
+                primaryLuma: theme.artworkAccentLuma,
+                secondaryLuma: theme.artworkSecondaryLuma,
+                usesIncreasedContrast: colorSchemeContrast == .increased
+            )
+            accentOpacity = levels.primaryOpacity
+            lowerAccentOpacity = levels.secondaryOpacity
+            lightOverlay = AmbientLightOverlay(
+                topOpacity: levels.overlayTopOpacity,
+                bottomOpacity: levels.overlayBottomOpacity
+            )
+        }
         let darkOverlay = NowPlayingAmbientLegibilityPolicy.darkOverlay(
             paletteLuminance: theme.artworkLuminance,
             primaryOpacity: accentOpacity,
@@ -6100,7 +6148,7 @@ struct NowPlayingView: View {
         )
 
         return ZStack {
-            if PlayerBackdropSettingsStore.shared.effectiveSource == .liquid {
+            if usesLiquid {
                 // 设置里选了「流动色彩」:换成几团跟着封面颜色缓缓流动的光(#189)。上面两层遮罩照旧。
                 LiquidArtworkBackdrop(
                     palette: theme.liquidPalette,
@@ -8317,8 +8365,19 @@ struct ProgressSlider: View {
         var trackColor: Color? = nil
         /// 给了就在播放头上画一个这么大的圆点,拖动时放大一圈。
         var knobDiameter: CGFloat? = nil
+        /// 播放过的那段画成波浪(#69),播放头上一道竖着的短条。
+        var isWave = false
 
         static let standard = TrackStyle()
+
+        /// 设置 › 播放器 › 进度条 选的画法。
+        static func forProgressStyle(_ style: NowPlayingProgressStyle) -> TrackStyle {
+            switch style {
+            case .standard: .standard
+            case .wave: TrackStyle(restingHeight: 4, draggingHeight: 7, isWave: true)
+            case .dot: TrackStyle(restingHeight: 3, draggingHeight: 5, knobDiameter: 12)
+            }
+        }
     }
 
     let value: TimeInterval
@@ -8326,6 +8385,8 @@ struct ProgressSlider: View {
     let interactionID: String?
     let fillTint: Color?
     let trackStyle: TrackStyle
+    /// 波浪只在播放时流动,暂停时抚平成直线。
+    let isPlaying: Bool
     let onPreview: (TimeInterval?) -> Void
     let onSeek: (TimeInterval) -> Void
 
@@ -8335,6 +8396,7 @@ struct ProgressSlider: View {
         interactionID: String? = nil,
         fillTint: Color? = nil,
         trackStyle: TrackStyle = .standard,
+        isPlaying: Bool = false,
         onPreview: @escaping (TimeInterval?) -> Void = { _ in },
         onSeek: @escaping (TimeInterval) -> Void
     ) {
@@ -8343,6 +8405,7 @@ struct ProgressSlider: View {
         self.interactionID = interactionID
         self.fillTint = fillTint
         self.trackStyle = trackStyle
+        self.isPlaying = isPlaying
         self.onPreview = onPreview
         self.onSeek = onSeek
     }
@@ -8406,6 +8469,32 @@ struct ProgressSlider: View {
         onSeek(adjusted)
     }
 
+    /// 波浪样式:播放过的那段是波浪,没播的那段是直线,播放头上一道竖着的短条。
+    /// 拖动时抚平成直线,对准位置时不晃。
+    private func waveTrack(width: CGFloat, filledWidth: CGFloat, trackHeight: CGFloat) -> some View {
+        ZStack(alignment: .leading) {
+            Capsule()
+                .fill(trackStyle.trackColor ?? appearance.track)
+                .frame(width: max(0, width - filledWidth), height: trackHeight)
+                .offset(x: filledWidth)
+                .animation(fillAnimation, value: progress)
+
+            ProgressWaveFill(
+                lineWidth: trackHeight,
+                color: fillColor,
+                isFlowing: isPlaying && !isDragging
+            )
+            .frame(width: filledWidth)
+            .animation(fillAnimation, value: progress)
+
+            Capsule()
+                .fill(fillColor)
+                .frame(width: trackHeight, height: isDragging ? 20 : 14)
+                .offset(x: filledWidth - trackHeight / 2)
+                .animation(fillAnimation, value: progress)
+        }
+    }
+
     #if os(iOS) || os(macOS)
     private func handleKeyPress(_ press: KeyPress) -> KeyPress.Result {
         if press.key == .leftArrow {
@@ -8427,19 +8516,23 @@ struct ProgressSlider: View {
             let filledWidth = max(0, min(width, width * progress))
 
             ZStack(alignment: .leading) {
-                // Background track
-                Capsule()
-                    .fill(trackStyle.trackColor ?? appearance.track)
-                    .frame(height: trackHeight)
+                if trackStyle.isWave {
+                    waveTrack(width: width, filledWidth: filledWidth, trackHeight: trackHeight)
+                } else {
+                    // Background track
+                    Capsule()
+                        .fill(trackStyle.trackColor ?? appearance.track)
+                        .frame(height: trackHeight)
 
-                // Filled track
-                Capsule()
-                    .fill(fillColor)
-                    .frame(width: filledWidth)
-                    // 高度留在动画修饰符外面: 轨道加粗归下面那条 isDragging 的
-                    // 曲线管, 这里只负责宽度, 免得一开始拖动就把加粗一起掐掉。
-                    .animation(fillAnimation, value: progress)
-                    .frame(height: trackHeight)
+                    // Filled track
+                    Capsule()
+                        .fill(fillColor)
+                        .frame(width: filledWidth)
+                        // 高度留在动画修饰符外面: 轨道加粗归下面那条 isDragging 的
+                        // 曲线管, 这里只负责宽度, 免得一开始拖动就把加粗一起掐掉。
+                        .animation(fillAnimation, value: progress)
+                        .frame(height: trackHeight)
+                }
 
                 if let knob = trackStyle.knobDiameter {
                     let diameter = isDragging ? knob + 4 : knob
@@ -8520,6 +8613,122 @@ struct ProgressSlider: View {
             handleKeyPress(press)
         }
         #endif
+    }
+}
+
+/// 波浪进度条播放过的那一段:一条向播放头缓缓流动的正弦线。暂停、拖动时抚平成直线;
+/// 「减弱动态效果」、低电量时停住不流动,形状照旧。只在播放页看得见时走钟。
+private struct ProgressWaveFill: View {
+    let lineWidth: CGFloat
+    let color: Color
+    let isFlowing: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isVisible = false
+
+    private var animatesPhase: Bool {
+        isFlowing && isVisible && !reduceMotion && !ProcessInfo.processInfo.isLowPowerModeEnabled
+    }
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !animatesPhase)) { context in
+            ProgressWaveShape(
+                phase: animatesPhase ? ProgressWaveShape.phase(at: context.date) : 0,
+                amplitude: isFlowing ? ProgressWaveShape.amplitude : 0
+            )
+            .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
+        }
+        .animation(.easeInOut(duration: 0.35), value: isFlowing)
+        .onAppear { isVisible = true }
+        .onDisappear { isVisible = false }
+    }
+}
+
+private struct ProgressWaveShape: Shape {
+    static let amplitude: CGFloat = 3
+    static let wavelength: CGFloat = 26
+    /// 波峰走过一个波长要的秒数。
+    static let period: TimeInterval = 1.6
+
+    var phase: CGFloat
+    var amplitude: CGFloat
+
+    var animatableData: CGFloat {
+        get { amplitude }
+        set { amplitude = newValue }
+    }
+
+    static func phase(at date: Date) -> CGFloat {
+        let cycle = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period
+        return CGFloat(cycle) * 2 * .pi
+    }
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let midY = rect.midY
+        guard rect.width > 0 else { return path }
+        let step: CGFloat = 2
+        // 靠近播放头的半个波长里振幅收到 0,和后面的直线接上。
+        let taper = Self.wavelength / 2
+        var x: CGFloat = 0
+        path.move(to: CGPoint(x: 0, y: midY + waveOffset(at: 0, width: rect.width, taper: taper)))
+        while x < rect.width {
+            x = min(x + step, rect.width)
+            path.addLine(to: CGPoint(x: x, y: midY + waveOffset(at: x, width: rect.width, taper: taper)))
+        }
+        return path
+    }
+
+    private func waveOffset(at x: CGFloat, width: CGFloat, taper: CGFloat) -> CGFloat {
+        let envelope = min(1, max(0, (width - x) / taper))
+        return amplitude * envelope * sin(2 * .pi * x / Self.wavelength - phase)
+    }
+}
+
+/// 设置里「进度条」每个选项旁边的小样,静止画出播到一半多的样子。
+struct NowPlayingProgressStylePreview: View {
+    let style: NowPlayingProgressStyle
+
+    private let progress: CGFloat = 0.58
+
+    var body: some View {
+        GeometryReader { geo in
+            let width = geo.size.width
+            let filled = width * progress
+            let track = ProgressSlider.TrackStyle.forProgressStyle(style)
+            ZStack(alignment: .leading) {
+                switch style {
+                case .wave:
+                    Capsule()
+                        .fill(Color.secondary.opacity(0.3))
+                        .frame(width: width - filled, height: track.restingHeight)
+                        .offset(x: filled)
+                    ProgressWaveShape(phase: 0, amplitude: ProgressWaveShape.amplitude)
+                        .stroke(Color.accentColor, style: StrokeStyle(lineWidth: track.restingHeight, lineCap: .round))
+                        .frame(width: filled)
+                    Capsule()
+                        .fill(Color.accentColor)
+                        .frame(width: track.restingHeight, height: 14)
+                        .offset(x: filled - track.restingHeight / 2)
+                case .standard, .dot:
+                    Capsule()
+                        .fill(Color.secondary.opacity(0.3))
+                        .frame(height: track.restingHeight)
+                    Capsule()
+                        .fill(Color.accentColor)
+                        .frame(width: filled, height: track.restingHeight)
+                    if let knob = track.knobDiameter {
+                        Circle()
+                            .fill(Color.accentColor)
+                            .frame(width: knob, height: knob)
+                            .offset(x: filled - knob / 2)
+                    }
+                }
+            }
+            .frame(height: geo.size.height)
+        }
+        .frame(height: 18)
+        .accessibilityHidden(true)
     }
 }
 
@@ -12293,6 +12502,8 @@ fileprivate struct PlaybackProgressBar<CenterAccessory: View>: View {
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     /// 可选读法:播放页以外单独用到这条进度条时没有注入,也不会崩。
     @Environment(TransportHoldScrub.self) private var holdScrub: TransportHoldScrub?
+    @AppStorage(PlayerAppearancePreferences.progressStyleKey)
+    private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
     @State private var previewTime: TimeInterval?
 
     /// 两端时间各留这么宽,中间的标签不会压到「-1:02:34」这种长时间上。
@@ -12338,6 +12549,10 @@ fileprivate struct PlaybackProgressBar<CenterAccessory: View>: View {
                         total: player.duration,
                         interactionID: player.currentSong?.id,
                         fillTint: fillTint,
+                        trackStyle: .forProgressStyle(
+                            PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue)
+                        ),
+                        isPlaying: player.isPlaying,
                         onPreview: { previewTime = $0 },
                         onSeek: { player.seek(to: $0) }
                     )

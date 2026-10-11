@@ -5848,3 +5848,11 @@
 "metadata_writeback_local_only_notice" = "La fuente rechazó la escritura. Tus cambios se guardaron solo en Primuse; el archivo de origen no se actualizó.";
 "library_playlist_cover_wall_title" = "Mural de portadas en el encabezado de listas";
 "library_playlist_cover_wall_description" = "Cuando una lista o lista inteligente tiene al menos 4 portadas de álbum distintas, el encabezado se convierte en un mural inclinado de portadas que se reacomoda cada pocos segundos. En el teléfono en horizontal y en listas con portada propia se sigue viendo una sola portada.";
+"player_backdrop_strength_footer" = "Mientras más a la derecha, más se acerca el fondo a los colores de la portada. En modo claro, los colores muy oscuros se detienen donde el texto sigue siendo legible. Con una imagen de fondo como Portada difuminada, ajusta la intensidad de la capa que la oscurece.";
+"player_progress_style_title" = "Barra de progreso";
+"player_progress_style_footer" = "La onda solo se mueve durante la reproducción y se vuelve una línea recta al pausar o arrastrar. Aplica al reproductor en iPhone, iPad y Mac.";
+"player_progress_style_standard" = "Predeterminada";
+"player_progress_style_wave" = "Onda";
+"player_progress_style_dot" = "Línea fina con punto";
+"theme_color_player_backdrop_moved_hint" = "El estilo y la intensidad de color del fondo del reproductor ahora están en Configuración › Reproductor.";
+"theme_color_player_backdrop_moved_link" = "Abrir ajustes del reproductor";

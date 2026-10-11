@@ -5848,3 +5848,11 @@
 "metadata_writeback_local_only_notice" = "Kaynak yazma erişimini reddetti. Değişiklikleriniz yalnızca Primuse içinde kaydedildi; kaynak dosya güncellenmedi.";
 "library_playlist_cover_wall_title" = "Çalma listesi başlığında kapak duvarı";
 "library_playlist_cover_wall_description" = "Bir çalma listesinde veya akıllı listede en az 4 farklı albüm kapağı varsa başlık, birkaç saniyede bir yeniden dizilen eğik bir kapak duvarına dönüşür. Telefon yatay konumdayken ve özel kapağı olan listelerde tek kapak gösterilmeye devam eder.";
+"player_backdrop_strength_footer" = "Sağa doğru gittikçe arka plan kapağın renklerine yaklaşır. Açık modda çok koyu kapak renkleri metnin okunabilir kaldığı noktada durur. Bulanık kapak gibi bir arka plan görselinde, görseli koyulaştıran katmanın gücünü ayarlar.";
+"player_progress_style_title" = "İlerleme çubuğu";
+"player_progress_style_footer" = "Dalga yalnızca çalarken akar; duraklatınca veya sürüklerken düz bir çizgiye dönüşür. iPhone, iPad ve Mac'teki çalara uygulanır.";
+"player_progress_style_standard" = "Varsayılan";
+"player_progress_style_wave" = "Dalga";
+"player_progress_style_dot" = "Noktalı ince çizgi";
+"theme_color_player_backdrop_moved_hint" = "Çalar arka planının stili ve renk yoğunluğu artık Ayarlar › Çalar bölümünde.";
+"theme_color_player_backdrop_moved_link" = "Çalar ayarlarını aç";

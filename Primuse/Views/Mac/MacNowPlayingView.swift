@@ -592,22 +592,62 @@ struct MacNowPlayingView: View {
     private var backdrop: some View {
         let strength = AppThemePreferences.normalizedAmbientStrength(preferences.ambientStrength)
         let hasArtworkTheme = theme.hasArtworkAmbient
-        let lightOverlay = AmbientLightOverlayPolicy.resolve(
+        let usesIncreasedContrast = colorSchemeContrast == .increased
+        var lightOverlay = AmbientLightOverlayPolicy.resolve(
             hasArtworkTheme: hasArtworkTheme,
-            usesIncreasedContrast: colorSchemeContrast == .increased,
+            usesIncreasedContrast: usesIncreasedContrast,
             strength: strength
         )
-        let primaryOpacity = (usesLightPlayerAppearance
+        var primaryOpacity = (usesLightPlayerAppearance
             ? (hasArtworkTheme ? 0.34 : 0.12)
             : (hasArtworkTheme ? 0.74 : 0.32)) * strength
-        let secondaryOpacity = (usesLightPlayerAppearance
+        var secondaryOpacity = (usesLightPlayerAppearance
             ? (hasArtworkTheme ? 0.22 : 0.08)
             : (hasArtworkTheme ? 0.58 : 0.24)) * strength
+        // 浅色外观把氛围强度调过默认值:和手机一样往封面颜色上靠,封面色太深时停在文字还看得清的地方(#69)。
+        if usesLightPlayerAppearance, hasArtworkTheme,
+           PlayerBackdropSettingsStore.shared.effectiveSource != .liquid,
+           strength > AppThemePreferences.defaultAmbientStrength {
+            let defaultStrength = AppThemePreferences.defaultAmbientStrength
+            let defaultOverlay = AmbientLightOverlayPolicy.resolve(
+                hasArtworkTheme: true,
+                usesIncreasedContrast: usesIncreasedContrast,
+                strength: defaultStrength
+            )
+            let levels = NowPlayingLightAmbientPolicy.levels(
+                atDefault: NowPlayingLightAmbientLevels(
+                    primaryOpacity: 0.34 * defaultStrength,
+                    secondaryOpacity: 0.22 * defaultStrength,
+                    overlayTopOpacity: defaultOverlay.topOpacity,
+                    overlayBottomOpacity: defaultOverlay.bottomOpacity
+                ),
+                vivid: usesIncreasedContrast
+                    ? NowPlayingLightAmbientLevels(
+                        primaryOpacity: 0.56, secondaryOpacity: 0.40,
+                        overlayTopOpacity: 0.20, overlayBottomOpacity: 0.08
+                    )
+                    : NowPlayingLightAmbientLevels(
+                        primaryOpacity: 0.72, secondaryOpacity: 0.52,
+                        overlayTopOpacity: 0.06, overlayBottomOpacity: 0
+                    ),
+                strength: strength,
+                defaultStrength: defaultStrength,
+                primaryLuma: theme.artworkAccentLuma,
+                secondaryLuma: theme.artworkSecondaryLuma,
+                usesIncreasedContrast: usesIncreasedContrast
+            )
+            primaryOpacity = levels.primaryOpacity
+            secondaryOpacity = levels.secondaryOpacity
+            lightOverlay = AmbientLightOverlay(
+                topOpacity: levels.overlayTopOpacity,
+                bottomOpacity: levels.overlayBottomOpacity
+            )
+        }
         let darkOverlay = NowPlayingAmbientLegibilityPolicy.darkOverlay(
             paletteLuminance: theme.artworkLuminance,
             primaryOpacity: primaryOpacity,
             secondaryOpacity: secondaryOpacity,
-            usesIncreasedContrast: colorSchemeContrast == .increased
+            usesIncreasedContrast: usesIncreasedContrast
         )
 
         return ZStack {
@@ -1755,6 +1795,8 @@ private struct MacNowPlayingProgressRow: View {
     @Environment(AudioPlayerService.self) private var player
     let width: CGFloat
     let accent: Color
+    @AppStorage(PlayerAppearancePreferences.progressStyleKey)
+    private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
     @State private var preview: TimeInterval?
 
     var body: some View {
@@ -1766,6 +1808,10 @@ private struct MacNowPlayingProgressRow: View {
                 total: player.duration,
                 interactionID: player.currentSong?.id,
                 fillTint: accent,
+                trackStyle: .forProgressStyle(
+                    PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue)
+                ),
+                isPlaying: player.isPlaying,
                 onPreview: { preview = $0 },
                 onSeek: { player.seek(to: $0) }
             )

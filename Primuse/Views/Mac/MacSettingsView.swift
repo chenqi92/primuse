@@ -6396,6 +6396,8 @@ private struct MacSTThemeView: View {
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
     @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
     private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
+    @AppStorage(PlayerAppearancePreferences.progressStyleKey)
+    private var progressStyleRawValue = NowPlayingProgressStyle.standard.rawValue
     @AppStorage(PlayerAppearancePreferences.animatedArtworkEnabledKey)
     private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
     @AppStorage(PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyKey)
@@ -6611,6 +6613,20 @@ private struct MacSTThemeView: View {
                     )
                 }
                 .settingsAnchor("appearance.audioInfo")
+                MacSTRow(
+                    String(localized: "player_progress_style_title"),
+                    hint: String(localized: "player_progress_style_footer")
+                ) {
+                    MacSTPicker(
+                        selection: Binding(
+                            get: { PlayerAppearancePreferences.progressStyle(rawValue: progressStyleRawValue) },
+                            set: { progressStyleRawValue = $0.rawValue }
+                        ),
+                        options: NowPlayingProgressStyle.allCases.map { ($0, $0.titleKey) },
+                        width: 180
+                    )
+                }
+                .settingsAnchor("appearance.playerProgressStyle")
             }
         }
 

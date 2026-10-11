@@ -64,6 +64,13 @@ enum PlayerAppearancePreferences {
         NowPlayingControlTint(rawValue: rawValue) ?? .theme
     }
 
+    /// 播放页进度条的画法(#69):胶囊条、波浪、细线加圆点。
+    static let progressStyleKey = "primuse.player.progressStyle"
+
+    static func progressStyle(rawValue: String) -> NowPlayingProgressStyle {
+        NowPlayingProgressStyle(rawValue: rawValue) ?? .standard
+    }
+
     static let defaultCustomLyricsColorHex = "0A84FF"
     static let defaultGradientLyricsStartColorHex = "FF375F"
     static let defaultGradientLyricsEndColorHex = "AF52DE"
@@ -177,6 +184,24 @@ enum NowPlayingControlTint: String, CaseIterable, Sendable {
         switch self {
         case .theme: "player_control_tint_theme"
         case .monochrome: "player_control_tint_monochrome"
+        }
+    }
+}
+
+/// 播放页进度条的画法。iPhone / iPad 与 Mac 的播放页用它;全屏效果、卡拉OK、有声书竖版各有自己的样子。
+enum NowPlayingProgressStyle: String, CaseIterable, Sendable {
+    /// 一直以来的胶囊条。
+    case standard
+    /// 播放过的那段是一条缓缓流动的波浪,暂停时抚平成直线。
+    case wave
+    /// 细线,播放头上一个圆点。
+    case dot
+
+    var titleKey: String {
+        switch self {
+        case .standard: "player_progress_style_standard"
+        case .wave: "player_progress_style_wave"
+        case .dot: "player_progress_style_dot"
         }
     }
 }

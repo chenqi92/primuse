@@ -5848,3 +5848,11 @@
 "metadata_writeback_local_only_notice" = "رفض المصدر الكتابة. تم حفظ تغييراتك في Primuse فقط؛ ولم يتم تحديث ملف المصدر.";
 "library_playlist_cover_wall_title" = "جدار الأغلفة في رأس قائمة التشغيل";
 "library_playlist_cover_wall_description" = "عندما تحتوي قائمة تشغيل أو قائمة ذكية على 4 أغلفة ألبومات مختلفة على الأقل، يتحول رأسها إلى جدار مائل من الأغلفة يُعاد ترتيبه كل بضع ثوانٍ. يبقى غلاف واحد في وضع الهاتف الأفقي وفي القوائم التي لها غلاف مخصص.";
+"player_backdrop_strength_footer" = "كلما اتجهت يمينًا اقتربت الخلفية من ألوان الغلاف. في الوضع الفاتح تتوقف الألوان الداكنة جدًا عند الحد الذي يبقى فيه النص مقروءًا. مع صورة خلفية مثل «غلاف مموّه» يضبط هذا شدة الطبقة التي تعتّمها.";
+"player_progress_style_title" = "شريط التقدم";
+"player_progress_style_footer" = "تتحرك الموجة أثناء التشغيل فقط، وتستقيم إلى خط عند الإيقاف المؤقت أو السحب. ينطبق على المشغّل في iPhone وiPad وMac.";
+"player_progress_style_standard" = "الافتراضي";
+"player_progress_style_wave" = "موجة";
+"player_progress_style_dot" = "خط رفيع مع نقطة";
+"theme_color_player_backdrop_moved_hint" = "أصبح نمط خلفية المشغّل وكثافة ألوانها في الإعدادات › المشغّل.";
+"theme_color_player_backdrop_moved_link" = "فتح إعدادات المشغّل";

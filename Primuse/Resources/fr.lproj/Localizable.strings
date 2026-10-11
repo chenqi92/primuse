@@ -5942,3 +5942,11 @@
 "metadata_writeback_local_only_notice" = "La source a refusé l’écriture. Vos modifications ont été enregistrées uniquement dans Primuse ; le fichier source n’a pas été mis à jour.";
 "library_playlist_cover_wall_title" = "Mur de pochettes en tête des playlists";
 "library_playlist_cover_wall_description" = "Lorsqu’une playlist ou une playlist intelligente compte au moins 4 pochettes d’album différentes, son en-tête devient un mur incliné de pochettes qui se réorganise toutes les quelques secondes. En mode paysage sur téléphone et pour les playlists avec une pochette personnalisée, une seule pochette reste affichée.";
+"player_backdrop_strength_footer" = "Plus le curseur est à droite, plus l’arrière-plan se rapproche des couleurs de la pochette. En mode clair, les couleurs très sombres s’arrêtent là où le texte reste lisible. Avec une image d’arrière-plan comme Pochette floutée, cela règle l’intensité du voile qui l’assombrit.";
+"player_progress_style_title" = "Barre de progression";
+"player_progress_style_footer" = "La vague ne s’anime que pendant la lecture et redevient une ligne droite en pause ou pendant que vous la faites glisser. S’applique au lecteur sur iPhone, iPad et Mac.";
+"player_progress_style_standard" = "Par défaut";
+"player_progress_style_wave" = "Vague";
+"player_progress_style_dot" = "Ligne fine avec point";
+"theme_color_player_backdrop_moved_hint" = "Le style et l’intensité des couleurs de l’arrière-plan du lecteur se règlent désormais dans Réglages › Lecteur.";
+"theme_color_player_backdrop_moved_link" = "Ouvrir les réglages du lecteur";

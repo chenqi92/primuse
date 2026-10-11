@@ -5943,3 +5943,11 @@
 "metadata_writeback_local_only_notice" = "ソースへの書き込みが拒否されました。変更は Primuse 内にのみ保存され、ソースファイルは更新されていません。";
 "library_playlist_cover_wall_title" = "プレイリストのヘッダーをジャケットウォールにする";
 "library_playlist_cover_wall_description" = "プレイリストやスマートプレイリストに異なるアルバムジャケットが4枚以上あると、ヘッダーが傾いたジャケットの壁になり、数秒ごとに並びが変わります。iPhoneの横向き表示と、独自のカバーを設定したプレイリストでは1枚のカバーのままです。";
+"player_backdrop_strength_footer" = "右にするほど背景がジャケットの色に近づきます。ライトモードでジャケットの色がとても濃い場合は、文字が読みやすい程度で止まります。「ぼかしジャケット」などの背景画像では、画像に重ねる暗さの度合いを調整します。";
+"player_progress_style_title" = "プログレスバー";
+"player_progress_style_footer" = "波は再生中だけ流れ、一時停止中やドラッグ中はまっすぐな線になります。iPhone、iPad、Macのプレーヤーに反映されます。";
+"player_progress_style_standard" = "デフォルト";
+"player_progress_style_wave" = "波";
+"player_progress_style_dot" = "細い線と丸";
+"theme_color_player_backdrop_moved_hint" = "プレーヤーの背景のスタイルと色の濃さは「設定 › プレーヤー」で調整できるようになりました。";
+"theme_color_player_backdrop_moved_link" = "プレーヤー設定を開く";

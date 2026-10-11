@@ -5848,3 +5848,11 @@
 "metadata_writeback_local_only_notice" = "Źródło odmówiło zapisu. Zmiany zapisano tylko w Primuse; plik źródłowy nie został zaktualizowany.";
 "library_playlist_cover_wall_title" = "Ściana okładek w nagłówku playlisty";
 "library_playlist_cover_wall_description" = "Gdy playlista lub playlista inteligentna ma co najmniej 4 różne okładki albumów, jej nagłówek zmienia się w pochyloną ścianę okładek, która co kilka sekund układa się na nowo. Telefon w poziomie i playlisty z własną okładką nadal pokazują jedną okładkę.";
+"player_backdrop_strength_footer" = "Im dalej w prawo, tym bardziej tło zbliża się do kolorów okładki. W trybie jasnym bardzo ciemne kolory zatrzymują się tam, gdzie tekst pozostaje czytelny. Przy obrazie tła, takim jak Rozmyta okładka, reguluje to siłę przyciemniającej warstwy.";
+"player_progress_style_title" = "Pasek postępu";
+"player_progress_style_footer" = "Fala porusza się tylko podczas odtwarzania, a po wstrzymaniu lub podczas przeciągania prostuje się w linię. Dotyczy odtwarzacza na iPhonie, iPadzie i Macu.";
+"player_progress_style_standard" = "Domyślny";
+"player_progress_style_wave" = "Fala";
+"player_progress_style_dot" = "Cienka linia z kropką";
+"theme_color_player_backdrop_moved_hint" = "Styl i intensywność kolorów tła odtwarzacza ustawisz teraz w Ustawienia › Odtwarzacz.";
+"theme_color_player_backdrop_moved_link" = "Otwórz ustawienia odtwarzacza";
