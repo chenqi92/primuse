@@ -593,7 +593,9 @@ struct LibraryView: View {
                     collectionRevision: library.visibleSongCollectionRevision,
                     replacementToken: library.songReplacementToken
                 )
-                let songsSnapshot = library.visibleSongs
+                // 和歌曲页同一份歌：有声书、相声这些在有声那一页。两边共用一个缓存键，
+                // 这里交整库的话，先建好的这份会被歌曲页直接拿去用，章节就混进了歌曲列表。
+                let songsSnapshot = library.musicSongs
                 guard !songsSnapshot.isEmpty else { return }
                 do {
                     // Coalesce scanner bursts, then prepare the default order
