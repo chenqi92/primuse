@@ -1028,28 +1028,10 @@ struct NowPlayingView: View {
         usesAudiobookPlayerDesign ? themedControlAccent : .red
     }
 
-    /// Resolve the currently playing song back to the library entities used by
-    /// the detail screens. Older scans may not have persisted artistID/albumID,
-    /// so retain a normalized-name fallback instead of silently hiding links.
+    /// 正在播的歌在曲库里对应的艺人(见 `MusicLibrary.linkedArtists(for:)`)。
     private var currentArtists: [Artist] {
         guard let song = player.currentSong else { return [] }
-        // 播放页每次更新都会读几遍, 按 id 走曲库的 O(1) 索引, 别整库建字典。
-        func byID(_ name: String) -> Artist? {
-            library.visibleArtist(id: MusicLibrary.hashID(ArtistIdentityPolicy.groupingKey(name)))
-        }
-        var artists: [Artist] = []
-        for name in library.artistNames(for: song) {
-            if let artist = byID(name) ?? library.visibleArtists.first(where: {
-                $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
-            }) {
-                artists.append(artist)
-            } else {
-                // 曲库没拆开的合唱署名(A & B、feat.)再按展示写法拆一次;各段只按 id 查。
-                artists += ArtistLinkResolutionPolicy.fallbackPieces(of: name).compactMap(byID)
-            }
-        }
-        var seen = Set<String>()
-        return artists.filter { seen.insert($0.id).inserted }
+        return library.linkedArtists(for: song)
     }
 
     private var currentArtist: Artist? {
@@ -1063,22 +1045,7 @@ struct NowPlayingView: View {
 
     private var currentAlbum: Album? {
         guard let song = player.currentSong else { return nil }
-        if let albumID = song.albumID,
-           let album = library.visibleAlbum(id: albumID) {
-            return album
-        }
-        let albumTitle = song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !albumTitle.isEmpty else { return nil }
-        let artistName = (song.albumArtistName ?? library.artistNames(for: song).first)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return library.visibleAlbums.first {
-            let titleMatches = $0.title.trimmingCharacters(in: .whitespacesAndNewlines)
-                .localizedCaseInsensitiveCompare(albumTitle) == .orderedSame
-            let albumArtist = $0.artistName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let artistMatches = artistName.isEmpty || albumArtist.isEmpty
-                || albumArtist.localizedCaseInsensitiveCompare(artistName) == .orderedSame
-            return titleMatches && artistMatches
-        }
+        return library.linkedAlbum(for: song)
     }
 
     private var lyricsArtworkTransitionID: String {
@@ -12031,6 +11998,54 @@ private struct LyricsTranslationStatusChip: View {
 /// 两个时间中间可以放一组标签(`centerAccessory`,音质与来源)。标签叠在时间那一行上、不占
 /// 高度 —— 手机横屏是按这一行原本的高度排版的。有声内容那里写本章还剩多久,标签只在等
 /// iCloud 下载时借这个位置。
+// MARK: - 正在播的歌对应的专辑与艺人
+
+extension MusicLibrary {
+    /// Resolve a playing song back to the library entities used by the detail
+    /// screens. Older scans may not have persisted artistID/albumID, so retain a
+    /// normalized-name fallback instead of silently hiding links.
+    /// 播放页、迷你条的「前往艺人」都走这里。
+    func linkedArtists(for song: Song) -> [Artist] {
+        // 播放页每次更新都会读几遍, 按 id 走曲库的 O(1) 索引, 别整库建字典。
+        func byID(_ name: String) -> Artist? {
+            visibleArtist(id: MusicLibrary.hashID(ArtistIdentityPolicy.groupingKey(name)))
+        }
+        var artists: [Artist] = []
+        for name in artistNames(for: song) {
+            if let artist = byID(name) ?? visibleArtists.first(where: {
+                $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
+            }) {
+                artists.append(artist)
+            } else {
+                // 曲库没拆开的合唱署名(A & B、feat.)再按展示写法拆一次;各段只按 id 查。
+                artists += ArtistLinkResolutionPolicy.fallbackPieces(of: name).compactMap(byID)
+            }
+        }
+        var seen = Set<String>()
+        return artists.filter { seen.insert($0.id).inserted }
+    }
+
+    /// 播放页、迷你条的「前往专辑」都走这里。
+    func linkedAlbum(for song: Song) -> Album? {
+        if let albumID = song.albumID,
+           let album = visibleAlbum(id: albumID) {
+            return album
+        }
+        let albumTitle = song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !albumTitle.isEmpty else { return nil }
+        let artistName = (song.albumArtistName ?? artistNames(for: song).first)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return visibleAlbums.first {
+            let titleMatches = $0.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                .localizedCaseInsensitiveCompare(albumTitle) == .orderedSame
+            let albumArtist = $0.artistName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let artistMatches = artistName.isEmpty || albumArtist.isEmpty
+                || albumArtist.localizedCaseInsensitiveCompare(artistName) == .orderedSame
+            return titleMatches && artistMatches
+        }
+    }
+}
+
 fileprivate struct PlaybackProgressBar<CenterAccessory: View>: View {
     var fillTint: Color?
     let centerAccessory: CenterAccessory

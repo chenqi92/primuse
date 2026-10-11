@@ -141,6 +141,8 @@ struct MiniPlayerSwipeContent: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
         .simultaneousGesture(swipeGesture(containerWidth: contentWidth))
+        // 长按:不点开播放页也能喜欢 / 不喜欢这首、去它的专辑或艺人、设睡眠定时。
+        .contextMenu { MiniPlayerMenuItems() }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityAddTraits(.isButton)
@@ -253,6 +255,114 @@ struct MiniPlayerSwipeContent: View {
             if didAdvance {
                 UISelectionFeedbackGenerator().selectionChanged()
             }
+        }
+    }
+}
+
+/// 迷你条的长按菜单。单独一个视图:菜单弹出时才读喜欢状态、找专辑和艺人,
+/// 迷你条平时跟着播放器刷新不用顺带算这些。
+private struct MiniPlayerMenuItems: View {
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicLibrary.self) private var library
+    @Environment(\.openLibraryDestination) private var openLibraryDestination
+
+    var body: some View {
+        if let song = player.currentSong {
+            Section {
+                if !player.isLiveRadio {
+                    Button { toggleLike(song) } label: {
+                        if isLiked(song) {
+                            Label(String(localized: "a11y_unlike"), systemImage: "heart.fill")
+                        } else {
+                            Label(String(localized: "a11y_like"), systemImage: "heart")
+                        }
+                    }
+                }
+                if player.canDislikeCurrentSong {
+                    // 不喜欢(#193):记下来并切到下一首;已经不喜欢时再点只撤销。
+                    Button { player.toggleDislikeForCurrentSong() } label: {
+                        if library.isDisliked(songID: song.id) {
+                            Label(String(localized: "song_undislike"), systemImage: "hand.thumbsdown.fill")
+                        } else {
+                            Label(String(localized: "song_dislike"), systemImage: "hand.thumbsdown")
+                        }
+                    }
+                }
+            }
+
+            if !player.currentItemIsSpokenWord, !player.isLiveRadio, let openLibraryDestination {
+                Section {
+                    if let album = library.linkedAlbum(for: song) {
+                        Button { openLibraryDestination(.album(album)) } label: {
+                            Label(String(localized: "go_to_album"), systemImage: "square.stack")
+                        }
+                    }
+                    if let artist = library.linkedArtists(for: song).first {
+                        Button { openLibraryDestination(.artist(artist)) } label: {
+                            Label(String(localized: "go_to_artist"), systemImage: "music.mic")
+                        }
+                    }
+                }
+            }
+
+            Section {
+                Menu {
+                    // 和播放页的睡眠定时同一组选项:电台只有分钟数,有声多出本章、本集、整本。
+                    ForEach(sleepOptions, id: \.self) { option in
+                        Button { player.applySleepOption(option) } label: {
+                            if player.isSleepOptionArmed(option) {
+                                Label(sleepOptionTitle(option), systemImage: "checkmark")
+                            } else {
+                                Text(verbatim: sleepOptionTitle(option))
+                            }
+                        }
+                    }
+                    if player.isSleepTimerActive {
+                        Button(String(localized: "cancel_timer"), role: .destructive) { player.cancelSleep() }
+                    }
+                } label: {
+                    Label(
+                        String(localized: "sleep_timer"),
+                        systemImage: player.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz"
+                    )
+                }
+            }
+        }
+    }
+
+    private var sleepOptions: [SleepTimerOption] {
+        SleepTimerOptionPolicy.options(
+            for: player.currentListeningSpace ?? .music,
+            hasChapters: player.hasChapters
+        )
+    }
+
+    private func sleepOptionTitle(_ option: SleepTimerOption) -> String {
+        switch option {
+        case .minutes(let minutes):
+            "\(minutes) " + String(localized: "minutes")
+        case .endOfTrack:
+            player.currentListeningSpace?.playbackFamily == .spokenWord
+                ? String(localized: "sleep_at_item_end")
+                : String(localized: "sleep_at_track_end")
+        case .endOfChapter:
+            String(localized: "sleep_at_chapter_end")
+        case .endOfBook:
+            String(localized: "sleep_at_book_end")
+        }
+    }
+
+    /// 和播放页的心形一样:播客单集记在播客自己的喜欢里,别的进「我喜欢」。
+    private func isLiked(_ song: Song) -> Bool {
+        if PodcastPlaybackSong.isEpisode(song) { return PodcastStore.shared.isLiked(episodeID: song.id) }
+        return library.isLiked(songID: song.id)
+    }
+
+    private func toggleLike(_ song: Song) {
+        if PodcastPlaybackSong.isEpisode(song) {
+            player.toggleLikeForCurrentPodcastEpisode()
+        } else {
+            library.toggleLiked(songID: song.id)
         }
     }
 }

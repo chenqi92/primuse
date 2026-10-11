@@ -1182,6 +1182,7 @@ struct ContentView: View {
                 LaunchSafeModeView()
             } else if library.isReady {
                 mainContent
+                    .environment(\.openLibraryDestination, { link in openLibraryDeepLink(link) })
                     .onAppear { LaunchDiagnostics.mark(.homeFirstFrame) }
             } else {
                 LibraryPreparingView()

@@ -218,6 +218,12 @@ enum LibraryDeepLink: Equatable, Sendable {
     case song(String)
 }
 
+extension EnvironmentValues {
+    /// 根视图切到资料库、推到这个详情页。迷你条长按菜单的「前往专辑」「前往艺人」用;
+    /// 没注入时为 nil,菜单里就不给这两项。
+    @Entry var openLibraryDestination: (@MainActor (LibraryDeepLink) -> Void)? = nil
+}
+
 typealias LibraryPinKind = QuickAccessPinKind
 typealias LibraryPinReference = QuickAccessPinReference
 
