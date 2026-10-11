@@ -15,11 +15,9 @@ import AppKit
 ///
 /// Decoding runs off the main thread via ImageIO so list scrolling never
 /// pays for `PlatformImage(data:)` lazy decode at draw time. Each cover is
-/// also downsampled to one of three pixel buckets:
-/// - `thumb` (max 288px) for list-cell sized requests (size <= 96pt)
-/// - `card`  (max 768px) for album / artist grids
-/// - `full`  (max 1536px) for hero / large views
-/// so a 1500×1500 source image never sits decoded inside a 44pt row cell.
+/// downsampled to a bounded pixel bucket selected from the view's point size
+/// and display scale. Rectangular covers reserve enough pixels on their short
+/// edge for square aspect-fill slots, within the full-resolution decode cap.
 ///
 /// `coverRef` stores the source-side reference:
 /// - Media servers: full API URL (https://...)
@@ -76,6 +74,7 @@ struct CachedArtworkView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityPlayAnimatedImages) private var playAnimatedImages
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.displayScale) private var displayScale
     @AppStorage(PlayerAppearancePreferences.animatedArtworkEnabledKey)
     private var animatedArtworkEnabled = PlayerAppearancePreferences.animatedArtworkEnabledByDefault
     @AppStorage(PlayerAppearancePreferences.animatedArtworkUnmeteredOnlyKey)
@@ -165,34 +164,31 @@ struct CachedArtworkView: View {
     /// share a single network request instead of each fetching independently.
     private static let inFlightTracker = InFlightFetchTracker()
 
-    private enum Bucket: String, Sendable {
-        case thumb, card, full
+    private enum Bucket: String, Sendable, CaseIterable {
+        case icon, thumb, smallCard, card, full
+
+        var maximumPixels: Int {
+            switch self {
+            case .icon: 96
+            case .thumb: 192
+            case .smallCard: 384
+            case .card: 768
+            case .full: 1536
+            }
+        }
     }
 
-    /// Anything visibly small (list rows, mini player, album cards under
-    /// ~88pt) lands in the thumb bucket. 96 keeps a small headroom for
-    /// occasional 80pt artist circles without bumping them to a full decode.
     private var bucket: Bucket {
-        Self.bucket(for: size)
+        Self.bucket(for: size, displayScale: displayScale)
     }
 
-    private nonisolated static func bucket(for size: CGFloat?) -> Bucket {
-        guard let size else { return .full }
-        if size <= 96 { return .thumb }
-        if size <= 320 { return .card }
-        return .full
+    private nonisolated static func bucket(for size: CGFloat?, displayScale: CGFloat = 3) -> Bucket {
+        guard let size, size.isFinite, displayScale.isFinite, displayScale > 0 else { return .full }
+        let pixels = max(1, ceil(size * displayScale))
+        return Bucket.allCases.first { CGFloat($0.maximumPixels) >= pixels } ?? .full
     }
 
-    /// 96pt × 3x display scale. ImageIO downsamples in the GPU and the
-    /// resulting CGImage is fed to PlatformImage at scale 1, so cost stays small.
-    private nonisolated static let thumbMaxPixel: Int = 288
-
-    /// Grid cards need enough pixels for a 3x display without paying the
-    /// roughly 9 MiB decoded cost of a 1536px square for every visible album.
-    private nonisolated static let cardMaxPixel: Int = 768
-
-    /// Cap full-resolution decodes so a pathological 4000×4000 source can't
-    /// blow the cache budget by itself. Larger than any device's hero art.
+    /// Keep pathological source dimensions and hero surfaces bounded.
     private nonisolated static let fullMaxPixel: Int = 1536
 
     /// Shared session for source-side cover fetches. A delegate-backed
@@ -823,11 +819,12 @@ struct CachedArtworkView: View {
     }
 
     private var animationMaximumPixelSize: Int {
-        switch bucket {
-        case .thumb: Self.thumbMaxPixel
-        case .card: Self.cardMaxPixel
-        case .full: Self.fullMaxPixel
-        }
+        // Animation frames have a separate longest-edge decoder. Keep their
+        // existing limits when changing static aspect-fill cache buckets.
+        guard let size else { return Self.fullMaxPixel }
+        if size <= 96 { return 288 }
+        if size <= 320 { return 768 }
+        return Self.fullMaxPixel
     }
 
     @MainActor
@@ -1514,14 +1511,8 @@ struct CachedArtworkView: View {
     }
 
     private func cachedLowerResolutionImage() -> PlatformImage? {
-        let candidates: [Bucket]
-        switch bucket {
-        case .thumb:
-            candidates = []
-        case .card:
-            candidates = [.thumb]
-        case .full:
-            candidates = [.card, .thumb]
+        let candidates = Bucket.allCases.reversed().filter {
+            $0.maximumPixels < bucket.maximumPixels
         }
         for candidate in candidates {
             if let cached = Self.memoryCache.object(
@@ -1969,15 +1960,7 @@ struct CachedArtworkView: View {
     /// downsamples and force-decodes the bitmap so SwiftUI never re-decodes
     /// at draw time.
     private nonisolated static func decode(_ data: Data, bucket: Bucket) -> PlatformImage? {
-        let maxPixel: Int
-        switch bucket {
-        case .thumb:
-            maxPixel = thumbMaxPixel
-        case .card:
-            maxPixel = cardMaxPixel
-        case .full:
-            maxPixel = fullMaxPixel
-        }
+        let maxPixel = bucket.maximumPixels
         // ImageIO 没有 SVG 解码器，矢量图走栅格化器。放在 ImageIO 之前是因为
         // 下面那两道完整性检查都是按位图容器写的，SVG 一进去就被判为坏图。
         if SVGImageSupport.looksLikeSVG(data) {
@@ -1992,11 +1975,19 @@ struct CachedArtworkView: View {
             return nil
         }
         guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let properties = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]
+        let width = (properties?[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue ?? 0
+        let height = (properties?[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue ?? 0
+        var longestEdge = maxPixel
+        if width.isFinite, height.isFinite, width > 0, height > 0 {
+            let aspect = max(width, height) / min(width, height)
+            longestEdge = Int(min(Double(fullMaxPixel), ceil(Double(maxPixel) * aspect)))
+        }
         let opts: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceShouldCacheImmediately: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixel
+            kCGImageSourceThumbnailMaxPixelSize: longestEdge
         ]
         if let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) {
             return PlatformImage.fromCGImage(cg)
@@ -2018,10 +2009,10 @@ struct CachedArtworkView: View {
     // MARK: - Static helpers
 
     static func invalidateCache(for fileName: String) {
-        for bucket in ["thumb", "card", "full"] {
-            memoryCache.removeObject(forKey: "\(fileName)@\(bucket)" as NSString)
-            memoryCache.removeObject(forKey: "album_\(fileName)@\(bucket)" as NSString)
-            memoryCache.removeObject(forKey: "artist_\(fileName)@\(bucket)" as NSString)
+        for bucket in Bucket.allCases {
+            memoryCache.removeObject(forKey: "\(fileName)@\(bucket.rawValue)" as NSString)
+            memoryCache.removeObject(forKey: "album_\(fileName)@\(bucket.rawValue)" as NSString)
+            memoryCache.removeObject(forKey: "artist_\(fileName)@\(bucket.rawValue)" as NSString)
         }
         failedLoadCache.removeAllObjects()
         postArtworkInvalidation(token: fileName)
@@ -2034,8 +2025,8 @@ struct CachedArtworkView: View {
         let songIDs = songs.map(\.id)
         let refs = songs.compactMap(\.coverArtFileName).filter { !$0.isEmpty }
         for token in songIDs + refs {
-            for bucket in ["thumb", "card", "full"] {
-                memoryCache.removeObject(forKey: "\(token)@\(bucket)" as NSString)
+            for bucket in Bucket.allCases {
+                memoryCache.removeObject(forKey: "\(token)@\(bucket.rawValue)" as NSString)
             }
         }
         failedLoadCache.removeAllObjects()
