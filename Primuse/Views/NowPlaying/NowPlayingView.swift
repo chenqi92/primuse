@@ -597,6 +597,47 @@ private struct LyricsArtworkAnchorKey: PreferenceKey {
     }
 }
 
+/// 常驻封面在大封面位与歌词小封面位之间移动。
+///
+/// 位置、边长、圆角、阴影是同一份动画数据，每一帧一起插值；圆角裁在缩放之前，
+/// 外框和图片是同一层，不会出现外框先缩、图片后追上的情况。布局尺寸固定为绘制尺寸，
+/// 移动途中只变换不重新排版。
+private struct LyricsArtworkFlight: ViewModifier, Animatable {
+    var rect: CGRect
+    var cornerRadius: CGFloat
+    var shadow: LyricsArtworkShadow
+    let renderSize: CGFloat
+
+    nonisolated var animatableData: AnimatablePair<
+        AnimatablePair<CGRect.AnimatableData, CGFloat>,
+        AnimatablePair<Double, AnimatablePair<CGFloat, CGFloat>>
+    > {
+        get {
+            AnimatablePair(
+                AnimatablePair(rect.animatableData, cornerRadius),
+                AnimatablePair(shadow.opacity, AnimatablePair(shadow.radius, shadow.y))
+            )
+        }
+        set {
+            rect.animatableData = newValue.first.first
+            cornerRadius = newValue.first.second
+            shadow.opacity = newValue.second.first
+            shadow.radius = newValue.second.second.first
+            shadow.y = newValue.second.second.second
+        }
+    }
+
+    func body(content: Content) -> some View {
+        let scale = max(rect.width, 1) / renderSize
+        content
+            .frame(width: renderSize, height: renderSize)
+            .clipShape(RoundedRectangle(cornerRadius: max(0, cornerRadius) / scale, style: .continuous))
+            .scaleEffect(scale)
+            .shadow(color: .black.opacity(max(0, shadow.opacity)), radius: max(0, shadow.radius), y: shadow.y)
+            .position(x: rect.midX, y: rect.midY)
+    }
+}
+
 /// 顶栏文字和按钮淡入淡出，书封面保留独立的透明度交接。
 /// 音乐封面由布局外的常驻视图绘制，不参与顶栏的淡化。
 private struct LyricsHeaderTransition: Transition {
@@ -1064,10 +1105,23 @@ struct NowPlayingView: View {
     }
 
     private var standardLyricsAnimation: Animation {
-        reduceMotion
+        // 不回弹：封面缩到小封面位、放回大封面位都是一次到位（#167）。
+        let animation: Animation = reduceMotion
             ? .easeInOut(duration: 0.16)
-            : .spring(response: 0.48, dampingFraction: 0.82, blendDuration: 0.08)
+            : .spring(response: 0.46, dampingFraction: 1, blendDuration: 0.08)
+        #if DEBUG
+        if let speed = Self.debugLyricsAnimationSpeed { return animation.speed(speed) }
+        #endif
+        return animation
     }
+
+    #if DEBUG
+    /// `PRIMUSE_DEBUG_LYRICS_ANIMATION_SPEED=0.125`：封面 ⇄ 歌词转场放慢，逐帧截图看封面怎么走。
+    private static let debugLyricsAnimationSpeed: Double? = ProcessInfo.processInfo
+        .environment["PRIMUSE_DEBUG_LYRICS_ANIMATION_SPEED"]
+        .flatMap(Double.init)
+        .flatMap { $0 > 0 ? $0 : nil }
+    #endif
 
     private var lyricsPanelTransition: AnyTransition {
         guard !reduceMotion else { return .opacity }
@@ -5433,10 +5487,15 @@ struct NowPlayingView: View {
     private func lyricsArtworkOverlay(
         anchors: [LyricsArtworkPlacement: LyricsArtworkAnchor]
     ) -> some View {
-        GeometryReader { geometry in
-            if let anchor = anchors[lyricsArtworkPlacement] ?? anchors[.cover] {
+        // 歌词那一侧的槽位可能比换位置那次更新晚一拍才出现，按「实际落在哪个槽位」
+        // 驱动动画，晚到的那一次也走同一条曲线，而不是瞬移或换成别的动画。
+        let placement: LyricsArtworkPlacement = anchors[lyricsArtworkPlacement] != nil
+            ? lyricsArtworkPlacement
+            : .cover
+        return GeometryReader { geometry in
+            if let anchor = anchors[placement] {
                 let rect = geometry[anchor.bounds]
-                // 保持一个绘制尺寸，外部变换同时缩放图片和占位符，避免只缩外框、字号不变。
+                // 封面按固定尺寸画一次，外框、圆角、图片和占位音符都在同一层里一起缩放。
                 let renderSize: CGFloat = 512
                 CachedArtworkView(
                     coverRef: player.currentSong?.coverArtFileName,
@@ -5453,26 +5512,35 @@ struct NowPlayingView: View {
                     revisionToken: player.coverRevision
                 )
                 .artworkCrossfade()
-                .frame(width: renderSize, height: renderSize)
-                .scaleEffect(rect.width / renderSize)
-                .frame(width: rect.width, height: rect.height)
-                .clipShape(RoundedRectangle(cornerRadius: anchor.cornerRadius, style: .continuous))
-                #if os(iOS)
-                .modifier(NowPlayingAlbumTransitionSourceModifier(
-                    albumID: currentAlbum?.id,
-                    namespace: albumPresentationNamespace,
-                    cornerRadius: anchor.cornerRadius
+                .modifier(LyricsArtworkFlight(
+                    rect: rect,
+                    cornerRadius: anchor.cornerRadius,
+                    shadow: anchor.shadow,
+                    renderSize: renderSize
                 ))
-                #endif
-                .overlay(alignment: .bottom) {
-                    if anchor.showsVideoPreparation {
-                        MusicVideoPreparationBadge(songID: player.currentSong?.id)
-                    }
-                }
-                .shadow(color: .black.opacity(anchor.shadow.opacity), radius: anchor.shadow.radius, y: anchor.shadow.y)
-                .position(x: rect.midX, y: rect.midY)
-                .animation(standardLyricsAnimation, value: lyricsArtworkPlacement)
+                .animation(standardLyricsAnimation, value: placement)
                 .animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
+
+                if anchor.showsVideoPreparation {
+                    MusicVideoPreparationBadge(songID: player.currentSong?.id)
+                        .frame(width: rect.width, height: rect.height, alignment: .bottom)
+                        .position(x: rect.midX, y: rect.midY)
+                }
+
+                #if os(iOS)
+                // 「前往专辑」放大转场只需要知道从哪里放大：放一个和封面同位置的透明框当源，
+                // 移动的封面本身只是上面这一层，不再叠系统转场的修饰。
+                if placement == .cover, let albumID = currentAlbum?.id {
+                    Color.clear
+                        .frame(width: rect.width, height: rect.height)
+                        .modifier(NowPlayingAlbumTransitionSourceModifier(
+                            albumID: albumID,
+                            namespace: albumPresentationNamespace,
+                            cornerRadius: anchor.cornerRadius
+                        ))
+                        .position(x: rect.midX, y: rect.midY)
+                }
+                #endif
             }
         }
         .allowsHitTesting(false)
