@@ -3,6 +3,15 @@ import PrimuseKit
 
 actor ScraperManager {
     private var scraperCache: [String: any MusicScraper] = [:]
+    private let scraperFactory: @Sendable (ScraperSourceConfig) -> any MusicScraper
+
+    init(
+        scraperFactory: @escaping @Sendable (ScraperSourceConfig) -> any MusicScraper = {
+            MusicScraperFactory.create(for: $0)
+        }
+    ) {
+        self.scraperFactory = scraperFactory
+    }
 
     /// 命中 429/503 的源在此记录退避截止时刻(按 `config.id`)。批量刮削会反复调用
     /// `scrapeMetadata`,这张表让被限流的源在退避窗口内的后续调用里被直接跳过,
@@ -735,7 +744,7 @@ actor ScraperManager {
         if let cached = scraperCache[key] {
             return cached
         }
-        let scraper = MusicScraperFactory.create(for: config)
+        let scraper = scraperFactory(config)
         scraperCache[key] = scraper
         return scraper
     }

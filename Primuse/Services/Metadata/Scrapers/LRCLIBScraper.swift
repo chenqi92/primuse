@@ -8,7 +8,11 @@ actor LRCLIBScraper: MusicScraper {
     private var lastRequestTime: ContinuousClock.Instant?
     private let minInterval: Duration = .milliseconds(200)
 
-    init() {
+    init(session: URLSession? = nil) {
+        if let session {
+            self.session = session
+            return
+        }
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 10
         config.httpAdditionalHeaders = ["User-Agent": "Primuse/1.0 (iOS Music Player)"]
@@ -145,10 +149,23 @@ actor LRCLIBScraper: MusicScraper {
             try await Task.sleep(for: now.duration(to: reservedTime))
         }
         let (data, response) = try await session.data(from: url)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw ScraperError.notFound
+        guard let http = response as? HTTPURLResponse else {
+            throw ScraperError.networkError("LRCLIB returned a non-HTTP response")
         }
-        return data
+        switch http.statusCode {
+        case 200:
+            return data
+        case 404:
+            throw ScraperError.notFound
+        case 429, 503:
+            // Preserve throttling/unavailability so ScraperManager backs off
+            // across songs instead of treating each response as a lyric miss.
+            let retryAfter = RemoteMediaHTTPError.retryDelay(from: http)
+                .map { $0.rounded(.up).finiteInt(or: Int.max) }
+            throw ScraperError.rateLimited(retryAfter: retryAfter)
+        default:
+            throw ScraperError.networkError("LRCLIB HTTP \(http.statusCode)")
+        }
     }
 
     // MARK: - Models
