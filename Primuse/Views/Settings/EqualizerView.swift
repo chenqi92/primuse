@@ -125,6 +125,11 @@ struct EqualizerView: View {
                 .padding(.vertical, 6)
 
                 HStack {
+                    if let lowered = eq.headroomLoweredDB {
+                        EQHeadroomNote(loweredDB: lowered)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     Spacer()
                     Button("eq_reset") { eq.reset() }
                     .settingsAnchor("equalizer.reset")
@@ -181,6 +186,14 @@ struct EqualizerView: View {
                 .settingsAnchor("equalizer.reset")
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+
+            if let lowered = eq.headroomLoweredDB {
+                EQHeadroomNote(loweredDB: lowered)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            }
 
             Divider()
                 .padding(.horizontal)
@@ -372,6 +385,15 @@ struct EQDeviceBindingList: View {
         }
         .padding(.vertical, 10)
         .contentShape(Rectangle())
+    }
+}
+
+/// 有频段提升、整体被压低时的说明，不然开了低音提升反而变小声像是出了问题。字体颜色由调用处定。
+struct EQHeadroomNote: View {
+    let loweredDB: Float
+
+    var body: some View {
+        Text("eq_headroom_note \(String(format: "%.1f", loweredDB))")
     }
 }
 

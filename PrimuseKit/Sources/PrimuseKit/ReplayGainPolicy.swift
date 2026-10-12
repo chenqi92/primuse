@@ -11,25 +11,14 @@ public enum ReplayGainPolicy {
 
     /// Linear volume for a ReplayGain tag. No tag, or a non-finite one, means
     /// unity. A positive gain is capped at `1 / peak` so the loudest sample of
-    /// the track still fits below full scale.
-    ///
-    /// `equalizerBoostDB` is the largest boost the equalizer after the player
-    /// node adds. Tag gain above unity is additionally held back so that boost
-    /// still fits below full scale, but it never pulls a track below unity:
-    /// without ReplayGain the equalizer would clip that track just the same.
-    public static func linearGain(
-        gainDB: Double?,
-        peak: Double?,
-        equalizerBoostDB: Double = 0
-    ) -> Float {
+    /// the track still fits below full scale. The equalizer after the player
+    /// node lowers its own level by its boost (`EqualizerHeadroomPolicy`), so
+    /// no headroom is held back for it here.
+    public static func linearGain(gainDB: Double?, peak: Double?) -> Float {
         guard let gainDB, gainDB.isFinite else { return 1 }
         var linear = pow(10.0, gainDB / 20.0)
         if let peak, peak.isFinite, peak > 0 {
             linear = min(linear, 1.0 / peak)
-            if linear > 1, equalizerBoostDB.isFinite, equalizerBoostDB > 0 {
-                let boost = pow(10.0, equalizerBoostDB / 20.0)
-                linear = max(1, min(linear, 1.0 / (peak * boost)))
-            }
         }
         let clamped = max(0.0, min(linear, Double(maximumLinearGain)))
         return Float(clamped)

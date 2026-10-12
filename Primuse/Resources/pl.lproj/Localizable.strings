@@ -5859,3 +5859,5 @@
 "player_progress_style_dot" = "Cienka linia z kropką";
 "theme_color_player_backdrop_moved_hint" = "Styl i intensywność kolorów tła odtwarzacza ustawisz teraz w Ustawienia › Odtwarzacz.";
 "theme_color_player_backdrop_moved_link" = "Otwórz ustawienia odtwarzacza";
+
+"eq_headroom_note %@" = "Ogólną głośność obniżono o %@ dB, aby wzmocnione pasma nie zniekształcały dźwięku.";

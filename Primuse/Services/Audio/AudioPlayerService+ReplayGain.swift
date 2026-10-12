@@ -27,23 +27,10 @@ extension AudioPlayerService {
         }
     }
 
-    /// The largest boost the equalizer currently adds, in dB. ReplayGain keeps
-    /// that much headroom when it raises a quiet track. Read when a track
-    /// starts, seeks or is prepared; dragging an EQ band mid-song does not
-    /// re-evaluate the current track.
-    var equalizerBoostDB: Double {
-        guard equalizerService.isEnabled else { return 0 }
-        return Double(max(0, equalizerService.bands.max() ?? 0))
-    }
-
     /// The node volume a song should play at: its ReplayGain volume, or unity
     /// when the values carry no gain.
     func programVolume(for values: ReplayGainValues) -> Float {
-        ReplayGainPolicy.linearGain(
-            gainDB: values.gain,
-            peak: values.peak,
-            equalizerBoostDB: equalizerBoostDB
-        )
+        ReplayGainPolicy.linearGain(gainDB: values.gain, peak: values.peak)
     }
 
     /// Steady-state volume for a song under the current settings: unity when

@@ -6046,3 +6046,5 @@
 "player_progress_style_dot" = "细线圆点";
 "theme_color_player_backdrop_moved_hint" = "播放页背景的样式和颜色浓淡，现在在「设置 › 播放器」里调。";
 "theme_color_player_backdrop_moved_link" = "前往播放器设置";
+
+"eq_headroom_note %@" = "整体音量已调低 %@ dB，避免提升的频段让声音失真。";

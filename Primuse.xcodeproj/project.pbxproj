@@ -257,6 +257,7 @@
 		212511EFE29CDB7FBFCA233B /* PhoneRelayServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 299BA8CA4513E33F5CF2BC7C /* PhoneRelayServer.swift */; };
 		21277BB9EEBB8B2F6071AA1C /* PlayerBackdropSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96CE75F0A073BB8CD03ED6A1 /* PlayerBackdropSettingsStore.swift */; };
 		21DFD7099F0DD7869C388C9A /* PodcastShowDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57C25D9301AA85C1C54DDD2 /* PodcastShowDetailView.swift */; };
+		2296CF3F99C36D0E4796B109 /* EqualizerHeadroomPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B6DF5AE06E8B4174AFFA869 /* EqualizerHeadroomPolicy.swift */; };
 		27A865CDD1A04203BE18C178 /* LocalPodcastShowDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DB870D919429734B76DECC5 /* LocalPodcastShowDetailView.swift */; };
 		21E496A1A424DA68570A7928 /* PrimuseKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B1E36F2FECF46E724081F983 /* PrimuseKit.framework */; };
 		223571A3D35282EEE8DC3CD8 /* AIRemoteProviderConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33F16C8FA296E2937F01489 /* AIRemoteProviderConfiguration.swift */; };
@@ -2263,6 +2264,7 @@
 		0C7964E39EEC2700BAB113F8 /* PrimuseWatchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PrimuseWatchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0C999AE17AF8E49236B326C3 /* WiFiTransferFilePreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiTransferFilePreparation.swift; sourceTree = "<group>"; };
 		0CCA8EE372D7ED88D64B8C3D /* ISOBaseMediaChapterParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISOBaseMediaChapterParser.swift; sourceTree = "<group>"; };
+		1B6DF5AE06E8B4174AFFA869 /* EqualizerHeadroomPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EqualizerHeadroomPolicy.swift; sourceTree = "<group>"; };
 		261B3FEB73874EF88FA4C65C /* AsyncSlotGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsyncSlotGate.swift; sourceTree = "<group>"; };
 		40980373B716BCFA76010C17 /* FireflySwarmSimulation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireflySwarmSimulation.swift; sourceTree = "<group>"; };
 		442CF52C9855BC72B9F3AB4B /* CrossFeatureQuotaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossFeatureQuotaTests.swift; sourceTree = "<group>"; };
@@ -4259,6 +4261,7 @@
 				B7A57564214E4E718E7BA028 /* RequestExecutor.swift */,
 				09540B602EB547F8069B8F64 /* RemoteGatewayBackoffPolicy.swift */,
 				0AF231BD6DF081771CCE843D /* RemoteRendererTransportPolicy.swift */,
+				1B6DF5AE06E8B4174AFFA869 /* EqualizerHeadroomPolicy.swift */,
 				A100AFAFF233FDEBE961ABE4 /* ReplayGainPolicy.swift */,
 				1A1BF9EE3214C766FD7E607C /* RunningAppEnvironment.swift */,
 				4A5E3854301A90D6807F3BEA /* ScanTLSTrustRetryPolicy.swift */,
@@ -6618,6 +6621,7 @@
 				7981D544A66D47C69C26B44A /* RequestExecutor.swift in Sources */,
 				B4757F43F22197C6497DF963 /* RemoteGatewayBackoffPolicy.swift in Sources */,
 				074C490AB30D658DDDA8DED6 /* RemoteRendererTransportPolicy.swift in Sources */,
+				2296CF3F99C36D0E4796B109 /* EqualizerHeadroomPolicy.swift in Sources */,
 				1AE4A1DAB32915B65BA487B1 /* ReplayGainPolicy.swift in Sources */,
 				29450CDECCC58A4F4C8D4FE9 /* RunningAppEnvironment.swift in Sources */,
 				055E8F5093B42BCBDF08DA4F /* S3StreamResolver.swift in Sources */,

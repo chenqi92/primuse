@@ -5953,3 +5953,5 @@
 "player_progress_style_dot" = "가는 선과 점";
 "theme_color_player_backdrop_moved_hint" = "플레이어 배경 스타일과 색 농도는 이제 설정 › 플레이어에서 조절합니다.";
 "theme_color_player_backdrop_moved_link" = "플레이어 설정 열기";
+
+"eq_headroom_note %@" = "부스트한 대역에서 소리가 왜곡되지 않도록 전체 음량을 %@ dB 낮췄습니다.";

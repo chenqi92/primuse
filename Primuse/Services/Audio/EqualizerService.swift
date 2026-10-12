@@ -14,6 +14,14 @@ final class EqualizerService {
     }
     var bands: [Float] = Array(repeating: 0, count: PrimuseConstants.eqBandCount)
 
+    /// 有频段提升时整体压低的量(dB,≤ 0),关着时为 0。
+    private(set) var preampDB: Float = 0
+
+    /// 均衡器页要说明「整体调低了多少 dB」时的正数;压得太少不值一提时为 nil。
+    var headroomLoweredDB: Float? {
+        preampDB <= -0.1 ? -preampDB : nil
+    }
+
     /// 用户手动拖出的曲线,持久化;预设里"自定义"项展示并可一键还原它。
     private(set) var customBands: [Float] = Array(repeating: 0, count: PrimuseConstants.eqBandCount)
 
@@ -28,6 +36,7 @@ final class EqualizerService {
         self.audioEngine = audioEngine
         self.defaults = defaults
         load()
+        applyHeadroom()
         startOutputDeviceTracking()
     }
 
@@ -69,6 +78,7 @@ final class EqualizerService {
         let clampedGain = clamp(gain)
         bands[index] = clampedGain
         audioEngine.eqNode?.bands[index].gain = clampedGain
+        applyHeadroom()
         // 手动拖动即进入"自定义",实时记录整条曲线
         if !currentPreset.isCustom {
             EQDevicePresetSwitchPolicy.userSelected(
@@ -244,6 +254,7 @@ final class EqualizerService {
         for (index, gain) in bands.enumerated() {
             audioEngine.eqNode?.bands[index].gain = clamp(gain)
         }
+        applyHeadroom()
         persist()
     }
 
@@ -254,6 +265,7 @@ final class EqualizerService {
             eqNode.bands[index].gain = clamp(gain)
             eqNode.bands[index].bypass = !isEnabled
         }
+        applyHeadroom()
     }
 
     private func clamp(_ gain: Float) -> Float {
@@ -261,10 +273,26 @@ final class EqualizerService {
     }
 
     private func updateBypass() {
+        applyHeadroom()
         guard let eqNode = audioEngine.eqNode else { return }
         for band in eqNode.bands {
             band.bypass = !isEnabled
         }
+    }
+
+    /// 按整条曲线的最高点压低整体增益,提升的频段不再把响的歌推过满刻度。
+    /// 频段全旁通时 globalGain 照样生效,所以关着要归零。
+    private func applyHeadroom() {
+        let preamp = isEnabled
+            ? EqualizerHeadroomPolicy.preampDB(
+                bandGainsDB: bands.map { clamp($0) },
+                frequencies: PrimuseConstants.eqBandFrequencies,
+                bandwidthOctaves: PrimuseConstants.eqDefaultBandwidth,
+                sampleRate: audioEngine.outputFormat?.sampleRate ?? 48_000
+            )
+            : 0
+        if preampDB != preamp { preampDB = preamp }
+        audioEngine.eqNode?.globalGain = preamp
     }
 
     var bandFrequencyLabels: [String] {

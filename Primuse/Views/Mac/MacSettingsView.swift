@@ -2892,6 +2892,7 @@ private struct MacSTEqualizerView: View {
 
         MacEQFaderCard(
             bands: eq.bandFrequencyLabels,
+            headroomLoweredDB: eq.headroomLoweredDB,
             gains: Binding(
                 get: { eq.bands.map { $0.rounded().finiteInt() } },
                 set: { newGains in
@@ -2962,6 +2963,7 @@ private struct MacSTEqualizerView: View {
 
 private struct MacEQFaderCard: View {
     let bands: [String]
+    let headroomLoweredDB: Float?
     @Binding var gains: [Int]
 
     var body: some View {
@@ -2994,6 +2996,14 @@ private struct MacEQFaderCard: View {
             .font(.system(size: 10, design: .monospaced))
             .foregroundStyle(PMColor.textFaint)
             .padding(.horizontal, 12)
+
+            if let headroomLoweredDB {
+                EQHeadroomNote(loweredDB: headroomLoweredDB)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(PMColor.textFaint)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+            }
         }
         .padding(18)
         .background(PMColor.bgElev, in: .rect(cornerRadius: 10))

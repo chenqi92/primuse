@@ -5859,3 +5859,5 @@
 "player_progress_style_dot" = "पतली रेखा और बिंदु";
 "theme_color_player_backdrop_moved_hint" = "प्लेयर बैकग्राउंड की शैली और रंग की तीव्रता अब सेटिंग्स › प्लेयर में है।";
 "theme_color_player_backdrop_moved_link" = "प्लेयर सेटिंग्स खोलें";
+
+"eq_headroom_note %@" = "बढ़ाए गए बैंड से आवाज़ विकृत न हो, इसलिए कुल वॉल्यूम %@ dB कम किया गया है।";

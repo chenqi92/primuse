@@ -5713,3 +5713,5 @@
 "player_progress_style_dot" = "Thin Line with Dot";
 "theme_color_player_backdrop_moved_hint" = "The player background style and color intensity are now in Settings › Player.";
 "theme_color_player_backdrop_moved_link" = "Open Player Settings";
+
+"eq_headroom_note %@" = "Overall volume lowered by %@ dB so boosted bands don't distort.";
