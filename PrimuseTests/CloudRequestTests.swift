@@ -438,9 +438,7 @@ final class CloudRequestTests: XCTestCase {
         let helper = CloudDriveHelper(sourceID: fixture.id, requests: CloudRequestScheduler(timing: clock.timing))
         let saved = await helper.tokenManager.saveTokens(.init(accessToken: "old", refreshToken: "fixture"))
         XCTAssertTrue(saved)
-        let finished = CloudTestCounter()
         let task = Task {
-            defer { finished.increment() }
             return try await helper.withTokenRetry(initialToken: "old", refresh: { _ in
                 try await clock.timing.sleep(100)
                 return .init(accessToken: "new", refreshToken: "fixture")
@@ -450,18 +448,13 @@ final class CloudRequestTests: XCTestCase {
         }
         try await clock.waitForSleep(at: 100)
         task.cancel()
-        for _ in 0..<2000 {
-            if finished.value == 1 { break }
-            try await Task.sleep(for: .milliseconds(1))
-        }
-        XCTAssertEqual(finished.value, 1, "Caller cancellation must not await the shared refresh")
+        do { _ = try await task.value; XCTFail("Expected cancellation before releasing the shared refresh") }
+        catch { XCTAssertTrue(error is CancellationError) }
         clock.advance(to: 100)
         _ = try await helper.tokenManager.refreshDeduped(.ifMatches("old"), refresh: { _ in
             XCTFail("The existing refresh should remain shared")
             return .init(accessToken: "new", refreshToken: "fixture")
         })
-        do { _ = try await task.value; XCTFail("Expected cancellation") }
-        catch { XCTAssertTrue(error is CancellationError) }
         XCTAssertEqual(fixture.requests.count, 1)
     }
 
@@ -482,10 +475,8 @@ final class CloudRequestTests: XCTestCase {
         }
         XCTAssertEqual(server.connectionCount, 1)
         let started = CloudTestCounter()
-        let finished = CloudTestCounter()
         let queued = Task {
             started.increment()
-            defer { finished.increment() }
             return try await helper.rangeRequest(url: url, offset: 4, length: 4, forceTCP: true)
         }
         for _ in 0..<10000 {
@@ -493,15 +484,10 @@ final class CloudRequestTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(1))
         }
         queued.cancel()
-        for _ in 0..<2000 {
-            if finished.value == 1 { break }
-            try await Task.sleep(for: .milliseconds(1))
-        }
-        XCTAssertEqual(finished.value, 1, "A cancelled TCP waiter must not wait for the occupied connection")
+        do { _ = try await queued.value; XCTFail("Expected cancellation before releasing the occupied connection") }
+        catch { XCTAssertTrue(error is CancellationError) }
         first.cancel()
         _ = await first.result
-        do { _ = try await queued.value; XCTFail("Expected queued cancellation") }
-        catch { XCTAssertTrue(error is CancellationError) }
         XCTAssertEqual(server.connectionCount, 1)
     }
 
