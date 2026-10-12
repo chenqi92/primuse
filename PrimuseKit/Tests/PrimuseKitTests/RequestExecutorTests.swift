@@ -4,6 +4,17 @@ import Testing
 
 @Suite("External HTTP requests")
 struct RequestExecutorTests {
+    @Test("Raw Retry-After fields share complete HTTP response parsing")
+    func parsesRawRetryAfterFields() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        #expect(HTTPResponseFailure.retryDelay(from: " 172800 ", now: now) == 172800)
+        #expect(HTTPResponseFailure.retryDelay(from: "Sun, 17 Jan 2027 08:00:00 GMT", now: now) == 172800)
+        #expect(HTTPResponseFailure.retryDelay(from: "Thu, 14 Jan 2027 08:00:00 GMT", now: now) == 0)
+        for header in [nil, "", "-1", "1.5", "NaN", "infinity", "invalid"] as [String?] {
+            #expect(HTTPResponseFailure.retryDelay(from: header, now: now) == nil)
+        }
+    }
+
     @Test("Data and streamed results retain caller pacing through authentication recovery")
     func mixedTransportsRetainPacingDuringRecovery() async throws {
         let clock = ControlledClock()

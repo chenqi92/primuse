@@ -5781,7 +5781,7 @@
 "player_controls_lyrics_preview_footer_follow" = "六个位置和封面界面一样，打开上面的开关才能单独换。顶上歌名旁多出来的那一格随时可以换。";
 "player_controls_lyrics_preview_footer_own" = "点虚线框换按钮。看歌词时（包括手机横屏和折叠屏分栏里开着歌词时）用这一组；状态行和「更多」里的项跟封面界面一样。";
 "player_controls_lyrics_collapse" = "上滑歌词时收起播放控件";
-"player_controls_lyrics_collapse_footer" = "拖动歌词时把进度条和下面的按钮收起来，让歌词铺满；点歌词空白处叫回来。";
+"player_controls_lyrics_collapse_footer" = "往上翻歌词时把进度条和下面的按钮收起来，让歌词铺满；往回拉不会收起。点歌词空白处叫回来。";
 "player_controls_slot_lyrics_extra" = "歌词页歌名旁";
 "player_controls_lyrics_extra_picker_footer" = "默认是卡拉OK，这首歌用不了卡拉OK时这一格不显示。已经摆在页面上的按钮这里不再重复。";
 "player_controls_immersive_footer" = "iPad 横屏看歌词时也用这一组。顶上第一格默认和看歌词时歌名旁那一格一样；锁、全屏效果、更多和退出键位置固定。";
@@ -5794,7 +5794,7 @@
 "player_controls_effect_footer" = "全屏效果页没有「更多」，没放在这里的按钮要回到播放页去点。收起键和效果切换键位置固定。";
 "player_controls_effect_picker_footer" = "这一页只放不会换走整页的按钮。选已经在别处的按钮，两格会对调。";
 "player_controls_text_collapse" = "上滑文字稿时收起播放控件";
-"player_controls_text_collapse_footer" = "看文字稿时拖动文字，把进度条和下面的按钮收起来；点文字空白处叫回来。";
+"player_controls_text_collapse_footer" = "看文字稿时往上翻文字，把进度条和下面的按钮收起来；往回拉不会收起。点文字空白处叫回来。";
 "player_controls_radio_items_header" = "最下面一排";
 "player_controls_radio_items_footer" = "按住拖动可以换顺序，关掉的项不在电台页上显示。";
 "player_controls_radio_info" = "音质信息";

@@ -79,6 +79,11 @@ final class SpokenWordStore {
     /// Bumped on every change so views and the library aggregation can depend
     /// on one cheap value instead of observing two dictionaries.
     @ObservationIgnored private(set) var revision = 0
+    /// Bumped on every change except listening progress (positions and
+    /// finished marks), which a playing book writes every few seconds: what
+    /// depends only on classification, folder tags, bookmarks, speeds or
+    /// archiving keys on this instead.
+    @ObservationIgnored private(set) var nonProgressRevision = 0
 
     private let storeURL: URL
     private var saveTask: Task<Void, Never>?
@@ -184,7 +189,7 @@ final class SpokenWordStore {
     @ObservationIgnored private var folderTagRefreshTask: Task<Void, Never>?
 
     private var folderRules: SpokenWordFolderRules {
-        if let cached = cachedFolderRules, cached.revision == revision { return cached.rules }
+        if let cached = cachedFolderRules, cached.revision == nonProgressRevision { return cached.rules }
         let folders = SpokenWordFolderTag.folderTags(in: overrides)
         let rules = SpokenWordFolderRules(
             folderTags: folders,
@@ -192,7 +197,7 @@ final class SpokenWordStore {
             declaredSpokenWordSourceIDs: declaredSpokenWordSourceIDs,
             taggedFileKinds: taggedFolderFiles(folders: folders)
         )
-        cachedFolderRules = (revision, rules)
+        cachedFolderRules = (nonProgressRevision, rules)
         return rules
     }
 
@@ -550,6 +555,18 @@ final class SpokenWordStore {
 
     func position(forSongID songID: String) -> StoredPosition? { positions[songID] }
 
+    /// The progress a book item carries for `songID`, the same fields the
+    /// shelf builds its items from.
+    func progress(forSongID songID: String) -> SpokenWordItemProgress {
+        let stored = positions[songID]
+        return SpokenWordItemProgress(
+            knownDuration: stored?.duration,
+            position: stored?.position,
+            positionUpdatedAt: stored?.updatedAt,
+            finishedAt: finishedAt[songID]
+        )
+    }
+
     func resumePosition(for song: Song) -> TimeInterval? {
         SpokenWordProgressPolicy.resumePosition(
             stored: positions[song.id]?.position,
@@ -591,7 +608,7 @@ final class SpokenWordStore {
         // played twice; only "mark as unfinished" reopens it. The position
         // is still kept, so the replay continues where it stopped.
         evictOldestIfNeeded()
-        didChange(cloud: .relaxed)
+        didChange(cloud: .relaxed, progressOnly: true)
     }
 
     /// 采纳服务端记的进度(Audiobookshelf 这类自己记进度的源)。和 iCloud 一样按最后写入者获胜:
@@ -633,7 +650,7 @@ final class SpokenWordStore {
         }
         guard changed else { return false }
         evictOldestIfNeeded()
-        didChange(cloud: .relaxed)
+        didChange(cloud: .relaxed, progressOnly: true)
         return true
     }
 
@@ -666,7 +683,7 @@ final class SpokenWordStore {
         }
         guard changed else { return }
         evictOldestIfNeeded()
-        didChange(cloud: .prompt)
+        didChange(cloud: .prompt, progressOnly: true)
     }
 
     /// Removes a position as a listener's decision (a tombstone goes with
@@ -732,7 +749,7 @@ final class SpokenWordStore {
 
     func clearPosition(forSongID songID: String) {
         guard removePosition(songID, at: Date()) else { return }
-        didChange(cloud: .prompt)
+        didChange(cloud: .prompt, progressOnly: true)
     }
 
     // MARK: - Per-book speed
@@ -802,8 +819,9 @@ final class SpokenWordStore {
 
     // MARK: - Persistence
 
-    private func didChange(cloud urgency: CloudUrgency?) {
+    private func didChange(cloud urgency: CloudUrgency?, progressOnly: Bool = false) {
         revision &+= 1
+        if !progressOnly { nonProgressRevision &+= 1 }
         scheduleSave()
         if let urgency { scheduleCloudPush(urgency) }
         NotificationCenter.default.post(name: .primuseSpokenWordDidChange, object: nil)
@@ -965,6 +983,10 @@ final class SpokenWordStore {
             || records.bookRates != bookRates
             || records.archivedAt != archivedAt
         let overridesChanged = nextOverrides != overrides
+        let progressOnly = !overridesChanged
+            && records.bookmarks == bookmarks
+            && records.bookRates == bookRates
+            && records.archivedAt == archivedAt
         guard contentChanged || records.ledger != ledger else { return }
         positions = nextPositions
         finishedAt = records.finishedAt
@@ -977,7 +999,7 @@ final class SpokenWordStore {
             scheduleSave()
             return
         }
-        didChange(cloud: nil)
+        didChange(cloud: nil, progressOnly: progressOnly)
         if overridesChanged {
             NotificationCenter.default.post(name: .primuseSpokenWordClassificationDidChange, object: nil)
         }

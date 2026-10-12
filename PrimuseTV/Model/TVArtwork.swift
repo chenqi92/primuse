@@ -966,14 +966,20 @@ actor TVArtworkLoader {
         request.timeoutInterval = 12
         request.httpShouldHandleCookies = false
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await StreamResolverHTTPTransport.data(
-            for: request,
-            session: remoteArtworkSession,
-            maximumBytes: maximumSearchResponseBytes
-        )
-        guard let http = response as? HTTPURLResponse,
-              (200...299).contains(http.statusCode),
-              let finalURL = http.url,
+        // 和刮削、播客目录共用 Apple 目录的额度:那边正被限流时这里不再去撞。
+        guard let quota = RequestQuota.appleCatalog(for: url) else { throw URLError(.badURL) }
+        let session = remoteArtworkSession
+        let maximumBytes = maximumSearchResponseBytes
+        let (data, http) = try await RequestQuotaRegistry.shared.execute(
+            for: quota, replay: .idempotent, timeout: request.timeoutInterval
+        ) { [request] in
+            try await StreamResolverHTTPTransport.data(
+                for: request,
+                session: session,
+                maximumBytes: maximumBytes
+            )
+        }
+        guard let finalURL = http.url,
               let scheme = finalURL.scheme?.lowercased(),
               scheme == "http" || scheme == "https",
               finalURL.host?.isEmpty == false,

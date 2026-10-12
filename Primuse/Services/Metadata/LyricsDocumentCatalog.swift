@@ -156,12 +156,17 @@ enum LyricsDocumentCatalog {
             )
             // 播放读的是缓存。缓存不是这份文件(早先存下的内嵌歌词、刮削到的歌词)时哪份都不标
             // 「使用中」, 点哪份都会换上; 否则点那一行什么也不做, 播放却还是别的歌词(#208)。
+            // 缓存里一行都没有(播放没读到这份文件)也一样, 点了就换上。
             if !usesLocalCopy, !song.isCueTrack,
-               let cached, !cached.isEmpty,
-               let active = entries.first(where: \.isActive),
-               let content = try? await read(active.document, for: song, sourceManager: sourceManager) {
-                let lines = LyricsParser.parse(content.text)
-                if !lines.isEmpty, !EmbeddedLyricsPrecedencePolicy.sameDocument(cached, lines) {
+               let active = entries.first(where: \.isActive) {
+                if let cached, !cached.isEmpty {
+                    if let content = try? await read(active.document, for: song, sourceManager: sourceManager) {
+                        let lines = LyricsParser.parse(content.text)
+                        if !lines.isEmpty, !EmbeddedLyricsPrecedencePolicy.sameDocument(cached, lines) {
+                            listed = listed.activating(nil)
+                        }
+                    }
+                } else {
                     listed = listed.activating(nil)
                 }
             }

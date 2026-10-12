@@ -44,6 +44,9 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
     private let password: String
     private let alternateTLSValidationHostname: String?
     private let mutationSession: URLSession?
+    private let sessionConfiguration: @Sendable () -> URLSessionConfiguration
+    private let quotaRegistry: RequestQuotaRegistry
+    private let directoryTiming: RequestExecutor.Timing
     private var isConnected = false
     private var connectionGeneration = UUID()
     private var connectTask: Task<Void, Error>?
@@ -78,10 +81,16 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         username: String,
         password: String,
         alternateTLSValidationHostname: String? = nil,
-        mutationSession: URLSession? = nil
+        mutationSession: URLSession? = nil,
+        sessionConfiguration: @escaping @Sendable () -> URLSessionConfiguration = { .default },
+        quotaRegistry: RequestQuotaRegistry = .shared,
+        directoryTiming: RequestExecutor.Timing = .init()
     ) {
         self.sourceID = sourceID
         self.mutationSession = mutationSession
+        self.sessionConfiguration = sessionConfiguration
+        self.quotaRegistry = quotaRegistry
+        self.directoryTiming = directoryTiming
         self.host = host
         self.port = port
         self.useSsl = useSsl
@@ -104,7 +113,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
             useSsl: useSsl,
             username: username,
             password: password,
-            alternateTLSValidationHostname: alternateTLSValidationHostname
+            alternateTLSValidationHostname: alternateTLSValidationHostname,
+            configuration: sessionConfiguration()
         )
         self.rangeSession = Self.makeRangeSession(
             host: host,
@@ -112,9 +122,10 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
             useSsl: useSsl,
             username: username,
             password: password,
-            alternateTLSValidationHostname: alternateTLSValidationHostname
+            alternateTLSValidationHostname: alternateTLSValidationHostname,
+            configuration: sessionConfiguration()
         )
-        self.redirectedMediaSession = Self.makeRedirectedMediaSession()
+        self.redirectedMediaSession = Self.makeRedirectedMediaSession(configuration: sessionConfiguration())
     }
 
     private static func makeRangeSession(
@@ -123,9 +134,9 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         useSsl: Bool,
         username: String,
         password: String,
-        alternateTLSValidationHostname: String?
+        alternateTLSValidationHostname: String?,
+        configuration config: URLSessionConfiguration
     ) -> URLSession {
-        let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 60
         config.timeoutIntervalForResource = 600
         config.httpMaximumConnectionsPerHost = 8
@@ -151,8 +162,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         )
     }
 
-    private static func makeRedirectedMediaSession() -> URLSession {
-        let config = URLSessionConfiguration.default
+    private static func makeRedirectedMediaSession(configuration config: URLSessionConfiguration) -> URLSession {
         config.timeoutIntervalForRequest = 60
         config.timeoutIntervalForResource = 600
         config.httpMaximumConnectionsPerHost = 8
@@ -230,7 +240,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         var completedRateLimitWaits = 0
         while true {
             do {
-                return try await listFilesUsingTrustedTransport(at: path)
+                return try await listFilesUsingTrustedTransport(at: path, completedRateLimitWaits: completedRateLimitWaits)
             } catch {
                 if OperationCancellationPolicy.isCancellation(error) {
                     resetDirectorySession()
@@ -246,7 +256,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
                     ) else { throw status }
                     completedRateLimitWaits += 1
                     plog("⏳ WebDAV directory listing rate limited (HTTP \(status.statusCode)); retrying \(path) in \(Int(delay))s")
-                    try await Task.sleep(for: .seconds(delay))
+                    try await directoryTiming.sleep(delay)
                     continue
                 }
 
@@ -324,7 +334,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
                 useSsl: useSsl,
                 username: username,
                 password: password,
-                alternateTLSValidationHostname: alternateTLSValidationHostname
+                alternateTLSValidationHostname: alternateTLSValidationHostname,
+                configuration: sessionConfiguration()
             )
         }
         if rangeSession == nil {
@@ -334,11 +345,12 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
                 useSsl: useSsl,
                 username: username,
                 password: password,
-                alternateTLSValidationHostname: alternateTLSValidationHostname
+                alternateTLSValidationHostname: alternateTLSValidationHostname,
+                configuration: sessionConfiguration()
             )
         }
         if redirectedMediaSession == nil {
-            redirectedMediaSession = Self.makeRedirectedMediaSession()
+            redirectedMediaSession = Self.makeRedirectedMediaSession(configuration: sessionConfiguration())
         }
     }
 
@@ -351,7 +363,8 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
             useSsl: useSsl,
             username: username,
             password: password,
-            alternateTLSValidationHostname: alternateTLSValidationHostname
+            alternateTLSValidationHostname: alternateTLSValidationHostname,
+            configuration: sessionConfiguration()
         )
     }
 
@@ -1494,7 +1507,7 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         return data
     }
 
-    private func listFilesUsingTrustedTransport(at path: String) async throws -> [RemoteFileItem] {
+    private func listFilesUsingTrustedTransport(at path: String, completedRateLimitWaits: Int = 0) async throws -> [RemoteFileItem] {
         let baseURL = try serverURL()
         var directoryURL = try fileURL(for: path)
         if !directoryURL.absoluteString.hasSuffix("/") {
@@ -1520,26 +1533,37 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
             </D:propfind>
             """.utf8
         )
-        let (data, response) = try await TrustedHTTPTransport.data(
-            for: request,
-            session: try requireTransportSession(directorySession),
-            maxBytes: 16 * 1024 * 1024
-        )
-        guard let http = response as? HTTPURLResponse else {
-            throw SourceError.connectionFailed("Invalid WebDAV directory response")
+        guard let quota = WebDAVDirectoryRequestPolicy.quota(url: directoryURL, username: username) else {
+            throw URLError(.badURL)
         }
-        if http.statusCode == 401 || http.statusCode == 403 {
-            throw SourceError.authenticationFailed
-        }
-        if http.statusCode == 404 {
-            throw SourceError.pathNotFound(path)
-        }
-        guard http.statusCode == 207 || (200...299).contains(http.statusCode) else {
-            throw RemoteDirectoryHTTPStatusError(
-                service: "WebDAV",
-                statusCode: http.statusCode,
-                retryAfter: RemoteMediaHTTPError.retryDelay(from: http)
-            )
+        let session = try requireTransportSession(directorySession)
+        let timing = directoryTiming
+        let data: Data
+        do {
+            // The existing outer directory loop owns bounded retries/waits.
+            // Connection probes and fresh deletion confirmations use this same
+            // admission point without acquiring an independent retry budget.
+            data = try await quotaRegistry.execute(for: quota, replay: .never, operation: { [request] in
+                let (data, response) = try await TrustedHTTPTransport.data(
+                    for: request, session: session, maxBytes: 16 * 1024 * 1024
+                )
+                guard let http = response as? HTTPURLResponse else {
+                    throw SourceError.connectionFailed("Invalid WebDAV directory response")
+                }
+                if http.statusCode == 401 || http.statusCode == 403 { throw SourceError.authenticationFailed }
+                if http.statusCode == 404 { throw SourceError.pathNotFound(path) }
+                guard (200...299).contains(http.statusCode) else {
+                    throw WebDAVDirectoryRequestPolicy.failure(
+                        statusCode: http.statusCode,
+                        retryAfter: HTTPResponseFailure.retryDelay(from: http, now: timing.date()),
+                        completedWaits: completedRateLimitWaits
+                    )
+                }
+                return data
+            })
+        } catch let failure as HTTPResponseFailure {
+            throw RemoteDirectoryHTTPStatusError(service: "WebDAV", statusCode: failure.statusCode,
+                                                retryAfter: failure.retryAfter, isRateLimited: failure.isRateLimited)
         }
 
         let entries = try WebDAVMultistatusParser.parse(data)

@@ -20,11 +20,16 @@ public struct HTTPResponseFailure: Error, Sendable, LocalizedError {
         self.isRetryable = isRetryable
     }
 
-    public var errorDescription: String? { "HTTP \(statusCode)" }
+    public var errorDescription: String? { PMString("ext.tv.playback.httpError", statusCode) }
 
     public static func retryDelay(from response: HTTPURLResponse, now: Date = Date()) -> TimeInterval? {
-        guard let value = response.value(forHTTPHeaderField: "Retry-After")?
-            .trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+        retryDelay(from: response.value(forHTTPHeaderField: "Retry-After"), now: now)
+    }
+
+    /// Parses an HTTP field when an adapter retains headers separately from its response.
+    public static func retryDelay(from header: String?, now: Date = Date()) -> TimeInterval? {
+        guard let value = header?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else { return nil }
         if value.utf8.allSatisfy({ (48...57).contains($0) }),
            let seconds = TimeInterval(value), seconds.isFinite { return seconds }
 

@@ -17,7 +17,7 @@ settings:
     # 全平台唯一版本号来源:iOS / macOS / tvOS / watchOS 及各扩展统一继承这里,
     # 各 target 不再单独覆盖,发版只改这一处,避免漏改导致版本不一致。
     MARKETING_VERSION: "1.11.3"
-    CURRENT_PROJECT_VERSION: "100"
+    CURRENT_PROJECT_VERSION: "101"
     DEVELOPMENT_TEAM: "2U97K3U27A"
     CODE_SIGN_STYLE: Automatic
     CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION: YES
@@ -359,8 +359,10 @@ targets:
     platform: macOS
     sources:
       - path: PrimuseMacTests
+      - path: PrimuseTests/WebDAVDirectoryQuotaTests.swift
       - path: PrimuseTests/PodcastRequestQuotaTests.swift
       - path: PrimuseTests/CrossFeatureQuotaTests.swift
+      - path: PrimuseTests/RadioDirectoryQuotaTests.swift
       - path: PrimuseTests/AIRequestQuotaTests.swift
     dependencies:
       - target: PrimuseMac
@@ -983,6 +985,7 @@ targets:
       - path: PrimuseTVTests
       - path: PrimuseTests/PodcastRequestQuotaTests.swift
       - path: PrimuseTests/CrossFeatureQuotaTests.swift
+      - path: PrimuseTests/RadioDirectoryQuotaTests.swift
       - path: PrimuseTests/AIRequestQuotaTests.swift
     dependencies:
       - target: PrimuseTV
