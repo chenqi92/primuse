@@ -1025,3 +1025,7 @@
 "widget_desk_previous_station" = "Previous Station";
 "widget_desk_next_station" = "Next Station";
 "widget_desk_stop" = "Stop";
+
+// Shared HTTP rate-limit errors.
+"request.rateLimited" = "Too many requests. Please try again later.";
+"request.rateLimited.wait" = "Too many requests. Try again in %.0f seconds.";
