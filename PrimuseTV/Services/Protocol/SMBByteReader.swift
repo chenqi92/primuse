@@ -37,6 +37,16 @@ actor SMBByteReader: ByteRangeReader {
         relativePath = rel
     }
 
+    deinit {
+        // 释放仍连着的会话时 AMSMB2 会在放手的那个线程上同步登出。这里留着的
+        // 会话上没有在途请求(卡住的已退役),所以登出沿用原来 20 秒的上限。
+        manager?.timeout = Self.requestStallTimeout
+    }
+
+    /// 单次操作的等待上限,避免某个文件读挂死拖死扫描/播放。由 `awaitRequest`
+    /// 在外面计时,会话本身不放弃请求(见 `SMBRequestDeadline`)。
+    private static let requestStallTimeout: TimeInterval = 20
+
     /// Must only be called while `operationGate` is held. `SMB2Manager` wraps
     /// one mutable libsmb2 context, so actor isolation alone is insufficient
     /// once a request suspends in the C library.
@@ -44,9 +54,10 @@ actor SMBByteReader: ByteRangeReader {
         if let manager, connected { return manager }
         let m = manager ?? SMB2Manager(url: serverURL, credential: credential)
         guard let m else { throw SMBReaderError.invalidConfig }
-        m.timeout = 20   // 单次操作上限,避免某个文件读挂死拖死扫描/播放
+        m.timeout = SMBRequestDeadline.libraryTimeout
         manager = m
-        try await m.connectShare(name: shareName)
+        let shareName = shareName
+        try await Self.awaitRequest { _ in try await m.connectShare(name: shareName) }
         connected = true
         return m
     }
@@ -57,7 +68,10 @@ actor SMBByteReader: ByteRangeReader {
             if let cachedSize { return cachedSize }
             return try await runWithRetryWhileLocked {
                 let m = try await ensureWhileLocked()
-                let attrs = try await m.attributesOfItem(atPath: relativePath)
+                let relativePath = relativePath
+                let attrs = try await Self.awaitRequest { _ in
+                    try await m.attributesOfItem(atPath: relativePath)
+                }
                 try Task.checkCancellation()
                 let size = (attrs[.fileSizeKey] as? Int64)
                     ?? (attrs[.fileSizeKey] as? Int).map(Int64.init) ?? 0
@@ -75,10 +89,14 @@ actor SMBByteReader: ByteRangeReader {
         return try await withSerializedOperation {
             try await runWithRetryWhileLocked {
                 let m = try await ensureWhileLocked()
-                let data = try await m.contents(
-                    atPath: relativePath,
-                    range: UInt64(offset)..<UInt64(end)
-                )
+                let relativePath = relativePath
+                let data = try await Self.awaitRequest { activity in
+                    try await m.contents(
+                        atPath: relativePath,
+                        range: UInt64(offset)..<UInt64(end),
+                        progress: { _, _ in activity.noteProgress() }
+                    )
+                }
                 try Task.checkCancellation()
                 return data
             }
@@ -135,10 +153,30 @@ actor SMBByteReader: ByteRangeReader {
 
     private func invalidateConnectionWhileLocked() async {
         if let manager, connected {
-            try? await manager.disconnectShare()
+            do {
+                try await Self.awaitRequest { _ in try await manager.disconnectShare() }
+            } catch {
+                // 断开没在时限内结束,会话还卡在请求中间:退役而不是释放。
+                let nsError = error as NSError
+                if SMBSessionDisposalPolicy.mayHaveAbandonedRequest(
+                    errorDomain: nsError.domain,
+                    errorCode: nsError.code
+                ) {
+                    SMBRetiredSessions.shared.retire(manager)
+                }
+            }
         }
         connected = false
         manager = nil
+    }
+
+    /// Every AMSMB2 call goes through here: the session never gives up on a
+    /// request by itself, this stops waiting and reports `ETIMEDOUT`, and
+    /// `retireManagerIfRequestAbandoned` then parks the still busy session.
+    private static func awaitRequest<T: Sendable>(
+        _ operation: @escaping @Sendable (SMBRequestDeadline.Activity) async throws -> T
+    ) async throws -> T {
+        try await SMBRequestDeadline.run(stallTimeout: requestStallTimeout, operation: operation)
     }
 
     /// See `SMBSessionDisposalPolicy`: a session whose request was abandoned

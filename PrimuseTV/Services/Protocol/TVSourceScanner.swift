@@ -942,76 +942,112 @@ actor TVSMBLister: TVDirectoryLister {
         configuredShare = (source.shareName ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
     }
 
+    deinit {
+        // 释放仍连着的会话时 AMSMB2 会在放手的那个线程上同步登出;这里留着的会话
+        // 没有在途请求(卡住的已退役),登出沿用 AMSMB2 原来的等待上限。
+        manager?.timeout = SMBRequestDeadline.standardStallTimeout
+    }
+
     private func ensureManager() throws -> SMB2Manager {
         if let manager { return manager }
         guard let m = SMB2Manager(url: serverURL, credential: credential) else {
             throw TVScanError.connectFailed
         }
+        // 会话本身不放弃请求,时限由 `awaitRequest` 在外面计(见 `SMBRequestDeadline`)。
+        m.timeout = SMBRequestDeadline.libraryTimeout
         manager = m
         return m
     }
 
     func list(_ path: String) async throws -> [TVDirEntry] {
+        let m = try ensureManager()
         do {
-            return try await listWhileConnected(path)
+            return try await listWhileConnected(path, on: m)
         } catch {
-            retireManagerIfRequestAbandoned(error)
+            retireManagerIfRequestAbandoned(m, after: error)
             throw error
         }
     }
 
     /// See `SMBSessionDisposalPolicy`: a session whose request was abandoned
     /// before its reply arrived must not be closed or released, so it is parked
-    /// in the retirement store and simply stops being used.
-    private func retireManagerIfRequestAbandoned(_ error: Error) {
+    /// in the retirement store and simply stops being used. The session is
+    /// passed in because a concurrent listing may already have replaced it.
+    private func retireManagerIfRequestAbandoned(_ session: SMB2Manager, after error: Error) {
         let nsError = error as NSError
-        guard let manager,
-              SMBSessionDisposalPolicy.mayHaveAbandonedRequest(
+        guard SMBSessionDisposalPolicy.mayHaveAbandonedRequest(
                   errorDomain: nsError.domain,
                   errorCode: nsError.code
               ) else { return }
-        SMBRetiredSessions.shared.retire(manager)
-        self.manager = nil
-        connectedShare = nil
+        SMBRetiredSessions.shared.retire(session)
+        if manager === session {
+            manager = nil
+            connectedShare = nil
+        }
     }
 
-    private func listWhileConnected(_ path: String) async throws -> [TVDirEntry] {
+    /// Every AMSMB2 call goes through here: the session never gives up on a
+    /// request by itself, this stops waiting after AMSMB2's former 60 s and
+    /// reports `ETIMEDOUT`, and `list` then retires the still busy session.
+    private static func awaitRequest<T: Sendable>(
+        stallTimeout: TimeInterval = SMBRequestDeadline.standardStallTimeout,
+        _ operation: @escaping @Sendable (SMBRequestDeadline.Activity) async throws -> T
+    ) async throws -> T {
+        try await SMBRequestDeadline.run(stallTimeout: stallTimeout, operation: operation)
+    }
+
+    private func listWhileConnected(_ path: String, on m: SMB2Manager) async throws -> [TVDirEntry] {
         let (share, rel) = SMBByteReader.resolve(share: configuredShare, path: path)
-        let m = try ensureManager()
         // 服务器根(未指定 share):列出可见共享当作一级目录。
         if share.isEmpty {
-            let shares = try await m.listShares()
+            let shares = try await Self.awaitRequest { _ in try await m.listShares() }
             return shares
                 .filter { !$0.name.hasSuffix("$") && !$0.name.isEmpty }
                 .map { TVDirEntry(name: $0.name, isDir: true, size: 0, path: "/\($0.name)") }
                 .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
         }
         if connectedShare != share {
-            if connectedShare != nil { try? await m.disconnectShare() }
-            try await m.connectShare(name: share)
+            if connectedShare != nil {
+                connectedShare = nil
+                do {
+                    try await Self.awaitRequest { _ in try await m.disconnectShare() }
+                } catch {
+                    // 断开失败本来无所谓,但卡在请求中间的会话不能再拿去连新 share。
+                    let nsError = error as NSError
+                    if SMBSessionDisposalPolicy.mayHaveAbandonedRequest(
+                        errorDomain: nsError.domain,
+                        errorCode: nsError.code
+                    ) {
+                        throw error
+                    }
+                }
+            }
+            try await Self.awaitRequest { _ in try await m.connectShare(name: share) }
             connectedShare = share
         }
-        let items = try await m.contentsOfDirectory(atPath: rel)
-        return items.compactMap { item -> TVDirEntry? in
-            let name = item[.nameKey] as? String ?? ""
-            guard !name.isEmpty, !name.hasPrefix(".") else { return nil }
-            let isDir = (item[.fileResourceTypeKey] as? URLFileResourceType) == .directory
-            let size = item[.fileSizeKey] as? Int64 ?? 0
-            let modifiedDate = item[.contentModificationDateKey] as? Date
-            let revision = modifiedDate.map {
-                "smb:\(size):\(Int64($0.timeIntervalSince1970))"
+        return try await Self.awaitRequest(stallTimeout: SMBRequestDeadline.listingStallTimeout) { _ in
+            let items = try await m.contentsOfDirectory(atPath: rel)
+            return items.compactMap { item -> TVDirEntry? in
+                let name = item[.nameKey] as? String ?? ""
+                guard !name.isEmpty, !name.hasPrefix(".") else { return nil }
+                let isDir = (item[.fileResourceTypeKey] as? URLFileResourceType) == .directory
+                let size = item[.fileSizeKey] as? Int64 ?? 0
+                let modifiedDate = item[.contentModificationDateKey] as? Date
+                let revision = modifiedDate.map {
+                    "smb:\(size):\(Int64($0.timeIntervalSince1970))"
+                }
+                return TVDirEntry(
+                    name: name,
+                    isDir: isDir,
+                    size: size,
+                    path: Self.append(path, name),
+                    parentPath: path,
+                    modifiedDate: modifiedDate,
+                    revision: revision
+                )
             }
-            return TVDirEntry(
-                name: name,
-                isDir: isDir,
-                size: size,
-                path: Self.append(path, name),
-                parentPath: path,
-                modifiedDate: modifiedDate,
-                revision: revision
-            )
+            .sorted { ($0.isDir ? 0 : 1, $0.name) < ($1.isDir ? 0 : 1, $1.name) }
         }
-        .sorted { ($0.isDir ? 0 : 1, $0.name) < ($1.isDir ? 0 : 1, $1.name) }
     }
 
     private static func append(_ base: String, _ name: String) -> String {

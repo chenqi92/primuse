@@ -71,6 +71,15 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         self.cacheDirectory = cacheDir
     }
 
+    deinit {
+        // Releasing a still connected session makes AMSMB2 log off
+        // synchronously on whichever thread lets go of it. Nothing is in
+        // flight on the sessions held here (busy ones are retired), so give
+        // that goodbye AMSMB2's old bounded wait instead of `libraryTimeout`.
+        client?.timeout = SMBRequestDeadline.standardStallTimeout
+        backgroundClient?.timeout = SMBRequestDeadline.standardStallTimeout
+    }
+
     func connect() async throws {
         try await runWithRetry {
             if self.sharePath.isEmpty == false {
@@ -85,10 +94,10 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         await operationGate.acquire()
         await backgroundOperationGate.acquire()
         if let client, connectedShareName != nil {
-            try? await client.disconnectShare()
+            await Self.closeShare(on: client, lane: "foreground")
         }
         if let backgroundClient, backgroundConnectedShareName != nil {
-            try? await backgroundClient.disconnectShare()
+            await Self.closeShare(on: backgroundClient, lane: "background")
         }
         connectedShareName = nil
         client = nil
@@ -122,24 +131,26 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
             // the AMSMB2 dictionaries contain `Any` values that can't cross the closure boundary.
             return try await runWithRetry {
                 let client = try await self.ensureConnectedShare(named: shareName)
-                let items = try await client.contentsOfDirectory(atPath: relativePath)
-                return items
-                    .filter { Self.isUserVisibleEntry(($0[.nameKey] as? String) ?? "") }
-                    .map { item -> RemoteFileItem in
-                        let name = item[.nameKey] as? String ?? ""
-                        let isDir = (item[.fileResourceTypeKey] as? URLFileResourceType) == .directory
-                        let size = item[.fileSizeKey] as? Int64 ?? 0
-                        let modified = item[.contentModificationDateKey] as? Date
-                        return RemoteFileItem(
-                            name: name,
-                            path: Self.appendPathComponent(name, to: normalizedPath),
-                            isDirectory: isDir,
-                            size: size,
-                            modifiedDate: modified,
-                            revision: Self.fileRevision(size: size, modifiedDate: modified)
-                        )
-                    }
-                    .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+                return try await Self.awaitRequest(stallTimeout: SMBRequestDeadline.listingStallTimeout) { _ in
+                    let items = try await client.contentsOfDirectory(atPath: relativePath)
+                    return items
+                        .filter { Self.isUserVisibleEntry(($0[.nameKey] as? String) ?? "") }
+                        .map { item -> RemoteFileItem in
+                            let name = item[.nameKey] as? String ?? ""
+                            let isDir = (item[.fileResourceTypeKey] as? URLFileResourceType) == .directory
+                            let size = item[.fileSizeKey] as? Int64 ?? 0
+                            let modified = item[.contentModificationDateKey] as? Date
+                            return RemoteFileItem(
+                                name: name,
+                                path: Self.appendPathComponent(name, to: normalizedPath),
+                                isDirectory: isDir,
+                                size: size,
+                                modifiedDate: modified,
+                                revision: Self.fileRevision(size: size, modifiedDate: modified)
+                            )
+                        }
+                        .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+                }
             }
         }
     }
@@ -170,7 +181,11 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         do {
             try await runWithRetry {
                 let client = try await self.ensureConnectedShare(named: shareName)
-                try await client.downloadItem(atPath: relativePath, to: tempURL) { _, _ in true }
+                try await Self.awaitRequest { activity in
+                    try await client.downloadItem(atPath: relativePath, to: tempURL) { _, _ in
+                        activity.noteProgress()
+                    }
+                }
             }
             if FileManager.default.fileExists(atPath: localURL.path) {
                 try? FileManager.default.removeItem(at: tempURL)
@@ -244,7 +259,9 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         // offset < 0 表示从文件末尾倒数 (suffix range), AMSMB2 的
         // RangeExpression 接受 UInt64 所以负 offset 需要先拿 fileSize 转换。
         if offset < 0 {
-            let attrs = try await client.attributesOfItem(atPath: relativePath)
+            let attrs = try await Self.awaitRequest { _ in
+                try await client.attributesOfItem(atPath: relativePath)
+            }
             guard let total = (attrs[.fileSizeKey] as? Int64)
                     ?? (attrs[.fileSizeKey] as? Int).map({ Int64($0) }) else {
                 throw SourceError.fileNotFound(relativePath)
@@ -258,8 +275,9 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
             }
             let end = min(total, requestedEnd)
             guard start < end else { return Data() }
-            return try await client.contents(
-                atPath: relativePath,
+            return try await Self.readContents(
+                client: client,
+                relativePath: relativePath,
                 range: UInt64(start)..<UInt64(end)
             )
         }
@@ -269,10 +287,28 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         ) else {
             return Data()
         }
-        return try await client.contents(
-            atPath: relativePath,
+        return try await Self.readContents(
+            client: client,
+            relativePath: relativePath,
             range: UInt64(offset)..<UInt64(end)
         )
+    }
+
+    /// The read closes its file handle inside the same AMSMB2 call, which is
+    /// where a reply to an abandoned read used to land (see
+    /// `SMBRequestDeadline`). Every completed chunk counts as progress.
+    private static func readContents(
+        client: SMB2Manager,
+        relativePath: String,
+        range: Range<UInt64>
+    ) async throws -> Data {
+        try await awaitRequest { activity in
+            try await client.contents(
+                atPath: relativePath,
+                range: range,
+                progress: { _, _ in activity.noteProgress() }
+            )
+        }
     }
 
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
@@ -362,7 +398,9 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         }
         return try await runWithRetry {
             let client = try await self.ensureConnectedShare(named: shareName)
-            let attributes = try await client.attributesOfItem(atPath: relativePath)
+            let attributes = try await Self.awaitRequest { _ in
+                try await client.attributesOfItem(atPath: relativePath)
+            }
             let size = (attributes[.fileSizeKey] as? Int64)
                 ?? (attributes[.fileSizeKey] as? Int).map(Int64.init)
                 ?? 0
@@ -398,8 +436,14 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
 
             var originalMoved = false
             do {
-                try await client.uploadItem(at: localURL, toPath: stagingPath) { _ in true }
-                let attributes = try await client.attributesOfItem(atPath: relativePath)
+                try await Self.awaitRequest { activity in
+                    try await client.uploadItem(at: localURL, toPath: stagingPath) { _ in
+                        activity.noteProgress()
+                    }
+                }
+                let attributes = try await Self.awaitRequest { _ in
+                    try await client.attributesOfItem(atPath: relativePath)
+                }
                 let size = (attributes[.fileSizeKey] as? Int64)
                     ?? (attributes[.fileSizeKey] as? Int).map(Int64.init)
                     ?? 0
@@ -417,16 +461,32 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
                 // existing target. Move the original to a recoverable
                 // same-folder backup, publish the fully uploaded staging file,
                 // then remove the backup.
-                try await client.moveItem(atPath: relativePath, toPath: backupPath)
+                try await Self.awaitRequest { _ in
+                    try await client.moveItem(atPath: relativePath, toPath: backupPath)
+                }
                 originalMoved = true
                 do {
-                    try await client.moveItem(atPath: stagingPath, toPath: relativePath)
+                    try await Self.awaitRequest { _ in
+                        try await client.moveItem(atPath: stagingPath, toPath: relativePath)
+                    }
                     originalMoved = false
                 } catch {
+                    // A publish that ran out of time may still be carried out,
+                    // and its session is still busy with it, so no restore can
+                    // be sent on that session.
+                    if Self.isAbandonedRequest(error) {
+                        self.retireClientIfRequestAbandoned(error)
+                        throw SourceError.connectionFailed(
+                            "SMB publish did not finish and the original remains at \(backupPath): \(error.localizedDescription)"
+                        )
+                    }
                     do {
-                        try await client.moveItem(atPath: backupPath, toPath: relativePath)
+                        try await Self.awaitRequest { _ in
+                            try await client.moveItem(atPath: backupPath, toPath: relativePath)
+                        }
                         originalMoved = false
                     } catch let restoreError {
+                        self.retireClientIfRequestAbandoned(restoreError)
                         throw SourceError.connectionFailed(
                             "SMB publish failed and the original remains at \(backupPath): \(restoreError.localizedDescription)"
                         )
@@ -434,15 +494,28 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
                     throw error
                 }
                 do {
-                    try await client.removeFile(atPath: backupPath)
+                    try await Self.awaitRequest { _ in
+                        try await client.removeFile(atPath: backupPath)
+                    }
                 } catch {
+                    self.retireClientIfRequestAbandoned(error)
                     // Publication is already complete; a hidden recovery copy
                     // is preferable to reporting a failed write and retrying it.
                     plog("⚠️ SMB metadata writeback left recovery backup at \(backupPath): \(error.localizedDescription)")
                 }
             } catch {
-                if !originalMoved {
-                    try? await client.removeFile(atPath: stagingPath)
+                // This path never went through the retrying wrapper, so it has
+                // to retire a session left mid-request itself, before any
+                // clean-up could send another request on it.
+                self.retireClientIfRequestAbandoned(error)
+                if !originalMoved, self.client === client {
+                    do {
+                        try await Self.awaitRequest { _ in
+                            try await client.removeFile(atPath: stagingPath)
+                        }
+                    } catch {
+                        self.retireClientIfRequestAbandoned(error)
+                    }
                 }
                 throw error
             }
@@ -468,7 +541,11 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         relativePath: String
     ) async throws {
         do {
-            try await client.uploadItem(at: localURL, toPath: relativePath) { _ in true }
+            try await Self.awaitRequest { activity in
+                try await client.uploadItem(at: localURL, toPath: relativePath) { _ in
+                    activity.noteProgress()
+                }
+            }
         } catch {
             if let denial = MetadataWriteFailurePolicy.denial(error) { throw denial }
             let nsError = error as NSError
@@ -477,7 +554,11 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
                 throw error
             }
             do {
-                try await client.append(data: data, toPath: relativePath, offset: 0, progress: { _ in true })
+                try await Self.awaitRequest { activity in
+                    try await client.append(data: data, toPath: relativePath, offset: 0, progress: { _ in
+                        activity.noteProgress()
+                    })
+                }
             } catch {
                 throw MetadataWriteFailurePolicy.denial(error) ?? error
             }
@@ -500,7 +581,9 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         try await runWithRetry {
             let client = try await self.ensureConnectedShare(named: shareName)
             do {
-                try await client.removeItem(atPath: relativePath)
+                try await Self.awaitRequest { _ in
+                    try await client.removeItem(atPath: relativePath)
+                }
             } catch {
                 let ns = error as NSError
                 if ns.domain == NSPOSIXErrorDomain {
@@ -580,6 +663,9 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         guard let client = SMB2Manager(url: serverURL, credential: credential) else {
             throw SourceError.connectionFailed("Invalid SMB server configuration")
         }
+        // AMSMB2 must never be the one that gives up on a request; every call
+        // goes through `awaitRequest`, which applies the real deadline.
+        client.timeout = SMBRequestDeadline.libraryTimeout
         return client
     }
 
@@ -598,12 +684,23 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         // libsmb2 keeps a single tree-connect per session, so switching shares
         // requires explicitly disconnecting the previous one first.
         if connectedShareName != nil {
-            try? await client.disconnectShare()
             connectedShareName = nil
+            do {
+                try await Self.awaitRequest { _ in try await client.disconnectShare() }
+            } catch {
+                // A failed disconnect is otherwise harmless, but a session
+                // left mid-request must not carry the next connect.
+                if Self.isAbandonedRequest(error) {
+                    retireClientIfRequestAbandoned(error)
+                    throw error
+                }
+            }
         }
 
         do {
-            try await client.connectShare(name: normalizedShareName)
+            try await Self.awaitRequest { _ in
+                try await client.connectShare(name: normalizedShareName)
+            }
             try Task.checkCancellation()
         } catch {
             retireClientIfRequestAbandoned(error)
@@ -628,11 +725,20 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
             return client
         }
         if backgroundConnectedShareName != nil {
-            try? await client.disconnectShare()
             backgroundConnectedShareName = nil
+            do {
+                try await Self.awaitRequest { _ in try await client.disconnectShare() }
+            } catch {
+                if Self.isAbandonedRequest(error) {
+                    retireBackgroundClientIfRequestAbandoned(error)
+                    throw error
+                }
+            }
         }
         do {
-            try await client.connectShare(name: normalizedShareName)
+            try await Self.awaitRequest { _ in
+                try await client.connectShare(name: normalizedShareName)
+            }
             try Task.checkCancellation()
         } catch {
             retireBackgroundClientIfRequestAbandoned(error)
@@ -647,7 +753,7 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         try Task.checkCancellation()
         let client = try await ensureServerConnection()
         do {
-            let shares = try await client.listShares()
+            let shares = try await Self.awaitRequest { _ in try await client.listShares() }
             try Task.checkCancellation()
             return shares
         } catch {
@@ -661,7 +767,7 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     /// from scratch. Called when a request fails with a transient error.
     private func invalidateConnection() async {
         if let client, connectedShareName != nil {
-            try? await client.disconnectShare()
+            await Self.closeShare(on: client, lane: "foreground")
         }
         connectedShareName = nil
         client = nil
@@ -669,10 +775,34 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
 
     private func invalidateBackgroundConnection() async {
         if let backgroundClient, backgroundConnectedShareName != nil {
-            try? await backgroundClient.disconnectShare()
+            await Self.closeShare(on: backgroundClient, lane: "background")
         }
         backgroundConnectedShareName = nil
         backgroundClient = nil
+    }
+
+    /// Ends the share on a session that is being dropped. A disconnect that
+    /// does not finish in time leaves the session mid-request, so it is
+    /// retired instead of released (see `SMBSessionDisposalPolicy`).
+    private static func closeShare(on session: SMB2Manager, lane: String) async {
+        do {
+            try await awaitRequest { _ in try await session.disconnectShare() }
+        } catch {
+            if isAbandonedRequest(error) {
+                retire(session, lane: lane)
+            }
+        }
+    }
+
+    /// Every AMSMB2 call goes through here. The session itself never gives up
+    /// on a request (`SMBRequestDeadline.libraryTimeout`); this stops waiting
+    /// after AMSMB2's former 60 s of silence and reports `ETIMEDOUT`, and the
+    /// callers' existing handling retires the still busy session.
+    private static func awaitRequest<T: Sendable>(
+        stallTimeout: TimeInterval = SMBRequestDeadline.standardStallTimeout,
+        _ operation: @escaping @Sendable (SMBRequestDeadline.Activity) async throws -> T
+    ) async throws -> T {
+        try await SMBRequestDeadline.run(stallTimeout: stallTimeout, operation: operation)
     }
 
     /// Stops using — without closing — a session whose request may still be

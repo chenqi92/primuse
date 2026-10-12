@@ -5318,7 +5318,8 @@ public enum SMBConnectionRecoveryPolicy {
 ///
 /// libsmb2 keeps the directory handle that `smb2_opendir_async` allocated on
 /// the context until the matching reply is serviced. When AMSMB2 stops waiting
-/// on a request — the 60 s operation timeout, a dropped transport — the command
+/// on a request — its own operation timeout, a dropped transport, or Primuse's
+/// `SMBRequestDeadline` letting go of a request still in flight — the command
 /// stays queued while still referencing that handle. Closing the session then
 /// runs `smb2_free_all_dirs()` first and fires the queued callback through the
 /// freed handle afterwards, which is an indirect jump through released memory.
@@ -5385,6 +5386,117 @@ public final class SMBRetiredSessions: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return sessions.count
+    }
+}
+
+/// Bounds how long Primuse waits on one AMSMB2 call without letting AMSMB2
+/// give up on the request itself.
+///
+/// AMSMB2 4.0.3 stops waiting once `SMB2Manager.timeout` passes without
+/// socket activity, but the command stays queued in libsmb2 with a callback
+/// pointer into the stack frame that was waiting (and, for a read, the buffer
+/// that frame owned). Its multi-step calls keep servicing the same socket
+/// right after that: the file transfers close their handle in `deinit`,
+/// `connectShare` releases the old context after a failed echo, `listShares`
+/// disconnects its temporary session. A reply that arrives during that
+/// clean-up is delivered through the stale pointers before the error ever
+/// reaches Primuse, so retiring the session afterwards is too late.
+///
+/// Sessions therefore run with `libraryTimeout`, far beyond any server that
+/// is merely slow, and the deadline is enforced here from the outside. When
+/// it expires the caller stops waiting, while the request itself stays
+/// awaited with a valid callback until its reply or a transport error ends
+/// it. The thrown error is `ETIMEDOUT`, so callers retire that still busy
+/// session through `SMBSessionDisposalPolicy` and reconnect through
+/// `SMBConnectionRecoveryPolicy` exactly as before.
+public enum SMBRequestDeadline {
+    /// Value for `SMB2Manager.timeout`. Still finite, so a request whose
+    /// server never answers eventually ends and frees AMSMB2's thread.
+    public static let libraryTimeout: TimeInterval = 300
+
+    /// The deadline AMSMB2 used to apply by itself (its default timeout).
+    public static let standardStallTimeout: TimeInterval = 60
+
+    /// Directory listings report no progress, so their deadline covers the
+    /// whole listing. AMSMB2's own timeout only counted silence, and a large
+    /// folder over a slow link can keep replies coming for well over a minute.
+    public static let listingStallTimeout: TimeInterval = 180
+
+    /// Progress of one request. Transfers report every completed chunk, which
+    /// restarts the deadline, so a slow but moving download is not cut off.
+    public final class Activity: @unchecked Sendable {
+        private let lock = NSLock()
+        private var lastProgress: UInt64
+
+        fileprivate init() {
+            lastProgress = SMBRequestDeadline.now()
+        }
+
+        /// Restarts the deadline. Returns `true` so it can directly answer
+        /// AMSMB2's "keep going?" progress callbacks.
+        @discardableResult
+        public func noteProgress() -> Bool {
+            let now = SMBRequestDeadline.now()
+            lock.lock()
+            lastProgress = now
+            lock.unlock()
+            return true
+        }
+
+        fileprivate func idleNanoseconds(at now: UInt64) -> UInt64 {
+            lock.lock()
+            defer { lock.unlock() }
+            return now > lastProgress ? now - lastProgress : 0
+        }
+    }
+
+    /// Runs `operation` and stops waiting for it once `stallTimeout` seconds
+    /// pass without it finishing or reporting progress.
+    ///
+    /// Caller cancellation is deliberately not a reason to stop waiting:
+    /// AMSMB2 ignores it, and while the request is pending its session can
+    /// be neither reused nor closed. Only the deadline lets go early, and
+    /// the request keeps running after that.
+    public static func run<Value: Sendable>(
+        stallTimeout: TimeInterval,
+        operation: @escaping @Sendable (_ activity: Activity) async throws -> Value
+    ) async throws -> Value {
+        let limit = (max(0.05, stallTimeout) * 1_000_000_000)
+            .finiteUInt64(or: 60_000_000_000)
+        let activity = Activity()
+        let race = CancellableResultRace<Value>()
+        Task<Void, Never> {
+            do {
+                race.resolve(.success(try await operation(activity)))
+            } catch {
+                race.resolve(.failure(error))
+            }
+        }
+        let watchdog = Task<Void, Never> {
+            var wait = limit
+            while true {
+                do {
+                    try await Task.sleep(nanoseconds: wait)
+                } catch {
+                    return
+                }
+                let idle = activity.idleNanoseconds(at: now())
+                if idle >= limit {
+                    race.resolve(.failure(POSIXError(.ETIMEDOUT)))
+                    return
+                }
+                wait = limit - idle
+            }
+        }
+        defer { watchdog.cancel() }
+        return try await withCheckedThrowingContinuation { continuation in
+            race.install(continuation)
+        }
+    }
+
+    /// Uptime, so time the app spends suspended does not count as a stall.
+    fileprivate static func now() -> UInt64 {
+        DispatchTime.now().uptimeNanoseconds
     }
 }
 
