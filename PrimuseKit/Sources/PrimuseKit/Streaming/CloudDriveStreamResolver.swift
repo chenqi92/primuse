@@ -85,11 +85,13 @@ public actor CloudDriveStreamResolver: StreamResolver {
     private var refreshedCredentials: [String: SourceCredential] = [:]
     private var credentialRefreshHandler: CloudCredentialRefreshHandler?
     private let session: URLSession
+    private let requests: CloudResolverRequests
 
-    public init(session: URLSession? = nil) {
+    public init(session: URLSession? = nil, quotaRegistry: RequestQuotaRegistry = .shared) {
         let cfg = URLSessionConfiguration.default
         cfg.timeoutIntervalForRequest = 20
         self.session = session ?? URLSession(configuration: cfg)
+        self.requests = CloudResolverRequests(registry: quotaRegistry)
     }
 
     public func setCredentialRefreshHandler(_ handler: CloudCredentialRefreshHandler?) {
@@ -176,11 +178,10 @@ public actor CloudDriveStreamResolver: StreamResolver {
             throw StreamResolveError.cannotBuildURL
         }
         let attempt = CloudResolverReadAttempt()
-        return try await CloudResolverRequests.executor(for: url, account: account).execute(
+        return try await requests.execute(url: url, account: account,
             replay: .idempotent,
             recover: { error in
-                let unauthorized = (error as? HTTPResponseFailure)?.statusCode == 401
-                    || error as? StreamResolveError == .authFailed
+                let unauthorized = CloudResolverRequests.isAuthenticationFailure(error)
                 guard unauthorized, await attempt.claimRecovery() else { return false }
                 try await self.renew(account: account, rejectedToken: await attempt.token)
                 return true
@@ -207,7 +208,7 @@ public actor CloudDriveStreamResolver: StreamResolver {
         guard let account = CloudResolverRequests.account, let url = request.url else {
             throw StreamResolveError.cannotBuildURL
         }
-        return try await CloudResolverRequests.executor(for: url, account: account).execute(
+        return try await requests.execute(url: url, account: account,
             replay: .never, operation: { [session] in
                 let (data, response) = try await session.data(for: request)
                 try Self.validateResponse(data, response: response, type: account.source.type)
@@ -236,35 +237,36 @@ public actor CloudDriveStreamResolver: StreamResolver {
         let taskID = UUID()
         let effectiveCredential = refreshedCredentials[source.id] ?? cred
         let task = Task<String, Error> { [self] in
-            switch source.type {
-            case .pan123:
-                return try await mint123Token(cred: effectiveCredential)   // 123 是 client-credentials,无 refresh_token
-            case .drime:
-                guard let token = effectiveCredential.token?.trimmingCharacters(in: .whitespacesAndNewlines),
-                      !token.isEmpty else { throw StreamResolveError.missingCredential }
-                return token
-            default:
-                if !forceRefresh, let token = effectiveCredential.token, !token.isEmpty { return token }
-                return try await refreshOAuthToken(
-                    sourceID: source.id,
-                    type: source.type,
-                    cred: effectiveCredential
-                )
+            // Completion owns cleanup/cache publication, even if the initiating
+            // waiter has already cancelled. A replaced task cannot clear its successor.
+            defer {
+                if accessTokenTasks[source.id]?.id == taskID { accessTokenTasks[source.id] = nil }
             }
+            let token = try await loadAccessToken(source: source, cred: effectiveCredential, forceRefresh: forceRefresh)
+            try Task.checkCancellation()
+            if accessTokenTasks[source.id]?.id == taskID { accessTokens[source.id] = token }
+            return token
         }
         accessTokenTasks[source.id] = (taskID, forceRefresh, task)
-        let token: String
-        do {
-            token = try await CloudResolverRequests.wait(for: task)
-        } catch {
-            if !Task.isCancelled, accessTokenTasks[source.id]?.id == taskID { accessTokenTasks[source.id] = nil }
-            throw error
+        return try await CloudResolverRequests.wait(for: task)
+    }
+
+    private func loadAccessToken(source: MusicSource, cred: SourceCredential, forceRefresh: Bool) async throws -> String {
+        switch source.type {
+        case .pan123:
+            return try await mint123Token(cred: cred)   // 123 是 client-credentials,无 refresh_token
+        case .drime:
+            guard let token = cred.token?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !token.isEmpty else { throw StreamResolveError.missingCredential }
+            return token
+        default:
+            if !forceRefresh, let token = cred.token, !token.isEmpty { return token }
+            return try await refreshOAuthToken(
+                sourceID: source.id,
+                type: source.type,
+                cred: cred
+            )
         }
-        if accessTokenTasks[source.id]?.id == taskID {
-            accessTokens[source.id] = token
-            accessTokenTasks[source.id] = nil
-        }
-        return token
     }
 
     // MARK: - 云盘目录列举

@@ -14,12 +14,14 @@ public actor BaiduPanStreamResolver: StreamResolver {
     private var accessTokens: [String: String] = [:]
     private var accessTokenTasks: [String: (id: UUID, forceRefresh: Bool, task: Task<String, Error>)] = [:]
     private let session: URLSession
+    private let requests: CloudResolverRequests
     private let noRedirectSession: URLSession
 
-    public init(session: URLSession? = nil) {
+    public init(session: URLSession? = nil, quotaRegistry: RequestQuotaRegistry = .shared) {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForRequest = 30
         self.session = session ?? URLSession(configuration: cfg)
+        self.requests = CloudResolverRequests(registry: quotaRegistry)
         self.noRedirectSession = URLSession(configuration: session?.configuration ?? cfg, delegate: NoRedirectDelegate(), delegateQueue: nil)
     }
 
@@ -50,10 +52,11 @@ public actor BaiduPanStreamResolver: StreamResolver {
         let link = BaiduLinkAttempt(dlink: dlink)
         let initialURL = try Self.authenticatedDlink(dlink, token: token)
         let attempt = CloudResolverReadAttempt()
-        return try await CloudResolverRequests.executor(for: initialURL, account: account).execute(
+        return try await requests.execute(url: initialURL, account: account,
             replay: .idempotent, recover: { error in
                 guard let failure = error as? HTTPResponseFailure,
-                      [401, 410].contains(failure.statusCode), await attempt.claimRecovery() else { return false }
+                      [401, 403, 410].contains(failure.statusCode), failure.retryAfter == nil,
+                      !failure.isRateLimited, await attempt.claimRecovery() else { return false }
                 try await self.renew(account: account, rejectedToken: await attempt.token)
                 let token = try await self.accessToken(for: account.source, cred: account.credential, forceRefresh: false)
                 // Refresh the expired dlink only as authentication recovery. A
@@ -132,16 +135,15 @@ public actor BaiduPanStreamResolver: StreamResolver {
         return all
     }
 
-    /// 百度 API 永远 200,错误在 body 的 errno。附加 access_token。
+    /// 百度的 errno 错误可出现在 2xx 或非 2xx 响应；附加当前 access_token。
     private func callAPI(base: String, token: String, query: [URLQueryItem]) async throws -> [String: Any] {
         guard let account = CloudResolverRequests.account, let endpoint = URL(string: base) else {
             throw StreamResolveError.cannotBuildURL
         }
         let attempt = CloudResolverReadAttempt()
-        let data = try await CloudResolverRequests.executor(for: endpoint, account: account).execute(
+        let data = try await requests.execute(url: endpoint, account: account,
             replay: .idempotent, recover: { error in
-                let unauthorized = (error as? HTTPResponseFailure)?.statusCode == 401
-                    || error as? StreamResolveError == .authFailed
+                let unauthorized = CloudResolverRequests.isAuthenticationFailure(error)
                 guard unauthorized, await attempt.claimRecovery() else { return false }
                 try await self.renew(account: account, rejectedToken: await attempt.token)
                 return true
@@ -152,16 +154,21 @@ public actor BaiduPanStreamResolver: StreamResolver {
                 comp.queryItems = query + [URLQueryItem(name: "access_token", value: token)]
                 guard let url = FormSafeQueryURLBuilder.url(from: comp) else { throw StreamResolveError.cannotBuildURL }
                 let (data, response) = try await self.session.data(from: url)
-                let http = try CloudResolverRequests.validate(data, response: response)
-                guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                    throw StreamResolveError.cannotBuildURL
+                guard let http = response as? HTTPURLResponse else { throw StreamResolveError.cannotBuildURL }
+                // HTTP/body quota signals take precedence over authentication;
+                // errno 111/-6 also occurs on non-2xx Baidu responses.
+                if [429, 503].contains(http.statusCode) || (!(200...299).contains(http.statusCode) && HTTPResponseFailure.retryDelay(from: http) != nil) {
+                    _ = try CloudResolverRequests.validate(data, response: http)
                 }
-                let errno = (json["errno"] as? NSNumber)?.intValue ?? (json["errno"] as? String).flatMap(Int.init) ?? 0
+                let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+                let errno = (json?["errno"] as? NSNumber)?.intValue ?? (json?["errno"] as? String).flatMap(Int.init) ?? 0
                 if errno == 31034 {
                     throw HTTPResponseFailure(statusCode: http.statusCode, body: data,
                         retryAfter: HTTPResponseFailure.retryDelay(from: http), isRateLimited: true)
                 }
                 if errno == 111 || errno == -6 { throw StreamResolveError.authFailed }
+                _ = try CloudResolverRequests.validate(data, response: http)
+                guard json != nil else { throw StreamResolveError.cannotBuildURL }
                 if errno != 0 { throw StreamResolveError.badServerResponse(errno) }
                 return data
             })
@@ -176,42 +183,43 @@ public actor BaiduPanStreamResolver: StreamResolver {
         }
         let taskID = UUID()
         let task = Task<String, Error> { [self] in
-            if !forceRefresh, let token = cred.token, !token.isEmpty { return token }
-            guard let rt = cred.refreshToken, let cid = cred.clientID else {
-                throw StreamResolveError.missingCredential
+            // Completion owns cleanup/cache publication, even if the initiating
+            // waiter has already cancelled. A replaced task cannot clear its successor.
+            defer {
+                if accessTokenTasks[source.id]?.id == taskID { accessTokenTasks[source.id] = nil }
             }
-            var comp = URLComponents(string: "https://openapi.baidu.com/oauth/2.0/token")!
-            comp.queryItems = [
-                URLQueryItem(name: "grant_type", value: "refresh_token"),
-                URLQueryItem(name: "refresh_token", value: rt),
-                URLQueryItem(name: "client_id", value: cid),
-                URLQueryItem(name: "client_secret", value: cred.clientSecret ?? ""),
-            ]
-            guard let url = FormSafeQueryURLBuilder.url(from: comp) else {
-                throw StreamResolveError.cannotBuildURL
-            }
-            guard let account = CloudResolverRequests.account else { throw StreamResolveError.missingCredential }
-            let data = try await CloudResolverRequests.executor(for: url, account: account).execute(replay: .never, operation: { [session] in
-                let (data, response) = try await session.data(from: url)
-                _ = try CloudResolverRequests.validate(data, response: response)
-                return data
-            })
-            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let token = json["access_token"] as? String else { throw StreamResolveError.authFailed }
+            let token = try await loadAccessToken(source: source, cred: cred, forceRefresh: forceRefresh)
+            try Task.checkCancellation()
+            if accessTokenTasks[source.id]?.id == taskID { accessTokens[source.id] = token }
             return token
         }
         accessTokenTasks[source.id] = (taskID, forceRefresh, task)
-        let token: String
-        do {
-            token = try await CloudResolverRequests.wait(for: task)
-        } catch {
-            if !Task.isCancelled, accessTokenTasks[source.id]?.id == taskID { accessTokenTasks[source.id] = nil }
-            throw error
+        return try await CloudResolverRequests.wait(for: task)
+    }
+
+    private func loadAccessToken(source: MusicSource, cred: SourceCredential, forceRefresh: Bool) async throws -> String {
+        if !forceRefresh, let token = cred.token, !token.isEmpty { return token }
+        guard let rt = cred.refreshToken, let cid = cred.clientID else {
+            throw StreamResolveError.missingCredential
         }
-        if accessTokenTasks[source.id]?.id == taskID {
-            accessTokens[source.id] = token
-            accessTokenTasks[source.id] = nil
+        var comp = URLComponents(string: "https://openapi.baidu.com/oauth/2.0/token")!
+        comp.queryItems = [
+            URLQueryItem(name: "grant_type", value: "refresh_token"),
+            URLQueryItem(name: "refresh_token", value: rt),
+            URLQueryItem(name: "client_id", value: cid),
+            URLQueryItem(name: "client_secret", value: cred.clientSecret ?? ""),
+        ]
+        guard let url = FormSafeQueryURLBuilder.url(from: comp) else {
+            throw StreamResolveError.cannotBuildURL
         }
+        guard let account = CloudResolverRequests.account else { throw StreamResolveError.missingCredential }
+        let data = try await requests.execute(url: url, account: account,replay: .never, operation: { [session] in
+            let (data, response) = try await session.data(from: url)
+            _ = try CloudResolverRequests.validate(data, response: response)
+            return data
+        })
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let token = json["access_token"] as? String else { throw StreamResolveError.authFailed }
         return token
     }
 

@@ -2,8 +2,84 @@ import Foundation
 import Testing
 @testable import PrimuseKit
 
-@Suite("Cloud resolver request quotas", .serialized)
+@Suite("Cloud resolver request quotas", .serialized, .timeLimit(.minutes(1)))
 struct CloudResolverRequestTests {
+    @Test(arguments: [MusicSourceType.oneDrive, .baiduPan], [false, true])
+    func cancelledRefreshOwnerCannotPoisonLaterRequests(type: MusicSourceType, succeeds: Bool) async throws {
+        let scenario = CloudRefreshScenario(firstSucceeds: succeeds)
+        let fixture = CloudResolverFixture { try await scenario.reply($0) }
+        let source = MusicSource(id: UUID().uuidString, name: "fixture", type: type)
+        let credential = SourceCredential(token: "old", refreshToken: "refresh", clientID: "client")
+        let cloud = CloudDriveStreamResolver(session: fixture.session, quotaRegistry: fixture.registry)
+        let baidu = BaiduPanStreamResolver(session: fixture.session, quotaRegistry: fixture.registry)
+        let read: @Sendable () async throws -> Void = {
+            if type == .oneDrive {
+                _ = try await cloud.listDirectory(source: source, credential: credential, path: "/")
+            } else {
+                let song = Song(id: "song", title: "Song", fileFormat: .flac, filePath: "/track.flac", sourceID: source.id)
+                _ = try await baidu.resolve(for: song, source: source, credential: credential)
+            }
+        }
+        let owner = Task { try await read() }
+        try await scenario.waitForRefresh()
+        owner.cancel()
+        do { try await owner.value; Issue.record("Expected caller cancellation") }
+        catch is CancellationError { }
+        await scenario.releaseRefresh()
+        // This observer may join the finishing task; after it finishes, subsequent
+        // reads must never inherit its error or reuse a completed forced refresh.
+        _ = try? await read()
+        await scenario.rejectFirstToken()
+        try await read()
+        #expect(await scenario.refreshes == 2)
+    }
+
+    @Test func accountCooldownSurvivesMountIdentityChanges() async throws {
+        let fixture = CloudResolverFixture { _ in (429, ["Retry-After": "3600"], Data()) }
+        let account = UUID().uuidString
+        for _ in 0..<2 {
+            let source = MusicSource(id: UUID().uuidString, name: "Mount", type: .oneDrive, cloudAccountID: account)
+            do {
+                _ = try await CloudDriveStreamResolver(session: fixture.session, quotaRegistry: fixture.registry).listDirectory(source: source, credential: .init(token: "fixture"), path: "/")
+                Issue.record("Expected cooldown")
+            } catch let failure as HTTPResponseFailure { #expect(failure.statusCode == 429) }
+        }
+        #expect(fixture.requests.count == 1)
+    }
+
+    @Test func headerless503RecoversWithoutInventingThirtySecondCooldown() async throws {
+        let replies = CloudTransientReplies()
+        let fixture = CloudResolverFixture { _ in await replies.next() }
+        let source = MusicSource(id: UUID().uuidString, name: "fixture", type: .oneDrive)
+        let result = try await CloudDriveStreamResolver(session: fixture.session, quotaRegistry: fixture.registry).listDirectory(source: source, credential: .init(token: "fixture"), path: "/")
+        #expect(result.isEmpty)
+        #expect(fixture.requests.count == 2)
+    }
+
+    @Test func playbackPresentationPreservesLocalizedAuthenticationAndQuotaMeaning() {
+        #expect(HTTPResponseFailure(statusCode: 401).cloudPlaybackError == .authFailed)
+        #expect(HTTPResponseFailure(statusCode: 403).cloudPlaybackError == .authFailed)
+        #expect(HTTPResponseFailure(statusCode: 200, isRateLimited: true).cloudPlaybackError == .badServerResponse(429))
+        #expect(HTTPResponseFailure(statusCode: 503, retryAfter: 3600).cloudPlaybackError == .badServerResponse(503))
+    }
+
+    @Test func guangyaBusinessCooldownIsSharedAcrossAccounts() async throws {
+        let requests = CloudResolverRequests(registry: RequestQuotaRegistry())
+        let count = CloudSendCount()
+        let url = try #require(GuangYaAPIProtocol.downloadURL(fileID: "fixture"))
+        for _ in 0..<2 {
+            let source = MusicSource(id: UUID().uuidString, name: "fixture", type: .guangya)
+            do {
+                let _: Data = try await requests.execute(url: url, account: .init(source: source, credential: .init(token: "fixture")), operation: {
+                    await count.sent()
+                    throw HTTPResponseFailure(statusCode: 429, retryAfter: 3600)
+                })
+                Issue.record("Expected shared IP cooldown")
+            } catch let failure as HTTPResponseFailure { #expect((failure.retryAfter ?? 0) > 3590) }
+        }
+        #expect(await count.value == 1)
+    }
+
     @Test(arguments: [429, 503])
     func directoryReadersShareCooldownAcrossResolverInstances(status: Int) async throws {
         let fixture = CloudResolverFixture { _ in (status, ["Retry-After": "3600"], Data()) }
@@ -11,7 +87,7 @@ struct CloudResolverRequestTests {
         let credential = SourceCredential(token: "fixture")
         for _ in 0..<2 {
             do {
-                _ = try await CloudDriveStreamResolver(session: fixture.session).listDirectory(source: source, credential: credential, path: "/")
+                _ = try await CloudDriveStreamResolver(session: fixture.session, quotaRegistry: fixture.registry).listDirectory(source: source, credential: credential, path: "/")
                 Issue.record("Expected quota failure")
             } catch let failure as HTTPResponseFailure {
                 #expect(failure.statusCode == status)
@@ -30,7 +106,7 @@ struct CloudResolverRequestTests {
         let song = Song(id: "track", title: "Track", fileFormat: .flac, filePath: "/music/track.flac", sourceID: source.id)
         for _ in 0..<2 {
             do {
-                _ = try await BaiduPanStreamResolver(session: fixture.session).resolve(for: song, source: source, credential: .init(token: "fixture"))
+                _ = try await BaiduPanStreamResolver(session: fixture.session, quotaRegistry: fixture.registry).resolve(for: song, source: source, credential: .init(token: "fixture"))
                 Issue.record("Expected quota failure")
             } catch let failure as HTTPResponseFailure {
                 #expect(failure.statusCode == status)
@@ -50,11 +126,11 @@ struct CloudResolverRequestTests {
         }
         let source = MusicSource(id: UUID().uuidString, name: "OneDrive", type: .oneDrive)
         do {
-            _ = try await CloudDriveStreamResolver(session: fixture.session).listDirectory(source: source,
+            _ = try await CloudDriveStreamResolver(session: fixture.session, quotaRegistry: fixture.registry).listDirectory(source: source,
                 credential: .init(token: "expired", refreshToken: "refresh", clientID: "client"), path: "/")
             Issue.record("Expected exhausted HTTP budget")
         } catch let failure as HTTPResponseFailure { #expect(failure.statusCode == 500) }
-        #expect(fixture.requests.filter { $0.url?.host == "graph.microsoft.com" }.count == 3)
+        #expect(fixture.requests.filter { $0.url?.host == "graph.microsoft.com" }.count == 5)
         #expect(fixture.requests.filter { $0.url?.host == "login.microsoftonline.com" }.count == 1)
     }
 
@@ -69,32 +145,43 @@ struct CloudResolverRequestTests {
         let song = Song(id: "track", title: "Track", fileFormat: .flac, filePath: "123", sourceID: source.id)
         for _ in 0..<2 {
             do {
-                _ = try await CloudDriveStreamResolver(session: fixture.session).streamURL(for: song, source: source,
+                _ = try await CloudDriveStreamResolver(session: fixture.session, quotaRegistry: fixture.registry).streamURL(for: song, source: source,
                     credential: .init(clientID: "client", clientSecret: "fixture"))
                 Issue.record("Expected business quota failure")
             } catch let failure as HTTPResponseFailure {
                 #expect(failure.statusCode == 200); #expect(failure.isRateLimited)
             } catch { Issue.record("Business quota was lost: \(error)") }
         }
-        #expect(fixture.requests.count == 2, "Only one token issuance and one download-URL lookup")
+        #expect(fixture.requests.filter { $0.url?.path.hasSuffix("access_token") == true }.count == 1)
+        #expect(fixture.requests.count == 6, "Five read attempts, then the next caller is deferred before issuing another token")
+        #expect(fixture.times[2] - fixture.times[1] >= 2, "The default cooldown is shared and never shortened")
     }
 
-    @Test func ordinary403DoesNotRefreshEitherProvider() async throws {
-        for type in [MusicSourceType.oneDrive, .baiduPan] {
-            let fixture = CloudResolverFixture { _ in (403, [:], Data()) }
-            let source = MusicSource(id: UUID().uuidString, name: "Cloud", type: type)
-            let credential = SourceCredential(token: "fixture", refreshToken: "refresh", clientID: "client")
-            do {
-                if type == .oneDrive {
-                    _ = try await CloudDriveStreamResolver(session: fixture.session).listDirectory(source: source, credential: credential, path: "/")
-                } else {
-                    let song = Song(id: "track", title: "Track", fileFormat: .flac, filePath: "/track.flac", sourceID: source.id)
-                    _ = try await BaiduPanStreamResolver(session: fixture.session).resolve(for: song, source: source, credential: credential)
-                }
-                Issue.record("Expected permission failure")
-            } catch let failure as HTTPResponseFailure { #expect(failure.statusCode == 403) }
-            #expect(fixture.requests.count == 1)
+    @Test(arguments: [MusicSourceType.oneDrive, .baiduPan], [111, -6])
+    func forbiddenOrBaiduErrnoRefreshesOnce(type: MusicSourceType, errno: Int) async throws {
+        let fixture = CloudResolverFixture { request in
+            let url = request.url!
+            if url.host == "login.microsoftonline.com" || url.host == "openapi.baidu.com" {
+                return (200, [:], Data(#"{"access_token":"fresh","refresh_token":"rotated","expires_in":3600}"#.utf8))
+            }
+            let token = request.value(forHTTPHeaderField: "Authorization")?.replacingOccurrences(of: "Bearer ", with: "")
+                ?? URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "access_token" }?.value
+            if token != "fresh" { return (403, [:], Data("{\"errno\":\(errno)}".utf8)) }
+            if url.host == "graph.microsoft.com" { return (200, [:], Data(#"{"value":[]}"#.utf8)) }
+            if request.httpMethod == "HEAD" { return (302, ["Location": "https://cdn.invalid/track.flac"], Data()) }
+            if url.path.contains("multimedia") { return (200, [:], Data(#"{"errno":0,"list":[{"dlink":"https://d.pcs.baidu.com/file"}]}"#.utf8)) }
+            return (200, [:], Data(#"{"errno":0,"list":[{"server_filename":"track.flac","fs_id":123}]}"#.utf8))
         }
+        let source = MusicSource(id: UUID().uuidString, name: "fixture", type: type)
+        let credential = SourceCredential(token: "old", refreshToken: "refresh", clientID: "client")
+        if type == .oneDrive {
+            _ = try await CloudDriveStreamResolver(session: fixture.session, quotaRegistry: fixture.registry).listDirectory(source: source, credential: credential, path: "/")
+        } else {
+            let song = Song(id: "song", title: "Song", fileFormat: .flac, filePath: "/track.flac", sourceID: source.id)
+            let stream = try await BaiduPanStreamResolver(session: fixture.session, quotaRegistry: fixture.registry).resolve(for: song, source: source, credential: credential)
+            #expect(stream.url.host == "cdn.invalid")
+        }
+        #expect(fixture.requests.filter { $0.url?.host == "openapi.baidu.com" || $0.url?.host == "login.microsoftonline.com" }.count == 1)
     }
 
     @Test func concurrentReadersDeduplicateRefreshAndPersistRotatedCredentials() async throws {
@@ -107,7 +194,7 @@ struct CloudResolverRequestTests {
         }
         let source = MusicSource(id: UUID().uuidString, name: "Cloud", type: .oneDrive)
         let credential = SourceCredential(token: "expired", refreshToken: "refresh", clientID: "client")
-        let resolver = CloudDriveStreamResolver(session: fixture.session)
+        let resolver = CloudDriveStreamResolver(session: fixture.session, quotaRegistry: fixture.registry)
         let saved = CloudRefreshRecorder()
         await resolver.setCredentialRefreshHandler { id, refresh in await saved.append(id, refresh) }
         async let first = resolver.listDirectory(source: source, credential: credential, path: "/")
@@ -134,7 +221,7 @@ struct CloudResolverRequestTests {
             }
             let source = MusicSource(id: UUID().uuidString, name: "Cloud", type: .oneDrive)
             do {
-                let entries = try await CloudDriveStreamResolver(session: fixture.session).listDirectory(source: source, credential: .init(token: "fixture"), path: "/")
+                let entries = try await CloudDriveStreamResolver(session: fixture.session, quotaRegistry: fixture.registry).listDirectory(source: source, credential: .init(token: "fixture"), path: "/")
                 #expect(nextLink == opaque)
                 #expect(entries.map(\.path) == ["one", "two"])
             } catch { #expect(nextLink != opaque) }
@@ -163,7 +250,7 @@ struct CloudResolverRequestTests {
             let song = Song(id: "track", title: "Track", fileFormat: .flac, filePath: "/music/track.flac", sourceID: source.id)
             for _ in 0..<(headStatus == 302 ? 1 : 2) {
                 do {
-                    let stream = try await BaiduPanStreamResolver(session: fixture.session).resolve(for: song, source: source, credential: .init(token: "fixture+&"))
+                    let stream = try await BaiduPanStreamResolver(session: fixture.session, quotaRegistry: fixture.registry).resolve(for: song, source: source, credential: .init(token: "fixture+&"))
                     #expect(headStatus == 302)
                     #expect(stream.url.absoluteString == "https://cdn.invalid/track.flac")
                     #expect(stream.headers["User-Agent"] == "pan.baidu.com")
@@ -182,22 +269,43 @@ struct CloudResolverRequestTests {
         }
     }
 
+    @Test(arguments: [403, 410])
+    func baiduExpiredHeadRefreshesItsLinkOnce(status: Int) async throws {
+        let fixture = CloudResolverFixture { request in
+            let url = request.url!
+            if url.host == "openapi.baidu.com" {
+                return (200, [:], Data(#"{"access_token":"fresh"}"#.utf8))
+            }
+            if request.httpMethod == "HEAD" {
+                let token = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "access_token" }?.value
+                return token == "fresh" ? (302, ["Location": "https://cdn.invalid/track.flac"], Data()) : (status, [:], Data())
+            }
+            if url.path.contains("multimedia") { return (200, [:], Data(#"{"errno":0,"list":[{"dlink":"https://d.pcs.baidu.com/file"}]}"#.utf8)) }
+            return (200, [:], Data(#"{"errno":0,"list":[{"server_filename":"track.flac","fs_id":123}]}"#.utf8))
+        }
+        let source = MusicSource(id: UUID().uuidString, name: "fixture", type: .baiduPan)
+        let song = Song(id: "song", title: "Song", fileFormat: .flac, filePath: "/track.flac", sourceID: source.id)
+        let resolver = BaiduPanStreamResolver(session: fixture.session, quotaRegistry: fixture.registry)
+        let stream = try await resolver.resolve(for: song, source: source, credential: .init(token: "old", refreshToken: "refresh", clientID: "client"))
+        #expect(stream.url.host == "cdn.invalid")
+        #expect(fixture.requests.filter { $0.httpMethod == "HEAD" }.count == 2)
+        #expect(fixture.requests.filter { $0.url?.host == "openapi.baidu.com" }.count == 1)
+    }
+
     @Test func cancellationStopsReadWithoutReplay() async throws {
         let fixture = CloudResolverFixture { _ in (0, [:], Data()) }
         let source = MusicSource(id: UUID().uuidString, name: "Cloud", type: .oneDrive)
-        let resolver = CloudDriveStreamResolver(session: fixture.session)
+        let resolver = CloudDriveStreamResolver(session: fixture.session, quotaRegistry: fixture.registry)
         let task = Task { try await resolver.listDirectory(source: source, credential: .init(token: "fixture"), path: "/") }
         for _ in 0..<200 {
             if !fixture.requests.isEmpty { break }
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(fixture.requests.count == 1)
-        let start = Date()
         task.cancel()
         do { _ = try await task.value; Issue.record("Expected cancellation") }
         catch is CancellationError { }
         catch let error as URLError { #expect(error.code == .cancelled) }
-        #expect(Date().timeIntervalSince(start) < 2)
         #expect(fixture.requests.count == 1)
     }
 }
@@ -208,10 +316,14 @@ private actor CloudRefreshRecorder {
 }
 
 private final class CloudResolverFixture: @unchecked Sendable {
-    typealias Handler = @Sendable (URLRequest) -> (Int, [String: String], Data)
+    typealias Handler = @Sendable (URLRequest) async throws -> (Int, [String: String], Data)
     private let lock = NSLock()
     private var captured: [URLRequest] = []
     let handler: Handler
+    let clock: CloudRetryClock
+    let registry: RequestQuotaRegistry
+    private var starts: [TimeInterval] = []
+    var times: [TimeInterval] { lock.withLock { starts } }
     var requests: [URLRequest] { lock.withLock { captured } }
     lazy var session: URLSession = {
         CloudResolverProtocol.fixture = self
@@ -219,10 +331,15 @@ private final class CloudResolverFixture: @unchecked Sendable {
         config.protocolClasses = [CloudResolverProtocol.self]
         return URLSession(configuration: config)
     }()
-    init(_ handler: @escaping Handler) { self.handler = handler }
-    func response(_ request: URLRequest) -> (Int, [String: String], Data) {
-        lock.withLock { captured.append(request) }
-        return handler(request)
+    init(_ handler: @escaping Handler) {
+        self.handler = handler
+        let clock = CloudRetryClock()
+        self.clock = clock
+        self.registry = RequestQuotaRegistry(timing: clock.timing)
+    }
+    func response(_ request: URLRequest) async throws -> (Int, [String: String], Data) {
+        lock.withLock { captured.append(request); starts.append(clock.now) }
+        return try await handler(request)
     }
 }
 
@@ -235,15 +352,84 @@ private final class CloudResolverProtocol: URLProtocol, @unchecked Sendable {
     }
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    private var loading: Task<Void, Never>?
     override func startLoading() {
         guard let fixture = Self.fixture, let url = request.url else {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL)); return
         }
-        let (status, headers, body) = fixture.response(request)
-        if status == 0 { return }
-        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: headers)!, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: body)
-        client?.urlProtocolDidFinishLoading(self)
+        loading = Task {
+            do {
+                let (status, headers, body) = try await fixture.response(request)
+                if status == 0 { return }
+                try Task.checkCancellation()
+                client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: headers)!, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: body)
+                client?.urlProtocolDidFinishLoading(self)
+            } catch { client?.urlProtocol(self, didFailWithError: error) }
+        }
     }
-    override func stopLoading() {}
+    override func stopLoading() { loading?.cancel() }
+}
+
+private actor CloudRefreshScenario {
+    let firstSucceeds: Bool
+    private(set) var refreshes = 0
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var rejectFirst = false
+    init(firstSucceeds: Bool) { self.firstSucceeds = firstSucceeds }
+    func reply(_ request: URLRequest) async throws -> (Int, [String: String], Data) {
+        let url = request.url!
+        if url.host == "login.microsoftonline.com" || url.host == "openapi.baidu.com" {
+            refreshes += 1
+            if refreshes == 1 {
+                await withCheckedContinuation { continuation = $0 }
+                if !firstSucceeds { return (400, [:], Data()) }
+            }
+            return (200, [:], Data("{\"access_token\":\"fresh\(refreshes)\",\"refresh_token\":\"rotated\",\"expires_in\":3600}".utf8))
+        }
+        let token = request.value(forHTTPHeaderField: "Authorization")?.replacingOccurrences(of: "Bearer ", with: "")
+            ?? URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "access_token" }?.value
+        if token == "old" || (rejectFirst && token == "fresh1") { return (401, [:], Data()) }
+        if url.host == "graph.microsoft.com" { return (200, [:], Data(#"{"value":[]}"#.utf8)) }
+        if request.httpMethod == "HEAD" { return (302, ["Location": "https://cdn.invalid/track.flac"], Data()) }
+        if url.path.contains("multimedia") { return (200, [:], Data(#"{"errno":0,"list":[{"dlink":"https://d.pcs.baidu.com/file"}]}"#.utf8)) }
+        return (200, [:], Data(#"{"errno":0,"list":[{"server_filename":"track.flac","fs_id":123}]}"#.utf8))
+    }
+    func waitForRefresh() async throws {
+        for _ in 0..<10000 {
+            if continuation != nil { return }
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        throw URLError(.timedOut)
+    }
+    func releaseRefresh() { continuation?.resume(); continuation = nil }
+    func rejectFirstToken() { rejectFirst = true }
+}
+
+private actor CloudTransientReplies {
+    private var count = 0
+    func next() -> (Int, [String: String], Data) {
+        count += 1
+        return count == 1 ? (503, [:], Data()) : (200, [:], Data(#"{"value":[]}"#.utf8))
+    }
+}
+
+private final class CloudRetryClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var instant: TimeInterval = 0
+    var now: TimeInterval { lock.withLock { instant } }
+    var timing: RequestExecutor.Timing {
+        .init(now: { self.now }, sleep: { delay in
+            try Task.checkCancellation()
+            // Retry/pacing waits advance virtual time. Overall deadlines remain
+            // pending until the operation cancels them; no wall-clock assertion.
+            if delay >= 30 { try await Task.sleep(for: .seconds(3600)) }
+            else { self.lock.withLock { self.instant += delay }; await Task.yield() }
+        })
+    }
+}
+
+private actor CloudSendCount {
+    private(set) var value = 0
+    func sent() { value += 1 }
 }

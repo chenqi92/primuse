@@ -2,16 +2,49 @@ import Foundation
 
 /// A source identifies a stable account even when its access token rotates.
 /// Task-local scope survives actor reentrancy without mixing simultaneous sources.
-enum CloudResolverRequests {
+struct CloudResolverRequests: Sendable {
     struct Account: Sendable {
         let source: MusicSource
         let credential: SourceCredential
     }
     @TaskLocal static var account: Account?
 
-    private static let pool = Pool()
-    static func executor(for url: URL, account: Account) -> RequestExecutor {
-        pool.executor(for: url, account: account)
+    let registry: RequestQuotaRegistry
+
+    private static func service(id: String, interval: TimeInterval) -> RequestQuota.Service {
+        .init(id: id, policy: .init(minimumInterval: interval, maximumConcurrentRequests: 6,
+            maximumAttempts: 5, maximumRetryWait: 8, timeout: 3600,
+            rateLimitStatusCodes: [429], defaultCooldown: 2))
+    }
+    private static let cloud = service(id: "cloud.resolver", interval: 0)
+    private static let baidu = service(id: "cloud.resolver.baidu", interval: 0.1)
+    private static let guangyaList = service(id: "cloud.resolver.guangya.list", interval: GuangYaAPIProtocol.fileListMinimumInterval)
+    private static let guangyaBusiness = service(id: "cloud.resolver.guangya.business", interval: GuangYaAPIProtocol.defaultMinimumInterval)
+
+    func execute<Value: Sendable>(url: URL, account: Account,
+        replay: RequestExecutor.Replay = .never,
+        recover: (@Sendable (Error) async throws -> Bool)? = nil,
+        operation: @escaping @Sendable () async throws -> Value
+    ) async throws -> Value {
+        let service: RequestQuota.Service
+        let owner: RequestQuota.Account
+        if url.host == "openapi.guangyapan.com" {
+            service = url.path.hasSuffix(GuangYaAPIProtocol.fileListPath) ? Self.guangyaList : Self.guangyaBusiness
+            owner = .anonymous // GuangYa limits an IP, independently of accounts.
+        } else {
+            service = url.host == "pan.baidu.com" ? Self.baidu : Self.cloud
+            let identity = account.source.cloudAccountID.map { "account:" + $0 } ?? "source:" + account.source.id
+            owner = .init(stableID: account.source.type.rawValue + "|" + identity)
+        }
+        guard let quota = RequestQuota(service: service, url: url, account: owner) else { throw URLError(.badURL) }
+        return try await registry.execute(for: quota, replay: replay, timeout: 60, recover: recover, operation: operation)
+    }
+
+    static func isAuthenticationFailure(_ error: Error) -> Bool {
+        if let failure = error as? HTTPResponseFailure {
+            return [401, 403].contains(failure.statusCode) && failure.retryAfter == nil && !failure.isRateLimited
+        }
+        return error as? StreamResolveError == .authFailed
     }
 
     static func validate(_ data: Data, response: URLResponse) throws -> HTTPURLResponse {
@@ -34,21 +67,6 @@ enum CloudResolverRequests {
             try await withCheckedThrowingContinuation { race.install($0) }
         } onCancel: { race.cancel() }
     }
-
-    private final class Pool: @unchecked Sendable {
-        private let lock = NSLock()
-        private var executors: [String: RequestExecutor] = [:]
-        func executor(for url: URL, account: Account) -> RequestExecutor {
-            let endpoint = NetworkEndpointIdentity(url: url)?.key ?? url.absoluteString
-            let key = endpoint + "|" + account.source.type.rawValue + "|" + account.source.id
-            return lock.withLock {
-                if let existing = executors[key] { return existing }
-                let executor = RequestExecutor(policy: .init(timeout: 60))
-                executors[key] = executor
-                return executor
-            }
-        }
-    }
 }
 
 actor CloudResolverReadAttempt {
@@ -59,5 +77,15 @@ actor CloudResolverReadAttempt {
         guard !recovered else { return false }
         recovered = true
         return true
+    }
+}
+
+extension HTTPResponseFailure {
+    /// Presentation only: keep the original failure in the request path so a
+    /// playback UI cannot restart the resolver's exhausted authentication budget.
+    public var cloudPlaybackError: StreamResolveError {
+        if isRateLimited || statusCode == 429 { return .badServerResponse(429) }
+        if [401, 403].contains(statusCode), retryAfter == nil { return .authFailed }
+        return .badServerResponse(statusCode)
     }
 }
