@@ -427,8 +427,9 @@ final class RuntimeDiagnosticsSampler: @unchecked Sendable {
         // 主线程的 Mach 端口由它自己报上来(Swift 里没有 pthread_main_thread_np);
         // 报上来之前探针照投, 只是还抓不了栈。
         DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
             let port = pthread_mach_thread_np(pthread_self())
-            self?.queue.async { self?.mainThread = port }
+            self.queue.async { self.mainThread = port }
         }
         queue.async { [self] in
             guard sampleTimer == nil else { return }
