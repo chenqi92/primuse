@@ -1471,7 +1471,7 @@ struct NowPlayingView: View {
         setStandardLyricsVisible(!showLyrics)
     }
 
-    /// 竖屏歌词里一拖动歌词就收起底部控件、让歌词铺满（参照 Apple Music）。顶上的小封面
+    /// 竖屏歌词里往上翻歌词就收起底部控件、让歌词铺满（参照 Apple Music）。顶上的小封面
     /// 与歌名留着，点它直接回封面；点歌词空白先叫回控件，控件在时再点才回封面。
     /// VoiceOver 下不收：控件没了就摸不到。
     private func collapseLyricsChrome() {
@@ -6295,7 +6295,7 @@ struct NowPlayingView: View {
         lyricsScrollView(collapsesChromeOnScroll: false)
     }
 
-    /// 竖屏播放页里替换封面的那份歌词：拖动歌词时收起底部控件。
+    /// 竖屏播放页里替换封面的那份歌词：往上翻歌词时收起底部控件。
     private var collapsibleLyricsView: some View {
         lyricsScrollView(collapsesChromeOnScroll: textCollapsesOnScroll)
     }
@@ -11018,7 +11018,7 @@ struct LyricsScrollView: View {
     /// 被重建，翻译任务不能跟着它一起消失。
     let translatedTextByLineID: [String: String]
     let translationActivity: LyricsTranslationActivity
-    /// 用户亲手拖动了歌词（程序滚动、双指缩放不算）。竖屏播放页用它收起底部控件。
+    /// 用户亲手往上翻了一段歌词（往回拉、程序滚动、双指缩放不算）。竖屏播放页用它收起底部控件。
     var onUserScroll: (() -> Void)? = nil
 
     @Environment(\.colorScheme) private var colorScheme
@@ -11048,6 +11048,10 @@ struct LyricsScrollView: View {
     private var showsLyricsInterlude = PlayerAppearancePreferences.showsLyricsInterludeByDefault
     @State private var lyricsPinchScale: CGFloat = 1.0
     @State private var isPinchingLyrics = false
+    /// 这次亲手拖动开始时的滚动位置。往上翻过 `chromeCollapseScrollDistance` 才收起控件:
+    /// 一碰就收的话, 往下拉(回看前几句、下拉收起播放页)也会先弹出整屏歌词, 控件让出的
+    /// 高度还把歌词整体往下推, 跟着手指的那几帧整页重排, 看着就是一卡。
+    @State private var userScrollStartOffsetY: CGFloat?
     @State private var currentLineIndex = -1
     @State private var activeInterludeAfterLineIndex: Int? = nil
     @State private var visualPlaybackTime: TimeInterval = 0
@@ -11073,6 +11077,7 @@ struct LyricsScrollView: View {
     /// 下一次变化时尝试 scrollTo，遇到长句/间奏就会长期停在错误位置。
     @State private var lineAutoFollowResumeTask: Task<Void, Never>? = nil
     private static let manualScrollGracePeriod: TimeInterval = 3.0
+    private static let chromeCollapseScrollDistance: CGFloat = 24
 
     private static let lyricsMinScale: Double = 0.7
     private static let lyricsMaxScale: Double = 1.8
@@ -11265,6 +11270,7 @@ struct LyricsScrollView: View {
             rowAnchorYs.values.removeAll()
             lyricsPinchScale = 1
             isPinchingLyrics = false
+            userScrollStartOffsetY = nil
             lineAutoFollowResumeTask?.cancel()
         }
         .contentShape(Rectangle())
@@ -11460,10 +11466,17 @@ struct LyricsScrollView: View {
                 .overlay(alignment: .top) {
                     browseTimelineIndicator(viewportHeight: geo.size.height)
                 }
-                .onScrollPhaseChange { oldPhase, newPhase in
-                    if newPhase == .interacting, oldPhase != .interacting, !isPinchingLyrics {
-                        onUserScroll?()
-                    }
+                .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                    geometry.contentOffset.y
+                } action: { _, offsetY in
+                    collapseChromeIfScrolledUp(offsetY: offsetY)
+                }
+                .onScrollPhaseChange { oldPhase, newPhase, context in
+                    trackUserScrollStart(
+                        from: oldPhase,
+                        to: newPhase,
+                        offsetY: context.geometry.contentOffset.y
+                    )
                     switch newPhase {
                     case .tracking, .interacting, .decelerating:
                         beginLineManualBrowsing()
@@ -11507,6 +11520,7 @@ struct LyricsScrollView: View {
                 .onDisappear {
                     lineAutoFollowResumeTask?.cancel()
                     isManuallyBrowsingLyrics = false
+                    userScrollStartOffsetY = nil
                 }
             }
         }
@@ -11584,10 +11598,17 @@ struct LyricsScrollView: View {
                 .overlay(alignment: .top) {
                     browseTimelineIndicator(viewportHeight: geo.size.height)
                 }
-                .onScrollPhaseChange { oldPhase, newPhase in
-                    if newPhase == .interacting, oldPhase != .interacting, !isPinchingLyrics {
-                        onUserScroll?()
-                    }
+                .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                    geometry.contentOffset.y
+                } action: { _, offsetY in
+                    collapseChromeIfScrolledUp(offsetY: offsetY)
+                }
+                .onScrollPhaseChange { oldPhase, newPhase, context in
+                    trackUserScrollStart(
+                        from: oldPhase,
+                        to: newPhase,
+                        offsetY: context.geometry.contentOffset.y
+                    )
                     switch newPhase {
                     case .tracking, .interacting, .decelerating:
                         beginLineManualBrowsing()
@@ -11625,6 +11646,7 @@ struct LyricsScrollView: View {
                 .onDisappear {
                     lineAutoFollowResumeTask?.cancel()
                     isManuallyBrowsingLyrics = false
+                    userScrollStartOffsetY = nil
                 }
             }
         }
@@ -11683,6 +11705,24 @@ struct LyricsScrollView: View {
             isSceneActive: isSceneActive,
             reduceMotion: reduceMotion
         )
+    }
+
+    /// 亲手开始拖动时记下起点, 停下或改成程序滚动时清掉。
+    private func trackUserScrollStart(from oldPhase: ScrollPhase, to newPhase: ScrollPhase, offsetY: CGFloat) {
+        if newPhase == .interacting, oldPhase != .interacting, !isPinchingLyrics, onUserScroll != nil {
+            userScrollStartOffsetY = offsetY
+        } else if newPhase == .idle || newPhase == .animating {
+            userScrollStartOffsetY = nil
+        }
+    }
+
+    /// 从起点往上翻够一段才收起控件; 松手后的惯性接着往上也算。往回拉偏移只会变小, 不收。
+    private func collapseChromeIfScrolledUp(offsetY: CGFloat) {
+        guard let start = userScrollStartOffsetY,
+              !isPinchingLyrics,
+              offsetY - start >= Self.chromeCollapseScrollDistance else { return }
+        userScrollStartOffsetY = nil
+        onUserScroll?()
     }
 
     private func beginLineManualBrowsing() {

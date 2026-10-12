@@ -5665,7 +5665,7 @@
 "player_controls_lyrics_preview_footer_follow" = "六個位置和封面介面一樣，打開上面的開關才能單獨換。頂上歌名旁多出來的那一格隨時可以換。";
 "player_controls_lyrics_preview_footer_own" = "點虛線框換按鈕。看歌詞時（包括手機橫向和摺疊機分欄裡開著歌詞時）用這一組；狀態列和「更多」裡的項目跟封面介面一樣。";
 "player_controls_lyrics_collapse" = "上滑歌詞時收起播放控制項";
-"player_controls_lyrics_collapse_footer" = "拖動歌詞時把進度列和下面的按鈕收起來，讓歌詞鋪滿；點歌詞空白處叫回來。";
+"player_controls_lyrics_collapse_footer" = "往上翻歌詞時把進度列和下面的按鈕收起來，讓歌詞鋪滿；往回拉不會收起。點歌詞空白處叫回來。";
 "player_controls_slot_lyrics_extra" = "歌詞頁歌名旁";
 "player_controls_lyrics_extra_picker_footer" = "預設是卡拉OK，這首歌用不了卡拉OK時這一格不顯示。已經擺在頁面上的按鈕這裡不再重複。";
 "player_controls_immersive_footer" = "iPad 橫向看歌詞時也用這一組。頂上第一格預設和看歌詞時歌名旁那一格一樣；鎖、全螢幕效果、更多和退出鍵位置固定。";
@@ -5678,7 +5678,7 @@
 "player_controls_effect_footer" = "全螢幕效果頁沒有「更多」，沒放在這裡的按鈕要回到播放頁去點。收起鍵和效果切換鍵位置固定。";
 "player_controls_effect_picker_footer" = "這一頁只放不會換走整頁的按鈕。選已經在別處的按鈕，兩格會對調。";
 "player_controls_text_collapse" = "上滑文字稿時收起播放控制項";
-"player_controls_text_collapse_footer" = "看文字稿時拖動文字，把進度列和下面的按鈕收起來；點文字空白處叫回來。";
+"player_controls_text_collapse_footer" = "看文字稿時往上翻文字，把進度列和下面的按鈕收起來；往回拉不會收起。點文字空白處叫回來。";
 "player_controls_radio_items_header" = "最下面一排";
 "player_controls_radio_items_footer" = "按住拖動可以換順序，關掉的項目不在電台頁上顯示。";
 "player_controls_radio_info" = "音質資訊";
