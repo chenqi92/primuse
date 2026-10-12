@@ -64,8 +64,9 @@ final class TVAppleMusicPlayer {
                                     canContinue: canContinue)
     }
 
-    /// 整张专辑入队播放。
-    func playAlbum(id: String, autoPlay: Bool, canContinue: () -> Bool) async throws -> TimeInterval {
+    /// 整张专辑入队播放。`startTrackID` 给了就从那一首开始(专辑页「Apple Music 上的其余曲目」)。
+    func playAlbum(id: String, startTrackID: String? = nil, autoPlay: Bool,
+                   canContinue: () -> Bool) async throws -> TimeInterval {
         let request = MusicCatalogResourceRequest<MusicKit.Album>(
             matching: \.id, equalTo: MusicItemID(rawValue: id)
         )
@@ -74,7 +75,8 @@ final class TVAppleMusicPlayer {
         }
         let tracks = try await Self.songs(in: album.with([.tracks]).tracks)
         try checkCurrent(canContinue)
-        return try await playSongs(tracks, autoPlay: autoPlay, canContinue: canContinue)
+        let startIndex = startTrackID.flatMap { id in tracks.firstIndex { $0.id.rawValue == id } } ?? 0
+        return try await playSongs(tracks, startIndex: startIndex, autoPlay: autoPlay, canContinue: canContinue)
     }
 
     /// 播放某位艺术家的热门曲目。
@@ -101,6 +103,69 @@ final class TVAppleMusicPlayer {
         let tracks = try await Self.songs(in: playlist.with([.tracks]).tracks)
         try checkCurrent(canContinue)
         return try await playSongs(tracks, autoPlay: autoPlay, canContinue: canContinue)
+    }
+
+    /// 专辑页补全(#2 的电视版):资料库里这张 Apple Music 专辑只收了几首时,目录里其余的曲目。
+    struct AlbumRemainder: Equatable {
+        struct Track: Equatable, Identifiable {
+            let id: String
+            let title: String
+            let artist: String
+            let duration: TimeInterval
+            let number: Int
+        }
+
+        /// 目录里的专辑 ID,选中其中一首时整张专辑从那首开始放。
+        let albumID: String
+        let title: String
+        let artist: String
+        /// 资料库里没有的那几首,按专辑曲序。
+        let tracks: [Track]
+    }
+
+    /// 按专辑名和艺人在目录里找到这张专辑,和资料库里已有的曲目对一遍,剩下的就是要补的。
+    /// 没授权、放不了目录曲、目录里找不到或者已经收全时返回 nil。
+    static func albumRemainder(
+        title: String,
+        artist: String,
+        librarySongs: [PrimuseKit.Song]
+    ) async -> AlbumRemainder? {
+        guard !librarySongs.isEmpty,
+              MusicAuthorization.currentStatus == .authorized,
+              await canPlayCatalogContent(),
+              let album = await AppleMusicCatalogNeighbors.album(matchingTitle: title, artist: artist),
+              !Task.isCancelled else { return nil }
+        let tracks = await AppleMusicCatalogNeighbors.tracks(of: album)
+        guard !tracks.isEmpty, !Task.isCancelled else { return nil }
+        let slots = AppleMusicAlbumCompletionPolicy.merge(
+            catalogTracks: tracks.map {
+                AppleMusicTrackIdentity(
+                    itemID: $0.id.rawValue, title: $0.title, artist: $0.artistName,
+                    album: $0.albumTitle, duration: $0.duration
+                )
+            },
+            librarySongs: librarySongs.map {
+                AppleMusicTrackIdentity(
+                    itemID: $0.id, alternateIDs: [$0.filePath], title: $0.title, artist: $0.artistName,
+                    album: $0.albumTitle, duration: $0.duration > 0 ? $0.duration : nil
+                )
+            }
+        )
+        let missing: [AlbumRemainder.Track] = slots.compactMap { slot in
+            guard case .catalog(let offset) = slot else { return nil }
+            let song = tracks[offset]
+            return AlbumRemainder.Track(
+                id: song.id.rawValue,
+                title: song.title,
+                artist: song.artistName,
+                duration: song.duration ?? 0,
+                number: song.trackNumber.flatMap { $0 > 0 ? $0 : nil } ?? offset + 1
+            )
+        }
+        guard !missing.isEmpty else { return nil }
+        plog("💿 Apple Music TV album '\(album.title)' library=\(librarySongs.count) missing=\(missing.count)")
+        return AlbumRemainder(albumID: album.id.rawValue, title: album.title, artist: album.artistName,
+                              tracks: missing)
     }
 
     /// 目录单曲放完接着放相似的歌(#166 的电视版):相似艺人与本人的热门曲接在系统播放器
@@ -139,12 +204,12 @@ final class TVAppleMusicPlayer {
         }
     }
 
-    /// 把一串曲目交给系统播放器。返回首曲时长,供引擎先把进度条画对。
-    private func playSongs(_ songs: [MusicKit.Song], autoPlay: Bool,
+    /// 把一串曲目交给系统播放器。返回起播那首的时长,供引擎先把进度条画对。
+    private func playSongs(_ songs: [MusicKit.Song], startIndex: Int = 0, autoPlay: Bool,
                            canContinue: () -> Bool) async throws -> TimeInterval {
-        guard let first = songs.first else { throw StartFailure.itemNotFound }
-        try await ensureReady(for: first)
-        return try await startQueue(songs, startAt: 0, autoPlay: autoPlay,
+        guard songs.indices.contains(startIndex) else { throw StartFailure.itemNotFound }
+        try await ensureReady(for: songs[startIndex])
+        return try await startQueue(songs, startIndex: startIndex, startAt: 0, autoPlay: autoPlay,
                                     canContinue: canContinue)
     }
 
@@ -159,13 +224,14 @@ final class TVAppleMusicPlayer {
         let stage: String
     }
 
-    private func startQueue(_ songs: [MusicKit.Song], startAt: TimeInterval,
+    private func startQueue(_ songs: [MusicKit.Song], startIndex: Int = 0, startAt: TimeInterval,
                             autoPlay: Bool, canContinue: () -> Bool) async throws -> TimeInterval {
-        guard let first = songs.first else { throw StartFailure.itemNotFound }
+        guard songs.indices.contains(startIndex) else { throw StartFailure.itemNotFound }
+        let first = songs[startIndex]
         try checkCurrent(canContinue)
         let player = ApplicationMusicPlayer.shared
         do {
-            try await prepareAndPlay(songs, startAt: startAt, autoPlay: autoPlay,
+            try await prepareAndPlay(songs, startIndex: startIndex, startAt: startAt, autoPlay: autoPlay,
                                      canContinue: canContinue)
         } catch is CancellationError {
             throw CancellationError()
@@ -209,11 +275,11 @@ final class TVAppleMusicPlayer {
         return first.duration ?? 0
     }
 
-    private func prepareAndPlay(_ songs: [MusicKit.Song], startAt: TimeInterval,
+    private func prepareAndPlay(_ songs: [MusicKit.Song], startIndex: Int = 0, startAt: TimeInterval,
                                 autoPlay: Bool, canContinue: () -> Bool) async throws {
         try checkCurrent(canContinue)
         let player = ApplicationMusicPlayer.shared
-        player.queue = ApplicationMusicPlayer.Queue(for: songs, startingAt: songs[0])
+        player.queue = ApplicationMusicPlayer.Queue(for: songs, startingAt: songs[startIndex])
         do {
             try await player.prepareToPlay()
         } catch is CancellationError {

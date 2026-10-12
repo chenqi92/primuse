@@ -1281,6 +1281,8 @@ struct TVAlbumDetailView: View {
     @State private var restoreProgress: TVRestoreFileTagsProgress?
     /// 这张专辑里有在电视上补全 / 匹配改过标签的歌(只补空缺的不打「用户编辑」标记)。
     @State private var hasLocallyScrapedSongs = false
+    /// 资料库里只收了几首的 Apple Music 专辑:目录里其余的曲目(见 `TVAppleMusicPlayer.albumRemainder`)。
+    @State private var appleMusicRemainder: TVAppleMusicPlayer.AlbumRemainder?
     /// 恢复按钮与确认面板里的两颗按钮,值见 `RestoreFocus`。
     @FocusState private var focusedRestoreControl: String?
     @FocusState private var focusedTrackID: String?
@@ -1419,6 +1421,9 @@ struct TVAlbumDetailView: View {
                                 }
                             }
                         }
+                        if let remainder = appleMusicRemainder {
+                            appleMusicRemainderSection(remainder, albumArtist: album.artist)
+                        }
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 20)
@@ -1501,12 +1506,101 @@ struct TVAlbumDetailView: View {
             TVAlbumScrapeView(albumID: albumID).environment(store)
         }
         .task(id: songIDs) { await refreshLocallyScrapedSongs(songIDs) }
+        .task(id: songIDs) { await loadAppleMusicRemainder(album: album, songIDs: songIDs) }
         .accessibilityIdentifier("tv.album.detail")
     }
 
     private func albumScrapeDismissed() {
         followAlbumAfterScrape()
         Task { @MainActor in await refreshLocallyScrapedSongs(store.songIDs(forAlbum: albumID)) }
+    }
+
+    /// 专辑里全是 Apple Music 的歌时,问一次目录这张专辑还有哪些曲目资料库里没有。
+    private func loadAppleMusicRemainder(album: TVAlbum, songIDs: [String]) async {
+        let librarySongs = songIDs.compactMap { store.library.song(id: $0) }
+        guard !librarySongs.isEmpty,
+              librarySongs.allSatisfy({ $0.sourceID == AppleMusicLibraryIdentity.sourceID }) else {
+            appleMusicRemainder = nil
+            return
+        }
+        let remainder = await TVAppleMusicPlayer.albumRemainder(
+            title: album.title,
+            artist: album.artist,
+            librarySongs: librarySongs
+        )
+        guard !Task.isCancelled else { return }
+        appleMusicRemainder = remainder
+    }
+
+    /// 曲目列表下面一段:Apple Music 上这张专辑其余的曲目。选中哪首都按 Apple Music 整张专辑
+    /// 从那首开始放 —— 这几首不在曲库里,进不了电视的曲库队列。
+    @ViewBuilder
+    private func appleMusicRemainderSection(
+        _ remainder: TVAppleMusicPlayer.AlbumRemainder,
+        albumArtist: String
+    ) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "applelogo")
+                .font(.system(size: 20, weight: .semibold))
+            TVEyebrow(text: "Apple Music")
+        }
+        .foregroundStyle(TVColor.textFaint)
+        .padding(.top, 28)
+        .padding(.bottom, 6)
+        .accessibilityElement(children: .combine)
+        ForEach(remainder.tracks) { track in
+            appleMusicTrackRow(track, remainder: remainder, albumArtist: albumArtist)
+        }
+    }
+
+    /// 资料库里没有的一首:字色压淡一档,没有长按菜单(收藏、加歌单都要曲库里的歌)。
+    private func appleMusicTrackRow(
+        _ track: TVAppleMusicPlayer.AlbumRemainder.Track,
+        remainder: TVAppleMusicPlayer.AlbumRemainder,
+        albumArtist: String
+    ) -> some View {
+        let showsArtist = !track.artist.isEmpty
+            && track.artist.localizedCaseInsensitiveCompare(albumArtist) != .orderedSame
+        return TVFocusButton(
+            radius: 16, scale: 1.02, lift: 0,
+            action: {
+                store.playAppleMusicAlbum(
+                    id: remainder.albumID,
+                    title: remainder.title,
+                    artist: remainder.artist,
+                    startTrackID: track.id
+                )
+                finishPlayback(songID: nil)
+            },
+            focusBinding: $focusedTrackID, focusID: "appleMusic." + track.id
+        ) { focused in
+            HStack(spacing: 22) {
+                Text(verbatim: "\(track.number)")
+                    .tvFont(.caption, design: .monospaced)
+                    .foregroundStyle(TVColor.textFaint)
+                    .frame(width: 56, alignment: .trailing)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(track.title).tvFont(.rowTitle)
+                        .foregroundStyle(focused ? TVColor.text : TVColor.textMuted)
+                        .lineLimit(1)
+                    if showsArtist {
+                        Text(track.artist).tvFont(.caption)
+                            .foregroundStyle(TVColor.textFaint)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 12)
+                Text(TVFmt.time(track.duration))
+                    .tvFont(.meta, design: .monospaced)
+                    .foregroundStyle(TVColor.textFaint)
+            }
+            .padding(.horizontal, 22)
+            .frame(minHeight: 84)
+            .background(focused ? TVColor.surfaceStrong : TVColor.card.opacity(0.55),
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .accessibilityIdentifier("tv.album.appleMusicTrack.\(track.id)")
     }
 
     private func refreshLocallyScrapedSongs(_ songIDs: [String]) async {

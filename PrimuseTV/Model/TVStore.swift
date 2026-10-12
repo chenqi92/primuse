@@ -6664,12 +6664,18 @@ final class TVStore {
 
     /// 播放一张 Apple Music 专辑。
     func playAppleMusicAlbum(_ album: AppleMusicCatalogAlbumHit) {
+        playAppleMusicAlbum(id: album.id, title: album.title, artist: album.artistName)
+    }
+
+    /// 按 Apple Music 整张专辑放,`startTrackID` 给了就从那一首开始
+    /// (专辑页里资料库没收、按目录补上的曲目)。
+    func playAppleMusicAlbum(id: String, title: String, artist: String, startTrackID: String? = nil) {
         startAppleMusicCollection(
-            .album(id: album.id),
-            songID: Self.appleMusicCatalogSongID("album." + album.id),
-            title: album.title,
-            artist: album.artistName,
-            album: album.title,
+            .album(id: id, startTrackID: startTrackID),
+            songID: Self.appleMusicCatalogSongID("album." + id),
+            title: title,
+            artist: artist,
+            album: title,
             glyph: "opticaldisc"
         )
     }

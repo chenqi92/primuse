@@ -11,7 +11,7 @@ struct AppleMusicAlbumCompletion: Equatable {
 }
 
 /// 专辑页按 Apple Music 目录补全整张专辑。怎么把目录曲目和资料库曲目对上在
-/// `AppleMusicAlbumCompletionPolicy`,这里只管向目录取专辑和曲目。
+/// `AppleMusicAlbumCompletionPolicy`,目录查询在 `AppleMusicCatalogNeighbors`。
 extension AppleMusicLibraryService {
     /// 资料库里这张专辑只收了几首时,按目录把整张专辑排出来。专辑里有别的源的歌、
     /// 目录里找不到这张专辑、或者资料库已经收全时返回 nil,专辑页照原样显示。
@@ -24,7 +24,7 @@ extension AppleMusicLibraryService {
               librarySongs.allSatisfy({ $0.sourceID == Self.systemSourceID }) else { return nil }
         guard let album = await catalogAlbum(for: librarySongs, title: albumTitle, artist: albumArtist),
               !Task.isCancelled else { return nil }
-        let tracks = await Self.catalogTracks(of: album)
+        let tracks = await AppleMusicCatalogNeighbors.tracks(of: album)
         guard !tracks.isEmpty, !Task.isCancelled else { return nil }
 
         let slots = AppleMusicAlbumCompletionPolicy.merge(
@@ -93,7 +93,7 @@ extension AppleMusicLibraryService {
               !Task.isCancelled,
               let catalogAlbum = try? await seed.with([.albums]).albums?.first,
               !Task.isCancelled else { return nil }
-        let tracks = await Self.catalogTracks(of: catalogAlbum)
+        let tracks = await AppleMusicCatalogNeighbors.tracks(of: catalogAlbum)
         guard !tracks.isEmpty, !Task.isCancelled else { return nil }
         var seen = Set<String>()
         let songs = registerCatalogSongs(tracks).filter { seen.insert($0.id).inserted }
@@ -120,39 +120,7 @@ extension AppleMusicLibraryService {
             }
         }
         let artistName = artist ?? songs.first?.albumArtistName ?? songs.first?.artistName ?? ""
-        guard !artistName.isEmpty, !Task.isCancelled else { return nil }
-        var request = MusicCatalogSearchRequest(term: "\(title) \(artistName)", types: [MusicKit.Album.self])
-        request.limit = 5
-        guard let albums = try? await Array(request.response().albums),
-              let index = AppleMusicCatalogContinuationPolicy.matchIndex(
-                title: title,
-                artist: artistName,
-                in: albums.map {
-                    AppleMusicCatalogContinuationPolicy.Candidate(
-                        id: $0.id.rawValue, title: $0.title, artist: $0.artistName
-                    )
-                }
-              ) else { return nil }
-        return albums[index]
-    }
-
-    /// 专辑的全部曲目(只要歌,不要 MV)。曲目多的专辑分批给,一批批取完。
-    private nonisolated static func catalogTracks(of album: MusicKit.Album) async -> [MusicKit.Song] {
-        do {
-            guard var batch = try await album.with([.tracks]).tracks else { return [] }
-            var songs: [MusicKit.Song] = []
-            while true {
-                for track in batch {
-                    if case .song(let song) = track { songs.append(song) }
-                }
-                guard batch.hasNextBatch, songs.count < 500,
-                      let next = try await batch.nextBatch() else { break }
-                batch = next
-            }
-            return songs
-        } catch {
-            plog("⚠️Apple Music album tracks failed for '\(album.title)': \(error.localizedDescription)")
-            return []
-        }
+        guard !Task.isCancelled else { return nil }
+        return await AppleMusicCatalogNeighbors.album(matchingTitle: title, artist: artistName)
     }
 }

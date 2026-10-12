@@ -1033,8 +1033,9 @@ final class TVPlaybackCoordinator {
     }
 
     /// 播放 Apple Music 的一个集合:专辑、艺术家热门曲目或用户歌单。
+    /// 专辑可以从其中一首开始(专辑页「Apple Music 上的其余曲目」)。
     enum AppleMusicCollection: Equatable {
-        case album(id: String)
+        case album(id: String, startTrackID: String? = nil)
         case artistTopSongs(id: String)
         case libraryPlaylist(id: String)
     }
@@ -1056,8 +1057,8 @@ final class TVPlaybackCoordinator {
                 guard let self else { throw CancellationError() }
                 _ = self
                 switch collection {
-                case .album(let id):
-                    return try await player.playAlbum(id: id, autoPlay: autoPlay,
+                case .album(let id, let startTrackID):
+                    return try await player.playAlbum(id: id, startTrackID: startTrackID, autoPlay: autoPlay,
                                                       canContinue: { self.isCurrent(requestID, store: store) })
                 case .artistTopSongs(let id):
                     return try await player.playArtistTopSongs(id: id, autoPlay: autoPlay,
