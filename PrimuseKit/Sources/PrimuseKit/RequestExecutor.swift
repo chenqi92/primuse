@@ -78,6 +78,9 @@ public actor RequestExecutor {
         public let maximumRetryWait: TimeInterval
         public let timeout: TimeInterval
         public let defaultCooldown: TimeInterval
+        /// Route-aware clients hand transport failures to their failover layer;
+        /// transient HTTP responses can still use the executor's retry budget.
+        public let retriesTransportFailures: Bool
         /// Statuses that start a shared cooldown even without Retry-After.
         /// Some services signal their quota with another status (iTunes: 403).
         public let rateLimitStatusCodes: Set<Int>
@@ -86,7 +89,8 @@ public actor RequestExecutor {
             maximumPendingRequests: Int = 128,
             maximumAttempts: Int = 3, maximumRetryWait: TimeInterval = 2,
             timeout: TimeInterval = 30, rateLimitStatusCodes: Set<Int> = [429, 503],
-            defaultCooldown: TimeInterval = 30
+            defaultCooldown: TimeInterval = 30,
+            retriesTransportFailures: Bool = true
         ) {
             precondition(minimumInterval >= 0 && minimumInterval.isFinite)
             precondition(maximumConcurrentRequests > 0 && maximumPendingRequests >= 0)
@@ -96,6 +100,7 @@ public actor RequestExecutor {
             precondition(timeout > 0 && timeout.isFinite)
             precondition(defaultCooldown >= 0 && defaultCooldown.isFinite)
             self.defaultCooldown = defaultCooldown
+            self.retriesTransportFailures = retriesTransportFailures
             self.timeout = timeout
             self.maximumAttempts = maximumAttempts
             self.maximumRetryWait = maximumRetryWait
@@ -207,7 +212,7 @@ public actor RequestExecutor {
                 try Task.checkCancellation()
                 guard attempt < policy.maximumAttempts else { throw error }
                 if let recover, try await recover(error) { continue }
-                guard replay == .idempotent, Self.isTransient(error) else { throw error }
+                guard replay == .idempotent, isTransient(error) else { throw error }
                 let backoff = min(0.5 * pow(2, Double(attempt - 1)), 8)
                 let serverDelay = (error as? HTTPResponseFailure)?.retryAfter ?? 0
                 let delay = max(backoff + max(0, jitter(backoff * 0.25)),
@@ -220,12 +225,12 @@ public actor RequestExecutor {
         preconditionFailure("An attempt either returns or throws")
     }
 
-    private static func isTransient(_ error: Error) -> Bool {
+    private func isTransient(_ error: Error) -> Bool {
         if let failure = error as? HTTPResponseFailure {
             return failure.isRetryable ?? (failure.isRateLimited ||
                 [408, 429, 500, 502, 503, 504].contains(failure.statusCode))
         }
-        guard let error = error as? URLError else { return false }
+        guard policy.retriesTransportFailures, let error = error as? URLError else { return false }
         return [.timedOut, .networkConnectionLost, .cannotConnectToHost,
                 .cannotFindHost, .dnsLookupFailed, .notConnectedToInternet,
                 .resourceUnavailable].contains(error.code)

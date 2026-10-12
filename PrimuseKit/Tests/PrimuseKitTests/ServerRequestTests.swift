@@ -4,6 +4,28 @@ import Testing
 
 @Suite("Shared media-server request quotas", .serialized)
 struct ServerRequestTests {
+    @Test(arguments: [URLError.Code.timedOut, .networkConnectionLost, .cannotConnectToHost])
+    func transportFailureReturnsToRouteLayerAfterOneAttempt(code: URLError.Code) async throws {
+        let executor = ServerRequestScheduler().executor(baseURL: URL(string: "https://route.invalid")!, account: UUID().uuidString)
+        let wire = ServerTransportFailureWire(code: code)
+        do {
+            _ = try await executor.execute(replay: .idempotent) { try await wire.send() }
+            Issue.record("Expected transport failure")
+        } catch let error as URLError { #expect(error.code == code) }
+        #expect(await wire.attempts == 1, "Route failover must not wait through internal transport retries")
+    }
+
+    @Test(arguments: [429, 503])
+    func headerlessServerCooldownStaysShortAndHTTPReadsCanRecover(status: Int) async throws {
+        let clock = ControlledClock()
+        let executor = ServerRequestScheduler(timing: clock.timing).executor(baseURL: URL(string: "https://short.invalid")!, account: "fixture")
+        _ = try? await executor.execute { (Data(), HTTPURLResponse(url: URL(string: "https://short.invalid")!, statusCode: status, httpVersion: nil, headerFields: nil)!) }
+        clock.advance(to: 2)
+        let result = try await executor.execute(replay: .idempotent, operation: { "complete" })
+        #expect(result == "complete")
+        #expect(await executor.isCoolingDown == false)
+    }
+
     @Test(arguments: [401, 403])
     func plexAuthenticationFailureKeepsPlaybackContract(status: Int) async throws {
         let host = UUID().uuidString + ".invalid"
@@ -132,6 +154,16 @@ struct ServerRequestTests {
         catch let failure as HTTPResponseFailure { #expect(failure.statusCode == status) }
         catch { Issue.record("Lost HTTP failure: \(error)") }
         #expect(await fixture.count == 1)
+    }
+}
+
+private actor ServerTransportFailureWire {
+    let code: URLError.Code
+    var attempts = 0
+    init(code: URLError.Code) { self.code = code }
+    func send() throws -> (Data, URLResponse) {
+        attempts += 1
+        throw URLError(code)
     }
 }
 

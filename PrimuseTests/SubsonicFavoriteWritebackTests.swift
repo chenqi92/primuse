@@ -6,6 +6,18 @@ import XCTest
 
 @MainActor
 final class SubsonicFavoriteWritebackTests: XCTestCase {
+    func testMissingInternetRadioAPIIsAnUnavailableCapability() async throws {
+        let host = "missing-radio-" + UUID().uuidString.lowercased() + ".invalid"
+        SubsonicFavoriteURLProtocol.configure(host: host, mode: .success)
+        let (source, session) = makeSource(host: host)
+        defer { session.invalidateAndCancel() }
+        let snapshot = try await source.fetchServerRadioStations()
+        XCTAssertNil(snapshot, "Unsupported radio APIs must preserve mirrored stations without reporting a sync failure")
+        XCTAssertEqual(SubsonicFavoriteURLProtocol.requests(host: host).filter {
+            $0.url?.path == "/rest/getInternetRadioStations.view"
+        }.count, 1)
+    }
+
     func testStarAndUnstarUseOnlyTheOpaqueSongIDAndAreIdempotent() async throws {
         let host = "favorite-success.invalid"
         SubsonicFavoriteURLProtocol.configure(host: host, mode: .success)
@@ -228,6 +240,8 @@ private final class SubsonicFavoriteURLProtocol: URLProtocol, @unchecked Sendabl
         Self.lock.unlock()
 
         switch url.path {
+        case "/rest/getInternetRadioStations.view":
+            respond(statusCode: 404, json: "{}")
         case "/rest/ping.view":
             respond(json: #"{"subsonic-response":{"status":"ok","type":"navidrome","openSubsonic":true}}"#)
         case "/rest/star.view", "/rest/unstar.view":

@@ -1896,6 +1896,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                     try await TrustedHTTPTransport.data(from: url, session: session)
                 }
             } catch let failure as HTTPResponseFailure {
+                if failure.isRateLimited || failure.retryAfter != nil { throw failure }
                 if [401, 403, 404, 405, 410, 501].contains(failure.statusCode) {
                     throw SubsonicHTTPStatusError(statusCode: failure.statusCode, failure: failure)
                 }
@@ -2080,6 +2081,10 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     }
 
     private static func isInternetRadioAPIUnavailable(_ error: Error) -> Bool {
+        if let failure = error as? HTTPResponseFailure {
+            return [404, 405, 501].contains(failure.statusCode) &&
+                failure.retryAfter == nil && !failure.isRateLimited
+        }
         let message: String
         if let sourceError = error as? SourceError,
            case .connectionFailed(let detail) = sourceError {

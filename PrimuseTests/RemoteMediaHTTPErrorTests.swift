@@ -283,11 +283,15 @@ final class MediaServerRequestTests: XCTestCase {
     @MainActor
     func testStructuredFailuresKeepOfflineAndReauthenticationClassification() {
         for (status, expected) in [(401, AutomaticOfflineFailureKind.authentication), (403, .sourceAccessDenied),
-                                   (429, .rateLimited), (503, .rateLimited), (500, .sourceUnavailable)] {
+                                   (429, .rateLimited), (503, .rateLimited), (500, .sourceUnavailable),
+                                   (400, .sourceUnavailable), (404, .sourceUnavailable)] {
             let failure = HTTPResponseFailure(statusCode: status)
             XCTAssertEqual(AutomaticOfflineFailureClassifier.classify(failure), expected)
             XCTAssertEqual(ServerCatalogAutoRefreshCoordinator.requiresReauthentication(failure), status == 401)
         }
+        XCTAssertEqual(AutomaticOfflineFailureClassifier.classify(
+            HTTPResponseFailure(statusCode: 403, retryAfter: 3600)
+        ), .rateLimited)
     }
 
     func testUgreenV2CompatibilityFailuresFallBackToV1() async throws {

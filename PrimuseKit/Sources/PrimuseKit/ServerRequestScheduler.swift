@@ -16,7 +16,9 @@ public final class ServerRequestScheduler: @unchecked Sendable {
         let key = endpoint + "|" + baseURL.path + "|" + account
         return lock.withLock {
             if let existing = executors[key] { return existing }
-            let executor = RequestExecutor(policy: .init(timeout: 600), timing: timing)
+            let executor = RequestExecutor(policy: .init(
+                timeout: 600, defaultCooldown: 2, retriesTransportFailures: false
+            ), timing: timing)
             executors[key] = executor
             return executor
         }

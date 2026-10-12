@@ -227,7 +227,8 @@ enum AutomaticOfflineFailureKind: String, Sendable {
 enum AutomaticOfflineFailureClassifier {
     static func classify(_ error: Error) -> AutomaticOfflineFailureKind {
         if let failure = error as? HTTPResponseFailure {
-            if failure.isRateLimited || [429, 503].contains(failure.statusCode) { return .rateLimited }
+            if failure.isRateLimited || failure.retryAfter != nil || [429, 503].contains(failure.statusCode) { return .rateLimited }
+            if [400, 404].contains(failure.statusCode) { return .sourceUnavailable }
             return classify(RemoteMediaHTTPError(service: "Cloud", statusCode: failure.statusCode,
                                                 retryAfter: failure.retryAfter))
         }

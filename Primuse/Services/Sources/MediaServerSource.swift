@@ -2266,6 +2266,9 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             case .plex:
                 return .unavailable
             }
+        } catch let failure as HTTPResponseFailure where failure.statusCode == 404 &&
+            failure.retryAfter == nil && !failure.isRateLimited {
+            return .absent
         } catch SourceError.connectionFailed(let message) where message == "HTTP 404" {
             return .absent
         } catch {
