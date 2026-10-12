@@ -441,7 +441,7 @@ private func reply(_ status: Int, headers: [String: String] = [:]) -> (Data, URL
 
 /// Only the test advances time; rate waits, retry waits and deadline timers
 /// observe the same monotonic clock without racing automatic time advances.
-private final class ControlledClock: @unchecked Sendable {
+final class ControlledClock: @unchecked Sendable {
     private let lock = NSLock()
     private var instant: TimeInterval = 0
     private var recorded: [TimeInterval] = []
@@ -528,7 +528,7 @@ private actor CancellationServer {
     }
 }
 
-private actor HeldResponse {
+actor HeldResponse {
     private var continuation: CheckedContinuation<(Data, URLResponse), Error>?
     private var started = false
     func read() async throws -> (Data, URLResponse) {

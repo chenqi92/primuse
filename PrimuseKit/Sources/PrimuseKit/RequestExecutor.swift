@@ -65,7 +65,7 @@ public actor RequestExecutor {
     public enum Replay: Sendable { case never, idempotent }
     public enum AdmissionError: Error, Sendable { case queueFull }
 
-    public struct Policy: Sendable {
+    public struct Policy: Sendable, Equatable {
         public let minimumInterval: TimeInterval
         public let maximumConcurrentRequests: Int
         public let maximumPendingRequests: Int
@@ -133,13 +133,20 @@ public actor RequestExecutor {
     /// this executor's cooldown deadline.
     public var isCoolingDown: Bool { cooldownUntil > timing.now() }
 
+    /// An idle registry entry still owns pacing reservations after a success.
+    /// Dropping it before that reservation expires would allow an early request.
+    var canDiscardQuotaState: Bool {
+        active == 0 && waiters.isEmpty && cooldownUntil <= timing.now() && nextStart <= timing.now()
+    }
+
     public func execute(
         minimumInterval: TimeInterval? = nil,
         replay: Replay = .never,
+        timeout: TimeInterval? = nil,
         _ send: @escaping @Sendable () async throws -> (Data, URLResponse)
     ) async throws -> (data: Data, response: HTTPURLResponse) {
         let timing = self.timing
-        return try await execute(minimumInterval: minimumInterval, replay: replay, operation: {
+        return try await execute(minimumInterval: minimumInterval, replay: replay, timeout: timeout, operation: {
             let (data, response) = try await send()
             guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
             guard (200...299).contains(http.statusCode) else {
