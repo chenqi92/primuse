@@ -1686,17 +1686,12 @@ actor PrimuseAIRelayClient {
         seconds: Double? = nil,
         now: Date = Date()
     ) -> Date? {
-        let raw = header?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let interval = seconds ?? raw.flatMap(Double.init), interval.isFinite, interval >= 0 {
-            return now.addingTimeInterval(min(interval, 86_400))
+        if let seconds {
+            guard seconds.isFinite, seconds >= 0 else { return nil }
+            return now.addingTimeInterval(seconds)
         }
-        guard let raw else { return nil }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
-        guard let date = formatter.date(from: raw) else { return nil }
-        return min(max(date, now), now.addingTimeInterval(86_400))
+        guard let delay = HTTPResponseFailure.retryDelay(from: header, now: now) else { return nil }
+        return now.addingTimeInterval(delay)
     }
 
     private nonisolated static func safeDiagnosticCode(

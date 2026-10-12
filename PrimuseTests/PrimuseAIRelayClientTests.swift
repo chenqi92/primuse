@@ -42,6 +42,87 @@ final class PrimuseAIRelayClientTests: XCTestCase {
             .filter { $0.url?.path == "/v1/recommendations" }.count, 1)
     }
 
+    func testRecommendationStreamPreservesTwoDayServerCooldown() async throws {
+        let host = "primuse-relay-long-cooldown.invalid"
+        PrimuseRelayURLProtocol.configure(
+            host: host,
+            featureBody: #"{"type":"error","error":{"status":503,"code":"upstreams_busy","retry_after":172800}}"# + "\n",
+            featureContentType: "application/x-ndjson"
+        )
+        let (client, session, _, _) = makeClient(host: host)
+        defer { session.invalidateAndCancel() }
+        let start = Date()
+        do {
+            for try await _ in await client.recommendationEvents(recommendationRequest()) { }
+            XCTFail("Expected a cooldown")
+        } catch {
+            guard case .requestFailed(let status, let code, let retryAt) = error as? PrimuseAIRelayError else {
+                return XCTFail("Expected a structured relay error")
+            }
+            XCTAssertEqual(status, 503)
+            XCTAssertEqual(code, "upstreams_busy")
+            XCTAssertGreaterThanOrEqual(try XCTUnwrap(retryAt).timeIntervalSince(start), 172800)
+        }
+        XCTAssertEqual(PrimuseRelayURLProtocol.requests(host: host)
+            .filter { $0.url?.path == "/v1/recommendations" }.count, 1)
+    }
+
+    func testJSONAndStreamHTTPErrorsPreserveLongSecondsAndDateHeaders() async throws {
+        let until = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970) + 172800)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss 'GMT'"
+        for stream in [false, true] {
+            for status in [429, 503] {
+                for header in ["172800", formatter.string(from: until)] {
+                    let host = UUID().uuidString.lowercased() + ".invalid"
+                    PrimuseRelayURLProtocol.configure(host: host, featureStatusCode: status,
+                        featureBody: #"{"error":{"code":"upstreams_busy"}}"#,
+                        featureHeaders: ["Retry-After": header])
+                    let (client, session, _, _) = makeClient(host: host)
+                    defer { session.invalidateAndCancel() }
+                    let start = Date()
+                    do {
+                        if stream { for try await _ in await client.recommendationEvents(recommendationRequest()) { } }
+                        else { _ = try await client.recommendations(recommendationRequest()) }
+                        XCTFail("Expected a quota failure")
+                    } catch {
+                        guard case .requestFailed(let actualStatus, _, let retryAt) = error as? PrimuseAIRelayError else {
+                            return XCTFail("Lost HTTP failure: \(error)")
+                        }
+                        XCTAssertEqual(actualStatus, status)
+                        let actual = try XCTUnwrap(retryAt)
+                        if header == "172800" {
+                            XCTAssertGreaterThanOrEqual(actual.timeIntervalSince(start), 172800)
+                            XCTAssertLessThanOrEqual(actual.timeIntervalSinceNow, 172800)
+                        } else { XCTAssertEqual(actual, until) }
+                    }
+                    XCTAssertEqual(PrimuseRelayURLProtocol.requests(host: host)
+                        .filter { $0.url?.path == "/v1/recommendations" }.count, 1)
+                }
+            }
+        }
+    }
+
+    func testMalformedHTTPHeadersDoNotInventRelayCooldowns() async throws {
+        for header in ["-1", "1.5", "NaN", "infinity", "tomorrow"] {
+            let host = UUID().uuidString.lowercased() + ".invalid"
+            PrimuseRelayURLProtocol.configure(host: host, featureStatusCode: 429,
+                featureBody: #"{"error":{"code":"feature_quota_exhausted"}}"#,
+                featureHeaders: ["Retry-After": header])
+            let (client, session, _, _) = makeClient(host: host)
+            defer { session.invalidateAndCancel() }
+            do { _ = try await client.recommendations(recommendationRequest()); XCTFail("Expected an HTTP failure") }
+            catch {
+                guard case .requestFailed(429, _, let retryAt) = error as? PrimuseAIRelayError else {
+                    return XCTFail("Lost quota failure")
+                }
+                XCTAssertNil(retryAt)
+            }
+        }
+    }
+
     func testPartialCompletionIsKeptWithoutWaitingForTrailingBytes() async throws {
         let host = "primuse-relay-partial-complete.invalid"
         let items = (0..<8).map { ["song_id": "song-\($0)", "reason": "Reason \($0)"] }
@@ -1843,6 +1924,7 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
         var featureStatusCode = 200
         var featureBody = #"{"data":{"normalized_query":"night rain","expansion_terms":["night rain","rainy night"]}}"#
         var featureContentType = "application/json"
+        var featureHeaders: [String: String] = [:]
         var transientFeatureFailuresRemaining: Int?
         var recoveredFeatureBody: String?
         var featureDelay: TimeInterval = 0
@@ -1857,6 +1939,7 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
         featureStatusCode: Int = 200,
         featureBody: String = #"{"data":{"normalized_query":"night rain","expansion_terms":["night rain","rainy night"]}}"#,
         featureContentType: String = "application/json",
+        featureHeaders: [String: String] = [:],
         transientFeatureFailures: Int? = nil,
         recoveredFeatureBody: String? = nil,
         featureDelay: TimeInterval = 0,
@@ -1867,6 +1950,7 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
             featureStatusCode: featureStatusCode,
             featureBody: featureBody,
             featureContentType: featureContentType,
+            featureHeaders: featureHeaders,
             transientFeatureFailuresRemaining: transientFeatureFailures,
             recoveredFeatureBody: recoveredFeatureBody,
             featureDelay: featureDelay,
@@ -1949,7 +2033,7 @@ private final class PrimuseRelayURLProtocol: URLProtocol, @unchecked Sendable {
             url: url,
             statusCode: statusCode,
             httpVersion: nil,
-            headerFields: ["Content-Type": state.featureContentType]
+            headerFields: state.featureHeaders.merging(["Content-Type": state.featureContentType]) { _, contentType in contentType }
         ) else {
             client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
             return
