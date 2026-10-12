@@ -49,9 +49,14 @@ actor SimilarTracksService {
             raws = cached.candidates
             promote(key)
         } else {
-            // Only a confirmed empty track result can start artist fallback.
-            // Any failed/cancelled lookup leaves this seed uncached.
-            var fetched = try await api.similarTracks(artist: artist, track: title, limit: limit)
+            // Last.fm 没收录的歌 (error 6) 等失败照旧退回按艺人找; 限流和取消不退,
+            // 免得冷却中再花一次额度。失败或取消的查询不进缓存。
+            var fetched: [LastFmSimilarAPI.SimilarTrack]
+            do {
+                fetched = try await api.similarTracks(artist: artist, track: title, limit: limit)
+            } catch let error where Self.allowsArtistFallback(after: error) {
+                fetched = []
+            }
             if fetched.isEmpty {
                 fetched = try await api.similarArtistTracks(artist: artist, limit: limit)
             }
@@ -87,6 +92,28 @@ actor SimilarTracksService {
     }
 
     // MARK: - Private
+
+    private static func allowsArtistFallback(after error: Error) -> Bool {
+        let response: HTTPResponseFailure
+        switch error {
+        case is CancellationError:
+            return false
+        case let urlError as URLError:
+            return urlError.code != .cancelled
+        case let failure as HTTPResponseFailure:
+            response = failure
+        case let similarError as LastFmSimilarAPI.SimilarError:
+            switch similarError {
+            case .missingAPIKey: return false
+            case .api(_, _, let failure): response = failure
+            case .decode: return true
+            }
+        default:
+            return true
+        }
+        return !(response.isRateLimited || response.retryAfter != nil
+            || [429, 503].contains(response.statusCode))
+    }
 
     private func promote(_ key: SeedKey) {
         lruOrder.removeAll { $0 == key }

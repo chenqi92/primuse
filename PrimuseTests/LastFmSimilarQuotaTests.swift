@@ -87,9 +87,24 @@ final class LastFmSimilarQuotaTests: XCTestCase {
                 do { _ = try await service.fetchSimilar(to: seed, library: []); XCTFail("Failure must not become empty content") }
                 catch { }
             }
-            XCTAssertEqual(fixture.requests.count, 2)
-            XCTAssertTrue(fixture.requests.allSatisfy { $0.url!.absoluteString.contains("track.getSimilar") })
+            XCTAssertEqual(fixture.requests.count, 4)
+            XCTAssertEqual(fixture.requests.map { $0.url!.absoluteString.contains("track.getSimilar") }, [true, false, true, false])
         }
+    }
+
+    func testUnknownTrackStillFallsBackToSimilarArtists() async throws {
+        let fixture = SimilarFixture(
+            status: 200,
+            body: #"{"error":6,"message":"Track not found"}"#,
+            artistBody: #"{"similarartists":{"artist":[{"name":"Neighbour","match":"0.8"}]}}"#
+        )
+        let service = fixture.service()
+        for _ in 0..<2 {
+            let result = try await service.fetchSimilar(to: seed, library: [], includeUnmatched: true)
+            XCTAssertEqual(result.map(\.artist), ["Neighbour"])
+        }
+        XCTAssertEqual(fixture.requests.count, 2, "The artist result is cached like any successful lookup")
+        XCTAssertTrue(fixture.requests[1].url!.absoluteString.contains("artist.getSimilar"))
     }
 
     func testFailedArtistFallbackDoesNotCacheAnEmptyTrackResult() async throws {
@@ -143,6 +158,7 @@ private final class SimilarFixture: @unchecked Sendable {
     let status: Int
     let headers: [String: String]
     let body: Data
+    let artistBody: Data?
     private let lock = NSLock()
     private var recorded: [URLRequest] = []
     var requests: [URLRequest] { lock.withLock { recorded } }
@@ -153,9 +169,15 @@ private final class SimilarFixture: @unchecked Sendable {
         config.protocolClasses = [SimilarProtocol.self]
         return URLSession(configuration: config)
     }()
-    init(status: Int, headers: [String: String] = [:], body: String = "{}", registry: RequestQuotaRegistry = RequestQuotaRegistry()) {
+    init(status: Int, headers: [String: String] = [:], body: String = "{}", artistBody: String? = nil,
+         registry: RequestQuotaRegistry = RequestQuotaRegistry()) {
         self.registry = registry
         self.status = status; self.headers = headers; self.body = Data(body.utf8)
+        self.artistBody = artistBody.map { Data($0.utf8) }
+    }
+    func body(for request: URLRequest) -> Data {
+        guard let artistBody, request.url!.absoluteString.contains("artist.getSimilar") else { return body }
+        return artistBody
     }
     func api() -> LastFmSimilarAPI {
         let key = key
@@ -176,7 +198,7 @@ private final class SimilarProtocol: URLProtocol, @unchecked Sendable {
         fixture.record(request)
         if fixture.status == 0 { return }
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: fixture.status, httpVersion: nil, headerFields: fixture.headers)!, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: fixture.body)
+        client?.urlProtocol(self, didLoad: fixture.body(for: request))
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() { }
