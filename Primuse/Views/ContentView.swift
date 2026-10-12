@@ -1020,6 +1020,23 @@ struct ContentView: View {
         return .search
     }
 
+    /// iOS 26 的独立搜索标签(`.search`)选中后，搜索框由底部标签栏托管：系统把
+    /// UISearchController 的输入框借给标签栏显示。这种布局下不能再由代码设 isPresented
+    /// 弹键盘——搜索控制器还没被导航栏当作顶层条目显示时(刚切过来，或搜索页里还压着
+    /// 详情页)，UIKit 改走「搜索栏不在导航栏里」的呈现，要把已被标签栏借走的输入框再挪到
+    /// 键盘上方，`-[UISearchController _setInlineSearchAccessoryEnabled:]` 断言失败直接闪退
+    /// (1.10.1(87)，iOS 26.5)。这时弹键盘交给系统的 `.searchTabSelection`。
+    private var searchTabHostsSearchField: Bool {
+        guard rootLayout == .standardTabs, searchTabRole == .search else { return false }
+        if #available(iOS 26.0, *) { return true }
+        return false
+    }
+
+    @available(iOS 26.0, *)
+    private var searchTabActivation: TabSearchActivation {
+        searchTabHostsSearchField ? .searchTabSelection : .automatic
+    }
+
     @ViewBuilder
     private var tabRoot: some View {
         TabView(selection: searchAwareTabSelection) {
@@ -1199,6 +1216,7 @@ struct ContentView: View {
         // in `_willDismissSearchController` with an unowned-reference crash.
         if #available(iOS 26.1, *) {
             tabRoot
+                .tabViewSearchActivation(searchTabActivation)
                 // A minimized tab bar keeps only the selected tab and Search.
                 // Without a player accessory that leaves a large empty gap at
                 // the bottom and looks like the other tabs disappeared. Only
@@ -1213,6 +1231,7 @@ struct ContentView: View {
             // stable for Search, disable minimization, and render the player
             // as the outer legacy overlay below instead.
             tabRoot
+                .tabViewSearchActivation(searchTabActivation)
                 .tabBarMinimizeBehavior(.never)
         } else {
             tabRoot
@@ -1389,7 +1408,10 @@ struct ContentView: View {
         .onChange(of: HomeScreenQuickActionCenter.shared.pendingSearch, initial: true) { _, pending in
             guard pending else { return }
             HomeScreenQuickActionCenter.shared.consumeSearchRequest()
-            searchFieldActivationRequested = true
+            // 搜索框由标签栏托管时不由代码弹键盘, 见 searchTabHostsSearchField。
+            if !searchTabHostsSearchField {
+                searchFieldActivationRequested = true
+            }
             selectMinimalPage(.search)
         }
     }
@@ -1675,7 +1697,9 @@ struct ContentView: View {
             set: { tab in
                 // 点底部「搜索」进来就直接弹出键盘, 不必再点一次搜索框。
                 // 只认真的切换: 启动时恢复到搜索页不该自己弹键盘。
-                if AppTabSelectionPolicy.resolve(tab) == 2, selectedTab != 2 {
+                // 搜索框由标签栏托管时由系统来弹, 见 searchTabHostsSearchField。
+                if AppTabSelectionPolicy.resolve(tab) == 2, selectedTab != 2,
+                   !searchTabHostsSearchField {
                     searchFieldActivationRequested = true
                 }
                 selectTab(tab)
