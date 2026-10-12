@@ -80,6 +80,7 @@ private final class TVRadioPlaylistCleartextConsent {
     private var continuation: CheckedContinuation<Bool, Never>?
     private var outcome: Bool?
     private var timeoutTask: Task<Void, Never>?
+    private var promptTask: Task<Void, Never>?
 
     private init(endpoint: String) {
         self.endpoint = endpoint
@@ -104,7 +105,7 @@ private final class TVRadioPlaylistCleartextConsent {
                 }
                 self.continuation = continuation
                 let endpoint = endpoint
-                Task { @MainActor [weak self] in
+                promptTask = Task { @MainActor [weak self] in
                     let approved = await TVServerCertificateTrustStore.shared.requestInsecureHTTPTrust(
                         endpoint: endpoint,
                         purpose: .radioPlaylist
@@ -132,12 +133,10 @@ private final class TVRadioPlaylistCleartextConsent {
         outcome = approved
         timeoutTask?.cancel()
         timeoutTask = nil
-        if withdrawing {
-            TVServerCertificateTrustStore.shared.withdrawInsecureHTTPRequest(
-                endpoint: endpoint,
-                purpose: .radioPlaylist
-            )
-        }
+        // The prompt task owns one waiter. Cancelling it must not dismiss
+        // another playback request that happens to use the same endpoint.
+        if withdrawing { promptTask?.cancel() }
+        promptTask = nil
         continuation?.resume(returning: approved)
         continuation = nil
     }

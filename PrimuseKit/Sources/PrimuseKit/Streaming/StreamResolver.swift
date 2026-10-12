@@ -18,7 +18,7 @@ public final class TVServerCertificateTrustStore {
         public let id = UUID()
         public let endpoint: String
         let fingerprint: String
-        var continuations: [CheckedContinuation<Bool, Never>]
+        var continuations: [UUID: CheckedContinuation<Bool, Never>]
     }
 
     /// 这次明文确认是为谁弹的，只决定提示文案：音乐源服务器、电台的 `.pls` / `.m3u` 清单，
@@ -32,8 +32,14 @@ public final class TVServerCertificateTrustStore {
     public struct InsecureHTTPRequest: Identifiable {
         public let id = UUID()
         public let endpoint: String
-        public let purpose: InsecureHTTPPurpose
-        var continuations: [CheckedContinuation<Bool, Never>]
+        public var purpose: InsecureHTTPPurpose { waiters[0].purpose }
+        fileprivate var waiters: [InsecureHTTPWaiter]
+    }
+
+    fileprivate struct InsecureHTTPWaiter {
+        let id: UUID
+        let purpose: InsecureHTTPPurpose
+        let continuation: CheckedContinuation<Bool, Never>
     }
 
     public static let shared = TVServerCertificateTrustStore()
@@ -48,29 +54,47 @@ public final class TVServerCertificateTrustStore {
     private init() {}
 
     public func requestTrust(endpoint: String, fingerprint: String) async -> Bool {
+        guard !Task.isCancelled else { return false }
         if Self.isTrustedSync(endpoint: endpoint, fingerprint: fingerprint) { return true }
-        return await withCheckedContinuation { continuation in
-            if pendingRequest?.endpoint == endpoint,
-               pendingRequest?.fingerprint == fingerprint {
-                pendingRequest?.continuations.append(continuation)
-                return
+        let id = UUID()
+        let approved = await withTaskCancellationHandler {
+            guard !Task.isCancelled else { return false }
+            return await withCheckedContinuation { continuation in
+                if pendingRequest?.endpoint == endpoint,
+                   pendingRequest?.fingerprint == fingerprint {
+                    pendingRequest?.continuations[id] = continuation
+                    return
+                }
+                if let index = waitingRequests.firstIndex(where: {
+                    $0.endpoint == endpoint && $0.fingerprint == fingerprint
+                }) {
+                    waitingRequests[index].continuations[id] = continuation
+                    return
+                }
+                let request = Request(endpoint: endpoint, fingerprint: fingerprint,
+                                      continuations: [id: continuation])
+                if pendingRequest == nil { pendingRequest = request }
+                else { waitingRequests.append(request) }
             }
-            if let index = waitingRequests.firstIndex(where: {
-                $0.endpoint == endpoint && $0.fingerprint == fingerprint
-            }) {
-                waitingRequests[index].continuations.append(continuation)
-                return
+        } onCancel: {
+            Task { @MainActor in self.cancelCertificateWaiter(id) }
+        }
+        return approved && !Task.isCancelled
+    }
+
+    private func cancelCertificateWaiter(_ id: UUID) {
+        if let continuation = pendingRequest?.continuations.removeValue(forKey: id) {
+            if pendingRequest?.continuations.isEmpty == true {
+                pendingRequest = waitingRequests.isEmpty ? nil : waitingRequests.removeFirst()
             }
-            let request = Request(
-                endpoint: endpoint,
-                fingerprint: fingerprint,
-                continuations: [continuation]
-            )
-            if pendingRequest == nil {
-                pendingRequest = request
-            } else {
-                waitingRequests.append(request)
-            }
+            continuation.resume(returning: false)
+            return
+        }
+        for index in waitingRequests.indices {
+            guard let continuation = waitingRequests[index].continuations.removeValue(forKey: id) else { continue }
+            if waitingRequests[index].continuations.isEmpty { waitingRequests.remove(at: index) }
+            continuation.resume(returning: false)
+            return
         }
     }
 
@@ -84,7 +108,7 @@ public final class TVServerCertificateTrustStore {
             }
         }
         pendingRequest = waitingRequests.isEmpty ? nil : waitingRequests.removeFirst()
-        for continuation in request.continuations {
+        for continuation in request.continuations.values {
             continuation.resume(returning: approved)
         }
     }
@@ -93,29 +117,32 @@ public final class TVServerCertificateTrustStore {
         endpoint: String,
         purpose: InsecureHTTPPurpose = .server
     ) async -> Bool {
+        guard !Task.isCancelled else { return false }
         if Self.isInsecureHTTPTrustedSync(endpoint: endpoint) { return true }
-        return await withCheckedContinuation { continuation in
-            if pendingInsecureHTTPRequest?.endpoint == endpoint {
-                pendingInsecureHTTPRequest?.continuations.append(continuation)
-                return
+        let id = UUID()
+        let approved = await withTaskCancellationHandler {
+            guard !Task.isCancelled else { return false }
+            return await withCheckedContinuation { continuation in
+                let waiter = InsecureHTTPWaiter(id: id, purpose: purpose, continuation: continuation)
+                if pendingInsecureHTTPRequest?.endpoint == endpoint {
+                    pendingInsecureHTTPRequest?.waiters.append(waiter)
+                    return
+                }
+                if let index = waitingInsecureHTTPRequests.firstIndex(where: { $0.endpoint == endpoint }) {
+                    waitingInsecureHTTPRequests[index].waiters.append(waiter)
+                    return
+                }
+                let request = InsecureHTTPRequest(endpoint: endpoint, waiters: [waiter])
+                if pendingInsecureHTTPRequest == nil {
+                    pendingInsecureHTTPRequest = request
+                } else {
+                    waitingInsecureHTTPRequests.append(request)
+                }
             }
-            if let index = waitingInsecureHTTPRequests.firstIndex(where: {
-                $0.endpoint == endpoint
-            }) {
-                waitingInsecureHTTPRequests[index].continuations.append(continuation)
-                return
-            }
-            let request = InsecureHTTPRequest(
-                endpoint: endpoint,
-                purpose: purpose,
-                continuations: [continuation]
-            )
-            if pendingInsecureHTTPRequest == nil {
-                pendingInsecureHTTPRequest = request
-            } else {
-                waitingInsecureHTTPRequests.append(request)
-            }
+        } onCancel: {
+            Task { @MainActor in self.cancelInsecureHTTPWaiter(id) }
         }
+        return approved && !Task.isCancelled
     }
 
     public func resolvePendingInsecureHTTPRequest(approved: Bool) {
@@ -131,26 +158,36 @@ public final class TVServerCertificateTrustStore {
         pendingInsecureHTTPRequest = waitingInsecureHTTPRequests.isEmpty
             ? nil
             : waitingInsecureHTTPRequests.removeFirst()
-        for continuation in request.continuations {
-            continuation.resume(returning: approved)
+        for waiter in request.waiters {
+            waiter.continuation.resume(returning: approved)
         }
     }
 
-    /// 发起方不再等回答（超时或已取消）时撤回自己那次询问：按拒绝收场、不记许可，
-    /// 正弹着就收起来，还在排队就从队列里拿掉。只撤同一用途的，别处为同一端点发起的询问不受影响。
+    /// Withdraw every waiter for this endpoint and purpose. Individual callers
+    /// cancel their own Task instead, leaving other callers' requests pending.
     public func withdrawInsecureHTTPRequest(endpoint: String, purpose: InsecureHTTPPurpose) {
-        if let request = pendingInsecureHTTPRequest,
-           request.endpoint == endpoint,
-           request.purpose == purpose {
-            resolvePendingInsecureHTTPRequest(approved: false)
+        let requests = [pendingInsecureHTTPRequest].compactMap { $0 } + waitingInsecureHTTPRequests
+        let ids = requests.filter { $0.endpoint == endpoint }
+            .flatMap(\.waiters).filter { $0.purpose == purpose }.map(\.id)
+        for id in ids { cancelInsecureHTTPWaiter(id) }
+    }
+
+    private func cancelInsecureHTTPWaiter(_ id: UUID) {
+        if var request = pendingInsecureHTTPRequest,
+           let index = request.waiters.firstIndex(where: { $0.id == id }) {
+            let waiter = request.waiters.remove(at: index)
+            pendingInsecureHTTPRequest = request.waiters.isEmpty
+                ? (waitingInsecureHTTPRequests.isEmpty ? nil : waitingInsecureHTTPRequests.removeFirst())
+                : request
+            waiter.continuation.resume(returning: false)
             return
         }
-        guard let index = waitingInsecureHTTPRequests.firstIndex(where: {
-            $0.endpoint == endpoint && $0.purpose == purpose
-        }) else { return }
-        let request = waitingInsecureHTTPRequests.remove(at: index)
-        for continuation in request.continuations {
-            continuation.resume(returning: false)
+        for index in waitingInsecureHTTPRequests.indices {
+            guard let waiterIndex = waitingInsecureHTTPRequests[index].waiters.firstIndex(where: { $0.id == id }) else { continue }
+            let waiter = waitingInsecureHTTPRequests[index].waiters.remove(at: waiterIndex)
+            if waitingInsecureHTTPRequests[index].waiters.isEmpty { waitingInsecureHTTPRequests.remove(at: index) }
+            waiter.continuation.resume(returning: false)
+            return
         }
     }
 
