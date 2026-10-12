@@ -512,7 +512,7 @@ final class TVPlaybackCoordinator {
             } catch {
                 plog("🎬 TV play: STRM resolve error — \(error)")
                 guard isCurrent(requestID, store: store) else { return }
-                playbackIssue = .failed(error.localizedDescription)
+                playbackIssue = .failed(Self.failureText(error))
                 return
             }
         }
@@ -695,7 +695,7 @@ final class TVPlaybackCoordinator {
         } catch {
             plog("🎬 TV play: resolve error — \(error)")
             guard isCurrent(requestID, store: store) else { return }
-            playbackIssue = .failed(error.localizedDescription)
+            playbackIssue = .failed(Self.failureText(error))
         }
     }
 
@@ -1444,7 +1444,7 @@ final class TVPlaybackCoordinator {
         } catch {
             plog("🎬 TV play: non-native download error — \(error)")
             guard isCurrent(requestID, store: store) else { return }
-            playbackIssue = .failed(error.localizedDescription)
+            playbackIssue = .failed(Self.failureText(error))
         }
     }
 
@@ -1529,7 +1529,7 @@ final class TVPlaybackCoordinator {
         } catch {
             plog("🎬 TV play: MV rewrite error — \(error)")
             guard isCurrent(requestID, store: store) else { return }
-            playbackIssue = .failed(error.localizedDescription)
+            playbackIssue = .failed(Self.failureText(error))
         }
     }
 
@@ -3131,6 +3131,16 @@ final class TVPlaybackCoordinator {
 
     private func ensureCurrent(_ requestID: UUID, store: TVStore) throws {
         guard isCurrent(requestID, store: store) else { throw CancellationError() }
+    }
+
+    /// 共享令牌刷新途中会话被作废（凭据改了、退出登录）时，网盘解析器抛
+    /// userAuthenticationRequired 而不是拿旧凭据重试；手工构造的 URLError 系统只给
+    /// 「NSURLErrorDomain 错误 -1013」，换成要重新登录的说法。其余错误保留原文。
+    private static func failureText(_ error: Error) -> String {
+        if (error as? URLError)?.code == .userAuthenticationRequired {
+            return PMString("ext.tv.playback.authFailed")
+        }
+        return error.localizedDescription
     }
 
     private func issue(for error: StreamResolveError, source: MusicSource) -> TVPlaybackIssue {
