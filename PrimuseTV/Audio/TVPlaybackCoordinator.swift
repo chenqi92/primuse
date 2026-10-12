@@ -302,6 +302,8 @@ final class TVPlaybackCoordinator {
     /// Apple Music 的系统播放器。只有真正播到 Apple Music 曲目时才会被用到,
     /// 持有它本身不申请授权、也不碰音频会话。
     private lazy var appleMusicPlayer = TVAppleMusicPlayer()
+    /// 目录单曲后面续上相似歌曲的那一趟(见 `TVAppleMusicPlayer.appendSimilarCatalogSongs`)。
+    private var appleMusicContinuationTask: Task<Void, Never>?
     private let registry = StreamResolverRegistry.shared
     private var lyricsTask: Task<Void, Never>?
     /// 最近一次为 CUE 分轨找歌词列过的目录。一张专辑接着往下放,每一轨都
@@ -427,6 +429,8 @@ final class TVPlaybackCoordinator {
     func cancelAuxiliaryTasks() {
         lyricsTask?.cancel()
         lyricsTask = nil
+        appleMusicContinuationTask?.cancel()
+        appleMusicContinuationTask = nil
         playbackMetadataTask?.cancel()
         playbackMetadataTask = nil
         playbackMetadataTaskIdentity = nil
@@ -1009,13 +1013,23 @@ final class TVPlaybackCoordinator {
         releaseAppleMusicIfNeeded()
         guard let store, isCurrent(requestID, store: store) else { return }
         playbackIssue = nil
-        _ = await playAppleMusicItem(
+        let started = await playAppleMusicItem(
             itemID: itemID,
             fallbackDuration: duration,
             requestID: requestID,
             startAt: startAt,
             autoPlay: autoPlay
         )
+        // 和曲库队列同一个「播完继续播放相似歌曲」开关;循环开着时不续。
+        guard started, isCurrent(requestID, store: store), store.repeatMode == .off,
+              UserDefaults.standard.object(forKey: TVStore.autoContinueSimilarKey) as? Bool ?? true else { return }
+        appleMusicContinuationTask?.cancel()
+        appleMusicContinuationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.appleMusicPlayer.appendSimilarCatalogSongs(seedItemID: itemID) {
+                self.isCurrent(requestID, store: store)
+            }
+        }
     }
 
     /// 播放 Apple Music 的一个集合:专辑、艺术家热门曲目或用户歌单。

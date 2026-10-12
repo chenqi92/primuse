@@ -765,6 +765,8 @@ targets:
       - path: Primuse/Services/Sources/SSLTrustStore.swift
       - path: Primuse/Services/Scrobble/ScrobbleService.swift
       - path: Primuse/Services/Scrobble/ScrobbleSettings.swift
+      # Apple Music 目录里的相似艺人与热门曲:目录单曲放完续播相似歌曲,与 iOS / macOS 同一份。
+      - path: Primuse/Services/AppleMusic/AppleMusicCatalogNeighbors.swift
       - path: Primuse/Services/Scrobble/ScrobbleProvider.swift
       - path: Primuse/Services/Scrobble/LastFmProvider.swift
       - path: Primuse/Services/Scrobble/ListenBrainzProvider.swift

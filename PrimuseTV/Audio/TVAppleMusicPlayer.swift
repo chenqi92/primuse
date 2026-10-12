@@ -103,6 +103,42 @@ final class TVAppleMusicPlayer {
         return try await playSongs(tracks, autoPlay: autoPlay, canContinue: canContinue)
     }
 
+    /// 目录单曲放完接着放相似的歌(#166 的电视版):相似艺人与本人的热门曲接在系统播放器
+    /// 队列后面,由 MusicKit 自己往下放,状态回灌照常把标题、封面换成正在放的那首。
+    /// 电视端没有 Last.fm 凭据,只用 MusicKit 目录里的相似艺人;手机那一路见 `similarCatalogSongs`。
+    func appendSimilarCatalogSongs(seedItemID: String, canContinue: () -> Bool) async {
+        typealias Policy = AppleMusicCatalogContinuationPolicy
+        guard activeItemID == seedItemID,
+              let seed = try? await resolveSong(itemID: seedItemID),
+              !Task.isCancelled, canContinue() else { return }
+        let lists = await AppleMusicCatalogNeighbors.artistTopSongs(around: seed)
+        guard !Task.isCancelled, canContinue(), activeItemID == seedItemID else { return }
+        let seedKey = Policy.songKey(title: seed.title, artist: seed.artistName)
+        var songsByID: [String: MusicKit.Song] = [:]
+        for song in lists.joined() where songsByID[song.id.rawValue] == nil {
+            songsByID[song.id.rawValue] = song
+        }
+        let picked = Policy.assemble(
+            similarTracks: [],
+            artistTopSongs: lists.map { $0.map(AppleMusicCatalogNeighbors.candidate) },
+            isExcluded: { candidate in
+                candidate.id == seedItemID
+                    || Policy.songKey(title: candidate.title, artist: candidate.artist) == seedKey
+            }
+        )
+        let songs = picked.compactMap { songsByID[$0.id] }
+        guard !songs.isEmpty else {
+            plog("♾️ Apple Music TV continuation found nothing for '\(seed.title)'")
+            return
+        }
+        do {
+            try await ApplicationMusicPlayer.shared.queue.insert(songs, position: .tail)
+            plog("♾️ Apple Music TV continuation appended \(songs.count) songs after '\(seed.title)'")
+        } catch {
+            plog("⚠️Apple Music TV continuation insert failed: \(error.localizedDescription)")
+        }
+    }
+
     /// 把一串曲目交给系统播放器。返回首曲时长,供引擎先把进度条画对。
     private func playSongs(_ songs: [MusicKit.Song], autoPlay: Bool,
                            canContinue: () -> Bool) async throws -> TimeInterval {

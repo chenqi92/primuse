@@ -3,7 +3,8 @@ import MusicKit
 import PrimuseKit
 
 /// 续播用的 Apple Music 目录相似歌曲。规则(怎么对上同一首、怎么拼一批)在
-/// `AppleMusicCatalogContinuationPolicy`,这里只管向目录和 Last.fm 取数据。
+/// `AppleMusicCatalogContinuationPolicy`,目录这一侧的查询在 `AppleMusicCatalogNeighbors`,
+/// 这里只管 Last.fm 那一路和曲库这边的排除。
 extension AppleMusicLibraryService {
     // MARK: 续播相似歌曲
 
@@ -28,8 +29,8 @@ extension AppleMusicLibraryService {
             songsByID[song.id.rawValue] = song
         }
         let picked = Policy.assemble(
-            similarTracks: similar.map(Self.continuationCandidate),
-            artistTopSongs: artistLists.map { $0.map(Self.continuationCandidate) },
+            similarTracks: similar.map(AppleMusicCatalogNeighbors.candidate),
+            artistTopSongs: artistLists.map { $0.map(AppleMusicCatalogNeighbors.candidate) },
             isExcluded: { candidate in
                 excludedIDs.contains(Self.primuseSongID(forItemID: candidate.id))
                     || excludedSongKeys.contains(Policy.songKey(title: candidate.title, artist: candidate.artist))
@@ -70,7 +71,7 @@ extension AppleMusicLibraryService {
             let matches = await withTaskGroup(of: (Int, MusicKit.Song?).self) { group in
                 for (offset, track) in chunk.enumerated() {
                     group.addTask {
-                        (offset, await Self.catalogSong(matchingTitle: track.title, artist: track.artist))
+                        (offset, await AppleMusicCatalogNeighbors.song(matchingTitle: track.title, artist: track.artist))
                     }
                 }
                 var results = [MusicKit.Song?](repeating: nil, count: chunk.count)
@@ -82,55 +83,9 @@ extension AppleMusicLibraryService {
         return found
     }
 
-    /// 目录里按「歌名 歌手」搜,只认歌名、歌手都对得上的那一条。
-    private nonisolated static func catalogSong(matchingTitle title: String, artist: String) async -> MusicKit.Song? {
-        var request = MusicCatalogSearchRequest(term: "\(title) \(artist)", types: [MusicKit.Song.self])
-        request.limit = 5
-        guard let songs = try? await Array(request.response().songs),
-              let index = AppleMusicCatalogContinuationPolicy.matchIndex(
-                title: title,
-                artist: artist,
-                in: songs.map(continuationCandidate)
-              ) else { return nil }
-        return songs[index]
-    }
-
-    /// 相似艺人(按目录给的顺序)与本人的热门曲,每位一组。本人那组排在第二,
-    /// 轮流取时开头是一首别人的,接着才是本人的。
+    /// 相似艺人与本人的热门曲(见 `AppleMusicCatalogNeighbors`)。曲库里的歌先换成它的目录版。
     private func artistTopSongs(around seed: PrimuseKit.Song) async -> [[MusicKit.Song]] {
-        typealias Policy = AppleMusicCatalogContinuationPolicy
         guard let catalogSeed = await catalogMusicKitSong(for: seed) else { return [] }
-        do {
-            guard let seedArtist = try await catalogSeed.with([.artists]).artists?.first else { return [] }
-            let detailed = try await seedArtist.with([.topSongs, .similarArtists])
-            let similarIDs = Array((detailed.similarArtists.map { Array($0) } ?? [])
-                .prefix(Policy.similarArtistLimit)
-                .map(\.id))
-            var lists: [[MusicKit.Song]] = []
-            if !similarIDs.isEmpty {
-                var request = MusicCatalogResourceRequest<MusicKit.Artist>(matching: \.id, memberOf: similarIDs)
-                request.properties = [.topSongs]
-                let artists = try await request.response().items
-                // 一次批量查回来不保证按请求的顺序,按相似度排回去。
-                var byID: [MusicItemID: MusicKit.Artist] = [:]
-                for artist in artists where byID[artist.id] == nil { byID[artist.id] = artist }
-                lists = similarIDs.compactMap { id in
-                    guard let songs = byID[id]?.topSongs else { return nil }
-                    return Array(songs.prefix(Policy.topSongsPerArtist))
-                }
-            }
-            let own = Array((detailed.topSongs.map { Array($0) } ?? []).prefix(Policy.topSongsPerArtist))
-            if !own.isEmpty { lists.insert(own, at: min(1, lists.count)) }
-            return lists.filter { !$0.isEmpty }
-        } catch {
-            plog("♾️ Apple Music artist lookup failed for '\(seed.title)': \(error.localizedDescription)")
-            return []
-        }
-    }
-
-    private nonisolated static func continuationCandidate(
-        _ song: MusicKit.Song
-    ) -> AppleMusicCatalogContinuationPolicy.Candidate {
-        .init(id: song.id.rawValue, title: song.title, artist: song.artistName)
+        return await AppleMusicCatalogNeighbors.artistTopSongs(around: catalogSeed)
     }
 }
