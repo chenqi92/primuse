@@ -41,7 +41,11 @@ final class PlayerBackdropResolver {
         }
     }
 
-    private(set) var frame: Frame?
+    private(set) var frame: Frame? {
+        didSet { displayedFrameID = frame?.id }
+    }
+    /// `frame` 的编号，读它不登记观察。播放页挂载时用它认出哪张是早就备好的。
+    @ObservationIgnored private(set) var displayedFrameID: String?
     /// 新图淡入时垫在下面的上一张，换图时不会先闪出底色。
     private(set) var previousFrame: Frame?
     private(set) var rotation = PlayerBackdropRotationState()

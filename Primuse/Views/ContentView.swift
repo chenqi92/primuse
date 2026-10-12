@@ -1486,6 +1486,12 @@ struct ContentView: View {
                 enqueuePlaybackReconciliation(removing: songIDs)
             }
         }
+        // 播放页背景选了图时，没展开前先备好，点迷你条拉起来就是那张图，不先露出底色。
+        .background {
+            if !showNowPlaying {
+                PlayerBackdropPrewarmer()
+            }
+        }
         // 跨年自动弹年度报告 ── 每次 ContentView 进入 (app 启动 / 切前台后
         // 重新出现) 都跑一次, trigger 内部用 UserDefaults 记录已弹避免重复。
         // 触发条件: 当前月份 == 1 + 上一年没弹过 + 上一年听满 ≥ 2 个不同月份。

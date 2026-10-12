@@ -149,7 +149,7 @@ public struct PlayerBackdropRotationState: Equatable, Sendable {
         self.songKey = songKey
     }
 
-    /// 播放页看到的当前歌。第一次记下时不算换歌；返回值表示要不要换图。
+    /// 当前在播的歌（播放页没打开时由预备背景图的那层记下）。第一次记下时不算换歌；返回值表示要不要换图。
     public mutating func observeSong(_ key: String?, rotation: PlayerBackdropRotation) -> Bool {
         guard key != songKey else { return false }
         let hadSong = songKey != nil
