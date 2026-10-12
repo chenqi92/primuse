@@ -835,7 +835,7 @@ enum LyricsLoader {
     /// A subtitle track that translates the document being loaded.
     typealias TranslationTrack = (path: String, fileName: String, size: Int64)
 
-    private struct AuthoritativeLyricsFile: Sendable {
+    struct AuthoritativeLyricsFile: Sendable {
         let path: String
         let size: Int64
         let translation: TranslationTrack?
@@ -845,9 +845,10 @@ enum LyricsLoader {
         let songBaseName: String?
     }
 
+    /// 歌词来源页标「使用中」的那份文件, 带列目录得到的实际大小。
     /// - Parameter evaluatesTimingFirst: 编辑器、后台核对这类不赶时间的读取先比完各份
     ///   歌词文件的时间轴再读; 播放不等, 先读当前那份, 比较放到后台。
-    private static func authoritativeLyricsFile(
+    static func authoritativeLyricsFile(
         for song: Song,
         connector: any MusicSourceConnector,
         evaluatesTimingFirst: Bool = false

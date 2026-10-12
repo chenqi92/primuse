@@ -7644,6 +7644,8 @@ struct NowPlayingView: View {
         let songTitle = song.title
         let isRefresh = currentCache != nil
         let missKey = Self.lyricsSidecarMissKey(for: song)
+        let opaqueAddresses = sourcesStore.source(id: song.sourceID)?.type
+            .usesOpaqueDirectoryIdentifiers ?? false
 
         Task {
             // Tier 3 的出口有十来个, 统一在这里收尾: 首次加载的占位只能由这次
@@ -7732,8 +7734,33 @@ struct NowPlayingView: View {
 
                 let songDir = (song.filePath as NSString).deletingLastPathComponent
                 let baseName = ((song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
+                // ID 寻址网盘的歌上记的是歌词文件 id, 下面的路径推断只推得出 `<歌>.lrc`:
+                // 旁边只有 .ttml 等别的格式就读空。这类源照歌词来源页的规则列目录找「使用中」
+                // 那份, 按实际大小读, 播放和来源页读的是同一份文件(#208)。
+                let listedFile: LyricsLoader.AuthoritativeLyricsFile?
+                if opaqueAddresses, connector is any LyricsSidecarTargetResolving {
+                    guard let file = try await LyricsLoader.authoritativeLyricsFile(
+                        for: song,
+                        connector: connector
+                    ) else {
+                        // 列过目录, 确实一份歌词文件都没有。
+                        guard !isRefresh else { return }
+                        await LyricsSidecarMissLedger.shared.recordMiss(missKey)
+                        guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
+                        plog(String(format: "📜 loadLyrics '%@' Tier3 no lyric file listed (connect=%.0fms)", songTitle, connectMs))
+                        await applyAutomaticOnlineLyrics(
+                            song: song, currentCache: currentCache, loadRevision: loadRevision
+                        )
+                        return
+                    }
+                    listedFile = file
+                } else {
+                    listedFile = nil
+                }
                 let lyricsPath: String
-                if let pinned = try await LyricsLoader.pinnedDocumentFile(
+                if let listedFile {
+                    lyricsPath = listedFile.path
+                } else if let pinned = try await LyricsLoader.pinnedDocumentFile(
                     for: song,
                     connector: connector
                 ) {
@@ -7750,18 +7777,19 @@ struct NowPlayingView: View {
                 } else {
                     lyricsPath = (songDir as NSString).appendingPathComponent("\(baseName).lrc")
                 }
+                let documentName = listedFile?.fileName ?? (lyricsPath as NSString).lastPathComponent
 
                 let fetchStart = Date()
                 let lyricsData = try await connector.fetchRange(
                     path: lyricsPath,
                     offset: 0,
-                    length: 256 * 1024,
+                    length: listedFile?.size ?? 256 * 1024,
                     priority: .background
                 )
                 guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
                 let fetchMs = Date().timeIntervalSince(fetchStart) * 1000
                 guard let lyricsContent = LyricsParser.decodeText(
-                    lyricsData, label: (lyricsPath as NSString).lastPathComponent
+                    lyricsData, label: documentName
                 ) else {
                     plog(String(format: "📜 loadLyrics '%@' Tier3 sidecar undecodable (connect=%.0fms fetch=%.0fms)", songTitle, connectMs, fetchMs))
                     if !isRefresh {
@@ -7788,7 +7816,7 @@ struct NowPlayingView: View {
                 // 文件名判断, 免得每首歌都为此多列一次目录; refresh 也要走同一条
                 // 合并, 否则每次刷新都会把译文再抹掉一遍。
                 if let tagged = LyricsSidecarSelectionPolicy.languageTaggedComponents(
-                    ofSidecarNamed: (lyricsPath as NSString).lastPathComponent
+                    ofSidecarNamed: documentName
                 ), LyricsSidecarSelectionPolicy.marksOriginalTrack(tagged.tag),
                    let track = await LyricsLoader.translationTrack(
                        for: song,
@@ -7838,7 +7866,10 @@ struct NowPlayingView: View {
                         guard let upgraded = await LyricsLoader.upgradeToTimingPreferredDocument(
                             for: song,
                             connector: connector,
-                            displayed: displayed
+                            displayed: displayed,
+                            displayedFileName: listedFile?.fileName,
+                            documents: listedFile?.documents,
+                            baseName: listedFile?.songBaseName
                         ), isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
                         setLyrics(upgraded)
                     }
