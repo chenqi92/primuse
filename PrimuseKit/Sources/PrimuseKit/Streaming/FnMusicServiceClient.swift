@@ -677,7 +677,7 @@ public actor FnMusicServiceClient {
             redirectMode: .fnMusic
         )
         if method == "GET", let http = response as? HTTPURLResponse,
-           !(200...299).contains(http.statusCode), http.statusCode != 401 {
+           !(200...299).contains(http.statusCode), (http.statusCode != 401 && http.statusCode != 403 || HTTPResponseFailure.retryDelay(from: http) != nil) {
             throw HTTPResponseFailure(statusCode: http.statusCode, body: data,
                                       retryAfter: HTTPResponseFailure.retryDelay(from: http))
         }

@@ -38,6 +38,7 @@ final class SubsonicFavoriteWritebackTests: XCTestCase {
 
     func testHTTPApplicationTransportAndConfirmationErrorsRemainDistinct() async throws {
         try await assertAuthenticationFailure(mode: .httpUnauthorized, host: "favorite-401.invalid")
+        try await assertAuthenticationFailure(mode: .httpForbidden, host: "favorite-403.invalid")
         try await assertAuthenticationFailure(mode: .applicationAuthenticationFailure, host: "favorite-40.invalid")
         try await assertConnectionFailure(mode: .httpServerFailure, host: "favorite-500.invalid")
         try await assertConnectionFailure(mode: .applicationDataFailure, host: "favorite-70.invalid")
@@ -175,6 +176,7 @@ final class SubsonicFavoriteWritebackTests: XCTestCase {
 private final class SubsonicFavoriteURLProtocol: URLProtocol, @unchecked Sendable {
     enum Mode: Equatable {
         case success
+        case httpForbidden
         case httpUnauthorized
         case httpServerFailure
         case applicationAuthenticationFailure
@@ -244,6 +246,8 @@ private final class SubsonicFavoriteURLProtocol: URLProtocol, @unchecked Sendabl
 
     private func handleMutation(host: String, url: URL, state: State) {
         switch state.mode {
+        case .httpForbidden:
+            respond(statusCode: 403, json: "{}")
         case .httpUnauthorized:
             respond(statusCode: 401, json: "{}")
         case .httpServerFailure:

@@ -282,13 +282,21 @@ public actor SynologyAudioStationClient {
             let context = try await currentSession().context
             let executor = ServerRequestScheduler.shared.executor(baseURL: context.baseURL, account: "audio-station:" + username)
             let recovery = AudioStationReadRecovery()
-            return try await executor.execute(replay: .idempotent, recover: { error in
-                let expired: Bool
-                if case .sessionExpired = error as? SynologyAudioStationError { expired = true }
-                else { expired = (error as? HTTPResponseFailure)?.statusCode == 401 }
-                guard expired, await recovery.claim() else { return false }
-                return true // The next attempt builds a request using a fresh session.
-            }, operation: { try await self.performReadOnce(call, as: type) })
+            do {
+                return try await executor.execute(replay: .idempotent, recover: { error in
+                    if let rejected = error as? AudioStationReadFailure {
+                        guard SynologyAudioStationAPI.renewsSession(after: rejected.failure.code),
+                              await recovery.claim() else { return false }
+                        await self.expireSession(ifMatches: rejected.sid)
+                        return true
+                    }
+                    guard let failure = error as? HTTPResponseFailure, failure.statusCode == 401,
+                          failure.retryAfter == nil, await recovery.claim() else { return false }
+                    return true
+                }, operation: { try await self.performReadOnce(call, as: type) })
+            } catch let rejected as AudioStationReadFailure {
+                throw SynologyAudioStationAPI.error(for: rejected.failure, call: call)
+            }
         }
         for attempt in 0...1 {
             let session = try await currentSession()
@@ -333,10 +341,9 @@ public actor SynologyAudioStationClient {
         switch try SynologyAudioStationAPI.decode(Value.self, from: body) {
         case .success(let value): return value
         case .failure(let failure):
-            if SynologyAudioStationAPI.renewsSession(after: failure.code) {
-                expireSession(ifMatches: session.sid)
-            }
-            throw SynologyAudioStationAPI.error(for: failure, call: call)
+            // Preserve the DSM code until recovery has decided whether to renew.
+            // A second 105 remains a permission failure without expiring the new SID.
+            throw AudioStationReadFailure(failure: failure, sid: session.sid)
         }
     }
 
@@ -1067,4 +1074,9 @@ public struct SynologyAudioStationRadioMirror: Equatable, Sendable {
 private actor AudioStationReadRecovery {
     private var used = false
     func claim() -> Bool { guard !used else { return false }; used = true; return true }
+}
+
+private struct AudioStationReadFailure: Error {
+    let failure: SynologyAudioStationFailure
+    let sid: String
 }

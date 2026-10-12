@@ -3145,7 +3145,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         do {
             return try await executor.execute(replay: .idempotent, recover: { error in
                 guard requiresAuth, allowPasswordReauthentication,
-                      let failure = error as? HTTPResponseFailure, failure.statusCode == 401,
+                      let failure = error as? HTTPResponseFailure, [401, 403].contains(failure.statusCode),
+                      failure.retryAfter == nil, !failure.isRateLimited,
                       await recovery.claim() else { return false }
                 return try await self.recoverReadAuthentication()
             }, operation: {
@@ -3154,7 +3155,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                     allowPasswordReauthentication: false,
                     maximumResponseBytes: maximumResponseBytes, preservesHTTPFailure: true)
             })
-        } catch let failure as HTTPResponseFailure where failure.statusCode == 401 {
+        } catch let failure as HTTPResponseFailure where [401, 403].contains(failure.statusCode)
+            && failure.retryAfter == nil && !failure.isRateLimited {
             throw SourceError.authenticationFailed
         }
     }

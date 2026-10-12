@@ -349,18 +349,13 @@ public struct SubsonicLyricsClient: @unchecked Sendable {
             )
         } catch {
             try Task.checkCancellation()
-            // Retry without the optional parameter only when it was rejected.
-            // A permission, quota or exhausted transport failure must not start
-            // another complete HTTP retry budget.
-            let parameterRejected: Bool
-            if case RequestError.server(let code) = error {
-                parameterRejected = code == 0 || code == 10
-            } else if let failure = error as? HTTPResponseFailure {
-                parameterRejected = failure.statusCode == 400 && (failure.retryAfter ?? 0) <= 0
-            } else {
-                parameterRejected = false
+            if OperationCancellationPolicy.isCancellation(error) { throw CancellationError() }
+            // Older servers may return malformed enhanced responses or a body
+            // error instead of rejecting the parameter explicitly. Keep that
+            // compatibility path, without restarting an exhausted HTTP budget.
+            if let failure = error as? HTTPResponseFailure {
+                guard failure.statusCode == 400, failure.retryAfter == nil, !failure.isRateLimited else { throw failure }
             }
-            guard parameterRejected else { throw error }
             payload = try await request(
                 "getLyricsBySongId",
                 query: [URLQueryItem(name: "id", value: songID)],

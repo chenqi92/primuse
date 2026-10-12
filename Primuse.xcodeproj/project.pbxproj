@@ -366,6 +366,7 @@
 		6B5BF812BB17572A770B87BE /* RadioDirectoryQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A6BA865ECC75590B598DB8F /* RadioDirectoryQuotaTests.swift */; };
 		896A0A0C2567B340B3161EDE /* LastFmSimilarQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 060EF616E880D6634832ABCD /* LastFmSimilarQuotaTests.swift */; };
 		7258A33F2C23E7F16AA74120 /* RemoteMediaHTTPErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFA3B7E6ABB7F9FBF66FCEF2 /* RemoteMediaHTTPErrorTests.swift */; };
+		A10A26C6396B47C01F9C7C45 /* SubsonicFavoriteWritebackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F930250B3D0D1AC8E8FD8088 /* SubsonicFavoriteWritebackTests.swift */; };
 		B0A45D0509F793B43F56DE1D /* WebDAVDirectoryQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A5BB09389B0D45DAA0B5AC /* WebDAVDirectoryQuotaTests.swift */; };
 		B24F5FA4DE63C8B0428510AF /* WebDAVDirectoryQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A5BB09389B0D45DAA0B5AC /* WebDAVDirectoryQuotaTests.swift */; };
 		94BC98392B220B810D3AFA6B /* WebDAVMultistatusParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0991ED544EEA55E05E7105 /* WebDAVMultistatusParser.swift */; };
@@ -6808,6 +6809,7 @@
 				7258A33F2C23E7F16AA74120 /* RemoteMediaHTTPErrorTests.swift in Sources */,
 				78D190AF5491B9C620755A08 /* AIStreamingIntegrationTests.swift in Sources */,
 				871BB52B18E6A69DB42956B4 /* AIRequestQuotaTests.swift in Sources */,
+				A10A26C6396B47C01F9C7C45 /* SubsonicFavoriteWritebackTests.swift in Sources */,
 				B0A45D0509F793B43F56DE1D /* WebDAVDirectoryQuotaTests.swift in Sources */,
 				B657A64A7C5FE4309841ECDD /* MacOutputRoutingTests.swift in Sources */,
 				D05413CD64ACA16198D30C73 /* CrossFeatureQuotaTests.swift in Sources */,

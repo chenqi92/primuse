@@ -72,8 +72,8 @@ public struct FnMusicLibraryClient: Sendable {
             log("stage=index result=\(result) listed=\(index.listedCount) usable=\(summaries.count) invalid=\(index.invalidCount)")
             stage = "detail"
             var trackIDs: [String: PlaylistTracks] = [:]
-            // Only incomplete/moving snapshots get another reconciliation pass.
-            // HTTP, transport and authentication already exhausted their request budget.
+            // Exhausted HTTP failures must not restart their request budget.
+            // A later reconciliation pass can recover a replaced session or connection.
             var exhaustedRequests = Set<String>()
             for attempt in 1...2 {
                 for summary in summaries where trackIDs[summary.id] == nil && !exhaustedRequests.contains(summary.id) {
@@ -86,7 +86,7 @@ public struct FnMusicLibraryClient: Sendable {
                         })
                     } catch {
                         if OperationCancellationPolicy.isCancellation(error) { throw CancellationError() }
-                        if error is HTTPResponseFailure || error is URLError || error as? FnMusicServiceError == .authenticationFailed {
+                        if error is HTTPResponseFailure {
                             exhaustedRequests.insert(summary.id)
                         }
                         log("stage=detail result=failed \(context) \(LogRedactionPolicy.errorSummary(error))")

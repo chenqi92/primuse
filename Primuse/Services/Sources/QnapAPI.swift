@@ -188,7 +188,8 @@ actor QnapAPI {
             (data, _) = try await executor.execute(replay: .idempotent) { [session = session()] in
                 try await TrustedHTTPTransport.data(from: url, session: session)
             }
-        } catch let failure as HTTPResponseFailure where failure.statusCode == 401 {
+        } catch let failure as HTTPResponseFailure where [401, 403].contains(failure.statusCode)
+            && failure.retryAfter == nil && !failure.isRateLimited {
             invalidateSession()
             throw SourceError.authenticationFailed
         }

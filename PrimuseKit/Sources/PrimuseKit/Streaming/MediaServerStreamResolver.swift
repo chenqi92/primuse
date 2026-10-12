@@ -183,8 +183,15 @@ public actor MediaServerStreamResolver: StreamResolver {
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         let executor = ServerRequestScheduler.shared.executor(baseURL: base, account: "plex:" + SHA256.hash(data: Data(token.utf8)).map { String(format: "%02x", $0) }.joined())
         let request = req
-        let (data, response) = try await executor.execute(replay: .idempotent) { [session] in
-            try await StreamResolverHTTPTransport.data(for: request, session: session)
+        let data: Data
+        let response: HTTPURLResponse
+        do {
+            (data, response) = try await executor.execute(replay: .idempotent) { [session] in
+                try await StreamResolverHTTPTransport.data(for: request, session: session)
+            }
+        } catch let failure as HTTPResponseFailure where [401, 403].contains(failure.statusCode)
+            && failure.retryAfter == nil && !failure.isRateLimited {
+            throw StreamResolveError.authFailed
         }
         try Self.checkAuth(response)
         guard let key = Self.parsePlexPartKey(data) else { throw StreamResolveError.cannotBuildURL }

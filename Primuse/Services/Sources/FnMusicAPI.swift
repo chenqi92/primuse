@@ -573,7 +573,7 @@ actor FnMusicAPI {
         guard let http = response as? HTTPURLResponse else {
             throw SourceError.connectionFailed(PMString("error.catalog.missingHTTPResponse"))
         }
-        if method == "GET", !(200...299).contains(http.statusCode), http.statusCode != 401 {
+        if method == "GET", !(200...299).contains(http.statusCode), (http.statusCode != 401 && http.statusCode != 403 || HTTPResponseFailure.retryDelay(from: http) != nil) {
             throw HTTPResponseFailure(statusCode: http.statusCode, body: data,
                                       retryAfter: HTTPResponseFailure.retryDelay(from: http))
         }

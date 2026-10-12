@@ -36,6 +36,18 @@ struct FnMusicLibraryTests {
         #expect(fixture.requests.filter { $0.url?.path.hasSuffix("/track/playlist-detail/list") == true }.count == 53)
     }
 
+    @Test(arguments: [0, 401])
+    func reconciliationStillRecoversTransportAndAuthenticationFailures(status: Int) async throws {
+        let fixture = FnMusicLibraryFixture(transientDetailFailures: ["p1": status == 0 ? 3 : 2], detailFailureStatus: status)
+        fixture.setPage("/playlist/list", page: 1, list: [["guid": "p1", "name": "List"]], total: 1)
+        fixture.setPage("/track/playlist-detail/list", playlist: "p1", page: 1, list: [["guid": "s1"]], total: 1)
+        let (client, _, _) = fixture.clients()
+        let snapshot = try await client.library.playlists()
+        #expect(snapshot.failedPlaylistIDs.isEmpty)
+        #expect(snapshot.playlists.first?.trackIDs == ["s1"])
+        #expect(fixture.requests.filter { $0.url?.path.hasSuffix("/track/playlist-detail/list") == true }.count == (status == 0 ? 4 : 3))
+    }
+
     @Test func exhaustedHTTPBudgetDoesNotRestartAtThePlaylistLayer() async throws {
         let fixture = FnMusicLibraryFixture(transientDetailFailures: ["p1": 10])
         fixture.setPage("/playlist/list", page: 1, list: [["guid": "p1", "name": "List 1"]], total: 1)
@@ -599,6 +611,7 @@ private final class FnMusicLibraryFixture: @unchecked Sendable {
     private var tokenByDevice: [String: String] = [:]
     private var unauthorized = 0
     private var transientDetailFailures: [String: Int]
+    private let detailFailureStatus: Int
     private var loginCount = 0
     private var recorded: [URLRequest] = []
     var requests: [URLRequest] { lock.withLock { recorded } }
@@ -609,12 +622,14 @@ private final class FnMusicLibraryFixture: @unchecked Sendable {
     init(
         enforcesDeviceSessions: Bool = false,
         transientDetailFailures: [String: Int] = [:],
+        detailFailureStatus: Int = 500,
         favorites: [String] = [],
         ignoresFavoriteWrites: Bool = false,
         streamError: Int? = nil
     ) {
         self.enforcesDeviceSessions = enforcesDeviceSessions
         self.transientDetailFailures = transientDetailFailures
+        self.detailFailureStatus = detailFailureStatus
         self.favorites = favorites
         self.ignoresFavoriteWrites = ignoresFavoriteWrites
         self.streamError = streamError
@@ -673,7 +688,7 @@ private final class FnMusicLibraryFixture: @unchecked Sendable {
             if path == "/track/playlist-detail/list", let playlist = query["playlistGUID"],
                let remaining = transientDetailFailures[playlist], remaining > 0 {
                 transientDetailFailures[playlist] = remaining - 1
-                return (500, headers, Data())
+                return (detailFailureStatus, headers, Data())
             }
             if path == "/track/stream" {
                 if let streamError, loginCount == 1 {
@@ -730,6 +745,9 @@ private final class FnMusicLibraryURLProtocol: URLProtocol, @unchecked Sendable 
             return
         }
         let (status, headers, data) = fixture.response(request)
+        if status == 0 {
+            client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost)); return
+        }
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: headers)!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)

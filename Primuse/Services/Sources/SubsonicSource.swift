@@ -1923,7 +1923,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         do {
             container = try await responseJSON(method, query: query)
         } catch let statusError as SubsonicHTTPStatusError {
-            if statusError.statusCode == 401 { throw SourceError.authenticationFailed }
+            if [401, 403].contains(statusError.statusCode) { throw SourceError.authenticationFailed }
             if let failure = statusError.failure { throw failure }
             throw SourceError.connectionFailed("HTTP \(statusError.statusCode)")
         }

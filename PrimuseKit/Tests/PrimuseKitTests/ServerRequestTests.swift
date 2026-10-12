@@ -4,7 +4,57 @@ import Testing
 
 @Suite("Shared media-server request quotas", .serialized)
 struct ServerRequestTests {
-    @Test(arguments: [429, 503, 403, 404])
+    @Test(arguments: [401, 403])
+    func plexAuthenticationFailureKeepsPlaybackContract(status: Int) async throws {
+        let host = UUID().uuidString + ".invalid"
+        ServerQuotaProtocol.configure(host: host, status: status)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [ServerQuotaProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let resolver = MediaServerStreamResolver(session: session)
+        let source = MusicSource(name: "fixture", type: .plex, host: host, useSsl: true)
+        let song = Song(id: "song", title: "Song", fileFormat: .flac, filePath: "42", sourceID: source.id)
+        await #expect(throws: StreamResolveError.authFailed) {
+            _ = try await resolver.streamURL(for: song, source: source, credential: .init(token: "fixture"))
+        }
+        #expect(ServerQuotaProtocol.readCount(host: host) == 1)
+    }
+
+    @Test func slowServerPageRetainsTheResourceTimeout() async throws {
+        let clock = ControlledClock()
+        let scheduler = ServerRequestScheduler(timing: clock.timing)
+        let executor = scheduler.executor(baseURL: URL(string: "https://slow.invalid")!, account: "fixture")
+        let read = Task {
+            try await executor.execute(operation: {
+                try await clock.timing.sleep(90)
+                return "complete page"
+            })
+        }
+        try await clock.waitForSleep(at: 90)
+        clock.advance(to: 61)
+        for _ in 0..<100 { await Task.yield() }
+        clock.advance(to: 90)
+        #expect(try await read.value == "complete page")
+    }
+
+    @Test func fnMusicForbiddenRenewsOnceAndKeepsAuthenticationFailure() async throws {
+        let host = UUID().uuidString + ".invalid"
+        ServerQuotaProtocol.configure(host: host, status: 403)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [ServerQuotaProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let source = MusicSource(name: "fixture", type: .fnMusic, host: host, useSsl: true, username: "qa")
+        let client = FnMusicServiceClient(source: source, credential: .init(username: "qa", password: "fixture"), session: session)
+        await #expect(throws: FnMusicServiceError.authenticationFailed) {
+            _ = try await client.trackPage(page: 1, size: 1)
+        }
+        #expect(ServerQuotaProtocol.loginCount(host: host) == 2)
+        #expect(ServerQuotaProtocol.readCount(host: host) == 2)
+    }
+
+    @Test(arguments: [429, 503, 404])
     func fnMusicClientsRetainHTTPStatusAndShareQuota(status: Int) async throws {
         let host = UUID().uuidString + ".invalid"
         ServerQuotaProtocol.configure(host: host, status: status)
@@ -22,7 +72,7 @@ struct ServerRequestTests {
             } catch { Issue.record("Lost HTTP failure: \(error)") }
         }
         #expect(ServerQuotaProtocol.readCount(host: host) == (status == 429 || status == 503 ? 1 : 2))
-        #expect(ServerQuotaProtocol.loginCount(host: host) == 2, "403/404 must not renew an authenticated session")
+        #expect(ServerQuotaProtocol.loginCount(host: host) == 2, "404 must not renew an authenticated session")
     }
 
     @Test func plexMetadataResolversShareCooldown() async throws {

@@ -353,7 +353,7 @@ actor UgreenAPI {
         return allItems
     }
 
-    /// 仅端点缺失或不兼容的成功响应允许退回 v1; 限流、权限与取消直接交给调用方。
+    /// v2 是可选固件接口；除冷却和取消外均交回 v1 识别权限与会话。
     private func listPageV2(path: String, page: Int, limit: Int, headers: [String: String]) async throws -> [String: Any]? {
         guard let url = URL(string: "\(baseURLString)/ugreen/v2/filemgr/getDirFileListV2") else { return nil }
         // pewee 默认 body + 额外补 path(逆向未证实字段名, 不符则上层退回 v1)。
@@ -369,10 +369,14 @@ actor UgreenAPI {
         hdrs["referer"] = "\(baseURLString)/filemgr/?_filemgr=primuse"
         let data: Data
         do { (data, _) = try await postJSONResponse(url: url, body: body, extraHeaders: hdrs) }
-        catch let failure as HTTPResponseFailure where [404, 405, 501].contains(failure.statusCode) {
-            return nil // This endpoint is unavailable on the current firmware.
+        catch {
+            if OperationCancellationPolicy.isCancellation(error) { throw CancellationError() }
+            if let failure = error as? HTTPResponseFailure,
+               failure.isRateLimited || [429, 503].contains(failure.statusCode) || failure.retryAfter != nil {
+                throw failure
+            }
+            return nil // v1 owns authentication recovery on older firmware.
         }
-        // Cancellation, permission and transient failures must not disable v2.
 
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
         guard intValue(json["code"]) == 200, let dataDict = json["data"] as? [String: Any] else {
