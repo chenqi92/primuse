@@ -455,26 +455,45 @@ extension AudioPlayerService {
         let position = live
             ? currentTime
             : (SpokenWordStore.shared.position(forSongID: song.id)?.position ?? 0)
-        return SpokenWordNowPlayingPolicy.summary(
-            book: currentSpokenWordBook,
+        let book = currentSpokenWordBook
+        let itemDuration = duration > 0 ? duration : song.duration
+        let chapterCount = spokenWordChapters.count
+        let chapterIndex = currentChapterIndex
+        // The chapter column asks on every redraw, and the player sliding in
+        // or out redraws it every frame: adding up a book of a thousand parts
+        // each time drops frames. The book is a function of its cache key.
+        let key = "\(spokenWordBookCache?.key ?? song.id)|\(position)|\(itemDuration)"
+            + "|\(chapterCount)|\(chapterIndex ?? -1)"
+        if let cache = spokenWordSummaryCache, cache.key == key { return cache.summary }
+        let summary = SpokenWordNowPlayingPolicy.summary(
+            book: book,
             currentItemID: song.id,
             position: position,
-            duration: duration > 0 ? duration : song.duration,
-            chapterCount: spokenWordChapters.count,
-            currentChapterIndex: currentChapterIndex
+            duration: itemDuration,
+            chapterCount: chapterCount,
+            currentChapterIndex: chapterIndex
         )
+        spokenWordSummaryCache = (key, summary)
+        return summary
     }
 
     /// "第 12 / 120 章" alone, without the whole-book progress the summary
     /// adds up: the mini player shows it on a line that redraws with the clock.
     var spokenWordPartPosition: SpokenWordPartPosition? {
         guard let song = currentSong, currentItemIsSpokenWord, !isLiveRadio else { return nil }
-        return SpokenWordNowPlayingPolicy.partPosition(
-            bookItemIDs: currentSpokenWordBook?.items.map(\.id),
+        let book = currentSpokenWordBook
+        let chapterCount = spokenWordChapters.count
+        let chapterIndex = currentChapterIndex
+        let key = "\(spokenWordBookCache?.key ?? song.id)|\(chapterCount)|\(chapterIndex ?? -1)"
+        if let cache = spokenWordPartPositionCache, cache.key == key { return cache.part }
+        let part = SpokenWordNowPlayingPolicy.partPosition(
+            bookItemIDs: book?.items.map(\.id),
             currentItemID: song.id,
-            chapterCount: spokenWordChapters.count,
-            currentChapterIndex: currentChapterIndex
+            chapterCount: chapterCount,
+            currentChapterIndex: chapterIndex
         )
+        spokenWordPartPositionCache = (key, part)
+        return part
     }
 
     /// The contents list of the playing book.

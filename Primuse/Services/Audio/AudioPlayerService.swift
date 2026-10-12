@@ -1203,6 +1203,12 @@ final class AudioPlayerService {
     /// The current book's items in queue order, with the key they were
     /// collected for. See `currentBookItemIDs`.
     @ObservationIgnored var currentBookItemIDsCache: (key: String, ids: [String])?
+    /// The whole-book summary at the stored position, with the key it was
+    /// added up for. See `spokenWordNowPlayingSummary(live:)`.
+    @ObservationIgnored var spokenWordSummaryCache: (key: String, summary: SpokenWordNowPlayingSummary)?
+    /// The playing part's place in the book, with its key. See
+    /// `spokenWordPartPosition`.
+    @ObservationIgnored var spokenWordPartPositionCache: (key: String, part: SpokenWordPartPosition?)?
 
     // MARK: - Medley
 
