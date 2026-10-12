@@ -3,6 +3,45 @@ import Testing
 @testable import PrimuseKit
 
 @Suite struct PlexAccountQuotaTests {
+    @Test(arguments: ["3600", "1000000000000000000000000000000"])
+    func cooldownBeyondCreatedPINLifetimeFailsWithoutSleeping(header: String) async throws {
+        let clock = PlexPollClock()
+        let wire = PlexQuotaWire(replies: [
+            .init(body: #"{"id":1,"code":"short","expiresIn":10}"#),
+            .init(status: 429, headers: ["Retry-After": header]),
+            .init(body: #"{"id":1,"code":"short","authToken":"too-late"}"#)
+        ], clock: clock)
+        let client = makeClient(wire, clock: clock)
+        let pin = try await client.createPin(strong: false)
+        await #expect(throws: HTTPResponseFailure.self) { _ = try await client.waitForToken(pinIDs: [pin.id]) }
+        #expect(await wire.requests.count == 2)
+        #expect(clock.now == 2, "An expired-before-retry PIN cannot hold the sign-in screen open")
+    }
+
+    @Test func pendingResponseExpiryStopsBeforeTheNextPoll() async throws {
+        let clock = PlexPollClock()
+        let wire = PlexQuotaWire(replies: [
+            .init(body: #"{"id":1,"code":"short","expiresIn":1}"#),
+            .init(body: #"{"id":1,"code":"short","authToken":"too-late"}"#)
+        ], clock: clock)
+        await #expect(throws: PlexAccountError.pinExpired) {
+            _ = try await makeClient(wire, clock: clock).waitForToken(pinIDs: [1])
+        }
+        #expect(await wire.requests.count == 1)
+    }
+
+    @Test func repeatedServiceUnavailableExhaustsFiveFailureBudget() async throws {
+        let clock = PlexPollClock()
+        let wire = PlexQuotaWire(replies: Array(repeating: .init(status: 503), count: 5) + [
+            .init(body: #"{"id":1,"code":"short","authToken":"unexpected-sixth-poll"}"#)
+        ], clock: clock)
+        await #expect(throws: HTTPResponseFailure.self) {
+            _ = try await makeClient(wire, clock: clock).waitForToken(pinIDs: [1])
+        }
+        #expect(await wire.requests.count == 5)
+        #expect(clock.now == 122)
+    }
+
     @Test func longCooldownIsSharedAcrossPINsAndAccountResources() async throws {
         let wire = PlexQuotaWire(status: 429, headers: ["Retry-After": "3600"])
         let client = PlexAccountClient(clientIdentifier: UUID().uuidString, platform: "test", deviceName: "fixture", version: "1", loader: { try await wire.send($0) })
@@ -21,9 +60,9 @@ import Testing
     }
 
     @Test(arguments: [false, true])
-    func pollingHonorsRepeatedLongCooldownsForSingleAndMultiplePINs(multiple: Bool) async throws {
+    func pollingHonorsRepeatedCooldownsWithinPINLifetime(multiple: Bool) async throws {
         let clock = PlexPollClock()
-        let wire = PlexQuotaWire(replies: Array(repeating: .init(status: 429, headers: ["Retry-After": "172800"]), count: 6) +
+        let wire = PlexQuotaWire(replies: Array(repeating: .init(status: 429, headers: ["Retry-After": "10"]), count: 6) +
             (multiple ? [.init(body: #"{"id":1,"code":"pending"}"#)] : []) +
             [.init(body: #"{"id":2,"code":"ok","authToken":"authorized"}"#)], clock: clock)
         let client = makeClient(wire, clock: clock)
@@ -32,7 +71,7 @@ import Testing
         let times = await wire.times
         #expect(times.count == (multiple ? 8 : 7))
         #expect(times.first == 2)
-        #expect(times[6] == 1_036_802, "Six two-day cooldowns must not be clipped or exhaust the failure budget")
+        #expect(times[6] == 62, "Genuine quotas within the PIN lifetime must not exhaust the service-failure budget")
     }
 
     @Test(arguments: [429, 503])
@@ -110,7 +149,7 @@ import Testing
 
     @Test func cancellationInterruptsLongCooldown() async throws {
         let clock = PlexPollClock()
-        let wire = PlexQuotaWire(status: 429, headers: ["Retry-After": "3600"])
+        let wire = PlexQuotaWire(status: 429, headers: ["Retry-After": "60"])
         let timing = RequestExecutor.Timing(now: { clock.now }, sleep: { seconds in
             if seconds > 10 {
                 clock.markWaiting()

@@ -253,7 +253,7 @@ struct PlexAccountTests {
          "expiresIn":1800,"createdAt":"2026-10-01T22:39:52Z","expiresAt":"2026-10-01T23:09:52Z",
          "authToken":null,"newRegistration":null}
         """.utf8))
-        #expect(web == PlexPin(id: 1_899_765_704, code: "l91xft5ypr1n7588alsymxoy8", authToken: nil))
+        #expect(web == PlexPin(id: 1_899_765_704, code: "l91xft5ypr1n7588alsymxoy8", authToken: nil, expiresIn: 1800))
 
         let link = try JSONDecoder().decode(PlexPin.self, from: Data("""
         {"id":1438747364,"code":"9WKP","product":"Primuse","trusted":false,"qr":"https://plex.tv/api/v2/pins/qr/9WKP",
@@ -262,6 +262,7 @@ struct PlexAccountTests {
         """.utf8))
         #expect(link.code == "9WKP")
         #expect(link.authToken == nil)
+        #expect(link.expiresIn == 900)
 
         let authorized = try JSONDecoder().decode(PlexPin.self, from: Data("""
         {"id":"5123","code":"ab12cd","authToken":"account-token"}

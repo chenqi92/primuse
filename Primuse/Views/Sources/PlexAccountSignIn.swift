@@ -167,6 +167,10 @@ final class PlexAccountSignInModel {
     }
 
     private static func message(for error: Error) -> String {
+        if let failure = error as? HTTPResponseFailure,
+           failure.isRateLimited || failure.statusCode == 429 || failure.retryAfter != nil {
+            return failure.localizedDescription
+        }
         switch error as? PlexAccountError {
         case .pinExpired?:
             return String(localized: "plex_signin_error_expired")
