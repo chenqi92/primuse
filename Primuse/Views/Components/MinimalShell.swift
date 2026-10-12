@@ -82,17 +82,30 @@ extension EnvironmentValues {
     }
 }
 
+/// 栏下面滚动内容的收边方式。
+enum MinimalBarEdgeEffect {
+    /// 柔和淡出：栏不高时用。
+    case soft
+    /// 整段压实、底边一条分隔：栏叠得高（顶栏加页头），柔和淡出到最下面一行已经淡没了，
+    /// 内容会直接压在那一行的字和按钮下面。
+    case hard
+}
+
 extension View {
-    /// 极简外壳的上下栏。iOS 26 起用 `safeAreaBar`，滚动内容在栏下面柔和地淡出；
+    /// 极简外壳的上下栏。iOS 26 起用 `safeAreaBar`，滚动内容在栏下面收边；
     /// 更早的系统退回 `safeAreaInset`，栏自己铺一层底，免得列表从字底下透出来。
     @ViewBuilder
     func minimalSafeAreaBar<Bar: View>(
         edge: VerticalEdge,
+        edgeEffect: MinimalBarEdgeEffect = .soft,
         @ViewBuilder content: () -> Bar
     ) -> some View {
         if #available(iOS 26.0, *) {
             safeAreaBar(edge: edge, spacing: 0, content: content)
-                .scrollEdgeEffectStyle(.soft, for: edge == .top ? .top : .bottom)
+                .scrollEdgeEffectStyle(
+                    edgeEffect == .hard ? .hard : .soft,
+                    for: edge == .top ? .top : .bottom
+                )
         } else {
             safeAreaInset(edge: edge, spacing: 0) {
                 content().background(.bar)
@@ -461,7 +474,8 @@ private struct MinimalPageHeaderModifier<Header: View>: ViewModifier {
         if isMinimalRoot {
             content
                 .environment(findState)
-                .minimalSafeAreaBar(edge: .top) {
+                // 页头叠在顶栏下面，整段栏很高：用实边，列表滚上来不会压在页头的字底下。
+                .minimalSafeAreaBar(edge: .top, edgeEffect: .hard) {
                     header()
                         .environment(findState)
                         .padding(.leading, 16)
