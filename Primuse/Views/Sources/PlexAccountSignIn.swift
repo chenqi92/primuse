@@ -24,8 +24,6 @@ final class PlexAccountSignInModel {
 
     private struct AuthorizationPageDismissed: Error {}
 
-    /// 轮询途中网络抖一下不该让整次登录失败，连续失败这么多次才放弃。
-    private static let maximumConsecutivePollFailures = 5
     #if os(iOS)
     /// 网页登录面板要一个回调 scheme，但授权页不会跳回来（见 `PlexAccountAPI.authorizationPageURL`），
     /// 面板靠轮询拿到 token 后关掉。
@@ -124,25 +122,10 @@ final class PlexAccountSignInModel {
     }
 
     private func waitForToken(pinID: Int, client: PlexAccountClient) async throws -> String {
-        var consecutiveFailures = 0
-        while true {
-            try await Task.sleep(for: PlexAccountAPI.pollInterval)
-            // 授权页关掉之后再查最后一次：用户可能是点完「允许」才关的。
-            let pageWasClosed = authorizationPageClosed
-            do {
-                let pin = try await client.checkPin(id: pinID)
-                consecutiveFailures = 0
-                if let token = pin.authToken { return token }
-            } catch let error as PlexAccountError where error == .pinExpired || error == .unauthorized {
-                throw error
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                consecutiveFailures += 1
-                if consecutiveFailures >= Self.maximumConsecutivePollFailures { throw error }
-            }
-            if pageWasClosed { throw AuthorizationPageDismissed() }
-        }
+        guard let token = try await client.waitForToken(pinIDs: [pinID], authorizationPageClosed: { [weak self] in
+            await self?.authorizationPageClosed ?? true
+        }) else { throw AuthorizationPageDismissed() }
+        return token
     }
 
     private func openAuthorizationPage(_ url: URL) {

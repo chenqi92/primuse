@@ -621,7 +621,7 @@ public enum PlexAccountError: Error, Equatable, Sendable {
     case invalidResponse
 }
 
-/// plex.tv 上的几个请求。不缓存、不重试，节奏由调用方决定。
+/// Plex account requests share admission and cooldown across PINs and resources.
 public struct PlexAccountClient: Sendable {
     public typealias DataLoader = @Sendable (URLRequest) async throws -> (Data, URLResponse)
 
@@ -630,18 +630,33 @@ public struct PlexAccountClient: Sendable {
     public let deviceName: String
     public let version: String
     private let loader: DataLoader
+    private let quotaRegistry: RequestQuotaRegistry
+    private let pollingTiming: RequestExecutor.Timing
+    private static let service = RequestQuota.Service(id: "plex.account", policy: .init(
+        maximumConcurrentRequests: 1, maximumAttempts: 2, timeout: 40
+    ))
+
+    // plex.tv and clients.plex.tv spend the same device/account-service quota.
+    private var quota: RequestQuota {
+        RequestQuota(service: Self.service, url: PlexAccountAPI.pinsURL,
+                     account: .init(stableID: clientIdentifier))!
+    }
 
     public init(
         clientIdentifier: String,
         platform: String,
         deviceName: String,
         version: String,
-        loader: DataLoader? = nil
+        loader: DataLoader? = nil,
+        quotaRegistry: RequestQuotaRegistry = .shared,
+        pollingTiming: RequestExecutor.Timing = .init()
     ) {
         self.clientIdentifier = clientIdentifier
         self.platform = platform
         self.deviceName = deviceName
         self.version = version
+        self.quotaRegistry = quotaRegistry
+        self.pollingTiming = pollingTiming
         if let loader {
             self.loader = loader
         } else {
@@ -695,14 +710,77 @@ public struct PlexAccountClient: Sendable {
     }
 
     private func send(_ request: URLRequest) async throws -> Data {
-        let (data, response) = try await loader(request)
-        guard let http = response as? HTTPURLResponse else { throw PlexAccountError.invalidResponse }
-        switch http.statusCode {
-        case 200...299: return data
-        case 401, 403: throw PlexAccountError.unauthorized
-        case 404: throw PlexAccountError.pinExpired
-        case 429: throw PlexAccountError.rateLimited
-        default: throw PlexAccountError.badStatus(http.statusCode)
+        do {
+            let result = try await quotaRegistry.execute(
+                for: quota, replay: request.httpMethod == "POST" ? .never : .idempotent
+            ) { try await loader(request) }
+            return result.data
+        } catch let failure as HTTPResponseFailure {
+            switch failure.statusCode {
+            case 401, 403: throw PlexAccountError.unauthorized
+            case 404: throw PlexAccountError.pinExpired
+            default:
+                // The poller must also know the default cooldown when the server
+                // throttles without a header. The registry owns the actual deadline.
+                if failure.retryAfter == nil,
+                   Self.service.policy.rateLimitStatusCodes.contains(failure.statusCode) {
+                    throw HTTPResponseFailure(statusCode: failure.statusCode, body: failure.body,
+                                              retryAfter: Self.service.policy.defaultCooldown)
+                }
+                throw failure
+            }
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
+        }
+    }
+
+    /// Shared single-/multi-PIN authorization loop. A closed authorization page
+    /// gets one final normal poll; during server cooldown it ends without a request.
+    /// `nil` means the page closed before authorization. Cancelling always throws.
+    public func waitForToken(
+        pinIDs: [Int],
+        authorizationPageClosed: (@Sendable () async -> Bool)? = nil
+    ) async throws -> String? {
+        guard !pinIDs.isEmpty else { throw PlexAccountError.invalidResponse }
+        let components = PlexAccountAPI.pollInterval.components
+        let interval = Double(components.seconds) + Double(components.attoseconds) / 1e18
+        var consecutiveFailures = 0
+        var delay = interval
+        var coolingDown = false
+        while true {
+            let deadline = pollingTiming.now() + delay
+            repeat {
+                try Task.checkCancellation()
+                if coolingDown, await authorizationPageClosed?() == true { return nil }
+                let remaining = deadline - pollingTiming.now()
+                if remaining <= 0 { break }
+                // Observe page dismissal during long cooldowns without sending HTTP.
+                try await pollingTiming.sleep(authorizationPageClosed == nil ? remaining : min(interval, remaining))
+            } while pollingTiming.now() < deadline
+            try Task.checkCancellation()
+            let pageWasClosed = await authorizationPageClosed?() == true
+            do {
+                for id in pinIDs {
+                    if let token = try await checkPin(id: id).authToken { return token }
+                }
+                consecutiveFailures = 0
+                delay = interval
+                coolingDown = false
+            } catch let error as PlexAccountError where error == .pinExpired || error == .unauthorized {
+                throw error
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let failure as HTTPResponseFailure where (failure.retryAfter ?? 0) > 0 {
+                // Waiting for the server is not a failed authorization attempt.
+                delay = max(interval, failure.retryAfter!)
+                coolingDown = true
+            } catch {
+                consecutiveFailures += 1
+                if consecutiveFailures >= 5 { throw error }
+                delay = interval
+                coolingDown = false
+            }
+            if pageWasClosed { return nil }
         }
     }
 
