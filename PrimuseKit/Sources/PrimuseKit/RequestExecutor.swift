@@ -20,7 +20,7 @@ public struct HTTPResponseFailure: Error, Sendable, LocalizedError {
         self.isRetryable = isRetryable
     }
 
-    public var errorDescription: String? { "HTTP \(statusCode)" }
+    public var errorDescription: String? { PMString("ext.tv.playback.httpError", statusCode) }
 
     public static func retryDelay(from response: HTTPURLResponse, now: Date = Date()) -> TimeInterval? {
         guard let value = response.value(forHTTPHeaderField: "Retry-After")?
