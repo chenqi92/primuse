@@ -359,6 +359,7 @@ targets:
     platform: macOS
     sources:
       - path: PrimuseMacTests
+      - path: PrimuseTests/DirectoryScanCooldownTests.swift
       - path: PrimuseTests/CloudRequestTests.swift
       - path: PrimuseTests/BaiduWriteReplayTests.swift
       - path: PrimuseTests/WebDAVDirectoryQuotaTests.swift
