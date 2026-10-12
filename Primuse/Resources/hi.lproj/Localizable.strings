@@ -4730,6 +4730,7 @@
 "karaoke_remote_failed" = "Apple TV तक नहीं पहुँच सके। पक्का करें कि दोनों एक ही नेटवर्क पर हैं।";
 "karaoke_remote_hint" = "iPhone को मुँह के पास रखें। आपकी आवाज़ कमरे में वैसे ही सुनाई देगी; iPhone सिर्फ़ स्कोर देता है।";
 "karaoke_tv_ai_local" = "Apple TV पर AI पृथक्करण";
+"karaoke_tv_ai_local_hint" = "यह Apple TV खुद ही आवाज़ अलग करता है। पहली बार मॉडल तैयार करना पड़ता है; अगर यह नहीं हो पाया तो धीमा तरीका इस्तेमाल होगा और एक गाने में काफ़ी समय लग सकता है। जल्दी चाहिए तो कोड स्कैन करके iPhone को माइक्रोफ़ोन बनाएँ और iPhone से अलग करवाएँ।";
 "karaoke_tv_ai_active" = "iPhone से AI वोकल सेपरेशन चालू है।";
 "karaoke_tv_ai_preparing_format" = "iPhone वोकल अलग कर रहा है… %d%%";
 "karaoke_remote_ai_preparing" = "TV के लिए AI वोकल";
@@ -4753,6 +4754,8 @@
 "karaoke_finish_needs_singing" = "पहले एक-दो पंक्तियाँ गाएँ, फिर समाप्त करें";
 "karaoke_record_needs_microphone" = "रिकॉर्ड करने के लिए माइक चालू करें";
 "karaoke_ai_model_incomplete" = "AI मॉडल अधूरा है। इसे दोबारा डाउनलोड करने के लिए “फिर से कोशिश करें” पर टैप करें।";
+"karaoke_ai_separating_slow" = "धीमी गति से अलग किया जा रहा है";
+"karaoke_ai_cpu_fallback" = "पिछली बार मॉडल तैयार करते समय गड़बड़ी हुई, इसलिए यह डिवाइस मौजूदा सिस्टम पर धीमे तरीके से अलग करता है। सिस्टम अपडेट के बाद यह अपने आप फिर से कोशिश करेगा।";
 
 /* Listening spaces: music, radio and spoken word */
 "listening_space_music" = "संगीत";

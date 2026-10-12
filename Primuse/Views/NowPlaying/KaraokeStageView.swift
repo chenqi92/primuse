@@ -600,9 +600,12 @@ private struct KaraokeMixerCard: View {
                 switch session.currentSeparationState {
                 case .separating(let fraction):
                     let isCooling = session.songID.map { session.separation.coolingSongIDs.contains($0) } ?? false
+                    let separating = session.separation.runsModelOnCPU
+                        ? String(localized: "karaoke_ai_separating_slow")
+                        : String(localized: "karaoke_ai_separating")
                     state = isCooling
                         ? String(localized: "karaoke_ai_cooling")
-                        : "\(String(localized: "karaoke_ai_separating")) \(Self.percent(fraction))"
+                        : "\(separating) \(Self.percent(fraction))"
                 case .ready where session.isStemLocked:
                     state = String(localized: "karaoke_ai_active")
                 case .ready:
@@ -995,6 +998,13 @@ private struct KaraokeAISeparationRow: View {
                         .font(.footnote)
                         .foregroundStyle(.white.opacity(0.6))
                     }
+                    if showsCPUFallbackNote {
+                        Text("karaoke_ai_cpu_fallback")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.6))
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 Spacer(minLength: 8)
                 if let retry = retryAction {
@@ -1006,6 +1016,18 @@ private struct KaraokeAISeparationRow: View {
                     .labelsHidden()
             }
             .foregroundStyle(.white)
+        }
+    }
+
+    /// 上次准备模型时出了错、这个系统版本上改走慢的那条路：打开之前、等分离的时候说明为什么慢；
+    /// 分离完了就不再占地方。
+    private var showsCPUFallbackNote: Bool {
+        guard session.separation.runsModelOnCPU else { return false }
+        guard session.aiSeparationEnabled else { return true }
+        guard session.separation.modelState == .ready else { return false }
+        switch session.currentSeparationState {
+        case .separating, .idle, nil: return true
+        case .ready, .unsupported, .failed: return false
         }
     }
 
@@ -1044,10 +1066,7 @@ private struct KaraokeAISeparationRow: View {
     private var songStatus: some View {
         switch session.currentSeparationState {
         case .separating(let fraction):
-            progress(
-                isCooling ? String(localized: "karaoke_ai_cooling") : String(localized: "karaoke_ai_separating"),
-                fraction
-            )
+            progress(separatingTitle, fraction)
         case .ready where session.isStemLocked:
             Label("karaoke_ai_active", systemImage: "checkmark.circle.fill")
         case .ready:
@@ -1072,6 +1091,13 @@ private struct KaraokeAISeparationRow: View {
 
     private var isCooling: Bool {
         session.songID.map { session.separation.coolingSongIDs.contains($0) } ?? false
+    }
+
+    private var separatingTitle: String {
+        if isCooling { return String(localized: "karaoke_ai_cooling") }
+        return session.separation.runsModelOnCPU
+            ? String(localized: "karaoke_ai_separating_slow")
+            : String(localized: "karaoke_ai_separating")
     }
 
     private func progress(_ title: String, _ fraction: Double) -> some View {

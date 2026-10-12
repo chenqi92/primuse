@@ -4730,6 +4730,7 @@
 "karaoke_remote_failed" = "تعذّر الوصول إلى Apple TV. تأكد من أن الجهازين على الشبكة نفسها.";
 "karaoke_remote_hint" = "أمسك iPhone قرب فمك. يُسمع صوتك في الغرفة كالمعتاد، وiPhone يقيّم فقط.";
 "karaoke_tv_ai_local" = "فصل الصوت بالذكاء الاصطناعي على Apple TV";
+"karaoke_tv_ai_local_hint" = "يفصل جهاز Apple TV هذا الصوت بنفسه. في المرة الأولى يجب تجهيز النموذج؛ وإذا فشل ذلك ينتقل إلى طريقة أبطأ وقد تستغرق الأغنية الواحدة وقتًا طويلًا. للحصول على نتيجة أسرع، امسح الرمز لاستخدام iPhone كميكروفون ودَع iPhone يتولى الفصل.";
 "karaoke_tv_ai_active" = "فصل الصوت بالذكاء الاصطناعي من iPhone مفعّل.";
 "karaoke_tv_ai_preparing_format" = "يفصل iPhone الصوت… %d%%";
 "karaoke_remote_ai_preparing" = "تحضير الصوت للتلفاز";
@@ -4753,6 +4754,8 @@
 "karaoke_finish_needs_singing" = "غنِّ سطرًا أو سطرين أولًا ثم أنهِ";
 "karaoke_record_needs_microphone" = "شغّل الميكروفون للتسجيل";
 "karaoke_ai_model_incomplete" = "نموذج الذكاء الاصطناعي غير مكتمل. اضغط «إعادة المحاولة» لتنزيله مرة أخرى.";
+"karaoke_ai_separating_slow" = "جارٍ الفصل ببطء";
+"karaoke_ai_cpu_fallback" = "حدث خطأ في المرة السابقة أثناء تجهيز النموذج، لذا يفصل هذا الجهاز بطريقة أبطأ على إصدار النظام الحالي. سيحاول مرة أخرى تلقائيًا بعد تحديث النظام.";
 
 /* Listening spaces: music, radio and spoken word */
 "listening_space_music" = "الموسيقى";

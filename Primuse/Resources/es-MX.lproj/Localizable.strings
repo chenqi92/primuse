@@ -4730,6 +4730,7 @@
 "karaoke_remote_failed" = "No se pudo conectar con Apple TV. Comprueba que ambos estén en la misma red.";
 "karaoke_remote_hint" = "Sostén el iPhone cerca de la boca. Tu voz se oye en la sala como siempre; el iPhone solo la califica.";
 "karaoke_tv_ai_local" = "Separación con IA en Apple TV";
+"karaoke_tv_ai_local_hint" = "Este Apple TV separa la voz por sí mismo. La primera vez tiene que preparar el modelo; si falla, cambia a un método más lento y una canción puede tardar mucho. Para ir más rápido, escanea el código para usar tu iPhone como micrófono y deja que el iPhone separe.";
 "karaoke_tv_ai_active" = "Separación vocal con IA del iPhone activada.";
 "karaoke_tv_ai_preparing_format" = "El iPhone está separando la voz… %d %%";
 "karaoke_remote_ai_preparing" = "Preparando voz IA para la TV";
@@ -4753,6 +4754,8 @@
 "karaoke_finish_needs_singing" = "Canta una o dos líneas antes de terminar";
 "karaoke_record_needs_microphone" = "Activa el micrófono para grabar";
 "karaoke_ai_model_incomplete" = "El modelo de IA está incompleto. Toca “Reintentar” para volver a descargarlo.";
+"karaoke_ai_separating_slow" = "Separando lentamente";
+"karaoke_ai_cpu_fallback" = "La última vez falló la preparación del modelo, así que en esta versión del sistema este dispositivo separa con un método más lento. Volverá a intentarlo automáticamente después de una actualización del sistema.";
 
 /* Listening spaces: music, radio and spoken word */
 "listening_space_music" = "Música";

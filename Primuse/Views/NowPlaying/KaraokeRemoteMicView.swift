@@ -406,6 +406,14 @@ struct KaraokeRemoteMicView: View {
             progressRow(String(localized: "karaoke_ai_downloading"), fraction)
         case .separating(let fraction):
             progressRow(String(localized: "karaoke_remote_ai_preparing"), fraction)
+            // 这台手机在当前系统上改走慢的那条路时，说明电视为什么要等这么久。
+            if KaraokeSeparationService.shared.runsModelOnCPU {
+                Text("karaoke_ai_cpu_fallback")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.6))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         case .sending:
             Label("karaoke_remote_ai_sending", systemImage: "arrow.up.circle")
                 .font(.footnote)

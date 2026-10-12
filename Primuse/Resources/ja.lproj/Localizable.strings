@@ -4825,6 +4825,7 @@
 "karaoke_remote_failed" = "Apple TVに接続できません。同じネットワークにあるか確認してください。";
 "karaoke_remote_hint" = "iPhoneを口元に持ってください。歌声はそのまま部屋に響き、iPhoneは採点だけします。";
 "karaoke_tv_ai_local" = "Apple TV で AI 音声分離";
+"karaoke_tv_ai_local_hint" = "この Apple TV 自身がボーカルを分離します。初回はモデルの準備が必要で、うまくいかない場合は低速な方法に切り替わり、1曲に長い時間がかかることがあります。速くしたいときは、コードを読み取って iPhone をマイクにすると、iPhone が分離します。";
 "karaoke_tv_ai_active" = "iPhoneのAIボーカル分離を使用中。";
 "karaoke_tv_ai_preparing_format" = "iPhoneでボーカルを分離中… %d%%";
 "karaoke_remote_ai_preparing" = "テレビ用にAIボーカルを準備中";
@@ -4848,6 +4849,8 @@
 "karaoke_finish_needs_singing" = "1〜2行歌うと終了できます";
 "karaoke_record_needs_microphone" = "録音するにはマイクをオンにしてください";
 "karaoke_ai_model_incomplete" = "AIモデルが不完全です。「再試行」でもう一度ダウンロードします。";
+"karaoke_ai_separating_slow" = "低速で分離中";
+"karaoke_ai_cpu_fallback" = "前回モデルの準備中に問題が起きたため、このデバイスは現在のシステムでは低速な方法で分離します。システムをアップデートすると自動で再試行します。";
 
 /* Listening spaces: music, radio and spoken word */
 "listening_space_music" = "ミュージック";

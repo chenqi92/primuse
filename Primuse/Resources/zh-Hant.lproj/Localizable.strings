@@ -4801,6 +4801,7 @@
 "karaoke_remote_failed" = "連不上 Apple TV，請確認兩台裝置在同一個網路。";
 "karaoke_remote_hint" = "把 iPhone 拿在嘴邊。歌聲照常唱給房間裡的人聽，手機只負責評分。";
 "karaoke_tv_ai_local" = "Apple TV 本機 AI 分離";
+"karaoke_tv_ai_local_hint" = "由這台 Apple TV 自己分離人聲。第一次要先為它準備模型，準備不成功會改用較慢的方式，一首歌可能要分離很久。想快一點，可以掃碼用 iPhone 當麥克風，讓 iPhone 來分離。";
 "karaoke_tv_ai_active" = "已使用 iPhone 提供的 AI 人聲分離。";
 "karaoke_tv_ai_preparing_format" = "iPhone 正在分離人聲… %d%%";
 "karaoke_remote_ai_preparing" = "正在為電視準備 AI 人聲";
@@ -4824,6 +4825,8 @@
 "karaoke_finish_needs_singing" = "唱完一兩句就能結算";
 "karaoke_record_needs_microphone" = "打開麥克風後才能錄音";
 "karaoke_ai_model_incomplete" = "AI 模型檔案不完整，點「重試」重新下載。";
+"karaoke_ai_separating_slow" = "正在慢速分離";
+"karaoke_ai_cpu_fallback" = "上次準備模型時出錯，這台裝置在目前系統上改用較慢的方式分離，系統更新後會自動再試。";
 
 /* Listening spaces: music, radio and spoken word */
 "listening_space_music" = "音樂";

@@ -131,8 +131,11 @@ enum KaraokeModelLoadGuard {
     /// Tells a mark this process left from one an earlier process left.
     private static let processToken = UUID().uuidString
 
-    /// Marks a load as running and returns the compute units it may use.
-    static func beginLoad() -> MLComputeUnits {
+    /// Whether the model runs on the CPU only on this system, for the
+    /// stage to say why separating is slow. Settles a mark an earlier
+    /// process left first, so the answer is right from launch, before the
+    /// next load.
+    static func runsOnCPUOnly() -> Bool {
         let defaults = UserDefaults.standard
         let system = ProcessInfo.processInfo.operatingSystemVersionString
         if let pending = defaults.dictionary(forKey: pendingKey) as? [String: String],
@@ -142,8 +145,17 @@ enum KaraokeModelLoadGuard {
             defaults.set(system, forKey: cpuOnlySystemKey)
             plog("⚠️ Karaoke: the vocal model load on \(system) never returned last time; loading it on the CPU only until the system is updated")
         }
-        defaults.set(["system": system, "process": processToken], forKey: pendingKey)
-        return defaults.string(forKey: cpuOnlySystemKey) == system ? .cpuOnly : .cpuAndGPU
+        return defaults.string(forKey: cpuOnlySystemKey) == system
+    }
+
+    /// Marks a load as running and returns the compute units it may use.
+    static func beginLoad() -> MLComputeUnits {
+        let cpuOnly = runsOnCPUOnly()
+        UserDefaults.standard.set(
+            ["system": ProcessInfo.processInfo.operatingSystemVersionString, "process": processToken],
+            forKey: pendingKey
+        )
+        return cpuOnly ? .cpuOnly : .cpuAndGPU
     }
 
     /// The load returned, with the model or with an error.
@@ -222,6 +234,10 @@ final class KaraokeSeparationService {
     private(set) var songStates: [String: SongState] = [:]
     /// Why a song's last separation failed, shown next to its retry button.
     private(set) var songFailureReasons: [String: String] = [:]
+    /// The model runs on the CPU only on this system (see
+    /// `KaraokeModelLoadGuard`): separating takes much longer, and the
+    /// stage says why.
+    private(set) var runsModelOnCPU = KaraokeModelLoadGuard.runsOnCPUOnly()
     @ObservationIgnored private var separator: KaraokeVocalSeparator?
     /// The model load under way. Another song (or another visit to the
     /// stage) waits for it instead of starting a second one: cancelling a
@@ -507,7 +523,7 @@ final class KaraokeSeparationService {
     /// never on the main thread.
     private func loadSeparator() async throws -> KaraokeVocalSeparator {
         if let separator { return separator }
-        let load = separatorLoad ?? Self.startLoadingSeparator()
+        let load = separatorLoad ?? startLoadingSeparator()
         separatorLoad = load
         do {
             let created = try await load.value
@@ -523,8 +539,9 @@ final class KaraokeSeparationService {
         }
     }
 
-    private static func startLoadingSeparator() -> Task<KaraokeVocalSeparator, Error> {
+    private func startLoadingSeparator() -> Task<KaraokeVocalSeparator, Error> {
         let computeUnits = KaraokeModelLoadGuard.beginLoad()
+        runsModelOnCPU = computeUnits == .cpuOnly
         let unitsName = computeUnits == .cpuOnly ? "cpuOnly" : "cpuAndGPU"
         plog("🎤 Karaoke: loading vocal model units=\(unitsName)")
         return Task.detached(priority: .userInitiated) {

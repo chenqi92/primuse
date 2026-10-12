@@ -4824,6 +4824,7 @@
 "karaoke_remote_failed" = "Apple TV nicht erreichbar. Beide Geräte müssen im selben Netz sein.";
 "karaoke_remote_hint" = "Halte das iPhone nah an den Mund. Deine Stimme klingt wie gewohnt im Raum; das iPhone bewertet nur.";
 "karaoke_tv_ai_local" = "KI-Trennung auf Apple TV";
+"karaoke_tv_ai_local_hint" = "Dieses Apple TV trennt den Gesang selbst. Beim ersten Mal muss es das Modell vorbereiten; klappt das nicht, wechselt es zu einer langsameren Methode und ein Song kann lange dauern. Schneller geht es, wenn du den Code scannst, dein iPhone als Mikrofon nutzt und das iPhone trennen lässt.";
 "karaoke_tv_ai_active" = "KI-Gesangstrennung vom iPhone ist aktiv.";
 "karaoke_tv_ai_preparing_format" = "iPhone trennt den Gesang … %d %%";
 "karaoke_remote_ai_preparing" = "KI-Gesang für den Fernseher";
@@ -4847,6 +4848,8 @@
 "karaoke_finish_needs_singing" = "Erst ein, zwei Zeilen singen, dann beenden";
 "karaoke_record_needs_microphone" = "Mikrofon einschalten, um aufzunehmen";
 "karaoke_ai_model_incomplete" = "Das KI-Modell ist unvollständig. Tippe auf „Erneut versuchen“, um es neu zu laden.";
+"karaoke_ai_separating_slow" = "Langsame Trennung läuft";
+"karaoke_ai_cpu_fallback" = "Beim letzten Vorbereiten des Modells ist ein Fehler aufgetreten. Dieses Gerät trennt auf dieser Systemversion deshalb langsamer und versucht es nach einem Systemupdate automatisch erneut.";
 
 /* Listening spaces: music, radio and spoken word */
 "listening_space_music" = "Musik";
