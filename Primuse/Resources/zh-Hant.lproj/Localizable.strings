@@ -3957,6 +3957,7 @@
 "ai_recommendation_stream_partial_format" = "已保留 %d 首完整推薦，可先播放或載入更多。";
 "ai_recommendation_stream_retained_format" = "重新整理未完成，已保留先前的 %d 首推薦。";
 "ai_recommendation_retry_countdown_format" = "%d 秒後可重試";
+"ai_recommendation_retry_after_format" = "%@後可重試";
 
 "stats_calendar_title" = "聽歌日曆";
 "stats_calendar_hint" = "反白為所選期間 · 顏色越深，播放越多";

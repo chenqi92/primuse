@@ -234,10 +234,7 @@ struct AISongDiscoveryView: View {
 
             if let retryAt {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text(String(
-                        format: String(localized: "ai_recommendation_retry_countdown_format"),
-                        max(0, Int(ceil(retryAt.timeIntervalSince(context.date))))
-                    ))
+                    Text(AIRetryCountdown.text(until: retryAt, now: context.date))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                 }

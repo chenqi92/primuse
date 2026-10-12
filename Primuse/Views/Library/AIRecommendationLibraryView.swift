@@ -453,10 +453,7 @@ struct AIRecommendationLibraryView: View {
                     .foregroundStyle(platformPrimaryTextColor)
                 if let retryAt = aiRecommendation.retryAvailableAt {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
-                        Text(String(
-                            format: String(localized: "ai_recommendation_retry_countdown_format"),
-                            max(0, Int(ceil(retryAt.timeIntervalSince(context.date))))
-                        ))
+                        Text(AIRetryCountdown.text(until: retryAt, now: context.date))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(platformSecondaryTextColor)
                     }
@@ -977,4 +974,22 @@ struct AIRecommendationLibraryView: View {
     private var platformDividerColor: Color { Color.secondary.opacity(0.18) }
     private var platformSkeletonFill: Color { Color.secondary.opacity(0.14) }
     #endif
+}
+
+/// 「多久后可重试」。一分钟以内按秒倒数；按天、按月的额度用完时服务端给的是到下个周期的时间，
+/// 按天、小时、分钟说，不写成几十万秒。
+enum AIRetryCountdown {
+    static func text(until retryAt: Date, now: Date) -> String {
+        let seconds = max(0, Int(ceil(retryAt.timeIntervalSince(now))))
+        guard seconds >= 60 else {
+            return String(format: String(localized: "ai_recommendation_retry_countdown_format"), seconds)
+        }
+        let remaining = Duration.seconds(seconds).formatted(.units(
+            allowed: [.days, .hours, .minutes],
+            width: .abbreviated,
+            maximumUnitCount: 2,
+            fractionalPart: .hide(rounded: .up)
+        ))
+        return String(format: String(localized: "ai_recommendation_retry_after_format"), remaining)
+    }
 }

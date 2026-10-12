@@ -3878,6 +3878,7 @@
 "ai_recommendation_stream_partial_format" = "تم الاحتفاظ بـ %d توصيات مكتملة. شغّلها أو حمّل المزيد.";
 "ai_recommendation_stream_retained_format" = "لم يكتمل التحديث. لا تزال توصياتك السابقة البالغ عددها %d متاحة.";
 "ai_recommendation_retry_countdown_format" = "أعِد المحاولة بعد %d ثوانٍ";
+"ai_recommendation_retry_after_format" = "أعِد المحاولة بعد %@";
 
 "stats_calendar_title" = "تقويم الاستماع";
 "stats_calendar_hint" = "التواريخ المميزة ضمن الفترة المحددة · اللون الأغمق يعني تشغيلات أكثر";

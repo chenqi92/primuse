@@ -3972,6 +3972,7 @@
 "ai_recommendation_stream_partial_format" = "%d vollständige Empfehlungen behalten. Abspielen oder weitere laden.";
 "ai_recommendation_stream_retained_format" = "Aktualisierung nicht abgeschlossen. Die vorherigen %d Empfehlungen bleiben verfügbar.";
 "ai_recommendation_retry_countdown_format" = "In %d s erneut versuchen";
+"ai_recommendation_retry_after_format" = "In %@ erneut versuchen";
 
 "stats_calendar_title" = "Hörkalender";
 "stats_calendar_hint" = "Markierte Tage entsprechen dem Zeitraum · Dunkler bedeutet mehr Wiedergaben";

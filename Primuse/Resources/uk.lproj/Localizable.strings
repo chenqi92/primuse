@@ -3878,6 +3878,7 @@
 "ai_recommendation_stream_partial_format" = "Збережено повних рекомендацій: %d. Слухайте їх або завантажте ще.";
 "ai_recommendation_stream_retained_format" = "Оновлення не завершено. Попередні рекомендації (%d) досі доступні.";
 "ai_recommendation_retry_countdown_format" = "Спробуйте знову через %d с";
+"ai_recommendation_retry_after_format" = "Спробуйте знову через %@";
 
 "stats_calendar_title" = "Календар прослуховування";
 "stats_calendar_hint" = "Вибраний період виділено · Темніше — більше відтворень";

@@ -3878,6 +3878,7 @@
 "ai_recommendation_stream_partial_format" = "เก็บคำแนะนำที่สมบูรณ์ไว้ %d เพลงแล้ว เล่นเพลงเหล่านี้หรือโหลดเพิ่มได้";
 "ai_recommendation_stream_retained_format" = "การรีเฟรชยังไม่เสร็จ คำแนะนำเดิม %d เพลงยังคงใช้งานได้";
 "ai_recommendation_retry_countdown_format" = "ลองอีกครั้งใน %d วินาที";
+"ai_recommendation_retry_after_format" = "ลองอีกครั้งใน %@";
 
 "stats_calendar_title" = "ปฏิทินการฟัง";
 "stats_calendar_hint" = "ไฮไลต์ช่วงเวลาที่เลือก · สีเข้มหมายถึงเล่นมากขึ้น";

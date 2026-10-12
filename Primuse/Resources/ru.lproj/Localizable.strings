@@ -3878,6 +3878,7 @@
 "ai_recommendation_stream_partial_format" = "Сохранено полных рекомендаций: %d. Слушайте их или загрузите ещё.";
 "ai_recommendation_stream_retained_format" = "Обновление не завершено. Предыдущие рекомендации (%d) по-прежнему доступны.";
 "ai_recommendation_retry_countdown_format" = "Повторите через %d с";
+"ai_recommendation_retry_after_format" = "Повторите через %@";
 
 "stats_calendar_title" = "Календарь прослушивания";
 "stats_calendar_hint" = "Выбранный период выделен · Темнее — больше воспроизведений";

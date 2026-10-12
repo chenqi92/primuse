@@ -3973,6 +3973,7 @@
 "ai_recommendation_stream_partial_format" = "%d 曲の完全なおすすめを保持しました。再生するか、さらに読み込めます。";
 "ai_recommendation_stream_retained_format" = "更新が完了しませんでした。前の %d 曲のおすすめは引き続き利用できます。";
 "ai_recommendation_retry_countdown_format" = "%d 秒後に再試行できます";
+"ai_recommendation_retry_after_format" = "%@後に再試行できます";
 
 "stats_calendar_title" = "再生カレンダー";
 "stats_calendar_hint" = "選択期間を強調表示 · 濃い色ほど再生回数が多い";

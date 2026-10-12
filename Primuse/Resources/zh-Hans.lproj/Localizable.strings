@@ -4073,6 +4073,7 @@
 "ai_recommendation_stream_partial_format" = "已保留 %d 首完整推荐，可先播放或加载更多。";
 "ai_recommendation_stream_retained_format" = "刷新未完成，已保留之前的 %d 首推荐。";
 "ai_recommendation_retry_countdown_format" = "%d 秒后可重试";
+"ai_recommendation_retry_after_format" = "%@后可重试";
 
 "stats_calendar_title" = "听歌日历";
 "stats_calendar_hint" = "高亮为所选周期 · 颜色越深，播放越多";

@@ -3972,6 +3972,7 @@
 "ai_recommendation_stream_partial_format" = "%d recommandations complètes conservées. Écoutez-les ou chargez-en d’autres.";
 "ai_recommendation_stream_retained_format" = "Actualisation inachevée. Vos %d recommandations précédentes restent disponibles.";
 "ai_recommendation_retry_countdown_format" = "Réessayez dans %d s";
+"ai_recommendation_retry_after_format" = "Réessayez dans %@";
 
 "stats_calendar_title" = "Calendrier d’écoute";
 "stats_calendar_hint" = "Dates sélectionnées en surbrillance · Plus foncé signifie plus d’écoutes";

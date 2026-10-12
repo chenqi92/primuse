@@ -3878,6 +3878,7 @@
 "ai_recommendation_stream_partial_format" = "Zachowano %d pełnych rekomendacji. Odtwórz je lub wczytaj więcej.";
 "ai_recommendation_stream_retained_format" = "Odświeżanie nie zostało ukończone. Poprzednie rekomendacje (%d) są nadal dostępne.";
 "ai_recommendation_retry_countdown_format" = "Spróbuj ponownie za %d s";
+"ai_recommendation_retry_after_format" = "Spróbuj ponownie za %@";
 
 "stats_calendar_title" = "Kalendarz słuchania";
 "stats_calendar_hint" = "Wybrany okres jest wyróżniony · Ciemniej oznacza więcej odtworzeń";

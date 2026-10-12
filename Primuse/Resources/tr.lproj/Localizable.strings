@@ -3878,6 +3878,7 @@
 "ai_recommendation_stream_partial_format" = "%d tamamlanmış öneri korundu. Bunları çalın veya daha fazlasını yükleyin.";
 "ai_recommendation_stream_retained_format" = "Yenileme tamamlanmadı. Önceki %d öneriniz hâlâ kullanılabilir.";
 "ai_recommendation_retry_countdown_format" = "%d sn sonra tekrar deneyin";
+"ai_recommendation_retry_after_format" = "%@ sonra tekrar deneyin";
 
 "stats_calendar_title" = "Dinleme takvimi";
 "stats_calendar_hint" = "Seçilen dönem vurgulanır · Daha koyu renk daha çok çalma demektir";
