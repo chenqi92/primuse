@@ -1040,8 +1040,9 @@ final class TVStore {
     /// 服务端更新的位置在开播之后才到:记着开播时的起点,还停在起点附近就改从服务端的位置续。
     @ObservationIgnored private var pendingServerSpokenWordResume: (songID: String, anchor: Double)?
     @ObservationIgnored private var sleepWorkItem: DispatchWorkItem?
-    /// 正在播的这一条所在的书,按(书、存档修订、曲库修订、条目)缓存:播放页每拍都要问。
-    @ObservationIgnored private var spokenWordBookCache: (key: String, book: SpokenWordBook?)?
+    /// 正在播的这一条所在的书:播放页每拍都要问。分书按(书、分类修订、曲库修订)缓存,
+    /// 只是存了进度就只重读进度,不重新分书(见 `SpokenWordCurrentBookCache`)。
+    @ObservationIgnored private var spokenWordBookCache = SpokenWordCurrentBookCache()
     /// 下一条从这里开始而不是记住的位置:目录里点了另一条里的书签。
     @ObservationIgnored private var pendingSpokenWordStartOverride: (songID: String, position: Double)?
 
@@ -5223,12 +5224,24 @@ final class TVStore {
     var currentSpokenWordBook: SpokenWordBook? {
         guard let bookID = currentSpokenWordBookID else { return nil }
         let songID = nowPlaying.songID
-        let key = "\(bookID)|\(SpokenWordStore.shared.revision)|\(library.spokenWordContentRevision)|\(songID)"
-        if let cache = spokenWordBookCache, cache.key == key { return cache.book }
-        let members = library.spokenWordSongs.filter { library.spokenWordBookIDs[$0.id] == bookID }
-        let book = TVSpokenWordBooks.books(songs: members, store: SpokenWordStore.shared)
-            .first { book in book.items.contains { $0.id == songID } }
-        spokenWordBookCache = (key, book)
+        let store = SpokenWordStore.shared
+        let library = library
+        var cache = spokenWordBookCache
+        let book = cache.book(
+            groupingKey: "\(bookID)|\(store.nonProgressRevision)|\(library.spokenWordContentRevision)",
+            progressKey: "\(store.revision)",
+            itemID: songID,
+            group: {
+                let members = library.spokenWordSongs.filter { library.spokenWordBookIDs[$0.id] == bookID }
+                return SpokenWordCurrentBookCache.Grouped(
+                    book: TVSpokenWordBooks.books(songs: members, store: store)
+                        .first { book in book.items.contains { $0.id == songID } },
+                    untimedItemIDs: Set(members.lazy.filter { !($0.duration > 0) }.map(\.id))
+                )
+            },
+            progress: { store.progress(forSongID: $0) }
+        )
+        spokenWordBookCache = cache
         return book
     }
 

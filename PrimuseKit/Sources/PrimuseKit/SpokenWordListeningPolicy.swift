@@ -323,6 +323,20 @@ public enum SpokenWordBookGrouping {
         return books.sorted(by: shelfOrder)
     }
 
+    /// `book` with its items' listening progress brought up to date, as
+    /// `books(from:)` would build it from the updated items. Grouping and
+    /// chapter order never read progress, so the items keep their places and
+    /// only what progress decides (where to continue, when it was last heard)
+    /// is worked out again. `update` must keep each item's id and the fields
+    /// the grouping reads.
+    public static func updatingProgress(
+        of book: SpokenWordBook,
+        _ update: (SpokenWordBookItem) -> SpokenWordBookItem
+    ) -> SpokenWordBook {
+        guard !book.items.isEmpty else { return book }
+        return makeBook(id: book.id, items: book.items.map(update), title: book.title)
+    }
+
     /// Which book each item belongs to, by item id — the ids `books(from:)`
     /// gives. Cheaper than building the books when only membership matters
     /// (the player finding the book of the item it plays, a count).

@@ -410,7 +410,7 @@ extension AudioPlayerService {
     /// (which is reading order: the shelf installs the book as the queue).
     /// Empty for music and radio.
     ///
-    /// Cached per book, queue snapshot, store revision and library content:
+    /// Cached per book, queue snapshot, classification and library content:
     /// the player's skip keys ask for it on every redraw (their long-press
     /// menu is built with the view), and collecting it classifies every
     /// queue entry — a thousand-item queue made each redraw of the
@@ -420,7 +420,7 @@ extension AudioPlayerService {
         // Reading the count keeps views that ask for this observing the
         // queue even when the answer comes from the cache.
         let key = "\(bookID)|\(queueEntries.count)|\(watchQueueSnapshotRevision)"
-            + "|\(SpokenWordStore.shared.revision)|\(library?.spokenWordContentRevision ?? 0)"
+            + "|\(SpokenWordStore.shared.nonProgressRevision)|\(library?.spokenWordContentRevision ?? 0)"
         if let cache = currentBookItemIDsCache, cache.key == key { return cache.ids }
         let ids = queueEntries.compactMap { entry -> String? in
             let song = entry.song
@@ -433,16 +433,23 @@ extension AudioPlayerService {
     }
 
     /// The playing item's book, grouped from that book's own items (so a
-    /// publish never regroups the shelf for it). Cached per book, store
-    /// revision and library content, because the player's progress rows ask
-    /// for it on every clock tick.
+    /// publish never regroups the shelf for it). The player's progress rows
+    /// ask for it on every clock tick, so the grouping is kept per book,
+    /// classification and library content, and a saved position only reads
+    /// the progress again (see `SpokenWordCurrentBookCache`).
     var currentSpokenWordBook: SpokenWordBook? {
         guard let song = currentSong, currentItemIsSpokenWord, !isLiveRadio else { return nil }
+        let store = SpokenWordStore.shared
         let bookID = spokenWordBookID(for: song)
-        let key = "\(bookID)|\(SpokenWordStore.shared.revision)|\(library?.spokenWordContentRevision ?? 0)|\(song.id)"
-        if let cache = spokenWordBookCache, cache.key == key { return cache.book }
-        let book = currentBookForWidgets(song)
-        spokenWordBookCache = (key, book)
+        var cache = spokenWordBookCache
+        let book = cache.book(
+            groupingKey: "\(bookID)|\(store.nonProgressRevision)|\(library?.spokenWordContentRevision ?? 0)",
+            progressKey: "\(store.revision)",
+            itemID: song.id,
+            group: { groupCurrentBook(song) },
+            progress: { store.progress(forSongID: $0) }
+        )
+        spokenWordBookCache = cache
         return book
     }
 
@@ -462,7 +469,7 @@ extension AudioPlayerService {
         // The chapter column asks on every redraw, and the player sliding in
         // or out redraws it every frame: adding up a book of a thousand parts
         // each time drops frames. The book is a function of its cache key.
-        let key = "\(spokenWordBookCache?.key ?? song.id)|\(position)|\(itemDuration)"
+        let key = "\(spokenWordBookCache.key ?? song.id)|\(position)|\(itemDuration)"
             + "|\(chapterCount)|\(chapterIndex ?? -1)"
         if let cache = spokenWordSummaryCache, cache.key == key { return cache.summary }
         let summary = SpokenWordNowPlayingPolicy.summary(
@@ -484,7 +491,7 @@ extension AudioPlayerService {
         let book = currentSpokenWordBook
         let chapterCount = spokenWordChapters.count
         let chapterIndex = currentChapterIndex
-        let key = "\(spokenWordBookCache?.key ?? song.id)|\(chapterCount)|\(chapterIndex ?? -1)"
+        let key = "\(spokenWordBookCache.key ?? song.id)|\(chapterCount)|\(chapterIndex ?? -1)"
         if let cache = spokenWordPartPositionCache, cache.key == key { return cache.part }
         let part = SpokenWordNowPlayingPolicy.partPosition(
             bookItemIDs: book?.items.map(\.id),
@@ -647,7 +654,7 @@ extension AudioPlayerService {
             skipBackwardSeconds: spokenWordSkipBackwardSeconds,
             skipForwardSeconds: spokenWordSkipForwardSeconds
         )
-        if let book = currentBookForWidgets(song) {
+        if let book = currentSpokenWordBook {
             info.bookTitle = book.title
             info.bookAuthor = book.author
             if let part = SpokenWordWidgetPolicy.partPosition(of: song.id, in: book) {
@@ -670,16 +677,19 @@ extension AudioPlayerService {
 
     /// The book the playing item belongs to, grouped only from its own items
     /// so a publish does not regroup the whole shelf.
-    private func currentBookForWidgets(_ song: Song) -> SpokenWordBook? {
-        guard let library else { return nil }
+    private func groupCurrentBook(_ song: Song) -> SpokenWordCurrentBookCache.Grouped {
+        guard let library else { return .init(book: nil) }
         let bookID = spokenWordBookID(for: song)
         let members = library.spokenWordSongs.filter { library.spokenWordBookIDs[$0.id] == bookID }
-        guard !members.isEmpty else { return nil }
+        guard !members.isEmpty else { return .init(book: nil) }
         let store = SpokenWordStore.shared
         let books = SpokenWordBookGrouping.books(
             from: members.map { SpokenWordBookSupport.item(for: $0, store: store) }
         )
-        return books.first { book in book.items.contains { $0.id == song.id } }
+        return .init(
+            book: books.first { book in book.items.contains { $0.id == song.id } },
+            untimedItemIDs: Set(members.lazy.filter { !($0.duration > 0) }.map(\.id))
+        )
     }
 
     // MARK: - Per-book speed
