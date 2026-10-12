@@ -353,14 +353,17 @@
 		59CAA41E51DEF4B8C798EC01 /* PodcastRequestQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71686A11D40981F530B26BFD /* PodcastRequestQuotaTests.swift */; };
 		59F5082BC6EE44E3AD076002 /* CrossFeatureQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 442CF52C9855BC72B9F3AB4B /* CrossFeatureQuotaTests.swift */; };
 		62BFB12E3C2424A8EEEEC13F /* CrossFeatureQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 442CF52C9855BC72B9F3AB4B /* CrossFeatureQuotaTests.swift */; };
+		6B5BF812BB17572A770B87BE /* RadioDirectoryQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A6BA865ECC75590B598DB8F /* RadioDirectoryQuotaTests.swift */; };
 		B0A45D0509F793B43F56DE1D /* WebDAVDirectoryQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A5BB09389B0D45DAA0B5AC /* WebDAVDirectoryQuotaTests.swift */; };
 		B24F5FA4DE63C8B0428510AF /* WebDAVDirectoryQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A5BB09389B0D45DAA0B5AC /* WebDAVDirectoryQuotaTests.swift */; };
 		B2D8A49F9F94DDB1B3ECAB3B /* PodcastRequestQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71686A11D40981F530B26BFD /* PodcastRequestQuotaTests.swift */; };
 		D05413CD64ACA16198D30C73 /* CrossFeatureQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 442CF52C9855BC72B9F3AB4B /* CrossFeatureQuotaTests.swift */; };
+		D5D791B3600C3FA3B5086550 /* RadioDirectoryQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A6BA865ECC75590B598DB8F /* RadioDirectoryQuotaTests.swift */; };
 		D943732D0C25C109CD537241 /* SpokenWordCurrentBookCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F93FF0F9DEA42E997404B4B /* SpokenWordCurrentBookCache.swift */; };
 		DFF5B772138DCB2652D4B039 /* PodcastRequestQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71686A11D40981F530B26BFD /* PodcastRequestQuotaTests.swift */; };
 		5F795B4E7C2D1592241DE408 /* AIRequestQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C03BED21D662046E28FA9B2 /* AIRequestQuotaTests.swift */; };
 		871BB52B18E6A69DB42956B4 /* AIRequestQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C03BED21D662046E28FA9B2 /* AIRequestQuotaTests.swift */; };
+		E5452827A916E9D3E0D260A0 /* RadioDirectoryQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A6BA865ECC75590B598DB8F /* RadioDirectoryQuotaTests.swift */; };
 		EA6C310C3CF4AA7F80DA8EEF /* WebDAVDirectoryRequestPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = E48077F43523B90C9F35E6E1 /* WebDAVDirectoryRequestPolicy.swift */; };
 		F1847E4880E2B580F60FD14A /* MinimalShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42511EF288D67F5D3D29E96E /* MinimalShell.swift */; };
 		2FFBF33B610DBA25706D8E8F /* ScraperConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BF1A706ED97024BCCCCD9F8 /* ScraperConfigStore.swift */; };
@@ -2224,6 +2227,7 @@
 		0A23DCE16E17D3C9AEBAD5AC /* ConnectorScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectorScanner.swift; sourceTree = "<group>"; };
 		0A373D69542A894AC0E311DF /* SongloftSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongloftSource.swift; sourceTree = "<group>"; };
 		0A682DE882BF7C18268F9428 /* DesktopLyricsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopLyricsWindowController.swift; sourceTree = "<group>"; };
+		0A6BA865ECC75590B598DB8F /* RadioDirectoryQuotaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioDirectoryQuotaTests.swift; sourceTree = "<group>"; };
 		0A81E711713C594D6D24C5BF /* SongListSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongListSnapshot.swift; sourceTree = "<group>"; };
 		0A944810E880B72247F1901F /* TVPlaybackPrefetchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVPlaybackPrefetchTests.swift; sourceTree = "<group>"; };
 		0AC69BCA4BB413F1DFDC58E5 /* DiagnosticReportMailer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticReportMailer.swift; sourceTree = "<group>"; };
@@ -5334,6 +5338,7 @@
 		E02A6280EA74816DDAAA95F9 /* PrimuseTests */ = {
 			isa = PBXGroup;
 			children = (
+				0A6BA865ECC75590B598DB8F /* RadioDirectoryQuotaTests.swift */,
 				3EC5C57A1C23EDA835C82C97 /* AISmartPlaylistEngineTests.swift */,
 				442CF52C9855BC72B9F3AB4B /* CrossFeatureQuotaTests.swift */,
 				71686A11D40981F530B26BFD /* PodcastRequestQuotaTests.swift */,
@@ -6153,6 +6158,7 @@
 				62BFB12E3C2424A8EEEEC13F /* CrossFeatureQuotaTests.swift in Sources */,
 				B2D8A49F9F94DDB1B3ECAB3B /* PodcastRequestQuotaTests.swift in Sources */,
 				5F795B4E7C2D1592241DE408 /* AIRequestQuotaTests.swift in Sources */,
+				D5D791B3600C3FA3B5086550 /* RadioDirectoryQuotaTests.swift in Sources */,
 				DD5464811A1C8045D7193A97 /* TVColorBackgroundIsolationTests.swift in Sources */,
 				56A17E620C4BD3695FA8129A /* TVKaraokeParityTests.swift in Sources */,
 				C39FB15C32FF2D71E52747E0 /* TVKaraokeSeparationTests.swift in Sources */,
@@ -6183,6 +6189,7 @@
 				2E430470240024D086AA4B67 /* AudioPlayerNodeClockReaderTests.m in Sources */,
 				D5C2DFC09F7264E9F533270D /* AutoContinuationPlayerTests.swift in Sources */,
 				DFF5B772138DCB2652D4B039 /* PodcastRequestQuotaTests.swift in Sources */,
+				E5452827A916E9D3E0D260A0 /* RadioDirectoryQuotaTests.swift in Sources */,
 				EDBAA6D45F7DDCB2D39E1E06 /* CarPlayEditorRenderingTests.swift in Sources */,
 				A7DB21B5C6238757B4DE4895 /* CloudDriveFormEncodingTests.swift in Sources */,
 				4E541563B89E37687AF677E5 /* CloudKVSSyncTests.swift in Sources */,
@@ -6737,6 +6744,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				59CAA41E51DEF4B8C798EC01 /* PodcastRequestQuotaTests.swift in Sources */,
+				6B5BF812BB17572A770B87BE /* RadioDirectoryQuotaTests.swift in Sources */,
 				78D190AF5491B9C620755A08 /* AIStreamingIntegrationTests.swift in Sources */,
 				871BB52B18E6A69DB42956B4 /* AIRequestQuotaTests.swift in Sources */,
 				B0A45D0509F793B43F56DE1D /* WebDAVDirectoryQuotaTests.swift in Sources */,
