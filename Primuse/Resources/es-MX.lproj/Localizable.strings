@@ -2450,6 +2450,8 @@
 "lyrics_play_from_line" = "Reproducir desde esta línea";
 "player_volume_bar" = "Control deslizante de volumen";
 "player_volume_bar_description" = "Muestra el control deslizante de volumen en el reproductor. Otros controles llenan naturalmente el espacio disponible cuando está oculto.";
+"player_artwork_lyrics" = "Letra debajo de la portada";
+"player_artwork_lyrics_description" = "Muestra la línea que se está cantando y la siguiente debajo del título, sin cambiar a la vista de letra. La portada se reduce un poco cuando hace falta para dejarles espacio. Toca la letra para abrir la vista de letra.";
 "player_audio_info_title" = "Información de audio en el reproductor";
 "player_audio_info_off" = "Desactivado";
 "player_audio_info_lossless_only" = "Solo sin pérdida";

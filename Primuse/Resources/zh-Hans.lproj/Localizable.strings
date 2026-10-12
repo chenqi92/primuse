@@ -3264,6 +3264,8 @@
 "player_appearance_title" = "播放器";
 "player_volume_bar" = "音量条";
 "player_volume_bar_description" = "在播放器中显示音量条。隐藏后，其他控件会自然填充空出的空间。";
+"player_artwork_lyrics" = "封面下显示歌词";
+"player_artwork_lyrics_description" = "不用切到歌词页，在歌名下面就能看到正在唱的一句和下一句。打开后封面会按需缩小一点，给歌词让出位置；点歌词进入歌词页。";
 "player_audio_info_title" = "播放页显示音频信息";
 "player_audio_info_off" = "关闭";
 "player_audio_info_lossless_only" = "仅无损音质";

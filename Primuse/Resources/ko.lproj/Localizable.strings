@@ -3163,6 +3163,8 @@
 "player_appearance_title" = "플레이어";
 "player_volume_bar" = "음량 슬라이더";
 "player_volume_bar_description" = "플레이어에 음량 슬라이더를 표시합니다. 숨기면 다른 컨트롤이 사용 가능한 공간을 자연스럽게 채웁니다.";
+"player_artwork_lyrics" = "아트워크 아래에 가사 표시";
+"player_artwork_lyrics_description" = "가사 화면으로 전환하지 않아도 곡 제목 아래에 지금 부르는 줄과 다음 줄을 표시합니다. 필요하면 아트워크가 조금 작아져 가사 자리를 만듭니다. 가사를 탭하면 가사 화면이 열립니다.";
 "player_audio_info_title" = "재생 화면에 오디오 정보 표시";
 "player_audio_info_off" = "끔";
 "player_audio_info_lossless_only" = "무손실만";

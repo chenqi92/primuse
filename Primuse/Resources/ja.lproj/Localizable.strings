@@ -3164,6 +3164,8 @@
 "player_appearance_title" = "プレーヤー";
 "player_volume_bar" = "音量スライダー";
 "player_volume_bar_description" = "プレーヤーに音量スライダーを表示します。非表示にすると、ほかのコントロールが空いた領域を自然に使用します。";
+"player_artwork_lyrics" = "アートワークの下に歌詞を表示";
+"player_artwork_lyrics_description" = "歌詞画面に切り替えなくても、曲名の下に今歌っている行と次の行を表示します。必要に応じてアートワークが少し小さくなり、歌詞の場所を空けます。歌詞をタップすると歌詞画面を開きます。";
 "player_audio_info_title" = "再生画面に音声情報を表示";
 "player_audio_info_off" = "オフ";
 "player_audio_info_lossless_only" = "ロスレスのみ";

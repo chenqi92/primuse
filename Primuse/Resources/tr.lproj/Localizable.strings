@@ -3791,6 +3791,8 @@
 "volume_up" = "Sesi Artırma";
 "sync" = "Senkronizasyon";
 "player_volume_bar_description" = "Oynatıcıda ses düzeyi kaydırıcısını gösterin. Diğer kontroller gizlendiğinde doğal olarak mevcut alanı doldurur.";
+"player_artwork_lyrics" = "Kapağın Altında Şarkı Sözleri";
+"player_artwork_lyrics_description" = "Söz ekranına geçmeden, şarkı adının altında söylenen satırı ve sonrakini gösterir. Gerektiğinde kapak yer açmak için biraz küçülür. Söz ekranını açmak için sözlere dokunun.";
 "player_audio_info_title" = "Oynatıcıda ses bilgisi";
 "player_audio_info_off" = "Kapalı";
 "player_audio_info_lossless_only" = "Yalnızca kayıpsız";

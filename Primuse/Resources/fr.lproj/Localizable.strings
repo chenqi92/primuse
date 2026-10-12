@@ -3163,6 +3163,8 @@
 "player_appearance_title" = "Lecteur";
 "player_volume_bar" = "Curseur de volume";
 "player_volume_bar_description" = "Afficher le curseur de volume dans le lecteur. Les autres commandes occupent naturellement l’espace disponible lorsqu’il est masqué.";
+"player_artwork_lyrics" = "Paroles sous la pochette";
+"player_artwork_lyrics_description" = "Affiche la ligne chantée et la suivante sous le titre, sans passer à la vue des paroles. La pochette rétrécit un peu si nécessaire pour leur faire de la place. Touchez les paroles pour ouvrir la vue des paroles.";
 "player_audio_info_title" = "Infos audio dans le lecteur";
 "player_audio_info_off" = "Désactivé";
 "player_audio_info_lossless_only" = "Sans perte uniquement";

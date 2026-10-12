@@ -104,6 +104,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "appearance.playerControlTint", titleKey: "player_control_tint_title", iosPage: .player, macPage: nil, keywords: ["white", "monochrome", "color", "白色", "单色", "黑白", "控件颜色", "进度条颜色", "主题色"]),
         SettingDefinition(id: "appearance.playerControls", titleKey: "player_controls_title", iosPage: .player, macPage: nil, keywords: ["buttons", "customize", "layout", "toolbar", "hide", "按钮", "自定义", "播放页", "布局", "隐藏", "位置", "随机", "循环", "歌词", "队列"]),
         SettingDefinition(id: "appearance.volumeBar", titleKey: "player_volume_bar", iosPage: .player, macPage: .appearance),
+        SettingDefinition(id: "appearance.artworkLyrics", titleKey: "player_artwork_lyrics", iosPage: .player, macPage: nil, keywords: ["lyrics under artwork", "mini lyrics", "封面歌词", "小歌词", "播放页歌词"]),
         SettingDefinition(id: "appearance.audioInfo", titleKey: "player_audio_info_title", iosPage: .player, macPage: .appearance, keywords: ["sample rate", "bit depth", "bitrate", "Hi-Res", "lossless", "采样率", "位深", "码率", "无损", "音质", "重采样"]),
         SettingDefinition(id: "appearance.playerProgressStyle", titleKey: "player_progress_style_title", iosPage: .player, macPage: .appearance, keywords: ["进度条", "波浪", "圆点", "样式", "progress", "wave", "squiggly", "seek bar"]),
         SettingDefinition(id: "appearance.fullscreenEffect", titleKey: "fullscreen_effect_settings_title", iosPage: .fullscreen, macPage: .appearance, keywords: ["visualizer", "spectrum", "可视化", "频谱", "全屏效果"]),

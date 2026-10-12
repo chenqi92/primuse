@@ -3163,6 +3163,8 @@
 "player_appearance_title" = "Player";
 "player_volume_bar" = "Lautstärkeregler";
 "player_volume_bar_description" = "Zeigt den Lautstärkeregler im Player. Andere Bedienelemente nutzen den verfügbaren Platz automatisch, wenn er ausgeblendet ist.";
+"player_artwork_lyrics" = "Liedtext unter dem Cover";
+"player_artwork_lyrics_description" = "Zeigt die gerade gesungene und die nächste Zeile unter dem Titel, ohne zur Liedtextansicht zu wechseln. Das Cover wird bei Bedarf etwas kleiner, um Platz zu schaffen. Tippe auf den Liedtext, um die Liedtextansicht zu öffnen.";
 "player_audio_info_title" = "Audioinfos im Player";
 "player_audio_info_off" = "Aus";
 "player_audio_info_lossless_only" = "Nur verlustfrei";

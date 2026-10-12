@@ -564,6 +564,8 @@ private struct PlayerAppearanceSettingsView: View {
     private var motionArtworkServiceEndpoint = PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
+    @AppStorage(PlayerAppearancePreferences.showsArtworkLyricsKey)
+    private var showsArtworkLyrics = PlayerAppearancePreferences.showsArtworkLyricsByDefault
     @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
     private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
     @AppStorage(PlayerAppearancePreferences.controlTintKey)
@@ -691,6 +693,12 @@ private struct PlayerAppearanceSettingsView: View {
                 Toggle("player_volume_bar", isOn: $showsVolumeBar)
                 .settingsAnchor("appearance.volumeBar")
                     .accessibilityHint(Text("player_volume_bar_description"))
+                Toggle(isOn: $showsArtworkLyrics) {
+                    SettingsInfoLabel("player_artwork_lyrics") {
+                        Text("player_artwork_lyrics_description")
+                    }
+                }
+                .settingsAnchor("appearance.artworkLyrics")
             }
             Section {
                 Picker(selection: audioInfoModeBinding) {

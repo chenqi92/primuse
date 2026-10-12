@@ -701,12 +701,13 @@ final class InterfaceLayoutSync {
         NowPlayingTextScrollPreference.collapsesKey(for: .audiobook),
         NowPlayingTextScrollPreference.collapsesKey(for: .podcast),
         PlayerAppearancePreferences.controlTintKey,
-        // 「设置 › 播放器」: 音量条、音频信息、进度条样式、动态封面与自建的动态封面服务。
+        // 「设置 › 播放器」: 音量条、封面下的歌词、音频信息、进度条样式、动态封面与自建的动态封面服务。
         // 只在不计流量的网络下载动态封面不收: 它跟着这台设备的网络走(Mac 没有蜂窝),
         // 和播放设置里按网络分的音质一样留在本机。屏幕常亮(及只在充电时)是这台设备的
         // 摆法与电量的事, 手机转横屏进全屏只对手机的横屏版面有效, 全屏效果的动画强度与
         // 帧率看屏幕与电量, 都不收。
         PlayerAppearancePreferences.showsVolumeBarKey,
+        PlayerAppearancePreferences.showsArtworkLyricsKey,
         PlayerAppearancePreferences.audioInfoModeKey,
         PlayerAppearancePreferences.progressStyleKey,
         PlayerAppearancePreferences.animatedArtworkEnabledKey,

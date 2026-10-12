@@ -2932,6 +2932,8 @@
 "player_appearance_title" = "Player";
 "player_volume_bar" = "Volume Slider";
 "player_volume_bar_description" = "Show the volume slider in the player. Other controls naturally fill the available space when it is hidden.";
+"player_artwork_lyrics" = "Lyrics Under Artwork";
+"player_artwork_lyrics_description" = "Show the line being sung and the next one below the song title, without switching to the lyrics view. The artwork shrinks a little when needed to make room. Tap the lyrics to open the lyrics view.";
 "player_audio_info_title" = "Audio Info in Player";
 "player_audio_info_off" = "Off";
 "player_audio_info_lossless_only" = "Lossless Only";

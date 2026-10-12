@@ -2450,6 +2450,8 @@
 "lyrics_play_from_line" = "Odtwarzaj od tego wiersza";
 "player_volume_bar" = "Suwak głośności";
 "player_volume_bar_description" = "Pokaż suwak głośności w odtwarzaczu. Inne elementy sterujące w naturalny sposób wypełniają dostępną przestrzeń, gdy jest ona ukryta.";
+"player_artwork_lyrics" = "Tekst pod okładką";
+"player_artwork_lyrics_description" = "Pokazuje śpiewany wers i następny pod tytułem utworu, bez przełączania na widok tekstu. W razie potrzeby okładka lekko się zmniejsza, aby zrobić miejsce. Stuknij tekst, aby otworzyć widok tekstu.";
 "player_audio_info_title" = "Informacje o dźwięku w odtwarzaczu";
 "player_audio_info_off" = "Wyłączone";
 "player_audio_info_lossless_only" = "Tylko bezstratne";

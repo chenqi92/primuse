@@ -779,6 +779,8 @@ struct NowPlayingView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
+    @AppStorage(PlayerAppearancePreferences.showsArtworkLyricsKey)
+    private var showsArtworkLyrics = PlayerAppearancePreferences.showsArtworkLyricsByDefault
     @AppStorage(PlayerAppearancePreferences.audioInfoModeKey)
     private var audioInfoModeRawValue = PlayerAppearancePreferences.audioInfoModeByDefault.rawValue
 
@@ -3760,7 +3762,7 @@ struct NowPlayingView: View {
     private func compactLandscapeLyricLine(
         metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics
     ) -> some View {
-        CompactLandscapeLyricLine(
+        NowPlayingLyricPreview(
             lyrics: lyrics,
             player: player,
             songID: player.currentSong?.id,
@@ -3770,6 +3772,25 @@ struct NowPlayingView: View {
             lineHeight: CGFloat(metrics.lyricLineHeight),
             onTap: { setStandardLyricsVisible(true) }
         )
+    }
+
+    /// 竖屏封面模式歌名下面的当前一句与下一句, 点一下进歌词页。
+    private var artworkLyricPreview: some View {
+        NowPlayingLyricPreview(
+            lyrics: lyrics,
+            player: player,
+            songID: player.currentSong?.id,
+            lyricsRevision: lyricsRevision,
+            isSceneActive: isVisualSceneActive,
+            tint: appearance.primary,
+            nextLineTint: appearance.tertiary,
+            font: .callout,
+            lineHeight: 24,
+            onTap: { setStandardLyricsVisible(true) }
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint(Text("a11y_open_lyrics"))
     }
 
     /// 两端放得下时:音乐是随机 / 循环,有声内容是上一章 / 下一章;这一条有文字稿时两端换成文字稿与目录
@@ -4538,9 +4559,17 @@ struct NowPlayingView: View {
         // 封面那一块只要封面加上下各 12 的高度,封面、歌名一起靠上;多出来的高度放在歌名与进度条之间。
         let artworkRegionHeight = (player.isMusicVideoPlaybackActive ? mediaWidth * 9 / 16 : mediaWidth) + 24
         let controlGap = Self.portraitControlGap(forHeight: geo.size.height)
+        // 歌名下面的两句歌词(设置里打开)。它占的高度从封面那里让出来: 高屏关着音量条时空白就够,
+        // 不够时封面按剩下的高度缩小。不跟歌词页开关走, 进出歌词页时下面几行不挪位置。
+        // 分栏时右栏正在放整页歌词(这一栏于是不跟歌词开关走), 这里不再重复两句。
+        let artworkLyricsEnabled = showsArtworkLyrics
+            && showLyrics == self.showLyrics
+            && !usesSpokenWordTransport
+            && !player.isMusicVideoPlaybackActive
+            && !player.isLiveRadio
         // 关掉音量条空出来的高度。分到封面上方和几行控件之间, 不全堆在歌名与进度条之间;
-        // 这些本来是音量行占着的, 矮屏也不会因此更挤。封面与歌词两种模式取同一个值。
-        let volumeSlack: CGFloat = showsPlayerVolumeBar
+        // 这些本来是音量行占着的, 矮屏也不会因此更挤。封面与歌词两种模式取同一个值。放歌词时留给歌词。
+        let volumeSlack: CGFloat = showsPlayerVolumeBar || artworkLyricsEnabled
             ? 0
             : Self.portraitVolumeRowHeight + 10 + controlGap
 
@@ -4712,6 +4741,14 @@ struct NowPlayingView: View {
                             .padding(.horizontal, 26)
                             .padding(.horizontal, insets.rows)
                             .pmLayoutSwitchFade()
+
+                        if artworkLyricsEnabled {
+                            artworkLyricPreview
+                                .padding(.horizontal, 26)
+                                .padding(.horizontal, insets.rows)
+                                .padding(.top, 14)
+                                .pmLayoutSwitchFade()
+                        }
 
                         // 歌名紧跟封面,剩下的高度都在这里:进度条以下几行贴着底部,和歌词模式同一位置。
                         Spacer(minLength: 0)
@@ -10662,7 +10699,8 @@ private struct LyricsPausedTimeObserver: View {
     }
 }
 
-/// 手机横屏普通模式右栏的「当前歌词行」。
+/// 播放页封面模式里跟着播放走的歌词: 手机横屏普通模式右栏的「当前歌词行」;
+/// 竖屏歌名下面的当前一句与下一句(#69, 设置里打开)。
 ///
 /// 当前行得跟着播放位置走, 但 `NowPlayingView.body` 是七千行规模的大 body,
 /// 不能让它跟着时间每几百毫秒重算一遍。所以照 `LyricsScrollView` 的办法把
@@ -10671,13 +10709,16 @@ private struct LyricsPausedTimeObserver: View {
 ///
 /// 行判定复用 `LyricPlaybackPositionPolicy.activeLineIndex`, 与歌词页、Mac
 /// 单行歌词、外接屏用的是同一套二分, 不另写一份。
-private struct CompactLandscapeLyricLine: View {
+private struct NowPlayingLyricPreview: View {
     let lyrics: [LyricLine]
     let player: AudioPlayerService
     let songID: String?
     let lyricsRevision: UInt
     let isSceneActive: Bool
     let tint: Color
+    /// 有值时多一行放下一句, 用这个颜色; 第一句还没开始时两行都用它。
+    var nextLineTint: Color? = nil
+    var font: Font = .callout
     let lineHeight: CGFloat
     let onTap: () -> Void
 
@@ -10723,9 +10764,35 @@ private struct CompactLandscapeLyricLine: View {
         return lyrics[currentLineIndex].text
     }
 
-    var body: some View {
-        Text(verbatim: currentText)
-            .font(.callout)
+    /// 两行时第一行放哪一句: 唱到的那句; 前奏里还没唱到、或停在间奏的空行上时放接下来那句,
+    /// 和下一句一样淡。
+    private var leadingLineIndex: Int? {
+        if lyrics.indices.contains(currentLineIndex) {
+            guard isBlank(currentLineIndex) else { return currentLineIndex }
+            return nextLineIndex(after: currentLineIndex) ?? currentLineIndex
+        }
+        guard hasSynchronizedLyrics else { return nil }
+        return lyrics.indices.first { lyrics[$0].isSynchronized && !isBlank($0) }
+    }
+
+    private func isBlank(_ index: Int) -> Bool {
+        lyrics[index].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func text(at index: Int?) -> String {
+        guard let index, lyrics.indices.contains(index) else { return "" }
+        return lyrics[index].text
+    }
+
+    /// 跳过间奏留下的空行。
+    private func nextLineIndex(after index: Int?) -> Int? {
+        guard let index else { return nil }
+        return lyrics.indices.dropFirst(index + 1).first { !isBlank($0) }
+    }
+
+    private func line(_ text: String, tint: Color, font: Font) -> some View {
+        Text(verbatim: text)
+            .font(font)
             .foregroundStyle(tint)
             .lineLimit(1)
             .truncationMode(.tail)
@@ -10733,6 +10800,26 @@ private struct CompactLandscapeLyricLine: View {
             .pmAnimation(.control, value: currentLineIndex)
             // 没有歌词时也占同样高度, 布局不会在有无歌词之间上下跳。
             .frame(height: lineHeight, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    var body: some View {
+        Group {
+            if let nextLineTint {
+                let leading = leadingLineIndex
+                let isSinging = leading == currentLineIndex
+                VStack(alignment: .leading, spacing: 0) {
+                    line(
+                        text(at: leading),
+                        tint: isSinging ? tint : nextLineTint,
+                        font: isSinging ? font.weight(.semibold) : font
+                    )
+                    line(text(at: nextLineIndex(after: leading)), tint: nextLineTint, font: font)
+                }
+            } else {
+                line(currentText, tint: tint, font: font)
+            }
+        }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .onTapGesture(perform: onTap)
