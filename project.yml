@@ -725,6 +725,7 @@ targets:
       - path: Primuse/Services/Metadata/SVGArtworkRasterizer.swift
       - path: Primuse/Services/Metadata/TagMetadataWritebackTypes.swift
       - path: Primuse/Services/Sources/MusicSourceProtocol.swift
+      - path: Primuse/Services/Sources/WebDAVMultistatusParser.swift
       - path: Primuse/Services/Sources/SourceErrors.swift
       - path: Primuse/Utilities/Extensions/URL+AudioFormat.swift
       # 标签写回的公共事务层。电视端本身不改标签,但 SFTP / 云盘连接器都声明了
