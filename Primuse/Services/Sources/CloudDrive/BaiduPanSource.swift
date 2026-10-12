@@ -15,6 +15,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
     nonisolated var preferredDeleteBatchSize: Int { 100 }
     private let helper: CloudDriveHelper
     private let session: URLSession
+    private let requests: CloudRequestScheduler
     private let tokenProvider: (@Sendable () async throws -> String)?
 
     /// 写 sidecar 到百度网盘:precreate → superfile2(单分片) → create(rtype=3 覆盖)。
@@ -39,7 +40,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
             .init(name: "isdir", value: "0"), .init(name: "autoinit", value: "1"),
             .init(name: "rtype", value: "3"), .init(name: "block_list", value: blockList),
         ])
-        let (preData, preResponse) = try await session.data(for: preReq)
+        let (preData, preResponse) = try await sendWrite(preReq)
         guard let preHTTP = preResponse as? HTTPURLResponse,
               (200...299).contains(preHTTP.statusCode) else {
             throw CloudDriveError.apiError((preResponse as? HTTPURLResponse)?.statusCode ?? 0, "Baidu precreate HTTP failure")
@@ -67,7 +68,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
         var upReq = URLRequest(url: upURL)
         upReq.httpMethod = "POST"
         upReq.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        let (uploadData, uploadResponse) = try await session.upload(for: upReq, from: body)
+        let (uploadData, uploadResponse) = try await sendWrite(upReq, body: body)
         guard let uploadHTTP = uploadResponse as? HTTPURLResponse,
               (200...299).contains(uploadHTTP.statusCode) else {
             throw CloudDriveError.apiError((uploadResponse as? HTTPURLResponse)?.statusCode ?? 0, "Baidu part upload HTTP failure")
@@ -95,7 +96,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
             .init(name: "isdir", value: "0"), .init(name: "uploadid", value: uploadid),
             .init(name: "rtype", value: "3"), .init(name: "block_list", value: blockList),
         ])
-        let (crData, crResponse) = try await session.data(for: crReq)
+        let (crData, crResponse) = try await sendWrite(crReq)
         guard let crHTTP = crResponse as? HTTPURLResponse,
               (200...299).contains(crHTTP.statusCode) else {
             throw CloudDriveError.apiError((crResponse as? HTTPURLResponse)?.statusCode ?? 0, "Baidu create HTTP failure")
@@ -198,11 +199,6 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
     /// The shared request scheduler spaces API attempts, including pages.
     private static let snapshotDirectoryConcurrency = 4
 
-    /// 频控退避：每次 listFiles 之间至少间隔这么久，避免 errno 31034。
-    /// 百度 file/list 免费档大约 5-10 QPS。100ms 留出 10 QPS 上限，
-    /// 实测无 31034 命中；如果撞到了 31034 退避会自动兜底。
-    private static let minRequestInterval: TimeInterval = 0.1
-
     /// errno 31034 命中时最多重试次数（指数退避）
     private static let rateLimitMaxRetries = 4
 
@@ -211,8 +207,6 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
     /// 对一次播放来说远超够用：5MB 的歌按 256KB 一块拉 20 次，全程
     /// 命中缓存，省下 38 次 list/filemetas API 调用。
     private static let dlinkTTL: TimeInterval = 30 * 60
-
-    private var lastRequestAt: Date?
 
     /// path → (dlink, expiry). Reset on token refresh because the access
     /// token is appended to the dlink at request time, but the dlink
@@ -284,6 +278,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
         self.sourceID = sourceID
         self.helper = CloudDriveHelper(sourceID: sourceID, requests: requests)
         self.session = session
+        self.requests = requests
         self.tokenProvider = tokenProvider
     }
 
@@ -715,10 +710,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
                         forHTTPHeaderField: "Content-Type"
                     )
                     request.timeoutInterval = 300
-                    let (data, response) = try await session.upload(
-                        for: request,
-                        from: body
-                    )
+                    let (data, response) = try await self.sendWrite(request, body: body)
                     guard let http = response as? HTTPURLResponse else {
                         throw CloudDriveError.invalidResponse
                     }
@@ -1157,9 +1149,16 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
             let (data, http) = try await self.helper.dataRequest(
                 url: URL(string: base)!, replay: .idempotent, session: session,
                 validate: { data, http in
+                    let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+                    let errno = (json?["errno"] as? NSNumber)?.intValue
+                        ?? (json?["errno"] as? String).flatMap(Int.init)
+                    // Baidu can reject an otherwise locally valid token with an
+                    // HTTP error as well as errno 111/-6. Keep the one-refresh contract.
+                    if errno == 111 || errno == -6 || http.statusCode == 401 || http.statusCode == 403 {
+                        throw CloudDriveError.tokenExpired
+                    }
                     guard http.statusCode == 200 else { return }
-                    guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                          let errno = (json["errno"] as? NSNumber)?.intValue else { throw CloudDriveError.invalidResponse }
+                    guard let json, let errno else { throw CloudDriveError.invalidResponse }
                     switch BaiduAPIErrorPolicy.disposition(errno: errno) {
                     case .success: return
                     case .refreshAuthentication: throw CloudDriveError.tokenExpired
@@ -1183,7 +1182,6 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
                     return request
                 }
             )
-            if http.statusCode == 403 { throw CloudDriveError.permissionDenied(.fileRead) }
             guard http.statusCode == 200 else {
                 throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
             }
@@ -1207,7 +1205,6 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
         while true {
             try Task.checkCancellation()
             try await validateBeforeSend?()
-            try await throttle()
             let token = try await getToken()
             var components = URLComponents(string: base)!
             components.queryItems = queryItems + [.init(name: "access_token", value: token)]
@@ -1223,7 +1220,7 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
             // A timeout or dropped response may follow a committed write. This
             // endpoint has no idempotency key/conditional-write contract, so an
             // uncertain POST must return to its caller without being replayed.
-            let (data, response) = try await session.data(for: request)
+            let (data, response) = try await sendWrite(request)
             if let http = response as? HTTPURLResponse,
                (http.statusCode == 401 || http.statusCode == 403),
                !didRefreshRejectedToken {
@@ -1279,16 +1276,14 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
         }
     }
 
-    private func throttle() async throws {
-        let now = Date()
-        let nextAllowed = lastRequestAt?.addingTimeInterval(Self.minRequestInterval) ?? now
-        let reservedTime = max(now, nextAllowed)
-        lastRequestAt = reservedTime
-        let wait = reservedTime.timeIntervalSince(now)
-        if wait > 0 {
-            let nanoseconds = (wait * 1_000_000_000).finiteUInt64()
-            try await Task.sleep(nanoseconds: nanoseconds)
-        }
+    /// Writes use the same admission/pacing as reads, but an ambiguous result
+    /// never authorizes replay. The explicit provider-rejection loop stays above.
+    private func sendWrite(_ request: URLRequest, body: Data? = nil) async throws -> (Data, URLResponse) {
+        guard let url = request.url else { throw CloudDriveError.invalidResponse }
+        return try await requests.executor(sourceID: sourceID, url: url).execute(replay: .never, operation: { [session] in
+            if let body { return try await session.upload(for: request, from: body) }
+            return try await session.data(for: request)
+        })
     }
 
     private nonisolated func humanReadable(errno: Int) -> String {

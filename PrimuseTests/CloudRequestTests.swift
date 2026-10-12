@@ -5,6 +5,23 @@ import XCTest
 @testable import Primuse
 
 final class CloudRequestTests: XCTestCase {
+    @MainActor
+    func testSharedHTTPFailuresKeepBackfillPauseAndLocalizedScanAdvice() {
+        let manager = SourceManager(sourcesProvider: { [] })
+        let source = MusicSource(id: UUID().uuidString, name: "fixture", type: .baiduPan)
+        for failure in [HTTPResponseFailure(statusCode: 429, retryAfter: 3600),
+                        HTTPResponseFailure(statusCode: 200, retryAfter: 3600, isRateLimited: true),
+                        HTTPResponseFailure(statusCode: 503, retryAfter: 3600)] {
+            XCTAssertTrue(MetadataBackfillService.isSourceUnavailableBackfillError(failure))
+            let message = manager.scanFailureMessage(for: failure, source: source)
+            XCTAssertTrue(message.contains(String(localized: "source_diag_advice_rate_message")))
+            XCTAssertTrue(message.contains(String(localized: "source_diag_advice_rate_suggestion")))
+            XCTAssertFalse(message.contains("200"))
+        }
+        XCTAssertFalse(MetadataBackfillService.isSourceUnavailableBackfillError(HTTPResponseFailure(statusCode: 404)))
+        XCTAssertFalse(MetadataBackfillService.isSourceUnavailableBackfillError(HTTPResponseFailure(statusCode: 503)))
+    }
+
     func testLongCooldownIsPreservedAndSharedByHelpers() async throws {
         let fixture = CloudHTTPFixture(responses: [
             .init(status: 429, headers: ["Retry-After": "3600"]), .init(status: 200)
@@ -134,22 +151,54 @@ final class CloudRequestTests: XCTestCase {
         XCTAssertEqual(fixture.requests.count, 1)
     }
 
-    func testOrdinaryGoogleAndBaidu403ArePermissionsWithoutRetry() async throws {
-        for google in [true, false] {
-            let fixture = CloudHTTPFixture(responses: [.init(status: 403,
-                body: Data(#"{"error":{"errors":[{"reason":"insufficientFilePermissions"}]}}"#.utf8))])
-            let session = fixture.session()
-            defer { session.invalidateAndCancel(); fixture.remove() }
-            do {
-                if google {
-                    _ = try await GoogleDriveSource(sourceID: fixture.id, session: session, tokenProvider: { "fixture" }).listFiles(at: "")
-                } else {
-                    _ = try await BaiduPanSource(sourceID: fixture.id, session: session, tokenProvider: { "fixture" }).listFiles(at: "/")
+    func testOrdinaryGoogle403IsPermissionWithoutRetry() async throws {
+        let fixture = CloudHTTPFixture(responses: [.init(status: 403,
+            body: Data(#"{"error":{"errors":[{"reason":"insufficientFilePermissions"}]}}"#.utf8))])
+        let session = fixture.session()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+        do {
+            _ = try await GoogleDriveSource(sourceID: fixture.id, session: session, tokenProvider: { "fixture" }).listFiles(at: "")
+            XCTFail("Expected permission rejection")
+        } catch CloudDriveError.permissionDenied { }
+        XCTAssertEqual(fixture.requests.count, 1)
+    }
+
+    func testBaiduRejectedTokensRecoverEvenOnHTTP403() async throws {
+        for body in [#"{"errno":111}"#, #"{"errno":-6}"#, ""] {
+            let fixture = CloudHTTPFixture(responses: [.init(status: 200)], responder: { request, _ in
+                if request.url?.host == "openapi.baidu.com" {
+                    return .init(status: 200, body: Data(#"{"access_token":"fresh","refresh_token":"rotated","expires_in":3600}"#.utf8))
                 }
-                XCTFail("Expected permission rejection")
-            } catch CloudDriveError.permissionDenied { }
-            XCTAssertEqual(fixture.requests.count, 1)
+                let token = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "access_token" }?.value
+                return token == "fresh" ? .init(status: 200, body: Data(#"{"errno":0,"list":[]}"#.utf8))
+                    : .init(status: 403, body: Data(body.utf8))
+            })
+            let session = fixture.session()
+            defer { session.invalidateAndCancel(); fixture.remove(); _ = CloudTokenManager.deleteStoredCredentials(for: fixture.id) }
+            let tokens = CloudTokenManager(sourceID: fixture.id)
+            let saved = await tokens.saveTokens(.init(accessToken: "old", refreshToken: "refresh"))
+            let savedApp = await tokens.saveAppCredentials(.init(clientId: "fixture-client", clientSecret: "fixture-secret"))
+            XCTAssertTrue(saved && savedApp)
+            let source = BaiduPanSource(sourceID: fixture.id, session: session, tokenProvider: { "old" })
+            let files = try await source.listFiles(at: "/")
+            XCTAssertTrue(files.isEmpty)
+            XCTAssertEqual(fixture.requests.filter { $0.url?.host == "openapi.baidu.com" }.count, 1)
+            XCTAssertEqual(fixture.requests.filter { $0.url?.host == "pan.baidu.com" }.count, 2)
         }
+    }
+
+    func testBaiduReadCooldownAlsoDefersWritesWithoutSending() async throws {
+        let fixture = CloudHTTPFixture(responses: [.init(status: 429, headers: ["Retry-After": "3600"])])
+        let session = fixture.session()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+        let source = BaiduPanSource(sourceID: fixture.id, session: session, tokenProvider: { "fixture" })
+        _ = try? await source.listFiles(at: "/")
+        do { try await source.deleteFile(at: "/track.flac"); XCTFail("A write bypassed read cooldown") }
+        catch let failure as HTTPResponseFailure {
+            XCTAssertEqual(failure.statusCode, 429)
+            XCTAssertGreaterThan(failure.retryAfter ?? 0, 3590)
+        } catch { XCTFail("Lost shared cooldown: \(error)") }
+        XCTAssertEqual(fixture.requests.count, 1)
     }
 
     func testGuangYaSharesIPQuotaAcrossAccounts() async throws {

@@ -505,12 +505,8 @@ actor GoogleDriveSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDispl
             let (data, http) = try await requestListPage(pageURL)
             if http.statusCode == 404 { throw CloudDriveError.fileNotFound(parentId) }
             if http.statusCode == 403 {
-                if GoogleDriveHTTPErrorPolicy.disposition(
-                    statusCode: http.statusCode,
-                    reasons: Self.errorReasons(from: data)
-                ) == .retryRateLimit {
-                    throw CloudDriveError.rateLimited
-                }
+                // Quota rejections already propagate a structured failure from
+                // requestListPage; an ordinary 403 is a file permission failure.
                 throw CloudDriveError.permissionDenied(.fileRead)
             }
             guard http.statusCode == 200 else { throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "") }

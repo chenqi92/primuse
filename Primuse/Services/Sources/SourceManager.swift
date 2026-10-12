@@ -227,7 +227,7 @@ enum AutomaticOfflineFailureKind: String, Sendable {
 enum AutomaticOfflineFailureClassifier {
     static func classify(_ error: Error) -> AutomaticOfflineFailureKind {
         if let failure = error as? HTTPResponseFailure {
-            if failure.isRateLimited { return .rateLimited }
+            if failure.isRateLimited || [429, 503].contains(failure.statusCode) { return .rateLimited }
             return classify(RemoteMediaHTTPError(service: "Cloud", statusCode: failure.statusCode,
                                                 retryAfter: failure.retryAfter))
         }
@@ -4418,7 +4418,9 @@ final class SourceManager {
 
     func scanFailureMessage(for error: Error, source: MusicSource) -> String {
         let advice = Self.advice(for: error, source: source)
-        let actualMessage = Self.actualErrorMessage(for: error)
+        // Structured transport details stay in diagnostics; the scan UI uses
+        // the existing localized advice, including HTTP-200 business throttles.
+        let actualMessage = error is HTTPResponseFailure ? "" : Self.actualErrorMessage(for: error)
         let message = actualMessage.isEmpty ? advice.message : actualMessage
         guard !advice.suggestion.isEmpty else {
             return "\(advice.title): \(message)"
@@ -4614,6 +4616,16 @@ final class SourceManager {
     }
 
     private static func advice(for error: Error, source: MusicSource) -> SourceDiagnosticAdvice {
+        if let failure = error as? HTTPResponseFailure {
+            if failure.isRateLimited || failure.statusCode == 429 || (failure.retryAfter ?? 0) > 0 {
+                return advice(for: CloudDriveError.rateLimited, source: source)
+            }
+            if failure.statusCode == 401 { return authAdvice() }
+            if failure.statusCode == 403 {
+                return advice(for: CloudDriveError.permissionDenied(.fileRead), source: source)
+            }
+            return serverAdvice(message: String(localized: "source_diag_advice_invalid_response"))
+        }
         if let fnError = error as? FnConnectError {
             let suggestion: String
             switch fnError {
