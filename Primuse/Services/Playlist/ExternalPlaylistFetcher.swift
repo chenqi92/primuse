@@ -8,7 +8,7 @@ struct ExternalPlaylistFetcher: Sendable {
     private let session: URLSession
     private let quotaRegistry: RequestQuotaRegistry
     private static let service = RequestQuota.Service(id: "playlist.public-http", policy: .init(
-        maximumConcurrentRequests: 2, maximumAttempts: 2, timeout: 20
+        maximumConcurrentRequests: 2, maximumAttempts: 2, timeout: 60
     ))
 
     init(session: URLSession = .shared, quotaRegistry: RequestQuotaRegistry = .shared) {
@@ -57,6 +57,25 @@ struct ExternalPlaylistFetcher: Sendable {
     static let maximumTracks = 10_000
 
     func fetch(sharedText text: String) async throws -> ExternalPlaylist {
+        do {
+            return try await fetchPlaylist(sharedText: text)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let failure as HTTPResponseFailure {
+            if failure.isRateLimited || failure.statusCode == 429 || failure.retryAfter != nil {
+                throw failure // The common error supplies localized quota and wait text.
+            }
+            if [403, 404].contains(failure.statusCode) { throw FetchError.notFoundOrPrivate }
+            throw FetchError.network(failure.localizedDescription)
+        } catch let error as FetchError {
+            throw error
+        } catch {
+            try Task.checkCancellation()
+            throw FetchError.network(error.localizedDescription)
+        }
+    }
+
+    private func fetchPlaylist(sharedText text: String) async throws -> ExternalPlaylist {
         try Task.checkCancellation()
         var detection = ExternalPlaylistLink.detect(in: text)
         // 短链接最多跟两次（有的平台短链先跳一个中转页）。跳完仍认不出就当作不支持。
@@ -398,7 +417,7 @@ struct ExternalPlaylistFetcher: Sendable {
     /// Only safe reads may replay. The sole POST is YouTube's read-only browse query.
     private func data(for request: ExternalPlaylistRequest, body: Data? = nil,
                       replay: RequestExecutor.Replay = .never) async throws -> Data {
-        var urlRequest = URLRequest(url: request.url, timeoutInterval: 20)
+        var urlRequest = URLRequest(url: request.url, timeoutInterval: 60)
         if let body {
             urlRequest.httpMethod = "POST"
             urlRequest.httpBody = body
@@ -410,10 +429,10 @@ struct ExternalPlaylistFetcher: Sendable {
     private func optionalData(for request: ExternalPlaylistRequest) async throws -> Data? {
         do { return try await data(for: request) }
         catch is CancellationError { throw CancellationError() }
-        catch let failure as HTTPResponseFailure where failure.retryAfter != nil || [429, 503].contains(failure.statusCode) {
-            throw failure
-        } catch {
+        catch {
             try Task.checkCancellation()
+            // A missing optional title must not discard completed pages. Any
+            // provider cooldown is already retained by the shared registry.
             return nil
         }
     }

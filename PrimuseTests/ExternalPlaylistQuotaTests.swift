@@ -12,7 +12,13 @@ final class ExternalPlaylistQuotaTests: XCTestCase {
         for status in [400, 401, 403, 404] {
             let fixture = PlaylistFixture([.init(status: status)])
             do { _ = try await fixture.fetcher().fetch(sharedText: netEase); XCTFail("Expected failure") }
-            catch let failure as HTTPResponseFailure { XCTAssertEqual(failure.statusCode, status) }
+            catch let failure as ExternalPlaylistFetcher.FetchError {
+                switch failure {
+                case .notFoundOrPrivate: XCTAssertTrue([403, 404].contains(status))
+                case .network: XCTAssertTrue([400, 401].contains(status))
+                default: XCTFail("Unexpected presentation: \(failure)")
+                }
+            }
             XCTAssertEqual(fixture.requests.count, 1, "HTTP \(status) must not be replayed")
         }
     }
@@ -58,7 +64,7 @@ final class ExternalPlaylistQuotaTests: XCTestCase {
         XCTAssertEqual(fixture.requests.count, 2)
         let exhausted = PlaylistFixture([.init(status: 500)])
         do { _ = try await exhausted.fetcher().fetch(sharedText: qq); XCTFail("Expected finite retry failure") }
-        catch let failure as HTTPResponseFailure { XCTAssertEqual(failure.statusCode, 500) }
+        catch ExternalPlaylistFetcher.FetchError.network { }
         XCTAssertEqual(exhausted.requests.count, 2)
     }
 
@@ -97,15 +103,28 @@ final class ExternalPlaylistQuotaTests: XCTestCase {
         XCTAssertEqual(fixture.requests.count, 2)
     }
 
-    func testOptionalPlaylistNameCannotSwallowCancellationOrCooldown() async throws {
+    func testOptionalPlaylistNameKeepsTracksAndCooldownButPreservesCancellation() async throws {
         let page = #"{"code":0,"data":{"totalSize":1,"data":[{"id":1,"title":"Song","author":"Artist","duration":120}]}}"#
         for reply in [PlaylistReply(status: 429, headers: ["Retry-After": "3600"]), PlaylistReply(error: .init(.cancelled))] {
             let fixture = PlaylistFixture([.init(body: page), reply])
-            do { _ = try await fixture.fetcher().fetch(sharedText: "https://www.bilibili.com/audio/am123"); XCTFail("Expected name request failure") }
+            do {
+                let playlist = try await fixture.fetcher().fetch(sharedText: "https://www.bilibili.com/audio/am123")
+                XCTAssertNil(reply.error)
+                XCTAssertEqual(playlist.tracks.map(\.title), ["Song"])
+                XCTAssertFalse(playlist.isPartial)
+                do { _ = try await fixture.fetcher().fetch(sharedText: "https://www.bilibili.com/audio/am456"); XCTFail("The shared cooldown must survive an optional-name failure") }
+                catch let failure as HTTPResponseFailure { XCTAssertGreaterThan(failure.retryAfter ?? 0, 3590) }
+            }
             catch is CancellationError { XCTAssertNotNil(reply.error) }
-            catch let failure as HTTPResponseFailure { XCTAssertEqual(failure.statusCode, 429) }
             XCTAssertEqual(fixture.requests.count, 2)
         }
+    }
+
+    func testQuota403TakesPriorityOverPrivatePlaylistMapping() async throws {
+        let fixture = PlaylistFixture([.init(status: 403, headers: ["Retry-After": "3600"])])
+        do { _ = try await fixture.fetcher().fetch(sharedText: netEase); XCTFail("Expected cooldown") }
+        catch let failure as HTTPResponseFailure { XCTAssertEqual(failure.retryAfter, 3600) }
+        XCTAssertEqual(fixture.requests.count, 1)
     }
 
     func testCancelledTransportIsNotReplayed() async throws {
