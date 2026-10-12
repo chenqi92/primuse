@@ -775,6 +775,7 @@ final class FFmpegAudioDecoder: PrimuseAudioDecoder {
                                 ) else {
                                     throw AudioDecoderError.converterCreationFailed
                                 }
+                                newConverter.usePlaybackResampling()
                                 converter = newConverter
                                 converterSourceFormat = sourceBuffer.format
                             }

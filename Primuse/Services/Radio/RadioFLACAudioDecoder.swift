@@ -69,6 +69,7 @@ final class RadioFLACAudioDecoder: Sendable {
                                         message: String(localized: "radio_flac_error_configure")
                                     )
                                 }
+                                newConverter.usePlaybackResampling()
                                 converter = newConverter
                                 converterSourceFormat = sourceBuffer.format
                             }

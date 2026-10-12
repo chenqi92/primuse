@@ -473,6 +473,7 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
                 continuation.finish(throwing: AudioDecoderError.converterCreationFailed)
                 return
             }
+            converter.usePlaybackResampling()
             if AudioChannelConversionPolicy.requiresDownmix(
                 sourceChannelCount: Int(sourceFormat.channelCount),
                 outputChannelCount: Int(outputFormat.channelCount)

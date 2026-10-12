@@ -729,6 +729,7 @@ targets:
       - path: Primuse/Services/Sources/WebDAVMultistatusParser.swift
       - path: Primuse/Services/Sources/SourceErrors.swift
       - path: Primuse/Utilities/Extensions/URL+AudioFormat.swift
+      - path: Primuse/Utilities/Extensions/AVAudioConverter+PlaybackResampling.swift
       # 标签写回的公共事务层。电视端本身不改标签,但 SFTP / 云盘连接器都声明了
       # 这个适配协议,协议与共享类型都在这份文件里。
       - path: Primuse/Services/Metadata/EmbeddedMetadataWritebackCoordinator.swift
