@@ -21,11 +21,15 @@ struct RequestQuotaRegistryTests {
             Issue.record("An active cooldown must not be evicted to admit another host")
         } catch RequestExecutor.AdmissionError.queueFull { }
         clock.advance(to: 3599)
-        do {
-            _ = try await registry.execute(for: limited, operation: { 3 })
-            Issue.record("The original quota lost its deadline")
-        } catch let failure as HTTPResponseFailure { #expect(failure.retryAfter == 1) }
+        let admitted = Task {
+            try await registry.execute(for: limited, operation: { clock.recordStart(); return 3 })
+        }
+        defer { admitted.cancel() }
+        try await clock.waitForSleep(at: 3600)
+        #expect(clock.starts.isEmpty, "Admission must preserve the original quota deadline")
         clock.advance(to: 3600)
+        #expect(try await admitted.value == 3)
+        #expect(clock.starts == [3600])
         #expect(try await registry.execute(for: other, operation: { 4 }) == 4,
                 "An expired idle entry must make room for another endpoint")
     }
