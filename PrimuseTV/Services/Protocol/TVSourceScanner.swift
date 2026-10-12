@@ -2,7 +2,6 @@
 import AMSMB2
 import CryptoKit
 import Foundation
-import FilesProvider
 import NFSKit
 import PrimuseKit
 import UIKit
@@ -890,91 +889,6 @@ actor TVUgreenLister: TVDirectoryLister {
     }
 }
 
-// MARK: - WebDAV / FTP 目录列举(FilesProvider)
-
-/// WebDAV 与 FTP 在电视端共用 FilesProvider(这个包电视端本来就链接着,SMB 之外
-/// 的两种协议直连也靠它)。iOS 侧为了精细控制 TLS 走的是自己拼的 PROPFIND,
-/// 电视端只需要列目录,直接用库的 `contentsOfDirectory` 更省也更稳。
-actor TVFilesProviderLister: TVDirectoryLister {
-    private let provider: any FileProvider
-    private let basePath: String
-
-    init?(source: MusicSource, credential: SourceCredential?) {
-        let host = (source.host ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !host.isEmpty else { return nil }
-        let scheme: String
-        switch source.type {
-        case .webdav: scheme = source.useSsl ? "https" : "http"
-        default: return nil
-        }
-        var components = URLComponents()
-        components.scheme = scheme
-        components.host = host
-        if let port = source.port, port > 0 { components.port = port }
-        components.path = "/"
-        guard let baseURL = components.url else { return nil }
-
-        let user = credential?.username ?? ""
-        let password = credential?.password ?? ""
-        // FTP 匿名登录:库要求给出一个口令,给标准的邮箱式占位。
-        let effectivePassword = (source.type == .ftp && user.isEmpty && password.isEmpty)
-            ? "anonymous@primuse"
-            : password
-        let effectiveUser = (source.type == .ftp && user.isEmpty) ? "anonymous" : user
-        let urlCredential = URLCredential(
-            user: effectiveUser,
-            password: effectivePassword,
-            persistence: .forSession
-        )
-
-        switch source.type {
-        case .webdav:
-            guard let dav = WebDAVFileProvider(baseURL: baseURL, credential: urlCredential) else {
-                return nil
-            }
-            self.provider = dav
-        default:
-            return nil
-        }
-        let trimmed = (source.basePath ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        self.basePath = trimmed
-    }
-
-    func list(_ path: String) async throws -> [TVDirEntry] {
-        let normalized = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        let relative = (normalized.isEmpty || normalized == "/") ? "/" : normalized
-        let providerPath = TVFilesProviderPathPolicy.providerPath(base: basePath, path: relative)
-        let base = basePath
-        // 在回调里就地转成 TVDirEntry:库的 FileObject 不是 Sendable,不能跨过
-        // continuation 边界。
-        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[TVDirEntry], any Error>) in
-            provider.contentsOfDirectory(path: providerPath) { contents, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                    return
-                }
-                let entries = contents
-                    .filter { !$0.name.hasPrefix(".") }
-                    .map { file in
-                        TVDirEntry(
-                            name: file.name,
-                            isDir: file.isDirectory,
-                            size: file.size,
-                            path: TVFilesProviderPathPolicy.sourcePath(
-                                base: base,
-                                providerPath: file.path
-                            ),
-                            parentPath: relative,
-                            modifiedDate: file.modifiedDate
-                        )
-                    }
-                    .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
-                continuation.resume(returning: entries)
-            }
-        }
-    }
-}
-
 /// 源内相对路径与 provider 路径之间的换算(源可以配置一个基准目录)。
 enum TVFilesProviderPathPolicy {
     static func providerPath(base: String, path: String) -> String {
@@ -1371,7 +1285,7 @@ final class TVSourceScanner {
         case .qnap:
             return TVQnapLister(source: source, credential: credential)
         case .webdav:
-            return TVFilesProviderLister(source: source, credential: credential)
+            return TVWebDAVDirectoryLister(source: source, credential: credential)
         case .ftp:
             return TVFTPLister(source: source, credential: credential)
         case .jellyfin, .emby, .plex, .subsonic, .navidrome, .airsonic, .gonic:

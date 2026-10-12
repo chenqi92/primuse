@@ -28,6 +28,7 @@
 		034DE2927BC6BE3B93CB12C2 /* FileFormatRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 111D15C431BBFAC41E4D37B1 /* FileFormatRouter.swift */; };
 		0370BE128DDF0347C93FE343 /* AnimatedArtworkDataView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F44E04BAF67DF37C98C9FDAF /* AnimatedArtworkDataView.swift */; };
 		03B3734E9EB5070B598E2FB2 /* CueTrackLyricsSidecarPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8229DF5C9EC7789C5DC4679 /* CueTrackLyricsSidecarPolicy.swift */; };
+		03C0BBCBF2B7CC32A18A38CA /* WebDAVMultistatusParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0991ED544EEA55E05E7105 /* WebDAVMultistatusParser.swift */; };
 		04969F95CD46A7BA89FA1E95 /* ListeningProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DAC238ACF22C230D66FAB38 /* ListeningProfile.swift */; };
 		04C1D7D8981AB8896412B20A /* ConnectorDirectoryBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACACC8DFC2348B923ACAB6E5 /* ConnectorDirectoryBrowserView.swift */; };
 		04E128425527E01380009161 /* RadioStationStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57DE7B8C5035D8C74F2E397 /* RadioStationStrip.swift */; };
@@ -350,9 +351,12 @@
 		2F991483D3578D68154318C5 /* ScrobbleSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FC226D745AC023E7E54BF0F /* ScrobbleSettingsView.swift */; };
 		2F99FFD7B7D2D1F6EE1595A0 /* ServerCollectionFavoriteSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 535157A3C8E0F7D23DAD2B3D /* ServerCollectionFavoriteSyncService.swift */; };
 		2FE556608B4EE9CB93532EAD /* LibraryPageFind.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F0CCE40C02CDF0A976BE27 /* LibraryPageFind.swift */; };
+		4B541B82A6DA95152F0AC80A /* WebDAVMultistatusParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0991ED544EEA55E05E7105 /* WebDAVMultistatusParser.swift */; };
+		55E75B511CF4BD0B32570F2E /* TVWebDAVDirectoryQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EF41EA448F60A86B27B2C77 /* TVWebDAVDirectoryQuotaTests.swift */; };
 		59CAA41E51DEF4B8C798EC01 /* PodcastRequestQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71686A11D40981F530B26BFD /* PodcastRequestQuotaTests.swift */; };
 		59F5082BC6EE44E3AD076002 /* CrossFeatureQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 442CF52C9855BC72B9F3AB4B /* CrossFeatureQuotaTests.swift */; };
 		62BFB12E3C2424A8EEEEC13F /* CrossFeatureQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 442CF52C9855BC72B9F3AB4B /* CrossFeatureQuotaTests.swift */; };
+		94BC98392B220B810D3AFA6B /* WebDAVMultistatusParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0991ED544EEA55E05E7105 /* WebDAVMultistatusParser.swift */; };
 		B2D8A49F9F94DDB1B3ECAB3B /* PodcastRequestQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71686A11D40981F530B26BFD /* PodcastRequestQuotaTests.swift */; };
 		D05413CD64ACA16198D30C73 /* CrossFeatureQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 442CF52C9855BC72B9F3AB4B /* CrossFeatureQuotaTests.swift */; };
 		DFF5B772138DCB2652D4B039 /* PodcastRequestQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71686A11D40981F530B26BFD /* PodcastRequestQuotaTests.swift */; };
@@ -1897,6 +1901,7 @@
 		FF1BDF6B3543D685C762F962 /* PrimuseWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91C06A4C190FC178D4C65D00 /* PrimuseWidgetBundle.swift */; };
 		FFA8A0D80B2614FB9E78AE03 /* AudioEffectsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78324748ACDF339A48E0E8D4 /* AudioEffectsService.swift */; };
 		FFB6F3076CD8D107E17A9C33 /* ServerCatalogIncrementalSyncPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BADBBDCE4D75C75C46571A8 /* ServerCatalogIncrementalSyncPolicy.swift */; };
+		FFBCF7EB36598271E7DD7A77 /* TVWebDAVDirectoryLister.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B8F6937F6B41BB81A7B79A5 /* TVWebDAVDirectoryLister.swift */; };
 		FFD2B29D7B89BDA769B2D069 /* AudioDecoderProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF62F5046D29F993786AE489 /* AudioDecoderProtocol.swift */; };
 /* End PBXBuildFile section */
 
@@ -2216,6 +2221,7 @@
 		09B9293AFE6E82ABC6C9C896 /* NetworkHostAuthority.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkHostAuthority.swift; sourceTree = "<group>"; };
 		09CE2F3FC6DBC83E5C139F8D /* SynologyQuickConnectResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyQuickConnectResolver.swift; sourceTree = "<group>"; };
 		0A0721DBF2314CD9ABA156A8 /* es-MX */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "es-MX"; path = "es-MX.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		0A0991ED544EEA55E05E7105 /* WebDAVMultistatusParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebDAVMultistatusParser.swift; sourceTree = "<group>"; };
 		0A0A68B54B7A480C64D2DF3F /* SiriMediaSearchResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiriMediaSearchResolver.swift; sourceTree = "<group>"; };
 		0A23DCE16E17D3C9AEBAD5AC /* ConnectorScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectorScanner.swift; sourceTree = "<group>"; };
 		0A373D69542A894AC0E311DF /* SongloftSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongloftSource.swift; sourceTree = "<group>"; };
@@ -2242,6 +2248,7 @@
 		0CCA8EE372D7ED88D64B8C3D /* ISOBaseMediaChapterParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISOBaseMediaChapterParser.swift; sourceTree = "<group>"; };
 		40980373B716BCFA76010C17 /* FireflySwarmSimulation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireflySwarmSimulation.swift; sourceTree = "<group>"; };
 		442CF52C9855BC72B9F3AB4B /* CrossFeatureQuotaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossFeatureQuotaTests.swift; sourceTree = "<group>"; };
+		4B8F6937F6B41BB81A7B79A5 /* TVWebDAVDirectoryLister.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVWebDAVDirectoryLister.swift; sourceTree = "<group>"; };
 		5400797E01BDAA73A61EE612 /* TingReaderStreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TingReaderStreamResolver.swift; sourceTree = "<group>"; };
 		56D75D33DED0016E8FE39B23 /* YearlyReport.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = YearlyReport.xcassets; sourceTree = "<group>"; };
 		656DE32C9134161A97AD208F /* CollectionCoverWallHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollectionCoverWallHeader.swift; sourceTree = "<group>"; };
@@ -2249,6 +2256,7 @@
 		68D6C92F242076748F18B78D /* BuiltInAIConsentSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltInAIConsentSheet.swift; sourceTree = "<group>"; };
 		71686A11D40981F530B26BFD /* PodcastRequestQuotaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastRequestQuotaTests.swift; sourceTree = "<group>"; };
 		7C03BED21D662046E28FA9B2 /* AIRequestQuotaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIRequestQuotaTests.swift; sourceTree = "<group>"; };
+		8EF41EA448F60A86B27B2C77 /* TVWebDAVDirectoryQuotaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVWebDAVDirectoryQuotaTests.swift; sourceTree = "<group>"; };
 		99C30A24BB200AF2D4BD57C9 /* FlyAuditoryCircuit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlyAuditoryCircuit.swift; sourceTree = "<group>"; };
 		A04BC9A9E1ED420EC21D43E3 /* TingReaderAPIProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TingReaderAPIProtocol.swift; sourceTree = "<group>"; };
 		A854D7BB4C9874B9691F36C2 /* ChladniPlateSimulation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChladniPlateSimulation.swift; sourceTree = "<group>"; };
@@ -3871,6 +3879,7 @@
 		227B30DE534574B04EF07610 /* Sources */ = {
 			isa = PBXGroup;
 			children = (
+				0A0991ED544EEA55E05E7105 /* WebDAVMultistatusParser.swift */,
 				D5819259AE89A45BDAF57D34 /* CloudDrive */,
 				0BE82C5DF65A566D6D3CDE4E /* AppleMusicLibrarySource.swift */,
 				EC7328A5A7A53657CC638132 /* AudiobookshelfSource.swift */,
@@ -4719,6 +4728,7 @@
 			isa = PBXGroup;
 			children = (
 				54A15074F64F0B584CB5B010 /* TVColorBackgroundIsolationTests.swift */,
+				8EF41EA448F60A86B27B2C77 /* TVWebDAVDirectoryQuotaTests.swift */,
 				EC873BF121FE7CF625EABC14 /* TVKaraokeParityTests.swift */,
 				EDC8B99069FF25B8A0FF10CA /* TVKaraokeSeparationTests.swift */,
 				17051B067440EDEAE09FA4D9 /* TVLibraryStateTests.swift */,
@@ -5039,6 +5049,7 @@
 		C512B34CBD22685C59F4312A /* Protocol */ = {
 			isa = PBXGroup;
 			children = (
+				4B8F6937F6B41BB81A7B79A5 /* TVWebDAVDirectoryLister.swift */,
 				986B24BF4F85684EE7B21FCE /* FTPByteReader.swift */,
 				358B35D2EA5639F74C35CC3A /* NFSByteReader.swift */,
 				BACEFA0644945C48C3E8A0F9 /* SMBByteReader.swift */,
@@ -6140,6 +6151,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				55E75B511CF4BD0B32570F2E /* TVWebDAVDirectoryQuotaTests.swift in Sources */,
 				62BFB12E3C2424A8EEEEC13F /* CrossFeatureQuotaTests.swift in Sources */,
 				B2D8A49F9F94DDB1B3ECAB3B /* PodcastRequestQuotaTests.swift in Sources */,
 				5F795B4E7C2D1592241DE408 /* AIRequestQuotaTests.swift in Sources */,
@@ -6739,6 +6751,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				5E5CD445E8005257DD9A9D76 /* AICredentialStore.swift in Sources */,
+				94BC98392B220B810D3AFA6B /* WebDAVMultistatusParser.swift in Sources */,
 				FD44254364FA0DB15420FBA1 /* AIPlaylistEditorView.swift in Sources */,
 				B418E40C20D78B4D573CFB4D /* AIRecommendationLibraryView.swift in Sources */,
 				7210AD10697C91EB7309F068 /* AISettingsStore.swift in Sources */,
@@ -7254,6 +7267,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				03C0BBCBF2B7CC32A18A38CA /* WebDAVMultistatusParser.swift in Sources */,
 				09EE11D6ADFC5A50BF5744AE /* AICredentialStore.swift in Sources */,
 				790E6EC9BAD713E863742CA9 /* AISettingsStore.swift in Sources */,
 				B786B6AEA6CACEA58889EAA6 /* AISettingsView.swift in Sources */,
@@ -7451,6 +7465,7 @@
 				0D2DD9E6DAF12BC705E2676B /* URL+AudioFormat.swift in Sources */,
 				EF3D2CDD61DFE0855B558972 /* UgreenAPI.swift in Sources */,
 				7B1A86B798BFC14077CE063A /* XorZlibLyricsDecoder.swift in Sources */,
+				FFBCF7EB36598271E7DD7A77 /* TVWebDAVDirectoryLister.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -7459,6 +7474,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				370A83F06945E4CAAD111042 /* AICredentialStore.swift in Sources */,
+				4B541B82A6DA95152F0AC80A /* WebDAVMultistatusParser.swift in Sources */,
 				BEDC249FC1AF38BC9516765B /* AIPlaylistEditorView.swift in Sources */,
 				FB0911208AD3966703462CC2 /* AIRecommendationLibraryView.swift in Sources */,
 				EB36756FE7E3F05779F6C1F1 /* AISettingsStore.swift in Sources */,
