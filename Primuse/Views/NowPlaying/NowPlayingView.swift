@@ -1636,6 +1636,9 @@ struct NowPlayingView: View {
         max(0, min(size.width - 44, size.height * 0.42))
     }
 
+    /// 竖屏音量行的高度(`SystemVolumeSlider.compactHeight`),关掉音量条时按它把空出来的高度分出去。
+    static let portraitVolumeRowHeight: CGFloat = 24
+
     /// 竖屏播放键、音量与底排之间多拉开的距离:屏幕越高拉得越开,矮屏(700 以下)照旧。
     /// 封面与歌词两种模式用同一个值,切换时这几行不挪位置。
     static func portraitControlGap(forHeight height: CGFloat) -> CGFloat {
@@ -4535,6 +4538,11 @@ struct NowPlayingView: View {
         // 封面那一块只要封面加上下各 12 的高度,封面、歌名一起靠上;多出来的高度放在歌名与进度条之间。
         let artworkRegionHeight = (player.isMusicVideoPlaybackActive ? mediaWidth * 9 / 16 : mediaWidth) + 24
         let controlGap = Self.portraitControlGap(forHeight: geo.size.height)
+        // 关掉音量条空出来的高度。分到封面上方和几行控件之间, 不全堆在歌名与进度条之间;
+        // 这些本来是音量行占着的, 矮屏也不会因此更挤。封面与歌词两种模式取同一个值。
+        let volumeSlack: CGFloat = showsPlayerVolumeBar
+            ? 0
+            : Self.portraitVolumeRowHeight + 10 + controlGap
 
         if usesAudiobookPlayerDesign, !isLyricsImmersive {
             // 包一层壳子,别在这个分支里现场构造整套版面(见 `NowPlayingDeferredContent`)。
@@ -4660,7 +4668,7 @@ struct NowPlayingView: View {
                     } else {
                         // 把手与封面之间:高屏多空一点,矮屏先压这里。
                         Spacer(minLength: 0)
-                            .frame(maxHeight: 16)
+                            .frame(maxHeight: 16 + volumeSlack * 0.4)
                         GeometryReader { artworkGeometry in
                             // Text and controls retain their height; artwork uses the remaining space.
                             let ratio: CGFloat = player.isMusicVideoPlaybackActive ? 16.0 / 9.0 : 1
@@ -4722,7 +4730,7 @@ struct NowPlayingView: View {
                         // Controls
                         portraitTransportRow(showsTextKeys: spokenWordTextKeysInTransport && !usesToolColumn)
                         .matchedLayoutElement(.transport, in: layoutNamespace)
-                        .padding(.top, 12 + controlGap)
+                        .padding(.top, 12 + controlGap + volumeSlack * 0.3)
                         .padding(.horizontal, insets.rows)
 
                         if showsPlayerVolumeBar {
@@ -4737,7 +4745,7 @@ struct NowPlayingView: View {
                         // 竖栏里排着那一列按钮时(iPhone Duo)这一排的键都在那一列里,这里不再重复。
                         if !usesToolColumn {
                             portraitBottomBar
-                            .padding(.top, controlGap / 2)
+                            .padding(.top, controlGap / 2 + volumeSlack * 0.3)
                             .padding(.horizontal, insets.rows)
                             .pmLayoutSwitchFade()
                         }
