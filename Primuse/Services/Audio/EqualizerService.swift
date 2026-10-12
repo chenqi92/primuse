@@ -32,11 +32,19 @@ final class EqualizerService {
 
     @ObservationIgnored private var outputMonitor: EQOutputDeviceMonitor?
 
+    /// 均衡器节点上这一刻的频段增益与开关,过渡期间落后于 `bands` / `isEnabled`。
+    @ObservationIgnored private var appliedGains: [Float]?
+    @ObservationIgnored private var appliedEnabled = true
+    /// 上面的值写在哪个节点上;图重建后换了新节点,频段全是 0。
+    @ObservationIgnored private weak var appliedNode: AVAudioUnitEQ?
+    @ObservationIgnored private var transitionTask: Task<Void, Never>?
+    @ObservationIgnored private var transitionID = 0
+
     init(audioEngine: AudioEngine, defaults: UserDefaults = .standard) {
         self.audioEngine = audioEngine
         self.defaults = defaults
         load()
-        applyHeadroom()
+        updatePreampDB()
         startOutputDeviceTracking()
     }
 
@@ -77,8 +85,7 @@ final class EqualizerService {
         guard index >= 0, index < PrimuseConstants.eqBandCount else { return }
         let clampedGain = clamp(gain)
         bands[index] = clampedGain
-        audioEngine.eqNode?.bands[index].gain = clampedGain
-        applyHeadroom()
+        curveDidChange()
         // 手动拖动即进入"自定义",实时记录整条曲线
         if !currentPreset.isCustom {
             EQDevicePresetSwitchPolicy.userSelected(
@@ -251,21 +258,23 @@ final class EqualizerService {
         currentPreset = preset
         bands = preset.bands
         if preset.isCustom { customBands = preset.bands }
-        for (index, gain) in bands.enumerated() {
-            audioEngine.eqNode?.bands[index].gain = clamp(gain)
-        }
-        applyHeadroom()
+        curveDidChange()
         persist()
     }
 
     /// AudioEngine.setUp() 会把所有频段增益清零,启动后需回填持久化的曲线与开关。
+    /// 新建的图还没出声,整条直接写;同一个节点上再调就照常走过渡。
     func applySettings() {
         guard let eqNode = audioEngine.eqNode else { return }
-        for (index, gain) in bands.enumerated() where index < eqNode.bands.count {
-            eqNode.bands[index].gain = clamp(gain)
-            eqNode.bands[index].bypass = !isEnabled
+        guard eqNode !== appliedNode else {
+            curveDidChange()
+            return
         }
-        applyHeadroom()
+        cancelTransition()
+        updatePreampDB()
+        let gains = bands.map { clamp($0) }
+        write(gains: gains, enabled: isEnabled, to: eqNode)
+        audioEngine.equalizerPreampGain = Self.linearGain(preampDB)
     }
 
     private func clamp(_ gain: Float) -> Float {
@@ -273,26 +282,120 @@ final class EqualizerService {
     }
 
     private func updateBypass() {
-        applyHeadroom()
-        guard let eqNode = audioEngine.eqNode else { return }
-        for band in eqNode.bands {
-            band.bypass = !isEnabled
-        }
+        curveDidChange()
+    }
+
+    // MARK: Headroom
+
+    /// 关着时响应视为平直。
+    private static func response(gains: [Float], enabled: Bool) -> [Float] {
+        enabled ? gains : Array(repeating: 0, count: gains.count)
+    }
+
+    private static func linearGain(_ decibels: Float) -> Float {
+        Float(pow(10, Double(decibels) / 20))
+    }
+
+    private var graphSampleRate: Double {
+        audioEngine.outputFormat?.sampleRate ?? 48_000
     }
 
     /// 按整条曲线的最高点压低整体增益,提升的频段不再把响的歌推过满刻度。
-    /// 频段全旁通时 globalGain 照样生效,所以关着要归零。
-    private func applyHeadroom() {
-        let preamp = isEnabled
-            ? EqualizerHeadroomPolicy.preampDB(
-                bandGainsDB: bands.map { clamp($0) },
-                frequencies: PrimuseConstants.eqBandFrequencies,
-                bandwidthOctaves: PrimuseConstants.eqDefaultBandwidth,
-                sampleRate: audioEngine.outputFormat?.sampleRate ?? 48_000
-            )
-            : 0
+    private func updatePreampDB() {
+        let preamp = EqualizerHeadroomPolicy.preampDB(
+            bandGainsDB: Self.response(gains: bands.map { clamp($0) }, enabled: isEnabled),
+            frequencies: PrimuseConstants.eqBandFrequencies,
+            bandwidthOctaves: PrimuseConstants.eqDefaultBandwidth,
+            sampleRate: graphSampleRate
+        )
         if preampDB != preamp { preampDB = preamp }
-        audioEngine.eqNode?.globalGain = preamp
+    }
+
+    /// 关掉时把频段增益平滑降到 0,不用旁通:旁通是硬切,重新接上时滤波器状态对不上,
+    /// 全 +12 关了再开会冲到 +28 dBFS。0 dB 的参数型频段本身就是直通。
+    private func write(gains: [Float], enabled: Bool, to eqNode: AVAudioUnitEQ) {
+        for (index, gain) in gains.enumerated() where index < eqNode.bands.count {
+            eqNode.bands[index].gain = enabled ? gain : 0
+            eqNode.bands[index].bypass = false
+        }
+        appliedGains = gains
+        appliedEnabled = enabled
+        appliedNode = eqNode
+    }
+
+    private var curveIsApplied: Bool {
+        audioEngine.eqNode === appliedNode
+            && appliedGains == bands.map { clamp($0) }
+            && appliedEnabled == isEnabled
+    }
+
+    /// 曲线或开关变了:界面上的数马上更新,声音按「先压低 → 改频段 → 放回」过渡,
+    /// 不然改动中途近满幅的歌会短暂冲过 0 dBFS(见 `EqualizerHeadroomPolicy`)。
+    /// 正在过渡时由它接着处理新的曲线,拖滑块时不会来回抬压。
+    private func curveDidChange() {
+        updatePreampDB()
+        guard audioEngine.eqNode != nil, transitionTask == nil, !curveIsApplied else { return }
+        transitionID &+= 1
+        let id = transitionID
+        transitionTask = Task { [weak self] in
+            await self?.runTransition(id: id)
+        }
+    }
+
+    private func cancelTransition() {
+        transitionTask?.cancel()
+        transitionTask = nil
+        transitionID &+= 1
+    }
+
+    private func runTransition(id: Int) async {
+        defer { if transitionID == id { transitionTask = nil } }
+        // 这一轮过渡中出现过的曲线的上包络;整体增益按它压住,直到曲线停下来。
+        var ceiling: [Float]?
+        var quietSince = ContinuousClock.now
+        while !Task.isCancelled, let eqNode = audioEngine.eqNode {
+            if eqNode !== appliedNode {
+                // 没经过 applySettings 的新图:频段全是 0、没有旁通、整体增益是 1。
+                appliedGains = Array(repeating: 0, count: bands.count)
+                appliedEnabled = true
+                appliedNode = eqNode
+                ceiling = nil
+            }
+            let gains = bands.map { clamp($0) }
+            let enabled = isEnabled
+            if gains != appliedGains || enabled != appliedEnabled {
+                let applied = Self.response(gains: appliedGains ?? gains, enabled: appliedEnabled)
+                let next = EqualizerHeadroomPolicy.ceiling(
+                    ceiling ?? applied,
+                    Self.response(gains: gains, enabled: enabled)
+                )
+                ceiling = next
+                let hold = Self.linearGain(EqualizerHeadroomPolicy.transitionPreampDB(
+                    ceilingBandGainsDB: next,
+                    frequencies: PrimuseConstants.eqBandFrequencies,
+                    bandwidthOctaves: PrimuseConstants.eqDefaultBandwidth,
+                    sampleRate: graphSampleRate
+                ))
+                if audioEngine.equalizerPreampGain > hold + 1e-6 {
+                    audioEngine.equalizerPreampGain = hold
+                    let delay = EqualizerHeadroomPolicy.lowerSettleDelay(
+                        ioBufferDuration: audioEngine.outputIOBufferDuration
+                    )
+                    try? await Task.sleep(for: .seconds(delay))
+                    guard !Task.isCancelled, audioEngine.eqNode === eqNode else { return }
+                }
+                // 写的是压低前取的那条曲线,它一定在上包络里;等待期间又改的下一轮再处理。
+                write(gains: gains, enabled: enabled, to: eqNode)
+                quietSince = .now
+            } else if ceiling == nil {
+                return
+            } else if quietSince.duration(to: .now) >= .seconds(EqualizerHeadroomPolicy.releaseDelay) {
+                audioEngine.equalizerPreampGain = Self.linearGain(preampDB)
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(30))
+            guard !Task.isCancelled, audioEngine.eqNode === eqNode else { return }
+        }
     }
 
     var bandFrequencyLabels: [String] {

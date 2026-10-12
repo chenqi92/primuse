@@ -27,6 +27,51 @@ public enum EqualizerHeadroomPolicy {
         return Float(-peak)
     }
 
+    // MARK: - 换曲线的过渡
+    //
+    // 频段增益和整体增益都不是一写就到位：AVAudioUnitEQ 的频段增益在约 25 ms 里平滑过去，
+    // 过渡中会比终值多出约 1 dB（全 -12 切回平直时最明显）；混音节点音量要约一个渲染周期
+    // （4096 帧缓冲时约 85 ms）。两者同时改，近满幅的歌会短暂冲过 0 dBFS。所以换曲线时
+    // 先按新旧曲线的上包络再多压一点，等压下去了再改频段，频段到位后才放回终值。
+    // 编译机上离线渲染，预设两两互切、25 Hz–18 kHz 正弦都不过冲。
+
+    /// 过渡期间在上包络之外再多压的量。
+    public static let transitionMarginDB: Float = 2
+
+    /// 频段改完后过多久把整体增益放回终值。
+    public static let releaseDelay: TimeInterval = 0.15
+
+    /// 过渡中出现过的曲线逐段取大。
+    public static func ceiling(_ a: [Float], _ b: [Float]) -> [Float] {
+        (0..<max(a.count, b.count)).map { index in
+            max(index < a.count ? a[index] : 0, index < b.count ? b[index] : 0)
+        }
+    }
+
+    /// 过渡期间的整体增益（dB）：按上包络压，再多压 `transitionMarginDB`。
+    public static func transitionPreampDB(
+        ceilingBandGainsDB: [Float],
+        frequencies: [Float],
+        bandwidthOctaves: Float,
+        sampleRate: Double
+    ) -> Float {
+        preampDB(
+            bandGainsDB: ceilingBandGainsDB,
+            frequencies: frequencies,
+            bandwidthOctaves: bandwidthOctaves,
+            sampleRate: sampleRate
+        ) - transitionMarginDB
+    }
+
+    /// 压低整体增益后要等多久再改频段：音量约一个渲染周期才到位，写入又可能落在周期中间，
+    /// 按两个周期再加 15 ms 算，至少 60 ms。读不到缓冲时长时按 4096 帧 / 44.1 kHz 估。
+    public static func lowerSettleDelay(ioBufferDuration: TimeInterval?) -> TimeInterval {
+        let fallback = 4_096.0 / 44_100
+        var buffer = ioBufferDuration ?? fallback
+        if !buffer.isFinite || buffer <= 0 { buffer = fallback }
+        return max(0.06, 2 * min(buffer, 0.5) + 0.015)
+    }
+
     /// 20 Hz 到 20 kHz（或奈奎斯特频率以下）内曲线的最高增益（dB）。
     public static func peakGainDB(
         bandGainsDB: [Float],

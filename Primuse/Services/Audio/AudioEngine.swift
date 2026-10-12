@@ -1013,6 +1013,28 @@ final class AudioEngine {
         #endif
     }
 
+    /// 输出一次渲染的时长(秒),读不到时为 nil。
+    var outputIOBufferDuration: TimeInterval? {
+        #if os(iOS)
+        return AVAudioSession.sharedInstance().ioBufferDuration
+        #elseif os(macOS)
+        guard let deviceID = hardwareOutputDeviceID else { return nil }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyBufferFrameSize,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var frames: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &frames)
+        let rate = Self.nominalSampleRate(deviceID: deviceID)
+        guard status == noErr, frames > 0, rate > 0 else { return nil }
+        return Double(frames) / rate
+        #else
+        return nil
+        #endif
+    }
+
     /// Builds the PCM format used by the DSP-free graph for a source sample
     /// rate. The channel count follows the active output route; unlike the
     /// sample rate it is not persisted on `Song`.
@@ -2282,6 +2304,14 @@ final class AudioEngine {
         if requestedVolume != clamped { requestedVolume = clamped }
         applyRequestedVolumeToGraph()
         if persist { persistVolume() }
+    }
+
+    /// 均衡器的整体增益(线性),挂在均衡器前面那个混音节点上,高保真直通图里没有这一级。
+    /// 不用 AVAudioUnitEQ 的 globalGain:它大幅跳变时高频会冲出很大的瞬态(0 → -19 dB
+    /// 时 12 kHz 冲到 +38 dBFS),混音节点音量是纯乘法,改动在约一个渲染周期里平滑到位。
+    var equalizerPreampGain: Float {
+        get { playerMixer?.outputVolume ?? 1 }
+        set { playerMixer?.outputVolume = newValue }
     }
 
     /// 把用户音量写到这一刻真正在出声的那一级增益上。

@@ -42,6 +42,49 @@ struct EqualizerHeadroomPolicyTests {
         #expect(preamp([0, 0, 0, 0, 0, 0.04, 0, 0, 0, 0]) == 0)
     }
 
+    @Test("The transition ceiling keeps the larger gain of each band")
+    func ceiling() {
+        #expect(EqualizerHeadroomPolicy.ceiling([6, 0, -3], [0, 4, -6]) == [6, 4, -3])
+        // 长度不一时缺的段按 0 算。
+        #expect(EqualizerHeadroomPolicy.ceiling([-2], [1, -1]) == [1, 0])
+        #expect(EqualizerHeadroomPolicy.ceiling([], []) == [])
+    }
+
+    @Test("The transition holds the ceiling's preamp plus the margin")
+    func transitionPreamp() {
+        let flatToBass = EqualizerHeadroomPolicy.transitionPreampDB(
+            ceilingBandGainsDB: EqualizerHeadroomPolicy.ceiling(
+                Array(repeating: 0, count: 10), [6, 5, 4, 3, 1, 0, 0, 0, 0, 0]
+            ),
+            frequencies: frequencies,
+            bandwidthOctaves: 1,
+            sampleRate: 48_000
+        )
+        #expect(abs(flatToBass + 7.14 + 2) < 0.02)
+        // 全是衰减的曲线切回平直也要多压一点：频段平滑过去时会过冲。
+        let cutToFlat = EqualizerHeadroomPolicy.transitionPreampDB(
+            ceilingBandGainsDB: Array(repeating: 0, count: 10),
+            frequencies: frequencies,
+            bandwidthOctaves: 1,
+            sampleRate: 48_000
+        )
+        #expect(cutToFlat == -2)
+    }
+
+    @Test("The wait after lowering follows the output buffer")
+    func lowerSettleDelay() {
+        // 512 帧 / 48 kHz：两个周期也不到 60 ms，按 60 ms。
+        #expect(EqualizerHeadroomPolicy.lowerSettleDelay(ioBufferDuration: 512.0 / 48_000) == 0.06)
+        // 锁屏常见的 4096 帧 / 44.1 kHz：约 201 ms。
+        let locked = EqualizerHeadroomPolicy.lowerSettleDelay(ioBufferDuration: 4_096.0 / 44_100)
+        #expect(abs(locked - 0.2008) < 0.001)
+        // 读不到、读出怪值时按最坏情况估；离谱的大值封顶。
+        #expect(EqualizerHeadroomPolicy.lowerSettleDelay(ioBufferDuration: nil) == locked)
+        #expect(EqualizerHeadroomPolicy.lowerSettleDelay(ioBufferDuration: .nan) == locked)
+        #expect(EqualizerHeadroomPolicy.lowerSettleDelay(ioBufferDuration: 0) == locked)
+        #expect(EqualizerHeadroomPolicy.lowerSettleDelay(ioBufferDuration: 10) == 1.015)
+    }
+
     @Test("Bands above Nyquist and broken input are skipped")
     func degenerateInput() {
         // 8 kHz 采样率下 16 kHz 频段高于奈奎斯特频率，整段跳过。
