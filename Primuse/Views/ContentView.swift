@@ -242,6 +242,10 @@ private struct MinimalNavigationDetailTransitionHandlerEnvironmentKey: Environme
         ) -> Void)? = nil
 }
 
+private struct MinimalNavigationRootSettledHandlerEnvironmentKey: EnvironmentKey {
+    static let defaultValue: (@MainActor (MinimalNavigationDetailScope) -> Void)? = nil
+}
+
 private struct MinimalNavigationDetailScopesPreferenceKey: PreferenceKey {
     static let defaultValue: Set<MinimalNavigationDetailScope> = []
 
@@ -282,6 +286,12 @@ extension EnvironmentValues {
         ) -> Void)? {
         get { self[MinimalNavigationDetailTransitionHandlerEnvironmentKey.self] }
         set { self[MinimalNavigationDetailTransitionHandlerEnvironmentKey.self] = newValue }
+    }
+
+    fileprivate var minimalNavigationRootSettledHandler:
+        (@MainActor (MinimalNavigationDetailScope) -> Void)? {
+        get { self[MinimalNavigationRootSettledHandlerEnvironmentKey.self] }
+        set { self[MinimalNavigationRootSettledHandlerEnvironmentKey.self] = newValue }
     }
 }
 #endif
@@ -408,6 +418,8 @@ private struct MinimalNavigationRootModifier: ViewModifier {
     let showsTopChrome: Bool
     @Environment(\.appNavigationMode) private var appNavigationMode
     @Environment(\.minimalNavigationBars) private var bars
+    @Environment(\.minimalNavigationDetailScope) private var detailScope
+    @Environment(\.minimalNavigationRootSettledHandler) private var rootSettledHandler
 
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -419,6 +431,15 @@ private struct MinimalNavigationRootModifier: ViewModifier {
                 .environment(\.songRowStyle, .minimal)
                 // Empty states have an intrinsic height; bars need the full page bounds.
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background {
+                    if let detailScope, let rootSettledHandler {
+                        // 根页回到栈顶就说明这个页签上已经没有详情页，顶栏以此为准回来。
+                        MinimalNavigationRootSettledReporter {
+                            rootSettledHandler(detailScope)
+                        }
+                        .frame(width: 0, height: 0)
+                    }
+                }
                 .toolbar(.hidden, for: .navigationBar)
                 .minimalSafeAreaBar(edge: .top) { bars?.top }
                 .minimalSafeAreaBar(edge: .bottom) { bars?.bottom }
@@ -463,6 +484,63 @@ private struct MinimalNavigationDetailModifier: ViewModifier {
                 .minimalSafeAreaBar(edge: .bottom) { bars?.bottom }
         } else {
             content
+        }
+    }
+}
+
+/// 根页显示完成、而且就在导航栈顶时汇报一次。返回转场被取消时根页只有 will、没有 did，
+/// 不会误报；被详情页、页签切换盖住的根页也收不到 did。
+private struct MinimalNavigationRootSettledReporter: UIViewControllerRepresentable {
+    let onSettled: @MainActor () -> Void
+
+    func makeUIViewController(context: Context) -> ReporterViewController {
+        ReporterViewController(onSettled: onSettled)
+    }
+
+    func updateUIViewController(
+        _ uiViewController: ReporterViewController,
+        context: Context
+    ) {
+        uiViewController.onSettled = onSettled
+    }
+
+    @MainActor
+    final class ReporterViewController: UIViewController {
+        var onSettled: @MainActor () -> Void
+
+        init(onSettled: @escaping @MainActor () -> Void) {
+            self.onSettled = onSettled
+            super.init(nibName: nil, bundle: nil)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func loadView() {
+            let view = UIView(frame: .zero)
+            view.isUserInteractionEnabled = false
+            view.backgroundColor = .clear
+            self.view = view
+        }
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            guard isTopOfNavigationStack else { return }
+            onSettled()
+        }
+
+        private var isTopOfNavigationStack: Bool {
+            var ancestor = parent
+            while let viewController = ancestor {
+                if let navigationController = viewController.navigationController,
+                   navigationController.viewControllers.contains(where: { $0 === viewController }) {
+                    return navigationController.topViewController === viewController
+                }
+                ancestor = viewController.parent
+            }
+            return false
         }
     }
 }
@@ -997,6 +1075,9 @@ struct ContentView: View {
                 scope: detailScope,
                 event: event
             )
+        }
+        .environment(\.minimalNavigationRootSettledHandler) { scope in
+            settleMinimalNavigationRoot(scope: scope)
         }
     }
 
@@ -1839,6 +1920,18 @@ struct ContentView: View {
         guard ledger != minimalDetailLedger else { return }
         minimalDetailLedger = ledger
     }
+
+    private func settleMinimalNavigationRoot(scope: MinimalNavigationDetailScope) {
+        var ledger = minimalDetailLedger
+        let wasHidden = ledger.hidesTopNavigation(for: scope)
+        ledger.recordRootSettled(scope)
+        guard ledger != minimalDetailLedger else { return }
+        if wasHidden {
+            // 正常的返回在这之前就已经把顶栏放出来了；走到这里说明有一路销账没到。
+            plog("Minimal chrome: root settled with stale detail registration, scope=\(scope)")
+        }
+        minimalDetailLedger = ledger
+    }
 }
 
 /// Keeps the top chrome mounted while its occupied height animates. Removing
@@ -2529,10 +2622,76 @@ extension ContentView {
                 selectMinimalPage(.settings)
             } else if step == "back" {
                 minimalSettingsReturn?.action()
+            } else if step.hasPrefix("album:") {
+                let needle = String(step.dropFirst("album:".count))
+                if let album = library.albums.first(where: { $0.title.contains(needle) }) {
+                    LibraryDebugNavigation.push(album, in: minimalLibrarySection ?? .albums)
+                }
+            } else if step.hasPrefix("genrelink:") {
+                let needle = String(step.dropFirst("genrelink:".count))
+                if let genre = library.visibleGenres.first(where: { $0.name.contains(needle) }) {
+                    LibraryDebugNavigation.push(genre, in: .genres)
+                }
+            } else if step == "pop" {
+                LibraryDebugNavigation.pop(in: minimalLibrarySection ?? .albums)
+            } else if step == "uikitpop" {
+                // 跟点左上角返回一样走 UIKit 的返回转场。
+                debugVisibleNavigationController()?.popViewController(animated: true)
+            } else if step == "probe" {
+                debugProbeMinimalChrome()
             }
             try? await Task.sleep(for: .milliseconds(600))
             plog("🧪 DebugLaunchAutomation: minimal step \(step) → \(currentMinimalPage.id)")
         }
+    }
+
+    /// 当前窗口里看得见的那一层导航栈。
+    @MainActor
+    private func debugVisibleNavigationController() -> UINavigationController? {
+        guard let window = UIApplication.shared.connectedScenes
+            .compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first else { return nil }
+        var found: [UINavigationController] = []
+        func collect(_ controller: UIViewController) {
+            if let navigation = controller as? UINavigationController,
+               navigation.view.window != nil, !navigation.view.isHidden {
+                found.append(navigation)
+            }
+            controller.children.forEach(collect)
+        }
+        if let root = window.rootViewController { collect(root) }
+        return found.last
+    }
+
+    /// 顶栏位置上 UIKit 实际把点按交给了谁，连同各层导航栏的状态一起记下来。
+    @MainActor
+    private func debugProbeMinimalChrome() {
+        guard let window = UIApplication.shared.connectedScenes
+            .compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first else { return }
+        let point = CGPoint(x: window.bounds.width * 0.27, y: window.safeAreaInsets.top + 22)
+        var chain: [String] = []
+        var view = window.hitTest(point, with: nil)
+        while let current = view, chain.count < 10 {
+            chain.append(String(describing: type(of: current)))
+            view = current.superview
+        }
+        var navigations: [String] = []
+        func collect(_ controller: UIViewController) {
+            if let navigation = controller as? UINavigationController, navigation.view.window != nil {
+                let bar = navigation.navigationBar
+                navigations.append(
+                    "stack=\(navigation.viewControllers.count) navHidden=\(navigation.isNavigationBarHidden) "
+                        + "barHidden=\(bar.isHidden) alpha=\(bar.alpha) frame=\(bar.frame) "
+                        + "interaction=\(bar.isUserInteractionEnabled)"
+                )
+            }
+            controller.children.forEach(collect)
+        }
+        if let root = window.rootViewController { collect(root) }
+        plog(
+            "🧪 minimal probe: page=\(currentMinimalPage.id) chromeHidden=\(minimalTopNavigationHidden) "
+                + "ledger=\(minimalDetailLedger) point=\(point) hit=\(chain.joined(separator: " < ")) "
+                + "navs=\(navigations)"
+        )
     }
 
     /// `PRIMUSE_DEBUG_ROTATE_EVERY=<秒>`：每隔这么久请求一次转屏（竖 ⇄ 横），走系统真实的转屏过渡，
