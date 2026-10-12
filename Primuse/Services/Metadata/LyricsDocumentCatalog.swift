@@ -31,8 +31,9 @@ enum LyricsDocumentCatalog {
         let usesLocalCopy: Bool
         let sourceIsWritable: Bool
 
-        /// The same listing after the listener switched to `id`.
-        func activating(_ id: String) -> Documents {
+        /// The same listing after the listener switched to `id`; nil marks
+        /// no file as the one playback shows.
+        func activating(_ id: String?) -> Documents {
             Documents(
                 entries: entries.map { entry in
                     Entry(
@@ -44,7 +45,7 @@ enum LyricsDocumentCatalog {
                     )
                 },
                 canSwitch: canSwitch,
-                usesLocalCopy: false,
+                usesLocalCopy: id == nil ? usesLocalCopy : false,
                 sourceIsWritable: sourceIsWritable
             )
         }
@@ -146,12 +147,25 @@ enum LyricsDocumentCatalog {
                 )
             }
             let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
-            return .documents(Documents(
+            let usesLocalCopy = cached?.first?.documentIsLocalOverride == true
+            var listed = Documents(
                 entries: entries,
                 canSwitch: !song.isCueTrack,
-                usesLocalCopy: cached?.first?.documentIsLocalOverride == true,
+                usesLocalCopy: usesLocalCopy,
                 sourceIsWritable: sourceIsWritable
-            ))
+            )
+            // 播放读的是缓存。缓存不是这份文件(早先存下的内嵌歌词、刮削到的歌词)时哪份都不标
+            // 「使用中」, 点哪份都会换上; 否则点那一行什么也不做, 播放却还是别的歌词(#208)。
+            if !usesLocalCopy, !song.isCueTrack,
+               let cached, !cached.isEmpty,
+               let active = entries.first(where: \.isActive),
+               let content = try? await read(active.document, for: song, sourceManager: sourceManager) {
+                let lines = LyricsParser.parse(content.text)
+                if !lines.isEmpty, !EmbeddedLyricsPrecedencePolicy.sameDocument(cached, lines) {
+                    listed = listed.activating(nil)
+                }
+            }
+            return .documents(listed)
         } catch is CancellationError {
             return .unavailable(URLError(.cancelled).localizedDescription)
         } catch {

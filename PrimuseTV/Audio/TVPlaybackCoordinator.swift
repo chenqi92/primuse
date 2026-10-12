@@ -2653,9 +2653,11 @@ final class TVPlaybackCoordinator {
         }
     }
 
-    /// 缓存命中后在后台到源里核对一次(每首每次启动一次):缓存里是没有时间轴的歌词
-    /// (多半是早先存下的内嵌歌词)时读歌词文件,时间轴更细就换上;这首歌存着内嵌歌词时
-    /// 看歌词文件还在不在,文件已经删掉就换回内嵌歌词。用户自己改过的歌词不动。
+    /// 缓存命中后在后台到源里核对歌词文件:缓存还不是逐字的时读歌词文件,按
+    /// `EmbeddedLyricsPrecedencePolicy.sourceDocumentReplaces(cached:with:link:)` 换上(歌指着那份
+    /// 文件时不比缓存粗就换,早先存下的逐行内嵌歌词也换得掉),核对完按歌上的歌词引用记下,
+    /// 引用不变就不再核对;这首歌存着内嵌歌词时每次启动看歌词文件还在不在,删掉了就换回内嵌歌词。
+    /// 用户自己改过的歌词不动。
     private func recheckSourceLyricsDocument(
         song: Song,
         source: MusicSource,
@@ -2667,10 +2669,19 @@ final class TVPlaybackCoordinator {
     ) async {
         guard !song.isCueTrack, !song.isStreamDescriptor,
               cached.first?.documentIsLocalOverride != true else { return }
+        let reference = song.lyricsFileName ?? ""
+        let checkedReference = await MetadataAssetStore.shared.sourceRecheckReference(forSongID: song.id)
         let rechecksTiming = EmbeddedLyricsPrecedencePolicy.shouldRecheckSourceDocument(cached: cached)
+            && checkedReference != reference
         let embedded = await MetadataAssetStore.shared.embeddedFallbackLyrics(forSongID: song.id)
         guard rechecksTiming || embedded != nil,
               sourceLyricsRecheckedSongIDs.insert(song.id).inserted else { return }
+        // 连不上、没读完就换了歌、缓存正被别处改写都不算核对过,下次播放再核对。
+        var settled = false
+        defer {
+            if !settled { sourceLyricsRecheckedSongIDs.remove(song.id) }
+        }
+        let cachedFingerprint = LyricsDocumentFingerprint(lines: cached)
         do {
             var documentPath: String?
             if let files = await lyricsDirectoryFiles(for: song, source: source, store: store) {
@@ -2680,12 +2691,14 @@ final class TVPlaybackCoordinator {
                 let documents = LyricsSidecarSelectionPolicy.documents(baseName: baseName, names: names)
                 guard !documents.isEmpty else {
                     // 目录里已经没有这首的歌词文件:换回内嵌歌词。
+                    await MetadataAssetStore.shared.recordSourceRecheck(reference: reference, forSongID: song.id)
+                    settled = true
                     guard let embedded,
-                          LyricsDocumentFingerprint(lines: embedded) != LyricsDocumentFingerprint(lines: cached),
+                          LyricsDocumentFingerprint(lines: embedded) != cachedFingerprint,
                           await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
                             embedded,
                             forSongID: song.id,
-                            expectedFingerprint: LyricsDocumentFingerprint(lines: cached),
+                            expectedFingerprint: cachedFingerprint,
                             force: true
                           ) else { return }
                     try ensureCurrent(requestID, store: store)
@@ -2703,26 +2716,52 @@ final class TVPlaybackCoordinator {
                     ?? Self.storedLyricsReference(of: song)
                     ?? Self.guessedLyricsPath(for: song, source: source, credential: credential)
             }
-            guard rechecksTiming, let documentPath else { return }
+            guard rechecksTiming, let documentPath else {
+                settled = true
+                return
+            }
             var documentSong = song
             documentSong.filePath = documentPath
             guard let text = try await fetchLyricText(
                 song: documentSong, source: source, credential: credential, requestID: requestID
             ), !text.isEmpty else { return }
             let lines = LyricsParser.parse(text)
-            guard EmbeddedLyricsPrecedencePolicy.sourceDocumentReplaces(cached: cached, with: lines),
-                  await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
+            let link = EmbeddedLyricsPrecedencePolicy.sourceDocumentLink(
+                reference: Self.storedLyricsReference(of: song),
+                isPinned: LyricsDocumentPinStore.shared.pinnedFileName(forSongID: song.id) != nil
+            )
+            let shown: [LyricLine]
+            if EmbeddedLyricsPrecedencePolicy.sourceDocumentReplaces(cached: cached, with: lines, link: link) {
+                guard await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
                     lines,
                     forSongID: song.id,
-                    expectedFingerprint: LyricsDocumentFingerprint(lines: cached),
+                    expectedFingerprint: cachedFingerprint,
                     force: false
-                  ) else { return }
-            try ensureCurrent(requestID, store: store)
-            applyLoadedLyrics(lines, duration: song.duration, forSongID: destinationID, store: store)
-            plog("🎬 TV source-lyrics recheck replaced cache for '\(song.title)' lines=\(lines.count)")
+                ) else {
+                    // 缓存没被别处换掉却没写进去,是有意留着的(用户自己写的译文等),不必再核对。
+                    if await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
+                        .map(LyricsDocumentFingerprint.init(lines:)) == cachedFingerprint {
+                        await MetadataAssetStore.shared.recordSourceRecheck(reference: reference, forSongID: song.id)
+                        settled = true
+                    }
+                    return
+                }
+                await MetadataAssetStore.shared.recordSourceRecheck(reference: reference, forSongID: song.id)
+                settled = true
+                try ensureCurrent(requestID, store: store)
+                applyLoadedLyrics(lines, duration: song.duration, forSongID: destinationID, store: store)
+                plog("🎬 TV source-lyrics recheck replaced cache for '\(song.title)' lines=\(lines.count)")
+                shown = lines
+            } else {
+                await MetadataAssetStore.shared.recordSourceRecheck(reference: reference, forSongID: song.id)
+                settled = true
+                // 缓存就是这份文件时,再看旁边有没有时间轴更细的另一份。
+                guard EmbeddedLyricsPrecedencePolicy.sameDocument(cached, lines) else { return }
+                shown = cached
+            }
             await compareSourceLyricsDocuments(
                 song: song,
-                shown: lines,
+                shown: shown,
                 shownPath: documentPath,
                 source: source,
                 credential: credential,
@@ -2730,9 +2769,6 @@ final class TVPlaybackCoordinator {
                 destinationID: destinationID,
                 store: store
             )
-        } catch is CancellationError {
-            // 没核对完就换歌了,下次播放再核对。
-            sourceLyricsRecheckedSongIDs.remove(song.id)
         } catch {
             plog("🎬 TV source-lyrics recheck skipped '\(song.title)': \(error)")
         }

@@ -90,6 +90,59 @@ final class LyricsDocumentSourcesResolutionTests: XCTestCase {
         XCTAssertEqual(picked.fileName, "Night Changes.lrc")
     }
 
+    /// #208: 早先读标签存下的逐行内嵌歌词盖住了歌旁边的歌词文件, 只比时间轴粗细永远换不掉。
+    /// 歌指着那份文件时缓存命中后核对一次就换成文件, 核对过的引用记下来不再列目录。
+    @MainActor
+    func testLineTimedEmbeddedCacheYieldsToTheReferencedFile() async throws {
+        var song = song()
+        song.lyricsFileName = "/Music/Night Changes.lrc"
+        let (manager, store) = recheckFixture(["Night Changes.lrc": lrc])
+        let songID = song.id
+        defer { Task { await store.invalidateCaches(forSongIDs: [songID]) } }
+        let embedded = [LyricLine(timestamp: 3, text: "From the embedded tag")]
+        let cached = await store.cacheLyrics(embedded, forSongID: song.id, force: true)
+        XCTAssertTrue(cached)
+
+        let replaced = await LyricsLoader.recheckSourceDocument(
+            for: song, sourceManager: manager, cachedDocument: embedded
+        )
+        XCTAssertEqual(replaced?.map(\.text), ["From the LRC"])
+        let stored = await store.cachedLyrics(forSongID: song.id)
+        XCTAssertEqual(stored?.map(\.text), ["From the LRC"])
+        let checked = await store.sourceRecheckReference(forSongID: song.id)
+        XCTAssertEqual(checked, song.lyricsFileName)
+    }
+
+    /// 手动刮削到的歌词记的是缓存名: 旁边的歌词文件只在时间轴更细时才换掉它。
+    @MainActor
+    func testScrapedCacheOnlyYieldsToFinerTiming() async throws {
+        var song = song()
+        song.lyricsFileName = "\(song.id).json"
+        let (manager, store) = recheckFixture(["Night Changes.lrc": lrc])
+        let songID = song.id
+        defer { Task { await store.invalidateCaches(forSongIDs: [songID]) } }
+        let scraped = [LyricLine(timestamp: 3, text: "Scraped online")]
+        let cached = await store.cacheLyrics(scraped, forSongID: song.id, force: true)
+        XCTAssertTrue(cached)
+
+        let replaced = await LyricsLoader.recheckSourceDocument(
+            for: song, sourceManager: manager, cachedDocument: scraped
+        )
+        XCTAssertNil(replaced)
+        let stored = await store.cachedLyrics(forSongID: song.id)
+        XCTAssertEqual(stored?.map(\.text), ["Scraped online"])
+        let checked = await store.sourceRecheckReference(forSongID: song.id)
+        XCTAssertEqual(checked, song.lyricsFileName)
+    }
+
+    @MainActor
+    private func recheckFixture(_ files: [String: Data]) -> (SourceManager, MetadataAssetStore) {
+        let fixture = connector(files)
+        let source = MusicSource(id: "source", name: "Fixture", type: .webdav, host: "fixture.invalid")
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in fixture })
+        return (manager, MetadataAssetStore.shared)
+    }
+
     func testPickedReadOnlyFileNeverOverwritesAnotherSource() async throws {
         let song = song()
         let fixture = connector(["Night Changes.ttml": ttml, "Night Changes.yrc": yrc])

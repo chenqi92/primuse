@@ -228,15 +228,12 @@ enum LyricsLoader {
                 sourceManager: sourceManager,
                 cachedDocument: cached
             )
-            if !LyricsAuthoritativeSourcePolicy.supportsServerDocument(sourceType) {
-                Task { @MainActor in
-                    _ = await recheckSourceDocument(
-                        for: song,
-                        sourceManager: sourceManager,
-                        cachedDocument: cached
-                    )
-                }
-            }
+            scheduleSourceDocumentRecheck(
+                for: song,
+                sourceType: sourceType,
+                sourceManager: sourceManager,
+                cachedDocument: cached
+            )
             return cached
         }
         let isPinned = readsPinnedDocument(song)
@@ -255,6 +252,12 @@ enum LyricsLoader {
                 : await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) ?? cached
             logLoaded(resolved, song: song, tier: "Tier1b")
             scheduleAutomaticSourceRefresh(
+                for: song,
+                sourceType: sourceType,
+                sourceManager: sourceManager,
+                cachedDocument: resolved
+            )
+            scheduleSourceDocumentRecheck(
                 for: song,
                 sourceType: sourceType,
                 sourceManager: sourceManager,
@@ -495,13 +498,30 @@ enum LyricsLoader {
         }
     }
 
-    /// 已经核对过源里歌词文件的歌。每首歌每次启动只核对一次。
+    private static func scheduleSourceDocumentRecheck(
+        for song: Song,
+        sourceType: MusicSourceType?,
+        sourceManager: SourceManager,
+        cachedDocument: [LyricLine]
+    ) {
+        guard !LyricsAuthoritativeSourcePolicy.supportsServerDocument(sourceType) else { return }
+        Task { @MainActor in
+            _ = await recheckSourceDocument(
+                for: song,
+                sourceManager: sourceManager,
+                cachedDocument: cachedDocument
+            )
+        }
+    }
+
+    /// 这次启动里已经核对过源里歌词文件的歌。没核对完的会移出去, 下次播放再核对。
     private static var sourceDocumentRecheckKeys: Set<String> = []
 
-    /// 缓存命中后每首歌每次启动核对一次源里的歌词文件:
-    /// - 缓存还不是逐字的(没时间轴的多半是早先存下的内嵌歌词): 读歌旁边当前那份歌词文件
-    ///   (几份并存时按时间轴精度自动挑), 时间轴更细就换掉缓存;
-    /// - 歌旁边一份歌词文件都没有了, 而读标签时留着这首的内嵌歌词: 换回内嵌歌词。
+    /// 缓存命中后核对源里的歌词文件:
+    /// - 缓存还不是逐字的: 读歌旁边当前那份歌词文件(几份并存时按时间轴精度自动挑),
+    ///   按 `EmbeddedLyricsPrecedencePolicy.sourceDocumentReplaces(cached:with:link:)` 换掉缓存。
+    ///   核对完按歌上的歌词引用记下, 引用不变就不再核对;
+    /// - 歌旁边一份歌词文件都没有了, 而读标签时留着这首的内嵌歌词: 换回内嵌歌词(每次启动看一次)。
     /// 换了就通知各处歌词视图, 并把新歌词返回给调用方。
     static func recheckSourceDocument(
         for song: Song,
@@ -519,29 +539,35 @@ enum LyricsLoader {
         let recheckKey = "\(song.sourceID)\u{1F}\(song.id)"
         guard !sourceDocumentRecheckKeys.contains(recheckKey) else { return nil }
         let embedded = await MetadataAssetStore.shared.embeddedFallbackLyrics(forSongID: song.id)
-        // 没时间轴的缓存按歌上的歌词引用只核对一次; 留着内嵌备用的歌(旁边有过歌词文件)
-        // 每次启动都看一眼那份文件还在不在。
         let reference = song.lyricsFileName ?? ""
         let checkedReference = await MetadataAssetStore.shared.sourceRecheckReference(forSongID: song.id)
-        let rechecksPlainCache = EmbeddedLyricsPrecedencePolicy.shouldRecheckSourceDocument(cached: cachedDocument)
+        let rechecksCache = EmbeddedLyricsPrecedencePolicy.shouldRecheckSourceDocument(cached: cachedDocument)
             && checkedReference != reference
-        guard rechecksPlainCache || embedded != nil,
+        guard rechecksCache || embedded != nil,
               sourceDocumentRecheckKeys.insert(recheckKey).inserted else { return nil }
+        // 连不上、读到一半、缓存正被别处改写都不算核对过。
+        var settled = false
+        defer {
+            if !settled { sourceDocumentRecheckKeys.remove(recheckKey) }
+        }
+        let cachedFingerprint = LyricsDocumentFingerprint(lines: cachedDocument)
         do {
             let connector = try await sourceManager.auxiliaryConnector(for: song)
-            guard !(connector is ServerLyricsConnector) else { return nil }
+            guard !(connector is ServerLyricsConnector) else {
+                settled = true
+                return nil
+            }
             let replacement: [LyricLine]
             let forced: Bool
-            let lyricsFile = try await authoritativeLyricsFile(
+            if let lyricsFile = try await authoritativeLyricsFile(
                 for: song,
                 connector: connector,
                 evaluatesTimingFirst: true
-            )
-            if lyricsFile == nil {
-                // 列过目录, 确实一份歌词文件都没有。
-                await MetadataAssetStore.shared.recordSourceRecheck(reference: reference, forSongID: song.id)
-            }
-            if let lyricsFile {
+            ) {
+                guard rechecksCache else {
+                    settled = true
+                    return nil
+                }
                 let data = try await connector.fetchRange(
                     path: lyricsFile.path,
                     offset: 0,
@@ -554,12 +580,20 @@ enum LyricsLoader {
                         data,
                         label: (lyricsFile.path as NSString).lastPathComponent
                       ) else { return nil }
-                await MetadataAssetStore.shared.recordSourceRecheck(reference: reference, forSongID: song.id)
                 var parsed = LyricsParser.parse(text)
+                let link = EmbeddedLyricsPrecedencePolicy.sourceDocumentLink(
+                    reference: song.lyricsFileName,
+                    isPinned: LyricsDocumentPinStore.shared.pinnedFileName(forSongID: song.id) != nil
+                )
                 guard EmbeddedLyricsPrecedencePolicy.sourceDocumentReplaces(
                     cached: cachedDocument,
-                    with: parsed
-                ) else { return nil }
+                    with: parsed,
+                    link: link
+                ) else {
+                    await MetadataAssetStore.shared.recordSourceRecheck(reference: reference, forSongID: song.id)
+                    settled = true
+                    return nil
+                }
                 if let translation = lyricsFile.translation {
                     parsed = await mergingTranslationTrack(
                         into: parsed,
@@ -569,23 +603,36 @@ enum LyricsLoader {
                 }
                 replacement = parsed
                 forced = false
-            } else if let embedded,
-                      LyricsDocumentFingerprint(lines: embedded)
-                        != LyricsDocumentFingerprint(lines: cachedDocument) {
+            } else {
+                // 列过目录, 确实一份歌词文件都没有。
+                await MetadataAssetStore.shared.recordSourceRecheck(reference: reference, forSongID: song.id)
+                settled = true
+                guard let embedded,
+                      LyricsDocumentFingerprint(lines: embedded) != cachedFingerprint else { return nil }
                 // 歌词文件被删了: 缓存里是那份文件留下的, 不分时间轴粗细都换回内嵌歌词。
                 replacement = embedded
                 forced = true
-            } else {
-                return nil
             }
             guard !Task.isCancelled else { return nil }
             let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
                 replacement,
                 forSongID: song.id,
-                expectedFingerprint: LyricsDocumentFingerprint(lines: cachedDocument),
+                expectedFingerprint: cachedFingerprint,
                 force: forced
             )
-            guard wrote else { return nil }
+            guard wrote else {
+                // 缓存没被别处换掉却没写进去, 是有意留着的(用户自己写的译文等), 不必再核对。
+                if await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
+                    .map(LyricsDocumentFingerprint.init(lines:)) == cachedFingerprint {
+                    await MetadataAssetStore.shared.recordSourceRecheck(reference: reference, forSongID: song.id)
+                    settled = true
+                }
+                return nil
+            }
+            if !forced {
+                await MetadataAssetStore.shared.recordSourceRecheck(reference: reference, forSongID: song.id)
+            }
+            settled = true
             logLoaded(replacement, song: song, tier: forced ? "embedded-after-sidecar-removed" : "Tier3-recheck")
             NotificationCenter.default.post(name: .primuseLyricsDidChange, object: song.id)
             return replacement

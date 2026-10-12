@@ -34,13 +34,14 @@ struct EmbeddedLyricsPrecedencePolicyTests {
         #expect(LyricsTimingLevel.plain < .line && LyricsTimingLevel.line < .word)
     }
 
-    @Test("Only an untimed cache is rechecked, and only finer timing replaces lyrics")
+    @Test("Caches short of word timing are rechecked, and only finer timing replaces lyrics")
     func recheck() {
         var edited = plain
         edited[0].documentIsLocalOverride = true
 
         #expect(EmbeddedLyricsPrecedencePolicy.shouldRecheckSourceDocument(cached: plain))
-        #expect(!EmbeddedLyricsPrecedencePolicy.shouldRecheckSourceDocument(cached: timed))
+        // #208: 早先存下的内嵌歌词是逐行的, 也要回源核对。
+        #expect(EmbeddedLyricsPrecedencePolicy.shouldRecheckSourceDocument(cached: timed))
         #expect(!EmbeddedLyricsPrecedencePolicy.shouldRecheckSourceDocument(cached: wordTimed))
         #expect(!EmbeddedLyricsPrecedencePolicy.shouldRecheckSourceDocument(cached: edited))
         #expect(!EmbeddedLyricsPrecedencePolicy.shouldRecheckSourceDocument(cached: []))
@@ -50,6 +51,65 @@ struct EmbeddedLyricsPrecedencePolicyTests {
         #expect(!EmbeddedLyricsPrecedencePolicy.sourceDocumentReplaces(cached: plain, with: plain))
         #expect(!EmbeddedLyricsPrecedencePolicy.sourceDocumentReplaces(cached: timed, with: timed))
         #expect(!EmbeddedLyricsPrecedencePolicy.sourceDocumentReplaces(cached: edited, with: timed))
+    }
+
+    @Test("A song pointing at a lyric file follows that file once its timing is no coarser")
+    func linkedRecheck() {
+        typealias Policy = EmbeddedLyricsPrecedencePolicy
+        let embedded = [
+            LyricLine(timestamp: 12.1, text: "Embedded first line"),
+            LyricLine(timestamp: 15.3, text: "Embedded second line"),
+        ]
+        var edited = embedded
+        edited[0].documentIsLocalOverride = true
+
+        #expect(Policy.sourceDocumentLink(reference: "1AbC-dEf_ghIJ", isPinned: false) == .referenced)
+        #expect(Policy.sourceDocumentLink(reference: "/Music/Song.lrc", isPinned: false) == .referenced)
+        #expect(Policy.sourceDocumentLink(reference: "0f3a9c1e.json", isPinned: false) == .none)
+        #expect(Policy.sourceDocumentLink(reference: "0f3a9c1e.json", isPinned: true) == .pinned)
+
+        // 歌指着歌词文件: 同样逐行、内容不同就换成文件; 文件更粗不换。
+        #expect(Policy.sourceDocumentReplaces(cached: embedded, with: timed, link: .referenced))
+        #expect(!Policy.sourceDocumentReplaces(cached: embedded, with: plain, link: .referenced))
+        // 缓存名(刮削到的歌词)只在更细时换。
+        #expect(!Policy.sourceDocumentReplaces(cached: embedded, with: timed, link: .none))
+        #expect(Policy.sourceDocumentReplaces(cached: embedded, with: wordTimed, link: .none))
+        // 用户选定的文件粗细都换。
+        #expect(Policy.sourceDocumentReplaces(cached: embedded, with: plain, link: .pinned))
+        // 同一份、用户改过的都不换。
+        #expect(!Policy.sourceDocumentReplaces(cached: timed, with: timed, link: .pinned))
+        #expect(!Policy.sourceDocumentReplaces(cached: edited, with: timed, link: .pinned))
+        #expect(!Policy.sourceDocumentReplaces(cached: embedded, with: [], link: .pinned))
+    }
+
+    @Test("The same lyric file stays the same document after the cache adds to it")
+    func sameDocument() {
+        typealias Policy = EmbeddedLyricsPrecedencePolicy
+        let parsed = [
+            LyricLine(id: "a", timestamp: 10.45, text: "Let it be"),
+            LyricLine(id: "b", timestamp: 10.45, text: "顺其自然"),
+            LyricLine(id: "c", timestamp: 14.2, text: "Whisper words &amp; wisdom"),
+        ]
+        // 缓存里另配了 id、双语 LRC 的译文行配到了上一行、实体解码、用户补了一条译文。
+        var cachedFirst = LyricLine(id: "x", timestamp: 10.45, text: "Let it be")
+        cachedFirst.manualTranslation = LyricManualTranslation(text: "顺其自然", source: .bilingualLRC)
+        var cachedSecond = LyricLine(id: "y", timestamp: 14.2, text: "Whisper words & wisdom ")
+        cachedSecond.manualTranslation = LyricManualTranslation(text: "低语智慧", source: .localEditor)
+        #expect(Policy.sameDocument(parsed, [cachedFirst, cachedSecond]))
+
+        var moved = cachedSecond
+        moved.timestamp = 14.5
+        #expect(!Policy.sameDocument(parsed, [cachedFirst, moved]))
+        var reworded = cachedSecond
+        reworded.text = "Speaking words of wisdom"
+        #expect(!Policy.sameDocument(parsed, [cachedFirst, reworded]))
+        // 一样的字, 一份逐行一份没时间轴, 不算同一份。
+        #expect(!Policy.sameDocument(timed, plain.map {
+            var line = $0
+            line.timestamp = 10.45
+            line.isSynchronized = false
+            return line
+        }))
     }
 
     @Test("Word-timed files win over line-timed ones, whatever their format")

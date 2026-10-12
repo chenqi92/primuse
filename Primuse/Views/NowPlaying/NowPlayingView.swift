@@ -987,6 +987,45 @@ struct NowPlayingView: View {
         !isPresentationSettled || player.isPlaying || player.isLoading
     }
 
+    /// `body` 的修饰链已经很长, 再往里塞多语句闭包 iOS 就类型检查超时;
+    /// 下面两个回调写成方法, 链上只剩一个引用。
+    private func configureHandoffActivity(_ activity: NSUserActivity) {
+        guard let song = player.currentSong, !player.isLiveRadio else { return }
+        let by = library.artistDisplayName(for: song).map { " — \($0)" } ?? ""
+        activity.title = "\(song.title)\(by)"
+        activity.isEligibleForHandoff = true
+        // 不把 song.id 暴露给搜索 / 公开索引,handoff 直接拿去就好
+        activity.isEligibleForSearch = false
+        activity.isEligibleForPublicIndexing = false
+
+        // 以 currentIndex 为基准取窗口而非整队列前 50 首: 长队列后段接力
+        // 时, 整队前缀里根本不含当前歌, receiver 会找不到 songID 落入兜底
+        // (整库从头播)。这里保证当前歌 + 接下来几首都在 payload 里 ——
+        // 当前歌前 5 首给点上下文, 之后 45 首是真正的接力窗口。
+        let queueIDs = handoffQueueIDs()
+        activity.userInfo = [
+            "songID": song.id,
+            "queueIDs": queueIDs,
+            // currentTime + snapshotTime 一起记录, receiver 用 (now -
+            // snapshot) 推算"如果还在播,实际应该到哪里了",避免接力
+            // 时听见同一段刚播过的内容。
+            "currentTime": player.handoffPlaybackTimeSnapshot(),
+            "snapshotTime": Date().timeIntervalSinceReferenceDate,
+            "isPlaying": player.isPlaying,
+            "shuffleEnabled": player.shuffleEnabled,
+            "repeatMode": player.repeatMode.rawValue,
+        ]
+        activity.requiredUserInfoKeys = ["songID"]
+    }
+
+    /// 歌词来源页换了文件、后台核对换掉了缓存: 正在放的这首直接换上, 不等下次打开播放页。
+    private func lyricsDidChange(_ note: Notification) {
+        guard let songID = note.object as? String,
+              songID == player.currentSong?.id,
+              !player.isLiveRadio else { return }
+        Task { await showChangedLyrics(songID: songID) }
+    }
+
     /// 只取当前歌前后这一段。`player.queue` 会把整条队列复制成 [Song],
     /// 整库随机后是几万首, 而这里每次视图更新都会跑。
     private func handoffQueueIDs() -> [String] {
@@ -2725,6 +2764,10 @@ struct NowPlayingView: View {
         .onChange(of: scraperService.singleScrapeCompletionRevision) { _, _ in
             consumeAutomaticScrapeCompletion()
         }
+        .onReceive(
+            NotificationCenter.default.publisher(for: .primuseLyricsDidChange),
+            perform: lyricsDidChange
+        )
         .sheet(isPresented: $showQueue) {
             QueueView(player: player)
                 .presentationDetents([.medium, .large])
@@ -3028,35 +3071,9 @@ struct NowPlayingView: View {
             "com.welape.yuanyin.nowplaying",
             // 进场动画结束后再挂 Handoff：激活时要拼一份队列窗口与显示名，
             // 不必挤进首次展开那几帧。
-            isActive: isPresentationSettled && player.currentSong != nil && !player.isLiveRadio
-        ) { activity in
-            guard let song = player.currentSong, !player.isLiveRadio else { return }
-            let by = library.artistDisplayName(for: song).map { " — \($0)" } ?? ""
-            activity.title = "\(song.title)\(by)"
-            activity.isEligibleForHandoff = true
-            // 不把 song.id 暴露给搜索 / 公开索引,handoff 直接拿去就好
-            activity.isEligibleForSearch = false
-            activity.isEligibleForPublicIndexing = false
-
-            // 以 currentIndex 为基准取窗口而非整队列前 50 首: 长队列后段接力
-            // 时, 整队前缀里根本不含当前歌, receiver 会找不到 songID 落入兜底
-            // (整库从头播)。这里保证当前歌 + 接下来几首都在 payload 里 ——
-            // 当前歌前 5 首给点上下文, 之后 45 首是真正的接力窗口。
-            let queueIDs = handoffQueueIDs()
-            activity.userInfo = [
-                "songID": song.id,
-                "queueIDs": queueIDs,
-                // currentTime + snapshotTime 一起记录, receiver 用 (now -
-                // snapshot) 推算"如果还在播,实际应该到哪里了",避免接力
-                // 时听见同一段刚播过的内容。
-                "currentTime": player.handoffPlaybackTimeSnapshot(),
-                "snapshotTime": Date().timeIntervalSinceReferenceDate,
-                "isPlaying": player.isPlaying,
-                "shuffleEnabled": player.shuffleEnabled,
-                "repeatMode": player.repeatMode.rawValue,
-            ]
-            activity.requiredUserInfoKeys = ["songID"]
-        }
+            isActive: isPresentationSettled && player.currentSong != nil && !player.isLiveRadio,
+            configureHandoffActivity
+        )
     }
 
     @ViewBuilder
@@ -7428,7 +7445,13 @@ struct NowPlayingView: View {
             guard isCurrentLyricsLoad(loadRevision, songID: song.id) else { return }
             await MetadataAssetStore.shared.cacheLyrics(cached, forSongID: song.id)
             plog(String(format: "📜 loadLyrics '%@' Tier1b hit (named ref) in %.0fms (%d lines)", song.title, Date().timeIntervalSince(loadStart) * 1000, cached.count))
-            setLyricsIfCurrent(cached, for: song, loadRevision: loadRevision); return
+            guard setLyricsIfCurrent(cached, for: song, loadRevision: loadRevision) else { return }
+            if !LyricsAuthoritativeSourcePolicy.supportsServerDocument(
+                sourcesStore.source(id: song.sourceID)?.type
+            ) {
+                runSourceDocumentRecheck(song: song, currentCache: cached, loadRevision: loadRevision)
+            }
+            return
         }
 
         // Tier 2: Check local audio cache for a lyrics sidecar (filesystem only, zero network)
@@ -7460,7 +7483,17 @@ struct NowPlayingView: View {
         runLyricsTier3Fetch(song: song, currentCache: nil, loadRevision: loadRevision)
     }
 
-    /// 每次启动核对一次源里的歌词文件(见 `LyricsLoader.recheckSourceDocument`), 换了就显示新的。
+    /// 别处换掉了这首歌的歌词缓存: 和屏幕上的不一样才换。不走 `loadLyrics`, 免得又连一次源。
+    private func showChangedLyrics(songID: String) async {
+        guard let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: songID),
+              !cached.isEmpty,
+              player.currentSong?.id == songID,
+              LyricsDocumentFingerprint(lines: cached) != LyricsDocumentFingerprint(lines: lyrics) else { return }
+        lyricsLoadRevision &+= 1
+        setLyrics(cached)
+    }
+
+    /// 核对源里的歌词文件(见 `LyricsLoader.recheckSourceDocument`), 换了就显示新的。
     private func runSourceDocumentRecheck(
         song: Song,
         currentCache: [LyricLine],

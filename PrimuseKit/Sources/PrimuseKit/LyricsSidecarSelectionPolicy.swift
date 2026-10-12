@@ -732,18 +732,84 @@ public enum EmbeddedLyricsPrecedencePolicy {
         return (reference as NSString).pathExtension.lowercased() != "json"
     }
 
-    /// 缓存里的歌词一行时间轴都没有(多半是早先读标签时存下的内嵌歌词),值得在缓存命中后
-    /// 去源里看一眼歌词文件。有时间轴的缓存不再回源核对:几份文件并存时比时间轴的事在
-    /// 第一次从源里读歌词时就在后台做完了。用户自己改过的不动。
+    /// 缓存还不是逐字的就值得在缓存命中后去源里核对一次歌词文件:早先读标签时存下的
+    /// 内嵌歌词不分有没有时间轴都会盖住旁边的歌词文件(#208 里是逐行的)。用户自己改过的不动。
     public static func shouldRecheckSourceDocument(cached: [LyricLine]) -> Bool {
         !cached.isEmpty
             && cached.first?.documentIsLocalOverride != true
-            && LyricsTimingLevel(lines: cached) == .plain
+            && LyricsTimingLevel(lines: cached) < .word
     }
 
     /// 源里读出来的歌词换不换掉缓存或正在显示的那份:时间轴更细才换,用户改过的不换。
     public static func sourceDocumentReplaces(cached: [LyricLine], with source: [LyricLine]) -> Bool {
         cached.first?.documentIsLocalOverride != true
             && LyricsTimingLevel(lines: source) > LyricsTimingLevel(lines: cached)
+    }
+
+    /// 歌和源里那份歌词文件的关系,决定核对时缓存该不该跟着文件走。
+    public enum SourceDocumentLink: Sendable, Equatable {
+        /// 歌上记的是 App 自己的缓存名(刮削到的歌词、早先存下的内嵌歌词)。
+        case none
+        /// 歌上记的引用指向源里的歌词文件(路径、文件名或网盘文件 id)。
+        case referenced
+        /// 用户在歌词来源页选定了这份文件。
+        case pinned
+    }
+
+    public static func sourceDocumentLink(reference: String?, isPinned: Bool) -> SourceDocumentLink {
+        if isPinned { return .pinned }
+        return referencesSourceDocument(reference) ? .referenced : .none
+    }
+
+    /// 核对时源里读出来的那份换不换掉缓存。用户改过的不换,内容一样的不换,时间轴更细的总换。
+    /// 歌指着这份文件时缓存就该是它:时间轴不比缓存粗就换,早先存下的逐行内嵌歌词只比粗细
+    /// 永远换不掉;用户选定的那份粗细都换。缓存是 App 自己的(手动刮削的在线歌词)时只在更细时换。
+    public static func sourceDocumentReplaces(
+        cached: [LyricLine],
+        with source: [LyricLine],
+        link: SourceDocumentLink
+    ) -> Bool {
+        guard cached.first?.documentIsLocalOverride != true,
+              !source.isEmpty,
+              !sameDocument(cached, source) else { return false }
+        let sourceLevel = LyricsTimingLevel(lines: source)
+        let cachedLevel = LyricsTimingLevel(lines: cached)
+        switch link {
+        case .pinned: return true
+        case .referenced: return sourceLevel >= cachedLevel
+        case .none: return sourceLevel > cachedLevel
+        }
+    }
+
+    /// 两份歌词是不是同一份:比时间轴精度和每一行(含背景行、双语 LRC 的译文行)的起点与正文。
+    /// 缓存读出时整理过的结构、另外补上的译文和文件头不比,同一份文件不会被当成换了内容。
+    public static func sameDocument(_ lhs: [LyricLine], _ rhs: [LyricLine]) -> Bool {
+        LyricsTimingLevel(lines: lhs) == LyricsTimingLevel(lines: rhs)
+            && rows(of: lhs) == rows(of: rhs)
+    }
+
+    private struct Row: Comparable {
+        let centiseconds: Int
+        let text: String
+
+        static func < (lhs: Row, rhs: Row) -> Bool {
+            (lhs.centiseconds, lhs.text) < (rhs.centiseconds, rhs.text)
+        }
+    }
+
+    private static func rows(of lines: [LyricLine]) -> [Row] {
+        var rows: [Row] = []
+        for line in LyricVoiceTimelinePolicy.flattenedLines(lines.map { LyricTextEntityPolicy.decoded($0) }) {
+            let centiseconds = Int((line.timestamp * 100).rounded())
+            // 双语 LRC 的译文行读出时可能配成了上一行的译文,也可能还是单独一行。
+            let texts = [line.text] + line.allManualTranslations
+                .filter { $0.source == .bilingualLRC }
+                .map(\.text)
+            for text in texts {
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { rows.append(Row(centiseconds: centiseconds, text: trimmed)) }
+            }
+        }
+        return rows.sorted()
     }
 }

@@ -521,15 +521,21 @@ actor MetadataAssetStore {
         let fileURL = lyricsDirectory.appendingPathComponent(
             hashedFileName(for: songID, pathExtension: "recheck")
         )
-        return (try? Data(contentsOf: fileURL)).map { String(decoding: $0, as: UTF8.self) }
+        guard let data = try? Data(contentsOf: fileURL) else { return nil }
+        let record = String(decoding: data, as: UTF8.self)
+        // 1.11.3(100) 只核对过没有时间轴的缓存, 还会在换掉之前就记下; 那时的记录不算数。
+        guard record.hasPrefix(Self.sourceRecheckRecordVersion) else { return nil }
+        return String(record.dropFirst(Self.sourceRecheckRecordVersion.count))
     }
 
     func recordSourceRecheck(reference: String, forSongID songID: String) {
         let fileURL = lyricsDirectory.appendingPathComponent(
             hashedFileName(for: songID, pathExtension: "recheck")
         )
-        try? Data(reference.utf8).write(to: fileURL, options: .atomic)
+        try? Data((Self.sourceRecheckRecordVersion + reference).utf8).write(to: fileURL, options: .atomic)
     }
+
+    private static let sourceRecheckRecordVersion = "2\u{1F}"
 
     /// Read cached lyrics by song ID.
     func cachedLyrics(forSongID songID: String) -> [LyricLine]? {
