@@ -5319,7 +5319,7 @@ public enum SMBConnectionRecoveryPolicy {
 /// libsmb2 keeps the directory handle that `smb2_opendir_async` allocated on
 /// the context until the matching reply is serviced. When AMSMB2 stops waiting
 /// on a request — its own operation timeout, a dropped transport, or Primuse's
-/// `SMBRequestDeadline` letting go of a request still in flight — the command
+/// `RemoteRequestDeadline` letting go of a request still in flight — the command
 /// stays queued while still referencing that handle. Closing the session then
 /// runs `smb2_free_all_dirs()` first and fires the queued callback through the
 /// freed handle afterwards, which is an indirect jump through released memory.
@@ -5354,19 +5354,71 @@ public enum SMBSessionDisposalPolicy {
     }
 }
 
-/// Keeps SMB sessions alive that libsmb2 can no longer close.
+/// Decides whether a failed NFSKit request may still be queued in libnfs.
 ///
-/// Both ways of letting go of a session whose request was abandoned — closing
-/// the share and releasing the last reference — free the directory handle the
-/// still queued command points at, and the callback fired while the context is
-/// torn down jumps through it. Retaining the session is what stops that
-/// teardown from ever running, so a broken session is parked here for the rest
-/// of the process instead of being closed.
+/// NFSKit (ec63d055) waits on every libnfs call with its callback context on
+/// the waiting stack frame, and stops waiting when `NFSClient.timeout` passes
+/// without socket activity or when polling the socket fails, while the
+/// request stays queued in libnfs. libnfs then reaches it through that dead
+/// pointer on every remaining path: the next call that services the socket,
+/// `rpc_disconnect()` which every unmount runs first and which errors out all
+/// queued requests, and `rpc_destroy_context()` which purges them with their
+/// callbacks. NFSKit's callback has no socket check, so a context left with
+/// such a request must be neither used, unmounted nor released.
 ///
-/// `SMBSessionDisposalPolicy` decides which failures land here; ordinary
-/// protocol errors still close their session normally.
-public final class SMBRetiredSessions: @unchecked Sendable {
-    public static let shared = SMBRetiredSessions()
+/// An abandoned wait surfaces as `ETIMEDOUT` (NFSKit's own timeout or
+/// `RemoteRequestDeadline`), or as the `errno` of a failed poll on the socket
+/// (`ECANCELED` when that errno was zero). Replies that did arrive carry the
+/// server's status instead (`ENOENT`, `EACCES`, `EPERM`, `EIO`, ...) and leave
+/// nothing queued, so those clients are still unmounted and released.
+public enum NFSContextDisposalPolicy {
+    public static func mayHaveAbandonedRequest(
+        errorDomain: String,
+        errorCode: Int
+    ) -> Bool {
+        guard errorDomain == NSPOSIXErrorDomain else { return false }
+
+        return [
+            // The wait itself gave up.
+            POSIXErrorCode.ETIMEDOUT,
+            // Polling the socket failed (NFSKit turns errno 0 into ECANCELED).
+            .EINTR,
+            .ECANCELED,
+            .ENOMEM,
+            .EINVAL,
+            // The socket was reported broken while a request was queued.
+            .ECONNRESET,
+            .ECONNABORTED,
+            .ECONNREFUSED,
+            .EPIPE,
+            .ENOTCONN,
+            .ESHUTDOWN,
+            .EBADF,
+            .ENOTSOCK,
+            .ENETRESET,
+            .ENETDOWN,
+            .ENETUNREACH,
+            .EHOSTDOWN,
+            .EHOSTUNREACH,
+        ].contains { Int($0.rawValue) == errorCode }
+    }
+}
+
+/// Keeps remote sessions alive that their library can no longer close.
+///
+/// AMSMB2 and NFSKit both leave a request queued in their C library, with a
+/// callback pointing into memory that is already gone, when they stop
+/// waiting for it. Closing or releasing such a session fires that callback
+/// (libsmb2 through a freed directory handle, libnfs through a dead stack
+/// frame). Retaining the session is what stops that teardown from ever
+/// running, so a broken session is parked here for the rest of the process
+/// instead of being closed.
+///
+/// `SMBSessionDisposalPolicy` and `NFSContextDisposalPolicy` decide which
+/// failures land here; ordinary protocol errors still close their session
+/// normally.
+public final class RemoteRetiredSessions: @unchecked Sendable {
+    public static let shared = RemoteRetiredSessions()
 
     private let lock = NSLock()
     private var sessions: [AnyObject] = []
@@ -5389,37 +5441,41 @@ public final class SMBRetiredSessions: @unchecked Sendable {
     }
 }
 
-/// Bounds how long Primuse waits on one AMSMB2 call without letting AMSMB2
-/// give up on the request itself.
+/// Bounds how long Primuse waits on one call into a callback-based remote
+/// client (AMSMB2, NFSKit) without letting that client give up on the
+/// request itself.
 ///
-/// AMSMB2 4.0.3 stops waiting once `SMB2Manager.timeout` passes without
-/// socket activity, but the command stays queued in libsmb2 with a callback
-/// pointer into the stack frame that was waiting (and, for a read, the buffer
-/// that frame owned). Its multi-step calls keep servicing the same socket
-/// right after that: the file transfers close their handle in `deinit`,
-/// `connectShare` releases the old context after a failed echo, `listShares`
-/// disconnects its temporary session. A reply that arrives during that
-/// clean-up is delivered through the stale pointers before the error ever
-/// reaches Primuse, so retiring the session afterwards is too late.
+/// Both libraries stop waiting once their `timeout` passes without socket
+/// activity, but the request stays queued in the C library (libsmb2, libnfs)
+/// with a callback pointer into the stack frame that was waiting. AMSMB2's
+/// multi-step calls keep servicing the same socket right after that: the
+/// file transfers close their handle in `deinit`, `connectShare` releases the
+/// old context after a failed echo, `listShares` disconnects its temporary
+/// session. NFSKit reaches the request on the next call, on unmount, or when
+/// the context is destroyed. A reply or teardown at that point is delivered
+/// through the stale pointer, sometimes before the error ever reaches
+/// Primuse, so retiring the session afterwards can be too late.
 ///
-/// Sessions therefore run with `libraryTimeout`, far beyond any server that
+/// Clients therefore run with `libraryTimeout`, far beyond any server that
 /// is merely slow, and the deadline is enforced here from the outside. When
 /// it expires the caller stops waiting, while the request itself stays
 /// awaited with a valid callback until its reply or a transport error ends
 /// it. The thrown error is `ETIMEDOUT`, so callers retire that still busy
-/// session through `SMBSessionDisposalPolicy` and reconnect through
-/// `SMBConnectionRecoveryPolicy` exactly as before.
-public enum SMBRequestDeadline {
-    /// Value for `SMB2Manager.timeout`. Still finite, so a request whose
-    /// server never answers eventually ends and frees AMSMB2's thread.
+/// session (`SMBSessionDisposalPolicy`, `NFSContextDisposalPolicy`) and
+/// reconnect on a fresh one.
+public enum RemoteRequestDeadline {
+    /// Value for the client's own `timeout`. Still finite, so a request whose
+    /// server never answers eventually ends and frees the library's thread.
     public static let libraryTimeout: TimeInterval = 300
 
-    /// The deadline AMSMB2 used to apply by itself (its default timeout).
+    /// The deadline AMSMB2 and NFSKit used to apply by themselves (their
+    /// default timeout).
     public static let standardStallTimeout: TimeInterval = 60
 
     /// Directory listings report no progress, so their deadline covers the
-    /// whole listing. AMSMB2's own timeout only counted silence, and a large
-    /// folder over a slow link can keep replies coming for well over a minute.
+    /// whole listing. The libraries' own timeouts only counted silence, and a
+    /// large folder over a slow link can keep replies coming for well over a
+    /// minute.
     public static let listingStallTimeout: TimeInterval = 180
 
     /// Progress of one request. Transfers report every completed chunk, which
@@ -5429,14 +5485,14 @@ public enum SMBRequestDeadline {
         private var lastProgress: UInt64
 
         fileprivate init() {
-            lastProgress = SMBRequestDeadline.now()
+            lastProgress = RemoteRequestDeadline.now()
         }
 
         /// Restarts the deadline. Returns `true` so it can directly answer
-        /// AMSMB2's "keep going?" progress callbacks.
+        /// the libraries' "keep going?" progress callbacks.
         @discardableResult
         public func noteProgress() -> Bool {
-            let now = SMBRequestDeadline.now()
+            let now = RemoteRequestDeadline.now()
             lock.lock()
             lastProgress = now
             lock.unlock()
@@ -5454,8 +5510,8 @@ public enum SMBRequestDeadline {
     /// pass without it finishing or reporting progress.
     ///
     /// Caller cancellation is deliberately not a reason to stop waiting:
-    /// AMSMB2 ignores it, and while the request is pending its session can
-    /// be neither reused nor closed. Only the deadline lets go early, and
+    /// the libraries ignore it, and while the request is pending its session
+    /// can be neither reused nor closed. Only the deadline lets go early, and
     /// the request keeps running after that.
     public static func run<Value: Sendable>(
         stallTimeout: TimeInterval,
@@ -5497,6 +5553,77 @@ public enum SMBRequestDeadline {
     /// Uptime, so time the app spends suspended does not count as a stall.
     fileprivate static func now() -> UInt64 {
         DispatchTime.now().uptimeNanoseconds
+    }
+}
+
+/// One remote client whose library may leave a request queued behind a
+/// dangling callback when it stops waiting (see `RemoteRequestDeadline`).
+///
+/// Every call goes through `request`, which applies the deadline. Once a
+/// failure may have left a request queued (decided by the protocol's
+/// disposal policy), the client is retired: parked in
+/// `RemoteRetiredSessions`, and every later `request` is refused with
+/// `ENOTCONN` without touching it, so it is never used, closed or released
+/// again. The owner then replaces the guard with a fresh client.
+public final class RemoteSessionGuard<Session: AnyObject>: @unchecked Sendable {
+    private let session: Session
+    private let retiredSessions: RemoteRetiredSessions
+    private let mayHaveAbandonedRequest: @Sendable (any Error) -> Bool
+    private let onRetire: (@Sendable (_ heldSessions: Int) -> Void)?
+    private let lock = NSLock()
+    private var retired = false
+
+    public init(
+        _ session: Session,
+        retiredSessions: RemoteRetiredSessions = .shared,
+        mayHaveAbandonedRequest: @escaping @Sendable (any Error) -> Bool,
+        onRetire: (@Sendable (_ heldSessions: Int) -> Void)? = nil
+    ) {
+        self.session = session
+        self.retiredSessions = retiredSessions
+        self.mayHaveAbandonedRequest = mayHaveAbandonedRequest
+        self.onRetire = onRetire
+    }
+
+    public var isRetired: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return retired
+    }
+
+    /// Runs one library call on the session under `RemoteRequestDeadline`.
+    public func request<Value: Sendable>(
+        stallTimeout: TimeInterval = RemoteRequestDeadline.standardStallTimeout,
+        _ operation: @escaping @Sendable (_ session: Session, _ activity: RemoteRequestDeadline.Activity) async throws -> Value
+    ) async throws -> Value {
+        guard !isRetired else { throw POSIXError(.ENOTCONN) }
+        do {
+            return try await RemoteRequestDeadline.run(stallTimeout: stallTimeout) { activity in
+                try await operation(self.session, activity)
+            }
+        } catch {
+            if mayHaveAbandonedRequest(error) {
+                retire()
+            }
+            throw error
+        }
+    }
+
+    /// Hands the session to `body` unless it was retired. For owners that
+    /// adjust the session right before they let go of it.
+    public func ifNotRetired(_ body: (Session) -> Void) {
+        guard !isRetired else { return }
+        body(session)
+    }
+
+    private func retire() {
+        lock.lock()
+        let first = !retired
+        retired = true
+        lock.unlock()
+        guard first else { return }
+        let held = retiredSessions.retire(session)
+        onRetire?(held)
     }
 }
 

@@ -31,10 +31,14 @@ actor NFSByteReader: ByteRangeReader {
     private let exportPath: String
     private let relativePath: String
 
-    private var client: NFSClient?
+    private var session: RemoteSessionGuard<NFSClient>?
     private var connected = false
     private var cachedSize: Int64?
     private let operationGate = TVProtocolOperationGate()
+
+    /// 单次操作的等待上限,避免某个文件读挂死拖死扫描/播放。由 `RemoteSessionGuard`
+    /// 在外面计时,NFSKit 本身不放弃请求(见 `RemoteRequestDeadline`)。
+    static let requestStallTimeout: TimeInterval = 20
 
     init?(source: MusicSource, filePath: String) {
         guard let parsed = Self.parseSelection(filePath) else { return nil }
@@ -60,45 +64,70 @@ actor NFSByteReader: ByteRangeReader {
         relativePath = scoped.relativePath
     }
 
+    deinit {
+        // 释放仍挂载着的客户端时 NFSKit 会在放手的那个线程上同步卸载。没退役的
+        // 客户端上没有在途请求,卸载沿用原来 20 秒的上限;退役的由别处持有。
+        session?.ifNotRetired { $0.timeout = Self.requestStallTimeout }
+    }
+
+    /// 包一层 `RemoteSessionGuard`:请求可能还挂在 libnfs 里时把客户端永久停用
+    /// (不卸载、不释放),见 `NFSContextDisposalPolicy`。
+    static func guarded(_ client: NFSClient) -> RemoteSessionGuard<NFSClient> {
+        client.timeout = RemoteRequestDeadline.libraryTimeout
+        return RemoteSessionGuard(client, mayHaveAbandonedRequest: { error in
+            let nsError = error as NSError
+            return NFSContextDisposalPolicy.mayHaveAbandonedRequest(
+                errorDomain: nsError.domain,
+                errorCode: nsError.code
+            )
+        })
+    }
+
     /// Must only be called while `operationGate` is held. NFSKit owns one
     /// libnfs context and actor methods can otherwise re-enter while awaiting a
     /// callback from that context.
-    private func ensureWhileLocked() async throws -> NFSClient {
-        if let client, connected { return client }
-        let c: NFSClient
-        if let existing = client {
-            c = existing
+    private func ensureWhileLocked() async throws -> RemoteSessionGuard<NFSClient> {
+        if let session, connected, !session.isRetired { return session }
+        let s: RemoteSessionGuard<NFSClient>
+        if let existing = session, !existing.isRetired {
+            s = existing
         } else {
+            // 上一个客户端退役了(或还没有):换一个新的重新挂载。
             guard let made = try NFSClient(url: url) else { throw NFSReaderError.invalidConfig }
-            made.timeout = 20
-            client = made
-            c = made
+            s = Self.guarded(made)
+            session = s
+            connected = false
         }
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            c.connect(export: exportPath) { error in
-                if let error { cont.resume(throwing: error) } else { cont.resume() }
+        let exportPath = exportPath
+        try await s.request(stallTimeout: Self.requestStallTimeout) { client, _ in
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                client.connect(export: exportPath) { error in
+                    if let error { cont.resume(throwing: error) } else { cont.resume() }
+                }
             }
         }
         try Task.checkCancellation()
         connected = true
-        return c
+        return s
     }
 
     func contentLength() async throws -> Int64 {
         if let cachedSize { return cachedSize }
         return try await withSerializedOperation {
             if let cachedSize { return cachedSize }
-            let c = try await ensureWhileLocked()
+            let s = try await ensureWhileLocked()
             let rel = relativePath
-            let total: Int64 = try await withCheckedThrowingContinuation { cont in
-                c.attributesOfItem(atPath: rel) { result in
-                    switch result {
-                    case .success(let attrs):
-                        let size = (attrs[.fileSizeKey] as? Int64)
-                            ?? (attrs[.fileSizeKey] as? Int).map(Int64.init) ?? 0
-                        cont.resume(returning: size)
-                    case .failure(let error):
-                        cont.resume(throwing: error)
+            let total: Int64 = try await s.request(stallTimeout: Self.requestStallTimeout) { client, _ in
+                try await withCheckedThrowingContinuation { cont in
+                    client.attributesOfItem(atPath: rel) { result in
+                        switch result {
+                        case .success(let attrs):
+                            let size = (attrs[.fileSizeKey] as? Int64)
+                                ?? (attrs[.fileSizeKey] as? Int).map(Int64.init) ?? 0
+                            cont.resume(returning: size)
+                        case .failure(let error):
+                            cont.resume(throwing: error)
+                        }
                     }
                 }
             }
@@ -114,19 +143,26 @@ actor NFSByteReader: ByteRangeReader {
             return Data()
         }
         return try await withSerializedOperation {
-            let c = try await ensureWhileLocked()
+            let s = try await ensureWhileLocked()
             let rel = relativePath
             let cancellation = TVNFSReadCancellation()
             let data: Data = try await withTaskCancellationHandler {
-                try await withCheckedThrowingContinuation { cont in
-                    c.contents(
-                        atPath: rel,
-                        range: offset..<end,
-                        progress: { _, _ in cancellation.shouldContinue }
-                    ) { result in
-                        switch result {
-                        case .success(let data): cont.resume(returning: data)
-                        case .failure(let error): cont.resume(throwing: error)
+                // 取消时让 NFSKit 读完当前这一块就停,请求本身照常收尾;
+                // 每读完一块都算进度,给计时续命。
+                try await s.request(stallTimeout: Self.requestStallTimeout) { client, activity in
+                    try await withCheckedThrowingContinuation { cont in
+                        client.contents(
+                            atPath: rel,
+                            range: offset..<end,
+                            progress: { _, _ in
+                                activity.noteProgress()
+                                return cancellation.shouldContinue
+                            }
+                        ) { result in
+                            switch result {
+                            case .success(let data): cont.resume(returning: data)
+                            case .failure(let error): cont.resume(throwing: error)
+                            }
                         }
                     }
                 }
@@ -140,15 +176,19 @@ actor NFSByteReader: ByteRangeReader {
 
     func close() async {
         await operationGate.acquire()
-        if let client, connected {
-            await withCheckedContinuation { continuation in
-                client.disconnect(export: exportPath, gracefully: false) { _ in
-                    continuation.resume()
+        if let session, connected, !session.isRetired {
+            // 卸载没在时限内结束时客户端会被退役,而不是在这里释放。
+            let exportPath = exportPath
+            _ = try? await session.request(stallTimeout: Self.requestStallTimeout) { client, _ in
+                await withCheckedContinuation { continuation in
+                    client.disconnect(export: exportPath, gracefully: false) { _ in
+                        continuation.resume()
+                    }
                 }
             }
         }
         connected = false
-        client = nil
+        session = nil
         await operationGate.release()
     }
 

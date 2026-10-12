@@ -13,6 +13,9 @@ struct NFSRemoteEntry: Sendable {
 }
 
 protocol NFSClientBackend: AnyObject, Sendable {
+    /// A backend that parked its connection after a request that may still be
+    /// queued in libnfs. It refuses every call; the owner replaces it.
+    var isRetired: Bool { get }
     func connect(exportPath: String) async throws
     func disconnect() async
     func listExports() async throws -> [String]
@@ -28,8 +31,15 @@ protocol NFSClientBackend: AnyObject, Sendable {
 /// Adapts the existing callback-based NFSKit client. NFSKit currently creates
 /// libnfs contexts with the library default (NFSv3), so this backend is used
 /// for explicit v3 and as the first attempt for Auto.
+///
+/// NFSKit must never be the one that gives up on a request: it would leave
+/// the request queued in libnfs with a callback into a dead stack frame, which
+/// the next call, any unmount or releasing the client then fires. Every call
+/// therefore goes through `RemoteSessionGuard`, which applies the deadline
+/// and parks the client for good when a request may still be queued (see
+/// `NFSContextDisposalPolicy`).
 final class NFSKitClientBackend: NFSClientBackend, @unchecked Sendable {
-    private let client: NFSClient
+    private let session: RemoteSessionGuard<NFSClient>
     private let stateLock = NSLock()
     private var connectedExportPath: String?
 
@@ -37,8 +47,31 @@ final class NFSKitClientBackend: NFSClientBackend, @unchecked Sendable {
         guard let client = try NFSClient(url: url) else {
             throw SourceError.connectionFailed("Invalid NFS host")
         }
-        self.client = client
+        client.timeout = RemoteRequestDeadline.libraryTimeout
+        self.session = RemoteSessionGuard(
+            client,
+            mayHaveAbandonedRequest: { error in
+                let nsError = error as NSError
+                return NFSContextDisposalPolicy.mayHaveAbandonedRequest(
+                    errorDomain: nsError.domain,
+                    errorCode: nsError.code
+                )
+            },
+            onRetire: { held in
+                plog("⚠️ NFS client retired after an abandoned request (held: \(held))")
+            }
+        )
     }
+
+    deinit {
+        // Releasing a mounted client makes NFSKit unmount synchronously on
+        // whichever thread lets go of it. Nothing is in flight on a client
+        // that is not retired, so give that unmount NFSKit's old bounded wait
+        // instead of `libraryTimeout`. Retired clients are held elsewhere.
+        session.ifNotRetired { $0.timeout = RemoteRequestDeadline.standardStallTimeout }
+    }
+
+    var isRetired: Bool { session.isRetired }
 
     func connect(exportPath: String) async throws {
         if stateLock.withLock({ connectedExportPath == exportPath }) {
@@ -46,17 +79,19 @@ final class NFSKitClientBackend: NFSClientBackend, @unchecked Sendable {
         }
 
         await disconnect()
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            client.connect(export: exportPath) { [weak self] error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    self?.stateLock.withLock {
-                        self?.connectedExportPath = exportPath
+        try await session.request { client, _ in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                client.connect(export: exportPath) { error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else {
+                        continuation.resume(returning: ())
                     }
-                    continuation.resume(returning: ())
                 }
             }
+        }
+        stateLock.withLock {
+            connectedExportPath = exportPath
         }
     }
 
@@ -65,64 +100,74 @@ final class NFSKitClientBackend: NFSClientBackend, @unchecked Sendable {
             return
         }
 
-        await withCheckedContinuation { continuation in
-            client.disconnect(export: exportPath, gracefully: true) { [weak self] _ in
-                self?.stateLock.withLock {
-                    self?.connectedExportPath = nil
+        // A retired client is refused here, so it is never unmounted; an
+        // unmount that runs out of time retires the client instead.
+        _ = try? await session.request { client, _ in
+            await withCheckedContinuation { continuation in
+                client.disconnect(export: exportPath, gracefully: true) { _ in
+                    continuation.resume()
                 }
-                continuation.resume()
             }
+        }
+        stateLock.withLock {
+            connectedExportPath = nil
         }
     }
 
     func listExports() async throws -> [String] {
-        try await withCheckedThrowingContinuation { continuation in
-            client.listExports { result in
-                continuation.resume(with: result)
+        try await session.request { client, _ in
+            try await withCheckedThrowingContinuation { continuation in
+                client.listExports { result in
+                    continuation.resume(with: result)
+                }
             }
         }
     }
 
     func listDirectory(path: String) async throws -> [NFSRemoteEntry] {
-        try await withCheckedThrowingContinuation { continuation in
-            client.contentsOfDirectory(atPath: path) { result in
-                continuation.resume(with: result.map { entries in
-                    entries.compactMap { entry in
-                        guard let name = entry.name,
-                              name != ".",
-                              name != "..",
-                              let remotePath = entry.path else {
-                            return nil
-                        }
+        try await session.request(stallTimeout: RemoteRequestDeadline.listingStallTimeout) { client, _ in
+            try await withCheckedThrowingContinuation { continuation in
+                client.contentsOfDirectory(atPath: path) { result in
+                    continuation.resume(with: result.map { entries in
+                        entries.compactMap { entry in
+                            guard let name = entry.name,
+                                  name != ".",
+                                  name != "..",
+                                  let remotePath = entry.path else {
+                                return nil
+                            }
 
-                        return NFSRemoteEntry(
-                            name: name,
-                            path: remotePath,
-                            isDirectory: entry.isDirectory || entry.fileResourceType == .directory,
-                            size: entry.fileSize ?? 0,
-                            modifiedDate: entry.contentModificationDate
-                                ?? entry.attributeModificationDate
-                                ?? entry.creationDate
-                        )
-                    }
-                })
+                            return NFSRemoteEntry(
+                                name: name,
+                                path: remotePath,
+                                isDirectory: entry.isDirectory || entry.fileResourceType == .directory,
+                                size: entry.fileSize ?? 0,
+                                modifiedDate: entry.contentModificationDate
+                                    ?? entry.attributeModificationDate
+                                    ?? entry.creationDate
+                            )
+                        }
+                    })
+                }
             }
         }
     }
 
     func fileSize(path: String) async throws -> Int64 {
-        try await withCheckedThrowingContinuation { continuation in
-            client.attributesOfItem(atPath: path) { result in
-                switch result {
-                case .success(let attributes):
-                    if let size = (attributes[.fileSizeKey] as? Int64)
-                        ?? (attributes[.fileSizeKey] as? Int).map(Int64.init) {
-                        continuation.resume(returning: size)
-                    } else {
-                        continuation.resume(throwing: SourceError.fileNotFound(path))
+        try await session.request { client, _ in
+            try await withCheckedThrowingContinuation { continuation in
+                client.attributesOfItem(atPath: path) { result in
+                    switch result {
+                    case .success(let attributes):
+                        if let size = (attributes[.fileSizeKey] as? Int64)
+                            ?? (attributes[.fileSizeKey] as? Int).map(Int64.init) {
+                            continuation.resume(returning: size)
+                        } else {
+                            continuation.resume(throwing: SourceError.fileNotFound(path))
+                        }
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
                     }
-                case .failure(let error):
-                    continuation.resume(throwing: error)
                 }
             }
         }
@@ -133,56 +178,78 @@ final class NFSKitClientBackend: NFSClientBackend, @unchecked Sendable {
             return Data()
         }
 
-        return try await withCheckedThrowingContinuation { continuation in
-            client.contents(atPath: path, range: offset..<end, progress: nil) { result in
-                continuation.resume(with: result)
+        return try await session.request { client, activity in
+            try await withCheckedThrowingContinuation { continuation in
+                client.contents(
+                    atPath: path,
+                    range: offset..<end,
+                    progress: { _, _ in activity.noteProgress() }
+                ) { result in
+                    continuation.resume(with: result)
+                }
             }
         }
     }
 
     func remove(path: String) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            client.removeFile(atPath: path) { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: ())
+        try await session.request { client, _ in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                client.removeFile(atPath: path) { error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else {
+                        continuation.resume(returning: ())
+                    }
                 }
             }
         }
     }
 
     func download(path: String, to localURL: URL) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            client.downloadItem(atPath: path, to: localURL, progress: { _, _ in true }) { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: ())
+        try await session.request { client, activity in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                client.downloadItem(
+                    atPath: path,
+                    to: localURL,
+                    progress: { _, _ in activity.noteProgress() }
+                ) { error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else {
+                        continuation.resume(returning: ())
+                    }
                 }
             }
         }
     }
 
     func upload(localURL: URL, to path: String) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            client.uploadItem(at: localURL, toPath: path, progress: { _ in true }) { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: ())
+        try await session.request { client, activity in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                client.uploadItem(
+                    at: localURL,
+                    toPath: path,
+                    progress: { _ in activity.noteProgress() }
+                ) { error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else {
+                        continuation.resume(returning: ())
+                    }
                 }
             }
         }
     }
 
     func rename(path: String, to newPath: String) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            client.moveItem(atPath: path, toPath: newPath) { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: ())
+        try await session.request { client, _ in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                client.moveItem(atPath: path, toPath: newPath) { error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else {
+                        continuation.resume(returning: ())
+                    }
                 }
             }
         }
@@ -209,6 +276,11 @@ final class NFSv4ClientBackend: NFSClientBackend, @unchecked Sendable {
     deinit {
         destroyContext()
     }
+
+    /// libnfs' own synchronous calls keep servicing the context until their
+    /// request completes, times out (`nfs_set_timeout`) or is errored out, so
+    /// nothing is ever left queued behind a dead caller here.
+    var isRetired: Bool { false }
 
     func connect(exportPath: String) async throws {
         try await perform {

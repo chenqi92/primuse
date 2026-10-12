@@ -44,7 +44,7 @@ actor SMBByteReader: ByteRangeReader {
     }
 
     /// 单次操作的等待上限,避免某个文件读挂死拖死扫描/播放。由 `awaitRequest`
-    /// 在外面计时,会话本身不放弃请求(见 `SMBRequestDeadline`)。
+    /// 在外面计时,会话本身不放弃请求(见 `RemoteRequestDeadline`)。
     private static let requestStallTimeout: TimeInterval = 20
 
     /// Must only be called while `operationGate` is held. `SMB2Manager` wraps
@@ -54,7 +54,7 @@ actor SMBByteReader: ByteRangeReader {
         if let manager, connected { return manager }
         let m = manager ?? SMB2Manager(url: serverURL, credential: credential)
         guard let m else { throw SMBReaderError.invalidConfig }
-        m.timeout = SMBRequestDeadline.libraryTimeout
+        m.timeout = RemoteRequestDeadline.libraryTimeout
         manager = m
         let shareName = shareName
         try await Self.awaitRequest { _ in try await m.connectShare(name: shareName) }
@@ -162,7 +162,7 @@ actor SMBByteReader: ByteRangeReader {
                     errorDomain: nsError.domain,
                     errorCode: nsError.code
                 ) {
-                    SMBRetiredSessions.shared.retire(manager)
+                    RemoteRetiredSessions.shared.retire(manager)
                 }
             }
         }
@@ -174,9 +174,9 @@ actor SMBByteReader: ByteRangeReader {
     /// request by itself, this stops waiting and reports `ETIMEDOUT`, and
     /// `retireManagerIfRequestAbandoned` then parks the still busy session.
     private static func awaitRequest<T: Sendable>(
-        _ operation: @escaping @Sendable (SMBRequestDeadline.Activity) async throws -> T
+        _ operation: @escaping @Sendable (RemoteRequestDeadline.Activity) async throws -> T
     ) async throws -> T {
-        try await SMBRequestDeadline.run(stallTimeout: requestStallTimeout, operation: operation)
+        try await RemoteRequestDeadline.run(stallTimeout: requestStallTimeout, operation: operation)
     }
 
     /// See `SMBSessionDisposalPolicy`: a session whose request was abandoned
@@ -189,7 +189,7 @@ actor SMBByteReader: ByteRangeReader {
                   errorDomain: nsError.domain,
                   errorCode: nsError.code
               ) else { return }
-        SMBRetiredSessions.shared.retire(manager)
+        RemoteRetiredSessions.shared.retire(manager)
         self.manager = nil
         connected = false
     }

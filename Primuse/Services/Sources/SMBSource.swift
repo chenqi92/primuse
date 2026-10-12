@@ -76,8 +76,8 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         // synchronously on whichever thread lets go of it. Nothing is in
         // flight on the sessions held here (busy ones are retired), so give
         // that goodbye AMSMB2's old bounded wait instead of `libraryTimeout`.
-        client?.timeout = SMBRequestDeadline.standardStallTimeout
-        backgroundClient?.timeout = SMBRequestDeadline.standardStallTimeout
+        client?.timeout = RemoteRequestDeadline.standardStallTimeout
+        backgroundClient?.timeout = RemoteRequestDeadline.standardStallTimeout
     }
 
     func connect() async throws {
@@ -131,7 +131,7 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
             // the AMSMB2 dictionaries contain `Any` values that can't cross the closure boundary.
             return try await runWithRetry {
                 let client = try await self.ensureConnectedShare(named: shareName)
-                return try await Self.awaitRequest(stallTimeout: SMBRequestDeadline.listingStallTimeout) { _ in
+                return try await Self.awaitRequest(stallTimeout: RemoteRequestDeadline.listingStallTimeout) { _ in
                     let items = try await client.contentsOfDirectory(atPath: relativePath)
                     return items
                         .filter { Self.isUserVisibleEntry(($0[.nameKey] as? String) ?? "") }
@@ -296,7 +296,7 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
 
     /// The read closes its file handle inside the same AMSMB2 call, which is
     /// where a reply to an abandoned read used to land (see
-    /// `SMBRequestDeadline`). Every completed chunk counts as progress.
+    /// `RemoteRequestDeadline`). Every completed chunk counts as progress.
     private static func readContents(
         client: SMB2Manager,
         relativePath: String,
@@ -665,7 +665,7 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         }
         // AMSMB2 must never be the one that gives up on a request; every call
         // goes through `awaitRequest`, which applies the real deadline.
-        client.timeout = SMBRequestDeadline.libraryTimeout
+        client.timeout = RemoteRequestDeadline.libraryTimeout
         return client
     }
 
@@ -795,14 +795,14 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     }
 
     /// Every AMSMB2 call goes through here. The session itself never gives up
-    /// on a request (`SMBRequestDeadline.libraryTimeout`); this stops waiting
+    /// on a request (`RemoteRequestDeadline.libraryTimeout`); this stops waiting
     /// after AMSMB2's former 60 s of silence and reports `ETIMEDOUT`, and the
     /// callers' existing handling retires the still busy session.
     private static func awaitRequest<T: Sendable>(
-        stallTimeout: TimeInterval = SMBRequestDeadline.standardStallTimeout,
-        _ operation: @escaping @Sendable (SMBRequestDeadline.Activity) async throws -> T
+        stallTimeout: TimeInterval = RemoteRequestDeadline.standardStallTimeout,
+        _ operation: @escaping @Sendable (RemoteRequestDeadline.Activity) async throws -> T
     ) async throws -> T {
-        try await SMBRequestDeadline.run(stallTimeout: stallTimeout, operation: operation)
+        try await RemoteRequestDeadline.run(stallTimeout: stallTimeout, operation: operation)
     }
 
     /// Stops using — without closing — a session whose request may still be
@@ -823,7 +823,7 @@ actor SMBSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
     }
 
     private static func retire(_ session: SMB2Manager, lane: String) {
-        let held = SMBRetiredSessions.shared.retire(session)
+        let held = RemoteRetiredSessions.shared.retire(session)
         plog("⚠️ SMB \(lane) session retired after an abandoned request (held: \(held))")
     }
 

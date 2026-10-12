@@ -528,7 +528,7 @@ enum TVS3ListParser {
 actor TVNFSLister: TVDirectoryLister {
     private let url: URL
     private let configuredExport: String?
-    private var client: NFSClient?
+    private var session: RemoteSessionGuard<NFSClient>?
     private var connectedExport: String?
 
     init?(source: MusicSource) {
@@ -545,34 +545,45 @@ actor TVNFSLister: TVDirectoryLister {
         self.configuredExport = export.isEmpty ? nil : export
     }
 
+    deinit {
+        // 释放仍挂载着的客户端时 NFSKit 会在放手的那个线程上同步卸载;没退役的
+        // 客户端上没有在途请求,卸载沿用这里原来 20 秒的等待上限。
+        session?.ifNotRetired { $0.timeout = NFSByteReader.requestStallTimeout }
+    }
+
     func list(_ path: String) async throws -> [TVDirEntry] {
         let selection = TVNFSPathPolicy.selection(path: path, configuredExport: configuredExport)
         guard let export = selection.export else {
             return try await listExports()
         }
-        let client = try await connect(to: export)
-        let entries = try await withCheckedThrowingContinuation {
-            (continuation: CheckedContinuation<[TVDirEntry], any Error>) in
-            client.contentsOfDirectory(atPath: selection.relative) { result in
-                switch result {
-                case .failure(let error):
-                    continuation.resume(throwing: error)
-                case .success(let items):
-                    let mapped = items.compactMap { entry -> TVDirEntry? in
-                        guard let name = entry[.nameKey] as? String, name != ".", name != "..",
-                              let remotePath = entry[.pathKey] as? String else { return nil }
-                        return TVDirEntry(
-                            name: name,
-                            isDir: (entry[.isDirectoryKey] as? Bool ?? false)
-                                || (entry[.fileResourceTypeKey] as? URLFileResourceType) == .directory,
-                            size: (entry[.fileSizeKey] as? Int64) ?? 0,
-                            path: TVNFSPathPolicy.selectionPath(export: export, relative: remotePath),
-                            parentPath: path,
-                            modifiedDate: (entry[.contentModificationDateKey] as? Date)
-                                ?? (entry[.creationDateKey] as? Date)
-                        )
+        let session = try await connect(to: export)
+        let relative = selection.relative
+        let entries = try await session.request(
+            stallTimeout: RemoteRequestDeadline.listingStallTimeout
+        ) { client, _ in
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<[TVDirEntry], any Error>) in
+                client.contentsOfDirectory(atPath: relative) { result in
+                    switch result {
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
+                    case .success(let items):
+                        let mapped = items.compactMap { entry -> TVDirEntry? in
+                            guard let name = entry[.nameKey] as? String, name != ".", name != "..",
+                                  let remotePath = entry[.pathKey] as? String else { return nil }
+                            return TVDirEntry(
+                                name: name,
+                                isDir: (entry[.isDirectoryKey] as? Bool ?? false)
+                                    || (entry[.fileResourceTypeKey] as? URLFileResourceType) == .directory,
+                                size: (entry[.fileSizeKey] as? Int64) ?? 0,
+                                path: TVNFSPathPolicy.selectionPath(export: export, relative: remotePath),
+                                parentPath: path,
+                                modifiedDate: (entry[.contentModificationDateKey] as? Date)
+                                    ?? (entry[.creationDateKey] as? Date)
+                            )
+                        }
+                        continuation.resume(returning: mapped)
                     }
-                    continuation.resume(returning: mapped)
                 }
             }
         }
@@ -592,13 +603,15 @@ actor TVNFSLister: TVDirectoryLister {
                 )
             ]
         }
-        let client = try requireClient()
-        let exports = try await withCheckedThrowingContinuation {
-            (continuation: CheckedContinuation<[String], any Error>) in
-            client.listExports { result in
-                switch result {
-                case .failure(let error): continuation.resume(throwing: error)
-                case .success(let items): continuation.resume(returning: items)
+        let session = try requireSession()
+        let exports = try await session.request { client, _ in
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<[String], any Error>) in
+                client.listExports { result in
+                    switch result {
+                    case .failure(let error): continuation.resume(throwing: error)
+                    case .success(let items): continuation.resume(returning: items)
+                    }
                 }
             }
         }
@@ -613,24 +626,32 @@ actor TVNFSLister: TVDirectoryLister {
         }
     }
 
-    private func requireClient() throws -> NFSClient {
-        if let client { return client }
+    /// 客户端经 `RemoteSessionGuard` 使用:请求可能还挂在 libnfs 里时它会被
+    /// 永久停用(不卸载、不释放),这里随之换一个新的。
+    private func requireSession() throws -> RemoteSessionGuard<NFSClient> {
+        if let session, !session.isRetired { return session }
         guard let made = try NFSClient(url: url) else { throw TVScanError.connectFailed }
-        made.timeout = 20
-        client = made
-        return made
+        let fresh = NFSByteReader.guarded(made)
+        session = fresh
+        connectedExport = nil
+        return fresh
     }
 
-    private func connect(to export: String) async throws -> NFSClient {
-        let client = try requireClient()
-        if connectedExport == export { return client }
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            client.connect(export: export) { error in
-                if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+    private func connect(to export: String) async throws -> RemoteSessionGuard<NFSClient> {
+        let session = try requireSession()
+        if connectedExport == export { return session }
+        try await session.request { client, _ in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                client.connect(export: export) { error in
+                    if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+                }
             }
         }
-        connectedExport = export
-        return client
+        // 等待期间另一次列举可能已经换了客户端。
+        if self.session === session {
+            connectedExport = export
+        }
+        return session
     }
 }
 
@@ -945,7 +966,7 @@ actor TVSMBLister: TVDirectoryLister {
     deinit {
         // 释放仍连着的会话时 AMSMB2 会在放手的那个线程上同步登出;这里留着的会话
         // 没有在途请求(卡住的已退役),登出沿用 AMSMB2 原来的等待上限。
-        manager?.timeout = SMBRequestDeadline.standardStallTimeout
+        manager?.timeout = RemoteRequestDeadline.standardStallTimeout
     }
 
     private func ensureManager() throws -> SMB2Manager {
@@ -953,8 +974,8 @@ actor TVSMBLister: TVDirectoryLister {
         guard let m = SMB2Manager(url: serverURL, credential: credential) else {
             throw TVScanError.connectFailed
         }
-        // 会话本身不放弃请求,时限由 `awaitRequest` 在外面计(见 `SMBRequestDeadline`)。
-        m.timeout = SMBRequestDeadline.libraryTimeout
+        // 会话本身不放弃请求,时限由 `awaitRequest` 在外面计(见 `RemoteRequestDeadline`)。
+        m.timeout = RemoteRequestDeadline.libraryTimeout
         manager = m
         return m
     }
@@ -979,7 +1000,7 @@ actor TVSMBLister: TVDirectoryLister {
                   errorDomain: nsError.domain,
                   errorCode: nsError.code
               ) else { return }
-        SMBRetiredSessions.shared.retire(session)
+        RemoteRetiredSessions.shared.retire(session)
         if manager === session {
             manager = nil
             connectedShare = nil
@@ -990,10 +1011,10 @@ actor TVSMBLister: TVDirectoryLister {
     /// request by itself, this stops waiting after AMSMB2's former 60 s and
     /// reports `ETIMEDOUT`, and `list` then retires the still busy session.
     private static func awaitRequest<T: Sendable>(
-        stallTimeout: TimeInterval = SMBRequestDeadline.standardStallTimeout,
-        _ operation: @escaping @Sendable (SMBRequestDeadline.Activity) async throws -> T
+        stallTimeout: TimeInterval = RemoteRequestDeadline.standardStallTimeout,
+        _ operation: @escaping @Sendable (RemoteRequestDeadline.Activity) async throws -> T
     ) async throws -> T {
-        try await SMBRequestDeadline.run(stallTimeout: stallTimeout, operation: operation)
+        try await RemoteRequestDeadline.run(stallTimeout: stallTimeout, operation: operation)
     }
 
     private func listWhileConnected(_ path: String, on m: SMB2Manager) async throws -> [TVDirEntry] {
@@ -1025,7 +1046,7 @@ actor TVSMBLister: TVDirectoryLister {
             try await Self.awaitRequest { _ in try await m.connectShare(name: share) }
             connectedShare = share
         }
-        return try await Self.awaitRequest(stallTimeout: SMBRequestDeadline.listingStallTimeout) { _ in
+        return try await Self.awaitRequest(stallTimeout: RemoteRequestDeadline.listingStallTimeout) { _ in
             let items = try await m.contentsOfDirectory(atPath: rel)
             return items.compactMap { item -> TVDirEntry? in
                 let name = item[.nameKey] as? String ?? ""

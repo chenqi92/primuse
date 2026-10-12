@@ -502,7 +502,17 @@ actor NFSSource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter,
 
     private func resolveClient() throws -> any NFSClientBackend {
         if let client {
-            return client
+            guard client.isRetired else { return client }
+            // The backend parked its connection after a request that may
+            // still be queued in libnfs (see `NFSContextDisposalPolicy`).
+            // Continue on a fresh one with the same protocol version; the
+            // parked one is never unmounted or released.
+            let version = activeVersion ?? nfsVersion.connectionAttemptOrder[0]
+            let replacement = try makeClient(version: version)
+            self.client = replacement
+            activeVersion = version
+            connectedExportPath = nil
+            return replacement
         }
 
         let version = nfsVersion.connectionAttemptOrder[0]
