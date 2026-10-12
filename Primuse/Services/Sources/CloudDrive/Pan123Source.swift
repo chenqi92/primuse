@@ -46,10 +46,11 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource, LyricsSidecarTargetR
         session: URLSession = .shared,
         tokenProvider: (@Sendable () async throws -> String)? = nil,
         uploadCompletionPollLimit: Int = 60,
-        uploadCompletionPollInterval: Duration = .seconds(1)
+        uploadCompletionPollInterval: Duration = .seconds(1),
+        requests: CloudRequestScheduler = .shared
     ) {
         self.sourceID = sourceID
-        self.helper = CloudDriveHelper(sourceID: sourceID)
+        self.helper = CloudDriveHelper(sourceID: sourceID, requests: requests)
         self.session = session
         self.tokenProvider = tokenProvider
         self.uploadCompletionPollLimit = max(1, uploadCompletionPollLimit)
@@ -728,67 +729,40 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource, LyricsSidecarTargetR
     private func authedRequest(_ pathAndQuery: String, method: String = "GET", body: Data? = nil) async throws -> [String: Any] {
         let token = try await getToken()
         let session = session
+        let url = URL(string: Self.apiBase + pathAndQuery)!
         return try await helper.withTokenRetry(initialToken: token, refresh: refreshToken, isTokenRejection: Self.isAuthError) { @Sendable tok in
-            var req = URLRequest(url: URL(string: Self.apiBase + pathAndQuery)!)
-            req.httpMethod = method
-            req.setValue("Bearer \(tok)", forHTTPHeaderField: "Authorization")
-            req.setValue("open_platform", forHTTPHeaderField: "Platform")
-            if let body {
-                req.httpBody = body
-                req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            let (data, http) = try await self.helper.dataRequest(
+                url: url, replay: method.uppercased() == "GET" ? .idempotent : .never,
+                session: session,
+                validate: { data, http in
+                    guard (200...299).contains(http.statusCode) else { return }
+                    guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                          let code = Self.intValue(json["code"]) else { throw CloudDriveError.invalidResponse }
+                    if code == 401 { throw CloudDriveError.tokenExpired }
+                    if code == 429 {
+                        throw HTTPResponseFailure(statusCode: http.statusCode, body: data,
+                            retryAfter: HTTPResponseFailure.retryDelay(from: http), isRateLimited: true)
+                    }
+                    guard code == 0 else { throw CloudDriveError.apiError(code, json["message"] as? String ?? "") }
+                }, request: { refreshed in
+                    var req = URLRequest(url: url)
+                    req.httpMethod = method
+                    req.setValue("Bearer \(refreshed ?? tok)", forHTTPHeaderField: "Authorization")
+                    req.setValue("open_platform", forHTTPHeaderField: "Platform")
+                    if let body {
+                        req.httpBody = body
+                        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    }
+                    req.timeoutInterval = 60
+                    return req
+                }
+            )
+            if http.statusCode == 403 { throw CloudDriveError.permissionDenied(.fileRead) }
+            if http.statusCode == 404 { throw CloudDriveError.fileNotFound(pathAndQuery) }
+            guard (200...299).contains(http.statusCode) else {
+                throw CloudDriveError.apiError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
             }
-            req.timeoutInterval = 60
-            let mayRetry = method.uppercased() == "GET"
-            var transientAttempt = 0
-            var delay: TimeInterval = 0.75
-            while true {
-                let data: Data
-                let response: URLResponse
-                do {
-                    (data, response) = try await session.data(for: req)
-                } catch {
-                    let nsError = error as NSError
-                    guard mayRetry,
-                          nsError.domain == NSURLErrorDomain,
-                          CloudHTTPRetryPolicy.shouldRetry(urlErrorCode: nsError.code),
-                          transientAttempt < 4 else { throw error }
-                    transientAttempt += 1
-                    try await Task.sleep(for: .seconds(delay))
-                    delay = min(delay * 2, 8)
-                    continue
-                }
-                guard let http = response as? HTTPURLResponse else {
-                    throw CloudDriveError.invalidResponse
-                }
-                if mayRetry,
-                   CloudHTTPRetryPolicy.shouldRetry(statusCode: http.statusCode),
-                   transientAttempt < 4 {
-                    transientAttempt += 1
-                    try await Task.sleep(for: .seconds(delay))
-                    delay = min(delay * 2, 8)
-                    continue
-                }
-                if http.statusCode == 401 { throw CloudDriveError.tokenExpired }
-                if http.statusCode == 403 { throw CloudDriveError.permissionDenied(.fileRead) }
-                if http.statusCode == 404 { throw CloudDriveError.fileNotFound(pathAndQuery) }
-                if http.statusCode == 429 { throw CloudDriveError.rateLimited }
-                guard (200...299).contains(http.statusCode) else {
-                    throw CloudDriveError.apiError(
-                        http.statusCode,
-                        String(data: data, encoding: .utf8) ?? ""
-                    )
-                }
-                guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                      let code = Self.intValue(json["code"]) else {
-                    throw CloudDriveError.invalidResponse
-                }
-                if code == 401 { throw CloudDriveError.tokenExpired }
-                if code == 429 { throw CloudDriveError.rateLimited }
-                guard code == 0 else {
-                    throw CloudDriveError.apiError(code, json["message"] as? String ?? "")
-                }
-                return json
-            }
+            return try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
         }
     }
 
