@@ -366,6 +366,7 @@ private struct HomeFolderRow: View {
                 HomeDiscoveryText.string(collected ? "unpin_folder" : "pin_folder"),
                 systemImage: collected ? "heart.slash" : "heart"
             ) {
+                PMHaptics.likeToggled(isLiked: !collected)
                 FavoriteCollectionStore.shared.setCollected(!collected, .folder(node.id), library: library)
             }
         }
@@ -1263,7 +1264,9 @@ struct HomeFolderBrowser: View {
 
     /// 目录的心就是收藏：收藏的目录也是首页「目录」区块摆的那几个。
     private func togglePin(_ id: LibraryFolderNodeID) {
-        FavoriteCollectionStore.shared.setCollected(!pins.contains(id), .folder(id), library: library)
+        let pinned = pins.contains(id)
+        PMHaptics.likeToggled(isLiked: !pinned)
+        FavoriteCollectionStore.shared.setCollected(!pinned, .folder(id), library: library)
     }
 
     private func playFolder(_ id: LibraryFolderNodeID, shuffle: Bool) {

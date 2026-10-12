@@ -756,6 +756,7 @@ struct SpokenWordShelfContent: View {
             ? false
             : FavoriteCollectionStore.shared.isCollected(favoritePin, library: library)
         Button {
+            PMHaptics.likeToggled(isLiked: !isFavorite)
             FavoriteCollectionStore.shared.setCollected(!isFavorite, favoritePin, library: library)
         } label: {
             Label(

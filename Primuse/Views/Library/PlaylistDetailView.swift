@@ -877,6 +877,7 @@ struct PlaylistDetailView: View {
 
             let isFavorite = isCollected
             Button {
+                PMHaptics.likeToggled(isLiked: !isFavorite)
                 FavoriteCollectionStore.shared.setCollected(!isFavorite, favoritePin, library: library)
             } label: {
                 Image(systemName: isFavorite ? "heart.fill" : "heart")

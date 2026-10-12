@@ -240,6 +240,7 @@ struct FavoriteCollectionMenuItems: View {
         if case .book(let favorite) = entry {
             // 书从上次听到的地方接着放，不从第一章重来。
             Button {
+                PMHaptics.likeToggled(isLiked: false)
                 FavoriteCollectionStore.shared.uncollect(entry.pin, library: library)
             } label: {
                 Label("library_favorite_unlike", systemImage: "heart.slash")

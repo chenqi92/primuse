@@ -2146,6 +2146,7 @@ struct SongFeedbackMenuButtons: View {
         let isLiked = library.isLiked(songID: songID)
         let isDisliked = library.isDisliked(songID: songID)
         Button {
+            PMHaptics.likeToggled(isLiked: !isLiked)
             library.toggleLiked(songID: songID)
         } label: {
             if isLiked {

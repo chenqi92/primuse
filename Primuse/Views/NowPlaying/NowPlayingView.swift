@@ -1316,6 +1316,7 @@ struct NowPlayingView: View {
 
     private func toggleLikedCurrent() {
         guard let song = player.currentSong else { return }
+        PMHaptics.likeToggled(isLiked: !isCurrentLiked)
         if PodcastPlaybackSong.isEpisode(song) {
             player.toggleLikeForCurrentPodcastEpisode()
             return

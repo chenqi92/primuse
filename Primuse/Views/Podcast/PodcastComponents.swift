@@ -447,6 +447,7 @@ struct PodcastEpisodeMenu: View {
         // 喜欢的单集列在「我喜欢」页底下和播客页里,不进歌单本身。
         let isLiked = store.isLiked(episodeID: episode.id)
         Button {
+            PMHaptics.likeToggled(isLiked: !isLiked)
             store.setLiked(!isLiked, episode: episode)
         } label: {
             Label(isLiked ? "a11y_unlike" : "a11y_like", systemImage: isLiked ? "heart.slash" : "heart")

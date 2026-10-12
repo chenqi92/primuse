@@ -987,6 +987,7 @@ struct PlaylistListView: View {
         let pin = QuickAccessPinReference(kind: .playlist, itemID: playlist.id)
         let isCollected = LibraryPinStorage.decode(favoritesRawValue).contains(pin)
         return Button {
+            PMHaptics.likeToggled(isLiked: !isCollected)
             FavoriteCollectionStore.shared.setCollected(!isCollected, pin, library: library)
         } label: {
             Label(

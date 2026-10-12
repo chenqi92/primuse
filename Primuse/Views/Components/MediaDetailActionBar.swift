@@ -735,7 +735,10 @@ struct LibraryDetailPlayShuffleRow: View {
             fillsWidth: fills,
             form: form,
             disabled: false,
-            action: favorite.toggle
+            action: {
+                PMHaptics.likeToggled(isLiked: !favorite.isLiked)
+                favorite.toggle()
+            }
         )
         .accessibilityAddTraits(favorite.isLiked ? .isSelected : [])
         .accessibilityIdentifier("libraryDetail.favorite")
@@ -1477,7 +1480,10 @@ struct LibraryCollectionMenuItems: View {
     var donation: SiriMediaDonationContainer? = nil
 
     var body: some View {
-        Button(action: toggleLike) {
+        Button {
+            PMHaptics.likeToggled(isLiked: !isLiked)
+            toggleLike()
+        } label: {
             Label(
                 isLiked ? "library_favorite_unlike" : "library_favorite_like",
                 systemImage: isLiked ? "heart.slash" : "heart"

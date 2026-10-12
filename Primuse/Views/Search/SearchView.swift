@@ -4308,7 +4308,10 @@ struct SearchView: View {
                 .disabled(songs.filteredPlayable().isEmpty)
                 Divider()
             }
-            Button { target.addToLiked(in: library) } label: {
+            Button {
+                PMHaptics.likeToggled(isLiked: true)
+                target.addToLiked(in: library)
+            } label: {
                 Label(String(format: String(localized: allLiked ? "search_all_songs_liked_format" : "search_like_all_songs_format"), songs.count),
                       systemImage: allLiked ? "heart.fill" : "heart")
             }

@@ -368,6 +368,7 @@ private struct MiniPlayerMenuItems: View {
     }
 
     private func toggleLike(_ song: Song) {
+        PMHaptics.likeToggled(isLiked: !isLiked(song))
         if PodcastPlaybackSong.isEpisode(song) {
             player.toggleLikeForCurrentPodcastEpisode()
         } else {

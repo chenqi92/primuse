@@ -5910,6 +5910,7 @@ private struct LibraryFolderNormalToolbarMenu: View {
                 full: HomeDiscoveryText.string(pinned ? "unpin_folder" : "pin_folder"),
                 systemImage: pinned ? "heart.slash" : "heart"
             ) {
+                PMHaptics.likeToggled(isLiked: !pinned)
                 FavoriteCollectionStore.shared.setCollected(!pinned, .folder(nodeID), library: library)
             }
             .disabled(index?.node(withID: nodeID) == nil)

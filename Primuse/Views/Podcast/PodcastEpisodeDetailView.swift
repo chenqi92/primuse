@@ -269,6 +269,7 @@ private struct PodcastEpisodeActions: View {
 
                 let isLiked = store.isLiked(episodeID: episode.id)
                 Button {
+                    PMHaptics.likeToggled(isLiked: !isLiked)
                     store.setLiked(!isLiked, episode: episode)
                 } label: {
                     PodcastCircleKey(
