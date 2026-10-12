@@ -64,6 +64,13 @@ struct RadioDirectoryClient: Sendable {
             case .emptyQuery: return String(localized: "radio_batch_directory_placeholder")
             }
         }
+
+        /// 搜索失败时界面上的说法。镜像都限流、5xx 或别的 HTTP 错误，对用户来说都是连不上目录，
+        /// 状态码帮不上忙；断网、超时这类照系统的说法。
+        static func message(for error: Error) -> String {
+            if error is HTTPResponseFailure { return Failure.badResponse.localizedDescription }
+            return error.localizedDescription
+        }
     }
 
     private struct Payload: Decodable {

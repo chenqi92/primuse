@@ -839,7 +839,7 @@ struct MacRadioBatchAddView: View {
             applyCandidates(RadioDirectoryClient.candidates(from: results, existing: store.stations))
         } catch {
             directorySearched = true
-            errorMessage = error.localizedDescription
+            errorMessage = RadioDirectoryClient.Failure.message(for: error)
         }
     }
 

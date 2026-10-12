@@ -533,7 +533,7 @@ struct RadioBatchAddView: View {
             )
         } catch {
             directorySearched = true
-            errorMessage = error.localizedDescription
+            errorMessage = RadioDirectoryClient.Failure.message(for: error)
         }
     }
 
