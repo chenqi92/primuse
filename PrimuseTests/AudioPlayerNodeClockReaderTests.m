@@ -95,4 +95,46 @@
     XCTAssertNil(error);
 }
 
+- (void)testSplittingOneOutputIntoTwoMixerInputs {
+    // 混响并联：一路分给干声混音和混响，两路再汇进同一个混音节点的 0、1 号输入。
+    AVAudioEngine *engine = [[AVAudioEngine alloc] init];
+    AVAudioMixerNode *source = [[AVAudioMixerNode alloc] init];
+    AVAudioMixerNode *dry = [[AVAudioMixerNode alloc] init];
+    AVAudioUnitReverb *reverb = [[AVAudioUnitReverb alloc] init];
+    AVAudioMixerNode *wet = [[AVAudioMixerNode alloc] init];
+    AVAudioMixerNode *sum = [[AVAudioMixerNode alloc] init];
+    for (AVAudioNode *node in @[source, dry, reverb, wet, sum]) {
+        [engine attachNode:node];
+    }
+    AVAudioFormat *format = [[AVAudioFormat alloc] initStandardFormatWithSampleRate:48000 channels:2];
+    NSError *error = nil;
+    NSArray<AVAudioConnectionPoint *> *points = @[
+        [[AVAudioConnectionPoint alloc] initWithNode:dry bus:0],
+        [[AVAudioConnectionPoint alloc] initWithNode:reverb bus:0],
+    ];
+
+    XCTAssertTrue(PrimuseConnectNodeToPoints(engine, source, points, format, &error));
+    XCTAssertTrue(PrimuseConnectNodes(engine, reverb, wet, format, &error));
+    XCTAssertTrue(PrimuseConnectNodeBuses(engine, dry, 0, sum, 0, format, &error));
+    XCTAssertTrue(PrimuseConnectNodeBuses(engine, wet, 0, sum, 1, format, &error));
+    XCTAssertNil(error);
+    XCTAssertEqual([engine outputConnectionPointsForNode:source outputBus:0].count, 2u);
+    XCTAssertEqualObjects([engine inputConnectionPointForNode:sum inputBus:1].node, wet);
+}
+
+- (void)testSplittingFromNodeOutsideTheEngineIsContained {
+    AVAudioEngine *engine = [[AVAudioEngine alloc] init];
+    AVAudioMixerNode *source = [[AVAudioMixerNode alloc] init];
+    AVAudioMixerNode *dry = [[AVAudioMixerNode alloc] init];
+    [engine attachNode:dry];
+    NSError *error = nil;
+    NSArray<AVAudioConnectionPoint *> *points = @[[[AVAudioConnectionPoint alloc] initWithNode:dry bus:0]];
+
+    XCTAssertFalse(PrimuseConnectNodeToPoints(engine, source, points, nil, &error));
+    XCTAssertNotNil(error);
+    error = nil;
+    XCTAssertFalse(PrimuseConnectNodeBuses(engine, source, 0, dry, 0, nil, &error));
+    XCTAssertNotNil(error);
+}
+
 @end

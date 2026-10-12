@@ -86,3 +86,73 @@ BOOL PrimuseConnectNodes(
         return NO;
     }
 }
+
+static BOOL PrimuseReportConnectException(NSException *exception, NSError * _Nullable * _Nullable error) {
+    NSLog(@"⚠️ AVAudioEngine connect raised %@: %@", exception.name, exception.reason);
+    if (error != NULL) {
+        *error = [NSError errorWithDomain:@"PrimuseAudioEngine"
+                                     code:1
+                                 userInfo:@{
+            NSLocalizedDescriptionKey: exception.reason ?: exception.name,
+        }];
+    }
+    return NO;
+}
+
+static BOOL PrimuseReportConnectError(NSError * _Nullable connectError, NSError * _Nullable * _Nullable error) {
+    NSLog(@"⚠️ AVAudioEngine connect failed: %@", connectError);
+    if (error != NULL) {
+        *error = connectError ?: [NSError errorWithDomain:@"PrimuseAudioEngine" code:1 userInfo:nil];
+    }
+    return NO;
+}
+
+BOOL PrimuseConnectNodeBuses(
+    AVAudioEngine *engine,
+    AVAudioNode *source,
+    NSInteger sourceBus,
+    AVAudioNode *destination,
+    NSInteger destinationBus,
+    AVAudioFormat * _Nullable format,
+    NSError * _Nullable * _Nullable error
+) {
+    @try {
+#ifdef __IPHONE_27_0  // only the 27 SDKs declare -connect:to:fromBus:toBus:format:error:
+        if (@available(iOS 27.0, macOS 27.0, tvOS 27.0, *)) {
+            NSError *connectError = nil;
+            if (![engine connect:source to:destination fromBus:(AVAudioNodeBus)sourceBus toBus:(AVAudioNodeBus)destinationBus format:format error:&connectError]) {
+                return PrimuseReportConnectError(connectError, error);
+            }
+            return YES;
+        }
+#endif
+        [engine connect:source to:destination fromBus:(AVAudioNodeBus)sourceBus toBus:(AVAudioNodeBus)destinationBus format:format];
+        return YES;
+    } @catch (NSException *exception) {
+        return PrimuseReportConnectException(exception, error);
+    }
+}
+
+BOOL PrimuseConnectNodeToPoints(
+    AVAudioEngine *engine,
+    AVAudioNode *source,
+    NSArray<AVAudioConnectionPoint *> *destinations,
+    AVAudioFormat * _Nullable format,
+    NSError * _Nullable * _Nullable error
+) {
+    @try {
+#ifdef __IPHONE_27_0  // only the 27 SDKs declare -connect:toConnectionPoints:fromBus:format:error:
+        if (@available(iOS 27.0, macOS 27.0, tvOS 27.0, *)) {
+            NSError *connectError = nil;
+            if (![engine connect:source toConnectionPoints:destinations fromBus:0 format:format error:&connectError]) {
+                return PrimuseReportConnectError(connectError, error);
+            }
+            return YES;
+        }
+#endif
+        [engine connect:source toConnectionPoints:destinations fromBus:0 format:format];
+        return YES;
+    } @catch (NSException *exception) {
+        return PrimuseReportConnectException(exception, error);
+    }
+}

@@ -5866,3 +5866,6 @@
 "eq_headroom_note %@" = "El volumen general bajó %@ dB para que las bandas realzadas no distorsionen.";
 
 "apple_music_catalog_album_unavailable" = "No se pudieron cargar las canciones de este álbum desde Apple Music. Inténtalo más tarde.";
+
+"reverb_headroom_note %@" = "Con la reverberación activada, el volumen general bajó %@ dB para que no se distorsione.";
+"compressor_gain_cap_note %@" = "Con este umbral y margen, una ganancia mayor a %@ dB distorsionaría, así que el exceso no se aplica.";

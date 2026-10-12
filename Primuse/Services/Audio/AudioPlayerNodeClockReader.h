@@ -40,4 +40,25 @@ FOUNDATION_EXPORT BOOL PrimuseConnectNodes(
     NSError * _Nullable * _Nullable error
 );
 
+/// `PrimuseConnectNodes` with explicit buses, for a mixer that takes several inputs.
+/// Buses are `NSInteger` so Swift passes its `AVAudioNodeBus` (an `Int` there) as is.
+FOUNDATION_EXPORT BOOL PrimuseConnectNodeBuses(
+    AVAudioEngine *engine,
+    AVAudioNode *source,
+    NSInteger sourceBus,
+    AVAudioNode *destination,
+    NSInteger destinationBus,
+    AVAudioFormat * _Nullable format,
+    NSError * _Nullable * _Nullable error
+);
+
+/// `PrimuseConnectNodes` for one output feeding several inputs.
+FOUNDATION_EXPORT BOOL PrimuseConnectNodeToPoints(
+    AVAudioEngine *engine,
+    AVAudioNode *source,
+    NSArray<AVAudioConnectionPoint *> *destinations,
+    AVAudioFormat * _Nullable format,
+    NSError * _Nullable * _Nullable error
+);
+
 NS_ASSUME_NONNULL_END

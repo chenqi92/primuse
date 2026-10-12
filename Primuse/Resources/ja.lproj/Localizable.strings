@@ -5961,3 +5961,6 @@
 "eq_headroom_note %@" = "ブーストした帯域で音が歪まないよう、全体の音量を %@ dB 下げています。";
 
 "apple_music_catalog_album_unavailable" = "Apple Music からこのアルバムの曲を取得できませんでした。しばらくしてからもう一度お試しください。";
+
+"reverb_headroom_note %@" = "リバーブを重ねても歪まないよう、オン中は全体の音量を %@ dB 下げています。";
+"compressor_gain_cap_note %@" = "現在のしきい値とヘッドルームでは %@ dB を超えるゲインは歪むため、超えた分は適用されません。";

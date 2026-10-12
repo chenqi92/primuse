@@ -293,6 +293,12 @@ final class AudioEngine {
     private(set) var eqNode: AVAudioUnitEQ?
     private(set) var compressorNode: AVAudioUnitEffect?
     private(set) var reverbNode: AVAudioUnitReverb?
+    /// 混响并联在压缩器后面:干声、混响(固定 100% 湿)各走一个混音节点,再汇进
+    /// `reverbOutputMixer`。干湿比和混响的余量都落在这三个节点的音量上,改动平滑过渡;
+    /// 混响自己的 wetDryMix 一改就是硬切,会咔哒。
+    private var reverbDryMixer: AVAudioMixerNode?
+    private var reverbWetMixer: AVAudioMixerNode?
+    private var reverbOutputMixer: AVAudioMixerNode?
     /// 用于变速 (rate) + 保持音调 (overlap)。1.0 时基本无开销, 用户改速度
     /// 时调它的 .rate 即可, engine graph 不需要 reconfigure。
     private(set) var timePitchNode: AVAudioUnitTimePitch?
@@ -538,6 +544,9 @@ final class AudioEngine {
         eqNode = nil
         compressorNode = nil
         reverbNode = nil
+        reverbDryMixer = nil
+        reverbWetMixer = nil
+        reverbOutputMixer = nil
         timePitchNode = nil
         karaokeVocalNode = nil
         outputFormat = nil
@@ -620,6 +629,9 @@ final class AudioEngine {
         )
         let compressor = AVAudioUnitEffect(audioComponentDescription: compressorDesc)
         let reverb = AVAudioUnitReverb()
+        let reverbDry = AVAudioMixerNode()
+        let reverbWet = AVAudioMixerNode()
+        let reverbOutput = AVAudioMixerNode()
         let timePitch = AVAudioUnitTimePitch()
         timePitch.rate = 1.0
         timePitch.pitch = karaokePitchCents
@@ -636,10 +648,11 @@ final class AudioEngine {
             band.bypass = false
         }
 
-        // Compressor — bypassed until user enables; parameters set by AudioEffectsService
-        compressor.bypass = true
+        // 压缩器一直接在链路里:关着时由 AudioEffectsService 设成不压缩的参数(逐样本透明,
+        // 只多 5.3 ms 预读延迟)。旁通是硬切,开关时会咔哒。
+        compressor.bypass = false
 
-        // Reverb — bypassed until user enables; parameters set by AudioEffectsService
+        // 混响关着时旁通,湿声那一路静音;干湿比由并联的两路音量表示,混响自身全湿。
         reverb.bypass = true
 
         eng.attach(playerA)
@@ -649,6 +662,9 @@ final class AudioEngine {
         eng.attach(eq)
         eng.attach(compressor)
         eng.attach(reverb)
+        eng.attach(reverbDry)
+        eng.attach(reverbWet)
+        eng.attach(reverbOutput)
         eng.attach(timePitch)
         let karaokeVocal = KaraokeVocalReducerUnit.makeNode(control: karaokeControl)
         if let karaokeVocal {
@@ -680,7 +696,8 @@ final class AudioEngine {
         }
         #endif
 
-        // Signal chain: playerA/B → Spatial Environment → mixer → (Karaoke) → EQ → Compressor → Reverb → TimePitch → mainMixer → output
+        // Signal chain: playerA/B → Spatial Environment → mixer → (Karaoke) → EQ → Compressor
+        //   → [reverbDry, Reverb → reverbWet] → reverbOutput → TimePitch → mainMixer → output
         // TimePitch 放最后一站, 让 EQ / 压缩 / 混响 都在原速下处理,
         // visualizer 仍挂 mainMixer 拿到变速后的最终输出。
         try Self.connect(playerA, to: environment, format: format, in: eng)
@@ -693,9 +710,31 @@ final class AudioEngine {
             try Self.connect(mixer, to: eq, format: format, in: eng)
         }
         try Self.connect(eq, to: compressor, format: format, in: eng)
-        try Self.connect(compressor, to: reverb, format: format, in: eng)
-        try Self.connect(reverb, to: timePitch, format: format, in: eng)
+        try Self.connect(
+            compressor,
+            to: [
+                AVAudioConnectionPoint(node: reverbDry, bus: 0),
+                AVAudioConnectionPoint(node: reverb, bus: 0),
+            ],
+            format: format,
+            in: eng
+        )
+        try Self.connect(reverb, to: reverbWet, format: format, in: eng)
+        try Self.connect(reverbDry, fromBus: 0, to: reverbOutput, toBus: 0, format: format, in: eng)
+        try Self.connect(reverbWet, fromBus: 0, to: reverbOutput, toBus: 1, format: format, in: eng)
+        try Self.connect(reverbOutput, to: timePitch, format: format, in: eng)
         try Self.connect(timePitch, to: mainMixer, format: format, in: eng)
+        // 接进图之前设的音量会丢,连好之后再设。压缩器先是不压缩的参数,
+        // AudioEffectsService.applySettings 随后按设置改写。
+        reverbWet.outputVolume = 0
+        reverb.wetDryMix = 100
+        AudioUnitSetParameter(
+            compressor.audioUnit, kDynamicsProcessorParam_Threshold, kAudioUnitScope_Global, 0,
+            CompressorTransitionPolicy.neutralThreshold, 0
+        )
+        AudioUnitSetParameter(
+            compressor.audioUnit, kDynamicsProcessorParam_OverallGain, kAudioUnitScope_Global, 0, 0, 0
+        )
 
         playerB.volume = 0 // crossfade node starts silent
 
@@ -711,6 +750,9 @@ final class AudioEngine {
         self.eqNode = eq
         self.compressorNode = compressor
         self.reverbNode = reverb
+        self.reverbDryMixer = reverbDry
+        self.reverbWetMixer = reverbWet
+        self.reverbOutputMixer = reverbOutput
         self.timePitchNode = timePitch
         self.karaokeVocalNode = karaokeVocal
         self.outputFormat = format
@@ -1700,10 +1742,46 @@ final class AudioEngine {
     ) throws {
         var error: NSError?
         guard PrimuseConnectNodes(engine, source, destination, format, &error) else {
-            let description = format.map { "sr\($0.sampleRate)/ch\($0.channelCount)/\($0.commonFormat.rawValue)" } ?? "nil"
-            plog("⚠️ AudioEngine connect \(type(of: source)) → \(type(of: destination)) failed for \(description): \(error?.localizedDescription ?? "unknown")")
-            throw error ?? NSError(domain: "PrimuseAudioEngine", code: 1)
+            throw connectFailure(source, "\(type(of: destination))", format: format, error: error)
         }
+    }
+
+    static func connect(
+        _ source: AVAudioNode,
+        fromBus sourceBus: AVAudioNodeBus,
+        to destination: AVAudioNode,
+        toBus destinationBus: AVAudioNodeBus,
+        format: AVAudioFormat?,
+        in engine: AVAudioEngine
+    ) throws {
+        var error: NSError?
+        guard PrimuseConnectNodeBuses(engine, source, sourceBus, destination, destinationBus, format, &error) else {
+            throw connectFailure(source, "\(type(of: destination))#\(destinationBus)", format: format, error: error)
+        }
+    }
+
+    static func connect(
+        _ source: AVAudioNode,
+        to destinations: [AVAudioConnectionPoint],
+        format: AVAudioFormat?,
+        in engine: AVAudioEngine
+    ) throws {
+        var error: NSError?
+        guard PrimuseConnectNodeToPoints(engine, source, destinations, format, &error) else {
+            let names = destinations.map { $0.node.map { "\(type(of: $0))" } ?? "nil" }.joined(separator: ", ")
+            throw connectFailure(source, "[\(names)]", format: format, error: error)
+        }
+    }
+
+    private static func connectFailure(
+        _ source: AVAudioNode,
+        _ destination: String,
+        format: AVAudioFormat?,
+        error: NSError?
+    ) -> Error {
+        let description = format.map { "sr\($0.sampleRate)/ch\($0.channelCount)/\($0.commonFormat.rawValue)" } ?? "nil"
+        plog("⚠️ AudioEngine connect \(type(of: source)) → \(destination) failed for \(description): \(error?.localizedDescription ?? "unknown")")
+        return error ?? NSError(domain: "PrimuseAudioEngine", code: 1)
     }
 
     // MARK: - Playback Control
@@ -2151,6 +2229,9 @@ final class AudioEngine {
         eqNode?.reset()
         compressorNode?.reset()
         reverbNode?.reset()
+        reverbDryMixer?.reset()
+        reverbWetMixer?.reset()
+        reverbOutputMixer?.reset()
         timePitchNode?.reset()
         karaokeVocalNode?.reset()
         engine.mainMixerNode.reset()
@@ -2312,6 +2393,24 @@ final class AudioEngine {
     var equalizerPreampGain: Float {
         get { playerMixer?.outputVolume ?? 1 }
         set { playerMixer?.outputVolume = newValue }
+    }
+
+    /// 混响并联两路的音量(线性):干声 √(1−w)、湿声 √w,和 AVAudioUnitReverb 的
+    /// wetDryMix = w 逐样本一致。
+    var reverbDryGain: Float {
+        get { reverbDryMixer?.outputVolume ?? 1 }
+        set { reverbDryMixer?.outputVolume = newValue }
+    }
+
+    var reverbWetGain: Float {
+        get { reverbWetMixer?.outputVolume ?? 0 }
+        set { reverbWetMixer?.outputVolume = newValue }
+    }
+
+    /// 混响之后那一级的整体增益(线性):开着混响时压掉混响抬高的峰值。
+    var reverbHeadroomGain: Float {
+        get { reverbOutputMixer?.outputVolume ?? 1 }
+        set { reverbOutputMixer?.outputVolume = newValue }
     }
 
     /// 把用户音量写到这一刻真正在出声的那一级增益上。

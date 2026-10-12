@@ -5866,3 +5866,6 @@
 "eq_headroom_note %@" = "Ogólną głośność obniżono o %@ dB, aby wzmocnione pasma nie zniekształcały dźwięku.";
 
 "apple_music_catalog_album_unavailable" = "Nie udało się wczytać utworów z tego albumu z Apple Music. Spróbuj ponownie później.";
+
+"reverb_headroom_note %@" = "Gdy pogłos jest włączony, ogólną głośność obniżono o %@ dB, aby dźwięk nie był zniekształcony.";
+"compressor_gain_cap_note %@" = "Przy tym progu i zapasie wzmocnienie powyżej %@ dB powodowałoby zniekształcenia, więc nadwyżka nie jest stosowana.";

@@ -5866,3 +5866,6 @@
 "eq_headroom_note %@" = "Yükseltilen bantlar bozulmasın diye genel ses seviyesi %@ dB düşürüldü.";
 
 "apple_music_catalog_album_unavailable" = "Bu albümün parçaları Apple Music'ten yüklenemedi. Daha sonra tekrar deneyin.";
+
+"reverb_headroom_note %@" = "Yankı açıkken ses bozulmasın diye genel ses seviyesi %@ dB düşürüldü.";
+"compressor_gain_cap_note %@" = "Bu eşik ve pay ile %@ dB üzerindeki kazanç bozulmaya yol açar, bu yüzden fazlası uygulanmaz.";

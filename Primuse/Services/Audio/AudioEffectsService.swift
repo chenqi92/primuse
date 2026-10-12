@@ -1,6 +1,7 @@
 import AudioToolbox
 import AVFoundation
 import Foundation
+import PrimuseKit
 
 // MARK: - Reverb Preset Wrapper
 
@@ -15,8 +16,18 @@ enum ReverbPreset: Int, CaseIterable, Codable, Sendable, Identifiable {
 
     var id: Int { rawValue }
 
+    /// 存储值是这里的 rawValue,不是 AVAudioUnitReverbPreset 的:系统的 6 是「中型室」,
+    /// 教堂是 8,按 rawValue 直接换会把「教堂」放成中型室。
     var avPreset: AVAudioUnitReverbPreset {
-        AVAudioUnitReverbPreset(rawValue: rawValue) ?? .mediumHall
+        switch self {
+        case .smallRoom: .smallRoom
+        case .mediumRoom: .mediumRoom
+        case .largeRoom: .largeRoom
+        case .mediumHall: .mediumHall
+        case .largeHall: .largeHall
+        case .plate: .plate
+        case .cathedral: .cathedral
+        }
     }
 
     var localizedName: String {
@@ -75,7 +86,7 @@ final class AudioEffectsService {
 
     var effectChainEnabled: Bool {
         didSet {
-            applyEffectBypass()
+            scheduleNodeUpdate()
             settingsStore.effectChainEnabled = effectChainEnabled
         }
     }
@@ -84,41 +95,41 @@ final class AudioEffectsService {
 
     var compressorEnabled: Bool {
         didSet {
-            applyEffectBypass()
+            scheduleNodeUpdate()
             settingsStore.compressorEnabled = compressorEnabled
         }
     }
     var compressorThreshold: Float {
         didSet {
-            setCompressorParam(kDynamicsProcessorParam_Threshold, value: compressorThreshold)
+            scheduleNodeUpdate()
             if !isApplyingPreset { compressorPresetId = nil }
             settingsStore.compressorThreshold = compressorThreshold
         }
     }
     var compressorHeadRoom: Float {
         didSet {
-            setCompressorParam(kDynamicsProcessorParam_HeadRoom, value: compressorHeadRoom)
+            scheduleNodeUpdate()
             if !isApplyingPreset { compressorPresetId = nil }
             settingsStore.compressorHeadRoom = compressorHeadRoom
         }
     }
     var compressorAttackTime: Float {
         didSet {
-            setCompressorParam(kDynamicsProcessorParam_AttackTime, value: compressorAttackTime)
+            scheduleNodeUpdate()
             if !isApplyingPreset { compressorPresetId = nil }
             settingsStore.compressorAttackTime = compressorAttackTime
         }
     }
     var compressorReleaseTime: Float {
         didSet {
-            setCompressorParam(kDynamicsProcessorParam_ReleaseTime, value: compressorReleaseTime)
+            scheduleNodeUpdate()
             if !isApplyingPreset { compressorPresetId = nil }
             settingsStore.compressorReleaseTime = compressorReleaseTime
         }
     }
     var compressorMasterGain: Float {
         didSet {
-            setCompressorParam(kDynamicsProcessorParam_OverallGain, value: compressorMasterGain)
+            scheduleNodeUpdate()
             if !isApplyingPreset { compressorPresetId = nil }
             settingsStore.compressorMasterGain = compressorMasterGain
         }
@@ -131,19 +142,19 @@ final class AudioEffectsService {
 
     var reverbEnabled: Bool {
         didSet {
-            applyEffectBypass()
+            scheduleNodeUpdate()
             settingsStore.reverbEnabled = reverbEnabled
         }
     }
     var reverbPreset: ReverbPreset {
         didSet {
-            audioEngine.reverbNode?.loadFactoryPreset(reverbPreset.avPreset)
+            scheduleNodeUpdate()
             settingsStore.reverbPresetIndex = reverbPreset.rawValue
         }
     }
     var reverbWetDryMix: Float {
         didSet {
-            audioEngine.reverbNode?.wetDryMix = reverbWetDryMix
+            scheduleNodeUpdate()
             settingsStore.reverbWetDryMix = reverbWetDryMix
         }
     }
@@ -177,22 +188,25 @@ final class AudioEffectsService {
     }
 
     /// Apply persisted settings to the audio nodes (call after AudioEngine.setUp())
+    /// 新建的图还没出声,整组直接写到位;同一张图上再调就照常走过渡。
     func applySettings() {
-        // Compressor
-        if let comp = audioEngine.compressorNode {
-            comp.bypass = !effectChainEnabled || !compressorEnabled
-            setCompressorParam(kDynamicsProcessorParam_Threshold, value: compressorThreshold)
-            setCompressorParam(kDynamicsProcessorParam_HeadRoom, value: compressorHeadRoom)
-            setCompressorParam(kDynamicsProcessorParam_AttackTime, value: compressorAttackTime)
-            setCompressorParam(kDynamicsProcessorParam_ReleaseTime, value: compressorReleaseTime)
-            setCompressorParam(kDynamicsProcessorParam_OverallGain, value: compressorMasterGain)
+        guard let compressor = audioEngine.compressorNode else { return }
+        guard compressor !== applied.compressor else {
+            scheduleNodeUpdate()
+            return
         }
-
-        // Reverb
+        cancelTransition()
+        applied = AppliedNodes(compressor: compressor)
+        writeCompressor(compressorTarget, force: true)
+        writeCompressorTiming()
         if let reverb = audioEngine.reverbNode {
-            reverb.bypass = !effectChainEnabled || !reverbEnabled
             reverb.loadFactoryPreset(reverbPreset.avPreset)
-            reverb.wetDryMix = reverbWetDryMix
+            reverb.wetDryMix = 100
+            reverb.bypass = !reverbIsActive
+            applied.reverbPreset = reverbPreset
+            applied.reverbBypassed = !reverbIsActive
+            setReverbMix(reverbIsActive ? reverbWetDryMix : 0, at: .now)
+            setReverbHeadroom(reverbTargetHeadroomDB, at: .now)
         }
     }
 
@@ -220,6 +234,224 @@ final class AudioEffectsService {
         reverbRoomSize = 55
     }
 
+    // MARK: - Interface notes
+
+    var compressorIsActive: Bool { effectChainEnabled && compressorEnabled }
+    var reverbIsActive: Bool { effectChainEnabled && reverbEnabled }
+
+    /// 开着混响时整体调低的量(dB),界面上说明用;没开或压得太少时为 nil。
+    var reverbHeadroomNoteDB: Float? {
+        let headroom = reverbTargetHeadroomDB
+        return headroom >= 0.1 ? headroom : nil
+    }
+
+    /// 总增益被封顶时实际能加到多少(dB);没被封顶时为 nil。
+    var compressorGainCapDB: Float? {
+        guard compressorIsActive else { return nil }
+        let cap = CompressorTransitionPolicy.maximumGainDB(
+            threshold: compressorThreshold,
+            headRoom: compressorHeadRoom
+        )
+        return compressorMasterGain > cap + 0.05 ? cap : nil
+    }
+
+    // MARK: - Node transitions
+    //
+    // 压缩器和混响的参数一写就是硬切(编译机实测:旁通开压缩器、混响干湿比一步跳、换房间都会
+    // 咔哒),所以压缩器每 10 ms 挪一小步(CompressorTransitionPolicy),混响的干湿比和余量
+    // 落在并联混音节点的音量上;升电平的改动都等降电平的改动生效之后才做。
+
+    private struct AppliedNodes {
+        weak var compressor: AVAudioUnitEffect?
+        var compressorParameters = CompressorTransitionPolicy.Parameters(
+            threshold: CompressorTransitionPolicy.neutralThreshold, headRoom: 5, gain: 0
+        )
+        var attackTime: Float?
+        var releaseTime: Float?
+        var reverbPreset: ReverbPreset?
+        var reverbWetPercent: Float = 0
+        var reverbBypassed = true
+        var reverbHeadroomDB: Float = 0
+        var reverbWetChangedAt: ContinuousClock.Instant?
+        var reverbHeadroomLoweredAt: ContinuousClock.Instant?
+        /// 等余量压下去之后再把湿声升到这里。
+        var pendingWetRise: (wetPercent: Float, readyAt: ContinuousClock.Instant)?
+    }
+
+    @ObservationIgnored private var applied = AppliedNodes()
+    @ObservationIgnored private var transitionTask: Task<Void, Never>?
+    @ObservationIgnored private var transitionID = 0
+
+    private var compressorTarget: CompressorTransitionPolicy.Parameters {
+        CompressorTransitionPolicy.target(
+            enabled: compressorIsActive,
+            threshold: compressorThreshold,
+            headRoom: compressorHeadRoom,
+            gain: compressorMasterGain
+        )
+    }
+
+    private var reverbTargetHeadroomDB: Float {
+        guard reverbIsActive else { return 0 }
+        return ReverbTransitionPolicy.headroomDB(
+            presetRawValue: reverbPreset.avPreset.rawValue,
+            wetPercent: reverbWetDryMix
+        )
+    }
+
+    private func scheduleNodeUpdate() {
+        guard audioEngine.compressorNode != nil, transitionTask == nil else { return }
+        transitionID &+= 1
+        let id = transitionID
+        transitionTask = Task { [weak self] in
+            await self?.runTransition(id: id)
+        }
+    }
+
+    private func cancelTransition() {
+        transitionTask?.cancel()
+        transitionTask = nil
+        transitionID &+= 1
+    }
+
+    private func runTransition(id: Int) async {
+        defer { if transitionID == id { transitionTask = nil } }
+        while !Task.isCancelled, let compressor = audioEngine.compressorNode {
+            if compressor !== applied.compressor {
+                // 没经过 applySettings 的新图:压缩器是 AudioEngine 设的不压缩参数,混响旁通、
+                // 湿声静音、余量为 0,还没装房间。
+                applied = AppliedNodes(compressor: compressor)
+            }
+            let compressorDone = stepCompressor()
+            let reverbDone = stepReverb(now: .now)
+            if compressorDone, reverbDone { return }
+            try? await Task.sleep(for: .seconds(CompressorTransitionPolicy.tickInterval))
+        }
+    }
+
+    /// 压缩器走一步;到位了返回 true。
+    private func stepCompressor() -> Bool {
+        writeCompressorTiming()
+        let target = compressorTarget
+        let next = CompressorTransitionPolicy.step(from: applied.compressorParameters, toward: target)
+        if next != applied.compressorParameters { writeCompressor(next) }
+        return next == target
+    }
+
+    /// 混响走一步;没有要等的了返回 true。
+    private func stepReverb(now: ContinuousClock.Instant) -> Bool {
+        guard let reverb = audioEngine.reverbNode else { return true }
+        let settle = Duration.seconds(EqualizerHeadroomPolicy.lowerSettleDelay(
+            ioBufferDuration: audioEngine.outputIOBufferDuration
+        ))
+        func settled(_ instant: ContinuousClock.Instant?) -> Bool {
+            instant.map { $0.duration(to: now) >= settle } ?? true
+        }
+
+        // 换房间:湿声那一路先渐渐静音,静下来再换,混响尾巴不会硬切。
+        if applied.reverbPreset != reverbPreset {
+            if applied.reverbWetPercent > 0 {
+                applied.pendingWetRise = nil
+                setReverbMix(stepWet(toward: 0), at: now)
+                return false
+            }
+            guard settled(applied.reverbWetChangedAt) else { return false }
+            reverb.loadFactoryPreset(reverbPreset.avPreset)
+            reverb.wetDryMix = 100
+            applied.reverbPreset = reverbPreset
+        }
+
+        let targetWet = reverbIsActive ? reverbWetDryMix : 0
+        let targetHeadroom = reverbTargetHeadroomDB
+        if targetWet < applied.reverbWetPercent {
+            applied.pendingWetRise = nil
+            setReverbMix(stepWet(toward: targetWet), at: now)
+            return false
+        } else if targetWet > applied.reverbWetPercent {
+            if let rise = applied.pendingWetRise {
+                guard now >= rise.readyAt else { return false }
+                if applied.reverbBypassed {
+                    // 湿声那一路还是静音的,这时取消旁通听不出来。
+                    reverb.bypass = false
+                    applied.reverbBypassed = false
+                }
+                let reach = min(rise.wetPercent, targetWet)
+                setReverbMix(stepWet(toward: reach), at: now)
+                if applied.reverbWetPercent >= reach { applied.pendingWetRise = nil }
+                return false
+            }
+            // 余量先压到这次要升到的湿度,压下去之后再升湿声;拖动中又升了,下一轮接着来。
+            if targetHeadroom > applied.reverbHeadroomDB {
+                setReverbHeadroom(targetHeadroom, at: now)
+            }
+            let readyAt = applied.reverbHeadroomLoweredAt.map { max(now, $0 + settle) } ?? now
+            applied.pendingWetRise = (targetWet, readyAt)
+            return false
+        }
+
+        // 余量加大马上做;放回要等湿声降下来之后。
+        if targetHeadroom > applied.reverbHeadroomDB {
+            setReverbHeadroom(targetHeadroom, at: now)
+        } else if targetHeadroom < applied.reverbHeadroomDB {
+            guard settled(applied.reverbWetChangedAt) else { return false }
+            setReverbHeadroom(targetHeadroom, at: now)
+        }
+
+        // 关着:湿声静下来后旁通,省掉混响的运算。
+        if !reverbIsActive, !applied.reverbBypassed {
+            guard settled(applied.reverbWetChangedAt) else { return false }
+            reverb.bypass = true
+            applied.reverbBypassed = true
+        }
+        return true
+    }
+
+    private func stepWet(toward target: Float) -> Float {
+        let current = applied.reverbWetPercent
+        let step = ReverbTransitionPolicy.wetStepPercent
+        return target > current ? min(target, current + step) : max(target, current - step)
+    }
+
+    private func setReverbMix(_ wetPercent: Float, at now: ContinuousClock.Instant) {
+        let gains = ReverbTransitionPolicy.mixGains(wetPercent: wetPercent)
+        audioEngine.reverbDryGain = gains.dry
+        audioEngine.reverbWetGain = gains.wet
+        applied.reverbWetPercent = wetPercent
+        applied.reverbWetChangedAt = now
+    }
+
+    private func setReverbHeadroom(_ decibels: Float, at now: ContinuousClock.Instant) {
+        audioEngine.reverbHeadroomGain = Float(pow(10, Double(-decibels) / 20))
+        if decibels > applied.reverbHeadroomDB { applied.reverbHeadroomLoweredAt = now }
+        applied.reverbHeadroomDB = decibels
+    }
+
+    private func writeCompressor(_ parameters: CompressorTransitionPolicy.Parameters, force: Bool = false) {
+        let current = applied.compressorParameters
+        if force || parameters.threshold != current.threshold {
+            setCompressorParam(kDynamicsProcessorParam_Threshold, value: parameters.threshold)
+        }
+        if force || parameters.headRoom != current.headRoom {
+            setCompressorParam(kDynamicsProcessorParam_HeadRoom, value: parameters.headRoom)
+        }
+        if force || parameters.gain != current.gain {
+            setCompressorParam(kDynamicsProcessorParam_OverallGain, value: parameters.gain)
+        }
+        applied.compressorParameters = parameters
+    }
+
+    /// 起音、释放时间不直接改电平,照设置写。
+    private func writeCompressorTiming() {
+        if applied.attackTime != compressorAttackTime {
+            setCompressorParam(kDynamicsProcessorParam_AttackTime, value: compressorAttackTime)
+            applied.attackTime = compressorAttackTime
+        }
+        if applied.releaseTime != compressorReleaseTime {
+            setCompressorParam(kDynamicsProcessorParam_ReleaseTime, value: compressorReleaseTime)
+            applied.releaseTime = compressorReleaseTime
+        }
+    }
+
     // MARK: - AudioUnit Parameter Helpers
 
     private func setCompressorParam(_ param: AudioUnitParameterID, value: Float) {
@@ -228,10 +460,5 @@ final class AudioEffectsService {
         if status != noErr {
             plog("⚠️ AudioEffects: failed to set compressor param \(param) = \(value), OSStatus = \(status)")
         }
-    }
-
-    private func applyEffectBypass() {
-        audioEngine.compressorNode?.bypass = !effectChainEnabled || !compressorEnabled
-        audioEngine.reverbNode?.bypass = !effectChainEnabled || !reverbEnabled
     }
 }

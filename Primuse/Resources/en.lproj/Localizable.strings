@@ -5720,3 +5720,6 @@
 "eq_headroom_note %@" = "Overall volume lowered by %@ dB so boosted bands don't distort.";
 
 "apple_music_catalog_album_unavailable" = "Couldn't load this album's tracks from Apple Music. Try again later.";
+
+"reverb_headroom_note %@" = "Overall volume lowered by %@ dB while reverb is on, so the added reverb doesn't distort.";
+"compressor_gain_cap_note %@" = "With this threshold and headroom, gain above %@ dB would distort, so it isn't applied.";

@@ -3094,7 +3094,13 @@ private struct MacSTEffectsView: View {
 
         MacSTSection(Lz("Reverb")) {
             MacSTGroup {
-                MacSTRow(Lz("Toggle"), divider: false) {
+                MacSTRow(
+                    Lz("Toggle"),
+                    hint: fx.reverbHeadroomNoteDB.map {
+                        String(localized: "reverb_headroom_note \(String(format: "%.1f", $0))")
+                    },
+                    divider: false
+                ) {
                     MacSTToggle(isOn: $fx.reverbEnabled.pmAnimated())
                 }
                 .settingsAnchor("effects.reverb")
@@ -3209,7 +3215,12 @@ private struct MacSTEffectsView: View {
                     }
                     .settingsAnchor("effects.compressorRelease")
                     .pmSlideTransition(edge: .top)
-                    MacSTRow("\(String(localized: "compressor_gain")) (dB)") {
+                    MacSTRow(
+                        "\(String(localized: "compressor_gain")) (dB)",
+                        hint: fx.compressorGainCapDB.map {
+                            String(localized: "compressor_gain_cap_note \(String(format: "%.1f", $0))")
+                        }
+                    ) {
                         MacSTSlider(
                             value: Binding(
                                 get: { Double(fx.compressorMasterGain) },

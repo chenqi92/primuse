@@ -47,6 +47,10 @@ struct AudioEffectsView: View {
                     .settingsAnchor("effects.reverbMix")
                     .pmFadeTransition()
                 }
+
+                if let lowered = effects.reverbHeadroomNoteDB {
+                    effectNote("reverb_headroom_note \(String(format: "%.1f", lowered))")
+                }
             } header: {
                 SettingsInfoHeader("reverb") {
                     Text("reverb_desc")
@@ -108,6 +112,10 @@ struct AudioEffectsView: View {
                     }
                     .settingsAnchor("effects.compressorGain")
                     .pmFadeTransition()
+
+                    if let cap = effects.compressorGainCapDB {
+                        effectNote("compressor_gain_cap_note \(String(format: "%.1f", cap))")
+                    }
                 }
             } header: {
                 SettingsInfoHeader("compressor_limiter") {
@@ -122,6 +130,14 @@ struct AudioEffectsView: View {
         .navigationTitle("audio_effects")
         .navigationBarTitleDisplayMode(.inline)
         #endif
+    }
+
+    /// 为了不削波而自动调低或封顶时的说明,不然开了效果反而变小声像是出了问题。
+    private func effectNote(_ text: LocalizedStringKey) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .pmFadeTransition()
     }
 
     /// 一格预设:图标在上、名字在下。选中时整格着色;效果关着时一格都不亮。
