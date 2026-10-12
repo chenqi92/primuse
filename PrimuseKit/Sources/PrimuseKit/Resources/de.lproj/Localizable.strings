@@ -1031,3 +1031,4 @@
 // Shared HTTP rate-limit errors.
 "request.rateLimited" = "Zu viele Anfragen. Bitte versuche es später erneut.";
 "request.rateLimited.wait" = "Zu viele Anfragen. Versuche es in %.0f Sekunden erneut.";
+"request.rateLimited.after" = "Zu viele Anfragen. Versuche es in %@ erneut.";

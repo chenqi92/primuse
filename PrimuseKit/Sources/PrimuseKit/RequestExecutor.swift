@@ -29,13 +29,24 @@ public struct HTTPResponseFailure: Error, Sendable, LocalizedError {
 
     public var errorDescription: String? {
         guard isRateLimitFailure else { return PMString("ext.tv.playback.httpError", statusCode) }
-        // Do not convert untrusted server durations to an integer or Duration.
-        // An impractically large value is still retained in retryAfter for the
-        // scheduler, while the user gets a readable generic message.
-        if let retryAfter, retryAfter.isFinite, retryAfter >= 0, retryAfter < 1e12 {
-            return PMString("request.rateLimited.wait", ceil(retryAfter))
+        // Do not convert untrusted server durations to an integer or Duration
+        // before bounding them. An impractically large value is still retained
+        // in retryAfter for the scheduler, while the user gets a readable
+        // generic message.
+        guard let retryAfter, retryAfter.isFinite, retryAfter >= 0, retryAfter < 1e12 else {
+            return PMString("request.rateLimited")
         }
-        return PMString("request.rateLimited")
+        let seconds = ceil(retryAfter)
+        // Count down seconds only within a minute; an hour-long or daily quota
+        // reads as days, hours and minutes instead of thousands of seconds.
+        guard seconds >= 60 else { return PMString("request.rateLimited.wait", seconds) }
+        let remaining = Duration.seconds(seconds).formatted(.units(
+            allowed: [.days, .hours, .minutes],
+            width: .abbreviated,
+            maximumUnitCount: 2,
+            fractionalPart: .hide(rounded: .up)
+        ))
+        return PMString("request.rateLimited.after", remaining)
     }
 
     public static func retryDelay(from response: HTTPURLResponse, now: Date = Date()) -> TimeInterval? {

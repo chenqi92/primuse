@@ -1031,3 +1031,4 @@
 // Shared HTTP rate-limit errors.
 "request.rateLimited" = "Trop de requêtes. Veuillez réessayer plus tard.";
 "request.rateLimited.wait" = "Trop de requêtes. Réessayez dans %.0f secondes.";
+"request.rateLimited.after" = "Trop de requêtes. Réessayez dans %@.";

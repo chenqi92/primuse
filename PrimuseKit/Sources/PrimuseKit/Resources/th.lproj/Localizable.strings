@@ -978,3 +978,4 @@
 // Shared HTTP rate-limit errors.
 "request.rateLimited" = "มีคำขอมากเกินไป โปรดลองอีกครั้งภายหลัง";
 "request.rateLimited.wait" = "มีคำขอมากเกินไป โปรดลองอีกครั้งใน %.0f วินาที";
+"request.rateLimited.after" = "มีคำขอมากเกินไป โปรดลองอีกครั้งใน %@";

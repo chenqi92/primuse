@@ -978,3 +978,4 @@
 // Shared HTTP rate-limit errors.
 "request.rateLimited" = "Çok fazla istek gönderildi. Lütfen daha sonra tekrar deneyin.";
 "request.rateLimited.wait" = "Çok fazla istek gönderildi. %.0f saniye sonra tekrar deneyin.";
+"request.rateLimited.after" = "Çok fazla istek gönderildi. %@ sonra tekrar deneyin.";

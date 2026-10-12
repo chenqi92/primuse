@@ -1028,3 +1028,4 @@
 // Shared HTTP rate-limit errors.
 "request.rateLimited" = "請求過於頻繁，請稍後重試。";
 "request.rateLimited.wait" = "請求過於頻繁，請在 %.0f 秒後重試。";
+"request.rateLimited.after" = "請求過於頻繁，請在 %@後重試。";

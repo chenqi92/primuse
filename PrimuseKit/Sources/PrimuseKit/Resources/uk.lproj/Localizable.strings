@@ -978,3 +978,4 @@
 // Shared HTTP rate-limit errors.
 "request.rateLimited" = "Забагато запитів. Спробуйте пізніше.";
 "request.rateLimited.wait" = "Забагато запитів. Спробуйте через %.0f с.";
+"request.rateLimited.after" = "Забагато запитів. Спробуйте через %@.";

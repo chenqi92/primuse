@@ -978,3 +978,4 @@
 // Shared HTTP rate-limit errors.
 "request.rateLimited" = "طلبات كثيرة جدًا. يُرجى المحاولة لاحقًا.";
 "request.rateLimited.wait" = "طلبات كثيرة جدًا. حاول مجددًا بعد %.0f ثانية.";
+"request.rateLimited.after" = "طلبات كثيرة جدًا. حاول مجددًا بعد %@.";

@@ -33,6 +33,20 @@ struct HTTPFailurePresentationTests {
         #expect(SourceFailureClassifier.kind(for: URLError(.serverCertificateUntrusted)) == .certificateRejected)
     }
 
+    @Test("Waits of a minute or more read in larger units instead of seconds")
+    func describesLongWaitInLargerUnits() {
+        #expect(HTTPResponseFailure(statusCode: 429, retryAfter: 59).localizedDescription
+                == PMString("request.rateLimited.wait", 59.0))
+        for delay: TimeInterval in [59.2, 3600, 90_061] {
+            let remaining = Duration.seconds(ceil(delay)).formatted(.units(
+                allowed: [.days, .hours, .minutes], width: .abbreviated,
+                maximumUnitCount: 2, fractionalPart: .hide(rounded: .up)
+            ))
+            #expect(HTTPResponseFailure(statusCode: 429, retryAfter: delay).localizedDescription
+                    == PMString("request.rateLimited.after", remaining))
+        }
+    }
+
     @Test("Unusable or impractical wait values use a safe generic rate-limit message", arguments: [Double.nan, .infinity, -.infinity, -1, Double.greatestFiniteMagnitude])
     func safelyFormatsExtremeWait(delay: TimeInterval) {
         let failure = HTTPResponseFailure(statusCode: 429, retryAfter: delay)
@@ -45,12 +59,15 @@ struct HTTPFailurePresentationTests {
         for language in languages {
             let path = try #require(Bundle.primuseKit.path(forResource: language, ofType: "lproj"))
             let bundle = try #require(Bundle(path: path))
-            for key in ["request.rateLimited", "request.rateLimited.wait"] {
+            for key in ["request.rateLimited", "request.rateLimited.wait", "request.rateLimited.after"] {
                 let value = bundle.localizedString(forKey: key, value: key, table: nil)
                 #expect(value != key, "Missing \(language)/\(key)")
                 if key.hasSuffix(".wait") {
                     #expect(value.contains("%.0f"))
                     #expect(String(format: value, 3.0).contains("3"))
+                }
+                if key.hasSuffix(".after") {
+                    #expect(String(format: value, "1 hr").contains("1 hr"))
                 }
             }
         }
