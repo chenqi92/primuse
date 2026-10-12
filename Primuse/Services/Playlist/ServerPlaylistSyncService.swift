@@ -467,9 +467,12 @@ final class ServerFavoriteSyncService {
     ) {
         var songsByServerItemID: [String: String] = [:]
         var retainedLikes: [String] = []
+        var likedBefore = Set<String>()
         for song in library.songs where song.sourceID == sourceID {
+            let isLiked = library.isLiked(songID: song.id)
+            if isLiked { likedBefore.insert(song.id) }
             // 清单不完整时只加不撤：被跳过的那几条里可能就有本机已喜欢的歌。
-            if !snapshot.isComplete, library.isLiked(songID: song.id) { retainedLikes.append(song.id) }
+            if !snapshot.isComplete, isLiked { retainedLikes.append(song.id) }
             guard let itemID = ServerFavoriteWritebackPolicy.songID(
                 fromConnectorPath: song.filePath,
                 sourceType: sourceType
@@ -477,9 +480,13 @@ final class ServerFavoriteSyncService {
                   songsByServerItemID[itemID] == nil else { continue }
             songsByServerItemID[itemID] = song.id
         }
+        let serverLikes = snapshot.itemIDs.compactMap { songsByServerItemID[$0] }
+        let likedAfter = Set(retainedLikes + serverLikes)
+        // 「服务器上收藏了 N 首、本机对上 M 首」: 用户说两边对不上时先看这一行。
+        plog("Server favorites source=\(LogRedactionPolicy.digest(sourceID)) result=reconciled server=\(snapshot.itemIDs.count) matched=\(serverLikes.count) added=\(likedAfter.subtracting(likedBefore).count) removed=\(likedBefore.subtracting(likedAfter).count) complete=\(snapshot.isComplete)")
         library.replaceLikedSongs(
             fromSourceID: sourceID,
-            with: retainedLikes + snapshot.itemIDs.compactMap { songsByServerItemID[$0] }
+            with: retainedLikes + serverLikes
         )
     }
 

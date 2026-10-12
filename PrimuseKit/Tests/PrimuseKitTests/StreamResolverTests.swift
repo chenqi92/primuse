@@ -337,6 +337,58 @@ import Testing
     #expect(url.absoluteString == "https://jelly.example.com:8920/Audio/song/stream?Static=true&ApiKey=API-KEY&api_key=API-KEY")
 }
 
+/// Emby 没有 `/Users/Me`:收藏这类按用户记的接口要用登录结果里的用户 ID(#268)。
+@Test func embySignedInUserComesFromTheLoginThatIssuedTheToken() async throws {
+    let config = URLSessionConfiguration.ephemeral
+    config.protocolClasses = [SignedInUserLoginURLProtocol.self]
+    let session = URLSession(configuration: config)
+    defer { session.invalidateAndCancel() }
+
+    let resolver = MediaServerStreamResolver(session: session)
+    let source = MusicSource(id: "emby-user", name: "Emby", type: .emby,
+                             host: "resolver.test", useSsl: true, username: "family")
+    let song = Song(id: "song", title: "Song", fileFormat: .flac,
+                    filePath: "/items/song.flac", sourceID: source.id)
+
+    let beforeLogin = await resolver.signedInUserID(sourceID: source.id, token: "emby-token")
+    #expect(beforeLogin == nil)
+    let url = try await resolver.streamURL(
+        for: song, source: source, credential: SourceCredential(username: "family", password: "pw")
+    )
+    #expect(url.absoluteString.contains("api_key=emby-token"))
+    let signedIn = await resolver.signedInUserID(sourceID: source.id, token: "emby-token")
+    #expect(signedIn == "family-user-id")
+    let otherToken = await resolver.signedInUserID(sourceID: source.id, token: "another-token")
+    #expect(otherToken == nil)
+
+    let keyed = MusicSource(id: "emby-key", name: "Emby", type: .emby,
+                            host: "resolver.test", useSsl: true, authType: .apiKey)
+    _ = try await resolver.streamURL(for: song, source: keyed, credential: SourceCredential(password: "API-KEY"))
+    let keyedUser = await resolver.signedInUserID(sourceID: keyed.id, token: "API-KEY")
+    #expect(keyedUser == nil)
+}
+
+private final class SignedInUserLoginURLProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url,
+              url.path.hasSuffix("/Users/AuthenticateByName"),
+              let response = HTTPURLResponse(url: url, statusCode: 200,
+                                             httpVersion: "HTTP/1.1",
+                                             headerFields: ["Content-Type": "application/json"]) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(#"{"AccessToken":"emby-token","User":{"Id":"family-user-id"}}"#.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
 private final class PasswordlessLoginURLProtocol: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var requestCountStorage = 0
