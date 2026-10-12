@@ -1093,6 +1093,7 @@ actor LibrarySearchIndex {
                 }
                 return indexByID
             }()
+            // crash-pattern: allow index-map-subscript 索引是上面按同一个局部 songs 刚建的
             func indexedSong(withID id: String) -> Song? { songIndexByID[id].map { songs[$0] } }
             var metadataIDs: [String] = []
             var seenMetadata = Set<String>()
@@ -8667,8 +8668,8 @@ final class MusicLibrary {
                 addedIDs.append(songID)
                 if playlistID == Self.likedSongsPlaylistID,
                    propagatesLikedMutation,
-                   let songIndex = songIndexByID[songID] {
-                    changedSongs.append(songs[songIndex])
+                   let song = indexedLibrarySong(songID) {
+                    changedSongs.append(song)
                 }
             }
         }
@@ -8991,8 +8992,8 @@ final class MusicLibrary {
         notifyPlaylistsChanged([playlistID])
         if playlistID == Self.likedSongsPlaylistID, propagatesLikedMutation {
             for songID in removedSongIDs {
-                guard let songIndex = songIndexByID[songID] else { continue }
-                likedStateMutationHandler?(songs[songIndex], true, false)
+                guard let song = indexedLibrarySong(songID) else { continue }
+                likedStateMutationHandler?(song, true, false)
             }
         }
     }
@@ -11338,7 +11339,9 @@ final class MusicLibrary {
             var changed: [Song] = []
             var consistent = true
             for (songID, albumID) in corrections {
-                guard let index = songIndexByID[songID], songs[index].albumID != albumID else { continue }
+                guard let index = songIndexByID[songID],
+                      songs.indices.contains(index),
+                      songs[index].albumID != albumID else { continue }
                 guard correctedSongs[index].id == songID, correctedSongs[index].albumID == albumID else {
                     consistent = false
                     break
@@ -11613,7 +11616,9 @@ final class MusicLibrary {
                 || deviceLocalExcludedSongIdentities.contains("\(song.sourceID):\(song.filePath)")
         }
         func songForSynchronization(id: String) -> Song? {
-            if let index = songIndexByID[id] { return songs[index] }
+            if let index = songIndexByID[id], songs.indices.contains(index), songs[index].id == id {
+                return songs[index]
+            }
             guard let song = deviceLocalExcludedSongsByID[id],
                   !deletedSongIdentities.contains(identityKey(for: song)) else { return nil }
             return song

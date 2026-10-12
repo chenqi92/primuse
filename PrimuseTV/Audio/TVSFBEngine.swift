@@ -41,7 +41,9 @@ final class TVSFBEngine: NSObject, @unchecked Sendable {
             let format = source.outputFormat(forBus: 0)
             engine.attach(unit)
             engine.disconnectNodeOutput(source)
+            // crash-pattern: allow avaudioengine-connect 格式取自源节点刚接到主混音的输出格式, SFBAudioEngine 已接过一次
             engine.connect(source, to: unit, format: format)
+            // crash-pattern: allow avaudioengine-connect 同上, 变速单元按同一格式接回主混音
             engine.connect(unit, to: engine.mainMixerNode, format: format)
         }
         return unit
@@ -154,6 +156,7 @@ final class TVSFBEngine: NSObject, @unchecked Sendable {
             with format: AVAudioFormat
         ) -> AVAudioNode {
             engine.disconnectNodeOutput(timePitch)
+            // crash-pattern: allow avaudioengine-connect 格式是 SFBAudioEngine 换源后交来的处理链格式, 它自己也按这个格式接
             engine.connect(timePitch, to: engine.mainMixerNode, format: format)
             return timePitch
         }

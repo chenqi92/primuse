@@ -47,7 +47,9 @@ enum AudioSegmentStream {
                         let keepStart = max(bufferStart, segmentStartFrame)
                         let keepEnd = min(bufferEnd, segmentEndFrame ?? bufferEnd)
                         guard keepEnd > keepStart else { continue }
+                        // crash-pattern: allow frame-count-narrowing 两个差值都落在本缓冲内, 不超过 frameLength
                         let skip = AVAudioFrameCount(keepStart - bufferStart)
+                        // crash-pattern: allow frame-count-narrowing 同上
                         let count = AVAudioFrameCount(keepEnd - keepStart)
 
                         if skip == 0, count == buffer.frameLength {

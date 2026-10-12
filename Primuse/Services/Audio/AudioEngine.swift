@@ -1534,7 +1534,13 @@ final class AudioEngine {
 
         let node = AVAudioPlayerNode()
         keepAliveEngine.attach(node)
-        keepAliveEngine.connect(node, to: mainMixer, format: format)
+        do {
+            try Self.connect(node, to: mainMixer, format: format, in: keepAliveEngine)
+        } catch {
+            keepAliveEngine.detach(node)
+            standaloneKeepAliveEngine = nil
+            return
+        }
         node.volume = 0.001
 
         if !keepAliveEngine.isRunning {
