@@ -20,6 +20,10 @@ actor SimilarTracksService {
     private static let ttl: TimeInterval = 6 * 3600
     private static let cacheLimit = 50
 
+    private let api: LastFmSimilarAPI
+
+    init(api: LastFmSimilarAPI = .init()) { self.api = api }
+
     private var cache: [SeedKey: CacheEntry] = [:]
     private var lruOrder: [SeedKey] = []
 
@@ -33,6 +37,7 @@ actor SimilarTracksService {
         library: [Song],
         includeUnmatched: Bool = false
     ) async throws -> [SimilarTracksCandidate] {
+        try Task.checkCancellation()
         let artist = (seed.artistName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let title = seed.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !artist.isEmpty, !title.isEmpty else { return [] }
@@ -44,32 +49,13 @@ actor SimilarTracksService {
             raws = cached.candidates
             promote(key)
         } else {
-            // 先 track.getSimilar, 没结果或失败再 fallback 到 artist.getSimilar。
-            // 区分"API 成功返回空"与"请求失败": 只要有一次 API 成功返回 (即使为空)
-            // 就把结果写入正常缓存; 两个端点都抛错时不写缓存并把最后一次错误抛给调用方,
-            // 避免一次临时断网/超时把空结果当成功缓存 6 小时。
-            var fetched: [LastFmSimilarAPI.SimilarTrack] = []
-            var succeeded = false
-            var lastError: Error?
-            do {
-                fetched = try await LastFmSimilarAPI.similarTracks(artist: artist, track: title, limit: limit)
-                succeeded = true
-            } catch {
-                // track 失败也尝试 artist
-                lastError = error
-            }
+            // Only a confirmed empty track result can start artist fallback.
+            // Any failed/cancelled lookup leaves this seed uncached.
+            var fetched = try await api.similarTracks(artist: artist, track: title, limit: limit)
             if fetched.isEmpty {
-                do {
-                    fetched = try await LastFmSimilarAPI.similarArtistTracks(artist: artist, limit: limit)
-                    succeeded = true
-                } catch {
-                    lastError = error
-                }
+                fetched = try await api.similarArtistTracks(artist: artist, limit: limit)
             }
-            // 两个端点都失败 (missingAPIKey / 断网 / HTTP 错误等): 不污染缓存, 直接抛出。
-            if !succeeded, let lastError {
-                throw lastError
-            }
+            try Task.checkCancellation()
             raws = fetched
             cache[key] = CacheEntry(candidates: raws, fetchedAt: Date())
             promote(key)

@@ -5,9 +5,19 @@ import PrimuseKit
 /// 本地匹配交给 `SimilarTracksService`。
 ///
 /// 不需要用户 sessionKey, 只用 application apiKey (内置在 AppSecrets)。
-/// rate limit: Last.fm 官方说 5 req/s, 我们这里没做并发限流, 调用方记得
-/// 节流 (一首歌的 seed 5 分钟内不重复查就够)。
-enum LastFmSimilarAPI {
+/// 同一 API key 的两个端点共享请求节奏和服务端冷却。
+struct LastFmSimilarAPI: Sendable {
+    private let apiKey: @Sendable () -> String
+    private let session: URLSession
+    private let quotaRegistry: RequestQuotaRegistry
+
+    init(apiKey: @escaping @Sendable () -> String = { LastFmCredentialsStore.effectiveAPIKey() },
+         session: URLSession = .shared, quotaRegistry: RequestQuotaRegistry = .shared) {
+        self.apiKey = apiKey
+        self.session = session
+        self.quotaRegistry = quotaRegistry
+    }
+
     struct SimilarTrack: Sendable, Hashable {
         let title: String
         let artist: String
@@ -18,18 +28,15 @@ enum LastFmSimilarAPI {
 
     enum SimilarError: LocalizedError {
         case missingAPIKey
-        case http(Int)
+        case api(code: Int, message: String, response: HTTPResponseFailure)
         case decode(String)
 
         var errorDescription: String? {
             switch self {
             case .missingAPIKey:
                 return String(localized: "error_lastfm_api_key_missing")
-            case .http(let status):
-                return String(
-                    format: String(localized: "error_lastfm_http %@"),
-                    String(status)
-                )
+            case .api(_, let message, _):
+                return message
             case .decode(let message):
                 return String(format: String(localized: "error_lastfm_decode %@"), message)
             }
@@ -37,8 +44,8 @@ enum LastFmSimilarAPI {
     }
 
     /// 拿一首歌的相似歌。`limit` 上限 100 (Last.fm 接口最大值)。
-    static func similarTracks(artist: String, track: String, limit: Int = 30) async throws -> [SimilarTrack] {
-        let apiKey = LastFmCredentialsStore.effectiveAPIKey()
+    func similarTracks(artist: String, track: String, limit: Int = 30) async throws -> [SimilarTrack] {
+        let apiKey = apiKey()
         guard !apiKey.isEmpty else { throw SimilarError.missingAPIKey }
         var components = URLComponents(string: "https://ws.audioscrobbler.com/2.0/")!
         components.queryItems = [
@@ -50,12 +57,12 @@ enum LastFmSimilarAPI {
             URLQueryItem(name: "api_key", value: apiKey),
             URLQueryItem(name: "format", value: "json")
         ]
-        return try await fetchList(url: components.url!, listKey: "similartracks", itemKey: "track")
+        return try await fetchList(url: components.url!, apiKey: apiKey, listKey: "similartracks", itemKey: "track")
     }
 
     /// `track.getSimilar` 没返回结果时降级用 (例如冷门歌)。
-    static func similarArtistTracks(artist: String, limit: Int = 30) async throws -> [SimilarTrack] {
-        let apiKey = LastFmCredentialsStore.effectiveAPIKey()
+    func similarArtistTracks(artist: String, limit: Int = 30) async throws -> [SimilarTrack] {
+        let apiKey = apiKey()
         guard !apiKey.isEmpty else { throw SimilarError.missingAPIKey }
         var components = URLComponents(string: "https://ws.audioscrobbler.com/2.0/")!
         components.queryItems = [
@@ -67,17 +74,13 @@ enum LastFmSimilarAPI {
             URLQueryItem(name: "format", value: "json")
         ]
         // artist.getSimilar 返回的是相似艺术家 (不是 tracks), 我们 wrap 成 SimilarTrack
-        // 用艺术家代表作 (title 字段塞 "*", 调用方按 artist 匹配 library)。
-        let url = components.url!
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 15
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            throw SimilarError.http((response as? HTTPURLResponse)?.statusCode ?? 0)
-        }
+        // title 留空，调用方按 artist 匹配 library。
+        let data = try await response(for: components.url!, apiKey: apiKey)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        let container = json?["similarartists"] as? [String: Any]
-        let items = container?["artist"] as? [[String: Any]] ?? []
+        guard let container = json?["similarartists"] as? [String: Any],
+              let items = container["artist"] as? [[String: Any]] else {
+            throw SimilarError.decode("Missing similarartists.artist")
+        }
         return items.compactMap { dict in
             guard let name = dict["name"] as? String, !name.isEmpty else { return nil }
             let match = (dict["match"] as? String).flatMap(Double.init) ?? 0
@@ -88,22 +91,49 @@ enum LastFmSimilarAPI {
 
     // MARK: - Private
 
-    private static func fetchList(url: URL, listKey: String, itemKey: String) async throws -> [SimilarTrack] {
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 15
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            throw SimilarError.http((response as? HTTPURLResponse)?.statusCode ?? 0)
-        }
+    private func fetchList(url: URL, apiKey: String, listKey: String, itemKey: String) async throws -> [SimilarTrack] {
+        let data = try await response(for: url, apiKey: apiKey)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        let container = json?[listKey] as? [String: Any]
-        let items = container?[itemKey] as? [[String: Any]] ?? []
+        guard let container = json?[listKey] as? [String: Any],
+              let items = container[itemKey] as? [[String: Any]] else {
+            throw SimilarError.decode("Missing \(listKey).\(itemKey)")
+        }
         return items.compactMap { dict in
             guard let name = dict["name"] as? String, !name.isEmpty else { return nil }
             let artist = (dict["artist"] as? [String: Any])?["name"] as? String ?? ""
             let match = (dict["match"] as? String).flatMap(Double.init) ?? 0
             let lastFmURL = (dict["url"] as? String).flatMap(URL.init)
             return SimilarTrack(title: name, artist: artist, match: match, lastFmURL: lastFmURL)
+        }
+    }
+
+    private func response(for url: URL, apiKey: String) async throws -> Data {
+        let quota = RequestQuota(service: .lastFM, url: url, account: .init(stableID: apiKey))!
+        let request = URLRequest(url: url, timeoutInterval: 15)
+        do {
+            return try await quotaRegistry.execute(for: quota, replay: .idempotent, operation: {
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+                let retryAfter = HTTPResponseFailure.retryDelay(from: http)
+                guard (200...299).contains(http.statusCode) else {
+                    throw HTTPResponseFailure(statusCode: http.statusCode, body: data, retryAfter: retryAfter)
+                }
+                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let code = json["error"] as? Int {
+                    throw HTTPResponseFailure(statusCode: http.statusCode, body: data,
+                        retryAfter: retryAfter ?? (code == 29 ? RequestQuota.Service.lastFM.policy.defaultCooldown : nil),
+                        isRateLimited: code == 29, isRetryable: code == 29)
+                }
+                return data
+            })
+        } catch let failure as HTTPResponseFailure {
+            if let json = (try? JSONSerialization.jsonObject(with: failure.body)) as? [String: Any],
+               let code = json["error"] as? Int {
+                throw SimilarError.api(code: code, message: json["message"] as? String ?? "Last.fm error \(code)", response: failure)
+            }
+            throw failure
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
         }
     }
 }
