@@ -1453,7 +1453,10 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
     @MainActor
     func testLargerSamePathReplacementKeepsPinnedCacheUsableDuringReconciliation() async throws {
         let sourceID = "offline-content-growth-\(UUID().uuidString)"
-        let source = MusicSource(id: sourceID, name: "QA", type: .local, basePath: "/tmp")
+        let source = MusicSource(
+            id: sourceID, name: "QA", type: .webdav,
+            host: "offline-cache.invalid", authType: .none
+        )
         let manager = SourceManager(sourcesProvider: { [source] in [source] })
         var original = Song(
             id: "song", title: "Track", fileFormat: .flac,
