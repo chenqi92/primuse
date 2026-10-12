@@ -974,3 +974,7 @@
 "widget_desk_previous_station" = "สถานีก่อนหน้า";
 "widget_desk_next_station" = "สถานีต่อไป";
 "widget_desk_stop" = "หยุด";
+
+// Shared HTTP rate-limit errors.
+"request.rateLimited" = "มีคำขอมากเกินไป โปรดลองอีกครั้งภายหลัง";
+"request.rateLimited.wait" = "มีคำขอมากเกินไป โปรดลองอีกครั้งใน %.0f วินาที";

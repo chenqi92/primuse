@@ -974,3 +974,7 @@
 "widget_desk_previous_station" = "Попередня станція";
 "widget_desk_next_station" = "Наступна станція";
 "widget_desk_stop" = "Стоп";
+
+// Shared HTTP rate-limit errors.
+"request.rateLimited" = "Забагато запитів. Спробуйте пізніше.";
+"request.rateLimited.wait" = "Забагато запитів. Спробуйте через %.0f с.";

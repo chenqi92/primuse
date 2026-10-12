@@ -1027,3 +1027,7 @@
 "widget_desk_previous_station" = "이전 방송국";
 "widget_desk_next_station" = "다음 방송국";
 "widget_desk_stop" = "정지";
+
+// Shared HTTP rate-limit errors.
+"request.rateLimited" = "요청이 너무 많습니다. 나중에 다시 시도해 주세요.";
+"request.rateLimited.wait" = "요청이 너무 많습니다. %.0f초 후에 다시 시도해 주세요.";
