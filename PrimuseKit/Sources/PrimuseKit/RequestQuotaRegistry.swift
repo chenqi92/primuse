@@ -30,6 +30,10 @@ public struct RequestQuota: Sendable {
             minimumInterval: 3, maximumConcurrentRequests: 1, timeout: 90,
             rateLimitStatusCodes: [403, 429, 503]
         ))
+        /// Conservative application-key pacing shared by Last.fm features.
+        public static let lastFM = Service(id: "lastfm.api", policy: .init(
+            minimumInterval: 0.2, maximumConcurrentRequests: 1, maximumAttempts: 2, timeout: 15
+        ))
         public static let podcast = Service(id: "podcast.http", policy: .init(timeout: 90))
     }
 

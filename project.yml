@@ -360,6 +360,7 @@ targets:
     sources:
       - path: PrimuseMacTests
       - path: PrimuseTests/WebDAVDirectoryQuotaTests.swift
+      - path: PrimuseTests/LastFmSimilarQuotaTests.swift
       - path: PrimuseTests/PodcastRequestQuotaTests.swift
       - path: PrimuseTests/CrossFeatureQuotaTests.swift
       - path: PrimuseTests/RadioDirectoryQuotaTests.swift
