@@ -3550,8 +3550,8 @@ final class MusicLibrary {
         for playlist in allPlaylists {
             let members = playlistSongIDs[playlist.id] ?? []
             let sourceID: String?
-            if let firstID = members.first, let index = songIndexByID[firstID] {
-                sourceID = songs[index].sourceID
+            if let firstID = members.first, let firstSong = indexedLibrarySong(firstID) {
+                sourceID = firstSong.sourceID
             } else if members.isEmpty {
                 sourceID = MirrorPlaylistSuppressionPolicy.key(forPlaylistID: playlist.id)?.sourceID
             } else {
@@ -3560,8 +3560,7 @@ final class MusicLibrary {
             guard let sourceID, disabledSourceIDs.contains(sourceID) else { continue }
             // 未解析成员不能证明同源；混合来源和待匹配歌单继续保留。
             if members.allSatisfy({ id in
-                guard let index = songIndexByID[id] else { return false }
-                return songs[index].sourceID == sourceID
+                indexedLibrarySong(id)?.sourceID == sourceID
             }) {
                 hiddenIDs.insert(playlist.id)
             }
@@ -6723,14 +6722,25 @@ final class MusicLibrary {
         // stay O(1) instead of falling back to a 10K-item scan.
         _ = visibleSongsReference
         if let visibleSong = lookupVisibleSong(id) { return visibleSong }
-        guard let index = songIndexByID[id] else { return nil }
-        return songs[index]
+        return indexedLibrarySong(id)
     }
 
     /// 资料库里存着的那一行,不经可见集缓存。可见集延后发布,判断「扫描交来的
     /// 这一行是否和库里一样」必须比对这一份,否则会把刚提交的改动当成没变。
     func storedSong(id: String) -> Song? {
-        songIndexByID[id].map { songs[$0] }
+        indexedLibrarySong(id)
+    }
+
+    /// 按 `songIndexByID` 取整库那一行。`takeLibrarySongsForPatching` 交出数组到
+    /// 经 `songs` 放回之间, 数组是空的而索引还是满的; 放回时 Observation 的
+    /// willSet 可能让 SwiftUI 同步重算界面(播放页「更多」菜单查当前歌),
+    /// 这时只能当作查不到, 不能按旧索引下标。
+    private func indexedLibrarySong(_ id: String) -> Song? {
+        guard let index = songIndexByID[id] else { return nil }
+        let songs = songsReference.value
+        guard songs.indices.contains(index) else { return nil }
+        let song = songs[index]
+        return song.id == id ? song : nil
     }
 
     /// 把这一行交给 `addSongs` 会不会改变库里的任何东西。库里的行已经补过派生
