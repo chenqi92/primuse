@@ -6,9 +6,10 @@ import PrimuseKit
 ///
 /// The Core ML model covers only the network; the spectrogram, its inverse
 /// and the segment stitching are `KaraokeDemucsFrontEnd`, which mirrors the
-/// reference implementation. The model must run on the GPU: the Neural
-/// Engine computes in half precision internally and the frequency branch
-/// overflows there, producing garbage.
+/// reference implementation. The model must not run on the Neural Engine:
+/// it computes in half precision internally and the frequency branch
+/// overflows there, producing garbage. The GPU is the fast path; the CPU
+/// gives a usable stem too, only more slowly.
 actor KaraokeVocalSeparator {
     enum SeparationError: Error {
         case unexpectedOutput
@@ -24,10 +25,11 @@ actor KaraokeVocalSeparator {
     private let spectrogram = KaraokeDemucsSpectrogram()
 
     /// `modelURL` may point at a compiled `.mlmodelc` or a source
-    /// `.mlpackage`, which is compiled first.
-    init(modelURL: URL) throws {
+    /// `.mlpackage`, which is compiled first. `computeUnits` is `.cpuAndGPU`
+    /// or `.cpuOnly`, never the Neural Engine (see above).
+    init(modelURL: URL, computeUnits: MLComputeUnits = .cpuAndGPU) throws {
         let configuration = MLModelConfiguration()
-        configuration.computeUnits = .cpuAndGPU
+        configuration.computeUnits = computeUnits
         let compiledURL = modelURL.pathExtension == "mlmodelc"
             ? modelURL
             : try MLModel.compileModel(at: modelURL)

@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreML
 import Foundation
 import Observation
 import PrimuseKit
@@ -116,6 +117,43 @@ enum KaraokeVocalModel {
     }
 }
 
+/// Workaround for a load that takes the whole app down. The first time a
+/// system version loads the model, Core ML compiles it for this device into
+/// its own cache; on an Apple TV (tvOS 27.0) writing the GPU part of that
+/// compile hit a Metal assertion (`MPSGraphPackage` during
+/// `MLModel(contentsOf:)`), which aborts the process and cannot be caught.
+/// A load still marked as running when an earlier process ended is taken
+/// to be that abort: from then on, until the system is updated, the model
+/// runs on the CPU only, which never builds the GPU part.
+enum KaraokeModelLoadGuard {
+    private static let pendingKey = "karaokeModelLoadPending"
+    private static let cpuOnlySystemKey = "karaokeModelCPUOnlySystem"
+    /// Tells a mark this process left from one an earlier process left.
+    private static let processToken = UUID().uuidString
+
+    /// Marks a load as running and returns the compute units it may use.
+    static func beginLoad() -> MLComputeUnits {
+        let defaults = UserDefaults.standard
+        let system = ProcessInfo.processInfo.operatingSystemVersionString
+        if let pending = defaults.dictionary(forKey: pendingKey) as? [String: String],
+           pending["system"] == system,
+           pending["process"] != processToken,
+           defaults.string(forKey: cpuOnlySystemKey) != system {
+            defaults.set(system, forKey: cpuOnlySystemKey)
+            plog("⚠️ Karaoke: the vocal model load on \(system) never returned last time; loading it on the CPU only until the system is updated")
+        }
+        defaults.set(["system": system, "process": processToken], forKey: pendingKey)
+        return defaults.string(forKey: cpuOnlySystemKey) == system ? .cpuOnly : .cpuAndGPU
+    }
+
+    /// The load returned, with the model or with an error.
+    static func endLoad() {
+        let defaults = UserDefaults.standard
+        guard (defaults.dictionary(forKey: pendingKey) as? [String: String])?["process"] == processToken else { return }
+        defaults.removeObject(forKey: pendingKey)
+    }
+}
+
 enum KaraokeSeparationError: LocalizedError {
     case modelUnavailable
     /// The pack is on the device but the compiled model in it is not whole.
@@ -185,6 +223,11 @@ final class KaraokeSeparationService {
     /// Why a song's last separation failed, shown next to its retry button.
     private(set) var songFailureReasons: [String: String] = [:]
     @ObservationIgnored private var separator: KaraokeVocalSeparator?
+    /// The model load under way. Another song (or another visit to the
+    /// stage) waits for it instead of starting a second one: cancelling a
+    /// separation does not stop the detached load, and two loads would
+    /// compile the same model into Core ML's cache at the same time.
+    @ObservationIgnored private var separatorLoad: Task<KaraokeVocalSeparator, Error>?
     /// The pack on this device is missing part of the model: the next
     /// download removes it first instead of finding it "already there".
     @ObservationIgnored private var replacesModelOnDownload = false
@@ -216,6 +259,7 @@ final class KaraokeSeparationService {
             do {
                 if self.replacesModelOnDownload {
                     self.separator = nil
+                    self.separatorLoad = nil
                     await KaraokeVocalModel.remove()
                     self.replacesModelOnDownload = false
                 }
@@ -243,6 +287,7 @@ final class KaraokeSeparationService {
 
     func removeModel() async {
         separator = nil
+        separatorLoad = nil
         await KaraokeVocalModel.remove()
         modelState = KaraokeVocalModel.isSystemSupported ? .notDownloaded : .unsupportedSystem
     }
@@ -462,11 +507,36 @@ final class KaraokeSeparationService {
     /// never on the main thread.
     private func loadSeparator() async throws -> KaraokeVocalSeparator {
         if let separator { return separator }
-        let created = try await Task.detached(priority: .userInitiated) {
-            try KaraokeVocalSeparator(modelURL: KaraokeVocalModel.resolveModelURL())
-        }.value
-        separator = created
-        return created
+        let load = separatorLoad ?? Self.startLoadingSeparator()
+        separatorLoad = load
+        do {
+            let created = try await load.value
+            // Not kept when the model was removed meanwhile.
+            if separatorLoad == load {
+                separatorLoad = nil
+                separator = created
+            }
+            return created
+        } catch {
+            if separatorLoad == load { separatorLoad = nil }
+            throw error
+        }
+    }
+
+    private static func startLoadingSeparator() -> Task<KaraokeVocalSeparator, Error> {
+        let computeUnits = KaraokeModelLoadGuard.beginLoad()
+        let unitsName = computeUnits == .cpuOnly ? "cpuOnly" : "cpuAndGPU"
+        plog("🎤 Karaoke: loading vocal model units=\(unitsName)")
+        return Task.detached(priority: .userInitiated) {
+            defer { KaraokeModelLoadGuard.endLoad() }
+            let startedAt = Date()
+            let separator = try KaraokeVocalSeparator(
+                modelURL: KaraokeVocalModel.resolveModelURL(),
+                computeUnits: computeUnits
+            )
+            plog("🎤 Karaoke: vocal model loaded units=\(unitsName) in \(String(format: "%.1f", Date().timeIntervalSince(startedAt)))s")
+            return separator
+        }
     }
 
     private nonisolated static func write(stem: KaraokeVocalSeparator.Stem, to url: URL) async throws {
