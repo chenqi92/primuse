@@ -30,6 +30,8 @@ extension AudioPlayerService {
         let visibleSongs = library.visibleSongs
         // 播客单集不在曲库里:起播时存下的那份队列一起参与查找。
         let podcastSongs = PodcastPlaybackMemory.shared.songs()
+        // 曲库外的 Apple Music 歌(搜索点播、目录续播、专辑页补上的)同理。
+        let appleMusicCatalogSongs = AppleMusicCatalogPlaybackMemory.shared.songs()
         let store = playbackSessionStore
         let continuationStore = QueueContinuationStore(sessionStore: store)
         let preparationTask = Task<PreparedPlaybackSessionRestore?, Never>.detached(priority: .userInitiated) {
@@ -62,6 +64,11 @@ extension AudioPlayerService {
                     playableSongsByID[song.id] = song
                     if playableSongsByID.count == queuedIDs.count { break }
                 }
+            }
+            // 后来收进了曲库的,上面已经用曲库那一行。
+            for song in appleMusicCatalogSongs
+            where queuedIDs.contains(song.id) && playableSongsByID[song.id] == nil {
+                playableSongsByID[song.id] = song
             }
             guard let plan = PlaybackSessionRestorationPolicy.plan(
                 snapshot: snapshot,
@@ -239,6 +246,8 @@ extension AudioPlayerService {
             snapshotShufflePosition = 0
             snapshotPendingOrder = nil
         }
+
+        rememberAppleMusicCatalogSongs(current: song)
 
         let progress = isPlaying ? interpolatedTime() : currentTime
         let snapshot = PlaybackSessionSnapshot(
@@ -716,5 +725,69 @@ extension AudioPlayerService {
             info.partCount.map(String.init) ?? "",
             info.bookFraction.map { String(Int(($0 * 100).rounded())) } ?? "",
         ].joined(separator: ",")
+    }
+}
+
+extension AudioPlayerService {
+    /// 队列里曲库外的 Apple Music 歌另存一份,冷启动恢复会话时才找得回来。
+    fileprivate func rememberAppleMusicCatalogSongs(current: Song) {
+        let sourceID = AppleMusicLibraryIdentity.sourceID
+        var seen = Set<String>()
+        var songs: [Song] = []
+        func consider(_ song: Song) {
+            guard song.sourceID == sourceID,
+                  seen.insert(song.id).inserted,
+                  library?.unobservedVisibleSong(id: song.id) == nil else { return }
+            songs.append(song)
+        }
+        for entry in queueEntries { consider(entry.song) }
+        consider(current)
+        AppleMusicCatalogPlaybackMemory.shared.remember(songs)
+    }
+}
+
+/// 队列里那几首曲库外的 Apple Music 歌,冷启动恢复播放会话时用。
+///
+/// 恢复只认曲库里的歌;这些目录曲不在曲库,把元数据另存一份小文件,恢复时同步读回来。
+/// 和 `PodcastPlaybackMemory` 一个道理。只在这批歌变了时才写。
+@MainActor
+final class AppleMusicCatalogPlaybackMemory {
+    static let shared = AppleMusicCatalogPlaybackMemory()
+    /// 续播一批十几首、专辑页一整张,几百首足够。
+    private static let limit = 300
+
+    private let url = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
+        .appendingPathComponent("Primuse/AppleMusic/now-playing-catalog-songs.json")
+    private var rememberedIDs: [String]?
+    private var writeTask: Task<Void, Never>?
+
+    func remember(_ songs: [Song]) {
+        let snapshot = Array(songs.prefix(Self.limit))
+        let ids = snapshot.map(\.id)
+        guard ids != rememberedIDs else { return }
+        rememberedIDs = ids
+        let url = url
+        let previous = writeTask
+        // 一次接一次地写,后到的那份不会被先发出的旧写入盖掉。
+        writeTask = Task.detached(priority: .utility) {
+            await previous?.value
+            guard !snapshot.isEmpty else {
+                try? FileManager.default.removeItem(at: url)
+                return
+            }
+            try? FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            guard let data = try? JSONEncoder().encode(snapshot) else { return }
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    /// 同步读:文件只有几百首的元数据。
+    func songs() -> [Song] {
+        guard let data = try? Data(contentsOf: url),
+              let songs = try? JSONDecoder().decode([Song].self, from: data) else { return [] }
+        return songs
     }
 }
