@@ -359,6 +359,7 @@ targets:
     platform: macOS
     sources:
       - path: PrimuseMacTests
+      - path: PrimuseTests/WebDAVDirectoryQuotaTests.swift
       - path: PrimuseTests/PodcastRequestQuotaTests.swift
       - path: PrimuseTests/AIRequestQuotaTests.swift
     dependencies:
