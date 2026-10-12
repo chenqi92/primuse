@@ -5,6 +5,26 @@ import XCTest
 @testable import Primuse
 
 final class MediaServerSTRMRedirectTests: XCTestCase {
+    func testMissingJellyfinLyricsAndEmbyItemsRemainAbsent() async throws {
+        for kind in [MediaServerSource.Kind.jellyfin, .emby] {
+            let host = uniqueHost("missing-lyrics")
+            MediaServerRedirectURLProtocol.configure(host: host) { request in
+                if request.url?.path == "/Users/Me" { return .json(#"{"Id":"user"}"#) }
+                return .init(status: 404)
+            }
+            let source = makeSource(host: host, kind: kind)
+            let result = await source.readServerLyrics(for: "/items/song.flac")
+            guard case .absent = result else {
+                XCTFail("Missing lyrics must permit writing and successful deletion verification")
+                await source.disconnect()
+                continue
+            }
+            let requests = MediaServerRedirectURLProtocol.requests(host: host)
+            XCTAssertEqual(requests.count, 2, "A missing lyric must not probe another route or renew credentials")
+            await source.disconnect()
+        }
+    }
+
     func testServerSTRMUsesMediaFormatAndKeepsExistingSongIdentity() async throws {
         for kind in [MediaServerSource.Kind.emby, .jellyfin] {
             let host = uniqueHost("catalog")
@@ -200,7 +220,9 @@ final class MediaServerSTRMRedirectTests: XCTestCase {
         do {
             try await source.connect()
             XCTFail("An authentication API redirect must stay on its source endpoint")
-        } catch is SourceError {}
+        } catch let failure as HTTPResponseFailure {
+            XCTAssertEqual(failure.statusCode, 302)
+        }
         XCTAssertTrue(MediaServerRedirectURLProtocol.requests(host: cdn).isEmpty)
         await source.disconnect()
     }

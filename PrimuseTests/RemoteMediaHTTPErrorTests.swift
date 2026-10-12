@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import PrimuseKit
 import XCTest
 @testable import Primuse
@@ -273,6 +274,269 @@ private final class DeletionStatusURLProtocol: URLProtocol, @unchecked Sendable 
         let status = Int(url.deletingPathExtension().lastPathComponent) ?? 500
         let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Length": "0"])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() { }
+}
+
+final class MediaServerRequestTests: XCTestCase {
+    @MainActor
+    func testStructuredFailuresKeepOfflineAndReauthenticationClassification() {
+        for (status, expected) in [(401, AutomaticOfflineFailureKind.authentication), (403, .sourceAccessDenied),
+                                   (429, .rateLimited), (503, .rateLimited), (500, .sourceUnavailable),
+                                   (400, .sourceUnavailable), (404, .sourceUnavailable)] {
+            let failure = HTTPResponseFailure(statusCode: status)
+            XCTAssertEqual(AutomaticOfflineFailureClassifier.classify(failure), expected)
+            XCTAssertEqual(ServerCatalogAutoRefreshCoordinator.requiresReauthentication(failure), status == 401)
+        }
+        XCTAssertEqual(AutomaticOfflineFailureClassifier.classify(
+            HTTPResponseFailure(statusCode: 403, retryAfter: 3600)
+        ), .rateLimited)
+    }
+
+    func testUgreenV2CompatibilityFailuresFallBackToV1() async throws {
+        for status in [400, 401, 403, 404, 500] {
+            let fixture = try MediaCompatibilityFixture(status: status)
+            let session = fixture.session()
+            defer { session.invalidateAndCancel() }
+            let api = UgreenAPI(host: fixture.host, port: 443, useSsl: true, session: session)
+            let login = await api.login(account: "qa", password: "fixture")
+            XCTAssertTrue(login.success)
+            do {
+                let files = try await api.listDirectory(path: "/music")
+                XCTAssertEqual(files.map(\.name), ["track.flac"])
+            } catch { XCTFail("HTTP \(status) should allow legacy firmware fallback: \(error)") }
+            XCTAssertTrue(fixture.paths.contains("/ugreen/v2/filemgr/getDirFileListV2"))
+            XCTAssertEqual(fixture.paths.filter { $0 == "/ugreen/v1/filemgr/list" }.count, 1)
+        }
+    }
+
+    func testUgreenV2CooldownNeverStartsLegacyFallback() async throws {
+        for status in [429, 503, 403] {
+            let fixture = try MediaCompatibilityFixture(status: status, retryAfter: "3600")
+            let session = fixture.session()
+            defer { session.invalidateAndCancel() }
+            let api = UgreenAPI(host: fixture.host, port: 443, useSsl: true, session: session)
+            _ = await api.login(account: "qa", password: "fixture")
+            do { _ = try await api.listDirectory(path: "/music"); XCTFail("Expected cooldown") }
+            catch let failure as HTTPResponseFailure { XCTAssertGreaterThan(failure.retryAfter ?? 0, 3590) }
+            XCTAssertFalse(fixture.paths.contains("/ugreen/v1/filemgr/list"))
+        }
+    }
+
+    func testMediaServerInstancesShareCompleteServerCooldown() async throws {
+        let host = UUID().uuidString.lowercased() + ".invalid"
+        MediaQuotaURLProtocol.reset(status: 503)
+        for _ in 0..<2 {
+            let source = MediaServerSource(sourceID: UUID().uuidString, kind: .jellyfin,
+                host: host, port: nil, useSsl: true, basePath: nil,
+                username: "quota-user", secret: "fixture", authType: .apiKey,
+                requestDataLoader: { MediaQuotaURLProtocol.reply(to: $0) })
+            do { try await source.connect(); XCTFail("Expected server cooldown") }
+            catch let error as HTTPResponseFailure {
+                XCTAssertEqual(error.statusCode, 503)
+                XCTAssertGreaterThan(try XCTUnwrap(error.retryAfter), 3590)
+            } catch { XCTFail("Expected complete HTTP failure, got \(error)") }
+        }
+        XCTAssertEqual(MediaQuotaURLProtocol.requests, 1)
+    }
+
+    func testFnMusicCatalogRetainsCooldownAcrossPages() async throws {
+        let session = quotaSession()
+        defer { session.invalidateAndCancel() }
+        MediaQuotaURLProtocol.reset(status: 429)
+        let api = FnMusicAPI(sourceID: UUID().uuidString, host: UUID().uuidString + ".invalid",
+            port: nil, useSSL: true, basePath: nil, connectionMode: .address,
+            accessCode: nil, session: session)
+        for page in 1...2 {
+            await assertQuota { _ = try await api.trackPage(page: page, size: 1) }
+        }
+        XCTAssertEqual(MediaQuotaURLProtocol.requests, 1)
+    }
+
+    func testNASDirectoryQuotasDoNotBecomeEmptyDirectoriesOrReauthentication() async throws {
+        for kind in ["synology", "qnap", "ugreen"] {
+            let session = quotaSession()
+            defer { session.invalidateAndCancel() }
+            MediaQuotaURLProtocol.reset(status: 429)
+            let host = UUID().uuidString + ".invalid"
+            switch kind {
+            case "synology":
+                let api = SynologyAPI(host: host, port: 443, useSsl: true, session: session)
+                let login = await api.login(account: "qa", password: "fixture")
+                XCTAssertTrue(login.success)
+                for _ in 0..<2 { await assertQuota { _ = try await api.listDirectory(path: "/") } }
+                let loggedIn = await api.isLoggedIn
+                XCTAssertTrue(loggedIn)
+            case "qnap":
+                let api = QnapAPI(host: host, port: 443, useSsl: true, session: session)
+                let login = await api.login(account: "qa", password: "fixture")
+                XCTAssertTrue(login.success)
+                for _ in 0..<2 { await assertQuota { _ = try await api.listDirectory(path: "/") } }
+                let loggedIn = await api.isLoggedIn
+                XCTAssertTrue(loggedIn)
+            default:
+                let api = UgreenAPI(host: host, port: 443, useSsl: true, session: session)
+                let login = await api.login(account: "qa", password: "fixture")
+                XCTAssertTrue(login.success)
+                for _ in 0..<2 { await assertQuota { _ = try await api.listDirectory(path: "/") } }
+                let loggedIn = await api.isLoggedIn
+                XCTAssertTrue(loggedIn)
+            }
+            XCTAssertEqual(MediaQuotaURLProtocol.requests, 1, kind)
+        }
+    }
+
+    func testQnapForbiddenInvalidatesTheRejectedSession() async throws {
+        let session = quotaSession()
+        defer { session.invalidateAndCancel() }
+        MediaQuotaURLProtocol.reset(status: 403, retryAfter: nil)
+        let api = QnapAPI(host: UUID().uuidString + ".invalid", port: 443, useSsl: true, session: session)
+        _ = await api.login(account: "qa", password: "fixture")
+        do { _ = try await api.listDirectory(path: "/"); XCTFail("Expected rejected session") }
+        catch SourceError.authenticationFailed { }
+        let loggedIn = await api.isLoggedIn
+        XCTAssertFalse(loggedIn)
+        XCTAssertEqual(MediaQuotaURLProtocol.requests, 1)
+    }
+
+    func testFnMusicForbiddenRetainsAuthenticationClassification() async throws {
+        let session = quotaSession()
+        defer { session.invalidateAndCancel() }
+        MediaQuotaURLProtocol.reset(status: 403, retryAfter: nil)
+        let api = FnMusicAPI(sourceID: UUID().uuidString, host: UUID().uuidString + ".invalid",
+            port: nil, useSSL: true, basePath: nil, connectionMode: .address, accessCode: nil, session: session)
+        do { _ = try await api.trackPage(page: 1, size: 1); XCTFail("Expected authentication error") }
+        catch SourceError.authenticationFailed { }
+    }
+
+    func testMediaServerForbiddenRetainsAuthenticationClassification() async throws {
+        MediaQuotaURLProtocol.reset(status: 403, retryAfter: nil)
+        let source = MediaServerSource(sourceID: UUID().uuidString, kind: .jellyfin,
+            host: UUID().uuidString + ".invalid", port: nil, useSsl: true, basePath: nil,
+            username: "qa", secret: "fixture", authType: .apiKey, requestDataLoader: { MediaQuotaURLProtocol.reply(to: $0) })
+        do { try await source.connect(); XCTFail("Expected authentication error") }
+        catch SourceError.authenticationFailed { }
+    }
+
+    private func quotaSession() -> URLSession {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MediaQuotaURLProtocol.self]
+        return URLSession(configuration: config)
+    }
+
+    private func assertQuota(_ operation: () async throws -> Void) async {
+        do { try await operation(); XCTFail("Expected HTTP failure") }
+        catch let failure as HTTPResponseFailure {
+            XCTAssertEqual(failure.statusCode, 429)
+            XCTAssertGreaterThan(failure.retryAfter ?? 0, 3590)
+        } catch { XCTFail("HTTP quota was lost: \(error)") }
+    }
+
+    func testSubsonicMountsShareCompleteServerCooldown() async throws {
+        let host = UUID().uuidString.lowercased() + ".invalid"
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MediaQuotaURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        MediaQuotaURLProtocol.reset(status: 429)
+        for _ in 0..<2 {
+            let source = SubsonicSource(sourceID: UUID().uuidString, sourceType: .navidrome,
+                host: host, port: nil, useSsl: true, basePath: nil,
+                username: "quota-user", password: "fixture", session: session)
+            do { try await source.connect(); XCTFail("Expected rate-limit failure") }
+            catch let error as HTTPResponseFailure {
+                XCTAssertEqual(error.statusCode, 429)
+                XCTAssertGreaterThan(try XCTUnwrap(error.retryAfter), 3590)
+            } catch { XCTFail("Expected complete HTTP failure, got \(error)") }
+        }
+        XCTAssertEqual(MediaQuotaURLProtocol.requests, 1, "Another mount must not bypass the account cooldown")
+    }
+}
+
+private final class MediaQuotaURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var status = 429
+    nonisolated(unsafe) private static var count = 0
+    nonisolated(unsafe) private static var retryAfter: String? = "3600"
+    static var requests: Int { lock.withLock { count } }
+    static func reset(status: Int, retryAfter: String? = "3600") { lock.withLock { self.status = status; self.retryAfter = retryAfter; count = 0 } }
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    static func reply(to request: URLRequest) -> (Data, URLResponse) {
+        let path = request.url!.path
+        let loginBody: String?
+        switch path {
+        case "/webapi/auth.cgi": loginBody = #"{"success":true,"data":{"sid":"fixture"}}"#
+        case "/cgi-bin/authLogin.cgi": loginBody = #"{"authPassed":1,"authSid":"fixture"}"#
+        case "/ugreen/v1/verify/login": loginBody = #"{"code":200,"data":{"token":"fixture"}}"#
+        case "/ugreen/v1/verify/check": loginBody = "{}"
+        default: loginBody = nil
+        }
+        if let loginBody {
+            return (Data(loginBody.utf8), HTTPURLResponse(url: request.url!, statusCode: 200,
+                httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!)
+        }
+        let status = lock.withLock { count += 1; return self.status }
+        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1",
+            headerFields: retryAfter.map { ["Retry-After": $0] } ?? [:])!
+        return (Data("{\"error\":\"limited\"}".utf8), response)
+    }
+    override func startLoading() {
+        let (data, response) = Self.reply(to: request)
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() { }
+}
+
+private final class MediaCompatibilityFixture: @unchecked Sendable {
+    let host = UUID().uuidString.lowercased() + ".invalid"
+    let status: Int
+    let retryAfter: String?
+    let publicKey: String
+    private let lock = NSLock()
+    private var captured: [String] = []
+    var paths: [String] { lock.withLock { captured } }
+    init(status: Int, retryAfter: String? = nil) throws {
+        self.status = status; self.retryAfter = retryAfter
+        let key = try XCTUnwrap(SecKeyCreateRandomKey([kSecAttrKeyType: kSecAttrKeyTypeRSA, kSecAttrKeySizeInBits: 1024] as CFDictionary, nil))
+        let publicKey = try XCTUnwrap(SecKeyCopyPublicKey(key))
+        self.publicKey = (try XCTUnwrap(SecKeyCopyExternalRepresentation(publicKey, nil)) as Data).base64EncodedString()
+    }
+    func session() -> URLSession {
+        MediaCompatibilityProtocol.fixture = self
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MediaCompatibilityProtocol.self]
+        return URLSession(configuration: config)
+    }
+    func reply(_ request: URLRequest) -> (Data, HTTPURLResponse) {
+        let path = request.url!.path
+        lock.withLock { captured.append(path) }
+        let body: [String: Any]
+        var status = 200
+        var headers: [String: String] = [:]
+        switch path {
+        case "/ugreen/v1/verify/check": body = [:]
+        case "/ugreen/v1/verify/login": body = ["code": 200, "data": ["token": "fixture", "token_id": "fixture", "public_key": publicKey]]
+        case "/ugreen/v2/filemgr/getDirFileListV2":
+            status = self.status; headers["Retry-After"] = retryAfter; body = [:]
+        default: body = ["code": 200, "data": ["list": [["name": "track.flac", "path": "/music/track.flac", "is_dir": false, "size": 123]]]]
+        }
+        return (try! JSONSerialization.data(withJSONObject: body), HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: headers)!)
+    }
+}
+
+private final class MediaCompatibilityProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) static var fixture: MediaCompatibilityFixture?
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let fixture = Self.fixture else { return }
+        let (data, response) = fixture.reply(request)
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() { }

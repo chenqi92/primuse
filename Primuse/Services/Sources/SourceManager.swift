@@ -226,6 +226,12 @@ enum AutomaticOfflineFailureKind: String, Sendable {
 
 enum AutomaticOfflineFailureClassifier {
     static func classify(_ error: Error) -> AutomaticOfflineFailureKind {
+        if let failure = error as? HTTPResponseFailure {
+            if failure.isRateLimited || failure.retryAfter != nil || [429, 503].contains(failure.statusCode) { return .rateLimited }
+            if [400, 404].contains(failure.statusCode) { return .sourceUnavailable }
+            return classify(RemoteMediaHTTPError(service: "Cloud", statusCode: failure.statusCode,
+                                                retryAfter: failure.retryAfter))
+        }
         if let httpError = error as? RemoteMediaHTTPError {
             switch httpError.statusCode {
             case 401: return .authentication
@@ -661,6 +667,11 @@ enum OfflineRangeDownloadRetry {
         guard failedAttempts > 0, failedAttempts < maximumAttempts,
               !(error is CancellationError) else { return nil }
         let backoff = TimeInterval(failedAttempts)
+        if let http = error as? HTTPResponseFailure {
+            guard http.isRetryable ?? (http.isRateLimited || CloudHTTPRetryPolicy.shouldRetry(statusCode: http.statusCode)) else { return nil }
+            let delay = max(backoff, http.retryAfter ?? backoff)
+            return delay.isFinite && delay <= maximumRetryDelay ? delay : nil
+        }
         if let http = error as? RemoteMediaHTTPError {
             guard CloudHTTPRetryPolicy.shouldRetry(statusCode: http.statusCode) else { return nil }
             let delay = max(backoff, http.retryAfter ?? backoff)
@@ -3442,6 +3453,7 @@ final class SourceManager {
         cache: Bool,
         diagnosticCandidate: SourceConnectionCandidate? = nil
     ) -> any MusicSourceConnector {
+        CloudRequestScheduler.shared.register(sourceID: source.id, accountID: source.cloudAccountID)
         let scopeFingerprint = Self.audioCacheScopeSignature(for: source)
         guard !credentialChangesInProgress.contains(source.id),
               !MusicSourceSecurityRevision.hasPendingChange(for: source.id) else {
@@ -4407,7 +4419,9 @@ final class SourceManager {
 
     func scanFailureMessage(for error: Error, source: MusicSource) -> String {
         let advice = Self.advice(for: error, source: source)
-        let actualMessage = Self.actualErrorMessage(for: error)
+        // Structured transport details stay in diagnostics; the scan UI uses
+        // the existing localized advice, including HTTP-200 business throttles.
+        let actualMessage = error is HTTPResponseFailure ? "" : Self.actualErrorMessage(for: error)
         let message = actualMessage.isEmpty ? advice.message : actualMessage
         guard !advice.suggestion.isEmpty else {
             return "\(advice.title): \(message)"
@@ -4603,6 +4617,16 @@ final class SourceManager {
     }
 
     private static func advice(for error: Error, source: MusicSource) -> SourceDiagnosticAdvice {
+        if let failure = error as? HTTPResponseFailure {
+            if failure.isRateLimited || failure.statusCode == 429 || (failure.retryAfter ?? 0) > 0 {
+                return advice(for: CloudDriveError.rateLimited, source: source)
+            }
+            if failure.statusCode == 401 { return authAdvice() }
+            if failure.statusCode == 403 {
+                return advice(for: CloudDriveError.permissionDenied(.fileRead), source: source)
+            }
+            return serverAdvice(message: String(localized: "source_diag_advice_invalid_response"))
+        }
         if let fnError = error as? FnConnectError {
             let suggestion: String
             switch fnError {

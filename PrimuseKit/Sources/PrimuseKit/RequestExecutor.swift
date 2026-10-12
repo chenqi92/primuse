@@ -20,7 +20,23 @@ public struct HTTPResponseFailure: Error, Sendable, LocalizedError {
         self.isRetryable = isRetryable
     }
 
-    public var errorDescription: String? { PMString("ext.tv.playback.httpError", statusCode) }
+    /// Retry-After can express a provider cooldown on statuses such as 403 or
+    /// 503. Keep this presentation classification separate from replay safety.
+    public var isRateLimitFailure: Bool {
+        isRateLimited || statusCode == 429 ||
+            (retryAfter.map { $0.isFinite && $0 >= 0 } ?? false)
+    }
+
+    public var errorDescription: String? {
+        guard isRateLimitFailure else { return PMString("ext.tv.playback.httpError", statusCode) }
+        // Do not convert untrusted server durations to an integer or Duration.
+        // An impractically large value is still retained in retryAfter for the
+        // scheduler, while the user gets a readable generic message.
+        if let retryAfter, retryAfter.isFinite, retryAfter >= 0, retryAfter < 1e12 {
+            return PMString("request.rateLimited.wait", ceil(retryAfter))
+        }
+        return PMString("request.rateLimited")
+    }
 
     public static func retryDelay(from response: HTTPURLResponse, now: Date = Date()) -> TimeInterval? {
         retryDelay(from: response.value(forHTTPHeaderField: "Retry-After"), now: now)
@@ -78,6 +94,9 @@ public actor RequestExecutor {
         public let maximumRetryWait: TimeInterval
         public let timeout: TimeInterval
         public let defaultCooldown: TimeInterval
+        /// Route-aware clients hand transport failures to their failover layer;
+        /// transient HTTP responses can still use the executor's retry budget.
+        public let retriesTransportFailures: Bool
         /// Statuses that start a shared cooldown even without Retry-After.
         /// Some services signal their quota with another status (iTunes: 403).
         public let rateLimitStatusCodes: Set<Int>
@@ -86,7 +105,8 @@ public actor RequestExecutor {
             maximumPendingRequests: Int = 128,
             maximumAttempts: Int = 3, maximumRetryWait: TimeInterval = 2,
             timeout: TimeInterval = 30, rateLimitStatusCodes: Set<Int> = [429, 503],
-            defaultCooldown: TimeInterval = 30
+            defaultCooldown: TimeInterval = 30,
+            retriesTransportFailures: Bool = true
         ) {
             precondition(minimumInterval >= 0 && minimumInterval.isFinite)
             precondition(maximumConcurrentRequests > 0 && maximumPendingRequests >= 0)
@@ -96,6 +116,7 @@ public actor RequestExecutor {
             precondition(timeout > 0 && timeout.isFinite)
             precondition(defaultCooldown >= 0 && defaultCooldown.isFinite)
             self.defaultCooldown = defaultCooldown
+            self.retriesTransportFailures = retriesTransportFailures
             self.timeout = timeout
             self.maximumAttempts = maximumAttempts
             self.maximumRetryWait = maximumRetryWait
@@ -207,7 +228,7 @@ public actor RequestExecutor {
                 try Task.checkCancellation()
                 guard attempt < policy.maximumAttempts else { throw error }
                 if let recover, try await recover(error) { continue }
-                guard replay == .idempotent, Self.isTransient(error) else { throw error }
+                guard replay == .idempotent, isTransient(error) else { throw error }
                 let backoff = min(0.5 * pow(2, Double(attempt - 1)), 8)
                 let serverDelay = (error as? HTTPResponseFailure)?.retryAfter ?? 0
                 let delay = max(backoff + max(0, jitter(backoff * 0.25)),
@@ -220,20 +241,20 @@ public actor RequestExecutor {
         preconditionFailure("An attempt either returns or throws")
     }
 
-    private static func isTransient(_ error: Error) -> Bool {
+    private func isTransient(_ error: Error) -> Bool {
         if let failure = error as? HTTPResponseFailure {
             return failure.isRetryable ?? (failure.isRateLimited ||
                 [408, 429, 500, 502, 503, 504].contains(failure.statusCode))
         }
-        guard let error = error as? URLError else { return false }
+        guard policy.retriesTransportFailures, let error = error as? URLError else { return false }
         return [.timedOut, .networkConnectionLost, .cannotConnectToHost,
                 .cannotFindHost, .dnsLookupFailed, .notConnectedToInternet,
                 .resourceUnavailable].contains(error.code)
     }
 
-    private func checkCooldown() throws {
+    private func checkCooldown(maximumWait: TimeInterval, deadline: TimeInterval) throws {
         let remaining = cooldownUntil - timing.now()
-        if remaining > 0 {
+        if remaining > 0 && (remaining > maximumWait || cooldownUntil >= deadline) {
             throw HTTPResponseFailure(
                 statusCode: cooldownFailure.statusCode, body: cooldownFailure.body,
                 retryAfter: remaining, isRateLimited: cooldownFailure.isRateLimited,
@@ -247,15 +268,27 @@ public actor RequestExecutor {
         _ send: @Sendable () async throws -> Value
     ) async throws -> Value {
         try Task.checkCancellation()
-        try checkCooldown()
+        // Waiting before the first send is safe even for a non-replayable write.
+        // Reject long cooldowns before occupying a bounded admission slot.
+        try checkCooldown(maximumWait: policy.maximumRetryWait, deadline: deadline)
         try await acquire()
         defer { release() }
-        while nextStart > timing.now() {
-            try await timing.sleep(nextStart - timing.now())
+        var cooldownWaitDeadline: TimeInterval?
+        while true {
             try Task.checkCancellation()
+            let now = timing.now()
+            if cooldownUntil > now, cooldownWaitDeadline == nil {
+                cooldownWaitDeadline = now + policy.maximumRetryWait
+            }
+            try checkCooldown(
+                maximumWait: max(0, (cooldownWaitDeadline ?? now) - now),
+                deadline: deadline
+            )
+            let delay = max(nextStart, cooldownUntil) - now
+            guard delay > 0 else { break }
+            try await timing.sleep(delay)
         }
         try Task.checkCancellation()
-        try checkCooldown()
         guard timing.now() < deadline else { throw URLError(.timedOut) }
         nextStart = timing.now() + minimumInterval
         do {

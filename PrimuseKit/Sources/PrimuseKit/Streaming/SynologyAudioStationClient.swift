@@ -170,7 +170,14 @@ public actor SynologyAudioStationClient {
             authTask = pending
         }
         do {
-            let value = try await pending.task.value
+            let race = CancellableResultRace<Session>()
+            Task {
+                do { race.resolve(.success(try await pending.task.value)) }
+                catch { race.resolve(.failure(error)) }
+            }
+            let value = try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { race.install($0) }
+            } onCancel: { race.cancel() }
             // 登录途中音乐源被失效时,不能让这次登录复活旧会话。
             guard generation == sessionGeneration else { throw CancellationError() }
             if authTask?.id == pending.id {
@@ -182,7 +189,7 @@ public actor SynologyAudioStationClient {
             // 等到的这份,由调用方按失效码走一次重登,而不是凭空报取消。
             return session ?? value
         } catch {
-            if authTask?.id == pending.id { authTask = nil }
+            if !Task.isCancelled, authTask?.id == pending.id { authTask = nil }
             throw error
         }
     }
@@ -232,7 +239,11 @@ public actor SynologyAudioStationClient {
         }
         var request = URLRequest(url: url)
         request.setValue("Primuse/1.0", forHTTPHeaderField: "User-Agent")
-        let (body, response) = try await transport.data(request)
+        let executor = ServerRequestScheduler.shared.executor(baseURL: baseURL, account: "audio-station:" + username)
+        let readRequest = request
+        let (body, response) = try await executor.execute(replay: .idempotent) { [transport] in
+            try await transport.data(readRequest)
+        }
         try Task.checkCancellation()
         try Self.validateStatus(response)
         let descriptors: [String: SynologyAudioStationAPIDescriptor]
@@ -266,6 +277,27 @@ public actor SynologyAudioStationClient {
         _ call: SynologyAudioStationCall,
         as type: Value.Type = Value.self
     ) async throws -> Value {
+        if ["list", "getinfo", "getlyrics"].contains(call.method) {
+            // currentSession coalesces discovery/login and rejects missing credentials first.
+            let context = try await currentSession().context
+            let executor = ServerRequestScheduler.shared.executor(baseURL: context.baseURL, account: "audio-station:" + username)
+            let recovery = AudioStationReadRecovery()
+            do {
+                return try await executor.execute(replay: .idempotent, recover: { error in
+                    if let rejected = error as? AudioStationReadFailure {
+                        guard SynologyAudioStationAPI.renewsSession(after: rejected.failure.code),
+                              await recovery.claim() else { return false }
+                        await self.expireSession(ifMatches: rejected.sid)
+                        return true
+                    }
+                    guard let failure = error as? HTTPResponseFailure, failure.statusCode == 401,
+                          failure.retryAfter == nil, await recovery.claim() else { return false }
+                    return true
+                }, operation: { try await self.performReadOnce(call, as: type) })
+            } catch let rejected as AudioStationReadFailure {
+                throw SynologyAudioStationAPI.error(for: rejected.failure, call: call)
+            }
+        }
         for attempt in 0...1 {
             let session = try await currentSession()
             let endpoint = try session.context.catalog.endpoint(for: try Self.interface(of: call))
@@ -287,6 +319,32 @@ public actor SynologyAudioStationClient {
             }
         }
         throw SynologyAudioStationError.invalidResponse
+    }
+
+    private func performReadOnce<Value: Decodable & Sendable>(_ call: SynologyAudioStationCall, as: Value.Type) async throws -> Value {
+        let session = try await currentSession()
+        let endpoint = try session.context.catalog.endpoint(for: try Self.interface(of: call))
+        guard let request = SynologyAudioStationAPI.request(for: call, baseURL: session.context.baseURL,
+            endpoint: endpoint, sid: session.sid) else { throw SynologyAudioStationError.invalidURL }
+        let (body, response) = try await transport.data(request)
+        try Task.checkCancellation()
+        guard let http = response as? HTTPURLResponse else { throw SynologyAudioStationError.invalidResponse }
+        if http.statusCode == 401 {
+            expireSession(ifMatches: session.sid)
+            throw HTTPResponseFailure(statusCode: 401, body: body,
+                retryAfter: HTTPResponseFailure.retryDelay(from: http))
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw HTTPResponseFailure(statusCode: http.statusCode, body: body,
+                retryAfter: HTTPResponseFailure.retryDelay(from: http))
+        }
+        switch try SynologyAudioStationAPI.decode(Value.self, from: body) {
+        case .success(let value): return value
+        case .failure(let failure):
+            // Preserve the DSM code until recovery has decided whether to renew.
+            // A second 105 remains a permission failure without expiring the new SID.
+            throw AudioStationReadFailure(failure: failure, sid: session.sid)
+        }
     }
 
     /// 二进制端点:返回响应本身,以及(重登一次之后仍然存在的)DSM 错误体。
@@ -1011,4 +1069,14 @@ public struct SynologyAudioStationRadioMirror: Equatable, Sendable {
         }
         return mirrors
     }
+}
+
+private actor AudioStationReadRecovery {
+    private var used = false
+    func claim() -> Bool { guard !used else { return false }; used = true; return true }
+}
+
+private struct AudioStationReadFailure: Error {
+    let failure: SynologyAudioStationFailure
+    let sid: String
 }

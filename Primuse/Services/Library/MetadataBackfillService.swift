@@ -4207,6 +4207,10 @@ final class MetadataBackfillService {
     /// Only explicit account-wide failures park a source immediately. A failed
     /// file request needs independent endpoint evidence before doing so.
     static func isSourceUnavailableBackfillError(_ error: Error) -> Bool {
+        if let failure = error as? HTTPResponseFailure {
+            return failure.isRateLimited || failure.statusCode == 401 || failure.statusCode == 429
+                || (failure.retryAfter ?? 0) > 0
+        }
         if error is SourceConnectionTerminalError {
             return true
         }

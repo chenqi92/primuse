@@ -6,6 +6,18 @@ import XCTest
 
 @MainActor
 final class SubsonicFavoriteWritebackTests: XCTestCase {
+    func testMissingInternetRadioAPIIsAnUnavailableCapability() async throws {
+        let host = "missing-radio-" + UUID().uuidString.lowercased() + ".invalid"
+        SubsonicFavoriteURLProtocol.configure(host: host, mode: .success)
+        let (source, session) = makeSource(host: host)
+        defer { session.invalidateAndCancel() }
+        let snapshot = try await source.fetchServerRadioStations()
+        XCTAssertNil(snapshot, "Unsupported radio APIs must preserve mirrored stations without reporting a sync failure")
+        XCTAssertEqual(SubsonicFavoriteURLProtocol.requests(host: host).filter {
+            $0.url?.path == "/rest/getInternetRadioStations.view"
+        }.count, 1)
+    }
+
     func testStarAndUnstarUseOnlyTheOpaqueSongIDAndAreIdempotent() async throws {
         let host = "favorite-success.invalid"
         SubsonicFavoriteURLProtocol.configure(host: host, mode: .success)
@@ -38,6 +50,7 @@ final class SubsonicFavoriteWritebackTests: XCTestCase {
 
     func testHTTPApplicationTransportAndConfirmationErrorsRemainDistinct() async throws {
         try await assertAuthenticationFailure(mode: .httpUnauthorized, host: "favorite-401.invalid")
+        try await assertAuthenticationFailure(mode: .httpForbidden, host: "favorite-403.invalid")
         try await assertAuthenticationFailure(mode: .applicationAuthenticationFailure, host: "favorite-40.invalid")
         try await assertConnectionFailure(mode: .httpServerFailure, host: "favorite-500.invalid")
         try await assertConnectionFailure(mode: .applicationDataFailure, host: "favorite-70.invalid")
@@ -175,6 +188,7 @@ final class SubsonicFavoriteWritebackTests: XCTestCase {
 private final class SubsonicFavoriteURLProtocol: URLProtocol, @unchecked Sendable {
     enum Mode: Equatable {
         case success
+        case httpForbidden
         case httpUnauthorized
         case httpServerFailure
         case applicationAuthenticationFailure
@@ -226,6 +240,8 @@ private final class SubsonicFavoriteURLProtocol: URLProtocol, @unchecked Sendabl
         Self.lock.unlock()
 
         switch url.path {
+        case "/rest/getInternetRadioStations.view":
+            respond(statusCode: 404, json: "{}")
         case "/rest/ping.view":
             respond(json: #"{"subsonic-response":{"status":"ok","type":"navidrome","openSubsonic":true}}"#)
         case "/rest/star.view", "/rest/unstar.view":
@@ -244,6 +260,8 @@ private final class SubsonicFavoriteURLProtocol: URLProtocol, @unchecked Sendabl
 
     private func handleMutation(host: String, url: URL, state: State) {
         switch state.mode {
+        case .httpForbidden:
+            respond(statusCode: 403, json: "{}")
         case .httpUnauthorized:
             respond(statusCode: 401, json: "{}")
         case .httpServerFailure:
@@ -525,6 +543,19 @@ final class SubsonicServerScanTests: XCTestCase {
         }
     }
 
+    func testUnsupportedDirectCatalogKeepsLegacyFallbackWithoutRetry() async throws {
+        for status in [404, 405, 410, 501] {
+            let host = UUID().uuidString.lowercased() + ".invalid"
+            SubsonicServerScanURLProtocol.configure(host: host, mode: .httpStatus(status))
+            let (source, session) = makeSource(host: host)
+            defer { session.invalidateAndCancel() }
+            do { _ = try await source.songCatalogPage(from: "/", offset: 0); XCTFail("Expected capability fallback") }
+            catch PagedSongCatalogError.unavailable { }
+            catch { XCTFail("Lost compatibility classification: \(error)") }
+            XCTAssertEqual(SubsonicServerScanURLProtocol.requests(host: host).filter { $0.url?.path == "/rest/search3.view" }.count, 1)
+        }
+    }
+
     func testPagedCatalogFetchesBoundedSearchWindows() async throws {
         let host = "server-paged-catalog.invalid"
         SubsonicServerScanURLProtocol.configure(host: host, mode: .pagedCatalog)
@@ -647,6 +678,10 @@ private final class SubsonicServerScanURLProtocol: URLProtocol, @unchecked Senda
             respond(json: #"{"subsonic-response":{"status":"ok","type":"navidrome","openSubsonic":true}}"#)
             return
         }
+        if url.path == "/rest/getMusicFolders.view" {
+            respond(json: #"{"subsonic-response":{"status":"ok","musicFolders":{"musicFolder":[{"id":1,"name":"Music"}]}}}"#)
+            return
+        }
         if url.path == "/rest/getScanStatus.view" {
             switch state.mode {
             case .pagedCatalog:
@@ -658,6 +693,10 @@ private final class SubsonicServerScanURLProtocol: URLProtocol, @unchecked Senda
             default:
                 break
             }
+        }
+        if url.path == "/rest/search3.view", case .httpStatus(let status) = state.mode {
+            respond(statusCode: status, json: "{}")
+            return
         }
         if url.path == "/rest/search3.view", state.mode == .pagedCatalog {
             let offset = URLComponents(url: url, resolvingAgainstBaseURL: false)?

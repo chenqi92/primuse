@@ -349,6 +349,13 @@ public struct SubsonicLyricsClient: @unchecked Sendable {
             )
         } catch {
             try Task.checkCancellation()
+            if OperationCancellationPolicy.isCancellation(error) { throw CancellationError() }
+            // Older servers may return malformed enhanced responses or a body
+            // error instead of rejecting the parameter explicitly. Keep that
+            // compatibility path, without restarting an exhausted HTTP budget.
+            if let failure = error as? HTTPResponseFailure {
+                guard failure.statusCode == 400, failure.retryAfter == nil, !failure.isRateLimited else { throw failure }
+            }
             payload = try await request(
                 "getLyricsBySongId",
                 query: [URLQueryItem(name: "id", value: songID)],
@@ -388,11 +395,11 @@ public struct SubsonicLyricsClient: @unchecked Sendable {
         }
         var request = URLRequest(url: url)
         request.setValue("Primuse/1.0", forHTTPHeaderField: "User-Agent")
-        let (data, response) = try await StreamResolverHTTPTransport.data(
-            for: request,
-            session: session,
-            maximumBytes: 4 * 1_024 * 1_024
-        )
+        let executor = ServerRequestScheduler.shared.executor(baseURL: context.baseURL, account: "subsonic:" + context.username)
+        let readRequest = request
+        let (data, response) = try await executor.execute(replay: .idempotent) { [session] in
+            try await StreamResolverHTTPTransport.data(for: readRequest, session: session, maximumBytes: 4 * 1_024 * 1_024)
+        }
         if let response = response as? HTTPURLResponse,
            !(200...299).contains(response.statusCode) {
             throw RequestError.httpStatus(response.statusCode)
