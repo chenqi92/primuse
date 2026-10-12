@@ -848,7 +848,14 @@ actor TVServerFeedbackHTTPClient: TVServerFeedbackClient {
         }
         let baseURL = try Self.serviceBaseURL(from: resolved.url, marker: "/Audio/")
         let headers = Self.embyHeaders(sourceID: source.id, token: token)
-        let userID = try await embyUserID(baseURL: baseURL, headers: headers)
+        // Emby 没有 `/Users/Me`, 按它去查会落到用户列表里的第一个人: 收藏记到别人名下,
+        // 扫描按登录的账号读回来时这首又被撤掉(#268)。用户名密码登录直接用登录结果里的那个。
+        let userID: String
+        if let signedInUserID = await resolverRegistry.mediaServerUserID(for: source, token: token) {
+            userID = signedInUserID
+        } else {
+            userID = try await embyUserID(baseURL: baseURL, headers: headers)
+        }
         let mutationURL = baseURL
             .appendingPathComponent("Users")
             .appendingPathComponent(userID)

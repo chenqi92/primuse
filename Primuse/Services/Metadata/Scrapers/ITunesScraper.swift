@@ -8,17 +8,15 @@ actor ITunesScraper: MusicScraper {
     let type = MusicScraperType.itunes
 
     private let session: URLSession
-    // All factory instances and manual/background callers share this service budget.
-    // Apple 超出额度时返回 429，偶尔是 403/503，三种都让全部调用方一起冷却。
-    static let servicePolicy = RequestExecutor.Policy(
-        minimumInterval: 3, maximumConcurrentRequests: 1,
-        rateLimitStatusCodes: [403, 429, 503]
-    )
-    private static let serviceRequests = RequestExecutor(policy: servicePolicy)
-    private let requestExecutor: RequestExecutor
+    static let servicePolicy = RequestQuota.Service.appleCatalog.policy
+    private static let quota = RequestQuota.appleCatalog(for: URL(string: "https://itunes.apple.com/search")!)!
+    private let requestExecutor: RequestExecutor?
+    private let quotaRegistry: RequestQuotaRegistry
 
-    init(session: URLSession? = nil, requestExecutor: RequestExecutor? = nil) {
-        self.requestExecutor = requestExecutor ?? Self.serviceRequests
+    init(session: URLSession? = nil, requestExecutor: RequestExecutor? = nil,
+         quotaRegistry: RequestQuotaRegistry = .shared) {
+        self.requestExecutor = requestExecutor
+        self.quotaRegistry = quotaRegistry
         if let session { self.session = session; return }
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 10
@@ -30,7 +28,9 @@ actor ITunesScraper: MusicScraper {
     }
 
     func isCoolingDown() async -> Bool {
-        if await requestExecutor.isCoolingDown { return true }
+        if let requestExecutor {
+            if await requestExecutor.isCoolingDown { return true }
+        } else if await quotaRegistry.isCoolingDown(for: Self.quota) { return true }
         return await ScraperRequestPool.shared.isCoolingDown(for: .resource(type.rawValue))
     }
 
@@ -120,7 +120,12 @@ actor ITunesScraper: MusicScraper {
 
     private func throttledRequest(url: URL) async throws -> Data {
         do {
-            return try await requestExecutor.execute(replay: .idempotent) { [session] in
+            if let requestExecutor {
+                return try await requestExecutor.execute(replay: .idempotent, timeout: 30) { [session] in
+                    try await session.data(from: url)
+                }.data
+            }
+            return try await quotaRegistry.execute(for: Self.quota, replay: .idempotent, timeout: 30) { [session] in
                 try await session.data(from: url)
             }.data
         } catch let failure as HTTPResponseFailure

@@ -361,6 +361,7 @@ targets:
       - path: PrimuseMacTests
       - path: PrimuseTests/WebDAVDirectoryQuotaTests.swift
       - path: PrimuseTests/PodcastRequestQuotaTests.swift
+      - path: PrimuseTests/CrossFeatureQuotaTests.swift
       - path: PrimuseTests/AIRequestQuotaTests.swift
     dependencies:
       - target: PrimuseMac
@@ -981,6 +982,7 @@ targets:
     sources:
       - path: PrimuseTVTests
       - path: PrimuseTests/PodcastRequestQuotaTests.swift
+      - path: PrimuseTests/CrossFeatureQuotaTests.swift
       - path: PrimuseTests/AIRequestQuotaTests.swift
     dependencies:
       - target: PrimuseTV

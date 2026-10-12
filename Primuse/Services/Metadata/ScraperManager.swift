@@ -708,6 +708,68 @@ actor ScraperManager {
             || requestedTitle.contains(candidateTitle)
     }
 
+    // MARK: - Lyrics API candidate (manual search)
+
+    struct LyricsServerCandidate: Sendable {
+        let config: ScraperSourceConfig
+        let lyrics: [LyricLine]
+    }
+
+    /// 手动搜索里的「歌词 API」候选(#211)。用户填的歌词服务器只能按歌名、歌手直接取,
+    /// 不能搜, 所以从不出现在候选列表里, 只在选中别的候选之后才被问到 —— 看上去像没生效。
+    /// 这里直接向它取一次, 取到就列成一条只带歌词的候选。没启用、正在退避或熔断、
+    /// 没取到时返回 nil。
+    func lyricsServerCandidate(
+        title: String,
+        artist: String?,
+        album: String?,
+        duration: TimeInterval?,
+        settings: ScraperSettings
+    ) async -> LyricsServerCandidate? {
+        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let config = settings.enabledSources.first(where: { $0.type == .lyricsServer }) else { return nil }
+        if await isBackingOff(config) || isCircuitOpen(config) { return nil }
+        guard let scraper = getScraper(for: config) as? LyricsAPIServerScraper else { return nil }
+        do {
+            let fetched = try await scraper.fetchLyrics(
+                title: title, artist: artist, album: album, duration: duration
+            )
+            registerSuccess(config)
+            guard let fetched, fetched.hasLyrics,
+                  let lines = parseLyrics(fetched), !lines.isEmpty else { return nil }
+            return LyricsServerCandidate(config: config, lyrics: lines)
+        } catch {
+            if isCancellation(error) { return nil }
+            plog("🎤 [\(config.type.displayName)] manual lyrics candidate failed: \(error.localizedDescription)")
+            await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
+            handleFailure(error, config: config)
+            return nil
+        }
+    }
+
+    /// 歌词 API 只认「歌名 + 歌手」两段, 搜索框里是一整串。末尾还是这首歌原来的歌手
+    /// (刮削页给的初始关键词就是「歌名 歌手」)就把前面当歌名; 只剩歌名时沿用原来的歌手;
+    /// 别的写法按「歌手 - 歌名」拆, 拆不开整串当歌名。
+    static func lyricsServerLookupIdentity(
+        query: String,
+        title: String,
+        artist: String?
+    ) -> (title: String, artist: String?) {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let knownArtist = artist?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !knownArtist.isEmpty,
+           let range = trimmed.range(of: knownArtist, options: [.caseInsensitive, .anchored, .backwards]) {
+            let head = cleanTitle(String(trimmed[..<range.lowerBound])
+                .trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "-–—·"))))
+            if !head.isEmpty { return (head, knownArtist) }
+        }
+        if !knownArtist.isEmpty,
+           normalizeComparableText(trimmed) == normalizeComparableText(title) {
+            return (cleanTitle(trimmed), knownArtist)
+        }
+        return searchTitleArtist(trimmed, artist: nil)
+    }
+
     // MARK: - Helpers
 
     private func getScraper(for config: ScraperSourceConfig) -> any MusicScraper {

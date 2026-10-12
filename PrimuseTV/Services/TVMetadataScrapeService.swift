@@ -17,6 +17,8 @@ struct TVScrapeCandidate: Identifiable, Sendable {
     let sourceConfig: ScraperSourceConfig
     let rank: ScrapeCandidateRank
     let searchOrder: Int
+    /// 「歌词 API」候选搜索时就取到了歌词,只带歌词,没有标签和封面(#211)。
+    var lyrics: [LyricLine]? = nil
 
     /// 0...1 的匹配度,与 iPhone 候选列表右侧的百分比同一个算法。
     var confidence: Double { rank.confidence }
@@ -143,12 +145,33 @@ final class TVMetadataScrapeService {
     /// 按关键词搜所有启用的、支持元数据搜索的源,候选按与 iPhone 相同的规则排序。
     func searchCandidates(for song: Song, query: String) async -> TVScrapeSearchOutcome {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sources = ScraperSettings.load().enabledSources.filter(Self.canSearchManually)
-        guard !trimmed.isEmpty, !sources.isEmpty else {
-            return TVScrapeSearchOutcome(candidates: [], searchedSourceCount: sources.count)
+        let settings = ScraperSettings.load()
+        let sources = settings.enabledSources.filter(Self.canSearchManually)
+        let searchesLyricsServer = settings.enabledSources.contains { $0.type == .lyricsServer }
+        let searchedSourceCount = sources.count + (searchesLyricsServer ? 1 : 0)
+        guard !trimmed.isEmpty, searchedSourceCount > 0 else {
+            return TVScrapeSearchOutcome(candidates: [], searchedSourceCount: searchedSourceCount)
         }
         let identity = ScraperManager.searchTitleArtist(song.title, artist: song.artistName)
         let requestedTitle = identity.title.isEmpty ? song.title : identity.title
+        // 歌词 API 不能搜,和各源的搜索同时按关键词推出的歌名、歌手直接取一次,有就排在最前。
+        let lyricsLookup = ScraperManager.lyricsServerLookupIdentity(
+            query: trimmed, title: requestedTitle, artist: identity.artist
+        )
+        let lyricsLookupIsSong = lyricsLookup.title == requestedTitle && lyricsLookup.artist == identity.artist
+        let lyricsTask: Task<ScraperManager.LyricsServerCandidate?, Never>? = searchesLyricsServer
+            ? Task { [scraperManager, album = lyricsLookupIsSong ? song.albumTitle : nil,
+                      duration = song.duration.isFinite && song.duration > 0 ? song.duration : nil] in
+                await scraperManager.lyricsServerCandidate(
+                    title: lyricsLookup.title,
+                    artist: lyricsLookup.artist,
+                    album: album,
+                    duration: duration,
+                    settings: settings
+                )
+            }
+            : nil
+        defer { lyricsTask?.cancel() }
         let targetDurationMs: Int? = song.duration.isFinite && song.duration > 0
             ? Int((song.duration * 1000).rounded())
             : nil
@@ -198,12 +221,50 @@ final class TVMetadataScrapeService {
             if ScrapeCandidateRankingPolicy.isPreferred(rhs.rank, over: lhs.rank) { return false }
             return lhs.searchOrder < rhs.searchOrder
         }
-        return TVScrapeSearchOutcome(candidates: candidates, searchedSourceCount: sources.count)
+        if let lyricsCandidate = await lyricsTask?.value, !Task.isCancelled {
+            let item = ScraperSearchItem(
+                externalId: [lyricsLookup.title, lyricsLookup.artist ?? ""].joined(separator: "|"),
+                source: .lyricsServer,
+                title: lyricsLookup.title,
+                artist: lyricsLookup.artist
+            )
+            candidates.insert(TVScrapeCandidate(
+                id: "\(lyricsCandidate.config.type.rawValue)_\(item.externalId)",
+                item: item,
+                sourceConfig: lyricsCandidate.config,
+                rank: ScrapeCandidateRankingPolicy.rank(
+                    requestedTitle: requestedTitle,
+                    requestedArtist: identity.artist,
+                    targetDurationMs: nil,
+                    candidateTitle: item.title,
+                    candidateArtist: item.artist,
+                    candidateDurationMs: nil,
+                    candidateAlbum: nil,
+                    candidateYear: nil,
+                    candidateHasArtwork: false,
+                    candidateTrackNumber: nil,
+                    candidateGenreCount: 0
+                ),
+                searchOrder: -1,
+                lyrics: lyricsCandidate.lyrics
+            ), at: 0)
+        }
+        return TVScrapeSearchOutcome(candidates: candidates, searchedSourceCount: searchedSourceCount)
     }
 
     /// 取选中候选的详情、封面和歌词。歌词不看候选来自哪个源(iTunes、MusicBrainz 本身
     /// 不给歌词),与 iPhone 一样按候选的标题/歌手走启用的歌词源。
     func preview(_ candidate: TVScrapeCandidate, for song: Song) async throws -> TVScrapePreview {
+        if let lyrics = candidate.lyrics {
+            // 只带歌词的候选:标签照旧,没有封面。
+            return TVScrapePreview(
+                songID: song.id,
+                original: song.scrapeFields,
+                proposed: song.scrapeFields,
+                coverData: nil,
+                lyrics: lyrics
+            )
+        }
         let scraper = MusicScraperFactory.create(for: candidate.sourceConfig)
         let detail = try await scraper.getDetail(externalId: candidate.item.externalId)
         try Task.checkCancellation()

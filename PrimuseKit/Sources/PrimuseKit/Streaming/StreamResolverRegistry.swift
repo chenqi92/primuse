@@ -104,6 +104,12 @@ public actor StreamResolverRegistry {
 
     public func resolver(for type: MusicSourceType) -> StreamResolver? { resolvers[type] }
 
+    /// Jellyfin / Emby 用户名密码登录对应的用户 ID(见 `MediaServerStreamResolver.signedInUserID`)。
+    public func mediaServerUserID(for source: MusicSource, token: String) async -> String? {
+        guard let resolver = resolvers[source.type] as? MediaServerStreamResolver else { return nil }
+        return await resolver.signedInUserID(sourceID: source.id, token: token)
+    }
+
     public func setCloudCredentialRefreshHandler(_ handler: CloudCredentialRefreshHandler?) async {
         await cloudDriveResolver.setCredentialRefreshHandler(handler)
     }

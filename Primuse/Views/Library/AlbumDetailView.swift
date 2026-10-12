@@ -389,11 +389,16 @@ struct AlbumDetailView: View {
             // 放大后的边缘落在屏幕外: 虚化会把边缘化成透明, 留在屏幕里就是一圈暗边。
             let side = max(width, coverBottom + 60) * 1.3
             // 按封面那么大取图(跟头图共用一份解码),放大交给图层。
+            // 取图路径跟上面的封面一样走头图那一套,只是不放动画:静态卡片要先确认专辑封面
+            // 缓存是空的才肯换歌曲封面,远端源上这一步慢、或者迟迟等不到,封面早出来了这一层
+            // 还空着,上半屏只剩一块平涂底色。
             AlbumArtworkView(
                 album: album,
                 size: coverSide,
                 cornerRadius: 0,
-                showsPlaceholder: false
+                showsPlaceholder: false,
+                presentationRole: .animatedHero,
+                isAnimationVisible: false
             )
             .scaleEffect(side / coverSide)
             .blur(radius: 20)

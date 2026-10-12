@@ -221,6 +221,8 @@ struct ScrapeOptionsView: View {
         let sourceConfig: ScraperSourceConfig
         let matchRank: ScrapeCandidateRank
         let searchOrder: Int
+        /// 「歌词 API」候选搜索时就取到了歌词, 只带歌词, 没有标签和封面(#211)。
+        var lyricsLines: [LyricLine]? = nil
         /// 0...1 匹配度，用于候选行右侧的百分比显示。候选缺失时长时仍保留
         /// 时长权重，不会再因为缩小分母而得到虚高的 100%。
         var confidence: Double { matchRank.confidence }
@@ -480,9 +482,11 @@ struct ScrapeOptionsView: View {
                 Spacer(minLength: 6)
 
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(verbatim: "\((item.confidence * 100).rounded().finiteInt())%")
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(item.confidence > 0.9 ? PMColor.ok : PMColor.brand)
+                    if item.lyricsLines == nil {
+                        Text(verbatim: "\((item.confidence * 100).rounded().finiteInt())%")
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(item.confidence > 0.9 ? PMColor.ok : PMColor.brand)
+                    }
                     if item.sourceConfig.type.supportsWordLevelLyrics {
                         Text("lyrics_word")
                             .font(.system(size: 9.5))
@@ -506,6 +510,10 @@ struct ScrapeOptionsView: View {
     }
 
     private func macCandidateSubtitle(_ item: SearchResultItem) -> String {
+        if let lyricsLines = item.lyricsLines {
+            let found = String(format: String(localized: "lyrics_server_test_ok_format"), lyricsLines.count)
+            return [item.artist, found].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " · ")
+        }
         var parts: [String] = [item.durationText ?? "--:--"]
         if let a = item.artist, !a.isEmpty { parts.append(a) }
         if let album = item.album, !album.isEmpty { parts.append(album) }
@@ -985,7 +993,8 @@ struct ScrapeOptionsView: View {
     private func macRunSearch() async {
         await performManualSearch()
         guard !Task.isCancelled else { return }
-        if let first = searchResults.first {
+        // 默认选中排第一的标签候选; 只带歌词的「歌词 API」那条排在最前但不抢默认。
+        if let first = searchResults.first(where: { $0.lyricsLines == nil }) ?? searchResults.first {
             selectedItemID = first.id
             await selectManualResult(first)
         } else {
@@ -1319,10 +1328,12 @@ struct ScrapeOptionsView: View {
                                 HStack {
                                     Text(item.title).font(.subheadline).fontWeight(.medium).lineLimit(1)
                                     Spacer()
-                                    Text(item.durationText ?? "--:--")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .monospacedDigit()
+                                    if item.lyricsLines == nil {
+                                        Text(item.durationText ?? "--:--")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .monospacedDigit()
+                                    }
                                 }
                                 HStack(spacing: 4) {
                                     if let artist = item.artist {
@@ -1331,6 +1342,13 @@ struct ScrapeOptionsView: View {
                                     if let album = item.album {
                                         Text("·").font(.caption).foregroundStyle(Color.primuseScrapeGray2)
                                         Text(album).font(.caption).foregroundStyle(Color.primuseScrapeGray2)
+                                    }
+                                    if let lyricsLines = item.lyricsLines {
+                                        if item.artist != nil {
+                                            Text("·").font(.caption).foregroundStyle(Color.primuseScrapeGray2)
+                                        }
+                                        Text(String(format: String(localized: "lyrics_server_test_ok_format"), lyricsLines.count))
+                                            .font(.caption).foregroundStyle(Color.primuseScrapeGray2)
                                     }
                                 }
                                 .lineLimit(1)
@@ -1510,6 +1528,27 @@ struct ScrapeOptionsView: View {
         let settings = ScraperSettings.load()
         plog("🔍 Manual search query='\(manualSearchQuery)' enabled sources: \(settings.enabledSources.map { $0.type.rawValue })")
 
+        // 歌词 API 不能搜, 和各源的搜索同时按搜索框推出的歌名、歌手直接取一次(#211)。
+        let lyricsLookup = ScraperManager.lyricsServerLookupIdentity(
+            query: manualSearchQuery,
+            title: manualMatchTitle.isEmpty ? song.title : manualMatchTitle,
+            artist: manualMatchArtist
+        )
+        let lyricsLookupIsSong = lyricsLookup.title == manualMatchTitle && lyricsLookup.artist == manualMatchArtist
+        let lyricsDuration: TimeInterval? = song.duration.sanitizedDuration > 0 ? song.duration.sanitizedDuration : nil
+        let lyricsCandidateTask: Task<ScraperManager.LyricsServerCandidate?, Never>? = scrapeLyrics
+            && settings.enabledSources.contains(where: { $0.type == .lyricsServer })
+            ? Task { [scraperService, album = lyricsLookupIsSong ? song.albumTitle : nil] in
+                await scraperService.lyricsServerCandidate(
+                    title: lyricsLookup.title,
+                    artist: lyricsLookup.artist,
+                    album: album,
+                    duration: lyricsDuration
+                )
+            }
+            : nil
+        defer { lyricsCandidateTask?.cancel() }
+
         for config in settings.enabledSources {
             guard !Task.isCancelled else { return }
             guard canUseSourceInManualSearch(config) else { continue }
@@ -1574,6 +1613,38 @@ struct ScrapeOptionsView: View {
             return lhs.searchOrder < rhs.searchOrder
         }
 
+        if let candidate = await lyricsCandidateTask?.value {
+            guard !Task.isCancelled else { return }
+            aggregatedResults.insert(SearchResultItem(
+                id: "\(candidate.config.type.rawValue)_\(lyricsLookup.title)|\(lyricsLookup.artist ?? "")",
+                title: lyricsLookup.title,
+                artist: lyricsLookup.artist,
+                album: nil,
+                year: nil,
+                durationMs: nil,
+                coverUrl: nil,
+                trackNumber: nil,
+                genres: nil,
+                externalId: [lyricsLookup.title, lyricsLookup.artist ?? ""].joined(separator: "|"),
+                sourceConfig: candidate.config,
+                matchRank: ScrapeCandidateRankingPolicy.rank(
+                    requestedTitle: manualMatchTitle.isEmpty ? song.title : manualMatchTitle,
+                    requestedArtist: manualMatchArtist,
+                    targetDurationMs: nil,
+                    candidateTitle: lyricsLookup.title,
+                    candidateArtist: lyricsLookup.artist,
+                    candidateDurationMs: nil,
+                    candidateAlbum: nil,
+                    candidateYear: nil,
+                    candidateHasArtwork: false,
+                    candidateTrackNumber: nil,
+                    candidateGenreCount: 0
+                ),
+                searchOrder: -1,
+                lyricsLines: candidate.lyrics
+            ), at: 0)
+        }
+
         searchResults = aggregatedResults
         mode = .manual
     }
@@ -1590,6 +1661,28 @@ struct ScrapeOptionsView: View {
         }
 
         plog("👉 selectManualResult: src=\(item.sourceConfig.type.rawValue) title='\(item.title)' externalId=\(item.externalId.prefix(60))")
+
+        if let lyricsLines = item.lyricsLines {
+            // 只带歌词的候选: 不取详情和封面, 标签照旧。
+            previewResult = ScrapePreview(
+                updatedSong: song, coverData: nil, lyricsCount: lyricsLines.count,
+                lyricsLines: lyricsLines,
+                scrapedTitle: nil,
+                scrapedArtist: nil,
+                scrapedAlbum: nil,
+                scrapedYear: nil,
+                scrapedTrackNumber: nil,
+                scrapedDiscNumber: nil,
+                scrapedGenre: nil,
+                hasCover: false,
+                hasLyrics: true,
+                includesMetadata: false
+            )
+            resetDefaultSelections(for: song, hasCover: false, hasLyrics: true)
+            previewSource = .manual
+            mode = .preview
+            return
+        }
 
         do {
             let scraper = MusicScraperFactory.create(for: item.sourceConfig)

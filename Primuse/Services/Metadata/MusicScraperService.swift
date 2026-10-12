@@ -491,7 +491,24 @@ final class MusicScraperService {
     ) async throws -> SingleScrapeResult {
         await sidecarCircuitBreaker.resetIdleUnavailableSources()
 
-        guard let result = try await processedSongWithAssets(song, forceRescrape: true, storeAssets: !dryRun) else {
+        var processed = try await processedSongWithAssets(song, forceRescrape: true, storeAssets: !dryRun)
+        // 服务端曲库的歌自动刮削不取歌词(以服务端为准)。刮削页的预览是用户自己点的,
+        // 应用前逐项勾选, 照样按启用的歌词源取一份; 否则服务端的歌词不全时这里永远
+        // 「没有可更新的」(#211)。
+        if dryRun, processed?.lyricsLines?.isEmpty != false,
+           await sourceManager.isServerLibrarySource(for: song) {
+            let seed = processed?.song ?? song
+            let lyrics = await fetchOnlineLyrics(
+                title: seed.title,
+                artist: seed.artistName,
+                album: seed.albumTitle,
+                duration: seed.duration > 0 ? seed.duration : nil
+            )
+            if let lyrics, !lyrics.isEmpty {
+                processed = ProcessedResult(song: seed, coverData: processed?.coverData, lyricsLines: lyrics)
+            }
+        }
+        guard let result = processed else {
             return SingleScrapeResult(
                 originalSong: song,
                 song: song,
@@ -704,6 +721,20 @@ final class MusicScraperService {
         duration: TimeInterval?
     ) async -> [LyricLine]? {
         await metadataService.fetchOnlineLyrics(
+            title: title,
+            artist: artist,
+            album: album,
+            duration: duration
+        )
+    }
+
+    func lyricsServerCandidate(
+        title: String,
+        artist: String?,
+        album: String?,
+        duration: TimeInterval?
+    ) async -> ScraperManager.LyricsServerCandidate? {
+        await metadataService.lyricsServerCandidate(
             title: title,
             artist: artist,
             album: album,

@@ -168,6 +168,19 @@ enum LibraryDisplayConfiguration {
     }
 }
 
+private struct LibraryStackRegistersCollectionDetailsKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// 资料库导航栈已经在根上登记了流派、智能歌单的详情。流派页、歌单页就不再自己登记，
+    /// 免得同一种值在一条栈里登记两次；单独挂出来的地方（iPad 侧栏、Mac）照旧自己登记。
+    var libraryStackRegistersCollectionDetails: Bool {
+        get { self[LibraryStackRegistersCollectionDetailsKey.self] }
+        set { self[LibraryStackRegistersCollectionDetailsKey.self] = newValue }
+    }
+}
+
 #if DEBUG
 /// 编译机上无人值守取证用：往资料库某一页的导航栈里推一个值、或退一层。
 /// 推入走的是和点卡片一样的值导航，转场源在屏幕上时就是缩放转场。
@@ -414,12 +427,6 @@ struct LibraryView: View {
     private let rootSection: LibrarySection?
     private let onActiveSectionChange: (LibrarySection?) -> Void
     @State private var navigationPath = NavigationPath()
-    #if DEBUG
-    /// 取证钩子推入的风格页。风格的值导航登记在分类页里，从外面往路径里追加找不到它，
-    /// 所以在根上另挂一个按条目推入的目的地。
-    @State private var debugGenre: LibraryGenre?
-    @State private var debugSmartPlaylist: SmartPlaylist?
-    #endif
     /// 资料库这一层导航栈的 zoom 命名空间。
     @Namespace private var libraryZoomNamespace
     @State private var songLocationRequest: SongLibraryLocationRequest?
@@ -550,6 +557,15 @@ struct LibraryView: View {
                         persistedPageID = "playlist:\(playlist.id)"
                     }
             }
+            // 流派、智能歌单的详情也登记在栈根上（分类页里的那份让出来，见
+            // `libraryStackRegistersCollectionDetails`）。登记在分类页里面时，极简模式下点流派
+            // 卡片没有反应，经典模式下能进；专辑、艺人、歌单一直登记在这里，两种模式都正常。
+            .navigationDestination(for: LibraryGenre.self) { genre in
+                GenreDetailView(genre: genre)
+            }
+            .navigationDestination(for: SmartPlaylist.self) { smart in
+                SmartPlaylistDetailView(smartPlaylistID: smart.id)
+            }
             .onAppear {
                 if deepLink == nil, rootSection == nil {
                     restorePersistedPageIfNeeded()
@@ -565,18 +581,13 @@ struct LibraryView: View {
                 // 经典外观只有一个资料库栈(rootSection 为 nil);顶部 tab 外壳里每个分类各有一个,只认点名的那个。
                 guard let request = note.object as? LibraryDebugNavigation.Request,
                       rootSection == nil || rootSection == request.section else { return }
+                // 流派、智能歌单的详情登记在栈根上，和点卡片走同一条值导航。
                 switch request.target {
                 case .album(let album): navigationPath.append(album)
-                case .genre(let genre): debugGenre = genre
-                case .smartPlaylist(let smart): debugSmartPlaylist = smart
+                case .genre(let genre): navigationPath.append(genre)
+                case .smartPlaylist(let smart): navigationPath.append(smart)
                 case nil: if !navigationPath.isEmpty { navigationPath.removeLast() }
                 }
-            }
-            .navigationDestination(item: $debugGenre) { genre in
-                GenreDetailView(genre: genre)
-            }
-            .navigationDestination(item: $debugSmartPlaylist) { smart in
-                SmartPlaylistDetailView(smartPlaylistID: smart.id)
             }
             #endif
             .onChange(of: navigationPath.count) { _, count in
@@ -622,6 +633,7 @@ struct LibraryView: View {
     private var rootContent: some View {
         if let rootSection {
             destination(for: rootSection)
+                .environment(\.libraryStackRegistersCollectionDetails, true)
         } else if hasContent {
             libraryHub
         } else {
@@ -631,6 +643,7 @@ struct LibraryView: View {
 
     private func sectionDestination(_ section: LibrarySection) -> some View {
         destination(for: section)
+            .environment(\.libraryStackRegistersCollectionDetails, true)
             .navigationTitle(section.title)
             .toolbarTitleDisplayMode(.inline)
             #if os(iOS)
@@ -1808,14 +1821,20 @@ struct GenreLibraryView: View {
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
+    @Environment(\.libraryStackRegistersCollectionDetails) private var stackRegistersDetails
+
     var body: some View {
         #if os(macOS)
         macBody
         #else
-        iosBody
-            .navigationDestination(for: LibraryGenre.self) { genre in
-                GenreDetailView(genre: genre)
-            }
+        if stackRegistersDetails {
+            iosBody
+        } else {
+            iosBody
+                .navigationDestination(for: LibraryGenre.self) { genre in
+                    GenreDetailView(genre: genre)
+                }
+        }
         #endif
     }
 

@@ -217,7 +217,15 @@ struct MacLibraryHeader: View {
     @ViewBuilder
     private func backdropArtwork(side: CGFloat) -> some View {
         if let album = coverAlbum {
-            AlbumArtworkView(album: album, size: side, cornerRadius: 0)
+            // 跟前面的封面走同一条取图路径(不放动画):静态卡片要先确认专辑封面缓存为空才换
+            // 歌曲封面,远端源上封面已经出来了,这层底图还停在占位上。
+            AlbumArtworkView(
+                album: album,
+                size: side,
+                cornerRadius: 0,
+                presentationRole: .animatedHero,
+                isAnimationVisible: false
+            )
         } else if let artist = coverArtist {
             ArtistArtworkView(artist: artist, size: side, cornerRadius: 0)
         }

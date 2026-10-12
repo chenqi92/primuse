@@ -125,6 +125,56 @@ struct MinimalNavigationDetailLedgerTests {
         #expect(ledger.hidesTopNavigation(for: .library))
     }
 
+    @Test("返回没被认出来、preference 也停在旧值:根页停稳后顶栏回来")
+    func rootSettledClearsLostRemoval() {
+        var ledger = Ledger()
+        let id = UUID()
+        ledger.record(.appearing, id: id, scope: .library)
+        ledger.updateMounted([.library])
+        // 页面没走认得出的返回就没了,removed 也没到,preference 还停在旧值上。
+        #expect(ledger.hidesTopNavigation(for: .library))
+
+        ledger.recordRootSettled(.library)
+        #expect(!ledger.hidesTopNavigation(for: .library))
+        #expect(ledger.presented.isEmpty)
+
+        // preference 跟上以后账是干净的。
+        ledger.updateMounted([])
+        #expect(ledger == Ledger())
+    }
+
+    @Test("根页停稳后再进详情页,顶栏照常隐藏")
+    func detailAfterRootSettledHidesAgain() {
+        var ledger = Ledger()
+        ledger.updateMounted([.library])
+        ledger.recordRootSettled(.library)
+        #expect(!ledger.hidesTopNavigation(for: .library))
+
+        ledger.record(.appearing, id: UUID(), scope: .library)
+        #expect(ledger.hidesTopNavigation(for: .library))
+    }
+
+    @Test("根页停稳只销自己页签的账")
+    func rootSettledOnlyTouchesItsScope() {
+        var ledger = Ledger()
+        let homeDetail = UUID()
+        ledger.record(.appearing, id: UUID(), scope: .library)
+        ledger.record(.appearing, id: homeDetail, scope: .home)
+        ledger.updateMounted([.library, .home])
+
+        ledger.recordRootSettled(.library)
+        #expect(!ledger.hidesTopNavigation(for: .library))
+        #expect(ledger.hidesTopNavigation(for: .home))
+        #expect(ledger.presented == [homeDetail: .home])
+    }
+
+    @Test("账本本来就干净时,根页停稳不改任何东西")
+    func rootSettledOnCleanLedgerIsNoOp() {
+        var ledger = Ledger()
+        ledger.recordRootSettled(.library)
+        #expect(ledger == Ledger())
+    }
+
     @Test("各页签互不影响")
     func scopesAreIndependent() {
         var ledger = Ledger()

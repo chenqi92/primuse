@@ -68,4 +68,20 @@ public struct MinimalNavigationDetailLedger<Scope: Hashable & Sendable>: Sendabl
         mounted = scopes
         returning.formIntersection(scopes)
     }
+
+    /// 页签的根页停稳在导航栈顶、已经显示出来:上面不可能再压着这个页签的详情页。
+    ///
+    /// 前面三路信号都可能缺一拍:返回转场没被认出来、`removed` 没到、preference 停在
+    /// 旧值上。哪一路缺了,登记都会比页面活得久,顶栏就一直藏着,而极简模式的导航全在
+    /// 顶栏上。根页亲眼看见自己在栈顶,是最直接的证据,以它为准把这个页签的残账销掉。
+    /// preference 还说挂着时按「返回途中」处理:顶栏先回来,等它跟上或者下一张详情页
+    /// 登记时再说。
+    public mutating func recordRootSettled(_ scope: Scope) {
+        presented = presented.filter { $0.value != scope }
+        if mounted.contains(scope) {
+            returning.insert(scope)
+        } else {
+            returning.remove(scope)
+        }
+    }
 }

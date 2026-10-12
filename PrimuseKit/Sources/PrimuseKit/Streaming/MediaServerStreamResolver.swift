@@ -14,6 +14,8 @@ public actor MediaServerStreamResolver: StreamResolver {
     private struct CachedSession: Sendable {
         let account: SourceLoginSessionStore.Account
         let token: String
+        /// 登录结果里的用户 ID。Emby 没有 `/Users/Me`, 收藏这类按用户记的接口要用它。
+        let userID: String?
     }
 
     /// Jellyfin/Emby 的播放和扫描、收藏等共用同一个登录会话（见 `SourceLoginSessionStore`）：
@@ -48,6 +50,13 @@ public actor MediaServerStreamResolver: StreamResolver {
         if let holder = sessionHolders.removeValue(forKey: sourceID) {
             await sessionStore.release(cached.account, holder: holder, token: nil)
         }
+    }
+
+    /// 用户名密码登录拿到的用户 ID, 只认和 `token` 同一次登录的那个。
+    /// API key 登录(不属于任何用户)、还没登录过时为 nil。
+    public func signedInUserID(sourceID: String, token: String) -> String? {
+        guard let cached = sessions[sourceID], cached.token == token else { return nil }
+        return cached.userID
     }
 
     public func streamURL(for song: Song,
@@ -132,7 +141,7 @@ public actor MediaServerStreamResolver: StreamResolver {
             try await login(base: base, username: username, password: password, deviceID: deviceID, emby: emby)
         }
         guard sessionGenerations[source.id, default: 0] == generation else { throw CancellationError() }
-        sessions[source.id] = CachedSession(account: account, token: session.token)
+        sessions[source.id] = CachedSession(account: account, token: session.token, userID: session.userID)
         return session.token
     }
 
