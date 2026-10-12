@@ -688,7 +688,21 @@ final class AppleMusicLibraryService {
 
     @concurrent
     private nonisolated static func loadSongArtwork(_ song: MusicKit.Song) async -> SongArtworkSnapshot {
-        SongArtworkSnapshot(artwork: song.artwork)
+        await AppleMusicMediaLibraryGate.run {
+            // 排到时格子已经滚走了就不读; 调用方见到取消不会把这个空结果存进缓存。
+            guard !Task.isCancelled else { return SongArtworkSnapshot(artwork: nil) }
+            return SongArtworkSnapshot(artwork: song.artwork)
+        }
+    }
+
+    /// 主线程上整库读资料库条目 (同步时那几遍) 也排进 `AppleMusicMediaLibraryGate`:
+    /// 冷启动时它们正好跟列表封面的后台查询同时进行。`body` 是同步的, 拿着门的这段
+    /// 不会让出主线程; 等门时主线程只是挂起。
+    private func withMediaLibraryGate<T>(_ body: () -> T) async -> T {
+        await AppleMusicMediaLibraryGate.shared.acquire()
+        let result = body()
+        await AppleMusicMediaLibraryGate.shared.release()
+        return result
     }
 
     func cachedMusicKitPlaylistArtwork(playlistID: String) -> MusicKit.Artwork? {
@@ -742,28 +756,40 @@ final class AppleMusicLibraryService {
     private nonisolated static func lookupSong(amID: String, useLibrary: Bool) async throws -> ResolvedSongLookup? {
         try Task.checkCancellation()
         let id = MusicItemID(rawValue: amID)
-        let song: MusicKit.Song?
         if useLibrary {
-            var request = MusicLibraryRequest<MusicKit.Song>()
-            request.filter(matching: \.id, equalTo: id)
-            request.limit = 1
-            song = try await request.response().items.first
-        } else {
-            var request = MusicCatalogResourceRequest<MusicKit.Song>(matching: \.id, equalTo: id)
-            request.properties = [.audioVariants]
-            // 换区之后老的目录 ID 在新店面查不到，整首歌就变成灰的。`.findEquivalents`
-            // 让 Apple 把当前店面里的等价曲目还回来。单曲查询才用得了这个选项 ——
-            // 批量查回来的等价曲对不回是哪个请求 ID，配不了对。
-            if #available(iOS 26.4, macOS 26.4, tvOS 26.4, watchOS 26.4, *) {
-                request.options = [.findEquivalents]
+            // 列表里每个封面格子都会各自来查, 不排队就是几条线程同时读媒体库
+            // (见 `AppleMusicMediaLibraryGate`)。
+            return try await AppleMusicMediaLibraryGate.run {
+                // 排队这会儿格子可能已经滚出屏幕了。
+                try Task.checkCancellation()
+                var request = MusicLibraryRequest<MusicKit.Song>()
+                request.filter(matching: \.id, equalTo: id)
+                request.limit = 1
+                let song = try await request.response().items.first
+                try Task.checkCancellation()
+                guard let song else { return nil }
+                return ResolvedSongLookup(
+                    song: song,
+                    identity: trackIdentity(song),
+                    artwork: SongArtworkSnapshot(artwork: song.artwork)
+                )
             }
-            song = try await request.response().items.first
         }
+        var request = MusicCatalogResourceRequest<MusicKit.Song>(matching: \.id, equalTo: id)
+        request.properties = [.audioVariants]
+        // 换区之后老的目录 ID 在新店面查不到，整首歌就变成灰的。`.findEquivalents`
+        // 让 Apple 把当前店面里的等价曲目还回来。单曲查询才用得了这个选项 ——
+        // 批量查回来的等价曲对不回是哪个请求 ID，配不了对。
+        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, watchOS 26.4, *) {
+            request.options = [.findEquivalents]
+        }
+        // 目录曲目是联网取回的数据, 不碰本机媒体库, 不用排队等。
+        let song = try await request.response().items.first
         try Task.checkCancellation()
         guard let song else { return nil }
         return ResolvedSongLookup(
             song: song,
-            identity: useLibrary ? trackIdentity(song) : nil,
+            identity: nil,
             artwork: SongArtworkSnapshot(artwork: song.artwork)
         )
     }
@@ -1061,8 +1087,11 @@ final class AppleMusicLibraryService {
                     since: UserDefaults.standard.string(forKey: Self.syncedStorefrontKey)
                 ))
             } else {
-                let localSongs = try await fetchDeviceLibrarySongs().filter {
-                    playbackSource(for: $0) == .subscriptionIndependentUserLibrary
+                let deviceSongs = try await fetchDeviceLibrarySongs()
+                let localSongs = await withMediaLibraryGate {
+                    deviceSongs.filter {
+                        playbackSource(for: $0) == .subscriptionIndependentUserLibrary
+                    }
                 }
                 fetchResult = LibrarySongFetchResult(
                     songs: localSongs,
@@ -1092,7 +1121,10 @@ final class AppleMusicLibraryService {
             let fetchedSongCache = Dictionary(
                 uniqueKeysWithValues: allMusicKitSongs.map { ($0.id.rawValue, $0) }
             )
-            let fetchedTrackIdentities = allMusicKitSongs.map(Self.trackIdentity)
+            let fetchedTrackIdentities = await withMediaLibraryGate {
+                allMusicKitSongs.map(Self.trackIdentity)
+            }
+            guard syncGeneration == generation, !Task.isCancelled else { return }
             if fetchResult.syncMode == .authoritative {
                 songCache = fetchedSongCache
                 songArtworkCache.removeAll(keepingCapacity: true)
@@ -1292,30 +1324,35 @@ final class AppleMusicLibraryService {
     /// Maps a MusicKit snapshot to library rows, giving imported files their
     /// real format, bit rate and sample rate instead of MusicKit's AAC guess.
     /// Matching decodes PlayParameters per row, so it runs off the main actor.
+    /// 整遍都读资料库条目的属性, 跟封面查询一起排队 (见 `AppleMusicMediaLibraryGate`)。
     @concurrent
     private nonisolated static func mapSongs(
         _ musicKitSongs: [MusicKit.Song],
         matching snapshot: LocalFileMatchSnapshot
     ) async -> (songs: [PrimuseKit.Song], matches: [String: UInt64]) {
-        var matches: [String: UInt64] = [:]
-        let songs = musicKitSongs.map { musicKitSong -> PrimuseKit.Song in
-            let song = toPrimuseSong(musicKitSong)
-            guard let persistentID = matchLocalFile(
-                for: song,
-                musicKitSong: musicKitSong,
-                in: snapshot
-            ), let file = snapshot.files[persistentID] else { return song }
-            matches[song.id] = persistentID
-            let details = snapshot.details[persistentID] ?? file.libraryDetails
-            return AppleMusicLocalFileDetailsPolicy.applying(details, to: song)
+        await AppleMusicMediaLibraryGate.run {
+            var matches: [String: UInt64] = [:]
+            let songs = musicKitSongs.map { musicKitSong -> PrimuseKit.Song in
+                let song = toPrimuseSong(musicKitSong)
+                guard let persistentID = matchLocalFile(
+                    for: song,
+                    musicKitSong: musicKitSong,
+                    in: snapshot
+                ), let file = snapshot.files[persistentID] else { return song }
+                matches[song.id] = persistentID
+                let details = snapshot.details[persistentID] ?? file.libraryDetails
+                return AppleMusicLocalFileDetailsPolicy.applying(details, to: song)
+            }
+            return (songs: songs, matches: matches)
         }
-        return (songs, matches)
     }
 
     private func applyingLocalFileDetails(to musicKitSongs: [MusicKit.Song]) async -> [PrimuseKit.Song] {
         guard !localFileMatchIndex.isEmpty else {
             localFileIDsBySongID.removeAll()
-            return musicKitSongs.map { Self.toPrimuseSong($0) }
+            return await withMediaLibraryGate {
+                musicKitSongs.map { Self.toPrimuseSong($0) }
+            }
         }
         let result = await Self.mapSongs(musicKitSongs, matching: localFileMatchSnapshot)
         localFileIDsBySongID = result.matches
@@ -1382,7 +1419,10 @@ final class AppleMusicLibraryService {
 
     private func refreshSubscriptionIndependentLocalFileIDs() async {
         #if os(iOS)
-        let result = Self.loadSubscriptionIndependentLocalFileIDs()
+        // 整库走一遍 MPMediaQuery, 同样是读媒体库。
+        let result = await withMediaLibraryGate {
+            Self.loadSubscriptionIndependentLocalFileIDs()
+        }
         subscriptionIndependentLocalFileIDs = result.ids
         replaceLocalFiles(result.files)
         hasLoadedLocalFileProvenance = result.isAuthorized
@@ -1879,22 +1919,25 @@ final class AppleMusicLibraryService {
             var songIDs: [String] = []
             var seenSongIDs = Set<String>()
             var playlistOnlySongs: [PrimuseKit.Song] = []
-            for track in tracks {
-                guard case let .song(s) = track else { continue }
-                // 顺手填 cache: 不在资料库里的那些, 播放时也从这里取。
-                songCache[s.id.rawValue] = s
-                invalidateSongArtwork(amID: s.id.rawValue)
-                // Playlist relationships may expose catalog songs even when
-                // the same track exists as an `i.*` user-library item. Store
-                // the relationship with the canonical ID so the mirrored
-                // playlist continues to reference the persisted library row.
-                let projected = Self.toPrimuseSong(canonicalForNowPlaying(s))
-                guard seenSongIDs.insert(projected.id).inserted else { continue }
-                songIDs.append(projected.id)
-                // 资料库「歌曲」里没有的 (第三方 App 导入的歌单、关掉了「添加歌单
-                // 歌曲」, 或资料库还没收全): 跟资料库一起落一行, 只出现在歌单里。
-                if !librarySongIDs.contains(projected.id) {
-                    playlistOnlySongs.append(projected)
+            // 逐首读曲目属性, 跟封面查询一起排队 (见 `AppleMusicMediaLibraryGate`)。
+            await withMediaLibraryGate {
+                for track in tracks {
+                    guard case let .song(s) = track else { continue }
+                    // 顺手填 cache: 不在资料库里的那些, 播放时也从这里取。
+                    songCache[s.id.rawValue] = s
+                    invalidateSongArtwork(amID: s.id.rawValue)
+                    // Playlist relationships may expose catalog songs even when
+                    // the same track exists as an `i.*` user-library item. Store
+                    // the relationship with the canonical ID so the mirrored
+                    // playlist continues to reference the persisted library row.
+                    let projected = Self.toPrimuseSong(canonicalForNowPlaying(s))
+                    guard seenSongIDs.insert(projected.id).inserted else { continue }
+                    songIDs.append(projected.id)
+                    // 资料库「歌曲」里没有的 (第三方 App 导入的歌单、关掉了「添加歌单
+                    // 歌曲」, 或资料库还没收全): 跟资料库一起落一行, 只出现在歌单里。
+                    if !librarySongIDs.contains(projected.id) {
+                        playlistOnlySongs.append(projected)
+                    }
                 }
             }
             plog("""
@@ -2038,6 +2081,54 @@ final class AppleMusicLibraryService {
     nonisolated private static func hashSongID(sourceID: String, path: String) -> String {
         let hash = SHA256.hash(data: Data("\(sourceID):\(path)".utf8))
         return hash.prefix(16).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+/// 系统媒体库 (MediaLibraryCore) 同一时刻只放一个人进去。
+///
+/// 资料库里的 MusicKit 条目 (`MusicLibraryRequest` 的结果、资料库歌单的曲目) 是懒加载的:
+/// 第一次读 `playParameters`、`artwork` 这些属性时, 才在读的那条线程上同步查媒体库。
+/// iOS 18.7 上列表冷启动, 四条后台线程同时这样读, MediaLibraryCore 拼 SQL 时空指针崩溃
+/// (1.11.3(100) `SQLBinaryExpression::sql`, 四条线程都停在 `EntityQueryResult::entityAtIndex`)。
+/// 离开主线程去碰媒体库的地方 (资料库查询、读资料库条目属性、`MPMediaQuery`) 都从这里排队;
+/// 主线程上同步时那几遍整库遍历也排进来, 主线程只是挂起等, 不会卡住。
+/// 整段 (含 `response()`) 都在门里: 查询本身也走同一个媒体库。
+actor AppleMusicMediaLibraryGate {
+    static let shared = AppleMusicMediaLibraryGate()
+
+    private var isLocked = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func acquire() async {
+        if !isLocked {
+            isLocked = true
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func release() {
+        if waiters.isEmpty {
+            isLocked = false
+        } else {
+            waiters.removeFirst().resume()
+        }
+    }
+
+    /// 在调用方自己的执行上下文里跑 `operation`, 前后拿 / 还这道门。
+    /// 只给后台 (非隔离) 代码用; 主线程用 `AppleMusicLibraryService.withMediaLibraryGate`。
+    nonisolated static func run<T>(_ operation: () async throws -> T) async rethrows -> T {
+        await shared.acquire()
+        do {
+            let result = try await operation()
+            await shared.release()
+            return result
+        } catch {
+            await shared.release()
+            throw error
+        }
     }
 }
 

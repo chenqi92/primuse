@@ -237,10 +237,12 @@ enum PlaylistArtworkResourceResolver {
             case .song:
                 guard let songID = candidate.songID,
                       let song = songsByID[songID] else { return nil }
+                // 这里不在主线程上, 不直接读 `song.artwork` (会当场查系统媒体库),
+                // 让音乐源服务排队读 (见 `AppleMusicMediaLibraryGate`)。
                 if allowsMusicKitArtwork,
                    song.sourceID == AppleMusicLibraryIdentity.sourceID,
                    !song.filePath.isEmpty,
-                   let artwork = await appleMusicLibrary.musicKitSong(amID: song.filePath)?.artwork {
+                   let artwork = await appleMusicLibrary.musicKitArtwork(amID: song.filePath) {
                     return .musicKit(artwork)
                 }
                 return await CachedArtworkView.resolveImage(

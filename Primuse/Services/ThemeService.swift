@@ -210,8 +210,10 @@ final class ThemeService {
             return result
         }
         guard !Task.isCancelled else { return nil }
-        let resolvedSong = await AppServices.shared.appleMusicLibrary.musicKitSong(amID: amID)
-        guard !Task.isCancelled, let artwork = resolvedSong?.artwork else { return nil }
+        // 不在这条后台线程上读 `song.artwork`: 资料库条目的属性会当场查系统媒体库,
+        // 交给音乐源服务排队读 (见 `AppleMusicMediaLibraryGate`)。
+        let artwork = await AppServices.shared.appleMusicLibrary.musicKitArtwork(amID: amID)
+        guard !Task.isCancelled, let artwork else { return nil }
         return colorResult(from: artwork)
     }
 

@@ -74,7 +74,12 @@ enum AppleMusicLocalFileReader {
             return lines
         }
         #if os(iOS)
-        if let text = mediaLibraryLyrics(persistentID: file.persistentID) {
+        // MPMediaQuery off the main thread queues behind every other media
+        // library read (see `AppleMusicMediaLibraryGate`).
+        let text = await AppleMusicMediaLibraryGate.run {
+            mediaLibraryLyrics(persistentID: file.persistentID)
+        }
+        if let text {
             let lines = LyricsParser.parse(text)
             if !lines.isEmpty { return lines }
         }
