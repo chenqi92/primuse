@@ -214,9 +214,11 @@ struct TVSongMatchView: View {
                 ProgressView()
                     .opacity(isLoading ? 1 : 0)
                 VStack(alignment: .trailing, spacing: 6) {
-                    Text(verbatim: candidate.confidence.formatted(.percent.precision(.fractionLength(0))))
-                        .tvFont(.caption, weight: .semibold)
-                        .foregroundStyle(confidenceTint(candidate.confidence))
+                    if candidate.lyrics == nil {
+                        Text(verbatim: candidate.confidence.formatted(.percent.precision(.fractionLength(0))))
+                            .tvFont(.caption, weight: .semibold)
+                            .foregroundStyle(confidenceTint(candidate.confidence))
+                    }
                     Text(verbatim: candidate.sourceName)
                         .tvFont(.meta)
                         .foregroundStyle(focused ? TVColor.text : TVColor.textMuted)
@@ -238,6 +240,9 @@ struct TVSongMatchView: View {
         if let album = candidate.item.album, !album.isEmpty { parts.append(album) }
         if let year = candidate.item.year, year > 0 { parts.append(String(year)) }
         if let ms = candidate.item.durationMs, ms > 0 { parts.append(TVFmt.time(Double(ms) / 1000)) }
+        if let lyrics = candidate.lyrics {
+            parts.append(String(format: String(localized: "lyrics_server_test_ok_format"), lyrics.count))
+        }
         return parts.joined(separator: " · ")
     }
 

@@ -308,6 +308,56 @@ final class SharedScraperRequestTests: XCTestCase {
         XCTAssertEqual(fixture.requests.map(\.url?.path), ["/api", "/api/get"])
     }
 
+    func testManualSearchListsLyricsAPIResultForTheSongIdentity() async {
+        let fixture = ScraperHTTPFixture { request in
+            let items = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems } ?? []
+            let title = items.first { $0.name == "title" }?.value
+            let artist = items.first { $0.name == "artist" }?.value
+            return title == "小海" && artist == "Singer"
+                ? .init(body: Data("[00:01.00]第一句\n[00:05.00]第二句".utf8))
+                : .init(status: 404)
+        }
+        defer { fixture.close() }
+        let server = LyricsAPIServerScraper(servers: [.init(address: fixture.url("api"))], session: fixture.session)
+        let manager = ScraperManager(scraperFactory: { _ in server })
+        let settings = ScraperSettings(sources: [
+            .init(id: "itunes", type: .itunes, isEnabled: true, priority: 0),
+            .init(id: "lyrics", type: .lyricsServer, isEnabled: true, priority: 1)
+        ])
+
+        let lookup = ScraperManager.lyricsServerLookupIdentity(query: "小海 Singer", title: "小海", artist: "Singer")
+        let found = await manager.lyricsServerCandidate(
+            title: lookup.title, artist: lookup.artist, album: nil, duration: 200, settings: settings
+        )
+        XCTAssertEqual(found?.config.id, "lyrics")
+        XCTAssertEqual(found?.lyrics.map(\.text), ["第一句", "第二句"])
+
+        let miss = await manager.lyricsServerCandidate(
+            title: "别的歌", artist: "Singer", album: nil, duration: 200, settings: settings
+        )
+        XCTAssertNil(miss)
+
+        let disabled = await manager.lyricsServerCandidate(
+            title: "小海", artist: "Singer", album: nil, duration: 200,
+            settings: ScraperSettings(sources: [.init(id: "lyrics", type: .lyricsServer, isEnabled: false, priority: 0)])
+        )
+        XCTAssertNil(disabled)
+        XCTAssertEqual(fixture.requests.count, 2, "A disabled lyrics API is never asked")
+    }
+
+    func testLyricsAPILookupSplitsTheSearchBoxIntoTitleAndArtist() {
+        func lookup(_ query: String, title: String = "小海", artist: String? = "Singer") -> [String?] {
+            let identity = ScraperManager.lyricsServerLookupIdentity(query: query, title: title, artist: artist)
+            return [identity.title, identity.artist]
+        }
+        XCTAssertEqual(lookup("小海 Singer"), ["小海", "Singer"], "The suggested query is title + artist")
+        XCTAssertEqual(lookup("小海"), ["小海", "Singer"], "A title-only query keeps the song's artist")
+        XCTAssertEqual(lookup("小海 (Live) singer"), ["小海", "Singer"], "Artist suffix is matched case-insensitively")
+        XCTAssertEqual(lookup("别的歌 Singer"), ["别的歌", "Singer"])
+        XCTAssertEqual(lookup("Other Artist - 别的歌"), ["别的歌", "Other Artist"])
+        XCTAssertEqual(lookup("完全不同", artist: nil), ["完全不同", nil])
+    }
+
     func testLyricsAPICancellationDoesNotTryNextEndpoint() async {
         let fixture = ScraperHTTPFixture { _ in .init(error: URLError(.cancelled)) }
         defer { fixture.close() }
