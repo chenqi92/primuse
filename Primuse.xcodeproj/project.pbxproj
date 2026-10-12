@@ -372,6 +372,7 @@
 		94BC98392B220B810D3AFA6B /* WebDAVMultistatusParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0991ED544EEA55E05E7105 /* WebDAVMultistatusParser.swift */; };
 		B292148827DDA2D80EC6D4F9 /* AVAudioConverter+PlaybackResampling.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F392A595C04F368F3BD4AD /* AVAudioConverter+PlaybackResampling.swift */; };
 		B2D8A49F9F94DDB1B3ECAB3B /* PodcastRequestQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71686A11D40981F530B26BFD /* PodcastRequestQuotaTests.swift */; };
+		C77D5F9587C9488488C6A427 /* CloudResolverRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEF6A5D06888EBD94F7E6C2B /* CloudResolverRequests.swift */; };
 		D05413CD64ACA16198D30C73 /* CrossFeatureQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 442CF52C9855BC72B9F3AB4B /* CrossFeatureQuotaTests.swift */; };
 		D2A78F3865EBA1FD516A73F6 /* BaiduWriteReplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23DCD3C94AF4401ADEB4284 /* BaiduWriteReplayTests.swift */; };
 		D5D791B3600C3FA3B5086550 /* RadioDirectoryQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A6BA865ECC75590B598DB8F /* RadioDirectoryQuotaTests.swift */; };
@@ -2301,6 +2302,7 @@
 		D3A5BB09389B0D45DAA0B5AC /* WebDAVDirectoryQuotaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebDAVDirectoryQuotaTests.swift; sourceTree = "<group>"; };
 		E48077F43523B90C9F35E6E1 /* WebDAVDirectoryRequestPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebDAVDirectoryRequestPolicy.swift; sourceTree = "<group>"; };
 		E95C18AFF99A705EF45EE054 /* TingReaderFavoriteReconciliation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TingReaderFavoriteReconciliation.swift; sourceTree = "<group>"; };
+		EEF6A5D06888EBD94F7E6C2B /* CloudResolverRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudResolverRequests.swift; sourceTree = "<group>"; };
 		EF75FC15E730283349BBB0B8 /* CoverWallLayoutPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverWallLayoutPolicy.swift; sourceTree = "<group>"; };
 		F0758171C80FAED182F55FFA /* FlyAuditoryCircuit.bin */ = {isa = PBXFileReference; lastKnownFileType = file; path = FlyAuditoryCircuit.bin; sourceTree = "<group>"; };
 		F4FE4BD3257B269C41AF23F9 /* ImmersiveSimulationRenderers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveSimulationRenderers.swift; sourceTree = "<group>"; };
@@ -5624,6 +5626,7 @@
 				8321DC84502AE307E1C3B466 /* FnMusicServiceClient.swift */,
 				52E544642E7DCB96C625600B /* FnMusicStreamResolver.swift */,
 				7960CAAB384CA738FC501CEB /* GuangYaAPIProtocol.swift */,
+				EEF6A5D06888EBD94F7E6C2B /* CloudResolverRequests.swift */,
 				FABA25380E65408B1259872B /* LANCloudAuthorization.swift */,
 				A6F6EF272DE4FC33E0D41998 /* LANSettingsTransfer.swift */,
 				8DFB5AEB2960B8723D2E4E8E /* LANSync.swift */,
@@ -6356,6 +6359,7 @@
 				4FD2D4DB2A4489CA8EA1959B /* AIServiceSetupGuidance.swift in Sources */,
 				6DB7A4FAB4B02D7A4E54E58A /* AIStreamingResponsePolicy.swift in Sources */,
 				49102CF09832B007A378A5FC /* AsyncSlotGate.swift in Sources */,
+				C77D5F9587C9488488C6A427 /* CloudResolverRequests.swift in Sources */,
 				CEF1428ED702B5B3803629D3 /* BuiltInAIQuota.swift in Sources */,
 				4F143173989D3435C5DB1644 /* ActiveConnectionRouteOwnershipPolicy.swift in Sources */,
 				8B79263572E878595E3E44B3 /* AdaptiveStreamQualityPolicy.swift in Sources */,
