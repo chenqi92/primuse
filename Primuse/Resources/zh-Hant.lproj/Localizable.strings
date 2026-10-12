@@ -5935,3 +5935,5 @@
 "theme_color_player_backdrop_moved_link" = "前往播放器設定";
 
 "eq_headroom_note %@" = "整體音量已調低 %@ dB，避免提升的頻段讓聲音失真。";
+
+"apple_music_catalog_album_unavailable" = "暫時無法從 Apple Music 取得這張專輯的曲目，請稍後再試。";

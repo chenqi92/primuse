@@ -5864,3 +5864,5 @@
 "theme_color_player_backdrop_moved_link" = "प्लेयर सेटिंग्स खोलें";
 
 "eq_headroom_note %@" = "बढ़ाए गए बैंड से आवाज़ विकृत न हो, इसलिए कुल वॉल्यूम %@ dB कम किया गया है।";
+
+"apple_music_catalog_album_unavailable" = "Apple Music से इस एल्बम के ट्रैक लोड नहीं हो सके। बाद में फिर से कोशिश करें।";

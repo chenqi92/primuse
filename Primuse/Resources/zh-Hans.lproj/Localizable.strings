@@ -6051,3 +6051,5 @@
 "theme_color_player_backdrop_moved_link" = "前往播放器设置";
 
 "eq_headroom_note %@" = "整体音量已调低 %@ dB，避免提升的频段让声音失真。";
+
+"apple_music_catalog_album_unavailable" = "暂时没能从 Apple Music 取到这张专辑的曲目，请稍后再试。";

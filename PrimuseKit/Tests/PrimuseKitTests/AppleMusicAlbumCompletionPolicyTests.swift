@@ -57,3 +57,26 @@ struct AppleMusicAlbumCompletionPolicyTests {
         #expect(!AppleMusicAlbumCompletionPolicy.albumTitlesMatch("Greatest Hits", "Album"))
     }
 }
+
+@Suite("Apple Music catalog album identity")
+struct AppleMusicCatalogAlbumIdentityTests {
+    @Test("The seed song survives the round trip")
+    func roundTrip() {
+        let id = AppleMusicCatalogAlbumIdentity.albumID(seedItemID: "1440857781")
+        #expect(AppleMusicCatalogAlbumIdentity.seedItemID(fromAlbumID: id) == "1440857781")
+        #expect(AppleMusicCatalogAlbumIdentity.isCatalogAlbum(id))
+    }
+
+    @Test("Library album IDs are not catalog albums")
+    func libraryAlbumIsNotCatalog() {
+        #expect(AppleMusicCatalogAlbumIdentity.seedItemID(fromAlbumID: "3f2a9c0d41b7e6a8") == nil)
+        #expect(!AppleMusicCatalogAlbumIdentity.isCatalogAlbum(""))
+    }
+
+    @Test("A prefix without a seed is not a catalog album")
+    func emptySeed() {
+        #expect(AppleMusicCatalogAlbumIdentity.seedItemID(
+            fromAlbumID: AppleMusicCatalogAlbumIdentity.albumID(seedItemID: "")
+        ) == nil)
+    }
+}

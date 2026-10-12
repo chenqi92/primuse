@@ -5864,3 +5864,5 @@
 "theme_color_player_backdrop_moved_link" = "فتح إعدادات المشغّل";
 
 "eq_headroom_note %@" = "تم خفض مستوى الصوت العام بمقدار %@ ديسيبل حتى لا تتشوه النطاقات المعززة.";
+
+"apple_music_catalog_album_unavailable" = "تعذّر تحميل مقاطع هذا الألبوم من Apple Music. حاول مرة أخرى لاحقًا.";

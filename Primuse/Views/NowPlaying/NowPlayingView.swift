@@ -1149,7 +1149,9 @@ struct NowPlayingView: View {
 
     private var currentAlbum: Album? {
         guard let song = player.currentSong else { return nil }
+        // 曲库里一首都没有的 Apple Music 专辑按目录现拼一张(见 AppleMusicCatalogAlbumIdentity)。
         return library.linkedAlbum(for: song)
+            ?? AppServices.shared.appleMusicLibrary.catalogAlbum(forCatalogOnlySong: song)
     }
 
     private var lyricsArtworkTransitionID: String {

@@ -5864,3 +5864,5 @@
 "theme_color_player_backdrop_moved_link" = "Abrir ajustes del reproductor";
 
 "eq_headroom_note %@" = "El volumen general bajó %@ dB para que las bandas realzadas no distorsionen.";
+
+"apple_music_catalog_album_unavailable" = "No se pudieron cargar las canciones de este álbum desde Apple Music. Inténtalo más tarde.";

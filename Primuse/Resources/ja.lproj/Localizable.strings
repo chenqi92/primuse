@@ -5959,3 +5959,5 @@
 "theme_color_player_backdrop_moved_link" = "プレーヤー設定を開く";
 
 "eq_headroom_note %@" = "ブーストした帯域で音が歪まないよう、全体の音量を %@ dB 下げています。";
+
+"apple_music_catalog_album_unavailable" = "Apple Music からこのアルバムの曲を取得できませんでした。しばらくしてからもう一度お試しください。";

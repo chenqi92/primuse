@@ -5958,3 +5958,5 @@
 "theme_color_player_backdrop_moved_link" = "Player-Einstellungen öffnen";
 
 "eq_headroom_note %@" = "Gesamtlautstärke um %@ dB abgesenkt, damit angehobene Bänder nicht verzerren.";
+
+"apple_music_catalog_album_unavailable" = "Die Titel dieses Albums konnten nicht von Apple Music geladen werden. Versuche es später erneut.";

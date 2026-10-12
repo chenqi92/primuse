@@ -33,6 +33,8 @@ struct AlbumDetailView: View {
     @State private var selection = SongSelectionModel()
     /// 资料库里只收了几首的 Apple Music 专辑,按目录补全后的整张(见 `completeAlbum`)。
     @State private var appleMusicCompletion: AppleMusicAlbumCompletion?
+    /// 目录现拼的专辑取曲目这一趟走完了(没取到时显示说明,而不是一直转圈)。
+    @State private var catalogAlbumLoadFinished = false
 
     init(album: Album, onMacInlineBack: (() -> Void)? = nil) {
         self.album = album
@@ -57,6 +59,12 @@ struct AlbumDetailView: View {
         appleMusicCompletion?.catalogOnlySongIDs.contains(song.id) == true
     }
 
+    /// 曲库里一首都没有、按 Apple Music 目录现拼的专辑(见 `AppleMusicCatalogAlbumIdentity`)。
+    /// 收藏、评价、简介、改封面、刮削这些按曲库专辑记账的入口都不出现。
+    private var isCatalogAlbum: Bool {
+        AppleMusicCatalogAlbumIdentity.isCatalogAlbum(album.id)
+    }
+
     private var albumSongCount: Int {
         appleMusicCompletion == nil ? album.songCount : albumSongs.count
     }
@@ -66,6 +74,15 @@ struct AlbumDetailView: View {
     }
 
     private func loadAppleMusicCompletion() async {
+        if isCatalogAlbum {
+            let completion = await AppServices.shared.appleMusicLibrary.catalogAlbumSongs(for: album)
+            guard !Task.isCancelled else { return }
+            withAnimation(PMMotion.list.resolved(reduceMotion: reduceMotion)) {
+                appleMusicCompletion = completion
+                catalogAlbumLoadFinished = true
+            }
+            return
+        }
         let librarySongs = songs
         guard !librarySongs.isEmpty,
               librarySongs.allSatisfy({ $0.sourceID == AppleMusicLibraryService.systemSourceID }) else {
@@ -101,7 +118,7 @@ struct AlbumDetailView: View {
     #if os(iOS)
     /// 整页底色取自这张专辑的封面 —— 跟封面视图挑的是同一首歌。
     private var artworkTintSong: Song? {
-        library.preferredArtworkSong(forAlbumID: album.id) ?? songs.first
+        library.preferredArtworkSong(forAlbumID: album.id) ?? songs.first ?? albumSongs.first
     }
 
     private var tint: LibraryDetailTintStyle {
@@ -249,14 +266,22 @@ struct AlbumDetailView: View {
         return ImmersiveLibraryDetailScrollView { insets in
             iosHero(insets: insets)
         } content: {
-            trackList(discs: discs, showsDiscHeaders: showsDiscHeaders)
-                .padding(.horizontal, 16)
-                .padding(.top, 18)
-                .padding(.bottom, BottomChromeClearancePolicy.clearance(
-                    legacyOverlayActive: legacyBottomChromeOverlayActive,
-                    legacy: 64,
-                    baseline: 16
-                ))
+            Group {
+                if isCatalogAlbum, discs.isEmpty {
+                    catalogAlbumPlaceholder
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 40)
+                } else {
+                    trackList(discs: discs, showsDiscHeaders: showsDiscHeaders)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 18)
+            .padding(.bottom, BottomChromeClearancePolicy.clearance(
+                legacyOverlayActive: legacyBottomChromeOverlayActive,
+                legacy: 64,
+                baseline: 16
+            ))
         }
         .toolbar {
             if verticalBarEdge != nil {
@@ -326,25 +351,27 @@ struct AlbumDetailView: View {
             }
         }
 
-        Section {
-            if let target = albumServerMediaShareTarget {
-                Button {
-                    serverMediaShareTarget = target
-                } label: {
-                    Label("server_share_action", systemImage: "link.badge.plus")
+        if !isCatalogAlbum {
+            Section {
+                if let target = albumServerMediaShareTarget {
+                    Button {
+                        serverMediaShareTarget = target
+                    } label: {
+                        Label("server_share_action", systemImage: "link.badge.plus")
+                    }
                 }
-            }
-            Button {
-                showArtworkEditor = true
-            } label: {
-                Label("artwork_edit", systemImage: "photo.badge.plus")
-            }
-            // 只在有改过的歌时出现。
-            if hasUserEditedSongs {
                 Button {
-                    showsRestoreFileTagsConfirmation = true
+                    showArtworkEditor = true
                 } label: {
-                    Label("restore_file_tags", systemImage: "arrow.uturn.backward")
+                    Label("artwork_edit", systemImage: "photo.badge.plus")
+                }
+                // 只在有改过的歌时出现。
+                if hasUserEditedSongs {
+                    Button {
+                        showsRestoreFileTagsConfirmation = true
+                    } label: {
+                        Label("restore_file_tags", systemImage: "arrow.uturn.backward")
+                    }
                 }
             }
         }
@@ -385,17 +412,19 @@ struct AlbumDetailView: View {
                 shuffleDisabled: albumSongs.filteredPlayable().count < 2,
                 play: { playAll() },
                 shuffle: shuffleAll,
-                favorite: albumFavorite
+                favorite: isCatalogAlbum ? nil : albumFavorite
             )
 
-            LibraryInsightSynopsis(
-                subject: insightIdentity,
-                details: insightDetails,
-                songs: { songs },
-                compact: compact
-            )
+            if !isCatalogAlbum {
+                LibraryInsightSynopsis(
+                    subject: insightIdentity,
+                    details: insightDetails,
+                    songs: { songs },
+                    compact: compact
+                )
 
-            LibraryReviewSection(subject: .album(album.id), compact: true, onArtwork: true)
+                LibraryReviewSection(subject: .album(album.id), compact: true, onArtwork: true)
+            }
         }
         // 底色铺满整幅屏幕, 文字与按钮按侧留在安全区内 —— 横屏两侧安全区不一定相等。
         .padding(.leading, insets.leading + 20)
@@ -439,14 +468,7 @@ struct AlbumDetailView: View {
             // 取图路径跟上面的封面一样走头图那一套,只是不放动画:静态卡片要先确认专辑封面
             // 缓存是空的才肯换歌曲封面,远端源上这一步慢、或者迟迟等不到,封面早出来了这一层
             // 还空着,上半屏只剩一块平涂底色。
-            AlbumArtworkView(
-                album: album,
-                size: coverSide,
-                cornerRadius: 0,
-                showsPlaceholder: false,
-                presentationRole: .animatedHero,
-                isAnimationVisible: false
-            )
+            heroArtwork(side: coverSide, cornerRadius: 0, showsPlaceholder: false, isAnimationVisible: false)
             .scaleEffect(side / coverSide)
             .blur(radius: 20)
             .saturation(1.25)
@@ -480,14 +502,38 @@ struct AlbumDetailView: View {
     }
 
     private func heroCover(side: CGFloat) -> some View {
-        AlbumArtworkView(
-            album: album,
-            size: side,
-            cornerRadius: side > 140 ? 14 : 10,
-            presentationRole: .animatedHero
-        )
-        .shadow(color: .black.opacity(0.34), radius: 18, y: 10)
-        .accessibilityHidden(true)
+        heroArtwork(side: side, cornerRadius: side > 140 ? 14 : 10, showsPlaceholder: true, isAnimationVisible: true)
+            .shadow(color: .black.opacity(0.34), radius: 18, y: 10)
+            .accessibilityHidden(true)
+    }
+
+    /// 头图封面:曲库专辑走专辑封面那一套(用户换的封面、缓存、动态封面);
+    /// 目录现拼的专辑直接用 Apple Music 给的封面。
+    @ViewBuilder
+    private func heroArtwork(
+        side: CGFloat,
+        cornerRadius: CGFloat,
+        showsPlaceholder: Bool,
+        isAnimationVisible: Bool
+    ) -> some View {
+        if isCatalogAlbum {
+            CachedArtworkView(
+                coverFileName: album.coverArtPath,
+                size: side,
+                cornerRadius: cornerRadius,
+                sourceID: AppleMusicLibraryService.systemSourceID,
+                showsPlaceholder: showsPlaceholder
+            )
+        } else {
+            AlbumArtworkView(
+                album: album,
+                size: side,
+                cornerRadius: cornerRadius,
+                showsPlaceholder: showsPlaceholder,
+                presentationRole: .animatedHero,
+                isAnimationVisible: isAnimationVisible
+            )
+        }
     }
 
     private func heroIdentityText(centered: Bool) -> some View {
@@ -515,8 +561,11 @@ struct AlbumDetailView: View {
     private var heroMetaLine: String {
         var parts: [String] = []
         if let year = album.year { parts.append(String(year)) }
-        parts.append("\(albumSongCount) \(String(localized: "songs_count"))")
-        parts.append(formatDuration(albumDuration))
+        // 目录现拼的专辑取到曲目之前不写「0 首」。
+        if albumSongCount > 0 {
+            parts.append("\(albumSongCount) \(String(localized: "songs_count"))")
+            parts.append(formatDuration(albumDuration))
+        }
         return parts.joined(separator: " \u{00B7} ")
     }
 
@@ -634,7 +683,8 @@ struct AlbumDetailView: View {
                     title: album.title,
                     subtitle: albumSubtitle,
                     iconSystemName: "square.stack.fill",
-                    coverAlbum: album,
+                    coverSong: isCatalogAlbum ? albumSongs.first : nil,
+                    coverAlbum: isCatalogAlbum ? nil : album,
                     onBack: onMacInlineBack.map { onBack in
                         {
                             selection.deactivate()
@@ -645,8 +695,8 @@ struct AlbumDetailView: View {
                     onPlay: { playAll() },
                     onShuffle: shuffleAll,
                     moreMenu: albumMoreMenu,
-                    favorite: albumFavorite,
-                    synopsis: AnyView(LibraryInsightSynopsis(
+                    favorite: isCatalogAlbum ? nil : albumFavorite,
+                    synopsis: isCatalogAlbum ? nil : AnyView(LibraryInsightSynopsis(
                         subject: insightIdentity,
                         details: insightDetails,
                         songs: { songs }
@@ -655,10 +705,16 @@ struct AlbumDetailView: View {
                 )
 
                 VStack(alignment: .leading, spacing: PMSpace.l) {
-                    LibraryReviewSection(subject: .album(album.id))
+                    if !isCatalogAlbum {
+                        LibraryReviewSection(subject: .album(album.id))
+                    }
                     macToolbar
 
-                    if albumSongs.isEmpty {
+                    if albumSongs.isEmpty, isCatalogAlbum {
+                        catalogAlbumPlaceholder
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 48)
+                    } else if albumSongs.isEmpty {
                         EmptyStateView(
                             titleKey: "no_songs",
                             descriptionKey: "no_songs_desc",
@@ -690,6 +746,24 @@ struct AlbumDetailView: View {
     /// header 右上角"更多"按钮的菜单内容。播放 / 队列 / 离线 / 前往艺术家。
     private var albumMoreMenu: AnyView {
         let playable = albumSongs.filteredPlayable()
+        let playItems: [MacHeaderMoreMenu.Item] = [
+            .init(icon: "play.fill", title: String(localized: "play_all"), enabled: !playable.isEmpty) { playAll() },
+            .init(icon: "shuffle", title: String(localized: "shuffle"), enabled: !playable.isEmpty, action: shuffleAll),
+            .init(icon: "text.line.last.and.arrowtriangle.forward", title: String(localized: "add_to_queue"),
+                  enabled: !playable.isEmpty) { player.appendToQueue(playable) },
+            .init(icon: "text.line.first.and.arrowtriangle.forward", title: String(localized: "insert_next"),
+                  enabled: !playable.isEmpty) { player.insertNextInQueue(playable) },
+        ]
+        if isCatalogAlbum {
+            // 目录现拼的专辑没有可整理的曲库曲目:只留播放这一组,和能找到的艺人页。
+            var sections = [playItems]
+            if let artist = albumArtist {
+                sections.append([MacHeaderMoreMenu.Item(icon: "music.mic", title: String(localized: "go_to_artist")) {
+                    NotificationCenter.default.post(name: .primuseDetailOpenArtist, object: artist)
+                }])
+            }
+            return AnyView(MacHeaderMoreMenu(sections: sections))
+        }
 
         var second: [MacHeaderMoreMenu.Item] = [
             .init(icon: "photo.badge.plus", title: String(localized: "artwork_edit")) {
@@ -747,14 +821,7 @@ struct AlbumDetailView: View {
                     }
                 },
             ],
-            [
-                .init(icon: "play.fill", title: String(localized: "play_all"), enabled: !playable.isEmpty) { playAll() },
-                .init(icon: "shuffle", title: String(localized: "shuffle"), enabled: !playable.isEmpty, action: shuffleAll),
-                .init(icon: "text.line.last.and.arrowtriangle.forward", title: String(localized: "add_to_queue"),
-                      enabled: !playable.isEmpty) { player.appendToQueue(playable) },
-                .init(icon: "text.line.first.and.arrowtriangle.forward", title: String(localized: "insert_next"),
-                      enabled: !playable.isEmpty) { player.insertNextInQueue(playable) },
-            ],
+            playItems,
             second,
         ]))
     }
@@ -776,8 +843,10 @@ struct AlbumDetailView: View {
         if let year = album.year {
             parts.append("\(year)")
         }
-        parts.append("\(albumSongCount) \(String(localized: "songs_count"))")
-        parts.append(formatDuration(albumDuration))
+        if albumSongCount > 0 {
+            parts.append("\(albumSongCount) \(String(localized: "songs_count"))")
+            parts.append(formatDuration(albumDuration))
+        }
         return parts.joined(separator: " · ")
     }
 
@@ -947,12 +1016,28 @@ struct AlbumDetailView: View {
     }
     #endif
 
+    /// 目录现拼的专辑还在取曲目,或者没取到。
+    @ViewBuilder
+    private var catalogAlbumPlaceholder: some View {
+        if catalogAlbumLoadFinished {
+            EmptyStateView(
+                titleKey: "no_songs",
+                descriptionKey: "apple_music_catalog_album_unavailable",
+                systemImage: "music.note"
+            )
+        } else {
+            ProgressView()
+        }
+    }
+
     private func playAll(shuffled: Bool = false) {
         let playable = albumSongs.filteredPlayable()
         let queue = shuffled ? playable.shuffled() : playable
         guard !queue.isEmpty else { return }
         if shuffled { player.shuffleEnabled = true }
-        SiriMediaInteractionDonor.donate(.album(id: album.id), shuffled: shuffled)
+        if !isCatalogAlbum {
+            SiriMediaInteractionDonor.donate(.album(id: album.id), shuffled: shuffled)
+        }
         Task { await player.play(queue: queue, startingAt: 0) }
     }
 

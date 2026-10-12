@@ -5864,3 +5864,5 @@
 "theme_color_player_backdrop_moved_link" = "เปิดการตั้งค่าเครื่องเล่น";
 
 "eq_headroom_note %@" = "ลดระดับเสียงโดยรวมลง %@ dB เพื่อไม่ให้ย่านความถี่ที่เพิ่มขึ้นทำให้เสียงแตก";
+
+"apple_music_catalog_album_unavailable" = "ไม่สามารถโหลดเพลงในอัลบั้มนี้จาก Apple Music ได้ ลองอีกครั้งในภายหลัง";

@@ -90,7 +90,8 @@ struct MacDetailContainer: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseDetailOpenAlbum)) { note in
             guard let album = note.object as? Album else { return }
-            if case .section(.albums) = route {
+            // 专辑分区由网格自己打开;目录现拼的专辑网格里没有,照常推进详情栈。
+            if case .section(.albums) = route, !AppleMusicCatalogAlbumIdentity.isCatalogAlbum(album.id) {
                 clearDetailPath()
                 return
             }

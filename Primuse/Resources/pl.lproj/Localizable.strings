@@ -5864,3 +5864,5 @@
 "theme_color_player_backdrop_moved_link" = "Otwórz ustawienia odtwarzacza";
 
 "eq_headroom_note %@" = "Ogólną głośność obniżono o %@ dB, aby wzmocnione pasma nie zniekształcały dźwięku.";
+
+"apple_music_catalog_album_unavailable" = "Nie udało się wczytać utworów z tego albumu z Apple Music. Spróbuj ponownie później.";

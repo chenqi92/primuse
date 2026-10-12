@@ -5718,3 +5718,5 @@
 "theme_color_player_backdrop_moved_link" = "Open Player Settings";
 
 "eq_headroom_note %@" = "Overall volume lowered by %@ dB so boosted bands don't distort.";
+
+"apple_music_catalog_album_unavailable" = "Couldn't load this album's tracks from Apple Music. Try again later.";

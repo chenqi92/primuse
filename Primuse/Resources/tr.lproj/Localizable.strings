@@ -5864,3 +5864,5 @@
 "theme_color_player_backdrop_moved_link" = "Çalar ayarlarını aç";
 
 "eq_headroom_note %@" = "Yükseltilen bantlar bozulmasın diye genel ses seviyesi %@ dB düşürüldü.";
+
+"apple_music_catalog_album_unavailable" = "Bu albümün parçaları Apple Music'ten yüklenemedi. Daha sonra tekrar deneyin.";

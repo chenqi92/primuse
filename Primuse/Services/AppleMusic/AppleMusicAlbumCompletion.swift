@@ -64,6 +64,46 @@ extension AppleMusicLibraryService {
         return AppleMusicAlbumCompletion(songs: songs, catalogOnlySongIDs: catalogOnly)
     }
 
+    /// 正在放的目录曲所在的专辑曲库里一首都没有时,「前往专辑」打开的那张
+    /// (ID 规则见 `AppleMusicCatalogAlbumIdentity`)。曲库里的歌、没有专辑名、
+    /// 或者现在放不了目录曲时返回 nil,入口照旧不出现。
+    func catalogAlbum(forCatalogOnlySong song: PrimuseKit.Song) -> PrimuseKit.Album? {
+        guard song.sourceID == Self.systemSourceID,
+              catalogPlaybackIsAvailable,
+              !isLibrarySong(song) else { return nil }
+        let title = (song.albumTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return nil }
+        return PrimuseKit.Album(
+            id: AppleMusicCatalogAlbumIdentity.albumID(seedItemID: song.filePath),
+            title: title,
+            artistName: song.albumArtistName ?? song.artistName,
+            year: song.year,
+            genre: song.genre,
+            coverArtPath: song.coverArtFileName,
+            sourceID: Self.systemSourceID
+        )
+    }
+
+    /// 上面那种专辑的整张曲目:按种子歌在目录里找到所在专辑,全部曲目按曲序排好;
+    /// 其中恰好在资料库里的用资料库那一行。
+    func catalogAlbumSongs(for album: PrimuseKit.Album) async -> AppleMusicAlbumCompletion? {
+        guard catalogPlaybackIsAvailable,
+              let seedID = AppleMusicCatalogAlbumIdentity.seedItemID(fromAlbumID: album.id),
+              let seed = await catalogMusicKitSong(forItemID: seedID),
+              !Task.isCancelled,
+              let catalogAlbum = try? await seed.with([.albums]).albums?.first,
+              !Task.isCancelled else { return nil }
+        let tracks = await Self.catalogTracks(of: catalogAlbum)
+        guard !tracks.isEmpty, !Task.isCancelled else { return nil }
+        var seen = Set<String>()
+        let songs = registerCatalogSongs(tracks).filter { seen.insert($0.id).inserted }
+        plog("💿 Apple Music catalog album '\(catalogAlbum.title)' tracks=\(songs.count)")
+        return AppleMusicAlbumCompletion(
+            songs: songs,
+            catalogOnlySongIDs: Set(songs.filter { !isLibrarySong($0) }.map(\.id))
+        )
+    }
+
     /// 这张专辑在目录里是哪一张。先按资料库曲目的目录 ID 找它所在的专辑,
     /// 曲目都没带目录 ID 时再按专辑名和艺人搜。
     private func catalogAlbum(

@@ -5958,3 +5958,5 @@
 "theme_color_player_backdrop_moved_link" = "Ouvrir les réglages du lecteur";
 
 "eq_headroom_note %@" = "Volume global réduit de %@ dB pour que les bandes amplifiées ne saturent pas.";
+
+"apple_music_catalog_album_unavailable" = "Impossible de charger les titres de cet album depuis Apple Music. Réessayez plus tard.";

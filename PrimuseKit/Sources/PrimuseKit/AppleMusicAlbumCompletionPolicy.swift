@@ -48,3 +48,25 @@ public enum AppleMusicAlbumCompletionPolicy {
         return lhs == rhs || lhs.contains(rhs) || rhs.contains(lhs)
     }
 }
+
+/// 曲库里一首都没有的 Apple Music 专辑:播放目录曲时「前往专辑」打开的是按目录现拼的专辑页。
+/// 专辑 ID 带着正在放的那首目录歌的 ID,专辑页凭它向目录取整张。曲库专辑的 ID 是专辑艺人加
+/// 专辑名的哈希,两种不会撞上;按专辑 ID 记账的收藏、评价也凭这个前缀认出它,不记。
+public enum AppleMusicCatalogAlbumIdentity {
+    private static let prefix = "applemusic-catalog-album:"
+
+    public static func albumID(seedItemID: String) -> String {
+        prefix + seedItemID
+    }
+
+    /// 不是这种专辑时返回 nil。
+    public static func seedItemID(fromAlbumID albumID: String) -> String? {
+        guard albumID.hasPrefix(prefix) else { return nil }
+        let seed = String(albumID.dropFirst(prefix.count))
+        return seed.isEmpty ? nil : seed
+    }
+
+    public static func isCatalogAlbum(_ albumID: String) -> Bool {
+        seedItemID(fromAlbumID: albumID) != nil
+    }
+}

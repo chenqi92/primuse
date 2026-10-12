@@ -834,13 +834,19 @@ final class AppleMusicLibraryService {
     /// 这首 Apple Music 歌的目录版。目录曲直接用缓存;资料库曲目按 PlayParameters 里的
     /// 目录 ID 再查一次目录(资料库条目拿不到相似艺人、所在专辑这些目录关系)。
     func catalogMusicKitSong(for song: PrimuseKit.Song) async -> MusicKit.Song? {
-        guard song.sourceID == Self.systemSourceID, appleMusic.authState == .authorized else { return nil }
+        guard song.sourceID == Self.systemSourceID else { return nil }
+        return await catalogMusicKitSong(forItemID: song.filePath)
+    }
+
+    /// 同上,按 MusicKit 条目 ID(Primuse 歌曲的 `filePath`)取。
+    func catalogMusicKitSong(forItemID itemID: String) async -> MusicKit.Song? {
+        guard appleMusic.authState == .authorized else { return nil }
         let catalogID: String
-        if Self.isCatalogItemID(song.filePath) {
-            if let cached = songCache[song.filePath] { return cached }
-            catalogID = song.filePath
+        if Self.isCatalogItemID(itemID) {
+            if let cached = songCache[itemID] { return cached }
+            catalogID = itemID
         } else {
-            guard let librarySong = await musicKitSong(amID: song.filePath) else { return nil }
+            guard let librarySong = await musicKitSong(amID: itemID) else { return nil }
             let identifiers = await withMediaLibraryGate { Self.musicItemIdentifiers(for: librarySong) }
             guard let found = identifiers.explicitCatalogIDs.sorted().first(where: Self.isCatalogItemID) else {
                 return nil

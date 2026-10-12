@@ -932,6 +932,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             guard let artistName, !artistName.isEmpty else { return true }
             return (album.artistName ?? "").localizedCaseInsensitiveCompare(artistName) == .orderedSame
         }
+            // 曲库里一首都没有的 Apple Music 专辑按目录现拼一张。
+            ?? AppServices.shared.appleMusicLibrary.catalogAlbum(forCatalogOnlySong: song)
     }
 
     private func matchingArtist(for song: Song) -> Artist? {

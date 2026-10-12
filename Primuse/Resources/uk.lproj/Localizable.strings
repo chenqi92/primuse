@@ -5864,3 +5864,5 @@
 "theme_color_player_backdrop_moved_link" = "Відкрити параметри програвача";
 
 "eq_headroom_note %@" = "Загальну гучність знижено на %@ дБ, щоб підсилені смуги не спотворювали звук.";
+
+"apple_music_catalog_album_unavailable" = "Не вдалося завантажити треки цього альбому з Apple Music. Спробуйте пізніше.";

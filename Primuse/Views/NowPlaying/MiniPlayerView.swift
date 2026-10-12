@@ -301,7 +301,8 @@ private struct MiniPlayerMenuItems: View {
 
             if !player.currentItemIsSpokenWord, !player.isLiveRadio, let openLibraryDestination {
                 Section {
-                    if let album = library.linkedAlbum(for: song) {
+                    if let album = library.linkedAlbum(for: song)
+                        ?? AppServices.shared.appleMusicLibrary.catalogAlbum(forCatalogOnlySong: song) {
                         Button { openLibraryDestination(.album(album)) } label: {
                             Label(String(localized: "go_to_album"), systemImage: "square.stack")
                         }

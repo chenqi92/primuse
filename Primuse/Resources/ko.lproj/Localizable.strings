@@ -5958,3 +5958,5 @@
 "theme_color_player_backdrop_moved_link" = "플레이어 설정 열기";
 
 "eq_headroom_note %@" = "부스트한 대역에서 소리가 왜곡되지 않도록 전체 음량을 %@ dB 낮췄습니다.";
+
+"apple_music_catalog_album_unavailable" = "Apple Music에서 이 앨범의 트랙을 불러오지 못했습니다. 잠시 후 다시 시도하세요.";

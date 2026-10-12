@@ -1921,6 +1921,8 @@ private struct MacNowPlayingMetadata: View {
             guard let artist else { return true }
             return (album.artistName ?? "").localizedCaseInsensitiveCompare(artist) == .orderedSame
         }
+            // 曲库里一首都没有的 Apple Music 专辑按目录现拼一张。
+            ?? AppServices.shared.appleMusicLibrary.catalogAlbum(forCatalogOnlySong: song)
     }
 
     private func trimmed(_ value: String?) -> String? {
