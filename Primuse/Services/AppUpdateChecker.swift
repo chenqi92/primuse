@@ -1,4 +1,5 @@
 import Foundation
+import PrimuseKit
 import SwiftUI
 #if os(iOS)
 import UIKit
@@ -48,6 +49,7 @@ final class AppUpdateChecker {
     private let explicitAppStoreID: String?
     private let defaults: UserDefaults
     private let session: URLSession
+    private let quotaRegistry: RequestQuotaRegistry
 
     private static let skippedVersionKey = "primuse.update.skippedVersion"
     private static let snoozeUntilKey = "primuse.update.snoozeUntil"
@@ -59,7 +61,8 @@ final class AppUpdateChecker {
     /// 颗粒度本来就是天级。频繁 hit Apple lookup 浪费流量也可能被节流。
     private static let throttleInterval: TimeInterval = 24 * 3600
 
-    init(defaults: UserDefaults = .standard, session: URLSession = .shared) {
+    init(defaults: UserDefaults = .standard, session: URLSession = .shared,
+         quotaRegistry: RequestQuotaRegistry = .shared) {
         let info = Bundle.main.infoDictionary
         self.bundleID = info?["CFBundleIdentifier"] as? String ?? "com.welape.yuanyin"
         #if DEBUG
@@ -79,6 +82,7 @@ final class AppUpdateChecker {
         #endif
         self.defaults = defaults
         self.session = session
+        self.quotaRegistry = quotaRegistry
         self.lastCheckedAt = defaults.object(forKey: Self.lastCheckKey) as? Date
     }
 
@@ -258,7 +262,10 @@ final class AppUpdateChecker {
         var req = URLRequest(url: url)
         req.cachePolicy = .reloadIgnoringLocalCacheData
         req.timeoutInterval = 10
-        let (data, _) = try await session.data(for: req)
+        guard let quota = RequestQuota.appleCatalog(for: url) else { throw URLError(.badURL) }
+        let (data, _) = try await quotaRegistry.execute(for: quota, replay: .idempotent, timeout: req.timeoutInterval) { [session, req] in
+            try await session.data(for: req)
+        }
         let response = try JSONDecoder().decode(LookupResponse.self, from: data)
         guard let r = response.results.first(where: isResultForCurrentPlatform),
               let storeURL = URL(string: r.trackViewUrl) else { return nil }
