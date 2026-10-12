@@ -826,6 +826,11 @@ final class AppleMusicLibraryService {
         }
     }
 
+    /// 这首歌在不在 Primuse 曲库里(目录投影出来的歌不在)。
+    func isLibrarySong(_ song: PrimuseKit.Song) -> Bool {
+        library.song(id: song.id) != nil
+    }
+
     /// 这首 Apple Music 歌的目录版。目录曲直接用缓存;资料库曲目按 PlayParameters 里的
     /// 目录 ID 再查一次目录(资料库条目拿不到相似艺人、所在专辑这些目录关系)。
     func catalogMusicKitSong(for song: PrimuseKit.Song) async -> MusicKit.Song? {
@@ -854,6 +859,39 @@ final class AppleMusicLibraryService {
             plog("⚠️Apple Music catalog lookup failed for \(catalogID): \(error.localizedDescription)")
             return nil
         }
+    }
+
+    /// 资料库里这几首 Apple Music 歌的身份,用来和目录曲目对上。缓存里有 MusicKit 条目就带上
+    /// 它 PlayParameters 里的目录 ID,按 ID 对得上;没有就只有歌名、歌手、专辑和时长。
+    /// `itemID` 用 Primuse 的歌曲 ID,对上以后能直接找回是哪一行。
+    func libraryTrackIdentities(for songs: [PrimuseKit.Song]) async -> [AppleMusicTrackIdentity] {
+        let cached = songs.map { songCache[$0.filePath] }
+        return await withMediaLibraryGate {
+            zip(songs, cached).map { song, musicKitSong in
+                var alternateIDs: Set<String> = [song.filePath]
+                if let musicKitSong {
+                    alternateIDs.formUnion(Self.alternateMusicItemIDs(for: musicKitSong))
+                }
+                return AppleMusicTrackIdentity(
+                    itemID: song.id,
+                    alternateIDs: alternateIDs,
+                    title: song.title,
+                    artist: song.artistName,
+                    album: song.albumTitle,
+                    duration: song.duration > 0 ? song.duration : nil
+                )
+            }
+        }
+    }
+
+    nonisolated static func catalogTrackIdentity(_ song: MusicKit.Song) -> AppleMusicTrackIdentity {
+        AppleMusicTrackIdentity(
+            itemID: song.id.rawValue,
+            title: song.title,
+            artist: song.artistName,
+            album: song.albumTitle,
+            duration: song.duration
+        )
     }
 
     /// 目录 ID 是纯数字;资料库条目是 `i.` 开头。

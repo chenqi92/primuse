@@ -10,6 +10,7 @@ struct AlbumDetailView: View {
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(ScraperSettingsStore.self) private var scraperSettings
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     #if os(iOS)
     @Environment(\.legacyBottomChromeOverlayActive)
     private var legacyBottomChromeOverlayActive
@@ -18,6 +19,7 @@ struct AlbumDetailView: View {
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @Environment(CoverTintProvider.self) private var coverTints
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.songRowStyle) private var songRowStyle
     #elseif os(macOS)
     @Environment(\.locale) private var locale
     #endif
@@ -29,6 +31,8 @@ struct AlbumDetailView: View {
     @State private var showsRestoreFileTagsConfirmation = false
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
     @State private var selection = SongSelectionModel()
+    /// 资料库里只收了几首的 Apple Music 专辑,按目录补全后的整张(见 `completeAlbum`)。
+    @State private var appleMusicCompletion: AppleMusicAlbumCompletion?
 
     init(album: Album, onMacInlineBack: (() -> Void)? = nil) {
         self.album = album
@@ -37,6 +41,46 @@ struct AlbumDetailView: View {
 
     private var songs: [Song] {
         library.songs(forAlbum: album.id)
+    }
+
+    /// 列表里显示、播放用的整张专辑:Apple Music 专辑补上资料库里没有的曲目,其余专辑就是 `songs`。
+    /// 资料库那几首每次按 ID 重新取,改过的标签、删掉的歌马上反映出来。
+    private var albumSongs: [Song] {
+        guard let completion = appleMusicCompletion else { return songs }
+        return completion.songs.compactMap { song in
+            completion.catalogOnlySongIDs.contains(song.id) ? song : library.song(id: song.id)
+        }
+    }
+
+    /// 资料库里没有、按 Apple Music 目录补上的那几首。只能播,不参与选择和整理。
+    private func isCatalogOnly(_ song: Song) -> Bool {
+        appleMusicCompletion?.catalogOnlySongIDs.contains(song.id) == true
+    }
+
+    private var albumSongCount: Int {
+        appleMusicCompletion == nil ? album.songCount : albumSongs.count
+    }
+
+    private var albumDuration: TimeInterval {
+        appleMusicCompletion == nil ? album.totalDuration : albumSongs.reduce(0) { $0 + $1.duration }
+    }
+
+    private func loadAppleMusicCompletion() async {
+        let librarySongs = songs
+        guard !librarySongs.isEmpty,
+              librarySongs.allSatisfy({ $0.sourceID == AppleMusicLibraryService.systemSourceID }) else {
+            appleMusicCompletion = nil
+            return
+        }
+        let completion = await AppServices.shared.appleMusicLibrary.completeAlbum(
+            librarySongs,
+            title: album.title,
+            artist: album.artistName
+        )
+        guard !Task.isCancelled, completion != appleMusicCompletion else { return }
+        withAnimation(PMMotion.list.resolved(reduceMotion: reduceMotion)) {
+            appleMusicCompletion = completion
+        }
     }
 
     private var downloadableSongs: [Song] {
@@ -118,6 +162,9 @@ struct AlbumDetailView: View {
         .sheet(item: $serverMediaShareTarget) { target in
             ServerMediaShareSheet(target: target)
         }
+        .task(id: songs.map(\.id)) {
+            await loadAppleMusicCompletion()
+        }
     }
 
     /// 工具栏里有自己的「⋯」时(普通 iPhone/iPad)确认框挂在它上面;
@@ -160,7 +207,7 @@ struct AlbumDetailView: View {
 
     /// 全选和"按看到的顺序入队"都要用列表实际渲染的顺序。
     private var orderedSongIDs: [String] {
-        songs.map(\.id)
+        albumSongs.filter { !isCatalogOnly($0) }.map(\.id)
     }
 
     private struct DiscSection: Identifiable {
@@ -172,7 +219,7 @@ struct AlbumDetailView: View {
 
     private var discSections: [DiscSection] {
         // Group the canonical library order without reordering tracks in the UI.
-        let grouped = Dictionary(grouping: songs, by: AlbumTrackOrder.discNumber(for:))
+        let grouped = Dictionary(grouping: albumSongs, by: AlbumTrackOrder.discNumber(for:))
         return grouped.keys.sorted().map { DiscSection(number: $0, songs: grouped[$0] ?? []) }
     }
 
@@ -247,7 +294,7 @@ struct AlbumDetailView: View {
     /// 收藏在头图那一行的心上，播放与随机也在那里。
     @ViewBuilder
     private var albumMoreMenuContent: some View {
-        let playable = songs.filteredPlayable()
+        let playable = albumSongs.filteredPlayable()
         let downloads = downloadableSongs
         PMMenuQuickActions {
             PMMenuQuickActionButton(
@@ -334,8 +381,8 @@ struct AlbumDetailView: View {
             }
 
             LibraryDetailPlayShuffleRow(
-                playDisabled: songs.filteredPlayable().isEmpty,
-                shuffleDisabled: songs.filteredPlayable().count < 2,
+                playDisabled: albumSongs.filteredPlayable().isEmpty,
+                shuffleDisabled: albumSongs.filteredPlayable().count < 2,
                 play: { playAll() },
                 shuffle: shuffleAll,
                 favorite: albumFavorite
@@ -468,8 +515,8 @@ struct AlbumDetailView: View {
     private var heroMetaLine: String {
         var parts: [String] = []
         if let year = album.year { parts.append(String(year)) }
-        parts.append("\(album.songCount) \(String(localized: "songs_count"))")
-        parts.append(formatDuration(album.totalDuration))
+        parts.append("\(albumSongCount) \(String(localized: "songs_count"))")
+        parts.append(formatDuration(albumDuration))
         return parts.joined(separator: " \u{00B7} ")
     }
 
@@ -488,24 +535,28 @@ struct AlbumDetailView: View {
                 }
 
                 ForEach(Array(disc.songs.enumerated()), id: \.element.id) { index, song in
-                    SongRowView(
-                        song: song,
-                        isPlaying: player.currentSong?.id == song.id,
-                        showAlbum: false,
-                        selection: selection,
-                        context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
-                    )
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        playSong(song)
+                    if isCatalogOnly(song) {
+                        catalogTrackRow(song)
+                    } else {
+                        SongRowView(
+                            song: song,
+                            isPlaying: player.currentSong?.id == song.id,
+                            showAlbum: false,
+                            selection: selection,
+                            context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
+                        )
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            playSong(song)
+                        }
+                        .songSelectable(
+                            songID: song.id,
+                            selection: selection,
+                            orderedIDs: { orderedSongIDs }
+                        )
                     }
-                    .songSelectable(
-                        songID: song.id,
-                        selection: selection,
-                        orderedIDs: { orderedSongIDs }
-                    )
 
                     if index < disc.songs.count - 1 {
                         Divider().padding(.leading, 66)
@@ -516,6 +567,61 @@ struct AlbumDetailView: View {
         // 专辑详情页的行都在同一张专辑里, 宽行不必再补一列专辑名。
         .songRowColumnsContainer(showsAlbum: false)
         .libraryDetailSection(tint: tint, cornerRadius: 20)
+    }
+
+    /// 资料库里没有、按 Apple Music 目录补上的一首。点了照样从这首起整张接着播;
+    /// 编辑标签、删除、加进歌单这些整理曲库的操作对它没有对象,所以只有播放,没有菜单。
+    /// 封面和字色压淡一档,再标上 Apple Music,一眼分得出哪几首还不在资料库里。
+    private func catalogTrackRow(_ song: Song) -> some View {
+        let style = songRowStyle
+        let isCurrent = player.currentSong?.id == song.id
+        return HStack(spacing: style.artworkSpacing) {
+            CachedArtworkView(
+                coverRef: song.coverArtFileName,
+                songID: song.id,
+                size: style.artworkSize,
+                cornerRadius: style.artworkCornerRadius,
+                sourceID: song.sourceID,
+                filePath: song.filePath,
+                fileFormat: song.fileFormat
+            )
+            .frame(width: style.artworkSize, height: style.artworkSize)
+            .opacity(0.7)
+
+            VStack(alignment: .leading, spacing: style.textSpacing) {
+                Text(song.title)
+                    .font(style.titleFont)
+                    .lineLimit(1)
+                    .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
+
+                HStack(spacing: 4) {
+                    Image(systemName: "applelogo")
+                    Text(verbatim: "Apple Music")
+                    if let artist = library.artistDisplayName(for: song) {
+                        Text(verbatim: "·")
+                        Text(verbatim: artist)
+                    }
+                    if song.duration > 0 {
+                        Text(verbatim: "·")
+                        Text(verbatim: song.duration.formattedDuration)
+                            .monospacedDigit()
+                    }
+                }
+                .font(style.subtitleFont)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            playSong(song)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
     }
     #endif
 
@@ -552,7 +658,7 @@ struct AlbumDetailView: View {
                     LibraryReviewSection(subject: .album(album.id))
                     macToolbar
 
-                    if songs.isEmpty {
+                    if albumSongs.isEmpty {
                         EmptyStateView(
                             titleKey: "no_songs",
                             descriptionKey: "no_songs_desc",
@@ -583,7 +689,7 @@ struct AlbumDetailView: View {
 
     /// header 右上角"更多"按钮的菜单内容。播放 / 队列 / 离线 / 前往艺术家。
     private var albumMoreMenu: AnyView {
-        let playable = songs.filteredPlayable()
+        let playable = albumSongs.filteredPlayable()
 
         var second: [MacHeaderMoreMenu.Item] = [
             .init(icon: "photo.badge.plus", title: String(localized: "artwork_edit")) {
@@ -670,8 +776,8 @@ struct AlbumDetailView: View {
         if let year = album.year {
             parts.append("\(year)")
         }
-        parts.append("\(album.songCount) \(String(localized: "songs_count"))")
-        parts.append(formatDuration(album.totalDuration))
+        parts.append("\(albumSongCount) \(String(localized: "songs_count"))")
+        parts.append(formatDuration(albumDuration))
         return parts.joined(separator: " · ")
     }
 
@@ -728,13 +834,17 @@ struct AlbumDetailView: View {
                     }
 
                     ForEach(Array(disc.songs.enumerated()), id: \.element.id) { index, song in
-                        macTrackRow(song, index: index, ordinalWidth: ordinalWidth)
-                            .songSelectable(
-                                songID: song.id,
-                                selection: selection,
-                                orderedIDs: { orderedSongIDs },
-                                defaultAction: { playSong(song) }
-                            )
+                        if isCatalogOnly(song) {
+                            macTrackRow(song, index: index, ordinalWidth: ordinalWidth)
+                        } else {
+                            macTrackRow(song, index: index, ordinalWidth: ordinalWidth)
+                                .songSelectable(
+                                    songID: song.id,
+                                    selection: selection,
+                                    orderedIDs: { orderedSongIDs },
+                                    defaultAction: { playSong(song) }
+                                )
+                        }
                     }
                 }
             }
@@ -760,8 +870,10 @@ struct AlbumDetailView: View {
         }
     }
 
+    /// 资料库里没有、按 Apple Music 目录补上的那几首压淡一档,格式那一列换成 Apple Music 标记。
     private func macTrackRow(_ song: Song, index: Int, ordinalWidth: CGFloat) -> some View {
         let isCurrent = player.currentSong?.id == song.id
+        let catalogOnly = isCatalogOnly(song)
         let trackNumber = song.trackNumber.flatMap { $0 > 0 ? $0 : nil } ?? index + 1
         return Button { playSong(song) } label: {
             HStack(spacing: PMSpace.s10) {
@@ -787,10 +899,11 @@ struct AlbumDetailView: View {
                     sourceID: song.sourceID, filePath: song.filePath,
                     fileFormat: song.fileFormat
                 )
+                .opacity(catalogOnly ? 0.7 : 1)
 
                 Text(song.title)
                     .font(.system(size: 12.5, weight: isCurrent ? .semibold : .regular))
-                    .foregroundStyle(isCurrent ? PMColor.brand : PMColor.text)
+                    .foregroundStyle(isCurrent ? PMColor.brand : (catalogOnly ? PMColor.textMuted : PMColor.text))
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -800,8 +913,22 @@ struct AlbumDetailView: View {
                     .lineLimit(1)
                     .frame(width: 180, alignment: .leading)
 
-                PMFormatPill.forFormat(song.codecFormat.displayName)
-                    .frame(width: 70, alignment: .leading)
+                Group {
+                    if catalogOnly {
+                        Label {
+                            Text(verbatim: "Apple Music")
+                        } icon: {
+                            Image(systemName: "applelogo")
+                        }
+                        .labelStyle(.iconOnly)
+                        .font(.system(size: 11))
+                        .foregroundStyle(PMColor.textFaint)
+                        .help(Text(verbatim: "Apple Music"))
+                    } else {
+                        PMFormatPill.forFormat(song.codecFormat.displayName)
+                    }
+                }
+                .frame(width: 70, alignment: .leading)
 
                 Text(song.duration.formattedDuration)
                     .font(.system(size: 11, design: .monospaced))
@@ -821,7 +948,7 @@ struct AlbumDetailView: View {
     #endif
 
     private func playAll(shuffled: Bool = false) {
-        let playable = songs.filteredPlayable()
+        let playable = albumSongs.filteredPlayable()
         let queue = shuffled ? playable.shuffled() : playable
         guard !queue.isEmpty else { return }
         if shuffled { player.shuffleEnabled = true }
@@ -834,9 +961,10 @@ struct AlbumDetailView: View {
     }
 
     private func playSong(_ song: Song) {
-        let queue = songs.filteredPlayable()
+        let queue = albumSongs.filteredPlayable()
         guard let index = queue.firstIndex(where: { $0.id == song.id }) else { return }
-        SiriMediaInteractionDonor.donate(song: song)
+        // 目录补上的那几首不在曲库里,Siri 之后按 ID 也找不回来,不捐。
+        if !isCatalogOnly(song) { SiriMediaInteractionDonor.donate(song: song) }
         Task { await player.play(queue: queue, startingAt: index) }
     }
 

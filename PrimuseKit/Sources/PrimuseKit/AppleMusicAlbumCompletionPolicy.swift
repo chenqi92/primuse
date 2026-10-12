@@ -1,0 +1,50 @@
+import Foundation
+
+/// 专辑页用 Apple Music 目录补全整张专辑:资料库里只收了其中几首时,其余曲目也列出来。
+public enum AppleMusicAlbumCompletionPolicy {
+    public enum Slot: Equatable, Sendable {
+        /// 资料库里已有的那一首(下标指向传入的资料库曲目)。
+        case library(Int)
+        /// 只在目录里的那一首(下标指向传入的目录曲目)。
+        case catalog(Int)
+    }
+
+    /// 按目录曲序排出整张专辑。目录里每首先找资料库里的同一首(ID 交叉对上为准,
+    /// 对不上再按歌名、歌手、时长保守匹配),找到就用资料库那一行;一首资料库曲目
+    /// 只被认领一次。没被认领的资料库曲目(目录里没有,比如自己导入的版本)排在最后。
+    public static func merge(
+        catalogTracks: [AppleMusicTrackIdentity],
+        librarySongs: [AppleMusicTrackIdentity]
+    ) -> [Slot] {
+        let index = AppleMusicTrackIdentityIndex(librarySongs)
+        var libraryIndexByItemID: [String: Int] = [:]
+        for (offset, song) in librarySongs.enumerated() where libraryIndexByItemID[song.itemID] == nil {
+            libraryIndexByItemID[song.itemID] = offset
+        }
+        var claimed = Set<Int>()
+        var slots: [Slot] = []
+        slots.reserveCapacity(max(catalogTracks.count, librarySongs.count))
+        for (offset, track) in catalogTracks.enumerated() {
+            if let itemID = index.canonicalID(for: track),
+               let libraryOffset = libraryIndexByItemID[itemID],
+               claimed.insert(libraryOffset).inserted {
+                slots.append(.library(libraryOffset))
+            } else {
+                slots.append(.catalog(offset))
+            }
+        }
+        for offset in librarySongs.indices where !claimed.contains(offset) {
+            slots.append(.library(offset))
+        }
+        return slots
+    }
+
+    /// 目录给回来的专辑是不是资料库里这一张:专辑名去掉版本说明后一致,或一方包含另一方
+    /// (「Album」与「Album (Deluxe Edition)」)。对不上就不补,免得把别的专辑的曲目塞进来。
+    public static func albumTitlesMatch(_ catalogTitle: String, _ libraryTitle: String) -> Bool {
+        let lhs = AppleMusicCatalogContinuationPolicy.titleKey(catalogTitle)
+        let rhs = AppleMusicCatalogContinuationPolicy.titleKey(libraryTitle)
+        guard !lhs.isEmpty, !rhs.isEmpty else { return false }
+        return lhs == rhs || lhs.contains(rhs) || rhs.contains(lhs)
+    }
+}
