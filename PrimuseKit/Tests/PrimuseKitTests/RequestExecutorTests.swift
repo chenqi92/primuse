@@ -4,6 +4,78 @@ import Testing
 
 @Suite("External HTTP requests")
 struct RequestExecutorTests {
+    @Test("Unsent writes wait through a short cooldown without consuming an attempt", arguments: [200, 500])
+    func admitsUnsentWriteAfterShortCooldown(status: Int) async throws {
+        let clock = ControlledClock()
+        let executor = RequestExecutor(policy: .init(maximumAttempts: 1), timing: clock.timing)
+        _ = try? await executor.execute { reply(429, headers: ["Retry-After": "2"]) }
+        let write = Task {
+            try await executor.execute {
+                clock.recordStart()
+                return reply(status)
+            }
+        }
+        defer { write.cancel() }
+        try await clock.waitForSleep(at: 2)
+        #expect(clock.starts.isEmpty)
+        clock.advance(to: 2)
+        do {
+            let result = try await write.value
+            #expect(status == 200)
+            #expect(result.response.statusCode == 200)
+        } catch let failure as HTTPResponseFailure {
+            #expect(status == 500)
+            #expect(failure.statusCode == 500)
+        }
+        #expect(clock.starts == [2])
+    }
+
+    @Test("Queued unsent requests respect cooldown learned from the active request")
+    func queuedRequestWaitsForNewCooldown() async throws {
+        let clock = ControlledClock()
+        let executor = RequestExecutor(policy: .init(maximumConcurrentRequests: 1), timing: clock.timing)
+        let gate = HeldResponse()
+        let first = Task { try await executor.execute { try await gate.read() } }
+        defer { first.cancel() }
+        try await gate.waitUntilStarted()
+        let second = Task { try await executor.execute { clock.recordStart(); return reply(200) } }
+        defer { second.cancel() }
+        try await clock.waitForSleep(at: 30, count: 2)
+        await gate.finish(reply(429, headers: ["Retry-After": "2"]))
+        _ = await first.result
+        try await clock.waitForSleep(at: 2)
+        clock.advance(to: 2)
+        _ = try await second.value
+        #expect(clock.starts == [2])
+    }
+
+    @Test("Cancellation during short cooldown never reaches transport")
+    func cancelsShortCooldownAdmission() async throws {
+        let clock = ControlledClock()
+        let executor = RequestExecutor(timing: clock.timing)
+        _ = try? await executor.execute { reply(429, headers: ["Retry-After": "2"]) }
+        let request = Task { try await executor.execute { clock.recordStart(); return reply(200) } }
+        try await clock.waitForSleep(at: 2)
+        request.cancel()
+        do { _ = try await request.value; Issue.record("Expected cancellation") }
+        catch { #expect(error is CancellationError) }
+        #expect(clock.starts.isEmpty)
+        clock.advance(to: 2)
+        _ = try await executor.execute { reply(200) }
+    }
+
+    @Test("A cooldown that exceeds the caller's deadline returns without sending")
+    func shortCooldownRespectsDeadline() async throws {
+        let clock = ControlledClock()
+        let executor = RequestExecutor(timing: clock.timing)
+        _ = try? await executor.execute { reply(429, headers: ["Retry-After": "2"]) }
+        do {
+            _ = try await executor.execute(timeout: 1) { clock.recordStart(); return reply(200) }
+            Issue.record("Expected cooldown beyond the available deadline")
+        } catch let failure as HTTPResponseFailure { #expect(failure.retryAfter == 2) }
+        #expect(clock.starts.isEmpty)
+    }
+
     @Test("Raw Retry-After fields share complete HTTP response parsing")
     func parsesRawRetryAfterFields() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
