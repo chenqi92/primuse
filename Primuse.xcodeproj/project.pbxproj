@@ -1926,6 +1926,7 @@
 		FFB6F3076CD8D107E17A9C33 /* ServerCatalogIncrementalSyncPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BADBBDCE4D75C75C46571A8 /* ServerCatalogIncrementalSyncPolicy.swift */; };
 		FFBCF7EB36598271E7DD7A77 /* TVWebDAVDirectoryLister.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B8F6937F6B41BB81A7B79A5 /* TVWebDAVDirectoryLister.swift */; };
 		FFD2B29D7B89BDA769B2D069 /* AudioDecoderProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF62F5046D29F993786AE489 /* AudioDecoderProtocol.swift */; };
+		1AFBE2A2D97DB36DFB683DB5 /* TVSourceHTTPFailureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11280543BFBFB5EC0F8563A2 /* TVSourceHTTPFailureTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -3605,6 +3606,7 @@
 		FF7F66F30F1802BA29DEB696 /* StreamingDownloadDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingDownloadDecoder.swift; sourceTree = "<group>"; };
 		FF9694CD231B4175BED85BEA /* ScraperResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScraperResult.swift; sourceTree = "<group>"; };
 		FFCB474474519BE89590D828 /* MacRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRoute.swift; sourceTree = "<group>"; };
+		11280543BFBFB5EC0F8563A2 /* TVSourceHTTPFailureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVSourceHTTPFailureTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -4775,6 +4777,7 @@
 			children = (
 				54A15074F64F0B584CB5B010 /* TVColorBackgroundIsolationTests.swift */,
 				8EF41EA448F60A86B27B2C77 /* TVWebDAVDirectoryQuotaTests.swift */,
+				11280543BFBFB5EC0F8563A2 /* TVSourceHTTPFailureTests.swift */,
 				EC873BF121FE7CF625EABC14 /* TVKaraokeParityTests.swift */,
 				EDC8B99069FF25B8A0FF10CA /* TVKaraokeSeparationTests.swift */,
 				17051B067440EDEAE09FA4D9 /* TVLibraryStateTests.swift */,
@@ -6202,6 +6205,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1AFBE2A2D97DB36DFB683DB5 /* TVSourceHTTPFailureTests.swift in Sources */,
 				55E75B511CF4BD0B32570F2E /* TVWebDAVDirectoryQuotaTests.swift in Sources */,
 				62BFB12E3C2424A8EEEEC13F /* CrossFeatureQuotaTests.swift in Sources */,
 				B2D8A49F9F94DDB1B3ECAB3B /* PodcastRequestQuotaTests.swift in Sources */,
