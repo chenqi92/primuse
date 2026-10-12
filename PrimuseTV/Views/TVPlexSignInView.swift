@@ -29,8 +29,6 @@ struct TVPlexSignInView: View {
         case failed(String)
     }
 
-    /// 轮询途中网络抖一下不该让整次登录失败，连续失败这么多次才放弃。
-    private static let maximumConsecutivePollFailures = 5
     private static let maximumCodeRenewals = 3
 
     var body: some View {
@@ -268,7 +266,7 @@ struct TVPlexSignInView: View {
             ).absoluteString
             phase = .waiting
 
-            let token = try await waitForToken(client: client, pinIDs: [link.id, web.id])
+            guard let token = try await client.waitForToken(pinIDs: [link.id, web.id]) else { return }
             accountToken = token
             plog("🎞️ TV Plex sign-in authorized")
             phase = .loadingServers
@@ -289,27 +287,11 @@ struct TVPlexSignInView: View {
         }
     }
 
-    private func waitForToken(client: PlexAccountClient, pinIDs: [Int]) async throws -> String {
-        var consecutiveFailures = 0
-        while true {
-            try await Task.sleep(for: PlexAccountAPI.pollInterval)
-            do {
-                for id in pinIDs {
-                    if let token = try await client.checkPin(id: id).authToken { return token }
-                }
-                consecutiveFailures = 0
-            } catch let error as PlexAccountError where error == .pinExpired || error == .unauthorized {
-                throw error
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                consecutiveFailures += 1
-                if consecutiveFailures >= Self.maximumConsecutivePollFailures { throw error }
-            }
-        }
-    }
-
     private static func message(for error: Error) -> String {
+        if let failure = error as? HTTPResponseFailure,
+           failure.isRateLimited || failure.statusCode == 429 || failure.retryAfter != nil {
+            return failure.localizedDescription
+        }
         switch error as? PlexAccountError {
         case .pinExpired?:
             return String(localized: "plex_signin_error_expired")

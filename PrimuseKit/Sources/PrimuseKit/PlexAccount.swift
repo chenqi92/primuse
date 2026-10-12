@@ -23,7 +23,7 @@ public enum PlexAccountAPI {
     )!
     /// 电视上用的短码要到这里输入。
     public static let linkPageURL = URL(string: "https://plex.tv/link")!
-    /// 轮询间隔。PIN 的有效期是半小时，用户在手机上登录通常要十几秒到一分钟。
+    /// 轮询间隔。有效期由 PIN 响应中的 expiresIn 决定。
     public static let pollInterval: Duration = .seconds(2)
 
     public static func pinURL(id: Int) -> URL {
@@ -92,15 +92,17 @@ public struct PlexPin: Decodable, Sendable, Equatable {
     public let id: Int
     public let code: String
     public let authToken: String?
+    public let expiresIn: TimeInterval?
 
-    public init(id: Int, code: String, authToken: String? = nil) {
+    public init(id: Int, code: String, authToken: String? = nil, expiresIn: TimeInterval? = nil) {
         self.id = id
         self.code = code
         self.authToken = authToken
+        self.expiresIn = expiresIn
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, code, authToken
+        case id, code, authToken, expiresIn
     }
 
     public init(from decoder: Decoder) throws {
@@ -116,6 +118,7 @@ public struct PlexPin: Decodable, Sendable, Equatable {
         code = try container.decode(String.self, forKey: .code)
         let token = try container.decodeIfPresent(String.self, forKey: .authToken)
         authToken = token?.isEmpty == false ? token : nil
+        expiresIn = try container.plexLossyInt(forKey: .expiresIn).map(TimeInterval.init)
     }
 }
 
@@ -616,12 +619,10 @@ public enum PlexAccountError: Error, Equatable, Sendable {
     case pinExpired
     /// 账号 token 失效了：用户在 plex.tv 上移除了这台设备或改了密码。
     case unauthorized
-    case rateLimited
-    case badStatus(Int)
     case invalidResponse
 }
 
-/// plex.tv 上的几个请求。不缓存、不重试，节奏由调用方决定。
+/// Plex account requests share admission and cooldown across PINs and resources.
 public struct PlexAccountClient: Sendable {
     public typealias DataLoader = @Sendable (URLRequest) async throws -> (Data, URLResponse)
 
@@ -630,18 +631,34 @@ public struct PlexAccountClient: Sendable {
     public let deviceName: String
     public let version: String
     private let loader: DataLoader
+    private let quotaRegistry: RequestQuotaRegistry
+    private let pollingTiming: RequestExecutor.Timing
+    private let pinLifetimes = PlexPinLifetimes()
+    private static let service = RequestQuota.Service(id: "plex.account", policy: .init(
+        maximumConcurrentRequests: 1, maximumAttempts: 2, timeout: 40
+    ))
+
+    // plex.tv and clients.plex.tv spend the same device/account-service quota.
+    private var quota: RequestQuota {
+        RequestQuota(service: Self.service, url: PlexAccountAPI.pinsURL,
+                     account: .init(stableID: clientIdentifier))!
+    }
 
     public init(
         clientIdentifier: String,
         platform: String,
         deviceName: String,
         version: String,
-        loader: DataLoader? = nil
+        loader: DataLoader? = nil,
+        quotaRegistry: RequestQuotaRegistry = .shared,
+        pollingTiming: RequestExecutor.Timing = .init()
     ) {
         self.clientIdentifier = clientIdentifier
         self.platform = platform
         self.deviceName = deviceName
         self.version = version
+        self.quotaRegistry = quotaRegistry
+        self.pollingTiming = pollingTiming
         if let loader {
             self.loader = loader
         } else {
@@ -663,12 +680,12 @@ public struct PlexAccountClient: Sendable {
         var request = makeRequest(url: components.url!, token: nil)
         request.httpMethod = "POST"
         let data = try await send(request)
-        return try decode(PlexPin.self, from: data)
+        return try recordPin(from: data)
     }
 
     public func checkPin(id: Int) async throws -> PlexPin {
         let data = try await send(makeRequest(url: PlexAccountAPI.pinURL(id: id), token: nil))
-        return try decode(PlexPin.self, from: data)
+        return try recordPin(from: data)
     }
 
     public func servers(accountToken: String) async throws -> [PlexResource] {
@@ -678,6 +695,12 @@ public struct PlexAccountClient: Sendable {
         } catch {
             throw PlexAccountError.invalidResponse
         }
+    }
+
+    private func recordPin(from data: Data) throws -> PlexPin {
+        let pin = try decode(PlexPin.self, from: data)
+        pinLifetimes.record(pin, now: pollingTiming.now())
+        return pin
     }
 
     private func makeRequest(url: URL, token: String?) -> URLRequest {
@@ -695,14 +718,90 @@ public struct PlexAccountClient: Sendable {
     }
 
     private func send(_ request: URLRequest) async throws -> Data {
-        let (data, response) = try await loader(request)
-        guard let http = response as? HTTPURLResponse else { throw PlexAccountError.invalidResponse }
-        switch http.statusCode {
-        case 200...299: return data
-        case 401, 403: throw PlexAccountError.unauthorized
-        case 404: throw PlexAccountError.pinExpired
-        case 429: throw PlexAccountError.rateLimited
-        default: throw PlexAccountError.badStatus(http.statusCode)
+        do {
+            let result = try await quotaRegistry.execute(
+                for: quota, replay: request.httpMethod == "POST" ? .never : .idempotent
+            ) { try await loader(request) }
+            return result.data
+        } catch let failure as HTTPResponseFailure {
+            if failure.retryAfter != nil { throw failure }
+            switch failure.statusCode {
+            case 401, 403: throw PlexAccountError.unauthorized
+            case 404: throw PlexAccountError.pinExpired
+            default:
+                // The poller must also know the default cooldown when the server
+                // throttles without a header. The registry owns the actual deadline.
+                if failure.retryAfter == nil,
+                   Self.service.policy.rateLimitStatusCodes.contains(failure.statusCode) {
+                    throw HTTPResponseFailure(statusCode: failure.statusCode, body: failure.body,
+                                              retryAfter: Self.service.policy.defaultCooldown)
+                }
+                throw failure
+            }
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
+        }
+    }
+
+    /// Shared single-/multi-PIN authorization loop. A closed authorization page
+    /// gets one final normal poll; during server cooldown it ends without a request.
+    /// `nil` means the page closed before authorization. Cancelling always throws.
+    public func waitForToken(
+        pinIDs: [Int],
+        authorizationPageClosed: (@Sendable () async -> Bool)? = nil
+    ) async throws -> String? {
+        guard !pinIDs.isEmpty else { throw PlexAccountError.invalidResponse }
+        let components = PlexAccountAPI.pollInterval.components
+        let interval = Double(components.seconds) + Double(components.attoseconds) / 1e18
+        var consecutiveFailures = 0
+        var delay = interval
+        var coolingDown = false
+        while true {
+            let expires = pinLifetimes.deadline(for: pinIDs, now: pollingTiming.now())
+            guard pollingTiming.now() < expires else { throw PlexAccountError.pinExpired }
+            let deadline = min(pollingTiming.now() + delay, expires)
+            repeat {
+                try Task.checkCancellation()
+                if coolingDown, await authorizationPageClosed?() == true { return nil }
+                let remaining = deadline - pollingTiming.now()
+                if remaining <= 0 { break }
+                // Observe page dismissal during long cooldowns without sending HTTP.
+                try await pollingTiming.sleep(min(authorizationPageClosed == nil ? 60 : interval, remaining))
+            } while pollingTiming.now() < deadline
+            try Task.checkCancellation()
+            guard pollingTiming.now() < expires else { throw PlexAccountError.pinExpired }
+            let pageWasClosed = await authorizationPageClosed?() == true
+            do {
+                for id in pinIDs {
+                    if let token = try await checkPin(id: id).authToken { return token }
+                }
+                consecutiveFailures = 0
+                delay = interval
+                coolingDown = false
+            } catch let error as PlexAccountError where error == .pinExpired || error == .unauthorized {
+                throw error
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let failure as HTTPResponseFailure where (failure.retryAfter ?? 0) > 0 {
+                // A service outage must still exhaust the original failure
+                // budget, even when Retry-After schedules the next attempt.
+                if failure.statusCode != 429 && !failure.isRateLimited {
+                    consecutiveFailures += 1
+                    if consecutiveFailures >= 5 { throw failure }
+                }
+                if pageWasClosed { return nil }
+                if await authorizationPageClosed?() == true { return nil }
+                delay = max(interval, failure.retryAfter!)
+                let remainingLifetime = pinLifetimes.deadline(for: pinIDs, now: pollingTiming.now()) - pollingTiming.now()
+                guard delay < remainingLifetime else { throw failure }
+                coolingDown = true
+            } catch {
+                consecutiveFailures += 1
+                if consecutiveFailures >= 5 { throw error }
+                delay = interval
+                coolingDown = false
+            }
+            if pageWasClosed { return nil }
         }
     }
 
@@ -711,6 +810,30 @@ public struct PlexAccountClient: Sendable {
             return try JSONDecoder().decode(type, from: data)
         } catch {
             throw PlexAccountError.invalidResponse
+        }
+    }
+}
+
+/// Monotonic deadlines survive repeated PIN checks and value copies of the
+/// same client. Missing expiry fields cannot turn polling into an endless loop.
+private final class PlexPinLifetimes: @unchecked Sendable {
+    private let lock = NSLock()
+    private var deadlines: [Int: TimeInterval] = [:]
+    private static let fallbackLifetime: TimeInterval = 15 * 60
+    private static let maximumLifetime: TimeInterval = 30 * 60
+
+    func record(_ pin: PlexPin, now: TimeInterval) {
+        let lifetime = pin.expiresIn.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil } ?? Self.fallbackLifetime
+        let deadline = now + min(lifetime, Self.maximumLifetime)
+        lock.withLock { deadlines[pin.id] = min(deadlines[pin.id] ?? deadline, deadline) }
+    }
+
+    func deadline(for ids: [Int], now: TimeInterval) -> TimeInterval {
+        lock.withLock {
+            ids.map { id in
+                if deadlines[id] == nil { deadlines[id] = now + Self.fallbackLifetime }
+                return deadlines[id]!
+            }.min()!
         }
     }
 }

@@ -364,6 +364,7 @@ targets:
       - path: PrimuseTests/BaiduWriteReplayTests.swift
       - path: PrimuseTests/SubsonicFavoriteWritebackTests.swift
       - path: PrimuseTests/RemoteMediaHTTPErrorTests.swift
+      - path: PrimuseTests/PlexSignInQuotaTests.swift
       - path: PrimuseTests/WebDAVDirectoryQuotaTests.swift
       - path: PrimuseTests/LastFmSimilarQuotaTests.swift
       - path: PrimuseTests/PodcastRequestQuotaTests.swift
