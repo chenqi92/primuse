@@ -4,6 +4,34 @@ import Testing
 
 @Suite("Cloud resolver request quotas", .serialized, .timeLimit(.minutes(1)))
 struct CloudResolverRequestTests {
+    @Test(arguments: [MusicSourceType.oneDrive, .baiduPan])
+    func invalidatedSharedRefreshReportsAuthenticationInsteadOfCallerCancellation(type: MusicSourceType) async throws {
+        let scenario = CloudRefreshScenario(firstSucceeds: true)
+        let fixture = CloudResolverFixture { try await scenario.reply($0) }
+        let source = MusicSource(id: UUID().uuidString, name: "fixture", type: type)
+        let credential = SourceCredential(token: "old", refreshToken: "refresh", clientID: "client")
+        let cloud = CloudDriveStreamResolver(session: fixture.session, quotaRegistry: fixture.registry)
+        let baidu = BaiduPanStreamResolver(session: fixture.session, quotaRegistry: fixture.registry)
+        let request = Task {
+            if type == .oneDrive {
+                _ = try await cloud.listDirectory(source: source, credential: credential, path: "/")
+            } else {
+                let song = Song(id: "song", title: "Song", fileFormat: .flac, filePath: "/track.flac", sourceID: source.id)
+                _ = try await baidu.resolve(for: song, source: source, credential: credential)
+            }
+        }
+        try await scenario.waitForRefresh()
+        if type == .oneDrive { await cloud.invalidateSession(sourceID: source.id) }
+        else { await baidu.invalidateSession(sourceID: source.id) }
+        // Release the deliberately held fixture response; invalidation has
+        // already cancelled the shared task before it can publish that token.
+        await scenario.releaseRefresh()
+        do { try await request.value; Issue.record("Expected session invalidation") }
+        catch { #expect((error as? URLError)?.code == .userAuthenticationRequired) }
+        #expect(!request.isCancelled)
+        #expect(await scenario.refreshes == 1, "Invalidation must not silently restart an old credential's refresh")
+    }
+
     @Test(arguments: [MusicSourceType.oneDrive, .baiduPan], [false, true])
     func cancelledRefreshOwnerCannotPoisonLaterRequests(type: MusicSourceType, succeeds: Bool) async throws {
         let scenario = CloudRefreshScenario(firstSucceeds: succeeds)
@@ -54,13 +82,6 @@ struct CloudResolverRequestTests {
         let result = try await CloudDriveStreamResolver(session: fixture.session, quotaRegistry: fixture.registry).listDirectory(source: source, credential: .init(token: "fixture"), path: "/")
         #expect(result.isEmpty)
         #expect(fixture.requests.count == 2)
-    }
-
-    @Test func playbackPresentationPreservesLocalizedAuthenticationAndQuotaMeaning() {
-        #expect(HTTPResponseFailure(statusCode: 401).cloudPlaybackError == .authFailed)
-        #expect(HTTPResponseFailure(statusCode: 403).cloudPlaybackError == .authFailed)
-        #expect(HTTPResponseFailure(statusCode: 200, isRateLimited: true).cloudPlaybackError == .badServerResponse(429))
-        #expect(HTTPResponseFailure(statusCode: 503, retryAfter: 3600).cloudPlaybackError == .badServerResponse(503))
     }
 
     @Test func guangyaBusinessCooldownIsSharedAcrossAccounts() async throws {

@@ -63,9 +63,18 @@ struct CloudResolverRequests: Sendable {
             do { race.resolve(.success(try await task.value)) }
             catch { race.resolve(.failure(error)) }
         }
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { race.install($0) }
-        } onCancel: { race.cancel() }
+        do {
+            return try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { race.install($0) }
+            } onCancel: { race.cancel() }
+        } catch {
+            try Task.checkCancellation()
+            // Invalidating a shared credential task is not cancellation of its
+            // caller. Let playback leave its loading state and show an auth
+            // error, without restarting refresh using the old credentials.
+            if task.isCancelled { throw URLError(.userAuthenticationRequired) }
+            throw error
+        }
     }
 }
 
@@ -77,15 +86,5 @@ actor CloudResolverReadAttempt {
         guard !recovered else { return false }
         recovered = true
         return true
-    }
-}
-
-extension HTTPResponseFailure {
-    /// Presentation only: keep the original failure in the request path so a
-    /// playback UI cannot restart the resolver's exhausted authentication budget.
-    public var cloudPlaybackError: StreamResolveError {
-        if isRateLimited || statusCode == 429 { return .badServerResponse(429) }
-        if [401, 403].contains(statusCode), retryAfter == nil { return .authFailed }
-        return .badServerResponse(statusCode)
     }
 }

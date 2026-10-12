@@ -25,7 +25,7 @@ public actor BaiduPanStreamResolver: StreamResolver {
         self.noRedirectSession = URLSession(configuration: session?.configuration ?? cfg, delegate: NoRedirectDelegate(), delegateQueue: nil)
     }
 
-    public func invalidateSession(sourceID: String) {
+    public func invalidateSession(sourceID: String) async {
         accessTokens[sourceID] = nil
         accessTokenTasks.removeValue(forKey: sourceID)?.task.cancel()
     }

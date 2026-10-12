@@ -98,7 +98,7 @@ public actor CloudDriveStreamResolver: StreamResolver {
         credentialRefreshHandler = handler
     }
 
-    public func invalidateSession(sourceID: String) {
+    public func invalidateSession(sourceID: String) async {
         accessTokens[sourceID] = nil
         refreshedCredentials[sourceID] = nil
         accessTokenTasks.removeValue(forKey: sourceID)?.task.cancel()
@@ -565,12 +565,6 @@ public actor CloudDriveStreamResolver: StreamResolver {
     static func formEncode(_ s: String) -> String {
         s.addingPercentEncoding(withAllowedCharacters: CharacterSet(charactersIn:
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")) ?? s
-    }
-
-    static func checkAuth(_ response: URLResponse) throws {
-        guard let http = response as? HTTPURLResponse else { return }
-        if http.statusCode == 401 { throw StreamResolveError.authFailed }
-        guard (200...299).contains(http.statusCode) else { throw HTTPResponseFailure(statusCode: http.statusCode, retryAfter: HTTPResponseFailure.retryDelay(from: http)) }
     }
 
     static func checkBodyAuthenticationFailure(

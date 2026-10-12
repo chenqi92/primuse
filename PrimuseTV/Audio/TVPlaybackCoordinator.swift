@@ -687,7 +687,7 @@ final class TVPlaybackCoordinator {
         } catch let failure as HTTPResponseFailure {
             plog("🎬 TV play: request failed status=\(failure.statusCode)")
             guard isCurrent(requestID, store: store) else { return }
-            playbackIssue = issue(for: failure.cloudPlaybackError, source: source)
+            playbackIssue = .failed(TVSourceErrorText.message(error: failure))
         } catch let error as StreamResolveError {
             plog("🎬 TV play: resolve FAILED — \(error)")
             guard isCurrent(requestID, store: store) else { return }
