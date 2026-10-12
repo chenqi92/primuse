@@ -76,25 +76,24 @@ final class SearchExperienceUITests: XCTestCase {
         attach(app, "search-standard-reopened")
     }
 
-    func testMinimalSearchSubmissionCollapsesFieldAndCanResumeEditing() {
+    func testMinimalSearchSubmissionKeepsQueryAndCanResumeEditing() {
         continueAfterFailure = false
         let app = searchApp(navigationMode: "minimal")
         app.launch()
-        let field = app.textFields["minimal.search"]
+        // 极简顶栏点搜索后换成输入框；提交只收起键盘，输入框和查询都留在顶栏上。
+        let field = app.textFields["minimal.search.field"]
         XCTAssertTrue(field.waitForExistence(timeout: 25))
         field.tap()
         field.typeText("夜曲\n")
-        let collapsed = app.buttons["minimal.search.collapsed"]
-        XCTAssertTrue(collapsed.waitForExistence(timeout: 5))
-        XCTAssertTrue(collapsed.label.contains("夜曲"))
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
-        XCTAssertFalse(field.exists)
+        XCTAssertEqual(field.value as? String, "夜曲")
         attach(app, "search-minimal-submitted")
-        collapsed.tap()
-        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         XCTAssertEqual(field.value as? String, "夜曲")
         attach(app, "search-minimal-reopened")
+        app.buttons["minimal.search.cancel"].tap()
+        XCTAssertTrue(app.buttons["minimal.search"].waitForExistence(timeout: 5))
     }
 
     private func searchApp(navigationMode: String) -> XCUIApplication {
