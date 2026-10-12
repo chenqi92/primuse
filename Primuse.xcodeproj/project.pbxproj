@@ -351,6 +351,7 @@
 		2F991483D3578D68154318C5 /* ScrobbleSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FC226D745AC023E7E54BF0F /* ScrobbleSettingsView.swift */; };
 		2F99FFD7B7D2D1F6EE1595A0 /* ServerCollectionFavoriteSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 535157A3C8E0F7D23DAD2B3D /* ServerCollectionFavoriteSyncService.swift */; };
 		2FE556608B4EE9CB93532EAD /* LibraryPageFind.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F0CCE40C02CDF0A976BE27 /* LibraryPageFind.swift */; };
+		49102CF09832B007A378A5FC /* AsyncSlotGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 261B3FEB73874EF88FA4C65C /* AsyncSlotGate.swift */; };
 		4B541B82A6DA95152F0AC80A /* WebDAVMultistatusParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0991ED544EEA55E05E7105 /* WebDAVMultistatusParser.swift */; };
 		55E75B511CF4BD0B32570F2E /* TVWebDAVDirectoryQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EF41EA448F60A86B27B2C77 /* TVWebDAVDirectoryQuotaTests.swift */; };
 		598812D421EF6C8AEDA0E1E9 /* LastFmSimilarQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 060EF616E880D6634832ABCD /* LastFmSimilarQuotaTests.swift */; };
@@ -2259,6 +2260,7 @@
 		0C7964E39EEC2700BAB113F8 /* PrimuseWatchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PrimuseWatchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0C999AE17AF8E49236B326C3 /* WiFiTransferFilePreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiTransferFilePreparation.swift; sourceTree = "<group>"; };
 		0CCA8EE372D7ED88D64B8C3D /* ISOBaseMediaChapterParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ISOBaseMediaChapterParser.swift; sourceTree = "<group>"; };
+		261B3FEB73874EF88FA4C65C /* AsyncSlotGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsyncSlotGate.swift; sourceTree = "<group>"; };
 		40980373B716BCFA76010C17 /* FireflySwarmSimulation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireflySwarmSimulation.swift; sourceTree = "<group>"; };
 		442CF52C9855BC72B9F3AB4B /* CrossFeatureQuotaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossFeatureQuotaTests.swift; sourceTree = "<group>"; };
 		4F93FF0F9DEA42E997404B4B /* SpokenWordCurrentBookCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenWordCurrentBookCache.swift; sourceTree = "<group>"; };
@@ -4043,6 +4045,7 @@
 		414F61F3A9ADE8E8099A5662 /* PrimuseKit */ = {
 			isa = PBXGroup;
 			children = (
+				261B3FEB73874EF88FA4C65C /* AsyncSlotGate.swift */,
 				036AA04905BA927ADD037522 /* RequestQuotaRegistry.swift */,
 				B8201B4D10F3B60D364411E9 /* AI */,
 				A854D7BB4C9874B9691F36C2 /* ChladniPlateSimulation.swift */,
@@ -6312,6 +6315,7 @@
 				7E3FBA7C13902D9125348C3B /* AISemanticAlbumGroupPolicy.swift in Sources */,
 				4FD2D4DB2A4489CA8EA1959B /* AIServiceSetupGuidance.swift in Sources */,
 				6DB7A4FAB4B02D7A4E54E58A /* AIStreamingResponsePolicy.swift in Sources */,
+				49102CF09832B007A378A5FC /* AsyncSlotGate.swift in Sources */,
 				CEF1428ED702B5B3803629D3 /* BuiltInAIQuota.swift in Sources */,
 				4F143173989D3435C5DB1644 /* ActiveConnectionRouteOwnershipPolicy.swift in Sources */,
 				8B79263572E878595E3E44B3 /* AdaptiveStreamQualityPolicy.swift in Sources */,

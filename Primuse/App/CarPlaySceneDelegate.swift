@@ -51,13 +51,11 @@ enum CarPlayArtworkLoadPolicy {
 actor CarPlayArtworkScheduler {
     static let shared = CarPlayArtworkScheduler()
 
-    private struct Waiter {
-        let id: UUID
-        let continuation: CheckedContinuation<Bool, Never>
-    }
-
-    private var isOccupied = false
-    private var waiters: [Waiter] = []
+    /// 排队和放行交给加锁的闸门，不靠 actor 串行。重建模板时主线程一口气取消整批封面
+    /// 任务，旧写法让取消处理器另起任务回 actor 撤等待者，实机日志里撤等待者和放行同时
+    /// 改了等待数组（popLast 陷阱、续体二次恢复）。闸门在取消线程上就地撤掉等待者，
+    /// 每个续体只恢复一次。
+    private let slot = AsyncSlotGate()
     private var nextStart = Date.distantPast
     private let minimumCooldown: TimeInterval
     private let maximumCooldown: TimeInterval
@@ -88,12 +86,12 @@ actor CarPlayArtworkScheduler {
     }
 
     func attempt(_ operation: @escaping @Sendable () async -> UIImage?) async -> Outcome {
-        let acquired = await acquire()
+        let acquired = await slot.acquire()
         guard acquired, !Task.isCancelled else {
-            if acquired { release() }
+            if acquired { slot.release() }
             return .image(nil)
         }
-        defer { release() }
+        defer { slot.release() }
 
         let wait = nextStart.timeIntervalSinceNow
         if wait > 0 {
@@ -121,39 +119,6 @@ actor CarPlayArtworkScheduler {
         }
         nextStart = Date().addingTimeInterval(min(maximumCooldown, cooldown))
         return .image(Task.isCancelled ? nil : image)
-    }
-
-    private func acquire() async -> Bool {
-        if !isOccupied {
-            isOccupied = true
-            return true
-        }
-        let id = UUID()
-        return await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                if Task.isCancelled {
-                    continuation.resume(returning: false)
-                } else {
-                    waiters.append(Waiter(id: id, continuation: continuation))
-                }
-            }
-        } onCancel: {
-            Task { await self.cancelWaiter(id: id) }
-        }
-    }
-
-    private func cancelWaiter(id: UUID) {
-        guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
-        let waiter = waiters.remove(at: index)
-        waiter.continuation.resume(returning: false)
-    }
-
-    private func release() {
-        if let waiter = waiters.popLast() {
-            waiter.continuation.resume(returning: true)
-        } else {
-            isOccupied = false
-        }
     }
 }
 
