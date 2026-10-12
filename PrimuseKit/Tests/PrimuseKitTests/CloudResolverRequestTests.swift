@@ -155,7 +155,7 @@ struct CloudResolverRequestTests {
         #expect(fixture.requests.filter { $0.url?.host == "login.microsoftonline.com" }.count == 1)
     }
 
-    @Test func pan123BusinessQuotaUsesTheDefaultSharedCooldown() async throws {
+    @Test func pan123BusinessQuotaKeepsDefaultCooldownWithinTheReadBudget() async throws {
         let fixture = CloudResolverFixture { request in
             if request.url?.path.hasSuffix("access_token") == true {
                 return (200, [:], Data(#"{"code":0,"data":{"accessToken":"fixture"}}"#.utf8))
@@ -164,18 +164,19 @@ struct CloudResolverRequestTests {
         }
         let source = MusicSource(id: UUID().uuidString, name: "123", type: .pan123)
         let song = Song(id: "track", title: "Track", fileFormat: .flac, filePath: "123", sourceID: source.id)
-        for _ in 0..<2 {
-            do {
-                _ = try await CloudDriveStreamResolver(session: fixture.session, quotaRegistry: fixture.registry).streamURL(for: song, source: source,
-                    credential: .init(clientID: "client", clientSecret: "fixture"))
-                Issue.record("Expected business quota failure")
-            } catch let failure as HTTPResponseFailure {
-                #expect(failure.statusCode == 200); #expect(failure.isRateLimited)
-            } catch { Issue.record("Business quota was lost: \(error)") }
-        }
+        do {
+            _ = try await CloudDriveStreamResolver(session: fixture.session, quotaRegistry: fixture.registry).streamURL(for: song, source: source,
+                credential: .init(clientID: "client", clientSecret: "fixture"))
+            Issue.record("Expected business quota failure")
+        } catch let failure as HTTPResponseFailure {
+            #expect(failure.statusCode == 200); #expect(failure.isRateLimited)
+        } catch { Issue.record("Business quota was lost: \(error)") }
         #expect(fixture.requests.filter { $0.url?.path.hasSuffix("access_token") == true }.count == 1)
-        #expect(fixture.requests.count == 6, "Five read attempts, then the next caller is deferred before issuing another token")
-        #expect(fixture.times[2] - fixture.times[1] >= 2, "The default cooldown is shared and never shortened")
+        #expect(fixture.requests.count == 6, "One token request and at most five read attempts")
+        let readTimes = fixture.times.dropFirst()
+        for (earlier, later) in zip(readTimes, readTimes.dropFirst()) {
+            #expect(later - earlier >= 2, "Every retry must respect the shared default cooldown")
+        }
     }
 
     @Test(arguments: [MusicSourceType.oneDrive, .baiduPan], [111, -6])
