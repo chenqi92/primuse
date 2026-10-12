@@ -897,15 +897,18 @@ struct RemoteDirectoryHTTPStatusError: Error, LocalizedError, Sendable {
     let statusCode: Int
     /// 服务端 Retry-After 要求等的秒数。
     let retryAfter: TimeInterval?
+    private let explicitRateLimit: Bool
 
-    init(service: String, statusCode: Int, retryAfter: TimeInterval? = nil) {
+    init(service: String, statusCode: Int, retryAfter: TimeInterval? = nil,
+         isRateLimited: Bool = false) {
         self.service = service
         self.statusCode = statusCode
         self.retryAfter = retryAfter
+        self.explicitRateLimit = isRateLimited
     }
 
     var isRateLimited: Bool {
-        RemoteDirectoryRateLimitPolicy.isRateLimited(statusCode: statusCode)
+        explicitRateLimit || RemoteDirectoryRateLimitPolicy.isRateLimited(statusCode: statusCode)
     }
 
     var errorDescription: String? {
