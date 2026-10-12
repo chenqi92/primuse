@@ -20,7 +20,23 @@ public struct HTTPResponseFailure: Error, Sendable, LocalizedError {
         self.isRetryable = isRetryable
     }
 
-    public var errorDescription: String? { PMString("ext.tv.playback.httpError", statusCode) }
+    /// Retry-After can express a provider cooldown on statuses such as 403 or
+    /// 503. Keep this presentation classification separate from replay safety.
+    public var isRateLimitFailure: Bool {
+        isRateLimited || statusCode == 429 ||
+            (retryAfter.map { $0.isFinite && $0 >= 0 } ?? false)
+    }
+
+    public var errorDescription: String? {
+        guard isRateLimitFailure else { return PMString("ext.tv.playback.httpError", statusCode) }
+        // Do not convert untrusted server durations to an integer or Duration.
+        // An impractically large value is still retained in retryAfter for the
+        // scheduler, while the user gets a readable generic message.
+        if let retryAfter, retryAfter.isFinite, retryAfter >= 0, retryAfter < 1e12 {
+            return PMString("request.rateLimited.wait", ceil(retryAfter))
+        }
+        return PMString("request.rateLimited")
+    }
 
     public static func retryDelay(from response: HTTPURLResponse, now: Date = Date()) -> TimeInterval? {
         retryDelay(from: response.value(forHTTPHeaderField: "Retry-After"), now: now)

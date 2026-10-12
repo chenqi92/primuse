@@ -21,6 +21,8 @@ public enum SourceFailureKind: Sendable, Equatable {
     case certificateRejected
     /// 连不上:超时、拒绝连接、DNS 解析失败、断网。
     case unreachable
+    /// 服务端要求等待后再试；不能通过重新登录解除。
+    case rateLimited
     /// 连上了,但服务端返回错误状态。
     case serverError(status: Int?)
     /// 该源类型不支持当前操作。
@@ -38,6 +40,7 @@ public enum SourceFailureKind: Sendable, Equatable {
         case .missingCredential: return "missingCredential"
         case .certificateRejected: return "certificateRejected"
         case .unreachable: return "unreachable"
+        case .rateLimited: return "rateLimited"
         case .serverError: return "serverError"
         case .unsupported: return "unsupported"
         case .cancelled: return "cancelled"
@@ -74,6 +77,11 @@ public enum SourceFailureClassifier {
 
     public static func kind(for error: Error) -> SourceFailureKind {
         if error is CancellationError { return .cancelled }
+        if let failure = error as? HTTPResponseFailure {
+            if failure.isRateLimitFailure { return .rateLimited }
+            if [401, 403].contains(failure.statusCode) { return .authFailed }
+            return .serverError(status: failure.statusCode)
+        }
         if let resolveError = error as? StreamResolveError {
             switch resolveError {
             case .needs2FA: return .needsTwoFactor
