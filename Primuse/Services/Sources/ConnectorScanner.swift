@@ -1191,9 +1191,13 @@ actor ConnectorScanner {
                                     )
                                 )
                             )
-                            if let status = error as? RemoteDirectoryHTTPStatusError, status.isRateLimited {
-                                rateLimitStopError = status
-                                plog("⏸ \(status.service) keeps rate limiting directory listings; stopping with \(pendingDirectories.count + failedDirectories.count) directories left for Continue Scan")
+                            let sharedCooldown = (error as? HTTPResponseFailure).map {
+                                $0.isRateLimited || $0.statusCode == 429 ||
+                                    ($0.retryAfter.map { $0.isFinite && $0 >= 0 } ?? false)
+                            } ?? false
+                            if (error as? RemoteDirectoryHTTPStatusError)?.isRateLimited == true || sharedCooldown {
+                                rateLimitStopError = error
+                                plog("⏸ Directory listings remain rate limited; stopping with \(pendingDirectories.count + failedDirectories.count) directories left for Continue Scan")
                                 break directoryWalk
                             }
                         }
