@@ -22,7 +22,7 @@ enum TCPRangeFetcher {
         case badURL
         case connection(String)
         case timeout
-        case http(Int)
+        case http(HTTPResponseFailure)
         case malformedResponse
 
         var errorDescription: String? {
@@ -33,27 +33,69 @@ enum TCPRangeFetcher {
                 return String(format: String(localized: "error_range_connection %@"), message)
             case .timeout:
                 return String(localized: "error_range_timeout")
-            case .http(let status):
+            case .http(let failure):
                 return String(
                     format: String(localized: "error_range_http %@"),
-                    String(status)
+                    String(failure.statusCode)
                 )
             case .malformedResponse:
                 return String(localized: "error_range_malformed_response")
             }
         }
 
-        /// HTTP 状态码错误意味着连接本身是好的(响应已完整读完)，应原样上抛让
-        /// 上层的 401/403/410→刷新直链 逻辑生效，且连接仍可复用、不应丢弃/重试。
+        /// HTTP failures are not stale-connection errors. Preserve them for
+        /// cooldown or signed-URL recovery instead of reconnecting and replaying.
         var isHTTPStatus: Bool {
             if case .http = self { return true }
             return false
         }
     }
 
+    /// Parses the transport header before any response body is accumulated.
+    /// A non-206 response preserves its cooldown and ends the Range transfer.
+    static func parseResponseHead(_ headerData: Data, now: Date = Date()) throws -> (status: Int, contentLength: Int?, isChunked: Bool, headers: [String: String]) {
+        guard let headerStr = String(data: headerData, encoding: .isoLatin1) ?? String(data: headerData, encoding: .utf8) else {
+            throw TCPRangeFetcher.FetchError.malformedResponse
+        }
+        let lines = headerStr.components(separatedBy: "\r\n")
+        guard let statusLine = lines.first else { throw TCPRangeFetcher.FetchError.malformedResponse }
+        // "HTTP/1.1 206 Partial Content"
+        let statusParts = statusLine.split(separator: " ")
+        guard statusParts.count >= 2, let status = Int(statusParts[1]), (100...599).contains(status) else {
+            throw TCPRangeFetcher.FetchError.malformedResponse
+        }
+        var cl: Int? = nil
+        var chunked = false
+        var headers: [String: String] = [:]
+        for line in lines.dropFirst() {
+            if let colon = line.firstIndex(of: ":") {
+                headers[String(line[..<colon])] = String(line[line.index(after: colon)...])
+                    .trimmingCharacters(in: .whitespaces)
+            }
+            let lower = line.lowercased()
+            if lower.hasPrefix("content-length:") {
+                let v = line.drop(while: { $0 != ":" }).dropFirst()
+                    .trimmingCharacters(in: .whitespaces)
+                guard let parsedLength = Int(v), parsedLength >= 0 else {
+                    throw TCPRangeFetcher.FetchError.malformedResponse
+                }
+                cl = parsedLength
+            } else if lower.hasPrefix("transfer-encoding:") && lower.contains("chunked") {
+                chunked = true
+            }
+        }
+        guard status == 206 else {
+            let response = HTTPURLResponse(url: URL(string: "https://range.invalid")!, statusCode: status,
+                                           httpVersion: "HTTP/1.1", headerFields: headers)!
+            throw FetchError.http(HTTPResponseFailure(statusCode: status,
+                retryAfter: HTTPResponseFailure.retryDelay(from: response, now: now)))
+        }
+        return (status, cl, chunked, headers)
+    }
+
     /// 语义同 `CloudDriveHelper.rangeRequest`：返回文件 `[offset, offset+length)` 区间的字节。
     /// - 206：响应体即该 slice，直接返回。
-    /// - 200：服务端忽略了 Range 返回整文件，自行切窗口。
+    /// - 200：服务端忽略 Range，收到头后立即中止，交由上层流式回退。
     ///
     /// 内部按 host 复用一条 keep-alive 长连接；同一 host 的请求串行执行。
     static func fetch(
@@ -102,22 +144,32 @@ private actor TCPHostEndpoint {
 
     // 异步互斥锁：保证同一 host 同时只有一个 fetch 在跑。
     private var locked = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var waiters: [(UUID, CheckedContinuation<Void, Error>)] = []
 
     init(host: String, port: NWEndpoint.Port) {
         self.host = host
         self.port = port
     }
 
-    private func acquire() async {
-        if !locked {
-            locked = true
-            return
+    private func acquire() async throws {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            if !locked {
+                locked = true
+                return
+            }
+            try await withCheckedThrowingContinuation { continuation in
+                waiters.append((id, continuation))
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id) }
         }
-        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            waiters.append(cont)
-        }
-        // 被 release 唤醒时锁的所有权已直接移交给我们，locked 始终保持 true。
+    }
+
+    private func cancelWaiter(_ id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.0 == id }) else { return }
+        waiters.remove(at: index).1.resume(throwing: CancellationError())
     }
 
     private func release() {
@@ -125,7 +177,7 @@ private actor TCPHostEndpoint {
             locked = false
         } else {
             let next = waiters.removeFirst()
-            next.resume()
+            next.1.resume()
         }
     }
 
@@ -136,11 +188,12 @@ private actor TCPHostEndpoint {
         userAgent: String?,
         timeoutSeconds: TimeInterval
     ) async throws -> Data {
-        await acquire()
+        try await acquire()
         defer { release() }
+        try Task.checkCancellation()
 
         // 优先复用既有活连接。复用失败(连接级错误，含 keep-alive 空闲被服务端关闭)→
-        // 丢弃后用新连接重试一次，对上层透明。HTTP 状态错误(响应已完整)直接上抛、不重试。
+        // 丢弃后用新连接重试一次，对上层透明。HTTP 状态错误在头部解析后直接上抛、不重试。
         if let existing = conn, !existing.isDead {
             do {
                 return try await runRequest(
@@ -170,7 +223,8 @@ private actor TCPHostEndpoint {
                 userAgent: userAgent, timeoutSeconds: timeoutSeconds
             )
         } catch let e as TCPRangeFetcher.FetchError where e.isHTTPStatus {
-            // 连接是好的(状态码错误)，保留供后续复用。
+            // Error/ignored-Range headers already closed the connection. The
+            // next caller rebuilds it; this response must not be replayed.
             throw e
         } catch {
             drop(fresh)
@@ -342,9 +396,9 @@ private final class PooledConnection: @unchecked Sendable {
         case 206:
             return body
         case 200:
-            throw TCPRangeFetcher.FetchError.http(200)
+            throw TCPRangeFetcher.FetchError.http(HTTPResponseFailure(statusCode: 200))
         default:
-            throw TCPRangeFetcher.FetchError.http(status)
+            throw TCPRangeFetcher.FetchError.http(HTTPResponseFailure(statusCode: status))
         }
     }
 
@@ -368,16 +422,17 @@ private final class PooledConnection: @unchecked Sendable {
             if headerEnd == nil, let r = raw.range(of: headerSep) {
                 headerEnd = r.upperBound
                 let headerData = raw.subdata(in: raw.startIndex..<r.lowerBound)
-                let parsed = try parseHeaders(headerData)
-                status = parsed.status
-                contentLength = parsed.contentLength
-                isChunked = parsed.isChunked
-                if parsed.status == 200 {
-                    // Abort as soon as headers prove Range was ignored. Reading
-                    // the body here can otherwise aggregate a multi-GB file.
+                do {
+                    let parsed = try TCPRangeFetcher.parseResponseHead(headerData)
+                    status = parsed.status
+                    contentLength = parsed.contentLength
+                    isChunked = parsed.isChunked
+                } catch {
+                    // Error pages and ignored Range responses can be arbitrarily
+                    // large. Preserve the failure, then discard this connection.
                     conn.cancel()
                     markDead()
-                    throw TCPRangeFetcher.FetchError.http(200)
+                    throw error
                 }
             }
 
@@ -440,35 +495,6 @@ private final class PooledConnection: @unchecked Sendable {
     }
 
     // MARK: - HTTP/1.1 解析
-
-    private func parseHeaders(_ headerData: Data) throws -> (status: Int, contentLength: Int?, isChunked: Bool) {
-        guard let headerStr = String(data: headerData, encoding: .isoLatin1) ?? String(data: headerData, encoding: .utf8) else {
-            throw TCPRangeFetcher.FetchError.malformedResponse
-        }
-        let lines = headerStr.components(separatedBy: "\r\n")
-        guard let statusLine = lines.first else { throw TCPRangeFetcher.FetchError.malformedResponse }
-        // "HTTP/1.1 206 Partial Content"
-        let statusParts = statusLine.split(separator: " ")
-        guard statusParts.count >= 2, let status = Int(statusParts[1]) else {
-            throw TCPRangeFetcher.FetchError.malformedResponse
-        }
-        var cl: Int? = nil
-        var chunked = false
-        for line in lines.dropFirst() {
-            let lower = line.lowercased()
-            if lower.hasPrefix("content-length:") {
-                let v = line.drop(while: { $0 != ":" }).dropFirst()
-                    .trimmingCharacters(in: .whitespaces)
-                guard let parsedLength = Int(v), parsedLength >= 0 else {
-                    throw TCPRangeFetcher.FetchError.malformedResponse
-                }
-                cl = parsedLength
-            } else if lower.hasPrefix("transfer-encoding:") && lower.contains("chunked") {
-                chunked = true
-            }
-        }
-        return (status, cl, chunked)
-    }
 
     /// 在 chunked body 里找结束位置(终止块 `0\r\n...\r\n\r\n` 之后)；未收全返回 nil。
     private func chunkedBodyEnd(_ data: Data, from start: Int) -> Int? {

@@ -20,7 +20,23 @@ public struct HTTPResponseFailure: Error, Sendable, LocalizedError {
         self.isRetryable = isRetryable
     }
 
-    public var errorDescription: String? { PMString("ext.tv.playback.httpError", statusCode) }
+    /// Retry-After can express a provider cooldown on statuses such as 403 or
+    /// 503. Keep this presentation classification separate from replay safety.
+    public var isRateLimitFailure: Bool {
+        isRateLimited || statusCode == 429 ||
+            (retryAfter.map { $0.isFinite && $0 >= 0 } ?? false)
+    }
+
+    public var errorDescription: String? {
+        guard isRateLimitFailure else { return PMString("ext.tv.playback.httpError", statusCode) }
+        // Do not convert untrusted server durations to an integer or Duration.
+        // An impractically large value is still retained in retryAfter for the
+        // scheduler, while the user gets a readable generic message.
+        if let retryAfter, retryAfter.isFinite, retryAfter >= 0, retryAfter < 1e12 {
+            return PMString("request.rateLimited.wait", ceil(retryAfter))
+        }
+        return PMString("request.rateLimited")
+    }
 
     public static func retryDelay(from response: HTTPURLResponse, now: Date = Date()) -> TimeInterval? {
         retryDelay(from: response.value(forHTTPHeaderField: "Retry-After"), now: now)
@@ -236,9 +252,9 @@ public actor RequestExecutor {
                 .resourceUnavailable].contains(error.code)
     }
 
-    private func checkCooldown() throws {
+    private func checkCooldown(maximumWait: TimeInterval, deadline: TimeInterval) throws {
         let remaining = cooldownUntil - timing.now()
-        if remaining > 0 {
+        if remaining > 0 && (remaining > maximumWait || cooldownUntil >= deadline) {
             throw HTTPResponseFailure(
                 statusCode: cooldownFailure.statusCode, body: cooldownFailure.body,
                 retryAfter: remaining, isRateLimited: cooldownFailure.isRateLimited,
@@ -252,15 +268,27 @@ public actor RequestExecutor {
         _ send: @Sendable () async throws -> Value
     ) async throws -> Value {
         try Task.checkCancellation()
-        try checkCooldown()
+        // Waiting before the first send is safe even for a non-replayable write.
+        // Reject long cooldowns before occupying a bounded admission slot.
+        try checkCooldown(maximumWait: policy.maximumRetryWait, deadline: deadline)
         try await acquire()
         defer { release() }
-        while nextStart > timing.now() {
-            try await timing.sleep(nextStart - timing.now())
+        var cooldownWaitDeadline: TimeInterval?
+        while true {
             try Task.checkCancellation()
+            let now = timing.now()
+            if cooldownUntil > now, cooldownWaitDeadline == nil {
+                cooldownWaitDeadline = now + policy.maximumRetryWait
+            }
+            try checkCooldown(
+                maximumWait: max(0, (cooldownWaitDeadline ?? now) - now),
+                deadline: deadline
+            )
+            let delay = max(nextStart, cooldownUntil) - now
+            guard delay > 0 else { break }
+            try await timing.sleep(delay)
         }
         try Task.checkCancellation()
-        try checkCooldown()
         guard timing.now() < deadline else { throw URLError(.timedOut) }
         nextStart = timing.now() + minimumInterval
         do {

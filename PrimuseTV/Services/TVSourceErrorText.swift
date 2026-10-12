@@ -20,6 +20,8 @@ enum TVSourceErrorText {
             return PMString("ext.tv.source.error.certificate")
         case .unreachable:
             return PMString("ext.tv.source.error.unreachable")
+        case .rateLimited:
+            return error.localizedDescription
         case .serverError(let status):
             guard let status else { return PMString("ext.tv.source.error.unreachable") }
             return PMString("ext.tv.playback.httpError", status)

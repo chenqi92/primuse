@@ -359,6 +359,9 @@ targets:
     platform: macOS
     sources:
       - path: PrimuseMacTests
+      - path: PrimuseTests/DirectoryScanCooldownTests.swift
+      - path: PrimuseTests/CloudRequestTests.swift
+      - path: PrimuseTests/BaiduWriteReplayTests.swift
       - path: PrimuseTests/SubsonicFavoriteWritebackTests.swift
       - path: PrimuseTests/RemoteMediaHTTPErrorTests.swift
       - path: PrimuseTests/WebDAVDirectoryQuotaTests.swift
@@ -366,6 +369,7 @@ targets:
       - path: PrimuseTests/PodcastRequestQuotaTests.swift
       - path: PrimuseTests/CrossFeatureQuotaTests.swift
       - path: PrimuseTests/RadioDirectoryQuotaTests.swift
+      - path: PrimuseTests/ExternalPlaylistQuotaTests.swift
       - path: PrimuseTests/AIRequestQuotaTests.swift
     dependencies:
       - target: PrimuseMac

@@ -1024,3 +1024,7 @@
 "widget_desk_previous_station" = "上一个电台";
 "widget_desk_next_station" = "下一个电台";
 "widget_desk_stop" = "停止";
+
+// Shared HTTP rate-limit errors.
+"request.rateLimited" = "请求过于频繁，请稍后重试。";
+"request.rateLimited.wait" = "请求过于频繁，请在 %.0f 秒后重试。";

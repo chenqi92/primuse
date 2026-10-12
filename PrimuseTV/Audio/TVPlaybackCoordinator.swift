@@ -684,6 +684,10 @@ final class TVPlaybackCoordinator {
             )
         } catch is CancellationError {
             return
+        } catch let failure as HTTPResponseFailure {
+            plog("🎬 TV play: request failed status=\(failure.statusCode)")
+            guard isCurrent(requestID, store: store) else { return }
+            playbackIssue = .failed(TVSourceErrorText.message(error: failure))
         } catch let error as StreamResolveError {
             plog("🎬 TV play: resolve FAILED — \(error)")
             guard isCurrent(requestID, store: store) else { return }
