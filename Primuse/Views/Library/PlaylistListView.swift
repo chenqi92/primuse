@@ -3,6 +3,7 @@ import PrimuseKit
 
 struct PlaylistListView: View {
     @Environment(MusicLibrary.self) private var library
+    @Environment(\.libraryStackRegistersCollectionDetails) private var stackRegistersDetails
     @Environment(AudioPlayerService.self) private var player
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MusicScraperService.self) private var scraperService
@@ -293,9 +294,7 @@ struct PlaylistListView: View {
         .sheet(isPresented: $showAIEditor) {
             AIPlaylistEditorView(existing: nil)
         }
-        .navigationDestination(for: SmartPlaylist.self) { smart in
-            SmartPlaylistDetailView(smartPlaylistID: smart.id)
-        }
+        .modifier(SmartPlaylistDestinationModifier(isRegistered: stackRegistersDetails))
     }
 
     /// 管理态的多选列表。`editMode` 常开 —— 用户点「选择」就是来批量处理的，
@@ -1415,4 +1414,20 @@ struct PlaylistOrderSheet: View {
         }
     }
     #endif
+}
+
+/// 智能歌单详情：资料库导航栈已经在根上登记过就不再登记（极简模式下登记在这一页里面
+/// 点卡片接不住）；iPad 侧栏、Mac 单独挂出来时照旧在这里登记。
+private struct SmartPlaylistDestinationModifier: ViewModifier {
+    let isRegistered: Bool
+
+    func body(content: Content) -> some View {
+        if isRegistered {
+            content
+        } else {
+            content.navigationDestination(for: SmartPlaylist.self) { smart in
+                SmartPlaylistDetailView(smartPlaylistID: smart.id)
+            }
+        }
+    }
 }
