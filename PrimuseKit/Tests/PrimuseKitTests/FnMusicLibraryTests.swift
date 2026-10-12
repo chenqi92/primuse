@@ -38,14 +38,26 @@ struct FnMusicLibraryTests {
 
     @Test(arguments: [0, 401])
     func reconciliationStillRecoversTransportAndAuthenticationFailures(status: Int) async throws {
-        let fixture = FnMusicLibraryFixture(transientDetailFailures: ["p1": status == 0 ? 3 : 2], detailFailureStatus: status)
+        let fixture = FnMusicLibraryFixture(transientDetailFailures: ["p1": status == 0 ? 1 : 2], detailFailureStatus: status)
         fixture.setPage("/playlist/list", page: 1, list: [["guid": "p1", "name": "List"]], total: 1)
         fixture.setPage("/track/playlist-detail/list", playlist: "p1", page: 1, list: [["guid": "s1"]], total: 1)
         let (client, _, _) = fixture.clients()
         let snapshot = try await client.library.playlists()
         #expect(snapshot.failedPlaylistIDs.isEmpty)
         #expect(snapshot.playlists.first?.trackIDs == ["s1"])
-        #expect(fixture.requests.filter { $0.url?.path.hasSuffix("/track/playlist-detail/list") == true }.count == (status == 0 ? 4 : 3))
+        #expect(fixture.requests.filter { $0.url?.path.hasSuffix("/track/playlist-detail/list") == true }.count == (status == 0 ? 2 : 3))
+    }
+
+    @Test func persistentTransportFailureIsBoundedByTheTwoReconciliationPasses() async throws {
+        let fixture = FnMusicLibraryFixture(transientDetailFailures: ["p1": 10], detailFailureStatus: 0)
+        fixture.setPage("/playlist/list", page: 1, list: [["guid": "p1", "name": "List"]], total: 1)
+        fixture.setPage("/track/playlist-detail/list", playlist: "p1", page: 1, list: [["guid": "s1"]], total: 1)
+        let (client, _, _) = fixture.clients()
+        let snapshot = try await client.library.playlists()
+        #expect(snapshot.failedPlaylistIDs == ["p1"])
+        #expect(snapshot.playlists.isEmpty)
+        #expect(fixture.requests.filter { $0.url?.path.hasSuffix("/track/playlist-detail/list") == true }.count == 2,
+                "Transport errors must not multiply the two reconciliation passes by internal retries")
     }
 
     @Test func exhaustedHTTPBudgetDoesNotRestartAtThePlaylistLayer() async throws {
