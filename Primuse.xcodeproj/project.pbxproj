@@ -525,6 +525,7 @@
 		EBA60B33D30CAC4EC3835C71 /* TingReaderFavoriteReconciliation.swift in Sources */ = {isa = PBXBuildFile; fileRef = E95C18AFF99A705EF45EE054 /* TingReaderFavoriteReconciliation.swift */; };
 		EF77117AFEAEFA49BE4FC1E1 /* AudioStreamHeaderParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFAD67B703AE06367E4A03E /* AudioStreamHeaderParser.swift */; };
 		26A5A5D2937DD6D0909659E1 /* AudioPayloadLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BF0B29DA70243A50FD1992D /* AudioPayloadLayout.swift */; };
+		F1E34BCDEF3B028A9E62C8CB /* FLACForbiddenBlockRepair.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40BFA9D101F08AA9A4C91F9C /* FLACForbiddenBlockRepair.swift */; };
 		3FA29387B872BEEFC094AA3C /* TVAppleMusicCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1347C26A3613D074A7DEF71 /* TVAppleMusicCatalog.swift */; };
 		3FD470459B0416DB4CD1D75E /* RevealableSecureField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23CA6DF05BAC0E0F38218C88 /* RevealableSecureField.swift */; };
 		3FD6FE385E58C0A4D5D11355 /* SmartPlaylistEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3577006473AE56E9BA09B47 /* SmartPlaylistEngine.swift */; };
@@ -2294,6 +2295,7 @@
 		FB45F70255F393A8A7284EE0 /* YearlyReport.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = YearlyReport.xcassets; sourceTree = "<group>"; };
 		FDFAD67B703AE06367E4A03E /* AudioStreamHeaderParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioStreamHeaderParser.swift; sourceTree = "<group>"; };
 		0BF0B29DA70243A50FD1992D /* AudioPayloadLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPayloadLayout.swift; sourceTree = "<group>"; };
+		40BFA9D101F08AA9A4C91F9C /* FLACForbiddenBlockRepair.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FLACForbiddenBlockRepair.swift; sourceTree = "<group>"; };
 		0CF62AF729BC2E51A4C424EA /* es-MX */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "es-MX"; path = "es-MX.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		0D041D8BEB3E75D3D4A605E4 /* AppDistributionChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDistributionChannel.swift; sourceTree = "<group>"; };
 		0D05FC45D6957F63EFD5ECC2 /* hi */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = hi; path = hi.lproj/PlayMedia.strings; sourceTree = "<group>"; };
@@ -4931,6 +4933,7 @@
 				0CCA8EE372D7ED88D64B8C3D /* ISOBaseMediaChapterParser.swift */,
 				FDFAD67B703AE06367E4A03E /* AudioStreamHeaderParser.swift */,
 				0BF0B29DA70243A50FD1992D /* AudioPayloadLayout.swift */,
+				40BFA9D101F08AA9A4C91F9C /* FLACForbiddenBlockRepair.swift */,
 				5EAD109C14E9AC3B214FCB5B /* ISOBaseMediaLyricsParser.swift */,
 				B88ECC92A8A436C82FD41972 /* M4AMetadataAtomRepair.swift */,
 				6F1B93D05CDCAFE2A5C5E1CB /* MetadataInspectionPolicy.swift */,
@@ -6436,6 +6439,7 @@
 				3F874CF4B1939FAE36328711 /* ISOBaseMediaChapterParser.swift in Sources */,
 				EF77117AFEAEFA49BE4FC1E1 /* AudioStreamHeaderParser.swift in Sources */,
 				26A5A5D2937DD6D0909659E1 /* AudioPayloadLayout.swift in Sources */,
+				F1E34BCDEF3B028A9E62C8CB /* FLACForbiddenBlockRepair.swift in Sources */,
 				E68BF5805987B4DAE9417173 /* ISOBaseMediaLyricsParser.swift in Sources */,
 				9A472D91A4A180B6270657A9 /* ImmersiveEffectDrawerPolicy.swift in Sources */,
 				64F941CFB86773DEFCA75C2D /* ImmersiveFrameRatePolicy.swift in Sources */,

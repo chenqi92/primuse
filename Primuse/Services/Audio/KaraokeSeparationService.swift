@@ -564,6 +564,34 @@ final class KaraokeSeparationService {
         }.value
     }
 
+    /// Apple's FLAC parser rejects a file carrying a metadata block of the
+    /// forbidden type 127, which libFLAC plays past. Such a file is read with
+    /// that block retagged as padding: in place when it is this job's own
+    /// download, from a copy when it is borrowed.
+    private nonisolated static func openForDecoding(
+        _ file: KaraokeAudioFile
+    ) -> (audioFile: AVAudioFile, repairedCopy: URL?)? {
+        if let audioFile = try? AVAudioFile(forReading: file.url) { return (audioFile, nil) }
+        guard let headers = try? FLACForbiddenBlockRepair.forbiddenHeaderOffsets(inFileAt: file.url),
+              !headers.isEmpty else { return nil }
+        var target = file.url
+        var repairedCopy: URL?
+        if !file.removeAfterDecoding {
+            let copy = FileManager.default.temporaryDirectory
+                .appendingPathComponent("karaoke-flac-\(UUID().uuidString).flac")
+            guard (try? FileManager.default.copyItem(at: file.url, to: copy)) != nil else { return nil }
+            target = copy
+            repairedCopy = copy
+        }
+        guard (try? FLACForbiddenBlockRepair.repairFile(at: target)) == true,
+              let audioFile = try? AVAudioFile(forReading: target) else {
+            if let repairedCopy { try? FileManager.default.removeItem(at: repairedCopy) }
+            return nil
+        }
+        plog("🎤 Karaoke: FLAC metadata block type 127 at \(headers) retagged as padding before decoding")
+        return (audioFile, repairedCopy)
+    }
+
     /// Decodes the song (or its CUE slice) to 44.1 kHz stereo.
     nonisolated static func decodeForModel(
         file: KaraokeAudioFile,
@@ -575,7 +603,11 @@ final class KaraokeSeparationService {
         }
         try Task.checkCancellation()
         return try await Task.detached(priority: .utility) {
-            guard let file = try? AVAudioFile(forReading: file.url) else { throw KaraokeSeparationError.unreadableAudio }
+            guard let opened = openForDecoding(file) else { throw KaraokeSeparationError.unreadableAudio }
+            defer {
+                if let repairedCopy = opened.repairedCopy { try? FileManager.default.removeItem(at: repairedCopy) }
+            }
+            let file = opened.audioFile
             let format = file.processingFormat
             let rate = format.sampleRate
             let firstFrame = AVAudioFramePosition(((start ?? 0) * rate).rounded())

@@ -14,6 +14,17 @@ enum TVServerTrust {
     }
 }
 
+/// 带规范禁用的 127 号元数据块的 FLAC,AVPlayer 会整首拒绝打开(手机和 Mac 走 libFLAC 不受影响)。
+/// HTTP 与协议直连两个 loader 都在把字节交给 AVPlayer 前过一遍这个修补。
+enum TVFLACStreamRepair {
+    static func make(fileExtension: String?) -> FLACForbiddenBlockRepair? {
+        guard fileExtension?.lowercased() == AudioFormat.flac.rawValue else { return nil }
+        return FLACForbiddenBlockRepair { offset in
+            plog("📺 FLAC metadata block type 127 at \(offset) retagged as padding")
+        }
+    }
+}
+
 /// 让 AVPlayer 播放"需要自定义 HTTP 头(UA / Bearer)"的流(百度网盘 / 115 / Google Drive)。
 ///
 /// 做法:把真实 https URL 换成自定义 scheme,AVPlayer 便把加载请求交给本 delegate;
@@ -32,6 +43,8 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
     /// 流所属的源。收到它的音频字节就报给 `StreamResolverRegistry.recordTransfer`:
     /// 字节能到说明线路是通的,下一首从这个源起播不必再先做连接检查。
     private let transferSourceID: String?
+    /// FLAC 里规范禁用的 127 号元数据块会让 AVPlayer 整首拒绝打开,交出去之前把块头改成填充块。
+    private let flacRepair: FLACForbiddenBlockRepair?
     /// 上次报告的时刻(systemUptime)。证据管 45 秒,每隔几秒报一次就够,不必每个请求都报。
     private var lastTransferReport: TimeInterval?
     private static let transferReportInterval: TimeInterval = 5
@@ -184,6 +197,7 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         self.isLiveStream = isLiveStream
         self.seed = isLiveStream ? nil : seed
         self.transferSourceID = isLiveStream ? nil : transferSourceID
+        self.flacRepair = isLiveStream ? nil : TVFLACStreamRepair.make(fileExtension: fileExtension)
         let fnMusicStreamPath = "\(FnMusicAPIProtocol.apiPath)/track/stream"
         self.enforcesFnMusicRangeResponses = headers[FnMusicAPIProtocol.authxHeaderField] != nil
             && FnMusicAPIProtocol.authxPath(for: realURL) == fnMusicStreamPath
@@ -361,7 +375,7 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         let end = length > 0 ? min(offset + length, seed.totalLength) : seed.totalLength
         var cursor = offset
         while cursor < end, let bytes = seed.bytes(offset: cursor, maximumLength: end - cursor) {
-            dataRequest.respond(with: bytes)
+            dataRequest.respond(with: flacRepair?.repairing(bytes, at: cursor) ?? bytes)
             cursor += Int64(bytes.count)
         }
         if cursor >= end {
@@ -437,12 +451,17 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
             context.loadingRequest.finishLoading(with: error)
             return false
         }
+        let bodyOffset = context.offset + context.byteCount
         context.byteCount += incomingCount
         if context.isSuccessfulResponse, incomingCount > 0 {
             reportTransferIfDue()
         }
         if let dataRequest = context.loadingRequest.dataRequest {
-            dataRequest.respond(with: data)
+            if context.isSuccessfulResponse, let flacRepair {
+                dataRequest.respond(with: flacRepair.repairing(data, at: bodyOffset))
+            } else {
+                dataRequest.respond(with: data)
+            }
             if !context.loggedFirstData {
                 context.loggedFirstData = true
                 plog("📺 loader data first off=\(context.offset) len=\(context.length) got=\(data.count)")

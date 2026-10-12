@@ -233,6 +233,7 @@ final class TVProtocolResourceLoader: NSObject, AVAssetResourceLoaderDelegate, @
 
     private let reader: ByteRangeReader
     private let explicitContentType: String?
+    private let flacRepair: FLACForbiddenBlockRepair?
     private let chunkSize: Int64 = 1 << 20   // 1MB:避免一次把大文件整段读进内存
 
     private let lock = NSLock()
@@ -276,6 +277,7 @@ final class TVProtocolResourceLoader: NSObject, AVAssetResourceLoaderDelegate, @
     init(reader: ByteRangeReader, fileExtension: String?) {
         self.reader = reader
         self.explicitContentType = fileExtension.flatMap { UTType(filenameExtension: $0)?.identifier }
+        self.flacRepair = TVFLACStreamRepair.make(fileExtension: fileExtension)
         super.init()
     }
 
@@ -368,7 +370,7 @@ final class TVProtocolResourceLoader: NSObject, AVAssetResourceLoaderDelegate, @
                 guard Int64(data.count) <= len else {
                     throw LoadingError.oversizedChunk(requested: len, actual: data.count)
                 }
-                dataRequest.respond(with: data)
+                dataRequest.respond(with: flacRepair?.repairing(data, at: offset) ?? data)
                 offset += Int64(data.count)
             }
             guard offset == endExclusive else {
