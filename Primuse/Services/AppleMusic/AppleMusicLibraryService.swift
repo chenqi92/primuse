@@ -289,11 +289,27 @@ final class AppleMusicLibraryService {
         AppleMusicLibraryPlaybackGatePolicy.canContinue(
             requestIsPending: appleMusic.isPlaybackRequestPending(requestID),
             isCancelled: Task.isCancelled,
-            syncEnabled: AppleMusicFeatureSettings.syncUserLibraryEnabled,
+            syncEnabled: playbackFeatureEnabled,
             sourceInstalled: library.appleMusicSourceInstalled,
             sourceEnabled: !library.disabledSourceIDs.contains(Self.systemSourceID),
             isAuthorized: appleMusic.authState == .authorized
         )
+    }
+
+    /// 播放这一侧认的开关:资料库同步或目录搜索任一开着。目录曲(搜索结果、续播的相似歌曲、
+    /// 专辑页补全的曲目)不经资料库同步,只开了目录搜索也要能播。
+    private var playbackFeatureEnabled: Bool {
+        AppleMusicFeatureSettings.syncUserLibraryEnabled || AppleMusicFeatureSettings.catalogSearchEnabled
+    }
+
+    /// 现在能不能从 Apple Music 目录取歌来播:已授权,源在且没停用,上面的开关开着,
+    /// 也没查出这个账号放不了目录曲(没订阅、地区不支持;还没查过时不拦)。
+    var catalogPlaybackIsAvailable: Bool {
+        appleMusic.authState == .authorized
+            && library.appleMusicSourceInstalled
+            && !library.disabledSourceIDs.contains(Self.systemSourceID)
+            && playbackFeatureEnabled
+            && appleMusic.libraryAccess?.canPlayCatalogContent != false
     }
 
     private func failUnavailablePlaybackRequestIfCurrent(_ requestID: UUID) {
@@ -577,7 +593,7 @@ final class AppleMusicLibraryService {
               AppleMusicSourcePolicy.isSyncable(
                   isInstalled: library.appleMusicSourceInstalled,
                   isSourceEnabled: !library.disabledSourceIDs.contains(Self.systemSourceID),
-                  isSyncPreferenceEnabled: AppleMusicFeatureSettings.syncUserLibraryEnabled
+                  isSyncPreferenceEnabled: playbackFeatureEnabled
               ) else { return nil }
         let source = playbackSource(for: starting)
         let indices = PlaybackQueueSegmentPolicy.indices(
@@ -792,6 +808,57 @@ final class AppleMusicLibraryService {
             identity: nil,
             artwork: SongArtworkSnapshot(artwork: song.artwork)
         )
+    }
+
+    // MARK: - 目录曲
+
+    /// 把从目录取到的歌记进缓存并投影成 Primuse 的歌,起播和推给系统播放器时不用再查一遍。
+    /// 资料库里已有的同一首用资料库那一行,红心、播放记录、队列去重才对得上。
+    func registerCatalogSongs(_ songs: [MusicKit.Song]) -> [PrimuseKit.Song] {
+        songs.map { song in
+            let amID = song.id.rawValue
+            if songCache[amID] == nil {
+                songCache[amID] = song
+                invalidateSongArtwork(amID: amID)
+            }
+            let projected = Self.toPrimuseSong(canonicalForNowPlaying(song))
+            return library.song(id: projected.id) ?? projected
+        }
+    }
+
+    /// 这首 Apple Music 歌的目录版。目录曲直接用缓存;资料库曲目按 PlayParameters 里的
+    /// 目录 ID 再查一次目录(资料库条目拿不到相似艺人、所在专辑这些目录关系)。
+    func catalogMusicKitSong(for song: PrimuseKit.Song) async -> MusicKit.Song? {
+        guard song.sourceID == Self.systemSourceID, appleMusic.authState == .authorized else { return nil }
+        let catalogID: String
+        if Self.isCatalogItemID(song.filePath) {
+            if let cached = songCache[song.filePath] { return cached }
+            catalogID = song.filePath
+        } else {
+            guard let librarySong = await musicKitSong(amID: song.filePath) else { return nil }
+            let identifiers = await withMediaLibraryGate { Self.musicItemIdentifiers(for: librarySong) }
+            guard let found = identifiers.explicitCatalogIDs.sorted().first(where: Self.isCatalogItemID) else {
+                return nil
+            }
+            catalogID = found
+        }
+        do {
+            var request = MusicCatalogResourceRequest<MusicKit.Song>(
+                matching: \.id, equalTo: MusicItemID(rawValue: catalogID)
+            )
+            if #available(iOS 26.4, macOS 26.4, tvOS 26.4, watchOS 26.4, *) {
+                request.options = [.findEquivalents]
+            }
+            return try await request.response().items.first
+        } catch {
+            plog("⚠️Apple Music catalog lookup failed for \(catalogID): \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// 目录 ID 是纯数字;资料库条目是 `i.` 开头。
+    nonisolated static func isCatalogItemID(_ value: String) -> Bool {
+        UInt64(value) != nil
     }
 
     /// 拿当前歌在 Apple Music app 里的 URL ── 给 NowPlayingView 提供"在
@@ -2075,6 +2142,11 @@ final class AppleMusicLibraryService {
             lyricsFileName: nil,
             audioVariants: variants
         )
+    }
+
+    /// 一个 MusicKit 条目投影成 Primuse 歌曲后的 ID(和 `toPrimuseSong` 同一算法)。
+    nonisolated static func primuseSongID(forItemID itemID: String) -> String {
+        hashSongID(sourceID: systemSourceID, path: itemID)
     }
 
     /// 跟项目里其他 scanner 一样的 song.id 算法 — sha256(sourceID:path) 前 16 字节 hex。

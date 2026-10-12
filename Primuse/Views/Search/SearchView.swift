@@ -2150,7 +2150,7 @@ struct SearchView: View {
 
     private func macAppleMusicCard(_ song: MusicKit.Song) -> some View {
         Button {
-            Task { await appleMusic.play(song) }
+            playAppleMusicCatalogSong(song)
         } label: {
             VStack(alignment: .leading, spacing: 7) {
                 Color.clear
@@ -2535,7 +2535,7 @@ struct SearchView: View {
 
             ForEach(results, id: \.id) { song in
                 Button {
-                    Task { await appleMusic.play(song) }
+                    playAppleMusicCatalogSong(song)
                 } label: {
                     HStack(spacing: 10) {
                         AsyncImage(url: song.artwork?.url(width: 64, height: 64)) { phase in
@@ -3683,9 +3683,15 @@ struct SearchView: View {
     }
 
 
+    /// 目录曲交给 Primuse 自己的队列播:播完按设置续播相似歌曲,待播列表和 CarPlay 也看得到。
+    private func playAppleMusicCatalogSong(_ song: MusicKit.Song) {
+        let queue = AppServices.shared.appleMusicLibrary.registerCatalogSongs([song])
+        Task { await player.play(queue: queue, startingAt: 0) }
+    }
+
     private func appleMusicRow(_ song: MusicKit.Song) -> some View {
         Button {
-            Task { await appleMusic.play(song) }
+            playAppleMusicCatalogSong(song)
         } label: {
             HStack(spacing: 12) {
                 AsyncImage(url: song.artwork?.url(width: 88, height: 88)) { phase in

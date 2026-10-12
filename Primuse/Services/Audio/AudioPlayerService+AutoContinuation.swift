@@ -6,7 +6,9 @@ import PrimuseKit
 /// off the main actor and appended, so they already sit in Up Next — and in
 /// CarPlay's list — while that song plays, and the hand-over keeps gapless and
 /// crossfade. A Siri or search request for one song therefore becomes "that
-/// song, then similar ones" as soon as it starts. Shuffle keeps its own
+/// song, then similar ones" as soon as it starts. An Apple Music song picked
+/// from search is usually not in the library, so its similar songs come from
+/// the Apple Music catalog first (`similarCatalogSongs`). Shuffle keeps its own
 /// library continuation (`extendExhaustedShuffleFromLibrary`); books, radio,
 /// medleys and repeat never continue.
 extension AudioPlayerService {
@@ -53,6 +55,12 @@ extension AudioPlayerService {
         let excluded = Set(queueIDs)
             .union(library.recentPlaybackSongIDsForSync)
             .union(library.dislikedSongIDs)
+        // 在 Apple Music 里搜来、不在曲库里的歌,先从 Apple Music 目录里找相似的;
+        // 目录找不到再照常从曲库里挑。
+        let catalogSeeds = appleMusicCatalogContinuationSeeds(seeds)
+        let queuedSongKeys = catalogSeeds.isEmpty ? [] : Set(queueEntries.map {
+            AppleMusicCatalogContinuationPolicy.songKey(title: $0.song.title, artist: $0.song.artistName ?? "")
+        })
         let recentIDs = Set(PlayHistoryStore.shared.entries(in: .month).map(\.songID))
         // Copy-on-write: the worker reads the library's own array.
         let songs = library.musicSongs
@@ -61,6 +69,26 @@ extension AudioPlayerService {
         let startedAt = ProcessInfo.processInfo.systemUptime
 
         autoContinuationTask = Task { @MainActor [weak self] in
+            if !catalogSeeds.isEmpty {
+                let catalogSongs = await AppServices.shared.appleMusicLibrary.similarCatalogSongs(
+                    seeds: catalogSeeds,
+                    excludedIDs: excluded,
+                    excludedSongKeys: queuedSongKeys
+                )
+                guard let self, !Task.isCancelled else { return }
+                guard self.queueRequestToken == token,
+                      self.queueEntries.last?.id == lastEntryID,
+                      self.autoContinuationDecision == .similarSongs else {
+                    self.autoContinuationTask = nil
+                    return
+                }
+                if self.appendAutoContinuation(songs: catalogSongs) {
+                    self.autoContinuationTask = nil
+                    let elapsed = Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000)
+                    plog("♾️ Auto continuation appended \(catalogSongs.count) Apple Music catalog songs (\(elapsed)ms)")
+                    return
+                }
+            }
             let worker = Task.detached(priority: .userInitiated) {
                 MusicDiscoveryEngine.continuationSongIDs(
                     seeds: seeds,
@@ -109,9 +137,17 @@ extension AudioPlayerService {
     @discardableResult
     func appendAutoContinuation(_ ids: [String]) -> Bool {
         guard let library else { return false }
-        let additions = ids.compactMap { id -> Song? in
-            guard let song = library.unobservedVisibleSong(id: id), song.isPlayable else { return nil }
-            return song
+        return appendAutoContinuation(songs: ids.compactMap { library.unobservedVisibleSong(id: $0) })
+    }
+
+    /// Songs the Apple Music catalog continuation found are not library rows,
+    /// so they arrive as values. Ones already queued are left out.
+    @discardableResult
+    func appendAutoContinuation(songs: [Song]) -> Bool {
+        let queuedIDs = Set(queueEntries.map(\.song.id))
+        var seenIDs = Set<String>()
+        let additions = songs.filter {
+            $0.isPlayable && !queuedIDs.contains($0.id) && seenIDs.insert($0.id).inserted
         }
         guard !additions.isEmpty else { return false }
         let entries = additions.map { QueueEntry(song: $0) }
@@ -131,6 +167,18 @@ extension AudioPlayerService {
             synchronizeAppleMusicQueue()
         }
         return true
+    }
+
+    /// The seeds for an Apple Music catalog top-up: the song playing is an
+    /// Apple Music song that is not in the library (picked from search, or
+    /// itself added by a catalog top-up). Empty otherwise.
+    private func appleMusicCatalogContinuationSeeds(_ seeds: [Song]) -> [Song] {
+        let sourceID = AppleMusicLibraryService.systemSourceID
+        guard let current = seeds.first,
+              current.sourceID == sourceID,
+              library?.unobservedVisibleSong(id: current.id) == nil,
+              AppServices.shared.appleMusicLibrary.catalogPlaybackIsAvailable else { return [] }
+        return seeds.filter { $0.sourceID == sourceID }
     }
 
     /// A new queue replaces the old one, autoplay songs included.
