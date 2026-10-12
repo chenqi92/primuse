@@ -95,7 +95,9 @@ struct NavidromeListeningHistoryTests {
         let fixture = Fixture { request, index in
             response(request, status: index == 0 ? 200 : 500, json: index == 0 ? login : "{}")
         }
-        await #expect(throws: NavidromeListeningHistory.Failure.httpStatus(500)) { try await fetch(fixture) }
+        do { _ = try await fetch(fixture); Issue.record("A failed history must not become an aggregate snapshot") }
+        catch let error as HTTPResponseFailure { #expect(error.statusCode == 500) }
+        catch { Issue.record("Lost HTTP response: \(error)") }
     }
 
     @Test static func proxyLoginForAnotherAccountIsRejected() async {

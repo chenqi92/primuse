@@ -533,6 +533,15 @@ struct SynologyAudioStationTests {
         #expect(infoSIDs.filter { $0 == "sid-2" }.count == 12)
     }
 
+    @Test func readPermission105GetsOneSessionRenewalBeforeFailing() async throws {
+        let fixture = AudioStationFixture(mode: .noPermission)
+        let client = fixture.client()
+        await #expect(throws: SynologyAudioStationError.noAudioStationPermission) {
+            _ = try await client.songPage(offset: 0, limit: 1)
+        }
+        #expect(await fixture.logins == 2)
+    }
+
     @Test func persistentSessionFailureDoesNotLoopLogin() async throws {
         let fixture = AudioStationFixture(mode: .alwaysExpired)
         let client = fixture.client()

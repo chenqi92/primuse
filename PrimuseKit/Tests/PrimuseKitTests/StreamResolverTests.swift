@@ -1046,13 +1046,15 @@ private final class FnMusicRateLimitOnceURLProtocol: URLProtocol, @unchecked Sen
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [FnMusicRateLimitOnceURLProtocol.self]
     let session = URLSession(configuration: configuration)
+    // tvOS HTTP sources require interactive trust and bypass URLProtocol.
+    // Keep this quota/session test on the injected HTTPS transport.
     let source = MusicSource(
         id: "fnmusic-rate-limit",
         name: "Feiniu Music",
         type: .fnMusic,
-        host: "fnmusic.test",
-        port: 5666,
-        useSsl: false,
+        host: UUID().uuidString + ".invalid",
+        port: 443,
+        useSsl: true,
         username: "user"
     )
     let client = FnMusicServiceClient(
@@ -1061,15 +1063,15 @@ private final class FnMusicRateLimitOnceURLProtocol: URLProtocol, @unchecked Sen
         session: session
     )
 
-    await #expect(throws: FnMusicServiceError.badServerResponse(429)) {
-        _ = try await client.validateConnection()
-    }
+    // A short quota response may recover within the read budget without
+    // discarding a valid login session.
+    #expect(try await client.validateConnection() == 0)
     let total = try await client.validateConnection()
     let counts = FnMusicRateLimitOnceURLProtocol.counts
 
     #expect(total == 0)
     #expect(counts.login == 1)
-    #expect(counts.track == 2)
+    #expect(counts.track == 3)
 }
 
 @Test func fnMusicProtocolHashesCredentialsAndKeepsOpaqueReferences() {

@@ -17,6 +17,8 @@ actor SynologyAPI {
     private let useSsl: Bool
     private let connectionMode: SynologyConnectionMode
     private let alternateTLSValidationHostname: String?
+    private let injectedSession: URLSession?
+    private var requestAccount = ""
     private var resolvedEndpoint: SynologyResolvedEndpoint?
     private(set) var sid: String?
 
@@ -42,13 +44,15 @@ actor SynologyAPI {
         port: Int,
         useSsl: Bool,
         connectionMode: SynologyConnectionMode = .address,
-        alternateTLSValidationHostname: String? = nil
+        alternateTLSValidationHostname: String? = nil,
+        session: URLSession? = nil
     ) {
         self.host = host
         self.port = port
         self.useSsl = useSsl
         self.connectionMode = connectionMode
         self.alternateTLSValidationHostname = alternateTLSValidationHostname
+        self.injectedSession = session
     }
 
     /// 长生命周期 session 复用所有 API 请求 (list / download / upload / head)。
@@ -57,6 +61,7 @@ actor SynologyAPI {
     /// 丢失 keep-alive 复用 (每请求重新 TLS 握手)。逐请求的 timeout 由各
     /// URLRequest.timeoutInterval 覆盖, 故共用一个 session 的全局 timeout 即可。
     private lazy var sharedSession: URLSession = {
+        if let injectedSession { return injectedSession }
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 600
@@ -127,6 +132,7 @@ actor SynologyAPI {
 
     func login(account: String, password: String, otpCode: String? = nil,
                deviceName: String? = nil, deviceId: String? = nil) async -> LoginResult {
+        requestAccount = account
         var params: [String: String] = [
             "api": "SYNO.API.Auth",
             "version": "7",
@@ -758,6 +764,13 @@ actor SynologyAPI {
             urlRequest = req
         }
 
+        // DSM also uses GET for create/delete/start. Admit only read methods.
+        if ["list", "list_share", "getinfo", "query", "status"].contains(params["method"] ?? "") {
+            let executor = ServerRequestScheduler.shared.executor(baseURL: URL(string: baseURL)!, account: "synology:" + requestAccount)
+            return try await executor.execute(replay: .idempotent) { [session = sharedSession] in
+                try await TrustedHTTPTransport.data(for: urlRequest, session: session)
+            }.data
+        }
         let (data, response) = try await TrustedHTTPTransport.data(for: urlRequest, session: sharedSession)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw SynologyError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0)

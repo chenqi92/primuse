@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// 媒体服务器(Jellyfin / Emby / Plex)流式解析。播放地址鉴权全在 query,AVPlayer 直连。
 ///
@@ -180,10 +181,18 @@ public actor MediaServerStreamResolver: StreamResolver {
         req.setValue(deviceID, forHTTPHeaderField: "X-Plex-Client-Identifier")
         req.setValue("Primuse", forHTTPHeaderField: "X-Plex-Product")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await StreamResolverHTTPTransport.data(
-            for: req,
-            session: session
-        )
+        let executor = ServerRequestScheduler.shared.executor(baseURL: base, account: "plex:" + SHA256.hash(data: Data(token.utf8)).map { String(format: "%02x", $0) }.joined())
+        let request = req
+        let data: Data
+        let response: HTTPURLResponse
+        do {
+            (data, response) = try await executor.execute(replay: .idempotent) { [session] in
+                try await StreamResolverHTTPTransport.data(for: request, session: session)
+            }
+        } catch let failure as HTTPResponseFailure where [401, 403].contains(failure.statusCode)
+            && failure.retryAfter == nil && !failure.isRateLimited {
+            throw StreamResolveError.authFailed
+        }
         try Self.checkAuth(response)
         guard let key = Self.parsePlexPartKey(data) else { throw StreamResolveError.cannotBuildURL }
         return key

@@ -198,6 +198,42 @@ import Testing
     #expect(lyricsQuery["t"] == nil)
 }
 
+@Test func subsonicMalformedEnhancedLyricsFallsBackToBasicLyrics() async throws {
+    let host = UUID().uuidString.lowercased() + ".invalid"
+    let session = subsonicLyricsTestSession(host: host) { request in
+        if request.url?.lastPathComponent == "ping.view" {
+            return (200, Data(#"{"subsonic-response":{"status":"ok","openSubsonic":true}}"#.utf8))
+        }
+        if URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.contains(where: { $0.name == "enhanced" }) == true {
+            return (200, Data("invalid enhanced response".utf8))
+        }
+        return (200, Data(#"{"subsonic-response":{"status":"ok","lyricsList":{"structuredLyrics":[{"kind":"main","synced":true,"line":[{"start":1000,"value":"Fallback line"}]}]}}}"#.utf8))
+    }
+    defer { session.invalidateAndCancel(); SubsonicLyricsURLProtocol.reset(host: host) }
+    let source = MusicSource(name: "fixture", type: .navidrome, host: host, useSsl: true, username: "qa")
+    let result = await SubsonicLyricsClient(session: session).readLyrics(forSongPath: "/songs/test.flac", source: source, credential: .init(password: "fixture"))
+    guard case .content(let text) = result else { Issue.record("Expected compatible basic lyrics"); return }
+    #expect(text.contains("Fallback line"))
+    #expect(SubsonicLyricsURLProtocol.requests(host: host).filter { $0.url?.lastPathComponent == "getLyricsBySongId.view" }.count == 2)
+}
+
+@Test(arguments: [403, 404, 500])
+func subsonicLyricsClientDoesNotRestartHTTPBudgetForBasicLyrics(status: Int) async throws {
+    let host = UUID().uuidString.lowercased() + ".invalid"
+    let session = subsonicLyricsTestSession(host: host) { request in
+        if request.url?.lastPathComponent == "ping.view" {
+            return (200, Data(#"{"subsonic-response":{"status":"ok","openSubsonic":true}}"#.utf8))
+        }
+        return (status, Data())
+    }
+    defer { session.invalidateAndCancel(); SubsonicLyricsURLProtocol.reset(host: host) }
+    let source = MusicSource(name: "Test", type: .navidrome, host: host, useSsl: true, username: "qa")
+    let result = await SubsonicLyricsClient(session: session).readLyrics(forSongPath: "/songs/test.flac",
+        source: source, credential: SourceCredential(password: "fixture"))
+    guard case .unavailable = result else { Issue.record("A failure must not become absent lyrics"); return }
+    #expect(SubsonicLyricsURLProtocol.requests(host: host).filter { $0.url?.lastPathComponent == "getLyricsBySongId.view" }.count == (status == 500 ? 3 : 1))
+}
+
 @Test func subsonicLyricsClientRetriesCompatibleAuthenticationAndBasicLyrics() async throws {
     let host = "fallback-lyrics.example.com"
     let session = subsonicLyricsTestSession(host: host) { request in
