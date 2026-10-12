@@ -73,4 +73,26 @@
     [engine stop];
 }
 
+- (void)testConnectingNodeOutsideTheEngineIsContained {
+    // Connecting a node that was never attached raises on older systems and
+    // fails through -connect:to:format:error: on 27.
+    AVAudioEngine *engine = [[AVAudioEngine alloc] init];
+    AVAudioPlayerNode *node = [[AVAudioPlayerNode alloc] init];
+    NSError *error = nil;
+
+    XCTAssertFalse(PrimuseConnectNodes(engine, node, engine.mainMixerNode, nil, &error));
+    XCTAssertNotNil(error);
+}
+
+- (void)testConnectingAttachedNodeSucceeds {
+    AVAudioEngine *engine = [[AVAudioEngine alloc] init];
+    AVAudioPlayerNode *node = [[AVAudioPlayerNode alloc] init];
+    [engine attachNode:node];
+    AVAudioFormat *format = [[AVAudioFormat alloc] initStandardFormatWithSampleRate:44100 channels:2];
+    NSError *error = nil;
+
+    XCTAssertTrue(PrimuseConnectNodes(engine, node, engine.mainMixerNode, format, &error));
+    XCTAssertNil(error);
+}
+
 @end

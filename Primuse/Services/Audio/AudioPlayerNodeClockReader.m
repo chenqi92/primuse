@@ -48,3 +48,41 @@ BOOL PrimuseStartPlayerNode(AVAudioPlayerNode *node) {
         return NO;
     }
 }
+
+BOOL PrimuseConnectNodes(
+    AVAudioEngine *engine,
+    AVAudioNode *source,
+    AVAudioNode *destination,
+    AVAudioFormat * _Nullable format,
+    NSError * _Nullable * _Nullable error
+) {
+    @try {
+#ifdef __IPHONE_27_0  // only the 27 SDKs declare -connect:to:format:error:
+        if (@available(iOS 27.0, macOS 27.0, tvOS 27.0, *)) {
+            NSError *connectError = nil;
+            if (![engine connect:source to:destination format:format error:&connectError]) {
+                NSLog(@"⚠️ AVAudioEngine connect failed: %@", connectError);
+                if (error != NULL) {
+                    *error = connectError ?: [NSError errorWithDomain:@"PrimuseAudioEngine"
+                                                                 code:1
+                                                             userInfo:nil];
+                }
+                return NO;
+            }
+            return YES;
+        }
+#endif
+        [engine connect:source to:destination format:format];
+        return YES;
+    } @catch (NSException *exception) {
+        NSLog(@"⚠️ AVAudioEngine connect raised %@: %@", exception.name, exception.reason);
+        if (error != NULL) {
+            *error = [NSError errorWithDomain:@"PrimuseAudioEngine"
+                                         code:1
+                                     userInfo:@{
+                NSLocalizedDescriptionKey: exception.reason ?: exception.name,
+            }];
+        }
+        return NO;
+    }
+}

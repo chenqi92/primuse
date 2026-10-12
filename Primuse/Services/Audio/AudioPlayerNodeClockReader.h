@@ -24,4 +24,20 @@ FOUNDATION_EXPORT BOOL PrimusePlayerNodeHasRenderTime(AVAudioPlayerNode *node);
 /// reports most of those failures as errors instead of raising.
 FOUNDATION_EXPORT BOOL PrimuseStartPlayerNode(AVAudioPlayerNode *node);
 
+/// Connects two nodes and reports whether the connection was made.
+///
+/// `-[AVAudioEngine connect:to:format:]` raises an Objective-C exception when a
+/// node refuses the format — an `AVAudioPlayerNode` wired straight to the
+/// output with a source format it cannot render is enough. The exception
+/// cannot be caught in Swift, so the connection is attempted here and a failure
+/// comes back through `error`. On iOS, macOS and tvOS 27 and later the
+/// connection goes through `-connect:to:format:error:`.
+FOUNDATION_EXPORT BOOL PrimuseConnectNodes(
+    AVAudioEngine *engine,
+    AVAudioNode *source,
+    AVAudioNode *destination,
+    AVAudioFormat * _Nullable format,
+    NSError * _Nullable * _Nullable error
+);
+
 NS_ASSUME_NONNULL_END

@@ -591,7 +591,7 @@ final class AudioEngine {
 
             // No mixer and no audio unit in this graph. Integer DoP buffers can
             // also use this path when the hardware sample rate is compatible.
-            eng.connect(playerA, to: eng.outputNode, format: format)
+            try Self.connect(playerA, to: eng.outputNode, format: format, in: eng)
             playerA.volume = 1
             playerB.volume = 0
 
@@ -676,26 +676,26 @@ final class AudioEngine {
                AVAudioFormat(standardFormatWithSampleRate: deviceRate, channelLayout: $0)
            }) ?? AVAudioFormat(standardFormatWithSampleRate: deviceRate, channels: format.channelCount) {
             format = deviceRateFormat
-            eng.connect(mainMixer, to: eng.outputNode, format: format)
+            try Self.connect(mainMixer, to: eng.outputNode, format: format, in: eng)
         }
         #endif
 
         // Signal chain: playerA/B → Spatial Environment → mixer → (Karaoke) → EQ → Compressor → Reverb → TimePitch → mainMixer → output
         // TimePitch 放最后一站, 让 EQ / 压缩 / 混响 都在原速下处理,
         // visualizer 仍挂 mainMixer 拿到变速后的最终输出。
-        eng.connect(playerA, to: environment, format: format)
-        eng.connect(playerB, to: environment, format: format)
-        eng.connect(environment, to: mixer, format: format)
+        try Self.connect(playerA, to: environment, format: format, in: eng)
+        try Self.connect(playerB, to: environment, format: format, in: eng)
+        try Self.connect(environment, to: mixer, format: format, in: eng)
         if let karaokeVocal {
-            eng.connect(mixer, to: karaokeVocal, format: format)
-            eng.connect(karaokeVocal, to: eq, format: format)
+            try Self.connect(mixer, to: karaokeVocal, format: format, in: eng)
+            try Self.connect(karaokeVocal, to: eq, format: format, in: eng)
         } else {
-            eng.connect(mixer, to: eq, format: format)
+            try Self.connect(mixer, to: eq, format: format, in: eng)
         }
-        eng.connect(eq, to: compressor, format: format)
-        eng.connect(compressor, to: reverb, format: format)
-        eng.connect(reverb, to: timePitch, format: format)
-        eng.connect(timePitch, to: mainMixer, format: format)
+        try Self.connect(eq, to: compressor, format: format, in: eng)
+        try Self.connect(compressor, to: reverb, format: format, in: eng)
+        try Self.connect(reverb, to: timePitch, format: format, in: eng)
+        try Self.connect(timePitch, to: mainMixer, format: format, in: eng)
 
         playerB.volume = 0 // crossfade node starts silent
 
@@ -1655,6 +1655,27 @@ final class AudioEngine {
         nodeRegistry.resetTimeline(for: .crossfade)
         crossfadePlayerNode?.stop()
         crossfadePlayerNode?.reset()
+    }
+
+    /// Connects two nodes without letting AVFAudio terminate the app.
+    ///
+    /// `AVAudioEngine.connect` raises an Objective-C exception when a node
+    /// refuses the format; the direct output path hands the player node the
+    /// source's own format, which some sources cannot be rendered in. The
+    /// connection goes through the Objective-C shim and a refusal comes back
+    /// as an error, so the song fails to start instead of the app.
+    static func connect(
+        _ source: AVAudioNode,
+        to destination: AVAudioNode,
+        format: AVAudioFormat?,
+        in engine: AVAudioEngine
+    ) throws {
+        var error: NSError?
+        guard PrimuseConnectNodes(engine, source, destination, format, &error) else {
+            let description = format.map { "sr\($0.sampleRate)/ch\($0.channelCount)/\($0.commonFormat.rawValue)" } ?? "nil"
+            plog("⚠️ AudioEngine connect \(type(of: source)) → \(type(of: destination)) failed for \(description): \(error?.localizedDescription ?? "unknown")")
+            throw error ?? NSError(domain: "PrimuseAudioEngine", code: 1)
+        }
     }
 
     // MARK: - Playback Control

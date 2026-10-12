@@ -1572,7 +1572,12 @@ final class TVAudioEngine {
             livePCMNodeAttached = true
         }
         livePCMEngine.disconnectNodeOutput(livePCMNode)
-        livePCMEngine.connect(livePCMNode, to: livePCMEngine.mainMixerNode, format: format)
+        // connect 不接受格式时抛 Objective-C 异常, 经垫片转成错误交给电台的失败处理。
+        var connectError: NSError?
+        guard PrimuseConnectNodes(livePCMEngine, livePCMNode, livePCMEngine.mainMixerNode, format, &connectError) else {
+            plog("⚠️ TV live PCM connect failed for sr\(format.sampleRate)/ch\(format.channelCount): \(connectError?.localizedDescription ?? "unknown")")
+            throw connectError ?? NSError(domain: "PrimuseAudioEngine", code: 1)
+        }
         if spectrumAnalysisEnabled {
             installMixerSpectrumTap(on: livePCMEngine.mainMixerNode)
         }

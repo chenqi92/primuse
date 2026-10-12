@@ -130,11 +130,16 @@ final class KaraokeMicrophone {
         let monitor = AVAudioMixerNode()
         engine.attach(reverb)
         engine.attach(monitor)
-        // The input node only connects in its hardware format.
-        engine.connect(input, to: reverb, format: inputFormat)
-        engine.connect(reverb, to: monitor, format: inputFormat)
-        // Keeps the graph pulling the input even with the monitor muted.
-        engine.connect(monitor, to: engine.mainMixerNode, format: nil)
+        do {
+            // The input node only connects in its hardware format.
+            try AudioEngine.connect(input, to: reverb, format: inputFormat, in: engine)
+            try AudioEngine.connect(reverb, to: monitor, format: inputFormat, in: engine)
+            // Keeps the graph pulling the input even with the monitor muted.
+            try AudioEngine.connect(monitor, to: engine.mainMixerNode, format: nil, in: engine)
+        } catch {
+            try? AudioSessionManager.shared.setMicrophoneCaptureActive(false)
+            throw error
+        }
         monitor.outputVolume = monitorVolume
 
         KaraokeTap.installRing(on: input, format: inputFormat, ring: ring)
