@@ -177,3 +177,96 @@ final class OfflineDownloadStoreTests: XCTestCase {
         XCTAssertEqual(request.songs.map(\.id), ["song"])
     }
 }
+
+/// 一次性用途的整首下载用完即删。
+/// 用真实的 Caches / tmp 路径: 设备上 tmp 是 /private/var 开头, Caches 是 /var 开头,
+/// 两边要统一成同一种写法才比得上, 这一点只有 Apple 平台上测得到。
+final class SourceFileCacheStorageTests: XCTestCase {
+    private var createdDirectories: [URL] = []
+
+    override func tearDown() {
+        for directory in createdDirectories {
+            try? FileManager.default.removeItem(at: directory)
+        }
+        createdDirectories = []
+        super.tearDown()
+    }
+
+    private func makeFile(in base: URL, _ components: [String], bytes: Int = 4_096) throws -> URL {
+        var directory = base
+        for component in components.dropLast() {
+            directory.appendPathComponent(component, isDirectory: true)
+        }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let file = directory.appendingPathComponent(components.last!)
+        try Data(repeating: 0x5A, count: bytes).write(to: file)
+        return file
+    }
+
+    private func sourceRoot(_ name: String, temporary: Bool, sourceID: String) -> URL {
+        let base = temporary
+            ? FileManager.default.temporaryDirectory
+            : FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+        let root = base.appendingPathComponent(name).appendingPathComponent(sourceID)
+        createdDirectories.append(root)
+        return root
+    }
+
+    func testFreshConnectorDownloadsAreDiscardedInCachesAndTemporaryDirectories() throws {
+        let sourceID = "test-one-off-\(UUID().uuidString)"
+        let startedAt = Date()
+        let s3 = try makeFile(
+            in: sourceRoot("primuse_s3_cache", temporary: false, sourceID: sourceID),
+            ["ns", "song.mp3"]
+        )
+        let webDAV = try makeFile(
+            in: sourceRoot("primuse_webdav_cache", temporary: true, sourceID: sourceID),
+            ["ns", "song.mp3"]
+        )
+
+        for file in [s3, webDAV] {
+            XCTAssertTrue(
+                SourceManager.isOneOffSourceDownload(file, sourceID: sourceID, downloadedSince: startedAt),
+                file.path
+            )
+            SourceManager.discardOneOffSourceDownload(file, sourceID: sourceID, downloadedSince: startedAt)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: file.path), file.path)
+        }
+    }
+
+    func testCopiesThatExistedBeforeTheCallAreKept() throws {
+        let sourceID = "test-one-off-\(UUID().uuidString)"
+        let file = try makeFile(
+            in: sourceRoot("primuse_webdav_cache", temporary: true, sourceID: sourceID),
+            ["ns", "song.wma"]
+        )
+        Thread.sleep(forTimeInterval: 0.02)
+        let startedAt = Date()
+
+        SourceManager.discardOneOffSourceDownload(file, sourceID: sourceID, downloadedSince: startedAt)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+    }
+
+    func testAudioCacheAndFilesOutsideConnectorCachesAreNeverDiscarded() throws {
+        let sourceID = "test-one-off-\(UUID().uuidString)"
+        let startedAt = Date()
+        let audioCache = try makeFile(
+            in: sourceRoot("primuse_audio_cache", temporary: false, sourceID: sourceID),
+            ["song.flac"]
+        )
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("test-one-off-\(UUID().uuidString)", isDirectory: true)
+        createdDirectories.append(documents)
+        let localOriginal = try makeFile(in: documents, ["song.flac"])
+        let otherSource = try makeFile(
+            in: sourceRoot("primuse_s3_cache", temporary: false, sourceID: sourceID + "-other"),
+            ["ns", "song.mp3"]
+        )
+
+        for file in [audioCache, localOriginal, otherSource] {
+            SourceManager.discardOneOffSourceDownload(file, sourceID: sourceID, downloadedSince: startedAt)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: file.path), file.path)
+        }
+    }
+}

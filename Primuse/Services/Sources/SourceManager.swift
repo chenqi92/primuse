@@ -9308,7 +9308,17 @@ final class SourceManager {
                 // chunk with the whole file; one plain transfer of that file
                 // is the only download that can succeed.
                 plog("↩️ Offline '\(song.title)': server ignored Range; downloading the whole file in one transfer")
+                let startedAt = Date()
                 let local = try await connector.localURL(for: transferPath)
+                // 离线那份是复制出去的; 专为这次下载落进连接器缓存的原文件复制完就删,
+                // 否则同一首歌占两份空间, 删掉离线下载也还留着一份。
+                defer {
+                    Self.discardOneOffSourceDownload(
+                        local,
+                        sourceID: song.sourceID,
+                        downloadedSince: startedAt
+                    )
+                }
                 try Task.checkCancellation()
                 try await Task.detached(priority: .utility) {
                     try Self.validateCompleteCacheFile(
@@ -9902,7 +9912,7 @@ final class SourceManager {
     /// 一个源占用的全部 per-source 缓存目录。下载缓存按协议散落在多个目录,
     /// `deleteSourceCaches` 删除与 `diskUsage` 统计都走这里, 保证口径一致
     /// (否则统计会系统性低估 SMB/SFTP/NFS/云 等源的真实占用)。
-    static func perSourceCacheDirs(sourceID: String) -> [URL] {
+    nonisolated static func perSourceCacheDirs(sourceID: String) -> [URL] {
         let fm = FileManager.default
         let caches = fm.primuseDirectoryURL(for: .cachesDirectory)
         let temp = fm.temporaryDirectory
@@ -9922,6 +9932,38 @@ final class SourceManager {
             temp.appendingPathComponent("primuse_subsonic_cache_\(sourceID)"),
             temp.appendingPathComponent("primuse_scan_\(sourceID)"),
         ]
+    }
+
+    /// `url` 是不是从 `startedAt` 起专为一次性用途(重新读取标签、卡拉OK 分离、
+    /// 离线下载的整首回退)刚落进连接器缓存的整首下载。见 `OneOffSourceDownloadPolicy`。
+    nonisolated static func isOneOffSourceDownload(
+        _ url: URL,
+        sourceID: String,
+        downloadedSince startedAt: Date
+    ) -> Bool {
+        guard url.isFileURL else { return false }
+        // 音频缓存与音乐视频缓存另有淘汰和上限, 不归这里删。
+        let excluded: Set<String> = [audioCacheDirName, videoCacheDirName]
+        let directories = perSourceCacheDirs(sourceID: sourceID)
+            .filter { !excluded.contains($0.deletingLastPathComponent().lastPathComponent) }
+            .map { $0.resolvingSymlinksInPath().standardizedFileURL.path }
+        let file = url.resolvingSymlinksInPath().standardizedFileURL
+        return OneOffSourceDownloadPolicy.isDisposable(
+            filePath: file.path,
+            creationDate: try? file.resourceValues(forKeys: [.creationDateKey]).creationDate,
+            startedAt: startedAt,
+            connectorCacheDirectories: directories
+        )
+    }
+
+    /// 一次性用途的整首下载用完就删, 不留在连接器缓存里。
+    nonisolated static func discardOneOffSourceDownload(
+        _ url: URL,
+        sourceID: String,
+        downloadedSince startedAt: Date
+    ) {
+        guard isOneOffSourceDownload(url, sourceID: sourceID, downloadedSince: startedAt) else { return }
+        try? FileManager.default.removeItem(at: url)
     }
 
     /// 单个源占用的磁盘大小(后台枚举, 不卡主线程)。本地导入源算沙箱

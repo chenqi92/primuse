@@ -3483,7 +3483,15 @@ final class MetadataBackfillService {
 
         do {
             let connector = try await sourceManager.connectorForSong(song)
+            let startedAt = Date()
             let url = try await connector.localURL(for: song.filePath)
+            defer {
+                SourceManager.discardOneOffSourceDownload(
+                    url,
+                    sourceID: song.sourceID,
+                    downloadedSince: startedAt
+                )
+            }
             let fallbackTitle = MediaMetadataTextRepair.fileNameTitle(from: song.filePath)
             var metadata = await metadataService.loadMetadata(
                 for: url,
@@ -5241,7 +5249,17 @@ final class MetadataBackfillService {
     private func loadCompleteFileMetadata(
         for song: Song
     ) async throws -> MetadataService.SongMetadata {
+        let startedAt = Date()
         let url = try await sourceManager.resolveFullDownloadSourceURL(for: song)
+        // 只为读这一次标签整首下载的那份读完就删。留在连接器缓存里既不计入
+        // 音频缓存上限也不参与淘汰, 批量重读一个缺封面的源能悄悄占掉几个 GB。
+        defer {
+            SourceManager.discardOneOffSourceDownload(
+                url,
+                sourceID: song.sourceID,
+                downloadedSince: startedAt
+            )
+        }
         guard url.isFileURL else {
             throw SourceError.connectionFailed("Complete metadata read did not resolve a local file")
         }

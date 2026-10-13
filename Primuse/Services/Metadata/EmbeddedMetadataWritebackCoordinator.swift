@@ -272,6 +272,9 @@ enum EmbeddedMetadataWritebackCoordinator {
         try await run(source: sourceName, stage: .download) {
             try FileManager.default.copyItem(at: sourceURL, to: workingURL)
         }
+        // 改的是工作副本。连接器为这次写回整首下载的原文件到这里就用完了,
+        // 留着既不计入音频缓存上限也不参与淘汰, 批量写回能占掉几个 GB。
+        await adapter.invalidateMetadataWritebackCache(for: original.filePath)
 
         let edits = EmbeddedMetadataEdits(
             tags: writesTextTags
@@ -334,6 +337,8 @@ enum EmbeddedMetadataWritebackCoordinator {
             let readbackSHA256 = try await run(source: sourceName, stage: .readback) {
                 try SHA256FileDigest.hexDigest(at: readbackURL)
             }
+            // 回读只为核对摘要, 下回来的这份同样不留。
+            await adapter.invalidateMetadataWritebackCache(for: replacementPath)
             guard readbackSHA256 == editedSHA256 else {
                 throw EmbeddedMetadataCoordinatedWritebackError.remoteVerificationFailed(
                     source: sourceName
