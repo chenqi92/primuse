@@ -268,15 +268,30 @@ enum TVPrefetchHTTPRangeReader {
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         let signsEachRequest = resolved.headers[FnMusicAPIProtocol.authxHeaderField] != nil
             && FnMusicAPIProtocol.authxPath(for: resolved.url) == "\(FnMusicAPIProtocol.apiPath)/track/stream"
-        if signsEachRequest {
-            FnMusicAPIProtocol.applyAuthx(to: &request)
+        // 和播放 Range 共用同一份配额:源在冷却时预取不发请求,预取碰到限流也让播放一起等。
+        guard let quota = RequestQuota(service: .mediaPlayback, url: resolved.url,
+                                       account: sourceID.map { .init(stableID: $0) } ?? .anonymous) else {
+            throw URLError(.badURL)
         }
-        let (data, response) = try await StreamResolverHTTPTransport.data(
-            for: request,
-            session: session,
-            maximumBytes: SpeculativeRangeRead.responseLimit(forRequestedLength: length),
-            redirectMode: signsEachRequest ? .fnMusic : .safe
-        )
+        let unsigned = request
+        let (data, response) = try await RequestQuotaRegistry.shared.execute(for: quota, replay: .never, operation: {
+            var signed = unsigned
+            // authx 带短时效时间戳,排到了再签。
+            if signsEachRequest {
+                FnMusicAPIProtocol.applyAuthx(to: &signed)
+            }
+            let (data, response) = try await StreamResolverHTTPTransport.data(
+                for: signed,
+                session: Self.session,
+                maximumBytes: SpeculativeRangeRead.responseLimit(forRequestedLength: length),
+                redirectMode: signsEachRequest ? .fnMusic : .safe
+            )
+            if let http = response as? HTTPURLResponse,
+               let failure = TVHTTPRangeResponsePolicy.httpFailure(for: http), failure.isRateLimitFailure {
+                throw failure
+            }
+            return (data, response)
+        })
         guard let http = response as? HTTPURLResponse else {
             throw URLError(.badServerResponse)
         }
