@@ -894,47 +894,47 @@ struct PlaylistListView: View {
 
     @ViewBuilder
     private func playlistContextMenu(for playlist: Playlist) -> some View {
-        let playlistSongs = library.songs(forPlaylist: playlist.id)
-        let playable = playlistSongs.filteredPlayable()
+        // 菜单跟着每张卡片一起求值, 这里只数个数; 歌在点下去时才取。
+        let isEmpty = library.songCount(forPlaylist: playlist.id) == 0
 
         Button {
             playPlaylist(playlist)
         } label: {
             Label("play_all", systemImage: "play.fill")
         }
-        .disabled(playable.isEmpty)
+        .disabled(isEmpty)
 
         Button {
             playPlaylist(playlist, shuffled: true)
         } label: {
             Label("shuffle", systemImage: "shuffle")
         }
-        .disabled(playable.isEmpty)
+        .disabled(isEmpty)
 
         Button {
-            player.appendToQueue(playable)
+            player.appendToQueue(library.songs(forPlaylist: playlist.id).filteredPlayable())
         } label: {
             Label("add_to_queue", systemImage: "text.line.last.and.arrowtriangle.forward")
         }
-        .disabled(playable.isEmpty)
+        .disabled(isEmpty)
 
         Button {
-            player.insertNextInQueue(playable)
+            player.insertNextInQueue(library.songs(forPlaylist: playlist.id).filteredPlayable())
         } label: {
             Label("up_next", systemImage: "text.line.first.and.arrowtriangle.forward")
         }
-        .disabled(playable.isEmpty)
+        .disabled(isEmpty)
 
         Button {
             guard scraperSettings.hasEnabledSource else {
                 showNoScraperSourceAlert = true
                 return
             }
-            scraperService.scrapeMissingMetadata(songs: playlistSongs, in: library)
+            scraperService.scrapeMissingMetadata(songs: library.songs(forPlaylist: playlist.id), in: library)
         } label: {
             Label("scrape_missing_metadata", systemImage: "wand.and.stars")
         }
-        .disabled(playlistSongs.isEmpty || scraperService.isScraping)
+        .disabled(isEmpty || scraperService.isScraping)
 
         favoriteToggleButton(for: playlist)
         serverMediaShareButton(for: playlist)
@@ -960,9 +960,12 @@ struct PlaylistListView: View {
     private func makeServerMediaShareTarget(
         for playlist: Playlist
     ) -> ServerMediaShareTarget? {
+        // 长按菜单跟着每一行一起求值: 先只看第一首歌的源能不能这样分享, 能的才取出
+        // 整张歌单逐首核对。没有 Subsonic 一类源的歌单不再每行都拷一遍整张歌单。
+        guard let firstSong = library.songSummary(forPlaylist: playlist.id).first,
+              let source = sourcesStore.source(id: firstSong.sourceID),
+              ServerMediaShareTargetPolicy.supports(source.type) else { return nil }
         let songs = library.songs(forPlaylist: playlist.id)
-        guard let sourceID = songs.first?.sourceID,
-              let source = sourcesStore.source(id: sourceID) else { return nil }
         return try? ServerMediaShareTargetPolicy.makeTarget(
             kind: .playlist,
             title: playlist.name,

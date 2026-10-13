@@ -4355,18 +4355,23 @@ struct SearchView: View {
         playCollection(library.songs(forAlbum: album.id))
     }
 
-    private func resultActions(_ target: SearchResultActionTarget) -> some View {
-        let songs = target.songs(in: library)
+    /// `songs` 是调用方已经取好的同一份(歌单、目录那一行要先数歌)。卡片和「⋯」菜单
+    /// 共用这一份: 原来一张卡片每次重绘要按目标取四遍歌, 智能歌单每遍都是整库匹配。
+    private func resultActions(
+        _ target: SearchResultActionTarget,
+        songs resolvedSongs: [PrimuseKit.Song]? = nil
+    ) -> some View {
+        let songs = resolvedSongs ?? target.songs(in: library)
         return HStack(spacing: 6) {
             Button { playCollection(target.songs(in: library)) } label: {
                 Image(systemName: "play.fill")
                     .frame(width: 32, height: 32)
                     .contentShape(Rectangle())
             }
-            .disabled(songs.filteredPlayable().isEmpty)
+            .disabled(!songs.contains(where: \.isPlayable))
             .accessibilityLabel(Text("play_all"))
             .help(Text("play_all"))
-            resultMoreMenu(target)
+            resultMoreMenu(target, songs: songs)
         }
         .buttonStyle(.borderless)
         .foregroundStyle(.secondary)
@@ -4377,15 +4382,17 @@ struct SearchView: View {
                     context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill))
     }
 
-    private func resultMoreMenu(_ target: SearchResultActionTarget) -> some View {
-        let songs = target.songs(in: library)
+    private func resultMoreMenu(
+        _ target: SearchResultActionTarget,
+        songs: [PrimuseKit.Song]
+    ) -> some View {
         let allLiked = !songs.isEmpty && songs.allSatisfy { library.isLiked(songID: $0.id) }
         return Menu {
             if case .album = target {
                 Button { playCollection(target.songs(in: library)) } label: {
                     Label("play_all", systemImage: "play.fill")
                 }
-                .disabled(songs.filteredPlayable().isEmpty)
+                .disabled(!songs.contains(where: \.isPlayable))
                 Divider()
             }
             Button {
@@ -4436,7 +4443,7 @@ struct SearchView: View {
             }
             .buttonStyle(.plain)
             #endif
-            resultActions(.collection(result))
+            resultActions(.collection(result), songs: songs)
         }
     }
 

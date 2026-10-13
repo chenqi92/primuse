@@ -4,6 +4,33 @@ import PrimuseKit
 import AppKit
 #endif
 
+/// 「能清掉几首、腾出多少空间」按输入记住。每组都要建几个 Set、挑一次首选, 底栏、
+/// 确认框、按钮禁用各要一遍, 清理时进度每走一首整页又重算一遍; 几千组就是几百毫秒。
+private final class DuplicateCleanupTotalsCache {
+    struct Key: Equatable {
+        let groupsRevision: Int
+        let deletableSourceIDs: Set<String>
+        let fileDeletingSourceIDs: Set<String>
+        let retentionStrategy: String
+        let keptOverrides: [String: Set<String>]
+    }
+
+    struct Totals {
+        var redundantCount = 0
+        var recoverableBytes: Int64 = 0
+    }
+
+    private var key: Key?
+    private var cached = Totals()
+
+    func totals(for key: Key, make: () -> Totals) -> Totals {
+        if key == self.key { return cached }
+        cached = make()
+        self.key = key
+        return cached
+    }
+}
+
 /// 重复歌曲管理 — 找 library 里 title+artist+duration 一致的多版本歌曲,
 /// 让用户保留一个 (推荐: 最高音质), 其他从 library 移除。
 ///
@@ -17,6 +44,9 @@ struct DuplicateSongsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var groups: [DuplicateGroup] = []
+    /// `groups` 每换一次加一, 给上面的合计缓存当键; 比较整份分组太贵。
+    @State private var groupsRevision = 0
+    @State private var totalsCache = DuplicateCleanupTotalsCache()
     @State private var isScanning = false
     @State private var expandedGroupID: String?
     @State private var showCleanAllConfirm = false
@@ -908,6 +938,7 @@ struct DuplicateSongsView: View {
         // never restore the stale duplicate count.
         guard generation == scanGeneration else { return }
         groups = detected
+        groupsRevision &+= 1
         expandedGroupID = nil
         showAllGroups = false
         #if os(macOS)
@@ -979,11 +1010,45 @@ struct DuplicateSongsView: View {
 
     // MARK: - Display helpers
 
-    private var totalRedundantCount: Int {
+    /// 读到的输入(分组、源、保留方式、手动勾选)都在键里, 任何一样变了 body 都会重算到这里。
+    private var cleanupTotals: DuplicateCleanupTotalsCache.Totals {
         let writableSourceIDs = deletableSourceIDsSnapshot
-        return groups.reduce(0) {
-            $0 + removableSongs(in: $1, deletableSourceIDs: writableSourceIDs).count
+        #if os(macOS)
+        let fileDeletingSourceIDs = Set(sourcesStore.sources.lazy
+            .filter { SourceFileDeletionPolicy.duplicateCleanupRemovesSourceFile(for: $0.type) }
+            .map(\.id))
+        let key = DuplicateCleanupTotalsCache.Key(
+            groupsRevision: groupsRevision,
+            deletableSourceIDs: writableSourceIDs,
+            fileDeletingSourceIDs: fileDeletingSourceIDs,
+            retentionStrategy: retentionStrategy.rawValue,
+            keptOverrides: macKeptSongIDsByGroup
+        )
+        #else
+        let fileDeletingSourceIDs: Set<String> = []
+        let key = DuplicateCleanupTotalsCache.Key(
+            groupsRevision: groupsRevision,
+            deletableSourceIDs: writableSourceIDs,
+            fileDeletingSourceIDs: fileDeletingSourceIDs,
+            retentionStrategy: "",
+            keptOverrides: [:]
+        )
+        #endif
+        return totalsCache.totals(for: key) {
+            var totals = DuplicateCleanupTotalsCache.Totals()
+            for group in groups {
+                let removable = removableSongs(in: group, deletableSourceIDs: writableSourceIDs)
+                totals.redundantCount += removable.count
+                for song in removable where fileDeletingSourceIDs.contains(song.sourceID) {
+                    totals.recoverableBytes += max(Int64(0), song.fileSize)
+                }
+            }
+            return totals
         }
+    }
+
+    private var totalRedundantCount: Int {
+        cleanupTotals.redundantCount
     }
 
     #if os(macOS)
@@ -1000,14 +1065,7 @@ struct DuplicateSongsView: View {
     }
 
     private var recoverableBytes: Int64 {
-        let writableSourceIDs = deletableSourceIDsSnapshot
-        let fileDeletingSourceIDs = Set(sourcesStore.sources.lazy
-            .filter { SourceFileDeletionPolicy.duplicateCleanupRemovesSourceFile(for: $0.type) }
-            .map(\.id))
-        return groups
-            .flatMap { removableSongs(in: $0, deletableSourceIDs: writableSourceIDs) }
-            .filter { fileDeletingSourceIDs.contains($0.sourceID) }
-            .reduce(Int64(0)) { $0 + max(Int64(0), $1.fileSize) }
+        cleanupTotals.recoverableBytes
     }
 
     private var recoverableSizeText: String {
@@ -1166,10 +1224,10 @@ struct DuplicateSongsView: View {
         in group: DuplicateGroup,
         deletableSourceIDs: Set<String>
     ) -> [Song] {
-        let writable = group.songs.filter { deletableSourceIDs.contains($0.sourceID) }
         #if os(macOS)
         return macRemovableSongs(in: group, deletableSourceIDs: deletableSourceIDs)
         #else
+        let writable = group.songs.filter { deletableSourceIDs.contains($0.sourceID) }
         guard writable.count > 1,
               let keptWritableID = group.songs.first(where: {
                   deletableSourceIDs.contains($0.sourceID)

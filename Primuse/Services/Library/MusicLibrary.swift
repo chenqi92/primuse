@@ -3449,6 +3449,8 @@ final class MusicLibrary {
             visibleSongsReference = LibraryArrayReference()
             visibleSongsLookupReference = visibleSongsReference
             materializedSourceSongs.removeAll()
+            visibleSongPositionsByAlbumID = nil
+            materializedAlbumSongs.removeAll()
         }
         songs = takeSongsForInPlaceMutation()
         return visibleShared
@@ -3823,6 +3825,8 @@ final class MusicLibrary {
             visibleSongsReference = LibraryArrayReference(newValue)
             visibleSongsLookupReference = visibleSongsReference
             materializedSourceSongs.removeAll()
+            visibleSongPositionsByAlbumID = nil
+            materializedAlbumSongs.removeAll()
             visibleCacheGeneration &+= 1
             LibraryArrayReclaimer.release(previous)
             // 可见歌曲换了一份, 查找表里的首选封面歌曲可能跟着换了内容。
@@ -3955,7 +3959,13 @@ final class MusicLibrary {
         }
     }
     @ObservationIgnored private var songIndexByID: [String: Int] = [:]
-    @ObservationIgnored private var visibleSongIndexByID: [String: Int] = [:]
+    @ObservationIgnored private var visibleSongIndexByID: [String: Int] = [:] {
+        didSet { visibleSongIndexGeneration &+= 1 }
+    }
+    /// `visibleSongIndexByID` 每换一次就加一。歌单可见曲数按它和成员修订号记住,
+    /// 不跟 `visibleCacheGeneration` 走: 可见数组先换、索引后换, 中间那几行若有界面
+    /// 同步重算, 按数组的代数记下的会是旧索引数出来的数。
+    @ObservationIgnored private var visibleSongIndexGeneration: UInt64 = 0
     /// The same array object as `visibleSongs`, read without registering an
     /// Observation dependency. Lookups by ID go through `visibleSongIndexByID`
     /// into it; a second dictionary holding every song again cost a full copy
@@ -3988,6 +3998,12 @@ final class MusicLibrary {
     @ObservationIgnored private var sourceIDsWithUnplayableSongs: Set<String> = []
     /// Per-source lists built for one visible array; dropped whenever it changes.
     @ObservationIgnored private var materializedSourceSongs: [String: [Song]] = [:]
+    /// 专辑 → 它在当前可见数组里的下标。头一次按专辑取歌时整库走一遍建好,
+    /// 和上面那份同一时机丢掉。
+    @ObservationIgnored private var visibleSongPositionsByAlbumID: [String: [Int]]?
+    /// 排好序的整张专辑。搜索结果的专辑卡片、专辑页一次重绘要问好几遍,
+    /// 原来每问一次都整库过滤再排序。
+    @ObservationIgnored private var materializedAlbumSongs: [String: [Song]] = [:]
     @ObservationIgnored private var sourceSongListStates: [String: LibrarySourceSongListState] = [:]
     /// 哪些源此刻至少有一首能播的歌。来源页只要这个判定, 可上面那份缓存不被
     /// 观察, 卡片原本只能顺手读一下整库引用才收得到更新 —— 于是扫描每 flush
@@ -7244,7 +7260,41 @@ final class MusicLibrary {
     }
 
     func songs(forAlbum albumID: String) -> [Song] {
-        AlbumTrackOrder.sorted(visibleSongs.filter { $0.albumID == albumID })
+        _ = visibleSongsReference
+        if let cached = materializedAlbumSongs[albumID] { return cached }
+        let visible = visibleSongsLookupReference.value
+        var songs: [Song] = []
+        for position in albumSongPositions()[albumID] ?? [] where visible.indices.contains(position) {
+            songs.append(visible[position])
+        }
+        let sorted = AlbumTrackOrder.sorted(songs)
+        if materializedAlbumSongs.count >= Self.materializedAlbumSongsLimit {
+            materializedAlbumSongs.removeAll(keepingCapacity: true)
+        }
+        materializedAlbumSongs[albumID] = sorted
+        return sorted
+    }
+
+    /// 只防一直翻专辑却从不换可见数组时越攒越多。
+    private static let materializedAlbumSongsLimit = 256
+
+    /// 整库按专辑分好下标, 一份可见数组只走一遍。按指针读字段: Debug 包里
+    /// 数组下标会把整首歌拷出来再丢掉。
+    private func albumSongPositions() -> [String: [Int]] {
+        if let cached = visibleSongPositionsByAlbumID { return cached }
+        var positions: [String: [Int]] = [:]
+        visibleSongsLookupReference.value.withUnsafeBufferPointer { buffer in
+            guard let base = buffer.baseAddress else { return }
+            var index = 0
+            while index < buffer.count {
+                if let albumID = base[index].albumID {
+                    positions[albumID, default: []].append(index)
+                }
+                index += 1
+            }
+        }
+        visibleSongPositionsByAlbumID = positions
+        return positions
     }
 
     func preferredArtworkSong(forAlbumID albumID: String) -> Song? {
@@ -7937,14 +7987,44 @@ final class MusicLibrary {
     /// List rows frequently need only these two values.
     func songSummary(forPlaylist playlistID: String) -> (first: Song?, count: Int) {
         _ = visibleSongsReference
-        var first: Song?
+        _ = playlistSongIDs
+        let summary = playlistVisibleSummary(playlistID)
+        return (summary.firstSongID.flatMap { lookupVisibleSong($0) }, summary.count)
+    }
+
+    /// 一个歌单里可见的有几首、第一首是哪首。歌单列表、侧栏、快捷收藏每行每次
+    /// 重绘都要问; 原来逐首取出整首歌, 上千首的「我喜欢」一行就是上千次拷贝。
+    /// 成员表和可见索引都没换就用上次数的。
+    private struct PlaylistVisibleSummary {
+        let membershipRevision: UInt64
+        let visibleIndexGeneration: UInt64
+        let count: Int
+        let firstSongID: String?
+    }
+
+    @ObservationIgnored private var playlistVisibleSummaries: [String: PlaylistVisibleSummary] = [:]
+
+    private func playlistVisibleSummary(_ playlistID: String) -> PlaylistVisibleSummary {
+        if let cached = playlistVisibleSummaries[playlistID],
+           cached.membershipRevision == playlistMembershipRevision,
+           cached.visibleIndexGeneration == visibleSongIndexGeneration {
+            return cached
+        }
         var count = 0
-        for songID in playlistSongIDs[playlistID] ?? [] {
-            guard let song = lookupVisibleSong(songID) else { continue }
-            if first == nil { first = song }
+        var firstSongID: String?
+        for songID in playlistSongIDs[playlistID] ?? []
+        where visibleSongIndexByID[songID] != nil {
+            if firstSongID == nil { firstSongID = songID }
             count += 1
         }
-        return (first, count)
+        let summary = PlaylistVisibleSummary(
+            membershipRevision: playlistMembershipRevision,
+            visibleIndexGeneration: visibleSongIndexGeneration,
+            count: count,
+            firstSongID: firstSongID
+        )
+        playlistVisibleSummaries[playlistID] = summary
+        return summary
     }
 
     /// Returns an exact visible count plus only the small candidate window a
@@ -7968,14 +8048,10 @@ final class MusicLibrary {
 
     func songCount(forPlaylist playlistID: String) -> Int {
         _ = visibleSongsReference
+        _ = playlistSongIDs
         // 只数个数时不取出 Song: 字典取值要把整首歌拷一份, 几十个上千首的歌单
         // 加起来就是几万次拷贝 (Spotlight 快照、歌单列表都走这里)。
-        var count = 0
-        for songID in playlistSongIDs[playlistID] ?? []
-        where visibleSongIndexByID[songID] != nil {
-            count += 1
-        }
-        return count
+        return playlistVisibleSummary(playlistID).count
     }
 
     /// Recently played music. Spoken word is left out — a book is resumed

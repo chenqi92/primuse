@@ -124,7 +124,7 @@ struct MacSidebar: View {
             // 避免同一个东西出现两次。
             item(route: .liked, icon: "heart.fill",
                  title: "sidebar_liked_songs",
-                 trailing: countLabel(library.songs(forPlaylist: MusicLibrary.likedSongsPlaylistID).count))
+                 trailing: countLabel(library.songCount(forPlaylist: MusicLibrary.likedSongsPlaylistID)))
         }
         .padding(.horizontal, 6)
         // 下面紧跟没有分区标题的「搜索 / 音乐源」, 这里再留底距会在两组之间
@@ -534,8 +534,8 @@ struct MacSidebar: View {
 
     @ViewBuilder
     private func playlistContextMenu(for playlist: Playlist) -> some View {
-        let playlistSongs = library.songs(forPlaylist: playlist.id)
-        let playable = playlistSongs.filteredPlayable()
+        // 侧栏每次重绘都会给每一行求一遍菜单, 这里只数个数; 歌在点下去时才取。
+        let isEmpty = library.songCount(forPlaylist: playlist.id) == 0
 
         Button {
             select(.playlist(playlist))
@@ -548,35 +548,35 @@ struct MacSidebar: View {
         } label: {
             Label("play_all", systemImage: "play.fill")
         }
-        .disabled(playable.isEmpty)
+        .disabled(isEmpty)
 
         Button {
             playPlaylist(playlist, shuffled: true)
         } label: {
             Label("shuffle", systemImage: "shuffle")
         }
-        .disabled(playable.isEmpty)
+        .disabled(isEmpty)
 
         Button {
-            player.appendToQueue(playable)
+            player.appendToQueue(library.songs(forPlaylist: playlist.id).filteredPlayable())
         } label: {
             Label("add_to_queue", systemImage: "text.line.last.and.arrowtriangle.forward")
         }
-        .disabled(playable.isEmpty)
+        .disabled(isEmpty)
 
         Button {
-            player.insertNextInQueue(playable)
+            player.insertNextInQueue(library.songs(forPlaylist: playlist.id).filteredPlayable())
         } label: {
             Label("up_next", systemImage: "text.line.first.and.arrowtriangle.forward")
         }
-        .disabled(playable.isEmpty)
+        .disabled(isEmpty)
 
         Button {
-            scraperService.scrapeMissingMetadata(songs: playlistSongs, in: library)
+            scraperService.scrapeMissingMetadata(songs: library.songs(forPlaylist: playlist.id), in: library)
         } label: {
             Label("scrape_missing_metadata", systemImage: "wand.and.stars")
         }
-        .disabled(playlistSongs.isEmpty || scraperService.isScraping)
+        .disabled(isEmpty || scraperService.isScraping)
 
         if canDeletePlaylist(playlist.id) {
             Divider()

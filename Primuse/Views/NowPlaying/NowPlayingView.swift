@@ -10074,7 +10074,7 @@ struct AddToPlaylistSheet: View {
 
     private func macPlaylistRow(_ playlist: Playlist) -> some View {
         let isAdded = library.contains(songID: song.id, inPlaylist: playlist.id)
-        let count = library.songs(forPlaylist: playlist.id).count
+        let count = library.songCount(forPlaylist: playlist.id)
 
         return Button {
             guard isEditablePlaylist(playlist.id) else {
@@ -10134,7 +10134,7 @@ struct AddToPlaylistSheet: View {
                 PlaylistArtworkView(playlist: playlist, size: 40, cornerRadius: 6)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(playlist.name).font(.body)
-                    let count = library.songs(forPlaylist: playlist.id).count
+                    let count = library.songCount(forPlaylist: playlist.id)
                     Text("\(count) \(String(localized: "songs_count"))")
                         .font(.caption).foregroundStyle(.secondary)
                 }
