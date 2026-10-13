@@ -265,6 +265,11 @@ struct TVCloudAuthView: View {
     }
 
     private static func describe(_ error: Error) -> String {
+        // 授权请求走公共配额后,服务端出错抛的是 HTTPResponseFailure;限流照用它自带的等待提示,
+        // 其余状态码仍按授权页的说法,不落到播放用的「服务器返回 HTTP …」。
+        if let failure = error as? HTTPResponseFailure, !failure.isRateLimitFailure {
+            return PMString("ext.tv.cloud.auth.serverError", String(failure.statusCode))
+        }
         guard let authError = error as? CloudDeviceAuthError else {
             return error.localizedDescription
         }
