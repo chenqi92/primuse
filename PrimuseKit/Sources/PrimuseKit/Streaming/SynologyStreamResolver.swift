@@ -7,12 +7,18 @@ import Foundation
 /// deviceId(本机 2FA 受信设备令牌)。需要 OTP 时由电视输入并持久化令牌。
 public actor SynologyStreamResolver: StreamResolver {
     public static let trustedDeviceName = "Apple TV"
-    private var sessions: [String: String] = [:]   // sourceID → _sid
-    private var endpoints: [String: URL] = [:]     // sourceID → resolved direct/relay endpoint
-    private var sessionTasks: [String: (id: UUID, task: Task<String, Error>)] = [:]
+    private struct Login: Sendable {
+        let base: URL
+        let sid: String
+        let deviceToken: String?
+    }
+    private var sessions: [String: Login] = [:]
+    private var sessionTasks: [String: (id: UUID, task: Task<Login, Error>)] = [:]
     private let session: URLSession
+    private let quickConnectResolver: (@Sendable (String) async throws -> URL)?
 
-    public init(session: URLSession? = nil) {
+    public init(session: URLSession? = nil, quickConnectResolver: (@Sendable (String) async throws -> URL)? = nil) {
+        self.quickConnectResolver = quickConnectResolver
         let cfg = URLSessionConfiguration.default
         cfg.timeoutIntervalForRequest = 20
         cfg.httpAdditionalHeaders = ["User-Agent": "Primuse/1.0"]
@@ -21,9 +27,8 @@ public actor SynologyStreamResolver: StreamResolver {
 
     deinit { session.invalidateAndCancel() }
 
-    public func invalidateSession(sourceID: String) {
+    public func invalidateSession(sourceID: String) async {
         sessions[sourceID] = nil
-        endpoints[sourceID] = nil
         sessionTasks.removeValue(forKey: sourceID)?.task.cancel()
     }
 
@@ -34,37 +39,41 @@ public actor SynologyStreamResolver: StreamResolver {
         guard let password = credential?.password, !password.isEmpty, !username.isEmpty else {
             throw StreamResolveError.missingCredential
         }
-        let base = try await resolvedBaseURL(for: source)
-        let sid = try await currentSID(for: source, base: base, username: username, password: password)
-        guard let url = Self.downloadURL(base: base, path: song.filePath, sid: sid) else {
+        let login = try await currentLogin(for: source, username: username, password: password)
+        guard let url = Self.downloadURL(base: login.base, path: song.filePath, sid: login.sid) else {
             throw StreamResolveError.cannotBuildURL
         }
         return url
     }
 
-    private func currentSID(for source: MusicSource, base: URL,
-                            username: String, password: String) async throws -> String {
+    private func currentLogin(for source: MusicSource, username: String, password: String,
+                              otp: String? = nil) async throws -> Login {
+        try Task.checkCancellation()
         if let cached = sessions[source.id] { return cached }
-        if let inFlight = sessionTasks[source.id] { return try await inFlight.task.value }
+        if let inFlight = sessionTasks[source.id] {
+            return try await CloudResolverRequests.wait(for: inFlight.task)
+        }
         let taskID = UUID()
-        let task = Task<String, Error> { [self] in
-            let (sid, _) = try await performLogin(base: base, username: username, password: password,
-                                                  deviceID: source.deviceId, otp: nil)
-            return sid
+        let task = Task<Login, Error> { [self] in
+            // Completion owns publication even when the initiating waiter leaves.
+            defer {
+                if sessionTasks[source.id]?.id == taskID { sessionTasks[source.id] = nil }
+            }
+            // Route discovery and OTP login belong to the same invalidatable task.
+            let base = try await resolvedBaseURL(for: source)
+            try Task.checkCancellation()
+            let result = try await performLogin(base: base, username: username, password: password,
+                deviceID: source.deviceId, otp: otp)
+            let value = Login(base: base, sid: result.sid, deviceToken: result.did)
+            try Task.checkCancellation()
+            guard sessionTasks[source.id]?.id == taskID else {
+                throw URLError(.userAuthenticationRequired)
+            }
+            sessions[source.id] = value
+            return value
         }
         sessionTasks[source.id] = (taskID, task)
-        let sid: String
-        do {
-            sid = try await task.value
-        } catch {
-            if sessionTasks[source.id]?.id == taskID { sessionTasks[source.id] = nil }
-            throw error
-        }
-        if sessionTasks[source.id]?.id == taskID {
-            sessions[source.id] = sid
-            sessionTasks[source.id] = nil
-        }
-        return sid
+        return try await CloudResolverRequests.wait(for: task)
     }
 
     /// 2FA:用一次性验证码登录 + 申请受信设备令牌(`enable_device_token`),返回 `did`
@@ -76,13 +85,8 @@ public actor SynologyStreamResolver: StreamResolver {
         guard let password = credential?.password, !password.isEmpty, !username.isEmpty else {
             throw StreamResolveError.missingCredential
         }
-        let base = try await resolvedBaseURL(for: source)
-        sessionTasks.removeValue(forKey: source.id)?.task.cancel()
-        sessions[source.id] = nil
-        let (sid, did) = try await performLogin(base: base, username: username, password: password,
-                                                deviceID: source.deviceId, otp: otp)
-        sessions[source.id] = sid
-        return did
+        await invalidateSession(sourceID: source.id)
+        return try await currentLogin(for: source, username: username, password: password, otp: otp).deviceToken
     }
 
     private func resolvedBaseURL(for source: MusicSource) async throws -> URL {
@@ -96,13 +100,13 @@ public actor SynologyStreamResolver: StreamResolver {
             }
             return base
         }
-        if let cached = endpoints[source.id] { return cached }
         do {
-            let endpoint = try await SynologyQuickConnectResolver(session: session)
-                .resolve(source.host ?? "")
-            endpoints[source.id] = endpoint.baseURL
-            return endpoint.baseURL
+            let endpoint: URL
+            if let quickConnectResolver { endpoint = try await quickConnectResolver(source.host ?? "") }
+            else { endpoint = try await SynologyQuickConnectResolver(session: session).resolve(source.host ?? "").baseURL }
+            return endpoint
         } catch {
+            try Task.checkCancellation()
             throw StreamResolveError.cannotBuildURL
         }
     }
