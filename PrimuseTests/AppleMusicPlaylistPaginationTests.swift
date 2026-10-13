@@ -18,21 +18,25 @@ final class AppleMusicPlaylistPaginationTests: XCTestCase, @unchecked Sendable {
             }
         }
     }
-    func testLaterPageFailureCannotReturnACompletePlaylist() async {
-        let fetcher = ExternalPlaylistFetcher(appleMusicPage: { _ in
-            .init(name: "Fixture", tracks: [Self.track(1)], next: { throw URLError(.notConnectedToInternet) })
-        })
-        do { _ = try await fetcher.fetch(sharedText: link); XCTFail("Missing page must fail the import") }
-        catch ExternalPlaylistFetcher.FetchError.network { }
-        catch { XCTFail("Unexpected error: \(error)") }
+    func testLaterPageFailureKeepsReadPagesAsIncomplete() async throws {
+        for failure in [URLError(.notConnectedToInternet) as any Error, ExternalPlaylistFetcher.FetchError.appleMusicNotAuthorized] {
+            let fetcher = ExternalPlaylistFetcher(appleMusicPage: { _ in
+                .init(name: "Fixture", tracks: [Self.track(1)], next: {
+                    .init(name: "Fixture", tracks: [Self.track(2)], next: { throw failure })
+                })
+            })
+            let result = try await fetcher.fetch(sharedText: link)
+            XCTAssertEqual(result.tracks.map(\.externalID), ["1", "2"])
+            XCTAssertEqual(result.partialReason, .incomplete, "A missing page must never read as a complete playlist")
+        }
     }
-    func testAdvertisedContinuationWithoutAPageIsNotComplete() async {
+    func testAdvertisedContinuationWithoutAPageIsNotComplete() async throws {
         let fetcher = ExternalPlaylistFetcher(appleMusicPage: { _ in
             .init(name: "Fixture", tracks: [Self.track(1)], next: { nil })
         })
-        do { _ = try await fetcher.fetch(sharedText: link); XCTFail("Missing advertised page") }
-        catch ExternalPlaylistFetcher.FetchError.unexpectedResponse { }
-        catch { XCTFail("Unexpected error: \(error)") }
+        let result = try await fetcher.fetch(sharedText: link)
+        XCTAssertEqual(result.tracks.map(\.externalID), ["1"])
+        XCTAssertEqual(result.partialReason, .incomplete)
     }
     func testSuccessfulPagesKeepOrderAndStopAtEnd() async throws {
         let fetcher = ExternalPlaylistFetcher(appleMusicPage: { id in

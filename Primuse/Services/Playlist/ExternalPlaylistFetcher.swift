@@ -331,14 +331,29 @@ struct ExternalPlaylistFetcher: Sendable {
             let playlist = try await appleMusicPage(id)
             var tracks: [ExternalPlaylistTrack] = []
             var batch = playlist
+            var partialReason: ExternalPlaylist.PartialReason?
             while true {
                 try Task.checkCancellation()
                 tracks.append(contentsOf: batch.tracks.prefix(Self.maximumTracks - tracks.count))
                 guard tracks.count < Self.maximumTracks, let next = batch.next else { break }
-                guard let nextPage = try await next() else { throw FetchError.unexpectedResponse }
-                batch = nextPage
+                do {
+                    guard let nextPage = try await next() else { partialReason = .incomplete; break }
+                    batch = nextPage
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch let error as URLError where error.code == .cancelled {
+                    // MusicKit 自己的取消也按取消结束,和首页一致。
+                    throw CancellationError()
+                } catch {
+                    try Task.checkCancellation()
+                    // 和 YouTube 一样:后面某一页没读到时保留已读的曲目并标成没读完,
+                    // 由用户决定先导入这些还是重新读取,不再整单作废。
+                    partialReason = .incomplete
+                    break
+                }
             }
-            return ExternalPlaylist(name: playlist.name, platform: .appleMusic, tracks: tracks)
+            return ExternalPlaylist(name: playlist.name, platform: .appleMusic, tracks: tracks,
+                                    partialReason: partialReason)
         } catch let error as URLError where error.code == .cancelled {
             throw CancellationError()
         }
