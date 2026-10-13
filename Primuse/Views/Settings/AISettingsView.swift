@@ -1335,6 +1335,15 @@ struct AISettingsView: View {
             editor.adoptStoredConsent(from: intelligence)
         }
         .task { await editor.load(using: intelligence) }
+        #if DEBUG
+        .task {
+            // 取证用：`PRIMUSE_DEBUG_SHEET=aiConsent` 打开智能功能设置后直接弹出内置 AI 同意页
+            // (`aiConsentDetails` 再滚到各功能会发送什么)。
+            guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SHEET"]?.hasPrefix("aiConsent") == true else { return }
+            try? await Task.sleep(for: .seconds(2))
+            editor.pendingBuiltInConsent = BuiltInAIConsentRequest()
+        }
+        #endif
         .builtInAIConsentSheet($editor.pendingBuiltInConsent)
         .alert("ai_model_add", isPresented: $showsManualModelEntry) {
             TextField("ai_model_name_prompt", text: $manualModelDraft)

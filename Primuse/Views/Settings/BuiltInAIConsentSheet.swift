@@ -37,7 +37,7 @@ private struct BuiltInAIConsentPresenter: ViewModifier {
 }
 
 /// 同意页上写的内容。三条要点先说清楚「为什么要问、发了什么、怎么收回」,
-/// 各功能具体发什么收在下面,想看再展开,不一上来就是一长串。
+/// 各功能具体发什么列在下面(默认展开,也可以收起)。
 enum BuiltInAIConsentContent {
     struct Point: Identifiable {
         let id: String
@@ -51,8 +51,23 @@ enum BuiltInAIConsentContent {
         let systemImage: String
         let title: String
         let detail: LocalizedStringResource
-        /// 除了这一页,还要在隐私里单独允许(听歌偏好、上传音频)。
-        let needsSeparatePermission: Bool
+        /// 除了这一页,还要另外允许的那一项;同意页上直接给开关。
+        let separatePermission: SeparatePermission?
+    }
+
+    /// 这一页以外还要单独允许的授权,和设置里的同名开关是同一项。
+    enum SeparatePermission: Hashable, CaseIterable {
+        /// 「允许发送精简听歌偏好与候选歌曲信息」:场景推荐、听歌状态解读要用。
+        case listeningContext
+        /// 「允许上传音频」:听歌识词要用。
+        case audioUpload
+
+        var title: LocalizedStringKey {
+            switch self {
+            case .listeningContext: "ai_listening_context_consent"
+            case .audioUpload: "lyrics_transcription_audio_consent"
+            }
+        }
     }
 
     static var points: [Point] {
@@ -84,8 +99,8 @@ enum BuiltInAIConsentContent {
             item(.listeningIntents, "rectangle.stack", "ai_consent_data_listening_intents"),
             item(.semanticSearch, "magnifyingglass", "ai_consent_data_semantic_search"),
             item(.lyricsTranslation, "character.bubble", "ai_consent_data_lyrics_translation"),
-            item(.recommendations, "wand.and.stars", "ai_consent_data_recommendations", separate: true),
-            item(.listeningMood, "chart.bar", "ai_consent_data_listening_mood", separate: true),
+            item(.recommendations, "wand.and.stars", "ai_consent_data_recommendations", separate: .listeningContext),
+            item(.listeningMood, "chart.bar", "ai_consent_data_listening_mood", separate: .listeningContext),
         ]
     }
 
@@ -102,7 +117,7 @@ enum BuiltInAIConsentContent {
             systemImage: "waveform",
             title: String(localized: "lyrics_transcription_settings_title"),
             detail: "ai_consent_data_transcription",
-            needsSeparatePermission: true
+            separatePermission: .audioUpload
         ))
         #endif
         return items
@@ -112,14 +127,14 @@ enum BuiltInAIConsentContent {
         _ feature: AIFeature,
         _ systemImage: String,
         _ detail: LocalizedStringResource,
-        separate: Bool = false
+        separate: SeparatePermission? = nil
     ) -> Item {
         Item(
             id: feature.rawValue,
             systemImage: systemImage,
             title: feature.localizedTitle,
             detail: detail,
-            needsSeparatePermission: separate
+            separatePermission: separate
         )
     }
 }
@@ -134,17 +149,33 @@ struct BuiltInAIConsentSheet: View {
     @Environment(\.dismiss) private var dismiss
     /// 打开时就定下来:点同意之后不要在关掉的动画里变成说明页。
     @State private var reviewing: Bool
-    @State private var showsDetails = false
+    @State private var showsDetails = true
     @State private var saveFailed = false
+    /// 各功能下面那几个开关。说明页上拨了就生效;还没同意时先记着,点同意才一起存,
+    /// 点「暂不使用」什么都不改。
+    @State private var permissions: [BuiltInAIConsentContent.SeparatePermission: Bool]
+    private let savedPermissions: [BuiltInAIConsentContent.SeparatePermission: Bool]
 
     init(request: BuiltInAIConsentRequest, intelligence: MusicIntelligenceService) {
         self.request = request
         self.intelligence = intelligence
         _reviewing = State(initialValue: intelligence.settingsStore.hasBuiltInAIConsent)
+        let saved: [BuiltInAIConsentContent.SeparatePermission: Bool] = [
+            .listeningContext: intelligence.settingsStore.hasExplicitListeningContextConsent,
+            .audioUpload: intelligence.lyricsTranscriptionSettingsStore.hasExplicitAudioUploadConsent,
+        ]
+        savedPermissions = saved
+        _permissions = State(initialValue: saved)
     }
 
     private func agree() {
         do {
+            for permission in BuiltInAIConsentContent.SeparatePermission.allCases {
+                let value = permissions[permission] ?? false
+                if value != savedPermissions[permission] {
+                    try save(permission, value)
+                }
+            }
             try intelligence.acceptBuiltInAIConsent()
         } catch {
             saveFailed = true
@@ -153,6 +184,30 @@ struct BuiltInAIConsentSheet: View {
         let onAgree = request.onAgree
         dismiss()
         onAgree()
+    }
+
+    private func save(_ permission: BuiltInAIConsentContent.SeparatePermission, _ allowed: Bool) throws {
+        switch permission {
+        case .listeningContext: try intelligence.setListeningContextConsent(allowed)
+        case .audioUpload: try intelligence.setAudioUploadConsent(allowed)
+        }
+    }
+
+    private func binding(for permission: BuiltInAIConsentContent.SeparatePermission) -> Binding<Bool> {
+        Binding(
+            get: { permissions[permission] ?? false },
+            set: { allowed in
+                permissions[permission] = allowed
+                guard reviewing else { return }
+                do {
+                    try save(permission, allowed)
+                    saveFailed = false
+                } catch {
+                    permissions[permission] = !allowed
+                    saveFailed = true
+                }
+            }
+        )
     }
 
     private func withdraw() {
@@ -271,7 +326,7 @@ struct BuiltInAIConsentSheet: View {
                             .tvFont(.meta)
                             .foregroundStyle(TVColor.textMuted)
                             .fixedSize(horizontal: false, vertical: true)
-                        if item.needsSeparatePermission {
+                        if item.separatePermission != nil {
                             Text("ai_consent_separate_permission")
                                 .tvFont(.meta)
                                 .foregroundStyle(TVColor.textFaint)
@@ -283,24 +338,35 @@ struct BuiltInAIConsentSheet: View {
     }
     #else
     var body: some View {
-        ScrollView {
-            VStack(spacing: 22) {
-                header
-                pointsCard
-                detailsCard
-                Text("ai_consent_sync_note")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity)
+        ScrollViewReader { reader in
+            ScrollView {
+                VStack(spacing: 22) {
+                    header
+                    pointsCard
+                    detailsCard
+                        .id(Self.detailsAnchor)
+                    Text("ai_consent_sync_note")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity)
+                }
+                .padding(.horizontal, 22)
+                .padding(.top, 28)
+                .padding(.bottom, 12)
             }
-            .padding(.horizontal, 22)
-            .padding(.top, 28)
-            .padding(.bottom, 12)
+            #if DEBUG
+            .task {
+                // 取证用：`PRIMUSE_DEBUG_SHEET=aiConsentDetails` 弹出后滚到「各功能会发送什么」。
+                guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SHEET"] == "aiConsentDetails" else { return }
+                try? await Task.sleep(for: .seconds(1))
+                reader.scrollTo(Self.detailsAnchor, anchor: .top)
+            }
+            #endif
         }
         .scrollBounceBehavior(.basedOnSize)
-        .safeAreaInset(edge: .bottom, spacing: 0) { actions }
+        .builtInAIConsentActionsBar { actions }
         #if os(macOS)
         .frame(width: 500, height: 640)
         #else
@@ -400,34 +466,49 @@ struct BuiltInAIConsentSheet: View {
                 .foregroundStyle(.secondary)
                 .textCase(.uppercase)
             ForEach(items) { item in
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: item.systemImage)
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 22)
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(verbatim: item.title)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: item.systemImage)
                             .font(.footnote.weight(.semibold))
-                        Text(item.detail)
-                            .font(.footnote)
                             .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        if item.needsSeparatePermission {
-                            Text("ai_consent_separate_permission")
-                                .font(.caption2.weight(.medium))
+                            .frame(width: 22)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(verbatim: item.title)
+                                .font(.footnote.weight(.semibold))
+                            Text(item.detail)
+                                .font(.footnote)
                                 .foregroundStyle(.secondary)
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 2)
-                                .background(Color.primary.opacity(0.07), in: Capsule())
-                                .padding(.top, 2)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
+                        .accessibilityElement(children: .combine)
+                        Spacer(minLength: 0)
                     }
-                    Spacer(minLength: 0)
+                    if let permission = item.separatePermission {
+                        permissionToggle(permission)
+                            .padding(.leading, 34)
+                    }
                 }
-                .accessibilityElement(children: .combine)
             }
         }
+    }
+
+    /// 原来写着「还需在隐私里单独允许」,现在直接是那个开关(和设置里的是同一项,
+    /// 两个功能共用一项时拨一个两处一起变)。
+    private func permissionToggle(_ permission: BuiltInAIConsentContent.SeparatePermission) -> some View {
+        Toggle(isOn: binding(for: permission)) {
+            Text(permission.title)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .toggleStyle(.switch)
+        #if os(macOS)
+        .controlSize(.small)
+        #endif
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var actions: some View {
@@ -444,23 +525,18 @@ struct BuiltInAIConsentSheet: View {
                 } label: {
                     Text("done").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                .prominentLabelOnAccent()
-                .controlSize(.large)
+                .builtInAIConsentPrimaryButton()
                 .keyboardShortcut(.defaultAction)
                 Button(role: .destructive, action: withdraw) {
                     Text("ai_consent_withdraw").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderless)
-                .controlSize(.large)
+                .builtInAIConsentSecondaryButton()
                 .accessibilityIdentifier("ai.consent.withdraw")
             } else {
                 Button(action: agree) {
                     Text("ai_consent_agree").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                .prominentLabelOnAccent()
-                .controlSize(.large)
+                .builtInAIConsentPrimaryButton()
                 .keyboardShortcut(.defaultAction)
                 .accessibilityIdentifier("ai.consent.agree")
                 Button {
@@ -468,8 +544,7 @@ struct BuiltInAIConsentSheet: View {
                 } label: {
                     Text("ai_consent_decline").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderless)
-                .controlSize(.large)
+                .builtInAIConsentSecondaryButton()
                 .keyboardShortcut(.cancelAction)
                 .accessibilityIdentifier("ai.consent.decline")
             }
@@ -477,12 +552,70 @@ struct BuiltInAIConsentSheet: View {
         .padding(.horizontal, 22)
         .padding(.top, 12)
         .padding(.bottom, 16)
-        .background(.bar)
     }
 
     private var cardFill: Color { Color.primary.opacity(0.05) }
+    private static let detailsAnchor = "ai.consent.detailsCard"
     #endif
 }
+
+#if !os(tvOS)
+private extension View {
+    /// 底部按钮那一栏。iOS 26 起放进 `safeAreaBar`:不再垫一条实底,内容滚到按钮下面时
+    /// 边缘柔化,和系统自己的面板一样;更早的系统与 Mac 照旧 `safeAreaInset` 加 `.bar`。
+    @ViewBuilder
+    func builtInAIConsentActionsBar<Bar: View>(@ViewBuilder _ bar: @escaping () -> Bar) -> some View {
+        #if os(iOS)
+        if #available(iOS 26.0, *) {
+            safeAreaBar(edge: .bottom, spacing: 0, content: bar)
+                .scrollEdgeEffectStyle(.soft, for: .bottom)
+        } else {
+            safeAreaInset(edge: .bottom, spacing: 0) { bar().background(.bar) }
+        }
+        #else
+        safeAreaInset(edge: .bottom, spacing: 0) { bar().background(.bar) }
+        #endif
+    }
+
+    /// 同意 / 完成:iOS 26 起是带主题色的玻璃胶囊。
+    @ViewBuilder
+    func builtInAIConsentPrimaryButton() -> some View {
+        #if os(iOS)
+        if #available(iOS 26.0, *) {
+            buttonStyle(.glassProminent)
+                .prominentLabelOnAccent()
+                .controlSize(.large)
+        } else {
+            buttonStyle(.borderedProminent)
+                .prominentLabelOnAccent()
+                .controlSize(.large)
+        }
+        #else
+        buttonStyle(.borderedProminent)
+            .prominentLabelOnAccent()
+            .controlSize(.large)
+        #endif
+    }
+
+    /// 暂不使用 / 撤回同意:iOS 26 起是同样大小的普通玻璃胶囊,和主按钮一上一下;
+    /// 更早的系统是一行字。
+    @ViewBuilder
+    func builtInAIConsentSecondaryButton() -> some View {
+        #if os(iOS)
+        if #available(iOS 26.0, *) {
+            buttonStyle(.glass)
+                .controlSize(.large)
+        } else {
+            buttonStyle(.borderless)
+                .controlSize(.large)
+        }
+        #else
+        buttonStyle(.borderless)
+            .controlSize(.large)
+        #endif
+    }
+}
+#endif
 
 /// 设置页里「内置 AI 还差一步」那一行:选了内置 AI 但还没同意,点了弹同意页。
 /// 在同意之前内置 AI 不发任何请求,这一行就是告诉用户为什么它还没开始工作。

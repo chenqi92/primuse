@@ -1081,6 +1081,37 @@ final class MusicIntelligenceService {
         )
     }
 
+    /// 内置 AI 同意页上「允许发送精简听歌偏好」的开关:只改这一项,其余设置原样保留。
+    /// 设置页开着时由 `adoptStoredConsent` 接过去,不会被它下一次保存写回旧值。
+    func setListeningContextConsent(_ allowed: Bool) throws {
+        guard settingsStore.hasExplicitListeningContextConsent != allowed else { return }
+        try settingsStore.save(
+            providerSet: settingsStore.providerSet,
+            primuseRelayEnabled: settingsStore.primuseRelayEnabled,
+            semanticSearchEnabled: settingsStore.semanticSearchEnabled,
+            recommendationsEnabled: settingsStore.recommendationsEnabled,
+            audioTranscriptionEnabled: settingsStore.audioTranscriptionEnabled,
+            hasExplicitRemoteConsent: settingsStore.hasExplicitRemoteConsent,
+            hasExplicitListeningContextConsent: allowed,
+            hasExplicitAudioUploadConsent: settingsStore.hasExplicitAudioUploadConsent
+        )
+    }
+
+    /// 内置 AI 同意页上「允许上传音频」的开关:只改这一项,听歌识词的其它设置原样保留。
+    /// 旧版本存在智能设置里的听歌识词设置先搬过来,免得这次保存把待搬的那份盖掉。
+    func setAudioUploadConsent(_ allowed: Bool) throws {
+        let store = lyricsTranscriptionSettingsStore
+        store.adoptLegacySettingsIfNeeded(from: settingsStore)
+        guard store.hasExplicitAudioUploadConsent != allowed else { return }
+        try store.save(
+            configuration: store.configuration,
+            isEnabled: store.isEnabled,
+            hasExplicitAudioUploadConsent: allowed,
+            usesBuiltIn: store.usesBuiltIn,
+            credentialMigrationCompleted: store.credentialMigrationCompleted
+        )
+    }
+
     /// 首页指引卡上的「开启」(同意页点了同意之后):打开内置 AI、语义搜索与场景推荐,
     /// 连同这两项能力需要的两项授权(卡片上写明了会发送什么);自己的服务和其它设置原样保留。
     func enableBuiltInIntelligence() throws {
