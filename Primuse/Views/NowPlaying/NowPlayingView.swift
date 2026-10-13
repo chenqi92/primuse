@@ -1591,7 +1591,9 @@ struct NowPlayingView: View {
                 return
             }
             if lyrics.isEmpty {
-                openContentsPanel()
+                // 有声书点封面只用来切文字稿,没有文字稿时不做事:目录在章节那一行和传输键上,
+                // 封面、章号栏、章节行都开目录太多了。播客单集照旧打开节目说明。
+                if SpokenWordPlayerText.isPodcastEpisode(player) { openContentsPanel() }
                 return
             }
         }
@@ -5091,7 +5093,7 @@ struct NowPlayingView: View {
                         spacing: 24,
                         maxSide: 480
                     ) {
-                        AudiobookChapterColumn(style: style) { openContentsPanel() }
+                        AudiobookChapterColumn(style: style)
                         audiobookCover(style: style)
                     }
                     .padding(.top, isShort ? 14 : 22)
@@ -5113,7 +5115,7 @@ struct NowPlayingView: View {
                         spacing: 28,
                         maxSide: 480
                     ) {
-                        AudiobookChapterColumn(style: style) { openContentsPanel() }
+                        AudiobookChapterColumn(style: style)
                         audiobookCover(style: style)
                     }
                     .padding(.top, isShort ? 14 : 22)
@@ -5289,8 +5291,9 @@ struct NowPlayingView: View {
         .onTapGesture { openTextFromArtwork() }
         .accessibilityElement()
         .accessibilityLabel(Text(verbatim: SpokenWordPlayerText.bookTitle(player)))
-        .accessibilityAddTraits(.isButton)
-        .accessibilityHint(Text(lyrics.isEmpty ? "spoken_word_contents_title" : "spoken_word_text_tab"))
+        // 没有文字稿时点封面不做事,不报成按钮。
+        .accessibilityAddTraits(lyrics.isEmpty ? [] : .isButton)
+        .accessibilityHint(lyrics.isEmpty ? Text(verbatim: "") : Text("spoken_word_text_tab"))
     }
 
     /// 文字稿顶上那一行:小封面、书名、作者。点一下回到封面。
