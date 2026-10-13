@@ -5952,3 +5952,8 @@
 "spoken_word_keep_offline_unsupported_short" = "แหล่งไม่รองรับการดาวน์โหลด";
 "player_backdrop_audiobooks" = "ใช้กับหนังสือเสียงด้วย";
 "player_backdrop_audiobooks_hint" = "ในโหมดมืด หน้าเล่นหนังสือเสียงจะแสดงพื้นหลังนี้ด้วย ส่วนโหมดสว่างยังคงพื้นหลังแบบกระดาษ";
+
+/* 歌词翻译：下载离线翻译包前确认 */
+"lyrics_translation_local_download_confirm_title_format" = "ดาวน์โหลดแพ็กออฟไลน์ “%@” ไหม";
+"lyrics_translation_local_download_confirm_message" = "หลังจากนั้นจะแปลบนอุปกรณ์นี้โดยไม่ต้องออนไลน์ ลบแพ็กได้ภายหลังในการตั้งค่าเนื้อเพลง";
+"lyrics_translation_local_download_cellular_format" = "ตอนนี้ใช้เครือข่ายมือถือหรือโหมดใช้ข้อมูลน้อย จะใช้ข้อมูลประมาณ %@";

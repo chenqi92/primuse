@@ -5952,3 +5952,8 @@
 "spoken_word_keep_offline_unsupported_short" = "Kaynak indirmeyi desteklemiyor";
 "player_backdrop_audiobooks" = "Sesli Kitaplarda da Kullan";
 "player_backdrop_audiobooks_hint" = "Koyu modda sesli kitap oynatıcısı da bu arka planı gösterir. Açık mod kâğıt arka planını korur.";
+
+/* 歌词翻译：下载离线翻译包前确认 */
+"lyrics_translation_local_download_confirm_title_format" = "“%@” çevrimdışı paketi indirilsin mi?";
+"lyrics_translation_local_download_confirm_message" = "Ardından çeviri bu cihazda internetsiz yapılır. Paketi daha sonra şarkı sözü ayarlarından kaldırabilirsiniz.";
+"lyrics_translation_local_download_cellular_format" = "Hücresel veri veya Düşük Veri Modu kullanıyorsunuz; yaklaşık %@ veri harcanır.";

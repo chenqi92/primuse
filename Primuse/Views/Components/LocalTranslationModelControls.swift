@@ -1,26 +1,31 @@
 import SwiftUI
 
-/// Lyric-page badge that downloads the offline translation model on tap.
-/// Only shown when the current lyrics need it.
+/// Mac 歌词页上的离线翻译包按钮:写明大小,点了先确认再下;失败时把原因放在悬停提示里。
+/// 只在当前歌词需要时出现。
 struct LocalTranslationModelBadge: View {
     var onTap: () -> Void = {}
     private var service: LocalLyricsTranslationService { .shared }
+    @State private var pendingDownload: LocalLyricsTranslationModel.Pack?
 
     var body: some View {
         switch service.modelState {
         case .notDownloaded, .failed:
+            let failed = service.modelState == .failed
             Button {
                 onTap()
-                service.downloadModel()
+                pendingDownload = service.requestedPack
             } label: {
                 Label(
-                    service.modelState == .failed
-                        ? LocalizedStringKey("lyrics_translation_local_retry")
-                        : LocalizedStringKey("lyrics_translation_local_download"),
-                    systemImage: service.modelState == .failed ? "arrow.clockwise" : "arrow.down.circle"
+                    failed
+                        ? String(localized: "lyrics_translation_local_retry")
+                        : String(localized: "lyrics_translation_local_download")
+                            + " · " + service.requestedPack.formattedDownloadSize,
+                    systemImage: failed ? "arrow.clockwise" : "arrow.down.circle"
                 )
             }
             .buttonStyle(.plain)
+            .help(failed ? (service.modelFailureReason ?? "") : "")
+            .modifier(LocalTranslationModelDownloadConfirmation(pack: $pendingDownload))
         case .downloading(let fraction):
             Label(
                 String(
@@ -33,6 +38,63 @@ struct LocalTranslationModelBadge: View {
         case .ready, .unsupportedSystem:
             EmptyView()
         }
+    }
+}
+
+extension LocalLyricsTranslationModel.Pack {
+    var formattedDownloadSize: String {
+        ByteCountFormatter.string(fromByteCount: approximateDownloadBytes, countStyle: .file)
+    }
+}
+
+/// 歌词页上点「下载翻译模型」时先确认:哪个包、多大,用蜂窝网络或低数据模式时提醒流量,
+/// 上次没下成时附上原因。设置页的下载按钮旁边本来就写着大小,不再多问一次。
+struct LocalTranslationModelDownloadConfirmation: ViewModifier {
+    @Binding var pack: LocalLyricsTranslationModel.Pack?
+    private var service: LocalLyricsTranslationService { .shared }
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog(
+            String(
+                format: String(localized: "lyrics_translation_local_download_confirm_title_format"),
+                pack.map { String(localized: String.LocalizationValue($0.pairsKey)) } ?? ""
+            ),
+            isPresented: Binding(
+                get: { pack != nil },
+                set: { if !$0 { pack = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let pack {
+                Button(String(
+                    format: String(localized: "lyrics_translation_local_download_size_format"),
+                    pack.formattedDownloadSize
+                )) {
+                    service.downloadModel(pack)
+                    self.pack = nil
+                }
+            }
+            Button("cancel", role: .cancel) { pack = nil }
+        } message: {
+            Text(verbatim: message)
+        }
+    }
+
+    private var message: String {
+        guard let pack else { return "" }
+        var lines = [String(localized: "lyrics_translation_local_download_confirm_message")]
+        let network = NetworkMonitor.shared
+        if network.isExpensive || network.isConstrained {
+            lines.append(String(
+                format: String(localized: "lyrics_translation_local_download_cellular_format"),
+                pack.formattedDownloadSize
+            ))
+        }
+        // 失败原因本身就是「下载失败：…」那一句,原样附上。
+        if service.modelState(for: pack) == .failed, let reason = service.modelFailureReason(for: pack) {
+            lines.append(reason)
+        }
+        return lines.joined(separator: "\n\n")
     }
 }
 
@@ -70,7 +132,7 @@ struct LocalTranslationModelSection: View {
             ProgressView(value: fraction)
                 .frame(maxWidth: 120)
         case .notDownloaded, .failed, .unsupportedSystem:
-            Text(ByteCountFormatter.string(fromByteCount: pack.approximateDownloadBytes, countStyle: .file))
+            Text(pack.formattedDownloadSize)
                 .foregroundStyle(.secondary)
         }
     }

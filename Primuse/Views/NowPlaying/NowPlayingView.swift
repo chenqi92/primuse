@@ -12881,6 +12881,8 @@ private struct LyricsTranslationStatusChip: View {
     @State private var isExpanded = true
     /// 手动点开时换一个值，重新计时收起。
     @State private var revealGeneration = 0
+    /// 点了「下载翻译模型」，等确认框（包名、大小、流量提醒、上次失败原因）。
+    @State private var pendingModelDownload: LocalLyricsTranslationModel.Pack?
 
     private var localModel: LocalLyricsTranslationService { .shared }
 
@@ -12954,19 +12956,22 @@ private struct LyricsTranslationStatusChip: View {
     }
 
     /// 与 `LocalTranslationModelBadge` 同一套文案与动作，只是拆成图标和说明两半。
+    /// 点了先弹确认框，写明是哪个包、多大，再下载。
     private var localModelStatus: Status? {
+        let pack = localModel.requestedPack
         switch localModel.modelState {
         case .notDownloaded:
             return Status(key: "localModelDownload",
-                          title: String(localized: "lyrics_translation_local_download"),
+                          title: String(localized: "lyrics_translation_local_download")
+                            + " · " + pack.formattedDownloadSize,
                           systemImage: "arrow.down.circle.fill", tone: .action) {
-                LocalLyricsTranslationService.shared.downloadModel()
+                pendingModelDownload = pack
             }
         case .failed:
             return Status(key: "localModelFailed",
                           title: String(localized: "lyrics_translation_local_retry"),
                           systemImage: "arrow.clockwise.circle.fill", tone: .failure) {
-                LocalLyricsTranslationService.shared.downloadModel()
+                pendingModelDownload = pack
             }
         case .downloading(let fraction):
             return Status(
@@ -12997,6 +13002,11 @@ private struct LyricsTranslationStatusChip: View {
         status.action == nil ? .seconds(3.5) : .seconds(6)
     }
 
+    /// 缺离线翻译包、下载中、下载失败一直展开到解决：缩成图标容易被忽略，进度也看不见。
+    private func staysExpanded(_ status: Status) -> Bool {
+        ["localModelDownload", "localModelFailed", "localModelDownloading"].contains(status.key)
+    }
+
     private var animation: Animation {
         reduceMotion ? .easeInOut(duration: 0.2) : .smooth(duration: 0.38, extraBounce: 0.08)
     }
@@ -13015,6 +13025,7 @@ private struct LyricsTranslationStatusChip: View {
             if !isExpanded {
                 withAnimation(animation) { isExpanded = true }
             }
+            guard !staysExpanded(status) else { return }
             do {
                 try await Task.sleep(for: visibleDuration(for: status))
             } catch {
@@ -13058,6 +13069,8 @@ private struct LyricsTranslationStatusChip: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(status.title)
+        // 挂在标签上，确认框从它长出来。
+        .modifier(LocalTranslationModelDownloadConfirmation(pack: $pendingModelDownload))
     }
 }
 

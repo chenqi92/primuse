@@ -5952,3 +5952,8 @@
 "spoken_word_keep_offline_unsupported_short" = "المصدر لا يدعم التنزيل";
 "player_backdrop_audiobooks" = "استخدامها للكتب الصوتية أيضًا";
 "player_backdrop_audiobooks_hint" = "في الوضع الداكن يعرض مشغل الكتب الصوتية هذه الخلفية أيضًا. ويحتفظ الوضع الفاتح بخلفيته الورقية.";
+
+/* 歌词翻译：下载离线翻译包前确认 */
+"lyrics_translation_local_download_confirm_title_format" = "هل تريد تنزيل حزمة “%@” دون اتصال؟";
+"lyrics_translation_local_download_confirm_message" = "بعدها تتم الترجمة على هذا الجهاز دون اتصال. يمكنك إزالة الحزمة لاحقًا من إعدادات الكلمات.";
+"lyrics_translation_local_download_cellular_format" = "أنت تستخدم البيانات الخلوية أو وضع البيانات المنخفضة؛ سيستهلك هذا نحو %@.";

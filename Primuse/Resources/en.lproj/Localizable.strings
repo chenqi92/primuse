@@ -5806,3 +5806,8 @@
 "spoken_word_keep_offline_unsupported_short" = "Source doesn’t support downloads";
 "player_backdrop_audiobooks" = "Use for Audiobooks";
 "player_backdrop_audiobooks_hint" = "In Dark Mode the audiobook player shows this background too. Light Mode keeps its paper background.";
+
+/* 歌词翻译：下载离线翻译包前确认 */
+"lyrics_translation_local_download_confirm_title_format" = "Download the “%@” offline pack?";
+"lyrics_translation_local_download_confirm_message" = "Lyrics are then translated on this device without going online. You can remove the pack later in Lyrics settings.";
+"lyrics_translation_local_download_cellular_format" = "You're on cellular data or Low Data Mode; this uses about %@.";

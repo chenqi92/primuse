@@ -6139,3 +6139,8 @@
 "spoken_word_keep_offline_unsupported_short" = "音乐源不支持下载";
 "player_backdrop_audiobooks" = "有声书也使用";
 "player_backdrop_audiobooks_hint" = "深色外观下有声书播放页也铺这个背景；浅色外观仍是纸面底。";
+
+/* 歌词翻译：下载离线翻译包前确认 */
+"lyrics_translation_local_download_confirm_title_format" = "下载「%@」离线翻译包？";
+"lyrics_translation_local_download_confirm_message" = "下载后在本机翻译，不联网，之后可以在歌词设置里移除。";
+"lyrics_translation_local_download_cellular_format" = "现在用的是蜂窝网络或低数据模式，会用掉约 %@ 流量。";

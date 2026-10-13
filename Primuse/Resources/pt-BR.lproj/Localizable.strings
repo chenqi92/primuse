@@ -5952,3 +5952,8 @@
 "spoken_word_keep_offline_unsupported_short" = "A fonte não permite downloads";
 "player_backdrop_audiobooks" = "Usar também em audiolivros";
 "player_backdrop_audiobooks_hint" = "No modo escuro, o player de audiolivros também mostra este fundo. O modo claro mantém o fundo de papel.";
+
+/* 歌词翻译：下载离线翻译包前确认 */
+"lyrics_translation_local_download_confirm_title_format" = "Baixar o pacote offline “%@”?";
+"lyrics_translation_local_download_confirm_message" = "Depois a tradução é feita neste dispositivo, sem internet. Dá para remover o pacote depois nos ajustes de letras.";
+"lyrics_translation_local_download_cellular_format" = "Você está em dados celulares ou no Modo Pouco Uso de Dados; isso usa cerca de %@.";

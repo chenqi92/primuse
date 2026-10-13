@@ -92,6 +92,15 @@ final class TVLyricsTranslationController {
         start()
     }
 
+    /// 这首歌的翻译要人动手:缺离线翻译包,或者选了智能翻译却没用上。播放控制里的
+    /// 歌词翻译键据此加一个小圆点。
+    func needsAttention(forSongID songID: String?) -> Bool {
+        guard let songID, activitySongID == songID,
+              LyricsTranslationSettingsStore.shared.isEnabled else { return false }
+        if case .needsModel = activity { return true }
+        return intelligentIssue != nil
+    }
+
     /// Whether the lyrics on screen belong to `songID` and have lines at all.
     func hasLyrics(forSongID songID: String?) -> Bool {
         guard let songID, let lastLoaded else { return false }

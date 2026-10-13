@@ -998,11 +998,29 @@ struct TVNowPlayingView: View {
             // 歌词翻译直接在播放页:开关、译成什么、交给谁翻,缺翻译包时就地下载。
             if likedSongID != nil {
                 let translationOn = LyricsTranslationSettingsStore.shared.isEnabled
+                let translation = TVLyricsTranslationController.shared
+                // 缺翻译包、智能翻译没用上时键上加个小圆点:歌词上方那行字选不中,得让人知道按这里。
+                let needsAttention = translation.needsAttention(forSongID: store.currentSongID)
                 TVRoundBtn(icon: translationOn ? "character.bubble.fill" : "character.bubble", size: 56,
                            active: translationOn,
                            immersiveDark: immersiveDark,
                            accessibilityLabel: String(localized: "lyrics_translation_title"),
                            onInteraction: registerInteraction) { showTranslation = true }
+                    .overlay(alignment: .topTrailing) {
+                        if needsAttention {
+                            Circle()
+                                .fill(TVColor.warn)
+                                .frame(width: 14, height: 14)
+                                .overlay(Circle().strokeBorder(.black.opacity(0.25), lineWidth: 1))
+                                .offset(x: 2, y: -2)
+                                .allowsHitTesting(false)
+                                .transition(.scale.combined(with: .opacity))
+                        }
+                    }
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: needsAttention)
+                    .accessibilityValue(Text(verbatim: needsAttention
+                        ? (translation.intelligentIssue?.explanation ?? translation.activity.statusText ?? "")
+                        : ""))
                     .accessibilityIdentifier("tv.nowPlaying.lyricsTranslation")
             }
             // 浏览 / 沉浸 / 更多在同一行——和传输键焦点左右线性可达,不再困在右上角。

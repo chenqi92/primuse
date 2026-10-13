@@ -5952,3 +5952,8 @@
 "spoken_word_keep_offline_unsupported_short" = "Источник не поддерживает загрузку";
 "player_backdrop_audiobooks" = "Также для аудиокниг";
 "player_backdrop_audiobooks_hint" = "В тёмном режиме плеер аудиокниг тоже показывает этот фон. В светлом режиме остаётся бумажный фон.";
+
+/* 歌词翻译：下载离线翻译包前确认 */
+"lyrics_translation_local_download_confirm_title_format" = "Загрузить офлайн-пакет «%@»?";
+"lyrics_translation_local_download_confirm_message" = "После этого перевод выполняется на устройстве без сети. Пакет можно удалить позже в настройках текстов.";
+"lyrics_translation_local_download_cellular_format" = "Сейчас используется сотовая сеть или режим экономии данных; потребуется около %@.";

@@ -6046,3 +6046,8 @@
 "spoken_word_keep_offline_unsupported_short" = "Quelle unterstützt keine Downloads";
 "player_backdrop_audiobooks" = "Auch für Hörbücher";
 "player_backdrop_audiobooks_hint" = "Im dunklen Modus zeigt der Hörbuch-Player diesen Hintergrund ebenfalls. Im hellen Modus bleibt der Papierhintergrund.";
+
+/* 歌词翻译：下载离线翻译包前确认 */
+"lyrics_translation_local_download_confirm_title_format" = "Offline-Paket „%@“ laden?";
+"lyrics_translation_local_download_confirm_message" = "Danach wird direkt auf diesem Gerät ohne Internet übersetzt. Du kannst das Paket später in den Liedtext-Einstellungen entfernen.";
+"lyrics_translation_local_download_cellular_format" = "Du nutzt mobile Daten oder den Datensparmodus; das verbraucht etwa %@.";
