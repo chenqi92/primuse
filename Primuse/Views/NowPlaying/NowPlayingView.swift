@@ -869,6 +869,9 @@ struct NowPlayingView: View {
     @State private var transcriptKeyHeld = false
     @State private var activeMinimizeDragAxis: NowPlayingDismissGesturePolicy.Axis?
     @State private var activeMinimizeDragStartLocation: CGPoint?
+    /// 下拉收起手势最近一次动静的时刻，见 `returnToArtworkFromLyricsHeader()`。
+    /// 普通引用：拖动时每一帧都写，不能引起重绘。
+    @State private var minimizeDragActivity = NowPlayingMinimizeDragActivity()
     @State private var isLyricsImmersive = false
     /// 竖屏歌词里拖动歌词后收起了底部控件（歌词铺满，顶上的小封面与歌名还在）。
     /// 与全屏歌词互斥：那一套会重建歌词视图，拖到一半切过去会打断滚动。
@@ -1538,6 +1541,17 @@ struct NowPlayingView: View {
 
     private func toggleStandardLyrics() {
         setStandardLyricsVisible(!showLyrics)
+    }
+
+    /// 歌词顶上那一行(小封面与歌名)是回封面的按钮，又正好在下拉收起的起手区里。整页跟着
+    /// 手指走，松手时触点还在按钮上，按钮照样触发：收起或弹回的同时封面又放大回来。
+    /// 拖过就不算点。按钮和拖动谁先收到松手不确定，所以拖动的每一下和松手都记时间；
+    /// 拖着停住再松手时按钮可能先到，那时拖动还没结束，也挡。
+    private func returnToArtworkFromLyricsHeader() {
+        let sinceDrag = Date().timeIntervalSince(minimizeDragActivity.lastEventAt)
+        let isDragging = activeMinimizeDragStartLocation != nil && sinceDrag < 3
+        guard sinceDrag > 0.35, !isDragging else { return }
+        setStandardLyricsVisible(false)
     }
 
     /// 竖屏歌词里往上翻歌词就收起底部控件、让歌词铺满（参照 Apple Music）。顶上的小封面
@@ -2363,6 +2377,7 @@ struct NowPlayingView: View {
         // also move under the finger and feed the offset back into translation.
         DragGesture(minimumDistance: 12, coordinateSpace: .global)
             .onChanged { value in
+                minimizeDragActivity.lastEventAt = Date()
                 let isRTL = layoutDirection == .rightToLeft
                 if activeMinimizeDragStartLocation != value.startLocation {
                     activeMinimizeDragStartLocation = value.startLocation
@@ -2399,6 +2414,7 @@ struct NowPlayingView: View {
                 let axis = activeMinimizeDragAxis
                 activeMinimizeDragAxis = nil
                 activeMinimizeDragStartLocation = nil
+                minimizeDragActivity.lastEventAt = Date()
                 guard let axis else { return }
 
                 let isRTL = layoutDirection == .rightToLeft
@@ -3826,7 +3842,7 @@ struct NowPlayingView: View {
         metrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics
     ) -> some View {
         let thumbnail = CGFloat(metrics.thumbnailSize)
-        return Button { setStandardLyricsVisible(false) } label: {
+        return Button { returnToArtworkFromLyricsHeader() } label: {
             HStack(
                 alignment: .center,
                 spacing: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.lyricsHeaderSpacing)
@@ -4545,7 +4561,7 @@ struct NowPlayingView: View {
 
             VStack(spacing: 0) {
                 HStack(spacing: 10) {
-                    Button { setStandardLyricsVisible(false) } label: {
+                    Button { returnToArtworkFromLyricsHeader() } label: {
                         HStack(spacing: 10) {
                             lyricsThumbnailArtwork(size: 40, cornerRadius: 7)
                             VStack(alignment: .leading, spacing: 1) {
@@ -4790,7 +4806,7 @@ struct NowPlayingView: View {
                             HStack(spacing: 10) {
                             // Explicit button rather than a hidden tap gesture:
                             // the artwork itself is now a discoverable way back.
-                            Button { setStandardLyricsVisible(false) } label: {
+                            Button { returnToArtworkFromLyricsHeader() } label: {
                                 HStack(spacing: 10) {
                                     lyricsThumbnailArtwork(size: 44, cornerRadius: 6)
                                     .lyricsHeaderReveal(isArtwork: true)
@@ -5279,7 +5295,7 @@ struct NowPlayingView: View {
 
     /// 文字稿顶上那一行:小封面、书名、作者。点一下回到封面。
     private func audiobookTextHeader(style: AudiobookPlayerStyle) -> some View {
-        Button { setStandardLyricsVisible(false) } label: {
+        Button { returnToArtworkFromLyricsHeader() } label: {
             HStack(spacing: 12) {
                 lyricsThumbnailArtwork(size: 44, cornerRadius: 4)
                     .lyricsHeaderReveal(isArtwork: true)
@@ -12364,7 +12380,6 @@ struct LyricsScrollView: View {
         rowAlignment: PlayerLyricsAlignment
     ) -> some View {
         let isActive = index == currentLineIndex
-        let playbackTime = timelineTime ?? player.currentTime
         let fontSize = Self.lyricsLayoutBaseSize * CGFloat(effectiveLyricsScale)
         // weight 在统一动效模式下固定 .semibold。active 行已有 scale + opacity
         // 强调, weight 瞬时跳变只会让切句增加视觉颗粒感。
@@ -12434,6 +12449,8 @@ struct LyricsScrollView: View {
             }
 
             if let bgs = line.background {
+                // 只有带和声的行才读播放进度:放在每行开头读,逐行歌词整列每 0.5s 重建一次。
+                let playbackTime = timelineTime ?? player.currentTime
                 ForEach(bgs) { bg in
                     let isBackgroundActive = LyricVoiceTimelinePolicy.isActive(
                         bg,
@@ -13027,6 +13044,14 @@ extension MusicLibrary {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return visibleAlbum(titled: albumTitle, artistName: artistName)
     }
+}
+
+// MARK: - 下拉收起与顶栏按钮
+
+/// 播放页下拉收起手势最近一次动静的时刻。不可观察：拖动时每一帧都写。
+@MainActor
+private final class NowPlayingMinimizeDragActivity {
+    var lastEventAt = Date.distantPast
 }
 
 // MARK: - 按住快退 / 快进
