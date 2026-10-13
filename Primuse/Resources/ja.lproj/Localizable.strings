@@ -6029,3 +6029,8 @@
 /* 电视：从本机移除失效条目 */
 "tv_remove_from_device_confirm_title_format" = "この Apple TV から「%@」を削除しますか？";
 "tv_remove_from_device_confirm_message" = "この Apple TV のライブラリの項目だけを削除します。クラウドドライブやサーバ上のファイルには影響せず、今後のスキャンでも追加されません。ファイルが削除されて再生できなくなった項目もこの方法で消せます。";
+
+"playlist_import_incomplete_format" = "%d 曲を読み込みましたが、プレイリストは未完了です。読み込んだ曲を今すぐ取り込むか、再読み込みできます。";
+"playlist_import_quota_format" = "%1$d 曲を読み込みました。残りのページの読み込みは一時停止中です。%2$@ 読み込んだ曲を今すぐ取り込むか、待機後に再試行できます。";
+"playlist_import_quota_ready_format" = "リクエストが制限される前に %d 曲を読み込みました。今すぐ取り込むか、プレイリスト全体の読み込みを再試行できます。";
+"playlist_import_retry_link" = "プレイリストを再読み込み";

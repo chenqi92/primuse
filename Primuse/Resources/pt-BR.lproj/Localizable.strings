@@ -5934,3 +5934,8 @@
 /* 电视：从本机移除失效条目 */
 "tv_remove_from_device_confirm_title_format" = "Remover “%@” deste Apple TV?";
 "tv_remove_from_device_confirm_message" = "Só a entrada da biblioteca deste Apple TV é removida; os arquivos na nuvem ou no servidor não mudam e as próximas varreduras não a adicionam de volta. Use para limpar entradas cujos arquivos foram apagados e não tocam mais.";
+
+"playlist_import_incomplete_format" = "%d músicas carregadas, mas a playlist está incompleta. Você pode importá-las agora ou tentar carregar novamente.";
+"playlist_import_quota_format" = "%1$d músicas carregadas; as páginas restantes estão pausadas. %2$@ Você pode importar as músicas carregadas agora ou tentar novamente após a espera.";
+"playlist_import_quota_ready_format" = "%d músicas carregadas antes do limite de solicitações. Você pode importá-las agora ou tentar carregar a playlist completa novamente.";
+"playlist_import_retry_link" = "Carregar playlist novamente";

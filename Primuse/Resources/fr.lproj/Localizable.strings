@@ -6028,3 +6028,8 @@
 /* 电视：从本机移除失效条目 */
 "tv_remove_from_device_confirm_title_format" = "Retirer « %@ » de cet Apple TV ?";
 "tv_remove_from_device_confirm_message" = "Seule l'entrée de la bibliothèque de cet Apple TV est retirée ; les fichiers du cloud ou du serveur ne sont pas touchés et les prochaines analyses ne la rajouteront pas. Utile pour supprimer les entrées dont les fichiers ont été effacés et ne se lisent plus.";
+
+"playlist_import_incomplete_format" = "%d titres chargés, mais la playlist est incomplète. Vous pouvez les importer maintenant ou réessayer.";
+"playlist_import_quota_format" = "%1$d titres chargés ; les pages restantes sont en pause. %2$@ Vous pouvez importer ces titres maintenant ou réessayer après ce délai.";
+"playlist_import_quota_ready_format" = "%d titres chargés avant la limitation des requêtes. Vous pouvez les importer maintenant ou réessayer de charger toute la playlist.";
+"playlist_import_retry_link" = "Recharger la playlist";

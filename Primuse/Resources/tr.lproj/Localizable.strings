@@ -5934,3 +5934,8 @@
 /* 电视：从本机移除失效条目 */
 "tv_remove_from_device_confirm_title_format" = "“%@” bu Apple TV'den kaldırılsın mı?";
 "tv_remove_from_device_confirm_message" = "Yalnızca bu Apple TV'nin arşivindeki kayıt kaldırılır; bulut sürücüdeki veya sunucudaki dosyalar etkilenmez ve sonraki taramalar onu geri eklemez. Dosyası silinmiş, artık çalmayan kayıtları da böyle temizleyebilirsiniz.";
+
+"playlist_import_incomplete_format" = "%d şarkı yüklendi ancak çalma listesi eksik. Bu şarkıları şimdi içe aktarabilir veya yeniden yüklemeyi deneyebilirsiniz.";
+"playlist_import_quota_format" = "%1$d şarkı yüklendi; kalan sayfalar duraklatıldı. %2$@ Yüklenen şarkıları şimdi içe aktarabilir veya bekledikten sonra yeniden deneyebilirsiniz.";
+"playlist_import_quota_ready_format" = "İstekler sınırlandırılmadan önce %d şarkı yüklendi. Bunları şimdi içe aktarabilir veya tüm çalma listesini yeniden yükleyebilirsiniz.";
+"playlist_import_retry_link" = "Çalma listesini yeniden yükle";

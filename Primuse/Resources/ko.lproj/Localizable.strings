@@ -6028,3 +6028,8 @@
 /* 电视：从本机移除失效条目 */
 "tv_remove_from_device_confirm_title_format" = "이 Apple TV에서 ‘%@’을(를) 제거할까요?";
 "tv_remove_from_device_confirm_message" = "이 Apple TV 보관함의 항목만 제거하며 클라우드 드라이브나 서버의 파일은 그대로이고 이후 스캔에서도 다시 추가되지 않습니다. 파일이 삭제되어 재생할 수 없는 항목도 이렇게 정리할 수 있습니다.";
+
+"playlist_import_incomplete_format" = "%d곡을 불러왔지만 재생목록이 완전하지 않습니다. 이 곡들을 지금 가져오거나 다시 불러올 수 있습니다.";
+"playlist_import_quota_format" = "%1$d곡을 불러왔으며 나머지 페이지는 일시 중지되었습니다. %2$@ 불러온 곡들을 지금 가져오거나 대기 후 다시 시도할 수 있습니다.";
+"playlist_import_quota_ready_format" = "요청이 제한되기 전에 %d곡을 불러왔습니다. 지금 가져오거나 전체 재생목록을 다시 불러올 수 있습니다.";
+"playlist_import_retry_link" = "재생목록 다시 불러오기";

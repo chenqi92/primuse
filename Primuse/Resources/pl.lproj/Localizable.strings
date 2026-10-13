@@ -5934,3 +5934,8 @@
 /* 电视：从本机移除失效条目 */
 "tv_remove_from_device_confirm_title_format" = "Usunąć „%@” z tego Apple TV?";
 "tv_remove_from_device_confirm_message" = "Usuwany jest tylko wpis w bibliotece tego Apple TV; pliki w chmurze lub na serwerze pozostają bez zmian, a kolejne skanowania go nie dodadzą. Tak można też usunąć wpisy, których pliki skasowano i nie da się ich odtworzyć.";
+
+"playlist_import_incomplete_format" = "Wczytano %d utworów, ale playlista jest niekompletna. Możesz je teraz zaimportować lub ponowić wczytywanie.";
+"playlist_import_quota_format" = "Wczytano %1$d utworów; pozostałe strony są wstrzymane. %2$@ Możesz teraz zaimportować wczytane utwory lub spróbować ponownie po odczekaniu.";
+"playlist_import_quota_ready_format" = "Przed ograniczeniem żądań wczytano %d utworów. Możesz je teraz zaimportować lub ponowić wczytywanie całej playlisty.";
+"playlist_import_retry_link" = "Wczytaj playlistę ponownie";
