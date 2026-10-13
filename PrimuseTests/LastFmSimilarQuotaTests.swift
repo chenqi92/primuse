@@ -39,6 +39,21 @@ final class LastFmSimilarQuotaTests: XCTestCase {
         }
     }
 
+    func testBusinessQuotaOnHTTP400SharesTheCooldown() async throws {
+        let fixture = SimilarFixture(status: 400, body: #"{"error":29,"message":"Rate limit exceeded"}"#)
+        do { _ = try await fixture.api().similarTracks(artist: "Artist", track: "Seed"); XCTFail("Expected the business quota") }
+        catch LastFmSimilarAPI.SimilarError.api(let code, _, let response) {
+            XCTAssertEqual(code, 29)
+            XCTAssertEqual(response.statusCode, 400)
+            XCTAssertTrue(response.isRateLimitFailure)
+            XCTAssertGreaterThan(response.retryAfter ?? 0, 0)
+        }
+        do { _ = try await fixture.api().similarArtistTracks(artist: "Artist"); XCTFail("Artist fallback bypassed the quota") }
+        catch let failure as HTTPResponseFailure { XCTAssertTrue(failure.isRateLimitFailure) }
+        catch LastFmSimilarAPI.SimilarError.api(let code, _, _) { XCTAssertEqual(code, 29) }
+        XCTAssertEqual(fixture.requests.count, 1)
+    }
+
     func testTrackAndArtistClientsSpendTheSameAPIKeyQuota() async throws {
         let fixture = SimilarFixture(status: 429, headers: ["Retry-After": "3600"])
         _ = try? await fixture.api().similarTracks(artist: "Artist", track: "Seed")

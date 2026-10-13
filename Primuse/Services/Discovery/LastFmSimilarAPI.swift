@@ -115,14 +115,20 @@ struct LastFmSimilarAPI: Sendable {
                 let (data, response) = try await session.data(for: request)
                 guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
                 let retryAfter = HTTPResponseFailure.retryDelay(from: http)
+                // Last.fm 的应用额度(29)写在错误体里,HTTP 200 和 400 都可能;先认它再看状态码,
+                // 否则 400 + 29 会被当成普通拒绝,不建立共享冷却。
+                let envelopeCode = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["error"] as? Int
+                if envelopeCode == 29 {
+                    throw HTTPResponseFailure(statusCode: http.statusCode, body: data,
+                        retryAfter: retryAfter ?? RequestQuota.Service.lastFM.policy.defaultCooldown,
+                        isRateLimited: true, isRetryable: true)
+                }
                 guard (200...299).contains(http.statusCode) else {
                     throw HTTPResponseFailure(statusCode: http.statusCode, body: data, retryAfter: retryAfter)
                 }
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let code = json["error"] as? Int {
-                    throw HTTPResponseFailure(statusCode: http.statusCode, body: data,
-                        retryAfter: retryAfter ?? (code == 29 ? RequestQuota.Service.lastFM.policy.defaultCooldown : nil),
-                        isRateLimited: code == 29, isRetryable: code == 29)
+                   json["error"] is Int {
+                    throw HTTPResponseFailure(statusCode: http.statusCode, body: data, retryAfter: retryAfter)
                 }
                 return data
             })
