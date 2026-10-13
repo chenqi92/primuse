@@ -3147,10 +3147,12 @@ struct NowPlayingView: View {
     ) -> some View {
         let preferredArtworkSize = min(geo.size.width * (geo.size.width > geo.size.height ? 0.30 : 0.72), 430)
         // 整屏居中(iPhone Duo)时台标在遮挡区那段高度里两边都不碰它;其它设备不设限。
+        // 台标上面还垫着最多三分之一的空余高度,遮挡带按它可能落到的最低处算。
+        let artworkSlack = max(0, geo.size.height - preferredArtworkSize) / 3
         let artworkSize = min(preferredArtworkSize, CGFloat(OcclusionAvoidancePolicy.centeredWidthLimit(
             regions: occlusions,
             bandMinY: Double(topSafeArea) + 11,
-            bandMaxY: Double(topSafeArea + 11 + preferredArtworkSize),
+            bandMaxY: Double(topSafeArea + 11 + artworkSlack + preferredArtworkSize),
             width: Double(geo.size.width),
             gap: 16
         )))
@@ -3172,20 +3174,30 @@ struct NowPlayingView: View {
                     .pmSlideTransition(edge: .top, motion: .list)
             }
 
+            // 台标、台名和播放键排成紧凑的一组；空出来的高度一份垫在台标上面、
+            // 两份留在播放键下面，底排按钮贴着底边，和播客、音乐的播放页一个排法。
+            Spacer(minLength: 12)
+
             // 台标只吃文字和控件之外剩下的高度。只按宽度取值时，iPhone Duo 外屏、
             // 内屏分屏半幅这类宽而矮的窗口会把底部控件顶出屏幕。
-            GeometryReader { artworkGeometry in
-                let fittedSize = min(artworkSize, artworkGeometry.size.height - 42)
-                if let station = player.currentRadioStation, fittedSize >= 48 {
-                    RadioStationArtworkView(
-                        station: station,
-                        size: fittedSize,
-                        cornerRadius: max(18, fittedSize * 0.06)
-                    )
-                    .shadow(color: .black.opacity(0.34), radius: 28, y: 14)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Color.clear
+                .aspectRatio(1, contentMode: .fit)
+                .frame(maxWidth: artworkSize, maxHeight: artworkSize)
+                .overlay {
+                    GeometryReader { artworkGeometry in
+                        let fittedSize = min(artworkGeometry.size.width, artworkGeometry.size.height)
+                        if let station = player.currentRadioStation, fittedSize >= 48 {
+                            RadioStationArtworkView(
+                                station: station,
+                                size: fittedSize,
+                                cornerRadius: max(18, fittedSize * 0.06)
+                            )
+                            .shadow(color: .black.opacity(0.34), radius: 28, y: 14)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                    }
                 }
-            }
+                .layoutPriority(1)
 
             VStack(spacing: 8) {
                 Text(player.currentRadioStation?.name ?? player.currentSong?.title ?? "")
@@ -3218,6 +3230,9 @@ struct NowPlayingView: View {
                 .accessibilityLabel(Text("radio_live"))
             }
             .padding(.horizontal, 32)
+            // 台标先分高度，文字按自己的完整高度留位，不被挤成一行。
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 22)
 
             HStack(spacing: 38) {
                 Button {
@@ -3248,22 +3263,29 @@ struct NowPlayingView: View {
                 .accessibilityLabel(Text("radio_next_station"))
             }
             .foregroundStyle(appearance.primary)
-            .padding(.top, 24)
+            .padding(.top, 20)
+
+            Spacer(minLength: 16)
+            Spacer(minLength: 0)
 
             if showsPlayerVolumeBar, radioControlLayout.showsVolumeBar {
                 playerVolumeRow
                     .frame(maxWidth: 460)
                     .padding(.horizontal, 36)
-                    .padding(.top, 18)
+                    .padding(.bottom, 14)
             }
 
-            // 最下面那一排按「播放页按钮 › 电台」的顺序与显隐摆。
-            HStack(spacing: 10) {
-                ForEach(radioControlLayout.visibleItems) { item in
+            // 最下面那一排按「播放页按钮 › 电台」的顺序与显隐摆。每项占等宽的一格、
+            // 在格里居中，几项都均匀铺开；码率那行字和睡眠倒计时比一格宽时按自己的宽度来。
+            HStack(spacing: 0) {
+                ForEach(radioBottomRowItems) { item in
                     radioControlItem(item)
+                        .fixedSize()
+                        .frame(maxWidth: .infinity)
                 }
             }
-            .padding(.top, 10)
+            .frame(maxWidth: 420)
+            .padding(.horizontal, 24)
             .padding(.bottom, max(bottomSafeArea, 16))
         }
         // 侧边安全区按侧取值，内容不会压到侧置系统控件或摄像头区域下面。
@@ -3271,6 +3293,18 @@ struct NowPlayingView: View {
         .padding(.leading, centersOnFullScreen ? 0 : safeInsets.leading)
         .padding(.trailing, centersOnFullScreen ? 0 : safeInsets.trailing)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// 底排真画得出来的那几项：分享要有电台地址、听过的歌要有电台，缺了就不占一格。
+    private var radioBottomRowItems: [NowPlayingRadioControlItem] {
+        let station = player.currentRadioStation
+        return radioControlLayout.visibleItems.filter { item in
+            switch item {
+            case .share: station?.url != nil
+            case .history: station != nil
+            case .airPlay, .info, .sleepTimer: true
+            }
+        }
     }
 
     @ViewBuilder
