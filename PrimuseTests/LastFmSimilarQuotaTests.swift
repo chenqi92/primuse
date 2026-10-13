@@ -5,13 +5,15 @@ import PrimuseKit
 
 final class LastFmSimilarQuotaTests: XCTestCase {
     func testBusinessRateLimitIsNotCachedAsEmptyRecommendations() async throws {
-        let fixture = SimilarFixture(status: 200, body: #"{"error":29,"message":"Rate limit exceeded"}"#)
-        let service = fixture.service()
-        for _ in 0..<2 {
-            do { _ = try await service.fetchSimilar(to: seed, library: []); XCTFail("A business failure is not a successful empty list") }
-            catch { }
+        for status in [200, 400, 403, 503] {
+            let fixture = SimilarFixture(status: status, body: #"{"error":29,"message":"Rate limit exceeded"}"#)
+            let service = fixture.service()
+            for _ in 0..<2 {
+                do { _ = try await service.fetchSimilar(to: seed, library: []); XCTFail("A business failure is not a successful empty list") }
+                catch { }
+            }
+            XCTAssertEqual(fixture.requests.count, 1, "HTTP \(status): track and artist lookups share a business cooldown")
         }
-        XCTAssertEqual(fixture.requests.count, 1, "Track and artist lookups share a cooldown")
     }
 
     func testHTTPThrottleDoesNotFallBackToArtist() async throws {
@@ -48,13 +50,47 @@ final class LastFmSimilarQuotaTests: XCTestCase {
     }
 
     func testBusinessErrorRetainsCodeMessageAndHTTPResponse() async throws {
-        let fixture = SimilarFixture(status: 200, body: #"{"error":29,"message":"Rate limit exceeded"}"#)
-        do { _ = try await fixture.service().fetchSimilar(to: seed, library: []); XCTFail("Expected business error") }
-        catch LastFmSimilarAPI.SimilarError.api(let code, let message, let response) {
-            XCTAssertEqual(code, 29); XCTAssertEqual(message, "Rate limit exceeded")
-            XCTAssertEqual(response.statusCode, 200); XCTAssertTrue(response.isRateLimited)
-            XCTAssertGreaterThan(response.retryAfter ?? 0, 0)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss 'GMT'"
+        for status in [200, 400, 503] {
+            for header in [nil, "86400", formatter.string(from: Date().addingTimeInterval(86400))] as [String?] {
+                let fixture = SimilarFixture(status: status, headers: header.map { ["Retry-After": $0] } ?? [:],
+                    body: #"{"error":29,"message":"Rate limit exceeded"}"#)
+                do { _ = try await fixture.api().similarTracks(artist: "Artist", track: "Seed"); XCTFail("Expected business error") }
+                catch LastFmSimilarAPI.SimilarError.api(let code, let message, let response) {
+                    XCTAssertEqual(code, 29); XCTAssertEqual(message, "Rate limit exceeded")
+                    XCTAssertEqual(response.statusCode, status); XCTAssertTrue(response.isRateLimited)
+                    XCTAssertGreaterThan(response.retryAfter ?? 0, header == nil ? 0 : 86390)
+                }
+                do { _ = try await fixture.api().similarArtistTracks(artist: "Artist"); XCTFail("Artist bypassed the same API-key quota") }
+                catch let failure as HTTPResponseFailure { XCTAssertTrue(failure.isRateLimited) }
+                catch LastFmSimilarAPI.SimilarError.api(_, _, let response) { XCTAssertTrue(response.isRateLimited) }
+                XCTAssertEqual(fixture.requests.count, 1)
+                // The common admission boundary used by other Last.fm features
+                // must see the recommendation-established application-key quota.
+                let quota = RequestQuota(service: .lastFM,
+                    url: URL(string: "https://ws.audioscrobbler.com/2.0/")!, account: .init(stableID: fixture.key))!
+                do {
+                    _ = try await fixture.registry.execute(for: quota, replay: .never, operation: {
+                        XCTFail("Another Last.fm entry bypassed recommendation cooldown"); return true
+                    })
+                } catch let failure as HTTPResponseFailure { XCTAssertTrue(failure.isRateLimited) }
+            }
         }
+    }
+
+    func testNonQuotaBusinessErrorsKeepTheirCodeWithoutInventingCooldown() async throws {
+        let fixture = SimilarFixture(status: 400, body: #"{"error":6,"message":"Invalid parameters"}"#)
+        for _ in 0..<2 {
+            do { _ = try await fixture.api().similarTracks(artist: "Artist", track: "Seed"); XCTFail("Expected business rejection") }
+            catch LastFmSimilarAPI.SimilarError.api(let code, _, let response) {
+                XCTAssertEqual(code, 6); XCTAssertEqual(response.statusCode, 400)
+                XCTAssertFalse(response.isRateLimitFailure); XCTAssertNil(response.retryAfter)
+            }
+        }
+        XCTAssertEqual(fixture.requests.count, 2)
     }
 
     func testSuccessfulEmptyResponsesAreCachedAfterArtistFallback() async throws {
@@ -118,12 +154,15 @@ final class LastFmSimilarQuotaTests: XCTestCase {
     }
 
     func testDifferentAPIKeysKeepIndependentQuotas() async throws {
-        let registry = RequestQuotaRegistry()
-        let first = SimilarFixture(status: 429, headers: ["Retry-After": "3600"], registry: registry)
-        let second = SimilarFixture(status: 200, body: #"{"similartracks":{"track":[]},"similarartists":{"artist":[]}}"#, registry: registry)
-        _ = try? await first.service().fetchSimilar(to: seed, library: [])
-        let result = try await second.service().fetchSimilar(to: seed, library: [])
-        XCTAssertTrue(result.isEmpty); XCTAssertEqual(second.requests.count, 2)
+        for status in [429, 400] {
+            let registry = RequestQuotaRegistry()
+            let first = SimilarFixture(status: status, headers: ["Retry-After": "3600"],
+                body: #"{"error":29}"#, registry: registry)
+            let second = SimilarFixture(status: 200, body: #"{"similartracks":{"track":[]},"similarartists":{"artist":[]}}"#, registry: registry)
+            _ = try? await first.service().fetchSimilar(to: seed, library: [])
+            let result = try await second.service().fetchSimilar(to: seed, library: [])
+            XCTAssertTrue(result.isEmpty); XCTAssertEqual(second.requests.count, 2)
+        }
     }
 
     func testCancelledRequestDoesNotStartFallback() async throws {

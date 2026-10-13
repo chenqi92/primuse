@@ -115,14 +115,18 @@ struct LastFmSimilarAPI: Sendable {
                 let (data, response) = try await session.data(for: request)
                 guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
                 let retryAfter = HTTPResponseFailure.retryDelay(from: http)
-                guard (200...299).contains(http.statusCode) else {
-                    throw HTTPResponseFailure(statusCode: http.statusCode, body: data, retryAfter: retryAfter)
-                }
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let code = json["error"] as? Int {
+                // Last.fm may put its quota envelope in an HTTP 400/403 response.
+                // Classify it before generic status handling so the shared executor
+                // can stop artist fallback and other calls using this API key.
+                if let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                   let code = json["error"] as? Int,
+                   code == 29 || (200...299).contains(http.statusCode) {
                     throw HTTPResponseFailure(statusCode: http.statusCode, body: data,
                         retryAfter: retryAfter ?? (code == 29 ? RequestQuota.Service.lastFM.policy.defaultCooldown : nil),
                         isRateLimited: code == 29, isRetryable: code == 29)
+                }
+                guard (200...299).contains(http.statusCode) else {
+                    throw HTTPResponseFailure(statusCode: http.statusCode, body: data, retryAfter: retryAfter)
                 }
                 return data
             })
