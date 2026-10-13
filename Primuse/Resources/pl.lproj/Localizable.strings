@@ -967,6 +967,12 @@
 "cache_clear_partial_format" = "Wyczyszczono %@, ale nie można usunąć używanych plików %d. Wstrzymaj odtwarzanie i spróbuj ponownie.";
 "cache_completed" = "Całkowicie buforowane";
 "cache_orphaned" = "Usunięte resztki źródłowe";
+"source_file_cache" = "Pamięć podręczna plików źródeł";
+"source_file_cache_footer" = "Pamięć podręczna plików źródeł przechowuje pełne pliki pobrane ze źródeł muzyki, aby odtwarzać formaty takie jak WMA czy APE, a także pobrane pliki i okładki niektórych źródeł. Nie wlicza się do limitu pamięci podręcznej audio i w razie potrzeby jest pobierana ponownie.";
+"music_video_cache" = "Pamięć podręczna teledysków";
+"music_video_cache_footer" = "Pamięć podręczna teledysków przechowuje odtworzone teledyski i kopie przekonwertowane do formatu, który da się odtworzyć. Przy następnym odtworzeniu są pobierane ponownie.";
+"audio_cache_quarantine" = "Pamięć podręczna poprzedniego konta";
+"audio_cache_quarantine_footer" = "Pamięć podręczna poprzedniego konta to dźwięk zapisany przez źródło muzyki przed zmianą jego konta lub folderu z muzyką. Nie jest już używana do odtwarzania i można ją wyczyścić.";
 "cache_partial" = "Niekompletne części";
 "cache_pinned" = "Przypięte offline";
 "cache_prewarm_seed" = "Podgrzanie nasion (głowa+ogon)";

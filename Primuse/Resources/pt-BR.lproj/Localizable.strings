@@ -967,6 +967,12 @@
 "cache_clear_partial_format" = "%@ foi apagado, mas os arquivos %d em uso não puderam ser removidos. Pause a reprodução e tente novamente.";
 "cache_completed" = "Totalmente em cache";
 "cache_orphaned" = "Sobras de fonte removida";
+"source_file_cache" = "Cache de arquivos de origem";
+"source_file_cache_footer" = "O cache de arquivos de origem guarda arquivos completos baixados das suas origens de música para tocar formatos como WMA ou APE, além de downloads e capas de algumas origens. Ele não conta no limite do cache de áudio e é baixado de novo quando necessário.";
+"music_video_cache" = "Cache de videoclipes";
+"music_video_cache_footer" = "O cache de videoclipes guarda os videoclipes que você reproduziu e cópias convertidas para um formato reproduzível. Eles são baixados de novo na próxima reprodução.";
+"audio_cache_quarantine" = "Cache da conta anterior";
+"audio_cache_quarantine_footer" = "O cache da conta anterior é o áudio que uma origem de música armazenou antes da troca de conta ou de pasta de músicas. Ele não é mais usado na reprodução e pode ser limpo.";
 "cache_partial" = "Parciais incompletas";
 "cache_pinned" = "Fixado off-line";
 "cache_prewarm_seed" = "Semente pré-aquecida (cabeça+cauda)";

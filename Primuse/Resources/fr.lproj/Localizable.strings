@@ -980,6 +980,12 @@
 "cache_prewarm_seed" = "Préchargement (début+fin)";
 "cache_partial" = "Fragments incomplets";
 "cache_orphaned" = "Résidus de sources supprimées";
+"source_file_cache" = "Cache des fichiers sources";
+"source_file_cache_footer" = "Le cache des fichiers sources contient les fichiers complets téléchargés depuis vos sources musicales pour lire des formats comme WMA ou APE, ainsi que les téléchargements et pochettes de certaines sources. Il n'est pas compté dans la limite du cache audio et est retéléchargé au besoin.";
+"music_video_cache" = "Cache des clips vidéo";
+"music_video_cache_footer" = "Le cache des clips vidéo contient les clips que vous avez lus et les copies converties dans un format lisible. Ils sont retéléchargés à la prochaine lecture.";
+"audio_cache_quarantine" = "Cache de l'ancien compte";
+"audio_cache_quarantine_footer" = "Le cache de l'ancien compte contient l'audio mis en cache par une source musicale avant le changement de son compte ou de son dossier musical. Il n'est plus utilisé pour la lecture et peut être vidé.";
 "cache_clear_done_format" = "%@ libéré";
 "cache_clear_partial_format" = "%@ libéré, mais %d fichier(s) en cours d'utilisation n'ont pas pu être supprimés. Suspendez la lecture et réessayez.";
 "metadata_clear_footer" = "Les pochettes et les paroles sont stockées de façon persistante. Les vider nécessitera de relancer l'analyse ou de les récupérer à nouveau depuis vos sources de musique.";

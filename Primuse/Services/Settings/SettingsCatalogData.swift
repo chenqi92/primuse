@@ -79,6 +79,8 @@ enum SettingsCatalogData {
         SettingDefinition(id: "storage.offlineDownloads", titleKey: "offline_downloads", iosPage: .storage, macPage: .storage, keywords: ["offline", "downloads", "downloaded songs", "remove downloads", "离线", "离线下载", "已下载", "移除下载", "删除下载", "存储空间"]),
         SettingDefinition(id: "storage.clearAudioCache", titleKey: "audio_cache", iosPage: .storage, macPage: .storage, keywords: ["clear cache", "清理缓存", "删除缓存", "释放空间", "clear_cache"], macAnchor: "storage.audioCacheLimit"),
         SettingDefinition(id: "storage.clearImageCache", titleKey: "image_cache", iosPage: .storage, macPage: nil),
+        SettingDefinition(id: "storage.clearSourceFiles", titleKey: "source_file_cache", iosPage: .storage, macPage: .storage, keywords: ["source cache", "downloaded files", "documents and data", "free up space", "音乐源", "整首下载", "文稿与数据", "占用空间", "释放空间", "清理缓存"]),
+        SettingDefinition(id: "storage.clearMusicVideoCache", titleKey: "music_video_cache", iosPage: .storage, macPage: .storage, keywords: ["music video", "MV", "video cache", "音乐视频", "视频缓存", "释放空间"]),
         SettingDefinition(id: "storage.clearMetadata", titleKey: "cover_art_lyrics", iosPage: .storage, macPage: nil),
         SettingDefinition(id: "storage.clearPartial", titleKey: "cache_partial", iosPage: .storage, macPage: nil, anchor: "storage.clearAudioCache"),
         SettingDefinition(id: "storage.clearOrphaned", titleKey: "cache_orphaned", iosPage: .storage, macPage: nil, anchor: "storage.clearAudioCache"),

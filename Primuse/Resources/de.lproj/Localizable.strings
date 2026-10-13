@@ -980,6 +980,12 @@
 "cache_prewarm_seed" = "Vorlade-Seed (Anfang+Ende)";
 "cache_partial" = "Unvollständige Teildaten";
 "cache_orphaned" = "Reste entfernter Quellen";
+"source_file_cache" = "Quelldatei-Cache";
+"source_file_cache_footer" = "Der Quelldatei-Cache enthält vollständige Dateien, die zum Abspielen von Formaten wie WMA oder APE aus deinen Musikquellen geladen wurden, sowie Downloads und Cover einiger Quellen. Er zählt nicht zum Audio-Cache-Limit und wird bei Bedarf neu geladen.";
+"music_video_cache" = "Musikvideo-Cache";
+"music_video_cache_footer" = "Der Musikvideo-Cache enthält abgespielte Musikvideos und in ein abspielbares Format umgewandelte Kopien. Beim nächsten Abspielen werden sie neu geladen.";
+"audio_cache_quarantine" = "Cache des vorherigen Kontos";
+"audio_cache_quarantine_footer" = "Der Cache des vorherigen Kontos enthält Audio, das eine Musikquelle vor dem Wechsel von Konto oder Musikordner zwischengespeichert hat. Er wird nicht mehr zum Abspielen verwendet und kann geleert werden.";
 "cache_clear_done_format" = "%@ geleert";
 "cache_clear_partial_format" = "%@ geleert, aber %d in Verwendung befindliche Datei(en) konnten nicht entfernt werden. Pausiere die Wiedergabe und versuche es erneut.";
 "metadata_clear_footer" = "Cover und Liedtexte werden dauerhaft gespeichert. Beim Löschen müssen sie erneut gescannt oder von deinen Musikquellen neu geladen werden.";

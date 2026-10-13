@@ -1728,6 +1728,7 @@ final class AppServices {
             library: musicLibrary
         )
         alwaysDownload.start()
+        sourceManager.sweepInterruptedCacheDeletions()
         // 先让用账号绑定的 Plex 源跟上服务器的新地址，再去查服务器目录。
         plexServerLinks.startColdLaunchRefresh()
         serverCatalogAutoRefresh.startColdLaunchRefresh()

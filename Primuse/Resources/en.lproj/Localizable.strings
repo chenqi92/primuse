@@ -780,6 +780,12 @@
 "cache_prewarm_seed" = "Prewarm seed (head+tail)";
 "cache_partial" = "Incomplete partials";
 "cache_orphaned" = "Removed-source leftovers";
+"source_file_cache" = "Source File Cache";
+"source_file_cache_footer" = "Source File Cache holds complete files downloaded from your music sources to play formats such as WMA or APE, plus some sources' downloads and cover images. It does not count toward the audio cache limit and is downloaded again when needed.";
+"music_video_cache" = "Music Video Cache";
+"music_video_cache_footer" = "Music Video Cache holds music videos you have played and copies converted to a playable format. They are downloaded again the next time you play them.";
+"audio_cache_quarantine" = "Previous Account Cache";
+"audio_cache_quarantine_footer" = "Previous Account Cache is audio a music source cached before you changed its account or music folder. It is no longer used for playback and can be cleared.";
 "cache_clear_done_format" = "Cleared %@";
 "cache_clear_partial_format" = "Cleared %@, but %d file(s) in use couldn't be removed. Pause playback and try again.";
 "metadata_clear_footer" = "Cover art and lyrics are stored persistently. Clearing will require re-scanning or re-fetching from your music sources.";

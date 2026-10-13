@@ -133,12 +133,64 @@ actor MusicVideoCompatibilityConverter {
         )
     }
 
+    /// 正在转换的那几个的成品与半成品文件名。
+    private var runningFileNames: Set<String> {
+        var names: Set<String> = []
+        for identity in running.keys {
+            let output = outputURL(identity: identity)
+            names.insert(output.lastPathComponent)
+            names.insert(Self.partialURL(for: output).lastPathComponent)
+        }
+        return names
+    }
+
+    /// 存储管理里「音乐视频缓存」的一部分。
+    func diskUsage() -> Int64 {
+        let keys: Set<URLResourceKey> = [.totalFileAllocatedSizeKey]
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: Array(keys)
+        ) else { return 0 }
+        return files.reduce(Int64(0)) { total, url in
+            total + Int64((try? url.resourceValues(forKeys: keys))?.totalFileAllocatedSize ?? 0)
+        }
+    }
+
+    /// 清掉转换好的副本与中断留下的半成品, 正在转换的留着。
+    func clear() -> (freedBytes: Int64, failedCount: Int) {
+        let keys: Set<URLResourceKey> = [.totalFileAllocatedSizeKey]
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: Array(keys)
+        ) else { return (0, 0) }
+        let keep = runningFileNames
+        var freed: Int64 = 0
+        var failed = 0
+        for url in files where !keep.contains(url.lastPathComponent) {
+            let size = Int64((try? url.resourceValues(forKeys: keys))?.totalFileAllocatedSize ?? 0)
+            do {
+                try FileManager.default.removeItem(at: url)
+                freed += size
+            } catch {
+                failed += 1
+            }
+        }
+        return (freed, failed)
+    }
+
     private func evictIfNeeded(keeping kept: String) {
         let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey]
         guard let files = try? FileManager.default.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: keys
         ) else { return }
+        // 被新请求取消或进程被杀的转换会留下半成品, 按上限淘汰时不算它们,
+        // 以前就一直留着。不是正在转换的半成品顺手删掉。
+        let runningNames = runningFileNames
+        for url in files where url.lastPathComponent.hasSuffix(Self.partialSuffix)
+            && !runningNames.contains(url.lastPathComponent) {
+            try? FileManager.default.removeItem(at: url)
+        }
         let finished = files.filter {
             $0.pathExtension == "mp4" && !$0.lastPathComponent.hasSuffix(Self.partialSuffix)
         }
@@ -178,6 +230,11 @@ actor MusicVideoCompatibilityConverter {
     /// written keeps `.mp4` last.
     private static let partialSuffix = ".partial.mp4"
 
+    private static func partialURL(for output: URL) -> URL {
+        output.deletingPathExtension()
+            .appendingPathExtension(String(partialSuffix.dropFirst()))
+    }
+
     /// The ObjC converter is used from one conversion queue at a time;
     /// `cancel()` is its only thread-safe entry and the reason for the box.
     private final class ConverterBox: @unchecked Sendable {
@@ -190,8 +247,7 @@ actor MusicVideoCompatibilityConverter {
         output: URL,
         progress: (@Sendable (Double) -> Void)?
     ) async throws -> URL {
-        let partial = output.deletingPathExtension()
-            .appendingPathExtension(String(partialSuffix.dropFirst()))
+        let partial = partialURL(for: output)
         try? FileManager.default.removeItem(at: partial)
         let started = Date()
         let box = ConverterBox(FFmpegMusicVideoConverter(inputURL: input, outputURL: partial))

@@ -178,7 +178,7 @@ final class OfflineDownloadStoreTests: XCTestCase {
     }
 }
 
-/// 一次性用途的整首下载用完即删。
+/// 一次性整首下载用完即删, 以及存储管理里「音乐源文件缓存」的统计与清除。
 /// 用真实的 Caches / tmp 路径: 设备上 tmp 是 /private/var 开头, Caches 是 /var 开头,
 /// 两边要统一成同一种写法才比得上, 这一点只有 Apple 平台上测得到。
 final class SourceFileCacheStorageTests: XCTestCase {
@@ -268,5 +268,33 @@ final class SourceFileCacheStorageTests: XCTestCase {
             SourceManager.discardOneOffSourceDownload(file, sourceID: sourceID, downloadedSince: startedAt)
             XCTAssertTrue(FileManager.default.fileExists(atPath: file.path), file.path)
         }
+    }
+
+    func testRemovingFilesKeepsDirectoriesAndProtectedFiles() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-source-files-\(UUID().uuidString)", isDirectory: true)
+        createdDirectories.append(root)
+        let plain = try makeFile(in: root, ["ns", "a.mp3"])
+        let hidden = try makeFile(in: root, ["ns", ".b.part-1"])
+        let kept = try makeFile(in: root, ["ns", "c.mp3"])
+
+        XCTAssertGreaterThanOrEqual(SourceManager.allocatedFileBytes(under: root), 3 * 4_096)
+
+        let result = SourceManager.removeFiles(
+            under: root,
+            protectedPaths: [kept.standardizedFileURL.path]
+        )
+
+        XCTAssertEqual(result.failedCount, 0)
+        XCTAssertGreaterThanOrEqual(result.freedBytes, 2 * 4_096)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: plain.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: hidden.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: kept.path))
+        var isDirectory: ObjCBool = false
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: root.appendingPathComponent("ns").path,
+            isDirectory: &isDirectory
+        ))
+        XCTAssertTrue(isDirectory.boolValue)
     }
 }

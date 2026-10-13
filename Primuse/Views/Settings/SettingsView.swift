@@ -2533,6 +2533,14 @@ struct StorageManagementView: View {
     @State private var audioBreakdown: SourceManager.AudioCacheBreakdown?
     @State private var isClearingPartials = false
     @State private var isClearingOrphans = false
+    @State private var sourceFileCache: SourceManager.SourceFileCacheUsage?
+    @State private var sourceFileCacheSize: String = "..."
+    @State private var musicVideoCacheSize: String = "..."
+    /// 隔离区平时是空的, 有内容才出现那一行。
+    @State private var quarantinedCacheBytes: Int64 = 0
+    @State private var isClearingSourceFiles = false
+    @State private var isClearingMusicVideos = false
+    @State private var isClearingQuarantine = false
     /// 清理结果提示 — 失败时让用户知道为什么没全清掉 (通常是当前正在播放的歌)。
     @State private var cacheActionToast: String?
 
@@ -2678,9 +2686,70 @@ struct StorageManagementView: View {
                     }
                 }
                 .settingsAnchor("storage.clearImageCache")
+
+                storageRow(
+                    icon: "externaldrive",
+                    title: "source_file_cache",
+                    size: sourceFileCacheSize,
+                    isClearing: isClearingSourceFiles
+                ) {
+                    isClearingSourceFiles = true
+                    Task {
+                        let result = await sourceManager.clearSourceFileCaches()
+                        await refreshSizes()
+                        isClearingSourceFiles = false
+                        flashCacheToast(freed: result.freedBytes, failed: result.failedCount)
+                    }
+                }
+                .settingsAnchor("storage.clearSourceFiles")
+
+                if let usage = sourceFileCache, !usage.entries.isEmpty {
+                    sourceFileCacheDetail(usage)
+                }
+
+                storageRow(
+                    icon: "film",
+                    title: "music_video_cache",
+                    size: musicVideoCacheSize,
+                    isClearing: isClearingMusicVideos
+                ) {
+                    isClearingMusicVideos = true
+                    Task {
+                        let result = await sourceManager.clearMusicVideoCache()
+                        await refreshSizes()
+                        isClearingMusicVideos = false
+                        flashCacheToast(freed: result.freedBytes, failed: result.failedCount)
+                    }
+                }
+                .settingsAnchor("storage.clearMusicVideoCache")
+
+                if quarantinedCacheBytes > 0 {
+                    storageRow(
+                        icon: "archivebox",
+                        title: "audio_cache_quarantine",
+                        size: ByteCountFormatter.string(
+                            fromByteCount: quarantinedCacheBytes,
+                            countStyle: .file
+                        ),
+                        isClearing: isClearingQuarantine
+                    ) {
+                        isClearingQuarantine = true
+                        Task {
+                            let result = await sourceManager.clearQuarantinedAudioCache()
+                            await refreshSizes()
+                            isClearingQuarantine = false
+                            flashCacheToast(freed: result.freedBytes, failed: result.failedCount)
+                        }
+                    }
+                }
             } header: {
                 SettingsInfoHeader("cache") {
                     Text("cache_clear_footer")
+                    Text("source_file_cache_footer")
+                    Text("music_video_cache_footer")
+                    if quarantinedCacheBytes > 0 {
+                        Text("audio_cache_quarantine_footer")
+                    }
                 }
             }
 
@@ -2995,6 +3064,39 @@ struct StorageManagementView: View {
 
         let metadata = await MetadataAssetStore.shared.cacheSize()
         metadataSize = formatter.string(fromByteCount: metadata)
+
+        let sourceFiles = await sourceManager.sourceFileCacheUsage()
+        sourceFileCache = sourceFiles
+        sourceFileCacheSize = formatter.string(fromByteCount: sourceFiles.totalBytes)
+        let musicVideos = await sourceManager.musicVideoCacheSize()
+        musicVideoCacheSize = formatter.string(fromByteCount: musicVideos)
+        quarantinedCacheBytes = await sourceManager.quarantinedAudioCacheSize()
+    }
+
+    /// 「音乐源文件缓存」按源分开列出来, 用户能看出是哪个源占的。
+    @ViewBuilder
+    private func sourceFileCacheDetail(_ usage: SourceManager.SourceFileCacheUsage) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(usage.entries) { entry in
+                HStack {
+                    if let name = entry.sourceName {
+                        Image(systemName: "externaldrive")
+                            .foregroundStyle(.secondary).font(.caption)
+                        Text(verbatim: name)
+                            .font(.caption).foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    } else {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange).font(.caption)
+                        Text("cache_orphaned").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Text(ByteCountFormatter.string(fromByteCount: entry.bytes, countStyle: .file))
+                        .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                }
+            }
+        }
+        .padding(.leading, 24)
     }
 
     private func formatBytes(_ bytes: Int64) -> String {

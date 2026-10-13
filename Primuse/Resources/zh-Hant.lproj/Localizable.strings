@@ -755,6 +755,12 @@
 "cache_prewarm_seed" = "預熱種子 (head+tail)";
 "cache_partial" = "下載中斷的半成品";
 "cache_orphaned" = "已刪除音樂來源的殘留";
+"source_file_cache" = "音樂來源檔案快取";
+"source_file_cache_footer" = "「音樂來源檔案快取」是播放 WMA、APE 這類需要完整檔案的格式時，從音樂來源整首下載的檔案，以及部分音樂來源的下載和封面。不計入音訊快取上限，清除後需要時會重新下載。";
+"music_video_cache" = "音樂影片快取";
+"music_video_cache_footer" = "「音樂影片快取」是播放過的音樂影片，以及轉換成可播放格式的副本。清除後再次播放時會重新下載。";
+"audio_cache_quarantine" = "舊帳號的快取";
+"audio_cache_quarantine_footer" = "「舊帳號的快取」是音樂來源更換帳號或音樂資料夾之前快取的音訊，已不再用於播放，可以清除。";
 "cache_clear_done_format" = "已清理 %@";
 "cache_clear_partial_format" = "已清理 %@，但有 %d 個檔案正在使用未能刪除，暫停播放後再試。";
 "metadata_clear_footer" = "封面與歌詞為持久化儲存。清除後需要重新掃描或從音樂來源重新取得。";

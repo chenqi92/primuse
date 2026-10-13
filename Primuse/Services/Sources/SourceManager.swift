@@ -10980,7 +10980,7 @@ final class SourceManager {
         staged.reserveCapacity(paths.count)
         for path in paths where fileManager.fileExists(atPath: path.path) {
             let destination = path.deletingLastPathComponent().appendingPathComponent(
-                ".primuse-deleting-\(path.lastPathComponent)-\(UUID().uuidString)",
+                "\(SourceFileCacheLayout.stagedDeletionPrefix)\(path.lastPathComponent)-\(UUID().uuidString)",
                 isDirectory: true
             )
             do {
@@ -11000,6 +11000,207 @@ final class SourceManager {
                 try? fileManager.removeItem(at: path)
             }
         }
+    }
+
+    /// 改了名待删的缓存目录由后台任务递归删除, 进程中途被挂起或杀掉就一直留着。
+    /// 它们是隐藏的, 存储管理统计不到、清除也碰不到。启动后把上次没删完的清掉;
+    /// 碰上本进程刚改名、后台正在删的目录, 也只是两边一起删同一棵树。
+    func sweepInterruptedCacheDeletions() {
+        let parents = Array(Set(
+            Self.perSourceCacheDirs(sourceID: "_").map { $0.deletingLastPathComponent() }
+        ))
+        Task.detached(priority: .background) {
+            let fileManager = FileManager.default
+            var staged: [URL] = []
+            for parent in parents {
+                guard let names = try? fileManager.contentsOfDirectory(atPath: parent.path) else { continue }
+                for name in names where SourceFileCacheLayout.isStagedDeletion(entryName: name) {
+                    staged.append(parent.appendingPathComponent(name, isDirectory: true))
+                }
+            }
+            guard !staged.isEmpty else { return }
+            let bytes = staged.reduce(Int64(0)) { $0 + Self.allocatedFileBytes(under: $1) }
+            Self.deleteStagedCacheDirectories(staged)
+            plog("🧹 Swept \(staged.count) interrupted cache deletions (\(bytes / 1024 / 1024)MB)")
+        }
+    }
+
+    // MARK: - 存储管理里另外几类缓存
+
+    /// 「音乐源文件缓存」按源分开的占用。`sourceName` 为 nil 表示源已经不在了。
+    struct SourceFileCacheUsage: Sendable, Equatable {
+        struct Entry: Sendable, Equatable, Identifiable {
+            let sourceID: String
+            let sourceName: String?
+            let bytes: Int64
+            var id: String { sourceID }
+        }
+
+        /// 从大到小; 已删除的源并成一条放在最后。
+        var entries: [Entry] = []
+        var totalBytes: Int64 = 0
+    }
+
+    private nonisolated static func sourceFileCacheDirectories() -> [(sourceID: String, url: URL)] {
+        let fileManager = FileManager.default
+        let caches = fileManager.primuseDirectoryURL(for: .cachesDirectory)
+        let temp = fileManager.temporaryDirectory
+        var result: [(sourceID: String, url: URL)] = []
+        for root in SourceFileCacheLayout.roots {
+            let base = root.location == .caches ? caches : temp
+            let parent = root.isSourcePrefix ? base : base.appendingPathComponent(root.name)
+            guard let names = try? fileManager.contentsOfDirectory(atPath: parent.path) else { continue }
+            for name in names {
+                guard let sourceID = SourceFileCacheLayout.sourceID(entryName: name, root: root) else { continue }
+                result.append((sourceID, parent.appendingPathComponent(name, isDirectory: true)))
+            }
+        }
+        return result
+    }
+
+    /// 连接器整首下载的原文件、媒体服务器与 Subsonic 的下载、网盘与飞牛封面。
+    /// 这些不计入音频缓存上限, 原先存储管理里哪一行都看不到。
+    func sourceFileCacheUsage() async -> SourceFileCacheUsage {
+        let names = Dictionary(
+            ((try? await sourcesProvider()) ?? []).map { ($0.id, $0.name) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let bytesBySource = await Task.detached(priority: .utility) {
+            var bytes: [String: Int64] = [:]
+            for directory in Self.sourceFileCacheDirectories() {
+                bytes[directory.sourceID, default: 0] += Self.allocatedFileBytes(under: directory.url)
+            }
+            return bytes
+        }.value
+        var usage = SourceFileCacheUsage()
+        var orphanedBytes: Int64 = 0
+        for (sourceID, bytes) in bytesBySource where bytes > 0 {
+            usage.totalBytes += bytes
+            if let name = names[sourceID] {
+                usage.entries.append(.init(sourceID: sourceID, sourceName: name, bytes: bytes))
+            } else {
+                orphanedBytes += bytes
+            }
+        }
+        usage.entries.sort { $0.bytes > $1.bytes }
+        if orphanedBytes > 0 {
+            usage.entries.append(.init(sourceID: "", sourceName: nil, bytes: orphanedBytes))
+        }
+        return usage
+    }
+
+    /// 只删文件、留着目录: 连接器在创建时建好自己的缓存目录, 之后直接往里写。
+    /// 删掉的文件下次需要时会重新下载。
+    @discardableResult
+    func clearSourceFileCaches() async -> (freedBytes: Int64, failedCount: Int) {
+        let result = await Task.detached(priority: .utility) {
+            var freed: Int64 = 0
+            var failed = 0
+            for directory in Self.sourceFileCacheDirectories() {
+                let removed = Self.removeFiles(under: directory.url, protectedPaths: [])
+                freed += removed.freedBytes
+                failed += removed.failedCount
+            }
+            return (freedBytes: freed, failedCount: failed)
+        }.value
+        plog("🧹 clearSourceFileCaches: freed \(result.freedBytes / 1024 / 1024)MB, failed=\(result.failedCount)")
+        return result
+    }
+
+    /// 播放过的音乐视频原文件与转换成可播放格式的副本。
+    func musicVideoCacheSize() async -> Int64 {
+        let root = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+            .appendingPathComponent(Self.videoCacheDirName)
+        let originals = await Task.detached(priority: .utility) {
+            Self.allocatedFileBytes(under: root)
+        }.value
+        let converted = await MusicVideoCompatibilityConverter.shared.diskUsage()
+        return originals + converted
+    }
+
+    @discardableResult
+    func clearMusicVideoCache() async -> (freedBytes: Int64, failedCount: Int) {
+        let root = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+            .appendingPathComponent(Self.videoCacheDirName)
+        // 正在下载的那几个(连同 .partial)留着, 与按上限淘汰时同一个保护集。
+        let protectedPaths = protectedVideoCachePaths(including: nil)
+        let originals = await Task.detached(priority: .utility) {
+            Self.removeFiles(under: root, protectedPaths: protectedPaths)
+        }.value
+        let converted = await MusicVideoCompatibilityConverter.shared.clear()
+        let result = (
+            freedBytes: originals.freedBytes + converted.freedBytes,
+            failedCount: originals.failedCount + converted.failedCount
+        )
+        plog("🧹 clearMusicVideoCache: freed \(result.freedBytes / 1024 / 1024)MB, failed=\(result.failedCount)")
+        return result
+    }
+
+    /// 音乐源换了账号或音乐目录后, 原来那份音频缓存整体搬进隔离区留着
+    /// (`AudioCacheManager.quarantineSourceCacheDirectoryIfReady`), 之后不再读取。
+    func quarantinedAudioCacheSize() async -> Int64 {
+        let root = AudioCacheManager.quarantineDirectoryURL
+        return await Task.detached(priority: .utility) {
+            Self.allocatedFileBytes(under: root)
+        }.value
+    }
+
+    @discardableResult
+    func clearQuarantinedAudioCache() async -> (freedBytes: Int64, failedCount: Int) {
+        let root = AudioCacheManager.quarantineDirectoryURL
+        let result = await Task.detached(priority: .utility) {
+            let removed = Self.removeFiles(under: root, protectedPaths: [])
+            // 隔离记录是一组组的目录(metadata.json + payload), 没有别人往里写, 整个删掉。
+            if removed.failedCount == 0 {
+                try? FileManager.default.removeItem(at: root)
+            }
+            return removed
+        }.value
+        plog("🧹 clearQuarantinedAudioCache: freed \(result.freedBytes / 1024 / 1024)MB, failed=\(result.failedCount)")
+        return result
+    }
+
+    /// 目录下全部普通文件占的磁盘空间, 隐藏文件也算。
+    nonisolated static func allocatedFileBytes(under directory: URL) -> Int64 {
+        let keys: [URLResourceKey] = [.isRegularFileKey, .totalFileAllocatedSizeKey]
+        guard let enumerator = FileManager.default.enumerator(
+            at: directory,
+            includingPropertiesForKeys: keys
+        ) else { return 0 }
+        var total: Int64 = 0
+        while let url = enumerator.nextObject() as? URL {
+            guard let values = try? url.resourceValues(forKeys: Set(keys)),
+                  values.isRegularFile == true else { continue }
+            total += Int64(values.totalFileAllocatedSize ?? 0)
+        }
+        return total
+    }
+
+    /// 逐个删掉目录下的普通文件(隐藏文件也删), 目录结构留着。
+    /// `protectedPaths` 是 standardized 路径。
+    nonisolated static func removeFiles(
+        under directory: URL,
+        protectedPaths: Set<String>
+    ) -> (freedBytes: Int64, failedCount: Int) {
+        let keys: [URLResourceKey] = [.isRegularFileKey, .totalFileAllocatedSizeKey]
+        guard let enumerator = FileManager.default.enumerator(
+            at: directory,
+            includingPropertiesForKeys: keys
+        ) else { return (0, 0) }
+        var freed: Int64 = 0
+        var failed = 0
+        while let url = enumerator.nextObject() as? URL {
+            guard let values = try? url.resourceValues(forKeys: Set(keys)),
+                  values.isRegularFile == true,
+                  !protectedPaths.contains(url.standardizedFileURL.path) else { continue }
+            do {
+                try FileManager.default.removeItem(at: url)
+                freed += Int64(values.totalFileAllocatedSize ?? 0)
+            } catch {
+                failed += 1
+            }
+        }
+        return (freed, failed)
     }
 
     /// 清空所有音频缓存。返回 (成功删除字节数, 失败文件数)。

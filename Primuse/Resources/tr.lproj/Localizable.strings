@@ -3374,6 +3374,12 @@
 "reverb" = "Yankı";
 "done_count_format" = "Bitti (%d)";
 "cache_orphaned" = "Kaldırılan kaynak artıkları";
+"source_file_cache" = "Kaynak Dosya Önbelleği";
+"source_file_cache_footer" = "Kaynak dosya önbelleği, WMA veya APE gibi biçimleri çalmak için müzik kaynaklarınızdan bütünüyle indirilen dosyaları ve bazı kaynakların indirmeleriyle kapak görsellerini tutar. Ses önbelleği limitine sayılmaz ve gerektiğinde yeniden indirilir.";
+"music_video_cache" = "Müzik Videosu Önbelleği";
+"music_video_cache_footer" = "Müzik videosu önbelleği, oynattığınız müzik videolarını ve oynatılabilir biçime dönüştürülmüş kopyaları tutar. Bir sonraki oynatmada yeniden indirilir.";
+"audio_cache_quarantine" = "Önceki Hesabın Önbelleği";
+"audio_cache_quarantine_footer" = "Önceki hesabın önbelleği, bir müzik kaynağının hesabı veya müzik klasörü değiştirilmeden önce önbelleğe aldığı sestir. Artık çalmak için kullanılmaz ve temizlenebilir.";
 "metadata_status_list_count_format" = "%d etkilenen şarkılar";
 "server_share_kind_artist" = "Sanatçı";
 "smart_limit_footer" = "Sınırsız için boş bırakın. Daha fazla şarkı eşleştiğinde liste sıralama düzenine göre kısaltılır.";

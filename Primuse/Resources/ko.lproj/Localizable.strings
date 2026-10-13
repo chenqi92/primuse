@@ -980,6 +980,12 @@
 "cache_prewarm_seed" = "예열 시드 (head+tail)";
 "cache_partial" = "미완성 부분 파일";
 "cache_orphaned" = "삭제된 소스의 잔여 파일";
+"source_file_cache" = "소스 파일 캐시";
+"source_file_cache_footer" = "소스 파일 캐시에는 WMA나 APE 같은 형식을 재생하려고 음악 소스에서 통째로 내려받은 파일과 일부 소스의 다운로드 및 커버 이미지가 들어 있습니다. 오디오 캐시 한도에 포함되지 않으며 필요할 때 다시 내려받습니다.";
+"music_video_cache" = "뮤직비디오 캐시";
+"music_video_cache_footer" = "뮤직비디오 캐시에는 재생한 뮤직비디오와 재생 가능한 형식으로 변환한 사본이 들어 있습니다. 다음에 재생할 때 다시 내려받습니다.";
+"audio_cache_quarantine" = "이전 계정의 캐시";
+"audio_cache_quarantine_footer" = "이전 계정의 캐시는 음악 소스의 계정이나 음악 폴더를 바꾸기 전에 캐시된 오디오입니다. 더 이상 재생에 쓰이지 않으므로 지울 수 있습니다.";
 "cache_clear_done_format" = "%@ 지움";
 "cache_clear_partial_format" = "%@를 지웠지만 사용 중인 파일 %d개는 제거하지 못했습니다. 재생을 일시 정지한 후 다시 시도하세요.";
 "metadata_clear_footer" = "커버 아트와 가사는 지속적으로 저장됩니다. 지우면 음악 소스에서 다시 스캔하거나 다시 가져와야 합니다.";

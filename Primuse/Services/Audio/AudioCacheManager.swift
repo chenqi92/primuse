@@ -323,6 +323,11 @@ actor AudioCacheManager {
     /// 把离线下载的入口链回来。
     private let cacheIntactMarkerURL: URL
     private let quarantineBasePath: URL
+    /// 隔离区没有读回逻辑, 只在存储管理里显示占用、由用户清除。
+    nonisolated static var quarantineDirectoryURL: URL {
+        FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+            .appendingPathComponent("primuse_audio_cache_quarantine")
+    }
     private var persistTask: Task<Void, Never>?
     private var manifestPersistTask: Task<Void, Never>?
     private var changedCompletePaths: Set<String> = []
@@ -406,7 +411,7 @@ actor AudioCacheManager {
         basePath = caches.appendingPathComponent("primuse_audio_cache")
         offlineBasePath = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
             .appendingPathComponent("primuse_offline_audio")
-        quarantineBasePath = caches.appendingPathComponent("primuse_audio_cache_quarantine")
+        quarantineBasePath = Self.quarantineDirectoryURL
         logURL = basePath.appendingPathComponent(".access_log.json")
         manifestURL = offlineBasePath.appendingPathComponent(".offline_manifest.json")
         legacyManifestURL = basePath.appendingPathComponent(".offline_manifest.json")

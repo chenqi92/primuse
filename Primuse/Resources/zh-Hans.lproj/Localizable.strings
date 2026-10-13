@@ -795,6 +795,12 @@
 "cache_prewarm_seed" = "预热种子 (head+tail)";
 "cache_partial" = "下载中断的半成品";
 "cache_orphaned" = "已删除音乐源的残留";
+"source_file_cache" = "音乐源文件缓存";
+"source_file_cache_footer" = "「音乐源文件缓存」是播放 WMA、APE 这类需要完整文件的格式时从音乐源整首下载的文件，以及部分音乐源的下载和封面。不计入音频缓存上限，清除后需要时会重新下载。";
+"music_video_cache" = "音乐视频缓存";
+"music_video_cache_footer" = "「音乐视频缓存」是播放过的音乐视频，以及转换成可播放格式的副本。清除后再次播放时会重新下载。";
+"audio_cache_quarantine" = "旧账号的缓存";
+"audio_cache_quarantine_footer" = "「旧账号的缓存」是音乐源更换账号或音乐目录之前缓存的音频，已不再用于播放，可以清除。";
 "cache_clear_done_format" = "已清理 %@";
 "cache_clear_partial_format" = "已清理 %@,但有 %d 个文件正在使用未能删除,暂停播放后再试。";
 "metadata_clear_footer" = "封面与歌词为持久化存储。清除后需要重新扫描或从音乐源重新获取。";

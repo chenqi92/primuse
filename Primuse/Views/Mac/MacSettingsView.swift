@@ -428,6 +428,10 @@ private struct MacSTStorageView: View {
     @State private var notificationStatusDenied = false
     @State private var offlineDownloadsSummary = "…"
     @State private var showsOfflineDownloads = false
+    @State private var sourceFileCacheBytes: Int64?
+    @State private var musicVideoCacheBytes: Int64?
+    /// 隔离区平时是空的, 有内容才出现那一行。
+    @State private var quarantinedCacheBytes: Int64 = 0
 
     var body: some View {
         @Bindable var settings = playbackSettings
@@ -455,6 +459,49 @@ private struct MacSTStorageView: View {
                         }
                     }
                     .settingsAnchor("storage.audioCacheLimit")
+                    MacSTRow(
+                        String(localized: "source_file_cache"),
+                        hint: String(localized: "source_file_cache_footer"),
+                        hintLineLimit: 4
+                    ) {
+                        cacheSizeLabel(sourceFileCacheBytes)
+                        MacSTButton(title: String(localized: "clear_cache")) {
+                            Task {
+                                await sourceManager.clearSourceFileCaches()
+                                await refreshCacheSizes()
+                            }
+                        }
+                    }
+                    .settingsAnchor("storage.clearSourceFiles")
+                    MacSTRow(
+                        String(localized: "music_video_cache"),
+                        hint: String(localized: "music_video_cache_footer"),
+                        hintLineLimit: 3
+                    ) {
+                        cacheSizeLabel(musicVideoCacheBytes)
+                        MacSTButton(title: String(localized: "clear_cache")) {
+                            Task {
+                                await sourceManager.clearMusicVideoCache()
+                                await refreshCacheSizes()
+                            }
+                        }
+                    }
+                    .settingsAnchor("storage.clearMusicVideoCache")
+                    if quarantinedCacheBytes > 0 {
+                        MacSTRow(
+                            String(localized: "audio_cache_quarantine"),
+                            hint: String(localized: "audio_cache_quarantine_footer"),
+                            hintLineLimit: 3
+                        ) {
+                            cacheSizeLabel(quarantinedCacheBytes)
+                            MacSTButton(title: String(localized: "clear_cache")) {
+                                Task {
+                                    await sourceManager.clearQuarantinedAudioCache()
+                                    await refreshCacheSizes()
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -534,6 +581,7 @@ private struct MacSTStorageView: View {
             }
         }
         .task { await refreshOfflineDownloadsSummary() }
+        .task { await refreshCacheSizes() }
         .sheet(isPresented: $showsOfflineDownloads, onDismiss: {
             Task { await refreshOfflineDownloadsSummary() }
         }) {
@@ -550,6 +598,20 @@ private struct MacSTStorageView: View {
             songCount: items.count,
             byteCount: items.reduce(0) { $0 + $1.byteCount }
         )
+    }
+
+    private func refreshCacheSizes() async {
+        sourceFileCacheBytes = await sourceManager.sourceFileCacheUsage().totalBytes
+        musicVideoCacheBytes = await sourceManager.musicVideoCacheSize()
+        quarantinedCacheBytes = await sourceManager.quarantinedAudioCacheSize()
+    }
+
+    private func cacheSizeLabel(_ bytes: Int64?) -> some View {
+        Text(verbatim: bytes.map {
+            ByteCountFormatter.string(fromByteCount: $0, countStyle: .file)
+        } ?? "…")
+        .foregroundStyle(.secondary)
+        .monospacedDigit()
     }
 
     private var offlineCompactionSweepHint: String? {
