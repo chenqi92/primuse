@@ -956,6 +956,11 @@ private final class CheckCollector {
     }
 }
 
+private struct SiriCatalogBookInputs: Equatable {
+    let libraryRevision: UInt64
+    let storeRevision: Int
+}
+
 @MainActor
 final class AppServices {
     static let shared = AppServices()
@@ -1002,6 +1007,11 @@ final class AppServices {
 
     private var sourceLifecycleObserverTokens: [NSObjectProtocol] = []
     private var siriRadioCatalogSignature: [String]?
+    /// 交给 Siri 的书单(按「接着听」排好的前 50 本)和分它时的输入:曲库里有声内容与
+    /// 有声内容那份账都没变就沿用,不再整库分组。
+    private var siriCatalogBooks: (inputs: SiriCatalogBookInputs, books: [SpokenWordBook])?
+    private var siriCatalogRefreshTask: Task<Void, Never>?
+    private var siriCatalogForcePending = false
     private var listeningWidgetPublisher: ListeningWidgetPublisher?
     /// Feeds the "continue listening" widget.
     private var spokenWordWidgetPublisher: SpokenWordWidgetPublisher?
@@ -2041,20 +2051,66 @@ final class AppServices {
     /// App Shortcut values and as vocabulary. Source changes arrive many times
     /// a second during a scan, so only a different set is sent; `force`
     /// re-sends it once Siri permission has just been granted.
+    ///
+    /// 每次回到前台、扫描时每批音乐源变化都会走到这里:合并成一次,书在后台分组
+    /// (几千章的有声库整库分一次要几百毫秒,原先就在主线程上分)。
     func refreshSiriCatalog(force: Bool = false) {
-        let stations = siriShortcutRadioStations
-        let books = Array(siriSpokenWordBooks.prefix(50))
-        let shows = Array(PodcastStore.shared.shows.prefix(50))
-        let signature = stations.map { "r\($0.id)\u{1F}\($0.name)" }
-            + books.map { "b\($0.id)\u{1F}\($0.title)" }
-            + shows.map { "p\($0.id)\u{1F}\($0.title)" }
-        guard force || signature != siriRadioCatalogSignature else { return }
-        siriRadioCatalogSignature = signature
-        SiriMediaInteractionDonor.refreshCatalog(
-            stationNames: stations.map(\.name),
-            bookTitles: books.map(\.title),
-            podcastTitles: shows.map(\.title)
+        if force { siriCatalogForcePending = true }
+        siriCatalogRefreshTask?.cancel()
+        siriCatalogRefreshTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled, let self,
+                  let books = await self.siriCatalogBookList(),
+                  !Task.isCancelled else { return }
+            let stations = self.siriShortcutRadioStations
+            let shows = Array(PodcastStore.shared.shows.prefix(50))
+            let signature = stations.map { "r\($0.id)\u{1F}\($0.name)" }
+                + books.map { "b\($0.id)\u{1F}\($0.title)" }
+                + shows.map { "p\($0.id)\u{1F}\($0.title)" }
+            guard self.siriCatalogForcePending || signature != self.siriRadioCatalogSignature else { return }
+            self.siriCatalogForcePending = false
+            self.siriRadioCatalogSignature = signature
+            SiriMediaInteractionDonor.refreshCatalog(
+                stationNames: stations.map(\.name),
+                bookTitles: books.map(\.title),
+                podcastTitles: shows.map(\.title)
+            )
+        }
+    }
+
+    /// 按「接着听」排好的前 50 本书;任务取消时返回 nil。
+    private func siriCatalogBookList() async -> [SpokenWordBook]? {
+        let store = SpokenWordStore.shared
+        let inputs = SiriCatalogBookInputs(
+            libraryRevision: musicLibrary.spokenWordContentRevision,
+            storeRevision: store.revision
         )
+        if let cached = siriCatalogBooks, cached.inputs == inputs { return cached.books }
+        let songs = musicLibrary.spokenWordSongs
+        let positions = store.positions
+        let finishedAt = store.finishedAt
+        let worker = Task.detached(priority: .utility) { () throws -> [SpokenWordBook] in
+            let items = try songs.map { song in
+                try Task.checkCancellation()
+                let stored = positions[song.id]
+                return SpokenWordBookItem(
+                    song: song,
+                    knownDuration: stored?.duration,
+                    position: stored?.position,
+                    positionUpdatedAt: stored?.updatedAt,
+                    finishedAt: finishedAt[song.id]
+                )
+            }
+            return Array(SpokenWordBookGrouping.books(from: items).prefix(50))
+        }
+        let books = await withTaskCancellationHandler {
+            try? await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+        guard let books, !Task.isCancelled else { return nil }
+        siriCatalogBooks = (inputs, books)
+        return books
     }
 
     private func observeSiriRadioCatalog() {

@@ -328,6 +328,14 @@ final class SearchWorkCoordinator {
     var semanticMatchTask: Task<Void, Never>?
     var folderKey: SearchFolderSnapshotKey?
     var folderTask: Task<LibraryFolderIndex, Never>?
+    /// 有声的命中在后台算(见 `SearchView.refreshBookHits`);分好的书按输入留着,边打字边搜时不再重分。
+    var bookSearchTask: Task<Void, Never>?
+    var groupedBooks: SearchGroupedBooks?
+
+    func cancelBookSearch() {
+        bookSearchTask?.cancel()
+        bookSearchTask = nil
+    }
 
     func cancelLocalSearch() {
         searchTask?.cancel()
@@ -427,6 +435,20 @@ private enum SemanticSearchFeedback: Equatable {
     var isVisible: Bool { self != .idle }
 }
 
+/// 搜索用的有声书分组。曲库里的有声内容、本机播客和有声内容那份账(进度、听完)都没变就沿用。
+struct SearchGroupedBooks: Sendable {
+    struct Inputs: Equatable, Sendable {
+        let bookRevision: UInt64
+        let podcastRevision: UInt64
+        let storeRevision: Int
+    }
+
+    let inputs: Inputs
+    let books: [SpokenWordBook]
+    let bookByID: [String: SpokenWordBook]
+    let songsByID: [String: PrimuseKit.Song]
+}
+
 /// 电台里一个命中的台。
 private struct RadioSearchHit: Identifiable {
     let station: RadioStation
@@ -435,7 +457,7 @@ private struct RadioSearchHit: Identifiable {
 }
 
 /// 有声里一个命中的书。按书列出, 一套两百集的评书只占一行。
-private struct BookSearchHit: Identifiable {
+private struct BookSearchHit: Identifiable, Sendable {
     let book: SpokenWordBook
     /// 书里的条目, 按章节顺序。
     let songs: [PrimuseKit.Song]
@@ -788,11 +810,13 @@ struct SearchView: View {
         return (limit + columns - 1) / columns * columns
     }
 
-    /// 电台与有声的命中。电台、书都不多, 每轮搜索在主线程上直接对一遍。
-    private func refreshSpaceResults(query: String) {
+    /// 电台与有声的命中。电台不多, 每轮搜索在主线程上直接对一遍; 书在后台对(`refreshBookHits`)。
+    /// `includesBooks` 为 false 时只重对电台(电台台标、正在播的曲名变了)。
+    private func refreshSpaceResults(query: String, includesBooks: Bool = true) {
         guard scope == nil,
               !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             if !radioHits.isEmpty { radioHits = [] }
+            workCoordinator.cancelBookSearch()
             if !bookHits.isEmpty { bookHits = [] }
             return
         }
@@ -812,29 +836,78 @@ struct SearchView: View {
         radioHits = ListeningSpaceSearchPolicy.matchStations(query: query, in: candidates).compactMap { match in
             stationByID[match.stationID].map { RadioSearchHit(station: $0, field: match.field) }
         }
+        if includesBooks {
+            refreshBookHits(query: query)
+        }
+    }
 
+    /// 有声的命中。书要整库分组、再逐章对标题和文件名, 几千章的有声库在主线程上要几百毫秒:
+    /// 放到后台算, 算完再换上, 新一轮搜索开始时取消上一轮。
+    private func refreshBookHits(query: String) {
+        workCoordinator.cancelBookSearch()
         // 本机下载的播客节目也在这里搜得到:它们原本就在书架上,挪到播客以后不该从搜索里消失。
         let spokenSongs = showsSpace(.spokenWord) ? library.spokenWordSongs + library.localPodcastSongs : []
         guard !spokenSongs.isEmpty else {
-            bookHits = []
+            if !bookHits.isEmpty { bookHits = [] }
             return
         }
         let store = SpokenWordStore.shared
-        let books = SpokenWordBookGrouping.books(
-            from: spokenSongs.map { SpokenWordBookSupport.item(for: $0, store: store) }
+        let inputs = SearchGroupedBooks.Inputs(
+            bookRevision: library.spokenWordContentRevision,
+            podcastRevision: library.localPodcastContentRevision,
+            storeRevision: store.revision
         )
-        let songsByID = Dictionary(spokenSongs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let bookByID = Dictionary(books.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        bookHits = ListeningSpaceSearchPolicy.matchBooks(query: query, in: books).compactMap { match in
-            guard let book = bookByID[match.bookID] else { return nil }
-            let itemTitle = match.matchedItemID.flatMap { id in
-                book.items.first { $0.id == id }?.title
+        let cached = workCoordinator.groupedBooks.flatMap { $0.inputs == inputs ? $0 : nil }
+        let positions = store.positions
+        let finishedAt = store.finishedAt
+        let coordinator = workCoordinator
+        coordinator.bookSearchTask = Task {
+            let worker = Task.detached(priority: .userInitiated) { () throws -> (SearchGroupedBooks, [BookSearchHit]) in
+                let grouped: SearchGroupedBooks
+                if let cached {
+                    grouped = cached
+                } else {
+                    let items = try spokenSongs.map { song in
+                        try Task.checkCancellation()
+                        let stored = positions[song.id]
+                        return SpokenWordBookItem(
+                            song: song,
+                            knownDuration: stored?.duration,
+                            position: stored?.position,
+                            positionUpdatedAt: stored?.updatedAt,
+                            finishedAt: finishedAt[song.id]
+                        )
+                    }
+                    let books = SpokenWordBookGrouping.books(from: items)
+                    grouped = SearchGroupedBooks(
+                        inputs: inputs,
+                        books: books,
+                        bookByID: Dictionary(books.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }),
+                        songsByID: Dictionary(spokenSongs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                    )
+                }
+                try Task.checkCancellation()
+                let hits = ListeningSpaceSearchPolicy.matchBooks(query: query, in: grouped.books).compactMap { match -> BookSearchHit? in
+                    guard let book = grouped.bookByID[match.bookID] else { return nil }
+                    let itemTitle = match.matchedItemID.flatMap { id in
+                        book.items.first { $0.id == id }?.title
+                    }
+                    return BookSearchHit(
+                        book: book,
+                        songs: book.items.compactMap { grouped.songsByID[$0.id] },
+                        matchedItemTitle: itemTitle
+                    )
+                }
+                return (grouped, hits)
             }
-            return BookSearchHit(
-                book: book,
-                songs: book.items.compactMap { songsByID[$0.id] },
-                matchedItemTitle: itemTitle
-            )
+            let result = await withTaskCancellationHandler {
+                try? await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
+            guard !Task.isCancelled, let result else { return }
+            coordinator.groupedBooks = result.0
+            bookHits = result.1
         }
     }
 
@@ -1086,12 +1159,12 @@ struct SearchView: View {
         }
         .onChange(of: radioStore.artworkRevision) { _, _ in
             guard !renderedQuery.isEmpty else { return }
-            refreshSpaceResults(query: renderedQuery)
+            refreshSpaceResults(query: renderedQuery, includesBooks: false)
         }
         .onChange(of: player.radioMetadataTitle) { _, _ in
             // 电台正在播的曲名也算命中, 换歌了重对一遍。
             guard !renderedQuery.isEmpty, !radioStore.stations.isEmpty else { return }
-            refreshSpaceResults(query: renderedQuery)
+            refreshSpaceResults(query: renderedQuery, includesBooks: false)
         }
         .onChange(of: library.spokenWordSongs.count) { _, _ in
             // 有歌被改标成有声 / 音乐: 两边的结果都要重算。

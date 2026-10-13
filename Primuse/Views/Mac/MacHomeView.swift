@@ -90,6 +90,9 @@ struct MacHomeView: View {
     // searchRevision, 不去抖会触发几十次全库重算。cancel + 重启计时, 只在最后
     // 一次 revision 落定后重算。
     @State private var refreshCoordinator = MacHomeRefreshCoordinator()
+    /// 主卡「接着听」和「在听的书」共用的有声书分组,在后台分好(与 iPhone 首页同一份做法)。
+    /// 原先这两块各自在 body 里整库分组,播放状态、进度一变就在主线程上重分。
+    @State private var spokenWordBooks = SpokenWordBooksModel()
 
     @MainActor
     @Observable
@@ -165,6 +168,7 @@ struct MacHomeView: View {
                 onScanFinished: { scheduleDerivedRefresh() }
             )
         }
+        .spokenWordBooksRefresh(model: spokenWordBooks)
         .task {
             isHomeVisible = true
             await Task.yield()
@@ -321,7 +325,7 @@ struct MacHomeView: View {
             }
         case .books:
             if showBooks {
-                MacHomeBooksStrip()
+                MacHomeBooksStrip(books: spokenWordBooks)
             }
         case .podcasts:
             if showPodcasts {
@@ -716,6 +720,7 @@ struct MacHomeView: View {
         MacHomeResumeShelf(
             placement: placement,
             isEnabled: showContinueSpaces,
+            books: spokenWordBooks,
             onTuneIn: { station in tuneIn(station) }
         )
     }
@@ -2045,13 +2050,12 @@ private final class WindowSafeNSButton: NSButton {
 private struct MacHomeResumeShelf: View {
     let placement: MacHomeResumePlacement
     let isEnabled: Bool
+    let books: SpokenWordBooksModel
     let onTuneIn: (RadioStation) -> Void
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(RadioStationsStore.self) private var radioStationsStore
-
-    private var store: SpokenWordStore { SpokenWordStore.shared }
 
     private enum Card: Identifiable {
         case radio(RadioStation, lastPlayedAt: Date)
@@ -2130,24 +2134,12 @@ private struct MacHomeResumeShelf: View {
             cardsBySpace[.radio] = .radio(station, lastPlayedAt: lastPlayedAt)
         }
 
-        // 有声: 最近在听、还没听完的那本 (书架排序已把它排在最前); 归档的书不算。
-        if !library.spokenWordSongs.isEmpty {
-            _ = store.revision
-            let items = library.spokenWordSongs.map { SpokenWordBookSupport.item(for: $0, store: store) }
-            let archived = store.archivedBookIDs
-            if let book = SpokenWordBookGrouping.books(from: items)
-                .first(where: { $0.isInProgress && !archived.contains($0.id) }),
-               let lastListenedAt = book.lastListenedAt {
-                let songsByID = Dictionary(
-                    library.spokenWordSongs.map { ($0.id, $0) },
-                    uniquingKeysWith: { first, _ in first }
-                )
-                let songs = book.items.compactMap { songsByID[$0.id] }
-                if !songs.isEmpty {
-                    candidates.append(ListeningResumeCandidate(space: .spokenWord, lastListenedAt: lastListenedAt))
-                    cardsBySpace[.spokenWord] = .book(book, songs: songs)
-                }
-            }
+        // 有声: 最近在听、还没听完的那本; 归档的书不算。
+        if let entry = books.snapshot.nowListening,
+           let lastListenedAt = entry.book.lastListenedAt,
+           !entry.songs.isEmpty {
+            candidates.append(ListeningResumeCandidate(space: .spokenWord, lastListenedAt: lastListenedAt))
+            cardsBySpace[.spokenWord] = .book(entry.book, songs: entry.songs)
         }
 
         // 播客: 最近听到一半的那一集。
@@ -2236,7 +2228,7 @@ private struct MacHomeResumeShelf: View {
                 .frame(width: size, height: size)
             }
         case .podcast(let episode, let show):
-            let position = store.position(forSongID: episode.id)?.position ?? 0
+            let position = SpokenWordStore.shared.position(forSongID: episode.id)?.position ?? 0
             let total = episode.duration ?? 0
             MacHomeResumeTile(
                 space: .podcast,
@@ -2373,13 +2365,13 @@ private struct MacHomeResumeTile<Artwork: View>: View {
 
 /// 「在听的书」: 还没听完的书, 封面下面一条进度。点封面从上次的位置接着听。
 private struct MacHomeBooksStrip: View {
+    let books: SpokenWordBooksModel
     @Environment(AudioPlayerService.self) private var player
-    @Environment(MusicLibrary.self) private var library
     /// 书架或书的右键菜单里挑过「在首页显示」的书;挑过就放挑中的,没挑过只列在听的书。
     @AppStorage(HomeSpotlightSelection.booksStorageKey) private var selectionRawValue = ""
     @AppStorage("spokenWord.shelf.order") private var shelfOrderRawValue = ""
 
-    private var store: SpokenWordStore { SpokenWordStore.shared }
+    private typealias Entry = SpokenWordLibrarySnapshot.Entry
 
     var body: some View {
         let selection = HomeSpotlightSelection.decode(selectionRawValue)
@@ -2421,53 +2413,24 @@ private struct MacHomeBooksStrip: View {
         }
     }
 
-    private struct Entry: Identifiable {
-        let book: SpokenWordBook
-        let songs: [Song]
-        var id: String { book.id }
-    }
-
+    /// 在听的书,最近听的在前;归档的不在其中。
     private var inProgressBooks: [Entry] {
-        Array(entries(for: allBooks.filter(\.isInProgress)).prefix(20))
+        Array(books.snapshot.inProgress.lazy
+            .filter { !$0.1.isEmpty }
+            .prefix(20)
+            .map { Entry(book: $0.0, songs: $0.1) })
     }
 
     /// 挑中的书,按挑选页定的排序;没挑的顺序时跟书架拖出来的顺序。
     private func pickedBooks(_ selection: HomeSpotlightSelection) -> [Entry] {
-        let books = allBooks
-        let byID = Dictionary(books.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let shelfOrdered = SpokenWordShelfOrder.orderedIDs(
-            books.map(\.id),
-            preferred: SpokenWordShelfOrder.decode(shelfOrderRawValue)
-        ).compactMap { byID[$0] }
-        let picked = selection.resolve(
-            shelfOrdered,
+        selection.resolve(
+            books.snapshot.allEntries(shelfOrder: shelfOrderRawValue),
             limit: HomeSectionLayoutPolicy.defaultItemCount(for: .audiobooks) * 2,
             id: \.id,
-            name: \.title,
-            lastListenedAt: \.lastListenedAt
+            name: \.book.title,
+            lastListenedAt: \.book.lastListenedAt
         )
-        return entries(for: picked)
-    }
-
-    /// 首页上的书:归档的不在其中。
-    private var allBooks: [SpokenWordBook] {
-        guard !library.spokenWordSongs.isEmpty else { return [] }
-        _ = store.revision
-        let items = library.spokenWordSongs.map { SpokenWordBookSupport.item(for: $0, store: store) }
-        let archived = store.archivedBookIDs
-        return SpokenWordBookGrouping.books(from: items).filter { !archived.contains($0.id) }
-    }
-
-    private func entries(for books: [SpokenWordBook]) -> [Entry] {
-        guard !books.isEmpty else { return [] }
-        let songsByID = Dictionary(
-            library.spokenWordSongs.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        return books.compactMap { book -> Entry? in
-            let songs = book.items.compactMap { songsByID[$0.id] }
-            return songs.isEmpty ? nil : Entry(book: book, songs: songs)
-        }
+        .filter { !$0.songs.isEmpty }
     }
 
     private func bookTile(_ book: SpokenWordBook, songs: [Song]) -> some View {

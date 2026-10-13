@@ -93,6 +93,7 @@ struct TVPodcastsView: View {
         .onDisappear {
             if presented != nil { onModalActivityChanged(false) }
         }
+        .tvSpokenWordShelfRefresh(.localPodcasts)
         .task {
             podcasts.loadIfNeeded()
             podcasts.refreshAllIfDue()
@@ -227,7 +228,7 @@ struct TVPodcastsView: View {
     /// 资料库里自己下载的播客文件,按节目(专辑)分组。和书架用同一套卡片与章节页。
     @ViewBuilder
     private func localShowsSection(cell: CGFloat) -> some View {
-        let shows = TVSpokenWordBooks.books(songs: store.library.localPodcastSongs, store: SpokenWordStore.shared)
+        let shows = store.spokenWordShelf(.localPodcasts).books
         if !shows.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 Text(String(localized: "podcast_local_shows"))

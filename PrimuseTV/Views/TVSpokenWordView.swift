@@ -23,6 +23,20 @@ enum TVSpokenWordBooks {
         SpokenWordBookGrouping.books(from: songs.map { item(for: $0, store: store) })
     }
 
+    static func songs(_ kind: TVSpokenWordShelfKind, in library: MusicLibrary) -> [Song] {
+        switch kind {
+        case .books: library.spokenWordSongs
+        case .localPodcasts: library.localPodcastSongs
+        }
+    }
+
+    static func revision(_ kind: TVSpokenWordShelfKind, in library: MusicLibrary) -> UInt64 {
+        switch kind {
+        case .books: library.spokenWordContentRevision
+        case .localPodcasts: library.localPodcastContentRevision
+        }
+    }
+
     /// 作者 · 已听完几章。
     static func subtitle(_ book: SpokenWordBook) -> String {
         var parts: [String] = []
@@ -54,6 +68,100 @@ enum TVSpokenWordBooks {
     }
 }
 
+enum TVSpokenWordShelfKind {
+    /// 「有声」页的书。
+    case books
+    /// 播客页里本机下载的节目。
+    case localPodcasts
+}
+
+/// 分好组的书。整库分一次在 A15 上要两三百毫秒,原先放在页面 body 里,存一次进度、
+/// 从播放页返回都在主线程上重分一遍;现在放到后台分,曲库这一类内容和有声内容那份账
+/// (进度、听完、归档)都没变就不再分。由 `TVStore` 持有,切走再切回来照旧用分好的书。
+@MainActor
+@Observable
+final class TVSpokenWordShelfModel {
+    struct Inputs: Equatable {
+        let libraryRevision: UInt64
+        let storeRevision: Int
+    }
+
+    private(set) var books: [SpokenWordBook] = []
+    private(set) var booksByID: [String: SpokenWordBook] = [:]
+    /// 分过一次了:之前的空书架不算「没有书」。
+    private(set) var isPrepared = false
+    @ObservationIgnored private var preparedInputs: Inputs?
+    @ObservationIgnored private var requestRevision: UInt = 0
+
+    func refresh(songs: [Song], inputs: Inputs) async {
+        guard !Task.isCancelled, !(isPrepared && inputs == preparedInputs) else { return }
+        requestRevision &+= 1
+        let revision = requestRevision
+        let store = SpokenWordStore.shared
+        let positions = store.positions
+        let finishedAt = store.finishedAt
+        let worker = Task.detached(priority: .userInitiated) { () throws -> [SpokenWordBook] in
+            let items = try songs.map { song in
+                try Task.checkCancellation()
+                let stored = positions[song.id]
+                return SpokenWordBookItem(
+                    song: song,
+                    knownDuration: stored?.duration,
+                    position: stored?.position,
+                    positionUpdatedAt: stored?.updatedAt,
+                    finishedAt: finishedAt[song.id]
+                )
+            }
+            return SpokenWordBookGrouping.books(from: items)
+        }
+        let result = await withTaskCancellationHandler {
+            try? await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+        guard !Task.isCancelled, revision == requestRevision, let result else { return }
+        books = result
+        booksByID = Dictionary(result.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        isPrepared = true
+        preparedInputs = inputs
+    }
+}
+
+/// 页面在的时候,曲库这一类内容或有声内容那份账一变就让 `TVStore` 里那份书架重分。
+private struct TVSpokenWordShelfRefresh: ViewModifier {
+    let kind: TVSpokenWordShelfKind
+    @Environment(TVStore.self) private var store
+    @State private var storeChanges = 0
+
+    private struct Identity: Equatable {
+        let libraryRevision: UInt64
+        let storeChanges: Int
+    }
+
+    func body(content: Content) -> some View {
+        let library = store.library
+        content
+            .task(id: Identity(libraryRevision: TVSpokenWordBooks.revision(kind, in: library), storeChanges: storeChanges)) {
+                await store.spokenWordShelf(kind).refresh(
+                    songs: TVSpokenWordBooks.songs(kind, in: library),
+                    inputs: .init(
+                        libraryRevision: TVSpokenWordBooks.revision(kind, in: library),
+                        storeRevision: SpokenWordStore.shared.revision
+                    )
+                )
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .primuseSpokenWordDidChange)) { _ in
+                storeChanges &+= 1
+            }
+    }
+}
+
+extension View {
+    func tvSpokenWordShelfRefresh(_ kind: TVSpokenWordShelfKind) -> some View {
+        modifier(TVSpokenWordShelfRefresh(kind: kind))
+    }
+}
+
 // MARK: - 「有声」页
 
 /// tvOS「有声」一级页:「在听」一排大卡 + 书架封面网格 + 收起的「已听完」。
@@ -74,7 +182,8 @@ struct TVSpokenWordView: View {
 
     var body: some View {
         let spokenStore = SpokenWordStore.shared
-        let books = TVSpokenWordBooks.books(songs: store.library.spokenWordSongs, store: spokenStore)
+        let shelfModel = store.spokenWordShelf(.books)
+        let books = shelfModel.books
         // 归档的书只在最下面那一节,不进在听、书架和已听完。
         let archivedIDs = spokenStore.archivedBookIDs
         let active = books.filter { !archivedIDs.contains($0.id) }
@@ -99,7 +208,10 @@ struct TVSpokenWordView: View {
                     }
                     .padding(.horizontal, 14)
 
-                    if books.isEmpty {
+                    if !shelfModel.isPrepared {
+                        ProgressView()
+                            .frame(maxWidth: .infinity, minHeight: 520)
+                    } else if books.isEmpty {
                         TVEmptyState(
                             icon: "books.vertical",
                             title: String(localized: "tab_spoken_word"),
@@ -159,6 +271,7 @@ struct TVSpokenWordView: View {
         .onDisappear {
             if selectedBook != nil { onModalActivityChanged(false) }
         }
+        .tvSpokenWordShelfRefresh(.books)
         .accessibilityIdentifier("tv.spokenWord.page")
     }
 
@@ -397,12 +510,9 @@ struct TVSpokenWordBookDetailView: View {
     }
 
     private var currentBook: SpokenWordBook {
-        // 播客页里本机下载的节目也用这一页。
-        let songs = isLocalPodcast
-            ? store.library.localPodcastSongs
-            : store.library.spokenWordSongs
-        return TVSpokenWordBooks.books(songs: songs, store: SpokenWordStore.shared)
-            .first { $0.id == bookID } ?? fallback
+        // 播客页里本机下载的节目也用这一页。打开这一页的书架页在后台分好组,
+        // 进度变了也是它重分,这里只按 id 取。
+        store.spokenWordShelf(isLocalPodcast ? .localPodcasts : .books).booksByID[bookID] ?? fallback
     }
 
     private var podcastSettings: LocalPodcastShowSettings {

@@ -156,36 +156,13 @@ struct SpokenWordLibraryContent<Content: View>: View {
     var model: SpokenWordBooksModel? = nil
     @ViewBuilder var content: (SpokenWordLibrarySnapshot) -> Content
 
-    @Environment(MusicLibrary.self) private var library
     @State private var ownBooks = SpokenWordBooksModel()
-    @State private var progressRevision = 0
 
     private var books: SpokenWordBooksModel { model ?? ownBooks }
 
-    private struct RefreshIdentity: Equatable {
-        let libraryRevision: UInt64
-        let progressRevision: Int
-    }
-
     var body: some View {
         shelf
-            .task(id: RefreshIdentity(libraryRevision: collection.revision(in: library), progressRevision: progressRevision)) {
-                let store = SpokenWordStore.shared
-                await books.refresh(
-                    songs: collection.songs(in: library),
-                    positions: store.positions,
-                    finishedAt: store.finishedAt,
-                    archived: store.archivedBookIDs,
-                    inputs: .init(
-                        collection: collection,
-                        libraryRevision: collection.revision(in: library),
-                        storeRevision: store.revision
-                    )
-                )
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .primuseSpokenWordDidChange)) { _ in
-                progressRevision &+= 1
-            }
+            .spokenWordBooksRefresh(collection, model: books)
     }
 
     @ViewBuilder
@@ -205,6 +182,47 @@ struct SpokenWordLibraryContent<Content: View>: View {
             // 被拉高或压扁(封面轮播上下空出一大截、「为你推荐」的卡片被裁掉上下)。
             content(books.snapshot)
         }
+    }
+}
+
+/// 页面在的时候,曲库这一类内容或有声内容那份账(进度、听完、归档)一变,就让 `model` 在后台重分。
+/// 只读分好的快照、不需要 `SpokenWordLibraryContent` 那层包装的页面(Mac 首页)直接挂这个。
+private struct SpokenWordBooksRefresh: ViewModifier {
+    let collection: SpokenWordCollection
+    let model: SpokenWordBooksModel
+    @Environment(MusicLibrary.self) private var library
+    @State private var progressRevision = 0
+
+    private struct RefreshIdentity: Equatable {
+        let libraryRevision: UInt64
+        let progressRevision: Int
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .task(id: RefreshIdentity(libraryRevision: collection.revision(in: library), progressRevision: progressRevision)) {
+                let store = SpokenWordStore.shared
+                await model.refresh(
+                    songs: collection.songs(in: library),
+                    positions: store.positions,
+                    finishedAt: store.finishedAt,
+                    archived: store.archivedBookIDs,
+                    inputs: .init(
+                        collection: collection,
+                        libraryRevision: collection.revision(in: library),
+                        storeRevision: store.revision
+                    )
+                )
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .primuseSpokenWordDidChange)) { _ in
+                progressRevision &+= 1
+            }
+    }
+}
+
+extension View {
+    func spokenWordBooksRefresh(_ collection: SpokenWordCollection = .books, model: SpokenWordBooksModel) -> some View {
+        modifier(SpokenWordBooksRefresh(collection: collection, model: model))
     }
 }
 

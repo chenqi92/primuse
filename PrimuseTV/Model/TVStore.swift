@@ -1045,6 +1045,16 @@ final class TVStore {
     /// 正在播的这一条所在的书:播放页每拍都要问。分书按(书、分类修订、曲库修订)缓存,
     /// 只是存了进度就只重读进度,不重新分书(见 `SpokenWordCurrentBookCache`)。
     @ObservationIgnored private var spokenWordBookCache = SpokenWordCurrentBookCache()
+    /// 「有声」页的书架与播客页里本机节目,各一份后台分好的书(见 `TVSpokenWordShelfModel`)。
+    @ObservationIgnored private let spokenWordBookShelf = TVSpokenWordShelfModel()
+    @ObservationIgnored private let localPodcastShelf = TVSpokenWordShelfModel()
+
+    func spokenWordShelf(_ kind: TVSpokenWordShelfKind) -> TVSpokenWordShelfModel {
+        switch kind {
+        case .books: spokenWordBookShelf
+        case .localPodcasts: localPodcastShelf
+        }
+    }
     /// 下一条从这里开始而不是记住的位置:目录里点了另一条里的书签。
     @ObservationIgnored private var pendingSpokenWordStartOverride: (songID: String, position: Double)?
 
