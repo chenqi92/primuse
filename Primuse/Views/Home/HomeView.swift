@@ -2627,23 +2627,28 @@ struct HomeView: View {
         }
     }
 
-    /// 顶部那一块的占位,和换上来的内容同样高:竖屏是封面轮播的形状(卡片叠放、转角、歌名与
-    /// 两个按钮的位置都和轮播一样,换成真内容时只是封面在原位淡进来),手机横屏是原来的卡片。
+    /// 顶部那一块的占位,和换上来的内容同样高:封面轮播的形状(卡片叠放、转角、歌名与
+    /// 两个按钮的位置都和轮播一样,换成真内容时只是封面在原位淡进来);手机横屏也是,
+    /// 按横屏那种左边一栏、右边轮播的摆法画。
     @ViewBuilder
     private var heroLoadingPlaceholder: some View {
         #if os(iOS)
-        if !heightClass.isCompact {
-            HomeHeroCarouselSkeleton(
-                metrics: HomeHeroCarouselMetrics(viewportWidth: homeCanvas.width),
-                showsButtons: true
-            )
-        } else {
-            heroCardLoadingPlaceholder
-        }
+        HomeHeroCarouselSkeleton(metrics: heroCarouselMetrics)
         #else
         heroCardLoadingPlaceholder
         #endif
     }
+
+    #if os(iOS)
+    /// 紧凑高度时首页画布有多高,轮播按它定封面大小;竖屏、iPad 为 nil。
+    private var heroCompactCanvasHeight: CGFloat? {
+        heightClass.isCompact ? homeCanvas.height : nil
+    }
+
+    private var heroCarouselMetrics: HomeHeroCarouselMetrics {
+        HomeHeroCarouselMetrics(viewportWidth: homeCanvas.width, compactCanvasHeight: heroCompactCanvasHeight)
+    }
+    #endif
 
     private var heroCardLoadingPlaceholder: some View {
         RoundedRectangle(cornerRadius: 20, style: .continuous)
@@ -3120,18 +3125,18 @@ struct HomeView: View {
         return pool[idx]
     }
 
-    /// Hero 顶部 ── iPhone 竖屏与 iPad 是封面轮播(`HomeHeroCarousel`);手机横屏放不下
-    /// (整块要压在视口四成以内)、或者今天挑出来的封面不到三张时,仍是
-    /// libraryMixHeroFallback (标题 + 4 张封面拼贴 + 随机播放 / 全部播放两个按钮)。
+    /// Hero 顶部 ── 封面轮播(`HomeHeroCarousel`)。手机横屏、Duo 外屏横握(紧凑高度)整块要压在
+    /// 视口四成以内,轮播换成歌名和按钮在左、小一号封面在右的摆法;今天挑出来的封面不到三张时
+    /// 仍是 libraryMixHeroFallback (标题 + 4 张封面拼贴 + 随机播放 / 全部播放两个按钮)。
     /// 之前的 todaysPickHero (今日精选大封面 + Play / Shuffle) 视觉上不够干净,
     /// 用户反馈不好看, 暂时不用; 代码保留方便将来需要时切回去。
     @ViewBuilder
     private var libraryHeroSection: some View {
         #if os(iOS)
-        if !heightClass.isCompact,
-           model.snapshot.heroCoverSongs.count >= HomeHeroCarouselSelection.minimumCardCount {
+        if model.snapshot.heroCoverSongs.count >= HomeHeroCarouselSelection.minimumCardCount {
             HomeHeroCarousel(
                 songs: model.snapshot.heroCoverSongs,
+                compactCanvasHeight: heroCompactCanvasHeight,
                 isInteractive: !editorMode,
                 playFromSong: playLibraryShuffled(startingWith:),
                 shuffleAll: { playLibrary(shuffled: true) },

@@ -14,8 +14,13 @@ import PrimuseKit
 ///
 /// 立体效果只挂在每张定尺寸的卡片上(`visualEffect`),不挂在任何 ScrollView 或它的上层 ——
 /// 把透视变换挂到滚动视图上在 iOS 27 上闪退过。
+///
+/// 手机横屏、iPhone Duo 外屏横握(紧凑高度)时竖着摆放不下,改成歌名与两个按钮在左边一栏、
+/// 小一号的轮播在右边(`HomeHeroLayout`),整块压在视口四成以内。
 struct HomeHeroCarousel: View {
     let songs: [Song]
+    /// 紧凑高度时首页画布有多高(按它定封面大小);nil 是竖屏、iPad 的摆法。
+    let compactCanvasHeight: CGFloat?
     /// 界面编辑里只看版面:不响应点击,也不接长按菜单。
     let isInteractive: Bool
     let playFromSong: (Song) -> Void
@@ -41,12 +46,14 @@ struct HomeHeroCarousel: View {
 
     init(
         songs: [Song],
+        compactCanvasHeight: CGFloat? = nil,
         isInteractive: Bool,
         playFromSong: @escaping (Song) -> Void,
         shuffleAll: @escaping () -> Void,
         playAll: @escaping () -> Void
     ) {
         self.songs = songs
+        self.compactCanvasHeight = compactCanvasHeight
         self.isInteractive = isInteractive
         self.playFromSong = playFromSong
         self.shuffleAll = shuffleAll
@@ -55,27 +62,35 @@ struct HomeHeroCarousel: View {
     }
 
     var body: some View {
-        let metrics = HomeHeroCarouselMetrics(viewportWidth: viewportWidth > 0 ? viewportWidth : Self.lastViewportWidth)
-        VStack(spacing: 0) {
-            VStack(spacing: 0) {
-                carousel(metrics)
-
-                caption
-                    .padding(.top, 4)
-            }
-            .opacity(isRevealed ? 1 : 0)
-            .overlay(alignment: .top) {
-                if !isRevealed {
-                    LoadingSkeletonGroup {
-                        HomeHeroCarouselSkeleton(metrics: metrics)
+        let metrics = HomeHeroCarouselMetrics(
+            viewportWidth: viewportWidth > 0 ? viewportWidth : Self.lastViewportWidth,
+            compactCanvasHeight: compactCanvasHeight
+        )
+        // 骨架分别盖在轮播和歌名上,和它们同位置同大小;按钮一直是真的。
+        HomeHeroLayout(metrics: metrics) {
+            carousel(metrics)
+                .opacity(isRevealed ? 1 : 0)
+                .overlay {
+                    if !isRevealed {
+                        LoadingSkeletonGroup {
+                            HomeHeroCarouselSkeletonCards(metrics: metrics)
+                        }
+                        .transition(.opacity)
                     }
-                    .transition(.opacity)
                 }
-            }
 
-            buttons
-                .padding(.top, HomeHeroCarouselMetrics.buttonsTopSpacing)
-                .padding(.horizontal, 16)
+            caption(metrics)
+                .opacity(isRevealed ? 1 : 0)
+                .overlay {
+                    if !isRevealed {
+                        LoadingSkeletonGroup {
+                            HomeHeroCarouselSkeletonCaption(metrics: metrics)
+                        }
+                        .transition(.opacity)
+                    }
+                }
+
+            buttons(metrics)
         }
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.width
@@ -334,10 +349,12 @@ struct HomeHeroCarousel: View {
 
     // MARK: - 歌名、按钮
 
+    /// 竖屏在封面下面居中;横屏在左边一栏靠左。
     @ViewBuilder
-    private var caption: some View {
+    private func caption(_ metrics: HomeHeroCarouselMetrics) -> some View {
         let song = centeredSong
-        let label = VStack(spacing: 2) {
+        let alignment: HorizontalAlignment = metrics.isCompactHeight ? .leading : .center
+        let label = VStack(alignment: alignment, spacing: 2) {
             Text(verbatim: song?.title ?? " ")
                 .font(.headline)
                 .foregroundStyle(.primary)
@@ -346,11 +363,11 @@ struct HomeHeroCarousel: View {
                 .foregroundStyle(.secondary)
         }
         .lineLimit(1)
-        .multilineTextAlignment(.center)
+        .multilineTextAlignment(metrics.isCompactHeight ? .leading : .center)
         .contentTransition(.opacity)
         .pmAnimation(.trackChange, value: centeredSong?.id)
-        .padding(.horizontal, 32)
-        .frame(maxWidth: .infinity)
+        .padding(.horizontal, metrics.isCompactHeight ? 0 : 32)
+        .frame(maxWidth: .infinity, alignment: Alignment(horizontal: alignment, vertical: .center))
 
         if isInteractive, let albumID = song?.albumID, let album = library.visibleAlbum(id: albumID) {
             NavigationLink(value: album) {
@@ -363,8 +380,8 @@ struct HomeHeroCarousel: View {
         }
     }
 
-    private var buttons: some View {
-        HStack(spacing: 10) {
+    private func buttons(_ metrics: HomeHeroCarouselMetrics) -> some View {
+        Self.buttonRow(metrics) {
             Button(action: shuffleAll) {
                 Self.buttonLabel("shuffle", systemImage: "shuffle")
             }
@@ -378,6 +395,19 @@ struct HomeHeroCarousel: View {
             .buttonStyle(.bordered)
             .clipShape(Capsule())
         }
+    }
+
+    /// 两个按钮的一行:竖屏平分整行(左右各留 16);横屏左边那一栏够宽时并排,
+    /// 窄了(Duo 外屏)上下叠,长文案的语言也不至于缩到看不清。骨架共用。
+    static func buttonRow<Content: View>(
+        _ metrics: HomeHeroCarouselMetrics,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        let layout = metrics.stacksButtons
+            ? AnyLayout(VStackLayout(spacing: 10))
+            : AnyLayout(HStackLayout(spacing: 10))
+        return layout(content)
+            .padding(.horizontal, metrics.isCompactHeight ? 0 : 16)
     }
 
     /// 骨架按同一个标签量高度,换成真按钮时下面的区块不跳。
@@ -397,47 +427,50 @@ struct HomeHeroCarousel: View {
     }
 }
 
-/// 轮播的骨架:和轮播同样的位置、大小与转角。首页加载占位、轮播自己还没摆好时都画它,
-/// 换成真封面时形状不动,封面在原位淡进来。
+/// 轮播的骨架:和轮播同样的位置、大小与转角。首页加载占位画整套(连两个按钮);
+/// 轮播自己还没摆好时只在封面和歌名上各盖一块(`HomeHeroCarouselSkeletonCards` /
+/// `HomeHeroCarouselSkeletonCaption`),换成真封面时形状不动,封面在原位淡进来。
 struct HomeHeroCarouselSkeleton: View {
     let metrics: HomeHeroCarouselMetrics
-    /// 首页加载占位连下面两个按钮一起画;轮播自己的按钮一直是真的,不用画。
-    var showsButtons = false
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private var fill: Color { Color(uiColor: .secondarySystemBackground) }
 
     var body: some View {
-        VStack(spacing: 0) {
-            cards
-
-            captionBars
-                .padding(.top, 4)
-
-            if showsButtons {
-                HStack(spacing: 10) {
-                    placeholderButton(HomeHeroCarousel.buttonLabel("shuffle", systemImage: "shuffle"))
-                    placeholderButton(HomeHeroCarousel.buttonLabel("play_all", systemImage: "play.fill"))
-                }
-                .padding(.top, HomeHeroCarouselMetrics.buttonsTopSpacing)
-                .padding(.horizontal, 16)
+        HomeHeroLayout(metrics: metrics) {
+            HomeHeroCarouselSkeletonCards(metrics: metrics)
+            HomeHeroCarouselSkeletonCaption(metrics: metrics)
+            HomeHeroCarousel.buttonRow(metrics) {
+                placeholderButton(HomeHeroCarousel.buttonLabel("shuffle", systemImage: "shuffle"))
+                placeholderButton(HomeHeroCarousel.buttonLabel("play_all", systemImage: "play.fill"))
             }
         }
-        .frame(maxWidth: .infinity)
         .accessibilityHidden(true)
     }
 
-    /// 居中一张、两边各三张,叠放、缩小、转角都走轮播同一个函数。
-    private var cards: some View {
+    private func placeholderButton(_ label: some View) -> some View {
+        Button {} label: { label }
+            .buttonStyle(.bordered)
+            .clipShape(Capsule())
+            .hidden()
+            .overlay { Capsule().fill(HomeHeroCarouselSkeletonCards.fill) }
+    }
+}
+
+/// 居中一张、两边各三张,叠放、缩小、转角都走轮播同一个函数。
+struct HomeHeroCarouselSkeletonCards: View {
+    let metrics: HomeHeroCarouselMetrics
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    static var fill: Color { Color(uiColor: .secondarySystemBackground) }
+
+    var body: some View {
         let side = metrics.cardSide
         let step = metrics.step
         let reducesMotion = reduceMotion
         let shape = RoundedRectangle(cornerRadius: HomeHeroCarouselMetrics.cornerRadius, style: .continuous)
-        return ZStack {
+        ZStack {
             ForEach(-3...3, id: \.self) { position in
                 let offset = CGFloat(position) * step
-                shape.fill(fill)
+                shape.fill(Self.fill)
                     .overlay {
                         // 两边的压暗一点、描一道细边,叠在一起时分得出前后,和真封面的层次一样。
                         shape.fill(Color.black.opacity(position == 0 ? 0 : 0.06))
@@ -464,33 +497,97 @@ struct HomeHeroCarouselSkeleton: View {
         .compositingGroup()
         .frame(maxWidth: .infinity)
         .padding(.vertical, metrics.verticalBleed)
+        .accessibilityHidden(true)
     }
+}
 
-    /// 歌名、歌手两行:用同样字体的空白行撑出高度,条子画在中间。
-    private var captionBars: some View {
-        VStack(spacing: 2) {
+/// 歌名、歌手两行:用同样字体的空白行撑出高度,条子画在中间(横屏靠左)。
+struct HomeHeroCarouselSkeletonCaption: View {
+    let metrics: HomeHeroCarouselMetrics
+
+    var body: some View {
+        let alignment: HorizontalAlignment = metrics.isCompactHeight ? .leading : .center
+        let fill = HomeHeroCarouselSkeletonCards.fill
+        VStack(alignment: alignment, spacing: 2) {
             Text(verbatim: " ")
                 .font(.headline)
                 .hidden()
+                .frame(width: metrics.cardSide * 0.5)
                 .overlay {
                     Capsule().fill(fill).frame(width: metrics.cardSide * 0.5, height: 12)
                 }
             Text(verbatim: " ")
                 .font(.subheadline)
                 .hidden()
+                .frame(width: metrics.cardSide * 0.32)
                 .overlay {
                     Capsule().fill(fill).frame(width: metrics.cardSide * 0.32, height: 10)
                 }
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: Alignment(horizontal: alignment, vertical: .center))
+        .accessibilityHidden(true)
+    }
+}
+
+/// 轮播、歌名、两个按钮怎么摆。竖屏从上到下;紧凑高度时歌名和按钮是左边一栏,
+/// 在轮播旁边竖向居中。转屏只换摆法、不换视图:封面上挂着长按菜单,菜单关闭途中
+/// 换掉承载它的视图会闪退。子视图依次是轮播、歌名、按钮(没有按钮也行)。
+struct HomeHeroLayout: Layout {
+    let metrics: HomeHeroCarouselMetrics
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? metrics.layoutWidth
+        return CGSize(width: width, height: arrangement(width: width, subviews: subviews).height)
     }
 
-    private func placeholderButton(_ label: some View) -> some View {
-        Button {} label: { label }
-            .buttonStyle(.bordered)
-            .clipShape(Capsule())
-            .hidden()
-            .overlay { Capsule().fill(fill) }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let frames = arrangement(width: bounds.width, subviews: subviews).frames
+        for (subview, frame) in zip(subviews, frames) {
+            subview.place(
+                at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(frame.size)
+            )
+        }
+    }
+
+    private func arrangement(width: CGFloat, subviews: Subviews) -> (frames: [CGRect], height: CGFloat) {
+        func height(_ index: Int, width: CGFloat) -> CGFloat {
+            guard subviews.indices.contains(index) else { return 0 }
+            return subviews[index].sizeThatFits(ProposedViewSize(width: width, height: nil)).height
+        }
+        let carouselHeight = metrics.carouselHeight
+        let hasButtons = subviews.count > 2
+        if metrics.isCompactHeight {
+            let infoX = HomeHeroCarouselMetrics.compactInfoLeading
+            let infoWidth = min(metrics.infoWidth, max(0, width - infoX))
+            let carouselX = infoX + infoWidth + HomeHeroCarouselMetrics.compactGap
+            let captionHeight = height(1, width: infoWidth)
+            let buttonsHeight = height(2, width: infoWidth)
+            let gap = hasButtons ? HomeHeroCarouselMetrics.compactButtonsTopSpacing : 0
+            let infoHeight = captionHeight + gap + buttonsHeight
+            let total = max(carouselHeight, infoHeight)
+            let infoTop = ((total - infoHeight) / 2).rounded()
+            return ([
+                CGRect(
+                    x: carouselX,
+                    y: ((total - carouselHeight) / 2).rounded(),
+                    width: max(0, width - carouselX),
+                    height: carouselHeight
+                ),
+                CGRect(x: infoX, y: infoTop, width: infoWidth, height: captionHeight),
+                CGRect(x: infoX, y: infoTop + captionHeight + gap, width: infoWidth, height: buttonsHeight),
+            ], total)
+        }
+        let captionTop = carouselHeight + HomeHeroCarouselMetrics.captionTopSpacing
+        let captionHeight = height(1, width: width)
+        let buttonsTop = captionTop + captionHeight + HomeHeroCarouselMetrics.buttonsTopSpacing
+        let buttonsHeight = height(2, width: width)
+        return ([
+            CGRect(x: 0, y: 0, width: width, height: carouselHeight),
+            CGRect(x: 0, y: captionTop, width: width, height: captionHeight),
+            CGRect(x: 0, y: buttonsTop, width: width, height: buttonsHeight),
+        ], hasButtons ? buttonsTop + buttonsHeight : captionTop + captionHeight)
     }
 }
 
@@ -500,14 +597,41 @@ struct HomeHeroCarouselMetrics {
     /// 还没量到宽度的第一帧按常见手机宽度排。
     static let fallbackWidth: CGFloat = 393
 
+    /// 整块的宽度。
+    let layoutWidth: CGFloat
+    /// 轮播那一块的宽度:竖屏就是整块,紧凑高度时是左边一栏以外的部分。
     let viewportWidth: CGFloat
     let cardSide: CGFloat
+    /// 紧凑高度(手机横屏、Duo 外屏横握):歌名和按钮在左边一栏。
+    let isCompactHeight: Bool
+    /// 左边一栏的宽度,竖屏时为 0。
+    let infoWidth: CGFloat
 
-    init(viewportWidth: CGFloat) {
+    /// - Parameter compactCanvasHeight: 紧凑高度时首页画布的高度;nil 是竖屏、iPad。
+    init(viewportWidth: CGFloat, compactCanvasHeight: CGFloat? = nil) {
         let width = viewportWidth > 0 ? viewportWidth : Self.fallbackWidth
-        self.viewportWidth = width
-        let proposed = (width * 0.5).rounded()
-        cardSide = min(max(proposed, 160), 300)
+        layoutWidth = width
+        guard let compactCanvasHeight else {
+            self.viewportWidth = width
+            let proposed = (width * 0.5).rounded()
+            cardSide = min(max(proposed, 160), 300)
+            isCompactHeight = false
+            infoWidth = 0
+            return
+        }
+        isCompactHeight = true
+        // 封面加上下留给阴影的地方压在画布高度的四成以内;轮播那块宽到放得下两边各几张,
+        // 剩下的给左边一栏(太宽时按钮会拉得很长,封顶 360,多出来的还给轮播)。
+        let height = compactCanvasHeight > 0 ? compactCanvasHeight : Self.fallbackWidth
+        let available = max(0, width - Self.compactInfoLeading - Self.compactGap)
+        var side = min(max((height * 0.4 - 2 * Self.verticalBleed).rounded(), 96), 150)
+        var carousel = min((side * 2.6).rounded(), max(0, available - Self.compactMinimumInfoWidth))
+        let info = min(available - carousel, Self.compactMaximumInfoWidth)
+        carousel = available - info
+        side = min(side, (carousel / 2.5).rounded(.down))
+        self.viewportWidth = carousel
+        cardSide = max(side, 0)
+        infoWidth = info
     }
 
     /// 相邻两张在滚动方向上相隔的距离:手指挪多远,邻居就差不多挪到正中,不像隔着齿轮。
@@ -516,10 +640,26 @@ struct HomeHeroCarouselMetrics {
     /// 第一张、最后一张也能停在正中。
     var sideMargin: CGFloat { max(0, (viewportWidth - cardSide) / 2) }
     /// 给阴影和转开后变高的近边留的上下空间。
-    var verticalBleed: CGFloat { 16 }
+    var verticalBleed: CGFloat { Self.verticalBleed }
+    private static let verticalBleed: CGFloat = 16
+    /// 封面与下面歌名之间的距离。
+    static let captionTopSpacing: CGFloat = 4
     /// 歌名与下面两个按钮之间的距离。
     static let buttonsTopSpacing: CGFloat = 16
     var carouselHeight: CGFloat { cardSide + verticalBleed * 2 }
+
+    /// 紧凑高度时左边一栏离边缘多远(和下面各区块的标题对齐)、和轮播隔多远、歌名与按钮隔多远。
+    static let compactInfoLeading: CGFloat = 20
+    static let compactGap: CGFloat = 8
+    static let compactButtonsTopSpacing: CGFloat = 14
+    private static let compactMinimumInfoWidth: CGFloat = 200
+    private static let compactMaximumInfoWidth: CGFloat = 360
+    /// 左边一栏窄于这个宽度时两个按钮上下叠。
+    private static let sideBySideButtonsMinimumWidth: CGFloat = 320
+
+    var stacksButtons: Bool {
+        isCompactHeight && infoWidth < Self.sideBySideButtonsMinimumWidth
+    }
 }
 
 /// 一张卡离中心越远:越往中间收拢(叠在居中那张后面)、越小、朝中间转开,太远的淡出。
