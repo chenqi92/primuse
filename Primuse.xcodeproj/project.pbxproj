@@ -1948,6 +1948,9 @@
 		B255AF67302047A49201BC12 /* ScrobbleRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B255AF67302047A49201BC11 /* ScrobbleRequestTests.swift */; };
 		B255AF67302047A49201BC13 /* ScrobbleRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B255AF67302047A49201BC11 /* ScrobbleRequestTests.swift */; };
 		B255AF67302047A49201BC14 /* ScrobbleRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B255AF67302047A49201BC11 /* ScrobbleRequestTests.swift */; };
+		B256AF67302047A49201BC12 /* ScrobbleCredentialHealthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B256AF67302047A49201BC11 /* ScrobbleCredentialHealthTests.swift */; };
+		B256AF67302047A49201BC13 /* ScrobbleCredentialHealthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B256AF67302047A49201BC11 /* ScrobbleCredentialHealthTests.swift */; };
+		B256AF67302047A49201BC14 /* ScrobbleCredentialHealthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B256AF67302047A49201BC11 /* ScrobbleCredentialHealthTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -3638,6 +3641,7 @@
 		803D23F1AA41F4C7D1743B02 /* DirectoryScanCooldownTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectoryScanCooldownTests.swift; sourceTree = "<group>"; };
 		F4815A702E2426E57FEDBDFC /* PlexSignInQuotaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlexSignInQuotaTests.swift; sourceTree = "<group>"; };
 		B255AF67302047A49201BC11 /* ScrobbleRequestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrobbleRequestTests.swift; sourceTree = "<group>"; };
+		B256AF67302047A49201BC11 /* ScrobbleCredentialHealthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrobbleCredentialHealthTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -5481,6 +5485,7 @@
 				CFA3B7E6ABB7F9FBF66FCEF2 /* RemoteMediaHTTPErrorTests.swift */,
 				9117D8188332427DA24F1CF3 /* CloudScanConcurrencyTests.swift */,
 				B255AF67302047A49201BC11 /* ScrobbleRequestTests.swift */,
+				B256AF67302047A49201BC11 /* ScrobbleCredentialHealthTests.swift */,
 				A0236A000000000000000002 /* CloudRequestTests.swift */,
 				987813BA26D647B88EF2D5F9 /* NativeScraperHTTPTests.swift */,
 				F23DCD3C94AF4401ADEB4284 /* BaiduWriteReplayTests.swift */,
@@ -6247,6 +6252,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B255AF67302047A49201BC14 /* ScrobbleRequestTests.swift in Sources */,
+				B256AF67302047A49201BC14 /* ScrobbleCredentialHealthTests.swift in Sources */,
 				1AFBE2A2D97DB36DFB683DB5 /* TVSourceHTTPFailureTests.swift in Sources */,
 				55E75B511CF4BD0B32570F2E /* TVWebDAVDirectoryQuotaTests.swift in Sources */,
 				62BFB12E3C2424A8EEEEC13F /* CrossFeatureQuotaTests.swift in Sources */,
@@ -6332,6 +6338,7 @@
 				CB2392A6661A46E7045549EF /* RemoteMediaHTTPErrorTests.swift in Sources */,
 				929FF68052024265B5C1DBCB /* CloudScanConcurrencyTests.swift in Sources */,
 				B255AF67302047A49201BC12 /* ScrobbleRequestTests.swift in Sources */,
+				B256AF67302047A49201BC12 /* ScrobbleCredentialHealthTests.swift in Sources */,
 				A0236A000000000000000001 /* CloudRequestTests.swift in Sources */,
 				FD25E170B25047859BD05A57 /* NativeScraperHTTPTests.swift in Sources */,
 				DFBD6CDFA9B74A00A97F22A8 /* BaiduWriteReplayTests.swift in Sources */,
@@ -6858,6 +6865,7 @@
 				34755FEAABC71A922293E58D /* ExternalPlaylistQuotaTests.swift in Sources */,
 				59CAA41E51DEF4B8C798EC01 /* PodcastRequestQuotaTests.swift in Sources */,
 				B255AF67302047A49201BC13 /* ScrobbleRequestTests.swift in Sources */,
+				B256AF67302047A49201BC13 /* ScrobbleCredentialHealthTests.swift in Sources */,
 				5CED67EB8496F12AD6F9F0AE /* CloudRequestTests.swift in Sources */,
 				6B5BF812BB17572A770B87BE /* RadioDirectoryQuotaTests.swift in Sources */,
 				7258A33F2C23E7F16AA74120 /* RemoteMediaHTTPErrorTests.swift in Sources */,

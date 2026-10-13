@@ -361,6 +361,7 @@ targets:
       - path: PrimuseMacTests
       - path: PrimuseTests/DirectoryScanCooldownTests.swift
       - path: PrimuseTests/ScrobbleRequestTests.swift
+      - path: PrimuseTests/ScrobbleCredentialHealthTests.swift
       - path: PrimuseTests/CloudRequestTests.swift
       - path: PrimuseTests/BaiduWriteReplayTests.swift
       - path: PrimuseTests/SubsonicFavoriteWritebackTests.swift
@@ -995,6 +996,7 @@ targets:
     platform: tvOS
     sources:
       - path: PrimuseTests/ScrobbleRequestTests.swift
+      - path: PrimuseTests/ScrobbleCredentialHealthTests.swift
       - path: PrimuseTVTests
       - path: PrimuseTests/PodcastRequestQuotaTests.swift
       - path: PrimuseTests/CrossFeatureQuotaTests.swift
