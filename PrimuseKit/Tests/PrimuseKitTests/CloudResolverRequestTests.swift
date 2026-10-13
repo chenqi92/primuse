@@ -379,7 +379,7 @@ private final class CloudResolverProtocol: URLProtocol, @unchecked Sendable {
         guard let fixture = Self.fixture, let url = request.url else {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL)); return
         }
-        loading = Task {
+        loading = Task { @Sendable [self] in
             do {
                 let (status, headers, body) = try await fixture.response(request)
                 if status == 0 { return }

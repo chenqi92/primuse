@@ -67,6 +67,8 @@ public struct CloudDeviceAuthSession: Sendable, Equatable {
 public enum CloudDeviceAuthProgress: Sendable, Equatable {
     /// 二维码还没被扫 / 用户还没在手机上点确认。
     case pending
+    /// The provider requests a permanently slower polling interval for this flow.
+    case slowDown
     /// 已扫码,等用户在手机上确认(阿里 / 115 有这个中间态,可以给用户反馈)。
     case scanned
     /// 授权成功,拿到可用凭据。
@@ -193,7 +195,8 @@ public enum CloudDeviceAuthParsing {
         guard let error = nonEmpty(json["error"])?.lowercased()
             ?? nonEmpty(json["error_code"])?.lowercased() else { return nil }
         switch error {
-        case "authorization_pending", "slow_down": return .pending
+        case "authorization_pending": return .pending
+        case "slow_down": return .slowDown
         case "expired_token", "code_expired", "expired_code": return .expired
         case "authorization_declined", "access_denied": return .denied
         default:
