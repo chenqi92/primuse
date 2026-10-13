@@ -336,12 +336,15 @@ struct AudiobookTitleBlock: View {
 
 // MARK: - Current part
 
-/// 正在听的这一章:「36 | 【神作｜宿环】」,文件名开头的集数单独排出来;右边是上一章 / 下一章
-/// (「播放页按钮」里关掉时不画,标题占满整行)。点标题打开目录。
-struct AudiobookCurrentPartRow: View {
+/// 正在听的这一章:「36 | 【神作｜宿环】」,文件名开头的集数单独排出来;右边默认是上一章 / 下一章,
+/// 「播放页按钮」里可以换成别的一颗(`accessory`,如「更多」)或空着,标题占满整行。点标题打开目录。
+struct AudiobookCurrentPartRow<Accessory: View>: View {
     let style: AudiobookPlayerStyle
     var showsPartButtons = true
+    /// 右边换成了别的一颗键(`accessory`)。
+    var showsAccessory = false
     let onOpenContents: () -> Void
+    @ViewBuilder var accessory: () -> Accessory
     @Environment(AudioPlayerService.self) private var player
 
     var body: some View {
@@ -377,11 +380,18 @@ struct AudiobookCurrentPartRow: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityHint(Text("spoken_word_contents_title"))
 
-                if showsPartButtons {
-                    SpokenWordPartButton(forward: false, color: style.primary, font: .callout)
-                    SpokenWordPartButton(forward: true, color: style.primary, font: .callout)
-                        // 图标贴着右边距,点按范围仍是整块 44pt。
-                        .padding(.trailing, -13)
+                if showsPartButtons || showsAccessory {
+                    HStack(spacing: 0) {
+                        if showsPartButtons {
+                            SpokenWordPartButton(forward: false, color: style.primary, font: .callout)
+                            SpokenWordPartButton(forward: true, color: style.primary, font: .callout)
+                        }
+                        if showsAccessory {
+                            accessory()
+                        }
+                    }
+                    // 图标贴着右边距,点按范围仍是整块 44pt。
+                    .padding(.trailing, -13)
                 }
             }
         }

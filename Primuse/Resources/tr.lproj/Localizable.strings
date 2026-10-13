@@ -5636,7 +5636,7 @@
 "player_controls_unavailable_speed_high_fidelity" = "Yüksek doğruluklu doğrudan oynatma sesi olduğu gibi çıkış aygıtına gönderir, bu yüzden hız değiştirilemez. Hızı ayarlamak için efektli çıkışa geçin.";
 "player_controls_unavailable_cast_apple_music" = "Apple Music şarkıları ağınızdaki aygıtlara yayınlanamaz.";
 "player_controls_tiles_header" = "İşlev Kutucukları";
-"player_controls_tiles_footer" = "Sırayı değiştirmek için basılı tutup sürükleyin. Kapattığınız kutucuklar Diğer menüsünde yine bulunur.";
+"player_controls_tiles_footer" = "Sırayı değiştirmek için basılı tutup sürükleyin. Kapattığınız kutucuklar Diğer menüsünde yine bulunur. AirPlay’i açtığınızda sağ üstten bu sıraya taşınır.";
 "player_controls_spoken_buttons_header" = "Diğer Düğmeler";
 "player_controls_spoken_transcript" = "Döküm Düğmesi";
 "player_controls_spoken_chapters" = "Önceki / Sonraki Bölüm";
@@ -5647,7 +5647,7 @@
 "player_menu_group_book" = "Bu Kitap";
 "player_menu_group_episode" = "Bu Bölüm";
 "player_menu_group_spoken_playback" = "Oynatma ve Döküm";
-"player_controls_spoken_buttons_footer" = "Kapatıldığında Beğen ve döküm düğmesi Diğer menüsüne geçer; kapağa dokunmak da dökümü açar. Bölümler arasında içindekilerden ya da atlama düğmelerini basılı tutarak geçebilirsiniz.";
+"player_controls_spoken_buttons_footer" = "Kapatıldığında Beğen ve döküm düğmesi Diğer menüsüne geçer; kapağa dokunmak da dökümü açar. Bölümler arasında içindekilerden ya da atlama düğmelerini basılı tutarak geçebilirsiniz. Döküm düğmesi ve önceki / sonraki bölüm anahtarı yalnızca Otomatik olan yerleri etkiler.";
 
 /* 歌词来源 */
 "lyrics_editor_source_text_unavailable_hint" = "Bu şarkı sözleri LRC metnine sığmıyor";
@@ -5877,3 +5877,14 @@
 
 "reverb_headroom_note %@" = "Yankı açıkken ses bozulmasın diye genel ses seviyesi %@ dB düşürüldü.";
 "compressor_gain_cap_note %@" = "Bu eşik ve pay ile %@ dB üzerindeki kazanç bozulmaya yol açar, bu yüzden fazlası uygulanmaz.";
+
+"player_controls_spoken_slot_leading" = "Çalma Satırının En Solu";
+"player_controls_spoken_slot_trailing" = "Çalma Satırının En Sağı";
+"player_controls_spoken_slot_part_row" = "Geçerli Bölümün Yanı";
+"player_controls_spoken_slot_automatic" = "Otomatik";
+"player_controls_spoken_slot_automatic_sides" = "Döküm varsa solda döküm, sağda içindekiler ya da bölüm notları. Yoksa boş kalır; önceki ve sonraki bölüm kendi yerinde durur.";
+"player_controls_spoken_slot_automatic_part_row" = "Önceki / sonraki bölüm, aşağıdaki Önceki / Sonraki Bölüm anahtarına göre.";
+"player_controls_spoken_slot_footer" = "Düğmesini değiştirmek, boş bırakmak ya da Otomatik seçmek için kesik çizgili kutuya dokunun. Buraya konan düğmeler kutucuklarda ya da sağ üstte tekrarlanmaz; yatay iPhone ve iPad bunları kendi düzenine göre yerleştirir. iCloud ile eşzamanlanır.";
+"player_controls_spoken_slot_picker_footer" = "Başka bir yerde zaten olan bir düğmeyi seçmek ikisinin yerini değiştirir. Otomatik, özgün düzeni korur.";
+"player_controls_spoken_source" = "Müzik Kaynağını Göster";
+"player_controls_spoken_source_footer" = "Birden fazla müzik kaynağı varsa oynatıcının en alt satırı kitabın hangi kaynaktan geldiğini gösterir.";

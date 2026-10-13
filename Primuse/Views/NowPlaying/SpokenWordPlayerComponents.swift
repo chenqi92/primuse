@@ -384,6 +384,19 @@ struct SpokenWordActionTiles: View {
         case .contents: contentsTile
         case .upNext:
             if isPodcast, let onUpNext { upNextTile(onUpNext) }
+        case .airPlay:
+            airPlayTile
+        }
+    }
+
+    /// 隔空播放(「播放页按钮」里打开后从右上角挪到这一排)。系统的选取键只认点在它自己身上,
+    /// 所以它占满图标那一块,说明文字只是标注。
+    private var airPlayTile: some View {
+        tile {
+            AirPlayButton()
+                .frame(width: 44, height: layout == .inline ? 28 : 30)
+        } caption: {
+            Text("player_controls_action_airplay")
         }
     }
 

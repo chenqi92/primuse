@@ -5730,7 +5730,7 @@
 "player_controls_unavailable_speed_high_fidelity" = "Die Hi-Fi-Direktausgabe leitet den Ton unverändert an das Ausgabegerät, daher lässt sich die Geschwindigkeit nicht ändern. Wechsle zur Effektausgabe, um die Geschwindigkeit anzupassen.";
 "player_controls_unavailable_cast_apple_music" = "Apple Music-Titel können nicht an Geräte in deinem Netzwerk übertragen werden.";
 "player_controls_tiles_header" = "Funktionskacheln";
-"player_controls_tiles_footer" = "Halte gedrückt und ziehe, um die Reihenfolge zu ändern. Ausgeschaltete Kacheln findest du weiterhin unter „Mehr“.";
+"player_controls_tiles_footer" = "Halte gedrückt und ziehe, um die Reihenfolge zu ändern. Ausgeschaltete Kacheln findest du weiterhin unter „Mehr“. Schaltest du AirPlay ein, wandert es von oben rechts in diese Reihe.";
 "player_controls_spoken_buttons_header" = "Weitere Tasten";
 "player_controls_spoken_transcript" = "Transkripttaste";
 "player_controls_spoken_chapters" = "Vorheriges / nächstes Kapitel";
@@ -5741,7 +5741,7 @@
 "player_menu_group_book" = "Dieses Buch";
 "player_menu_group_episode" = "Diese Folge";
 "player_menu_group_spoken_playback" = "Wiedergabe & Transkript";
-"player_controls_spoken_buttons_footer" = "Ausgeschaltet landen „Gefällt mir“ und die Transkripttaste unter „Mehr“; ein Tippen auf das Cover öffnet das Transkript ebenfalls. Kapitel wechselst du über das Inhaltsverzeichnis oder durch langes Drücken der Sprungtasten.";
+"player_controls_spoken_buttons_footer" = "Ausgeschaltet landen „Gefällt mir“ und die Transkripttaste unter „Mehr“; ein Tippen auf das Cover öffnet das Transkript ebenfalls. Kapitel wechselst du über das Inhaltsverzeichnis oder durch langes Drücken der Sprungtasten. Transkripttaste und vorheriges / nächstes Kapitel gelten nur für Felder auf „Automatisch“.";
 
 /* 歌词来源 */
 "lyrics_editor_source_text_unavailable_hint" = "Dieser Songtext passt nicht in LRC-Text";
@@ -5971,3 +5971,14 @@
 
 "reverb_headroom_note %@" = "Bei aktivem Hall ist die Gesamtlautstärke um %@ dB abgesenkt, damit der zusätzliche Hall nicht verzerrt.";
 "compressor_gain_cap_note %@" = "Bei diesem Schwellenwert und Headroom würde Verstärkung über %@ dB verzerren und wird nicht angewendet.";
+
+"player_controls_spoken_slot_leading" = "Ganz links in der Wiedergabezeile";
+"player_controls_spoken_slot_trailing" = "Ganz rechts in der Wiedergabezeile";
+"player_controls_spoken_slot_part_row" = "Neben dem aktuellen Kapitel";
+"player_controls_spoken_slot_automatic" = "Automatisch";
+"player_controls_spoken_slot_automatic_sides" = "Mit Transkript: links das Transkript, rechts Inhalt oder Shownotes. Ohne Transkript leer; vorheriges und nächstes Kapitel bleiben an ihrem Platz.";
+"player_controls_spoken_slot_automatic_part_row" = "Vorheriges / nächstes Kapitel, folgt dem Schalter „Vorheriges / nächstes Kapitel“ unten.";
+"player_controls_spoken_slot_footer" = "Tippe auf ein gestricheltes Feld, um die Taste zu ändern, es leer zu lassen oder „Automatisch“ zu wählen. Tasten hier erscheinen nicht noch einmal bei den Kacheln oder oben rechts; iPhone und iPad im Querformat ordnen sie für ihr eigenes Layout an. Wird über iCloud synchronisiert.";
+"player_controls_spoken_slot_picker_footer" = "Wählst du eine Taste, die schon an einer anderen Stelle liegt, werden die beiden getauscht. „Automatisch“ behält die ursprüngliche Anordnung.";
+"player_controls_spoken_source" = "Musikquelle anzeigen";
+"player_controls_spoken_source_footer" = "Bei mehr als einer Musikquelle zeigt die unterste Zeile des Players, aus welcher Quelle das Buch stammt.";

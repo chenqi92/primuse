@@ -5,7 +5,9 @@ import SwiftUI
 /// 设置 › 播放器 › 播放页按钮。分音乐、有声书、播客、电台四页:
 /// - 音乐:封面、歌词、全屏歌词、全屏效果四种界面,各一张缩小的示意,虚线框就是能换的位置,
 ///   点一下挑按钮;没放上去的都在「更多」里。最底下那行状态显示哪几项也在封面那一页。
-/// - 有声书、播客:那一排功能块的显隐与顺序,喜欢、文字稿键与上一章 / 下一章,上滑文字稿时收不收控件。
+/// - 有声书、播客:一张示意,播放键一行两端与(有声书)章节那一行的虚线框能换按钮;那一排功能块的
+///   显隐与顺序(AirPlay 也能挪进来),喜欢、文字稿键与上一章 / 下一章,有声书最底下写不写音乐源,
+///   上滑文字稿时收不收控件。
 /// - 电台:最下面那一排的顺序与显隐,以及音量条。
 /// 配置经 iCloud 同步(`InterfaceLayoutSync`)。
 struct NowPlayingControlsEditorView: View {
@@ -418,15 +420,32 @@ private enum NowPlayingControlEditingTarget: Identifiable, Hashable {
 
 // MARK: - 有声书、播客
 
-/// 有声书或播客播放页:那一排功能块(按住拖动排序、开关显隐)、几个单独的按钮开关,以及上滑文字稿时收不收控件。
+/// 有声书或播客播放页:能换按钮的几格(示意图上的虚线框)、那一排功能块(按住拖动排序、开关显隐)、
+/// 几个单独的按钮开关,以及上滑文字稿时收不收控件。
 private struct SpokenWordControlsSections: View {
     let kind: SpokenWordPlayerKind
     @Binding var storage: String
     @Binding var collapsesOnScroll: Bool
+    @State private var editingSlot: SpokenWordControlSlot?
 
     private var layout: SpokenWordControlLayout { .decode(storage, kind: kind) }
 
     var body: some View {
+        Section {
+            SpokenWordControlsPreview(kind: kind, layout: layout, selectedSlot: editingSlot) { editingSlot = $0 }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+        } footer: {
+            Text("player_controls_spoken_slot_footer")
+        }
+        .sheet(item: $editingSlot) { slot in
+            SpokenWordSlotPicker(kind: kind, slot: slot, layout: layout) { choice in
+                storage = layout.placing(choice, in: slot).encoded()
+                editingSlot = nil
+            }
+            .presentationDetents([.medium, .large])
+        }
+
         Section {
             ForEach(layout.order) { tile in
                 Toggle(isOn: Binding(
@@ -481,6 +500,20 @@ private struct SpokenWordControlsSections: View {
             Text("player_controls_spoken_buttons_footer")
         }
 
+        // 只有有声书的专版最底下写音乐源(播客页没有那一行)。
+        if kind == .audiobook {
+            Section {
+                Toggle(isOn: Binding(
+                    get: { layout.showsSource },
+                    set: { storage = layout.settingShowsSource($0).encoded() }
+                )) {
+                    Label("player_controls_spoken_source", systemImage: "externaldrive")
+                }
+            } footer: {
+                Text("player_controls_spoken_source_footer")
+            }
+        }
+
         Section {
             NavigationLink {
                 SpokenWordMenuItemsEditor(kind: kind, storage: $storage)
@@ -511,6 +544,222 @@ private struct SpokenWordControlsSections: View {
             }
             .disabled(layout.isDefault && collapsesOnScroll == NowPlayingTextScrollPreference.collapsesByDefault)
         }
+    }
+}
+
+/// 有声书(专版)或播客播放页的示意:右上角那一组、(有声书)章节那一行、进度、播放键一行、功能块。
+/// 能换的几格画成虚线框,里面是此刻放的按钮;选「自动」的格子按有文字稿的一条画,右下角挂一个小标。
+private struct SpokenWordControlsPreview: View {
+    let kind: SpokenWordPlayerKind
+    let layout: SpokenWordControlLayout
+    let selectedSlot: SpokenWordControlSlot?
+    let onSelect: (SpokenWordControlSlot) -> Void
+
+    private let width: CGFloat = 236
+
+    private var context: SpokenWordControlContext {
+        SpokenWordControlContext(
+            hasTranscript: true,
+            hasPartRow: kind == .audiobook,
+            hasInnerChapterPair: kind == .podcast
+        )
+    }
+
+    var body: some View {
+        let controls = layout.resolved(in: context)
+        VStack(spacing: 0) {
+            HStack(spacing: 2) {
+                EditorFixedIcon(symbol: "chevron.down")
+                Spacer(minLength: 0)
+                if controls.headerShowsAirPlay {
+                    EditorFixedIcon(symbol: "airplayaudio")
+                }
+                if controls.headerShowsLike {
+                    EditorFixedIcon(symbol: "heart")
+                }
+                if controls.headerShowsMore {
+                    EditorFixedIcon(symbol: "ellipsis")
+                }
+            }
+            .padding(.top, 8)
+
+            RoundedRectangle(cornerRadius: kind == .audiobook ? 4 : 12, style: .continuous)
+                .fill(.tint.opacity(0.18))
+                .overlay {
+                    Image(systemName: kind == .audiobook ? "book.closed" : "mic")
+                        .font(.system(size: 30, weight: .semibold))
+                        .foregroundStyle(.tint.opacity(0.55))
+                }
+                .frame(width: width - 96, height: width - 96)
+                .padding(.top, 6)
+
+            VStack(alignment: .leading, spacing: 5) {
+                EditorPlaceholderLine(width: 92, height: 9)
+                EditorPlaceholderLine(width: 64, height: 7)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 12)
+
+            if kind == .audiobook {
+                HStack(spacing: 6) {
+                    EditorPlaceholderLine(width: 78, height: 7)
+                    Spacer(minLength: 0)
+                    slotButton(.partRow, controls: controls)
+                }
+                .padding(.top, 8)
+            }
+
+            EditorProgressLine()
+                .padding(.top, kind == .audiobook ? 6 : 12)
+
+            HStack(spacing: 0) {
+                slotButton(.leadingSide, controls: controls)
+                Spacer(minLength: 0)
+                if controls.showsInnerChapters {
+                    EditorFixedIcon(symbol: "backward.end.fill", size: 11, width: 20)
+                    Spacer(minLength: 0)
+                }
+                EditorFixedIcon(symbol: "gobackward.15", size: 15, width: 24)
+                Spacer(minLength: 0)
+                EditorFixedIcon(symbol: "play.circle.fill", size: 34)
+                Spacer(minLength: 0)
+                EditorFixedIcon(symbol: "goforward.30", size: 15, width: 24)
+                if controls.showsInnerChapters {
+                    Spacer(minLength: 0)
+                    EditorFixedIcon(symbol: "forward.end.fill", size: 11, width: 20)
+                }
+                Spacer(minLength: 0)
+                slotButton(.trailingSide, controls: controls)
+            }
+            .padding(.top, 8)
+
+            HStack(spacing: 0) {
+                ForEach(controls.tiles) { tile in
+                    EditorFixedIcon(symbol: tile.editorSymbol(for: kind), size: 12)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .frame(height: 34)
+            .padding(.top, 4)
+
+            if kind == .audiobook {
+                HStack(spacing: 5) {
+                    EditorPlaceholderLine(width: 40, height: 4)
+                    if layout.showsSource {
+                        Image(systemName: "externaldrive")
+                            .imageScale(.small)
+                        EditorPlaceholderLine(width: 26, height: 4)
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .frame(height: 14)
+                .accessibilityHidden(true)
+            }
+
+            Color.clear.frame(height: 10)
+        }
+        .editorPhoneFrame(width: width)
+    }
+
+    private func slotButton(_ slot: SpokenWordControlSlot, controls: SpokenWordResolvedControls) -> some View {
+        let choice = layout.choice(in: slot)
+        let shown = controls.action(in: slot)
+        return EditorSlotButton(
+            symbol: shown?.editorSymbol(for: kind, in: slot),
+            isSelected: selectedSlot == slot,
+            badgeSymbol: choice == .automatic ? "wand.and.stars" : nil,
+            title: slot.editorTitleKey,
+            value: choice.editorTitleKey(for: kind, in: slot)
+        ) { onSelect(slot) }
+    }
+}
+
+/// 给有声书、播客的一格挑按钮:自动、空着,然后是这一种播放页能放的按钮。已经明确放在另一格的选了就两格对调。
+private struct SpokenWordSlotPicker: View {
+    let kind: SpokenWordPlayerKind
+    let slot: SpokenWordControlSlot
+    let layout: SpokenWordControlLayout
+    let onPick: (SpokenWordSlotChoice) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private var choices: [SpokenWordSlotChoice] {
+        [.automatic, .empty] + SpokenWordSlotAction.allCases
+            .filter { $0.isAvailable(for: kind) }
+            .map(SpokenWordSlotChoice.action)
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(choices, id: \.self) { choice in
+                        row(choice)
+                    }
+                } footer: {
+                    Text("player_controls_spoken_slot_picker_footer")
+                }
+            }
+            .navigationTitle(Text(slot.editorTitleKey))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("cancel") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func row(_ choice: SpokenWordSlotChoice) -> some View {
+        let isCurrent = layout.choice(in: slot) == choice
+        // 上一章 / 下一章在两侧各放一颗不算对调。
+        let otherSlot: SpokenWordControlSlot? = choice.action.flatMap { action in
+            SpokenWordControlSlot.allCases.first { other in
+                other != slot && layout.choice(in: other) == choice
+                    && !(action == .chapters && other != .partRow && slot != .partRow)
+            }
+        }
+        return Button {
+            onPick(choice)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: choice.editorSymbol(for: kind, in: slot))
+                    .font(.body)
+                    .foregroundStyle(.tint)
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(choice.editorTitleKey(for: kind, in: slot))
+                        .foregroundStyle(.primary)
+                    if choice == .automatic {
+                        Text(slot == .partRow
+                            ? LocalizedStringKey("player_controls_spoken_slot_automatic_part_row")
+                            : LocalizedStringKey("player_controls_spoken_slot_automatic_sides"))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 8)
+                if let otherSlot {
+                    // 选它就和那一格对调。
+                    Label {
+                        Text(otherSlot.editorTitleKey)
+                    } icon: {
+                        Image(systemName: "arrow.left.arrow.right")
+                    }
+                    .labelStyle(.titleAndIcon)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                }
+                if isCurrent {
+                    Image(systemName: "checkmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.tint)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isCurrent ? .isSelected : [])
     }
 }
 
@@ -1118,6 +1367,8 @@ private struct EditorSlotButton: View {
     let isSelected: Bool
     var isEditable = true
     var isLinked = false
+    /// 右下角的小标(有声书、播客选「自动」的格子)。`isLinked` 时画链子。
+    var badgeSymbol: String? = nil
     let title: LocalizedStringKey
     let value: LocalizedStringKey
     let onSelect: () -> Void
@@ -1153,8 +1404,8 @@ private struct EditorSlotButton: View {
         }
         .frame(width: 34, height: 34)
         .overlay(alignment: .bottomTrailing) {
-            if isLinked {
-                Image(systemName: "link")
+            if let badge = isLinked ? "link" : badgeSymbol {
+                Image(systemName: badge)
                     .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(.tint)
                     .padding(2)
@@ -1462,6 +1713,7 @@ extension SpokenWordControlTile {
         case .bookmark: "bookmark"
         case .contents: kind == .podcast ? "text.alignleft" : "list.bullet"
         case .upNext: "list.bullet"
+        case .airPlay: "airplayaudio"
         }
     }
 
@@ -1472,6 +1724,71 @@ extension SpokenWordControlTile {
         case .bookmark: "spoken_word_bookmarks_title"
         case .contents: kind == .podcast ? "podcast_show_notes" : "spoken_word_contents_title"
         case .upNext: "up_next"
+        case .airPlay: "player_controls_action_airplay"
+        }
+    }
+}
+
+extension SpokenWordSlotAction {
+    /// 编辑页里的图标。上一章 / 下一章按格子:左边那格画上一章,右边画下一章,章节那一行画一对。
+    func editorSymbol(for kind: SpokenWordPlayerKind, in slot: SpokenWordControlSlot) -> String {
+        switch self {
+        case .transcript: "text.bubble"
+        case .contents: kind == .podcast ? "text.alignleft" : "list.bullet"
+        case .chapters:
+            switch slot {
+            case .leadingSide: "backward.end"
+            case .trailingSide: "forward.end"
+            case .partRow: "arrow.left.and.right"
+            }
+        case .bookmark: "bookmark"
+        case .speed: "gauge.with.dots.needle.50percent"
+        case .sleepTimer: "moon.zzz"
+        case .upNext: "list.bullet"
+        case .like: "heart"
+        case .more: "ellipsis"
+        }
+    }
+
+    func editorTitleKey(for kind: SpokenWordPlayerKind) -> LocalizedStringKey {
+        switch self {
+        case .transcript: "spoken_word_text_tab"
+        case .contents: kind == .podcast ? "podcast_show_notes" : "spoken_word_contents_title"
+        case .chapters: "player_controls_spoken_chapters"
+        case .bookmark: "spoken_word_bookmarks_title"
+        case .speed: "spoken_word_speed_short"
+        case .sleepTimer: "sleep_timer"
+        case .upNext: "up_next"
+        case .like: "player_controls_action_like"
+        case .more: "player_menu_items_title"
+        }
+    }
+}
+
+extension SpokenWordSlotChoice {
+    func editorSymbol(for kind: SpokenWordPlayerKind, in slot: SpokenWordControlSlot) -> String {
+        switch self {
+        case .automatic: "wand.and.stars"
+        case .empty: "circle.dashed"
+        case .action(let action): action.editorSymbol(for: kind, in: slot)
+        }
+    }
+
+    func editorTitleKey(for kind: SpokenWordPlayerKind, in slot: SpokenWordControlSlot) -> LocalizedStringKey {
+        switch self {
+        case .automatic: "player_controls_spoken_slot_automatic"
+        case .empty: "player_controls_empty"
+        case .action(let action): action.editorTitleKey(for: kind)
+        }
+    }
+}
+
+extension SpokenWordControlSlot {
+    var editorTitleKey: LocalizedStringKey {
+        switch self {
+        case .leadingSide: "player_controls_spoken_slot_leading"
+        case .trailingSide: "player_controls_spoken_slot_trailing"
+        case .partRow: "player_controls_spoken_slot_part_row"
         }
     }
 }

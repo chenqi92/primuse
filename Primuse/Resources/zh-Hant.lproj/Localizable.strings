@@ -5707,7 +5707,7 @@
 "player_controls_unavailable_speed_high_fidelity" = "高傳真直通會把音訊原樣送到輸出裝置，不能變速。切換到音效輸出後就能調速。";
 "player_controls_unavailable_cast_apple_music" = "Apple Music 的歌曲不能投放到區域網路裝置。";
 "player_controls_tiles_header" = "功能塊";
-"player_controls_tiles_footer" = "按住拖移可以換順序。關掉的功能塊在「更多」裡仍然找得到。";
+"player_controls_tiles_footer" = "按住拖移可以換順序。關掉的功能塊在「更多」裡仍然找得到。打開 AirPlay 後它從右上角挪到這一排。";
 "player_controls_spoken_buttons_header" = "其他按鈕";
 "player_controls_spoken_transcript" = "文字稿鍵";
 "player_controls_spoken_chapters" = "上一章 / 下一章";
@@ -5718,7 +5718,7 @@
 "player_menu_group_book" = "這本書";
 "player_menu_group_episode" = "這一集";
 "player_menu_group_spoken_playback" = "播放與文字稿";
-"player_controls_spoken_buttons_footer" = "關掉的喜歡和文字稿鍵會出現在「更多」裡，點封面也能打開文字稿；章節可以從目錄跳轉，長按倒轉、快轉鍵也能跳章。";
+"player_controls_spoken_buttons_footer" = "關掉的喜歡和文字稿鍵會出現在「更多」裡，點封面也能打開文字稿；章節可以從目錄跳轉，長按倒轉、快轉鍵也能跳章。文字稿鍵與上一章 / 下一章只影響選了「自動」的格子。";
 
 /* 歌词来源 */
 "lyrics_editor_source_text_unavailable_hint" = "這份歌詞無法放進 LRC 文字";
@@ -5948,3 +5948,14 @@
 
 "reverb_headroom_note %@" = "開著殘響時整體音量調低了 %@ dB，避免疊加殘響後失真。";
 "compressor_gain_cap_note %@" = "依目前的閾值和餘量，總增益超過 %@ dB 會失真，超出的部分不生效。";
+
+"player_controls_spoken_slot_leading" = "播放鍵一行最左邊";
+"player_controls_spoken_slot_trailing" = "播放鍵一行最右邊";
+"player_controls_spoken_slot_part_row" = "正在聽的那一章右邊";
+"player_controls_spoken_slot_automatic" = "自動";
+"player_controls_spoken_slot_automatic_sides" = "有文字稿時左邊放文字稿、右邊放目錄（Podcast 是節目說明）；沒有時空著，上一章 / 下一章照舊在它們自己的位置。";
+"player_controls_spoken_slot_automatic_part_row" = "上一章 / 下一章，跟下面「上一章 / 下一章」開關走。";
+"player_controls_spoken_slot_footer" = "點虛線框換按鈕，也可以留空或選「自動」。擺進這幾格的按鈕不再在功能塊或右上角重複出現；手機橫向、iPad 橫向按各自的版面擺放。設定經 iCloud 同步。";
+"player_controls_spoken_slot_picker_footer" = "選已經在另一格的按鈕，兩格會對調。「自動」和原來的擺法一樣。";
+"player_controls_spoken_source" = "顯示音樂來源";
+"player_controls_spoken_source_footer" = "有不止一個音樂來源時，播放頁最下面那行寫出這本書來自哪個來源。";

@@ -5490,7 +5490,7 @@
 "player_controls_unavailable_speed_high_fidelity" = "High Fidelity Direct sends audio to the output device untouched, so the speed can’t change. Switch to effects output to adjust the speed.";
 "player_controls_unavailable_cast_apple_music" = "Apple Music songs can’t be cast to devices on your network.";
 "player_controls_tiles_header" = "Action Tiles";
-"player_controls_tiles_footer" = "Touch and hold to drag them into a new order. Tiles you turn off are still in the More menu.";
+"player_controls_tiles_footer" = "Touch and hold to drag them into a new order. Tiles you turn off are still in the More menu. Turning on AirPlay moves it here from the top right.";
 "player_controls_spoken_buttons_header" = "Other Buttons";
 "player_controls_spoken_transcript" = "Transcript Button";
 "player_controls_spoken_chapters" = "Previous / Next Chapter";
@@ -5501,7 +5501,7 @@
 "player_menu_group_book" = "This Book";
 "player_menu_group_episode" = "This Episode";
 "player_menu_group_spoken_playback" = "Playback & Transcript";
-"player_controls_spoken_buttons_footer" = "Like and the transcript button move to the More menu when turned off; tapping the cover also opens the transcript. Jump between chapters from the contents, or touch and hold the skip buttons.";
+"player_controls_spoken_buttons_footer" = "Like and the transcript button move to the More menu when turned off; tapping the cover also opens the transcript. Jump between chapters from the contents, or touch and hold the skip buttons. The transcript button and previous / next chapter switches only affect spots set to Automatic.";
 
 /* 歌词来源 */
 "lyrics_editor_source_text_unavailable_hint" = "These lyrics don't fit in LRC text";
@@ -5731,3 +5731,14 @@
 
 "reverb_headroom_note %@" = "Overall volume lowered by %@ dB while reverb is on, so the added reverb doesn't distort.";
 "compressor_gain_cap_note %@" = "With this threshold and headroom, gain above %@ dB would distort, so it isn't applied.";
+
+"player_controls_spoken_slot_leading" = "Far Left of Playback Row";
+"player_controls_spoken_slot_trailing" = "Far Right of Playback Row";
+"player_controls_spoken_slot_part_row" = "Next to Current Chapter";
+"player_controls_spoken_slot_automatic" = "Automatic";
+"player_controls_spoken_slot_automatic_sides" = "With a transcript: the transcript on the left, contents or show notes on the right. Without one, empty; previous and next chapter stay in their own spots.";
+"player_controls_spoken_slot_automatic_part_row" = "Previous / next chapter, following the Previous / Next Chapter switch below.";
+"player_controls_spoken_slot_footer" = "Tap a dashed box to change its button, leave it empty, or choose Automatic. Buttons placed here aren’t repeated in the tiles or at the top right; landscape iPhone and iPad arrange them for their own layouts. Syncs with iCloud.";
+"player_controls_spoken_slot_picker_footer" = "Choosing a button that’s already in another spot swaps the two. Automatic keeps the original arrangement.";
+"player_controls_spoken_source" = "Show Music Source";
+"player_controls_spoken_source_footer" = "With more than one music source, the bottom line of the player shows which source the book comes from.";

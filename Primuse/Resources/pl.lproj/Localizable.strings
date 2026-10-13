@@ -5636,7 +5636,7 @@
 "player_controls_unavailable_speed_high_fidelity" = "Bezpośrednie odtwarzanie Hi-Fi przesyła dźwięk do urządzenia wyjściowego bez zmian, więc prędkości nie można zmienić. Aby ją regulować, przełącz na wyjście z efektami.";
 "player_controls_unavailable_cast_apple_music" = "Utworów z Apple Music nie można przesyłać do urządzeń w sieci.";
 "player_controls_tiles_header" = "Kafelki funkcji";
-"player_controls_tiles_footer" = "Przytrzymaj i przeciągnij, aby zmienić kolejność. Wyłączone kafelki nadal są w menu Więcej.";
+"player_controls_tiles_footer" = "Przytrzymaj i przeciągnij, aby zmienić kolejność. Wyłączone kafelki nadal są w menu Więcej. Po włączeniu AirPlay przenosi się tu z prawego górnego rogu.";
 "player_controls_spoken_buttons_header" = "Inne przyciski";
 "player_controls_spoken_transcript" = "Przycisk transkrypcji";
 "player_controls_spoken_chapters" = "Poprzedni / następny rozdział";
@@ -5647,7 +5647,7 @@
 "player_menu_group_book" = "Ta książka";
 "player_menu_group_episode" = "Ten odcinek";
 "player_menu_group_spoken_playback" = "Odtwarzanie i transkrypcja";
-"player_controls_spoken_buttons_footer" = "Po wyłączeniu „Lubię to” i przycisk transkrypcji trafiają do menu Więcej; stuknięcie okładki też otwiera transkrypcję. Rozdziały zmienisz w spisie treści albo przytrzymując przyciski przewijania.";
+"player_controls_spoken_buttons_footer" = "Po wyłączeniu „Lubię to” i przycisk transkrypcji trafiają do menu Więcej; stuknięcie okładki też otwiera transkrypcję. Rozdziały zmienisz w spisie treści albo przytrzymując przyciski przewijania. Przycisk transkrypcji i przełącznik rozdziałów dotyczą tylko miejsc ustawionych na „Automatycznie”.";
 
 /* 歌词来源 */
 "lyrics_editor_source_text_unavailable_hint" = "Tego tekstu nie da się zapisać jako tekst LRC";
@@ -5877,3 +5877,14 @@
 
 "reverb_headroom_note %@" = "Gdy pogłos jest włączony, ogólną głośność obniżono o %@ dB, aby dźwięk nie był zniekształcony.";
 "compressor_gain_cap_note %@" = "Przy tym progu i zapasie wzmocnienie powyżej %@ dB powodowałoby zniekształcenia, więc nadwyżka nie jest stosowana.";
+
+"player_controls_spoken_slot_leading" = "Skrajnie z lewej w wierszu odtwarzania";
+"player_controls_spoken_slot_trailing" = "Skrajnie z prawej w wierszu odtwarzania";
+"player_controls_spoken_slot_part_row" = "Obok bieżącego rozdziału";
+"player_controls_spoken_slot_automatic" = "Automatycznie";
+"player_controls_spoken_slot_automatic_sides" = "Gdy jest transkrypcja: po lewej transkrypcja, po prawej spis treści lub notatki odcinka. Bez niej puste; poprzedni i następny rozdział zostają na swoim miejscu.";
+"player_controls_spoken_slot_automatic_part_row" = "Poprzedni / następny rozdział, zgodnie z przełącznikiem „Poprzedni / następny rozdział” poniżej.";
+"player_controls_spoken_slot_footer" = "Stuknij przerywaną ramkę, aby zmienić przycisk, zostawić puste miejsce albo wybrać „Automatycznie”. Przyciski umieszczone tutaj nie powtarzają się w kafelkach ani w prawym górnym rogu; iPhone i iPad w poziomie układają je po swojemu. Synchronizuje się z iCloud.";
+"player_controls_spoken_slot_picker_footer" = "Wybranie przycisku, który jest już w innym miejscu, zamienia je miejscami. „Automatycznie” zachowuje pierwotny układ.";
+"player_controls_spoken_source" = "Pokazuj źródło muzyki";
+"player_controls_spoken_source_footer" = "Gdy źródeł muzyki jest więcej niż jedno, ostatni wiersz odtwarzacza pokazuje, z którego źródła pochodzi książka.";

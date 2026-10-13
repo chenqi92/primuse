@@ -22,8 +22,6 @@ import Testing
             #expect(layout.encoded() == "")
             #expect(Layout.decode("", kind: kind) == layout)
             #expect(Layout.decode("garbage", kind: kind) == layout)
-            #expect(layout.menuFallback().isEmpty)
-            #expect(layout.menuFallback(contentsResident: true).isEmpty)
             #expect(layout.showsLike && layout.showsTranscriptToggle && layout.showsChapterButtons)
         }
     }
@@ -37,7 +35,7 @@ import Testing
         #expect(!layout.showsLike)
         let decoded = Layout.decode(layout.encoded(), kind: .audiobook)
         #expect(decoded == layout)
-        #expect(decoded.order == [.contents, .speed, .sleepTimer, .bookmark])
+        #expect(decoded.order == [.contents, .speed, .sleepTimer, .bookmark, .airPlay])
     }
 
     @Test func userHiddenEntriesFallBackIntoTheMenu() {
@@ -45,12 +43,18 @@ import Testing
             .settingTile(.bookmark, shown: false)
             .settingShowsLike(false)
             .settingShowsTranscriptToggle(false)
-        #expect(book.menuFallback() == [.like, .transcript, .bookmark])
+        let bookContext = SpokenWordControlContext(hasTranscript: true, hasPartRow: true)
+        #expect(book.menuFallback(for: book.resolved(in: bookContext), context: bookContext) == [.like, .transcript, .bookmark])
 
         let podcast = Layout.default(for: .podcast).settingTile(.upNext, shown: false)
-        #expect(podcast.menuFallback() == [.upNext])
+        let podcastContext = SpokenWordControlContext(hasTranscript: false, hasInnerChapterPair: true)
+        let podcastFallback = podcast.menuFallback(for: podcast.resolved(in: podcastContext), context: podcastContext)
+        #expect(podcastFallback == [.upNext])
         // 播客的书签默认就不在页面上,不补。
-        #expect(!podcast.menuFallback().contains(.bookmark))
+        #expect(!podcastFallback.contains(.bookmark))
+        // 没有功能块的版面(手机横屏)只补喜欢。
+        let landscape = SpokenWordControlContext(hasTranscript: true, hasTiles: false)
+        #expect(book.menuFallback(for: book.resolved(in: landscape), context: landscape) == [.like])
     }
 
     @Test func customizedTilesDoNotGetTheBookmarkSwap() {
@@ -105,7 +109,8 @@ import Testing
         let future = Layout.decode(#"{"hiddenMenu":["futureItem","sleepTimer"]}"#, kind: .podcast)
         #expect(future.hiddenMenuItems == [.sleepTimer])
         #expect(future.settingMenuItem(.share, visible: false).encoded().contains("futureItem"))
-        #expect(future.menuFallback().isEmpty)
+        let context = SpokenWordControlContext(hasTranscript: false, hasInnerChapterPair: true)
+        #expect(future.menuFallback(for: future.resolved(in: context), context: context).isEmpty)
     }
 
     @Test func tileLabelStyleRoundTripsAndDefaultsToText() {
@@ -128,5 +133,167 @@ import Testing
         let moved = layout.movingTiles(fromOffsets: IndexSet(integer: 0), toOffset: layout.order.count)
         #expect(moved.order.last == .speed)
         #expect(moved.order.first == .sleepTimer)
+    }
+}
+
+@Suite struct SpokenWordControlSlotTests {
+    typealias Layout = SpokenWordControlLayout
+    typealias Context = SpokenWordControlContext
+
+    /// 有声书竖版:章节那一行在,两侧外面没有那一对上一章 / 下一章。
+    static func bookPortrait(transcript: Bool, collapsed: Bool = false) -> Context {
+        Context(hasTranscript: transcript, hasPartRow: true, controlsCollapsed: collapsed)
+    }
+
+    /// 播客竖版:紧挨快退快进有一对上一章 / 下一章。
+    static func genericPortrait(transcript: Bool) -> Context {
+        Context(hasTranscript: transcript, hasInnerChapterPair: true)
+    }
+
+    @Test func automaticSlotsMatchTheOldPlayers() {
+        let book = Layout.default(for: .audiobook)
+        #expect(book.slotsAreAutomatic)
+        // 有文字稿:左文字稿、右目录,功能块不再摆目录;章节那一行是上一章 / 下一章。
+        let withText = book.resolved(in: Self.bookPortrait(transcript: true))
+        #expect(withText.leadingSide == .transcript)
+        #expect(withText.trailingSide == .contents)
+        #expect(withText.partRow == .chapters)
+        #expect(withText.tiles == [.speed, .sleepTimer, .bookmark])
+        #expect(withText.headerShowsAirPlay && withText.headerShowsLike && withText.headerShowsMore)
+        // 没有文字稿:两侧空着、不占位,目录回到功能块。
+        let plain = book.resolved(in: Self.bookPortrait(transcript: false))
+        #expect(plain.leadingSide == nil && plain.trailingSide == nil)
+        #expect(!plain.sidesNeedPlaceholders)
+        #expect(plain.tiles == [.speed, .sleepTimer, .bookmark, .contents])
+
+        // 播客竖版有文字稿:外侧文字稿与说明,里面那一对上一章 / 下一章照旧,说明那一格让给书签。
+        let podcast = Layout.default(for: .podcast).resolved(in: Self.genericPortrait(transcript: true))
+        #expect(podcast.leadingSide == .transcript && podcast.trailingSide == .contents)
+        #expect(podcast.showsInnerChapters)
+        #expect(podcast.tiles == [.speed, .sleepTimer, .bookmark, .upNext])
+        // 手机横屏:两侧在没有文字稿时放上一章 / 下一章。
+        let landscape = Layout.default(for: .podcast).resolved(in: Context(hasTranscript: false, hasTiles: false))
+        #expect(landscape.leadingSide == .chapters && landscape.trailingSide == .chapters)
+        #expect(landscape.tiles.isEmpty)
+
+        for kind in SpokenWordPlayerKind.allCases {
+            for transcript in [true, false] {
+                for context in [Self.bookPortrait(transcript: transcript), Self.genericPortrait(transcript: transcript)] {
+                    let layout = Layout.default(for: kind)
+                    #expect(layout.menuFallback(for: layout.resolved(in: context), context: context).isEmpty)
+                }
+            }
+        }
+    }
+
+    @Test func hiddenContentsStaysHiddenNextToTheTranscript() {
+        // #283:关了目录,有文字稿时右边那一格不再放目录。
+        let book = Layout.default(for: .audiobook).settingTile(.contents, shown: false)
+        let resolved = book.resolved(in: Self.bookPortrait(transcript: true))
+        #expect(resolved.leadingSide == .transcript)
+        #expect(resolved.trailingSide == nil)
+        #expect(resolved.sidesNeedPlaceholders)
+        #expect(!resolved.tiles.contains(.contents))
+    }
+
+    @Test func hiddenTranscriptKeyLeavesTheContentsAlone() {
+        // #283:关了文字稿键,目录回到功能块,不跟着一起消失。
+        let book = Layout.default(for: .audiobook).settingShowsTranscriptToggle(false)
+        let resolved = book.resolved(in: Self.bookPortrait(transcript: true))
+        #expect(resolved.leadingSide == nil && resolved.trailingSide == nil)
+        #expect(resolved.tiles.contains(.contents))
+        #expect(book.menuFallback(for: resolved, context: Self.bookPortrait(transcript: true)) == [.transcript])
+        // 明确放进格子的目录照样在。
+        let placed = book.placing(.action(.contents), in: .trailingSide)
+        #expect(placed.resolved(in: Self.bookPortrait(transcript: true)).trailingSide == .contents)
+    }
+
+    @Test func explicitButtonsFillTheEmptySides() {
+        // 播客关了上一章 / 下一章,两侧换成语速与定时:紧挨快退快进,功能块不再重复。
+        let podcast = Layout.default(for: .podcast)
+            .settingShowsChapterButtons(false)
+            .placing(.action(.speed), in: .leadingSide)
+            .placing(.action(.sleepTimer), in: .trailingSide)
+        let resolved = podcast.resolved(in: Self.genericPortrait(transcript: false))
+        #expect(resolved.leadingSide == .speed && resolved.trailingSide == .sleepTimer)
+        #expect(!resolved.showsInnerChapters)
+        #expect(resolved.tiles == [.contents, .upNext])
+        #expect(podcast.menuFallback(for: resolved, context: Self.genericPortrait(transcript: false)).isEmpty)
+        #expect(Layout.decode(podcast.encoded(), kind: .podcast) == podcast)
+        #expect(podcast.resettingSlots().slotsAreAutomatic)
+    }
+
+    @Test func moreAndLikeLeaveTheHeaderWhenPlaced() {
+        // #283:「更多」挪到章节那一行(原来上一章 / 下一章的位置)。
+        let book = Layout.default(for: .audiobook).placing(.action(.more), in: .partRow)
+        let resolved = book.resolved(in: Self.bookPortrait(transcript: false))
+        #expect(resolved.partRow == .more)
+        #expect(!resolved.headerShowsMore)
+        // 横屏等没有章节那一行的版面,「更多」回到右上角。
+        let landscape = book.resolved(in: Context(hasTranscript: false, hasTiles: false))
+        #expect(landscape.headerShowsMore)
+        // 上滑文字稿收起控件时,右上角那一组全回来。
+        let collapsed = book.resolved(in: Self.bookPortrait(transcript: true, collapsed: true))
+        #expect(collapsed.headerShowsMore && collapsed.partRow == nil && collapsed.tiles.isEmpty)
+
+        let liked = Layout.default(for: .audiobook).placing(.action(.like), in: .leadingSide)
+        let likedResolved = liked.resolved(in: Self.bookPortrait(transcript: false))
+        #expect(likedResolved.leadingSide == .like && !likedResolved.headerShowsLike)
+        #expect(liked.menuFallback(for: likedResolved, context: Self.bookPortrait(transcript: false)).isEmpty)
+        // 播客没有章节那一行,书没有「接下来」。
+        let podcast = Layout.default(for: .podcast)
+        #expect(podcast.placing(.action(.more), in: .partRow) == podcast)
+        #expect(Layout.default(for: .audiobook).placing(.action(.upNext), in: .leadingSide) == Layout.default(for: .audiobook))
+    }
+
+    @Test func airPlayMovesIntoTheTiles() {
+        let book = Layout.default(for: .audiobook)
+        #expect(!book.isShown(.airPlay))
+        let moved = book.settingTile(.airPlay, shown: true)
+        let resolved = moved.resolved(in: Self.bookPortrait(transcript: false))
+        #expect(resolved.tiles.last == .airPlay)
+        #expect(!resolved.headerShowsAirPlay)
+        // 没有功能块的版面隔空播放还在右上角。
+        #expect(moved.resolved(in: Context(hasTranscript: false, hasTiles: false)).headerShowsAirPlay)
+        #expect(Layout.decode(moved.encoded(), kind: .audiobook) == moved)
+        // 老配置里没有隔空播放这一块:照默认留在右上角。
+        let old = Layout.decode(#"{"order":["contents","speed","sleepTimer","bookmark"]}"#, kind: .audiobook)
+        #expect(!old.isShown(.airPlay))
+    }
+
+    @Test func placingSwapsAndDeduplicates() {
+        let book = Layout.default(for: .audiobook)
+            .placing(.action(.bookmark), in: .leadingSide)
+            .placing(.action(.speed), in: .trailingSide)
+        // 书签换到右边:右边原来的语速对调到左边。
+        let swapped = book.placing(.action(.bookmark), in: .trailingSide)
+        #expect(swapped.choice(in: .leadingSide) == .action(.speed))
+        #expect(swapped.choice(in: .trailingSide) == .action(.bookmark))
+        // 上一章 / 下一章两侧各放一颗不算重复,章节那一行就不再放。
+        let chapters = Layout.default(for: .audiobook)
+            .placing(.action(.chapters), in: .leadingSide)
+            .placing(.action(.chapters), in: .trailingSide)
+        #expect(chapters.choice(in: .leadingSide) == .action(.chapters))
+        let resolved = chapters.resolved(in: Self.bookPortrait(transcript: false))
+        #expect(resolved.leadingSide == .chapters && resolved.trailingSide == .chapters)
+        #expect(resolved.partRow == nil)
+        // 明确选了文字稿,这一条没有文字稿时那一格空着。
+        let text = Layout.default(for: .audiobook).placing(.action(.transcript), in: .leadingSide)
+        #expect(text.resolved(in: Self.bookPortrait(transcript: false)).leadingSide == nil)
+        // 空着与自动分得开,认不出的按钮当空着。
+        let empty = Layout.default(for: .audiobook).placing(.empty, in: .partRow)
+        #expect(empty.resolved(in: Self.bookPortrait(transcript: false)).partRow == nil)
+        #expect(Layout.decode(empty.encoded(), kind: .audiobook).choice(in: .partRow) == .empty)
+        let future = Layout.decode(#"{"slots":{"leadingSide":"hologram","futureSlot":"more"}}"#, kind: .audiobook)
+        #expect(future.choice(in: .leadingSide) == .empty)
+        #expect(future.settingShowsLike(false).encoded().contains("futureSlot"))
+    }
+
+    @Test func sourceLineToggleRoundTrips() {
+        let book = Layout.default(for: .audiobook).settingShowsSource(false)
+        #expect(!book.showsSource)
+        #expect(!book.isDefault)
+        #expect(Layout.decode(book.encoded(), kind: .audiobook) == book)
+        #expect(book.settingShowsSource(true).isDefault)
     }
 }

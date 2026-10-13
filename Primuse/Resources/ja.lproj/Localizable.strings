@@ -5731,7 +5731,7 @@
 "player_controls_unavailable_speed_high_fidelity" = "高音質ダイレクトでは音声をそのまま出力デバイスに送るため、速度を変えられません。速度を調整するにはエフェクト出力に切り替えてください。";
 "player_controls_unavailable_cast_apple_music" = "Apple Music の曲はネットワーク上のデバイスにキャストできません。";
 "player_controls_tiles_header" = "機能タイル";
-"player_controls_tiles_footer" = "長押ししてドラッグすると順番を変えられます。オフにしたタイルも「その他」メニューにあります。";
+"player_controls_tiles_footer" = "長押ししてドラッグすると順番を変えられます。オフにしたタイルも「その他」メニューにあります。AirPlay をオンにすると、右上からこの列に移ります。";
 "player_controls_spoken_buttons_header" = "そのほかのボタン";
 "player_controls_spoken_transcript" = "文字起こしボタン";
 "player_controls_spoken_chapters" = "前の章 / 次の章";
@@ -5742,7 +5742,7 @@
 "player_menu_group_book" = "この本";
 "player_menu_group_episode" = "このエピソード";
 "player_menu_group_spoken_playback" = "再生と文字起こし";
-"player_controls_spoken_buttons_footer" = "オフにした「好き」と文字起こしボタンは「その他」メニューに移ります。カバーをタップしても文字起こしを開けます。章は目次から、またはスキップボタンの長押しで移動できます。";
+"player_controls_spoken_buttons_footer" = "オフにした「好き」と文字起こしボタンは「その他」メニューに移ります。カバーをタップしても文字起こしを開けます。章は目次から、またはスキップボタンの長押しで移動できます。文字起こしボタンと前の章 / 次の章のスイッチは「自動」の位置にだけ影響します。";
 
 /* 歌词来源 */
 "lyrics_editor_source_text_unavailable_hint" = "この歌詞は LRC テキストに収まりません";
@@ -5972,3 +5972,14 @@
 
 "reverb_headroom_note %@" = "リバーブを重ねても歪まないよう、オン中は全体の音量を %@ dB 下げています。";
 "compressor_gain_cap_note %@" = "現在のしきい値とヘッドルームでは %@ dB を超えるゲインは歪むため、超えた分は適用されません。";
+
+"player_controls_spoken_slot_leading" = "再生ボタン行の左端";
+"player_controls_spoken_slot_trailing" = "再生ボタン行の右端";
+"player_controls_spoken_slot_part_row" = "再生中の章の右";
+"player_controls_spoken_slot_automatic" = "自動";
+"player_controls_spoken_slot_automatic_sides" = "文字起こしがあるときは左に文字起こし、右に目次(またはエピソード説明)。ないときは空のまま、前の章 / 次の章はそれぞれの位置に残ります。";
+"player_controls_spoken_slot_automatic_part_row" = "前の章 / 次の章。下の「前の章 / 次の章」スイッチに従います。";
+"player_controls_spoken_slot_footer" = "破線の枠をタップするとボタンを変えたり、空けたり、「自動」にしたりできます。ここに置いたボタンはタイルや右上に重ねて表示されません。横向きの iPhone と iPad はそれぞれのレイアウトで配置します。iCloud で同期されます。";
+"player_controls_spoken_slot_picker_footer" = "別の位置にあるボタンを選ぶと、2 つの位置が入れ替わります。「自動」は元の配置のままです。";
+"player_controls_spoken_source" = "ミュージックソースを表示";
+"player_controls_spoken_source_footer" = "ミュージックソースが複数あるとき、プレーヤーの一番下の行にこの本のソースを表示します。";

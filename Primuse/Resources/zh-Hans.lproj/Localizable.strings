@@ -5823,7 +5823,7 @@
 "player_controls_unavailable_speed_high_fidelity" = "高保真直通把音频原样送到输出设备，不能变速。切换到音效输出后就能调速。";
 "player_controls_unavailable_cast_apple_music" = "Apple Music 的歌曲不能投放到局域网设备。";
 "player_controls_tiles_header" = "功能块";
-"player_controls_tiles_footer" = "按住拖动可以换顺序。关掉的功能块在「更多」里仍然找得到。";
+"player_controls_tiles_footer" = "按住拖动可以换顺序。关掉的功能块在「更多」里仍然找得到。打开 AirPlay 后它从右上角挪到这一排。";
 "player_controls_spoken_buttons_header" = "其他按钮";
 "player_controls_spoken_transcript" = "文字稿键";
 "player_controls_spoken_chapters" = "上一章 / 下一章";
@@ -5834,7 +5834,7 @@
 "player_menu_group_book" = "这本书";
 "player_menu_group_episode" = "这一集";
 "player_menu_group_spoken_playback" = "播放与文字稿";
-"player_controls_spoken_buttons_footer" = "关掉的喜欢和文字稿键会出现在「更多」里，点封面也能打开文字稿；章节可以从目录跳转，长按快退、快进键也能跳章。";
+"player_controls_spoken_buttons_footer" = "关掉的喜欢和文字稿键会出现在「更多」里，点封面也能打开文字稿；章节可以从目录跳转，长按快退、快进键也能跳章。文字稿键与上一章 / 下一章只影响选了「自动」的格子。";
 
 /* 歌词来源 */
 "lyrics_editor_source_text_unavailable_hint" = "这份歌词装不进 LRC 文本";
@@ -6064,3 +6064,14 @@
 
 "reverb_headroom_note %@" = "开着混响时整体音量调低了 %@ dB，避免叠加混响后失真。";
 "compressor_gain_cap_note %@" = "按现在的阈值和余量，总增益超过 %@ dB 会失真，超出的部分不生效。";
+
+"player_controls_spoken_slot_leading" = "播放键一行最左边";
+"player_controls_spoken_slot_trailing" = "播放键一行最右边";
+"player_controls_spoken_slot_part_row" = "正在听的那一章右边";
+"player_controls_spoken_slot_automatic" = "自动";
+"player_controls_spoken_slot_automatic_sides" = "有文字稿时左边放文字稿、右边放目录（播客是节目说明）；没有时空着，上一章 / 下一章照旧在它们自己的位置。";
+"player_controls_spoken_slot_automatic_part_row" = "上一章 / 下一章，跟下面「上一章 / 下一章」开关走。";
+"player_controls_spoken_slot_footer" = "点虚线框换按钮，也可以留空或选「自动」。摆进这几格的按钮不再在功能块或右上角重复出现；手机横屏、iPad 横屏按各自的版面摆放。设置经 iCloud 同步。";
+"player_controls_spoken_slot_picker_footer" = "选已经在另一格的按钮，两格会对调。「自动」和原来的摆法一样。";
+"player_controls_spoken_source" = "显示音乐源";
+"player_controls_spoken_source_footer" = "有不止一个音乐源时，播放页最下面那行写出这本书来自哪个源。";

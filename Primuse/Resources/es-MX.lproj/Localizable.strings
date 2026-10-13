@@ -5636,7 +5636,7 @@
 "player_controls_unavailable_speed_high_fidelity" = "Alta fidelidad directa envía el audio sin cambios al dispositivo de salida, así que la velocidad no puede cambiar. Cambia a la salida con efectos para ajustar la velocidad.";
 "player_controls_unavailable_cast_apple_music" = "Las canciones de Apple Music no se pueden transmitir a dispositivos de tu red.";
 "player_controls_tiles_header" = "Mosaicos de funciones";
-"player_controls_tiles_footer" = "Mantén presionado y arrastra para cambiar el orden. Los mosaicos que desactives siguen en Más.";
+"player_controls_tiles_footer" = "Mantén presionado y arrastra para cambiar el orden. Los mosaicos que desactives siguen en Más. Al activar AirPlay, pasa aquí desde la esquina superior derecha.";
 "player_controls_spoken_buttons_header" = "Otros botones";
 "player_controls_spoken_transcript" = "Botón de transcripción";
 "player_controls_spoken_chapters" = "Capítulo anterior / siguiente";
@@ -5647,7 +5647,7 @@
 "player_menu_group_book" = "Este libro";
 "player_menu_group_episode" = "Este episodio";
 "player_menu_group_spoken_playback" = "Reproducción y transcripción";
-"player_controls_spoken_buttons_footer" = "Al desactivarlos, Me gusta y el botón de transcripción pasan a Más; también puedes tocar la portada para abrir la transcripción. Cambia de capítulo desde el contenido o manteniendo presionados los botones de salto.";
+"player_controls_spoken_buttons_footer" = "Al desactivarlos, Me gusta y el botón de transcripción pasan a Más; también puedes tocar la portada para abrir la transcripción. Cambia de capítulo desde el contenido o manteniendo presionados los botones de salto. El botón de transcripción y el de capítulo anterior / siguiente solo afectan a los lugares en Automático.";
 
 /* 歌词来源 */
 "lyrics_editor_source_text_unavailable_hint" = "Esta letra no cabe en texto LRC";
@@ -5877,3 +5877,14 @@
 
 "reverb_headroom_note %@" = "Con la reverberación activada, el volumen general bajó %@ dB para que no se distorsione.";
 "compressor_gain_cap_note %@" = "Con este umbral y margen, una ganancia mayor a %@ dB distorsionaría, así que el exceso no se aplica.";
+
+"player_controls_spoken_slot_leading" = "Extremo izquierdo de la fila de reproducción";
+"player_controls_spoken_slot_trailing" = "Extremo derecho de la fila de reproducción";
+"player_controls_spoken_slot_part_row" = "Junto al capítulo actual";
+"player_controls_spoken_slot_automatic" = "Automático";
+"player_controls_spoken_slot_automatic_sides" = "Con transcripción: la transcripción a la izquierda y el contenido o las notas a la derecha. Sin ella, vacío; capítulo anterior y siguiente siguen en su lugar.";
+"player_controls_spoken_slot_automatic_part_row" = "Capítulo anterior / siguiente, según el interruptor Capítulo anterior / siguiente de abajo.";
+"player_controls_spoken_slot_footer" = "Toca un recuadro punteado para cambiar su botón, dejarlo vacío o elegir Automático. Los botones colocados aquí no se repiten en los mosaicos ni arriba a la derecha; el iPhone y el iPad en horizontal los acomodan según su propio diseño. Se sincroniza con iCloud.";
+"player_controls_spoken_slot_picker_footer" = "Si eliges un botón que ya está en otro lugar, los dos se intercambian. Automático conserva la disposición original.";
+"player_controls_spoken_source" = "Mostrar fuente de música";
+"player_controls_spoken_source_footer" = "Con más de una fuente de música, la última línea del reproductor indica de qué fuente viene el libro.";
