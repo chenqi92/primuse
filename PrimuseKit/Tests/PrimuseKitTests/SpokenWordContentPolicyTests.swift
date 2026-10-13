@@ -492,15 +492,11 @@ struct SpokenWordTranscriptSwipePolicyTests {
         #expect(!Policy.shouldBegin(translationX: 4, translationY: 0, velocityX: 20, velocityY: 0))
     }
 
-    @Test("With controls hidden a short sideways swipe brings them up")
-    func revealsWhenHidden() {
-        #expect(Policy.outcome(translationX: 40, translationY: 5, velocityX: 200, chromeVisible: false) == .revealChrome)
-        #expect(Policy.outcome(translationX: -40, translationY: 5, velocityX: -200, chromeVisible: false) == .revealChrome)
-        // 快扫:距离短一点也算。
-        #expect(Policy.outcome(translationX: 26, translationY: 2, velocityX: 500, chromeVisible: false) == .revealChrome)
-        // 一扫再远,控件收着时也只是叫出控件。
-        #expect(Policy.outcome(translationX: 200, translationY: 10, velocityX: 1500, chromeVisible: false) == .revealChrome)
-        #expect(Policy.outcome(translationX: 20, translationY: 2, velocityX: 100, chromeVisible: false) == .none)
+    @Test("With controls hidden a sideways swipe does nothing; taps on the edges bring them up")
+    func ignoredWhenHidden() {
+        #expect(Policy.outcome(translationX: 40, translationY: 5, velocityX: 200, chromeVisible: false) == .none)
+        #expect(Policy.outcome(translationX: -40, translationY: 5, velocityX: -200, chromeVisible: false) == .none)
+        #expect(Policy.outcome(translationX: 200, translationY: 10, velocityX: 1500, chromeVisible: false) == .none)
     }
 
     @Test("With controls showing only a long or fast swipe closes the reader")
@@ -517,6 +513,34 @@ struct SpokenWordTranscriptSwipePolicyTests {
     func ignoresDiagonalAndReversed() {
         #expect(Policy.outcome(translationX: 120, translationY: 90, velocityX: 900, chromeVisible: true) == .none)
         #expect(Policy.outcome(translationX: 120, translationY: 10, velocityX: -400, chromeVisible: true) == .none)
-        #expect(Policy.outcome(translationX: 50, translationY: 4, velocityX: -300, chromeVisible: false) == .none)
+        #expect(Policy.outcome(translationX: 50, translationY: 4, velocityX: -300, chromeVisible: true) == .none)
+    }
+}
+
+@Suite("Transcript reader edge taps")
+struct SpokenWordTranscriptEdgeTapPolicyTests {
+    private typealias Policy = SpokenWordTranscriptEdgeTapPolicy
+
+    @Test("Each edge strip is about a sixth of the width, at least a finger wide, capped on iPad")
+    func edgeWidths() {
+        #expect(Policy.edgeWidth(viewportWidth: 393) == 393 * 0.16)
+        #expect(Policy.edgeWidth(viewportWidth: 375) == 375 * 0.16)
+        #expect(Policy.edgeWidth(viewportWidth: 1024) == 120)
+        #expect(Policy.edgeWidth(viewportWidth: 240) == 44)
+        // 极窄时两边加起来不超过一半。
+        #expect(Policy.edgeWidth(viewportWidth: 120) == 30)
+        #expect(Policy.edgeWidth(viewportWidth: 0) == 0)
+    }
+
+    @Test("Taps near either edge only toggle the controls; the middle plays from the paragraph")
+    func edgeTaps() {
+        #expect(Policy.isEdgeTap(x: 10, viewportWidth: 393))
+        #expect(Policy.isEdgeTap(x: 60, viewportWidth: 393))
+        #expect(Policy.isEdgeTap(x: 385, viewportWidth: 393))
+        #expect(Policy.isEdgeTap(x: 340, viewportWidth: 393))
+        #expect(!Policy.isEdgeTap(x: 70, viewportWidth: 393))
+        #expect(!Policy.isEdgeTap(x: 196, viewportWidth: 393))
+        #expect(!Policy.isEdgeTap(x: 320, viewportWidth: 393))
+        #expect(!Policy.isEdgeTap(x: 10, viewportWidth: 0))
     }
 }

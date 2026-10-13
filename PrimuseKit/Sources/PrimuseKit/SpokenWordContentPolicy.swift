@@ -618,10 +618,11 @@ public enum SpokenWordTranscriptReadingPolicy {
     }
 }
 
-/// 全屏文稿里的左右轻扫:控件收着时把它们叫出来,控件在的时候退出全屏。
+/// 全屏文稿里的左右扫:只在控件出现时用来退出全屏(#283)。控件收着时左右扫什么也不做,
+/// 叫出控件交给点屏幕左右两边(`SpokenWordTranscriptEdgeTapPolicy`)。
 ///
-/// 上下是翻文稿,所以只认明显横着的一扫(开始和松手时横向都要比纵向大出一截)。退出要比叫出控件
-/// 扫得更远或更快:控件刚出来、还没收回去时想再叫一次控件,轻轻一扫不会把全屏关掉。
+/// 上下是翻文稿,所以只认明显横着的一扫(开始和松手时横向都要比纵向大出一截)。退出要扫得够远或够快;
+/// 控件在时轻轻一扫不关全屏,只让控件多留一会儿。
 public enum SpokenWordTranscriptSwipePolicy {
     public enum Outcome: Sendable, Equatable {
         case none
@@ -660,24 +661,47 @@ public enum SpokenWordTranscriptSwipePolicy {
         return horizontal >= max(1, vertical * horizontalDominanceRatio)
     }
 
-    /// 松手时这一扫算什么。往左往右一样。
+    /// 松手时这一扫算什么。往左往右一样。控件收着时一律不算。
     public static func outcome(
         translationX: Double,
         translationY: Double,
         velocityX: Double,
         chromeVisible: Bool
     ) -> Outcome {
+        guard chromeVisible else { return .none }
         let distance = abs(translationX)
         guard distance >= max(1, abs(translationY) * horizontalDominanceRatio) else { return .none }
         if translationX * velocityX < 0, abs(velocityX) >= reversalVelocity { return .none }
         let speed = abs(velocityX)
-        if chromeVisible,
-           distance >= dismissDistance || (speed >= dismissVelocity && distance >= flickMinimumDistance * 2) {
+        if distance >= dismissDistance || (speed >= dismissVelocity && distance >= flickMinimumDistance * 2) {
             return .dismiss
         }
         if distance >= revealDistance || (speed >= revealVelocity && distance >= flickMinimumDistance) {
             return .revealChrome
         }
         return .none
+    }
+}
+
+/// 全屏文稿左右两边的点按区(#283):点在这两条里只叫出或收起控件,不从那一段开始播。
+/// 原来只有正文两侧二十来点的留白算「点空白处」,手指稍微偏一点就点到段落上跳播了。
+/// 宽度按屏宽取一成六,最窄 44(一个手指),最宽 120(iPad 上正文限宽居中,两边本来就是空白);
+/// 两边加起来不超过屏宽的一半,中间总留着点段落播放的地方。
+public enum SpokenWordTranscriptEdgeTapPolicy {
+    public static let widthFraction = 0.16
+    public static let minimumWidth = 44.0
+    public static let maximumWidth = 120.0
+
+    public static func edgeWidth(viewportWidth: Double) -> Double {
+        guard viewportWidth > 0 else { return 0 }
+        let preferred = min(max(viewportWidth * widthFraction, minimumWidth), maximumWidth)
+        return min(preferred, viewportWidth / 4)
+    }
+
+    /// `x` 从屏幕(文稿那一屏)左边量起。
+    public static func isEdgeTap(x: Double, viewportWidth: Double) -> Bool {
+        let width = edgeWidth(viewportWidth: viewportWidth)
+        guard width > 0 else { return false }
+        return x <= width || x >= viewportWidth - width
     }
 }

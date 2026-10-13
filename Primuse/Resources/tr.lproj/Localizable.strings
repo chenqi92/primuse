@@ -5783,7 +5783,7 @@
 "transcript_reader_paragraphs_footer" = "Birleştirilmiş, art arda gelen altyazı satırlarını paragraflarda toplar; konuşan değiştiğinde, uzun bir duraklamadan sonra veya bir bölüm başlığında yeni paragraf başlatır. Satır satır, her altyazı satırını ayrı gösterir.";
 "transcript_reader_speed_slower" = "Daha yavaş";
 "transcript_reader_speed_faster" = "Daha hızlı";
-"transcript_reader_reveal_on_scroll_footer_swipe" = "Kapalıyken metni kaydırdığınızda denetimler gizli kalır. Göstermek için ekrana dokunun, sola veya sağa kaydırın ya da duraklatın; birkaç saniye sonra yeniden gizlenirler. Denetimler görünürken sola veya sağa kaydırmak tam ekran metni kapatır.";
+"transcript_reader_reveal_on_scroll_footer_swipe" = "Kapalıyken metni kaydırdığınızda denetimler gizli kalır. Göstermek için ekranın sol veya sağ kenarına yakın bir yere dokunun ya da duraklatın (ortadaki bir paragrafa dokunmak oradan çalar); birkaç saniye sonra durum çubuğuyla birlikte yeniden gizlenirler. Denetimler görünürken sola veya sağa kaydırmak tam ekran metni kapatır.";
 "spoken_word_text_tab_hold_hint" = "Metni tam ekran okumak için basılı tutun";
 "transcript_reader_font_pingfang" = "PingFang SC";
 "transcript_reader_font_songti" = "Songti SC";

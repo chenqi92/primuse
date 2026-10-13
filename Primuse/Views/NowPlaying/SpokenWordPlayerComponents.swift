@@ -1138,7 +1138,8 @@ enum SpokenWordTranscriptTheme: String, CaseIterable, Identifiable {
 /// 跟着播放走到正在念的那一句(或那一段);自己滑开了就不再拉回,点底下的「跟随播放」再接上。
 /// 点一段从那里播(暂停着也开始播)。顶上只有关闭与章节名,底下是进度与一排键:跟随播放 · 快退 · 播放 ·
 /// 快进 · 菜单;3 秒不碰就收起(暂停着也收),点空白处、暂停、拖进度时再出来,上下滑动默认不叫出来(可在设置里改)。
-/// 顶栏往下拖一段退出全屏。iPhone、iPad 上左右轻扫:控件收着时叫出来,控件在时退出全屏。
+/// 顶栏往下拖一段退出全屏。iPhone、iPad 上点屏幕左右两边只叫出或收起控件、不跳播,控件在时左右扫一下
+/// 退出全屏;控件收起时状态栏一起藏起来(同 Apple 图书)。
 /// 菜单里是目录、搜索、主题与设置、语速,以及书签与字号。字幕可以并成段落读,也可以每一行一段(设置里选)。
 struct SpokenWordTranscriptReader: View {
     let lines: [LyricLine]
@@ -1158,6 +1159,11 @@ struct SpokenWordTranscriptReader: View {
     private struct ParagraphInput: Equatable {
         let lines: [LyricLine]
         let mode: Policy.ParagraphMode
+    }
+    /// 顶上安全区的高度,和量它时的宽度(转屏时重新量)。
+    private struct TopInsetSample: Equatable {
+        let width: CGFloat
+        let inset: CGFloat
     }
 
     @Environment(\.dismiss) private var dismiss
@@ -1214,6 +1220,14 @@ struct SpokenWordTranscriptReader: View {
     @State private var bookmarkNotice: BookmarkNotice?
     @State private var bookmarkFeedbackToken = 0
     @State private var hoverThrottle = SpokenWordTranscriptHoverThrottle()
+    /// 文稿那一屏在窗口里的位置,判断点在不在左右两边的点按区(`SpokenWordTranscriptEdgeTapPolicy`)。
+    @State private var viewportFrame: CGRect = .zero
+    #if os(iOS)
+    /// 文稿顶上让出的高度:状态栏藏起来时安全区会变矮(没有刘海的 iPhone、iPad),正文不跟着往上跳,
+    /// 一直按出现过的最高那档留。转屏(宽度变了)时重新量。
+    @State private var reservedTopInset: CGFloat = 0
+    @State private var reservedTopInsetWidth: CGFloat = 0
+    #endif
     @FocusState private var searchFieldFocused: Bool
 
     private var font: SpokenWordTranscriptFont { SpokenWordTranscriptFont(rawValue: fontRawValue) ?? .system }
@@ -1282,6 +1296,18 @@ struct SpokenWordTranscriptReader: View {
         }
         #if os(iOS)
         .sensoryFeedback(.success, trigger: bookmarkFeedbackToken)
+        // 控件收起时状态栏(时间、电量)一起藏,读书时整屏只有字;控件出来时跟着出来(#283)。
+        .statusBarHidden(!(chromeVisible || isSearching))
+        .onGeometryChange(for: TopInsetSample.self) { proxy in
+            TopInsetSample(width: proxy.size.width, inset: proxy.safeAreaInsets.top)
+        } action: { sample in
+            if sample.width != reservedTopInsetWidth {
+                reservedTopInsetWidth = sample.width
+                reservedTopInset = sample.inset
+            } else if sample.inset > reservedTopInset {
+                reservedTopInset = sample.inset
+            }
+        }
         #endif
         .onContinuousHover { phase in
             guard case .active = phase else { return }
@@ -1378,7 +1404,21 @@ struct SpokenWordTranscriptReader: View {
 
     // MARK: Text
 
+    @ViewBuilder
     private func transcript(palette: SpokenWordTranscriptPalette) -> some View {
+        #if os(iOS)
+        // 文稿铺到状态栏底下,顶上自己按 `reservedTopInset` 留白:状态栏藏起来、安全区变矮时正文不往上跳。
+        // 外面套一层不铺过去的透明底,顶栏、搜索栏照旧排在安全区里。
+        Color.clear.overlay {
+            transcriptScroll(palette: palette, topPadding: 72 + reservedTopInset)
+                .ignoresSafeArea(.container, edges: .top)
+        }
+        #else
+        transcriptScroll(palette: palette, topPadding: 72)
+        #endif
+    }
+
+    private func transcriptScroll(palette: SpokenWordTranscriptPalette, topPadding: CGFloat) -> some View {
         let style = rowStyle(palette: palette)
         let currentID = currentParagraphID
         let match = currentMatch
@@ -1395,13 +1435,15 @@ struct SpokenWordTranscriptReader: View {
                     .equatable()
                     .id(paragraph.id)
                     .contentShape(Rectangle())
-                    .onTapGesture { play(from: paragraph) }
+                    .onTapGesture(coordinateSpace: .global) { location in
+                        tapParagraph(paragraph, at: location)
+                    }
                 }
             }
             .frame(maxWidth: 720, alignment: .leading)
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 24)
-            .padding(.top, 72)
+            .padding(.top, topPadding)
             // 底下的进度、时间与一排键比原来高,最后一段也要能滚到它们上面。
             .padding(.bottom, 190)
             .background {
@@ -1412,8 +1454,14 @@ struct SpokenWordTranscriptReader: View {
             }
         }
         .scrollDismissesKeyboard(.interactively)
+        .onGeometryChange(for: CGRect.self) { proxy in
+            proxy.frame(in: .global)
+        } action: { frame in
+            viewportFrame = frame
+        }
         #if os(iOS)
-        .gesture(SpokenWordTranscriptSwipeGesture(isEnabled: !isSearching) { translation, velocityX in
+        // 左右扫只在控件出来时用来退出全屏;控件收着时不接手,叫出控件交给点左右两边。
+        .gesture(SpokenWordTranscriptSwipeGesture(isEnabled: !isSearching && chromeVisible) { translation, velocityX in
             handleSwipe(translation: translation, velocityX: velocityX)
         })
         #endif
@@ -1467,6 +1515,17 @@ struct SpokenWordTranscriptReader: View {
         guard paragraph.id == currentID else { return .dimmed }
         if highlight == .sentence, let currentSegment { return .segment(currentSegment) }
         return .paragraph
+    }
+
+    /// 点在屏幕左右两边只叫出或收起控件(#283:原来两侧只有正文的留白算空白处,稍偏一点就点到段落跳播了);
+    /// 点在中间才从这一段播。
+    private func tapParagraph(_ paragraph: Policy.Paragraph, at location: CGPoint) {
+        let x = Double(location.x - viewportFrame.minX)
+        if SpokenWordTranscriptEdgeTapPolicy.isEdgeTap(x: x, viewportWidth: Double(viewportFrame.width)) {
+            toggleChrome()
+        } else {
+            play(from: paragraph)
+        }
     }
 
     /// 点一段:从段首播;搜索时点到有命中的段,从命中的那一句播。暂停着也开始播。
@@ -1539,7 +1598,7 @@ struct SpokenWordTranscriptReader: View {
         }
     }
 
-    /// 左右轻扫:控件收着时叫出来,控件在时退出全屏。退出要扫得更远或更快,见 `SpokenWordTranscriptSwipePolicy`。
+    /// 控件在时左右扫:扫得够远或够快退出全屏,轻扫只让控件多留一会儿,见 `SpokenWordTranscriptSwipePolicy`。
     private func handleSwipe(translation: CGSize, velocityX: CGFloat) {
         switch SpokenWordTranscriptSwipePolicy.outcome(
             translationX: Double(translation.width),
@@ -2033,8 +2092,8 @@ struct SpokenWordTranscriptReader: View {
 }
 
 #if os(iOS)
-/// 文稿上的左右轻扫(见 `SpokenWordTranscriptSwipePolicy`)。UIKit 的拖动手势挂在文稿上:只在横着走时接手,
-/// 和文稿自己的上下滚动同时识别、互不抢;点段落、点空白处照旧。
+/// 文稿上的左右扫,控件出来时用来退出全屏(见 `SpokenWordTranscriptSwipePolicy`)。UIKit 的拖动手势挂在文稿上:
+/// 只在横着走时接手,和文稿自己的上下滚动同时识别、互不抢;点段落、点空白处照旧。
 private struct SpokenWordTranscriptSwipeGesture: UIGestureRecognizerRepresentable {
     let isEnabled: Bool
     let onEnded: (_ translation: CGSize, _ velocityX: CGFloat) -> Void

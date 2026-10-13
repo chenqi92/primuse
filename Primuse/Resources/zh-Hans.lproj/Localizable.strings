@@ -5970,7 +5970,7 @@
 "transcript_reader_paragraphs_footer" = "自动合并会把同一段话的几行字幕接成一段，换说话人、停顿较久或遇到章节名时另起一段；每条字幕一段则按原文稿逐行显示。";
 "transcript_reader_speed_slower" = "慢一档";
 "transcript_reader_speed_faster" = "快一档";
-"transcript_reader_reveal_on_scroll_footer_swipe" = "关闭后上下滑动文字稿不会弹出控件，点一下屏幕、左右轻扫或暂停时才出现，几秒不碰自动收起。控件出现时左右轻扫退出全屏。";
+"transcript_reader_reveal_on_scroll_footer_swipe" = "关闭后上下滑动文字稿不会弹出控件。点屏幕左右两边或暂停时控件才出现（点中间的段落从那里开始播），几秒不碰自动收起，状态栏也一起藏起来。控件出现时左右扫一下退出全屏。";
 "spoken_word_text_tab_hold_hint" = "按住可全屏阅读文字稿";
 "transcript_reader_font_pingfang" = "苹方";
 "transcript_reader_font_songti" = "宋体";

@@ -5783,7 +5783,7 @@
 "transcript_reader_paragraphs_footer" = "Agrupados junta linhas de legenda consecutivas em parágrafos e começa um novo quando muda quem fala, após uma pausa longa ou em um título de capítulo. Linha por linha mostra cada linha de legenda separadamente.";
 "transcript_reader_speed_slower" = "Mais devagar";
 "transcript_reader_speed_faster" = "Mais rápido";
-"transcript_reader_reveal_on_scroll_footer_swipe" = "Quando desativado, os controles permanecem ocultos enquanto você rola a transcrição. Toque na tela, deslize para a esquerda ou para a direita, ou pause para mostrá-los; eles somem novamente após alguns segundos. Enquanto aparecem, deslize para a esquerda ou para a direita para fechar a transcrição em tela cheia.";
+"transcript_reader_reveal_on_scroll_footer_swipe" = "Quando desativado, os controles permanecem ocultos enquanto você rola a transcrição. Toque perto da borda esquerda ou direita da tela, ou pause, para mostrá-los (tocar um parágrafo no meio reproduz a partir dele); eles somem novamente após alguns segundos, junto com a barra de status. Enquanto aparecem, deslize para a esquerda ou para a direita para fechar a transcrição em tela cheia.";
 "spoken_word_text_tab_hold_hint" = "Toque e segure para ler a transcrição em tela cheia";
 "transcript_reader_font_pingfang" = "PingFang SC";
 "transcript_reader_font_songti" = "Songti SC";

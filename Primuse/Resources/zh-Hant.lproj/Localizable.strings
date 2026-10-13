@@ -5854,7 +5854,7 @@
 "transcript_reader_paragraphs_footer" = "自動合併會把同一段話的幾行字幕接成一段，換說話人、停頓較久或遇到章節名時另起一段；每條字幕一段則按原文稿逐行顯示。";
 "transcript_reader_speed_slower" = "慢一檔";
 "transcript_reader_speed_faster" = "快一檔";
-"transcript_reader_reveal_on_scroll_footer_swipe" = "關閉後上下滑動文字稿不會彈出控制項，點一下畫面、左右輕掃或暫停時才出現，幾秒不碰自動收起。控制項出現時左右輕掃退出全螢幕。";
+"transcript_reader_reveal_on_scroll_footer_swipe" = "關閉後上下滑動文字稿不會彈出控制項。點畫面左右兩邊或暫停時控制項才出現（點中間的段落從那裡開始播），幾秒不碰自動收起，狀態列也一起藏起來。控制項出現時左右掃一下退出全螢幕。";
 "spoken_word_text_tab_hold_hint" = "按住可全螢幕閱讀文字稿";
 "transcript_reader_font_pingfang" = "蘋方";
 "transcript_reader_font_songti" = "宋體";

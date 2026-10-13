@@ -5877,7 +5877,7 @@
 "transcript_reader_paragraphs_footer" = "Regroupés réunit les lignes de sous-titres consécutives en paragraphes et en commence un nouveau au changement d’intervenant, après une longue pause ou à un titre de chapitre. Ligne par ligne affiche chaque ligne de sous-titre séparément.";
 "transcript_reader_speed_slower" = "Plus lent";
 "transcript_reader_speed_faster" = "Plus rapide";
-"transcript_reader_reveal_on_scroll_footer_swipe" = "Lorsque cette option est désactivée, les commandes restent masquées pendant le défilement de la transcription. Touchez l’écran, balayez vers la gauche ou la droite, ou mettez en pause pour les afficher ; elles disparaissent après quelques secondes. Lorsqu’elles sont affichées, balayez vers la gauche ou la droite pour fermer la transcription en plein écran.";
+"transcript_reader_reveal_on_scroll_footer_swipe" = "Lorsque cette option est désactivée, les commandes restent masquées pendant le défilement de la transcription. Touchez près du bord gauche ou droit de l’écran, ou mettez en pause, pour les afficher (toucher un paragraphe au centre lance la lecture à partir de celui-ci) ; elles disparaissent après quelques secondes, avec la barre d’état. Lorsqu’elles sont affichées, balayez vers la gauche ou la droite pour fermer la transcription en plein écran.";
 "spoken_word_text_tab_hold_hint" = "Maintenir pour lire la transcription en plein écran";
 "transcript_reader_font_pingfang" = "PingFang SC";
 "transcript_reader_font_songti" = "Songti SC";
