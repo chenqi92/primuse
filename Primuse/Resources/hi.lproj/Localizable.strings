@@ -2948,6 +2948,7 @@
 "scrobble_send_now_playing" = "अभी भेजें चल रहा है";
 "scrobble_title" = "स्क्रोबल";
 "scrobble_token_invalid" = "अमान्य";
+"scrobble_token_unconfirmed" = "अभी जाँच नहीं हो सकती";
 "scrobble_token_valid" = "मान्य";
 "scrobble_user_token" = "उपयोगकर्ता टोकन";
 "scrobble_validate" = "मान्य करें";

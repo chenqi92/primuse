@@ -2948,6 +2948,7 @@
 "scrobble_send_now_playing" = "Enviar agora reproduzindo";
 "scrobble_title" = "Rabisco";
 "scrobble_token_invalid" = "Inválido";
+"scrobble_token_unconfirmed" = "Não é possível verificar agora";
 "scrobble_token_valid" = "Válido";
 "scrobble_user_token" = "Token de usuário";
 "scrobble_validate" = "Validar";

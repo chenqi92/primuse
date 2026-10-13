@@ -2948,6 +2948,7 @@
 "scrobble_send_now_playing" = "Wyślij Teraz odtwarzane";
 "scrobble_title" = "Scrobble";
 "scrobble_token_invalid" = "Nieprawidłowy";
+"scrobble_token_unconfirmed" = "Nie można teraz sprawdzić";
 "scrobble_token_valid" = "Poprawne";
 "scrobble_user_token" = "Token użytkownika";
 "scrobble_validate" = "Zatwierdź";

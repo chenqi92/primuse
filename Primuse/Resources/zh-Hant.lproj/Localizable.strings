@@ -903,6 +903,7 @@
 "scrobble_validate" = "驗證";
 "scrobble_token_valid" = "已生效";
 "scrobble_token_invalid" = "無效";
+"scrobble_token_unconfirmed" = "暫時無法驗證";
 "scrobble_lb_get_token" = "在 ListenBrainz 取得權杖";
 "scrobble_lb_footer" = "在 listenbrainz.org/profile 複製 user token 貼到這裡。";
 "scrobble_lastfm_api_key_placeholder" = "API Key";

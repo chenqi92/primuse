@@ -1129,6 +1129,7 @@
 "scrobble_validate" = "Überprüfen";
 "scrobble_token_valid" = "Gültig";
 "scrobble_token_invalid" = "Ungültig";
+"scrobble_token_unconfirmed" = "Derzeit nicht prüfbar";
 "scrobble_lb_get_token" = "Token bei ListenBrainz holen";
 "scrobble_lb_footer" = "Kopiere deinen Benutzer-Token von listenbrainz.org/profile und füge ihn hier ein.";
 "scrobble_lastfm_api_key_placeholder" = "API Key";

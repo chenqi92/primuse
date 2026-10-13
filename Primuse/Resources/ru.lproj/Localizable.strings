@@ -914,6 +914,7 @@
 "ai_models_loading" = "Загрузка моделей из сервиса…";
 "META-04 · Filling only missing fields won't overwrite metadata you've edited manually" = "META-04 · Заполнение только недостающих полей не приведет к перезаписи метаданных, которые вы отредактировали вручную.";
 "scrobble_token_invalid" = "Недействительно";
+"scrobble_token_unconfirmed" = "Сейчас не удаётся проверить";
 "Cover" = "Обложка";
 "player_volume_bar" = "Ползунок громкости";
 "onboarding_personalization_icon" = "Выберите значок приложения в «Настройки» > «Внешний вид».";

@@ -914,6 +914,7 @@
 "ai_models_loading" = "Servisten modeller getiriliyor…";
 "META-04 · Filling only missing fields won't overwrite metadata you've edited manually" = "META-04 · Yalnızca eksik alanları doldurmak, manuel olarak düzenlediğiniz üst verilerin üzerine yazmaz";
 "scrobble_token_invalid" = "Geçersiz";
+"scrobble_token_unconfirmed" = "Şu anda doğrulanamıyor";
 "Cover" = "Kapak";
 "player_volume_bar" = "Ses Düzeyi Kaydırıcısı";
 "onboarding_personalization_icon" = "Ayarlar > Görünüm'de Uygulama simgenizi seçin";
