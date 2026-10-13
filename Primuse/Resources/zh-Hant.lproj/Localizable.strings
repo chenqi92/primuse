@@ -5959,6 +5959,8 @@
 
 "listening_space_colors_title" = "電台、有聲書、播客的顏色";
 "listening_space_colors_footer" = "首頁頂部切換、資料庫、搜尋和小工具裡電台、有聲書、播客用的顏色。";
+"listening_space_colors_all_title" = "音樂、電台、有聲書、播客的顏色";
+"listening_space_colors_all_footer" = "音樂用的是 App 的主題色，按鈕、開關等也跟著它變。電台、有聲書、播客的顏色用在首頁頂部切換、資料庫、搜尋和小工具裡。";
 "listening_space_tint_source" = "顏色來源";
 "listening_space_tint_standard" = "預設";
 "listening_space_tint_standard_hint" = "這一類內容自帶的顏色";

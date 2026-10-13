@@ -5982,6 +5982,8 @@
 
 "listening_space_colors_title" = "라디오·오디오북·팟캐스트 색상";
 "listening_space_colors_footer" = "홈 상단 전환 버튼, 보관함, 검색, 위젯에서 라디오, 오디오북, 팟캐스트에 쓰는 색상입니다.";
+"listening_space_colors_all_title" = "음악·라디오·오디오북·팟캐스트 색상";
+"listening_space_colors_all_footer" = "음악에는 앱의 테마 색상이 쓰이며 버튼과 스위치도 이 색상을 따릅니다. 라디오, 오디오북, 팟캐스트 색상은 홈 상단 전환 버튼, 보관함, 검색, 위젯에 쓰입니다.";
 "listening_space_tint_source" = "색상 출처";
 "listening_space_tint_standard" = "기본";
 "listening_space_tint_standard_hint" = "이 항목의 고유 색상";

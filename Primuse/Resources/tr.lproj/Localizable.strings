@@ -5888,6 +5888,8 @@
 
 "listening_space_colors_title" = "Radyo, Sesli Kitap ve Podcast Renkleri";
 "listening_space_colors_footer" = "Ana sayfanın üstündeki geçiş düğmelerinde, arşivde, aramada ve widget'larda radyo, sesli kitaplar ve podcast'ler için kullanılan renkler.";
+"listening_space_colors_all_title" = "Müzik, Radyo, Sesli Kitap ve Podcast Renkleri";
+"listening_space_colors_all_footer" = "Müzik, uygulamanın tema rengini kullanır; düğmeler ve anahtarlar da bu rengi izler. Radyo, sesli kitap ve podcast renkleri ana sayfanın üstündeki geçiş düğmelerinde, arşivde, aramada ve widget'larda kullanılır.";
 "listening_space_tint_source" = "Renk Kaynağı";
 "listening_space_tint_standard" = "Varsayılan";
 "listening_space_tint_standard_hint" = "Bu türün kendi rengi";

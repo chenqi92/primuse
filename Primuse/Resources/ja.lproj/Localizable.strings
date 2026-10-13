@@ -5983,6 +5983,8 @@
 
 "listening_space_colors_title" = "ラジオ・オーディオブック・ポッドキャストの色";
 "listening_space_colors_footer" = "ホーム上部の切り替え、ライブラリ、検索、ウィジェットでラジオ、オーディオブック、ポッドキャストに使う色です。";
+"listening_space_colors_all_title" = "ミュージック・ラジオ・オーディオブック・ポッドキャストの色";
+"listening_space_colors_all_footer" = "ミュージックにはアプリのテーマカラーが使われ、ボタンやスイッチもこの色になります。ラジオ、オーディオブック、ポッドキャストの色は、ホーム上部の切り替え、ライブラリ、検索、ウィジェットで使われます。";
 "listening_space_tint_source" = "色の取得元";
 "listening_space_tint_standard" = "デフォルト";
 "listening_space_tint_standard_hint" = "このカテゴリ固有の色";

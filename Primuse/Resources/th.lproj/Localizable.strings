@@ -5888,6 +5888,8 @@
 
 "listening_space_colors_title" = "สีของวิทยุ หนังสือเสียง และพอดแคสต์";
 "listening_space_colors_footer" = "สีที่วิทยุ หนังสือเสียง และพอดแคสต์ใช้ในตัวสลับด้านบนของหน้าหลัก คลังเพลง การค้นหา และวิดเจ็ต";
+"listening_space_colors_all_title" = "สีของเพลง วิทยุ หนังสือเสียง และพอดแคสต์";
+"listening_space_colors_all_footer" = "เพลงใช้สีธีมของแอป และปุ่มกับสวิตช์ก็ใช้สีนี้ด้วย สีของวิทยุ หนังสือเสียง และพอดแคสต์ใช้ในตัวสลับด้านบนของหน้าหลัก คลังเพลง การค้นหา และวิดเจ็ต";
 "listening_space_tint_source" = "แหล่งสี";
 "listening_space_tint_standard" = "ค่าเริ่มต้น";
 "listening_space_tint_standard_hint" = "สีประจำของหมวดนี้";

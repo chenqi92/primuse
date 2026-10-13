@@ -6075,6 +6075,8 @@
 
 "listening_space_colors_title" = "电台、有声书、播客的颜色";
 "listening_space_colors_footer" = "首页顶部切换、资料库、搜索和小组件里电台、有声书、播客用的颜色。";
+"listening_space_colors_all_title" = "音乐、电台、有声书、播客的颜色";
+"listening_space_colors_all_footer" = "音乐用的是 App 的主题色，按钮、开关等也跟着它变。电台、有声书、播客的颜色用在首页顶部切换、资料库、搜索和小组件里。";
 "listening_space_tint_source" = "颜色来源";
 "listening_space_tint_standard" = "默认";
 "listening_space_tint_standard_hint" = "这一类内容自带的颜色";

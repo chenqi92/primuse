@@ -5982,6 +5982,8 @@
 
 "listening_space_colors_title" = "Couleurs de la radio, des livres audio et des podcasts";
 "listening_space_colors_footer" = "Les couleurs de la radio, des livres audio et des podcasts dans le sélecteur en haut de l’Accueil, dans la Bibliothèque, dans la recherche et dans les widgets.";
+"listening_space_colors_all_title" = "Couleurs de la musique, de la radio, des livres audio et des podcasts";
+"listening_space_colors_all_footer" = "La musique utilise la couleur du thème de l’app, que suivent aussi les boutons et les interrupteurs. Les couleurs de la radio, des livres audio et des podcasts apparaissent dans le sélecteur en haut de l’Accueil, dans la Bibliothèque, dans la recherche et dans les widgets.";
 "listening_space_tint_source" = "Source de la couleur";
 "listening_space_tint_standard" = "Par défaut";
 "listening_space_tint_standard_hint" = "La couleur propre à cette catégorie";

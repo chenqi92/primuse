@@ -5742,6 +5742,8 @@
 
 "listening_space_colors_title" = "Radio, Audiobook & Podcast Colors";
 "listening_space_colors_footer" = "The colors radio, audiobooks and podcasts use in the switcher at the top of Home, in Library, in search and in widgets.";
+"listening_space_colors_all_title" = "Music, Radio, Audiobook & Podcast Colors";
+"listening_space_colors_all_footer" = "Music uses the app's theme color, which buttons and switches follow too. The radio, audiobook and podcast colors appear in the switcher at the top of Home, in Library, in search and in widgets.";
 "listening_space_tint_source" = "Color Source";
 "listening_space_tint_standard" = "Default";
 "listening_space_tint_standard_hint" = "The color this kind of listening comes with";

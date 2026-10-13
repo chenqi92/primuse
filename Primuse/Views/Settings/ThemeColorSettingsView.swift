@@ -108,10 +108,10 @@ struct AppearanceSettingsView: View {
             }
             .settingsAnchor("appearance.minimalNavigation")
 
-            // 主题色与 App 图标改的都是这一层外壳的样子，直接平铺在这一页上：
-            // 都是要靠眼睛挑的东西，多一次跳转就得来回对比。
-            ThemeColorSections()
-            ListeningSpaceColorSections()
+            // 音乐(就是 App 的主题色)和电台、有声书、播客一样，一类一行，点进去再挑。
+            ListeningSpaceColorSections(includesMusic: true)
+
+            // App 图标直接平铺：要靠眼睛挑，多一次跳转就得来回对比。
 
             #if os(iOS)
             Section {
@@ -383,15 +383,21 @@ struct ThemeColorSections: View {
     }
 }
 
-/// 独立页面外壳。设置搜索命中主题色条目时仍会推这一页。
+/// 主题色的页面。「颜色和图标」页上「音乐」那一行点进来(标题是「音乐」,下面不再列另外三类);
+/// 设置搜索命中主题色或电台、有声书、播客颜色的条目时推的也是这一页。
 struct ThemeColorSettingsView: View {
+    /// 从「颜色和图标」的「音乐」一行进来:另外三类就在上一页,这里不重复。
+    var isMusicEntry = false
+
     var body: some View {
         List {
             ThemeColorSections()
-            ListeningSpaceColorSections()
+            if !isMusicEntry {
+                ListeningSpaceColorSections()
+            }
         }
-            .navigationTitle("theme_color_title")
-            .navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(isMusicEntry ? ListeningSpace.music.titleKey : "theme_color_title")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -577,10 +583,31 @@ struct ThemeHSBSliders: View {
 /// 电台、有声书、播客各自的颜色(#283):一类一行,右边写着现在用哪种颜色,点进去挑。
 /// 「颜色和图标」页与独立的主题色页都列这一组。
 struct ListeningSpaceColorSections: View {
+    /// 「颜色和图标」页上把音乐(主题色)也列成一行,四类一样都是点进去再挑。
+    var includesMusic = false
+
     @State private var settings = ListeningSpaceTintSettings.shared
+    @State private var themeSettings = ThemeColorSettings.shared
 
     var body: some View {
         Section {
+            if includesMusic {
+                NavigationLink {
+                    ThemeColorSettingsView(isMusicEntry: true)
+                } label: {
+                    HStack(spacing: 12) {
+                        ListeningSpaceColorGlyph(space: .music, side: 28)
+                        Text(ListeningSpace.music.titleKey)
+                        Spacer(minLength: 8)
+                        Text(themeSettings.mode == .automatic
+                             ? LocalizedStringKey("theme_color_mode_auto")
+                             : LocalizedStringKey("theme_color_mode_fixed"))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .accessibilityIdentifier("appearance.musicColor")
+            }
             ForEach(ListeningSpaceTintPreferences.customizableSpaces, id: \.self) { space in
                 NavigationLink {
                     ListeningSpaceColorSettingsView(space: space)
@@ -596,25 +623,34 @@ struct ListeningSpaceColorSections: View {
                 }
             }
         } header: {
-            Text("listening_space_colors_title")
+            Text(includesMusic
+                 ? LocalizedStringKey("listening_space_colors_all_title")
+                 : LocalizedStringKey("listening_space_colors_title"))
         } footer: {
-            Text("listening_space_colors_footer")
+            Text(includesMusic
+                 ? LocalizedStringKey("listening_space_colors_all_footer")
+                 : LocalizedStringKey("listening_space_colors_footer"))
         }
         .settingsAnchor("appearance.listeningSpaceColors")
     }
 }
 
-/// 资料库里那种白色图标压在色块上的小方块。
+/// 资料库里那种白色图标压在色块上的小方块。颜色太浅(「白色」主题色)时垫石墨灰,白图标才看得见。
 private struct ListeningSpaceColorGlyph: View {
     let space: ListeningSpace
     let side: CGFloat
+
+    @Environment(\.self) private var environment
 
     var body: some View {
         Image(systemName: space.systemImage)
             .font(.system(size: side * 0.48, weight: .semibold))
             .foregroundStyle(.white)
             .frame(width: side, height: side)
-            .background(space.glyphTileTint, in: RoundedRectangle(cornerRadius: side * 0.25, style: .continuous))
+            .background(
+                ThemeService.legibleFillBehindWhiteText(space.glyphTileTint, in: environment),
+                in: RoundedRectangle(cornerRadius: side * 0.25, style: .continuous)
+            )
             .accessibilityHidden(true)
     }
 }

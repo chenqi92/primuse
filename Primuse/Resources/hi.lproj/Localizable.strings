@@ -5888,6 +5888,8 @@
 
 "listening_space_colors_title" = "रेडियो, ऑडियोबुक और पॉडकास्ट के रंग";
 "listening_space_colors_footer" = "होम के ऊपर वाले स्विचर, लाइब्रेरी, खोज और विजेट में रेडियो, ऑडियोबुक और पॉडकास्ट के रंग।";
+"listening_space_colors_all_title" = "संगीत, रेडियो, ऑडियोबुक और पॉडकास्ट के रंग";
+"listening_space_colors_all_footer" = "संगीत ऐप के थीम रंग का उपयोग करता है, और बटन व स्विच भी इसी रंग में दिखते हैं। रेडियो, ऑडियोबुक और पॉडकास्ट के रंग होम के ऊपर वाले स्विचर, लाइब्रेरी, खोज और विजेट में दिखते हैं।";
 "listening_space_tint_source" = "रंग का स्रोत";
 "listening_space_tint_standard" = "डिफ़ॉल्ट";
 "listening_space_tint_standard_hint" = "इस श्रेणी का अपना रंग";

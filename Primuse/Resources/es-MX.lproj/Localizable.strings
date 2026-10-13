@@ -5888,6 +5888,8 @@
 
 "listening_space_colors_title" = "Colores de radio, audiolibros y podcasts";
 "listening_space_colors_footer" = "Los colores de radio, audiolibros y podcasts en el selector de la parte superior de Inicio, en la Biblioteca, en la búsqueda y en los widgets.";
+"listening_space_colors_all_title" = "Colores de música, radio, audiolibros y podcasts";
+"listening_space_colors_all_footer" = "La música usa el color del tema de la app, que también siguen los botones y los interruptores. Los colores de radio, audiolibros y podcasts aparecen en el selector de la parte superior de Inicio, en la Biblioteca, en la búsqueda y en los widgets.";
 "listening_space_tint_source" = "Origen del color";
 "listening_space_tint_standard" = "Predeterminado";
 "listening_space_tint_standard_hint" = "El color propio de esta categoría";
