@@ -5279,6 +5279,7 @@
 "podcast_order_newest" = "最新在前";
 "podcast_order_oldest" = "最早在前";
 "podcast_order_file" = "按檔案順序";
+"podcast_order_file_reversed" = "按檔案倒序";
 "podcast_order_custom" = "自訂順序";
 "podcast_reorder_episodes" = "調整單集順序…";
 "podcast_reorder_hint" = "拖動單集調整順序，新加入的單集排在最上面";

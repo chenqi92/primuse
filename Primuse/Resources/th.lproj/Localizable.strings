@@ -5208,6 +5208,7 @@
 "podcast_order_newest" = "ใหม่สุดก่อน";
 "podcast_order_oldest" = "เก่าสุดก่อน";
 "podcast_order_file" = "ตามลำดับไฟล์";
+"podcast_order_file_reversed" = "ลำดับไฟล์ย้อนกลับ";
 "podcast_order_custom" = "ลำดับที่กำหนดเอง";
 "podcast_reorder_episodes" = "จัดลำดับตอนใหม่…";
 "podcast_reorder_hint" = "ลากเพื่อจัดลำดับใหม่ ตอนใหม่จะแสดงที่ด้านบนสุด";

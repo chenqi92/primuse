@@ -611,6 +611,7 @@ struct TVSpokenWordBookDetailView: View {
         case .newestFirst: String(localized: "podcast_order_newest")
         case .oldestFirst: String(localized: "podcast_order_oldest")
         case .fileOrder: String(localized: "podcast_order_file")
+        case .fileOrderReversed: String(localized: "podcast_order_file_reversed")
         case .custom: String(localized: "podcast_order_custom")
         }
     }

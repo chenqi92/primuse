@@ -5208,6 +5208,7 @@
 "podcast_order_newest" = "Od najnowszych";
 "podcast_order_oldest" = "Od najstarszych";
 "podcast_order_file" = "Kolejność plików";
+"podcast_order_file_reversed" = "Odwrotna kolejność plików";
 "podcast_order_custom" = "Własna kolejność";
 "podcast_reorder_episodes" = "Zmień kolejność odcinków…";
 "podcast_reorder_hint" = "Przeciągaj, aby zmienić kolejność. Nowe odcinki pojawią się na górze.";

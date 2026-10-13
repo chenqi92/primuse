@@ -5303,6 +5303,7 @@
 "podcast_order_newest" = "新しい順";
 "podcast_order_oldest" = "古い順";
 "podcast_order_file" = "ファイル順";
+"podcast_order_file_reversed" = "ファイル逆順";
 "podcast_order_custom" = "カスタム順";
 "podcast_reorder_episodes" = "エピソードを並べ替え…";
 "podcast_reorder_hint" = "ドラッグで並べ替え。新しいエピソードは一番上に表示されます";

@@ -3,7 +3,7 @@ import SwiftUI
 
 /// 一档本地节目(自己的文件标成播客):和订阅节目页同一套排法 —— 头部、筛选与排序、单集行。
 ///
-/// 单集默认按日期新的在上(新放进来的文件不用滚到底去找),也能按旧到新、文件顺序或自己拖的顺序;
+/// 单集默认按日期新的在上(新放进来的文件不用滚到底去找),也能按旧到新、文件顺序(再点一次倒过来)或自己拖的顺序;
 /// 可只看未播放或已播放。排法与筛选按节目记在本机(`LocalPodcastShowSettingsStore`)。
 /// 点一集从这一集放起,播完按收听先后接着放还没听完的,和订阅节目一样。
 struct LocalPodcastShowDetailView: View {
@@ -186,7 +186,7 @@ struct LocalPodcastShowDetailView: View {
             PodcastPrimaryKeyLabel(titleKey: "pause", systemImage: "pause.fill")
         } else if book.canContinue {
             PodcastPrimaryKeyLabel(titleKey: "podcast_continue", systemImage: "play.fill")
-        } else if settings.order == .newestFirst {
+        } else if settings.order.listensInReverse {
             PodcastPrimaryKeyLabel(titleKey: "podcast_play_latest", systemImage: "play.fill")
         } else {
             PodcastPrimaryKeyLabel(titleKey: "play", systemImage: "play.fill")
@@ -236,19 +236,22 @@ struct LocalPodcastShowDetailView: View {
             .accessibilityIdentifier("podcast.localShow.filter")
             Spacer(minLength: 0)
             Menu {
-                Picker("podcast_episode_order", selection: Binding(
-                    get: { settings.order },
-                    set: { order in settingsStore.update(book.id) { $0.order = order } }
-                )) {
-                    Text("podcast_order_newest").tag(LocalPodcastEpisodeOrder.newestFirst)
-                    Text("podcast_order_oldest").tag(LocalPodcastEpisodeOrder.oldestFirst)
-                    Text("podcast_order_file").tag(LocalPodcastEpisodeOrder.fileOrder)
+                // 用勾选项不用 Picker:Picker 里点已选中的那项收不到,「按文件顺序」要靠再点一次换方向。
+                Section {
+                    orderToggle(.newestFirst, settings: settings)
+                    orderToggle(.oldestFirst, settings: settings)
+                    Toggle(
+                        orderTitle(settings.order.isFileOrder ? settings.order : .fileOrder),
+                        isOn: Binding(
+                            get: { settings.order.isFileOrder },
+                            set: { _ in settingsStore.update(book.id) { $0.order = $0.order.togglingFileOrder } }
+                        )
+                    )
                     // 拖过一次才有「自定义顺序」可选;没拖过就从下面那一项进去拖。
                     if settings.order == .custom || !settings.customOrder.isEmpty {
-                        Text("podcast_order_custom").tag(LocalPodcastEpisodeOrder.custom)
+                        orderToggle(.custom, settings: settings)
                     }
                 }
-                .pickerStyle(.inline)
                 Button {
                     showsReorder = true
                 } label: {
@@ -277,11 +280,19 @@ struct LocalPodcastShowDetailView: View {
         }
     }
 
+    private func orderToggle(_ order: LocalPodcastEpisodeOrder, settings: LocalPodcastShowSettings) -> some View {
+        Toggle(orderTitle(order), isOn: Binding(
+            get: { settings.order == order },
+            set: { _ in settingsStore.update(book.id) { $0.order = order } }
+        ))
+    }
+
     private func orderTitle(_ order: LocalPodcastEpisodeOrder) -> LocalizedStringKey {
         switch order {
         case .newestFirst: "podcast_order_newest"
         case .oldestFirst: "podcast_order_oldest"
         case .fileOrder: "podcast_order_file"
+        case .fileOrderReversed: "podcast_order_file_reversed"
         case .custom: "podcast_order_custom"
         }
     }

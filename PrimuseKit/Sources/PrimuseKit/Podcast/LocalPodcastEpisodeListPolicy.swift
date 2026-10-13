@@ -8,12 +8,22 @@ public enum LocalPodcastEpisodeOrder: String, CaseIterable, Codable, Sendable {
     case oldestFirst
     /// 曲目号与文件名,和有声书的章节同一个顺序。
     case fileOrder
+    /// 文件顺序倒过来:编号最大、文件名排在最后的在最上面。
+    case fileOrderReversed
     /// 自己拖出来的顺序。之后才加进来的单集排在最上面。
     case custom
 
-    /// 播完一集接着往哪个方向放:按日期排的两种都从旧往新,和订阅节目一样;
-    /// 另外两种就是列表从上往下。
-    var listensInReverse: Bool { self == .newestFirst }
+    /// 播完一集接着往哪个方向放:日期与文件顺序两组都从旧往新(和订阅节目一样),
+    /// 所以新的在上、倒序时倒过来;自定义就是列表从上往下。
+    /// 倒过来时「播放」键从最上面那集起,就是最新的一集。
+    public var listensInReverse: Bool { self == .newestFirst || self == .fileOrderReversed }
+
+    public var isFileOrder: Bool { self == .fileOrder || self == .fileOrderReversed }
+
+    /// 菜单里点「按文件顺序」:已经是正序的再点一次换成倒序,倒序再点回正序;别的排法先换成正序。
+    public var togglingFileOrder: LocalPodcastEpisodeOrder {
+        self == .fileOrder ? .fileOrderReversed : .fileOrder
+    }
 }
 
 public enum LocalPodcastEpisodeFilter: String, CaseIterable, Codable, Sendable {
@@ -87,6 +97,8 @@ public enum LocalPodcastEpisodeListPolicy {
         switch settings.order {
         case .fileOrder:
             return items
+        case .fileOrderReversed:
+            return items.reversed()
         case .newestFirst:
             return byDate(items, newestFirst: true)
         case .oldestFirst:
@@ -103,7 +115,7 @@ public enum LocalPodcastEpisodeListPolicy {
         }
     }
 
-    /// 按收听先后排的同一份列表:按日期从新到旧时倒过来,其余就是列表顺序。
+    /// 按收听先后排的同一份列表:按日期从新到旧、文件倒序时倒过来,其余就是列表顺序。
     public static func listeningSequence(
         _ ordered: [SpokenWordBookItem],
         order: LocalPodcastEpisodeOrder

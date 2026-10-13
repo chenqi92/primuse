@@ -5208,6 +5208,7 @@
 "podcast_order_newest" = "नए पहले";
 "podcast_order_oldest" = "पुराने पहले";
 "podcast_order_file" = "फ़ाइल क्रम";
+"podcast_order_file_reversed" = "उल्टा फ़ाइल क्रम";
 "podcast_order_custom" = "कस्टम क्रम";
 "podcast_reorder_episodes" = "एपिसोड का क्रम बदलें…";
 "podcast_reorder_hint" = "क्रम बदलने के लिए खींचें। नए एपिसोड सबसे ऊपर दिखेंगे।";

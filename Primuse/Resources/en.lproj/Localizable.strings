@@ -5065,6 +5065,7 @@
 "podcast_order_newest" = "Newest First";
 "podcast_order_oldest" = "Oldest First";
 "podcast_order_file" = "File Order";
+"podcast_order_file_reversed" = "Reverse File Order";
 "podcast_order_custom" = "Custom Order";
 "podcast_reorder_episodes" = "Reorder Episodes…";
 "podcast_reorder_hint" = "Drag to reorder. New episodes appear at the top.";

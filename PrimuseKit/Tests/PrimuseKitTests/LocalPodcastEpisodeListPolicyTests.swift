@@ -36,6 +36,28 @@ struct LocalPodcastEpisodeListPolicyTests {
             == ["ep1", "ep2", "ep3", "ep4"])
     }
 
+    @Test func reversedFileOrderPutsTheLastFileOnTopAndListensUpward() {
+        let list = items(finished: ["ep3"])
+        let reversed = LocalPodcastEpisodeListPolicy.ordered(list, settings: .init(order: .fileOrderReversed))
+        #expect(ids(reversed) == ["ep4", "ep3", "ep2", "ep1"])
+        // 和新的在上一样:点 ep2 之后往编号大的方向放,跳过听完的 ep3。
+        #expect(ids(LocalPodcastEpisodeListPolicy.continuation(from: "ep2", in: reversed, order: .fileOrderReversed))
+            == ["ep2", "ep4"])
+        #expect(LocalPodcastEpisodeListPolicy.earlierUnfinishedIDs(than: "ep4", in: reversed, order: .fileOrderReversed)
+            == ["ep1", "ep2"])
+        #expect(LocalPodcastEpisodeListPolicy.startItemID(in: reversed, resumeItemID: nil, canContinue: false) == "ep4")
+    }
+
+    @Test func tappingFileOrderAgainFlipsTheDirection() {
+        #expect(LocalPodcastEpisodeOrder.newestFirst.togglingFileOrder == .fileOrder)
+        #expect(LocalPodcastEpisodeOrder.custom.togglingFileOrder == .fileOrder)
+        #expect(LocalPodcastEpisodeOrder.fileOrder.togglingFileOrder == .fileOrderReversed)
+        #expect(LocalPodcastEpisodeOrder.fileOrderReversed.togglingFileOrder == .fileOrder)
+        // 电视按一下换下一种:倒序紧跟在正序后面。
+        let cases = LocalPodcastEpisodeOrder.allCases
+        #expect(cases.firstIndex(of: .fileOrderReversed) == cases.firstIndex(of: .fileOrder).map { $0 + 1 })
+    }
+
     @Test func sameDateFallsBackToFileOrderAndUndatedGoLast() {
         let list = ["a", "b", "c", "d"].map { id in
             SpokenWordBookItem(id: id, title: id, duration: 60, addedAt: id == "c" ? nil : t0)
@@ -100,6 +122,8 @@ struct LocalPodcastEpisodeListPolicyTests {
         let settings = LocalPodcastShowSettings(order: .custom, filter: .played, customOrder: ["a", "b"])
         let data = try JSONEncoder().encode(settings)
         #expect(try JSONDecoder().decode(LocalPodcastShowSettings.self, from: data) == settings)
+        let reversed = LocalPodcastShowSettings(order: .fileOrderReversed)
+        #expect(try JSONDecoder().decode(LocalPodcastShowSettings.self, from: JSONEncoder().encode(reversed)) == reversed)
         let future = Data(#"{"order":"byDuration","filter":"downloaded","customOrder":["x"]}"#.utf8)
         let decoded = try JSONDecoder().decode(LocalPodcastShowSettings.self, from: future)
         #expect(decoded == LocalPodcastShowSettings(order: .newestFirst, filter: .all, customOrder: ["x"]))

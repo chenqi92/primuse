@@ -5208,6 +5208,7 @@
 "podcast_order_newest" = "Сначала новые";
 "podcast_order_oldest" = "Сначала старые";
 "podcast_order_file" = "По порядку файлов";
+"podcast_order_file_reversed" = "Обратный порядок файлов";
 "podcast_order_custom" = "Свой порядок";
 "podcast_reorder_episodes" = "Изменить порядок выпусков…";
 "podcast_reorder_hint" = "Перетаскивайте, чтобы изменить порядок. Новые выпуски появятся сверху.";

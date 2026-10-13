@@ -5208,6 +5208,7 @@
 "podcast_order_newest" = "En yeni önce";
 "podcast_order_oldest" = "En eski önce";
 "podcast_order_file" = "Dosya sırası";
+"podcast_order_file_reversed" = "Ters dosya sırası";
 "podcast_order_custom" = "Özel sıra";
 "podcast_reorder_episodes" = "Bölümleri yeniden sırala…";
 "podcast_reorder_hint" = "Sıralamak için sürükleyin. Yeni bölümler en üstte görünür.";
