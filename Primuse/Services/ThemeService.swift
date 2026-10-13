@@ -2,6 +2,7 @@ import Foundation
 import MusicKit
 import PrimuseKit
 import SwiftUI
+import WidgetKit
 #if os(iOS)
 import UIKit
 #elseif os(macOS)
@@ -39,6 +40,9 @@ final class ThemeService {
     /// Invalidates detached extraction work when the playing song changes while
     /// an older cover is still being sampled.
     private var updateGeneration: UInt = 0
+
+    /// 上次写给小组件的主题色与封面色,没变就不再写、不刷新小组件(同一张专辑连着播时)。
+    @ObservationIgnored private var publishedWidgetTints: [BrandTintStore.RGB?]?
 
     /// Cancels remote artwork IO and color extraction when playback advances.
     /// The generation check below remains the final guard because cancellation
@@ -303,6 +307,35 @@ final class ThemeService {
         applyThemeChange(animated: animated) {
             colorMode = mode
         }
+        publishWidgetTints()
+    }
+
+    /// 小组件的进度条、播放键照 App 的主题色画(#283):主题色跟随封面时写正在播放的封面色,
+    /// 固定时写那个固定色;另写一份封面色,给选了「跟随封面」的电台、有声书、播客。
+    /// 写的是原色(浅色外观那一档),小组件自己按深浅外观压到看得清。
+    private func publishWidgetTints() {
+        let theme = Self.widgetRGB(colorMode == .automatic ? artworkAccentColor : baseAccent)
+        let artwork = Self.widgetRGB(artworkAccentColor)
+        let tints = [theme, artwork]
+        guard tints != publishedWidgetTints else { return }
+        publishedWidgetTints = tints
+        if let theme { BrandTintStore.save(theme) }
+        if let artwork { BrandTintStore.saveArtwork(artwork) }
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    private nonisolated static func widgetRGB(_ color: Color) -> BrandTintStore.RGB? {
+        var environment = EnvironmentValues()
+        environment.colorScheme = .light
+        guard let sRGB = CGColorSpace(name: CGColorSpace.sRGB),
+              let components = color.resolve(in: environment).cgColor
+                  .converted(to: sRGB, intent: .defaultIntent, options: nil)?.components,
+              components.count >= 3 else { return nil }
+        return BrandTintStore.RGB(
+            red: Double(components[0]),
+            green: Double(components[1]),
+            blue: Double(components[2])
+        )
     }
 
     func setCoverDrivenAmbient(_ enabled: Bool, animated: Bool = true) {
@@ -345,6 +378,7 @@ final class ThemeService {
         #if os(macOS)
         MacUIPreferences.shared.updateArtworkBrandColor(nil)
         #endif
+        publishWidgetTints()
     }
 
     private func applyArtworkTheme(
@@ -369,6 +403,7 @@ final class ThemeService {
         #if os(macOS)
         MacUIPreferences.shared.updateArtworkBrandColor(legibleAccent)
         #endif
+        publishWidgetTints()
     }
 
     private nonisolated static func cachedCoverData(
