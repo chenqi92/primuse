@@ -120,6 +120,9 @@ struct LiquidArtworkBackdrop: View {
     }
 
     private func currentColors(at date: Date) -> [LiquidBackdropColor] {
+        // 刚挂上、onAppear 还没把颜色记进状态时直接用传进来的这一组。否则第一帧只画底色,
+        // 而播放页入场途中时钟是停着的,要等页面停稳开始走钟才补上颜色,看上去先空一下(#283)。
+        guard !toColors.isEmpty else { return LiquidBackdropPalettePolicy.blobColors(for: palette) }
         guard let transitionStart, !fromColors.isEmpty else { return toColors }
         let linear = min(max(date.timeIntervalSince(transitionStart) / Self.colorTransitionDuration, 0), 1)
         let t = linear * linear * (3 - 2 * linear)
