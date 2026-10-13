@@ -373,6 +373,7 @@ targets:
       - path: PrimuseTests/CrossFeatureQuotaTests.swift
       - path: PrimuseTests/RadioDirectoryQuotaTests.swift
       - path: PrimuseTests/ExternalPlaylistQuotaTests.swift
+      - path: PrimuseTests/AppleMusicPlaylistPaginationTests.swift
       - path: PrimuseTests/AIRequestQuotaTests.swift
       - path: PrimuseTests/GeminiAudioQuotaTests.swift
     dependencies:
