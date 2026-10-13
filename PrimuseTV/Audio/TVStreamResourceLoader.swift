@@ -32,6 +32,9 @@ enum TVFLACStreamRepair {
 final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URLSessionDataDelegate, @unchecked Sendable {
     static let scheme = "primusehdr"
 
+    private let quotaRegistry: RequestQuotaRegistry
+    private let playbackQuota: RequestQuota?
+    private let sessionConfiguration: URLSessionConfiguration?
     private let realURL: URL
     private let headers: [String: String]
     private let explicitContentType: String?   // 已知文件格式推得的 UTType id(覆盖服务器误报的 octet-stream)
@@ -59,7 +62,7 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         return session
     }
     private func makeSession() -> URLSession {
-        let cfg = URLSessionConfiguration.default
+        let cfg = sessionConfiguration ?? URLSessionConfiguration.default
         cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
         cfg.timeoutIntervalForRequest = 60
         cfg.timeoutIntervalForResource = 600
@@ -109,7 +112,37 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         }
     }
 
+    /// Bridges delegate completion into the quota operation, including cancellation
+    /// before the suspended data task has installed its continuation.
+    private final class StreamResult: @unchecked Sendable {
+        private let lock = NSLock()
+        private var result: Result<Void, Error>?
+        private var continuation: CheckedContinuation<Void, Error>?
+
+        func wait(start: () -> Void) async throws {
+            try await withCheckedThrowingContinuation { next in
+                let completed: Result<Void, Error>? = lock.withLock {
+                    if let result { return result }
+                    continuation = next
+                    return nil
+                }
+                if let completed { next.resume(with: completed) }
+                else { start() }
+            }
+        }
+        func finish(_ value: Result<Void, Error>) {
+            let next = lock.withLock {
+                guard result == nil else { return nil as CheckedContinuation<Void, Error>? }
+                result = value
+                defer { continuation = nil }
+                return continuation
+            }
+            next?.resume(with: value)
+        }
+    }
+
     private final class LoadingContext: @unchecked Sendable {
+        let streamResult = StreamResult()
         let loadingRequest: AVAssetResourceLoadingRequest
         let offset: Int64
         let length: Int64
@@ -189,8 +222,14 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         fileExtension: String? = nil,
         isLiveStream: Bool = false,
         seed: TVPlaybackSeed? = nil,
-        transferSourceID: String? = nil
+        transferSourceID: String? = nil,
+        sessionConfiguration: URLSessionConfiguration? = nil,
+        quotaRegistry: RequestQuotaRegistry = .shared
     ) {
+        self.quotaRegistry = quotaRegistry
+        self.playbackQuota = RequestQuota(service: .mediaPlayback, url: realURL,
+            account: transferSourceID.map { .init(stableID: $0) } ?? .anonymous)
+        self.sessionConfiguration = sessionConfiguration
         self.realURL = realURL
         self.headers = headers
         self.explicitContentType = fileExtension.flatMap { UTType(filenameExtension: $0)?.identifier }
@@ -208,6 +247,7 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         // session 由弱持有 loader 的 proxy 当 delegate,loader 析构后 proxy 不再回调进来;
         // 这里主动 invalidate 释放 session 自身的线程 / 连接 / 缓存,并取消遗留 task。
         sessionStorage?.invalidateAndCancel()
+        plainHTTPTasks.values.forEach { $0.cancel() }
     }
 
     /// 把真实 URL 换成自定义 scheme 给 AVURLAsset 用。
@@ -297,6 +337,11 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
             isInfoRequest: isInfoReq
         )
 
+        guard let quota = playbackQuota else {
+            loadingRequest.finishLoading(with: URLError(.badURL))
+            return false
+        }
+        let quotaRegistry = self.quotaRegistry
         if StreamResolverHTTPTransport.requiresPlainHTTPTransport(realURL) {
             let box = PlainHTTPTaskBox()
             lock.lock()
@@ -305,22 +350,24 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
             let task = Task { [weak self] in
                 guard let self else { return }
                 do {
-                    let events = try await StreamResolverHTTPTransport.stream(
-                        for: req,
-                        session: session,
-                        redirectMode: enforcesFnMusicRangeResponses ? .fnMusic : .safe
-                    )
-                    for try await event in events {
-                        try Task.checkCancellation()
-                        switch event {
-                        case .response(let response):
-                            try prepare(response: response, context: context)
-                        case .data(let data):
-                            if !consume(data: data, context: context) {
-                                throw CancellationError()
+                    try await quotaRegistry.execute(for: quota, replay: .never, operation: { [self, req] in
+                        let events = try await StreamResolverHTTPTransport.stream(
+                            for: req,
+                            session: session,
+                            redirectMode: enforcesFnMusicRangeResponses ? .fnMusic : .safe
+                        )
+                        for try await event in events {
+                            try Task.checkCancellation()
+                            switch event {
+                            case .response(let response):
+                                try prepare(response: response, context: context)
+                            case .data(let data):
+                                if !consume(data: data, context: context) {
+                                    throw CancellationError()
+                                }
                             }
                         }
-                    }
+                    })
                     completePlainHTTP(
                         requestID: id,
                         box: box,
@@ -343,12 +390,34 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         }
 
         let task = session.dataTask(with: req)
+        let box = PlainHTTPTaskBox()
         lock.lock()
         tasks[id] = task
+        plainHTTPTasks[id] = box
         taskToRequestID[task.taskIdentifier] = id
         contexts[task.taskIdentifier] = context
         lock.unlock()
-        task.resume()
+        box.install(Task { [weak self] in
+            do {
+                try await quotaRegistry.execute(for: quota, replay: .never, operation: {
+                    try await withTaskCancellationHandler {
+                        try Task.checkCancellation()
+                        try await context.streamResult.wait { task.resume() }
+                    } onCancel: {
+                        task.cancel()
+                        context.streamResult.finish(.failure(CancellationError()))
+                    }
+                })
+                self?.completePlainHTTP(requestID: id, box: box, context: context, error: nil)
+            } catch {
+                task.cancel()
+                if OperationCancellationPolicy.isCancellation(error) {
+                    self?.removePlainHTTPTask(requestID: id, box: box)
+                } else {
+                    self?.completePlainHTTP(requestID: id, box: box, context: context, error: error)
+                }
+            }
+        })
         return true
     }
 
@@ -406,6 +475,7 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
     }
 
     private func prepare(response http: HTTPURLResponse, context: LoadingContext) throws {
+        if let failure = TVHTTPRangeResponsePolicy.httpFailure(for: http) { throw failure }
         let contentLength = http.value(forHTTPHeaderField: "Content-Length")
             .flatMap(Int64.init)
         guard let validation = TVHTTPRangeResponsePolicy.validate(
@@ -486,7 +556,7 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
     }
 
     private func complete(context: LoadingContext, error: Error?) {
-        guard !context.terminalErrorReported else { return }
+        guard !context.terminalErrorReported, !context.loadingRequest.isCancelled else { return }
         if let error {
             if (error as NSError).code != NSURLErrorCancelled {
                 plog("📺 loader \(context.isInfoRequest ? "info" : "data") off=\(context.offset) ERROR — \(error.localizedDescription)")
@@ -547,8 +617,7 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
             return
         }
         guard let http = response as? HTTPURLResponse else {
-            context.terminalErrorReported = true
-            context.loadingRequest.finishLoading(with: URLError(.badServerResponse))
+            context.streamResult.finish(.failure(URLError(.badServerResponse)))
             completionHandler(.cancel)
             return
         }
@@ -557,8 +626,7 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
             try prepare(response: http, context: context)
             completionHandler(.allow)
         } catch {
-            context.terminalErrorReported = true
-            context.loadingRequest.finishLoading(with: error)
+            context.streamResult.finish(.failure(error))
             completionHandler(.cancel)
         }
     }
@@ -590,7 +658,7 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         lock.unlock()
 
         guard let context else { return }
-        complete(context: context, error: error)
+        context.streamResult.finish(error.map { .failure($0) } ?? .success(()))
     }
 
     func urlSession(

@@ -1944,6 +1944,7 @@
 		E395200B89B609869A98C278 /* DirectoryScanCooldownTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 803D23F1AA41F4C7D1743B02 /* DirectoryScanCooldownTests.swift */; };
 		C0A25935B3E1E30B310358B3 /* PlexSignInQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4815A702E2426E57FEDBDFC /* PlexSignInQuotaTests.swift */; };
 		EA6E1CB39C01C7C4C06AB8E4 /* PlexSignInQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4815A702E2426E57FEDBDFC /* PlexSignInQuotaTests.swift */; };
+		B26EAF67302047A49201BC12 /* TVStreamResourceLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B26EAF67302047A49201BC11 /* TVStreamResourceLoaderTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -3632,6 +3633,7 @@
 		11280543BFBFB5EC0F8563A2 /* TVSourceHTTPFailureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVSourceHTTPFailureTests.swift; sourceTree = "<group>"; };
 		803D23F1AA41F4C7D1743B02 /* DirectoryScanCooldownTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectoryScanCooldownTests.swift; sourceTree = "<group>"; };
 		F4815A702E2426E57FEDBDFC /* PlexSignInQuotaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlexSignInQuotaTests.swift; sourceTree = "<group>"; };
+		B26EAF67302047A49201BC11 /* TVStreamResourceLoaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVStreamResourceLoaderTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -4805,6 +4807,7 @@
 			children = (
 				54A15074F64F0B584CB5B010 /* TVColorBackgroundIsolationTests.swift */,
 				8EF41EA448F60A86B27B2C77 /* TVWebDAVDirectoryQuotaTests.swift */,
+				B26EAF67302047A49201BC11 /* TVStreamResourceLoaderTests.swift */,
 				11280543BFBFB5EC0F8563A2 /* TVSourceHTTPFailureTests.swift */,
 				EC873BF121FE7CF625EABC14 /* TVKaraokeParityTests.swift */,
 				EDC8B99069FF25B8A0FF10CA /* TVKaraokeSeparationTests.swift */,
@@ -6238,6 +6241,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B26EAF67302047A49201BC12 /* TVStreamResourceLoaderTests.swift in Sources */,
 				1AFBE2A2D97DB36DFB683DB5 /* TVSourceHTTPFailureTests.swift in Sources */,
 				55E75B511CF4BD0B32570F2E /* TVWebDAVDirectoryQuotaTests.swift in Sources */,
 				62BFB12E3C2424A8EEEEC13F /* CrossFeatureQuotaTests.swift in Sources */,

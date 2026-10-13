@@ -34,6 +34,11 @@ public struct RequestQuota: Sendable {
         public static let lastFM = Service(id: "lastfm.api", policy: .init(
             minimumInterval: 0.2, maximumConcurrentRequests: 1, maximumAttempts: 2, timeout: 15
         ))
+        /// Streaming playback owns its admission slot until the range finishes.
+        /// No byte stream may be replayed after delivery to the player.
+        public static let mediaPlayback = Service(id: "media.playback", policy: .init(
+            maximumConcurrentRequests: 4, maximumAttempts: 1, timeout: 600
+        ))
         public static let podcast = Service(id: "podcast.http", policy: .init(timeout: 90))
     }
 
