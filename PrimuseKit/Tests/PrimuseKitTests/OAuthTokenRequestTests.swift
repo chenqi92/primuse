@@ -50,19 +50,35 @@ struct OAuthTokenRequestTests {
     }
 
     @Test(arguments: [200, 400])
-    func providerRejectionRetainsOnlySafeMachineReadableCode(status: Int) async throws {
-        let fixture = OAuthTokenFixture(status: status,
-            body: Data(#"{"error":"invalid_grant","error_description":"SECRET","refresh_token":"SECRET"}"#.utf8))
+    func providerRejectionRetainsOnlyCodeAndRedactedExplanation(status: Int) async throws {
+        let fixture = OAuthTokenFixture(status: status, body: Data(
+            #"{"error":"invalid_grant","error_description":"refresh_token=SECRET was revoked","refresh_token":"SECRET"}"#.utf8))
         do {
             _ = try await OAuthTokenRequests().data(for: fixture.request, clientID: UUID().uuidString, session: fixture.session)
             Issue.record("Provider rejection reported success")
         } catch let failure as HTTPResponseFailure {
             #expect(failure.statusCode == status)
             #expect(OAuthTokenRequests.providerErrorCode(in: failure.body) == "invalid_grant")
+            #expect(OAuthTokenRequests.providerMessage(in: failure.body) == "refresh_token=<redacted> was revoked")
             #expect(!String(decoding: failure.body, as: UTF8.self).contains("SECRET"))
             #expect(!failure.localizedDescription.contains("SECRET"))
         }
         #expect(fixture.count == 1)
+    }
+
+    @Test func unrecognizedProviderErrorLeadsTheExplanationWithoutClassification() async throws {
+        let fixture = OAuthTokenFixture(status: 400, body: Data(
+            #"{"error":"redirect_uri_mismatch","error_description":"Bad Request"}"#.utf8))
+        do {
+            _ = try await OAuthTokenRequests().data(for: fixture.request, clientID: UUID().uuidString, session: fixture.session)
+            Issue.record("Provider rejection reported success")
+        } catch let failure as HTTPResponseFailure {
+            #expect(OAuthTokenRequests.providerErrorCode(in: failure.body) == nil)
+            #expect(OAuthTokenRequests.providerMessage(in: failure.body) == "redirect_uri_mismatch: Bad Request")
+        }
+        #expect(OAuthTokenRequests.providerMessage(in: Data(#"{"code":1,"message":" client_secret error "}"#.utf8))
+            == "client_secret error")
+        #expect(OAuthTokenRequests.providerMessage(in: Data(#"{"access_token":"new"}"#.utf8)) == nil)
     }
 
     @Test func tokenOnlyProviderKeepsQuotaWithoutAnAppCredentialLookup() async throws {

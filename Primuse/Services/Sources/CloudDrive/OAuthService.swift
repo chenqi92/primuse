@@ -324,11 +324,16 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
             (data, _) = try await tokenRequests.data(for: request, clientID: config.clientId, session: tokenSession)
         } catch let failure as HTTPResponseFailure {
             let code = OAuthTokenRequests.providerErrorCode(in: failure.body)
+            // 用户自己注册的应用配错了(回调地址、client)只有这段说明讲得清,已按日志规则脱敏。
+            let message = OAuthTokenRequests.providerMessage(in: failure.body)
+            plog("☁️ OAuth token HTTP \(failure.statusCode) error=\(code ?? "-") message=\(message ?? "-")")
             guard !failure.isRateLimitFailure,
                   CloudTokenRefreshPolicy.disposition(statusCode: failure.statusCode, providerErrorCode: code) == .permanent else {
                 throw failure
             }
-            throw OAuthError.tokenExchangeFailed(code ?? "HTTP \(failure.statusCode)")
+            throw OAuthError.tokenExchangeFailed(
+                ["HTTP \(failure.statusCode)", code, message].compactMap { $0 }.joined(separator: ": ")
+            )
         }
 
         var json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
@@ -340,7 +345,11 @@ final class OAuthService: NSObject, ASWebAuthenticationPresentationContextProvid
         }
 
         guard let accessToken = json["access_token"] as? String else {
-            throw OAuthError.tokenExchangeFailed("No access_token in response")
+            let message = OAuthTokenRequests.providerMessage(in: data)
+            plog("☁️ OAuth token response without access_token keys=\(json.keys.sorted()) message=\(message ?? "-")")
+            throw OAuthError.tokenExchangeFailed(
+                ["No access_token in response", message].compactMap { $0 }.joined(separator: ": ")
+            )
         }
 
         let refreshToken = json["refresh_token"] as? String

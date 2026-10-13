@@ -17,8 +17,11 @@ public struct OAuthTokenRequests: Sendable {
             let code = Self.providerErrorCode(in: data)
             if !(200...299).contains(http.statusCode) || code != nil {
                 // Provider bodies can echo an authorization code or token. Keep
-                // only recognized machine-readable errors in diagnostics.
-                let safeBody = code.map { Data("{\"error\":\"\($0)\"}".utf8) } ?? Data()
+                // the recognized machine-readable error plus a redacted explanation.
+                var fields: [String: String] = [:]
+                fields["error"] = code
+                fields["error_description"] = Self.providerMessage(in: data)
+                let safeBody = fields.isEmpty ? Data() : (try? SafeJSONSerialization.data(withJSONObject: fields)) ?? Data()
                 throw HTTPResponseFailure(statusCode: http.statusCode, body: safeBody,
                     retryAfter: HTTPResponseFailure.retryDelay(from: http),
                     isRateLimited: code == "slow_down" || code == "rate_limited" || code == "rate_limit_exceeded" || code == "too_many_requests")
@@ -42,5 +45,25 @@ public struct OAuthTokenRequests: Sendable {
                "invalid_request", "invalid_scope", "unsupported_grant_type", "temporarily_unavailable",
                "server_error", "slow_down", "rate_limited", "rate_limit_exceeded", "too_many_requests"].contains(code) else { return nil }
         return code
+    }
+
+    /// The provider's own explanation (`error_description` / `message`), redacted like log
+    /// lines and truncated. Users register their own OAuth apps; a redirect URI or client
+    /// mismatch is only explained here. An unrecognized `error` value stays out of
+    /// classification but leads the text, e.g. `redirect_uri_mismatch: Bad Request`.
+    public static func providerMessage(in data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        let text = ["error_description", "message", "msg", "error_msg"].lazy
+            .compactMap { (json[$0] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        var parts: [String] = []
+        if providerErrorCode(in: data) == nil, let raw = json["error"] as? String,
+           raw.range(of: #"^[A-Za-z0-9_.-]{1,64}$"#, options: .regularExpression) != nil {
+            parts.append(raw)
+        }
+        if let text { parts.append(text) }
+        guard !parts.isEmpty else { return nil }
+        let redacted = LogRedactionPolicy.redact(String(parts.joined(separator: ": ").prefix(2_000)))
+        return String(redacted.prefix(300))
     }
 }

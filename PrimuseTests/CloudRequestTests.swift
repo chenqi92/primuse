@@ -38,6 +38,26 @@ final class CloudRequestTests: XCTestCase {
     }
 
     @MainActor
+    func testOAuthExchangeRejectionKeepsTheProviderExplanation() async throws {
+        let fixture = CloudHTTPFixture(responses: [.init(status: 400, body: Data(
+            #"{"error":"invalid_request","error_description":"AADSTS50011: The redirect URI does not match. refresh_token=SECRET"}"#.utf8))])
+        let session = fixture.session()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+        let config = CloudOAuthConfig(provider: .oneDrive, authURL: "https://fixture.invalid/auth",
+            tokenURL: fixture.url.absoluteString, clientId: "client", clientSecret: nil,
+            scopes: [], redirectURI: "primuse://oauth")
+        do {
+            _ = try await OAuthService(session: session, tokenRequests: OAuthTokenRequests(registry: RequestQuotaRegistry()))
+                .exchangeCodeForTokens(code: "code", config: config, codeVerifier: "verifier")
+            XCTFail("Rejected exchange returned tokens")
+        } catch OAuthError.tokenExchangeFailed(let message) {
+            XCTAssertTrue(message.hasPrefix("HTTP 400: invalid_request: AADSTS50011"), message)
+            XCTAssertFalse(message.contains("SECRET"), message)
+        }
+        XCTAssertEqual(fixture.requests.count, 1)
+    }
+
+    @MainActor
     func testOAuthExchangeAndRefreshShareLongCooldown() async throws {
         let fixture = CloudHTTPFixture(responses: [.init(status: 429, headers: ["Retry-After": "3600"])])
         let session = fixture.session()
