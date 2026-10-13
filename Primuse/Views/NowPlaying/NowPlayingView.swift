@@ -730,6 +730,56 @@ private struct NowPlayingDeferredContent: View {
     }
 }
 
+/// 有声内容的这一条带不带有时间的文字(字幕、转写稿),记在播放页外面,也存进本机偏好。
+/// 播放页每次展开都是新挂载的,文字稿又要等入场动画结束才读;不记的话传输键两头的文字稿 / 目录键
+/// 每次都是页面停稳以后才弹出来(#283)。这一条没记过时按同一本书上次的结论猜(一本书的文件一般
+/// 要么都有、要么都没有);播客单集不跨集猜。只是显示上的预判,读出结论后以结论为准。
+@MainActor
+private enum SpokenWordTextPresenceMemo {
+    nonisolated private static let storageKey = "primuse.player.spokenWordTextPresence.v1"
+    private static let songLimit = 160
+    private static let bookLimit = 80
+    private static var bySong: [String: Bool] = stored("songs")
+    private static var byBook: [String: Bool] = stored("books")
+
+    static func record(_ hasText: Bool, for song: Song) {
+        var changed = store(hasText, key: song.id, in: &bySong, limit: songLimit)
+        if let key = bookKey(for: song) {
+            changed = store(hasText, key: key, in: &byBook, limit: bookLimit) || changed
+        }
+        guard changed else { return }
+        UserDefaults.standard.set(["songs": bySong, "books": byBook], forKey: storageKey)
+    }
+
+    static func predictedHasText(for song: Song) -> Bool {
+        if let known = bySong[song.id] { return known }
+        guard let key = bookKey(for: song) else { return false }
+        return byBook[key] ?? false
+    }
+
+    private static func store(_ value: Bool, key: String, in map: inout [String: Bool], limit: Int) -> Bool {
+        guard map[key] != value else { return false }
+        if map[key] == nil, map.count >= limit {
+            // 满了随手丢掉一半;只是预判,丢了的那些下次读出结论再记。
+            for stale in Array(map.keys.prefix(limit / 2)) { map[stale] = nil }
+        }
+        map[key] = value
+        return true
+    }
+
+    nonisolated private static func stored(_ field: String) -> [String: Bool] {
+        let saved = UserDefaults.standard.dictionary(forKey: storageKey)
+        return saved?[field] as? [String: Bool] ?? [:]
+    }
+
+    private static func bookKey(for song: Song) -> String? {
+        guard !PodcastPlaybackSong.isEpisode(song) else { return nil }
+        let album = song.albumID ?? song.albumTitle ?? ""
+        guard !album.isEmpty else { return nil }
+        return "\(song.sourceID)|\(album)"
+    }
+}
+
 struct NowPlayingView: View {
     private enum AmbientBackdropTuning {
         static let transitionDuration = 0.5
@@ -857,6 +907,8 @@ struct NowPlayingView: View {
     @State private var controlNotice: NowPlayingControlNotice?
     @State private var showQueue = false
     @State private var lyrics: [LyricLine] = []
+    /// `lyrics` 是哪一首的读取结果。播放页刚挂载、还没读过时是 nil。
+    @State private var lyricsSongID: String?
     /// 当前歌词各行的译文（文件自带的优先，其次是翻译任务给出的）。翻译任务挂在
     /// 播放页常驻的零尺寸视图上，这份结果同时供歌词面板、全屏舞台和歌词海报读取。
     @State private var lyricTranslationsByLineID: [String: String] = [:]
@@ -2036,7 +2088,7 @@ struct NowPlayingView: View {
         )
         let music = !usesSpokenWordTransport
         // 有声内容没有文字稿(或在「播放页按钮」里关了文字稿键)时不给文字键,这一组只剩目录。
-        let showsTextToggle = !lyrics.isEmpty && spokenWordControlLayout.showsTranscriptToggle
+        let showsTextToggle = spokenWordHasText && spokenWordControlLayout.showsTranscriptToggle
         // 中间一组:音乐按「播放页按钮」底栏的配置(去掉 AirPlay,默认歌词与队列);有声内容是文字稿与目录。
         let columnGroups = musicControlLayout.toolColumnGroups()
         let middleCount = music ? columnGroups.middle.count : (showsTextToggle ? 2 : 1)
@@ -2769,6 +2821,9 @@ struct NowPlayingView: View {
             }
             consumeAutomaticScrapeCompletion()
         }
+        // 换上新歌词,或问源结束(没问到也算结论):记下这一条有没有文字。
+        .onChange(of: lyricsRevision) { _, _ in rememberSpokenWordTextPresence() }
+        .onChange(of: isResolvingLyrics) { _, _ in rememberSpokenWordTextPresence() }
         .onChange(of: scraperService.singleScrapeCompletionRevision) { _, _ in
             consumeAutomaticScrapeCompletion()
         }
@@ -4827,7 +4882,17 @@ struct NowPlayingView: View {
     }
 
     private var audiobookPlayerStyle: AudiobookPlayerStyle {
-        AudiobookPlayerStyle(colorScheme: colorScheme, contrast: colorSchemeContrast)
+        AudiobookPlayerStyle(
+            colorScheme: colorScheme,
+            contrast: colorSchemeContrast,
+            usesMonochromeControls: usesMonochromePlayerControls
+        )
+    }
+
+    /// 设置里「控件颜色」选了单色,或主题色是「白色」。
+    private var usesMonochromePlayerControls: Bool {
+        PlayerAppearancePreferences.controlTint(rawValue: controlTintRawValue) == .monochrome
+            || usesWhiteTheme
     }
 
     /// 顶栏、书名与封面那一块(有文字稿时可换成文字稿)、当前章节、进度、传输键、
@@ -4846,6 +4911,9 @@ struct NowPlayingView: View {
         let contentWidth = max(0, min(available, columnLimit) - margin * 2)
         let isShort = geo.size.height < 760
         let chapterColumnWidth = min(max((contentWidth * 0.23).rounded(), 72), 120)
+        // 进度条(连同「本章还剩约」)、传输键、功能块之间别挤在一起(#283):矮屏也留出一截,
+        // 高屏按通用播放页那把尺再拉开一些。多出来的高度从封面与当前章节之间的空白里出。
+        let controlGap = Self.portraitControlGap(forHeight: geo.size.height)
 
         return VStack(spacing: 0) {
             audiobookTopBar(style: style, usesToolColumn: usesToolColumn)
@@ -4936,7 +5004,7 @@ struct NowPlayingView: View {
                         showsTextKeys: spokenWordTextKeysInTransport && !usesToolColumn
                     )
                         .matchedLayoutElement(.transport, in: layoutNamespace)
-                        .padding(.top, isShort ? 4 : 10)
+                        .padding(.top, (isShort ? 10 : 16) + controlGap * 0.5)
 
                     Group {
                         if style.isNocturne {
@@ -4948,13 +5016,13 @@ struct NowPlayingView: View {
                             // 竖栏里排着那一列按钮时(iPhone Duo),这几样都在那一列里。
                             if !usesToolColumn {
                                 audiobookActionRow(style: style, layout: .stacked)
-                                    .padding(.top, isShort ? 4 : 10)
+                                    .padding(.top, (isShort ? 6 : 12) + controlGap * 0.3)
                             }
                         } else {
                             Rectangle()
                                 .fill(style.hairline)
                                 .frame(height: 0.5)
-                                .padding(.top, isShort ? 10 : 18)
+                                .padding(.top, (isShort ? 12 : 20) + controlGap * 0.3)
                             if !usesToolColumn {
                                 audiobookActionRow(style: style, layout: .inline)
                                     .padding(.top, 6)
@@ -6437,7 +6505,24 @@ struct NowPlayingView: View {
     /// 顶栏、标题旁不再有文字键。没有文字稿(或在「播放页按钮」里关了文字稿键)时那一行照旧。
     /// iPhone Duo 竖栏那一列里本来就排着文字稿与目录,那时不挪,调用处另判 `usesToolColumn`。
     private var spokenWordTextKeysInTransport: Bool {
-        usesSpokenWordTransport && !lyrics.isEmpty && spokenWordControlLayout.showsTranscriptToggle
+        usesSpokenWordTransport && spokenWordHasText && spokenWordControlLayout.showsTranscriptToggle
+    }
+
+    /// 这一条有没有带时间的文字。还没读出结论时(播放页刚展开,文字稿等入场动画结束才读;或正在问源)
+    /// 先按上次的结论,文字稿 / 目录键随页面一起出现,不在页面停稳后才弹出来(#283)。
+    private var spokenWordHasText: Bool {
+        if !lyrics.isEmpty { return true }
+        guard let song = player.currentSong,
+              lyricsSongID != song.id || isResolvingLyrics else { return false }
+        return SpokenWordTextPresenceMemo.predictedHasText(for: song)
+    }
+
+    /// 有声内容这一条读出结论(有字或确定没有)时记下来,下次展开播放页直接用。
+    /// 问源途中先写进来的空结果不算:那时 `isResolvingLyrics` 还是真。
+    private func rememberSpokenWordTextPresence() {
+        guard usesSpokenWordTransport, !isResolvingLyrics,
+              let song = player.currentSong, lyricsSongID == song.id else { return }
+        SpokenWordTextPresenceMemo.record(!lyrics.isEmpty, for: song)
     }
 
     /// 传输键一行最左边的文字稿键:分栏时打开右栏,其它时候在封面与文字稿之间切换;按住直接全屏读文稿
@@ -6479,6 +6564,8 @@ struct NowPlayingView: View {
     /// 按住文字稿键(或旁白的自定操作)打开全屏文稿;没有文字时什么也不做。
     private func openTranscriptReaderFromHold() {
         guard !lyrics.isEmpty else { return }
+        // 和按住快退 / 快进弹出跳章菜单时一样,手上有一下(#283)。
+        PMHaptics.longPressActivated()
         transcriptKeyHeld = true
         showsTranscriptReader = true
     }
@@ -7375,11 +7462,10 @@ struct NowPlayingView: View {
     }
 
     private var themedControlAccent: Color {
-        // 有声书两套设计的强调色是定的,横屏、iPad 双栏也用它,不随封面取色。
+        // 有声书两套设计用自己的强调色(墨黑选了单色时是白),横屏、iPad 双栏也用它,不随封面取色。
         if usesAudiobookPlayerDesign { return audiobookPlayerStyle.accent }
         // 设置里选了单色:深色外观下白、浅色外观下黑,和文字同色。主题色选了「白色」也一样,不跟封面取色。
-        if PlayerAppearancePreferences.controlTint(rawValue: controlTintRawValue) == .monochrome
-            || usesWhiteTheme {
+        if usesMonochromePlayerControls {
             return appearance.primary
         }
         guard theme.colorID != "default" else { return appearance.primary }
@@ -7996,6 +8082,7 @@ struct NowPlayingView: View {
         clearLyricsResolution()
         lyricsWritingDirection = LyricWritingDirectionPolicy.resolve(in: value)
         lyrics = value
+        lyricsSongID = player.currentSong?.id
         lyricsRevision &+= 1
         let wordLevelCount = value.filter { $0.isWordLevel }.count
         plog("📜 setLyrics: lines=\(value.count) wordLevelLines=\(wordLevelCount) direction=\(String(describing: lyricsWritingDirection)) firstSyllables=\(value.first?.syllables?.count ?? -1)")

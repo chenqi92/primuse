@@ -5794,7 +5794,7 @@
 "player_control_tint_title" = "Farbe der Bedienelemente";
 "player_control_tint_theme" = "Designfarbe";
 "player_control_tint_monochrome" = "Monochrom";
-"player_control_tint_footer" = "Farbe des Fortschrittsbalkens, aktiver Zufalls- und Wiederholungswiedergabe und anderer Player-Bedienelemente. Monochrom ist im dunklen Modus weiß und im hellen Modus schwarz und passt so zu Hintergründen wie „Fließende Farben“. Die Hörbuch-Layouts behalten ihre eigenen Farben.";
+"player_control_tint_footer" = "Farbe des Fortschrittsbalkens, aktiver Zufalls- und Wiederholungswiedergabe und anderer Player-Bedienelemente. Monochrom ist im dunklen Modus weiß und im hellen Modus schwarz und passt so zu Hintergründen wie „Fließende Farben“. Im dunklen Hörbuch-Layout werden damit auch die Wiedergabetaste und der Fortschrittsbalken weiß.";
 "player_menu_items_title" = "Menü „Mehr“";
 "player_menu_items_hidden_count %lld" = "%lld ausgeblendet";
 "player_menu_items_footer" = "Ausgeschaltete Einträge erscheinen nicht mehr im Menü „Mehr“ des Players. Tasten auf der Seite werden im Menü ohnehin nicht wiederholt, und „Gefällt mir“, Liedtext, Warteliste, Zufall und Wiederholen landen weiterhin im Menü, wenn du sie von der Seite nimmst.";

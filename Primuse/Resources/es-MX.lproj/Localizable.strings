@@ -5700,7 +5700,7 @@
 "player_control_tint_title" = "Color de los controles";
 "player_control_tint_theme" = "Color del tema";
 "player_control_tint_monochrome" = "Monocromo";
-"player_control_tint_footer" = "Color de la barra de progreso, del aleatorio y la repetición activados y de otros controles del reproductor. Monocromo es blanco en modo oscuro y negro en modo claro, así no compite con fondos como Colores fluidos. Los diseños de audiolibros conservan sus propios colores.";
+"player_control_tint_footer" = "Color de la barra de progreso, del aleatorio y la repetición activados y de otros controles del reproductor. Monocromo es blanco en modo oscuro y negro en modo claro, así no compite con fondos como Colores fluidos. En el diseño oscuro de audiolibros, el botón de reproducción y la barra de progreso también se vuelven blancos.";
 "player_menu_items_title" = "Menú Más";
 "player_menu_items_hidden_count %lld" = "%lld ocultos";
 "player_menu_items_footer" = "Los elementos que desactives ya no aparecerán en el menú Más del reproductor. Los botones que ya están en la página nunca se repiten en el menú, y Me gusta, Letra, Cola, Aleatorio y Repetir siguen pasando al menú si los quitas de la página.";

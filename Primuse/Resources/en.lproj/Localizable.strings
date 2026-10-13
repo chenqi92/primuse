@@ -5554,7 +5554,7 @@
 "player_control_tint_title" = "Control Color";
 "player_control_tint_theme" = "Theme Color";
 "player_control_tint_monochrome" = "Monochrome";
-"player_control_tint_footer" = "The color of the progress bar, active shuffle and repeat, and other player controls. Monochrome is white in Dark Mode and black in Light Mode, so it stays calm over backgrounds like Liquid Colors. The audiobook layouts keep their own colors.";
+"player_control_tint_footer" = "The color of the progress bar, active shuffle and repeat, and other player controls. Monochrome is white in Dark Mode and black in Light Mode, so it stays calm over backgrounds like Liquid Colors. In the dark audiobook layout, Monochrome also turns the play button and progress bar white.";
 "player_menu_items_title" = "More Menu";
 "player_menu_items_hidden_count %lld" = "%lld hidden";
 "player_menu_items_footer" = "Items you turn off no longer appear in the player’s More menu. Buttons already on the page are never repeated in the menu, and Like, Lyrics, Queue, Shuffle, and Repeat still move to the menu when you take them off the page.";

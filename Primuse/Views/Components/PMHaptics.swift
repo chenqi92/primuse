@@ -14,4 +14,13 @@ enum PMHaptics {
         UIImpactFeedbackGenerator(style: isLiked ? .medium : .light).impactOccurred()
         #endif
     }
+
+    /// 按住一颗键、触发它的长按动作时(按住文字稿键打开全屏文稿)手上那一下,
+    /// 轻重和系统长按弹出菜单时差不多(#283)。
+    @MainActor
+    static func longPressActivated() {
+        #if os(iOS)
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        #endif
+    }
 }
