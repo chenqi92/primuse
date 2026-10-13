@@ -94,6 +94,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "appearance.saturation", titleKey: "theme_color_saturation", iosPage: .themeColor, macPage: nil, anchor: "appearance.hue", macAnchor: "appearance.saturation"),
         SettingDefinition(id: "appearance.brightness", titleKey: "theme_color_brightness", iosPage: .themeColor, macPage: nil, anchor: "appearance.hue", macAnchor: "appearance.brightness"),
         SettingDefinition(id: "appearance.hex", titleKey: "theme_color_hex", iosPage: .themeColor, macPage: nil),
+        SettingDefinition(id: "appearance.listeningSpaceColors", titleKey: "listening_space_colors_title", iosPage: .themeColor, macPage: .appearance, keywords: ["电台颜色", "有声书颜色", "播客颜色", "radio color", "audiobook color", "podcast color"]),
         SettingDefinition(id: "appearance.coverAmbient", titleKey: "ext.tv.settings.coverColor", iosPage: .themeColor, macPage: .appearance, usesKitLocalization: true),
         SettingDefinition(id: "appearance.ambientStrength", titleKey: "ext.tv.settings.ambientIntensity", iosPage: .player, macPage: .appearance, keywords: ["背景", "浓度", "颜色", "封面色", "background", "intensity", "color"], usesKitLocalization: true),
         SettingDefinition(id: "appearance.playerBackdrop", titleKey: "player_backdrop_title", iosPage: .player, macPage: .appearance, keywords: ["background", "wallpaper", "背景", "封底", "back cover", "壁纸", "照片"]),

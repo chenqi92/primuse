@@ -5983,3 +5983,15 @@
 "player_controls_spoken_slot_picker_footer" = "別の位置にあるボタンを選ぶと、2 つの位置が入れ替わります。「自動」は元の配置のままです。";
 "player_controls_spoken_source" = "ミュージックソースを表示";
 "player_controls_spoken_source_footer" = "ミュージックソースが複数あるとき、プレーヤーの一番下の行にこの本のソースを表示します。";
+
+"listening_space_colors_title" = "ラジオ・オーディオブック・ポッドキャストの色";
+"listening_space_colors_footer" = "ホーム上部の切り替え、ライブラリ、検索、ウィジェットでラジオ、オーディオブック、ポッドキャストに使う色です。";
+"listening_space_tint_source" = "色の取得元";
+"listening_space_tint_standard" = "デフォルト";
+"listening_space_tint_standard_hint" = "このカテゴリ固有の色";
+"listening_space_tint_theme" = "テーマカラーに合わせる";
+"listening_space_tint_theme_hint" = "アプリのテーマカラーと同じ色";
+"listening_space_tint_artwork" = "アートワークに追従";
+"listening_space_tint_artwork_hint" = "再生中のアートワークに合わせて変わります。ウィジェットではテーマカラーを使います。";
+"listening_space_tint_fixed" = "固定カラー";
+"listening_space_tint_fixed_hint" = "パレットから選ぶか、下で自分で調整します";

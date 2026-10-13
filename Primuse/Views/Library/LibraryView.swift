@@ -47,6 +47,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
     }
 
     /// 电台、有声书、播客用首页顶部切换里那一类的颜色(`ListeningSpace`),两处认得出是同一个。
+    @MainActor
     var color: Color {
         switch self {
         case .recommendations: return Color(red: 0.71, green: 0.48, blue: 0.40)

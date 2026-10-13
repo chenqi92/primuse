@@ -108,7 +108,9 @@ final class ThemeService {
     ) {
         let generation = beginArtworkUpdate()
 
-        guard colorMode == .automatic || coverDrivenAmbient else {
+        // 电台、有声书、播客里有一类选了「跟随封面」时,主题色固定、背景也不取色照样要取。
+        guard colorMode == .automatic || coverDrivenAmbient
+                || ListeningSpaceTintSettings.shared.followsArtwork else {
             applyFallbackTheme()
             return
         }

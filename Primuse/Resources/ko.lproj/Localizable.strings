@@ -5982,3 +5982,15 @@
 "player_controls_spoken_slot_picker_footer" = "다른 자리에 이미 있는 버튼을 고르면 두 자리가 바뀝니다. '자동'은 원래 배치를 유지합니다.";
 "player_controls_spoken_source" = "음악 소스 표시";
 "player_controls_spoken_source_footer" = "음악 소스가 둘 이상이면 플레이어 맨 아래 줄에 이 책이 어느 소스에서 왔는지 표시합니다.";
+
+"listening_space_colors_title" = "라디오·오디오북·팟캐스트 색상";
+"listening_space_colors_footer" = "홈 상단 전환 버튼, 보관함, 검색, 위젯에서 라디오, 오디오북, 팟캐스트에 쓰는 색상입니다.";
+"listening_space_tint_source" = "색상 출처";
+"listening_space_tint_standard" = "기본";
+"listening_space_tint_standard_hint" = "이 항목의 고유 색상";
+"listening_space_tint_theme" = "테마 색상 따르기";
+"listening_space_tint_theme_hint" = "앱 테마와 같은 색상";
+"listening_space_tint_artwork" = "커버 아트 따르기";
+"listening_space_tint_artwork_hint" = "재생 중인 커버에 따라 바뀝니다. 위젯에서는 테마 색상을 사용합니다.";
+"listening_space_tint_fixed" = "고정 색상";
+"listening_space_tint_fixed_hint" = "팔레트에서 고르거나 아래에서 직접 조정하세요";

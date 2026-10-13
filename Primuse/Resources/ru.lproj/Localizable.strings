@@ -5888,3 +5888,15 @@
 "player_controls_spoken_slot_picker_footer" = "Если выбрать кнопку, которая уже стоит в другом месте, они поменяются местами. «Автоматически» сохраняет исходную раскладку.";
 "player_controls_spoken_source" = "Показывать источник музыки";
 "player_controls_spoken_source_footer" = "Если источников музыки несколько, нижняя строка плеера показывает, из какого источника книга.";
+
+"listening_space_colors_title" = "Цвета радио, аудиокниг и подкастов";
+"listening_space_colors_footer" = "Цвета радио, аудиокниг и подкастов в переключателе вверху главной страницы, в медиатеке, в поиске и в виджетах.";
+"listening_space_tint_source" = "Источник цвета";
+"listening_space_tint_standard" = "По умолчанию";
+"listening_space_tint_standard_hint" = "Собственный цвет этого раздела";
+"listening_space_tint_theme" = "Как цвет темы";
+"listening_space_tint_theme_hint" = "Тот же цвет, что и тема приложения";
+"listening_space_tint_artwork" = "С обложки";
+"listening_space_tint_artwork_hint" = "Меняется вместе с обложкой того, что играет. Виджеты используют цвет темы.";
+"listening_space_tint_fixed" = "Фиксированный цвет";
+"listening_space_tint_fixed_hint" = "Выберите в палитре или настройте свой ниже";

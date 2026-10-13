@@ -34,4 +34,61 @@ final class ListeningSpaceAppearanceTests: XCTestCase {
                        .spokenWord)
         XCTAssertEqual(PlaybackState(currentSongID: "song", isPlaying: true).listeningSpace, .music)
     }
+
+    func testTintChoiceRoundTripsThroughItsStoredValue() {
+        let choices: [ListeningSpaceTintChoice] = [.standard, .theme, .artwork, .fixed("C25E0C")]
+        for choice in choices {
+            XCTAssertEqual(ListeningSpaceTintChoice(storedValue: choice.storedValue), choice)
+        }
+        XCTAssertEqual(ListeningSpaceTintChoice(storedValue: nil), .standard)
+        XCTAssertEqual(ListeningSpaceTintChoice(storedValue: " #c25e0c "), .fixed("C25E0C"))
+        XCTAssertEqual(ListeningSpaceTintChoice(storedValue: "orange"), .standard)
+        XCTAssertEqual(ListeningSpaceTintChoice(storedValue: "12345"), .standard)
+        XCTAssertEqual(ListeningSpaceTintChoice.fixed("FF9500").fixedHex, "FF9500")
+        XCTAssertNil(ListeningSpaceTintChoice.theme.fixedHex)
+    }
+
+    func testTintChoicesAreKeptPerSpaceAndMusicHasNone() throws {
+        let suite = "ListeningSpaceTintPreferencesTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        XCTAssertEqual(ListeningSpaceTintPreferences.choice(for: .radio, in: defaults), .standard)
+        ListeningSpaceTintPreferences.store(.fixed("E8453C"), for: .radio, in: defaults)
+        ListeningSpaceTintPreferences.store(.artwork, for: .podcast, in: defaults)
+        XCTAssertEqual(ListeningSpaceTintPreferences.choice(for: .radio, in: defaults), .fixed("E8453C"))
+        XCTAssertEqual(ListeningSpaceTintPreferences.choice(for: .podcast, in: defaults), .artwork)
+        XCTAssertEqual(ListeningSpaceTintPreferences.choice(for: .spokenWord, in: defaults), .standard)
+
+        // Back to the space's own hue leaves nothing behind.
+        ListeningSpaceTintPreferences.store(.standard, for: .radio, in: defaults)
+        XCTAssertNil(defaults.object(forKey: ListeningSpaceTintPreferences.key(for: .radio)))
+
+        ListeningSpaceTintPreferences.store(.fixed("E8453C"), for: .music, in: defaults)
+        XCTAssertNil(defaults.object(forKey: ListeningSpaceTintPreferences.key(for: .music)))
+        XCTAssertEqual(ListeningSpaceTintPreferences.choice(for: .music, in: defaults), .theme)
+    }
+
+    func testPickedColoursReadOnBothAppearances() throws {
+        func rgb(_ hex: UInt32) -> ThemeAccentContrastPolicy.RGB {
+            let parts = ListeningSpaceTint.components(hex)
+            return ThemeAccentContrastPolicy.RGB(red: parts.red, green: parts.green, blue: parts.blue)
+        }
+        // Orange and amber are far too pale on white as picked.
+        for hex in ["FF9500", "D4A017", "2AAA8A", "0A84FF", "5E5CE6"] {
+            let tint = try XCTUnwrap(ListeningSpaceTint.legible(hex: hex))
+            XCTAssertGreaterThanOrEqual(
+                ThemeAccentContrastPolicy.contrastRatio(rgb(tint.light), .white), 4.5, hex
+            )
+            XCTAssertGreaterThanOrEqual(
+                ThemeAccentContrastPolicy.contrastRatio(rgb(tint.dark), .black), 4.5, hex
+            )
+        }
+        // A colour that already reads is kept as picked.
+        XCTAssertEqual(ListeningSpaceTint.legible(hex: "147D8A")?.light, 0x147D8A)
+        // White is near-black in light appearance, white in dark.
+        XCTAssertEqual(ListeningSpaceTint.legible(hex: "FFFFFF"), ListeningSpaceTint(light: 0x1C1C1C, dark: 0xFFFFFF))
+        XCTAssertNil(ListeningSpaceTint.legible(hex: "XYZ123"))
+        XCTAssertNil(ListeningSpaceTint.legible(hex: "FFF"))
+    }
 }

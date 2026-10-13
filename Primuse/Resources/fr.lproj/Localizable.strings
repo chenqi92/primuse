@@ -5982,3 +5982,15 @@
 "player_controls_spoken_slot_picker_footer" = "Choisir un bouton déjà placé ailleurs échange les deux emplacements. Automatique conserve la disposition d’origine.";
 "player_controls_spoken_source" = "Afficher la source musicale";
 "player_controls_spoken_source_footer" = "Avec plusieurs sources musicales, la dernière ligne du lecteur indique de quelle source vient le livre.";
+
+"listening_space_colors_title" = "Couleurs de la radio, des livres audio et des podcasts";
+"listening_space_colors_footer" = "Les couleurs de la radio, des livres audio et des podcasts dans le sélecteur en haut de l’Accueil, dans la Bibliothèque, dans la recherche et dans les widgets.";
+"listening_space_tint_source" = "Source de la couleur";
+"listening_space_tint_standard" = "Par défaut";
+"listening_space_tint_standard_hint" = "La couleur propre à cette catégorie";
+"listening_space_tint_theme" = "Couleur du thème";
+"listening_space_tint_theme_hint" = "La même couleur que le thème de l’app";
+"listening_space_tint_artwork" = "D’après la pochette";
+"listening_space_tint_artwork_hint" = "Change avec la pochette en cours de lecture. Les widgets utilisent la couleur du thème.";
+"listening_space_tint_fixed" = "Couleur fixe";
+"listening_space_tint_fixed_hint" = "Choisissez-en une dans la palette ou réglez la vôtre ci-dessous";

@@ -5959,3 +5959,15 @@
 "player_controls_spoken_slot_picker_footer" = "選已經在另一格的按鈕，兩格會對調。「自動」和原來的擺法一樣。";
 "player_controls_spoken_source" = "顯示音樂來源";
 "player_controls_spoken_source_footer" = "有不止一個音樂來源時，播放頁最下面那行寫出這本書來自哪個來源。";
+
+"listening_space_colors_title" = "電台、有聲書、播客的顏色";
+"listening_space_colors_footer" = "首頁頂部切換、資料庫、搜尋和小工具裡電台、有聲書、播客用的顏色。";
+"listening_space_tint_source" = "顏色來源";
+"listening_space_tint_standard" = "預設";
+"listening_space_tint_standard_hint" = "這一類內容自帶的顏色";
+"listening_space_tint_theme" = "跟隨主題色";
+"listening_space_tint_theme_hint" = "和 App 的主題色一樣";
+"listening_space_tint_artwork" = "跟隨封面";
+"listening_space_tint_artwork_hint" = "跟著正在播放的封面變；小工具裡按主題色顯示。";
+"listening_space_tint_fixed" = "固定顏色";
+"listening_space_tint_fixed_hint" = "從色盤裡挑，或在下面自己調";
