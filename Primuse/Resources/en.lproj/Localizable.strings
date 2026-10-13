@@ -5754,3 +5754,8 @@
 "listening_space_tint_artwork_hint" = "Changes with the cover of what’s playing. Widgets use the theme color.";
 "listening_space_tint_fixed" = "Fixed Color";
 "listening_space_tint_fixed_hint" = "Pick one from the palette or adjust your own below";
+
+"playlist_import_incomplete_format" = "Loaded %d songs, but the playlist is incomplete. You can import these songs now or retry loading.";
+"playlist_import_quota_format" = "Loaded %1$d songs; the remaining pages are paused. %2$@ You can import the loaded songs now or retry after the wait.";
+"playlist_import_quota_ready_format" = "Loaded %d songs before requests were limited. You can import these songs now or retry loading the full playlist.";
+"playlist_import_retry_link" = "Retry loading playlist";

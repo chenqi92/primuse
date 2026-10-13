@@ -5971,3 +5971,8 @@
 "listening_space_tint_artwork_hint" = "跟著正在播放的封面變；小工具裡按主題色顯示。";
 "listening_space_tint_fixed" = "固定顏色";
 "listening_space_tint_fixed_hint" = "從色盤裡挑，或在下面自己調";
+
+"playlist_import_incomplete_format" = "已讀取 %d 首歌曲，但歌單尚未完整載入。可以現在匯入這些歌曲，或重新讀取。";
+"playlist_import_quota_format" = "已讀取 %1$d 首歌曲，其餘頁面已暫停。%2$@ 可以現在匯入已讀取的歌曲，或等待後重試。";
+"playlist_import_quota_ready_format" = "請求限流前已讀取 %d 首歌曲。可以現在匯入這些歌曲，或重試讀取完整歌單。";
+"playlist_import_retry_link" = "重新讀取歌單";

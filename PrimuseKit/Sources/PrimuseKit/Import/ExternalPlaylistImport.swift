@@ -68,21 +68,46 @@ public struct ExternalPlaylist: Sendable, Hashable {
     public var name: String
     public var platform: ExternalPlaylistPlatform?
     public var tracks: [ExternalPlaylistTrack]
-    /// 对方只公开了歌单的前一部分（酷狗分享页 10 首、汽水网页 50 首、Spotify 嵌入页 100 首），
-    /// 拿到的条数正好顶到上限时置真，界面据此提醒用户剩下的要用文本清单补。
-    public var isPartial: Bool
+    public enum PartialReason: Sendable, Hashable {
+        case publicPreview
+        case incomplete
+        /// Absolute deadline keeps a preview's remaining wait from restarting on redraw.
+        case rateLimited(statusCode: Int, retryAt: Date)
+
+        public func remainingWait(at now: Date = Date()) -> TimeInterval? {
+            guard case .rateLimited(_, let retryAt) = self else { return nil }
+            return max(0, retryAt.timeIntervalSince(now))
+        }
+
+        public func canRetry(at now: Date = Date()) -> Bool {
+            switch self {
+            case .publicPreview: return false
+            case .incomplete: return true
+            case .rateLimited: return remainingWait(at: now) == 0
+            }
+        }
+    }
+
+    public var partialReason: PartialReason?
+    /// Preserve existing public-preview callers while retaining richer continuation failures.
+    public var isPartial: Bool {
+        get { partialReason != nil }
+        set { partialReason = newValue ? (partialReason ?? .publicPreview) : nil }
+    }
 
     public init(
         name: String,
         platform: ExternalPlaylistPlatform?,
         tracks: [ExternalPlaylistTrack],
-        isPartial: Bool = false
+        isPartial: Bool = false,
+        partialReason: PartialReason? = nil
     ) {
         self.name = name
         self.platform = platform
         self.tracks = tracks
-        self.isPartial = isPartial
+        self.partialReason = partialReason ?? (isPartial ? .publicPreview : nil)
     }
+
 }
 
 public enum ExternalPlaylistError: Error, Equatable, Sendable {

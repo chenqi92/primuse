@@ -96,10 +96,59 @@ final class ExternalPlaylistQuotaTests: XCTestCase {
         XCTAssertEqual(payload["continuation"] as? String, "NEXT")
     }
 
-    func testYouTubeThrottleRetainsRetryAfterInsteadOfSilentPartialSuccess() async throws {
-        let fixture = PlaylistFixture([.init(body: youtubePage), .init(status: 503, headers: ["Retry-After": "3600"])])
-        do { _ = try await fixture.fetcher().fetch(sharedText: youtube); XCTFail("Expected throttling") }
+    func testYouTubeQuotaRetainsOrderedCompletedPagesAndSharedCooldown() async throws {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss 'GMT'"
+        for status in [429, 503] {
+            for header in ["86400", formatter.string(from: Date().addingTimeInterval(86400))] {
+                let second = "{\"items\":[\(youtubeItem("two")),{\"continuationItemViewModel\":{\"continuationCommand\":{\"token\":\"THIRD\"}}}]}"
+                let fixture = PlaylistFixture([.init(body: youtubePage), .init(body: second),
+                    .init(status: status, headers: ["Retry-After": header])])
+                let playlist = try await fixture.fetcher().fetch(sharedText: youtube)
+                XCTAssertEqual(playlist.tracks.map(\.title), ["one", "two"])
+                XCTAssertTrue(playlist.isPartial)
+                guard case .rateLimited(let actualStatus, _) = playlist.partialReason else {
+                    XCTFail("Expected an explicit quota reason"); continue
+                }
+                XCTAssertEqual(actualStatus, status)
+                XCTAssertGreaterThan(playlist.partialReason?.remainingWait() ?? 0, 86390)
+                XCTAssertFalse(playlist.partialReason?.canRetry() ?? true)
+                XCTAssertEqual(fixture.requests.count, 3)
+                do { _ = try await fixture.fetcher().fetch(sharedText: youtube); XCTFail("Second import bypassed quota") }
+                catch let failure as HTTPResponseFailure { XCTAssertGreaterThan(failure.retryAfter ?? 0, 86390) }
+                XCTAssertEqual(fixture.requests.count, 3)
+            }
+        }
+    }
+
+    func testYouTubeCancellationNeverReturnsImportablePartialTracks() async throws {
+        let fixture = PlaylistFixture([.init(body: youtubePage), .init(error: .init(.cancelled))])
+        do { _ = try await fixture.fetcher().fetch(sharedText: youtube); XCTFail("Cancelled continuation returned a partial playlist") }
+        catch is CancellationError { }
+        XCTAssertEqual(fixture.requests.count, 2)
+    }
+
+    func testYouTubeFirstPageQuotaStillFailsAndMissingHeaderUsesServerCooldown() async throws {
+        let first = PlaylistFixture([.init(status: 429, headers: ["Retry-After": "3600"])])
+        do { _ = try await first.fetcher().fetch(sharedText: youtube); XCTFail("No completed page exists to preview") }
         catch let failure as HTTPResponseFailure { XCTAssertEqual(failure.retryAfter, 3600) }
+        let continuation = PlaylistFixture([.init(body: youtubePage), .init(status: 503)])
+        let playlist = try await continuation.fetcher().fetch(sharedText: youtube)
+        XCTAssertEqual(playlist.tracks.map(\.title), ["one"])
+        guard case .rateLimited(let status, _) = playlist.partialReason else { return XCTFail("Expected explicit service cooldown") }
+        XCTAssertEqual(status, 503)
+        XCTAssertGreaterThan(playlist.partialReason?.remainingWait() ?? 0, 25)
+        XCTAssertEqual(continuation.requests.count, 2)
+    }
+
+    func testYouTubeNonQuotaContinuationFailureHasItsOwnPartialReason() async throws {
+        let fixture = PlaylistFixture([.init(body: youtubePage), .init(status: 403)])
+        let playlist = try await fixture.fetcher().fetch(sharedText: youtube)
+        XCTAssertEqual(playlist.tracks.map(\.title), ["one"])
+        XCTAssertEqual(playlist.partialReason, .incomplete)
+        XCTAssertTrue(playlist.partialReason?.canRetry() ?? false)
         XCTAssertEqual(fixture.requests.count, 2)
     }
 
@@ -135,24 +184,25 @@ final class ExternalPlaylistQuotaTests: XCTestCase {
     }
 
     func testTaskCancellationStopsRequestAndPaginationPromptly() async throws {
-        let fixture = PlaylistFixture([.init(body: qqPage("one")), .init(status: 0)])
-        let fetcher = fixture.fetcher()
-        let link = qq
-        let done = expectation(description: "Import cancelled promptly")
-        let task = Task {
-            defer { done.fulfill() }
-            do { _ = try await fetcher.fetch(sharedText: link); XCTFail("Expected cancellation") }
-            catch is CancellationError { }
-            catch { XCTFail("Cancellation lost: \(error)") }
+        for (link, page) in [(qq, qqPage("one")), (youtube, youtubePage)] {
+            let fixture = PlaylistFixture([.init(body: page), .init(status: 0)])
+            let fetcher = fixture.fetcher()
+            let done = expectation(description: "Import cancelled promptly")
+            let task = Task {
+                defer { done.fulfill() }
+                do { _ = try await fetcher.fetch(sharedText: link); XCTFail("Expected cancellation") }
+                catch is CancellationError { }
+                catch { XCTFail("Cancellation lost: \(error)") }
+            }
+            for _ in 0..<200 {
+                if fixture.requests.count == 2 { break }
+                try await Task.sleep(for: .milliseconds(5))
+            }
+            XCTAssertEqual(fixture.requests.count, 2)
+            task.cancel()
+            await fulfillment(of: [done], timeout: 3)
+            XCTAssertEqual(fixture.requests.count, 2)
         }
-        for _ in 0..<200 {
-            if fixture.requests.count == 2 { break }
-            try await Task.sleep(for: .milliseconds(5))
-        }
-        XCTAssertEqual(fixture.requests.count, 2)
-        task.cancel()
-        await fulfillment(of: [done], timeout: 3)
-        XCTAssertEqual(fixture.requests.count, 2)
     }
 
     private func qqPage(_ title: String, total: Int = 2) -> String {

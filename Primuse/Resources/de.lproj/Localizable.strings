@@ -5994,3 +5994,8 @@
 "listening_space_tint_artwork_hint" = "Ändert sich mit dem Cover der aktuellen Wiedergabe. Widgets verwenden die Themenfarbe.";
 "listening_space_tint_fixed" = "Feste Farbe";
 "listening_space_tint_fixed_hint" = "Aus der Palette wählen oder unten selbst einstellen";
+
+"playlist_import_incomplete_format" = "%d Titel geladen, aber die Playlist ist unvollständig. Du kannst diese Titel jetzt importieren oder erneut laden.";
+"playlist_import_quota_format" = "%1$d Titel geladen; weitere Seiten sind pausiert. %2$@ Du kannst die geladenen Titel jetzt importieren oder nach der Wartezeit erneut laden.";
+"playlist_import_quota_ready_format" = "Vor der Anfragebegrenzung wurden %d Titel geladen. Du kannst sie jetzt importieren oder die gesamte Playlist erneut laden.";
+"playlist_import_retry_link" = "Playlist erneut laden";

@@ -6087,3 +6087,8 @@
 "listening_space_tint_artwork_hint" = "跟着正在播放的封面变；小组件里按主题色显示。";
 "listening_space_tint_fixed" = "固定颜色";
 "listening_space_tint_fixed_hint" = "从色板里挑，或在下面自己调";
+
+"playlist_import_incomplete_format" = "已读取 %d 首歌曲，但歌单尚未完整加载。可以现在导入这些歌曲，或重新读取。";
+"playlist_import_quota_format" = "已读取 %1$d 首歌曲，其余页面已暂停。%2$@ 可以现在导入已读取的歌曲，或等待后重试。";
+"playlist_import_quota_ready_format" = "请求限流前已读取 %d 首歌曲。可以现在导入这些歌曲，或重试读取完整歌单。";
+"playlist_import_retry_link" = "重新读取歌单";

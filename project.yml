@@ -371,6 +371,7 @@ targets:
       - path: PrimuseTests/CrossFeatureQuotaTests.swift
       - path: PrimuseTests/RadioDirectoryQuotaTests.swift
       - path: PrimuseTests/ExternalPlaylistQuotaTests.swift
+      - path: PrimuseTests/PlaylistPartialImportNoticeTests.swift
       - path: PrimuseTests/AIRequestQuotaTests.swift
     dependencies:
       - target: PrimuseMac

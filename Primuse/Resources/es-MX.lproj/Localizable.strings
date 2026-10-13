@@ -5900,3 +5900,8 @@
 "listening_space_tint_artwork_hint" = "Cambia con la portada de lo que se reproduce. Los widgets usan el color del tema.";
 "listening_space_tint_fixed" = "Color fijo";
 "listening_space_tint_fixed_hint" = "Elige uno de la paleta o ajusta el tuyo abajo";
+
+"playlist_import_incomplete_format" = "Se cargaron %d canciones, pero la playlist está incompleta. Puedes importarlas ahora o volver a cargarla.";
+"playlist_import_quota_format" = "Se cargaron %1$d canciones; las páginas restantes están en pausa. %2$@ Puedes importar las canciones cargadas ahora o reintentar después de la espera.";
+"playlist_import_quota_ready_format" = "Se cargaron %d canciones antes del límite de solicitudes. Puedes importarlas ahora o volver a cargar la playlist completa.";
+"playlist_import_retry_link" = "Volver a cargar playlist";

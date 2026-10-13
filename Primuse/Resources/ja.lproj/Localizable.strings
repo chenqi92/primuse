@@ -5995,3 +5995,8 @@
 "listening_space_tint_artwork_hint" = "再生中のアートワークに合わせて変わります。ウィジェットではテーマカラーを使います。";
 "listening_space_tint_fixed" = "固定カラー";
 "listening_space_tint_fixed_hint" = "パレットから選ぶか、下で自分で調整します";
+
+"playlist_import_incomplete_format" = "%d 曲を読み込みましたが、プレイリストは未完了です。読み込んだ曲を今すぐ取り込むか、再読み込みできます。";
+"playlist_import_quota_format" = "%1$d 曲を読み込みました。残りのページの読み込みは一時停止中です。%2$@ 読み込んだ曲を今すぐ取り込むか、待機後に再試行できます。";
+"playlist_import_quota_ready_format" = "リクエストが制限される前に %d 曲を読み込みました。今すぐ取り込むか、プレイリスト全体の読み込みを再試行できます。";
+"playlist_import_retry_link" = "プレイリストを再読み込み";

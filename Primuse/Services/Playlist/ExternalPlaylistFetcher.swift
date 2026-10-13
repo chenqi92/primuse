@@ -377,10 +377,10 @@ struct ExternalPlaylistFetcher: Sendable {
         )
         var tracks = first.tracks
         var continuation = first.continuation
-        var isPartial = false
+        var partialReason: ExternalPlaylist.PartialReason?
         while let token = continuation, tracks.count < Self.maximumTracks {
             try Task.checkCancellation()
-            guard let clientVersion = first.clientVersion else { isPartial = true; break }
+            guard let clientVersion = first.clientVersion else { partialReason = .incomplete; break }
             let (request, body) = ExternalPlaylistRequests.youtubeContinuation(token: token, clientVersion: clientVersion)
             do {
                 let next = try ExternalPlaylistDecoder.youtubeContinuationPage(
@@ -391,18 +391,27 @@ struct ExternalPlaylistFetcher: Sendable {
                 continuation = next.continuation
             } catch is CancellationError {
                 throw CancellationError()
-            } catch let failure as HTTPResponseFailure where failure.retryAfter != nil || [429, 503].contains(failure.statusCode) {
-                throw failure
+            } catch let failure as HTTPResponseFailure where failure.isRateLimitFailure || failure.statusCode == 503 {
+                try Task.checkCancellation()
+                // Admission already retained the service cooldown. Preserve completed
+                // pages and the absolute deadline for an explicit preview/retry choice.
+                partialReason = .rateLimited(statusCode: failure.statusCode,
+                    retryAt: Date().addingTimeInterval(failure.retryAfter ?? Self.service.policy.defaultCooldown))
+                break
             } catch {
-                isPartial = true
+                try Task.checkCancellation()
+                partialReason = .incomplete
                 break
             }
+        }
+        if tracks.count >= Self.maximumTracks, continuation != nil, partialReason == nil {
+            partialReason = .incomplete
         }
         return ExternalPlaylist(
             name: first.name,
             platform: .youtube,
             tracks: Array(tracks.prefix(Self.maximumTracks)),
-            isPartial: isPartial
+            partialReason: partialReason
         )
     }
 

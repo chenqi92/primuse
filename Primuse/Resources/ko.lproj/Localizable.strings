@@ -5994,3 +5994,8 @@
 "listening_space_tint_artwork_hint" = "재생 중인 커버에 따라 바뀝니다. 위젯에서는 테마 색상을 사용합니다.";
 "listening_space_tint_fixed" = "고정 색상";
 "listening_space_tint_fixed_hint" = "팔레트에서 고르거나 아래에서 직접 조정하세요";
+
+"playlist_import_incomplete_format" = "%d곡을 불러왔지만 재생목록이 완전하지 않습니다. 이 곡들을 지금 가져오거나 다시 불러올 수 있습니다.";
+"playlist_import_quota_format" = "%1$d곡을 불러왔으며 나머지 페이지는 일시 중지되었습니다. %2$@ 불러온 곡들을 지금 가져오거나 대기 후 다시 시도할 수 있습니다.";
+"playlist_import_quota_ready_format" = "요청이 제한되기 전에 %d곡을 불러왔습니다. 지금 가져오거나 전체 재생목록을 다시 불러올 수 있습니다.";
+"playlist_import_retry_link" = "재생목록 다시 불러오기";

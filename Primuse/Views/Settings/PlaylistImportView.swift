@@ -5,6 +5,37 @@ import UniformTypeIdentifiers
 import AppKit
 #endif
 
+/// Shared by the macOS and iOS preview. Rendering never starts a network request
+/// or writes a playlist; both actions remain explicit user choices.
+struct PlaylistPartialImportNotice: Sendable {
+    let reason: ExternalPlaylist.PartialReason
+    let trackCount: Int
+    let platformName: String
+
+    init?(playlist: ExternalPlaylist, platformName: String) {
+        guard let reason = playlist.partialReason else { return nil }
+        self.reason = reason
+        self.trackCount = playlist.tracks.count
+        self.platformName = platformName
+    }
+
+    func message(at now: Date = Date()) -> String {
+        switch reason {
+        case .publicPreview:
+            return String(format: String(localized: "playlist_import_partial_format"), platformName, trackCount)
+        case .incomplete:
+            return String(format: String(localized: "playlist_import_incomplete_format"), trackCount)
+        case .rateLimited(let status, _):
+            let remaining = reason.remainingWait(at: now) ?? 0
+            if remaining == 0 {
+                return String(format: String(localized: "playlist_import_quota_ready_format"), trackCount)
+            }
+            let wait = HTTPResponseFailure(statusCode: status, retryAfter: remaining).localizedDescription
+            return String(format: String(localized: "playlist_import_quota_format"), trackCount, wait)
+        }
+    }
+}
+
 /// 歌单导入页 — 三种来源: .fileImporter 选 .m3u8 / .json、粘贴其他音乐 App 的
 /// 歌单分享链接、粘贴「歌名 - 歌手」文本清单。解析 + 库匹配后给用户看预览
 /// (匹配成功 N 首 / 缺 M 首) → 用户改名后确认 → 创建歌单。没对上的歌默认以
@@ -44,8 +75,7 @@ struct PlaylistImportView: View {
     /// 没对上的歌以置灰占位保留(新建或合并进歌单时有效; 「我喜欢」只收对上的)。
     @State private var keepMissing = true
     @State private var loadTask: Task<Void, Never>?
-    /// 对方只公开了歌单的一部分时的提示(平台名 + 读到的条数)。
-    @State private var partialImportNote: String?
+    @State private var partialImportNotice: PlaylistPartialImportNotice?
 
     enum ImportSourceMode: String, CaseIterable, Identifiable {
         case file
@@ -165,7 +195,7 @@ struct PlaylistImportView: View {
     /// 加入「我喜欢」不需要名字, 至少要匹配到一首; 新建歌单需要名字, 保留置灰条目时
     /// 一首都没对上也可以建 —— 以后曲库里有了会自己亮。
     private var canConfirmImport: Bool {
-        guard let preview else { return false }
+        guard !isParsing, let preview else { return false }
         switch destination {
         case .likedSongs:
             return preview.matchedCount > 0
@@ -592,16 +622,10 @@ struct PlaylistImportView: View {
 
             macSegmentedProgress(p)
 
-            if let partialImportNote {
-                Label {
-                    Text(verbatim: partialImportNote)
-                        .fixedSize(horizontal: false, vertical: true)
-                } icon: {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(PMColor.warn)
-                }
-                .font(.system(size: 11.5))
-                .foregroundStyle(PMColor.textMuted)
+            if let partialImportNotice {
+                partialNotice(partialImportNotice)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(PMColor.textMuted)
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -1092,13 +1116,8 @@ struct PlaylistImportView: View {
             }
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
-                if let partialImportNote {
-                    Label {
-                        Text(verbatim: partialImportNote)
-                    } icon: {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                    }
+                if let partialImportNotice {
+                    partialNotice(partialImportNotice)
                 }
                 if p.missingCount > 0 {
                     Text(missingFooterKey)
@@ -1314,7 +1333,7 @@ struct PlaylistImportView: View {
                     hasSameNamePlaylist: prepareMergeTarget(importedName: p.suggestedName)
                 )
                 importedFromName = fileName
-                partialImportNote = nil
+                partialImportNotice = nil
             } catch {
                 importError = error.localizedDescription
             }
@@ -1645,6 +1664,33 @@ struct PlaylistImportView: View {
 
     // MARK: - Links and text lists
 
+    @ViewBuilder
+    private func partialNotice(_ notice: PlaylistPartialImportNotice) -> some View {
+        if case .rateLimited = notice.reason {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                partialNoticeContents(notice, now: context.date)
+            }
+        } else {
+            partialNoticeContents(notice, now: .now)
+        }
+    }
+
+    private func partialNoticeContents(_ notice: PlaylistPartialImportNotice, now: Date) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label {
+                Text(verbatim: notice.message(at: now))
+                    .fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+            }
+            if sourceMode == .link, notice.reason != .publicPreview {
+                Button("playlist_import_retry_link") { importFromLink() }
+                    .disabled(isParsing || !notice.reason.canRetry(at: now))
+            }
+        }
+    }
+
     private func importFromLink() {
         let text = linkText
         startExternalImport { try await ExternalPlaylistFetcher.fetch(sharedText: text) }
@@ -1669,6 +1715,8 @@ struct PlaylistImportView: View {
         guard !isParsing else { return }
         let snapshot = library.visibleSongs
         let keyCache = library.playlistEntryMatchKeyCache
+        preview = nil
+        partialImportNotice = nil
         isParsing = true
         loadTask = Task {
             defer {
@@ -1710,13 +1758,8 @@ struct PlaylistImportView: View {
                 // 文本清单用的是统一的默认名, 同名不说明是同一份歌单。
                 destination = hasSameName && sourceMode != .text ? .existingPlaylist : .newPlaylist
                 importedFromName = playlist.platform.map(platformName) ?? p.suggestedName
-                partialImportNote = playlist.isPartial
-                    ? String(
-                        format: String(localized: "playlist_import_partial_format"),
-                        playlist.platform.map(platformName) ?? "",
-                        playlist.tracks.count
-                    )
-                    : nil
+                partialImportNotice = PlaylistPartialImportNotice(playlist: playlist,
+                    platformName: playlist.platform.map(platformName) ?? "")
             } catch is CancellationError {
                 return
             } catch {
