@@ -53,8 +53,18 @@ enum ServerPlaylistSyncService {
             plog("\(context) stage=apply result=skipped reason=stale-scan")
             return result
         }
+        // 对照在主线程外算; 算的这一会儿源可能被停用或被新一轮扫描接手, 回来再过一次闸。
+        let prepared = await ServerPlaylistMirror.prepareOffMain(
+            snapshot: snapshot,
+            source: source,
+            library: library
+        )
+        guard applyFence() else {
+            plog("\(context) stage=apply result=skipped reason=stale-scan")
+            return result
+        }
 
-        result = ServerPlaylistMirror.apply(snapshot: snapshot, source: source, library: library)
+        result = ServerPlaylistMirror.apply(prepared, snapshot: snapshot, source: source, library: library)
         return result
     }
 }

@@ -86,12 +86,23 @@ struct CachedArtworkView: View {
     // Keep the bitmap in a reference holder: closures retained by a lazy
     // container otherwise capture old View / State values containing it.
     @State private var decodedArtworkState = DecodedArtworkState()
+    /// 图换了才加一, body 读它来订阅。持有者不做成 @Observable: 在 .task、出现回调里
+    /// 改 Observable 属性时 SwiftUI 会当场把整张视图图更新一遍, 一屏格子同时出现就是
+    /// 一格一遍; @State 的改动并进下一次更新。
+    @State private var decodedArtworkRevision = 0
     private var image: PlatformImage? {
-        get { decodedArtworkState.image }
-        nonmutating set { decodedArtworkState.image = newValue }
+        get {
+            _ = decodedArtworkRevision
+            return decodedArtworkState.image
+        }
+        nonmutating set {
+            guard decodedArtworkState.image !== newValue else { return }
+            decodedArtworkState.image = newValue
+            decodedArtworkRevision &+= 1
+        }
     }
 
-    @MainActor @Observable
+    @MainActor
     fileprivate final class DecodedArtworkState {
         var image: PlatformImage?
     }

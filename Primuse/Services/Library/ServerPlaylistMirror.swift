@@ -14,14 +14,96 @@ enum ServerPlaylistMirror {
     /// 就会重新同步一次, 在那之前宁可让用户试一次、由服务端拒绝。
     private(set) static var readOnlyPlaylistIDs: Set<String> = []
 
+    /// 服务端曲目 → 本地歌曲的对照结果。只由值算出(这个源的歌 + 服务端快照),
+    /// 可以在主线程外算好, 主线程只做落地。
+    struct PreparedSnapshot: Sendable {
+        fileprivate struct Entry: Sendable {
+            let serverPlaylist: ServerPlaylist
+            let localID: String
+            let songIDs: [String]
+            let missingCount: Int
+            let logContext: String
+        }
+        fileprivate let entries: [Entry]
+        fileprivate let indexedTrackCount: Int
+    }
+
     static func apply(
         snapshot: ServerPlaylistSnapshot,
         source: MusicSource,
         library: MusicLibrary
     ) -> SyncResult {
+        let prepared = prepare(
+            snapshot: snapshot,
+            sourceID: source.id,
+            sourceType: source.type,
+            songs: library.songs
+        )
+        return apply(prepared, snapshot: snapshot, source: source, library: library)
+    }
+
+    /// 整库建索引、逐首对照放到主线程外: 几万首的曲库加上几十个歌单, 在主线程上
+    /// 要卡一百多毫秒, 正好赶上冷启动后首页出现。回来之后调用方要重新过闸。
+    static func prepareOffMain(
+        snapshot: ServerPlaylistSnapshot,
+        source: MusicSource,
+        library: MusicLibrary
+    ) async -> PreparedSnapshot {
+        let songs = library.songs
+        let sourceID = source.id
+        let sourceType = source.type
+        return await Task.detached(priority: .utility) {
+            ServerPlaylistMirror.prepare(snapshot: snapshot, sourceID: sourceID, sourceType: sourceType, songs: songs)
+        }.value
+    }
+
+    nonisolated private static func prepare(
+        snapshot: ServerPlaylistSnapshot,
+        sourceID: String,
+        sourceType: MusicSourceType,
+        songs: [Song]
+    ) -> PreparedSnapshot {
+        let index = serverItemIndex(sourceID: sourceID, songs: songs)
+        let context = logContext(sourceID: sourceID, sourceType: sourceType)
+        let entries = snapshot.playlists.map { serverPlaylist in
+            // 一遍走完: 保序去重, 顺带数出对不上的条目。
+            var songIDs: [String] = []
+            songIDs.reserveCapacity(serverPlaylist.trackIDs.count)
+            var seen = Set<String>()
+            var missingCount = 0
+            for trackID in serverPlaylist.trackIDs {
+                guard let songID = index[trackID] else {
+                    missingCount += 1
+                    continue
+                }
+                if seen.insert(songID).inserted { songIDs.append(songID) }
+            }
+            return PreparedSnapshot.Entry(
+                serverPlaylist: serverPlaylist,
+                localID: ServerPlaylistIdentity.playlistID(
+                    sourceID: sourceID,
+                    serverPlaylistID: serverPlaylist.id
+                ),
+                songIDs: songIDs,
+                missingCount: missingCount,
+                logContext: "\(context) playlist=\(LogRedactionPolicy.digest(serverPlaylist.id)) received=\(serverPlaylist.trackIDs.count) expected=\(serverPlaylist.reportedTrackCount ?? serverPlaylist.trackIDs.count)"
+            )
+        }
+        return PreparedSnapshot(entries: entries, indexedTrackCount: index.count)
+    }
+
+    nonisolated private static func logContext(sourceID: String, sourceType: MusicSourceType) -> String {
+        "Server playlists source=\(LogRedactionPolicy.digest(sourceID)) type=\(sourceType.rawValue)"
+    }
+
+    static func apply(
+        _ prepared: PreparedSnapshot,
+        snapshot: ServerPlaylistSnapshot,
+        source: MusicSource,
+        library: MusicLibrary
+    ) -> SyncResult {
         var result = SyncResult()
-        let index = serverItemIndex(sourceID: source.id, library: library)
-        let context = "Server playlists source=\(LogRedactionPolicy.digest(source.id)) type=\(source.type.rawValue)"
+        let context = logContext(sourceID: source.id, sourceType: source.type)
         let prefix = ServerPlaylistIdentity.playlistIDPrefix(sourceID: source.id)
         let previousIDs = Set(library.allPlaylists.filter { $0.id.hasPrefix(prefix) }.map(\.id))
         let suppressedIDs = Set(library.hiddenMirrorPlaylists(forSourceID: source.id).map(\.playlistID))
@@ -31,13 +113,11 @@ enum ServerPlaylistMirror {
             failedServerPlaylistIDs: snapshot.failedPlaylistIDs
         )
 
-        for serverPlaylist in snapshot.playlists {
-            let localID = ServerPlaylistIdentity.playlistID(
-                sourceID: source.id,
-                serverPlaylistID: serverPlaylist.id
-            )
-            let songIDs = uniqued(serverPlaylist.trackIDs.compactMap { index[$0] })
-            let playlistContext = "\(context) playlist=\(LogRedactionPolicy.digest(serverPlaylist.id)) received=\(serverPlaylist.trackIDs.count) expected=\(serverPlaylist.reportedTrackCount ?? serverPlaylist.trackIDs.count)"
+        for entry in prepared.entries {
+            let serverPlaylist = entry.serverPlaylist
+            let localID = entry.localID
+            let songIDs = entry.songIDs
+            let playlistContext = entry.logContext
             if serverPlaylist.isReadOnly {
                 readOnlyPlaylistIDs.insert(localID)
             } else {
@@ -63,7 +143,7 @@ enum ServerPlaylistMirror {
                         coverArtPath: serverPlaylist.coverArtReference
                     )
                 }
-                plog("\(playlistContext) stage=match result=skipped reason=no-local-match local_indexed_tracks=\(index.count) retained_existing=\(previousIDs.contains(localID))")
+                plog("\(playlistContext) stage=match result=skipped reason=no-local-match local_indexed_tracks=\(prepared.indexedTrackCount) retained_existing=\(previousIDs.contains(localID))")
                 continue
             }
 
@@ -77,8 +157,7 @@ enum ServerPlaylistMirror {
             result.syncedPlaylistCount += 1
             result.matchedTrackCount += songIDs.count
 
-            let missingCount = serverPlaylist.trackIDs.filter { index[$0] == nil }.count
-            plog("\(playlistContext) stage=match result=applied matched_unique=\(songIDs.count) missing=\(missingCount) hidden_manual=\(suppressedIDs.contains(localID))")
+            plog("\(playlistContext) stage=match result=applied matched_unique=\(songIDs.count) missing=\(entry.missingCount) hidden_manual=\(suppressedIDs.contains(localID))")
         }
 
         // 清理服务端已删除的歌单镜像。前缀带 sourceID, 只影响这一个源。
@@ -97,7 +176,7 @@ enum ServerPlaylistMirror {
         plog("""
             \(context) stage=apply result=\(snapshot.isIndexComplete ? "complete" : "partial") index_complete=\(snapshot.isIndexComplete) listed=\(listedCount) detailed=\(snapshot.playlists.count) \
             detail_failed=\(snapshot.failedPlaylistIDs.count) applied=\(result.syncedPlaylistCount) \
-            unresolved=\(result.unresolvedPlaylistCount) local_indexed_tracks=\(index.count) \
+            unresolved=\(result.unresolvedPlaylistCount) local_indexed_tracks=\(prepared.indexedTrackCount) \
             local=\(remainingIDs.count) visible=\(visibleIDs.count) hidden_manual=\(manuallyHiddenIDs.count) \
             hidden_source=\(automaticallyHiddenIDs.count) suppressions=\(suppressedIDs.count) \
             source_disabled=\(library.disabledSourceIDs.contains(source.id)) pruned=\(previousIDs.subtracting(remainingMirrors.map(\.id)).count)
@@ -181,8 +260,12 @@ enum ServerPlaylistMirror {
     /// 只取该源的歌: 不同源可能有同样的服务端 ID(两个 Navidrome 各自的自增
     /// ID), 混在一起会把歌单指到别的服务器上的歌。
     fileprivate static func serverItemIndex(sourceID: String, library: MusicLibrary) -> [String: String] {
+        serverItemIndex(sourceID: sourceID, songs: library.songs)
+    }
+
+    nonisolated private static func serverItemIndex(sourceID: String, songs: [Song]) -> [String: String] {
         var index: [String: String] = [:]
-        for song in library.songs where song.sourceID == sourceID {
+        for song in songs where song.sourceID == sourceID {
             guard let itemID = ServerPlaylistIdentity.serverItemID(fromFilePath: song.filePath) else { continue }
             // 首个命中优先; 同一 item ID 重复出现说明扫描产生了重复行, 任取
             // 其一都指向同一服务端曲目。

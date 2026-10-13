@@ -9,6 +9,7 @@ mkdir -p "$ARTWORK_OUTPUT"
 # a native lazy grid. Source IO and animation are deliberately outside this
 # component-lifetime test; it must never start AppServices or the user's library.
 python3 - "$ARTWORK_ROOT" "$ARTWORK_OUTPUT" <<'PY'
+import re
 import sys
 from pathlib import Path
 root, output = map(Path, sys.argv[1:])
@@ -28,7 +29,10 @@ visibility = '.onScrollVisibilityChange(threshold:'
 fixture = fixture.replace('/* PRODUCTION_VISIBILITY */', block(visibility) if visibility in source else '')
 if 'private var decodedArtworkState' in source:
     state = '@State private var decodedArtworkState = DecodedArtworkState()\n'
-    state += block('private var image:') + '\n@MainActor @Observable\n'
+    if 'private var decodedArtworkRevision' in source:
+        state += '@State private var decodedArtworkRevision = 0\n'
+    observable = re.search(r'@Observable\s+fileprivate final class DecodedArtworkState', source)
+    state += block('private var image:') + ('\n@MainActor @Observable\n' if observable else '\n@MainActor\n')
     state += block('fileprivate final class DecodedArtworkState')
 else:
     state = '@State private var image: PlatformImage?'

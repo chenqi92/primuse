@@ -228,11 +228,12 @@ final class ServerRatingSyncService {
             }
         }
         let securityFingerprint = MusicSourceSecurityRevision.scopedFingerprint(for: source)
+        let accountFingerprint = MusicSourceScopeFingerprint.make(for: source, includeSourceID: true)
         var adopted = 0
         var changed = false
         for song in library.songs where song.sourceID == source.id
             && !song.isCueTrack && !song.isStreamDescriptor {
-            guard let target = ServerSongRatingTarget.make(song: song, source: source),
+            guard let target = ServerSongRatingTarget.make(song: song, source: source, accountFingerprint: accountFingerprint),
                   let observed = ratings[target.itemID] else { continue }
             let subject = LibraryReviewSubject.song(song.id)
             var local = [boundReviews[target], unboundReviews[subject.storageKey]]

@@ -3309,7 +3309,9 @@ struct ServerSongRatingTarget: Codable, Hashable, Sendable {
         )
     }
 
-    static func make(song: Song, source: MusicSource) -> Self? {
+    /// `accountFingerprint` 是整库逐首调用时在循环外算好的那份:指纹要算一次 SHA256,
+    /// 每首都算一遍在几千首的源上就是上百毫秒。
+    static func make(song: Song, source: MusicSource, accountFingerprint: String? = nil) -> Self? {
         guard ServerRatingWritebackPolicy.supports(source.type), source.id == song.sourceID,
               !song.isCueTrack, !song.isStreamDescriptor,
               let itemID = ServerRatingWritebackPolicy.songID(
@@ -3317,7 +3319,8 @@ struct ServerSongRatingTarget: Codable, Hashable, Sendable {
               ) else { return nil }
         return Self(
             sourceID: source.id, itemID: itemID,
-            accountFingerprint: MusicSourceScopeFingerprint.make(for: source, includeSourceID: true)
+            accountFingerprint: accountFingerprint
+                ?? MusicSourceScopeFingerprint.make(for: source, includeSourceID: true)
         )
     }
 }
