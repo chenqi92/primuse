@@ -5930,3 +5930,7 @@
 "lyrics_translation_persian_extension_footer" = "Sistem Çevirisi Farsçayı desteklemiyor. İndirdikten sonra Farsça sözler ve Farsçaya çeviriler bu cihazda internetsiz yapılır.";
 "lyrics_translation_cjk_bridge_footer" = "İngilizce ile Çince, Japonca veya Korece arasında normalde Sistem Çevirisi kullanılır. Bu paket yalnızca sistem dil paketleri yüklü değilken Farsça ile Çince, Japonca ve Korece arasında köprü olur. Gerekmiyorsa kaldırabilirsiniz.";
 "lyrics_translation_offline_failed_try_smart" = "Paketler şu an indirilemiyor — Akıllı Çeviri'ye geç";
+
+/* 电视：从本机移除失效条目 */
+"tv_remove_from_device_confirm_title_format" = "“%@” bu Apple TV'den kaldırılsın mı?";
+"tv_remove_from_device_confirm_message" = "Yalnızca bu Apple TV'nin arşivindeki kayıt kaldırılır; bulut sürücüdeki veya sunucudaki dosyalar etkilenmez ve sonraki taramalar onu geri eklemez. Dosyası silinmiş, artık çalmayan kayıtları da böyle temizleyebilirsiniz.";

@@ -5784,3 +5784,7 @@
 "lyrics_translation_persian_extension_footer" = "System Translation doesn't support Persian. After downloading, Persian lyrics and translations into Persian are handled on this device without going online.";
 "lyrics_translation_cjk_bridge_footer" = "Translations between English and Chinese, Japanese or Korean normally use System Translation. This pack only bridges Persian to and from Chinese, Japanese and Korean when the system language packs aren't installed. Remove it if you don't need it.";
 "lyrics_translation_offline_failed_try_smart" = "Can't download packs right now — use Intelligent Translation";
+
+/* 电视：从本机移除失效条目 */
+"tv_remove_from_device_confirm_title_format" = "Remove “%@” from this Apple TV?";
+"tv_remove_from_device_confirm_message" = "Only this Apple TV's library entry is removed; files on the cloud drive or server are untouched, and later scans won't add it back. Use this to clear entries whose files were deleted and no longer play.";

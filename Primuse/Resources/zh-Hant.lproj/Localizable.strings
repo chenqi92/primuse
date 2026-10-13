@@ -6001,3 +6001,7 @@
 "lyrics_translation_persian_extension_footer" = "系統翻譯不支援波斯語。下載後，波斯語歌詞與譯成波斯語都在本機完成，不連網。";
 "lyrics_translation_cjk_bridge_footer" = "英語與中文、日語、韓語之間平時用系統翻譯。這個翻譯套件只在波斯語與中日韓互譯、又沒裝系統語言包時用來中轉，用不到可以移除。";
 "lyrics_translation_offline_failed_try_smart" = "翻譯套件暫時下載不了，先改用智慧翻譯";
+
+/* 电视：从本机移除失效条目 */
+"tv_remove_from_device_confirm_title_format" = "從這台 Apple TV 移除「%@」？";
+"tv_remove_from_device_confirm_message" = "只移除這台 Apple TV 曲庫裡的記錄，雲端硬碟或伺服器上的檔案不受影響，之後掃描也不會再加回來。雲端上已經刪掉、播不了的失效項目也可以這樣清掉。";

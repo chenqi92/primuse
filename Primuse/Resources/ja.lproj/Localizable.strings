@@ -6025,3 +6025,7 @@
 "lyrics_translation_persian_extension_footer" = "システム翻訳はペルシア語に対応していません。ダウンロードすると、ペルシア語の歌詞とペルシア語への翻訳をこのデバイス上でオフラインのまま処理します。";
 "lyrics_translation_cjk_bridge_footer" = "英語と中国語・日本語・韓国語の間は通常システム翻訳を使います。このパックは、ペルシア語と中国語・日本語・韓国語を相互に翻訳し、かつシステムの言語パックが入っていない場合の中継にだけ使います。不要なら削除できます。";
 "lyrics_translation_offline_failed_try_smart" = "パックを今はダウンロードできないため、インテリジェント翻訳に切り替える";
+
+/* 电视：从本机移除失效条目 */
+"tv_remove_from_device_confirm_title_format" = "この Apple TV から「%@」を削除しますか？";
+"tv_remove_from_device_confirm_message" = "この Apple TV のライブラリの項目だけを削除します。クラウドドライブやサーバ上のファイルには影響せず、今後のスキャンでも追加されません。ファイルが削除されて再生できなくなった項目もこの方法で消せます。";

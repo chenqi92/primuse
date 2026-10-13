@@ -1575,6 +1575,27 @@ final class TVStore {
     }
 
     func isLiked(_ id: String) -> Bool { library.isLiked(songID: id) }
+    /// 从这台 Apple TV 的曲库里移除这些歌,网盘、服务器上的文件不动。网盘上已经删掉、扫描又没
+    /// 清掉的失效条目靠它清;记在本机排除表里,之后的扫描和手机同步过来的曲库都不会再加回来。
+    func removeSongsFromThisDevice(_ songIDs: [String]) {
+        let songs = songIDs.compactMap { library.song(id: $0) }
+        guard !songs.isEmpty else { return }
+        if let current = currentSongID, songs.contains(where: { $0.id == current }) {
+            transportForward()
+        }
+        do {
+            let remaining = try library.removeSongsFromThisDevice(songs, reason: .userKeptRemoteFile)
+            for (sourceID, count) in remaining {
+                sourcesStore.updateLocal(sourceID) { $0.songCount = count }
+            }
+            plog("TVStore: removed \(songs.count) songs from this device")
+        } catch {
+            plog("⚠️ TVStore: remove from this device failed \(LogRedactionPolicy.errorSummary(error))")
+            playbackIssue = .failed(PMString("ext.tv.persistence.failed"))
+        }
+        refreshVisibility()
+    }
+
     func toggleLiked(_ id: String) {
         guard canMutateLibrary else {
             playbackIssue = .failed(PMString("ext.tv.persistence.failed"))
@@ -2785,6 +2806,7 @@ final class TVStore {
         if await canonicalizeLegacySongIDs(), library.songs.count < beforeCanonicalCount {
             plog("TVStore: collapsed \(beforeCanonicalCount - library.songs.count) phone-ID duplicates after sync")
         }
+        await adoptTVSongIDsForLocallyScannedFiles(before: before)
         let incomingIDs = Set(library.songs.map(\.id))
         let tvOnly = before.filter {
             locallyScannedSourceIDs.contains($0.sourceID) && !incomingIDs.contains($0.id)
@@ -2802,6 +2824,29 @@ final class TVStore {
         // 电视上匹配 / 补全过的信息只存在本机,快照整份覆盖之后按台账补回来。放在
         // 音乐源重载之后:这里会让出主 actor,不能夹在事务写盘与重载音乐源之间。
         await metadataScraper.replayOverrides()
+    }
+
+    /// 网盘歌曲的 ID 两端算法不同:手机按文件路径算(百度按文件 ID,但没有截成电视的长度),
+    /// 电视按网盘的文件 ID 算。快照装进来后,同一个文件就有手机那行和电视自己扫的那行,
+    /// 曲库里成了两份,标签不同时还会分成两张专辑。电视扫过的源按文件位置把手机那行换成
+    /// 电视的 ID,两行并成一行(播放记录、喜欢、歌单跟着换)。
+    private func adoptTVSongIDsForLocallyScannedFiles(before: [Song]) async {
+        let tvIDByFile = Dictionary(
+            before.lazy
+                .filter { self.locallyScannedSourceIDs.contains($0.sourceID) }
+                .map { (Self.scanFileIdentity($0), $0.id) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        guard !tvIDByFile.isEmpty else { return }
+        // 安装时电视自己扫的那行已经接在手机那些行后面;换 ID 撞上时留排在前面的手机那行。
+        var replacements: [String: String] = [:]
+        for song in library.songs where locallyScannedSourceIDs.contains(song.sourceID) {
+            guard let tvID = tvIDByFile[Self.scanFileIdentity(song)], tvID != song.id else { continue }
+            replacements[song.id] = tvID
+        }
+        guard !replacements.isEmpty, await library.remapSongIDsInBackground(replacements) else { return }
+        applySongIDReplacements(replacements, remapLibrary: false)
+        plog("TVStore: matched \(replacements.count) phone rows to TV-scanned files after sync")
     }
 
     /// 快照里的电台进本机。本机已有清单时逐条按修改时间合并:电视上的增删改名排序、
@@ -4297,17 +4342,16 @@ final class TVStore {
         return outcome
     }
 
-    /// 只重扫一个文件夹时交给剪枝的整源清单:这次列到的歌 + 文件夹外原样带过去的行
-    /// (含这台设备上移除过、留着备恢复的行)。剪掉的只会是文件夹里没再列到的歌。
-    private func folderScanIncoming(_ scanned: [Song], folder: String, sourceID: String) -> [Song] {
+    /// 只重扫一个(或增量扫描所选的几个)文件夹时交给剪枝的整源清单:这次列到的歌 + 文件夹外
+    /// 原样带过去的行(含这台设备上移除过、留着备恢复的行)。剪掉的只会是文件夹里没再列到的歌。
+    private func folderScanIncoming(_ scanned: [Song], folders: [String], sourceID: String) -> [Song] {
         var seen = Set(scanned.map(\.id))
         var incoming = scanned
-        let outside = library.songs.lazy.filter {
-            $0.sourceID == sourceID && !TVFolderRescanPolicy.contains(filePath: $0.filePath, inDirectory: folder)
+        func isOutside(_ song: Song) -> Bool {
+            !folders.contains { TVFolderRescanPolicy.contains(filePath: song.filePath, inDirectory: $0) }
         }
-        let retainedOutside = library.locallyRemovedEntries(forSourceID: sourceID).lazy.map(\.song).filter {
-            !TVFolderRescanPolicy.contains(filePath: $0.filePath, inDirectory: folder)
-        }
+        let outside = library.songs.lazy.filter { $0.sourceID == sourceID && isOutside($0) }
+        let retainedOutside = library.locallyRemovedEntries(forSourceID: sourceID).lazy.map(\.song).filter(isOutside)
         for song in outside where seen.insert(song.id).inserted { incoming.append(song) }
         for song in retainedOutside where seen.insert(song.id).inserted { incoming.append(song) }
         return incoming
@@ -4593,7 +4637,14 @@ final class TVStore {
                 pruningRecovery = library.beginScanPruning(result.songs, sourceID: source.id)
             } else if let folder, result.canPrune {
                 pruningRecovery = library.beginScanPruning(
-                    folderScanIncoming(result.songs, folder: folder, sourceID: source.id),
+                    folderScanIncoming(result.songs, folders: [folder], sourceID: source.id),
+                    sourceID: source.id
+                )
+            } else if mode == .incremental, result.canPrune, TVFolderRescanPolicy.supports(source.type) {
+                // 增量扫描只走了所选目录:目录里没再列到的歌(网盘、NAS 上已经删掉)清掉,
+                // 目录外的照留。网盘按文件 ID 定位、看不出哪首在哪个目录底下,只能交给完整扫描。
+                pruningRecovery = library.beginScanPruning(
+                    folderScanIncoming(result.songs, folders: roots, sourceID: source.id),
                     sourceID: source.id
                 )
             }

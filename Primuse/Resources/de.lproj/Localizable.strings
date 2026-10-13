@@ -6024,3 +6024,7 @@
 "lyrics_translation_persian_extension_footer" = "Die Systemübersetzung unterstützt kein Persisch. Nach dem Laden werden persische Liedtexte und Übersetzungen ins Persische auf diesem Gerät ohne Internet erledigt.";
 "lyrics_translation_cjk_bridge_footer" = "Zwischen Englisch und Chinesisch, Japanisch oder Koreanisch wird normalerweise die Systemübersetzung genutzt. Dieses Paket vermittelt nur zwischen Persisch und Chinesisch, Japanisch oder Koreanisch, wenn die Systemsprachpakete fehlen. Entferne es, wenn du es nicht brauchst.";
 "lyrics_translation_offline_failed_try_smart" = "Pakete gerade nicht ladbar – zur intelligenten Übersetzung wechseln";
+
+/* 电视：从本机移除失效条目 */
+"tv_remove_from_device_confirm_title_format" = "„%@“ von diesem Apple TV entfernen?";
+"tv_remove_from_device_confirm_message" = "Entfernt nur den Eintrag aus der Mediathek dieses Apple TV; Dateien im Cloud-Speicher oder auf dem Server bleiben unberührt, und spätere Scans fügen ihn nicht wieder hinzu. So lassen sich auch Einträge entfernen, deren Dateien gelöscht wurden und nicht mehr abspielbar sind.";

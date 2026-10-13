@@ -1197,6 +1197,57 @@ final class TVLibraryStateTests: XCTestCase {
         XCTAssertNotNil(resumed.index[pending.stableKey])
     }
 
+    private struct MissingChildLister: TVDirectoryLister {
+        func list(_ path: String) async throws -> [TVDirEntry] {
+            guard path == "/" else { throw SourceError.pathNotFound(path) }
+            return [
+                TVDirEntry(name: "kept.mp3", isDir: false, size: 1_000, path: "/kept.mp3"),
+                TVDirEntry(name: "gone", isDir: true, size: 0, path: "/gone"),
+            ]
+        }
+    }
+
+    func testScanSkipsAFolderDeletedOnTheDriveWithoutPruning() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let store = fixture.store()
+        let result = await store.scanner.scan(source: fixture.source, lister: MissingChildLister(),
+            dirs: ["/"], credential: nil, existingSongs: [],
+            onSkeletonBatch: { _ in }, onMetadataBatch: { _ in })
+        XCTAssertTrue(result.canCommit)
+        XCTAssertFalse(result.canPrune)
+        XCTAssertTrue(result.songs.contains { $0.filePath == "/kept.mp3" })
+    }
+
+    func testScanStillFailsWhenTheSelectedFolderIsGone() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let store = fixture.store()
+        let result = await store.scanner.scan(source: fixture.source, lister: MissingChildLister(),
+            dirs: ["/gone"], credential: nil, existingSongs: [],
+            onSkeletonBatch: { _ in }, onMetadataBatch: { _ in })
+        XCTAssertFalse(result.canCommit)
+        if case .enumerationFailed = result.completion {} else { XCTFail("Expected the missing root to fail the scan") }
+    }
+
+    func testUnreadableCueSheetDoesNotBlockPruning() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let store = fixture.store()
+        let source = try store.prepareTransferSource()
+        let folderName = "TV Bad Cue \(UUID().uuidString)"
+        let folder = TVLocalTransferSource.root.appendingPathComponent(folderName, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try waveFixture().write(to: folder.appendingPathComponent("Album.wav"))
+        try Data("not a cue sheet".utf8).write(to: folder.appendingPathComponent("Album.cue"))
+        let result = await store.scanner.scan(source: source, lister: TVLocalDirectoryLister(),
+            dirs: ["/\(folderName)"], credential: nil, existingSongs: [],
+            onSkeletonBatch: { _ in }, onMetadataBatch: { _ in })
+        XCTAssertTrue(result.canPrune)
+        XCTAssertTrue(result.songs.contains { $0.filePath == "/\(folderName)/Album.wav" })
+    }
+
     func testReceivedMusicAdaptersListAndReadOnlyInsideManagedRoot() async throws {
         let folderName = "TV Transfer QA \(UUID().uuidString)"
         let folder = TVLocalTransferSource.root.appendingPathComponent(folderName, isDirectory: true)
