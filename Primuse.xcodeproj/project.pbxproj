@@ -384,7 +384,9 @@
 		D943732D0C25C109CD537241 /* SpokenWordCurrentBookCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F93FF0F9DEA42E997404B4B /* SpokenWordCurrentBookCache.swift */; };
 		DFF5B772138DCB2652D4B039 /* PodcastRequestQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71686A11D40981F530B26BFD /* PodcastRequestQuotaTests.swift */; };
 		5F795B4E7C2D1592241DE408 /* AIRequestQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C03BED21D662046E28FA9B2 /* AIRequestQuotaTests.swift */; };
+		97735B432FDE5900AEC400EB /* GeminiAudioQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A71A9460155EFFA240C9BA /* GeminiAudioQuotaTests.swift */; };
 		871BB52B18E6A69DB42956B4 /* AIRequestQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C03BED21D662046E28FA9B2 /* AIRequestQuotaTests.swift */; };
+		2A3BE1EBD31250EA8CCF0383 /* GeminiAudioQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A71A9460155EFFA240C9BA /* GeminiAudioQuotaTests.swift */; };
 		E5452827A916E9D3E0D260A0 /* RadioDirectoryQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A6BA865ECC75590B598DB8F /* RadioDirectoryQuotaTests.swift */; };
 		EA6C310C3CF4AA7F80DA8EEF /* WebDAVDirectoryRequestPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = E48077F43523B90C9F35E6E1 /* WebDAVDirectoryRequestPolicy.swift */; };
 		EFC4B0441A4803E704B151E6 /* ExternalPlaylistQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3553C2A13010BA1FDB58CDFB /* ExternalPlaylistQuotaTests.swift */; };
@@ -1932,6 +1934,7 @@
 		FEDC03CF437DF02F4C57CA76 /* TVMetadataOverrideStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACE743C46A251BFEF75C078B /* TVMetadataOverrideStoreTests.swift */; };
 		FEFAF7EC8A88FE7D3CD6C134 /* AudioPlayerService+NowPlayingInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5A7F070FF1E728CA63724E5 /* AudioPlayerService+NowPlayingInfo.swift */; };
 		FEFBF1CC171E2C4D988A8C15 /* AIRequestQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C03BED21D662046E28FA9B2 /* AIRequestQuotaTests.swift */; };
+		031444EA25F3509194933CBB /* GeminiAudioQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A71A9460155EFFA240C9BA /* GeminiAudioQuotaTests.swift */; };
 		FF0491E244913A3757FE4626 /* AMSMB2 in Frameworks */ = {isa = PBXBuildFile; productRef = D27B8A9F7EB545A6FD182BB9 /* AMSMB2 */; };
 		FF157109BC191E906A0A34D4 /* AliyunDriveSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3CFC2BB314F0A2BB166E280 /* AliyunDriveSource.swift */; };
 		FF1BDF6B3543D685C762F962 /* PrimuseWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91C06A4C190FC178D4C65D00 /* PrimuseWidgetBundle.swift */; };
@@ -2305,6 +2308,7 @@
 		6E8A5025EE1E29962EA6C945 /* AudioEffectsTransitionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEffectsTransitionPolicy.swift; sourceTree = "<group>"; };
 		71686A11D40981F530B26BFD /* PodcastRequestQuotaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastRequestQuotaTests.swift; sourceTree = "<group>"; };
 		7C03BED21D662046E28FA9B2 /* AIRequestQuotaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIRequestQuotaTests.swift; sourceTree = "<group>"; };
+		D2A71A9460155EFFA240C9BA /* GeminiAudioQuotaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiAudioQuotaTests.swift; sourceTree = "<group>"; };
 		8EF41EA448F60A86B27B2C77 /* TVWebDAVDirectoryQuotaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVWebDAVDirectoryQuotaTests.swift; sourceTree = "<group>"; };
 		99C30A24BB200AF2D4BD57C9 /* FlyAuditoryCircuit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlyAuditoryCircuit.swift; sourceTree = "<group>"; };
 		A04BC9A9E1ED420EC21D43E3 /* TingReaderAPIProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TingReaderAPIProtocol.swift; sourceTree = "<group>"; };
@@ -5422,6 +5426,7 @@
 				442CF52C9855BC72B9F3AB4B /* CrossFeatureQuotaTests.swift */,
 				71686A11D40981F530B26BFD /* PodcastRequestQuotaTests.swift */,
 				7C03BED21D662046E28FA9B2 /* AIRequestQuotaTests.swift */,
+				D2A71A9460155EFFA240C9BA /* GeminiAudioQuotaTests.swift */,
 				948BBEDC6689BACAA9EB91B3 /* ArtistNameLibraryTests.swift */,
 				D3A5BB09389B0D45DAA0B5AC /* WebDAVDirectoryQuotaTests.swift */,
 				DF8E2CAAEF4F1C45017F7770 /* AudioCacheSyncPolicyTests.swift */,
@@ -6243,6 +6248,7 @@
 				62BFB12E3C2424A8EEEEC13F /* CrossFeatureQuotaTests.swift in Sources */,
 				B2D8A49F9F94DDB1B3ECAB3B /* PodcastRequestQuotaTests.swift in Sources */,
 				5F795B4E7C2D1592241DE408 /* AIRequestQuotaTests.swift in Sources */,
+				97735B432FDE5900AEC400EB /* GeminiAudioQuotaTests.swift in Sources */,
 				D5D791B3600C3FA3B5086550 /* RadioDirectoryQuotaTests.swift in Sources */,
 				DD5464811A1C8045D7193A97 /* TVColorBackgroundIsolationTests.swift in Sources */,
 				56A17E620C4BD3695FA8129A /* TVKaraokeParityTests.swift in Sources */,
@@ -6346,6 +6352,7 @@
 				862941FF30DA0C6CAB7626B6 /* SynologyQueryURLBuilderTests.swift in Sources */,
 				3CD3ECB769FF0CD3EABECD42 /* ThemeServicePaletteTests.swift in Sources */,
 				FEFBF1CC171E2C4D988A8C15 /* AIRequestQuotaTests.swift in Sources */,
+				031444EA25F3509194933CBB /* GeminiAudioQuotaTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -6851,6 +6858,7 @@
 				7258A33F2C23E7F16AA74120 /* RemoteMediaHTTPErrorTests.swift in Sources */,
 				78D190AF5491B9C620755A08 /* AIStreamingIntegrationTests.swift in Sources */,
 				871BB52B18E6A69DB42956B4 /* AIRequestQuotaTests.swift in Sources */,
+				2A3BE1EBD31250EA8CCF0383 /* GeminiAudioQuotaTests.swift in Sources */,
 				A10A26C6396B47C01F9C7C45 /* SubsonicFavoriteWritebackTests.swift in Sources */,
 				B0A45D0509F793B43F56DE1D /* WebDAVDirectoryQuotaTests.swift in Sources */,
 				B657A64A7C5FE4309841ECDD /* MacOutputRoutingTests.swift in Sources */,

@@ -372,6 +372,7 @@ targets:
       - path: PrimuseTests/RadioDirectoryQuotaTests.swift
       - path: PrimuseTests/ExternalPlaylistQuotaTests.swift
       - path: PrimuseTests/AIRequestQuotaTests.swift
+      - path: PrimuseTests/GeminiAudioQuotaTests.swift
     dependencies:
       - target: PrimuseMac
     settings:
@@ -998,6 +999,7 @@ targets:
       - path: PrimuseTests/CrossFeatureQuotaTests.swift
       - path: PrimuseTests/RadioDirectoryQuotaTests.swift
       - path: PrimuseTests/AIRequestQuotaTests.swift
+      - path: PrimuseTests/GeminiAudioQuotaTests.swift
     dependencies:
       - target: PrimuseTV
     settings:
