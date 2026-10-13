@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import OSLog
 import PrimuseKit
 
 enum OpenAICompatibleProviderError: Error, Equatable, Sendable {
@@ -31,10 +32,13 @@ enum OpenAICompatibleProviderError: Error, Equatable, Sendable {
 
 /// Model discovery, embeddings and generation spend the same endpoint/credential quota.
 /// The pool never retains raw API keys, and request bodies stay with their provider.
-private final class AIRequestScheduler: @unchecked Sendable {
+final class AIRequestScheduler: @unchecked Sendable {
     static let shared = AIRequestScheduler()
     private let lock = NSLock()
     private var executors: [String: RequestExecutor] = [:]
+    private let timing: RequestExecutor.Timing
+
+    init(timing: RequestExecutor.Timing = .init()) { self.timing = timing }
 
     func executor(for request: URLRequest) -> RequestExecutor {
         let endpoint = request.url.flatMap(NetworkEndpointIdentity.init(url:))?.key ?? ""
@@ -44,7 +48,9 @@ private final class AIRequestScheduler: @unchecked Sendable {
         let key = endpoint + "|" + digest
         return lock.withLock {
             if let existing = executors[key] { return existing }
-            let executor = RequestExecutor(policy: .init(timeout: AIRequestTimeoutPolicy.maximum))
+            // Ordinary callers pass their own <=60-second budget. Audio keeps
+            // its 15-minute budget while using exactly the same quota instance.
+            let executor = RequestExecutor(policy: .init(timeout: AIAudioTranscriptionPolicy.requestTimeout), timing: timing)
             executors[key] = executor
             return executor
         }
@@ -1807,6 +1813,55 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
     }
 }
 
+/// Best-effort cleanup survives a short-lived transcription provider, but not
+/// app termination. At most 16 deletions are retained; each gets one later
+/// attempt, never an unbounded retry loop. No credentials or file names are logged.
+actor GeminiDeferredCleanup {
+    static let shared = GeminiDeferredCleanup()
+    private static let logger = Logger(subsystem: "Primuse", category: "GeminiCleanup")
+    private let timing: RequestExecutor.Timing
+    private let capacity: Int
+    private var tasks: [UUID: Task<Void, Never>] = [:]
+
+    init(capacity: Int = 16, timing: RequestExecutor.Timing = .init()) {
+        self.capacity = max(0, capacity)
+        self.timing = timing
+    }
+
+    deinit { for task in tasks.values { task.cancel() } }
+
+    func enqueue(after delay: TimeInterval, operation: @escaping @Sendable () async throws -> Void) {
+        guard delay.isFinite, delay >= 0, tasks.count < capacity else {
+            Self.logger.warning("Temporary audio cleanup skipped: deferred queue unavailable")
+            return
+        }
+        let id = UUID()
+        let timing = timing
+        let deadline = timing.now() + delay
+        tasks[id] = Task { [weak self] in
+            do {
+                while timing.now() < deadline {
+                    // Chunk untrusted durations; never shorten a server deadline.
+                    try await timing.sleep(min(60, deadline - timing.now()))
+                }
+                try Task.checkCancellation()
+                try await operation()
+            } catch is CancellationError {
+            } catch {
+                Self.logger.warning("Deferred temporary audio cleanup did not complete")
+            }
+            await self?.finished(id)
+        }
+    }
+
+    func cancelAll() {
+        for task in tasks.values { task.cancel() }
+        tasks.removeAll()
+    }
+
+    private func finished(_ id: UUID) { tasks[id] = nil }
+}
+
 /// Gemini audio transcription is intentionally separate from the generic text
 /// compatibility provider: it uses the Files and Interactions APIs, uploads
 /// audio bytes, and has a much longer resource timeout than search/recommendation.
@@ -1817,14 +1872,20 @@ actor GeminiAudioTranscriptionProvider: AIAudioTranscriptionProviding {
     private let credentialStore: any AICredentialStoring
     private let requestAuthorization: @Sendable () async -> Bool
     private let sessionConfiguration: URLSessionConfiguration
+    private let scheduler: AIRequestScheduler
+    private let cleanup: GeminiDeferredCleanup
 
     init(
         configuration: AIRemoteProviderConfiguration,
         credentialStore: any AICredentialStoring,
         requestAuthorization: @escaping @Sendable () async -> Bool = { true },
-        session: URLSession? = nil
+        session: URLSession? = nil,
+        scheduler: AIRequestScheduler = .shared,
+        cleanup: GeminiDeferredCleanup = .shared
     ) {
         self.configuration = configuration
+        self.scheduler = scheduler
+        self.cleanup = cleanup
         self.credentialStore = credentialStore
         self.requestAuthorization = requestAuthorization
         descriptor = configuration.descriptor
@@ -1886,18 +1947,20 @@ actor GeminiAudioTranscriptionProvider: AIAudioTranscriptionProviding {
             byteCount: byteCount,
             apiKey: apiKey
         )
+        let result: AIAudioTranscriptionResult
         do {
-            let result = try await createInteraction(
+            result = try await createInteraction(
                 request: request,
                 uploadedFile: uploadedFile,
                 apiKey: apiKey
             )
-            await deleteUploadedFile(uploadedFile.name, apiKey: apiKey)
-            return result
         } catch {
             await deleteUploadedFile(uploadedFile.name, apiKey: apiKey)
             throw error
         }
+        await deleteUploadedFile(uploadedFile.name, apiKey: apiKey)
+        try Task.checkCancellation()
+        return result
     }
 
     private struct UploadedFile: Sendable {
@@ -1951,22 +2014,14 @@ actor GeminiAudioTranscriptionProvider: AIAudioTranscriptionProviding {
         uploadRequest.setValue("0", forHTTPHeaderField: "X-Goog-Upload-Offset")
         uploadRequest.setValue(request.mimeType, forHTTPHeaderField: "Content-Type")
         uploadRequest.setValue(String(byteCount), forHTTPHeaderField: "Content-Length")
-        let session = URLSession(configuration: sessionConfiguration)
-        defer { session.finishTasksAndInvalidate() }
-        let (data, response) = try await session.upload(
-            for: uploadRequest,
-            fromFile: request.audioFileURL
-        )
-        let http = try Self.validatedHTTPResponse(response)
-        guard AIResponseSizePolicy.allowsAppend(currentBytes: 0, incomingBytes: data.count),
-              (200...299).contains(http.statusCode),
-              let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+        // The resumable URL carries upload authorization, but its quota belongs
+        // to the API key that started it. Do not add credentials to that URL.
+        let (data, _) = try await boundedData(for: uploadRequest, quotaKey: apiKey,
+            uploadFile: request.audioFileURL)
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let file = root["file"] as? [String: Any],
               let name = file["name"] as? String,
               let uri = file["uri"] as? String else {
-            if !(200...299).contains(http.statusCode) {
-                throw OpenAICompatibleProviderError.requestFailed(statusCode: http.statusCode)
-            }
             throw OpenAICompatibleProviderError.invalidResponse
         }
         return UploadedFile(
@@ -2022,41 +2077,79 @@ actor GeminiAudioTranscriptionProvider: AIAudioTranscriptionProviding {
     }
 
     private func deleteUploadedFile(_ name: String, apiKey: String) async {
-        let cleanupTask = Task { [self] in
-            await performUploadedFileDeletion(name, apiKey: apiKey)
-        }
-        await cleanupTask.value
-    }
-
-    private func performUploadedFileDeletion(_ name: String, apiKey: String) async {
         guard let endpoint = try? AIRemoteEndpointPolicy.geminiFileDeleteEndpoint(
-            configuration: configuration,
-            fileName: name
+            configuration: configuration, fileName: name
         ) else { return }
         var request = URLRequest(url: endpoint)
         request.httpMethod = "DELETE"
+        request.timeoutInterval = AIRequestTimeoutPolicy.maximum
         request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
-        _ = try? await boundedData(for: request)
+        let deletion = request
+        let executor = scheduler.executor(for: deletion)
+        let configuration = sessionConfiguration
+        let operation: @Sendable () async throws -> Void = {
+            _ = try await Self.scheduledData(for: deletion, configuration: configuration, executor: executor)
+        }
+        if Task.isCancelled {
+            // The transcription was cancelled before cleanup began. Give the
+            // uploaded file one independent deletion through the shared quota.
+            await cleanup.enqueue(after: 0, operation: operation)
+            return
+        }
+        do {
+            try await operation()
+        } catch let error as OpenAICompatibleProviderError {
+            if case .requestFailed(let status, let delay) = error,
+               delay != nil || [429, 503].contains(status) {
+                await cleanup.enqueue(after: delay ?? 30, operation: operation)
+            }
+        } catch is CancellationError {
+            // An active deletion has an unknown outcome; do not replay it.
+        } catch { }
     }
 
     private func boundedData(
-        for request: URLRequest
+        for request: URLRequest, quotaKey: String? = nil, uploadFile: URL? = nil
+    ) async throws -> (Data, HTTPURLResponse) {
+        var request = request
+        request.timeoutInterval = AIAudioTranscriptionPolicy.requestTimeout
+        var scope = request
+        if let quotaKey { scope.setValue(quotaKey, forHTTPHeaderField: "x-goog-api-key") }
+        return try await Self.scheduledData(for: request, configuration: sessionConfiguration,
+            executor: scheduler.executor(for: scope), uploadFile: uploadFile)
+    }
+
+    private static func scheduledData(
+        for request: URLRequest, configuration: URLSessionConfiguration,
+        executor: RequestExecutor, uploadFile: URL? = nil
     ) async throws -> (Data, HTTPURLResponse) {
         do {
-            let (data, response) = try await AIBoundedResponseLoader.data(
-                for: request,
-                configuration: sessionConfiguration,
-                maximumBytes: AIResponseSizePolicy.maximumBytes
-            )
-            let http = try Self.validatedHTTPResponse(response)
-            guard (200...299).contains(http.statusCode) else {
-                throw OpenAICompatibleProviderError.requestFailed(statusCode: http.statusCode)
+            // Upload, finalize, paid generation and deletion all have explicit
+            // no-replay semantics after an unknown transport outcome.
+            return try await executor.execute(replay: .never, timeout: request.timeoutInterval) {
+                let data: Data
+                let response: URLResponse
+                if let uploadFile {
+                    let session = URLSession(configuration: configuration)
+                    defer { session.finishTasksAndInvalidate() }
+                    (data, response) = try await session.upload(for: request, fromFile: uploadFile)
+                    guard AIResponseSizePolicy.allowsAppend(currentBytes: 0, incomingBytes: data.count) else {
+                        throw OpenAICompatibleProviderError.responseTooLarge
+                    }
+                } else {
+                    (data, response) = try await AIBoundedResponseLoader.data(for: request,
+                        configuration: configuration, maximumBytes: AIResponseSizePolicy.maximumBytes)
+                }
+                return (data, response)
             }
-            return (data, http)
+        } catch let failure as HTTPResponseFailure {
+            throw OpenAICompatibleProviderError.requestFailed(statusCode: failure.statusCode, retryAfter: failure.retryAfter)
         } catch AIBoundedResponseLoader.LoaderError.responseTooLarge {
             throw OpenAICompatibleProviderError.responseTooLarge
-        } catch let error as URLError where error.code == .timedOut {
-            throw MusicIntelligenceError.timedOut
+        } catch let error as URLError {
+            if Task.isCancelled || error.code == .cancelled { throw CancellationError() }
+            if error.code == .timedOut { throw MusicIntelligenceError.timedOut }
+            throw OpenAICompatibleProviderError.transportFailure
         } catch is CancellationError {
             throw CancellationError()
         } catch let error as OpenAICompatibleProviderError {
@@ -2064,15 +2157,6 @@ actor GeminiAudioTranscriptionProvider: AIAudioTranscriptionProviding {
         } catch {
             throw OpenAICompatibleProviderError.transportFailure
         }
-    }
-
-    private static func validatedHTTPResponse(
-        _ response: URLResponse
-    ) throws -> HTTPURLResponse {
-        guard let http = response as? HTTPURLResponse else {
-            throw OpenAICompatibleProviderError.invalidResponse
-        }
-        return http
     }
 
     private static func decodeTranscription(_ data: Data) throws -> AIAudioTranscriptionResult {
