@@ -1947,18 +1947,20 @@ actor GeminiAudioTranscriptionProvider: AIAudioTranscriptionProviding {
             byteCount: byteCount,
             apiKey: apiKey
         )
+        let result: AIAudioTranscriptionResult
         do {
-            let result = try await createInteraction(
+            result = try await createInteraction(
                 request: request,
                 uploadedFile: uploadedFile,
                 apiKey: apiKey
             )
-            await deleteUploadedFile(uploadedFile.name, apiKey: apiKey)
-            return result
         } catch {
             await deleteUploadedFile(uploadedFile.name, apiKey: apiKey)
             throw error
         }
+        await deleteUploadedFile(uploadedFile.name, apiKey: apiKey)
+        try Task.checkCancellation()
+        return result
     }
 
     private struct UploadedFile: Sendable {
@@ -2088,6 +2090,12 @@ actor GeminiAudioTranscriptionProvider: AIAudioTranscriptionProviding {
         let operation: @Sendable () async throws -> Void = {
             _ = try await Self.scheduledData(for: deletion, configuration: configuration, executor: executor)
         }
+        if Task.isCancelled {
+            // The transcription was cancelled before cleanup began. Give the
+            // uploaded file one independent deletion through the shared quota.
+            await cleanup.enqueue(after: 0, operation: operation)
+            return
+        }
         do {
             try await operation()
         } catch let error as OpenAICompatibleProviderError {
@@ -2096,9 +2104,7 @@ actor GeminiAudioTranscriptionProvider: AIAudioTranscriptionProviding {
                 await cleanup.enqueue(after: delay ?? 30, operation: operation)
             }
         } catch is CancellationError {
-            // Cancellation returns promptly; one independent cleanup is still
-            // allowed for the already uploaded file, through the same quota.
-            await cleanup.enqueue(after: 0, operation: operation)
+            // An active deletion has an unknown outcome; do not replay it.
         } catch { }
     }
 

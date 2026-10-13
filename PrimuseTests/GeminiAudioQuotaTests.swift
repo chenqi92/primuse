@@ -61,7 +61,7 @@ final class GeminiAudioQuotaTests: XCTestCase, @unchecked Sendable {
     }
 
     func testCancellationStopsEachActivePhaseWithoutReplay() async throws {
-        for phase in 0...2 {
+        for phase in 0...3 {
             let fixture = AudioHTTPFixture()
             fixture.replies = Array(fixture.success.prefix(phase)) + [.init(hold: true)] + [.init()]
             fixture.held = expectation(description: "audio request held")
@@ -81,7 +81,11 @@ final class GeminiAudioQuotaTests: XCTestCase, @unchecked Sendable {
             await fulfillment(of: [fixture.held!], timeout: 5)
             task.cancel()
             await fulfillment(of: [done, fixture.stopped!], timeout: 5)
-            XCTAssertEqual(fixture.requests.filter { $0.httpMethod != "DELETE" }.count, phase + 1)
+            XCTAssertEqual(fixture.requests.filter { $0.httpMethod != "DELETE" }.count, min(phase + 1, 3))
+            if phase == 3 {
+                try await Task.sleep(for: .milliseconds(20))
+                XCTAssertEqual(fixture.requests.count, 4, "Cancelling an active deletion must not replay it")
+            }
         }
     }
 
