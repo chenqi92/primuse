@@ -13,6 +13,8 @@ public struct PodcastSubscriptionRecord: Codable, Hashable, Sendable {
     public var settings: PodcastShowSettings
     public var playedThrough: Date?
     public var reopenedEpisodeIDs: [String]
+    /// 上次打开节目页的时间:一台设备上看过的新单集,另一台的角标也跟着清。
+    public var newEpisodesSeenAt: Date?
     public var modifiedAt: Date
 
     public init(show: PodcastShow) {
@@ -26,12 +28,13 @@ public struct PodcastSubscriptionRecord: Codable, Hashable, Sendable {
         settings = show.settings
         playedThrough = show.playedThrough
         reopenedEpisodeIDs = show.reopenedEpisodeIDs.sorted()
+        newEpisodesSeenAt = show.newEpisodesSeenAt
         modifiedAt = show.definitionModifiedAt
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, feedURL, title, author, artworkURL, directoryID, subscribedAt, settings
-        case playedThrough, reopenedEpisodeIDs, modifiedAt
+        case playedThrough, reopenedEpisodeIDs, newEpisodesSeenAt, modifiedAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -46,6 +49,7 @@ public struct PodcastSubscriptionRecord: Codable, Hashable, Sendable {
         settings = try c.decodeIfPresent(PodcastShowSettings.self, forKey: .settings) ?? PodcastShowSettings()
         playedThrough = try c.decodeIfPresent(Date.self, forKey: .playedThrough)
         reopenedEpisodeIDs = try c.decodeIfPresent([String].self, forKey: .reopenedEpisodeIDs) ?? []
+        newEpisodesSeenAt = try c.decodeIfPresent(Date.self, forKey: .newEpisodesSeenAt)
         modifiedAt = try c.decodeIfPresent(Date.self, forKey: .modifiedAt) ?? subscribedAt
     }
 
@@ -62,6 +66,7 @@ public struct PodcastSubscriptionRecord: Codable, Hashable, Sendable {
             settings: settings,
             playedThrough: playedThrough,
             reopenedEpisodeIDs: Set(reopenedEpisodeIDs),
+            newEpisodesSeenAt: newEpisodesSeenAt,
             definitionModifiedAt: modifiedAt
         )
     }
@@ -71,6 +76,10 @@ public struct PodcastSubscriptionRecord: Codable, Hashable, Sendable {
         show.settings = settings
         show.playedThrough = playedThrough
         show.reopenedEpisodeIDs = Set(reopenedEpisodeIDs)
+        // 旧版本推上来的记录没有这一项:看过的时间只往后走,不被它抹掉。
+        if let newEpisodesSeenAt, newEpisodesSeenAt > (show.newEpisodesSeenAt ?? .distantPast) {
+            show.newEpisodesSeenAt = newEpisodesSeenAt
+        }
         show.definitionModifiedAt = modifiedAt
         if show.directoryID == nil { show.directoryID = directoryID }
     }

@@ -52,6 +52,10 @@ struct PodcastShowDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .task { await load() }
+        // 进来时看到的新单集算看过了;待在页里时刷出来的新集,离开时一并算上。
+        .onDisappear {
+            if let showID { store.markNewEpisodesSeen(showID: showID) }
+        }
         .podcastInsecureHTTPAlert(host: $pendingInsecureHost) { Task { await load() } }
         .navigationDestination(item: $pushedEpisodeID) { id in
             PodcastEpisodeDetailView(episodeID: id, opensShow: false)
@@ -70,6 +74,7 @@ struct PodcastShowDetailView: View {
             case .feed(let url):
                 showID = try await store.preview(feedURL: url).id
             }
+            if let showID { store.markNewEpisodesSeen(showID: showID) }
         } catch PodcastNetwork.Failure.insecureHTTP(let host) {
             pendingInsecureHost = host
         } catch is PodcastFeedError {

@@ -1858,6 +1858,8 @@ extension CarPlaySceneDelegate {
     private func pushPodcastShow(_ showID: String) {
         let store = PodcastStore.shared
         guard let show = store.show(id: showID) else { return }
+        // 车上点开一档节目也算看过它的新单集,手机上的封面角标跟着清。
+        store.markNewEpisodesSeen(showID: showID)
         let all = store.episodes(forShowID: showID)
         let ordered = Array(PodcastEpisodeListPolicy.ordered(all, order: show.effectiveEpisodeOrder)
             .prefix(CPListTemplate.maximumItemCount))

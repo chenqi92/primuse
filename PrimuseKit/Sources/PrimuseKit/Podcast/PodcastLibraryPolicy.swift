@@ -6,7 +6,8 @@ public enum PodcastFeedMerge {
         public var show: PodcastShow
         /// 从新到旧(没有日期的排最后,同一时刻保持 feed 里的先后)。
         public var episodes: [PodcastEpisode]
-        /// 这次刷新才出现的单集。首次订阅时为空 —— 订阅前就有的不算「新」。
+        /// 这次刷新才出现的单集。首次订阅、或本机头一回取这档的 feed(别的设备订的经 iCloud 过来、
+        /// 重装后单集缓存没了)时为空 —— 本机原来一集都没有,不能把整份历史当成刚出的新集。
         public var addedEpisodeIDs: [String]
     }
 
@@ -63,6 +64,8 @@ public enum PodcastFeedMerge {
         }
         show.lastRefreshedAt = now
 
+        // 本机一集都还没有时按首次取 feed 算,不论是不是刚订。
+        let isInitialFetch = isFirstFetch || existing.isEmpty
         let existingByID = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var seen = Set<String>()
         var merged: [(episode: PodcastEpisode, order: Int)] = []
@@ -73,7 +76,7 @@ public enum PodcastFeedMerge {
             let id = PodcastIdentity.episodeID(showID: show.id, guid: identity)
             guard seen.insert(id).inserted else { continue }
             let previous = existingByID[id]
-            if previous == nil, !isFirstFetch { added.append(id) }
+            if previous == nil, !isInitialFetch { added.append(id) }
             let episode = PodcastEpisode(
                 id: id,
                 showID: show.id,
@@ -96,7 +99,10 @@ public enum PodcastFeedMerge {
                 transcriptURL: item.transcriptURL,
                 transcriptType: item.transcriptType,
                 isExplicit: item.isExplicit,
-                firstSeenAt: previous?.firstSeenAt ?? now
+                firstSeenAt: previous?.firstSeenAt
+                    ?? (isInitialFetch
+                        ? initialFirstSeen(publishedAt: item.publishedAt, subscribedAt: show.subscribedAt, now: now)
+                        : now)
             )
             merged.append((episode, index))
         }
@@ -118,6 +124,13 @@ public enum PodcastFeedMerge {
 
         show.latestEpisodeAt = episodes.compactMap(\.publishedAt).max() ?? show.latestEpisodeAt
         return Result(show: show, episodes: episodes, addedEpisodeIDs: added)
+    }
+
+    /// 本机头一回见到这档节目的单集时,「首次看到」不能记成取 feed 的此刻:别的设备早就订了的节目,
+    /// 那样整份历史都晚于订阅时间,角标会直接变成 99+。按发布时间记,订阅前发的一律算订阅那一刻,
+    /// 和在订阅的那台设备上看到的「新」一致;发布时间在将来的也不晚于此刻。
+    static func initialFirstSeen(publishedAt: Date?, subscribedAt: Date, now: Date) -> Date {
+        min(now, max(publishedAt ?? subscribedAt, subscribedAt))
     }
 }
 
@@ -240,14 +253,15 @@ public enum PodcastEpisodeListPolicy {
         }.prefix(limit))
     }
 
-    /// 订阅之后才出现、还没听完的单集数,节目封面上的角标。
+    /// 订阅之后、上次打开节目页之后才出现,而且还没开始听的单集数,节目封面上的角标。
     public static func newEpisodeCount(
         show: PodcastShow,
         episodes: [PodcastEpisode],
         state: (PodcastEpisode) -> PodcastEpisodeState
     ) -> Int {
-        episodes.reduce(0) { count, episode in
-            guard episode.firstSeenAt > show.subscribedAt, episode.kind != .trailer else { return count }
+        let seenThrough = max(show.subscribedAt, show.newEpisodesSeenAt ?? .distantPast)
+        return episodes.reduce(0) { count, episode in
+            guard episode.firstSeenAt > seenThrough, episode.kind != .trailer else { return count }
             return count + (state(episode).isFinished || state(episode).isInProgress ? 0 : 1)
         }
     }

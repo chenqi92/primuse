@@ -30,6 +30,8 @@ public struct PodcastShow: Codable, Hashable, Sendable, Identifiable {
     public var playedThrough: Date?
     /// 水位线以下又被单独标回「未播」的单集。
     public var reopenedEpisodeIDs: Set<String>
+    /// 上次打开这档节目页的时间。之前出现的单集都看过了,不再算进封面上的「新单集」角标。
+    public var newEpisodesSeenAt: Date?
     /// 订阅定义(设置、水位线)最后一次被用户改动的时间,多设备合并时按它取新。
     public var definitionModifiedAt: Date
 
@@ -54,6 +56,7 @@ public struct PodcastShow: Codable, Hashable, Sendable, Identifiable {
         settings: PodcastShowSettings = PodcastShowSettings(),
         playedThrough: Date? = nil,
         reopenedEpisodeIDs: Set<String> = [],
+        newEpisodesSeenAt: Date? = nil,
         definitionModifiedAt: Date? = nil
     ) {
         self.id = id
@@ -76,13 +79,15 @@ public struct PodcastShow: Codable, Hashable, Sendable, Identifiable {
         self.settings = settings
         self.playedThrough = playedThrough
         self.reopenedEpisodeIDs = reopenedEpisodeIDs
+        self.newEpisodesSeenAt = newEpisodesSeenAt
         self.definitionModifiedAt = definitionModifiedAt ?? subscribedAt
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, feedURL, title, author, summary, artworkURL, websiteURL, language, categories
         case isSerial, isExplicit, directoryID, subscribedAt, lastRefreshedAt, latestEpisodeAt
-        case httpETag, httpLastModified, settings, playedThrough, reopenedEpisodeIDs, definitionModifiedAt
+        case httpETag, httpLastModified, settings, playedThrough, reopenedEpisodeIDs, newEpisodesSeenAt
+        case definitionModifiedAt
     }
 
     // 存盘格式以后会加字段:缺的一律取默认值,别让一个新字段把整份订阅读丢。
@@ -108,6 +113,7 @@ public struct PodcastShow: Codable, Hashable, Sendable, Identifiable {
         settings = try c.decodeIfPresent(PodcastShowSettings.self, forKey: .settings) ?? PodcastShowSettings()
         playedThrough = try c.decodeIfPresent(Date.self, forKey: .playedThrough)
         reopenedEpisodeIDs = try c.decodeIfPresent(Set<String>.self, forKey: .reopenedEpisodeIDs) ?? []
+        newEpisodesSeenAt = try c.decodeIfPresent(Date.self, forKey: .newEpisodesSeenAt)
         definitionModifiedAt = try c.decodeIfPresent(Date.self, forKey: .definitionModifiedAt) ?? subscribedAt
     }
 

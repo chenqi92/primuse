@@ -324,6 +324,69 @@ struct PodcastLibraryPolicyTests {
         #expect(dropped.episodes.map(\.guid) == ["b"])
     }
 
+    /// 别的设备订的节目经 iCloud 过来、或重装后单集缓存没了:本机头一回取 feed 时,
+    /// 整份历史不能都算成订阅后出的新集(角标 99+),也不能触发自动下载。
+    @Test func firstFetchOnAnotherDeviceOnlyCountsEpisodesPublishedAfterSubscribing() {
+        let subscribedAt = t0.addingTimeInterval(-3 * 86_400)
+        let synced = PodcastShow(
+            id: PodcastIdentity.showID(feedURL: feedURL),
+            feedURL: feedURL,
+            title: "Show",
+            subscribedAt: subscribedAt
+        )
+        let result = PodcastFeedMerge.refresh(
+            show: synced,
+            existing: [],
+            feed: feed([item("d", daysAgo: 1), item("c", daysAgo: 5), item("b", daysAgo: 30), item("a", daysAgo: 400)]),
+            now: t0
+        )
+        #expect(result.addedEpisodeIDs.isEmpty)
+        #expect(result.episodes.map(\.firstSeenAt) == [t0.addingTimeInterval(-86_400), subscribedAt, subscribedAt, subscribedAt])
+        #expect(PodcastEpisodeListPolicy.newEpisodeCount(show: result.show, episodes: result.episodes, state: { _ in .untouched }) == 1)
+
+        // 之后的刷新照旧:新出的那一集算新,也进自动下载。
+        let next = PodcastFeedMerge.refresh(
+            show: result.show,
+            existing: result.episodes,
+            feed: feed([item("e", daysAgo: 0), item("d", daysAgo: 1)]),
+            now: t0.addingTimeInterval(60)
+        )
+        #expect(next.addedEpisodeIDs == [next.episodes[0].id])
+        #expect(next.episodes[0].firstSeenAt == t0.addingTimeInterval(60))
+    }
+
+    @Test func initialFirstSeenNeverRunsAheadOfNow() {
+        let subscribedAt = t0.addingTimeInterval(-86_400)
+        #expect(PodcastFeedMerge.initialFirstSeen(publishedAt: t0.addingTimeInterval(3_600), subscribedAt: subscribedAt, now: t0) == t0)
+        #expect(PodcastFeedMerge.initialFirstSeen(publishedAt: nil, subscribedAt: subscribedAt, now: t0) == subscribedAt)
+        #expect(PodcastFeedMerge.initialFirstSeen(publishedAt: t0.addingTimeInterval(-9_000), subscribedAt: subscribedAt, now: t0)
+            == t0.addingTimeInterval(-9_000))
+    }
+
+    /// 打开过节目页以后,那之前出现的新单集不再算进角标;之后刷出来的照样算。
+    @Test func openingTheShowClearsTheNewBadge() {
+        let first = PodcastFeedMerge.subscribe(feed: feed([item("a", daysAgo: 8)]), feedURL: feedURL, now: t0)
+        let second = PodcastFeedMerge.refresh(
+            show: first.show,
+            existing: first.episodes,
+            feed: feed([item("c", daysAgo: 0), item("b", daysAgo: 1), item("a", daysAgo: 8)]),
+            now: t0.addingTimeInterval(3_600)
+        )
+        var show = second.show
+        #expect(PodcastEpisodeListPolicy.newEpisodeCount(show: show, episodes: second.episodes, state: { _ in .untouched }) == 2)
+        show.newEpisodesSeenAt = t0.addingTimeInterval(7_200)
+        #expect(PodcastEpisodeListPolicy.newEpisodeCount(show: show, episodes: second.episodes, state: { _ in .untouched }) == 0)
+
+        let third = PodcastFeedMerge.refresh(
+            show: show,
+            existing: second.episodes,
+            feed: feed([item("d", daysAgo: 0), item("c", daysAgo: 0), item("b", daysAgo: 1)]),
+            now: t0.addingTimeInterval(10_800)
+        )
+        #expect(third.show.newEpisodesSeenAt == t0.addingTimeInterval(7_200))
+        #expect(PodcastEpisodeListPolicy.newEpisodeCount(show: third.show, episodes: third.episodes, state: { _ in .untouched }) == 1)
+    }
+
     @Test func movedFeedKeepsTheShowIdentity() {
         var moved = feed([item("a", daysAgo: 1)])
         moved.newFeedURL = URL(string: "https://new.example.com/feed")
@@ -674,6 +737,33 @@ struct PodcastSubscriptionSyncTests {
         #expect(decoded.encoded() == encoded)
         #expect(decoded.subscriptions.map(\.id) == [a.id, b.id].sorted())
         #expect(PodcastSubscriptionDocument.decode("nope") == nil)
+    }
+
+    /// 看过新单集的时间跟着订阅同步;旧版本推上来的记录没有这一项时不把本机的抹掉。
+    @Test func newEpisodesSeenTravelsAndNeverMovesBack() throws {
+        var a = show("a", at: t0)
+        a.newEpisodesSeenAt = t0.addingTimeInterval(50)
+        a.definitionModifiedAt = t0.addingTimeInterval(50)
+        let record = PodcastSubscriptionRecord(show: a)
+        #expect(record.makeShow().newEpisodesSeenAt == t0.addingTimeInterval(50))
+        let decoded = try #require(PodcastSubscriptionDocument.decode(PodcastSubscriptionDocument(subscriptions: [record]).encoded()))
+        #expect(decoded.subscriptions.first?.newEpisodesSeenAt == t0.addingTimeInterval(50))
+
+        let local = show("a", at: t0)
+        let arrived = PodcastSubscriptionSync.merge(local: [local], localRemoved: [:], remote: decoded, now: t0.addingTimeInterval(100))
+        #expect(arrived.shows.first?.newEpisodesSeenAt == t0.addingTimeInterval(50))
+
+        var olderClient = PodcastSubscriptionRecord(show: show("a", at: t0))
+        olderClient.newEpisodesSeenAt = nil
+        olderClient.modifiedAt = t0.addingTimeInterval(80)
+        let kept = PodcastSubscriptionSync.merge(
+            local: [a], localRemoved: [:], remote: PodcastSubscriptionDocument(subscriptions: [olderClient]), now: t0.addingTimeInterval(100)
+        )
+        #expect(kept.shows.first?.newEpisodesSeenAt == t0.addingTimeInterval(50))
+
+        // 没看过的记录编码里不多出这个键,老版本合出来的文档逐字节不变。
+        #expect(!PodcastSubscriptionDocument(subscriptions: [PodcastSubscriptionRecord(show: show("b", at: t0))]).encoded()
+            .contains("newEpisodesSeenAt"))
     }
 
     @Test func playedWatermark() {

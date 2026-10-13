@@ -1058,6 +1058,10 @@ struct TVPodcastShowDetailView: View {
             }
         }
         .task { await load() }
+        // 和手机一样:进节目页看到的新单集算看过了,离开时把待在页里刷出来的也算上。
+        .onDisappear {
+            if let showID { podcasts.markNewEpisodesSeen(showID: showID) }
+        }
         .onExitCommand { dismiss() }
         .confirmationDialog(
             String(localized: "podcast_unsubscribe_confirm_title"),
@@ -1088,6 +1092,7 @@ struct TVPodcastShowDetailView: View {
                     showID = try await podcasts.preview(directoryShow: directoryShow).id
                 }
             }
+            if let showID { podcasts.markNewEpisodesSeen(showID: showID) }
         } catch PodcastNetwork.Failure.insecureHTTP(let endpoint) {
             let approved = await TVServerCertificateTrustStore.shared.requestInsecureHTTPTrust(
                 endpoint: endpoint,

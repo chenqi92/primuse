@@ -245,6 +245,13 @@ final class PodcastStore {
         return PodcastEpisodeListPolicy.newEpisodeCount(show: show, episodes: episodes(forShowID: showID), state: state(for:))
     }
 
+    /// 打开了这档节目的单集列表:列表里的新单集都看到了,封面上的角标清掉。
+    /// 没有新单集时不写,免得每进一次节目页就推一遍 iCloud。
+    func markNewEpisodesSeen(showID: String) {
+        guard isSubscribed(showID), newEpisodeCount(showID: showID) > 0 else { return }
+        updateDefinition(showID) { $0.newEpisodesSeenAt = Date() }
+    }
+
     /// 所有订阅里最近发布、还没听完的单集。
     func latestEpisodes(limit: Int, includeFinished: Bool = false) -> [PodcastEpisode] {
         PodcastEpisodeListPolicy.latest(
@@ -544,6 +551,7 @@ final class PodcastStore {
         show.settings = current.settings
         show.playedThrough = current.playedThrough
         show.reopenedEpisodeIDs = current.reopenedEpisodeIDs
+        show.newEpisodesSeenAt = current.newEpisodesSeenAt
         show.definitionModifiedAt = current.definitionModifiedAt
         show.subscribedAt = current.subscribedAt
         show.httpETag = etag
